@@ -59,6 +59,8 @@ function normalizeSet(payload) {
     key: clean(payload.key, 24),
     startsAt: Number.isFinite(requestedStart) ? Math.max(now - 864e5, Math.min(now + 300000, requestedStart)) : now + 1000,
     by: clean(payload.by, 64),
+    broadcastId: clean(payload.broadcastId, 120),
+    orderAt: Number.isFinite(+payload.orderAt) ? +payload.orderAt : now,
   };
 }
 

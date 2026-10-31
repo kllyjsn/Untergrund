@@ -484,7 +484,7 @@ function buildHeader() {
   const chainBtn = h('button', { class: 'btn toggle' + (state.chainOn ? ' on' : ''), title: 'Play the arrangement chain',
     onclick: (e) => { state.chainOn = !state.chainOn; e.currentTarget.classList.toggle('on', state.chainOn); if (seq) seq.chainPos = 0; persist(); } }, 'CHAIN');
 
-  const styleSel = h('select', { class: 'sel', title: 'Generator style', onchange: (e) => { style = e.target.value; } },
+  const styleSel = h('select', { class: 'sel', title: 'Generator style', onchange: (e) => { style = e.target.value; build(); } },
     Object.entries(STYLES).map(([k, v]) => { const o = h('option', { value: k }, v.name); if (k === style) o.selected = true; return o; }));
 
   const bars = h('select', { class: 'sel', title: 'Bars to render' }, [4, 8, 16, 32, 64].map((b) => { const o = h('option', { value: b }, b + ' BARS'); if (b === 16) o.selected = true; return o; }));
@@ -526,9 +526,9 @@ function buildHeader() {
     h('div', { class: 'brand' }, h('div', { class: 'logo' }, h('i'), h('b')), h('div', {}, h('div', { class: 'name' }, 'UNTERGRUND'), h('div', { class: 'sub' }, 'techno synthesis engine'))),
     h('div', { class: 'group transport' }, playBtn, h('div', { class: 'field' }, h('label', {}, 'BPM'), bpm.el), swing.el,
       h('div', { class: 'field' }, h('label', {}, 'KEY'), key), h('div', { class: 'field' }, h('label', {}, 'SCALE'), scale)),
-    h('div', { class: 'group' }, h('div', { class: 'field' }, h('label', {}, 'PATTERN'), pats), patTools),
-    h('div', { class: 'group' }, chainBtn, chainInput),
-    h('div', { class: 'group gen' }, styleSel,
+    h('div', { class: 'group studio-only' }, h('div', { class: 'field' }, h('label', {}, 'PATTERN'), pats), patTools),
+    h('div', { class: 'group studio-only' }, chainBtn, chainInput),
+    h('div', { class: 'group gen studio-only' }, styleSel,
       h('button', { class: 'btn accent', title: 'Generate a pattern into this slot (G)', onclick: doGenerate }, 'GENERATE'),
       h('button', { class: 'btn', title: 'Generate a whole 8-pattern arrangement and enable chain', onclick: doGenerateSet }, 'NEW SET'),
       h('button', { class: 'btn ghost', title: 'Small variation (M)', onclick: doMutate }, 'MUTATE'),

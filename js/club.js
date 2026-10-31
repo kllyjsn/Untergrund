@@ -71,6 +71,7 @@ class RoomBus {
     this.queue = [];
     this.currentSetKey = '';
     this.localSetVersion = 0;
+    this.initiatedSets = new Set();
     this.members = new Map([[this.clientId, { id: this.clientId, ...user, joinedAt: this.joinedAt, seen: Date.now() }]]);
     this.currentSet = null;
     this.channel = 'BroadcastChannel' in window ? new BroadcastChannel(`untergrund:${this.id}`) : null;
@@ -109,6 +110,37 @@ class RoomBus {
     if (signature === this.lastSignature) return;
     this.lastSignature = signature;
     this.onUpdate(snapshot);
+  }
+
+  setKey(set) {
+    return set?.version ? `server:${set.version}` : `local:${set?.broadcastId || `${set?.orderAt || set?.startsAt || 0}:${set?.title || ''}`}`;
+  }
+
+  acceptsSet(set) {
+    if (!this.currentSet) return true;
+    const incomingVersion = +set?.version || 0;
+    const currentVersion = +this.currentSet.version || 0;
+    if (incomingVersion) return !currentVersion || incomingVersion >= currentVersion;
+    if (currentVersion) return (+set?.orderAt || +set?.startsAt || 0) >= (+this.currentSet.orderAt || +this.currentSet.startsAt || 0);
+    return (+set?.orderAt || +set?.startsAt || 0) >= (+this.currentSet.orderAt || +this.currentSet.startsAt || 0);
+  }
+
+  applySet(set, userId, snapshot = false) {
+    if (!set || !this.acceptsSet(set)) return;
+    const key = this.setKey(set);
+    if (key === this.currentSetKey) return;
+    this.currentSet = set;
+    this.currentSetKey = key;
+    const initiatedHere = set.broadcastId && this.initiatedSets.has(set.broadcastId);
+    if (initiatedHere) this.initiatedSets.delete(set.broadcastId);
+    if (!initiatedHere) this.onEvent({
+      id: `${snapshot ? 'snapshot-' : ''}set:${key}`,
+      type: 'set',
+      user: { id: userId },
+      payload: set,
+      at: set.orderAt || set.startsAt || Date.now(),
+      snapshot,
+    });
   }
 
   async send(type, payload = {}) {
@@ -177,22 +209,7 @@ class RoomBus {
     const cutoff = Date.now() - 15000;
     for (const [id, member] of this.members) if ((member.seen || 0) < cutoff) this.members.delete(id);
     if (snapshot.currentSet) {
-      const key = String(snapshot.currentSet.version || `${snapshot.currentSet.startsAt || 0}:${snapshot.currentSet.title || ''}`);
-      const incomingVersion = +snapshot.currentSet.version || 0;
-      const currentVersion = +this.currentSet?.version || 0;
-      const newer = incomingVersion ? incomingVersion >= currentVersion : (+snapshot.currentSet.startsAt || 0) >= (+this.currentSet?.startsAt || 0);
-      if (newer && key !== this.currentSetKey) {
-        this.currentSet = snapshot.currentSet;
-        this.currentSetKey = key;
-        if (snapshot.currentSet.by !== this.clientId) this.onEvent({
-          id: `snapshot-set:${key}`,
-          type: 'set',
-          user: { id: snapshot.hostId },
-          payload: snapshot.currentSet,
-          at: snapshot.currentSet.startsAt || Date.now(),
-          snapshot: true,
-        });
-      }
+      this.applySet(snapshot.currentSet, snapshot.hostId, true);
     }
     for (const event of snapshot.events || []) if (event.type !== 'set') this.receive(event);
     this.emit({ hostId: snapshot.hostId });
@@ -228,26 +245,7 @@ class RoomBus {
         seen: Date.now(),
       });
     }
-    const incomingStart = +snapshot.currentSet?.startsAt || 0;
-    const currentStart = +this.currentSet?.startsAt || 0;
-    const incomingVersion = +snapshot.currentSet?.version || 0;
-    const currentVersion = +this.currentSet?.version || 0;
-    const newerSet = incomingVersion ? incomingVersion >= currentVersion : incomingStart >= currentStart;
-    if (snapshot.currentSet && newerSet) {
-      const key = String(snapshot.currentSet.version || `${incomingStart}:${snapshot.currentSet.title || ''}`);
-      if (key !== this.currentSetKey) {
-        this.currentSet = snapshot.currentSet;
-        this.currentSetKey = key;
-        if (snapshot.currentSet.by !== this.clientId) this.onEvent({
-          id: `local-snapshot-set:${key}`,
-          type: 'set',
-          user: { id: snapshot.hostId },
-          payload: snapshot.currentSet,
-          at: incomingStart,
-          snapshot: true,
-        });
-      }
-    }
+    if (snapshot.currentSet) this.applySet(snapshot.currentSet, snapshot.hostId, true);
     this.queue = [...new Set([...(this.queue || []), ...(snapshot.queue || [])])];
     if (snapshot.hostId && this.members.has(snapshot.hostId)) this.hostId = snapshot.hostId;
     this.reconcileLocalHost();
@@ -278,11 +276,9 @@ class RoomBus {
       });
     }
     if (event.type === 'set') {
-      const incomingVersion = +event.payload?.version || 0;
-      const currentVersion = +this.currentSet?.version || 0;
-      if (incomingVersion ? incomingVersion < currentVersion : this.currentSet && (+event.payload?.startsAt || 0) < (+this.currentSet.startsAt || 0)) return;
-      this.currentSet = event.payload;
-      this.currentSetKey = String(event.payload?.version || `${event.payload?.startsAt || 0}:${event.payload?.title || ''}`);
+      this.applySet(event.payload, event.user?.id);
+      this.emit();
+      return;
     }
     if (event.type === 'deck') {
       const action = event.payload?.action;
@@ -392,8 +388,9 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
     const transport = getTransport();
     const startsAt = transport.playing ? transport.startsAt : Date.now() + 1600;
     const track = nowPlaying();
-    const version = Date.now() * 1000 + (++bus.localSetVersion % 1000);
-    bus.send('set', { state: clone(getState()), style: getStyle(), ...track, startsAt, version, by: bus.clientId });
+    const broadcastId = `${bus.clientId}:${Date.now()}:${++bus.localSetVersion}`;
+    bus.initiatedSets.add(broadcastId);
+    bus.send('set', { state: clone(getState()), style: getStyle(), ...track, startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId });
     if (!transport.playing) startRoomBroadcast(startsAt);
     toast(`Broadcasting “${track.title}” to ${activeRoom}`);
   }
