@@ -347,7 +347,14 @@ class RoomBus {
 export function openClub({ getState, getStyle, getTransport, startRoomBroadcast, unlockAudio, joinRoomSet, toast }) {
   let audioReady = false;
   const unlock = () => unlockAudio().then((ok) => (audioReady = ok));
-  unlock().then(() => { if (!closed) render(); });
+  unlock().then(() => {
+    if (closed) return;
+    if (audioReady && pendingSet && !getTransport().playing) {
+      joinRoomSet(pendingSet);
+      pendingSet = null;
+    }
+    render();
+  });
   let avatar = loadAvatar();
   let activeRoom = roomId();
   let bus = null;
@@ -465,7 +472,7 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
     const track = nowPlaying();
     const broadcastId = `${bus.clientId}:${Date.now()}:${++bus.localSetVersion}`;
     bus.initiatedSets.add(broadcastId);
-    bus.send('set', { state: clone(getState()), style: getStyle(), ...track, startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId });
+    bus.send('set', { ...track, state: clone(getState()), style: getStyle(), startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId });
     if (!transport.playing) startRoomBroadcast(startsAt);
     toast(`Broadcasting “${track.title}” to ${activeRoom}`);
   }
@@ -592,7 +599,7 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
       h('div', { class: 'club-room-name' }, h('span', {}, 'ROOM'), roomInput),
       h('div', { class: 'club-head-actions' },
         h('button', { class: 'btn ghost', onclick: async () => { await navigator.clipboard?.writeText(invite.toString()); toast('Room link copied'); } }, 'COPY INVITE'),
-        !audioReady && room.currentSet ? h('button', { class: 'btn accent', onclick: syncAudio }, 'JOIN LIVE AUDIO') : null,
+        room.currentSet && !getTransport().playing && shouldJoin(room.currentSet) ? h('button', { class: 'btn accent', onclick: syncAudio }, 'JOIN LIVE AUDIO') : null,
         h('button', { class: `btn ${isHost ? 'accent' : 'club-queue'}`, onclick: broadcastSet },
           isHost ? (room.currentSet ? 'REBROADCAST SET' : 'GO LIVE') : (queued ? 'LEAVE DJ QUEUE' : 'JOIN DJ QUEUE')),
         isHost && room.queue?.length ? h('button', { class: 'btn club-queue', onclick: () => bus.send('deck', { action: 'pass' }) }, 'PASS DECK') : null,
