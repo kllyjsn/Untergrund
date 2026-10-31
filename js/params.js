@@ -188,6 +188,7 @@ export function formatValue(q, v) {
   if (q.unit === 'st') return (v > 0 ? '+' : '') + Math.round(v);
   if (q.unit === 'dB') return v.toFixed(1);
   if (q.unit === 'ct') return Math.round(v) + 'c';
+  if (q.step && !q.unit) return q.step < 1 ? v.toFixed(2) : (q.bipolar && v > 0 ? '+' : '') + Math.round(v);
   if (q.bipolar) return (v > 0 ? '+' : '') + Math.round(v * 100);
   return Math.round(v * 100) + '';
 }

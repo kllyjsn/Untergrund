@@ -482,7 +482,7 @@ function buildHeader() {
   const swing = knob({ id: 'swing', label: 'SWING', min: 0, max: 0.6, def: 0.06 }, state.swing, (v) => { state.swing = v; persist(); },
     { size: 36, format: (v) => Math.round(v * 100) + '%', cls: 'sm' });
   const key = h('select', { class: 'sel', title: 'Key', onchange: (e) => { state.key = +e.target.value; persist(); renderRow('acid'); renderRoll(); } },
-    KEYS.map((k, i) => { const o = h('option', { value: i }, k + ' min'); if (i === state.key) o.selected = true; return o; }));
+    KEYS.map((k, i) => { const o = h('option', { value: i }, k); if (i === state.key) o.selected = true; return o; }));
   const scale = h('select', { class: 'sel', title: 'Scale used by the acid generator and highlighted in the piano roll',
     onchange: (e) => { state.scale = e.target.value; persist(); renderRoll(); } },
     Object.entries(SCALES).map(([id, s]) => { const o = h('option', { value: id }, s.name); if (id === state.scale) o.selected = true; return o; }));
@@ -835,7 +835,7 @@ function buildMaster() {
       hold('ROLL', 'R', 'Ratchet the selected drum (or snare) at 1/32', () => { if (seq) seq.roll = TRACK_BY_ID[selected].kind === 'drum' && selected !== 'kick' ? selected : 'snare'; }, () => { if (seq) seq.roll = null; }),
       hold('THROW', 'T', 'Throw everything into delay + reverb', () => engine.setThrow(true), () => engine.setThrow(false)),
       hold('RISER', 'Y', 'Noise riser that builds over 4 bars', () => engine.riserStart(), () => engine.riserStop())),
-    h('div', { class: 'foot' }, '100% synthesized · no samples · 48k/24-bit export'));
+    h('div', { class: 'foot' }, `${getSample().source === 'synth' ? '100% synthesized · no samples' : 'synth + your own samples'} · 48k/24-bit export`));
 }
 
 function drawViz() {
