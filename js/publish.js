@@ -23,12 +23,12 @@ const fmtNum = (n) => (n >= 1e4 ? (n / 1e3).toFixed(n >= 1e5 ? 0 : 1) + 'k' : St
 export function autoTags(state, style) {
   const s = STYLES[style]?.name.toLowerCase() || '';
   return ['techno', s && `${s} techno`, 'berlin techno', 'warehouse', 'underground techno', `${state.bpm} bpm`,
-    `${KEYS[state.key]} minor`, 'electronic', 'synthesizer', 'untergrund'].filter(Boolean);
+    `${KEYS[state.key]} ${state.scale || 'minor'}`, 'electronic', 'synthesizer', state.artist?.name?.toLowerCase(), 'untergrund'].filter(Boolean);
 }
 
 export function autoDescription(state, style, bars) {
   const s = STYLES[style]?.name.toLowerCase() || 'techno';
-  return [`${s[0].toUpperCase() + s.slice(1)} techno · ${state.bpm} BPM · ${KEYS[state.key]} minor · ${bars} bars.`,
+  return [`${s[0].toUpperCase() + s.slice(1)} techno · ${state.bpm} BPM · ${KEYS[state.key]} ${state.scale || 'minor'} · ${bars} bars.`,
     '', 'Every sound synthesized from scratch in UNTERGRUND — no samples.',
     'DJs: free download is on, play it out and tag me.', '', 'Follow for a new track every week.'].join('\n');
 }
@@ -116,7 +116,7 @@ export function openPublish({ getState, getStyle, render, toast }) {
     const defBars = state.chainOn ? 128 : 64;
     const secs = (b) => (b * 4 * 60) / state.bpm;
     fields = {
-      title: h('input', { class: 'inp', value: randomTitle(), maxlength: 100 }),
+      title: h('input', { class: 'inp', value: state.artist?.title || randomTitle(), maxlength: 100 }),
       bars: h('select', { class: 'sel' }, barOpts.map((b) => { const o = h('option', { value: b }, `${b} bars · ${fmtDur(secs(b))}`); if (b === defBars) o.selected = true; return o; })),
       genre: h('input', { class: 'inp', value: 'Techno', maxlength: 40 }),
       tags: h('input', { class: 'inp', value: autoTags(state, style).join(', ') }),

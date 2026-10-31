@@ -5,6 +5,7 @@ import { renderBars, bufferToWav } from './render.js';
 import { encodeWav } from './dsp.js';
 import { knob, numBox, h } from './ui.js';
 import { openPublish } from './publish.js';
+import { loadArtistProfile, openArtistStudio } from './artist.js';
 
 let state = load() || defaultState();
 let ctx = null, engine = null, seq = null, timer = null, recNode = null;
@@ -13,6 +14,7 @@ const uiQueue = [];
 let selected = 'kick';
 let style = 'hypnotic';
 let variation = 0.25;
+let artistLive = null;
 let clipboard = null;
 const undoStack = [];
 const rec = { on: false, chunks: [], start: 0 };
@@ -40,6 +42,7 @@ function schedule() {
   if (!playing) return;
   if (nextTime < ctx.currentTime - 0.2) nextTime = ctx.currentTime + 0.02; // recover after a stall
   while (nextTime < ctx.currentTime + 0.12) {
+    artistTick(abs);
     const pat = seq.tick(abs, nextTime);
     uiQueue.push({ abs, t: nextTime, pat });
     nextTime += engine.stepDur;
@@ -66,6 +69,7 @@ function stop() {
   setPlayhead(null);
   lastPlayedPat = null;
   if (seq) seq.queued = null;
+  if (artistLive) stopArtistLive(false);
   document.body.classList.remove('playing');
   renderPatterns();
 }
@@ -149,6 +153,89 @@ function replaceState(s) {
   state = s;
   if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
   build(); persist();
+}
+
+function showPublish() {
+  openPublish({
+    getState: () => state,
+    getStyle: () => style,
+    render: async (n) => bufferToWav(await renderBars(state, n)),
+    toast,
+  });
+}
+
+function loadArtistProject(item) {
+  style = item.style;
+  replaceState(sanitize(clone(item.state)));
+  toast(`Loaded “${item.title}”`);
+}
+
+function startArtistLive(item = null) {
+  if (item) loadArtistProject(item);
+  if (artistLive) return;
+  const profile = loadArtistProfile();
+  artistLive = {
+    profile,
+    seed: item?.seed ?? ((Math.random() * 1e9) | 0),
+    title: item?.title || state.artist?.title || 'Live Session',
+    savedDj: state.master.dj,
+    bar: -1,
+  };
+  state.chainOn = true;
+  document.body.classList.add('artist-live');
+  if (!playing) play();
+  else build();
+  toast(`${profile.name} is performing “${artistLive.title}”`);
+}
+
+function stopArtistLive(rebuild = true) {
+  if (!artistLive) return;
+  const savedDj = artistLive.savedDj ?? 0;
+  artistLive = null;
+  if (seq) seq.roll = null;
+  engine?.setThrow(false);
+  engine?.riserStop();
+  if (engine) engine.setMaster('dj', savedDj); else state.master.dj = savedDj;
+  document.body.classList.remove('artist-live');
+  if (rebuild) build();
+  persist();
+  toast('Artist Live stopped');
+}
+
+function artistTick(step) {
+  if (!artistLive || step % 16 !== 0 || !seq || !engine) return;
+  const bar = Math.floor(step / 16);
+  if (bar === artistLive.bar) return;
+  artistLive.bar = bar;
+  let x = (artistLive.seed + bar * 2654435761) | 0;
+  const r = () => { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; return (x >>> 0) / 4294967296; };
+
+  seq.roll = null;
+  engine.setThrow(false);
+  if (bar % 16 === 0) engine.riserStop();
+
+  if (bar > 0 && bar % 8 === 0) {
+    const target = (seq.cur + 2) % state.patterns.length;
+    const source = state.patterns[target];
+    const amount = .1 + artistLive.profile.energy / 650;
+    const evolved = mutate(source, artistLive.seed + bar * 97, amount, SCALES[state.scale].notes);
+    for (const id of TRACK_IDS) if (state.locks[id]) {
+      evolved.steps[id] = clone(source.steps[id]);
+      evolved.len[id] = source.len[id];
+    }
+    state.patterns[target] = evolved;
+    persist();
+  }
+
+  if (bar % 8 === 6 && r() < artistLive.profile.space / 80) engine.setThrow(true);
+  if (bar % 8 === 7 && r() < .35 + artistLive.profile.energy / 180) {
+    seq.roll = ['ch', 'snare', 'ride', 'perc'][Math.floor(r() * 4)];
+  }
+  if (bar % 16 === 14 && r() < .35 + artistLive.profile.energy / 170) engine.riserStart();
+
+  const phase = bar % 16;
+  const filter = phase < 2 ? -.18 + phase * .08 : phase >= 14 ? (phase - 13) * .11 : 0;
+  engine.setMaster('dj', filter);
 }
 
 function selectPattern(i) {
@@ -324,12 +411,23 @@ function buildHeader() {
     btn.disabled = false; btn.textContent = 'EXPORT WAV';
   } }, 'EXPORT WAV');
   const recBtn = h('button', { class: 'btn rec', title: 'Record live master output to WAV', onclick: toggleRec }, h('span', { class: 'dot' }), 'REC');
-  const publishBtn = h('button', { class: 'btn sc', title: 'Render and publish straight to SoundCloud', onclick: () => openPublish({
-    getState: () => state,
-    getStyle: () => style,
-    render: async (n) => bufferToWav(await renderBars(state, n)),
-    toast,
-  }) }, 'PUBLISH');
+  const artistBtn = h('button', {
+    class: 'btn artist-btn',
+    title: 'Build the artist identity, catalog and release calendar',
+    onclick: () => openArtistStudio({
+      getState: () => state,
+      loadProject: loadArtistProject,
+      performProject: startArtistLive,
+      publishProject: (item) => { loadArtistProject(item); showPublish(); },
+      toast,
+    }),
+  }, 'ARTIST');
+  const liveBtn = h('button', {
+    class: 'btn live-toggle' + (artistLive ? ' on' : ''),
+    title: 'Let the autonomous artist perform and evolve this set',
+    onclick: () => artistLive ? stopArtistLive() : startArtistLive(),
+  }, artistLive ? 'LIVE ON' : 'LIVE');
+  const publishBtn = h('button', { class: 'btn sc', title: 'Render and publish straight to SoundCloud', onclick: showPublish }, 'PUBLISH');
 
   const fileIn = h('input', { type: 'file', accept: '.json,application/json', style: 'display:none', onchange: async (e) => {
     const f = e.target.files[0]; if (!f) return;
@@ -350,7 +448,7 @@ function buildHeader() {
         h('option', { value: .12 }, 'SUBTLE'), h('option', { value: .25, selected: true }, 'EVOLVE'), h('option', { value: .55 }, 'WILD')),
       h('button', { class: 'btn ghost evolve', title: 'Create an evolved copy in the next pattern slot', onclick: createVariation }, 'VAR →'),
       h('button', { class: 'btn ghost', title: 'Undo (Ctrl+Z)', onclick: undo }, 'UNDO')),
-    h('div', { class: 'group' }, bars, exportBtn, recBtn, publishBtn),
+    h('div', { class: 'group' }, artistBtn, liveBtn, bars, exportBtn, recBtn, publishBtn),
     h('div', { class: 'group' },
       h('button', { class: 'btn ghost', title: 'Save project JSON', onclick: () => download(new Blob([JSON.stringify(state)], { type: 'application/json' }), `untergrund-${stamp()}.json`) }, 'SAVE'),
       h('button', { class: 'btn ghost', title: 'Load project JSON', onclick: () => fileIn.click() }, 'LOAD'), fileIn,
@@ -684,6 +782,7 @@ function showHelp() {
     ['STEP CLICK', 'toggle · shift/right-click = accent · drag paints'], ['ACID STEP', 'alt-click = slide'], ['KNOBS', 'drag · wheel · shift = fine · double-click = reset'],
     ['L', 'lock a track so generate / mutate / variation keeps it'], ['VAR →', 'evolve this loop into the next pattern slot'],
     ['SCALE', 'guides acid generation and highlights the piano roll'], ['LEN', 'per-track length → polymeter (try 12, 7, 15)'],
+    ['ARTIST', 'identity, musical DNA, generated catalog + release calendar'], ['LIVE', 'autonomous evolving performance of the current set'],
     ['CHAIN', 'letters = bars, e.g. AAAABBBBCCCC'], ['PUBLISH', 'render + artwork + metadata → SoundCloud'],
   ];
   const ov = h('div', { class: 'overlay', onclick: (e) => { if (e.target === ov) close(); } },

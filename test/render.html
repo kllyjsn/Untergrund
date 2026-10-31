@@ -1,11 +1,13 @@
 <!doctype html><meta charset="utf-8"><body>
 <script type="module">
 import { defaultState, generate, applyOverrides, arrangement } from '../js/state.js';
+import { createArtistProject, defaultArtistProfile } from '../js/artist.js';
 import { renderBars, bufferToWav } from '../js/render.js';
 const q = new URLSearchParams(location.search);
-const s = defaultState();
+let s = defaultState();
 const style = q.get('style');
 if (style) { const g = generate(style, 42); applyOverrides(s, g); s.patterns = arrangement(g.pattern, 42); }
+if (q.get('artist')) s = createArtistProject(s, defaultArtistProfile(), +(q.get('seed') || 4242)).state;
 s.current = +(q.get('pat') || 6);
 if (q.get('solo')) s.solos[q.get('solo')] = true;
 const t0 = performance.now();

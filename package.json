@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "dev": "SC_MOCK=1 node server.mjs"
+    "dev": "SC_MOCK=1 node server.mjs",
+    "test": "node test/artist.mjs"
   },
   "engines": { "node": ">=18" }
 }

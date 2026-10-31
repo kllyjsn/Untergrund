@@ -1,6 +1,6 @@
 // Procedural cover art drawn from the actual pattern data, so each release gets a unique, on-brand square.
 import { rng } from './dsp.js';
-import { TRACKS, KEYS } from './params.js';
+import { TRACKS, KEYS, SCALES } from './params.js';
 
 const stepValues = (pat, id) => (id === 'acid' ? pat.steps.acid.map((s) => (s.on ? (s.a ? 2 : 1) : 0)) : pat.steps[id]);
 const hits = (pat) => Object.keys(pat.steps).reduce((n, id) => n + stepValues(pat, id).filter(Boolean).length, 0);
@@ -56,7 +56,7 @@ export function drawArtwork(state, { title = 'UNTERGRUND', style = '', seed = 1,
   g.fillText(text, pad, size - pad - size * 0.07);
   g.font = `700 ${size * 0.026}px "JetBrains Mono", monospace`;
   g.fillStyle = accent;
-  g.fillText(`${state.bpm} BPM · ${KEYS[state.key]} MIN${style ? ' · ' + style.toUpperCase() : ''}`, pad, size - pad);
+  g.fillText(`${state.bpm} BPM · ${KEYS[state.key]} ${SCALES[state.scale]?.name || 'MINOR'}${style ? ' · ' + style.toUpperCase() : ''}`, pad, size - pad);
   g.fillStyle = '#8a8a94';
   g.textAlign = 'right';
   g.fillText('UNTERGRUND', size - pad, size - pad);

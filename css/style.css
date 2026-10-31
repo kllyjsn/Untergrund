@@ -292,6 +292,49 @@ textarea.inp { resize: vertical; line-height: 1.5; }
 .pub-tracks small { color: var(--dim); }
 .pub-tips { color: var(--dim); line-height: 1.6; padding-left: 18px; }
 .pub-tips li { margin: 4px 0; }
+
+/* ---------- autonomous artist ---------- */
+.btn.artist-btn { border-color: #657e24; color: #c6ff2b; }
+.btn.live-toggle { border-color: #30404b; color: #8bdcff; }
+.btn.live-toggle.on, body.artist-live .btn.live-toggle { background: #c6ff2b; border-color: #c6ff2b; color: #070807; box-shadow: 0 0 18px rgba(198,255,43,.25); }
+body.artist-live .logo { border-color: #c6ff2b; }
+body.artist-live .logo b { background: #c6ff2b; }
+.btn.live { border-color: #657e24; color: #c6ff2b; }
+.artist-modal { width: min(1120px, 95vw); max-height: 94vh; overflow: auto; padding: 0; }
+.artist-head { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; background: rgba(15,15,17,.96); border-bottom: 1px solid var(--line); backdrop-filter: blur(8px); }
+.artist-head .mtitle { margin: 0 0 3px; }
+.artist-kicker { font-size: 9px; letter-spacing: .14em; }
+.artist-body { padding: 20px; }
+.artist-identity { display: grid; grid-template-columns: minmax(300px,.9fr) minmax(420px,1.2fr); gap: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.artist-profile { display: grid; grid-template-columns: 82px 1fr; gap: 14px; }
+.artist-monogram { width: 82px; height: 82px; display: grid; place-items: center; background: #c6ff2b; color: #070807; font: 900 30px var(--sans); letter-spacing: -.05em; }
+.artist-profile-fields { display: flex; flex-direction: column; gap: 9px; }
+.artist-name { font: 900 19px var(--sans); letter-spacing: .12em; }
+.artist-field { display: flex; flex-direction: column; gap: 5px; color: var(--dim); font-size: 9px; letter-spacing: .14em; }
+.artist-label { color: #c6ff2b; font-size: 9px; letter-spacing: .2em; margin-bottom: 10px; }
+.dna { display: flex; flex-direction: column; }
+.dna-trait { display: grid; grid-template-columns: 78px 1fr 30px; align-items: center; gap: 10px; min-height: 31px; color: #aaaab2; font-size: 9px; letter-spacing: .1em; }
+.dna-trait input { width: 100%; accent-color: #c6ff2b; }
+.dna-trait b { color: #fff; text-align: right; }
+.artist-create { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px 0; border-bottom: 1px solid var(--line); }
+.artist-create p { max-width: 720px; color: #aaaab2; line-height: 1.6; margin: 0; }
+.artist-actions { display: flex; flex: none; gap: 7px; }
+.artist-catalog { padding-top: 18px; }
+.catalog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.catalog-head .artist-label { margin-bottom: 4px; }
+.catalog-empty { padding: 36px; border: 1px dashed var(--line2); color: var(--dim); text-align: center; }
+.catalog-card { display: grid; grid-template-columns: 150px 1fr; gap: 16px; padding: 12px; border: 1px solid var(--line); background: #0a0a0c; margin-top: 8px; position: relative; }
+.catalog-card::before { content: ''; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 3px; background: #444; }
+.catalog-card.ready::before { background: #c6ff2b; }
+.catalog-card.published::before { background: #f50; }
+.catalog-art { aspect-ratio: 1; background: #050506; }
+.catalog-art canvas { width: 100%; height: 100%; display: block; }
+.catalog-info { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+.catalog-title { font: 900 22px var(--sans); letter-spacing: .08em; color: #fff; text-transform: uppercase; }
+.catalog-meta { color: #c6ff2b; font-size: 10px; letter-spacing: .1em; }
+.catalog-plan { display: grid; grid-template-columns: minmax(140px,220px) minmax(120px,180px); gap: 8px; }
+.catalog-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
 @media (max-width: 760px) {
   .modal.pub { width: 100vw; max-height: 100vh; height: 100vh; border: 0; }
   .pub-body { padding: 0 12px 20px; }
@@ -299,4 +342,14 @@ textarea.inp { resize: vertical; line-height: 1.5; }
   .pub-left { max-width: 380px; margin: auto; width: 100%; }
   .stats { grid-template-columns: 1fr 1fr; }
   .pub-two { grid-template-columns: 1fr; }
+  .artist-modal { width: 100vw; max-height: 100vh; height: 100vh; border: 0; }
+  .artist-body { padding: 12px; }
+  .artist-identity { grid-template-columns: 1fr; }
+  .artist-profile { grid-template-columns: 58px 1fr; }
+  .artist-monogram { width: 58px; height: 58px; font-size: 22px; }
+  .artist-create { align-items: stretch; flex-direction: column; }
+  .artist-actions { flex-wrap: wrap; }
+  .catalog-card { grid-template-columns: 94px 1fr; gap: 10px; }
+  .catalog-title { font-size: 16px; }
+  .catalog-plan { grid-template-columns: 1fr; }
 }
