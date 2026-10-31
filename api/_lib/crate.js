@@ -57,7 +57,9 @@ export function memoryStore() {
   const hits = new Map();
   return {
     async allow(client) {
-      const now = Date.now(), recent = (hits.get(client) || []).filter((t) => now - t < 3600e3);
+      const now = Date.now(), fresh = (list) => list.filter((t) => now - t < 3600e3);
+      if (hits.size > 1000) for (const [key, list] of hits) if (!fresh(list).length) hits.delete(key);
+      const recent = fresh(hits.get(client) || []);
       recent.push(now); hits.set(client, recent);
       return recent.length <= RATE_PER_HOUR;
     },

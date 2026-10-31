@@ -581,13 +581,13 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     const list = h('div', { class: 'club-crate' },
       !crate.loaded ? h('div', { class: 'club-chat-empty' }, 'Opening the crate…') :
       crate.tracks.length ? crate.tracks.map((item) => h('div', { class: 'club-crate-row' },
-        h('div', {}, h('b', {}, item.title), h('small', {}, `${STYLES[item.style]?.name || item.style} · ${item.bpm} BPM · ${item.artist}`)),
+        h('div', {}, h('b', {}, item.title), h('small', {}, `${STYLES[item.style]?.name || item.style} · ${item.bpm} BPM · ${item.artist}${item.localOnly && crate.shared ? ' · THIS BROWSER ONLY' : ''}`)),
         h('button', { class: `btn ${isHost ? 'accent' : 'ghost'}`, onclick: () => spin(item) }, isHost ? 'SPIN' : 'LOAD'))) :
         h('div', { class: 'club-chat-empty' }, 'No tracks yet. Hit GENERATE and they land here.'));
     return h('aside', { class: 'club-social' },
       h('div', { class: 'club-social-head' }, tabs(), h('b', {}, `${crate.tracks.length} TRACKS`)),
       list,
-      h('div', { class: 'club-crate-note' }, crate.shared ? 'Shared crate: every UNTERGRUND DJ can spin these.' : 'Saved in this browser. Shared storage is not connected yet.'));
+      h('div', { class: 'club-crate-note' }, crate.shared ? 'Shared crate: every UNTERGRUND DJ can spin these, except tracks marked this browser only.' : 'Saved in this browser. Shared storage is not connected yet.'));
   }
 
   function chatPanel() {

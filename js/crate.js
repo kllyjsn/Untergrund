@@ -17,11 +17,11 @@ export async function listCrate() {
     const res = await fetch('/api/tracks');
     if (res.ok) {
       const shared = (await res.json()).tracks || [];
-      const pending = localTracks().filter((t) => String(t.id).startsWith('local-')).map(meta);
+      const pending = localTracks().filter((t) => String(t.id).startsWith('local-')).map((t) => ({ ...meta(t), localOnly: true }));
       return { shared: true, tracks: [...pending, ...shared] };
     }
   } catch {}
-  return { shared: false, tracks: localTracks().map(meta) };
+  return { shared: false, tracks: localTracks().map((t) => ({ ...meta(t), localOnly: true })) };
 }
 
 export async function fetchTrack(id) {
