@@ -167,6 +167,7 @@ export const MASTER_PARAMS = [
   p('dlyFb', 'FEEDBACK', 0, 0.92, 0.45),
   p('dlyLevel', 'DLY RTN', 0, 1, 0.65),
   p('humanize', 'HUMANIZE', 0, 1, 0),
+  p('warmth', 'WARMTH', 0, 1, 0),
 ];
 
 export function defaultParams() {

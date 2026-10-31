@@ -40,13 +40,14 @@ export class Engine {
     this.glue = this.comp(-14, 2.5, 8, 0.015, 0.16);
     this.satIn = this.gain(1 / SAT_HEADROOM);
     this.sat = c.createWaveShaper(); this.sat.oversample = '4x';
+    this.warm = this.filter('lowpass', 20000, 0.5);
     this.master = this.gain(0.85);
     this.limiter = this.comp(-4, 20, 0, 0.001, 0.07);
     this.limTrim = this.gain(1.05);
     this.clip = c.createWaveShaper(); this.clip.curve = clipCurve(); this.clip.oversample = '4x';
     this.out = this.gain(0.95);
     this.mix.connect(this.djHP).connect(this.djLP).connect(this.glue).connect(this.satIn).connect(this.sat)
-      .connect(this.master).connect(this.limiter).connect(this.limTrim).connect(this.clip).connect(this.out);
+      .connect(this.warm).connect(this.master).connect(this.limiter).connect(this.limTrim).connect(this.clip).connect(this.out);
     this.out.connect(c.destination);
     if (this.realtime) {
       this.analyser = c.createAnalyser();
@@ -194,6 +195,7 @@ export class Engine {
     } else if (id === 'drive') {
       this.sat.curve = satCurve(v);
     } else if (id === 'volume') this.setTo(this.master.gain, v, immediate);
+    else if (id === 'warmth') this.setTo(this.warm.frequency, 20000 * Math.pow(0.22, v || 0), immediate);
     else if (id === 'revLevel') this.setTo(this.revOut.gain, v, immediate);
     else if (id === 'revTone') this.setTo(this.revLP.frequency, v, immediate);
     else if (id === 'dlyFb') this.setTo(this.fb.gain, v, immediate);
@@ -627,7 +629,7 @@ export class Sequencer {
       if (!on) continue;
       const v = pat.steps[id][i];
       const hum = s.master.humanize || 0;
-      const late = hum * ((id === 'snare' || id === 'clap') ? 0.02 : id === 'ch' || id === 'ride' ? 0.008 : 0);
+      const late = hum * ((id === 'snare' || id === 'clap') ? 0.03 : id === 'ch' || id === 'ride' ? 0.012 : id === 'stab' || id === 'acid' ? 0.016 : 0);
       const ht = tt + late + (hash(abs, TRACK_IDS.indexOf(id)) - 0.5) * hum * 0.012;
       const hv = 1 - hum * 0.3 * hash(abs, TRACK_IDS.indexOf(id) + 20);
       if (v && id === 'vox') e.vox(ht, (v === 2 ? 1 : 0.78) * hv, i);
