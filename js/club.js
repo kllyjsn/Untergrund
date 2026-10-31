@@ -72,6 +72,7 @@ class RoomBus {
     this.currentSetKey = '';
     this.localSetVersion = 0;
     this.initiatedSets = new Set();
+    this.appliedBroadcasts = new Set();
     this.members = new Map([[this.clientId, { id: this.clientId, ...user, joinedAt: this.joinedAt, seen: Date.now() }]]);
     this.currentSet = null;
     this.channel = 'BroadcastChannel' in window ? new BroadcastChannel(`untergrund:${this.id}`) : null;
@@ -131,9 +132,11 @@ class RoomBus {
     if (key === this.currentSetKey) return;
     this.currentSet = set;
     this.currentSetKey = key;
+    const seenBroadcast = !!(set.broadcastId && this.appliedBroadcasts.has(set.broadcastId));
     const initiatedHere = set.broadcastId && this.initiatedSets.has(set.broadcastId);
-    if (initiatedHere) this.initiatedSets.delete(set.broadcastId);
-    if (!initiatedHere) this.onEvent({
+    if (set.broadcastId) this.appliedBroadcasts.add(set.broadcastId);
+    if (initiatedHere && set.version) this.initiatedSets.delete(set.broadcastId);
+    if (!initiatedHere && !seenBroadcast) this.onEvent({
       id: `${snapshot ? 'snapshot-' : ''}set:${key}`,
       type: 'set',
       user: { id: userId },
