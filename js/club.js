@@ -1,5 +1,6 @@
 import { KEYS, SCALES } from './params.js';
 import { STYLES, clone } from './state.js';
+import { listCrate, fetchTrack } from './crate.js';
 import { h } from './ui.js';
 import { createClientCredentials } from './client-id.js';
 
@@ -347,7 +348,7 @@ class RoomBus {
 // A live DJ's room connection outlives the overlay so the deck isn't lost while editing in Studio.
 let parkedBus = null;
 
-export function openClub({ getState, getStyle, getTransport, startRoomBroadcast, unlockAudio, joinRoomSet, toast }) {
+export function openClub({ getState, getStyle, loadTrack, getTransport, startRoomBroadcast, unlockAudio, joinRoomSet, toast }) {
   let audioReady = false;
   const unlock = () => unlockAudio().then((ok) => (audioReady = ok));
   unlock().then(() => {
@@ -561,7 +562,36 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
       h('div', { class: 'club-floor' }, people));
   }
 
+  let sideTab = 'signal';
+  let crate = { loaded: false, shared: false, tracks: [] };
+  const refreshCrate = () => listCrate().then((next) => { crate = { ...next, loaded: true }; if (!closed) render(); });
+  const tabs = () => h('div', { class: 'club-tabs' }, [['signal', 'ROOM SIGNAL'], ['crate', 'CRATE']].map(([id, label]) =>
+    h('button', { class: sideTab === id ? 'on' : '', onclick: () => { sideTab = id; if (id === 'crate') refreshCrate(); render(); } }, label)));
+
+  function cratePanel() {
+    const isHost = !room.hostId || room.hostId === clientId();
+    const spin = async (item) => {
+      try {
+        const track = await fetchTrack(item.id);
+        loadTrack(track);
+        if (isHost) broadcastSet();
+        else toast(`Loaded “${item.title}”. Join the DJ queue to spin it.`);
+      } catch { toast('That track is no longer in the crate'); }
+    };
+    const list = h('div', { class: 'club-crate' },
+      !crate.loaded ? h('div', { class: 'club-chat-empty' }, 'Opening the crate…') :
+      crate.tracks.length ? crate.tracks.map((item) => h('div', { class: 'club-crate-row' },
+        h('div', {}, h('b', {}, item.title), h('small', {}, `${STYLES[item.style]?.name || item.style} · ${item.bpm} BPM · ${item.artist}`)),
+        h('button', { class: `btn ${isHost ? 'accent' : 'ghost'}`, onclick: () => spin(item) }, isHost ? 'SPIN' : 'LOAD'))) :
+        h('div', { class: 'club-chat-empty' }, 'No tracks yet. Hit GENERATE and they land here.'));
+    return h('aside', { class: 'club-social' },
+      h('div', { class: 'club-social-head' }, tabs(), h('b', {}, `${crate.tracks.length} TRACKS`)),
+      list,
+      h('div', { class: 'club-crate-note' }, crate.shared ? 'Shared crate: every UNTERGRUND DJ can spin these.' : 'Saved in this browser. Shared storage is not connected yet.'));
+  }
+
   function chatPanel() {
+    if (sideTab === 'crate') return cratePanel();
     const feed = h('div', { class: 'club-chat-feed' },
       messages.length ? messages.map((message) => h('div', { class: 'club-chat-line' },
         h('b', {}, message.user?.name || 'Listener'), h('span', {}, message.payload?.text || ''))) :
@@ -575,7 +605,7 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
       },
     });
     return h('aside', { class: 'club-social' },
-      h('div', { class: 'club-social-head' }, h('span', {}, 'ROOM SIGNAL'), h('b', {}, `${room.members.length || 1} LIVE`)),
+      h('div', { class: 'club-social-head' }, tabs(), h('b', {}, `${room.members.length || 1} LIVE`)),
       feed,
       h('div', { class: 'club-chat-compose' }, input),
       h('div', { class: 'club-reactions' }, REACTIONS.map((value) =>
