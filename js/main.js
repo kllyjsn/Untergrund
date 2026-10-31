@@ -16,6 +16,7 @@ let transportOrigin = 0, roomJoinTimer = 0;
 const uiQueue = [];
 let selected = 'kick';
 let style = 'hypnotic';
+let studioOpen = localStorage.getItem('untergrund.studio-open') === '1';
 let variation = 0.25;
 let artistLive = null;
 let clipboard = null;
@@ -418,11 +419,38 @@ const trackActive = (id) => {
 function build() {
   app.innerHTML = '';
   ui.rows = {};
-  app.append(buildHeader(), h('main', { class: 'main' }, h('div', { class: 'left' }, buildGrid(), buildEditor()), buildMaster()));
+  document.body.classList.toggle('studio-open', studioOpen);
+  app.append(buildHeader(), buildGenerateHome(), h('main', { class: 'main studio-workspace' }, h('div', { class: 'left' }, buildGrid(), buildEditor()), buildMaster()));
   renderPatterns();
   for (const id of TRACK_IDS) renderRow(id);
   renderRoll();
   if (ui.playhead) ui.lastAbs = null;
+}
+
+function buildGenerateHome() {
+  const styleCards = h('div', { class: 'generate-styles' }, Object.entries(STYLES).map(([id, value]) =>
+    h('button', {
+      class: 'generate-style' + (style === id ? ' on' : ''),
+      onclick: () => { style = id; build(); },
+    }, h('b', {}, value.name), h('span', {}, ({ hypnotic: 'deep · rolling', industrial: 'hard · metallic', acid: '303 · elastic', dub: 'spacious · low', peak: 'urgent · main room' })[id]))));
+  const generate = () => {
+    doGenerateSet();
+    if (!playing) play();
+  };
+  return h('section', { class: 'generate-home' },
+    h('div', { class: 'generate-copy' },
+      h('span', {}, 'AUTONOMOUS TECHNO INSTRUMENT'),
+      h('h1', {}, 'Generate the set. Then make it yours.'),
+      h('p', {}, 'Start with musical intent, not a wall of controls. UNTERGRUND builds an editable eight-scene arrangement from synthesized sound.')),
+    styleCards,
+    h('div', { class: 'generate-actions' },
+      h('button', { class: 'generate-primary', onclick: generate }, h('span', {}, 'GENERATE'), h('small', {}, `${STYLES[style].name} · full arrangement`)),
+      h('button', { class: 'btn refine-toggle', onclick: () => { studioOpen = !studioOpen; localStorage.setItem('untergrund.studio-open', studioOpen ? '1' : '0'); build(); } }, studioOpen ? 'HIDE STUDIO' : 'REFINE IN STUDIO'),
+      h('button', { class: 'btn ghost', onclick: startArtistLive }, 'ARTIST LIVE')),
+    h('div', { class: 'generate-status' },
+      h('b', {}, `${state.bpm} BPM`), h('span', {}, `${KEYS[state.key]} ${SCALES[state.scale]?.name || 'MINOR'}`),
+      h('span', {}, state.chainOn ? '8 SCENES · ARRANGED' : `PATTERN ${PATTERN_NAMES[state.current]}`),
+      h('span', {}, '100% SYNTHESIZED')));
 }
 
 function buildHeader() {
