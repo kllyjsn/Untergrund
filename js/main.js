@@ -187,7 +187,7 @@ function showPublish() {
 
 function joinRoomSet(item) {
   if (!item?.state) return;
-  style = item.style || item.state.artist?.style || style;
+  style = STYLES[item.style] ? item.style : STYLES[item.state.artist?.style] ? item.state.artist.style : style;
   const roomState = sanitize(clone(item.state));
   const startsAt = Number.isFinite(+item.startsAt) ? +item.startsAt : Date.now();
   replaceState(roomState);
