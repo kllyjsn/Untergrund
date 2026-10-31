@@ -5,7 +5,7 @@
   "scripts": {
     "start": "node server.mjs",
     "dev": "SC_MOCK=1 node server.mjs",
-    "test": "node test/artist.mjs"
+    "test": "node test/artist.mjs && node test/room-sync.mjs && node test/rooms.mjs"
   },
   "engines": { "node": ">=18" }
 }

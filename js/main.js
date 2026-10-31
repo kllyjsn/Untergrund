@@ -1,18 +1,22 @@
 import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue } from './params.js';
-import { Engine, Sequencer } from './engine.js';
+import { Engine, Sequencer, parseChain } from './engine.js';
 import { defaultState, generate, mutate, arrangement, applyOverrides, clone, save, load, sanitize, STYLES, emptyPattern, emptyAcidStep } from './state.js';
 import { renderBars, bufferToWav } from './render.js';
 import { encodeWav } from './dsp.js';
 import { knob, numBox, h } from './ui.js';
 import { openPublish } from './publish.js';
 import { loadArtistProfile, openArtistStudio } from './artist.js';
+import { openClub } from './club.js';
+import { roomTransportPosition } from './room-sync.js';
 
 let state = load() || defaultState();
 let ctx = null, engine = null, seq = null, timer = null, recNode = null;
 let playing = false, abs = 0, nextTime = 0, lastPlayedPat = null;
+let transportOrigin = 0, roomJoinTimer = 0;
 const uiQueue = [];
 let selected = 'kick';
 let style = 'hypnotic';
+let studioOpen = localStorage.getItem('untergrund.studio-open') === '1';
 let variation = 0.25;
 let artistLive = null;
 let clipboard = null;
@@ -50,11 +54,18 @@ function schedule() {
   }
 }
 
-function play() {
+function play({ step = 0, delay = 0.06 } = {}) {
   ensureAudio();
-  abs = 0;
-  seq.cur = state.current; seq.queued = null; seq.chainPos = 0; seq.acidPrevSlide = false;
-  nextTime = ctx.currentTime + 0.06;
+  abs = Math.max(0, Math.floor(step));
+  const bar = Math.floor(abs / 16);
+  const chain = state.chainOn ? parseChain(state.chain) : [];
+  seq.cur = chain.length ? chain[bar % chain.length] : state.current;
+  seq.queued = null;
+  seq.chainPos = bar + (abs % 16 === 0 ? 0 : 1);
+  seq.acidPrevSlide = false;
+  state.current = seq.cur;
+  nextTime = ctx.currentTime + Math.max(0.01, delay);
+  transportOrigin = Date.now() + Math.max(0.01, delay) * 1000 - abs * (15000 / state.bpm);
   playing = true;
   timer.postMessage('start');
   schedule();
@@ -62,6 +73,8 @@ function play() {
 }
 
 function stop() {
+  clearTimeout(roomJoinTimer);
+  roomJoinTimer = 0;
   playing = false;
   timer?.postMessage('stop');
   engine?.panic();
@@ -160,6 +173,42 @@ function showPublish() {
     getState: () => state,
     getStyle: () => style,
     render: async (n) => bufferToWav(await renderBars(state, n)),
+    toast,
+  });
+}
+
+function joinRoomSet(item) {
+  if (!item?.state) return;
+  style = item.style || item.state.artist?.style || style;
+  const roomState = sanitize(clone(item.state));
+  const startsAt = Number.isFinite(+item.startsAt) ? +item.startsAt : Date.now();
+  replaceState(roomState);
+  const sync = () => {
+    const { step, delay } = roomTransportPosition(startsAt, roomState.bpm);
+    play({ step, delay });
+    toast(`Synced to “${item.title || 'Live Machine Set'}”`);
+  };
+  const wait = startsAt - Date.now();
+  if (wait > 50) roomJoinTimer = setTimeout(sync, wait - 40);
+  else sync();
+}
+
+function startRoomBroadcast(startsAt) {
+  if (playing) return;
+  clearTimeout(roomJoinTimer);
+  const wait = Math.max(0, startsAt - Date.now());
+  const lead = Math.min(60, wait);
+  roomJoinTimer = setTimeout(() => play({ delay: lead / 1000 }), Math.max(0, wait - lead));
+}
+
+function showClub() {
+  openClub({
+    getState: () => state,
+    getStyle: () => style,
+    getTransport: () => ({ playing, startsAt: transportOrigin }),
+    startRoomBroadcast,
+    unlockAudio: () => { ensureAudio(); return ctx.state === 'running'; },
+    joinRoomSet,
     toast,
   });
 }
@@ -370,17 +419,50 @@ const trackActive = (id) => {
 function build() {
   app.innerHTML = '';
   ui.rows = {};
-  app.append(buildHeader(), h('main', { class: 'main' }, h('div', { class: 'left' }, buildGrid(), buildEditor()), buildMaster()));
+  document.body.classList.toggle('studio-open', studioOpen);
+  app.append(buildHeader(), buildGenerateHome(), h('main', { class: 'main studio-workspace' }, h('div', { class: 'left' }, buildGrid(), buildEditor()), buildMaster()));
   renderPatterns();
   for (const id of TRACK_IDS) renderRow(id);
   renderRoll();
   if (ui.playhead) ui.lastAbs = null;
 }
 
+function buildGenerateHome() {
+  const styleCards = h('div', { class: 'generate-styles' }, Object.entries(STYLES).map(([id, value]) =>
+    h('button', {
+      class: 'generate-style' + (style === id ? ' on' : ''),
+      onclick: () => { style = id; build(); },
+    }, h('b', {}, value.name), h('span', {}, ({ hypnotic: 'deep · rolling', industrial: 'hard · metallic', acid: '303 · elastic', dub: 'spacious · low', peak: 'urgent · main room' })[id]))));
+  const generate = () => {
+    doGenerateSet();
+    if (!playing) play();
+  };
+  return h('section', { class: 'generate-home' },
+    h('div', { class: 'generate-copy' },
+      h('span', {}, 'AUTONOMOUS TECHNO INSTRUMENT'),
+      h('h1', {}, 'Generate the set. Then make it yours.'),
+      h('p', {}, 'Start with musical intent, not a wall of controls. UNTERGRUND builds an editable eight-scene arrangement from synthesized sound.')),
+    styleCards,
+    h('div', { class: 'generate-actions' },
+      h('button', { class: 'generate-primary', onclick: generate }, h('span', {}, 'GENERATE'), h('small', {}, `${STYLES[style].name} · full arrangement`)),
+      h('button', { class: 'btn refine-toggle', onclick: () => { studioOpen = !studioOpen; localStorage.setItem('untergrund.studio-open', studioOpen ? '1' : '0'); build(); } }, studioOpen ? 'HIDE STUDIO' : 'REFINE IN STUDIO'),
+      h('button', { class: 'btn ghost', onclick: startArtistLive }, 'ARTIST LIVE')),
+    h('div', { class: 'generate-status' },
+      h('b', {}, `${state.bpm} BPM`), h('span', {}, `${KEYS[state.key]} ${SCALES[state.scale]?.name || 'MINOR'}`),
+      h('span', {}, state.chainOn ? '8 SCENES · ARRANGED' : `PATTERN ${PATTERN_NAMES[state.current]}`),
+      h('span', {}, '100% SYNTHESIZED')));
+}
+
 function buildHeader() {
   const playBtn = h('button', { class: 'btn play', title: 'Play / Stop (Space)', onclick: toggle },
     h('span', { class: 'ico-play' }), h('span', { class: 'ico-stop' }));
-  const bpm = numBox({ min: 60, max: 200, step: 1, def: 133 }, state.bpm, (v) => { state.bpm = v; engine?.applyDelayTime(); persist(); }, { cls: 'bpm' });
+  const bpm = numBox({ min: 60, max: 200, step: 1, def: 133 }, state.bpm, (v) => {
+    if (playing && v !== state.bpm) {
+      const currentStep = (Date.now() - transportOrigin) / (15000 / state.bpm);
+      transportOrigin = Date.now() - currentStep * (15000 / v);
+    }
+    state.bpm = v; engine?.applyDelayTime(); persist();
+  }, { cls: 'bpm' });
   bpm.el.title = 'Tempo — drag / wheel / arrows';
   const swing = knob({ id: 'swing', label: 'SWING', min: 0, max: 0.6, def: 0.06 }, state.swing, (v) => { state.swing = v; persist(); },
     { size: 36, format: (v) => Math.round(v * 100) + '%', cls: 'sm' });
@@ -402,7 +484,7 @@ function buildHeader() {
   const chainBtn = h('button', { class: 'btn toggle' + (state.chainOn ? ' on' : ''), title: 'Play the arrangement chain',
     onclick: (e) => { state.chainOn = !state.chainOn; e.currentTarget.classList.toggle('on', state.chainOn); if (seq) seq.chainPos = 0; persist(); } }, 'CHAIN');
 
-  const styleSel = h('select', { class: 'sel', title: 'Generator style', onchange: (e) => { style = e.target.value; } },
+  const styleSel = h('select', { class: 'sel', title: 'Generator style', onchange: (e) => { style = e.target.value; build(); } },
     Object.entries(STYLES).map(([k, v]) => { const o = h('option', { value: k }, v.name); if (k === style) o.selected = true; return o; }));
 
   const bars = h('select', { class: 'sel', title: 'Bars to render' }, [4, 8, 16, 32, 64].map((b) => { const o = h('option', { value: b }, b + ' BARS'); if (b === 16) o.selected = true; return o; }));
@@ -427,6 +509,7 @@ function buildHeader() {
       toast,
     }),
   }, 'ARTIST');
+  const clubBtn = h('button', { class: 'btn club-btn', title: 'Enter an avatar listening room for UNTERGRUND-native sets', onclick: showClub }, 'CLUB');
   const liveBtn = h('button', {
     class: 'btn live-toggle' + (artistLive ? ' on' : ''),
     title: 'Let the autonomous artist perform and evolve this set',
@@ -443,9 +526,9 @@ function buildHeader() {
     h('div', { class: 'brand' }, h('div', { class: 'logo' }, h('i'), h('b')), h('div', {}, h('div', { class: 'name' }, 'UNTERGRUND'), h('div', { class: 'sub' }, 'techno synthesis engine'))),
     h('div', { class: 'group transport' }, playBtn, h('div', { class: 'field' }, h('label', {}, 'BPM'), bpm.el), swing.el,
       h('div', { class: 'field' }, h('label', {}, 'KEY'), key), h('div', { class: 'field' }, h('label', {}, 'SCALE'), scale)),
-    h('div', { class: 'group' }, h('div', { class: 'field' }, h('label', {}, 'PATTERN'), pats), patTools),
-    h('div', { class: 'group' }, chainBtn, chainInput),
-    h('div', { class: 'group gen' }, styleSel,
+    h('div', { class: 'group studio-only' }, h('div', { class: 'field' }, h('label', {}, 'PATTERN'), pats), patTools),
+    h('div', { class: 'group studio-only' }, chainBtn, chainInput),
+    h('div', { class: 'group gen studio-only' }, styleSel,
       h('button', { class: 'btn accent', title: 'Generate a pattern into this slot (G)', onclick: doGenerate }, 'GENERATE'),
       h('button', { class: 'btn', title: 'Generate a whole 8-pattern arrangement and enable chain', onclick: doGenerateSet }, 'NEW SET'),
       h('button', { class: 'btn ghost', title: 'Small variation (M)', onclick: doMutate }, 'MUTATE'),
@@ -453,7 +536,7 @@ function buildHeader() {
         h('option', { value: .12 }, 'SUBTLE'), h('option', { value: .25, selected: true }, 'EVOLVE'), h('option', { value: .55 }, 'WILD')),
       h('button', { class: 'btn ghost evolve', title: 'Create an evolved copy in the next pattern slot', onclick: createVariation }, 'VAR →'),
       h('button', { class: 'btn ghost', title: 'Undo (Ctrl+Z)', onclick: undo }, 'UNDO')),
-    h('div', { class: 'group' }, artistBtn, liveBtn, bars, exportBtn, recBtn, publishBtn),
+    h('div', { class: 'group' }, artistBtn, liveBtn, clubBtn, bars, exportBtn, recBtn, publishBtn),
     h('div', { class: 'group' },
       h('button', { class: 'btn ghost', title: 'Save project JSON', onclick: () => download(new Blob([JSON.stringify(state)], { type: 'application/json' }), `untergrund-${stamp()}.json`) }, 'SAVE'),
       h('button', { class: 'btn ghost', title: 'Load project JSON', onclick: () => fileIn.click() }, 'LOAD'), fileIn,
@@ -772,6 +855,15 @@ function frame() {
         renderPatterns();
       }
       setPlayhead(ev);
+      const pattern = state.patterns[ev.pat];
+      const step = ev.abs % 16;
+      window.dispatchEvent(new CustomEvent('untergrund:step', { detail: {
+        abs: ev.abs,
+        step,
+        bar: Math.floor(ev.abs / 16),
+        kick: !!pattern?.steps?.kick?.[step % (pattern?.len?.kick || 16)],
+        accent: step % 4 === 0,
+      } }));
     }
   }
   drawViz();
@@ -788,6 +880,7 @@ function showHelp() {
     ['L', 'lock a track so generate / mutate / variation keeps it'], ['VAR →', 'evolve this loop into the next pattern slot'],
     ['SCALE', 'guides acid generation and highlights the piano roll'], ['LEN', 'per-track length → polymeter (try 12, 7, 15)'],
     ['ARTIST', 'identity, musical DNA, generated catalog + release calendar'], ['LIVE', 'autonomous evolving performance of the current set'],
+    ['CLUB', 'avatar rooms for listening to music made inside UNTERGRUND'],
     ['CHAIN', 'letters = bars, e.g. AAAABBBBCCCC'], ['PUBLISH', 'render + artwork + metadata → SoundCloud'],
   ];
   const ov = h('div', { class: 'overlay', onclick: (e) => { if (e.target === ov) close(); } },
@@ -832,4 +925,5 @@ document.addEventListener('visibilitychange', () => save(state));
 
 build();
 requestAnimationFrame(frame);
+if (new URLSearchParams(location.search).has('room')) setTimeout(showClub);
 window.__untergrund = { get state() { return state; }, get engine() { return engine; } };

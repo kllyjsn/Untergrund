@@ -1,4 +1,4 @@
-import { TRACK_IDS, STEPS, SCALES, defaultParams, defaultMaster } from './params.js';
+import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, defaultParams, defaultMaster } from './params.js';
 import { rng } from './dsp.js';
 
 export const STYLES = {
@@ -238,23 +238,59 @@ export function load() {
 export function sanitize(s) {
   const d = defaultState();
   if (!s || typeof s !== 'object' || !Array.isArray(s.patterns)) return d;
-  const out = { ...d, ...s };
+  const out = d;
+  const safeNumber = (value, q) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.max(q.min, Math.min(q.max, n)) : q.def;
+  };
   out.params = defaultParams();
-  for (const id of TRACK_IDS) Object.assign(out.params[id], (s.params || {})[id] || {});
-  out.master = { ...d.master, ...(s.master || {}) };
-  out.mutes = s.mutes || {};
-  out.solos = s.solos || {};
-  out.locks = s.locks || {};
+  for (const id of TRACK_IDS) {
+    const source = (s.params || {})[id] || {};
+    for (const q of [...TRACK_BY_ID[id].params, ...MIX_PARAMS]) {
+      if (source[q.id] != null) out.params[id][q.id] = safeNumber(source[q.id], q);
+    }
+  }
+  out.master = defaultMaster();
+  for (const q of MASTER_PARAMS) if ((s.master || {})[q.id] != null) out.master[q.id] = safeNumber(s.master[q.id], q);
+  out.bpm = Math.max(40, Math.min(240, Number.isFinite(+s.bpm) ? +s.bpm : d.bpm));
+  out.swing = Math.max(0, Math.min(.6, Number.isFinite(+s.swing) ? +s.swing : d.swing));
+  out.key = Math.max(0, Math.min(11, Number.isFinite(+s.key) ? Math.round(+s.key) : d.key));
+  out.current = Math.max(0, Math.min(7, Number.isFinite(+s.current) ? Math.round(+s.current) : 0));
+  out.chainOn = !!s.chainOn;
+  out.chain = String(s.chain || d.chain).toUpperCase().replace(/[^A-H]/g, '').slice(0, 128) || d.chain;
+  out.mutes = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.mutes?.[id]]));
+  out.solos = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.solos?.[id]]));
+  out.locks = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.locks?.[id]]));
   out.scale = SCALES[s.scale] ? s.scale : 'minor';
   out.patterns = range(8, (i) => {
     const p = s.patterns[i];
     const e = emptyPattern();
     if (!p) return e;
     for (const id of TRACK_IDS) {
-      if (Array.isArray(p.steps?.[id])) e.steps[id] = pad16(p.steps[id]).map((v, j) => (id === 'acid' ? { ...emptyAcidStep(), ...(p.steps[id][j] || {}) } : v));
+      if (Array.isArray(p.steps?.[id])) {
+        e.steps[id] = pad16(p.steps[id]).map((v, j) => {
+          if (id !== 'acid') return v === 2 ? 2 : v ? 1 : 0;
+          const step = p.steps[id][j] || {};
+          return {
+            on: !!step.on,
+            n: Math.max(-24, Math.min(24, Number.isFinite(+step.n) ? Math.round(+step.n) : 0)),
+            a: !!step.a,
+            s: !!step.s,
+          };
+        });
+      }
       if (p.len?.[id]) e.len[id] = Math.max(1, Math.min(STEPS, p.len[id] | 0));
     }
     return e;
   });
+  if (s.artist && typeof s.artist === 'object') {
+    out.artist = {
+      name: String(s.artist.name || 'UNTERGRUND').slice(0, 40),
+      title: String(s.artist.title || 'Live Machine Set').slice(0, 80),
+      style: STYLES[s.artist.style] ? s.artist.style : 'hypnotic',
+      seed: Number.isFinite(+s.artist.seed) ? +s.artist.seed : 0,
+      created: String(s.artist.created || '').slice(0, 40),
+    };
+  } else delete out.artist;
   return out;
 }
