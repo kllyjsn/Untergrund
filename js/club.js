@@ -417,7 +417,7 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
       h('div', { class: 'club-custom-preview' }, avatarNode(avatar, 'preview')),
       h('div', { class: 'club-custom-fields' },
         h('label', { class: 'club-field' }, h('span', {}, 'DISPLAY NAME'),
-          h('input', { class: 'inp', maxlength: 28, value: avatar.name, onchange: (e) => setAvatar({ name: e.target.value.trim() || 'Night Listener' }) })),
+          h('input', { class: 'inp', maxlength: 28, value: avatar.name, 'data-focus-key': 'avatar-name', onchange: (e) => !rendering && setAvatar({ name: e.target.value.trim() || 'Night Listener' }) })),
         choice('HEAD', 'shape', SHAPES),
         choice('COLOR', 'color', COLORS),
         choice('GEAR', 'gear', GEAR)));
@@ -449,7 +449,7 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
         h('b', {}, message.user?.name || 'Listener'), h('span', {}, message.payload?.text || ''))) :
         h('div', { class: 'club-chat-empty' }, 'The room is quiet. Start the signal.'));
     const input = h('input', {
-      class: 'inp', maxlength: 280, placeholder: 'Message the room',
+      class: 'inp', maxlength: 280, placeholder: 'Message the room', 'data-focus-key': 'chat',
       onkeydown: (e) => {
         if (e.key !== 'Enter' || !e.target.value.trim()) return;
         bus.send('chat', { text: e.target.value.trim() });
@@ -464,13 +464,24 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
         h('button', { class: 'btn ghost', onclick: () => bus.send('reaction', { value }) }, value))));
   }
 
+  let rendering = false;
   function render() {
+    const focused = modal.contains(document.activeElement) ? document.activeElement : null;
+    const draft = focused?.dataset?.focusKey ? {
+      key: focused.dataset.focusKey,
+      value: focused.value,
+      start: focused.selectionStart,
+      end: focused.selectionEnd,
+    } : null;
+    rendering = true;
     modal.innerHTML = '';
+    rendering = false;
     const invite = new URL(location.href);
     invite.searchParams.set('room', activeRoom);
     const roomInput = h('input', {
-      class: 'inp club-room-input', value: activeRoom, maxlength: 32,
+      class: 'inp club-room-input', value: activeRoom, maxlength: 32, 'data-focus-key': 'room',
       onchange: (e) => {
+        if (rendering) return;
         const next = cleanRoom(e.target.value);
         if (next === activeRoom) return;
         activeRoom = next;
@@ -507,6 +518,12 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
           h('b', {}, '100% UNTERGRUND-NATIVE'),
           h('span', {}, 'Every set in every room is created inside the instrument. No imported catalog. No passive playlist.'),
           h('small', {}, room.queue?.length ? `UP NEXT · ${room.queue.map((id) => room.members.find((member) => member.id === id)?.name || 'Listener').join(' · ')}` : 'DJ QUEUE OPEN'))));
+    const restored = draft && modal.querySelector(`[data-focus-key="${draft.key}"]`);
+    if (restored) {
+      restored.value = draft.value;
+      restored.focus({ preventScroll: true });
+      if (draft.start != null) restored.setSelectionRange(draft.start, draft.end);
+    }
   }
 
   render();
