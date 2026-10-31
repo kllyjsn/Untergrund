@@ -344,6 +344,9 @@ class RoomBus {
   }
 }
 
+// A live DJ's room connection outlives the overlay so the deck isn't lost while editing in Studio.
+let parkedBus = null;
+
 export function openClub({ getState, getStyle, getTransport, startRoomBroadcast, unlockAudio, joinRoomSet, toast }) {
   let audioReady = false;
   const unlock = () => unlockAudio().then((ok) => (audioReady = ok));
@@ -368,7 +371,11 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
 
   const close = () => {
     closed = true;
-    bus?.close();
+    if (bus && bus.hostId === bus.clientId && bus.currentSet && getTransport().playing) {
+      bus.onUpdate = () => {};
+      bus.onEvent = () => {};
+      parkedBus = bus;
+    } else bus?.close();
     window.removeEventListener('untergrund:step', onStep);
     window.removeEventListener('keydown', onKey, true);
     ov.remove();
@@ -400,22 +407,31 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
 
   const connect = () => {
     if (closed) return;
-    bus?.close();
     localStorage.setItem(ROOM_KEY, activeRoom);
-    bus = new RoomBus(activeRoom, avatar,
-      (next) => { room = next; render(); },
-      (event) => {
-        if (event.type === 'chat') messages = [...messages, event].slice(-60);
-        if (event.type === 'reaction') showReaction(event);
-        if (event.type === 'set') {
-          if (!shouldJoin(event.payload, event.user?.id)) { pendingSet = null; return; }
-          pendingSet = event.payload;
-          if (!event.local && audioReady) {
-            joinRoomSet(pendingSet);
-            pendingSet = null;
-          }
+    const onUpdate = (next) => { room = next; render(); };
+    const onEvent = (event) => {
+      if (event.type === 'chat') messages = [...messages, event].slice(-60);
+      if (event.type === 'reaction') showReaction(event);
+      if (event.type === 'set') {
+        if (!shouldJoin(event.payload, event.user?.id)) { pendingSet = null; return; }
+        pendingSet = event.payload;
+        if (!event.local && audioReady) {
+          joinRoomSet(pendingSet);
+          pendingSet = null;
         }
-      }, apiBase);
+      }
+    };
+    if (parkedBus && parkedBus.id === cleanRoom(activeRoom) && bus !== parkedBus) {
+      bus = parkedBus;
+      parkedBus = null;
+      Object.assign(bus, { onUpdate, onEvent, lastSignature: null });
+      bus.emit();
+      return;
+    }
+    parkedBus?.close();
+    parkedBus = null;
+    bus?.close();
+    bus = new RoomBus(activeRoom, avatar, onUpdate, onEvent, apiBase);
   };
 
   // A DJ's own set never overwrites local edits or a running transport; it only resumes an idle, unedited deck.
