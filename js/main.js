@@ -17,6 +17,12 @@ let transportOrigin = 0, roomJoinTimer = 0, clockOffset = null;
 const uiQueue = [];
 let selected = 'kick';
 let style = 'hypnotic';
+function showCrash(err) {
+  if (document.querySelector('.crash')) return;
+  console.error(err);
+  document.body.append(h('div', { class: 'crash' }, h('b', {}, 'Something glitched.'), h('span', {}, 'Your project is saved.'), h('button', { class: 'btn accent', onclick: () => location.reload() }, 'RECOVER')));
+}
+window.addEventListener('error', (e) => showCrash(e.error || e.message));
 let studioOpen = localStorage.getItem('untergrund.studio-open') === '1';
 let variation = 0.25;
 let artistLive = null;
@@ -443,11 +449,14 @@ function build() {
 }
 
 function buildGenerateHome() {
-  const styleCards = h('div', { class: 'generate-styles' }, Object.entries(STYLES).map(([id, value]) =>
-    h('button', {
-      class: 'generate-style' + (style === id ? ' on' : ''),
-      onclick: () => { style = id; build(); },
-    }, h('b', {}, value.name), h('span', {}, ({ hypnotic: 'deep · rolling', industrial: 'hard · metallic', acid: '303 · elastic', dub: 'spacious · low', peak: 'urgent · main room', euphoric: 'emotional · vocal chops' })[id]))));
+  const families = [...new Set(Object.values(STYLES).map((v) => v.family))];
+  const styleCards = h('div', { class: 'generate-families' }, families.map((family) => h('div', { class: 'generate-family' },
+    h('div', { class: 'generate-family-name' }, family),
+    h('div', { class: 'generate-styles' }, Object.entries(STYLES).filter(([, v]) => v.family === family).map(([id, value]) =>
+      h('button', {
+        class: 'generate-style' + (style === id ? ' on' : ''),
+        onclick: () => { style = id; build(); },
+      }, h('b', {}, value.name), h('span', {}, value.tag)))))));
   const generate = () => {
     doGenerateSet();
     if (!playing) play();
