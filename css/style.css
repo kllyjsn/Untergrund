@@ -421,7 +421,7 @@ body.artist-live .logo b { background: #c6ff2b; }
 .bot-led { width: 6px; height: 10px; background: #2b2933; transition: background .08s, box-shadow .08s; }
 .club-kick .bot-led:nth-child(1), .club-accent .bot-led { background: var(--av); box-shadow: 0 0 8px var(--av); }
 .club-kick .bot-led:nth-child(2) { background: #fff; }
-.bot-arm { --w: 11px; --h: 38px; --d: 11px; --face: var(--av-side); --top: var(--av); --side: color-mix(in srgb,var(--av) 35%,#050506); bottom: 32px; transform-origin: 50% 0; transition: rotate .06s ease-out; }
+.bot-arm { --w: 11px; --h: 38px; --d: 11px; --face: var(--av-side); --top: var(--av); --side: color-mix(in srgb,var(--av) 35%,#050506); bottom: 32px; transform-origin: 50% 0; }
 .bot-arm.left { left: -30px; rotate: 0 0 1 12deg; } .bot-arm.right { left: 30px; rotate: 0 0 1 -12deg; }
 .club-kick .bot-arm.left { rotate: 0 0 1 34deg; } .club-kick .bot-arm.right { rotate: 0 0 1 -34deg; }
 .club-accent .listener .bot-arm.left, .club-accent .dj .bot-arm.left { rotate: 0 0 1 150deg; }
