@@ -352,6 +352,7 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
   let room = { members: [], currentSet: null };
   let messages = [];
   let reactionTimer = 0;
+  let reaction = null;
   let apiBase = '';
   let pendingSet = null;
   let closed = false;
@@ -405,14 +406,27 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
       }, apiBase);
   };
 
+  function paintReaction(fx, restart = false) {
+    const elapsed = reaction ? performance.now() - reaction.at : Infinity;
+    if (!fx || elapsed >= 1400) return fx;
+    fx.textContent = reaction.text;
+    fx.style.animationDelay = `${-Math.round(elapsed)}ms`;
+    if (!restart) fx.classList.add('show');
+    else {
+      fx.classList.remove('show');
+      requestAnimationFrame(() => fx.classList.add('show'));
+    }
+    return fx;
+  }
+
   function showReaction(event) {
-    const fx = modal.querySelector('.club-reaction-fx');
-    if (!fx) return;
-    fx.textContent = `${event.user?.name || 'Listener'} · ${event.payload?.value || 'HYPE'}`;
-    fx.classList.remove('show');
-    requestAnimationFrame(() => fx.classList.add('show'));
+    reaction = { text: `${event.user?.name || 'Listener'} · ${event.payload?.value || 'HYPE'}`, at: performance.now() };
+    paintReaction(modal.querySelector('.club-reaction-fx'), true);
     clearTimeout(reactionTimer);
-    reactionTimer = setTimeout(() => fx.classList.remove('show'), 1400);
+    reactionTimer = setTimeout(() => {
+      reaction = null;
+      modal.querySelector('.club-reaction-fx')?.classList.remove('show');
+    }, 1400);
   }
 
   function nowPlaying() {
@@ -499,7 +513,7 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
     });
     return h('section', { class: 'club-stage', style: `--beat:${(60 / (current.bpm || 132)).toFixed(3)}s` },
       h('div', { class: 'club-lights' }, h('i'), h('i'), h('i')),
-      h('div', { class: 'club-reaction-fx' }),
+      paintReaction(h('div', { class: 'club-reaction-fx' })),
       h('div', { class: 'club-dj' },
         avatarNode(dj, 'dj', '--turn:0deg'),
         h('div', { class: 'club-booth' }, h('i'), h('b', {}, 'UNTERGRUND'), h('i'))),
