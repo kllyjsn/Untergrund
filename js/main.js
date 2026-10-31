@@ -7,6 +7,7 @@ import { knob, numBox, h } from './ui.js';
 import { openPublish } from './publish.js';
 import { loadArtistProfile, openArtistStudio } from './artist.js';
 import { openClub } from './club.js';
+import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
 import { roomTransportPosition, transportResync } from './room-sync.js';
 
 let state = load() || defaultState();
@@ -320,6 +321,7 @@ function doGenerate() {
   const seed = (Math.random() * 1e9) | 0;
   const before = clone(pat());
   const lockedParams = Object.fromEntries(TRACK_IDS.filter((id) => state.locks[id]).map((id) => [id, clone(state.params[id])]));
+  if (style === 'euphoric' && state.scale === 'minor') state.scale = 'major';
   const g = generate(style, seed, state.scale);
   state.patterns[state.current] = g.pattern;
   for (const id of TRACK_IDS) if (state.locks[id]) {
@@ -338,6 +340,7 @@ function doGenerateSet() {
   const seed = (Math.random() * 1e9) | 0;
   const source = clone(pat());
   const lockedParams = Object.fromEntries(TRACK_IDS.filter((id) => state.locks[id]).map((id) => [id, clone(state.params[id])]));
+  if (style === 'euphoric' && state.scale === 'minor') state.scale = 'major';
   const g = generate(style, seed, state.scale);
   state.patterns = arrangement(g.pattern, seed);
   for (const p of state.patterns) for (const id of TRACK_IDS) if (state.locks[id]) {
@@ -444,7 +447,7 @@ function buildGenerateHome() {
     h('button', {
       class: 'generate-style' + (style === id ? ' on' : ''),
       onclick: () => { style = id; build(); },
-    }, h('b', {}, value.name), h('span', {}, ({ hypnotic: 'deep · rolling', industrial: 'hard · metallic', acid: '303 · elastic', dub: 'spacious · low', peak: 'urgent · main room' })[id]))));
+    }, h('b', {}, value.name), h('span', {}, ({ hypnotic: 'deep · rolling', industrial: 'hard · metallic', acid: '303 · elastic', dub: 'spacious · low', peak: 'urgent · main room', euphoric: 'emotional · vocal chops' })[id]))));
   const generate = () => {
     doGenerateSet();
     if (!playing) play();
@@ -462,7 +465,7 @@ function buildGenerateHome() {
     h('div', { class: 'generate-status' },
       h('b', {}, `${state.bpm} BPM`), h('span', {}, `${KEYS[state.key]} ${SCALES[state.scale]?.name || 'MINOR'}`),
       h('span', {}, state.chainOn ? '8 SCENES · ARRANGED' : `PATTERN ${PATTERN_NAMES[state.current]}`),
-      h('span', {}, '100% SYNTHESIZED')));
+      h('span', {}, getSample().source === 'synth' ? '100% SYNTHESIZED' : 'SYNTH + YOUR SAMPLES')));
 }
 
 function buildHeader() {
@@ -479,7 +482,7 @@ function buildHeader() {
   const swing = knob({ id: 'swing', label: 'SWING', min: 0, max: 0.6, def: 0.06 }, state.swing, (v) => { state.swing = v; persist(); },
     { size: 36, format: (v) => Math.round(v * 100) + '%', cls: 'sm' });
   const key = h('select', { class: 'sel', title: 'Key', onchange: (e) => { state.key = +e.target.value; persist(); renderRow('acid'); renderRoll(); } },
-    KEYS.map((k, i) => { const o = h('option', { value: i }, k + ' min'); if (i === state.key) o.selected = true; return o; }));
+    KEYS.map((k, i) => { const o = h('option', { value: i }, k); if (i === state.key) o.selected = true; return o; }));
   const scale = h('select', { class: 'sel', title: 'Scale used by the acid generator and highlighted in the piano roll',
     onchange: (e) => { state.scale = e.target.value; persist(); renderRoll(); } },
     Object.entries(SCALES).map(([id, s]) => { const o = h('option', { value: id }, s.name); if (id === state.scale) o.selected = true; return o; }));
@@ -707,6 +710,7 @@ function buildEditor() {
     drum: 'click = step · shift/right-click = accent · drag to paint',
     acid: 'grid: click = gate · shift = accent · alt = slide · piano roll sets notes',
     stab: 'click = step · shift/right-click = accent · pair with DELAY + REVERB',
+    sampler: 'click = chop · SCATTER picks slices · MELODY sings it in key',
   }[t.kind];
   const ed = h('section', { class: 'editor panel', style: `--tc:${t.color}` },
     h('div', { class: 'ehead' }, h('div', { class: 'etitle' }, h('span', { class: 'sw' }), t.name), h('div', { class: 'hint' }, hint), tools),
@@ -715,7 +719,37 @@ function buildEditor() {
       h('div', { class: 'kgroup' }, h('div', { class: 'glabel' }, 'CHANNEL'), h('div', { class: 'knobs' }, MIX_PARAMS.map(mk)))));
   ui.roll = null; ui.rollCols = null;
   if (id === 'acid') ed.append(buildRoll());
+  if (id === 'vox') ed.append(samplePanel());
   return ed;
+}
+
+function samplePanel() {
+  const name = h('b', {}, getSample().name);
+  const info = h('small', {}, '');
+  const show = (s) => { name.textContent = s.name; info.textContent = `${s.slices.length} slices · ${s.buffer.duration.toFixed(1)}s · stays on this device`; };
+  show(getSample());
+  const off = onSample((s) => (document.body.contains(name) ? show(s) : off()));
+  let rec = null;
+  const reset = () => { rec = null; recBtn.textContent = 'RECORD'; recBtn.classList.remove('live'); };
+  const recBtn = h('button', { class: 'btn accent', title: 'Record up to 20s from your mic: voice, room, street, anything', onclick: async () => {
+    if (rec) { const r = rec; reset(); await r.stop().catch(() => toast('Recording failed')); return; }
+    try {
+      rec = await startRecording();
+      recBtn.textContent = 'STOP'; recBtn.classList.add('live');
+      rec.done.then(() => { toast('Recording chopped into VOX'); }, () => {}).finally(() => rec && reset());
+    } catch { reset(); toast('Microphone unavailable'); }
+  } }, 'RECORD');
+  const rights = h('input', { type: 'checkbox' });
+  const file = h('input', { type: 'file', accept: 'audio/*', style: 'display:none', onchange: async (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (f) await loadAudioFile(f).then(() => toast(`Loaded ${f.name}`), () => toast('Could not decode that audio file'));
+  } });
+  const load = h('button', { class: 'btn ghost', onclick: () => (rights.checked ? file.click() : toast('Confirm you recorded it or own the rights first')) }, 'LOAD FILE');
+  return h('div', { class: 'sampler' },
+    h('div', { class: 'glabel' }, 'SOURCE'), name, info, recBtn, load,
+    h('label', {}, rights, 'I recorded it or own the rights'),
+    h('button', { class: 'btn ghost', onclick: () => useSynthVox() }, 'SYNTH VOX'), file);
 }
 
 function buildRoll() {
@@ -801,7 +835,7 @@ function buildMaster() {
       hold('ROLL', 'R', 'Ratchet the selected drum (or snare) at 1/32', () => { if (seq) seq.roll = TRACK_BY_ID[selected].kind === 'drum' && selected !== 'kick' ? selected : 'snare'; }, () => { if (seq) seq.roll = null; }),
       hold('THROW', 'T', 'Throw everything into delay + reverb', () => engine.setThrow(true), () => engine.setThrow(false)),
       hold('RISER', 'Y', 'Noise riser that builds over 4 bars', () => engine.riserStart(), () => engine.riserStop())),
-    h('div', { class: 'foot' }, '100% synthesized · no samples · 48k/24-bit export'));
+    h('div', { class: 'foot' }, `${getSample().source === 'synth' ? '100% synthesized · no samples' : 'synth + your own samples'} · 48k/24-bit export`));
 }
 
 function drawViz() {
@@ -938,4 +972,5 @@ document.addEventListener('visibilitychange', () => save(state));
 build();
 requestAnimationFrame(frame);
 if (new URLSearchParams(location.search).has('room')) setTimeout(showClub);
+restoreSample();
 window.__untergrund = { get state() { return state; }, get engine() { return engine; } };

@@ -7,6 +7,7 @@ export const STYLES = {
   acid: { name: 'ACID', bpm: [132, 138] },
   dub: { name: 'DUB', bpm: [122, 127] },
   peak: { name: 'PEAK TIME', bpm: [142, 150] },
+  euphoric: { name: 'EUPHORIC', bpm: [126, 134] },
 };
 
 const range = (n, f) => Array.from({ length: n }, (_, i) => f(i));
@@ -61,7 +62,8 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   const musicalScale = SCALES[scaleName]?.notes || SCALES.minor.notes;
   const P = emptyPattern();
   const S = P.steps;
-  const params = { kick: {}, acid: {}, stab: {}, perc: {}, ch: {}, oh: {}, ride: {}, clap: {} };
+  const params = { kick: {}, acid: {}, stab: {}, perc: {}, ch: {}, oh: {}, ride: {}, clap: {}, vox: {} };
+  let swing;
   const master = {};
   const [lo, hi] = STYLES[style].bpm;
   const bpm = Math.round(lo + r() * (hi - lo));
@@ -137,8 +139,26 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     Object.assign(params.kick, { tune: 50, decay: 0.42, drive: 0.75, punch: 0.75, rumble: 0.4, click: 0.45 });
     Object.assign(params.acid, { wave: 0.3, cutoff: 500, reso: 22, envmod: 0.7, decay: 0.2, accent: 0.8, drive: 0.8 });
     master.duck = 0.5; master.drive = 0.45;
+  } else if (style === 'euphoric') {
+    const twoStep = r() < 0.5;
+    S.kick = twoStep ? pad16([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]) : S.kick;
+    S.clap = pad16([0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]);
+    if (twoStep) S.snare = pad16([0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]);
+    S.ch = range(STEPS, (i) => (i % 4 === 2 ? 2 : i % 2 ? 1 : 0));
+    if (r() < 0.5) S.oh = offbeatOH;
+    S.perc = pad16(euclid(3, 16, Math.floor(r() * 8)));
+    S.stab = pad16(pick(r, [[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1], [1, 0, 0, 0, 0, 0, 0, 0, 1]]));
+    S.vox = pad16(pick(r, [[0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [2, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1], [0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 2, 0, 1]]));
+    S.acid = range(STEPS, (i) => ([2, 6, 10, 14].includes(i) || (i === 11 && r() < 0.6)
+      ? { on: true, n: i === 10 ? pick(r, [0, musicalScale[3], musicalScale[4]]) : 0, a: false, s: false } : emptyAcidStep()));
+    Object.assign(params.kick, { tune: 50, decay: 0.5, drive: 0.2, rumble: 0.1, punch: 0.6, click: 0.3 });
+    Object.assign(params.stab, { chord: pick(r, [2, 4, 7, 9, 10]), octave: 0, cutoff: 2400 + r() * 1600, reso: 3, decay: 0.9 + r() * 0.6, env: 0.25, detune: 18, rev: 0.5, dly: 0.3 });
+    Object.assign(params.vox, { slice: Math.floor(r() * 8), scatter: 0.4 + r() * 0.5, melody: 0.5 + r() * 0.4, length: pick(r, [0.5, 1, 1.5]), tone: 6500, rev: 0.35, dly: 0.28 });
+    Object.assign(params.acid, { wave: 0.1, cutoff: 220, reso: 2, envmod: 0.15, decay: 0.35, drive: 0.15, accent: 0.2 });
+    master.duck = 0.8; master.revLevel = 0.8; master.dlyTime = 1; master.dlyFb = 0.38;
+    swing = twoStep ? 0.28 : 0.14;
   }
-  return { pattern: P, params, master, bpm };
+  return { pattern: P, params, master, bpm, swing };
 }
 
 export function mutate(pat, seed = Date.now(), amount = 0.2, scale = SCALES.minor.notes) {
@@ -220,6 +240,7 @@ export function applyOverrides(state, g, withBpm = true) {
   for (const [tid, o] of Object.entries(g.params)) Object.assign(state.params[tid], o);
   Object.assign(state.master, g.master);
   if (withBpm) state.bpm = g.bpm;
+  if (withBpm && g.swing != null) state.swing = g.swing;
 }
 
 const KEY = 'untergrund.v1';
