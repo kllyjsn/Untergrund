@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 const port = 8840 + Math.floor(Math.random() * 100);
 const server = spawn(process.execPath, ['server.mjs'], {
@@ -20,9 +21,14 @@ const ready = new Promise((resolve, reject) => {
 
 const base = `http://localhost:${port}/api/rooms/test-room`;
 const tokens = {};
+const secrets = {
+  host: createHash('sha256').update('host').digest('hex'),
+  guest: createHash('sha256').update('guest').digest('hex'),
+};
 const post = async (body) => {
   const token = Object.hasOwn(body, 'token') ? body.token : (tokens[body.clientId] || '');
-  const request = { ...body, token };
+  const clientSecret = body.clientSecret || secrets[body.clientId] || createHash('sha256').update(body.clientId).digest('hex');
+  const request = { ...body, token, clientSecret };
   const response = await fetch(`${base}/events`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -38,7 +44,7 @@ try {
   await post({ type: 'presence', clientId: 'host', user: { name: 'Host', shape: 'round', color: 'violet', gear: 'hood' } });
   await post({ type: 'presence', clientId: 'guest', user: { name: 'Guest', shape: 'visor', color: 'blue', gear: 'goggles' } });
 
-  let result = await post({ type: 'presence', clientId: 'host', token: 'forged', user: { name: 'Impostor' } });
+  let result = await post({ type: 'presence', clientId: 'host', token: 'forged', clientSecret: secrets.guest, user: { name: 'Impostor' } });
   assert.equal(result.status, 401);
 
   result = await post({ id: 'queue', type: 'deck', clientId: 'guest', user: { name: 'Guest' }, payload: { action: 'join' } });
@@ -69,6 +75,14 @@ try {
   assert.equal(result.json.currentSet.bpm, 240);
   assert.equal(result.json.currentSet.state.patterns.length, 8);
   assert.equal(result.json.currentSet.state.chain, 'A');
+  assert.equal(result.json.currentSet.version, 1);
+
+  result = await post({
+    id: 'set-2', type: 'set', clientId: 'guest', user: { name: 'Guest' },
+    payload: { title: 'Night Signal', state: { patterns: [], bpm: 138 }, startsAt: Date.now() + 1000 },
+  });
+  assert.equal(result.json.currentSet.version, 2);
+  assert.equal(result.json.currentSet.by, 'guest');
 
   result = await post({ id: 'chat', type: 'chat', clientId: 'host', user: { name: '<Host>' }, payload: { text: '<b>Signal</b>' } });
   assert.equal(result.status, 200);

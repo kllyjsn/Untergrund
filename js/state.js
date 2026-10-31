@@ -253,7 +253,7 @@ export function sanitize(s) {
   out.master = defaultMaster();
   for (const q of MASTER_PARAMS) if ((s.master || {})[q.id] != null) out.master[q.id] = safeNumber(s.master[q.id], q);
   out.bpm = Math.max(40, Math.min(240, Number.isFinite(+s.bpm) ? +s.bpm : d.bpm));
-  out.swing = Math.max(0, Math.min(.5, Number.isFinite(+s.swing) ? +s.swing : d.swing));
+  out.swing = Math.max(0, Math.min(.6, Number.isFinite(+s.swing) ? +s.swing : d.swing));
   out.key = Math.max(0, Math.min(11, Number.isFinite(+s.key) ? Math.round(+s.key) : d.key));
   out.current = Math.max(0, Math.min(7, Number.isFinite(+s.current) ? Math.round(+s.current) : 0));
   out.chainOn = !!s.chainOn;

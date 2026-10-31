@@ -1,7 +1,7 @@
 // Local / self-hosted server: static files + the SoundCloud token endpoints (same logic as api/*.js on Vercel).
 // SC_MOCK=1 points the app at an in-process fake SoundCloud for offline testing.
 import http from 'node:http';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,8 +35,13 @@ const sendRoomJson = (res, status, json) => {
   res.end(JSON.stringify(json));
 };
 const clean = (value, max = 80) => String(value || '').replace(/[<>]/g, '').trim().slice(0, max);
+const secretHash = (value) => createHash('sha256').update(String(value || '')).digest();
+const validSecret = (secret, expected) => {
+  if (!/^[a-f0-9]{64}$/i.test(String(secret || '')) || !expected) return false;
+  return timingSafeEqual(secretHash(secret), Buffer.from(expected, 'hex'));
+};
 const getRoom = (id) => {
-  if (!rooms.has(id)) rooms.set(id, { id, seq: 0, hostId: null, queue: [], members: new Map(), tokens: new Map(), events: [], currentSet: null });
+  if (!rooms.has(id)) rooms.set(id, { id, seq: 0, setVersion: 0, hostId: null, queue: [], members: new Map(), tokens: new Map(), secrets: new Map(), events: [], currentSet: null });
   return rooms.get(id);
 };
 
@@ -53,6 +58,7 @@ function normalizeSet(payload) {
     bpm: state.bpm,
     key: clean(payload.key, 24),
     startsAt: Number.isFinite(requestedStart) ? Math.max(now - 864e5, Math.min(now + 300000, requestedStart)) : now + 1000,
+    by: clean(payload.by, 64),
   };
 }
 
@@ -88,11 +94,16 @@ http.createServer(async (req, res) => {
       const body = JSON.parse((await readBody(req)).toString() || '{}');
       const clientId = clean(body.clientId, 64);
       if (!clientId) return sendRoomJson(res, 400, { error: 'client_id_required' });
+      const clientSecret = String(body.clientSecret || '');
       let sessionToken = room.tokens.get(clientId);
+      const expectedSecret = room.secrets.get(clientId);
+      if (expectedSecret && !validSecret(clientSecret, expectedSecret)) return sendRoomJson(res, 401, { error: 'invalid_client_secret' });
       if (sessionToken && body.token !== sessionToken) return sendRoomJson(res, 401, { error: 'invalid_room_token' });
       if (!sessionToken) {
+        if (!/^[a-f0-9]{64}$/i.test(clientSecret)) return sendRoomJson(res, 400, { error: 'client_secret_required' });
         sessionToken = randomBytes(24).toString('base64url');
         room.tokens.set(clientId, sessionToken);
+        room.secrets.set(clientId, secretHash(clientSecret).toString('hex'));
       }
       const existing = room.members.get(clientId);
       const user = {
@@ -120,6 +131,8 @@ http.createServer(async (req, res) => {
           if (raw.length > 450000) return sendRoomJson(res, 413, { error: 'set_too_large' });
           payload = normalizeSet(payload);
           if (!payload) return sendRoomJson(res, 400, { error: 'invalid_set' });
+          payload.by = clientId;
+          payload.version = ++room.setVersion;
           room.currentSet = payload;
         }
         if (type === 'deck') {

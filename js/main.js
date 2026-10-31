@@ -428,7 +428,13 @@ function build() {
 function buildHeader() {
   const playBtn = h('button', { class: 'btn play', title: 'Play / Stop (Space)', onclick: toggle },
     h('span', { class: 'ico-play' }), h('span', { class: 'ico-stop' }));
-  const bpm = numBox({ min: 60, max: 200, step: 1, def: 133 }, state.bpm, (v) => { state.bpm = v; engine?.applyDelayTime(); persist(); }, { cls: 'bpm' });
+  const bpm = numBox({ min: 60, max: 200, step: 1, def: 133 }, state.bpm, (v) => {
+    if (playing && v !== state.bpm) {
+      const currentStep = (Date.now() - transportOrigin) / (15000 / state.bpm);
+      transportOrigin = Date.now() - currentStep * (15000 / v);
+    }
+    state.bpm = v; engine?.applyDelayTime(); persist();
+  }, { cls: 'bpm' });
   bpm.el.title = 'Tempo — drag / wheel / arrows';
   const swing = knob({ id: 'swing', label: 'SWING', min: 0, max: 0.6, def: 0.06 }, state.swing, (v) => { state.swing = v; persist(); },
     { size: 36, format: (v) => Math.round(v * 100) + '%', cls: 'sm' });

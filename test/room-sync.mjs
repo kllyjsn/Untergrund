@@ -25,3 +25,13 @@ for (const bpm of [122, 138, 150]) {
 }
 
 console.log('room transport alignment passed');
+
+const oldOrigin = origin;
+const oldBpm = 120;
+const newBpm = 150;
+const changeAt = origin + 60000;
+const currentStep = (changeAt - oldOrigin) / (15000 / oldBpm);
+const rebasedOrigin = changeAt - currentStep * (15000 / newBpm);
+const before = (changeAt - oldOrigin) / (15000 / oldBpm);
+const after = (changeAt - rebasedOrigin) / (15000 / newBpm);
+close(before, after);
