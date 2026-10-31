@@ -321,6 +321,7 @@ function doGenerate() {
   const seed = (Math.random() * 1e9) | 0;
   const before = clone(pat());
   const lockedParams = Object.fromEntries(TRACK_IDS.filter((id) => state.locks[id]).map((id) => [id, clone(state.params[id])]));
+  if (style === 'euphoric' && state.scale === 'minor') state.scale = 'major';
   const g = generate(style, seed, state.scale);
   state.patterns[state.current] = g.pattern;
   for (const id of TRACK_IDS) if (state.locks[id]) {
@@ -339,6 +340,7 @@ function doGenerateSet() {
   const seed = (Math.random() * 1e9) | 0;
   const source = clone(pat());
   const lockedParams = Object.fromEntries(TRACK_IDS.filter((id) => state.locks[id]).map((id) => [id, clone(state.params[id])]));
+  if (style === 'euphoric' && state.scale === 'minor') state.scale = 'major';
   const g = generate(style, seed, state.scale);
   state.patterns = arrangement(g.pattern, seed);
   for (const p of state.patterns) for (const id of TRACK_IDS) if (state.locks[id]) {
@@ -463,7 +465,7 @@ function buildGenerateHome() {
     h('div', { class: 'generate-status' },
       h('b', {}, `${state.bpm} BPM`), h('span', {}, `${KEYS[state.key]} ${SCALES[state.scale]?.name || 'MINOR'}`),
       h('span', {}, state.chainOn ? '8 SCENES · ARRANGED' : `PATTERN ${PATTERN_NAMES[state.current]}`),
-      h('span', {}, '100% SYNTHESIZED')));
+      h('span', {}, getSample().source === 'synth' ? '100% SYNTHESIZED' : 'SYNTH + YOUR SAMPLES')));
 }
 
 function buildHeader() {
