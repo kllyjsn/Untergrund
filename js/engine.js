@@ -514,13 +514,16 @@ export class Sequencer {
     this.acidMuted = false;
   }
 
+  advanceBar(abs) {
+    if (abs % 16 !== 0) return;
+    const chain = this.s.chainOn ? parseChain(this.s.chain) : [];
+    if (chain.length) { this.cur = chain[this.chainPos % chain.length]; this.chainPos++; }
+    else if (this.queued !== null) { this.cur = this.queued; this.queued = null; }
+  }
+
   tick(abs, t) {
     const s = this.s, e = this.e;
-    if (abs % 16 === 0) {
-      const chain = s.chainOn ? parseChain(s.chain) : [];
-      if (chain.length) { this.cur = chain[this.chainPos % chain.length]; this.chainPos++; }
-      else if (this.queued !== null) { this.cur = this.queued; this.queued = null; }
-    }
+    this.advanceBar(abs);
     const pat = s.patterns[this.cur];
     const sd = e.stepDur;
     const tt = t + (abs % 2 ? s.swing * sd * 0.5 : 0);

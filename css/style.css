@@ -393,41 +393,71 @@ body.artist-live .logo b { background: #c6ff2b; }
 .club-booth { position: absolute; left: 0; right: 0; bottom: 0; height: 82px; display: flex; align-items: center; justify-content: space-around; background: linear-gradient(#222029,#0c0b0e); border: 1px solid #3b3546; box-shadow: 0 25px 50px #000; transform: perspective(400px) rotateX(7deg); }
 .club-booth b { color: #c6ff2b; font: 900 14px var(--sans); letter-spacing: .24em; }
 .club-booth i { width: 48px; height: 48px; border: 2px solid #393440; border-radius: 50%; box-shadow: inset 0 0 0 10px #141217; }
-.club-dj > .club-person { position: absolute; left: 50%; top: 0; transform: translateX(-50%) scale(1.28); z-index: -1; }
+.club-dj > .club-person { position: absolute; left: 50%; bottom: 46px; transform: translateX(-50%) scale(1.35); transform-origin: 50% 100%; z-index: 0; }
+.club-dj > .club-booth { z-index: 2; }
 .club-now { position: absolute; left: 20px; top: 49%; z-index: 5; width: min(340px,42%); padding: 11px 14px; border-left: 3px solid #c6ff2b; background: rgba(5,5,7,.82); backdrop-filter: blur(8px); display: flex; flex-direction: column; gap: 3px; }
 .club-now span { color: #c6ff2b; font-size: 8px; letter-spacing: .2em; }
 .club-now strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 900 20px var(--sans); text-transform: uppercase; letter-spacing: .08em; }
 .club-now small { color: #96919e; font-size: 9px; letter-spacing: .08em; }
-.club-floor { position: absolute; left: 8%; right: 8%; bottom: 4%; height: 37%; z-index: 6; display: flex; align-items: flex-end; justify-content: space-around; gap: 4px; }
-.club-person { --av: #c6ff2b; position: relative; width: 74px; height: 130px; flex: none; display: flex; justify-content: center; transform-origin: 50% 100%; animation: clubDance .9s steps(2,end) infinite; }
+.club-floor { --crowd-scale: 1; position: absolute; left: 0; right: 0; bottom: 0; height: 46%; z-index: 6; }
+.club-floor > .club-person { position: absolute; left: var(--x); bottom: var(--y); z-index: var(--z); transform: translateX(-50%) scale(calc(var(--depth) * var(--crowd-scale))); transform-origin: 50% 100%; }
+.club-person { --av: #c6ff2b; --av-top: color-mix(in srgb,var(--av) 72%,#fff); --av-side: color-mix(in srgb,var(--av) 52%,#050506); --shell: #1d1b24; --shell-top: #302c39; --shell-side: #111016; position: relative; width: 104px; height: 156px; flex: none; perspective: 520px; }
 .club-person.red { --av: #ff4c4c; } .club-person.blue { --av: #45c8ff; } .club-person.violet { --av: #9b6cff; } .club-person.bone { --av: #e5dfd2; }
-.club-person:nth-child(3n+1) { animation-duration: .82s; animation-delay: -.3s; }
-.club-person:nth-child(3n+2) { animation-duration: 1.05s; animation-delay: -.7s; }
-.club-kick .club-person { transform: translateY(-5px) scaleY(1.03); }
-@keyframes clubDance { 0%,100% { rotate: -2deg; } 50% { rotate: 3deg; translate: 0 -3px; } }
-.club-avatar { position: absolute; left: 17px; top: 9px; width: 40px; height: 88px; z-index: 2; }
-.av-head { position: absolute; left: 2px; top: 0; width: 36px; height: 34px; background: var(--av); border: 3px solid #070708; box-sizing: border-box; }
-.round .av-head { border-radius: 50%; }
-.visor .av-head { border-radius: 10px 10px 2px 2px; height: 30px; }
-.av-body { position: absolute; left: 0; top: 31px; width: 40px; height: 50px; background: #19171d; border: 3px solid #070708; box-sizing: border-box; clip-path: polygon(15% 0,85% 0,100% 100%,0 100%); }
-.av-mark { position: absolute; left: 14px; top: 14px; width: 7px; height: 7px; background: var(--av); }
-.av-eye { position: absolute; top: 13px; width: 4px; height: 4px; background: #09090a; }
-.av-eye.left { left: 8px; } .av-eye.right { right: 8px; }
-.visor .av-eye { top: 11px; width: 9px; height: 3px; }
-.av-arm { position: absolute; top: 42px; width: 9px; height: 42px; background: #151319; border: 2px solid #070708; transform-origin: top; }
-.av-arm.left { left: -5px; rotate: 8deg; } .av-arm.right { right: -5px; rotate: -8deg; }
-.club-kick .av-arm.left { rotate: 18deg; } .club-kick .av-arm.right { rotate: -22deg; }
-.club-shadow { position: absolute; left: 9px; bottom: 21px; width: 56px; height: 11px; background: rgba(0,0,0,.7); border-radius: 50%; filter: blur(3px); }
-.club-name { position: absolute; bottom: 0; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #aaa5af; font-size: 8px; text-align: center; }
-.gear-hood .av-head::before { content: ''; position: absolute; inset: -8px -7px -4px; border: 5px solid #25212b; border-bottom-width: 2px; border-radius: 45% 45% 14px 14px; z-index: -1; }
-.av-goggles { display: none; position: absolute; left: 3px; top: 9px; width: 24px; height: 8px; border: 3px solid #0a090b; background: #50d8ff; }
-.gear-goggles .av-goggles { display: block; }
-.gear-goggles .av-eye { display: none; }
-.av-antenna { display: none; position: absolute; left: 18px; top: -13px; width: 2px; height: 15px; background: var(--av); }
-.av-antenna::after { content: ''; position: absolute; left: -3px; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--av); box-shadow: 0 0 8px var(--av); }
-.gear-antenna .av-antenna { display: block; }
-.club-dj .club-name { color: #c6ff2b; }
-.club-person.ambient { opacity: .28; filter: saturate(.5); }
+.club-shadow { position: absolute; left: 50%; bottom: 18px; width: 70px; height: 14px; transform: translateX(-50%); background: radial-gradient(rgba(0,0,0,.85),transparent 70%); }
+.bot { position: absolute; left: 50%; bottom: 26px; width: 0; height: 0; transform-style: preserve-3d; transform: rotateX(-12deg) rotateY(var(--turn,-20deg)); }
+.bot-rig { position: absolute; width: 0; height: 0; transform-style: preserve-3d; animation: botBounce calc(var(--beat,.455s) * 2) ease-in-out infinite; animation-delay: var(--delay,0s); }
+@keyframes botBounce { 0%,50%,100% { translate: 0 0; rotate: 0 1 0 -7deg; } 25% { translate: 0 -7px; rotate: 0 1 0 0deg; } 75% { translate: 0 -7px; rotate: 0 1 0 7deg; } }
+.cube { --w: 40px; --h: 40px; --d: 30px; position: absolute; width: var(--w); height: var(--h); margin-left: calc(var(--w) / -2); transform-style: preserve-3d; }
+.cube > i { position: absolute; box-sizing: border-box; border: 2px solid #050506; }
+.cube > .f { inset: 0; transform: translateZ(calc(var(--d) / 2)); background: var(--face, var(--av)); }
+.cube > .t { left: 0; top: calc(var(--d) / -2); width: var(--w); height: var(--d); transform: rotateX(90deg); background: var(--top, var(--av-top)); }
+.cube > .l, .cube > .r { top: 0; width: var(--d); height: var(--h); background: var(--side, var(--av-side)); }
+.cube > .l { left: calc(var(--d) / -2); transform: rotateY(90deg); }
+.cube > .r { left: calc(var(--w) - var(--d) / 2); transform: rotateY(90deg); }
+.bot-leg { --w: 14px; --h: 28px; --d: 14px; --face: var(--shell); --top: var(--shell-top); --side: var(--shell-side); bottom: 0; }
+.bot-leg.left { left: -10px; } .bot-leg.right { left: 10px; }
+.bot-torso { --w: 46px; --h: 44px; --d: 30px; --face: var(--shell); --top: var(--shell-top); --side: var(--shell-side); bottom: 26px; }
+.bot-torso > .f { display: flex; align-items: flex-end; justify-content: center; gap: 4px; padding-bottom: 8px; box-shadow: inset 0 9px 0 var(--av); }
+.bot-led { width: 6px; height: 10px; background: #2b2933; transition: background .08s, box-shadow .08s; }
+.club-kick .bot-led:nth-child(1), .club-accent .bot-led { background: var(--av); box-shadow: 0 0 8px var(--av); }
+.club-kick .bot-led:nth-child(2) { background: #fff; }
+.bot-arm { --w: 11px; --h: 38px; --d: 11px; --face: var(--av-side); --top: var(--av); --side: color-mix(in srgb,var(--av) 35%,#050506); bottom: 32px; transform-origin: 50% 0; }
+.bot-arm.left { left: -30px; rotate: 0 0 1 12deg; } .bot-arm.right { left: 30px; rotate: 0 0 1 -12deg; }
+.club-kick .bot-arm.left { rotate: 0 0 1 34deg; } .club-kick .bot-arm.right { rotate: 0 0 1 -34deg; }
+.club-accent .listener .bot-arm.left, .club-accent .dj .bot-arm.left { rotate: 0 0 1 150deg; }
+.bot-head-wrap { position: absolute; bottom: 70px; width: 0; height: 0; transform-style: preserve-3d; animation: botNod var(--beat,.455s) ease-in-out infinite; animation-delay: var(--delay,0s); }
+@keyframes botNod { 0%,100% { rotate: 1 0 0 0deg; } 50% { rotate: 1 0 0 9deg; } }
+.bot-head { --w: 54px; --h: 46px; --d: 42px; bottom: 0; }
+.round .bot-head > i { border-radius: 18px; } .round .bot-head > .t { border-radius: 50%; }
+.visor .bot-head { --h: 40px; } .visor .bot-head > .f { border-radius: 14px 14px 4px 4px; }
+.bot-screen { position: absolute; left: 6px; right: 6px; top: 8px; bottom: 9px; background: #0a0a0d; border-radius: 5px; box-shadow: inset 0 0 12px rgba(0,0,0,.9); }
+.round .bot-screen { border-radius: 14px; }
+.bot-eye { position: absolute; top: 9px; width: 8px; height: 8px; background: var(--av); box-shadow: 0 0 9px var(--av); animation: botBlink 4.2s infinite; animation-delay: var(--delay,0s); }
+.bot-eye.left { left: 9px; } .bot-eye.right { right: 9px; }
+.round .bot-eye { border-radius: 50%; }
+.visor .bot-eye { top: 9px; width: 14px; height: 4px; border-radius: 2px; }
+@keyframes botBlink { 0%,46%,50%,100% { scale: 1 1; } 48% { scale: 1 .1; } }
+.bot-mouth { position: absolute; left: 50%; bottom: 5px; width: 14px; height: 3px; margin-left: -7px; background: var(--av); opacity: .7; }
+.club-kick .bot-mouth { height: 5px; border-radius: 0 0 4px 4px; }
+.bot-goggles { display: none; position: absolute; left: 3px; right: 3px; top: 6px; height: 12px; background: linear-gradient(90deg,#50d8ff,#c9f5ff 50%,#50d8ff); border: 2px solid #050506; box-shadow: 0 0 12px #50d8ff; }
+.gear-goggles .bot-goggles { display: block; } .gear-goggles .bot-eye { display: none; }
+.bot-hood { --w: 62px; --h: 50px; --d: 48px; --top: var(--shell); --side: var(--shell-side); bottom: -2px; display: none; }
+.gear-hood .bot-hood { display: block; }
+.bot-phone { --w: 10px; --h: 22px; --d: 18px; --face: #111015; --top: #26232d; --side: var(--av); bottom: 11px; display: none; }
+.bot-phone.left { left: -32px; } .bot-phone.right { left: 32px; }
+.bot-band { display: none; position: absolute; left: -32px; bottom: 30px; width: 64px; height: 26px; border: 4px solid #111015; border-bottom: 0; border-radius: 34px 34px 0 0; box-sizing: border-box; transform: translateZ(2px); }
+.gear-phones .bot-phone, .gear-phones .bot-band { display: block; }
+.bot-antenna { display: none; position: absolute; left: -1px; bottom: 46px; width: 3px; height: 18px; background: #111015; transform: translateZ(4px); }
+.bot-antenna::after { content: ''; position: absolute; left: -4px; top: -8px; width: 11px; height: 11px; border-radius: 50%; background: var(--av); box-shadow: 0 0 12px var(--av); }
+.gear-antenna .bot-antenna { display: block; }
+.club-kick .gear-antenna .bot-antenna::after { box-shadow: 0 0 22px var(--av), 0 0 4px #fff; }
+.club-name { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); max-width: 104px; padding: 2px 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #d8d4dd; background: rgba(5,5,7,.82); border: 1px solid #2c2935; font-size: 8px; letter-spacing: .08em; text-align: center; }
+.club-dj .club-name { bottom: auto; top: -18px; color: #070807; background: #c6ff2b; border-color: #c6ff2b; font-weight: 900; }
+.club-person.ambient { filter: brightness(.32) saturate(.25) blur(.4px); }
+.club-person.ambient .bot-eye { box-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  .bot-rig, .bot-head-wrap, .bot-eye, .club-lights i { animation: none; }
+}
 .club-reaction-fx { position: absolute; left: 50%; top: 38%; z-index: 12; transform: translate(-50%,20px) scale(.85); opacity: 0; color: #fff; font: 900 26px var(--sans); letter-spacing: .12em; text-shadow: 0 0 28px #8d5cff; pointer-events: none; }
 .club-reaction-fx.show { animation: clubReaction 1.4s ease-out; }
 @keyframes clubReaction { 0% { opacity: 0; transform: translate(-50%,20px) scale(.85); } 18% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%,-80px) scale(1.1); } }
@@ -445,7 +475,8 @@ body.artist-live .logo b { background: #c6ff2b; }
 .club-footer { display: grid; grid-template-columns: minmax(540px,1fr) minmax(280px,.6fr); border-top: 1px solid #25222d; background: #08080a; }
 .club-customizer { display: flex; align-items: center; min-height: 120px; padding: 10px 16px; border-right: 1px solid #25222d; }
 .club-custom-preview { width: 100px; height: 112px; overflow: hidden; display: grid; place-items: center; flex: none; }
-.club-custom-preview .club-person { transform: scale(.78); }
+.club-custom-preview .club-person { transform: scale(.7); transform-origin: 50% 60%; }
+.club-custom-preview .club-name { display: none; }
 .club-custom-fields { flex: 1; display: grid; grid-template-columns: 1.4fr repeat(3,1fr); gap: 8px; }
 .club-field { display: flex; flex-direction: column; gap: 5px; color: #6e6a74; font-size: 8px; letter-spacing: .14em; }
 .club-principle { padding: 18px 22px; display: flex; flex-direction: column; justify-content: center; gap: 6px; }
@@ -472,10 +503,12 @@ body.artist-live .logo b { background: #c6ff2b; }
   .club-head-actions { width: 100%; margin: 0; display: grid; grid-template-columns: 1fr 1.25fr .7fr; }
   .club-head-actions .btn { padding: 0 5px; font-size: 8px; }
   .club-stage { min-height: 500px; }
-  .club-dj { width: 240px; top: 12%; transform: translateX(-50%) scale(.85); }
-  .club-now { top: 51%; left: 10px; width: calc(100% - 20px); box-sizing: border-box; }
+  .club-dj { width: 240px; top: 21%; transform: translateX(-50%) scale(.8); }
+  .club-stage::after { display: none; }
+  .club-now { top: 10px; left: 10px; width: calc(100% - 20px); box-sizing: border-box; padding: 8px 11px; }
+  .club-now strong { font-size: 15px; }
   .club-floor { left: 0; right: 0; overflow: hidden; }
-  .club-person { transform: scale(.82); margin: 0 -8px; }
+  .club-floor { --crowd-scale: .68; }
   .club-customizer { align-items: flex-start; }
   .club-custom-preview { width: 72px; }
   .club-custom-fields { grid-template-columns: 1fr 1fr; }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { roomTransportPosition } from '../js/room-sync.js';
+import { roomTransportPosition, transportResync } from '../js/room-sync.js';
 
 const origin = 1_000_000;
 const close = (a, b) => assert(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
@@ -23,6 +23,11 @@ for (const bpm of [122, 138, 150]) {
     assert(delay > 0 && delay <= 15 / bpm + 1e-9);
   }
 }
+
+assert.equal(transportResync(10.01, 10, 9.9, 0.125), null);
+assert.deepEqual(transportResync(10.2, 10, 9.9, 0.125), { skip: 0, nextTime: 10.2 });
+assert.deepEqual(transportResync(9.5, 10, 9.9, 0.125), { skip: 4, nextTime: 10 });
+assert.deepEqual(transportResync(9.0, 9.0, 9.6, 0.125), { skip: 5, nextTime: 9.625 });
 
 console.log('room transport alignment passed');
 

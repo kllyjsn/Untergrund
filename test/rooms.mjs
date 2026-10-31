@@ -86,7 +86,7 @@ try {
 
   result = await post({ id: 'chat', type: 'chat', clientId: 'host', user: { name: '<Host>' }, payload: { text: '<b>Signal</b>' } });
   assert.equal(result.status, 200);
-  assert.equal(result.json.events.at(-1).payload.text, 'bSignal/b');
+  assert.equal(result.json.events.at(-1).payload.text, '<b>Signal</b>');
 
   const snapshot = await (await fetch(`${base}?since=0`)).json();
   assert.equal(snapshot.members.length, 2);

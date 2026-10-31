@@ -7,7 +7,7 @@ const AVATAR_KEY = 'untergrund.avatar.v1';
 const ROOM_KEY = 'untergrund.room.v1';
 const SHAPES = ['block', 'round', 'visor'];
 const COLORS = ['lime', 'red', 'blue', 'violet', 'bone'];
-const GEAR = ['none', 'hood', 'goggles', 'antenna'];
+const GEAR = ['none', 'hood', 'goggles', 'antenna', 'phones'];
 const REACTIONS = ['HYPE', 'DEEP', 'ACID'];
 
 const roomId = () => {
@@ -34,20 +34,53 @@ export function loadAvatar() {
   catch { return defaultAvatar(); }
 }
 
+const pick = (value, values, fallback) => values.includes(value) ? value : fallback;
+
+export function normalizeMember(member = {}) {
+  const base = defaultAvatar();
+  const look = { ...member, ...(member.avatar || {}) };
+  const { avatar: _nested, ...rest } = member;
+  return {
+    ...rest,
+    name: String(member.name ?? base.name).slice(0, 28),
+    shape: pick(look.shape, SHAPES, base.shape),
+    color: pick(look.color, COLORS, base.color),
+    gear: pick(look.gear, GEAR, base.gear),
+  };
+}
+
 function saveAvatar(avatar) {
   localStorage.setItem(AVATAR_KEY, JSON.stringify(avatar));
 }
 
-function avatarNode(avatar, extra = '') {
-  const safe = { ...defaultAvatar(), ...avatar };
-  return h('div', { class: `club-person ${safe.shape} ${safe.color} gear-${safe.gear} ${extra}` },
+const cube = (cls, faces = ['f', 't', 'l', 'r'], front = []) => h('div', { class: `cube ${cls}` },
+  faces.map((face) => h('i', { class: face }, face === 'f' ? front : [])));
+
+function avatarNode(avatar, extra = '', style = '') {
+  const safe = normalizeMember(avatar);
+  const screen = h('span', { class: 'bot-screen' },
+    h('i', { class: 'bot-eye left' }), h('i', { class: 'bot-eye right' }), h('i', { class: 'bot-mouth' }), h('i', { class: 'bot-goggles' }));
+  return h('div', { class: `club-person ${safe.shape} ${safe.color} gear-${safe.gear} ${extra}`, style, role: 'img', 'aria-label': safe.name ? `${safe.name} avatar` : 'Crowd silhouette' },
     h('div', { class: 'club-shadow' }),
-    h('div', { class: 'club-avatar' },
-      h('i', { class: 'av-antenna' }),
-      h('div', { class: 'av-head' }, h('i', { class: 'av-eye left' }), h('i', { class: 'av-eye right' }), h('i', { class: 'av-goggles' })),
-      h('div', { class: 'av-body' }, h('i', { class: 'av-mark' })),
-      h('i', { class: 'av-arm left' }), h('i', { class: 'av-arm right' })),
-    h('div', { class: 'club-name' }, safe.name));
+    h('div', { class: 'bot' },
+      h('div', { class: 'bot-rig' },
+        cube('bot-leg left'), cube('bot-leg right'),
+        cube('bot-torso', ['f', 't', 'l', 'r'], [h('i', { class: 'bot-led' }), h('i', { class: 'bot-led' }), h('i', { class: 'bot-led' })]),
+        cube('bot-arm left'), cube('bot-arm right'),
+        h('div', { class: 'bot-head-wrap' },
+          cube('bot-head', ['f', 't', 'l', 'r'], [screen]),
+          cube('bot-hood', ['t', 'l', 'r']),
+          cube('bot-phone left'), cube('bot-phone right'), h('i', { class: 'bot-band' }),
+          h('i', { class: 'bot-antenna' })))),
+    safe.name ? h('div', { class: 'club-name' }, safe.name) : null);
+}
+
+function crowdSlots() {
+  const slots = [];
+  [[5, 4, 1], [6, 19, .8], [7, 31, .64]].forEach(([count, y, depth], row) => {
+    for (let i = 0; i < count; i++) slots.push({ x: 10 + (80 * (i + .5)) / count + (row === 1 ? 2.5 : 0), y, depth, row });
+  });
+  return slots.sort((a, b) => a.row - b.row || Math.abs(a.x - 50) - Math.abs(b.x - 50));
 }
 
 class RoomBus {
@@ -73,7 +106,7 @@ class RoomBus {
     this.localSetVersion = 0;
     this.initiatedSets = new Set();
     this.appliedBroadcasts = new Set();
-    this.members = new Map([[this.clientId, { id: this.clientId, ...user, joinedAt: this.joinedAt, seen: Date.now() }]]);
+    this.members = new Map([[this.clientId, normalizeMember({ id: this.clientId, ...user, joinedAt: this.joinedAt, seen: Date.now() })]]);
     this.currentSet = null;
     this.channel = 'BroadcastChannel' in window ? new BroadcastChannel(`untergrund:${this.id}`) : null;
     if (this.channel) this.channel.onmessage = (e) => this.handleChannel(e.data);
@@ -169,7 +202,7 @@ class RoomBus {
 
   updateUser(user) {
     this.user = user;
-    this.members.set(this.clientId, { id: this.clientId, ...user, joinedAt: this.joinedAt, seen: Date.now() });
+    this.members.set(this.clientId, normalizeMember({ id: this.clientId, ...user, joinedAt: this.joinedAt, seen: Date.now() }));
     this.heartbeat();
   }
 
@@ -208,7 +241,15 @@ class RoomBus {
     this.seq = Math.max(this.seq, snapshot.seq || 0);
     this.hostId = snapshot.hostId || this.hostId;
     this.queue = snapshot.queue || this.queue;
-    for (const member of snapshot.members || []) this.members.set(member.id, member);
+    for (const member of snapshot.members || []) {
+      if (member.id !== this.clientId) this.members.set(member.id, normalizeMember(member));
+    }
+    this.members.set(this.clientId, normalizeMember({
+      id: this.clientId,
+      ...this.user,
+      joinedAt: this.joinedAt,
+      seen: Date.now(),
+    }));
     const cutoff = Date.now() - 15000;
     for (const [id, member] of this.members) if ((member.seen || 0) < cutoff) this.members.delete(id);
     if (snapshot.currentSet) {
@@ -241,12 +282,12 @@ class RoomBus {
     for (const member of snapshot.members || []) {
       const existing = this.members.get(member.id);
       const joined = [existing?.joinedAt, member.joinedAt].filter(Number.isFinite);
-      this.members.set(member.id, {
+      this.members.set(member.id, normalizeMember({
         ...existing,
-        ...member,
+        ...normalizeMember(member),
         joinedAt: joined.length ? Math.min(...joined) : Date.now(),
         seen: Date.now(),
-      });
+      }));
     }
     if (snapshot.currentSet) this.applySet(snapshot.currentSet, snapshot.hostId, true);
     this.queue = [...new Set([...(this.queue || []), ...(snapshot.queue || [])])];
@@ -271,12 +312,12 @@ class RoomBus {
     if (this.seen.size > 400) this.seen.delete(this.seen.values().next().value);
     if (event.user?.id) {
       const existing = this.members.get(event.user.id);
-      this.members.set(event.user.id, {
+      this.members.set(event.user.id, normalizeMember({
         ...existing,
-        ...event.user,
+        ...normalizeMember(event.user),
         joinedAt: event.user.joinedAt || existing?.joinedAt || Date.now(),
         seen: Date.now(),
-      });
+      }));
     }
     if (event.type === 'set') {
       this.applySet(event.payload, event.user?.id);
@@ -304,13 +345,23 @@ class RoomBus {
 }
 
 export function openClub({ getState, getStyle, getTransport, startRoomBroadcast, unlockAudio, joinRoomSet, toast }) {
-  let audioReady = unlockAudio() !== false;
+  let audioReady = false;
+  const unlock = () => unlockAudio().then((ok) => (audioReady = ok));
+  unlock().then(() => {
+    if (closed) return;
+    if (audioReady && pendingSet && !getTransport().playing) {
+      joinRoomSet(pendingSet);
+      pendingSet = null;
+    }
+    render();
+  });
   let avatar = loadAvatar();
   let activeRoom = roomId();
   let bus = null;
   let room = { members: [], currentSet: null };
   let messages = [];
   let reactionTimer = 0;
+  let reaction = null;
   let apiBase = '';
   let pendingSet = null;
   let closed = false;
@@ -328,15 +379,22 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
   document.body.append(ov);
 
   const onKey = (e) => {
-    if (e.key === 'Escape') close();
+    if (e.key === 'Escape') {
+      close();
+      e.stopPropagation();
+      return;
+    }
+    if (e.target.closest('input, textarea, select')) return;
     e.stopPropagation();
   };
   window.addEventListener('keydown', onKey, true);
+  let kickTimer = 0;
   const onStep = (e) => {
     modal.style.setProperty('--club-step', e.detail.step);
     modal.classList.toggle('club-kick', e.detail.kick);
     modal.classList.toggle('club-accent', e.detail.accent);
-    requestAnimationFrame(() => modal.classList.remove('club-kick', 'club-accent'));
+    clearTimeout(kickTimer);
+    kickTimer = setTimeout(() => modal.classList.remove('club-kick', 'club-accent'), 120);
   };
   window.addEventListener('untergrund:step', onStep);
 
@@ -350,6 +408,7 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
         if (event.type === 'chat') messages = [...messages, event].slice(-60);
         if (event.type === 'reaction') showReaction(event);
         if (event.type === 'set') {
+          if (!shouldJoin(event.payload, event.user?.id)) { pendingSet = null; return; }
           pendingSet = event.payload;
           if (!event.local && audioReady) {
             joinRoomSet(pendingSet);
@@ -359,14 +418,36 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
       }, apiBase);
   };
 
+  // A DJ's own set never overwrites local edits or a running transport; it only resumes an idle, unedited deck.
+  const musicKey = (st) => JSON.stringify([st?.patterns, st?.bpm, st?.swing, st?.key, st?.scale]);
+  function shouldJoin(set, deckId = room.hostId) {
+    if (!set) return false;
+    if (set.by !== clientId() && deckId !== clientId()) return true;
+    if (getTransport().playing) return false;
+    return musicKey(set.state) === musicKey(getState());
+  }
+
+  function paintReaction(fx, restart = false) {
+    const elapsed = reaction ? performance.now() - reaction.at : Infinity;
+    if (!fx || elapsed >= 1400) return fx;
+    fx.textContent = reaction.text;
+    fx.style.animationDelay = `${-Math.round(elapsed)}ms`;
+    if (!restart) fx.classList.add('show');
+    else {
+      fx.classList.remove('show');
+      requestAnimationFrame(() => fx.classList.add('show'));
+    }
+    return fx;
+  }
+
   function showReaction(event) {
-    const fx = modal.querySelector('.club-reaction-fx');
-    if (!fx) return;
-    fx.textContent = `${event.user?.name || 'Listener'} · ${event.payload?.value || 'HYPE'}`;
-    fx.classList.remove('show');
-    requestAnimationFrame(() => fx.classList.add('show'));
+    reaction = { text: `${event.user?.name || 'Listener'} · ${event.payload?.value || 'HYPE'}`, at: performance.now() };
+    paintReaction(modal.querySelector('.club-reaction-fx'), true);
     clearTimeout(reactionTimer);
-    reactionTimer = setTimeout(() => fx.classList.remove('show'), 1400);
+    reactionTimer = setTimeout(() => {
+      reaction = null;
+      modal.querySelector('.club-reaction-fx')?.classList.remove('show');
+    }, 1400);
   }
 
   function nowPlaying() {
@@ -381,7 +462,7 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
   }
 
   function broadcastSet() {
-    audioReady = unlockAudio() !== false;
+    unlock();
     if (room.hostId && room.hostId !== clientId()) {
       const queued = room.queue?.includes(clientId());
       bus.send('deck', { action: queued ? 'leave' : 'join' });
@@ -393,9 +474,23 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
     const track = nowPlaying();
     const broadcastId = `${bus.clientId}:${Date.now()}:${++bus.localSetVersion}`;
     bus.initiatedSets.add(broadcastId);
-    bus.send('set', { state: clone(getState()), style: getStyle(), ...track, startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId });
+    bus.send('set', { ...track, state: clone(getState()), style: getStyle(), startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId });
     if (!transport.playing) startRoomBroadcast(startsAt);
     toast(`Broadcasting “${track.title}” to ${activeRoom}`);
+  }
+
+  function commitRoom(value) {
+    const next = cleanRoom(value);
+    if (next === activeRoom) return;
+    activeRoom = next;
+    history.replaceState(null, '', `${location.pathname}?room=${activeRoom}`);
+    messages = [];
+    connect();
+  }
+
+  function commitName(value) {
+    const name = value.trim() || 'Night Listener';
+    if (name !== avatar.name) setAvatar({ name });
   }
 
   function setAvatar(next) {
@@ -417,30 +512,37 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
       h('div', { class: 'club-custom-preview' }, avatarNode(avatar, 'preview')),
       h('div', { class: 'club-custom-fields' },
         h('label', { class: 'club-field' }, h('span', {}, 'DISPLAY NAME'),
-          h('input', { class: 'inp', maxlength: 28, value: avatar.name, onchange: (e) => setAvatar({ name: e.target.value.trim() || 'Night Listener' }) })),
+          h('input', { class: 'inp', maxlength: 28, value: avatar.name, 'data-focus-key': 'avatar-name', onkeydown: (e) => { if (e.key === 'Enter') commitName(e.target.value); }, onblur: (e) => { if (!rendering) commitName(e.target.value); } })),
         choice('HEAD', 'shape', SHAPES),
         choice('COLOR', 'color', COLORS),
         choice('GEAR', 'gear', GEAR)));
   }
 
   function stage() {
-    const members = room.members.length ? room.members : [{ id: clientId(), ...avatar }];
+    const members = (room.members.length ? room.members : [{ id: clientId(), ...avatar }]).map(normalizeMember);
     const current = room.currentSet || nowPlaying();
-    const dj = members.find((member) => member.id === room.hostId) || members[0] || avatar;
+    const dj = members.find((member) => member.id === room.hostId) || members[0] || normalizeMember(avatar);
     const crowd = members.filter((member) => member.id !== dj.id);
-    const ambient = Array.from({ length: Math.max(7, 12 - crowd.length) }, (_, i) =>
-      avatarNode({ name: '', shape: SHAPES[i % SHAPES.length], color: COLORS[(i + 2) % COLORS.length], gear: GEAR[i % GEAR.length] }, `ambient a${i}`));
-    return h('section', { class: 'club-stage' },
+    const slots = crowdSlots();
+    const ambient = Array.from({ length: Math.max(0, 14 - crowd.length) }, (_, i) =>
+      ({ name: '', shape: SHAPES[i % SHAPES.length], color: COLORS[(i + 2) % COLORS.length], gear: GEAR[i % GEAR.length] }));
+    const people = [...crowd, ...ambient].slice(0, slots.length).map((member, i) => {
+      const slot = slots[i];
+      const style = `--x:${slot.x.toFixed(1)}%;--y:${slot.y}%;--depth:${slot.depth};--z:${10 - slot.row};` +
+        `--turn:${((50 - slot.x) * .55).toFixed(1)}deg;--delay:${(-((i * .37) % 1)).toFixed(2)}s`;
+      return avatarNode(member, i < crowd.length ? `listener p${i}` : 'ambient', style);
+    });
+    return h('section', { class: 'club-stage', style: `--beat:${(60 / (current.bpm || 132)).toFixed(3)}s` },
       h('div', { class: 'club-lights' }, h('i'), h('i'), h('i')),
-      h('div', { class: 'club-reaction-fx' }),
+      paintReaction(h('div', { class: 'club-reaction-fx' })),
       h('div', { class: 'club-dj' },
-        h('div', { class: 'club-booth' }, h('i'), h('b', {}, 'UNTERGRUND'), h('i')),
-        avatarNode(dj, 'dj')),
+        avatarNode(dj, 'dj', '--turn:0deg'),
+        h('div', { class: 'club-booth' }, h('i'), h('b', {}, 'UNTERGRUND'), h('i'))),
       h('div', { class: 'club-now' },
         h('span', {}, room.currentSet ? 'LIVE IN THIS ROOM' : 'READY TO BROADCAST'),
         h('strong', {}, current.title),
         h('small', {}, `${current.artist} · ${current.bpm} BPM · ${current.key || ''}`)),
-      h('div', { class: 'club-floor' }, ambient, crowd.map((member, i) => avatarNode(member.avatar || member, `listener p${i}`))));
+      h('div', { class: 'club-floor' }, people));
   }
 
   function chatPanel() {
@@ -449,7 +551,7 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
         h('b', {}, message.user?.name || 'Listener'), h('span', {}, message.payload?.text || ''))) :
         h('div', { class: 'club-chat-empty' }, 'The room is quiet. Start the signal.'));
     const input = h('input', {
-      class: 'inp', maxlength: 280, placeholder: 'Message the room',
+      class: 'inp', maxlength: 280, placeholder: 'Message the room', 'data-focus-key': 'chat',
       onkeydown: (e) => {
         if (e.key !== 'Enter' || !e.target.value.trim()) return;
         bus.send('chat', { text: e.target.value.trim() });
@@ -464,37 +566,42 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
         h('button', { class: 'btn ghost', onclick: () => bus.send('reaction', { value }) }, value))));
   }
 
+  let rendering = false;
   function render() {
+    const focused = modal.contains(document.activeElement) ? document.activeElement : null;
+    const draft = focused?.dataset?.focusKey ? {
+      key: focused.dataset.focusKey,
+      value: focused.value,
+      start: focused.selectionStart,
+      end: focused.selectionEnd,
+    } : null;
+    rendering = true;
     modal.innerHTML = '';
+    rendering = false;
     const invite = new URL(location.href);
     invite.searchParams.set('room', activeRoom);
     const roomInput = h('input', {
-      class: 'inp club-room-input', value: activeRoom, maxlength: 32,
-      onchange: (e) => {
-        const next = cleanRoom(e.target.value);
-        if (next === activeRoom) return;
-        activeRoom = next;
-        history.replaceState(null, '', `${location.pathname}?room=${activeRoom}`);
-        messages = [];
-        connect();
-      },
+      class: 'inp club-room-input', value: activeRoom, maxlength: 32, 'data-focus-key': 'room',
+      onkeydown: (e) => { if (e.key === 'Enter') commitRoom(e.target.value); },
+      onblur: (e) => { if (!rendering) commitRoom(e.target.value); },
     });
     const isHost = !room.hostId || room.hostId === clientId();
     const queued = room.queue?.includes(clientId());
-    const syncAudio = () => {
-      audioReady = unlockAudio() !== false;
+    const syncAudio = async () => {
+      await unlock();
       const set = pendingSet || room.currentSet;
-      if (set && audioReady) {
+      if (set && audioReady && shouldJoin(set)) {
         joinRoomSet(set);
         pendingSet = null;
       }
+      render();
     };
     const head = h('header', { class: 'club-head' },
       h('div', { class: 'club-brand' }, h('i'), h('div', {}, h('b', {}, 'UNTERGRUND CLUB'), h('span', {}, 'original machine music only'))),
       h('div', { class: 'club-room-name' }, h('span', {}, 'ROOM'), roomInput),
       h('div', { class: 'club-head-actions' },
         h('button', { class: 'btn ghost', onclick: async () => { await navigator.clipboard?.writeText(invite.toString()); toast('Room link copied'); } }, 'COPY INVITE'),
-        !audioReady && room.currentSet ? h('button', { class: 'btn accent', onclick: syncAudio }, 'JOIN LIVE AUDIO') : null,
+        room.currentSet && !getTransport().playing && shouldJoin(room.currentSet) ? h('button', { class: 'btn accent', onclick: syncAudio }, 'JOIN LIVE AUDIO') : null,
         h('button', { class: `btn ${isHost ? 'accent' : 'club-queue'}`, onclick: broadcastSet },
           isHost ? (room.currentSet ? 'REBROADCAST SET' : 'GO LIVE') : (queued ? 'LEAVE DJ QUEUE' : 'JOIN DJ QUEUE')),
         isHost && room.queue?.length ? h('button', { class: 'btn club-queue', onclick: () => bus.send('deck', { action: 'pass' }) }, 'PASS DECK') : null,
@@ -507,6 +614,12 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
           h('b', {}, '100% UNTERGRUND-NATIVE'),
           h('span', {}, 'Every set in every room is created inside the instrument. No imported catalog. No passive playlist.'),
           h('small', {}, room.queue?.length ? `UP NEXT · ${room.queue.map((id) => room.members.find((member) => member.id === id)?.name || 'Listener').join(' · ')}` : 'DJ QUEUE OPEN'))));
+    const restored = draft && modal.querySelector(`[data-focus-key="${draft.key}"]`);
+    if (restored) {
+      restored.value = draft.value;
+      restored.focus({ preventScroll: true });
+      if (draft.start != null) restored.setSelectionRange(draft.start, draft.end);
+    }
   }
 
   render();
