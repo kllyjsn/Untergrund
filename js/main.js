@@ -7,12 +7,12 @@ import { knob, numBox, h } from './ui.js';
 import { openPublish } from './publish.js';
 import { loadArtistProfile, openArtistStudio } from './artist.js';
 import { openClub } from './club.js';
-import { roomTransportPosition } from './room-sync.js';
+import { roomTransportPosition, transportResync } from './room-sync.js';
 
 let state = load() || defaultState();
 let ctx = null, engine = null, seq = null, timer = null, recNode = null;
 let playing = false, abs = 0, nextTime = 0, lastPlayedPat = null;
-let transportOrigin = 0, roomJoinTimer = 0;
+let transportOrigin = 0, roomJoinTimer = 0, clockOffset = null;
 const uiQueue = [];
 let selected = 'kick';
 let style = 'hypnotic';
@@ -44,7 +44,14 @@ function ensureAudio() {
 
 function schedule() {
   if (!playing) return;
-  if (nextTime < ctx.currentTime - 0.2) nextTime = ctx.currentTime + 0.02; // recover after a stall
+  const offset = Date.now() / 1000 - ctx.currentTime;
+  clockOffset = clockOffset === null ? offset : clockOffset + (offset - clockOffset) * 0.05;
+  const target = transportOrigin / 1000 + abs * engine.stepDur - clockOffset;
+  const fix = transportResync(target, nextTime, ctx.currentTime, engine.stepDur);
+  if (fix) {
+    for (let i = 0; i < fix.skip; i++, abs++) { artistTick(abs); seq.advanceBar(abs); }
+    nextTime = fix.nextTime;
+  }
   while (nextTime < ctx.currentTime + 0.12) {
     artistTick(abs);
     const pat = seq.tick(abs, nextTime);
@@ -65,6 +72,7 @@ function play({ step = 0, delay = 0.06 } = {}) {
   seq.acidPrevSlide = false;
   state.current = seq.cur;
   nextTime = ctx.currentTime + Math.max(0.01, delay);
+  clockOffset = null;
   transportOrigin = Date.now() + Math.max(0.01, delay) * 1000 - abs * (15000 / state.bpm);
   playing = true;
   timer.postMessage('start');
