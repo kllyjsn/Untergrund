@@ -7,7 +7,7 @@ const AVATAR_KEY = 'untergrund.avatar.v1';
 const ROOM_KEY = 'untergrund.room.v1';
 const SHAPES = ['block', 'round', 'visor'];
 const COLORS = ['lime', 'red', 'blue', 'violet', 'bone'];
-const GEAR = ['none', 'hood', 'goggles', 'antenna'];
+const GEAR = ['none', 'hood', 'goggles', 'antenna', 'phones'];
 const REACTIONS = ['HYPE', 'DEEP', 'ACID'];
 
 const roomId = () => {
@@ -34,20 +34,53 @@ export function loadAvatar() {
   catch { return defaultAvatar(); }
 }
 
+const pick = (value, values, fallback) => values.includes(value) ? value : fallback;
+
+export function normalizeMember(member = {}) {
+  const base = defaultAvatar();
+  const look = { ...member, ...(member.avatar || {}) };
+  const { avatar: _nested, ...rest } = member;
+  return {
+    ...rest,
+    name: String(member.name ?? base.name).slice(0, 28),
+    shape: pick(look.shape, SHAPES, base.shape),
+    color: pick(look.color, COLORS, base.color),
+    gear: pick(look.gear, GEAR, base.gear),
+  };
+}
+
 function saveAvatar(avatar) {
   localStorage.setItem(AVATAR_KEY, JSON.stringify(avatar));
 }
 
-function avatarNode(avatar, extra = '') {
-  const safe = { ...defaultAvatar(), ...avatar };
-  return h('div', { class: `club-person ${safe.shape} ${safe.color} gear-${safe.gear} ${extra}` },
+const cube = (cls, faces = ['f', 't', 'l', 'r'], front = []) => h('div', { class: `cube ${cls}` },
+  faces.map((face) => h('i', { class: face }, face === 'f' ? front : [])));
+
+function avatarNode(avatar, extra = '', style = '') {
+  const safe = normalizeMember(avatar);
+  const screen = h('span', { class: 'bot-screen' },
+    h('i', { class: 'bot-eye left' }), h('i', { class: 'bot-eye right' }), h('i', { class: 'bot-mouth' }), h('i', { class: 'bot-goggles' }));
+  return h('div', { class: `club-person ${safe.shape} ${safe.color} gear-${safe.gear} ${extra}`, style, role: 'img', 'aria-label': safe.name ? `${safe.name} avatar` : 'Crowd silhouette' },
     h('div', { class: 'club-shadow' }),
-    h('div', { class: 'club-avatar' },
-      h('i', { class: 'av-antenna' }),
-      h('div', { class: 'av-head' }, h('i', { class: 'av-eye left' }), h('i', { class: 'av-eye right' }), h('i', { class: 'av-goggles' })),
-      h('div', { class: 'av-body' }, h('i', { class: 'av-mark' })),
-      h('i', { class: 'av-arm left' }), h('i', { class: 'av-arm right' })),
-    h('div', { class: 'club-name' }, safe.name));
+    h('div', { class: 'bot' },
+      h('div', { class: 'bot-rig' },
+        cube('bot-leg left'), cube('bot-leg right'),
+        cube('bot-torso', ['f', 't', 'l', 'r'], [h('i', { class: 'bot-led' }), h('i', { class: 'bot-led' }), h('i', { class: 'bot-led' })]),
+        cube('bot-arm left'), cube('bot-arm right'),
+        h('div', { class: 'bot-head-wrap' },
+          cube('bot-head', ['f', 't', 'l', 'r'], [screen]),
+          cube('bot-hood', ['t', 'l', 'r']),
+          cube('bot-phone left'), cube('bot-phone right'), h('i', { class: 'bot-band' }),
+          h('i', { class: 'bot-antenna' })))),
+    safe.name ? h('div', { class: 'club-name' }, safe.name) : null);
+}
+
+function crowdSlots() {
+  const slots = [];
+  [[5, 4, 1], [6, 19, .8], [7, 31, .64]].forEach(([count, y, depth], row) => {
+    for (let i = 0; i < count; i++) slots.push({ x: 10 + (80 * (i + .5)) / count + (row === 1 ? 2.5 : 0), y, depth, row });
+  });
+  return slots.sort((a, b) => a.row - b.row || Math.abs(a.x - 50) - Math.abs(b.x - 50));
 }
 
 class RoomBus {
@@ -73,7 +106,7 @@ class RoomBus {
     this.localSetVersion = 0;
     this.initiatedSets = new Set();
     this.appliedBroadcasts = new Set();
-    this.members = new Map([[this.clientId, { id: this.clientId, ...user, joinedAt: this.joinedAt, seen: Date.now() }]]);
+    this.members = new Map([[this.clientId, normalizeMember({ id: this.clientId, ...user, joinedAt: this.joinedAt, seen: Date.now() })]]);
     this.currentSet = null;
     this.channel = 'BroadcastChannel' in window ? new BroadcastChannel(`untergrund:${this.id}`) : null;
     if (this.channel) this.channel.onmessage = (e) => this.handleChannel(e.data);
@@ -169,7 +202,7 @@ class RoomBus {
 
   updateUser(user) {
     this.user = user;
-    this.members.set(this.clientId, { id: this.clientId, ...user, joinedAt: this.joinedAt, seen: Date.now() });
+    this.members.set(this.clientId, normalizeMember({ id: this.clientId, ...user, joinedAt: this.joinedAt, seen: Date.now() }));
     this.heartbeat();
   }
 
@@ -209,14 +242,14 @@ class RoomBus {
     this.hostId = snapshot.hostId || this.hostId;
     this.queue = snapshot.queue || this.queue;
     for (const member of snapshot.members || []) {
-      if (member.id !== this.clientId) this.members.set(member.id, member);
+      if (member.id !== this.clientId) this.members.set(member.id, normalizeMember(member));
     }
-    this.members.set(this.clientId, {
+    this.members.set(this.clientId, normalizeMember({
       id: this.clientId,
       ...this.user,
       joinedAt: this.joinedAt,
       seen: Date.now(),
-    });
+    }));
     const cutoff = Date.now() - 15000;
     for (const [id, member] of this.members) if ((member.seen || 0) < cutoff) this.members.delete(id);
     if (snapshot.currentSet) {
@@ -249,12 +282,12 @@ class RoomBus {
     for (const member of snapshot.members || []) {
       const existing = this.members.get(member.id);
       const joined = [existing?.joinedAt, member.joinedAt].filter(Number.isFinite);
-      this.members.set(member.id, {
+      this.members.set(member.id, normalizeMember({
         ...existing,
-        ...member,
+        ...normalizeMember(member),
         joinedAt: joined.length ? Math.min(...joined) : Date.now(),
         seen: Date.now(),
-      });
+      }));
     }
     if (snapshot.currentSet) this.applySet(snapshot.currentSet, snapshot.hostId, true);
     this.queue = [...new Set([...(this.queue || []), ...(snapshot.queue || [])])];
@@ -279,12 +312,12 @@ class RoomBus {
     if (this.seen.size > 400) this.seen.delete(this.seen.values().next().value);
     if (event.user?.id) {
       const existing = this.members.get(event.user.id);
-      this.members.set(event.user.id, {
+      this.members.set(event.user.id, normalizeMember({
         ...existing,
-        ...event.user,
+        ...normalizeMember(event.user),
         joinedAt: event.user.joinedAt || existing?.joinedAt || Date.now(),
         seen: Date.now(),
-      });
+      }));
     }
     if (event.type === 'set') {
       this.applySet(event.payload, event.user?.id);
@@ -451,23 +484,30 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
   }
 
   function stage() {
-    const members = room.members.length ? room.members : [{ id: clientId(), ...avatar }];
+    const members = (room.members.length ? room.members : [{ id: clientId(), ...avatar }]).map(normalizeMember);
     const current = room.currentSet || nowPlaying();
-    const dj = members.find((member) => member.id === room.hostId) || members[0] || avatar;
+    const dj = members.find((member) => member.id === room.hostId) || members[0] || normalizeMember(avatar);
     const crowd = members.filter((member) => member.id !== dj.id);
-    const ambient = Array.from({ length: Math.max(7, 12 - crowd.length) }, (_, i) =>
-      avatarNode({ name: '', shape: SHAPES[i % SHAPES.length], color: COLORS[(i + 2) % COLORS.length], gear: GEAR[i % GEAR.length] }, `ambient a${i}`));
-    return h('section', { class: 'club-stage' },
+    const slots = crowdSlots();
+    const ambient = Array.from({ length: Math.max(0, 14 - crowd.length) }, (_, i) =>
+      ({ name: '', shape: SHAPES[i % SHAPES.length], color: COLORS[(i + 2) % COLORS.length], gear: GEAR[i % GEAR.length] }));
+    const people = [...crowd, ...ambient].slice(0, slots.length).map((member, i) => {
+      const slot = slots[i];
+      const style = `--x:${slot.x.toFixed(1)}%;--y:${slot.y}%;--depth:${slot.depth};--z:${10 - slot.row};` +
+        `--turn:${((50 - slot.x) * .55).toFixed(1)}deg;--delay:${(-((i * .37) % 1)).toFixed(2)}s`;
+      return avatarNode(member, i < crowd.length ? `listener p${i}` : 'ambient', style);
+    });
+    return h('section', { class: 'club-stage', style: `--beat:${(60 / (current.bpm || 132)).toFixed(3)}s` },
       h('div', { class: 'club-lights' }, h('i'), h('i'), h('i')),
       h('div', { class: 'club-reaction-fx' }),
       h('div', { class: 'club-dj' },
-        h('div', { class: 'club-booth' }, h('i'), h('b', {}, 'UNTERGRUND'), h('i')),
-        avatarNode(dj, 'dj')),
+        avatarNode(dj, 'dj', '--turn:0deg'),
+        h('div', { class: 'club-booth' }, h('i'), h('b', {}, 'UNTERGRUND'), h('i'))),
       h('div', { class: 'club-now' },
         h('span', {}, room.currentSet ? 'LIVE IN THIS ROOM' : 'READY TO BROADCAST'),
         h('strong', {}, current.title),
         h('small', {}, `${current.artist} · ${current.bpm} BPM · ${current.key || ''}`)),
-      h('div', { class: 'club-floor' }, ambient, crowd.map((member, i) => avatarNode(member.avatar || member, `listener p${i}`))));
+      h('div', { class: 'club-floor' }, people));
   }
 
   function chatPanel() {
