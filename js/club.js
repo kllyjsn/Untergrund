@@ -401,6 +401,7 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
         if (event.type === 'chat') messages = [...messages, event].slice(-60);
         if (event.type === 'reaction') showReaction(event);
         if (event.type === 'set') {
+          if (!shouldJoin(event.payload)) { pendingSet = null; return; }
           pendingSet = event.payload;
           if (!event.local && audioReady) {
             joinRoomSet(pendingSet);
@@ -409,6 +410,13 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
         }
       }, apiBase);
   };
+
+  // A DJ's own set never overwrites local edits or a running transport; it only resumes an idle, unedited deck.
+  function shouldJoin(set) {
+    if (!set || set.by !== clientId()) return !!set;
+    if (getTransport().playing) return false;
+    return JSON.stringify(set.state?.patterns) === JSON.stringify(getState().patterns);
+  }
 
   function paintReaction(fx, restart = false) {
     const elapsed = reaction ? performance.now() - reaction.at : Infinity;
@@ -573,7 +581,7 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
     const syncAudio = async () => {
       await unlock();
       const set = pendingSet || room.currentSet;
-      if (set && audioReady) {
+      if (set && audioReady && shouldJoin(set)) {
         joinRoomSet(set);
         pendingSet = null;
       }
