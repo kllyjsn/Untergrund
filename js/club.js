@@ -398,6 +398,20 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
     toast(`Broadcasting “${track.title}” to ${activeRoom}`);
   }
 
+  function commitRoom(value) {
+    const next = cleanRoom(value);
+    if (next === activeRoom) return;
+    activeRoom = next;
+    history.replaceState(null, '', `${location.pathname}?room=${activeRoom}`);
+    messages = [];
+    connect();
+  }
+
+  function commitName(value) {
+    const name = value.trim() || 'Night Listener';
+    if (name !== avatar.name) setAvatar({ name });
+  }
+
   function setAvatar(next) {
     avatar = { ...avatar, ...next };
     saveAvatar(avatar);
@@ -417,7 +431,7 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
       h('div', { class: 'club-custom-preview' }, avatarNode(avatar, 'preview')),
       h('div', { class: 'club-custom-fields' },
         h('label', { class: 'club-field' }, h('span', {}, 'DISPLAY NAME'),
-          h('input', { class: 'inp', maxlength: 28, value: avatar.name, 'data-focus-key': 'avatar-name', onchange: (e) => !rendering && setAvatar({ name: e.target.value.trim() || 'Night Listener' }) })),
+          h('input', { class: 'inp', maxlength: 28, value: avatar.name, 'data-focus-key': 'avatar-name', onkeydown: (e) => { if (e.key === 'Enter') commitName(e.target.value); }, onblur: (e) => { if (!rendering) commitName(e.target.value); } })),
         choice('HEAD', 'shape', SHAPES),
         choice('COLOR', 'color', COLORS),
         choice('GEAR', 'gear', GEAR)));
@@ -480,15 +494,8 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
     invite.searchParams.set('room', activeRoom);
     const roomInput = h('input', {
       class: 'inp club-room-input', value: activeRoom, maxlength: 32, 'data-focus-key': 'room',
-      onchange: (e) => {
-        if (rendering) return;
-        const next = cleanRoom(e.target.value);
-        if (next === activeRoom) return;
-        activeRoom = next;
-        history.replaceState(null, '', `${location.pathname}?room=${activeRoom}`);
-        messages = [];
-        connect();
-      },
+      onkeydown: (e) => { if (e.key === 'Enter') commitRoom(e.target.value); },
+      onblur: (e) => { if (!rendering) commitRoom(e.target.value); },
     });
     const isHost = !room.hostId || room.hostId === clientId();
     const queued = room.queue?.includes(clientId());
