@@ -215,7 +215,11 @@ function showClub() {
     getStyle: () => style,
     getTransport: () => ({ playing, startsAt: transportOrigin }),
     startRoomBroadcast,
-    unlockAudio: () => { ensureAudio(); return ctx.state === 'running'; },
+    unlockAudio: async () => {
+      ensureAudio();
+      if (ctx.state !== 'running') await ctx.resume().catch(() => {});
+      return ctx.state === 'running';
+    },
     joinRoomSet,
     toast,
   });

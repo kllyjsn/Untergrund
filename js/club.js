@@ -345,7 +345,9 @@ class RoomBus {
 }
 
 export function openClub({ getState, getStyle, getTransport, startRoomBroadcast, unlockAudio, joinRoomSet, toast }) {
-  let audioReady = unlockAudio() !== false;
+  let audioReady = false;
+  const unlock = () => unlockAudio().then((ok) => (audioReady = ok));
+  unlock().then(() => { if (!closed) render(); });
   let avatar = loadAvatar();
   let activeRoom = roomId();
   let bus = null;
@@ -379,11 +381,13 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
     e.stopPropagation();
   };
   window.addEventListener('keydown', onKey, true);
+  let kickTimer = 0;
   const onStep = (e) => {
     modal.style.setProperty('--club-step', e.detail.step);
     modal.classList.toggle('club-kick', e.detail.kick);
     modal.classList.toggle('club-accent', e.detail.accent);
-    requestAnimationFrame(() => modal.classList.remove('club-kick', 'club-accent'));
+    clearTimeout(kickTimer);
+    kickTimer = setTimeout(() => modal.classList.remove('club-kick', 'club-accent'), 120);
   };
   window.addEventListener('untergrund:step', onStep);
 
@@ -441,7 +445,7 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
   }
 
   function broadcastSet() {
-    audioReady = unlockAudio() !== false;
+    unlock();
     if (room.hostId && room.hostId !== clientId()) {
       const queued = room.queue?.includes(clientId());
       bus.send('deck', { action: queued ? 'leave' : 'join' });
@@ -566,13 +570,14 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
     });
     const isHost = !room.hostId || room.hostId === clientId();
     const queued = room.queue?.includes(clientId());
-    const syncAudio = () => {
-      audioReady = unlockAudio() !== false;
+    const syncAudio = async () => {
+      await unlock();
       const set = pendingSet || room.currentSet;
       if (set && audioReady) {
         joinRoomSet(set);
         pendingSet = null;
       }
+      render();
     };
     const head = h('header', { class: 'club-head' },
       h('div', { class: 'club-brand' }, h('i'), h('div', {}, h('b', {}, 'UNTERGRUND CLUB'), h('span', {}, 'original machine music only'))),
