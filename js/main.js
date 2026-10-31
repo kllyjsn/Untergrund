@@ -6,7 +6,8 @@ import { encodeWav } from './dsp.js';
 import { knob, numBox, h } from './ui.js';
 import { openPublish } from './publish.js';
 import { loadArtistProfile, openArtistStudio } from './artist.js';
-import { openClub } from './club.js';
+import { openClub, loadAvatar } from './club.js';
+import { saveTrack, trackTitle } from './crate.js';
 import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
 import { roomTransportPosition, transportResync } from './room-sync.js';
 
@@ -172,6 +173,7 @@ function undo() {
 
 function replaceState(s) {
   stop();
+  autoMajor = false;
   state = s;
   if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
   build(); persist();
@@ -214,6 +216,10 @@ function showClub() {
   openClub({
     getState: () => state,
     getStyle: () => style,
+    loadTrack: (track) => {
+      style = STYLES[track.style] ? track.style : style;
+      replaceState(sanitize(clone(track.state)));
+    },
     getTransport: () => ({ playing, startsAt: transportOrigin }),
     startRoomBroadcast,
     unlockAudio: async () => {
@@ -316,12 +322,18 @@ function selectPattern(i) {
   build(); persist();
 }
 
+let autoMajor = false;
+function matchStyleScale() {
+  if (style === 'euphoric' && state.scale === 'minor') { state.scale = 'major'; autoMajor = true; }
+  else if (style !== 'euphoric' && autoMajor && state.scale === 'major') { state.scale = 'minor'; autoMajor = false; }
+}
+
 function doGenerate() {
   pushUndo();
   const seed = (Math.random() * 1e9) | 0;
   const before = clone(pat());
   const lockedParams = Object.fromEntries(TRACK_IDS.filter((id) => state.locks[id]).map((id) => [id, clone(state.params[id])]));
-  if (style === 'euphoric' && state.scale === 'minor') state.scale = 'major';
+  matchStyleScale();
   const g = generate(style, seed, state.scale);
   state.patterns[state.current] = g.pattern;
   for (const id of TRACK_IDS) if (state.locks[id]) {
@@ -340,7 +352,7 @@ function doGenerateSet() {
   const seed = (Math.random() * 1e9) | 0;
   const source = clone(pat());
   const lockedParams = Object.fromEntries(TRACK_IDS.filter((id) => state.locks[id]).map((id) => [id, clone(state.params[id])]));
-  if (style === 'euphoric' && state.scale === 'minor') state.scale = 'major';
+  matchStyleScale();
   const g = generate(style, seed, state.scale);
   state.patterns = arrangement(g.pattern, seed);
   for (const p of state.patterns) for (const id of TRACK_IDS) if (state.locks[id]) {
@@ -351,8 +363,13 @@ function doGenerateSet() {
   for (const [id, params] of Object.entries(lockedParams)) state.params[id] = params;
   engine?.applyAll(); engine?.applyDelayTime();
   state.chainOn = true;
+  const title = trackTitle(seed);
+  const artist = loadAvatar().name || 'UNTERGRUND';
+  state.artist = { name: artist, title, style, seed, created: new Date().toISOString() };
   build(); persist();
-  toast(`New ${STYLES[style].name} set A–H · chain on: ${state.chain}`);
+  toast(`New ${STYLES[style].name} track “${title}”`);
+  saveTrack({ title, artist, style, state: clone(state) })
+    .then(({ shared }) => toast(`“${title}” saved to ${shared ? 'the shared CRATE' : 'your CRATE'}`));
 }
 
 function doMutate() {
@@ -484,7 +501,7 @@ function buildHeader() {
   const key = h('select', { class: 'sel', title: 'Key', onchange: (e) => { state.key = +e.target.value; persist(); renderRow('acid'); renderRoll(); } },
     KEYS.map((k, i) => { const o = h('option', { value: i }, k); if (i === state.key) o.selected = true; return o; }));
   const scale = h('select', { class: 'sel', title: 'Scale used by the acid generator and highlighted in the piano roll',
-    onchange: (e) => { state.scale = e.target.value; persist(); renderRoll(); } },
+    onchange: (e) => { state.scale = e.target.value; autoMajor = false; persist(); renderRoll(); } },
     Object.entries(SCALES).map(([id, s]) => { const o = h('option', { value: id }, s.name); if (id === state.scale) o.selected = true; return o; }));
 
   const pats = h('div', { class: 'pats' }, PATTERN_NAMES.map((n, i) => h('button', { class: 'pat', 'data-i': i, onclick: () => selectPattern(i), title: `Pattern ${n} (← →)` }, n)));

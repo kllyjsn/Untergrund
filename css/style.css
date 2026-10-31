@@ -469,6 +469,15 @@ body.artist-live .logo b { background: #c6ff2b; }
 .club-social { min-height: 0; display: grid; grid-template-rows: auto minmax(0,1fr) auto auto; background: #09090b; border-left: 1px solid #25222d; }
 .club-social-head { display: flex; align-items: center; justify-content: space-between; padding: 13px 14px; border-bottom: 1px solid #25222d; color: #817c88; font-size: 9px; letter-spacing: .17em; }
 .club-social-head b { color: #c6ff2b; }
+.club-tabs { display: flex; gap: 12px; }
+.club-tabs button { padding: 0; background: none; border: 0; color: #5d5966; font: inherit; letter-spacing: inherit; cursor: pointer; }
+.club-tabs button.on { color: #e8e4ec; }
+.club-crate { min-height: 0; overflow-y: auto; padding: 6px 10px; display: flex; flex-direction: column; gap: 6px; }
+.club-crate-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 1px solid #25222d; background: #0e0d12; }
+.club-crate-row b { display: block; color: #ece8f0; font-size: 12px; letter-spacing: .04em; }
+.club-crate-row small { color: #7d7886; font-size: 9px; letter-spacing: .06em; }
+.club-crate-row .btn { flex: none; height: 28px; padding: 0 12px; font-size: 9px; }
+.club-crate-note { padding: 10px 14px 12px; color: #6f6a78; font-size: 9px; line-height: 1.5; border-top: 1px solid #25222d; }
 .club-chat-feed { min-height: 0; overflow-y: auto; padding: 10px 14px; display: flex; flex-direction: column; gap: 9px; }
 .club-chat-line { display: grid; grid-template-columns: 82px 1fr; gap: 8px; font-size: 10px; line-height: 1.4; }
 .club-chat-line b { overflow: hidden; text-overflow: ellipsis; color: #cbb2ff; }
