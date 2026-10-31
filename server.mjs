@@ -34,7 +34,7 @@ const sendRoomJson = (res, status, json) => {
   });
   res.end(JSON.stringify(json));
 };
-const clean = (value, max = 80) => String(value || '').replace(/[<>]/g, '').trim().slice(0, max);
+const clean = (value, max = 80) => String(value || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max);
 const secretHash = (value) => createHash('sha256').update(String(value || '')).digest();
 const validSecret = (secret, expected) => {
   if (!/^[a-f0-9]{64}$/i.test(String(secret || '')) || !expected) return false;
