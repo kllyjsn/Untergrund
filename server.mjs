@@ -10,6 +10,7 @@ const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = +(process.env.PORT || 8000);
 const MOCK = process.env.SC_MOCK === '1';
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.wav': 'audio/wav' };
+const rooms = new Map();
 
 let mock = null;
 const env = { ...process.env };
@@ -21,10 +22,94 @@ if (MOCK) {
 
 const readBody = (req) => new Promise((ok, fail) => { const c = []; req.on('data', (d) => c.push(d)); req.on('end', () => ok(Buffer.concat(c))); req.on('error', fail); });
 const sendJson = (res, status, json) => { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(json)); };
+const sendRoomJson = (res, status, json) => {
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Cache-Control': 'no-store',
+    'Access-Control-Allow-Origin': process.env.ROOMS_ALLOWED_ORIGIN || '*',
+    'Access-Control-Allow-Headers': 'content-type',
+    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+  });
+  res.end(JSON.stringify(json));
+};
+const clean = (value, max = 80) => String(value || '').replace(/[<>]/g, '').trim().slice(0, max);
+const getRoom = (id) => {
+  if (!rooms.has(id)) rooms.set(id, { id, seq: 0, hostId: null, queue: [], members: new Map(), events: [], currentSet: null });
+  return rooms.get(id);
+};
+
+function roomSnapshot(room, since = 0) {
+  const cutoff = Date.now() - 15000;
+  for (const [id, member] of room.members) if (member.seen < cutoff) room.members.delete(id);
+  room.queue = room.queue.filter((id) => room.members.has(id) && id !== room.hostId);
+  if (room.hostId && !room.members.has(room.hostId)) room.hostId = room.queue.shift() || room.members.keys().next().value || null;
+  return {
+    id: room.id,
+    seq: room.seq,
+    hostId: room.hostId,
+    queue: room.queue,
+    members: [...room.members.values()],
+    events: room.events.filter((event) => event.seq > since),
+    currentSet: room.currentSet,
+  };
+}
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   try {
+    if (url.pathname.startsWith('/api/rooms/') && req.method === 'OPTIONS') return sendRoomJson(res, 204, {});
+    if (url.pathname === '/api/room-config') {
+      return sendJson(res, 200, { apiBase: process.env.ROOMS_API_URL || '' });
+    }
+    const roomMatch = url.pathname.match(/^\/api\/rooms\/([a-z0-9-]{2,32})(?:\/events)?$/i);
+    if (roomMatch && req.method === 'GET') {
+      return sendRoomJson(res, 200, roomSnapshot(getRoom(roomMatch[1].toLowerCase()), +(url.searchParams.get('since') || 0)));
+    }
+    if (roomMatch && req.method === 'POST') {
+      const room = getRoom(roomMatch[1].toLowerCase());
+      const body = JSON.parse((await readBody(req)).toString() || '{}');
+      const clientId = clean(body.clientId, 64);
+      if (!clientId) return sendRoomJson(res, 400, { error: 'client_id_required' });
+      const user = {
+        id: clientId,
+        name: clean(body.user?.name || 'Listener', 28),
+        avatar: {
+          shape: clean(body.user?.avatar?.shape || body.user?.shape || 'block', 12),
+          color: clean(body.user?.avatar?.color || body.user?.color || 'lime', 12),
+          gear: clean(body.user?.avatar?.gear || body.user?.gear || 'none', 12),
+        },
+        seen: Date.now(),
+      };
+      room.members.set(clientId, user);
+      if (!room.hostId) room.hostId = clientId;
+      if (body.type !== 'presence') {
+        const type = ['chat', 'reaction', 'set', 'deck'].includes(body.type) ? body.type : null;
+        if (!type) return sendRoomJson(res, 400, { error: 'invalid_event' });
+        let payload = body.payload || {};
+        if (type === 'chat') payload = { text: clean(payload.text, 280) };
+        if (type === 'reaction') payload = { value: clean(payload.value, 24) };
+        if (type === 'set') {
+          if (room.hostId !== clientId) return sendRoomJson(res, 403, { error: 'host_only' });
+          const raw = JSON.stringify(payload);
+          if (raw.length > 450000) return sendRoomJson(res, 413, { error: 'set_too_large' });
+          room.currentSet = payload;
+        }
+        if (type === 'deck') {
+          const action = clean(payload.action, 12);
+          if (action === 'join' && clientId !== room.hostId && !room.queue.includes(clientId)) room.queue.push(clientId);
+          if (action === 'leave') room.queue = room.queue.filter((id) => id !== clientId);
+          if (action === 'pass' && clientId === room.hostId) {
+            const next = room.queue.shift();
+            if (next && room.members.has(next)) room.hostId = next;
+          }
+          payload = { action, hostId: room.hostId, queue: room.queue };
+        }
+        const event = { id: clean(body.id, 80) || `${clientId}-${Date.now()}`, seq: ++room.seq, type, user, payload, at: Date.now() };
+        room.events.push(event);
+        room.events = room.events.slice(-120);
+      }
+      return sendRoomJson(res, 200, roomSnapshot(room, +(body.since || 0)));
+    }
     if (url.pathname === '/api/sc-config') {
       const cfg = publicConfig(env);
       if (MOCK) { const o = `http://${req.headers.host}/mock-sc`; cfg.authUrl = o; cfg.apiUrl = o + '/api'; }

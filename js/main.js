@@ -6,6 +6,7 @@ import { encodeWav } from './dsp.js';
 import { knob, numBox, h } from './ui.js';
 import { openPublish } from './publish.js';
 import { loadArtistProfile, openArtistStudio } from './artist.js';
+import { openClub } from './club.js';
 
 let state = load() || defaultState();
 let ctx = null, engine = null, seq = null, timer = null, recNode = null;
@@ -50,10 +51,10 @@ function schedule() {
   }
 }
 
-function play() {
+function play(startBar = 0) {
   ensureAudio();
-  abs = 0;
-  seq.cur = state.current; seq.queued = null; seq.chainPos = 0; seq.acidPrevSlide = false;
+  abs = Math.max(0, Math.floor(startBar)) * 16;
+  seq.cur = state.current; seq.queued = null; seq.chainPos = Math.max(0, Math.floor(startBar)); seq.acidPrevSlide = false;
   nextTime = ctx.currentTime + 0.06;
   playing = true;
   timer.postMessage('start');
@@ -160,6 +161,30 @@ function showPublish() {
     getState: () => state,
     getStyle: () => style,
     render: async (n) => bufferToWav(await renderBars(state, n)),
+    toast,
+  });
+}
+
+function joinRoomSet(item) {
+  if (!item?.state) return;
+  style = item.style || item.state.artist?.style || style;
+  const roomState = sanitize(clone(item.state));
+  const elapsed = Math.max(0, Date.now() - (item.startsAt || Date.now()));
+  const startBar = Math.floor(elapsed / (240000 / roomState.bpm));
+  const wait = Math.max(0, (item.startsAt || Date.now()) - Date.now());
+  replaceState(roomState);
+  setTimeout(() => {
+    if (!playing) play(startBar);
+    toast(`Synced to “${item.title || 'Live Machine Set'}”`);
+  }, wait);
+}
+
+function showClub() {
+  openClub({
+    getState: () => state,
+    getStyle: () => style,
+    unlockAudio: () => { ensureAudio(); return ctx.state === 'running'; },
+    joinRoomSet,
     toast,
   });
 }
@@ -427,6 +452,7 @@ function buildHeader() {
       toast,
     }),
   }, 'ARTIST');
+  const clubBtn = h('button', { class: 'btn club-btn', title: 'Enter an avatar listening room for UNTERGRUND-native sets', onclick: showClub }, 'CLUB');
   const liveBtn = h('button', {
     class: 'btn live-toggle' + (artistLive ? ' on' : ''),
     title: 'Let the autonomous artist perform and evolve this set',
@@ -453,7 +479,7 @@ function buildHeader() {
         h('option', { value: .12 }, 'SUBTLE'), h('option', { value: .25, selected: true }, 'EVOLVE'), h('option', { value: .55 }, 'WILD')),
       h('button', { class: 'btn ghost evolve', title: 'Create an evolved copy in the next pattern slot', onclick: createVariation }, 'VAR →'),
       h('button', { class: 'btn ghost', title: 'Undo (Ctrl+Z)', onclick: undo }, 'UNDO')),
-    h('div', { class: 'group' }, artistBtn, liveBtn, bars, exportBtn, recBtn, publishBtn),
+    h('div', { class: 'group' }, artistBtn, liveBtn, clubBtn, bars, exportBtn, recBtn, publishBtn),
     h('div', { class: 'group' },
       h('button', { class: 'btn ghost', title: 'Save project JSON', onclick: () => download(new Blob([JSON.stringify(state)], { type: 'application/json' }), `untergrund-${stamp()}.json`) }, 'SAVE'),
       h('button', { class: 'btn ghost', title: 'Load project JSON', onclick: () => fileIn.click() }, 'LOAD'), fileIn,
@@ -772,6 +798,15 @@ function frame() {
         renderPatterns();
       }
       setPlayhead(ev);
+      const pattern = state.patterns[ev.pat];
+      const step = ev.abs % 16;
+      window.dispatchEvent(new CustomEvent('untergrund:step', { detail: {
+        abs: ev.abs,
+        step,
+        bar: Math.floor(ev.abs / 16),
+        kick: !!pattern?.steps?.kick?.[step % (pattern?.len?.kick || 16)],
+        accent: step % 4 === 0,
+      } }));
     }
   }
   drawViz();
@@ -788,6 +823,7 @@ function showHelp() {
     ['L', 'lock a track so generate / mutate / variation keeps it'], ['VAR →', 'evolve this loop into the next pattern slot'],
     ['SCALE', 'guides acid generation and highlights the piano roll'], ['LEN', 'per-track length → polymeter (try 12, 7, 15)'],
     ['ARTIST', 'identity, musical DNA, generated catalog + release calendar'], ['LIVE', 'autonomous evolving performance of the current set'],
+    ['CLUB', 'avatar rooms for listening to music made inside UNTERGRUND'],
     ['CHAIN', 'letters = bars, e.g. AAAABBBBCCCC'], ['PUBLISH', 'render + artwork + metadata → SoundCloud'],
   ];
   const ov = h('div', { class: 'overlay', onclick: (e) => { if (e.target === ov) close(); } },
@@ -832,4 +868,5 @@ document.addEventListener('visibilitychange', () => save(state));
 
 build();
 requestAnimationFrame(frame);
+if (new URLSearchParams(location.search).has('room')) setTimeout(showClub);
 window.__untergrund = { get state() { return state; }, get engine() { return engine; } };
