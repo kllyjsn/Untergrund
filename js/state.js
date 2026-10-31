@@ -187,7 +187,8 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.stab = pad16(pick(r, [[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1], [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1], [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]]));
     S.acid = range(STEPS, (i) => ([0, 3, 7, 10].includes(i) ? { on: true, n: i === 7 ? musicalScale[4] : i === 10 ? musicalScale[2] : 0, a: false, s: i === 3 } : emptyAcidStep()));
     Object.assign(params.kick, { tune: 48, decay: 0.55, drive: 0.15, rumble: 0.15, punch: 0.45, click: 0.2 });
-    Object.assign(params.stab, { chord: pick(r, [1, 2]), cutoff: 1300 + r() * 500, reso: 2, decay: 0.7, env: 0.3, detune: 8, rev: 0.4, dly: 0.25 });
+    Object.assign(params.stab, { voice: 1, chord: pick(r, [1, 2]), cutoff: 1300 + r() * 500, reso: 2, decay: 0.7, env: 0.3, detune: 8, rev: 0.4, dly: 0.25 });
+    master.humanize = 0.25; master.warmth = 0.4;
     Object.assign(params.acid, { wave: 0.05, cutoff: 260, reso: 2, envmod: 0.12, decay: 0.4, drive: 0.1, accent: 0.2 });
     Object.assign(params.ride, { tone: 4200, decay: 0.6 });
     master.duck = 0.6; master.revLevel = 0.6;
@@ -238,11 +239,12 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     if (soul) S.vox = pad16([0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]);
     Object.assign(params.kick, { tune: 52, decay: soul ? 0.5 : 0.35, drive: soul ? 0.2 : 0.45, rumble: 0, punch: 0.55, click: soul ? 0.15 : 0.4 });
     Object.assign(params.snare, { tune: soul ? 200 : 170, snappy: soul ? 0.4 : 0.75, decay: 0.22 });
-    Object.assign(params.ch, { decay: 0.04, tone: soul ? 5200 : 6500 });
+    Object.assign(params.ch, { decay: 0.05, tone: soul ? 3600 : 4800, level: 0.5 });
     Object.assign(params.ride, { tone: 3800, decay: 1.4 });
-    Object.assign(params.stab, { chord: pick(r, soul ? [2, 9, 10, 7] : [1, 2, 7]), octave: 0, cutoff: soul ? 1500 : 1100, reso: 1, decay: 1.4, env: 0.15, detune: soul ? 14 : 6, rev: 0.3, dly: 0.1 });
-    Object.assign(params.acid, { wave: 0.05, tune: -12, cutoff: 320, reso: 1, envmod: 0.1, decay: 0.5, drive: 0.1, accent: 0.15 });
+    Object.assign(params.stab, { voice: 1, chord: pick(r, soul ? [2, 9, 10, 7] : [1, 2, 7]), octave: 0, cutoff: soul ? 1500 : 1100, reso: 1, decay: 1.4, env: soul ? 0.35 : 0.2, detune: soul ? 14 : 6, rev: 0.3, dly: 0.1 });
+    Object.assign(params.acid, { voice: 1, wave: 0.05, tune: -12, cutoff: 320, reso: 1, envmod: 0.1, decay: 0.5, drive: 0.1, accent: 0.15 });
     Object.assign(params.vox, { scatter: 0.6, melody: 0.8, length: 2, tone: 4500 });
+    master.humanize = soul ? 0.9 : 0.6; master.warmth = soul ? 0.85 : 0.7;
     master.duck = 0.25; master.drive = soul ? 0.25 : 0.45; master.revLevel = 0.5;
     swing = soul ? 0.58 : 0.42;
   } else if (style === 'breaks') {
@@ -305,6 +307,17 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     Object.assign(params.acid, { wave: 0, tune: -12, cutoff: 120, reso: 0, envmod: 0, decay: 1.2, drive: 0 });
     master.duck = 0; master.revLevel = 1; master.dlyFb = 0.7;
   }
+  const PROGS = {
+    neosoul: [[[0, 2], [5, 2], [10, 9], [3, 9]], [[0, 2], [8, 9], [3, 9], [10, 10]], [[0, 2], [3, 9], [5, 1], [7, 1]], [[0, 2], [10, 9], [8, 9], [7, 1]]],
+    boombap: [[[0, 1], [0, 1], [8, 7], [7, 1]], [[0, 2], [5, 1], [0, 2], [8, 7]], [[0, 1], [3, 7], [5, 1], [8, 9]]],
+    deephouse: [[[0, 2], [5, 1], [3, 9], [10, 10]], [[0, 2], [8, 7], [5, 2], [7, 1]]],
+    ukg: [[[0, 2], [5, 1], [8, 7], [7, 1]], [[0, 1], [3, 9], [10, 10], [5, 2]]],
+    euphoric: [[[0, 9], [7, 10], [9, 2], [5, 9]], [[5, 9], [7, 10], [0, 9], [9, 2]]],
+    trance: [[[0, 0], [8, 7], [3, 10], [10, 10]], [[0, 0], [5, 0], [8, 7], [10, 10]]],
+  };
+  if (PROGS[style]) P.prog = pick(r, PROGS[style]).map(([root, c]) => ({ r: root, c }));
+  const VARY = { neosoul: 0.8, boombap: 0.6, deephouse: 0.4, ukg: 0.45, breaks: 0.5, euphoric: 0.3, dnb: 0.4 };
+  if (VARY[style]) master.vary = VARY[style];
   return { pattern: P, params, master, bpm, swing };
 }
 
@@ -449,6 +462,7 @@ export function sanitize(s) {
       }
       if (p.len?.[id]) e.len[id] = Math.max(1, Math.min(STEPS, p.len[id] | 0));
     }
+    if (Array.isArray(p.prog) && p.prog.length) e.prog = p.prog.slice(0, 8).map((c) => ({ r: Math.max(-12, Math.min(12, c?.r | 0)), c: Math.max(0, Math.min(10, c?.c | 0)) }));
     return e;
   });
   if (s.artist && typeof s.artist === 'object') {

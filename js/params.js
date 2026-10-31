@@ -121,6 +121,7 @@ export const TRACKS = [
       p('decay', 'DECAY', 0.04, 1.2, 0.24, { curve: 'exp', unit: 's' }),
       p('accent', 'ACCENT', 0, 1, 0.65),
       p('drive', 'DRIVE', 0, 1, 0.5),
+      p('voice', 'VOICE', 0, 1, 0, { step: 1, list: ['303', 'BASS'] }),
     ],
     mix: { level: 0.55, dly: 0.12, rev: 0.05 },
   },
@@ -134,6 +135,7 @@ export const TRACKS = [
       p('env', 'ENV', 0, 1, 0.45),
       p('decay', 'DECAY', 0.05, 2.5, 0.28, { curve: 'exp', unit: 's' }),
       p('detune', 'DETUNE', 0, 40, 12, { unit: 'ct' }),
+      p('voice', 'VOICE', 0, 1, 0, { step: 1, list: ['SAW', 'KEYS'] }),
     ],
     mix: { level: 0.42, rev: 0.35, dly: 0.42 },
   },
@@ -164,6 +166,9 @@ export const MASTER_PARAMS = [
   p('dlyTime', 'DLY TIME', 0, DELAY_TIMES.length - 1, 2, { step: 1, list: DELAY_TIMES.map((d) => d.name) }),
   p('dlyFb', 'FEEDBACK', 0, 0.92, 0.45),
   p('dlyLevel', 'DLY RTN', 0, 1, 0.65),
+  p('humanize', 'HUMANIZE', 0, 1, 0),
+  p('warmth', 'WARMTH', 0, 1, 0),
+  p('vary', 'VARIATION', 0, 1, 0),
 ];
 
 export function defaultParams() {
