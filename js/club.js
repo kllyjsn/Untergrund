@@ -328,7 +328,12 @@ export function openClub({ getState, getStyle, getTransport, startRoomBroadcast,
   document.body.append(ov);
 
   const onKey = (e) => {
-    if (e.key === 'Escape') close();
+    if (e.key === 'Escape') {
+      close();
+      e.stopPropagation();
+      return;
+    }
+    if (e.target.closest('input, textarea, select')) return;
     e.stopPropagation();
   };
   window.addEventListener('keydown', onKey, true);

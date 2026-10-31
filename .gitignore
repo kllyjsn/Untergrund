@@ -1,2 +1,4 @@
 test/out/
 *.wav
+.vercel/
+dist/
