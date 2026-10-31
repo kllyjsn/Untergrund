@@ -15,7 +15,11 @@ const meta = ({ state, ...rest }) => rest;
 export async function listCrate() {
   try {
     const res = await fetch('/api/tracks');
-    if (res.ok) return { shared: true, tracks: (await res.json()).tracks || [] };
+    if (res.ok) {
+      const shared = (await res.json()).tracks || [];
+      const pending = localTracks().filter((t) => String(t.id).startsWith('local-')).map(meta);
+      return { shared: true, tracks: [...pending, ...shared] };
+    }
   } catch {}
   return { shared: false, tracks: localTracks().map(meta) };
 }

@@ -18,3 +18,8 @@ assert.equal(one.json.track.style, 'euphoric');
 assert(Array.isArray(one.json.track.state.patterns));
 assert.equal((await handleCrate('GET', null, store, 'nope')).status, 404);
 console.log('shared crate storage passed');
+const limited = memoryStore();
+for (let i = 0; i < 30; i++) assert.equal((await handleCrate('POST', { state: defaultState() }, limited, '', 'ip1')).status, 201);
+assert.equal((await handleCrate('POST', { state: defaultState() }, limited, '', 'ip1')).status, 429);
+assert.equal((await handleCrate('POST', { state: defaultState() }, limited, '', 'ip2')).status, 201);
+console.log('crate rate limit passed');

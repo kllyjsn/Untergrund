@@ -173,6 +173,7 @@ function undo() {
 
 function replaceState(s) {
   stop();
+  autoMajor = false;
   state = s;
   if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
   build(); persist();
@@ -500,7 +501,7 @@ function buildHeader() {
   const key = h('select', { class: 'sel', title: 'Key', onchange: (e) => { state.key = +e.target.value; persist(); renderRow('acid'); renderRoll(); } },
     KEYS.map((k, i) => { const o = h('option', { value: i }, k); if (i === state.key) o.selected = true; return o; }));
   const scale = h('select', { class: 'sel', title: 'Scale used by the acid generator and highlighted in the piano roll',
-    onchange: (e) => { state.scale = e.target.value; persist(); renderRoll(); } },
+    onchange: (e) => { state.scale = e.target.value; autoMajor = false; persist(); renderRoll(); } },
     Object.entries(SCALES).map(([id, s]) => { const o = h('option', { value: id }, s.name); if (id === state.scale) o.selected = true; return o; }));
 
   const pats = h('div', { class: 'pats' }, PATTERN_NAMES.map((n, i) => h('button', { class: 'pat', 'data-i': i, onclick: () => selectPattern(i), title: `Pattern ${n} (← →)` }, n)));
