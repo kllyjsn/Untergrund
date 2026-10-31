@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict';
 import { createArtistCatalog, defaultArtistProfile } from '../js/artist.js';
-import { defaultState } from '../js/state.js';
+import { defaultState, sanitize } from '../js/state.js';
+
+const unsafe = defaultState();
+unsafe.swing = .6;
+unsafe.bpm = 999;
+unsafe.chain = 'A!Z';
+unsafe.params.acid.cutoff = 'invalid';
+const safe = sanitize(unsafe);
+assert.equal(safe.swing, .6);
+assert.equal(safe.bpm, 240);
+assert.equal(safe.chain, 'A');
+assert.equal(safe.params.acid.cutoff, 380);
 
 const profile = defaultArtistProfile();
 const catalog = createArtistCatalog(defaultState(), profile, 3, 123456, []);
