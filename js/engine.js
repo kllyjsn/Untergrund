@@ -494,6 +494,13 @@ export class Engine {
     src.start(t, from, dur + 0.02);
   }
 
+  lick(t, v, k) {
+    const p = this.state.params.stab, h = this.harm;
+    const iv = CHORDS[h ? h.c : Math.round(p.chord)].iv;
+    const n = iv[k % iv.length] + 12 * Math.floor(k / iv.length);
+    return this.keys(t, v, [n], 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot(), p, this.ch.stab.input);
+  }
+
   harmRoot() { const h = this.harm; return h ? ((((h.r + 6) % 12) + 12) % 12) - 6 : 0; }
 
   // Round finger-style bass: triangle + sine, short pluck through a gentle lowpass.
@@ -621,7 +628,12 @@ export class Sequencer {
           continue;
         }
         this.acidMuted = false;
-        this.acidStep(pat, i, len, tt, sd);
+        const nextH = vary && i === len - 1 && pat.prog?.length > 1 ? pat.prog[(bar + 1) % pat.prog.length] : null;
+        if (nextH && nextH.r !== e.harm?.r && hash(bar, 91) < vary) {
+          const cur = e.harm; e.harm = nextH;
+          e.acid(tt + (s.master.humanize || 0) * 0.016, { on: true, n: hash(bar, 92) < 0.5 ? -1 : 1, a: false, s: false }, false, false, sd);
+          e.harm = cur; this.acidPrevSlide = false;
+        } else this.acidStep(pat, i, len, tt, sd);
         continue;
       }
       if (this.roll === id && id !== 'stab') {
@@ -648,6 +660,11 @@ export class Sequencer {
       const vel = (v === 2 ? 1 : v === 1 ? 0.78 : v) * hv;
       if (v && id === 'vox') e.vox(ht, vel, i);
       else if (v) e.trigger(id, ht, vel);
+    }
+    const sp = pat.steps.stab;
+    if (vary && !s.mutes.stab && (!anySolo || s.solos.stab) && bar % 2 === 1 && !sp[abs % (pat.len.stab || 16)] && hash(abs, 77) < vary * 0.28) {
+      const k = Math.floor(hash(abs, 78) * 6) + (bar % 4 === 3 ? 2 : 0);
+      e.lick(tt + (s.master.humanize || 0) * 0.02, 0.35 + hash(abs, 79) * 0.3, k);
     }
     if (this.roll === null) this.rollCount = 0;
     return this.cur;
