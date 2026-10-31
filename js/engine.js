@@ -1,7 +1,9 @@
-import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES } from './params.js';
+import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES } from './params.js';
+import { getSample } from './sampler.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
 
-const DUCKED = new Set(['acid', 'stab']);
+const DUCKED = new Set(['acid', 'stab', 'vox']);
+const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
 const EPS = 0.0001;
 
 export class Engine {
@@ -435,6 +437,30 @@ export class Engine {
     env.start(t); env.stop(end);
   }
 
+  vox(t, v, step) {
+    const c = this.ctx, p = this.state.params.vox, sample = getSample();
+    const { buffer, slices } = sample;
+    const jump = hash(step, 1) < p.scatter ? Math.floor(hash(step, 2) * slices.length) : 0;
+    const idx = (Math.round(p.slice) + jump) % slices.length;
+    const from = slices[idx], to = slices[idx + 1] ?? buffer.duration;
+    const notes = SCALES[this.state.scale]?.notes || SCALES.minor.notes;
+    const degree = hash(step, 3) < p.melody ? notes[Math.floor(hash(step, 4) * notes.length)] : 0;
+    const rate = 2 ** ((Math.round(p.pitch) + degree) / 12);
+    const dur = Math.max(0.03, Math.min((to - from) / rate, p.length * this.stepDur));
+    const src = c.createBufferSource();
+    src.buffer = buffer;
+    src.playbackRate.value = rate;
+    const lp = c.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = p.tone; lp.Q.value = 0.7;
+    const amp = this.gain(0);
+    amp.gain.setValueAtTime(0, t);
+    amp.gain.linearRampToValueAtTime(v, t + 0.004);
+    amp.gain.setValueAtTime(v, t + Math.max(0.005, dur - 0.015));
+    amp.gain.linearRampToValueAtTime(0, t + dur);
+    src.connect(lp).connect(amp).connect(this.ch.vox.input);
+    src.start(t, from, dur + 0.02);
+  }
+
   acid(t, st, sliding, holdNext, sd) {
     const a = this.acidNodes, p = this.state.params.acid;
     const f = midiHz(36 + this.state.key + st.n + Math.round(p.tune));
@@ -551,7 +577,8 @@ export class Sequencer {
       }
       if (!on) continue;
       const v = pat.steps[id][i];
-      if (v) e.trigger(id, tt, v === 2 ? 1 : 0.78);
+      if (v && id === 'vox') e.vox(tt, v === 2 ? 1 : 0.78, i);
+      else if (v) e.trigger(id, tt, v === 2 ? 1 : 0.78);
     }
     if (this.roll === null) this.rollCount = 0;
     return this.cur;

@@ -7,6 +7,7 @@ import { knob, numBox, h } from './ui.js';
 import { openPublish } from './publish.js';
 import { loadArtistProfile, openArtistStudio } from './artist.js';
 import { openClub } from './club.js';
+import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
 import { roomTransportPosition, transportResync } from './room-sync.js';
 
 let state = load() || defaultState();
@@ -444,7 +445,7 @@ function buildGenerateHome() {
     h('button', {
       class: 'generate-style' + (style === id ? ' on' : ''),
       onclick: () => { style = id; build(); },
-    }, h('b', {}, value.name), h('span', {}, ({ hypnotic: 'deep · rolling', industrial: 'hard · metallic', acid: '303 · elastic', dub: 'spacious · low', peak: 'urgent · main room' })[id]))));
+    }, h('b', {}, value.name), h('span', {}, ({ hypnotic: 'deep · rolling', industrial: 'hard · metallic', acid: '303 · elastic', dub: 'spacious · low', peak: 'urgent · main room', euphoric: 'emotional · vocal chops' })[id]))));
   const generate = () => {
     doGenerateSet();
     if (!playing) play();
@@ -707,6 +708,7 @@ function buildEditor() {
     drum: 'click = step · shift/right-click = accent · drag to paint',
     acid: 'grid: click = gate · shift = accent · alt = slide · piano roll sets notes',
     stab: 'click = step · shift/right-click = accent · pair with DELAY + REVERB',
+    sampler: 'click = chop · SCATTER picks slices · MELODY sings it in key',
   }[t.kind];
   const ed = h('section', { class: 'editor panel', style: `--tc:${t.color}` },
     h('div', { class: 'ehead' }, h('div', { class: 'etitle' }, h('span', { class: 'sw' }), t.name), h('div', { class: 'hint' }, hint), tools),
@@ -715,7 +717,37 @@ function buildEditor() {
       h('div', { class: 'kgroup' }, h('div', { class: 'glabel' }, 'CHANNEL'), h('div', { class: 'knobs' }, MIX_PARAMS.map(mk)))));
   ui.roll = null; ui.rollCols = null;
   if (id === 'acid') ed.append(buildRoll());
+  if (id === 'vox') ed.append(samplePanel());
   return ed;
+}
+
+function samplePanel() {
+  const name = h('b', {}, getSample().name);
+  const info = h('small', {}, '');
+  const show = (s) => { name.textContent = s.name; info.textContent = `${s.slices.length} slices · ${s.buffer.duration.toFixed(1)}s · stays on this device`; };
+  show(getSample());
+  const off = onSample((s) => (document.body.contains(name) ? show(s) : off()));
+  let rec = null;
+  const reset = () => { rec = null; recBtn.textContent = 'RECORD'; recBtn.classList.remove('live'); };
+  const recBtn = h('button', { class: 'btn accent', title: 'Record up to 20s from your mic: voice, room, street, anything', onclick: async () => {
+    if (rec) { const r = rec; reset(); await r.stop().catch(() => toast('Recording failed')); return; }
+    try {
+      rec = await startRecording();
+      recBtn.textContent = 'STOP'; recBtn.classList.add('live');
+      rec.done.then(() => { toast('Recording chopped into VOX'); }, () => {}).finally(() => rec && reset());
+    } catch { reset(); toast('Microphone unavailable'); }
+  } }, 'RECORD');
+  const rights = h('input', { type: 'checkbox' });
+  const file = h('input', { type: 'file', accept: 'audio/*', style: 'display:none', onchange: async (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (f) await loadAudioFile(f).then(() => toast(`Loaded ${f.name}`), () => toast('Could not decode that audio file'));
+  } });
+  const load = h('button', { class: 'btn ghost', onclick: () => (rights.checked ? file.click() : toast('Confirm you recorded it or own the rights first')) }, 'LOAD FILE');
+  return h('div', { class: 'sampler' },
+    h('div', { class: 'glabel' }, 'SOURCE'), name, info, recBtn, load,
+    h('label', {}, rights, 'I recorded it or own the rights'),
+    h('button', { class: 'btn ghost', onclick: () => useSynthVox() }, 'SYNTH VOX'), file);
 }
 
 function buildRoll() {
@@ -938,4 +970,5 @@ document.addEventListener('visibilitychange', () => save(state));
 build();
 requestAnimationFrame(frame);
 if (new URLSearchParams(location.search).has('room')) setTimeout(showClub);
+restoreSample();
 window.__untergrund = { get state() { return state; }, get engine() { return engine; } };

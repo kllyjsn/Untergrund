@@ -7,6 +7,7 @@ export const SCALES = {
   phrygian: { name: 'PHRYGIAN', notes: [0, 1, 3, 5, 7, 8, 10, 12] },
   harmonic: { name: 'HARM MIN', notes: [0, 2, 3, 5, 7, 8, 11, 12] },
   pentatonic: { name: 'MIN PENTA', notes: [0, 3, 5, 7, 10, 12] },
+  major: { name: 'MAJOR', notes: [0, 2, 4, 5, 7, 9, 11, 12] },
 };
 
 export const CHORDS = [
@@ -19,6 +20,8 @@ export const CHORDS = [
   { name: '5TH', iv: [0, 7, 12] },
   { name: 'MAJ7', iv: [0, 4, 7, 11] },
   { name: 'DIM', iv: [0, 3, 6, 9] },
+  { name: 'MAJ9', iv: [0, 4, 7, 11, 14] },
+  { name: 'ADD9', iv: [0, 4, 7, 14] },
 ];
 
 export const DELAY_TIMES = [
@@ -133,6 +136,18 @@ export const TRACKS = [
       p('detune', 'DETUNE', 0, 40, 12, { unit: 'ct' }),
     ],
     mix: { level: 0.42, rev: 0.35, dly: 0.42 },
+  },
+  {
+    id: 'vox', name: 'VOX', kind: 'sampler', color: '#ff7ad9',
+    params: [
+      p('slice', 'SLICE', 0, 7, 0, { step: 1 }),
+      p('scatter', 'SCATTER', 0, 1, 0.5),
+      p('pitch', 'PITCH', -12, 12, 0, { step: 1, unit: 'st', bipolar: true }),
+      p('melody', 'MELODY', 0, 1, 0.4),
+      p('length', 'LENGTH', 0.25, 4, 1, { step: 0.25 }),
+      p('tone', 'TONE', 300, 12000, 7000, { curve: 'exp', unit: 'Hz' }),
+    ],
+    mix: { level: 0.6, rev: 0.3, dly: 0.22 },
   },
 ];
 
