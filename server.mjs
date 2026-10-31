@@ -22,7 +22,14 @@ if (MOCK) {
     SOUNDCLOUD_AUTH_URL: `http://localhost:${PORT}/mock-sc`, SOUNDCLOUD_API_URL: `http://localhost:${PORT}/mock-sc/api` });
 }
 
-const readBody = (req) => new Promise((ok, fail) => { const c = []; req.on('data', (d) => c.push(d)); req.on('end', () => ok(Buffer.concat(c))); req.on('error', fail); });
+import { handleCrate, memoryStore, redisStore, MAX_TRACK_BYTES } from './api/_lib/crate.js';
+const crateStore = redisStore() || memoryStore();
+const readBody = (req, max = Infinity) => new Promise((ok, fail) => {
+  const c = []; let size = 0;
+  req.on('data', (d) => { size += d.length; if (size > max) { ok(null); req.destroy(); } else c.push(d); });
+  req.on('end', () => ok(Buffer.concat(c)));
+  req.on('error', fail);
+});
 const sendJson = (res, status, json) => { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(json)); };
 const sendRoomJson = (res, status, json) => {
   res.writeHead(status, {
@@ -84,6 +91,14 @@ http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   try {
     if (url.pathname.startsWith('/api/rooms/') && req.method === 'OPTIONS') return sendRoomJson(res, 204, {});
+    if (url.pathname === '/api/tracks') {
+      if (+(req.headers['content-length'] || 0) > MAX_TRACK_BYTES) { req.destroy(); return; }
+      const raw = req.method === 'POST' ? await readBody(req, MAX_TRACK_BYTES) : null;
+      if (raw === null && req.method === 'POST') return sendJson(res, 413, { error: 'too_large' });
+      const body = raw ? JSON.parse(raw.toString() || '{}') : null;
+      const { status, json } = await handleCrate(req.method, body, crateStore, url.searchParams.get('id') || '', req.socket.remoteAddress);
+      return sendJson(res, status, json);
+    }
     if (url.pathname === '/api/room-config') {
       return sendJson(res, 200, { apiBase: process.env.ROOMS_API_URL || '' });
     }

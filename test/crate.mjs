@@ -1,0 +1,25 @@
+import assert from 'node:assert/strict';
+import { handleCrate, memoryStore } from '../api/_lib/crate.js';
+import { defaultState } from '../js/state.js';
+
+assert.equal((await handleCrate('GET', null, null)).status, 503);
+const store = memoryStore();
+assert.equal((await handleCrate('POST', { title: 'x' }, store)).status, 400);
+assert.equal((await handleCrate('POST', { state: { patterns: [] }, junk: 'x'.repeat(250_000) }, store)).status, 413);
+const created = await handleCrate('POST', { title: 'Null Signal\u0007', artist: 'Nova', style: 'euphoric', state: defaultState() }, store);
+assert.equal(created.status, 201);
+assert.equal(created.json.track.title, 'Null Signal');
+assert.equal(created.json.track.state, undefined);
+const list = await handleCrate('GET', null, store);
+assert.equal(list.json.tracks.length, 1);
+assert.equal(list.json.tracks[0].state, undefined);
+const one = await handleCrate('GET', null, store, created.json.track.id);
+assert.equal(one.json.track.style, 'euphoric');
+assert(Array.isArray(one.json.track.state.patterns));
+assert.equal((await handleCrate('GET', null, store, 'nope')).status, 404);
+console.log('shared crate storage passed');
+const limited = memoryStore();
+for (let i = 0; i < 30; i++) assert.equal((await handleCrate('POST', { state: defaultState() }, limited, '', 'ip1')).status, 201);
+assert.equal((await handleCrate('POST', { state: defaultState() }, limited, '', 'ip1')).status, 429);
+assert.equal((await handleCrate('POST', { state: defaultState() }, limited, '', 'ip2')).status, 201);
+console.log('crate rate limit passed');
