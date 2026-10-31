@@ -1,4 +1,4 @@
-import { TRACK_IDS, STEPS, defaultParams, defaultMaster } from './params.js';
+import { TRACK_IDS, STEPS, SCALES, defaultParams, defaultMaster } from './params.js';
 import { rng } from './dsp.js';
 
 export const STYLES = {
@@ -56,8 +56,9 @@ function rollingBass(r) {
 }
 
 // Returns { pattern, params, master, bpm } — params/master are partial overrides.
-export function generate(style, seed = Date.now()) {
+export function generate(style, seed = Date.now(), scaleName = 'minor') {
   const r = rng(seed);
+  const musicalScale = SCALES[scaleName]?.notes || SCALES.minor.notes;
   const P = emptyPattern();
   const S = P.steps;
   const params = { kick: {}, acid: {}, stab: {}, perc: {}, ch: {}, oh: {}, ride: {}, clap: {} };
@@ -98,7 +99,7 @@ export function generate(style, seed = Date.now()) {
     for (let k = 0; k < 3; k++) S.snare[pick(r, [3, 7, 10, 11, 13, 15])] = 1;
     S.perc = pad16(euclid(5, 16, Math.floor(r() * 16)));
     P.len.perc = pick(r, [15, 16]);
-    if (r() < 0.5) S.acid = acidLine(r, { density: 0.45, scale: [0, 0, 1, 3, 7, 12], accent: 0.5, slide: 0.1 });
+    if (r() < 0.5) S.acid = acidLine(r, { density: 0.45, scale: [0, 0, ...musicalScale], accent: 0.5, slide: 0.1 });
     Object.assign(params.kick, { tune: 40 + r() * 6, decay: 0.75, drive: 0.85, rumble: 0.7, punch: 0.7, click: 0.5 });
     Object.assign(params.clap, { tone: 900, decay: 0.35 });
     Object.assign(params.perc, { tune: 90 + r() * 120, metal: 0.8, noise: 0.5, bend: 0.7 });
@@ -109,7 +110,7 @@ export function generate(style, seed = Date.now()) {
     S.oh = offbeatOH;
     S.clap = pad16([0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]);
     S.perc = pad16(euclid(3, 16, Math.floor(r() * 8)));
-    S.acid = acidLine(r, { density: 0.75, accent: 0.35, slide: 0.25 });
+    S.acid = acidLine(r, { density: 0.75, accent: 0.35, slide: 0.25, scale: [0, 0, ...musicalScale] });
     Object.assign(params.kick, { tune: 48, decay: 0.45, drive: 0.4, rumble: 0.25 });
     Object.assign(params.acid, { wave: r() < 0.7 ? 0 : 1, cutoff: 300 + r() * 300, reso: 20, envmod: 0.65, decay: 0.26, accent: 0.75, drive: 0.6 });
     master.duck = 0.45;
@@ -132,7 +133,7 @@ export function generate(style, seed = Date.now()) {
     S.clap = pad16([0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2]);
     S.snare = pad16([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1]);
     S.perc = pad16(euclid(7, 16, Math.floor(r() * 16)));
-    S.acid = acidLine(r, { density: 0.8, scale: [0, 0, 3, 7, 10, 12], accent: 0.4, slide: 0.15, jump: 0.3 });
+    S.acid = acidLine(r, { density: 0.8, scale: [0, 0, ...musicalScale], accent: 0.4, slide: 0.15, jump: 0.3 });
     Object.assign(params.kick, { tune: 50, decay: 0.42, drive: 0.75, punch: 0.75, rumble: 0.4, click: 0.45 });
     Object.assign(params.acid, { wave: 0.3, cutoff: 500, reso: 22, envmod: 0.7, decay: 0.2, accent: 0.8, drive: 0.8 });
     master.duck = 0.5; master.drive = 0.45;
@@ -140,25 +141,30 @@ export function generate(style, seed = Date.now()) {
   return { pattern: P, params, master, bpm };
 }
 
-export function mutate(pat, seed = Date.now()) {
+export function mutate(pat, seed = Date.now(), amount = 0.2, scale = SCALES.minor.notes) {
   const r = rng(seed);
   const P = clone(pat);
-  for (let k = 0; k < 2; k++) {
+  const edits = Math.max(1, Math.round(amount * 10));
+  for (let k = 0; k < edits; k++) {
     const id = pick(r, ['ch', 'perc', 'ride', 'snare', 'oh']);
     const i = Math.floor(r() * STEPS);
     P.steps[id][i] = P.steps[id][i] ? 0 : 1;
   }
   const ac = P.steps.acid;
   if (ac.some((s) => s.on)) {
-    for (let k = 0; k < 2; k++) {
+    for (let k = 0; k < edits; k++) {
       const i = Math.floor(r() * STEPS);
       const s = ac[i];
       const roll = r();
-      if (roll < 0.4) s.n = pick(r, [0, 3, 5, 7, 10, 12, -12]);
+      if (roll < 0.4) s.n = pick(r, [...scale, -12]);
       else if (roll < 0.6) s.a = !s.a;
       else if (roll < 0.8) s.s = !s.s;
       else s.on = !s.on;
     }
+  }
+  for (let k = 0; k < Math.max(1, Math.floor(edits / 2)); k++) {
+    const i = Math.floor(r() * STEPS);
+    P.steps.stab[i] = P.steps.stab[i] ? 0 : (r() < 0.25 ? 2 : 1);
   }
   return P;
 }
@@ -195,6 +201,7 @@ export function defaultState() {
     bpm: 133,
     swing: 0.06,
     key: 9,
+    scale: 'minor',
     current: 0,
     chainOn: false,
     chain: 'AABBCCCDEFGGGH',
@@ -202,6 +209,7 @@ export function defaultState() {
     master: defaultMaster(),
     mutes: {},
     solos: {},
+    locks: {},
     patterns: arrangement(full, 1337),
   };
   applyOverrides(s, g, false);
@@ -236,6 +244,8 @@ export function sanitize(s) {
   out.master = { ...d.master, ...(s.master || {}) };
   out.mutes = s.mutes || {};
   out.solos = s.solos || {};
+  out.locks = s.locks || {};
+  out.scale = SCALES[s.scale] ? s.scale : 'minor';
   out.patterns = range(8, (i) => {
     const p = s.patterns[i];
     const e = emptyPattern();

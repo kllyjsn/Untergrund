@@ -1,0 +1,12 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>UNTERGRUND · SoundCloud</title>
+<body style="background:#060607;color:#ddd;font:13px monospace;display:grid;place-items:center;height:100vh;margin:0">
+<p id="m">Connecting SoundCloud…</p>
+<script>
+  const q = new URLSearchParams(location.search);
+  const msg = { type: 'sc-auth', code: q.get('code'), state: q.get('state'), error: q.get('error_description') || q.get('error') };
+  try { localStorage.setItem('untergrund.sc.callback', JSON.stringify({ ...msg, t: Date.now() })); } catch {}
+  if (window.opener) { window.opener.postMessage(msg, location.origin); window.close(); }
+  else document.getElementById('m').textContent = msg.error ? 'SoundCloud: ' + msg.error : 'Connected — you can close this tab.';
+</script>

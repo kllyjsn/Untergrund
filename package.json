@@ -1,0 +1,10 @@
+{
+  "name": "untergrund",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "SC_MOCK=1 node server.mjs"
+  },
+  "engines": { "node": ">=18" }
+}

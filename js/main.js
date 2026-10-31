@@ -1,9 +1,10 @@
-import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, PATTERN_NAMES, STEPS, formatValue } from './params.js';
+import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue } from './params.js';
 import { Engine, Sequencer } from './engine.js';
 import { defaultState, generate, mutate, arrangement, applyOverrides, clone, save, load, sanitize, STYLES, emptyPattern, emptyAcidStep } from './state.js';
 import { renderBars, bufferToWav } from './render.js';
 import { encodeWav } from './dsp.js';
 import { knob, numBox, h } from './ui.js';
+import { openPublish } from './publish.js';
 
 let state = load() || defaultState();
 let ctx = null, engine = null, seq = null, timer = null, recNode = null;
@@ -11,6 +12,7 @@ let playing = false, abs = 0, nextTime = 0, lastPlayedPat = null;
 const uiQueue = [];
 let selected = 'kick';
 let style = 'hypnotic';
+let variation = 0.25;
 let clipboard = null;
 const undoStack = [];
 const rec = { on: false, chunks: [], start: 0 };
@@ -163,20 +165,34 @@ function selectPattern(i) {
 function doGenerate() {
   pushUndo();
   const seed = (Math.random() * 1e9) | 0;
-  const g = generate(style, seed);
+  const before = clone(pat());
+  const lockedParams = Object.fromEntries(TRACK_IDS.filter((id) => state.locks[id]).map((id) => [id, clone(state.params[id])]));
+  const g = generate(style, seed, state.scale);
   state.patterns[state.current] = g.pattern;
+  for (const id of TRACK_IDS) if (state.locks[id]) {
+    state.patterns[state.current].steps[id] = clone(before.steps[id]);
+    state.patterns[state.current].len[id] = before.len[id];
+  }
   applyOverrides(state, g, !playing);
+  for (const [id, params] of Object.entries(lockedParams)) state.params[id] = params;
   engine?.applyAll(); engine?.applyDelayTime();
   build(); persist();
-  toast(`${STYLES[style].name} pattern → ${PATTERN_NAMES[state.current]}`);
+  toast(`${STYLES[style].name} pattern → ${PATTERN_NAMES[state.current]}${TRACK_IDS.some((id) => state.locks[id]) ? ' · locked tracks kept' : ''}`);
 }
 
 function doGenerateSet() {
   pushUndo();
   const seed = (Math.random() * 1e9) | 0;
-  const g = generate(style, seed);
+  const source = clone(pat());
+  const lockedParams = Object.fromEntries(TRACK_IDS.filter((id) => state.locks[id]).map((id) => [id, clone(state.params[id])]));
+  const g = generate(style, seed, state.scale);
   state.patterns = arrangement(g.pattern, seed);
+  for (const p of state.patterns) for (const id of TRACK_IDS) if (state.locks[id]) {
+    p.steps[id] = clone(source.steps[id]);
+    p.len[id] = source.len[id];
+  }
   applyOverrides(state, g, !playing);
+  for (const [id, params] of Object.entries(lockedParams)) state.params[id] = params;
   engine?.applyAll(); engine?.applyDelayTime();
   state.chainOn = true;
   build(); persist();
@@ -185,8 +201,29 @@ function doGenerateSet() {
 
 function doMutate() {
   pushUndo();
-  state.patterns[state.current] = mutate(pat(), (Math.random() * 1e9) | 0);
+  const before = clone(pat());
+  state.patterns[state.current] = mutate(pat(), (Math.random() * 1e9) | 0, variation, SCALES[state.scale].notes);
+  for (const id of TRACK_IDS) if (state.locks[id]) {
+    state.patterns[state.current].steps[id] = clone(before.steps[id]);
+    state.patterns[state.current].len[id] = before.len[id];
+  }
   build(); persist();
+}
+
+function createVariation() {
+  pushUndo();
+  const from = state.current;
+  const next = (from + 1) % state.patterns.length;
+  const source = clone(pat());
+  const evolved = mutate(source, (Math.random() * 1e9) | 0, variation, SCALES[state.scale].notes);
+  for (const id of TRACK_IDS) if (state.locks[id]) {
+    evolved.steps[id] = clone(source.steps[id]);
+    evolved.len[id] = source.len[id];
+  }
+  state.patterns[next] = evolved;
+  selectPattern(next);
+  persist();
+  toast(`${PATTERN_NAMES[from]} evolved → ${PATTERN_NAMES[next]} · ${Math.round(variation * 100)}% change`);
 }
 
 function randomTrack(id) {
@@ -257,6 +294,9 @@ function buildHeader() {
     { size: 36, format: (v) => Math.round(v * 100) + '%', cls: 'sm' });
   const key = h('select', { class: 'sel', title: 'Key', onchange: (e) => { state.key = +e.target.value; persist(); renderRow('acid'); renderRoll(); } },
     KEYS.map((k, i) => { const o = h('option', { value: i }, k + ' min'); if (i === state.key) o.selected = true; return o; }));
+  const scale = h('select', { class: 'sel', title: 'Scale used by the acid generator and highlighted in the piano roll',
+    onchange: (e) => { state.scale = e.target.value; persist(); renderRoll(); } },
+    Object.entries(SCALES).map(([id, s]) => { const o = h('option', { value: id }, s.name); if (id === state.scale) o.selected = true; return o; }));
 
   const pats = h('div', { class: 'pats' }, PATTERN_NAMES.map((n, i) => h('button', { class: 'pat', 'data-i': i, onclick: () => selectPattern(i), title: `Pattern ${n} (← →)` }, n)));
   ui.pats = pats;
@@ -284,6 +324,12 @@ function buildHeader() {
     btn.disabled = false; btn.textContent = 'EXPORT WAV';
   } }, 'EXPORT WAV');
   const recBtn = h('button', { class: 'btn rec', title: 'Record live master output to WAV', onclick: toggleRec }, h('span', { class: 'dot' }), 'REC');
+  const publishBtn = h('button', { class: 'btn sc', title: 'Render and publish straight to SoundCloud', onclick: () => openPublish({
+    getState: () => state,
+    getStyle: () => style,
+    render: async (n) => bufferToWav(await renderBars(state, n)),
+    toast,
+  }) }, 'PUBLISH');
 
   const fileIn = h('input', { type: 'file', accept: '.json,application/json', style: 'display:none', onchange: async (e) => {
     const f = e.target.files[0]; if (!f) return;
@@ -292,15 +338,19 @@ function buildHeader() {
 
   return h('header', { class: 'top' },
     h('div', { class: 'brand' }, h('div', { class: 'logo' }, h('i'), h('b')), h('div', {}, h('div', { class: 'name' }, 'UNTERGRUND'), h('div', { class: 'sub' }, 'techno synthesis engine'))),
-    h('div', { class: 'group transport' }, playBtn, h('div', { class: 'field' }, h('label', {}, 'BPM'), bpm.el), swing.el, h('div', { class: 'field' }, h('label', {}, 'KEY'), key)),
+    h('div', { class: 'group transport' }, playBtn, h('div', { class: 'field' }, h('label', {}, 'BPM'), bpm.el), swing.el,
+      h('div', { class: 'field' }, h('label', {}, 'KEY'), key), h('div', { class: 'field' }, h('label', {}, 'SCALE'), scale)),
     h('div', { class: 'group' }, h('div', { class: 'field' }, h('label', {}, 'PATTERN'), pats), patTools),
     h('div', { class: 'group' }, chainBtn, chainInput),
     h('div', { class: 'group gen' }, styleSel,
       h('button', { class: 'btn accent', title: 'Generate a pattern into this slot (G)', onclick: doGenerate }, 'GENERATE'),
       h('button', { class: 'btn', title: 'Generate a whole 8-pattern arrangement and enable chain', onclick: doGenerateSet }, 'NEW SET'),
       h('button', { class: 'btn ghost', title: 'Small variation (M)', onclick: doMutate }, 'MUTATE'),
+      h('select', { class: 'sel variation', title: 'How far the next variation moves from this pattern', onchange: (e) => { variation = +e.target.value; } },
+        h('option', { value: .12 }, 'SUBTLE'), h('option', { value: .25, selected: true }, 'EVOLVE'), h('option', { value: .55 }, 'WILD')),
+      h('button', { class: 'btn ghost evolve', title: 'Create an evolved copy in the next pattern slot', onclick: createVariation }, 'VAR →'),
       h('button', { class: 'btn ghost', title: 'Undo (Ctrl+Z)', onclick: undo }, 'UNDO')),
-    h('div', { class: 'group' }, bars, exportBtn, recBtn),
+    h('div', { class: 'group' }, bars, exportBtn, recBtn, publishBtn),
     h('div', { class: 'group' },
       h('button', { class: 'btn ghost', title: 'Save project JSON', onclick: () => download(new Blob([JSON.stringify(state)], { type: 'application/json' }), `untergrund-${stamp()}.json`) }, 'SAVE'),
       h('button', { class: 'btn ghost', title: 'Load project JSON', onclick: () => fileIn.click() }, 'LOAD'), fileIn,
@@ -335,6 +385,8 @@ function buildGrid() {
       onclick: () => { selected = id; build(); audition(id); } }, h('span', { class: 'led' }), t.name);
     const m = h('button', { class: 'm', title: 'Mute', onclick: () => { state.mutes[id] = !state.mutes[id]; renderAllRows(); persist(); } }, 'M');
     const s = h('button', { class: 's', title: 'Solo', onclick: () => { state.solos[id] = !state.solos[id]; renderAllRows(); persist(); } }, 'S');
+    const l = h('button', { class: 'l', title: 'Lock this track so generation and evolution preserve it',
+      onclick: () => { state.locks[id] = !state.locks[id]; renderAllRows(); persist(); } }, 'L');
     const cells = Array.from({ length: STEPS }, (_, i) => h('div', { class: 'step' + (i % 4 === 0 ? ' beat' : ''), 'data-i': i }, h('span', { class: 'nl' })));
     const steps = h('div', { class: 'steps', style: `--tc:${t.color}` }, cells);
     steps.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -356,8 +408,8 @@ function buildGrid() {
     const lvlQ = MIX_PARAMS[0];
     const lvl = knob(lvlQ, state.params[id].level, (v) => { setParam(id, 'level', v); if (selected === id) ui.editorKnobs?.level?.set(v); },
       { size: 28, color: t.color, format: (v) => formatValue(lvlQ, v), cls: 'mini' });
-    const row = h('div', { class: 'row' + (selected === id ? ' sel' : ''), 'data-id': id }, name, h('div', { class: 'ms' }, m, s), steps, len.el, lvl.el);
-    ui.rows[id] = { row, name, cells, m, s, len, lvl };
+    const row = h('div', { class: 'row' + (selected === id ? ' sel' : ''), 'data-id': id }, name, h('div', { class: 'ms' }, m, s, l), steps, len.el, lvl.el);
+    ui.rows[id] = { row, name, cells, m, s, l, len, lvl };
     grid.append(row);
   });
   return grid;
@@ -396,6 +448,7 @@ function renderRow(id) {
   r.row.classList.toggle('muted', !trackActive(id));
   r.m.classList.toggle('on', !!state.mutes[id]);
   r.s.classList.toggle('on', !!state.solos[id]);
+  r.l.classList.toggle('on', !!state.locks[id]);
   r.cells.forEach((c, i) => {
     const v = p.steps[id][i];
     const out = i >= len;
@@ -506,7 +559,12 @@ function renderRoll() {
     const black = name.includes('#');
     labels.children[r].textContent = name;
     labels.children[r].classList.toggle('black', black);
-    ui.rollCols.forEach((col) => col.children[r].classList.toggle('black', black));
+    const inScale = SCALES[state.scale].notes.some((x) => ((x % 12) + 12) % 12 === ((n % 12) + 12) % 12);
+    labels.children[r].classList.toggle('offscale', !inScale);
+    ui.rollCols.forEach((col) => {
+      col.children[r].classList.toggle('black', black);
+      col.children[r].classList.toggle('offscale', !inScale);
+    });
   });
   ui.rollCols.forEach((col, i) => {
     const st = steps[i];
@@ -624,7 +682,9 @@ function showHelp() {
     ['SPACE', 'play / stop'], ['1–9', 'mute track'], ['SHIFT + 1–9', 'solo track'], ['← →', 'previous / next pattern (queued at bar end)'],
     ['G', 'generate pattern'], ['M', 'mutate pattern'], ['CTRL + Z', 'undo'], ['R (hold)', 'roll / ratchet'], ['T (hold)', 'FX throw'], ['Y (hold)', 'riser'],
     ['STEP CLICK', 'toggle · shift/right-click = accent · drag paints'], ['ACID STEP', 'alt-click = slide'], ['KNOBS', 'drag · wheel · shift = fine · double-click = reset'],
-    ['LEN', 'per-track length → polymeter (try 12, 7, 15)'], ['CHAIN', 'letters = bars, e.g. AAAABBBBCCCC'],
+    ['L', 'lock a track so generate / mutate / variation keeps it'], ['VAR →', 'evolve this loop into the next pattern slot'],
+    ['SCALE', 'guides acid generation and highlights the piano roll'], ['LEN', 'per-track length → polymeter (try 12, 7, 15)'],
+    ['CHAIN', 'letters = bars, e.g. AAAABBBBCCCC'], ['PUBLISH', 'render + artwork + metadata → SoundCloud'],
   ];
   const ov = h('div', { class: 'overlay', onclick: (e) => { if (e.target === ov) close(); } },
     h('div', { class: 'modal panel' }, h('div', { class: 'mtitle' }, 'UNTERGRUND · CONTROLS'),

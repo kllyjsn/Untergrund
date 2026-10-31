@@ -1,6 +1,13 @@
 export const KEYS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 export const PATTERN_NAMES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 export const STEPS = 16;
+export const SCALES = {
+  minor: { name: 'MINOR', notes: [0, 2, 3, 5, 7, 8, 10, 12] },
+  dorian: { name: 'DORIAN', notes: [0, 2, 3, 5, 7, 9, 10, 12] },
+  phrygian: { name: 'PHRYGIAN', notes: [0, 1, 3, 5, 7, 8, 10, 12] },
+  harmonic: { name: 'HARM MIN', notes: [0, 2, 3, 5, 7, 8, 11, 12] },
+  pentatonic: { name: 'MIN PENTA', notes: [0, 3, 5, 7, 10, 12] },
+};
 
 export const CHORDS = [
   { name: 'MIN', iv: [0, 3, 7] },
