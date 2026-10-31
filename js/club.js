@@ -208,7 +208,15 @@ class RoomBus {
     this.seq = Math.max(this.seq, snapshot.seq || 0);
     this.hostId = snapshot.hostId || this.hostId;
     this.queue = snapshot.queue || this.queue;
-    for (const member of snapshot.members || []) this.members.set(member.id, member);
+    for (const member of snapshot.members || []) {
+      if (member.id !== this.clientId) this.members.set(member.id, member);
+    }
+    this.members.set(this.clientId, {
+      id: this.clientId,
+      ...this.user,
+      joinedAt: this.joinedAt,
+      seen: Date.now(),
+    });
     const cutoff = Date.now() - 15000;
     for (const [id, member] of this.members) if ((member.seen || 0) < cutoff) this.members.delete(id);
     if (snapshot.currentSet) {
