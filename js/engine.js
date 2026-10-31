@@ -408,10 +408,40 @@ export class Engine {
     }
   }
 
+  // FM electric piano: sine carrier, 1:1 modulator for the bark, 14:1 burst for the tine.
+  keys(t, v, iv, root, p, out) {
+    const c = this.ctx, end = t + Math.max(0.6, p.decay * 3) + 0.3;
+    const lp = this.filter('lowpass', Math.min(9000, p.cutoff * 2.5), 0.5);
+    const trem = c.createStereoPanner();
+    const lfo = c.createOscillator(); lfo.frequency.value = 4.8;
+    const depth = this.gain(0.35); lfo.connect(depth).connect(trem.pan);
+    iv.forEach((n, k) => {
+      const f = midiHz(root + n), vel = v * (0.85 + hash(t * 97, k) * 0.3);
+      const car = c.createOscillator(); car.frequency.value = f; car.detune.value = (k % 2 ? 1 : -1) * p.detune * 0.15;
+      const mod = c.createOscillator(); mod.frequency.value = f;
+      const modAmt = this.gain(0); mod.connect(modAmt).connect(car.frequency);
+      modAmt.gain.setValueAtTime(f * (0.6 + vel * 1.6), t);
+      modAmt.gain.setTargetAtTime(f * 0.15, t + 0.005, 0.12 + p.env * 0.3);
+      const tine = c.createOscillator(); tine.frequency.value = f * 14;
+      const tineAmt = this.gain(0); tine.connect(tineAmt).connect(car.frequency);
+      tineAmt.gain.setValueAtTime(f * 2.5 * vel, t);
+      tineAmt.gain.setTargetAtTime(0, t + 0.002, 0.018);
+      const amp = this.gain(0);
+      amp.gain.setValueAtTime(EPS, t);
+      amp.gain.linearRampToValueAtTime((0.42 * vel) / Math.sqrt(iv.length), t + 0.004);
+      amp.gain.setTargetAtTime(0, t + 0.01, Math.max(0.15, p.decay * 0.9));
+      car.connect(amp).connect(lp);
+      for (const o of [car, mod, tine]) { o.start(t); o.stop(end); }
+    });
+    lp.connect(trem).connect(out);
+    lfo.start(t); lfo.stop(end);
+  }
+
   stab(t, v) {
     const c = this.ctx, p = this.state.params.stab, out = this.ch.stab.input;
     const iv = CHORDS[Math.round(p.chord)].iv;
     const root = 48 + this.state.key + Math.round(p.octave) * 12;
+    if (Math.round(p.voice) === 1) return this.keys(t, v, iv, root, p, out);
     const lp = this.filter('lowpass', p.cutoff, p.reso);
     const amp = this.gain(0);
     const env = c.createConstantSource();
@@ -461,8 +491,27 @@ export class Engine {
     src.start(t, from, dur + 0.02);
   }
 
+  // Round finger-style bass: triangle + sine, short pluck through a gentle lowpass.
+  bass(t, st, sd, holdNext) {
+    const c = this.ctx, p = this.state.params.acid;
+    const f = midiHz(36 + this.state.key + st.n + Math.round(p.tune));
+    const len = holdNext ? sd * 2 : sd * (0.9 + p.decay * 2);
+    const tri = c.createOscillator(); tri.type = 'triangle'; tri.frequency.value = f;
+    const sub = c.createOscillator(); sub.frequency.value = f;
+    const lp = this.filter('lowpass', 180 + p.cutoff * 0.6 + (st.a ? 500 : 0), 0.7);
+    lp.frequency.setTargetAtTime(160 + p.cutoff * 0.3, t + 0.01, 0.08);
+    const amp = this.gain(0), vel = (st.a ? 0.95 : 0.75) * (1 - p.drive * 0.2);
+    amp.gain.setValueAtTime(EPS, t);
+    amp.gain.linearRampToValueAtTime(vel, t + 0.006);
+    amp.gain.setTargetAtTime(vel * 0.55, t + 0.02, 0.12);
+    amp.gain.setTargetAtTime(0, t + len, 0.03);
+    tri.connect(lp); sub.connect(lp); lp.connect(amp).connect(this.ch.acid.input);
+    for (const o of [tri, sub]) { o.start(t); o.stop(t + len + 0.3); }
+  }
+
   acid(t, st, sliding, holdNext, sd) {
     const a = this.acidNodes, p = this.state.params.acid;
+    if (Math.round(p.voice) === 1) { a.vca.gain.setTargetAtTime(0, t, 0.005); return this.bass(t, st, sd, holdNext); }
     const f = midiHz(36 + this.state.key + st.n + Math.round(p.tune));
     for (const o of [a.o1, a.o2]) {
       if (sliding) o.frequency.setTargetAtTime(f, t, 0.024);
@@ -577,8 +626,12 @@ export class Sequencer {
       }
       if (!on) continue;
       const v = pat.steps[id][i];
-      if (v && id === 'vox') e.vox(tt, v === 2 ? 1 : 0.78, i);
-      else if (v) e.trigger(id, tt, v === 2 ? 1 : 0.78);
+      const hum = s.master.humanize || 0;
+      const late = hum * ((id === 'snare' || id === 'clap') ? 0.02 : id === 'ch' || id === 'ride' ? 0.008 : 0);
+      const ht = tt + late + (hash(abs, TRACK_IDS.indexOf(id)) - 0.5) * hum * 0.012;
+      const hv = 1 - hum * 0.3 * hash(abs, TRACK_IDS.indexOf(id) + 20);
+      if (v && id === 'vox') e.vox(ht, (v === 2 ? 1 : 0.78) * hv, i);
+      else if (v) e.trigger(id, ht, (v === 2 ? 1 : 0.78) * hv);
     }
     if (this.roll === null) this.rollCount = 0;
     return this.cur;
