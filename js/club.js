@@ -53,19 +53,25 @@ class RoomBus {
     this.onUpdate = onUpdate;
     this.onEvent = onEvent;
     this.clientId = clientId();
+    this.joinedAt = Date.now();
+    this.tokenKey = `untergrund.room-token:${this.id}:${this.clientId}`;
+    this.token = sessionStorage.getItem(this.tokenKey) || '';
     this.apiBase = String(apiBase || '').replace(/\/$/, '');
+    this.serverConnected = false;
     this.seq = 0;
     this.seen = new Set();
     this.lastSignature = '';
     this.hostId = this.clientId;
     this.queue = [];
-    this.members = new Map([[this.clientId, { id: this.clientId, ...user, seen: Date.now() }]]);
+    this.currentSetKey = '';
+    this.members = new Map([[this.clientId, { id: this.clientId, ...user, joinedAt: this.joinedAt, seen: Date.now() }]]);
     this.currentSet = null;
     this.channel = 'BroadcastChannel' in window ? new BroadcastChannel(`untergrund:${this.id}`) : null;
-    if (this.channel) this.channel.onmessage = (e) => this.receive(e.data);
+    if (this.channel) this.channel.onmessage = (e) => this.handleChannel(e.data);
     this.timer = setInterval(() => this.heartbeat(), 4000);
     this.poller = setInterval(() => this.poll(), 700);
-    this.heartbeat();
+    this.ready = this.heartbeat();
+    this.channel?.postMessage({ kind: 'snapshot-request', requester: this.clientId });
     this.poll();
   }
 
@@ -102,17 +108,18 @@ class RoomBus {
     const event = {
       id: `${this.clientId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       type,
-      user: { id: this.clientId, ...this.user, seen: Date.now() },
+      user: { id: this.clientId, ...this.user, joinedAt: this.joinedAt, seen: Date.now() },
       payload,
       at: Date.now(),
     };
-    this.receive(event);
+    this.receive({ ...event, local: true });
     this.channel?.postMessage(event);
+    await this.ready;
     try {
       const response = await fetch(this.endpoint('/events'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...event, clientId: this.clientId, since: this.seq }),
+        body: JSON.stringify({ ...event, clientId: this.clientId, token: this.token, since: this.seq }),
       });
       if (response.ok) this.applySnapshot(await response.json());
     } catch {}
@@ -120,19 +127,27 @@ class RoomBus {
 
   updateUser(user) {
     this.user = user;
-    this.members.set(this.clientId, { id: this.clientId, ...user, seen: Date.now() });
+    this.members.set(this.clientId, { id: this.clientId, ...user, joinedAt: this.joinedAt, seen: Date.now() });
     this.heartbeat();
   }
 
-  heartbeat() {
-    const event = { id: `${this.clientId}-presence-${Date.now()}`, type: 'presence', user: { id: this.clientId, ...this.user, seen: Date.now() }, at: Date.now() };
+  async heartbeat() {
+    const event = {
+      id: `${this.clientId}-presence-${Date.now()}`,
+      type: 'presence',
+      user: { id: this.clientId, ...this.user, joinedAt: this.joinedAt, seen: Date.now() },
+      at: Date.now(),
+    };
     this.channel?.postMessage(event);
     this.receive(event);
-    fetch(this.endpoint('/events'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'presence', clientId: this.clientId, user: this.user, since: this.seq }),
-    }).then((r) => r.ok ? r.json() : null).then((data) => data && this.applySnapshot(data)).catch(() => {});
+    try {
+      const response = await fetch(this.endpoint('/events'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'presence', clientId: this.clientId, token: this.token, user: { ...this.user, joinedAt: this.joinedAt }, since: this.seq }),
+      });
+      if (response.ok) this.applySnapshot(await response.json());
+    } catch {}
   }
 
   async poll() {
@@ -143,23 +158,115 @@ class RoomBus {
   }
 
   applySnapshot(snapshot) {
+    this.serverConnected = true;
+    if (snapshot.sessionToken) {
+      this.token = snapshot.sessionToken;
+      sessionStorage.setItem(this.tokenKey, this.token);
+    }
     this.seq = Math.max(this.seq, snapshot.seq || 0);
     this.hostId = snapshot.hostId || this.hostId;
     this.queue = snapshot.queue || this.queue;
     for (const member of snapshot.members || []) this.members.set(member.id, member);
     const cutoff = Date.now() - 15000;
     for (const [id, member] of this.members) if ((member.seen || 0) < cutoff) this.members.delete(id);
-    if (snapshot.currentSet) this.currentSet = snapshot.currentSet;
-    for (const event of snapshot.events || []) this.receive(event);
+    if (snapshot.currentSet) {
+      const key = `${snapshot.currentSet.startsAt || 0}:${snapshot.currentSet.title || ''}`;
+      const newer = !this.currentSet || (+snapshot.currentSet.startsAt || 0) >= (+this.currentSet.startsAt || 0);
+      if (newer && key !== this.currentSetKey) {
+        this.currentSet = snapshot.currentSet;
+        this.currentSetKey = key;
+        this.onEvent({
+          id: `snapshot-set:${key}`,
+          type: 'set',
+          user: { id: snapshot.hostId },
+          payload: snapshot.currentSet,
+          at: snapshot.currentSet.startsAt || Date.now(),
+          snapshot: true,
+        });
+      }
+    }
+    for (const event of snapshot.events || []) if (event.type !== 'set') this.receive(event);
     this.emit({ hostId: snapshot.hostId });
+  }
+
+  handleChannel(message) {
+    if (message?.kind === 'snapshot-request') {
+      this.channel?.postMessage({
+        kind: 'snapshot-response',
+        target: message.requester,
+        source: this.clientId,
+        snapshot: this.snapshot(),
+      });
+      return;
+    }
+    if (message?.kind === 'snapshot-response') {
+      if (message.target !== this.clientId) return;
+      this.applyLocalSnapshot(message.snapshot);
+      return;
+    }
+    this.receive(message);
+  }
+
+  applyLocalSnapshot(snapshot) {
+    if (!snapshot) return;
+    for (const member of snapshot.members || []) {
+      const existing = this.members.get(member.id);
+      const joined = [existing?.joinedAt, member.joinedAt].filter(Number.isFinite);
+      this.members.set(member.id, {
+        ...existing,
+        ...member,
+        joinedAt: joined.length ? Math.min(...joined) : Date.now(),
+        seen: Date.now(),
+      });
+    }
+    const incomingStart = +snapshot.currentSet?.startsAt || 0;
+    const currentStart = +this.currentSet?.startsAt || 0;
+    if (snapshot.currentSet && incomingStart >= currentStart) {
+      const key = `${incomingStart}:${snapshot.currentSet.title || ''}`;
+      if (key !== this.currentSetKey) {
+        this.currentSet = snapshot.currentSet;
+        this.currentSetKey = key;
+        this.onEvent({
+          id: `local-snapshot-set:${key}`,
+          type: 'set',
+          user: { id: snapshot.hostId },
+          payload: snapshot.currentSet,
+          at: incomingStart,
+          snapshot: true,
+        });
+      }
+    }
+    this.queue = [...new Set([...(this.queue || []), ...(snapshot.queue || [])])];
+    this.reconcileLocalHost();
+    this.emit();
+  }
+
+  reconcileLocalHost() {
+    if (this.serverConnected) return;
+    const members = [...this.members.values()].sort((a, b) =>
+      (a.joinedAt || Infinity) - (b.joinedAt || Infinity) || String(a.id).localeCompare(String(b.id)));
+    this.hostId = members[0]?.id || this.clientId;
+    this.queue = this.queue.filter((id) => id !== this.hostId && this.members.has(id));
   }
 
   receive(event) {
     if (!event?.id || this.seen.has(event.id)) return;
     this.seen.add(event.id);
     if (this.seen.size > 400) this.seen.delete(this.seen.values().next().value);
-    if (event.user?.id) this.members.set(event.user.id, { ...event.user, seen: Date.now() });
-    if (event.type === 'set') this.currentSet = event.payload;
+    if (event.user?.id) {
+      const existing = this.members.get(event.user.id);
+      this.members.set(event.user.id, {
+        ...existing,
+        ...event.user,
+        joinedAt: event.user.joinedAt || existing?.joinedAt || Date.now(),
+        seen: Date.now(),
+      });
+    }
+    if (event.type === 'set') {
+      if (this.currentSet && (+event.payload?.startsAt || 0) < (+this.currentSet.startsAt || 0)) return;
+      this.currentSet = event.payload;
+      this.currentSetKey = `${event.payload?.startsAt || 0}:${event.payload?.title || ''}`;
+    }
     if (event.type === 'deck') {
       const action = event.payload?.action;
       if (event.payload?.hostId) this.hostId = event.payload.hostId;
@@ -168,6 +275,7 @@ class RoomBus {
       else if (action === 'leave') this.queue = this.queue.filter((id) => id !== event.user?.id);
       else if (action === 'pass' && event.user?.id === this.hostId) this.hostId = this.queue.shift() || this.hostId;
     }
+    if (event.type === 'presence') this.reconcileLocalHost();
     this.onEvent(event);
     this.emit();
   }
@@ -179,7 +287,7 @@ class RoomBus {
   }
 }
 
-export function openClub({ getState, getStyle, unlockAudio, joinRoomSet, toast }) {
+export function openClub({ getState, getStyle, getTransport, startRoomBroadcast, unlockAudio, joinRoomSet, toast }) {
   let audioReady = unlockAudio() !== false;
   let avatar = loadAvatar();
   let activeRoom = roomId();
@@ -227,7 +335,7 @@ export function openClub({ getState, getStyle, unlockAudio, joinRoomSet, toast }
         if (event.type === 'reaction') showReaction(event);
         if (event.type === 'set') {
           pendingSet = event.payload;
-          if (audioReady) {
+          if (!event.local && audioReady) {
             joinRoomSet(pendingSet);
             pendingSet = null;
           }
@@ -264,9 +372,11 @@ export function openClub({ getState, getStyle, unlockAudio, joinRoomSet, toast }
       toast(queued ? 'Left the DJ queue' : 'Joined the DJ queue');
       return;
     }
-    const startsAt = Date.now() + 1600;
+    const transport = getTransport();
+    const startsAt = transport.playing ? transport.startsAt : Date.now() + 1600;
     const track = nowPlaying();
     bus.send('set', { state: clone(getState()), style: getStyle(), ...track, startsAt });
+    if (!transport.playing) startRoomBroadcast(startsAt);
     toast(`Broadcasting “${track.title}” to ${activeRoom}`);
   }
 

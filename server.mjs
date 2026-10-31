@@ -1,10 +1,12 @@
 // Local / self-hosted server: static files + the SoundCloud token endpoints (same logic as api/*.js on Vercel).
 // SC_MOCK=1 points the app at an in-process fake SoundCloud for offline testing.
 import http from 'node:http';
+import { randomBytes } from 'node:crypto';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { publicConfig, exchangeToken } from './api/_lib/soundcloud.js';
+import { STYLES, sanitize } from './js/state.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = +(process.env.PORT || 8000);
@@ -34,9 +36,25 @@ const sendRoomJson = (res, status, json) => {
 };
 const clean = (value, max = 80) => String(value || '').replace(/[<>]/g, '').trim().slice(0, max);
 const getRoom = (id) => {
-  if (!rooms.has(id)) rooms.set(id, { id, seq: 0, hostId: null, queue: [], members: new Map(), events: [], currentSet: null });
+  if (!rooms.has(id)) rooms.set(id, { id, seq: 0, hostId: null, queue: [], members: new Map(), tokens: new Map(), events: [], currentSet: null });
   return rooms.get(id);
 };
+
+function normalizeSet(payload) {
+  if (!payload || typeof payload !== 'object' || !payload.state || !Array.isArray(payload.state.patterns)) return null;
+  const state = sanitize(payload.state);
+  const now = Date.now();
+  const requestedStart = Number(payload.startsAt);
+  return {
+    state,
+    style: STYLES[payload.style] ? payload.style : (STYLES[state.artist?.style] ? state.artist.style : 'hypnotic'),
+    title: clean(payload.title || state.artist?.title || 'Live Machine Set', 80),
+    artist: clean(payload.artist || state.artist?.name || 'UNTERGRUND', 40),
+    bpm: state.bpm,
+    key: clean(payload.key, 24),
+    startsAt: Number.isFinite(requestedStart) ? Math.max(now - 864e5, Math.min(now + 300000, requestedStart)) : now + 1000,
+  };
+}
 
 function roomSnapshot(room, since = 0) {
   const cutoff = Date.now() - 15000;
@@ -70,6 +88,13 @@ http.createServer(async (req, res) => {
       const body = JSON.parse((await readBody(req)).toString() || '{}');
       const clientId = clean(body.clientId, 64);
       if (!clientId) return sendRoomJson(res, 400, { error: 'client_id_required' });
+      let sessionToken = room.tokens.get(clientId);
+      if (sessionToken && body.token !== sessionToken) return sendRoomJson(res, 401, { error: 'invalid_room_token' });
+      if (!sessionToken) {
+        sessionToken = randomBytes(24).toString('base64url');
+        room.tokens.set(clientId, sessionToken);
+      }
+      const existing = room.members.get(clientId);
       const user = {
         id: clientId,
         name: clean(body.user?.name || 'Listener', 28),
@@ -78,6 +103,7 @@ http.createServer(async (req, res) => {
           color: clean(body.user?.avatar?.color || body.user?.color || 'lime', 12),
           gear: clean(body.user?.avatar?.gear || body.user?.gear || 'none', 12),
         },
+        joinedAt: existing?.joinedAt || (Number.isFinite(+body.user?.joinedAt) ? +body.user.joinedAt : Date.now()),
         seen: Date.now(),
       };
       room.members.set(clientId, user);
@@ -92,6 +118,8 @@ http.createServer(async (req, res) => {
           if (room.hostId !== clientId) return sendRoomJson(res, 403, { error: 'host_only' });
           const raw = JSON.stringify(payload);
           if (raw.length > 450000) return sendRoomJson(res, 413, { error: 'set_too_large' });
+          payload = normalizeSet(payload);
+          if (!payload) return sendRoomJson(res, 400, { error: 'invalid_set' });
           room.currentSet = payload;
         }
         if (type === 'deck') {
@@ -108,7 +136,7 @@ http.createServer(async (req, res) => {
         room.events.push(event);
         room.events = room.events.slice(-120);
       }
-      return sendRoomJson(res, 200, roomSnapshot(room, +(body.since || 0)));
+      return sendRoomJson(res, 200, { ...roomSnapshot(room, +(body.since || 0)), sessionToken });
     }
     if (url.pathname === '/api/sc-config') {
       const cfg = publicConfig(env);

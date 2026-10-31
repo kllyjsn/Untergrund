@@ -1,5 +1,5 @@
 import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue } from './params.js';
-import { Engine, Sequencer } from './engine.js';
+import { Engine, Sequencer, parseChain } from './engine.js';
 import { defaultState, generate, mutate, arrangement, applyOverrides, clone, save, load, sanitize, STYLES, emptyPattern, emptyAcidStep } from './state.js';
 import { renderBars, bufferToWav } from './render.js';
 import { encodeWav } from './dsp.js';
@@ -7,10 +7,12 @@ import { knob, numBox, h } from './ui.js';
 import { openPublish } from './publish.js';
 import { loadArtistProfile, openArtistStudio } from './artist.js';
 import { openClub } from './club.js';
+import { roomTransportPosition } from './room-sync.js';
 
 let state = load() || defaultState();
 let ctx = null, engine = null, seq = null, timer = null, recNode = null;
 let playing = false, abs = 0, nextTime = 0, lastPlayedPat = null;
+let transportOrigin = 0, roomJoinTimer = 0;
 const uiQueue = [];
 let selected = 'kick';
 let style = 'hypnotic';
@@ -51,11 +53,18 @@ function schedule() {
   }
 }
 
-function play(startBar = 0) {
+function play({ step = 0, delay = 0.06 } = {}) {
   ensureAudio();
-  abs = Math.max(0, Math.floor(startBar)) * 16;
-  seq.cur = state.current; seq.queued = null; seq.chainPos = Math.max(0, Math.floor(startBar)); seq.acidPrevSlide = false;
-  nextTime = ctx.currentTime + 0.06;
+  abs = Math.max(0, Math.floor(step));
+  const bar = Math.floor(abs / 16);
+  const chain = state.chainOn ? parseChain(state.chain) : [];
+  seq.cur = chain.length ? chain[bar % chain.length] : state.current;
+  seq.queued = null;
+  seq.chainPos = bar + (abs % 16 === 0 ? 0 : 1);
+  seq.acidPrevSlide = false;
+  state.current = seq.cur;
+  nextTime = ctx.currentTime + Math.max(0.01, delay);
+  transportOrigin = Date.now() + Math.max(0.01, delay) * 1000 - abs * (15000 / state.bpm);
   playing = true;
   timer.postMessage('start');
   schedule();
@@ -63,6 +72,8 @@ function play(startBar = 0) {
 }
 
 function stop() {
+  clearTimeout(roomJoinTimer);
+  roomJoinTimer = 0;
   playing = false;
   timer?.postMessage('stop');
   engine?.panic();
@@ -169,20 +180,32 @@ function joinRoomSet(item) {
   if (!item?.state) return;
   style = item.style || item.state.artist?.style || style;
   const roomState = sanitize(clone(item.state));
-  const elapsed = Math.max(0, Date.now() - (item.startsAt || Date.now()));
-  const startBar = Math.floor(elapsed / (240000 / roomState.bpm));
-  const wait = Math.max(0, (item.startsAt || Date.now()) - Date.now());
+  const startsAt = Number.isFinite(+item.startsAt) ? +item.startsAt : Date.now();
   replaceState(roomState);
-  setTimeout(() => {
-    if (!playing) play(startBar);
+  const sync = () => {
+    const { step, delay } = roomTransportPosition(startsAt, roomState.bpm);
+    play({ step, delay });
     toast(`Synced to “${item.title || 'Live Machine Set'}”`);
-  }, wait);
+  };
+  const wait = startsAt - Date.now();
+  if (wait > 50) roomJoinTimer = setTimeout(sync, wait - 40);
+  else sync();
+}
+
+function startRoomBroadcast(startsAt) {
+  if (playing) return;
+  clearTimeout(roomJoinTimer);
+  const wait = Math.max(0, startsAt - Date.now());
+  const lead = Math.min(60, wait);
+  roomJoinTimer = setTimeout(() => play({ delay: lead / 1000 }), Math.max(0, wait - lead));
 }
 
 function showClub() {
   openClub({
     getState: () => state,
     getStyle: () => style,
+    getTransport: () => ({ playing, startsAt: transportOrigin }),
+    startRoomBroadcast,
     unlockAudio: () => { ensureAudio(); return ctx.state === 'running'; },
     joinRoomSet,
     toast,
