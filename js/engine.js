@@ -441,8 +441,9 @@ export class Engine {
 
   stab(t, v) {
     const c = this.ctx, p = this.state.params.stab, out = this.ch.stab.input;
-    const iv = CHORDS[Math.round(p.chord)].iv;
-    const root = 48 + this.state.key + Math.round(p.octave) * 12;
+    const h = this.harm;
+    const iv = CHORDS[h ? h.c : Math.round(p.chord)].iv;
+    const root = 48 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot();
     if (Math.round(p.voice) === 1) return this.keys(t, v, iv, root, p, out);
     const lp = this.filter('lowpass', p.cutoff, p.reso);
     const amp = this.gain(0);
@@ -493,10 +494,12 @@ export class Engine {
     src.start(t, from, dur + 0.02);
   }
 
+  harmRoot() { const h = this.harm; return h ? ((((h.r + 6) % 12) + 12) % 12) - 6 : 0; }
+
   // Round finger-style bass: triangle + sine, short pluck through a gentle lowpass.
   bass(t, st, sd, holdNext) {
     const c = this.ctx, p = this.state.params.acid;
-    const f = midiHz(36 + this.state.key + st.n + Math.round(p.tune));
+    const f = midiHz(36 + this.state.key + st.n + Math.round(p.tune) + this.harmRoot());
     const len = holdNext ? sd * 2 : sd * (0.9 + p.decay * 2);
     const tri = c.createOscillator(); tri.type = 'triangle'; tri.frequency.value = f;
     const sub = c.createOscillator(); sub.frequency.value = f;
@@ -514,7 +517,7 @@ export class Engine {
   acid(t, st, sliding, holdNext, sd) {
     const a = this.acidNodes, p = this.state.params.acid;
     if (Math.round(p.voice) === 1) { a.vca.gain.setTargetAtTime(0, t, 0.005); return this.bass(t, st, sd, holdNext); }
-    const f = midiHz(36 + this.state.key + st.n + Math.round(p.tune));
+    const f = midiHz(36 + this.state.key + st.n + Math.round(p.tune) + this.harmRoot());
     for (const o of [a.o1, a.o2]) {
       if (sliding) o.frequency.setTargetAtTime(f, t, 0.024);
       else o.frequency.setValueAtTime(f, t);
@@ -602,6 +605,8 @@ export class Sequencer {
     const s = this.s, e = this.e;
     this.advanceBar(abs);
     const pat = s.patterns[this.cur];
+    const bar = Math.floor(abs / 16), vary = s.master.vary || 0;
+    e.harm = pat.prog?.length ? pat.prog[bar % pat.prog.length] : null;
     const sd = e.stepDur;
     const tt = t + (abs % 2 ? s.swing * sd * 0.5 : 0);
     const anySolo = TRACK_IDS.some((id) => s.solos[id]);
@@ -627,13 +632,22 @@ export class Sequencer {
         continue;
       }
       if (!on) continue;
-      const v = pat.steps[id][i];
+      let v = pat.steps[id][i];
+      if (vary) {
+        const k = TRACK_IDS.indexOf(id), roll = hash(abs * 1.37 + bar, k + 40);
+        if (v && (id === 'ch' || id === 'perc' || id === 'ride' || id === 'vox') && roll < vary * 0.18) v = 0;
+        else if (!v && id === 'snare' && roll < vary * (bar % 4 === 3 && i >= 12 ? 0.7 : 0.1)) v = 0.45;
+        else if (!v && id === 'ch' && roll < vary * 0.12) v = 0.4;
+        else if (!v && id === 'kick' && i % 4 === 3 && roll < vary * 0.08) v = 0.6;
+        if (bar % 8 === 7 && i >= 12 && (id === 'kick' || id === 'stab') && hash(bar, k) < vary) v = 0;
+      }
       const hum = s.master.humanize || 0;
       const late = hum * ((id === 'snare' || id === 'clap') ? 0.03 : id === 'ch' || id === 'ride' ? 0.012 : id === 'stab' || id === 'acid' ? 0.016 : 0);
       const ht = tt + late + (hash(abs, TRACK_IDS.indexOf(id)) - 0.5) * hum * 0.012;
       const hv = 1 - hum * 0.3 * hash(abs, TRACK_IDS.indexOf(id) + 20);
-      if (v && id === 'vox') e.vox(ht, (v === 2 ? 1 : 0.78) * hv, i);
-      else if (v) e.trigger(id, ht, (v === 2 ? 1 : 0.78) * hv);
+      const vel = (v === 2 ? 1 : v === 1 ? 0.78 : v) * hv;
+      if (v && id === 'vox') e.vox(ht, vel, i);
+      else if (v) e.trigger(id, ht, vel);
     }
     if (this.roll === null) this.rollCount = 0;
     return this.cur;

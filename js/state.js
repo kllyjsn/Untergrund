@@ -307,6 +307,17 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     Object.assign(params.acid, { wave: 0, tune: -12, cutoff: 120, reso: 0, envmod: 0, decay: 1.2, drive: 0 });
     master.duck = 0; master.revLevel = 1; master.dlyFb = 0.7;
   }
+  const PROGS = {
+    neosoul: [[[0, 2], [5, 2], [10, 9], [3, 9]], [[0, 2], [8, 9], [3, 9], [10, 10]], [[0, 2], [3, 9], [5, 1], [7, 1]], [[0, 2], [10, 9], [8, 9], [7, 1]]],
+    boombap: [[[0, 1], [0, 1], [8, 7], [7, 1]], [[0, 2], [5, 1], [0, 2], [8, 7]], [[0, 1], [3, 7], [5, 1], [8, 9]]],
+    deephouse: [[[0, 2], [5, 1], [3, 9], [10, 10]], [[0, 2], [8, 7], [5, 2], [7, 1]]],
+    ukg: [[[0, 2], [5, 1], [8, 7], [7, 1]], [[0, 1], [3, 9], [10, 10], [5, 2]]],
+    euphoric: [[[0, 9], [7, 10], [9, 2], [5, 9]], [[5, 9], [7, 10], [0, 9], [9, 2]]],
+    trance: [[[0, 0], [8, 7], [3, 10], [10, 10]], [[0, 0], [5, 0], [8, 7], [10, 10]]],
+  };
+  if (PROGS[style]) P.prog = pick(r, PROGS[style]).map(([root, c]) => ({ r: root, c }));
+  const VARY = { neosoul: 0.8, boombap: 0.6, deephouse: 0.4, ukg: 0.45, breaks: 0.5, euphoric: 0.3, dnb: 0.4 };
+  if (VARY[style]) master.vary = VARY[style];
   return { pattern: P, params, master, bpm, swing };
 }
 
@@ -451,6 +462,7 @@ export function sanitize(s) {
       }
       if (p.len?.[id]) e.len[id] = Math.max(1, Math.min(STEPS, p.len[id] | 0));
     }
+    if (Array.isArray(p.prog) && p.prog.length) e.prog = p.prog.slice(0, 8).map((c) => ({ r: Math.max(-12, Math.min(12, c?.r | 0)), c: Math.max(0, Math.min(10, c?.c | 0)) }));
     return e;
   });
   if (s.artist && typeof s.artist === 'object') {

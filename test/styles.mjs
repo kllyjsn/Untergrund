@@ -30,3 +30,10 @@ for (const style of Object.keys(STYLES)) {
   sigs.set(sig, style);
 }
 console.log(`${sigs.size} distinct genres passed`);
+const soulGen = generate('neosoul', 5, 'dorian');
+assert.equal(soulGen.pattern.prog.length, 4);
+assert(soulGen.master.vary > 0.5);
+const { sanitize: san, defaultState: ds } = await import('../js/state.js');
+const st0 = ds(); st0.patterns[0] = soulGen.pattern;
+assert.deepEqual(san(JSON.parse(JSON.stringify(st0))).patterns[0].prog, soulGen.pattern.prog);
+console.log('neo-soul progression and variation passed');
