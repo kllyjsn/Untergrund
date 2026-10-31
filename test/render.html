@@ -1,0 +1,16 @@
+<!doctype html><meta charset="utf-8"><body>
+<script type="module">
+import { defaultState, generate, applyOverrides, arrangement } from '../js/state.js';
+import { renderBars, bufferToWav } from '../js/render.js';
+const q = new URLSearchParams(location.search);
+const s = defaultState();
+const style = q.get('style');
+if (style) { const g = generate(style, 42); applyOverrides(s, g); s.patterns = arrangement(g.pattern, 42); }
+s.current = +(q.get('pat') || 6);
+if (q.get('solo')) s.solos[q.get('solo')] = true;
+const t0 = performance.now();
+const buf = await renderBars(s, +(q.get('bars') || 8));
+const wav = bufferToWav(buf);
+await fetch('/upload?name=' + (q.get('name') || 'out') + '.wav', { method: 'POST', body: wav });
+document.title = 'DONE ' + Math.round(performance.now() - t0);
+</script>
