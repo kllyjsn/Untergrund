@@ -197,6 +197,11 @@ function stopArtistLive(rebuild = true) {
   engine?.riserStop();
   if (engine) engine.setMaster('dj', savedDj); else state.master.dj = savedDj;
   document.body.classList.remove('artist-live');
+  const liveBtn = document.querySelector('.live-toggle');
+  if (liveBtn) {
+    liveBtn.classList.remove('on');
+    liveBtn.textContent = 'LIVE';
+  }
   if (rebuild) build();
   persist();
   toast('Artist Live stopped');
