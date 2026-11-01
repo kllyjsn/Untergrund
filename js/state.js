@@ -317,7 +317,12 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     euphoric: [[[0, 9], [7, 10], [9, 2], [5, 9]], [[5, 9], [7, 10], [0, 9], [9, 2]]],
     trance: [[[0, 0], [8, 7], [3, 10], [10, 10]], [[0, 0], [5, 0], [8, 7], [10, 10]]],
   };
-  if (PROGS[style]) P.prog = pick(r, PROGS[style]).map(([root, c]) => ({ r: root, c }));
+  if (PROGS[style]) {
+    const progs = PROGS[style].map((pr) => pr.map(([root, c]) => ({ r: root, c })));
+    const main = Math.floor(r() * progs.length);
+    P.prog = progs[main];
+    P.alt = progs[(main + 1 + Math.floor(r() * (progs.length - 1))) % progs.length];
+  }
   const VARY = { neosoul: 0.8, boombap: 0.6, deephouse: 0.4, ukg: 0.45, breaks: 0.5, euphoric: 0.3, dnb: 0.4 };
   if (VARY[style]) master.vary = VARY[style];
   return { pattern: P, params, master, bpm, swing };
@@ -361,8 +366,9 @@ export function arrangement(full, seed) {
   const all = TRACK_IDS;
   const without = (...ids) => all.filter((x) => !ids.includes(x));
   const fill = clone(full);
+  delete fill.alt;
   fill.steps.snare = pad16([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2]);
-  return [
+  const scenes = [
     strip(full, ['kick', 'ch', 'perc']),
     strip(full, ['kick', 'ch', 'oh', 'perc', 'acid']),
     strip(full, without('stab')),
@@ -372,6 +378,22 @@ export function arrangement(full, seed) {
     clone(full),
     mutate(full, seed + 2),
   ];
+  for (const p of scenes) delete p.alt;
+  if (full.alt) for (const i of [4, 5]) scenes[i].prog = clone(full.alt);
+  return scenes;
+}
+
+const GROOVE = new Set(['neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric']);
+// Song forms in 4-bar sections. Groove styles: intro, verse x2, bridge (alt changes), verse/hook x2, outro.
+const SONG_FORMS = {
+  groove: ['AABBCCCDCCCDEEFFGGGHGGGHBBAA', 'AABBCCCDEEFFCCCDGGGHGGGHEEAA', 'ABBBCCCDCCCDEEFFEEFFGGGHGGGHBBAA'],
+  ambient: ['AAAAEEEEFFFFEEEEFFFFAAAA', 'AAEEEEFFFFGGGGEEFFAAAA'],
+  techno: ['AAAABBBBCCCCCCCDEEEEFFFFGGGGGGGHBBBBAAAA', 'AAAABBBBCCCDCCCDEEFFGGGHGGGHBBAA', 'AABBBBCCCCCCCDEEEEFFGGGGGGGHGGGHAAAA'],
+};
+
+export function songChain(style, seed) {
+  const forms = SONG_FORMS[GROOVE.has(style) ? 'groove' : style === 'ambient' ? 'ambient' : 'techno'];
+  return pick(rng(seed + 9), forms);
 }
 
 export function defaultState() {
