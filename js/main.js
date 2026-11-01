@@ -68,7 +68,7 @@ function unlockMediaChannel() {
 function ensureAudio() {
   unlockMediaChannel();
   if (ctx) { if (ctx.state !== 'running') ctx.resume(); return; }
-  ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+  ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: matchMedia('(pointer: coarse)').matches ? 'playback' : 'balanced' });
   engine = new Engine(ctx, state);
   seq = new Sequencer(engine, state);
   const src = "let id=null;onmessage=e=>{if(e.data==='start'&&!id)id=setInterval(()=>postMessage(0),15);if(e.data==='stop'){clearInterval(id);id=null;}}";
