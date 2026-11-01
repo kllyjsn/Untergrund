@@ -15,6 +15,7 @@ const LIVE_REF = {
 };
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
 const EPS = 0.0001;
+const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells'];
 const LIM_TRIM = 1.4;
 
 // Six band-limited squares (808 cymbal cluster) summed once into a seamless 0.5 s loop.
@@ -680,7 +681,8 @@ export class Engine {
     const h = this.harm;
     const iv = CHORDS[h ? h.c : Math.round(p.chord)].iv;
     const root = 48 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot();
-    if (Math.round(p.voice) === 1) return this.keys(t, v, iv, root, p, out);
+    const vo = Math.round(p.voice);
+    if (vo > 0) return this[STAB_VOICES[vo]](t, v, iv, root, p, out);
     const lp = this.filter('lowpass', p.cutoff, p.reso);
     const amp = this.gain(0);
     const env = c.createConstantSource();
@@ -704,6 +706,118 @@ export class Engine {
     }
     lp.connect(amp).connect(out);
     env.start(t); env.stop(end);
+  }
+
+  // Slow-swelling ensemble: three detuned saws per note, filter opens with ENV, DECAY sets release.
+  pad(t, v, iv, root, p, out) {
+    const c = this.ctx, atk = 0.04 + p.env * 0.9, hold = Math.max(this.stepDur * 4, p.decay * 1.2), end = t + atk + hold + p.decay * 2 + 0.2;
+    const lp = this.filter('lowpass', p.cutoff * 0.5, Math.max(0.5, p.reso * 0.4));
+    lp.frequency.setValueAtTime(p.cutoff * 0.4, t);
+    lp.frequency.linearRampToValueAtTime(p.cutoff, t + atk);
+    const amp = this.gain(0), peak = (v * 0.3) / Math.sqrt(iv.length);
+    amp.gain.setValueAtTime(EPS, t);
+    amp.gain.linearRampToValueAtTime(peak, t + atk);
+    amp.gain.setTargetAtTime(0, t + atk + hold, Math.max(0.1, p.decay * 0.6));
+    iv.forEach((n) => {
+      [-1, 0, 1].forEach((side) => {
+        const o = c.createOscillator(); o.type = 'sawtooth';
+        o.frequency.value = midiHz(root + n); o.detune.value = side * (4 + p.detune);
+        const pan = c.createStereoPanner(); pan.pan.value = side * 0.7;
+        o.connect(pan).connect(lp); o.start(t); o.stop(end);
+      });
+    });
+    lp.connect(amp).connect(out);
+  }
+
+  // Drawbar organ with key click and a rotary-style vibrato; DETUNE sets rotor depth.
+  organ(t, v, iv, root, p, out) {
+    const c = this.ctx, gate = Math.max(0.08, p.decay * 0.9), end = t + gate + 0.25;
+    const lp = this.filter('lowpass', Math.min(12000, p.cutoff * 3), 0.6);
+    const amp = this.gain(0), peak = (v * 0.24) / Math.sqrt(iv.length);
+    amp.gain.setValueAtTime(EPS, t);
+    amp.gain.linearRampToValueAtTime(peak, t + 0.006);
+    amp.gain.setTargetAtTime(0, t + gate, 0.05);
+    const lfo = c.createOscillator(); lfo.frequency.value = 6.2;
+    const vib = this.gain(p.detune * 0.4); lfo.connect(vib);
+    for (const n of iv) {
+      const f = midiHz(root + n);
+      for (const [mul, lvl] of [[0.5, 0.6], [1, 1], [2, 0.55], [3, 0.3]]) {
+        const o = c.createOscillator(); o.frequency.value = f * mul; vib.connect(o.detune);
+        const g = this.gain(lvl); o.connect(g).connect(lp); o.start(t); o.stop(end);
+      }
+    }
+    const ck = this.noiseSrc(t, 0.012), cbp = this.filter('bandpass', 2400, 0.8), cg = this.gain(0);
+    this.adEnv(cg.gain, t, v * 0.12, 0.0005, 0.006);
+    ck.connect(cbp).connect(cg).connect(out);
+    lp.connect(amp).connect(out);
+    lfo.start(t); lfo.stop(end);
+  }
+
+  // Brass section: saws scooping into pitch while the filter blooms; ENV sets the blare.
+  brass(t, v, iv, root, p, out) {
+    const c = this.ctx, gate = Math.max(0.08, p.decay * 0.8), end = t + gate + 0.4;
+    const lp = this.filter('lowpass', p.cutoff * 0.4, Math.max(0.7, p.reso * 0.5));
+    lp.frequency.setValueAtTime(p.cutoff * 0.35, t);
+    lp.frequency.linearRampToValueAtTime(Math.min(14000, p.cutoff * (1 + p.env * 3) * (0.7 + v * 0.3)), t + 0.06);
+    lp.frequency.setTargetAtTime(p.cutoff * 0.8, t + 0.08, 0.15);
+    const amp = this.gain(0), peak = (v * 0.36) / Math.sqrt(iv.length);
+    amp.gain.setValueAtTime(EPS, t);
+    amp.gain.linearRampToValueAtTime(peak, t + 0.025);
+    amp.gain.setTargetAtTime(peak * 0.75, t + 0.05, 0.1);
+    amp.gain.setTargetAtTime(0, t + gate, 0.06);
+    iv.forEach((n, k) => {
+      for (const side of [-1, 1]) {
+        const o = c.createOscillator(); o.type = 'sawtooth';
+        o.frequency.value = midiHz(root + n);
+        o.detune.setValueAtTime(-60 + side * p.detune * 0.5, t);
+        o.detune.linearRampToValueAtTime(side * p.detune * 0.5, t + 0.04 + k * 0.004);
+        const pan = c.createStereoPanner(); pan.pan.value = side * 0.4;
+        o.connect(pan).connect(lp); o.start(t); o.stop(end);
+      }
+    });
+    lp.connect(amp).connect(out);
+  }
+
+  // Bright pluck, strummed: the filter snaps shut over DECAY; ENV sets how bright the snap is.
+  pluck(t, v, iv, root, p, out) {
+    const c = this.ctx, dec = Math.max(0.04, p.decay * 0.35);
+    iv.forEach((n, k) => {
+      const tt = t + k * 0.011, end = tt + dec * 5 + 0.1, f = midiHz(root + n);
+      const lp = this.filter('lowpass', p.cutoff, p.reso * 0.7);
+      lp.frequency.setValueAtTime(Math.min(16000, p.cutoff * (1.5 + p.env * 6)), tt);
+      lp.frequency.setTargetAtTime(Math.max(200, p.cutoff * 0.5), tt + 0.003, dec * 0.5);
+      const amp = this.gain(0), peak = (v * 0.38) / Math.sqrt(iv.length);
+      amp.gain.setValueAtTime(EPS, tt);
+      amp.gain.linearRampToValueAtTime(peak, tt + 0.002);
+      amp.gain.setTargetAtTime(0, tt + 0.004, dec);
+      const a = c.createOscillator(); a.type = 'sawtooth'; a.frequency.value = f; a.detune.value = -p.detune * 0.5;
+      const b = c.createOscillator(); b.type = 'square'; b.frequency.value = f; b.detune.value = p.detune * 0.5;
+      const bg = this.gain(0.5); b.connect(bg).connect(lp); a.connect(lp);
+      const pan = c.createStereoPanner(); pan.pan.value = ((k % 3) - 1) * 0.35;
+      lp.connect(amp).connect(pan).connect(out);
+      for (const o of [a, b]) { o.start(tt); o.stop(end); }
+    });
+  }
+
+  // FM bells and mallets: ENV sets the strike brightness, DECAY the ring, DETUNE the shimmer.
+  bells(t, v, iv, root, p, out) {
+    const c = this.ctx, ring = Math.max(0.2, p.decay * 1.6);
+    const lp = this.filter('lowpass', Math.min(16000, p.cutoff * 2.5), 0.5);
+    iv.forEach((n, k) => {
+      const tt = t + k * 0.018, f = midiHz(root + 12 + n), end = tt + ring * 4;
+      const car = c.createOscillator(); car.frequency.value = f; car.detune.value = (k % 2 ? 1 : -1) * p.detune * 0.2;
+      const mod = c.createOscillator(); mod.frequency.value = f * 3.5;
+      const ma = this.gain(0); mod.connect(ma).connect(car.frequency);
+      ma.gain.setValueAtTime(f * (0.5 + p.env * 4) * v, tt);
+      ma.gain.setTargetAtTime(f * 0.05, tt + 0.002, ring * 0.25);
+      const amp = this.gain(0);
+      amp.gain.setValueAtTime(EPS, tt);
+      amp.gain.linearRampToValueAtTime((v * 0.3) / Math.sqrt(iv.length), tt + 0.002);
+      amp.gain.setTargetAtTime(0, tt + 0.004, ring);
+      car.connect(amp).connect(lp);
+      for (const o of [car, mod]) { o.start(tt); o.stop(end); }
+    });
+    lp.connect(out);
   }
 
   vox(t, v, step) {
@@ -734,7 +848,8 @@ export class Engine {
     const p = this.state.params.stab, h = this.harm;
     const iv = CHORDS[h ? h.c : Math.round(p.chord)].iv;
     const n = iv[k % iv.length] + 12 * Math.floor(k / iv.length);
-    return this.keys(t, v, [n], 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot(), p, this.ch.stab.input);
+    const vo = Math.round(p.voice), lead = vo > 1 ? STAB_VOICES[vo] : 'keys';
+    return this[lead](t, v, [n], 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot(), p, this.ch.stab.input);
   }
 
   harmRoot() { const h = this.harm; return h ? ((((h.r + 6) % 12) + 12) % 12) - 6 : 0; }
@@ -766,9 +881,64 @@ export class Engine {
     for (const o of [tri, sub]) { o.start(t); o.stop(t + len + 0.3); }
   }
 
+  // Mono note helper for 808/REESE: chokes the previous note and glides on SLIDE steps.
+  monoNote(t, f, sliding) {
+    const prev = this.mono;
+    if (prev && prev.end > t) prev.amp.gain.setTargetAtTime(0, t, sliding ? 0.02 : 0.006);
+    this.mono = null;
+    return prev && sliding && prev.end > t ? prev.f : f;
+  }
+
+  // Tuned 808: sine sub with a pitch knock, long tail on DECAY, CUTOFF/DRIVE add harmonics; slides glide.
+  eight08(t, st, sd, holdNext, sliding) {
+    const c = this.ctx, p = this.state.params.acid;
+    const f = midiHz(36 + this.state.key + st.n + Math.round(p.tune) + this.harmRoot());
+    const from = this.monoNote(t, f, sliding), len = holdNext ? sd * 2 : 0.15 + p.decay * 1.6, end = t + len + 0.4;
+    const o = c.createOscillator();
+    o.frequency.setValueAtTime(sliding ? from : f * 1.9, t);
+    o.frequency.exponentialRampToValueAtTime(f, t + (sliding ? 0.09 : 0.03));
+    const sh = c.createWaveShaper(); sh.curve = driveCurve(0.1 + p.drive * 0.85);
+    const lp = this.filter('lowpass', Math.max(80, p.cutoff * 2), 0.7);
+    const amp = this.gain(0), vel = (st.a ? 1 : 0.85) * (1 + p.accent * (st.a ? 0.2 : 0)) * 0.9;
+    amp.gain.setValueAtTime(EPS, t);
+    amp.gain.linearRampToValueAtTime(vel, t + 0.004);
+    amp.gain.setTargetAtTime(0, t + 0.02, Math.max(0.05, len * 0.45));
+    o.connect(sh).connect(lp).connect(amp).connect(this.ch.acid.input);
+    o.start(t); o.stop(end);
+    this.mono = { amp, f, end };
+  }
+
+  // Reese: two detuned saws beating against each other plus a sine sub. SAW/SQR sets the detune spread,
+  // ENV MOD sweeps the filter, RESO adds bite.
+  reese(t, st, sd, holdNext, sliding) {
+    const c = this.ctx, p = this.state.params.acid;
+    const f = midiHz(36 + this.state.key + st.n + Math.round(p.tune) + this.harmRoot());
+    const from = this.monoNote(t, f, sliding), len = holdNext ? sd * 2 : sd * (1 + p.decay * 6), end = t + len + 0.3;
+    const lp = this.filter('lowpass', p.cutoff, Math.max(0.5, p.reso * 0.35));
+    lp.frequency.setValueAtTime(Math.min(9000, p.cutoff * (1 + p.envmod * 5 + (st.a ? p.accent * 2 : 0))), t);
+    lp.frequency.setTargetAtTime(p.cutoff, t + 0.01, Math.max(0.03, p.decay * 0.6));
+    const sh = c.createWaveShaper(); sh.curve = driveCurve(0.15 + p.drive * 0.7);
+    const amp = this.gain(0), vel = (st.a ? 0.95 : 0.8);
+    amp.gain.setValueAtTime(EPS, t);
+    amp.gain.linearRampToValueAtTime(vel * 0.5, t + 0.008);
+    amp.gain.setTargetAtTime(0, t + len, 0.04);
+    const spread = 8 + p.wave * 30;
+    for (const [type, det, lvl] of [['sawtooth', -spread, 0.5], ['sawtooth', spread, 0.5], ['sine', 0, 0.9]]) {
+      const o = c.createOscillator(); o.type = type; o.detune.value = det;
+      o.frequency.setValueAtTime(from, t);
+      if (from !== f) o.frequency.exponentialRampToValueAtTime(f, t + 0.08);
+      const g = this.gain(lvl);
+      o.connect(g).connect(type === 'sine' ? amp : lp);
+      o.start(t); o.stop(end);
+    }
+    lp.connect(sh).connect(amp).connect(this.ch.acid.input);
+    this.mono = { amp, f, end };
+  }
+
   acid(t, st, sliding, holdNext, sd) {
     const a = this.acidNodes, p = this.state.params.acid;
-    if (Math.round(p.voice) === 1) { a.vca.gain.setTargetAtTime(0, t, 0.005); return this.bass(t, st, sd, holdNext); }
+    const vo = Math.round(p.voice);
+    if (vo > 0) { a.vca.gain.setTargetAtTime(0, t, 0.005); return this[['', 'bass', 'eight08', 'reese'][vo]](t, st, sd, holdNext, sliding); }
     const f = midiHz(36 + this.state.key + st.n + Math.round(p.tune) + this.harmRoot());
     for (const o of [a.o1, a.o2]) {
       if (sliding) o.frequency.setTargetAtTime(f, t, 0.024);
@@ -790,7 +960,7 @@ export class Engine {
     if (!holdNext) a.vca.gain.setTargetAtTime(0, t + sd * 0.55, 0.006);
   }
 
-  acidRelease(t) { this.acidNodes.vca.gain.setTargetAtTime(0, t, 0.008); }
+  acidRelease(t) { this.acidNodes.vca.gain.setTargetAtTime(0, t, 0.008); if (this.mono) { this.mono.amp.gain.setTargetAtTime(0, t, 0.01); this.mono = null; } }
 
   // ---------- performance (realtime) ----------
   setThrow(on) { this.throwBus.gain.setTargetAtTime(on ? 0.85 : 0, this.ctx.currentTime, 0.012); }

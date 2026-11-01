@@ -1,4 +1,4 @@
-import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue } from './params.js';
+import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue, VOICE_HIDDEN } from './params.js';
 import { Engine, Sequencer, parseChain } from './engine.js';
 import { defaultState, generate, mutate, arrangement, songChain, applyOverrides, clone, save, load, sanitize, STYLES, emptyPattern, emptyAcidStep } from './state.js';
 import { renderBars, bufferToWav } from './render.js';
@@ -13,9 +13,9 @@ import { roomTransportPosition, transportResync } from './room-sync.js';
 
 let state = load() || defaultState();
 let ctx = null, engine = null, seq = null, timer = null, recNode = null;
-const heldPads = new Map();
+const heldPads = new Map(), keyPads = new Set();
 // A held pad releases wherever the finger lifts, even if the pad was re-rendered mid-hold
-addEventListener('pointerup', (e) => { if (e.pointerType !== 'mouse' || !e.buttons) for (const k of [...heldPads.keys()]) ui.perf?.[k]?.up(); });
+addEventListener('pointerup', (e) => { if (e.pointerType !== 'mouse' || !e.buttons) for (const k of [...heldPads.keys()]) if (!keyPads.has(k)) ui.perf?.[k]?.up(); });
 addEventListener('blur', () => { for (const k of [...heldPads.keys()]) ui.perf?.[k]?.up(); });
 let playing = false, abs = 0, nextTime = 0, lastPlayedPat = null;
 let transportOrigin = 0, roomJoinTimer = 0, clockOffset = null;
@@ -976,7 +976,7 @@ function buildEditor() {
   const id = t.id;
   ui.editorKnobs = {};
   const voice = Math.round(state.params[id].voice || 0);
-  const hidden = { acid: voice === 1 ? ['wave', 'reso', 'envmod', 'accent'] : [], stab: voice === 1 ? ['reso'] : [] }[id] || [];
+  const hidden = { acid: VOICE_HIDDEN.acid[voice] || [], stab: VOICE_HIDDEN.stab[voice] || [] }[id] || [];
   const progLocked = id === 'stab' && state.patterns[state.current]?.prog?.length > 0;
   const mk = (q) => {
     const k = knob(q, state.params[id][q.id], (v) => {
@@ -1111,12 +1111,12 @@ function buildMaster() {
       if (!playing) play();
       heldPads.set(keyName, off); b.classList.add('on'); on();
     };
-    const up = () => { const f = heldPads.get(keyName); if (!f) return; heldPads.delete(keyName); document.querySelectorAll('.btn.perf.on').forEach((x) => x.lastChild.textContent === keyName && x.classList.remove('on')); f(); };
+    const up = () => { keyPads.delete(keyName); const f = heldPads.get(keyName); if (!f) return; heldPads.delete(keyName); document.querySelectorAll('.btn.perf.on').forEach((x) => x.lastChild.textContent === keyName && x.classList.remove('on')); f(); };
     b.addEventListener('pointerdown', down);
     b.addEventListener('pointerup', up);
     b.addEventListener('pointercancel', up);
     b.addEventListener('contextmenu', (e) => e.preventDefault());
-    ui.perf[keyName] = { down: () => down(new Event('x')), up };
+    ui.perf[keyName] = { down: () => { if (!heldPads.has(keyName)) keyPads.add(keyName); down(new Event('x')); }, up };
     return b;
   };
   ui.perf = {};
