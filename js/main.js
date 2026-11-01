@@ -489,7 +489,7 @@ function build() {
   app.innerHTML = '';
   ui.rows = {};
   document.body.classList.toggle('studio-open', studioOpen);
-  app.append(buildHeader(), buildGenerateHome(), h('main', { class: 'main studio-workspace' }, h('div', { class: 'left' }, buildGrid(), buildEditor()), buildMaster()));
+  app.append(buildHeader(), buildGenerateHome(), h('main', { class: 'main studio-workspace' }, h('div', { class: 'left' }, buildGrid(), buildEditor()), buildMaster()), buildTabBar());
   renderPatterns();
   for (const id of TRACK_IDS) renderRow(id);
   renderRoll();
@@ -730,6 +730,25 @@ function buildGenerateHome() {
 }
 
 
+function openArtist() {
+  openArtistStudio({
+    getState: () => state,
+    loadProject: loadArtistProject,
+    performProject: startArtistLive,
+    publishProject: (item) => { loadArtistProject(item); showPublish(); },
+    toast,
+  });
+}
+
+function buildTabBar() {
+  const tab = (label, on, onclick) => h('button', { class: 'tab' + (on ? ' on' : ''), ...(on && { 'aria-current': 'page' }), onclick }, h('i', { class: `tab-ico ${label.toLowerCase()}` }), h('span', {}, label));
+  return h('nav', { class: 'tabbar', 'aria-label': 'Sections' },
+    tab('Create', !studioOpen, () => { if (studioOpen) toggleStudio(); else scrollTo({ top: 0, behavior: 'smooth' }); }),
+    tab('Studio', studioOpen, () => { if (!studioOpen) toggleStudio(); }),
+    tab('Club', false, showClub),
+    tab('Artist', false, openArtist));
+}
+
 function buildHeader() {
   const playBtn = h('button', { class: 'btn play', title: 'Play / Stop (Space)', onclick: toggle },
     h('span', { class: 'ico-play' }), h('span', { class: 'ico-stop' }));
@@ -775,17 +794,7 @@ function buildHeader() {
     btn.disabled = false; btn.textContent = 'EXPORT WAV';
   } }, 'EXPORT WAV');
   const recBtn = h('button', { class: 'btn rec', title: 'Record live master output to WAV', onclick: toggleRec }, h('span', { class: 'dot' }), 'REC');
-  const artistBtn = h('button', {
-    class: 'btn artist-btn',
-    title: 'Build the artist identity, catalog and release calendar',
-    onclick: () => openArtistStudio({
-      getState: () => state,
-      loadProject: loadArtistProject,
-      performProject: startArtistLive,
-      publishProject: (item) => { loadArtistProject(item); showPublish(); },
-      toast,
-    }),
-  }, 'ARTIST');
+  const artistBtn = h('button', { class: 'btn artist-btn', title: 'Build the artist identity, catalog and release calendar', onclick: openArtist }, 'ARTIST');
   const clubBtn = h('button', { class: 'btn club-btn', title: 'Enter an avatar listening room for UNTERGRUND-native sets', onclick: showClub }, 'CLUB');
   const liveBtn = h('button', {
     class: 'btn live-toggle' + (artistLive ? ' on' : ''),
@@ -804,8 +813,8 @@ function buildHeader() {
     h('div', { class: 'group transport' }, playBtn, h('div', { class: 'transport-fields studio-only' }, h('div', { class: 'field' }, h('label', {}, 'BPM'), bpm.el), swing.el,
       h('div', { class: 'field' }, h('label', {}, 'KEY'), key), h('div', { class: 'field' }, h('label', {}, 'SCALE'), scale))),
     h('div', { class: 'group studio-only' }, h('div', { class: 'field' }, h('label', {}, 'PATTERN'), pats), patTools),
-    h('div', { class: 'group studio-only' }, chainBtn, chainInput),
-    h('div', { class: 'group gen studio-only' }, styleSel,
+    h('div', { class: 'group studio-only studio-more' }, chainBtn, chainInput),
+    h('div', { class: 'group gen studio-only studio-more' }, styleSel,
       h('button', { class: 'btn accent', title: 'Generate a pattern into this slot (G)', onclick: doGenerate }, 'GENERATE'),
       h('button', { class: 'btn', title: 'Generate a whole 8-pattern arrangement and enable chain', onclick: doGenerateSet }, 'NEW SET'),
       h('button', { class: 'btn ghost', title: 'Small variation (M)', onclick: doMutate }, 'MUTATE'),
@@ -813,13 +822,18 @@ function buildHeader() {
         h('option', { value: .12 }, 'SUBTLE'), h('option', { value: .25, selected: true }, 'EVOLVE'), h('option', { value: .55 }, 'WILD')),
       h('button', { class: 'btn ghost evolve', title: 'Create an evolved copy in the next pattern slot', onclick: createVariation }, 'VAR →'),
       h('button', { class: 'btn ghost', title: 'Undo (Ctrl+Z)', onclick: undo }, 'UNDO')),
-    h('div', { class: 'group studio-only' }, liveBtn, bars, exportBtn, recBtn, publishBtn),
-    h('div', { class: 'group studio-only' },
+    h('div', { class: 'group studio-only studio-more' }, liveBtn, bars, exportBtn, recBtn, publishBtn),
+    h('div', { class: 'group studio-only studio-more' },
       h('button', { class: 'btn ghost', title: 'Save project JSON', onclick: () => download(new Blob([JSON.stringify(state)], { type: 'application/json' }), `untergrund-${stamp()}.json`) }, 'SAVE'),
       h('button', { class: 'btn ghost', title: 'Load project JSON', onclick: () => fileIn.click() }, 'LOAD'), fileIn),
     h('nav', { class: 'group nav seg' }, artistBtn, clubBtn,
       h('button', { class: 'btn studio-toggle' + (studioOpen ? ' on' : ''), title: 'Sequencer, mixer, export and every control', onclick: toggleStudio }, studioOpen ? 'DONE' : 'STUDIO')),
-    h('button', { class: 'btn ghost help studio-only', title: 'Shortcuts', onclick: showHelp }, '?'));
+    h('button', { class: 'btn ghost help studio-only studio-more', title: 'Shortcuts', onclick: showHelp }, '?'),
+    h('button', { class: 'btn ghost tools-toggle studio-only', 'aria-expanded': 'false', onclick: (e) => {
+      const open = document.body.classList.toggle('tools-open');
+      e.currentTarget.setAttribute('aria-expanded', String(open));
+      e.currentTarget.textContent = open ? 'FEWER TOOLS' : 'MORE TOOLS';
+    } }, 'MORE TOOLS'));
 }
 
 function renderPatterns() {

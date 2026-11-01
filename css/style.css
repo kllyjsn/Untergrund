@@ -675,3 +675,53 @@ body.studio-open .generate-primary small { margin-top: 0; }
 @media (prefers-reduced-motion: reduce) {
   .glyph em, .generate-primary.fired, .np-dot { animation: none !important; }
 }
+
+/* ---------- phone: bottom tab bar, one task per screen ---------- */
+.tabbar, .tools-toggle { display: none; }
+@media (max-width: 760px) {
+  body { padding-bottom: calc(66px + env(safe-area-inset-bottom)); }
+  .tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(4,1fr);
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); background: rgba(9,9,10,.86); border-top: 1px solid rgba(255,255,255,.08);
+    backdrop-filter: saturate(160%) blur(18px); -webkit-backdrop-filter: saturate(160%) blur(18px); }
+  .tab { display: flex; flex-direction: column; align-items: center; gap: 5px; height: 52px; justify-content: center; border: 0; background: none; color: #8a8a94; font: 600 11px var(--sans); letter-spacing: .02em; cursor: pointer; }
+  .tab.on { color: #fff; }
+  .tab-ico { width: 22px; height: 18px; box-sizing: border-box; }
+  .tab-ico.create { background: linear-gradient(currentColor,currentColor) 1px 100%/3px 55% no-repeat, linear-gradient(currentColor,currentColor) 7px 100%/3px 100% no-repeat, linear-gradient(currentColor,currentColor) 13px 100%/3px 70% no-repeat, linear-gradient(currentColor,currentColor) 19px 100%/3px 40% no-repeat; }
+  .tab-ico.studio { border: 2px solid currentColor; border-radius: 4px; background: repeating-linear-gradient(90deg,transparent 0 4px,currentColor 4px 6px); }
+  .tab-ico.club { width: 18px; border: 2px solid currentColor; border-radius: 50%; background: radial-gradient(currentColor 3px,transparent 3.5px); }
+  .tab-ico.artist { width: 18px; background: radial-gradient(circle at 50% 28%,currentColor 4.5px,transparent 5px), radial-gradient(ellipse 9px 7px at 50% 100%,currentColor 98%,transparent); }
+  .toast { bottom: calc(80px + env(safe-area-inset-bottom)); }
+  .crash { bottom: calc(80px + env(safe-area-inset-bottom)); }
+
+  .top .nav { display: none; }
+  body:not(.studio-open) .top .btn.play { display: none; }
+  body:not(.studio-open) .top { padding: calc(10px + env(safe-area-inset-top)) 16px 10px; border-bottom-color: transparent; }
+  body:not(.studio-open) .brand .name { display: block; font-size: 14px; }
+
+  .generate-home { grid-template-areas: 'copy' 'styles' 'actions' 'recents'; padding: 14px 16px 24px; gap: 18px; }
+  .generate-home.is-playing { grid-template-areas: 'copy' 'actions' 'styles' 'recents'; }
+  .generate-copy > span, .generate-copy p, .generate-status, .generate-hint { display: none; }
+  .generate-copy h1 { margin: 0; font-size: clamp(30px,8.4vw,40px); }
+  .generate-actions > .btn { display: none; }
+  .generate-primary { min-height: 76px; }
+  .family-tabs { -webkit-mask: linear-gradient(90deg,#000 85%,transparent); mask: linear-gradient(90deg,#000 85%,transparent); }
+  .generate-styles { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin: 0; padding: 0; overflow: visible; }
+  .generate-style { min-height: 88px; padding: 14px; border-radius: 16px; gap: 3px; }
+  .generate-style .glyph { top: 14px; left: 14px; height: 18px; transform: scale(.8); transform-origin: 0 100%; }
+  .generate-style.previewing::after { top: 14px; right: 14px; }
+  .generate-style span { font-size: 12px; }
+  .np-actions { flex-wrap: nowrap; }
+  .np-actions .generate-primary { flex: 1 1 auto; min-height: 64px; }
+
+  body.studio-open .top .studio-more { display: none; }
+  body.studio-open.tools-open .top .studio-more { display: flex; }
+  body.studio-open .top .tools-toggle { display: inline-flex; align-items: center; justify-content: center; width: 100%; }
+  body.studio-open .top { gap: 10px; padding: 10px 12px; }
+  body.studio-open .top .group { padding-left: 0; border-left: 0; }
+  body.studio-open .brand .sub { display: none; }
+  body.studio-open .brand .name { font-size: 15px; }
+  body.studio-open .pats { flex-wrap: nowrap; }
+  body.studio-open .pat { min-width: 0; width: 34px; padding: 0; }
+  body.studio-open .generate-home { margin: 10px 12px 0; padding: 10px; }
+  body.studio-open .generate-primary { min-height: 52px; }
+}
