@@ -78,3 +78,9 @@ console.log('live-kit settings do not leak into the next style passed');
   assert(all.size >= 6, 'genres use most stab instruments');
 }
 console.log('per-genre instrument palettes passed');
+{
+  const percs = new Set(Object.keys(STYLES).map((k) => generate(k, 3, 'minor').params.perc.voice));
+  assert(percs.size >= 4, 'genres use several percussion instruments');
+  assert(generate('boombap', 3, 'minor').master.dust > 0 && generate('hardtechno', 3, 'minor').master.dust === 0, 'dust is per-genre');
+}
+console.log('per-genre percussion and dust passed');

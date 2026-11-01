@@ -336,6 +336,10 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   if (stabVoice != null) params.stab.voice = stabVoice;
   if (bassVoice != null) params.acid.voice = bassVoice;
   for (const t of ['acid', 'stab']) params[t].voice ??= 0;
+  const PERC = { deephouse: 1, ukg: 3, boombap: 3, neosoul: 3, breaks: 2, minimal: 4, dub: 4, euphoric: 3, house: 1, ambient: 2 };
+  params.perc.voice = PERC[style] ?? 0;
+  const DUST = { boombap: 0.45, neosoul: 0.25, dub: 0.3, ambient: 0.2, deephouse: 0.12, minimal: 0.1 };
+  master.dust = DUST[style] ?? 0;
   return { pattern: P, params, master, bpm, swing: swing ?? 0.06 };
 }
 

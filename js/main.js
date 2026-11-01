@@ -976,7 +976,7 @@ function buildEditor() {
   const id = t.id;
   ui.editorKnobs = {};
   const voice = Math.round(state.params[id].voice || 0);
-  const hidden = { acid: VOICE_HIDDEN.acid[voice] || [], stab: VOICE_HIDDEN.stab[voice] || [] }[id] || [];
+  const hidden = VOICE_HIDDEN[id]?.[voice] || [];
   const progLocked = id === 'stab' && state.patterns[state.current]?.prog?.length > 0;
   const mk = (q) => {
     const k = knob(q, state.params[id][q.id], (v) => {
