@@ -327,6 +327,14 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   if (VARY[style]) master.vary = VARY[style];
   const dm = defaultMaster();
   for (const k of Object.keys(dm)) if (k !== 'volume' && k !== 'dj') master[k] ??= dm[k];
+  const PALETTE = {
+    industrial: [6, 3], dub: [0, 2], peak: [4, 0], hardtechno: [0, 3],
+    deephouse: [3, 1], minimal: [6, 2], ukg: [3, 3], euphoric: [5, null],
+    boombap: [4, null], breaks: [3, 0], electro: [0, 2], dnb: [2, 3], trance: [5, null], ambient: [2, 2],
+  };
+  const [stabVoice, bassVoice] = PALETTE[style] || [];
+  if (stabVoice != null) params.stab.voice = stabVoice;
+  if (bassVoice != null) params.acid.voice = bassVoice;
   for (const t of ['acid', 'stab']) params[t].voice ??= 0;
   return { pattern: P, params, master, bpm, swing: swing ?? 0.06 };
 }
