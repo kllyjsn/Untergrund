@@ -12,6 +12,8 @@ function keepLocal(track) {
 }
 const meta = ({ state, ...rest }) => rest;
 
+export const recentTracks = () => localTracks().map(meta);
+
 export async function listCrate() {
   try {
     const res = await fetch('/api/tracks');
