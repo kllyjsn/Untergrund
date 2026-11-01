@@ -1,5 +1,6 @@
 import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES } from './params.js';
 import { getSample } from './sampler.js';
+import { liveKit, loadLiveKit, BASS_NOTES } from './livekit.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
@@ -251,6 +252,9 @@ export class Engine {
 
   trigger(id, t, v) {
     if (Math.round(this.state.master.kit || 0) === 1) {
+      const kit = liveKit();
+      if (!kit) loadLiveKit();
+      else if (this.sampledHit(kit, id, t, v)) return;
       switch (id) {
         case 'kick': return this.liveKick(t, v);
         case 'snare': return this.liveSnare(t, v);
@@ -272,6 +276,66 @@ export class Engine {
   }
 
   // ---------- voices ----------
+  playBuf(buf, t, level, out, rate = 1, dur = 0) {
+    const s = this.ctx.createBufferSource();
+    s.buffer = buf; s.playbackRate.value = rate;
+    const g = this.gain(level);
+    s.connect(g).connect(out);
+    s.start(t);
+    if (dur) {
+      g.gain.setValueAtTime(level, t + dur);
+      g.gain.setTargetAtTime(0, t + dur, 0.05);
+      s.stop(t + dur + 0.4);
+    }
+  }
+
+  sampledHit(kit, id, t, v) {
+    const rr = (this.rr = (this.rr || 0) + 1);
+    const drift = 1 + (hash(rr, 7) - 0.5) * 0.012;
+    if (id === 'kick') {
+      const loud = v > 0.75;
+      this.playBuf(kit[`kick_v${loud ? 4 : 2}_${(rr % 2) + 1}`], t, 0.95 * v ** 1.2, this.ch.kick.input, drift);
+      this.duckAt(t, v * 0.7);
+      return true;
+    }
+    if (id === 'snare') {
+      const name = v > 0.97 ? 'snare_rim' : v > 0.85 ? 'snare_v34' : v > 0.65 ? 'snare_v24' : v > 0.45 ? 'snare_v14' : 'snare_v6';
+      this.playBuf(kit[name], t, 0.85 * v ** 1.4, this.ch.snare.input, drift);
+      return true;
+    }
+    if (id === 'ch') {
+      const layer = Math.max(1, Math.min(4, Math.ceil(v * 4)));
+      this.playBuf(kit[`hh_v${layer}_${(rr % 2) + 1}`], t, 0.32 * v ** 1.5, this.ch.ch.input, drift);
+      return true;
+    }
+    if (id === 'oh') {
+      this.playBuf(kit[v > 0.7 ? 'hh_open' : 'hh_half'], t, 0.3 * v, this.ch.oh.input, drift, 0.15 + this.state.params.oh.decay * 0.9);
+      return true;
+    }
+    if (id === 'ride') {
+      const layer = v > 0.85 ? 3 : v > 0.55 ? 2 : 1;
+      const name = layer === 2 ? `ride_v2_${(rr % 2) + 1}` : `ride_v${layer}_1`;
+      this.playBuf(kit[name], t, 0.3 * v ** 1.3, this.ch.ride.input, drift);
+      return true;
+    }
+    return false;
+  }
+
+  sampledBass(kit, t, m, len, accent) {
+    let [name, center] = BASS_NOTES[0];
+    for (const [n, c] of BASS_NOTES) if (Math.abs(c - m) < Math.abs(center - m)) [name, center] = [n, c];
+    const out = this.ch.acid.input;
+    this.playBuf(kit[`bass_${name}_${hash(t * 1000, 3) > 0.5 ? 'a' : 'b'}`], t, accent ? 1.2 : 1, out, Math.pow(2, (m - center) / 12), len);
+    const sub = this.ctx.createOscillator(); sub.frequency.value = midiHz(m);
+    const sg = this.gain(0);
+    sg.gain.setValueAtTime(EPS, t);
+    sg.gain.linearRampToValueAtTime(0.12, t + 0.01);
+    sg.gain.setTargetAtTime(0.07, t + 0.05, 0.2);
+    sg.gain.setTargetAtTime(0, t + len, 0.04);
+    sub.connect(this.filter('lowpass', 120, 0.7)).connect(sg).connect(out);
+    sub.start(t); sub.stop(t + len + 0.3);
+  }
+
   kick(t, v) {
     const c = this.ctx, p = this.state.params.kick, out = this.ch.kick.input;
     const f = p.tune, dec = p.decay;
@@ -605,6 +669,11 @@ export class Engine {
     const c = this.ctx, p = this.state.params.acid;
     const f = midiHz(36 + this.state.key + st.n + Math.round(p.tune) + this.harmRoot());
     const len = holdNext ? sd * 2 : sd * (0.9 + p.decay * 2);
+    if (Math.round(this.state.master.kit || 0) === 1) {
+      const kit = liveKit();
+      if (kit) return this.sampledBass(kit, t, 36 + this.state.key + st.n + Math.round(p.tune) + this.harmRoot(), len, st.a);
+      loadLiveKit();
+    }
     const tri = c.createOscillator(); tri.type = 'triangle'; tri.frequency.value = f;
     const sub = c.createOscillator(); sub.frequency.value = f;
     const lp = this.filter('lowpass', 180 + p.cutoff * 0.6 + (st.a ? 500 : 0), 0.7);
