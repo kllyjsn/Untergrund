@@ -498,6 +498,8 @@ function build() {
   for (const id of TRACK_IDS) renderRow(id);
   renderRoll();
   if (ui.playhead) ui.lastAbs = null;
+  const tab = document.querySelector('.family-tab.on'), row = tab?.parentElement;
+  if (row) row.scrollLeft = tab.offsetLeft - (row.clientWidth - tab.offsetWidth) / 2;
 }
 
 function toggleStudio() {
@@ -510,9 +512,10 @@ const STYLE_HUE = {
   hypnotic: '#c6ff2b', industrial: '#ff6a3d', acid: '#f2ff3a', dub: '#3ad6c6', peak: '#ff4d86', hardtechno: '#ff3b3b',
   deephouse: '#6f9bff', minimal: '#e4e4ea', ukg: '#b892ff', euphoric: '#ff9ad5', neosoul: '#ffb347', boombap: '#dca86e',
   breaks: '#ff9340', electro: '#2bd9ff', dnb: '#7dff9a', trance: '#a98bff', ambient: '#8fd8ff',
+  amapiano: '#f5c542', afrobeats: '#ff7b54', reggaeton: '#e83cff', bailefunk: '#4dff4d', trap: '#9b5cff', drill: '#5c7cff', jerseyclub: '#00ffd0', hyperpop: '#ff5ce1',
 };
 const LIVE_KIT_STYLES = new Set(['neosoul', 'boombap']);
-const GROOVE_STYLES = new Set(['neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric']);
+const GROOVE_STYLES = new Set(['neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill']);
 const SECTION_NAMES = {
   groove: ['INTRO', 'BUILD', 'VERSE', 'FILL', 'BRIDGE', 'BRIDGE', 'HOOK', 'HOOK'],
   club: ['INTRO', 'BUILD', 'GROOVE', 'FILL', 'BREAKDOWN', 'BREAKDOWN', 'PEAK', 'PEAK'],

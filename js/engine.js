@@ -988,10 +988,37 @@ export class Engine {
     this.mono = { amp, f, end };
   }
 
+  // Amapiano log drum: a hollow, pitched knock. Sine body with a fast pitch drop, a second-harmonic
+  // triangle for the wooden tone and a bandpassed click. CUTOFF sets brightness, DRIVE the grit.
+  logdrum(t, st, sd, holdNext, sliding) {
+    const c = this.ctx, p = this.state.params.acid, out = this.ch.acid.input;
+    const f = midiHz(48 + this.state.key + st.n + Math.round(p.tune) + this.harmRoot());
+    const from = this.monoNote(t, f, sliding), len = holdNext ? sd * 2 : 0.1 + p.decay * 0.8, end = t + len + 0.3;
+    const o = c.createOscillator(), o2 = c.createOscillator(); o2.type = 'triangle';
+    o.frequency.setValueAtTime(sliding ? from : f * 2.4, t);
+    o.frequency.exponentialRampToValueAtTime(f, t + (sliding ? 0.07 : 0.025));
+    o2.frequency.setValueAtTime(sliding ? from * 2 : f * 4, t);
+    o2.frequency.exponentialRampToValueAtTime(f * 2, t + 0.02);
+    const g2 = this.gain(0); this.adEnv(g2.gain, t, 0.3, 0.001, Math.max(0.03, len * 0.3));
+    const sh = c.createWaveShaper(); sh.curve = driveCurve(0.15 + p.drive * 0.8);
+    const lp = this.filter('lowpass', Math.max(200, p.cutoff * 3), 0.7);
+    const amp = this.gain(0), vel = (st.a ? 1 : 0.8) * (1 + p.accent * (st.a ? 0.25 : 0)) * 0.8;
+    amp.gain.setValueAtTime(EPS, t);
+    amp.gain.linearRampToValueAtTime(vel, t + 0.002);
+    amp.gain.setTargetAtTime(0, t + 0.01, Math.max(0.04, len * 0.35));
+    o.connect(sh); o2.connect(g2).connect(sh);
+    sh.connect(lp).connect(amp).connect(out);
+    o.start(t); o2.start(t); o.stop(end); o2.stop(end);
+    const nz = this.noiseSrc(t, 0.03), bp = this.filter('bandpass', Math.min(6000, f * 8), 3), ng = this.gain(0);
+    this.adEnv(ng.gain, t, 0.25 * vel, 0.0005, 0.012);
+    nz.connect(bp).connect(ng).connect(out);
+    this.mono = { amp, f, end };
+  }
+
   acid(t, st, sliding, holdNext, sd) {
     const a = this.acidNodes, p = this.state.params.acid;
     const vo = Math.round(p.voice);
-    if (vo > 0) { a.vca.gain.setTargetAtTime(0, t, 0.005); return this[['', 'bass', 'eight08', 'reese'][vo]](t, st, sd, holdNext, sliding); }
+    if (vo > 0) { a.vca.gain.setTargetAtTime(0, t, 0.005); return this[['', 'bass', 'eight08', 'reese', 'logdrum'][vo]](t, st, sd, holdNext, sliding); }
     const f = midiHz(36 + this.state.key + st.n + Math.round(p.tune) + this.harmRoot());
     for (const o of [a.o1, a.o2]) {
       if (sliding) o.frequency.setTargetAtTime(f, t, 0.024);
