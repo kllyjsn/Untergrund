@@ -23,6 +23,8 @@ if (MOCK) {
 }
 
 import { handleCrate, memoryStore, redisStore, MAX_TRACK_BYTES } from './api/_lib/crate.js';
+import { handleJukebox, memoryJukebox, redisJukebox } from './api/_lib/jukebox.js';
+const jukeboxStore = redisJukebox() || memoryJukebox();
 const crateStore = redisStore() || memoryStore();
 const readBody = (req, max = Infinity) => new Promise((ok, fail) => {
   const c = []; let size = 0;
@@ -98,6 +100,21 @@ http.createServer(async (req, res) => {
       const body = raw ? JSON.parse(raw.toString() || '{}') : null;
       const { status, json } = await handleCrate(req.method, body, crateStore, url.searchParams.get('id') || '', req.socket.remoteAddress);
       return sendJson(res, status, json);
+    }
+    if (url.pathname === '/api/jukebox') {
+      let body = {};
+      if (req.method === 'POST') {
+        const chunks = []; let size = 0;
+        for await (const c of req) { size += c.length; if (size > MAX_TRACK_BYTES * 2) break; chunks.push(c); }
+        try { body = JSON.parse(Buffer.concat(chunks).toString() || '{}'); } catch { body = null; }
+      }
+      const { status, json } = await handleJukebox(req.method, body, { store: jukeboxStore, crate: crateStore, client: req.socket.remoteAddress });
+      res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      return res.end(JSON.stringify(json));
+    }
+    if (url.pathname === '/api/set-upload') {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'uploads_disabled' }));
     }
     if (url.pathname === '/api/room-config') {
       return sendJson(res, 200, { apiBase: process.env.ROOMS_API_URL || '' });

@@ -2,3 +2,5 @@ test/out/
 /*.wav
 .vercel/
 dist/
+node_modules/
+js/vendor/

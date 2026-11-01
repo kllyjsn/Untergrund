@@ -5,6 +5,7 @@ import { renderBars, bufferToWav } from './render.js';
 import { encodeWav, rng } from './dsp.js';
 import { knob, numBox, h } from './ui.js';
 import { openPublish } from './publish.js';
+import { createSetRecorder, openSetCutter, openSongPublish, openJukebox, fmtTime } from './sets.js';
 import { loadArtistProfile, openArtistStudio } from './artist.js';
 import { openClub, loadAvatar } from './club.js';
 import { saveTrack, trackTitle, recentTracks, fetchTrack } from './crate.js';
@@ -12,7 +13,7 @@ import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restor
 import { roomTransportPosition, transportResync } from './room-sync.js';
 
 let state = load() || defaultState();
-let ctx = null, engine = null, seq = null, timer = null, recNode = null;
+let ctx = null, engine = null, seq = null, timer = null, setRec = null;
 const heldPads = new Map(), keyPads = new Set();
 // A held pad releases wherever the finger lifts, even if the pad was re-rendered mid-hold
 addEventListener('pointerup', (e) => { if (e.pointerType !== 'mouse' || !e.buttons) for (const k of [...heldPads.keys()]) if (!keyPads.has(k)) ui.perf?.[k]?.up(); });
@@ -35,7 +36,6 @@ let variation = 0.25;
 let artistLive = null;
 let clipboard = null;
 const undoStack = [];
-const rec = { on: false, chunks: [], start: 0 };
 const ui = { rows: {}, playhead: -1 };
 
 const app = document.getElementById('app');
@@ -78,7 +78,7 @@ function ensureAudio() {
   const src = "let id=null;onmessage=e=>{if(e.data==='start'&&!id)id=setInterval(()=>postMessage(0),15);if(e.data==='stop'){clearInterval(id);id=null;}}";
   timer = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
   timer.onmessage = schedule;
-  setupRecorder();
+  setRec = createSetRecorder(ctx, engine.out);
 }
 
 function schedule() {
@@ -152,39 +152,30 @@ function auditionNote(n) {
   engine.acid(ctx.currentTime + 0.01, { n, a: false }, false, false, engine.stepDur * 2);
 }
 
-async function setupRecorder() {
-  if (!ctx.audioWorklet) return;
-  const src = `class R extends AudioWorkletProcessor{constructor(){super();this.on=false;this.port.onmessage=e=>this.on=e.data}
-  process(i){const x=i[0];if(this.on&&x&&x.length){this.port.postMessage([x[0].slice(0),(x[1]||x[0]).slice(0)])}return true}}
-  registerProcessor('untergrund-rec',R)`;
-  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
-  recNode = new AudioWorkletNode(ctx, 'untergrund-rec', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], channelCount: 2, channelCountMode: 'explicit' });
-  engine.out.connect(recNode);
-  const sink = ctx.createGain(); sink.gain.value = 0;
-  recNode.connect(sink).connect(ctx.destination);
-  recNode.port.onmessage = (e) => { if (rec.on) rec.chunks.push(e.data); };
-}
-
-function toggleRec() {
+let recClock = null;
+const setRecTime = (text) => { for (const el of document.querySelectorAll('.rec-time')) el.textContent = text; };
+async function toggleRec() {
   ensureAudio();
-  if (!recNode) return toast('Recorder is still starting — try again');
-  if (!rec.on) {
-    rec.chunks = []; rec.on = true; rec.start = performance.now();
-    recNode.port.postMessage(true);
+  if (!setRec?.supported) return toast('This browser cannot record. Try Chrome or Safari.');
+  if (!setRec.on) {
+    setRec.start();
     if (!playing) play();
-    toast('Recording master output…');
+    toast('Recording your set. Tap REC again to cut and publish it.');
+    recClock = setInterval(() => setRecTime(fmtTime(setRec.elapsed())), 500);
   } else {
-    rec.on = false;
-    recNode.port.postMessage(false);
-    const len = rec.chunks.reduce((a, c) => a + c[0].length, 0);
-    const L = new Float32Array(len), R = new Float32Array(len);
-    let o = 0;
-    for (const [l, r] of rec.chunks) { L.set(l, o); R.set(r, o); o += l.length; }
-    rec.chunks = [];
-    download(encodeWav([L, R], ctx.sampleRate), `untergrund-live-${stamp()}.wav`);
-    toast(`Saved ${(len / ctx.sampleRate).toFixed(1)}s live recording (24-bit WAV)`);
+    clearInterval(recClock); setRecTime('');
+    const take = await setRec.stop();
+    if (take.duration < 1 || !take.blob.size) toast('Nothing was recorded');
+    else {
+      const a = state.artist || {};
+      openSetCutter({
+        take, toast, download,
+        defaults: { title: `${a.title || trackTitle((Math.random() * 144) | 0)} (Live)`, style: STYLES[a.style] ? a.style : style, bpm: state.bpm, artist: a.name || 'UNTERGRUND' },
+        soundcloud: (wav, title) => showPublish({ audio: wav, title }),
+      });
+    }
   }
-  document.body.classList.toggle('recording', rec.on);
+  document.body.classList.toggle('recording', setRec.on);
 }
 
 // ---------------- state ops ----------------
@@ -219,12 +210,37 @@ function replaceState(s) {
   build(); persist();
 }
 
-function showPublish() {
+function showPublish({ audio = null, title = '' } = {}) {
   openPublish({
     getState: () => state,
     getStyle: () => style,
     render: async (n) => bufferToWav(await renderBars(state, n)),
+    toast, audio, title,
+  });
+}
+
+function showSongPublish() {
+  const a = state.artist || {};
+  openSongPublish({
+    state: clone(state), style: STYLES[a.style] ? a.style : style, artist: a.name || 'UNTERGRUND',
+    title: a.title || trackTitle((Math.random() * 144) | 0), toast,
+    soundcloud: (title) => showPublish({ title }), jukebox: showJukebox,
+  });
+}
+
+function showJukebox() {
+  openJukebox({
     toast,
+    stopSong: () => { if (playing) stop(); },
+    playSong: async (item) => {
+      ensureAudio();
+      const track = await fetchTrack(item.trackId);
+      if (!track?.state) throw new Error('track_missing');
+      replaceState(sanitize(track.state));
+      play();
+      const bars = state.chainOn ? parseChain(state.chain).length || 8 : 8;
+      return (Math.min(bars, 64) * 16 * 15) / state.bpm;
+    },
   });
 }
 
@@ -653,7 +669,8 @@ function buildNowPlaying(primary) {
       h('button', { class: 'np-stop', title: 'Stop (Space)', 'aria-label': 'Stop', onclick: toggle }, h('i')),
       primary,
       h('button', { class: 'btn refine-toggle', onclick: toggleStudio }, 'REFINE'),
-      h('button', { class: 'btn ghost', onclick: showClub }, 'PLAY IN CLUB')),
+      h('button', { class: 'btn ghost np-pub', onclick: showSongPublish }, 'PUBLISH'),
+      h('button', { class: 'btn ghost rec', title: 'Record your set, then cut and publish it', onclick: toggleRec }, h('span', { class: 'dot' }), 'REC', h('span', { class: 'rec-time' }))),
   ];
 }
 
@@ -753,6 +770,7 @@ function buildTabBar() {
     tab('Create', !studioOpen, () => { if (studioOpen) toggleStudio(); else scrollTo({ top: 0, behavior: 'smooth' }); }),
     tab('Studio', studioOpen, () => { if (!studioOpen) toggleStudio(); }),
     tab('Club', false, showClub),
+    tab('Jukebox', false, showJukebox),
     tab('Artist', false, openArtist));
 }
 
@@ -800,7 +818,8 @@ function buildHeader() {
     } catch (err) { console.error(err); toast('Render failed: ' + err.message); }
     btn.disabled = false; btn.textContent = 'EXPORT WAV';
   } }, 'EXPORT WAV');
-  const recBtn = h('button', { class: 'btn rec', title: 'Record live master output to WAV', onclick: toggleRec }, h('span', { class: 'dot' }), 'REC');
+  const recBtn = h('button', { class: 'btn rec', title: 'Record your set any time, then cut and publish it', onclick: toggleRec }, h('span', { class: 'dot' }), 'REC', h('span', { class: 'rec-time' }));
+  const jukeboxBtn = h('button', { class: 'btn', title: 'Play every song and set published on UNTERGRUND', onclick: showJukebox }, 'JUKEBOX');
   const artistBtn = h('button', { class: 'btn artist-btn', title: 'Build the artist identity, catalog and release calendar', onclick: openArtist }, 'ARTIST');
   const clubBtn = h('button', { class: 'btn club-btn', title: 'Enter an avatar listening room for UNTERGRUND-native sets', onclick: showClub }, 'CLUB');
   const liveBtn = h('button', {
@@ -808,7 +827,7 @@ function buildHeader() {
     title: 'Let the autonomous artist perform and evolve this set',
     onclick: () => artistLive ? stopArtistLive() : startArtistLive(),
   }, artistLive ? 'LIVE ON' : 'LIVE');
-  const publishBtn = h('button', { class: 'btn sc', title: 'Render and publish straight to SoundCloud', onclick: showPublish }, 'PUBLISH');
+  const publishBtn = h('button', { class: 'btn sc', title: 'Publish to the UNTERGRUND jukebox, and optionally SoundCloud', onclick: showSongPublish }, 'PUBLISH');
 
   const fileIn = h('input', { type: 'file', accept: '.json,application/json', style: 'display:none', onchange: async (e) => {
     const f = e.target.files[0]; if (!f) return;
@@ -817,7 +836,7 @@ function buildHeader() {
 
   return h('header', { class: 'top' },
     h('div', { class: 'brand' }, h('div', { class: 'logo' }, h('i'), h('b')), h('div', {}, h('div', { class: 'name' }, 'UNTERGRUND'), h('div', { class: 'sub' }, 'techno synthesis engine'))),
-    h('div', { class: 'group transport' }, playBtn, h('div', { class: 'transport-fields studio-only' }, h('div', { class: 'field' }, h('label', {}, 'BPM'), bpm.el), swing.el,
+    h('div', { class: 'group transport' }, playBtn, recBtn, h('div', { class: 'transport-fields studio-only' }, h('div', { class: 'field' }, h('label', {}, 'BPM'), bpm.el), swing.el,
       h('div', { class: 'field' }, h('label', {}, 'KEY'), key), h('div', { class: 'field' }, h('label', {}, 'SCALE'), scale))),
     h('div', { class: 'group studio-only' }, h('div', { class: 'field' }, h('label', {}, 'PATTERN'), pats), patTools),
     h('div', { class: 'group studio-only studio-more' }, chainBtn, chainInput),
@@ -829,11 +848,11 @@ function buildHeader() {
         h('option', { value: .12 }, 'SUBTLE'), h('option', { value: .25, selected: true }, 'EVOLVE'), h('option', { value: .55 }, 'WILD')),
       h('button', { class: 'btn ghost evolve', title: 'Create an evolved copy in the next pattern slot', onclick: createVariation }, 'VAR →'),
       h('button', { class: 'btn ghost', title: 'Undo (Ctrl+Z)', onclick: undo }, 'UNDO')),
-    h('div', { class: 'group studio-only studio-more' }, liveBtn, bars, exportBtn, recBtn, publishBtn),
+    h('div', { class: 'group studio-only studio-more' }, liveBtn, bars, exportBtn, publishBtn),
     h('div', { class: 'group studio-only studio-more' },
       h('button', { class: 'btn ghost', title: 'Save project JSON', onclick: () => download(new Blob([JSON.stringify(state)], { type: 'application/json' }), `untergrund-${stamp()}.json`) }, 'SAVE'),
       h('button', { class: 'btn ghost', title: 'Load project JSON', onclick: () => fileIn.click() }, 'LOAD'), fileIn),
-    h('nav', { class: 'group nav seg' }, artistBtn, clubBtn,
+    h('nav', { class: 'group nav seg' }, artistBtn, clubBtn, jukeboxBtn,
       h('button', { class: 'btn studio-toggle' + (studioOpen ? ' on' : ''), title: 'Sequencer, mixer, export and every control', onclick: toggleStudio }, studioOpen ? 'DONE' : 'STUDIO')),
     h('button', { class: 'btn ghost help studio-only studio-more', title: 'Shortcuts', onclick: showHelp }, '?'),
     h('button', { class: 'btn ghost tools-toggle studio-only', 'aria-expanded': 'false', onclick: (e) => {
@@ -1273,5 +1292,6 @@ document.addEventListener('visibilitychange', () => save(state));
 build();
 requestAnimationFrame(frame);
 if (new URLSearchParams(location.search).has('room')) setTimeout(showClub);
+else if (new URLSearchParams(location.search).has('jukebox')) setTimeout(showJukebox);
 restoreSample();
 window.__untergrund = { get state() { return state; }, get engine() { return engine; } };
