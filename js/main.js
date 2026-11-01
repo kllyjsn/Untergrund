@@ -1,6 +1,6 @@
 import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue } from './params.js';
 import { Engine, Sequencer, parseChain } from './engine.js';
-import { defaultState, generate, mutate, arrangement, applyOverrides, clone, save, load, sanitize, STYLES, emptyPattern, emptyAcidStep } from './state.js';
+import { defaultState, generate, mutate, arrangement, songChain, applyOverrides, clone, save, load, sanitize, STYLES, emptyPattern, emptyAcidStep } from './state.js';
 import { renderBars, bufferToWav } from './render.js';
 import { encodeWav } from './dsp.js';
 import { knob, numBox, h } from './ui.js';
@@ -369,6 +369,7 @@ function doGenerateSet() {
   for (const [id, params] of Object.entries(lockedParams)) state.params[id] = params;
   engine?.applyAll(); engine?.applyDelayTime();
   state.chainOn = true;
+  state.chain = songChain(style, seed);
   const title = trackTitle(seed);
   const artist = loadAvatar().name || 'UNTERGRUND';
   state.artist = { name: artist, title, style, seed, created: new Date().toISOString() };

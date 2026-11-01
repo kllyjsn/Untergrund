@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { generate, defaultState, applyOverrides, sanitize } from '../js/state.js';
+import { generate, defaultState, applyOverrides, sanitize, arrangement, songChain } from '../js/state.js';
 
 for (const seed of [1, 7, 42, 1337]) {
   const g = generate('euphoric', seed, 'major');
@@ -42,3 +42,17 @@ assert.equal(generate('hypnotic', 9, 'minor').master.kit || 0, 0);
 console.log('live kit defaults passed');
 assert(generate('neosoul', 9, 'dorian').master.room > 0.3);
 console.log('room defaults passed');
+for (const style of ['neosoul', 'boombap', 'hypnotic', 'ambient', 'euphoric']) {
+  for (const seed of [1, 7, 42]) {
+    const c = songChain(style, seed);
+    assert(/^[A-H]+$/.test(c) && c.length % 4 === 0 && c.length <= 128 && c.includes('E'), `${style} song form`);
+  }
+}
+{
+  const g = generate('neosoul', 42, 'dorian');
+  const scenes = arrangement(g.pattern, 42);
+  assert.notDeepEqual(scenes[4].prog, scenes[2].prog, 'bridge uses its own changes');
+  assert.deepEqual(scenes[6].prog, g.pattern.prog);
+  assert(scenes.every((p) => !('alt' in p)));
+}
+console.log('song sections passed');
