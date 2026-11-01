@@ -231,6 +231,7 @@ function showSongPublish() {
 function showJukebox() {
   openJukebox({
     toast,
+    onCreate: () => generateNow(),
     stopSong: () => { if (playing) stop(); },
     playSong: async (item) => {
       ensureAudio();
@@ -618,6 +619,8 @@ async function openRecent(t) {
   try {
     const track = await fetchTrack(t.id);
     if (!track?.state) throw new Error('track_missing');
+    const saved = track.style || t.style;
+    if (STYLES[saved]) { style = saved; family = STYLES[saved].family; }
     replaceState(sanitize(track.state));
     play();
   } catch { toast('Could not load that track'); }
