@@ -122,7 +122,7 @@ export const TRACKS = [
       p('decay', 'DECAY', 0.04, 1.2, 0.24, { curve: 'exp', unit: 's' }),
       p('accent', 'ACCENT', 0, 1, 0.65),
       p('drive', 'DRIVE', 0, 1, 0.5),
-      p('voice', 'VOICE', 0, 3, 0, { step: 1, list: ['303', 'BASS', '808', 'REESE'] }),
+      p('voice', 'VOICE', 0, 4, 0, { step: 1, list: ['303', 'BASS', '808', 'REESE', 'LOG'] }),
     ],
     mix: { level: 0.55, dly: 0.12, rev: 0.05 },
   },
@@ -204,6 +204,6 @@ export function formatValue(q, v) {
 
 export const VOICE_HIDDEN = {
   perc: [[], ['metal'], ['metal'], ['bend', 'metal'], ['bend', 'noise', 'metal']],
-  acid: [[], ['wave', 'reso', 'envmod', 'accent'], ['wave', 'reso', 'envmod'], []],
+  acid: [[], ['wave', 'reso', 'envmod', 'accent'], ['wave', 'reso', 'envmod'], [], ['wave', 'reso', 'envmod']],
   stab: [[], ['reso'], [], ['reso', 'env'], [], [], ['reso']],
 };

@@ -84,3 +84,12 @@ console.log('per-genre instrument palettes passed');
   assert(generate('boombap', 3, 'minor').master.dust > 0 && generate('hardtechno', 3, 'minor').master.dust === 0, 'dust is per-genre');
 }
 console.log('per-genre percussion and dust passed');
+
+{
+  for (const id of ['amapiano', 'afrobeats', 'reggaeton', 'bailefunk', 'trap', 'drill', 'jerseyclub', 'hyperpop']) assert(STYLES[id], id);
+  assert.equal(generate('amapiano', 3, 'minor').params.acid.voice, 4, 'amapiano plays the log drum');
+  assert(generate('trap', 3, 'minor').pattern.steps.clap[8] && !generate('trap', 3, 'minor').pattern.steps.clap[4], 'trap is half-time');
+  const fams = new Set(Object.values(STYLES).map((x) => x.family));
+  assert(fams.has('AFRO & LATIN') && fams.has('TRAP & POP'));
+}
+console.log('global genres passed');
