@@ -466,6 +466,12 @@ function build() {
   if (ui.playhead) ui.lastAbs = null;
 }
 
+function toggleStudio() {
+  studioOpen = !studioOpen;
+  localStorage.setItem('untergrund.studio-open', studioOpen ? '1' : '0');
+  build();
+}
+
 function buildGenerateHome() {
   const families = [...new Set(Object.values(STYLES).map((v) => v.family))];
   const styleCards = h('div', { class: 'generate-families' }, families.map((family) => h('div', { class: 'generate-family' },
@@ -484,11 +490,11 @@ function buildGenerateHome() {
       h('span', {}, 'AUTONOMOUS TECHNO INSTRUMENT'),
       h('h1', {}, 'Generate the set. Then make it yours.'),
       h('p', {}, 'Start with musical intent, not a wall of controls. UNTERGRUND builds an editable eight-scene arrangement from synthesized sound.')),
-    styleCards,
     h('div', { class: 'generate-actions' },
       h('button', { class: 'generate-primary', onclick: generate }, h('span', {}, 'GENERATE'), h('small', {}, `${STYLES[style].name} · full arrangement`)),
-      h('button', { class: 'btn refine-toggle', onclick: () => { studioOpen = !studioOpen; localStorage.setItem('untergrund.studio-open', studioOpen ? '1' : '0'); build(); } }, studioOpen ? 'HIDE STUDIO' : 'REFINE IN STUDIO'),
-      h('button', { class: 'btn ghost', onclick: startArtistLive }, 'ARTIST LIVE')),
+      h('button', { class: 'btn refine-toggle', onclick: toggleStudio }, studioOpen ? 'HIDE STUDIO' : 'REFINE IN STUDIO'),
+      h('button', { class: 'btn ghost', onclick: () => startArtistLive() }, 'ARTIST LIVE')),
+    styleCards,
     h('div', { class: 'generate-status' },
       h('b', {}, `${state.bpm} BPM`), h('span', {}, `${KEYS[state.key]} ${SCALES[state.scale]?.name || 'MINOR'}`),
       h('span', {}, state.chainOn ? '8 SCENES · ARRANGED' : `PATTERN ${PATTERN_NAMES[state.current]}`),
@@ -566,8 +572,8 @@ function buildHeader() {
 
   return h('header', { class: 'top' },
     h('div', { class: 'brand' }, h('div', { class: 'logo' }, h('i'), h('b')), h('div', {}, h('div', { class: 'name' }, 'UNTERGRUND'), h('div', { class: 'sub' }, 'techno synthesis engine'))),
-    h('div', { class: 'group transport' }, playBtn, h('div', { class: 'field' }, h('label', {}, 'BPM'), bpm.el), swing.el,
-      h('div', { class: 'field' }, h('label', {}, 'KEY'), key), h('div', { class: 'field' }, h('label', {}, 'SCALE'), scale)),
+    h('div', { class: 'group transport' }, playBtn, h('div', { class: 'transport-fields studio-only' }, h('div', { class: 'field' }, h('label', {}, 'BPM'), bpm.el), swing.el,
+      h('div', { class: 'field' }, h('label', {}, 'KEY'), key), h('div', { class: 'field' }, h('label', {}, 'SCALE'), scale))),
     h('div', { class: 'group studio-only' }, h('div', { class: 'field' }, h('label', {}, 'PATTERN'), pats), patTools),
     h('div', { class: 'group studio-only' }, chainBtn, chainInput),
     h('div', { class: 'group gen studio-only' }, styleSel,
@@ -578,11 +584,13 @@ function buildHeader() {
         h('option', { value: .12 }, 'SUBTLE'), h('option', { value: .25, selected: true }, 'EVOLVE'), h('option', { value: .55 }, 'WILD')),
       h('button', { class: 'btn ghost evolve', title: 'Create an evolved copy in the next pattern slot', onclick: createVariation }, 'VAR →'),
       h('button', { class: 'btn ghost', title: 'Undo (Ctrl+Z)', onclick: undo }, 'UNDO')),
-    h('div', { class: 'group' }, artistBtn, liveBtn, clubBtn, bars, exportBtn, recBtn, publishBtn),
-    h('div', { class: 'group' },
+    h('div', { class: 'group studio-only' }, liveBtn, bars, exportBtn, recBtn, publishBtn),
+    h('div', { class: 'group studio-only' },
       h('button', { class: 'btn ghost', title: 'Save project JSON', onclick: () => download(new Blob([JSON.stringify(state)], { type: 'application/json' }), `untergrund-${stamp()}.json`) }, 'SAVE'),
-      h('button', { class: 'btn ghost', title: 'Load project JSON', onclick: () => fileIn.click() }, 'LOAD'), fileIn,
-      h('button', { class: 'btn ghost', title: 'Shortcuts', onclick: showHelp }, '?')));
+      h('button', { class: 'btn ghost', title: 'Load project JSON', onclick: () => fileIn.click() }, 'LOAD'), fileIn),
+    h('nav', { class: 'group nav' }, artistBtn, clubBtn,
+      h('button', { class: 'btn studio-toggle' + (studioOpen ? ' on' : ''), title: 'Sequencer, mixer, export and every control', onclick: toggleStudio }, studioOpen ? 'DONE' : 'STUDIO'),
+      h('button', { class: 'btn ghost help', title: 'Shortcuts', onclick: showHelp }, '?')));
 }
 
 function renderPatterns() {
