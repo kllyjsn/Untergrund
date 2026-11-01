@@ -627,3 +627,7 @@ body.studio-open .generate-primary small { margin-top: 0; }
   body.studio-open .generate-actions { flex-wrap: wrap; }
   body.studio-open .generate-primary { flex-basis: 100%; }
 }
+@media (max-width: 900px) {
+  .generate-families { grid-template-columns: minmax(0,1fr); }
+  .generate-family { min-width: 0; }
+}
