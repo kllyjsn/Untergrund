@@ -105,12 +105,20 @@ const HOOKS = {
   anthem: { v: ['analog'], o: 0, hits: [4, 7], w: (i) => (i % 2 === 0 ? 0.8 : 0.35), len: [1, 2, 2, 3, 4], lo: 0, hi: 9, leap: 0.3, x: [0.25, 0.62, 0.26, 0.65] },
   ambient: { v: ['mallet'], o: 0, hits: [2, 3], w: (i) => (i % 4 === 0 ? 0.8 : 0.15), len: [4, 6, 8], lo: 0, hi: 9, leap: 0.4, x: [0.7, 0.32, 0.7, 0.38] },
   afro: { v: ['vocal', 'reed'], o: 0, hits: [3, 5], w: (i) => ([0, 3, 6, 8, 10, 11, 14].includes(i) ? 0.85 : 0.15), len: [1, 1, 2], lo: -2, hi: 5, leap: 0.25, x: [0.46, 0.4, 0.55, 0.52] },
-  trap: { v: ['mallet', 'reed'], o: 0, hits: [3, 5], w: (i) => ([0, 3, 6, 8, 10, 12, 14].includes(i) ? 0.85 : 0.1), len: [2, 2, 3], lo: -2, hi: 5, leap: 0.3, x: [0.58, 0.45, 0.48, 0.4] },
+  trap: { v: ['mallet', 'reed'], o: 1, hits: [3, 5], w: (i) => ([0, 3, 6, 8, 10, 12, 14].includes(i) ? 0.85 : 0.1), len: [2, 2, 3], lo: -2, hi: 5, leap: 0.3, x: [0.58, 0.45, 0.48, 0.4] },
+  // UK garage: skippy, chopped vocal phrases on the off-16ths.
+  garage: { v: ['vocal'], o: 0, hits: [5, 7], w: (i) => (i % 2 ? 0.85 : 0.25), len: [1, 1, 1, 2], lo: -2, hi: 5, leap: 0.3, x: [0.42, 0.45, 0.6, 0.42] },
+  // Liquid drum & bass: few long notes floating over fast drums.
+  dnb: { v: ['analog'], o: 0, hits: [2, 3], w: (i) => (i % 8 === 0 ? 0.8 : i % 4 === 2 ? 0.5 : 0.15), len: [4, 6, 8], lo: 0, hi: 7, leap: 0.35, x: [0.6, 0.5, 0.4, 0.6] },
+  // Amapiano: short offbeat piano-like figures; the log drum carries the weight.
+  piano: { v: ['mallet'], o: 0, hits: [4, 6], w: (i) => (i % 4 === 3 || i % 4 === 1 ? 0.8 : 0.2), len: [1, 1, 2], lo: -2, hi: 6, leap: 0.3, x: [0.45, 0.4, 0.6, 0.45] },
+  // Hyperpop: busy, high, wide leaps.
+  pop: { v: ['pulse'], o: 1, hits: [6, 9], w: (i) => (i % 2 === 0 ? 0.8 : 0.5), len: [1, 1, 2], lo: 0, hi: 9, leap: 0.45, x: [0.2, 0.8, 0.3, 0.25] },
 };
 const HOOK_STYLE = {
   hypnotic: 'techno', industrial: 'techno', acid: 'techno', peak: 'techno', hardtechno: 'techno', minimal: 'techno', electro: 'techno', dub: 'dub',
-  deephouse: 'house', ukg: 'house', breaks: 'house', jerseyclub: 'house', euphoric: 'anthem', trance: 'anthem', hyperpop: 'anthem', dnb: 'anthem',
-  ambient: 'ambient', amapiano: 'afro', afrobeats: 'afro', reggaeton: 'afro', bailefunk: 'afro', trap: 'trap', drill: 'trap',
+  deephouse: 'house', ukg: 'garage', breaks: 'house', jerseyclub: 'garage', euphoric: 'anthem', trance: 'anthem', hyperpop: 'pop', dnb: 'dnb',
+  ambient: 'ambient', amapiano: 'piano', afrobeats: 'afro', reggaeton: 'afro', bailefunk: 'afro', trap: 'trap', drill: 'trap',
 };
 export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell'];
 
@@ -271,7 +279,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     Object.assign(params.acid, { wave: 0.05, cutoff: 260, reso: 2, envmod: 0.12, decay: 0.4, drive: 0.1, accent: 0.2 });
     Object.assign(params.ride, { tone: 4200, decay: 0.6 });
     master.duck = 0.6; master.revLevel = 0.6;
-    swing = 0.16;
+    swing = 0.3;
   } else if (style === 'minimal') {
     S.kick = range(STEPS, (i) => (i % 4 === 0 ? 1 : 0));
     S.ch = range(STEPS, (i) => (i % 4 === 2 ? 1 : 0));
@@ -358,6 +366,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.snare = pad16([0, 0, 0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 1]);
     S.ch = range(STEPS, (i) => (i % 2 === 0 ? 1 : r() < 0.3 ? 1 : 0));
     S.ride = range(STEPS, (i) => (i % 4 === 2 ? 1 : 0));
+    S.perc = range(STEPS, (i) => (i % 2 ? 1 : 0));
     S.acid = range(STEPS, (i) => ([0, 6, 10].includes(i) ? { on: true, n: i === 6 ? musicalScale[2] : 0, a: false, s: i === 6 } : emptyAcidStep()));
     S.stab = pad16([1]);
     Object.assign(params.kick, { tune: 55, decay: 0.3, drive: 0.4, punch: 0.85, rumble: 0, click: 0.6 });
@@ -417,7 +426,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     Object.assign(params.stab, { chord: pick(r, [7, 10]), octave: 0, cutoff: 3000, decay: 0.5, env: 0.4, rev: 0.3, dly: 0.25, level: 0.4 });
     Object.assign(params.acid, { tune: 0, cutoff: 300, decay: 0.6, drive: 0.2, level: 0.85 });
     master.duck = 0.25; master.humanize = 0.35;
-    swing = 0.2;
+    swing = 0.36;
   } else if (style === 'reggaeton') {
     S.kick = range(STEPS, (i) => (i % 4 === 0 ? (i === 0 ? 2 : 1) : 0));
     S.snare = pad16([0, 0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 1, 0]);
@@ -450,7 +459,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.kick = pad16(pick(r, [[2, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1], [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1]]));
     S.clap = pad16([0, 0, 0, 0, 0, 0, 0, 0, 2]);
     S.snare = pad16([0, 0, 0, 0, 0, 0, 0, 0, 1]);
-    S.ch = range(STEPS, (i) => (i % 4 === 0 ? 2 : i % 2 === 0 ? 1 : r() < 0.45 ? 1 : 0));
+    S.ch = range(STEPS, (i) => (i % 4 === 0 ? 2 : r() < 0.88 ? 1 : 0));
     S.stab = pad16([1, 0, 0, 0, 0, 0, 0, 0, 1]);
     S.acid = range(STEPS, (i) => ([0, 7, 10].includes(i) ? { on: true, n: i === 10 ? 12 : 0, a: i === 0, s: i >= 7 } : emptyAcidStep()));
     Object.assign(params.kick, { tune: 52, decay: 0.3, drive: 0.4, punch: 0.8, click: 0.5, rumble: 0 });
@@ -503,7 +512,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     Object.assign(params.stab, { chord: pick(r, [7, 9, 10]), octave: 1, cutoff: 4500, decay: 0.2, env: 0.5, detune: 22, rev: 0.4, dly: 0.3 });
     Object.assign(params.vox, { scatter: 0.9, melody: 1, length: 0.5, tone: 9000 });
     Object.assign(params.acid, { wave: 0.6, cutoff: 900, reso: 6, envmod: 0.4, decay: 0.3, drive: 0.45, level: 0.45 });
-    master.duck = 0.55; master.drive = 0.22;
+    master.duck = 0.55; master.drive = 0.5;
     swing = 0;
   }
   const PROGS = {
@@ -530,6 +539,16 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   if (VARY[style]) master.vary = VARY[style];
   const dm = defaultMaster();
   for (const k of Object.keys(dm)) if (k !== 'volume' && k !== 'dj') master[k] ??= dm[k];
+  // Each scene has its own room. Urban and club-pop records are dry and in your face; only the
+  // ambient, dub and trance worlds get the big shared reverb.
+  const ROOM = {
+    trap: 0.22, drill: 0.22, bailefunk: 0.2, jerseyclub: 0.25, reggaeton: 0.28, boombap: 0.3, hyperpop: 0.35,
+    ukg: 0.35, dnb: 0.35, afrobeats: 0.38, amapiano: 0.4, deephouse: 0.42, breaks: 0.4, neosoul: 0.4,
+  };
+  if (ROOM[style] != null) {
+    master.revLevel = ROOM[style];
+    params.stab.rev = +((params.stab.rev ?? 0.3) * (0.4 + ROOM[style])).toFixed(3);
+  }
   const PALETTE = {
     industrial: [6, 3], dub: [0, 2], peak: [4, 0], hardtechno: [0, 3],
     deephouse: [3, 1], minimal: [6, 2], ukg: [3, 3], euphoric: [5, null],
@@ -540,7 +559,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   if (stabVoice != null) params.stab.voice = stabVoice;
   if (bassVoice != null) params.acid.voice = bassVoice;
   for (const t of ['acid', 'stab']) params[t].voice ??= 0;
-  const PERC = { deephouse: 1, ukg: 3, boombap: 3, neosoul: 3, breaks: 2, minimal: 4, dub: 4, euphoric: 3, ambient: 2, amapiano: 3, afrobeats: 1, reggaeton: 2, bailefunk: 1 };
+  const PERC = { dnb: 3, deephouse: 1, ukg: 3, boombap: 3, neosoul: 3, breaks: 2, minimal: 4, dub: 4, euphoric: 3, ambient: 2, amapiano: 3, afrobeats: 1, reggaeton: 2, bailefunk: 1 };
   params.perc.voice = PERC[style] ?? 0;
   const DUST = { boombap: 0.45, neosoul: 0.25, dub: 0.3, ambient: 0.2, deephouse: 0.12, minimal: 0.1 };
   master.dust = DUST[style] ?? 0;
@@ -564,6 +583,13 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   }
   const hook = hookLine(r2, style, musicalScale);
   if (hook) { P.hook = hook; P.hm = 2; }
+  // One seeded idea per track, chosen from moves that fit any groove: an octave pop at the end of
+  // the bass phrase, displaced percussion, or a chord that anticipates the beat. Sometimes restraint.
+  const idea = Math.floor(r2() * 4);
+  const on = S.acid.map((st, i) => (st.on ? i : -1)).filter((i) => i >= 0);
+  if (idea === 0 && on.length > 2) S.acid[on[on.length - 1]].n += 12;
+  else if (idea === 1 && S.perc.some(Boolean)) { const k = 1 + Math.floor(r2() * 3), q = S.perc.slice(); S.perc = q.map((_, i) => q[(i - k + STEPS) % STEPS]); }
+  else if (idea === 2 && S.stab.some(Boolean) && !['neosoul', 'boombap'].includes(style)) { const q = S.stab.slice(); S.stab = q.map((_, i) => q[(i + 1) % STEPS]); }
   return { pattern: P, params, master, bpm, key, swing: swing ?? 0.06 };
 }
 
