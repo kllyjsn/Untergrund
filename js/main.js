@@ -498,6 +498,8 @@ function build() {
   for (const id of TRACK_IDS) renderRow(id);
   renderRoll();
   if (ui.playhead) ui.lastAbs = null;
+  const tab = document.querySelector('.family-tab.on'), row = tab?.parentElement;
+  if (row) row.scrollLeft = tab.offsetLeft - (row.clientWidth - tab.offsetWidth) / 2;
 }
 
 function toggleStudio() {
