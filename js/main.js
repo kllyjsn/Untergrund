@@ -1007,6 +1007,7 @@ function buildEditor() {
   const hidden = VOICE_HIDDEN[id]?.[voice] || [];
   const progLocked = id === 'stab' && state.patterns[state.current]?.prog?.length > 0;
   const mk = (q) => {
+    if (q.id === 'voice' && q.list) return voiceChips(q, id, voice, t.color);
     const k = knob(q, state.params[id][q.id], (v) => {
       setParam(id, q.id, v);
       if (q.id === 'level') ui.rows[id]?.lvl.set(v);
@@ -1025,20 +1026,34 @@ function buildEditor() {
     h('button', { class: 'btn ghost', title: `Random ${t.name} line in ${STYLES[style].name} style`, onclick: () => randomTrack(id) }, 'RND'),
     h('button', { class: 'btn ghost', title: 'Clear track', onclick: () => clearTrack(id) }, 'CLR'));
   const hint = {
-    drum: 'click = step · shift/right-click = accent · drag to paint',
-    acid: 'grid: click = gate · shift = accent · alt = slide · piano roll sets notes',
-    stab: 'click = step · shift/right-click = accent · pair with DELAY + REVERB',
-    sampler: 'click = chop · SCATTER picks slices · MELODY sings it in key',
+    drum: 'Tap a step to add a hit · shift or right-click makes it louder · drag to paint',
+    acid: 'Tap a step to play a note · shift = accent · alt = slide · set notes in the piano roll',
+    stab: 'Tap a step to play a chord · shift or right-click makes it louder',
+    sampler: 'Tap a step to play a slice · SCATTER picks slices · MELODY sings it in key',
   }[t.kind];
   const ed = h('section', { class: 'editor panel', style: `--tc:${t.color}` },
     h('div', { class: 'ehead' }, h('div', { class: 'etitle' }, h('span', { class: 'sw' }), t.name), h('div', { class: 'hint' }, hint), tools),
     h('div', { class: 'ebody' },
-      h('div', { class: 'kgroup' }, h('div', { class: 'glabel' }, 'VOICE'), h('div', { class: 'knobs' }, t.params.filter((q) => !hidden.includes(q.id)).map(mk))),
-      h('div', { class: 'kgroup' }, h('div', { class: 'glabel' }, 'CHANNEL'), h('div', { class: 'knobs' }, MIX_PARAMS.map(mk)))));
+      h('div', { class: 'kgroup' }, h('div', { class: 'glabel' }, 'INSTRUMENT & TONE'), h('div', { class: 'knobs' }, t.params.filter((q) => !hidden.includes(q.id)).map(mk))),
+      h('div', { class: 'kgroup' }, h('div', { class: 'glabel' }, 'MIX'), h('div', { class: 'knobs' }, MIX_PARAMS.map(mk)))));
   ui.roll = null; ui.rollCols = null;
   if (id === 'acid') ed.append(buildRoll());
   if (id === 'vox') ed.append(samplePanel());
   return ed;
+}
+
+// Named instruments read better as choices than as a knob position.
+function voiceChips(q, id, voice, color) {
+  const pick = (i) => {
+    setParam(id, 'voice', i);
+    document.querySelector('.editor')?.replaceWith(buildEditor());
+    document.querySelector(`.voice-chips [data-v="${i}"]`)?.focus();
+  };
+  return h('div', { class: 'voice-chips', role: 'radiogroup', 'aria-label': `${TRACK_BY_ID[id].name} instrument`, style: `--kc:${color}` },
+    q.list.map((name, i) => h('button', {
+      class: `vchip${i === voice ? ' on' : ''}`, role: 'radio', 'aria-checked': String(i === voice), 'data-v': String(i),
+      onclick: () => i !== voice && pick(i),
+    }, name[0] + name.slice(1).toLowerCase())));
 }
 
 function samplePanel() {
