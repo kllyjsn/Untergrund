@@ -769,3 +769,13 @@ body.recording .np-actions .btn.rec .dot { background: var(--accent); animation:
   body:has(.club-overlay) .tab.tab-club, body:has(.jb) .tab.tab-jukebox, body:has(.artist-head) .tab.tab-artist { color: #fff; }
 }
 .jb .pub-note:empty { display: none; }
+.menu { position: relative; }
+.menu > summary { list-style: none; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.menu > summary::-webkit-details-marker { display: none; }
+.menu > summary::after { content: '▾'; font-size: 9px; opacity: .7; }
+.menu-pop { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; display: flex; flex-direction: column; gap: 6px; min-width: 250px;
+  padding: 10px; background: var(--panel2); border: 1px solid var(--line2); border-radius: 10px; box-shadow: 0 14px 40px rgba(0,0,0,.55); }
+.menu-pop .btn { width: 100%; justify-content: flex-start; text-align: left; white-space: nowrap; }
+.menu-row { display: flex; gap: 6px; }
+.menu-row .btn { flex: 1; }
+@media (max-width: 760px) { .menu-pop { left: 0; right: auto; } }
