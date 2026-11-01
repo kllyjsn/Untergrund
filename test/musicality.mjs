@@ -44,3 +44,19 @@ console.log('per-seed key and bass passed');
   assert.equal(round.patterns[0].hm, 0);
 }
 console.log('hook arrangement and save round-trip passed');
+
+// Neighbouring genres must not share one template: different rooms, lead roles and hook writing.
+{
+  const g = (st) => generate(st, 21);
+  for (const st of ['trap', 'drill', 'reggaeton', 'ukg', 'dnb', 'hyperpop']) {
+    assert(g(st).master.revLevel <= 0.4, `${st} should be drier than the ambient/trance room`);
+  }
+  for (const [a, b] of [['ukg', 'deephouse'], ['dnb', 'euphoric'], ['amapiano', 'afrobeats'], ['hyperpop', 'trance'], ['trap', 'reggaeton']]) {
+    const A = g(a), B = g(b);
+    const sig = (x) => [x.pattern.hook?.v, x.pattern.hook?.o, x.master.revLevel, x.params.stab.voice, x.params.acid.voice, x.bpm].join('|');
+    assert.notEqual(sig(A), sig(B), `${a} and ${b} share a sound signature`);
+    const rhythm = (x) => x.pattern.hook.s.map(Boolean).join('');
+    assert.notEqual(rhythm(A), rhythm(B), `${a} and ${b} hooks share a rhythm`);
+  }
+  console.log('genre signatures passed');
+}
