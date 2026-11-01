@@ -325,6 +325,9 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   }
   const VARY = { neosoul: 0.8, boombap: 0.6, deephouse: 0.4, ukg: 0.45, breaks: 0.5, euphoric: 0.3, dnb: 0.4 };
   if (VARY[style]) master.vary = VARY[style];
+  const dm = defaultMaster();
+  for (const k of Object.keys(dm)) if (k !== 'volume' && k !== 'dj') master[k] ??= dm[k];
+  for (const t of ['acid', 'stab']) params[t].voice ??= 0;
   return { pattern: P, params, master, bpm, swing };
 }
 

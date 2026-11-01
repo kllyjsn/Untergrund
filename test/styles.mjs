@@ -56,3 +56,13 @@ for (const style of ['neosoul', 'boombap', 'hypnotic', 'ambient', 'euphoric']) {
   assert(scenes.every((p) => !('alt' in p)));
 }
 console.log('song sections passed');
+
+{
+  const fresh = defaultState(); applyOverrides(fresh, generate('hypnotic', 5));
+  const after = defaultState(); applyOverrides(after, generate('neosoul', 9)); applyOverrides(after, generate('hypnotic', 5));
+  assert.equal(after.master.kit, 0);
+  assert.deepEqual(after.master, fresh.master);
+  assert.equal(after.params.acid.voice, fresh.params.acid.voice);
+  assert.equal(after.params.stab.voice, fresh.params.stab.voice);
+}
+console.log('live-kit settings do not leak into the next style passed');
