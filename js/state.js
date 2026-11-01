@@ -188,7 +188,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.acid = range(STEPS, (i) => ([0, 3, 7, 10].includes(i) ? { on: true, n: i === 7 ? musicalScale[4] : i === 10 ? musicalScale[2] : 0, a: false, s: i === 3 } : emptyAcidStep()));
     Object.assign(params.kick, { tune: 48, decay: 0.55, drive: 0.15, rumble: 0.15, punch: 0.45, click: 0.2 });
     Object.assign(params.stab, { voice: 1, chord: pick(r, [1, 2]), cutoff: 1300 + r() * 500, reso: 2, decay: 0.7, env: 0.3, detune: 8, rev: 0.4, dly: 0.25 });
-    master.humanize = 0.25; master.warmth = 0.4;
+    master.humanize = 0.25; master.warmth = 0.4; master.room = 0.2;
     Object.assign(params.acid, { wave: 0.05, cutoff: 260, reso: 2, envmod: 0.12, decay: 0.4, drive: 0.1, accent: 0.2 });
     Object.assign(params.ride, { tone: 4200, decay: 0.6 });
     master.duck = 0.6; master.revLevel = 0.6;
@@ -246,7 +246,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     Object.assign(params.stab, { voice: 1, chord: pick(r, soul ? [2, 9, 10, 7] : [1, 2, 7]), octave: 0, cutoff: soul ? 1500 : 1100, reso: 1, decay: 1.4, env: soul ? 0.35 : 0.2, detune: soul ? 14 : 6, rev: 0.3, dly: 0.1, level: 0.55 });
     Object.assign(params.acid, { voice: 1, wave: 0.05, tune: -12, cutoff: 320, reso: 1, envmod: 0.1, decay: 0.5, drive: 0.3, accent: 0.15, level: 0.95 });
     Object.assign(params.vox, { scatter: 0.6, melody: 0.8, length: 2, tone: 4500 });
-    master.humanize = soul ? 0.9 : 0.6; master.warmth = soul ? 0.85 : 0.7; master.kit = 1;
+    master.humanize = soul ? 0.9 : 0.6; master.warmth = soul ? 0.85 : 0.7; master.kit = 1; master.room = soul ? 0.5 : 0.4;
     master.duck = 0.25; master.drive = soul ? 0.25 : 0.45; master.revLevel = 0.5;
     swing = soul ? 0.58 : 0.42;
   } else if (style === 'breaks') {
