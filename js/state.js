@@ -384,9 +384,9 @@ export function arrangement(full, seed) {
 }
 
 const GROOVE = new Set(['neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric']);
-// Song forms in 4-bar sections. Groove styles: intro, verse x2, bridge (alt changes), verse/hook x2, outro.
+// Song forms in 4-bar sections. Groove styles: intro, verse x2, bridge (alt changes), verse/hook x2, outro. A D fill closes the bridge.
 const SONG_FORMS = {
-  groove: ['AABBCCCDCCCDEEFFGGGHGGGHBBAA', 'AABBCCCDEEFFCCCDGGGHGGGHEEAA', 'ABBBCCCDCCCDEEFFEEFFGGGHGGGHBBAA'],
+  groove: ['AABBCCCDCCCDEEFDGGGHGGGHBBAA', 'AABBCCCDEEFDCCCDGGGHGGGHEEAA', 'ABBBCCCDCCCDEEFFEEFDGGGHGGGHBBAA'],
   ambient: ['AAAAEEEEFFFFEEEEFFFFAAAA', 'AAEEEEFFFFGGGGEEFFAAAA'],
   techno: ['AAAABBBBCCCCCCCDEEEEFFFFGGGGGGGHBBBBAAAA', 'AAAABBBBCCCDCCCDEEFFGGGHGGGHBBAA', 'AABBBBCCCCCCCDEEEEFFGGGGGGGHGGGHAAAA'],
 };
