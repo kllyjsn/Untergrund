@@ -75,6 +75,62 @@ function rollingBass(r) {
   });
 }
 
+// Seeded groove bass: root on the one, then syncopated chord tones from a genre's slot grammar.
+function grooveBass(r, slots, k, scale, slide = 0.15) {
+  const pos = new Set([0]);
+  for (let g = 0; pos.size < k && g < 64; g++) pos.add(pick(r, slots));
+  const d = (i) => scale[i] ?? 12;
+  const tones = [0, 0, 0, 12, d(4), d(4) - 12, d(6) - 12, d(2), d(3)];
+  return range(STEPS, (i) => (pos.has(i) ? { on: true, n: i === 0 ? 0 : pick(r, tones), a: i === 0 || r() < 0.25, s: r() < slide } : emptyAcidStep()));
+}
+
+// Hook profiles (NEO-SOUL and BOOM BAP keep their Rhodes licks instead): voice, octave, notes per bar, rhythm weighting per step, note lengths, melodic range in scale degrees.
+const HOOKS = {
+  techno: { v: ['sq'], o: 0, hits: [3, 5], w: (i) => (i % 2 ? 0.9 : i % 4 === 2 ? 0.6 : 0.25), len: [1, 1, 2], lo: -2, hi: 5, leap: 0.2 },
+  dub: { v: ['bell'], o: 0, hits: [2, 3], w: (i) => (i % 4 === 2 || i % 4 === 3 ? 0.8 : 0.2), len: [3, 4, 6], lo: -1, hi: 5, leap: 0.3 },
+  house: { v: ['pluck', 'flute', 'bell'], o: 0, hits: [4, 6], w: (i) => (i % 4 === 3 || i % 4 === 2 ? 0.8 : i % 4 === 0 ? 0.4 : 0.3), len: [1, 2, 2, 3], lo: -2, hi: 5, leap: 0.2 },
+  anthem: { v: ['saw'], o: 0, hits: [5, 8], w: (i) => (i % 2 === 0 ? 0.8 : 0.35), len: [1, 2, 2, 3, 4], lo: 0, hi: 9, leap: 0.3 },
+  ambient: { v: ['bell'], o: 0, hits: [2, 3], w: (i) => (i % 4 === 0 ? 0.8 : 0.15), len: [4, 6, 8], lo: 0, hi: 9, leap: 0.4 },
+  afro: { v: ['flute', 'bell'], o: 0, hits: [4, 6], w: (i) => ([0, 3, 6, 8, 10, 11, 14].includes(i) ? 0.85 : 0.15), len: [1, 1, 2], lo: -2, hi: 5, leap: 0.25 },
+  trap: { v: ['bell', 'flute'], o: 0, hits: [3, 5], w: (i) => ([0, 3, 6, 8, 10, 12, 14].includes(i) ? 0.85 : 0.1), len: [2, 2, 3], lo: -2, hi: 5, leap: 0.3 },
+};
+const HOOK_STYLE = {
+  hypnotic: 'techno', industrial: 'techno', acid: 'techno', peak: 'techno', hardtechno: 'techno', minimal: 'techno', electro: 'techno', dub: 'dub',
+  deephouse: 'house', ukg: 'house', breaks: 'house', jerseyclub: 'house', euphoric: 'anthem', trance: 'anthem', hyperpop: 'anthem', dnb: 'anthem',
+  ambient: 'ambient', amapiano: 'afro', afrobeats: 'afro', reggaeton: 'afro', bailefunk: 'afro', trap: 'trap', drill: 'trap',
+};
+export const HOOK_VOICES = ['sq', 'saw', 'pluck', 'flute', 'bell'];
+
+// A 2-bar call and answer: same rhythm both bars, the answer bends its ending (resolve or leave open).
+export function hookLine(r, style, scale) {
+  const H = HOOKS[HOOK_STYLE[style]];
+  if (!H) return null;
+  const deg = scale.length >= 7 ? scale.slice(0, 7) : scale.slice(0, scale.length - 1);
+  const N = deg.length;
+  const semi = (d) => deg[((d % N) + N) % N] + 12 * Math.floor(d / N);
+  const k = H.hits[0] + Math.floor(r() * (H.hits[1] - H.hits[0] + 1));
+  const slots = new Set([r() < 0.6 ? 0 : pick(r, [2, 3, 6])]);
+  for (let g = 0; slots.size < k && g < 200; g++) { const i = Math.floor(r() * 16); if (r() < H.w(i)) slots.add(i); }
+  const pos = [...slots].sort((a, b) => a - b);
+  let d = pick(r, [0, 2, 4]);
+  const call = pos.map((i, j) => {
+    if (j) d = Math.max(H.lo, Math.min(H.hi, d + (r() < H.leap ? pick(r, [-3, 3, 4, -4, 5]) : pick(r, [-1, 1, 1, -2, 2]))));
+    const room = (pos[j + 1] ?? 16) - i;
+    return [i, d, Math.max(1, Math.min(room, pick(r, H.len)))];
+  });
+  const s = range(32, () => 0);
+  const lastD = call[call.length - 1][1];
+  call.forEach(([i, dd, l], j) => {
+    s[i] = [semi(dd), l, j === 0 || i % 4 === 0 ? 1 : 0.8];
+    let a = dd;
+    if (j === call.length - 1) a = lastD % N === 0 ? pick(r, [4, 2, -1]) : pick(r, [0, N]);
+    else if (j === call.length - 2 && r() < 0.5) a = dd + pick(r, [1, -1]);
+    const l2 = j === call.length - 1 ? Math.min(16 - i, l + pick(r, [0, 2, 4])) : l;
+    s[16 + i] = [semi(a), Math.max(1, l2), j === 0 ? 0.9 : 0.8];
+  });
+  return { v: pick(r, H.v), o: H.o, s };
+}
+
 // Returns { pattern, params, master, bpm } — params/master are partial overrides.
 export function generate(style, seed = Date.now(), scaleName = 'minor') {
   const r = rng(seed);
@@ -436,14 +492,14 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     swing = 0;
   }
   const PROGS = {
-    neosoul: [[[0, 2], [5, 2], [10, 9], [3, 9]], [[0, 2], [8, 9], [3, 9], [10, 10]], [[0, 2], [3, 9], [5, 1], [7, 1]], [[0, 2], [10, 9], [8, 9], [7, 1]]],
+    neosoul: [[[0, 2], [5, 2], [10, 9], [3, 9]], [[0, 2], [8, 9], [3, 9], [10, 10]], [[0, 2], [3, 9], [5, 1], [7, 1]], [[0, 2], [10, 9], [8, 9], [7, 1]], [[0, 2], [1, 7], [10, 2], [8, 9]]],
     boombap: [[[0, 1], [0, 1], [8, 7], [7, 1]], [[0, 2], [5, 1], [0, 2], [8, 7]], [[0, 1], [3, 7], [5, 1], [8, 9]]],
-    deephouse: [[[0, 2], [5, 1], [3, 9], [10, 10]], [[0, 2], [8, 7], [5, 2], [7, 1]]],
-    ukg: [[[0, 2], [5, 1], [8, 7], [7, 1]], [[0, 1], [3, 9], [10, 10], [5, 2]]],
-    euphoric: [[[0, 9], [7, 10], [9, 2], [5, 9]], [[5, 9], [7, 10], [0, 9], [9, 2]]],
+    deephouse: [[[0, 2], [5, 1], [3, 9], [10, 10]], [[0, 2], [8, 7], [5, 2], [7, 1]], [[0, 1], [0, 5], [8, 7], [7, 5]], [[0, 0], [10, 0], [8, 7], [7, 1]], [[0, 3], [0, 3], [5, 1], [3, 4]]],
+    ukg: [[[0, 2], [5, 1], [8, 7], [7, 1]], [[0, 1], [3, 9], [10, 10], [5, 2]], [[0, 1], [7, 5], [8, 7], [5, 1]], [[0, 0], [3, 7], [10, 6], [8, 7]]],
+    euphoric: [[[0, 9], [7, 10], [9, 2], [5, 9]], [[5, 9], [7, 10], [0, 9], [9, 2]], [[0, 9], [4, 1], [5, 9], [7, 5]], [[9, 1], [5, 9], [0, 10], [7, 10]]],
     trance: [[[0, 0], [8, 7], [3, 10], [10, 10]], [[0, 0], [5, 0], [8, 7], [10, 10]]],
-    amapiano: [[[0, 2], [5, 1], [3, 9], [10, 10]], [[0, 1], [8, 7], [3, 9], [7, 1]]],
-    afrobeats: [[[0, 1], [8, 7], [3, 10], [10, 10]], [[0, 2], [5, 1], [8, 9], [10, 10]]],
+    amapiano: [[[0, 2], [5, 1], [3, 9], [10, 10]], [[0, 1], [8, 7], [3, 9], [7, 1]], [[0, 2], [0, 2], [5, 5], [7, 1]], [[0, 1], [10, 6], [8, 7], [5, 1]]],
+    afrobeats: [[[0, 1], [8, 7], [3, 10], [10, 10]], [[0, 2], [5, 1], [8, 9], [10, 10]], [[0, 1], [5, 1], [10, 10], [8, 7]], [[0, 0], [8, 7], [10, 6], [7, 5]]],
     reggaeton: [[[0, 0], [8, 10], [3, 10], [10, 10]], [[0, 1], [5, 0], [8, 10], [7, 0]]],
     trap: [[[0, 0], [8, 7], [0, 0], [7, 0]], [[0, 0], [5, 0], [8, 7], [7, 8]]],
     drill: [[[0, 0], [8, 7], [5, 0], [7, 0]], [[0, 0], [1, 7], [0, 0], [8, 7]]],
@@ -474,7 +530,26 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   const DUST = { boombap: 0.45, neosoul: 0.25, dub: 0.3, ambient: 0.2, deephouse: 0.12, minimal: 0.1 };
   master.dust = DUST[style] ?? 0;
   master.arr = { neosoul: 0, boombap: 0, ambient: 0 }[style] ?? (GROOVE.has(style) ? 0.5 : 1);
-  return { pattern: P, params, master, bpm, swing: swing ?? 0.06 };
+  // Per-seed identity on its own RNG so the genre grammar above stays stable.
+  const r2 = rng(Math.imul((seed | 0) ^ 0x5bd1e995, 0x9e3779b1) ^ 0x2545f491);
+  for (let k = 0; k < 4; k++) r2();
+  const key = Math.floor(r2() * 12);
+  const BASS = { deephouse: [[3, 6, 7, 10, 11, 13, 14], 4, 6], ukg: [[3, 6, 7, 10, 13, 14], 3, 5], afrobeats: [[3, 6, 8, 10, 11, 14], 4, 5] };
+  if (BASS[style]) { const [slots, a, b] = BASS[style]; S.acid = grooveBass(r2, slots, a + Math.floor(r2() * (b - a + 1)), musicalScale); }
+  if (['deephouse', 'ukg', 'afrobeats', 'amapiano', 'euphoric'].includes(style)) {
+    for (let g = 0, n = 1 + Math.floor(r2() * 3); g < n; g++) { const i = 1 + 2 * Math.floor(r2() * 8); if (!S.ch[i]) S.ch[i] = 1; }
+  }
+  if (params.stab.cutoff) params.stab.cutoff = Math.round(params.stab.cutoff * (0.75 + r2() * 0.6));
+  if (params.stab.decay) params.stab.decay = +(params.stab.decay * (0.8 + r2() * 0.4)).toFixed(3);
+  const PUNCH = { deephouse: 0.72, ukg: 0.7, afrobeats: 0.7, amapiano: 0.65, euphoric: 0.72, trance: 0.72, reggaeton: 0.7 };
+  if (PUNCH[style]) {
+    params.kick.punch = Math.max(params.kick.punch ?? 0, PUNCH[style]);
+    params.kick.drive = Math.max(params.kick.drive ?? 0, 0.3);
+    params.acid.level = Math.max(params.acid.level ?? 0.55, 0.85);
+  }
+  const hook = hookLine(r2, style, musicalScale);
+  if (hook) { P.hook = hook; P.hm = 2; }
+  return { pattern: P, params, master, bpm, key, swing: swing ?? 0.06 };
 }
 
 export function mutate(pat, seed = Date.now(), amount = 0.2, scale = SCALES.minor.notes) {
@@ -539,6 +614,8 @@ export function arrangement(full, seed, half = false) {
     half ? halfTime(full) : mutate(full, seed + 2),
   ];
   for (const p of scenes) delete p.alt;
+  // Hook: absent in the intro, teased (call only) in the verse and deep breakdown, full in the fill, breakdown and peaks.
+  [0, 0, 1, 2, 2, 1, 2, 2].forEach((m, i) => { if (full.hook) scenes[i].hm = m; else delete scenes[i].hm; });
   if (full.alt) for (const i of [4, 5]) scenes[i].prog = clone(full.alt);
   return scenes;
 }
@@ -645,6 +722,15 @@ export function sanitize(s) {
         });
       }
       if (p.len?.[id]) e.len[id] = Math.max(1, Math.min(STEPS, p.len[id] | 0));
+    }
+    if (p.hook && Array.isArray(p.hook.s)) {
+      const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, Number.isFinite(+v) ? +v : lo));
+      e.hook = {
+        v: HOOK_VOICES.includes(p.hook.v) ? p.hook.v : 'pluck',
+        o: Math.round(cl(p.hook.o, -1, 1)),
+        s: range(32, (j) => { const x = p.hook.s[j]; return Array.isArray(x) ? [Math.round(cl(x[0], -24, 36)), Math.round(cl(x[1], 1, 16)), cl(x[2], 0, 1)] : 0; }),
+      };
+      e.hm = Math.round(cl(p.hm ?? 2, 0, 2));
     }
     if (Array.isArray(p.prog) && p.prog.length) e.prog = p.prog.slice(0, 8).map((c) => ({ r: Math.max(-12, Math.min(12, c?.r | 0)), c: Math.max(0, Math.min(10, c?.c | 0)) }));
     return e;

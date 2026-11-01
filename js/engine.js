@@ -906,6 +906,85 @@ export class Engine {
     return this[lead](t, v, [n], 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot(), p, this.ch.stab.input);
   }
 
+  // Song hook: one lead note per call, snapped to the current chord on strong beats so it follows the changes.
+  hook(t, v, n, dur, voice, oct = 0, strong = false, b = 1, up = false) {
+    const c = this.ctx, p = this.state.params.stab, h = this.harm;
+    if (strong || up) {
+      const iv = CHORDS[h ? h.c : Math.round(p.chord)].iv, root = h ? h.r : 0;
+      const tones = iv.map((x) => (((root + x) % 12) + 12) % 12);
+      const pc = ((n % 12) + 12) % 12;
+      const d = up ? [1, 2, 3, 4, 5].find((x) => tones.includes((pc + x) % 12)) : [0, -1, 1, -2, 2].find((x) => tones.includes((pc + x + 12) % 12));
+      n += d ?? 0;
+    }
+    const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
+    const f = midiHz(60 + k + oct * 12 + n), out = this.ch.stab.input;
+    const len = Math.max(0.06, dur * 0.92), end = t + len + 0.6;
+    const amp = this.gain(0), pan = c.createStereoPanner();
+    pan.pan.value = (hash(t * 13, 5) - 0.5) * 0.3;
+    const tame = this.filter('lowpass', 2400 + 1400 * b, 0.5);
+    amp.connect(tame).connect(pan).connect(out);
+    const oscs = [];
+    const osc = (type, freq, det = 0, g = 1, dst = null) => {
+      const o = c.createOscillator(); o.type = type; o.frequency.value = freq; o.detune.value = det;
+      const og = this.gain(g); o.connect(og).connect(dst); oscs.push(o); return o;
+    };
+    if (voice === 'saw') {
+      const lp = this.filter('lowpass', 900, 2);
+      lp.frequency.setValueAtTime(900, t);
+      lp.frequency.linearRampToValueAtTime((1600 + 2600 * v) * b, t + 0.03);
+      lp.frequency.setTargetAtTime(1200 * b, t + 0.04, 0.25);
+      osc('sawtooth', f, -14, 0.5, lp); osc('sawtooth', f, 14, 0.5, lp); osc('square', f / 2, 0, 0.25, lp);
+      lp.connect(amp);
+      amp.gain.setValueAtTime(EPS, t);
+      amp.gain.linearRampToValueAtTime(0.2 * v, t + 0.008);
+      amp.gain.setTargetAtTime(0.15 * v, t + 0.02, 0.15);
+      amp.gain.setTargetAtTime(0, t + len, 0.09);
+    } else if (voice === 'sq') {
+      const lp = this.filter('lowpass', 400, 5);
+      lp.frequency.setValueAtTime((400 + 2600 * v) * b, t);
+      lp.frequency.setTargetAtTime(500, t + 0.005, 0.07 + len * 0.15);
+      osc('square', f, 0, 0.6, lp); osc('sawtooth', f, 7, 0.4, lp);
+      lp.connect(amp);
+      amp.gain.setValueAtTime(EPS, t);
+      amp.gain.linearRampToValueAtTime(0.22 * v, t + 0.004);
+      amp.gain.setTargetAtTime(0, t + Math.min(len, 0.18), 0.06);
+    } else if (voice === 'flute') {
+      const lp = this.filter('lowpass', 1800 + 1400 * b, 0.7);
+      const car = osc('sine', f, 0, 0.8, lp); const tri = osc('triangle', f, 3, 0.25, lp);
+      const lfo = c.createOscillator(); lfo.frequency.value = 5.2; const lg = this.gain(0);
+      lg.gain.setValueAtTime(0, t); lg.gain.linearRampToValueAtTime(9, t + Math.min(0.4, len));
+      lfo.connect(lg); lg.connect(car.detune); lg.connect(tri.detune); oscs.push(lfo);
+      const br = this.noiseSrc(t, len + 0.1), bp = this.filter('bandpass', Math.min(9000, f * 2.5), 1.5), bg = this.gain(0);
+      bg.gain.setValueAtTime(0.035 * v, t); bg.gain.setTargetAtTime(0.012 * v, t + 0.03, 0.05); bg.gain.setTargetAtTime(0, t + len, 0.05);
+      br.connect(bp).connect(bg).connect(lp);
+      lp.connect(amp);
+      amp.gain.setValueAtTime(EPS, t);
+      amp.gain.linearRampToValueAtTime(0.36 * v, t + 0.03);
+      amp.gain.setTargetAtTime(0.3 * v, t + 0.05, 0.2);
+      amp.gain.setTargetAtTime(0, t + len, 0.07);
+    } else if (voice === 'bell') {
+      const ring = Math.max(0.35, Math.min(1.4, len * 1.2));
+      const blp = this.filter('lowpass', 2500 + 2000 * b, 0.5); blp.connect(amp);
+      const car = osc('sine', f, 0, 1, blp);
+      const mod = c.createOscillator(); mod.frequency.value = f * 3.5; const ma = this.gain(0);
+      mod.connect(ma).connect(car.frequency); oscs.push(mod);
+      ma.gain.setValueAtTime(f * (0.6 + 0.7 * b) * v, t); ma.gain.setTargetAtTime(f * 0.08, t + 0.002, ring * 0.2);
+      amp.gain.setValueAtTime(EPS, t);
+      amp.gain.linearRampToValueAtTime(0.3 * v, t + 0.002);
+      amp.gain.setTargetAtTime(0, t + 0.004, ring * 0.45);
+    } else {
+      const lp = this.filter('lowpass', 800, 3);
+      lp.frequency.setValueAtTime((1200 + 3000 * v) * b, t);
+      lp.frequency.setTargetAtTime(700, t + 0.003, 0.09);
+      osc('sawtooth', f, -6, 0.5, lp); osc('triangle', f, 6, 0.5, lp);
+      lp.connect(amp);
+      amp.gain.setValueAtTime(EPS, t);
+      amp.gain.linearRampToValueAtTime(0.32 * v, t + 0.002);
+      amp.gain.setTargetAtTime(0, t + 0.004, Math.max(0.08, Math.min(0.4, len * 0.6)));
+    }
+    for (const o of oscs) { o.start(t); o.stop(end); }
+  }
+
   harmRoot() { const h = this.harm; return h ? ((((h.r + 6) % 12) + 12) % 12) - 6 : 0; }
 
   // Round finger-style bass: triangle + sine, short pluck through a gentle lowpass.
@@ -1235,6 +1314,17 @@ export class Sequencer {
     if (vary && !s.mutes.stab && (!anySolo || s.solos.stab) && bar % 2 === 1 && !sp[abs % (pat.len.stab || 16)] && hash(abs, 77) < vary * 0.28) {
       const k = Math.floor(hash(abs, 78) * 6) + (bar % 4 === 3 ? 2 : 0);
       e.lick(tt + (s.master.humanize || 0) * 0.02, 0.35 + hash(abs, 79) * 0.3, k);
+    }
+    const hk = pat.hook, hm = pat.hm || 0;
+    if (hk && hm && !s.mutes.stab && (!anySolo || s.solos.stab)) {
+      const hi = abs % 32, st = hk.s[hi];
+      // Develop over each 8-bar phrase: the filter opens, the 2nd answer climbs a chord tone, the 4th jumps an octave.
+      const ph = Math.floor(bar / 2) % 4;
+      if (st && (hm > 1 || hi < 16) && !(hm > 1 && ph === 2 && hi < 16 && hash(abs, 95) < 0.3)) {
+        const lift = hm > 1 && hi >= 16 && ph === 3 ? 12 : 0;
+        const b = 0.65 + 0.35 * ((bar % 8) / 7);
+        e.hook(tt + (s.master.humanize || 0) * 0.012, st[2], st[0] + lift, st[1] * sd, hk.v, hk.o, hi % 4 === 0 || st[1] >= 2, b, hm > 1 && hi >= 16 && ph === 1 && !hk.s.slice(hi + 1).some(Boolean));
+      }
     }
     if (this.roll === null) this.rollCount = 0;
     return this.cur;

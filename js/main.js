@@ -411,6 +411,7 @@ function doGenerateSet() {
   matchStyleScale();
   const g = generate(style, seed, state.scale);
   state.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
+  state.key = g.key;
   for (const p of state.patterns) for (const id of TRACK_IDS) if (state.locks[id]) {
     p.steps[id] = clone(source.steps[id]);
     p.len[id] = source.len[id];
