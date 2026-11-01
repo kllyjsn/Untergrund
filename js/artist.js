@@ -100,7 +100,7 @@ export function createArtistProject(baseState, profile, seed = Date.now(), index
   state.key = Math.floor(r() * KEYS.length);
   state.scale = scale;
   const g = generate(style, seed, scale);
-  state.patterns = arrangement(g.pattern, seed);
+  state.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   applyOverrides(state, g, true);
   state.current = 0;
   state.chainOn = true;

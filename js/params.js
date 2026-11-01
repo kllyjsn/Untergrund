@@ -173,6 +173,7 @@ export const MASTER_PARAMS = [
   p('kit', 'KIT', 0, 1, 0, { step: 1, list: ['MACHINE', 'LIVE'] }),
   p('vary', 'VARIATION', 0, 1, 0),
   p('dust', 'DUST', 0, 1, 0),
+  p('arr', 'DROPS', 0, 1, 0),
 ];
 
 export function defaultParams() {

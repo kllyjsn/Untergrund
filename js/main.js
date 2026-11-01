@@ -394,7 +394,7 @@ function doGenerateSet() {
   const lockedParams = Object.fromEntries(TRACK_IDS.filter((id) => state.locks[id]).map((id) => [id, clone(state.params[id])]));
   matchStyleScale();
   const g = generate(style, seed, state.scale);
-  state.patterns = arrangement(g.pattern, seed);
+  state.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   for (const p of state.patterns) for (const id of TRACK_IDS) if (state.locks[id]) {
     p.steps[id] = clone(source.steps[id]);
     p.len[id] = source.len[id];
@@ -518,7 +518,7 @@ const LIVE_KIT_STYLES = new Set(['neosoul', 'boombap']);
 const GROOVE_STYLES = new Set(['neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill']);
 const SECTION_NAMES = {
   groove: ['INTRO', 'BUILD', 'VERSE', 'FILL', 'BRIDGE', 'BRIDGE', 'HOOK', 'HOOK'],
-  club: ['INTRO', 'BUILD', 'GROOVE', 'FILL', 'BREAKDOWN', 'BREAKDOWN', 'PEAK', 'PEAK'],
+  club: ['INTRO', 'BUILD', 'DROP', 'FILL', 'BREAKDOWN', 'BREAKDOWN', 'DROP', 'HALF-TIME'],
 };
 const sectionName = (sid, i) => SECTION_NAMES[GROOVE_STYLES.has(sid) ? 'groove' : 'club'][i] || PATTERN_NAMES[i];
 const hue = (id) => STYLE_HUE[id] || '#c6ff2b';
