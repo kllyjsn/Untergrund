@@ -9,20 +9,31 @@ const EPS = 0.0001;
 const LIM_TRIM = 1.4;
 
 // Six band-limited squares (808 cymbal cluster) summed once into a seamless 0.5 s loop.
+// Each square is read from a one-period wavetable; a small LRU bounds memory as tunings change.
+const METAL_FREQS = [205.3, 304.4, 369.6, 522.7, 540, 800];
+const METAL_MAX = 24, TABLE = 2048;
 const metalCache = new Map();
 function metallicBuf(mul, sr) {
   const k = Math.round(mul * 200), key = `${sr}:${k}`;
-  if (metalCache.has(key)) return metalCache.get(key);
-  const n = Math.floor(sr / 2), buf = new AudioBuffer({ length: n, sampleRate: sr, numberOfChannels: 1 }), d = buf.getChannelData(0);
+  let buf = metalCache.get(key);
+  if (buf) { metalCache.delete(key); metalCache.set(key, buf); return buf; }
+  const n = Math.floor(sr / 2), d = new Float32Array(n), tab = new Float32Array(TABLE + 1);
   const top = Math.min(20000, sr * 0.45);
-  for (const f0 of [205.3, 304.4, 369.6, 522.7, 540, 800]) {
-    const f = (f0 * k) / 200;
+  for (const f0 of METAL_FREQS) {
+    const f = (f0 * k) / 200, cycles = Math.max(1, Math.round((f * n) / sr));
+    tab.fill(0);
     for (let h = 1; h * f < top; h += 2) {
-      const w = (2 * Math.PI * Math.round((h * f * n) / sr)) / n, a = (0.16 * 4) / (Math.PI * h);
-      for (let i = 0; i < n; i++) d[i] += a * Math.sin(w * i);
+      const a = (0.16 * 4) / (Math.PI * h), w = (2 * Math.PI * h) / TABLE;
+      for (let j = 0; j < TABLE; j++) tab[j] += a * Math.sin(w * j);
     }
+    tab[TABLE] = tab[0];
+    const step = (cycles * TABLE) / n;
+    for (let i = 0; i < n; i++) { const x = (i * step) % TABLE, j = x | 0; d[i] += tab[j] + (tab[j + 1] - tab[j]) * (x - j); }
   }
+  buf = new AudioBuffer({ length: n, sampleRate: sr, numberOfChannels: 1 });
+  buf.copyToChannel(d, 0);
   metalCache.set(key, buf);
+  if (metalCache.size > METAL_MAX) metalCache.delete(metalCache.keys().next().value);
   return buf;
 }
 
@@ -194,6 +205,10 @@ export class Engine {
   setMaster(id, v) { this.state.master[id] = v; this.applyMaster(id); }
 
   applyParam(tid, id, immediate = false) {
+    if (id === 'tune' && (tid === 'ch' || tid === 'oh' || tid === 'ride')) {
+      const tune = this.state.params[tid].tune, sr = this.ctx.sampleRate;
+      for (const m of tid === 'ride' ? [2.05 * tune, 1.47 * tune] : [1.35 * tune]) metallicBuf(m, sr);
+    }
     const v = this.state.params[tid][id];
     const ch = this.ch[tid];
     if (id === 'level') return this.setTo(ch.level.gain, v, immediate);
