@@ -7,11 +7,11 @@ import { h } from './ui.js';
 const PROFILE_KEY = 'untergrund.artist.v1';
 const CATALOG_KEY = 'untergrund.catalog.v1';
 const TRAITS = [
-  ['darkness', 'DARKNESS', 'minor keys, lower and heavier sounds'],
-  ['hypnosis', 'HYPNOSIS', 'longer loops that change slowly'],
-  ['acid', 'ACID', 'squelchy, moving basslines'],
+  ['darkness', 'DARKNESS', 'darker scales, more distortion'],
+  ['hypnosis', 'HYPNOSIS', 'trance-like loops, more swing'],
+  ['acid', 'ACID', 'squelchier, more resonant bassline'],
   ['space', 'SPACE', 'more reverb, echo and room'],
-  ['energy', 'ENERGY', 'faster tempo, busier drums'],
+  ['energy', 'ENERGY', 'harder, peak-time styles'],
 ];
 const FIRST = ['Beton', 'Null', 'Tief', 'Stahl', 'Nacht', 'Dunkel', 'Kalt', 'Grau', 'Strom', 'Schacht', 'Blind', 'Leerer'];
 const SECOND = ['Ritual', 'Körper', 'Maschine', 'Frequenz', 'Tunnel', 'Werk', 'Druck', 'Kreis', 'Raum', 'Signal', 'Kontakt', 'System'];
