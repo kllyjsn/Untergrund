@@ -328,7 +328,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   const dm = defaultMaster();
   for (const k of Object.keys(dm)) if (k !== 'volume' && k !== 'dj') master[k] ??= dm[k];
   for (const t of ['acid', 'stab']) params[t].voice ??= 0;
-  return { pattern: P, params, master, bpm, swing };
+  return { pattern: P, params, master, bpm, swing: swing ?? 0.06 };
 }
 
 export function mutate(pat, seed = Date.now(), amount = 0.2, scale = SCALES.minor.notes) {

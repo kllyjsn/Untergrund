@@ -64,5 +64,6 @@ console.log('song sections passed');
   assert.deepEqual(after.master, fresh.master);
   assert.equal(after.params.acid.voice, fresh.params.acid.voice);
   assert.equal(after.params.stab.voice, fresh.params.stab.voice);
+  assert.equal(after.swing, fresh.swing);
 }
 console.log('live-kit settings do not leak into the next style passed');
