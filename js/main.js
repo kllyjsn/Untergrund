@@ -492,7 +492,7 @@ function buildGenerateHome() {
     h('div', { class: 'generate-actions' },
       h('button', { class: 'generate-primary', onclick: generate }, h('span', {}, 'GENERATE'), h('small', {}, `${STYLES[style].name} · full arrangement`)),
       h('button', { class: 'btn refine-toggle', onclick: toggleStudio }, studioOpen ? 'HIDE STUDIO' : 'REFINE IN STUDIO'),
-      h('button', { class: 'btn ghost', onclick: startArtistLive }, 'ARTIST LIVE')),
+      h('button', { class: 'btn ghost', onclick: () => startArtistLive() }, 'ARTIST LIVE')),
     styleCards,
     h('div', { class: 'generate-status' },
       h('b', {}, `${state.bpm} BPM`), h('span', {}, `${KEYS[state.key]} ${SCALES[state.scale]?.name || 'MINOR'}`),
