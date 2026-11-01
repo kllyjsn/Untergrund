@@ -168,6 +168,7 @@ export const MASTER_PARAMS = [
   p('dlyLevel', 'DLY RTN', 0, 1, 0.65),
   p('humanize', 'HUMANIZE', 0, 1, 0),
   p('warmth', 'WARMTH', 0, 1, 0),
+  p('kit', 'KIT', 0, 1, 0, { step: 1, list: ['MACHINE', 'LIVE'] }),
   p('vary', 'VARIATION', 0, 1, 0),
 ];
 

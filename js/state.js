@@ -230,7 +230,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   } else if (style === 'neosoul' || style === 'boombap') {
     const soul = style === 'neosoul';
     S.kick = pad16(pick(r, soul ? [[2, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1], [2, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1]] : [[2, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1], [2, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]]));
-    S.snare = pad16([0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2]).map((v, i) => v || ([7, 15].includes(i) && r() < 0.6 ? 1 : 0));
+    S.snare = pad16([0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2]).map((v, i) => v || ([3, 7, 10, 15].includes(i) && r() < 0.55 ? 1 : 0));
     S.clap = soul ? range(STEPS, () => 0) : pad16([0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]);
     S.ch = range(STEPS, (i) => (i % 2 === 0 ? (i % 4 === 0 ? 2 : 1) : (r() < 0.35 ? 1 : 0)));
     S.ride = soul && r() < 0.5 ? range(STEPS, (i) => (i % 4 === 0 || i % 4 === 3 ? 1 : 0)) : range(STEPS, () => 0);
@@ -239,12 +239,14 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     if (soul) S.vox = pad16([0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]);
     Object.assign(params.kick, { tune: 52, decay: soul ? 0.5 : 0.35, drive: soul ? 0.2 : 0.45, rumble: 0, punch: 0.55, click: soul ? 0.15 : 0.4 });
     Object.assign(params.snare, { tune: soul ? 200 : 170, snappy: soul ? 0.4 : 0.75, decay: 0.22 });
-    Object.assign(params.ch, { decay: 0.05, tone: soul ? 3600 : 4800, level: 0.5 });
-    Object.assign(params.ride, { tone: 3800, decay: 1.4 });
-    Object.assign(params.stab, { voice: 1, chord: pick(r, soul ? [2, 9, 10, 7] : [1, 2, 7]), octave: 0, cutoff: soul ? 1500 : 1100, reso: 1, decay: 1.4, env: soul ? 0.35 : 0.2, detune: soul ? 14 : 6, rev: 0.3, dly: 0.1 });
-    Object.assign(params.acid, { voice: 1, wave: 0.05, tune: -12, cutoff: 320, reso: 1, envmod: 0.1, decay: 0.5, drive: 0.1, accent: 0.15 });
+    Object.assign(params.ch, { decay: 0.05, tone: soul ? 3600 : 4800, level: 0.62, rev: 0.1 });
+    Object.assign(params.ride, { tone: 3800, decay: 1.4, level: 0.5, rev: 0.15 });
+    Object.assign(params.kick, { level: 1.05 });
+    Object.assign(params.snare, { level: 0.8, rev: 0.22 });
+    Object.assign(params.stab, { voice: 1, chord: pick(r, soul ? [2, 9, 10, 7] : [1, 2, 7]), octave: 0, cutoff: soul ? 1500 : 1100, reso: 1, decay: 1.4, env: soul ? 0.35 : 0.2, detune: soul ? 14 : 6, rev: 0.3, dly: 0.1, level: 0.55 });
+    Object.assign(params.acid, { voice: 1, wave: 0.05, tune: -12, cutoff: 320, reso: 1, envmod: 0.1, decay: 0.5, drive: 0.3, accent: 0.15, level: 0.95 });
     Object.assign(params.vox, { scatter: 0.6, melody: 0.8, length: 2, tone: 4500 });
-    master.humanize = soul ? 0.9 : 0.6; master.warmth = soul ? 0.85 : 0.7;
+    master.humanize = soul ? 0.9 : 0.6; master.warmth = soul ? 0.85 : 0.7; master.kit = 1;
     master.duck = 0.25; master.drive = soul ? 0.25 : 0.45; master.revLevel = 0.5;
     swing = soul ? 0.58 : 0.42;
   } else if (style === 'breaks') {

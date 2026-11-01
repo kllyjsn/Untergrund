@@ -241,6 +241,15 @@ export class Engine {
   }
 
   trigger(id, t, v) {
+    if (Math.round(this.state.master.kit || 0) === 1) {
+      switch (id) {
+        case 'kick': return this.liveKick(t, v);
+        case 'snare': return this.liveSnare(t, v);
+        case 'ch': return this.brush(t, v, false);
+        case 'oh': return this.brush(t, v, true);
+        case 'ride': return this.liveRide(t, v);
+      }
+    }
     switch (id) {
       case 'kick': return this.kick(t, v);
       case 'clap': return this.clap(t, v);
@@ -322,6 +331,85 @@ export class Engine {
     const ng = this.gain(0);
     this.adEnv(ng.gain, t, v * (0.25 + p.snappy * 0.75), 0.001, p.decay);
     n.connect(hp).connect(lp).connect(ng).connect(out);
+  }
+
+  // Acoustic kit: modal drum heads, beater and wire noise, brushes and a sine-partial ride.
+  liveKick(t, v) {
+    const c = this.ctx, p = this.state.params.kick, out = this.ch.kick.input;
+    const f = Math.max(42, Math.min(70, p.tune * 1.1)), dec = 0.22 + p.decay * 0.25;
+    const sh = c.createWaveShaper(); sh.curve = driveCurve(0.25 + p.drive * 0.3);
+    sh.connect(this.gain(0.95)).connect(out);
+    for (const [mul, lvl, d] of [[1, v, dec], [1.58, v * 0.35, dec * 0.4], [2.3, v * 0.12, dec * 0.25]]) {
+      const o = c.createOscillator();
+      o.frequency.setValueAtTime(f * mul * 1.9, t);
+      o.frequency.exponentialRampToValueAtTime(f * mul, t + 0.025);
+      const g = this.gain(0);
+      this.adEnv(g.gain, t, lvl, 0.002, d);
+      o.connect(g).connect(sh);
+      o.start(t); o.stop(t + d + 0.05);
+    }
+    const n = this.noiseSrc(t, 0.03), lp = this.filter('lowpass', 2600, 0.6), ng = this.gain(0);
+    this.adEnv(ng.gain, t, v * (0.25 + p.click * 0.4), 0.001, 0.012);
+    n.connect(lp).connect(ng).connect(out);
+    this.duckAt(t, v * 0.7);
+  }
+
+  liveSnare(t, v) {
+    const c = this.ctx, p = this.state.params.snare, out = this.ch.snare.input;
+    const ghost = v < 0.6, f = Math.max(150, Math.min(260, p.tune));
+    if (!ghost) {
+      for (const [mul, lvl] of [[1, 0.5], [1.59, 0.28], [2.14, 0.14]]) {
+        const o = c.createOscillator();
+        o.frequency.setValueAtTime(f * mul * 1.12, t);
+        o.frequency.exponentialRampToValueAtTime(f * mul, t + 0.012);
+        const g = this.gain(0);
+        this.adEnv(g.gain, t, v * lvl, 0.001, 0.07 + p.decay * 0.12);
+        o.connect(g).connect(out);
+        o.start(t); o.stop(t + 0.3);
+      }
+    }
+    const wires = 0.12 + p.decay * (ghost ? 0.15 : 0.45);
+    const n = this.noiseSrc(t, wires + 0.05);
+    const bp = this.filter('bandpass', ghost ? 4200 : 3200, 0.55), hp = this.filter('highpass', 900), ng = this.gain(0);
+    ng.gain.setValueAtTime(EPS, t);
+    ng.gain.linearRampToValueAtTime(v * (ghost ? 0.5 : 0.75) * (0.5 + p.snappy * 0.6), t + 0.002);
+    ng.gain.exponentialRampToValueAtTime(v * 0.18, t + 0.03);
+    ng.gain.exponentialRampToValueAtTime(EPS, t + wires);
+    n.connect(bp).connect(hp).connect(ng).connect(out);
+    if (v > 0.95) {
+      const rim = c.createOscillator(); rim.type = 'triangle'; rim.frequency.value = 1680;
+      const rg = this.gain(0); this.adEnv(rg.gain, t, 0.22, 0.0005, 0.018);
+      rim.connect(rg).connect(out); rim.start(t); rim.stop(t + 0.05);
+    }
+  }
+
+  brush(t, v, open) {
+    const p = this.state.params[open ? 'oh' : 'ch'], out = this.ch[open ? 'oh' : 'ch'].input;
+    const dur = open ? 0.18 + p.decay * 0.4 : 0.035 + p.decay * 0.12;
+    const n = this.noiseSrc(t, dur + 0.05);
+    const bp = this.filter('bandpass', 7800 * Math.min(1.2, p.tune), 0.45), hp = this.filter('highpass', Math.max(3500, p.tone * 0.8), 0.6);
+    const g = this.gain(0);
+    g.gain.setValueAtTime(EPS, t);
+    g.gain.linearRampToValueAtTime(v * 1.2, t + (open ? 0.012 : 0.004));
+    g.gain.exponentialRampToValueAtTime(EPS, t + dur);
+    n.connect(bp).connect(hp).connect(g).connect(out);
+  }
+
+  liveRide(t, v) {
+    const c = this.ctx, p = this.state.params.ride, out = this.ch.ride.input;
+    const base = 440 * p.tune, dec = Math.max(0.6, p.decay * 1.4);
+    const bus = this.gain(1);
+    const hp = this.filter('highpass', 700, 0.5);
+    bus.connect(hp).connect(out);
+    [[1, 0.25, 1], [2.64, 0.2, 0.8], [4.18, 0.16, 0.6], [5.53, 0.12, 0.5], [7.8, 0.1, 0.35], [11.2, 0.06, 0.25]].forEach(([m, lvl, d]) => {
+      const o = c.createOscillator(); o.frequency.value = base * m * (1 + (m % 1) * 0.003);
+      const g = this.gain(0);
+      this.adEnv(g.gain, t, v * lvl, 0.001, dec * d);
+      o.connect(g).connect(bus); o.start(t); o.stop(t + dec * d + 0.05);
+    });
+    const n = this.noiseSrc(t, 0.05), bp = this.filter('bandpass', 6500, 0.7), ng = this.gain(0);
+    this.adEnv(ng.gain, t, v * 0.5, 0.0005, 0.025);
+    n.connect(bp).connect(ng).connect(out);
   }
 
   metallic(t, mul, out) {
@@ -512,12 +600,16 @@ export class Engine {
     const sub = c.createOscillator(); sub.frequency.value = f;
     const lp = this.filter('lowpass', 180 + p.cutoff * 0.6 + (st.a ? 500 : 0), 0.7);
     lp.frequency.setTargetAtTime(160 + p.cutoff * 0.3, t + 0.01, 0.08);
-    const amp = this.gain(0), vel = (st.a ? 0.95 : 0.75) * (1 - p.drive * 0.2);
+    const grit = this.ctx.createWaveShaper(); grit.curve = driveCurve(0.18 + p.drive * 0.5);
+    const pick = this.noiseSrc(t, 0.02), pbp = this.filter('bandpass', 1100 + f * 4, 1.2), pg = this.gain(0);
+    this.adEnv(pg.gain, t, st.a ? 0.16 : 0.1, 0.0008, 0.012);
+    pick.connect(pbp).connect(pg).connect(this.ch.acid.input);
+    const amp = this.gain(0), vel = (st.a ? 1 : 0.82) * (1 - p.drive * 0.2);
     amp.gain.setValueAtTime(EPS, t);
     amp.gain.linearRampToValueAtTime(vel, t + 0.006);
     amp.gain.setTargetAtTime(vel * 0.55, t + 0.02, 0.12);
     amp.gain.setTargetAtTime(0, t + len, 0.03);
-    tri.connect(lp); sub.connect(lp); lp.connect(amp).connect(this.ch.acid.input);
+    tri.connect(lp); sub.connect(lp); lp.connect(grit).connect(amp).connect(this.ch.acid.input);
     for (const o of [tri, sub]) { o.start(t); o.stop(t + len + 0.3); }
   }
 
@@ -657,7 +749,8 @@ export class Sequencer {
       const late = hum * ((id === 'snare' || id === 'clap') ? 0.03 : id === 'ch' || id === 'ride' ? 0.012 : id === 'stab' || id === 'acid' ? 0.016 : 0);
       const ht = tt + late + (hash(abs, TRACK_IDS.indexOf(id)) - 0.5) * hum * 0.012;
       const hv = 1 - hum * 0.3 * hash(abs, TRACK_IDS.indexOf(id) + 20);
-      const vel = (v === 2 ? 1 : v === 1 ? 0.78 : v) * hv;
+      const ghostSnare = id === 'snare' && Math.round(s.master.kit || 0) === 1;
+      const vel = (v === 2 ? 1 : v === 1 ? (ghostSnare ? 0.45 : 0.78) : v) * hv;
       if (v && id === 'vox') e.vox(ht, vel, i);
       else if (v) e.trigger(id, ht, vel);
     }
