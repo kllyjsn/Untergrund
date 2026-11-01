@@ -67,6 +67,13 @@ export class Engine {
     this.revLP = this.filter('lowpass', 4500);
     this.revOut = this.gain(0.7);
     this.revIn.connect(this.revHP).connect(this.revConv).connect(this.revLP).connect(this.revOut).connect(this.duck);
+    // Short shared room so the whole band sounds like it plays in one space
+    this.roomIn = this.gain(1);
+    this.roomConv = c.createConvolver();
+    this.roomConv.buffer = makeIR(c, 0.7, { decay: 2.4, brightStart: 0.6, brightEnd: 0.15, predelay: 0.004, seed: 53 });
+    this.roomHP = this.filter('highpass', 160);
+    this.roomOut = this.gain(0);
+    this.roomIn.connect(this.roomHP).connect(this.roomConv).connect(this.roomOut).connect(this.mix);
 
     // Ping-pong delay with band-limited feedback
     this.dlyIn = this.gain(1);
@@ -115,6 +122,7 @@ export class Engine {
       input.connect(level).connect(pan);
       pan.connect(DUCKED.has(t.id) ? this.duck : this.mix);
       pan.connect(rev).connect(this.revIn);
+      if (t.id !== 'vox') pan.connect(this.roomIn);
       pan.connect(dly).connect(this.dlyIn);
       pan.connect(this.throwBus);
       const ch = { input, level, pan, rev, dly };
@@ -195,6 +203,7 @@ export class Engine {
     } else if (id === 'drive') {
       this.sat.curve = satCurve(v);
     } else if (id === 'volume') this.setTo(this.master.gain, v, immediate);
+    else if (id === 'room') this.setTo(this.roomOut.gain, (v || 0) * 0.9, immediate);
     else if (id === 'warmth') this.setTo(this.warm.frequency, 20000 * Math.pow(0.22, v || 0), immediate);
     else if (id === 'revLevel') this.setTo(this.revOut.gain, v, immediate);
     else if (id === 'revTone') this.setTo(this.revLP.frequency, v, immediate);
@@ -681,6 +690,8 @@ export function parseChain(str) {
   return (str || '').toUpperCase().replace(/[^A-H]/g, '').split('').map((ch) => ch.charCodeAt(0) - 65);
 }
 
+const DRUMS = new Set(['kick', 'clap', 'snare', 'ch', 'oh', 'ride', 'perc']);
+
 export class Sequencer {
   constructor(engine, state) {
     this.e = engine;
@@ -746,9 +757,14 @@ export class Sequencer {
         if (bar % 8 === 7 && i >= 12 && (id === 'kick' || id === 'stab') && hash(bar, k) < vary) v = 0;
       }
       const hum = s.master.humanize || 0;
-      const late = hum * ((id === 'snare' || id === 'clap') ? 0.03 : id === 'ch' || id === 'ride' ? 0.012 : id === 'stab' || id === 'acid' ? 0.016 : 0);
-      const ht = tt + late + (hash(abs, TRACK_IDS.indexOf(id)) - 0.5) * hum * 0.012;
-      const hv = 1 - hum * 0.3 * hash(abs, TRACK_IDS.indexOf(id) + 20);
+      const k = TRACK_IDS.indexOf(id), drum = DRUMS.has(id), cym = id === 'ch' || id === 'ride' || id === 'oh';
+      const late = hum * ((id === 'snare' || id === 'clap') ? 0.03 : cym ? (i % 2 ? 0.016 : 0.006) : id === 'kick' ? -0.003 : id === 'stab' || id === 'acid' ? 0.016 : 0);
+      // Drummer feel: the whole kit breathes together over 8 bars and pushes into each 4-bar fill
+      const phrase = drum ? hum * (0.007 * Math.sin((Math.PI * 2 * abs) / 128 + 1.3) - (bar % 4 === 3 && i >= 8 ? 0.005 : 0)) : 0;
+      const ht = tt + late + phrase + (hash(bar, k + 60) - 0.5) * hum * 0.006 + (hash(abs, k) - 0.5) * hum * 0.008;
+      const accent = cym ? (i % 4 === 0 ? 1 : i % 2 === 0 ? 0.84 : 0.68) : 1;
+      const swell = drum ? 1 - hum * 0.1 * (3 - (bar % 4)) / 3 : 1;
+      const hv = (1 - hum * 0.22 * hash(abs, k + 20)) * (1 - hum * (1 - accent)) * swell;
       const ghostSnare = id === 'snare' && Math.round(s.master.kit || 0) === 1;
       const vel = (v === 2 ? 1 : v === 1 ? (ghostSnare ? 0.45 : 0.78) : v) * hv;
       if (v && id === 'vox') e.vox(ht, vel, i);

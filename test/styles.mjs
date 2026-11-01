@@ -40,3 +40,5 @@ console.log('neo-soul progression and variation passed');
 assert.equal(generate('neosoul', 9, 'dorian').master.kit, 1);
 assert.equal(generate('hypnotic', 9, 'minor').master.kit || 0, 0);
 console.log('live kit defaults passed');
+assert(generate('neosoul', 9, 'dorian').master.room > 0.3);
+console.log('room defaults passed');
