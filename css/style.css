@@ -680,7 +680,7 @@ body.studio-open .generate-primary small { margin-top: 0; }
 .tabbar, .tools-toggle { display: none; }
 @media (max-width: 760px) {
   body { padding-bottom: calc(66px + env(safe-area-inset-bottom)); }
-  .tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(4,1fr);
+  .tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(5,1fr);
     padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); background: rgba(9,9,10,.86); border-top: 1px solid rgba(255,255,255,.08);
     backdrop-filter: saturate(160%) blur(18px); -webkit-backdrop-filter: saturate(160%) blur(18px); }
   .tab { display: flex; flex-direction: column; align-items: center; gap: 5px; height: 52px; justify-content: center; border: 0; background: none; color: #8a8a94; font: 600 11px var(--sans); letter-spacing: .02em; cursor: pointer; }
@@ -761,6 +761,11 @@ body.recording .np-actions .btn.rec .dot { background: var(--accent); animation:
 @media (max-width: 640px) { .set-cut, .jb { padding: 16px; } .set-ranges { grid-template-columns: 1fr; } .jb-tabs .jb-all { margin-left: 0; } }
 @media (max-width: 760px) {
   .np-actions { flex-wrap: wrap; }
-  .np-actions > .btn.rec, .np-actions > .btn.np-pub { display: inline-flex; align-items: center; justify-content: center; flex: 1 1 40%; min-height: 48px; }
+  .np-actions > .btn.np-pub { display: inline-flex; align-items: center; justify-content: center; flex: 1 1 100%; min-height: 48px; }
+  /* The tab bar stays reachable over Club, Jukebox and Artist, and shows where you are */
+  .tabbar { z-index: 70; }
+  .overlay, .club-overlay { bottom: calc(64px + env(safe-area-inset-bottom)); }
+  body:has(.club-overlay, .jb, .artist-head) .tab.on { color: #8a8a94; }
+  body:has(.club-overlay) .tab.tab-club, body:has(.jb) .tab.tab-jukebox, body:has(.artist-head) .tab.tab-artist { color: #fff; }
 }
 .jb .pub-note:empty { display: none; }

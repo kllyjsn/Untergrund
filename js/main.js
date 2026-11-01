@@ -765,7 +765,12 @@ function openArtist() {
 }
 
 function buildTabBar() {
-  const tab = (label, on, onclick) => h('button', { class: 'tab' + (on ? ' on' : ''), ...(on && { 'aria-current': 'page' }), onclick }, h('i', { class: `tab-ico ${label.toLowerCase()}` }), h('span', {}, label));
+  const closeOverlays = () => {
+    for (let i = 0; i < 4 && document.querySelector('.overlay, .club-overlay'); i++) {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    }
+  };
+  const tab = (label, on, onclick) => h('button', { class: `tab tab-${label.toLowerCase()}` + (on ? ' on' : ''), ...(on && { 'aria-current': 'page' }), onclick: () => { closeOverlays(); onclick(); } }, h('i', { class: `tab-ico ${label.toLowerCase()}` }), h('span', {}, label));
   return h('nav', { class: 'tabbar', 'aria-label': 'Sections' },
     tab('Create', !studioOpen, () => { if (studioOpen) toggleStudio(); else scrollTo({ top: 0, behavior: 'smooth' }); }),
     tab('Studio', studioOpen, () => { if (!studioOpen) toggleStudio(); }),
