@@ -327,7 +327,7 @@ export class Engine {
     // Congas/bongos: two drums (low/high) alternating, open tones and slaps.
     const c = this.ctx, n = this.handN = (this.handN || 0) + 1;
     const high = hash(n, 7) < 0.55, slap = v > 0.85 || hash(n, 9) < p.noise * 0.6;
-    const f = p.tune * (bongo ? 1.7 : 0.75) * (high ? 1.5 : 1);
+    const f = (bongo ? 420 : 200) * Math.sqrt(p.tune / 240) * (high ? 1.45 : 1);
     const dec = Math.max(0.04, p.decay * (bongo ? 0.5 : 1.1) * (slap ? 0.45 : 1));
     const o = c.createOscillator(); o.type = 'sine';
     o.frequency.setValueAtTime(f * (1 + p.bend * 0.6), t);
@@ -346,7 +346,7 @@ export class Engine {
     // Shaker: band-passed noise with a soft attack; off-beat hits lean in.
     const n = this.shakN = (this.shakN || 0) + 1, len = Math.max(0.03, p.decay * 0.5);
     const src = this.noiseSrc(t, len + 0.02);
-    const hp = this.filter('highpass', Math.min(14000, p.tune * 18), 0.7), lp = this.filter('lowpass', 13000, 0.5);
+    const hp = this.filter('highpass', Math.min(9000, 2500 + p.tune * 6), 0.6), lp = this.filter('lowpass', 11000, 0.5);
     const g = this.gain(0), lvl = v * (n % 2 ? 0.55 : 0.42) * (0.6 + p.noise * 0.8);
     g.gain.setValueAtTime(0, t);
     g.gain.linearRampToValueAtTime(lvl, t + Math.min(0.03, len * 0.35));
@@ -354,7 +354,7 @@ export class Engine {
     src.connect(hp).connect(lp).connect(g).connect(out);
   }
   clave(t, v, p, out) {
-    const c = this.ctx, f = Math.min(4200, p.tune * 6), dec = Math.max(0.02, p.decay * 0.25);
+    const c = this.ctx, f = 1800 * Math.sqrt(p.tune / 240), dec = Math.max(0.02, p.decay * 0.25);
     for (const [m, l] of [[1, 0.8], [1.48, 0.25]]) {
       const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = f * m;
       const g = this.gain(0); this.adEnv(g.gain, t, v * l, 0.0005, dec);
