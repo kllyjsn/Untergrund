@@ -107,6 +107,7 @@ export const TRACKS = [
       p('bend', 'BEND', 0, 1, 0.45),
       p('noise', 'NOISE', 0, 1, 0.2),
       p('metal', 'METAL', 0, 1, 0.3),
+      p('voice', 'VOICE', 0, 4, 0, { step: 1, list: ['SYNTH', 'CONGA', 'BONGO', 'SHAKER', 'CLAVE'] }),
     ],
     mix: { level: 0.45, pan: -0.3, rev: 0.2, dly: 0.25 },
   },
@@ -171,6 +172,7 @@ export const MASTER_PARAMS = [
   p('room', 'ROOM', 0, 1, 0),
   p('kit', 'KIT', 0, 1, 0, { step: 1, list: ['MACHINE', 'LIVE'] }),
   p('vary', 'VARIATION', 0, 1, 0),
+  p('dust', 'DUST', 0, 1, 0),
 ];
 
 export function defaultParams() {
@@ -201,6 +203,7 @@ export function formatValue(q, v) {
 }
 
 export const VOICE_HIDDEN = {
+  perc: [[], ['metal'], ['metal'], ['bend', 'metal'], ['bend', 'noise', 'metal']],
   acid: [[], ['wave', 'reso', 'envmod', 'accent'], ['wave', 'reso', 'envmod'], []],
   stab: [[], ['reso'], [], ['reso', 'env'], [], [], ['reso']],
 };

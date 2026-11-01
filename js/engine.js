@@ -322,6 +322,57 @@ export class Engine {
   }
 
   // ---------- voices ----------
+
+  hand(t, v, p, out, bongo) {
+    // Congas/bongos: two drums (low/high) alternating, open tones and slaps.
+    const c = this.ctx, n = this.handN = (this.handN || 0) + 1;
+    const high = hash(n, 7) < 0.55, slap = v > 0.85 || hash(n, 9) < p.noise * 0.6;
+    const f = (bongo ? 420 : 200) * Math.sqrt(p.tune / 240) * (high ? 1.45 : 1);
+    const dec = Math.max(0.04, p.decay * (bongo ? 0.5 : 1.1) * (slap ? 0.45 : 1));
+    const o = c.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(f * (1 + p.bend * 0.6), t);
+    o.frequency.exponentialRampToValueAtTime(f, t + 0.015 + p.bend * 0.04);
+    const o2 = c.createOscillator(); o2.type = 'sine'; o2.frequency.value = f * 1.59;
+    const g = this.gain(0), g2 = this.gain(0);
+    this.adEnv(g.gain, t, v * 0.85, 0.001, dec);
+    this.adEnv(g2.gain, t, v * 0.25, 0.001, dec * 0.4);
+    o.connect(g).connect(out); o2.connect(g2).connect(out);
+    o.start(t); o2.start(t); o.stop(t + dec + 0.05); o2.stop(t + dec + 0.05);
+    const nz = this.noiseSrc(t, 0.06), bp = this.filter('bandpass', Math.min(9000, f * (slap ? 9 : 5)), slap ? 1.2 : 2.5), ng = this.gain(0);
+    this.adEnv(ng.gain, t, v * (slap ? 0.7 : 0.15 + p.noise * 0.3), 0.0005, slap ? 0.04 : 0.018);
+    nz.connect(bp).connect(ng).connect(out);
+  }
+  shaker(t, v, p, out) {
+    // Shaker: band-passed noise with a soft attack; off-beat hits lean in.
+    const n = this.shakN = (this.shakN || 0) + 1, len = Math.max(0.03, p.decay * 0.5);
+    const src = this.noiseSrc(t, len + 0.02);
+    const hp = this.filter('highpass', Math.min(9000, 2500 + p.tune * 6), 0.6), lp = this.filter('lowpass', 11000, 0.5);
+    const g = this.gain(0), lvl = v * (n % 2 ? 0.55 : 0.42) * (0.6 + p.noise * 0.8);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(lvl, t + Math.min(0.03, len * 0.35));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+    src.connect(hp).connect(lp).connect(g).connect(out);
+  }
+  clave(t, v, p, out) {
+    const c = this.ctx, f = 1800 * Math.sqrt(p.tune / 240), dec = Math.max(0.02, p.decay * 0.25);
+    for (const [m, l] of [[1, 0.8], [1.48, 0.25]]) {
+      const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = f * m;
+      const g = this.gain(0); this.adEnv(g.gain, t, v * l, 0.0005, dec);
+      o.connect(g).connect(out); o.start(t); o.stop(t + dec + 0.03);
+    }
+  }
+  dust(t, sd, abs) {
+    // Vinyl/tape bed: faint hiss plus sparse crackle, scheduled per step so it stops with transport.
+    const d = this.state.master.dust || 0;
+    const hiss = this.noiseSrc(t, sd), hp = this.filter('bandpass', 5200, 0.4), hg = this.gain(d * 0.018);
+    hiss.connect(hp).connect(hg).connect(this.mix);
+    for (let k = 0; k < 3; k++) {
+      if (hash(abs, k + 70) > d * 0.55) continue;
+      const tt = t + hash(abs, k + 80) * sd, c = this.noiseSrc(tt, 0.003);
+      const f = this.filter('highpass', 1500 + hash(abs, k + 90) * 4000, 0.7), g = this.gain(d * (0.05 + hash(abs, k + 60) * 0.18));
+      c.connect(f).connect(g).connect(this.mix);
+    }
+  }
   playBuf(buf, t, level, out, rate = 1, dur = 0, fx = {}) {
     const s = this.ctx.createBufferSource();
     s.buffer = buf; s.playbackRate.value = rate;
@@ -621,6 +672,8 @@ export class Engine {
 
   perc(t, v) {
     const c = this.ctx, p = this.state.params.perc, out = this.ch.perc.input;
+    const vo = Math.round(p.voice || 0);
+    if (vo > 0) return this[['', 'hand', 'hand', 'shaker', 'clave'][vo]](t, v, p, out, vo === 2);
     const o = c.createOscillator(); o.type = 'sine';
     const f = p.tune;
     o.frequency.setValueAtTime(f * (1 + p.bend * 2.2), t);
@@ -1035,6 +1088,7 @@ export class Sequencer {
     e.harm = pat.prog?.length ? pat.prog[bar % pat.prog.length] : null;
     const sd = e.stepDur;
     const tt = t + (abs % 2 ? s.swing * sd * 0.5 : 0);
+    if ((s.master.dust || 0) > 0.01) e.dust(t, sd, abs);
     const anySolo = TRACK_IDS.some((id) => s.solos[id]);
     for (const id of TRACK_IDS) {
       const on = !s.mutes[id] && (!anySolo || s.solos[id]);
