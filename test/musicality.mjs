@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { generate, arrangement, sanitize, defaultState, STYLES } from '../js/state.js';
+import { generate, arrangement, sanitize, defaultState, STYLES, MUSICIAN_PRINCIPLES } from '../js/state.js';
 import { SCALES } from '../js/params.js';
 
 // Every club/pop style gets its own seeded hook; NEO-SOUL and BOOM BAP keep their Rhodes licks.
@@ -14,6 +14,16 @@ for (const style of Object.keys(STYLES)) {
   assert.notDeepEqual(a.pattern.hook.s, b.pattern.hook.s, `${style} hooks repeat across seeds`);
 }
 console.log('seeded hooks passed');
+
+assert.deepEqual(Object.keys(MUSICIAN_PRINCIPLES), ['listen', 'respond', 'space', 'develop', 'risk', 'remember']);
+for (const style of ['hypnotic', 'deephouse', 'euphoric', 'afrobeats', 'trap']) {
+  const hook = generate(style, 84).pattern.hook;
+  assert(hook.x && Object.values(hook.x).every((n) => n > 0 && n < 1), `${style} needs an expression plan`);
+  assert.notDeepEqual(hook.s.slice(0, 16), hook.s.slice(16), `${style} answer should develop the call`);
+  const velocities = new Set(hook.s.filter(Boolean).map((n) => n[2].toFixed(2)));
+  assert(velocities.size >= 3, `${style} needs a dynamic phrase`);
+}
+console.log('musician principles and expression plans passed');
 
 // Seeds change the key, and the groove bass is written per seed rather than picked from a fixed line.
 const keys = new Set([1, 2, 3, 4, 5, 6, 7, 8].map((seed) => generate('deephouse', seed).key));

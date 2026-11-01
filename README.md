@@ -20,6 +20,19 @@ Open **CLUB** to enter an avatar listening room. Rooms only broadcast project st
 
 `npm test` verifies artist generation plus room presence, host controls, chat, DJ queue handoff, and native-set broadcast. `test/` also holds the offline render + WAV analysis harness (`python3 test/server.py`, `test/analyze.py`).
 
+## Musician-first generation
+
+UNTERGRUND generates performances, not collections of random notes. Every musical system should follow six rules:
+
+1. **Listen:** important notes acknowledge the current harmony and the other instruments.
+2. **Respond:** phrases answer each other instead of copying the same bar.
+3. **Leave space:** silence is part of the groove; accompaniment gets out of a hook's way.
+4. **Develop:** a song remembers one identity and changes it with purpose over time.
+5. **Take risks:** tension, leaps and surprises are earned and saved for musical peaks.
+6. **Remember:** variation must preserve enough of the motif for a listener to recognize it.
+
+Sound quality is part of musicianship. Leads need expressive articulation and dynamics, bass belongs in a useful club register, and every genre needs its own timing feel rather than a globally quantized loop.
+
 ## Club Rooms deployment
 
 `server.mjs` includes a credential-free in-memory room service for local development and self-hosted deployments. It exposes presence, chat, reactions, DJ queue state, and the current native set through `/api/rooms/:room`.

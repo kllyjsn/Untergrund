@@ -907,8 +907,9 @@ export class Engine {
   }
 
   // Song hook: one lead note per call, snapped to the current chord on strong beats so it follows the changes.
-  hook(t, v, n, dur, voice, oct = 0, strong = false, b = 1, up = false) {
+  hook(t, v, n, dur, voice, oct = 0, strong = false, b = 1, up = false, expression = {}) {
     const c = this.ctx, p = this.state.params.stab, h = this.harm;
+    v *= 1.3;
     if (strong || up) {
       const iv = CHORDS[h ? h.c : Math.round(p.chord)].iv, root = h ? h.r : 0;
       const tones = iv.map((x) => (((root + x) % 12) + 12) % 12);
@@ -916,89 +917,115 @@ export class Engine {
       const d = up ? [1, 2, 3, 4, 5].find((x) => tones.includes((pc + x) % 12)) : [0, -1, 1, -2, 2].find((x) => tones.includes((pc + x + 12) % 12));
       n += d ?? 0;
     }
+    voice = { saw: 'analog', sq: 'pulse', flute: 'reed', bell: 'mallet', pluck: 'warm' }[voice] || voice;
+    const warmth = expression.warmth ?? 0.5;
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
     const f = midiHz(60 + k + oct * 12 + n), out = this.ch.stab.input;
     const len = Math.max(0.06, dur * 0.92), end = t + len + 0.6;
     const amp = this.gain(0), pan = c.createStereoPanner();
     pan.pan.value = (hash(t * 13, 5) - 0.5) * 0.3;
-    const tame = this.filter('lowpass', 2400 + 1400 * b, 0.5);
+    const tame = this.filter('lowpass', 1800 + 1200 * b + 800 * (1 - warmth), 0.5);
     amp.connect(tame).connect(pan).connect(out);
     const oscs = [];
     const osc = (type, freq, det = 0, g = 1, dst = null) => {
       const o = c.createOscillator(); o.type = type; o.frequency.value = freq; o.detune.value = det;
       const og = this.gain(g); o.connect(og).connect(dst); oscs.push(o); return o;
     };
-    if (voice === 'saw') {
-      const lp = this.filter('lowpass', 900, 2);
-      lp.frequency.setValueAtTime(900, t);
-      lp.frequency.linearRampToValueAtTime((1600 + 2600 * v) * b, t + 0.03);
-      lp.frequency.setTargetAtTime(1200 * b, t + 0.04, 0.25);
-      osc('sawtooth', f, -14, 0.5, lp); osc('sawtooth', f, 14, 0.5, lp); osc('square', f / 2, 0, 0.25, lp);
+    if (voice === 'analog') {
+      const lp = this.filter('lowpass', 800, 1.2);
+      lp.frequency.setValueAtTime(700 + 300 * (1 - warmth), t);
+      lp.frequency.linearRampToValueAtTime((1300 + 1700 * v) * b, t + 0.045);
+      lp.frequency.setTargetAtTime(900 * b, t + 0.06, 0.3);
+      osc('triangle', f, 0, 0.7, lp); osc('sawtooth', f, -8, 0.18, lp); osc('sawtooth', f, 8, 0.18, lp);
       lp.connect(amp);
       amp.gain.setValueAtTime(EPS, t);
-      amp.gain.linearRampToValueAtTime(0.2 * v, t + 0.008);
-      amp.gain.setTargetAtTime(0.15 * v, t + 0.02, 0.15);
+      amp.gain.linearRampToValueAtTime(0.25 * v, t + 0.018);
+      amp.gain.setTargetAtTime(0.18 * v, t + 0.04, 0.18);
+      amp.gain.setTargetAtTime(0, t + len, 0.12);
+    } else if (voice === 'pulse') {
+      const lp = this.filter('lowpass', 400, 2.5);
+      lp.frequency.setValueAtTime((500 + 1700 * v) * b, t);
+      lp.frequency.setTargetAtTime(550, t + 0.008, 0.09 + len * 0.18);
+      osc('triangle', f, 0, 0.72, lp); osc('square', f, 4, 0.2, lp);
+      lp.connect(amp);
+      amp.gain.setValueAtTime(EPS, t);
+      amp.gain.linearRampToValueAtTime(0.25 * v, t + 0.008);
+      amp.gain.setTargetAtTime(0, t + Math.min(len, 0.22), 0.075);
+    } else if (voice === 'vocal') {
+      const body = this.filter('lowpass', 1900 + 700 * b, 0.7);
+      const vowelA = this.filter('bandpass', 720 + 100 * b, 2.2);
+      const vowelB = this.filter('bandpass', 1180 + 220 * b, 2.8);
+      const source = this.gain(0.75), formants = this.gain(0.22);
+      osc('triangle', f, 0, 0.8, source);
+      osc('sawtooth', f, 2, 0.16, source);
+      source.connect(body).connect(amp);
+      source.connect(vowelA).connect(formants);
+      source.connect(vowelB).connect(formants);
+      formants.connect(amp);
+      amp.gain.setValueAtTime(EPS, t);
+      amp.gain.linearRampToValueAtTime(0.3 * v, t + 0.025);
+      amp.gain.setTargetAtTime(0.24 * v, t + 0.05, 0.18);
       amp.gain.setTargetAtTime(0, t + len, 0.09);
-    } else if (voice === 'sq') {
-      const lp = this.filter('lowpass', 400, 5);
-      lp.frequency.setValueAtTime((400 + 2600 * v) * b, t);
-      lp.frequency.setTargetAtTime(500, t + 0.005, 0.07 + len * 0.15);
-      osc('square', f, 0, 0.6, lp); osc('sawtooth', f, 7, 0.4, lp);
-      lp.connect(amp);
-      amp.gain.setValueAtTime(EPS, t);
-      amp.gain.linearRampToValueAtTime(0.22 * v, t + 0.004);
-      amp.gain.setTargetAtTime(0, t + Math.min(len, 0.18), 0.06);
-    } else if (voice === 'flute') {
-      const lp = this.filter('lowpass', 1800 + 1400 * b, 0.7);
+    } else if (voice === 'reed') {
+      const lp = this.filter('lowpass', 1500 + 900 * b, 0.7);
       const car = osc('sine', f, 0, 0.8, lp); const tri = osc('triangle', f, 3, 0.25, lp);
       const lfo = c.createOscillator(); lfo.frequency.value = 5.2; const lg = this.gain(0);
       lg.gain.setValueAtTime(0, t); lg.gain.linearRampToValueAtTime(9, t + Math.min(0.4, len));
       lfo.connect(lg); lg.connect(car.detune); lg.connect(tri.detune); oscs.push(lfo);
       const br = this.noiseSrc(t, len + 0.1), bp = this.filter('bandpass', Math.min(9000, f * 2.5), 1.5), bg = this.gain(0);
-      bg.gain.setValueAtTime(0.035 * v, t); bg.gain.setTargetAtTime(0.012 * v, t + 0.03, 0.05); bg.gain.setTargetAtTime(0, t + len, 0.05);
+      bg.gain.setValueAtTime(0.018 * v, t); bg.gain.setTargetAtTime(0.007 * v, t + 0.03, 0.05); bg.gain.setTargetAtTime(0, t + len, 0.05);
       br.connect(bp).connect(bg).connect(lp);
       lp.connect(amp);
       amp.gain.setValueAtTime(EPS, t);
       amp.gain.linearRampToValueAtTime(0.36 * v, t + 0.03);
       amp.gain.setTargetAtTime(0.3 * v, t + 0.05, 0.2);
       amp.gain.setTargetAtTime(0, t + len, 0.07);
-    } else if (voice === 'bell') {
+    } else if (voice === 'mallet') {
       const ring = Math.max(0.35, Math.min(1.4, len * 1.2));
-      const blp = this.filter('lowpass', 2500 + 2000 * b, 0.5); blp.connect(amp);
+      const blp = this.filter('lowpass', 1900 + 1300 * b, 0.5); blp.connect(amp);
       const car = osc('sine', f, 0, 1, blp);
-      const mod = c.createOscillator(); mod.frequency.value = f * 3.5; const ma = this.gain(0);
+      const mod = c.createOscillator(); mod.frequency.value = f * 2.5; const ma = this.gain(0);
       mod.connect(ma).connect(car.frequency); oscs.push(mod);
-      ma.gain.setValueAtTime(f * (0.6 + 0.7 * b) * v, t); ma.gain.setTargetAtTime(f * 0.08, t + 0.002, ring * 0.2);
+      ma.gain.setValueAtTime(f * (0.3 + 0.35 * b) * v, t); ma.gain.setTargetAtTime(f * 0.04, t + 0.002, ring * 0.2);
       amp.gain.setValueAtTime(EPS, t);
-      amp.gain.linearRampToValueAtTime(0.3 * v, t + 0.002);
+      amp.gain.linearRampToValueAtTime(0.34 * v, t + 0.004);
       amp.gain.setTargetAtTime(0, t + 0.004, ring * 0.45);
     } else {
-      const lp = this.filter('lowpass', 800, 3);
-      lp.frequency.setValueAtTime((1200 + 3000 * v) * b, t);
-      lp.frequency.setTargetAtTime(700, t + 0.003, 0.09);
-      osc('sawtooth', f, -6, 0.5, lp); osc('triangle', f, 6, 0.5, lp);
+      const lp = this.filter('lowpass', 700, 1.5);
+      lp.frequency.setValueAtTime((900 + 1900 * v) * b, t);
+      lp.frequency.setTargetAtTime(620, t + 0.005, 0.11);
+      osc('triangle', f, -3, 0.72, lp); osc('sine', f * 2, 3, 0.18, lp);
       lp.connect(amp);
       amp.gain.setValueAtTime(EPS, t);
-      amp.gain.linearRampToValueAtTime(0.32 * v, t + 0.002);
-      amp.gain.setTargetAtTime(0, t + 0.004, Math.max(0.08, Math.min(0.4, len * 0.6)));
+      amp.gain.linearRampToValueAtTime(0.34 * v, t + 0.006);
+      amp.gain.setTargetAtTime(0, t + 0.01, Math.max(0.1, Math.min(0.45, len * 0.65)));
     }
     for (const o of oscs) { o.start(t); o.stop(end); }
   }
 
   harmRoot() { const h = this.harm; return h ? ((((h.r + 6) % 12) + 12) % 12) - 6 : 0; }
 
+  // Keep bass roots in the octave where club systems carry weight. Key changes
+  // alter the pitch class without accidentally moving the whole bass line up.
+  bassMidi(st, base = 36, high = 43) {
+    let n = base + this.state.key + st.n + Math.round(this.state.params.acid.tune) + this.harmRoot();
+    while (n > high) n -= 12;
+    while (n < high - 11) n += 12;
+    return n;
+  }
+
   // Round finger-style bass: triangle + sine, short pluck through a gentle lowpass.
   bass(t, st, sd, holdNext) {
     const c = this.ctx, p = this.state.params.acid;
-    const f = midiHz(36 + this.state.key + st.n + Math.round(p.tune) + this.harmRoot());
+    const note = this.bassMidi(st), f = midiHz(note), subF = midiHz(this.bassMidi(st, 36, 38));
     const len = holdNext ? sd * 2 : sd * (0.9 + p.decay * 2);
     if (Math.round(this.state.master.kit || 0) === 1) {
       const kit = liveKit();
-      if (kit) return this.sampledBass(kit, t, 36 + this.state.key + st.n + Math.round(p.tune) + this.harmRoot(), len, st.a);
+      if (kit) return this.sampledBass(kit, t, note, len, st.a);
       loadLiveKit();
     }
     const tri = c.createOscillator(); tri.type = 'triangle'; tri.frequency.value = f;
-    const sub = c.createOscillator(); sub.frequency.value = f;
+    const sub = c.createOscillator(); sub.frequency.value = subF;
     const lp = this.filter('lowpass', 180 + p.cutoff * 0.6 + (st.a ? 500 : 0), 0.7);
     lp.frequency.setTargetAtTime(160 + p.cutoff * 0.3, t + 0.01, 0.08);
     const grit = this.ctx.createWaveShaper(); grit.curve = driveCurve(0.18 + p.drive * 0.5);
@@ -1010,7 +1037,10 @@ export class Engine {
     amp.gain.linearRampToValueAtTime(vel, t + 0.006);
     amp.gain.setTargetAtTime(vel * 0.55, t + 0.02, 0.12);
     amp.gain.setTargetAtTime(0, t + len, 0.03);
-    tri.connect(lp); sub.connect(lp); lp.connect(grit).connect(amp).connect(this.ch.acid.input);
+    const subLevel = this.gain(0.72);
+    tri.connect(lp); lp.connect(grit).connect(amp);
+    sub.connect(subLevel).connect(amp);
+    amp.connect(this.ch.acid.input);
     for (const o of [tri, sub]) { o.start(t); o.stop(t + len + 0.3); }
   }
 
@@ -1025,7 +1055,7 @@ export class Engine {
   // Tuned 808: sine sub with a pitch knock, long tail on DECAY, CUTOFF/DRIVE add harmonics; slides glide.
   eight08(t, st, sd, holdNext, sliding) {
     const c = this.ctx, p = this.state.params.acid;
-    const f = midiHz(36 + this.state.key + st.n + Math.round(p.tune) + this.harmRoot());
+    const f = midiHz(this.bassMidi(st, 36, 38));
     const from = this.monoNote(t, f, sliding), len = holdNext ? sd * 2 : 0.15 + p.decay * 1.6, end = t + len + 0.4;
     const o = c.createOscillator();
     o.frequency.setValueAtTime(sliding ? from : f * 1.9, t);
@@ -1045,7 +1075,7 @@ export class Engine {
   // ENV MOD sweeps the filter, RESO adds bite.
   reese(t, st, sd, holdNext, sliding) {
     const c = this.ctx, p = this.state.params.acid;
-    const f = midiHz(36 + this.state.key + st.n + Math.round(p.tune) + this.harmRoot());
+    const f = midiHz(this.bassMidi(st)), subF = midiHz(this.bassMidi(st, 36, 38));
     const from = this.monoNote(t, f, sliding), len = holdNext ? sd * 2 : sd * (1 + p.decay * 6), end = t + len + 0.3;
     const lp = this.filter('lowpass', p.cutoff, Math.max(0.5, p.reso * 0.35));
     lp.frequency.setValueAtTime(Math.min(9000, p.cutoff * (1 + p.envmod * 5 + (st.a ? p.accent * 2 : 0))), t);
@@ -1058,8 +1088,9 @@ export class Engine {
     const spread = 8 + p.wave * 30;
     for (const [type, det, lvl] of [['sawtooth', -spread, 0.5], ['sawtooth', spread, 0.5], ['sine', 0, 0.9]]) {
       const o = c.createOscillator(); o.type = type; o.detune.value = det;
-      o.frequency.setValueAtTime(from, t);
-      if (from !== f) o.frequency.exponentialRampToValueAtTime(f, t + 0.08);
+      const target = type === 'sine' ? subF : f;
+      o.frequency.setValueAtTime(type === 'sine' ? subF : from, t);
+      if (type !== 'sine' && from !== f) o.frequency.exponentialRampToValueAtTime(target, t + 0.08);
       const g = this.gain(lvl);
       o.connect(g).connect(type === 'sine' ? amp : lp);
       o.start(t); o.stop(end);
@@ -1099,7 +1130,7 @@ export class Engine {
     const a = this.acidNodes, p = this.state.params.acid;
     const vo = Math.round(p.voice);
     if (vo > 0) { a.vca.gain.setTargetAtTime(0, t, 0.005); return this[['', 'bass', 'eight08', 'reese', 'logdrum'][vo]](t, st, sd, holdNext, sliding); }
-    const f = midiHz(36 + this.state.key + st.n + Math.round(p.tune) + this.harmRoot());
+    const f = midiHz(this.bassMidi(st));
     for (const o of [a.o1, a.o2]) {
       if (sliding) o.frequency.setTargetAtTime(f, t, 0.024);
       else o.frequency.setValueAtTime(f, t);
@@ -1249,6 +1280,7 @@ export class Sequencer {
     const tt = t + (abs % 2 ? s.swing * sd * 0.5 : 0);
     if ((s.master.dust || 0) > 0.01) e.dust(t, sd, abs);
     const arr = s.master.arr || 0, i16 = abs % 16;
+    const hookStep = pat.hook && pat.hm ? pat.hook.s[abs % 32] : 0;
     if (this.dropNext) {
       if (i16 === 0) e.sweep(t, 16 * sd, arr);
       if (i16 >= 8 && !s.mutes.snare) {
@@ -1275,7 +1307,11 @@ export class Sequencer {
           const cur = e.harm; e.harm = nextH;
           e.acid(tt + (s.master.humanize || 0) * 0.016, { on: true, n: hash(bar, 92) < 0.5 ? -1 : 1, a: false, s: false }, false, false, sd);
           e.harm = cur; this.acidPrevSlide = false;
-        } else this.acidStep(pat, i, len, tt, sd);
+        } else {
+          const feel = s.master.humanize || 0;
+          const bassLean = feel * (i % 4 ? 0.032 : 0.009);
+          this.acidStep(pat, i, len, tt + bassLean, sd);
+        }
         continue;
       }
       if (this.roll === id && id !== 'stab') {
@@ -1286,6 +1322,9 @@ export class Sequencer {
         continue;
       }
       if (!on) continue;
+      // Accompaniment listens to the lead. Do not stack a chord stab on top of
+      // the hook's important notes; the gap makes the motif read as intentional.
+      if (id === 'stab' && hookStep) continue;
       if (this.dropNext && id === 'kick' && i16 >= (arr >= 0.75 ? 12 : 14)) continue;
       let v = pat.steps[id][i];
       if (vary) {
@@ -1298,7 +1337,7 @@ export class Sequencer {
       }
       const hum = s.master.humanize || 0;
       const k = TRACK_IDS.indexOf(id), drum = DRUMS.has(id), cym = id === 'ch' || id === 'ride' || id === 'oh';
-      const late = hum * ((id === 'snare' || id === 'clap') ? 0.03 : cym ? (i % 2 ? 0.016 : 0.006) : id === 'kick' ? -0.003 : id === 'stab' || id === 'acid' ? 0.016 : 0);
+      const late = hum * ((id === 'snare' || id === 'clap') ? 0.03 : id === 'perc' ? (i % 2 ? 0.02 : 0.008) : cym ? (i % 2 ? 0.016 : 0.006) : id === 'kick' ? -0.003 : id === 'stab' || id === 'acid' ? 0.016 : 0);
       // Drummer feel: the whole kit breathes together over 8 bars and pushes into each 4-bar fill
       const phrase = drum ? hum * (0.007 * Math.sin((Math.PI * 2 * abs) / 128 + 1.3) - (bar % 4 === 3 && i >= 8 ? 0.005 : 0)) : 0;
       const ht = tt + late + phrase + (hash(bar, k + 60) - 0.5) * hum * 0.006 + (hash(abs, k) - 0.5) * hum * 0.008;
@@ -1318,12 +1357,19 @@ export class Sequencer {
     const hk = pat.hook, hm = pat.hm || 0;
     if (hk && hm && !s.mutes.stab && (!anySolo || s.solos.stab)) {
       const hi = abs % 32, st = hk.s[hi];
-      // Develop over each 8-bar phrase: the filter opens, the 2nd answer climbs a chord tone, the 4th jumps an octave.
+      const x = hk.x || { space: 0.4, risk: 0.4, feel: 0.4, warmth: 0.5 };
+      // One remembered motif, played like a musician: breathe in phrase three,
+      // lean into answers, then spend the octave leap only at the peak.
       const ph = Math.floor(bar / 2) % 4;
-      if (st && (hm > 1 || hi < 16) && !(hm > 1 && ph === 2 && hi < 16 && hash(abs, 95) < 0.3)) {
-        const lift = hm > 1 && hi >= 16 && ph === 3 ? 12 : 0;
-        const b = 0.65 + 0.35 * ((bar % 8) / 7);
-        e.hook(tt + (s.master.humanize || 0) * 0.012, st[2], st[0] + lift, st[1] * sd, hk.v, hk.o, hi % 4 === 0 || st[1] >= 2, b, hm > 1 && hi >= 16 && ph === 1 && !hk.s.slice(hi + 1).some(Boolean));
+      const breathe = hm > 1 && ph === 2 && hi < 16 && hash(abs, 95) < 0.2 + x.space * 0.45;
+      if (st && (hm > 1 || hi < 16) && !breathe) {
+        const lift = hm > 1 && hi >= 16 && ph === 3 && x.risk >= 0.3 ? 12 : 0;
+        const b = 0.58 + 0.42 * ((bar % 8) / 7);
+        const answer = hi >= 16;
+        const phraseVel = [0.82, 0.92, 0.72, 1][ph] * (answer ? 1.04 : 0.96);
+        const lean = (answer ? 0.006 : -0.003) * x.feel + (hash(hi, 97) - 0.5) * 0.008 * x.feel;
+        const resolve = hm > 1 && answer && ph === 1 && !hk.s.slice(hi + 1).some(Boolean);
+        e.hook(tt + lean + (s.master.humanize || 0) * 0.008, Math.min(1, st[2] * phraseVel), st[0] + lift, st[1] * sd, hk.v, hk.o, hi % 4 === 0 || st[1] >= 2, b, resolve, x);
       }
     }
     if (this.roll === null) this.rollCount = 0;

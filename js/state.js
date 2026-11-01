@@ -84,22 +84,35 @@ function grooveBass(r, slots, k, scale, slide = 0.15) {
   return range(STEPS, (i) => (pos.has(i) ? { on: true, n: i === 0 ? 0 : pick(r, tones), a: i === 0 || r() < 0.25, s: r() < slide } : emptyAcidStep()));
 }
 
-// Hook profiles (NEO-SOUL and BOOM BAP keep their Rhodes licks instead): voice, octave, notes per bar, rhythm weighting per step, note lengths, melodic range in scale degrees.
+// The generator's musician model. These are constraints, not slogans: every
+// hook below keeps one identity, breathes, answers the harmony, develops over
+// time, and saves its biggest risk for a peak.
+export const MUSICIAN_PRINCIPLES = Object.freeze({
+  listen: 'land important notes on the current chord',
+  respond: 'write an answer instead of repeating the call',
+  space: 'leave rests so the groove can speak',
+  develop: 'return to one motif with controlled changes',
+  risk: 'save the widest leap and octave lift for the peak',
+  remember: 'keep the same motif identity through the song',
+});
+
+// Hook profiles (NEO-SOUL and BOOM BAP keep their Rhodes licks instead):
+// voice, octave, notes per bar, rhythm weighting, lengths, range and expression.
 const HOOKS = {
-  techno: { v: ['sq'], o: 0, hits: [3, 5], w: (i) => (i % 2 ? 0.9 : i % 4 === 2 ? 0.6 : 0.25), len: [1, 1, 2], lo: -2, hi: 5, leap: 0.2 },
-  dub: { v: ['bell'], o: 0, hits: [2, 3], w: (i) => (i % 4 === 2 || i % 4 === 3 ? 0.8 : 0.2), len: [3, 4, 6], lo: -1, hi: 5, leap: 0.3 },
-  house: { v: ['pluck', 'flute', 'bell'], o: 0, hits: [4, 6], w: (i) => (i % 4 === 3 || i % 4 === 2 ? 0.8 : i % 4 === 0 ? 0.4 : 0.3), len: [1, 2, 2, 3], lo: -2, hi: 5, leap: 0.2 },
-  anthem: { v: ['saw'], o: 0, hits: [5, 8], w: (i) => (i % 2 === 0 ? 0.8 : 0.35), len: [1, 2, 2, 3, 4], lo: 0, hi: 9, leap: 0.3 },
-  ambient: { v: ['bell'], o: 0, hits: [2, 3], w: (i) => (i % 4 === 0 ? 0.8 : 0.15), len: [4, 6, 8], lo: 0, hi: 9, leap: 0.4 },
-  afro: { v: ['flute', 'bell'], o: 0, hits: [4, 6], w: (i) => ([0, 3, 6, 8, 10, 11, 14].includes(i) ? 0.85 : 0.15), len: [1, 1, 2], lo: -2, hi: 5, leap: 0.25 },
-  trap: { v: ['bell', 'flute'], o: 0, hits: [3, 5], w: (i) => ([0, 3, 6, 8, 10, 12, 14].includes(i) ? 0.85 : 0.1), len: [2, 2, 3], lo: -2, hi: 5, leap: 0.3 },
+  techno: { v: ['pulse'], o: 0, hits: [3, 5], w: (i) => (i % 2 ? 0.9 : i % 4 === 2 ? 0.6 : 0.25), len: [1, 1, 2], lo: -2, hi: 5, leap: 0.2, x: [0.35, 0.45, 0.35, 0.62] },
+  dub: { v: ['mallet'], o: 0, hits: [2, 3], w: (i) => (i % 4 === 2 || i % 4 === 3 ? 0.8 : 0.2), len: [3, 4, 6], lo: -1, hi: 5, leap: 0.3, x: [0.62, 0.28, 0.55, 0.48] },
+  house: { v: ['vocal', 'reed'], o: 0, hits: [3, 5], w: (i) => (i % 4 === 3 || i % 4 === 2 ? 0.8 : i % 4 === 0 ? 0.4 : 0.3), len: [1, 2, 2, 3], lo: -2, hi: 5, leap: 0.2, x: [0.48, 0.35, 0.52, 0.55] },
+  anthem: { v: ['analog'], o: 0, hits: [4, 7], w: (i) => (i % 2 === 0 ? 0.8 : 0.35), len: [1, 2, 2, 3, 4], lo: 0, hi: 9, leap: 0.3, x: [0.25, 0.62, 0.26, 0.65] },
+  ambient: { v: ['mallet'], o: 0, hits: [2, 3], w: (i) => (i % 4 === 0 ? 0.8 : 0.15), len: [4, 6, 8], lo: 0, hi: 9, leap: 0.4, x: [0.7, 0.32, 0.7, 0.38] },
+  afro: { v: ['vocal', 'reed'], o: 0, hits: [3, 5], w: (i) => ([0, 3, 6, 8, 10, 11, 14].includes(i) ? 0.85 : 0.15), len: [1, 1, 2], lo: -2, hi: 5, leap: 0.25, x: [0.46, 0.4, 0.55, 0.52] },
+  trap: { v: ['mallet', 'reed'], o: 0, hits: [3, 5], w: (i) => ([0, 3, 6, 8, 10, 12, 14].includes(i) ? 0.85 : 0.1), len: [2, 2, 3], lo: -2, hi: 5, leap: 0.3, x: [0.58, 0.45, 0.48, 0.4] },
 };
 const HOOK_STYLE = {
   hypnotic: 'techno', industrial: 'techno', acid: 'techno', peak: 'techno', hardtechno: 'techno', minimal: 'techno', electro: 'techno', dub: 'dub',
   deephouse: 'house', ukg: 'house', breaks: 'house', jerseyclub: 'house', euphoric: 'anthem', trance: 'anthem', hyperpop: 'anthem', dnb: 'anthem',
   ambient: 'ambient', amapiano: 'afro', afrobeats: 'afro', reggaeton: 'afro', bailefunk: 'afro', trap: 'trap', drill: 'trap',
 };
-export const HOOK_VOICES = ['sq', 'saw', 'pluck', 'flute', 'bell'];
+export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell'];
 
 // A 2-bar call and answer: same rhythm both bars, the answer bends its ending (resolve or leave open).
 export function hookLine(r, style, scale) {
@@ -121,14 +134,16 @@ export function hookLine(r, style, scale) {
   const s = range(32, () => 0);
   const lastD = call[call.length - 1][1];
   call.forEach(([i, dd, l], j) => {
-    s[i] = [semi(dd), l, j === 0 || i % 4 === 0 ? 1 : 0.8];
+    const arc = 0.72 + 0.22 * Math.sin(((j + 1) / (call.length + 1)) * Math.PI);
+    s[i] = [semi(dd), l, j === 0 ? 0.86 : i % 4 === 0 ? 0.96 : arc];
     let a = dd;
     if (j === call.length - 1) a = lastD % N === 0 ? pick(r, [4, 2, -1]) : pick(r, [0, N]);
     else if (j === call.length - 2 && r() < 0.5) a = dd + pick(r, [1, -1]);
     const l2 = j === call.length - 1 ? Math.min(16 - i, l + pick(r, [0, 2, 4])) : l;
-    s[16 + i] = [semi(a), Math.max(1, l2), j === 0 ? 0.9 : 0.8];
+    s[16 + i] = [semi(a), Math.max(1, l2), j === call.length - 1 ? 0.98 : Math.max(0.68, arc - 0.04)];
   });
-  return { v: pick(r, H.v), o: H.o, s };
+  const [space, risk, feel, warmth] = H.x;
+  return { v: pick(r, H.v), o: H.o, s, x: { space, risk, feel, warmth } };
 }
 
 // Returns { pattern, params, master, bpm } — params/master are partial overrides.
@@ -252,7 +267,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.acid = range(STEPS, (i) => ([0, 3, 7, 10].includes(i) ? { on: true, n: i === 7 ? musicalScale[4] : i === 10 ? musicalScale[2] : 0, a: false, s: i === 3 } : emptyAcidStep()));
     Object.assign(params.kick, { tune: 48, decay: 0.55, drive: 0.15, rumble: 0.15, punch: 0.45, click: 0.2 });
     Object.assign(params.stab, { voice: 1, chord: pick(r, [1, 2]), cutoff: 1300 + r() * 500, reso: 2, decay: 0.7, env: 0.3, detune: 8, rev: 0.4, dly: 0.25 });
-    master.humanize = 0.25; master.warmth = 0.4; master.room = 0.2;
+    master.humanize = 0.32; master.warmth = 0.4; master.room = 0.2;
     Object.assign(params.acid, { wave: 0.05, cutoff: 260, reso: 2, envmod: 0.12, decay: 0.4, drive: 0.1, accent: 0.2 });
     Object.assign(params.ride, { tone: 4200, decay: 0.6 });
     master.duck = 0.6; master.revLevel = 0.6;
@@ -545,7 +560,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   if (PUNCH[style]) {
     params.kick.punch = Math.max(params.kick.punch ?? 0, PUNCH[style]);
     params.kick.drive = Math.max(params.kick.drive ?? 0, 0.3);
-    params.acid.level = Math.max(params.acid.level ?? 0.55, 0.85);
+    params.acid.level = Math.max(params.acid.level ?? 0.55, 0.98);
   }
   const hook = hookLine(r2, style, musicalScale);
   if (hook) { P.hook = hook; P.hm = 2; }
@@ -729,6 +744,12 @@ export function sanitize(s) {
         v: HOOK_VOICES.includes(p.hook.v) ? p.hook.v : 'pluck',
         o: Math.round(cl(p.hook.o, -1, 1)),
         s: range(32, (j) => { const x = p.hook.s[j]; return Array.isArray(x) ? [Math.round(cl(x[0], -24, 36)), Math.round(cl(x[1], 1, 16)), cl(x[2], 0, 1)] : 0; }),
+        x: {
+          space: cl(p.hook.x?.space ?? 0.4, 0, 1),
+          risk: cl(p.hook.x?.risk ?? 0.4, 0, 1),
+          feel: cl(p.hook.x?.feel ?? 0.4, 0, 1),
+          warmth: cl(p.hook.x?.warmth ?? 0.5, 0, 1),
+        },
       };
       e.hm = Math.round(cl(p.hm ?? 2, 0, 2));
     }
