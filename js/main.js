@@ -2,12 +2,12 @@ import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES
 import { Engine, Sequencer, parseChain } from './engine.js';
 import { defaultState, generate, mutate, arrangement, songChain, applyOverrides, clone, save, load, sanitize, STYLES, emptyPattern, emptyAcidStep } from './state.js';
 import { renderBars, bufferToWav } from './render.js';
-import { encodeWav } from './dsp.js';
+import { encodeWav, rng } from './dsp.js';
 import { knob, numBox, h } from './ui.js';
 import { openPublish } from './publish.js';
 import { loadArtistProfile, openArtistStudio } from './artist.js';
 import { openClub, loadAvatar } from './club.js';
-import { saveTrack, trackTitle } from './crate.js';
+import { saveTrack, trackTitle, recentTracks, fetchTrack } from './crate.js';
 import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
 import { roomTransportPosition, transportResync } from './room-sync.js';
 
@@ -18,6 +18,8 @@ let transportOrigin = 0, roomJoinTimer = 0, clockOffset = null;
 const uiQueue = [];
 let selected = 'kick';
 let style = 'hypnotic';
+let family = localStorage.getItem('untergrund.family') || 'TECHNO';
+let generatedAt = 0;
 function showCrash(err) {
   if (document.querySelector('.crash')) return;
   console.error(err);
@@ -95,6 +97,7 @@ function schedule() {
 }
 
 function play({ step = 0, delay = 0.06 } = {}) {
+  stopPreview();
   ensureAudio();
   abs = Math.max(0, Math.floor(step));
   const bar = Math.floor(abs / 16);
@@ -111,6 +114,7 @@ function play({ step = 0, delay = 0.06 } = {}) {
   timer.postMessage('start');
   schedule();
   document.body.classList.add('playing');
+  renderHome();
 }
 
 function stop() {
@@ -126,6 +130,7 @@ function stop() {
   if (artistLive) stopArtistLive(false);
   document.body.classList.remove('playing');
   renderPatterns();
+  renderHome();
 }
 
 const toggle = () => (playing ? stop() : play());
@@ -497,34 +502,233 @@ function toggleStudio() {
   build();
 }
 
+const STYLE_HUE = {
+  hypnotic: '#c6ff2b', industrial: '#ff6a3d', acid: '#f2ff3a', dub: '#3ad6c6', peak: '#ff4d86', hardtechno: '#ff3b3b',
+  deephouse: '#6f9bff', minimal: '#e4e4ea', ukg: '#b892ff', euphoric: '#ff9ad5', neosoul: '#ffb347', boombap: '#dca86e',
+  breaks: '#ff9340', electro: '#2bd9ff', dnb: '#7dff9a', trance: '#a98bff', ambient: '#8fd8ff',
+};
+const LIVE_KIT_STYLES = new Set(['neosoul', 'boombap']);
+const GROOVE_STYLES = new Set(['neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric']);
+const SECTION_NAMES = {
+  groove: ['INTRO', 'BUILD', 'VERSE', 'FILL', 'BRIDGE', 'BRIDGE', 'HOOK', 'HOOK'],
+  club: ['INTRO', 'BUILD', 'GROOVE', 'FILL', 'BREAKDOWN', 'BREAKDOWN', 'PEAK', 'PEAK'],
+};
+const sectionName = (sid, i) => SECTION_NAMES[GROOVE_STYLES.has(sid) ? 'groove' : 'club'][i] || PATTERN_NAMES[i];
+const hue = (id) => STYLE_HUE[id] || '#c6ff2b';
+
+function styleGlyph(id) {
+  const r = rng([...id].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7));
+  return h('i', { class: 'glyph', 'aria-hidden': 'true' },
+    Array.from({ length: 7 }, (_, i) => h('em', { style: `--h:${18 + Math.round(r() * 82)}%;--d:${(i * 0.07).toFixed(2)}s` })));
+}
+
+// Press-and-hold audition: two bars rendered offline, looped straight to the speakers.
+const previewCache = new Map();
+let preview = null;
+async function startPreview(id, card) {
+  if (playing) { toast('Stop playback to preview a sound'); return; }
+  ensureAudio();
+  stopPreview();
+  const token = {};
+  preview = token;
+  card.classList.add('previewing');
+  try {
+    let p = previewCache.get(id);
+    if (!p) {
+      const snap = clone(state);
+      const scale = id === 'euphoric' ? 'major' : 'minor';
+      const g = generate(id, (Math.random() * 1e9) | 0, scale);
+      Object.assign(snap, { patterns: [g.pattern], current: 0, chainOn: false, scale, mutes: {}, solos: {} });
+      applyOverrides(snap, g, true);
+      p = { buf: await renderBars(snap, 2, { tail: 1 }), loopEnd: 0.05 + (32 * 60) / snap.bpm / 4 };
+      previewCache.set(id, p);
+    }
+    if (preview !== token) return;
+    const src = ctx.createBufferSource(), gain = ctx.createGain();
+    Object.assign(src, { buffer: p.buf, loop: true, loopStart: 0.05, loopEnd: p.loopEnd });
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.9, ctx.currentTime + 0.03);
+    src.connect(gain).connect(ctx.destination);
+    src.start();
+    Object.assign(token, { src, gain });
+  } catch (err) {
+    console.error(err);
+    if (preview === token) { preview = null; card.classList.remove('previewing'); }
+  }
+}
+function stopPreview() {
+  const p = preview;
+  preview = null;
+  document.querySelectorAll('.generate-style.previewing').forEach((c) => c.classList.remove('previewing'));
+  if (p?.src && ctx) {
+    const t = ctx.currentTime;
+    p.gain.gain.cancelScheduledValues(t);
+    p.gain.gain.setTargetAtTime(0, t, 0.04);
+    p.src.stop(t + 0.3);
+  }
+}
+
+function selectStyle(id) { style = id; build(); }
+function selectFamily(f) {
+  family = f;
+  localStorage.setItem('untergrund.family', f);
+  if (STYLES[style].family !== f) style = Object.keys(STYLES).find((id) => STYLES[id].family === f);
+  build();
+}
+function generateNow() {
+  stopPreview();
+  generatedAt = performance.now();
+  navigator.vibrate?.(12);
+  doGenerateSet();
+  if (!playing) play();
+}
+function surprise() {
+  const ids = Object.keys(STYLES).filter((id) => id !== style);
+  style = ids[(Math.random() * ids.length) | 0];
+  family = STYLES[style].family;
+  localStorage.setItem('untergrund.family', family);
+  generateNow();
+}
+async function openRecent(t) {
+  ensureAudio();
+  try {
+    const track = await fetchTrack(t.id);
+    if (!track?.state) throw new Error('track_missing');
+    replaceState(sanitize(track.state));
+    play();
+  } catch { toast('Could not load that track'); }
+}
+
+function styleCard(id, value, isPlaying) {
+  const avg = (value.bpm[0] + value.bpm[1]) / 2;
+  const card = h('button', {
+    class: 'generate-style' + (style === id ? ' on' : '') + (isPlaying ? ' playing' : ''),
+    style: `--hue:${hue(id)};--beat:${(60 / avg).toFixed(3)}s`,
+    title: 'Tap to choose. Press and hold to hear it.',
+    oncontextmenu: (e) => e.preventDefault(),
+  }, styleGlyph(id), h('b', {}, value.name), h('span', {}, value.tag));
+  let holdTimer = 0, held = false;
+  card.addEventListener('pointerdown', () => {
+    held = false;
+    ensureAudio();
+    holdTimer = setTimeout(() => { held = true; startPreview(id, card); }, 380);
+  });
+  const end = () => { clearTimeout(holdTimer); if (held) stopPreview(); };
+  for (const type of ['pointerup', 'pointerleave', 'pointercancel']) card.addEventListener(type, end);
+  card.addEventListener('click', () => { if (held) { held = false; return; } selectStyle(id); });
+  return card;
+}
+
+function statusLine() {
+  const s = STYLES[style];
+  const sound = LIVE_KIT_STYLES.has(style) ? 'RECORDED DRUMS + BASS' : getSample().source === 'synth' ? 'SYNTHESIZED' : 'SYNTH + YOUR SAMPLES';
+  return [h('b', {}, s.name), h('span', {}, `${s.bpm[0]}–${s.bpm[1]} BPM`), h('span', {}, 'FULL ARRANGEMENT'), h('span', {}, sound)];
+}
+
+function buildNowPlaying(primary) {
+  const a = state.artist || {};
+  const sid = STYLES[a.style] ? a.style : style;
+  const chain = state.chainOn ? parseChain(state.chain) : [];
+  ui.npCanvas = h('canvas', { class: 'np-viz', width: 1200, height: 220 });
+  ui.npSection = h('b', {}, chain.length ? sectionName(sid, chain[0]) : `PATTERN ${PATTERN_NAMES[state.current]}`);
+  ui.npBar = h('span', {}, chain.length ? `BAR 1 / ${chain.length}` : '');
+  ui.npCells = chain.map((p) => h('i', { class: 'np-cell' }));
+  ui.npChain = chain;
+  ui.npStyle = sid;
+  return [
+    h('div', { class: 'now-playing' },
+      h('span', { class: 'np-eyebrow' }, h('i', { class: 'np-dot' }), 'NOW PLAYING'),
+      h('h1', {}, a.title || 'Untitled set'),
+      h('div', { class: 'np-meta' }, `${a.name || 'UNTERGRUND'} · ${STYLES[sid].name} · ${state.bpm} BPM · ${KEYS[state.key]} ${SCALES[state.scale]?.name || 'MINOR'}`),
+      ui.npCanvas,
+      h('div', { class: 'np-progress' }, h('div', { class: 'np-label' }, ui.npSection, ui.npBar), h('div', { class: 'np-cells' }, ui.npCells))),
+    h('div', { class: 'generate-actions np-actions' },
+      h('button', { class: 'np-stop', title: 'Stop (Space)', 'aria-label': 'Stop', onclick: toggle }, h('i')),
+      primary,
+      h('button', { class: 'btn refine-toggle', onclick: toggleStudio }, 'REFINE'),
+      h('button', { class: 'btn ghost', onclick: showClub }, 'PLAY IN CLUB')),
+  ];
+}
+
+function updateNowPlaying(ev) {
+  const cells = ui.npCells;
+  if (!cells?.length || !cells[0].isConnected) return;
+  const i = Math.floor(ev.abs / 16) % ui.npChain.length;
+  if (cells.idx === i) return;
+  cells.idx = i;
+  cells.forEach((c, j) => { c.classList.toggle('now', j === i); c.classList.toggle('past', j < i); });
+  ui.npSection.textContent = sectionName(ui.npStyle, ui.npChain[i]);
+  ui.npBar.textContent = `BAR ${i + 1} / ${ui.npChain.length}`;
+}
+
+function drawNowPlaying() {
+  const cv = ui.npCanvas;
+  if (!cv || !engine || !cv.isConnected) return;
+  const g = cv.getContext('2d'), W = cv.width, H = cv.height;
+  const an = engine.analyser;
+  const fd = ui.npFd || (ui.npFd = new Uint8Array(an.frequencyBinCount));
+  an.getByteFrequencyData(fd);
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = hue(ui.npStyle);
+  const bars = 64, gap = 7, bw = (W - gap * (bars - 1)) / bars, nyq = ctx.sampleRate / 2, bins = fd.length;
+  let energy = 0;
+  for (let b = 0; b < bars; b++) {
+    const f0 = 30 * Math.pow(16000 / 30, b / bars), f1 = 30 * Math.pow(16000 / 30, (b + 1) / bars);
+    const i0 = Math.floor((f0 / nyq) * bins), i1 = Math.max(i0 + 1, Math.floor((f1 / nyq) * bins));
+    let m = 0;
+    for (let i = i0; i < i1 && i < bins; i++) m = Math.max(m, fd[i]);
+    const v = Math.pow(m / 255, 1.8);
+    energy += v;
+    const bh = Math.max(6, v * H), x = b * (bw + gap), y = (H - bh) / 2;
+    g.globalAlpha = 0.3 + v * 0.7;
+    g.beginPath();
+    if (g.roundRect) g.roundRect(x, y, bw, bh, bw / 2); else g.rect(x, y, bw, bh);
+    g.fill();
+  }
+  g.globalAlpha = 1;
+  ui.home?.style.setProperty('--pulse', (energy / bars).toFixed(3));
+}
+
+function renderHome() {
+  const old = ui.home;
+  if (!old?.isConnected) return;
+  old.replaceWith(buildGenerateHome());
+}
+
 function buildGenerateHome() {
+  ui.npCanvas = null; ui.npCells = null;
   const families = [...new Set(Object.values(STYLES).map((v) => v.family))];
-  const styleCards = h('div', { class: 'generate-families' }, families.map((family) => h('div', { class: 'generate-family' },
-    h('div', { class: 'generate-family-name' }, family),
-    h('div', { class: 'generate-styles' }, Object.entries(STYLES).filter(([, v]) => v.family === family).map(([id, value]) =>
-      h('button', {
-        class: 'generate-style' + (style === id ? ' on' : ''),
-        onclick: () => { style = id; build(); },
-      }, h('b', {}, value.name), h('span', {}, value.tag)))))));
-  const generate = () => {
-    doGenerateSet();
-    if (!playing) play();
-  };
-  return h('section', { class: 'generate-home' },
+  if (!families.includes(family)) family = STYLES[style].family;
+  const playingStyle = playing && state.artist?.style;
+  const picker = h('div', { class: 'generate-families' },
+    h('div', { class: 'family-tabs', role: 'tablist' },
+      families.map((f) => h('button', { class: 'family-tab' + (f === family ? ' on' : ''), role: 'tab', 'aria-selected': String(f === family), onclick: () => selectFamily(f) }, f)),
+      h('button', { class: 'family-tab surprise', title: 'Pick any genre and generate', onclick: surprise }, 'SURPRISE ME')),
+    h('div', { class: 'generate-styles' }, Object.entries(STYLES).filter(([, v]) => v.family === family).map(([id, v]) => styleCard(id, v, playingStyle === id))),
+    h('div', { class: 'generate-hint' }, 'Tap to choose. Press and hold to hear it.'));
+  const primary = h('button', { class: 'generate-primary' + (performance.now() - generatedAt < 900 ? ' fired' : ''), onclick: generateNow },
+    h('span', {}, 'GENERATE'), h('small', {}, `${STYLES[style].name} · full track`));
+  const showNp = playing && !studioOpen;
+  const left = showNp ? buildNowPlaying(primary) : [
     h('div', { class: 'generate-copy' },
-      h('span', {}, 'AUTONOMOUS TECHNO INSTRUMENT'),
-      h('h1', {}, 'Generate the set. Then make it yours.'),
-      h('p', {}, 'Start with musical intent, not a wall of controls. UNTERGRUND builds an editable eight-scene arrangement from synthesized sound.')),
-    h('div', { class: 'generate-actions' },
-      h('button', { class: 'generate-primary', onclick: generate }, h('span', {}, 'GENERATE'), h('small', {}, `${STYLES[style].name} · full arrangement`)),
+      h('span', {}, 'TECHNO · HOUSE · JAZZ · HIP-HOP · BASS'),
+      h('h1', {}, 'Press Generate. Hear a finished track.'),
+      h('p', {}, 'Choose a sound and UNTERGRUND writes a full arrangement you can perform live, refine in Studio, or spin in the Club.')),
+    h('div', { class: 'generate-actions' }, primary,
       h('button', { class: 'btn refine-toggle', onclick: toggleStudio }, studioOpen ? 'HIDE STUDIO' : 'REFINE IN STUDIO'),
       h('button', { class: 'btn ghost', onclick: () => startArtistLive() }, 'ARTIST LIVE')),
-    styleCards,
-    h('div', { class: 'generate-status' },
-      h('b', {}, `${state.bpm} BPM`), h('span', {}, `${KEYS[state.key]} ${SCALES[state.scale]?.name || 'MINOR'}`),
-      h('span', {}, state.chainOn ? '8 SCENES · ARRANGED' : `PATTERN ${PATTERN_NAMES[state.current]}`),
-      h('span', {}, getSample().source === 'synth' ? '100% SYNTHESIZED' : 'SYNTH + YOUR SAMPLES')));
+    h('div', { class: 'generate-status' }, statusLine()),
+  ];
+  const recent = recentTracks().slice(0, 8);
+  const recents = recent.length ? h('div', { class: 'recents' },
+    h('div', { class: 'recents-label' }, 'RECENT TRACKS'),
+    h('div', { class: 'recents-row' }, recent.map((t) => h('button', { class: 'recent', style: `--hue:${hue(t.style)}`, onclick: () => openRecent(t) },
+      h('i'), h('b', {}, t.title || 'Untitled'), h('span', {}, [STYLES[t.style]?.name, t.bpm && `${t.bpm} BPM`].filter(Boolean).join(' · ')))))) : null;
+  const home = h('section', { class: 'generate-home' + (showNp ? ' is-playing' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` }, left, picker, recents);
+  ui.home = home;
+  return home;
 }
+
 
 function buildHeader() {
   const playBtn = h('button', { class: 'btn play', title: 'Play / Stop (Space)', onclick: toggle },
@@ -613,9 +817,9 @@ function buildHeader() {
     h('div', { class: 'group studio-only' },
       h('button', { class: 'btn ghost', title: 'Save project JSON', onclick: () => download(new Blob([JSON.stringify(state)], { type: 'application/json' }), `untergrund-${stamp()}.json`) }, 'SAVE'),
       h('button', { class: 'btn ghost', title: 'Load project JSON', onclick: () => fileIn.click() }, 'LOAD'), fileIn),
-    h('nav', { class: 'group nav' }, artistBtn, clubBtn,
-      h('button', { class: 'btn studio-toggle' + (studioOpen ? ' on' : ''), title: 'Sequencer, mixer, export and every control', onclick: toggleStudio }, studioOpen ? 'DONE' : 'STUDIO'),
-      h('button', { class: 'btn ghost help', title: 'Shortcuts', onclick: showHelp }, '?')));
+    h('nav', { class: 'group nav seg' }, artistBtn, clubBtn,
+      h('button', { class: 'btn studio-toggle' + (studioOpen ? ' on' : ''), title: 'Sequencer, mixer, export and every control', onclick: toggleStudio }, studioOpen ? 'DONE' : 'STUDIO')),
+    h('button', { class: 'btn ghost help studio-only', title: 'Shortcuts', onclick: showHelp }, '?'));
 }
 
 function renderPatterns() {
@@ -961,6 +1165,7 @@ function frame() {
         renderPatterns();
       }
       setPlayhead(ev);
+      updateNowPlaying(ev);
       const pattern = state.patterns[ev.pat];
       const step = ev.abs % 16;
       window.dispatchEvent(new CustomEvent('untergrund:step', { detail: {
@@ -973,6 +1178,7 @@ function frame() {
     }
   }
   drawViz();
+  drawNowPlaying();
   requestAnimationFrame(frame);
 }
 
