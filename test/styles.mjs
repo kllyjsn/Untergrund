@@ -37,3 +37,6 @@ const { sanitize: san, defaultState: ds } = await import('../js/state.js');
 const st0 = ds(); st0.patterns[0] = soulGen.pattern;
 assert.deepEqual(san(JSON.parse(JSON.stringify(st0))).patterns[0].prog, soulGen.pattern.prog);
 console.log('neo-soul progression and variation passed');
+assert.equal(generate('neosoul', 9, 'dorian').master.kit, 1);
+assert.equal(generate('hypnotic', 9, 'minor').master.kit || 0, 0);
+console.log('live kit defaults passed');
