@@ -186,7 +186,7 @@ export function openPublish({ getState, getStyle, render, toast, audio = null, t
 
   function shareBox(track, title) {
     const url = track.permalink_url;
-    const text = `New track: ${title} — ${state.bpm} BPM techno, synthesized from scratch.`;
+    const text = `New track: ${title} — ${state.bpm} BPM, made in UNTERGRUND.`;
     const copy = (s, msg) => navigator.clipboard?.writeText(s).then(() => toast(msg), () => toast('Copy failed'));
     const embed = `<iframe width="100%" height="166" scrolling="no" frameborder="no" allow="autoplay" src="https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&color=%23ff2b2b"></iframe>`;
     const link = (label, href) => h('a', { class: 'btn ghost', href, target: '_blank', rel: 'noopener' }, label);
