@@ -39,7 +39,32 @@ let saveTimer = 0;
 function persist() { clearTimeout(saveTimer); saveTimer = setTimeout(() => save(state), 300); }
 
 // ---------------- audio ----------------
+// iOS routes Web Audio through the ringer channel, so the silent switch mutes it.
+// Playing a silent <audio> element (or setting audioSession) moves the page to the media channel.
+let mediaUnlock = null;
+function silentWav() {
+  const n = 4800, b = new DataView(new ArrayBuffer(44 + n * 2));
+  const str = (o, t) => { for (let i = 0; i < t.length; i++) b.setUint8(o + i, t.charCodeAt(i)); };
+  str(0, 'RIFF'); b.setUint32(4, 36 + n * 2, true); str(8, 'WAVEfmt '); b.setUint32(16, 16, true);
+  b.setUint16(20, 1, true); b.setUint16(22, 1, true); b.setUint32(24, 48000, true); b.setUint32(28, 96000, true);
+  b.setUint16(32, 2, true); b.setUint16(34, 16, true); str(36, 'data'); b.setUint32(40, n * 2, true);
+  return URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
+}
+function unlockMediaChannel() {
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
+  if (!mediaUnlock) {
+    mediaUnlock = document.createElement('audio');
+    mediaUnlock.setAttribute('playsinline', '');
+    mediaUnlock.setAttribute('x-webkit-airplay', 'deny');
+    mediaUnlock.loop = true;
+    mediaUnlock.preload = 'auto';
+    mediaUnlock.src = silentWav();
+  }
+  if (mediaUnlock.paused) mediaUnlock.play().catch(() => {});
+}
+
 function ensureAudio() {
+  unlockMediaChannel();
   if (ctx) { if (ctx.state !== 'running') ctx.resume(); return; }
   ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
   engine = new Engine(ctx, state);
