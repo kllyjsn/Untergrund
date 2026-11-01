@@ -68,7 +68,7 @@ body.recording .btn.rec .dot { background: var(--accent); animation: pulse 1s in
   height: 30px; background: var(--panel2); color: var(--text); border: 1px solid var(--line2); border-radius: 2px;
   font-family: inherit; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; padding: 0 6px; cursor: pointer;
 }
-.numbox {
+.numbox { touch-action: none;
   min-width: 58px; height: 30px; display: grid; place-items: center; background: #050506; border: 1px solid var(--line2);
   color: var(--accent); font-size: 18px; font-weight: 700; cursor: ns-resize; border-radius: 2px; outline: none;
 }
@@ -211,7 +211,7 @@ body.recording .btn.rec .dot { background: var(--accent); animation: pulse 1s in
 .mk2 { display: flex; gap: 6px; flex: 1; justify-content: space-between; }
 .knob.dj .k-label { font-size: 10px; color: var(--text); }
 .perfs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.btn.perf { height: 54px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 3px; font-size: 12px; }
+.btn.perf { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; height: 54px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 3px; font-size: 12px; }
 .btn.perf small { color: var(--dim); font-size: 9px; }
 .btn.perf.on { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 0 22px rgba(255, 43, 43, 0.5); }
 .btn.perf.on small { color: #fff; }
@@ -725,3 +725,5 @@ body.studio-open .generate-primary small { margin-top: 0; }
   body.studio-open .generate-home { margin: 10px 12px 0; padding: 10px; }
   body.studio-open .generate-primary { min-height: 52px; }
 }
+
+.knob.locked { opacity: .35; pointer-events: none; }

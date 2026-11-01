@@ -1,0 +1,29 @@
+<!doctype html><meta charset="utf-8"><body>
+<script type="module">
+import { defaultState, generate, applyOverrides, arrangement } from '../js/state.js';
+import { TRACKS, MASTER_PARAMS, TRACK_IDS } from '../js/params.js';
+import { renderBars } from '../js/render.js';
+const q = new URLSearchParams(location.search);
+const style = q.get('style') || 'hypnotic';
+const base = () => { const s = defaultState(); const g = generate(style, 42); applyOverrides(s, g); s.patterns = arrangement(g.pattern, 42); s.current = 6; return s; };
+const ch = (b) => b.getChannelData(0);
+const rms = (a) => { let x = 0; for (let i = 0; i < a.length; i++) x += a[i] * a[i]; return Math.sqrt(x / a.length); };
+const diff = (a, b) => { let x = 0; const n = Math.min(a.length, b.length); for (let i = 0; i < n; i++) { const d = a[i] - b[i]; x += d * d; } return Math.sqrt(x / n); };
+const out = [];
+const only = q.get('only');
+async function probe(label, mut, solo) {
+  const A = base(), B = base();
+  if (solo) { A.solos[solo] = true; B.solos[solo] = true; for (const s of [A, B]) for (const p of s.patterns) if (!p.steps[solo].some(Boolean)) p.steps[solo] = p.steps[solo].map((_, i) => (i % 4 === 2 ? 1 : 0)); }
+  mut(A, 'min'); mut(B, 'max');
+  const [ba, bb] = [await renderBars(A, 2, { tail: 1 }), await renderBars(B, 2, { tail: 1 })];
+  const ra = rms(ch(ba)), rb = rms(ch(bb)), d = diff(ch(ba), ch(bb));
+  out.push({ label, ra: +ra.toFixed(4), rb: +rb.toFixed(4), rel: +(d / Math.max(1e-9, (ra + rb) / 2)).toFixed(3) });
+}
+for (const t of TRACKS) {
+  if (only && only !== t.id) continue;
+  for (const p of t.params) await probe(`${t.id}.${p.id}`, (s, w) => { s.params[t.id][p.id] = w === 'min' ? p.min : p.max; }, t.id);
+}
+if (!only || only === 'master') for (const p of MASTER_PARAMS) await probe(`master.${p.id}`, (s, w) => { s.master[p.id] = w === 'min' ? p.min : p.max; });
+window.__out = out;
+document.title = 'DONE';
+</script>

@@ -4,6 +4,15 @@ import { liveKit, loadLiveKit, BASS_NOTES } from './livekit.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
+// Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
+const LIVE_REF = {
+  kick: { tune: 52, decay: 0.5, drive: 0.2, click: 0.15, punch: 0.55 },
+  snare: { tune: 200, decay: 0.22, snappy: 0.4 },
+  ch: { tune: 1, decay: 0.05, tone: 3600 },
+  oh: { tune: 1, decay: 0.32, tone: 6500 },
+  ride: { tune: 1, decay: 1.4, tone: 3800 },
+  acid: { cutoff: 320, drive: 0.3 },
+};
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
 const EPS = 0.0001;
 const LIM_TRIM = 1.4;
@@ -276,13 +285,13 @@ export class Engine {
   }
 
   duckAt(t, v) {
-    const depth = this.state.master.duck * Math.min(1, v) * 0.85;
-    const rel = this.stepDur * 1.4;
-    const pairs = [[this.duck.gain, depth], [this.rumbleDuck.gain, 0.98]];
-    for (const [param, d] of pairs) {
+    const depth = this.state.master.duck * Math.min(1, v * 1.25) * 0.9;
+    // Pump recovers over roughly one beat so offbeat basslines and pads audibly breathe
+    const pairs = [[this.duck.gain, depth, this.stepDur * 1.5], [this.rumbleDuck.gain, 0.98, this.stepDur * 0.47]];
+    for (const [param, d, rel] of pairs) {
       param.cancelScheduledValues(t);
       param.setTargetAtTime(1 - d, t, 0.0025);
-      param.setTargetAtTime(1, t + 0.03, rel / 3);
+      param.setTargetAtTime(1, t + 0.03, rel);
     }
   }
 
@@ -312,11 +321,26 @@ export class Engine {
   }
 
   // ---------- voices ----------
-  playBuf(buf, t, level, out, rate = 1, dur = 0) {
+  playBuf(buf, t, level, out, rate = 1, dur = 0, fx = {}) {
     const s = this.ctx.createBufferSource();
     s.buffer = buf; s.playbackRate.value = rate;
     const g = this.gain(level);
-    s.connect(g).connect(out);
+    let node = s;
+    if (fx.drive > 0.01) {
+      const sh = this.ctx.createWaveShaper(); sh.curve = driveCurve(Math.min(1, fx.drive));
+      node = node.connect(sh).connect(this.gain(1 / (1 + fx.drive)));
+    }
+    for (const [freq, db] of fx.shelves || []) {
+      if (Math.abs(db) < 0.3) continue;
+      const f = this.ctx.createBiquadFilter(); f.type = 'highshelf'; f.frequency.value = freq; f.gain.value = db;
+      node = node.connect(f);
+    }
+    if (fx.punch && Math.abs(fx.punch) > 0.02) {
+      const pk = Math.max(0.2, level * (1 + fx.punch));
+      g.gain.setValueAtTime(pk, t);
+      g.gain.linearRampToValueAtTime(level, t + 0.04);
+    }
+    node.connect(g).connect(out);
     s.start(t);
     if (dur) {
       g.gain.setValueAtTime(level, t + dur);
@@ -325,33 +349,53 @@ export class Engine {
     }
   }
 
+  // The recorded kit follows the same TUNE/DECAY/TONE knobs as the synth kit; the live-kit preset is neutral.
+  liveFx(id, buf) {
+    const p = this.state.params[id], ref = LIVE_REF[id], clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+    const rate = clamp(ref.tune ? p.tune / ref.tune : 1, 0.6, 1.7);
+    const full = buf.duration / rate;
+    const dur = p.decay < ref.decay ? Math.max(0.03, full * (p.decay / ref.decay)) : 0;
+    const shelves = [];
+    if (ref.tone) shelves.push([4500, clamp(9 * Math.log2(p.tone / ref.tone), -18, 12)]);
+    if (ref.snappy != null) shelves.push([2500, clamp((p.snappy - ref.snappy) * 20, -12, 12)]);
+    if (ref.click != null) shelves.push([3000, clamp((p.click - ref.click) * 22, -12, 15)]);
+    const drive = ref.drive != null ? Math.max(0, p.drive - ref.drive) * 1.2 : 0;
+    const punch = ref.punch != null ? (p.punch - ref.punch) * 1.4 : 0;
+    return { rate, dur, fx: { shelves, drive, punch } };
+  }
+
+  liveHit(kit, name, id, t, level, drift, durOverride) {
+    const buf = kit[name], o = this.liveFx(id, buf);
+    this.playBuf(buf, t, level, this.ch[id].input, drift * o.rate, durOverride ?? o.dur, o.fx);
+  }
+
   sampledHit(kit, id, t, v) {
     const rr = (this.rr = (this.rr || 0) + 1);
     const drift = 1 + (hash(rr, 7) - 0.5) * 0.012;
     if (id === 'kick') {
       const loud = v > 0.75;
-      this.playBuf(kit[`kick_v${loud ? 4 : 2}_${(rr % 2) + 1}`], t, 0.95 * v ** 1.2, this.ch.kick.input, drift);
+      this.liveHit(kit, `kick_v${loud ? 4 : 2}_${(rr % 2) + 1}`, 'kick', t, 0.95 * v ** 1.2, drift);
       this.duckAt(t, v * 0.7);
       return true;
     }
     if (id === 'snare') {
       const name = v > 0.97 ? 'snare_rim' : v > 0.85 ? 'snare_v34' : v > 0.65 ? 'snare_v24' : v > 0.45 ? 'snare_v14' : 'snare_v6';
-      this.playBuf(kit[name], t, 0.85 * v ** 1.4, this.ch.snare.input, drift);
+      this.liveHit(kit, name, 'snare', t, 0.85 * v ** 1.4, drift);
       return true;
     }
     if (id === 'ch') {
       const layer = Math.max(1, Math.min(4, Math.ceil(v * 4)));
-      this.playBuf(kit[`hh_v${layer}_${(rr % 2) + 1}`], t, 0.32 * v ** 1.5, this.ch.ch.input, drift);
+      this.liveHit(kit, `hh_v${layer}_${(rr % 2) + 1}`, 'ch', t, 0.32 * v ** 1.5, drift);
       return true;
     }
     if (id === 'oh') {
-      this.playBuf(kit[v > 0.7 ? 'hh_open' : 'hh_half'], t, 0.3 * v, this.ch.oh.input, drift, 0.15 + this.state.params.oh.decay * 0.9);
+      this.liveHit(kit, v > 0.7 ? 'hh_open' : 'hh_half', 'oh', t, 0.3 * v, drift, 0.15 + this.state.params.oh.decay * 0.9);
       return true;
     }
     if (id === 'ride') {
       const layer = v > 0.85 ? 3 : v > 0.55 ? 2 : 1;
       const name = layer === 2 ? `ride_v2_${(rr % 2) + 1}` : `ride_v${layer}_1`;
-      this.playBuf(kit[name], t, 0.3 * v ** 1.3, this.ch.ride.input, drift);
+      this.liveHit(kit, name, 'ride', t, 0.3 * v ** 1.3, drift);
       return true;
     }
     return false;
@@ -360,8 +404,9 @@ export class Engine {
   sampledBass(kit, t, m, len, accent) {
     let [name, center] = BASS_NOTES[0];
     for (const [n, c] of BASS_NOTES) if (Math.abs(c - m) < Math.abs(center - m)) [name, center] = [n, c];
-    const out = this.ch.acid.input;
-    this.playBuf(kit[`bass_${name}_${hash(t * 1000, 3) > 0.5 ? 'a' : 'b'}`], t, accent ? 1.2 : 1, out, Math.pow(2, (m - center) / 12), len);
+    const out = this.ch.acid.input, p = this.state.params.acid, ref = LIVE_REF.acid;
+    const fx = { shelves: [[700, Math.max(-24, Math.min(12, 8 * Math.log2(p.cutoff / ref.cutoff)))]], drive: Math.max(0, p.drive - ref.drive) * 1.4 };
+    this.playBuf(kit[`bass_${name}_${hash(t * 1000, 3) > 0.5 ? 'a' : 'b'}`], t, accent ? 1.2 : 1, out, Math.pow(2, (m - center) / 12), len, fx);
     const sub = this.ctx.createOscillator(); sub.frequency.value = midiHz(m);
     const sg = this.gain(0);
     sg.gain.setValueAtTime(EPS, t);
@@ -393,10 +438,10 @@ export class Engine {
 
     if (p.click > 0.01) {
       const n = this.noiseSrc(t, 0.03);
-      const bp = this.filter('bandpass', 3800, 0.8);
+      const bp = this.filter('bandpass', 3200, 0.6);
       const cg = this.gain(0);
-      cg.gain.setValueAtTime(p.click * v * 0.9, t);
-      cg.gain.exponentialRampToValueAtTime(EPS, t + 0.007);
+      cg.gain.setValueAtTime(p.click * v * 2.4, t);
+      cg.gain.exponentialRampToValueAtTime(EPS, t + 0.014);
       n.connect(bp).connect(cg).connect(out);
     }
     this.duckAt(t, v);
@@ -753,14 +798,16 @@ export class Engine {
   riserStart() {
     if (this.riser) return;
     const now = this.ctx.currentTime;
-    const dur = this.stepDur * 64;
+    // Audible within a beat, peaks after 2 bars
+    const dur = this.stepDur * 32;
     const s = this.ctx.createBufferSource(); s.buffer = this.noise; s.loop = true;
-    const bp = this.filter('bandpass', 250, 5);
+    const bp = this.filter('bandpass', 400, 2.5);
     const g = this.gain(0);
-    bp.frequency.setValueAtTime(250, now);
-    bp.frequency.exponentialRampToValueAtTime(9500, now + dur);
-    g.gain.setValueAtTime(EPS, now);
-    g.gain.exponentialRampToValueAtTime(0.42, now + dur);
+    bp.frequency.setValueAtTime(400, now);
+    bp.frequency.exponentialRampToValueAtTime(9000, now + dur);
+    g.gain.setValueAtTime(0, now);
+    g.gain.linearRampToValueAtTime(0.12, now + 0.05);
+    g.gain.linearRampToValueAtTime(0.55, now + dur);
     s.connect(bp).connect(g);
     g.connect(this.mix); g.connect(this.revIn);
     s.start(now);
