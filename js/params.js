@@ -136,7 +136,7 @@ export const TRACKS = [
       p('env', 'ENV', 0, 1, 0.45),
       p('decay', 'DECAY', 0.05, 2.5, 0.28, { curve: 'exp', unit: 's' }),
       p('detune', 'DETUNE', 0, 40, 12, { unit: 'ct' }),
-      p('voice', 'VOICE', 0, 6, 0, { step: 1, list: ['SAW', 'KEYS', 'PAD', 'ORGAN', 'BRASS', 'PLUCK', 'BELLS'] }),
+      p('voice', 'VOICE', 0, 10, 0, { step: 1, list: ['SAW', 'KEYS', 'PAD', 'ORGAN', 'BRASS', 'PLUCK', 'BELLS', 'PIANO', 'GUITAR', 'HORNS', 'STRINGS'] }),
     ],
     mix: { level: 0.42, rev: 0.35, dly: 0.42 },
   },
@@ -206,5 +206,5 @@ export function formatValue(q, v) {
 export const VOICE_HIDDEN = {
   perc: [[], ['metal'], ['metal'], ['bend', 'metal'], ['bend', 'noise', 'metal']],
   acid: [[], ['wave', 'reso', 'envmod', 'accent'], ['wave', 'reso', 'envmod'], [], ['wave', 'reso', 'envmod']],
-  stab: [[], ['reso'], [], ['reso', 'env'], [], [], ['reso']],
+  stab: [[], ['reso'], [], ['reso', 'env'], [], [], ['reso'], ...Array(4).fill(['reso', 'env', 'detune'])],
 };

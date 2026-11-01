@@ -551,12 +551,20 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   }
   const PALETTE = {
     industrial: [6, 3], dub: [0, 2], peak: [4, 0], hardtechno: [0, 3],
-    deephouse: [3, 1], minimal: [6, 2], ukg: [3, 3], euphoric: [5, null],
-    boombap: [4, null], breaks: [3, 0], electro: [0, 2], dnb: [2, 3], trance: [5, null], ambient: [2, 2],
-    amapiano: [1, 4], afrobeats: [6, 2], reggaeton: [5, 2], bailefunk: [null, 2], trap: [6, 2], drill: [2, 2], jerseyclub: [0, 2], hyperpop: [5, 3],
+    // 7 PIANO, 8 GUITAR, 9 HORNS, 10 STRINGS are recorded instruments.
+    deephouse: [7, 1], minimal: [6, 2], ukg: [3, 3], euphoric: [7, null],
+    boombap: [9, null], breaks: [8, 0], electro: [0, 2], dnb: [10, 3], trance: [5, null], ambient: [2, 2],
+    amapiano: [7, 4], afrobeats: [8, 2], reggaeton: [8, 2], bailefunk: [null, 2], trap: [7, 2], drill: [10, 2], jerseyclub: [0, 2], hyperpop: [8, 3],
   };
   const [stabVoice, bassVoice] = PALETTE[style] || [];
   if (stabVoice != null) params.stab.voice = stabVoice;
+  // Recorded players sit in the room, not in a delay: echoes on held strings and piano read as a synth chorus.
+  if (stabVoice >= 7) {
+    params.stab.dly = Math.min(params.stab.dly ?? 0.42, 0.08);
+    params.stab.rev = Math.min(params.stab.rev ?? 0.3, 0.2);
+    // A played instrument has to be heard as one: up front with the drums, not tucked under them.
+    params.stab.level = Math.max(params.stab.level ?? 0.42, 0.9);
+  }
   if (bassVoice != null) params.acid.voice = bassVoice;
   for (const t of ['acid', 'stab']) params[t].voice ??= 0;
   const PERC = { dnb: 3, deephouse: 1, ukg: 3, boombap: 3, neosoul: 3, breaks: 2, minimal: 4, dub: 4, euphoric: 3, ambient: 2, amapiano: 3, afrobeats: 1, reggaeton: 2, bailefunk: 1 };

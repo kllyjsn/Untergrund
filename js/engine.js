@@ -1,6 +1,6 @@
 import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES } from './params.js';
 import { getSample } from './sampler.js';
-import { liveKit, loadLiveKit, BASS_NOTES } from './livekit.js';
+import { liveKit, loadLiveKit, BASS_NOTES, bandKit, loadBand, STAB_BAND } from './livekit.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
@@ -15,7 +15,14 @@ const LIVE_REF = {
 };
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
 const EPS = 0.0001;
-const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells'];
+const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings'];
+// How each recorded instrument is played: level, DECAY->length, strum spread, register shift, held like a bow.
+const BAND_PLAY = {
+  piano: { gain: 4, len: 4, min: 1.2, strum: 0.004, shift: 0, lo: 45, hi: 79, lp: 7000, rel: 0.18 },
+  gtr: { gain: 4.4, len: 2.6, min: 0.6, strum: 0.014, shift: 0, lo: 40, hi: 71, lp: 5200, rel: 0.12 },
+  horn: { gain: 3.4, len: 1.2, min: 0.25, strum: 0.003, shift: 12, lo: 53, hi: 81, lp: 4800, rel: 0.09 },
+  str: { gain: 2.6, len: 2, min: 0.5, strum: 0, shift: 12, hold: true, lo: 55, hi: 84, lp: 6000, rel: 0.25 },
+};
 const LIM_TRIM = 1.4;
 
 // Six band-limited squares (808 cymbal cluster) summed once into a seamless 0.5 s loop.
@@ -117,6 +124,12 @@ export class Engine {
     this.roomHP = this.filter('highpass', 160);
     this.roomOut = this.gain(0);
     this.roomIn.connect(this.roomHP).connect(this.roomConv).connect(this.roomOut).connect(this.mix);
+    // Recorded players get the body and air of a real room around them; dry mono samples read as a plug-in.
+    this.bandIn = this.gain(1);
+    this.bandConv = c.createConvolver();
+    this.bandConv.buffer = makeIR(c, 1.2, { decay: 2.8, brightStart: 0.7, brightEnd: 0.2, predelay: 0.009, seed: 71 });
+    this.bandIn.connect(this.filter('highpass', 140)).connect(this.bandConv).connect(this.filter('lowpass', 7000))
+      .connect(this.gain(0.45)).connect(this.mix);
 
     // Ping-pong delay with band-limited feedback
     this.dlyIn = this.gain(1);
@@ -169,6 +182,11 @@ export class Engine {
       pan.connect(dly).connect(this.dlyIn);
       pan.connect(this.throwBus);
       const ch = { input, level, pan, rev, dly };
+      if (t.id === 'stab') {
+        ch.band = this.gain(1);
+        ch.band.connect(input);
+        ch.band.connect(this.bandIn);
+      }
       if (t.id === 'kick') {
         ch.rumble = this.gain(0);
         level.connect(ch.rumble).connect(this.rumbleIn);
@@ -388,6 +406,7 @@ export class Engine {
       const f = this.ctx.createBiquadFilter(); f.type = 'highshelf'; f.frequency.value = freq; f.gain.value = db;
       node = node.connect(f);
     }
+    if (fx.lp) node = node.connect(this.filter('lowpass', fx.lp, 0.5));
     if (fx.punch && Math.abs(fx.punch) > 0.02) {
       const pk = Math.max(0.2, level * (1 + fx.punch));
       g.gain.setValueAtTime(pk, t);
@@ -397,8 +416,9 @@ export class Engine {
     s.start(t);
     if (dur) {
       g.gain.setValueAtTime(level, t + dur);
-      g.gain.setTargetAtTime(0, t + dur, 0.05);
-      s.stop(t + dur + 0.4);
+      const rel = fx.release || 0.05;
+      g.gain.setTargetAtTime(0, t + dur, rel);
+      s.stop(t + dur + Math.max(0.4, rel * 8));
     }
   }
 
@@ -808,6 +828,41 @@ export class Engine {
   }
 
   // Brass section: saws scooping into pitch while the filter blooms; ENV sets the blare.
+  // Recorded chord instruments (CC0): nearest sample per chord note, repitched; the synth voice covers loading.
+  recorded(kind, fallback, t, v, iv, root, p, out) {
+    const set = bandKit(kind);
+    if (!set) { loadBand(kind); return this[fallback](t, v, iv, root, p, out); }
+    const R = BAND_PLAY[kind];
+    const tone = Math.max(-6, Math.min(3, 3 * Math.log2(p.cutoff / 1500)));
+    const dur = Math.max(R.hold ? this.stepDur * 4 : R.min, p.decay * R.len);
+    const up = hash(t, 21) > 0.5;
+    iv.forEach((n, k) => {
+      const at = t + (up ? k : iv.length - 1 - k) * R.strum + (hash(t * 3 + k, 22) - 0.5) * 0.006;
+      const lvl = (v * R.gain * (0.85 + 0.3 * hash(t + k, 23))) / Math.sqrt(iv.length);
+      this.recordedNote(set, at, lvl, root + n + R.shift, dur, out, tone, kind, v);
+    });
+  }
+
+  // Kept in the register the instrument was played in; every note lands a little differently and softer
+  // notes are darker, the way hammers and plectrums behave. Released through a damper, not a gate.
+  recordedNote(set, t, level, m, dur, out, tone = 0, kind = null, vel = 1) {
+    const R = BAND_PLAY[kind];
+    if (R) { while (m > R.hi) m -= 12; while (m < R.lo) m += 12; }
+    if (out === this.ch.stab.input) out = this.ch.stab.band;
+    const touch = 0.8 + 0.4 * hash(t * 7 + m, 24), hv = Math.max(0.25, Math.min(1.2, vel * touch));
+    // Soft touches play the softly struck piano recording: a different tone, not just a quieter one.
+    if (kind === 'piano' && hv < 0.88 && bandKit('pianosoft')) set = bandKit('pianosoft');
+    let [c, buf] = set[0];
+    for (const [cm, b] of set) if (Math.abs(cm - m) < Math.abs(c - m)) [c, buf] = [cm, b];
+    this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
+      shelves: [[3000, tone]], lp: R ? R.lp * (0.4 + 0.6 * hv) : 0, release: R ? R.rel : 0.05,
+    });
+  }
+  piano(...a) { return this.recorded('piano', 'keys', ...a); }
+  guitar(...a) { return this.recorded('gtr', 'pluck', ...a); }
+  horns(...a) { return this.recorded('horn', 'brass', ...a); }
+  strings(...a) { return this.recorded('str', 'pad', ...a); }
+
   brass(t, v, iv, root, p, out) {
     const c = this.ctx, gate = Math.max(0.08, p.decay * 0.8), end = t + gate + 0.4;
     const lp = this.filter('lowpass', p.cutoff * 0.4, Math.max(0.7, p.reso * 0.5));
@@ -920,6 +975,12 @@ export class Engine {
     voice = { saw: 'analog', sq: 'pulse', flute: 'reed', bell: 'mallet', pluck: 'warm' }[voice] || voice;
     const warmth = expression.warmth ?? 0.5;
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
+    // Genres on a recorded instrument let that player take the melody too; synth-pop leads stay synths.
+    const band = voice !== 'pulse' && STAB_BAND[Math.round(p.voice)], set = band && bandKit(band);
+    if (set) {
+      const R = BAND_PLAY[band], ring = R.hold ? dur * 1.05 : Math.max(R.min * 0.6, dur * 1.5);
+      return this.recordedNote(set, t, Math.min(1.3, v) * R.gain * 0.6, 60 + k + oct * 12 + n, ring, this.ch.stab.input, 0, band, v / 1.3);
+    }
     const f = midiHz(60 + k + oct * 12 + n), out = this.ch.stab.input;
     const len = Math.max(0.06, dur * 0.92), end = t + len + 0.6;
     const amp = this.gain(0), pan = c.createStereoPanner();
