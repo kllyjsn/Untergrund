@@ -473,6 +473,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   params.perc.voice = PERC[style] ?? 0;
   const DUST = { boombap: 0.45, neosoul: 0.25, dub: 0.3, ambient: 0.2, deephouse: 0.12, minimal: 0.1 };
   master.dust = DUST[style] ?? 0;
+  master.arr = { neosoul: 0, boombap: 0, ambient: 0 }[style] ?? (GROOVE.has(style) ? 0.5 : 1);
   return { pattern: P, params, master, bpm, swing: swing ?? 0.06 };
 }
 
@@ -504,8 +505,19 @@ export function mutate(pat, seed = Date.now(), amount = 0.2, scale = SCALES.mino
   return P;
 }
 
+// One-bar half-time switch: kick on the one, backbeat moved to beat 3
+function halfTime(full) {
+  const q = clone(full);
+  q.steps.kick = pad16([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, full.steps.kick[10] ? 1 : 0]);
+  q.steps.clap = pad16([0, 0, 0, 0, 0, 0, 0, 0, 2]);
+  q.steps.snare = pad16([0, 0, 0, 0, 0, 0, 0, 0, 1]);
+  q.steps.ch = range(STEPS, (i) => (i % 2 === 0 ? 1 : 0));
+  q.steps.oh = range(STEPS, () => 0);
+  return q;
+}
+
 // Turn one full pattern into an 8-pattern arrangement: intro → build → peak → breakdown → return.
-export function arrangement(full, seed) {
+export function arrangement(full, seed, half = false) {
   const strip = (p, keep) => {
     const q = clone(p);
     for (const id of TRACK_IDS) if (!keep.includes(id)) q.steps[id] = id === 'acid' ? range(STEPS, emptyAcidStep) : range(STEPS, () => 0);
@@ -524,7 +536,7 @@ export function arrangement(full, seed) {
     strip(full, ['ride', 'perc', 'stab', 'ch']),
     strip(full, ['ride', 'perc', 'stab', 'acid', 'oh']),
     clone(full),
-    mutate(full, seed + 2),
+    half ? halfTime(full) : mutate(full, seed + 2),
   ];
   for (const p of scenes) delete p.alt;
   if (full.alt) for (const i of [4, 5]) scenes[i].prog = clone(full.alt);
@@ -562,7 +574,7 @@ export function defaultState() {
     mutes: {},
     solos: {},
     locks: {},
-    patterns: arrangement(full, 1337),
+    patterns: arrangement(full, 1337, true),
   };
   applyOverrides(s, g, false);
   return s;

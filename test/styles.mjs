@@ -93,3 +93,13 @@ console.log('per-genre percussion and dust passed');
   assert(fams.has('AFRO & LATIN') && fams.has('TRAP & POP'));
 }
 console.log('global genres passed');
+
+{
+  const g = generate('peak', 3, 'minor');
+  assert.equal(g.master.arr, 1); assert.equal(generate('neosoul', 3, 'minor').master.arr, 0); assert.equal(generate('deephouse', 3, 'minor').master.arr, 0.5);
+  const h = arrangement(g.pattern, 3, true)[7].steps;
+  assert(h.kick[0] && !h.kick[4] && !h.kick[8] && !h.kick[12], 'half-time kick');
+  assert(h.clap[8] && !h.clap[4] && !h.clap[12], 'half-time backbeat on 3');
+  assert.notDeepEqual(arrangement(g.pattern, 3, false)[7].steps.kick, h.kick);
+}
+console.log('arrangement dynamics passed');

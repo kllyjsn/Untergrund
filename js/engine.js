@@ -78,6 +78,7 @@ export class Engine {
     this.duck.connect(this.mix);
     this.djHP = this.filter('highpass', 10, 0.9);
     this.djLP = this.filter('lowpass', 21000, 0.9);
+    this.arrLP = this.filter('lowpass', 21000, 0.7);
     this.glue = this.comp(-14, 2.5, 8, 0.015, 0.16);
     this.satIn = this.gain(1 / SAT_HEADROOM);
     this.sat = c.createWaveShaper(); this.sat.oversample = '4x';
@@ -88,7 +89,7 @@ export class Engine {
     this.limTrim = this.gain(LIM_TRIM);
     this.clip = c.createWaveShaper(); this.clip.curve = clipCurve(); this.clip.oversample = '4x';
     this.out = this.gain(0.95);
-    this.mix.connect(this.djHP).connect(this.djLP).connect(this.glue).connect(this.satIn).connect(this.sat)
+    this.mix.connect(this.djHP).connect(this.djLP).connect(this.arrLP).connect(this.glue).connect(this.satIn).connect(this.sat)
       .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.clip).connect(this.out);
     this.out.connect(c.destination);
     if (this.realtime) {
@@ -1042,6 +1043,39 @@ export class Engine {
 
   acidRelease(t) { this.acidNodes.vca.gain.setTargetAtTime(0, t, 0.008); if (this.mono) { this.mono.amp.gain.setTargetAtTime(0, t, 0.01); this.mono = null; } }
 
+  // ---------- arrangement FX ----------
+  // One-bar noise sweep into a drop, then a sub boom and crash on its downbeat
+  sweep(t, dur, amt) {
+    const s = this.noiseSrc(t, dur + 0.05), bp = this.filter('bandpass', 500, 2), g = this.gain(0);
+    bp.frequency.setValueAtTime(500, t); bp.frequency.exponentialRampToValueAtTime(8000, t + dur);
+    g.gain.setValueAtTime(EPS, t); g.gain.exponentialRampToValueAtTime(0.32 * amt, t + dur * 0.97); g.gain.linearRampToValueAtTime(0, t + dur);
+    s.connect(bp).connect(g); g.connect(this.mix); g.connect(this.revIn);
+  }
+
+  impact(t, amt) {
+    const o = this.ctx.createOscillator(), g = this.gain(0);
+    o.frequency.setValueAtTime(110, t); o.frequency.exponentialRampToValueAtTime(38, t + 0.5);
+    this.adEnv(g.gain, t, 0.5 * amt, 0.002, 0.9);
+    o.connect(g).connect(this.mix); o.start(t); o.stop(t + 1.2);
+    const n = this.noiseSrc(t, 1.6), hp = this.filter('highpass', 3000, 0.5), ng = this.gain(0);
+    this.adEnv(ng.gain, t, 0.16 * amt, 0.001, 1.4);
+    n.connect(hp).connect(ng); ng.connect(this.mix); ng.connect(this.revIn);
+  }
+
+  // Breakdowns start dark and open back up over the whole section
+  breakSweep(t, dur) {
+    const f = this.arrLP.frequency;
+    f.cancelScheduledValues(t); f.setValueAtTime(700, t); f.exponentialRampToValueAtTime(18000, t + dur);
+    this.arrClosed = true;
+  }
+
+  breakOpen(t) {
+    if (!this.arrClosed) return;
+    const f = this.arrLP.frequency;
+    f.cancelScheduledValues(t); f.setTargetAtTime(21000, t, 0.02);
+    this.arrClosed = false;
+  }
+
   // ---------- performance (realtime) ----------
   setThrow(on) { this.throwBus.gain.setTargetAtTime(on ? 0.85 : 0, this.ctx.currentTime, 0.012); }
 
@@ -1076,6 +1110,7 @@ export class Engine {
 
   panic() {
     const now = this.ctx.currentTime;
+    this.breakOpen(now);
     this.acidRelease(now);
     this.riserStop();
     this.setThrow(false);
@@ -1100,22 +1135,50 @@ export class Sequencer {
     this.acidMuted = false;
   }
 
-  advanceBar(abs) {
+  // Song form: C and G are drops, E and F breakdowns, D and H one-bar fills/switches
+  advanceBar(abs, t) {
     if (abs % 16 !== 0) return;
     const chain = this.s.chainOn ? parseChain(this.s.chain) : [];
-    if (chain.length) { this.cur = chain[this.chainPos % chain.length]; this.chainPos++; }
-    else if (this.queued !== null) { this.cur = this.queued; this.queued = null; }
+    const arr = this.s.master.arr || 0;
+    this.dropNow = !!this.dropNext; this.dropNext = false;
+    if (chain.length) {
+      const n = chain.length, p = this.chainPos % n, prev = this.chainPos ? this.cur : -1;
+      this.cur = chain[p]; this.chainPos++;
+      const peak = (x) => x === 2 || x === 6, brk = (x) => x === 4 || x === 5, fill = this.cur === 3 || this.cur === 7;
+      if (arr) {
+        this.dropNext = peak(chain[(p + 1) % n]) && !peak(this.cur) && !(fill && peak(prev));
+        if (arr >= 0.75 && brk(this.cur) && !brk(prev)) {
+          let k = 0; while (k < n && brk(chain[(p + k) % n])) k++;
+          this.e.breakSweep(t, k * 16 * this.e.stepDur);
+        }
+      }
+      if (!arr || !brk(this.cur)) this.e.breakOpen(t);
+      return;
+    }
+    this.dropNow = false;
+    this.e.breakOpen(t);
+    if (this.queued !== null) { this.cur = this.queued; this.queued = null; }
   }
 
   tick(abs, t) {
     const s = this.s, e = this.e;
-    this.advanceBar(abs);
+    this.advanceBar(abs, t);
     const pat = s.patterns[this.cur];
     const bar = Math.floor(abs / 16), vary = s.master.vary || 0;
     e.harm = pat.prog?.length ? pat.prog[bar % pat.prog.length] : null;
     const sd = e.stepDur;
     const tt = t + (abs % 2 ? s.swing * sd * 0.5 : 0);
     if ((s.master.dust || 0) > 0.01) e.dust(t, sd, abs);
+    const arr = s.master.arr || 0, i16 = abs % 16;
+    if (this.dropNext) {
+      if (i16 === 0) e.sweep(t, 16 * sd, arr);
+      if (i16 >= 8 && !s.mutes.snare) {
+        const rv = (0.25 + (0.6 * (i16 - 8)) / 7) * arr;
+        e.trigger('snare', tt, rv);
+        if (i16 >= 12) e.trigger('snare', tt + sd / 2, rv * 0.85);
+      }
+    }
+    if (this.dropNow && i16 === 0) e.impact(t, arr);
     const anySolo = TRACK_IDS.some((id) => s.solos[id]);
     for (const id of TRACK_IDS) {
       const on = !s.mutes[id] && (!anySolo || s.solos[id]);
@@ -1144,6 +1207,7 @@ export class Sequencer {
         continue;
       }
       if (!on) continue;
+      if (this.dropNext && id === 'kick' && i16 >= (arr >= 0.75 ? 12 : 14)) continue;
       let v = pat.steps[id][i];
       if (vary) {
         const k = TRACK_IDS.indexOf(id), roll = hash(abs * 1.37 + bar, k + 40);
