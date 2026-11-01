@@ -6,7 +6,15 @@
     "build": "node scripts/build.mjs",
     "start": "node server.mjs",
     "dev": "SC_MOCK=1 node server.mjs",
-    "test": "node test/artist.mjs && node test/room-sync.mjs && node test/rooms.mjs && node test/styles.mjs && node test/crate.mjs && node test/livekit.mjs"
+    "test": "node test/artist.mjs && node test/room-sync.mjs && node test/rooms.mjs && node test/styles.mjs && node test/crate.mjs && node test/livekit.mjs && node test/jukebox.mjs"
   },
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@vercel/blob": "2.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.10"
+  }
 }

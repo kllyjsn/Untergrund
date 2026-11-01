@@ -20,13 +20,13 @@ export function normalizeTrack(body) {
   };
 }
 
-const redisEnv = () => {
+export const redisEnv = () => {
   const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
   return url && token ? { url: url.replace(/\/$/, ''), token } : null;
 };
 
-async function redis(command) {
+export async function redis(command) {
   const { url, token } = redisEnv();
   const res = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(command) });
   const json = await res.json();

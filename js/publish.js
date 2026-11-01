@@ -44,7 +44,7 @@ export function weekStreak(dates) {
   return n;
 }
 
-export function openPublish({ getState, getStyle, render, toast }) {
+export function openPublish({ getState, getStyle, render, toast, audio = null, title: presetTitle = '' }) {
   const state = getState();
   const style = getStyle();
   let seed = (Math.random() * 1e9) | 0;
@@ -127,6 +127,7 @@ export function openPublish({ getState, getStyle, render, toast }) {
     };
     fields.desc.value = autoDescription(state, style, defBars);
     fields.bars.onchange = () => { fields.desc.value = autoDescription(state, style, +fields.bars.value); };
+    if (presetTitle) fields.title.value = presetTitle;
     const art = h('div', { class: 'pub-art' });
     const paint = () => { art.innerHTML = ''; art.append(drawArtwork(state, { title: fields.title.value || 'UNTITLED', style: STYLES[style]?.name, seed, size: 600 })); };
     fields.title.oninput = paint;
@@ -146,7 +147,7 @@ export function openPublish({ getState, getStyle, render, toast }) {
           h('button', { class: 'btn ghost', onclick: () => { fields.title.value = randomTitle(); paint(); } }, 'NEW TITLE'))),
       h('div', { class: 'pub-right' },
         row('TITLE', fields.title),
-        h('div', { class: 'pub-two' }, row('LENGTH', fields.bars, state.chainOn ? 'follows your chain' : 'loops current pattern — turn on CHAIN for an arrangement'), row('GENRE', fields.genre)),
+        h('div', { class: 'pub-two' }, audio ? null : row('LENGTH', fields.bars, state.chainOn ? 'follows your chain' : 'loops current pattern — turn on CHAIN for an arrangement'), row('GENRE', fields.genre)),
         row('TAGS', fields.tags, 'comma separated — specific tags are how listeners find you'),
         row('DESCRIPTION', fields.desc),
         h('div', { class: 'pub-two' }, row('VISIBILITY', fields.sharing), row('LICENSE', fields.license)),
@@ -163,7 +164,7 @@ export function openPublish({ getState, getStyle, render, toast }) {
     try {
       const bars = +fields.bars.value;
       set(0.03, `Rendering ${bars} bars offline…`);
-      const wav = await render(bars);
+      const wav = audio || await render(bars);
       set(0.25, 'Drawing artwork…');
       const artwork = await canvasToBlob(drawArtwork(state, { title, style: STYLES[style]?.name, seed, size: 1200 }));
       const meta = { title, description: fields.desc.value, genre: fields.genre.value.trim(), sharing: fields.sharing.value,
