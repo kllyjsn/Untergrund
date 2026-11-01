@@ -13,6 +13,10 @@ import { roomTransportPosition, transportResync } from './room-sync.js';
 
 let state = load() || defaultState();
 let ctx = null, engine = null, seq = null, timer = null, recNode = null;
+const heldPads = new Map();
+// A held pad releases wherever the finger lifts, even if the pad was re-rendered mid-hold
+addEventListener('pointerup', (e) => { if (e.pointerType !== 'mouse' || !e.buttons) for (const k of [...heldPads.keys()]) ui.perf?.[k]?.up(); });
+addEventListener('blur', () => { for (const k of [...heldPads.keys()]) ui.perf?.[k]?.up(); });
 let playing = false, abs = 0, nextTime = 0, lastPlayedPat = null;
 let transportOrigin = 0, roomJoinTimer = 0, clockOffset = null;
 const uiQueue = [];
@@ -971,12 +975,20 @@ function buildEditor() {
   const t = TRACK_BY_ID[selected];
   const id = t.id;
   ui.editorKnobs = {};
+  const voice = Math.round(state.params[id].voice || 0);
+  const hidden = { acid: voice === 1 ? ['wave', 'reso', 'envmod', 'accent'] : [], stab: voice === 1 ? ['reso'] : [] }[id] || [];
+  const progLocked = id === 'stab' && state.patterns[state.current]?.prog?.length > 0;
   const mk = (q) => {
     const k = knob(q, state.params[id][q.id], (v) => {
       setParam(id, q.id, v);
       if (q.id === 'level') ui.rows[id]?.lvl.set(v);
+      if (q.id === 'voice') { const ed = document.querySelector('.editor'); ed?.replaceWith(buildEditor()); }
     }, { color: t.color, format: (v) => formatValue(q, v) });
     ui.editorKnobs[q.id] = k;
+    if (progLocked && q.id === 'chord') {
+      k.el.classList.add('locked');
+      k.el.title = 'Chords follow this pattern\'s progression. Clear the pattern or generate a techno style to pick one chord.';
+    }
     return k.el;
   };
   const tools = h('div', { class: 'etools' },
@@ -993,7 +1005,7 @@ function buildEditor() {
   const ed = h('section', { class: 'editor panel', style: `--tc:${t.color}` },
     h('div', { class: 'ehead' }, h('div', { class: 'etitle' }, h('span', { class: 'sw' }), t.name), h('div', { class: 'hint' }, hint), tools),
     h('div', { class: 'ebody' },
-      h('div', { class: 'kgroup' }, h('div', { class: 'glabel' }, 'VOICE'), h('div', { class: 'knobs' }, t.params.map(mk))),
+      h('div', { class: 'kgroup' }, h('div', { class: 'glabel' }, 'VOICE'), h('div', { class: 'knobs' }, t.params.filter((q) => !hidden.includes(q.id)).map(mk))),
       h('div', { class: 'kgroup' }, h('div', { class: 'glabel' }, 'CHANNEL'), h('div', { class: 'knobs' }, MIX_PARAMS.map(mk)))));
   ui.roll = null; ui.rollCols = null;
   if (id === 'acid') ed.append(buildRoll());
@@ -1092,12 +1104,18 @@ function buildMaster() {
   const mk = (q, size = 46, cls = '') => knob(q, state.master[q.id], (v) => setMaster(q.id, v), { size, format: (v) => formatValue(q, v), cls }).el;
   const by = Object.fromEntries(MASTER_PARAMS.map((q) => [q.id, q]));
   const hold = (label, keyName, title, on, off) => {
-    const b = h('button', { class: 'btn perf', title: `${title} (hold ${keyName})` }, label, h('small', {}, keyName));
-    const down = (e) => { e.preventDefault(); ensureAudio(); b.classList.add('on'); on(); };
-    const up = () => { if (!b.classList.contains('on')) return; b.classList.remove('on'); off(); };
+    const b = h('button', { class: 'btn perf' + (heldPads.has(keyName) ? ' on' : ''), title: `${title} (hold ${keyName})` }, label, h('small', {}, keyName));
+    const down = (e) => {
+      e.preventDefault();
+      if (heldPads.has(keyName)) return;
+      if (!playing) play();
+      heldPads.set(keyName, off); b.classList.add('on'); on();
+    };
+    const up = () => { const f = heldPads.get(keyName); if (!f) return; heldPads.delete(keyName); document.querySelectorAll('.btn.perf.on').forEach((x) => x.lastChild.textContent === keyName && x.classList.remove('on')); f(); };
     b.addEventListener('pointerdown', down);
     b.addEventListener('pointerup', up);
-    b.addEventListener('pointerleave', up);
+    b.addEventListener('pointercancel', up);
+    b.addEventListener('contextmenu', (e) => e.preventDefault());
     ui.perf[keyName] = { down: () => down(new Event('x')), up };
     return b;
   };
