@@ -6,6 +6,25 @@ import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROO
 const DUCKED = new Set(['acid', 'stab', 'vox']);
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
 const EPS = 0.0001;
+const LIM_TRIM = 1.4;
+
+// Six band-limited squares (808 cymbal cluster) summed once into a seamless 0.5 s loop.
+const metalCache = new Map();
+function metallicBuf(mul, sr) {
+  const k = Math.round(mul * 200), key = `${sr}:${k}`;
+  if (metalCache.has(key)) return metalCache.get(key);
+  const n = Math.floor(sr / 2), buf = new AudioBuffer({ length: n, sampleRate: sr, numberOfChannels: 1 }), d = buf.getChannelData(0);
+  const top = Math.min(20000, sr * 0.45);
+  for (const f0 of [205.3, 304.4, 369.6, 522.7, 540, 800]) {
+    const f = (f0 * k) / 200;
+    for (let h = 1; h * f < top; h += 2) {
+      const w = (2 * Math.PI * Math.round((h * f * n) / sr)) / n, a = (0.16 * 4) / (Math.PI * h);
+      for (let i = 0; i < n; i++) d[i] += a * Math.sin(w * i);
+    }
+  }
+  metalCache.set(key, buf);
+  return buf;
+}
 
 export class Engine {
   constructor(ctx, state, { realtime = true } = {}) {
@@ -43,12 +62,13 @@ export class Engine {
     this.sat = c.createWaveShaper(); this.sat.oversample = '4x';
     this.warm = this.filter('lowpass', 20000, 0.5);
     this.master = this.gain(0.85);
-    this.limiter = this.comp(-4, 20, 0, 0.001, 0.07);
-    this.limTrim = this.gain(1.05);
+    this.limIn = this.gain(0.5);
+    this.limiter = this.comp(-6, 12, 3, 0.002, 0.12);
+    this.limTrim = this.gain(LIM_TRIM);
     this.clip = c.createWaveShaper(); this.clip.curve = clipCurve(); this.clip.oversample = '4x';
     this.out = this.gain(0.95);
     this.mix.connect(this.djHP).connect(this.djLP).connect(this.glue).connect(this.satIn).connect(this.sat)
-      .connect(this.warm).connect(this.master).connect(this.limiter).connect(this.limTrim).connect(this.clip).connect(this.out);
+      .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.clip).connect(this.out);
     this.out.connect(c.destination);
     if (this.realtime) {
       this.analyser = c.createAnalyser();
@@ -146,12 +166,13 @@ export class Engine {
     a.vca = this.gain(0);
     a.hp = this.filter('highpass', 28);
     a.pre = this.gain(0.55);
-    a.shaper = c.createWaveShaper(); a.shaper.oversample = '2x';
+    a.shaper = c.createWaveShaper(); a.shaper.oversample = '4x';
+    a.tame = this.filter('lowpass', 9500, 0.5);
     a.post = this.gain(1);
     a.env = c.createConstantSource(); a.env.offset.value = 0;
     a.o1.connect(a.g1).connect(a.f1);
     a.o2.connect(a.g2).connect(a.f1);
-    a.f1.connect(a.f2).connect(a.vca).connect(a.hp).connect(a.pre).connect(a.shaper).connect(a.post).connect(this.ch.acid.input);
+    a.f1.connect(a.f2).connect(a.vca).connect(a.hp).connect(a.pre).connect(a.shaper).connect(a.tame).connect(a.post).connect(this.ch.acid.input);
     a.env.connect(a.f1.detune);
     a.env.connect(a.f2.detune);
     a.o1.start(0); a.o2.start(0); a.env.start(0);
@@ -486,18 +507,12 @@ export class Engine {
   }
 
   metallic(t, mul, out) {
-    const c = this.ctx;
-    const sum = this.gain(0.16);
-    const freqs = [205.3, 304.4, 369.6, 522.7, 540, 800];
-    const oscs = freqs.map((f) => {
-      const o = c.createOscillator(); o.type = 'square';
-      o.frequency.value = f * mul;
-      o.connect(sum);
-      o.start(t);
-      return o;
-    });
-    sum.connect(out);
-    return oscs;
+    const s = this.ctx.createBufferSource();
+    s.buffer = metallicBuf(mul, this.ctx.sampleRate);
+    s.loop = true;
+    s.connect(out);
+    s.start(t);
+    return [s];
   }
 
   hat(t, v, open) {
