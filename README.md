@@ -1,6 +1,6 @@
 # UNTERGRUND — techno synthesis engine
 
-Browser groovebox, 100% synthesized (Web Audio, no samples, no build step).
+Browser music studio: Web Audio synthesis plus bundled CC0 recorded drums, bass, piano, guitar, horns and strings.
 
 - 9 voices: 909-style kick (pitch env, click, drive, rumble bus), clap, snare, metallic hats/ride, perc, 303-style acid (accent/slide/drive, piano roll), poly chord stabs
 - 8 patterns (A–H), per-track length (polymeter), swing, chain/arrangement mode

@@ -29,7 +29,7 @@ export function autoTags(state, style) {
 export function autoDescription(state, style, bars) {
   const s = STYLES[style]?.name.toLowerCase() || 'techno';
   return [`${s[0].toUpperCase() + s.slice(1)} techno · ${state.bpm} BPM · ${KEYS[state.key]} ${state.scale || 'minor'} · ${bars} bars.`,
-    '', 'Every sound synthesized from scratch in UNTERGRUND — no samples.',
+    '', 'Made in UNTERGRUND from its own synths and royalty-free (CC0) recorded instruments.',
     'DJs: free download is on, play it out and tag me.', '', 'Follow for a new track every week.'].join('\n');
 }
 

@@ -20,8 +20,8 @@ const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'p
 const BAND_PLAY = {
   piano: { gain: 4, len: 4, min: 1.2, strum: 0.004, shift: 0, lo: 45, hi: 79, lp: 7000, rel: 0.18 },
   gtr: { gain: 4.4, len: 2.6, min: 0.6, strum: 0.014, shift: 0, lo: 40, hi: 71, lp: 5200, rel: 0.12 },
-  horn: { gain: 3.4, len: 1.2, min: 0.25, strum: 0.003, shift: 12, lo: 53, hi: 81, lp: 4800, rel: 0.09 },
-  str: { gain: 2.6, len: 2, min: 0.5, strum: 0, shift: 12, hold: true, lo: 55, hi: 84, lp: 6000, rel: 0.25 },
+  horn: { gain: 2.2, len: 1.2, min: 0.25, strum: 0.003, shift: 12, lo: 53, hi: 81, lp: 4800, rel: 0.09 },
+  str: { gain: 1.2, len: 2, min: 0.5, strum: 0, shift: 0, hold: true, lo: 55, hi: 79, lp: 4200, rel: 0.25 },
 };
 const LIM_TRIM = 1.4;
 
