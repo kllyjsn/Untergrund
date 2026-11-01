@@ -925,10 +925,24 @@ export class Engine {
     const amp = this.gain(0), pan = c.createStereoPanner();
     pan.pan.value = (hash(t * 13, 5) - 0.5) * 0.3;
     const tame = this.filter('lowpass', 1800 + 1200 * b + 800 * (1 - warmth), 0.5);
-    amp.connect(tame).connect(pan).connect(out);
-    const oscs = [];
+    // Character: soft tube-style saturation, a little per-note pitch drift, and vibrato that only
+    // blooms on held notes, the way a player leans into a sustained note.
+    const tubeAmt = 0.04 + 0.06 * warmth, tubeK = 1 + Math.round(tubeAmt * 100) / 100 * 14;
+    const tube = c.createWaveShaper(); tube.curve = driveCurve(tubeAmt);
+    amp.connect(tube).connect(this.gain(Math.tanh(tubeK) / tubeK)).connect(tame).connect(pan).connect(out);
+    const oscs = [], drift = (hash(t * 7, 11) - 0.5) * 9;
+    const vib = len > 0.28 ? c.createOscillator() : null, vibDepth = vib ? this.gain(0) : null;
+    if (vib) {
+      vib.frequency.value = 4.6 + hash(t, 12) * 1.2;
+      vibDepth.gain.setValueAtTime(0, t);
+      vibDepth.gain.linearRampToValueAtTime(0, t + 0.16);
+      vibDepth.gain.linearRampToValueAtTime(7 + 8 * (expression.feel ?? 0.4), t + Math.min(len, 0.6));
+      vib.connect(vibDepth);
+      oscs.push(vib);
+    }
     const osc = (type, freq, det = 0, g = 1, dst = null) => {
-      const o = c.createOscillator(); o.type = type; o.frequency.value = freq; o.detune.value = det;
+      const o = c.createOscillator(); o.type = type; o.frequency.value = freq; o.detune.value = det + drift;
+      if (vibDepth) vibDepth.connect(o.detune);
       const og = this.gain(g); o.connect(og).connect(dst); oscs.push(o); return o;
     };
     if (voice === 'analog') {
@@ -1066,8 +1080,14 @@ export class Engine {
     amp.gain.setValueAtTime(EPS, t);
     amp.gain.linearRampToValueAtTime(vel, t + 0.004);
     amp.gain.setTargetAtTime(0, t + 0.02, Math.max(0.05, len * 0.45));
+    // A quiet octave harmonic lets the 808 line read on small speakers without lifting the sub.
+    const h2 = c.createOscillator(); h2.type = 'triangle';
+    h2.frequency.setValueAtTime((sliding ? from : f * 1.9) * 2, t);
+    h2.frequency.exponentialRampToValueAtTime(f * 2, t + (sliding ? 0.09 : 0.03));
+    const h2g = this.gain(0.2);
     o.connect(sh).connect(lp).connect(amp).connect(this.ch.acid.input);
-    o.start(t); o.stop(end);
+    h2.connect(h2g).connect(lp);
+    for (const x of [o, h2]) { x.start(t); x.stop(end); }
     this.mono = { amp, f, end };
   }
 

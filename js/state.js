@@ -271,7 +271,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     Object.assign(params.acid, { wave: 0.05, cutoff: 260, reso: 2, envmod: 0.12, decay: 0.4, drive: 0.1, accent: 0.2 });
     Object.assign(params.ride, { tone: 4200, decay: 0.6 });
     master.duck = 0.6; master.revLevel = 0.6;
-    swing = 0.16;
+    swing = 0.3;
   } else if (style === 'minimal') {
     S.kick = range(STEPS, (i) => (i % 4 === 0 ? 1 : 0));
     S.ch = range(STEPS, (i) => (i % 4 === 2 ? 1 : 0));
@@ -417,7 +417,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     Object.assign(params.stab, { chord: pick(r, [7, 10]), octave: 0, cutoff: 3000, decay: 0.5, env: 0.4, rev: 0.3, dly: 0.25, level: 0.4 });
     Object.assign(params.acid, { tune: 0, cutoff: 300, decay: 0.6, drive: 0.2, level: 0.85 });
     master.duck = 0.25; master.humanize = 0.35;
-    swing = 0.2;
+    swing = 0.36;
   } else if (style === 'reggaeton') {
     S.kick = range(STEPS, (i) => (i % 4 === 0 ? (i === 0 ? 2 : 1) : 0));
     S.snare = pad16([0, 0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 1, 0]);
