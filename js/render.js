@@ -1,11 +1,13 @@
 import { Engine, Sequencer } from './engine.js';
 import { clone } from './state.js';
 import { encodeWav } from './dsp.js';
-import { loadLiveKit } from './livekit.js';
+import { loadLiveKit, loadBand, STAB_BAND } from './livekit.js';
 
 export async function renderBars(state, bars, { sampleRate = 48000, tail = 4 } = {}) {
   const snap = clone(state);
   if (Math.round(snap.master.kit || 0) === 1) await loadLiveKit();
+  const band = STAB_BAND[Math.round(snap.params.stab?.voice || 0)];
+  if (band) await Promise.all([loadBand(band), band === 'piano' && loadBand('pianosoft')]);
   const sd = 60 / snap.bpm / 4;
   const steps = bars * 16;
   const start = 0.05;

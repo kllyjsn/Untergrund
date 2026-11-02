@@ -29,7 +29,7 @@ export function autoTags(state, style) {
 export function autoDescription(state, style, bars) {
   const s = STYLES[style]?.name.toLowerCase() || 'techno';
   return [`${s[0].toUpperCase() + s.slice(1)} techno · ${state.bpm} BPM · ${KEYS[state.key]} ${state.scale || 'minor'} · ${bars} bars.`,
-    '', 'Every sound synthesized from scratch in UNTERGRUND — no samples.',
+    '', 'Made in UNTERGRUND from its own synths and royalty-free (CC0) recorded instruments.',
     'DJs: free download is on, play it out and tag me.', '', 'Follow for a new track every week.'].join('\n');
 }
 
@@ -186,7 +186,7 @@ export function openPublish({ getState, getStyle, render, toast, audio = null, t
 
   function shareBox(track, title) {
     const url = track.permalink_url;
-    const text = `New track: ${title} — ${state.bpm} BPM techno, synthesized from scratch.`;
+    const text = `New track: ${title} — ${state.bpm} BPM, made in UNTERGRUND.`;
     const copy = (s, msg) => navigator.clipboard?.writeText(s).then(() => toast(msg), () => toast('Copy failed'));
     const embed = `<iframe width="100%" height="166" scrolling="no" frameborder="no" allow="autoplay" src="https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&color=%23ff2b2b"></iframe>`;
     const link = (label, href) => h('a', { class: 'btn ghost', href, target: '_blank', rel: 'noopener' }, label);

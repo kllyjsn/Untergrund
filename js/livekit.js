@@ -12,8 +12,38 @@ export const LIVE_FILES = [
   ...BASS_NOTES.flatMap(([n]) => [`bass_${n}_a`, `bass_${n}_b`]),
 ];
 
+// Recorded chord instruments, keyed by the MIDI note each sample was played at.
+export const BAND = {
+  piano: [48, 52, 57, 60, 64, 67, 71, 74, 77, 81, 84, 88],
+  pianosoft: [48, 52, 57, 60, 64, 67, 71, 74, 77, 81, 84, 88],
+  gtr: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
+  horn: [53, 58, 62, 65, 67, 70, 74, 77, 81, 84],
+  str: [55, 57, 59, 62, 66, 69, 72, 76, 79, 83, 86],
+};
+// STAB voice index -> recorded instrument.
+export const STAB_BAND = { 7: 'piano', 8: 'gtr', 9: 'horn', 10: 'str' };
+export const BAND_FILES = Object.entries(BAND).flatMap(([k, ns]) => ns.map((n) => `${k}_${n}`));
+
 const BASE = new URL('../samples/live/', import.meta.url);
 let buffers = null, loading = null;
+const band = {}, bandLoading = {};
+
+export const bandKit = (name) => band[name] || null;
+
+export function loadBand(name) {
+  if (name === 'piano') loadBand('pianosoft');
+  if (band[name]) return Promise.resolve(band[name]);
+  if (bandLoading[name]) return bandLoading[name];
+  if (!BAND[name] || typeof fetch !== 'function' || typeof OfflineAudioContext === 'undefined') return Promise.resolve(null);
+  const dec = new OfflineAudioContext(1, 1, 44100);
+  bandLoading[name] = Promise.all(BAND[name].map(async (m) => {
+    const res = await fetch(new URL(`${name}_${m}.wav`, BASE));
+    if (!res.ok) throw new Error(`${name}_${m}: HTTP ${res.status}`);
+    return [m, await dec.decodeAudioData(await res.arrayBuffer())];
+  })).then((entries) => (band[name] = entries))
+    .catch((err) => { console.warn(`${name} samples unavailable, using synth voice`, err); return null; });
+  return bandLoading[name];
+}
 
 export const liveKit = () => buffers;
 

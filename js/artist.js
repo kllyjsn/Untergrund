@@ -24,7 +24,7 @@ const CHAINS = [
 
 export const defaultArtistProfile = () => ({
   name: 'UNTERGRUND',
-  manifesto: 'Machine music from below. Every sound synthesized. Every set alive.',
+  manifesto: 'Machine music from below. Synths and real players. Every set alive.',
   cadence: 7,
   darkness: 78,
   hypnosis: 72,
