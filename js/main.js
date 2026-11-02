@@ -11,6 +11,8 @@ import { openClub, loadAvatar } from './club.js';
 import { saveTrack, trackTitle, recentTracks, fetchTrack } from './crate.js';
 import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
 import { roomTransportPosition, transportResync } from './room-sync.js';
+import { concertPanel, concertBar, preloadScore, loadPiano } from './concert.js';
+import { compose } from './classical.js';
 
 let state = load() || defaultState();
 let ctx = null, engine = null, seq = null, timer = null, setRec = null;
@@ -93,8 +95,9 @@ function schedule() {
   if (!playing) return;
   const offset = Date.now() / 1000 - ctx.currentTime;
   clockOffset = clockOffset === null ? offset : clockOffset + (offset - clockOffset) * 0.05;
-  const target = transportOrigin / 1000 + abs * engine.stepDur - clockOffset;
-  const fix = transportResync(target, nextTime, ctx.currentTime, engine.stepDur);
+  const base = 60 / state.bpm / 4;
+  const target = transportOrigin / 1000 + abs * base - clockOffset;
+  const fix = transportResync(target, nextTime, ctx.currentTime, base);
   if (fix) {
     for (let i = 0; i < fix.skip; i++, abs++) { artistTick(abs); seq.advanceBar(abs); }
     nextTime = fix.nextTime;
@@ -103,7 +106,10 @@ function schedule() {
     artistTick(abs);
     const pat = seq.tick(abs, nextTime);
     uiQueue.push({ abs, t: nextTime, pat });
-    nextTime += engine.stepDur;
+    // A score breathes (rubato): the transport clock follows the stretched step, not the metronome.
+    const sd = engine.stepDur;
+    nextTime += sd;
+    transportOrigin += (sd - base) * 1000;
     abs++;
   }
 }
@@ -123,6 +129,7 @@ function play({ step = 0, delay = 0.06 } = {}) {
   clockOffset = null;
   transportOrigin = Date.now() + Math.max(0.01, delay) * 1000 - abs * (15000 / state.bpm);
   playing = true;
+  if (pat().score) preloadScore(pat().score);
   timer.postMessage('start');
   schedule();
   document.body.classList.add('playing');
@@ -535,6 +542,7 @@ function toggleStudio() {
 }
 
 const STYLE_HUE = {
+  symphony: '#e8c27a', concerto: '#f0d9a8', nocturne: '#9fb4ff',
   hypnotic: '#c6ff2b', industrial: '#ff6a3d', acid: '#f2ff3a', dub: '#3ad6c6', peak: '#ff4d86', hardtechno: '#ff3b3b',
   deephouse: '#6f9bff', minimal: '#e4e4ea', ukg: '#b892ff', euphoric: '#ff9ad5', neosoul: '#ffb347', boombap: '#dca86e',
   breaks: '#ff9340', electro: '#2bd9ff', dnb: '#7dff9a', trance: '#a98bff', ambient: '#8fd8ff',
@@ -601,7 +609,7 @@ function stopPreview() {
   }
 }
 
-function selectStyle(id) { style = id; build(); }
+function selectStyle(id) { style = id; if (STYLES[id].family === 'CLASSICAL') loadPiano(); build(); }
 function selectFamily(f) {
   family = f;
   localStorage.setItem('untergrund.family', f);
@@ -613,7 +621,12 @@ function generateNow() {
   generatedAt = performance.now();
   navigator.vibrate?.(12);
   doGenerateSet();
-  if (!playing) play();
+  if (playing) return;
+  if (!pat().score) return play();
+  // Seat the orchestra before the downbeat: unlock audio inside the tap, start once the recordings are in.
+  ensureAudio();
+  toast('Seating the orchestra…');
+  preloadScore(pat().score).then(() => { if (!playing) play(); });
 }
 function surprise() {
   const ids = Object.keys(STYLES).filter((id) => id !== style);
@@ -663,10 +676,12 @@ function statusLine() {
 function buildNowPlaying(primary) {
   const a = state.artist || {};
   const sid = STYLES[a.style] ? a.style : style;
-  const chain = state.chainOn ? parseChain(state.chain) : [];
+  const sc = pat()?.score ? compose(pat().score) : null;
+  const chain = sc ? sc.sections : state.chainOn ? parseChain(state.chain) : [];
+  ui.npScore = sc;
   ui.npCanvas = h('canvas', { class: 'np-viz', width: 1200, height: 220 });
-  ui.npSection = h('b', {}, chain.length ? sectionName(sid, chain[0]) : `PATTERN ${PATTERN_NAMES[state.current]}`);
-  ui.npBar = h('span', {}, chain.length ? `BAR 1 / ${chain.length}` : '');
+  ui.npSection = h('b', {}, sc ? sc.sections[0].name : chain.length ? sectionName(sid, chain[0]) : `PATTERN ${PATTERN_NAMES[state.current]}`);
+  ui.npBar = h('span', {}, sc ? `BAR 1 / ${sc.bars}` : chain.length ? `BAR 1 / ${chain.length}` : '');
   ui.npCells = chain.map((p) => h('i', { class: 'np-cell' }));
   ui.npChain = chain;
   ui.npStyle = sid;
@@ -674,7 +689,7 @@ function buildNowPlaying(primary) {
     h('div', { class: 'now-playing' },
       h('span', { class: 'np-eyebrow' }, h('i', { class: 'np-dot' }), 'NOW PLAYING'),
       h('h1', {}, a.title || 'Untitled set'),
-      h('div', { class: 'np-meta' }, `${a.name || 'UNTERGRUND'} · ${STYLES[sid].name} · ${state.bpm} BPM · ${KEYS[state.key]} ${SCALES[state.scale]?.name || 'MINOR'}`),
+      h('div', { class: 'np-meta' }, `${a.name || 'UNTERGRUND'} · ${STYLES[sid].name} · ${state.bpm} BPM · ${KEYS[state.key]} ${sc ? (pat().score.mode === 'm' ? 'MINOR' : 'MAJOR') : SCALES[state.scale]?.name || 'MINOR'}`),
       ui.npCanvas,
       h('div', { class: 'np-progress' }, h('div', { class: 'np-label' }, ui.npSection, ui.npBar), h('div', { class: 'np-cells' }, ui.npCells))),
     h('div', { class: 'generate-actions np-actions' },
@@ -689,6 +704,17 @@ function buildNowPlaying(primary) {
 function updateNowPlaying(ev) {
   const cells = ui.npCells;
   if (!cells?.length || !cells[0].isConnected) return;
+  const sc = ui.npScore;
+  if (sc) {
+    const bar = Math.floor(ev.abs / 16) % sc.bars, j = sc.sections.findLastIndex((x) => x.at <= bar);
+    concertBar(bar);
+    if (cells.bar === bar) return;
+    cells.bar = bar;
+    cells.forEach((c, k) => { c.classList.toggle('now', k === j); c.classList.toggle('past', k < j); });
+    ui.npSection.textContent = sc.sections[j].name;
+    ui.npBar.textContent = `BAR ${bar + 1} / ${sc.bars}`;
+    return;
+  }
   const i = Math.floor(ev.abs / 16) % ui.npChain.length;
   if (cells.idx === i) return;
   cells.idx = i;
@@ -755,12 +781,14 @@ function buildGenerateHome() {
       h('button', { class: 'btn ghost', onclick: () => startArtistLive() }, 'ARTIST LIVE')),
     h('div', { class: 'generate-status' }, statusLine()),
   ];
+  const classical = STYLES[style].family === 'CLASSICAL' || !!(playing && pat()?.score);
+  const concert = classical ? concertPanel({ state: () => state, engine: () => engine, ensureAudio, persist, score: pat()?.score || null }) : null;
   const recent = recentTracks().slice(0, 8);
   const recents = recent.length ? h('div', { class: 'recents' },
     h('div', { class: 'recents-label' }, 'RECENT TRACKS'),
     h('div', { class: 'recents-row' }, recent.map((t) => h('button', { class: 'recent', style: `--hue:${hue(t.style)}`, onclick: () => openRecent(t) },
       h('i'), h('b', {}, t.title || 'Untitled'), h('span', {}, [STYLES[t.style]?.name, t.bpm && `${t.bpm} BPM`].filter(Boolean).join(' · ')))))) : null;
-  const home = h('section', { class: 'generate-home' + (showNp ? ' is-playing' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` }, left, picker, recents);
+  const home = h('section', { class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` }, left, picker, concert, recents);
   ui.home = home;
   return home;
 }
