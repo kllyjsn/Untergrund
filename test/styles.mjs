@@ -137,10 +137,14 @@ console.log('arrangement dynamics passed');
   assert.equal(midi(10) % 12, 11, 'flat seven under MAJ9 moves to the major seventh');
   assert.equal(midi(7) % 12, 7, 'chord tones stay');
   assert.equal(midi(-1, true) % 12, 11, 'approach notes stay chromatic');
+  let prev = null;
   for (const [root, iv] of CHORDS.map((c, i) => [47 + i, c.iv])) {
-    const g = guitarGrip(root, iv);
+    const g = guitarGrip(root, iv, prev);
     assert(g[0] >= 40 && g[0] <= 51 && g[1] - g[0] >= 7, 'guitar root on a low string with air above it');
-    for (let k = 2; k < g.length; k++) assert(g[k] - g[k - 1] >= 3, `no half-step rub in ${g}`);
+    for (let k = 2; k < g.length; k++) assert(g[k] - g[k - 1] >= 3, `no cluster in ${g}`);
+    if (!CHORDS.find((c) => c.iv === iv).name.match(/CLUS|ADD/)) for (const a of g) for (const b of g) assert(![1, 13].includes(b - a), `no half-step or flat-nine rub in ${g}`);
+    assert(g[g.length - 1] - g[0] <= 26 && g[g.length - 1] <= 76, `grip within reach: ${g}`);
+    prev = g;
   }
   console.log('bass/chord agreement and guitar grips passed');
 }

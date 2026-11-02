@@ -52,29 +52,38 @@ function loopPoints(buf) {
   return out;
 }
 
-// How a guitarist grips a chord: the root on a low string, a fifth or more of air above it, then the other
-// tones stacked at least a minor third apart (the fifth is left out of five-note chords), so the shape
-// never rubs two neighbouring strings a half step apart.
-export function guitarGrip(root, iv) {
+// How a guitarist grips a chord: the root on a low string with a fifth or more of air above it, the other
+// tones (the fifth left out of five-note chords) within a hand's reach, never a half step or flat nine apart
+// anywhere in the shape, and as close as possible to the last grip so the voices glide instead of jumping.
+export function guitarGrip(root, iv, prev = null) {
   let bass = root;
   while (bass > 51) bass -= 12;
   while (bass < 40) bass += 12;
-  const rest = [...new Set(iv.slice(1).map((n) => ((n % 12) + 12) % 12))].filter((pc) => pc !== 0 && !(iv.length > 4 && pc === 7));
-  const out = [bass];
-  let floor = bass + 7;
-  while (rest.length) {
-    let best = -1, bestM = Infinity;
-    rest.forEach((pc, i) => { let m = bass + pc; while (m < floor) m += 12; if (m < bestM) { bestM = m; best = i; } });
-    out.push(bestM);
-    rest.splice(best, 1);
-    floor = bestM + 3;
-  }
-  return out;
+  const pcs = [...new Set(iv.slice(1).map((n) => ((n % 12) + 12) % 12))].filter((pc) => pc !== 0 && !(iv.length > 4 && pc === 7));
+  let best = null, bestCost = Infinity;
+  const pick = (k, chosen) => {
+    if (k === pcs.length) {
+      const g = [bass, ...chosen].sort((x, y) => x - y);
+      if (g[1] - g[0] < 7 || g[g.length - 1] - bass > 26 || g[g.length - 1] > 76) return;
+      for (let i = 2; i < g.length; i++) if (g[i] - g[i - 1] < 3) return;
+      for (let i = 1; i < g.length; i++) for (let j = 0; j < i; j++) if ([1, 13].includes(g[i] - g[j])) return;
+      const top = g[g.length - 1];
+      let cost = (top - bass) * 0.15 + Math.max(0, 62 - top) + Math.max(0, top - 71);
+      if (prev) cost += 2 * Math.abs(top - prev[prev.length - 1]) + g.slice(1).reduce((c, m) => c + Math.min(...prev.slice(1).map((q) => Math.abs(q - m))), 0) * 0.5;
+      if (cost < bestCost) { bestCost = cost; best = g; }
+      return;
+    }
+    for (let m = bass + pcs[k]; m <= bass + 26; m += 12) if (m >= bass + 5) pick(k + 1, [...chosen, m]);
+  };
+  pick(0, []);
+  // No shape satisfies every rule (a cluster chord): stack the tones a third or more apart instead.
+  if (!best) { best = [bass]; let floor = bass + 7; for (const pc of [...pcs].sort((x, y) => x - y)) { let m = bass + pc; while (m < floor) m += 12; best.push(m); floor = m + 3; } best.sort((x, y) => x - y); }
+  return best;
 }
 
 const BAND_PLAY = {
   piano: { gain: 4, len: 4, min: 1.2, strum: 0.004, shift: 0, lo: 45, hi: 79, lp: 7000, rel: 0.18 },
-  gtr: { gain: 4.4, len: 2.6, min: 0.6, strum: 0.008, shift: 0, lo: 40, hi: 74, lp: 5200, rel: 0.12, grip: true, even: 0.35 },
+  gtr: { gain: 4.4, len: 2.6, min: 0.6, strum: 0.006, shift: 0, lo: 40, hi: 74, lp: 5200, rel: 0.12, grip: true, even: 0.35 },
   horn: { gain: 2.2, len: 1.2, min: 0.25, strum: 0.003, shift: 12, lo: 53, hi: 81, lp: 4800, rel: 0.09 },
   str: { gain: 1.2, len: 2, min: 0.5, strum: 0, shift: 0, hold: true, lo: 55, hi: 79, lp: 4200, rel: 0.25 },
 };
@@ -914,21 +923,34 @@ export class Engine {
     const tone = Math.max(-6, Math.min(3, 3 * Math.log2(p.cutoff / 1500)));
     const dur = Math.max(R.hold ? this.stepDur * 4 : R.min, p.decay * R.len);
     const chord = R.grip && iv.length > 1;
-    // A guitarist alternates down- and upstrokes; other players roll the chord either way.
-    const up = chord ? (this.stroke = !this.stroke) === false : hash(t, 21) > 0.5;
+    // A guitarist strums down on the beat and up on the offbeats; other players roll the chord either way.
+    const up = chord ? (this.step == null ? (this.stroke = !this.stroke) === false : this.step % 4 !== 0) : hash(t, 21) > 0.5;
     const articulation = Math.max(0, Math.min(1, p.env ?? 0.5));
     const strum = R.strum * (0.45 + articulation * 1.8), even = R.even ?? 1;
-    const notes = chord ? guitarGrip(root, iv) : iv.map((n) => root + n);
-    // Each string rings until it is struck again: the new chord damps the last one instead of piling on it.
-    if (chord) { for (const h of this.gripHeld || []) { h.g.gain.cancelScheduledValues(t); h.g.gain.setTargetAtTime(0, t, 0.04); } this.gripHeld = []; }
+    const grip = chord ? guitarGrip(root, iv, this.lastGrip) : iv.map((n) => root + n);
+    const same = chord && this.lastGrip && grip.join() === this.lastGrip.join();
+    // An upstroke only catches the top strings, a little softer.
+    const notes = chord && up && grip.length > 3 ? grip.slice(-3) : grip, lift = chord && up ? 0.8 : 1;
+    // A strummer starts the stroke a little early so the middle of the chord, not its last string, lands on the beat.
+    const lead = chord ? Math.min((notes.length - 1) * strum * 0.5, Math.max(0, t - this.ctx.currentTime)) : 0;
+    // A struck string stops its last note; on an upstroke of the same grip the low strings ring on.
+    if (chord) {
+      const keep = [];
+      for (const h of this.gripHeld || []) {
+        if (same && !notes.includes(h.m)) { keep.push(h); continue; }
+        h.g.gain.cancelScheduledValues(t - lead); h.g.gain.setTargetAtTime(0, t - lead, 0.025);
+      }
+      this.gripHeld = keep; this.lastGrip = grip;
+    }
     notes.forEach((m, k) => {
       const order = up ? notes.length - 1 - k : k;
-      const at = t + order * strum + (hash(t * 3 + k, 22) - 0.5) * (0.003 + articulation * 0.006) * even;
+      const at = t - lead + order * strum + (hash(t * 3 + k, 22) - 0.5) * (0.003 + articulation * 0.006) * even;
       const sweep = notes.length > 1 ? order / (notes.length - 1) - 0.5 : 0;
       const accent = 1 + sweep * (articulation - 0.5) * 0.35;
-      const lvl = (v * R.gain * accent * (1 - 0.15 * even + 0.3 * even * hash(t + k, 23))) / Math.sqrt(notes.length);
-      const h = this.recordedNote(set, at, lvl, m + R.shift, dur, out, tone, kind, v);
-      if (chord && h) this.gripHeld.push(h);
+      const lvl = (lift * v * R.gain * accent * (1 - 0.15 * even + 0.3 * even * hash(t + k, 23))) / Math.sqrt(grip.length);
+      // A single-note fill rings briefly and is stopped by the next chord like any other string.
+      const h = this.recordedNote(set, at, lvl, m + R.shift, R.grip && !chord ? Math.min(dur, 0.9) : dur, out, tone, kind, v);
+      if (R.grip && h) { h.m = m; (this.gripHeld ||= []).push(h); }
     });
   }
 
@@ -1238,7 +1260,8 @@ export class Engine {
   bass(t, st, sd, holdNext) {
     const c = this.ctx, p = this.state.params.acid;
     const note = this.bassMidi(st), f = midiHz(note), subF = midiHz(this.bassMidi(st, 36, 38));
-    const len = holdNext ? sd * 2 : sd * (0.9 + p.decay * 2);
+    // A chromatic approach note leads into the next bar and gets out of the way when the chord lands.
+    const len = st.ap ? sd * 0.9 : holdNext ? sd * 2 : sd * (0.9 + p.decay * 2);
     if (Math.round(this.state.master.kit || 0) === 1) {
       const kit = liveKit();
       if (kit) return this.sampledBass(kit, t, note, len, st.a);
@@ -1502,6 +1525,7 @@ export class Sequencer {
     const pat = s.patterns[this.cur];
     const bar = Math.floor(abs / 16), vary = s.master.vary || 0;
     e.harm = pat.prog?.length ? pat.prog[bar % pat.prog.length] : null;
+    e.step = abs;
     const sd = e.stepDur;
     const tt = t + (abs % 2 ? s.swing * sd * 0.5 : 0);
     const pk = pocketOf(s.master);

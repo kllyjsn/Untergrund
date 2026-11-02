@@ -1,0 +1,84 @@
+<!doctype html><meta charset="utf-8"><title>listen</title><body>
+<script type="module">
+// Renders soloed stems of one generated song plus a log of every note the engine actually played,
+// for test/listen.py to measure. ?code=/path/to/checkout renders another copy of the code (A/B).
+const q = new URLSearchParams(location.search);
+const code = q.get('code') || '';
+const { defaultState, generate, applyOverrides, arrangement } = await import(code + '/js/state.js');
+const { renderBars, bufferToWav } = await import(code + '/js/render.js');
+const { Engine, Sequencer } = await import(code + '/js/engine.js');
+const { CHORDS } = await import(code + '/js/params.js');
+const seed = +(q.get('seed') || 42), style = q.get('style') || 'neosoul', tag = q.get('tag') || `${style}${seed}`;
+const bars = +(q.get('bars') || 8), startBar = +(q.get('start') || 0), pat = q.get('pat');
+const stems = (q.get('stems') || 'full,stab,acid,stab+acid').split(',');
+const P = Engine.prototype, S = Sequencer.prototype, orig = {};
+let log, ctxTag = null, flags = {};
+const wrap = (obj, k, f) => { const o = Object.getOwnPropertyDescriptor(obj, k).value; orig[k] = o; obj[k] = function (...a) { return f.call(this, o, a); }; };
+wrap(P, 'recordedNote', function (o, a) {
+  const [set, , , , , , , kind] = a, prev = ctxTag;
+  ctxTag = { set, kind, src: ctxTag?.src || 'note' };
+  try { return o.apply(this, a); } finally { ctxTag = prev; }
+});
+wrap(P, 'recorded', function (o, a) {
+  if (flags.nochord) return;
+  const prev = ctxTag, held = [...(this.gripHeld || [])], t = a[2] - 0.03; ctxTag = { src: 'chord' };
+  try { return o.apply(this, a); } finally {
+    ctxTag = prev;
+    // Strings the new chord damped stop sounding then, not at their scheduled length.
+    for (const h of held) if (h.__note && !(this.gripHeld || []).includes(h)) h.__note.dur = Math.min(h.__note.dur, t - h.__note.t + 0.06);
+  }
+});
+wrap(P, 'hook', function (o, a) {
+  if (flags.nohook) return;
+  const prev = ctxTag; ctxTag = { src: 'hook' };
+  try { return o.apply(this, a); } finally { ctxTag = prev; }
+});
+wrap(P, 'sampledBass', function (o, a) {
+  const [, t, m, len] = a; log.notes.push({ t, dur: len, midi: m, kind: 'bass', src: 'bass' });
+  const prev = ctxTag; ctxTag = { skip: true };
+  try { return o.apply(this, a); } finally { ctxTag = prev; }
+});
+wrap(P, 'bass', function (o, a) {
+  const [t, st, sd, hold] = a;
+  if (Math.round(this.state.master.kit || 0) !== 1) log.notes.push({ t, dur: sd, midi: this.bassMidi(st), kind: 'synthbass', src: 'bass' });
+  return o.apply(this, a);
+});
+wrap(P, 'playBuf', function (o, a) {
+  const [buf, t, level, , rate = 1, dur = 0] = a;
+  if (ctxTag?.set) {
+    const c = ctxTag.set.find(([, b]) => b === buf)?.[0];
+    if (c != null) {
+      const note = { t, dur, midi: c + 12 * Math.log2(rate), center: c, level, kind: ctxTag.kind, src: ctxTag.src };
+      log.notes.push(note); const r = o.apply(this, a); if (r) r.__note = note; return r;
+    }
+  }
+  return o.apply(this, a);
+});
+wrap(S, 'tick', function (o, a) {
+  const r = o.apply(this, a), [abs, t] = a;
+  if (abs % 16 === 0) { const h = this.e.harm; log.bars.push({ abs, t, harm: h, iv: CHORDS[h ? h.c : Math.round(this.s.params.stab.chord)].iv, root: (this.s.key + (h ? h.r : 0)) % 12, chord: CHORDS[h ? h.c : Math.round(this.s.params.stab.chord)].name }); }
+  return r;
+});
+const make = () => {
+  const s = defaultState(), g = generate(style, seed);
+  applyOverrides(s, g); s.patterns = arrangement(g.pattern, seed);
+  if (pat != null) s.current = +pat;
+  return s;
+};
+let meta;
+for (const stem of stems) {
+  const s = make();
+  const parts = stem.split('+');
+  flags = { nohook: parts.includes('-hook'), nochord: parts.includes('-chord') };
+  if (stem !== 'full') for (const x of parts) if (!x.startsWith('-')) s.solos[x] = true;
+  log = { notes: [], bars: [] };
+  const buf = await renderBars(s, bars, { startBar });
+  await fetch(`/upload?name=L_${tag}_${stem.replace(/\+/g, '_')}.wav`, { method: 'POST', body: await bufferToWav(buf).arrayBuffer() });
+  if (stem === 'full') meta = log;
+  if (!meta && stem === stems[stems.length - 1]) meta = log;
+}
+const s = make();
+const info = { seed, style, bpm: s.bpm, swing: s.swing, key: s.key, stepDur: 60 / s.bpm / 4, stabVoice: s.params.stab.voice, bassVoice: s.params.acid.voice, kit: s.master.kit, stems, chords: CHORDS, ...meta };
+await fetch(`/upload?name=L_${tag}_notes.json`, { method: 'POST', body: JSON.stringify(info) });
+document.title = 'DONE ' + tag;
+</script>
