@@ -2,6 +2,7 @@
 // 16th-note steps) with functional harmony, periods that close on half and perfect cadences, a motif
 // that is stated, sequenced and developed, voice-led accompaniment, and orchestration that changes by section.
 import { rng } from './dsp.js';
+import { pieceScore, waitingScore } from './repertoire.js';
 
 const MAJ = [0, 2, 4, 5, 7, 9, 11], MIN = [0, 2, 3, 5, 7, 8, 10];
 const ROMAN = { i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7 };
@@ -456,7 +457,10 @@ function tempoMap(bars, sections, depth) {
 
 const cache = new Map();
 // { bars, sections, at: notes grouped by the step they start in }
-export function compose({ form = 'symphony', seed = 1, mode = 'M' } = {}) {
+// A REPERTOIRE spec { piece } returns that masterwork as performed (or a silent bar while it loads).
+export function compose(spec = {}) {
+  if (spec.piece) return pieceScore(spec.piece) || waitingScore();
+  const { form = 'symphony', seed = 1, mode = 'M' } = spec;
   const id = `${form}:${seed}:${mode}`;
   if (cache.has(id)) return cache.get(id);
   const r = rng(seed | 0);
