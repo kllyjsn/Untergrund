@@ -6,8 +6,9 @@ import { sheet } from './sets.js';
 import { drawArtwork } from './artwork.js';
 import { encodeSong, songLink, embedCode, creditLine } from './share-code.js';
 import { exportVideo, videoMime } from './video.js';
+import { track as trackEvent, reportError } from './analytics.js';
 
-export const track = (name, props = {}) => { try { window.untergrundTrack?.(name, props); } catch {} };
+export const track = (name, props = {}) => { try { trackEvent(name, props); window.untergrundTrack?.(name, props); } catch {} };
 const isPhone = () => matchMedia('(max-width: 760px), (pointer: coarse)').matches;
 const seedOf = (str) => [...String(str)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'untergrund';
@@ -40,7 +41,6 @@ export function countRemix(id) {
 }
 
 export function openShare({ song, toast, hue, download, source = 'studio', beforeExport }) {
-  track('share_opened', { source, style: song.style });
   let ctrl = null, videoUrl = '';
   const { body } = sheet('SHARE', { onClose: () => { ctrl?.abort(); if (videoUrl) URL.revokeObjectURL(videoUrl); } });
   const linkBox = h('input', { class: 'inp share-link', readonly: '', value: 'Making your link…', 'aria-label': 'Song link' });
@@ -54,9 +54,9 @@ export function openShare({ song, toast, hue, download, source = 'studio', befor
 
   const linkBtns = h('div', { class: 'share-row' },
     canShare && h('button', { class: 'btn', onclick: withLinks(async (l) => {
-      try { await navigator.share({ title: song.title, text, url: l.link }); track('share_link', { method: 'native' }); } catch {}
+      try { await navigator.share({ title: song.title, text, url: l.link }); track('share_link_copied', { what: 'song_sent' }); } catch {}
     }) }, 'SEND'),
-    h('button', { class: 'btn ghost', onclick: withLinks((l) => { copy(l.link, toast, 'Link'); track('share_link', { method: 'copy' }); }) }, 'COPY LINK'));
+    h('button', { class: 'btn ghost', onclick: withLinks((l) => { copy(l.link, toast, 'Link'); track('share_link_copied', { what: 'song' }); }) }, 'COPY LINK'));
 
   let seconds = 15;
   const lenBtns = [15, 30].map((s) => h('button', { class: 'family-tab' + (s === seconds ? ' on' : ''), onclick: () => {
@@ -71,9 +71,7 @@ export function openShare({ song, toast, hue, download, source = 'studio', befor
     ctrl = new AbortController();
     beforeExport?.();
     make.textContent = 'CANCEL'; preview.innerHTML = ''; progress.classList.add('on');
-    const t0 = performance.now();
-    track('video_export_started', { seconds, style: song.style });
-    try {
+        try {
       const out = await exportVideo(song, { seconds, hue, signal: ctrl.signal, onProgress: (p, msg) => { bar.style.width = `${Math.round(p * 100)}%`; status.textContent = msg; } });
       if (videoUrl) URL.revokeObjectURL(videoUrl);
       videoUrl = URL.createObjectURL(out.blob);
@@ -83,14 +81,14 @@ export function openShare({ song, toast, hue, download, source = 'studio', befor
       preview.append(h('video', { src: videoUrl, controls: '', playsinline: '', loop: '', class: 'share-video' }),
         h('div', { class: 'share-row' },
           shareable && h('button', { class: 'btn accent', onclick: async () => {
-            try { await navigator.share({ files: [file], title: song.title, text: `${text} · untergrund.sh` }); track('video_shared', { method: 'native', seconds }); } catch {}
+            try { await navigator.share({ files: [file], title: song.title, text: `${text} · untergrund.sh` }); track('share_link_copied', { what: 'video_sent' }); } catch {}
           } }, 'POST VIDEO'),
-          h('button', { class: 'btn' + (shareable ? ' ghost' : ' accent'), onclick: () => { download(out.blob, name); track('video_shared', { method: 'download', seconds }); } }, 'SAVE VIDEO')));
+          h('button', { class: 'btn' + (shareable ? ' ghost' : ' accent'), onclick: () => { download(out.blob, name); track('share_link_copied', { what: 'video_saved' }); } }, 'SAVE VIDEO')));
       status.textContent = `Ready: ${seconds} seconds, 1080×1920 ${out.ext.toUpperCase()}.${shareable ? '' : ' Save it, then post it from your phone.'}`;
-      track('video_export_done', { seconds, ext: out.ext, ms: Math.round(performance.now() - t0) });
+      track('video_export', { kind: `${seconds}s`, genre: song.style });
     } catch (err) {
       status.textContent = err.name === 'AbortError' ? 'Cancelled.' : `Could not make the video: ${err.message}`;
-      if (err.name !== 'AbortError') { console.error(err); track('video_export_failed', { message: String(err.message).slice(0, 80) }); }
+      if (err.name !== 'AbortError') { console.error(err); reportError(err, { kind: 'video_export' }); }
     }
     ctrl = null; make.textContent = 'MAKE VIDEO'; progress.classList.remove('on');
   } }, 'MAKE VIDEO');
@@ -103,7 +101,7 @@ export function openShare({ song, toast, hue, download, source = 'studio', befor
     h('section', { class: 'share-sec' }, h('h3', {}, 'VIDEO'), h('div', { class: 'share-row' }, ...lenBtns), make, progress, status, preview),
     h('section', { class: 'share-sec' }, h('h3', {}, 'LINK'), h('p', { class: 'pub-note' }, 'Anyone who opens it hears the song right away. No account needed.'), linkBox, linkBtns),
     h('section', { class: 'share-sec' }, h('h3', {}, 'EMBED'), h('p', { class: 'pub-note' }, 'A small player for your site or blog.'),
-      h('button', { class: 'btn ghost', onclick: withLinks((l) => { copy(embedCode(l.embed, song.title), toast, 'Embed code'); track('share_embed'); }) }, 'COPY EMBED CODE'))));
+      h('button', { class: 'btn ghost', onclick: withLinks((l) => { copy(embedCode(l.embed, song.title), toast, 'Embed code'); track('share_link_copied', { what: 'embed' }); }) }, 'COPY EMBED CODE'))));
 }
 
 // Full-screen landing for a shared song: one big PLAY (the first tap also unlocks audio), then REMIX.
@@ -122,7 +120,7 @@ export function openSharedLanding({ load, play, stop, remix, share, close, isPla
   const sync = () => { const on = isPlaying(); ov.classList.toggle('on', on); label.textContent = on ? 'STOP' : 'PLAY'; playBtn.setAttribute('aria-label', on ? 'Stop' : 'Play'); };
   playBtn.onclick = () => {
     if (!song) return;
-    if (isPlaying()) stop(); else { play(song); track('shared_play', { style: song.style }); }
+    if (isPlaying()) stop(); else play(song);
     sync();
   };
   remixBtn.onclick = () => { if (!song) return; exit(); remix(song); };
@@ -142,7 +140,7 @@ export function openSharedLanding({ load, play, stop, remix, share, close, isPla
     meta.textContent = `${s.artist} · ${STYLES[s.style]?.name || ''} · ${s.state.bpm} BPM`;
     credit.textContent = [creditLine(s.remixOf), s.remixes ? `${s.remixes} remix${s.remixes === 1 ? '' : 'es'}` : ''].filter(Boolean).join(' · ');
     [playBtn, remixBtn, shareBtn].forEach((b) => b.removeAttribute('disabled'));
-    track('shared_opened', { style: s.style, short: !!s.trackId });
+    track('shared_open', { kind: s.trackId ? 'short' : 'code', genre: s.style });
   }).catch(() => {
     title.textContent = 'This song link is broken.';
     meta.textContent = 'It may have been cut off when it was copied.';

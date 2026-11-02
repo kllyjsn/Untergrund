@@ -285,7 +285,7 @@ function remixSong(song, autoplay = playing) {
   if (readShareParams(location)) history.replaceState(null, '', location.pathname);
   toast(`Remix of “${song.title}” by ${song.artist} is yours now`);
   countRemix(song.trackId);
-  track('remix_created', { style: song.style, from: song.trackId ? 'link' : 'code' });
+  track('remix', { kind: song.trackId ? 'published' : 'link', genre: song.style });
 }
 
 function showJukebox() {
