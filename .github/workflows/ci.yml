@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Syntax check (js/, api/)
+        run: find js api -name '*.js' -not -path 'js/vendor/*' -print0 | xargs -0 -n1 node --check
+      - run: npm test
+      - run: npm run build
+      - name: Smoke test server.mjs (SC_MOCK=1)
+        run: scripts/smoke.sh

@@ -1,5 +1,7 @@
 # UNTERGRUND — techno synthesis engine
 
+[![CI](https://github.com/kllyjsn/Untergrund/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kllyjsn/Untergrund/actions/workflows/ci.yml)
+
 Browser music studio: Web Audio synthesis plus bundled CC0 recorded drums, bass, piano, guitar, horns and strings.
 
 - 9 voices: 909-style kick (pitch env, click, drive, rumble bus), clap, snare, metallic hats/ride, perc, 303-style acid (accent/slide/drive, piano roll), poly chord stabs
@@ -18,7 +20,7 @@ Open **ARTIST** to shape the artist identity and generate release-ready projects
 
 Open **CLUB** to enter an avatar listening room. Rooms only broadcast project state created inside UNTERGRUND: no third-party catalog, imported song, or sample stream is accepted. The current DJ can broadcast the open project, listeners synchronize the same synthesized arrangement locally, and queued creators can take the deck.
 
-`npm test` verifies artist generation plus room presence, host controls, chat, DJ queue handoff, and native-set broadcast. `test/` also holds the offline render + WAV analysis harness (`python3 test/server.py`, `test/analyze.py`).
+`npm test` (run in CI with `npm run build`, `node --check` and `scripts/smoke.sh` on every PR) verifies artist generation plus room presence, host controls, chat, DJ queue handoff, and native-set broadcast. `test/` also holds the offline render + WAV analysis harness (`python3 test/server.py`, `test/analyze.py`).
 
 ## Musician-first generation
 
