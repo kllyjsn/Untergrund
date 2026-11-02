@@ -1,5 +1,6 @@
 // Local / self-hosted server: static files + the SoundCloud token endpoints (same logic as api/*.js on Vercel).
 // SC_MOCK=1 points the app at an in-process fake SoundCloud for offline testing.
+import { randomBytes } from 'node:crypto';
 import http from 'node:http';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -25,10 +26,22 @@ if (MOCK) {
 import { handleCrate, handleRemix, memoryStore, redisStore, MAX_TRACK_BYTES } from './api/_lib/crate.js';
 import { handleJukebox, memoryJukebox, redisJukebox } from './api/_lib/jukebox.js';
 import { handleEvents, memoryKv, redisKv, MAX_BODY as MAX_EVENT_BYTES } from './api/_lib/events.js';
+import { redisKv as redisAccountKv, memoryKv as memoryAccountKv } from './api/_lib/kv.js';
+import { handleAccount, attachPublished } from './api/_lib/accounts.js';
+import { handlePage } from './api/_lib/pages.js';
+import { ogImage, artSeed } from './api/_lib/og.js';
 const jukeboxStore = redisJukebox() || memoryJukebox();
 const eventsKv = redisKv() || memoryKv();
 const STATS_TOKEN = process.env.STATS_TOKEN || (MOCK ? 'dev' : '');
 const crateStore = redisStore() || memoryStore();
+// Accounts/handles/follows persist to a local JSON file when Redis isn't configured.
+const accountKv = redisAccountKv() || memoryAccountKv({ file: process.env.DATA_FILE || path.join(ROOT, '.data/kv.json') });
+let authSecret = process.env.AUTH_SECRET || '';
+if (!authSecret && !redisKv()) {
+  authSecret = (await accountKv.cmd(['GET', 'untergrund:dev:auth-secret'])) || randomBytes(32).toString('hex');
+  await accountKv.cmd(['SET', 'untergrund:dev:auth-secret', authSecret]);
+}
+const accountCtx = () => ({ kv: accountKv, crate: crateStore, secret: authSecret, env, secure: false });
 const readBody = (req, max = Infinity) => new Promise((ok, fail) => {
   const c = []; let size = 0;
   req.on('data', (d) => { size += d.length; if (size > max) { ok(null); req.destroy(); } else c.push(d); });
@@ -61,6 +74,7 @@ http.createServer(async (req, res) => {
         try { body = JSON.parse(Buffer.concat(chunks).toString() || '{}'); } catch { body = null; }
       }
       const { status, json } = await handleJukebox(req.method, body, { store: jukeboxStore, crate: crateStore, client: req.socket.remoteAddress });
+      if (status === 201 && json.item?.trackId) await attachPublished({ kv: accountKv, secret: authSecret, cookie: req.headers.cookie, crate: crateStore, trackId: json.item.trackId });
       res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       return res.end(JSON.stringify(json));
     }
@@ -69,6 +83,22 @@ http.createServer(async (req, res) => {
       if (raw === null && req.method === 'POST') return sendJson(res, 413, { error: 'too_large' });
       const { status, json } = await handleEvents({ method: req.method, query: Object.fromEntries(url.searchParams), headers: req.headers, body: raw ? raw.toString() : null, kv: eventsKv, client: req.socket.remoteAddress, statsToken: STATS_TOKEN });
       return sendJson(res, status, json);
+    }
+    if (url.pathname === '/api/account') {
+      let body = {};
+      if (req.method === 'POST') { const raw = await readBody(req, 16000); try { body = JSON.parse(raw?.toString() || '{}'); } catch { body = null; } }
+      const { status, json, cookie } = await handleAccount({ method: req.method, query: Object.fromEntries(url.searchParams), body, cookie: req.headers.cookie,
+        client: req.socket.remoteAddress, origin: req.headers.origin, host: req.headers.host }, accountCtx());
+      res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(cookie && { 'Set-Cookie': cookie }) });
+      return res.end(JSON.stringify(json));
+    }
+    const pageMatch = url.pathname.match(/^\/(a|t)\/([^/]{1,60})\/?$/);
+    if (pageMatch || url.pathname === '/api/page') {
+      const query = pageMatch ? { [pageMatch[1]]: decodeURIComponent(pageMatch[2]) } : Object.fromEntries(url.searchParams);
+      const r = await handlePage(query, { kv: accountKv, crate: crateStore, site: `http://${req.headers.host}`, og: { ogImage, artSeed } });
+      if (r.location) { res.writeHead(r.status, { Location: r.location }); return res.end(); }
+      res.writeHead(r.status, { 'Content-Type': r.type, 'Cache-Control': 'no-store' });
+      return res.end(r.body);
     }
     if (url.pathname === '/api/set-upload') {
       res.writeHead(503, { 'Content-Type': 'application/json' });

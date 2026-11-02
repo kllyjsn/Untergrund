@@ -65,3 +65,10 @@ export function drawArtwork(state, { title = 'UNTERGRUND', style = '', seed = 1,
 }
 
 export const canvasToBlob = (c) => new Promise((ok) => c.toBlob(ok, 'image/png'));
+
+// Stable per-track artwork seed (FNV-1a), shared with the server's Open Graph image so page art and unfurls match.
+export function artSeed(id) {
+  let x = 2166136261;
+  for (const c of String(id)) x = Math.imul(x ^ c.charCodeAt(0), 16777619);
+  return (x >>> 0) || 1;
+}

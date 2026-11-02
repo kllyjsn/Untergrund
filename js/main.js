@@ -14,6 +14,8 @@ import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restor
 import { roomTransportPosition, transportResync } from './room-sync.js';
 import { concertPanel, concertBar, preloadScore, loadPiano } from './concert.js';
 import { compose } from './classical.js';
+import { followingRow } from './feed.js';
+import { fetchPublicTrack } from './account.js';
 import { openShare, openSharedLanding, countRemix, track } from './share.js';
 import { readShareParams, decodeSong, normalizeSong, remixState } from './share-code.js';
 
@@ -707,6 +709,22 @@ async function openRecent(t) {
   } catch { toast('Could not load that track'); }
 }
 
+// Open a published track from its public page (/?track=<id>) or the following feed.
+async function openShared(id, autoplay = false) {
+  if (autoplay) ensureAudio();
+  try {
+    const pub = await fetchPublicTrack(id);
+    const track = pub?.track || await fetchTrack(id);
+    if (!track?.state) throw new Error('track_missing');
+    if (STYLES[track.style]) { style = track.style; family = STYLES[track.style].family; }
+    if (playing) stop();
+    const next = sanitize(track.state);
+    next.artist = { ...(next.artist || {}), title: track.title, name: pub?.artist?.name || track.artist || next.artist?.name, style: track.style };
+    replaceState(next);
+    if (autoplay) play(); else toast(`Loaded “${track.title}”. Press play.`);
+  } catch { toast('Could not load that track'); }
+}
+
 function styleCard(id, value, isPlaying) {
   const avg = (value.bpm[0] + value.bpm[1]) / 2;
   const card = h('button', {
@@ -849,7 +867,8 @@ function buildGenerateHome() {
     h('div', { class: 'recents-label' }, 'RECENT TRACKS'),
     h('div', { class: 'recents-row' }, recent.map((t) => h('button', { class: 'recent', style: `--hue:${hue(t.style)}`, onclick: () => openRecent(t) },
       h('i'), h('b', {}, t.title || 'Untitled'), h('span', {}, [STYLES[t.style]?.name, t.bpm && `${t.bpm} BPM`].filter(Boolean).join(' · ')))))) : null;
-  const home = h('section', { class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` }, left, picker, concert, recents);
+  const following = followingRow({ hue, onPlay: (t) => openShared(t.id, true), onLoad: renderHome });
+  const home = h('section', { class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` }, left, picker, concert, recents, following);
   ui.home = home;
   return home;
 }
@@ -1433,6 +1452,8 @@ if (shared) setTimeout(() => {
 });
 else if (new URLSearchParams(location.search).has('room')) setTimeout(showClub);
 else if (new URLSearchParams(location.search).has('jukebox')) setTimeout(showJukebox);
+else if (new URLSearchParams(location.search).has('track')) openShared(new URLSearchParams(location.search).get('track'));
+else if (new URLSearchParams(location.search).has('artist')) setTimeout(openArtist);
 restoreSample();
 window.__untergrund = { get state() { return state; }, get engine() { return engine; } };
 
