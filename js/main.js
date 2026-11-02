@@ -14,6 +14,7 @@ import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restor
 import { roomTransportPosition, transportResync } from './room-sync.js';
 import { concertPanel, concertBar, preloadScore, loadPiano } from './concert.js';
 import { compose } from './classical.js';
+import { PIECE, loadPiece } from './repertoire.js';
 import { followingRow } from './feed.js';
 import { fetchPublicTrack } from './account.js';
 import { openShare, openSharedLanding, countRemix, track } from './share.js';
@@ -499,12 +500,15 @@ function doGenerateSet() {
   engine?.applyAll(); engine?.applyDelayTime();
   state.chainOn = true;
   state.chain = songChain(style, seed);
-  const title = trackTitle(seed);
-  const artist = loadAvatar().name || 'UNTERGRUND';
+  // A score sets its own tempo even mid-set; a masterwork keeps its title and composer.
+  if (g.pattern.score) state.bpm = g.bpm;
+  const piece = PIECE[g.pattern.score?.piece];
+  const title = piece ? piece.title : trackTitle(seed);
+  const artist = piece ? piece.composer : loadAvatar().name || 'UNTERGRUND';
   state.artist = { name: artist, title, style, seed, created: new Date().toISOString() };
   build(); persist();
   trackEvent('generate', { genre: style, kind: 'song' });
-  toast(`New ${STYLES[style].name} track “${title}”`);
+  toast(piece ? `${piece.composer.split(' ').pop()}: ${title}` : `New ${STYLES[style].name} track “${title}”`);
   saveTrack({ title, artist, style, state: clone(state) })
     .then(({ shared }) => toast(`“${title}” saved to ${shared ? 'the shared CRATE' : 'your CRATE'}`));
 }
@@ -605,7 +609,7 @@ function toggleStudio() {
 }
 
 const STYLE_HUE = {
-  symphony: '#e8c27a', concerto: '#f0d9a8', nocturne: '#9fb4ff',
+  symphony: '#e8c27a', concerto: '#f0d9a8', nocturne: '#9fb4ff', repertoire: '#d8b4fe',
   hypnotic: '#c6ff2b', industrial: '#ff6a3d', acid: '#f2ff3a', dub: '#3ad6c6', peak: '#ff4d86', hardtechno: '#ff3b3b',
   deephouse: '#6f9bff', minimal: '#e4e4ea', ukg: '#b892ff', euphoric: '#ff9ad5', neosoul: '#ffb347', boombap: '#dca86e',
   breaks: '#ff9340', electro: '#2bd9ff', dnb: '#7dff9a', trance: '#a98bff', ambient: '#8fd8ff',
@@ -693,6 +697,21 @@ function generateNow() {
   toast('Seating the orchestra…');
   preloadScore(pat().score).then(() => { if (!playing) play(); });
 }
+// Perform one masterwork from the REPERTOIRE, from its first bar.
+function playPiece(id) {
+  const p = PIECE[id];
+  if (!p) return;
+  if (playing) stop();
+  if (style !== 'repertoire' || !state.patterns.every((q) => q.score)) { style = 'repertoire'; family = 'CLASSICAL'; doGenerateSet(); }
+  pushUndo();
+  for (const q of state.patterns) q.score = { piece: id };
+  state.bpm = p.bpm; state.key = 0;
+  state.artist = { ...state.artist, name: p.composer, title: p.title, style: 'repertoire' };
+  persist(); build();
+  ensureAudio();
+  toast(`Opening ${p.title}…`);
+  preloadScore({ piece: id }).then(() => { if (!playing && pat().score?.piece === id) play(); }, (e) => toast(`Couldn't open the score: ${e.message}`));
+}
 function surprise() {
   const ids = Object.keys(STYLES).filter((id) => id !== style);
   style = ids[(Math.random() * ids.length) | 0];
@@ -770,7 +789,7 @@ function buildNowPlaying(primary) {
     h('div', { class: 'now-playing' },
       h('span', { class: 'np-eyebrow' }, h('i', { class: 'np-dot' }), 'NOW PLAYING'),
       h('h1', {}, a.title || 'Untitled set'),
-      h('div', { class: 'np-meta' }, `${a.name || 'UNTERGRUND'} · ${STYLES[sid].name} · ${state.bpm} BPM · ${KEYS[state.key]} ${sc ? (pat().score.mode === 'm' ? 'MINOR' : 'MAJOR') : SCALES[state.scale]?.name || 'MINOR'}`),
+      h('div', { class: 'np-meta' }, `${a.name || 'UNTERGRUND'} · ${STYLES[sid].name} · ${state.bpm} BPM · ${sc?.meta ? sc.meta.key.toUpperCase() : `${KEYS[state.key]} ${sc ? (pat().score.mode === 'm' ? 'MINOR' : 'MAJOR') : SCALES[state.scale]?.name || 'MINOR'}`}`),
       ui.npCanvas,
       h('div', { class: 'np-progress' }, h('div', { class: 'np-label' }, ui.npSection, ui.npBar), h('div', { class: 'np-cells' }, ui.npCells))),
     h('div', { class: 'generate-actions np-actions' },
@@ -788,7 +807,7 @@ function updateNowPlaying(ev) {
   if (!cells?.length || !cells[0].isConnected) return;
   const sc = ui.npScore;
   if (sc) {
-    const bar = Math.floor(ev.abs / 16) % sc.bars, j = sc.sections.findLastIndex((x) => x.at <= bar);
+    const bar = Math.floor(ev.abs / (sc.barLen || 16)) % sc.bars, j = sc.sections.findLastIndex((x) => x.at <= bar);
     concertBar(bar);
     if (cells.bar === bar) return;
     cells.bar = bar;
@@ -864,7 +883,7 @@ function buildGenerateHome() {
     h('div', { class: 'generate-status' }, statusLine()),
   ];
   const classical = STYLES[style].family === 'CLASSICAL' || !!(playing && pat()?.score);
-  const concert = classical ? concertPanel({ state: () => state, engine: () => engine, ensureAudio, persist, score: pat()?.score || null }) : null;
+  const concert = classical ? concertPanel({ state: () => state, engine: () => engine, ensureAudio, persist, score: pat()?.score || null, repertoire: style === 'repertoire', onPiece: playPiece }) : null;
   const recent = recentTracks().slice(0, 8);
   const recents = recent.length ? h('div', { class: 'recents' },
     h('div', { class: 'recents-label' }, 'RECENT TRACKS'),
@@ -1437,6 +1456,8 @@ window.addEventListener('keyup', (e) => {
 document.addEventListener('visibilitychange', () => { if (!guest) save(state); });
 
 build();
+// A saved masterwork reopens with its score (and section map) once the notes arrive.
+if (pat()?.score?.piece) loadPiece(pat().score.piece).then(() => { if (!playing) build(); }, () => {});
 requestAnimationFrame(frame);
 const shared = readShareParams(location);
 if (shared) setTimeout(() => {

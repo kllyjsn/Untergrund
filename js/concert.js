@@ -1,9 +1,10 @@
 // CLASSICAL stage: the ORCHESTRA desk (one fader + mute per section) and a PIANO you play yourself,
 // from the screen, the computer keyboard, or any MIDI keyboard (with sustain pedal).
 import { h } from './ui.js';
-import { SECTIONS, compose } from './classical.js';
+import { SECTIONS, PART_SECTION, compose } from './classical.js';
 import { loadBand } from './livekit.js';
 import { scoreKinds } from './engine.js';
+import { loadPiece, REPERTOIRE } from './repertoire.js';
 
 const LABEL = { strings: 'STRINGS', winds: 'WOODWINDS', brass: 'BRASS', harp: 'HARP', timpani: 'TIMPANI', piano: 'PIANO' };
 const KEYS = ['a', 'w', 's', 'e', 'd', 'f', 't', 'g', 'y', 'h', 'u', 'j', 'k', 'o', 'l', 'p', ';', "'"];
@@ -14,7 +15,8 @@ const PIANO_KINDS = ['pianoext', 'pianoextsoft', 'piano', 'pianosoft'];
 let deps = null, octave = 4, sustain = false, pedal = false, computerKeys = true, midi = null;
 const held = new Map(), ringing = new Map(), keyEls = new Map(), typed = new Map();
 
-export function preloadScore(spec) {
+export async function preloadScore(spec) {
+  if (spec?.piece) await loadPiece(spec.piece);
   return Promise.all([...new Set([...scoreKinds(spec), ...PIANO_KINDS])].map((k) => loadBand(k)));
 }
 export const loadPiano = () => Promise.all(PIANO_KINDS.map((k) => loadBand(k)));
@@ -122,12 +124,25 @@ export function concertPanel(d) {
   const form = sc ? h('div', { class: 'score-map' }, sc.sections.map((x) => h('i', { style: `flex:${x.len || 1}`, title: x.name, 'data-at': x.at }, h('span', {}, x.name)))) : null;
   ui.form = form;
   loadPiano();
+  const meta = sc?.meta;
+  const head = meta
+    ? h('div', { class: 'concert-head' }, h('span', { class: 'np-eyebrow' }, 'REPERTOIRE'),
+      h('p', {}, h('b', {}, `${meta.composer} · ${meta.title}`), ` · ${meta.work} · ${sc.bars} bars`),
+      h('small', { class: 'rep-credit' }, `${meta.license === 'CC0-1.0' ? 'CC0' : 'Public-domain'} score · ${meta.source}`))
+    : h('div', { class: 'concert-head' }, h('span', { class: 'np-eyebrow' }, 'CLASSICAL STAGE'),
+      h('p', {}, sc && !sc.waiting ? `${sc.bars} bars · ${sc.sections.length} sections · play along on the recorded grand` : 'Generate a piece, then play along on the recorded grand.'));
+  // The catalogue of masterworks, by composer; tap one to hear it performed.
+  const used = new Set(meta ? sc.notes.map((n) => PART_SECTION[n[4]]) : []);
+  const current = d.score?.piece;
+  const rep = d.repertoire ? h('div', { class: 'rep-list', role: 'list' },
+    REPERTOIRE.map((p) => h('button', { class: 'rep' + (p.id === current ? ' on' : ''), role: 'listitem', 'aria-current': p.id === current ? 'true' : null, 'data-piece': p.id, onclick: () => d.onPiece?.(p.id) },
+      h('b', {}, p.title), h('span', {}, `${p.composer.split(' ').pop()} · ${p.ensemble === 'piano' ? 'piano' : 'strings'}`)))) : null;
   return h('section', { class: 'concert' },
-    h('div', { class: 'concert-head' }, h('span', { class: 'np-eyebrow' }, 'CLASSICAL STAGE'),
-      h('p', {}, sc ? `${sc.bars} bars · ${sc.sections.length} sections · play along on the recorded grand` : 'Generate a piece, then play along on the recorded grand.')),
+    head,
+    rep,
     form,
     h('div', { class: 'concert-grid' },
-      h('div', { class: 'orch' }, h('div', { class: 'concert-label' }, 'ORCHESTRA'), SECTIONS.map(sectionStrip)),
+      h('div', { class: 'orch' }, h('div', { class: 'concert-label' }, 'ORCHESTRA'), (meta ? SECTIONS.filter((k) => used.has(k)) : SECTIONS).map(sectionStrip)),
       h('div', { class: 'piano' },
         h('div', { class: 'piano-bar' }, h('div', { class: 'concert-label' }, 'PIANO'),
           h('button', { class: 'btn ghost', 'aria-label': 'Octave down', onclick: () => { octave = Math.max(1, octave - 1); redraw(); } }, '‹'), ui.oct,

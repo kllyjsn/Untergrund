@@ -1549,14 +1549,16 @@ export class Sequencer {
 
   // A classical score plays through, bar after bar, instead of looping one bar of steps.
   scoreStep(spec, abs, t, sd) {
-    const sc = compose(spec), pos = abs % sc.at.length, k = this.s.key > 6 ? this.s.key - 12 : this.s.key;
-    this.scoreBar = Math.floor(pos / 16);
+    // A masterwork plays in its written key; a generated piece follows the KEY control.
+    const sc = compose(spec), pos = abs % sc.at.length, k = spec.piece ? 0 : this.s.key > 6 ? this.s.key - 12 : this.s.key;
+    this.scoreBar = Math.floor(pos / (sc.barLen || 16));
     this.e.stepScale = sc.tempo[pos];
     sd *= sc.tempo[pos];
     const hum = this.s.master.humanize ?? 0.4;
-    for (const [at, m, d, v, part] of sc.at[pos]) {
+    // off: the performer's roll / melody lead, in seconds.
+    for (const [at, m, d, v, part, off = 0] of sc.at[pos]) {
       const lean = (hash(at * 3 + m, 33) - 0.5) * (0.006 + hum * 0.014);
-      this.e.orch(part, t + (at - Math.floor(at)) * sd + lean, m + k, d * sd, v);
+      this.e.orch(part, Math.max(t - 0.03, t + (at - Math.floor(at)) * sd + lean + off), m + k, d * sd, v);
     }
   }
 
