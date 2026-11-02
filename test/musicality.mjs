@@ -62,21 +62,27 @@ console.log('genre signatures passed');
 
 // A genre is a musical grammar, not one fixed preset. Different seeds should
 // recruit different players and registers without borrowing another genre's drums or harmony.
-{
-  for (const style of Object.keys(STYLES)) {
-    const ensembles = new Set();
-    for (let seed = 1; seed <= 12; seed++) {
-      const g = generate(style, seed);
-      ensembles.add([g.params.stab.voice, g.params.acid.voice, g.params.stab.octave, g.params.stab.decay.toFixed(2)].join('/'));
+  {
+    for (const style of Object.keys(STYLES)) {
+      const ensembles = new Set();
+      for (let seed = 1; seed <= 24; seed++) {
+        const g = generate(style, seed);
+        ensembles.add([
+          g.params.stab.voice,
+          g.params.acid.voice,
+          g.params.stab.octave,
+          g.params.stab.decay.toFixed(2),
+          g.params.stab.env.toFixed(2),
+        ].join('/'));
+      }
+      assert(ensembles.size >= 4, `${style} needs several seeded ensembles`);
     }
-    assert(ensembles.size >= 3, `${style} needs several seeded ensembles`);
-  }
-  const recorded = new Set();
-  for (const style of Object.keys(STYLES)) {
-    for (let seed = 1; seed <= 12; seed++) {
-      const voice = generate(style, seed).params.stab.voice;
-      if (voice >= 7) recorded.add(voice);
-    }
+    const recorded = new Set();
+    for (const style of Object.keys(STYLES)) {
+      for (let seed = 1; seed <= 24; seed++) {
+        const voice = generate(style, seed).params.stab.voice;
+        if (voice >= 7) recorded.add(voice);
+      }
   }
   assert.deepEqual([...recorded].sort((a, b) => a - b), [7, 8, 9, 10], 'all recorded families should appear across generated songs');
 }

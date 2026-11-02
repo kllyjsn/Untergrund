@@ -836,9 +836,14 @@ export class Engine {
     const tone = Math.max(-6, Math.min(3, 3 * Math.log2(p.cutoff / 1500)));
     const dur = Math.max(R.hold ? this.stepDur * 4 : R.min, p.decay * R.len);
     const up = hash(t, 21) > 0.5;
+    const articulation = Math.max(0, Math.min(1, p.env ?? 0.5));
+    const strum = R.strum * (0.45 + articulation * 1.8);
     iv.forEach((n, k) => {
-      const at = t + (up ? k : iv.length - 1 - k) * R.strum + (hash(t * 3 + k, 22) - 0.5) * 0.006;
-      const lvl = (v * R.gain * (0.85 + 0.3 * hash(t + k, 23))) / Math.sqrt(iv.length);
+      const order = up ? k : iv.length - 1 - k;
+      const at = t + order * strum + (hash(t * 3 + k, 22) - 0.5) * (0.003 + articulation * 0.006);
+      const sweep = iv.length > 1 ? order / (iv.length - 1) - 0.5 : 0;
+      const accent = 1 + sweep * (articulation - 0.5) * 0.35;
+      const lvl = (v * R.gain * accent * (0.85 + 0.3 * hash(t + k, 23))) / Math.sqrt(iv.length);
       this.recordedNote(set, at, lvl, root + n + R.shift, dur, out, tone, kind, v);
     });
   }
