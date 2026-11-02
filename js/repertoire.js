@@ -5,15 +5,18 @@ import { perform } from './perform.js';
 
 export { REPERTOIRE };
 export const PIECE = Object.fromEntries(REPERTOIRE.map((p) => [p.id, p]));
-const played = new Map(), pending = new Map();
+const played = new Map(), pending = new Map(), written = new Map();
 
 export function registerPiece(raw) {
   const sc = perform(raw);
   sc.meta = PIECE[raw.id] || raw;
   played.set(raw.id, sc);
+  written.set(raw.id, raw);
   return sc;
 }
 export const pieceScore = (id) => played.get(id) || null;
+// The notes as written, with their hands (PRACTICE teaches these, not the performance).
+export const writtenScore = (id) => written.get(id) || null;
 
 export function loadPiece(id) {
   if (played.has(id)) return Promise.resolve(played.get(id));

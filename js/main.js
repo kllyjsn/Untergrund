@@ -13,6 +13,7 @@ import { saveTrack, trackTitle, recentTracks, fetchTrack } from './crate.js';
 import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
 import { roomTransportPosition, transportResync } from './room-sync.js';
 import { concertPanel, concertBar, preloadScore, loadPiano } from './concert.js';
+import { closePractice } from './practice-ui.js';
 import { compose } from './classical.js';
 import { PIECE, loadPiece } from './repertoire.js';
 import { followingRow } from './feed.js';
@@ -129,6 +130,7 @@ function schedule() {
 
 function play({ step = 0, delay = 0.06 } = {}) {
   stopPreview();
+  closePractice();
   ensureAudio();
   abs = Math.max(0, Math.floor(step));
   const bar = Math.floor(abs / 16);
@@ -883,7 +885,7 @@ function buildGenerateHome() {
     h('div', { class: 'generate-status' }, statusLine()),
   ];
   const classical = STYLES[style].family === 'CLASSICAL' || !!(playing && pat()?.score);
-  const concert = classical ? concertPanel({ state: () => state, engine: () => engine, ensureAudio, persist, score: pat()?.score || null, repertoire: style === 'repertoire', onPiece: playPiece }) : null;
+  const concert = classical ? concertPanel({ state: () => state, engine: () => engine, ensureAudio, persist, score: pat()?.score || null, repertoire: style === 'repertoire', onPiece: playPiece, stopTransport: () => playing && stop() }) : null;
   const recent = recentTracks().slice(0, 8);
   const recents = recent.length ? h('div', { class: 'recents' },
     h('div', { class: 'recents-label' }, 'RECENT TRACKS'),
