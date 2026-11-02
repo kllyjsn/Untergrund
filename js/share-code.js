@@ -79,7 +79,7 @@ export function readShareParams(loc) {
 
 export const songLink = (origin, { code, id }, page = '/') => `${origin}${page}?${id ? `t=${encodeURIComponent(id)}` : `s=${code}`}`;
 export const embedCode = (src, title = 'UNTERGRUND') =>
-  `<iframe src="${src}" title="${clean(title, 80).replace(/"/g, '&quot;')} on UNTERGRUND" width="100%" height="152" style="border:0;border-radius:14px;max-width:560px" allow="autoplay" loading="lazy"></iframe>`;
+  `<iframe src="${src}" title="${clean(title, 80).replace(/"/g, '&quot;')} on UNTERGRUND" width="100%" height="152" style="border:0;border-radius:14px;max-width:560px" allow="autoplay; clipboard-write" loading="lazy"></iframe>`;
 
 // Forking a song: the state keeps the credit so it survives saves, publishing and further remixes.
 export function remixState(song, me = {}) {

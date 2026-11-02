@@ -1390,7 +1390,8 @@ requestAnimationFrame(frame);
 const shared = readShareParams(location);
 if (shared) setTimeout(() => {
   const load = shared.code ? decodeSong(shared.code)
-    : fetchTrack(shared.id).then((t) => t?.state && { ...normalizeSong({ ...t, remixOf: t.remixOf }), trackId: t.id, remixes: t.remixes || 0 }).catch(() => null);
+    : fetch(`/api/tracks?id=${encodeURIComponent(shared.id)}`).then((r) => (r.ok ? r.json().then((j) => j.track) : Promise.reject()))
+      .catch(() => fetchTrack(shared.id)).then((t) => t?.state && { ...normalizeSong({ ...t, remixOf: t.remixOf }), trackId: t.id, remixes: t.remixes || 0 }).catch(() => null);
   const landing = openSharedLanding({
     load, isPlaying: () => playing,
     play: (song) => listen(song),

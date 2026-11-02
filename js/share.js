@@ -59,7 +59,9 @@ export function openShare({ song, toast, hue, download, source = 'studio', befor
     h('button', { class: 'btn ghost', onclick: withLinks((l) => { copy(l.link, toast, 'Link'); track('share_link_copied', { what: 'song' }); }) }, 'COPY LINK'));
 
   let seconds = 15;
+  const chosen = () => seconds;
   const lenBtns = [15, 30].map((s) => h('button', { class: 'family-tab' + (s === seconds ? ' on' : ''), onclick: () => {
+    if (ctrl) return;
     seconds = s; lenBtns.forEach((b, i) => b.classList.toggle('on', [15, 30][i] === s));
   } }, `${s} SEC`));
   const bar = h('i'), progress = h('div', { class: 'share-progress' }, bar);
@@ -70,9 +72,12 @@ export function openShare({ song, toast, hue, download, source = 'studio', befor
     if (ctrl) { ctrl.abort(); return; }
     ctrl = new AbortController();
     beforeExport?.();
+    const seconds = chosen();
     make.textContent = 'CANCEL'; preview.innerHTML = ''; progress.classList.add('on');
-        try {
-      const out = await exportVideo(song, { seconds, hue, signal: ctrl.signal, onProgress: (p, msg) => { bar.style.width = `${Math.round(p * 100)}%`; status.textContent = msg; } });
+    body.closest('.overlay')?.classList.add('exporting'); lenBtns.forEach((b) => b.setAttribute('disabled', ''));
+    let shown = -1;
+    try {
+      const out = await exportVideo(song, { seconds, hue, signal: ctrl.signal, onProgress: (p, msg) => { const pct = Math.round(p * 50) * 2; if (pct === shown) return; shown = pct; bar.style.width = `${pct}%`; status.textContent = msg; } });
       if (videoUrl) URL.revokeObjectURL(videoUrl);
       videoUrl = URL.createObjectURL(out.blob);
       const name = `${slug(song.title)}-untergrund-${seconds}s.${out.ext}`;
@@ -91,6 +96,7 @@ export function openShare({ song, toast, hue, download, source = 'studio', befor
       if (err.name !== 'AbortError') { console.error(err); reportError(err, { kind: 'video_export' }); }
     }
     ctrl = null; make.textContent = 'MAKE VIDEO'; progress.classList.remove('on');
+    body.closest('.overlay')?.classList.remove('exporting'); lenBtns.forEach((b) => b.removeAttribute('disabled'));
   } }, 'MAKE VIDEO');
   if (!mime) { make.disabled = true; status.textContent = 'This browser cannot make videos. Open UNTERGRUND in Chrome or Safari to make one.'; }
 
