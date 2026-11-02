@@ -1,4 +1,8 @@
 server.mjs
+rooms-server.mjs
+Dockerfile
+.dockerignore
+fly.toml
 test
 /*.wav
 .data
