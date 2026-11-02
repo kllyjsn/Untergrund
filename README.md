@@ -57,6 +57,8 @@ The site is a static build on Vercel project `untergrund-i2i9` (team kllyjsns-pr
 
 `rooms-server.mjs` is the production room service: only `/api/rooms/:room[/events]` and `/healthz`, no static files, no SoundCloud mock. `server.mjs` reuses the same logic (`api/_lib/rooms.js`) for local development. Rooms stay in memory in a single process. If the `KV_REST_API_*` secrets are set, changes (chat, sets, DJ queue, joins) are also written to Redis under `untergrund:room:<id>`, kept for 7 days and flushed on SIGTERM. Restarts, deploys and auto-stops then don't wipe rooms. Presence heartbeats are never written, so the Upstash free tier is plenty.
 
+Prerequisites: a Fly org with billing enabled (trial orgs can't run machines) and an org-scoped token (`fly tokens create org -o personal`). App deploy tokens can't create apps.
+
 ```sh
 fly apps create untergrund-rooms            # once
 fly secrets set -a untergrund-rooms KV_REST_API_URL=... KV_REST_API_TOKEN=...   # optional, same values as Vercel
