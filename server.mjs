@@ -1,5 +1,6 @@
 // Local / self-hosted server: static files + the SoundCloud token endpoints (same logic as api/*.js on Vercel).
 // SC_MOCK=1 points the app at an in-process fake SoundCloud for offline testing.
+import { randomBytes } from 'node:crypto';
 import http from 'node:http';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
