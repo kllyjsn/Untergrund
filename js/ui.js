@@ -126,6 +126,6 @@ export function h(tag, attrs = {}, ...children) {
     else if (k === 'style') el.style.cssText = v;
     else el.setAttribute(k, v);
   }
-  for (const c of children.flat()) if (c != null) el.append(c instanceof Node ? c : document.createTextNode(c));
+  for (const c of children.flat()) if (c != null && c !== false) el.append(c instanceof Node ? c : document.createTextNode(c));
   return el;
 }

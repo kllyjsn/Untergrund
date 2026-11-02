@@ -24,6 +24,7 @@ check() {
 check 200 /
 check 200 /js/main.js
 check 200 /css/style.css
+check 200 /embed.html
 check 200 /api/sc-config
 check 200 /api/room-config
 check 200 /api/tracks

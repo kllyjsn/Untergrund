@@ -7,7 +7,7 @@
     "start": "node server.mjs",
     "dev": "SC_MOCK=1 node server.mjs",
     "benchmark:music": "node scripts/music-benchmark.mjs --assert --json test/out/music-benchmark.json",
-    "test": "node test/artist.mjs && node test/room-sync.mjs && node test/rooms.mjs && node test/rooms-service.mjs && node test/styles.mjs && node test/crate.mjs && node test/livekit.mjs && node test/jukebox.mjs && node test/musicality.mjs && node test/social.mjs && node test/lab.mjs && node test/events.mjs && node test/analytics.mjs && node test/accounts.mjs && node test/pages.mjs && node scripts/music-benchmark.mjs --assert",
+    "test": "node test/artist.mjs && node test/room-sync.mjs && node test/rooms.mjs && node test/rooms-service.mjs && node test/styles.mjs && node test/crate.mjs && node test/livekit.mjs && node test/jukebox.mjs && node test/musicality.mjs && node test/social.mjs && node test/lab.mjs && node test/events.mjs && node test/analytics.mjs && node test/share.mjs && node test/accounts.mjs && node test/pages.mjs && node scripts/music-benchmark.mjs --assert",
     "start:rooms": "node rooms-server.mjs"
   },
   "engines": {

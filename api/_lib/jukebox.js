@@ -56,7 +56,7 @@ export async function handleJukebox(method, body, { store, crate, client = 'anon
   const track = entry?.kind === 'song' ? normalizeTrack(body) : null;
   if (!entry || (entry.kind === 'song' && (!track || !crate))) return { status: 400, json: { error: 'invalid_entry' } };
   if (!(await store.allow(clean(client, 64) || 'anon'))) return { status: 429, json: { error: 'rate_limited' } };
-  if (track) { await crate.add(track); entry.trackId = track.id; entry.bpm = track.bpm; }
+  if (track) { await crate.add(track); entry.trackId = track.id; entry.bpm = track.bpm; if (track.remixOf) entry.remixOf = track.remixOf; }
   await store.add(entry);
   return { status: 201, json: { item: entry } };
 }
