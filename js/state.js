@@ -122,6 +122,36 @@ const HOOK_STYLE = {
 };
 export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell'];
 
+// Every genre has several plausible ensembles. The seed chooses a player,
+// register and articulation while the genre keeps its drum, harmony and room identity.
+const INSTRUMENTS = {
+  hypnotic: [[0, 0, 0, 0.7], [6, 0, 1, 0.45], [3, 0, -1, 0.8]],
+  industrial: [[6, 3, 0, 0.35], [4, 3, -1, 0.5], [0, 3, 0, 0.24]],
+  acid: [[0, 0, 0, 0.35], [5, 0, 1, 0.28], [3, 0, -1, 0.5]],
+  dub: [[2, 2, 0, 1.4], [3, 1, -1, 0.9], [5, 2, 0, 0.65]],
+  peak: [[4, 0, 0, 0.5], [6, 3, 1, 0.35], [0, 0, 1, 0.22]],
+  hardtechno: [[0, 3, 0, 0.2], [4, 3, -1, 0.4], [6, 0, 1, 0.3]],
+  deephouse: [[7, 1, 0, 1.5], [3, 1, -1, 0.9], [8, 1, 0, 0.75]],
+  minimal: [[6, 2, 0, 0.3], [5, 1, 0, 0.25], [3, 2, -1, 0.55]],
+  ukg: [[3, 3, 0, 0.55], [7, 1, 0, 0.75], [5, 3, 1, 0.25]],
+  euphoric: [[7, 1, 0, 1.6], [10, 1, 0, 1.8], [2, 3, 1, 2.1]],
+  neosoul: [[7, 1, 0, 1.6], [3, 1, -1, 1.1], [8, 1, 0, 0.8]],
+  boombap: [[9, 1, 0, 0.7], [7, 1, -1, 1.2], [8, 1, 0, 0.65]],
+  breaks: [[8, 0, 0, 0.6], [5, 1, 1, 0.25], [3, 2, 0, 0.55]],
+  electro: [[0, 2, 0, 0.25], [6, 3, 1, 0.45], [5, 2, 0, 0.2]],
+  dnb: [[10, 3, 0, 1.6], [2, 3, 1, 1.8], [7, 2, 1, 1.2]],
+  trance: [[5, 1, 0, 0.35], [2, 3, 1, 1.6], [7, 1, 1, 1.1]],
+  ambient: [[2, 2, 0, 2.4], [10, 1, 1, 2.8], [6, 2, 1, 2.2]],
+  amapiano: [[7, 4, 0, 0.7], [3, 4, -1, 0.55], [8, 4, 0, 0.65]],
+  afrobeats: [[8, 2, 0, 0.65], [9, 1, 0, 0.55], [7, 1, 1, 0.7]],
+  reggaeton: [[8, 2, 0, 0.5], [5, 2, 1, 0.22], [9, 1, 0, 0.45]],
+  bailefunk: [[4, 2, 0, 0.3], [6, 4, 1, 0.25], [8, 2, 0, 0.45]],
+  trap: [[7, 2, 1, 0.75], [6, 2, 2, 0.8], [10, 2, 1, 1.5]],
+  drill: [[10, 2, 1, 1.4], [7, 3, 1, 0.7], [9, 2, 0, 0.5]],
+  jerseyclub: [[0, 2, 1, 0.2], [4, 4, 0, 0.35], [8, 2, 1, 0.45]],
+  hyperpop: [[8, 3, 1, 0.45], [6, 2, 2, 0.7], [10, 3, 1, 1.2]],
+};
+
 // A 2-bar call and answer: same rhythm both bars, the answer bends its ending (resolve or leave open).
 export function hookLine(r, style, scale) {
   const H = HOOKS[HOOK_STYLE[style]];
@@ -549,15 +579,12 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     master.revLevel = ROOM[style];
     params.stab.rev = +((params.stab.rev ?? 0.3) * (0.4 + ROOM[style])).toFixed(3);
   }
-  const PALETTE = {
-    industrial: [6, 3], dub: [0, 2], peak: [4, 0], hardtechno: [0, 3],
-    // 7 PIANO, 8 GUITAR, 9 HORNS, 10 STRINGS are recorded instruments.
-    deephouse: [7, 1], minimal: [6, 2], ukg: [3, 3], euphoric: [7, null],
-    boombap: [9, null], breaks: [8, 0], electro: [0, 2], dnb: [10, 3], trance: [5, null], ambient: [2, 2],
-    amapiano: [7, 4], afrobeats: [8, 2], reggaeton: [8, 2], bailefunk: [null, 2], trap: [7, 2], drill: [10, 2], jerseyclub: [0, 2], hyperpop: [8, 3],
-  };
-  const [stabVoice, bassVoice] = PALETTE[style] || [];
-  if (stabVoice != null) params.stab.voice = stabVoice;
+  const instrumentRng = rng(Math.imul((seed | 0) ^ 0x6d2b79f5, 0x85ebca6b));
+  const ensemble = pick(instrumentRng, INSTRUMENTS[style]);
+  const [stabVoice, bassVoice, octave, decay] = ensemble;
+  params.stab.voice = stabVoice;
+  params.stab.octave = octave;
+  params.stab.decay = decay;
   // Recorded players sit in the room, not in a delay: echoes on held strings and piano read as a synth chorus.
   if (stabVoice >= 7) {
     params.stab.dly = Math.min(params.stab.dly ?? 0.42, 0.08);
@@ -565,7 +592,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     // A played instrument has to be heard as one: up front with the drums, not tucked under them.
     params.stab.level = Math.max(params.stab.level ?? 0.42, 0.9);
   }
-  if (bassVoice != null) params.acid.voice = bassVoice;
+  params.acid.voice = bassVoice;
   for (const t of ['acid', 'stab']) params[t].voice ??= 0;
   const PERC = { dnb: 3, deephouse: 1, ukg: 3, boombap: 3, neosoul: 3, breaks: 2, minimal: 4, dub: 4, euphoric: 3, ambient: 2, amapiano: 3, afrobeats: 1, reggaeton: 2, bailefunk: 1 };
   params.perc.voice = PERC[style] ?? 0;
