@@ -155,6 +155,18 @@ for (const id of ['chopin-prelude-4', 'bach-prelude-c']) {
     assert.equal(s.summary().accuracy, 100);
   }
 }
+// Wait mode with the other hand silent skims a long stretch you don't play, then slows to SKIM before your note.
+{
+  const intro = { bpm: 60, barLen: 16, bars: 3, notes: [[0, 48, 4, 0.6, 'pno', 1], [16, 50, 4, 0.6, 'pno', 1], [40, 60, 4, 0.6, 'pno', 0]] };
+  const tl = timeline(intro, { hands: HANDS.right });
+  const quiet = createSession(tl, { mode: 'wait', autoOther: false });
+  for (let i = 0; i < 40; i++) quiet.advance(0.1);
+  assert.equal(quiet.waiting()?.want[0], 60, 'reaches the first right-hand note in 4 s instead of 12');
+  const heard = createSession(timeline(intro, { hands: HANDS.right }), { mode: 'wait', autoOther: true });
+  for (let i = 0; i < 40; i++) heard.advance(0.1);
+  assert.equal(heard.waiting(), null, 'with the other hand heard, the music keeps its own time');
+}
+
 console.log('practice ok');
 
 // Wait mode: onsets a few ms apart (4 against 3) count in either order.

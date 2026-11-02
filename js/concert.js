@@ -160,7 +160,7 @@ export function concertPanel(d) {
   const raw = meta?.ensemble === 'piano' ? writtenScore(piece) : null;
   if (practiceOpen() && practiceOpen() !== (raw && piece)) closePractice();
   const pv = raw && practiceOpen() === piece ? practiceView({
-    piece, raw, ensureAudio: d.ensureAudio, engine: d.engine, keyEl: (m) => keyEls.get(m),
+    piece, raw, ensureAudio: d.ensureAudio, engine: d.engine, keyEl: (m) => keyEls.get(m), computerKeys: () => computerKeys,
     setOctave: (o) => { octave = Math.max(1, Math.min(6, o)); redrawKeys(); },
   }) : null;
   span = pv?.span || null;
