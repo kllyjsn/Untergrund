@@ -71,8 +71,6 @@ console.log('genre signatures passed');
           g.params.stab.voice,
           g.params.acid.voice,
           g.params.stab.octave,
-          g.params.stab.decay.toFixed(2),
-          g.params.stab.env.toFixed(2),
         ].join('/'));
       }
       assert(ensembles.size >= 4, `${style} needs several seeded ensembles`);
@@ -83,8 +81,20 @@ console.log('genre signatures passed');
         const voice = generate(style, seed).params.stab.voice;
         if (voice >= 7) recorded.add(voice);
       }
+    }
+    assert.deepEqual([...recorded].sort((a, b) => a - b), [7, 8, 9, 10], 'all recorded families should appear across generated songs');
+    for (const style of ['trap', 'drill']) {
+      for (let seed = 1; seed <= 24; seed++) assert.equal(generate(style, seed).params.acid.voice, 2, `${style} must keep its sliding 808`);
+    }
+    for (const style of ['bailefunk', 'jerseyclub']) {
+      for (let seed = 1; seed <= 24; seed++) assert.notEqual(generate(style, seed).params.acid.voice, 4, `${style} must not borrow amapiano's log drum`);
+    }
+    for (const style of Object.keys(STYLES)) {
+      for (let seed = 1; seed <= 24; seed++) {
+        const g = generate(style, seed);
+        if (g.params.stab.voice === 6) assert(g.params.stab.octave <= 1, `${style} bells are already voiced one octave high`);
+      }
+    }
   }
-  assert.deepEqual([...recorded].sort((a, b) => a - b), [7, 8, 9, 10], 'all recorded families should appear across generated songs');
-}
 console.log('seeded instrument ensembles passed');
 }
