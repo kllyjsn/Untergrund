@@ -373,8 +373,9 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.stab = pad16(pick(r, [[1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1], [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1]]));
     S.acid = range(STEPS, (i) => (i % 4 === 0 || (i % 4 === 3 && r() < 0.5) ? { on: true, n: pick(r, [0, musicalScale[2], musicalScale[4], musicalScale[6] ?? 10]), a: i === 0, s: r() < 0.25 } : emptyAcidStep()));
     Object.assign(params.kick, { tune: 52, decay: soul ? 0.5 : 0.35, drive: soul ? 0.2 : 0.45, rumble: 0, punch: 0.55, click: soul ? 0.15 : 0.4 });
-    Object.assign(params.snare, { tune: soul ? 200 : 170, snappy: soul ? 0.4 : 0.75, decay: 0.22 });
-    Object.assign(params.ch, { decay: 0.05, tone: soul ? 3600 : 4800, level: 0.62, rev: 0.1 });
+    // A neo-soul snare is a fat, damped backbeat; an open, ringing one clanks under Rhodes and guitar.
+    Object.assign(params.snare, { tune: soul ? 190 : 170, snappy: soul ? 0.25 : 0.75, decay: soul ? 0.12 : 0.22 });
+    Object.assign(params.ch, { decay: 0.05, tone: soul ? 2400 : 4800, level: soul ? 0.5 : 0.62, rev: 0.1 });
     Object.assign(params.ride, { tone: 3800, decay: 1.4, level: 0.5, rev: 0.15 });
     Object.assign(params.kick, { level: 1.05 });
     Object.assign(params.snare, { level: 0.8, rev: 0.22 });

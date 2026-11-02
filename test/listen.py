@@ -84,7 +84,7 @@ def main(prefix):
 
     # 1. Tuning of everything the stems actually sound.
     P('## 1. Tuning (all spectral peaks 80-1200 Hz vs A440 equal temperament)\n')
-    P('| stem | energy-weighted mean offset | energy >15 cents off the grid | energy >25 cents off |\n|---|---|---|---|')
+    P('| stem | energy-weighted mean offset | energy >15 cents off the grid | energy >25 cents off |\n|---|---|---|---|---|')
     for k, S in spec.items():
         cs, ws = [], []
         for i in range(len(S.t)):
@@ -109,7 +109,7 @@ def main(prefix):
             a, b, c = np.log(avg[k - 1:k + 2] + 1e-12); p = 0.5 * (a - c) / (a - 2 * b + c)
             devs.append(1200 * np.log2((k + p) * S.sr / N_FFT / (h * f0))); w.append(avg[k] / h)
         if devs: rows.setdefault(f"{n['kind']}/{n['src']}", []).append((float(np.average(devs, weights=w)), n))
-    P('| part | notes measured | median abs offset | notes >15 c off | worst |\n|---|---|---|---|---|')
+    P('| part | notes measured | median abs offset | notes >15 c off | worst |\n|---|---|---|---|---|---|')
     for k, r in rows.items():
         d = np.array([x for x, _ in r]); worst = sorted(r, key=lambda x: -abs(x[0]))[:3]
         P(f"| {k} | {len(d)} | {np.median(np.abs(d)):.1f} c | {(np.abs(d) > 15).sum()} | " + ', '.join(f"{nn(n['midi'])}@{n['t']:.2f}s {x:+.0f}c" for x, n in worst) + ' |')
@@ -210,6 +210,17 @@ def main(prefix):
                 hang.append(f"{b['t']:.2f}s {nn(n['midi'])}({n['src']}) into {NAMES[b['root']]}{b['chord']}")
     P(f'- **notes that ring on into a chord they do not belong to**: {len(hang)}' + ''.join(f'\n  - {h}' for h in hang[:8]))
 
+    # 4. Clang: which stem owns the bright attack band (2.5-8 kHz) where pick, stick and string clank live.
+    if 'full' in stems:
+        P('\n## Clang (bright 2.5-8 kHz attack band, by stem)\n\n| stem | 2.5-8 kHz level (dBFS, compare across renders) | share of the mix | centroid | above 8 kHz |\n|---|---|---|---|---|')
+        def bands(path):
+            x, sr = load(path); S = np.abs(np.fft.rfft(x)) ** 2; f = np.fft.rfftfreq(len(x), 1 / sr)
+            return S[(f >= 2500) & (f < 8000)].sum() / len(x) ** 2 * 2, (f * S).sum() / max(S.sum(), 1e-20), S[f >= 8000].sum() / max(S.sum(), 1e-20)
+        ref_hi = bands(stems['full'])[0]
+        for k in sorted(stems):
+            if '_' in k: continue
+            hi, cen, top = bands(stems[k])
+            if hi > ref_hi * 1e-4: P(f'| {k} | {10 * np.log10(hi):.1f} | {100 * hi / ref_hi:.0f}% | {cen:.0f} Hz | {10 * np.log10(max(top, 1e-12)):.1f} dB |')
     rep = '\n'.join(out); open(prefix + '_report.md', 'w').write(rep + '\n'); print(rep)
     plot(prefix, spec, notes, bars, rough, ref, meta)
 
