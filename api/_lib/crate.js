@@ -1,7 +1,7 @@
 import { STYLES, sanitize } from '../../js/state.js';
 
 const clean = (value, max) => String(value || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max);
-const META = 'untergrund:crate:meta', STATES = 'untergrund:crate:states', LIMIT = 500, RATE_PER_HOUR = 30;
+const META = 'untergrund:crate:meta', STATES = 'untergrund:crate:states', REMIXES = 'untergrund:crate:remixes', LIMIT = 500, RATE_PER_HOUR = 30;
 export const MAX_TRACK_BYTES = 200_000;
 
 export function normalizeTrack(body) {
@@ -16,6 +16,7 @@ export function normalizeTrack(body) {
     key: state.key,
     scale: state.scale,
     created: new Date().toISOString(),
+    ...(state.remixOf && { remixOf: state.remixOf }),
     state,
   };
 }
@@ -44,6 +45,8 @@ export const redisStore = () => (redisEnv() ? {
     if (evicted.length) await redis(['HDEL', STATES, ...evicted]);
     await redis(['LTRIM', META, 0, LIMIT - 1]);
   },
+  async remixes(id) { return Number(await redis(['HGET', REMIXES, id])) || 0; },
+  async countRemix(id) { return Number(await redis(['HINCRBY', REMIXES, id, 1])) || 0; },
   async allow(client) {
     const key = `untergrund:crate:rate:${client}`;
     const count = await redis(['INCR', key]);
@@ -54,7 +57,7 @@ export const redisStore = () => (redisEnv() ? {
 
 export function memoryStore() {
   const tracks = [];
-  const hits = new Map();
+  const hits = new Map(), remixes = new Map();
   return {
     async allow(client) {
       const now = Date.now(), fresh = (list) => list.filter((t) => now - t < 3600e3);
@@ -66,6 +69,8 @@ export function memoryStore() {
     async list(n = 60) { return tracks.slice(0, n).map(({ state, ...meta }) => meta); },
     async get(id) { return tracks.find((t) => t.id === id) || null; },
     async add(track) { tracks.unshift(track); tracks.length = Math.min(tracks.length, LIMIT); },
+    async remixes(id) { return remixes.get(id) || 0; },
+    async countRemix(id) { remixes.set(id, (remixes.get(id) || 0) + 1); return remixes.get(id); },
   };
 }
 
@@ -73,7 +78,7 @@ export async function handleCrate(method, body, store, id = '', client = 'anon')
   if (!store) return { status: 503, json: { enabled: false, tracks: [] } };
   if (method === 'GET' && id) {
     const track = await store.get(clean(id, 40));
-    return track ? { status: 200, json: { track } } : { status: 404, json: { error: 'not_found' } };
+    return track ? { status: 200, json: { track: { ...track, remixes: await store.remixes(track.id) } } } : { status: 404, json: { error: 'not_found' } };
   }
   if (method === 'GET') return { status: 200, json: { enabled: true, tracks: await store.list() } };
   if (method === 'POST') {
@@ -86,4 +91,14 @@ export async function handleCrate(method, body, store, id = '', client = 'anon')
     return { status: 201, json: { track: meta } };
   }
   return { status: 405, json: { error: 'method_not_allowed' } };
+}
+
+// One count per fork of a shared track; the remixer's client is rate limited like publishing.
+export async function handleRemix(method, id, store, client = 'anon') {
+  if (!store) return { status: 503, json: { enabled: false } };
+  if (method !== 'POST') return { status: 405, json: { error: 'method_not_allowed' } };
+  const track = id && await store.get(clean(id, 40));
+  if (!track) return { status: 404, json: { error: 'not_found' } };
+  if (!(await store.allow(`remix:${clean(client, 64) || 'anon'}`))) return { status: 429, json: { error: 'rate_limited' } };
+  return { status: 200, json: { remixes: await store.countRemix(track.id) } };
 }

@@ -2,8 +2,8 @@
 import { rng } from './dsp.js';
 import { TRACKS, KEYS, SCALES } from './params.js';
 
-const stepValues = (pat, id) => (id === 'acid' ? pat.steps.acid.map((s) => (s.on ? (s.a ? 2 : 1) : 0)) : pat.steps[id]);
-const hits = (pat) => Object.keys(pat.steps).reduce((n, id) => n + stepValues(pat, id).filter(Boolean).length, 0);
+export const stepValues = (pat, id) => (id === 'acid' ? pat.steps.acid.map((s) => (s.on ? (s.a ? 2 : 1) : 0)) : pat.steps[id]);
+export const hits = (pat) => Object.keys(pat.steps).reduce((n, id) => n + stepValues(pat, id).filter(Boolean).length, 0);
 
 export function drawArtwork(state, { title = 'UNTERGRUND', style = '', seed = 1, size = 1200 } = {}) {
   const c = document.createElement('canvas');
