@@ -43,6 +43,22 @@ for (const form of Object.keys(FORMS)) {
   const con = compose({ form: 'concerto', seed: 9, mode: 'M' });
   assert(con.notes.some((n) => n[4] === 'pno') && con.notes.some((n) => n[4] === 'vln1'), 'concerto has a soloist and an orchestra');
 }
+// Virtuosity: the concerto has a solo-piano cadenza of 32nd-note scales, arpeggios over four octaves, broken octaves and a trill.
+for (const mode of ['M', 'm']) {
+  const c = compose({ form: 'concerto', seed: 3, mode }), cad = c.sections.find((x) => x.name === 'CADENZA');
+  assert(cad, `concerto ${mode} has a cadenza`);
+  assert.equal(c.sections[c.sections.indexOf(cad) + 1].name, 'CODA', 'the cadenza leads into the coda');
+  const solo = c.notes.filter((n) => n[0] >= (cad.at + 1) * 16 && n[0] < (cad.at + cad.len) * 16);
+  assert(solo.length > 60 && solo.every((n) => n[4] === 'pno'), 'the orchestra rests during the cadenza');
+  assert(solo.filter((n) => n[0] % 1).length > 30, 'cadenza runs move in 32nds');
+  const pitches = solo.map((n) => n[1]);
+  assert(Math.max(...pitches) - Math.min(...pitches) >= 36, 'the cadenza spans the keyboard');
+  const tr = solo.filter((n) => n[0] >= (cad.at + cad.len - 1) * 16 && n[1] > 66);
+  assert(new Set(tr.map((n) => n[1])).size <= 4 && tr.length >= 24, 'it ends on a trill');
+  assert(c.tempo[cad.at * 16] > 1.3, 'the cadenza opens broadly');
+  const rolled = c.notes.filter((n) => n[4] === 'pno' && n[5] > 0);
+  assert(rolled.length > 10 && rolled.every((n) => n[5] < 0.08), 'wide piano chords are rolled');
+}
 console.log('classical forms, cadences and orchestration passed');
 
 {
