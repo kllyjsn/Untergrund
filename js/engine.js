@@ -457,7 +457,8 @@ export class Engine {
     node.connect(g).connect(out);
     // Held orchestral notes outlast their recording: loop the sustained middle, after the attack.
     if (fx.loop && dur > buf.duration / rate - 0.3) { const [a, b] = loopPoints(buf); s.loop = true; s.loopStart = a; s.loopEnd = b; }
-    s.start(t);
+    if (fx.offset) { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(level, t + 0.006); }
+    s.start(t, fx.offset || 0);
     if (dur) {
       g.gain.setValueAtTime(level, t + dur);
       const rel = fx.release || 0.05;
@@ -947,8 +948,10 @@ export class Engine {
     for (const [cm, b] of set) if (Math.abs(cm - m) < Math.abs(c - m)) [c, buf] = [cm, b];
     // Dynamics change colour as well as level: a pianissimo section is darker than a fortissimo one.
     const touch = 0.92 + 0.16 * hash(t * 7 + m, 31), level = O.gain * lvl * Math.pow(vel, 1.5) * touch * 0.55;
+    // Short bowed notes are played détaché: skip the slow sustain swell and lift the bow quickly.
+    const short = O.loop && dur > 0 && dur < 0.32;
     return this.playBuf(buf, t + (O.off || 0) * hash(t, m), level, this.orchBus(part), Math.pow(2, (m - c + (O.det || 0) / 100) / 12), dur, {
-      lp: O.lp * (0.35 + 0.65 * vel), release: O.rel, loop: O.loop,
+      lp: O.lp * (0.35 + 0.65 * vel), release: short ? 0.06 : O.rel, loop: O.loop, offset: short ? 0.035 : 0,
     });
   }
   // Played by hand (screen, keyboard, MIDI): sounds now and rings until released.
