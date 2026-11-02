@@ -263,6 +263,35 @@ function lightWanted(s) {
   for (const el of P.lit) if (!want.has(el)) el.classList.remove('pr-want');
   for (const el of want) el.classList.add('pr-want');
   P.lit = want;
+  return want;
+}
+const NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+const noteName = (m) => NAMES[m % 12] + (Math.floor(m / 12) - 1);
+
+// While Wait holds, name the notes it wants right above their keys, and after a moment say so plainly.
+function prompt(g, s, want, geo, now, H, left, vw) {
+  const held = P.running && s.waiting();
+  if (!held || !want.size) { P.waitSince = 0; return; }
+  if (!P.waitSince) P.waitSince = now;
+  const tags = [...want].map((el) => ({ m: +el.dataset.m, key: el.querySelector('kbd')?.textContent || '' })).sort((a, b) => a.m - b.m);
+  g.font = '700 11px ui-monospace, Menlo, monospace';
+  for (const t of tags) {
+    const k = geo.map.get(t.m);
+    if (!k) continue;
+    const text = noteName(t.m), w = g.measureText(text).width + 10, x = Math.max(left + w / 2, Math.min(left + vw - w / 2, k.x + k.w / 2));
+    g.fillStyle = 'rgba(0,0,0,.7)';
+    g.beginPath(); if (g.roundRect) g.roundRect(x - w / 2, H - 34, w, 18, 4); else g.rect(x - w / 2, H - 34, w, 18); g.fill();
+    g.fillStyle = '#fff'; g.fillText(text, x, H - 21);
+  }
+  if (now - P.waitSince < 1500) return;
+  const keys = tags.map((t) => t.key).filter(Boolean);
+  const text = `YOUR TURN · PLAY ${tags.map((t) => noteName(t.m)).join(' ')}` + (keys.length === tags.length && P.api.computerKeys?.() && !matchMedia('(pointer: coarse)').matches ? ` (KEY ${keys.join(' ')})` : '');
+  g.font = '600 12px ui-monospace, Menlo, monospace';
+  const w = Math.min(vw - 16, g.measureText(text).width + 28), cx = left + vw / 2;
+  g.globalAlpha = Math.min(1, (now - P.waitSince - 1500) / 300);
+  g.fillStyle = 'rgba(10,10,14,.88)'; g.fillRect(cx - w / 2, H / 2 - 22, w, 40);
+  g.fillStyle = '#fff'; g.fillText(text, cx, H / 2 + 2, w - 16);
+  g.globalAlpha = 1;
 }
 
 function draw(now) {
@@ -329,9 +358,9 @@ function draw(now) {
     g.fillStyle = '#fff'; g.font = '600 12px ui-monospace, Menlo, monospace';
     g.fillText('PAUSED · PLAY A KEY TO GO ON', cx, H / 2 + 2);
   }
+  prompt(g, s, lightWanted(s), geo, now, H, left, wrap?.clientWidth || W);
   g.textAlign = 'start';
 
-  lightWanted(s);
   reach(s);
   status(s);
   follow(s, wrap, geo);

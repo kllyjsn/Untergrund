@@ -6,6 +6,7 @@
 
 const EPS = 0.02;
 export const TOGETHER = 0.06; // score seconds: onsets this close sound as one chord
+export const SKIM = 1.5; // Wait mode skims silent gaps down to this many seconds before your next note
 export const HANDS = { right: [0], left: [1], both: [0, 1] };
 
 // Seconds at full speed for every step of the written score (written tempo changes, no rubato).
@@ -105,7 +106,12 @@ export function createSession(tl, { mode = 'wait', speed = 1, window = 0.2, auto
     if (s.done) return out;
     if (dt > 0) s.started = true;
     let next = s.pos + Math.max(0, dt) * s.speed;
-    if (mode === 'wait') { const e = nextBlocking(); if (e) next = Math.min(next, e.t); }
+    if (mode === 'wait') {
+      const e = nextBlocking();
+      // Nothing to play for a while and the other hand is silent: skim ahead to your next note.
+      if (e && !autoOther && e.t - s.pos > SKIM * s.speed) next = Math.max(next, Math.min(e.t - SKIM * s.speed, s.pos + Math.max(0, dt) * s.speed * 8));
+      if (e) next = Math.min(next, e.t);
+    }
     s.pos = next;
     emit(out);
     if (mode === 'play') {
