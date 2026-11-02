@@ -127,3 +127,20 @@ console.log('arrangement dynamics passed');
   }
   console.log('neo-soul live band passed');
 }
+{
+  // Bass notes written in the key slide off half-step rubs against the bar's chord; approach notes stay chromatic.
+  const { Engine, guitarGrip } = await import('../js/engine.js');
+  const { CHORDS } = await import('../js/params.js');
+  const fake = { state: { key: 0, params: { acid: { tune: 0 } } }, harm: { r: 0, c: 9 }, harmRoot: Engine.prototype.harmRoot };
+  const midi = (n, ap) => Engine.prototype.bassMidi.call(fake, { n, ap });
+  assert.equal(midi(3) % 12, 4, 'minor third under MAJ9 moves to the major third');
+  assert.equal(midi(10) % 12, 11, 'flat seven under MAJ9 moves to the major seventh');
+  assert.equal(midi(7) % 12, 7, 'chord tones stay');
+  assert.equal(midi(-1, true) % 12, 11, 'approach notes stay chromatic');
+  for (const [root, iv] of CHORDS.map((c, i) => [47 + i, c.iv])) {
+    const g = guitarGrip(root, iv);
+    assert(g[0] >= 40 && g[0] <= 51 && g[1] - g[0] >= 7, 'guitar root on a low string with air above it');
+    for (let k = 2; k < g.length; k++) assert(g[k] - g[k - 1] >= 3, `no half-step rub in ${g}`);
+  }
+  console.log('bass/chord agreement and guitar grips passed');
+}

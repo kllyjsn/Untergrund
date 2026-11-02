@@ -52,9 +52,29 @@ function loopPoints(buf) {
   return out;
 }
 
+// How a guitarist grips a chord: the root on a low string, a fifth or more of air above it, then the other
+// tones stacked at least a minor third apart (the fifth is left out of five-note chords), so the shape
+// never rubs two neighbouring strings a half step apart.
+export function guitarGrip(root, iv) {
+  let bass = root;
+  while (bass > 51) bass -= 12;
+  while (bass < 40) bass += 12;
+  const rest = [...new Set(iv.slice(1).map((n) => ((n % 12) + 12) % 12))].filter((pc) => pc !== 0 && !(iv.length > 4 && pc === 7));
+  const out = [bass];
+  let floor = bass + 7;
+  while (rest.length) {
+    let best = -1, bestM = Infinity;
+    rest.forEach((pc, i) => { let m = bass + pc; while (m < floor) m += 12; if (m < bestM) { bestM = m; best = i; } });
+    out.push(bestM);
+    rest.splice(best, 1);
+    floor = bestM + 3;
+  }
+  return out;
+}
+
 const BAND_PLAY = {
   piano: { gain: 4, len: 4, min: 1.2, strum: 0.004, shift: 0, lo: 45, hi: 79, lp: 7000, rel: 0.18 },
-  gtr: { gain: 4.4, len: 2.6, min: 0.6, strum: 0.014, shift: 0, lo: 40, hi: 71, lp: 5200, rel: 0.12 },
+  gtr: { gain: 4.4, len: 2.6, min: 0.6, strum: 0.008, shift: 0, lo: 40, hi: 74, lp: 5200, rel: 0.12, grip: true, even: 0.35 },
   horn: { gain: 2.2, len: 1.2, min: 0.25, strum: 0.003, shift: 12, lo: 53, hi: 81, lp: 4800, rel: 0.09 },
   str: { gain: 1.2, len: 2, min: 0.5, strum: 0, shift: 0, hold: true, lo: 55, hi: 79, lp: 4200, rel: 0.25 },
 };
@@ -893,16 +913,22 @@ export class Engine {
     const R = BAND_PLAY[kind];
     const tone = Math.max(-6, Math.min(3, 3 * Math.log2(p.cutoff / 1500)));
     const dur = Math.max(R.hold ? this.stepDur * 4 : R.min, p.decay * R.len);
-    const up = hash(t, 21) > 0.5;
+    const chord = R.grip && iv.length > 1;
+    // A guitarist alternates down- and upstrokes; other players roll the chord either way.
+    const up = chord ? (this.stroke = !this.stroke) === false : hash(t, 21) > 0.5;
     const articulation = Math.max(0, Math.min(1, p.env ?? 0.5));
-    const strum = R.strum * (0.45 + articulation * 1.8);
-    iv.forEach((n, k) => {
-      const order = up ? k : iv.length - 1 - k;
-      const at = t + order * strum + (hash(t * 3 + k, 22) - 0.5) * (0.003 + articulation * 0.006);
-      const sweep = iv.length > 1 ? order / (iv.length - 1) - 0.5 : 0;
+    const strum = R.strum * (0.45 + articulation * 1.8), even = R.even ?? 1;
+    const notes = chord ? guitarGrip(root, iv) : iv.map((n) => root + n);
+    // Each string rings until it is struck again: the new chord damps the last one instead of piling on it.
+    if (chord) { for (const h of this.gripHeld || []) { h.g.gain.cancelScheduledValues(t); h.g.gain.setTargetAtTime(0, t, 0.04); } this.gripHeld = []; }
+    notes.forEach((m, k) => {
+      const order = up ? notes.length - 1 - k : k;
+      const at = t + order * strum + (hash(t * 3 + k, 22) - 0.5) * (0.003 + articulation * 0.006) * even;
+      const sweep = notes.length > 1 ? order / (notes.length - 1) - 0.5 : 0;
       const accent = 1 + sweep * (articulation - 0.5) * 0.35;
-      const lvl = (v * R.gain * accent * (0.85 + 0.3 * hash(t + k, 23))) / Math.sqrt(iv.length);
-      this.recordedNote(set, at, lvl, root + n + R.shift, dur, out, tone, kind, v);
+      const lvl = (v * R.gain * accent * (1 - 0.15 * even + 0.3 * even * hash(t + k, 23))) / Math.sqrt(notes.length);
+      const h = this.recordedNote(set, at, lvl, m + R.shift, dur, out, tone, kind, v);
+      if (chord && h) this.gripHeld.push(h);
     });
   }
 
@@ -912,12 +938,12 @@ export class Engine {
     const R = BAND_PLAY[kind];
     if (R) { while (m > R.hi) m -= 12; while (m < R.lo) m += 12; }
     if (out === this.ch.stab.input) out = this.ch.stab.band;
-    const touch = 0.8 + 0.4 * hash(t * 7 + m, 24), hv = Math.max(0.25, Math.min(1.2, vel * touch));
+    const touch = 1 - 0.2 * (R?.even ?? 1) + 0.4 * (R?.even ?? 1) * hash(t * 7 + m, 24), hv = Math.max(0.25, Math.min(1.2, vel * touch));
     // Soft touches play the softly struck piano recording: a different tone, not just a quieter one.
     if (kind === 'piano' && hv < 0.88 && bandKit('pianosoft')) set = bandKit('pianosoft');
     let [c, buf] = set[0];
     for (const [cm, b] of set) if (Math.abs(cm - m) < Math.abs(c - m)) [c, buf] = [cm, b];
-    this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
+    return this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
       shelves: [[3000, tone]], lp: R ? R.lp * (0.4 + 0.6 * hv) : 0, release: R ? R.rel : 0.05,
     });
   }
@@ -1195,6 +1221,14 @@ export class Engine {
   // alter the pitch class without accidentally moving the whole bass line up.
   bassMidi(st, base = 36, high = 43) {
     let n = base + this.state.key + st.n + Math.round(this.state.params.acid.tune) + this.harmRoot();
+    // Bass lines are written in the key, but over the bar's chord a note a half step off a chord tone
+    // (a minor third under a major ninth chord) rubs like a detuned string; slide it onto that tone.
+    const h = this.harm;
+    if (h && !st.ap) {
+      const pc = (x) => ((x % 12) + 12) % 12, iv = CHORDS[h.c].iv, rel = pc(n - base - this.state.key - this.harmRoot());
+      const tones = iv.map(pc), core = iv.filter((x) => x < 12).map(pc);
+      if (!tones.includes(rel)) n += [[core, -1], [core, 1], [tones, -1], [tones, 1]].find(([set, d]) => set.includes(pc(rel + d)))?.[1] ?? 0;
+    }
     while (n > high) n -= 12;
     while (n < high - 11) n += 12;
     return n;
@@ -1502,7 +1536,7 @@ export class Sequencer {
         const nextH = vary && i === len - 1 && pat.prog?.length > 1 ? pat.prog[(bar + 1) % pat.prog.length] : null;
         if (nextH && nextH.r !== e.harm?.r && hash(bar, 91) < vary) {
           const cur = e.harm; e.harm = nextH;
-          e.acid(tt + (s.master.humanize || 0) * 0.016, { on: true, n: hash(bar, 92) < 0.5 ? -1 : 1, a: false, s: false }, false, false, sd);
+          e.acid(tt + (s.master.humanize || 0) * 0.016, { on: true, n: hash(bar, 92) < 0.5 ? -1 : 1, a: false, s: false, ap: true }, false, false, sd);
           e.harm = cur; this.acidPrevSlide = false;
         } else {
           const feel = s.master.humanize || 0;
