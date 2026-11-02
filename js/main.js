@@ -29,8 +29,11 @@ let playing = false, abs = 0, nextTime = 0, lastPlayedPat = null;
 let transportOrigin = 0, roomJoinTimer = 0, clockOffset = null;
 const uiQueue = [];
 let selected = 'kick';
-let style = 'hypnotic';
 let family = localStorage.getItem('untergrund.family') || 'TECHNO';
+// Reopen on the saved project's genre when it belongs to the remembered family, else that family's first genre.
+let style = STYLES[state.artist?.style]?.family === family ? state.artist.style
+  : Object.keys(STYLES).find((id) => STYLES[id].family === family) || 'hypnotic';
+family = STYLES[style].family;
 let generatedAt = 0;
 function showCrash(err) {
   if (document.querySelector('.crash')) return;
