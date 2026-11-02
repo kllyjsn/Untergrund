@@ -2,6 +2,7 @@
 import { h } from './ui.js';
 import { STYLES } from './state.js';
 import { saveTrack } from './crate.js';
+import { track as trackEvent } from './analytics.js';
 import { encodeWav } from './dsp.js';
 
 const MAX_WAV_SECONDS = 15 * 60;
@@ -200,6 +201,7 @@ export function openSetCutter({ take, defaults, toast, download, soundcloud }) {
     status.textContent = 'Publishing…';
     const r = await publishSet({ ...defaults, blob, title: name(), duration, start, end, peaks, onProgress: (p) => { status.textContent = `Uploading your set… ${Math.round(p * 100)}%`; } });
     kept = true; status.textContent = publicNote(r.public); pub.textContent = 'PUBLISHED';
+    trackEvent('publish', { kind: 'set', public: r.public });
     toast(`“${name()}” is in the jukebox`);
   });
   const sc = action('ALSO ON SOUNDCLOUD', 'sc', async () => {
@@ -237,6 +239,7 @@ export function openSongPublish({ state, style, title, artist, toast, soundcloud
       const name = input.value.trim() || title;
       const r = await publishSong({ state, title: name, style, artist });
       status.textContent = publicNote(r.public); pub.textContent = 'PUBLISHED';
+      trackEvent('publish', { kind: 'song', public: r.public });
       toast(`“${name}” is in the jukebox`);
     } catch (err) { status.textContent = 'Failed: ' + err.message; pub.disabled = false; }
   } }, 'PUBLISH TO UNTERGRUND');
@@ -293,7 +296,7 @@ export function openJukebox({ playSong, stopSong, toast, onCreate }) {
       tabs.append(h('button', { class: 'family-tab' + (filter === id ? ' on' : ''), onclick: () => { filter = id; renderTabs(); renderList(); } }, text));
     }
     tabs.append(h('button', { class: 'btn accent jb-all', onclick: () => { queue = visible(); playAt(0); } }, 'PLAY ALL'),
-      h('button', { class: 'btn ghost', onclick: async () => { await navigator.clipboard?.writeText(`${location.origin}/?jukebox`); toast('Jukebox link copied'); } }, 'COPY LINK'));
+      h('button', { class: 'btn ghost', onclick: async () => { await navigator.clipboard?.writeText(`${location.origin}/?jukebox`); trackEvent('share_link_copied', { what: 'jukebox' }); toast('Jukebox link copied'); } }, 'COPY LINK'));
   }
   function renderList() {
     list.innerHTML = '';

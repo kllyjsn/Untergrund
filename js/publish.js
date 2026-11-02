@@ -4,6 +4,7 @@ import { KEYS } from './params.js';
 import { STYLES } from './state.js';
 import { drawArtwork, canvasToBlob } from './artwork.js';
 import * as sc from './soundcloud.js';
+import { track as trackEvent } from './analytics.js';
 
 const WORDS_A = ['Beton', 'Stahl', 'Nacht', 'Tief', 'Dunkel', 'Strom', 'Schacht', 'Nebel', 'Kessel', 'Puls', 'Kammer', 'Vakuum', 'Spree', 'Transit', 'Signal'];
 const WORDS_B = ['Ritual', 'Schicht', 'Garage', 'Frequenz', 'Maschine', 'Hall', 'Tunnel', 'Werk', 'Zone', 'Bunker', 'Druck', 'Kreis', 'Linie', 'Feld', 'Raum'];
@@ -175,6 +176,7 @@ export function openPublish({ getState, getStyle, render, toast, audio = null, t
       const list = releases(); list.push({ id: track.id, title, url: track.permalink_url, at: new Date().toISOString() });
       localStorage.setItem(STORE, JSON.stringify(list.slice(-200)));
       result.append(shareBox(track, title));
+      trackEvent('publish', { kind: 'soundcloud', public: true });
       toast(`“${title}” is on SoundCloud`);
       renderAccount(); refreshGrowth();
     } catch (err) {
@@ -193,7 +195,7 @@ export function openPublish({ getState, getStyle, render, toast, audio = null, t
     return h('div', { class: 'pub-share' },
       h('a', { class: 'pub-link', href: url, target: '_blank', rel: 'noopener' }, url),
       h('div', { class: 'pub-share-btns' },
-        h('button', { class: 'btn', onclick: () => copy(url, 'Link copied') }, 'COPY LINK'),
+        h('button', { class: 'btn', onclick: () => { trackEvent('share_link_copied', { what: 'soundcloud' }); copy(url, 'Link copied'); } }, 'COPY LINK'),
         link('POST ON X', `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`),
         link('WHATSAPP', `https://wa.me/?text=${encodeURIComponent(text + ' ' + url)}`),
         link('TELEGRAM', `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`),

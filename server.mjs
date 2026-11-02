@@ -24,7 +24,10 @@ if (MOCK) {
 
 import { handleCrate, memoryStore, redisStore, MAX_TRACK_BYTES } from './api/_lib/crate.js';
 import { handleJukebox, memoryJukebox, redisJukebox } from './api/_lib/jukebox.js';
+import { handleEvents, memoryKv, redisKv, MAX_BODY as MAX_EVENT_BYTES } from './api/_lib/events.js';
 const jukeboxStore = redisJukebox() || memoryJukebox();
+const eventsKv = redisKv() || memoryKv();
+const STATS_TOKEN = process.env.STATS_TOKEN || (MOCK ? 'dev' : '');
 const crateStore = redisStore() || memoryStore();
 const readBody = (req, max = Infinity) => new Promise((ok, fail) => {
   const c = []; let size = 0;
@@ -56,6 +59,12 @@ http.createServer(async (req, res) => {
       const { status, json } = await handleJukebox(req.method, body, { store: jukeboxStore, crate: crateStore, client: req.socket.remoteAddress });
       res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       return res.end(JSON.stringify(json));
+    }
+    if (url.pathname === '/api/events') {
+      const raw = req.method === 'POST' ? await readBody(req, MAX_EVENT_BYTES) : null;
+      if (raw === null && req.method === 'POST') return sendJson(res, 413, { error: 'too_large' });
+      const { status, json } = await handleEvents({ method: req.method, query: Object.fromEntries(url.searchParams), headers: req.headers, body: raw ? raw.toString() : null, kv: eventsKv, client: req.socket.remoteAddress, statsToken: STATS_TOKEN });
+      return sendJson(res, status, json);
     }
     if (url.pathname === '/api/set-upload') {
       res.writeHead(503, { 'Content-Type': 'application/json' });
@@ -90,4 +99,4 @@ http.createServer(async (req, res) => {
     if (err.code === 'ENOENT' || err.code === 'EISDIR') { res.writeHead(404); return res.end('not found'); }
     console.error(err); sendJson(res, 500, { error: 'server_error' });
   }
-}).listen(PORT, () => console.log(`UNTERGRUND on http://localhost:${PORT}${MOCK ? ' (mock SoundCloud)' : ''}`));
+}).listen(PORT, () => console.log(`UNTERGRUND on http://localhost:${PORT}${MOCK ? ' (mock SoundCloud)' : ''}${STATS_TOKEN && MOCK && !process.env.STATS_TOKEN ? ` · stats: /stats.html?token=${STATS_TOKEN}` : ''}`));

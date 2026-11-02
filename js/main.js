@@ -1,3 +1,4 @@
+import { track as trackEvent, reportError, playStarted, playStopped } from './analytics.js';
 import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue, VOICE_HIDDEN } from './params.js';
 import { Engine, Sequencer, parseChain } from './engine.js';
 import { defaultState, generate, mutate, arrangement, songChain, applyOverrides, clone, save, load, sanitize, STYLES, emptyPattern, emptyAcidStep } from './state.js';
@@ -60,11 +61,13 @@ function unlockMediaChannel() {
 function ensureAudio() {
   try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
   if (ctx) {
-    if (ctx.state !== 'running') ctx.resume();
+    if (ctx.state !== 'running') ctx.resume()?.catch?.((err) => reportError(err, { kind: 'audio_resume' }));
     if (mediaUnlock?.paused) mediaUnlock.play().catch(() => {});
     return;
   }
-  ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: matchMedia('(pointer: coarse)').matches ? 'playback' : 'balanced' });
+  try {
+    ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: matchMedia('(pointer: coarse)').matches ? 'playback' : 'balanced' });
+  } catch (err) { reportError(err, { kind: 'audio_context' }); throw err; }
   engine = new Engine(ctx, state);
   if (isIOS() && ctx.createMediaStreamDestination) {
     mediaRoute = ctx.createMediaStreamDestination();
@@ -126,6 +129,7 @@ function play({ step = 0, delay = 0.06 } = {}) {
   timer.postMessage('start');
   schedule();
   document.body.classList.add('playing');
+  playStarted({ genre: style });
   renderHome();
 }
 
@@ -133,6 +137,7 @@ function stop() {
   clearTimeout(roomJoinTimer);
   roomJoinTimer = 0;
   playing = false;
+  playStopped();
   timer?.postMessage('stop');
   engine?.panic();
   uiQueue.length = 0;
@@ -409,6 +414,7 @@ function doGenerate() {
   for (const [id, params] of Object.entries(lockedParams)) state.params[id] = params;
   engine?.applyAll(); engine?.applyDelayTime();
   build(); persist();
+  trackEvent('generate', { genre: style, kind: 'pattern' });
   toast(`${STYLES[style].name} pattern → ${PATTERN_NAMES[state.current]}${TRACK_IDS.some((id) => state.locks[id]) ? ' · locked tracks kept' : ''}`);
 }
 
@@ -434,6 +440,7 @@ function doGenerateSet() {
   const artist = loadAvatar().name || 'UNTERGRUND';
   state.artist = { name: artist, title, style, seed, created: new Date().toISOString() };
   build(); persist();
+  trackEvent('generate', { genre: style, kind: 'song' });
   toast(`New ${STYLES[style].name} track “${title}”`);
   saveTrack({ title, artist, style, state: clone(state) })
     .then(({ shared }) => toast(`“${title}” saved to ${shared ? 'the shared CRATE' : 'your CRATE'}`));
@@ -586,6 +593,7 @@ async function startPreview(id, card) {
     Object.assign(token, { src, gain });
   } catch (err) {
     console.error(err);
+    reportError(err, { kind: 'preview' });
     if (preview === token) { preview = null; card.classList.remove('previewing'); }
   }
 }
@@ -832,7 +840,8 @@ function buildHeader() {
       const buf = await renderBars(state, +bars.value);
       download(bufferToWav(buf), `untergrund-${state.bpm}bpm-${bars.value}bars-${stamp()}.wav`);
       toast(`Rendered ${bars.value} bars · 48 kHz / 24-bit WAV`);
-    } catch (err) { console.error(err); toast('Render failed: ' + err.message); }
+      trackEvent('export_wav', { bars: +bars.value });
+    } catch (err) { console.error(err); reportError(err, { kind: 'render' }); toast('Render failed: ' + err.message); }
     btn.disabled = false; btn.textContent = 'EXPORT WAV';
   } }, 'EXPORT WAV');
   const recBtn = h('button', { class: 'btn rec', title: 'Record your set any time, then cut and publish it', onclick: toggleRec }, h('span', { class: 'dot' }), 'REC', h('span', { class: 'rec-time' }));

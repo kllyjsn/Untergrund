@@ -28,6 +28,10 @@ check 200 /api/sc-config
 check 200 /api/room-config
 check 200 /api/tracks
 check 200 /api/jukebox
+check 200 /api/events
+check 401 "/api/events?summary=1&token=wrong"
+check 200 "/api/events?summary=1&token=dev"
+check 200 /stats.html
 check 200 "/api/rooms/ci-smoke?since=0"
 check 404 /api/does-not-exist
 check 404 /api/tracks.js
