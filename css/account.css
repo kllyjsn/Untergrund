@@ -22,7 +22,7 @@ p.acct-dim { margin: 0; }
 .acct-btns .btn { display: inline-flex; align-items: center; text-decoration: none; }
 .set-link { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; color: var(--dim); font: 500 12px var(--sans); }
 .set-link a { color: #c6ff3d; font: 500 13px var(--mono); text-decoration: none; overflow-wrap: anywhere; }
-.following-row { grid-column: 1 / -1; }
+.generate-home > .following-row { grid-area: auto; grid-column: 1 / -1; }
 @media (max-width: 760px) {
   .acct-panel { padding: 14px; }
   .acct-prefix { font-size: 12px; padding-left: 10px; }
