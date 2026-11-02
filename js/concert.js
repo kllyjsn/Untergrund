@@ -1,10 +1,11 @@
 // CLASSICAL stage: the ORCHESTRA desk (one fader + mute per section) and a PIANO you play yourself,
 // from the screen, the computer keyboard, or any MIDI keyboard (with sustain pedal).
 import { h } from './ui.js';
-import { SECTIONS, PART_SECTION, compose } from './classical.js';
+import { SECTIONS, PART_SECTION, COMPOSERS, compose } from './classical.js';
+import { MODELS } from './composer-models.js';
 import { loadBand } from './livekit.js';
 import { scoreKinds } from './engine.js';
-import { loadPiece, REPERTOIRE, writtenScore } from './repertoire.js';
+import { loadPiece, REPERTOIRE, PIECE, writtenScore } from './repertoire.js';
 import { practiceView, practiceOpen, practiceInput, closePractice } from './practice-ui.js';
 
 const LABEL = { strings: 'STRINGS', winds: 'WOODWINDS', brass: 'BRASS', harp: 'HARP', timpani: 'TIMPANI', piano: 'PIANO' };
@@ -127,6 +128,18 @@ function sectionStrip(k) {
 }
 
 // { state(), engine(), ensureAudio(), persist(), score } — score is the current pattern's score spec (or null)
+// "In the style of": pick a composer model learned from the public-domain scores, or UNTERGRUND's own rules.
+function stylePick(d) {
+  const m = MODELS[d.score.composer];
+  const by = m && [...new Set(m.pieces.map((id) => PIECE[id]?.composer.split(' ').pop()).filter(Boolean))].join(', ');
+  const sel = h('select', { 'aria-label': 'In the style of', onchange: (e) => d.onComposer?.(e.target.value) },
+    h('option', { value: '' }, 'UNTERGRUND'), COMPOSERS.map((c) => h('option', { value: c }, c)));
+  sel.value = m ? d.score.composer : '';
+  return h('div', { class: 'style-pick' },
+    h('label', {}, h('span', {}, 'In the style of'), sel),
+    h('small', { class: 'rep-credit' }, m ? `Learned from ${m.pieces.length} public-domain score${m.pieces.length > 1 ? 's' : ''}${m.name.endsWith('era') ? ` · ${by}` : ''}` : 'Our own rules'));
+}
+
 export function concertPanel(d) {
   deps = d;
   const sc = d.score && compose(d.score);
@@ -159,7 +172,8 @@ export function concertPanel(d) {
       h('p', {}, h('b', {}, `${meta.composer} · ${meta.title}`), ` · ${meta.work} · ${sc.bars} bars`),
       h('small', { class: 'rep-credit' }, `${meta.license === 'CC0-1.0' ? 'CC0' : 'Public-domain'} score · ${meta.source}`))
     : h('div', { class: 'concert-head' }, h('span', { class: 'np-eyebrow' }, 'CLASSICAL STAGE'),
-      h('p', {}, sc && !sc.waiting ? `${sc.bars} bars · ${sc.sections.length} sections · play along on the recorded grand` : 'Generate a piece, then play along on the recorded grand.'));
+      h('p', {}, sc && !sc.waiting ? `${sc.bars} bars · ${sc.sections.length} sections · play along on the recorded grand` : 'Generate a piece, then play along on the recorded grand.'),
+      d.score?.form ? stylePick(d) : null);
   // The catalogue of masterworks, by composer; tap one to hear it performed.
   const used = new Set(meta ? sc.notes.map((n) => PART_SECTION[n[4]]) : []);
   const current = d.score?.piece;

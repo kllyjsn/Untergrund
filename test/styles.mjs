@@ -116,3 +116,14 @@ console.log('global genres passed');
   assert.notDeepEqual(arrangement(g.pattern, 3, false)[7].steps.kick, h.kick);
 }
 console.log('arrangement dynamics passed');
+{
+  // Neo-soul stays a live band: no horn patch, no synth-choir chops, no vinyl crackle bed.
+  for (let seed = 1; seed <= 40; seed++) {
+    const g = generate('neosoul', seed, 'dorian');
+    assert.notEqual(g.params.stab.voice, 9, `neosoul ${seed} horns`);
+    assert(!g.pattern.steps.vox.some(Boolean), `neosoul ${seed} vox`);
+    assert.equal(g.master.dust, 0, `neosoul ${seed} dust`);
+    assert(!g.pattern.steps.ride.some(Boolean), `neosoul ${seed} ride`);
+  }
+  console.log('neo-soul live band passed');
+}
