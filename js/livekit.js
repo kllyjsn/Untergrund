@@ -6,7 +6,9 @@ export const LIVE_KIT = {
   hat: ['hh_v1_1', 'hh_v1_2', 'hh_v2_1', 'hh_v2_2', 'hh_v3_1', 'hh_v3_2', 'hh_v4_1', 'hh_v4_2', 'hh_half', 'hh_open'],
   ride: ['ride_v1_1', 'ride_v2_1', 'ride_v2_2', 'ride_v3_1'],
 };
-export const BASS_NOTES = [['c1', 24], ['eb1', 27], ['g1', 31], ['bb1', 34], ['d2', 38], ['f2', 41], ['a2', 45], ['c3', 48]];
+// Centers are the measured pitch of each recording (python3 test/sampletune.py), not its name: the Eb1 take
+// was played about a quarter tone flat and Bb1 a tenth of a semitone flat, which left A1/B1 sour against the band.
+export const BASS_NOTES = [['c1', 23.91], ['eb1', 26.76], ['g1', 31.04], ['bb1', 33.9], ['d2', 38.07], ['f2', 41.03], ['a2', 44.99], ['c3', 48.05]];
 export const LIVE_FILES = [
   ...Object.values(LIVE_KIT).flat(),
   ...BASS_NOTES.flatMap(([n]) => [`bass_${n}_a`, `bass_${n}_b`]),

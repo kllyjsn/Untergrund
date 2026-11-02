@@ -20,7 +20,7 @@ Open **ARTIST** to shape the artist identity and generate release-ready projects
 
 Open **CLUB** to enter an avatar listening room. Rooms only broadcast project state created inside UNTERGRUND: no third-party catalog, imported song, or sample stream is accepted. The current DJ can broadcast the open project, listeners synchronize the same synthesized arrangement locally, and queued creators can take the deck.
 
-`npm test` (run in CI with `npm run build`, `node --check` and `scripts/smoke.sh` on every PR) verifies artist generation plus room presence, host controls, chat, DJ queue handoff, and native-set broadcast. `test/` also holds the offline render + WAV analysis harness (`python3 test/server.py`, `test/analyze.py`).
+`npm test` (run in CI with `npm run build`, `node --check` and `scripts/smoke.sh` on every PR) verifies artist generation plus room presence, host controls, chat, DJ queue handoff, and native-set broadcast. `test/` also holds the offline render + WAV analysis harness (`python3 test/server.py`, `test/analyze.py`). `test/listen.sh <style> <seed>` renders a song's stems with the engine's note log and writes a listening report (tuning per note, half-step rubs, notes ringing into the wrong chord, strum timing and rhythm, plus a spectrogram with the scheduled notes); `python3 test/sampletune.py` measures every recorded sample's pitch.
 
 ## Musician-first generation
 
