@@ -1,0 +1,15 @@
+{
+  "id": "engine-a-vs-b-2026-11",
+  "title": "Fixed-seed engine comparison",
+  "pairs": [
+    {
+      "id": "deephouse-101",
+      "title": "Deep house, seed 101",
+      "style": "deephouse",
+      "seed": 101,
+      "bpm": 122,
+      "a": { "id": "engine-a", "file": "engine-a-deephouse-101.wav", "renderMs": 14200 },
+      "b": { "id": "engine-b", "file": "engine-b-deephouse-101.wav", "renderMs": 13100 }
+    }
+  ]
+}

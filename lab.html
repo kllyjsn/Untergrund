@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>UNTERGRUND Research Lab</title>
+  <meta name="description" content="Blind listening and synthetic audio evaluation for the UNTERGRUND music engine." />
+  <link rel="stylesheet" href="css/lab.css" />
+</head>
+<body>
+  <main>
+    <header><a href="/">UNTERGRUND</a><span>RESEARCH LAB</span></header>
+    <section id="setup" class="panel">
+      <p class="eyebrow">BLIND A/B BENCHMARK</p>
+      <h1>Prove the music got better.</h1>
+      <p>Load a benchmark manifest and its audio files. Candidate identities stay hidden until the completed results are exported.</p>
+      <div class="loaders">
+        <label>BENCHMARK JSON<input id="manifest" type="file" accept=".json,application/json" /></label>
+        <label>AUDIO FILES<input id="audio-files" type="file" accept="audio/*" multiple /></label>
+      </div>
+      <button id="start" disabled>START BLIND TEST</button>
+      <p class="hint">Manifest candidates can use hosted <code>url</code> values or local <code>file</code> names.</p>
+    </section>
+    <section id="test" hidden>
+      <div class="progress"><span id="progress-label"></span><i id="progress-bar"></i></div>
+      <div class="pair-head"><div><p class="eyebrow" id="genre"></p><h2 id="pair-title"></h2></div><button id="export-top" class="ghost">EXPORT</button></div>
+      <div id="players" class="players"></div>
+      <div id="ratings" class="panel ratings"></div>
+      <div class="choices panel">
+        <fieldset><legend>Which would you replay?</legend><label><input type="radio" name="replay" value="left" /> A</label><label><input type="radio" name="replay" value="right" /> B</label><label><input type="radio" name="replay" value="neither" /> Neither</label></fieldset>
+        <fieldset><legend>Which would you release?</legend><label><input type="radio" name="release" value="left" /> A</label><label><input type="radio" name="release" value="right" /> B</label><label><input type="radio" name="release" value="neither" /> Neither</label></fieldset>
+      </div>
+      <button id="next">SAVE + NEXT</button>
+    </section>
+    <section id="complete" class="panel" hidden>
+      <p class="eyebrow">BENCHMARK COMPLETE</p><h1>Results are ready.</h1>
+      <div id="summary"></div><button id="export">EXPORT RESULTS</button>
+    </section>
+  </main>
+  <script type="module" src="js/lab.js"></script>
+</body>
+</html>
