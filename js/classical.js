@@ -221,6 +221,9 @@ function bassOf(ch, prev, lo, hi) {
   return best;
 }
 
+// A run swells to its peak (about four-fifths through), then tapers into its landing.
+const gesture = (x) => (x < 0.8 ? 0.58 + 0.47 * x / 0.8 : 1.05 - 0.6 * (x - 0.8));
+
 class Score {
   constructor() { this.notes = []; this.sections = []; this.bar = 0; this.v = {}; }
   add(bar, s, m, d, vel, part) { this.notes.push([bar * 16 + s, m, d, Math.max(0.05, Math.min(1, vel)), part]); }
@@ -317,6 +320,32 @@ class Score {
       for (const p of parts) this.add(bar, k, m + (p === 'fl' ? 12 : 0), 1, vel * (0.7 + 0.3 * k / 15), p);
     }
   }
+  // Virtuoso piano writing: scales and arpeggios in 32nds, broken octaves, trills. `sub` is the note length in 16ths.
+  scale(bar, s, key, from, to, steps, vel, sub = 0.5, part = 'pno') {
+    const sc = key.m === 'M' ? MAJ : MIN, n = Math.round(steps / sub);
+    for (let k = 0; k < n; k++) {
+      const idx = from + Math.round(((to - from) * k) / Math.max(1, n - 1));
+      const m = 60 + key.t + sc[mod(idx, 7)] + 12 * Math.floor(idx / 7) + (key.m === 'm' && mod(idx, 7) === 6 ? 1 : 0);
+      this.add(bar, s + k * sub, m, sub * 1.15, vel * gesture(k / n) * (k % (4 / sub) ? 0.9 : 1), part);
+    }
+  }
+  arpeggio(bar, s, ch, lo, hi, steps, vel, { sub = 0.5, wave = false, part = 'pno' } = {}) {
+    const tones = []; for (let m = lo; m <= hi; m++) if (ch.pcs.includes(mod(m, 12))) tones.push(m);
+    const n = Math.round(steps / sub), L = tones.length, per = Math.max(1, 2 * (L - 1));
+    for (let k = 0; k < n; k++) {
+      const p = wave ? k % per : Math.min(L - 1, Math.floor((k * L) / n)), i = p < L ? p : per - p;
+      this.add(bar, s + k * sub, tones[i], sub * 1.2, vel * gesture(k / n) * (0.88 + 0.12 * i / Math.max(1, L - 1)) * (k % (4 / sub) ? 0.9 : 1), part);
+    }
+  }
+  brokenOctaves(bar, s, ch, lo, steps, vel, part = 'pno') {
+    const tones = []; for (let m = lo; tones.length < steps / 2; m++) if (ch.pcs.includes(mod(m, 12))) tones.push(m);
+    tones.forEach((m, k) => { const g = gesture(k / tones.length); this.add(bar, s + 2 * k, m, 1.1, vel * g, part); this.add(bar, s + 2 * k + 1, m + 12, 1.1, vel * g * 0.85, part); });
+  }
+  trill(bar, s, m, upper, steps, vel, part = 'pno') {
+    const n = Math.round(steps / 0.5);
+    for (let k = 0; k < n - 2; k++) this.add(bar, s + k * 0.5, k % 2 ? upper : m, 0.6, vel * (k % 2 ? 0.8 : 0.9), part);
+    this.add(bar, s + (n - 2) * 0.5, m - (upper - m === 1 ? 2 : 1), 0.6, vel * 0.8, part); this.add(bar, s + (n - 1) * 0.5, m, 0.6, vel * 0.85, part);
+  }
   next(n) { this.bar += n; }
 }
 
@@ -345,7 +374,8 @@ function development(S, r, motif, devKey, home, vel, { soloist = false } = {}) {
     const at = S.bar;
     S.bar = at + k; S.melody(l, part, vel * (0.85 + 0.03 * k), { arch: false }); S.bar = at;
   }
-  if (soloist) S.alberti(bars, vel * 0.7); else S.pulse(bars, vel * 0.7);
+  // The soloist answers the orchestra's motif with arpeggios sweeping the keyboard.
+  if (soloist) S.each(bars, (bar, ch, s, d) => S.arpeggio(bar, s, ch, 43, 88, d, vel * 0.72, { sub: 1, wave: true })); else S.pulse(bars, vel * 0.7);
   S.bass(bars, vel * 0.8, { walk: true });
   S.horns(bars.slice(4), vel * 0.6);
   S.next(8);
@@ -355,8 +385,30 @@ function development(S, r, motif, devKey, home, vel, { soloist = false } = {}) {
   S.each(re, (bar, ch, s, d) => { const m = bassOf(chord('V', home), 40, 36, 50); for (let x = s; x < s + d; x += 2) S.add(bar, x, m, 1.6, vel * (0.7 + 0.06 * (bar - S.bar)), 'vc'); S.add(bar, s, m - 12, d, vel * 0.8, 'cb'); });
   S.timp(S.bar + 2, 0, chord('V', home), vel * 0.8, 32);
   S.winds(re.slice(0, 2), vel * 0.55);
-  S.run(S.bar + 3, home, 4, 11, vel * 1.05, soloist ? ['pno'] : ['vln1', 'fl']);
+  if (soloist) S.scale(S.bar + 3, 0, home, -3, 11, 16, vel * 1.05); else S.run(S.bar + 3, home, 4, 11, vel * 1.05, ['vln1', 'fl']);
   S.next(4);
+}
+
+// The concerto's cadenza: the orchestra halts on I64 and the soloist alone spins the dominant out
+// (arpeggio over the keyboard, a scale cascade, broken octaves, a wave of V7 arpeggios, the trill that calls the orchestra back).
+function cadenza(S, home, vel) {
+  const I64 = chord('I64', home), V7 = chord('V7', home), V = chord('V', home);
+  S.section('CADENZA', 5, home);
+  const b = S.bar, bass = bassOf(V, 40, 31, 43);
+  S.sustain([[[I64, 0, 8]]], vel * 0.7); S.bass([[[I64, 0, 8]]], vel * 0.8); S.timp(b, 0, V, vel * 0.8, 8);
+  for (const m of voicing(I64, null, 60, 79, 4)) S.add(b, 0, m, 8, vel * 0.85, 'pno');
+  S.add(b, 0, bass, 8, vel * 0.9, 'pno');
+  S.arpeggio(b, 8, I64, 48, 96, 8, vel * 0.9);
+  S.scale(b + 1, 0, home, 18, -3, 16, vel * 0.85);
+  S.add(b + 1, 0, bass, 16, vel * 0.7, 'pno');
+  S.brokenOctaves(b + 2, 0, V, 50, 16, vel * 0.9);
+  S.arpeggio(b + 3, 0, V7, 43, 91, 16, vel * 0.85, { wave: true });
+  S.add(b + 3, 0, bass, 8, vel * 0.8, 'pno'); S.add(b + 3, 8, bass - 12 >= 28 ? bass - 12 : bass, 8, vel * 0.8, 'pno');
+  const sup = 60 + home.t + 2 + (home.t + 2 > 7 ? -12 : 0) + 12;
+  for (const m of voicing(V7, null, 48, 64)) S.add(b + 4, 0, m, 16, vel * 0.6, 'pno');
+  S.add(b + 4, 0, bass, 16, vel * 0.7, 'pno');
+  S.trill(b + 4, 0, sup, sup + (home.m === 'M' ? 2 : 1), 16, vel * 0.85);
+  S.next(5);
 }
 
 function coda(S, home, vel, { piano = false } = {}) {
@@ -411,7 +463,7 @@ function sonata(r, mode, soloist) {
   const trans = [...prog('I | vi', home), ...prog('ii6 V | V7', K2)];
   S.section('TRANSITION', 4, K2);
   S.pulse(trans, 0.62); S.bass(trans, 0.7, { walk: true }); S.horns(trans, 0.55); S.tutti(trans.slice(0, 2), 0.7, [0, 8]);
-  S.run(S.bar + 3, K2, -3, 4, 0.7, soloist ? ['pno'] : ['vln1']);
+  if (soloist) S.scale(S.bar + 3, 0, K2, -7, 7, 16, 0.72); else S.run(S.bar + 3, K2, -3, 4, 0.7, ['vln1']);
   S.next(4);
   const themeB = line(B.bars, K2, B.plan, { start: B.start, lo: 62, hi: 84 });
   S.section('THEME B', 8, K2);
@@ -439,6 +491,7 @@ function sonata(r, mode, soloist) {
   S.melody(themeB2, soloist ? 'vln1' : 'cl', 0.42, { oct: -12 });
   S.sustain(Bh.bars, 0.42); S.bass(Bh.bars, 0.5); S.guide(Bh.bars, 0.4, 'hn', 50, 65); accomp(S, B, () => S.harp(Bh.bars, 0.36), Bh.bars, 0.36);
   S.next(8);
+  if (soloist) cadenza(S, home, 0.82);
   coda(S, home, 0.9, { piano: soloist });
   return S;
 }
@@ -478,6 +531,15 @@ function tempoMap(bars, sections, depth) {
     if (ends.has(bar) && i % 16 >= 8) m += 0.06 * depth * ((i % 16) - 7) / 8;
     t[i] = m;
   }
+  // A cadenza is free: broad on the opening chord, pressing through the runs, easing into the trill.
+  for (const c of sections.filter((x) => x.name === 'CADENZA')) {
+    for (let i = c.at * 16; i < (c.at + c.len) * 16 && i < t.length; i++) {
+      const b = Math.floor(i / 16) - c.at, p = (i % 16) / 16;
+      const lift = (from) => (p > from ? 0.45 * (p - from) / (1 - from) : 0);
+      t[i] = [p < 0.5 ? 1.5 : 1.2 - 0.3 * p, 1.25 - 0.45 * p + lift(0.85), 1 - 0.12 * p, 0.97 - 0.1 * Math.sin(Math.PI * p) + lift(0.8)][b]
+        ?? 1.3 - 0.4 * Math.sin(Math.PI * Math.min(1, p * 1.4)) + 0.5 * p ** 3;
+    }
+  }
   const rit = (bars - 3) * 16;
   for (let i = rit; i < t.length; i++) t[i] *= 1 + 0.7 * ((i - rit) / (t.length - rit)) ** 1.6;
   return t;
@@ -503,6 +565,16 @@ export function compose(spec = {}) {
     const p = n[0] % 16;
     n[3] = Math.max(0.05, Math.min(1, n[3] * (p === 0 ? 1.06 : p === 8 ? 1.02 : p % 4 ? 0.93 : 0.99)));
     at[Math.min(at.length - 1, Math.floor(n[0]))].push(n);
+  }
+  // The pianist rolls wide chords from the bass and lets the top note sing.
+  const onset = new Map();
+  for (const n of S.notes) if (n[4] === 'pno') { const k = n[0]; onset.has(k) ? onset.get(k).push(n) : onset.set(k, [n]); }
+  for (const g of onset.values()) {
+    if (g.length < 3) continue;
+    g.sort((a, b) => a[1] - b[1]);
+    const wide = g.at(-1)[1] - g[0][1] >= 12;
+    g.forEach((n, i) => { n[5] = wide ? i * 0.011 : 0; });
+    g.at(-1)[3] = Math.min(1, g.at(-1)[3] * 1.12);
   }
   const tempo = tempoMap(bars, S.sections, form === 'nocturne' ? 2 : 1.6);
   const out = { bars, sections: S.sections, notes: S.notes, at, tempo };
