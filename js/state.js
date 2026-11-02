@@ -146,11 +146,11 @@ const INSTRUMENTS = {
   amapiano: [[7, 4, 0, 0.7, 0.35], [3, 4, 1, 0.55, 0.45], [8, 4, 0, 0.55, 0.8], [5, 4, 1, 0.25, 0.85]],
   afrobeats: [[8, 2, 0, 0.55, 0.8], [9, 1, 0, 0.55, 0.65], [7, 1, 1, 0.7, 0.45], [3, 2, 0, 0.5, 0.5]],
   reggaeton: [[8, 2, 0, 0.45, 0.8], [5, 2, 1, 0.22, 0.9], [9, 1, 0, 0.45, 0.7], [7, 2, 1, 0.55, 0.45]],
-  bailefunk: [[4, 2, 0, 0.3, 0.75], [6, 4, 1, 0.25, 0.85], [8, 2, 0, 0.4, 0.8], [5, 3, 1, 0.2, 0.9]],
-  trap: [[7, 2, 1, 0.75, 0.4], [6, 2, 2, 0.8, 0.7], [10, 2, 1, 1.5, 0.2], [8, 2, 1, 0.5, 0.8]],
-  drill: [[10, 2, 1, 1.4, 0.2], [7, 3, 1, 0.7, 0.45], [9, 2, 0, 0.5, 0.75], [6, 2, 2, 0.65, 0.8]],
-  jerseyclub: [[0, 2, 1, 0.2, 0.75], [4, 4, 0, 0.35, 0.7], [8, 2, 1, 0.4, 0.8], [6, 2, 2, 0.5, 0.85]],
-  hyperpop: [[8, 3, 1, 0.4, 0.85], [6, 2, 2, 0.7, 0.75], [10, 3, 1, 1.2, 0.2], [7, 2, 2, 0.65, 0.55]],
+  bailefunk: [[4, 2, 0, 0.3, 0.75], [6, 2, 0, 0.25, 0.85], [8, 2, 0, 0.4, 0.8], [5, 3, 1, 0.2, 0.9]],
+  trap: [[7, 2, 1, 0.75, 0.4], [6, 2, 0, 0.8, 0.7], [10, 2, 1, 1.5, 0.2], [8, 2, 1, 0.5, 0.8]],
+  drill: [[10, 2, 1, 1.4, 0.2], [7, 2, 0, 0.9, 0.45], [9, 2, 0, 0.5, 0.75], [6, 2, 1, 0.65, 0.8]],
+  jerseyclub: [[0, 2, 1, 0.2, 0.75], [4, 2, 0, 0.2, 0.7], [8, 2, 1, 0.4, 0.8], [6, 2, 1, 0.5, 0.85]],
+  hyperpop: [[8, 3, 1, 0.4, 0.85], [6, 2, 0, 0.3, 0.75], [10, 3, 1, 1.2, 0.2], [7, 2, 2, 0.65, 0.55]],
 };
 
 // A 2-bar call and answer: same rhythm both bars, the answer bends its ending (resolve or leave open).
@@ -587,12 +587,17 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   params.stab.octave = octave;
   params.stab.decay = decay;
   params.stab.env = articulation;
+  const ensembleLevel = [0.75, 0.78, 0.72, 0.78, 0.78, 0.8, 0.75, 0.9, 0.9, 0.9, 0.9][stabVoice];
+  params.stab.level = Math.max(params.stab.level ?? 0.42, ensembleLevel);
+  const closeLevel = { 'jerseyclub:0': 0.52, 'jerseyclub:4': 0.55, 'hyperpop:6': 0.5 }[`${style}:${stabVoice}`];
+  if (closeLevel) {
+    params.stab.level = closeLevel;
+    params.stab.cutoff = Math.min(params.stab.cutoff ?? 2400, style === 'hyperpop' ? 2200 : 1800);
+  }
   // Recorded players sit in the room, not in a delay: echoes on held strings and piano read as a synth chorus.
   if (stabVoice >= 7) {
     params.stab.dly = Math.min(params.stab.dly ?? 0.42, 0.08);
     params.stab.rev = Math.min(params.stab.rev ?? 0.3, 0.2);
-    // A played instrument has to be heard as one: up front with the drums, not tucked under them.
-    params.stab.level = Math.max(params.stab.level ?? 0.42, 0.9);
   }
   params.acid.voice = bassVoice;
   for (const t of ['acid', 'stab']) params[t].voice ??= 0;
