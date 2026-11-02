@@ -144,7 +144,8 @@ const INSTRUMENTS = {
   minimal: [[6, 2, 0, 0.12, 0.65], [5, 1, 0, 0.1, 0.8], [3, 2, 0, 0.15, 0.25], [8, 1, 0, 0.15, 0.7]],
   ukg: [[3, 3, 0, 0.25, 0.45], [7, 1, 0, 0.75, 0.5], [5, 3, 1, 0.25, 0.85], [8, 2, 1, 0.4, 0.8]],
   euphoric: [[7, 1, 0, 1.6, 0.25], [10, 1, 0, 1.8, 0.2], [2, 1, 0, 2.1, 0.15], [9, 0, 0, 0.65, 0.7]],
-  neosoul: [[7, 1, 0, 1.6, 0.2], [1, 1, 0, 1.4, 0.25], [8, 1, 0, 0.75, 0.7], [9, 1, 0, 0.65, 0.55]],
+  // Neo-soul is a Rhodes/piano/guitar band; strings pad the changes; the horn section honked.
+  neosoul: [[7, 1, 0, 1.6, 0.2], [1, 1, 0, 1.4, 0.25], [8, 1, 0, 0.75, 0.7], [10, 1, 0, 1.4, 0.2]],
   boombap: [[9, 1, 0, 0.7, 0.6], [7, 1, 0, 1.2, 0.2], [8, 1, 0, 0.6, 0.75], [10, 1, 0, 1.1, 0.3]],
   breaks: [[8, 0, 0, 0.6, 0.75], [5, 1, 1, 0.25, 0.85], [3, 0, 0, 0.55, 0.35], [7, 0, 1, 0.7, 0.5]],
   electro: [[0, 0, 0, 0.25, 0.7], [6, 2, 0, 0.4, 0.75], [5, 2, 0, 0.2, 0.9], [4, 0, 0, 0.3, 0.65]],
@@ -367,10 +368,10 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.snare = pad16([0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2]).map((v, i) => v || ([3, 7, 10, 15].includes(i) && r() < 0.55 ? 1 : 0));
     S.clap = soul ? range(STEPS, () => 0) : pad16([0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]);
     S.ch = range(STEPS, (i) => (i % 2 === 0 ? (i % 4 === 0 ? 2 : 1) : (r() < 0.35 ? 1 : 0)));
-    S.ride = soul && r() < 0.5 ? range(STEPS, (i) => (i % 4 === 0 || i % 4 === 3 ? 1 : 0)) : range(STEPS, () => 0);
+    // The pocket lives on the hats; a recorded ride stacked on top of them pinged like a machine.
+    S.ride = range(STEPS, () => 0);
     S.stab = pad16(pick(r, [[1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1], [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1]]));
     S.acid = range(STEPS, (i) => (i % 4 === 0 || (i % 4 === 3 && r() < 0.5) ? { on: true, n: pick(r, [0, musicalScale[2], musicalScale[4], musicalScale[6] ?? 10]), a: i === 0, s: r() < 0.25 } : emptyAcidStep()));
-    if (soul) S.vox = pad16([0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]);
     Object.assign(params.kick, { tune: 52, decay: soul ? 0.5 : 0.35, drive: soul ? 0.2 : 0.45, rumble: 0, punch: 0.55, click: soul ? 0.15 : 0.4 });
     Object.assign(params.snare, { tune: soul ? 200 : 170, snappy: soul ? 0.4 : 0.75, decay: 0.22 });
     Object.assign(params.ch, { decay: 0.05, tone: soul ? 3600 : 4800, level: 0.62, rev: 0.1 });
@@ -627,7 +628,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   for (const t of ['acid', 'stab']) params[t].voice ??= 0;
   const PERC = { dnb: 3, deephouse: 3, ukg: 3, boombap: 3, neosoul: 3, breaks: 2, minimal: 4, dub: 4, euphoric: 3, ambient: 2, amapiano: 3, afrobeats: 1, reggaeton: 2, bailefunk: 1 };
   params.perc.voice = PERC[style] ?? 0;
-  const DUST = { boombap: 0.45, neosoul: 0.25, dub: 0.3, ambient: 0.2, deephouse: 0.12, minimal: 0.1 };
+  const DUST = { boombap: 0.45, dub: 0.3, ambient: 0.2, deephouse: 0.12, minimal: 0.1 };
   master.dust = DUST[style] ?? 0;
   master.arr = { neosoul: 0, boombap: 0, ambient: 0 }[style] ?? (GROOVE.has(style) ? 0.5 : 1);
   // Per-seed identity on its own RNG so the genre grammar above stays stable.
