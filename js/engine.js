@@ -449,7 +449,8 @@ export class Engine {
     node.connect(g).connect(out);
     // Held orchestral notes outlast their recording: loop the sustained middle, after the attack.
     if (fx.loop && dur > buf.duration / rate - 0.3) { const [a, b] = loopPoints(buf); s.loop = true; s.loopStart = a; s.loopEnd = b; }
-    s.start(t);
+    if (fx.offset) { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(level, t + 0.006); }
+    s.start(t, fx.offset || 0);
     if (dur) {
       g.gain.setValueAtTime(level, t + dur);
       const rel = fx.release || 0.05;
@@ -930,8 +931,10 @@ export class Engine {
     for (const [cm, b] of set) if (Math.abs(cm - m) < Math.abs(c - m)) [c, buf] = [cm, b];
     // Dynamics change colour as well as level: a pianissimo section is darker than a fortissimo one.
     const touch = 0.92 + 0.16 * hash(t * 7 + m, 31), level = O.gain * lvl * Math.pow(vel, 1.5) * touch * 0.55;
+    // Short bowed notes are played détaché: skip the slow sustain swell and lift the bow quickly.
+    const short = O.loop && dur > 0 && dur < 0.32;
     return this.playBuf(buf, t + (O.off || 0) * hash(t, m), level, this.orchBus(part), Math.pow(2, (m - c + (O.det || 0) / 100) / 12), dur, {
-      lp: O.lp * (0.35 + 0.65 * vel), release: O.rel, loop: O.loop,
+      lp: O.lp * (0.35 + 0.65 * vel), release: short ? 0.06 : O.rel, loop: O.loop, offset: short ? 0.035 : 0,
     });
   }
   // Played by hand (screen, keyboard, MIDI): sounds now and rings until released.
@@ -1549,14 +1552,16 @@ export class Sequencer {
 
   // A classical score plays through, bar after bar, instead of looping one bar of steps.
   scoreStep(spec, abs, t, sd) {
-    const sc = compose(spec), pos = abs % sc.at.length, k = this.s.key > 6 ? this.s.key - 12 : this.s.key;
-    this.scoreBar = Math.floor(pos / 16);
+    // A masterwork plays in its written key; a generated piece follows the KEY control.
+    const sc = compose(spec), pos = abs % sc.at.length, k = spec.piece ? 0 : this.s.key > 6 ? this.s.key - 12 : this.s.key;
+    this.scoreBar = Math.floor(pos / (sc.barLen || 16));
     this.e.stepScale = sc.tempo[pos];
     sd *= sc.tempo[pos];
     const hum = this.s.master.humanize ?? 0.4;
-    for (const [at, m, d, v, part] of sc.at[pos]) {
+    // off: the performer's roll / melody lead, in seconds.
+    for (const [at, m, d, v, part, off = 0] of sc.at[pos]) {
       const lean = (hash(at * 3 + m, 33) - 0.5) * (0.006 + hum * 0.014);
-      this.e.orch(part, t + (at - Math.floor(at)) * sd + lean, m + k, d * sd, v);
+      this.e.orch(part, Math.max(t - 0.03, t + (at - Math.floor(at)) * sd + lean + off), m + k, d * sd, v);
     }
   }
 
