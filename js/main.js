@@ -805,9 +805,9 @@ function buildHeader() {
   const pats = h('div', { class: 'pats' }, PATTERN_NAMES.map((n, i) => h('button', { class: 'pat', 'data-i': i, onclick: () => selectPattern(i), title: `Pattern ${n} (← →)` }, n)));
   ui.pats = pats;
   const patTools = h('div', { class: 'tools' },
-    h('button', { class: 'btn ghost', title: 'Copy pattern', onclick: () => { clipboard = clone(pat()); toast(`Copied ${PATTERN_NAMES[state.current]}`); } }, 'CPY'),
-    h('button', { class: 'btn ghost', title: 'Paste pattern', onclick: () => { if (!clipboard) return toast('Clipboard empty'); pushUndo(); state.patterns[state.current] = clone(clipboard); build(); persist(); } }, 'PST'),
-    h('button', { class: 'btn ghost', title: 'Clear pattern', onclick: () => { pushUndo(); state.patterns[state.current] = emptyPattern(); build(); persist(); } }, 'CLR'));
+    h('button', { class: 'btn ghost', title: 'Copy pattern', onclick: () => { clipboard = clone(pat()); toast(`Copied ${PATTERN_NAMES[state.current]}`); } }, 'COPY'),
+    h('button', { class: 'btn ghost', title: 'Paste pattern', onclick: () => { if (!clipboard) return toast('Clipboard empty'); pushUndo(); state.patterns[state.current] = clone(clipboard); build(); persist(); } }, 'PASTE'),
+    h('button', { class: 'btn ghost', title: 'Clear pattern', onclick: () => { pushUndo(); state.patterns[state.current] = emptyPattern(); build(); persist(); } }, 'CLEAR'));
 
   const chainInput = h('input', { class: 'chain', value: state.chain, spellcheck: 'false', title: 'Arrangement: one letter per bar, e.g. AABBCCDD',
     oninput: (e) => { state.chain = e.target.value.toUpperCase().replace(/[^A-H]/g, ''); persist(); } });
@@ -844,7 +844,7 @@ function buildHeader() {
   } });
 
   return h('header', { class: 'top' },
-    h('div', { class: 'brand' }, h('div', { class: 'logo' }, h('i'), h('b')), h('div', {}, h('div', { class: 'name' }, 'UNTERGRUND'), h('div', { class: 'sub' }, 'techno synthesis engine'))),
+    h('div', { class: 'brand' }, h('div', { class: 'logo' }, h('i'), h('b')), h('div', {}, h('div', { class: 'name' }, 'UNTERGRUND'))),
     h('div', { class: 'group transport' }, playBtn, recBtn, h('div', { class: 'transport-fields studio-only' }, h('div', { class: 'field' }, h('label', {}, 'BPM'), bpm.el), swing.el,
       h('div', { class: 'field' }, h('label', {}, 'KEY'), key), h('div', { class: 'field' }, h('label', {}, 'SCALE'), scale))),
     h('div', { class: 'group studio-only' }, h('div', { class: 'field' }, h('label', {}, 'PATTERN'), pats), patTools),
@@ -857,10 +857,12 @@ function buildHeader() {
         h('option', { value: .12 }, 'SUBTLE'), h('option', { value: .25, selected: true }, 'EVOLVE'), h('option', { value: .55 }, 'WILD')),
       h('button', { class: 'btn ghost evolve', title: 'Create an evolved copy in the next pattern slot', onclick: createVariation }, 'VAR →'),
       h('button', { class: 'btn ghost', title: 'Undo (Ctrl+Z)', onclick: undo }, 'UNDO')),
-    h('div', { class: 'group studio-only studio-more' }, liveBtn, bars, exportBtn, publishBtn),
-    h('div', { class: 'group studio-only studio-more' },
-      h('button', { class: 'btn ghost', title: 'Save project JSON', onclick: () => download(new Blob([JSON.stringify(state)], { type: 'application/json' }), `untergrund-${stamp()}.json`) }, 'SAVE'),
-      h('button', { class: 'btn ghost', title: 'Load project JSON', onclick: () => fileIn.click() }, 'LOAD'), fileIn),
+    h('div', { class: 'group studio-only studio-more' }, liveBtn, publishBtn,
+      h('details', { class: 'menu' }, h('summary', { class: 'btn ghost', title: 'Export audio, save or open a project file' }, 'FILE'),
+        h('div', { class: 'menu-pop' },
+          h('div', { class: 'menu-row' }, bars, exportBtn),
+          h('button', { class: 'btn ghost', title: 'Save project file (.json) to reopen later', onclick: () => download(new Blob([JSON.stringify(state)], { type: 'application/json' }), `untergrund-${stamp()}.json`) }, 'SAVE PROJECT'),
+          h('button', { class: 'btn ghost', title: 'Open a saved project file', onclick: () => fileIn.click() }, 'OPEN PROJECT'), fileIn))),
     h('nav', { class: 'group nav seg' }, artistBtn, clubBtn, jukeboxBtn,
       h('button', { class: 'btn studio-toggle' + (studioOpen ? ' on' : ''), title: 'Sequencer, mixer, export and every control', onclick: toggleStudio }, studioOpen ? 'DONE' : 'STUDIO')),
     h('button', { class: 'btn ghost help studio-only studio-more', title: 'Shortcuts', onclick: showHelp }, '?'),
@@ -1319,3 +1321,7 @@ if (new URLSearchParams(location.search).has('room')) setTimeout(showClub);
 else if (new URLSearchParams(location.search).has('jukebox')) setTimeout(showJukebox);
 restoreSample();
 window.__untergrund = { get state() { return state; }, get engine() { return engine; } };
+
+document.addEventListener('click', (e) => {
+  for (const m of document.querySelectorAll('details.menu[open]')) if (!m.contains(e.target)) m.open = false;
+});
