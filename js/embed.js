@@ -41,7 +41,7 @@ function schedule() {
 async function play() {
   ensureAudio();
   const st = song.state;
-  if (Math.round(st.master.kit || 0) === 1) await loadLiveKit().catch(() => {});
+  if (Math.round(st.master.kit || 0) >= 1) await loadLiveKit().catch(() => {});
   const band = STAB_BAND[Math.round(st.params.stab?.voice || 0)];
   if (band) await loadBand(band).catch(() => {});
   const chain = st.chainOn ? parseChain(st.chain) : [];
