@@ -6,6 +6,7 @@ import { SCALES } from '../js/params.js';
 for (const style of Object.keys(STYLES)) {
   const a = generate(style, 11, 'minor'), b = generate(style, 22, 'minor');
   if (style === 'neosoul' || style === 'boombap') { assert.equal(a.pattern.hook, undefined, style); continue; }
+  if (STYLES[style].family === 'CLASSICAL') { assert(a.pattern.score && !a.pattern.hook, `${style} is a score, not a hook loop`); continue; }
   assert(a.pattern.hook && a.pattern.hook.s.length === 32, `${style} needs a hook`);
   const notes = a.pattern.hook.s.filter(Boolean);
   assert(notes.length >= 4, `${style} hook too sparse`);
@@ -64,6 +65,7 @@ console.log('genre signatures passed');
 // recruit different players and registers without borrowing another genre's drums or harmony.
   {
     for (const style of Object.keys(STYLES)) {
+      if (STYLES[style].family === 'CLASSICAL') continue;
       const ensembles = new Set();
       for (let seed = 1; seed <= 24; seed++) {
         const g = generate(style, seed);

@@ -1,6 +1,7 @@
 import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES } from './params.js';
 import { getSample } from './sampler.js';
 import { liveKit, loadLiveKit, BASS_NOTES, bandKit, loadBand, STAB_BAND } from './livekit.js';
+import { compose, PART_SECTION } from './classical.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
@@ -17,6 +18,39 @@ const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453;
 const EPS = 0.0001;
 const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings'];
 // How each recorded instrument is played: level, DECAY->length, strum spread, register shift, held like a bow.
+// CLASSICAL orchestra: each part is a recorded player at its seat (pan), in its register, with its section on the mixer.
+const ORCH = {
+  vln1: { kinds: ['str'], gain: 0.95, lo: 55, hi: 93, pan: -0.42, lp: 7000, rel: 0.22, loop: true, hp: 180 },
+  vln2: { kinds: ['str'], gain: 0.62, lo: 55, hi: 88, pan: -0.2, lp: 6000, rel: 0.2, loop: true, det: 9, off: 0.05, hp: 160 },
+  vla: { kinds: ['cello', 'str'], gain: 0.62, lo: 48, hi: 79, pan: 0.12, lp: 5000, rel: 0.2, loop: true, det: -6, off: 0.03, hp: 120 },
+  vc: { kinds: ['cello'], gain: 0.8, lo: 36, hi: 72, pan: 0.32, lp: 4500, rel: 0.22, loop: true },
+  cb: { kinds: ['cb'], gain: 0.75, lo: 28, hi: 52, pan: 0.5, lp: 2500, rel: 0.25, loop: true },
+  fl: { kinds: ['fl'], gain: 0.5, lo: 60, hi: 96, pan: -0.12, lp: 9000, rel: 0.12, loop: true, hp: 250 },
+  ob: { kinds: ['ob'], gain: 0.5, lo: 58, hi: 88, pan: 0.08, lp: 8000, rel: 0.1, loop: true, hp: 220 },
+  cl: { kinds: ['cl'], gain: 0.5, lo: 50, hi: 84, pan: -0.25, lp: 7000, rel: 0.1, loop: true, hp: 140 },
+  hn: { kinds: ['fh'], gain: 0.42, lo: 41, hi: 72, pan: 0.28, lp: 3800, rel: 0.15, loop: true, hp: 60 },
+  tpt: { kinds: ['tpt'], gain: 0.3, lo: 55, hi: 84, pan: 0.05, lp: 6000, rel: 0.08, loop: true, hp: 160 },
+  harp: { kinds: ['harp'], gain: 0.55, lo: 40, hi: 96, pan: -0.5, lp: 8000, rel: 0.6 },
+  timp: { kinds: ['timp'], gain: 0.85, lo: 40, hi: 57, pan: 0.15, lp: 3000, rel: 0.5 },
+  pno: { kinds: ['pianoext', 'piano'], soft: ['pianoextsoft', 'pianosoft'], gain: 1.8, lo: 21, hi: 104, pan: 0, lp: 9000, rel: 0.3 },
+};
+const kindsOf = (parts) => [...new Set(parts.flatMap((p) => [...ORCH[p].kinds, ...(ORCH[p].soft || []), ...(p === 'timp' ? ['timproll'] : [])]))];
+export const ORCH_KINDS = kindsOf(Object.keys(ORCH));
+// The recordings one score needs, so a solo-piano nocturne never downloads the orchestra.
+export function scoreKinds(spec) { return kindsOf([...new Set(compose(spec).notes.map((n) => n[4]))]); }
+
+// Sustain loop for a held orchestral note: the steady middle of the recording, cut at rising zero crossings
+// so the seam does not click.
+const LOOPS = new WeakMap();
+function loopPoints(buf) {
+  if (LOOPS.has(buf)) return LOOPS.get(buf);
+  const d = buf.getChannelData(0), sr = buf.sampleRate, rise = (i) => { for (let k = i; k < d.length - 1; k++) if (d[k] <= 0 && d[k + 1] > 0) return k; return i; };
+  const a = rise(Math.floor(d.length * 0.4)), b = rise(Math.floor(d.length * 0.85) - Math.floor(sr * 0.05));
+  const out = b - a > sr * 0.2 ? [a / sr, b / sr] : [buf.duration * 0.4, buf.duration * 0.85];
+  LOOPS.set(buf, out);
+  return out;
+}
+
 const BAND_PLAY = {
   piano: { gain: 4, len: 4, min: 1.2, strum: 0.004, shift: 0, lo: 45, hi: 79, lp: 7000, rel: 0.18 },
   gtr: { gain: 4.4, len: 2.6, min: 0.6, strum: 0.014, shift: 0, lo: 40, hi: 71, lp: 5200, rel: 0.12 },
@@ -67,7 +101,7 @@ export class Engine {
     this.applyAll();
   }
 
-  get stepDur() { return 60 / this.state.bpm / 4; }
+  get stepDur() { return (60 / this.state.bpm / 4) * (this.stepScale || 1); }
 
   // ---------- graph ----------
   gain(v = 1) { const g = this.ctx.createGain(); g.gain.value = v; return g; }
@@ -413,6 +447,8 @@ export class Engine {
       g.gain.linearRampToValueAtTime(level, t + 0.04);
     }
     node.connect(g).connect(out);
+    // Held orchestral notes outlast their recording: loop the sustained middle, after the attack.
+    if (fx.loop && dur > buf.duration / rate - 0.3) { const [a, b] = loopPoints(buf); s.loop = true; s.loopStart = a; s.loopEnd = b; }
     s.start(t);
     if (dur) {
       g.gain.setValueAtTime(level, t + dur);
@@ -420,6 +456,7 @@ export class Engine {
       g.gain.setTargetAtTime(0, t + dur, rel);
       s.stop(t + dur + Math.max(0.4, rel * 8));
     }
+    return { s, g };
   }
 
   // The recorded kit follows the same TUNE/DECAY/TONE knobs as the synth kit; the live-kit preset is neutral.
@@ -862,6 +899,52 @@ export class Engine {
     this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
       shelves: [[3000, tone]], lp: R ? R.lp * (0.4 + 0.6 * hv) : 0, release: R ? R.rel : 0.05,
     });
+  }
+  // One section bus per orchestra part: seat panning, then dry into the mix plus the room and the hall.
+  orchBus(part) {
+    this.orchBuses ||= {};
+    if (this.orchBuses[part]) return this.orchBuses[part];
+    const O = ORCH[part], g = this.gain(1), pan = this.ctx.createStereoPanner();
+    pan.pan.value = O.pan;
+    (O.hp ? g.connect(this.filter('highpass', O.hp, 0.6)) : g).connect(pan);
+    pan.connect(this.mix); pan.connect(this.gain(0.4)).connect(this.bandIn); pan.connect(this.gain(0.24)).connect(this.revIn);
+    return (this.orchBuses[part] = g);
+  }
+  orchSet(part, soft = false) {
+    const O = ORCH[part], kinds = soft && O.soft ? O.soft : O.kinds, sets = kinds.map((k) => bandKit(k));
+    if (sets.some((x) => !x)) { kinds.forEach((k) => loadBand(k)); return null; }
+    return sets.flat();
+  }
+  orchLevel(part) {
+    const sec = PART_SECTION[part];
+    return this.state.orchMute?.[sec] ? 0 : this.state.orch?.[sec] ?? 1;
+  }
+  orch(part, t, m, dur, vel) {
+    const O = ORCH[part], lvl = this.orchLevel(part);
+    if (!O || lvl <= 0.001) return null;
+    while (m > O.hi) m -= 12; while (m < O.lo) m += 12;
+    const roll = part === 'timp' && dur > 1.2;
+    const set = roll ? bandKit('timproll') : this.orchSet(part, part === 'pno' && vel < 0.55);
+    if (!set) { if (roll) loadBand('timproll'); return part === 'pno' && vel < 0.55 ? this.orch(part, t, m, dur, 0.56) : null; }
+    let [c, buf] = set[0];
+    for (const [cm, b] of set) if (Math.abs(cm - m) < Math.abs(c - m)) [c, buf] = [cm, b];
+    // Dynamics change colour as well as level: a pianissimo section is darker than a fortissimo one.
+    const touch = 0.92 + 0.16 * hash(t * 7 + m, 31), level = O.gain * lvl * Math.pow(vel, 1.5) * touch * 0.55;
+    return this.playBuf(buf, t + (O.off || 0) * hash(t, m), level, this.orchBus(part), Math.pow(2, (m - c + (O.det || 0) / 100) / 12), dur, {
+      lp: O.lp * (0.35 + 0.65 * vel), release: O.rel, loop: O.loop,
+    });
+  }
+  // Played by hand (screen, keyboard, MIDI): sounds now and rings until released.
+  pianoDown(m, vel = 0.7) {
+    const t = this.ctx.currentTime + 0.005, h = this.orch('pno', t, m, 0, vel);
+    if (!h) { loadBand('pianoext'); loadBand('pianoextsoft'); loadBand('piano'); return null; }
+    return h;
+  }
+  pianoUp(h, damp = 0.25) {
+    if (!h) return;
+    const t = this.ctx.currentTime;
+    h.g.gain.cancelScheduledValues(t); h.g.gain.setValueAtTime(h.g.gain.value, t); h.g.gain.setTargetAtTime(0, t, damp);
+    try { h.s.stop(t + damp * 8); } catch {}
   }
   piano(...a) { return this.recorded('piano', 'keys', ...a); }
   guitar(...a) { return this.recorded('gtr', 'pluck', ...a); }
@@ -1376,6 +1459,8 @@ export class Sequencer {
       }
     }
     if (this.dropNow && i16 === 0) e.impact(t, arr);
+    if (pat.score) this.scoreStep(pat.score, abs, t, sd);
+    else this.e.stepScale = 1;
     const anySolo = TRACK_IDS.some((id) => s.solos[id]);
     for (const id of TRACK_IDS) {
       const on = !s.mutes[id] && (!anySolo || s.solos[id]);
@@ -1460,6 +1545,19 @@ export class Sequencer {
     }
     if (this.roll === null) this.rollCount = 0;
     return this.cur;
+  }
+
+  // A classical score plays through, bar after bar, instead of looping one bar of steps.
+  scoreStep(spec, abs, t, sd) {
+    const sc = compose(spec), pos = abs % sc.at.length, k = this.s.key > 6 ? this.s.key - 12 : this.s.key;
+    this.scoreBar = Math.floor(pos / 16);
+    this.e.stepScale = sc.tempo[pos];
+    sd *= sc.tempo[pos];
+    const hum = this.s.master.humanize ?? 0.4;
+    for (const [at, m, d, v, part] of sc.at[pos]) {
+      const lean = (hash(at * 3 + m, 33) - 0.5) * (0.006 + hum * 0.014);
+      this.e.orch(part, t + (at - Math.floor(at)) * sd + lean, m + k, d * sd, v);
+    }
   }
 
   acidStep(pat, i, len, t, sd) {

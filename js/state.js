@@ -1,5 +1,6 @@
 import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, defaultParams, defaultMaster } from './params.js';
 import { rng } from './dsp.js';
+import { FORMS, SECTIONS } from './classical.js';
 
 export const STYLES = {
   hypnotic: { name: 'HYPNOTIC', bpm: [130, 134], family: 'TECHNO', tag: 'deep · rolling' },
@@ -27,6 +28,9 @@ export const STYLES = {
   drill: { name: 'DRILL', bpm: [140, 146], family: 'TRAP & POP', tag: 'sliding 808 · skippy' },
   jerseyclub: { name: 'JERSEY CLUB', bpm: [136, 144], family: 'TRAP & POP', tag: 'triplet kicks · chops' },
   hyperpop: { name: 'HYPERPOP', bpm: [150, 162], family: 'TRAP & POP', tag: 'K-pop sugar · distorted' },
+  symphony: { name: 'SYMPHONY', bpm: [104, 120], family: 'CLASSICAL', tag: 'sonata form · full orchestra' },
+  concerto: { name: 'PIANO CONCERTO', bpm: [100, 112], family: 'CLASSICAL', tag: 'piano soloist · orchestra' },
+  nocturne: { name: 'NOCTURNE', bpm: [60, 72], family: 'CLASSICAL', tag: 'solo piano · cantabile' },
 };
 
 const range = (n, f) => Array.from({ length: n }, (_, i) => f(i));
@@ -196,6 +200,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   const master = {};
   const [lo, hi] = STYLES[style].bpm;
   const bpm = Math.round(lo + r() * (hi - lo));
+  if (FORMS[style]) return generateClassical(style, seed, scaleName, r, P, params, master, bpm);
 
   S.kick = range(STEPS, (i) => (i % 4 === 0 ? (i === 0 ? 2 : 1) : 0));
   const offbeatOH = range(STEPS, (i) => (i % 4 === 2 ? 1 : 0));
@@ -645,6 +650,18 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   return { pattern: P, params, master, bpm, key, swing: swing ?? 0.06 };
 }
 
+// CLASSICAL pieces are scores, not step loops: the drum machine rests and the orchestra reads pattern.score.
+function generateClassical(style, seed, scaleName, r, P, params, master, bpm) {
+  const mode = scaleName === 'major' ? 'M' : scaleName === 'harmonic' ? 'm' : r() < 0.55 ? 'M' : 'm';
+  P.score = { form: style, seed: seed | 0, mode };
+  Object.assign(params.stab, { voice: 7, octave: 0 });
+  Object.assign(master, { arr: 0, vary: 0, dust: 0, kit: 0, revLevel: 0.62, humanize: 0.45 });
+  const dm = defaultMaster();
+  for (const k of Object.keys(dm)) if (k !== 'volume' && k !== 'dj') master[k] ??= dm[k];
+  const key = pick(r, mode === 'M' ? [0, 2, 3, 5, 7, 10] : [0, 2, 4, 7, 9]);
+  return { pattern: P, params, master, bpm, key, swing: 0 };
+}
+
 export function mutate(pat, seed = Date.now(), amount = 0.2, scale = SCALES.minor.notes) {
   const r = rng(seed);
   const P = clone(pat);
@@ -686,6 +703,7 @@ function halfTime(full) {
 
 // Turn one full pattern into an 8-pattern arrangement: intro → build → peak → breakdown → return.
 export function arrangement(full, seed, half = false) {
+  if (full.score) return range(8, () => clone(full));
   const strip = (p, keep) => {
     const q = clone(p);
     for (const id of TRACK_IDS) if (!keep.includes(id)) q.steps[id] = id === 'acid' ? range(STEPS, emptyAcidStep) : range(STEPS, () => 0);
@@ -722,6 +740,7 @@ const SONG_FORMS = {
 };
 
 export function songChain(style, seed) {
+  if (FORMS[style]) return 'A';
   const forms = SONG_FORMS[GROOVE.has(style) ? 'groove' : style === 'ambient' ? 'ambient' : 'techno'];
   return pick(rng(seed + 9), forms);
 }
@@ -744,6 +763,8 @@ export function defaultState() {
     mutes: {},
     solos: {},
     locks: {},
+    orch: Object.fromEntries(SECTIONS.map((k) => [k, 1])),
+    orchMute: Object.fromEntries(SECTIONS.map((k) => [k, false])),
     patterns: arrangement(full, 1337, true),
   };
   applyOverrides(s, g, false);
@@ -797,6 +818,8 @@ export function sanitize(s) {
   out.solos = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.solos?.[id]]));
   out.locks = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.locks?.[id]]));
   out.scale = SCALES[s.scale] ? s.scale : 'minor';
+  out.orch = Object.fromEntries(SECTIONS.map((k) => [k, Math.max(0, Math.min(1.5, Number.isFinite(+s.orch?.[k]) ? +s.orch[k] : 1))]));
+  out.orchMute = Object.fromEntries(SECTIONS.map((k) => [k, !!s.orchMute?.[k]]));
   out.patterns = range(8, (i) => {
     const p = s.patterns[i];
     const e = emptyPattern();
@@ -831,6 +854,7 @@ export function sanitize(s) {
       };
       e.hm = Math.round(cl(p.hm ?? 2, 0, 2));
     }
+    if (p.score && FORMS[p.score.form]) e.score = { form: p.score.form, seed: Number.isFinite(+p.score.seed) ? +p.score.seed | 0 : 1, mode: p.score.mode === 'm' ? 'm' : 'M' };
     if (Array.isArray(p.prog) && p.prog.length) e.prog = p.prog.slice(0, 8).map((c) => ({ r: Math.max(-12, Math.min(12, c?.r | 0)), c: Math.max(0, Math.min(10, c?.c | 0)) }));
     return e;
   });

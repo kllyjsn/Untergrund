@@ -72,7 +72,7 @@ console.log('live-kit settings do not leak into the next style passed');
   const { FAMILIES } = { FAMILIES: [...new Set(Object.values(STYLES).map((x) => x.family))] };
   for (const fam of FAMILIES) {
     const sounds = new Set(Object.keys(STYLES).filter((k) => STYLES[k].family === fam).map((k) => { const g = generate(k, 3, 'minor'); return `${g.params.stab.voice}/${g.params.acid.voice}`; }));
-    assert(sounds.size >= 2 || fam === 'JAZZ & HIP-HOP' && sounds.size >= 1, `${fam} genres share one instrument palette`);
+    assert(sounds.size >= 2 || (fam === 'JAZZ & HIP-HOP' || fam === 'CLASSICAL') && sounds.size >= 1, `${fam} genres share one instrument palette`);
   }
   const all = new Set(Object.keys(STYLES).map((k) => generate(k, 3, 'minor').params.stab.voice));
   assert(all.size >= 6, 'genres use most stab instruments');

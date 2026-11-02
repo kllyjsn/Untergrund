@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { STYLES, arrangement, generate } from '../js/state.js';
+import { compose, PART_SECTION, SECTIONS } from '../js/classical.js';
 
 const SEEDS = [101, 211, 307, 401, 503, 601, 701, 809, 907, 1009, 1103, 1201, 1301, 1409, 1511, 1601, 1709, 1801, 1901, 2003];
 const TRACKS = ['kick', 'snare', 'clap', 'ch', 'oh', 'ride', 'perc', 'stab', 'vox', 'acid'];
@@ -22,6 +23,14 @@ const quantile = (values, q) => {
 const active = (steps = []) => steps.filter((step) => (
   Array.isArray(step) ? step.length > 0 : typeof step === 'object' ? step?.on : Boolean(step)
 )).length / Math.max(1, steps.length);
+// A classical score has no step loop: describe it by orchestration share per section and note density.
+const scoreFeatures = (spec) => {
+  if (!spec) return [...SECTIONS.map(() => 0), 0];
+  const sc = compose(spec), count = {};
+  for (const n of sc.notes) count[PART_SECTION[n[4]]] = (count[PART_SECTION[n[4]]] || 0) + 1;
+  // Orchestration is a classical form's identity, so it carries the weight a drum pattern carries for club genres.
+  return [...SECTIONS.map((k) => (3 * (count[k] || 0)) / sc.notes.length), Math.min(1, sc.notes.length / sc.bars / 40)];
+};
 const featureVector = (generated) => {
   const { pattern, params, master, bpm, swing = 0 } = generated;
   const hook = pattern.hook?.s || [];
@@ -42,7 +51,9 @@ const featureVector = (generated) => {
     new Set(pattern.prog || []).size / 8,
   ];
 };
-const distance = (a, b) => Math.sqrt(a.reduce((sum, value, i) => sum + (value - b[i]) ** 2, 0) / a.length);
+// Score features add to the loop distance without diluting it for the club genres.
+const distance = (a, b) => Math.sqrt([...a.score.keys()].reduce((sum, i) => sum + (a.score[i] - b.score[i]) ** 2,
+  a.base.reduce((sum, value, i) => sum + (value - b.base[i]) ** 2, 0)) / a.base.length);
 
 export function runMusicBenchmark({ enforce = false } = {}) {
   const started = performance.now();
@@ -62,7 +73,7 @@ export function runMusicBenchmark({ enforce = false } = {}) {
       patterns.add(hash(first.pattern));
       arrangements.add(hash(arrangement(first.pattern, seed)));
       ensembles.add([first.params.stab.voice, first.params.acid.voice, first.params.stab.octave].join('/'));
-      const row = { style, seed, vector: featureVector(first), projectHash: hash(first) };
+      const row = { style, seed, vector: { base: featureVector(first), score: scoreFeatures(first.pattern.score) }, projectHash: hash(first) };
       rows.push(row);
       styleRows.push(row);
     }
@@ -115,7 +126,8 @@ export function runMusicBenchmark({ enforce = false } = {}) {
     assert(report.genreDistance.p10 >= THRESHOLDS.genreDistanceP10, `genre distance p10 ${report.genreDistance.p10} is too low`);
     assert(report.genreDistance.median >= THRESHOLDS.genreDistanceMedian, `genre distance median ${report.genreDistance.median} is too low`);
     for (const [style, result] of Object.entries(styles)) {
-      assert(result.ensembles >= THRESHOLDS.ensemblesPerGenre, `${style} needs ${THRESHOLDS.ensemblesPerGenre} instrument ensembles`);
+      // A classical form fixes its orchestra; seeds vary the score itself, which the uniqueness checks cover.
+      if (STYLES[style].family !== 'CLASSICAL') assert(result.ensembles >= THRESHOLDS.ensemblesPerGenre, `${style} needs ${THRESHOLDS.ensemblesPerGenre} instrument ensembles`);
       assert(result.uniquePatterns >= THRESHOLDS.uniquePatternsPerGenre, `${style} repeats too many seed patterns`);
       assert(result.uniqueArrangements >= THRESHOLDS.uniqueArrangementsPerGenre, `${style} repeats too many arrangements`);
       assert.equal(result.uniqueProjects, SEEDS.length, `${style} must produce a distinct project for every benchmark seed`);

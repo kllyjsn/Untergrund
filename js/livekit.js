@@ -19,6 +19,19 @@ export const BAND = {
   gtr: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
   horn: [53, 58, 62, 65, 67, 70, 74, 77, 81, 84],
   str: [55, 57, 59, 62, 66, 69, 72, 76, 79, 83, 86],
+  // The CLASSICAL orchestra: loaded section by section, only when a score plays it.
+  pianoext: [24, 28, 33, 36, 40, 43, 93, 96],
+  pianoextsoft: [24, 28, 33, 36, 40, 43, 93, 96],
+  cello: [36, 40, 43, 47, 50, 53, 57, 60, 64, 67],
+  cb: [31, 34, 38, 42, 45],
+  fl: [60, 64, 69, 72, 76, 81, 84],
+  ob: [58, 62, 65, 70, 74, 77, 82],
+  cl: [50, 53, 58, 62, 65, 70, 74],
+  fh: [43, 46, 50, 53, 57, 60],
+  tpt: [57, 60, 63, 67, 70, 74, 77, 81],
+  harp: [47, 53, 60, 64, 71, 77, 81, 84, 91],
+  timp: [42, 47, 50, 52, 55],
+  timproll: [47, 52],
 };
 // STAB voice index -> recorded instrument.
 export const STAB_BAND = { 7: 'piano', 8: 'gtr', 9: 'horn', 10: 'str' };
