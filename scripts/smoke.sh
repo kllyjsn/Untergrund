@@ -28,6 +28,10 @@ check 200 /api/sc-config
 check 200 /api/room-config
 check 200 /api/tracks
 check 200 /api/jukebox
+check 200 /api/account
+check 404 /a/nobody-here
+check 404 /t/missing-track
+check 200 /css/pages.css
 check 200 /api/events
 check 401 "/api/events?summary=1&token=wrong"
 check 200 "/api/events?summary=1&token=dev"
