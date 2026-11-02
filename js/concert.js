@@ -87,15 +87,19 @@ function keyboard() {
     const pc = m % 12, black = BLACK.has(pc), label = KEYS[m - octave * 12] || '';
     const el = h('button', { class: 'pk ' + (black ? 'black' : 'white'), 'aria-label': `${NAMES[pc]}${Math.floor(m / 12) - 1}`, 'data-m': m },
       label ? h('kbd', {}, label.toUpperCase()) : null, pc === 0 ? h('small', {}, `C${Math.floor(m / 12) - 1}`) : null);
+    const fingers = new Set();
     const down = (e) => {
       e.preventDefault();
       el.releasePointerCapture?.(e.pointerId);
+      // A touch fires pointerenter (buttons=1) and then pointerdown for the same finger: play it once.
+      if (fingers.has(e.pointerId)) return;
+      fingers.add(e.pointerId);
       const r = el.getBoundingClientRect(), y = Math.max(0, Math.min(1, (e.clientY - r.top) / r.height));
       noteOn(m, e.pressure && e.pressure !== 0.5 ? 0.2 + 0.8 * e.pressure : 0.35 + 0.6 * y);
     };
     el.addEventListener('pointerdown', down);
     el.addEventListener('pointerenter', (e) => { if (e.buttons & 1 && !held.has(m)) down(e); });
-    for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) el.addEventListener(ev, () => held.has(m) && noteOff(m));
+    for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) el.addEventListener(ev, (e) => { fingers.delete(e.pointerId); if (held.has(m)) noteOff(m); });
     el.addEventListener('contextmenu', (e) => e.preventDefault());
     keyEls.set(m, el);
     keys.push(el);
