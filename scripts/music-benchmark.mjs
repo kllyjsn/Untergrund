@@ -61,7 +61,8 @@ export function runMusicBenchmark({ enforce = false } = {}) {
   let deterministic = 0;
   const rows = [];
 
-  for (const style of Object.keys(STYLES)) {
+  // REPERTOIRE performs a fixed catalogue of real scores, so seed-variety checks don't apply to it.
+  for (const style of Object.keys(STYLES).filter((id) => id !== 'repertoire')) {
     const patterns = new Set();
     const arrangements = new Set();
     const ensembles = new Set();
@@ -101,7 +102,7 @@ export function runMusicBenchmark({ enforce = false } = {}) {
   const report = {
     version: 1,
     seeds: SEEDS,
-    genres: Object.keys(STYLES).length,
+    genres: Object.keys(STYLES).filter((id) => id !== 'repertoire').length,
     projects: rows.length,
     durationMs: +(performance.now() - started).toFixed(1),
     determinism: {

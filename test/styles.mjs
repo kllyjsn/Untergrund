@@ -25,7 +25,7 @@ for (const style of Object.keys(STYLES)) {
     assert(STYLES[style].family && STYLES[style].tag, style);
   }
   const g = generate(style, 3, 'minor');
-  const sig = JSON.stringify([g.pattern.steps.kick, g.pattern.steps.snare, g.pattern.steps.ch, g.bpm, g.swing ?? 0]);
+  const sig = JSON.stringify([g.pattern.steps.kick, g.pattern.steps.snare, g.pattern.steps.ch, g.bpm, g.swing ?? 0, g.pattern.score ?? null]);
   assert(!sigs.has(sig), `${style} sounds the same as ${sigs.get(sig)}`);
   sigs.set(sig, style);
 }

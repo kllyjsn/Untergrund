@@ -2,6 +2,7 @@ import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, defau
 import { rng } from './dsp.js';
 import { FORMS, SECTIONS } from './classical.js';
 import { POCKETS, STYLE_POCKET } from './groove.js';
+import { REPERTOIRE, PIECE } from './repertoire.js';
 
 export const STYLES = {
   hypnotic: { name: 'HYPNOTIC', bpm: [130, 134], family: 'TECHNO', tag: 'deep · rolling' },
@@ -32,6 +33,7 @@ export const STYLES = {
   symphony: { name: 'SYMPHONY', bpm: [104, 120], family: 'CLASSICAL', tag: 'sonata form · full orchestra' },
   concerto: { name: 'PIANO CONCERTO', bpm: [100, 112], family: 'CLASSICAL', tag: 'piano soloist · orchestra' },
   nocturne: { name: 'NOCTURNE', bpm: [60, 72], family: 'CLASSICAL', tag: 'solo piano · cantabile' },
+  repertoire: { name: 'REPERTOIRE', bpm: [60, 200], family: 'CLASSICAL', tag: 'real masterworks' },
 };
 
 const range = (n, f) => Array.from({ length: n }, (_, i) => f(i));
@@ -201,6 +203,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   const master = {};
   const [lo, hi] = STYLES[style].bpm;
   const bpm = Math.round(lo + r() * (hi - lo));
+  if (style === 'repertoire') return generateRepertoire(r, P, params, master);
   if (FORMS[style]) return generateClassical(style, seed, scaleName, r, P, params, master, bpm);
 
   S.kick = range(STEPS, (i) => (i % 4 === 0 ? (i === 0 ? 2 : 1) : 0));
@@ -667,6 +670,17 @@ function generateClassical(style, seed, scaleName, r, P, params, master, bpm) {
   return { pattern: P, params, master, bpm, key, swing: 0 };
 }
 
+// REPERTOIRE plays a real masterwork as written, in its own key and tempo (see js/repertoire.js).
+function generateRepertoire(r, P, params, master) {
+  const piece = REPERTOIRE[Math.floor(r() * REPERTOIRE.length)];
+  P.score = { piece: piece.id };
+  Object.assign(params.stab, { voice: 7, octave: 0 });
+  Object.assign(master, { arr: 0, vary: 0, dust: 0, kit: 0, revLevel: 0.6, humanize: 0.3 });
+  const dm = defaultMaster();
+  for (const k of Object.keys(dm)) if (k !== 'volume' && k !== 'dj') master[k] ??= dm[k];
+  return { pattern: P, params, master, bpm: piece.bpm, key: 0, swing: 0 };
+}
+
 export function mutate(pat, seed = Date.now(), amount = 0.2, scale = SCALES.minor.notes) {
   const r = rng(seed);
   const P = clone(pat);
@@ -745,7 +759,7 @@ const SONG_FORMS = {
 };
 
 export function songChain(style, seed) {
-  if (FORMS[style]) return 'A';
+  if (FORMS[style] || style === 'repertoire') return 'A';
   const forms = SONG_FORMS[GROOVE.has(style) ? 'groove' : style === 'ambient' ? 'ambient' : 'techno'];
   return pick(rng(seed + 9), forms);
 }
@@ -859,7 +873,8 @@ export function sanitize(s) {
       };
       e.hm = Math.round(cl(p.hm ?? 2, 0, 2));
     }
-    if (p.score && FORMS[p.score.form]) e.score = { form: p.score.form, seed: Number.isFinite(+p.score.seed) ? +p.score.seed | 0 : 1, mode: p.score.mode === 'm' ? 'm' : 'M' };
+    if (p.score?.piece && PIECE[p.score.piece]) e.score = { piece: p.score.piece };
+    else if (p.score && FORMS[p.score.form]) e.score = { form: p.score.form, seed: Number.isFinite(+p.score.seed) ? +p.score.seed | 0 : 1, mode: p.score.mode === 'm' ? 'm' : 'M' };
     if (Array.isArray(p.prog) && p.prog.length) e.prog = p.prog.slice(0, 8).map((c) => ({ r: Math.max(-12, Math.min(12, c?.r | 0)), c: Math.max(0, Math.min(10, c?.c | 0)) }));
     return e;
   });
