@@ -150,6 +150,9 @@ function bassOf(ch, prev, lo, hi) {
   return best;
 }
 
+// A run swells to its peak (about four-fifths through), then tapers into its landing.
+const gesture = (x) => (x < 0.8 ? 0.58 + 0.47 * x / 0.8 : 1.05 - 0.6 * (x - 0.8));
+
 class Score {
   constructor() { this.notes = []; this.sections = []; this.bar = 0; this.v = {}; }
   add(bar, s, m, d, vel, part) { this.notes.push([bar * 16 + s, m, d, Math.max(0.05, Math.min(1, vel)), part]); }
@@ -252,7 +255,7 @@ class Score {
     for (let k = 0; k < n; k++) {
       const idx = from + Math.round(((to - from) * k) / Math.max(1, n - 1));
       const m = 60 + key.t + sc[mod(idx, 7)] + 12 * Math.floor(idx / 7) + (key.m === 'm' && mod(idx, 7) === 6 ? 1 : 0);
-      this.add(bar, s + k * sub, m, sub * 1.15, vel * (0.8 + 0.2 * k / n) * (k % (4 / sub) ? 0.92 : 1), part);
+      this.add(bar, s + k * sub, m, sub * 1.15, vel * gesture(k / n) * (k % (4 / sub) ? 0.9 : 1), part);
     }
   }
   arpeggio(bar, s, ch, lo, hi, steps, vel, { sub = 0.5, wave = false, part = 'pno' } = {}) {
@@ -260,12 +263,12 @@ class Score {
     const n = Math.round(steps / sub), L = tones.length, per = Math.max(1, 2 * (L - 1));
     for (let k = 0; k < n; k++) {
       const p = wave ? k % per : Math.min(L - 1, Math.floor((k * L) / n)), i = p < L ? p : per - p;
-      this.add(bar, s + k * sub, tones[i], sub * 1.2, vel * (0.78 + 0.22 * i / Math.max(1, L - 1)) * (k % (4 / sub) ? 0.93 : 1), part);
+      this.add(bar, s + k * sub, tones[i], sub * 1.2, vel * gesture(k / n) * (0.88 + 0.12 * i / Math.max(1, L - 1)) * (k % (4 / sub) ? 0.9 : 1), part);
     }
   }
   brokenOctaves(bar, s, ch, lo, steps, vel, part = 'pno') {
     const tones = []; for (let m = lo; tones.length < steps / 2; m++) if (ch.pcs.includes(mod(m, 12))) tones.push(m);
-    tones.forEach((m, k) => { this.add(bar, s + 2 * k, m, 1.1, vel * (0.85 + 0.15 * k / tones.length), part); this.add(bar, s + 2 * k + 1, m + 12, 1.1, vel * 0.82, part); });
+    tones.forEach((m, k) => { const g = gesture(k / tones.length); this.add(bar, s + 2 * k, m, 1.1, vel * g, part); this.add(bar, s + 2 * k + 1, m + 12, 1.1, vel * g * 0.85, part); });
   }
   trill(bar, s, m, upper, steps, vel, part = 'pno') {
     const n = Math.round(steps / 0.5);
@@ -447,7 +450,9 @@ function tempoMap(bars, sections, depth) {
   for (const c of sections.filter((x) => x.name === 'CADENZA')) {
     for (let i = c.at * 16; i < (c.at + c.len) * 16 && i < t.length; i++) {
       const b = Math.floor(i / 16) - c.at, p = (i % 16) / 16;
-      t[i] = b === 0 ? (p < 0.5 ? 1.45 : 1.15) : b === c.len - 1 ? 1.05 + 0.6 * p * p : 0.9 + 0.3 * p ** 3;
+      const lift = (from) => (p > from ? 0.45 * (p - from) / (1 - from) : 0);
+      t[i] = [p < 0.5 ? 1.5 : 1.2 - 0.3 * p, 1.25 - 0.45 * p + lift(0.85), 1 - 0.12 * p, 0.97 - 0.1 * Math.sin(Math.PI * p) + lift(0.8)][b]
+        ?? 1.3 - 0.4 * Math.sin(Math.PI * Math.min(1, p * 1.4)) + 0.5 * p ** 3;
     }
   }
   const rit = (bars - 3) * 16;
