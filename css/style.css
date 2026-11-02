@@ -769,3 +769,23 @@ body.recording .np-actions .btn.rec .dot { background: var(--accent); animation:
   body:has(.club-overlay) .tab.tab-club, body:has(.jb) .tab.tab-jukebox, body:has(.artist-head) .tab.tab-artist { color: #fff; }
 }
 .jb .pub-note:empty { display: none; }
+
+/* Accessible defaults: readable small labels, visible focus, named instrument choices. */
+:root { --dim: #8b8b96; --dim2: #62626c; }
+:focus-visible { outline: 2px solid #8ab4ff; outline-offset: 2px; }
+.knob:focus-visible { outline-offset: 4px; border-radius: 6px; }
+.voice-chips { display: flex; flex-wrap: wrap; gap: 6px; flex-basis: 100%; order: -1; margin-bottom: 6px; }
+.vchip { font: 600 12px/1 var(--sans); letter-spacing: .02em; color: var(--text); background: var(--panel2); border: 1px solid var(--line2);
+  border-radius: 999px; padding: 8px 13px; min-height: 34px; cursor: pointer; }
+.vchip:hover { border-color: color-mix(in srgb, var(--kc) 60%, var(--line2)); }
+.vchip.on { background: var(--kc); border-color: var(--kc); color: #000; }
+@media (max-width: 760px) {
+  .ms { gap: 5px; }
+  .ms button { width: 32px; height: 32px; font-size: 11px; }
+  .vchip { min-height: 40px; padding: 10px 14px; }
+}
+.tname { white-space: nowrap; }
+@media (max-width: 760px) {
+  .ehead { flex-wrap: wrap; row-gap: 8px; }
+  .ehead .hint { order: 3; flex-basis: 100%; }
+}

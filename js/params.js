@@ -38,7 +38,7 @@ export const MIX_PARAMS = [
   p('level', 'LEVEL', 0, 1.2, 0.8),
   p('pan', 'PAN', -1, 1, 0, { bipolar: true }),
   p('rev', 'REVERB', 0, 1, 0),
-  p('dly', 'DELAY', 0, 1, 0),
+  p('dly', 'ECHO', 0, 1, 0),
 ];
 
 export const TRACKS = [
@@ -73,7 +73,7 @@ export const TRACKS = [
     mix: { level: 0.5, rev: 0.15 },
   },
   {
-    id: 'ch', name: 'C-HAT', kind: 'drum', color: '#e8e8e8',
+    id: 'ch', name: 'HATS', kind: 'drum', color: '#e8e8e8',
     params: [
       p('tune', 'TUNE', 0.6, 1.6, 1),
       p('decay', 'DECAY', 0.015, 0.3, 0.05, { curve: 'exp', unit: 's' }),
@@ -82,7 +82,7 @@ export const TRACKS = [
     mix: { level: 0.42, pan: 0.12 },
   },
   {
-    id: 'oh', name: 'O-HAT', kind: 'drum', color: '#c8c8c8',
+    id: 'oh', name: 'OPEN HAT', kind: 'drum', color: '#c8c8c8',
     params: [
       p('tune', 'TUNE', 0.6, 1.6, 1),
       p('decay', 'DECAY', 0.08, 1.4, 0.32, { curve: 'exp', unit: 's' }),
@@ -112,7 +112,7 @@ export const TRACKS = [
     mix: { level: 0.45, pan: -0.3, rev: 0.2, dly: 0.25 },
   },
   {
-    id: 'acid', name: 'ACID', kind: 'acid', color: '#c6ff2b',
+    id: 'acid', name: 'BASSLINE', kind: 'acid', color: '#c6ff2b',
     params: [
       p('wave', 'SAW/SQR', 0, 1, 0),
       p('tune', 'TUNE', -12, 12, 0, { unit: 'st', step: 1, bipolar: true }),
@@ -127,7 +127,7 @@ export const TRACKS = [
     mix: { level: 0.55, dly: 0.12, rev: 0.05 },
   },
   {
-    id: 'stab', name: 'STAB', kind: 'stab', color: '#b98cff',
+    id: 'stab', name: 'CHORDS', kind: 'stab', color: '#b98cff',
     params: [
       p('chord', 'CHORD', 0, CHORDS.length - 1, 3, { step: 1, list: CHORDS.map((c) => c.name) }),
       p('octave', 'OCTAVE', -2, 2, 0, { step: 1, bipolar: true }),
@@ -141,7 +141,7 @@ export const TRACKS = [
     mix: { level: 0.42, rev: 0.35, dly: 0.42 },
   },
   {
-    id: 'vox', name: 'VOX', kind: 'sampler', color: '#ff7ad9',
+    id: 'vox', name: 'VOCALS', kind: 'sampler', color: '#ff7ad9',
     params: [
       p('slice', 'SLICE', 0, 7, 0, { step: 1 }),
       p('scatter', 'SCATTER', 0, 1, 0.5),
@@ -162,11 +162,11 @@ export const MASTER_PARAMS = [
   p('duck', 'SIDECHAIN', 0, 1, 0.5),
   p('drive', 'DRIVE', 0, 1, 0.3),
   p('volume', 'MASTER', 0, 1.2, 0.85),
-  p('revLevel', 'REV RTN', 0, 1, 0.7),
-  p('revTone', 'REV TONE', 800, 12000, 4500, { curve: 'exp', unit: 'Hz' }),
-  p('dlyTime', 'DLY TIME', 0, DELAY_TIMES.length - 1, 2, { step: 1, list: DELAY_TIMES.map((d) => d.name) }),
-  p('dlyFb', 'FEEDBACK', 0, 0.92, 0.45),
-  p('dlyLevel', 'DLY RTN', 0, 1, 0.65),
+  p('revLevel', 'REVERB', 0, 1, 0.7),
+  p('revTone', 'REVERB TONE', 800, 12000, 4500, { curve: 'exp', unit: 'Hz' }),
+  p('dlyTime', 'ECHO TIME', 0, DELAY_TIMES.length - 1, 2, { step: 1, list: DELAY_TIMES.map((d) => d.name) }),
+  p('dlyFb', 'REPEATS', 0, 0.92, 0.45),
+  p('dlyLevel', 'ECHO', 0, 1, 0.65),
   p('humanize', 'HUMANIZE', 0, 1, 0),
   p('warmth', 'WARMTH', 0, 1, 0),
   p('room', 'ROOM', 0, 1, 0),
