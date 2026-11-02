@@ -7,11 +7,11 @@ import { h } from './ui.js';
 const PROFILE_KEY = 'untergrund.artist.v1';
 const CATALOG_KEY = 'untergrund.catalog.v1';
 const TRAITS = [
-  ['darkness', 'DARKNESS'],
-  ['hypnosis', 'HYPNOSIS'],
-  ['acid', 'ACID'],
-  ['space', 'SPACE'],
-  ['energy', 'ENERGY'],
+  ['darkness', 'DARKNESS', 'darker scales, more distortion'],
+  ['hypnosis', 'HYPNOSIS', 'trance-like loops, more swing'],
+  ['acid', 'ACID', 'squelchier, more resonant bassline'],
+  ['space', 'SPACE', 'more reverb, echo and room'],
+  ['energy', 'ENERGY', 'harder, peak-time styles'],
 ];
 const FIRST = ['Beton', 'Null', 'Tief', 'Stahl', 'Nacht', 'Dunkel', 'Kalt', 'Grau', 'Strom', 'Schacht', 'Blind', 'Leerer'];
 const SECOND = ['Ritual', 'Körper', 'Maschine', 'Frequenz', 'Tunnel', 'Werk', 'Druck', 'Kreis', 'Raum', 'Signal', 'Kontakt', 'System'];
@@ -164,14 +164,15 @@ export function openArtistStudio({ getState, loadProject, performProject, publis
     return h('label', { class: 'artist-field' }, h('span', {}, label), el);
   }
 
-  function trait([id, label]) {
+  function trait([id, label, help]) {
     const value = h('b', {}, String(profile[id]));
     const input = h('input', {
       type: 'range', min: 0, max: 100, value: profile[id],
       oninput: (e) => { profile[id] = +e.target.value; value.textContent = e.target.value; },
       onchange: saveProfile,
     });
-    return h('label', { class: 'dna-trait' }, h('span', {}, label), input, value);
+    input.setAttribute('aria-label', `${label}: ${help}`);
+    return h('label', { class: 'dna-trait', title: help }, h('span', {}, label, h('small', {}, help)), input, value);
   }
 
   function render() {

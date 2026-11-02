@@ -250,11 +250,12 @@ export function openSongPublish({ state, style, title, artist, toast, soundcloud
   input.focus();
 }
 
-export function openJukebox({ playSong, stopSong, toast }) {
+export function openJukebox({ playSong, stopSong, toast, onCreate }) {
   const audio = new Audio();
   let items = [], queue = [], idx = -1, timer = null, filter = 'all', urls = [];
   const stopAll = () => { audio.pause(); clearTimeout(timer); stopSong(); idx = -1; };
-  const { body } = sheet('JUKEBOX', { onClose: () => { stopAll(); urls.forEach((u) => URL.revokeObjectURL(u)); } });
+  const jb = sheet('JUKEBOX', { onClose: () => { stopAll(); urls.forEach((u) => URL.revokeObjectURL(u)); } });
+  const { body } = jb;
   const now = h('div', { class: 'jb-now' }, 'Every song and set here was made inside UNTERGRUND.');
   const note = h('div', { class: 'pub-note' }, 'Loading…');
   const list = h('div', { class: 'jb-list' });
@@ -297,7 +298,9 @@ export function openJukebox({ playSong, stopSong, toast }) {
   function renderList() {
     list.innerHTML = '';
     const v = visible();
-    if (!v.length) list.append(h('div', { class: 'pub-note' }, filter === 'set' ? 'No sets yet. Hit REC any time, cut it, and publish.' : 'Nothing here yet. Generate a track and tap PUBLISH.'));
+    if (!v.length) list.append(h('div', { class: 'jb-empty' },
+      h('p', {}, filter === 'set' ? 'No sets yet. Hit REC any time, cut it, and publish.' : 'Nothing here yet. Make a track, then tap PUBLISH to add it.'),
+      onCreate && h('button', { class: 'btn accent', onclick: () => { jb.close?.(); onCreate(); } }, 'MAKE A TRACK')));
     for (const it of v) {
       const on = queue[idx]?.id === it.id;
       const len = it.kind === 'set' ? ` · ${fmtTime((it.end || it.duration) - (it.start || 0))}` : '';

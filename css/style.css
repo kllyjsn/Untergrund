@@ -769,6 +769,13 @@ body.recording .np-actions .btn.rec .dot { background: var(--accent); animation:
   body:has(.club-overlay) .tab.tab-club, body:has(.jb) .tab.tab-jukebox, body:has(.artist-head) .tab.tab-artist { color: #fff; }
 }
 .jb .pub-note:empty { display: none; }
+.generate-primary small { white-space: nowrap; }
+.jb-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; padding: 28px 0; color: var(--dim); line-height: 1.6; }
+.jb-empty p { margin: 0; }
+.dna-trait span small { display: block; margin-top: 3px; font-size: 10px; letter-spacing: .02em; text-transform: none; color: var(--dim); font-family: var(--sans); }
+.dna-trait { grid-template-columns: 1fr 30px; row-gap: 6px; padding: 4px 0; }
+.dna-trait > span { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 8px; }
+.dna-trait span small { display: inline; margin-top: 0; }
 .menu { position: relative; }
 .menu > summary { list-style: none; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .menu > summary::-webkit-details-marker { display: none; }
