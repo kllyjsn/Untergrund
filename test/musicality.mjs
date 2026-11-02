@@ -93,8 +93,21 @@ console.log('genre signatures passed');
       for (let seed = 1; seed <= 24; seed++) {
         const g = generate(style, seed);
         if (g.params.stab.voice === 6) assert(g.params.stab.octave <= 1, `${style} bells are already voiced one octave high`);
+        if ([3, 4].includes(g.params.stab.voice)) assert(g.params.stab.octave >= 0, `${style} organ/brass must stay out of the sub register`);
+        if (g.params.stab.voice >= 7) assert(g.params.stab.octave >= 0, `${style} recorded chords must not fold into clustered voicings`);
       }
     }
+    for (const style of ['industrial', 'acid', 'peak', 'hardtechno']) {
+      for (let seed = 1; seed <= 24; seed++) assert(generate(style, seed).pattern.steps.stab.some(Boolean), `${style} ensembles need audible chord steps`);
+    }
+    for (let seed = 1; seed <= 24; seed++) {
+      assert.equal(generate('trance', seed).params.acid.voice, 0, 'trance must keep its rolling 303');
+      assert.notEqual(generate('electro', seed).params.acid.voice, 3, 'electro must not borrow the DnB Reese');
+      assert.equal(generate('ambient', seed).params.acid.voice, 1, 'ambient bass must avoid an 808 pitch knock');
+      const ukg = generate('ukg', seed);
+      if (ukg.params.stab.voice === 3) assert(ukg.params.stab.decay <= 0.3, 'UK garage organ must stay gated');
+    }
+    assert(new Set(Array.from({ length: 24 }, (_, i) => generate('neosoul', i + 1).params.stab.voice)).has(1), 'neo-soul needs Rhodes/keys');
   }
 console.log('seeded instrument ensembles passed');
 }
