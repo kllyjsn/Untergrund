@@ -1,4 +1,8 @@
 {
   "buildCommand": "npm run build",
-  "outputDirectory": "dist"
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/a/:handle", "destination": "/api/page?a=:handle" },
+    { "source": "/t/:id", "destination": "/api/page?t=:id" }
+  ]
 }

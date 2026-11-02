@@ -85,3 +85,13 @@ The secret is only used by `/api/sc-token`; audio uploads go directly from the b
 - Storage: `api/events.js` writes daily Redis counters and HyperLogLog unique sessions when `KV_REST_API_URL`/`KV_REST_API_TOKEN` are set, and no-ops otherwise. `server.mjs` uses an in-memory store locally.
 - Stats: set `STATS_TOKEN` in Vercel, then open `/stats.html?token=<STATS_TOKEN>` (the token moves into session storage and leaves the URL). Locally with `SC_MOCK=1` the token is `dev`.
 - Page views: the free Vercel Web Analytics script loads on untergrund.sh once Web Analytics is enabled for the project in the Vercel dashboard. Custom events there need a paid plan, which is why the funnel is first-party.
+
+## Creator accounts and public pages
+
+Every published song gets a permanent page at `/t/<id>` that replays its stored state in the browser, and every creator can claim `/a/<handle>`. `vercel.json` rewrites both to `api/page.js`, which renders per-page Open Graph/Twitter tags and a generated cover PNG for link unfurls.
+
+- `AUTH_SECRET`: 32+ random characters (`openssl rand -base64 48`). Signs the `ug_session` httpOnly cookie. Without it, accounts stay off and the app works as before.
+- `KV_REST_API_URL` / `KV_REST_API_TOKEN` (Upstash Redis free tier): stores accounts, handles, follows and published track state.
+- Sign in with SoundCloud reuses the SoundCloud setup above.
+
+Locally, `server.mjs` uses an in-memory store saved to `.data/kv.json` and a generated dev secret, so everything works without env vars.
