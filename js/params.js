@@ -1,3 +1,4 @@
+import { POCKET_NAMES } from './groove.js';
 export const KEYS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 export const PATTERN_NAMES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 export const STEPS = 16;
@@ -170,8 +171,9 @@ export const MASTER_PARAMS = [
   p('humanize', 'HUMANIZE', 0, 1, 0),
   p('warmth', 'WARMTH', 0, 1, 0),
   p('room', 'ROOM', 0, 1, 0),
-  p('kit', 'KIT', 0, 1, 0, { step: 1, list: ['MACHINE', 'LIVE'] }),
+  p('kit', 'KIT', 0, 2, 0, { step: 1, list: ['MACHINE', 'LIVE', 'HYBRID'] }),
   p('vary', 'VARIATION', 0, 1, 0),
+  p('pocket', 'POCKET', 0, POCKET_NAMES.length - 1, 0, { step: 1, list: POCKET_NAMES }),
   p('dust', 'DUST', 0, 1, 0),
   p('arr', 'DROPS', 0, 1, 0),
 ];

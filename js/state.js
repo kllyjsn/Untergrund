@@ -1,6 +1,7 @@
 import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, defaultParams, defaultMaster } from './params.js';
 import { rng } from './dsp.js';
 import { FORMS, SECTIONS } from './classical.js';
+import { POCKETS, STYLE_POCKET } from './groove.js';
 import { REPERTOIRE, PIECE } from './repertoire.js';
 
 export const STYLES = {
@@ -311,6 +312,8 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     master.duck = 0.7; master.drive = 0.8;
   } else if (style === 'deephouse') {
     S.ch = range(STEPS, (i) => (i % 4 === 2 ? 1 : 0));
+    // A hand shaker playing every 16th; the HOUSE pocket decides which ones it leans on
+    S.perc = range(STEPS, (i) => (i % 4 === 1 && r() < 0.3 ? 0 : 1));
     S.oh = range(STEPS, (i) => (i % 4 === 2 && r() < 0.4 ? 1 : 0));
     S.ride = range(STEPS, (i) => (i % 2 ? 1 : 0));
     S.clap = pad16([0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]);
@@ -580,6 +583,8 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   }
   const VARY = { neosoul: 0.8, boombap: 0.6, deephouse: 0.4, ukg: 0.45, breaks: 0.5, euphoric: 0.3, dnb: 0.4, amapiano: 0.4, afrobeats: 0.4, reggaeton: 0.25, bailefunk: 0.35, trap: 0.35, drill: 0.4, jerseyclub: 0.3, hyperpop: 0.3 };
   if (VARY[style]) master.vary = VARY[style];
+  if (STYLE_POCKET[style]) { master.pocket = STYLE_POCKET[style]; master.humanize ??= POCKETS[master.pocket].hum; }
+  if (['deephouse', 'ukg', 'euphoric'].includes(style)) master.kit ??= 2;
   const dm = defaultMaster();
   for (const k of Object.keys(dm)) if (k !== 'volume' && k !== 'dj') master[k] ??= dm[k];
   // Each scene has its own room. Urban and club-pop records are dry and in your face; only the
@@ -619,7 +624,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   }
   params.acid.voice = bassVoice;
   for (const t of ['acid', 'stab']) params[t].voice ??= 0;
-  const PERC = { dnb: 3, deephouse: 1, ukg: 3, boombap: 3, neosoul: 3, breaks: 2, minimal: 4, dub: 4, euphoric: 3, ambient: 2, amapiano: 3, afrobeats: 1, reggaeton: 2, bailefunk: 1 };
+  const PERC = { dnb: 3, deephouse: 3, ukg: 3, boombap: 3, neosoul: 3, breaks: 2, minimal: 4, dub: 4, euphoric: 3, ambient: 2, amapiano: 3, afrobeats: 1, reggaeton: 2, bailefunk: 1 };
   params.perc.voice = PERC[style] ?? 0;
   const DUST = { boombap: 0.45, neosoul: 0.25, dub: 0.3, ambient: 0.2, deephouse: 0.12, minimal: 0.1 };
   master.dust = DUST[style] ?? 0;
@@ -635,7 +640,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   }
   if (params.stab.cutoff) params.stab.cutoff = Math.round(params.stab.cutoff * (0.75 + r2() * 0.6));
   if (params.stab.decay) params.stab.decay = +(params.stab.decay * (0.8 + r2() * 0.4)).toFixed(3);
-  const PUNCH = { deephouse: 0.72, ukg: 0.7, afrobeats: 0.7, amapiano: 0.65, euphoric: 0.72, trance: 0.72, reggaeton: 0.7 };
+  const PUNCH = { deephouse: 0.55, ukg: 0.7, afrobeats: 0.7, amapiano: 0.65, euphoric: 0.72, trance: 0.72, reggaeton: 0.7 };
   if (PUNCH[style]) {
     params.kick.punch = Math.max(params.kick.punch ?? 0, PUNCH[style]);
     params.kick.drive = Math.max(params.kick.drive ?? 0, 0.3);

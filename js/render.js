@@ -8,7 +8,7 @@ import { loadLiveKit, loadBand, STAB_BAND } from './livekit.js';
 // startBar renders a window from inside the song chain (e.g. the peak), with the arrangement state it would have there.
 export async function renderBars(state, bars, { sampleRate = 48000, tail = 4, startBar = 0 } = {}) {
   const snap = clone(state);
-  if (Math.round(snap.master.kit || 0) === 1) await loadLiveKit();
+  if (Math.round(snap.master.kit || 0) >= 1) await loadLiveKit();
   const band = STAB_BAND[Math.round(snap.params.stab?.voice || 0)];
   if (band) await Promise.all([loadBand(band), band === 'piano' && loadBand('pianosoft')]);
   const score = snap.patterns.find((p) => p.score)?.score;

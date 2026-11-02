@@ -39,7 +39,20 @@ assert.deepEqual(san(JSON.parse(JSON.stringify(st0))).patterns[0].prog, soulGen.
 console.log('neo-soul progression and variation passed');
 assert.equal(generate('neosoul', 9, 'dorian').master.kit, 1);
 assert.equal(generate('hypnotic', 9, 'minor').master.kit || 0, 0);
+const { POCKET_NAMES, pocketVel, pocketOf } = await import('../js/groove.js');
+const pocketName = (style) => POCKET_NAMES[generate(style, 9, 'minor').master.pocket || 0];
+assert.equal(pocketName('deephouse'), 'HOUSE');
+assert.equal(pocketName('ukg'), 'GARAGE');
+assert.equal(pocketName('hypnotic'), 'MACHINE');
+assert.equal(pocketName('neosoul'), 'SOUL');
+assert.equal(pocketName('symphony'), 'GRID');
+assert.equal(generate('deephouse', 9, 'minor').master.kit, 2, 'house sits machine drums under recorded cymbals');
+const house = pocketOf({ pocket: POCKET_NAMES.indexOf('HOUSE') });
+assert(pocketVel(house, 'ch', 2) > pocketVel(house, 'ch', 3) && pocketVel(house, 'ch', 3) > pocketVel(house, 'ch', 1), 'house hats lean on the offbeat and whisper the e');
+const saved = sanitize(JSON.parse(JSON.stringify({ ...defaultState(), master: { ...defaultState().master, pocket: 2, kit: 2 } })));
+assert.equal(saved.master.pocket, 2); assert.equal(saved.master.kit, 2);
 console.log('live kit defaults passed');
+console.log('genre pockets passed');
 assert(generate('neosoul', 9, 'dorian').master.room > 0.3);
 console.log('room defaults passed');
 for (const style of ['neosoul', 'boombap', 'hypnotic', 'ambient', 'euphoric']) {
