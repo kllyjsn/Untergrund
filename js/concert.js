@@ -164,6 +164,12 @@ window.addEventListener('keyup', (e) => {
   if (typed.has(k)) { e.stopImmediatePropagation(); noteOff(typed.get(k)); typed.delete(k); }
 }, true);
 // A tab switch or lost touch must never leave a note ringing forever.
-const releaseAll = () => { for (const m of [...held.keys()]) noteOff(m); typed.clear(); };
+const releaseAll = () => {
+  pedal = false;
+  ui.pedal?.classList.toggle('on', sustain);
+  for (const m of [...held.keys()]) noteOff(m);
+  typed.clear();
+  damp();
+};
 window.addEventListener('blur', releaseAll);
 document.addEventListener('visibilitychange', () => document.hidden && releaseAll());

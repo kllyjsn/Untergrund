@@ -867,5 +867,13 @@ export function sanitize(s) {
       created: String(s.artist.created || '').slice(0, 40),
     };
   } else delete out.artist;
+  const credit = s.remixOf && typeof s.remixOf === 'object' && String(s.remixOf.title || '').replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  if (credit) {
+    out.remixOf = {
+      id: String(s.remixOf.id || '').replace(/[^A-Za-z0-9-]/g, '').slice(0, 40),
+      title: credit.slice(0, 80),
+      artist: String(s.remixOf.artist || 'UNTERGRUND').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 40) || 'UNTERGRUND',
+    };
+  }
   return out;
 }

@@ -1,5 +1,7 @@
 # UNTERGRUND — techno synthesis engine
 
+[![CI](https://github.com/kllyjsn/Untergrund/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kllyjsn/Untergrund/actions/workflows/ci.yml)
+
 Browser music studio: Web Audio synthesis plus bundled CC0 recorded drums, bass, piano, guitar, horns and strings.
 
 - 9 voices: 909-style kick (pitch env, click, drive, rumble bus), clap, snare, metallic hats/ride, perc, 303-style acid (accent/slide/drive, piano roll), poly chord stabs
@@ -18,7 +20,7 @@ Open **ARTIST** to shape the artist identity and generate release-ready projects
 
 Open **CLUB** to enter an avatar listening room. Rooms only broadcast project state created inside UNTERGRUND: no third-party catalog, imported song, or sample stream is accepted. The current DJ can broadcast the open project, listeners synchronize the same synthesized arrangement locally, and queued creators can take the deck.
 
-`npm test` verifies artist generation plus room presence, host controls, chat, DJ queue handoff, and native-set broadcast. `test/` also holds the offline render + WAV analysis harness (`python3 test/server.py`, `test/analyze.py`).
+`npm test` (run in CI with `npm run build`, `node --check` and `scripts/smoke.sh` on every PR) verifies artist generation plus room presence, host controls, chat, DJ queue handoff, and native-set broadcast. `test/` also holds the offline render + WAV analysis harness (`python3 test/server.py`, `test/analyze.py`).
 
 ## Musician-first generation
 
@@ -33,17 +35,40 @@ UNTERGRUND generates performances, not collections of random notes. Every musica
 
 Sound quality is part of musicianship. Leads need expressive articulation and dynamics, bass belongs in a useful club register, and every genre needs its own timing feel rather than a globally quantized loop.
 
-## Club Rooms deployment
+## Production backend
 
-`server.mjs` includes a credential-free in-memory room service for local development and self-hosted deployments. It exposes presence, chat, reactions, DJ queue state, and the current native set through `/api/rooms/:room`.
+The site is a static build on Vercel project `untergrund-i2i9` (team kllyjsns-projects) with serverless functions in `api/`. Each backend piece is optional: when it is off, the app keeps working in the browser (IndexedDB/localStorage crate and jukebox, `BroadcastChannel` rooms for tabs on one browser) and never shows local participants as real remote listeners.
 
-Vercel hosts the frontend and SoundCloud functions, but its stateless functions are not the long-lived room service. For production multi-device rooms:
+| Feature | Endpoint | Needs | When it is off |
+| --- | --- | --- | --- |
+| Public tracks | `/api/tracks` | `KV_REST_API_URL` + `KV_REST_API_TOKEN` (Upstash Redis) | 503 `enabled:false`, browser-only crate |
+| Jukebox | `/api/jukebox` | same Redis env vars | 503 `enabled:false`, browser-only jukebox |
+| Recorded set uploads | `/api/set-upload` | `BLOB_READ_WRITE_TOKEN` (Vercel Blob) | jukebox reports `uploads:false` |
+| Multi-device Club rooms | `ROOMS_API_URL` → `rooms-server.mjs` | a persistent host (Fly.io) | rooms are per-browser |
 
-1. Deploy `server.mjs` to a persistent Node host.
-2. Set `ROOMS_ALLOWED_ORIGIN=https://untergrund.sh` on that service.
-3. Set `ROOMS_API_URL=https://YOUR_ROOM_SERVICE` in Vercel.
+### 1. Storage (Vercel dashboard)
 
-Without `ROOMS_API_URL`, the room UI still works through `BroadcastChannel` for tabs on the same browser. The product never represents those local participants as real remote listeners.
+1. Vercel → kllyjsns-projects → **Storage** → **Create Database** → **Upstash** → **Upstash for Redis** → Free plan, region `iad1` (Washington, D.C.) → Create. Connect it to project `untergrund-i2i9` (all environments) with no env var prefix, so it injects `KV_REST_API_URL` and `KV_REST_API_TOKEN`. (`UPSTASH_REDIS_REST_URL`/`_TOKEN` also work.)
+2. **Storage** → **Create Database** → **Blob** → name `untergrund-sets` → Create → connect to `untergrund-i2i9`. This injects `BLOB_READ_WRITE_TOKEN`.
+3. **Deployments** → newest `main` deployment → ⋯ → **Redeploy**. Env vars only apply to new deployments.
+4. Check: `curl https://www.untergrund.sh/api/tracks` and `/api/jukebox` return 200 with `"enabled":true`. `/api/jukebox` should also show `"uploads":true`.
+
+### 2. Club rooms (Fly.io)
+
+`rooms-server.mjs` is the production room service: only `/api/rooms/:room[/events]` and `/healthz`, no static files, no SoundCloud mock. `server.mjs` reuses the same logic (`api/_lib/rooms.js`) for local development. Rooms stay in memory in a single process. If the `KV_REST_API_*` secrets are set, changes (chat, sets, DJ queue, joins) are also written to Redis under `untergrund:room:<id>`, kept for 7 days and flushed on SIGTERM. Restarts, deploys and auto-stops then don't wipe rooms. Presence heartbeats are never written, so the Upstash free tier is plenty.
+
+Prerequisites: a Fly org with billing enabled (trial orgs can't run machines) and an org-scoped token (`fly tokens create org -o personal`). App deploy tokens can't create apps.
+
+```sh
+fly apps create untergrund-rooms            # once
+fly secrets set -a untergrund-rooms KV_REST_API_URL=... KV_REST_API_TOKEN=...   # optional, same values as Vercel
+fly deploy --ha=false                       # uses Dockerfile + fly.toml (one shared-cpu-1x/256MB machine, iad)
+curl https://untergrund-rooms.fly.dev/healthz   # {"ok":true,...,"persistence":"redis"}
+```
+
+`fly.toml` sets `ROOMS_ALLOWED_ORIGIN=https://www.untergrund.sh,https://untergrund.sh` (a comma-separated CORS allow-list; `*` when unset) and an HTTP health check on `/healthz`. The machine auto-stops when idle and wakes on the next request. Then set `ROOMS_API_URL=https://untergrund-rooms.fly.dev` in Vercel (Production) and redeploy; `/api/room-config` should return it as `apiBase`.
+
+Run the service locally with `npm run start:rooms` (port 8080) or `docker build -t untergrund-rooms . && docker run -p 8080:8080 untergrund-rooms`.
 
 ## SoundCloud setup
 
@@ -52,3 +77,11 @@ Without `ROOMS_API_URL`, the room UI still works through `BroadcastChannel` for 
 3. Set `SOUNDCLOUD_CLIENT_ID` and `SOUNDCLOUD_CLIENT_SECRET` in the deployment environment.
 
 The secret is only used by `/api/sc-token`; audio uploads go directly from the browser to SoundCloud. Run `npm run dev` to use the local fake SoundCloud for end-to-end testing without credentials.
+
+## Analytics and error tracking
+
+`js/analytics.js` sends anonymous funnel events (`app_open`, `generate`, `play_start`, `play_30s`, `save_track`, `publish`, `share_link_copied`, `room_join`, `room_go_live`, `export_wav`, `return_visit`) and client errors (window errors, unhandled rejections, AudioContext/render failures) in batches to `/api/events`, using `sendBeacon` on page hide. There's no PII: just event names, a few whitelisted short props (genre, kind…) and a random per-tab session id. Do Not Track, Global Privacy Control and automated browsers turn it off completely.
+
+- Storage: `api/events.js` writes daily Redis counters and HyperLogLog unique sessions when `KV_REST_API_URL`/`KV_REST_API_TOKEN` are set, and no-ops otherwise. `server.mjs` uses an in-memory store locally.
+- Stats: set `STATS_TOKEN` in Vercel, then open `/stats.html?token=<STATS_TOKEN>` (the token moves into session storage and leaves the URL). Locally with `SC_MOCK=1` the token is `dev`.
+- Page views: the free Vercel Web Analytics script loads on untergrund.sh once Web Analytics is enabled for the project in the Vercel dashboard. Custom events there need a paid plan, which is why the funnel is first-party.

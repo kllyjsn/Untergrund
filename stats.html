@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="referrer" content="no-referrer" />
+  <title>UNTERGRUND — Traction</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23070708'/><rect x='6' y='6' width='20' height='20' fill='none' stroke='%23ff2b2b' stroke-width='3'/><rect x='13' y='13' width='6' height='6' fill='%23ff2b2b'/></svg>" />
+  <style>
+    :root { --bg: #070708; --panel: #111114; --line: #24242a; --text: #f2f2f0; --dim: #8b8b93; --red: #ff2b2b; --lime: #c6ff3d; color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, 'Inter Tight', sans-serif; -webkit-font-smoothing: antialiased; }
+    .mono, th, td, .kpi b, .num { font-family: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .wrap { max-width: 1120px; margin: 0 auto; padding: max(20px, env(safe-area-inset-top)) 20px 60px; }
+    header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 22px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 900; letter-spacing: .14em; }
+    .brand i { width: 18px; height: 18px; border: 3px solid var(--red); display: grid; place-items: center; }
+    .brand i::after { content: ''; width: 6px; height: 6px; background: var(--red); }
+    .brand span { color: var(--dim); font-weight: 600; letter-spacing: .08em; }
+    .range { margin-left: auto; display: flex; gap: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
+    .range button { all: unset; cursor: pointer; padding: 6px 14px; border-radius: 999px; color: var(--dim); font-weight: 700; font-size: 12px; letter-spacing: .06em; }
+    .range button.on { background: var(--text); color: var(--bg); }
+    .updated { color: var(--dim); font-size: 12px; width: 100%; text-align: right; }
+    .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+    .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+    .kpi small { display: block; color: var(--dim); font-size: 12px; margin-bottom: 6px; }
+    .kpi b { font-size: 28px; font-weight: 700; letter-spacing: -.02em; }
+    .kpi em { display: block; font-style: normal; color: var(--dim); font-size: 12px; margin-top: 2px; }
+    .kpi.hero b { color: var(--lime); }
+    section { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin-bottom: 14px; }
+    h2 { margin: 0 0 14px; font-size: 12px; letter-spacing: .14em; color: var(--dim); font-weight: 700; }
+    .grid2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 14px; }
+    .grid2 > section { margin: 0; }
+    .step { display: grid; grid-template-columns: 130px 1fr 92px; align-items: center; gap: 12px; margin: 8px 0; }
+    .bar { height: 26px; background: #19191d; border-radius: 6px; overflow: hidden; }
+    .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--red), #ff6a3d); border-radius: 6px; min-width: 2px; transition: width .5s cubic-bezier(.2,.8,.2,1); }
+    .step .num { text-align: right; } .step .num small { display: block; color: var(--dim); font-size: 11px; }
+    .chart { width: 100%; height: 142px; display: block; }
+    .axis { display: flex; justify-content: space-between; color: var(--dim); font-size: 11px; margin-top: 4px; }
+    .legend { display: flex; gap: 14px; color: var(--dim); font-size: 12px; margin-top: 6px; }
+    .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+    .table { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { border-collapse: collapse; width: 100%; font-size: 12px; }
+    th, td { padding: 7px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    th:first-child, td:first-child { text-align: left; position: sticky; left: 0; background: var(--panel); }
+    th { color: var(--dim); font-weight: 600; }
+    td.zero { color: #45454c; }
+    .genre { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--line); }
+    .err { border-bottom: 1px solid var(--line); padding: 10px 0; }
+    .err b { color: var(--red); font-size: 12px; letter-spacing: .06em; }
+    .err .meta { color: var(--dim); font-size: 12px; }
+    .err pre { white-space: pre-wrap; word-break: break-word; color: var(--dim); font-size: 11px; margin: 6px 0 0; }
+    .empty { color: var(--dim); padding: 6px 0; }
+    .gate { max-width: 380px; margin: 18vh auto 0; text-align: center; }
+    .gate p { color: var(--dim); }
+    .gate form { display: flex; gap: 8px; margin-top: 18px; }
+    .gate input { flex: 1; background: var(--panel); border: 1px solid var(--line); color: var(--text); border-radius: 10px; padding: 12px 14px; font: inherit; }
+    .gate button, .notice a { background: var(--red); color: #fff; border: 0; border-radius: 10px; padding: 12px 18px; font-weight: 700; letter-spacing: .06em; cursor: pointer; }
+    .notice { border-color: #3a2a12; background: #17120b; color: #f3d9a6; }
+    .notice code { background: #00000055; padding: 1px 6px; border-radius: 4px; }
+    @media (max-width: 760px) {
+      .kpis { grid-template-columns: repeat(2, 1fr); }
+      .grid2 { grid-template-columns: 1fr; }
+      .step { grid-template-columns: 96px 1fr 70px; gap: 8px; }
+      .kpi b { font-size: 24px; }
+      .range { margin-left: 0; }
+      .updated { text-align: left; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap" id="root"></div>
+  <script type="module">
+    const LABEL = { app_open: 'Visited', generate: 'Made a song', play_start: 'Pressed play', play_30s: 'Listened 30s+', save_track: 'Saved', publish: 'Published',
+      share_link_copied: 'Shared a link', room_join: 'Joined a room', room_go_live: 'Went live', export_wav: 'Exported WAV', return_visit: 'Came back',
+      shared_open: 'Opened a shared song', remix: 'Remixed a song', video_export: 'Made a video', error: 'Errors' };
+    const root = document.getElementById('root');
+    const params = new URLSearchParams(location.search);
+    if (params.get('token')) { sessionStorage.setItem('untergrund.statsToken', params.get('token')); params.delete('token'); history.replaceState(null, '', location.pathname + (params.size ? `?${params}` : '')); }
+    let token = sessionStorage.getItem('untergrund.statsToken') || '';
+    let days = +(params.get('days') || 30);
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+    const fmt = (n) => (n >= 10000 ? `${(n / 1000).toFixed(1)}k` : Number(n || 0).toLocaleString());
+    const pct = (r) => (r ? `${(r * 100).toFixed(r < 0.1 ? 1 : 0)}%` : '—');
+
+    function gate(msg) {
+      root.innerHTML = `<div class="gate"><div class="brand" style="justify-content:center"><i></i>UNTERGRUND <span>TRACTION</span></div>
+        <p>${esc(msg)}</p><form><input type="password" placeholder="Stats token" autocomplete="current-password" aria-label="Stats token" /><button>OPEN</button></form></div>`;
+      root.querySelector('form').onsubmit = (e) => { e.preventDefault(); token = root.querySelector('input').value.trim(); sessionStorage.setItem('untergrund.statsToken', token); load(); };
+      root.querySelector('input').focus();
+    }
+
+    async function load() {
+      if (!token) return gate('Enter the stats token to see traction.');
+      let res, json = {};
+      try { res = await fetch(`/api/events?summary=1&days=${days}`, { headers: { 'x-stats-token': token }, cache: 'no-store' }); json = await res.json().catch(() => ({})); }
+      catch { return gate('Could not reach the stats endpoint. Check your connection and try again.'); }
+      if (res.status === 401) { sessionStorage.removeItem('untergrund.statsToken'); token = ''; return gate('That token did not match. Try again.'); }
+      if (res.status === 404) return gate('Stats are turned off. Set STATS_TOKEN in Vercel, then redeploy.');
+      if (res.status === 503 || json.enabled === false) return render(null);
+      if (!res.ok) return gate(`Stats are unavailable right now (${res.status}).`);
+      render(json);
+    }
+
+    function chart(daily) {
+      const W = 1000, H = 160, pad = 18, max = Math.max(1, ...daily.map((d) => d.uniques.session || 0));
+      const bw = (W - pad) / daily.length;
+      const bars = daily.map((d, i) => {
+        const s = d.uniques.session || 0, g = d.uniques.generate || 0, x = i * bw + 2;
+        const hs = ((H - pad) * s) / max, hg = ((H - pad) * g) / max;
+        return `<rect x="${x}" y="${H - pad - hs}" width="${bw - 4}" height="${hs}" rx="3" fill="#2a2a31"><title>${d.date}: ${s} sessions, ${g} made a song</title></rect>
+          <rect x="${x}" y="${H - pad - hg}" width="${bw - 4}" height="${hg}" rx="3" fill="#ff2b2b"/>`;
+      }).join('');
+      const labels = [0, Math.floor(daily.length / 2), daily.length - 1].map((i) => `<span>${daily[i].date.slice(5)}</span>`).join('');
+      return `<svg class="chart" viewBox="0 0 ${W} ${H - pad}" preserveAspectRatio="none">${bars}</svg><div class="axis mono">${labels}</div>
+        <div class="legend"><span><i style="background:#2a2a31"></i>Sessions</span><span><i style="background:#ff2b2b"></i>Made a song</span><span class="mono">peak ${fmt(max)}/day</span></div>`;
+    }
+
+    function render(s) {
+      const head = `<header><div class="brand"><i></i>UNTERGRUND <span>TRACTION</span></div>
+        <div class="range">${[7, 30, 90].map((d) => `<button data-days="${d}" class="${d === days ? 'on' : ''}">${d} DAYS</button>`).join('')}</div>
+        ${s ? `<div class="updated">Updated ${new Date(s.generated).toLocaleString()} · days are UTC · sessions are anonymous tabs</div>` : ''}</header>`;
+      if (!s) {
+        root.innerHTML = head + `<section class="notice"><h2>STORAGE NOT CONNECTED</h2>The app is ready to count events, but no Redis store is connected, so nothing is saved yet.
+          Connect Upstash Redis (free) to the Vercel project so <code>KV_REST_API_URL</code> and <code>KV_REST_API_TOKEN</code> are set, then redeploy.</section>`;
+        return bindRange();
+      }
+      const p = s.period[s.days] || {}, today = s.period[1] || {}, week = s.period[7] || {}, t = s.totals;
+      const kpi = (label, value, sub, hero) => `<div class="kpi${hero ? ' hero' : ''}"><small>${label}</small><b>${value}</b><em>${sub}</em></div>`;
+      const share = (a, b) => (b ? `${pct(a / b)} of visitors` : '—');
+      const kpis = [
+        kpi('Sessions', fmt(p.session), `${fmt(today.session)} today · ${fmt(week.session)} this week`, true),
+        kpi('New visitors', fmt(t['app_open:new'] || 0), `${fmt(t['app_open:returning'] || 0)} returning opens`),
+        kpi('Songs made', fmt(t.generate || 0), share(p.generate, p.app_open)),
+        kpi('Listened 30s+', fmt(p.play_30s), share(p.play_30s, p.app_open)),
+        kpi('Published', fmt(t.publish || 0), `${fmt(p.publish)} sessions`),
+        kpi('Shared a link', fmt(t.share_link_copied || 0), `${fmt(p.share_link_copied)} sessions`),
+        kpi('Day-1 return', pct(s.retention.d1.rate), `${s.retention.d1.returned} of ${s.retention.d1.cohort} new visitors`),
+        kpi('Day-7 return', pct(s.retention.d7.rate), `${s.retention.d7.returned} of ${s.retention.d7.cohort} new visitors`),
+      ].join('');
+      const top = s.funnel[0]?.sessions || 0;
+      const funnel = s.funnel.map((f, i) => `<div class="step"><span>${LABEL[f.event]}</span>
+        <div class="bar"><i style="width:${top ? (100 * f.sessions) / top : 0}%"></i></div>
+        <span class="num">${fmt(f.sessions)}<small>${i ? `${pct(f.ofPrev)} of prev` : 'sessions'}</small></span></div>`).join('');
+      const genres = Object.entries(t).filter(([k]) => k.startsWith('generate:') && !/:(song|pattern)$/.test(k)).sort((a, b) => b[1] - a[1]).slice(0, 10);
+      const events = s.events;
+      const rows = [...s.daily].reverse().map((d) => `<tr><td>${d.date}</td><td>${fmt(d.uniques.session)}</td>${events.map((e) => `<td class="${d.counts[e] ? '' : 'zero'}">${fmt(d.counts[e] || 0)}</td>`).join('')}</tr>`).join('');
+      const errors = s.errors.length ? s.errors.slice(0, 20).map((e) => `<div class="err"><b>${esc(e.kind).toUpperCase()}</b> ${esc(e.message)}
+        <div class="meta">${esc(new Date(e.at).toLocaleString())} · ${esc(e.route)} · ${esc(e.ua)}</div>${e.stack ? `<details><summary class="meta">Stack</summary><pre>${esc(e.stack)}</pre></details>` : ''}</div>`).join('')
+        : '<div class="empty">No errors reported. Nice.</div>';
+      root.innerHTML = head + `<div class="kpis">${kpis}</div>
+        <div class="grid2"><section><h2>FUNNEL · UNIQUE SESSIONS</h2>${funnel}</section>
+          <section><h2>DAILY SESSIONS</h2>${chart(s.daily)}</section></div>
+        <div class="grid2" style="margin-top:14px"><section><h2>TOP GENRES · SONGS MADE</h2>${genres.length ? genres.map(([k, v]) => `<div class="genre"><span>${esc(k.slice(9).toUpperCase())}</span><span class="num">${fmt(v)}</span></div>`).join('') : '<div class="empty">No songs made yet.</div>'}</section>
+          <section><h2>RECENT ERRORS · ${fmt(t.error || 0)} IN RANGE</h2>${errors}</section></div>
+        <section style="margin-top:14px"><h2>DAILY COUNTS</h2><div class="table"><table><thead><tr><th>Day</th><th>Sessions</th>${events.map((e) => `<th>${LABEL[e]}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div></section>`;
+      bindRange();
+    }
+    function bindRange() {
+      root.querySelectorAll('.range button').forEach((b) => { b.onclick = () => { days = +b.dataset.days; const q = new URLSearchParams(location.search); q.set('days', days); history.replaceState(null, '', `${location.pathname}?${q}`); load(); }; });
+    }
+    load();
+  </script>
+</body>
+</html>

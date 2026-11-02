@@ -2,7 +2,9 @@
 import { h } from './ui.js';
 import { STYLES } from './state.js';
 import { saveTrack } from './crate.js';
+import { track as trackEvent } from './analytics.js';
 import { encodeWav } from './dsp.js';
+import { creditLine } from './share-code.js';
 
 const MAX_WAV_SECONDS = 15 * 60;
 export const fmtTime = (sec) => {
@@ -82,7 +84,7 @@ export async function publishSong({ state, title, style, artist }) {
   const cfg = await jukeboxConfig();
   if (cfg.enabled) return { public: true, item: await postEntry({ kind: 'song', title, style, artist, bpm: state.bpm, state }) };
   const { track } = await saveTrack({ title, style, artist, state });
-  const item = { id: localId(), kind: 'song', title, style, artist, bpm: state.bpm, trackId: track.id, created: new Date().toISOString(), local: true };
+  const item = { id: localId(), kind: 'song', title, style, artist, bpm: state.bpm, trackId: track.id, created: new Date().toISOString(), local: true, ...(state.remixOf && { remixOf: state.remixOf }) };
   await idb('put', item);
   return { public: false, item };
 }
@@ -137,7 +139,7 @@ function drawPeaks(canvas, peaks, start, end, duration, head = -1) {
   });
 }
 
-function sheet(titleText, { beforeClose, onClose } = {}) {
+export function sheet(titleText, { beforeClose, onClose } = {}) {
   const ov = h('div', { class: 'overlay', onclick: (e) => e.target === ov && close() });
   const body = h('div', { class: 'pub-body set-body' });
   const onKey = (e) => { if (e.key === 'Escape') close(); e.stopPropagation(); };
@@ -200,6 +202,7 @@ export function openSetCutter({ take, defaults, toast, download, soundcloud }) {
     status.textContent = 'Publishing…';
     const r = await publishSet({ ...defaults, blob, title: name(), duration, start, end, peaks, onProgress: (p) => { status.textContent = `Uploading your set… ${Math.round(p * 100)}%`; } });
     kept = true; status.textContent = publicNote(r.public); pub.textContent = 'PUBLISHED';
+    trackEvent('publish', { kind: 'set', public: r.public });
     toast(`“${name()}” is in the jukebox`);
   });
   const sc = action('ALSO ON SOUNDCLOUD', 'sc', async () => {
@@ -227,7 +230,7 @@ export function openSetCutter({ take, defaults, toast, download, soundcloud }) {
   return { close };
 }
 
-export function openSongPublish({ state, style, title, artist, toast, soundcloud, jukebox }) {
+export function openSongPublish({ state, style, title, artist, toast, soundcloud, jukebox, share }) {
   const { body, close } = sheet('PUBLISH');
   const input = h('input', { class: 'inp', maxlength: 80, value: title });
   const status = h('div', { class: 'pub-note set-status' });
@@ -237,11 +240,18 @@ export function openSongPublish({ state, style, title, artist, toast, soundcloud
       const name = input.value.trim() || title;
       const r = await publishSong({ state, title: name, style, artist });
       status.textContent = publicNote(r.public); pub.textContent = 'PUBLISHED';
+      trackEvent('publish', { kind: 'song', public: r.public });
       toast(`“${name}” is in the jukebox`);
+      if (share) {
+        const song = { state, title: name, style, artist, remixOf: state.remixOf, trackId: r.public ? r.item.trackId : '' };
+        pub.replaceWith(h('button', { class: 'btn accent', onclick: () => { close(true); share(song); } }, 'SHARE IT'));
+      }
     } catch (err) { status.textContent = 'Failed: ' + err.message; pub.disabled = false; }
   } }, 'PUBLISH TO UNTERGRUND');
+  const credit = creditLine(state.remixOf);
   body.append(h('div', { class: 'set-cut' },
     h('div', { class: 'set-stats' }, `${STYLES[style]?.name || 'UNTERGRUND'} · ${state.bpm} BPM. Listeners hear it played live by UNTERGRUND in their browser.`),
+    credit && h('div', { class: 'pub-note remix-credit' }, credit),
     field('TITLE', input),
     h('div', { class: 'set-actions' }, pub,
       h('button', { class: 'btn sc', onclick: () => { close(true); soundcloud(input.value.trim() || title); } }, 'ALSO ON SOUNDCLOUD'),
@@ -250,11 +260,11 @@ export function openSongPublish({ state, style, title, artist, toast, soundcloud
   input.focus();
 }
 
-export function openJukebox({ playSong, stopSong, toast, onCreate }) {
+export function openJukebox({ playSong, stopSong, toast, onCreate, onClose, onRemix, onShare }) {
   const audio = new Audio();
   let items = [], queue = [], idx = -1, timer = null, filter = 'all', urls = [];
   const stopAll = () => { audio.pause(); clearTimeout(timer); stopSong(); idx = -1; };
-  const jb = sheet('JUKEBOX', { onClose: () => { stopAll(); urls.forEach((u) => URL.revokeObjectURL(u)); } });
+  const jb = sheet('JUKEBOX', { onClose: () => { stopAll(); urls.forEach((u) => URL.revokeObjectURL(u)); onClose?.(); } });
   const { body } = jb;
   const now = h('div', { class: 'jb-now' }, 'Every song and set here was made inside UNTERGRUND.');
   const note = h('div', { class: 'pub-note' }, 'Loading…');
@@ -279,6 +289,11 @@ export function openJukebox({ playSong, stopSong, toast, onCreate }) {
       } else {
         const secs = await playSong(it);
         timer = setTimeout(() => playAt(idx + 1), Math.max(10, secs) * 1000);
+        const credit = creditLine(it.remixOf);
+        now.replaceChildren(h('span', { class: 'jb-now-text' }, `NOW PLAYING · ${it.title} · ${it.artist}`, credit && h('small', {}, credit)),
+          onRemix && h('span', { class: 'jb-now-actions' },
+            h('button', { class: 'btn accent', onclick: () => { jb.close(); onRemix(it); } }, 'REMIX IT'),
+            onShare && h('button', { class: 'btn ghost', onclick: () => onShare(it) }, 'SHARE')));
       }
     } catch (err) {
       console.error(err); toast(`Couldn't play “${it.title}”`);
@@ -293,7 +308,7 @@ export function openJukebox({ playSong, stopSong, toast, onCreate }) {
       tabs.append(h('button', { class: 'family-tab' + (filter === id ? ' on' : ''), onclick: () => { filter = id; renderTabs(); renderList(); } }, text));
     }
     tabs.append(h('button', { class: 'btn accent jb-all', onclick: () => { queue = visible(); playAt(0); } }, 'PLAY ALL'),
-      h('button', { class: 'btn ghost', onclick: async () => { await navigator.clipboard?.writeText(`${location.origin}/?jukebox`); toast('Jukebox link copied'); } }, 'COPY LINK'));
+      h('button', { class: 'btn ghost', onclick: async () => { await navigator.clipboard?.writeText(`${location.origin}/?jukebox`); trackEvent('share_link_copied', { what: 'jukebox' }); toast('Jukebox link copied'); } }, 'COPY LINK'));
   }
   function renderList() {
     list.innerHTML = '';

@@ -1,10 +1,11 @@
-import { Engine, Sequencer, scoreKinds } from './engine.js';
+import { Engine, Sequencer, parseChain, scoreKinds } from './engine.js';
 import { compose } from './classical.js';
 import { clone } from './state.js';
 import { encodeWav } from './dsp.js';
 import { loadLiveKit, loadBand, STAB_BAND } from './livekit.js';
 
-export async function renderBars(state, bars, { sampleRate = 48000, tail = 4 } = {}) {
+// startBar renders a window from inside the song chain (e.g. the peak), with the arrangement state it would have there.
+export async function renderBars(state, bars, { sampleRate = 48000, tail = 4, startBar = 0 } = {}) {
   const snap = clone(state);
   if (Math.round(snap.master.kit || 0) === 1) await loadLiveKit();
   const band = STAB_BAND[Math.round(snap.params.stab?.voice || 0)];
@@ -22,7 +23,10 @@ export async function renderBars(state, bars, { sampleRate = 48000, tail = 4 } =
   const ctx = new OfflineAudioContext(2, len, sampleRate);
   const engine = new Engine(ctx, snap, { realtime: false });
   const seq = new Sequencer(engine, snap);
-  for (let abs = 0, t = start; abs < steps; abs++) { seq.tick(abs, t); t += engine.stepDur; }
+  const chain = snap.chainOn ? parseChain(snap.chain) : [];
+  if (startBar && chain.length) { seq.chainPos = startBar; seq.cur = chain[(startBar - 1) % chain.length]; }
+  const first = chain.length ? startBar * 16 : 0;
+  for (let abs = 0, t = start; abs < steps; abs++) { seq.tick(first + abs, t); t += engine.stepDur; }
   return ctx.startRendering();
 }
 

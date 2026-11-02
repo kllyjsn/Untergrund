@@ -1,3 +1,4 @@
+import { track as trackEvent, reportError, playStarted, playStopped } from './analytics.js';
 import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue, VOICE_HIDDEN } from './params.js';
 import { Engine, Sequencer, parseChain } from './engine.js';
 import { defaultState, generate, mutate, arrangement, songChain, applyOverrides, clone, save, load, sanitize, STYLES, emptyPattern, emptyAcidStep } from './state.js';
@@ -13,6 +14,8 @@ import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restor
 import { roomTransportPosition, transportResync } from './room-sync.js';
 import { concertPanel, concertBar, preloadScore, loadPiano } from './concert.js';
 import { compose } from './classical.js';
+import { openShare, openSharedLanding, countRemix, track } from './share.js';
+import { readShareParams, decodeSong, normalizeSong, remixState } from './share-code.js';
 
 let state = load() || defaultState();
 let ctx = null, engine = null, seq = null, timer = null, setRec = null;
@@ -44,7 +47,9 @@ const app = document.getElementById('app');
 const isText = (el) => el && (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA');
 
 let saveTimer = 0;
-function persist() { clearTimeout(saveTimer); saveTimer = setTimeout(() => save(state), 300); }
+// While someone else's song plays (shared link, jukebox) the listener's own project stays untouched in storage.
+let guest = null;
+function persist() { if (guest) return; clearTimeout(saveTimer); saveTimer = setTimeout(() => save(state), 300); }
 
 // ---------------- audio ----------------
 // iOS can route Web Audio through the ringer channel even when the page has an
@@ -62,11 +67,13 @@ function unlockMediaChannel() {
 function ensureAudio() {
   try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
   if (ctx) {
-    if (ctx.state !== 'running') ctx.resume();
+    if (ctx.state !== 'running') ctx.resume()?.catch?.((err) => reportError(err, { kind: 'audio_resume' }));
     if (mediaUnlock?.paused) mediaUnlock.play().catch(() => {});
     return;
   }
-  ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: matchMedia('(pointer: coarse)').matches ? 'playback' : 'balanced' });
+  try {
+    ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: matchMedia('(pointer: coarse)').matches ? 'playback' : 'balanced' });
+  } catch (err) { reportError(err, { kind: 'audio_context' }); throw err; }
   engine = new Engine(ctx, state);
   if (isIOS() && ctx.createMediaStreamDestination) {
     mediaRoute = ctx.createMediaStreamDestination();
@@ -133,6 +140,7 @@ function play({ step = 0, delay = 0.06 } = {}) {
   timer.postMessage('start');
   schedule();
   document.body.classList.add('playing');
+  playStarted({ genre: style });
   renderHome();
 }
 
@@ -140,6 +148,7 @@ function stop() {
   clearTimeout(roomJoinTimer);
   roomJoinTimer = 0;
   playing = false;
+  playStopped();
   timer?.postMessage('stop');
   engine?.panic();
   uiQueue.length = 0;
@@ -236,24 +245,71 @@ function showPublish({ audio = null, title = '' } = {}) {
 
 function showSongPublish() {
   const a = state.artist || {};
+  const sid = STYLES[a.style] ? a.style : style;
   openSongPublish({
-    state: clone(state), style: STYLES[a.style] ? a.style : style, artist: a.name || 'UNTERGRUND',
+    state: clone(state), style: sid, artist: a.name || 'UNTERGRUND',
     title: a.title || trackTitle((Math.random() * 144) | 0), toast,
     soundcloud: (title) => showPublish({ title }), jukebox: showJukebox,
+    share: (song) => showShare(song, 'publish'),
   });
 }
 
+function currentSong() {
+  const a = state.artist || {};
+  return { state: clone(state), title: a.title || 'Untitled set', artist: a.name || 'UNTERGRUND', style: STYLES[a.style] ? a.style : style, remixOf: state.remixOf };
+}
+function showShare(song = currentSong(), source = 'studio') { openShare({ song, toast, download, source, hue: hue(song.style), beforeExport: () => { if (playing) stop(); } }); }
+
+// Play a shared or jukebox song in place; leaveGuest() puts the listener's own project back.
+function listen(song) {
+  ensureAudio();
+  if (!guest) guest = { backup: clone(state), style };
+  guest.song = song;
+  if (STYLES[song.style]) style = song.style;
+  stop(); autoMajor = false;
+  state = sanitize(clone(song.state));
+  if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
+  build();
+  play();
+}
+function leaveGuest() {
+  if (!guest) return;
+  const { backup, style: own } = guest;
+  guest = null;
+  style = own;
+  replaceState(backup);
+}
+function remixSong(song, autoplay = playing) {
+  const next = remixState(song, { name: loadArtistProfile().name });
+  if (!next) return toast('Could not open that song');
+  const own = guest ? guest.backup : clone(state);
+  guest = null;
+  undoStack.push(JSON.stringify({ patterns: own.patterns, params: own.params, master: own.master, bpm: own.bpm }));
+  if (STYLES[song.style]) { style = song.style; family = STYLES[style].family; }
+  replaceState(next);
+  if (!studioOpen) toggleStudio();
+  if (autoplay) play();
+  if (readShareParams(location)) history.replaceState(null, '', location.pathname);
+  toast(`Remix of “${song.title}” by ${song.artist} is yours now`);
+  countRemix(song.trackId);
+  track('remix', { kind: song.trackId ? 'published' : 'link', genre: song.style });
+}
+
 function showJukebox() {
+  let current = null;
   openJukebox({
     toast,
     onCreate: () => generateNow(),
     stopSong: () => { if (playing) stop(); },
+    onClose: leaveGuest,
+    onRemix: () => current && remixSong(current, true),
+    onShare: () => current && showShare(current, 'jukebox'),
     playSong: async (item) => {
       ensureAudio();
-      const track = await fetchTrack(item.trackId);
-      if (!track?.state) throw new Error('track_missing');
-      replaceState(sanitize(track.state));
-      play();
+      const saved = await fetchTrack(item.trackId);
+      if (!saved?.state) throw new Error('track_missing');
+      current = { ...normalizeSong({ ...item, state: saved.state, remixOf: saved.remixOf || item.remixOf }), trackId: item.local ? '' : item.trackId };
+      listen(current);
       const bars = state.chainOn ? parseChain(state.chain).length || 8 : 8;
       return (Math.min(bars, 64) * 16 * 15) / state.bpm;
     },
@@ -416,6 +472,7 @@ function doGenerate() {
   for (const [id, params] of Object.entries(lockedParams)) state.params[id] = params;
   engine?.applyAll(); engine?.applyDelayTime();
   build(); persist();
+  trackEvent('generate', { genre: style, kind: 'pattern' });
   toast(`${STYLES[style].name} pattern → ${PATTERN_NAMES[state.current]}${TRACK_IDS.some((id) => state.locks[id]) ? ' · locked tracks kept' : ''}`);
 }
 
@@ -441,6 +498,7 @@ function doGenerateSet() {
   const artist = loadAvatar().name || 'UNTERGRUND';
   state.artist = { name: artist, title, style, seed, created: new Date().toISOString() };
   build(); persist();
+  trackEvent('generate', { genre: style, kind: 'song' });
   toast(`New ${STYLES[style].name} track “${title}”`);
   saveTrack({ title, artist, style, state: clone(state) })
     .then(({ shared }) => toast(`“${title}” saved to ${shared ? 'the shared CRATE' : 'your CRATE'}`));
@@ -594,6 +652,7 @@ async function startPreview(id, card) {
     Object.assign(token, { src, gain });
   } catch (err) {
     console.error(err);
+    reportError(err, { kind: 'preview' });
     if (preview === token) { preview = null; card.classList.remove('previewing'); }
   }
 }
@@ -621,8 +680,9 @@ function generateNow() {
   generatedAt = performance.now();
   navigator.vibrate?.(12);
   doGenerateSet();
-  if (playing) return;
-  if (!pat().score) return play();
+  if (!pat().score) return playing ? undefined : play();
+  // A new score starts at its first bar, not wherever the transport happened to be.
+  if (playing) stop();
   // Seat the orchestra before the downbeat: unlock audio inside the tap, start once the recordings are in.
   ensureAudio();
   toast('Seating the orchestra…');
@@ -697,6 +757,7 @@ function buildNowPlaying(primary) {
       primary,
       h('button', { class: 'btn refine-toggle', onclick: toggleStudio }, 'REFINE'),
       h('button', { class: 'btn ghost np-pub', onclick: showSongPublish }, 'PUBLISH'),
+      h('button', { class: 'btn ghost np-share', title: 'Link, TikTok/Reels video or embed', onclick: () => showShare(currentSong(), 'now_playing') }, 'SHARE'),
       h('button', { class: 'btn ghost rec', title: 'Record your set, then cut and publish it', onclick: toggleRec }, h('span', { class: 'dot' }), 'REC', h('span', { class: 'rec-time' }))),
   ];
 }
@@ -860,7 +921,8 @@ function buildHeader() {
       const buf = await renderBars(state, +bars.value);
       download(bufferToWav(buf), `untergrund-${state.bpm}bpm-${bars.value}bars-${stamp()}.wav`);
       toast(`Rendered ${bars.value} bars · 48 kHz / 24-bit WAV`);
-    } catch (err) { console.error(err); toast('Render failed: ' + err.message); }
+      trackEvent('export_wav', { bars: +bars.value });
+    } catch (err) { console.error(err); reportError(err, { kind: 'render' }); toast('Render failed: ' + err.message); }
     btn.disabled = false; btn.textContent = 'EXPORT WAV';
   } }, 'EXPORT WAV');
   const recBtn = h('button', { class: 'btn rec', title: 'Record your set any time, then cut and publish it', onclick: toggleRec }, h('span', { class: 'dot' }), 'REC', h('span', { class: 'rec-time' }));
@@ -898,7 +960,8 @@ function buildHeader() {
         h('div', { class: 'menu-pop' },
           h('div', { class: 'menu-row' }, bars, exportBtn),
           h('button', { class: 'btn ghost', title: 'Save project file (.json) to reopen later', onclick: () => download(new Blob([JSON.stringify(state)], { type: 'application/json' }), `untergrund-${stamp()}.json`) }, 'SAVE PROJECT'),
-          h('button', { class: 'btn ghost', title: 'Open a saved project file', onclick: () => fileIn.click() }, 'OPEN PROJECT'), fileIn))),
+          h('button', { class: 'btn ghost', title: 'Open a saved project file', onclick: () => fileIn.click() }, 'OPEN PROJECT'), fileIn,
+          h('button', { class: 'btn ghost', title: 'Share a link, a 9:16 video or an embed code', onclick: () => showShare() }, 'SHARE LINK & VIDEO')))),
     h('nav', { class: 'group nav seg' }, artistBtn, clubBtn, jukeboxBtn,
       h('button', { class: 'btn studio-toggle' + (studioOpen ? ' on' : ''), title: 'Sequencer, mixer, export and every control', onclick: toggleStudio }, studioOpen ? 'DONE' : 'STUDIO')),
     h('button', { class: 'btn ghost help studio-only studio-more', title: 'Shortcuts', onclick: showHelp }, '?'),
@@ -1349,11 +1412,26 @@ window.addEventListener('keyup', (e) => {
   if (ui.perf?.[K]) ui.perf[K].up();
 });
 
-document.addEventListener('visibilitychange', () => save(state));
+document.addEventListener('visibilitychange', () => { if (!guest) save(state); });
 
 build();
 requestAnimationFrame(frame);
-if (new URLSearchParams(location.search).has('room')) setTimeout(showClub);
+const shared = readShareParams(location);
+if (shared) setTimeout(() => {
+  const load = shared.code ? decodeSong(shared.code)
+    : fetch(`/api/tracks?id=${encodeURIComponent(shared.id)}`).then((r) => (r.ok ? r.json().then((j) => j.track) : Promise.reject()))
+      .catch(() => fetchTrack(shared.id)).then((t) => t?.state && { ...normalizeSong({ ...t, remixOf: t.remixOf }), trackId: t.id, remixes: t.remixes || 0 }).catch(() => null);
+  const landing = openSharedLanding({
+    load, isPlaying: () => playing,
+    play: (song) => listen(song),
+    stop: () => { if (playing) stop(); },
+    remix: remixSong,
+    share: (song) => showShare(song, 'shared'),
+    close: () => { leaveGuest(); history.replaceState(null, '', location.pathname); },
+  });
+  addEventListener('keydown', (e) => { if (e.code === 'Space') setTimeout(landing.sync); }, true);
+});
+else if (new URLSearchParams(location.search).has('room')) setTimeout(showClub);
 else if (new URLSearchParams(location.search).has('jukebox')) setTimeout(showJukebox);
 restoreSample();
 window.__untergrund = { get state() { return state; }, get engine() { return engine; } };

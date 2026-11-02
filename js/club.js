@@ -3,6 +3,7 @@ import { STYLES, clone } from './state.js';
 import { listCrate, fetchTrack } from './crate.js';
 import { h } from './ui.js';
 import { createClientCredentials } from './client-id.js';
+import { track as trackEvent } from './analytics.js';
 
 const AVATAR_KEY = 'untergrund.avatar.v1';
 const ROOM_KEY = 'untergrund.room.v1';
@@ -406,9 +407,12 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
   };
   window.addEventListener('untergrund:step', onStep);
 
+  let joinedRoom = '';
+  const invited = new URLSearchParams(location.search).has('room');
   const connect = () => {
     if (closed) return;
     localStorage.setItem(ROOM_KEY, activeRoom);
+    if (joinedRoom !== activeRoom) { joinedRoom = activeRoom; trackEvent('room_join', { kind: invited ? 'link' : 'direct' }); }
     const onUpdate = (next) => { room = next; render(); };
     const onEvent = (event) => {
       if (event.type === 'chat') messages = [...messages, event].slice(-60);
@@ -493,6 +497,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     bus.initiatedSets.add(broadcastId);
     bus.send('set', { ...track, state: clone(getState()), style: getStyle(), startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId });
     if (!transport.playing) startRoomBroadcast(startsAt);
+    trackEvent('room_go_live', { kind: room.currentSet ? 'rebroadcast' : 'first' });
     toast(`Broadcasting “${track.title}” to ${activeRoom}`);
   }
 
@@ -646,7 +651,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
       h('div', { class: 'club-brand' }, h('i'), h('div', {}, h('b', {}, 'UNTERGRUND CLUB'), h('span', {}, 'original machine music only'))),
       h('div', { class: 'club-room-name' }, h('span', {}, 'ROOM'), roomInput),
       h('div', { class: 'club-head-actions' },
-        h('button', { class: 'btn ghost', onclick: async () => { await navigator.clipboard?.writeText(invite.toString()); toast('Room link copied'); } }, 'COPY INVITE'),
+        h('button', { class: 'btn ghost', onclick: async () => { await navigator.clipboard?.writeText(invite.toString()); trackEvent('share_link_copied', { what: 'room' }); toast('Room link copied'); } }, 'COPY INVITE'),
         room.currentSet && !getTransport().playing && shouldJoin(room.currentSet) ? h('button', { class: 'btn accent', onclick: syncAudio }, 'JOIN LIVE AUDIO') : null,
         h('button', { class: `btn ${isHost ? 'accent' : 'club-queue'}`, onclick: broadcastSet },
           isHost ? (room.currentSet ? 'REBROADCAST SET' : 'GO LIVE') : (queued ? 'LEAVE DJ QUEUE' : 'JOIN DJ QUEUE')),
