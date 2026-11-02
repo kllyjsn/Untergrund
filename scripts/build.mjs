@@ -6,6 +6,6 @@ await build({ entryPoints: ['scripts/blob-client-entry.js'], bundle: true, forma
 
 rmSync('dist', { recursive: true, force: true });
 mkdirSync('dist');
-for (const path of ['index.html', 'embed.html', 'lab.html', 'sc-callback.html', 'stats.html', 'social-card.png', 'css', 'js', 'samples']) {
+for (const path of ['index.html', 'embed.html', 'lab.html', 'sc-callback.html', 'stats.html', 'social-card.png', 'css', 'js', 'samples', 'data']) {
   cpSync(path, `dist/${path}`, { recursive: true });
 }
