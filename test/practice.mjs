@@ -156,3 +156,19 @@ for (const id of ['chopin-prelude-4', 'bach-prelude-c']) {
   }
 }
 console.log('practice ok');
+
+// Wait mode: onsets a few ms apart (4 against 3) count in either order.
+{
+  const poly = { bpm: 60, barLen: 16, bars: 1, notes: [[0, 60, 1, 0.6, 'pno', 0], [0.2, 48, 1, 0.6, 'pno', 1], [8, 62, 1, 0.6, 'pno', 0]] };
+  const tl = timeline(poly, { hands: HANDS.both });
+  assert.equal(tl.events.length, 3, 'separate onsets 50 ms apart');
+  const s = createSession(tl, { mode: 'wait', lead: 0 });
+  s.advance(0.01);
+  assert.equal(s.press(48).ok, true, 'the later note of the pair first');
+  assert.equal(s.press(48).ok, null, 'a repeat is ignored');
+  assert.equal(s.press(60).ok, true);
+  assert.equal(s.press(62).ok, true, 'the next note can be played early in Wait');
+  assert.equal(s.wrong.length, 0);
+  s.advance(5);
+  assert.equal(s.done, true);
+}

@@ -76,9 +76,20 @@ const ui = {};
 function redrawKeys() {
   const kb = document.querySelector('.piano-wrap');
   if (!kb) return;
+  // Practice shows a fixed key range: only the computer-key labels move, so keep the keys (and any finger on them).
+  if (span && keyEls.size) { relabel(); return; }
   const x = kb.scrollLeft;
   kb.replaceChildren(keyboard());
   kb.scrollLeft = x;
+  if (ui.oct) ui.oct.textContent = `C${octave - 1} – C${octave + 1}`;
+}
+function relabel() {
+  for (const [m, el] of keyEls) {
+    const label = (KEYS[m - octave * 12] || '').toUpperCase(), kbd = el.querySelector('kbd');
+    if (!label) kbd?.remove();
+    else if (kbd) { if (kbd.textContent !== label) kbd.textContent = label; }
+    else el.prepend(h('kbd', {}, label));
+  }
   if (ui.oct) ui.oct.textContent = `C${octave - 1} – C${octave + 1}`;
 }
 function keyboard() {

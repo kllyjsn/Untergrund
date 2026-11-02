@@ -1,7 +1,7 @@
 // PRACTICE view: falling notes over the concert piano, Wait / Play-along runs, live feedback and a
 // summary. The scoring lives in js/practice.js; the piano (screen, computer keys, MIDI) in js/concert.js.
 import { h } from './ui.js';
-import { timeline, createSession, keyRange, bestOctave, recordBest, HANDS } from './practice.js';
+import { timeline, createSession, keyRange, bestOctave, recordBest, HANDS, TOGETHER } from './practice.js';
 
 const SETTINGS = 'untergrund.practice', BEST = 'untergrund.practice.best';
 const COLOR = { 0: '#7fd8ff', 1: '#ffb56b' }, OK = '#7dffa8', BAD = '#ff5c74';
@@ -220,7 +220,8 @@ export function practiceInput(m) {
   const s = P.session;
   if (!P.piece || !s || !P.ui.canvas?.isConnected || s.done && !P.running) return;
   if (!P.running) {
-    if (P.opts.mode !== 'wait' || s.started) return;
+    // Wait starts on your first note; any note also resumes a paused run (a tab switch or lost focus pauses it).
+    if (P.opts.mode !== 'wait' && !s.started) return;
     start();
   }
   step(performance.now());
@@ -253,9 +254,12 @@ function keyGeo(cv) {
 }
 function clearLit() { for (const el of P.lit) el.classList.remove('pr-want'); P.lit.clear(); }
 function lightWanted(s) {
-  const e = s.mode === 'wait' ? (s.waiting() || (!s.started ? s.tl.events.find((x) => x.want.length) : null)) : null;
+  const e = s.mode === 'wait' ? (s.waiting() || (!s.started || !P.running ? s.tl.events.find((x) => !x.complete) : null)) : null;
   const want = new Set();
-  if (e) for (const n of e.notes) if (n.target && !e.got.has(n.m)) { const el = P.api.keyEl(n.m); if (el) { el.style.setProperty('--pr', COLOR[n.hand]); want.add(el); } }
+  if (e) for (const x of s.tl.events.slice(e.i, e.i + 8)) {
+    if (x.t - e.t > TOGETHER) break;
+    if (!x.complete) for (const n of x.notes) if (n.target && !x.got.has(n.m)) { const el = P.api.keyEl(n.m); if (el) { el.style.setProperty('--pr', COLOR[n.hand]); want.add(el); } }
+  }
   for (const el of P.lit) if (!want.has(el)) el.classList.remove('pr-want');
   for (const el of want) el.classList.add('pr-want');
   P.lit = want;
@@ -319,6 +323,12 @@ function draw(now) {
     g.fillText(mk.text, Math.max(left + 28, Math.min(left + (wrap?.clientWidth || W) - 28, k.x + k.w / 2)), H - 14 - age * 30);
   }
   g.globalAlpha = 1;
+  if (s.started && !s.done && !P.running) {
+    const cx = left + (wrap?.clientWidth || W) / 2;
+    g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(cx - 120, H / 2 - 22, 240, 40);
+    g.fillStyle = '#fff'; g.font = '600 12px ui-monospace, Menlo, monospace';
+    g.fillText('PAUSED · PLAY A KEY TO GO ON', cx, H / 2 + 2);
+  }
   g.textAlign = 'start';
 
   lightWanted(s);

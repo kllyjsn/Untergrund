@@ -5,6 +5,7 @@
 // real second, so at 50% everything falls twice as slowly; timing errors are reported in real ms.
 
 const EPS = 0.02;
+export const TOGETHER = 0.06; // score seconds: onsets this close sound as one chord
 export const HANDS = { right: [0], left: [1], both: [0, 1] };
 
 // Seconds at full speed for every step of the written score (written tempo changes, no rubato).
@@ -131,8 +132,17 @@ export function createSession(tl, { mode = 'wait', speed = 1, window = 0.2, auto
     if (s.done) return { ok: null };
     s.started = true;
     if (mode === 'wait') {
-      const e = nextBlocking();
-      if (!e) return { ok: null };
+      const first = nextBlocking();
+      if (!first) return { ok: null };
+      // Notes that sound together to the ear (e.g. 4 against 3) count in either order.
+      let e = first;
+      if (!e.want.includes(m) || e.got.has(m)) {
+        for (let i = s.cursor + 1; i < tl.events.length && tl.events[i].t - first.t <= TOGETHER; i++) {
+          const x = tl.events[i];
+          if (x.want.includes(m) && (e === first || !x.got.has(m))) e = x;
+          if (!x.complete && x.want.includes(m) && !x.got.has(m)) break;
+        }
+      }
       if (e.want.includes(m)) {
         if (e.got.has(m)) return { ok: null, event: e };
         e.got.add(m);
@@ -147,8 +157,8 @@ export function createSession(tl, { mode = 'wait', speed = 1, window = 0.2, auto
         }
         return { ok: true, note: hit[0], event: e };
       }
-      s.wrong.push({ m, bar: e.bar, t: s.pos });
-      return { ok: false, event: e };
+      s.wrong.push({ m, bar: first.bar, t: s.pos });
+      return { ok: false, event: first };
     }
     let best = null;
     for (const n of tl.notes) {
