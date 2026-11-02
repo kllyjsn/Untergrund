@@ -54,3 +54,11 @@ Without `ROOMS_API_URL`, the room UI still works through `BroadcastChannel` for 
 3. Set `SOUNDCLOUD_CLIENT_ID` and `SOUNDCLOUD_CLIENT_SECRET` in the deployment environment.
 
 The secret is only used by `/api/sc-token`; audio uploads go directly from the browser to SoundCloud. Run `npm run dev` to use the local fake SoundCloud for end-to-end testing without credentials.
+
+## Analytics and error tracking
+
+`js/analytics.js` sends anonymous funnel events (`app_open`, `generate`, `play_start`, `play_30s`, `save_track`, `publish`, `share_link_copied`, `room_join`, `room_go_live`, `export_wav`, `return_visit`) and client errors (window errors, unhandled rejections, AudioContext/render failures) in batches to `/api/events`, using `sendBeacon` on page hide. There's no PII: just event names, a few whitelisted short props (genre, kind…) and a random per-tab session id. Do Not Track, Global Privacy Control and automated browsers turn it off completely.
+
+- Storage: `api/events.js` writes daily Redis counters and HyperLogLog unique sessions when `KV_REST_API_URL`/`KV_REST_API_TOKEN` are set, and no-ops otherwise. `server.mjs` uses an in-memory store locally.
+- Stats: set `STATS_TOKEN` in Vercel, then open `/stats.html?token=<STATS_TOKEN>` (the token moves into session storage and leaves the URL). Locally with `SC_MOCK=1` the token is `dev`.
+- Page views: the free Vercel Web Analytics script loads on untergrund.sh once Web Analytics is enabled for the project in the Vercel dashboard. Custom events there need a paid plan, which is why the funnel is first-party.

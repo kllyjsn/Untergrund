@@ -1,4 +1,5 @@
 // Generated tracks: shared through /api/tracks when storage is configured, otherwise kept in this browser.
+import { track as trackEvent } from './analytics.js';
 const LOCAL_KEY = 'untergrund.crate.v1';
 const FIRST = ['Null', 'Blind', 'Concrete', 'Velvet', 'Neon', 'Hollow', 'Static', 'Golden', 'Last', 'Night', 'Glass', 'Low'];
 const SECOND = ['Signal', 'Raum', 'Pulse', 'Tunnel', 'Bloom', 'Echo', 'System', 'Hour', 'Window', 'Choir', 'Engine', 'Tide'];
@@ -40,10 +41,12 @@ export async function saveTrack(track) {
     if (res.ok) {
       const saved = { ...(await res.json()).track, state: track.state };
       keepLocal(saved);
+      trackEvent('save_track', { shared: true });
       return { shared: true, track: saved };
     }
   } catch {}
   const local = { ...track, id: `local-${Date.now().toString(36)}`, bpm: track.state.bpm, created: new Date().toISOString() };
   keepLocal(local);
+  trackEvent('save_track', { shared: false });
   return { shared: false, track: local };
 }
