@@ -34,13 +34,13 @@ assert(Mo.texture.block > Ch.texture.block, 'Mozart writes more block chords / p
 assert(Ch.melody.chromatic > Mo.melody.chromatic, 'Chopin is more chromatic');
 assert(Ch.melody.stepShare < Mo.melody.stepShare, 'Chopin leaps more');
 
-// Without a composer the classical composer is unchanged (hash captured before the models existed).
+// Without a composer the classical composer is unchanged (hash of main before the models existed, after #50).
 const h = createHash('sha256');
 for (const form of ['symphony', 'concerto', 'nocturne']) for (const mode of ['M', 'm']) for (const seed of [1, 7, 42, 1234]) {
   const s = compose({ form, seed, mode });
   h.update(JSON.stringify([s.bars, s.sections, s.notes, s.tempo]));
 }
-assert.equal(h.digest('hex'), '3a57d70ed13d7aba455b1ee725403a45b9af568fd8e7895d3577f7d0a7101440', 'no composer = byte-identical output');
+assert.equal(h.digest('hex'), '0c3027c25a284ee1c2cea532feee17aca2bf90eb509bdad6b996dcb103631b2c', 'no composer = byte-identical output');
 assert.equal(compose({ form: 'symphony', seed: 3, mode: 'M', composer: 'Nobody' }), compose({ form: 'symphony', seed: 3, mode: 'M' }), 'an unknown composer falls back to UNTERGRUND');
 
 // With a composer it is deterministic, valid, and audibly different from the others.
