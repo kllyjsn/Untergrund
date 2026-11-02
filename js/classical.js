@@ -3,11 +3,22 @@
 // that is stated, sequenced and developed, voice-led accompaniment, and orchestration that changes by section.
 import { rng } from './dsp.js';
 import { pieceScore, waitingScore } from './repertoire.js';
+import { MODELS } from './composer-models.js';
 
 const MAJ = [0, 2, 4, 5, 7, 9, 11], MIN = [0, 2, 3, 5, 7, 8, 10];
 const ROMAN = { i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7 };
 const mod = (x, n) => ((x % n) + n) % n;
 const pick = (r, a) => a[Math.floor(r() * a.length)];
+// A composer's style model (js/composer-models.js, learned from public-domain scores) while compose()
+// writes in that manner; null means UNTERGRUND's own rules.
+let STYLE = null;
+export const COMPOSERS = Object.keys(MODELS);
+const weighted = (r, o) => {
+  const e = Object.entries(o), tot = e.reduce((a, [, p]) => a + p, 0);
+  let x = r() * tot;
+  for (const [k, p] of e) if ((x -= p) < 0) return k;
+  return e[e.length - 1][0];
+};
 
 // Orchestra sections the mixer manages; every part belongs to one.
 export const SECTIONS = ['strings', 'winds', 'brass', 'harp', 'timpani', 'piano'];
@@ -63,6 +74,7 @@ const LYRIC = [[8, 4, 4], [6, 2, 8], [12, 4], [4, 8, 4], [6, 2, 4, 4], [4, 4, 8]
 const HC_END = [[12, -4], [8, -8], [4, 4, 8]], PAC_END = [[12, -4], [8, -8], [16]];
 
 function contour(r, n, rise) {
+  if (STYLE) return styleContour(r, n, rise);
   const out = []; let dir = rise ? 1 : -1, last = 0;
   for (let k = 0; k < n; k++) {
     if (Math.abs(last) >= 3) { out.push((last = -Math.sign(last))); continue; }
@@ -72,7 +84,31 @@ function contour(r, n, rise) {
   }
   return out;
 }
-const motifBar = (r, pool, rise) => { const rh = pick(r, pool); return { rh, ct: contour(r, rh.filter((d) => d > 0).length, rise) }; };
+// Learned contour: interval sizes in scale steps, how often the line turns, how often a leap steps back.
+function styleContour(r, n, rise) {
+  const M = STYLE.m.melody, out = []; let dir = rise ? 1 : -1, last = 0;
+  for (let k = 0; k < n; k++) {
+    if (Math.abs(last) >= 3 && r() < M.leapRecovery) { out.push((last = -Math.sign(last))); continue; }
+    if (r() < M.turn) dir = -dir;
+    out.push((last = Math.min(4, +weighted(r, M.size)) * dir));
+  }
+  return out;
+}
+// How likely a bar rhythm is in the model: the geometric mean of its four beats' onset cells.
+function cellFit(rh) {
+  const on = new Set(); let s = 0;
+  for (const d of rh) { if (d > 0) on.add(s); s += Math.abs(d); }
+  const C = STYLE.m.rhythm.cells; let lp = 0;
+  for (let b = 0; b < 4; b++) { let c = ''; for (let j = 0; j < 4; j++) c += on.has(b * 4 + j) ? '1' : '0'; lp += Math.log((C[c] || 0) + 0.01); }
+  return Math.exp(lp / 4);
+}
+function styleRhythm(r, pool) {
+  const other = pool === LYRIC ? LIVELY : LYRIC, w = new Map();
+  for (const rh of pool) w.set(rh, cellFit(rh));
+  for (const rh of other) w.set(rh, (w.get(rh) || 0) + 0.35 * cellFit(rh));
+  return [...w.keys()][+weighted(r, Object.fromEntries([...w.values()].map((x, i) => [i, x])))];
+}
+const motifBar = (r, pool, rise) => { const rh = STYLE ? styleRhythm(r, pool) : pick(r, pool); return { rh, ct: contour(r, rh.filter((d) => d > 0).length, rise) }; };
 
 // A melodic line in diatonic steps; strong beats land on chord tones, leaps land on chord tones,
 // cadences resolve: 2 or 7 before the tonic, 2/5/7 on a half cadence.
@@ -110,11 +146,17 @@ function line(bars, key, plan, { start = 0, lo = 60, hi = 84, base = 60 } = {}) 
       p = idx; first = false; s += d;
     });
   });
+  // A style model with chromatic melodies approaches some targets by a semitone on weak notes.
+  if (STYLE) for (let i = 0; i + 1 < out.length; i++) {
+    const a = out[i], b = out[i + 1];
+    if (!a.strong && a.d <= 4 && Math.abs(b.m - a.m) === 2 && STYLE.r() < STYLE.m.melody.chromatic / Math.max(0.3, STYLE.m.melody.stepShare)) a.m = b.m - Math.sign(b.m - a.m);
+  }
   return { notes: out, last: p };
 }
 
 // 8-bar parallel period: antecedent ends on V, consequent repeats the opening and closes on I.
 function period(r, key, { lyrical = false, start } = {}) {
+  if (STYLE) return stylePeriod(r, key, { lyrical, start });
   const pool = lyrical ? LYRIC : LIVELY;
   const open = pick(r, OPEN), half = pick(r, HALF), perf = pick(r, PERFECT);
   const bars = [...prog(`${open} | ${half}`, key), ...prog(`${open} | ${perf}`, key)];
@@ -123,6 +165,35 @@ function period(r, key, { lyrical = false, start } = {}) {
   const plan = [a, b, a, { rh: pick(r, HC_END), ct: [-1, -1, 1], end: 'hc' }, a, b, perf.startsWith('vi') ? c : { ...c, end: 'lead' }, { rh: pick(r, PAC_END), ct: [-1, 1, -1], end: 'pac' }];
   if (perf.startsWith('vi')) plan[6] = lead;
   return { bars, plan, motif: a, start: start ?? pick(r, [0, 2, 4, 7]) };
+}
+
+// The same period from a style model: chords walk the learned transition matrix from I, each half
+// closes on a learned cadence (half, then perfect), and the theme gets the model's accompaniment.
+function stylePeriod(r, key, { lyrical, start }) {
+  const H = STYLE.m.harmony, T = H.transitions, pool = lyrical ? LYRIC : LIVELY;
+  const inv = (sym) => { const x = H.inversions[sym] ? weighted(r, H.inversions[sym]) : 'root'; return x === '6' ? sym + '6' : sym; };
+  const step = (from, to) => {
+    const row = T[from] || T.I, w = {};
+    for (const [k, p] of Object.entries(row)) if (k !== to) w[k] = p * (to ? (T[k]?.[to] ?? 0) + 0.02 : 1);
+    return Object.keys(w).length ? weighted(r, w) : 'IV';
+  };
+  const chain = ['I'];
+  const open = [0, 1].map(() => (r() < (H.changeMid ?? 0.5) ? 2 : 1)).map((n, b) => {
+    const bar = [];
+    for (let k = 0; k < n; k++) { if (b || k) chain.push(step(chain[chain.length - 1])); bar.push(b || k ? inv(chain[chain.length - 1]) : 'I'); }
+    return bar.join(' ');
+  }).join(' | ');
+  const close = (kind, fall) => {
+    const [P, F] = weighted(r, H.cadences[kind] || { [fall]: 1 }).split(' ');
+    const pre = step(chain[chain.length - 1], P.replace(/6?4?$/, '') === P ? P : P.replace(/6?4?$/, ''));
+    return `${inv(pre)} ${P} | ${F}`;
+  };
+  const half = close('half', 'ii6 V'), perf = close('perfect', 'V7 I');
+  const bars = [...prog(`${open} | ${half}`, key), ...prog(`${open} | ${perf}`, key)];
+  const a = motifBar(r, pool, true), b = motifBar(r, pool, r() < 0.5), c = motifBar(r, pool, false);
+  const plan = [a, b, a, { rh: pick(r, HC_END), ct: [-1, -1, 1], end: 'hc' }, a, b, { ...c, end: 'lead' }, { rh: pick(r, PAC_END), ct: [-1, 1, -1], end: 'pac' }];
+  const tex = { ...STYLE.m.texture }; delete tex.line;
+  return { bars, plan, motif: a, start: start ?? pick(r, [0, 2, 4, 7]), tex: weighted(r, tex) };
 }
 
 // Upper-voice chord with the smallest total motion from the previous one; sevenths drop the fifth.
@@ -216,7 +287,7 @@ class Score {
   nocturne(bars, vel, part = 'pno') {
     this.each(bars, (bar, ch, s, d) => {
       const b = (this.v.lb = bassOf(ch, this.v.lb, 33, 47)), up = [];
-      for (let m = b + 7; up.length < 5 && m < b + 30; m++) if (ch.pcs.includes(mod(m, 12)) && m - b >= 7) up.push(m);
+      for (let m = b + 7; up.length < 5 && m < b + (STYLE?.reach ?? 30); m++) if (ch.pcs.includes(mod(m, 12)) && m - b >= 7) up.push(m);
       const seq = [b, up[0], up[1], up[2], up[3] ?? up[2], up[2], up[1], up[0]];
       const n = d / 2;
       for (let k = 0; k < n; k++) this.add(bar, s + k * 2, seq[Math.floor((k * 8) / n)], d - k * 2, vel * (k ? 0.62 - 0.03 * (k % 4) : 1), part);
@@ -247,6 +318,20 @@ class Score {
     }
   }
   next(n) { this.bar += n; }
+}
+
+// The accompaniment a style model picked for a theme; without a model, the form's own writing.
+function accomp(S, P, own, bars, vel, piano = false) {
+  if (!STYLE || !P.tex) return own();
+  const chords = (block) => S.each(bars, (bar, ch, s, d) => {
+    S.add(bar, s, (S.v.lb = bassOf(ch, S.v.lb, 33, 47)), d, vel * 1.05, 'pno');
+    const v = (S.v.pc = voicing(ch, S.v.pc, 52, 72));
+    for (let x = s; x < s + d; x += block ? 4 : d) for (const m of v) S.add(bar, x, m, block ? 3 : d, vel * (x % 8 ? 0.72 : 0.82), 'pno');
+  });
+  if (P.tex === 'arpeggio') return piano ? S.nocturne(bars, vel) : S.harp(bars, vel);
+  if (P.tex === 'alberti') return S.alberti(bars, vel * (piano ? 1 : 0.85), piano ? 'pno' : 'vc');
+  if (P.tex === 'block') return piano ? chords(true) : S.pulse(bars, vel);
+  return piano ? chords(false) : S.sustain(bars, vel);
 }
 
 function development(S, r, motif, devKey, home, vel, { soloist = false } = {}) {
@@ -314,12 +399,12 @@ function sonata(r, mode, soloist) {
   if (soloist) {
     S.melody({ notes: themeA.notes.filter((n) => n.b < 4) }, 'vln1', 0.72);
     S.melody({ notes: themeA.notes.filter((n) => n.b >= 4) }, 'pno', 0.78, { oct: 12 });
-    S.pulse(A.bars.slice(0, 4), 0.5); S.bass(A.bars.slice(0, 4), 0.62); S.horns(A.bars.slice(0, 4), 0.42);
-    S.bar += 4; S.alberti(A.bars.slice(4), 0.5); S.sustain(A.bars.slice(4), 0.32); S.bass(A.bars.slice(4), 0.45, { cb: false }); S.bar -= 4;
+    accomp(S, A, () => S.pulse(A.bars.slice(0, 4), 0.5), A.bars.slice(0, 4), 0.5); S.bass(A.bars.slice(0, 4), 0.62); S.horns(A.bars.slice(0, 4), 0.42);
+    S.bar += 4; accomp(S, A, () => S.alberti(A.bars.slice(4), 0.5), A.bars.slice(4), 0.5, true); S.sustain(A.bars.slice(4), 0.32); S.bass(A.bars.slice(4), 0.45, { cb: false }); S.bar -= 4;
   } else {
     S.melody(themeA, 'vln1', 0.76);
     S.melody({ notes: themeA.notes.filter((n) => n.b >= 4) }, 'fl', 0.55, { oct: 12 });
-    S.pulse(A.bars, 0.52); S.bass(A.bars, 0.66, { walk: true }); S.horns(A.bars, 0.42);
+    accomp(S, A, () => S.pulse(A.bars, 0.52), A.bars, 0.52); S.bass(A.bars, 0.66, { walk: true }); S.horns(A.bars, 0.42);
     S.tutti([A.bars[7]], 0.68, [0]);
   }
   S.next(8);
@@ -333,7 +418,7 @@ function sonata(r, mode, soloist) {
   S.melody(themeB, soloist ? 'pno' : 'ob', 0.6, { oct: soloist ? 12 : 0 });
   if (!soloist) S.melody({ notes: themeB.notes.filter((n) => n.b >= 4) }, 'cl', 0.45, { oct: -12 });
   S.sustain(B.bars, 0.36); S.bass(B.bars, 0.45); S.guide(B.bars, 0.38, 'vc', 48, 62);
-  if (soloist) S.nocturne(B.bars, 0.42); else S.harp(B.bars, 0.42);
+  accomp(S, B, () => (soloist ? S.nocturne(B.bars, 0.42) : S.harp(B.bars, 0.42)), B.bars, 0.42, soloist);
   S.next(8);
   const close = prog('I IV | I64 V7 | I | I', K2);
   S.section('CLOSING', 4, K2);
@@ -344,15 +429,15 @@ function sonata(r, mode, soloist) {
   // Recapitulation: both themes return in the tonic, now with the full orchestra.
   S.section('RECAPITULATION', 8, home);
   S.melody(themeA, 'vln1', 0.86); S.melody(themeA, 'fl', 0.62, { oct: 12 });
-  if (soloist) S.alberti(A.bars, 0.6); else S.melody({ notes: themeA.notes.filter((n) => n.strong) }, 'tpt', 0.5);
-  S.pulse(A.bars, 0.62); S.bass(A.bars, 0.76, { walk: true }); S.horns(A.bars, 0.6); S.tutti([A.bars[3], A.bars[7]], 0.8, [0]);
+  if (soloist) accomp(S, A, () => S.alberti(A.bars, 0.6), A.bars, 0.6, true); else S.melody({ notes: themeA.notes.filter((n) => n.strong) }, 'tpt', 0.5);
+  accomp(S, A, () => S.pulse(A.bars, 0.62), A.bars, 0.62); S.bass(A.bars, 0.76, { walk: true }); S.horns(A.bars, 0.6); S.tutti([A.bars[3], A.bars[7]], 0.8, [0]);
   S.next(8);
   const Bh = { ...B, bars: B.bars.map((bar) => bar.map(([ch, s, d]) => [chord(ch.sym, home), s, d])) };
   const themeB2 = line(Bh.bars, home, B.plan, { start: B.start, lo: 62, hi: 86 });
   S.section('THEME B (TONIC)', 8, home);
   S.melody(themeB2, soloist ? 'pno' : 'vln1', 0.66, { oct: soloist ? 12 : 0 });
   S.melody(themeB2, soloist ? 'vln1' : 'cl', 0.42, { oct: -12 });
-  S.sustain(Bh.bars, 0.42); S.bass(Bh.bars, 0.5); S.guide(Bh.bars, 0.4, 'hn', 50, 65); S.harp(Bh.bars, 0.36);
+  S.sustain(Bh.bars, 0.42); S.bass(Bh.bars, 0.5); S.guide(Bh.bars, 0.4, 'hn', 50, 65); accomp(S, B, () => S.harp(Bh.bars, 0.36), Bh.bars, 0.36);
   S.next(8);
   coda(S, home, 0.9, { piano: soloist });
   return S;
@@ -363,18 +448,18 @@ function nocturne(r, mode) {
   const K2 = mode === 'M' ? { t: 9, m: 'm' } : { t: 3, m: 'M' };
   const A = period(r, home, { lyrical: true }), B = period(r, K2, { lyrical: true });
   const lA = line(A.bars, home, A.plan, { start: A.start, lo: 64, hi: 88, base: 72 });
-  S.section('THEME', 8, home); S.melody(lA, 'pno', 0.62); S.nocturne(A.bars, 0.4); S.next(8);
+  S.section('THEME', 8, home); S.melody(lA, 'pno', 0.62); accomp(S, A, () => S.nocturne(A.bars, 0.4), A.bars, 0.4, true); S.next(8);
   // Second statement: the melody sings an octave higher, with turns around the long notes.
   S.section('THEME (ORNAMENTED)', 8, home);
   const orn = { notes: lA.notes.flatMap((n) => (n.d >= 8 && n.s % 8 === 0 ? [{ ...n, d: 1, m: n.m + 2, strong: false }, { ...n, s: n.s + 1, d: 1, m: n.m, strong: false }, { ...n, s: n.s + 2, d: n.d - 2 }] : [n])) };
-  S.melody(orn, 'pno', 0.68); S.nocturne(A.bars, 0.44); S.next(8);
+  S.melody(orn, 'pno', 0.68); accomp(S, A, () => S.nocturne(A.bars, 0.44), A.bars, 0.44, true); S.next(8);
   const lB = line(B.bars, K2, B.plan, { start: B.start, lo: 60, hi: 84, base: 72 });
-  S.section('MIDDLE SECTION', 8, K2); S.melody(lB, 'pno', 0.7); S.nocturne(B.bars, 0.48); S.next(8);
+  S.section('MIDDLE SECTION', 8, K2); S.melody(lB, 'pno', 0.7); accomp(S, B, () => S.nocturne(B.bars, 0.48), B.bars, 0.48, true); S.next(8);
   const back = prog('ii6 | I64 | V | V7', home);
   S.section('RETURN', 4, home); S.nocturne(back, 0.36);
   S.melody(line(back, home, [{ rh: [8, 4, 4], ct: [1, -1, -1] }, { rh: [8, 8], ct: [1, -1] }, { rh: [4, 4, 4, 4], ct: [1, 1, 1, 1] }, { rh: [12, -4], ct: [1], end: 'hc' }], { start: 4, lo: 64, hi: 91, base: 72 }), 'pno', 0.5);
   S.next(4);
-  S.section('THEME (RETURN)', 8, home); S.melody(lA, 'pno', 0.58); S.nocturne(A.bars, 0.38); S.next(8);
+  S.section('THEME (RETURN)', 8, home); S.melody(lA, 'pno', 0.58); accomp(S, A, () => S.nocturne(A.bars, 0.38), A.bars, 0.38, true); S.next(8);
   const cod = prog('I | IV64 | I | I', home);
   S.section('CODA', 5, home); S.nocturne(cod.slice(0, 2), 0.3);
   const fin = chord('I', home);
@@ -403,11 +488,14 @@ const cache = new Map();
 // A REPERTOIRE spec { piece } returns that masterwork as performed (or a silent bar while it loads).
 export function compose(spec = {}) {
   if (spec.piece) return pieceScore(spec.piece) || waitingScore();
-  const { form = 'symphony', seed = 1, mode = 'M' } = spec;
-  const id = `${form}:${seed}:${mode}`;
+  const { form = 'symphony', seed = 1, mode = 'M', composer } = spec, model = MODELS[composer] || null;
+  const id = `${form}:${seed}:${mode}` + (model ? `:${composer}` : '');
   if (cache.has(id)) return cache.get(id);
   const r = rng(seed | 0);
-  const S = form === 'nocturne' ? nocturne(r, mode) : sonata(r, mode, form === 'concerto');
+  // A composer's model steers harmony, melody and accompaniment through STYLE while this score is written.
+  STYLE = model && { m: model, r: rng(((seed | 0) ^ [...composer].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619), 2166136261)) | 0), reach: Math.max(24, (model.voicing.arpeggioReach ?? 24) + 6) };
+  let S;
+  try { S = form === 'nocturne' ? nocturne(r, mode) : sonata(r, mode, form === 'concerto'); } finally { STYLE = null; }
   const bars = S.bar + 1, at = Array.from({ length: bars * 16 }, () => []);
   S.notes.sort((a, b) => a[0] - b[0]);
   // Played, not quantised: downbeats lean, offbeats lighten, and the tempo breathes (see tempoMap).

@@ -490,6 +490,7 @@ function doGenerateSet() {
   matchStyleScale();
   const g = generate(style, seed, state.scale);
   state.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
+  if (source.score?.composer) for (const q of state.patterns) if (q.score?.form) q.score.composer = source.score.composer;
   state.key = g.key;
   for (const p of state.patterns) for (const id of TRACK_IDS) if (state.locks[id]) {
     p.steps[id] = clone(source.steps[id]);
@@ -697,6 +698,16 @@ function generateNow() {
   toast('Seating the orchestra…');
   preloadScore(pat().score).then(() => { if (!playing) play(); });
 }
+// "In the style of": the composer model the CLASSICAL generator writes in ('' = UNTERGRUND's own rules).
+function setComposer(name) {
+  pushUndo();
+  for (const q of state.patterns) if (q.score?.form) { if (name) q.score.composer = name; else delete q.score.composer; }
+  persist(); build();
+  toast(name ? `Rewriting in the style of ${name}` : 'Rewriting in the UNTERGRUND style');
+  if (!playing) return;
+  stop(); ensureAudio();
+  preloadScore(pat().score).then(() => { if (!playing) play(); });
+}
 // Perform one masterwork from the REPERTOIRE, from its first bar.
 function playPiece(id) {
   const p = PIECE[id];
@@ -883,7 +894,7 @@ function buildGenerateHome() {
     h('div', { class: 'generate-status' }, statusLine()),
   ];
   const classical = STYLES[style].family === 'CLASSICAL' || !!(playing && pat()?.score);
-  const concert = classical ? concertPanel({ state: () => state, engine: () => engine, ensureAudio, persist, score: pat()?.score || null, repertoire: style === 'repertoire', onPiece: playPiece }) : null;
+  const concert = classical ? concertPanel({ state: () => state, engine: () => engine, ensureAudio, persist, score: pat()?.score || null, repertoire: style === 'repertoire', onPiece: playPiece, onComposer: setComposer }) : null;
   const recent = recentTracks().slice(0, 8);
   const recents = recent.length ? h('div', { class: 'recents' },
     h('div', { class: 'recents-label' }, 'RECENT TRACKS'),
