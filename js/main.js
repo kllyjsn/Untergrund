@@ -45,35 +45,43 @@ let saveTimer = 0;
 function persist() { clearTimeout(saveTimer); saveTimer = setTimeout(() => save(state), 300); }
 
 // ---------------- audio ----------------
-// iOS routes Web Audio through the ringer channel, so the silent switch mutes it.
-// Playing a silent <audio> element (or setting audioSession) moves the page to the media channel.
+// iOS can route Web Audio through the ringer channel even when the page has an
+// active media session. Route the real master bus through an <audio> element so
+// it uses the same media channel as music and video playback.
 let mediaUnlock = null;
-function silentWav() {
-  const n = 4800, b = new DataView(new ArrayBuffer(44 + n * 2));
-  const str = (o, t) => { for (let i = 0; i < t.length; i++) b.setUint8(o + i, t.charCodeAt(i)); };
-  str(0, 'RIFF'); b.setUint32(4, 36 + n * 2, true); str(8, 'WAVEfmt '); b.setUint32(16, 16, true);
-  b.setUint16(20, 1, true); b.setUint16(22, 1, true); b.setUint32(24, 48000, true); b.setUint32(28, 96000, true);
-  b.setUint16(32, 2, true); b.setUint16(34, 16, true); str(36, 'data'); b.setUint32(40, n * 2, true);
-  return URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
-}
+let mediaRoute = null;
+const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function unlockMediaChannel() {
   try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
-  if (!mediaUnlock) {
-    mediaUnlock = document.createElement('audio');
-    mediaUnlock.setAttribute('playsinline', '');
-    mediaUnlock.setAttribute('x-webkit-airplay', 'deny');
-    mediaUnlock.loop = true;
-    mediaUnlock.preload = 'auto';
-    mediaUnlock.src = silentWav();
-  }
-  if (mediaUnlock.paused) mediaUnlock.play().catch(() => {});
+  if (mediaUnlock?.paused) mediaUnlock.play().catch(() => {});
 }
 
 function ensureAudio() {
-  unlockMediaChannel();
-  if (ctx) { if (ctx.state !== 'running') ctx.resume(); return; }
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
+  if (ctx) {
+    if (ctx.state !== 'running') ctx.resume();
+    if (mediaUnlock?.paused) mediaUnlock.play().catch(() => {});
+    return;
+  }
   ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: matchMedia('(pointer: coarse)').matches ? 'playback' : 'balanced' });
   engine = new Engine(ctx, state);
+  if (isIOS() && ctx.createMediaStreamDestination) {
+    mediaRoute = ctx.createMediaStreamDestination();
+    try { engine.out.disconnect(ctx.destination); } catch {
+      engine.out.disconnect();
+      if (engine.analyser) engine.out.connect(engine.analyser);
+    }
+    engine.out.connect(mediaRoute);
+    mediaUnlock = document.createElement('audio');
+    mediaUnlock.setAttribute('playsinline', '');
+    mediaUnlock.setAttribute('x-webkit-airplay', 'deny');
+    mediaUnlock.autoplay = true;
+    mediaUnlock.srcObject = mediaRoute.stream;
+    mediaUnlock.style.display = 'none';
+    document.body.append(mediaUnlock);
+    unlockMediaChannel();
+  }
   seq = new Sequencer(engine, state);
   const src = "let id=null;onmessage=e=>{if(e.data==='start'&&!id)id=setInterval(()=>postMessage(0),15);if(e.data==='stop'){clearInterval(id);id=null;}}";
   timer = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
