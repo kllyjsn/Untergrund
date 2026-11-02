@@ -1,6 +1,6 @@
 import { STYLES, sanitize } from '../../js/state.js';
 
-const clean = (value, max) => String(value || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max);
+export const clean = (value, max) => String(value || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max);
 const META = 'untergrund:crate:meta', STATES = 'untergrund:crate:states', LIMIT = 500, RATE_PER_HOUR = 30;
 export const MAX_TRACK_BYTES = 200_000;
 

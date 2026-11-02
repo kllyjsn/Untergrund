@@ -4,6 +4,7 @@ import { STYLES } from './state.js';
 import { saveTrack } from './crate.js';
 import { track as trackEvent } from './analytics.js';
 import { encodeWav } from './dsp.js';
+import { ensureDevice } from './account.js';
 
 const MAX_WAV_SECONDS = 15 * 60;
 export const fmtTime = (sec) => {
@@ -81,7 +82,10 @@ const downsample = (peaks, n) => (peaks.length <= n ? peaks.slice() : Array.from
 
 export async function publishSong({ state, title, style, artist }) {
   const cfg = await jukeboxConfig();
-  if (cfg.enabled) return { public: true, item: await postEntry({ kind: 'song', title, style, artist, bpm: state.bpm, state }) };
+  if (cfg.enabled) {
+    await ensureDevice().catch(() => null);
+    return { public: true, item: await postEntry({ kind: 'song', title, style, artist, bpm: state.bpm, state }) };
+  }
   const { track } = await saveTrack({ title, style, artist, state });
   const item = { id: localId(), kind: 'song', title, style, artist, bpm: state.bpm, trackId: track.id, created: new Date().toISOString(), local: true };
   await idb('put', item);
@@ -229,6 +233,12 @@ export function openSetCutter({ take, defaults, toast, download, soundcloud }) {
   return { close };
 }
 
+function trackLink(id, toast) {
+  const url = `${location.origin}/t/${id}`;
+  return h('div', { class: 'set-link' }, h('span', {}, 'Its own page:'), h('a', { href: url, target: '_blank', rel: 'noopener' }, url.replace(/^https?:\/\/(www\.)?/, '')),
+    h('button', { class: 'btn ghost', onclick: async () => { try { await navigator.clipboard.writeText(url); toast('Link copied'); } catch { toast(url); } } }, 'COPY LINK'));
+}
+
 export function openSongPublish({ state, style, title, artist, toast, soundcloud, jukebox }) {
   const { body, close } = sheet('PUBLISH');
   const input = h('input', { class: 'inp', maxlength: 80, value: title });
@@ -240,6 +250,7 @@ export function openSongPublish({ state, style, title, artist, toast, soundcloud
       const r = await publishSong({ state, title: name, style, artist });
       status.textContent = publicNote(r.public); pub.textContent = 'PUBLISHED';
       trackEvent('publish', { kind: 'song', public: r.public });
+      if (r.public && r.item?.trackId) status.after(trackLink(r.item.trackId, toast));
       toast(`“${name}” is in the jukebox`);
     } catch (err) { status.textContent = 'Failed: ' + err.message; pub.disabled = false; }
   } }, 'PUBLISH TO UNTERGRUND');

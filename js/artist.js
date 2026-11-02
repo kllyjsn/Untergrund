@@ -3,10 +3,11 @@ import { rng } from './dsp.js';
 import { KEYS, SCALES } from './params.js';
 import { STYLES, applyOverrides, arrangement, clone, generate, sanitize } from './state.js';
 import { h } from './ui.js';
+import { accountPanel, syncProfile } from './account.js';
 
 const PROFILE_KEY = 'untergrund.artist.v1';
 const CATALOG_KEY = 'untergrund.catalog.v1';
-const TRAITS = [
+export const TRAITS = [
   ['darkness', 'DARKNESS', 'darker scales, more distortion'],
   ['hypnosis', 'HYPNOSIS', 'trance-like loops, more swing'],
   ['acid', 'ACID', 'squelchier, more resonant bassline'],
@@ -155,8 +156,17 @@ export function openArtistStudio({ getState, loadProject, performProject, publis
     if (!ov.isConnected) { window.removeEventListener('keydown', onKey, true); o.disconnect(); }
   }).observe(document.body, { childList: true });
 
+  const accountProfile = () => {
+    const d = defaultArtistProfile();
+    return {
+      ...(profile.name && profile.name !== d.name && { name: profile.name }),
+      ...(profile.manifesto !== d.manifesto && { bio: profile.manifesto || '' }),
+      dna: Object.fromEntries(TRAITS.map(([id]) => [id, profile[id]])),
+    };
+  };
   const saveProfile = () => {
     saveArtistProfile(profile);
+    syncProfile(accountProfile());
     toast(`${profile.name} DNA saved`);
   };
 
@@ -212,7 +222,7 @@ export function openArtistStudio({ getState, loadProject, performProject, publis
         catalog.length ? h('button', { class: 'btn ghost', onclick: () => { if (confirm('Clear the generated catalog?')) { catalog = []; saveCatalog(catalog); render(); } } }, 'CLEAR') : null),
       catalog.length ? catalog.slice().reverse().map(releaseCard) : h('div', { class: 'catalog-empty' }, 'No releases yet. Create one from the artist DNA above.'));
 
-    body.append(identity, controls, list);
+    body.append(accountPanel({ getProfile: accountProfile, toast }), identity, controls, list);
   }
 
   function releaseCard(item) {
