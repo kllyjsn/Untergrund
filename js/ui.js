@@ -70,7 +70,7 @@ export function knob(q, value, onChange, { size = 46, color = 'var(--accent)', f
   const ptr = el.querySelector('.k-ptr');
   const txt = el.querySelector('.k-value');
   let v = value;
-  const draw = () => {
+  let draw = () => {
     const n = norm(q, v);
     const deg = A0 + n * (A1 - A0);
     const from = q.bipolar ? 0 : A0;
@@ -81,6 +81,21 @@ export function knob(q, value, onChange, { size = 46, color = 'var(--accent)', f
   const set = (nv) => { if (nv === v) return; v = nv; draw(); onChange(v); };
   dragControl(el, { get: () => v, set, q });
   el.title = `${q.label} — drag, wheel, double-click to reset (shift = fine)`;
+  el.tabIndex = 0;
+  el.setAttribute('role', 'slider');
+  el.setAttribute('aria-label', q.label);
+  el.setAttribute('aria-valuemin', q.min);
+  el.setAttribute('aria-valuemax', q.max);
+  el.addEventListener('keydown', (e) => {
+    const dir = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1 }[e.key];
+    if (!dir) return;
+    e.preventDefault(); e.stopPropagation();
+    const step = q.step || (q.max - q.min) / (e.shiftKey ? 200 : 40);
+    set(clamp(v + dir * step, q.min, q.max));
+  });
+  const aria = () => { el.setAttribute('aria-valuenow', v); el.setAttribute('aria-valuetext', format(v)); };
+  const draw0 = draw;
+  draw = () => { draw0(); aria(); };
   draw();
   return { el, set: (nv) => { v = nv; draw(); }, get: () => v };
 }
