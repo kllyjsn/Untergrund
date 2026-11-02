@@ -648,11 +648,14 @@ async function openRecent(t) {
 async function openShared(id, autoplay = false) {
   if (autoplay) ensureAudio();
   try {
-    const track = (await fetchPublicTrack(id))?.track || await fetchTrack(id);
+    const pub = await fetchPublicTrack(id);
+    const track = pub?.track || await fetchTrack(id);
     if (!track?.state) throw new Error('track_missing');
     if (STYLES[track.style]) { style = track.style; family = STYLES[track.style].family; }
     if (playing) stop();
-    replaceState(sanitize(track.state));
+    const next = sanitize(track.state);
+    next.artist = { ...(next.artist || {}), title: track.title, name: pub?.artist?.name || track.artist || next.artist?.name, style: track.style };
+    replaceState(next);
     if (autoplay) play(); else toast(`Loaded “${track.title}”. Press play.`);
   } catch { toast('Could not load that track'); }
 }
