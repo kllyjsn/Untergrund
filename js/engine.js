@@ -498,7 +498,8 @@ export class Engine {
       return true;
     }
     if (id === 'snare') {
-      const name = v > 0.97 ? 'snare_rim' : v > 0.85 ? 'snare_v34' : v > 0.65 ? 'snare_v24' : v > 0.45 ? 'snare_v14' : 'snare_v6';
+      // Center hits only: a rimshot dropped onto random loud backbeats clanks like a cross-stick.
+      const name = v > 0.85 ? 'snare_v34' : v > 0.65 ? 'snare_v24' : v > 0.45 ? 'snare_v14' : 'snare_v6';
       this.liveHit(kit, name, 'snare', t, 0.85 * v ** 1.4, drift);
       return true;
     }
@@ -782,16 +783,18 @@ export class Engine {
     const trem = c.createStereoPanner();
     const lfo = c.createOscillator(); lfo.frequency.value = 4.8;
     const depth = this.gain(0.35); lfo.connect(depth).connect(trem.pan);
+    // Soft ARTICULATION is a mellow, felt-damped Rhodes; hard playing brings out the bark and the tine.
+    const bite = 0.4 + 1.2 * Math.max(0, Math.min(1, p.env ?? 0.5));
     iv.forEach((n, k) => {
       const f = midiHz(root + n), vel = v * (0.85 + hash(t * 97, k) * 0.3);
       const car = c.createOscillator(); car.frequency.value = f; car.detune.value = (k % 2 ? 1 : -1) * p.detune * 0.15;
       const mod = c.createOscillator(); mod.frequency.value = f;
       const modAmt = this.gain(0); mod.connect(modAmt).connect(car.frequency);
-      modAmt.gain.setValueAtTime(f * (0.6 + vel * 1.6), t);
+      modAmt.gain.setValueAtTime(f * (0.6 + vel * 1.6) * bite, t);
       modAmt.gain.setTargetAtTime(f * 0.15, t + 0.005, 0.12 + p.env * 0.3);
       const tine = c.createOscillator(); tine.frequency.value = f * 14;
       const tineAmt = this.gain(0); tine.connect(tineAmt).connect(car.frequency);
-      tineAmt.gain.setValueAtTime(f * 2.5 * vel, t);
+      tineAmt.gain.setValueAtTime(f * 2.5 * vel * bite, t);
       tineAmt.gain.setTargetAtTime(0, t + 0.002, 0.018);
       const amp = this.gain(0);
       amp.gain.setValueAtTime(EPS, t);
