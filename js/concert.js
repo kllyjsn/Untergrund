@@ -5,7 +5,8 @@ import { SECTIONS, PART_SECTION, COMPOSERS, compose } from './classical.js';
 import { MODELS } from './composer-models.js';
 import { loadBand } from './livekit.js';
 import { scoreKinds } from './engine.js';
-import { loadPiece, REPERTOIRE, PIECE } from './repertoire.js';
+import { loadPiece, REPERTOIRE, PIECE, writtenScore } from './repertoire.js';
+import { practiceView, practiceOpen, practiceInput, closePractice } from './practice-ui.js';
 
 const LABEL = { strings: 'STRINGS', winds: 'WOODWINDS', brass: 'BRASS', harp: 'HARP', timpani: 'TIMPANI', piano: 'PIANO' };
 const KEYS = ['a', 'w', 's', 'e', 'd', 'f', 't', 'g', 'y', 'h', 'u', 'j', 'k', 'o', 'l', 'p', ';', "'"];
@@ -15,6 +16,8 @@ const PIANO_KINDS = ['pianoext', 'pianoextsoft', 'piano', 'pianosoft'];
 
 let deps = null, octave = 4, sustain = false, pedal = false, computerKeys = true, midi = null;
 const held = new Map(), ringing = new Map(), keyEls = new Map(), typed = new Map();
+// PRACTICE: the keyboard spans the piece's range and a falling-notes canvas sits on top of it.
+let span = null, overlay = null;
 
 export async function preloadScore(spec) {
   if (spec?.piece) await loadPiece(spec.piece);
@@ -31,6 +34,7 @@ function noteOn(m, vel = 0.7) {
   if (ringing.has(m)) { e.pianoUp(ringing.get(m), 0.04); ringing.delete(m); }
   held.set(m, e.pianoDown(m, vel));
   lit(m, true);
+  practiceInput(m, vel);
 }
 function noteOff(m) {
   const hd = held.get(m);
@@ -69,22 +73,34 @@ function onMidi({ data: [st, a, b] }) {
 }
 
 const ui = {};
+function redrawKeys() {
+  const kb = document.querySelector('.piano-wrap');
+  if (!kb) return;
+  const x = kb.scrollLeft;
+  kb.replaceChildren(keyboard());
+  kb.scrollLeft = x;
+  if (ui.oct) ui.oct.textContent = `C${octave - 1} – C${octave + 1}`;
+}
 function keyboard() {
   keyEls.clear();
-  const lo = octave * 12, keys = [];
-  for (let m = lo; m <= lo + 24; m++) {
-    const pc = m % 12, black = BLACK.has(pc), label = KEYS[m - lo] || '';
+  const lo = span ? span[0] : octave * 12, hi = span ? span[1] : lo + 24, keys = [];
+  for (let m = lo; m <= hi; m++) {
+    const pc = m % 12, black = BLACK.has(pc), label = KEYS[m - octave * 12] || '';
     const el = h('button', { class: 'pk ' + (black ? 'black' : 'white'), 'aria-label': `${NAMES[pc]}${Math.floor(m / 12) - 1}`, 'data-m': m },
       label ? h('kbd', {}, label.toUpperCase()) : null, pc === 0 ? h('small', {}, `C${Math.floor(m / 12) - 1}`) : null);
+    const fingers = new Set();
     const down = (e) => {
       e.preventDefault();
       el.releasePointerCapture?.(e.pointerId);
+      // A touch fires pointerenter (buttons=1) and then pointerdown for the same finger: play it once.
+      if (fingers.has(e.pointerId)) return;
+      fingers.add(e.pointerId);
       const r = el.getBoundingClientRect(), y = Math.max(0, Math.min(1, (e.clientY - r.top) / r.height));
       noteOn(m, e.pressure && e.pressure !== 0.5 ? 0.2 + 0.8 * e.pressure : 0.35 + 0.6 * y);
     };
     el.addEventListener('pointerdown', down);
     el.addEventListener('pointerenter', (e) => { if (e.buttons & 1 && !held.has(m)) down(e); });
-    for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) el.addEventListener(ev, () => held.has(m) && noteOff(m));
+    for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) el.addEventListener(ev, (e) => { fingers.delete(e.pointerId); if (held.has(m)) noteOff(m); });
     el.addEventListener('contextmenu', (e) => e.preventDefault());
     keyEls.set(m, el);
     keys.push(el);
@@ -96,7 +112,8 @@ function keyboard() {
     if (k.classList.contains('white')) { white++; continue; }
     k.style.left = `calc(${(white / nWhite) * 100}% - var(--bw) / 2)`;
   }
-  return h('div', { class: 'piano-keys', style: `--white:${nWhite}` }, keys);
+  const kb = h('div', { class: 'piano-keys', style: `--white:${nWhite}` }, keys);
+  return overlay ? h('div', { class: 'piano-stage', style: `--white:${nWhite}` }, overlay, kb) : kb;
 }
 
 function sectionStrip(k) {
@@ -127,8 +144,18 @@ export function concertPanel(d) {
   deps = d;
   const sc = d.score && compose(d.score);
   const status = h('span', { class: 'midi-status' + (midi?.inputs.size ? ' on' : '') }, midi ? (midi.inputs.size ? 'MIDI · CONNECTED' : 'MIDI · PLUG IN A KEYBOARD') : 'USB / BLUETOOTH MIDI');
+  const meta = sc?.meta, piece = d.score?.piece;
+  // PRACTICE: learn a piano piece from the REPERTOIRE (string quartets are listen-only).
+  const raw = meta?.ensemble === 'piano' ? writtenScore(piece) : null;
+  if (practiceOpen() && practiceOpen() !== (raw && piece)) closePractice();
+  const pv = raw && practiceOpen() === piece ? practiceView({
+    piece, raw, ensureAudio: d.ensureAudio, engine: d.engine, keyEl: (m) => keyEls.get(m),
+    setOctave: (o) => { octave = Math.max(1, Math.min(6, o)); redrawKeys(); },
+  }) : null;
+  span = pv?.span || null;
+  overlay = pv?.canvas || null;
   const kb = h('div', { class: 'piano-wrap' }, keyboard());
-  const redraw = () => { kb.replaceChildren(keyboard()); ui.oct.textContent = `C${octave - 1} – C${octave + 1}`; };
+  const redraw = redrawKeys;
   ui.oct = h('span', { class: 'oct' }, `C${octave - 1} – C${octave + 1}`);
   ui.pedal = h('button', { class: 'btn ghost pedal' + (sustain || pedal ? ' on' : ''), 'aria-pressed': String(sustain), title: 'Sustain pedal (hold Shift, or a MIDI pedal)',
     onclick: () => { sustain = !sustain; ui.pedal.classList.toggle('on', sustain || pedal); ui.pedal.setAttribute('aria-pressed', String(sustain)); damp(); } }, 'PEDAL');
@@ -137,7 +164,9 @@ export function concertPanel(d) {
   const form = sc ? h('div', { class: 'score-map' }, sc.sections.map((x) => h('i', { style: `flex:${x.len || 1}`, title: x.name, 'data-at': x.at }, h('span', {}, x.name)))) : null;
   ui.form = form;
   loadPiano();
-  const meta = sc?.meta;
+  const rerender = () => { const el = document.querySelector('section.concert'); if (el) el.replaceWith(concertPanel(deps)); };
+  const practice = raw ? h('button', { class: 'btn ghost practice-btn' + (pv ? ' on' : ''), 'aria-pressed': String(!!pv), title: 'Learn this piece: notes fall onto the keys',
+    onclick: () => { if (pv) closePractice(); else { d.stopTransport?.(); d.ensureAudio(); practiceOpen(piece); } rerender(); } }, pv ? 'DONE' : 'PRACTICE') : null;
   const head = meta
     ? h('div', { class: 'concert-head' }, h('span', { class: 'np-eyebrow' }, 'REPERTOIRE'),
       h('p', {}, h('b', {}, `${meta.composer} · ${meta.title}`), ` · ${meta.work} · ${sc.bars} bars`),
@@ -151,14 +180,14 @@ export function concertPanel(d) {
   const rep = d.repertoire ? h('div', { class: 'rep-list', role: 'list' },
     REPERTOIRE.map((p) => h('button', { class: 'rep' + (p.id === current ? ' on' : ''), role: 'listitem', 'aria-current': p.id === current ? 'true' : null, 'data-piece': p.id, onclick: () => d.onPiece?.(p.id) },
       h('b', {}, p.title), h('span', {}, `${p.composer.split(' ').pop()} · ${p.ensemble === 'piano' ? 'piano' : 'strings'}`)))) : null;
-  return h('section', { class: 'concert' },
+  return h('section', { class: 'concert' + (pv ? ' practicing' : '') },
     head,
-    rep,
-    form,
+    pv ? null : rep,
+    pv ? pv.controls : form,
     h('div', { class: 'concert-grid' },
       h('div', { class: 'orch' }, h('div', { class: 'concert-label' }, 'ORCHESTRA'), (meta ? SECTIONS.filter((k) => used.has(k)) : SECTIONS).map(sectionStrip)),
       h('div', { class: 'piano' },
-        h('div', { class: 'piano-bar' }, h('div', { class: 'concert-label' }, 'PIANO'),
+        h('div', { class: 'piano-bar' }, h('div', { class: 'concert-label' }, 'PIANO'), practice,
           h('button', { class: 'btn ghost', 'aria-label': 'Octave down', onclick: () => { octave = Math.max(1, octave - 1); redraw(); } }, '‹'), ui.oct,
           h('button', { class: 'btn ghost', 'aria-label': 'Octave up', onclick: () => { octave = Math.min(6, octave + 1); redraw(); } }, '›'),
           ui.pedal, ck,
@@ -180,7 +209,7 @@ window.addEventListener('keydown', (e) => {
   if (!deps || !computerKeys || !document.querySelector('.concert') || typing(document.activeElement) || e.ctrlKey || e.metaKey || e.altKey) return;
   const k = e.key.toLowerCase();
   if (k === 'shift') { pedal = true; ui.pedal?.classList.add('on'); return; }
-  if (k === 'z' || k === 'x') { e.preventDefault(); e.stopImmediatePropagation(); if (!e.repeat) { octave = Math.max(1, Math.min(6, octave + (k === 'x' ? 1 : -1))); const kb = document.querySelector('.piano-wrap'); if (kb) { kb.replaceChildren(keyboard()); ui.oct.textContent = `C${octave - 1} – C${octave + 1}`; } } return; }
+  if (k === 'z' || k === 'x') { e.preventDefault(); e.stopImmediatePropagation(); if (!e.repeat) { octave = Math.max(1, Math.min(6, octave + (k === 'x' ? 1 : -1))); redrawKeys(); } return; }
   const i = KEYS.indexOf(k);
   if (i < 0) return;
   e.preventDefault(); e.stopImmediatePropagation();
