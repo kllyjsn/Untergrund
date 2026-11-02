@@ -1,0 +1,6 @@
+*
+!package.json
+!rooms-server.mjs
+!api/_lib/**
+!js/**
+js/vendor/
