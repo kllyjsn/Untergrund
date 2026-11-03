@@ -247,7 +247,7 @@ function undo() {
   const s = undoStack.pop();
   if (!s) return toast('Nothing to undo');
   const { ui: was, ...snap } = JSON.parse(s);
-  if (was) { style = was.style; family = was.family; }
+  if (was) { style = was.style; family = was.family; localStorage.setItem('untergrund.family', family); }
   Object.assign(state, snap);
   if (!state.labels) delete state.labels;
   engine?.applyAll(); engine?.applyDelayTime();
