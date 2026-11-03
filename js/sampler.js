@@ -50,7 +50,7 @@ export function synthVoxChannels(sr = 48000) {
   return [out];
 }
 
-function normalize(channels, target = 0.9) {
+export function normalize(channels, target = 0.9) {
   let peak = 0;
   for (const d of channels) for (const v of d) peak = Math.max(peak, Math.abs(v));
   if (peak > 0) for (const d of channels) for (let i = 0; i < d.length; i++) d[i] *= target / peak;
@@ -100,22 +100,39 @@ export async function setFromArrayBuffer(arrayBuffer, name, source) {
 export const loadAudioFile = async (file) => setFromArrayBuffer(await file.arrayBuffer(), file.name.replace(/\.[^.]+$/, ''), 'file');
 export const useSynthVox = () => setSample(synthSample().buffer, 'SYNTH VOX', 'synth');
 
-export async function startRecording(maxSec = MAX_SEC) {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+// Mic capture shared by VOX, hum-to-hook and the voice instrument. Resolves with the decoded take
+// (mono/stereo Float32Arrays) without touching the VOX sample; `stream` is exposed for level meters.
+export async function recordMic(maxSec = MAX_SEC, constraints = { echoCancellation: false, noiseSuppression: false, autoGainControl: false }) {
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+    throw Object.assign(new Error('This browser cannot record audio here'), { name: 'NotSupportedError' });
+  }
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
   const rec = new MediaRecorder(stream);
   const chunks = [];
   rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
   const done = new Promise((resolve, reject) => {
     rec.onstop = async () => {
       stream.getTracks().forEach((t) => t.stop());
-      const stamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      try { resolve(await setFromArrayBuffer(await new Blob(chunks).arrayBuffer(), `REC ${stamp}`, 'mic')); }
-      catch (err) { reject(err); }
+      try {
+        const decoded = await new OfflineAudioContext(1, 1, 48000).decodeAudioData(await new Blob(chunks).arrayBuffer());
+        const len = Math.min(decoded.length, Math.ceil(maxSec * decoded.sampleRate));
+        resolve({ sampleRate: decoded.sampleRate, channels: Array.from({ length: Math.min(2, decoded.numberOfChannels) }, (_, i) => decoded.getChannelData(i).slice(0, len)) });
+      } catch (err) { reject(err); }
     };
   });
   rec.start();
   const timer = setTimeout(() => rec.state !== 'inactive' && rec.stop(), maxSec * 1000);
-  return { done, stop: () => { clearTimeout(timer); if (rec.state !== 'inactive') rec.stop(); return done; } };
+  return { stream, done, stop: () => { clearTimeout(timer); if (rec.state !== 'inactive') rec.stop(); return done; } };
+}
+
+export async function startRecording(maxSec = MAX_SEC) {
+  const mic = await recordMic(maxSec);
+  const done = mic.done.then(({ channels, sampleRate }) => {
+    normalize(channels);
+    const stamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return setSample(makeBuffer(channels, sampleRate), `REC ${stamp}`, 'mic');
+  });
+  return { done, stop: () => { mic.stop(); return done; } };
 }
 
 const idb = () => new Promise((resolve, reject) => {
@@ -125,21 +142,29 @@ const idb = () => new Promise((resolve, reject) => {
   q.onerror = () => reject(q.error);
 });
 
-async function persist(record) {
+// Local-only storage for the user's recordings (this device's IndexedDB; never uploaded).
+export async function putRecord(key, record) {
   try {
     const store = (await idb()).transaction(STORE, 'readwrite').objectStore(STORE);
-    if (record) store.put(record, KEY); else store.delete(KEY);
+    if (record) store.put(record, key); else store.delete(key);
   } catch {}
+}
+const persist = (record) => putRecord(KEY, record);
+
+export async function getRecord(key) {
+  try {
+    const db = await idb();
+    return await new Promise((resolve, reject) => {
+      const q = db.transaction(STORE).objectStore(STORE).get(key);
+      q.onsuccess = () => resolve(q.result);
+      q.onerror = () => reject(q.error);
+    });
+  } catch { return null; }
 }
 
 export async function restoreSample() {
   try {
-    const db = await idb();
-    const record = await new Promise((resolve, reject) => {
-      const q = db.transaction(STORE).objectStore(STORE).get(KEY);
-      q.onsuccess = () => resolve(q.result);
-      q.onerror = () => reject(q.error);
-    });
+    const record = await getRecord(KEY);
     if (record?.channels?.length) setSample(makeBuffer(record.channels, record.sampleRate), record.name, record.source, false);
   } catch {}
 }
