@@ -24,7 +24,7 @@ def cents(path, m):
 
 
 for name in sorted(os.listdir(ROOT)):
-    mb = re.match(r'bass_([a-g]b?)(\d)_[ab]\.wav$', name); mn = re.match(r'([a-z]+)_(\d+)\.wav$', name)
+    mb = re.match(r'bass_([a-g]b?)(\d)_[ab]\.flac$', name); mn = re.match(r'([a-z]+)_(\d+)\.flac$', name)
     m = NOTE[mb.group(1)] + 12 * (int(mb.group(2)) + 1) if mb else int(mn.group(2)) if mn else None
     if m is None: continue
     c = cents(os.path.join(ROOT, name), m)
