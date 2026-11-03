@@ -7,14 +7,16 @@ import { exportButtons } from './export-ui.js';
 import { encodeWav, rng } from './dsp.js';
 import { knob, numBox, h } from './ui.js';
 import { openPublish } from './publish.js';
-import { createSetRecorder, openSetCutter, openSongPublish, openJukebox, fmtTime } from './sets.js';
+import { createSetRecorder, openSetCutter, openSongPublish, openJukebox, fmtTime, loadReplay } from './sets.js';
 import { loadArtistProfile, openArtistStudio } from './artist.js';
 import { openClub, loadAvatar } from './club.js';
+import { playTimeline, stopTimeline } from './live-sets.js';
 import { saveTrack, trackTitle, recentTracks, fetchTrack } from './crate.js';
 import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
 import { roomTransportPosition, transportResync } from './room-sync.js';
 import { concertPanel, concertBar, preloadScore, loadPiano } from './concert.js';
 import { closePractice } from './practice-ui.js';
+import { initMidi, midiStrip, midiClockStart, midiClockStep, midiClockStop } from './midi-studio.js';
 import { openHum, melodyPanel, humButton, placeHook, humSeed } from './hum-ui.js';
 import { restoreVoice } from './voice.js';
 import { compose } from './classical.js';
@@ -128,6 +130,7 @@ function schedule() {
     uiQueue.push({ abs, t: nextTime, pat });
     // A score breathes (rubato): the transport clock follows the stretched step, not the metronome.
     const sd = engine.stepDur;
+    midiClockStep(ctx, abs, nextTime, sd);
     nextTime += sd;
     transportOrigin += (sd - base) * 1000;
     abs++;
@@ -154,6 +157,7 @@ function play({ step = 0, delay = 0.06 } = {}) {
   playing = true;
   if (pat().score) preloadScore(pat().score);
   timer.postMessage('start');
+  midiClockStart(ctx, abs, nextTime);
   schedule();
   document.body.classList.add('playing');
   if (seeking) return;
@@ -167,6 +171,7 @@ function stop() {
   playing = false;
   playStopped();
   timer?.postMessage('stop');
+  midiClockStop();
   engine?.panic();
   uiQueue.length = 0;
   setPlayhead(null);
@@ -323,6 +328,12 @@ function showJukebox() {
     onClose: leaveGuest,
     onRemix: () => current && remixSong(current, true),
     onShare: () => current && showShare(current, 'jukebox'),
+    playReplay: async (item) => {
+      ensureAudio();
+      current = null;
+      trackEvent('set_replay', { kind: 'jukebox' });
+      return playTimeline(await loadReplay(item), Date.now() + 200, timelineHooks(true));
+    },
     playSong: async (item) => {
       ensureAudio();
       const saved = await fetchTrack(item.trackId);
@@ -335,7 +346,46 @@ function showJukebox() {
   });
 }
 
+// Saved Club sets replay from their timeline; `asGuest` (jukebox) keeps the listener's own project safe.
+function timelineHooks(asGuest) {
+  return {
+    load: (s, st) => {
+      if (asGuest && !guest) guest = { backup: clone(state), style };
+      if (STYLES[st]) style = st;
+      const next = sanitize({ ...s, artist: state.artist });
+      if (!asGuest) return replaceState(next);
+      stop(); autoMajor = false; state = next;
+      if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
+      build();
+    },
+    apply: (s, st) => {
+      if (STYLES[st]) style = st;
+      const next = sanitize({ ...clone(state), ...s });
+      if (playing && next.bpm !== state.bpm) transportOrigin = Date.now() - ((Date.now() - transportOrigin) / (15000 / state.bpm)) * (15000 / next.bpm);
+      const want = next.current;
+      next.current = state.current;
+      state = next;
+      if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
+      if (seq && !state.chainOn && want !== seq.cur) seq.queued = want;
+      build(); if (!guest) persist();
+    },
+    play, isPlaying: () => playing, onEnd: () => playing && stop(),
+  };
+}
+function replayToRoom(timeline, startsAt) { playTimeline(timeline, startsAt, timelineHooks(false)); }
+
+async function joinRoomReplay(item) {
+  try {
+    const timeline = item.replay.timeline || await loadReplay(item.replay);
+    replayToRoom(timeline, +item.startsAt);
+    toast(`Replaying “${item.title}” with the room`);
+    trackEvent('set_replay', { kind: 'room_listener' });
+  } catch { joinRoomSet({ ...item, replay: null }); }
+}
+
 function joinRoomSet(item) {
+  stopTimeline();
+  if (item?.replay) return joinRoomReplay(item);
   if (!item?.state) return;
   style = STYLES[item.style] ? item.style : STYLES[item.state.artist?.style] ? item.state.artist.style : style;
   const roomState = sanitize(clone(item.state));
@@ -375,6 +425,7 @@ function showClub() {
       return ctx.state === 'running';
     },
     joinRoomSet,
+    replayToRoom,
     toast,
   });
 }
@@ -1376,6 +1427,7 @@ function buildMaster() {
       hold('ROLL', 'R', 'Ratchet the selected drum (or snare) at 1/32', () => { if (seq) seq.roll = TRACK_BY_ID[selected].kind === 'drum' && selected !== 'kick' ? selected : 'snare'; }, () => { if (seq) seq.roll = null; }),
       hold('THROW', 'T', 'Throw everything into delay + reverb', () => engine.setThrow(true), () => engine.setThrow(false)),
       hold('RISER', 'Y', 'Noise riser that builds over 4 bars', () => engine.riserStart(), () => engine.riserStop())),
+    midiStrip(),
     h('div', { class: 'foot' }, `${getSample().source === 'synth' ? 'synths + recorded CC0 instruments' : 'synth + your own samples'} · 48k/24-bit export`));
 }
 
@@ -1537,6 +1589,14 @@ else if (new URLSearchParams(location.search).has('jukebox')) setTimeout(showJuk
 else if (new URLSearchParams(location.search).has('track')) openShared(new URLSearchParams(location.search).get('track'));
 else if (new URLSearchParams(location.search).has('artist')) setTimeout(openArtist);
 restoreSample();
+initMidi({
+  state: () => state, selected: () => selected, playing: () => playing, persist, setParam, setMaster, toggle,
+  play: (step) => play({ step, delay: 0.01 }), stop: () => { if (playing) stop(); },
+  pad: (k, down) => ui.perf?.[k]?.[down ? 'down' : 'up'](),
+  // External clock: pull the transport toward where that clock says `step` started (Date ms).
+  align: (step, at, blend) => { if (playing) transportOrigin += (at - step * (15000 / state.bpm) - transportOrigin) * blend; },
+  latency: () => (ctx ? (ctx.outputLatency || 0) + (ctx.baseLatency || 0) : 0),
+});
 restoreVoice();
 window.__untergrund = { get state() { return state; }, get engine() { return engine; } };
 

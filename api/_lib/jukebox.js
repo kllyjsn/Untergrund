@@ -1,6 +1,7 @@
 // Public jukebox: published songs (stored in the crate as replayable state) and recorded sets (audio in Vercel Blob).
 import { STYLES } from '../../js/state.js';
 import { redisEnv, redis, normalizeTrack, MAX_TRACK_BYTES } from './crate.js';
+import { normalizeTimeline } from '../../js/set-timeline.js';
 
 const KEY = 'untergrund:jukebox', LIMIT = 1000, RATE_PER_HOUR = 20;
 const clean = (value, max) => String(value || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max);
@@ -16,6 +17,13 @@ export function normalizeEntry(b) {
     style: STYLES[b.style] ? b.style : 'hypnotic', bpm: Math.round(num(b.bpm, 0, 220)), created: new Date().toISOString(),
   };
   if (kind === 'song') return base;
+  if (b.timeline) {
+    // A replayable live set: UNTERGRUND state + timeline, no audio. The timeline is stored apart so the list stays light.
+    const timeline = normalizeTimeline(b.timeline);
+    if (!timeline || timeline.duration < 1000) return null;
+    const duration = Math.round(timeline.duration / 100) / 10;
+    return { ...base, replay: true, style: timeline.style, bpm: Math.round(num(timeline.initial.bpm, 0, 220)), room: clean(b.room || timeline.room, 32), duration, start: 0, end: duration, peaks: [], timeline };
+  }
   const url = String(b.url || '');
   if (url.length > 400 || !BLOB_URL.test(url)) return null;
   const duration = num(b.duration, 1, 6 * 3600), start = num(b.start, 0, duration - 1), end = num(b.end || duration, start + 1, duration);
@@ -27,6 +35,8 @@ const rateKey = (client) => `untergrund:jukebox:rate:${client}`;
 export const redisJukebox = () => (redisEnv() ? {
   async list(n = 200) { return (await redis(['LRANGE', KEY, 0, n - 1])).map((s) => JSON.parse(s)); },
   async add(entry) { await redis(['LPUSH', KEY, JSON.stringify(entry)]); await redis(['LTRIM', KEY, 0, LIMIT - 1]); },
+  async putSet(id, timeline) { await redis(['SET', `${KEY}:set:${id}`, JSON.stringify(timeline)]); },
+  async getSet(id) { const raw = await redis(['GET', `${KEY}:set:${id}`]); return raw ? JSON.parse(raw) : null; },
   async allow(client) {
     const count = await redis(['INCR', rateKey(client)]);
     if (count === 1) await redis(['EXPIRE', rateKey(client), 3600]);
@@ -35,9 +45,11 @@ export const redisJukebox = () => (redisEnv() ? {
 } : null);
 
 export function memoryJukebox() {
-  const items = [], hits = new Map();
+  const items = [], hits = new Map(), sets = new Map();
   return {
     async list(n = 200) { return items.slice(0, n); },
+    async putSet(id, timeline) { sets.set(id, timeline); },
+    async getSet(id) { return sets.get(id) || null; },
     async add(entry) { items.unshift(entry); items.length = Math.min(items.length, LIMIT); },
     async allow(client) {
       const now = Date.now(), recent = (hits.get(client) || []).filter((t) => now - t < 3600e3);
@@ -47,8 +59,12 @@ export function memoryJukebox() {
   };
 }
 
-export async function handleJukebox(method, body, { store, crate, client = 'anon', uploads = false }) {
+export async function handleJukebox(method, body, { store, crate, client = 'anon', uploads = false, id = '' }) {
   if (!store) return { status: 503, json: { enabled: false, uploads: false, items: [] } };
+  if (method === 'GET' && id) {
+    const timeline = /^[a-z0-9-]{1,40}$/.test(id) ? await store.getSet(id) : null;
+    return timeline ? { status: 200, json: { timeline } } : { status: 404, json: { error: 'not_found' } };
+  }
   if (method === 'GET') return { status: 200, json: { enabled: true, uploads, items: await store.list() } };
   if (method !== 'POST') return { status: 405, json: { error: 'method_not_allowed' } };
   if (JSON.stringify(body || {}).length > MAX_TRACK_BYTES) return { status: 413, json: { error: 'too_large' } };
@@ -57,6 +73,7 @@ export async function handleJukebox(method, body, { store, crate, client = 'anon
   if (!entry || (entry.kind === 'song' && (!track || !crate))) return { status: 400, json: { error: 'invalid_entry' } };
   if (!(await store.allow(clean(client, 64) || 'anon'))) return { status: 429, json: { error: 'rate_limited' } };
   if (track) { await crate.add(track); entry.trackId = track.id; entry.bpm = track.bpm; if (track.remixOf) entry.remixOf = track.remixOf; }
+  if (entry.timeline) { await store.putSet(entry.id, entry.timeline); delete entry.timeline; }
   await store.add(entry);
   return { status: 201, json: { item: entry } };
 }

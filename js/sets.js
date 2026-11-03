@@ -50,7 +50,7 @@ export function createSetRecorder(ctx, node) {
 }
 
 // ---------- storage ----------
-function idb(op, value) {
+export function idb(op, value) {
   return new Promise((resolve, reject) => {
     const open = indexedDB.open('untergrund-jukebox', 1);
     open.onupgradeneeded = () => open.result.createObjectStore('items', { keyPath: 'id' });
@@ -63,7 +63,7 @@ function idb(op, value) {
   });
 }
 
-async function jukeboxConfig() {
+export async function jukeboxConfig() {
   try {
     const res = await fetch('/api/jukebox'), json = await res.json();
     return { enabled: res.ok && !!json.enabled, uploads: !!json.uploads, items: json.items || [] };
@@ -111,6 +111,31 @@ export async function publishSet({ blob, title, style, bpm, artist, duration, st
   return { public: false, item };
 }
 
+// A live Club set saved as replayable state + timeline (no audio upload).
+export async function publishReplay({ timeline, title, artist, room }) {
+  const cfg = await jukeboxConfig();
+  if (cfg.enabled) {
+    await ensureDevice().catch(() => null);
+    return { public: true, item: await postEntry({ kind: 'set', title, artist, room, timeline }) };
+  }
+  const duration = Math.round(timeline.duration / 100) / 10;
+  const item = { id: localId(), kind: 'set', replay: true, title, artist, room, style: timeline.style, bpm: timeline.initial.bpm, duration, start: 0, end: duration, created: new Date().toISOString(), local: true, timeline };
+  await idb('put', item);
+  return { public: false, item };
+}
+
+export async function loadReplay(item) {
+  if (item.timeline) return item.timeline;
+  const res = await fetch(`/api/jukebox?id=${encodeURIComponent(item.id)}`);
+  if (!res.ok) throw new Error('set_missing');
+  return (await res.json()).timeline;
+}
+
+export async function listReplays() {
+  const [cfg, local] = await Promise.all([jukeboxConfig(), idb('all').catch(() => [])]);
+  return [...local, ...cfg.items].filter((x) => x.replay).sort((a, b) => String(b.created).localeCompare(String(a.created)));
+}
+
 async function trimmedWav(blob, start, end) {
   const buf = await new OfflineAudioContext(2, 1, 48000).decodeAudioData(await blob.arrayBuffer());
   const a = Math.floor(start * buf.sampleRate), b = Math.min(buf.length, Math.floor(end * buf.sampleRate));
@@ -132,7 +157,7 @@ async function seekReady(audio) {
   });
 }
 
-function drawPeaks(canvas, peaks, start, end, duration, head = -1) {
+export function drawPeaks(canvas, peaks, start, end, duration, head = -1) {
   const g = canvas.getContext('2d'), W = canvas.width, H = canvas.height, n = Math.max(1, peaks.length), bw = W / n;
   const accent = getComputedStyle(document.body).getPropertyValue('--accent').trim() || '#c6ff00';
   g.clearRect(0, 0, W, H);
@@ -271,7 +296,7 @@ export function openSongPublish({ state, style, title, artist, toast, soundcloud
   input.focus();
 }
 
-export function openJukebox({ playSong, stopSong, toast, onCreate, onClose, onRemix, onShare }) {
+export function openJukebox({ playSong, playReplay, stopSong, toast, onCreate, onClose, onRemix, onShare }) {
   const audio = new Audio();
   let items = [], queue = [], idx = -1, timer = null, filter = 'all', urls = [];
   const stopAll = () => { audio.pause(); clearTimeout(timer); stopSong(); idx = -1; };
@@ -290,7 +315,11 @@ export function openJukebox({ playSong, stopSong, toast, onCreate, onClose, onRe
     now.textContent = `NOW PLAYING · ${it.title} · ${it.artist}`;
     renderList();
     try {
-      if (it.kind === 'set') {
+      if (it.replay) {
+        const secs = await playReplay(it);
+        timer = setTimeout(() => playAt(idx + 1), Math.max(1, secs) * 1000);
+        now.textContent = `NOW PLAYING · ${it.title} · ${it.artist} live${it.room ? ` in ${it.room}` : ''}`;
+      } else if (it.kind === 'set') {
         const src = it.url || URL.createObjectURL(it.blob);
         if (!it.url) urls.push(src);
         audio.src = src;
@@ -325,14 +354,14 @@ export function openJukebox({ playSong, stopSong, toast, onCreate, onClose, onRe
     list.innerHTML = '';
     const v = visible();
     if (!v.length) list.append(h('div', { class: 'jb-empty' },
-      h('p', {}, filter === 'set' ? 'No sets yet. Hit REC any time, cut it, and publish.' : 'Nothing here yet. Make a track, then tap PUBLISH to add it.'),
+      h('p', {}, filter === 'set' ? 'No sets yet. GO LIVE in the Club and your set lands here, or hit REC any time.' : 'Nothing here yet. Make a track, then tap PUBLISH to add it.'),
       onCreate && h('button', { class: 'btn accent', onclick: () => { jb.close?.(); onCreate(); } }, 'MAKE A TRACK')));
     for (const it of v) {
       const on = queue[idx]?.id === it.id;
       const len = it.kind === 'set' ? ` · ${fmtTime((it.end || it.duration) - (it.start || 0))}` : '';
       list.append(h('button', { class: 'jb-item' + (on ? ' on' : ''), onclick: () => { if (on) { stopAll(); now.textContent = 'Stopped.'; return renderList(); } queue = v; playAt(v.indexOf(it)); } },
         h('span', { class: `jb-kind ${it.kind}` }, it.kind === 'set' ? 'SET' : 'SONG'),
-        h('span', { class: 'jb-text' }, h('b', {}, it.title), h('small', {}, `${it.artist} · ${STYLES[it.style]?.name || it.style}${it.bpm ? ` · ${it.bpm} BPM` : ''}${len}${it.local ? ' · THIS BROWSER' : ''}`)),
+        h('span', { class: 'jb-text' }, h('b', {}, it.title), h('small', {}, `${it.artist} · ${STYLES[it.style]?.name || it.style}${it.bpm ? ` · ${it.bpm} BPM` : ''}${it.room ? ` · ${it.room}` : ''}${len}${it.local ? ' · THIS BROWSER' : ''}`)),
         h('span', { class: 'jb-play' + (on ? ' on' : '') })));
     }
   }
