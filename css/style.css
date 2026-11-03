@@ -741,6 +741,7 @@ body.studio-open .generate-primary small { margin-top: 0; }
   body.studio-open.tools-open .top .studio-more { display: flex; }
   body.studio-open .top .tools-toggle { display: inline-flex; align-items: center; justify-content: center; width: 100%; }
   body.studio-open .top { gap: 10px; padding: 10px 12px; }
+  body.studio-open .top { padding-top: calc(10px + env(safe-area-inset-top)); }
   body.studio-open .top .group { padding-left: 0; border-left: 0; }
   body.studio-open .brand .sub { display: none; }
   body.studio-open .brand .name { font-size: 15px; }
@@ -790,6 +791,9 @@ body.recording .np-actions .btn.rec .dot { background: var(--accent); animation:
   /* The tab bar stays reachable over Club, Jukebox and Artist, and shows where you are */
   .tabbar { z-index: 70; }
   .overlay, .club-overlay { bottom: calc(64px + env(safe-area-inset-bottom)); }
+  /* Home-screen app (black-translucent status bar): keep sheets and the Club header below the notch */
+  .overlay { padding-top: env(safe-area-inset-top); }
+  .club-head { padding-top: calc(9px + env(safe-area-inset-top)); }
   body:has(.club-overlay, .jb, .artist-head) .tab.on { color: #8a8a94; }
   body:has(.club-overlay) .tab.tab-club, body:has(.jb) .tab.tab-jukebox, body:has(.artist-head) .tab.tab-artist { color: #fff; }
 }
