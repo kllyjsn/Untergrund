@@ -8,7 +8,7 @@ Both name notes one octave up from scientific pitch (their C3 = MIDI 60), so MID
 Processing: leading silence removed, mono, 44.1 kHz 16-bit, trimmed, 80 ms fade, peak -6 dBFS.
 Requires ffmpeg and numpy.  Usage: python3 scripts/fetch-orchestra.py
 """
-import os, subprocess, urllib.parse, urllib.request, wave
+import os, subprocess, urllib.parse, urllib.request
 import numpy as np
 
 VSCO = 'https://raw.githubusercontent.com/sgossner/VSCO-2-CE/440300901dfe9275fd84e0b7763af1f8443ae62e/'
@@ -54,9 +54,9 @@ def process(x, secs):
     return x * (0.5 / (np.max(np.abs(x)) or 1.0))
 
 def write(name, x):
-    with wave.open(os.path.join(OUT, f'{name}.wav'), 'wb') as w:
-        w.setnchannels(1); w.setsampwidth(2); w.setframerate(SR)
-        w.writeframes((np.clip(x, -1, 1) * 32767).astype('<i2').tobytes())
+    pcm = (np.clip(x, -1, 1) * 32767).astype('<i2').tobytes()
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 's16le', '-ar', str(SR), '-ac', '1', '-i', 'pipe:0', '-map_metadata', '-1',
+                    '-c:a', 'flac', '-compression_level', '12', os.path.join(OUT, f'{name}.flac')], input=pcm, check=True)
 
 if __name__ == '__main__':
     for prefix, (base, tpl, notes, secs) in SETS.items():

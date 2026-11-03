@@ -27,7 +27,7 @@ for (const id of Object.keys(STYLES)) {
 
 // Load the guitar for real (from disk, with a stub decoder) to exercise the lock.
 const files = new Set();
-globalThis.fetch = async (url) => { files.add(String(url).split('/').pop()); const b = await readFile(new URL(url)); return { ok: true, arrayBuffer: async () => b.buffer }; };
+globalThis.fetch = async (url) => { const u = new URL(url); u.search = ''; files.add(u.pathname.split('/').pop()); const b = await readFile(u); return { ok: true, arrayBuffer: async () => b.buffer }; };
 globalThis.OfflineAudioContext = class { decodeAudioData(b) { return Promise.resolve({ length: b.byteLength }); } };
 
 const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
@@ -45,6 +45,6 @@ assert.ok(rec(later, 'gtr'), 'a recording used from the first note stays');
 assert.equal(rec(later, 'kit'), null);
 await loadSets(['kit']);
 assert.equal(rec(later, 'kit'), null, 'each set is locked on its own');
-assert.ok(files.has('gtr_40.wav') && files.has(`${LIVE_FILES[0]}.wav`));
+assert.ok(files.has('gtr_40.flac') && files.has(`${LIVE_FILES[0]}.flac`));
 assert.deepEqual(await loadSets([]), []);
 console.log('live-kit preload + per-song lock passed');

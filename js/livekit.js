@@ -45,6 +45,9 @@ export const STAB_BAND = { 7: 'piano', 8: 'gtr', 9: 'horn', 10: 'str' };
 export const BAND_FILES = Object.entries(BAND).flatMap(([k, ns]) => ns.map((n) => `${k}_${n}`));
 
 const BASE = new URL('../samples/live/', import.meta.url);
+// Samples are served with immutable caching: bump SAMPLES_REV whenever a file under samples/live changes.
+const SAMPLES_REV = 1;
+const sampleUrl = (file) => new URL(`${file}.flac?v=${SAMPLES_REV}`, BASE);
 let buffers = null, loading = null;
 const band = {}, bandLoading = {};
 
@@ -57,7 +60,7 @@ export function loadBand(name) {
   if (!BAND[name] || typeof fetch !== 'function' || typeof OfflineAudioContext === 'undefined') return Promise.resolve(null);
   const dec = new OfflineAudioContext(1, 1, 44100);
   bandLoading[name] = Promise.all(BAND[name].map(async (m) => {
-    const res = await fetch(new URL(`${name}_${m}.wav`, BASE));
+    const res = await fetch(sampleUrl(`${name}_${m}`));
     if (!res.ok) throw new Error(`${name}_${m}: HTTP ${res.status}`);
     return [m + (BAND_TUNE[name]?.[m] ?? 0) / 100, await dec.decodeAudioData(await res.arrayBuffer())];
   })).then((entries) => (band[name] = entries))
@@ -84,7 +87,7 @@ export function loadLiveKit() {
   if (typeof fetch !== 'function' || typeof OfflineAudioContext === 'undefined') return Promise.resolve(null);
   const dec = new OfflineAudioContext(1, 1, 44100);
   loading = Promise.all(LIVE_FILES.map(async (name) => {
-    const res = await fetch(new URL(`${name}.wav`, BASE));
+    const res = await fetch(sampleUrl(name));
     if (!res.ok) throw new Error(`${name}: HTTP ${res.status}`);
     return [name, await dec.decodeAudioData(await res.arrayBuffer())];
   })).then((entries) => (buffers = Object.fromEntries(entries)))
