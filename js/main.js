@@ -15,7 +15,8 @@ import { saveTrack, trackTitle, recentTracks, fetchTrack, countPlay } from './cr
 import { dropCard } from './drop.js';
 import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
 import { roomTransportPosition, transportResync } from './room-sync.js';
-import { concertPanel, concertBar, preloadScore, loadPiano } from './concert.js';
+import { concertPanel, concertBar, preloadScore, scoreReady, loadPiano } from './concert.js';
+import { liveSets, loadSets, setsReady } from './livekit.js';
 import { closePractice } from './practice-ui.js';
 import { initMidi, midiStrip, midiClockStart, midiClockStep, midiClockStop } from './midi-studio.js';
 import { openHum, melodyPanel, humButton, placeHook } from './hum-ui.js';
@@ -139,7 +140,7 @@ function schedule(lead) {
     const skip = (abs - seq.origin) % 16 === 0 ? timeline.skip(seq.chainPos) : 0;
     if (skip) {
       abs += skip * 16; seq.chainPos += skip; transportOrigin -= skip * 16 * base * 1000;
-      if (handoff) { handoff.step += skip * 16; handoff.from += skip * 16; }
+      if (handoff?.step != null) { handoff.step += skip * 16; handoff.from += skip * 16; }
     }
     artistTick(abs - seq.origin);
     const pat = seq.tick(abs, nextTime);
@@ -157,14 +158,23 @@ function schedule(lead) {
 
 // GENERATE while a song plays: keep the clock running and switch on a coming downbeat.
 // Pressing again replaces the waiting song; the switch moment and transition stay put.
+// A song on recordings not yet downloaded waits (the old one keeps playing) until they're in, up to 8 s.
 function queueSong(plan) {
-  if (!handoff) {
+  if (!handoff) handoff = { since: performance.now() };
+  const h = handoff;
+  h.plan = plan;
+  const tryArm = () => {
+    if (handoff !== h || h.step != null || !playing) return;
+    if (!setsReady(liveSets(h.plan.next)) && performance.now() - h.since < 7990) return;
     // The sweep needs its own lead past the audio already queued, not just from now.
     const lead = nextTime - ctx.currentTime;
-    const h = handoffStep({ abs, lead, stepSec: engine.stepDur, origin: seq.origin, minLead: Math.max(MIN_LEAD, lead + 0.4) });
-    handoff = { ...h, due: performance.now() + h.at * 1000, total: h.at * 1000, out: false };
-  }
-  handoff.plan = plan;
+    const at = handoffStep({ abs, lead, stepSec: engine.stepDur, origin: seq.origin, minLead: Math.max(MIN_LEAD, lead + 0.4) });
+    Object.assign(h, at, { due: performance.now() + at.at * 1000, total: at.at * 1000, out: false });
+    renderHome();
+  };
+  loadSets(liveSets(plan.next)).catch(() => {}).then(tryArm);
+  setTimeout(tryArm, 8000 - (performance.now() - h.since));
+  tryArm();
   if (!plan.quiet) toast(plan.next.artist?.title ? `Up next: “${plan.next.artist.title}” · on the bar` : 'Up next · on the bar');
   renderHome();
 }
@@ -184,12 +194,40 @@ function landSong(t) {
   state.current = chain.length ? chain[0] : state.current;
   Object.assign(seq, { origin: abs, chainPos: 0, cur: state.current, queued: null, acidPrevSlide: false, dropNext: false });
   engine.handoffIn(t);
+  if (engine.recLock) engine.recLock = new Map();
   uiQueue.length = 0;
   lastPlayedPat = null;
   return () => plan.finish(true);
 }
 
-function play({ step = 0, delay = 0.06 } = {}) {
+// A song on recorded instruments holds its first downbeat until they're decoded (up to 8 s); a score waits longer,
+// since its orchestra has no synth stand-in. Recordings already here start at once, as do seeks and clock-synced starts.
+let tuning = null;
+function needsTuning() {
+  const sc = pat()?.score;
+  if (sc) return scoreReady(sc) ? null : { load: () => preloadScore(sc), wait: 30000, label: 'SEATING THE ORCHESTRA' };
+  const names = liveSets(state);
+  return setsReady(names) ? null : { load: () => loadSets(names), wait: 8000, label: 'SEATING THE BAND' };
+}
+function play(opts = {}) {
+  const need = playing || opts.delay != null ? null : needsTuning();
+  if (!need) return start(opts);
+  ensureAudio(); stopPreview();
+  clearTimeout(tuning?.timer);
+  const t = tuning = { label: need.label, at: performance.now() };
+  const go = () => { if (tuning !== t) return; endTuning(); start(opts); };
+  t.timer = setTimeout(go, need.wait);
+  (t.done = need.load().catch(() => {})).then(go);
+  document.body.classList.add('tuning');
+  renderHome();
+}
+function endTuning() {
+  clearTimeout(tuning?.timer);
+  tuning = null;
+  document.body.classList.remove('tuning');
+}
+
+function start({ step = 0, delay = 0.06 } = {}) {
   const seeking = playing;
   stopPreview();
   closePractice();
@@ -208,6 +246,7 @@ function play({ step = 0, delay = 0.06 } = {}) {
   nextTime = ctx.currentTime + Math.max(0.01, delay);
   clockOffset = null;
   transportOrigin = Date.now() + Math.max(0.01, delay) * 1000 - abs * (15000 / state.bpm);
+  if (!seeking) engine.recLock = new Map();
   playing = true;
   if (pat().score) preloadScore(pat().score);
   timer.postMessage('start');
@@ -220,6 +259,8 @@ function play({ step = 0, delay = 0.06 } = {}) {
 }
 
 function stop() {
+  endTuning();
+  if (engine) engine.recLock = null;
   clearTimeout(roomJoinTimer);
   roomJoinTimer = 0;
   playing = false;
@@ -239,7 +280,7 @@ function stop() {
   renderHome();
 }
 
-const toggle = () => (playing ? stop() : play());
+const toggle = () => (playing || tuning ? stop() : play());
 
 function audition(id) {
   ensureAudio();
@@ -636,7 +677,7 @@ function doGenerateSet(hum = null, drop = null, steer = null) {
 // now; queueSong makes it the one you hear from the next downbeat.
 function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   const s = clone(state), id = style;
-  const seed = drop ? drop.seed : (Math.random() * 1e9) | 0;
+  const seed = drop ? drop.seed : songSeed();
   const source = clone(pat());
   const lockedParams = Object.fromEntries(TRACK_IDS.filter((t) => s.locks[t]).map((t) => [t, clone(s.params[t])]));
   const major = matchStyleScale(s);
@@ -679,6 +720,7 @@ function adoptPlan(plan) {
   autoMajor = plan.autoMajor ?? false;
   for (const k of Object.keys(state)) if (!(k in plan.next)) delete state[k];
   adoptState(plan.next);
+  if (engine?.recLock) engine.recLock = new Map();
   plan.finish();
 }
 
@@ -866,7 +908,18 @@ function stopPreview() {
   }
 }
 
-function selectStyle(id) { style = id; if (STYLES[id].family === 'CLASSICAL') loadPiano(); build(); }
+// The next GENERATE's seed is drawn as soon as a style is picked, so that song's recordings can start downloading first.
+let nextSeed = null, warmed = '';
+const songSeed = () => { const s = nextSeed ?? ((Math.random() * 1e9) | 0); nextSeed = null; return s; };
+function preloadStyle(id) {
+  nextSeed ??= (Math.random() * 1e9) | 0;
+  if (warmed === `${id}:${nextSeed}`) return;
+  warmed = `${id}:${nextSeed}`;
+  const g = generate(id, nextSeed, state.scale);
+  if (g.pattern.score) preloadScore(g.pattern.score).catch(() => {});
+  else loadSets(liveSets(g));
+}
+function selectStyle(id) { style = id; preloadStyle(id); if (STYLES[id].family === 'CLASSICAL') loadPiano(); build(); }
 function selectFamily(f) {
   family = f;
   localStorage.setItem('untergrund.family', f);
@@ -883,17 +936,18 @@ function generateNow(drop = null) {
   // The new song arrives at its own tempo; from silence it starts at once.
   const plan = planSet(null, drop, null, true);
   const score = plan.next.patterns.some((q) => q.score);
-  if (playing && !score && !pat().score) return queueSong(plan);
-  // A score (going in or coming out) starts at its first bar: its bars breathe (rubato) and
-  // can be 3/4, so there is no shared downbeat to hand off on.
+  // A score starts at its first bar: its bars breathe (rubato) and can be 3/4, so there is no shared downbeat.
+  if (playing && !score && !pat().score) {
+    queueSong(plan);
+    // Then warm the next GENERATE's recordings, after the waiting song's own are in.
+    return void loadSets(liveSets(plan.next)).catch(() => {}).then(() => preloadStyle(style));
+  }
   if (playing) stop();
   pushUndo();
   adoptPlan(plan);
-  if (!score) return play();
-  // Seat the orchestra before the downbeat: unlock audio inside the tap, start once the recordings are in.
-  ensureAudio();
-  toast('Seating the orchestra…');
-  preloadScore(pat().score).then(() => { if (!playing) play(); });
+  if (!playing) play();
+  // Then warm the next GENERATE's recordings, after this song's own have the connection to themselves.
+  Promise.resolve(tuning?.done).then(() => preloadStyle(style));
 }
 // "In the style of": the composer model the CLASSICAL generator writes in ('' = UNTERGRUND's own rules).
 function setComposer(name) {
@@ -972,13 +1026,15 @@ function styleCard(id, value, isPlaying) {
     title: 'Tap to choose. Press and hold to hear it.',
     oncontextmenu: (e) => e.preventDefault(),
   }, styleGlyph(id), h('b', {}, value.name), h('span', {}, value.tag));
-  let holdTimer = 0, held = false;
+  let holdTimer = 0, held = false, hover = 0;
+  card.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') hover = setTimeout(() => preloadStyle(id), 150); });
   card.addEventListener('pointerdown', () => {
     held = false;
     ensureAudio();
+    preloadStyle(id);
     holdTimer = setTimeout(() => { held = true; startPreview(id, card); }, 380);
   });
-  const end = () => { clearTimeout(holdTimer); if (held) stopPreview(); };
+  const end = () => { clearTimeout(holdTimer); clearTimeout(hover); if (held) stopPreview(); };
   for (const type of ['pointerup', 'pointerleave', 'pointercancel']) card.addEventListener(type, end);
   card.addEventListener('click', () => { if (held) { held = false; return; } selectStyle(id); });
   return card;
@@ -1088,9 +1144,12 @@ function buildGenerateHome() {
     h('div', { class: 'generate-styles' }, Object.entries(STYLES).filter(([, v]) => v.family === family).map(([id, v]) => styleCard(id, v, playingStyle === id))),
     h('div', { class: 'generate-hint' }, 'Tap to choose. Press and hold to hear it.'));
   // While a new song waits for its downbeat the button fills up to the switch.
-  const wait = handoff ? Math.max(0, handoff.due - performance.now()) : 0;
-  const primary = h('button', { class: 'generate-primary' + (performance.now() - generatedAt < 900 ? ' fired' : '') + (wait ? ' gen-queued' : ''), style: wait ? `--gen-wait:${Math.round(handoff.total)}ms;--gen-at:${Math.round(wait - handoff.total)}ms` : null, onclick: () => generateNow() },
-    h('span', {}, 'GENERATE'), h('small', {}, wait ? 'Up next · on the bar' : `${STYLES[style].name} · full track`));
+  const wait = handoff?.due ? Math.max(0, handoff.due - performance.now()) : 0, band = handoff && !handoff.due;
+  const primary = tuning
+    ? h('button', { class: 'generate-primary tuning', 'aria-busy': 'true', style: `--tune-at:${((tuning.at - performance.now()) / 1000).toFixed(2)}s`, onclick: () => generateNow() },
+      h('span', {}, 'TUNING UP'), h('small', {}, `${STYLES[state.artist?.style]?.name || STYLES[style].name} · ${tuning.label}`))
+    : h('button', { class: 'generate-primary' + (performance.now() - generatedAt < 900 ? ' fired' : '') + (wait || band ? ' gen-queued' : ''), style: wait ? `--gen-wait:${Math.round(handoff.total)}ms;--gen-at:${Math.round(wait - handoff.total)}ms` : null, onclick: () => generateNow() },
+      h('span', {}, 'GENERATE'), h('small', {}, band ? 'Up next · seating the band' : wait ? 'Up next · on the bar' : `${STYLES[style].name} · full track`));
   const showNp = playing && !studioOpen;
   const left = showNp ? buildNowPlaying(primary) : [
     h('div', { class: 'generate-copy' },
@@ -1706,6 +1765,11 @@ window.addEventListener('keyup', (e) => {
 document.addEventListener('visibilitychange', () => { if (!guest) save(state); });
 
 build();
+// Once the page is idle, warm the recordings the selected style and the saved song will play.
+(window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(() => {
+  preloadStyle(style);
+  if (pat()?.score) preloadScore(pat().score).catch(() => {}); else loadSets(liveSets(state));
+}, { timeout: 4000 });
 // A saved masterwork reopens with its score (and section map) once the notes arrive.
 if (pat()?.score?.piece) loadPiece(pat().score.piece).then(() => { if (!playing) build(); }, () => {});
 requestAnimationFrame(frame);

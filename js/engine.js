@@ -2,7 +2,7 @@ import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES } from './params.js';
 import { getSample } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
-import { liveKit, loadLiveKit, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND } from './livekit.js';
+import { liveSet, loadLiveKit, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel } from './groove.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
@@ -285,6 +285,15 @@ export class Engine {
     this.acidNodes = a;
   }
 
+  // One sound per part for a whole song: while `recLock` is set (main.js sets it per song), a recording is used from
+  // the first note that needs it or not at all, so a slow download never swaps a synth stand-in for it mid-song.
+  rec(name) {
+    const got = liveSet(name), lock = this.recLock;
+    if (!lock) return got;
+    if (!lock.has(name)) lock.set(name, !!got);
+    return lock.get(name) ? got : null;
+  }
+
   // ---------- params ----------
   setTo(param, v, immediate) {
     // this.at: a song handoff schedules the whole mix change onto its downbeat
@@ -385,12 +394,12 @@ export class Engine {
     const kitMode = Math.round(this.state.master.kit || 0);
     // HYBRID: drum-machine kick and clap under recorded cymbals, the way house records sample their hats
     if (kitMode === 2 && (id === 'ch' || id === 'oh' || id === 'ride')) {
-      const kit = liveKit();
+      const kit = this.rec('kit');
       if (!kit) loadLiveKit();
       else if (this.sampledHit(kit, id, t, v, id === 'ride' ? 8 : 3.5)) return;
     }
     if (kitMode === 1) {
-      const kit = liveKit();
+      const kit = this.rec('kit');
       if (!kit) loadLiveKit();
       else if (this.sampledHit(kit, id, t, v)) return;
       switch (id) {
@@ -944,7 +953,7 @@ export class Engine {
   // Brass section: saws scooping into pitch while the filter blooms; ENV sets the blare.
   // Recorded chord instruments (CC0): nearest sample per chord note, repitched; the synth voice covers loading.
   recorded(kind, fallback, t, v, iv, root, p, out) {
-    const set = bandKit(kind);
+    const set = this.rec(kind);
     if (!set) { loadBand(kind); return this[fallback](t, v, iv, root, p, out); }
     const R = BAND_PLAY[kind];
     const tone = Math.max(-6, Math.min(3, 3 * Math.log2(p.cutoff / 1500)));
@@ -989,7 +998,7 @@ export class Engine {
     if (out === this.ch.stab.input) out = this.ch.stab.band;
     const touch = 1 - 0.2 * (R?.even ?? 1) + 0.4 * (R?.even ?? 1) * hash(t * 7 + m, 24), hv = Math.max(0.25, Math.min(1.2, vel * touch));
     // Soft touches play the softly struck piano recording: a different tone, not just a quieter one.
-    if (kind === 'piano' && hv < 0.88 && bandKit('pianosoft')) set = bandKit('pianosoft');
+    if (kind === 'piano' && hv < 0.88 && this.rec('pianosoft')) set = this.rec('pianosoft');
     let [c, buf] = set[0];
     for (const [cm, b] of set) if (Math.abs(cm - m) < Math.abs(c - m)) [c, buf] = [cm, b];
     return this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
@@ -1189,7 +1198,7 @@ export class Engine {
     voice = { saw: 'analog', sq: 'pulse', flute: 'reed', bell: 'mallet', pluck: 'warm' }[voice] || voice;
     const warmth = expression.warmth ?? 0.5;
     // Genres on a recorded instrument let that player take the melody too; synth-pop leads stay synths.
-    const band = voice !== 'pulse' && STAB_BAND[Math.round(p.voice)], set = band && bandKit(band);
+    const band = voice !== 'pulse' && STAB_BAND[Math.round(p.voice)], set = band && this.rec(band);
     if (set) {
       const R = BAND_PLAY[band], ring = R.hold ? dur * 1.05 : Math.max(R.min * 0.6, dur * 1.5);
       return this.recordedNote(set, t, Math.min(1.3, v) * R.gain * 0.6, 60 + k + oct * 12 + n, ring, this.hookBus || this.ch.stab.input, 0, band, v / 1.3);
@@ -1317,7 +1326,7 @@ export class Engine {
     // A chromatic approach note leads into the next bar and gets out of the way when the chord lands.
     const len = st.ap ? sd * 0.9 : holdNext ? sd * 2 : sd * (0.9 + p.decay * 2);
     if (Math.round(this.state.master.kit || 0) === 1) {
-      const kit = liveKit();
+      const kit = this.rec('kit');
       if (kit) return this.sampledBass(kit, t, note, len, st.a);
       loadLiveKit();
     }
