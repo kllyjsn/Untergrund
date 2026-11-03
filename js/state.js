@@ -4,6 +4,7 @@ import { FORMS, SECTIONS } from './classical.js';
 import { MODELS } from './composer-models.js';
 import { POCKETS, STYLE_POCKET } from './groove.js';
 import { REPERTOIRE, PIECE } from './repertoire.js';
+import { cleanLabels } from './timeline.js';
 
 export const STYLES = {
   hypnotic: { name: 'HYPNOTIC', bpm: [130, 134], family: 'TECHNO', tag: 'deep · rolling' },
@@ -836,6 +837,8 @@ export function sanitize(s) {
   out.current = Math.max(0, Math.min(7, Number.isFinite(+s.current) ? Math.round(+s.current) : 0));
   out.chainOn = !!s.chainOn;
   out.chain = String(s.chain || d.chain).toUpperCase().replace(/[^A-H]/g, '').slice(0, 128) || d.chain;
+  const labels = cleanLabels(s.labels);
+  if (labels) out.labels = labels;
   out.mutes = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.mutes?.[id]]));
   out.solos = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.solos?.[id]]));
   out.locks = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.locks?.[id]]));
