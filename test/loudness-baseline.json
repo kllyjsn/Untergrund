@@ -1,0 +1,184 @@
+{
+ "styles": {
+  "hypnotic": {
+   "lufs": -9.94,
+   "spread": 0.47,
+   "tp": -1.58,
+   "window": -9.05
+  },
+  "industrial": {
+   "lufs": -10.04,
+   "spread": 0.4,
+   "tp": -2.45,
+   "window": -9.43
+  },
+  "acid": {
+   "lufs": -10.17,
+   "spread": 0.38,
+   "tp": -1.46,
+   "window": -9.68
+  },
+  "dub": {
+   "lufs": -9.93,
+   "spread": 0.3,
+   "tp": -1.97,
+   "window": -9.11
+  },
+  "peak": {
+   "lufs": -9.97,
+   "spread": 0.62,
+   "tp": -1.81,
+   "window": -9.7
+  },
+  "hardtechno": {
+   "lufs": -9.99,
+   "spread": 0.06,
+   "tp": -4.51,
+   "window": -9.31
+  },
+  "deephouse": {
+   "lufs": -9.94,
+   "spread": 1.73,
+   "tp": -2.26,
+   "window": -8.73
+  },
+  "minimal": {
+   "lufs": -10.57,
+   "spread": 1.39,
+   "tp": -1.13,
+   "window": -10.54
+  },
+  "ukg": {
+   "lufs": -9.92,
+   "spread": 2.35,
+   "tp": -1.62,
+   "window": -11.19
+  },
+  "euphoric": {
+   "lufs": -9.98,
+   "spread": 2.61,
+   "tp": -1.54,
+   "window": -8.3
+  },
+  "neosoul": {
+   "lufs": -13.94,
+   "spread": 2.35,
+   "tp": -2.48,
+   "window": -12.83
+  },
+  "boombap": {
+   "lufs": -13.97,
+   "spread": 1.75,
+   "tp": -2.48,
+   "window": -14.63
+  },
+  "breaks": {
+   "lufs": -10.02,
+   "spread": 2.34,
+   "tp": -1.9,
+   "window": -8.53
+  },
+  "electro": {
+   "lufs": -10.01,
+   "spread": 0.51,
+   "tp": -1.79,
+   "window": -9.47
+  },
+  "dnb": {
+   "lufs": -10.14,
+   "spread": 0.85,
+   "tp": -1.82,
+   "window": -9.98
+  },
+  "trance": {
+   "lufs": -9.99,
+   "spread": 0.58,
+   "tp": -1.79,
+   "window": -9.39
+  },
+  "ambient": {
+   "lufs": -13.89,
+   "spread": 2.18,
+   "tp": -2.69,
+   "window": -30.28
+  },
+  "amapiano": {
+   "lufs": -9.95,
+   "spread": 1.67,
+   "tp": -2.21,
+   "window": -7.91
+  },
+  "afrobeats": {
+   "lufs": -9.99,
+   "spread": 0.62,
+   "tp": -1.74,
+   "window": -9.33
+  },
+  "reggaeton": {
+   "lufs": -10.07,
+   "spread": 1.63,
+   "tp": -2.05,
+   "window": -8.84
+  },
+  "bailefunk": {
+   "lufs": -9.95,
+   "spread": 0.08,
+   "tp": -2.16,
+   "window": -9.57
+  },
+  "trap": {
+   "lufs": -10.08,
+   "spread": 1.48,
+   "tp": -1.68,
+   "window": -9.47
+  },
+  "drill": {
+   "lufs": -10,
+   "spread": 1.18,
+   "tp": -1.54,
+   "window": -10.59
+  },
+  "jerseyclub": {
+   "lufs": -10.17,
+   "spread": 0.69,
+   "tp": -1.9,
+   "window": -9.39
+  },
+  "hyperpop": {
+   "lufs": -10.04,
+   "spread": 2.73,
+   "tp": -2.01,
+   "window": -7.35
+  },
+  "symphony": {
+   "lufs": -15.92,
+   "spread": 0.46,
+   "tp": -2.43,
+   "window": -22.89
+  },
+  "concerto": {
+   "lufs": -16.05,
+   "spread": 0.12,
+   "tp": -2.45,
+   "window": -21.85
+  },
+  "nocturne": {
+   "lufs": -16.14,
+   "spread": 1.26,
+   "tp": -2.47,
+   "window": -16.56
+  },
+  "repertoire": {
+   "lufs": -15.96,
+   "spread": 1.81,
+   "tp": -4.76,
+   "window": -13.03
+  }
+ },
+ "seeds": [
+  11,
+  42,
+  77
+ ],
+ "note": "node scripts/loudness.mjs --write: full-song integrated LUFS (mean over seeds), max dBTP, and the fast-check window LUFS"
+}

@@ -6,6 +6,7 @@ import { liveKit, loadLiveKit, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BA
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel } from './groove.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
+import { makeupGain } from './loudness.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
@@ -90,6 +91,8 @@ const BAND_PLAY = {
   str: { gain: 1.2, len: 2, min: 0.5, strum: 0, shift: 0, hold: true, lo: 55, hi: 79, lp: 4200, rel: 0.25 },
 };
 const LIM_TRIM = 1.4;
+// The clipper tops out at 0.98; this trim keeps the master output (true peak, 4x oversampled) under -1 dBTP.
+const OUT_TRIM = 0.78;
 
 // Six band-limited squares (808 cymbal cluster) summed once into a seamless 0.5 s loop.
 // Each square is read from a one-period wavetable; a small LRU bounds memory as tunings change.
@@ -161,7 +164,7 @@ export class Engine {
     this.limiter = this.comp(-6, 12, 3, 0.002, 0.12);
     this.limTrim = this.gain(LIM_TRIM);
     this.clip = c.createWaveShaper(); this.clip.curve = clipCurve(); this.clip.oversample = '4x';
-    this.out = this.gain(0.95);
+    this.out = this.gain(OUT_TRIM);
     this.mix.connect(this.djHP).connect(this.djLP).connect(this.arrLP).connect(this.glue).connect(this.satIn).connect(this.sat)
       .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.clip).connect(this.out);
     this.out.connect(c.destination);
@@ -294,6 +297,8 @@ export class Engine {
   applyAll() {
     for (const id of TRACK_IDS) for (const k of Object.keys(this.state.params[id])) this.applyParam(id, k, true);
     for (const k of Object.keys(this.state.master)) this.applyMaster(k, true);
+    // Per-genre make-up gain into the limiter so every style lands on its loudness target (js/loudness.js).
+    this.limIn.gain.value = 0.5 * makeupGain(this.state.artist?.style);
   }
 
   setParam(tid, id, v) { this.state.params[tid][id] = v; this.applyParam(tid, id); }
