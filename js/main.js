@@ -14,6 +14,7 @@ import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restor
 import { roomTransportPosition, transportResync } from './room-sync.js';
 import { concertPanel, concertBar, preloadScore, loadPiano } from './concert.js';
 import { closePractice } from './practice-ui.js';
+import { initMidi, midiStrip, midiClockStart, midiClockStep, midiClockStop } from './midi-studio.js';
 import { compose } from './classical.js';
 import { PIECE, loadPiece } from './repertoire.js';
 import { followingRow } from './feed.js';
@@ -122,6 +123,7 @@ function schedule() {
     uiQueue.push({ abs, t: nextTime, pat });
     // A score breathes (rubato): the transport clock follows the stretched step, not the metronome.
     const sd = engine.stepDur;
+    midiClockStep(ctx, abs, nextTime, sd);
     nextTime += sd;
     transportOrigin += (sd - base) * 1000;
     abs++;
@@ -146,6 +148,7 @@ function play({ step = 0, delay = 0.06 } = {}) {
   playing = true;
   if (pat().score) preloadScore(pat().score);
   timer.postMessage('start');
+  midiClockStart(ctx, abs, nextTime);
   schedule();
   document.body.classList.add('playing');
   playStarted({ genre: style });
@@ -158,6 +161,7 @@ function stop() {
   playing = false;
   playStopped();
   timer?.postMessage('stop');
+  midiClockStop();
   engine?.panic();
   uiQueue.length = 0;
   setPlayhead(null);
@@ -1332,6 +1336,7 @@ function buildMaster() {
       hold('ROLL', 'R', 'Ratchet the selected drum (or snare) at 1/32', () => { if (seq) seq.roll = TRACK_BY_ID[selected].kind === 'drum' && selected !== 'kick' ? selected : 'snare'; }, () => { if (seq) seq.roll = null; }),
       hold('THROW', 'T', 'Throw everything into delay + reverb', () => engine.setThrow(true), () => engine.setThrow(false)),
       hold('RISER', 'Y', 'Noise riser that builds over 4 bars', () => engine.riserStart(), () => engine.riserStop())),
+    midiStrip(),
     h('div', { class: 'foot' }, `${getSample().source === 'synth' ? 'synths + recorded CC0 instruments' : 'synth + your own samples'} · 48k/24-bit export`));
 }
 
@@ -1492,6 +1497,14 @@ else if (new URLSearchParams(location.search).has('jukebox')) setTimeout(showJuk
 else if (new URLSearchParams(location.search).has('track')) openShared(new URLSearchParams(location.search).get('track'));
 else if (new URLSearchParams(location.search).has('artist')) setTimeout(openArtist);
 restoreSample();
+initMidi({
+  state: () => state, selected: () => selected, playing: () => playing, persist, setParam, setMaster, toggle,
+  play: (step) => play({ step, delay: 0.01 }), stop: () => { if (playing) stop(); },
+  pad: (k, down) => ui.perf?.[k]?.[down ? 'down' : 'up'](),
+  // External clock: pull the transport toward where that clock says `step` started (Date ms).
+  align: (step, at, blend) => { if (playing) transportOrigin += (at - step * (15000 / state.bpm) - transportOrigin) * blend; },
+  latency: () => (ctx ? (ctx.outputLatency || 0) + (ctx.baseLatency || 0) : 0),
+});
 window.__untergrund = { get state() { return state; }, get engine() { return engine; } };
 
 document.addEventListener('click', (e) => {
