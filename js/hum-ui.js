@@ -167,7 +167,12 @@ export function openHum(api, { from = 'create' } = {}) {
       micButton(api, { idle: 'Tap and hum', onTake: show }).el,
       h('p', { class: 'hum-note' }, 'Your recording stays on this device.'));
   };
-  const songRes = () => analyzeHum(take.channels[0], take.sampleRate, { bpm: api.state().bpm, key: api.state().key, scaleNotes: SCALES[api.state().scale]?.notes, voice });
+  const fromCreate = from === 'create';
+  const songRes = () => {
+    const { bpm, scale } = api.state(), data = take.channels[0], sr = take.sampleRate;
+    const key = fromCreate ? songKey(analyzeHum(data, sr, { bpm }).detected, scale) : api.state().key;
+    return analyzeHum(data, sr, { bpm, key, scaleNotes: SCALES[scale]?.notes, voice });
+  };
   function show(t) {
     take = t;
     const res = { ...songRes(), bpm: api.state().bpm };
@@ -219,7 +224,6 @@ export function openHum(api, { from = 'create' } = {}) {
         return { key, hook: analyzeHum(data, sr, { bpm, key, scaleNotes: SCALES[scale]?.notes, voice: v }).hook };
       });
     };
-    const fromCreate = from === 'create';
     const primary = h('button', { class: 'btn accent hum-primary', onclick: fromCreate ? build : apply }, fromCreate ? 'BUILD A SONG AROUND IT' : 'USE IN MY SONG');
     const second = h('button', { class: 'btn ghost', onclick: fromCreate ? apply : build }, fromCreate ? 'USE IN THIS SONG' : 'BUILD A NEW SONG');
     body.replaceChildren(
