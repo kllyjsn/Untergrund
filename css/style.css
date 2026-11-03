@@ -384,6 +384,8 @@ body.artist-live .logo b { background: #c6ff2b; }
 /* ---------- club rooms ---------- */
 .btn.club-btn { border-color: #6540a0; color: #cbb2ff; }
 .btn.club-queue { border-color: #8d5cff; color: #cbb2ff; }
+.overlay.live-set-overlay { z-index: 70; }
+.live-set-pref { display: flex; gap: 8px; align-items: center; font-size: 12px; color: #8a8a94; margin-top: 10px; }
 .club-overlay { position: fixed; inset: 0; z-index: 60; background: #050506; color: #f1f1f4; }
 .club-shell { --club-purple: #8d5cff; height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0,1fr) auto; overflow: hidden; background:
   radial-gradient(circle at 50% 20%, rgba(99,53,164,.22), transparent 33%),
