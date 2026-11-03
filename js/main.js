@@ -24,6 +24,7 @@ import { followingRow } from './feed.js';
 import { fetchPublicTrack } from './account.js';
 import { openShare, openSharedLanding, countRemix, track } from './share.js';
 import { readShareParams, decodeSong, normalizeSong, remixState } from './share-code.js';
+import { songTimeline } from './timeline-ui.js';
 
 let state = load() || defaultState();
 let ctx = null, engine = null, seq = null, timer = null, setRec = null;
@@ -121,6 +122,8 @@ function schedule() {
     nextTime = fix.nextTime;
   }
   while (nextTime < ctx.currentTime + 0.12) {
+    const skip = abs % 16 === 0 ? timeline.skip(seq.chainPos) : 0;
+    if (skip) { abs += skip * 16; seq.chainPos += skip; transportOrigin -= skip * 16 * base * 1000; }
     artistTick(abs);
     const pat = seq.tick(abs, nextTime);
     uiQueue.push({ abs, t: nextTime, pat });
@@ -134,9 +137,11 @@ function schedule() {
 }
 
 function play({ step = 0, delay = 0.06 } = {}) {
+  const seeking = playing;
   stopPreview();
   closePractice();
   ensureAudio();
+  uiQueue.length = 0;
   abs = Math.max(0, Math.floor(step));
   const bar = Math.floor(abs / 16);
   const chain = state.chainOn ? parseChain(state.chain) : [];
@@ -154,6 +159,7 @@ function play({ step = 0, delay = 0.06 } = {}) {
   midiClockStart(ctx, abs, nextTime);
   schedule();
   document.body.classList.add('playing');
+  if (seeking) return;
   playStarted({ genre: style });
   renderHome();
 }
@@ -168,6 +174,7 @@ function stop() {
   engine?.panic();
   uiQueue.length = 0;
   setPlayhead(null);
+  timeline.frame(null);
   lastPlayedPat = null;
   if (seq) seq.queued = null;
   if (artistLive) stopArtistLive(false);
@@ -230,13 +237,14 @@ function setMaster(id, v) {
 }
 
 function pushUndo() {
-  undoStack.push(JSON.stringify({ patterns: state.patterns, params: state.params, master: state.master, bpm: state.bpm, key: state.key }));
+  undoStack.push(JSON.stringify({ patterns: state.patterns, params: state.params, master: state.master, bpm: state.bpm, key: state.key, chain: state.chain, labels: state.labels || null }));
   if (undoStack.length > 40) undoStack.shift();
 }
 function undo() {
   const s = undoStack.pop();
   if (!s) return toast('Nothing to undo');
   Object.assign(state, JSON.parse(s));
+  if (!state.labels) delete state.labels;
   engine?.applyAll(); engine?.applyDelayTime();
   build(); persist(); toast('Undone');
 }
@@ -519,7 +527,7 @@ function doGenerateSet(hum = null) {
   state.chain = songChain(style, seed);
   // A score sets its own tempo even mid-set; a masterwork keeps its title and composer.
   if (g.pattern.score) state.bpm = g.bpm;
-  if (hum && !g.pattern.score) { const r = hum(state.bpm, state.scale); state.key = r.key; if (r.hook) placeHook(state.patterns, r.hook); }
+  if (typeof hum === 'function' && !g.pattern.score) { const r = hum(state.bpm, state.scale); state.key = r.key; if (r.hook) placeHook(state.patterns, r.hook); }
   const piece = PIECE[g.pattern.score?.piece];
   const title = piece ? piece.title : trackTitle(seed);
   const artist = piece ? piece.composer : loadAvatar().name || 'UNTERGRUND';
@@ -611,7 +619,7 @@ function build() {
   app.innerHTML = '';
   ui.rows = {};
   document.body.classList.toggle('studio-open', studioOpen);
-  app.append(buildHeader(), buildGenerateHome(), h('main', { class: 'main studio-workspace' }, h('div', { class: 'left' }, buildGrid(), buildEditor()), buildMaster()), buildTabBar());
+  app.append(buildHeader(), buildGenerateHome(), state.patterns[0]?.score ? '' : timeline.mount(), h('main', { class: 'main studio-workspace' }, h('div', { class: 'left' }, buildGrid(), buildEditor()), buildMaster()), buildTabBar());
   renderPatterns();
   for (const id of TRACK_IDS) renderRow(id);
   renderRoll();
@@ -641,6 +649,26 @@ const SECTION_NAMES = {
 };
 const sectionName = (sid, i) => SECTION_NAMES[GROOVE_STYLES.has(sid) ? 'groove' : 'club'][i] || PATTERN_NAMES[i];
 const hue = (id) => STYLE_HUE[id] || '#c6ff2b';
+
+function setSong(on) {
+  state.chainOn = on;
+  document.querySelector('.chain-toggle')?.classList.toggle('on', on);
+  if (seq) seq.chainPos = Math.ceil(abs / 16);
+  timeline.refresh();
+  persist();
+}
+const timeline = songTimeline({
+  state: () => state,
+  kind: () => (GROOVE_STYLES.has(style) ? 'groove' : 'club'),
+  playing: () => playing,
+  current: () => state.current,
+  before: pushUndo,
+  after: () => { persist(); const inp = document.querySelector('input.chain'); if (inp) inp.value = state.chain; },
+  select: selectPattern,
+  jump: (bar) => play({ step: bar * 16 }),
+  setSong,
+  track: (kind) => trackEvent('song_edit', { kind }),
+});
 
 function styleGlyph(id) {
   const r = rng([...id].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7));
@@ -978,9 +1006,9 @@ function buildHeader() {
     h('button', { class: 'btn ghost', title: 'Clear pattern', onclick: () => { pushUndo(); state.patterns[state.current] = emptyPattern(); build(); persist(); } }, 'CLEAR'));
 
   const chainInput = h('input', { class: 'chain', value: state.chain, spellcheck: 'false', title: 'Arrangement: one letter per bar, e.g. AABBCCDD',
-    oninput: (e) => { state.chain = e.target.value.toUpperCase().replace(/[^A-H]/g, ''); persist(); } });
-  const chainBtn = h('button', { class: 'btn toggle' + (state.chainOn ? ' on' : ''), title: 'Play the arrangement chain',
-    onclick: (e) => { state.chainOn = !state.chainOn; e.currentTarget.classList.toggle('on', state.chainOn); if (seq) seq.chainPos = 0; persist(); } }, 'CHAIN');
+    oninput: (e) => { state.chain = e.target.value.toUpperCase().replace(/[^A-H]/g, ''); persist(); timeline.refresh(); } });
+  const chainBtn = h('button', { class: 'btn toggle chain-toggle' + (state.chainOn ? ' on' : ''), title: 'Play the arrangement chain',
+    onclick: () => setSong(!state.chainOn) }, 'CHAIN');
 
   const styleSel = h('select', { class: 'sel', title: 'Generator style', onchange: (e) => { style = e.target.value; build(); } },
     Object.entries(STYLES).map(([k, v]) => { const o = h('option', { value: k }, v.name); if (k === style) o.selected = true; return o; }));
@@ -1020,7 +1048,7 @@ function buildHeader() {
     h('div', { class: 'group studio-only studio-more' }, chainBtn, chainInput),
     h('div', { class: 'group gen studio-only studio-more' }, styleSel,
       h('button', { class: 'btn accent', title: 'Generate a pattern into this slot (G)', onclick: doGenerate }, 'GENERATE'),
-      h('button', { class: 'btn', title: 'Generate a whole 8-pattern arrangement and enable chain', onclick: doGenerateSet }, 'NEW SET'),
+      h('button', { class: 'btn', title: 'Generate a whole 8-pattern arrangement and enable chain', onclick: () => doGenerateSet() }, 'NEW SET'),
       h('button', { class: 'btn ghost', title: 'Small variation (M)', onclick: doMutate }, 'MUTATE'),
       h('select', { class: 'sel variation', title: 'How far the next variation moves from this pattern', onchange: (e) => { variation = +e.target.value; } },
         h('option', { value: .12 }, 'SUBTLE'), h('option', { value: .25, selected: true }, 'EVOLVE'), h('option', { value: .55 }, 'WILD')),
@@ -1419,6 +1447,7 @@ function frame() {
       }
       setPlayhead(ev);
       updateNowPlaying(ev);
+      timeline.frame(ev);
       const pattern = state.patterns[ev.pat];
       const step = ev.abs % 16;
       window.dispatchEvent(new CustomEvent('untergrund:step', { detail: {
