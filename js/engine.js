@@ -3,6 +3,8 @@ import { getSample } from './sampler.js';
 import { liveKit, loadLiveKit, BASS_NOTES, bandKit, loadBand, STAB_BAND } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel } from './groove.js';
+import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB } from './lead.js';
+import { lowEnd } from './lowend.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
@@ -239,13 +241,15 @@ export class Engine {
       const pan = c.createStereoPanner();
       const rev = this.gain(0);
       const dly = this.gain(0);
-      input.connect(level).connect(pan);
+      // The bass gets its own kick sidechain (see duckAt) on top of the shared pump.
+      const sc = t.id === 'acid' ? this.gain(1) : null;
+      (sc ? input.connect(sc) : input).connect(level).connect(pan);
       pan.connect(DUCKED.has(t.id) ? this.duck : this.mix);
       pan.connect(rev).connect(this.revIn);
       if (t.id !== 'vox') pan.connect(this.roomIn);
       pan.connect(dly).connect(this.dlyIn);
       pan.connect(this.throwBus);
-      const ch = { input, level, pan, rev, dly };
+      const ch = { input, level, pan, rev, dly, sc };
       if (t.id === 'stab') {
         ch.band = this.gain(1);
         ch.band.connect(input);
@@ -377,6 +381,29 @@ export class Engine {
       param.setTargetAtTime(1 - d, t, 0.0025);
       param.setTargetAtTime(1, t + 0.03, rel);
     }
+    // Club low end: the kick owns the first few ms, then the bass comes straight back.
+    const L = lowEnd(this.state.master), sc = this.ch.acid.sc?.gain;
+    if (L && sc) {
+      sc.cancelScheduledValues(t);
+      sc.setTargetAtTime(1 - L.dip * Math.min(1, v * 1.2), t, 0.002);
+      sc.setTargetAtTime(1, t + 0.012, L.rel);
+    }
+  }
+
+  // A live band (SOUL pocket on the LIVE kit) is balanced as recorded; level matching is for club mixes.
+  soulBand() { return pocketOf(this.state.master)?.name === 'SOUL' || Math.round(this.state.master.kit || 0) === 1; }
+
+  // Synth chord and lead voices go through a make-up gain so they sit level with the recorded players.
+  trimOut(key, db, dst, shelfAmt = 0.7) {
+    this.trims ||= {};
+    if (!db) return dst;
+    // Match level where the voice speaks: the make-up stays out of the 200–500 Hz mud band.
+    if (!this.trims[key]) {
+      const g = (this.trims[key] = this.gain(dbGain(db)));
+      if (!shelfAmt) g.connect(dst);
+      else { const shelf = this.filter('lowshelf', 320, 0.7); shelf.gain.value = -db * shelfAmt; g.connect(shelf).connect(dst); }
+    }
+    return this.trims[key];
   }
 
   trigger(id, t, v) {
@@ -852,11 +879,11 @@ export class Engine {
   }
 
   stab(t, v) {
-    const c = this.ctx, p = this.state.params.stab, out = this.ch.stab.input;
+    const c = this.ctx, p = this.state.params.stab;
     const h = this.harm;
     const iv = CHORDS[h ? h.c : Math.round(p.chord)].iv;
     const root = 48 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot();
-    const vo = Math.round(p.voice);
+    const vo = Math.round(p.voice), out = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input);
     if (vo > 0) return this[STAB_VOICES[vo]](t, v, iv, root, p, out);
     const lp = this.filter('lowpass', p.cutoff, p.reso);
     const amp = this.gain(0);
@@ -1154,53 +1181,68 @@ export class Engine {
       const R = BAND_PLAY[band], ring = R.hold ? dur * 1.05 : Math.max(R.min * 0.6, dur * 1.5);
       return this.recordedNote(set, t, Math.min(1.3, v) * R.gain * 0.6, 60 + k + oct * 12 + n, ring, this.ch.stab.input, 0, band, v / 1.3);
     }
-    const f = midiHz(60 + k + oct * 12 + n), out = this.ch.stab.input;
-    const len = Math.max(0.06, dur * 0.92), end = t + len + 0.6;
+    const f = midiHz(60 + k + oct * 12 + n), L = leadPreset(voice, pocketOf(this.state.master)?.name);
+    const out = this.trimOut(`hook-${voice}`, this.soulBand() ? 0 : HOOK_TRIM_DB[voice] || 0, this.ch.stab.input, 0);
+    const len = Math.max(0.06, dur * 0.92), end = t + len + 0.6, vn = Math.min(1, v / 1.3);
+    // Played legato into a close note, the lead slides there instead of re-striking.
+    const prev = this.lastLead, semis = prev ? Math.abs(12 * Math.log2(f / prev.f)) : 0;
+    const from = L.glide && prev && t > prev.t && t - prev.end < 0.09 && semis > 0.5 && semis <= 7 ? prev.f : 0;
+    const glide = from ? L.glide * (0.6 + (0.4 * semis) / 7) : 0;
+    this.lastLead = { f, t, end: t + len };
     const amp = this.gain(0), pan = c.createStereoPanner();
     pan.pan.value = (hash(t * 13, 5) - 0.5) * 0.3;
-    const tame = this.filter('lowpass', 1800 + 1200 * b + 800 * (1 - warmth), 0.5);
+    const tame = this.filter('lowpass', (1800 + 1200 * b + 800 * (1 - warmth)) * L.air, 0.5);
+    // The 2–5 kHz presence band is where synth leads turn harsh; dip it rather than darken the whole voice.
+    const presence = this.filter('peaking', 3200, 0.8); presence.gain.value = -L.tame;
+    // A lead sits on its harmonics, not its fundamental: shelve the low mids so it never muddies the mix.
+    const thin = this.filter('lowshelf', 360, 0.7); thin.gain.value = -5;
     // Character: soft tube-style saturation, a little per-note pitch drift, and vibrato that only
-    // blooms on held notes, the way a player leans into a sustained note.
+    // develops on held notes, the way a player leans into a sustained note.
     const tubeAmt = 0.04 + 0.06 * warmth, tubeK = 1 + Math.round(tubeAmt * 100) / 100 * 14;
     const tube = c.createWaveShaper(); tube.curve = driveCurve(tubeAmt);
-    amp.connect(tube).connect(this.gain(Math.tanh(tubeK) / tubeK)).connect(tame).connect(pan).connect(out);
+    amp.connect(tube).connect(this.gain(Math.tanh(tubeK) / tubeK)).connect(thin).connect(tame).connect(presence).connect(pan).connect(out);
     const oscs = [], drift = (hash(t * 7, 11) - 0.5) * 9;
-    const vib = len > 0.28 ? c.createOscillator() : null, vibDepth = vib ? this.gain(0) : null;
+    const vib = len > 0.24 && L.vib[1] ? c.createOscillator() : null, vibDepth = vib ? this.gain(0) : null;
     if (vib) {
-      vib.frequency.value = 4.6 + hash(t, 12) * 1.2;
+      const rate = L.vib[0] + hash(t, 12) * 0.6, wait = Math.min(0.22, len * 0.3);
+      const depth = L.vib[1] * (0.6 + 0.8 * (expression.feel ?? 0.4)) * Math.min(1, len / 0.8);
+      vib.frequency.setValueAtTime(rate * 0.85, t);
+      vib.frequency.linearRampToValueAtTime(rate * 1.08, t + len);
       vibDepth.gain.setValueAtTime(0, t);
-      vibDepth.gain.linearRampToValueAtTime(0, t + 0.16);
-      vibDepth.gain.linearRampToValueAtTime(7 + 8 * (expression.feel ?? 0.4), t + Math.min(len, 0.6));
+      vibDepth.gain.setValueAtTime(0, t + wait);
+      vibDepth.gain.linearRampToValueAtTime(depth, t + Math.max(wait + 0.05, len * 0.85));
       vib.connect(vibDepth);
       oscs.push(vib);
     }
     const osc = (type, freq, det = 0, g = 1, dst = null) => {
-      const o = c.createOscillator(); o.type = type; o.frequency.value = freq; o.detune.value = det + drift;
+      const o = c.createOscillator(), mul = freq / f; o.type = type; o.detune.value = det + drift;
+      if (from) { o.frequency.setValueAtTime(from * mul, t); o.frequency.exponentialRampToValueAtTime(freq, t + glide); } else o.frequency.value = freq;
       if (vibDepth) vibDepth.connect(o.detune);
       const og = this.gain(g); o.connect(og).connect(dst); oscs.push(o); return o;
     };
-    if (voice === 'analog') {
-      const lp = this.filter('lowpass', 800, 1.2);
-      lp.frequency.setValueAtTime(700 + 300 * (1 - warmth), t);
-      lp.frequency.linearRampToValueAtTime((1300 + 1700 * v) * b, t + 0.045);
-      lp.frequency.setTargetAtTime(900 * b, t + 0.06, 0.3);
-      osc('triangle', f, 0, 0.7, lp); osc('sawtooth', f, -8, 0.18, lp); osc('sawtooth', f, 8, 0.18, lp);
+    // Filter envelope: harder notes open further and brighter, then settle back.
+    const velFilter = (lp, base, env, dec) => {
+      const top = Math.min(16000, (base + env * Math.pow(vn, 1.5)) * b), rest = Math.min(top, base * b * (0.8 + 0.4 * vn));
+      lp.frequency.setValueAtTime(top * 0.6, t);
+      lp.frequency.linearRampToValueAtTime(top, t + 0.012);
+      lp.frequency.setTargetAtTime(rest, t + 0.014, dec);
+    };
+    if (L.stack) {
+      const lp = this.filter('lowpass', L.cut, L.q);
+      velFilter(lp, L.cut, L.env, L.dec);
+      for (let i = 0; i < L.uni; i++) osc(L.wave, f, L.uni > 1 ? ((i / (L.uni - 1)) * 2 - 1) * L.spread : 0, L.mix / Math.sqrt(L.uni), lp);
+      if (L.body) osc(L.body[0], f * L.body[2], 0, L.body[1], lp);
+      // A sine an octave down gives high leads body; it stays out of the low-mid mud band.
+      if (L.sub && f / 2 >= 250) osc('sine', f / 2, 0, L.sub, amp);
       lp.connect(amp);
+      const pk = L.level * v;
       amp.gain.setValueAtTime(EPS, t);
-      amp.gain.linearRampToValueAtTime(0.25 * v, t + 0.018);
-      amp.gain.setTargetAtTime(0.18 * v, t + 0.04, 0.18);
-      amp.gain.setTargetAtTime(0, t + len, 0.12);
-    } else if (voice === 'pulse') {
-      const lp = this.filter('lowpass', 400, 2.5);
-      lp.frequency.setValueAtTime((500 + 1700 * v) * b, t);
-      lp.frequency.setTargetAtTime(550, t + 0.008, 0.09 + len * 0.18);
-      osc('triangle', f, 0, 0.72, lp); osc('square', f, 4, 0.2, lp);
-      lp.connect(amp);
-      amp.gain.setValueAtTime(EPS, t);
-      amp.gain.linearRampToValueAtTime(0.25 * v, t + 0.008);
-      amp.gain.setTargetAtTime(0, t + Math.min(len, 0.22), 0.075);
+      amp.gain.linearRampToValueAtTime(pk, t + L.atk);
+      amp.gain.setTargetAtTime(pk * L.sus, t + L.atk, L.hold);
+      amp.gain.setTargetAtTime(0, t + Math.max(len, L.atk + 0.02), L.rel);
     } else if (voice === 'vocal') {
       const body = this.filter('lowpass', 1900 + 700 * b, 0.7);
+      velFilter(body, L.cut + 400, L.env, L.dec);
       const vowelA = this.filter('bandpass', 720 + 100 * b, 2.2);
       const vowelB = this.filter('bandpass', 1180 + 220 * b, 2.8);
       const source = this.gain(0.75), formants = this.gain(0.22);
@@ -1216,6 +1258,7 @@ export class Engine {
       amp.gain.setTargetAtTime(0, t + len, 0.09);
     } else if (voice === 'reed') {
       const lp = this.filter('lowpass', 1500 + 900 * b, 0.7);
+      velFilter(lp, L.cut, L.env, L.dec);
       const car = osc('sine', f, 0, 0.8, lp); const tri = osc('triangle', f, 3, 0.25, lp);
       const lfo = c.createOscillator(); lfo.frequency.value = 5.2; const lg = this.gain(0);
       lg.gain.setValueAtTime(0, t); lg.gain.linearRampToValueAtTime(9, t + Math.min(0.4, len));
@@ -1238,15 +1281,6 @@ export class Engine {
       amp.gain.setValueAtTime(EPS, t);
       amp.gain.linearRampToValueAtTime(0.34 * v, t + 0.004);
       amp.gain.setTargetAtTime(0, t + 0.004, ring * 0.45);
-    } else {
-      const lp = this.filter('lowpass', 700, 1.5);
-      lp.frequency.setValueAtTime((900 + 1900 * v) * b, t);
-      lp.frequency.setTargetAtTime(620, t + 0.005, 0.11);
-      osc('triangle', f, -3, 0.72, lp); osc('sine', f * 2, 3, 0.18, lp);
-      lp.connect(amp);
-      amp.gain.setValueAtTime(EPS, t);
-      amp.gain.linearRampToValueAtTime(0.34 * v, t + 0.006);
-      amp.gain.setTargetAtTime(0, t + 0.01, Math.max(0.1, Math.min(0.45, len * 0.65)));
     }
     for (const o of oscs) { o.start(t); o.stop(end); }
   }
@@ -1387,13 +1421,33 @@ export class Engine {
     this.adEnv(ng.gain, t, 0.25 * vel, 0.0005, 0.012);
     nz.connect(bp).connect(ng).connect(out);
     this.mono = { amp, f, end };
+    const sub = lowEnd(this.state.master)?.sub[4];
+    if (sub) this.subLayer(t, f, Math.max(0.12, len * 0.7), sub * vel, sliding);
+  }
+
+  // Clean sine sub under bass voices that have none. One mono voice, so legato notes glide
+  // rather than stack; folded into 33–66 Hz where it adds weight without reaching the low mids.
+  subLayer(t, f, len, vel, sliding) {
+    while (f > 66) f /= 2;
+    while (f < 33) f *= 2;
+    let s = this.subVoice;
+    if (!s) {
+      const o = this.ctx.createOscillator(), amp = this.gain(0);
+      o.frequency.value = f; o.connect(amp).connect(this.ch.acid.input); o.start();
+      s = this.subVoice = { o, amp };
+    }
+    s.o.frequency.cancelScheduledValues(t); s.o.frequency.setTargetAtTime(f, t, sliding ? 0.03 : 0.001);
+    s.amp.gain.cancelScheduledValues(t);
+    s.amp.gain.setTargetAtTime(vel, t, 0.004);
+    s.amp.gain.setTargetAtTime(0, t + len, 0.04);
   }
 
   acid(t, st, sliding, holdNext, sd) {
     const a = this.acidNodes, p = this.state.params.acid;
     const vo = Math.round(p.voice);
     if (vo > 0) { a.vca.gain.setTargetAtTime(0, t, 0.005); return this[['', 'bass', 'eight08', 'reese', 'logdrum'][vo]](t, st, sd, holdNext, sliding); }
-    const f = midiHz(this.bassMidi(st));
+    const f = midiHz(this.bassMidi(st)), sub = lowEnd(this.state.master)?.sub[0];
+    if (sub) this.subLayer(t, midiHz(this.bassMidi(st, 36, 38)), holdNext ? sd * 1.05 : sd * 0.6, sub * (st.a ? 1 : 0.85) * (this.noteVel ?? 1), sliding);
     for (const o of [a.o1, a.o2]) {
       if (sliding) o.frequency.setTargetAtTime(f, t, 0.024);
       else o.frequency.setValueAtTime(f, t);
@@ -1414,7 +1468,7 @@ export class Engine {
     if (!holdNext) a.vca.gain.setTargetAtTime(0, t + sd * 0.55, 0.006);
   }
 
-  acidRelease(t) { this.acidNodes.vca.gain.setTargetAtTime(0, t, 0.008); if (this.mono) { this.mono.amp.gain.setTargetAtTime(0, t, 0.01); this.mono = null; } }
+  acidRelease(t) { this.acidNodes.vca.gain.setTargetAtTime(0, t, 0.008); this.subVoice?.amp.gain.setTargetAtTime(0, t, 0.01); if (this.mono) { this.mono.amp.gain.setTargetAtTime(0, t, 0.01); this.mono = null; } }
 
   // ---------- arrangement FX ----------
   // One-bar noise sweep into a drop, then a sub boom and crash on its downbeat
