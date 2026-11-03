@@ -9,7 +9,7 @@ export default async function handler(req, res) {
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body;
     const client = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket?.remoteAddress;
     const crate = redisStore();
-    const { status, json } = await handleJukebox(req.method, body, { store: redisJukebox(), crate, client, uploads: !!process.env.BLOB_READ_WRITE_TOKEN });
+    const { status, json } = await handleJukebox(req.method, body, { store: redisJukebox(), crate, client, uploads: !!process.env.BLOB_READ_WRITE_TOKEN, id: String(req.query?.id || '') });
     if (status === 201 && json.item?.trackId) {
       await attachPublished({ kv: redisKv(), secret: process.env.AUTH_SECRET, cookie: req.headers.cookie, crate, trackId: json.item.trackId }).catch(() => {});
     }

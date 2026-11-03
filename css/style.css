@@ -215,6 +215,28 @@ body.recording .btn.rec .dot { background: var(--accent); animation: pulse 1s in
 .btn.perf small { color: var(--dim); font-size: 9px; }
 .btn.perf.on { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 0 22px rgba(255, 43, 43, 0.5); }
 .btn.perf.on small { color: #fff; }
+.midi-strip { display: flex; flex-direction: column; gap: 6px; }
+.midi-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.midi-status-line { color: var(--dim); font-size: 10px; letter-spacing: .06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.midi-learn .knob[data-param], body.midi-learn .btn.perf, body.midi-learn .row .m, body.midi-learn .pat, body.midi-learn .btn.play { outline: 1px dashed rgba(255, 255, 255, .35); outline-offset: 2px; border-radius: 6px; cursor: pointer; }
+body.midi-learn .midi-mapped { outline: 1px solid var(--accent) !important; }
+body.midi-learn .midi-armed { outline: 2px solid #fff !important; animation: midi-armed 0.9s ease-in-out infinite; }
+@keyframes midi-armed { 50% { outline-color: var(--accent); } }
+.midi-banner { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 14px; max-width: calc(100vw - 24px); box-sizing: border-box;
+  padding: 10px 10px 10px 16px; background: #141417; border: 1px solid var(--accent); border-radius: 12px; box-shadow: 0 10px 40px rgba(0, 0, 0, .6); font-size: 12px; color: var(--text); }
+@media (max-width: 760px) { .midi-banner { bottom: calc(76px + env(safe-area-inset-bottom, 0px)); width: calc(100vw - 24px); } }
+.midi-note { color: var(--dim); font-size: 12px; line-height: 1.5; margin: 0; }
+.midi-dev { display: flex; flex-direction: column; gap: 8px; padding: 10px 0; border-bottom: 1px solid #1f1f24; }
+.midi-dev + .glabel { margin-top: 8px; }
+.midi-dev-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.midi-dev-head b { flex: 1; }
+.midi-more summary { cursor: pointer; color: var(--text); font-size: 12px; letter-spacing: .06em; padding: 4px 0; }
+.midi-more[open] summary { margin-bottom: 6px; }
+.midi-maps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow: auto; }
+.midi-maps li { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px; padding: 4px 4px 4px 10px; background: #111114; border-radius: 6px; font-size: 12px; }
+.midi-maps small { color: var(--dim); }
+.midi-maps .btn.x { padding: 2px 10px; }
+.midi-field small { color: var(--dim); letter-spacing: .04em; font-size: 10px; }
 .foot { color: var(--dim2); font-size: 9px; letter-spacing: 0.12em; text-align: center; padding-top: 4px; border-top: 1px solid var(--line); }
 
 /* ---------- overlays ---------- */
@@ -362,6 +384,8 @@ body.artist-live .logo b { background: #c6ff2b; }
 /* ---------- club rooms ---------- */
 .btn.club-btn { border-color: #6540a0; color: #cbb2ff; }
 .btn.club-queue { border-color: #8d5cff; color: #cbb2ff; }
+.overlay.live-set-overlay { z-index: 70; }
+.live-set-pref { display: flex; gap: 8px; align-items: center; font-size: 12px; color: #8a8a94; margin-top: 10px; }
 .club-overlay { position: fixed; inset: 0; z-index: 60; background: #050506; color: #f1f1f4; }
 .club-shell { --club-purple: #8d5cff; height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0,1fr) auto; overflow: hidden; background:
   radial-gradient(circle at 50% 20%, rgba(99,53,164,.22), transparent 33%),

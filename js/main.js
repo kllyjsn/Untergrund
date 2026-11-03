@@ -7,14 +7,17 @@ import { exportButtons } from './export-ui.js';
 import { encodeWav, rng } from './dsp.js';
 import { knob, numBox, h } from './ui.js';
 import { openPublish } from './publish.js';
-import { createSetRecorder, openSetCutter, openSongPublish, openJukebox, fmtTime } from './sets.js';
+import { createSetRecorder, openSetCutter, openSongPublish, openJukebox, fmtTime, loadReplay } from './sets.js';
 import { loadArtistProfile, openArtistStudio } from './artist.js';
 import { openClub, loadAvatar } from './club.js';
-import { saveTrack, trackTitle, recentTracks, fetchTrack } from './crate.js';
+import { playTimeline, stopTimeline } from './live-sets.js';
+import { saveTrack, trackTitle, recentTracks, fetchTrack, countPlay } from './crate.js';
+import { dropCard } from './drop.js';
 import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
 import { roomTransportPosition, transportResync } from './room-sync.js';
 import { concertPanel, concertBar, preloadScore, loadPiano } from './concert.js';
 import { closePractice } from './practice-ui.js';
+import { initMidi, midiStrip, midiClockStart, midiClockStep, midiClockStop } from './midi-studio.js';
 import { openHum, melodyPanel, humButton, placeHook } from './hum-ui.js';
 import { restoreVoice } from './voice.js';
 import { compose } from './classical.js';
@@ -128,6 +131,7 @@ function schedule() {
     uiQueue.push({ abs, t: nextTime, pat });
     // A score breathes (rubato): the transport clock follows the stretched step, not the metronome.
     const sd = engine.stepDur;
+    midiClockStep(ctx, abs, nextTime, sd);
     nextTime += sd;
     transportOrigin += (sd - base) * 1000;
     abs++;
@@ -154,6 +158,7 @@ function play({ step = 0, delay = 0.06 } = {}) {
   playing = true;
   if (pat().score) preloadScore(pat().score);
   timer.postMessage('start');
+  midiClockStart(ctx, abs, nextTime);
   schedule();
   document.body.classList.add('playing');
   if (seeking) return;
@@ -167,6 +172,7 @@ function stop() {
   playing = false;
   playStopped();
   timer?.postMessage('stop');
+  midiClockStop();
   engine?.panic();
   uiQueue.length = 0;
   setPlayhead(null);
@@ -323,6 +329,12 @@ function showJukebox() {
     onClose: leaveGuest,
     onRemix: () => current && remixSong(current, true),
     onShare: () => current && showShare(current, 'jukebox'),
+    playReplay: async (item) => {
+      ensureAudio();
+      current = null;
+      trackEvent('set_replay', { kind: 'jukebox' });
+      return playTimeline(await loadReplay(item), Date.now() + 200, timelineHooks(true));
+    },
     playSong: async (item) => {
       ensureAudio();
       const saved = await fetchTrack(item.trackId);
@@ -335,7 +347,46 @@ function showJukebox() {
   });
 }
 
+// Saved Club sets replay from their timeline; `asGuest` (jukebox) keeps the listener's own project safe.
+function timelineHooks(asGuest) {
+  return {
+    load: (s, st) => {
+      if (asGuest && !guest) guest = { backup: clone(state), style };
+      if (STYLES[st]) style = st;
+      const next = sanitize({ ...s, artist: state.artist });
+      if (!asGuest) return replaceState(next);
+      stop(); autoMajor = false; state = next;
+      if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
+      build();
+    },
+    apply: (s, st) => {
+      if (STYLES[st]) style = st;
+      const next = sanitize({ ...clone(state), ...s });
+      if (playing && next.bpm !== state.bpm) transportOrigin = Date.now() - ((Date.now() - transportOrigin) / (15000 / state.bpm)) * (15000 / next.bpm);
+      const want = next.current;
+      next.current = state.current;
+      state = next;
+      if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
+      if (seq && !state.chainOn && want !== seq.cur) seq.queued = want;
+      build(); if (!guest) persist();
+    },
+    play, isPlaying: () => playing, onEnd: () => playing && stop(),
+  };
+}
+function replayToRoom(timeline, startsAt) { playTimeline(timeline, startsAt, timelineHooks(false)); }
+
+async function joinRoomReplay(item) {
+  try {
+    const timeline = item.replay.timeline || await loadReplay(item.replay);
+    replayToRoom(timeline, +item.startsAt);
+    toast(`Replaying “${item.title}” with the room`);
+    trackEvent('set_replay', { kind: 'room_listener' });
+  } catch { joinRoomSet({ ...item, replay: null }); }
+}
+
 function joinRoomSet(item) {
+  stopTimeline();
+  if (item?.replay) return joinRoomReplay(item);
   if (!item?.state) return;
   style = STYLES[item.style] ? item.style : STYLES[item.state.artist?.style] ? item.state.artist.style : style;
   const roomState = sanitize(clone(item.state));
@@ -375,6 +426,7 @@ function showClub() {
       return ctx.state === 'running';
     },
     joinRoomSet,
+    replayToRoom,
     toast,
   });
 }
@@ -502,9 +554,9 @@ const humApi = {
   buildSong: (hum) => { stopPreview(); generatedAt = performance.now(); doGenerateSet(hum); if (!playing) play(); },
 };
 
-function doGenerateSet(hum = null) {
+function doGenerateSet(hum = null, drop = null) {
   pushUndo();
-  const seed = (Math.random() * 1e9) | 0;
+  const seed = drop ? drop.seed : (Math.random() * 1e9) | 0;
   const source = clone(pat());
   const lockedParams = Object.fromEntries(TRACK_IDS.filter((id) => state.locks[id]).map((id) => [id, clone(state.params[id])]));
   matchStyleScale();
@@ -525,13 +577,17 @@ function doGenerateSet(hum = null) {
   if (g.pattern.score) state.bpm = g.bpm;
   if (typeof hum === 'function' && !g.pattern.score) { const r = hum(state.bpm, state.scale); state.key = r.key; if (r.hook) placeHook(state.patterns, r.hook); }
   const piece = PIECE[g.pattern.score?.piece];
-  const title = piece ? piece.title : trackTitle(seed);
+  const title = piece ? piece.title : drop ? drop.title : trackTitle(seed);
   const artist = piece ? piece.composer : loadAvatar().name || 'UNTERGRUND';
   state.artist = { name: artist, title, style, seed, created: new Date().toISOString() };
+  delete state.remixOf; delete state.drop;
+  if (drop) Object.assign(state, { drop: drop.date, remixOf: { id: '', title: `Daily Drop · ${drop.title}`, artist: 'UNTERGRUND' } });
   build(); persist();
   trackEvent('generate', { genre: style, kind: 'song' });
   toast(piece ? `${piece.composer.split(' ').pop()}: ${title}` : `New ${STYLES[style].name} track “${title}”`);
-  saveTrack({ title, artist, style, state: clone(state) })
+  // The drop itself is everyone's; only a published version joins today's remixes.
+  const { drop: _d, remixOf: _r, ...own } = clone(state);
+  saveTrack({ title, artist, style, state: drop ? own : clone(state) })
     .then(({ shared }) => toast(`“${title}” saved to ${shared ? 'the shared CRATE' : 'your CRATE'}`));
 }
 
@@ -726,11 +782,11 @@ function selectFamily(f) {
   if (STYLES[style].family !== f) style = Object.keys(STYLES).find((id) => STYLES[id].family === f);
   build();
 }
-function generateNow() {
+function generateNow(drop = null) {
   stopPreview();
   generatedAt = performance.now();
   navigator.vibrate?.(12);
-  doGenerateSet();
+  doGenerateSet(null, drop);
   if (!pat().score) return playing ? undefined : play();
   // A new score starts at its first bar, not wherever the transport happened to be.
   if (playing) stop();
@@ -763,6 +819,13 @@ function playPiece(id) {
   ensureAudio();
   toast(`Opening ${p.title}…`);
   preloadScore({ piece: id }).then(() => { if (!playing && pat().score?.piece === id) play(); }, (e) => toast(`Couldn't open the score: ${e.message}`));
+}
+function playDrop(drop) {
+  style = drop.style;
+  family = STYLES[style].family;
+  localStorage.setItem('untergrund.family', family);
+  trackEvent('daily_drop', { kind: 'make', genre: style });
+  generateNow(drop);
 }
 function surprise() {
   const ids = Object.keys(STYLES).filter((id) => id !== style);
@@ -929,7 +992,8 @@ function buildGenerateHome() {
     h('div', { class: 'generate-copy' },
       h('span', {}, 'TECHNO · HOUSE · JAZZ · HIP-HOP · BASS'),
       h('h1', {}, 'Press Generate. Hear a finished track.'),
-      h('p', {}, 'Choose a sound and UNTERGRUND writes a full arrangement you can perform live, refine in Studio, or spin in the Club.')),
+      h('p', {}, 'Choose a sound and UNTERGRUND writes a full arrangement you can perform live, refine in Studio, or spin in the Club.'),
+      dropCard({ hue, onMake: playDrop, onLoad: renderHome, onPlay: (t) => { countPlay(t.id); trackEvent('daily_drop', { kind: 'play', genre: t.style }); openShared(t.id, true); } })),
     h('div', { class: 'generate-actions' }, primary,
       h('button', { class: 'btn refine-toggle', onclick: toggleStudio }, studioOpen ? 'HIDE STUDIO' : 'REFINE IN STUDIO'),
       h('button', { class: 'btn ghost', onclick: () => startArtistLive() }, 'ARTIST LIVE'),
@@ -1375,6 +1439,7 @@ function buildMaster() {
       hold('ROLL', 'R', 'Ratchet the selected drum (or snare) at 1/32', () => { if (seq) seq.roll = TRACK_BY_ID[selected].kind === 'drum' && selected !== 'kick' ? selected : 'snare'; }, () => { if (seq) seq.roll = null; }),
       hold('THROW', 'T', 'Throw everything into delay + reverb', () => engine.setThrow(true), () => engine.setThrow(false)),
       hold('RISER', 'Y', 'Noise riser that builds over 4 bars', () => engine.riserStart(), () => engine.riserStop())),
+    midiStrip(),
     h('div', { class: 'foot' }, `${getSample().source === 'synth' ? 'synths + recorded CC0 instruments' : 'synth + your own samples'} · 48k/24-bit export`));
 }
 
@@ -1520,10 +1585,11 @@ const shared = readShareParams(location);
 if (shared) setTimeout(() => {
   const load = shared.code ? decodeSong(shared.code)
     : fetch(`/api/tracks?id=${encodeURIComponent(shared.id)}`).then((r) => (r.ok ? r.json().then((j) => j.track) : Promise.reject()))
-      .catch(() => fetchTrack(shared.id)).then((t) => t?.state && { ...normalizeSong({ ...t, remixOf: t.remixOf }), trackId: t.id, remixes: t.remixes || 0 }).catch(() => null);
+      .catch(() => fetchTrack(shared.id)).then((t) => t?.state && { ...normalizeSong({ ...t, remixOf: t.remixOf }), trackId: t.id, remixes: t.remixes || 0, children: t.children || [] }).catch(() => null);
   const landing = openSharedLanding({
     load, isPlaying: () => playing,
-    play: (song) => listen(song),
+    play: (song) => { countPlay(song.trackId); listen(song); },
+    fetchSong: (id) => fetch(`/api/tracks?id=${encodeURIComponent(id)}`).then((r) => (r.ok ? r.json() : Promise.reject())).then(({ track: t }) => t?.state && { ...normalizeSong(t), trackId: t.id, remixes: t.remixes || 0, children: t.children || [] }),
     stop: () => { if (playing) stop(); },
     remix: remixSong,
     share: (song) => showShare(song, 'shared'),
@@ -1536,6 +1602,14 @@ else if (new URLSearchParams(location.search).has('jukebox')) setTimeout(showJuk
 else if (new URLSearchParams(location.search).has('track')) openShared(new URLSearchParams(location.search).get('track'));
 else if (new URLSearchParams(location.search).has('artist')) setTimeout(openArtist);
 restoreSample();
+initMidi({
+  state: () => state, selected: () => selected, playing: () => playing, persist, setParam, setMaster, toggle,
+  play: (step) => play({ step, delay: 0.01 }), stop: () => { if (playing) stop(); },
+  pad: (k, down) => ui.perf?.[k]?.[down ? 'down' : 'up'](),
+  // External clock: pull the transport toward where that clock says `step` started (Date ms).
+  align: (step, at, blend) => { if (playing) transportOrigin += (at - step * (15000 / state.bpm) - transportOrigin) * blend; },
+  latency: () => (ctx ? (ctx.outputLatency || 0) + (ctx.baseLatency || 0) : 0),
+});
 restoreVoice();
 window.__untergrund = { get state() { return state; }, get engine() { return engine; } };
 

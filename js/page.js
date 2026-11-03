@@ -28,6 +28,13 @@ const art = (track, size = 900) => {
   return c;
 };
 
+const counted = new Set();
+function countPlay(id) {
+  if (!id || counted.has(id) || data.kind === 'missing') return;
+  counted.add(id);
+  fetch(`/api/tracks?play=${encodeURIComponent(id)}`, { method: 'POST' }).catch(() => {});
+}
+
 const player = createPlayer({ onBar: (bar, total) => current?.onBar(bar, total), onEnd: () => current?.onEnd() });
 let current = null;
 
@@ -44,7 +51,7 @@ function trackView(track, artist, { localOnly = false } = {}) {
   };
   btn.onclick = () => {
     if (player.playing && current === ctl) { player.stop(); ctl.onEnd(); return; }
-    current = ctl; player.play(track.state); setBtn(true);
+    current = ctl; player.play(track.state); setBtn(true); countPlay(track.id);
   };
   if ('mediaSession' in navigator) navigator.mediaSession.metadata = new MediaMetadata({ title: track.title, artist: artist?.name || track.artist || 'UNTERGRUND', album: 'UNTERGRUND' });
   const by = artist ? h('a', { class: 'pp-by', href: `/a/${artist.handle}` }, artist.name) : h('span', { class: 'pp-by' }, track.artist || 'UNTERGRUND');
@@ -56,6 +63,7 @@ function trackView(track, artist, { localOnly = false } = {}) {
       h('h1', {}, track.title),
       by,
       h('div', { class: 'pp-meta' }, line(track)),
+      remixOf(track),
       h('div', { class: 'pp-progress', 'aria-hidden': 'true' }, h('div', { class: 'pp-cells' }, cells), time),
       h('div', { class: 'pp-actions' }, btn),
       h('div', { class: 'pp-links' },
@@ -63,17 +71,21 @@ function trackView(track, artist, { localOnly = false } = {}) {
         h('a', { class: 'pp-link', href: `/?track=${encodeURIComponent(track.id)}` }, 'Remix in UNTERGRUND')),
       h('p', { class: 'pp-note' }, localOnly ? 'Only this browser can open this page until public storage is connected.' : 'Played live by UNTERGRUND in your browser. Nothing is streamed.')));
   if (!page.isConnected) main.replaceChildren(page);
+  const remixes = localOnly ? [] : data.remixes || [];
+  main.querySelector('.pp-remixes')?.remove();
+  if (remixes.length) main.append(h('section', { class: 'pp-tracks pp-remixes' }, h('div', { class: 'pp-label' }, `REMIXES · ${remixes.length}`),
+    h('ol', { class: 'pp-list' }, trackRows(remixes, (t) => [t.artist, line(t), t.plays ? `${t.plays} play${t.plays === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')))));
 }
 
-function artistView(artist, tracks) {
-  const root = main.querySelector('.pp-artist');
-  const avatar = artist.avatar ? h('img', { class: 'pp-avatar', src: artist.avatar, alt: '' }) : h('div', { class: 'pp-avatar', 'aria-hidden': 'true' }, artist.name.slice(0, 2).toUpperCase());
-  const followers = h('b', {}, String(artist.followers)), followWord = h('span', {}, '');
-  const setFollowers = (n) => { followers.textContent = String(n); followWord.textContent = n === 1 ? ' follower' : ' followers'; };
-  setFollowers(artist.followers);
-  const followBtn = h('button', { class: 'pp-play pp-follow', type: 'button', hidden: true }, h('span', {}, 'Follow'));
-  const url = `${location.origin}/a/${artist.handle}`;
-  const dna = artist.dna && TRAITS.map(([id, label]) => h('div', { class: 'pp-trait' }, h('span', {}, label), h('i', { style: `--v:${artist.dna[id] ?? 0}%` }), h('b', {}, String(artist.dna[id] ?? 0))));
+function remixOf(track) {
+  const r = track.remixOf;
+  if (r?.title && r.id) return h('div', { class: 'pp-credit' }, 'Remix of ', h('a', { href: `/t/${encodeURIComponent(r.id)}` }, r.title), ` by ${r.artist || 'UNTERGRUND'}`);
+  const drop = track.drop || track.state?.drop;
+  if (drop) return h('div', { class: 'pp-credit' }, `Remix of the Daily Drop · ${drop}`);
+  return r?.title ? h('div', { class: 'pp-credit' }, `Remix of ${r.title} by ${r.artist || 'UNTERGRUND'}`) : null;
+}
+
+function trackRows(tracks, sub = line) {
   const rows = tracks.map((t) => {
     const play = h('button', { class: 'pp-row-play', type: 'button', 'aria-label': `Play ${t.title}` }, h('i'));
     const bar = h('i', { class: 'pp-row-bar' });
@@ -87,15 +99,29 @@ function artistView(artist, tracks) {
       if (!t.state) t.state = (await fetchPublicTrack(t.id))?.track?.state;
       play.classList.remove('busy');
       if (!t.state) return toast('Couldn’t load that track');
+      countPlay(t.id);
       document.querySelectorAll('.pp-row-play.on').forEach((b) => b.classList.remove('on'));
       document.querySelectorAll('.pp-row-bar').forEach((b) => { b.style.width = '0'; });
       current = ctl; player.play(t.state); play.classList.add('on');
     };
     const row = h('li', { class: 'pp-row' },
       h('a', { href: `/t/${t.id}` }, h('img', { src: `/api/page?og=${encodeURIComponent(t.id)}`, alt: '', loading: 'lazy' }),
-        h('span', {}, h('b', {}, t.title), h('small', {}, line(t)))), play, bar);
+        h('span', {}, h('b', {}, t.title), h('small', {}, sub(t)))), play, bar);
     return row;
   });
+  return rows;
+}
+
+function artistView(artist, tracks) {
+  const root = main.querySelector('.pp-artist');
+  const avatar = artist.avatar ? h('img', { class: 'pp-avatar', src: artist.avatar, alt: '' }) : h('div', { class: 'pp-avatar', 'aria-hidden': 'true' }, artist.name.slice(0, 2).toUpperCase());
+  const followers = h('b', {}, String(artist.followers)), followWord = h('span', {}, '');
+  const setFollowers = (n) => { followers.textContent = String(n); followWord.textContent = n === 1 ? ' follower' : ' followers'; };
+  setFollowers(artist.followers);
+  const followBtn = h('button', { class: 'pp-play pp-follow', type: 'button', hidden: true }, h('span', {}, 'Follow'));
+  const url = `${location.origin}/a/${artist.handle}`;
+  const dna = artist.dna && TRAITS.map(([id, label]) => h('div', { class: 'pp-trait' }, h('span', {}, label), h('i', { style: `--v:${artist.dna[id] ?? 0}%` }), h('b', {}, String(artist.dna[id] ?? 0))));
+  const rows = trackRows(tracks);
   root.replaceChildren(
     h('div', { class: 'pp-hero' }, avatar,
       h('div', { class: 'pp-who' },
