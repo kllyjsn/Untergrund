@@ -789,6 +789,7 @@ function selectFamily(f) {
   build();
 }
 function generateNow(drop = null) {
+  if (!drop?.date) drop = null;
   stopPreview();
   generatedAt = performance.now();
   navigator.vibrate?.(12);
@@ -991,7 +992,7 @@ function buildGenerateHome() {
       h('button', { class: 'family-tab surprise', title: 'Pick any genre and generate', onclick: surprise }, 'SURPRISE ME')),
     h('div', { class: 'generate-styles' }, Object.entries(STYLES).filter(([, v]) => v.family === family).map(([id, v]) => styleCard(id, v, playingStyle === id))),
     h('div', { class: 'generate-hint' }, 'Tap to choose. Press and hold to hear it.'));
-  const primary = h('button', { class: 'generate-primary' + (performance.now() - generatedAt < 900 ? ' fired' : ''), onclick: generateNow },
+  const primary = h('button', { class: 'generate-primary' + (performance.now() - generatedAt < 900 ? ' fired' : ''), onclick: () => generateNow() },
     h('span', {}, 'GENERATE'), h('small', {}, `${STYLES[style].name} · full track`));
   const showNp = playing && !studioOpen;
   const left = showNp ? buildNowPlaying(primary) : [
