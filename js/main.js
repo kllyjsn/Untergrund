@@ -524,7 +524,7 @@ function doGenerateSet(hum = null, drop = null) {
   state.chain = songChain(style, seed);
   // A score sets its own tempo even mid-set; a masterwork keeps its title and composer.
   if (g.pattern.score) state.bpm = g.bpm;
-  if (hum && !g.pattern.score) { const r = hum(state.bpm, state.scale); state.key = r.key; if (r.hook) placeHook(state.patterns, r.hook); }
+  if (typeof hum === 'function' && !g.pattern.score) { const r = hum(state.bpm, state.scale); state.key = r.key; if (r.hook) placeHook(state.patterns, r.hook); }
   const piece = PIECE[g.pattern.score?.piece];
   const title = piece ? piece.title : drop ? drop.title : trackTitle(seed);
   const artist = piece ? piece.composer : loadAvatar().name || 'UNTERGRUND';
@@ -1057,7 +1057,7 @@ function buildHeader() {
     h('div', { class: 'group studio-only studio-more' }, chainBtn, chainInput),
     h('div', { class: 'group gen studio-only studio-more' }, styleSel,
       h('button', { class: 'btn accent', title: 'Generate a pattern into this slot (G)', onclick: doGenerate }, 'GENERATE'),
-      h('button', { class: 'btn', title: 'Generate a whole 8-pattern arrangement and enable chain', onclick: doGenerateSet }, 'NEW SET'),
+      h('button', { class: 'btn', title: 'Generate a whole 8-pattern arrangement and enable chain', onclick: () => doGenerateSet() }, 'NEW SET'),
       h('button', { class: 'btn ghost', title: 'Small variation (M)', onclick: doMutate }, 'MUTATE'),
       h('select', { class: 'sel variation', title: 'How far the next variation moves from this pattern', onchange: (e) => { variation = +e.target.value; } },
         h('option', { value: .12 }, 'SUBTLE'), h('option', { value: .25, selected: true }, 'EVOLVE'), h('option', { value: .55 }, 'WILD')),
