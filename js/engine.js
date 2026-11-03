@@ -5,7 +5,7 @@ import { pickChop } from './hum.js';
 import { liveKit, loadLiveKit, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel } from './groove.js';
-import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB } from './lead.js';
+import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ } from './lead.js';
 import { lowEnd } from './lowend.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
 
@@ -396,7 +396,7 @@ export class Engine {
   soulBand() { return pocketOf(this.state.master)?.name === 'SOUL' || Math.round(this.state.master.kit || 0) === 1; }
 
   // Synth chord and lead voices go through a make-up gain so they sit level with the recorded players.
-  trimOut(key, db, dst, shelfAmt = 0.7) {
+  trimOut(key, db, dst, lowDb = 0, shelfHz = 800) {
     if (!db) return dst;
     const trims = (this.trims ||= new Map());
     if (!trims.has(dst)) trims.set(dst, {});
@@ -404,8 +404,7 @@ export class Engine {
     // Match level where the voice speaks: the make-up stays out of the 200–500 Hz mud band.
     if (!byKey[key]) {
       const g = (byKey[key] = this.gain(dbGain(db)));
-      if (!shelfAmt) g.connect(dst);
-      else { const shelf = this.filter('lowshelf', 320, 0.7); shelf.gain.value = -db * shelfAmt; g.connect(shelf).connect(dst); }
+      const shelf = this.filter('lowshelf', shelfHz, 0.7); shelf.gain.value = lowDb - db; g.connect(shelf).connect(dst);
     }
     return byKey[key];
   }
@@ -898,7 +897,7 @@ export class Engine {
     const h = this.harm;
     const iv = CHORDS[h ? h.c : Math.round(p.chord)].iv;
     const root = 48 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot();
-    const vo = Math.round(p.voice), out = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input);
+    const vo = Math.round(p.voice), out = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
     if (vo > 0) return this[STAB_VOICES[vo]](t, v, iv, root, p, out);
     const lp = this.filter('lowpass', p.cutoff, p.reso);
     const amp = this.gain(0);
@@ -1224,7 +1223,8 @@ export class Engine {
       return this.recordedNote(set, t, Math.min(1.3, v) * R.gain * 0.6, 60 + k + oct * 12 + n, ring, this.hookBus || this.ch.stab.input, 0, band, v / 1.3);
     }
     const f = midiHz(60 + k + oct * 12 + n), L = leadPreset(voice, pocketOf(this.state.master)?.name);
-    const out = this.trimOut(`hook-${voice}`, this.soulBand() ? 0 : HOOK_TRIM_DB[voice] || 0, this.hookBus || this.ch.stab.input, 0);
+    const hdb = this.soulBand() ? 0 : HOOK_TRIM_DB[voice] || 0;
+    const out = this.trimOut(`hook-${voice}`, hdb, this.hookBus || this.ch.stab.input, HOOK_LOW_DB);
     const len = Math.max(0.06, dur * 0.92), end = t + len + 0.6, vn = Math.min(1, v / 1.3);
     // Played legato into a close note, the lead slides there instead of re-striking.
     const prev = this.lastLead, semis = prev ? Math.abs(12 * Math.log2(f / prev.f)) : 0;
@@ -1237,12 +1237,14 @@ export class Engine {
     // The 2–5 kHz presence band is where synth leads turn harsh; dip it rather than darken the whole voice.
     const presence = this.filter('peaking', 3200, 0.8); presence.gain.value = -L.tame;
     // A lead sits on its harmonics, not its fundamental: shelve the low mids so it never muddies the mix.
-    const thin = this.filter('lowshelf', 360, 0.7); thin.gain.value = -5;
+    const thin = this.filter('lowshelf', 360, 0.7); thin.gain.value = -L.thin;
+    // Its level comes from the 1–2 kHz bite instead, under the harsh band.
+    const bite = this.filter('peaking', 1400, 0.9); bite.gain.value = L.bite;
     // Character: soft tube-style saturation, a little per-note pitch drift, and vibrato that only
     // develops on held notes, the way a player leans into a sustained note.
     const tubeAmt = 0.04 + 0.06 * warmth, tubeK = 1 + Math.round(tubeAmt * 100) / 100 * 14;
     const tube = c.createWaveShaper(); tube.curve = driveCurve(tubeAmt);
-    amp.connect(tube).connect(this.gain(Math.tanh(tubeK) / tubeK)).connect(thin).connect(tame).connect(presence).connect(pan).connect(out);
+    amp.connect(tube).connect(this.gain(Math.tanh(tubeK) / tubeK)).connect(thin).connect(bite).connect(tame).connect(presence).connect(pan).connect(out);
     const oscs = [], drift = (hash(t * 7, 11) - 0.5) * 9;
     const vib = len > 0.24 && L.vib[1] ? c.createOscillator() : null, vibDepth = vib ? this.gain(0) : null;
     if (vib) {
@@ -1275,7 +1277,7 @@ export class Engine {
       for (let i = 0; i < L.uni; i++) osc(L.wave, f, L.uni > 1 ? ((i / (L.uni - 1)) * 2 - 1) * L.spread : 0, L.mix / Math.sqrt(L.uni), lp);
       if (L.body) osc(L.body[0], f * L.body[2], 0, L.body[1], lp);
       // A sine an octave down gives high leads body; it stays out of the low-mid mud band.
-      if (L.sub && f / 2 >= 250) osc('sine', f / 2, 0, L.sub, amp);
+      if (L.sub && f / 2 >= 500) osc('sine', f / 2, 0, L.sub, amp);
       lp.connect(amp);
       const pk = L.level * v;
       amp.gain.setValueAtTime(EPS, t);

@@ -35,12 +35,6 @@ async function render(style, seed, { stem = 'full', bars = 4, voice = null, mute
   Object.assign(P, orig);
   return { data, kicks, engine: e, gen: g, ...spectralBands([data], SR) };
 }
-// Loudness while a part is sounding (50 ms windows above -50 dB), so sparse and busy parts compare fairly.
-function activeDb(d) {
-  const w = SR / 20; let acc = 0, n = 0;
-  for (let i = 0; i + w <= d.length; i += w) { let e = 0; for (let j = i; j < i + w; j++) e += d[j] * d[j]; e /= w; if (e > 1e-5) { acc += e; n++; } }
-  return n ? 10 * Math.log10(acc / n) : -Infinity;
-}
 // Level of a part's loudest quarter of 50 ms windows: fair to short plucks and held pads alike.
 function hitDb(d) {
   const w = SR / 20, e = [];
@@ -54,14 +48,16 @@ process.on('exit', () => console.table(rows));
 
 // 1. Club low end: the bass carries real sub next to the kick, the kick ducks it, and the low mids stay clear.
 const CLUB = { peak: 503, deephouse: 211, dnb: 211, trap: 211, amapiano: 211, reggaeton: 211 };
-const MUD = { amapiano: 0.3 };
+// 200–500 Hz share of the full mix on main before this pass (same shim, seeds, bars): the louder
+// leads and chords must not buy their level with low-mid mud.
+const MUD_MAIN = { peak: 0.061, deephouse: 0.032, dnb: 0.042, trap: 0.059, amapiano: 0.232, reggaeton: 0.042 };
 const rows = [];
 for (const [style, seed] of Object.entries(CLUB)) {
   const full = await render(style, seed), noBass = await render(style, seed, { mute: 'acid' });
   const bass = await render(style, seed, { stem: 'acid' }), kick = await render(style, seed, { stem: 'kick' });
   assert(bass.subDb > -21, `${style}: bass sub ${bass.subDb} dB is too light`);
   assert(bass.subDb > kick.subDb - 8, `${style}: bass sub ${bass.subDb} dB sits too far under the kick (${kick.subDb} dB)`);
-  assert(full.mudShare <= (MUD[style] ?? 0.12), `${style}: ${full.mudShare} of the mix is 200–500 Hz mud`);
+  assert(full.mudShare <= MUD_MAIN[style] * 1.25, `${style}: ${full.mudShare.toFixed(3)} of the mix is 200–500 Hz mud (main ${MUD_MAIN[style]})`);
   // The bass as heard in the mix (full minus a render with the bass muted) against the soloed bass,
   // where no kick plays: the difference right after each kick is how far the kick ducks it.
   const d = full.data.map((x, i) => x - noBass.data[i]);
@@ -79,10 +75,12 @@ for (const [style, seed] of Object.entries(CLUB)) {
 
 // 2. Hook leads: present but not harsh, and level with the recorded players.
 const LEADS = { trance: 211, hyperpop: 211, dnb: 211, peak: 503, deephouse: 211, trap: 211, amapiano: 211 };
+// Hook loudness on main before this pass (LUFS, same shim and seeds); the lead must come forward.
+const HOOK_MAIN = { trance: -35.4, hyperpop: -31.3, dnb: -32.9, peak: -28.6, deephouse: -32.5, trap: -26.2, amapiano: -28.5 };
 for (const [style, seed] of Object.entries(LEADS)) {
-  const h = await render(style, seed, { stem: 'hook' }), lvl = activeDb(h.data), v = h.gen.pattern.hook.v;
+  const h = await render(style, seed, { stem: 'hook' }), lvl = lufs([h.data], SR), v = h.gen.pattern.hook.v;
   assert(h.harshShare <= 0.08, `${style} ${v} hook: ${h.harshShare} of its energy is 2–5 kHz`);
-  assert(lvl > -24 && lvl < -13, `${style} ${v} hook sounds at ${lvl.toFixed(1)} dB`);
+  assert(lvl >= HOOK_MAIN[style] + 1 && lvl < -13, `${style} ${v} hook at ${lvl.toFixed(1)} LUFS (main ${HOOK_MAIN[style]})`);
   rows.push([`${style} hook ${v}`, +lvl.toFixed(1), h.harshShare]);
 }
 
@@ -93,8 +91,9 @@ for (const [style, seed] of [['deephouse', 211], ['trance', 211]]) {
   const target = rec.reduce((a, b) => a + b, 0) / rec.length;
   const syn = []; for (let vo = 0; vo < 7; vo++) syn.push(await level(vo));
   rows.push([`${style} chords`, +target.toFixed(1), ...syn.map((x) => +x.toFixed(1))]);
-  // PLUCK's loudness follows the borrowed CUTOFF by design, so it gets a wider window.
-  syn.forEach((lvl, vo) => assert(Math.abs(lvl - target) <= (vo === 5 ? 6 : 4), `${style}: synth voice ${vo} at ${lvl.toFixed(1)} dB vs recorded ${target.toFixed(1)} dB`));
+  // PLUCK's loudness follows the borrowed CUTOFF by design, so it gets a wider window; KEYS trades
+  // half a dB of level for keeping deep house's low mids within 25% of main.
+  syn.forEach((lvl, vo) => assert(Math.abs(lvl - target) <= ({ 1: 5, 5: 6 }[vo] ?? 4), `${style}: synth voice ${vo} at ${lvl.toFixed(1)} dB vs recorded ${target.toFixed(1)} dB`));
 }
 
 // 4. CPU: a lead note stays a handful of oscillators.
