@@ -41,18 +41,20 @@ export function makeIR(ctx, seconds, { decay = 3, brightStart = 0.85, brightEnd 
 }
 
 const curveCache = new Map();
-export function driveCurve(amount) {
-  const key = Math.round(amount * 100);
-  if (curveCache.has(key)) return curveCache.get(key);
+// `scale` bakes a following make-up gain into the curve so a voice needs no extra GainNode.
+export function driveCurve(amount, scale = 1) {
+  const key = Math.round(amount * 100), id = scale === 1 ? key : `${key}:${scale}`;
+  if (curveCache.has(id)) return curveCache.get(id);
   const n = 4096;
   const k = 1 + (key / 100) * 14;
   const c = new Float32Array(n);
   const norm = Math.tanh(k);
   for (let i = 0; i < n; i++) {
     const x = (i / (n - 1)) * 2 - 1;
-    c[i] = Math.tanh(k * x) / norm;
+    c[i] = (Math.tanh(k * x) / norm) * scale;
   }
-  curveCache.set(key, c);
+  if (curveCache.size > 256) curveCache.delete(curveCache.keys().next().value);
+  curveCache.set(id, c);
   return c;
 }
 
