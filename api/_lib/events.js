@@ -4,7 +4,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { redisEnv } from './crate.js';
 
 export const EVENTS = ['app_open', 'generate', 'play_start', 'play_30s', 'save_track', 'publish', 'share_link_copied',
-  'room_join', 'room_go_live', 'export_wav', 'return_visit', 'shared_open', 'remix', 'video_export', 'hum', 'voice_chops', 'error'];
+  'room_join', 'room_go_live', 'export_wav', 'export_stems', 'export_midi', 'return_visit', 'shared_open', 'remix', 'video_export', 'hum', 'voice_chops', 'error'];
 export const FUNNEL = ['app_open', 'generate', 'play_start', 'play_30s', 'publish', 'share_link_copied'];
 // One prop per event is also counted as a breakdown field, e.g. `generate:acid`.
 export const DIMENSION = { app_open: 'visitor', generate: 'genre', publish: 'kind', share_link_copied: 'what', return_visit: 'bucket', error: 'kind', save_track: 'shared', shared_open: 'kind', remix: 'kind', video_export: 'kind', hum: 'kind', voice_chops: 'kind' };
