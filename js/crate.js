@@ -50,3 +50,19 @@ export async function saveTrack(track) {
   trackEvent('save_track', { shared: false });
   return { shared: false, track: local };
 }
+
+// Today's Daily Drop remixes, best first. Without shared storage, the drop remixes saved in this browser.
+export async function listDrop(date) {
+  try {
+    const res = await fetch(`/api/tracks?drop=${encodeURIComponent(date)}`);
+    if (res.ok) return { shared: true, tracks: (await res.json()).tracks || [] };
+  } catch {}
+  return { shared: false, tracks: localTracks().filter((t) => (t.drop || t.state?.drop) === date).map((t) => ({ ...meta(t), localOnly: true })) };
+}
+
+const counted = new Set();
+export function countPlay(id) {
+  if (!id || String(id).startsWith('local-') || counted.has(id)) return;
+  counted.add(id);
+  fetch(`/api/tracks?play=${encodeURIComponent(id)}`, { method: 'POST' }).catch(() => {});
+}

@@ -898,5 +898,7 @@ export function sanitize(s) {
       artist: String(s.remixOf.artist || 'UNTERGRUND').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 40) || 'UNTERGRUND',
     };
   }
+  // Daily Drop remixes carry the UTC date of the drop they came from (js/daily.js).
+  if (typeof s.drop === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s.drop)) out.drop = s.drop;
   return out;
 }

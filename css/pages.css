@@ -18,6 +18,9 @@ body.pp { user-select: auto; font-family: var(--sans); min-height: 100vh; }
 .pp-by { color: #dedee3; font: 600 20px var(--sans); text-decoration: none; }
 a.pp-by:hover { color: #fff; text-decoration: underline; text-underline-offset: 4px; }
 .pp-meta { margin-top: 10px; color: #8a8a94; font: 500 14px var(--sans); }
+.pp-credit { margin-top: 8px; color: #a8a8b2; font: 500 14px var(--sans); }
+.pp-credit a { color: #f2f2f5; text-underline-offset: 3px; }
+.pp-remixes { margin-top: clamp(32px, 6vw, 64px); }
 .pp-progress { display: flex; align-items: center; gap: 14px; margin: 28px 0 0; }
 .pp-cells { flex: 1; display: flex; gap: 3px; height: 6px; }
 .pp-cells i { flex: 1; border-radius: 3px; background: rgba(255,255,255,.1); transition: background .2s; }
