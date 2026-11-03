@@ -138,6 +138,8 @@ export class Engine {
   // ---------- graph ----------
   gain(v = 1) { const g = this.ctx.createGain(); g.gain.value = v; return g; }
   filter(type, f, q = 0.707) { const b = this.ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; return b; }
+  // Panning is linear, so every mono voice at one seat can share a panner: one per seat, not one per oscillator.
+  sidePans(seats, out) { return seats.map((v) => { const pan = this.ctx.createStereoPanner(); pan.pan.value = v; pan.connect(out); return pan; }); }
   comp(th, ratio, knee, atk, rel) {
     const c = this.ctx.createDynamicsCompressor();
     c.threshold.value = th; c.ratio.value = ratio; c.knee.value = knee; c.attack.value = atk; c.release.value = rel;
@@ -364,10 +366,17 @@ export class Engine {
     return s;
   }
 
-  adEnv(param, t, peak, attack, decay) {
-    param.setValueAtTime(EPS, t);
-    param.linearRampToValueAtTime(peak, t + attack);
-    param.exponentialRampToValueAtTime(EPS, t + attack + decay);
+  // `scale` folds a constant gain stage into the envelope (same curve, one node fewer).
+  adEnv(param, t, peak, attack, decay, scale = 1) {
+    param.setValueAtTime(EPS * scale, t);
+    param.linearRampToValueAtTime(peak * scale, t + attack);
+    param.exponentialRampToValueAtTime(EPS * scale, t + attack + decay);
+  }
+
+  // Live playback: unhook a finished hit from its long-lived bus as soon as its last source ends,
+  // instead of leaving the silent chain attached until garbage collection.
+  retire(src, ...nodes) {
+    if (this.realtime) src.onended = () => { for (const n of nodes) n.disconnect(); };
   }
 
   duckAt(t, v) {
@@ -456,8 +465,10 @@ export class Engine {
   dust(t, sd, abs) {
     // Vinyl/tape bed: faint hiss plus sparse crackle, scheduled per step so it stops with transport.
     const d = this.state.master.dust || 0;
-    const hiss = this.noiseSrc(t, sd), hp = this.filter('bandpass', 5200, 0.4), hg = this.gain(d * 0.018);
-    hiss.connect(hp).connect(hg).connect(this.mix);
+    // The hiss filter is linear and fixed, so every step's noise slice shares one band-pass and level.
+    if (!this.hiss) { const g = this.gain(d * 0.018); this.hiss = { bp: this.filter('bandpass', 5200, 0.4), g, d }; this.hiss.bp.connect(g).connect(this.mix); }
+    if (this.hiss.d !== d) { this.hiss.g.gain.setValueAtTime(d * 0.018, t); this.hiss.d = d; }
+    this.noiseSrc(t, sd).connect(this.hiss.bp);
     for (let k = 0; k < 3; k++) {
       if (hash(abs, k + 70) > d * 0.55) continue;
       const tt = t + hash(abs, k + 80) * sd, c = this.noiseSrc(tt, 0.003);
@@ -471,8 +482,8 @@ export class Engine {
     const g = this.gain(level);
     let node = s;
     if (fx.drive > 0.01) {
-      const sh = this.ctx.createWaveShaper(); sh.curve = driveCurve(Math.min(1, fx.drive));
-      node = node.connect(sh).connect(this.gain(1 / (1 + fx.drive)));
+      const sh = this.ctx.createWaveShaper(); sh.curve = driveCurve(Math.min(1, fx.drive), 1 / (1 + fx.drive));
+      node = node.connect(sh);
     }
     for (const [freq, db] of fx.shelves || []) {
       if (Math.abs(db) < 0.3) continue;
@@ -599,8 +610,7 @@ export class Engine {
     const f = p.tune, dec = p.decay;
     const o = c.createOscillator();
     const g = this.gain(0);
-    const sh = c.createWaveShaper(); sh.curve = driveCurve(p.drive * 0.6);
-    const post = this.gain(0.92);
+    const sh = c.createWaveShaper(); sh.curve = driveCurve(p.drive * 0.6, 0.92);
     const start = f * (3 + p.punch * 9);
     o.frequency.setValueAtTime(start, t);
     o.frequency.exponentialRampToValueAtTime(f * 1.6, t + 0.006 + 0.014 * (1 - p.punch));
@@ -610,8 +620,9 @@ export class Engine {
     g.gain.linearRampToValueAtTime(v, t + 0.0012);
     g.gain.exponentialRampToValueAtTime(v * 0.62, t + dec * 0.32);
     g.gain.exponentialRampToValueAtTime(EPS, t + dec);
-    o.connect(g).connect(sh).connect(post).connect(out);
+    o.connect(g).connect(sh).connect(out);
     o.start(t); o.stop(t + dec + 0.08);
+    this.retire(o, sh);
 
     if (p.click > 0.01) {
       const n = this.noiseSrc(t, 0.03);
@@ -634,29 +645,30 @@ export class Engine {
     const hp = this.filter('highpass', 420);
     const body = this.filter('bandpass', Math.max(700, p.tone * 0.5), 0.9), bg = this.gain(0.6);
     n.connect(body).connect(bg).connect(hp);
-    const g = this.gain(0);
-    g.gain.setValueAtTime(EPS, t);
+    const g = this.gain(0), k = 3.4;
+    g.gain.setValueAtTime(EPS * k, t);
     for (let i = 0; i < offs.length - 1; i++) {
-      g.gain.setValueAtTime(v, t + offs[i]);
-      g.gain.exponentialRampToValueAtTime(v * 0.08, t + offs[i] + 0.0095 * sp);
+      g.gain.setValueAtTime(v * k, t + offs[i]);
+      g.gain.exponentialRampToValueAtTime(v * 0.08 * k, t + offs[i] + 0.0095 * sp);
     }
-    g.gain.setValueAtTime(v, t + last);
-    g.gain.exponentialRampToValueAtTime(EPS, t + last + p.decay);
-    n.connect(bp).connect(hp).connect(g).connect(this.gain(3.4)).connect(out);
+    g.gain.setValueAtTime(v * k, t + last);
+    g.gain.exponentialRampToValueAtTime(EPS * k, t + last + p.decay);
+    n.connect(bp).connect(hp).connect(g).connect(out);
+    this.retire(n, g);
   }
 
   snare(t, v) {
     const c = this.ctx, p = this.state.params.snare, out = this.ch.snare.input;
-    const body = this.gain(0);
-    for (const [mul, lvl] of [[1, 0.55], [1.62, 0.3]]) {
+    const body = this.gain(0), L = 0.55;
+    for (const [mul, lvl] of [[1, L], [1.62, 0.3]]) {
       const o = c.createOscillator(); o.type = 'triangle';
       o.frequency.setValueAtTime(p.tune * mul * 1.35, t);
       o.frequency.exponentialRampToValueAtTime(p.tune * mul, t + 0.03);
-      const og = this.gain(lvl);
-      o.connect(og).connect(body);
+      if (lvl === L) o.connect(body); else o.connect(this.gain(lvl / L)).connect(body);
       o.start(t); o.stop(t + 0.3);
+      if (lvl === L) this.retire(o, body);
     }
-    this.adEnv(body.gain, t, v * (1.1 - p.snappy * 0.4), 0.001, 0.06 + p.decay * 0.35);
+    this.adEnv(body.gain, t, v * (1.1 - p.snappy * 0.4), 0.001, 0.06 + p.decay * 0.35, L);
     body.connect(out);
     const n = this.noiseSrc(t, p.decay + 0.1);
     const hp = this.filter('highpass', 1300);
@@ -664,6 +676,7 @@ export class Engine {
     const ng = this.gain(0);
     this.adEnv(ng.gain, t, v * (0.25 + p.snappy * 0.75), 0.001, p.decay);
     n.connect(hp).connect(lp).connect(ng).connect(out);
+    this.retire(n, ng);
   }
 
   // Acoustic kit: modal drum heads, beater and wire noise, brushes and a sine-partial ride.
@@ -758,25 +771,24 @@ export class Engine {
     const p = this.state.params[open ? 'oh' : 'ch'], out = this.ch[open ? 'oh' : 'ch'].input;
     const soft = Math.min(1, v);
     const dur = p.decay * (0.8 + 0.25 * soft);
-    const bus = this.gain(1);
-    const ring = this.gain(0.5 + 0.5 * soft);
-    ring.connect(bus);
-    const oscs = this.metallic(t, 1.35 * p.tune, ring);
-    const n = this.noiseSrc(t, dur + 0.05);
-    const ng = this.gain(0.55 + (1 - soft) * 0.35);
-    n.connect(ng).connect(bus);
+    const ring = 0.5 + 0.5 * soft;
     const bp = this.filter('bandpass', 10500 * Math.min(1.25, p.tune) * (0.74 + 0.26 * soft), 0.9);
     const hp = this.filter('highpass', p.tone * (0.8 + 0.2 * soft), 0.8);
+    const oscs = this.metallic(t, 1.35 * p.tune, bp);
+    const n = this.noiseSrc(t, dur + 0.05);
+    n.connect(this.gain((0.55 + (1 - soft) * 0.35) / ring)).connect(bp);
     const env = this.gain(0);
-    this.adEnv(env.gain, t, v * 3.4, 0.0008, dur);
-    bus.connect(bp).connect(hp).connect(env);
+    this.adEnv(env.gain, t, v * 3.4, 0.0008, dur, ring);
+    bp.connect(hp).connect(env);
     for (const o of oscs) o.stop(t + dur + 0.05);
     if (open) {
       const choke = this.gain(1);
       env.connect(choke).connect(out);
       this.lastOpen = choke;
+      this.retire(n, choke);
     } else {
       env.connect(out);
+      this.retire(n, env);
       if (this.lastOpen) {
         this.lastOpen.gain.setTargetAtTime(0, t, 0.007);
         this.lastOpen = null;
@@ -787,20 +799,20 @@ export class Engine {
   ride(t, v) {
     const p = this.state.params.ride, out = this.ch.ride.input;
     const soft = Math.min(1, v);
-    const bus = this.gain(1);
-    const oscs = this.metallic(t, 2.05 * p.tune, bus);
-    const oscs2 = this.metallic(t, 1.47 * p.tune, bus);
-    const wash = this.noiseSrc(t, p.decay + 0.05), wg = this.gain(0.35);
-    wash.connect(wg).connect(bus);
     const bp = this.filter('bandpass', 7200 * p.tune * (0.8 + 0.2 * soft), 0.55);
+    const oscs = this.metallic(t, 2.05 * p.tune, bp);
+    const oscs2 = this.metallic(t, 1.47 * p.tune, bp);
+    const wash = this.noiseSrc(t, p.decay + 0.05);
+    wash.connect(this.gain(0.35)).connect(bp);
     const hp = this.filter('highpass', p.tone * (0.85 + 0.15 * soft), 0.7);
     const env = this.gain(0);
     env.gain.setValueAtTime(EPS, t);
     env.gain.linearRampToValueAtTime(v * (2.4 + 1.2 * soft), t + 0.001);
     env.gain.exponentialRampToValueAtTime(v * 1.1, t + 0.05);
     env.gain.exponentialRampToValueAtTime(EPS, t + p.decay);
-    bus.connect(bp).connect(hp).connect(env).connect(out);
+    bp.connect(hp).connect(env).connect(out);
     for (const o of [...oscs, ...oscs2]) o.stop(t + p.decay + 0.05);
+    this.retire(wash, env);
   }
 
   perc(t, v) {
@@ -881,19 +893,19 @@ export class Engine {
     amp.gain.setValueAtTime(EPS, t);
     amp.gain.linearRampToValueAtTime(peak, t + 0.003);
     amp.gain.setTargetAtTime(0, t + 0.012, Math.max(0.02, p.decay * 0.5));
-    const end = t + p.decay * 4 + 0.2;
+    const end = t + p.decay * 4 + 0.2, pans = this.sidePans([-0.55, 0.55], lp);
     for (const n of iv) {
       for (const side of [-1, 1]) {
         const o = c.createOscillator(); o.type = 'sawtooth';
         o.frequency.value = midiHz(root + n);
         o.detune.value = side * p.detune;
-        const pan = c.createStereoPanner(); pan.pan.value = side * 0.55;
-        o.connect(pan).connect(lp);
+        o.connect(pans[side < 0 ? 0 : 1]);
         o.start(t); o.stop(end);
       }
     }
     lp.connect(amp).connect(out);
     env.start(t); env.stop(end);
+    this.retire(env, amp);
   }
 
   // Slow-swelling ensemble: three detuned saws per note, filter opens with ENV, DECAY sets release.
@@ -906,12 +918,12 @@ export class Engine {
     amp.gain.setValueAtTime(EPS, t);
     amp.gain.linearRampToValueAtTime(peak, t + atk);
     amp.gain.setTargetAtTime(0, t + atk + hold, Math.max(0.1, p.decay * 0.6));
+    const pans = this.sidePans([-0.7, 0, 0.7], lp);
     iv.forEach((n) => {
       [-1, 0, 1].forEach((side) => {
         const o = c.createOscillator(); o.type = 'sawtooth';
         o.frequency.value = midiHz(root + n); o.detune.value = side * (4 + p.detune);
-        const pan = c.createStereoPanner(); pan.pan.value = side * 0.7;
-        o.connect(pan).connect(lp); o.start(t); o.stop(end);
+        o.connect(pans[side + 1]); o.start(t); o.stop(end);
       });
     });
     lp.connect(amp).connect(out);
@@ -1060,14 +1072,14 @@ export class Engine {
     amp.gain.linearRampToValueAtTime(peak, t + 0.025);
     amp.gain.setTargetAtTime(peak * 0.75, t + 0.05, 0.1);
     amp.gain.setTargetAtTime(0, t + gate, 0.06);
+    const pans = this.sidePans([-0.4, 0.4], lp);
     iv.forEach((n, k) => {
       for (const side of [-1, 1]) {
         const o = c.createOscillator(); o.type = 'sawtooth';
         o.frequency.value = midiHz(root + n);
         o.detune.setValueAtTime(-60 + side * p.detune * 0.5, t);
         o.detune.linearRampToValueAtTime(side * p.detune * 0.5, t + 0.04 + k * 0.004);
-        const pan = c.createStereoPanner(); pan.pan.value = side * 0.4;
-        o.connect(pan).connect(lp); o.start(t); o.stop(end);
+        o.connect(pans[side < 0 ? 0 : 1]); o.start(t); o.stop(end);
       }
     });
     lp.connect(amp).connect(out);
@@ -1202,8 +1214,8 @@ export class Engine {
     // Character: soft tube-style saturation, a little per-note pitch drift, and vibrato that only
     // blooms on held notes, the way a player leans into a sustained note.
     const tubeAmt = 0.04 + 0.06 * warmth, tubeK = 1 + Math.round(tubeAmt * 100) / 100 * 14;
-    const tube = c.createWaveShaper(); tube.curve = driveCurve(tubeAmt);
-    amp.connect(tube).connect(this.gain(Math.tanh(tubeK) / tubeK)).connect(tame).connect(pan).connect(out);
+    const tube = c.createWaveShaper(); tube.curve = driveCurve(tubeAmt, Math.tanh(tubeK) / tubeK);
+    amp.connect(tube).connect(tame).connect(pan).connect(out);
     const oscs = [], drift = (hash(t * 7, 11) - 0.5) * 9;
     const vib = len > 0.28 ? c.createOscillator() : null, vibDepth = vib ? this.gain(0) : null;
     if (vib) {
@@ -1289,6 +1301,7 @@ export class Engine {
       amp.gain.setTargetAtTime(0, t + 0.01, Math.max(0.1, Math.min(0.45, len * 0.65)));
     }
     for (const o of oscs) { o.start(t); o.stop(end); }
+    this.retire(oscs[oscs.length - 1], pan);
   }
 
   harmRoot() { const h = this.harm; return h ? ((((h.r + 6) % 12) + 12) % 12) - 6 : 0; }
