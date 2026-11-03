@@ -34,6 +34,7 @@ check 405 "/api/tracks?play=missing-track"
 check 200 /js/daily.js
 check 200 /css/drop.css
 check 200 /api/jukebox
+check 404 "/api/jukebox?id=no-such-set"
 check 200 /api/account
 check 404 /a/nobody-here
 check 404 /t/missing-track
