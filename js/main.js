@@ -133,8 +133,10 @@ function schedule(lead) {
   // Landing redraws the whole UI for the new song, so schedule further ahead first to ride out that frame.
   while (nextTime < ctx.currentTime + (landed ? Math.max(ahead, 0.5) : ahead)) {
     if (handoff && !handoff.out && abs >= handoff.from) { engine.handoffOut(nextTime, nextTime + (handoff.step - abs) * engine.stepDur); handoff.out = true; }
-    if (handoff && abs >= handoff.step && abs % 16 === 0) { landed = landSong(nextTime); base = 60 / state.bpm / 4; }
-    const skip = abs % 16 === 0 ? timeline.skip(seq.chainPos) : 0;
+    // A stalled main thread can make the resync skip the planned downbeat; then the new song
+    // starts on the first step that still sounds rather than holding the sweep for another bar.
+    if (handoff && abs >= handoff.step) { landed = landSong(nextTime); base = 60 / state.bpm / 4; }
+    const skip = (abs - seq.origin) % 16 === 0 ? timeline.skip(seq.chainPos) : 0;
     if (skip) {
       abs += skip * 16; seq.chainPos += skip; transportOrigin -= skip * 16 * base * 1000;
       if (handoff) { handoff.step += skip * 16; handoff.from += skip * 16; }
