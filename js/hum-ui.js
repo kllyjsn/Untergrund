@@ -3,9 +3,10 @@
 import { h } from './ui.js';
 import { sheet } from './sets.js';
 import { recordMic } from './sampler.js';
-import { analyzeHum, noteLabel, NOTE_NAMES, tuneChops } from './hum.js';
+import { prepareHum, hookFor, fitProg, livePitch, noteLabel, NOTE_NAMES, tuneChops } from './hum.js';
 import { getChops, setVoice, clearVoice, buildVoice } from './voice.js';
-import { KEYS, SCALES } from './params.js';
+import { KEYS, SCALES, CHORDS } from './params.js';
+import { generate } from './state.js';
 import { track as trackEvent } from './analytics.js';
 
 const MAX_SEC = 8;
@@ -39,17 +40,32 @@ export function songKey(detected, scaleName) {
   return detected.key;
 }
 
+// Build-around picks, from a handful of seeds of the style, the song whose chord changes carry the
+// hummed melody best (the main progression counts most; the bridge's alt changes a little).
+export function humSeed(style, scale, hum, tries = 24) {
+  let best = (Math.random() * 1e9) | 0, score = -1;
+  for (let i = 0; i < tries; i++) {
+    const seed = (Math.random() * 1e9) | 0, g = generate(style, seed, scale);
+    if (!g.pattern.prog?.length || g.pattern.score) return seed;
+    const { hook } = hum(g.bpm, scale);
+    const fit = fitProg(hook, g.pattern.prog, CHORDS) + 0.3 * fitProg(hook, g.pattern.alt, CHORDS);
+    if (fit > score + 1e-9) { best = seed; score = fit; }
+  }
+  return best;
+}
+
 // One big mic button: tap to start, tap (or go quiet) to finish. Shows level and time left.
 function micButton(api, { idle, maxSec = MAX_SEC, onTake }) {
   const ring = h('i', { class: 'mic-ring' });
   const label = h('b', {}, idle);
   const sub = h('small', {}, `Up to ${maxSec} seconds`);
   const status = h('div', { class: 'mic-status', role: 'status', 'aria-live': 'polite' });
+  const live = h('div', { class: 'mic-live', 'aria-hidden': 'true' });
   const btn = h('button', { class: 'mic-btn', 'aria-label': idle }, ring, h('span', {}, label, sub));
   let rec = null, raf = 0, cleanup = () => {};
   const reset = () => {
     cancelAnimationFrame(raf); cleanup(); cleanup = () => {};
-    rec = null; btn.classList.remove('live'); btn.style.setProperty('--lvl', 0); btn.style.setProperty('--p', 0);
+    rec = null; live.replaceChildren(); btn.classList.remove('live'); btn.style.setProperty('--lvl', 0); btn.style.setProperty('--p', 0);
     label.textContent = idle; sub.textContent = `Up to ${maxSec} seconds`;
   };
   btn.onclick = async () => {
@@ -66,11 +82,23 @@ function micButton(api, { idle, maxSec = MAX_SEC, onTake }) {
     let an = null, buf = null, heard = false, quietAt = 0;
     try {
       const ctx = api.engine().ctx, src = ctx.createMediaStreamSource(rec.stream);
-      an = ctx.createAnalyser(); an.fftSize = 1024; buf = new Float32Array(an.fftSize);
+      an = ctx.createAnalyser(); an.fftSize = 2048; buf = new Float32Array(an.fftSize);
       src.connect(an);
       cleanup = () => { try { src.disconnect(); } catch {} };
     } catch {}
-    const t0 = performance.now(), me = rec;
+    const t0 = performance.now(), me = rec, sr = api.engine().ctx.sampleRate;
+    // The notes appear as you hum them: a pitch has to hold for a few frames to count.
+    let cand = null, held = 0, last = null, frame = 0;
+    const hearNote = (m) => {
+      const pc = m === null ? null : ((Math.round(m) % 12) + 12) % 12;
+      if (pc === cand) held++; else { cand = pc; held = 1; }
+      if (pc === null || held !== 4) return;
+      live.querySelector('.now')?.classList.remove('now');
+      if (pc !== last || !live.lastChild) live.append(h('span', { class: 'now' }, NOTE_NAMES[pc]));
+      else live.lastChild.classList.add('now');
+      last = pc;
+      while (live.childNodes.length > 8) live.firstChild.remove();
+    };
     const tick = () => {
       const el = (performance.now() - t0) / 1000;
       btn.style.setProperty('--p', Math.min(1, el / maxSec));
@@ -81,6 +109,8 @@ function micButton(api, { idle, maxSec = MAX_SEC, onTake }) {
         const rms = Math.sqrt(s / buf.length);
         btn.style.setProperty('--lvl', Math.min(1, rms * 9).toFixed(2));
         if (rms > 0.03) { heard = true; quietAt = 0; } else if (heard) quietAt ||= performance.now();
+        if (frame++ % 2 === 0) hearNote(rms > 0.02 ? livePitch(buf, sr) : null);
+        if (quietAt) last = null;
         // Finished singing: stop by itself after a long breath.
         if (heard && quietAt && performance.now() - quietAt > 1400 && el > 1.5) { label.textContent = 'Listening back\u2026'; me.stop(); return; }
       }
@@ -90,7 +120,7 @@ function micButton(api, { idle, maxSec = MAX_SEC, onTake }) {
     rec.done.then((take) => { reset(); api.ensureAudio(); onTake(take); },
       (err) => { reset(); api.ensureAudio(); status.textContent = micError(err); });
   };
-  return { el: h('div', { class: 'mic-wrap' }, btn, status), status };
+  return { el: h('div', { class: 'mic-wrap' }, btn, live, status), status };
 }
 
 // Mini piano roll: the hummed pitch (faint line) under the notes it became, on the 2-bar grid.
@@ -100,7 +130,7 @@ export function drawRoll(canvas, res, playStep = -1) {
   const g = canvas.getContext('2d');
   g.scale(dpr, dpr);
   const base = 60 + kk(res.key);
-  const notes = res.hook.s.map((st, i) => st && { step: i, len: st[1], m: base + st[0] }).filter(Boolean);
+  const notes = res.hook.s.map((st, i) => st && { step: i, len: st[1], m: base + st[0], echo: res.answered && i >= 16 }).filter(Boolean);
   const ms = notes.map((n) => n.m);
   let lo = Math.min(...ms) - 2, hi = Math.max(...ms) + 2;
   while (hi - lo < 12) { lo--; hi++; }
@@ -117,7 +147,7 @@ export function drawRoll(canvas, res, playStep = -1) {
   }
   const first = res.raw[0], step0 = notes[0];
   if (first && step0) {
-    const sd = 60 / res.bpm / 4, shift = step0.m - first.midi;
+    const sd = 60 / res.bpm / 4, shift = step0.m - first.midi - (res.tuning || 0);
     g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 1.5; g.beginPath();
     let pen = false;
     for (const f of res.track.frames) {
@@ -133,7 +163,7 @@ export function drawRoll(canvas, res, playStep = -1) {
   g.font = '600 10px ui-monospace, monospace'; g.textBaseline = 'middle';
   for (const n of notes) {
     const x = n.step * cw + 1, w = Math.max(cw - 2, n.len * cw - 2), on = playStep >= n.step && playStep < n.step + n.len;
-    g.fillStyle = hue; g.globalAlpha = on ? 1 : 0.85;
+    g.fillStyle = hue; g.globalAlpha = on ? 1 : n.echo ? 0.45 : 0.85;
     g.beginPath(); g.roundRect ? g.roundRect(x, y(n.m) + 1, w, rh - 2, 3) : g.rect(x, y(n.m) + 1, w, rh - 2); g.fill();
     g.globalAlpha = 1;
     if (w > 16 && rh > 9) { g.fillStyle = '#0a0b0a'; g.fillText(NOTE_NAMES[((n.m % 12) + 12) % 12], x + 4, y(n.m) + rh / 2); }
@@ -183,13 +213,15 @@ export function openHum(api, { from = 'create' } = {}) {
       micButton(api, { idle: 'Tap and hum', onTake: show }).el,
       h('p', { class: 'hum-note' }, 'Your recording stays on this device.'));
   };
+  let prep = null;
   const songRes = () => {
-    const { bpm, scale } = api.state(), data = take.channels[0], sr = take.sampleRate;
-    const key = fromCreate ? songKey(analyzeHum(data, sr, { bpm }).detected, scale) : api.state().key;
-    return analyzeHum(data, sr, { bpm, key, scaleNotes: SCALES[scale]?.notes, voice });
+    const { bpm, scale } = api.state();
+    const key = fromCreate ? songKey(prep.detected, scale) : api.state().key;
+    return hookFor(prep, { bpm, key, scaleNotes: SCALES[scale]?.notes, voice });
   };
   function show(t) {
     take = t;
+    prep = prepareHum(take.channels[0], take.sampleRate);
     const res = { ...songRes(), bpm: api.state().bpm };
     if (!res.hook) {
       body.replaceChildren(
@@ -200,7 +232,7 @@ export function openHum(api, { from = 'create' } = {}) {
     }
     sung = buildVoice(take, 'MY HUM');
     const canvas = h('canvas', { class: 'hum-roll', 'aria-label': 'Detected notes' });
-    const names = res.hook.s.map((st) => st && noteLabel(60 + kk(res.key) + st[0]).replace(/-?\d+$/, '')).filter(Boolean);
+    const names = res.hook.s.slice(0, res.answered ? 16 : 32).map((st) => st && noteLabel(60 + kk(res.key) + st[0]).replace(/-?\d+$/, '')).filter(Boolean);
     const scaleName = SCALES[api.state().scale]?.name || 'MINOR';
     const chips = h('div', { class: 'voice-chips hum-voice', role: 'radiogroup', 'aria-label': 'Sound' });
     const renderChips = () => chips.replaceChildren(...[['SYNTH', synthVoice], ['MY VOICE', 'chop']].map(([name, v]) => h('button', {
@@ -230,13 +262,12 @@ export function openHum(api, { from = 'create' } = {}) {
     };
     const build = () => {
       keep();
-      const data = take.channels[0], sr = take.sampleRate, v = voice;
+      const pre = prep, v = voice;
       trackEvent('hum', { kind: 'song' });
       close(true);
       api.buildSong((bpm, scale) => {
-        const found = analyzeHum(data, sr, { bpm }).detected;
-        const key = songKey(found, scale);
-        return { key, hook: analyzeHum(data, sr, { bpm, key, scaleNotes: SCALES[scale]?.notes, voice: v }).hook };
+        const key = songKey(pre.detected, scale);
+        return { key, hook: hookFor(pre, { bpm, key, scaleNotes: SCALES[scale]?.notes, voice: v }).hook };
       });
     };
     const primary = h('button', { class: 'btn accent hum-primary', onclick: fromCreate ? build : apply }, fromCreate ? 'BUILD A SONG AROUND IT' : 'USE IN MY SONG');

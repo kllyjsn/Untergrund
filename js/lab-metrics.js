@@ -112,3 +112,84 @@ export function summarizeRatings(results) {
     technicalFlags: value.flags,
   }]));
 }
+
+// Where a mix's energy sits: the sub (30–60 Hz) a club system moves air with, low bass (60–120 Hz),
+// low-mid mud (200–500 Hz) and the 2–5 kHz presence band where leads turn harsh. Levels are dBFS RMS
+// of the content inside each band; shares are fractions of the 20 Hz–Nyquist energy.
+export const BANDS = { sub: [30, 60], low: [60, 120], mud: [200, 500], harsh: [2000, 5000] };
+
+function fft(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const a = (-2 * Math.PI) / len, wr = Math.cos(a), wi = Math.sin(a);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < len / 2; k++) {
+        const p = i + k, q = p + len / 2, tr = re[q] * cr - im[q] * ci, ti = re[q] * ci + im[q] * cr;
+        re[q] = re[p] - tr; im[q] = im[p] - ti; re[p] += tr; im[p] += ti;
+        const nr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = nr;
+      }
+    }
+  }
+}
+
+export function spectralBands(channels, sampleRate, { size = 8192 } = {}) {
+  const length = Math.min(...channels.map((channel) => channel.length));
+  const half = size / 2, power = new Float64Array(half), win = new Float64Array(size);
+  let winPower = 0;
+  for (let i = 0; i < size; i++) { win[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / size); winPower += win[i] * win[i]; }
+  const re = new Float64Array(size), im = new Float64Array(size);
+  let frames = 0;
+  for (let start = 0; start < length || !frames; start += half) {
+    for (let i = 0; i < size; i++) {
+      let s = 0;
+      if (start + i < length) for (const channel of channels) s += channel[start + i] / channels.length;
+      re[i] = s * win[i]; im[i] = 0;
+    }
+    fft(re, im);
+    for (let k = 1; k < half; k++) power[k] += (2 * (re[k] * re[k] + im[k] * im[k])) / (size * winPower);
+    frames++;
+    if (start + size >= length) break;
+  }
+  const hz = sampleRate / size, sum = (lo, hi) => {
+    let e = 0;
+    for (let k = Math.ceil(lo / hz); k < Math.min(half, Math.ceil(hi / hz)); k++) e += power[k];
+    return e / frames;
+  };
+  const total = Math.max(1e-20, sum(20, sampleRate / 2)), out = { totalDb: round(10 * Math.log10(total), 1) };
+  for (const [name, [lo, hi]] of Object.entries(BANDS)) {
+    const e = sum(lo, hi);
+    out[`${name}Db`] = round(10 * Math.log10(Math.max(e, 1e-20)), 1);
+    out[`${name}Share`] = round(e / total);
+  }
+  return out;
+}
+
+// ITU-R BS.1770 K-weighting (high shelf + low cut), so levels compare the way ears hear them.
+function biquad(x, b0, b1, b2, a0, a1, a2) {
+  const y = new Float32Array(x.length);
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  for (let i = 0; i < x.length; i++) {
+    const v = (b0 * x[i] + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2) / a0;
+    x2 = x1; x1 = x[i]; y2 = y1; y1 = v; y[i] = v;
+  }
+  return y;
+}
+export function kWeight(x, sampleRate) {
+  let w = (2 * Math.PI * 1681.974450955533) / sampleRate, A = Math.pow(10, 3.999843853973347 / 40), al = Math.sin(w) / (2 * 0.7071752369554196), c = Math.cos(w), r = 2 * Math.sqrt(A) * al;
+  const s = biquad(x, A * (A + 1 + (A - 1) * c + r), -2 * A * (A - 1 + (A + 1) * c), A * (A + 1 + (A - 1) * c - r), A + 1 - (A - 1) * c + r, 2 * (A - 1 - (A + 1) * c), A + 1 - (A - 1) * c - r);
+  w = (2 * Math.PI * 38.13547087602444) / sampleRate; al = Math.sin(w) / (2 * 0.5003270373238773); c = Math.cos(w);
+  return biquad(s, (1 + c) / 2, -(1 + c), (1 + c) / 2, 1 + al, -2 * c, 1 - al);
+}
+// Integrated loudness without gating (fine for comparing renders of the same length).
+export function lufs(channels, sampleRate) {
+  let e = 0, n = 0;
+  for (const ch of channels) { const k = kWeight(ch, sampleRate); for (let i = 0; i < k.length; i++) e += k[i] * k[i]; n = k.length; }
+  return -0.691 + 10 * Math.log10(e / Math.max(1, n) + 1e-20);
+}
