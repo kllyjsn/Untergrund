@@ -14,6 +14,8 @@ import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restor
 import { roomTransportPosition, transportResync } from './room-sync.js';
 import { concertPanel, concertBar, preloadScore, loadPiano } from './concert.js';
 import { closePractice } from './practice-ui.js';
+import { openHum, melodyPanel, humButton, placeHook } from './hum-ui.js';
+import { restoreVoice } from './voice.js';
 import { compose } from './classical.js';
 import { PIECE, loadPiece } from './repertoire.js';
 import { followingRow } from './feed.js';
@@ -230,7 +232,7 @@ function setMaster(id, v) {
 }
 
 function pushUndo() {
-  undoStack.push(JSON.stringify({ patterns: state.patterns, params: state.params, master: state.master, bpm: state.bpm, chain: state.chain, labels: state.labels || null }));
+  undoStack.push(JSON.stringify({ patterns: state.patterns, params: state.params, master: state.master, bpm: state.bpm, key: state.key, chain: state.chain, labels: state.labels || null }));
   if (undoStack.length > 40) undoStack.shift();
 }
 function undo() {
@@ -492,7 +494,14 @@ function doGenerate() {
   toast(`${STYLES[style].name} pattern → ${PATTERN_NAMES[state.current]}${TRACK_IDS.some((id) => state.locks[id]) ? ' · locked tracks kept' : ''}`);
 }
 
-function doGenerateSet() {
+// Hum-to-hook: the sheet in hum-ui.js edits the song only through these.
+const humApi = {
+  state: () => state, engine: () => engine, ensureAudio, toast, play, stop, playing: () => playing,
+  edit: (fn) => { pushUndo(); fn(state); engine?.applyAll(); build(); persist(); },
+  buildSong: (hum) => { stopPreview(); generatedAt = performance.now(); doGenerateSet(hum); if (!playing) play(); },
+};
+
+function doGenerateSet(hum = null) {
   pushUndo();
   const seed = (Math.random() * 1e9) | 0;
   const source = clone(pat());
@@ -513,6 +522,7 @@ function doGenerateSet() {
   state.chain = songChain(style, seed);
   // A score sets its own tempo even mid-set; a masterwork keeps its title and composer.
   if (g.pattern.score) state.bpm = g.bpm;
+  if (hum && !g.pattern.score) { const r = hum(state.bpm, state.scale); state.key = r.key; if (r.hook) placeHook(state.patterns, r.hook); }
   const piece = PIECE[g.pattern.score?.piece];
   const title = piece ? piece.title : trackTitle(seed);
   const artist = piece ? piece.composer : loadAvatar().name || 'UNTERGRUND';
@@ -837,6 +847,7 @@ function buildNowPlaying(primary) {
       h('button', { class: 'np-stop', title: 'Stop (Space)', 'aria-label': 'Stop', onclick: toggle }, h('i')),
       primary,
       h('button', { class: 'btn refine-toggle', onclick: toggleStudio }, 'REFINE'),
+      pat()?.score ? null : h('button', { class: 'btn ghost', title: 'Hum a melody and make it the hook', onclick: () => openHum(humApi, { from: 'studio' }) }, 'HUM'),
       h('button', { class: 'btn ghost np-pub', onclick: showSongPublish }, 'PUBLISH'),
       h('button', { class: 'btn ghost np-share', title: 'Link, TikTok/Reels video or embed', onclick: () => showShare(currentSong(), 'now_playing') }, 'SHARE'),
       h('button', { class: 'btn ghost rec', title: 'Record your set, then cut and publish it', onclick: toggleRec }, h('span', { class: 'dot' }), 'REC', h('span', { class: 'rec-time' }))),
@@ -920,7 +931,8 @@ function buildGenerateHome() {
       h('p', {}, 'Choose a sound and UNTERGRUND writes a full arrangement you can perform live, refine in Studio, or spin in the Club.')),
     h('div', { class: 'generate-actions' }, primary,
       h('button', { class: 'btn refine-toggle', onclick: toggleStudio }, studioOpen ? 'HIDE STUDIO' : 'REFINE IN STUDIO'),
-      h('button', { class: 'btn ghost', onclick: () => startArtistLive() }, 'ARTIST LIVE')),
+      h('button', { class: 'btn ghost', onclick: () => startArtistLive() }, 'ARTIST LIVE'),
+      STYLES[style].family === 'CLASSICAL' ? null : humButton(humApi)),
     h('div', { class: 'generate-status' }, statusLine()),
   ];
   const classical = STYLES[style].family === 'CLASSICAL' || !!(playing && pat()?.score);
@@ -1225,6 +1237,7 @@ function buildEditor() {
   ui.roll = null; ui.rollCols = null;
   if (id === 'acid') ed.append(buildRoll());
   if (id === 'vox') ed.append(samplePanel());
+  if (id === 'stab' && !pat()?.score) ed.append(melodyPanel(humApi));
   return ed;
 }
 
@@ -1521,6 +1534,7 @@ else if (new URLSearchParams(location.search).has('jukebox')) setTimeout(showJuk
 else if (new URLSearchParams(location.search).has('track')) openShared(new URLSearchParams(location.search).get('track'));
 else if (new URLSearchParams(location.search).has('artist')) setTimeout(openArtist);
 restoreSample();
+restoreVoice();
 window.__untergrund = { get state() { return state; }, get engine() { return engine; } };
 
 document.addEventListener('click', (e) => {
