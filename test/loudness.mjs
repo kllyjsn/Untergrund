@@ -30,12 +30,15 @@ close(loudness([s23, s23], fs).integrated, -23.0, 0.1, 'EBU 3341 #1');
 close(loudness([sine(1000, -33, 6), sine(1000, -33, 6)], fs).integrated, -33.0, 0.1, 'EBU 3341 #2');
 const s44 = sine(1000, -23, 6, 0, 44100);
 close(loudness([s44, s44], 44100).integrated, -23.0, 0.1, '44.1 kHz');
-// EBU Tech 3341 case 3 (shortened): -36 / -23 / -36 dBFS for 2/12/2 s: the relative gate drops the quiet parts.
-const g3 = cat(sine(1000, -36, 2), sine(1000, -23, 12), sine(1000, -36, 2));
+// EBU Tech 3341 case 3: -36 / -23 / -36 dBFS for 10/60/10 s: the relative gate drops the quiet parts.
+const g3 = cat(sine(1000, -36, 10), sine(1000, -23, 60), sine(1000, -36, 10));
 close(loudness([g3, g3], fs).integrated, -23.0, 0.1, 'EBU 3341 #3 relative gate');
-// EBU Tech 3341 case 5: silence is below the absolute gate and doesn't pull the reading down.
-const g5 = cat(new Float32Array(fs * 6), s23, new Float32Array(fs * 6));
-close(loudness([g5, g5], fs).integrated, -23.0, 0.1, 'EBU 3341 #5 absolute gate');
+// EBU Tech 3341 case 4: -72 / -36 / -23 / -36 / -72 dBFS for 10/10/60/10/10 s: the -70 LUFS absolute gate drops the -72 parts.
+const g4 = cat(sine(1000, -72, 10), sine(1000, -36, 10), sine(1000, -23, 60), sine(1000, -36, 10), sine(1000, -72, 10));
+close(loudness([g4, g4], fs).integrated, -23.0, 0.1, 'EBU 3341 #4 absolute gate');
+// EBU Tech 3341 case 5: -26 / -20 / -26 dBFS for 20/20.1/20 s reads -23 LUFS.
+const g5 = cat(sine(1000, -26, 20), sine(1000, -20, 20.1), sine(1000, -26, 20));
+close(loudness([g5, g5], fs).integrated, -23.0, 0.1, 'EBU 3341 #5');
 assert.equal(loudness([new Float32Array(fs * 5)], fs).integrated, -Infinity, 'digital silence');
 
 // True peak: a sine at fs/4 sampled at 45° shows every sample at -3 dB below its real peak.
