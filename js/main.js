@@ -27,6 +27,7 @@ import { describeBar } from './describe-ui.js';
 import { fetchPublicTrack } from './account.js';
 import { openShare, openSharedLanding, countRemix, track } from './share.js';
 import { readShareParams, decodeSong, normalizeSong, remixState } from './share-code.js';
+import { dailyDrop, dropSong } from './daily.js';
 import { songTimeline } from './timeline-ui.js';
 
 let state = load() || defaultState();
@@ -341,9 +342,15 @@ function showJukebox() {
     },
     playSong: async (item) => {
       ensureAudio();
-      const saved = await fetchTrack(item.trackId);
-      if (!saved?.state) throw new Error('track_missing');
-      current = { ...normalizeSong({ ...item, state: saved.state, remixOf: saved.remixOf || item.remixOf }), trackId: item.local ? '' : item.trackId };
+      if (item.kind === 'drop') {
+        const d = dailyDrop(item.drop);
+        current = { ...normalizeSong({ state: dropSong(d), title: d.title, artist: 'UNTERGRUND', style: d.style }), trackId: '' };
+        trackEvent('daily_drop', { kind: 'jukebox' });
+      } else {
+        const saved = await fetchTrack(item.trackId);
+        if (!saved?.state) throw new Error('track_missing');
+        current = { ...normalizeSong({ ...item, state: saved.state, remixOf: saved.remixOf || item.remixOf }), trackId: item.local ? '' : item.trackId };
+      }
       listen(current);
       const bars = state.chainOn ? parseChain(state.chain).length || 8 : 8;
       return (Math.min(bars, 64) * 16 * 15) / state.bpm;
@@ -792,6 +799,7 @@ function selectFamily(f) {
   build();
 }
 function generateNow(drop = null) {
+  if (!drop?.date) drop = null;
   stopPreview();
   generatedAt = performance.now();
   navigator.vibrate?.(12);
