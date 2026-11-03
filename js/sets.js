@@ -6,6 +6,7 @@ import { track as trackEvent } from './analytics.js';
 import { encodeWav } from './dsp.js';
 import { ensureDevice } from './account.js';
 import { creditLine } from './share-code.js';
+import { recentDrops } from './daily.js';
 
 const MAX_WAV_SECONDS = 15 * 60;
 export const fmtTime = (sec) => {
@@ -307,6 +308,8 @@ export function openJukebox({ playSong, playReplay, stopSong, toast, onCreate, o
   const list = h('div', { class: 'jb-list' });
   const tabs = h('div', { class: 'jb-tabs' });
   const visible = () => items.filter((x) => filter === 'all' || x.kind === filter);
+  const day = (d) => new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  const drops = recentDrops().map((d, i) => ({ id: `drop-${d.date}`, kind: 'drop', drop: d.date, today: !i, title: d.title, artist: 'UNTERGRUND', style: d.style, created: `${d.date}T00:00:00.000Z` }));
   async function playAt(i) {
     stopAll();
     const it = queue[i];
@@ -344,7 +347,7 @@ export function openJukebox({ playSong, playReplay, stopSong, toast, onCreate, o
   audio.onended = () => playAt(idx + 1);
   function renderTabs() {
     tabs.innerHTML = '';
-    for (const [id, text] of [['all', 'ALL'], ['song', 'SONGS'], ['set', 'SETS']]) {
+    for (const [id, text] of [['all', 'ALL'], ['song', 'SONGS'], ['drop', 'DROPS'], ['set', 'SETS']]) {
       tabs.append(h('button', { class: 'family-tab' + (filter === id ? ' on' : ''), onclick: () => { filter = id; renderTabs(); renderList(); } }, text));
     }
     tabs.append(h('button', { class: 'btn accent jb-all', onclick: () => { queue = visible(); playAt(0); } }, 'PLAY ALL'),
@@ -360,15 +363,15 @@ export function openJukebox({ playSong, playReplay, stopSong, toast, onCreate, o
       const on = queue[idx]?.id === it.id;
       const len = it.kind === 'set' ? ` · ${fmtTime((it.end || it.duration) - (it.start || 0))}` : '';
       list.append(h('button', { class: 'jb-item' + (on ? ' on' : ''), onclick: () => { if (on) { stopAll(); now.textContent = 'Stopped.'; return renderList(); } queue = v; playAt(v.indexOf(it)); } },
-        h('span', { class: `jb-kind ${it.kind}` }, it.kind === 'set' ? 'SET' : 'SONG'),
-        h('span', { class: 'jb-text' }, h('b', {}, it.title), h('small', {}, `${it.artist} · ${STYLES[it.style]?.name || it.style}${it.bpm ? ` · ${it.bpm} BPM` : ''}${it.room ? ` · ${it.room}` : ''}${len}${it.local ? ' · THIS BROWSER' : ''}`)),
+        h('span', { class: `jb-kind ${it.kind}` }, it.kind.toUpperCase()),
+        h('span', { class: 'jb-text' }, h('b', {}, it.title), it.kind === 'drop' ? h('small', {}, `${it.today ? 'Today’s drop' : `Daily Drop · ${day(it.drop)}`} · ${STYLES[it.style]?.name || it.style}`) : h('small', {}, `${it.artist} · ${STYLES[it.style]?.name || it.style}${it.bpm ? ` · ${it.bpm} BPM` : ''}${it.room ? ` · ${it.room}` : ''}${len}${it.local ? ' · THIS BROWSER' : ''}`)),
         h('span', { class: 'jb-play' + (on ? ' on' : '') })));
     }
   }
   body.append(h('div', { class: 'jb' }, now, tabs, note, list));
   renderTabs();
   Promise.all([jukeboxConfig(), idb('all').catch(() => [])]).then(([cfg, local]) => {
-    items = [...local, ...cfg.items].sort((a, b) => String(b.created).localeCompare(String(a.created)));
+    items = [drops[0], ...[...local, ...cfg.items, ...drops.slice(1)].sort((a, b) => String(b.created).localeCompare(String(a.created)))];
     note.textContent = cfg.enabled ? '' : 'Public storage isn\'t connected yet, so this shows what was published from this browser.';
     renderList();
   });

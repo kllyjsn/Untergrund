@@ -3,7 +3,7 @@
 usage: python3 test/listen.py test/out/L_<tag>   (reads L_<tag>_notes.json + L_<tag>_<stem>.wav,
 writes L_<tag>_report.md and L_<tag>_report.png). Each section prints what a player would hear.
 """
-import sys, json, glob, os, wave
+import sys, json, glob, os, wave, subprocess
 import numpy as np
 from scipy.signal import find_peaks
 
@@ -20,6 +20,11 @@ def hz(m): return 440 * 2 ** ((m - 69) / 12)
 
 
 def load(f):
+    if f.endswith('.flac'):  # bundled samples (lossless); ffmpeg decodes them to the same 16-bit PCM
+        ch = int(subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'stream=channels', '-of', 'csv=p=0', f], capture_output=True, text=True, check=True).stdout.split()[0])
+        sr = int(subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'stream=sample_rate', '-of', 'csv=p=0', f], capture_output=True, text=True, check=True).stdout.split()[0])
+        raw = subprocess.run(['ffmpeg', '-v', 'error', '-i', f, '-f', 's16le', 'pipe:1'], capture_output=True, check=True).stdout
+        return (np.frombuffer(raw, np.int16) / 32767.0).reshape(-1, ch).mean(1), sr
     w = wave.open(f); n, sr, ch, bw = w.getnframes(), w.getframerate(), w.getnchannels(), w.getsampwidth()
     raw = w.readframes(n)
     if bw == 3:

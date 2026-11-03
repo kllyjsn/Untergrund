@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { dailyDrop, dropDate, isDropDate, msToNextDrop, countdown } from '../js/daily.js';
+import { dailyDrop, dropDate, isDropDate, msToNextDrop, countdown, recentDrops, dropSong } from '../js/daily.js';
 import { defaultState, sanitize, STYLES } from '../js/state.js';
 import { encodeSong, decodeSong, remixState } from '../js/share-code.js';
 import { handleDrop, handlePlay, memoryStore, handleCrate } from '../api/_lib/crate.js';
@@ -10,6 +10,20 @@ const a = dailyDrop('2026-11-03');
 assert.deepEqual(a, dailyDrop(new Date('2026-11-03T00:00:00Z')));
 assert.deepEqual(a, dailyDrop(new Date('2026-11-03T23:59:59.999Z')));
 assert.deepEqual(a, dailyDrop(Date.parse('2026-11-03T12:00:00Z')));
+
+// The jukebox's DROPS shelf: today first, one per day, and each plays the same song for everyone.
+const shelf = recentDrops(14, Date.parse('2026-11-20T08:00:00Z'));
+assert.equal(shelf.length, 14);
+assert.deepEqual(shelf.map((d) => d.date).slice(0, 3), ['2026-11-20', '2026-11-19', '2026-11-18']);
+assert.equal(new Set(shelf.map((d) => d.date)).size, 14);
+const song = dropSong(a);
+assert.equal(JSON.stringify(song), JSON.stringify(dropSong(dailyDrop('2026-11-03'))), 'a drop renders the same song every time');
+assert.equal(song.drop, '2026-11-03');
+assert.equal(song.artist.title, a.title);
+assert(song.chainOn && song.patterns.length > 1);
+assert.equal(sanitize(song).drop, '2026-11-03');
+assert.equal(remixState({ state: song, title: a.title, artist: 'UNTERGRUND', style: a.style }).drop, '2026-11-03', 'remixing a jukebox drop keeps the tag');
+assert.notEqual(JSON.stringify(dropSong(dailyDrop('2026-11-04')).patterns), JSON.stringify(song.patterns));
 assert.notDeepEqual(a, dailyDrop('2026-11-04'));
 assert.equal(dropDate(new Date('2026-11-03T23:59:59Z')), '2026-11-03');
 assert.equal(dropDate(new Date('2026-11-04T00:00:00Z')), '2026-11-04');
