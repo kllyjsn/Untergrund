@@ -128,7 +128,8 @@ const HOOK_STYLE = {
   deephouse: 'house', ukg: 'garage', breaks: 'house', jerseyclub: 'garage', euphoric: 'anthem', trance: 'anthem', hyperpop: 'pop', dnb: 'dnb',
   ambient: 'ambient', amapiano: 'piano', afrobeats: 'afro', reggaeton: 'afro', bailefunk: 'afro', trap: 'trap', drill: 'trap',
 };
-export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell'];
+// 'chop' sings the hook with the user's own recorded voice (js/voice.js); a song without one plays 'vocal'.
+export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell', 'chop'];
 
 // Every genre has several plausible ensembles. The seed chooses a player,
 // register and articulation while the genre keeps its drum, harmony and room identity.
@@ -873,6 +874,7 @@ export function sanitize(s) {
           feel: cl(p.hook.x?.feel ?? 0.4, 0, 1),
           warmth: cl(p.hook.x?.warmth ?? 0.5, 0, 1),
         },
+        ...(p.hook.h ? { h: 1 } : {}),
       };
       e.hm = Math.round(cl(p.hm ?? 2, 0, 2));
     }
