@@ -1027,6 +1027,10 @@ body.studio-open .describe-chips { flex-wrap: nowrap; overflow-x: auto; scrollba
 .mic-ring::after { content: ''; position: relative; width: 16px; height: 24px; border-radius: 9px; background: var(--hue, #c6ff3d); box-shadow: 0 0 calc(var(--lvl) * 28px) var(--hue, #c6ff3d); }
 .mic-btn.live { border-color: var(--hue, #c6ff3d); }
 .mic-btn.live .mic-ring { transform: scale(calc(1 + var(--lvl) * .12)); }
+.mic-live { display: flex; justify-content: center; gap: 8px; min-height: 30px; flex-wrap: wrap; }
+.mic-live span { min-width: 30px; padding: 4px 8px; border-radius: 999px; background: rgba(255,255,255,.07); color: #c9c9d1; font: 700 15px var(--sans); text-align: center; animation: mic-note .18s ease-out; }
+.mic-live span.now { background: var(--hue, #c6ff3d); color: #0a0b0a; }
+@keyframes mic-note { from { transform: scale(.6); opacity: 0; } }
 .mic-status { min-height: 1em; color: #ffb38a; font: 500 13px/1.4 var(--sans); text-align: center; max-width: 360px; }
 .mic-status:empty { display: none; }
 .hum-found { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
@@ -1050,3 +1054,45 @@ body.studio-open .describe-chips { flex-wrap: nowrap; overflow-x: auto; scrollba
 .hum-voice, .melody-panel .voice-chips { --kc: var(--hue, #c6ff3d); }
 .hum-found { margin-top: 6px; }
 .hum-row .btn { white-space: nowrap; }
+
+/* ---------- polish: studio bar, genre strip, now-playing, phone overlays ---------- */
+body.studio-open .generate-actions > .btn { flex: 0 0 auto; min-width: 0; padding: 0 18px; white-space: nowrap; }
+body.studio-open .generate-actions .hum-cta { flex: 1 1 200px; }
+.np-meta span { white-space: nowrap; }
+.top .btn.help { display: inline-flex; align-items: center; justify-content: center; }
+.set-body > .share { max-width: none; }
+.set-body > .jb, .set-body > .set-cut { padding-left: 0; padding-right: 0; }
+@media (min-width: 761px) {
+  /* every family visible: a mouse can't scroll a sideways strip */
+  .family-tabs { flex-wrap: wrap; row-gap: 4px; border-radius: 21px; }
+  .np-actions .generate-primary { flex: 1 1 calc(100% - 70px); }
+  .np-actions > .btn, .np-actions > .btn.np-share { flex: 1 1 0; min-width: max-content; min-height: 52px; padding: 0 14px; }
+}
+@media (max-width: 760px) {
+  /* REC is secondary: on Create it lives with the song's actions, not next to the logo */
+  body:not(.studio-open):not(.recording) .top .btn.rec { display: none; }
+  .generate-actions.np-actions > .btn.np-pub, .generate-actions.np-actions > .btn.np-share, .generate-actions.np-actions > .btn.rec { flex: 1 1 calc(33% - 7px); min-height: 48px; display: inline-flex; align-items: center; justify-content: center; padding: 0 8px; }
+  .pub-head { padding: 14px 12px; }
+  .jb-tabs .jb-all, .jb-tabs .jb-all ~ .btn { flex: 1 1 calc(50% - 4px); min-height: 40px; }
+  .np-meta { font-size: 11px; letter-spacing: .04em; }
+  /* FILE menu spans the header instead of running off the right edge */
+  body.studio-open .top { position: relative; }
+  .top .menu { position: static; }
+  .top .menu-pop { top: auto; left: 12px; right: 12px; min-width: 0; margin-top: 6px; }
+  /* over Club / sheets the tab bar is solid, so nothing from the page shows through */
+  body:has(.overlay, .club-overlay) .tabbar { background: #09090a; -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (max-width: 560px) {
+  /* Club fits one phone screen: stage, then the chat and composer without scrolling */
+  .club-stage { min-height: 340px; height: calc(100svh - 64px - env(safe-area-inset-bottom) - 130px - 236px); }
+  .club-dj { top: 96px; transform: translateX(-50%) scale(.7); transform-origin: 50% 0; }
+  .club-social { height: 236px; }
+  .club-chat-feed { padding: 8px 12px; }
+}
+@media (max-width: 760px) {
+  .generate-home.has-concert { grid-template-areas: 'copy' 'styles' 'actions' 'describe' 'concert' 'recents'; }
+  .generate-home.is-playing.has-concert { grid-template-areas: 'copy' 'actions' 'describe' 'styles' 'concert' 'recents'; }
+  .crash { left: 12px; right: 12px; transform: none; }
+  .crash b { white-space: nowrap; }
+  .crash span { flex: 1; }
+}
