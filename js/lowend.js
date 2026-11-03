@@ -8,8 +8,8 @@ const CLUB = {
   MACHINE: { sub: [0.8, 0, 0, 0, 0], dip: 0.5, rel: 0.05 },
   HOUSE: { sub: [0.7, 0, 0, 0, 0.6], dip: 0.45, rel: 0.07 },
   GARAGE: { sub: [0.4, 0, 0, 0, 0], dip: 0.45, rel: 0.05 },
-  BREAKS: { sub: [0.4, 0, 0, 0, 0], dip: 0.4, rel: 0.045 },
-  TRAP: { sub: [0.4, 0, 0, 0, 0], dip: 0.45, rel: 0.05 },
+  BREAKS: { sub: [0.4, 0, 0, 0, 0], dip: 0.3, rel: 0.045 },
+  TRAP: { sub: [0.4, 0, 0, 0, 0], dip: 0.3, rel: 0.05 },
   AFRO: { sub: [0.4, 0, 0, 0, 0.7], dip: 0.5, rel: 0.06 },
 };
 
