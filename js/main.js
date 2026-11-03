@@ -17,6 +17,7 @@ import { closePractice } from './practice-ui.js';
 import { compose } from './classical.js';
 import { PIECE, loadPiece } from './repertoire.js';
 import { followingRow } from './feed.js';
+import { describeBar } from './describe-ui.js';
 import { fetchPublicTrack } from './account.js';
 import { openShare, openSharedLanding, countRemix, track } from './share.js';
 import { readShareParams, decodeSong, normalizeSong, remixState } from './share-code.js';
@@ -223,7 +224,8 @@ function setMaster(id, v) {
 }
 
 function pushUndo() {
-  undoStack.push(JSON.stringify({ patterns: state.patterns, params: state.params, master: state.master, bpm: state.bpm }));
+  const { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn } = state;
+  undoStack.push(JSON.stringify({ patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn }));
   if (undoStack.length > 40) undoStack.shift();
 }
 function undo() {
@@ -903,9 +905,23 @@ function buildGenerateHome() {
     h('div', { class: 'recents-row' }, recent.map((t) => h('button', { class: 'recent', style: `--hue:${hue(t.style)}`, onclick: () => openRecent(t) },
       h('i'), h('b', {}, t.title || 'Untitled'), h('span', {}, [STYLES[t.style]?.name, t.bpm && `${t.bpm} BPM`].filter(Boolean).join(' · ')))))) : null;
   const following = followingRow({ hue, onPlay: (t) => openShared(t.id, true), onLoad: renderHome });
-  const home = h('section', { class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` }, left, picker, concert, recents, following);
+  const home = h('section', { class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` }, left, describeBox(), picker, concert, recents, following);
   ui.home = home;
   return home;
+}
+
+function describeBox() {
+  return describeBar({
+    state: () => state, style: () => style, styleName: (id) => STYLES[id].name, depth: () => undoStack.length,
+    pushUndo, undo, track: (p) => trackEvent('describe', p),
+    switchGenre: (id) => { style = id; family = STYLES[id].family; localStorage.setItem('untergrund.family', family); doGenerateSet(); if (playing && pat().score) stop(); },
+    commit: (next) => {
+      if (playing && next.bpm !== state.bpm) transportOrigin = Date.now() - ((Date.now() - transportOrigin) / (15000 / state.bpm)) * (15000 / next.bpm);
+      Object.assign(state, next);
+      engine?.applyAll(); engine?.applyDelayTime();
+      build(); persist();
+    },
+  });
 }
 
 

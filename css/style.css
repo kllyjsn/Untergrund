@@ -933,3 +933,41 @@ body.recording .np-actions .btn.rec .dot { background: var(--accent); animation:
   .pr-sum { gap: 12px; padding: 10px 12px; }
   .pr-best { margin-left: 0; }
 }
+
+/* Describe it: plain-language steering on Create + Studio */
+.describe { grid-area: describe; display: flex; flex-direction: column; gap: 10px; max-width: 640px; }
+.describe-row { display: flex; gap: 8px; }
+.describe-input { flex: 1 1 auto; min-width: 0; height: 48px; padding: 0 16px; border-radius: 14px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04); color: #fff; font: 500 15px var(--sans); transition: border-color .15s, box-shadow .15s; }
+.describe-input::placeholder { color: #75757f; }
+.describe-input:focus { outline: none; border-color: var(--hue); box-shadow: 0 0 0 3px color-mix(in srgb, var(--hue) 22%, transparent); }
+.describe-go { flex: 0 0 auto; height: 48px; padding: 0 18px; border: 0; border-radius: 14px; background: #fff; color: #0a0a0b; font: 700 12px var(--mono); letter-spacing: .12em; cursor: pointer; }
+.describe-go:hover { background: var(--hue); }
+.describe-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.describe-chip { height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,.12); background: transparent; color: #cfcfd6; font: 500 12px var(--sans); white-space: nowrap; cursor: pointer; transition: border-color .15s, color .15s; }
+.describe-chip:hover, .describe-chip:focus-visible { border-color: var(--hue); color: #fff; outline: none; }
+.describe-chip.sm { height: 26px; padding: 0 10px; font-size: 11px; }
+.describe-receipt { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: #d8d8de; font: 500 13px/1.4 var(--sans); }
+.describe-receipt[hidden] { display: none; }
+.describe-did b { color: var(--hue); font-weight: 700; }
+.describe-did em { color: #8a8a94; font-style: normal; }
+.describe-note { color: #a8a8b2; }
+.describe-undo { height: 26px; padding: 0 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.06); color: #fff; font: 600 10px var(--mono); letter-spacing: .12em; cursor: pointer; }
+.generate-home { grid-template-areas: 'copy styles' 'actions styles' 'describe styles' 'status styles' 'recents recents'; }
+.generate-home.has-concert { grid-template-areas: 'copy styles' 'actions styles' 'describe styles' 'status styles' 'concert concert' 'recents recents'; }
+body.studio-open .describe { margin-top: 12px; max-width: none; }
+body.studio-open .describe-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+@media (max-width: 900px) {
+  .generate-home { grid-template-areas: 'copy' 'actions' 'describe' 'styles' 'status' 'recents'; }
+  .generate-home.has-concert { grid-template-areas: 'copy' 'actions' 'describe' 'styles' 'concert' 'status' 'recents'; }
+}
+@media (max-width: 760px) {
+  .generate-home { grid-template-areas: 'copy' 'styles' 'actions' 'describe' 'recents'; }
+  .generate-home.is-playing { grid-template-areas: 'copy' 'actions' 'describe' 'styles' 'recents'; }
+  .describe { gap: 8px; }
+  .describe-input { font-size: 16px; }
+  .describe-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px; -webkit-mask: linear-gradient(90deg,#000 88%,transparent); mask: linear-gradient(90deg,#000 88%,transparent); }
+  .describe-chips::-webkit-scrollbar { display: none; }
+}
+@media (max-width: 760px) {
+  .describe-go { height: 48px; padding: 0 14px; background: rgba(255,255,255,.06); color: #fff; border: 1px solid rgba(255,255,255,.14); }
+}
