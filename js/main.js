@@ -175,7 +175,8 @@ function queueSong(plan) {
   loadSets(liveSets(plan.next)).catch(() => {}).then(tryArm);
   setTimeout(tryArm, 8000 - (performance.now() - h.since));
   tryArm();
-  if (!plan.quiet) toast(plan.next.artist?.title ? `Up next: “${plan.next.artist.title}” · on the bar` : 'Up next · on the bar');
+  const when = h.step == null ? 'seating the band' : 'on the bar';
+  if (!plan.quiet) toast(plan.next.artist?.title ? `Up next: “${plan.next.artist.title}” · ${when}` : `Up next · ${when}`);
   renderHome();
 }
 
