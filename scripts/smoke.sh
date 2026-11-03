@@ -25,6 +25,15 @@ check 200 /
 check 200 /js/main.js
 check 200 /css/style.css
 check 200 /embed.html
+check 200 /manifest.webmanifest
+check 200 /sw.js
+check 200 /js/pwa.js
+check 200 /icons/icon-192.png
+check 200 /icons/icon-512.png
+check 200 /icons/icon-maskable-512.png
+check 200 /icons/apple-touch-icon.png
+check 200 /samples/live/kick_v2_1.flac
+check 404 /samples/live/kick_v2_1.wav
 check 200 /api/sc-config
 check 200 /api/room-config
 check 200 /api/tracks

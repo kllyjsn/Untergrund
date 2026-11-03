@@ -4,7 +4,7 @@ import { STYLES } from './state.js';
 import { fetchTrack } from './crate.js';
 import { drawArtwork } from './artwork.js';
 import { readShareParams, decodeSong, normalizeSong, songLink, embedCode, creditLine } from './share-code.js';
-import { loadLiveKit, loadBand, STAB_BAND } from './livekit.js';
+import { liveSets, loadSets } from './livekit.js';
 
 const $ = (id) => document.getElementById(id);
 const track = (name, props = {}) => { try { window.untergrundTrack?.(name, props); } catch {} };
@@ -41,9 +41,7 @@ function schedule() {
 async function play() {
   ensureAudio();
   const st = song.state;
-  if (Math.round(st.master.kit || 0) >= 1) await loadLiveKit().catch(() => {});
-  const band = STAB_BAND[Math.round(st.params.stab?.voice || 0)];
-  if (band) await loadBand(band).catch(() => {});
+  await loadSets(liveSets(st)).catch(() => {});
   const chain = st.chainOn ? parseChain(st.chain) : [];
   abs = 0; seq.cur = chain.length ? chain[0] : st.current; seq.chainPos = 0; seq.queued = null;
   next = ctx.currentTime + 0.08;
