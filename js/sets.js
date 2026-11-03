@@ -169,7 +169,7 @@ export function drawPeaks(canvas, peaks, start, end, duration, head = -1) {
 }
 
 export function sheet(titleText, { beforeClose, onClose } = {}) {
-  const ov = h('div', { class: 'overlay', onclick: (e) => e.target === ov && close() });
+  const ov = h('div', { class: 'overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': titleText, onclick: (e) => e.target === ov && close() });
   const body = h('div', { class: 'pub-body set-body' });
   const onKey = (e) => { if (e.key === 'Escape') close(); e.stopPropagation(); };
   function close(force = false) {

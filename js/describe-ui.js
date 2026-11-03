@@ -4,7 +4,7 @@ import { parse, applyEdits, genreOf, suggest, chipsFor } from './describe.js';
 
 let last = null, hint = null, draft = '';
 
-// ctx: state(), style(), styleName(id), depth(), pushUndo(), undo(), switchGenre(id), commit(nextState), track(props)
+// ctx: state(), style(), styleName(id), depth(), pushUndo(label), undo(), switchGenre(id), commit(nextState), track(props)
 export function describeBar(ctx) {
   const input = h('input', { class: 'describe-input', type: 'text', placeholder: 'Describe it: “darker and slower”', 'aria-label': 'Describe the change you want',
     autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'go', maxlength: '140', oninput: () => { draft = input.value; } });
@@ -57,7 +57,7 @@ export function describeBar(ctx) {
     } else {
       const r = applyEdits(ctx.state(), edits, { seed });
       if (!r.did.length) return miss(text, `Nothing to change: ${r.skipped.map((s) => s.replace(' (already there)', '')).join(', ')} already. Try:`);
-      ctx.pushUndo();
+      ctx.pushUndo(`“${text.length > 32 ? text.slice(0, 31) + '…' : text}”`);
       last = { did: r.did, miss: unknown.join(', '), depth: ctx.depth() };
       ctx.commit(r.state);
     }

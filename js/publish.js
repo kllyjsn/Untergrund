@@ -52,7 +52,7 @@ export function openPublish({ getState, getStyle, render, toast, audio = null, t
   let busy = false;
 
   const close = () => { if (!busy) ov.remove(); };
-  const ov = h('div', { class: 'overlay', onclick: (e) => e.target === ov && close() });
+  const ov = h('div', { class: 'overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Publish', onclick: (e) => e.target === ov && close() });
   const body = h('div', { class: 'pub-body' });
   const modal = h('div', { class: 'modal panel pub' },
     h('div', { class: 'pub-head' }, h('div', { class: 'mtitle' }, 'PUBLISH · SOUNDCLOUD'), h('button', { class: 'btn ghost', onclick: close }, 'CLOSE')),

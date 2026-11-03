@@ -141,7 +141,7 @@ export function openArtistStudio({ getState, loadProject, performProject, publis
   let profile = loadArtistProfile();
   let catalog = loadCatalog();
   const close = () => ov.remove();
-  const ov = h('div', { class: 'overlay', onclick: (e) => e.target === ov && close() });
+  const ov = h('div', { class: 'overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Autonomous artist', onclick: (e) => e.target === ov && close() });
   const body = h('div', { class: 'artist-body' });
   const modal = h('div', { class: 'modal panel artist-modal' },
     h('div', { class: 'artist-head' },

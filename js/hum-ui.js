@@ -41,11 +41,11 @@ export function songKey(detected, scaleName) {
 
 // One big mic button: tap to start, tap (or go quiet) to finish. Shows level and time left.
 function micButton(api, { idle, maxSec = MAX_SEC, onTake }) {
-  const ring = h('i', { class: 'mic-ring' });
+  const ring = h('i', { class: 'mic-ring', 'aria-hidden': 'true' });
   const label = h('b', {}, idle);
   const sub = h('small', {}, `Up to ${maxSec} seconds`);
   const status = h('div', { class: 'mic-status', role: 'status', 'aria-live': 'polite' });
-  const btn = h('button', { class: 'mic-btn', 'aria-label': idle }, ring, h('span', {}, label, sub));
+  const btn = h('button', { class: 'mic-btn' }, ring, h('span', {}, label, sub));
   let rec = null, raf = 0, cleanup = () => {};
   const reset = () => {
     cancelAnimationFrame(raf); cleanup(); cleanup = () => {};
@@ -222,7 +222,7 @@ export function openHum(api, { from = 'create' } = {}) {
     const keep = () => { if (voice === 'chop' && sung) setVoice(sung); };
     const apply = () => {
       keep();
-      api.edit((st) => placeHook(st.patterns, hook()));
+      api.edit((st) => placeHook(st.patterns, hook()), 'HUM hook');
       trackEvent('hum', { kind: 'apply' });
       close(true);
       api.toast('Your melody is the hook now. Undo anytime.');
@@ -275,7 +275,7 @@ export function openVoice(api) {
     const hasHook = s.patterns.some((p) => p.hook);
     const use = h('button', { class: 'btn accent hum-primary', onclick: () => {
       if (!hasHook) { close(true); return openHum(api, { from: 'studio' }); }
-      api.edit((st) => st.patterns.forEach((p) => { if (p.hook) p.hook.v = 'chop'; }));
+      api.edit((st) => st.patterns.forEach((p) => { if (p.hook) p.hook.v = 'chop'; }), 'VOICE on hook');
       trackEvent('voice_chops', { kind: 'use' });
       close(true);
       api.toast('Your voice sings the melody now');
@@ -285,7 +285,7 @@ export function openVoice(api) {
       h('p', { class: 'hum-lead' }, `${vc.chops.length} chops, tuned to ${KEYS[s.key]}. Tap to play.`),
       pads,
       h('div', { class: 'hum-actions' }, use, mic.el,
-        h('button', { class: 'btn ghost', onclick: () => { clearVoice(); api.edit((st) => st.patterns.forEach((p) => { if (p.hook?.v === 'chop') p.hook.v = 'warm'; })); render(); } }, 'REMOVE')),
+        h('button', { class: 'btn ghost', onclick: () => { clearVoice(); api.edit((st) => st.patterns.forEach((p) => { if (p.hook?.v === 'chop') p.hook.v = 'warm'; }), 'REMOVE voice'); render(); } }, 'REMOVE')),
       h('p', { class: 'hum-note' }, 'Stays on this device unless you publish a song that uses it.'));
   };
   render();
@@ -294,7 +294,7 @@ export function openVoice(api) {
 // Studio, CHORDS editor: where the song's melody (hook) comes from and which sound sings it.
 export function melodyPanel(api) {
   const s = api.state(), hk = s.patterns[s.current]?.hook;
-  const setVoice = (v) => api.edit((st) => st.patterns.forEach((p) => { if (p.hook) p.hook.v = v; }));
+  const setVoice = (v) => api.edit((st) => st.patterns.forEach((p) => { if (p.hook) p.hook.v = v; }), 'HOOK sound');
   const mine = hk?.v === 'chop';
   return h('div', { class: 'melody-panel' },
     h('div', { class: 'glabel' }, 'MELODY'),
