@@ -780,6 +780,7 @@ body.recording .np-actions .btn.rec .dot { background: var(--accent); animation:
 .jb-item:hover, .jb-item.on { border-color: var(--accent); }
 .jb-kind { font-size: 10px; font-weight: 800; letter-spacing: .12em; padding: 4px 7px; border-radius: 6px; background: #22222a; color: #c8c8d0; }
 .jb-kind.set { background: var(--accent); color: #000; }
+.jb-kind.drop { background: rgba(198,255,43,.14); color: #c6ff2b; }
 .jb-text { display: grid; gap: 3px; min-width: 0; }
 .jb-text b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .jb-text small { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

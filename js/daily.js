@@ -1,5 +1,5 @@
 // DAILY DROP: one seed + genre per UTC day, the same for everyone, computed locally (no server).
-import { STYLES } from './state.js';
+import { STYLES, defaultState, generate, arrangement, songChain, applyOverrides } from './state.js';
 
 // Fixed order so the schedule never depends on how STYLES happens to be sorted. Classical scores are left out.
 const POOL = ['hypnotic', 'deephouse', 'neosoul', 'breaks', 'amapiano', 'trance', 'ukg', 'boombap', 'acid', 'afrobeats', 'dnb', 'minimal',
@@ -42,6 +42,24 @@ export function dailyDrop(date = new Date()) {
   const seed = hash(`drop:${iso}`) % 1e9;
   const t = hash(`title:${iso}`);
   return { date: iso, no: day + 1, seed, style, genre: STYLES[style].name, title: `${FIRST[t % FIRST.length]} ${SECOND[Math.floor(t / FIRST.length) % SECOND.length]}` };
+}
+
+// Today's drop and the days before it, newest first (the jukebox's DROPS shelf).
+export const recentDrops = (n = 14, now = Date.now()) => Array.from({ length: n }, (_, i) => dailyDrop(new Date(+new Date(now) - i * DAY)));
+
+// The drop as a full song from a clean project, so it sounds the same for every listener.
+export function dropSong(drop) {
+  const s = defaultState();
+  if (drop.style === 'euphoric') s.scale = 'major';
+  const g = generate(drop.style, drop.seed, s.scale);
+  s.patterns = arrangement(g.pattern, drop.seed, g.bpm >= 115);
+  s.key = g.key;
+  applyOverrides(s, g, true);
+  s.chainOn = true;
+  s.chain = songChain(drop.style, drop.seed);
+  s.drop = drop.date;
+  s.artist = { name: 'UNTERGRUND', title: drop.title, style: drop.style, seed: drop.seed, created: `${drop.date}T00:00:00.000Z` };
+  return s;
 }
 
 export const msToNextDrop = (now = Date.now()) => DAY - (((+new Date(now)) % DAY) + DAY) % DAY;
