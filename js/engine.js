@@ -397,15 +397,17 @@ export class Engine {
 
   // Synth chord and lead voices go through a make-up gain so they sit level with the recorded players.
   trimOut(key, db, dst, shelfAmt = 0.7) {
-    this.trims ||= {};
     if (!db) return dst;
+    const trims = (this.trims ||= new Map());
+    if (!trims.has(dst)) trims.set(dst, {});
+    const byKey = trims.get(dst);
     // Match level where the voice speaks: the make-up stays out of the 200–500 Hz mud band.
-    if (!this.trims[key]) {
-      const g = (this.trims[key] = this.gain(dbGain(db)));
+    if (!byKey[key]) {
+      const g = (byKey[key] = this.gain(dbGain(db)));
       if (!shelfAmt) g.connect(dst);
       else { const shelf = this.filter('lowshelf', 320, 0.7); shelf.gain.value = -db * shelfAmt; g.connect(shelf).connect(dst); }
     }
-    return this.trims[key];
+    return byKey[key];
   }
 
   trigger(id, t, v) {
@@ -1192,7 +1194,7 @@ export class Engine {
     amp.gain.setValueAtTime(g, t + Math.max(0.008, len - 0.04));
     amp.gain.linearRampToValueAtTime(0, t + len);
     src.connect(lp).connect(amp).connect(out);
-    src.start(t, ch.start, len + 0.02);
+    src.start(t, ch.start, Math.min(ch.end - ch.start, (len + 0.02) * rate));
     src.stop(t + len + 0.05);
   }
 
@@ -1210,7 +1212,7 @@ export class Engine {
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
     if (voice === 'chop') {
       const vc = getChops();
-      if (vc) return this.chopNote(vc, t, v, 60 + k + oct * 12 + n, dur, expression);
+      if (vc) return this.chopNote(vc, t, v, 60 + k + oct * 12 + n, dur, expression, null, this.hookBus || this.ch.stab.input);
       voice = 'vocal';
     }
     voice = { saw: 'analog', sq: 'pulse', flute: 'reed', bell: 'mallet', pluck: 'warm' }[voice] || voice;
@@ -1219,10 +1221,10 @@ export class Engine {
     const band = voice !== 'pulse' && STAB_BAND[Math.round(p.voice)], set = band && bandKit(band);
     if (set) {
       const R = BAND_PLAY[band], ring = R.hold ? dur * 1.05 : Math.max(R.min * 0.6, dur * 1.5);
-      return this.recordedNote(set, t, Math.min(1.3, v) * R.gain * 0.6, 60 + k + oct * 12 + n, ring, this.ch.stab.input, 0, band, v / 1.3);
+      return this.recordedNote(set, t, Math.min(1.3, v) * R.gain * 0.6, 60 + k + oct * 12 + n, ring, this.hookBus || this.ch.stab.input, 0, band, v / 1.3);
     }
     const f = midiHz(60 + k + oct * 12 + n), L = leadPreset(voice, pocketOf(this.state.master)?.name);
-    const out = this.trimOut(`hook-${voice}`, this.soulBand() ? 0 : HOOK_TRIM_DB[voice] || 0, this.ch.stab.input, 0);
+    const out = this.trimOut(`hook-${voice}`, this.soulBand() ? 0 : HOOK_TRIM_DB[voice] || 0, this.hookBus || this.ch.stab.input, 0);
     const len = Math.max(0.06, dur * 0.92), end = t + len + 0.6, vn = Math.min(1, v / 1.3);
     // Played legato into a close note, the lead slides there instead of re-striking.
     const prev = this.lastLead, semis = prev ? Math.abs(12 * Math.log2(f / prev.f)) : 0;

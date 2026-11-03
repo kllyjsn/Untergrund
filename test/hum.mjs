@@ -108,6 +108,9 @@ const hookNotes = (hook) => hook.s.map((x, i) => (x ? [i, x[0], x[1]] : null)).f
   assert.equal(ql.scale, 0.5, 'an 8-second hum is read at double time');
   assert.deepEqual(ql.notes.map((n) => n.step), [0, 4, 8, 12, 16, 20, 24, 28]);
   assert(ql.notes.every((n) => n.step + n.len <= 32));
+  const qf = quantize(long, { bpm: 160 });
+  assert.equal(qf.notes.length, 8, 'a fast song keeps the end of an 8-second hum');
+  assert(qf.notes.every((n) => n.step + n.len <= 32));
 }
 
 // Register: a low hum is raised by octaves into the lead's range; the melody shape is kept.
