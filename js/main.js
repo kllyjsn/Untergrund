@@ -15,7 +15,8 @@ import { saveTrack, trackTitle, recentTracks, fetchTrack, countPlay } from './cr
 import { dropCard } from './drop.js';
 import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
 import { roomTransportPosition, transportResync } from './room-sync.js';
-import { concertPanel, concertBar, preloadScore, loadPiano } from './concert.js';
+import { concertPanel, concertBar, preloadScore, scoreReady, loadPiano } from './concert.js';
+import { liveSets, loadSets, setsReady } from './livekit.js';
 import { closePractice } from './practice-ui.js';
 import { initMidi, midiStrip, midiClockStart, midiClockStep, midiClockStop } from './midi-studio.js';
 import { openHum, melodyPanel, humButton, placeHook } from './hum-ui.js';
@@ -27,6 +28,7 @@ import { describeBar } from './describe-ui.js';
 import { fetchPublicTrack } from './account.js';
 import { openShare, openSharedLanding, countRemix, track } from './share.js';
 import { readShareParams, decodeSong, normalizeSong, remixState } from './share-code.js';
+import { dailyDrop, dropSong } from './daily.js';
 import { songTimeline } from './timeline-ui.js';
 
 let state = load() || defaultState();
@@ -139,7 +141,34 @@ function schedule() {
   }
 }
 
-function play({ step = 0, delay = 0.06 } = {}) {
+// A song on recorded instruments holds its first downbeat until they're decoded (up to 8 s); a score waits longer,
+// since its orchestra has no synth stand-in. Recordings already here start at once, as do seeks and clock-synced starts.
+let tuning = null;
+function needsTuning() {
+  const sc = pat()?.score;
+  if (sc) return scoreReady(sc) ? null : { load: () => preloadScore(sc), wait: 30000, label: 'SEATING THE ORCHESTRA' };
+  const names = liveSets(state);
+  return setsReady(names) ? null : { load: () => loadSets(names), wait: 8000, label: 'SEATING THE BAND' };
+}
+function play(opts = {}) {
+  const need = playing || opts.delay != null ? null : needsTuning();
+  if (!need) return start(opts);
+  ensureAudio(); stopPreview();
+  clearTimeout(tuning?.timer);
+  const t = tuning = { label: need.label, at: performance.now() };
+  const go = () => { if (tuning !== t) return; endTuning(); start(opts); };
+  t.timer = setTimeout(go, need.wait);
+  (t.done = need.load().catch(() => {})).then(go);
+  document.body.classList.add('tuning');
+  renderHome();
+}
+function endTuning() {
+  clearTimeout(tuning?.timer);
+  tuning = null;
+  document.body.classList.remove('tuning');
+}
+
+function start({ step = 0, delay = 0.06 } = {}) {
   const seeking = playing;
   stopPreview();
   closePractice();
@@ -156,6 +185,7 @@ function play({ step = 0, delay = 0.06 } = {}) {
   nextTime = ctx.currentTime + Math.max(0.01, delay);
   clockOffset = null;
   transportOrigin = Date.now() + Math.max(0.01, delay) * 1000 - abs * (15000 / state.bpm);
+  if (!seeking) engine.recLock = new Map();
   playing = true;
   if (pat().score) preloadScore(pat().score);
   timer.postMessage('start');
@@ -168,6 +198,8 @@ function play({ step = 0, delay = 0.06 } = {}) {
 }
 
 function stop() {
+  endTuning();
+  if (engine) engine.recLock = null;
   clearTimeout(roomJoinTimer);
   roomJoinTimer = 0;
   playing = false;
@@ -186,7 +218,7 @@ function stop() {
   renderHome();
 }
 
-const toggle = () => (playing ? stop() : play());
+const toggle = () => (playing || tuning ? stop() : play());
 
 function audition(id) {
   ensureAudio();
@@ -341,9 +373,15 @@ function showJukebox() {
     },
     playSong: async (item) => {
       ensureAudio();
-      const saved = await fetchTrack(item.trackId);
-      if (!saved?.state) throw new Error('track_missing');
-      current = { ...normalizeSong({ ...item, state: saved.state, remixOf: saved.remixOf || item.remixOf }), trackId: item.local ? '' : item.trackId };
+      if (item.kind === 'drop') {
+        const d = dailyDrop(item.drop);
+        current = { ...normalizeSong({ state: dropSong(d), title: d.title, artist: 'UNTERGRUND', style: d.style }), trackId: '' };
+        trackEvent('daily_drop', { kind: 'jukebox' });
+      } else {
+        const saved = await fetchTrack(item.trackId);
+        if (!saved?.state) throw new Error('track_missing');
+        current = { ...normalizeSong({ ...item, state: saved.state, remixOf: saved.remixOf || item.remixOf }), trackId: item.local ? '' : item.trackId };
+      }
       listen(current);
       const bars = state.chainOn ? parseChain(state.chain).length || 8 : 8;
       return (Math.min(bars, 64) * 16 * 15) / state.bpm;
@@ -561,7 +599,7 @@ const humApi = {
 // `steer(state)` (from Describe it) returns the final state to keep, before it is built, played and saved.
 function doGenerateSet(hum = null, drop = null, steer = null) {
   pushUndo();
-  const seed = drop ? drop.seed : (Math.random() * 1e9) | 0;
+  const seed = drop ? drop.seed : songSeed();
   const source = clone(pat());
   const lockedParams = Object.fromEntries(TRACK_IDS.filter((id) => state.locks[id]).map((id) => [id, clone(state.params[id])]));
   matchStyleScale();
@@ -588,6 +626,7 @@ function doGenerateSet(hum = null, drop = null, steer = null) {
   delete state.remixOf; delete state.drop;
   if (drop) Object.assign(state, { drop: drop.date, remixOf: { id: '', title: `Daily Drop · ${drop.title}`, artist: 'UNTERGRUND' } });
   if (typeof steer === 'function') adoptState(steer(state));
+  if (engine?.recLock) engine.recLock = new Map();
   build(); persist();
   trackEvent('generate', { genre: style, kind: 'song' });
   toast(piece ? `${piece.composer.split(' ').pop()}: ${title}` : `New ${STYLES[style].name} track “${title}”`);
@@ -781,7 +820,18 @@ function stopPreview() {
   }
 }
 
-function selectStyle(id) { style = id; if (STYLES[id].family === 'CLASSICAL') loadPiano(); build(); }
+// The next GENERATE's seed is drawn as soon as a style is picked, so that song's recordings can start downloading first.
+let nextSeed = null, warmed = '';
+const songSeed = () => { const s = nextSeed ?? ((Math.random() * 1e9) | 0); nextSeed = null; return s; };
+function preloadStyle(id) {
+  nextSeed ??= (Math.random() * 1e9) | 0;
+  if (warmed === `${id}:${nextSeed}`) return;
+  warmed = `${id}:${nextSeed}`;
+  const g = generate(id, nextSeed, state.scale);
+  if (g.pattern.score) preloadScore(g.pattern.score).catch(() => {});
+  else loadSets(liveSets(g));
+}
+function selectStyle(id) { style = id; preloadStyle(id); if (STYLES[id].family === 'CLASSICAL') loadPiano(); build(); }
 function selectFamily(f) {
   family = f;
   localStorage.setItem('untergrund.family', f);
@@ -789,17 +839,16 @@ function selectFamily(f) {
   build();
 }
 function generateNow(drop = null) {
+  if (!drop?.date) drop = null;
   stopPreview();
   generatedAt = performance.now();
   navigator.vibrate?.(12);
   doGenerateSet(null, drop);
-  if (!pat().score) return playing ? undefined : play();
-  // A new score starts at its first bar, not wherever the transport happened to be.
-  if (playing) stop();
-  // Seat the orchestra before the downbeat: unlock audio inside the tap, start once the recordings are in.
-  ensureAudio();
-  toast('Seating the orchestra…');
-  preloadScore(pat().score).then(() => { if (!playing) play(); });
+  // A new score starts at its first bar, not wherever the transport happened to be; so does a song still tuning up.
+  if (playing && (pat().score || needsTuning())) stop();
+  if (!playing) play();
+  // Then warm the next GENERATE's recordings, after this song's own have the connection to themselves.
+  Promise.resolve(tuning?.done).then(() => preloadStyle(style));
 }
 // "In the style of": the composer model the CLASSICAL generator writes in ('' = UNTERGRUND's own rules).
 function setComposer(name) {
@@ -876,13 +925,15 @@ function styleCard(id, value, isPlaying) {
     title: 'Tap to choose. Press and hold to hear it.',
     oncontextmenu: (e) => e.preventDefault(),
   }, styleGlyph(id), h('b', {}, value.name), h('span', {}, value.tag));
-  let holdTimer = 0, held = false;
+  let holdTimer = 0, held = false, hover = 0;
+  card.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') hover = setTimeout(() => preloadStyle(id), 150); });
   card.addEventListener('pointerdown', () => {
     held = false;
     ensureAudio();
+    preloadStyle(id);
     holdTimer = setTimeout(() => { held = true; startPreview(id, card); }, 380);
   });
-  const end = () => { clearTimeout(holdTimer); if (held) stopPreview(); };
+  const end = () => { clearTimeout(holdTimer); clearTimeout(hover); if (held) stopPreview(); };
   for (const type of ['pointerup', 'pointerleave', 'pointercancel']) card.addEventListener(type, end);
   card.addEventListener('click', () => { if (held) { held = false; return; } selectStyle(id); });
   return card;
@@ -991,8 +1042,11 @@ function buildGenerateHome() {
       h('button', { class: 'family-tab surprise', title: 'Pick any genre and generate', onclick: surprise }, 'SURPRISE ME')),
     h('div', { class: 'generate-styles' }, Object.entries(STYLES).filter(([, v]) => v.family === family).map(([id, v]) => styleCard(id, v, playingStyle === id))),
     h('div', { class: 'generate-hint' }, 'Tap to choose. Press and hold to hear it.'));
-  const primary = h('button', { class: 'generate-primary' + (performance.now() - generatedAt < 900 ? ' fired' : ''), onclick: generateNow },
-    h('span', {}, 'GENERATE'), h('small', {}, `${STYLES[style].name} · full track`));
+  const primary = tuning
+    ? h('button', { class: 'generate-primary tuning', 'aria-busy': 'true', style: `--tune-at:${((tuning.at - performance.now()) / 1000).toFixed(2)}s`, onclick: () => generateNow() },
+      h('span', {}, 'TUNING UP'), h('small', {}, `${STYLES[state.artist?.style]?.name || STYLES[style].name} · ${tuning.label}`))
+    : h('button', { class: 'generate-primary' + (performance.now() - generatedAt < 900 ? ' fired' : ''), onclick: () => generateNow() },
+      h('span', {}, 'GENERATE'), h('small', {}, `${STYLES[style].name} · full track`));
   const showNp = playing && !studioOpen;
   const left = showNp ? buildNowPlaying(primary) : [
     h('div', { class: 'generate-copy' },
@@ -1608,6 +1662,11 @@ window.addEventListener('keyup', (e) => {
 document.addEventListener('visibilitychange', () => { if (!guest) save(state); });
 
 build();
+// Once the page is idle, warm the recordings the selected style and the saved song will play.
+(window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(() => {
+  preloadStyle(style);
+  if (pat()?.score) preloadScore(pat().score).catch(() => {}); else loadSets(liveSets(state));
+}, { timeout: 4000 });
 // A saved masterwork reopens with its score (and section map) once the notes arrive.
 if (pat()?.score?.piece) loadPiece(pat().score.piece).then(() => { if (!playing) build(); }, () => {});
 requestAnimationFrame(frame);
