@@ -4,6 +4,8 @@ import { listCrate, fetchTrack } from './crate.js';
 import { h } from './ui.js';
 import { createClientCredentials } from './client-id.js';
 import { track as trackEvent } from './analytics.js';
+import { startLiveSet, endLiveSet, liveSetRecording } from './live-sets.js';
+import { listReplays, loadReplay, fmtTime } from './sets.js';
 
 const AVATAR_KEY = 'untergrund.avatar.v1';
 const ROOM_KEY = 'untergrund.room.v1';
@@ -349,7 +351,7 @@ class RoomBus {
 // A live DJ's room connection outlives the overlay so the deck isn't lost while editing in Studio.
 let parkedBus = null;
 
-export function openClub({ getState, getStyle, loadTrack, getTransport, startRoomBroadcast, unlockAudio, joinRoomSet, toast }) {
+export function openClub({ getState, getStyle, loadTrack, getTransport, startRoomBroadcast, unlockAudio, joinRoomSet, replayToRoom, toast }) {
   let audioReady = false;
   const unlock = () => unlockAudio().then((ok) => (audioReady = ok));
   unlock().then(() => {
@@ -497,6 +499,11 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     bus.initiatedSets.add(broadcastId);
     bus.send('set', { ...track, state: clone(getState()), style: getStyle(), startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId });
     if (!transport.playing) startRoomBroadcast(startsAt);
+    startLiveSet({
+      getState, getStyle, startsAt, toast, dj: avatar.name, room: activeRoom, title: track.title,
+      isPlaying: () => getTransport().playing,
+      isDJ: () => { const b = parkedBus || bus; return !b.hostId || b.hostId === b.clientId; },
+    });
     trackEvent('room_go_live', { kind: room.currentSet ? 'rebroadcast' : 'first' });
     toast(`Broadcasting “${track.title}” to ${activeRoom}`);
   }
@@ -504,6 +511,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
   function commitRoom(value) {
     const next = cleanRoom(value);
     if (next === activeRoom) return;
+    endLiveSet();
     activeRoom = next;
     history.replaceState(null, '', `${location.pathname}?room=${activeRoom}`);
     messages = [];
@@ -561,7 +569,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
         avatarNode(dj, 'dj', '--turn:0deg'),
         h('div', { class: 'club-booth' }, h('i'), h('b', {}, 'UNTERGRUND'), h('i'))),
       h('div', { class: 'club-now' },
-        h('span', {}, room.currentSet ? 'LIVE IN THIS ROOM' : 'READY TO BROADCAST'),
+        h('span', {}, room.currentSet ? `${room.currentSet.replay ? 'REPLAY' : 'LIVE'} IN THIS ROOM${liveSetRecording() ? ' · RECORDING' : ''}` : 'READY TO BROADCAST'),
         h('strong', {}, current.title),
         h('small', {}, `${current.artist} · ${current.bpm} BPM · ${current.key || ''}`)),
       h('div', { class: 'club-floor' }, people));
@@ -570,8 +578,44 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
   let sideTab = 'signal';
   let crate = { loaded: false, shared: false, tracks: [] };
   const refreshCrate = () => listCrate().then((next) => { crate = { ...next, loaded: true }; if (!closed) render(); });
-  const tabs = () => h('div', { class: 'club-tabs' }, [['signal', 'ROOM SIGNAL'], ['crate', 'CRATE']].map(([id, label]) =>
-    h('button', { class: sideTab === id ? 'on' : '', onclick: () => { sideTab = id; if (id === 'crate') refreshCrate(); render(); } }, label)));
+  let replays = { loaded: false, items: [] };
+  const refreshReplays = () => listReplays().catch(() => []).then((items) => { replays = { loaded: true, items }; if (!closed) render(); });
+  const tabs = () => h('div', { class: 'club-tabs' }, [['signal', 'ROOM SIGNAL'], ['crate', 'CRATE'], ['sets', 'SETS']].map(([id, label]) =>
+    h('button', { class: sideTab === id ? 'on' : '', onclick: () => { sideTab = id; if (id === 'crate') refreshCrate(); if (id === 'sets') refreshReplays(); render(); } }, label)));
+
+  // Saved live sets: the DJ replays one to the whole room, in sync, from its state timeline.
+  async function replaySet(item) {
+    unlock();
+    let timeline;
+    try { timeline = await loadReplay(item); } catch { return toast('That set is no longer in the jukebox'); }
+    endLiveSet({ offer: false });
+    const startsAt = Date.now() + 1600;
+    const broadcastId = `${bus.clientId}:${Date.now()}:${++bus.localSetVersion}`;
+    bus.initiatedSets.add(broadcastId);
+    const s = timeline.initial;
+    bus.send('set', {
+      title: item.title, artist: item.artist, bpm: s.bpm, key: `${KEYS[s.key]} ${SCALES[s.scale]?.name || 'MINOR'}`,
+      state: clone(s), style: timeline.style, startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId,
+      replay: { ...(item.local ? { timeline } : { id: item.id }), title: item.title, dj: item.artist },
+    });
+    replayToRoom(timeline, startsAt);
+    trackEvent('set_replay', { kind: 'room' });
+    toast(`Replaying “${item.title}” to ${activeRoom}`);
+  }
+
+  function setsPanel() {
+    const isHost = !room.hostId || room.hostId === clientId();
+    const list = h('div', { class: 'club-crate' },
+      !replays.loaded ? h('div', { class: 'club-chat-empty' }, 'Opening the jukebox…') :
+      replays.items.length ? replays.items.map((item) => h('div', { class: 'club-crate-row' },
+        h('div', {}, h('b', {}, item.title), h('small', {}, `${item.artist}${item.room ? ` · ${item.room}` : ''} · ${fmtTime((item.end || item.duration) - (item.start || 0))}${item.local ? ' · THIS BROWSER' : ''}`)),
+        isHost ? h('button', { class: 'btn accent', onclick: () => replaySet(item) }, 'REPLAY TO ROOM') : null)) :
+        h('div', { class: 'club-chat-empty' }, 'No saved sets yet. GO LIVE and your set is recorded for you.'));
+    return h('aside', { class: 'club-social' },
+      h('div', { class: 'club-social-head' }, tabs(), h('b', {}, `${replays.items.length} SETS`)),
+      list,
+      h('div', { class: 'club-crate-note' }, isHost ? 'Replays play in sync for everyone in the room.' : 'Take the deck to replay a set to the room.'));
+  }
 
   function cratePanel() {
     const isHost = !room.hostId || room.hostId === clientId();
@@ -597,6 +641,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
 
   function chatPanel() {
     if (sideTab === 'crate') return cratePanel();
+    if (sideTab === 'sets') return setsPanel();
     const feed = h('div', { class: 'club-chat-feed' },
       messages.length ? messages.map((message) => h('div', { class: 'club-chat-line' },
         h('b', {}, message.user?.name || 'Listener'), h('span', {}, message.payload?.text || ''))) :

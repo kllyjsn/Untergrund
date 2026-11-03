@@ -4,6 +4,7 @@ import { FORMS, SECTIONS } from './classical.js';
 import { MODELS } from './composer-models.js';
 import { POCKETS, STYLE_POCKET } from './groove.js';
 import { REPERTOIRE, PIECE } from './repertoire.js';
+import { cleanLabels } from './timeline.js';
 
 export const STYLES = {
   hypnotic: { name: 'HYPNOTIC', bpm: [130, 134], family: 'TECHNO', tag: 'deep · rolling' },
@@ -128,7 +129,8 @@ const HOOK_STYLE = {
   deephouse: 'house', ukg: 'garage', breaks: 'house', jerseyclub: 'garage', euphoric: 'anthem', trance: 'anthem', hyperpop: 'pop', dnb: 'dnb',
   ambient: 'ambient', amapiano: 'piano', afrobeats: 'afro', reggaeton: 'afro', bailefunk: 'afro', trap: 'trap', drill: 'trap',
 };
-export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell'];
+// 'chop' sings the hook with the user's own recorded voice (js/voice.js); a song without one plays 'vocal'.
+export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell', 'chop'];
 
 // Every genre has several plausible ensembles. The seed chooses a player,
 // register and articulation while the genre keeps its drum, harmony and room identity.
@@ -836,6 +838,8 @@ export function sanitize(s) {
   out.current = Math.max(0, Math.min(7, Number.isFinite(+s.current) ? Math.round(+s.current) : 0));
   out.chainOn = !!s.chainOn;
   out.chain = String(s.chain || d.chain).toUpperCase().replace(/[^A-H]/g, '').slice(0, 128) || d.chain;
+  const labels = cleanLabels(s.labels);
+  if (labels) out.labels = labels;
   out.mutes = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.mutes?.[id]]));
   out.solos = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.solos?.[id]]));
   out.locks = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.locks?.[id]]));
@@ -873,6 +877,7 @@ export function sanitize(s) {
           feel: cl(p.hook.x?.feel ?? 0.4, 0, 1),
           warmth: cl(p.hook.x?.warmth ?? 0.5, 0, 1),
         },
+        ...(p.hook.h ? { h: 1 } : {}),
       };
       e.hm = Math.round(cl(p.hm ?? 2, 0, 2));
     }

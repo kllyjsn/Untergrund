@@ -97,6 +97,8 @@ export function knob(q, value, onChange, { size = 46, color = 'var(--accent)', f
   const draw0 = draw;
   draw = () => { draw0(); aria(); };
   draw();
+  el.dataset.param = q.id;
+  el._ctl = { q, get: () => v, set };
   return { el, set: (nv) => { v = nv; draw(); }, get: () => v };
 }
 
@@ -115,6 +117,7 @@ export function numBox(q, value, onChange, { format = (v) => String(v), cls = ''
     }
   });
   draw();
+  el._ctl = { q, get: () => v, set };
   return { el, set: (nv) => { v = nv; draw(); }, get: () => v };
 }
 

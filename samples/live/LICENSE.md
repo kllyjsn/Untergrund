@@ -48,7 +48,7 @@ mono, resampled to 44.1 kHz 16-bit PCM WAV, trimmed, 80 ms fade out, peak-normal
 | --- | --- | --- | --- |
 | `piano_48.wav` … `piano_88.wav` (12) | [sfzinstruments/Osiris_Piano](https://github.com/sfzinstruments/Osiris_Piano), CC0 1.0 Universal | `18c6afccb60cff458edbf7c394571783e074e1e9` | `UC-Sus/A/Piano_UC-Sus_MicA_{C2,E2,A2,C3,E3,G3,B3,D4,F4,A4,C5,E5}_vl2.flac` |
 | `pianosoft_48.wav` … `pianosoft_88.wav` (12), the soft velocity layer | same | same | `UC-Sus/A/Piano_UC-Sus_MicA_{C2,E2,A2,C3,E3,G3,B3,D4,F4,A4,C5,E5}_vl1.flac` |
-| `gtr_40.wav` … `gtr_72.wav` (12) | [sfzinstruments/karoryfer.emilyguitar](https://github.com/sfzinstruments/karoryfer.emilyguitar) by D. Smolken, CC0 1.0 Universal | `b4920dc662fd9cad6dcaccdeecffdd91c8725d8c` | `notes/{e2,gb2,a2,c3,eb3,gb3,a3,c4,eb4,gb4,a4,c5}_mf_rr1.wav` |
+| `gtr_40.wav` … `gtr_72.wav` (12) | [sfzinstruments/karoryfer.black-and-green-guitars](https://github.com/sfzinstruments/karoryfer.black-and-green-guitars) (Hofner Club hollow-body electric, recorded by Brian Wood), CC0 1.0 Universal | `b3b3249d37dc977a1a297bd2dc053e6d9b6b805c` | `Samples/black/ord/twang_{e3,gb3,a3,c4,eb4,gb4,a4,c5,eb5,gb5,a5,c6}_mf_rr1.wav` (Karoryfer names sit an octave above MIDI: `e3` is MIDI 40) |
 | `horn_53.wav`, `horn_58.wav`, `horn_62.wav` | [sgossner/VSCO-2-CE](https://github.com/sgossner/VSCO-2-CE) (Versilian Studios), CC0 1.0 Universal | `440300901dfe9275fd84e0b7763af1f8443ae62e` | `Brass/Tenor Trombone/stac/tenortbn_stac_{F2,A#2,D3}_v2_rr1.wav` |
 | `horn_65.wav` … `horn_84.wav` (7) | same | same | `Brass/Trumpet/stac/Sum_SHTrumpet_stac_{F3,G3,A#3,D4,F4,A4,C5}_v2_rr1.wav` |
 | `str_55.wav` … `str_86.wav` (11) | same | same | `Strings/Violin Section/susVib/VlnEns_susVib_{G2,A2,B2,D3,F#3,A3,C4,E4,G4,B4,D5}_v2.wav` |

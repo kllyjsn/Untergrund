@@ -3,6 +3,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { STYLES, sanitize } from '../../js/state.js';
 import { redisEnv, redis } from './crate.js';
+import { normalizeTimeline } from '../../js/set-timeline.js';
 
 export const ROOM_ID = /^[a-z0-9-]{2,32}$/;
 export const MAX_ROOM_BODY = 480000;
@@ -41,7 +42,15 @@ export function normalizeSet(payload, now = Date.now()) {
     by: clean(payload.by, 64),
     broadcastId: clean(payload.broadcastId, 120),
     orderAt: Number.isFinite(+payload.orderAt) ? +payload.orderAt : now,
+    ...(payload.replay && { replay: normalizeReplay(payload.replay) }),
   };
+}
+
+// "Replay this set to the room": a jukebox set id (fetched by listeners) or, for local-only sets, the timeline inline.
+function normalizeReplay(r) {
+  const id = /^[a-z0-9-]{1,40}$/.test(String(r?.id || '')) ? String(r.id) : '';
+  const timeline = !id && r?.timeline ? normalizeTimeline(r.timeline) : null;
+  return id || timeline ? { ...(id && { id }), ...(timeline && { timeline }), title: clean(r.title, 80), dj: clean(r.dj, 28) } : undefined;
 }
 
 function snapshot(room, since = 0, now = Date.now()) {
