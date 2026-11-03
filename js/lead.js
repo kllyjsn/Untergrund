@@ -14,14 +14,14 @@ export const STAB_SHELF_HZ = [800, 470, 800, 800, 800, 800, 800];
 // Same for the synth hook voices against recorded players taking the hook.
 // Hook make-up lands above ~800 Hz, where a lead speaks; its fundamental (C4 register, inside the
 // 200–500 Hz mud band) only gets HOOK_LOW_DB of it.
-export const HOOK_LOW_DB = 4;
+export const HOOK_LOW_DB = 2;
 export const HOOK_TRIM_DB = {
   analog: 16,
   pulse: 15,
   warm: 13,
   vocal: 17,
   reed: 11,
-  mallet: 15
+  mallet: 16
 };
 
 const STACK = { atk: 0.008, sus: 0.5, hold: 0.2, rel: 0.1, q: 1, body: null, sub: 0, glide: 0, vib: [5.2, 10], tame: 3, air: 1.4, bite: 5, thin: 5 };
@@ -38,7 +38,7 @@ const PRESETS = {
 };
 const POCKET_PRESETS = {
   // Hyperpop: wide bright saws, quick glides, fast deep vibrato.
-  'pulse:TRAP': { wave: 'sawtooth', uni: 3, spread: 16, mix: 0.5, body: ['square', 0.25, 1], sub: 0.15, cut: 1400, env: 3400, q: 1.2, dec: 0.16, sus: 0.55, hold: 0.2, rel: 0.09, glide: 0.05, vib: [5.8, 18], tame: 9, bite: 0, level: 0.28 },
+  'pulse:TRAP': { wave: 'sawtooth', uni: 3, spread: 16, mix: 0.5, body: ['square', 0.25, 1], sub: 0.15, cut: 1400, env: 3400, q: 1.2, dec: 0.16, sus: 0.55, hold: 0.2, rel: 0.09, glide: 0.05, vib: [5.8, 18], tame: 11, bite: 0, level: 0.28 },
   // Liquid drum & bass: darker two-saw lead, slow filter, long glides and a lazy vibrato.
   'analog:BREAKS': { uni: 2, spread: 7, mix: 0.32, body: ['triangle', 0.75, 1], sub: 0.2, cut: 850, env: 1900, q: 1.3, dec: 0.4, atk: 0.02, sus: 0.7, hold: 0.4, rel: 0.2, glide: 0.07, vib: [4.8, 16], tame: 5, level: 0.24 },
 };

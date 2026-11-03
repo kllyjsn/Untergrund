@@ -28,6 +28,10 @@ wrap(P, 'recorded', function (o, a) {
     for (const h of held) if (h.__note && !(this.gripHeld || []).includes(h)) h.__note.dur = Math.min(h.__note.dur, t - h.__note.t + 0.06);
   }
 });
+wrap(P, 'stab', function (o, a) {
+  if (flags.nochord) return;
+  return o.apply(this, a);
+});
 wrap(P, 'lick', function (o, a) {
   if (flags.nolick) return;
   return o.apply(this, a);

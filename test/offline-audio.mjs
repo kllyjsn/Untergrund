@@ -2,6 +2,7 @@
 // Mono, 128-sample blocks, band-limited oscillators, Web Audio biquad/param maths. Reverb, echo and
 // dynamics are left out (convolver/delay are silent, compressors pass through): tests measure the dry voices.
 import { readFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 
 const BLOCK = 128;
 
@@ -312,7 +313,13 @@ export class OfflineAudioContext {
   createDelay() { return new Delay(this); }
   createPeriodicWave() { return {}; }
   createBuffer(ch, len, sr) { return new AudioBuffer(ch, len, sr); }
-  async decodeAudioData(ab) { return decodeWav(ab); }
+  async decodeAudioData(ab) {
+    const b = new Uint8Array(ab);
+    if (String.fromCharCode(...b.subarray(0, 4)) !== 'fLaC') return decodeWav(ab);
+    // The bundled samples ship as FLAC; ffmpeg (on CI's ubuntu image) turns them into PCM WAV.
+    const wav = execFileSync('ffmpeg', ['-loglevel', 'error', '-i', 'pipe:0', '-f', 'wav', '-c:a', 'pcm_s16le', 'pipe:1'], { input: b, maxBuffer: 1 << 28 });
+    return decodeWav(wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength));
+  }
   async resume() {}
   // Render a mono buffer from `node` (default: the destination).
   async startRendering(node = this.tap || this.destination) {
