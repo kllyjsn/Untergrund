@@ -4,10 +4,10 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { redisEnv } from './crate.js';
 
 export const EVENTS = ['app_open', 'generate', 'play_start', 'play_30s', 'save_track', 'publish', 'share_link_copied',
-  'room_join', 'room_go_live', 'export_wav', 'export_stems', 'export_midi', 'return_visit', 'shared_open', 'remix', 'video_export', 'hum', 'voice_chops', 'song_edit', 'set_replay', 'daily_drop', 'error'];
+  'room_join', 'room_go_live', 'export_wav', 'export_stems', 'export_midi', 'return_visit', 'shared_open', 'remix', 'video_export', 'hum', 'voice_chops', 'song_edit', 'set_replay', 'daily_drop', 'describe', 'error'];
 export const FUNNEL = ['app_open', 'generate', 'play_start', 'play_30s', 'publish', 'share_link_copied'];
 // One prop per event is also counted as a breakdown field, e.g. `generate:acid`.
-export const DIMENSION = { app_open: 'visitor', generate: 'genre', publish: 'kind', share_link_copied: 'what', return_visit: 'bucket', error: 'kind', save_track: 'shared', shared_open: 'kind', remix: 'kind', video_export: 'kind', hum: 'kind', voice_chops: 'kind', song_edit: 'kind', set_replay: 'kind', daily_drop: 'kind' };
+export const DIMENSION = { app_open: 'visitor', generate: 'genre', publish: 'kind', share_link_copied: 'what', return_visit: 'bucket', error: 'kind', save_track: 'shared', shared_open: 'kind', remix: 'kind', video_export: 'kind', hum: 'kind', voice_chops: 'kind', song_edit: 'kind', set_replay: 'kind', daily_drop: 'kind', describe: 'kind' };
 const PROPS = ['genre', 'kind', 'what', 'bucket', 'days', 'visitor', 'bars', 'shared', 'public'];
 const P = 'untergrund:ev', TTL = 400 * 86400, MAX_EVENTS = 40, ERROR_LOG = 100;
 export const MAX_BODY = 32_000, BATCHES_PER_HOUR = 400, ERRORS_PER_HOUR = 20;
