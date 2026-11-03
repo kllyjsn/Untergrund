@@ -83,7 +83,7 @@ export function guitarGrip(root, iv, prev = null) {
 
 const BAND_PLAY = {
   piano: { gain: 4, len: 4, min: 1.2, strum: 0.004, shift: 0, lo: 45, hi: 79, lp: 7000, rel: 0.18 },
-  gtr: { gain: 4.4, len: 2.6, min: 0.6, strum: 0.006, shift: 0, lo: 40, hi: 74, lp: 5200, rel: 0.12, grip: true, even: 0.35 },
+  gtr: { gain: 4.4, len: 2.6, min: 0.6, strum: 0.006, shift: 0, lo: 40, hi: 74, lp: 2900, peak: [3600, 1.2, -6], soft: 1100, fade: 0.008, rel: 0.22, grip: true, even: 0.2 },
   horn: { gain: 2.2, len: 1.2, min: 0.25, strum: 0.003, shift: 12, lo: 53, hi: 81, lp: 4800, rel: 0.09 },
   str: { gain: 1.2, len: 2, min: 0.5, strum: 0, shift: 0, hold: true, lo: 55, hi: 79, lp: 4200, rel: 0.25 },
 };
@@ -477,7 +477,17 @@ export class Engine {
       const f = this.ctx.createBiquadFilter(); f.type = 'highshelf'; f.frequency.value = freq; f.gain.value = db;
       node = node.connect(f);
     }
-    if (fx.lp) node = node.connect(this.filter('lowpass', fx.lp, 0.5));
+    for (const [freq, q, db] of fx.peaks || []) {
+      if (Math.abs(db) < 0.3) continue;
+      const f = this.ctx.createBiquadFilter(); f.type = 'peaking'; f.frequency.value = freq; f.Q.value = q; f.gain.value = db;
+      node = node.connect(f);
+    }
+    if (fx.lp) {
+      const lp = this.filter('lowpass', fx.lp, 0.5);
+      // The first 30 ms of a picked steel string is bright zing and pick noise; a thumb rounds it off.
+      if (fx.lpFrom && fx.lpFrom < fx.lp) { lp.frequency.setValueAtTime(fx.lpFrom, t); lp.frequency.exponentialRampToValueAtTime(fx.lp, t + 0.09); }
+      node = node.connect(lp);
+    }
     if (fx.punch && Math.abs(fx.punch) > 0.02) {
       const pk = Math.max(0.2, level * (1 + fx.punch));
       g.gain.setValueAtTime(pk, t);
@@ -486,7 +496,7 @@ export class Engine {
     node.connect(g).connect(out);
     // Held orchestral notes outlast their recording: loop the sustained middle, after the attack.
     if (fx.loop && dur > buf.duration / rate - 0.3) { const [a, b] = loopPoints(buf); s.loop = true; s.loopStart = a; s.loopEnd = b; }
-    if (fx.offset) { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(level, t + 0.006); }
+    if (fx.offset || fx.fade) { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(level, t + (fx.fade || 0.006)); }
     s.start(t, fx.offset || 0);
     if (dur) {
       g.gain.setValueAtTime(level, t + dur);
@@ -507,9 +517,11 @@ export class Engine {
     if (ref.tone) shelves.push([4500, clamp(9 * Math.log2(p.tone / ref.tone), -18, 12)]);
     if (ref.snappy != null) shelves.push([2500, clamp((p.snappy - ref.snappy) * 20, -12, 12)]);
     if (ref.click != null) shelves.push([3000, clamp((p.click - ref.click) * 22, -12, 15)]);
+    // A shorter snare DECAY damps the shell ring (485-885 Hz) the way a towel or gel on the head does.
+    const peaks = id === 'snare' && p.decay < ref.decay ? [[550, 1.5, -10 * (1 - p.decay / ref.decay)], [880, 2, -8 * (1 - p.decay / ref.decay)]] : [];
     const drive = ref.drive != null ? Math.max(0, p.drive - ref.drive) * 1.2 : 0;
     const punch = ref.punch != null ? (p.punch - ref.punch) * 1.4 : 0;
-    return { rate, dur, fx: { shelves, drive, punch } };
+    return { rate, dur, fx: { shelves, peaks, drive, punch } };
   }
 
   liveHit(kit, name, id, t, level, drift, durOverride) {
@@ -534,7 +546,9 @@ export class Engine {
       return true;
     }
     if (id === 'ch') {
-      const layer = Math.max(1, Math.min(4, Math.ceil(v * 4)));
+      // A darker TONE is a lighter touch: the hardest stick layer ticks like a clank under soft keys.
+      const touch = Math.min(1, this.state.params.ch.tone / LIVE_REF.ch.tone);
+      const layer = Math.max(1, Math.min(4, Math.ceil(touch < 1 ? 4 * v ** 1.5 * touch : v * 4)));
       this.liveHit(kit, `hh_v${layer}_${(rr % 2) + 1}`, 'ch', t, 0.32 * lift * v ** 1.5, drift);
       return true;
     }
@@ -966,7 +980,7 @@ export class Engine {
     let [c, buf] = set[0];
     for (const [cm, b] of set) if (Math.abs(cm - m) < Math.abs(c - m)) [c, buf] = [cm, b];
     return this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
-      shelves: [[3000, tone]], lp: R ? R.lp * (0.4 + 0.6 * hv) : 0, release: R ? R.rel : 0.05,
+      shelves: [[3000, tone]], peaks: R?.peak ? [R.peak] : [], lp: R ? R.lp * (0.4 + 0.6 * hv) : 0, lpFrom: R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05,
     });
   }
   // One section bus per orchestra part: seat panning, then dry into the mix plus the room and the hall.
