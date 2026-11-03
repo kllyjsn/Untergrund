@@ -153,12 +153,12 @@ export function detectKey(notes) {
 }
 
 // Onto the song's 16th grid: the first sung note is the downbeat. A hum longer than the
-// hook is read at double time before anything is cut.
+// hook is read at double time, or squeezed further on fast songs so the whole take fits.
 export function quantize(notes, { bpm, steps = 32, maxLen = 16 } = {}) {
   if (!notes.length) return { notes: [], scale: 1 };
   const sd = 60 / bpm / 4, origin = notes[0].start;
   const span = (notes[notes.length - 1].end - origin) / sd;
-  const scale = span > steps + 2 ? 0.5 : 1;
+  const scale = span <= steps + 2 ? 1 : span <= 2 * steps ? 0.5 : (steps - 1) / span;
   const out = [];
   for (const n of notes) {
     let step = Math.round(((n.start - origin) * scale) / sd);
