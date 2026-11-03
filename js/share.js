@@ -111,11 +111,11 @@ export function openShare({ song, toast, hue, download, source = 'studio', befor
 }
 
 // Full-screen landing for a shared song: one big PLAY (the first tap also unlocks audio), then REMIX.
-export function openSharedLanding({ load, play, stop, remix, share, close, isPlaying }) {
+export function openSharedLanding({ load, play, stop, remix, share, close, isPlaying, fetchSong }) {
   let song = null, done = false;
   const ov = h('div', { class: 'shared', role: 'dialog', 'aria-label': 'Shared song' });
   const artBox = h('div', { class: 'shared-art' });
-  const title = h('h1', {}, 'Loading the song…'), meta = h('div', { class: 'shared-meta' }), credit = h('div', { class: 'shared-credit' });
+  const title = h('h1', {}, 'Loading the song…'), meta = h('div', { class: 'shared-meta' }), credit = h('div', { class: 'shared-credit' }), tree = h('div', { class: 'shared-tree', hidden: '' });
   const label = h('span', {}, 'PLAY');
   const playBtn = h('button', { class: 'shared-play', 'aria-label': 'Play', disabled: '' }, h('i'), label);
   const remixBtn = h('button', { class: 'btn ghost shared-remix', disabled: '' }, 'REMIX IT');
@@ -134,17 +134,31 @@ export function openSharedLanding({ load, play, stop, remix, share, close, isPla
   ov.append(h('div', { class: 'shared-card' },
     h('div', { class: 'shared-brand' }, h('i'), 'UNTERGRUND'),
     artBox, title, meta, credit, playBtn,
-    h('div', { class: 'shared-actions' }, remixBtn, shareBtn),
+    h('div', { class: 'shared-actions' }, remixBtn, shareBtn), tree,
     h('button', { class: 'shared-own', onclick: leave }, 'Make your own song →')));
   document.body.append(ov);
   addEventListener('keydown', onKey, true);
-  Promise.resolve(load).then((s) => {
-    if (!s) throw new Error('missing');
+  // Hop along the remix tree (parent or a remix of this song) without leaving the landing.
+  const open = (id) => {
+    if (!fetchSong || !id) return;
+    fetchSong(id).then((next) => { if (!next || done) return; if (isPlaying()) stop(); show(next); play(next); sync(); }).catch(() => {});
+  };
+  const show = (s) => {
     song = s;
-    artBox.append(art(s, 600));
+    artBox.replaceChildren(art(s, 600));
     title.textContent = s.title;
     meta.textContent = `${s.artist} · ${STYLES[s.style]?.name || ''} · ${s.state.bpm} BPM`;
-    credit.textContent = [creditLine(s.remixOf), s.remixes ? `${s.remixes} remix${s.remixes === 1 ? '' : 'es'}` : ''].filter(Boolean).join(' · ');
+    const parent = s.remixOf?.title && s.remixOf.id && fetchSong ? h('a', { onclick: () => open(s.remixOf.id) }, s.remixOf.title) : s.remixOf?.title;
+    credit.replaceChildren(...(parent ? ['Remix of ', parent, ` by ${s.remixOf.artist || 'UNTERGRUND'}`] : []), s.remixes ? `${parent ? ' · ' : ''}${s.remixes} remix${s.remixes === 1 ? '' : 'es'}` : '');
+    const kids = (s.children || []).filter((c) => c.id !== s.trackId);
+    tree.hidden = !kids.length;
+    tree.replaceChildren(h('span', {}, `REMIXES · ${kids.length}`), h('ol', {}, kids.slice(0, 12).map((c) => h('li', {},
+      h('button', { class: 'drop-remix', type: 'button', 'aria-label': `Play ${c.title} by ${c.artist}`, onclick: () => open(c.id) },
+        h('i', { 'aria-hidden': 'true' }), h('b', {}, c.title || 'Untitled'), h('span', {}, c.artist || 'UNTERGRUND'))))));
+  };
+  Promise.resolve(load).then((s) => {
+    if (!s) throw new Error('missing');
+    show(s);
     [playBtn, remixBtn, shareBtn].forEach((b) => b.removeAttribute('disabled'));
     track('shared_open', { kind: s.trackId ? 'short' : 'code', genre: s.style });
   }).catch(() => {
