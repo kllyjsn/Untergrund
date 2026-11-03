@@ -72,7 +72,9 @@ export function offerSave(timeline, toast = () => {}) {
   const keep = h('input', { type: 'checkbox', onchange: () => localStorage.setItem(PREF, keep.checked ? '1' : '0') });
   keep.checked = recordingOn();
   const status = h('div', { class: 'pub-note set-status' });
+  const opened = performance.now();
   const save = h('button', { class: 'btn accent set-save-primary', onclick: async () => {
+    if (performance.now() - opened < 500) return;
     if (saved) return close(true);
     save.disabled = true; status.textContent = 'Saving…';
     try {
@@ -98,6 +100,7 @@ export function offerSave(timeline, toast = () => {}) {
     h('label', { class: 'live-set-pref' }, keep, h('span', {}, 'Record my live sets')),
     status));
   redraw();
-  save.focus();
+  // Opened from a keydown (Enter in the room field, Space to stop): focus late so that key can't press SAVE.
+  setTimeout(() => save.focus(), 350);
   return { close };
 }
