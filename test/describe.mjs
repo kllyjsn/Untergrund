@@ -109,6 +109,13 @@ t('locked tracks are left alone', () => {
   assert.equal(r.state.params.stab.voice, s.params.stab.voice);
   assert.deepEqual(r.state.patterns.map((p) => p.steps.kick), s.patterns.map((p) => p.steps.kick));
 });
+t('"add bass" on a cleared bass track writes notes', () => {
+  const s = songFor('hypnotic');
+  for (const p of s.patterns) p.steps.acid = p.steps.acid.map(() => ({ on: false, n: 0, a: false, s: false }));
+  const r = describe('add bass', s, { style: 'hypnotic' });
+  assert.ok(r.state.patterns.some((p) => p.steps.acid.some((x) => x.on)), r.did.join(', '));
+  assert.ok(r.did.includes('added bass'), r.did.join(', '));
+});
 t('major remap keeps hook notes in the new scale', () => {
   const s = songFor('neosoul');
   const r = applyEdits(s, [{ id: 'scale', value: 'major' }]);

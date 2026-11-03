@@ -430,7 +430,7 @@ function thicken(p, id, frac, seed, pi) {
     else arr[i] = 1;
   }
 }
-const DEFAULT_HITS = { kick: [0, 4, 8, 12], clap: [4, 12], snare: [4, 12], ch: [2, 6, 10, 14], oh: [2, 10], ride: [0, 4, 8, 12], perc: [3, 7, 10, 14], stab: [0], vox: [0, 8] };
+const DEFAULT_HITS = { acid: [0, 3, 6, 10, 14], kick: [0, 4, 8, 12], clap: [4, 12], snare: [4, 12], ch: [2, 6, 10, 14], oh: [2, 10], ride: [0, 4, 8, 12], perc: [3, 7, 10, 14], stab: [0], vox: [0, 8] };
 
 function lab(a, more, less) {
   const base = a >= 0 ? more : less;

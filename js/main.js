@@ -231,7 +231,9 @@ function pushUndo() {
 function undo() {
   const s = undoStack.pop();
   if (!s) return toast('Nothing to undo');
-  Object.assign(state, JSON.parse(s));
+  const { ui: was, ...snap } = JSON.parse(s);
+  if (was) { style = was.style; family = was.family; }
+  Object.assign(state, snap);
   engine?.applyAll(); engine?.applyDelayTime();
   build(); persist(); toast('Undone');
 }
@@ -486,7 +488,8 @@ function doGenerate() {
   toast(`${STYLES[style].name} pattern → ${PATTERN_NAMES[state.current]}${TRACK_IDS.some((id) => state.locks[id]) ? ' · locked tracks kept' : ''}`);
 }
 
-function doGenerateSet() {
+// `steer(state)` (from Describe it) returns the final state to keep, before it is built, played and saved.
+function doGenerateSet(steer) {
   pushUndo();
   const seed = (Math.random() * 1e9) | 0;
   const source = clone(pat());
@@ -511,6 +514,7 @@ function doGenerateSet() {
   const title = piece ? piece.title : trackTitle(seed);
   const artist = piece ? piece.composer : loadAvatar().name || 'UNTERGRUND';
   state.artist = { name: artist, title, style, seed, created: new Date().toISOString() };
+  if (typeof steer === 'function') adoptState(steer(state));
   build(); persist();
   trackEvent('generate', { genre: style, kind: 'song' });
   toast(piece ? `${piece.composer.split(' ').pop()}: ${title}` : `New ${STYLES[style].name} track “${title}”`);
@@ -914,14 +918,24 @@ function describeBox() {
   return describeBar({
     state: () => state, style: () => style, styleName: (id) => STYLES[id].name, depth: () => undoStack.length,
     pushUndo, undo, track: (p) => trackEvent('describe', p),
-    switchGenre: (id) => { style = id; family = STYLES[id].family; localStorage.setItem('untergrund.family', family); doGenerateSet(); if (playing && pat().score) stop(); },
-    commit: (next) => {
-      if (playing && next.bpm !== state.bpm) transportOrigin = Date.now() - ((Date.now() - transportOrigin) / (15000 / state.bpm)) * (15000 / next.bpm);
-      Object.assign(state, next);
-      engine?.applyAll(); engine?.applyDelayTime();
-      build(); persist();
+    // Undo of a genre switch also brings back the old genre and song title.
+    switchGenre: (id, steer) => {
+      const was = { style, family }, artist = clone(state.artist ?? null);
+      style = id; family = STYLES[id].family; localStorage.setItem('untergrund.family', family);
+      doGenerateSet((s) => {
+        undoStack.push(JSON.stringify({ ...JSON.parse(undoStack.pop()), artist, ui: was }));
+        return steer(s);
+      });
+      if (playing && pat().score) stop();
     },
+    commit: (next) => { adoptState(next); build(); persist(); },
   });
+}
+
+function adoptState(next) {
+  if (playing && next.bpm !== state.bpm) transportOrigin = Date.now() - ((Date.now() - transportOrigin) / (15000 / state.bpm)) * (15000 / next.bpm);
+  Object.assign(state, next);
+  engine?.applyAll(); engine?.applyDelayTime();
 }
 
 
