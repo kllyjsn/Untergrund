@@ -2,7 +2,7 @@ import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES } from './params.js';
 import { getSample } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
-import { liveKit, loadLiveKit, BASS_NOTES, bandKit, loadBand, STAB_BAND } from './livekit.js';
+import { liveKit, loadLiveKit, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel } from './groove.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
@@ -486,7 +486,7 @@ export class Engine {
     }
     if (fx.lp) {
       const lp = this.filter('lowpass', fx.lp, 0.5);
-      // The first 30 ms of a picked steel string is bright zing and pick noise; a thumb rounds it off.
+      // The first 30 ms of a picked string is bright zing and pick noise; a thumb rounds it off.
       if (fx.lpFrom && fx.lpFrom < fx.lp) { lp.frequency.setValueAtTime(fx.lpFrom, t); lp.frequency.exponentialRampToValueAtTime(fx.lp, t + 0.09); }
       node = node.connect(lp);
     }
@@ -528,8 +528,19 @@ export class Engine {
 
   liveHit(kit, name, id, t, level, drift, durOverride) {
     const buf = kit[name], o = this.liveFx(id, buf);
-    this.playBuf(buf, t, level, this.ch[id].input, drift * o.rate, durOverride ?? o.dur, o.fx);
+    const rate = KIT_PITCH[id] ? o.rate * this.inKey(KIT_PITCH[id] * o.rate) : o.rate;
+    this.playBuf(buf, t, level, this.ch[id].input, drift * rate, durOverride ?? o.dur, o.fx);
   }
+
+  // A drummer tunes the heads to the record: move a drum's pitch onto the key's root, fourth or fifth,
+  // which sit under major and minor chords alike. Returns the playback-rate correction.
+  inKey(f) {
+    const m = 69 + 12 * Math.log2(f / 440), k = this.state.key || 0;
+    let best = Infinity;
+    for (const pc of [0, 5, 7]) { const d = Math.round((m - k - pc) / 12) * 12 + k + pc - m; if (Math.abs(d) < Math.abs(best)) best = d; }
+    return Math.pow(2, best / 12);
+  }
+
 
   // `lift` brings the softly recorded cymbals up to sit over a drum machine in HYBRID.
   sampledHit(kit, id, t, v, lift = 1) {
