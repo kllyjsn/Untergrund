@@ -23,6 +23,7 @@ import { restoreVoice } from './voice.js';
 import { compose } from './classical.js';
 import { PIECE, loadPiece } from './repertoire.js';
 import { followingRow } from './feed.js';
+import { describeBar } from './describe-ui.js';
 import { fetchPublicTrack } from './account.js';
 import { openShare, openSharedLanding, countRemix, track } from './share.js';
 import { readShareParams, decodeSong, normalizeSong, remixState } from './share-code.js';
@@ -239,13 +240,16 @@ function setMaster(id, v) {
 }
 
 function pushUndo() {
-  undoStack.push(JSON.stringify({ patterns: state.patterns, params: state.params, master: state.master, bpm: state.bpm, key: state.key, chain: state.chain, labels: state.labels || null }));
+  const { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn } = state;
+  undoStack.push(JSON.stringify({ patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn, labels: state.labels || null }));
   if (undoStack.length > 40) undoStack.shift();
 }
 function undo() {
   const s = undoStack.pop();
   if (!s) return toast('Nothing to undo');
-  Object.assign(state, JSON.parse(s));
+  const { ui: was, ...snap } = JSON.parse(s);
+  if (was) { style = was.style; family = was.family; localStorage.setItem('untergrund.family', family); }
+  Object.assign(state, snap);
   if (!state.labels) delete state.labels;
   engine?.applyAll(); engine?.applyDelayTime();
   build(); persist(); toast('Undone');
@@ -554,7 +558,8 @@ const humApi = {
   buildSong: (hum) => { stopPreview(); generatedAt = performance.now(); doGenerateSet(hum); if (!playing) play(); },
 };
 
-function doGenerateSet(hum = null, drop = null) {
+// `steer(state)` (from Describe it) returns the final state to keep, before it is built, played and saved.
+function doGenerateSet(hum = null, drop = null, steer = null) {
   pushUndo();
   let seed = drop ? drop.seed : (Math.random() * 1e9) | 0;
   const source = clone(pat());
@@ -583,6 +588,7 @@ function doGenerateSet(hum = null, drop = null) {
   state.artist = { name: artist, title, style, seed, created: new Date().toISOString() };
   delete state.remixOf; delete state.drop;
   if (drop) Object.assign(state, { drop: drop.date, remixOf: { id: '', title: `Daily Drop · ${drop.title}`, artist: 'UNTERGRUND' } });
+  if (typeof steer === 'function') adoptState(steer(state));
   build(); persist();
   trackEvent('generate', { genre: style, kind: 'song' });
   toast(piece ? `${piece.composer.split(' ').pop()}: ${title}` : `New ${STYLES[style].name} track “${title}”`);
@@ -1009,9 +1015,33 @@ function buildGenerateHome() {
     h('div', { class: 'recents-row' }, recent.map((t) => h('button', { class: 'recent', style: `--hue:${hue(t.style)}`, onclick: () => openRecent(t) },
       h('i'), h('b', {}, t.title || 'Untitled'), h('span', {}, [STYLES[t.style]?.name, t.bpm && `${t.bpm} BPM`].filter(Boolean).join(' · ')))))) : null;
   const following = followingRow({ hue, onPlay: (t) => openShared(t.id, true), onLoad: renderHome });
-  const home = h('section', { class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` }, left, picker, concert, recents, following);
+  const home = h('section', { class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` }, left, describeBox(), picker, concert, recents, following);
   ui.home = home;
   return home;
+}
+
+function describeBox() {
+  return describeBar({
+    state: () => state, style: () => style, styleName: (id) => STYLES[id].name, depth: () => undoStack.length,
+    pushUndo, undo, track: (p) => trackEvent('describe', p),
+    // Undo of a genre switch also brings back the old genre and song title.
+    switchGenre: (id, steer) => {
+      const was = { style, family }, artist = clone(state.artist ?? null);
+      style = id; family = STYLES[id].family; localStorage.setItem('untergrund.family', family);
+      doGenerateSet(null, null, (s) => {
+        undoStack.push(JSON.stringify({ ...JSON.parse(undoStack.pop()), artist, ui: was }));
+        return steer(s);
+      });
+      if (playing && pat().score) stop();
+    },
+    commit: (next) => { adoptState(next); build(); persist(); },
+  });
+}
+
+function adoptState(next) {
+  if (playing && next.bpm !== state.bpm) transportOrigin = Date.now() - ((Date.now() - transportOrigin) / (15000 / state.bpm)) * (15000 / next.bpm);
+  Object.assign(state, next);
+  engine?.applyAll(); engine?.applyDelayTime();
 }
 
 
