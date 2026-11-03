@@ -933,3 +933,44 @@ body.recording .np-actions .btn.rec .dot { background: var(--accent); animation:
   .pr-sum { gap: 12px; padding: 10px 12px; }
   .pr-best { margin-left: 0; }
 }
+
+/* HUM A MELODY + YOUR VOICE AS AN INSTRUMENT (js/hum-ui.js) */
+.hum-cta { flex: 1 1 100%; display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 52px; border-radius: 14px; border: 1px dashed rgba(255,255,255,.22); background: transparent; color: #e4e4ea; font: 600 14px var(--sans); cursor: pointer; transition: border-color .2s, color .2s, background .2s; }
+.hum-cta:hover { border-color: var(--hue); color: #fff; background: rgba(255,255,255,.03); }
+.hum-ico { width: 12px; height: 18px; border: 2px solid currentColor; border-radius: 7px; position: relative; }
+.hum-ico::after { content: ''; position: absolute; left: 50%; bottom: -7px; width: 2px; height: 5px; margin-left: -1px; background: currentColor; }
+.hum-lead { margin: 0 0 6px; color: #fff; font: 600 16px/1.4 var(--sans); }
+.hum-note { margin: 10px 0 0; color: #8d8d97; font: 400 12px/1.5 var(--sans); }
+.mic-wrap { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 18px 0 6px; }
+.mic-btn { --p: 0; --lvl: 0; display: flex; align-items: center; gap: 18px; width: 100%; max-width: 360px; padding: 16px 20px; border-radius: 999px; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.04); color: #fff; cursor: pointer; text-align: left; }
+.mic-btn span { display: flex; flex-direction: column; gap: 3px; }
+.mic-btn b { font: 700 17px var(--sans); }
+.mic-btn small { color: #9a9aa4; font: 500 11px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.mic-ring { flex: 0 0 64px; height: 64px; border-radius: 50%; background: conic-gradient(var(--hue, #c6ff3d) calc(var(--p) * 360deg), rgba(255,255,255,.1) 0); display: grid; place-items: center; position: relative; transition: transform .08s; }
+.mic-ring::before { content: ''; position: absolute; inset: 5px; border-radius: 50%; background: #121312; }
+.mic-ring::after { content: ''; position: relative; width: 16px; height: 24px; border-radius: 9px; background: var(--hue, #c6ff3d); box-shadow: 0 0 calc(var(--lvl) * 28px) var(--hue, #c6ff3d); }
+.mic-btn.live { border-color: var(--hue, #c6ff3d); }
+.mic-btn.live .mic-ring { transform: scale(calc(1 + var(--lvl) * .12)); }
+.mic-status { min-height: 1em; color: #ffb38a; font: 500 13px/1.4 var(--sans); text-align: center; max-width: 360px; }
+.mic-status:empty { display: none; }
+.hum-found { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.hum-found b { color: #fff; font: 800 26px var(--sans); letter-spacing: .02em; }
+.hum-found span { color: #9a9aa4; font: 500 11px var(--mono); letter-spacing: .1em; }
+.hum-roll { display: block; width: 100%; height: 150px; border-radius: 12px; background: #0c0d0c; }
+.hum-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 12px 0; }
+.hum-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.hum-actions > .btn { flex: 1 1 auto; min-height: 46px; }
+.hum-actions .hum-primary { flex: 1 1 100%; min-height: 54px; font-size: 13px; }
+.hum-actions .mic-wrap { flex: 1 1 100%; padding: 4px 0; }
+.chop-pads { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; margin: 12px 0 16px; }
+.chop-pad { aspect-ratio: 1; border-radius: 14px; border: 1px solid rgba(255,255,255,.14); background: linear-gradient(0deg, rgba(198,255,61,.18) calc(var(--w) * 100%), rgba(255,255,255,.04) 0); color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer; touch-action: manipulation; user-select: none; }
+.chop-pad:active { transform: scale(.95); border-color: var(--hue, #c6ff3d); }
+.chop-pad b { font: 800 20px var(--sans); }
+.chop-pad small { color: #b6b6c0; font: 600 10px var(--mono); letter-spacing: .1em; }
+.melody-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 0 2px; border-top: 1px solid rgba(255,255,255,.06); margin-top: 10px; }
+.melody-panel .glabel { flex: 1 1 100%; }
+.melody-panel > b { color: #fff; font: 600 13px var(--sans); }
+.melody-panel > small { color: #8d8d97; font: 400 12px var(--sans); flex: 1 1 160px; }
+.hum-voice, .melody-panel .voice-chips { --kc: var(--hue, #c6ff3d); }
+.hum-found { margin-top: 6px; }
+.hum-row .btn { white-space: nowrap; }
