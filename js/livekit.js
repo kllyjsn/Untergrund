@@ -38,6 +38,8 @@ export const BAND = {
   timp: [42, 47, 50, 52, 55],
   timproll: [47, 52],
 };
+// Measured pitch of a recording minus its name, in cents (python3 test/sampletune.py), for takes played a little off.
+const BAND_TUNE = { gtr: { 40: -4, 42: -2, 45: -8, 48: -6, 51: 8, 54: 4, 57: 9, 60: 4, 63: 2, 66: 2, 72: -2 } };
 // STAB voice index -> recorded instrument.
 export const STAB_BAND = { 7: 'piano', 8: 'gtr', 9: 'horn', 10: 'str' };
 export const BAND_FILES = Object.entries(BAND).flatMap(([k, ns]) => ns.map((n) => `${k}_${n}`));
@@ -57,7 +59,7 @@ export function loadBand(name) {
   bandLoading[name] = Promise.all(BAND[name].map(async (m) => {
     const res = await fetch(new URL(`${name}_${m}.wav`, BASE));
     if (!res.ok) throw new Error(`${name}_${m}: HTTP ${res.status}`);
-    return [m, await dec.decodeAudioData(await res.arrayBuffer())];
+    return [m + (BAND_TUNE[name]?.[m] ?? 0) / 100, await dec.decodeAudioData(await res.arrayBuffer())];
   })).then((entries) => (band[name] = entries))
     .catch((err) => { console.warn(`${name} samples unavailable, using synth voice`, err); return null; });
   return bandLoading[name];

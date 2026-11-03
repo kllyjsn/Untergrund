@@ -484,7 +484,7 @@ export class Engine {
     }
     if (fx.lp) {
       const lp = this.filter('lowpass', fx.lp, 0.5);
-      // The first 30 ms of a picked steel string is bright zing and pick noise; a thumb rounds it off.
+      // The first 30 ms of a picked string is bright zing and pick noise; a thumb rounds it off.
       if (fx.lpFrom && fx.lpFrom < fx.lp) { lp.frequency.setValueAtTime(fx.lpFrom, t); lp.frequency.exponentialRampToValueAtTime(fx.lp, t + 0.09); }
       node = node.connect(lp);
     }
