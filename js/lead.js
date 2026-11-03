@@ -7,7 +7,7 @@ export const dbGain = (db) => Math.pow(10, db / 20);
 
 // Synth chord voices (SAW KEYS PAD ORGAN BRASS PLUCK BELLS) measured against the recorded players
 // (PIANO GUITAR HORNS STRINGS) at their sounding level; these trims put them within ~2 dB.
-export const STAB_TRIM_DB = [8, 9, 1, 2, 6, 4, 7];
+export const STAB_TRIM_DB = [8, 10, 1, 4, 6, 7, 7];
 // Same for the synth hook voices against recorded players taking the hook.
 export const HOOK_TRIM_DB = { analog: 13, pulse: 12, warm: 10, vocal: 14, reed: 8, mallet: 12 };
 
