@@ -15,7 +15,7 @@ import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restor
 import { roomTransportPosition, transportResync } from './room-sync.js';
 import { concertPanel, concertBar, preloadScore, loadPiano } from './concert.js';
 import { closePractice } from './practice-ui.js';
-import { openHum, melodyPanel, humButton, placeHook } from './hum-ui.js';
+import { openHum, melodyPanel, humButton, placeHook, humSeed } from './hum-ui.js';
 import { restoreVoice } from './voice.js';
 import { compose } from './classical.js';
 import { PIECE, loadPiece } from './repertoire.js';
@@ -504,10 +504,11 @@ const humApi = {
 
 function doGenerateSet(hum = null) {
   pushUndo();
-  const seed = (Math.random() * 1e9) | 0;
+  let seed = (Math.random() * 1e9) | 0;
   const source = clone(pat());
   const lockedParams = Object.fromEntries(TRACK_IDS.filter((id) => state.locks[id]).map((id) => [id, clone(state.params[id])]));
   matchStyleScale();
+  if (typeof hum === 'function') seed = humSeed(style, state.scale, hum);
   const g = generate(style, seed, state.scale);
   state.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   if (source.score?.composer) for (const q of state.patterns) if (q.score?.form) q.score.composer = source.score.composer;
