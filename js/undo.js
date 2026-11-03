@@ -38,7 +38,7 @@ export function createHistory(limit = LIMIT) {
 }
 
 // Coalesces a burst of changes (one knob drag, a run of wheel ticks or arrow keys) into one undo step:
-// `begin(key)` returns true only for the first call of a gesture; `end()` closes a pointer gesture.
+// `begin(key)` returns true only for the first call of a gesture; `end()` closes a pointer gesture, so the next drag is its own step.
 export function gesture(idleMs = 700, now = () => Date.now()) {
   let key = null, held = false, last = -Infinity;
   return {
@@ -48,7 +48,7 @@ export function gesture(idleMs = 700, now = () => Date.now()) {
       key = k; last = t; if (hold) held = true;
       return fresh;
     },
-    end() { held = false; last = now(); },
+    end() { key = null; held = false; },
     reset() { key = null; held = false; },
   };
 }

@@ -68,7 +68,10 @@ import { createHistory, gesture, LIMIT } from '../js/undo.js';
   for (let px = 0; px < 120; px++) { t += 16; assert.equal(g.begin('kick.decay', true), false, 'no step per pixel'); }
   t += 5000; assert.equal(g.begin('kick.decay', true), false, 'a held drag never times out');
   g.end();
-  t += 100; assert.equal(g.begin('kick.decay'), false, 'wheel right after the drag joins it');
+  t += 100; assert.equal(g.begin('kick.decay', true), true, 'a second drag right after release is its own step');
+  g.end();
+  t += 100; assert.equal(g.begin('kick.decay'), true, 'wheel after a drag is its own step');
+  t += 100; assert.equal(g.begin('kick.decay'), false, 'wheel burst coalesces');
   t += 800; assert.equal(g.begin('kick.decay'), true, 'after a pause: new step');
   t += 100; assert.equal(g.begin('kick.decay'), false);
   t += 100; assert.equal(g.begin('kick.tune'), true, 'another knob: new step');
