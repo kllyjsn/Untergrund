@@ -989,7 +989,10 @@ function drawNowPlaying() {
 function renderHome() {
   const old = ui.home;
   if (!old?.isConnected) return;
+  const scroll = old.querySelector('.family-tabs')?.scrollLeft || 0;
   old.replaceWith(buildGenerateHome());
+  const row = ui.home.querySelector('.family-tabs');
+  if (row) row.scrollLeft = scroll;
 }
 
 function buildGenerateHome() {

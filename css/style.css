@@ -1078,3 +1078,10 @@ body.studio-open .generate-actions .hum-cta { flex: 1 1 200px; }
   .club-social { height: 236px; }
   .club-chat-feed { padding: 8px 12px; }
 }
+@media (max-width: 760px) {
+  .generate-home.has-concert { grid-template-areas: 'copy' 'styles' 'actions' 'describe' 'concert' 'recents'; }
+  .generate-home.is-playing.has-concert { grid-template-areas: 'copy' 'actions' 'describe' 'styles' 'concert' 'recents'; }
+  .crash { left: 12px; right: 12px; transform: none; }
+  .crash b { white-space: nowrap; }
+  .crash span { flex: 1; }
+}
