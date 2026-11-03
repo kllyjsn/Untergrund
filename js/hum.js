@@ -191,16 +191,72 @@ export function hookFromNotes(qnotes, { key = 0, scale = [0, 2, 3, 5, 7, 8, 10],
   return { v: voice, o: 0, s, x: { space: 0.1, risk: 0.2, feel: 0.5, warmth: 0.6 }, h: 1 };
 }
 
-// Whole pipeline for one recording: pitch track -> notes -> key (detected, or the song's) -> grid -> hook.
-export function analyzeHum(data, sr, { bpm = 120, key = null, scale = null, scaleNotes = null, voice } = {}) {
+// People rarely hum at A440: the whole take sits a few cents flat or sharp. The duration-weighted
+// circular mean of every note's offset from the nearest semitone is that drift.
+export function tuningOffset(notes) {
+  let x = 0, y = 0;
+  for (const n of notes) {
+    const w = Math.max(0.05, n.end - n.start), a = 2 * Math.PI * (n.midi - Math.round(n.midi));
+    x += w * Math.cos(a); y += w * Math.sin(a);
+  }
+  return x || y ? Math.atan2(y, x) / (2 * Math.PI) : 0;
+}
+
+// The expensive half, once per take: pitch track, notes, and the singer's own tuning taken out.
+export function prepareHum(data, sr) {
   const track = pitchTrack(data, sr);
-  const raw = segmentNotes(track);
-  const found = detectKey(raw);
+  const found = segmentNotes(track);
+  const tuning = tuningOffset(found);
+  const raw = found.map((n) => ({ ...n, midi: n.midi - tuning }));
+  return { track, raw, tuning, detected: detectKey(raw) };
+}
+
+// A motif that fits in one bar is answered in the second, a little softer: call and response.
+export function fillBars(qnotes, steps = 32) {
+  const half = steps / 2;
+  if (!qnotes.length || qnotes.some((n) => n.step + n.len > half)) return qnotes;
+  return [...qnotes, ...qnotes.map((n) => ({ ...n, step: n.step + half, rms: (n.rms || 0) * 0.85, echo: 1 }))];
+}
+
+// The cheap half, per tempo/key: grid, call and response, hook.
+export function hookFor(prep, { bpm = 120, key = null, scale = null, scaleNotes = null, voice } = {}) {
+  const { raw, detected: found } = prep;
   const useKey = key ?? found.key, useScale = scale ?? found.scale;
   const notesInKey = scaleNotes || (useScale === 'major' ? [0, 2, 4, 5, 7, 9, 11] : [0, 2, 3, 5, 7, 8, 10]);
   const q = quantize(raw, { bpm });
-  const hook = q.notes.length ? hookFromNotes(q.notes, { key: useKey, scale: notesInKey, voice }) : null;
-  return { track, raw, notes: q.notes, timeScale: q.scale, hook, key: useKey, scale: useScale, detected: found };
+  const filled = fillBars(q.notes);
+  const hook = filled.length ? hookFromNotes(filled, { key: useKey, scale: notesInKey, voice }) : null;
+  return { ...prep, notes: q.notes, timeScale: q.scale, hook, key: useKey, scale: useScale, answered: filled.length > q.notes.length };
+}
+
+// Whole pipeline for one recording: pitch track -> notes -> key (detected, or the song's) -> grid -> hook.
+export const analyzeHum = (data, sr, opts = {}) => hookFor(prepareHum(data, sr), opts);
+
+// How well a progression carries the melody: the share of hook time (downbeats count double) that
+// lands on a tone of the chord under it. The 2-bar hook loops across the progression's bars.
+export function fitProg(hook, prog, chords) {
+  if (!hook || !prog?.length) return 0;
+  const bars = prog.length % 2 ? prog.length * 2 : prog.length;
+  let hit = 0, all = 0;
+  for (let b = 0; b < bars; b++) {
+    const ch = prog[b % prog.length], iv = chords[ch.c]?.iv || [0, 3, 7];
+    const tones = new Set(iv.map((x) => (((ch.r + x) % 12) + 12) % 12));
+    hook.s.forEach((st, i) => {
+      if (!st || (i >= 16) !== (b % 2 === 1)) return;
+      const w = st[1] * (i % 16 === 0 ? 2 : i % 4 === 0 ? 1.5 : 1);
+      all += w;
+      if (tones.has(((st[0] % 12) + 12) % 12)) hit += w;
+    });
+  }
+  return all ? hit / all : 0;
+}
+
+// Live "what note is that" while recording: one short frame, decimated, no smoothing.
+export function livePitch(buf, sr) {
+  const { x, sr: r } = decimate(buf, sr);
+  const W = Math.min(Math.round(0.02 * r), x.length >> 1);
+  const { f0, conf } = yin(x, 0, W, r, 80, 900, 0.2);
+  return f0 && conf > 0.75 ? hzToMidi(f0) : null;
 }
 
 // Voice chops: cut a recording into 3-6 sung/spoken pieces at onsets (loudness rises after a dip,

@@ -19,7 +19,7 @@ import { concertPanel, concertBar, preloadScore, scoreReady, loadPiano } from '.
 import { liveSets, loadSets, setsReady } from './livekit.js';
 import { closePractice } from './practice-ui.js';
 import { initMidi, midiStrip, midiClockStart, midiClockStep, midiClockStop } from './midi-studio.js';
-import { openHum, melodyPanel, humButton, placeHook } from './hum-ui.js';
+import { openHum, melodyPanel, humButton, placeHook, humSeed } from './hum-ui.js';
 import { restoreVoice } from './voice.js';
 import { compose } from './classical.js';
 import { PIECE, loadPiece } from './repertoire.js';
@@ -599,10 +599,11 @@ const humApi = {
 // `steer(state)` (from Describe it) returns the final state to keep, before it is built, played and saved.
 function doGenerateSet(hum = null, drop = null, steer = null) {
   pushUndo();
-  const seed = drop ? drop.seed : songSeed();
+  let seed = drop ? drop.seed : songSeed();
   const source = clone(pat());
   const lockedParams = Object.fromEntries(TRACK_IDS.filter((id) => state.locks[id]).map((id) => [id, clone(state.params[id])]));
   matchStyleScale();
+  if (typeof hum === 'function' && !drop) seed = humSeed(style, state.scale, hum);
   const g = generate(style, seed, state.scale);
   state.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   if (source.score?.composer) for (const q of state.patterns) if (q.score?.form) q.score.composer = source.score.composer;
