@@ -29,6 +29,7 @@ check 200 /api/sc-config
 check 200 /api/room-config
 check 200 /api/tracks
 check 200 /api/jukebox
+check 404 "/api/jukebox?id=no-such-set"
 check 200 /api/account
 check 404 /a/nobody-here
 check 404 /t/missing-track
