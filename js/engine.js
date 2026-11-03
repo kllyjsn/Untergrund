@@ -287,7 +287,9 @@ export class Engine {
 
   // ---------- params ----------
   setTo(param, v, immediate) {
-    if (immediate) param.value = v;
+    // this.at: a song handoff schedules the whole mix change onto its downbeat
+    if (this.at) param.setTargetAtTime(v, this.at, 0.004);
+    else if (immediate) param.value = v;
     else param.setTargetAtTime(v, this.ctx.currentTime, 0.015);
   }
 
@@ -327,9 +329,7 @@ export class Engine {
     const m = this.state.master;
     const v = m[id];
     if (id === 'dj') {
-      const hp = v > 0 ? 10 * Math.pow(2, v * 10.3) : 10;
-      const lp = v < 0 ? 21000 * Math.pow(2, v * 9.2) : 21000;
-      const q = 0.9 + Math.abs(v) * 3.5;
+      const { hp, lp, q } = djFilter(v);
       this.setTo(this.djHP.frequency, hp, immediate); this.setTo(this.djLP.frequency, lp, immediate);
       this.setTo(this.djHP.Q, q, immediate); this.setTo(this.djLP.Q, q, immediate);
     } else if (id === 'drive') {
@@ -349,7 +349,7 @@ export class Engine {
     const t = Math.min(3.9, steps * this.stepDur);
     if (immediate) { this.dL.delayTime.value = t; this.dR.delayTime.value = t; }
     else {
-      const now = this.ctx.currentTime;
+      const now = Math.max(this.ctx.currentTime, this.at || 0);
       this.dL.delayTime.setTargetAtTime(t, now, 0.08);
       this.dR.delayTime.setTargetAtTime(t, now, 0.08);
     }
@@ -1463,6 +1463,7 @@ export class Engine {
     bp.frequency.setValueAtTime(500, t); bp.frequency.exponentialRampToValueAtTime(8000, t + dur);
     g.gain.setValueAtTime(EPS, t); g.gain.exponentialRampToValueAtTime(0.32 * amt, t + dur * 0.97); g.gain.linearRampToValueAtTime(0, t + dur);
     s.connect(bp).connect(g); g.connect(this.mix); g.connect(this.revIn);
+    return { s, g };
   }
 
   impact(t, amt) {
@@ -1521,13 +1522,62 @@ export class Engine {
     this.riser = null;
   }
 
+  // ---------- song handoff (GENERATE while playing) ----------
+  // The outgoing song thins out into the switch downbeat t1: the DJ high-pass climbs with
+  // the drop sweep's noise riser, then both are gone exactly on t1 so the next kick lands full.
+  handoffOut(t0, t1) {
+    this.handoffCancel();
+    const dur = Math.max(0.05, t1 - t0), end = t1 - Math.min(0.012, dur / 4);
+    const { hp, q } = djFilter(this.state.master.dj || 0);
+    const f = this.djHP.frequency, Q = this.djHP.Q;
+    f.cancelScheduledValues(t0); f.setValueAtTime(hp, t0); f.exponentialRampToValueAtTime(Math.max(hp, 1100), end);
+    Q.cancelScheduledValues(t0); Q.setValueAtTime(q, t0); Q.linearRampToValueAtTime(Math.max(q, 3.2), end);
+    this.handoff = { t1, end, noise: this.sweep(t0, dur, 0.7) };
+  }
+
+  // Called while scheduling the switch step: every param of the new song lands on t1, not now.
+  handoffIn(t1) {
+    const h = this.handoff;
+    this.handoff = null;
+    this.at = Math.max(this.ctx.currentTime, t1);
+    try { this.applyAll(); this.applyDelayTime(); } finally { this.at = 0; }
+    this.acidRelease(t1);
+    this.breakOpen(t1);
+    if (!h) return;
+    const { hp, q } = djFilter(this.state.master.dj || 0);
+    const f = this.djHP.frequency, Q = this.djHP.Q;
+    f.cancelScheduledValues(h.end + 1e-4); f.exponentialRampToValueAtTime(hp, t1);
+    Q.cancelScheduledValues(h.end + 1e-4); Q.linearRampToValueAtTime(q, t1);
+  }
+
+  // Stop (or a seek) before the switch: put the DJ filter back and silence the riser.
+  handoffCancel() {
+    const h = this.handoff;
+    if (!h) return;
+    this.handoff = null;
+    const now = this.ctx.currentTime;
+    h.noise.g.gain.cancelScheduledValues(now); h.noise.g.gain.setValueAtTime(0, now);
+    try { h.noise.s.stop(now); } catch {}
+    const { hp, q } = djFilter(this.state.master.dj || 0);
+    for (const [p, v] of [[this.djHP.frequency, hp], [this.djHP.Q, q]]) {
+      if (p.cancelAndHoldAtTime) p.cancelAndHoldAtTime(now); else p.cancelScheduledValues(now);
+      p.setTargetAtTime(v, now, 0.03);
+    }
+  }
+
   panic() {
     const now = this.ctx.currentTime;
+    this.handoffCancel();
     this.breakOpen(now);
     this.acidRelease(now);
     this.riserStop();
     this.setThrow(false);
   }
+}
+
+// DJ filter knob (-1 low-pass .. +1 high-pass) to cutoffs and resonance.
+export function djFilter(v) {
+  return { hp: v > 0 ? 10 * Math.pow(2, v * 10.3) : 10, lp: v < 0 ? 21000 * Math.pow(2, v * 9.2) : 21000, q: 0.9 + Math.abs(v) * 3.5 };
 }
 
 export function parseChain(str) {
@@ -1543,6 +1593,8 @@ export class Sequencer {
     this.cur = state.current;
     this.queued = null;
     this.chainPos = 0;
+    // Transport step the playing song started on (a GENERATE handoff keeps the clock running).
+    this.origin = 0;
     this.roll = null;
     this.acidPrevSlide = false;
     this.acidMuted = false;
@@ -1574,6 +1626,7 @@ export class Sequencer {
   }
 
   tick(abs, t) {
+    abs -= this.origin || 0;
     const s = this.s, e = this.e;
     this.advanceBar(abs, t);
     const pat = s.patterns[this.cur];
