@@ -3,23 +3,30 @@ import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES
 import { Engine, Sequencer, parseChain } from './engine.js';
 import { defaultState, generate, mutate, arrangement, songChain, applyOverrides, clone, save, load, sanitize, STYLES, emptyPattern, emptyAcidStep } from './state.js';
 import { renderBars, bufferToWav } from './render.js';
+import { exportButtons } from './export-ui.js';
 import { encodeWav, rng } from './dsp.js';
 import { knob, numBox, h } from './ui.js';
 import { openPublish } from './publish.js';
-import { createSetRecorder, openSetCutter, openSongPublish, openJukebox, fmtTime } from './sets.js';
+import { createSetRecorder, openSetCutter, openSongPublish, openJukebox, fmtTime, loadReplay } from './sets.js';
 import { loadArtistProfile, openArtistStudio } from './artist.js';
 import { openClub, loadAvatar } from './club.js';
-import { saveTrack, trackTitle, recentTracks, fetchTrack } from './crate.js';
+import { playTimeline, stopTimeline } from './live-sets.js';
+import { saveTrack, trackTitle, recentTracks, fetchTrack, countPlay } from './crate.js';
+import { dropCard } from './drop.js';
 import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
 import { roomTransportPosition, transportResync } from './room-sync.js';
 import { concertPanel, concertBar, preloadScore, loadPiano } from './concert.js';
 import { closePractice } from './practice-ui.js';
+import { initMidi, midiStrip, midiClockStart, midiClockStep, midiClockStop } from './midi-studio.js';
+import { openHum, melodyPanel, humButton, placeHook } from './hum-ui.js';
+import { restoreVoice } from './voice.js';
 import { compose } from './classical.js';
 import { PIECE, loadPiece } from './repertoire.js';
 import { followingRow } from './feed.js';
 import { fetchPublicTrack } from './account.js';
 import { openShare, openSharedLanding, countRemix, track } from './share.js';
 import { readShareParams, decodeSong, normalizeSong, remixState } from './share-code.js';
+import { songTimeline } from './timeline-ui.js';
 
 let state = load() || defaultState();
 let ctx = null, engine = null, seq = null, timer = null, setRec = null;
@@ -117,11 +124,14 @@ function schedule() {
     nextTime = fix.nextTime;
   }
   while (nextTime < ctx.currentTime + 0.12) {
+    const skip = abs % 16 === 0 ? timeline.skip(seq.chainPos) : 0;
+    if (skip) { abs += skip * 16; seq.chainPos += skip; transportOrigin -= skip * 16 * base * 1000; }
     artistTick(abs);
     const pat = seq.tick(abs, nextTime);
     uiQueue.push({ abs, t: nextTime, pat });
     // A score breathes (rubato): the transport clock follows the stretched step, not the metronome.
     const sd = engine.stepDur;
+    midiClockStep(ctx, abs, nextTime, sd);
     nextTime += sd;
     transportOrigin += (sd - base) * 1000;
     abs++;
@@ -129,9 +139,11 @@ function schedule() {
 }
 
 function play({ step = 0, delay = 0.06 } = {}) {
+  const seeking = playing;
   stopPreview();
   closePractice();
   ensureAudio();
+  uiQueue.length = 0;
   abs = Math.max(0, Math.floor(step));
   const bar = Math.floor(abs / 16);
   const chain = state.chainOn ? parseChain(state.chain) : [];
@@ -146,8 +158,10 @@ function play({ step = 0, delay = 0.06 } = {}) {
   playing = true;
   if (pat().score) preloadScore(pat().score);
   timer.postMessage('start');
+  midiClockStart(ctx, abs, nextTime);
   schedule();
   document.body.classList.add('playing');
+  if (seeking) return;
   playStarted({ genre: style });
   renderHome();
 }
@@ -158,9 +172,11 @@ function stop() {
   playing = false;
   playStopped();
   timer?.postMessage('stop');
+  midiClockStop();
   engine?.panic();
   uiQueue.length = 0;
   setPlayhead(null);
+  timeline.frame(null);
   lastPlayedPat = null;
   if (seq) seq.queued = null;
   if (artistLive) stopArtistLive(false);
@@ -223,13 +239,14 @@ function setMaster(id, v) {
 }
 
 function pushUndo() {
-  undoStack.push(JSON.stringify({ patterns: state.patterns, params: state.params, master: state.master, bpm: state.bpm }));
+  undoStack.push(JSON.stringify({ patterns: state.patterns, params: state.params, master: state.master, bpm: state.bpm, key: state.key, chain: state.chain, labels: state.labels || null }));
   if (undoStack.length > 40) undoStack.shift();
 }
 function undo() {
   const s = undoStack.pop();
   if (!s) return toast('Nothing to undo');
   Object.assign(state, JSON.parse(s));
+  if (!state.labels) delete state.labels;
   engine?.applyAll(); engine?.applyDelayTime();
   build(); persist(); toast('Undone');
 }
@@ -312,6 +329,12 @@ function showJukebox() {
     onClose: leaveGuest,
     onRemix: () => current && remixSong(current, true),
     onShare: () => current && showShare(current, 'jukebox'),
+    playReplay: async (item) => {
+      ensureAudio();
+      current = null;
+      trackEvent('set_replay', { kind: 'jukebox' });
+      return playTimeline(await loadReplay(item), Date.now() + 200, timelineHooks(true));
+    },
     playSong: async (item) => {
       ensureAudio();
       const saved = await fetchTrack(item.trackId);
@@ -324,7 +347,46 @@ function showJukebox() {
   });
 }
 
+// Saved Club sets replay from their timeline; `asGuest` (jukebox) keeps the listener's own project safe.
+function timelineHooks(asGuest) {
+  return {
+    load: (s, st) => {
+      if (asGuest && !guest) guest = { backup: clone(state), style };
+      if (STYLES[st]) style = st;
+      const next = sanitize({ ...s, artist: state.artist });
+      if (!asGuest) return replaceState(next);
+      stop(); autoMajor = false; state = next;
+      if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
+      build();
+    },
+    apply: (s, st) => {
+      if (STYLES[st]) style = st;
+      const next = sanitize({ ...clone(state), ...s });
+      if (playing && next.bpm !== state.bpm) transportOrigin = Date.now() - ((Date.now() - transportOrigin) / (15000 / state.bpm)) * (15000 / next.bpm);
+      const want = next.current;
+      next.current = state.current;
+      state = next;
+      if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
+      if (seq && !state.chainOn && want !== seq.cur) seq.queued = want;
+      build(); if (!guest) persist();
+    },
+    play, isPlaying: () => playing, onEnd: () => playing && stop(),
+  };
+}
+function replayToRoom(timeline, startsAt) { playTimeline(timeline, startsAt, timelineHooks(false)); }
+
+async function joinRoomReplay(item) {
+  try {
+    const timeline = item.replay.timeline || await loadReplay(item.replay);
+    replayToRoom(timeline, +item.startsAt);
+    toast(`Replaying “${item.title}” with the room`);
+    trackEvent('set_replay', { kind: 'room_listener' });
+  } catch { joinRoomSet({ ...item, replay: null }); }
+}
+
 function joinRoomSet(item) {
+  stopTimeline();
+  if (item?.replay) return joinRoomReplay(item);
   if (!item?.state) return;
   style = STYLES[item.style] ? item.style : STYLES[item.state.artist?.style] ? item.state.artist.style : style;
   const roomState = sanitize(clone(item.state));
@@ -364,6 +426,7 @@ function showClub() {
       return ctx.state === 'running';
     },
     joinRoomSet,
+    replayToRoom,
     toast,
   });
 }
@@ -484,9 +547,16 @@ function doGenerate() {
   toast(`${STYLES[style].name} pattern → ${PATTERN_NAMES[state.current]}${TRACK_IDS.some((id) => state.locks[id]) ? ' · locked tracks kept' : ''}`);
 }
 
-function doGenerateSet() {
+// Hum-to-hook: the sheet in hum-ui.js edits the song only through these.
+const humApi = {
+  state: () => state, engine: () => engine, ensureAudio, toast, play, stop, playing: () => playing,
+  edit: (fn) => { pushUndo(); fn(state); engine?.applyAll(); build(); persist(); },
+  buildSong: (hum) => { stopPreview(); generatedAt = performance.now(); doGenerateSet(hum); if (!playing) play(); },
+};
+
+function doGenerateSet(hum = null, drop = null) {
   pushUndo();
-  const seed = (Math.random() * 1e9) | 0;
+  const seed = drop ? drop.seed : (Math.random() * 1e9) | 0;
   const source = clone(pat());
   const lockedParams = Object.fromEntries(TRACK_IDS.filter((id) => state.locks[id]).map((id) => [id, clone(state.params[id])]));
   matchStyleScale();
@@ -505,14 +575,19 @@ function doGenerateSet() {
   state.chain = songChain(style, seed);
   // A score sets its own tempo even mid-set; a masterwork keeps its title and composer.
   if (g.pattern.score) state.bpm = g.bpm;
+  if (typeof hum === 'function' && !g.pattern.score) { const r = hum(state.bpm, state.scale); state.key = r.key; if (r.hook) placeHook(state.patterns, r.hook); }
   const piece = PIECE[g.pattern.score?.piece];
-  const title = piece ? piece.title : trackTitle(seed);
+  const title = piece ? piece.title : drop ? drop.title : trackTitle(seed);
   const artist = piece ? piece.composer : loadAvatar().name || 'UNTERGRUND';
   state.artist = { name: artist, title, style, seed, created: new Date().toISOString() };
+  delete state.remixOf; delete state.drop;
+  if (drop) Object.assign(state, { drop: drop.date, remixOf: { id: '', title: `Daily Drop · ${drop.title}`, artist: 'UNTERGRUND' } });
   build(); persist();
   trackEvent('generate', { genre: style, kind: 'song' });
   toast(piece ? `${piece.composer.split(' ').pop()}: ${title}` : `New ${STYLES[style].name} track “${title}”`);
-  saveTrack({ title, artist, style, state: clone(state) })
+  // The drop itself is everyone's; only a published version joins today's remixes.
+  const { drop: _d, remixOf: _r, ...own } = clone(state);
+  saveTrack({ title, artist, style, state: drop ? own : clone(state) })
     .then(({ shared }) => toast(`“${title}” saved to ${shared ? 'the shared CRATE' : 'your CRATE'}`));
 }
 
@@ -596,7 +671,7 @@ function build() {
   app.innerHTML = '';
   ui.rows = {};
   document.body.classList.toggle('studio-open', studioOpen);
-  app.append(buildHeader(), buildGenerateHome(), h('main', { class: 'main studio-workspace' }, h('div', { class: 'left' }, buildGrid(), buildEditor()), buildMaster()), buildTabBar());
+  app.append(buildHeader(), buildGenerateHome(), state.patterns[0]?.score ? '' : timeline.mount(), h('main', { class: 'main studio-workspace' }, h('div', { class: 'left' }, buildGrid(), buildEditor()), buildMaster()), buildTabBar());
   renderPatterns();
   for (const id of TRACK_IDS) renderRow(id);
   renderRoll();
@@ -626,6 +701,26 @@ const SECTION_NAMES = {
 };
 const sectionName = (sid, i) => SECTION_NAMES[GROOVE_STYLES.has(sid) ? 'groove' : 'club'][i] || PATTERN_NAMES[i];
 const hue = (id) => STYLE_HUE[id] || '#c6ff2b';
+
+function setSong(on) {
+  state.chainOn = on;
+  document.querySelector('.chain-toggle')?.classList.toggle('on', on);
+  if (seq) seq.chainPos = Math.ceil(abs / 16);
+  timeline.refresh();
+  persist();
+}
+const timeline = songTimeline({
+  state: () => state,
+  kind: () => (GROOVE_STYLES.has(style) ? 'groove' : 'club'),
+  playing: () => playing,
+  current: () => state.current,
+  before: pushUndo,
+  after: () => { persist(); const inp = document.querySelector('input.chain'); if (inp) inp.value = state.chain; },
+  select: selectPattern,
+  jump: (bar) => play({ step: bar * 16 }),
+  setSong,
+  track: (kind) => trackEvent('song_edit', { kind }),
+});
 
 function styleGlyph(id) {
   const r = rng([...id].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7));
@@ -687,11 +782,11 @@ function selectFamily(f) {
   if (STYLES[style].family !== f) style = Object.keys(STYLES).find((id) => STYLES[id].family === f);
   build();
 }
-function generateNow() {
+function generateNow(drop = null) {
   stopPreview();
   generatedAt = performance.now();
   navigator.vibrate?.(12);
-  doGenerateSet();
+  doGenerateSet(null, drop);
   if (!pat().score) return playing ? undefined : play();
   // A new score starts at its first bar, not wherever the transport happened to be.
   if (playing) stop();
@@ -724,6 +819,13 @@ function playPiece(id) {
   ensureAudio();
   toast(`Opening ${p.title}…`);
   preloadScore({ piece: id }).then(() => { if (!playing && pat().score?.piece === id) play(); }, (e) => toast(`Couldn't open the score: ${e.message}`));
+}
+function playDrop(drop) {
+  style = drop.style;
+  family = STYLES[style].family;
+  localStorage.setItem('untergrund.family', family);
+  trackEvent('daily_drop', { kind: 'make', genre: style });
+  generateNow(drop);
 }
 function surprise() {
   const ids = Object.keys(STYLES).filter((id) => id !== style);
@@ -809,6 +911,7 @@ function buildNowPlaying(primary) {
       h('button', { class: 'np-stop', title: 'Stop (Space)', 'aria-label': 'Stop', onclick: toggle }, h('i')),
       primary,
       h('button', { class: 'btn refine-toggle', onclick: toggleStudio }, 'REFINE'),
+      pat()?.score ? null : h('button', { class: 'btn ghost', title: 'Hum a melody and make it the hook', onclick: () => openHum(humApi, { from: 'studio' }) }, 'HUM'),
       h('button', { class: 'btn ghost np-pub', onclick: showSongPublish }, 'PUBLISH'),
       h('button', { class: 'btn ghost np-share', title: 'Link, TikTok/Reels video or embed', onclick: () => showShare(currentSong(), 'now_playing') }, 'SHARE'),
       h('button', { class: 'btn ghost rec', title: 'Record your set, then cut and publish it', onclick: toggleRec }, h('span', { class: 'dot' }), 'REC', h('span', { class: 'rec-time' }))),
@@ -889,10 +992,12 @@ function buildGenerateHome() {
     h('div', { class: 'generate-copy' },
       h('span', {}, 'TECHNO · HOUSE · JAZZ · HIP-HOP · BASS'),
       h('h1', {}, 'Press Generate. Hear a finished track.'),
-      h('p', {}, 'Choose a sound and UNTERGRUND writes a full arrangement you can perform live, refine in Studio, or spin in the Club.')),
+      h('p', {}, 'Choose a sound and UNTERGRUND writes a full arrangement you can perform live, refine in Studio, or spin in the Club.'),
+      dropCard({ hue, onMake: playDrop, onLoad: renderHome, onPlay: (t) => { countPlay(t.id); trackEvent('daily_drop', { kind: 'play', genre: t.style }); openShared(t.id, true); } })),
     h('div', { class: 'generate-actions' }, primary,
       h('button', { class: 'btn refine-toggle', onclick: toggleStudio }, studioOpen ? 'HIDE STUDIO' : 'REFINE IN STUDIO'),
-      h('button', { class: 'btn ghost', onclick: () => startArtistLive() }, 'ARTIST LIVE')),
+      h('button', { class: 'btn ghost', onclick: () => startArtistLive() }, 'ARTIST LIVE'),
+      STYLES[style].family === 'CLASSICAL' ? null : humButton(humApi)),
     h('div', { class: 'generate-status' }, statusLine()),
   ];
   const classical = STYLES[style].family === 'CLASSICAL' || !!(playing && pat()?.score);
@@ -961,9 +1066,9 @@ function buildHeader() {
     h('button', { class: 'btn ghost', title: 'Clear pattern', onclick: () => { pushUndo(); state.patterns[state.current] = emptyPattern(); build(); persist(); } }, 'CLEAR'));
 
   const chainInput = h('input', { class: 'chain', value: state.chain, spellcheck: 'false', title: 'Arrangement: one letter per bar, e.g. AABBCCDD',
-    oninput: (e) => { state.chain = e.target.value.toUpperCase().replace(/[^A-H]/g, ''); persist(); } });
-  const chainBtn = h('button', { class: 'btn toggle' + (state.chainOn ? ' on' : ''), title: 'Play the arrangement chain',
-    onclick: (e) => { state.chainOn = !state.chainOn; e.currentTarget.classList.toggle('on', state.chainOn); if (seq) seq.chainPos = 0; persist(); } }, 'CHAIN');
+    oninput: (e) => { state.chain = e.target.value.toUpperCase().replace(/[^A-H]/g, ''); persist(); timeline.refresh(); } });
+  const chainBtn = h('button', { class: 'btn toggle chain-toggle' + (state.chainOn ? ' on' : ''), title: 'Play the arrangement chain',
+    onclick: () => setSong(!state.chainOn) }, 'CHAIN');
 
   const styleSel = h('select', { class: 'sel', title: 'Generator style', onchange: (e) => { style = e.target.value; build(); } },
     Object.entries(STYLES).map(([k, v]) => { const o = h('option', { value: k }, v.name); if (k === style) o.selected = true; return o; }));
@@ -1003,7 +1108,7 @@ function buildHeader() {
     h('div', { class: 'group studio-only studio-more' }, chainBtn, chainInput),
     h('div', { class: 'group gen studio-only studio-more' }, styleSel,
       h('button', { class: 'btn accent', title: 'Generate a pattern into this slot (G)', onclick: doGenerate }, 'GENERATE'),
-      h('button', { class: 'btn', title: 'Generate a whole 8-pattern arrangement and enable chain', onclick: doGenerateSet }, 'NEW SET'),
+      h('button', { class: 'btn', title: 'Generate a whole 8-pattern arrangement and enable chain', onclick: () => doGenerateSet() }, 'NEW SET'),
       h('button', { class: 'btn ghost', title: 'Small variation (M)', onclick: doMutate }, 'MUTATE'),
       h('select', { class: 'sel variation', title: 'How far the next variation moves from this pattern', onchange: (e) => { variation = +e.target.value; } },
         h('option', { value: .12 }, 'SUBTLE'), h('option', { value: .25, selected: true }, 'EVOLVE'), h('option', { value: .55 }, 'WILD')),
@@ -1013,6 +1118,7 @@ function buildHeader() {
       h('details', { class: 'menu' }, h('summary', { class: 'btn ghost', title: 'Export audio, save or open a project file' }, 'FILE'),
         h('div', { class: 'menu-pop' },
           h('div', { class: 'menu-row' }, bars, exportBtn),
+          ...exportButtons({ getState: () => state, getBars: () => +bars.value, download, toast, track: trackEvent, reportError }),
           h('button', { class: 'btn ghost', title: 'Save project file (.json) to reopen later', onclick: () => download(new Blob([JSON.stringify(state)], { type: 'application/json' }), `untergrund-${stamp()}.json`) }, 'SAVE PROJECT'),
           h('button', { class: 'btn ghost', title: 'Open a saved project file', onclick: () => fileIn.click() }, 'OPEN PROJECT'), fileIn,
           h('button', { class: 'btn ghost', title: 'Share a link, a 9:16 video or an embed code', onclick: () => showShare() }, 'SHARE LINK & VIDEO')))),
@@ -1197,6 +1303,7 @@ function buildEditor() {
   ui.roll = null; ui.rollCols = null;
   if (id === 'acid') ed.append(buildRoll());
   if (id === 'vox') ed.append(samplePanel());
+  if (id === 'stab' && !pat()?.score) ed.append(melodyPanel(humApi));
   return ed;
 }
 
@@ -1332,6 +1439,7 @@ function buildMaster() {
       hold('ROLL', 'R', 'Ratchet the selected drum (or snare) at 1/32', () => { if (seq) seq.roll = TRACK_BY_ID[selected].kind === 'drum' && selected !== 'kick' ? selected : 'snare'; }, () => { if (seq) seq.roll = null; }),
       hold('THROW', 'T', 'Throw everything into delay + reverb', () => engine.setThrow(true), () => engine.setThrow(false)),
       hold('RISER', 'Y', 'Noise riser that builds over 4 bars', () => engine.riserStart(), () => engine.riserStop())),
+    midiStrip(),
     h('div', { class: 'foot' }, `${getSample().source === 'synth' ? 'synths + recorded CC0 instruments' : 'synth + your own samples'} · 48k/24-bit export`));
 }
 
@@ -1399,6 +1507,7 @@ function frame() {
       }
       setPlayhead(ev);
       updateNowPlaying(ev);
+      timeline.frame(ev);
       const pattern = state.patterns[ev.pat];
       const step = ev.abs % 16;
       window.dispatchEvent(new CustomEvent('untergrund:step', { detail: {
@@ -1476,10 +1585,11 @@ const shared = readShareParams(location);
 if (shared) setTimeout(() => {
   const load = shared.code ? decodeSong(shared.code)
     : fetch(`/api/tracks?id=${encodeURIComponent(shared.id)}`).then((r) => (r.ok ? r.json().then((j) => j.track) : Promise.reject()))
-      .catch(() => fetchTrack(shared.id)).then((t) => t?.state && { ...normalizeSong({ ...t, remixOf: t.remixOf }), trackId: t.id, remixes: t.remixes || 0 }).catch(() => null);
+      .catch(() => fetchTrack(shared.id)).then((t) => t?.state && { ...normalizeSong({ ...t, remixOf: t.remixOf }), trackId: t.id, remixes: t.remixes || 0, children: t.children || [] }).catch(() => null);
   const landing = openSharedLanding({
     load, isPlaying: () => playing,
-    play: (song) => listen(song),
+    play: (song) => { countPlay(song.trackId); listen(song); },
+    fetchSong: (id) => fetch(`/api/tracks?id=${encodeURIComponent(id)}`).then((r) => (r.ok ? r.json() : Promise.reject())).then(({ track: t }) => t?.state && { ...normalizeSong(t), trackId: t.id, remixes: t.remixes || 0, children: t.children || [] }),
     stop: () => { if (playing) stop(); },
     remix: remixSong,
     share: (song) => showShare(song, 'shared'),
@@ -1492,6 +1602,15 @@ else if (new URLSearchParams(location.search).has('jukebox')) setTimeout(showJuk
 else if (new URLSearchParams(location.search).has('track')) openShared(new URLSearchParams(location.search).get('track'));
 else if (new URLSearchParams(location.search).has('artist')) setTimeout(openArtist);
 restoreSample();
+initMidi({
+  state: () => state, selected: () => selected, playing: () => playing, persist, setParam, setMaster, toggle,
+  play: (step) => play({ step, delay: 0.01 }), stop: () => { if (playing) stop(); },
+  pad: (k, down) => ui.perf?.[k]?.[down ? 'down' : 'up'](),
+  // External clock: pull the transport toward where that clock says `step` started (Date ms).
+  align: (step, at, blend) => { if (playing) transportOrigin += (at - step * (15000 / state.bpm) - transportOrigin) * blend; },
+  latency: () => (ctx ? (ctx.outputLatency || 0) + (ctx.baseLatency || 0) : 0),
+});
+restoreVoice();
 window.__untergrund = { get state() { return state; }, get engine() { return engine; } };
 
 document.addEventListener('click', (e) => {

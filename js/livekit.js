@@ -9,6 +9,9 @@ export const LIVE_KIT = {
 // Centers are the measured pitch of each recording (python3 test/sampletune.py), not its name: the Eb1 take
 // was played about a quarter tone flat and Bb1 a tenth of a semitone flat, which left A1/B1 sour against the band.
 export const BASS_NOTES = [['c1', 23.91], ['eb1', 26.76], ['g1', 31.04], ['bb1', 33.9], ['d2', 38.07], ['f2', 41.03], ['a2', 44.99], ['c3', 48.05]];
+// Measured head pitch of the recorded snare (Hz): it rings F#3 -33 c whatever the song's key. The kick is left alone:
+// its modes are inharmonic, so moving its 83 Hz peak onto the key put more of it off the grid, not less.
+export const KIT_PITCH = { snare: 181.4 };
 export const LIVE_FILES = [
   ...Object.values(LIVE_KIT).flat(),
   ...BASS_NOTES.flatMap(([n]) => [`bass_${n}_a`, `bass_${n}_b`]),
@@ -35,6 +38,8 @@ export const BAND = {
   timp: [42, 47, 50, 52, 55],
   timproll: [47, 52],
 };
+// Measured pitch of a recording minus its name, in cents (python3 test/sampletune.py), for takes played a little off.
+const BAND_TUNE = { gtr: { 40: -4, 42: -2, 45: -8, 48: -6, 51: 8, 54: 4, 57: 9, 60: 4, 63: 2, 66: 2, 72: -2 } };
 // STAB voice index -> recorded instrument.
 export const STAB_BAND = { 7: 'piano', 8: 'gtr', 9: 'horn', 10: 'str' };
 export const BAND_FILES = Object.entries(BAND).flatMap(([k, ns]) => ns.map((n) => `${k}_${n}`));
@@ -54,7 +59,7 @@ export function loadBand(name) {
   bandLoading[name] = Promise.all(BAND[name].map(async (m) => {
     const res = await fetch(new URL(`${name}_${m}.wav`, BASE));
     if (!res.ok) throw new Error(`${name}_${m}: HTTP ${res.status}`);
-    return [m, await dec.decodeAudioData(await res.arrayBuffer())];
+    return [m + (BAND_TUNE[name]?.[m] ?? 0) / 100, await dec.decodeAudioData(await res.arrayBuffer())];
   })).then((entries) => (band[name] = entries))
     .catch((err) => { console.warn(`${name} samples unavailable, using synth voice`, err); return null; });
   return bandLoading[name];
