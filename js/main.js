@@ -122,7 +122,7 @@ function schedule() {
   const target = transportOrigin / 1000 + abs * base - clockOffset;
   const fix = transportResync(target, nextTime, ctx.currentTime, base);
   if (fix) {
-    for (let i = 0; i < fix.skip; i++, abs++) { artistTick(abs); seq.advanceBar(abs); }
+    for (let i = 0; i < fix.skip; i++, abs++) { artistTick(abs); seq.advanceBar(abs, ctx.currentTime); }
     nextTime = fix.nextTime;
   }
   while (nextTime < ctx.currentTime + 0.12) {
