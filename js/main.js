@@ -7,9 +7,10 @@ import { exportButtons } from './export-ui.js';
 import { encodeWav, rng } from './dsp.js';
 import { knob, numBox, h } from './ui.js';
 import { openPublish } from './publish.js';
-import { createSetRecorder, openSetCutter, openSongPublish, openJukebox, fmtTime } from './sets.js';
+import { createSetRecorder, openSetCutter, openSongPublish, openJukebox, fmtTime, loadReplay } from './sets.js';
 import { loadArtistProfile, openArtistStudio } from './artist.js';
 import { openClub, loadAvatar } from './club.js';
+import { playTimeline, stopTimeline } from './live-sets.js';
 import { saveTrack, trackTitle, recentTracks, fetchTrack } from './crate.js';
 import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
 import { roomTransportPosition, transportResync } from './room-sync.js';
@@ -323,6 +324,12 @@ function showJukebox() {
     onClose: leaveGuest,
     onRemix: () => current && remixSong(current, true),
     onShare: () => current && showShare(current, 'jukebox'),
+    playReplay: async (item) => {
+      ensureAudio();
+      current = null;
+      trackEvent('set_replay', { kind: 'jukebox' });
+      return playTimeline(await loadReplay(item), Date.now() + 200, timelineHooks(true));
+    },
     playSong: async (item) => {
       ensureAudio();
       const saved = await fetchTrack(item.trackId);
@@ -335,7 +342,46 @@ function showJukebox() {
   });
 }
 
+// Saved Club sets replay from their timeline; `asGuest` (jukebox) keeps the listener's own project safe.
+function timelineHooks(asGuest) {
+  return {
+    load: (s, st) => {
+      if (asGuest && !guest) guest = { backup: clone(state), style };
+      if (STYLES[st]) style = st;
+      const next = sanitize({ ...s, artist: state.artist });
+      if (!asGuest) return replaceState(next);
+      stop(); autoMajor = false; state = next;
+      if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
+      build();
+    },
+    apply: (s, st) => {
+      if (STYLES[st]) style = st;
+      const next = sanitize({ ...clone(state), ...s });
+      if (playing && next.bpm !== state.bpm) transportOrigin = Date.now() - ((Date.now() - transportOrigin) / (15000 / state.bpm)) * (15000 / next.bpm);
+      const want = next.current;
+      next.current = state.current;
+      state = next;
+      if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
+      if (seq && !state.chainOn && want !== seq.cur) seq.queued = want;
+      build(); if (!guest) persist();
+    },
+    play, isPlaying: () => playing, onEnd: () => playing && stop(),
+  };
+}
+function replayToRoom(timeline, startsAt) { playTimeline(timeline, startsAt, timelineHooks(false)); }
+
+async function joinRoomReplay(item) {
+  try {
+    const timeline = item.replay.timeline || await loadReplay(item.replay);
+    replayToRoom(timeline, +item.startsAt);
+    toast(`Replaying “${item.title}” with the room`);
+    trackEvent('set_replay', { kind: 'room_listener' });
+  } catch { joinRoomSet({ ...item, replay: null }); }
+}
+
 function joinRoomSet(item) {
+  stopTimeline();
+  if (item?.replay) return joinRoomReplay(item);
   if (!item?.state) return;
   style = STYLES[item.style] ? item.style : STYLES[item.state.artist?.style] ? item.state.artist.style : style;
   const roomState = sanitize(clone(item.state));
@@ -375,6 +421,7 @@ function showClub() {
       return ctx.state === 'running';
     },
     joinRoomSet,
+    replayToRoom,
     toast,
   });
 }
