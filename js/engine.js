@@ -1154,7 +1154,7 @@ export class Engine {
     amp.gain.setValueAtTime(g, t + Math.max(0.008, len - 0.04));
     amp.gain.linearRampToValueAtTime(0, t + len);
     src.connect(lp).connect(amp).connect(out);
-    src.start(t, ch.start, len + 0.02);
+    src.start(t, ch.start, Math.min(ch.end - ch.start, (len + 0.02) * rate));
     src.stop(t + len + 0.05);
   }
 
@@ -1172,7 +1172,7 @@ export class Engine {
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
     if (voice === 'chop') {
       const vc = getChops();
-      if (vc) return this.chopNote(vc, t, v, 60 + k + oct * 12 + n, dur, expression);
+      if (vc) return this.chopNote(vc, t, v, 60 + k + oct * 12 + n, dur, expression, null, this.hookBus || this.ch.stab.input);
       voice = 'vocal';
     }
     voice = { saw: 'analog', sq: 'pulse', flute: 'reed', bell: 'mallet', pluck: 'warm' }[voice] || voice;
@@ -1181,9 +1181,9 @@ export class Engine {
     const band = voice !== 'pulse' && STAB_BAND[Math.round(p.voice)], set = band && bandKit(band);
     if (set) {
       const R = BAND_PLAY[band], ring = R.hold ? dur * 1.05 : Math.max(R.min * 0.6, dur * 1.5);
-      return this.recordedNote(set, t, Math.min(1.3, v) * R.gain * 0.6, 60 + k + oct * 12 + n, ring, this.ch.stab.input, 0, band, v / 1.3);
+      return this.recordedNote(set, t, Math.min(1.3, v) * R.gain * 0.6, 60 + k + oct * 12 + n, ring, this.hookBus || this.ch.stab.input, 0, band, v / 1.3);
     }
-    const f = midiHz(60 + k + oct * 12 + n), out = this.ch.stab.input;
+    const f = midiHz(60 + k + oct * 12 + n), out = this.hookBus || this.ch.stab.input;
     const len = Math.max(0.06, dur * 0.92), end = t + len + 0.6;
     const amp = this.gain(0), pan = c.createStereoPanner();
     pan.pan.value = (hash(t * 13, 5) - 0.5) * 0.3;

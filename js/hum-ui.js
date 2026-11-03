@@ -142,23 +142,39 @@ export function drawRoll(canvas, res, playStep = -1) {
 }
 
 // Plays a hook preview without touching the song. Returns its length in seconds.
+// Each preview plays through its own bus so a replay (or closing the sheet) can silence the last one.
+let previewBus = null;
+export function stopPreview() {
+  if (!previewBus) return;
+  const bus = previewBus, t = bus.context.currentTime;
+  previewBus = null;
+  bus.gain.setTargetAtTime(0, t, 0.015);
+  setTimeout(() => bus.disconnect(), 120);
+}
+
 function preview(api, res, voice, sung) {
+  stopPreview();
   const e = api.engine(), s = api.state(), t0 = e.ctx.currentTime + 0.08, sd = 60 / res.bpm / 4;
-  const off = kk(res.key) - kk(s.key);
-  res.hook.s.forEach((st, i) => {
-    if (!st) return;
-    const t = t0 + i * sd, dur = st[1] * sd;
-    if (voice === 'chop' && sung) e.chopNote(sung, t, st[2], 60 + kk(res.key) + st[0], dur, res.hook.x);
-    else e.hook(t, st[2], st[0] + off, dur, voice, res.hook.o, false, 0.8, false, res.hook.x);
-  });
+  const off = kk(res.key) - kk(s.key), bus = previewBus = e.ctx.createGain();
+  bus.connect(e.ch.stab.input);
+  e.hookBus = bus;
+  try {
+    res.hook.s.forEach((st, i) => {
+      if (!st) return;
+      const t = t0 + i * sd, dur = st[1] * sd;
+      if (voice === 'chop' && sung) e.chopNote(sung, t, st[2], 60 + kk(res.key) + st[0], dur, res.hook.x, null, bus);
+      else e.hook(t, st[2], st[0] + off, dur, voice, res.hook.o, false, 0.8, false, res.hook.x);
+    });
+  } finally { e.hookBus = null; }
   return { t0, sd };
 }
 
 export function openHum(api, { from = 'create' } = {}) {
   const s = api.state(), cur = s.patterns[s.current];
-  if (cur?.score) return api.toast('Pick a groove style to hum a melody');
+  const fromCreate = from === 'create';
+  if (cur?.score && !fromCreate) return api.toast('Pick a groove style to hum a melody');
   trackEvent('hum', { kind: 'open' });
-  const { body, close } = sheet('HUM A MELODY');
+  const { body, close } = sheet('HUM A MELODY', { onClose: stopPreview });
   const synthVoice = (cur?.hook?.v && cur.hook.v !== 'chop' ? cur.hook.v : null) || 'warm';
   let take = null, sung = null, voice = synthVoice, raf = 0;
   const intro = () => {
@@ -167,7 +183,6 @@ export function openHum(api, { from = 'create' } = {}) {
       micButton(api, { idle: 'Tap and hum', onTake: show }).el,
       h('p', { class: 'hum-note' }, 'Your recording stays on this device.'));
   };
-  const fromCreate = from === 'create';
   const songRes = () => {
     const { bpm, scale } = api.state(), data = take.channels[0], sr = take.sampleRate;
     const key = fromCreate ? songKey(analyzeHum(data, sr, { bpm }).detected, scale) : api.state().key;
@@ -225,13 +240,13 @@ export function openHum(api, { from = 'create' } = {}) {
       });
     };
     const primary = h('button', { class: 'btn accent hum-primary', onclick: fromCreate ? build : apply }, fromCreate ? 'BUILD A SONG AROUND IT' : 'USE IN MY SONG');
-    const second = h('button', { class: 'btn ghost', onclick: fromCreate ? apply : build }, fromCreate ? 'USE IN THIS SONG' : 'BUILD A NEW SONG');
+    const second = fromCreate && cur?.score ? null : h('button', { class: 'btn ghost', onclick: fromCreate ? apply : build }, fromCreate ? 'USE IN THIS SONG' : 'BUILD A NEW SONG');
     body.replaceChildren(
       h('div', { class: 'hum-found' }, h('b', {}, names.join(' \u00b7 ')), h('span', {}, `${names.length} notes \u00b7 ${KEYS[res.key]} ${scaleName} \u00b7 ${res.bpm} BPM`)),
       canvas,
       h('div', { class: 'hum-row' }, chips, h('button', { class: 'btn', onclick: hear }, 'HEAR IT')),
       h('div', { class: 'hum-actions' }, primary, second,
-        h('button', { class: 'btn ghost', onclick: () => { cancelAnimationFrame(raf); intro(); } }, 'HUM AGAIN')));
+        h('button', { class: 'btn ghost', onclick: () => { cancelAnimationFrame(raf); stopPreview(); intro(); } }, 'HUM AGAIN')));
     requestAnimationFrame(() => { drawRoll(canvas, res); hear(); });
   }
   intro();
