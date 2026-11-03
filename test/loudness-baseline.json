@@ -1,64 +1,64 @@
 {
  "styles": {
   "hypnotic": {
-   "lufs": -9.94,
-   "spread": 0.47,
+   "lufs": -9.74,
+   "spread": 0.68,
    "tp": -1.58,
-   "window": -9.05
+   "window": -8.93
   },
   "industrial": {
    "lufs": -10.04,
-   "spread": 0.4,
-   "tp": -2.45,
-   "window": -9.43
+   "spread": 0.38,
+   "tp": -2.46,
+   "window": -9.44
   },
   "acid": {
-   "lufs": -10.17,
+   "lufs": -10.02,
    "spread": 0.38,
    "tp": -1.46,
-   "window": -9.68
+   "window": -9.48
   },
   "dub": {
-   "lufs": -9.93,
-   "spread": 0.3,
+   "lufs": -9.92,
+   "spread": 0.33,
    "tp": -1.97,
-   "window": -9.11
+   "window": -9.12
   },
   "peak": {
-   "lufs": -9.97,
-   "spread": 0.62,
-   "tp": -1.81,
-   "window": -9.7
+   "lufs": -9.88,
+   "spread": 0.59,
+   "tp": -1.82,
+   "window": -9.67
   },
   "hardtechno": {
-   "lufs": -9.99,
-   "spread": 0.06,
-   "tp": -4.51,
+   "lufs": -10.07,
+   "spread": 0.03,
+   "tp": -4.18,
    "window": -9.31
   },
   "deephouse": {
-   "lufs": -9.94,
-   "spread": 1.73,
+   "lufs": -9.88,
+   "spread": 1.52,
    "tp": -2.26,
    "window": -8.73
   },
   "minimal": {
-   "lufs": -10.57,
-   "spread": 1.39,
+   "lufs": -10.52,
+   "spread": 1.33,
    "tp": -1.13,
-   "window": -10.54
+   "window": -10.26
   },
   "ukg": {
-   "lufs": -9.92,
-   "spread": 2.34,
-   "tp": -1.62,
-   "window": -11.2
+   "lufs": -9.87,
+   "spread": 2.17,
+   "tp": -1.6,
+   "window": -11.15
   },
   "euphoric": {
-   "lufs": -9.98,
-   "spread": 2.61,
+   "lufs": -9.96,
+   "spread": 2.56,
    "tp": -1.54,
-   "window": -8.3
+   "window": -8.31
   },
   "neosoul": {
    "lufs": -13.94,
@@ -73,82 +73,82 @@
    "window": -14.63
   },
   "breaks": {
-   "lufs": -10.02,
-   "spread": 2.34,
-   "tp": -1.9,
+   "lufs": -10.03,
+   "spread": 2.32,
+   "tp": -1.99,
    "window": -8.53
   },
   "electro": {
-   "lufs": -10.01,
-   "spread": 0.51,
+   "lufs": -9.97,
+   "spread": 0.44,
    "tp": -1.79,
-   "window": -9.47
+   "window": -9.54
   },
   "dnb": {
-   "lufs": -10.14,
-   "spread": 0.85,
+   "lufs": -10.09,
+   "spread": 0.93,
    "tp": -1.82,
-   "window": -9.98
+   "window": -9.95
   },
   "trance": {
-   "lufs": -9.99,
-   "spread": 0.58,
-   "tp": -1.79,
-   "window": -9.39
+   "lufs": -9.76,
+   "spread": 0.49,
+   "tp": -1.73,
+   "window": -9.25
   },
   "ambient": {
-   "lufs": -13.89,
-   "spread": 2.18,
-   "tp": -2.69,
+   "lufs": -13.65,
+   "spread": 2.91,
+   "tp": -2.47,
    "window": -30.28
   },
   "amapiano": {
-   "lufs": -9.95,
-   "spread": 1.67,
-   "tp": -2.21,
-   "window": -7.91
+   "lufs": -10.07,
+   "spread": 1.51,
+   "tp": -2.11,
+   "window": -8.01
   },
   "afrobeats": {
    "lufs": -9.99,
-   "spread": 0.62,
+   "spread": 0.66,
    "tp": -1.74,
    "window": -9.33
   },
   "reggaeton": {
    "lufs": -10.07,
-   "spread": 1.63,
-   "tp": -2.05,
+   "spread": 1.65,
+   "tp": -2.04,
    "window": -8.84
   },
   "bailefunk": {
-   "lufs": -9.95,
-   "spread": 0.08,
-   "tp": -2.16,
+   "lufs": -9.9,
+   "spread": 0.1,
+   "tp": -2.15,
    "window": -9.56
   },
   "trap": {
-   "lufs": -10.08,
-   "spread": 1.48,
-   "tp": -1.68,
-   "window": -9.47
+   "lufs": -9.92,
+   "spread": 1.04,
+   "tp": -1.66,
+   "window": -9.46
   },
   "drill": {
-   "lufs": -10,
-   "spread": 1.18,
+   "lufs": -9.64,
+   "spread": 1.34,
    "tp": -1.54,
    "window": -10.59
   },
   "jerseyclub": {
-   "lufs": -10.17,
-   "spread": 0.69,
+   "lufs": -9.9,
+   "spread": 0.63,
    "tp": -1.9,
-   "window": -9.39
+   "window": -9.4
   },
   "hyperpop": {
-   "lufs": -10.04,
-   "spread": 2.73,
+   "lufs": -9.76,
+   "spread": 2.12,
    "tp": -2.01,
-   "window": -7.35
+   "window": -7.33
   },
   "symphony": {
    "lufs": -15.92,
