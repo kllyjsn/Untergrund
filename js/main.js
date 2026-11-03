@@ -29,7 +29,7 @@ import { openShare, openSharedLanding, countRemix, track } from './share.js';
 import { readShareParams, decodeSong, normalizeSong, remixState } from './share-code.js';
 import { dailyDrop, dropSong } from './daily.js';
 import { songTimeline } from './timeline-ui.js';
-import { handoffStep, reanchor } from './handoff.js';
+import { handoffStep, reanchor, MIN_LEAD } from './handoff.js';
 
 let state = load() || defaultState();
 let ctx = null, engine = null, seq = null, timer = null, setRec = null;
@@ -117,19 +117,21 @@ function ensureAudio() {
   setRec = createSetRecorder(ctx, engine.out);
 }
 
-function schedule() {
+// lead: how far ahead to queue audio (seconds); the worker tick passes its message event.
+function schedule(lead) {
   if (!playing) return;
+  const ahead = typeof lead === 'number' ? lead : 0.12;
   const offset = Date.now() / 1000 - ctx.currentTime;
   clockOffset = clockOffset === null ? offset : clockOffset + (offset - clockOffset) * 0.05;
   let base = 60 / state.bpm / 4, landed = null;
   const target = transportOrigin / 1000 + abs * base - clockOffset;
   const fix = transportResync(target, nextTime, ctx.currentTime, base);
   if (fix) {
-    for (let i = 0; i < fix.skip; i++, abs++) { artistTick(abs - seq.origin); seq.advanceBar(abs); }
+    for (let i = 0; i < fix.skip; i++, abs++) { artistTick(abs - seq.origin); seq.advanceBar(abs - seq.origin, ctx.currentTime); }
     nextTime = fix.nextTime;
   }
   // Landing redraws the whole UI for the new song, so schedule further ahead first to ride out that frame.
-  while (nextTime < ctx.currentTime + (landed ? 0.5 : 0.12)) {
+  while (nextTime < ctx.currentTime + (landed ? Math.max(ahead, 0.5) : ahead)) {
     if (handoff && !handoff.out && abs >= handoff.from) { engine.handoffOut(nextTime, nextTime + (handoff.step - abs) * engine.stepDur); handoff.out = true; }
     if (handoff && abs >= handoff.step && abs % 16 === 0) { landed = landSong(nextTime); base = 60 / state.bpm / 4; }
     const skip = abs % 16 === 0 ? timeline.skip(seq.chainPos) : 0;
@@ -155,7 +157,9 @@ function schedule() {
 // Pressing again replaces the waiting song; the switch moment and transition stay put.
 function queueSong(plan) {
   if (!handoff) {
-    const h = handoffStep({ abs, lead: nextTime - ctx.currentTime, stepSec: engine.stepDur, origin: seq.origin });
+    // The sweep needs its own lead past the audio already queued, not just from now.
+    const lead = nextTime - ctx.currentTime;
+    const h = handoffStep({ abs, lead, stepSec: engine.stepDur, origin: seq.origin, minLead: Math.max(MIN_LEAD, lead + 0.4) });
     handoff = { ...h, due: performance.now() + h.at * 1000, total: h.at * 1000, out: false };
   }
   handoff.plan = plan;
@@ -872,6 +876,8 @@ function generateNow(drop = null) {
   stopPreview();
   generatedAt = performance.now();
   navigator.vibrate?.(12);
+  // Building the next song blocks the main thread; queue more audio first so it can't starve.
+  if (playing) schedule(0.4);
   // The new song arrives at its own tempo; from silence it starts at once.
   const plan = planSet(null, drop, null, true);
   const score = plan.next.patterns.some((q) => q.score);
