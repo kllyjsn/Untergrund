@@ -123,7 +123,7 @@ function schedule() {
   const target = transportOrigin / 1000 + abs * base - clockOffset;
   const fix = transportResync(target, nextTime, ctx.currentTime, base);
   if (fix) {
-    for (let i = 0; i < fix.skip; i++, abs++) { artistTick(abs); seq.advanceBar(abs); }
+    for (let i = 0; i < fix.skip; i++, abs++) { artistTick(abs); seq.advanceBar(abs, ctx.currentTime); }
     nextTime = fix.nextTime;
   }
   while (nextTime < ctx.currentTime + 0.12) {
@@ -723,7 +723,10 @@ function build() {
   renderRoll();
   if (ui.playhead) ui.lastAbs = null;
   const tab = document.querySelector('.family-tab.on'), row = tab?.parentElement;
-  if (row) row.scrollLeft = tab.offsetLeft - (row.clientWidth - tab.offsetWidth) / 2;
+  if (row && row.scrollWidth > row.clientWidth) {
+    const t = tab.getBoundingClientRect(), r = row.getBoundingClientRect();
+    row.scrollLeft += t.left - r.left - (row.clientWidth - t.width) / 2;
+  }
 }
 
 function toggleStudio() {
@@ -962,7 +965,8 @@ function buildNowPlaying(primary) {
     h('div', { class: 'now-playing' },
       h('span', { class: 'np-eyebrow' }, h('i', { class: 'np-dot' }), 'NOW PLAYING'),
       h('h1', {}, a.title || 'Untitled set'),
-      h('div', { class: 'np-meta' }, `${a.name || 'UNTERGRUND'} · ${STYLES[sid].name} · ${state.bpm} BPM · ${sc?.meta ? sc.meta.key.toUpperCase() : `${KEYS[state.key]} ${sc ? (pat().score.mode === 'm' ? 'MINOR' : 'MAJOR') : SCALES[state.scale]?.name || 'MINOR'}`}`),
+      h('div', { class: 'np-meta' }, [a.name || 'UNTERGRUND', STYLES[sid].name, `${state.bpm} BPM`, sc?.meta ? sc.meta.key.toUpperCase() : `${KEYS[state.key]} ${sc ? (pat().score.mode === 'm' ? 'MINOR' : 'MAJOR') : SCALES[state.scale]?.name || 'MINOR'}`]
+        .flatMap((v, i) => [i ? ' ' : '', h('span', {}, i ? `· ${v}` : v)])),
       ui.npCanvas,
       h('div', { class: 'np-progress' }, h('div', { class: 'np-label' }, ui.npSection, ui.npBar), h('div', { class: 'np-cells' }, ui.npCells))),
     h('div', { class: 'generate-actions np-actions' },
@@ -1029,7 +1033,10 @@ function drawNowPlaying() {
 function renderHome() {
   const old = ui.home;
   if (!old?.isConnected) return;
+  const scroll = old.querySelector('.family-tabs')?.scrollLeft || 0;
   old.replaceWith(buildGenerateHome());
+  const row = ui.home.querySelector('.family-tabs');
+  if (row) row.scrollLeft = scroll;
 }
 
 function buildGenerateHome() {
