@@ -1,8 +1,17 @@
-import { handleCrate, handleRemix, redisStore } from './_lib/crate.js';
+import { handleCrate, handleRemix, handleDrop, handlePlay, redisStore } from './_lib/crate.js';
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   try {
+    const ip = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket?.remoteAddress;
+    if (req.query?.drop) {
+      const { status, json } = await handleDrop(req.method, String(req.query.drop), redisStore());
+      return res.status(status).json(json);
+    }
+    if (req.query?.play) {
+      const { status, json } = await handlePlay(req.method, String(req.query.play), redisStore(), ip);
+      return res.status(status).json(json);
+    }
     if (req.query?.remix) {
       const { status, json } = await handleRemix(req.method, String(req.query.remix), redisStore(), String(req.headers['x-forwarded-for'] || '').split(',')[0].trim());
       return res.status(status).json(json);

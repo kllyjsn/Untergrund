@@ -3,6 +3,7 @@
 import { KEYS, SCALES } from '../../js/params.js';
 import { STYLES } from '../../js/state.js';
 import { publicArtistPage, publicTrack } from './accounts.js';
+import { remixTree } from './crate.js';
 
 export const SITE = 'https://www.untergrund.sh';
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -54,7 +55,21 @@ function shell(head, body, data) {
 </html>`;
 }
 
-export function renderTrackPage({ track, artist }, { site = SITE } = {}) {
+// "Remix of <parent>" (or of a Daily Drop) and the remixes of this track, as plain links for crawlers and no-JS readers.
+export function remixOfHtml(track) {
+  const r = track.remixOf;
+  if (r?.title && r.id) return `<div class="pp-credit">Remix of <a href="/t/${esc(r.id)}">${esc(r.title)}</a> by ${esc(r.artist || 'UNTERGRUND')}</div>`;
+  const drop = track.drop || track.state?.drop;
+  if (drop) return `<div class="pp-credit">Remix of the Daily Drop · ${esc(drop)}</div>`;
+  return r?.title ? `<div class="pp-credit">Remix of ${esc(r.title)} by ${esc(r.artist || 'UNTERGRUND')}</div>` : '';
+}
+export function remixListHtml(remixes = []) {
+  if (!remixes.length) return '';
+  const items = remixes.map((t) => `<li><a href="/t/${esc(t.id)}"><b>${esc(t.title)}</b><small>${esc([t.artist, trackLine(t)].filter(Boolean).join(' · '))}</small></a></li>`).join('');
+  return `<section class="pp-tracks pp-remixes"><span class="pp-label">REMIXES · ${remixes.length}</span><ol class="pp-list">${items}</ol></section>`;
+}
+
+export function renderTrackPage({ track, artist, remixes = [] }, { site = SITE } = {}) {
   const by = artist?.name || track.artist || 'UNTERGRUND';
   const url = `${site}/t/${encodeURIComponent(track.id)}`;
   const title = `${track.title} — ${by}`;
@@ -70,11 +85,13 @@ export function renderTrackPage({ track, artist }, { site = SITE } = {}) {
       <h1>${esc(track.title)}</h1>
       ${byline}
       <div class="pp-meta">${esc(trackLine(track))}</div>
+      ${remixOfHtml(track)}
       <div class="pp-actions"><button class="pp-play" type="button" disabled><i></i><span>Play</span></button></div>
       <p class="pp-note">Played live by UNTERGRUND in your browser. Nothing is streamed.</p>
     </div>
-  </article>`;
-  return shell(head, body, { kind: 'track', site, track, artist });
+  </article>
+  ${remixListHtml(remixes)}`;
+  return shell(head, body, { kind: 'track', site, track, artist, remixes });
 }
 
 export function renderArtistPage({ artist, tracks }, { site = SITE } = {}) {
@@ -125,6 +142,7 @@ export async function handlePage(query, { kv, crate, site = SITE, og }) {
   const html = (status, body, c = cache) => ({ status, type: 'text/html; charset=utf-8', body, cache: c });
   if (query.t) {
     const t = await publicTrack(kv, crate, query.t);
+    if (t && crate?.children) t.remixes = await remixTree(crate, t.track.id).catch(() => []);
     return t ? html(200, renderTrackPage(t, { site })) : html(404, renderMissing('track', query.t, { site, enabled: !!(kv || crate) }), 'no-store');
   }
   if (query.a) {

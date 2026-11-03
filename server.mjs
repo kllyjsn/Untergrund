@@ -23,7 +23,7 @@ if (MOCK) {
     SOUNDCLOUD_AUTH_URL: `http://localhost:${PORT}/mock-sc`, SOUNDCLOUD_API_URL: `http://localhost:${PORT}/mock-sc/api` });
 }
 
-import { handleCrate, handleRemix, memoryStore, redisStore, MAX_TRACK_BYTES } from './api/_lib/crate.js';
+import { handleCrate, handleRemix, handleDrop, handlePlay, memoryStore, redisStore, MAX_TRACK_BYTES } from './api/_lib/crate.js';
 import { handleJukebox, memoryJukebox, redisJukebox } from './api/_lib/jukebox.js';
 import { handleEvents, memoryKv, redisKv, MAX_BODY as MAX_EVENT_BYTES } from './api/_lib/events.js';
 import { redisKv as redisAccountKv, memoryKv as memoryAccountKv } from './api/_lib/kv.js';
@@ -54,6 +54,14 @@ http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   try {
     if (await handleRooms(req, res, url)) return;
+    if (url.pathname === '/api/tracks' && url.searchParams.get('drop')) {
+      const { status, json } = await handleDrop(req.method, url.searchParams.get('drop'), crateStore);
+      return sendJson(res, status, json);
+    }
+    if (url.pathname === '/api/tracks' && url.searchParams.get('play')) {
+      const { status, json } = await handlePlay(req.method, url.searchParams.get('play'), crateStore, req.socket.remoteAddress);
+      return sendJson(res, status, json);
+    }
     if (url.pathname === '/api/tracks' && url.searchParams.get('remix')) {
       const { status, json } = await handleRemix(req.method, url.searchParams.get('remix'), crateStore, req.socket.remoteAddress);
       return sendJson(res, status, json);
