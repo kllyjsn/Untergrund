@@ -1,5 +1,7 @@
 import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES } from './params.js';
 import { getSample } from './sampler.js';
+import { getChops } from './voice.js';
+import { pickChop } from './hum.js';
 import { liveKit, loadLiveKit, BASS_NOTES, bandKit, loadBand, STAB_BAND } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel } from './groove.js';
@@ -1134,6 +1136,28 @@ export class Engine {
     return this[lead](t, v, [n], 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot(), p, this.ch.stab.input);
   }
 
+  // The user's own voice, one chop per note: the nearest-pitched chop, retuned by playback rate.
+  chopNote(vc, t, v, midi, dur, expression = {}, index = null, out = this.ch.stab.input) {
+    const fixed = vc.chops[index];
+    const pick = fixed ? { index, rate: fixed.midi === null ? 1 : 2 ** ((midi - fixed.midi) / 12) } : pickChop(vc.chops, midi, Math.round(t * 8));
+    if (!pick) return;
+    const c = this.ctx, ch = vc.chops[pick.index], rate = Math.max(0.25, Math.min(4, pick.rate));
+    const len = Math.max(0.06, Math.min((ch.end - ch.start) / rate, dur * 1.1 + 0.08));
+    const src = c.createBufferSource();
+    src.buffer = vc.buffer;
+    src.playbackRate.value = rate;
+    const lp = this.filter('lowpass', 3200 + 3800 * (1 - (expression.warmth ?? 0.5)), 0.6);
+    const amp = this.gain(0);
+    const g = Math.min(1.2, v) * 0.75;
+    amp.gain.setValueAtTime(0, t);
+    amp.gain.linearRampToValueAtTime(g, t + 0.006);
+    amp.gain.setValueAtTime(g, t + Math.max(0.008, len - 0.04));
+    amp.gain.linearRampToValueAtTime(0, t + len);
+    src.connect(lp).connect(amp).connect(out);
+    src.start(t, ch.start, len + 0.02);
+    src.stop(t + len + 0.05);
+  }
+
   // Song hook: one lead note per call, snapped to the current chord on strong beats so it follows the changes.
   hook(t, v, n, dur, voice, oct = 0, strong = false, b = 1, up = false, expression = {}) {
     const c = this.ctx, p = this.state.params.stab, h = this.harm;
@@ -1145,9 +1169,14 @@ export class Engine {
       const d = up ? [1, 2, 3, 4, 5].find((x) => tones.includes((pc + x) % 12)) : [0, -1, 1, -2, 2].find((x) => tones.includes((pc + x + 12) % 12));
       n += d ?? 0;
     }
+    const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
+    if (voice === 'chop') {
+      const vc = getChops();
+      if (vc) return this.chopNote(vc, t, v, 60 + k + oct * 12 + n, dur, expression);
+      voice = 'vocal';
+    }
     voice = { saw: 'analog', sq: 'pulse', flute: 'reed', bell: 'mallet', pluck: 'warm' }[voice] || voice;
     const warmth = expression.warmth ?? 0.5;
-    const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
     // Genres on a recorded instrument let that player take the melody too; synth-pop leads stay synths.
     const band = voice !== 'pulse' && STAB_BAND[Math.round(p.voice)], set = band && bandKit(band);
     if (set) {
@@ -1642,7 +1671,7 @@ export class Sequencer {
         const phraseVel = [0.82, 0.92, 0.72, 1][ph] * (answer ? 1.04 : 0.96);
         const lean = (answer ? 0.006 : -0.003) * x.feel + (hash(hi, 97) - 0.5) * 0.008 * x.feel;
         const resolve = hm > 1 && answer && ph === 1 && !hk.s.slice(hi + 1).some(Boolean);
-        e.hook(tt + lean + (s.master.humanize || 0) * 0.008, Math.min(1, st[2] * phraseVel), st[0] + lift, st[1] * sd, hk.v, hk.o, hi % 4 === 0 || st[1] >= 2, b, resolve, x);
+        e.hook(tt + lean + (s.master.humanize || 0) * 0.008, Math.min(1, st[2] * phraseVel), st[0] + lift, st[1] * sd, hk.v, hk.o, !hk.h && (hi % 4 === 0 || st[1] >= 2), b, !hk.h && resolve, x);
       }
     }
     if (this.roll === null) this.rollCount = 0;
