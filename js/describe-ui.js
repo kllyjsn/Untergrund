@@ -4,7 +4,7 @@ import { parse, applyEdits, genreOf, suggest, chipsFor } from './describe.js';
 
 let last = null, hint = null, draft = '';
 
-// ctx: state(), style(), styleName(id), depth(), pushUndo(label), undo(), switchGenre(id), commit(nextState), track(props)
+// ctx: state(), style(), styleName(id), depth(), pushUndo(label), undo(), switchGenre(id, steer, label), commit(nextState), track(props)
 export function describeBar(ctx) {
   const input = h('input', { class: 'describe-input', type: 'text', placeholder: 'Describe it: “darker and slower”', 'aria-label': 'Describe the change you want',
     autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'go', maxlength: '140', oninput: () => { draft = input.value; } });
@@ -44,6 +44,7 @@ export function describeBar(ctx) {
     const { edits, unknown } = parse(text, { style });
     if (!edits.length) return miss(text);
     const genre = genreOf(edits, style), seed = (Math.random() * 1e9) | 0;
+    const label = `“${text.length > 32 ? text.slice(0, 31) + '…' : text}”`;
     hint = null;
     draft = '';
     // `last` is set before the page rebuilds so the new box paints this receipt.
@@ -53,11 +54,11 @@ export function describeBar(ctx) {
         const r = applyEdits(s, edits, { seed });
         last = { did: [`new ${ctx.styleName(genre)} track`, ...r.did], miss: unknown.join(', '), depth: ctx.depth() };
         return r.state;
-      });
+      }, label);
     } else {
       const r = applyEdits(ctx.state(), edits, { seed });
       if (!r.did.length) return miss(text, `Nothing to change: ${r.skipped.map((s) => s.replace(' (already there)', '')).join(', ')} already. Try:`);
-      ctx.pushUndo(`“${text.length > 32 ? text.slice(0, 31) + '…' : text}”`);
+      ctx.pushUndo(label);
       last = { did: r.did, miss: unknown.join(', '), depth: ctx.depth() };
       ctx.commit(r.state);
     }

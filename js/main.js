@@ -1055,11 +1055,12 @@ function describeBox() {
     state: () => state, style: () => style, styleName: (id) => STYLES[id].name, depth: () => history.depth,
     pushUndo, undo, track: (p) => trackEvent('describe', p),
     // Undo of a genre switch also brings back the old genre and song title.
-    switchGenre: (id, steer) => {
+    switchGenre: (id, steer, label) => {
       const was = { style, family }, artist = clone(state.artist ?? null);
       style = id; family = STYLES[id].family; localStorage.setItem('untergrund.family', family);
       doGenerateSet(null, null, (s) => {
         history.amend((snap) => JSON.stringify({ ...JSON.parse(snap), artist, ui: was }));
+        if (label) history.relabel(label);
         return steer(s);
       });
       if (playing && pat().score) stop();
