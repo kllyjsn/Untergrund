@@ -3,9 +3,9 @@
 import { h } from './ui.js';
 import { SECTIONS, PART_SECTION, COMPOSERS, compose } from './classical.js';
 import { MODELS } from './composer-models.js';
-import { loadBand } from './livekit.js';
+import { loadBand, bandKit } from './livekit.js';
 import { scoreKinds } from './engine.js';
-import { loadPiece, REPERTOIRE, PIECE, writtenScore } from './repertoire.js';
+import { loadPiece, REPERTOIRE, PIECE, writtenScore, pieceScore } from './repertoire.js';
 import { practiceView, practiceOpen, practiceInput, closePractice } from './practice-ui.js';
 
 const LABEL = { strings: 'STRINGS', winds: 'WOODWINDS', brass: 'BRASS', harp: 'HARP', timpani: 'TIMPANI', piano: 'PIANO' };
@@ -23,6 +23,8 @@ export async function preloadScore(spec) {
   if (spec?.piece) await loadPiece(spec.piece);
   return Promise.all([...new Set([...scoreKinds(spec), ...PIANO_KINDS])].map((k) => loadBand(k)));
 }
+// True when the score and every recording it plays are already here (then playback needn't wait at all).
+export const scoreReady = (spec) => (!spec?.piece || !!pieceScore(spec.piece)) && scoreKinds(spec).every((k) => bandKit(k));
 export const loadPiano = () => Promise.all(PIANO_KINDS.map((k) => loadBand(k)));
 
 function lit(m, on) { keyEls.get(m)?.classList.toggle('down', on); }

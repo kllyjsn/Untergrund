@@ -67,6 +67,17 @@ export function loadBand(name) {
 
 export const liveKit = () => buffers;
 
+// The recordings a song plays: 'kit' (drums + upright bass, for LIVE and HYBRID kits) and the chord instrument.
+export function liveSets(st) {
+  const out = Math.round(st?.master?.kit || 0) >= 1 ? ['kit'] : [];
+  const name = STAB_BAND[Math.round(st?.params?.stab?.voice || 0)];
+  if (name) out.push(name, ...(name === 'piano' ? ['pianosoft'] : []));
+  return out;
+}
+export const liveSet = (name) => (name === 'kit' ? buffers : bandKit(name));
+export const setsReady = (names) => names.every((n) => liveSet(n));
+export const loadSets = (names) => Promise.all(names.map((n) => (n === 'kit' ? loadLiveKit() : loadBand(n))));
+
 export function loadLiveKit() {
   if (buffers) return Promise.resolve(buffers);
   if (loading) return loading;
