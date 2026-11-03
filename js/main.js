@@ -683,7 +683,10 @@ function build() {
   renderRoll();
   if (ui.playhead) ui.lastAbs = null;
   const tab = document.querySelector('.family-tab.on'), row = tab?.parentElement;
-  if (row) row.scrollLeft = tab.offsetLeft - (row.clientWidth - tab.offsetWidth) / 2;
+  if (row && row.scrollWidth > row.clientWidth) {
+    const t = tab.getBoundingClientRect(), r = row.getBoundingClientRect();
+    row.scrollLeft += t.left - r.left - (row.clientWidth - t.width) / 2;
+  }
 }
 
 function toggleStudio() {
@@ -910,7 +913,8 @@ function buildNowPlaying(primary) {
     h('div', { class: 'now-playing' },
       h('span', { class: 'np-eyebrow' }, h('i', { class: 'np-dot' }), 'NOW PLAYING'),
       h('h1', {}, a.title || 'Untitled set'),
-      h('div', { class: 'np-meta' }, `${a.name || 'UNTERGRUND'} · ${STYLES[sid].name} · ${state.bpm} BPM · ${sc?.meta ? sc.meta.key.toUpperCase() : `${KEYS[state.key]} ${sc ? (pat().score.mode === 'm' ? 'MINOR' : 'MAJOR') : SCALES[state.scale]?.name || 'MINOR'}`}`),
+      h('div', { class: 'np-meta' }, [a.name || 'UNTERGRUND', STYLES[sid].name, `${state.bpm} BPM`, sc?.meta ? sc.meta.key.toUpperCase() : `${KEYS[state.key]} ${sc ? (pat().score.mode === 'm' ? 'MINOR' : 'MAJOR') : SCALES[state.scale]?.name || 'MINOR'}`]
+        .flatMap((v, i) => [i ? ' ' : '', h('span', {}, i ? `· ${v}` : v)])),
       ui.npCanvas,
       h('div', { class: 'np-progress' }, h('div', { class: 'np-label' }, ui.npSection, ui.npBar), h('div', { class: 'np-cells' }, ui.npCells))),
     h('div', { class: 'generate-actions np-actions' },
@@ -991,7 +995,7 @@ function buildGenerateHome() {
       h('button', { class: 'family-tab surprise', title: 'Pick any genre and generate', onclick: surprise }, 'SURPRISE ME')),
     h('div', { class: 'generate-styles' }, Object.entries(STYLES).filter(([, v]) => v.family === family).map(([id, v]) => styleCard(id, v, playingStyle === id))),
     h('div', { class: 'generate-hint' }, 'Tap to choose. Press and hold to hear it.'));
-  const primary = h('button', { class: 'generate-primary' + (performance.now() - generatedAt < 900 ? ' fired' : ''), onclick: generateNow },
+  const primary = h('button', { class: 'generate-primary' + (performance.now() - generatedAt < 900 ? ' fired' : ''), onclick: () => generateNow() },
     h('span', {}, 'GENERATE'), h('small', {}, `${STYLES[style].name} · full track`));
   const showNp = playing && !studioOpen;
   const left = showNp ? buildNowPlaying(primary) : [
