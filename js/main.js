@@ -19,7 +19,7 @@ import { concertPanel, concertBar, preloadScore, scoreReady, loadPiano } from '.
 import { liveSets, loadSets, setsReady } from './livekit.js';
 import { closePractice } from './practice-ui.js';
 import { initMidi, midiStrip, midiClockStart, midiClockStep, midiClockStop } from './midi-studio.js';
-import { openHum, melodyPanel, humButton, placeHook } from './hum-ui.js';
+import { openHum, melodyPanel, humButton, placeHook, humSeed } from './hum-ui.js';
 import { restoreVoice } from './voice.js';
 import { compose } from './classical.js';
 import { PIECE, loadPiece } from './repertoire.js';
@@ -678,10 +678,11 @@ function doGenerateSet(hum = null, drop = null, steer = null) {
 // now; queueSong makes it the one you hear from the next downbeat.
 function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   const s = clone(state), id = style;
-  const seed = drop ? drop.seed : songSeed();
+  let seed = drop ? drop.seed : songSeed();
   const source = clone(pat());
   const lockedParams = Object.fromEntries(TRACK_IDS.filter((t) => s.locks[t]).map((t) => [t, clone(s.params[t])]));
   const major = matchStyleScale(s);
+  if (typeof hum === 'function' && !drop) seed = humSeed(id, s.scale, hum);
   const g = generate(id, seed, s.scale);
   s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   if (source.score?.composer) for (const q of s.patterns) if (q.score?.form) q.score.composer = source.score.composer;
@@ -811,7 +812,10 @@ function build() {
   renderRoll();
   if (ui.playhead) ui.lastAbs = null;
   const tab = document.querySelector('.family-tab.on'), row = tab?.parentElement;
-  if (row) row.scrollLeft = tab.offsetLeft - (row.clientWidth - tab.offsetWidth) / 2;
+  if (row && row.scrollWidth > row.clientWidth) {
+    const t = tab.getBoundingClientRect(), r = row.getBoundingClientRect();
+    row.scrollLeft += t.left - r.left - (row.clientWidth - t.width) / 2;
+  }
 }
 
 function toggleStudio() {
@@ -1063,7 +1067,8 @@ function buildNowPlaying(primary) {
     h('div', { class: 'now-playing' },
       h('span', { class: 'np-eyebrow' }, h('i', { class: 'np-dot' }), 'NOW PLAYING'),
       h('h1', {}, a.title || 'Untitled set'),
-      h('div', { class: 'np-meta' }, `${a.name || 'UNTERGRUND'} · ${STYLES[sid].name} · ${state.bpm} BPM · ${sc?.meta ? sc.meta.key.toUpperCase() : `${KEYS[state.key]} ${sc ? (pat().score.mode === 'm' ? 'MINOR' : 'MAJOR') : SCALES[state.scale]?.name || 'MINOR'}`}`),
+      h('div', { class: 'np-meta' }, [a.name || 'UNTERGRUND', STYLES[sid].name, `${state.bpm} BPM`, sc?.meta ? sc.meta.key.toUpperCase() : `${KEYS[state.key]} ${sc ? (pat().score.mode === 'm' ? 'MINOR' : 'MAJOR') : SCALES[state.scale]?.name || 'MINOR'}`]
+        .flatMap((v, i) => [i ? ' ' : '', h('span', {}, i ? `· ${v}` : v)])),
       ui.npCanvas,
       h('div', { class: 'np-progress' }, h('div', { class: 'np-label' }, ui.npSection, ui.npBar), h('div', { class: 'np-cells' }, ui.npCells))),
     h('div', { class: 'generate-actions np-actions' },
@@ -1130,7 +1135,10 @@ function drawNowPlaying() {
 function renderHome() {
   const old = ui.home;
   if (!old?.isConnected) return;
+  const scroll = old.querySelector('.family-tabs')?.scrollLeft || 0;
   old.replaceWith(buildGenerateHome());
+  const row = ui.home.querySelector('.family-tabs');
+  if (row) row.scrollLeft = scroll;
 }
 
 function buildGenerateHome() {

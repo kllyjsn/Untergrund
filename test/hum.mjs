@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { pitchTrack, segmentNotes, snapToScale, detectKey, quantize, hookFromNotes, analyzeHum, sliceChops, pickChop, tuneChops, noteLabel } from '../js/hum.js';
+import { pitchTrack, segmentNotes, snapToScale, detectKey, quantize, hookFromNotes, analyzeHum, sliceChops, pickChop, tuneChops, noteLabel, tuningOffset, fillBars, fitProg, livePitch, prepareHum, hookFor } from '../js/hum.js';
+import { CHORDS } from '../js/params.js';
 
 const SR = 48000;
 const hz = (m) => 440 * 2 ** ((m - 69) / 12);
@@ -57,7 +58,8 @@ const hookNotes = (hook) => hook.s.map((x, i) => (x ? [i, x[0], x[1]] : null)).f
   assert.deepEqual(r.raw.map((n) => noteLabel(n.midi)), ['C4', 'E4', 'G4']);
   assert.deepEqual(r.notes.map((n) => n.step), [0, 4, 8], 'on the 16th grid from the first note');
   assert.deepEqual(r.notes.map((n) => n.len), [3, 3, 4]);
-  assert.deepEqual(hookNotes(r.hook).map(([i, n]) => [i, n]), [[0, 0], [4, 4], [8, 7]], 'C E G above the key root');
+  assert.deepEqual(hookNotes(r.hook).map(([i, n]) => [i, n]), [[0, 0], [4, 4], [8, 7], [16, 0], [20, 4], [24, 7]], 'C E G above the key root, answered in bar 2');
+  assert.equal(r.answered, true);
   assert.equal(r.hook.h, 1, 'marked as sung');
   // Key detection agrees: C major.
   assert.deepEqual([r.detected.key, r.detected.scale], [0, 'major']);
@@ -157,3 +159,43 @@ const hookNotes = (hook) => hook.s.map((x, i) => (x ? [i, x[0], x[1]] : null)).f
 }
 
 console.log('hum: ok');
+
+// Off-pitch singer: C-E-G hummed 40 cents flat with per-note wobble still reads C-E-G, also in A minor.
+{
+  const data = hum([[0.3, 0.7, C4 - 0.4], [0.8, 1.2, E4 - 0.28], [1.3, 1.75, G4 - 0.52]], 2.2);
+  const prep = prepareHum(data, SR);
+  assert(Math.abs(prep.tuning + 0.4) < 0.1, `tuning ${prep.tuning}`);
+  assert.deepEqual(prep.raw.map((n) => noteLabel(n.midi)), ['C4', 'E4', 'G4']);
+  const am = hookFor(prep, { bpm: 120, key: 9, scaleNotes: [0, 2, 3, 5, 7, 8, 10] });
+  assert.deepEqual(am.notes.map((n) => n.step), [0, 4, 8]);
+  assert.deepEqual(hookNotes(am.hook).slice(0, 3).map(([, n]) => ((n + 9) % 12 + 12) % 12), [0, 4, 7], 'C E G pitch classes in A minor');
+  assert(Math.abs(tuningOffset([{ start: 0, end: 1, midi: 60.45 }, { start: 1, end: 2, midi: 63.55 }]) - 0.5) < 0.06, 'wraps across the semitone');
+}
+
+// Call and response only for one-bar motifs.
+{
+  const long = [{ step: 0, len: 4, midi: 60 }, { step: 12, len: 8, midi: 64 }];
+  assert.equal(fillBars(long).length, 2, 'a 2-bar phrase is left alone');
+  const short = fillBars([{ step: 0, len: 2, midi: 60, rms: 1 }, { step: 4, len: 4, midi: 62, rms: 1 }]);
+  assert.deepEqual(short.map((n) => n.step), [0, 4, 16, 20]);
+  assert(short[2].rms < 1, 'the answer is softer');
+}
+
+// Progression fit: C-E-G over C major chords fits; over chords without those tones it does not.
+{
+  const hook = { s: Array.from({ length: 32 }, () => 0) };
+  hook.s[0] = [0, 4, 1]; hook.s[4] = [4, 4, 1]; hook.s[8] = [7, 4, 1];
+  const fits = [{ r: 0, c: 7 }, { r: 0, c: 7 }], clashes = [{ r: 1, c: 6 }, { r: 6, c: 6 }];
+  assert.equal(fitProg(hook, fits, CHORDS), 1);
+  assert(fitProg(hook, clashes, CHORDS) < 0.2);
+  assert.equal(fitProg(null, fits, CHORDS), 0);
+}
+
+// Live pitch on one analyser-sized frame.
+{
+  const buf = hum([[0, 0.05, 64]], 0.043).subarray(0, 2048);
+  const m = livePitch(buf, SR);
+  assert(m !== null && Math.abs(m - 64) < 0.3, `live E4 at ${m}`);
+  assert.equal(livePitch(new Float32Array(2048).map(() => (Math.random() * 2 - 1) * 0.05), SR), null, 'noise is not a note');
+}
+console.log('hum refine: ok');

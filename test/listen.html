@@ -28,6 +28,14 @@ wrap(P, 'recorded', function (o, a) {
     for (const h of held) if (h.__note && !(this.gripHeld || []).includes(h)) h.__note.dur = Math.min(h.__note.dur, t - h.__note.t + 0.06);
   }
 });
+wrap(P, 'stab', function (o, a) {
+  if (flags.nochord) return;
+  return o.apply(this, a);
+});
+wrap(P, 'lick', function (o, a) {
+  if (flags.nolick) return;
+  return o.apply(this, a);
+});
 wrap(P, 'hook', function (o, a) {
   if (flags.nohook) return;
   const prev = ctxTag; ctxTag = { src: 'hook' };
@@ -69,7 +77,7 @@ let meta;
 for (const stem of stems) {
   const s = make();
   const parts = stem.split('+');
-  flags = { nohook: parts.includes('-hook'), nochord: parts.includes('-chord') };
+  flags = { nohook: parts.includes('-hook'), nochord: parts.includes('-chord'), nolick: parts.includes('-lick') };
   if (stem !== 'full') for (const x of parts) if (!x.startsWith('-')) s.solos[x] = true;
   log = { notes: [], bars: [] };
   const buf = await renderBars(s, bars, { startBar });
