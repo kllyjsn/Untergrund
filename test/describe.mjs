@@ -182,7 +182,8 @@ function fakeCtx() {
   return { ctx, log };
 }
 const { Engine, Sequencer, parseChain } = await import('../js/engine.js');
-function fingerprint(state, bars = 32) {
+// The whole song, so a change that only reaches the peak (e.g. a techno pedal shift) still counts as audible.
+function fingerprint(state, bars = Math.max(32, state.chainOn ? parseChain(state.chain).length : 0)) {
   const rnd = Math.random; let x = 12345; Math.random = () => ((x = (x * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
   try {
     const { ctx, log } = fakeCtx();

@@ -660,6 +660,12 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   if (idea === 0 && on.length > 2) S.acid[on[on.length - 1]].n += 12;
   else if (idea === 1 && S.perc.some(Boolean)) { const k = 1 + Math.floor(r2() * 3), q = S.perc.slice(); S.perc = q.map((_, i) => q[(i - k + STEPS) % STEPS]); }
   else if (idea === 2 && S.stab.some(Boolean) && !['neosoul', 'boombap'].includes(style)) { const q = S.stab.slice(); S.stab = q.map((_, i) => q[(i + 1) % STEPS]); }
+  // Styles without written changes get harmony in their own idiom, from a separate stream so nothing above moves.
+  if (!P.prog) {
+    const v = vampFor(style, Math.round(params.stab.chord ?? 0), rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)));
+    if (v?.pedal) P.pedal = v.pedal; else if (v) P.prog = v;
+  }
+  if (LIFT.has(style) && P.prog) P.lift = 2;
   return { pattern: P, params, master, bpm, key, swing: swing ?? 0.06 };
 }
 
@@ -748,11 +754,34 @@ export function arrangement(full, seed, half = false) {
     clone(full),
     half ? halfTime(full) : mutate(full, seed + 2),
   ];
-  for (const p of scenes) delete p.alt;
+  for (const p of scenes) { delete p.alt; delete p.pedal; }
+  if (full.pedal) for (const i of [6, 7]) scenes[i].prog = clone(full.pedal);
   // Hook: absent in the intro, teased (call only) in the verse and deep breakdown, full in the fill, breakdown and peaks.
   [0, 0, 1, 2, 2, 1, 2, 2].forEach((m, i) => { if (full.hook) scenes[i].hm = m; else delete scenes[i].hm; });
   if (full.alt) for (const i of [4, 5]) scenes[i].prog = clone(full.alt);
   return scenes;
+}
+
+// Techno holds its pedal and shifts it for the last two bars of every eight at the peak; dub rocks i–iv; breaks,
+// electro, DnB and the club styles vamp on two chords; ambient drifts on pads, two bars per chord. Off-tonic chords
+// take their diatonic natural-minor quality (III and VI major 7, VII add 9) unless the voicing is open (SUS2, 5TH).
+const PEDAL = new Set(['hypnotic', 'industrial', 'acid', 'peak', 'hardtechno', 'minimal']);
+const VAMP = {
+  dub: [[0, 0, 0, 0, 5, 5, 0, 0]],
+  breaks: [[0, 0, 5, 5], [0, 0, 8, 8]],
+  electro: [[0, 0, 8, 8], [0, 0, 10, 10]],
+  dnb: [[0, 0, 8, 8], [0, 0, 3, 3, 8, 8, 10, 10]],
+  bailefunk: [[0, 0, 5, 5], [0, 0, 10, 10]],
+  jerseyclub: [[0, 0, 10, 10], [0, 0, 8, 8]],
+  ambient: [[0, 0, 8, 8, 3, 3, 10, 10], [0, 0, 5, 5, 8, 8, 3, 3]],
+};
+// Pop, trance and anthem songs lift the final chorus a whole step and stay there to the end.
+const LIFT = new Set(['euphoric', 'trance', 'hyperpop']);
+const quality = (root, c) => (root === 0 || root === 5 || c === 4 || c === 6 ? c : root === 10 ? 10 : c === 2 ? 9 : 7);
+function vampFor(style, c, r) {
+  const chords = (roots) => roots.map((x) => ({ r: x, c: quality(x, c) }));
+  if (PEDAL.has(style)) { const [a, b] = [[5, 3], [8, 10], [10, 5]][Math.floor(r() * 3)]; return { pedal: chords([0, 0, 0, 0, 0, 0, a, b]) }; }
+  return VAMP[style] ? chords(VAMP[style][Math.floor(r() * VAMP[style].length)]) : null;
 }
 
 const GROOVE = new Set(['neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill']);
@@ -886,6 +915,7 @@ export function sanitize(s) {
     }
     if (p.score?.piece && PIECE[p.score.piece]) e.score = { piece: p.score.piece };
     else if (p.score && FORMS[p.score.form]) e.score = { form: p.score.form, seed: Number.isFinite(+p.score.seed) ? +p.score.seed | 0 : 1, mode: p.score.mode === 'm' ? 'm' : 'M', ...(MODELS[p.score.composer] ? { composer: p.score.composer } : {}) };
+    if (p.lift) e.lift = Math.max(0, Math.min(3, p.lift | 0));
     if (Array.isArray(p.prog) && p.prog.length) e.prog = p.prog.slice(0, 8).map((c) => ({ r: Math.max(-12, Math.min(12, c?.r | 0)), c: Math.max(0, Math.min(10, c?.c | 0)) }));
     return e;
   });

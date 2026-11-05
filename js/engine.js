@@ -1700,6 +1700,13 @@ export class Sequencer {
     const arr = this.s.master.arr || 0;
     this.dropNow = !!this.dropNext; this.dropNext = false;
     this.songBars = chain.length; this.chainArr = chain;
+    if (this.liftChain !== this.s.chain) {
+      // The final chorus: the last run of peak bars, if an earlier peak came before it.
+      let i = chain.length - 1;
+      while (i >= 0 && chain[i] !== 6) i--;
+      while (i > 0 && (chain[i - 1] === 6 || chain[i - 1] === 7)) i--;
+      this.liftChain = this.s.chain; this.liftFrom = i > 0 && chain.slice(0, i).includes(6) ? i : -1;
+    }
     if (chain.length) {
       const n = chain.length, p = this.chainPos % n, prev = this.chainPos ? this.cur : -1;
       this.cur = chain[p]; this.chainPos++;
@@ -1729,11 +1736,13 @@ export class Sequencer {
     e.step = abs;
     const sd = e.stepDur;
     const tt = t + (abs % 2 ? s.swing * sd * 0.5 : 0);
-    const n = this.songBars || 0, pos = n ? (this.chainPos - 1) % n : -1;
-    if (s.ending && n >= 16 && pos === n - 1 && !pat.score) return this.ending(pat, abs % 16, tt, sd);
+    const n = this.songBars || 0, pos = n ? (this.chainPos - 1) % n : -1, lf = this.liftFrom;
+    const kl = this.keyLift = s.ending && pat.lift && lf > 0 && (pos >= lf || (pos === lf - 1 && abs % 16 >= 12)) ? pat.lift : 0;
+    if (s.ending && n >= 16 && pos === n - 1 && !pat.score) return this.ending(pat, abs % 16, tt, sd, kl);
     // Turnaround: the last beat of a section anticipates the next section's first chord.
     const nx = n && pos + 1 < n && this.chainArr[pos + 1] !== this.cur ? s.patterns[this.chainArr[pos + 1]] : null;
     if (nx && abs % 16 >= 12 && pat.prog?.length && nx.prog?.length) e.harm = nx.prog[(bar + 1) % nx.prog.length];
+    if (kl && e.harm) e.harm = { r: e.harm.r + kl, c: e.harm.c };
     const pk = pocketOf(s.master);
     if ((s.master.dust || 0) > 0.01) e.dust(t, sd, abs);
     const arr = s.master.arr || 0, i16 = abs % 16;
@@ -1831,7 +1840,7 @@ export class Sequencer {
       const breathe = hm > 1 && ph === 2 && hi < 16 && hash(abs, 95) < 0.2 + x.space * 0.45;
       // The lead also drops out for the last half bar before a drop, leaving the riser and snare roll alone.
       if (st && (hm > 1 || hi < 16) && !breathe && !(this.dropNext && i16 >= 8)) {
-        const lift = hm > 1 && hi >= 16 && ph === 3 && x.risk >= 0.3 ? 12 : 0;
+        const lift = (hm > 1 && hi >= 16 && ph === 3 && x.risk >= 0.3 ? 12 : 0) + (this.keyLift || 0);
         const b = 0.58 + 0.42 * ((bar % 8) / 7);
         const answer = hi >= 16;
         const phraseVel = [0.82, 0.92, 0.72, 1][ph] * (answer ? 1.04 : 0.96);
@@ -1848,17 +1857,18 @@ export class Sequencer {
   }
 
   // The last bar of a generated song: one final downbeat on the home chord, left to ring out.
-  ending(pat, i16, t, sd) {
+  ending(pat, i16, t, sd, kl = 0) {
     if (i16) return this.cur;
     const s = this.s, e = this.e, anySolo = TRACK_IDS.some((id) => s.solos[id]), on = (id) => !s.mutes[id] && (!anySolo || s.solos[id]);
-    e.harm = pat.prog?.length ? pat.prog.find((h) => h.r === 0) || pat.prog[0] : null;
+    const home = pat.prog?.length ? pat.prog.find((h) => h.r === 0) || pat.prog[0] : null;
+    e.harm = home && { r: home.r + kl, c: home.c };
     if (on('kick')) e.trigger('kick', t, 1);
     if (on('acid')) e.acid(t, { on: true, n: 0, a: true, s: false }, false, false, sd);
     if (on('stab')) e.trigger('stab', t, 0.85);
     const hk = pat.hook;
     if (hk && on('stab')) {
-      const ns = hk.s.filter(Boolean).map((x) => x[0]), home = 12 * Math.round(ns.reduce((a, b) => a + b, 0) / ns.length / 12);
-      e.hook(t, 0.8, home, 16 * sd, hk.v, hk.o, true, 1, false, hk.x || {});
+      const ns = hk.s.filter(Boolean).map((x) => x[0]), tonic = 12 * Math.round(ns.reduce((a, b) => a + b, 0) / ns.length / 12) + kl;
+      e.hook(t, 0.8, tonic, 16 * sd, hk.v, hk.o, true, 1, false, hk.x || {});
     }
     e.impact(t, Math.max(0.4, s.master.arr || 0));
     return this.cur;

@@ -157,3 +157,32 @@ console.log('seeded instrument ensembles passed');
   assert(turn.length, 'stabs play through turnarounds');
   console.log('song form passed');
 }
+
+// Harmony for the styles without written changes, in their own idiom, and the final-chorus lift.
+{
+  const { CHORDS } = await import('../js/params.js');
+  const { buildSong, playSong } = await import('../scripts/composition.mjs');
+  const MINOR = new Set([0, 2, 3, 5, 7, 8, 10]), pc = (x) => ((x % 12) + 12) % 12;
+  const diatonic = (h) => CHORDS[h.c].iv.every((i) => MINOR.has(pc(h.r + i)));
+  for (const style of ['hypnotic', 'peak', 'dub', 'breaks', 'electro', 'dnb', 'bailefunk', 'jerseyclub', 'ambient']) for (const seed of [1, 2, 3, 4]) {
+    const g = generate(style, seed), sc = arrangement(g.pattern, seed), techno = !!g.pattern.pedal;
+    const progs = techno ? [sc[6].prog, sc[7].prog] : sc.map((p) => p.prog);
+    for (const pr of progs) {
+      assert(pr && new Set(pr.map((h) => h.r)).size >= 2, `${style}/${seed} has harmonic motion`);
+      if (diatonic(pr[0])) assert(pr.every(diatonic), `${style}/${seed} off-tonic chords stay in the key: ${JSON.stringify(pr)}`);
+    }
+    if (techno) assert(sc.slice(0, 6).every((p) => !p.prog) && pr0(sc[6]).slice(0, 6).every((h) => h.r === 0), `${style} holds the pedal outside the peak`);
+  }
+  function pr0(p) { return p.prog; }
+  for (const style of ['euphoric', 'trance', 'hyperpop']) {
+    const s = buildSong(style, 101), { log, bars } = playSong(s), c = s.chain;
+    assert.equal(sanitize(JSON.parse(JSON.stringify(s))).patterns[6].lift, 2, 'the lift survives save and load');
+    const lastPeak = c.lastIndexOf('G'), early = log.filter((L) => L.k === 'trigger' && L.a[0] === 'stab' && L.step < 16 * c.indexOf('G') + 64 && L.harm);
+    const late = log.filter((L) => L.k === 'trigger' && L.a[0] === 'stab' && L.step >= 16 * lastPeak - 64 && L.step < 16 * lastPeak && L.harm);
+    const roots = (xs) => new Set(xs.map((L) => pc(L.harm.r)));
+    assert([...roots(late)].some((r) => !roots(early).has(r)) || [...roots(late)].every((r) => [...roots(early)].map((x) => pc(x + 2)).includes(r)), `${style} final chorus is lifted`);
+    const end = log.find((L) => L.k === 'hook' && L.step === (bars - 1) * 16);
+    assert(end && pc(end.a[2]) === 2, `${style} ends on the lifted tonic (${end?.a[2]})`);
+  }
+  console.log('idiomatic harmony passed');
+}

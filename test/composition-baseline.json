@@ -1,55 +1,55 @@
 {
   "hypnotic": {
     "bars": 112,
-    "melodyWindows": 18.5,
+    "melodyWindows": 21,
     "motifRecall": 0.695,
-    "chords": 1,
-    "voiceMove": 0,
+    "chords": 3,
+    "voiceMove": 1.815,
     "contrast": 0.293,
     "drumBars": 44.5
   },
   "industrial": {
     "bars": 112,
-    "melodyWindows": 18,
+    "melodyWindows": 19.5,
     "motifRecall": 0.707,
-    "chords": 1,
-    "voiceMove": 0,
+    "chords": 3,
+    "voiceMove": 1.02,
     "contrast": 0.274,
     "drumBars": 13.5
   },
   "acid": {
     "bars": 112,
-    "melodyWindows": 18,
+    "melodyWindows": 19.5,
     "motifRecall": 0.707,
-    "chords": 1,
-    "voiceMove": 0,
+    "chords": 3,
+    "voiceMove": 1.07,
     "contrast": 0.31,
     "drumBars": 13
   },
   "dub": {
     "bars": 112,
-    "melodyWindows": 17,
+    "melodyWindows": 18.5,
     "motifRecall": 0.683,
-    "chords": 1,
-    "voiceMove": 0,
+    "chords": 2,
+    "voiceMove": 1.1,
     "contrast": 0.325,
     "drumBars": 20
   },
   "peak": {
     "bars": 112,
-    "melodyWindows": 18,
+    "melodyWindows": 19.5,
     "motifRecall": 0.707,
-    "chords": 1,
-    "voiceMove": 0,
+    "chords": 3,
+    "voiceMove": 1.07,
     "contrast": 0.296,
     "drumBars": 13
   },
   "hardtechno": {
     "bars": 112,
-    "melodyWindows": 18,
+    "melodyWindows": 19.5,
     "motifRecall": 0.707,
-    "chords": 1,
-    "voiceMove": 0,
+    "chords": 3,
+    "voiceMove": 1.07,
     "contrast": 0.285,
     "drumBars": 13
   },
@@ -64,10 +64,10 @@
   },
   "minimal": {
     "bars": 112,
-    "melodyWindows": 17.5,
+    "melodyWindows": 20,
     "motifRecall": 0.695,
-    "chords": 1,
-    "voiceMove": 0,
+    "chords": 3,
+    "voiceMove": 2.62,
     "contrast": 0.263,
     "drumBars": 111
   },
@@ -82,10 +82,10 @@
   },
   "euphoric": {
     "bars": 72,
-    "melodyWindows": 17.5,
-    "motifRecall": 0.828,
-    "chords": 6,
-    "voiceMove": 0.745,
+    "melodyWindows": 22,
+    "motifRecall": 0.724,
+    "chords": 10,
+    "voiceMove": 0.755,
     "contrast": 0.288,
     "drumBars": 67
   },
@@ -109,46 +109,46 @@
   },
   "breaks": {
     "bars": 112,
-    "melodyWindows": 18.5,
+    "melodyWindows": 20,
     "motifRecall": 0.707,
-    "chords": 1,
-    "voiceMove": 0,
+    "chords": 2,
+    "voiceMove": 1,
     "contrast": 0.294,
     "drumBars": 112
   },
   "electro": {
     "bars": 112,
-    "melodyWindows": 18,
+    "melodyWindows": 19,
     "motifRecall": 0.707,
-    "chords": 1,
-    "voiceMove": 0,
+    "chords": 2,
+    "voiceMove": 0.79,
     "contrast": 0.273,
     "drumBars": 12
   },
   "dnb": {
     "bars": 112,
-    "melodyWindows": 18,
+    "melodyWindows": 19,
     "motifRecall": 0.695,
-    "chords": 1,
-    "voiceMove": 0,
-    "contrast": 0.245,
+    "chords": 3,
+    "voiceMove": 0.87,
+    "contrast": 0.246,
     "drumBars": 112
   },
   "trance": {
     "bars": 112,
-    "melodyWindows": 21,
+    "melodyWindows": 30,
     "motifRecall": 0.72,
-    "chords": 5,
-    "voiceMove": 1.28,
+    "chords": 9,
+    "voiceMove": 1.21,
     "contrast": 0.303,
     "drumBars": 13
   },
   "ambient": {
     "bars": 56,
-    "melodyWindows": 10,
+    "melodyWindows": 11.5,
     "motifRecall": 0.714,
-    "chords": 1,
-    "voiceMove": 0,
+    "chords": 4,
+    "voiceMove": 1.19,
     "contrast": 0.417,
     "drumBars": 3
   },
@@ -181,11 +181,11 @@
   },
   "bailefunk": {
     "bars": 112,
-    "melodyWindows": 18,
+    "melodyWindows": 19.5,
     "motifRecall": 0.695,
-    "chords": 1,
-    "voiceMove": 0,
-    "contrast": 0.283,
+    "chords": 2,
+    "voiceMove": 0.5,
+    "contrast": 0.284,
     "drumBars": 108
   },
   "trap": {
@@ -208,19 +208,19 @@
   },
   "jerseyclub": {
     "bars": 112,
-    "melodyWindows": 19,
+    "melodyWindows": 21,
     "motifRecall": 0.683,
-    "chords": 1,
-    "voiceMove": 0,
-    "contrast": 0.372,
+    "chords": 2,
+    "voiceMove": 0.77,
+    "contrast": 0.371,
     "drumBars": 112
   },
   "hyperpop": {
     "bars": 112,
-    "melodyWindows": 21,
+    "melodyWindows": 29,
     "motifRecall": 0.707,
-    "chords": 6,
-    "voiceMove": 1.06,
+    "chords": 10,
+    "voiceMove": 1.04,
     "contrast": 0.354,
     "drumBars": 88
   }
