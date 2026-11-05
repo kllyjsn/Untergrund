@@ -51,6 +51,7 @@ export function scoreSong(s) {
     const bar = Math.floor(L.step / 16), B = perBar[bar];
     if (!B) continue;
     if (L.harm) harms.add(`${L.harm.r}:${L.harm.c}`);
+    if (L.k === 'hook' && L.a[9]?.counter) continue;
     if (L.k === 'hook') {
       const [, , n, , , , strong, , up] = L.a;
       B.hook.push(`${L.step % 16}:${hookSnap(n, L.harm, p, strong, up)}`); B.events++;

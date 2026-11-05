@@ -9,7 +9,7 @@ import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF
 import { lowEnd } from './lowend.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
 import { makeupGain } from './loudness.js';
-import { harmRoot, stabNotes, hookSnap, voiceLead } from './harmony.js';
+import { harmRoot, chordIv, stabNotes, hookSnap, voiceLead } from './harmony.js';
 import { develop, motifPlan, stepDeg } from './motif.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
@@ -1679,6 +1679,13 @@ export function parseChain(str) {
 
 const DRUMS = new Set(['kick', 'clap', 'snare', 'ch', 'oh', 'ride', 'perc']);
 
+// Is the hook sounding at (or about to play) step hi? A note started k steps ago still rings for its length.
+function hookBusy(hk, hi, hm) {
+  const plays = (j) => hk.s[j] && (hm > 1 || j < 16);
+  for (let k = 0; k < 16; k++) { const j = (hi - k + 32) % 32; if (plays(j) && hk.s[j][1] > k) return true; }
+  return plays((hi + 1) % 32);
+}
+
 export class Sequencer {
   constructor(engine, state) {
     this.e = engine;
@@ -1824,13 +1831,16 @@ export class Sequencer {
       if (v && id === 'vox') e.vox(ht, vel, i);
       else if (v) e.trigger(id, ht, vel);
     }
+    const hm = pat.hm || 0, scale = SCALES[s.scale]?.notes || SCALES.minor.notes;
+    const hk = pat.hook && !pat.hook.h && this.songBars ? this.motif(pat.hook, motifPlan(bar, this.songBars, this.cur, pat.hook.s.filter(Boolean).length), scale) : pat.hook;
+    const leadOn = !s.mutes.stab && (!anySolo || s.solos.stab), busy = this.songBars && hk && hm && leadOn && hookBusy(hk, abs % 32, hm);
     const sp = pat.steps.stab;
-    if (vary && !s.mutes.stab && (!anySolo || s.solos.stab) && bar % 2 === 1 && !sp[abs % (pat.len.stab || 16)] && hash(abs, 77) < vary * 0.28) {
+    // Licks fill the lead's rests instead of talking over it.
+    if (vary && leadOn && !busy && !(this.songBars && hk && hm && i16 === 15) && bar % 2 === 1 && !sp[abs % (pat.len.stab || 16)] && hash(abs, 77) < vary * 0.28) {
       const k = Math.floor(hash(abs, 78) * 6) + (bar % 4 === 3 ? 2 : 0);
       e.lick(tt + (s.master.humanize || 0) * 0.02, 0.35 + hash(abs, 79) * 0.3, k);
     }
-    const hm = pat.hm || 0, scale = SCALES[s.scale]?.notes || SCALES.minor.notes;
-    const hk = pat.hook && !pat.hook.h && this.songBars ? this.motif(pat.hook, motifPlan(bar, this.songBars, this.cur, pat.hook.s.filter(Boolean).length), scale) : pat.hook;
+    if (this.songBars && hk && hm && leadOn) this.interplay(pat, hk, abs, bar, tt, sd, busy, anySolo);
     if (hk && hm && !s.mutes.stab && (!anySolo || s.solos.stab)) {
       const hi = abs % 32, st = hk.s[hi];
       const x = hk.x || { space: 0.4, risk: 0.4, feel: 0.4, warmth: 0.5 };
@@ -1854,6 +1864,28 @@ export class Sequencer {
     }
     if (this.roll === null) this.rollCount = 0;
     return this.cur;
+  }
+
+  // Parts that listen to the lead. In grooves and peaks the bass answers the hook's rests with an off-beat octave,
+  // or a walk into the next chord; breakdowns get a quiet guide-tone line (3rds and 7ths) under the B-phrase.
+  interplay(pat, hk, abs, bar, t, sd, busy, anySolo) {
+    const s = this.s, e = this.e, i16 = abs % 16, len = pat.len.acid || 16, a = pat.steps.acid;
+    if ((this.cur === 2 || this.cur === 6) && (i16 === 6 || i16 === 14) && !busy && !a[abs % len]?.on &&
+        !s.mutes.acid && (!anySolo || s.solos.acid) && a.some((x) => x?.on) && hash(bar * 2 + (i16 > 8), 96) < 0.6) {
+      const nx = i16 === 14 && pat.prog?.length > 1 ? pat.prog[(bar + 1) % pat.prog.length] : null;
+      const d = nx ? harmRoot(nx) - harmRoot(e.harm) : 0;
+      e.noteVel = 0.62;
+      e.acid(t, { on: true, n: d ? d - Math.sign(d) : 12, a: false, s: false, answer: 1 }, false, false, sd);
+      this.acidPrevSlide = false;
+    }
+    if ((this.cur === 4 || this.cur === 5) && i16 % 8 === 0 && !hk.s[abs % 32]) {
+      const ns = hk.s.filter(Boolean).map((x) => x[0]), home = 12 * Math.round(ns.reduce((p, q) => p + q, 0) / ns.length / 12) - 12;
+      const iv = chordIv(e.harm, s.params.stab), r = harmRoot(e.harm) + (this.keyLift || 0), prev = this.counter ?? home + r + iv[1];
+      const cands = [iv[1], iv[3] ?? iv[2]].flatMap((x) => [-12, 0, 12].map((o) => home + r + x + o)).filter((m) => m !== prev || i16 === 0);
+      const n = cands.reduce((b, m) => (Math.abs(m - prev) < Math.abs(b - prev) ? m : b));
+      this.counter = n;
+      e.hook(t + 0.003, 0.3, n, 8 * sd, hk.v, hk.o, true, 0.5, false, { ...(hk.x || {}), harm: 1, counter: 1 });
+    }
   }
 
   // The last bar of a generated song: one final downbeat on the home chord, left to ring out.

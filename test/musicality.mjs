@@ -186,3 +186,26 @@ console.log('seeded instrument ensembles passed');
   }
   console.log('idiomatic harmony passed');
 }
+
+// Interplay: licks yield to the hook, the bass answers its rests, breakdowns get a guide-tone countermelody.
+{
+  const { CHORDS } = await import('../js/params.js');
+  const { buildSong, playSong } = await import('../scripts/composition.mjs');
+  const pc = (x) => ((x % 12) + 12) % 12;
+  let answers = 0, counters = 0;
+  for (const style of ['deephouse', 'neosoul', 'ukg', 'afrobeats', 'trance', 'dub']) for (const seed of [101, 211, 307]) {
+    const s = buildSong(style, seed), { log } = playSong(s), hook = new Map();
+    for (const L of log) if (L.k === 'hook' && !L.a[9]?.harm) for (let k = 0; k < Math.max(1, Math.round(L.a[3] / 0.125)); k++) hook.set(L.step + k, true);
+    for (const L of log.filter((x) => x.k === 'lick')) assert(!hook.has(L.step) && !hook.has(L.step + 1), `${style}/${seed} lick at ${L.step} talks over the hook`);
+    const acidAt = new Set(log.filter((x) => x.k === 'acid').map((x) => x.step));
+    answers += log.filter((x) => x.k === 'acid' && x.a[1]?.answer && !hook.has(x.step) && 'CG'.includes(s.chain[Math.floor(x.step / 16)])).length;
+    for (const L of log.filter((x) => x.k === 'hook' && x.a[9]?.counter)) {
+      counters++;
+      assert('EF'.includes(s.chain[Math.floor(L.step / 16)]), `${style} countermelody only in breakdowns`);
+      if (L.harm) { const rel = pc(L.a[2] - L.harm.r); assert(CHORDS[L.harm.c].iv.map(pc).includes(rel), `${style} counter note ${L.a[2]} is a chord tone of ${JSON.stringify(L.harm)}`); }
+    }
+  }
+  assert(answers > 20, `the bass answers the hook (${answers})`);
+  assert(counters > 20, `breakdowns carry a countermelody (${counters})`);
+  console.log('interplay passed');
+}
