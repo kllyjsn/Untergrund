@@ -9,7 +9,7 @@ import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF
 import { lowEnd } from './lowend.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
 import { makeupGain } from './loudness.js';
-import { harmRoot, stabNotes, hookSnap } from './harmony.js';
+import { harmRoot, stabNotes, hookSnap, voiceLead } from './harmony.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
@@ -940,8 +940,9 @@ export class Engine {
   stab(t, v) {
     const c = this.ctx, p = this.state.params.stab;
     const h = this.harm;
-    const { root, notes } = stabNotes(this.state, h), iv = notes.map((m) => m - root);
-    const vo = Math.round(p.voice), out = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
+    const { root, notes, home } = stabNotes(this.state, h);
+    const vo = Math.round(p.voice), voiced = this.lastChord = voiceLead(notes, this.lastChord, home);
+    const iv = (STAB_VOICES[vo] === 'guitar' ? notes : voiced).map((m) => m - root), out = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
     if (vo > 0) return this[STAB_VOICES[vo]](t, v, iv, root, p, out);
     const lp = this.filter('lowpass', p.cutoff, p.reso);
     const amp = this.gain(0);

@@ -58,7 +58,7 @@
     "melodyWindows": 6,
     "motifRecall": 1,
     "chords": 6,
-    "voiceMove": 1.855,
+    "voiceMove": 1.185,
     "contrast": 0.24,
     "drumBars": 28
   },
@@ -76,7 +76,7 @@
     "melodyWindows": 6.5,
     "motifRecall": 1,
     "chords": 6.5,
-    "voiceMove": 2.475,
+    "voiceMove": 1.865,
     "contrast": 0.311,
     "drumBars": 28
   },
@@ -85,7 +85,7 @@
     "melodyWindows": 7,
     "motifRecall": 1,
     "chords": 5,
-    "voiceMove": 2.465,
+    "voiceMove": 0.715,
     "contrast": 0.29,
     "drumBars": 27
   },
@@ -94,7 +94,7 @@
     "melodyWindows": 0,
     "motifRecall": 1,
     "chords": 6,
-    "voiceMove": 1.69,
+    "voiceMove": 0.96,
     "contrast": 0.262,
     "drumBars": 28
   },
@@ -103,7 +103,7 @@
     "melodyWindows": 0,
     "motifRecall": 1,
     "chords": 5,
-    "voiceMove": 1.97,
+    "voiceMove": 1.065,
     "contrast": 0.289,
     "drumBars": 28
   },
@@ -139,7 +139,7 @@
     "melodyWindows": 8,
     "motifRecall": 1,
     "chords": 5,
-    "voiceMove": 2.29,
+    "voiceMove": 1.23,
     "contrast": 0.304,
     "drumBars": 10
   },
@@ -157,7 +157,7 @@
     "melodyWindows": 7,
     "motifRecall": 1,
     "chords": 6,
-    "voiceMove": 2.325,
+    "voiceMove": 1.01,
     "contrast": 0.205,
     "drumBars": 28
   },
@@ -166,7 +166,7 @@
     "melodyWindows": 7,
     "motifRecall": 1,
     "chords": 6,
-    "voiceMove": 1.89,
+    "voiceMove": 1.375,
     "contrast": 0.235,
     "drumBars": 28
   },
@@ -175,7 +175,7 @@
     "melodyWindows": 7,
     "motifRecall": 1,
     "chords": 6,
-    "voiceMove": 2.15,
+    "voiceMove": 0.95,
     "contrast": 0.283,
     "drumBars": 28
   },
@@ -193,7 +193,7 @@
     "melodyWindows": 7,
     "motifRecall": 1,
     "chords": 4,
-    "voiceMove": 2.215,
+    "voiceMove": 1.77,
     "contrast": 0.259,
     "drumBars": 26
   },
@@ -202,7 +202,7 @@
     "melodyWindows": 7,
     "motifRecall": 1,
     "chords": 4,
-    "voiceMove": 0.71,
+    "voiceMove": 0.425,
     "contrast": 0.32,
     "drumBars": 27
   },
@@ -220,7 +220,7 @@
     "melodyWindows": 8,
     "motifRecall": 1,
     "chords": 6,
-    "voiceMove": 1.65,
+    "voiceMove": 0.93,
     "contrast": 0.356,
     "drumBars": 32
   }
