@@ -1,0 +1,227 @@
+{
+  "hypnotic": {
+    "bars": 40,
+    "melodyWindows": 5,
+    "motifRecall": 1,
+    "chords": 1,
+    "voiceMove": 0,
+    "contrast": 0.305,
+    "drumBars": 27.5
+  },
+  "industrial": {
+    "bars": 40,
+    "melodyWindows": 5,
+    "motifRecall": 1,
+    "chords": 1,
+    "voiceMove": 0,
+    "contrast": 0.267,
+    "drumBars": 10.5
+  },
+  "acid": {
+    "bars": 40,
+    "melodyWindows": 5,
+    "motifRecall": 1,
+    "chords": 1,
+    "voiceMove": 0,
+    "contrast": 0.327,
+    "drumBars": 10
+  },
+  "dub": {
+    "bars": 40,
+    "melodyWindows": 3,
+    "motifRecall": 1,
+    "chords": 1,
+    "voiceMove": 0,
+    "contrast": 0.341,
+    "drumBars": 16
+  },
+  "peak": {
+    "bars": 40,
+    "melodyWindows": 5,
+    "motifRecall": 1,
+    "chords": 1,
+    "voiceMove": 0,
+    "contrast": 0.31,
+    "drumBars": 10
+  },
+  "hardtechno": {
+    "bars": 40,
+    "melodyWindows": 5,
+    "motifRecall": 1,
+    "chords": 1,
+    "voiceMove": 0,
+    "contrast": 0.29,
+    "drumBars": 10
+  },
+  "deephouse": {
+    "bars": 28,
+    "melodyWindows": 6,
+    "motifRecall": 1,
+    "chords": 6,
+    "voiceMove": 1.185,
+    "contrast": 0.24,
+    "drumBars": 28
+  },
+  "minimal": {
+    "bars": 40,
+    "melodyWindows": 4,
+    "motifRecall": 1,
+    "chords": 1,
+    "voiceMove": 0,
+    "contrast": 0.252,
+    "drumBars": 40
+  },
+  "ukg": {
+    "bars": 28,
+    "melodyWindows": 6.5,
+    "motifRecall": 1,
+    "chords": 6.5,
+    "voiceMove": 1.865,
+    "contrast": 0.311,
+    "drumBars": 28
+  },
+  "euphoric": {
+    "bars": 28,
+    "melodyWindows": 7,
+    "motifRecall": 1,
+    "chords": 5,
+    "voiceMove": 0.715,
+    "contrast": 0.29,
+    "drumBars": 27
+  },
+  "neosoul": {
+    "bars": 28,
+    "melodyWindows": 0,
+    "motifRecall": 1,
+    "chords": 6,
+    "voiceMove": 0.96,
+    "contrast": 0.262,
+    "drumBars": 28
+  },
+  "boombap": {
+    "bars": 28,
+    "melodyWindows": 0,
+    "motifRecall": 1,
+    "chords": 5,
+    "voiceMove": 1.065,
+    "contrast": 0.289,
+    "drumBars": 28
+  },
+  "breaks": {
+    "bars": 40,
+    "melodyWindows": 5,
+    "motifRecall": 1,
+    "chords": 1,
+    "voiceMove": 0,
+    "contrast": 0.3,
+    "drumBars": 40
+  },
+  "electro": {
+    "bars": 40,
+    "melodyWindows": 5,
+    "motifRecall": 1,
+    "chords": 1,
+    "voiceMove": 0,
+    "contrast": 0.272,
+    "drumBars": 9
+  },
+  "dnb": {
+    "bars": 40,
+    "melodyWindows": 4.5,
+    "motifRecall": 1,
+    "chords": 1,
+    "voiceMove": 0,
+    "contrast": 0.236,
+    "drumBars": 40
+  },
+  "trance": {
+    "bars": 40,
+    "melodyWindows": 8,
+    "motifRecall": 1,
+    "chords": 5,
+    "voiceMove": 1.23,
+    "contrast": 0.304,
+    "drumBars": 10
+  },
+  "ambient": {
+    "bars": 24,
+    "melodyWindows": 4,
+    "motifRecall": 1,
+    "chords": 1,
+    "voiceMove": 0,
+    "contrast": 0.299,
+    "drumBars": 2
+  },
+  "amapiano": {
+    "bars": 28,
+    "melodyWindows": 7,
+    "motifRecall": 1,
+    "chords": 6,
+    "voiceMove": 1.01,
+    "contrast": 0.205,
+    "drumBars": 28
+  },
+  "afrobeats": {
+    "bars": 28,
+    "melodyWindows": 7,
+    "motifRecall": 1,
+    "chords": 6,
+    "voiceMove": 1.375,
+    "contrast": 0.235,
+    "drumBars": 28
+  },
+  "reggaeton": {
+    "bars": 28,
+    "melodyWindows": 7,
+    "motifRecall": 1,
+    "chords": 6,
+    "voiceMove": 0.95,
+    "contrast": 0.283,
+    "drumBars": 28
+  },
+  "bailefunk": {
+    "bars": 40,
+    "melodyWindows": 4,
+    "motifRecall": 1,
+    "chords": 1,
+    "voiceMove": 0,
+    "contrast": 0.273,
+    "drumBars": 38
+  },
+  "trap": {
+    "bars": 28,
+    "melodyWindows": 7,
+    "motifRecall": 1,
+    "chords": 4,
+    "voiceMove": 1.77,
+    "contrast": 0.259,
+    "drumBars": 26
+  },
+  "drill": {
+    "bars": 28,
+    "melodyWindows": 7,
+    "motifRecall": 1,
+    "chords": 4,
+    "voiceMove": 0.425,
+    "contrast": 0.32,
+    "drumBars": 27
+  },
+  "jerseyclub": {
+    "bars": 40,
+    "melodyWindows": 5,
+    "motifRecall": 1,
+    "chords": 1,
+    "voiceMove": 0,
+    "contrast": 0.37,
+    "drumBars": 40
+  },
+  "hyperpop": {
+    "bars": 40,
+    "melodyWindows": 8,
+    "motifRecall": 1,
+    "chords": 6,
+    "voiceMove": 0.93,
+    "contrast": 0.356,
+    "drumBars": 32
+  }
+}

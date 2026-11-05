@@ -9,6 +9,7 @@ import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF
 import { lowEnd } from './lowend.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
 import { makeupGain } from './loudness.js';
+import { harmRoot, stabNotes, hookSnap, voiceLead } from './harmony.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
@@ -939,9 +940,9 @@ export class Engine {
   stab(t, v) {
     const c = this.ctx, p = this.state.params.stab;
     const h = this.harm;
-    const iv = CHORDS[h ? h.c : Math.round(p.chord)].iv;
-    const root = 48 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot();
-    const vo = Math.round(p.voice), out = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
+    const { root, notes, home } = stabNotes(this.state, h);
+    const vo = Math.round(p.voice), voiced = this.lastChord = voiceLead(notes, this.lastChord, home);
+    const iv = (STAB_VOICES[vo] === 'guitar' ? notes : voiced).map((m) => m - root), out = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
     if (vo > 0) return this[STAB_VOICES[vo]](t, v, iv, root, p, out);
     const lp = this.filter('lowpass', p.cutoff, p.reso);
     const amp = this.gain(0);
@@ -1245,13 +1246,7 @@ export class Engine {
   hook(t, v, n, dur, voice, oct = 0, strong = false, b = 1, up = false, expression = {}) {
     const c = this.ctx, p = this.state.params.stab, h = this.harm;
     v *= 1.3;
-    if (strong || up) {
-      const iv = CHORDS[h ? h.c : Math.round(p.chord)].iv, root = h ? h.r : 0;
-      const tones = iv.map((x) => (((root + x) % 12) + 12) % 12);
-      const pc = ((n % 12) + 12) % 12;
-      const d = up ? [1, 2, 3, 4, 5].find((x) => tones.includes((pc + x) % 12)) : [0, -1, 1, -2, 2].find((x) => tones.includes((pc + x + 12) % 12));
-      n += d ?? 0;
-    }
+    n = hookSnap(n, h, p, strong, up);
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
     if (voice === 'chop') {
       const vc = getChops();
@@ -1368,7 +1363,7 @@ export class Engine {
     this.retire(oscs[oscs.length - 1], pan);
   }
 
-  harmRoot() { const h = this.harm; return h ? ((((h.r + 6) % 12) + 12) % 12) - 6 : 0; }
+  harmRoot() { return harmRoot(this.harm); }
 
   // Keep bass roots in the octave where club systems carry weight. Key changes
   // alter the pitch class without accidentally moving the whole bass line up.
