@@ -113,3 +113,25 @@ console.log('genre signatures passed');
   }
 console.log('seeded instrument ensembles passed');
 }
+
+// Motif development keeps every variant in the scale and recognisable, and the breakdown gets its own B-phrase.
+{
+  const { develop, motifPlan, DEVELOP } = await import('../js/motif.js');
+  for (const style of ['trance', 'deephouse', 'hypnotic', 'trap']) for (const scale of ['minor', 'major']) {
+    const sc = SCALES[scale].notes, pcs = new Set(sc.map((n) => n % 12)), hook = generate(style, 211, scale).pattern.hook.s;
+    for (const kind of [...DEVELOP, 'contrast']) {
+      const v = develop(hook, kind, sc);
+      assert.equal(v.length, 32, `${style} ${kind} keeps 2 bars`);
+      assert(v.filter(Boolean).length >= 3, `${style} ${kind} keeps the line`);
+      assert.notDeepEqual(v, hook, `${style} ${kind} should vary the motif`);
+      for (const [n, l] of v.filter(Boolean)) { assert(pcs.has(((n % 12) + 12) % 12), `${style} ${kind} note ${n} out of ${scale}`); assert(l >= 1 && l <= 16); }
+    }
+  }
+  const plan = Array.from({ length: 20 }, (_, b) => motifPlan(b * 2, 40, 2));
+  assert.deepEqual(plan.slice(0, 2), ['orig', 'orig'], 'the hook is stated before it develops');
+  assert(plan.slice(-2).every((k) => k === 'orig'), 'the outro brings the hook home');
+  assert(new Set(plan).size >= 4, 'a song uses several developments');
+  assert.equal(motifPlan(10, 40, 4), 'contrast');
+  assert.equal(motifPlan(10, 0, 2), 'orig', 'a looping pattern plays the hook as written');
+  console.log('motif development passed');
+}

@@ -67,9 +67,13 @@ export function scoreSong(s) {
   // Two-bar melody windows that contain hook notes, and how many still carry the motif's rhythm.
   const wins = [];
   for (let b = 0; b + 1 < bars; b += 2) if (perBar[b].hook.length || perBar[b + 1].hook.length) wins.push([...perBar[b].hook, ...perBar[b + 1].hook.map((x) => `+${x}`)]);
-  const motif = wins.length ? wins.reduce((best, w) => (w.length > best.length ? w : best), wins[0]) : [];
-  const onsets = (w) => w.map((x) => x.split(':')[0]);
-  const recall = wins.length ? wins.filter((w) => jaccard(onsets(w), onsets(motif)) >= 0.4).length / wins.length : 1;
+  // The motif is the window heard most often; a variant still recalls it if its onset rhythm matches,
+  // allowing an eighth-note displacement.
+  const onsets = (w) => w.map((x) => { const [st] = x.split(':'); return st[0] === '+' ? 16 + +st.slice(1) : +st; });
+  const count = new Map(); for (const w of wins) count.set(w.join(), (count.get(w.join()) || 0) + 1);
+  const motif = wins.find((w) => count.get(w.join()) === Math.max(...count.values())) || [];
+  const like = (w) => Math.max(...[-2, 0, 2].map((d) => jaccard(onsets(w).map((x) => x + d), onsets(motif))));
+  const recall = wins.length ? wins.filter((w) => like(w) >= 0.4).length / wins.length : 1;
   const moves = voicings.slice(1).map((v, i) => move(voicings[i], v));
   const density = perBar.map((b) => b.events), mean = density.reduce((a, b) => a + b, 0) / bars;
   const sd = Math.sqrt(density.reduce((a, b) => a + (b - mean) ** 2, 0) / bars);
