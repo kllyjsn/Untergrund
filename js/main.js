@@ -31,6 +31,7 @@ import { openShare, openSharedLanding, countRemix, track } from './share.js';
 import { readShareParams, decodeSong, normalizeSong, remixState } from './share-code.js';
 import { dailyDrop, dropSong } from './daily.js';
 import { songTimeline } from './timeline-ui.js';
+import { handoffStep, reanchor, MIN_LEAD } from './handoff.js';
 
 let state = load() || defaultState();
 let ctx = null, engine = null, seq = null, timer = null, setRec = null;
@@ -40,6 +41,8 @@ addEventListener('pointerup', (e) => { if (e.pointerType !== 'mouse' || !e.butto
 addEventListener('blur', () => { for (const k of [...heldPads.keys()]) ui.perf?.[k]?.up(); });
 let playing = false, abs = 0, nextTime = 0, lastPlayedPat = null;
 let transportOrigin = 0, roomJoinTimer = 0, clockOffset = null;
+// A song waiting for its downbeat: { step, from, plan, out } (see queueSong).
+let handoff = null;
 const uiQueue = [];
 let selected = 'kick';
 let family = localStorage.getItem('untergrund.family') || 'TECHNO';
@@ -117,23 +120,33 @@ function ensureAudio() {
   setRec = createSetRecorder(ctx, engine.out);
 }
 
-function schedule() {
+// lead: how far ahead to queue audio (seconds); the worker tick passes its message event.
+function schedule(lead) {
   if (!playing) return;
+  const ahead = typeof lead === 'number' ? lead : 0.12;
   const offset = Date.now() / 1000 - ctx.currentTime;
   clockOffset = clockOffset === null ? offset : clockOffset + (offset - clockOffset) * 0.05;
-  const base = 60 / state.bpm / 4;
+  let base = 60 / state.bpm / 4, landed = null;
   const target = transportOrigin / 1000 + abs * base - clockOffset;
   const fix = transportResync(target, nextTime, ctx.currentTime, base);
   if (fix) {
-    for (let i = 0; i < fix.skip; i++, abs++) { artistTick(abs); seq.advanceBar(abs, ctx.currentTime); }
+    for (let i = 0; i < fix.skip; i++, abs++) { artistTick(abs - seq.origin); seq.advanceBar(abs - seq.origin, ctx.currentTime); }
     nextTime = fix.nextTime;
   }
-  while (nextTime < ctx.currentTime + 0.12) {
-    const skip = abs % 16 === 0 ? timeline.skip(seq.chainPos) : 0;
-    if (skip) { abs += skip * 16; seq.chainPos += skip; transportOrigin -= skip * 16 * base * 1000; }
-    artistTick(abs);
+  // Landing redraws the whole UI for the new song, so schedule further ahead first to ride out that frame.
+  while (nextTime < ctx.currentTime + (landed ? Math.max(ahead, 0.5) : ahead)) {
+    if (handoff && !handoff.out && abs >= handoff.from) { engine.handoffOut(nextTime, nextTime + (handoff.step - abs) * engine.stepDur); handoff.out = true; }
+    // A stalled main thread can make the resync skip the planned downbeat; then the new song
+    // starts on the first step that still sounds rather than holding the sweep for another bar.
+    if (handoff && abs >= handoff.step) { landed = landSong(nextTime); base = 60 / state.bpm / 4; }
+    const skip = (abs - seq.origin) % 16 === 0 ? timeline.skip(seq.chainPos) : 0;
+    if (skip) {
+      abs += skip * 16; seq.chainPos += skip; transportOrigin -= skip * 16 * base * 1000;
+      if (handoff?.step != null) { handoff.step += skip * 16; handoff.from += skip * 16; }
+    }
+    artistTick(abs - seq.origin);
     const pat = seq.tick(abs, nextTime);
-    uiQueue.push({ abs, t: nextTime, pat });
+    uiQueue.push({ abs: abs - seq.origin, t: nextTime, pat });
     // A score breathes (rubato): the transport clock follows the stretched step, not the metronome.
     const sd = engine.stepDur;
     midiClockStep(ctx, abs, nextTime, sd);
@@ -141,6 +154,53 @@ function schedule() {
     transportOrigin += (sd - base) * 1000;
     abs++;
   }
+  // The audio is queued; now redraw for the new song (it sounds ~0.1 s from now).
+  landed?.();
+}
+
+// GENERATE while a song plays: keep the clock running and switch on a coming downbeat.
+// Pressing again replaces the waiting song; the switch moment and transition stay put.
+// A song on recordings not yet downloaded waits (the old one keeps playing) until they're in, up to 8 s.
+function queueSong(plan) {
+  if (!handoff) handoff = { since: performance.now() };
+  const h = handoff;
+  h.plan = plan;
+  const tryArm = () => {
+    if (handoff !== h || h.step != null || !playing) return;
+    if (!setsReady(liveSets(h.plan.next)) && performance.now() - h.since < 7990) return;
+    // The sweep needs its own lead past the audio already queued, not just from now.
+    const lead = nextTime - ctx.currentTime;
+    const at = handoffStep({ abs, lead, stepSec: engine.stepDur, origin: seq.origin, minLead: Math.max(MIN_LEAD, lead + 0.4) });
+    Object.assign(h, at, { due: performance.now() + at.at * 1000, total: at.at * 1000, out: false });
+    renderHome();
+  };
+  loadSets(liveSets(plan.next)).catch(() => {}).then(tryArm);
+  setTimeout(tryArm, 8000 - (performance.now() - h.since));
+  tryArm();
+  const when = h.step == null ? 'seating the band' : 'on the bar';
+  if (!plan.quiet) toast(plan.next.artist?.title ? `Up next: “${plan.next.artist.title}” · ${when}` : `Up next · ${when}`);
+  renderHome();
+}
+
+// The waiting song takes over on this downbeat (time t): same transport, MIDI clock and
+// room clock; the new song starts from its own bar 1 at its own tempo (snapped on the bar).
+function landSong(t) {
+  const { plan } = handoff;
+  handoff = null;
+  const fromBpm = state.bpm;
+  if (plan.undo) pushUndo(plan.label || 'GENERATE');
+  autoMajor = plan.autoMajor ?? false;
+  for (const k of Object.keys(state)) if (!(k in plan.next)) delete state[k];
+  Object.assign(state, plan.next);
+  transportOrigin = reanchor(transportOrigin, abs, fromBpm, state.bpm);
+  const chain = state.chainOn ? parseChain(state.chain) : [];
+  state.current = chain.length ? chain[0] : state.current;
+  Object.assign(seq, { origin: abs, chainPos: 0, cur: state.current, queued: null, acidPrevSlide: false, dropNext: false });
+  engine.handoffIn(t);
+  if (engine.recLock) engine.recLock = new Map();
+  uiQueue.length = 0;
+  lastPlayedPat = null;
+  return () => plan.finish(true);
 }
 
 // A song on recorded instruments holds its first downbeat until they're decoded (up to 8 s); a score waits longer,
@@ -183,6 +243,8 @@ function start({ step = 0, delay = 0.06 } = {}) {
   seq.queued = null;
   seq.chainPos = bar + (abs % 16 === 0 ? 0 : 1);
   seq.acidPrevSlide = false;
+  seq.origin = 0;
+  if (handoff) { handoff = null; engine.handoffCancel(); }
   state.current = seq.cur;
   nextTime = ctx.currentTime + Math.max(0.01, delay);
   clockOffset = null;
@@ -206,6 +268,7 @@ function stop() {
   clearTimeout(roomJoinTimer);
   roomJoinTimer = 0;
   playing = false;
+  handoff = null;
   playStopped();
   timer?.postMessage('stop');
   midiClockStop();
@@ -434,6 +497,12 @@ function timelineHooks(asGuest) {
     apply: (s, st) => {
       if (STYLES[st]) style = st;
       const next = sanitize({ ...clone(state), ...s });
+      // The DJ generated a new song: the replay hands off on a downbeat too, from the new song's bar 1.
+      const newSong = next.chain !== state.chain && JSON.stringify(next.patterns[0]) !== JSON.stringify(state.patterns[0]);
+      if (playing && seq && newSong && !pat().score && !next.patterns.some((q) => q.score)) {
+        next.artist = state.artist;
+        return queueSong({ next, quiet: true, finish: () => { build(); if (!guest) persist(); } });
+      }
       if (playing && next.bpm !== state.bpm) transportOrigin = Date.now() - ((Date.now() - transportOrigin) / (15000 / state.bpm)) * (15000 / next.bpm);
       const want = next.current;
       next.current = state.current;
@@ -490,7 +559,8 @@ function showClub() {
       style = STYLES[track.style] ? track.style : style;
       replaceState(sanitize(clone(track.state)));
     },
-    getTransport: () => ({ playing, startsAt: transportOrigin }),
+    // Rooms count steps from where the playing song started (a GENERATE handoff restarts the song, not the clock).
+    getTransport: () => ({ playing, startsAt: transportOrigin + (seq?.origin || 0) * (15000 / state.bpm) }),
     startRoomBroadcast,
     unlockAudio: async () => {
       ensureAudio();
@@ -594,9 +664,11 @@ function selectPattern(i) {
 }
 
 let autoMajor = false;
-function matchStyleScale() {
-  if (style === 'euphoric' && state.scale === 'minor') { state.scale = 'major'; autoMajor = true; }
-  else if (style !== 'euphoric' && autoMajor && state.scale === 'major') { state.scale = 'minor'; autoMajor = false; }
+// EUPHORIC wants major; leaving it puts back the minor it borrowed. Returns the new autoMajor.
+function matchStyleScale(s = state) {
+  if (style === 'euphoric' && s.scale === 'minor') { s.scale = 'major'; return true; }
+  if (style !== 'euphoric' && autoMajor && s.scale === 'major') { s.scale = 'minor'; return false; }
+  return autoMajor;
 }
 
 function doGenerate() {
@@ -604,7 +676,7 @@ function doGenerate() {
   const seed = (Math.random() * 1e9) | 0;
   const before = clone(pat());
   const lockedParams = Object.fromEntries(TRACK_IDS.filter((id) => state.locks[id]).map((id) => [id, clone(state.params[id])]));
-  matchStyleScale();
+  autoMajor = matchStyleScale();
   const g = generate(style, seed, state.scale);
   state.patterns[state.current] = g.pattern;
   for (const id of TRACK_IDS) if (state.locks[id]) {
@@ -629,42 +701,59 @@ const humApi = {
 // `steer(state)` (from Describe it) returns the final state to keep, before it is built, played and saved.
 function doGenerateSet(hum = null, drop = null, steer = null) {
   pushUndo(hum ? 'HUM song' : drop ? 'DAILY DROP' : 'NEW SET');
+  adoptPlan(planSet(hum, drop, steer));
+}
+
+// A whole new song written into a copy of the project. adoptPlan makes it the one you hear
+// now; queueSong makes it the one you hear from the next downbeat.
+function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
+  const s = clone(state), id = style;
   let seed = drop ? drop.seed : songSeed();
   const source = clone(pat());
-  const lockedParams = Object.fromEntries(TRACK_IDS.filter((id) => state.locks[id]).map((id) => [id, clone(state.params[id])]));
-  matchStyleScale();
-  if (typeof hum === 'function' && !drop) seed = humSeed(style, state.scale, hum);
-  const g = generate(style, seed, state.scale);
-  state.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
-  if (source.score?.composer) for (const q of state.patterns) if (q.score?.form) q.score.composer = source.score.composer;
-  state.key = g.key;
-  for (const p of state.patterns) for (const id of TRACK_IDS) if (state.locks[id]) {
-    p.steps[id] = clone(source.steps[id]);
-    p.len[id] = source.len[id];
+  const lockedParams = Object.fromEntries(TRACK_IDS.filter((t) => s.locks[t]).map((t) => [t, clone(s.params[t])]));
+  const major = matchStyleScale(s);
+  if (typeof hum === 'function' && !drop) seed = humSeed(id, s.scale, hum);
+  const g = generate(id, seed, s.scale);
+  s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
+  if (source.score?.composer) for (const q of s.patterns) if (q.score?.form) q.score.composer = source.score.composer;
+  s.key = g.key;
+  for (const p of s.patterns) for (const t of TRACK_IDS) if (s.locks[t]) {
+    p.steps[t] = clone(source.steps[t]);
+    p.len[t] = source.len[t];
   }
-  applyOverrides(state, g, !playing);
-  for (const [id, params] of Object.entries(lockedParams)) state.params[id] = params;
-  engine?.applyAll(); engine?.applyDelayTime();
-  state.chainOn = true;
-  state.chain = songChain(style, seed);
+  applyOverrides(s, g, withBpm);
+  for (const [t, params] of Object.entries(lockedParams)) s.params[t] = params;
+  s.chainOn = true;
+  s.chain = songChain(id, seed);
   // A score sets its own tempo even mid-set; a masterwork keeps its title and composer.
-  if (g.pattern.score) state.bpm = g.bpm;
-  if (typeof hum === 'function' && !g.pattern.score) { const r = hum(state.bpm, state.scale); state.key = r.key; if (r.hook) placeHook(state.patterns, r.hook); }
+  if (g.pattern.score) s.bpm = g.bpm;
+  if (typeof hum === 'function' && !g.pattern.score) { const r = hum(s.bpm, s.scale); s.key = r.key; if (r.hook) placeHook(s.patterns, r.hook); }
   const piece = PIECE[g.pattern.score?.piece];
   const title = piece ? piece.title : drop ? drop.title : trackTitle(seed);
   const artist = piece ? piece.composer : loadAvatar().name || 'UNTERGRUND';
-  state.artist = { name: artist, title, style, seed, created: new Date().toISOString() };
-  delete state.remixOf; delete state.drop;
-  if (drop) Object.assign(state, { drop: drop.date, remixOf: { id: '', title: `Daily Drop · ${drop.title}`, artist: 'UNTERGRUND' } });
-  if (typeof steer === 'function') adoptState(steer(state));
+  s.artist = { name: artist, title, style: id, seed, created: new Date().toISOString() };
+  delete s.remixOf; delete s.drop;
+  if (drop) Object.assign(s, { drop: drop.date, remixOf: { id: '', title: `Daily Drop · ${drop.title}`, artist: 'UNTERGRUND' } });
+  if (typeof steer === 'function') Object.assign(s, steer(s));
+  return {
+    next: s, undo: true, autoMajor: major,
+    finish: (landed = false) => {
+      build(); persist();
+      trackEvent('generate', { genre: id, kind: 'song' });
+      if (!landed) toast(piece ? `${piece.composer.split(' ').pop()}: ${title}` : `New ${STYLES[id].name} track “${title}”`);
+      // The drop itself is everyone's; only a published version joins today's remixes.
+      const { drop: _d, remixOf: _r, ...own } = clone(state);
+      saveTrack({ title, artist, style: id, state: drop ? own : clone(state) })
+        .then(({ shared }) => toast(`“${title}” saved to ${shared ? 'the shared CRATE' : 'your CRATE'}`));
+    },
+  };
+}
+function adoptPlan(plan) {
+  autoMajor = plan.autoMajor ?? false;
+  for (const k of Object.keys(state)) if (!(k in plan.next)) delete state[k];
+  adoptState(plan.next);
   if (engine?.recLock) engine.recLock = new Map();
-  build(); persist();
-  trackEvent('generate', { genre: style, kind: 'song' });
-  toast(piece ? `${piece.composer.split(' ').pop()}: ${title}` : `New ${STYLES[style].name} track “${title}”`);
-  // The drop itself is everyone's; only a published version joins today's remixes.
-  const { drop: _d, remixOf: _r, ...own } = clone(state);
-  saveTrack({ title, artist, style, state: drop ? own : clone(state) })
-    .then(({ shared }) => toast(`“${title}” saved to ${shared ? 'the shared CRATE' : 'your CRATE'}`));
+  plan.finish();
 }
 
 function doMutate() {
@@ -878,9 +967,20 @@ function generateNow(drop = null) {
   stopPreview();
   generatedAt = performance.now();
   navigator.vibrate?.(12);
-  doGenerateSet(null, drop);
-  // A new score starts at its first bar, not wherever the transport happened to be; so does a song still tuning up.
-  if (playing && (pat().score || needsTuning())) stop();
+  // Building the next song blocks the main thread; queue more audio first so it can't starve.
+  if (playing) schedule(0.4);
+  // The new song arrives at its own tempo; from silence it starts at once.
+  const plan = planSet(null, drop, null, true);
+  const score = plan.next.patterns.some((q) => q.score);
+  // A score starts at its first bar: its bars breathe (rubato) and can be 3/4, so there is no shared downbeat.
+  if (playing && !score && !pat().score) {
+    queueSong(plan);
+    // Then warm the next GENERATE's recordings, after the waiting song's own are in.
+    return void loadSets(liveSets(plan.next)).catch(() => {}).then(() => preloadStyle(style));
+  }
+  if (playing) stop();
+  pushUndo('GENERATE');
+  adoptPlan(plan);
   if (!playing) play();
   // Then warm the next GENERATE's recordings, after this song's own have the connection to themselves.
   Promise.resolve(tuning?.done).then(() => preloadStyle(style));
@@ -931,7 +1031,9 @@ async function openRecent(t) {
     if (!track?.state) throw new Error('track_missing');
     const saved = track.style || t.style;
     if (STYLES[saved]) { style = saved; family = STYLES[saved].family; }
-    replaceState(sanitize(track.state));
+    const next = sanitize(track.state);
+    if (playing && !pat().score && !next.patterns.some((q) => q.score)) return queueSong({ next, finish: () => { build(); persist(); } });
+    replaceState(next);
     play();
   } catch { toast('Could not load that track'); }
 }
@@ -1081,11 +1183,13 @@ function buildGenerateHome() {
       h('button', { class: 'family-tab surprise', title: 'Pick any genre and generate', onclick: surprise }, 'SURPRISE ME')),
     h('div', { class: 'generate-styles' }, Object.entries(STYLES).filter(([, v]) => v.family === family).map(([id, v]) => styleCard(id, v, playingStyle === id))),
     h('div', { class: 'generate-hint' }, 'Tap to choose. Press and hold to hear it.'));
+  // While a new song waits for its downbeat the button fills up to the switch.
+  const wait = handoff?.due ? Math.max(0, handoff.due - performance.now()) : 0, band = handoff && !handoff.due;
   const primary = tuning
     ? h('button', { class: 'generate-primary tuning', 'aria-busy': 'true', style: `--tune-at:${((tuning.at - performance.now()) / 1000).toFixed(2)}s`, onclick: () => generateNow() },
       h('span', {}, 'TUNING UP'), h('small', {}, `${STYLES[state.artist?.style]?.name || STYLES[style].name} · ${tuning.label}`))
-    : h('button', { class: 'generate-primary' + (performance.now() - generatedAt < 900 ? ' fired' : ''), onclick: () => generateNow() },
-      h('span', {}, 'GENERATE'), h('small', {}, `${STYLES[style].name} · full track`));
+    : h('button', { class: 'generate-primary' + (performance.now() - generatedAt < 900 ? ' fired' : '') + (wait || band ? ' gen-queued' : ''), style: wait ? `--gen-wait:${Math.round(handoff.total)}ms;--gen-at:${Math.round(wait - handoff.total)}ms` : null, onclick: () => generateNow() },
+      h('span', {}, 'GENERATE'), h('small', {}, band ? 'Up next · seating the band' : wait ? 'Up next · on the bar' : `${STYLES[style].name} · full track`));
   const showNp = playing && !studioOpen;
   const left = showNp ? buildNowPlaying(primary) : [
     h('div', { class: 'generate-copy' },
