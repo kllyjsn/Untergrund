@@ -18,7 +18,7 @@ export function buildSong(style, seed) {
   const s = defaultState(), g = generate(style, seed);
   s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   applyOverrides(s, g, true);
-  s.chainOn = true; s.chain = songChain(style, seed); s.current = 0;
+  s.chainOn = true; s.chain = songChain(style, seed); s.ending = true; s.current = 0;
   return s;
 }
 

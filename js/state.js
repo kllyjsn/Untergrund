@@ -756,11 +756,13 @@ export function arrangement(full, seed, half = false) {
 }
 
 const GROOVE = new Set(['neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill']);
-// Song forms in 4-bar sections. Groove styles: intro, verse x2, bridge (alt changes), verse/hook x2, outro. A D fill closes the bridge.
+// Song forms in 8-bar phrases (16 for techno), about 3 minutes. Groove styles: intro, verse, hook, verse, hook,
+// bridge on the alt changes, a doubled last hook, outro. Each phrase ends on a fill or half-time bar (D/H) as its
+// turnaround, and a generated song (state.ending) closes on one final downbeat instead of looping straight back.
 const SONG_FORMS = {
-  groove: ['AABBCCCDCCCDEEFDGGGHGGGHBBAA', 'AABBCCCDEEFDCCCDGGGHGGGHEEAA', 'ABBBCCCDCCCDEEFFEEFDGGGHGGGHBBAA'],
-  ambient: ['AAAAEEEEFFFFEEEEFFFFAAAA', 'AAEEEEFFFFGGGGEEFFAAAA'],
-  techno: ['AAAABBBBCCCCCCCDEEEEFFFFGGGGGGGHBBBBAAAA', 'AAAABBBBCCCDCCCDEEFFGGGHGGGHBBAA', 'AABBBBCCCCCCCDEEEEFFGGGGGGGHGGGHAAAA'],
+  groove: ['AAAABBBBCCCCCCCDGGGGGGGHCCCCCCCDGGGGGGGHEEEEFFFDGGGGGGGHGGGGGGGDBBBBAAAA', 'AAAABBBBCCCCCCCDCCCCGGGHEEEEFFFDGGGGGGGHCCCCCCCDGGGGGGGHGGGGGGGHBBBBAAAA', 'AAAAAAABCCCCCCCDGGGGGGGHCCCCCCCDGGGGGGGHEEEEEEEEFFFFFFFDGGGGGGGHGGGGGGGHBBBAAAAA'],
+  ambient: ['AAAAAAAAEEEEEEEEFFFFFFFFGGGGGGGGEEEEEEEEFFFFFFFFAAAAAAAA', 'AAAAAAAAEEEEEEEEGGGGGGGGFFFFFFFFGGGGGGGGEEEEAAAA'],
+  techno: ['AAAAAAAABBBBBBBBCCCCCCCCCCCCCCCDGGGGGGGGGGGGGGGHEEEEEEEEFFFFFFFDGGGGGGGGGGGGGGGHCCCCCCCHCCCCCCCDBBBBBBBBAAAAAAAA', 'AAAAAAAABBBBBBBDCCCCCCCDCCCCCCCDGGGGGGGHGGGGGGGHEEEEEEEEFFFFFFFDGGGGGGGHGGGGGGGHGGGGGGGGGGGGGGGDBBBBBBBBAAAAAAAA', 'AAAAAAAABBBBBBBBCCCCCCCCCCCCCCCDEEEEEEEEFFFFFFFDGGGGGGGGGGGGGGGHGGGGGGGGGGGGGGGHCCCCCCCDBBBBAAAA'],
 };
 
 export function songChain(style, seed) {
@@ -837,6 +839,7 @@ export function sanitize(s) {
   out.key = Math.max(0, Math.min(11, Number.isFinite(+s.key) ? Math.round(+s.key) : d.key));
   out.current = Math.max(0, Math.min(7, Number.isFinite(+s.current) ? Math.round(+s.current) : 0));
   out.chainOn = !!s.chainOn;
+  if (s.ending) out.ending = true;
   out.chain = String(s.chain || d.chain).toUpperCase().replace(/[^A-H]/g, '').slice(0, 128) || d.chain;
   const labels = cleanLabels(s.labels);
   if (labels) out.labels = labels;

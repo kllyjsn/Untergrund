@@ -1,227 +1,227 @@
 {
   "hypnotic": {
-    "bars": 40,
-    "melodyWindows": 10,
-    "motifRecall": 0.625,
+    "bars": 112,
+    "melodyWindows": 18.5,
+    "motifRecall": 0.695,
     "chords": 1,
     "voiceMove": 0,
-    "contrast": 0.317,
-    "drumBars": 27.5
+    "contrast": 0.293,
+    "drumBars": 44.5
   },
   "industrial": {
-    "bars": 40,
-    "melodyWindows": 9.5,
-    "motifRecall": 0.667,
+    "bars": 112,
+    "melodyWindows": 18,
+    "motifRecall": 0.707,
     "chords": 1,
     "voiceMove": 0,
-    "contrast": 0.276,
-    "drumBars": 10.5
+    "contrast": 0.274,
+    "drumBars": 13.5
   },
   "acid": {
-    "bars": 40,
-    "melodyWindows": 9.5,
-    "motifRecall": 0.667,
+    "bars": 112,
+    "melodyWindows": 18,
+    "motifRecall": 0.707,
     "chords": 1,
     "voiceMove": 0,
-    "contrast": 0.344,
-    "drumBars": 10
+    "contrast": 0.31,
+    "drumBars": 13
   },
   "dub": {
-    "bars": 40,
-    "melodyWindows": 9.5,
-    "motifRecall": 0.625,
+    "bars": 112,
+    "melodyWindows": 17,
+    "motifRecall": 0.683,
     "chords": 1,
     "voiceMove": 0,
-    "contrast": 0.351,
-    "drumBars": 16
+    "contrast": 0.325,
+    "drumBars": 20
   },
   "peak": {
-    "bars": 40,
-    "melodyWindows": 9.5,
-    "motifRecall": 0.667,
+    "bars": 112,
+    "melodyWindows": 18,
+    "motifRecall": 0.707,
     "chords": 1,
     "voiceMove": 0,
-    "contrast": 0.316,
-    "drumBars": 10
+    "contrast": 0.296,
+    "drumBars": 13
   },
   "hardtechno": {
-    "bars": 40,
-    "melodyWindows": 9.5,
-    "motifRecall": 0.667,
+    "bars": 112,
+    "melodyWindows": 18,
+    "motifRecall": 0.707,
     "chords": 1,
     "voiceMove": 0,
-    "contrast": 0.306,
-    "drumBars": 10
+    "contrast": 0.285,
+    "drumBars": 13
   },
   "deephouse": {
-    "bars": 28,
-    "melodyWindows": 10,
-    "motifRecall": 0.7,
-    "chords": 6,
-    "voiceMove": 1.185,
-    "contrast": 0.247,
-    "drumBars": 28
+    "bars": 72,
+    "melodyWindows": 16,
+    "motifRecall": 0.793,
+    "chords": 7,
+    "voiceMove": 1.165,
+    "contrast": 0.228,
+    "drumBars": 72
   },
   "minimal": {
-    "bars": 40,
-    "melodyWindows": 10,
-    "motifRecall": 0.625,
+    "bars": 112,
+    "melodyWindows": 17.5,
+    "motifRecall": 0.695,
     "chords": 1,
     "voiceMove": 0,
-    "contrast": 0.271,
-    "drumBars": 40
+    "contrast": 0.263,
+    "drumBars": 111
   },
   "ukg": {
-    "bars": 28,
-    "melodyWindows": 10,
-    "motifRecall": 0.7,
-    "chords": 6.5,
-    "voiceMove": 1.865,
-    "contrast": 0.324,
-    "drumBars": 28
+    "bars": 72,
+    "melodyWindows": 18,
+    "motifRecall": 0.828,
+    "chords": 7,
+    "voiceMove": 1.83,
+    "contrast": 0.301,
+    "drumBars": 72
   },
   "euphoric": {
-    "bars": 28,
-    "melodyWindows": 10,
-    "motifRecall": 0.7,
-    "chords": 5,
-    "voiceMove": 0.715,
-    "contrast": 0.307,
-    "drumBars": 27
+    "bars": 72,
+    "melodyWindows": 17.5,
+    "motifRecall": 0.828,
+    "chords": 6,
+    "voiceMove": 0.745,
+    "contrast": 0.288,
+    "drumBars": 67
   },
   "neosoul": {
-    "bars": 28,
+    "bars": 72,
     "melodyWindows": 0,
     "motifRecall": 1,
     "chords": 6,
-    "voiceMove": 0.96,
+    "voiceMove": 0.995,
     "contrast": 0.262,
-    "drumBars": 28
+    "drumBars": 72
   },
   "boombap": {
-    "bars": 28,
+    "bars": 72,
     "melodyWindows": 0,
     "motifRecall": 1,
-    "chords": 5,
-    "voiceMove": 1.065,
-    "contrast": 0.289,
-    "drumBars": 28
+    "chords": 5.5,
+    "voiceMove": 1.095,
+    "contrast": 0.285,
+    "drumBars": 72
   },
   "breaks": {
-    "bars": 40,
-    "melodyWindows": 10,
-    "motifRecall": 0.625,
+    "bars": 112,
+    "melodyWindows": 18.5,
+    "motifRecall": 0.707,
     "chords": 1,
     "voiceMove": 0,
-    "contrast": 0.316,
-    "drumBars": 40
+    "contrast": 0.294,
+    "drumBars": 112
   },
   "electro": {
-    "bars": 40,
-    "melodyWindows": 9.5,
-    "motifRecall": 0.667,
+    "bars": 112,
+    "melodyWindows": 18,
+    "motifRecall": 0.707,
     "chords": 1,
     "voiceMove": 0,
-    "contrast": 0.287,
-    "drumBars": 9
+    "contrast": 0.273,
+    "drumBars": 12
   },
   "dnb": {
-    "bars": 40,
-    "melodyWindows": 9,
-    "motifRecall": 0.625,
+    "bars": 112,
+    "melodyWindows": 18,
+    "motifRecall": 0.695,
     "chords": 1,
     "voiceMove": 0,
-    "contrast": 0.247,
-    "drumBars": 40
+    "contrast": 0.245,
+    "drumBars": 112
   },
   "trance": {
-    "bars": 40,
-    "melodyWindows": 11,
-    "motifRecall": 0.625,
+    "bars": 112,
+    "melodyWindows": 21,
+    "motifRecall": 0.72,
     "chords": 5,
-    "voiceMove": 1.23,
-    "contrast": 0.32,
-    "drumBars": 10
+    "voiceMove": 1.28,
+    "contrast": 0.303,
+    "drumBars": 13
   },
   "ambient": {
-    "bars": 24,
-    "melodyWindows": 4,
-    "motifRecall": 0.875,
+    "bars": 56,
+    "melodyWindows": 10,
+    "motifRecall": 0.714,
     "chords": 1,
     "voiceMove": 0,
-    "contrast": 0.239,
-    "drumBars": 2
+    "contrast": 0.417,
+    "drumBars": 3
   },
   "amapiano": {
-    "bars": 28,
-    "melodyWindows": 10,
-    "motifRecall": 0.7,
+    "bars": 72,
+    "melodyWindows": 17,
+    "motifRecall": 0.724,
     "chords": 6,
-    "voiceMove": 1.01,
-    "contrast": 0.216,
-    "drumBars": 28
+    "voiceMove": 0.965,
+    "contrast": 0.201,
+    "drumBars": 72
   },
   "afrobeats": {
-    "bars": 28,
-    "melodyWindows": 10,
-    "motifRecall": 0.7,
-    "chords": 6,
-    "voiceMove": 1.375,
-    "contrast": 0.245,
-    "drumBars": 28
+    "bars": 72,
+    "melodyWindows": 18,
+    "motifRecall": 0.828,
+    "chords": 7,
+    "voiceMove": 1.315,
+    "contrast": 0.24,
+    "drumBars": 71
   },
   "reggaeton": {
-    "bars": 28,
-    "melodyWindows": 10,
-    "motifRecall": 0.7,
-    "chords": 6,
-    "voiceMove": 0.95,
-    "contrast": 0.293,
-    "drumBars": 28
+    "bars": 72,
+    "melodyWindows": 17,
+    "motifRecall": 0.758,
+    "chords": 7,
+    "voiceMove": 1.1,
+    "contrast": 0.267,
+    "drumBars": 67
   },
   "bailefunk": {
-    "bars": 40,
-    "melodyWindows": 10,
-    "motifRecall": 0.667,
+    "bars": 112,
+    "melodyWindows": 18,
+    "motifRecall": 0.695,
     "chords": 1,
     "voiceMove": 0,
-    "contrast": 0.289,
-    "drumBars": 38
+    "contrast": 0.283,
+    "drumBars": 108
   },
   "trap": {
-    "bars": 28,
-    "melodyWindows": 10,
-    "motifRecall": 0.7,
-    "chords": 4,
-    "voiceMove": 1.77,
-    "contrast": 0.27,
-    "drumBars": 26
+    "bars": 72,
+    "melodyWindows": 17,
+    "motifRecall": 0.793,
+    "chords": 5,
+    "voiceMove": 1.735,
+    "contrast": 0.265,
+    "drumBars": 67
   },
   "drill": {
-    "bars": 28,
-    "melodyWindows": 10,
-    "motifRecall": 0.7,
-    "chords": 4,
+    "bars": 72,
+    "melodyWindows": 17,
+    "motifRecall": 0.707,
+    "chords": 5,
     "voiceMove": 0.425,
-    "contrast": 0.334,
-    "drumBars": 27
+    "contrast": 0.28,
+    "drumBars": 69.5
   },
   "jerseyclub": {
-    "bars": 40,
-    "melodyWindows": 10,
-    "motifRecall": 0.625,
+    "bars": 112,
+    "melodyWindows": 19,
+    "motifRecall": 0.683,
     "chords": 1,
     "voiceMove": 0,
-    "contrast": 0.394,
-    "drumBars": 40
+    "contrast": 0.372,
+    "drumBars": 112
   },
   "hyperpop": {
-    "bars": 40,
-    "melodyWindows": 11.5,
-    "motifRecall": 0.583,
+    "bars": 112,
+    "melodyWindows": 21,
+    "motifRecall": 0.707,
     "chords": 6,
-    "voiceMove": 0.93,
-    "contrast": 0.376,
-    "drumBars": 32
+    "voiceMove": 1.06,
+    "contrast": 0.354,
+    "drumBars": 88
   }
 }

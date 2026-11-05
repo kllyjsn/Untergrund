@@ -135,3 +135,25 @@ console.log('seeded instrument ensembles passed');
   assert.equal(motifPlan(10, 0, 2), 'orig', 'a looping pattern plays the hook as written');
   console.log('motif development passed');
 }
+
+// Song form: 8-bar phrases (16 for techno) that end on a turnaround, and a generated song that closes on one final
+// downbeat instead of looping straight back to the intro.
+{
+  const { songChain } = await import('../js/state.js');
+  const { buildSong, playSong } = await import('../scripts/composition.mjs');
+  for (const style of ['deephouse', 'hypnotic', 'ambient', 'trap', 'trance']) for (const seed of [1, 2, 3]) {
+    const c = songChain(style, seed), phrase = style === 'ambient' || c.length <= 80 ? 8 : 16;
+    assert(c.length >= 48 && c.length <= 128 && c.length % phrase === 0, `${style} form ${c.length} bars`);
+    for (let b = phrase; b < c.length; b += phrase) {
+      if (c[b] !== c[b - 1] && style !== 'ambient') assert('DHB'.includes(c[b - 1]) || c[b] === 'B' || c[b] === 'A', `${style} phrase into bar ${b} has no turnaround (${c.slice(b - phrase, b)})`);
+    }
+  }
+  const s = buildSong('deephouse', 101);
+  assert.equal(sanitize(JSON.parse(JSON.stringify(s))).ending, true, 'the ending survives save and load');
+  const { log, bars } = playSong(s), last = log.filter((L) => L.step >= (bars - 1) * 16);
+  assert(last.length >= 3 && last.every((L) => L.step % 16 === 0), 'the last bar is a single final downbeat');
+  assert(last.some((L) => L.k === 'impact'), 'the final downbeat lands with weight');
+  const turn = log.filter((L) => L.k === 'trigger' && L.a[0] === 'stab' && L.step % 16 >= 12 && L.step < (bars - 1) * 16);
+  assert(turn.length, 'stabs play through turnarounds');
+  console.log('song form passed');
+}

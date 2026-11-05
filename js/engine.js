@@ -1699,7 +1699,7 @@ export class Sequencer {
     const chain = this.s.chainOn ? parseChain(this.s.chain) : [];
     const arr = this.s.master.arr || 0;
     this.dropNow = !!this.dropNext; this.dropNext = false;
-    this.songBars = chain.length;
+    this.songBars = chain.length; this.chainArr = chain;
     if (chain.length) {
       const n = chain.length, p = this.chainPos % n, prev = this.chainPos ? this.cur : -1;
       this.cur = chain[p]; this.chainPos++;
@@ -1729,6 +1729,11 @@ export class Sequencer {
     e.step = abs;
     const sd = e.stepDur;
     const tt = t + (abs % 2 ? s.swing * sd * 0.5 : 0);
+    const n = this.songBars || 0, pos = n ? (this.chainPos - 1) % n : -1;
+    if (s.ending && n >= 16 && pos === n - 1 && !pat.score) return this.ending(pat, abs % 16, tt, sd);
+    // Turnaround: the last beat of a section anticipates the next section's first chord.
+    const nx = n && pos + 1 < n && this.chainArr[pos + 1] !== this.cur ? s.patterns[this.chainArr[pos + 1]] : null;
+    if (nx && abs % 16 >= 12 && pat.prog?.length && nx.prog?.length) e.harm = nx.prog[(bar + 1) % nx.prog.length];
     const pk = pocketOf(s.master);
     if ((s.master.dust || 0) > 0.01) e.dust(t, sd, abs);
     const arr = s.master.arr || 0, i16 = abs % 16;
@@ -1782,6 +1787,7 @@ export class Sequencer {
       // the hook's important notes; the gap makes the motif read as intentional.
       if (id === 'stab' && hookStep) continue;
       if (this.dropNext && id === 'kick' && i16 >= (arr >= 0.75 ? 12 : 14)) continue;
+      if (this.dropNext && id === 'snare' && arr > 0 && i16 >= 8) continue;
       let v = pat.steps[id][i];
       if (vary) {
         const k = TRACK_IDS.indexOf(id), roll = hash(abs * 1.37 + bar, k + 40);
@@ -1823,7 +1829,8 @@ export class Sequencer {
       // lean into answers, then spend the octave leap only at the peak.
       const ph = Math.floor(bar / 2) % 4;
       const breathe = hm > 1 && ph === 2 && hi < 16 && hash(abs, 95) < 0.2 + x.space * 0.45;
-      if (st && (hm > 1 || hi < 16) && !breathe) {
+      // The lead also drops out for the last half bar before a drop, leaving the riser and snare roll alone.
+      if (st && (hm > 1 || hi < 16) && !breathe && !(this.dropNext && i16 >= 8)) {
         const lift = hm > 1 && hi >= 16 && ph === 3 && x.risk >= 0.3 ? 12 : 0;
         const b = 0.58 + 0.42 * ((bar % 8) / 7);
         const answer = hi >= 16;
@@ -1837,6 +1844,23 @@ export class Sequencer {
       }
     }
     if (this.roll === null) this.rollCount = 0;
+    return this.cur;
+  }
+
+  // The last bar of a generated song: one final downbeat on the home chord, left to ring out.
+  ending(pat, i16, t, sd) {
+    if (i16) return this.cur;
+    const s = this.s, e = this.e, anySolo = TRACK_IDS.some((id) => s.solos[id]), on = (id) => !s.mutes[id] && (!anySolo || s.solos[id]);
+    e.harm = pat.prog?.length ? pat.prog.find((h) => h.r === 0) || pat.prog[0] : null;
+    if (on('kick')) e.trigger('kick', t, 1);
+    if (on('acid')) e.acid(t, { on: true, n: 0, a: true, s: false }, false, false, sd);
+    if (on('stab')) e.trigger('stab', t, 0.85);
+    const hk = pat.hook;
+    if (hk && on('stab')) {
+      const ns = hk.s.filter(Boolean).map((x) => x[0]), home = 12 * Math.round(ns.reduce((a, b) => a + b, 0) / ns.length / 12);
+      e.hook(t, 0.8, home, 16 * sd, hk.v, hk.o, true, 1, false, hk.x || {});
+    }
+    e.impact(t, Math.max(0.4, s.master.arr || 0));
     return this.cur;
   }
 
