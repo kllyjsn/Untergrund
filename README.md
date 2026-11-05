@@ -33,6 +33,8 @@ UNTERGRUND generates performances, not collections of random notes. Every musica
 5. **Take risks:** tension, leaps and surprises are earned and saved for musical peaks.
 6. **Remember:** variation must preserve enough of the motif for a listener to recognize it.
 
+`npm run composition` plays every genre's full song through the real `Sequencer` with a note-logging engine and scores how it develops: distinct melody windows, motif recall, chords per song, chord voice movement, arrangement contrast and distinct drum bars (median of 8 fixed seeds). `npm test` fails if a genre regresses against `test/composition-baseline.json`; refresh it with `node scripts/composition.mjs --update` after a deliberate improvement.
+
 Sound quality is part of musicianship. Leads need expressive articulation and dynamics, bass belongs in a useful club register, and every genre needs its own timing feel rather than a globally quantized loop.
 
 ## Production backend
