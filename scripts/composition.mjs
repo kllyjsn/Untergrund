@@ -7,7 +7,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STYLES, generate, arrangement, songChain, defaultState, applyOverrides } from '../js/state.js';
 import { Sequencer, guitarGrip } from '../js/engine.js';
-import { stabNotes, hookSnap } from '../js/harmony.js';
+import { stabNotes, hookSnap, voiceLead } from '../js/harmony.js';
 
 export const SEEDS = [101, 211, 307, 401, 503, 601, 701, 809];
 const BASELINE = resolve(dirname(fileURLToPath(import.meta.url)), '../test/composition-baseline.json');
@@ -46,7 +46,7 @@ export function scoreSong(s) {
   const p = s.params.stab, guitar = Math.round(p.voice) === 8;
   const perBar = Array.from({ length: bars }, () => ({ hook: [], drums: [], events: 0 }));
   const voicings = [], harms = new Set();
-  let grip = null;
+  let grip = null, last = null;
   for (const L of log) {
     const bar = Math.floor(L.step / 16), B = perBar[bar];
     if (!B) continue;
@@ -55,8 +55,9 @@ export function scoreSong(s) {
       const [, , n, , , , strong, , up] = L.a;
       B.hook.push(`${L.step % 16}:${hookSnap(n, L.harm, p, strong, up)}`); B.events++;
     } else if (L.k === 'trigger' && L.a[0] === 'stab') {
-      const { root, notes } = stabNotes(s, L.harm);
-      const v = guitar && notes.length > 1 ? (grip = guitarGrip(root, notes.map((m) => m - root), grip)) : notes;
+      const { root, notes, home } = stabNotes(s, L.harm);
+      const led = last = voiceLead(notes, last, home);
+      const v = guitar && notes.length > 1 ? (grip = guitarGrip(root, notes.map((m) => m - root), grip)) : led;
       if (!voicings.length || voicings[voicings.length - 1].join() !== v.join()) voicings.push(v);
       B.events++;
     } else if (L.k === 'trigger' && DRUMS.has(L.a[0])) {
