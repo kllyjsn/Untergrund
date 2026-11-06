@@ -245,5 +245,14 @@ console.log('seeded instrument ensembles passed');
     assert(seq.finished, `${style}: the last bar flags the end`);
     assert(songBars(s) === bars, `${style}: the player plays all ${bars} bars (${songBars(s)})`);
   }
+  // A stalled main thread can skip the final bar's steps (the transport only advances bars): the song still ends.
+  const { Sequencer } = await import('../js/engine.js');
+  const s = buildSong('trance', 101), n = s.chain.length, calls = [];
+  const e = new Proxy({ stepDur: 0.125, harm: null }, { get: (o, k) => (k in o ? o[k] : () => calls.push(k)), set: (o, k, v) => { o[k] = v; return true; } });
+  const seq = new Sequencer(e, s);
+  for (let abs = 0; abs < (n - 2) * 16; abs++) seq.tick(abs, abs * 0.125);
+  for (let abs = (n - 2) * 16; abs < n * 16; abs++) seq.advanceBar(abs, abs * 0.125);
+  calls.length = 0; seq.tick(n * 16, n * 2);
+  assert(seq.finished && !calls.some((k) => k === 'trigger' || k === 'hook' || k === 'acid'), 'a song whose last bar was skipped still ends, silently');
   console.log('song ending stops passed');
 }

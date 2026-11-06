@@ -1716,6 +1716,8 @@ export class Sequencer {
     }
     if (chain.length) {
       const n = chain.length, p = this.chainPos % n, prev = this.chainPos ? this.cur : -1;
+      // Past the last bar of a song with an ending (even if a stalled main thread skipped its steps): finished, silent.
+      if (this.s.ending && n >= 16 && this.chainPos >= n) { this.finished = true; return; }
       this.cur = chain[p]; this.chainPos++;
       let a = p, b = p;
       while (a > 0 && chain[a - 1] === this.cur) a--;
@@ -1741,6 +1743,7 @@ export class Sequencer {
     abs -= this.origin || 0;
     const s = this.s, e = this.e;
     this.advanceBar(abs, t);
+    if (this.finished && this.songBars) return this.cur;
     const pat = s.patterns[this.cur];
     const bar = Math.floor(abs / 16), vary = s.master.vary || 0;
     e.harm = pat.prog?.length ? pat.prog[bar % pat.prog.length] : null;
