@@ -32,7 +32,7 @@ export function playSong(s) {
   const seq = new Sequencer(e, s);
   const bars = seq.s.chain.length;
   for (let abs = 0; abs < bars * 16; abs++) seq.tick(abs, abs * 0.125);
-  return { log, bars };
+  return { log, bars, seq };
 }
 
 const median = (xs) => { const a = [...xs].sort((x, y) => x - y); return a.length ? (a[(a.length - 1) >> 1] + a[a.length >> 1]) / 2 : 0; };

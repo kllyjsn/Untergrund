@@ -1849,6 +1849,8 @@ export class Sequencer {
 
   // The last bar of a generated song: one final downbeat on the home chord, left to ring out.
   ending(pat, i16, t, sd) {
+    // The transport reads this after the bar has rung out and stops instead of looping back to the intro.
+    if (i16 === 15) this.finished = true;
     if (i16) return this.cur;
     const s = this.s, e = this.e, anySolo = TRACK_IDS.some((id) => s.solos[id]), on = (id) => !s.mutes[id] && (!anySolo || s.solos[id]);
     e.harm = pat.prog?.length ? pat.prog.find((h) => h.r === 0) || pat.prog[0] : null;
