@@ -70,6 +70,63 @@ t('unknown phrases get suggestions', () => {
 });
 t('chips all parse', () => { for (const s of Object.keys(STYLES)) for (const c of chipsFor(s)) assert.ok(parse(c, { style: s }).edits.length, c); assert.ok(CHIPS.length >= 6); });
 
+// Everyday phrasing: complaints, track-scoped words, dislikes, only/except. Each pair is [phrase, must have, must not have].
+const EVERYDAY = [
+  ['the bass is too loud', [{ id: 'level', target: 'acid', amt: -1 }], [{ id: 'volume' }, { id: 'level', target: 'acid', amt: 1 }]],
+  ['turn the bass down', [{ id: 'level', target: 'acid', amt: -1 }]],
+  ["i don't like the bass", [{ id: 'level', target: 'acid', amt: -1.5 }]],
+  ['i hate the vocals', [{ id: 'mute', target: 'vox', value: true }]],
+  ['the vocals are quiet', [{ id: 'level', target: 'vox', amt: 1 }]],
+  ['faster hats', [{ id: 'density', target: 'ch', amt: 1 }], [{ id: 'tempo' }]],
+  ['make the kick louder', [{ id: 'level', target: 'kick', amt: 1 }], [{ id: 'volume' }]],
+  ['more reverb on the chords', [{ id: 'space', target: 'stab', amt: 1 }], [{ id: 'level' }, { id: 'space', target: undefined }]],
+  ['no reverb on the vocals', [{ id: 'space', target: 'vox', amt: -1 }], [{ id: 'mute' }]],
+  ['darker without the hats', [{ id: 'tone', amt: -1 }, { id: 'mute', target: 'ch', value: true }]],
+  ['make the chords richer', [{ id: 'harmony', amt: 1 }], [{ id: 'level' }]],
+  ['mute the kick and snare', [{ id: 'mute', target: 'kick', value: true }, { id: 'mute', target: 'snare', value: true }]],
+  ['quieter hats and claps', [{ id: 'level', target: 'ch', amt: -1 }, { id: 'level', target: 'clap', amt: -1 }]],
+  ['mute everything except the kick', [{ id: 'mute', target: 'kick', value: false }, { id: 'mute', target: 'acid', value: true }]],
+  ['only bass and drums', [{ id: 'mute', target: 'acid', value: false }, { id: 'mute', target: 'snare', value: false }, { id: 'mute', target: 'vox', value: true }]],
+  ['add a sax solo', [{ id: 'voice', value: 9 }], [{ id: 'mute' }]],
+  ['spacier', [{ id: 'space', amt: 1 }], [{ id: 'tempo' }]],
+  ['it feels empty', [{ id: 'density', amt: 1 }], [{ id: 'density', amt: -1 }]],
+  ["it's boring", [{ id: 'variation', amt: 1 }]],
+  ['make it less boring', [{ id: 'variation', amt: 1 }]],
+  ['too harsh', [{ id: 'tone', amt: -0.7 }, { id: 'grit', amt: -0.5 }]],
+  ['the kick is weak', [{ id: 'level', target: 'kick', amt: 1 }, { id: 'punch', amt: 1 }]],
+  ['make it 140', [{ id: 'bpm', value: 140 }]],
+  ['half time', [{ id: 'bpmScale', value: 0.5 }]],
+  ['new melody', [{ id: 'hook', value: 2 }], [{ id: 'variation' }]],
+  ['no melody', [{ id: 'hook', value: 0 }]],
+  ['change the key', [{ id: 'keyStep', amt: 2 }]],
+  ['like daft punk', [{ id: 'genre', value: 'deephouse' }]],
+];
+const lacks = (edits, bad) => !bad.some((w) => edits.some((e) => Object.entries(w).every(([k, v]) => e[k] === v)));
+for (const [text, want, bad = []] of EVERYDAY) t(`everyday "${text}"`, () => {
+  const { edits } = parse(text, { style: 'hypnotic' });
+  assert.ok(has(edits, want), `${JSON.stringify(edits)} lacks ${JSON.stringify(want)}`);
+  assert.ok(lacks(edits, bad), `${JSON.stringify(edits)} has one of ${JSON.stringify(bad)}`);
+});
+t('everyday edits land on the song', () => {
+  const s = songFor('hypnotic');
+  const on = (text) => describe(text, s, { style: 'hypnotic', seed: 3 });
+  assert.ok(on('the bass is too loud').state.params.acid.level < s.params.acid.level);
+  assert.ok(on('more reverb on the chords').state.params.stab.rev > s.params.stab.rev);
+  assert.equal(on('make it 140').state.bpm, 140);
+  assert.equal(on('half time').state.bpm, Math.round(s.bpm / 2));
+  const solo = on('only the kick').state;
+  assert.ok(!solo.mutes.kick && solo.mutes.acid && solo.mutes.ch);
+  assert.ok(on('no melody').state.patterns.filter((p) => p.hook).every((p) => !p.hm));
+  const fresh = on('new melody');
+  assert.ok(fresh.did.includes('new melody') || fresh.did.includes('added a melody'), fresh.did.join());
+  const only = on('mute everything except the kick').did;
+  assert.ok(only.includes('no drums except kick') && !only.some((l) => /back in/.test(l)), only.join());
+});
+t('remote edits with a track target stay bounded', () => {
+  const v = validateEdits([{ id: 'space', target: 'stab', amt: 9 }, { id: 'space', target: 'nope', amt: 1 }, { id: 'hook', value: 7 }, { id: 'bpmScale', value: 3 }]);
+  assert.deepEqual(v.map((e) => [e.id, e.target, e.amt ?? e.value]), [['space', 'stab', 3], ['hook', undefined, 2]]);
+});
+
 // 2. State deltas.
 const delta = (style, text, check, prep) => t(`${style}: "${text}" delta`, () => {
   const s = songFor(style); prep?.(s);

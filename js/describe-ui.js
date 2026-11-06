@@ -51,13 +51,13 @@ export function describeBar(ctx) {
     if (genre) {
       // The rest of the edits land on the new song before it is played and saved to the CRATE.
       ctx.switchGenre(genre, (s) => {
-        const r = applyEdits(s, edits, { seed });
+        const r = applyEdits(s, edits, { seed, style: genre });
         last = { did: [`new ${ctx.styleName(genre)} track`, ...r.did], miss: unknown.join(', '), depth: ctx.depth() };
         return r.state;
       }, label);
     } else {
-      const r = applyEdits(ctx.state(), edits, { seed });
-      if (!r.did.length) return miss(text, `Nothing to change: ${r.skipped.map((s) => s.replace(' (already there)', '')).join(', ')} already. Try:`);
+      const r = applyEdits(ctx.state(), edits, { seed, style });
+      if (!r.did.length) return miss(text, r.skipped.length ? `Nothing to change: ${r.skipped.map((s) => s.replace(' (already there)', '')).join(', ')} already. Try:` : 'It already sounds like that. Try:');
       ctx.pushUndo(label);
       last = { did: r.did, miss: unknown.join(', '), depth: ctx.depth() };
       ctx.commit(r.state);

@@ -3,11 +3,61 @@
 // (master macros, track params, swing, bpm, scale/key, density, voices, mutes/locks, genre).
 // No network, no paid API. An optional interpreter can be plugged in later via interpret({ remote }).
 import { SCALES, KEYS, CHORDS, TRACK_IDS, TRACK_BY_ID, MASTER_PARAMS, STEPS } from './params.js';
-import { STYLES, mutate, clone } from './state.js';
+import { STYLES, mutate, clone, hookLine } from './state.js';
+import { rng } from './dsp.js';
 
 // ---------------- vocabulary ----------------
+// Artists and scenes people name: folded into one token each, expanded by ARTISTS below.
+const ARTISTS = {
+  daftpunk: [/daft\s+punk/, 'deephouse', [['swing', 0.5], ['grit', 0.5], ['pump', 1], ['tone', 0.5]]],
+  kaytranada: [/kaytranada/, 'deephouse', [['swing', 1], ['voice', 1], ['harmony', 0.5], ['punch', 0.5]]],
+  fredagain: [/fred\s+again(?:\.\.)?/, 'ukg', [['voice', 7], ['space', 0.5], ['level:vox', 1], ['harmony', 0.5]]],
+  fourtet: [/four\s+tet/, 'deephouse', [['level:perc', 1], ['voice', 6], ['warmth', 0.5], ['variation', 0.5]]],
+  aphex: [/aphex(?:\s+twin)?/, 'acid', [['variation', 1], ['density', 0.5], ['grit', 0.5]]],
+  boc: [/boards\s+of\s+canada/, 'ambient', [['dust', 1], ['warmth', 1], ['tone', -0.5]]],
+  bonobo: [/bonobo/, 'deephouse', [['voice', 10], ['warmth', 1], ['level:perc', 0.5]]],
+  nujabes: [/nujabes/, 'boombap', [['voice', 7], ['harmony', 1], ['swing', 0.5], ['dust', 0.5]]],
+  disclosure: [/disclosure/, 'ukg', [['punch', 0.5], ['swing', 0.5], ['level:vox', 0.5]]],
+  skrillex: [/skrillex/, 'trap', [['bassVoice', 3], ['grit', 2], ['drops', 1]]],
+  travis: [/travis\s+scott/, 'trap', [['tone', -1], ['space', 1], ['bassVoice', 2]]],
+  drake: [/\bdrake\b/, 'trap', [['tone', -0.5], ['density', -0.5], ['space', 0.5], ['bassVoice', 2]]],
+  weeknd: [/(?:the\s+)?weeknd/, 'electro', [['voice', 2], ['tone', -0.5], ['space', 1]]],
+  metro: [/metro\s+boomin/, 'trap', [['tone', -1], ['bassVoice', 2], ['voice', 6]]],
+  doom: [/mf\s+doom/, 'boombap', [['dust', 1], ['swing', 0.5]]],
+  kanye: [/kanye(?:\s+west)?/, 'boombap', [['voice', 10], ['punch', 0.5]]],
+  jeffmills: [/jeff\s+mills/, 'hypnotic', [['tempo', 0.5], ['level:perc', 0.5]]],
+  hawtin: [/richie\s+hawtin|plastikman/, 'minimal', [['density', -1], ['echo', 0.5]]],
+  dewitte: [/charlotte\s+de\s+witte/, 'hardtechno', [['tone', -1], ['grit', 1]]],
+  amelie: [/amelie\s+lens/, 'peak', [['drops', 1], ['tone', -0.5]]],
+  carlcox: [/carl\s+cox/, 'peak', [['level:perc', 1], ['drops', 0.5]]],
+  berghain: [/berghain|ben\s+klock|marcel\s+dettmann/, 'hypnotic', [['tone', -1], ['grit', 1], ['space', 0.5]]],
+  eno: [/brian\s+eno/, 'ambient', [['space', 1], ['density', -1]]],
+  zimmer: [/hans\s+zimmer/, 'symphony', [['drops', 1], ['space', 0.5]]],
+  chopin: [/chopin/, 'nocturne', []],
+  classic: [/mozart|beethoven|bach|vivaldi|tchaikovsky/, 'symphony', []],
+  shm: [/swedish\s+house\s+mafia|avicii|calvin\s+harris|deadmau5|martin\s+garrix/, 'euphoric', [['drops', 1], ['pump', 0.5]]],
+  blackcoffee: [/black\s+coffee/, 'deephouse', [['level:perc', 1], ['swing', 0.5]]],
+  peggygou: [/peggy\s+gou|kerri\s+chandler|larry\s+heard|frankie\s+knuckles/, 'deephouse', [['voice', 3], ['warmth', 0.5]]],
+  hood: [/robert\s+hood|ricardo\s+villalobos/, 'minimal', [['density', -0.5], ['swing', 0.5]]],
+  badbunny: [/bad\s+bunny|j\s+balvin|daddy\s+yankee/, 'reggaeton', []],
+  burna: [/burna\s+boy|wizkid|davido|tems/, 'afrobeats', []],
+  goldie: [/goldie|ltj\s+bukem/, 'dnb', [['space', 0.5]]],
+};
+const ARTIST_RE = Object.entries(ARTISTS).map(([id, [re]]) => [new RegExp(re.source, 'g'), ` artist${id} `]);
+
 // Multi-word phrases are folded into single tokens before matching.
 const PHRASES = [
+  [/(?:make\s+it|go|sound|more)\s+(?:huge|massive|enormous|gigantic)\b/g, ' mainstage '],
+  [/thin\s+(?:it\s+|them\s+|things\s+)?out/g, ' sparser '],
+  [/\b(?:do|does|did)\s+not\s+like|not\s+(?:a\s+)?(?:fan|feeling|into)\s+(?:of\s+)?|can\s*not\s+stand/g, ' dislike '],
+  [/\b(?:everything|all)\s+(?:but|except|apart\s+from|other\s+than)|\bapart\s+from|\bother\s+than/g, ' except '],
+  [/half[\s-]?time|half\s+speed/g, ' halftime '], [/double[\s-]?time|double\s+(?:the\s+)?(?:speed|tempo)/g, ' doubletime '],
+  [/(?:change|switch|new|different|another|modulate)\s+(?:the\s+)?key|key\s+change|modulate/g, ' keychange '],
+  [/jazz(?:y)?\s+chords|(?:seventh|7th|extended|ninth|9th)\s+chords|maj(?:or)?\s*7(?:ths?)?/g, ' richer harmony '],
+  [/\b(?:19)?80s\b|eighties|retro[\s-]?wave|out[\s-]?run|vapou?r[\s-]?wave/g, ' synthwave '], [/\b(?:19)?90s\b|nineties/g, ' nineties '], [/\b(?:19)?70s\b|seventies/g, ' disco '],
+  [/video\s+games?(?:\s+music)?|\b8[\s-]?bit\b|chip[\s-]?tunes?/g, ' chiptune '], [/(?:movie|film|tv)\s+(?:soundtrack|score|music)|soundtrack/g, ' cinematic '],
+  [/trip[\s-]?hop/g, ' triphop '], [/tech[\s-]house/g, ' techhouse '], [/afro[\s-]house/g, ' afrohouse '], [/\br\s*(?:&|and|n)\s*b\b/g, ' rnb '],
+  [/drum\s+(?:roll|fill)s?/g, ' fills '], [/low[\s-]end/g, ' bass '], [/top[\s-]?line/g, ' melody '],
   [/drum\s*(?:and|&|n|'n'|n')\s*bass|\bd\s*(?:&|n)\s*b\b/g, ' dnb '],
   [/hip[\s-]?hop/g, ' hiphop '], [/lo[\s-]?fi/g, ' lofi '], [/neo[\s-]?soul/g, ' neosoul '], [/boom[\s-]?bap/g, ' boombap '],
   [/deep[\s-]house/g, ' deephouse '], [/uk[\s-]?garage/g, ' ukg '], [/\b(?:2|two)[\s-]?step\b/g, ' ukg '],
@@ -152,9 +202,96 @@ add({ k: 'scale', v: 'major' }, 'major');
 add({ k: 'scale', v: 'phrygian' }, 'phrygian');
 // "warm" bundles a little drive; "grand" means piano, "orchestral" strings (later entries win above).
 
+// Words people use for the lead line; it plays through the chord channel as the song's hook.
+add(track('melody'), 'melody', 'melodies', 'lead', 'leads', 'hook', 'hooks', 'riff', 'riffs', 'arp', 'arps', 'arpeggio', 'arpeggios');
+add(track('perc'), 'cowbell', 'cowbells', 'tambourine', 'tambourines', 'woodblock', 'triangle', 'claves');
+add(axis('space', 1), 'spacier', 'spacey', 'spacy', 'wide', 'wider', 'width', 'stereo', 'expansive');
+add(axis('space', -1), 'mono', 'narrow', 'narrower');
+add(axis('punch', 1), 'hit', 'hitting', 'snappy', 'snappier');
+add(axis('variation', 1), 'new', 'another', 'rewrite', 'redo', 'regenerate', 'reroll', 'rework', 'reshuffle', 'alternate');
+add(axis('density', 1), 'roll', 'rolls', 'fill', 'fills', 'triplets', 'stutter', 'stutters');
+add(axis('drops', 1), 'breakdown', 'breakdowns', 'tension');
+add(axis('pump', 1), 'compress', 'compressed', 'compression', 'glue');
+add(axis('density', -1), 'emptier');
+add(axis('tone', -1), 'duller');
+add(bundle('spooky'), 'halloween', 'dark-side');
+add(bundle('energy'), 'bang', 'banging', 'bangin', 'fire', 'lit', 'heat', 'hype', 'gym', 'workout', 'running', 'training', 'party');
+add(bundle('mainstage'), 'huge', 'giant', 'enormous', 'monster');
+const B2 = {
+  polish: (a) => [{ id: 'punch', amt: 0.5 * a }, { id: 'grit', amt: -0.3 * a }, { id: 'pump', amt: 0.3 * a }, { id: 'space', amt: 0.3 * a }, { id: 'harmony', amt: 0.5 * a }],
+  fat: (a) => [{ id: 'punch', amt: 0.5 * a }, { id: 'warmth', amt: 0.5 * a }, { id: 'level', target: 'acid', amt: 0.5 * a }],
+  tribal: (a) => [{ id: 'level', target: 'perc', amt: a }, { id: 'swing', amt: 0.3 * a }, a > 0 && { id: 'kit', value: 1 }],
+  acoustic: (a) => [a > 0 && { id: 'kit', value: 1 }, a > 0 && { id: 'bassVoice', value: 1 }, { id: 'warmth', amt: 0.5 * a }, { id: 'grit', amt: -0.3 * a }],
+  electronic: (a) => [a > 0 && { id: 'kit', value: 0 }, a > 0 && { id: 'voice', value: 0 }, { id: 'warmth', amt: -0.5 * a }],
+  texture: (a) => [{ id: 'dust', amt: 0.5 * a }, { id: 'space', amt: 0.5 * a }, { id: 'echo', amt: 0.3 * a }],
+  holiday: (a) => [a > 0 && { id: 'voice', value: 6 }, a > 0 && { id: 'scale', value: 'major' }, { id: 'warmth', amt: 0.5 * a }, { id: 'space', amt: 0.3 * a }],
+  chiptune: (a, ctx) => [a > 0 && STYLES[ctx.style]?.family !== 'BREAKS & BASS' && { id: 'genre', value: 'electro' }, a > 0 && { id: 'voice', value: 5 }, { id: 'tone', amt: a }, a > 0 && { id: 'kit', value: 0 }],
+  nineties: (a) => [{ id: 'dust', amt: 0.5 * a }, { id: 'warmth', amt: 0.5 * a }, { id: 'punch', amt: 0.3 * a }],
+};
+const scene = (genreId, edits) => (a, ctx) => [a > 0 && ctx.style !== genreId && STYLES[ctx.style]?.family !== STYLES[genreId]?.family && { id: 'genre', value: genreId }, ...edits(a)];
+Object.assign(B2, {
+  synthwave: scene('electro', (a) => [a > 0 && { id: 'voice', value: 2 }, { id: 'space', amt: 0.5 * a }, { id: 'tone', amt: -0.3 * a }]),
+  disco: scene('deephouse', (a) => [{ id: 'swing', amt: 0.5 * a }, { id: 'tone', amt: 0.5 * a }, { id: 'harmony', amt: 0.5 * a }, { id: 'level', target: 'perc', amt: 0.5 * a }]),
+  rock: scene('breaks', (a) => [a > 0 && { id: 'kit', value: 1 }, a > 0 && { id: 'voice', value: 8 }, { id: 'grit', amt: a }]),
+  metal: scene('breaks', (a) => [a > 0 && { id: 'kit', value: 1 }, a > 0 && { id: 'voice', value: 8 }, { id: 'grit', amt: 2 * a }, { id: 'tempo', amt: 0.5 * a }]),
+  reggae: scene('dub', (a) => [a > 0 && { id: 'bassVoice', value: 1 }, a > 0 && { id: 'voice', value: 3 }, { id: 'swing', amt: 0.5 * a }, { id: 'echo', amt: 0.5 * a }]),
+  dubstep: scene('trap', (a) => [a > 0 && { id: 'bassVoice', value: 3 }, { id: 'grit', amt: a }, { id: 'drops', amt: a }]),
+  triphop: scene('boombap', (a) => [{ id: 'tone', amt: -a }, { id: 'dust', amt: 0.5 * a }, { id: 'tempo', amt: -0.5 * a }, { id: 'space', amt: 0.5 * a }]),
+  techhouse: scene('deephouse', (a) => [{ id: 'punch', amt: a }, { id: 'density', amt: 0.5 * a }, { id: 'grit', amt: 0.3 * a }]),
+  afrohouse: scene('deephouse', (a) => [{ id: 'level', target: 'perc', amt: a }, { id: 'swing', amt: 0.3 * a }]),
+  phonk: scene('trap', (a) => [a > 0 && { id: 'bassVoice', value: 2 }, { id: 'grit', amt: a }, { id: 'dust', amt: 0.5 * a }, { id: 'level', target: 'perc', amt: 0.5 * a }]),
+  edm: scene('euphoric', (a) => [{ id: 'drops', amt: a }, { id: 'pump', amt: 0.5 * a }]),
+  progressive: scene('trance', (a) => [{ id: 'variation', amt: -0.3 * a }]),
+  psytrance: scene('trance', (a) => [{ id: 'tempo', amt: a }, { id: 'grit', amt: 0.5 * a }]),
+  idm: scene('electro', (a) => [{ id: 'variation', amt: a }, { id: 'density', amt: 0.5 * a }]),
+  footwork: scene('jerseyclub', (a) => [{ id: 'density', amt: 0.5 * a }]),
+  grime: scene('ukg', (a) => [{ id: 'grit', amt: a }, { id: 'tone', amt: -0.5 * a }]),
+  gospel: scene('neosoul', (a) => [a > 0 && { id: 'voice', value: 3 }, { id: 'harmony', amt: a }]),
+  dancehall: scene('reggaeton', () => []),
+});
+for (const [id, [, g, list]] of Object.entries(ARTISTS)) {
+  B2[`artist${id}`] = scene(g, (a) => list.map(([k, v]) => {
+    if (a <= 0 && ['voice', 'bassVoice'].includes(k)) return null;
+    if (k === 'voice' || k === 'bassVoice') return { id: k, value: v };
+    if (k.startsWith('level:')) return { id: 'level', target: k.slice(6), amt: v * a };
+    return { id: k, amt: v * a };
+  }));
+}
+const BW = {
+  polish: ['professional', 'pro', 'better', 'improve', 'improved', 'mastered', 'radio', 'finished', 'refined', 'expensive', 'commercial'],
+  fat: ['fat', 'fatter', 'thicker', 'phat', 'thicc', 'beefy', 'beefier', 'meaty', 'meatier', 'chunky', 'chunkier'],
+  tribal: ['tribal', 'primal', 'ritual'], acoustic: ['acoustic', 'organic', 'natural', 'unplugged', 'instruments', 'band'],
+  electronic: ['electronic', 'synthetic', 'electronica', 'futuristic', 'robot'], texture: ['texture', 'textured', 'textures', 'grainier'],
+  holiday: ['christmas', 'xmas', 'festive', 'holiday', 'holidays', 'wintry', 'winter', 'snow'], chiptune: ['chiptune', 'arcade'], nineties: ['nineties'],
+  synthwave: ['synthwave'], disco: ['disco', 'nudisco'], rock: ['rock', 'punk', 'grunge', 'indie'], metal: ['metal', 'heavymetal'],
+  reggae: ['reggae', 'ska', 'rocksteady'], dubstep: ['dubstep', 'brostep', 'riddim'], triphop: ['triphop'], techhouse: ['techhouse'],
+  afrohouse: ['afrohouse'], phonk: ['phonk'], edm: ['edm'], progressive: ['progressive'], psytrance: ['psytrance', 'psy', 'goa'],
+  idm: ['idm', 'glitch', 'glitchy'], footwork: ['footwork', 'juke'], grime: ['grime'], gospel: ['gospel', 'church'], dancehall: ['dancehall'],
+};
+for (const id of Object.keys(ARTISTS)) BW[`artist${id}`] = [`artist${id}`];
+for (const [id, words] of Object.entries(BW)) add(bundle(id), ...words);
+// Complaints name the problem; the fix is the same whether or not they say "too" or "less".
+const complaint = (id) => ({ k: 'complaint', id });
+const COMPLAINTS = {
+  boring: (a) => [{ id: 'variation', amt: a }, { id: 'drops', amt: 0.5 * a }, { id: 'density', amt: 0.3 * a }],
+  empty: (a) => [{ id: 'density', amt: a }, { id: 'harmony', amt: 0.3 * a }, { id: 'space', amt: 0.3 * a }],
+  weak: (a) => [{ id: 'punch', amt: a }, { id: 'drops', amt: 0.5 * a }, { id: 'grit', amt: 0.3 * a }],
+  muddy: (a) => [{ id: 'tone', amt: 0.7 * a }, { id: 'level', target: 'acid', amt: -0.5 * a }, { id: 'space', amt: -0.3 * a }],
+  harsh: (a) => [{ id: 'tone', amt: -0.7 * a }, { id: 'grit', amt: -0.5 * a }],
+  cluttered: (a) => [{ id: 'density', amt: -a }, { id: 'space', amt: -0.3 * a }],
+  dull: (a) => [{ id: 'tone', amt: 0.7 * a }, { id: 'variation', amt: 0.5 * a }],
+};
+add(complaint('boring'), 'boring', 'bored', 'bland', 'stale', 'generic', 'samey', 'lifeless', 'meh', 'monotonous', 'uninspired', 'static');
+add(complaint('empty'), 'empty', 'thin', 'hollow', 'lacking', 'barren');
+add(complaint('weak'), 'weak', 'limp', 'flat', 'wimpy', 'tame', 'underwhelming', 'lame');
+add(complaint('muddy'), 'muddy', 'muddier', 'boomy', 'mushy', 'murky');
+add(complaint('harsh'), 'harsh', 'harsher', 'shrill', 'piercing', 'abrasive', 'tinny', 'brittle', 'fatiguing');
+add(complaint('cluttered'), 'cluttered', 'messy', 'crowded', 'chaotic', 'cluttery', 'noisy', 'overcrowded');
+add(complaint('dull'), 'dull');
+
 const VOICE_NAMES = ['synth', 'Rhodes keys', 'pads', 'organ', 'brass', 'plucks', 'bells', 'piano', 'guitar', 'horns', 'strings'];
 const BASS_NAMES = ['303 acid bass', 'bass guitar', '808 bass', 'reese bass', 'log drum'];
-const TRACK_WORD = { kick: 'kick', clap: 'claps', snare: 'snare', ch: 'hats', oh: 'open hats', ride: 'ride', perc: 'percussion', acid: 'bass', stab: 'chords', vox: 'vocals' };
+const TRACK_WORD = { drums: 'drums', melody: 'melody', kick: 'kick', clap: 'claps', snare: 'snare', ch: 'hats', oh: 'open hats', ride: 'ride', perc: 'percussion', acid: 'bass', stab: 'chords', vox: 'vocals' };
 
 // Bundles: moods, scenes and artists expand into the same primitive edits (a = signed amount).
 const BUNDLES = {
@@ -210,7 +347,13 @@ function fuzzy(tok) {
 
 function normalize(text) {
   let s = ` ${String(text || '').toLowerCase().replace(/[’']/g, "'").replace(/♯/g, '#').replace(/♭/g, 'b')} `;
+  s = s.replace(/\bcan'?t\b/g, 'can not').replace(/\bwon'?t\b/g, 'will not').replace(/n't\b/g, ' not');
+  for (const [re, to] of ARTIST_RE) s = s.replace(re, to);
   for (const [re, to] of PHRASES) s = s.replace(re, to);
+  // "only bass and drums", "everything except the kick and hats", "bass and drums only" stay one clause.
+  const glue = (list) => list.replace(/\s*(?:,|\band\b|&|\+)\s*/g, ' ');
+  s = s.replace(/\b(only|just|solo|except)\s+((?:the\s+)?[a-z]+(?:\s*(?:,|\band\b|&|\+)\s*(?:the\s+)?[a-z]+)+)/g, (_, w, list) => ` ${w} ${glue(list)} `);
+  s = s.replace(/((?:[a-z]+\s*(?:,|\band\b|&)\s*)+[a-z]+)\s+only\b/g, (_, list) => ` only ${glue(list)} `);
   return s;
 }
 
@@ -231,87 +374,225 @@ function extract(clause, edits) {
   const step = c.match(/\b(?:up\s+a\s+(?:key|step|semitone)|key\s+up|higher\s+key|raise\s+the\s+key|transpose\s+up|pitch\s+(?:it\s+)?up)\b/)
     || c.match(/\b(?:down\s+a\s+(?:key|step|semitone)|key\s+down|lower\s+key|lower\s+the\s+key|transpose\s+down|pitch\s+(?:it\s+)?down)\b/);
   if (step) { edits.push({ id: 'keyStep', amt: /up|higher|raise/.test(step[0]) ? 1 : -1, src: step[0].trim() }); c = c.replace(step[0], ' '); }
+  const scale = c.match(/\b(halftime|doubletime)\b/);
+  if (scale) { edits.push({ id: 'bpmScale', value: scale[1] === 'halftime' ? 0.5 : 2, src: scale[0] }); c = c.replace(scale[0], ' '); }
+  if (/\bkeychange\b/.test(c)) { edits.push({ id: 'keyStep', amt: 2, src: 'new key' }); c = c.replace(/\bkeychange\b/, ' '); }
+  const bare = c.match(/(?:^|\s)(?:make\s+it\s+|go\s+|try\s+|around\s+)?(\d{2,3})(?=\s|$)/);
+  if (bare && +bare[1] >= 60 && +bare[1] <= 200) { edits.push({ id: 'bpm', value: +bare[1], src: bare[0].trim() }); c = c.replace(bare[0], ' '); }
   return c;
 }
 
-function resolve(entry, mods, ctx, src) {
-  const words = mods;
-  const neg = words.filter((w) => NEGATE.has(w)).length % 2 === 1 && !words.includes('enough');
+Object.assign(BUNDLES, B2);
+const DISLIKE = new Set(['dislike', 'annoying', 'annoys', 'ugly', 'irritating', 'grating', 'cheesy', 'cheap']);
+const HATE = new Set(['hate', 'hates', 'hated', 'awful', 'terrible', 'horrible', 'sucks', 'trash', 'garbage']);
+const COPULA = new Set(['is', 'are', 's', 'its', 'sounds', 'feels', 'seems', 'was', 'were', 'getting', 'gets']);
+const IMPERATIVE = new Set(['make', 'more', 'add', 'go', 'get', 'turn', 'set', 'want', 'need', 'needs']);
+const REGEN = new Set(['new', 'another', 'different', 'fresh', 'change', 'rewrite', 'redo', 'regenerate', 'reroll', 'rework', 'reshuffle', 'alternate', 'other']);
+const ONLY = new Set(['only', 'solo', 'except', 'isolate']);
+// Axes that mean something on a single track ("faster hats", "more reverb on the chords", "make the kick louder").
+const SCOPED = new Set(['tone', 'warmth', 'space', 'echo', 'density', 'grit', 'tempo', 'volume', 'punch', 'variation']);
+const SCOPE_NEG = new Set([...NEGATE, 'down', 'off', 'cut', 'kill', 'remove', 'drop', 'lose', 'ditch']);
+const HARD_VERB = new Set(['mute', 'silence', 'delete', 'unmute', 'restore', 'return', 'lock', 'unlock', 'keep', 'freeze', 'unfreeze', 'hold', 'protect', 'save', 'release']);
+COMPLAINTS.buried = (a) => [{ id: 'volume', amt: 0.5 * a }];
+add(complaint('buried'), 'buried', 'missing', 'inaudible', 'drowned', 'hidden', 'lost');
+
+const isTrack = (e) => e && (e.k === 'track' || e.k === 'voice');
+const idsOf = (e) => (e.k === 'voice' ? ['stab'] : e.ids);
+const real = (t) => (t === 'melody' ? 'stab' : t);
+
+// One edit on one track for an axis word scoped to it; s is the signed amount the word asks for.
+function scoped(id, s, target, src) {
+  const t = real(target);
+  if (id === 'volume' || (id === 'punch' && t !== 'kick')) return [{ id: 'level', target: t, amt: s, src }];
+  if (id === 'punch') return [{ id: 'punch', amt: s, src }];
+  if (id === 'tempo') return [{ id: 'density', target: t, amt: s, src }];
+  if (id === 'warmth') return [{ id: 'tone', target: t, amt: -0.5 * s, src }];
+  if (id === 'grit') return [s > 0 && { id: 'level', target: t, amt: s, src }, ['kick', 'acid', 'stab', 'vox'].includes(t) && { id: 'grit', target: t, amt: 0.5 * s, src }].filter(Boolean);
+  return [{ id, target: t, amt: s, src }];
+}
+const TRACK_COMPLAINT = {
+  weak: (t) => [['level', 1], t === 'kick' && ['punch', 1]], empty: () => [['level', 1]], buried: () => [['level', 1.5]],
+  harsh: () => [['tone', -0.7]], dull: () => [['tone', 0.7]], muddy: () => [['tone', 0.7], ['level', -0.3]],
+  cluttered: () => [['density', -1]], boring: () => [['variation', 1]],
+};
+
+function trackEdits(entry, words, ctx, src, { dislike, hate, copula }) {
+  const has = (set) => words.some((w) => set.has(w));
+  const out = [];
   let int = 1;
   for (const w of words) if (INTENSITY[w] != null && INTENSITY[w] !== 1) int = INTENSITY[w];
-  const sign = neg ? -1 : 1;
-  const out = [];
-  if (entry.k === 'axis') out.push({ id: entry.id, amt: entry.sign * sign * int, src });
-  else if (entry.k === 'bundle') for (const e of BUNDLES[entry.id](sign * int, ctx).filter(Boolean)) out.push({ ...e, src });
-  else if (entry.k === 'genre') { if (!neg) out.push({ id: 'genre', value: entry.id, family: entry.family, src }); }
-  else if (entry.k === 'scale') { if (!neg) out.push({ id: 'scale', value: entry.v, src }); }
-  else if (entry.k === 'kit') { if (!neg) out.push({ id: 'kit', value: entry.v, src }); }
-  else if (entry.k === 'bassVoice') {
-    if (words.some((w) => MUTE.has(w))) out.push({ id: 'mute', target: 'acid', value: true, src });
-    else out.push({ id: 'bassVoice', value: entry.v, src });
-  } else if (entry.k === 'voice' || entry.k === 'track') {
-    const ids = entry.k === 'voice' ? ['stab'] : entry.ids;
-    const has = (set) => words.some((w) => set.has(w));
-    for (const target of ids) {
-      if (has(UNLOCK)) out.push({ id: 'lock', target, value: false, src });
-      else if (has(LOCK)) out.push({ id: 'lock', target, value: true, src });
-      else if (has(UNMUTE)) out.push({ id: 'mute', target, value: false, src });
-      else if (has(MUTE)) out.push({ id: 'mute', target, value: true, src });
-      else if (entry.k === 'voice' && !has(LEVEL_DOWN) && !words.includes('louder')) out.push({ id: 'voice', value: entry.v, src });
-      else {
-        const down = has(LEVEL_DOWN) !== words.includes('too');
-        out.push({ id: 'level', target, amt: (down ? -1 : 1) * int, src });
-      }
-      if (entry.k === 'voice') break;
+  for (const target of idsOf(entry)) {
+    const melody = target === 'melody';
+    if (has(UNLOCK)) out.push({ id: 'lock', target: real(target), value: false, src });
+    else if (has(LOCK)) out.push({ id: 'lock', target: real(target), value: true, src });
+    else if (has(UNMUTE)) out.push(melody ? { id: 'hook', value: 1, src } : { id: 'mute', target, value: false, src });
+    else if (has(MUTE) || hate) out.push(melody ? { id: 'hook', value: 0, src } : { id: 'mute', target, value: true, src });
+    else if (dislike) out.push({ id: 'level', target: real(target), amt: -1.5, src });
+    else if (melody && has(REGEN)) out.push({ id: 'hook', value: 2, src });
+    else if (entry.k === 'voice' && !has(LEVEL_DOWN) && !words.includes('louder')) out.push({ id: 'voice', value: entry.v, src });
+    else if (melody && !has(LEVEL_DOWN) && !words.some((w) => ['louder', 'loud', 'boost', 'up', 'raise', 'turn', 'too'].includes(w))) out.push({ id: 'hook', value: 1, src });
+    else if (!melody && has(REGEN) && !has(LEVEL_DOWN)) out.push({ id: 'variation', target, amt: 1, src });
+    else {
+      const down = has(LEVEL_DOWN) !== words.includes('too') !== (copula && !words.includes('too') && has(LEVEL_DOWN));
+      out.push({ id: 'level', target: real(target), amt: (down ? -1 : 1) * int, src });
     }
+    if (entry.k === 'voice') break;
   }
   return out;
 }
 
-// text -> { edits, unknown, genre? }. ctx.style lets scene/artist bundles decide whether to switch genre.
+function resolve(entry, mods, ctx, src, flags = {}) {
+  const words = mods;
+  const neg = words.filter((w) => NEGATE.has(w)).length % 2 === 1 && !words.includes('enough');
+  let int = 1;
+  for (const w of words) if (INTENSITY[w] != null && INTENSITY[w] !== 1) int = INTENSITY[w];
+  const sign = (neg ? -1 : 1) * (flags.dislike || flags.hate ? -1 : 1);
+  const out = [];
+  if (entry.k === 'axis') out.push({ id: entry.id, amt: entry.sign * sign * int, src });
+  else if (entry.k === 'bundle') for (const e of BUNDLES[entry.id](sign * int, ctx).filter(Boolean)) out.push({ ...e, src });
+  else if (entry.k === 'complaint') {
+    // "boring", "too boring", "less boring" all ask for the fix; only "make it boring" asks for the thing itself.
+    const want = flags.imperative && !flags.copula && !neg && !words.includes('too');
+    for (const e of COMPLAINTS[entry.id](want ? -int : int).filter(Boolean)) out.push({ ...e, src });
+  }
+  else if (entry.k === 'genre') { if (sign > 0) out.push({ id: 'genre', value: entry.id, family: entry.family, src }); }
+  else if (entry.k === 'scale') { if (sign > 0) out.push({ id: 'scale', value: entry.v, src }); }
+  else if (entry.k === 'kit') { if (sign > 0) out.push({ id: 'kit', value: entry.v, src }); }
+  else if (entry.k === 'bassVoice') {
+    if (words.some((w) => MUTE.has(w)) || flags.hate) out.push({ id: 'mute', target: 'acid', value: true, src });
+    else if (flags.dislike) out.push({ id: 'level', target: 'acid', amt: -1.5, src });
+    else out.push({ id: 'bassVoice', value: entry.v, src });
+  } else if (isTrack(entry)) out.push(...trackEdits(entry, words, ctx, src, flags));
+  return out;
+}
+
+function lookup(toks, i) {
+  let t = toks[i];
+  let entry = W[t];
+  if (entry && (STOP.has(t) || INTENSITY[t] != null || NEGATE.has(t)) && !['more', 'bigger', 'add'].includes(t)) entry = null;
+  const verb = (s) => s.has(t);
+  if (!entry && !STOP.has(t) && INTENSITY[t] == null && !NEGATE.has(t) && ![MUTE, LOCK, UNMUTE, UNLOCK, LEVEL_UP, LEVEL_DOWN, DISLIKE, HATE, COPULA, REGEN, ONLY].some(verb)) {
+    const f = fuzzy(t);
+    if (f) { entry = W[f]; t = f; }
+  }
+  if (['more', 'add'].includes(t)) entry = null;
+  if (t === 'bigger' && i + 1 < toks.length) entry = null;
+  // "drop the kick" mutes; "bigger drop" is about the drop itself.
+  if ((t === 'drop' || t === 'cut') && (isTrack(W[toks[i + 1]]) || isTrack(W[toks[i + 2]]))) { entry = null; t = 'drop'; }
+  if (t === 'minimal' && W[toks[i + 1]]?.k === 'genre') return { t, skip: true };
+  if (i > 0 && t === toks[i - 1] && entry?.k === 'bundle') return { t, skip: true };
+  return { t, e: entry || null };
+}
+
+// text -> { edits, unknown }. ctx.style lets scene/artist bundles decide whether to switch genre.
 export function parse(text, ctx = {}) {
   const s = normalize(text);
   const clauses = s.split(/\s*(?:,|;|\.|!|\?|\band\b|&|\+|\bbut\b|\bthen\b|\balso\b|\bplus\b|\bwith\b|\bwhile\b|\bnow\b)\s*/).map((c) => c.trim()).filter(Boolean);
   const edits = [], unknown = [];
+  let lastTrack = null;
   for (const clause of clauses) {
     const before = edits.length;
+    const src = clause.replace(/\s+/g, ' ');
     const rest = extract(` ${clause} `, edits);
     const toks = rest.split(/[^a-z0-9#]+/).filter(Boolean);
+    const items = toks.map((_, i) => lookup(toks, i)).filter((x) => !x.skip);
+    const words = items.map((x) => x.t);
+    const hasW = (set) => words.some((w) => set.has(w));
+    const flags = { dislike: hasW(DISLIKE), hate: hasW(HATE), copula: hasW(COPULA) && !hasW(IMPERATIVE), imperative: hasW(IMPERATIVE) };
+    const tracks = items.filter((x) => isTrack(x.e));
+    const targets = [...new Set(tracks.flatMap((x) => idsOf(x.e)).map(real))];
+    const clauseTrack = [];
+
+    // "only the kick and bass", "mute everything except the hats", "solo the vocals".
+    const soloVerb = items.some((x, i) => ['solo', 'isolate'].includes(x.t) && isTrack(items.slice(i + 1).find((y) => y.e || !STOP.has(y.t))?.e));
+    if (targets.length && (hasW(new Set(['only', 'except'])) || soloVerb || (words.includes('just') && items.every((x) => !x.e || isTrack(x.e))))) {
+      for (const id of TRACK_IDS) edits.push({ id: 'mute', target: id, value: !targets.includes(id), src });
+      if (targets.includes('stab') && tracks.some((x) => x.e.ids?.includes('melody'))) edits.push({ id: 'hook', value: 1, src });
+      lastTrack = null;
+      continue;
+    }
+
+    // A bare track after a track edit takes the same edit: "mute the kick and snare", "quieter hats and claps".
+    if (tracks.length && items.every((x) => !x.e || isTrack(x.e)) && items.every((x) => isTrack(x.e) || STOP.has(x.t)) && lastTrack) {
+      for (const t of targets) for (const e of lastTrack) edits.push({ ...e, target: t, src });
+      continue;
+    }
+
+    if (tracks.some((x) => melodyRegen(x, words))) {
+      edits.push({ id: 'hook', value: 2, src });
+      for (let i = items.length - 1; i >= 0; i--) if (REGEN.has(items[i].t) || items[i].e?.ids?.includes('melody')) items.splice(i, 1);
+      if (!items.some((x) => x.e)) { lastTrack = null; continue; }
+    }
+    const nextReal = (i) => items.slice(i + 1).find((y) => y.e || !STOP.has(y.t));
+    const blocked = items.some((x, i) => (HARD_VERB.has(x.t) || MUTE.has(x.t)) && isTrack(nextReal(i)?.e));
+    const scopedItems = items.filter((x) => x.e && ((x.e.k === 'axis' && SCOPED.has(x.e.id)) || x.e.k === 'complaint' || (x.e.k === 'bundle' && x.e.id === 'fat')));
+    if (targets.length && scopedItems.length && !blocked && !flags.hate && !flags.dislike) {
+      const mods = items.filter((x) => !x.e).map((x) => x.t);
+      const neg = mods.filter((w) => SCOPE_NEG.has(w)).length % 2 === 1;
+      let int = 1;
+      for (const w of mods) if (INTENSITY[w] != null && INTENSITY[w] !== 1) int = INTENSITY[w];
+      // "the vocals are quiet" names a problem; "the vocals are too quiet" already says which way.
+      const flip = flags.copula && !mods.some((w) => SCOPE_NEG.has(w)) ? -1 : 1;
+      for (const x of scopedItems) for (const t of targets) {
+        if (x.e.k === 'complaint') {
+          for (const c of TRACK_COMPLAINT[x.e.id](t).filter(Boolean)) clauseTrack.push(...scoped(c[0] === 'level' ? 'volume' : c[0], c[1] * int, t, src));
+        } else if (x.e.k === 'bundle') clauseTrack.push(...scoped('volume', (neg ? -1 : 1) * flip * int, t, src));
+        else clauseTrack.push(...scoped(x.e.id, x.e.sign * (neg ? -1 : 1) * flip * int, t, src));
+      }
+      edits.push(...clauseTrack);
+      let mods2 = [];
+      for (const x of items) {
+        if (!x.e) { mods2.push(x.t); continue; }
+        if (scopedItems.includes(x)) { mods2 = []; continue; }
+        if (x.e.k === 'voice' && !neg) edits.push({ id: 'voice', value: x.e.v, src });
+        else if (x.e.k === 'track' && x.e.ids.includes('melody') && words.some((w) => REGEN.has(w))) edits.push({ id: 'hook', value: 2, src });
+        else if (!isTrack(x.e)) edits.push(...resolve(x.e, mods2, ctx, src, flags));
+        mods2 = [];
+      }
+      lastTrack = clauseTrack.filter((e) => e.target).map(({ target, src: _, ...e }) => e);
+      lastTrack = lastTrack.filter((e, i) => lastTrack.findIndex((y) => y.id === e.id) === i);
+      continue;
+    }
+
     let mods = [];
-    for (let i = 0; i < toks.length; i++) {
-      let t = toks[i];
-      if (t === toks[i - 1] && W[t]?.k === 'bundle') continue;
-      // "drop the kick" mutes; "bigger drop" is about the drop itself.
-      if ((t === 'drop' || t === 'cut') && (W[toks[i + 1]]?.k === 'track' || W[toks[i + 2]]?.k === 'track' || W[toks[i + 1]]?.k === 'voice' || W[toks[i + 2]]?.k === 'voice')) { mods.push('drop'); continue; }
-      if (t === 'minimal' && W[toks[i + 1]]?.k === 'genre') continue;
-      let entry = W[t];
-      if (entry && (STOP.has(t) || INTENSITY[t] != null || NEGATE.has(t)) && !['more', 'bigger', 'add'].includes(t)) entry = null;
-      if (!entry && !STOP.has(t) && INTENSITY[t] == null && !NEGATE.has(t) && !MUTE.has(t) && !LOCK.has(t) && !UNMUTE.has(t) && !UNLOCK.has(t) && !LEVEL_UP.has(t) && !LEVEL_DOWN.has(t)) {
-        const f = fuzzy(t);
-        if (f) { entry = W[f]; t = f; }
-      }
-      if (!entry || ['more', 'add'].includes(t)) { mods.push(t); continue; }
-      if (t === 'bigger' && i + 1 < toks.length) { mods.push(t); continue; }
-      // Adjective + track ("heavier bass", "louder hats") is about that track, not the whole mix.
-      const next = W[toks[i + 1]];
-      if (entry.k === 'axis' && next && (next.k === 'track' || next.k === 'voice') && ['grit', 'volume', 'punch'].includes(entry.id)) {
-        mods.push(entry.sign > 0 ? 'louder' : 'quieter'); continue;
-      }
-      if ((entry.k === 'track') && !mods.length && edits.length > before) continue;
-      edits.push(...resolve(entry, mods, ctx, clause.replace(/\s+/g, ' ')));
+    for (let i = 0; i < items.length; i++) {
+      const x = items[i];
+      if (!x.e) { mods.push(x.t); continue; }
+      if (isTrack(x.e)) {
+        // Verbs can trail the track: "turn the bass down", "hats off".
+        let j = i + 1;
+        const trail = [];
+        while (j < items.length && !items[j].e) trail.push(items[j++].t);
+        const verbs = [...mods, ...trail].some((w) => [MUTE, UNMUTE, LOCK, UNLOCK, LEVEL_UP, LEVEL_DOWN, NEGATE, DISLIKE, HATE, REGEN].some((set) => set.has(w)));
+        // "make the chords richer" is about the chords' harmony, not their level.
+        if (x.e.k === 'track' && !verbs && !flags.dislike && !flags.hate && (edits.length > before || items.some((y) => y.e && !isTrack(y.e)))) { i = j - 1; continue; }
+        if (melodyRegen(x, words)) { edits.push({ id: 'hook', value: 2, src }); i = j - 1; mods = []; continue; }
+        const got = resolve(x.e, [...mods, ...trail], ctx, src, flags);
+        edits.push(...got);
+        clauseTrack.push(...got.filter((e) => e.target));
+        i = j - 1;
+      } else if (!(REGEN.has(x.t) && tracks.length)) edits.push(...resolve(x.e, mods, ctx, src, flags));
       mods = [];
     }
+    if (clauseTrack.length) lastTrack = clauseTrack.map(({ target, src: _, ...e }) => e).filter((e, i, a) => a.findIndex((y) => y.id === e.id) === i);
+    else if (edits.length > before) lastTrack = null;
     // A clause of only modifiers ("way more", "a bit less") rescales the previous edit.
     if (edits.length === before && mods.length) {
       const prev = edits[edits.length - 1];
       const int = mods.map((w) => INTENSITY[w]).filter((x) => x != null && x !== 1).pop();
-      const neg = mods.some((w) => NEGATE.has(w));
+      // "faster but not too much" tones the last edit down rather than reversing it.
+      const easy = mods.includes('not') && mods.some((w) => ['too', 'much', 'crazy', 'overboard'].includes(w));
+      const neg = !easy && mods.some((w) => NEGATE.has(w));
+      if (prev && prev.amt != null && easy) { prev.amt *= 0.5; continue; }
       if (prev && prev.amt != null && (int || neg)) { prev.amt *= (int || 1) * (neg ? -1 : 1); continue; }
       if (mods.some((w) => !STOP.has(w))) unknown.push(clause);
     }
   }
-  return { edits: merge(edits), unknown };
+  // An explicit BPM already says how fast: "slow down to 90".
+  const exact = edits.some((e) => e.id === 'bpm');
+  return { edits: merge(exact ? edits.filter((e) => e.id !== 'tempo') : edits), unknown };
 }
+const melodyRegen = (x, words) => x.e.k === 'track' && x.e.ids.includes('melody') && words.some((w) => REGEN.has(w));
 
 // Same intent twice ("darker, much darker") adds up; the last explicit value wins.
 function merge(edits) {
@@ -334,6 +615,7 @@ export const INTENTS = {
   echo: 'amt: + echo', grit: 'amt: + drive / - cleaner', pump: 'amt: + sidechain', punch: 'amt: + kick punch', variation: 'amt: + mutate / - steadier',
   volume: 'amt: ± master', harmony: 'amt: + richer chords / - plainer', dust: 'amt: + vinyl dust', scale: `value: ${Object.keys(SCALES).join('|')}`,
   key: 'value: 0-11 (C=0)', keyStep: 'amt: ±1 semitone', voice: `value: 0-10 (${VOICE_NAMES.join(', ')})`, bassVoice: `value: 0-4 (${BASS_NAMES.join(', ')})`,
+  bpmScale: 'value: 0.5 half time | 2 double time', hook: 'value: 0 no melody | 1 add melody | 2 new melody',
   kit: 'value: 0 machine | 1 live', level: `target: ${TRACK_IDS.join('|')}, amt`, mute: 'target, value: bool', lock: 'target, value: bool', genre: `value: ${Object.keys(STYLES).join('|')}`,
 };
 export function validateEdits(list) {
@@ -344,7 +626,10 @@ export function validateEdits(list) {
     if (!e || !INTENTS[e.id]) continue;
     const x = { id: e.id, src: String(e.src || '').slice(0, 80) };
     if (['level', 'mute', 'lock'].includes(e.id)) { if (!TRACK_IDS.includes(e.target)) continue; x.target = e.target; }
+    else if (['tone', 'space', 'echo', 'grit', 'density', 'variation'].includes(e.id) && e.target != null) { if (!TRACK_IDS.includes(e.target)) continue; x.target = e.target; }
     if (['mute', 'lock'].includes(e.id)) x.value = !!e.value;
+    else if (e.id === 'bpmScale') { if (![0.5, 2].includes(+e.value)) continue; x.value = +e.value; }
+    else if (e.id === 'hook') { if ((x.value = num(e.value, 0, 2)) == null) continue; x.value = Math.round(x.value); }
     else if (e.id === 'scale') { if (!SCALES[e.value]) continue; x.value = e.value; }
     else if (e.id === 'genre') { if (!STYLES[e.value]) continue; x.value = e.value; }
     else if (e.id === 'bpm') { if ((x.value = num(e.value, 60, 200)) == null) continue; x.value = Math.round(x.value); }
@@ -441,7 +726,7 @@ const signed = (n, unit) => `${n > 0 ? '+' : '−'}${Math.abs(n)}${unit}`;
 
 // Applies edits (all but `genre`, which the caller handles by generating first) to a copy of state.
 // Returns { state, did: [labels], skipped: [labels] } — `did` only lists edits that actually changed something.
-export function applyEdits(state, edits, { seed = 1 } = {}) {
+export function applyEdits(state, edits, { seed = 1, style } = {}) {
   const S = clone(state);
   const did = [], skipped = [];
   const locked = (id) => !!S.locks?.[id];
@@ -452,7 +737,7 @@ export function applyEdits(state, edits, { seed = 1 } = {}) {
   const tset = (tid, id, v) => { if (!locked(tid)) P[tid][id] = r3(clampTo(pq(tid, id), v)); };
   const tmul = (tid, id, f) => tset(tid, id, P[tid][id] * f);
   const lvl = (tid, d) => tset(tid, 'level', P[tid].level + d);
-  const SCORE_OK = new Set(['tone', 'warmth', 'tempo', 'bpm', 'space', 'echo', 'volume', 'genre']);
+  const SCORE_OK = new Set(['tone', 'warmth', 'tempo', 'bpm', 'bpmScale', 'space', 'echo', 'volume', 'genre']);
   const order = ['scale', 'key', 'keyStep'];
   const list = [...edits].filter((e) => e.id !== 'genre').sort((a, b) => (order.includes(b.id) ? 1 : 0) - (order.includes(a.id) ? 1 : 0));
   for (const e of list) {
@@ -464,6 +749,8 @@ export function applyEdits(state, edits, { seed = 1 } = {}) {
     switch (e.id) {
       case 'tone': {
         const f = (x) => Math.pow(x, a);
+        const tp = t && ['cutoff', 'tone', 'tune'].find((k) => P[t][k] != null);
+        if (tp) { tmul(t, tp, f(1.45)); label = `${lab(a, 'brighter', 'darker')} ${TRACK_WORD[t]}`; break; }
         tmul('stab', 'cutoff', f(1.45)); tmul('acid', 'cutoff', f(1.3)); tmul('vox', 'tone', f(1.3));
         for (const h of ['ch', 'oh', 'ride']) tmul(h, 'tone', f(1.15));
         mset('warmth', M.warmth - 0.2 * a); mset('revTone', M.revTone * f(1.25));
@@ -477,6 +764,7 @@ export function applyEdits(state, edits, { seed = 1 } = {}) {
         label = signed(Math.round(S.bpm - JSON.parse(before).bpm), ' BPM');
         break;
       }
+      case 'bpmScale': S.bpm = Math.max(60, Math.min(200, Math.round(S.bpm * e.value))); label = `${e.value < 1 ? 'half' : 'double'} time (${S.bpm} BPM)`; break;
       case 'bpm': S.bpm = Math.max(60, Math.min(200, Math.round(e.value))); label = `${S.bpm} BPM`; break;
       case 'swing':
         S.swing = r3(Math.max(0, Math.min(0.6, S.swing + 0.1 * a)));
@@ -488,7 +776,7 @@ export function applyEdits(state, edits, { seed = 1 } = {}) {
         const ids = (t ? [t] : ['ch', 'oh', 'ride', 'perc', 'snare', 'stab', 'acid']).filter((id) => !locked(id));
         S.patterns.forEach((p, pi) => { if (!p.score) for (const id of ids) (a > 0 ? thicken : thin)(p, id, frac, seed, pi); });
         if (a < 0) mset('vary', M.vary * Math.pow(0.7, Math.abs(a)));
-        label = lab(a, 'busier', 'sparser') + ' parts';
+        label = lab(a, 'busier', 'sparser') + (t ? ` ${TRACK_WORD[t]}` : ' parts');
         break;
       }
       case 'drops':
@@ -497,11 +785,13 @@ export function applyEdits(state, edits, { seed = 1 } = {}) {
         label = a > 0 ? lab(a, 'bigger drops', '') : 'smoother (fewer drops)';
         break;
       case 'space':
+        if (t) { tset(t, 'rev', P[t].rev + 0.15 * a); label = `${lab(a, 'more reverb', 'less reverb')} on ${TRACK_WORD[t]}`; break; }
         mset('revLevel', M.revLevel + 0.18 * a); mset('room', M.room + 0.12 * a);
         tset('stab', 'rev', P.stab.rev + 0.08 * a);
         label = lab(a, 'more reverb', 'drier');
         break;
       case 'echo': {
+        if (t) { tset(t, 'dly', P[t].dly + 0.15 * a); label = `${lab(a, 'more echo', 'less echo')} on ${TRACK_WORD[t]}`; break; }
         mset('dlyLevel', M.dlyLevel + 0.2 * a); mset('dlyFb', Math.min(0.85, M.dlyFb + 0.1 * a));
         const cap = Math.round(P.stab.voice) >= 7 ? 0.25 : 1;
         tset('stab', 'dly', Math.min(cap, P.stab.dly + 0.12 * a)); tset('perc', 'dly', P.perc.dly + 0.1 * a);
@@ -509,6 +799,7 @@ export function applyEdits(state, edits, { seed = 1 } = {}) {
         break;
       }
       case 'grit':
+        if (t && P[t].drive != null) { tset(t, 'drive', P[t].drive + 0.2 * a); label = `${lab(a, 'heavier', 'cleaner')} ${TRACK_WORD[t]}`; break; }
         mset('drive', M.drive + 0.18 * a); tset('kick', 'drive', P.kick.drive + 0.15 * a); tset('acid', 'drive', P.acid.drive + 0.15 * a);
         label = lab(a, 'grittier', 'cleaner');
         break;
@@ -522,9 +813,9 @@ export function applyEdits(state, edits, { seed = 1 } = {}) {
         if (a > 0) S.patterns.forEach((p, pi) => {
           if (p.score) return;
           const m = mutate(p, seed * 31 + pi, Math.min(0.6, 0.15 * a), (SCALES[S.scale] || SCALES.minor).notes);
-          for (const id of TRACK_IDS) if (!locked(id)) { p.steps[id] = m.steps[id]; }
+          for (const id of (t ? [t] : TRACK_IDS)) if (!locked(id)) { p.steps[id] = m.steps[id]; }
         });
-        label = lab(a, 'more variation', 'steadier');
+        label = t ? `new ${TRACK_WORD[t]} part` : lab(a, 'more variation', 'steadier');
         break;
       case 'volume': mset('volume', M.volume + 0.08 * a); label = lab(a, 'louder', 'quieter'); break;
       case 'dust': mset('dust', M.dust + 0.25 * a); label = lab(a, 'more vinyl dust', 'less dust'); break;
@@ -591,17 +882,53 @@ export function applyEdits(state, edits, { seed = 1 } = {}) {
         break;
       }
       case 'mute':
+        if (!!S.mutes[t] === !!e.value && !(e.value && S.solos?.[t])) continue;
         S.mutes[t] = !!e.value;
         if (S.solos?.[t] && e.value) S.solos[t] = false;
         label = e.value ? `no ${TRACK_WORD[t]}` : `${TRACK_WORD[t]} back in`;
         break;
+      case 'hook': {
+        const v = Math.round(e.value);
+        if (v === 0) { for (const p of loops) if (p.hook) p.hm = 0; label = 'no melody'; break; }
+        if (locked('stab')) { skipped.push('chords locked'); continue; }
+        const notes = (SCALES[S.scale] || SCALES.minor).notes;
+        const has = loops.some((p) => p.hook);
+        const r = rng(seed * 7 + 3);
+        const line = v === 2 || !has ? [style, 'deephouse'].map((g) => g && STYLES[g] && hookLine(r, g, notes)).find(Boolean) : null;
+        for (const p of loops) {
+          if (line) p.hook = clone(line);
+          if (p.hook && hits(p.steps.kick)) p.hm = 2;
+        }
+        S.mutes.stab = false;
+        const was = loops.some((p) => p.hook && p.hm);
+        if (!line && was) lvl('stab', 0.08);
+        label = line ? (has ? 'new melody' : 'added a melody') : was ? 'melody up front' : 'melody back in';
+        break;
+      }
       case 'lock': S.locks[t] = !!e.value; label = `${e.value ? 'locked' : 'unlocked'} ${TRACK_WORD[t]}`; break;
       default: continue;
     }
     if (JSON.stringify(S) === before) skipped.push(`${label || e.id} (already there)`);
     else did.push(label);
   }
-  return { state: S, did, skipped };
+  return { state: S, did: groupDrums(did), skipped };
+}
+
+// "louder kick, louder snare, louder hats…" reads as "louder drums" once most of the kit moved the same way.
+function groupDrums(did) {
+  const words = DRUMS.map((d) => TRACK_WORD[d]).sort((a, b) => b.length - a.length);
+  const tpl = (l) => { const w = words.find((x) => new RegExp(`(^| )${x}( |$)`).test(l)); return w ? [l.replace(new RegExp(`(^| )${w}( |$)`), '$1{}$2'), w] : null; };
+  const count = {};
+  for (const l of did) { const x = tpl(l); if (x) count[x[0]] = (count[x[0]] || 0) + 1; }
+  const seen = new Set();
+  return did.flatMap((l) => {
+    const x = tpl(l);
+    if (!x || count[x[0]] < 4) return [l];
+    if (seen.has(x[0])) return [];
+    seen.add(x[0]);
+    const rest = words.filter((w) => !did.includes(x[0].replace('{}', w)));
+    return [x[0].replace('{}', rest.length && x[0].startsWith('no ') ? `drums except ${rest.join(', ')}` : 'drums')];
+  });
 }
 
 // The genre to switch to first (or null), and the edits that ride on top of it.
@@ -627,7 +954,7 @@ export function describe(text, state, { style, seed = 1, regenerate } = {}) {
   const { edits, unknown } = parse(text, { style });
   const genre = genreOf(edits, style);
   const base = genre && regenerate ? regenerate(genre) : state;
-  const { state: next, did, skipped } = applyEdits(base, edits, { seed });
+  const { state: next, did, skipped } = applyEdits(base, edits, { seed, style: genre || style });
   if (genre) did.unshift(`switched to ${STYLES[genre].name}`);
   return { edits, unknown, genre, state: next, did, skipped, suggestions: unknown.length || !did.length ? suggest(unknown.join(' ') || text) : [] };
 }
