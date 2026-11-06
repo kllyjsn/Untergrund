@@ -390,6 +390,33 @@ t('heard() fixes misheard words and filler', () => {
 t('heard() prefers an alternative the parser understands', () => assert.equal(heard(['mike it docker', 'make it darker']), 'make it darker'));
 t('heard() keeps the top transcript when none parse', () => assert.equal(heard(['purple monkey', 'purple monkeys']), 'purple monkey'));
 
+// AI fallback (/api/describe): only validated edits come back, misses are logged when allowed.
+{
+  const { handleDescribe, coerce, aiEnv } = await import('../api/_lib/describe-ai.js');
+  const { memoryKv, summarize } = await import('../api/_lib/events.js');
+  const reply = (content) => async () => ({ ok: true, json: async () => ({ choices: [{ message: { content } }] }) });
+  const call = (text, content, { body, ...extra } = {}) => handleDescribe({ method: 'POST', body: { text, style: 'deephouse', ...body }, provider: 'openrouter', key: 'k', fetchImpl: reply(content), ...extra });
+  const tests = [];
+  tests.push(call('driving through tokyo at night', JSON.stringify({ edits: [{ id: 'tone', amt: 9 }, { id: 'evil', amt: 1 }, { id: 'lock', target: 'kick', value: true }, { id: 'space', amt: 1 }] })).then((r) => t('AI edits are validated and bounded', () => {
+    assert.equal(r.status, 200); assert.deepEqual(r.json.edits.map(({ src, ...e }) => e), [{ id: 'tone', amt: 3 }, { id: 'space', amt: 1 }]);
+  })));
+  t('coerce reads {"tone": -1} shorthand', () => assert.deepEqual(validateEdits(coerce([{ tone: -1 }, { scale: 'dorian' }, { hook: 1 }])).map(({ src, ...e }) => e), [{ id: 'tone', amt: -1 }, { id: 'scale', value: 'dorian' }, { id: 'hook', value: 1 }]));
+  tests.push(call('x', 'not json').then((r) => t('bad model output is a 502 with no edits', () => { assert.equal(r.status, 502); assert.deepEqual(r.json.edits, []); })));
+  tests.push(handleDescribe({ method: 'POST', body: { text: 'hello' } }).then((r) => t('no key: 501, nothing called', () => assert.equal(r.status, 501))));
+  t('aiEnv prefers OpenRouter', () => { assert.equal(aiEnv({ OPENROUTER_API_KEY: 'a', GEMINI_API_KEY: 'b' }).provider, 'openrouter'); assert.equal(aiEnv({ GEMINI_API_KEY: 'b' }).provider, 'gemini'); assert.equal(aiEnv({}).key, ''); });
+  const kv = memoryKv();
+  tests.push((async () => {
+    await call('like a rainy sunday', JSON.stringify({ edits: [{ id: 'dust', amt: 1 }] }), { kv, body: { log: true } });
+    await call('secret phrase', JSON.stringify({ edits: [] }), { kv, body: { log: false } });
+    const s = await summarize(kv, { days: 7 });
+    t('misses are logged only when allowed and show in the summary', () => { assert.equal(s.misses.length, 1); assert.equal(s.misses[0].text, 'like a rainy sunday'); assert.equal(s.misses[0].ai, 'dust'); });
+    let last;
+    for (let i = 0; i < 31; i++) last = await call('again', '{"edits":[]}', { kv, client: 'flood' });
+    t('rate limited per client', () => assert.equal(last.status, 429));
+  })());
+  await Promise.all(tests);
+}
+
 await done;
 if (fails) { console.error(`describe: ${fails} failing`); process.exit(1); }
 console.log('describe: ok');

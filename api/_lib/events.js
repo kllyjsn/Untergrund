@@ -139,6 +139,7 @@ export async function summarize(kv, { days = 30, now = Date.now() } = {}) {
   const windows = [1, 7, n].filter((w, i, a) => a.indexOf(w) === i);
   for (const w of windows) for (const e of names) cmds.push(['PFCOUNT', ...dates.slice(-w).map((d) => `${P}:u:${d}:${e}`)]);
   cmds.push(['LRANGE', `${P}:errors`, 0, 49]);
+  cmds.push(['LRANGE', `${P}:describe_miss`, 0, 99]);
   const r = await kv(cmds);
   let i = 0;
   const counts = dates.map(() => toObj(r[i++]));
@@ -146,7 +147,8 @@ export async function summarize(kv, { days = 30, now = Date.now() } = {}) {
   const daily = dates.slice(7).map((date) => ({ date, counts: byDate[date], uniques: Object.fromEntries(names.map((e) => [e, +r[i++] || 0])) }));
   const period = {};
   for (const w of windows) period[w] = Object.fromEntries(names.map((e) => [e, +r[i++] || 0]));
-  const errors = (r[i++] || []).map((s) => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
+  const list = (x) => (x || []).map((s) => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
+  const errors = list(r[i++]), misses = list(r[i++]);
 
   const totals = {};
   for (const d of daily) for (const [k, v] of Object.entries(d.counts)) totals[k] = (totals[k] || 0) + v;
@@ -165,7 +167,7 @@ export async function summarize(kv, { days = 30, now = Date.now() } = {}) {
     }
     retention[label] = { returned, cohort, rate: cohort ? returned / cohort : 0 };
   }
-  return { enabled: true, generated: new Date(now).toISOString(), days: n, events: EVENTS, funnel, retention, period, totals, daily, errors };
+  return { enabled: true, generated: new Date(now).toISOString(), days: n, events: EVENTS, funnel, retention, period, totals, daily, errors, misses };
 }
 
 export function validToken(given, expected) {
