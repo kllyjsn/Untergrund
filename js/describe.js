@@ -485,7 +485,69 @@ function lookup(toks, i) {
 }
 
 // text -> { edits, unknown }. ctx.style lets scene/artist bundles decide whether to switch genre.
+// ---------------- follow-ups ----------------
+// "more", "too much", "the other way", "undo the reverb but keep the rest" act on the previous change (ctx.last;
+// ctx.net is the sum of that run of follow-ups).
+const FOLLOW = [
+  ['again', /^(?:(?:yes|yeah|ok|okay|nice|good|great|love it|perfect)\s+)?(?:(?:even|a\s+bit|a\s+little|a\s+touch|way|much|lots|a\s+lot|slightly)\s+)*(?:more|again|further|harder|keep\s+going|do\s+(?:it|that)\s+again|one\s+more\s+time|more\s+of\s+that|same\s+again|go\s+further|push\s+it(?:\s+further)?|double\s+it)(?:\s+please)?$/],
+  ['less', /^(?:(?:hmm|nah|eh|ok|okay)\s+)?(?:(?:that\s*'?s|that\s+is|it\s*'?s|way|a\s+bit|a\s+little|a\s+touch|slightly)\s+)*(?:too\s+much|too\s+far|overkill|overdone|overdid\s+it|back\s+(?:it\s+)?off|tone\s+it\s+down|ease\s+(?:up|off)|less|less\s+of\s+that|not\s+so\s+much|pull\s+(?:it\s+)?back|dial\s+it\s+back|halfway|half\s+that|not\s+that\s+much)(?:\s+please)?$/],
+  ['invert', /^(?:(?:no|nope|nah|wrong|oops)\s+)*(?:(?:the\s+)?other\s+(?:way|direction)(?:\s+round)?|(?:do\s+)?the\s+opposite|opposite|wrong\s+way|reverse\s+(?:it|that)|backwards|flip\s+it)(?:\s+please)?$/],
+];
+const UNDO_PART = /^(?:(?:no|nah)\s+)*(?:undo|revert|take\s+back|put\s+back|reset|cancel|lose|remove|drop|ditch)\s+(?:the\s+|that\s+|those\s+)?(.+?)(?:\s+(?:change|changes|bit|part|edit))?\s+(?:but\s+|and\s+)?keep\s+(?:the\s+)?(?:rest|everything\s+else|others?|the\s+rest)$/;
+const KEEP_PART = /^keep\s+(?:the\s+)?(.+?)(?:\s+(?:change|changes|bit|part|edit))?\s+(?:but\s+|and\s+)?(?:undo|revert|lose|drop|ditch|take\s+back)\s+(?:the\s+)?(?:rest|everything\s+else|others?)$/;
+const UNDO_ONLY = /^(?:undo|revert|take\s+back|cancel)\s+(?:the\s+|that\s+|just\s+the\s+|only\s+the\s+)?(.+?)(?:\s+(?:change|changes|bit|part|edit))?(?:\s+only)?$/;
+const invertible = (e) => e.amt != null || e.id === 'mute';
+const flip = (e, k) => (e.amt != null ? { ...e, amt: Math.max(-3, Math.min(3, e.amt * k)) } : { ...e, value: !e.value });
+const scaleBy = (s) => (/\b(?:way|much|lots|a\s+lot|double)\b/.test(s) ? 2 : /\b(?:a\s+bit|a\s+little|a\s+touch|slightly)\b/.test(s) ? 0.5 : 1);
+// Which previous edits a phrase like "the reverb" or "the bass" points at.
+function pick(last, phrase, ctx) {
+  const words = phrase.replace(/\b(?:the|that|those|my|on|of|to)\b/g, ' ').trim();
+  const p = parse(words, { ...ctx, last: null, net: null });
+  if (!p.edits.length) return null;
+  const ids = new Set(p.edits.filter((e) => !(e.id === 'level' && p.edits.length > 1 && !e.amt)).map((e) => e.id));
+  const targets = new Set(p.edits.map((e) => e.target).filter(Boolean));
+  const trackOnly = p.edits.every((e) => e.target && ['level', 'mute'].includes(e.id));
+  return last.filter((e) => (trackOnly ? targets.has(e.target) : ids.has(e.id) && (!targets.size || !e.target || targets.has(e.target))));
+}
+function followUp(text, ctx) {
+  const last = (ctx.last || []).filter((e) => e && e.id !== 'genre');
+  if (!last.length) return null;
+  const s = text.trim().replace(/[.!?,]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const src = s;
+  const amt = last.filter((e) => e.amt != null);
+  for (const [kind, re] of FOLLOW) {
+    if (!re.test(s)) continue;
+    if (kind === 'again' && amt.length) {
+      const k = scaleBy(s);
+      return { edits: amt.map((e) => ({ ...flip(e, k), src })), next: amt, follow: kind };
+    }
+    if (kind === 'less' && amt.length) return { edits: amt.map((e) => ({ ...flip(e, -0.5), src })), next: amt.map((e) => flip(e, -0.5)), follow: kind };
+    if (kind === 'invert') {
+      const inv = last.filter(invertible);
+      if (!inv.length) return null;
+      return { edits: inv.map((e) => ({ ...flip(e, -2), src })), next: inv.map((e) => flip(e, -1)), follow: kind };
+    }
+    return null;
+  }
+  let m = s.match(UNDO_PART), keep = false;
+  if (!m) { m = s.match(KEEP_PART); keep = !!m; }
+  const only = !m && s.match(UNDO_ONLY);
+  if (!m && !only) return null;
+  // Undo reaches back over the whole run of follow-ups ("darker", "more", "too much"), not just the last step.
+  const whole = (ctx.net || ctx.last).filter((e) => e && e.id !== 'genre');
+  const hit = pick(whole, (m || only)[1], ctx);
+  if (!hit || (!keep && !hit.length)) return null;
+  const chosen = (keep ? whole.filter((e) => !hit.includes(e)) : hit).filter(invertible);
+  if (!chosen.length) return null;
+  return { edits: chosen.map((e) => ({ ...flip(e, -1), src })), next: chosen.map((e) => flip(e, -1)), follow: 'undo' };
+}
+
+export { merge as mergeEdits };
 export function parse(text, ctx = {}) {
+  const fu = followUp(String(text || '').toLowerCase().replace(/[’']/g, "'"), ctx);
+  if (fu) return { edits: merge(fu.edits), unknown: [], follow: fu.follow, next: fu.next };
+  // "undo the reverb" with nothing to undo must not add reverb.
+  if (UNDO_ONLY.test(String(text || '').toLowerCase().trim().replace(/[.!?,]+/g, ' ').replace(/\s+/g, ' ').trim())) return { edits: [], unknown: [String(text).trim()] };
   const s = normalize(text);
   const clauses = s.split(/\s*(?:,|;|\.|!|\?|\band\b|&|\+|\bbut\b|\bthen\b|\balso\b|\bplus\b|\bwith\b|\bwhile\b|\bnow\b)\s*/).map((c) => c.trim()).filter(Boolean);
   const edits = [], unknown = [];
