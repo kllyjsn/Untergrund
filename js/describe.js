@@ -453,7 +453,7 @@ function resolve(entry, mods, ctx, src, flags = {}) {
   else if (entry.k === 'complaint') {
     // "boring", "too boring", "less boring" all ask for the fix; only "make it boring" asks for the thing itself.
     const want = flags.imperative && !flags.copula && !neg && !words.includes('too');
-    for (const e of COMPLAINTS[entry.id](want ? -int : int).filter(Boolean)) out.push({ ...e, src });
+    for (const e of COMPLAINTS[entry.id](want ? -int : int).filter(Boolean)) out.push({ ...e, src, why: entry.id });
   }
   else if (entry.k === 'genre') { if (sign > 0) out.push({ id: 'genre', value: entry.id, family: entry.family, src }); }
   else if (entry.k === 'scale') { if (sign > 0) out.push({ id: 'scale', value: entry.v, src }); }
@@ -604,6 +604,37 @@ function sectionClause(sec, rest, src, ctx, carry = []) {
   if (!out.length && !energy && !left) energy = SMALLER.test(s) || /\bless\b/.test(s) ? -1 : FULLER.test(s) ? 1 : 0;
   if (energy) out.push(E('energy', { amt: Math.sign(energy) }));
   return { edits: out, miss: left > 0 || !out.length };
+}
+
+// Mix-aware fixes. Each stem's loudness against the whole mix (LU) and the share of energy above 120 Hz
+// in the 200–500 Hz mud and 2–5 kHz harsh bands, measured on the drops of 32 generated songs (medians).
+export const TYPICAL = { kick: -4.3, clap: -19.3, snare: -27.3, ch: -22.8, oh: -18.1, ride: -18.5, perc: -28.5, acid: -7.2, stab: -6.9, vox: -22.4 };
+export const TYPICAL_BANDS = { mud: 0.33, harsh: 0.019 };
+
+export const needsMix = (edits) => edits.some((e) => (e.id === 'level' && e.target && e.amt) || e.why === 'muddy' || e.why === 'harsh');
+
+// Re-sizes level and muddy/harsh edits from a measurement (measureMix in mix-check.js): a part that is
+// already far over its usual place comes down to it in one go, one that is under it moves a small step.
+export function mixAdjust(edits, m, state) {
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v)), r1 = (v) => Math.round(v * 10) / 10;
+  const notes = [], upper = Math.max(1e-6, 1 - (m.bands?.subShare || 0) - (m.bands?.lowShare || 0));
+  const ratio = m.bands ? { muddy: m.bands.mudShare / upper / TYPICAL_BANDS.mud, harsh: Math.sqrt(m.bands.harshShare / upper / TYPICAL_BANDS.harsh) } : {};
+  const out = edits.map(({ db: _, ...e }) => {
+    if (e.amt == null) return e;
+    if (ratio[e.why] != null) {
+      const k = clamp(r1(ratio[e.why]), 0.5, 2);
+      const n = `${e.why === 'muddy' ? 'low-mids' : 'highs'} ${k >= 1.2 ? 'measured heavy' : k <= 0.8 ? 'measured clean, gentle fix' : 'measured about normal'}`;
+      if (!notes.includes(n)) notes.push(n);
+      return { ...e, amt: clamp(e.amt * k, -3, 3) };
+    }
+    const t = e.target, rel = m.tracks?.[t], typ = TYPICAL[t], L = state.params?.[t]?.level;
+    if (e.id !== 'level' || !t || rel == null || typ == null || !(L > 0)) return e;
+    const mag = Math.abs(e.amt);
+    const want = clamp(e.amt < 0 ? Math.min(-1.5 * mag, typ - 1 - rel) : Math.max(1.5 * mag, typ + 1 - rel), -12, 9);
+    const nl = clamp(L * 10 ** (want / 20), 0.02, 1.2), db = r1(20 * Math.log10(nl / L));
+    return db ? { ...e, amt: (nl - L) / 0.12, db } : e;
+  });
+  return { edits: out, notes };
 }
 
 export { merge as mergeEdits };
@@ -1041,7 +1072,7 @@ export function applyEdits(state, edits, { seed = 1, style } = {}) {
         }
         if (a > 0 && S.mutes[t]) S.mutes[t] = false;
         lvl(t, 0.12 * a);
-        label = `${a > 0 ? 'louder' : 'quieter'} ${TRACK_WORD[t]}`;
+        label = `${a > 0 ? 'louder' : 'quieter'} ${TRACK_WORD[t]}${e.db ? ` (${e.db > 0 ? '+' : '−'}${Math.abs(e.db)} dB)` : ''}`;
         break;
       }
       case 'mute':
@@ -1145,7 +1176,7 @@ export function applyEdits(state, edits, { seed = 1, style } = {}) {
       case 'lock': S.locks[t] = !!e.value; label = `${e.value ? 'locked' : 'unlocked'} ${TRACK_WORD[t]}`; break;
       default: continue;
     }
-    if (JSON.stringify(S) === before) skipped.push(`${label || e.id} (already there)`);
+    if (JSON.stringify(S) === before) skipped.push(e.id === 'level' && t ? `${TRACK_WORD[t]} is at ${a > 0 ? 'full' : 'lowest'} level` : `${label || e.id} (already there)`);
     else did.push(label);
   }
   return { state: S, did: groupDrums(did), skipped };

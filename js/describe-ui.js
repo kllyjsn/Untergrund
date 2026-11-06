@@ -1,8 +1,11 @@
 // "Describe it" box on Create + Studio: type or tap what you want, get a one-line receipt with undo.
 import { h } from './ui.js';
-import { parse, applyEdits, genreOf, suggest, chipsFor, mergeEdits } from './describe.js';
+import { parse, applyEdits, genreOf, suggest, chipsFor, mergeEdits, needsMix, mixAdjust } from './describe.js';
 
-let last = null, hint = null, draft = '', recent = null, net = null;
+let last = null, hint = null, draft = '', recent = null, net = null, ticket = 0;
+
+// Renders two bars of the drop and measures each part; null if it fails or takes too long.
+const listen = (state) => Promise.race([import('./mix-check.js').then((m) => m.measureMix(state)), new Promise((r) => setTimeout(() => r(null), 8000))]).catch(() => null);
 
 // ctx: state(), style(), styleName(id), depth(), pushUndo(label), undo(), switchGenre(id, steer, label), commit(nextState), track(props)
 export function describeBar(ctx) {
@@ -43,16 +46,34 @@ export function describeBar(ctx) {
     const text = String(raw || '').trim();
     if (!text) return input.focus();
     const style = ctx.style();
-    const { edits, unknown, next, follow } = parse(text, { style, last: recent, net });
-    if (!edits.length) return miss(text);
+    const parsed = parse(text, { style, last: recent, net });
+    if (!parsed.edits.length) return miss(text);
+    const mine = ++ticket;
+    if (!genreOf(parsed.edits, style) && needsMix(parsed.edits)) {
+      hint = { note: 'Listening to the mix…', suggestions: [] };
+      paint();
+      const before = ctx.state();
+      return listen(before).then((m) => {
+        if (mine !== ticket) return;
+        hint = null;
+        const r = m ? mixAdjust(parsed.edits, m, before) : { edits: parsed.edits, notes: [] };
+        apply(text, style, { ...parsed, edits: r.edits }, r.notes);
+      });
+    }
+    apply(text, style, parsed, []);
+  }
+
+  function apply(text, style, { edits, unknown, next, follow }, notes) {
     const genre = genreOf(edits, style), seed = (Math.random() * 1e9) | 0;
     const label = `“${text.length > 32 ? text.slice(0, 31) + '…' : text}”`;
     hint = null;
     draft = '';
     // "more", "too much", "the other way" act on this next time.
     const remember = () => {
-      recent = (next || edits).filter((e) => e.id !== 'genre');
-      net = mergeEdits([...(follow && net ? net : []), ...edits]).filter((e) => e.id !== 'genre');
+      // A measured dB belongs to this receipt only; follow-ups measure again.
+      const fresh = (list) => list.filter((e) => e.id !== 'genre').map(({ db, ...e }) => e);
+      recent = fresh(next || edits);
+      net = fresh(mergeEdits([...(follow && net ? net : []), ...edits]));
     };
     // `last` is set before the page rebuilds so the new box paints this receipt.
     if (genre) {
@@ -65,10 +86,10 @@ export function describeBar(ctx) {
       }, label);
     } else {
       const r = applyEdits(ctx.state(), edits, { seed, style });
-      if (!r.did.length) return miss(text, r.skipped.length ? `Nothing to change: ${r.skipped.map((s) => s.replace(' (already there)', '')).join(', ')} already. Try:` : 'It already sounds like that. Try:');
+      if (!r.did.length) return miss(text, r.skipped.length ? `Nothing to change: ${r.skipped.map((s) => s.replace(' (already there)', ' already')).join(', ')}. Try:` : 'It already sounds like that. Try:');
       ctx.pushUndo(label);
       remember();
-      last = { did: r.did, miss: unknown.join(', '), depth: ctx.depth() };
+      last = { did: [...r.did, ...notes], miss: unknown.join(', '), depth: ctx.depth() };
       ctx.commit(r.state);
     }
     ctx.track({ kind: genre ? 'genre' : edits[0].id, genre: genre || style });
