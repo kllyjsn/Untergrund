@@ -26,6 +26,7 @@ if (MOCK) {
 import { handleCrate, handleRemix, handleDrop, handlePlay, memoryStore, redisStore, MAX_TRACK_BYTES } from './api/_lib/crate.js';
 import { handleJukebox, memoryJukebox, redisJukebox } from './api/_lib/jukebox.js';
 import { handleEvents, memoryKv, redisKv, MAX_BODY as MAX_EVENT_BYTES } from './api/_lib/events.js';
+import { handleDescribe, aiEnv } from './api/_lib/describe-ai.js';
 import { redisKv as redisAccountKv, memoryKv as memoryAccountKv } from './api/_lib/kv.js';
 import { handleAccount, attachPublished } from './api/_lib/accounts.js';
 import { handlePage } from './api/_lib/pages.js';
@@ -90,6 +91,11 @@ http.createServer(async (req, res) => {
       const raw = req.method === 'POST' ? await readBody(req, MAX_EVENT_BYTES) : null;
       if (raw === null && req.method === 'POST') return sendJson(res, 413, { error: 'too_large' });
       const { status, json } = await handleEvents({ method: req.method, query: Object.fromEntries(url.searchParams), headers: req.headers, body: raw ? raw.toString() : null, kv: eventsKv, client: req.socket.remoteAddress, statsToken: STATS_TOKEN });
+      return sendJson(res, status, json);
+    }
+    if (url.pathname === '/api/describe') {
+      const raw = req.method === 'POST' ? await readBody(req, 4000) : null;
+      const { status, json } = await handleDescribe({ method: req.method, body: raw ? raw.toString() : null, client: req.socket.remoteAddress, ...aiEnv(process.env), kv: eventsKv });
       return sendJson(res, status, json);
     }
     if (url.pathname === '/api/account') {

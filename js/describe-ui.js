@@ -1,8 +1,18 @@
 // "Describe it" box on Create + Studio: type or tap what you want, get a one-line receipt with undo.
 import { h } from './ui.js';
-import { parse, applyEdits, genreOf, suggest, chipsFor, mergeEdits, needsMix, mixAdjust, heard } from './describe.js';
+import { parse, applyEdits, genreOf, suggest, chipsFor, mergeEdits, needsMix, mixAdjust, heard, validateEdits } from './describe.js';
+import { privacyOptOut } from './analytics.js';
 
 let last = null, hint = null, draft = '', recent = null, net = null, ticket = 0;
+// Phrases the rules can't read go to /api/describe (an LLM limited to the app's own edits); [] if it's off.
+async function askAI(text, style) {
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 8000);
+  try {
+    const res = await fetch('/api/describe', { method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, style, log: !privacyOptOut(window) }) });
+    return res.ok ? validateEdits((await res.json()).edits) : [];
+  } catch { return []; } finally { clearTimeout(timer); }
+}
 const Speech = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
 const MIC = '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
 const SPEECH_ERR = { 'not-allowed': 'Microphone is blocked. Allow the mic for this site in your browser settings, then try again.', 'service-not-allowed': 'Speech input is turned off in this browser.',
@@ -75,8 +85,18 @@ export function describeBar(ctx) {
     if (!text) return input.focus();
     const style = ctx.style();
     const parsed = parse(text, { style, last: recent, net });
-    if (!parsed.edits.length) return miss(text);
     const mine = ++ticket;
+    if (!parsed.edits.length) {
+      if (navigator.onLine === false || /^(?:more|again|less|too much|other way|undo\b)/.test(text.toLowerCase())) return miss(text);
+      hint = { note: 'Thinking…', suggestions: [] };
+      paint();
+      return askAI(text, style).then((edits) => {
+        if (mine !== ticket) return;
+        hint = null;
+        if (!edits.length) return miss(text);
+        apply(text, style, { edits, unknown: [] }, []);
+      });
+    }
     if (!genreOf(parsed.edits, style) && needsMix(parsed.edits)) {
       hint = { note: 'Listening to the mix…', suggestions: [] };
       paint();

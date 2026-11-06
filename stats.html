@@ -149,11 +149,15 @@
       const errors = s.errors.length ? s.errors.slice(0, 20).map((e) => `<div class="err"><b>${esc(e.kind).toUpperCase()}</b> ${esc(e.message)}
         <div class="meta">${esc(new Date(e.at).toLocaleString())} · ${esc(e.route)} · ${esc(e.ua)}</div>${e.stack ? `<details><summary class="meta">Stack</summary><pre>${esc(e.stack)}</pre></details>` : ''}</div>`).join('')
         : '<div class="empty">No errors reported. Nice.</div>';
+      const misses = (s.misses || []).length ? s.misses.slice(0, 40).map((m) => `<div class="err"><b>${esc(m.text)}</b>
+        <div class="meta">${esc(new Date(m.at).toLocaleString())} · ${esc(m.style || '-')} · ${m.ai ? `AI: ${esc(m.ai)}` : 'AI: nothing'}</div></div>`).join('')
+        : '<div class="empty">No missed phrases logged.</div>';
       root.innerHTML = head + `<div class="kpis">${kpis}</div>
         <div class="grid2"><section><h2>FUNNEL · UNIQUE SESSIONS</h2>${funnel}</section>
           <section><h2>DAILY SESSIONS</h2>${chart(s.daily)}</section></div>
         <div class="grid2" style="margin-top:14px"><section><h2>TOP GENRES · SONGS MADE</h2>${genres.length ? genres.map(([k, v]) => `<div class="genre"><span>${esc(k.slice(9).toUpperCase())}</span><span class="num">${fmt(v)}</span></div>`).join('') : '<div class="empty">No songs made yet.</div>'}</section>
           <section><h2>RECENT ERRORS · ${fmt(t.error || 0)} IN RANGE</h2>${errors}</section></div>
+        <section style="margin-top:14px"><h2>DESCRIBE · PHRASES THE RULES COULDN’T READ</h2>${misses}</section>
         <section style="margin-top:14px"><h2>DAILY COUNTS</h2><div class="table"><table><thead><tr><th>Day</th><th>Sessions</th>${events.map((e) => `<th>${LABEL[e]}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div></section>`;
       bindRange();
     }
