@@ -296,6 +296,59 @@ for (const style of ['hypnotic', 'deephouse', 'neosoul', 'boombap']) {
   });
 }
 
+// Section edits change one part of the arrangement (scenes 0 intro, 1 build, 2 verse, 4-5 breakdown, 6-7 drop).
+{
+  const base = songFor('deephouse');
+  const run = (text) => describe(text, base, { style: 'deephouse', seed: 3, regenerate: (g) => songFor(g) });
+  const on = (s, i, id) => s.patterns[i].steps[id].filter((v) => (typeof v === 'object' ? v.on : v)).length;
+  const sec = (text) => parse(text, { style: 'deephouse' }).edits.filter((e) => e.id === 'section');
+  const SECS = [
+    ['no hats in the intro', { sec: 'intro', op: 'mute' }],
+    ['in the breakdown, no hats', { sec: 'breakdown', op: 'mute' }],
+    ['longer intro', { sec: 'intro', op: 'length', amt: 1 }],
+    ['the breakdown is too long', { sec: 'breakdown', op: 'length', amt: -1 }],
+    ['skip the intro', { sec: 'intro', op: 'skip' }],
+    ['no intro', { sec: 'intro', op: 'skip' }],
+    ['make the drop bigger', { sec: 'drop', op: 'energy', amt: 1 }],
+    ['the drop should hit harder', { sec: 'drop', op: 'energy', amt: 1 }],
+    ['quieter intro', { sec: 'intro', op: 'energy', amt: -1 }],
+    ['strip the breakdown', { sec: 'breakdown', op: 'strip' }],
+    ['add bass to the intro', { sec: 'intro', op: 'add' }],
+    ['melody in the breakdown', { sec: 'breakdown', op: 'hook', value: 1 }],
+    ['busier hats in the drop', { sec: 'drop', op: 'density', amt: 1 }],
+    ['make it longer', { sec: 'drop', op: 'length', amt: 1 }],
+  ];
+  for (const [text, want] of SECS) t(`section "${text}"`, () => assert.ok(has(sec(text), [want]), JSON.stringify(sec(text))));
+  for (const text of ['drop the kick', 'bigger drops', 'more groove', 'add a breakdown', 'build up', 'add chorus']) t(`"${text}" is not a section edit`, () => assert.equal(sec(text).length, 0));
+  t('"no kick and snare in the intro" keeps the kick in the drop', () => {
+    const r = run('no kick and snare in the intro');
+    assert.equal(on(r.state, 0, 'kick'), 0); assert.ok(on(r.state, 6, 'kick') > 0); assert.ok(!r.state.mutes.kick);
+  });
+  t('"add bass to the intro" only touches the intro', () => {
+    assert.equal(on(base, 0, 'acid'), 0);
+    const r = run('add bass to the intro');
+    assert.ok(on(r.state, 0, 'acid') > 0); assert.deepEqual(r.state.patterns.slice(1), base.patterns.slice(1));
+  });
+  t('"longer intro" adds bars at the start only', () => {
+    const r = run('longer intro');
+    assert.ok(r.state.chain.length > base.chain.length); assert.ok(r.state.chain.startsWith(base.chain.match(/^A+/)[0] + 'A'));
+    assert.equal(r.state.chain.replace(/^A+/, ''), base.chain.replace(/^A+/, ''));
+  });
+  t('"skip the intro" starts on the build', () => assert.equal(run('skip the intro').state.chain, base.chain.replace(/^A+/, '')));
+  t('"get to the drop faster" shortens intro and build', () => { const r = run('get to the drop faster'); assert.ok(r.state.chain.length < base.chain.length); assert.ok(r.state.chain.indexOf('G') < base.chain.indexOf('G')); });
+  t('"strip the breakdown" removes drums there only', () => {
+    const r = run('strip the breakdown');
+    for (const d of ['kick', 'clap', 'snare', 'ch', 'oh', 'ride', 'perc']) assert.equal(on(r.state, 4, d) + on(r.state, 5, d), 0);
+    assert.deepEqual(r.state.patterns[6], base.patterns[6]);
+  });
+  t('"make the drop bigger" fills the drop', () => { const r = run('make the drop bigger'); assert.ok(hits(r.state) > hits(base)); assert.deepEqual(r.state.patterns.slice(0, 6), base.patterns.slice(0, 6)); });
+  t('section edits skip without song mode', () => { const r = describe('longer intro', { ...base, chainOn: false }, { style: 'deephouse' }); assert.equal(r.did.length, 0); });
+  t('validate section edits', () => {
+    const v = validateEdits([{ id: 'section', sec: 'drop', op: 'energy', amt: 9 }, { id: 'section', sec: 'nowhere', op: 'skip' }, { id: 'section', sec: 'intro', op: 'mute', tracks: ['kick', 'evil'] }, { id: 'section', sec: 'intro', op: 'mute', tracks: [] }]);
+    assert.deepEqual(v.map(({ src, ...e }) => e), [{ id: 'section', sec: 'drop', op: 'energy', amt: 3 }, { id: 'section', sec: 'intro', op: 'mute', tracks: ['kick'] }]);
+  });
+}
+
 await done;
 if (fails) { console.error(`describe: ${fails} failing`); process.exit(1); }
 console.log('describe: ok');

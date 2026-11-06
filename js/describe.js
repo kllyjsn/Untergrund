@@ -542,6 +542,70 @@ function followUp(text, ctx) {
   return { edits: chosen.map((e) => ({ ...flip(e, -1), src })), next: chosen.map((e) => flip(e, -1)), follow: 'undo' };
 }
 
+// ---------------- sections ----------------
+// "no kick in the breakdown", "longer intro", "make the drop bigger" edit one part of the song. Scenes come from
+// arrangement(): 0 intro, 1 build, 2 verse, 3 fill, 4-5 breakdown, 6-7 drop; the chain plays them as letters A-H.
+export const SECTION = {
+  intro: { p: [0], c: 'A', run: 'first' }, outro: { p: [0, 1], c: 'AB', main: 'A', run: 'last' }, build: { p: [1], c: 'B' },
+  verse: { p: [2], c: 'C' }, breakdown: { p: [4, 5], c: 'EF', main: 'E' }, drop: { p: [6, 7], c: 'GH', main: 'G' },
+};
+const SEC_WORD = { intro: 'intro', intros: 'intro', opening: 'intro', start: 'intro', beginning: 'intro', outro: 'outro', ending: 'outro', end: 'outro',
+  build: 'build', buildup: 'build', builds: 'build', riser: 'build', verse: 'verse', verses: 'verse', groove: 'verse', breakdown: 'breakdown', breakdowns: 'breakdown',
+  break: 'breakdown', bridge: 'breakdown', drop: 'drop', drops: 'drop', chorus: 'drop', choruses: 'drop', peak: 'drop', climax: 'drop' };
+// Weak words only name a section after "the": "drop the kick", "bigger drops", "more groove", "add chorus" stay as they were.
+const SEC_WEAK = new Set(['start', 'beginning', 'end', 'build', 'buildup', 'builds', 'break', 'drop', 'drops', 'groove', 'peak', 'climax', 'riser', 'bridge', 'opening', 'chorus', 'choruses', 'ending']);
+const SEC_RE = /(?:^|\s)((?:(?:in|on|during|for|at|into|before|after|of|to|from|throughout)\s+)?(?:(?:the|my|this|that|our)\s+)?)(build\s+up|[a-z]+)(?=\s|$)/g;
+const SEC_FILLER = new Set(['in', 'on', 'during', 'for', 'at', 'into', 'before', 'after', 'of', 'to', 'from', 'throughout', 'the', 'my', 'this', 'that', 'our', 'a', 'an', 'please', 'part', 'section', 'bit']);
+function findSection(clause) {
+  for (const m of clause.matchAll(SEC_RE)) {
+    const w = m[2].replace(/\s+/g, '');
+    if (!SEC_WORD[w]) continue;
+    if (SEC_WEAK.has(w) && !/\b(?:the|my|this|that|our)\s*$/.test(m[1])) continue;
+    // "add a breakdown", "an intro" ask for more of a thing, not an edit of the existing one.
+    if (!m[1] && /\b(?:a|an|another|more|some)\s*$/.test(clause.slice(0, m.index + 1))) continue;
+    return { sec: SEC_WORD[w], text: m[0] };
+  }
+  return null;
+}
+const SOONER = /\b(?:sooner|earlier|faster|quicker|straight|right\s+away|asap)\b/;
+const LONGER = /\b(?:longer|extend|extended|stretch|lengthen|draw\s+out|more\s+of)\b/;
+const SHORTER = /\b(?:shorter|shorten|trim|tighter|quicker|less\s+of|too\s+long|drags?|dragging)\b/;
+const SKIP = /^(?:no|skip|cut|remove|lose|ditch|drop|kill|delete|without|get\s+rid\s+of|cut\s+out|skip\s+over|lose\s+it|cut\s+it)$/;
+const STRIP = /\b(?:strip|stripped|bare|barer|emptier|minimal|drumless|empty)\b/;
+const FULLER = /\b(?:bigger|fuller|harder|louder|heavier|huge|massive|punchier|busier|energy|energetic|intense|hype|bang|slap|explode|explosive|epic)\b/;
+const SMALLER = /\b(?:smaller|quieter|softer|calmer|sparser|thinner|gentler|lighter|chill|chiller|calm|mellow|less\s+busy)\b/;
+const SEC_ENERGY = new Set(['volume', 'drops', 'punch', 'density', 'grit', 'tempo', 'variation', 'pump']);
+function sectionClause(sec, rest, src, ctx, carry = []) {
+  const s = ` ${rest} `;
+  const E = (op, x = {}) => ({ id: 'section', sec, op, ...x, src });
+  const plain = rest.replace(/\b(?:the|please|just|i|want|lets|let's|can|you|we)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  const tracky = plain.split(' ').some((w) => isTrack(W[w]));
+  if (!carry.length && !tracky) {
+    if (sec === 'drop' && SOONER.test(s)) return { edits: [{ id: 'section', sec: 'intro', op: 'length', amt: -1, src }, { id: 'section', sec: 'build', op: 'length', amt: -1, src }] };
+    if (/\btoo\s+short\b/.test(s)) return { edits: [E('length', { amt: 1 })] };
+    if (SHORTER.test(s)) return { edits: [E('length', { amt: -1 })] };
+    if (LONGER.test(s)) return { edits: [E('length', { amt: /\b(?:way|much|lot|double)\b/.test(s) ? 2 : 1 })] };
+    if (SKIP.test(plain)) return { edits: [E('skip')] };
+    if (STRIP.test(s)) return { edits: [E('strip')] };
+  }
+  const sub = carry.length ? carry : parse(rest, { ...ctx, noSection: true, last: null, net: null }).edits;
+  const out = [], mute = [], add = [];
+  let energy = 0, left = 0;
+  for (const e of sub) {
+    if (e.target && e.id === 'mute') (e.value ? mute : add).push(e.target);
+    else if (e.target && e.id === 'level') { if (e.amt > 0) add.push(e.target); else out.push(E('density', { tracks: [e.target], amt: e.amt })); }
+    else if (e.target && e.id === 'density') out.push(E('density', { tracks: [e.target], amt: e.amt }));
+    else if (e.id === 'hook') out.push(E('hook', { value: e.value ? 1 : 0 }));
+    else if (!e.target && SEC_ENERGY.has(e.id) && e.amt) energy += Math.sign(e.amt);
+    else left++;
+  }
+  if (mute.length) out.push(E('mute', { tracks: [...new Set(mute)] }));
+  if (add.length) out.push(E('add', { tracks: [...new Set(add)] }));
+  if (!out.length && !energy && !left) energy = SMALLER.test(s) || /\bless\b/.test(s) ? -1 : FULLER.test(s) ? 1 : 0;
+  if (energy) out.push(E('energy', { amt: Math.sign(energy) }));
+  return { edits: out, miss: left > 0 || !out.length };
+}
+
 export { merge as mergeEdits };
 export function parse(text, ctx = {}) {
   const fu = followUp(String(text || '').toLowerCase().replace(/[’']/g, "'"), ctx);
@@ -551,10 +615,36 @@ export function parse(text, ctx = {}) {
   const s = normalize(text);
   const clauses = s.split(/\s*(?:,|;|\.|!|\?|\band\b|&|\+|\bbut\b|\bthen\b|\balso\b|\bplus\b|\bwith\b|\bwhile\b|\bnow\b)\s*/).map((c) => c.trim()).filter(Boolean);
   const edits = [], unknown = [];
-  let lastTrack = null;
+  let lastTrack = null, pending = null, clauseStart = 0;
   for (const clause of clauses) {
     const before = edits.length;
     const src = clause.replace(/\s+/g, ' ');
+    const prevStart = clauseStart;
+    clauseStart = before;
+    const len = !ctx.noSection && src.match(/^(?:make\s+)?(?:it|the\s+(?:song|track|tune))\s+(?:a\s+bit\s+|way\s+|much\s+)?(longer|shorter)$|^(longer|shorter)\s+(?:song|track|tune)$/);
+    if (len) { edits.push({ id: 'section', sec: 'drop', op: 'length', amt: (len[1] || len[2]) === 'longer' ? 1 : -1, src }); lastTrack = null; continue; }
+    const found = !ctx.noSection && findSection(` ${clause} `);
+    if (found || (pending && !ctx.noSection)) {
+      const sec = found ? found.sec : pending;
+      const restS = (found ? ` ${clause} `.replace(found.text, ' ') : clause).replace(/\s+/g, ' ').trim();
+      const left = restS.split(' ').filter((w) => w && !SEC_FILLER.has(w));
+      // "in the breakdown, no kick" names the section first; it holds for the rest of the request.
+      if (found && !left.length) { pending = sec; continue; }
+      // "no kick and snare in the breakdown": the kick clause before belongs to the breakdown too.
+      let carry = [];
+      const bare = left.filter((w) => !STOP.has(w));
+      if (lastTrack && bare.length && bare.every((w) => isTrack(W[w]))) {
+        carry = edits.slice(prevStart, before).filter((e) => e.target);
+        for (const e of carry) edits.splice(edits.indexOf(e), 1);
+        const tg = [...new Set(bare.flatMap((w) => idsOf(W[w])).map(real))];
+        carry.push(...tg.flatMap((t) => lastTrack.map((e) => ({ ...e, target: t }))));
+      }
+      const got = sectionClause(sec, restS, src, ctx, carry);
+      edits.push(...got.edits);
+      if (got.miss) unknown.push(clause);
+      lastTrack = null;
+      continue;
+    }
     const rest = extract(` ${clause} `, edits);
     const toks = rest.split(/[^a-z0-9#]+/).filter(Boolean);
     const items = toks.map((_, i) => lookup(toks, i)).filter((x) => !x.skip);
@@ -660,8 +750,9 @@ const melodyRegen = (x, words) => x.e.k === 'track' && x.e.ids.includes('melody'
 function merge(edits) {
   const out = [];
   for (const e of edits) {
-    const k = `${e.id}:${e.target || ''}`;
-    const prev = out.find((x) => `${x.id}:${x.target || ''}` === k);
+    const key = (x) => `${x.id}:${x.target || ''}:${x.sec || ''}:${x.op || ''}:${(x.tracks || []).join()}`;
+    const k = key(e);
+    const prev = out.find((x) => key(x) === k);
     if (!prev) { out.push({ ...e }); continue; }
     if (e.amt != null && prev.amt != null) prev.amt = Math.max(-3, Math.min(3, prev.amt + e.amt));
     else Object.assign(prev, e);
@@ -679,6 +770,7 @@ export const INTENTS = {
   key: 'value: 0-11 (C=0)', keyStep: 'amt: ±1 semitone', voice: `value: 0-10 (${VOICE_NAMES.join(', ')})`, bassVoice: `value: 0-4 (${BASS_NAMES.join(', ')})`,
   bpmScale: 'value: 0.5 half time | 2 double time', hook: 'value: 0 no melody | 1 add melody | 2 new melody',
   kit: 'value: 0 machine | 1 live', level: `target: ${TRACK_IDS.join('|')}, amt`, mute: 'target, value: bool', lock: 'target, value: bool', genre: `value: ${Object.keys(STYLES).join('|')}`,
+  section: `sec: ${Object.keys(SECTION).join('|')}; op: mute|add|density (tracks[]), energy|length (amt), skip, strip, hook (value 0|1)`,
 };
 export function validateEdits(list) {
   if (!Array.isArray(list)) return [];
@@ -687,6 +779,15 @@ export function validateEdits(list) {
   for (const e of list.slice(0, 12)) {
     if (!e || !INTENTS[e.id]) continue;
     const x = { id: e.id, src: String(e.src || '').slice(0, 80) };
+    if (e.id === 'section') {
+      if (!SECTION[e.sec] || !['mute', 'add', 'density', 'energy', 'hook', 'length', 'skip', 'strip'].includes(e.op)) continue;
+      Object.assign(x, { sec: e.sec, op: e.op });
+      if (['mute', 'add', 'density'].includes(e.op)) { x.tracks = (Array.isArray(e.tracks) ? e.tracks : []).filter((t) => TRACK_IDS.includes(t)).slice(0, TRACK_IDS.length); if (!x.tracks.length) continue; }
+      if (['density', 'energy', 'length'].includes(e.op)) { if ((x.amt = num(e.amt, -3, 3)) == null || !x.amt) continue; }
+      if (e.op === 'hook') x.value = e.value ? 1 : 0;
+      out.push(x);
+      continue;
+    }
     if (['level', 'mute', 'lock'].includes(e.id)) { if (!TRACK_IDS.includes(e.target)) continue; x.target = e.target; }
     else if (['tone', 'space', 'echo', 'grit', 'density', 'variation'].includes(e.id) && e.target != null) { if (!TRACK_IDS.includes(e.target)) continue; x.target = e.target; }
     if (['mute', 'lock'].includes(e.id)) x.value = !!e.value;
@@ -965,6 +1066,80 @@ export function applyEdits(state, edits, { seed = 1, style } = {}) {
         const was = loops.some((p) => p.hook && p.hm);
         if (!line && was) lvl('stab', 0.08);
         label = line ? (has ? 'new melody' : 'added a melody') : was ? 'melody up front' : 'melody back in';
+        break;
+      }
+      case 'section': {
+        const sd = SECTION[e.sec];
+        if (!sd || score || S.patterns.length < 8) { skipped.push(`${e.src || e.sec} (needs a full song arrangement)`); continue; }
+        const where = `in the ${e.sec}`;
+        const pats = sd.p.map((i) => S.patterns[i]);
+        const tr = (e.tracks || []).filter((id) => TRACK_IDS.includes(id) && !locked(id));
+        const words = (ids) => (DRUMS.every((d) => ids.includes(d)) ? ['drums', ...ids.filter((x) => !DRUMS.includes(x)).map((x) => TRACK_WORD[x])] : ids.map((x) => TRACK_WORD[x])).join(' & ');
+        const blank = (id) => Array.from({ length: STEPS }, () => (id === 'acid' ? { on: false, n: 0, a: false, s: false } : 0));
+        const on = (p, id) => hits(p.steps[id], p.len?.[id]);
+        const fillFrom = (p, id) => {
+          const from = [6, 7, 2, 4, 5, 1, 0, 3].map((i) => S.patterns[i]).find((q) => q && q !== p && on(q, id));
+          if (from) { p.steps[id] = clone(from.steps[id]); if (p.len && from.len?.[id]) p.len[id] = from.len[id]; return; }
+          if (!DEFAULT_HITS[id]) return;
+          p.steps[id] = blank(id);
+          for (const i of DEFAULT_HITS[id]) p.steps[id][i] = id === 'acid' ? { on: true, n: 0, a: false, s: false } : 1;
+        };
+        const op = e.op;
+        if (op === 'mute' || op === 'strip') {
+          const ids = op === 'strip' ? DRUMS.filter((d) => !locked(d)) : tr;
+          for (const p of pats) for (const id of ids) if (on(p, id)) p.steps[id] = blank(id);
+          label = op === 'strip' ? `stripped-back ${e.sec} (no drums)` : `no ${words(ids)} ${where}`;
+        } else if (op === 'add') {
+          const muted = tr.filter((id) => S.mutes[id]);
+          if (muted.length) skipped.push(`${words(muted)} muted`);
+          const ids = tr.filter((id) => !S.mutes[id]);
+          const was = JSON.stringify(pats);
+          for (const p of pats) for (const id of ids) if (!on(p, id)) fillFrom(p, id);
+          label = `${words(ids)} ${where}`;
+          // Already playing there: "more bass in the drop" makes it busier there instead.
+          if (JSON.stringify(pats) === was && ids.length) {
+            pats.forEach((p, pi) => { for (const id of ids) thicken(p, id, 0.3, seed, pi + sd.p[0]); });
+            label = `busier ${words(ids)} ${where}`;
+          }
+        } else if (op === 'density') {
+          pats.forEach((p, pi) => { for (const id of tr) (a > 0 ? thicken : thin)(p, id, Math.min(0.85, 0.3 * Math.abs(a)), seed, pi + sd.p[0]); });
+          label = `${lab(a, 'busier', 'sparser')} ${words(tr)} ${where}`;
+        } else if (op === 'energy') {
+          const ids = TRACK_IDS.filter((id) => !locked(id) && !S.mutes[id]);
+          pats.forEach((p, pi) => {
+            if (a > 0) {
+              for (const id of ids) if (id !== 'vox' && !on(p, id) && S.patterns.some((q) => q !== p && on(q, id))) fillFrom(p, id);
+              for (const id of ['ch', 'oh', 'perc', 'snare'].filter((x) => ids.includes(x))) thicken(p, id, 0.25 * a, seed, pi + sd.p[0]);
+              if (p.hook) p.hm = 2;
+            } else for (const id of ids.filter((x) => x !== 'kick')) thin(p, id, Math.min(0.85, 0.3 * Math.abs(a)), seed, pi + sd.p[0]);
+          });
+          label = lab(a, `fuller ${e.sec}`, `sparser ${e.sec}`);
+        } else if (op === 'hook') {
+          if (!loops.some((p) => p.hook)) { skipped.push('no melody yet (try "add a melody")'); continue; }
+          for (const p of pats) if (p.hook) p.hm = e.value ? 2 : 0;
+          label = `${e.value ? 'melody' : 'no melody'} ${where}`;
+        } else if (op === 'length' || op === 'skip') {
+          if (!S.chainOn) { skipped.push(`${e.src || e.sec} (song mode is off)`); continue; }
+          const main = sd.main || sd.c[0];
+          let runs = [...S.chain.matchAll(new RegExp(`[${sd.c}]+`, 'g'))].filter((m) => m[0].includes(main));
+          if (sd.run === 'first') runs = runs.filter((m) => m.index === 0);
+          if (sd.run === 'last') runs = runs.filter((m) => m.index + m[0].length === S.chain.length);
+          if (!runs.length) { skipped.push(`no ${e.sec} in this song`); continue; }
+          let c = S.chain;
+          for (const m of runs.reverse()) {
+            const run = m[0];
+            let next = '';
+            if (op === 'skip') next = '';
+            else if (a > 0) { const n = Math.max(2, Math.round(run.length * 0.5 * a)); next = sd.run === 'last' ? run + main.repeat(n) : main.repeat(n) + run; }
+            else next = run.slice(Math.min(run.length - 1, Math.max(1, Math.round(run.length * 0.5 * Math.abs(a)))));
+            c = c.slice(0, m.index) + next + c.slice(m.index + run.length);
+          }
+          if (!c || c.length > 128) { skipped.push(`${e.src || e.sec} (song would be ${c ? 'too long' : 'empty'})`); continue; }
+          const d = c.length - S.chain.length;
+          S.chain = c;
+          if (S.current >= S.patterns.length) S.current = 0;
+          label = op === 'skip' ? `no ${e.sec} (${signed(d, ' bars')})` : `${a > 0 ? 'longer' : 'shorter'} ${e.sec} (${signed(d, ' bars')})`;
+        } else continue;
         break;
       }
       case 'lock': S.locks[t] = !!e.value; label = `${e.value ? 'locked' : 'unlocked'} ${TRACK_WORD[t]}`; break;
