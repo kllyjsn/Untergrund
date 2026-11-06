@@ -1,10 +1,10 @@
 /* "Your public page" panel (Artist sheet), track-page link after publishing, following feed row. */
-.acct-panel { padding: 18px 20px; margin-bottom: 20px; border: 1px solid var(--line2); border-radius: 12px; background: linear-gradient(135deg, rgba(255,69,58,.07), rgba(255,255,255,.02)); }
+.acct-panel { padding: 18px 20px; margin-bottom: 20px; border: 1px solid var(--line2); border-radius: var(--r2); background: linear-gradient(135deg, rgba(255,69,58,.07), rgba(255,255,255,.02)); }
 .acct-label { color: #a8a8b2; font: 600 11px var(--mono); letter-spacing: .16em; margin-bottom: 10px; }
 .acct-copy { margin: 0 0 14px; color: #dedee3; font: 500 14px/1.45 var(--sans); }
 .acct-dim { color: var(--dim); font: 400 12px/1.45 var(--sans); }
 p.acct-dim { margin: 0; }
-.acct-claim { display: flex; align-items: center; gap: 0; max-width: 560px; border: 1px solid var(--line2); border-radius: 10px; background: #1d1d1f; overflow: hidden; }
+.acct-claim { display: flex; align-items: center; gap: 0; max-width: 560px; border: 1px solid var(--line2); border-radius: var(--r1); background: #1d1d1f; overflow: hidden; }
 .acct-claim:focus-within { border-color: #64646e; }
 .acct-prefix { padding-left: 14px; color: var(--dim); font: 500 14px var(--mono); white-space: nowrap; }
 .acct-input.inp { flex: 1; min-width: 60px; border: 0; background: transparent; height: 44px; padding: 0 6px 0 1px; color: #fff; font: 600 14px var(--mono); outline: none; }
