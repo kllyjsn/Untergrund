@@ -1,8 +1,8 @@
 // "Describe it" box on Create + Studio: type or tap what you want, get a one-line receipt with undo.
 import { h } from './ui.js';
-import { parse, applyEdits, genreOf, suggest, chipsFor } from './describe.js';
+import { parse, applyEdits, genreOf, suggest, chipsFor, mergeEdits } from './describe.js';
 
-let last = null, hint = null, draft = '';
+let last = null, hint = null, draft = '', recent = null, net = null;
 
 // ctx: state(), style(), styleName(id), depth(), pushUndo(label), undo(), switchGenre(id, steer, label), commit(nextState), track(props)
 export function describeBar(ctx) {
@@ -23,7 +23,9 @@ export function describeBar(ctx) {
     receipt.hidden = !live && !hint;
     if (live) {
       receipt.append(h('div', { class: 'describe-line' }, h('span', { class: 'describe-did' }, h('b', {}, 'Did: '), last.did.join(', '), last.miss ? h('em', {}, ` · skipped “${last.miss}”`) : null),
-        h('button', { type: 'button', class: 'describe-undo', onclick: () => { last = hint = null; ctx.undo(); } }, 'UNDO')));
+        h('button', { type: 'button', class: 'describe-undo', onclick: () => { last = hint = recent = net = null; ctx.undo(); } }, 'UNDO')));
+      const nudges = recent?.some((e) => e.amt != null) ? ['more', 'too much', 'other way'] : recent?.some((e) => e.id === 'mute') ? ['other way'] : [];
+      if (nudges.length) receipt.append(h('div', { class: 'describe-line' }, ...nudges.map((s) => h('button', { type: 'button', class: 'describe-chip sm', onclick: () => run(s) }, s))));
     }
     if (hint) {
       receipt.append(h('div', { class: 'describe-line' }, h('span', { class: 'describe-note' }, hint.note),
@@ -41,24 +43,31 @@ export function describeBar(ctx) {
     const text = String(raw || '').trim();
     if (!text) return input.focus();
     const style = ctx.style();
-    const { edits, unknown } = parse(text, { style });
+    const { edits, unknown, next, follow } = parse(text, { style, last: recent, net });
     if (!edits.length) return miss(text);
     const genre = genreOf(edits, style), seed = (Math.random() * 1e9) | 0;
     const label = `“${text.length > 32 ? text.slice(0, 31) + '…' : text}”`;
     hint = null;
     draft = '';
+    // "more", "too much", "the other way" act on this next time.
+    const remember = () => {
+      recent = (next || edits).filter((e) => e.id !== 'genre');
+      net = mergeEdits([...(follow && net ? net : []), ...edits]).filter((e) => e.id !== 'genre');
+    };
     // `last` is set before the page rebuilds so the new box paints this receipt.
     if (genre) {
       // The rest of the edits land on the new song before it is played and saved to the CRATE.
       ctx.switchGenre(genre, (s) => {
         const r = applyEdits(s, edits, { seed, style: genre });
         last = { did: [`new ${ctx.styleName(genre)} track`, ...r.did], miss: unknown.join(', '), depth: ctx.depth() };
+        remember();
         return r.state;
       }, label);
     } else {
       const r = applyEdits(ctx.state(), edits, { seed, style });
       if (!r.did.length) return miss(text, r.skipped.length ? `Nothing to change: ${r.skipped.map((s) => s.replace(' (already there)', '')).join(', ')} already. Try:` : 'It already sounds like that. Try:');
       ctx.pushUndo(label);
+      remember();
       last = { did: r.did, miss: unknown.join(', '), depth: ctx.depth() };
       ctx.commit(r.state);
     }

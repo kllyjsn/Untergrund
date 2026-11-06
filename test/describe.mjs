@@ -264,6 +264,38 @@ for (const style of ['hypnotic', 'deephouse', 'neosoul', 'boombap']) {
   });
 }
 
+// Follow-ups act on the previous change.
+{
+  const base = songFor('hypnotic');
+  const first = parse('darker and more reverb on the chords and mute the hats', { style: 'hypnotic' }).edits;
+  const fu = (text) => parse(text, { style: 'hypnotic', last: first });
+  const amtOf = (r, id, target) => r.edits.find((e) => e.id === id && (e.target || null) === (target || null))?.amt;
+  t('follow "more" repeats the last nudges', () => { const r = fu('more'); assert.equal(r.follow, 'again'); assert.equal(amtOf(r, 'tone'), -1); assert.equal(amtOf(r, 'space', 'stab'), 1); });
+  t('follow "way more" doubles', () => assert.equal(amtOf(fu('way more'), 'tone'), -2));
+  t('follow "a bit more" halves', () => assert.equal(amtOf(fu('a bit more'), 'tone'), -0.5));
+  for (const text of ['too much', "that's too much", 'back off', 'a bit less', 'tone it down']) t(`follow "${text}" eases off`, () => { const r = fu(text); assert.equal(r.follow, 'less'); assert.equal(amtOf(r, 'tone'), 0.5); assert.equal(amtOf(r, 'space', 'stab'), -0.5); });
+  for (const text of ['no the other way', 'opposite', 'wrong way']) t(`follow "${text}" reverses`, () => { const r = fu(text); assert.equal(r.follow, 'invert'); assert.equal(amtOf(r, 'tone'), 2); assert.ok(has(r.edits, [{ id: 'mute', target: 'ch', value: false }])); });
+  t('follow "undo the reverb but keep the rest"', () => { const r = fu('undo the reverb but keep the rest'); assert.deepEqual(r.edits.map((e) => e.id), ['space']); assert.equal(amtOf(r, 'space', 'stab'), -1); });
+  t('follow "keep the reverb but undo the rest"', () => { const r = fu('keep the reverb but undo the rest'); assert.ok(!r.edits.some((e) => e.id === 'space')); assert.equal(amtOf(r, 'tone'), 1); assert.ok(has(r.edits, [{ id: 'mute', target: 'ch', value: false }])); });
+  t('follow "undo the hats" unmutes only hats', () => assert.deepEqual(fu('undo the hats').edits.map(({ src, ...e }) => e), [{ id: 'mute', target: 'ch', value: false }]));
+  t('follow "the other way" after "the other way" keeps going the corrected way', () => { const inv = fu('opposite'); const r = parse('more', { style: 'hypnotic', last: inv.next }); assert.equal(amtOf(r, 'tone'), 1); });
+  t('follow undo reaches over the whole run', () => {
+    const net = [{ id: 'tone', amt: -1.5 }, { id: 'space', target: 'stab', amt: 1.5 }];
+    const r = parse('undo the reverb but keep the rest', { style: 'hypnotic', last: [{ id: 'space', target: 'stab', amt: 0.5 }], net });
+    assert.deepEqual(r.edits.map(({ src, ...e }) => e), [{ id: 'space', target: 'stab', amt: -1.5 }]);
+  });
+  t('new instructions still parse normally with a previous change', () => assert.equal(fu('more swing').follow, undefined));
+  t('"more" with nothing before it does nothing', () => assert.equal(parse('more', { style: 'hypnotic' }).edits.length, 0));
+  t('"undo the reverb" with nothing before it never adds reverb', () => assert.ok(!parse('undo the reverb', { style: 'hypnotic' }).edits.some((e) => e.id === 'space')));
+  t('follow "more" then "too much" lands between', () => {
+    const a = applyEdits(base, first, { style: 'hypnotic' }).state;
+    const b = applyEdits(a, fu('more').edits, { style: 'hypnotic' }).state;
+    const c = applyEdits(b, parse('too much', { style: 'hypnotic', last: fu('more').next }).edits, { style: 'hypnotic' }).state;
+    const tone = (s) => JSON.stringify(s.master?.tone ?? s.master?.cutoff ?? s.master);
+    assert.notEqual(tone(a), tone(b)); assert.notEqual(tone(b), tone(c));
+  });
+}
+
 await done;
 if (fails) { console.error(`describe: ${fails} failing`); process.exit(1); }
 console.log('describe: ok');
