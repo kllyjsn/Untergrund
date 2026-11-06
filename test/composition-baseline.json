@@ -23,7 +23,7 @@
     "motifRecall": 0.707,
     "chords": 3,
     "voiceMove": 1.07,
-    "contrast": 0.31,
+    "contrast": 0.313,
     "drumBars": 13
   },
   "dub": {
@@ -41,7 +41,7 @@
     "motifRecall": 0.707,
     "chords": 3,
     "voiceMove": 1.07,
-    "contrast": 0.296,
+    "contrast": 0.297,
     "drumBars": 13
   },
   "hardtechno": {
@@ -59,7 +59,7 @@
     "motifRecall": 0.793,
     "chords": 7,
     "voiceMove": 1.165,
-    "contrast": 0.228,
+    "contrast": 0.227,
     "drumBars": 72
   },
   "minimal": {
@@ -68,7 +68,7 @@
     "motifRecall": 0.695,
     "chords": 3,
     "voiceMove": 2.62,
-    "contrast": 0.263,
+    "contrast": 0.265,
     "drumBars": 111
   },
   "ukg": {
@@ -77,7 +77,7 @@
     "motifRecall": 0.828,
     "chords": 7,
     "voiceMove": 1.83,
-    "contrast": 0.301,
+    "contrast": 0.299,
     "drumBars": 72
   },
   "euphoric": {
@@ -86,7 +86,7 @@
     "motifRecall": 0.724,
     "chords": 10,
     "voiceMove": 0.755,
-    "contrast": 0.288,
+    "contrast": 0.283,
     "drumBars": 67
   },
   "neosoul": {
@@ -113,7 +113,7 @@
     "motifRecall": 0.707,
     "chords": 2,
     "voiceMove": 1,
-    "contrast": 0.294,
+    "contrast": 0.291,
     "drumBars": 112
   },
   "electro": {
@@ -131,7 +131,7 @@
     "motifRecall": 0.695,
     "chords": 3,
     "voiceMove": 0.87,
-    "contrast": 0.246,
+    "contrast": 0.242,
     "drumBars": 112
   },
   "trance": {
@@ -149,7 +149,7 @@
     "motifRecall": 0.714,
     "chords": 4,
     "voiceMove": 1.19,
-    "contrast": 0.417,
+    "contrast": 0.43,
     "drumBars": 3
   },
   "amapiano": {
@@ -158,7 +158,7 @@
     "motifRecall": 0.724,
     "chords": 6,
     "voiceMove": 0.965,
-    "contrast": 0.201,
+    "contrast": 0.197,
     "drumBars": 72
   },
   "afrobeats": {
@@ -167,7 +167,7 @@
     "motifRecall": 0.828,
     "chords": 7,
     "voiceMove": 1.315,
-    "contrast": 0.24,
+    "contrast": 0.237,
     "drumBars": 71
   },
   "reggaeton": {
@@ -176,7 +176,7 @@
     "motifRecall": 0.758,
     "chords": 7,
     "voiceMove": 1.1,
-    "contrast": 0.267,
+    "contrast": 0.269,
     "drumBars": 67
   },
   "bailefunk": {
@@ -185,7 +185,7 @@
     "motifRecall": 0.695,
     "chords": 2,
     "voiceMove": 0.5,
-    "contrast": 0.284,
+    "contrast": 0.285,
     "drumBars": 108
   },
   "trap": {
@@ -194,7 +194,7 @@
     "motifRecall": 0.793,
     "chords": 5,
     "voiceMove": 1.735,
-    "contrast": 0.265,
+    "contrast": 0.26,
     "drumBars": 67
   },
   "drill": {
@@ -203,7 +203,7 @@
     "motifRecall": 0.707,
     "chords": 5,
     "voiceMove": 0.425,
-    "contrast": 0.28,
+    "contrast": 0.276,
     "drumBars": 69.5
   },
   "jerseyclub": {
@@ -212,7 +212,7 @@
     "motifRecall": 0.683,
     "chords": 2,
     "voiceMove": 0.77,
-    "contrast": 0.371,
+    "contrast": 0.37,
     "drumBars": 112
   },
   "hyperpop": {
@@ -221,7 +221,7 @@
     "motifRecall": 0.707,
     "chords": 10,
     "voiceMove": 1.04,
-    "contrast": 0.354,
+    "contrast": 0.353,
     "drumBars": 88
   }
 }
