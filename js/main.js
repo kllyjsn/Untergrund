@@ -119,8 +119,9 @@ function ensureAudio() {
 }
 
 // lead: how far ahead to queue audio (seconds); the worker tick passes its message event.
+let songOver = false;
 function schedule(lead) {
-  if (!playing) return;
+  if (!playing || songOver) return;
   const ahead = typeof lead === 'number' ? lead : 0.12;
   const offset = Date.now() / 1000 - ctx.currentTime;
   clockOffset = clockOffset === null ? offset : clockOffset + (offset - clockOffset) * 0.05;
@@ -151,6 +152,12 @@ function schedule(lead) {
     nextTime += sd;
     transportOrigin += (sd - base) * 1000;
     abs++;
+    // A generated song has played its final bar: let it ring, then stop rather than loop back to the intro.
+    if (seq.finished && !handoff) {
+      songOver = true;
+      setTimeout(() => playing && songOver && stop(), Math.max(0, nextTime - ctx.currentTime + 2.5) * 1000);
+      break;
+    }
   }
   // The audio is queued; now redraw for the new song (it sounds ~0.1 s from now).
   landed?.();
@@ -241,6 +248,7 @@ function start({ step = 0, delay = 0.06 } = {}) {
   seq.queued = null;
   seq.chainPos = bar + (abs % 16 === 0 ? 0 : 1);
   seq.acidPrevSlide = false;
+  seq.finished = false; songOver = false;
   seq.origin = 0;
   if (handoff) { handoff = null; engine.handoffCancel(); }
   state.current = seq.cur;
