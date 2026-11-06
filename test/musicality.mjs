@@ -210,6 +210,29 @@ console.log('seeded instrument ensembles passed');
   console.log('interplay passed');
 }
 
+// Techno builds: the intro layers in, long runs end every 8 bars on a roll over a dropped kick, the drums develop.
+{
+  const { buildSong, playSong } = await import('../scripts/composition.mjs');
+  for (const style of ['industrial', 'acid', 'peak', 'hardtechno', 'electro']) for (const seed of [101, 307]) {
+    const s = buildSong(style, seed), { log } = playSong(s), chain = s.chain;
+    const at = (k, bar) => log.filter((L) => L.k === 'trigger' && L.a[0] === k && Math.floor(L.step / 16) === bar).map((L) => L.step % 16);
+    assert(chain.startsWith('AAAAAAAA') && at('ch', 0).length === 0, `${style} intro opens on the kick alone`);
+    assert(at('kick', 0).length, `${style} intro has its kick`);
+    let fills = 0;
+    for (let b = 0; b + 1 < chain.length; b++) {
+      let a = b; while (a > 0 && chain[a - 1] === chain[b]) a--;
+      let e = b; while (e + 1 < chain.length && chain[e + 1] === chain[b]) e++;
+      if (!'CG'.includes(chain[b]) || e - a + 1 < 8 || (b - a) % 8 !== 7 || b === e) continue;
+      fills++;
+      assert(!at('kick', b).some((i) => i >= 12), `${style}/${seed} bar ${b}: the kick drops for the phrase-end fill`);
+      const roll = s.patterns[2].steps.snare.some(Boolean) ? 'snare' : 'clap';
+      assert(at(roll, b).filter((i) => i >= 12).length >= 4, `${style}/${seed} bar ${b}: a ${roll} roll ends the phrase`);
+    }
+    assert(fills >= 3, `${style}/${seed} has phrase-end fills (${fills})`);
+  }
+  console.log('techno builds passed');
+}
+
 // A generated song finishes: the sequencer flags the end of its last bar so the transport stops instead of looping,
 // and the shared player plays every bar of the longer forms.
 {

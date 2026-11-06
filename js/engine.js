@@ -1719,6 +1719,10 @@ export class Sequencer {
       // Past the last bar of a song with an ending (even if a stalled main thread skipped its steps): finished, silent.
       if (this.s.ending && n >= 16 && this.chainPos >= n) { this.finished = true; return; }
       this.cur = chain[p]; this.chainPos++;
+      let a = p, b = p;
+      while (a > 0 && chain[a - 1] === this.cur) a--;
+      while (b < n - 1 && chain[b + 1] === this.cur) b++;
+      this.runPos = p - a; this.runLen = b - a + 1;
       const peak = (x) => x === 2 || x === 6, brk = (x) => x === 4 || x === 5, fill = this.cur === 3 || this.cur === 7;
       if (arr) {
         this.dropNext = peak(chain[(p + 1) % n]) && !peak(this.cur) && !(fill && peak(prev));
@@ -1730,7 +1734,7 @@ export class Sequencer {
       if (!arr || !brk(this.cur)) this.e.breakOpen(t);
       return;
     }
-    this.dropNow = false;
+    this.dropNow = false; this.runLen = 0;
     this.e.breakOpen(t);
     if (this.queued !== null) { this.cur = this.queued; this.queued = null; }
   }
@@ -1769,6 +1773,9 @@ export class Sequencer {
     if (pat.score) this.scoreStep(pat.score, abs, t, sd);
     else this.e.stepScale = 1;
     const anySolo = TRACK_IDS.some((id) => s.solos[id]);
+    const rp = arr && !vary && n && !pat.score && this.runLen >= 8 ? this.runPos : -1;
+    const fillAt = rp >= 0 && (this.cur === 2 || this.cur === 6) && rp % 8 === 7 && rp < this.runLen - 1 ? (rp % 16 === 15 ? 8 : 12) : 16;
+    const roller = pat.steps.snare.some(Boolean) ? 'snare' : 'clap';
     for (const id of TRACK_IDS) {
       const on = !s.mutes[id] && (!anySolo || s.solos[id]);
       const len = pat.len[id] || 16;
@@ -1816,6 +1823,7 @@ export class Sequencer {
         else if (!v && id === 'kick' && i % 4 === 3 && roll < vary * 0.08) v = 0.6;
         if (bar % 8 === 7 && i >= 12 && (id === 'kick' || id === 'stab') && hash(bar, k) < vary) v = 0;
       }
+      if (rp >= 0) v = this.build(id, v, pat, i16, rp, pos < n / 2, fillAt, roller);
       // Ghost hats: the hand keeps moving between the written hits, barely touching the cymbal
       if (pk?.ghost && !v && id === 'ch' && i16 % 2 && pat.steps.ch.some(Boolean) && hash(abs * 1.91 + bar, 97) < pk.ghost) v = 0.26;
       const hum = s.master.humanize || 0;
@@ -1867,6 +1875,28 @@ export class Sequencer {
     }
     if (this.roll === null) this.rollCount = 0;
     return this.cur;
+  }
+
+  // With arrangement dynamics on (arr > 0), styles without humanized variation (vary 0, the techno family) develop their long runs by arrangement instead:
+  // the intro brings in hats then percussion, the outro takes them away again, the first drop holds its ride back for
+  // a phrase, the peak's second phrase opens up off-16th hats, every 8 bars ends on a snare/clap roll over a dropped
+  // kick (two beats at 16-bar ends), and every fourth bar turns around on the percussion.
+  build(id, v, pat, i16, rp, intro, fillAt, roller) {
+    const cur = this.cur, rl = this.runLen, has = (x) => pat.steps[x].some(Boolean);
+    if (cur === 0) {
+      if (id === 'ch' && (intro ? rp < 2 : rp >= rl - 2)) return 0;
+      if (id === 'perc' && (intro ? rp < 4 : rp >= rl - 4)) return 0;
+      return v;
+    }
+    if (cur !== 2 && cur !== 6) return v;
+    if (cur === 2 && id === 'ride' && rp < (rl >= 15 ? 8 : 4)) return 0;
+    if (cur === 6 && id === 'ch' && !v && rp >= 8 && i16 % 2 && has('ch')) return 0.28;
+    if (i16 >= fillAt) {
+      if (id === 'kick' && i16 >= 12) return 0;
+      if (id === roller) return 0.22 + (0.5 * (i16 - fillAt)) / (15 - fillAt);
+    }
+    if (id === 'perc' && fillAt === 16 && rp % 4 === 3 && !v && (i16 === 13 || i16 === 15) && has('perc')) return 0.5;
+    return v;
   }
 
   // Parts that listen to the lead. In grooves and peaks the bass answers the hook's rests with an off-beat octave,
