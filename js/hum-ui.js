@@ -159,7 +159,7 @@ export function drawRoll(canvas, res, playStep = -1) {
     }
     g.stroke();
   }
-  const hue = getComputedStyle(canvas).getPropertyValue('--hue').trim() || '#c6ff3d';
+  const hue = getComputedStyle(canvas).getPropertyValue('--hue').trim() || '#30d158';
   g.font = '600 10px ui-monospace, monospace'; g.textBaseline = 'middle';
   for (const n of notes) {
     const x = n.step * cw + 1, w = Math.max(cw - 2, n.len * cw - 2), on = playStep >= n.step && playStep < n.step + n.len;

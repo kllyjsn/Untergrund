@@ -1,15 +1,15 @@
 /* Daily Drop card on Home (js/drop.js) and the remix list on the shared-link landing. */
-.drop-card { --drop: #c6ff2b; margin-top: 22px; max-width: 520px; padding: 14px 14px 14px 16px; border-radius: 18px; border: 1px solid rgba(255,255,255,.09);
+.drop-card { --drop: var(--green); margin-top: 22px; max-width: 520px; padding: 14px 14px 14px 16px; border-radius: 18px; border: 1px solid rgba(255,255,255,.09);
   background: linear-gradient(135deg, color-mix(in srgb, var(--drop) 12%, transparent), rgba(255,255,255,.02) 60%); }
 .drop-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .drop-eyebrow { color: var(--drop); font: 600 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.drop-next { flex: 0 0 auto; color: #8a8a94; font: 500 11px var(--mono); font-variant-numeric: tabular-nums; }
+.drop-next { flex: 0 0 auto; color: #94949e; font: 500 11px var(--mono); font-variant-numeric: tabular-nums; }
 .drop-next b { font-weight: 500; }
 .drop-body { display: flex; align-items: center; gap: 14px; margin-top: 8px; }
 .drop-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .drop-title b { color: #fff; font: 800 20px/1.1 var(--sans); letter-spacing: -.01em; }
 .drop-title span { color: #a8a8b2; font: 400 13px/1.35 var(--sans); }
-.drop-make { flex: 0 0 auto; height: 40px; padding: 0 18px; border-radius: 999px; border: 0; background: #f2f2f5; color: #0a0a0b; font: 700 13px var(--sans); cursor: pointer; transition: transform .15s; }
+.drop-make { flex: 0 0 auto; height: 40px; padding: 0 18px; border-radius: 999px; border: 0; background: #f2f2f5; color: #1e1e1f; font: 700 13px var(--sans); cursor: pointer; transition: transform .15s; }
 .drop-make:hover { background: #fff; }
 .drop-make:active { transform: scale(.97); }
 .drop-remixes { list-style: none; margin: 12px 0 0; padding: 10px 0 0; border-top: 1px solid rgba(255,255,255,.07); display: flex; flex-direction: column; gap: 2px; }
@@ -18,7 +18,7 @@
 .drop-remix i { width: 26px; height: 26px; border-radius: 50%; background: rgba(255,255,255,.08); position: relative; }
 .drop-remix i::after { content: ''; position: absolute; left: 10px; top: 8px; border-left: 8px solid #f2f2f5; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
 .drop-remix.on i { background: var(--drop); }
-.drop-remix.on i::after { left: 9px; top: 9px; width: 8px; height: 8px; border: 0; background: #0a0a0b; border-radius: 1px; }
+.drop-remix.on i::after { left: 9px; top: 9px; width: 8px; height: 8px; border: 0; background: #1e1e1f; border-radius: 1px; }
 .drop-remix b { color: #f2f2f5; font: 600 13px var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .drop-remix span { font: 400 12px var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Phone: compact, so GENERATE stays on the first screen. Just the top remix. */
