@@ -58,6 +58,7 @@ function showCrash(err) {
 }
 window.addEventListener('error', (e) => showCrash(e.error || e.message));
 let studioOpen = localStorage.getItem('untergrund.studio-open') === '1';
+let madeShown = null, unlockAt = 0, dropOpen = false;
 let variation = 0.25;
 let artistLive = null;
 let clipboard = null;
@@ -977,6 +978,7 @@ function generateNow(drop = null) {
   if (!drop?.date) drop = null;
   stopPreview();
   generatedAt = performance.now();
+  localStorage.setItem('untergrund.made', '1');
   navigator.vibrate?.(12);
   // Building the next song blocks the main thread; queue more audio first so it can't starve.
   if (playing) schedule(0.4);
@@ -1205,17 +1207,25 @@ function buildGenerateHome() {
     : h('button', { class: 'generate-primary' + (performance.now() - generatedAt < 900 ? ' fired' : '') + (wait || band ? ' gen-queued' : ''), style: wait ? `--gen-wait:${Math.round(handoff.total)}ms;--gen-at:${Math.round(wait - handoff.total)}ms` : null, onclick: () => generateNow() },
       h('span', {}, 'GENERATE'), h('small', {}, band ? 'Up next · seating the band' : wait ? 'Up next · on the bar' : `${STYLES[style].name} · full track`));
   const showNp = playing && !studioOpen;
+  // First visit shows only the essentials; the rest unlocks once a track has been made.
+  const made = studioOpen || playing || localStorage.getItem('untergrund.made') === '1' || recentTracks().length > 0;
+  if (playing) localStorage.setItem('untergrund.made', '1');
+  // The home re-renders often; keep the reveal running across rebuilds by offsetting its delay.
+  if (made && madeShown === false) unlockAt = performance.now();
+  madeShown = made;
+  const since = performance.now() - unlockAt, unlock = unlockAt > 0 && since < 900;
+  const hum = STYLES[style].family === 'CLASSICAL' ? null : humButton(humApi);
   const left = showNp ? buildNowPlaying(primary) : [
     h('div', { class: 'generate-copy' },
-      h('span', {}, 'TECHNO · HOUSE · JAZZ · HIP-HOP · BASS'),
       h('h1', {}, 'Press Generate. Hear a finished track.'),
-      h('p', {}, 'Choose a sound and UNTERGRUND writes a full arrangement you can perform live, refine in Studio, or spin in the Club.'),
-      dropCard({ hue, onMake: playDrop, onLoad: renderHome, onPlay: (t) => { countPlay(t.id); trackEvent('daily_drop', { kind: 'play', genre: t.style }); openShared(t.id, true); } })),
-    h('div', { class: 'generate-actions' }, primary,
-      h('button', { class: 'btn refine-toggle', onclick: toggleStudio }, studioOpen ? 'HIDE STUDIO' : 'REFINE IN STUDIO'),
-      h('button', { class: 'btn ghost', onclick: () => startArtistLive() }, 'ARTIST LIVE'),
-      STYLES[style].family === 'CLASSICAL' ? null : humButton(humApi)),
-    h('div', { class: 'generate-status' }, statusLine()),
+      h('p', {}, made ? 'Refine it in Studio, perform it live, or spin it in the Club.' : 'Pick a sound. UNTERGRUND writes the whole arrangement.'),
+      dropPeek()),
+    h('div', { class: 'generate-actions' },
+      studioOpen ? primary : h('div', { class: 'gen-wrap' }, primary, hum),
+      made ? h('button', { class: 'btn refine-toggle', onclick: toggleStudio }, studioOpen ? 'HIDE STUDIO' : 'REFINE IN STUDIO') : null,
+      made ? h('button', { class: 'btn ghost', onclick: () => startArtistLive() }, 'ARTIST LIVE') : null,
+      studioOpen ? hum : null),
+    made ? h('div', { class: 'generate-status' }, statusLine()) : null,
   ];
   const classical = STYLES[style].family === 'CLASSICAL' || !!(playing && pat()?.score);
   const concert = classical ? concertPanel({ state: () => state, engine: () => engine, ensureAudio, persist, score: pat()?.score || null, repertoire: style === 'repertoire', onPiece: playPiece, onComposer: setComposer, stopTransport: () => playing && stop() }) : null;
@@ -1225,9 +1235,18 @@ function buildGenerateHome() {
     h('div', { class: 'recents-row' }, recent.map((t) => h('button', { class: 'recent', style: `--hue:${hue(t.style)}`, onclick: () => openRecent(t) },
       h('i'), h('b', {}, t.title || 'Untitled'), h('span', {}, [STYLES[t.style]?.name, t.bpm && `${t.bpm} BPM`].filter(Boolean).join(' · ')))))) : null;
   const following = followingRow({ hue, onPlay: (t) => openShared(t.id, true), onLoad: renderHome });
-  const home = h('section', { role: studioOpen ? 'region' : 'main', 'aria-label': 'Create', class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` }, left, describeBox(), picker, concert, recents, following);
+  const home = h('section', { role: studioOpen ? 'region' : 'main', 'aria-label': 'Create', class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : '') + (made ? '' : ' first-run') + (unlock ? ' unlock' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` + (unlock ? `;--ua:${-Math.round(since)}ms` : '') }, left, made ? describeBox() : null, picker, concert, recents, following);
   ui.home = home;
   return home;
+}
+
+function dropPeek() {
+  const card = () => dropCard({ hue, onMake: playDrop, onLoad: renderHome, onPlay: (t) => { countPlay(t.id); trackEvent('daily_drop', { kind: 'play', genre: t.style }); openShared(t.id, true); } });
+  if (dropOpen) return card();
+  const d = dailyDrop();
+  return h('button', { class: 'drop-peek', type: 'button', style: `--drop:${hue(d.style)}`, 'aria-expanded': 'false', title: 'Today’s drop',
+    onclick: () => { dropOpen = true; const el = card(); el.classList.add('drop-in'); ui.home.querySelector('.drop-peek')?.replaceWith(el); } },
+    h('i', { 'aria-hidden': 'true' }), h('span', {}, 'Today’s drop'), h('b', {}, d.title));
 }
 
 function describeBox() {
