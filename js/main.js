@@ -66,6 +66,8 @@ const knobGesture = gesture();
 const ui = { rows: {}, playhead: -1 };
 
 const app = document.getElementById('app');
+const roomLights = h('div', { class: 'room-lights', 'aria-hidden': 'true' }, h('i', { class: 'l-key' }), h('i', { class: 'l-air' }), h('i', { class: 'l-floor' }));
+document.body.prepend(roomLights);
 const isText = (el) => el && (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA');
 
 let saveTimer = 0;
@@ -1787,6 +1789,40 @@ function drawViz() {
   if (meterEl) meterEl.textContent = `PK ${pdb > -60 ? pdb.toFixed(1) : '-∞'}  RMS ${rdb > -60 ? rdb.toFixed(1) : '-∞'} dB`;
 }
 
+// The room lights play the master bus: lows pump the key light, mids lift it, highs open the air light (a closed filter darkens the room).
+const lights = { kick: 0, floor: 0, glow: 0, air: 0, hue: '', out: {}, fd: null, still: matchMedia('(prefers-reduced-motion: reduce)') };
+function setLight(el, name, v) {
+  const s = v.toFixed(3);
+  if (lights.out[name] !== s) { lights.out[name] = s; el.style.setProperty(name, s); }
+}
+function drawLights() {
+  const tint = hue(style);
+  if (tint !== lights.hue) { lights.hue = tint; roomLights.style.setProperty('--room', tint); }
+  let lo = 0, mid = 0, hi = 0;
+  if (playing && engine?.analyser && !lights.still.matches) {
+    const an = engine.analyser, fd = lights.fd || (lights.fd = new Uint8Array(an.frequencyBinCount));
+    an.getByteFrequencyData(fd);
+    const hz = ctx.sampleRate / 2 / fd.length;
+    const band = (f0, f1) => {
+      const i0 = Math.floor(f0 / hz), i1 = Math.max(i0 + 1, Math.floor(f1 / hz));
+      let sum = 0;
+      for (let i = i0; i < i1; i++) sum += fd[i];
+      return sum / (i1 - i0) / 255;
+    };
+    lo = band(35, 120); mid = band(200, 2000); hi = band(4000, 12000);
+  }
+  lights.floor += (lo - lights.floor) * 0.05;
+  const hit = Math.min(1, Math.max(0, lo - lights.floor) * 3);
+  lights.kick = hit > lights.kick ? hit : lights.kick * 0.88;
+  lights.glow += (mid - lights.glow) * 0.06;
+  lights.air += (hi - lights.air) * 0.05;
+  setLight(roomLights, '--kick', lights.kick);
+  setLight(roomLights, '--glow', lights.glow);
+  setLight(roomLights, '--air', lights.air);
+  const logo = document.querySelector('.top .logo');
+  if (logo) logo.style.setProperty('--kick', lights.out['--kick']);
+}
+
 function frame() {
   if (playing && ctx) {
     const lat = (ctx.outputLatency || 0) + (ctx.baseLatency || 0);
@@ -1815,6 +1851,7 @@ function frame() {
   }
   drawViz();
   drawNowPlaying();
+  drawLights();
   requestAnimationFrame(frame);
 }
 
