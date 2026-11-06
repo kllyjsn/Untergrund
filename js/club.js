@@ -384,7 +384,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     window.removeEventListener('keydown', onKey, true);
     ov.remove();
   };
-  const ov = h('div', { class: 'club-overlay' });
+  const ov = h('div', { class: 'club-overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'UNTERGRUND Club' });
   const modal = h('div', { class: 'club-shell' });
   ov.append(modal);
   document.body.append(ov);
@@ -581,7 +581,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
   let replays = { loaded: false, items: [] };
   const refreshReplays = () => listReplays().catch(() => []).then((items) => { replays = { loaded: true, items }; if (!closed) render(); });
   const tabs = () => h('div', { class: 'club-tabs' }, [['signal', 'ROOM SIGNAL'], ['crate', 'CRATE'], ['sets', 'SETS']].map(([id, label]) =>
-    h('button', { class: sideTab === id ? 'on' : '', onclick: () => { sideTab = id; if (id === 'crate') refreshCrate(); if (id === 'sets') refreshReplays(); render(); } }, label)));
+    h('button', { class: sideTab === id ? 'on' : '', 'aria-pressed': String(sideTab === id), onclick: () => { sideTab = id; if (id === 'crate') refreshCrate(); if (id === 'sets') refreshReplays(); render(); } }, label)));
 
   // Saved live sets: the DJ replays one to the whole room, in sync, from its state timeline.
   async function replaySet(item) {
@@ -677,7 +677,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     const invite = new URL(location.href);
     invite.searchParams.set('room', activeRoom);
     const roomInput = h('input', {
-      class: 'inp club-room-input', value: activeRoom, maxlength: 32, 'data-focus-key': 'room',
+      class: 'inp club-room-input', value: activeRoom, maxlength: 32, 'aria-label': 'Room name', 'data-focus-key': 'room',
       onkeydown: (e) => { if (e.key === 'Enter') commitRoom(e.target.value); },
       onblur: (e) => { if (!rendering) commitRoom(e.target.value); },
     });
@@ -692,7 +692,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
       }
       render();
     };
-    const head = h('header', { class: 'club-head' },
+    const head = h('div', { class: 'club-head' },
       h('div', { class: 'club-brand' }, h('i'), h('div', {}, h('b', {}, 'UNTERGRUND CLUB'), h('span', {}, 'original machine music only'))),
       h('div', { class: 'club-room-name' }, h('span', {}, 'ROOM'), roomInput),
       h('div', { class: 'club-head-actions' },
@@ -703,7 +703,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
         isHost && room.queue?.length ? h('button', { class: 'btn club-queue', onclick: () => bus.send('deck', { action: 'pass' }) }, 'PASS DECK') : null,
         h('button', { class: 'btn ghost', onclick: close }, 'CLOSE')));
     modal.append(head,
-      h('main', { class: 'club-main' }, stage(), chatPanel()),
+      h('div', { class: 'club-main' }, stage(), chatPanel()),
       h('footer', { class: 'club-footer' },
         avatarEditor(),
         h('div', { class: 'club-principle' },

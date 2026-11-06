@@ -24,6 +24,21 @@ function arc(cx, cy, r, d0, d1) {
   return `M${x0.toFixed(2)} ${y0.toFixed(2)} A${r} ${r} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
 }
 
+// main.js hooks user edits on knobs/number boxes to group them into undo steps:
+// change(el, label, held) runs before each change (held = during a pointer drag), end() when a drag ends.
+export const controlHooks = { change: null, end: null };
+
+// Arrow / Page / Home / End keys for a slider-like control; returns the new value or null.
+function keyValue(q, v, e) {
+  if (e.key === 'Home') return q.min;
+  if (e.key === 'End') return q.max;
+  const dir = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1, PageUp: 10, PageDown: -10 }[e.key];
+  if (!dir) return null;
+  if (q.step && q.curve !== 'exp') return clamp(v + dir * q.step, q.min, q.max);
+  return denorm(q, norm(q, v) + dir / (e.shiftKey ? 200 : 40));
+}
+const ariaNum = (v) => String(Math.round(v * 1e4) / 1e4);
+
 // Generic vertical-drag control used by knobs and number boxes.
 function dragControl(el, { get, set, q, sens = 180, onStart, onEnd }) {
   let startY = 0, startN = 0, active = false;
@@ -33,6 +48,7 @@ function dragControl(el, { get, set, q, sens = 180, onStart, onEnd }) {
     el.setPointerCapture(e.pointerId);
     active = true; startY = e.clientY; startN = norm(q, get());
     el.classList.add('dragging');
+    el._held = true;
     onStart?.();
   });
   el.addEventListener('pointermove', (e) => {
@@ -40,7 +56,7 @@ function dragControl(el, { get, set, q, sens = 180, onStart, onEnd }) {
     const s = e.shiftKey ? sens * 5 : sens;
     set(denorm(q, startN + (startY - e.clientY) / s));
   });
-  const end = () => { if (!active) return; active = false; el.classList.remove('dragging'); onEnd?.(); };
+  const end = () => { if (!active) return; active = false; el._held = false; el.classList.remove('dragging'); controlHooks.end?.(); onEnd?.(); };
   el.addEventListener('pointerup', end);
   el.addEventListener('pointercancel', end);
   el.addEventListener('dblclick', () => set(q.def));
@@ -52,13 +68,13 @@ function dragControl(el, { get, set, q, sens = 180, onStart, onEnd }) {
   }, { passive: false });
 }
 
-export function knob(q, value, onChange, { size = 46, color = 'var(--accent)', format = (v) => v.toFixed(2), cls = '' } = {}) {
+export function knob(q, value, onChange, { size = 46, color = 'var(--accent)', format = (v) => v.toFixed(2), cls = '', name = q.label } = {}) {
   const el = document.createElement('div');
   el.className = 'knob ' + cls;
   el.style.setProperty('--kc', color);
   const r = size / 2 - 4, c = size / 2;
   el.innerHTML = `
-    <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <svg aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
       <circle class="k-body" cx="${c}" cy="${c}" r="${r - 5}"/>
       <path class="k-track" d="${arc(c, c, r, A0, A1)}"/>
       <path class="k-val" d=""/>
@@ -78,22 +94,21 @@ export function knob(q, value, onChange, { size = 46, color = 'var(--accent)', f
     ptr.setAttribute('transform', `rotate(${deg} ${c} ${c})`);
     txt.textContent = format(v);
   };
-  const set = (nv) => { if (nv === v) return; v = nv; draw(); onChange(v); };
+  const set = (nv) => { if (nv === v) return; controlHooks.change?.(el, name, !!el._held); v = nv; draw(); onChange(v); };
   dragControl(el, { get: () => v, set, q });
   el.title = `${q.label} — drag, wheel, double-click to reset (shift = fine)`;
   el.tabIndex = 0;
   el.setAttribute('role', 'slider');
-  el.setAttribute('aria-label', q.label);
-  el.setAttribute('aria-valuemin', q.min);
-  el.setAttribute('aria-valuemax', q.max);
+  el.setAttribute('aria-label', name);
+  el.setAttribute('aria-valuemin', ariaNum(q.min));
+  el.setAttribute('aria-valuemax', ariaNum(q.max));
   el.addEventListener('keydown', (e) => {
-    const dir = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1 }[e.key];
-    if (!dir) return;
+    const nv = keyValue(q, v, e);
+    if (nv == null) return;
     e.preventDefault(); e.stopPropagation();
-    const step = q.step || (q.max - q.min) / (e.shiftKey ? 200 : 40);
-    set(clamp(v + dir * step, q.min, q.max));
+    set(nv);
   });
-  const aria = () => { el.setAttribute('aria-valuenow', v); el.setAttribute('aria-valuetext', format(v)); };
+  const aria = () => { el.setAttribute('aria-valuenow', ariaNum(v)); el.setAttribute('aria-valuetext', format(v)); };
   const draw0 = draw;
   draw = () => { draw0(); aria(); };
   draw();
@@ -102,19 +117,24 @@ export function knob(q, value, onChange, { size = 46, color = 'var(--accent)', f
   return { el, set: (nv) => { v = nv; draw(); }, get: () => v };
 }
 
-export function numBox(q, value, onChange, { format = (v) => String(v), cls = '' } = {}) {
+export function numBox(q, value, onChange, { format = (v) => String(v), cls = '', name = q.label || '' } = {}) {
   const el = document.createElement('div');
   el.className = 'numbox ' + cls;
   el.tabIndex = 0;
+  el.setAttribute('role', 'spinbutton');
+  if (name) el.setAttribute('aria-label', name);
+  el.setAttribute('aria-valuemin', ariaNum(q.min));
+  el.setAttribute('aria-valuemax', ariaNum(q.max));
   let v = value;
-  const draw = () => { el.textContent = format(v); };
-  const set = (nv) => { if (nv === v) return; v = nv; draw(); onChange(v); };
+  const draw = () => { el.textContent = format(v); el.setAttribute('aria-valuenow', ariaNum(v)); };
+  const set = (nv) => { if (nv === v) return; controlHooks.change?.(el, name, !!el._held); v = nv; draw(); onChange(v); };
   dragControl(el, { get: () => v, set, q, sens: 240 });
   el.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-      e.preventDefault(); e.stopPropagation();
-      set(clamp(v + (e.key === 'ArrowUp' ? 1 : -1) * (q.step || 1), q.min, q.max));
-    }
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') return;
+    const nv = keyValue({ step: 1, ...q, curve: undefined }, v, e);
+    if (nv == null) return;
+    e.preventDefault(); e.stopPropagation();
+    set(nv);
   });
   draw();
   el._ctl = { q, get: () => v, set };

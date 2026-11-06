@@ -50,8 +50,8 @@ body.playing .logo b { animation: pulse calc(60s / 133) infinite; }
 .btn:hover { border-color: #4a4a52; background: #1b1b20; }
 .btn:disabled { opacity: 0.6; cursor: progress; }
 .btn.ghost { background: transparent; color: #a9a9b2; }
-.btn.accent { background: var(--accent); border-color: var(--accent); color: #fff; }
-.btn.accent:hover { background: #ff4646; }
+.btn.accent { background: #e52222; border-color: #e52222; color: #fff; }
+.btn.accent:hover { background: #d81b1b; border-color: #d81b1b; }
 .btn.toggle.on { border-color: var(--accent); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .btn.play { width: 46px; height: 46px; padding: 0; display: grid; place-items: center; border-radius: 50%; border-width: 2px; }
 .btn.play .ico-play { width: 0; height: 0; border-left: 15px solid var(--text); border-top: 9px solid transparent; border-bottom: 9px solid transparent; margin-left: 4px; }
@@ -127,7 +127,7 @@ body.recording .btn.rec .dot { background: var(--accent); animation: pulse 1s in
 .row.muted .tname { color: var(--dim2); }
 .steps { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 4px; height: 100%; }
 .steps .num { text-align: center; }
-.steps .num.beat { color: var(--dim); }
+.steps .num.beat { color: #a9a9b3; }
 .step {
   height: 34px; align-self: center; background: #18181c; border: 1px solid #1f1f24; border-radius: 2px; cursor: pointer;
   position: relative; display: grid; place-items: center; transition: background 0.06s;
@@ -269,8 +269,8 @@ body.midi-learn .midi-armed { outline: 2px solid #fff !important; animation: mid
 }
 
 /* ---------- SoundCloud publishing ---------- */
-.btn.sc { border-color: #f50; color: #fff; background: #f50; }
-.btn.sc:hover { background: #ff6a1a; border-color: #ff6a1a; }
+.btn.sc { border-color: #cf4500; color: #fff; background: #cf4500; }
+.btn.sc:hover { background: #bf3f00; border-color: #bf3f00; }
 .btn.sc:disabled { background: #3a1d10; border-color: #4b2818; color: #8a6a5c; }
 .modal.pub { width: min(1040px, 94vw); max-height: 92vh; overflow: auto; padding: 0; }
 .pub-head { position: sticky; top: 0; z-index: 4; display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; background: rgba(15,15,17,.96); border-bottom: 1px solid var(--line); backdrop-filter: blur(8px); }
@@ -397,7 +397,7 @@ body.artist-live .logo b { background: #c6ff2b; }
 .club-brand div { display: flex; flex-direction: column; gap: 2px; }
 .club-brand b { font: 900 13px var(--sans); letter-spacing: .18em; }
 .club-brand span { color: #7c7884; font-size: 8px; letter-spacing: .12em; text-transform: uppercase; }
-.club-room-name { display: flex; align-items: center; gap: 8px; flex: 1; max-width: 360px; color: #77737e; font-size: 8px; letter-spacing: .16em; }
+.club-room-name { display: flex; align-items: center; gap: 8px; flex: 1; max-width: 360px; color: #7d7984; font-size: 8px; letter-spacing: .16em; }
 .club-room-input { font: 900 14px var(--sans); text-transform: uppercase; letter-spacing: .1em; }
 .club-head-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 .club-main { min-height: 0; display: grid; grid-template-columns: minmax(0,1fr) 320px; }
@@ -494,7 +494,7 @@ body.artist-live .logo b { background: #c6ff2b; }
 .club-social-head { display: flex; align-items: center; justify-content: space-between; padding: 13px 14px; border-bottom: 1px solid #25222d; color: #817c88; font-size: 9px; letter-spacing: .17em; }
 .club-social-head b { color: #c6ff2b; }
 .club-tabs { display: flex; gap: 12px; }
-.club-tabs button { padding: 0; background: none; border: 0; color: #5d5966; font: inherit; letter-spacing: inherit; cursor: pointer; }
+.club-tabs button { padding: 0; background: none; border: 0; color: #7d7889; font: inherit; letter-spacing: inherit; cursor: pointer; }
 .club-tabs button.on { color: #e8e4ec; }
 .club-crate { min-height: 0; overflow-y: auto; padding: 6px 10px; display: flex; flex-direction: column; gap: 6px; }
 .club-crate-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 1px solid #25222d; background: #0e0d12; }
@@ -506,7 +506,7 @@ body.artist-live .logo b { background: #c6ff2b; }
 .club-chat-line { display: grid; grid-template-columns: 82px 1fr; gap: 8px; font-size: 10px; line-height: 1.4; }
 .club-chat-line b { overflow: hidden; text-overflow: ellipsis; color: #cbb2ff; }
 .club-chat-line span { color: #c4c1c8; overflow-wrap: anywhere; }
-.club-chat-empty { align-self: center; margin: auto; color: #595660; font-size: 10px; }
+.club-chat-empty { align-self: center; margin: auto; color: #7c7886; font-size: 10px; }
 .club-chat-compose { padding: 10px; border-top: 1px solid #25222d; }
 .club-reactions { display: grid; grid-template-columns: repeat(3,1fr); gap: 5px; padding: 0 10px 10px; }
 .club-reactions .btn { padding: 0 5px; font-size: 8px; }
@@ -516,7 +516,7 @@ body.artist-live .logo b { background: #c6ff2b; }
 .club-custom-preview .club-person { transform: scale(.7); transform-origin: 50% 60%; }
 .club-custom-preview .club-name { display: none; }
 .club-custom-fields { flex: 1; display: grid; grid-template-columns: 1.4fr repeat(3,1fr); gap: 8px; }
-.club-field { display: flex; flex-direction: column; gap: 5px; color: #6e6a74; font-size: 8px; letter-spacing: .14em; }
+.club-field { display: flex; flex-direction: column; gap: 5px; color: #7d7984; font-size: 8px; letter-spacing: .14em; }
 .club-principle { padding: 18px 22px; display: flex; flex-direction: column; justify-content: center; gap: 6px; }
 .club-principle b { color: #c6ff2b; font: 900 12px var(--sans); letter-spacing: .15em; }
 .club-principle span { color: #837e89; font-size: 9px; line-height: 1.5; }
@@ -828,7 +828,7 @@ body.recording .np-actions .btn.rec .dot { background: var(--accent); animation:
 @media (max-width: 760px) { .menu-pop { left: 0; right: auto; } }
 
 /* Accessible defaults: readable small labels, visible focus, named instrument choices. */
-:root { --dim: #8b8b96; --dim2: #62626c; }
+:root { --dim: #8b8b96; --dim2: #7c7c88; }
 :focus-visible { outline: 2px solid #8ab4ff; outline-offset: 2px; }
 .knob:focus-visible { outline-offset: 4px; border-radius: 6px; }
 .voice-chips { display: flex; flex-wrap: wrap; gap: 6px; flex-basis: 100%; order: -1; margin-bottom: 6px; }
@@ -1058,6 +1058,15 @@ body.studio-open .describe-chips { flex-wrap: nowrap; overflow-x: auto; scrollba
 .hum-voice, .melody-panel .voice-chips { --kc: var(--hue, #c6ff3d); }
 .hum-found { margin-top: 6px; }
 .hum-row .btn { white-space: nowrap; }
+
+/* Undo / redo, keyboard step grid, reduced motion. */
+.btn.undo-btn:disabled, .btn.redo-btn:disabled { opacity: .45; cursor: default; }
+.steps .step:focus-visible { outline: 2px solid #8ab4ff; outline-offset: 1px; z-index: 1; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; transition-delay: 0s !important; }
+  .tname.hit .led { animation-duration: .16s !important; }
+}
 
 /* ---------- polish: studio bar, genre strip, now-playing, phone overlays ---------- */
 body.studio-open .generate-actions > .btn { flex: 0 0 auto; min-width: 0; padding: 0 18px; white-space: nowrap; }
