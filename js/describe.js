@@ -347,6 +347,7 @@ function fuzzy(tok) {
 
 function normalize(text) {
   let s = ` ${String(text || '').toLowerCase().replace(/[’']/g, "'").replace(/♯/g, '#').replace(/♭/g, 'b')} `;
+  s = s.replace(/\bbase(line)?\b/g, 'bass$1');
   s = s.replace(/\bcan'?t\b/g, 'can not').replace(/\bwon'?t\b/g, 'will not').replace(/n't\b/g, ' not');
   for (const [re, to] of ARTIST_RE) s = s.replace(re, to);
   for (const [re, to] of PHRASES) s = s.replace(re, to);
@@ -635,6 +636,23 @@ export function mixAdjust(edits, m, state) {
     return db ? { ...e, amt: (nl - L) / 0.12, db } : e;
   });
   return { edits: out, notes };
+}
+
+// Voice input: speech engines hear "courts" for chords and "symbols" for cymbals and wrap requests in
+// filler. Picks the alternative transcript the parser understands best.
+const SPOKEN = [[/\bcourts?\b/g, 'chords'], [/\bsymbols?\b/g, 'cymbals'], [/\bhigh[\s-]?hats?\b/g, 'hats'], [/\bbeats per minute\b/g, 'bpm'],
+  [/^(?:(?:hey|okay|ok|so|um+|uh+|erm|please|can you|could you)[\s,]+)+/, ''], [/[\s,]+please$/, '']];
+export function heard(alternatives) {
+  let best = null;
+  for (const [i, raw] of [...alternatives].entries()) {
+    let text = String(raw || '').toLowerCase().trim().replace(/[.!?]+$/, '');
+    for (const [re, to] of SPOKEN) text = text.replace(re, to);
+    text = text.trim();
+    if (!text) continue;
+    const p = parse(text), score = (p.edits.length ? 100 : 0) - 10 * p.unknown.length - i;
+    if (!best || score > best.score) best = { text, score };
+  }
+  return best?.text || '';
 }
 
 export { merge as mergeEdits };

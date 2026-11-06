@@ -1,7 +1,7 @@
 // "Describe it": phrase -> edit table, state deltas, LLM validation, and that every edit changes what the engine plays.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { parse, applyEdits, describe, validateEdits, interpret, genreOf, suggest, CHIPS, chipsFor, needsMix, mixAdjust, TYPICAL } from '../js/describe.js';
+import { parse, applyEdits, describe, validateEdits, interpret, genreOf, suggest, CHIPS, chipsFor, needsMix, mixAdjust, TYPICAL, heard } from '../js/describe.js';
 import { defaultState, generate, applyOverrides, arrangement, songChain, STYLES } from '../js/state.js';
 
 let fails = 0;
@@ -379,6 +379,16 @@ for (const style of ['hypnotic', 'deephouse', 'neosoul', 'boombap']) {
   });
   t('unmeasured tracks keep the plain step', () => { const p = parse('louder vocals', { style: 'deephouse' }); assert.deepEqual(mixAdjust(p.edits, m({}), base).edits, p.edits); });
 }
+
+// Voice input: speech-engine spellings and filler, best alternative wins.
+t('"base" means bass', () => { for (const x of ['more base', 'the base is too loud', 'baseline louder']) assert.equal(parse(x).edits[0]?.target, 'acid', x); });
+t('heard() fixes misheard words and filler', () => {
+  assert.equal(heard(['more reverb on the courts']), 'more reverb on the chords');
+  assert.equal(heard(['Okay, make it 140 beats per minute.']), 'make it 140 bpm');
+  assert.equal(heard(['um make it darker please']), 'make it darker');
+});
+t('heard() prefers an alternative the parser understands', () => assert.equal(heard(['mike it docker', 'make it darker']), 'make it darker'));
+t('heard() keeps the top transcript when none parse', () => assert.equal(heard(['purple monkey', 'purple monkeys']), 'purple monkey'));
 
 await done;
 if (fails) { console.error(`describe: ${fails} failing`); process.exit(1); }

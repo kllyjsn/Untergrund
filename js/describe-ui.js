@@ -1,8 +1,12 @@
 // "Describe it" box on Create + Studio: type or tap what you want, get a one-line receipt with undo.
 import { h } from './ui.js';
-import { parse, applyEdits, genreOf, suggest, chipsFor, mergeEdits, needsMix, mixAdjust } from './describe.js';
+import { parse, applyEdits, genreOf, suggest, chipsFor, mergeEdits, needsMix, mixAdjust, heard } from './describe.js';
 
 let last = null, hint = null, draft = '', recent = null, net = null, ticket = 0;
+const Speech = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
+const MIC = '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
+const SPEECH_ERR = { 'not-allowed': 'Microphone is blocked. Allow the mic for this site in your browser settings, then try again.', 'service-not-allowed': 'Speech input is turned off in this browser.',
+  'audio-capture': 'No microphone found. Connect one and try again.', network: 'Speech input needs a connection. Type it instead:', 'no-speech': 'Didn’t catch that. Try again or type it:' };
 
 // Renders two bars of the drop and measures each part; null if it fails or takes too long.
 const listen = (state) => Promise.race([import('./mix-check.js').then((m) => m.measureMix(state)), new Promise((r) => setTimeout(() => r(null), 8000))]).catch(() => null);
@@ -15,9 +19,33 @@ export function describeBar(ctx) {
   const receipt = h('div', { class: 'describe-receipt', 'aria-live': 'polite' });
   const chips = h('div', { class: 'describe-chips' }, chipsFor(ctx.style()).map((c) => h('button', { type: 'button', class: 'describe-chip', onclick: () => run(c) }, c)));
   const box = h('form', { class: 'describe', onsubmit: (e) => { e.preventDefault(); run(input.value); } },
-    h('div', { class: 'describe-row' }, input, h('button', { class: 'describe-go', type: 'submit' }, 'DO IT')), receipt, chips);
+    h('div', { class: 'describe-row' }, input, Speech ? mic() : null, h('button', { class: 'describe-go', type: 'submit' }, 'DO IT')), receipt, chips);
   paint();
   return box;
+
+  // Say it: the browser's speech recognition fills the box as you talk and runs what it heard.
+  function mic() {
+    let rec = null;
+    const btn = h('button', { type: 'button', class: 'describe-mic', 'aria-label': 'Say it', title: 'Say it', 'aria-pressed': 'false', onclick: () => (rec ? rec.stop() : start()) });
+    btn.innerHTML = MIC;
+    const done = () => { rec = null; btn.classList.remove('on'); btn.setAttribute('aria-pressed', 'false'); };
+    function start() {
+      try { rec = new Speech(); } catch { return miss('', 'Speech input isn’t available here. Type it instead:'); }
+      Object.assign(rec, { lang: navigator.language || 'en-US', interimResults: true, maxAlternatives: 4, continuous: false });
+      let final = null;
+      rec.onresult = (e) => {
+        const res = e.results[e.results.length - 1];
+        input.value = draft = [...e.results].map((r) => r[0].transcript).join(' ').trim();
+        if (res.isFinal) final = [...res].map((a) => a.transcript);
+      };
+      rec.onerror = (e) => { final = null; done(); if (e.error !== 'aborted') miss('', SPEECH_ERR[e.error] || 'Couldn’t hear that. Type it instead:'); };
+      rec.onend = () => { done(); if (!final) return; const text = heard(final) || final[0]; input.value = draft = text; run(text); };
+      btn.classList.add('on'); btn.setAttribute('aria-pressed', 'true');
+      hint = { note: 'Listening… say what you want to change', suggestions: [] }; paint();
+      try { rec.start(); } catch { done(); }
+    }
+    return btn;
+  }
 
   function paint() {
     receipt.replaceChildren();
