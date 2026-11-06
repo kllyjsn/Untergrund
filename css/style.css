@@ -20,9 +20,11 @@
   --sans: 'Inter Tight', system-ui, sans-serif;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: var(--mono); font-size: 12px; }
+html, body { margin: 0; height: 100%; color: var(--text); font-family: var(--mono); font-size: 12px; }
+html { background: var(--bg); }
+/* transparent so the fixed z-index:-1 room lights paint above the page background */
 body {
-  background: var(--bg);
+  background: transparent;
   -webkit-font-smoothing: antialiased;
   user-select: none;
 }
