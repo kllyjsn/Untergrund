@@ -44,7 +44,7 @@ export const MIX_PARAMS = [
 
 export const TRACKS = [
   {
-    id: 'kick', name: 'KICK', kind: 'drum', color: '#ff2b2b',
+    id: 'kick', name: 'KICK', kind: 'drum', color: '#ff453a',
     params: [
       p('tune', 'TUNE', 32, 80, 46, { unit: 'Hz', step: 0.5 }),
       p('punch', 'PUNCH', 0, 1, 0.55),
@@ -56,7 +56,7 @@ export const TRACKS = [
     mix: { level: 0.9 },
   },
   {
-    id: 'clap', name: 'CLAP', kind: 'drum', color: '#ff7a2b',
+    id: 'clap', name: 'CLAP', kind: 'drum', color: '#ff9f0a',
     params: [
       p('tone', 'TONE', 500, 3500, 1150, { curve: 'exp', unit: 'Hz' }),
       p('decay', 'DECAY', 0.05, 0.9, 0.24, { curve: 'exp', unit: 's' }),
@@ -65,7 +65,7 @@ export const TRACKS = [
     mix: { level: 0.55, rev: 0.25 },
   },
   {
-    id: 'snare', name: 'SNARE', kind: 'drum', color: '#ffb02b',
+    id: 'snare', name: 'SNARE', kind: 'drum', color: '#ffd60a',
     params: [
       p('tune', 'TUNE', 110, 320, 185, { unit: 'Hz' }),
       p('snappy', 'SNAPPY', 0, 1, 0.6),
@@ -74,7 +74,7 @@ export const TRACKS = [
     mix: { level: 0.5, rev: 0.15 },
   },
   {
-    id: 'ch', name: 'HATS', kind: 'drum', color: '#e8e8e8',
+    id: 'ch', name: 'HATS', kind: 'drum', color: '#e5e5ea',
     params: [
       p('tune', 'TUNE', 0.6, 1.6, 1),
       p('decay', 'DECAY', 0.015, 0.3, 0.05, { curve: 'exp', unit: 's' }),
@@ -83,7 +83,7 @@ export const TRACKS = [
     mix: { level: 0.42, pan: 0.12 },
   },
   {
-    id: 'oh', name: 'OPEN HAT', kind: 'drum', color: '#c8c8c8',
+    id: 'oh', name: 'OPEN HAT', kind: 'drum', color: '#c7c7cc',
     params: [
       p('tune', 'TUNE', 0.6, 1.6, 1),
       p('decay', 'DECAY', 0.08, 1.4, 0.32, { curve: 'exp', unit: 's' }),
@@ -92,7 +92,7 @@ export const TRACKS = [
     mix: { level: 0.38, pan: -0.1, dly: 0.05 },
   },
   {
-    id: 'ride', name: 'RIDE', kind: 'drum', color: '#a8a8a8',
+    id: 'ride', name: 'RIDE', kind: 'drum', color: '#aeaeb2',
     params: [
       p('tune', 'TUNE', 0.6, 1.5, 1),
       p('decay', 'DECAY', 0.25, 3, 1.1, { curve: 'exp', unit: 's' }),
@@ -101,7 +101,7 @@ export const TRACKS = [
     mix: { level: 0.3, pan: 0.25, rev: 0.1 },
   },
   {
-    id: 'perc', name: 'PERC', kind: 'drum', color: '#7ad7ff',
+    id: 'perc', name: 'PERC', kind: 'drum', color: '#64d2ff',
     params: [
       p('tune', 'TUNE', 70, 900, 240, { curve: 'exp', unit: 'Hz' }),
       p('decay', 'DECAY', 0.04, 1, 0.22, { curve: 'exp', unit: 's' }),
@@ -113,7 +113,7 @@ export const TRACKS = [
     mix: { level: 0.45, pan: -0.3, rev: 0.2, dly: 0.25 },
   },
   {
-    id: 'acid', name: 'BASSLINE', kind: 'acid', color: '#c6ff2b',
+    id: 'acid', name: 'BASSLINE', kind: 'acid', color: '#30d158',
     params: [
       p('wave', 'SAW/SQR', 0, 1, 0),
       p('tune', 'TUNE', -12, 12, 0, { unit: 'st', step: 1, bipolar: true }),
@@ -128,7 +128,7 @@ export const TRACKS = [
     mix: { level: 0.55, dly: 0.12, rev: 0.05 },
   },
   {
-    id: 'stab', name: 'CHORDS', kind: 'stab', color: '#b98cff',
+    id: 'stab', name: 'CHORDS', kind: 'stab', color: '#bf5af2',
     params: [
       p('chord', 'CHORD', 0, CHORDS.length - 1, 3, { step: 1, list: CHORDS.map((c) => c.name) }),
       p('octave', 'OCTAVE', -2, 2, 0, { step: 1, bipolar: true }),
@@ -142,7 +142,7 @@ export const TRACKS = [
     mix: { level: 0.42, rev: 0.35, dly: 0.42 },
   },
   {
-    id: 'vox', name: 'VOCALS', kind: 'sampler', color: '#ff7ad9',
+    id: 'vox', name: 'VOCALS', kind: 'sampler', color: '#ff375f',
     params: [
       p('slice', 'SLICE', 0, 7, 0, { step: 1 }),
       p('scatter', 'SCATTER', 0, 1, 0.5),

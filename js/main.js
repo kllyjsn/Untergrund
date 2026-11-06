@@ -866,7 +866,7 @@ function toggleStudio() {
 
 const STYLE_HUE = {
   symphony: '#e8c27a', concerto: '#f0d9a8', nocturne: '#9fb4ff', repertoire: '#d8b4fe',
-  hypnotic: '#c6ff2b', industrial: '#ff6a3d', acid: '#f2ff3a', dub: '#3ad6c6', peak: '#ff4d86', hardtechno: '#ff3b3b',
+  hypnotic: '#30d158', industrial: '#ff6a3d', acid: '#ffd60a', dub: '#3ad6c6', peak: '#ff4d86', hardtechno: '#ff3b3b',
   deephouse: '#6f9bff', minimal: '#e4e4ea', ukg: '#b892ff', euphoric: '#ff9ad5', neosoul: '#ffb347', boombap: '#dca86e',
   breaks: '#ff9340', electro: '#2bd9ff', dnb: '#7dff9a', trance: '#a98bff', ambient: '#8fd8ff',
   amapiano: '#f5c542', afrobeats: '#ff7b54', reggaeton: '#e83cff', bailefunk: '#4dff4d', trap: '#9b5cff', drill: '#5c7cff', jerseyclub: '#00ffd0', hyperpop: '#ff5ce1',
@@ -878,7 +878,7 @@ const SECTION_NAMES = {
   club: ['INTRO', 'BUILD', 'DROP', 'FILL', 'BREAKDOWN', 'BREAKDOWN', 'DROP', 'HALF-TIME'],
 };
 const sectionName = (sid, i) => SECTION_NAMES[GROOVE_STYLES.has(sid) ? 'groove' : 'club'][i] || PATTERN_NAMES[i];
-const hue = (id) => STYLE_HUE[id] || '#c6ff2b';
+const hue = (id) => STYLE_HUE[id] || '#30d158';
 
 function setSong(on) {
   state.chainOn = on;
@@ -1741,14 +1741,14 @@ function drawViz() {
   const cv = ui.canvas; if (!cv) return;
   const g = cv.getContext('2d');
   const W = cv.width, H = cv.height;
-  g.fillStyle = '#0a0a0b'; g.fillRect(0, 0, W, H);
-  g.strokeStyle = '#1b1b1f'; g.lineWidth = 1;
+  g.fillStyle = '#1c1c1e'; g.fillRect(0, 0, W, H);
+  g.strokeStyle = '#2c2c2f'; g.lineWidth = 1;
   for (const f of [50, 100, 200, 500, 1000, 2000, 5000, 10000]) {
     const x = Math.log(f / 25) / Math.log(20000 / 25) * (W - 30);
     g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke();
   }
   const meterEl = document.querySelector('.meter-txt');
-  if (!engine) { g.fillStyle = '#3a3a40'; g.font = '600 18px JetBrains Mono, monospace'; g.fillText('PRESS SPACE', 20, H / 2); return; }
+  if (!engine) { g.fillStyle = '#6e6e74'; g.font = '600 18px JetBrains Mono, monospace'; g.fillText('PRESS SPACE', 20, H / 2); return; }
   const an = engine.analyser;
   const fd = ui.fd || (ui.fd = new Float32Array(an.frequencyBinCount));
   const td = ui.td || (ui.td = new Float32Array(an.fftSize));
@@ -1764,7 +1764,7 @@ function drawViz() {
     const n = Math.max(0, Math.min(1, (m + tilt + 95) / 85));
     const x = (b / bars) * mw, w = mw / bars - 1.5, hh = n * (H - 10);
     const grad = g.createLinearGradient(0, H, 0, H - hh);
-    grad.addColorStop(0, '#5a0d0d'); grad.addColorStop(1, n > 0.85 ? '#ffffff' : '#ff2b2b');
+    grad.addColorStop(0, '#0a3a7a'); grad.addColorStop(1, n > 0.85 ? '#ffffff' : '#0a84ff');
     g.fillStyle = grad; g.fillRect(x, H - hh, w, hh);
   }
   g.strokeStyle = 'rgba(255,255,255,0.75)'; g.lineWidth = 1.5; g.beginPath();
@@ -1781,8 +1781,8 @@ function drawViz() {
   const pdb = 20 * Math.log10(peak || 1e-6), rdb = 10 * Math.log10(sum / td.length || 1e-12);
   ui.peakHold = Math.max(pdb, (ui.peakHold ?? -60) - 0.4);
   const mh = (db) => Math.max(0, Math.min(1, (db + 36) / 36)) * (H - 4);
-  g.fillStyle = '#16161a'; g.fillRect(W - 22, 0, 16, H);
-  g.fillStyle = rdb > -6 ? '#ffffff' : '#ff2b2b'; g.fillRect(W - 20, H - mh(rdb), 12, mh(rdb));
+  g.fillStyle = '#28282b'; g.fillRect(W - 22, 0, 16, H);
+  g.fillStyle = rdb > -6 ? '#ffffff' : '#30d158'; g.fillRect(W - 20, H - mh(rdb), 12, mh(rdb));
   g.fillStyle = ui.peakHold > -0.5 ? '#fff' : '#ff8080'; g.fillRect(W - 22, H - mh(ui.peakHold) - 2, 16, 2);
   if (meterEl) meterEl.textContent = `PK ${pdb > -60 ? pdb.toFixed(1) : '-∞'}  RMS ${rdb > -60 ? rdb.toFixed(1) : '-∞'} dB`;
 }
