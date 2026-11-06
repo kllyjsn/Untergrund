@@ -10,6 +10,7 @@ import { lowEnd } from './lowend.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
 import { makeupGain } from './loudness.js';
 import { harmRoot, stabNotes, hookSnap, voiceLead } from './harmony.js';
+import { develop, motifPlan, stepDeg } from './motif.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
@@ -1267,9 +1268,9 @@ export class Engine {
     const len = Math.max(0.06, dur * 0.92), end = t + len + 0.6, vn = Math.min(1, v / 1.3);
     // Played legato into a close note, the lead slides there instead of re-striking.
     const prev = this.lastLead, semis = prev ? Math.abs(12 * Math.log2(f / prev.f)) : 0;
-    const from = L.glide && prev && t > prev.t && t - prev.end < 0.09 && semis > 0.5 && semis <= 7 ? prev.f : 0;
+    const from = !expression.harm && L.glide && prev && t > prev.t && t - prev.end < 0.09 && semis > 0.5 && semis <= 7 ? prev.f : 0;
     const glide = from ? L.glide * (0.6 + (0.4 * semis) / 7) : 0;
-    this.lastLead = { f, t, end: t + len };
+    if (!expression.harm) this.lastLead = { f, t, end: t + len };
     const amp = this.gain(0), pan = c.createStereoPanner();
     pan.pan.value = (hash(t * 13, 5) - 0.5) * 0.3;
     const tame = this.filter('lowpass', (1800 + 1200 * b + 800 * (1 - warmth)) * L.air, 0.5);
@@ -1698,8 +1699,18 @@ export class Sequencer {
     const chain = this.s.chainOn ? parseChain(this.s.chain) : [];
     const arr = this.s.master.arr || 0;
     this.dropNow = !!this.dropNext; this.dropNext = false;
+    this.songBars = chain.length; this.chainArr = chain;
+    if (this.liftChain !== this.s.chain) {
+      // The final chorus: the last run of peak bars, if an earlier peak came before it.
+      let i = chain.length - 1;
+      while (i >= 0 && chain[i] !== 6) i--;
+      while (i > 0 && (chain[i - 1] === 6 || chain[i - 1] === 7)) i--;
+      this.liftChain = this.s.chain; this.liftFrom = i > 0 && chain.slice(0, i).includes(6) ? i : -1;
+    }
     if (chain.length) {
       const n = chain.length, p = this.chainPos % n, prev = this.chainPos ? this.cur : -1;
+      // Past the last bar of a song with an ending (even if a stalled main thread skipped its steps): finished, silent.
+      if (this.s.ending && n >= 16 && this.chainPos >= n) { this.finished = true; return; }
       this.cur = chain[p]; this.chainPos++;
       const peak = (x) => x === 2 || x === 6, brk = (x) => x === 4 || x === 5, fill = this.cur === 3 || this.cur === 7;
       if (arr) {
@@ -1721,12 +1732,20 @@ export class Sequencer {
     abs -= this.origin || 0;
     const s = this.s, e = this.e;
     this.advanceBar(abs, t);
+    if (this.finished && this.songBars) return this.cur;
     const pat = s.patterns[this.cur];
     const bar = Math.floor(abs / 16), vary = s.master.vary || 0;
     e.harm = pat.prog?.length ? pat.prog[bar % pat.prog.length] : null;
     e.step = abs;
     const sd = e.stepDur;
     const tt = t + (abs % 2 ? s.swing * sd * 0.5 : 0);
+    const n = this.songBars || 0, pos = n ? (this.chainPos - 1) % n : -1, lf = this.liftFrom;
+    const kl = this.keyLift = s.ending && pat.lift && lf > 0 && (pos >= lf || (pos === lf - 1 && abs % 16 >= 12)) ? pat.lift : 0;
+    if (s.ending && n >= 16 && pos === n - 1 && !pat.score) return this.ending(pat, abs % 16, tt, sd, kl);
+    // Turnaround: the last beat of a section anticipates the next section's first chord.
+    const nx = n && pos + 1 < n && this.chainArr[pos + 1] !== this.cur ? s.patterns[this.chainArr[pos + 1]] : null;
+    if (nx && abs % 16 >= 12 && pat.prog?.length && nx.prog?.length) e.harm = nx.prog[(bar + 1) % nx.prog.length];
+    if (kl && e.harm) e.harm = { r: e.harm.r + kl, c: e.harm.c };
     const pk = pocketOf(s.master);
     if ((s.master.dust || 0) > 0.01) e.dust(t, sd, abs);
     const arr = s.master.arr || 0, i16 = abs % 16;
@@ -1780,6 +1799,7 @@ export class Sequencer {
       // the hook's important notes; the gap makes the motif read as intentional.
       if (id === 'stab' && hookStep) continue;
       if (this.dropNext && id === 'kick' && i16 >= (arr >= 0.75 ? 12 : 14)) continue;
+      if (this.dropNext && id === 'snare' && arr > 0 && i16 >= 8) continue;
       let v = pat.steps[id][i];
       if (vary) {
         const k = TRACK_IDS.indexOf(id), roll = hash(abs * 1.37 + bar, k + 40);
@@ -1812,7 +1832,8 @@ export class Sequencer {
       const k = Math.floor(hash(abs, 78) * 6) + (bar % 4 === 3 ? 2 : 0);
       e.lick(tt + (s.master.humanize || 0) * 0.02, 0.35 + hash(abs, 79) * 0.3, k);
     }
-    const hk = pat.hook, hm = pat.hm || 0;
+    const hm = pat.hm || 0, scale = SCALES[s.scale]?.notes || SCALES.minor.notes;
+    const hk = pat.hook && !pat.hook.h && this.songBars ? this.motif(pat.hook, motifPlan(bar, this.songBars, this.cur, pat.hook.s.filter(Boolean).length), scale) : pat.hook;
     if (hk && hm && !s.mutes.stab && (!anySolo || s.solos.stab)) {
       const hi = abs % 32, st = hk.s[hi];
       const x = hk.x || { space: 0.4, risk: 0.4, feel: 0.4, warmth: 0.5 };
@@ -1820,18 +1841,52 @@ export class Sequencer {
       // lean into answers, then spend the octave leap only at the peak.
       const ph = Math.floor(bar / 2) % 4;
       const breathe = hm > 1 && ph === 2 && hi < 16 && hash(abs, 95) < 0.2 + x.space * 0.45;
-      if (st && (hm > 1 || hi < 16) && !breathe) {
-        const lift = hm > 1 && hi >= 16 && ph === 3 && x.risk >= 0.3 ? 12 : 0;
+      // The lead also drops out for the last half bar before a drop, leaving the riser and snare roll alone.
+      if (st && (hm > 1 || hi < 16) && !breathe && !(this.dropNext && i16 >= 8)) {
+        const lift = (hm > 1 && hi >= 16 && ph === 3 && x.risk >= 0.3 ? 12 : 0) + (this.keyLift || 0);
         const b = 0.58 + 0.42 * ((bar % 8) / 7);
         const answer = hi >= 16;
         const phraseVel = [0.82, 0.92, 0.72, 1][ph] * (answer ? 1.04 : 0.96);
         const lean = (answer ? 0.006 : -0.003) * x.feel + (hash(hi, 97) - 0.5) * 0.008 * x.feel;
         const resolve = hm > 1 && answer && ph === 1 && !hk.s.slice(hi + 1).some(Boolean);
-        e.hook(tt + lean + (s.master.humanize || 0) * 0.008, Math.min(1, st[2] * phraseVel), st[0] + lift, st[1] * sd, hk.v, hk.o, !hk.h && (hi % 4 === 0 || st[1] >= 2), b, !hk.h && resolve, x);
+        const strong = !hk.h && (hi % 4 === 0 || st[1] >= 2), ht = tt + lean + (s.master.humanize || 0) * 0.008;
+        e.hook(ht, Math.min(1, st[2] * phraseVel), st[0] + lift, st[1] * sd, hk.v, hk.o, strong, b, !hk.h && resolve, x);
+        // At the peak a second player doubles the answer's held notes a third below.
+        if (this.cur === 6 && answer && hm > 1 && st[1] >= 3 && !hk.h && this.songBars) e.hook(ht + 0.004, Math.min(1, st[2] * phraseVel) * 0.55, stepDeg(st[0], -2, scale) + lift, st[1] * sd, hk.v, hk.o, strong, b, false, { ...x, harm: 1 });
       }
     }
     if (this.roll === null) this.rollCount = 0;
     return this.cur;
+  }
+
+  // The last bar of a generated song: one final downbeat on the home chord, left to ring out.
+  ending(pat, i16, t, sd, kl = 0) {
+    // The transport reads this after the bar has rung out and stops instead of looping back to the intro.
+    if (i16 === 15) this.finished = true;
+    if (i16) return this.cur;
+    const s = this.s, e = this.e, anySolo = TRACK_IDS.some((id) => s.solos[id]), on = (id) => !s.mutes[id] && (!anySolo || s.solos[id]);
+    const home = pat.prog?.length ? pat.prog.find((h) => h.r === 0) || pat.prog[0] : null;
+    e.harm = home && { r: home.r + kl, c: home.c };
+    if (on('kick')) e.trigger('kick', t, 1);
+    if (on('acid')) e.acid(t, { on: true, n: 0, a: true, s: false }, false, false, sd);
+    if (on('stab')) e.trigger('stab', t, 0.85);
+    const hk = pat.hook;
+    if (hk && on('stab')) {
+      const ns = hk.s.filter(Boolean).map((x) => x[0]), tonic = 12 * Math.round(ns.reduce((a, b) => a + b, 0) / ns.length / 12) + kl;
+      e.hook(t, 0.8, tonic, 16 * sd, hk.v, hk.o, true, 1, false, hk.x || {});
+    }
+    e.impact(t, Math.max(0.4, s.master.arr || 0));
+    return this.cur;
+  }
+
+  // The hook as developed for this point in the song (see js/motif.js), cached per hook and variant.
+  motif(hk, kind, scale) {
+    if (kind === 'orig') return hk;
+    const c = (this.motifs ??= new WeakMap());
+    if (!c.has(hk)) c.set(hk, new Map());
+    const m = c.get(hk), key = `${kind}:${scale.join()}`;
+    if (!m.has(key)) m.set(key, { ...hk, s: develop(hk.s, kind, scale) });
+    return m.get(key);
   }
 
   // A classical score plays through, bar after bar, instead of looping one bar of steps.

@@ -57,6 +57,7 @@ export function dropSong(drop) {
   applyOverrides(s, g, true);
   s.chainOn = true;
   s.chain = songChain(drop.style, drop.seed);
+  s.ending = true;
   s.drop = drop.date;
   s.artist = { name: 'UNTERGRUND', title: drop.title, style: drop.style, seed: drop.seed, created: `${drop.date}T00:00:00.000Z` };
   return s;

@@ -121,8 +121,9 @@ function ensureAudio() {
 }
 
 // lead: how far ahead to queue audio (seconds); the worker tick passes its message event.
+let songOver = false;
 function schedule(lead) {
-  if (!playing) return;
+  if (!playing || songOver) return;
   const ahead = typeof lead === 'number' ? lead : 0.12;
   const offset = Date.now() / 1000 - ctx.currentTime;
   clockOffset = clockOffset === null ? offset : clockOffset + (offset - clockOffset) * 0.05;
@@ -153,6 +154,12 @@ function schedule(lead) {
     nextTime += sd;
     transportOrigin += (sd - base) * 1000;
     abs++;
+    // A generated song has played its final bar: let it ring, then stop rather than loop back to the intro.
+    if (seq.finished && !handoff) {
+      songOver = true;
+      setTimeout(() => playing && songOver && stop(), Math.max(0, nextTime - ctx.currentTime + 2.5) * 1000);
+      break;
+    }
   }
   // The audio is queued; now redraw for the new song (it sounds ~0.1 s from now).
   landed?.();
@@ -243,6 +250,7 @@ function start({ step = 0, delay = 0.06 } = {}) {
   seq.queued = null;
   seq.chainPos = bar + (abs % 16 === 0 ? 0 : 1);
   seq.acidPrevSlide = false;
+  seq.finished = false; songOver = false;
   seq.origin = 0;
   if (handoff) { handoff = null; engine.handoffCancel(); }
   state.current = seq.cur;
@@ -725,6 +733,7 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   for (const [t, params] of Object.entries(lockedParams)) s.params[t] = params;
   s.chainOn = true;
   s.chain = songChain(id, seed);
+  s.ending = true;
   // A score sets its own tempo even mid-set; a masterwork keeps its title and composer.
   if (g.pattern.score) s.bpm = g.bpm;
   if (typeof hum === 'function' && !g.pattern.score) { const r = hum(s.bpm, s.scale); s.key = r.key; if (r.hook) placeHook(s.patterns, r.hook); }
@@ -1091,7 +1100,9 @@ function buildNowPlaying(primary) {
   ui.npCanvas = h('canvas', { class: 'np-viz', width: 1200, height: 220 });
   ui.npSection = h('b', {}, sc ? sc.sections[0].name : chain.length ? sectionName(sid, chain[0]) : `PATTERN ${PATTERN_NAMES[state.current]}`);
   ui.npBar = h('span', {}, sc ? `BAR 1 / ${sc.bars}` : chain.length ? `BAR 1 / ${chain.length}` : '');
-  ui.npCells = chain.map((p) => h('i', { class: 'np-cell' }));
+  // Long songs show one cell per 4-bar section so the strip stays legible on a phone.
+  ui.npGroup = chain.length > 48 ? 4 : 1;
+  ui.npCells = Array.from({ length: Math.ceil(chain.length / ui.npGroup) }, () => h('i', { class: 'np-cell' }));
   ui.npChain = chain;
   ui.npStyle = sid;
   return [
@@ -1130,7 +1141,8 @@ function updateNowPlaying(ev) {
   const i = Math.floor(ev.abs / 16) % ui.npChain.length;
   if (cells.idx === i) return;
   cells.idx = i;
-  cells.forEach((c, j) => { c.classList.toggle('now', j === i); c.classList.toggle('past', j < i); });
+  const ci = Math.floor(i / (ui.npGroup || 1));
+  cells.forEach((c, j) => { c.classList.toggle('now', j === ci); c.classList.toggle('past', j < ci); });
   ui.npSection.textContent = sectionName(ui.npStyle, ui.npChain[i]);
   ui.npBar.textContent = `BAR ${i + 1} / ${ui.npChain.length}`;
 }

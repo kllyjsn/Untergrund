@@ -113,3 +113,100 @@ console.log('genre signatures passed');
   }
 console.log('seeded instrument ensembles passed');
 }
+
+// Motif development keeps every variant in the scale and recognisable, and the breakdown gets its own B-phrase.
+{
+  const { develop, motifPlan, DEVELOP } = await import('../js/motif.js');
+  for (const style of ['trance', 'deephouse', 'hypnotic', 'trap']) for (const scale of ['minor', 'major']) {
+    const sc = SCALES[scale].notes, pcs = new Set(sc.map((n) => n % 12)), hook = generate(style, 211, scale).pattern.hook.s;
+    for (const kind of [...DEVELOP, 'contrast']) {
+      const v = develop(hook, kind, sc);
+      assert.equal(v.length, 32, `${style} ${kind} keeps 2 bars`);
+      assert(v.filter(Boolean).length >= 3, `${style} ${kind} keeps the line`);
+      assert.notDeepEqual(v, hook, `${style} ${kind} should vary the motif`);
+      for (const [n, l] of v.filter(Boolean)) { assert(pcs.has(((n % 12) + 12) % 12), `${style} ${kind} note ${n} out of ${scale}`); assert(l >= 1 && l <= 16); }
+    }
+  }
+  const plan = Array.from({ length: 20 }, (_, b) => motifPlan(b * 2, 40, 2));
+  assert.deepEqual(plan.slice(0, 2), ['orig', 'orig'], 'the hook is stated before it develops');
+  assert(plan.slice(-2).every((k) => k === 'orig'), 'the outro brings the hook home');
+  assert(new Set(plan).size >= 4, 'a song uses several developments');
+  assert.equal(motifPlan(10, 40, 4), 'contrast');
+  assert.equal(motifPlan(10, 0, 2), 'orig', 'a looping pattern plays the hook as written');
+  console.log('motif development passed');
+}
+
+// Song form: 8-bar phrases (16 for techno) that end on a turnaround, and a generated song that closes on one final
+// downbeat instead of looping straight back to the intro.
+{
+  const { songChain } = await import('../js/state.js');
+  const { buildSong, playSong } = await import('../scripts/composition.mjs');
+  for (const style of ['deephouse', 'hypnotic', 'ambient', 'trap', 'trance']) for (const seed of [1, 2, 3]) {
+    const c = songChain(style, seed), phrase = style === 'ambient' || c.length <= 80 ? 8 : 16;
+    assert(c.length >= 48 && c.length <= 128 && c.length % phrase === 0, `${style} form ${c.length} bars`);
+    for (let b = phrase; b < c.length; b += phrase) {
+      if (c[b] !== c[b - 1] && style !== 'ambient') assert('DHB'.includes(c[b - 1]) || c[b] === 'B' || c[b] === 'A', `${style} phrase into bar ${b} has no turnaround (${c.slice(b - phrase, b)})`);
+    }
+  }
+  const s = buildSong('deephouse', 101);
+  assert.equal(sanitize(JSON.parse(JSON.stringify(s))).ending, true, 'the ending survives save and load');
+  const { log, bars } = playSong(s), last = log.filter((L) => L.step >= (bars - 1) * 16);
+  assert(last.length >= 3 && last.every((L) => L.step % 16 === 0), 'the last bar is a single final downbeat');
+  assert(last.some((L) => L.k === 'impact'), 'the final downbeat lands with weight');
+  const turn = log.filter((L) => L.k === 'trigger' && L.a[0] === 'stab' && L.step % 16 >= 12 && L.step < (bars - 1) * 16);
+  assert(turn.length, 'stabs play through turnarounds');
+  console.log('song form passed');
+}
+
+// Harmony for the styles without written changes, in their own idiom, and the final-chorus lift.
+{
+  const { CHORDS } = await import('../js/params.js');
+  const { buildSong, playSong } = await import('../scripts/composition.mjs');
+  const MINOR = new Set([0, 2, 3, 5, 7, 8, 10]), pc = (x) => ((x % 12) + 12) % 12;
+  const diatonic = (h) => CHORDS[h.c].iv.every((i) => MINOR.has(pc(h.r + i)));
+  for (const style of ['hypnotic', 'peak', 'dub', 'breaks', 'electro', 'dnb', 'bailefunk', 'jerseyclub', 'ambient']) for (const seed of [1, 2, 3, 4]) {
+    const g = generate(style, seed), sc = arrangement(g.pattern, seed), techno = !!g.pattern.pedal;
+    const progs = techno ? [sc[6].prog, sc[7].prog] : sc.map((p) => p.prog);
+    for (const pr of progs) {
+      assert(pr && new Set(pr.map((h) => h.r)).size >= 2, `${style}/${seed} has harmonic motion`);
+      if (diatonic(pr[0])) assert(pr.every(diatonic), `${style}/${seed} off-tonic chords stay in the key: ${JSON.stringify(pr)}`);
+    }
+    if (techno) assert(sc.slice(0, 6).every((p) => !p.prog) && pr0(sc[6]).slice(0, 6).every((h) => h.r === 0), `${style} holds the pedal outside the peak`);
+  }
+  function pr0(p) { return p.prog; }
+  for (const style of ['euphoric', 'trance', 'hyperpop']) {
+    const s = buildSong(style, 101), { log, bars } = playSong(s), c = s.chain;
+    assert.equal(sanitize(JSON.parse(JSON.stringify(s))).patterns[6].lift, 2, 'the lift survives save and load');
+    const lastPeak = c.lastIndexOf('G'), early = log.filter((L) => L.k === 'trigger' && L.a[0] === 'stab' && L.step < 16 * c.indexOf('G') + 64 && L.harm);
+    const late = log.filter((L) => L.k === 'trigger' && L.a[0] === 'stab' && L.step >= 16 * lastPeak - 64 && L.step < 16 * lastPeak && L.harm);
+    const roots = (xs) => new Set(xs.map((L) => pc(L.harm.r)));
+    assert([...roots(late)].some((r) => !roots(early).has(r)) || [...roots(late)].every((r) => [...roots(early)].map((x) => pc(x + 2)).includes(r)), `${style} final chorus is lifted`);
+    const end = log.find((L) => L.k === 'hook' && L.step === (bars - 1) * 16);
+    assert(end && pc(end.a[2]) === 2, `${style} ends on the lifted tonic (${end?.a[2]})`);
+  }
+  console.log('idiomatic harmony passed');
+}
+
+// A generated song finishes: the sequencer flags the end of its last bar so the transport stops instead of looping,
+// and the shared player plays every bar of the longer forms.
+{
+  const { buildSong, playSong } = await import('../scripts/composition.mjs');
+  const { songBars } = await import('../js/player.js');
+  for (const style of ['trance', 'industrial', 'deephouse', 'ambient']) {
+    const s = buildSong(style, 101);
+    assert(s.ending, `${style}: a generated song ends`);
+    const { seq, bars } = playSong(s);
+    assert(seq.finished, `${style}: the last bar flags the end`);
+    assert(songBars(s) === bars, `${style}: the player plays all ${bars} bars (${songBars(s)})`);
+  }
+  // A stalled main thread can skip the final bar's steps (the transport only advances bars): the song still ends.
+  const { Sequencer } = await import('../js/engine.js');
+  const s = buildSong('trance', 101), n = s.chain.length, calls = [];
+  const e = new Proxy({ stepDur: 0.125, harm: null }, { get: (o, k) => (k in o ? o[k] : () => calls.push(k)), set: (o, k, v) => { o[k] = v; return true; } });
+  const seq = new Sequencer(e, s);
+  for (let abs = 0; abs < (n - 2) * 16; abs++) seq.tick(abs, abs * 0.125);
+  for (let abs = (n - 2) * 16; abs < n * 16; abs++) seq.advanceBar(abs, abs * 0.125);
+  calls.length = 0; seq.tick(n * 16, n * 2);
+  assert(seq.finished && !calls.some((k) => k === 'trigger' || k === 'hook' || k === 'acid'), 'a song whose last bar was skipped still ends, silently');
+  console.log('song ending stops passed');
+}
