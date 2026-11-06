@@ -18,10 +18,10 @@ body:not(.studio-open) .generate-actions:not(.np-actions) > .btn:hover { backgro
 
 @keyframes home-rise { from { opacity: 0; transform: translateY(8px); } }
 .drop-card.drop-in { animation: home-rise .32s cubic-bezier(.2,.8,.2,1) both; }
-.generate-home.unlock .generate-actions > .btn, .generate-home.unlock .describe, .generate-home.unlock .generate-status { animation: home-rise .5s cubic-bezier(.2,.8,.2,1) both; }
-.generate-home.unlock .generate-actions > .btn:nth-child(3) { animation-delay: .08s; }
-.generate-home.unlock .describe { animation-delay: .16s; }
-.generate-home.unlock .generate-status { animation-delay: .24s; }
+.generate-home.unlock .generate-actions > .btn, .generate-home.unlock .describe, .generate-home.unlock .generate-status { animation: home-rise .5s cubic-bezier(.2,.8,.2,1) var(--ua, 0ms) both; }
+.generate-home.unlock .generate-actions > .btn:nth-child(3) { animation-delay: calc(var(--ua, 0ms) + 80ms); }
+.generate-home.unlock .describe { animation-delay: calc(var(--ua, 0ms) + 160ms); }
+.generate-home.unlock .generate-status { animation-delay: calc(var(--ua, 0ms) + 240ms); }
 
 @media (max-width: 760px) {
   .drop-peek { margin-top: 14px; }

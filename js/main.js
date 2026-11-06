@@ -58,7 +58,7 @@ function showCrash(err) {
 }
 window.addEventListener('error', (e) => showCrash(e.error || e.message));
 let studioOpen = localStorage.getItem('untergrund.studio-open') === '1';
-let madeShown = null, dropOpen = false;
+let madeShown = null, unlockAt = 0, dropOpen = false;
 let variation = 0.25;
 let artistLive = null;
 let clipboard = null;
@@ -1210,8 +1210,10 @@ function buildGenerateHome() {
   // First visit shows only the essentials; the rest unlocks once a track has been made.
   const made = studioOpen || playing || localStorage.getItem('untergrund.made') === '1' || recentTracks().length > 0;
   if (playing) localStorage.setItem('untergrund.made', '1');
-  const unlock = made && madeShown === false;
+  // The home re-renders often; keep the reveal running across rebuilds by offsetting its delay.
+  if (made && madeShown === false) unlockAt = performance.now();
   madeShown = made;
+  const since = performance.now() - unlockAt, unlock = unlockAt > 0 && since < 900;
   const hum = STYLES[style].family === 'CLASSICAL' ? null : humButton(humApi);
   const left = showNp ? buildNowPlaying(primary) : [
     h('div', { class: 'generate-copy' },
@@ -1233,7 +1235,7 @@ function buildGenerateHome() {
     h('div', { class: 'recents-row' }, recent.map((t) => h('button', { class: 'recent', style: `--hue:${hue(t.style)}`, onclick: () => openRecent(t) },
       h('i'), h('b', {}, t.title || 'Untitled'), h('span', {}, [STYLES[t.style]?.name, t.bpm && `${t.bpm} BPM`].filter(Boolean).join(' · ')))))) : null;
   const following = followingRow({ hue, onPlay: (t) => openShared(t.id, true), onLoad: renderHome });
-  const home = h('section', { role: studioOpen ? 'region' : 'main', 'aria-label': 'Create', class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : '') + (made ? '' : ' first-run') + (unlock ? ' unlock' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` }, left, made ? describeBox() : null, picker, concert, recents, following);
+  const home = h('section', { role: studioOpen ? 'region' : 'main', 'aria-label': 'Create', class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : '') + (made ? '' : ' first-run') + (unlock ? ' unlock' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` + (unlock ? `;--ua:${-Math.round(since)}ms` : '') }, left, made ? describeBox() : null, picker, concert, recents, following);
   ui.home = home;
   return home;
 }
