@@ -1,7 +1,7 @@
 // "Describe it": phrase -> edit table, state deltas, LLM validation, and that every edit changes what the engine plays.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { parse, applyEdits, describe, validateEdits, interpret, genreOf, suggest, CHIPS, chipsFor } from '../js/describe.js';
+import { parse, applyEdits, describe, validateEdits, interpret, genreOf, suggest, CHIPS, chipsFor, needsMix, mixAdjust, TYPICAL } from '../js/describe.js';
 import { defaultState, generate, applyOverrides, arrangement, songChain, STYLES } from '../js/state.js';
 
 let fails = 0;
@@ -347,6 +347,37 @@ for (const style of ['hypnotic', 'deephouse', 'neosoul', 'boombap']) {
     const v = validateEdits([{ id: 'section', sec: 'drop', op: 'energy', amt: 9 }, { id: 'section', sec: 'nowhere', op: 'skip' }, { id: 'section', sec: 'intro', op: 'mute', tracks: ['kick', 'evil'] }, { id: 'section', sec: 'intro', op: 'mute', tracks: [] }]);
     assert.deepEqual(v.map(({ src, ...e }) => e), [{ id: 'section', sec: 'drop', op: 'energy', amt: 3 }, { id: 'section', sec: 'intro', op: 'mute', tracks: ['kick'] }]);
   });
+}
+
+// Mix-aware: a measurement re-sizes level and muddy/harsh fixes.
+{
+  const base = songFor('deephouse');
+  const m = (tracks, bands = { subShare: 0.3, lowShare: 0.2, mudShare: 0.165, harshShare: 0.0095 }) => ({ tracks, bands });
+  const fix = (text, meas) => { const p = parse(text, { style: 'deephouse' }); return { p, ...mixAdjust(p.edits, meas, base) }; };
+  const lvl = (edits, id) => edits.find((e) => e.id === 'level' && e.target === id);
+  t('needsMix only for level and muddy/harsh', () => {
+    for (const x of ['the bass is too loud', 'louder kick', 'turn the hats up', "it's muddy", 'too harsh']) assert.ok(needsMix(parse(x, { style: 'deephouse' }).edits), x);
+    for (const x of ['darker', 'faster', 'no vocals', 'longer intro']) assert.ok(!needsMix(parse(x, { style: 'deephouse' }).edits), x);
+  });
+  t('a bass far over its usual level comes down to it', () => {
+    const e = lvl(fix('the bass is too loud', m({ acid: TYPICAL.acid + 7 })).edits, 'acid');
+    assert.ok(e.db <= -7.5 && e.db >= -8.5, String(e.db));
+  });
+  t('a bass already under its usual level moves a small step', () => assert.equal(lvl(fix('the bass is too loud', m({ acid: TYPICAL.acid - 5 })).edits, 'acid').db, -1.5));
+  t('quiet hats come up to their usual level', () => assert.ok(lvl(fix('louder hats', m({ ch: TYPICAL.ch - 8 })).edits, 'ch').db >= 8.5));
+  t('level fixes are bounded', () => { const e = lvl(fix('the kick is too loud', m({ kick: 40 })).edits, 'kick'); assert.ok(e.db >= -12); });
+  t('mix-aware dB shows in the receipt and lands on the knob', () => {
+    const r = fix('the bass is too loud', m({ acid: TYPICAL.acid + 7 }));
+    const a = applyEdits(base, r.edits, { seed: 1, style: 'deephouse' });
+    assert.match(a.did.join(), /quieter bass \(−\d/);
+    assert.ok(Math.abs(20 * Math.log10(a.state.params.acid.level / base.params.acid.level) - lvl(r.edits, 'acid').db) < 0.1);
+  });
+  t('muddier mixes get a bigger muddy fix', () => {
+    const tone = (x) => fix("it's muddy", m({}, { subShare: 0.3, lowShare: 0.2, mudShare: x, harshShare: 0.0095 })).edits.find((e) => e.id === 'tone').amt;
+    assert.ok(tone(0.33) > tone(0.165) && tone(0.165) > tone(0.04));
+    assert.match(fix("it's muddy", m({}, { subShare: 0.3, lowShare: 0.2, mudShare: 0.33, harshShare: 0.01 })).notes.join(), /low-mids measured heavy/);
+  });
+  t('unmeasured tracks keep the plain step', () => { const p = parse('louder vocals', { style: 'deephouse' }); assert.deepEqual(mixAdjust(p.edits, m({}), base).edits, p.edits); });
 }
 
 await done;
