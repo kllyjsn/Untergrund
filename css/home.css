@@ -1,0 +1,33 @@
+/* Create home: essentials first; the rest unlocks once a track exists. */
+.gen-wrap { position: relative; flex: 1 1 100%; display: flex; }
+.gen-wrap > .generate-primary { flex: 1 1 auto; padding-right: 84px; }
+.gen-wrap > .hum-cta { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); flex: none; width: 48px; height: 48px; min-height: 0; padding: 0 0 0 16px; gap: 0; justify-content: flex-start; overflow: hidden; border: 0; border-radius: var(--r2, 4px); background: rgba(255,255,255,.22); color: #111; transition: width .28s cubic-bezier(.2,.8,.2,1), background .15s; }
+.gen-wrap .hum-ico { flex: none; width: 14px; height: 20px; margin-top: -6px; border-radius: 7px; }
+.gen-wrap > .hum-cta span { margin-left: 12px; white-space: nowrap; opacity: 0; font: 700 13px var(--sans); transition: opacity .2s; }
+.gen-wrap > .hum-cta:hover, .gen-wrap > .hum-cta:focus-visible { width: 176px; background: rgba(255,255,255,.36); color: #111; border: 0; }
+.gen-wrap > .hum-cta:hover span, .gen-wrap > .hum-cta:focus-visible span { opacity: 1; }
+
+body:not(.studio-open) .generate-actions:not(.np-actions) > .btn { flex: 0 0 auto; min-height: 36px; padding: 0 4px; border: 0; background: none; color: #a8a8b2; }
+body:not(.studio-open) .generate-actions:not(.np-actions) > .btn:hover { background: none; color: #fff; }
+
+.drop-peek { --drop: var(--green); margin-top: 22px; display: inline-flex; align-items: center; gap: 10px; height: 34px; padding: 0 14px 0 12px; border: 1px solid rgba(255,255,255,.1); border-radius: var(--r2, 4px); background: rgba(255,255,255,.03); color: #a8a8b2; font: 500 12px var(--sans); cursor: pointer; transition: border-color .15s, color .15s; }
+.drop-peek i { width: 7px; height: 7px; border-radius: 50%; background: var(--drop); animation: drop-blink 2.4s ease-out infinite; }
+.drop-peek b { color: #fff; font-weight: 700; }
+.drop-peek:hover { border-color: var(--drop); color: #fff; }
+@keyframes drop-blink { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--drop) 70%, transparent); } 70%, 100% { box-shadow: 0 0 0 8px transparent; } }
+
+@keyframes home-rise { from { opacity: 0; transform: translateY(8px); } }
+.drop-card.drop-in { animation: home-rise .32s cubic-bezier(.2,.8,.2,1) both; }
+.generate-home.unlock .generate-actions > .btn, .generate-home.unlock .describe, .generate-home.unlock .generate-status { animation: home-rise .5s cubic-bezier(.2,.8,.2,1) both; }
+.generate-home.unlock .generate-actions > .btn:nth-child(3) { animation-delay: .08s; }
+.generate-home.unlock .describe { animation-delay: .16s; }
+.generate-home.unlock .generate-status { animation-delay: .24s; }
+
+@media (max-width: 760px) {
+  .drop-peek { margin-top: 14px; }
+  .gen-wrap > .hum-cta { right: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .drop-peek i, .drop-card.drop-in, .generate-home.unlock * { animation: none !important; }
+  .gen-wrap > .hum-cta { transition: none; }
+}
