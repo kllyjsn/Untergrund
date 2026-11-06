@@ -252,7 +252,7 @@ body.midi-learn .midi-armed { outline: 2px solid #fff !important; animation: mid
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7); display: grid; place-items: center; z-index: 40; backdrop-filter: blur(3px); }
-.modal { padding: 22px 26px; width: min(560px, 92vw); }
+.modal { padding: 22px 26px; width: min(560px, 92vw); max-height: 86vh; max-height: 86dvh; overflow: auto; overscroll-behavior: contain; }
 .mtitle { font-family: var(--sans); font-weight: 900; letter-spacing: 0.22em; font-size: 14px; margin-bottom: 14px; }
 .modal table { width: 100%; border-collapse: collapse; }
 .modal td { padding: 5px 0; border-bottom: 1px solid var(--line); color: #b8b8c0; }
