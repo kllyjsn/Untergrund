@@ -32,7 +32,14 @@ function ensureAudio() {
 }
 
 function schedule() {
-  while (next < ctx.currentTime + 0.12) { seq.tick(abs, next); next += engine.stepDur; abs++; }
+  while (next < ctx.currentTime + 0.12) {
+    seq.tick(abs, next); next += engine.stepDur; abs++;
+    if (seq.finished) {
+      const at = abs; seq.finished = false; clearInterval(timer);
+      setTimeout(() => playing && abs === at && stop(), Math.max(0, next - ctx.currentTime + 2.5) * 1000);
+      break;
+    }
+  }
   const chain = song.state.chainOn ? parseChain(song.state.chain) : [];
   const total = (chain.length || 8) * 16;
   $('bar').style.width = `${((abs % total) / total) * 100}%`;
@@ -43,7 +50,7 @@ async function play() {
   const st = song.state;
   await loadSets(liveSets(st)).catch(() => {});
   const chain = st.chainOn ? parseChain(st.chain) : [];
-  abs = 0; seq.cur = chain.length ? chain[0] : st.current; seq.chainPos = 0; seq.queued = null;
+  abs = 0; seq.cur = chain.length ? chain[0] : st.current; seq.chainPos = 0; seq.queued = null; seq.finished = false;
   next = ctx.currentTime + 0.08;
   playing = true; timer = setInterval(schedule, 25); schedule();
   document.body.classList.add('on'); $('play').setAttribute('aria-label', 'Stop');
