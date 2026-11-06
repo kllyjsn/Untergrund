@@ -6,7 +6,7 @@ const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.p
 
 export function songBars(state) {
   const chain = state.chainOn ? parseChain(state.chain) : [];
-  return chain.length ? Math.min(chain.length, 64) : 8;
+  return chain.length ? Math.min(chain.length, 128) : 8;
 }
 
 export function createPlayer({ onBar = () => {}, onEnd = () => {} } = {}) {

@@ -209,3 +209,18 @@ console.log('seeded instrument ensembles passed');
   assert(counters > 20, `breakdowns carry a countermelody (${counters})`);
   console.log('interplay passed');
 }
+
+// A generated song finishes: the sequencer flags the end of its last bar so the transport stops instead of looping,
+// and the shared player plays every bar of the longer forms.
+{
+  const { buildSong, playSong } = await import('../scripts/composition.mjs');
+  const { songBars } = await import('../js/player.js');
+  for (const style of ['trance', 'industrial', 'deephouse', 'ambient']) {
+    const s = buildSong(style, 101);
+    assert(s.ending, `${style}: a generated song ends`);
+    const { seq, bars } = playSong(s);
+    assert(seq.finished, `${style}: the last bar flags the end`);
+    assert(songBars(s) === bars, `${style}: the player plays all ${bars} bars (${songBars(s)})`);
+  }
+  console.log('song ending stops passed');
+}
