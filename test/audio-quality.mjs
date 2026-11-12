@@ -1,6 +1,7 @@
 // js/audio-quality.js on synthetic signals with known answers (the measurements scripts/audio-benchmark.mjs gates on).
 import assert from 'node:assert/strict';
-import { analyzeMix, analyzeStems, ending, stereo, spectrum, loudnessRange, kHops } from '../js/audio-quality.js';
+import { analyzeMix, analyzeStems, ending, stereo, spectrum, loudnessRange, kHops, shaper, crest, limiter } from '../js/audio-quality.js';
+import { clipCurve, satCurve } from '../js/dsp.js';
 
 const fs = 48000, sec = (s) => Math.round(s * fs);
 const tone = (f, s, a = 0.5, ph = 0) => Float32Array.from({ length: sec(s) }, (_, i) => a * Math.sin(2 * Math.PI * f * i / fs + ph));
@@ -71,5 +72,24 @@ for (const t of kicks) for (let i = 0; i < sec(0.15); i++) kick[sec(t) + i] = 0.
 const bass = tone(45, 2, 0.6), ducked = bass.map((v, i) => (kicks.some((t) => i >= sec(t) && i < sec(t + 0.08)) ? 0 : v));
 const kb = (b) => analyzeStems([{ id: 'kick', left: kick, right: kick, notes: 4 }, { id: 'acid', left: b, right: b, notes: 4 }], fs, { kicks }).kickBass.collisionP90Db;
 assert(kb(bass) > -3 && kb(ducked) < kb(bass) - 8, `kick/bass collision ${kb(bass)} vs ducked ${kb(ducked)}`);
+
+// Over-limiting: the master clipper curve leaves a signal under its knee alone, soft-clips a peak just over it and
+// hard-clips one past full scale; the bus saturator compresses a hot peak; crest falls when peaks are flattened;
+// limiter gain reduction is absolute once its make-up gain is known.
+const clipC = clipCurve(), under = shaper([tone(997, 1, 0.8), tone(997, 1, 0.8)], fs, { curve: clipC });
+near(under.shaveMaxDb, 0, 0.01, 'clipper under the knee'); assert.equal(under.hardShare, 0);
+const soft = shaper([tone(997, 1, 0.95), tone(997, 1, 0.95)], fs, { curve: clipC });
+assert(soft.share1Db === 0 && soft.shaveMaxDb > 0.05 && soft.hardShare === 0, `soft clip ${JSON.stringify(soft)}`);
+const hard = shaper([tone(997, 1, 0.5), tone(997, 1, 0.5)], fs, { curve: clipC, gain: 3 });
+assert(hard.hardShare > 0.95 && hard.share3Db > 0.95, `hard clip ${JSON.stringify(hard)}`);
+near(hard.shaveMaxDb, 20 * Math.log10(1.5 / clipC[clipC.length - 1]), 0.05, 'hard clip depth');
+const satHot = shaper([tone(997, 1, 0.2), tone(997, 1, 0.2)], fs, { curve: satCurve(0.8) }), satCold = shaper([tone(997, 1, 0.002), tone(997, 1, 0.002)], fs, { curve: satCurve(0.8) });
+assert(satHot.shaveP99Db > 1 && satCold.shaveP99Db < 0.05, `saturator ${satHot.shaveP99Db} / ${satCold.shaveP99Db}`);
+const beats = noise(2, 0.05); for (let k = 0; k < 8; k++) beats[sec(k * 0.25)] = 0.9;
+const flat = beats.map((v) => Math.max(-0.1, Math.min(0.1, v))), bt = [0, 0.5, 1, 1.5, 2];
+assert(crest(beats, beats, fs, bt).p10Db > crest(flat, flat, fs, bt).p10Db + 10, 'clipping lowers crest');
+const lin = tone(997, 1, 0.5), half = lin.map((v) => v * 0.5 * 1.5);
+near(limiter([lin, lin, half, half], fs, -Infinity, null, 20 * Math.log10(1.5)).grMean, -6.02, 0.05, 'absolute gain reduction');
+near(limiter([lin, lin, half, half], fs).grMean, 0, 0.01, 'relative gain reduction without make-up');
 
 console.log('audio quality metrics: synthetic checks passed');
