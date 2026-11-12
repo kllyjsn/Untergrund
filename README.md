@@ -88,6 +88,17 @@ The secret is only used by `/api/sc-token`; audio uploads go directly from the b
 - Stats: set `STATS_TOKEN` in Vercel, then open `/stats.html?token=<STATS_TOKEN>` (the token moves into session storage and leaves the URL). Locally with `SC_MOCK=1` the token is `dev`.
 - Page views: the free Vercel Web Analytics script loads on untergrund.sh once Web Analytics is enabled for the project in the Vercel dashboard. Custom events there need a paid plan, which is why the funnel is first-party.
 
+## Daily Drop notifications
+
+Opt-in Web Push for the Daily Drop: "Today's drop: Paper Mirror" with the listener's streak, deep-linking to `/?drop=<date>`. Standard Web Push with VAPID, no paid provider or npm dependency (`api/_lib/webpush.js`). iOS allows it only from the installed home-screen app (iOS 16.4+), and the prompt only appears from a tap, so the app asks after someone has played a drop for 30 seconds (once, at most twice ever), and the Daily Drop card offers **Notify me** / **Turn off** after their first drop.
+
+- `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`: run `node scripts/vapid-keys.mjs` once and paste both. Rotating them silently re-subscribes open apps.
+- `VAPID_SUBJECT` (optional): `mailto:you@example.com` or a URL, sent to push services as a contact. Defaults to `https://www.untergrund.sh`.
+- `CRON_SECRET`: random string (`openssl rand -hex 32`). Vercel Cron sends it as `Authorization: Bearer …` to `GET /api/push` (`vercel.json` `crons`, daily at 16:00 UTC), which sends that day's drop once. Test by hand with `curl -H "Authorization: Bearer $CRON_SECRET" https://www.untergrund.sh/api/push` (add `?force=1` to send again the same day).
+- Needs the same `KV_REST_API_URL` / `KV_REST_API_TOKEN` Redis (one hash, `untergrund:push:subs`). Subscriptions the push service reports gone (404/410) and ones whose app hasn't opened in 60 days are deleted during the send; listeners who already played today's drop aren't pinged.
+
+Without the VAPID keys `/api/push` reports `enabled:false` and no notification UI appears.
+
 ## Creator accounts and public pages
 
 Every published song gets a permanent page at `/t/<id>` that replays its stored state in the browser, and every creator can claim `/a/<handle>`. `vercel.json` rewrites both to `api/page.js`, which renders per-page Open Graph/Twitter tags and a generated cover PNG for link unfurls.

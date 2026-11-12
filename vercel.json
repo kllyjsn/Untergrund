@@ -1,6 +1,8 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "functions": { "api/push.js": { "maxDuration": 60 } },
+  "crons": [{ "path": "/api/push", "schedule": "0 16 * * *" }],
   "rewrites": [
     { "source": "/a/:handle", "destination": "/api/page?a=:handle" },
     { "source": "/t/:id", "destination": "/api/page?t=:id" }

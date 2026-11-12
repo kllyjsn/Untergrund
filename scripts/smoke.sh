@@ -41,6 +41,9 @@ check 200 "/api/tracks?drop=2026-11-03"
 check 400 "/api/tracks?drop=nope"
 check 405 "/api/tracks?play=missing-track"
 check 200 /js/daily.js
+check 200 /js/push.js
+check 200 /api/push
+check 401 "/api/push?send=1"
 check 200 /css/drop.css
 check 200 /api/jukebox
 check 404 "/api/jukebox?id=no-such-set"

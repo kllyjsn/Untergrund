@@ -21,6 +21,32 @@
 .drop-remix.on i::after { left: 9px; top: 9px; width: 8px; height: 8px; border: 0; background: #1e1e1f; border-radius: 1px; }
 .drop-remix b { color: #f2f2f5; font: 600 13px var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .drop-remix span { font: 400 12px var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Streak + daily alerts row (js/drop.js alertsRow). */
+.drop-alerts { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.07); color: #94949e; font: 400 12px/1.3 var(--sans); }
+.drop-alerts > span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drop-streak { flex: 0 0 auto; color: var(--drop); font: 600 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+.drop-alert-btn { flex: 0 0 auto; height: 28px; padding: 0 10px; margin: -4px -4px -4px 0; border: 1px solid rgba(255,255,255,.14); border-radius: var(--r1); background: none; color: #f2f2f5; font: 600 12px var(--sans); cursor: pointer; }
+.drop-alert-btn:hover { border-color: var(--drop); }
+.drop-alerts.on .drop-alert-btn { border-color: transparent; color: #94949e; }
+.drop-alerts.on .drop-alert-btn:hover { color: #f2f2f5; }
+/* Opened from a notification: the one thing to do is press Play it. */
+.drop-make.cue { animation: drop-cue 1.6s ease-out 3; }
+@keyframes drop-cue { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--drop) 80%, transparent); } 70%, 100% { box-shadow: 0 0 0 10px transparent; } }
+
+/* One-time opt-in sheet while the first drop plays. */
+.push-offer { position: fixed; right: 24px; bottom: 24px; z-index: 45; width: min(380px, calc(100vw - 24px)); display: flex; align-items: center; gap: 12px; padding: 12px 8px 12px 16px;
+  border: 1px solid var(--hair2); border-radius: var(--r2); background: #2c2c2e; box-shadow: var(--pop);
+  opacity: 0; transform: translateY(12px); transition: opacity .25s, transform .25s cubic-bezier(.2,.8,.2,1); }
+.push-offer.show { opacity: 1; transform: none; }
+.push-offer-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.push-offer-text b { color: #fff; font: 700 14px var(--sans); }
+.push-offer-text span { color: #a8a8b2; font: 400 12px/1.35 var(--sans); }
+.push-offer-yes { flex: 0 0 auto; height: 36px; padding: 0 14px; border: 0; border-radius: var(--r1); background: #f2f2f5; color: #1e1e1f; font: 700 13px var(--sans); cursor: pointer; }
+.push-offer-yes:hover { background: #fff; }
+.push-offer-no { flex: 0 0 auto; width: 32px; height: 36px; border: 0; background: none; color: #8e8e93; font: 400 20px var(--sans); cursor: pointer; }
+.push-offer-no:hover { color: #fff; }
+@media (prefers-reduced-motion: reduce) { .drop-make.cue { animation: none; } .push-offer { transition: none; } }
+
 /* Phone: compact, so GENERATE stays on the first screen. Just the top remix. */
 @media (max-width: 760px) {
   .drop-card { margin-top: 12px; padding: 10px 10px 8px 14px; border-radius: var(--r2); }
@@ -32,6 +58,8 @@
   .drop-remixes { margin-top: 8px; padding-top: 4px; }
   .drop-remixes li:nth-child(n+2) { display: none; }
   .drop-remix { padding: 4px 2px; }
+  .drop-alerts { margin-top: 8px; padding-top: 8px; }
+  .push-offer { left: 12px; right: 12px; width: auto; bottom: calc(80px + env(safe-area-inset-bottom)); }
 }
 
 .shared-tree { width: 100%; max-width: 320px; margin-top: 6px; text-align: left; }

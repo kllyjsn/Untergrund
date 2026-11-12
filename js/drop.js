@@ -3,11 +3,40 @@ import { h } from './ui.js';
 import { STYLES } from './state.js';
 import { dailyDrop, msToNextDrop, countdown } from './daily.js';
 import { listDrop } from './crate.js';
+import { track } from './analytics.js';
+import { pushState, enablePush, disablePush, dropStreak, playedDays, markOffered } from './push.js';
 
 let cache = { date: '', tracks: null, loading: false };
 let ticker = 0;
 
-export function dropCard({ hue, onMake, onPlay, onLoad, playingId = '' }) {
+const turnOn = (from) => enablePush().then((st) => track('push', { kind: st === 'on' ? `on_${from}` : st }));
+
+// Streak + daily alerts, once they've played a drop (so the ask comes after they know what it is).
+function alertsRow() {
+  const st = pushState(), streak = dropStreak();
+  const badge = streak > 1 ? h('b', { class: 'drop-streak' }, `${streak}-day streak`) : null;
+  if (st === 'on') return h('div', { class: 'drop-alerts on' }, badge, h('span', {}, 'Daily alerts on'),
+    h('button', { class: 'drop-alert-btn', type: 'button', onclick: () => disablePush().then(() => track('push', { kind: 'off' })) }, 'Turn off'));
+  if (st === 'off' && playedDays().length) return h('div', { class: 'drop-alerts' }, badge, h('span', {}, 'Get each drop on your lock screen'),
+    h('button', { class: 'drop-alert-btn', type: 'button', onclick: () => turnOn('card') }, 'Notify me'));
+  return badge && h('div', { class: 'drop-alerts' }, badge, h('span', {}, 'Come back tomorrow to keep it going'));
+}
+
+// The one-time ask, shown while their first drop is playing. One button; dismiss is a quiet ×.
+export function pushOffer() {
+  document.querySelector('.push-offer')?.remove();
+  markOffered();
+  track('push', { kind: 'offer' });
+  const close = () => { el.classList.remove('show'); setTimeout(() => el.remove(), 250); };
+  const el = h('div', { class: 'push-offer', role: 'dialog', 'aria-label': 'Daily drop alerts' },
+    h('div', { class: 'push-offer-text' }, h('b', {}, 'Get tomorrow’s drop'), h('span', {}, 'One new track a day, plus your streak. Nothing else.')),
+    h('button', { class: 'push-offer-yes', type: 'button', onclick: () => { close(); turnOn('offer'); } }, 'Notify me'),
+    h('button', { class: 'push-offer-no', type: 'button', 'aria-label': 'Not now', onclick: () => { close(); track('push', { kind: 'dismiss' }); } }, '×'));
+  document.body.append(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+}
+
+export function dropCard({ hue, onMake, onPlay, onLoad, playingId = '', cue = false }) {
   const drop = dailyDrop();
   if (cache.date !== drop.date) cache = { date: drop.date, tracks: null, loading: false };
   if (cache.tracks === null && !cache.loading) {
@@ -31,6 +60,6 @@ export function dropCard({ hue, onMake, onPlay, onLoad, playingId = '' }) {
     h('div', { class: 'drop-head' }, h('span', { class: 'drop-eyebrow' }, `Today’s drop · ${STYLES[drop.style].name}`), next),
     h('div', { class: 'drop-body' },
       h('div', { class: 'drop-title' }, h('b', {}, drop.title), h('span', {}, 'The same track for everyone today. Make it yours.')),
-      h('button', { class: 'drop-make', type: 'button', onclick: () => onMake(drop) }, 'Play it')),
-    remixes);
+      h('button', { class: 'drop-make' + (cue ? ' cue' : ''), type: 'button', onclick: () => onMake(drop) }, 'Play it')),
+    alertsRow(), remixes);
 }
