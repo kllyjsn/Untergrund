@@ -4,11 +4,12 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { STYLES, sanitize } from '../../js/state.js';
 import { redisEnv, redis } from './crate.js';
 import { normalizeTimeline } from '../../js/set-timeline.js';
+import { jamAction, reconcileJam } from '../../js/jam.js';
 
 export const ROOM_ID = /^[a-z0-9-]{2,32}$/;
 export const MAX_ROOM_BODY = 480000;
 const MAX_SET = 450000, MAX_EVENTS = 120, PRESENCE_MS = 15000, ROOM_TTL_S = 7 * 864e2;
-const EVENT_TYPES = ['chat', 'reaction', 'set', 'deck'];
+const EVENT_TYPES = ['chat', 'reaction', 'set', 'deck', 'jam'];
 
 const clean = (value, max = 80) => String(value || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max);
 const secretHash = (value) => createHash('sha256').update(String(value || '')).digest();
@@ -16,7 +17,7 @@ const validSecret = (secret, expected) => {
   if (!/^[a-f0-9]{64}$/i.test(String(secret || '')) || !expected) return false;
   return timingSafeEqual(secretHash(secret), Buffer.from(expected, 'hex'));
 };
-const emptyRoom = (id) => ({ id, seq: 0, setVersion: 0, hostId: null, queue: [], members: new Map(), tokens: new Map(), secrets: new Map(), events: [], currentSet: null });
+const emptyRoom = (id) => ({ id, seq: 0, setVersion: 0, hostId: null, queue: [], members: new Map(), tokens: new Map(), secrets: new Map(), events: [], currentSet: null, jam: null });
 
 export const serializeRoom = (room) => JSON.stringify({ ...room, members: [...room.members], tokens: [...room.tokens], secrets: [...room.secrets] });
 export function deserializeRoom(id, raw) {
@@ -58,7 +59,8 @@ function snapshot(room, since = 0, now = Date.now()) {
   for (const [id, member] of room.members) if (member.seen < cutoff) room.members.delete(id);
   room.queue = room.queue.filter((id) => room.members.has(id) && id !== room.hostId);
   if (room.hostId && !room.members.has(room.hostId)) room.hostId = room.queue.shift() || room.members.keys().next().value || null;
-  return { id: room.id, seq: room.seq, hostId: room.hostId, queue: room.queue, members: [...room.members.values()], events: room.events.filter((event) => event.seq > since), currentSet: room.currentSet };
+  room.jam = reconcileJam(room.jam, { setVersion: room.currentSet?.version || 0, members: room.members });
+  return { id: room.id, seq: room.seq, hostId: room.hostId, queue: room.queue, members: [...room.members.values()], events: room.events.filter((event) => event.seq > since), currentSet: room.currentSet, jam: room.jam };
 }
 
 // Upstash/Vercel KV (KV_REST_API_URL + KV_REST_API_TOKEN) persistence; null when not configured.
@@ -166,6 +168,12 @@ export function createRooms({ store = null, saveDelay = 250, now = Date.now } = 
           if (next && room.members.has(next)) room.hostId = next;
         }
         payload = { action, hostId: room.hostId, queue: room.queue };
+      }
+      if (type === 'jam') {
+        room.jam = reconcileJam(room.jam, { setVersion: room.currentSet?.version || 0, members: room.members });
+        const result = jamAction(room.jam, { clientId, hostId: room.hostId, set: room.currentSet, now: at }, payload);
+        if (result.error) return { status: result.status, json: { error: result.error, ...snapshot(room, +(body.since || 0), at) } };
+        payload = result.payload;
       }
       room.events.push({ id: clean(body.id, 80) || `${clientId}-${at}`, seq: ++room.seq, type, user, payload, at });
       room.events = room.events.slice(-MAX_EVENTS);
