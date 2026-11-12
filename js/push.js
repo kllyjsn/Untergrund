@@ -18,7 +18,8 @@ export function dropStreak(days = playedDays(), today = dropDate()) {
   return n;
 }
 
-let config = null, reg = null, sub = null, ready = null;
+let config = null, reg = null, sub = null, ready = null, notice = '';
+export const pushNotice = () => notice;
 const listeners = new Set();
 const changed = () => listeners.forEach((fn) => fn());
 export const onPushChange = (fn) => listeners.add(fn);
@@ -75,20 +76,26 @@ export function initPush() {
   return ready;
 }
 
+// Ask first and wait for the answer: iOS reports 'denied' while its prompt is still on screen.
+const askPermission = () => new Promise((resolve) => {
+  const p = Notification.requestPermission(resolve);
+  if (p?.then) p.then(resolve, () => resolve(Notification.permission));
+});
+
+// 'on' | 'denied' | 'closed' (prompt dismissed) | 'failed' (browser or server wouldn't subscribe) | 'disabled'
 export async function enablePush() {
   if (!reg || !config?.enabled) return 'disabled';
+  notice = '';
+  const perm = Notification.permission === 'granted' ? 'granted' : await askPermission();
+  if (perm !== 'granted') { changed(); return perm === 'denied' ? 'denied' : 'closed'; }
   try {
     sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(config.publicKey) });
-  } catch {
-    changed();
-    return Notification.permission === 'denied' ? 'denied' : 'off';
-  }
-  try {
     await sync('strict');
   } catch {
-    // The server didn't take it (rate limit, unknown push host, storage down): don't claim alerts are on.
-    await sub.unsubscribe().catch(() => {});
+    // Don't claim alerts are on if the push service or our server didn't take it; Notify me stays up to retry.
+    await sub?.unsubscribe().catch(() => {});
     sub = null;
+    notice = 'failed';
     changed();
     return 'failed';
   }

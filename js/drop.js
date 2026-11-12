@@ -4,12 +4,13 @@ import { STYLES } from './state.js';
 import { dailyDrop, msToNextDrop, countdown } from './daily.js';
 import { listDrop } from './crate.js';
 import { track } from './analytics.js';
-import { pushState, enablePush, disablePush, dropStreak, playedDays, markOffered } from './push.js';
+import { pushState, pushNotice, enablePush, disablePush, dropStreak, playedDays, markOffered } from './push.js';
 
 let cache = { date: '', tracks: null, loading: false };
 let ticker = 0;
 
-const turnOn = (from) => enablePush().then((st) => track('push', { kind: st === 'on' ? `on_${from}` : st }));
+const turnOn = (from) => enablePush().then((st) => { track('push', { kind: st === 'on' ? `on_${from}` : st }); return st; });
+const FAILED = 'Couldn’t turn on alerts just now. Try again in a moment.';
 
 // Streak + daily alerts, once they've played a drop (so the ask comes after they know what it is).
 function alertsRow() {
@@ -17,7 +18,9 @@ function alertsRow() {
   const badge = streak > 1 ? h('b', { class: 'drop-streak' }, `${streak}-day streak`) : null;
   if (st === 'on') return h('div', { class: 'drop-alerts on' }, badge, h('span', {}, 'Daily alerts on'),
     h('button', { class: 'drop-alert-btn', type: 'button', onclick: () => disablePush().then(() => track('push', { kind: 'off' })) }, 'Turn off'));
-  if (st === 'off' && playedDays().length) return h('div', { class: 'drop-alerts' }, badge, h('span', {}, 'Get each drop on your lock screen'),
+  const failed = pushNotice() === 'failed';
+  if (st === 'off' && playedDays().length) return h('div', { class: 'drop-alerts' + (failed ? ' failed' : '') }, badge,
+    h('span', { role: 'status', title: failed ? FAILED : '' }, failed ? 'Couldn’t turn on alerts. Try again?' : 'Get each drop on your lock screen'),
     h('button', { class: 'drop-alert-btn', type: 'button', onclick: () => turnOn('card') }, 'Notify me'));
   return badge && h('div', { class: 'drop-alerts' }, badge, h('span', {}, 'Come back tomorrow to keep it going'));
 }
@@ -28,9 +31,16 @@ export function pushOffer() {
   markOffered();
   track('push', { kind: 'offer' });
   const close = () => { el.classList.remove('show'); setTimeout(() => el.remove(), 250); };
+  const msg = h('span', { role: 'status' }, 'One new track a day, plus your streak. Nothing else.');
+  const yes = h('button', { class: 'push-offer-yes', type: 'button', onclick: async () => {
+    yes.disabled = true;
+    const st = await turnOn('offer');
+    if (st !== 'failed') return close();
+    yes.disabled = false;
+    msg.textContent = FAILED;
+  } }, 'Notify me');
   const el = h('div', { class: 'push-offer', role: 'dialog', 'aria-label': 'Daily drop alerts' },
-    h('div', { class: 'push-offer-text' }, h('b', {}, 'Get tomorrow’s drop'), h('span', {}, 'One new track a day, plus your streak. Nothing else.')),
-    h('button', { class: 'push-offer-yes', type: 'button', onclick: () => { close(); turnOn('offer'); } }, 'Notify me'),
+    h('div', { class: 'push-offer-text' }, h('b', {}, 'Get tomorrow’s drop'), msg), yes,
     h('button', { class: 'push-offer-no', type: 'button', 'aria-label': 'Not now', onclick: () => { close(); track('push', { kind: 'dismiss' }); } }, '×'));
   document.body.append(el);
   requestAnimationFrame(() => el.classList.add('show'));
