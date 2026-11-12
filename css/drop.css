@@ -44,7 +44,6 @@
 .push-offer-text span { color: #a8a8b2; font: 400 12px/1.35 var(--sans); }
 .push-offer-yes { flex: 0 0 auto; height: 36px; padding: 0 14px; border: 0; border-radius: var(--r1); background: #f2f2f5; color: #1e1e1f; font: 700 13px var(--sans); cursor: pointer; }
 .push-offer-yes:hover { background: #fff; }
-.push-offer-yes:disabled { opacity: .6; cursor: default; }
 .push-offer-no { flex: 0 0 auto; width: 32px; height: 36px; border: 0; background: none; color: #8e8e93; font: 400 20px var(--sans); cursor: pointer; }
 .push-offer-no:hover { color: #fff; }
 @media (prefers-reduced-motion: reduce) { .drop-make.cue { animation: none; } .push-offer { transition: none; } }

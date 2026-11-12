@@ -13,7 +13,7 @@ import { loadArtistProfile, openArtistStudio } from './artist.js';
 import { openClub, loadAvatar } from './club.js';
 import { playTimeline, stopTimeline } from './live-sets.js';
 import { saveTrack, trackTitle, recentTracks, fetchTrack, countPlay } from './crate.js';
-import { dropCard, pushOffer } from './drop.js';
+import { dropCard, pushOffer, guardPushOffer } from './drop.js';
 import { initPush, onPushChange, recordDropPlay, shouldOffer } from './push.js';
 import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
 import { roomTransportPosition, transportResync } from './room-sync.js';
@@ -281,6 +281,7 @@ function stop() {
   roomJoinTimer = 0;
   playing = false;
   handoff = null;
+  guardPushOffer();
   playStopped();
   timer?.postMessage('stop');
   midiClockStop();
@@ -852,6 +853,7 @@ function build() {
   ui.rows = {};
   document.body.classList.toggle('studio-open', studioOpen);
   app.append(buildHeader(), buildGenerateHome(), state.patterns[0]?.score ? '' : timeline.mount(), h('main', { class: 'main studio-workspace' }, h('div', { class: 'left' }, buildGrid(), buildEditor()), buildMaster()), buildTabBar());
+  guardPushOffer();
   renderPatterns();
   for (const id of TRACK_IDS) renderRow(id);
   renderRoll();
@@ -1025,6 +1027,7 @@ function playPiece(id) {
   toast(`Opening ${p.title}…`);
   preloadScore({ piece: id }).then(() => { if (!playing && pat().score?.piece === id) play(); }, (e) => toast(`Couldn't open the score: ${e.message}`));
 }
+function offerMoment() { return playing && state.drop === dailyDrop().date && !studioOpen && !document.querySelector('.overlay, .club-overlay'); }
 function playDrop(drop) {
   style = drop.style;
   family = STYLES[style].family;
@@ -1034,7 +1037,7 @@ function playDrop(drop) {
   recordDropPlay(drop.date);
   generateNow(drop);
   // Ask about daily alerts once their drop has held them for 30 seconds.
-  setTimeout(() => { if (playing && state.drop === drop.date && shouldOffer()) pushOffer(); }, 30e3);
+  setTimeout(() => { if (playing && state.drop === drop.date && shouldOffer()) pushOffer(offerMoment); }, 30e3);
 }
 // A Daily Drop notification (or a ?drop= link): with music on, today's drop takes over on the bar; from silence the card opens ready to play.
 function openDropLink(q) {
@@ -1202,6 +1205,7 @@ function renderHome() {
   old.replaceWith(buildGenerateHome());
   const row = ui.home.querySelector('.family-tabs');
   if (row) row.scrollLeft = scroll;
+  guardPushOffer();
 }
 
 function buildGenerateHome() {
@@ -1307,7 +1311,7 @@ function buildTabBar() {
       document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     }
   };
-  const tab = (label, on, onclick) => h('button', { class: `tab tab-${label.toLowerCase()}` + (on ? ' on' : ''), ...(on && { 'aria-current': 'page' }), onclick: () => { closeOverlays(); onclick(); } }, h('i', { class: `tab-ico ${label.toLowerCase()}`, 'aria-hidden': 'true' }), h('span', {}, label));
+  const tab = (label, on, onclick) => h('button', { class: `tab tab-${label.toLowerCase()}` + (on ? ' on' : ''), ...(on && { 'aria-current': 'page' }), onclick: () => { closeOverlays(); onclick(); guardPushOffer(); } }, h('i', { class: `tab-ico ${label.toLowerCase()}`, 'aria-hidden': 'true' }), h('span', {}, label));
   return h('nav', { class: 'tabbar', 'aria-label': 'Sections' },
     tab('Create', !studioOpen, () => { if (studioOpen) toggleStudio(); else scrollTo({ top: 0, behavior: 'smooth' }); }),
     tab('Studio', studioOpen, () => { if (!studioOpen) toggleStudio(); }),
