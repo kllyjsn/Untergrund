@@ -68,3 +68,40 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(networkFirst(request, url.pathname));
   }
 });
+
+// Daily Drop notifications (api/_lib/push.js). Every push shows a notification: iOS revokes silent ones.
+self.addEventListener('push', (event) => {
+  let d = {};
+  try { d = event.data?.json() || {}; } catch { /* not JSON */ }
+  event.waitUntil(self.registration.showNotification(d.title || 'UNTERGRUND', {
+    body: d.body || 'Today’s drop is ready.', icon: '/icons/icon-192.png', badge: '/icons/icon-192.png',
+    tag: d.tag || 'daily-drop', data: { url: d.url || '/' },
+  }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = new URL(event.notification.data?.url || '/', self.location.origin);
+  if (url.origin !== self.location.origin) return;
+  event.waitUntil((async () => {
+    // An open app keeps playing and just shows the drop; otherwise launch it on the deep link.
+    const app = (await self.clients.matchAll({ type: 'window', includeUncontrolled: true })).find((c) => new URL(c.url).origin === url.origin);
+    if (app) {
+      await app.focus().catch(() => {});
+      return app.postMessage({ type: 'untergrund:open', url: url.href });
+    }
+    await self.clients.openWindow(url.href);
+  })());
+});
+
+// The browser rotated the subscription: re-subscribe with the same key and move the record (and streak) over.
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil((async () => {
+    const old = event.oldSubscription;
+    const next = event.newSubscription || (old?.options?.applicationServerKey &&
+      await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: old.options.applicationServerKey }));
+    if (!next) return;
+    await fetch('/api/push', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'renew', old: old?.endpoint || '', subscription: next.toJSON() }) });
+  })().catch(() => {}));
+});

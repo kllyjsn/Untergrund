@@ -30,6 +30,7 @@ import { handleDescribe, aiEnv } from './api/_lib/describe-ai.js';
 import { redisKv as redisAccountKv, memoryKv as memoryAccountKv } from './api/_lib/kv.js';
 import { handleAccount, attachPublished } from './api/_lib/accounts.js';
 import { handlePage } from './api/_lib/pages.js';
+import { handlePush } from './api/_lib/push.js';
 import { ogImage, artSeed } from './api/_lib/og.js';
 const jukeboxStore = redisJukebox() || memoryJukebox();
 const eventsKv = redisKv() || memoryKv();
@@ -96,6 +97,11 @@ http.createServer(async (req, res) => {
     if (url.pathname === '/api/describe') {
       const raw = req.method === 'POST' ? await readBody(req, 4000) : null;
       const { status, json } = await handleDescribe({ method: req.method, body: raw ? raw.toString() : null, client: req.socket.remoteAddress, ...aiEnv(process.env), kv: eventsKv });
+      return sendJson(res, status, json);
+    }
+    if (url.pathname === '/api/push') {
+      const raw = req.method === 'POST' ? await readBody(req, 8000) : null;
+      const { status, json } = await handlePush({ method: req.method, query: Object.fromEntries(url.searchParams), headers: req.headers, body: raw ? raw.toString() : null, kv: accountKv, client: req.socket.remoteAddress });
       return sendJson(res, status, json);
     }
     if (url.pathname === '/api/account') {
