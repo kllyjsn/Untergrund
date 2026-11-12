@@ -62,6 +62,7 @@ svg .glyph { fill: #1c1c1e; font: 700 11px var(--mono); }
 svg .grid { stroke: var(--hair2); stroke-width: 1; }
 svg .grid.faint { stroke: var(--hair); }
 svg .axis0 { stroke: var(--line2); stroke-width: 1; }
+svg .warnline { stroke: var(--yellow); stroke-width: 1; stroke-dasharray: 3 3; opacity: .7; }
 svg .ceiling { stroke: var(--red); stroke-width: 1; stroke-dasharray: 3 3; }
 svg .band-warn { fill: rgba(255,214,10,.07); }
 svg .band-fail { fill: rgba(255,69,58,.11); }
@@ -72,6 +73,8 @@ svg .curve { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linejo
 svg .curve.thin { stroke-width: 1.4; }
 svg .pt { fill: var(--accent); }
 svg .dot { stroke: var(--bg); stroke-width: 1; }
+svg .sq.ok { fill: var(--accent); }
+svg .sq.drive { fill: var(--purple); opacity: .8; }
 svg .lv-PASS { fill: var(--green); }
 svg .lv-WARN { fill: var(--yellow); }
 svg .lv-FAIL { fill: var(--red); }

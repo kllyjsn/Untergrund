@@ -38,19 +38,29 @@ The club genres aim at −10 LUFS, quieter genres at −14, classical at −16. 
 
 {{chart truepeak}}
 
-No genre clipped. Every one of the {{v audio.deep.counts.songs}} songs stayed under the limiter's −1 dBTP ceiling; the closest was MINIMAL at {{v audio.deep.styles.minimal.metrics.truePeak.worst|1}} dBTP. The peaks group is clean.
+Nothing crossed the ceiling. Every one of the {{v audio.deep.counts.songs}} songs stayed under the limiter's −1 dBTP ceiling; the closest was MINIMAL at {{v audio.deep.styles.minimal.metrics.truePeak.worst|1}} dBTP. But staying under the ceiling is not the same as being clean: a mix can stay under it by having its peaks shaved off on the way. So the benchmark also taps the master chain itself and measures how hard each stage works.
 
-### The warnings
+### Where the peaks go
 
-The seven warnings are smaller, and they fall into three groups.
+The master ends in a limiter and then a clipper, and earlier in the chain each genre has a bus saturator, its DRIVE. All three flatten peaks, so we measure each one separately on the raw render, plus the crest factor of the result: how far the peaks stand above the average level of the most squashed bars.
 
-- **Drops that don't land.** In NEO-SOUL, BREAKS, DRILL and HYPERPOP, the peak sections of at least one song are no louder than the breakdown before them, so the drop arrives without a lift. ELECTRO is the flattest arrangement we measured: its bar-to-bar loudness moves by less than 1 LU across a whole song.
-- **Loudness off target.** AMBIENT and DRILL, above.
-- **Endings.** AMBIENT takes {{v audio.deep.styles.ambient.metrics.ringOut.worst|1}} s to ring out to −40 dB and has a wide loudness range; some of that is the style, but 18 seconds is longer than we want. NOCTURNE leaves {{v audio.deep.styles.nocturne.metrics.deadAir.worst|1}} s of dead air after its last note before the next song can start. That one is simply a bug.
+{{chart squash}}
+
+- **The clipper is working too hard in three genres.** In MINIMAL it takes more than 1 dB off a peak in {{v audio.deep.styles.minimal.metrics.clipperShare.worst|2}} of the song's 10 ms frames (as a share; the warning starts at 0.05), and its input reaches full scale in {{v audio.deep.styles.minimal.metrics.hardClip.worst|2}} of them, where the soft curve runs out and the clip is hard. DRILL is close behind ({{v audio.deep.styles.drill.metrics.clipperShare.worst|2}} and {{v audio.deep.styles.drill.metrics.hardClip.worst|2}}) and is also {{v audio.deep.styles.drill.metrics.loudnessTarget.worst|1}} LU over its loudness target; the two are likely the same problem, a mix pushed too hot into the end of the chain. JERSEY CLUB just crosses the line at {{v audio.deep.styles.jerseyclub.metrics.clipperShare.worst|2}}. These are the clearest new problems this run found.
+- **HARD TECHNO's squash is its sound, not clipping.** HARD TECHNO has the second-lowest crest factor we measured, {{v audio.deep.styles.hardtechno.metrics.crest.worst|1}} dB, so it warns. But its clipper and limiter are idle: the clipper never takes more than 1 dB off (in {{v audio.deep.styles.hardtechno.metrics.clipperShare.worst}} of its frames), never sees full scale, and the true peak sits at {{v audio.deep.styles.hardtechno.metrics.truePeak.worst|1}} dBTP, far under the ceiling. The flattening happens earlier, in the bus saturator, which presses its loudest peaks down by {{v audio.deep.styles.hardtechno.metrics.saturatorDepth.worst|1}} dB. That is the DRIVE knob doing what hard techno asks of it: distortion is the sound design. INDUSTRIAL is the same story ({{v audio.deep.styles.industrial.metrics.crest.worst|1}} dB crest, {{v audio.deep.styles.industrial.metrics.saturatorDepth.worst|1}} dB of saturation, idle clipper). We keep the warning because a crest number can't tell taste from damage, but we don't plan to "fix" it.
+- **Low crest with little drive.** HYPNOTIC, ELECTRO, DUB and BAILE FUNK also dip under the 6 dB crest line ({{v audio.deep.styles.hypnotic.metrics.crest.worst|1}}, {{v audio.deep.styles.electro.metrics.crest.worst|1}}, {{v audio.deep.styles.dub.metrics.crest.worst|1}} and {{v audio.deep.styles.bailefunk.metrics.crest.worst|1}} dB) with only 1–2 dB of saturation and light clipping. Here the squash comes from the parts and the mix rather than from one stage, and we have not decided yet whether it is a problem. They need listening, not a threshold.
+
+The limiter itself is relaxed everywhere: no genre spends any meaningful time with more than 3 dB of gain reduction, and the deepest moment anywhere is {{v audio.deep.styles.minimal.metrics.limiterDeep.worst|1}} dB, in MINIMAL again.
+
+### The other warnings
+
+- **Loudness off target.** AMBIENT and DRILL, above. AMBIENT also has a wide loudness range ({{v audio.deep.styles.ambient.metrics.lra.worst|0}} LU); some of that is the style.
+- **A flat arrangement.** ELECTRO's bar-to-bar loudness moves by less than 1 LU across a whole song ({{v audio.deep.styles.electro.metrics.contrast.worst|1}} LU). The energy chart below shows the breakdown is there; the rest of the song is one level.
+- **Dead air.** NOCTURNE leaves {{v audio.deep.styles.nocturne.metrics.deadAir.worst|1}} s of silence after its last note before the next song can start. That one is simply a bug.
 
 We record warnings rather than tune the thresholds to hide them, so they keep showing up until the music changes.
 
-And these are the near misses: checks that passed, but by the smallest margin.
+And these are the near misses: checks that passed, but by the smallest margin. In HYPERPOP, DRILL, NEO-SOUL and BREAKS the drop is no louder than the breakdown before it. The benchmark excuses that when the drop is clearly denser (at least 1.25× the notes and one more part per bar), because the limiter holds club styles near one loudness and a drop can land by adding parts. Whether it lands *well* is a question for ears.
 
 {{closest}}
 

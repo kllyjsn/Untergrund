@@ -363,6 +363,44 @@ function trendChart(d) {
     svgs: `<div class="viz grid2">${out.join('')}</div>`, data: table(['Commit', 'Baseline', 'Summary'], rows, { numeric: false }) });
 }
 
+// Crest, clipper shaving and bus saturation side by side: where each genre's peaks go.
+function squashChart(d) {
+  const deep = d.audio.deep, ids = styleOrder(deep).filter((id) => deep.styles[id].metrics.crest);
+  if (!ids.length) return '';
+  const ck = deep.checks, cols = [
+    { id: 'crest', head: 'Crest p10', tiny: 'CREST', unit: 'dB', max: 14, fmt: (v) => num(v, 1), lines: [ck.crest?.warn, ck.crest?.fail] },
+    { id: 'clipperShare', head: 'Clipper > 1 dB', tiny: 'CLIP', unit: '%', max: 0.3, fmt: (v) => `${num(v * 100, 1)}%`, lines: [ck.clipperShare?.warn, ck.clipperShare?.fail] },
+    { id: 'saturatorDepth', head: 'Saturator (DRIVE)', tiny: 'DRIVE', unit: 'dB', max: 8, fmt: (v) => num(v, 1), lines: [], drive: true },
+  ];
+  const val = (id, c) => deep.styles[id].metrics[c.id]?.worst ?? null;
+  const draw = (W) => {
+    const narrow = W < 500, lw = narrow ? 106 : 150, gap = narrow ? 8 : 16, cw = (W - lw - gap * (cols.length - 1)) / cols.length, rh = 17, top = 30;
+    let body = '';
+    cols.forEach((c, i) => {
+      const x = lw + i * (cw + gap), X = (v) => x + (Math.max(0, Math.min(c.max, v)) / c.max) * cw;
+      body += text(x, 14, narrow ? c.tiny : c.head, 'ax b');
+      c.lines.forEach((t, k) => { if (t != null) body += line(X(t), top - 6, X(t), top + ids.length * rh, k ? 'ceiling' : 'warnline'); });
+      ids.forEach((id, j) => {
+        const v = val(id, c), y = top + j * rh;
+        if (v == null) return;
+        const level = c.drive ? 'drive' : `lv-${deep.styles[id].metrics[c.id].level}`;
+        body += rect(x, y + 3, X(v) - x, rh - 6, `sq ${c.drive ? 'drive' : level === 'lv-PASS' ? 'ok' : level}`);
+        if (!narrow) body += text(X(v) + 4, y + rh / 2 + 4, c.fmt(v), 'ax');
+      });
+      body += line(x, top + ids.length * rh, x + cw, top + ids.length * rh, 'axis0');
+    });
+    ids.forEach((id, j) => { body += text(0, top + j * rh + rh / 2 + 4, deep.styles[id].name, 'lab'); });
+    const H = top + ids.length * rh + 8, low = ids.filter((id) => deep.styles[id].metrics.crest.level !== 'PASS').map((id) => `${deep.styles[id].name} ${num(val(id, cols[0]), 1)} dB`);
+    const sat = [...ids].sort((a, b) => (val(b, cols[2]) ?? 0) - (val(a, cols[2]) ?? 0)).slice(0, 3).map((id) => `${deep.styles[id].name} ${num(val(id, cols[2]), 1)} dB`);
+    const clip = [...ids].sort((a, b) => (val(b, cols[1]) ?? 0) - (val(a, cols[1]) ?? 0))[0];
+    return svg(W, H, 'Crest factor, clipper shaving and bus saturation by genre',
+      `Worst seed per genre. Crest factor under ${num(ck.crest?.warn)} dB warns: ${low.join(', ') || 'none'}. Most clipper shaving: ${deep.styles[clip].name}, ${cols[1].fmt(val(clip, cols[1]))} of frames over 1 dB (warn at ${num(ck.clipperShare?.warn * 100)}%). Deepest bus saturation (DRIVE, not gated): ${sat.join(', ')}.`, body);
+  };
+  const rows = ids.map((id) => [deep.styles[id].name, ...cols.map((c) => (val(id, c) == null ? '–' : c.fmt(val(id, c)))), deep.styles[id].metrics.hardClip ? `${num(deep.styles[id].metrics.hardClip.worst * 100, 1)}%` : '–', deep.styles[id].metrics.limiterOver6 ? `${num(deep.styles[id].metrics.limiterOver6.worst * 100, 1)}%` : '–']);
+  return figure({ title: 'Where the peaks go.', caption: `Three ways a mix loses its transients, worst seed per genre. <i>Crest</i>: peak over RMS of the most squashed bars; under ${num(ck.crest?.warn)} dB warns. <i>Clipper</i>: share of the song where the master clipper takes more than 1 dB off a peak; over ${num(ck.clipperShare?.warn * 100)}% warns. <i>Saturator</i>: how hard the bus saturator, the style's DRIVE, presses the loudest peaks. It is sound design, so it is tracked, not graded.`,
+    draw, data: table(['Genre', 'Crest p10 (dB)', 'Clipper > 1 dB', 'Saturator p99 (dB)', 'Clipper input at full scale', 'Limiter over 6 dB'], rows) });
+}
+
 function findings(d) {
   const seen = new Set(), items = [];
   for (const [tier, a] of [['deep', d.audio.deep], ['fast', d.audio.fast]]) {
@@ -387,7 +425,7 @@ function kpis(d) {
   return `<dl class="kpis">${k.map(([v, l]) => `<div><dt>${esc(l)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>`;
 }
 
-const CHARTS = { scoreboard, loudness: loudnessChart, truepeak: truePeakChart, energy: energyChart, endings: endingsChart, composition: compositionChart, trend: trendChart };
+const CHARTS = { scoreboard, loudness: loudnessChart, truepeak: truePeakChart, energy: energyChart, endings: endingsChart, composition: compositionChart, trend: trendChart, squash: squashChart };
 
 // ---------------- posts ----------------
 
