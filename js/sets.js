@@ -301,7 +301,7 @@ export function openJukebox({ playSong, playReplay, stopSong, toast, onCreate, o
   const audio = new Audio();
   let items = [], queue = [], idx = -1, timer = null, filter = 'all', urls = [];
   const stopAll = () => { audio.pause(); clearTimeout(timer); stopSong(); idx = -1; };
-  const jb = sheet('JUKEBOX', { onClose: () => { stopAll(); urls.forEach((u) => URL.revokeObjectURL(u)); onClose?.(); } });
+  const jb = sheet('JUKEBOX', { onClose: () => { if (idx >= 0) stopAll(); urls.forEach((u) => URL.revokeObjectURL(u)); onClose?.(); } });
   const { body } = jb;
   const now = h('div', { class: 'jb-now' }, 'Every song and set here was made inside UNTERGRUND.');
   const note = h('div', { class: 'pub-note' }, 'Loading…');
