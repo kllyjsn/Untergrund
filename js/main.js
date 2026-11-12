@@ -32,6 +32,7 @@ import { readShareParams, decodeSong, normalizeSong, remixState } from './share-
 import { dailyDrop, dropSong } from './daily.js';
 import { songTimeline } from './timeline-ui.js';
 import { handoffStep, reanchor, MIN_LEAD } from './handoff.js';
+import { applyPart } from './jam.js';
 
 let state = load() || defaultState();
 let ctx = null, engine = null, seq = null, timer = null, setRec = null;
@@ -148,6 +149,7 @@ function schedule(lead) {
       abs += skip * 16; seq.chainPos += skip; transportOrigin -= skip * 16 * base * 1000;
       if (handoff?.step != null) { handoff.step += skip * 16; handoff.from += skip * 16; }
     }
+    if (jamQueue.length && (abs - seq.origin) % 16 === 0) landJamParts((nextTime + clockOffset) * 1000 + base * 500, nextTime);
     artistTick(abs - seq.origin);
     const pat = seq.tick(abs, nextTime);
     uiQueue.push({ abs: abs - seq.origin, t: nextTime, pat });
@@ -166,6 +168,30 @@ function schedule(lead) {
   }
   // The audio is queued; now redraw for the new song (it sounds ~0.1 s from now).
   landed?.();
+}
+
+// Jam: another player's part lands on the room downbeat it was sent for (wall-clock ms), the same bar for everyone.
+// Old changes (catching up on join) or a stopped transport apply at once.
+let jamQueue = [], jamRedraw = 0;
+function queueJamPart(part, layer, wall) {
+  jamQueue = jamQueue.filter((q) => q.part !== part);
+  if (!playing || wall < Date.now() - 2000) return landJamPart(part, layer);
+  jamQueue.push({ part, layer, wall });
+}
+function landJamParts(stepWallMs, t) {
+  const due = jamQueue.filter((q) => q.wall <= stepWallMs);
+  if (!due.length) return;
+  jamQueue = jamQueue.filter((q) => q.wall > stepWallMs);
+  for (const q of due) landJamPart(q.part, q.layer, t);
+}
+// t: the audio time the part first sounds; the Club flashes it then.
+function landJamPart(part, layer, t = null) {
+  applyPart(state, part, layer);
+  const wait = t == null ? 0 : Math.max(0, (t - ctx.currentTime) * 1000);
+  setTimeout(() => window.dispatchEvent(new CustomEvent('untergrund:jam', { detail: { part } })), wait);
+  if (engine) engine.applyAll();
+  cancelAnimationFrame(jamRedraw);
+  jamRedraw = requestAnimationFrame(() => { build(); persist(); });
 }
 
 // GENERATE while a song plays: keep the clock running and switch on a coming downbeat.
@@ -280,6 +306,7 @@ function stop() {
   roomJoinTimer = 0;
   playing = false;
   handoff = null;
+  for (const q of jamQueue.splice(0)) applyPart(state, q.part, q.layer);
   playStopped();
   timer?.postMessage('stop');
   midiClockStop();
@@ -580,6 +607,11 @@ function showClub() {
     },
     joinRoomSet,
     replayToRoom,
+    jam: {
+      queuePart: queueJamPart,
+      pending: (part) => jamQueue.find((q) => q.part === part)?.wall || 0,
+      reset: () => { jamQueue = []; },
+    },
     toast,
   });
 }
