@@ -1956,6 +1956,8 @@ export class Sequencer {
     // A masterwork plays in its written key; a generated piece follows the KEY control.
     const sc = compose(spec), pos = abs % sc.at.length, k = spec.piece ? 0 : this.s.key > 6 ? this.s.key - 12 : this.s.key;
     this.scoreBar = Math.floor(pos / (sc.barLen || 16));
+    // A generated song plays its score once: after the final chord's step the transport lets it ring and stops.
+    if (this.s.ending && !sc.waiting && abs >= sc.at.length - 1) this.finished = true;
     this.e.stepScale = sc.tempo[pos];
     sd *= sc.tempo[pos];
     const hum = this.s.master.humanize ?? 0.4;

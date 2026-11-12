@@ -151,28 +151,28 @@
    "window": -7.33
   },
   "symphony": {
-   "lufs": -15.92,
-   "spread": 0.46,
+   "lufs": -15.99,
+   "spread": 0.43,
    "tp": -2.43,
-   "window": -22.89
+   "window": -23.39
   },
   "concerto": {
-   "lufs": -16.05,
-   "spread": 0.12,
-   "tp": -2.45,
-   "window": -21.85
+   "lufs": -15.98,
+   "spread": 0.06,
+   "tp": -2.46,
+   "window": -22.05
   },
   "nocturne": {
    "lufs": -16.14,
-   "spread": 1.26,
+   "spread": 1.24,
    "tp": -2.47,
    "window": -16.56
   },
   "repertoire": {
-   "lufs": -15.96,
-   "spread": 1.81,
-   "tp": -4.76,
-   "window": -13.03
+   "lufs": -16.03,
+   "spread": 1.13,
+   "tp": -2.72,
+   "window": -15.23
   }
  },
  "seeds": [

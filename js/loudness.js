@@ -104,6 +104,6 @@ export const MAKEUP_DB = {
   hypnotic: 3.6, industrial: 2.1, acid: 4.5, dub: 4.0, peak: 3.5, hardtechno: 2.1, deephouse: 3.0, minimal: 6.8,
   ukg: 2.5, euphoric: 3.5, neosoul: 1.8, boombap: 0.7, breaks: 3.7, electro: 3.9, dnb: 4.3, trance: 3.8,
   ambient: 2.4, amapiano: 3.0, afrobeats: 2.5, reggaeton: 3.4, bailefunk: 2.8, trap: 3.2, drill: 4.2,
-  jerseyclub: 4.3, hyperpop: 3.2, symphony: 7.0, concerto: 5.5, nocturne: 11.9, repertoire: 5.8,
+  jerseyclub: 4.3, hyperpop: 3.2, symphony: 6.5, concerto: 5.3, nocturne: 11.9, repertoire: 3.6,
 };
 export const makeupGain = (style) => 10 ** ((MAKEUP_DB[style] || 0) / 20);

@@ -254,5 +254,15 @@ console.log('seeded instrument ensembles passed');
   for (let abs = (n - 2) * 16; abs < n * 16; abs++) seq.advanceBar(abs, abs * 0.125);
   calls.length = 0; seq.tick(n * 16, n * 2);
   assert(seq.finished && !calls.some((k) => k === 'trigger' || k === 'hook' || k === 'acid'), 'a song whose last bar was skipped still ends, silently');
+  // A generated score ends with its final chord: no empty bars after it, and the transport stops on its last step.
+  const { compose } = await import('../js/classical.js');
+  for (const style of ['symphony', 'concerto', 'nocturne']) {
+    const s = buildSong(style, 11), sc = compose(s.patterns.find((p) => p.score).score), seq = new Sequencer(e, s);
+    const last = sc.at.findLastIndex((x) => x.length), bar = sc.barLen || 16;
+    assert(sc.at.length - last <= bar, `${style}: the final chord is in the last bar (${(sc.at.length - last) / bar} bars before the end)`);
+    let end = -1;
+    for (let abs = 0; abs < sc.at.length + 32 && end < 0; abs++) { seq.tick(abs, abs * 0.125); if (seq.finished) end = abs; }
+    assert(end === sc.at.length - 1, `${style}: playback stops after the score's last step (${end} of ${sc.at.length})`);
+  }
   console.log('song ending stops passed');
 }

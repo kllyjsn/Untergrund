@@ -3,6 +3,7 @@
 import { defaultState, generate, applyOverrides, arrangement, songChain } from '/js/state.js';
 import { renderBars } from '/js/render.js';
 import { songBars } from '/js/midi.js';
+import { loadPiece } from '/js/repertoire.js';
 import { loudness, truePeak } from '/js/loudness.js';
 
 export function song(style, seed) {
@@ -22,7 +23,10 @@ export function song(style, seed) {
 // bars: render only that many bars (default the whole song) starting at startBar of the chain.
 // Taps the limiter's input and output next to the master output to measure its gain reduction.
 export async function measure(style, seed, { bars = 0, startBar = 0 } = {}) {
-  const s = song(style, seed), total = songBars(s), n = bars ? Math.min(bars, total) : total;
+  const s = song(style, seed), piece = s.patterns.find((p) => p.score)?.score?.piece;
+  // A REPERTOIRE score is fetched on demand; until it arrives songBars() sees its one silent waiting bar.
+  if (piece) await loadPiece(piece);
+  const total = songBars(s), n = bars ? Math.min(bars, total) : total;
   const buf = await renderBars(s, n, {
     startBar, channels: 6,
     onEngine: (e) => {

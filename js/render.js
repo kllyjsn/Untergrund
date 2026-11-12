@@ -8,7 +8,7 @@ import { loadBand, liveSets, loadSets } from './livekit.js';
 // startBar renders a window from inside the song chain (e.g. the peak), with the arrangement state it would have there.
 // Hooks (used by js/stems.js): onContext(ctx) before the engine is built, onEngine(engine) before the song is
 // scheduled, onScheduled(ctx) just before rendering; channels sets the output channel count.
-export async function renderBars(state, bars, { sampleRate = 48000, tail = 4, startBar = 0, channels = 2, onContext, onEngine, onScheduled } = {}) {
+export async function renderBars(state, bars, { sampleRate = 48000, tail, startBar = 0, channels = 2, onContext, onEngine, onScheduled } = {}) {
   const snap = clone(state);
   await loadSets(liveSets(snap));
   const score = snap.patterns.find((p) => p.score)?.score;
@@ -22,7 +22,9 @@ export async function renderBars(state, bars, { sampleRate = 48000, tail = 4, st
   const tempo = sc ? sc.tempo : null;
   let span = 0;
   for (let i = 0; i < steps; i++) span += tempo ? tempo[i % tempo.length] : 1;
-  const len = Math.ceil((start + span * sd + tail) * sampleRate);
+  // A score's last bar is its final chord: render room for it to ring out, then end the file once it has died away.
+  const trim = tail == null && sc && !sc.waiting && !onContext && !onEngine;
+  const len = Math.ceil((start + span * sd + (tail ?? (sc ? SCORE_TAIL : 4))) * sampleRate);
   const ctx = new OfflineAudioContext(channels, len, sampleRate);
   onContext?.(ctx);
   const engine = new Engine(ctx, snap, { realtime: false });
@@ -33,7 +35,29 @@ export async function renderBars(state, bars, { sampleRate = 48000, tail = 4, st
   const first = chain.length ? startBar * 16 : 0;
   for (let abs = 0, t = start; abs < steps; abs++) { seq.tick(first + abs, t); t += engine.stepDur; }
   onScheduled?.(ctx);
-  return ctx.startRendering();
+  const buf = await ctx.startRendering();
+  return trim ? trimTail(buf) : buf;
+}
+
+const SCORE_TAIL = 10;
+
+// Cuts the silence after a ring-out: ends half a second after the last sample within 60 dB of the peak, with a short fade.
+export function trimTail(buf, { floorDb = -60, pad = 0.5, fade = 0.05 } = {}) {
+  const chans = Array.from({ length: buf.numberOfChannels }, (_, i) => buf.getChannelData(i));
+  let peak = 0;
+  for (const d of chans) for (let i = 0; i < d.length; i++) { const v = Math.abs(d[i]); if (v > peak) peak = v; }
+  const floor = peak * 10 ** (floorDb / 20);
+  let last = 0;
+  for (const d of chans) for (let i = d.length - 1; i > last; i--) if (Math.abs(d[i]) > floor) { last = i; break; }
+  const sr = buf.sampleRate, length = Math.min(buf.length, last + Math.round(pad * sr));
+  if (length >= buf.length) return buf;
+  const out = new AudioBuffer({ length, numberOfChannels: chans.length, sampleRate: sr }), n = Math.min(length, Math.round(fade * sr));
+  chans.forEach((d, c) => {
+    const o = d.slice(0, length);
+    for (let i = 0; i < n; i++) o[length - 1 - i] *= i / n;
+    out.copyToChannel(o, c);
+  });
+  return out;
 }
 
 export function bufferToWav(buf) {
