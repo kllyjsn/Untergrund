@@ -24,6 +24,7 @@ const LIVE_REF = {
 };
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
 const EPS = 0.0001;
+const SAMPLE_FADE = 1;
 const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings'];
 // How each recorded instrument is played: level, DECAY->length, strum spread, register shift, held like a bow.
 // CLASSICAL orchestra: each part is a recorded player at its seat (pan), in its register, with its section on the mixer.
@@ -574,10 +575,13 @@ export class Engine {
     if (fx.offset || fx.fade) { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(level, t + (fx.fade || 0.006)); }
     s.start(t, fx.offset || 0);
     if (dur) {
-      g.gain.setValueAtTime(level, t + dur);
-      const rel = fx.release || 0.05;
-      g.gain.setTargetAtTime(0, t + dur, rel);
-      s.stop(t + dur + Math.max(0.4, rel * 8));
+      // A score's note held past its recording (a final piano chord) would stop on a still-ringing sample: fade it
+      // out before the sample runs out, at least 40 dB down by its last frame.
+      const left = s.loop || !fx.ringOut ? Infinity : (buf.duration - (fx.offset || 0)) / rate, rel0 = fx.release || 0.05;
+      const end = Math.min(dur, Math.max(0.02, left - SAMPLE_FADE)), rel = Math.min(rel0, (left - end) / 4.6);
+      g.gain.setValueAtTime(level, t + end);
+      g.gain.setTargetAtTime(0, t + end, rel);
+      s.stop(t + Math.min(end + Math.max(0.4, rel * 8), left + 0.01));
     }
     return { s, g };
   }
@@ -1103,7 +1107,7 @@ export class Engine {
     // Short bowed notes are played détaché: skip the slow sustain swell and lift the bow quickly.
     const short = O.loop && dur > 0 && dur < 0.32;
     return this.playBuf(buf, t + (O.off || 0) * hash(t, m), level, this.orchBus(part), Math.pow(2, (m - c + (O.det || 0) / 100) / 12), dur, {
-      lp: O.lp * (0.35 + 0.65 * vel), release: short ? 0.06 : O.rel, loop: O.loop, offset: short ? 0.035 : 0,
+      lp: O.lp * (0.35 + 0.65 * vel), release: short ? 0.06 : O.rel, loop: O.loop, offset: short ? 0.035 : 0, ringOut: true,
     });
   }
   // Played by hand (screen, keyboard, MIDI): sounds now and rings until released.

@@ -3,7 +3,7 @@
 import { defaultState, generate, applyOverrides, arrangement, songChain } from '/js/state.js';
 import { renderBars } from '/js/render.js';
 import { songBars } from '/js/midi.js';
-import { loadPiece } from '/js/repertoire.js';
+import { loadPiece, PIECE } from '/js/repertoire.js';
 import { loudness, truePeak } from '/js/loudness.js';
 
 export function song(style, seed) {
@@ -69,4 +69,21 @@ export async function windowLoudness(style) {
   const s = song(style, WINDOW.seed), g = s.chain.indexOf('G');
   const buf = await renderBars(s, WINDOW.bars, { sampleRate: WINDOW.sampleRate, tail: 0.5, startBar: Math.max(0, g) });
   return loudness([buf.getChannelData(0), buf.getChannelData(1)], buf.sampleRate).integrated;
+}
+
+// The end of a classical export (test/classical-ending.mjs): the last bars through the real export path (renderBars'
+// default tail, trimmed), as 100 ms RMS windows (dBFS) counted back from the end of the file.
+export async function exportEnding(style, seed, piece = '') {
+  const s = song(style, seed);
+  if (piece) { for (const q of s.patterns) if (q.score) q.score = { piece }; s.bpm = PIECE[piece].bpm; s.key = 0; }
+  const id = s.patterns.find((p) => p.score)?.score?.piece;
+  if (id) await loadPiece(id);
+  const total = songBars(s), bars = Math.min(total, 3), buf = await renderBars(s, bars, { startBar: total - bars });
+  const ch = [buf.getChannelData(0), buf.getChannelData(1)], w = Math.round(buf.sampleRate / 10), env = [];
+  for (let end = buf.length; end - w >= 0 && env.length < 40; end -= w) {
+    let e = 0;
+    for (const d of ch) for (let i = end - w; i < end; i++) e += d[i] * d[i];
+    env.unshift(10 * Math.log10(e / (2 * w) + 1e-24));
+  }
+  return { style, seed, piece: id || '', secs: buf.length / buf.sampleRate, env };
 }

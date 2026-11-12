@@ -20,8 +20,10 @@ export async function renderBars(state, bars, { sampleRate = 48000, tail, startB
   const start = 0.05;
   // A score's rubato stretches the timeline; size the render to the music, not the metronome.
   const tempo = sc ? sc.tempo : null;
+  const chain = snap.chainOn ? parseChain(snap.chain) : [];
+  const first = sc ? startBar * (sc.barLen || 16) : chain.length ? startBar * 16 : 0;
   let span = 0;
-  for (let i = 0; i < steps; i++) span += tempo ? tempo[i % tempo.length] : 1;
+  for (let i = 0; i < steps; i++) span += tempo ? tempo[(first + i) % tempo.length] : 1;
   // A score's last bar is its final chord: render room for it to ring out, then end the file once it has died away.
   const trim = tail == null && sc && !sc.waiting && !onContext && !onEngine;
   const len = Math.ceil((start + span * sd + (tail ?? (sc ? SCORE_TAIL : 4))) * sampleRate);
@@ -30,9 +32,7 @@ export async function renderBars(state, bars, { sampleRate = 48000, tail, startB
   const engine = new Engine(ctx, snap, { realtime: false });
   onEngine?.(engine);
   const seq = new Sequencer(engine, snap);
-  const chain = snap.chainOn ? parseChain(snap.chain) : [];
-  if (startBar && chain.length) { seq.chainPos = startBar; seq.cur = chain[(startBar - 1) % chain.length]; }
-  const first = chain.length ? startBar * 16 : 0;
+  if (startBar && chain.length && !sc) { seq.chainPos = startBar; seq.cur = chain[(startBar - 1) % chain.length]; }
   for (let abs = 0, t = start; abs < steps; abs++) { seq.tick(first + abs, t); t += engine.stepDur; }
   onScheduled?.(ctx);
   const buf = await ctx.startRendering();
@@ -41,20 +41,27 @@ export async function renderBars(state, bars, { sampleRate = 48000, tail, startB
 
 const SCORE_TAIL = 10;
 
-// Cuts the silence after a ring-out: ends half a second after the last sample within 60 dB of the peak, with a short fade.
-export function trimTail(buf, { floorDb = -60, pad = 0.5, fade = 0.05 } = {}) {
-  const chans = Array.from({ length: buf.numberOfChannels }, (_, i) => buf.getChannelData(i));
+// Cuts the silence after a ring-out: once the 50 ms envelope has fallen below -60 dBFS (or 50 dB under the peak,
+// whichever is lower) for good, the file ends `pad` seconds later with a raised-cosine fade over the last `fade`.
+export function trimTail(buf, { floorDb = -60, underPeakDb = 50, pad = 0.6, fade = 0.4 } = {}) {
+  const chans = Array.from({ length: buf.numberOfChannels }, (_, i) => buf.getChannelData(i)), sr = buf.sampleRate;
+  const w = Math.round(sr * 0.05), n = Math.floor(buf.length / w), env = new Float64Array(n);
   let peak = 0;
   for (const d of chans) for (let i = 0; i < d.length; i++) { const v = Math.abs(d[i]); if (v > peak) peak = v; }
-  const floor = peak * 10 ** (floorDb / 20);
-  let last = 0;
-  for (const d of chans) for (let i = d.length - 1; i > last; i--) if (Math.abs(d[i]) > floor) { last = i; break; }
-  const sr = buf.sampleRate, length = Math.min(buf.length, last + Math.round(pad * sr));
+  for (let k = 0; k < n; k++) {
+    let e = 0;
+    for (const d of chans) for (let i = k * w; i < (k + 1) * w; i++) e += d[i] * d[i];
+    env[k] = 10 * Math.log10(e / (w * chans.length) + 1e-24);
+  }
+  const floor = Math.min(floorDb, 20 * Math.log10(peak + 1e-12) - underPeakDb);
+  let k = n;
+  while (k > 0 && env[k - 1] < floor) k--;
+  const length = Math.min(buf.length, k * w + Math.round(pad * sr));
   if (length >= buf.length) return buf;
-  const out = new AudioBuffer({ length, numberOfChannels: chans.length, sampleRate: sr }), n = Math.min(length, Math.round(fade * sr));
+  const out = new AudioBuffer({ length, numberOfChannels: chans.length, sampleRate: sr }), m = Math.min(length, Math.round(fade * sr));
   chans.forEach((d, c) => {
     const o = d.slice(0, length);
-    for (let i = 0; i < n; i++) o[length - 1 - i] *= i / n;
+    for (let i = 0; i < m; i++) o[length - m + i] *= 0.5 + 0.5 * Math.cos((Math.PI * i) / m);
     out.copyToChannel(o, c);
   });
   return out;
