@@ -143,6 +143,13 @@ http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true });
     }
     let p = decodeURIComponent(url.pathname);
+    if (p === '/research' || p.startsWith('/research/')) {
+      const files = (await import('./scripts/research.mjs')).renderSite();
+      const f = files.get(p) || files.get(p.replace(/\/?$/, '/index.html'));
+      if (!f) { res.writeHead(404); return res.end('not found'); }
+      res.writeHead(200, { 'Content-Type': f.type, 'Cache-Control': 'no-store' });
+      return res.end(f.body);
+    }
     if (p.endsWith('/')) p += 'index.html';
     const file = path.join(ROOT, path.normalize(p));
     if (!file.startsWith(ROOT) || /\/(\.git|api|node_modules)(\/|$)/.test(file.slice(ROOT.length))) { res.writeHead(404); return res.end(); }
