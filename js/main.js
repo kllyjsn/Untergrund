@@ -13,7 +13,8 @@ import { loadArtistProfile, openArtistStudio } from './artist.js';
 import { openClub, loadAvatar } from './club.js';
 import { playTimeline, stopTimeline } from './live-sets.js';
 import { saveTrack, trackTitle, recentTracks, fetchTrack, countPlay } from './crate.js';
-import { dropCard } from './drop.js';
+import { dropCard, pushOffer, guardPushOffer } from './drop.js';
+import { initPush, onPushChange, recordDropPlay, shouldOffer } from './push.js';
 import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
 import { roomTransportPosition, transportResync } from './room-sync.js';
 import { concertPanel, concertBar, preloadScore, scoreReady, loadPiano } from './concert.js';
@@ -29,7 +30,7 @@ import { describeBar } from './describe-ui.js';
 import { fetchPublicTrack } from './account.js';
 import { openShare, openSharedLanding, countRemix, track } from './share.js';
 import { readShareParams, decodeSong, normalizeSong, remixState } from './share-code.js';
-import { dailyDrop, dropSong } from './daily.js';
+import { dailyDrop, dropSong, isDropDate } from './daily.js';
 import { songTimeline } from './timeline-ui.js';
 import { handoffStep, reanchor, MIN_LEAD } from './handoff.js';
 import { applyPart } from './jam.js';
@@ -59,7 +60,7 @@ function showCrash(err) {
 }
 window.addEventListener('error', (e) => showCrash(e.error || e.message));
 let studioOpen = localStorage.getItem('untergrund.studio-open') === '1';
-let madeShown = null, unlockAt = 0, dropOpen = false;
+let madeShown = null, unlockAt = 0, dropOpen = false, dropCue = false;
 let variation = 0.25;
 let artistLive = null;
 let clipboard = null;
@@ -307,6 +308,7 @@ function stop() {
   playing = false;
   handoff = null;
   for (const q of jamQueue.splice(0)) applyPart(state, q.part, q.layer);
+  guardPushOffer();
   playStopped();
   timer?.postMessage('stop');
   midiClockStop();
@@ -481,7 +483,7 @@ function remixSong(song, autoplay = playing) {
   replaceState(next);
   if (!studioOpen) toggleStudio();
   if (autoplay) play();
-  if (readShareParams(location)) history.replaceState(null, '', location.pathname);
+  if (readShareParams(location)) window.history.replaceState(null, '', location.pathname);
   toast(`Remix of “${song.title}” by ${song.artist} is yours now`);
   countRemix(song.trackId);
   track('remix', { kind: song.trackId ? 'published' : 'link', genre: song.style });
@@ -508,6 +510,7 @@ function showJukebox() {
         const d = dailyDrop(item.drop);
         current = { ...normalizeSong({ state: dropSong(d), title: d.title, artist: 'UNTERGRUND', style: d.style }), trackId: '' };
         trackEvent('daily_drop', { kind: 'jukebox' });
+        recordDropPlay(d.date);
       } else {
         const saved = await fetchTrack(item.trackId);
         if (!saved?.state) throw new Error('track_missing');
@@ -882,6 +885,7 @@ function build() {
   ui.rows = {};
   document.body.classList.toggle('studio-open', studioOpen);
   app.append(buildHeader(), buildGenerateHome(), state.patterns[0]?.score ? '' : timeline.mount(), h('main', { class: 'main studio-workspace' }, h('div', { class: 'left' }, buildGrid(), buildEditor()), buildMaster()), buildTabBar());
+  guardPushOffer();
   renderPatterns();
   for (const id of TRACK_IDS) renderRow(id);
   renderRoll();
@@ -1055,12 +1059,27 @@ function playPiece(id) {
   toast(`Opening ${p.title}…`);
   preloadScore({ piece: id }).then(() => { if (!playing && pat().score?.piece === id) play(); }, (e) => toast(`Couldn't open the score: ${e.message}`));
 }
+function offerMoment() { return playing && state.drop === dailyDrop().date && !studioOpen && !document.querySelector('.overlay, .club-overlay'); }
 function playDrop(drop) {
   style = drop.style;
   family = STYLES[style].family;
   localStorage.setItem('untergrund.family', family);
   trackEvent('daily_drop', { kind: 'make', genre: style });
+  dropCue = false;
+  recordDropPlay(drop.date);
   generateNow(drop);
+  // Ask about daily alerts once their drop has held them for 30 seconds.
+  setTimeout(() => { if (playing && state.drop === drop.date && shouldOffer()) pushOffer(offerMoment); }, 30e3);
+}
+// A Daily Drop notification (or a ?drop= link): with music on, today's drop takes over on the bar; from silence the card opens ready to play.
+function openDropLink(q) {
+  if (!isDropDate(q.get('drop'))) return;
+  if (q.get('from') === 'push') trackEvent('push', { kind: 'open' });
+  window.history.replaceState(null, '', location.pathname);
+  if (playing) return playDrop(dailyDrop());
+  dropOpen = true; dropCue = true;
+  if (studioOpen) toggleStudio(); else renderHome();
+  ui.home?.querySelector('.drop-card')?.scrollIntoView({ block: 'center' });
 }
 function surprise() {
   const ids = Object.keys(STYLES).filter((id) => id !== style);
@@ -1218,6 +1237,7 @@ function renderHome() {
   old.replaceWith(buildGenerateHome());
   const row = ui.home.querySelector('.family-tabs');
   if (row) row.scrollLeft = scroll;
+  guardPushOffer();
 }
 
 function buildGenerateHome() {
@@ -1273,7 +1293,7 @@ function buildGenerateHome() {
 }
 
 function dropPeek() {
-  const card = () => dropCard({ hue, onMake: playDrop, onLoad: renderHome, onPlay: (t) => { countPlay(t.id); trackEvent('daily_drop', { kind: 'play', genre: t.style }); openShared(t.id, true); } });
+  const card = () => dropCard({ hue, cue: dropCue, onMake: playDrop, onLoad: renderHome, onPlay: (t) => { countPlay(t.id); trackEvent('daily_drop', { kind: 'play', genre: t.style }); openShared(t.id, true); } });
   if (dropOpen) return card();
   const d = dailyDrop();
   return h('button', { class: 'drop-peek', type: 'button', style: `--drop:${hue(d.style)}`, 'aria-expanded': 'false', title: 'Today’s drop',
@@ -1323,7 +1343,7 @@ function buildTabBar() {
       document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     }
   };
-  const tab = (label, on, onclick) => h('button', { class: `tab tab-${label.toLowerCase()}` + (on ? ' on' : ''), ...(on && { 'aria-current': 'page' }), onclick: () => { closeOverlays(); onclick(); } }, h('i', { class: `tab-ico ${label.toLowerCase()}`, 'aria-hidden': 'true' }), h('span', {}, label));
+  const tab = (label, on, onclick) => h('button', { class: `tab tab-${label.toLowerCase()}` + (on ? ' on' : ''), ...(on && { 'aria-current': 'page' }), onclick: () => { closeOverlays(); onclick(); guardPushOffer(); } }, h('i', { class: `tab-ico ${label.toLowerCase()}`, 'aria-hidden': 'true' }), h('span', {}, label));
   return h('nav', { class: 'tabbar', 'aria-label': 'Sections' },
     tab('Create', !studioOpen, () => { if (studioOpen) toggleStudio(); else scrollTo({ top: 0, behavior: 'smooth' }); }),
     tab('Studio', studioOpen, () => { if (!studioOpen) toggleStudio(); }),
@@ -1964,11 +1984,14 @@ build();
 // Once the page is idle, warm the recordings the selected style and the saved song will play.
 (window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(() => {
   preloadStyle(style);
+  initPush();
   if (pat()?.score) preloadScore(pat().score).catch(() => {}); else loadSets(liveSets(state));
 }, { timeout: 4000 });
 // A saved masterwork reopens with its score (and section map) once the notes arrive.
 if (pat()?.score?.piece) loadPiece(pat().score.piece).then(() => { if (!playing) build(); }, () => {});
 requestAnimationFrame(frame);
+onPushChange(() => { if (dropOpen && !playing) renderHome(); });
+navigator.serviceWorker?.addEventListener('message', (e) => { if (e.data?.type === 'untergrund:open') openDropLink(new URL(e.data.url, location.href).searchParams); });
 const shared = readShareParams(location);
 if (shared) setTimeout(() => {
   const load = shared.code ? decodeSong(shared.code)
@@ -1981,10 +2004,11 @@ if (shared) setTimeout(() => {
     stop: () => { if (playing) stop(); },
     remix: remixSong,
     share: (song) => showShare(song, 'shared'),
-    close: () => { leaveGuest(); history.replaceState(null, '', location.pathname); },
+    close: () => { leaveGuest(); window.history.replaceState(null, '', location.pathname); },
   });
   addEventListener('keydown', (e) => { if (e.code === 'Space') setTimeout(landing.sync); }, true);
 });
+else if (new URLSearchParams(location.search).has('drop')) setTimeout(() => openDropLink(new URLSearchParams(location.search)));
 else if (new URLSearchParams(location.search).has('room')) setTimeout(showClub);
 else if (new URLSearchParams(location.search).has('jukebox')) setTimeout(showJukebox);
 else if (new URLSearchParams(location.search).has('track')) openShared(new URLSearchParams(location.search).get('track'));
