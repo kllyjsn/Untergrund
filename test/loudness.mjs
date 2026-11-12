@@ -2,7 +2,8 @@
 // full song still lands on its target. Full table: node scripts/loudness.mjs.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { kWeighting, loudness, truePeak, dbtp, samplePeakDb, targetFor, MAKEUP_DB, LOUDNESS_TARGET } from '../js/loudness.js';
+import { kWeighting, loudness, truePeak, dbtp, samplePeakDb, targetFor, MAKEUP_DB, PIECE_TRIM_DB, LOUDNESS_TARGET } from '../js/loudness.js';
+import { REPERTOIRE } from '../js/repertoire.js';
 import { STYLES } from '../js/state.js';
 import { withChrome } from './chrome.mjs';
 
@@ -64,23 +65,39 @@ for (const id of Object.keys(STYLES)) {
   close(b.lufs, targetFor(id), 1, `${id} full-song loudness in the baseline`);
   assert(b.tp <= LOUDNESS_TARGET.ceiling + 0.05, `${id} true peak ${b.tp} dBTP`);
 }
+// Each REPERTOIRE masterwork, measured whole with its PIECE_TRIM_DB trim (scripts/loudness.mjs --pieces --write).
+const PIECE_DRIFT = 1, rep = targetFor('repertoire');
+for (const { id } of REPERTOIRE) {
+  const b = base.pieces?.[id];
+  assert(b, `${id} is in test/loudness-baseline.json (run node scripts/loudness.mjs --pieces --write)`);
+  assert.equal(b.trim, PIECE_TRIM_DB[id] ?? 0, `${id}: PIECE_TRIM_DB changed since it was measured (run node scripts/loudness.mjs --pieces --write)`);
+  close(b.lufs, rep, PIECE_DRIFT, `${id} whole-score loudness in the baseline`);
+  assert(b.tp <= LOUDNESS_TARGET.ceiling + 0.05, `${id} true peak ${b.tp} dBTP`);
+}
 const t0 = Date.now();
 const now = await withChrome(async (runs) => {
-  const ids = Object.keys(STYLES), out = {};
-  let next = 0;
+  const ids = Object.keys(STYLES), pieces = REPERTOIRE.map((p) => p.id), out = { styles: {}, pieces: {} };
+  let next = 0, nextPiece = 0;
   await Promise.all(runs.map(async (run) => {
     await run(`import('/test/loudness-page.js').then((m) => { window.__m = m; })`);
-    while (next < ids.length) { const id = ids[next++]; out[id] = await run(`window.__m.windowLoudness(${JSON.stringify(id)})`); }
+    while (next < ids.length) { const id = ids[next++]; out.styles[id] = await run(`window.__m.windowLoudness(${JSON.stringify(id)})`); }
+    while (nextPiece < pieces.length) { const id = pieces[nextPiece++]; out.pieces[id] = await run(`window.__m.pieceWindow(${JSON.stringify(id)})`); }
   }));
   return out;
 }, { pages: 4 });
 if (!now) console.log('loudness: no Chrome found, genre check skipped');
 else {
   const bad = [];
-  for (const [id, w] of Object.entries(now)) {
+  for (const [id, w] of Object.entries(now.styles)) {
     const b = base.styles[id], pred = b.lufs + (w - b.window), t = targetFor(id);
     if (Math.abs(pred - t) > 1.5) bad.push(`${id}: ~${pred.toFixed(1)} LUFS (target ${t}, window ${w.toFixed(2)} vs ${b.window.toFixed(2)})`);
   }
   assert(!bad.length, `genres drifted more than 1.5 LU from their loudness target:\n  ${bad.join('\n  ')}\nre-measure with node scripts/loudness.mjs --write`);
-  console.log(`loudness: ${Object.keys(now).length} genres within ±1.5 LU of target (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
+  const drift = [];
+  for (const [id, w] of Object.entries(now.pieces)) {
+    const b = base.pieces[id], pred = b.lufs + (w - b.window);
+    if (Math.abs(pred - rep) > PIECE_DRIFT) drift.push(`${id}: ~${pred.toFixed(1)} LUFS (window ${w.toFixed(2)} vs ${b.window.toFixed(2)})`);
+  }
+  assert(!drift.length, `masterworks drifted more than ${PIECE_DRIFT} LU from ${rep} LUFS:\n  ${drift.join('\n  ')}\nre-measure with node scripts/loudness.mjs --pieces --write`);
+  console.log(`loudness: ${Object.keys(now.styles).length} genres within ±1.5 LU of target, ${Object.keys(now.pieces).length} masterworks within ±${PIECE_DRIFT} LU (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
 }

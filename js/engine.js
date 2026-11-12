@@ -317,8 +317,9 @@ export class Engine {
   applyAll() {
     for (const id of TRACK_IDS) for (const k of Object.keys(this.state.params[id])) this.applyParam(id, k, true);
     for (const k of Object.keys(this.state.master)) this.applyMaster(k, true);
-    // Per-genre make-up gain into the limiter so every style lands on its loudness target (js/loudness.js).
-    this.setTo(this.limIn.gain, 0.5 * makeupGain(this.state.artist?.style), true);
+    // Per-genre (and per-masterwork) make-up gain into the limiter so every song lands on its loudness target (js/loudness.js).
+    const piece = this.state.patterns?.find((p) => p.score?.piece)?.score.piece;
+    this.setTo(this.limIn.gain, 0.5 * makeupGain(this.state.artist?.style, piece), true);
   }
 
   setParam(tid, id, v) { this.state.params[tid][id] = v; this.applyParam(tid, id); }

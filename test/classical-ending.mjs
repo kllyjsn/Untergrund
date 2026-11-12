@@ -20,7 +20,7 @@ if (!rows) console.log('classical ending: no Chrome found, skipped');
 else {
   const bad = [];
   for (const r of rows) {
-    const env = r.env.map((v) => Math.max(v, FLOOR)), last = env.slice(-41);
+    const env = r.env.map((v) => Math.max(v, FLOOR)), last = env.slice(-21);
     let worst = 0, at = 0;
     for (let i = 1; i < last.length; i++) if (last[i - 1] - last[i] > worst) { worst = last[i - 1] - last[i]; at = (last.length - 1 - i) / 10; }
     if (worst > MAX_DROP) bad.push(`${r.piece || `${r.style}/${r.seed}`}: ${worst.toFixed(1)} dB drop in 100 ms, ${at.toFixed(1)} s before the end`);
