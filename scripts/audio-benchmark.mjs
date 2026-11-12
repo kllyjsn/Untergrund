@@ -18,6 +18,8 @@ export const SEEDS = { fast: [42], deep: [11, 42, 1234] };
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const baselineFile = (tier) => join(ROOT, `test/audio-baseline/${tier}.json`);
 const LEVEL = { PASS: 0, WARN: 1, FAIL: 2 }, worse = (a, b) => (LEVEL[b] > LEVEL[a] ? b : a);
+// Styles that end on a long pad, reverb or delay fade by design.
+export const LONG_TAIL = ['ambient', 'dub'];
 const classical = (style) => targetFor(style) === LOUDNESS_TARGET.classical;
 const r = (v, p = 2) => (Number.isFinite(v) ? +v.toFixed(p) : null);
 const pct = (xs, q) => { const a = xs.filter(Number.isFinite).sort((x, y) => x - y); return a.length ? a[Math.min(a.length - 1, Math.round((a.length - 1) * q))] : null; };
@@ -26,6 +28,17 @@ const stem = (x, id) => x.stems.stems.find((s) => s.id === id);
 // Every check: what it reads from one seed's measurement (null = not applicable), which way is worse ('high' / 'low'),
 // absolute guardrails (warn / fail, null = none), the baseline drift that is worth a WARN (3x drift = FAIL), and the
 // repeat tolerance (two runs of the same commit must agree within it; Chrome renders aren't bit-identical).
+// peakOverBreak's excuse: the drop lands by density rather than level.
+function denseDrop(x) {
+  const a = x.mix.arrangement, n = a?.peakOverBreakdownNotes, v = a?.peakOverBreakdownVoices;
+  return n >= 1.25 && v >= 1 ? `drop plays ${n}x the onsets per bar and ${v >= 0 ? '+' : ''}${v} parts per bar of the breakdowns` : null;
+}
+
+// [warn, fail, drift, repeat] for the over-limiting checks; calibrated on main (docs/audio-benchmark.md).
+// On main every club style's clipper shaves at most ~2 dB off its loudest peaks; DEEP HOUSE / AMAPIANO (clean by ear)
+// reach 2% of frames over 1 dB, 11% over full scale and a 6.3 dB crest.
+const CAL = { clipperShare: [0.05, 0.25, 0.03, 0.01], clipperDepth: [3, 6, 0.75, 0.2], hardClip: [0.25, 0.5, 0.06, 0.02], limiterOver6: [0.05, 0.2, 0.03, 0.01], crest: [6, 3.5, 1, 0.3] };
+
 export const CHECKS = [
   { id: 'truePeak', group: 'peaks', label: 'True peak', unit: 'dBTP', bad: 'high', warn: -0.9, fail: 0, drift: 0.5, repeat: 0.3, get: (x) => x.mix.peak.truePeakDb, why: '4x-oversampled peak (BS.1770); the master limiter ceiling is -1 dBTP, above 0 dBTP a lossy encode or DAC clips.' },
   { id: 'clipRuns', group: 'peaks', label: 'Clipped runs', unit: 'count', bad: 'high', warn: null, fail: 0.5, drift: null, repeat: 0, get: (x) => x.mix.peak.clipRuns, why: 'Runs of 2+ consecutive samples at or above 0.999 full scale.' },
@@ -37,6 +50,12 @@ export const CHECKS = [
   { id: 'limiterStrain', group: 'loudness', label: 'Limiter strain', unit: 'share', bad: 'high', warn: 0.05, fail: 0.2, drift: 0.03, repeat: 0.01, get: (x) => x.mix.limiter.strainShare, why: 'Share of 10 ms frames where the master limiter takes more than 3 dB (squashed transients, pumping).' },
   { id: 'limiterDeep', group: 'loudness', label: 'Deepest gain reduction (1st pct)', unit: 'dB', bad: 'low', warn: -6, fail: -10, drift: 1.5, repeat: 0.4, get: (x) => x.mix.limiter.grP1, why: 'Gain reduction exceeded in 1% of frames.' },
   { id: 'limiterJump', group: 'loudness', label: 'Gain-reduction jump (p99)', unit: 'dB/10ms', bad: 'high', warn: 3, fail: 6, drift: 1, repeat: 0.3, get: (x) => x.mix.limiter.grJumpP99, why: 'Frame-to-frame change in limiter gain; fast big swings are audible as distortion or pumping.' },
+  { id: 'clipperShare', group: 'loudness', label: 'Clipper shaving > 1 dB', unit: 'share', bad: 'high', warn: CAL.clipperShare[0], fail: CAL.clipperShare[1], drift: CAL.clipperShare[2], repeat: CAL.clipperShare[3], get: (x) => x.mix.clipper?.share1Db ?? null, why: 'Share of 10 ms frames of music where the master clipper (soft knee at 0.88, ceiling 0.98, after the limiter) takes more than 1 dB off a peak, measured on its input from the raw render (before any normalization). Occasional shaved transients are inaudible; sustained shaving is audible distortion.' },
+  { id: 'clipperDepth', group: 'loudness', label: 'Clipper peak shave (p99 of frames)', unit: 'dB', bad: 'high', warn: CAL.clipperDepth[0], fail: CAL.clipperDepth[1], drift: CAL.clipperDepth[2], repeat: CAL.clipperDepth[3], get: (x) => x.mix.clipper?.shaveP99Db ?? null, why: 'How far the clipper cuts the loudest 1% of frames, in dB off the peak.' },
+  { id: 'hardClip', group: 'peaks', label: 'Clipper input over full scale', unit: 'share', bad: 'high', warn: CAL.hardClip[0], fail: CAL.hardClip[1], drift: CAL.hardClip[2], repeat: CAL.hardClip[3], get: (x) => x.mix.clipper?.hardShare ?? null, why: 'Share of 10 ms frames where the clipper input reaches full scale, past the end of its curve: the WaveShaper clamps there, a flat-topped hard clip regardless of the soft knee.' },
+  { id: 'saturatorDepth', group: 'loudness', label: 'Bus saturator peak compression (p99 of frames)', unit: 'dB', bad: 'high', warn: null, fail: null, drift: 1, repeat: 0.3, get: (x) => x.mix.saturator?.shaveP99Db ?? null, why: 'How much the master bus saturator (tanh, the style\'s DRIVE) compresses the loudest 1% of frames below its small-signal gain. Drive is a sound-design choice, so this is gated only as drift from baseline; the clipper checks catch overs.' },
+  { id: 'limiterOver6', group: 'loudness', label: 'Limiter over 6 dB', unit: 'share', bad: 'high', warn: CAL.limiterOver6[0], fail: CAL.limiterOver6[1], drift: CAL.limiterOver6[2], repeat: CAL.limiterOver6[3], get: (x) => x.mix.limiter?.over6Share ?? null, why: 'Share of 10 ms frames where the master limiter takes more than 6 dB (absolute, its fixed make-up gain removed).' },
+  { id: 'crest', group: 'loudness', label: 'Crest factor (p10 of bars)', unit: 'dB', bad: 'low', warn: CAL.crest[0], fail: CAL.crest[1], drift: CAL.crest[2], repeat: CAL.crest[3], get: (x) => x.mix.crest?.p10Db ?? null, why: 'Sample peak over RMS per bar (bars within 10 LU of the loudest), 10th percentile: the most squashed bars. Mastered club music sits around 8-12 dB; under ~6 dB the transients are flattened.' },
   { id: 'tiltBright', group: 'spectrum', label: 'Spectral tilt (too bright)', unit: 'dB/oct', bad: 'high', warn: -0.5, fail: 1.5, drift: 1, repeat: 0.15, get: (x) => x.mix.spectrum.tilt, why: 'Slope of octave-band energy 63 Hz-16 kHz (pink noise = 0). Mixed music sits well below 0; near or above 0 reads as thin and bright.' },
   { id: 'tiltDark', group: 'spectrum', label: 'Spectral tilt (too dark)', unit: 'dB/oct', bad: 'low', warn: -10, fail: -13, drift: 1, repeat: 0.15, get: (x) => x.mix.spectrum.tilt, why: 'Same slope from the other side: steeper than -10 dB/oct is a muffled, blanket-over-the-speaker mix.' },
   { id: 'mud', group: 'spectrum', label: 'Low-mid build-up (200-500 Hz)', unit: 'dB', bad: 'high', warn: 6, fail: 9, drift: 2, repeat: 0.5, get: (x) => x.mix.spectrum.mudBumpDb, why: 'Per-octave energy of 200-500 Hz over the louder of its neighbours (60-200 Hz, 500 Hz-2 kHz). Low mids standing well above both the bass and the mids sound boxy and muddy.' },
@@ -52,9 +71,10 @@ export const CHECKS = [
   { id: 'gap', group: 'silence', label: 'Longest dropout', unit: 's', bad: 'high', warn: 2, fail: 6, drift: 1, repeat: 0.2, get: (x) => x.mix.silence?.maxGapSec ?? null, why: '400 ms loudness more than 35 LU under the song between the first bar and the final hit (a phantom gap); breakdowns are quieter but not silent. Silence after the final hit is dead air.' },
   { id: 'leadIn', group: 'silence', label: 'Silence before the music', unit: 's', bad: 'high', warn: 1, fail: 4, drift: 0.5, repeat: 0.1, tiers: ['deep'], get: (x) => x.mix.silence?.leadSec ?? null, why: 'Time from play to the first audible note.' },
   { id: 'contrast', group: 'arrangement', label: 'Bar loudness spread (p90-p10)', unit: 'LU', bad: 'low', warn: 1, fail: 0.3, drift: 1.5, repeat: 0.2, tiers: ['deep'], get: (x) => x.mix.arrangement?.contrastLu ?? null, why: 'How much bar-by-bar loudness moves across the song; near zero is a flat loop with no arrangement.' },
-  { id: 'peakOverBreak', group: 'arrangement', label: 'Peak sections over breakdowns', unit: 'LU', bad: 'low', warn: 0, fail: -2, drift: 1.5, repeat: 0.2, tiers: ['deep'], get: (x) => x.mix.arrangement?.peakOverBreakdownLu ?? null, why: 'Loudness of the peak sections (C/G) over the breakdowns (E/F); a drop should land harder than the breakdown before it.' },
+  { id: 'peakOverBreak', group: 'arrangement', label: 'Peak sections over breakdowns', unit: 'LU', bad: 'low', warn: 0, fail: -2, drift: 1.5, repeat: 0.2, tiers: ['deep'], get: (x) => x.mix.arrangement?.peakOverBreakdownLu ?? null, excuse: denseDrop, why: 'Loudness of the peak sections (C/G) over the breakdowns (E/F); a drop should land harder than the breakdown before it. Loudness only: a seed whose drop is no louder but plays clearly more (>= 1.25x the onsets per bar and >= 1 more part per bar) is excused from WARN (see excused); FAIL still applies.' },
   { id: 'peakOverIntro', group: 'arrangement', label: 'Peak sections over the intro', unit: 'LU', bad: 'low', warn: null, fail: -3, drift: 1.5, repeat: 0.2, tiers: ['deep'], get: (x) => x.mix.arrangement?.peakOverIntroLu ?? null, why: 'Loudness of the peak sections over the intro (A). Club intros are often full-level for DJs, so only an intro 3 LU louder than the peaks fails.' },
-  { id: 'ringOut', group: 'ending', label: 'Final ring-out (to -40 dB)', unit: 's', bad: 'high', warn: 8, fail: 30, drift: 1.5, repeat: 0.3, get: (x) => x.mix.ending?.t40 ?? null, why: 'Time for the final hit to decay 40 dB (extrapolated from the decay rate when it outlasts the rendered tail; 999 = not decaying, a stuck note or runaway feedback). A long hall reverb is ~2-5 s.' },
+  { id: 'ringOut', group: 'ending', label: 'Final ring-out (to -40 dB)', unit: 's', bad: 'high', warn: 8, fail: 30, drift: 1.5, repeat: 0.3, applies: (s) => !LONG_TAIL.includes(s), get: (x) => x.mix.ending?.t40 ?? null, why: 'Time for the final hit to decay 40 dB (extrapolated from the decay rate when it outlasts the rendered tail; 999 = not decaying, a stuck note or runaway feedback). A long hall reverb is ~2-5 s.' },
+  { id: 'ringOutLongTail', group: 'ending', label: 'Final ring-out (to -40 dB, long-tail styles)', unit: 's', bad: 'high', warn: 30, fail: 60, drift: 4, repeat: 1, applies: (s) => LONG_TAIL.includes(s), get: (x) => x.mix.ending?.t40 ?? null, why: 'The same decay for styles whose endings are pad/reverb/delay fades by design (ambient, dub): 10-20 s is the intended fade; only a tail past 30 s or one that never decays (999) is flagged.' },
   { id: 'cutoff', group: 'ending', label: 'Steepest drop in the ending', unit: 'dB/10ms', bad: 'high', warn: 20, fail: 35, drift: 6, repeat: 2, get: (x) => x.mix.ending?.cliffDb ?? null, why: 'Largest 10 ms fall of the ending envelope while still audible; an abrupt truncation shows as a cliff.' },
   { id: 'deadAir', group: 'ending', label: 'Dead air after the ending', unit: 's', bad: 'high', warn: 5, fail: 20, drift: 1.5, repeat: 0.2, get: (x) => x.mix.ending?.deadAirSec ?? null, why: 'Time the song keeps running (and the next one waits) after its ring-out has died.' },
 ];
@@ -83,8 +103,14 @@ export function evaluate(tier, results, baseline) {
       const hi = c.bad === 'high', worstSeed = seeds.reduce((a, s) => ((hi ? vals[s] > vals[a] : vals[s] < vals[a]) ? s : a)), worst = vals[worstSeed];
       const over = (v, t) => t != null && (hi ? v > t : v < t);
       const m = { worst, worstSeed: +worstSeed, p50: r(pct(Object.values(vals), 0.5)), values: vals, level: 'PASS' };
-      if (over(worst, c.fail)) m.level = 'FAIL'; else if (over(worst, c.warn)) m.level = 'WARN';
-      if (m.level !== 'PASS') row.reasons.push({ check: c.id, level: m.level, kind: 'threshold', seed: +worstSeed, value: worst, threshold: m.level === 'FAIL' ? c.fail : c.warn, message: `${c.label} ${worst} ${c.unit} (seed ${worstSeed}) ${hi ? '>' : '<'} ${m.level === 'FAIL' ? c.fail : c.warn}` });
+      // A seed the check's excuse() clears (e.g. a drop no louder than the breakdown but clearly denser) keeps its
+      // value and is still held to the FAIL guardrail, but not to WARN.
+      const excused = c.excuse ? Object.fromEntries(rs.filter((x) => x.seed in vals).map((x) => [x.seed, c.excuse(x)]).filter(([, v]) => v)) : {};
+      if (Object.keys(excused).length) m.excused = excused;
+      const held = seeds.filter((sd) => !(sd in excused)), ts = held.length ? held.reduce((a, sd) => ((hi ? vals[sd] > vals[a] : vals[sd] < vals[a]) ? sd : a)) : null, tv = ts == null ? null : vals[ts];
+      let at = worstSeed;
+      if (over(worst, c.fail)) m.level = 'FAIL'; else if (ts != null && over(tv, c.warn)) { m.level = 'WARN'; at = ts; }
+      if (m.level !== 'PASS') row.reasons.push({ check: c.id, level: m.level, kind: 'threshold', seed: +at, value: vals[at], threshold: m.level === 'FAIL' ? c.fail : c.warn, message: `${c.label} ${vals[at]} ${c.unit} (seed ${at}) ${hi ? '>' : '<'} ${m.level === 'FAIL' ? c.fail : c.warn}` });
       // Margin to the WARN guardrail in units of the drift tolerance: the "closest to threshold" ranking.
       const t = c.warn ?? c.fail;
       if (t != null && c.drift) m.margin = r((hi ? t - worst : worst - t) / c.drift);
@@ -111,7 +137,7 @@ const STEM_LABEL = (at) => { const [seed, id] = String(at).split(':'); return `$
 // What a chart needs per seed, kept small: spectrum, stems, the arrangement curve and the ending envelope.
 function detail(x) {
   const m = x.mix, d = { bars: x.bars, secs: x.secs, bpm: x.bpm, chain: x.chain, windows: x.windows, octaves: m.spectrum.octaves, shares: m.spectrum.shares, centroidHz: m.spectrum.centroid,
-    loudness: m.loudness, stereo: m.stereo, limiter: m.limiter, kickBass: x.stems.kickBass ?? null,
+    loudness: m.loudness, stereo: m.stereo, limiter: m.limiter, clipper: m.clipper ?? null, saturator: m.saturator ?? null, crest: m.crest ?? null, kickBass: x.stems.kickBass ?? null,
     stems: x.stems.stems.map(({ id, notes, relLu, buriedShare }) => ({ id, notes, relLu, buriedShare })) };
   if (m.arrangement) Object.assign(d, { barLufs: m.arrangement.barLufs, sections: m.arrangement.sections ?? [] });
   if (m.ending) d.ending = { t40: m.ending.t40, cliffDb: m.ending.cliffDb, deadAirSec: m.ending.deadAirSec, tailLu: m.ending.tailLu, envelopeDb: m.ending.envelope, envelopeStepSec: 0.05 };

@@ -41,13 +41,15 @@ export function plan(s, windowBars = 2) {
   const barTimes = [...Array.from({ length: c.bars }, (_, b) => c.at[b * per]), end];
   const chain = s.chain.length > 1 ? s.chain : '', sections = [];
   for (let b = 0; b < chain.length; b++) if (!sections.length || sections.at(-1).label !== chain[b]) sections.push({ label: chain[b], from: b, to: b + 1 }); else sections.at(-1).to = b + 1;
-  const onsets = Object.values(c.notes).flat().map((n) => n.t), perBar = new Array(c.bars).fill(0);
-  for (const t of onsets) { let b = 0; while (b + 1 < c.bars && barTimes[b + 1] <= t) b++; perBar[b]++; }
+  const onsets = Object.values(c.notes).flat().map((n) => n.t), perBar = new Array(c.bars).fill(0), voices = new Array(c.bars).fill(0);
+  const barOf = (t) => { let b = 0; while (b + 1 < c.bars && barTimes[b + 1] <= t) b++; return b; };
+  for (const t of onsets) perBar[barOf(t)]++;
+  for (const ns of Object.values(c.notes)) for (const b of new Set(ns.map((n) => barOf(n.t)))) voices[b]++;
   let best = 0, bestN = -1;
   for (let b = 0; b + windowBars < c.bars; b++) { const n = perBar.slice(b, b + windowBars).reduce((a, v) => a + v, 0); if (n > bestN) { bestN = n; best = b; } }
   const finalHit = Math.max(...onsets);
   let finalBar = 0; while (finalBar + 1 < c.bars && barTimes[finalBar + 1] <= finalHit) finalBar++;
-  return { c, per, bars: c.bars, barTimes, sections, finalHit, finalBar, peakBar: best };
+  return { c, per, bars: c.bars, barTimes, sections, finalHit, finalBar, peakBar: best, barNotes: { notes: perBar, voices } };
 }
 
 // renderBars (js/render.js) with the steps scheduled a couple of bars ahead of the render through suspend(),
@@ -80,17 +82,34 @@ export async function render(s, fromBar, toBar, { sampleRate = 48000, tail = 8, 
   return ctx.startRendering();
 }
 
-// Master output plus taps on the limiter's input and output (channels 2-5).
+// Master output plus taps on the limiter's input and output (channels 2-5) and the bus saturator's input (6-7). The
+// clipper input is the limiter output times limTrim, shaped by the clip curve; the saturator shapes satIn's output.
 const tapLimiter = (e) => {
-  const ctx = e.ctx, m = ctx.createChannelMerger(6), d = ctx.destination;
-  d.channelCount = 6; d.channelCountMode = 'explicit'; d.channelInterpretation = 'discrete';
+  const ctx = e.ctx, m = ctx.createChannelMerger(8), d = ctx.destination;
+  d.channelCount = 8; d.channelCountMode = 'explicit'; d.channelInterpretation = 'discrete';
   e.out.disconnect();
-  [e.out, e.limIn, e.limiter].forEach((node, k) => { const sp = ctx.createChannelSplitter(2); node.connect(sp); sp.connect(m, 0, 2 * k); sp.connect(m, 1, 2 * k + 1); });
+  [e.out, e.limIn, e.limiter, e.satIn].forEach((node, k) => { const sp = ctx.createChannelSplitter(2); node.connect(sp); sp.connect(m, 0, 2 * k); sp.connect(m, 1, 2 * k + 1); });
   m.connect(d);
 };
+// DynamicsCompressorNode applies a fixed make-up gain; measure it on a tone 40 dB under the threshold, where there
+// is no reduction, so limiter gain reduction is absolute.
+let makeup = null;
+async function makeupDb(e) {
+  if (makeup != null) return makeup;
+  const fs = 48000, ctx = new OfflineAudioContext(1, fs / 2, fs), l = e.limiter, c = ctx.createDynamicsCompressor(), o = ctx.createOscillator(), g = ctx.createGain();
+  for (const k of ['threshold', 'ratio', 'knee', 'attack', 'release']) c[k].value = l[k].value;
+  g.gain.value = 10 ** ((l.threshold.value - 40) / 20) * Math.SQRT2; o.frequency.value = 997;
+  o.connect(g).connect(c).connect(ctx.destination); o.start();
+  const y = (await ctx.startRendering()).getChannelData(0), a = fs / 4;
+  let sq = 0; for (let i = a; i < y.length; i++) sq += y[i] * y[i];
+  return (makeup = 10 * Math.log10(sq / (y.length - a)) - (l.threshold.value - 40));
+}
 async function master(s, fromBar, toBar, tail, taps = true) {
-  const buf = await render(s, fromBar, toBar, taps ? { channels: 6, tail, onEngine: tapLimiter } : { tail });
-  return { buf, ch: Array.from({ length: buf.numberOfChannels }, (_, k) => buf.getChannelData(k)) };
+  let eng;
+  const buf = await render(s, fromBar, toBar, taps ? { channels: 8, tail, onEngine: (e) => { eng = e; tapLimiter(e); } } : { tail });
+  const out = { buf, ch: Array.from({ length: buf.numberOfChannels }, (_, k) => buf.getChannelData(k)) };
+  if (taps) Object.assign(out, { clip: { gain: eng.limTrim.gain.value, curve: eng.clip.curve }, sat: { curve: eng.sat.curve, taps: out.ch.slice(6, 8) }, makeupDb: await makeupDb(eng) });
+  return out;
 }
 
 // Pre-master stems of a window (js/stems.js routing), with each part's onsets inside it.
@@ -109,12 +128,12 @@ export async function measure(style, seed, { tier = 'fast' } = {}) {
   const t0 = performance.now(), s = await ready(song(style, seed)), W = tier === 'deep' ? 8 : 2, p = plan(s, W), target = targetFor(style);
   const win = [p.peakBar, Math.min(p.bars, p.peakBar + W)], out = { style, seed, tier, bpm: s.bpm, bars: p.bars, secs: +p.barTimes.at(-1).toFixed(2), chain: s.chain.length > 1 ? s.chain : null, windows: { stems: win } };
   if (tier === 'deep') {
-    const { buf, ch } = await master(s, 0, p.bars, 8);
-    out.mix = analyzeMix(ch[0], ch[1], buf.sampleRate, { barTimes: p.barTimes.map((t) => t + START), sections: p.sections, finalHit: p.finalHit + START, songEnd: p.barTimes.at(-1) + START, target, lim: ch.slice(2) });
+    const m = await master(s, 0, p.bars, 8), { buf, ch } = m;
+    out.mix = analyzeMix(ch[0], ch[1], buf.sampleRate, { barTimes: p.barTimes.map((t) => t + START), sections: p.sections, finalHit: p.finalHit + START, songEnd: p.barTimes.at(-1) + START, target, lim: ch.slice(2, 6), clip: m.clip, sat: m.sat, makeupDb: m.makeupDb, barNotes: p.barNotes });
   } else {
     let t = performance.now();
     const a = await master(s, win[0], win[1], 1);
-    out.mix = analyzeMix(a.ch[0], a.ch[1], a.buf.sampleRate, { target, lim: a.ch.slice(2) });
+    out.mix = analyzeMix(a.ch[0], a.ch[1], a.buf.sampleRate, { target, lim: a.ch.slice(2, 6), clip: a.clip, sat: a.sat, makeupDb: a.makeupDb, crestTimes: p.barTimes.slice(win[0], win[1] + 1).map((t) => t - p.barTimes[win[0]] + START) });
     const e0 = Math.max(0, Math.min(p.bars - 2, p.finalBar - 1)), b = await master(s, e0, p.bars, 6, false), o = START - p.barTimes[e0];
     const endMix = analyzeMix(b.ch[0], b.ch[1], b.buf.sampleRate, { finalHit: p.finalHit + o, songEnd: p.barTimes.at(-1) + o, target, refLufs: out.mix.loudness.integrated });
     out.mix.ending = endMix.ending;

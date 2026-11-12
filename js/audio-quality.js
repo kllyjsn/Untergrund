@@ -176,8 +176,9 @@ export function silence(hops, integrated, from, to) {
 }
 
 // Limiter strain from taps on the limiter's input and output: gain reduction per 10 ms while music plays.
-// (Same alignment and make-up handling as test/loudness-page.js.)
-export function limiter([iL, iR, oL, oR], fs, gateLufs = -Infinity, hops = null) {
+// makeupDb: the compressor's fixed make-up gain (DynamicsCompressorNode adds one), measured by the caller on a signal
+// far below threshold, so the reduction is absolute. Without it the least-reduced 0.5% of frames is taken as 0 dB.
+export function limiter([iL, iR, oL, oR], fs, gateLufs = -Infinity, hops = null, makeupDb = null) {
   const w = Math.round(fs / 100), d = Math.round(fs * 0.006), gr = [];
   for (let i = d; i + w <= iL.length; i += w) {
     let a = 0, b = 0;
@@ -185,15 +186,55 @@ export function limiter([iL, iR, oL, oR], fs, gateLufs = -Infinity, hops = null)
     const h = hops ? hops[Math.min(hops.length - 1, Math.floor(i / (fs / 10)))] : 1;
     if (a > 1e-7 * w && lufsOf(h) > gateLufs) gr.push(10 * Math.log10(b / a));
   }
-  const top = [...gr].sort((x, y) => y - x)[Math.floor(gr.length * 0.005)] ?? 0;
+  const top = makeupDb ?? [...gr].sort((x, y) => y - x)[Math.floor(gr.length * 0.005)] ?? 0;
   for (let k = 0; k < gr.length; k++) gr[k] = Math.min(0, gr[k] - top);
-  const jumps = gr.slice(1).map((v, i) => Math.abs(v - gr[i]));
-  return { grMean: r(mean(gr)), grP1: r(quantile(gr, 0.01) ?? 0), strainShare: r(gr.filter((v) => v < -3).length / Math.max(1, gr.length), 4), grJumpP99: r(quantile(jumps, 0.99) ?? 0) };
+  const jumps = gr.slice(1).map((v, i) => Math.abs(v - gr[i])), share = (t) => r(gr.filter((v) => v < -t).length / Math.max(1, gr.length), 4);
+  return { grMean: r(mean(gr)), grP1: r(quantile(gr, 0.01) ?? 0), strainShare: share(3), over6Share: share(6), grJumpP99: r(quantile(jumps, 0.99) ?? 0) };
+}
+
+// A master WaveShaper stage on its own input x (gain * tap), y = curve(x) with the WaveShaper's lookup (linear
+// interpolation, input clamped to [-1, 1]). Per 10 ms frame of music: the most it takes off a peak relative to its
+// small-signal gain (dB), and whether its input went past full scale, where the curve is flat (hard clipping).
+// Sample points only: the node shapes a 4x-oversampled signal, so inter-sample peaks are shaved a little more.
+export function shaper([L, R], fs, { gain = 1, curve }, gateLufs = -Infinity, hops = null) {
+  const n = curve.length, w = Math.round(fs / 100), shave = [], i0 = Math.floor((n - 1) / 2) - 1, i1 = Math.ceil((n - 1) / 2) + 1;
+  const g0 = (curve[i1] - curve[i0]) / ((i1 - i0) * 2 / (n - 1));
+  let hard = 0, frames = 0, peak = 0;
+  const shape = (x) => { const p = (Math.max(-1, Math.min(1, x)) + 1) / 2 * (n - 1), i = Math.min(n - 2, Math.floor(p)); return curve[i] + (curve[i + 1] - curve[i]) * (p - i); };
+  for (let i = 0; i + w <= L.length; i += w) {
+    const h = hops ? hops[Math.min(hops.length - 1, Math.floor(i / (fs / 10)))] : 1;
+    if (!(lufsOf(h) > gateLufs)) continue;
+    let s = 0, over = false, pk = 0;
+    for (const ch of [L, R]) for (let j = i; j < i + w; j++) { const x = Math.abs(ch[j] * gain); if (x > pk) pk = x; }
+    if (pk > peak) peak = pk;
+    if (pk >= 1) over = true;
+    // The peak sample carries the most compression on a monotonic curve.
+    if (pk > 1e-4) s = Math.max(0, 20 * Math.log10((g0 * pk) / Math.max(1e-9, Math.abs(shape(pk)))));
+    frames++; shave.push(s); if (over) hard++;
+  }
+  const share = (t) => r(shave.filter((v) => v > t).length / Math.max(1, frames), 4);
+  return { share1Db: share(1), share3Db: share(3), shaveP50Db: r(quantile(shave, 0.5) ?? 0), shaveP99Db: r(quantile(shave, 0.99) ?? 0), shaveMaxDb: r(Math.max(0, ...shave)), hardShare: r(hard / Math.max(1, frames), 4), inPeakDb: r(20 * Math.log10(peak || 1e-10)) };
+}
+
+// Crest factor per span (sample peak over RMS, dB) for spans within 10 LU of the loudest one: low crest = transients
+// flattened by limiting/clipping. times: span boundaries (s).
+export function crest(L, R, fs, times) {
+  const spans = [];
+  for (let k = 0; k + 1 < times.length; k++) {
+    const a = Math.max(0, Math.round(times[k] * fs)), b = Math.min(L.length, Math.round(times[k + 1] * fs));
+    if (b - a < fs * 0.1) continue;
+    let pk = 0, sq = 0;
+    for (const ch of [L, R]) for (let i = a; i < b; i++) { const v = Math.abs(ch[i]); if (v > pk) pk = v; sq += v * v; }
+    const rms = db(sq / (2 * (b - a)));
+    spans.push({ rms, crest: 20 * Math.log10(pk || 1e-10) - rms });
+  }
+  const loud = Math.max(...spans.map((x) => x.rms)), body = spans.filter((x) => x.rms > loud - 10).map((x) => x.crest);
+  return { p10Db: r(quantile(body, 0.1), 1), p50Db: r(quantile(body, 0.5), 1), n: body.length };
 }
 
 // Everything measured on the master output. opts: barTimes (s, bar starts plus the end of the last bar),
 // sections [{ label, from, to }] in bars, finalHit (s), target (LUFS), lim (4 tap channels), full (whole song).
-export function analyzeMix(L, R, fs, { barTimes = [], sections = [], finalHit = null, songEnd = null, target = -10, lim = null, refLufs = null, start = 0.05 } = {}) {
+export function analyzeMix(L, R, fs, { barTimes = [], sections = [], finalHit = null, songEnd = null, target = -10, lim = null, clip = null, sat = null, makeupDb = null, crestTimes = null, barNotes = null, refLufs = null, start = 0.05 } = {}) {
   const hops = kHops([L, R], fs), I = loudness([L, R], fs).integrated;
   let clipRuns = 0, run = 0, dc = 0, samplePeak = 0;
   for (const ch of [L, R]) for (let i = 0; i < ch.length; i++) {
@@ -206,7 +247,11 @@ export function analyzeMix(L, R, fs, { barTimes = [], sections = [], finalHit = 
     spectrum: spectrum(L, R, fs),
     stereo: stereo(L, R, fs),
   };
-  if (lim) out.limiter = limiter(lim, fs, I - 10, hops);
+  if (lim) out.limiter = limiter(lim, fs, I - 10, hops, makeupDb);
+  if (lim && clip) out.clipper = shaper(lim.slice(2), fs, clip, I - 10, hops);
+  if (sat) out.saturator = shaper(sat.taps, fs, sat, I - 10, hops);
+  const ct = crestTimes ?? (barTimes.length > 1 ? barTimes : null);
+  if (ct) out.crest = crest(L, R, fs, ct);
   const end = barTimes.length ? barTimes[barTimes.length - 1] : songEnd ?? L.length / fs;
   out.silence = silence(hops, I, barTimes[0] ?? start, finalHit != null ? Math.min(end, finalHit) : end);
   if (barTimes.length > 2) {
@@ -214,11 +259,19 @@ export function analyzeMix(L, R, fs, { barTimes = [], sections = [], finalHit = 
     const body = bars.slice(0, -1).filter(Number.isFinite);
     out.arrangement = { barLufs: bars, contrastLu: r(quantile(body, 0.9) - quantile(body, 0.1), 1) };
     if (sections.length) {
-      out.arrangement.sections = sections.map((s) => ({ ...s, lufs: r(spanLufs(hops, barTimes[s.from], barTimes[s.to]), 1) }));
+      const per = (xs, s) => (xs ? r(mean(xs.slice(s.from, s.to)), 1) : undefined);
+      out.arrangement.sections = sections.map((s) => ({ ...s, lufs: r(spanLufs(hops, barTimes[s.from], barTimes[s.to]), 1), notesPerBar: per(barNotes?.notes, s), voices: per(barNotes?.voices, s) }));
       const lvl = (labels) => { const ss = out.arrangement.sections.filter((s) => labels.includes(s.label)); return ss.length ? lufsOf(mean(ss.map((s) => 10 ** ((s.lufs + 0.691) / 10) * (s.to - s.from))) / mean(ss.map((s) => s.to - s.from))) : null; };
       const peak = lvl(['C', 'G']), intro = lvl(['A']), brk = lvl(['E', 'F']);
       out.arrangement.peakOverIntroLu = peak != null && intro != null ? r(peak - intro, 1) : null;
       out.arrangement.peakOverBreakdownLu = peak != null && brk != null ? r(peak - brk, 1) : null;
+      // The same comparison in notes: onsets per bar (ratio) and parts playing per bar (difference), bar-weighted.
+      const avg = (labels, k) => { const ss = out.arrangement.sections.filter((s) => labels.includes(s.label) && s[k] != null); const n = ss.reduce((a, s) => a + s.to - s.from, 0); return n ? ss.reduce((a, s) => a + s[k] * (s.to - s.from), 0) / n : null; };
+      if (barNotes && peak != null && brk != null) {
+        const pn = avg(['C', 'G'], 'notesPerBar'), bn = avg(['E', 'F'], 'notesPerBar');
+        out.arrangement.peakOverBreakdownNotes = bn > 0 ? r(pn / bn, 2) : null;
+        out.arrangement.peakOverBreakdownVoices = r(avg(['C', 'G'], 'voices') - avg(['E', 'F'], 'voices'), 1);
+      }
     }
   }
   if (finalHit != null) out.ending = ending([L, R], fs, finalHit, refLufs ?? I, songEnd);
