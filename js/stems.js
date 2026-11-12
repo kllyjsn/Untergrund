@@ -36,7 +36,7 @@ export function stemList(state, loopBars = 16) {
 
 // Re-routes everything that would reach engine.mix / engine.duck into per-stem sums on its own channel pair.
 // prebus: no stems, just the mix bus straight out (the reference the stems sum to).
-function router(want, { prebus = false } = {}) {
+export function router(want, { prebus = false } = {}) {
   const proto = AudioNode.prototype, orig = proto.connect;
   let ctx = null, E = null, part = null;
   const conns = [], sums = {}, clones = {}, owner = new Map();
