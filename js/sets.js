@@ -377,9 +377,10 @@ export function openJukebox({ playSong, playReplay, stopSong, toast, onCreate, o
     now.classList.add('on');
     now.replaceChildren(
       h('span', { class: 'jb-now-text' }, h('small', { class: 'jb-now-label' }, 'NOW PLAYING'), h('b', {}, it.title), h('span', {}, `${it.artist}${where}`), credit && h('small', { class: 'jb-credit' }, credit)),
-      actions && onRemix && h('span', { class: 'jb-now-actions' },
+      // replaceChildren() stringifies false, so the optional actions fall back to ''.
+      actions && onRemix ? h('span', { class: 'jb-now-actions' },
         h('button', { class: 'btn accent', onclick: () => { jb.close(); onRemix(it); } }, 'REMIX IT'),
-        onShare && h('button', { class: 'btn ghost', onclick: () => onShare(it) }, 'SHARE')));
+        onShare && h('button', { class: 'btn ghost', onclick: () => onShare(it) }, 'SHARE')) : '');
   }
   const toggle = (it, from) => {
     if (queue[idx]?.id === it.id) { stopAll(); idle('Stopped.'); return renderList(); }
