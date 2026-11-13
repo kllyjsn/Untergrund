@@ -47,7 +47,9 @@ jobs:
       - name: Select an iPhone Simulator
         id: simulator
         run: |
-          echo "id=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)[\"devices\"]; print(next(x[\"udid\"] for runtime in d.values() for x in runtime if x[\"name\"].startswith(\"iPhone\")))')" >> "$GITHUB_OUTPUT"
+          id=$(xcrun simctl list devices available -j | jq -r '.devices | to_entries | sort_by(.key) | reverse | map(.value[]) | map(select(.name | startswith("iPhone"))) | .[0].udid // empty')
+          test -n "$id" || { echo "No available iPhone Simulator"; exit 1; }
+          echo "id=$id" >> "$GITHUB_OUTPUT"
       - name: Build and test iOS app
         working-directory: ios
         run: |
