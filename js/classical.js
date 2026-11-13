@@ -558,8 +558,10 @@ export function compose(spec = {}) {
   STYLE = model && { m: model, r: rng(((seed | 0) ^ [...composer].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619), 2166136261)) | 0), reach: Math.max(24, (model.voicing.arpeggioReach ?? 24) + 6) };
   let S;
   try { S = form === 'nocturne' ? nocturne(r, mode) : sonata(r, mode, form === 'concerto'); } finally { STYLE = null; }
-  const bars = S.bar + 1, at = Array.from({ length: bars * 16 }, () => []);
   S.notes.sort((a, b) => a[0] - b[0]);
+  // The piece ends with the bar of its final chord, which rings on past the barline: no empty bars after it.
+  const bars = Math.min(S.bar + 1, Math.floor(S.notes.at(-1)[0] / 16) + 1), at = Array.from({ length: bars * 16 }, () => []);
+  for (const x of S.sections) x.len = Math.min(x.len, bars - x.at);
   // Played, not quantised: downbeats lean, offbeats lighten, and the tempo breathes (see tempoMap).
   for (const n of S.notes) {
     const p = n[0] % 16;

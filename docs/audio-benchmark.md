@@ -88,11 +88,10 @@ is *exciting*.
 ## Baselines
 
 `test/audio-baseline/{fast,deep}.json` record the commit they were taken at. They are *known-good* in the sense of "what
-main sounds like today": the current WARNs (e.g. nocturne's silent last bars, electro/hard techno crest, drill's clipper) are recorded,
-not fixed here, and keep reporting until the music changes. The deep baseline also records one FAIL: REPERTOIRE plays
-2-4 LU over its -16 LUFS target (seed 1234, Chopin Op. 10 No. 1: -11.96 LUFS through `renderBars` too).
-`scripts/loudness.mjs` sizes the render with `songBars()` before the score is fetched, so it meters one bar of each
-piece and calibrated `MAKEUP_DB.repertoire` on that; `npm run benchmark:audio:deep` fails until that is fixed. Re-record with `--write-baseline` when a change moves a
+main sounds like today": the current WARNs (e.g. electro/hard techno crest, drill's clipper) are recorded,
+not fixed here, and keep reporting until the music changes. The classical rows were re-recorded after REPERTOIRE's
+whole-score loudness calibration (per-piece `PIECE_TRIM_DB`) and the score endings (no empty bars after the final
+chord) landed. Re-record with `--write-baseline` when a change moves a
 metric on purpose, and say why in the PR.
 
 ## Report schema (`untergrund.audio-benchmark/1`)

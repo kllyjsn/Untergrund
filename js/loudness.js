@@ -104,6 +104,15 @@ export const MAKEUP_DB = {
   hypnotic: 3.6, industrial: 2.1, acid: 4.5, dub: 4.0, peak: 3.5, hardtechno: 2.1, deephouse: 3.0, minimal: 6.8,
   ukg: 2.5, euphoric: 3.5, neosoul: 1.8, boombap: 0.7, breaks: 3.7, electro: 3.9, dnb: 4.3, trance: 3.8,
   ambient: 2.4, amapiano: 3.0, afrobeats: 2.5, reggaeton: 3.4, bailefunk: 2.8, trap: 3.2, drill: 4.2,
-  jerseyclub: 4.3, hyperpop: 3.2, symphony: 7.0, concerto: 5.5, nocturne: 11.9, repertoire: 5.8,
+  jerseyclub: 4.3, hyperpop: 3.2, symphony: 6.5, concerto: 5.3, nocturne: 11.9, repertoire: 3.6,
 };
-export const makeupGain = (style) => 10 ** ((MAKEUP_DB[style] || 0) / 20);
+// REPERTOIRE masterworks differ from one another by several LU: a per-score trim (dB) on top of the style's make-up
+// lands each on -16 LUFS. Measured on the whole score with node scripts/loudness.mjs --pieces.
+export const PIECE_TRIM_DB = {
+  'bach-prelude-c': 3.3, 'beethoven-fur-elise': 0.8, 'beethoven-pathetique-1': 0.4, 'beethoven-pathetique-2': 0,
+  'chopin-prelude-4': 0.7, 'chopin-prelude-7': -2.3, 'chopin-prelude-15': -0.3, 'chopin-prelude-20': 1.5,
+  'chopin-fantaisie-impromptu': -1.4, 'chopin-etude-10-1': -1.8, 'chopin-etude-10-12': -3.9, 'chopin-waltz-64-1': -1.7,
+  'satie-gymnopedie-1': 2.7, 'schubert-impromptu-899-2': -0.5, 'schubert-impromptu-899-3': 2.1, 'schubert-impromptu-935-2': 1,
+  'mozart-nachtmusik-1': 8.6, 'haydn-emperor': 9.5, 'mozart-k387-1': 9.7, 'beethoven-op18-1': 7.2, 'schubert-death-and-the-maiden': 8.7,
+};
+export const makeupGain = (style, piece) => 10 ** (((MAKEUP_DB[style] || 0) + (PIECE_TRIM_DB[piece] || 0)) / 20);

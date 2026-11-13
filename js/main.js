@@ -1056,6 +1056,7 @@ function playPiece(id) {
   state.artist = { ...state.artist, name: p.composer, title: p.title, style: 'repertoire' };
   persist(); build();
   ensureAudio();
+  engine.applyAll();
   toast(`Opening ${p.title}…`);
   preloadScore({ piece: id }).then(() => { if (!playing && pat().score?.piece === id) play(); }, (e) => toast(`Couldn't open the score: ${e.message}`));
 }
