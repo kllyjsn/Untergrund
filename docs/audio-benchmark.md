@@ -149,3 +149,25 @@ and per-style `verdict` (scoreboard), `seeds.*.octaves` (spectrum curves), `barL
 to a guardrail, covering every family, loudness-matched with ffmpeg `loudnorm` to -16 LUFS, plus `manifest.json`/`.md`
 mapping each file to style, seed, why it was picked and its metrics. Audio stays out of git (`test/out/`). The pack
 exists to audit whether the numbers track what you hear; the gate never needs it.
+
+## Research posts (`/research`)
+
+The public write-ups at [untergrund.sh/research](https://www.untergrund.sh/research/) are generated at build time by
+`scripts/research.mjs` from checked-in snapshots, so every chart is real benchmark output and nothing runs in the browser.
+
+- `research/posts/<slug>.md`: front matter (`title`, `date`, `summary`, optional `card` for the social image and `data` for the
+  snapshot name) and a body of paragraphs, `##` headings, `- ` lists, `> ` notes, inline values `{{v path.to.value|digits}}` and
+  blocks `{{kpis}}`, `{{findings}}`, `{{closest}}`, `{{chart scoreboard|loudness|truepeak|energy|endings|composition|trend [styles]}}`.
+- `research/data/<slug>.json` (`untergrund.research/1`): the compacted deep and fast reports (per-seed bar loudness,
+  sections and ending envelopes for the charts), the composition scorecard, the music benchmark's determinism/diversity
+  summary, and the history of the checked-in baselines read from git for the trend chart.
+
+Publishing fresh numbers is one command, then a build:
+
+```
+node scripts/research.mjs new <slug> --title "..." --run   # runs deep + fast (~25 min on 8 cores), snapshots, writes a post template
+npm run build                                               # renders dist/research/** (pages, og.png cards, feed.xml)
+```
+
+Without `--run` it snapshots the reports already in `test/out/` (or `--deep file --fast file`); `snapshot <slug>` refreshes the
+data of an existing post. `npm test` (`test/research.mjs`) checks every post renders with labelled, described charts.

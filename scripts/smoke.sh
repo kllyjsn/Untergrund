@@ -55,6 +55,12 @@ check 200 /api/events
 check 401 "/api/events?summary=1&token=wrong"
 check 200 "/api/events?summary=1&token=dev"
 check 200 /stats.html
+check 200 /research
+check 200 /research/
+check 200 /research/audio-benchmark
+check 200 /research/audio-benchmark/og.png
+check 200 /research/feed.xml
+check 404 /research/no-such-post
 check 200 "/api/rooms/ci-smoke?since=0"
 check 404 /api/does-not-exist
 check 404 /api/tracks.js
