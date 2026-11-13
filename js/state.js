@@ -593,10 +593,13 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.kick = pad16(pick(r, [[2, 0, 0, 0, 0, 0, 0, 0, 2, 0, 1], [2, 0, 0, 0, 0, 0, 0, 1, 2], [2, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1]]));
     S.snare = pad16([0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2]);
     S.clap = pad16([0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2]);
-    S.ch = range(STEPS, (i) => (i % 4 === 0 ? 2 : i === 14 && r() < 0.6 ? 1 : 0));
-    S.oh = range(STEPS, () => 0);
-    S.stab = pad16(pick(r, [[2, 0, 0, 1, 0, 0, 1, 0, 2, 0, 0, 1, 0, 0, 1], [2, 0, 1, 0, 2, 0, 1, 0, 2, 0, 1, 0, 2, 0, 1], [2, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1]]));
-    S.acid = range(STEPS, (i) => (S.kick[i] || (i === 14 && r() < 0.6) ? { on: true, n: i === 14 ? pick(r, [7, 12]) : 0, a: i === 0, s: false } : emptyAcidStep()));
+    // The chorus moves: eighth hats skipping into the beat, an open hat on the "and" of 4, and a bass that answers the
+    // kick with octave pops. liteVerse() pulls the verse back to quarter hats, the kick-locked bass and the downbeat chords.
+    S.ch = range(STEPS, (i) => (i % 4 === 0 ? 2 : i % 2 === 0 ? 1 : i % 4 === 3 && r() < 0.5 ? 1 : 0));
+    S.oh = pad16([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, r() < 0.6 ? 1 : 0]);
+    S.stab = pad16(pick(r, [[2, 0, 0, 1, 0, 0, 1, 0, 2, 0, 0, 1, 0, 0, 1], [2, 0, 1, 0, 2, 0, 1, 0, 2, 0, 1, 0, 2, 0, 1], [2, 0, 0, 1, 0, 0, 2, 0, 0, 0, 1, 0, 2]]));
+    const push = pick(r, [[3, 6, 10, 14], [6, 11, 14], [3, 7, 10, 13]]);
+    S.acid = range(STEPS, (i) => (S.kick[i] ? { on: true, n: 0, a: i === 0, s: false } : push.includes(i) ? { on: true, n: pick(r, [0, 12, 12, 7]), a: false, s: false } : emptyAcidStep()));
     Object.assign(params.kick, { tune: 50, decay: 0.45, drive: 0.25, punch: 0.7, rumble: 0, click: 0.35, level: 1 });
     Object.assign(params.snare, { tune: 200, snappy: 0.6, decay: 0.2, level: 0.85, rev: 0.25 });
     Object.assign(params.clap, { level: 0.42 });
@@ -656,17 +659,23 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     swing = 0.15;
   } else if (style === 'country') {
     // Boom-chick: bass alternates root and fifth on the beat, the guitar chops the backbeat, a train-beat snare.
-    S.kick = pad16([2, 0, 0, 0, 0, 0, 0, 0, 2]);
-    S.snare = pad16([0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2]).map((v, i) => v || (i % 2 === 0 && i % 4 !== 0 && r() < 0.5 ? 1 : 0));
-    S.ch = range(STEPS, (i) => (i % 2 === 0 ? (i % 4 === 0 ? 2 : 1) : 0));
-    S.stab = pad16(pick(r, [[0, 0, 1, 0, 2, 0, 1, 0, 0, 0, 1, 0, 2, 0, 1], [2, 0, 0, 0, 1, 0, 1, 0, 2, 0, 0, 0, 1, 0, 1], [0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2, 0, 1]]));
+    // Two grooves from the Nashville songbook. The two-step: kick on 1 and 3 with the root-fifth bass, backbeat, eighth
+    // hats leaning on the "and". The train beat: the snare never stops, soft sixteenths accented on 2 and 4, foot hats.
+    let h = Math.imul(seed | 0, 0x9e3779b1) >>> 0;
+    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0;
+    const train = ((h ^ (h >>> 16)) >>> 0) % 5 < 2;
+    S.kick = pad16(train ? [2, 0, 0, 0, 0, 0, 0, 0, 2] : pick(r, [[2, 0, 0, 0, 0, 0, 0, 0, 2], [2, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 1]]));
+    S.snare = train ? range(STEPS, (i) => (i % 8 === 4 ? 2 : 1)) : pad16([0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2]);
+    S.ch = range(STEPS, (i) => (train ? (i % 4 === 0 ? 1 : 0) : i % 2 === 0 ? (i % 4 === 2 ? 2 : 1) : 0));
+    // The acoustic strums eighths, down on the beat and up on the "and" (liteVerse() turns it into the boom-chick).
+    S.stab = pad16(pick(r, [[2, 0, 1, 0, 2, 0, 1, 0, 2, 0, 1, 0, 2, 0, 1], [2, 0, 1, 0, 2, 0, 1, 1, 0, 1, 1, 0, 2, 0, 1], [2, 0, 1, 1, 2, 0, 1, 0, 2, 0, 1, 1, 2, 0, 1]]));
     S.acid = range(STEPS, (i) => (i === 0 || i === 8 ? { on: true, n: i === 8 ? 7 : 0, a: i === 0, s: false } : emptyAcidStep()));
     Object.assign(params.kick, { tune: 52, decay: 0.4, drive: 0.15, punch: 0.6, rumble: 0, click: 0.3, level: 0.95 });
     Object.assign(params.snare, { tune: 210, snappy: 0.6, decay: 0.16, level: 0.95, rev: 0.25 });
     Object.assign(params.ch, { decay: 0.045, tone: 5500, level: 0.6, rev: 0.1 });
-    Object.assign(params.stab, { chord: 11, octave: 0, cutoff: 3200, reso: 1, decay: 0.35, env: 0.75, detune: 4, rev: 0.25, dly: 0, level: 0.7 });
+    Object.assign(params.stab, { chord: 11, octave: 0, cutoff: 3200, reso: 1, decay: 0.35, env: 0.75, detune: 4, rev: 0.25, dly: 0, level: 0.6 });
     Object.assign(params.acid, { voice: 5, wave: 0, tune: -12, cutoff: 450, reso: 1, envmod: 0.1, decay: 0.35, drive: 0.15, accent: 0.2, level: 1.15, dly: 0 });
-    master.kit = 1; master.warmth = 0.35; master.room = 0.4; master.duck = 0; master.drive = 0.1; master.revLevel = 0.35;
+    master.kit = 1; master.warmth = 0.35; master.room = 0.3; master.duck = 0; master.drive = 0.05; master.revLevel = 0.25;
     swing = 0.1;
   }
   const PROGS = {
@@ -774,7 +783,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   const on = S.acid.map((st, i) => (st.on ? i : -1)).filter((i) => i >= 0);
   if (idea === 0 && on.length > 2) S.acid[on[on.length - 1]].n += 12;
   else if (idea === 1 && S.perc.some(Boolean)) { const k = 1 + Math.floor(r2() * 3), q = S.perc.slice(); S.perc = q.map((_, i) => q[(i - k + STEPS) % STEPS]); }
-  else if (idea === 2 && S.stab.some(Boolean) && !['neosoul', 'boombap'].includes(style)) { const q = S.stab.slice(); S.stab = q.map((_, i) => q[(i + 1) % STEPS]); }
+  else if (idea === 2 && S.stab.some(Boolean) && !['neosoul', 'boombap', 'country'].includes(style)) { const q = S.stab.slice(); S.stab = q.map((_, i) => q[(i + 1) % STEPS]); }
   // Styles without written changes get harmony in their own idiom, from a separate stream so nothing above moves.
   if (!P.prog) {
     const v = vampFor(style, Math.round(params.stab.chord ?? 0), rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)));
@@ -783,6 +792,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   if (LIFT.has(style) && P.prog) P.lift = 2;
   if (MAJOR_STYLES.has(style) || style === 'rock') P.band = true;
   if (style === 'pop' || style === 'rock') P.lite = true;
+  if (style === 'country') P.lite = 'country';
   return { pattern: P, params, master, bpm, key, swing: swing ?? 0.06 };
 }
 
@@ -852,6 +862,15 @@ function halfTime(full) {
 // pop thins to kick, backbeat and quarter hats.
 function liteVerse(full) {
   const q = clone(full);
+  // Country verse: boom-chick. The guitar chops 2 and 4, the snare drops to the backbeat, and the chorus opens up
+  // into the strummed eighths and the full train beat or the eighth hats.
+  if (full.lite === 'country') {
+    q.steps.stab = q.steps.stab.map((v, i) => (i % 8 === 4 ? 2 : 0));
+    q.steps.snare = q.steps.snare.map((v, i) => (i % 8 === 4 ? v : 0));
+    q.steps.ch = q.steps.ch.map((v, i) => (i % 4 === 0 ? v : 0));
+    q.steps.oh = range(STEPS, () => 0);
+    return q;
+  }
   if (q.steps.ride.some(Boolean)) {
     q.steps.ride = range(STEPS, () => 0);
     return q;
@@ -859,6 +878,8 @@ function liteVerse(full) {
   q.steps.ch = q.steps.ch.map((v, i) => (i % 4 === 0 ? v : 0));
   q.steps.clap = range(STEPS, () => 0);
   q.steps.oh = range(STEPS, () => 0);
+  q.steps.acid = q.steps.acid.map((a, i) => (q.steps.kick[i] ? a : emptyAcidStep()));
+  q.steps.stab = q.steps.stab.map((v) => (v === 2 ? 2 : 0));
   return q;
 }
 

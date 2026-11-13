@@ -175,10 +175,10 @@
    "window": -15.73
   },
   "pop": {
-   "lufs": -10.29,
-   "spread": 0.64,
-   "tp": -2.13,
-   "window": -9.62
+   "lufs": -10.62,
+   "spread": 2.87,
+   "tp": -2.17,
+   "window": -8.8
   },
   "rnb": {
    "lufs": -14,
@@ -199,10 +199,10 @@
    "window": -12.6
   },
   "country": {
-   "lufs": -10.02,
-   "spread": 2.2,
-   "tp": -2.33,
-   "window": -9.98
+   "lufs": -10.52,
+   "spread": 1.7,
+   "tp": -2.31,
+   "window": -11.07
   }
  },
  "seeds": [
