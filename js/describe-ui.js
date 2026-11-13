@@ -51,8 +51,12 @@ async function askAI(text, style) {
 }
 // A whole song from one sentence: the server's model (or its rules, with no key) writes a validated spec;
 // offline or on any error the same rules run here, so a song always arrives.
-async function askSong(text, style) {
-  const local = () => localSpec(text, { style });
+// plan: the plan rules' read of the prompt; its genre ("indie", "trap") and explicit BPM win over the spec rules'.
+async function askSong(text, style, plan = null) {
+  const local = () => {
+    const sp = localSpec(text, { style }), pick = SONG_STYLES.includes(plan?.style) && plan.style !== style ? plan.style : sp.style;
+    return pick === sp.style && plan?.bpm == null ? sp : validateSpec({ ...sp, style: pick, bpm: plan?.bpm ?? sp.bpm }, { style: pick, prompt: text });
+  };
   if (navigator.onLine === false) return local();
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 10000);
   try {
@@ -250,7 +254,7 @@ export function describeBar(ctx) {
     paint();
     // The plan rules read words the spec rules don't ("indie", "female vocal"); the vocal is kept for the singer.
     const plan = rulePlan(text, '', { style }), meta = plan ? cleanLyrics(planLyrics(plan, text)) : null;
-    return askSong(text, SONG_STYLES.includes(plan?.style) ? plan.style : style).then((spec) => {
+    return askSong(text, style, plan).then((spec) => {
       if (mine !== ticket) return;
       hint = null; draft = ''; recent = null; net = null;
       const label = `“${text.length > 32 ? text.slice(0, 31) + '…' : text}”`;
