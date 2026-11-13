@@ -440,8 +440,8 @@ export function openJukebox({ playSong, playReplay, stopSong, toast, onCreate, o
     renderFeature();
     list.innerHTML = '';
     const v = visible();
-    listHead.replaceChildren(h('span', {}, filter === 'mine' ? 'YOUR SONGS AND SETS' : filter === 'set' ? 'SETS' : 'LATEST'),
-      v.length ? h('button', { class: 'btn ghost jb-all', onclick: () => { queue = withToday(); playAt(0); } }, 'PLAY ALL') : null);
+    listHead.replaceChildren(h('span', {}, filter === 'mine' ? 'YOUR SONGS AND SETS' : filter === 'set' ? 'SETS' : 'LATEST'));
+    if (v.length) listHead.append(h('button', { class: 'btn ghost jb-all', onclick: () => { queue = withToday(); playAt(0); } }, 'PLAY ALL'));
     if (!v.length) list.append(h('div', { class: 'jb-empty' },
       h('p', {}, filter === 'set' ? 'No sets yet. GO LIVE in the Club and your set lands here, or hit REC any time.'
         : filter === 'mine' ? 'Nothing of yours yet. Publish a song and it shows up here and on your page.'
