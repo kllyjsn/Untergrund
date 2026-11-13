@@ -172,8 +172,10 @@ export class Engine {
     this.limTrim = this.gain(LIM_TRIM);
     this.clip = c.createWaveShaper(); this.clip.curve = clipCurve(); this.clip.oversample = '4x';
     this.out = this.gain(OUT_TRIM);
+    // Song sections (Sequencer.sectionLevel) after the clipper, so the limiter and clipper see the same signal.
+    this.secGain = this.gain(1);
     this.mix.connect(this.djHP).connect(this.djLP).connect(this.arrLP).connect(this.glue).connect(this.satIn).connect(this.sat)
-      .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.clip).connect(this.out);
+      .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.clip).connect(this.secGain).connect(this.out);
     this.out.connect(c.destination);
     if (this.realtime) {
       this.analyser = c.createAnalyser();
@@ -1576,6 +1578,12 @@ export class Engine {
     n.connect(hp).connect(ng); ng.connect(this.mix); ng.connect(this.revIn);
   }
 
+  sectionGain(t, db, ramp = 0) {
+    const g = this.secGain.gain, v = 10 ** (db / 20);
+    g.cancelScheduledValues(t);
+    if (ramp) { g.setValueAtTime(10 ** (ramp[0] / 20), t); g.linearRampToValueAtTime(v, t + ramp[1]); } else g.setTargetAtTime(v, t, 0.012);
+  }
+
   // Breakdowns start dark and open back up over the whole section
   breakSweep(t, dur) {
     const f = this.arrLP.frequency;
@@ -1693,6 +1701,10 @@ function hookBusy(hk, hi, hm) {
   return plays((hi + 1) % 32);
 }
 
+// Output level per song section (dB). The verse sits under the chorus; the chorus's small lift keeps the
+// song's integrated loudness where it was and stays inside the -1 dBTP ceiling.
+const SECTION_DB = { verse: -1.8, chorus: 0.45 };
+
 export class Sequencer {
   constructor(engine, state) {
     this.e = engine;
@@ -1739,11 +1751,29 @@ export class Sequencer {
         }
       }
       if (!arr || !brk(this.cur)) this.e.breakOpen(t);
+      this.sectionLevel(t);
       return;
     }
     this.dropNow = false; this.runLen = 0;
+    this.level(t, 0);
     this.e.breakOpen(t);
     if (this.queued !== null) { this.cur = this.queued; this.queued = null; }
+  }
+
+  // Verses sit under the chorus and a pre-chorus swells up into it; bars without a section role
+  // (intro, fills, outro) hold the level. Songs without sections stay at unity.
+  sectionLevel(t) {
+    const pats = this.s.patterns, sec = pats[this.cur]?.sec;
+    if (!sec) return this.level(t, pats.some((p) => p.sec) ? this.secDb ?? 0 : 0);
+    if (sec !== 'pre') return this.level(t, SECTION_DB[sec] ?? 0);
+    const { verse: v, chorus: c } = SECTION_DB, at = (k) => v + ((c - v) * k) / this.runLen;
+    this.level(t, at(this.runPos + 1), [at(this.runPos), 16 * this.e.stepDur]);
+  }
+
+  level(t, db, ramp) {
+    if (db === this.secDb && !ramp) return;
+    this.secDb = db;
+    this.e.sectionGain(t, db, ramp);
   }
 
   tick(abs, t) {

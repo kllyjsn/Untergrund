@@ -49,7 +49,7 @@ class Recorder {
   get stepDur() { return (60 / this.state.bpm / 4) * (this.stepScale || 1); }
   add(track, t, m, dur, v) { (this.notes[track] ||= []).push({ t, m, dur: Math.max(0.01, dur), v }); }
   chord() { const p = this.state.params.stab, h = this.harm; return CHORDS[h ? h.c : Math.round(p.chord)].iv; }
-  dust() {} sweep() {} impact() {} breakSweep() {} breakOpen() {}
+  dust() {} sweep() {} impact() {} breakSweep() {} breakOpen() {} sectionGain() {}
   acidRelease(t) { if (this.bass) { this.bass.dur = Math.max(0.01, Math.min(this.bass.dur, t - this.bass.t)); this.bass = null; } }
   trigger(id, t, v) {
     if (id === 'stab') {
