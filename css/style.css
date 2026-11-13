@@ -621,7 +621,7 @@ body.artist-live .logo b { background: var(--green); }
   .club-stage::after { display: none; }
   .club-now { top: 10px; left: 10px; width: calc(100% - 20px); box-sizing: border-box; padding: 8px 11px; }
   .club-now strong { font-size: 15px; }
-  .club-spin { top: 10px; width: calc(100% - 20px); min-width: 0; }
+  .club-spin { top: auto; bottom: 12px; width: calc(100% - 20px); min-width: 0; }
   .club-floor { left: 0; right: 0; overflow: hidden; }
   .club-floor { --crowd-scale: .68; }
   .club-customizer { align-items: flex-start; }
