@@ -310,7 +310,7 @@ console.log('seeded instrument ensembles passed');
 {
   const { buildSong } = await import('../scripts/composition.mjs');
   const { Sequencer } = await import('../js/engine.js');
-  for (const style of ['euphoric', 'reggaeton', 'neosoul', 'hypnotic', 'ambient']) {
+  for (const style of ['euphoric', 'reggaeton', 'neosoul', 'pop', 'rock', 'country', 'hypnotic', 'ambient']) {
     const s = buildSong(style, 101), lv = {}, at = [];
     const e = new Proxy({ stepDur: 0.125, harm: null }, {
       get: (o, k) => (k in o ? o[k] : k === 'sectionGain' ? (t, db) => at.push(db) : () => {}),
