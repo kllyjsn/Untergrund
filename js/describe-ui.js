@@ -62,8 +62,8 @@ async function askSong(text, style, plan = null) {
   try {
     const res = await fetch('/api/describe', { method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, style, mode: 'song' }) });
-    const spec = res.ok ? (await res.json()).spec : null;
-    return spec ? validateSpec(spec, { style: local().style, prompt: text }) : local();
+    const body = res.ok ? await res.json() : null;
+    return body?.spec && body.source !== 'rules' ? validateSpec(body.spec, { style: local().style, prompt: text }) : local();
   } catch { return local(); } finally { clearTimeout(timer); }
 }
 const Speech = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
