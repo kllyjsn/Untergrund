@@ -12,6 +12,7 @@ import { makeupGain } from './loudness.js';
 import { harmRoot, chordIv, stabNotes, hookSnap, voiceLead } from './harmony.js';
 import { develop, motifPlan, stepDeg } from './motif.js';
 import { MELODY_BARS, strongNote } from './melody.js';
+import { patternAt } from './scope.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
@@ -1750,17 +1751,17 @@ export class Sequencer {
     const s = this.s, e = this.e;
     this.advanceBar(abs, t);
     if (this.finished && this.songBars) return this.cur;
-    const pat = s.patterns[this.cur];
+    const n = this.songBars || 0, pos = n ? (this.chainPos - 1) % n : -1, lf = this.liftFrom;
+    const pat = patternAt(s.patterns[this.cur], pos);
     const bar = Math.floor(abs / 16), vary = s.master.vary || 0;
     e.harm = pat.prog?.length ? pat.prog[bar % pat.prog.length] : null;
     e.step = abs;
     const sd = e.stepDur;
     const tt = t + (abs % 2 ? s.swing * sd * 0.5 : 0);
-    const n = this.songBars || 0, pos = n ? (this.chainPos - 1) % n : -1, lf = this.liftFrom;
     const kl = this.keyLift = s.ending && pat.lift && lf > 0 && (pos >= lf || (pos === lf - 1 && abs % 16 >= 12)) ? pat.lift : 0;
     if (s.ending && n >= 16 && pos === n - 1 && !pat.score) return this.ending(pat, abs % 16, tt, sd, kl);
     // Turnaround: the last beat of a section anticipates the next section's first chord.
-    const nx = n && pos + 1 < n && this.chainArr[pos + 1] !== this.cur ? s.patterns[this.chainArr[pos + 1]] : null;
+    const nx = n && pos + 1 < n && this.chainArr[pos + 1] !== this.cur ? patternAt(s.patterns[this.chainArr[pos + 1]], pos + 1) : null;
     if (nx && abs % 16 >= 12 && pat.prog?.length && nx.prog?.length) e.harm = nx.prog[(bar + 1) % nx.prog.length];
     if (kl && e.harm) e.harm = { r: e.harm.r + kl, c: e.harm.c };
     const pk = pocketOf(s.master);
@@ -1932,11 +1933,10 @@ export class Sequencer {
 
   // Vocal-length melodies (js/melody.js): which part a scene sings. Breakdowns sing the bridge, quiet scenes the
   // verse, full ones the chorus; a one-bar fill finishes the phrase of the section it closes.
-  singPart(i, prev) {
-    const p = this.s.patterns[i];
+  singPart(p, i, pq, prev) {
     if (!p?.hook?.m?.n?.length || p.hook.h || !p.hm) return null;
     if (i === 4 || i === 5) return 'b';
-    if ((i === 3 || i === 7) && prev !== undefined && prev !== i) { const q = this.singPart(prev); if (q) return q; }
+    if ((i === 3 || i === 7) && pq && prev !== i) { const q = this.singPart(pq, prev); if (q) return q; }
     return p.hm > 1 ? 'n' : 'v';
   }
 
@@ -1947,11 +1947,12 @@ export class Sequencer {
     if (c && c.bar === bar && c.P === P && c.cur === this.cur && c.s === this.s) return c;
     const n = this.songBars, ch = this.chainArr, B = MELODY_BARS;
     const at = (k) => (n ? ch[((k % n) + n) % n] : this.cur);
-    const part = (k) => this.singPart(at(k), at(k - 1));
+    const pp = (k) => patternAt(this.s.patterns[at(k)], n ? ((k % n) + n) % n : -1);
+    const part = (k) => this.singPart(pp(k), at(k), pp(k - 1), at(k - 1));
     const notesIn = (k) => {
       const cb = ((k % B) + B) % B, out = [], q = part(k), nq = cb === B - 1 && part(k + 1);
-      if (q) for (const x of this.s.patterns[at(k)].hook.m[q] || []) if (x[0] >= cb * 16 && x[0] < cb * 16 + 16) out.push({ at: x[0] - cb * 16, x, q });
-      if (nq) for (const x of this.s.patterns[at(k + 1)].hook.m[nq] || []) if (x[0] < 0) out.push({ at: 16 + x[0], x, q: nq, pickup: 1 });
+      if (q) for (const x of pp(k).hook.m[q] || []) if (x[0] >= cb * 16 && x[0] < cb * 16 + 16) out.push({ at: x[0] - cb * 16, x, q });
+      if (nq) for (const x of pp(k + 1).hook.m[nq] || []) if (x[0] < 0) out.push({ at: 16 + x[0], x, q: nq, pickup: 1 });
       return out;
     };
     const notes = notesIn(P), busy = Array(16).fill(false);
@@ -1959,13 +1960,13 @@ export class Sequencer {
     for (const { at: a, x } of notes) for (let j = a; j < Math.min(16, a + x[1]); j++) busy[j] = true;
     for (const { at: a } of notes) if (a > 0) busy[a - 1] = true;
     if (notesIn(P + 1).some((o) => o.at === 0)) busy[15] = true;
-    return (this.sungAt = { bar, P, cur: this.cur, s: this.s, notes, busy, part: part(P), any: notes.length > 0 || busy.some(Boolean) });
+    return (this.sungAt = { bar, P, cur: this.cur, s: this.s, notes, busy, hook: pp(P).hook, part: part(P), any: notes.length > 0 || busy.some(Boolean) });
   }
 
   // Sing the notes that start on this step: pitch and length as written, the verse a little softer than the chorus,
   // a breath before a drop, and at the peak a second voice a third under the held notes of the answering phrase.
   sing(sung, i16, bar, t, sd, scale) {
-    const s = this.s, e = this.e, hk = this.s.patterns[this.cur].hook, x = hk.x || { space: 0.4, risk: 0.4, feel: 0.4, warmth: 0.5 };
+    const s = this.s, e = this.e, hk = sung.hook, x = hk.x || { space: 0.4, risk: 0.4, feel: 0.4, warmth: 0.5 };
     for (const o of sung.notes) {
       if (o.at !== i16 || (this.dropNext && i16 >= 8 && !o.pickup)) continue;
       const [start, dur, semi, vel, ph] = o.x, lift = this.keyLift || 0;

@@ -89,4 +89,27 @@ function fakeSession({ throwOn = [] } = {}) {
   assert.equal(songClock({ bars: 0, bpm: 120 }), null);
 }
 
+// The native iOS bridge receives the same state and can drive the existing remote actions.
+{
+  const messages = [], listeners = {};
+  const native = { postMessage(message) { messages.push(message); } };
+  const events = { addEventListener(name, fn) { listeners[name] = fn; } };
+  const np = createNowPlaying({ session: undefined, Metadata: undefined, native, events });
+  let plays = 0;
+  np.metadata({ title: 'Night Bus', artist: 'Ada', album: 'UNTERGRUND · LIVE' });
+  np.state('playing');
+  np.actions({ play: () => { plays++; }, pause: () => {} });
+  np.position({ duration: 120, position: 130 });
+  assert.equal(np.supported, true);
+  assert.deepEqual(messages, [
+    { type: 'nowPlaying', title: 'Night Bus', artist: 'Ada', album: 'UNTERGRUND · LIVE' },
+    { type: 'playback', state: 'playing' },
+    { type: 'actions', actions: ['play', 'pause'] },
+    { type: 'position', duration: 120, position: 120 },
+  ]);
+  listeners['untergrund:native-command']({ detail: { action: 'play' } });
+  listeners['untergrund:native-command']({ detail: { action: 'bogus' } });
+  assert.equal(plays, 1);
+}
+
 console.log('media-session ok');
