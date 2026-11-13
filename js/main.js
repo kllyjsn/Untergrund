@@ -1453,6 +1453,7 @@ function describeBox() {
       if (playing && pat().score) stop();
     },
     commit: (next) => { adoptState(next); build(); persist(); },
+    highlight: (bars) => timeline.flash(bars),
   });
 }
 

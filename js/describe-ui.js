@@ -2,6 +2,7 @@
 import { h } from './ui.js';
 import { parse, applyEdits, genreOf, suggest, chipsFor, mergeEdits, needsMix, mixAdjust, heard, validateEdits } from './describe.js';
 import { privacyOptOut } from './analytics.js';
+import { barsLabel } from './scope.js';
 
 let last = null, hint = null, draft = '', recent = null, net = null, ticket = 0;
 // Phrases the rules can't read go to /api/describe (an LLM limited to the app's own edits); [] if it's off.
@@ -21,7 +22,8 @@ const SPEECH_ERR = { 'not-allowed': 'Microphone is blocked. Allow the mic for th
 // Renders two bars of the drop and measures each part; null if it fails or takes too long.
 const listen = (state) => Promise.race([import('./mix-check.js').then((m) => m.measureMix(state)), new Promise((r) => setTimeout(() => r(null), 8000))]).catch(() => null);
 
-// ctx: state(), style(), styleName(id), depth(), pushUndo(label), undo(), switchGenre(id, steer, label), commit(nextState), track(props)
+// ctx: state(), style(), styleName(id), depth(), pushUndo(label), undo(), switchGenre(id, steer, label), commit(nextState), track(props),
+// highlight(bars) (optional: shows which bars of the song a scoped edit changed)
 export function describeBar(ctx) {
   const input = h('input', { class: 'describe-input', type: 'text', placeholder: 'Describe it: “darker and slower”', 'aria-label': 'Describe the change you want',
     autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'go', maxlength: '140', oninput: () => { draft = input.value; } });
@@ -65,6 +67,12 @@ export function describeBar(ctx) {
     if (live) {
       receipt.append(h('div', { class: 'describe-line' }, h('span', { class: 'describe-did' }, h('b', {}, 'Did: '), last.did.join(', '), last.miss ? h('em', {}, ` · skipped “${last.miss}”`) : null),
         h('button', { type: 'button', class: 'describe-undo', onclick: () => { last = hint = recent = net = null; ctx.undo(); } }, 'UNDO')));
+      // Where it landed: one cell per bar of the song, the changed ones lit.
+      if (last.bars && last.chain === ctx.state().chain) {
+        const on = new Set(last.bars), c = last.chain;
+        receipt.append(h('div', { class: 'describe-where', role: 'img', title: `Changed ${barsLabel(last.bars)} of ${c.length}`, 'aria-label': `Changed ${barsLabel(last.bars)} of ${c.length}` },
+          [...c].map((L, i) => h('i', { class: (on.has(i) ? 'on' : '') + (i && c[i - 1] !== L ? ' edge' : '') }))));
+      }
       const nudges = recent?.some((e) => e.amt != null) ? ['more', 'too much', 'other way'] : recent?.some((e) => e.id === 'mute') ? ['other way'] : [];
       if (nudges.length) receipt.append(h('div', { class: 'describe-line' }, ...nudges.map((s) => h('button', { type: 'button', class: 'describe-chip sm', onclick: () => run(s) }, s))));
     }
@@ -137,8 +145,9 @@ export function describeBar(ctx) {
       if (!r.did.length) return miss(text, r.skipped.length ? `Nothing to change: ${r.skipped.map((s) => s.replace(' (already there)', ' already')).join(', ')}. Try:` : 'It already sounds like that. Try:');
       ctx.pushUndo(label);
       remember();
-      last = { did: [...r.did, ...notes], miss: unknown.join(', '), depth: ctx.depth() };
+      last = { did: [...r.did, ...notes], miss: unknown.join(', '), depth: ctx.depth(), ...(r.bars?.length ? { bars: r.bars, chain: r.state.chain } : {}) };
       ctx.commit(r.state);
+      if (r.bars?.length) ctx.highlight?.(r.bars);
     }
     ctx.track({ kind: genre ? 'genre' : edits[0].id, genre: genre || style });
   }

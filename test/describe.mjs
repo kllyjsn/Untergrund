@@ -2,7 +2,8 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { parse, applyEdits, describe, validateEdits, interpret, genreOf, suggest, CHIPS, chipsFor, needsMix, mixAdjust, TYPICAL, heard } from '../js/describe.js';
-import { defaultState, generate, applyOverrides, arrangement, songChain, STYLES } from '../js/state.js';
+import { patternAt, changedBars } from '../js/scope.js';
+import { defaultState, generate, sanitize, clone, applyOverrides, arrangement, songChain, STYLES } from '../js/state.js';
 
 let fails = 0;
 const t = (name, fn) => { try { fn(); } catch (e) { fails++; console.error('FAIL', name, '\n ', e.message); } };
@@ -18,7 +19,8 @@ function songFor(style, seed = 7) {
   s.chain = songChain(style, seed);
   return s;
 }
-const has = (edits, want) => want.every((w) => edits.some((e) => Object.entries(w).every(([k, v]) => e[k] === v)));
+const same = (a, b) => a === b || (Array.isArray(a) && JSON.stringify(a) === JSON.stringify(b));
+const has = (edits, want) => want.every((w) => edits.some((e) => Object.entries(w).every(([k, v]) => same(e[k], v))));
 
 // 1. Phrase table: text -> edits it must contain.
 const PHRASES = [
@@ -100,8 +102,42 @@ const EVERYDAY = [
   ['no melody', [{ id: 'hook', value: 0 }]],
   ['change the key', [{ id: 'keyStep', amt: 2 }]],
   ['like daft punk', [{ id: 'genre', value: 'deephouse' }]],
+  // Part of the song: a section, one pass of it, or a bar range; the rest of the song is left alone.
+  ['make the chorus hit harder', [{ id: 'section', sec: 'drop', op: 'energy', amt: 1 }], [{ id: 'punch' }, { id: 'drops' }]],
+  ['make the drop hit harder', [{ id: 'section', sec: 'drop', op: 'energy', amt: 1 }], [{ id: 'punch' }]],
+  ['strip the hats out of the breakdown', [{ id: 'section', sec: 'breakdown', op: 'mute', tracks: ['ch'] }], [{ op: 'add' }]],
+  ['take the kick out of the intro', [{ id: 'section', sec: 'intro', op: 'mute', tracks: ['kick'] }], [{ op: 'add' }]],
+  ['pull the bass out of the build', [{ id: 'section', sec: 'build', op: 'mute', tracks: ['acid'] }]],
+  ['more tension in the build', [{ id: 'section', sec: 'build', op: 'tension', amt: 1 }], [{ op: 'energy' }]],
+  ['the build needs more tension', [{ id: 'section', sec: 'build', op: 'tension', amt: 1 }]],
+  ['less tension in the build', [{ id: 'section', sec: 'build', op: 'tension', amt: -1 }]],
+  ['more suspense before the drop', [{ id: 'section', sec: 'drop', op: 'tension', amt: 1 }]],
+  ['bass up an octave in the second drop', [{ id: 'section', sec: 'drop', op: 'octave', tracks: ['acid'], amt: 1, nth: 2 }], [{ id: 'level' }, { id: 'drops' }]],
+  ['bass down an octave in the breakdown', [{ id: 'section', sec: 'breakdown', op: 'octave', tracks: ['acid'], amt: -1 }]],
+  ['in the last chorus, melody an octave higher', [{ id: 'section', sec: 'drop', op: 'octave', tracks: ['stab'], amt: 1, nth: -1 }]],
+  ['bass two octaves down in bars 9-16', [{ id: 'section', sec: 'bars', op: 'octave', tracks: ['acid'], amt: -2, bars: [9, 16] }]],
+  ['no hats in bars 9-16', [{ id: 'section', sec: 'bars', op: 'mute', tracks: ['ch'], bars: [9, 16] }], [{ id: 'mute' }]],
+  ['bars 9 to 16 no hats', [{ id: 'section', sec: 'bars', op: 'mute', tracks: ['ch'], bars: [9, 16] }]],
+  ['mute the kick in bar 17', [{ id: 'section', sec: 'bars', op: 'mute', tracks: ['kick'], bars: [17, 17] }], [{ id: 'mute' }]],
+  ['make bar 17 hit harder', [{ id: 'section', sec: 'bars', op: 'energy', amt: 1, bars: [17, 17] }]],
+  ['busier hats in bars 33–40', [{ id: 'section', sec: 'bars', op: 'density', tracks: ['ch'], amt: 1, bars: [33, 40] }]],
+  ['in measures 5 through 8, add claps', [{ id: 'section', sec: 'bars', op: 'add', tracks: ['clap'], bars: [5, 8] }]],
+  ['the last 8 bars, no kick', [{ id: 'section', sec: 'bars', op: 'mute', tracks: ['kick'], bars: [-8, -1] }]],
+  ['strip the drums in the last 8 bars', [{ id: 'section', sec: 'bars', op: 'mute', bars: [-8, -1] }]],
+  ['quieter last four bars', [{ id: 'section', sec: 'bars', op: 'energy', amt: -1, bars: [-4, -1] }]],
+  ['more tension in the last 4 bars', [{ id: 'section', sec: 'bars', op: 'tension', amt: 1, bars: [-4, -1] }]],
+  ['no melody in the first 16 bars', [{ id: 'section', sec: 'bars', op: 'hook', value: 0, bars: [1, 16] }]],
+  ['sparser hats in the first eight bars', [{ id: 'section', sec: 'bars', op: 'density', tracks: ['ch'], amt: -1, bars: [1, 8] }]],
+  ['make the last bar hit harder', [{ id: 'section', sec: 'bars', op: 'energy', amt: 1, bars: [-1, -1] }]],
+  ['make the second drop bigger', [{ id: 'section', sec: 'drop', op: 'energy', amt: 1, nth: 2 }]],
+  ['make drop 2 bigger', [{ id: 'section', sec: 'drop', op: 'energy', amt: 1, nth: 2 }]],
+  ['no hats in the first drop', [{ id: 'section', sec: 'drop', op: 'mute', tracks: ['ch'], nth: 1 }]],
+  ['the final breakdown should be stripped', [{ id: 'section', sec: 'breakdown', op: 'strip', nth: -1 }]],
+  ['skip the second breakdown', [{ id: 'section', sec: 'breakdown', op: 'skip', nth: 2 }]],
+  ['add melody to the second chorus', [{ id: 'section', sec: 'drop', op: 'hook', value: 1, nth: 2 }]],
+  ['in the second verse, busier hats', [{ id: 'section', sec: 'verse', op: 'density', tracks: ['ch'], amt: 1, nth: 2 }]],
 ];
-const lacks = (edits, bad) => !bad.some((w) => edits.some((e) => Object.entries(w).every(([k, v]) => e[k] === v)));
+const lacks = (edits, bad) => !bad.some((w) => edits.some((e) => Object.entries(w).every(([k, v]) => same(e[k], v))));
 for (const [text, want, bad = []] of EVERYDAY) t(`everyday "${text}"`, () => {
   const { edits } = parse(text, { style: 'hypnotic' });
   assert.ok(has(edits, want), `${JSON.stringify(edits)} lacks ${JSON.stringify(want)}`);
@@ -264,6 +300,91 @@ for (const style of ['hypnotic', 'deephouse', 'neosoul', 'boombap']) {
   });
 }
 
+// Scoped edits: a per-bar note log (every Engine call the Sequencer makes, bar by bar) must change only in the
+// bars the edit names, and the receipt's bars must be exactly those.
+function noteLog(state) {
+  const rnd = Math.random; let x = 12345; Math.random = () => ((x = (x * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  try {
+    const { ctx } = fakeCtx();
+    const engine = new Engine(ctx, JSON.parse(JSON.stringify(state)), { realtime: false });
+    const seq = new Sequencer(engine, engine.state || state);
+    const n = parseChain(state.chain).length, out = Array.from({ length: n }, () => []);
+    let depth = 0, bar = 0, t0 = 0;
+    const r = (v) => (typeof v === 'number' ? String(Math.round(v * 1000) / 1000) : Array.isArray(v) ? `[${v.map(r)}]` : v && typeof v === 'object' ? (Object.keys(v).length <= 8 ? `{${Object.entries(v).map(([k, x]) => `${k}:${typeof x === 'object' ? '-' : r(x)}`)}}` : 'obj') : String(v));
+    for (let o = Object.getPrototypeOf(engine); o && o !== Object.prototype; o = Object.getPrototypeOf(o)) {
+      for (const k of Object.getOwnPropertyNames(o)) {
+        if (k === 'constructor' || typeof engine[k] !== 'function' || Object.hasOwn(engine, k)) continue;
+        const f = engine[k];
+        engine[k] = function (...a) {
+          if (depth === 0) out[bar]?.push(`${k}(${a.map((v) => (typeof v === 'number' && v > t0 - 1 && v < t0 + 30 ? `t${r(v - t0)}` : r(v))).join(',')})`);
+          depth++; try { return f.apply(this, a); } finally { depth--; }
+        };
+      }
+    }
+    for (let abs = 0, tt = 0.05; abs < n * 16; abs++) { bar = Math.floor(abs / 16); if (abs % 16 === 0) t0 = tt; seq.tick(abs, tt); tt += engine.stepDur; }
+    return out.map((l) => l.join('\n'));
+  } finally { Math.random = rnd; }
+}
+const runsOf = (chain, letters) => [...chain.matchAll(new RegExp(`[${letters}]+`, 'g'))].map((m) => [...m[0]].map((_, k) => m.index + k));
+const span = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+for (const style of ['deephouse', 'hypnotic']) {
+  const base = songFor(style), n = base.chain.length, log0 = noteLog(base);
+  const drops = runsOf(base.chain, 'GH').filter((r) => r.some((q) => base.chain[q] === 'G'));
+  const SCOPED = [
+    ['no hats in bars 9-16', span(8, 15)],
+    ['mute the kick in bar 17', [16]],
+    ['make bar 17 hit harder', [16]],
+    ['the last 8 bars, no kick', span(n - 8, n - 1)],
+    ['strip the drums in the last 8 bars', span(n - 8, n - 1)],
+    ['bass up an octave in the second drop', drops[1]],
+    ['bass down an octave in the first drop', drops[0]],
+    ['make the second drop bigger', drops[1]],
+    ['make the chorus hit harder', drops.flat()],
+    ['no hats in the last drop', drops[drops.length - 1]],
+    ['strip the hats out of the breakdown', runsOf(base.chain, 'EF').flat()],
+    ['more tension in the build', runsOf(base.chain, 'B')[0]],
+    ['more tension in the last 4 bars', span(n - 4, n - 1)],
+    ['sparser hats in bars 33-40', span(32, 39)],
+    ['no kick and snare in the intro', runsOf(base.chain, 'A')[0]],
+  ];
+  for (const [text, want] of SCOPED) t(`${style}: "${text}" changes only its bars`, () => {
+    const r = describe(text, base, { style, seed: 3 });
+    assert.ok(r.did.length, `nothing done: ${r.skipped.join(', ')}`);
+    assert.equal(r.state.chain, base.chain);
+    const log1 = noteLog(r.state), moved = log1.map((l, i) => (l !== log0[i] ? i : -1)).filter((i) => i >= 0);
+    const target = new Set(want);
+    assert.ok(moved.length, `"${text}" is not audible`);
+    // A bar's last beat leads into the next bar (fills, turnarounds), so a change may reach one bar before the target.
+    assert.deepEqual(moved.filter((i) => !target.has(i) && !target.has(i + 1)), [], `changed outside the target: ${moved.join(',')}`);
+    assert.ok(r.bars.every((q) => target.has(q)), `receipt bars ${r.bars} outside ${want}`);
+    assert.ok(r.did.some((d) => / in | bars? |drop|chorus|breakdown|build|intro/.test(d)), r.did.join(', '));
+  });
+  t(`${style}: scoped edits survive save/load and undo`, () => {
+    const r = describe('bass up an octave in the second drop', base, { style, seed: 3 });
+    const back = sanitize(JSON.parse(JSON.stringify(r.state)));
+    assert.ok(noteLog(back).every((l, i) => l === noteLog(r.state)[i]), 'save/load changed the edit');
+    assert.ok(noteLog(sanitize(JSON.parse(JSON.stringify(base)))).every((l, i) => l === log0[i]), 'undo snapshot differs');
+  });
+  t(`${style}: a longer intro keeps the edit on the second drop`, () => {
+    const a = describe('bass up an octave in the second drop', base, { style, seed: 3 }).state;
+    const b = describe('longer intro', a, { style, seed: 3 }).state, plain = describe('longer intro', base, { style, seed: 3 }).state, d = b.chain.length - a.chain.length;
+    assert.ok(d > 0); assert.equal(b.chain, plain.chain);
+    const lb = noteLog(b), lp = noteLog(plain), moved = lb.map((l, i) => (l !== lp[i] ? i : -1)).filter((i) => i >= 0);
+    const want = new Set(drops[1].map((q) => q + d));
+    assert.ok(moved.length && moved.every((q) => want.has(q) || want.has(q + 1)), `moved ${moved} want ${[...want]}`);
+  });
+}
+{
+  const base = songFor('deephouse');
+  t('bar range past the end of the song is skipped', () => { const r = describe('no hats in bars 200-210', base, { style: 'deephouse' }); assert.equal(r.did.length, 0); });
+  t('a third drop that is not there is skipped', () => { const r = describe('bass up an octave in the fifth drop', base, { style: 'deephouse' }); assert.equal(r.did.length, 0); });
+  t('bar edits need song mode', () => { const r = describe('no hats in bars 9-16', { ...base, chainOn: false }, { style: 'deephouse' }); assert.equal(r.did.length, 0); });
+  t('"no hats in bars 9-16" reads back where', () => assert.ok(describe('no hats in bars 9-16', base, { style: 'deephouse' }).did.includes('no hats in bars 9–16')));
+  t('"bass up an octave in the second drop" reads back where', () => assert.ok(describe('bass up an octave in the second drop', base, { style: 'deephouse' }).did.includes('bass up an octave in the second drop')));
+  t('whole-song edits report no bars', () => assert.equal(describe('darker', base, { style: 'deephouse' }).bars, undefined));
+  t('changedBars is empty for identical songs', () => assert.deepEqual(changedBars(base, clone(base)), []));
+}
+
 // Follow-ups act on the previous change.
 {
   const base = songFor('hypnotic');
@@ -300,7 +421,8 @@ for (const style of ['hypnotic', 'deephouse', 'neosoul', 'boombap']) {
 {
   const base = songFor('deephouse');
   const run = (text) => describe(text, base, { style: 'deephouse', seed: 3, regenerate: (g) => songFor(g) });
-  const on = (s, i, id) => s.patterns[i].steps[id].filter((v) => (typeof v === 'object' ? v.on : v)).length;
+  // What scene i plays the first time the chain reaches it.
+  const on = (s, i, id) => patternAt(s.patterns[i], s.chain.indexOf('ABCDEFGH'[i])).steps[id].filter((v) => (typeof v === 'object' ? v.on : v)).length;
   const sec = (text) => parse(text, { style: 'deephouse' }).edits.filter((e) => e.id === 'section');
   const SECS = [
     ['no hats in the intro', { sec: 'intro', op: 'mute' }],
@@ -328,6 +450,9 @@ for (const style of ['hypnotic', 'deephouse', 'neosoul', 'boombap']) {
     assert.equal(on(base, 0, 'acid'), 0);
     const r = run('add bass to the intro');
     assert.ok(on(r.state, 0, 'acid') > 0); assert.deepEqual(r.state.patterns.slice(1), base.patterns.slice(1));
+    // The outro plays scene A too and keeps its bars.
+    const intro = base.chain.match(/^A+/)[0].length;
+    assert.deepEqual(r.bars, [...Array(intro).keys()]);
   });
   t('"longer intro" adds bars at the start only', () => {
     const r = run('longer intro');
@@ -343,6 +468,20 @@ for (const style of ['hypnotic', 'deephouse', 'neosoul', 'boombap']) {
   });
   t('"make the drop bigger" fills the drop', () => { const r = run('make the drop bigger'); assert.ok(hits(r.state) > hits(base)); assert.deepEqual(r.state.patterns.slice(0, 6), base.patterns.slice(0, 6)); });
   t('section edits skip without song mode', () => { const r = describe('longer intro', { ...base, chainOn: false }, { style: 'deephouse' }); assert.equal(r.did.length, 0); });
+  t('validate scoped section edits', () => {
+    const v = validateEdits([
+      { id: 'section', sec: 'bars', bars: [9, 16], op: 'mute', tracks: ['ch'] }, { id: 'section', sec: 'bars', bars: [-8, -1], op: 'tension', amt: 9 },
+      { id: 'section', sec: 'drop', nth: 2, op: 'octave', tracks: ['acid', 'kick'], amt: 1.4 }, { id: 'section', sec: 'drop', nth: -1, op: 'skip' },
+      { id: 'section', sec: 'bars', bars: [16, 9], op: 'mute', tracks: ['ch'] }, { id: 'section', sec: 'bars', bars: [0, 4], op: 'strip' }, { id: 'section', sec: 'bars', bars: [-4, 4], op: 'strip' },
+      { id: 'section', sec: 'bars', bars: [1, 999], op: 'strip' }, { id: 'section', sec: 'bars', op: 'strip' }, { id: 'section', sec: 'bars', bars: [1, 8], op: 'skip' },
+      { id: 'section', sec: 'drop', nth: 12, op: 'strip' }, { id: 'section', sec: 'drop', nth: 'x', op: 'strip' }, { id: 'section', sec: 'drop', op: 'octave', tracks: ['kick'], amt: 1 },
+      { id: 'section', sec: 'drop', op: 'octave', tracks: ['acid'], amt: 0 }, { id: 'section', sec: 'drop', op: 'evil' },
+    ]);
+    assert.deepEqual(v.map(({ src, ...e }) => e), [
+      { id: 'section', sec: 'bars', op: 'mute', bars: [9, 16], tracks: ['ch'] }, { id: 'section', sec: 'bars', op: 'tension', bars: [-8, -1], amt: 3 },
+      { id: 'section', sec: 'drop', op: 'octave', nth: 2, tracks: ['acid'], amt: 1 }, { id: 'section', sec: 'drop', op: 'skip', nth: -1 },
+    ]);
+  });
   t('validate section edits', () => {
     const v = validateEdits([{ id: 'section', sec: 'drop', op: 'energy', amt: 9 }, { id: 'section', sec: 'nowhere', op: 'skip' }, { id: 'section', sec: 'intro', op: 'mute', tracks: ['kick', 'evil'] }, { id: 'section', sec: 'intro', op: 'mute', tracks: [] }]);
     assert.deepEqual(v.map(({ src, ...e }) => e), [{ id: 'section', sec: 'drop', op: 'energy', amt: 3 }, { id: 'section', sec: 'intro', op: 'mute', tracks: ['kick'] }]);
