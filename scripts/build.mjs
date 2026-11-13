@@ -1,6 +1,7 @@
 import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { build } from 'esbuild';
+import { writeSite as writeResearch } from './research.mjs';
 
 // Browser bundle of the Vercel Blob upload client, used to publish recorded sets
 await build({ entryPoints: ['scripts/blob-client-entry.js'], bundle: true, format: 'esm', platform: 'browser', minify: true, outfile: 'js/vendor/blob-client.js', logLevel: 'warning' });
@@ -22,3 +23,6 @@ const built = sw.replace(/^const VERSION = .*$/m, `const VERSION = '${hash.updat
   .replace(/^const SHELL = .*$/m, `const SHELL = ${JSON.stringify(['/', ...shell.map((f) => `/${f}`)])};`);
 if (built === sw) throw new Error('sw.js: VERSION/SHELL placeholders not found');
 writeFileSync('dist/sw.js', built);
+
+// /research: static posts and social cards rendered from the checked-in benchmark snapshots (scripts/research.mjs).
+writeResearch('dist');
