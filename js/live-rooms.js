@@ -2,11 +2,11 @@
 // The directory is optional: a 404, an error or `enabled: false` hides every live surface.
 import { h } from './ui.js';
 import { STYLES } from './state.js';
+import { SHAPES, COLORS, GEAR } from './club-identity.js';
 
 const PRIVACY_KEY = 'untergrund.room-public.v1';
 const MY_ROOM_KEY = 'untergrund.my-room.v1';
 const ROOM = /^[a-z0-9-]{2,32}$/;
-const SHAPES = ['block', 'round', 'visor'], COLORS = ['lime', 'red', 'blue', 'violet', 'bone'], GEAR = ['none', 'hood', 'goggles', 'antenna', 'phones'];
 const text = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max);
 const one = (v, list, fallback) => list.includes(v) ? v : fallback;
 

@@ -10,7 +10,7 @@ const memory = () => { const m = new Map(); return { getItem: (k) => m.get(k) ??
 for (const bad of [null, undefined, {}, { enabled: false, rooms: [{ id: 'x1' }] }, { enabled: true }, { enabled: 'yes', rooms: [] }, 'nope']) assert.equal(normalizeDirectory(bad), OFF);
 const dir = normalizeDirectory({ enabled: true, rooms: [
   { id: 'quiet-room', title: 'Small', style: 'acid', bpm: 133.4, listeners: 2, dj: { name: 'Ana', shape: 'round', color: 'blue', gear: 'hood' }, startsAt: 5 },
-  { id: 'BIG-ROOM', title: '<b>Big</b>', style: 'not-a-style', bpm: 'fast', listeners: 30, dj: { name: 'x'.repeat(80), shape: 'cube', color: 'pink', gear: 'jetpack' }, replay: 'true' },
+  { id: 'BIG-ROOM', title: '<b>Big</b>', style: 'not-a-style', bpm: 'fast', listeners: 30, dj: { name: 'x'.repeat(80), shape: 'cube', color: 'chartreuse', gear: 'jetpack' }, replay: 'true' },
   { id: 'big-room', title: 'dupe', listeners: 99 },
   { id: '../etc', title: 'bad id' },
   { id: 'empty-room' },
