@@ -350,7 +350,8 @@ function stop() {
   syncNowPlaying();
 }
 
-const toggle = () => (playing || tuning ? stop() : paused ? remote.play() : play());
+const nativeHaptic = (style = 'light') => window.__untergrundNative?.haptic(style);
+const toggle = () => { nativeHaptic(); return playing || tuning ? stop() : paused ? remote.play() : play(); };
 
 // ---------------- lock screen / Control Center ----------------
 // PAUSE (lock screen, headphones, or an iOS interruption) stops the transport but keeps the song;
@@ -1155,7 +1156,7 @@ function generateNow(drop = null) {
   stopPreview();
   generatedAt = performance.now();
   localStorage.setItem('untergrund.made', '1');
-  navigator.vibrate?.(12);
+  if (window.__untergrundNative) nativeHaptic('medium'); else navigator.vibrate?.(12);
   // Building the next song blocks the main thread; queue more audio first so it can't starve.
   if (playing) schedule(0.4);
   // The new song arrives at its own tempo; from silence it starts at once.
@@ -1499,6 +1500,7 @@ function describeBox() {
       play();
     },
     commit: (next) => { adoptState(next); build(); persist(); },
+    highlight: (bars) => timeline.flash(bars),
   });
 }
 

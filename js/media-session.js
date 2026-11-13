@@ -6,10 +6,27 @@ export const APP_ART = [
   { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
 ];
 
-export function createNowPlaying({ session = globalThis.navigator?.mediaSession, Metadata = globalThis.MediaMetadata } = {}) {
-  const supported = !!(session && Metadata);
+export function createNowPlaying({
+  session = globalThis.navigator?.mediaSession,
+  Metadata = globalThis.MediaMetadata,
+  native = globalThis.webkit?.messageHandlers?.untergrund,
+  events = globalThis,
+} = {}) {
+  const browserSupported = !!(session && Metadata);
+  const nativeSupported = typeof native?.postMessage === 'function';
+  const supported = browserSupported || nativeSupported;
   let metaKey = null, playback = null, posKey = null;
   const bound = {};
+  const post = (message) => {
+    if (!nativeSupported) return;
+    try { native.postMessage(message); } catch {}
+  };
+  if (nativeSupported && typeof events?.addEventListener === 'function') {
+    events.addEventListener('untergrund:native-command', (event) => {
+      const action = event?.detail?.action;
+      if (ACTIONS.includes(action)) bound[action]?.();
+    });
+  }
   return {
     supported,
     // title '' clears the lock-screen card.
@@ -19,12 +36,14 @@ export function createNowPlaying({ session = globalThis.navigator?.mediaSession,
       const key = title ? JSON.stringify([title, artist, album, art]) : '';
       if (key === metaKey) return;
       metaKey = key;
-      session.metadata = title ? new Metadata({ title, artist, album, artwork: art }) : null;
+      if (browserSupported) session.metadata = title ? new Metadata({ title, artist, album, artwork: art }) : null;
+      post({ type: 'nowPlaying', title, artist, album });
     },
     state(s) {
       if (!supported || s === playback) return;
       playback = s;
-      try { session.playbackState = s; } catch {}
+      if (browserSupported) try { session.playbackState = s; } catch {}
+      post({ type: 'playback', state: s });
     },
     // A missing handler disables that button; browsers throw on actions they don't know.
     actions(map) {
@@ -33,18 +52,22 @@ export function createNowPlaying({ session = globalThis.navigator?.mediaSession,
         const fn = map[a] || null;
         if (a in bound && bound[a] === fn) continue;
         bound[a] = fn;
-        try { session.setActionHandler(a, fn); } catch {}
+        if (browserSupported) try { session.setActionHandler(a, fn); } catch {}
       }
+      post({ type: 'actions', actions: ACTIONS.filter((a) => !!bound[a]) });
     },
     // Seconds. No duration (an endless or rubato song) clears the progress bar.
     position({ duration = 0, position = 0 } = {}) {
-      if (!supported || !session.setPositionState) return;
+      if (!supported) return;
       const ok = Number.isFinite(duration) && duration > 0;
       const pos = ok ? Math.min(duration, Math.max(0, position)) : 0;
       const key = ok ? `${duration.toFixed(2)}|${pos.toFixed(1)}` : '';
       if (key === posKey) return;
       posKey = key;
-      try { session.setPositionState(ok ? { duration, position: pos, playbackRate: 1 } : undefined); } catch {}
+      if (browserSupported && session.setPositionState) {
+        try { session.setPositionState(ok ? { duration, position: pos, playbackRate: 1 } : undefined); } catch {}
+      }
+      post({ type: 'position', duration: ok ? duration : 0, position: ok ? pos : 0 });
     },
   };
 }

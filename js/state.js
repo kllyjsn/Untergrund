@@ -6,6 +6,7 @@ import { POCKETS, STYLE_POCKET } from './groove.js';
 import { REPERTOIRE, PIECE } from './repertoire.js';
 import { cleanLabels } from './timeline.js';
 import { cleanLyrics } from './lyrics.js';
+import { cleanTakes } from './scope.js';
 
 export const STYLES = {
   hypnotic: { name: 'HYPNOTIC', bpm: [130, 134], family: 'TECHNO', tag: 'deep · rolling' },
@@ -881,45 +882,48 @@ export function sanitize(s) {
   out.scale = SCALES[s.scale] ? s.scale : 'minor';
   out.orch = Object.fromEntries(SECTIONS.map((k) => [k, Math.max(0, Math.min(1.5, Number.isFinite(+s.orch?.[k]) ? +s.orch[k] : 1))]));
   out.orchMute = Object.fromEntries(SECTIONS.map((k) => [k, !!s.orchMute?.[k]]));
+  const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, Number.isFinite(+v) ? +v : lo));
+  const cleanTrack = (id, arr) => pad16(arr).map((v, j) => {
+    if (id !== 'acid') return v === 2 ? 2 : v ? 1 : 0;
+    const step = arr[j] || {};
+    return {
+      on: !!step.on,
+      n: Math.max(-24, Math.min(24, Number.isFinite(+step.n) ? Math.round(+step.n) : 0)),
+      a: !!step.a,
+      s: !!step.s,
+    };
+  });
+  const cleanHook = (hook) => Array.isArray(hook?.s) ? ({
+      v: HOOK_VOICES.includes(hook.v) ? hook.v : 'pluck',
+      o: Math.round(cl(hook.o, -1, 1)),
+      s: range(32, (j) => { const x = hook.s[j]; return Array.isArray(x) ? [Math.round(cl(x[0], -24, 36)), Math.round(cl(x[1], 1, 16)), cl(x[2], 0, 1)] : 0; }),
+      x: {
+        space: cl(hook.x?.space ?? 0.4, 0, 1),
+        risk: cl(hook.x?.risk ?? 0.4, 0, 1),
+        feel: cl(hook.x?.feel ?? 0.4, 0, 1),
+        warmth: cl(hook.x?.warmth ?? 0.5, 0, 1),
+      },
+      ...(hook.h ? { h: 1 } : {}),
+    }) : null;
+  const cleanProg = (prog) => prog.slice(0, 8).map((c) => ({ r: Math.max(-12, Math.min(12, c?.r | 0)), c: Math.max(0, Math.min(10, c?.c | 0)) }));
   out.patterns = range(8, (i) => {
     const p = s.patterns[i];
     const e = emptyPattern();
     if (!p) return e;
     for (const id of TRACK_IDS) {
-      if (Array.isArray(p.steps?.[id])) {
-        e.steps[id] = pad16(p.steps[id]).map((v, j) => {
-          if (id !== 'acid') return v === 2 ? 2 : v ? 1 : 0;
-          const step = p.steps[id][j] || {};
-          return {
-            on: !!step.on,
-            n: Math.max(-24, Math.min(24, Number.isFinite(+step.n) ? Math.round(+step.n) : 0)),
-            a: !!step.a,
-            s: !!step.s,
-          };
-        });
-      }
+      if (Array.isArray(p.steps?.[id])) e.steps[id] = cleanTrack(id, p.steps[id]);
       if (p.len?.[id]) e.len[id] = Math.max(1, Math.min(STEPS, p.len[id] | 0));
     }
     if (p.hook && Array.isArray(p.hook.s)) {
-      const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, Number.isFinite(+v) ? +v : lo));
-      e.hook = {
-        v: HOOK_VOICES.includes(p.hook.v) ? p.hook.v : 'pluck',
-        o: Math.round(cl(p.hook.o, -1, 1)),
-        s: range(32, (j) => { const x = p.hook.s[j]; return Array.isArray(x) ? [Math.round(cl(x[0], -24, 36)), Math.round(cl(x[1], 1, 16)), cl(x[2], 0, 1)] : 0; }),
-        x: {
-          space: cl(p.hook.x?.space ?? 0.4, 0, 1),
-          risk: cl(p.hook.x?.risk ?? 0.4, 0, 1),
-          feel: cl(p.hook.x?.feel ?? 0.4, 0, 1),
-          warmth: cl(p.hook.x?.warmth ?? 0.5, 0, 1),
-        },
-        ...(p.hook.h ? { h: 1 } : {}),
-      };
+      e.hook = cleanHook(p.hook);
       e.hm = Math.round(cl(p.hm ?? 2, 0, 2));
     }
     if (p.score?.piece && PIECE[p.score.piece]) e.score = { piece: p.score.piece };
     else if (p.score && FORMS[p.score.form]) e.score = { form: p.score.form, seed: Number.isFinite(+p.score.seed) ? +p.score.seed | 0 : 1, mode: p.score.mode === 'm' ? 'm' : 'M', ...(MODELS[p.score.composer] ? { composer: p.score.composer } : {}) };
     if (p.lift) e.lift = Math.max(0, Math.min(3, p.lift | 0));
-    if (Array.isArray(p.prog) && p.prog.length) e.prog = p.prog.slice(0, 8).map((c) => ({ r: Math.max(-12, Math.min(12, c?.r | 0)), c: Math.max(0, Math.min(10, c?.c | 0)) }));
+    if (Array.isArray(p.prog) && p.prog.length) e.prog = cleanProg(p.prog);
+    const at = !e.score && cleanTakes(p.at, cleanTrack, cleanHook, cleanProg);
+    if (at) e.at = at;
     return e;
   });
   if (s.artist && typeof s.artist === 'object') {
