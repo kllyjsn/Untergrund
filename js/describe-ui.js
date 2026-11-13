@@ -2,8 +2,41 @@
 import { h } from './ui.js';
 import { parse, applyEdits, genreOf, suggest, chipsFor, mergeEdits, needsMix, mixAdjust, heard, validateEdits } from './describe.js';
 import { privacyOptOut } from './analytics.js';
+import { isSongPrompt, rulePlan, planEdits, planLyrics, validatePlan, lyricLines } from './song-plan.js';
+import { cleanLyrics, splitLyrics, lyricTimeline, lyricLabels, lyricsText, LIMITS } from './lyrics.js';
 
 let last = null, hint = null, draft = '', recent = null, net = null, ticket = 0;
+let lyricsDraft = '', lyricsOpen = false, planOff = false, view = null;
+// A song prompt goes to /api/song-plan (an env-gated LLM); null when it's off, slow or wrong, and the local rules plan instead.
+async function askPlan(prompt, lyrics, style) {
+  if (planOff || (typeof navigator !== 'undefined' && navigator.onLine === false)) return null;
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 10000);
+  try {
+    const res = await fetch('/api/song-plan', { method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, lyrics, style }) });
+    if (res.status === 501 || res.status === 404) planOff = true;
+    if (!res.ok) return null;
+    const lines = lyrics ? lyricLines(lyrics) : null;
+    return validatePlan((await res.json()).plan, { lines: lines?.length ? lines : null });
+  } catch { return null; } finally { clearTimeout(timer); }
+}
+
+// Lyrics view: the section the song is playing now, its current line lit. main.js calls this every bar.
+export function syncLyrics(bar) {
+  if (!view?.el.isConnected) return;
+  const { lyrics, chain, chainOn, kind } = view.src();
+  if (!lyrics?.sections.length) return;
+  const key = `${chainOn ? chain : ''}|${kind}`;
+  if (view.key !== key) { view.key = key; view.tl = chainOn ? lyricTimeline(chain, lyrics, { kind }) : []; }
+  const at = bar == null || !view.tl.length ? { s: view.at?.s ?? 0, l: -1 } : view.tl[((bar % view.tl.length) + view.tl.length) % view.tl.length];
+  const pos = at ? `${at.s}:${at.l}` : 'none';
+  if (view.pos === pos) return;
+  view.pos = pos;
+  if (at) view.at = at;
+  const s = at ? at.s : view.at?.s ?? 0;
+  view.el.classList.toggle('rest', !at);
+  view.sec.textContent = at ? lyricLabels(lyrics)[s] : 'INSTRUMENTAL';
+  view.lines.replaceChildren(...lyrics.sections[s].lines.map((ln, i) => h('li', { class: at && i === at.l ? 'now' : '' }, ln.t)));
+}
 // Phrases the rules can't read go to /api/describe (an LLM limited to the app's own edits); [] if it's off.
 async function askAI(text, style) {
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 8000);
@@ -21,17 +54,48 @@ const SPEECH_ERR = { 'not-allowed': 'Microphone is blocked. Allow the mic for th
 // Renders two bars of the drop and measures each part; null if it fails or takes too long.
 const listen = (state) => Promise.race([import('./mix-check.js').then((m) => m.measureMix(state)), new Promise((r) => setTimeout(() => r(null), 8000))]).catch(() => null);
 
-// ctx: state(), style(), styleName(id), depth(), pushUndo(label), undo(), switchGenre(id, steer, label), commit(nextState), track(props)
+// ctx: state(), style(), styleName(id), depth(), pushUndo(label), undo(), switchGenre(id, steer, label), commit(nextState), track(props), kind()
 export function describeBar(ctx) {
-  const input = h('input', { class: 'describe-input', type: 'text', placeholder: 'Describe it: “darker and slower”', 'aria-label': 'Describe the change you want',
-    autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'go', maxlength: '140', oninput: () => { draft = input.value; } });
+  const input = h('input', { class: 'describe-input', type: 'text', placeholder: lyricsOpen ? 'Describe the song: “sad indie, female vocal, 90 bpm”' : 'Describe it: “darker and slower”', 'aria-label': 'Describe the change you want',
+    autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'go', maxlength: '200', oninput: () => { draft = input.value; } });
   input.value = draft;
   const receipt = h('div', { class: 'describe-receipt', 'aria-live': 'polite' });
-  const chips = h('div', { class: 'describe-chips' }, chipsFor(ctx.style()).map((c) => h('button', { type: 'button', class: 'describe-chip', onclick: () => run(c) }, c)));
+  const lyricsBox = h('textarea', { class: 'describe-lyrics-input', rows: '6', maxlength: String(LIMITS.text), 'aria-label': 'Lyrics', spellcheck: 'true',
+    placeholder: 'Paste lyrics. Blank lines split sections; [Verse] and [Chorus] headers are optional.', oninput: () => { lyricsDraft = lyricsBox.value; } });
+  lyricsBox.value = lyricsDraft;
+  lyricsBox.hidden = !lyricsOpen;
+  const lyricsChip = h('button', { type: 'button', class: 'describe-chip lyrics-chip' + (lyricsOpen ? ' on' : ''), 'aria-pressed': String(lyricsOpen), onclick: () => toggleLyrics() }, 'Lyrics');
+  const chips = h('div', { class: 'describe-chips' }, lyricsChip, ...chipsFor(ctx.style()).map((c) => h('button', { type: 'button', class: 'describe-chip', onclick: () => run(c) }, c)));
   const box = h('form', { class: 'describe', onsubmit: (e) => { e.preventDefault(); run(input.value); } },
-    h('div', { class: 'describe-row' }, input, Speech ? mic() : null, h('button', { class: 'describe-go', type: 'submit' }, 'DO IT')), receipt, chips);
+    h('div', { class: 'describe-row' }, input, Speech ? mic() : null, h('button', { class: 'describe-go', type: 'submit' }, 'DO IT')), lyricsBox, receipt, lyricsView(), chips);
   paint();
   return box;
+
+  function toggleLyrics(open = !lyricsOpen, text) {
+    lyricsOpen = open;
+    if (text != null) lyricsBox.value = lyricsDraft = text;
+    lyricsBox.hidden = !open;
+    lyricsChip.classList.toggle('on', open);
+    lyricsChip.setAttribute('aria-pressed', String(open));
+    input.placeholder = open ? 'Describe the song: “sad indie, female vocal, 90 bpm”' : 'Describe it: “darker and slower”';
+    if (open) lyricsBox.focus();
+  }
+
+  function lyricsView() {
+    const lyrics = ctx.state().lyrics;
+    if (!lyrics?.sections?.length) { view = null; return null; }
+    const sec = h('b', { class: 'describe-lyrics-sec' });
+    const lines = h('ol', { class: 'describe-lyrics-lines' });
+    const meta = [lyrics.vocal && `${lyrics.vocal.toUpperCase()} VOCAL`, 'NOT SUNG YET'].filter(Boolean).join(' · ');
+    const el = h('div', { class: 'describe-lyrics', 'aria-label': 'Lyrics' },
+      h('div', { class: 'describe-lyrics-head' }, sec, h('span', { class: 'describe-lyrics-meta' }, meta),
+        h('button', { type: 'button', class: 'describe-undo', onclick: () => { input.value = draft = ''; toggleLyrics(true, lyricsText(ctx.state().lyrics)); } }, 'EDIT')),
+      lines);
+    view = { el, sec, lines, src: () => { const st = ctx.state(); return { lyrics: st.lyrics, chain: st.chain, chainOn: st.chainOn, kind: ctx.kind?.() || 'club' }; } };
+    // Painted once the element is in the page.
+    queueMicrotask(() => syncLyrics(null));
+    return el;
+  }
 
   // Say it: the browser's speech recognition fills the box as you talk and runs what it heard.
   function mic() {
@@ -82,7 +146,10 @@ export function describeBar(ctx) {
 
   function run(raw) {
     const text = String(raw || '').trim();
+    const words = lyricsOpen ? lyricsDraft.trim() : '';
+    if (!text && words) return ctx.state().lyrics ? relyric(words) : runPlan('', words);
     if (!text) return input.focus();
+    if (isSongPrompt(text, words)) return runPlan(text, words);
     const style = ctx.style();
     const parsed = parse(text, { style, last: recent, net });
     const mine = ++ticket;
@@ -109,6 +176,53 @@ export function describeBar(ctx) {
       });
     }
     apply(text, style, parsed, []);
+  }
+
+  // Edited lyrics on the song that's already playing: just the words change.
+  function relyric(words) {
+    const lyrics = cleanLyrics({ ...ctx.state().lyrics, sections: splitLyrics(words) });
+    if (!lyrics?.sections.length) return miss('', 'No lyric lines in there. Paste a verse or two:');
+    ctx.pushUndo('LYRICS');
+    hint = recent = net = null;
+    lyricsDraft = ''; toggleLyrics(false, '');
+    last = { did: [`lyrics: ${lyrics.sections.reduce((n, s) => n + s.lines.length, 0)} lines`], miss: '', depth: ctx.depth() };
+    ctx.commit({ ...ctx.state(), lyrics });
+    ctx.track({ kind: 'lyrics', genre: ctx.style() });
+  }
+
+  // "sad indie song about leaving LA, female vocal, 90 bpm" (and/or pasted lyrics) -> a whole new song.
+  function runPlan(text, words) {
+    const style = ctx.style(), mine = ++ticket;
+    hint = { note: words ? 'Reading your lyrics…' : 'Planning the song…', suggestions: [] };
+    paint();
+    askPlan(text, words, style).then((remote) => {
+      if (mine !== ticket) return;
+      let plan = remote, via = 'ai';
+      if (!plan) { plan = rulePlan(text, words, { style }); via = 'rules'; }
+      else if (words && !plan.lyrics.length) plan.lyrics = splitLyrics(words);
+      hint = null;
+      if (!plan) return miss(text);
+      applyPlan(text, plan, via);
+    });
+  }
+
+  function applyPlan(text, plan, via) {
+    const edits = planEdits(plan), seed = (Math.random() * 1e9) | 0;
+    const src = text || plan.lyrics[0]?.lines[0]?.t || 'lyrics';
+    const label = `“${src.length > 32 ? src.slice(0, 31) + '…' : src}”`;
+    hint = recent = net = null;
+    draft = ''; lyricsDraft = '';
+    lyricsOpen = false;
+    ctx.switchGenre(plan.style, (s) => {
+      const r = applyEdits(s, edits, { seed, style: plan.style });
+      const lyrics = cleanLyrics(planLyrics(plan, text));
+      if (lyrics) r.state.lyrics = lyrics; else delete r.state.lyrics;
+      if (plan.title && r.state.artist) r.state.artist.title = plan.title;
+      const lines = lyrics?.sections.reduce((n, x) => n + x.lines.length, 0) || 0;
+      last = { did: [`new ${ctx.styleName(plan.style)} song`, ...r.did, ...(lines ? [`${lines} lyric lines`] : []), ...(plan.vocal ? [`${plan.vocal} vocal (not sung yet)`] : [])], miss: '', depth: ctx.depth() };
+      return r.state;
+    }, label);
+    ctx.track({ kind: 'song_plan', genre: plan.style, via });
   }
 
   function apply(text, style, { edits, unknown, next, follow }, notes) {
