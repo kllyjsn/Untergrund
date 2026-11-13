@@ -1,10 +1,12 @@
 // Loaded inside headless Chrome by scripts/loudness.mjs and test/loudness.mjs: builds a generated song the way
-// NEW SET does, renders it with the real offline engine and meters the master output.
-import { defaultState, generate, applyOverrides, arrangement, songChain } from '/js/state.js';
+// GENERATE does, renders it with the real offline engine and meters the master output.
+import { defaultState, generate, applyOverrides, arrangement, songChain, STYLES } from '/js/state.js';
 import { renderBars } from '/js/render.js';
 import { songBars } from '/js/midi.js';
 import { loadPiece, PIECE } from '/js/repertoire.js';
 import { loudness, truePeak } from '/js/loudness.js';
+import { kHops, loudnessRange } from '/js/audio-quality.js';
+import { localSpec, songState } from '/js/song-spec.js';
 
 export function song(style, seed) {
   const s = defaultState();
@@ -30,8 +32,13 @@ export function pieceSong(piece, seed = 11) {
   return s;
 }
 
-export async function measure(style, seed, { bars = 0, startBar = 0, piece: only = '' } = {}) {
-  const s = only ? pieceSong(only, seed) : song(style, seed), piece = s.patterns.find((p) => p.score)?.score?.piece;
+// The same style and seed written by the song builder (Describe: "<style> song"), as ctx.song does.
+export function builderSong(style, seed) {
+  return songState(localSpec(`${STYLES[style].name.toLowerCase()} song`, { style }), seed, defaultState()).state;
+}
+
+export async function measure(style, seed, { bars = 0, startBar = 0, piece: only = '', builder = false } = {}) {
+  const s = only ? pieceSong(only, seed) : builder ? builderSong(style, seed) : song(style, seed), piece = s.patterns.find((p) => p.score)?.score?.piece;
   // A REPERTOIRE score is fetched on demand; until it arrives songBars() sees its one silent waiting bar.
   if (piece) await loadPiece(piece);
   const total = songBars(s), n = bars ? Math.min(bars, total) : total;
@@ -63,8 +70,8 @@ export async function measure(style, seed, { bars = 0, startBar = 0, piece: only
   for (let k = 0; k < gr.length; k++) gr[k] = Math.min(0, gr[k] - top);
   const sorted = [...gr].sort((x, y) => x - y), jumps = gr.slice(1).map((v, i) => Math.abs(v - gr[i])).sort((x, y) => x - y);
   return {
-    style, seed, piece: piece || '', bars: n, secs: buf.length / buf.sampleRate,
-    lufs: L.integrated, tp: 20 * Math.log10(truePeak(ch)),
+    style, seed, piece: piece || '', bars: n, secs: buf.length / buf.sampleRate, chain: s.chain,
+    lufs: L.integrated, lra: loudnessRange(kHops(ch, buf.sampleRate)), tp: 20 * Math.log10(truePeak(ch)),
     grMean: gr.reduce((a, v) => a + v, 0) / (gr.length || 1), grDeep: sorted[Math.floor(sorted.length * 0.01)] || 0,
     grJump: jumps[Math.floor(jumps.length * 0.99)] || 0,
   };
@@ -115,4 +122,15 @@ export async function sectionLift(style, seed) {
     sec[chain[b0]].push(-0.691 + 10 * Math.log10(E.slice(j, j + 27).reduce((a, b) => a + b, 0) / 27));
   }
   return med(sec.G) - med(sec.C);
+}
+
+// The song builder's peak section against GENERATE's for the same style and seed (test/loudness.mjs): the two
+// share make-up gain and patterns, so a builder change that runs hotter or quieter shows up here.
+export async function builderWindow(style, seed = WINDOW.seed, bars = 4) {
+  const one = async (s) => {
+    const buf = await renderBars(s, bars, { sampleRate: WINDOW.sampleRate, tail: 0.5, startBar: Math.max(0, s.chain.indexOf('G')) });
+    const ch = [buf.getChannelData(0), buf.getChannelData(1)];
+    return { lufs: loudness(ch, buf.sampleRate).integrated, tp: 20 * Math.log10(truePeak(ch)) };
+  };
+  return { style, seed, gen: await one(song(style, seed)), builder: await one(builderSong(style, seed)) };
 }

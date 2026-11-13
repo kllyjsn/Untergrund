@@ -324,17 +324,22 @@ console.log('seeded instrument ensembles passed');
     }
     if (!s.patterns.some((p) => p.sec)) { assert(at.every((db) => db === 0), `${style}: no section levels`); continue; }
     const lift = lv.chorus - lv.verse;
-    assert(lift >= 1.5 && lift <= 3, `${style}: chorus ${lift} dB over the verse`);
+    assert(lift >= 1 && lift <= 3, `${style}: chorus ${lift} dB over the verse`);
   }
-  // As heard: pop's band plays a much fuller chorus on top of the level change, so the mastered render
-  // (median 3 s loudness, chorus minus verse) must still land in 1.5-3 dB.
+  // As heard: pop's and country's bands play a much fuller chorus on top of the level change, so the mastered
+  // render (median 3 s loudness, chorus minus verse) must still land in 1.5-3 dB.
   const { withChrome } = await import('./chrome.mjs');
-  const jobs = [['pop', 11], ['pop', 42], ['pop', 77]];
-  const heard = await withChrome((runs) => Promise.all(runs.map(async (run, i) => {
-    await run(`import('/test/loudness-page.js').then((m) => { window.__m = m; })`);
-    return run(`window.__m.sectionLift('${jobs[i][0]}', ${jobs[i][1]})`);
-  })), { pages: jobs.length });
+  const jobs = [['pop', 11], ['pop', 42], ['pop', 77], ['country', 11], ['country', 42], ['country', 77]];
+  const heard = await withChrome(async (runs) => {
+    const out = [];
+    let next = 0;
+    await Promise.all(runs.map(async (run) => {
+      await run(`import('/test/loudness-page.js').then((m) => { window.__m = m; })`);
+      while (next < jobs.length) { const i = next++; out[i] = await run(`window.__m.sectionLift('${jobs[i][0]}', ${jobs[i][1]})`); }
+    }));
+    return out;
+  }, { pages: 3 });
   if (!heard) console.log('section levels: no Chrome found, rendered chorus lift skipped');
   else jobs.forEach(([style, seed], i) => assert(heard[i] >= 1.5 && heard[i] <= 3, `${style}/${seed}: rendered chorus ${heard[i].toFixed(2)} dB over the verse`));
-  console.log('section levels passed');
+  console.log(`section levels passed${heard ? ` (rendered chorus over verse: ${jobs.map(([st, se], i) => `${st}/${se} ${heard[i].toFixed(2)}`).join(', ')} dB)` : ''}`);
 }

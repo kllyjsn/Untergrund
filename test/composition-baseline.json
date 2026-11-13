@@ -376,18 +376,18 @@
   },
   "pop": {
     "bars": 80,
-    "verseChorus": 0.895,
+    "verseChorus": 0.889,
     "chorusLift": 4.25,
     "chorusPeak": 21,
-    "chorusEnergy": 1.274,
+    "chorusEnergy": 1.747,
     "preLift": 0.834,
-    "bridgeAway": 0.6,
+    "bridgeAway": 0.5,
     "melodyWindows": 25.5,
     "motifRecall": 0.723,
-    "chords": 16.5,
-    "voiceMove": 1.045,
-    "contrast": 0.323,
-    "drumBars": 78
+    "chords": 15,
+    "voiceMove": 1.07,
+    "contrast": 0.334,
+    "drumBars": 79
   },
   "rnb": {
     "bars": 80,
@@ -436,17 +436,17 @@
   },
   "country": {
     "bars": 80,
-    "verseChorus": 0.714,
-    "chorusLift": 5,
+    "verseChorus": 0.667,
+    "chorusLift": 5.75,
     "chorusPeak": 22.5,
-    "chorusEnergy": 1.206,
+    "chorusEnergy": 1.71,
     "preLift": 0.667,
     "bridgeAway": 0.5,
     "melodyWindows": 25,
     "motifRecall": 0.744,
     "chords": 11.5,
-    "voiceMove": 0.965,
-    "contrast": 0.3,
+    "voiceMove": 0.99,
+    "contrast": 0.34,
     "drumBars": 80
   }
 }
