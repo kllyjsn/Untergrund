@@ -38,7 +38,8 @@ console.log('per-seed key and bass passed');
 {
   const g = generate('deephouse', 42);
   const scenes = arrangement(g.pattern, 42);
-  assert.deepEqual(scenes.map((p) => p.hm), [0, 0, 1, 2, 2, 1, 2, 2], 'hook is held back for the intro');
+  assert.deepEqual(scenes.map((p) => p.hm), [0, 2, 1, 2, 2, 1, 2, 2], 'hook is held back for the intro, the pre-chorus climbs it whole');
+  assert.deepEqual(arrangement(generate('peak', 42).pattern, 42).map((p) => p.hm), [0, 0, 1, 2, 2, 1, 2, 2], 'club forms tease the hook in the build');
   const s = defaultState(); s.patterns = scenes;
   const round = sanitize(JSON.parse(JSON.stringify(s)));
   assert.deepEqual(round.patterns[6].hook, g.pattern.hook);
@@ -156,6 +157,43 @@ console.log('seeded instrument ensembles passed');
   const turn = log.filter((L) => L.k === 'trigger' && L.a[0] === 'stab' && L.step % 16 >= 12 && L.step < (bars - 1) * 16);
   assert(turn.length, 'stabs play through turnarounds');
   console.log('song form passed');
+}
+
+// Songs have real sections: the verse its own changes, sparser and lower; a pre-chorus that holds the kick back and
+// climbs to the dominant; a bridge away from home; a fuller, wider chorus. Club forms keep their own scenes.
+{
+  const { SONG_STYLES } = await import('../js/state.js');
+  const { buildSong, playSong } = await import('../scripts/composition.mjs');
+  const key = (pr) => JSON.stringify(pr);
+  for (const style of SONG_STYLES) for (const seed of [1, 2, 3, 4]) {
+    const g = generate(style, seed), sc = arrangement(g.pattern, seed), S = g.pattern.sections;
+    assert(S, `${style} writes sections`);
+    assert.deepEqual(sc.map((p) => p.sec), [undefined, 'pre', 'verse', undefined, 'bridge', 'bridge', 'chorus', 'chorus'], `${style} section slots`);
+    assert.notEqual(key(sc[2].prog), key(sc[6].prog), `${style}/${seed} verse and chorus have different changes`);
+    assert.equal(sc[1].prog.at(-1).r, 7, `${style}/${seed} pre-chorus ends on the dominant`);
+    assert(sc[1].prog.slice(0, -1).every((h) => h.r !== 0), `${style}/${seed} pre-chorus withholds the tonic`);
+    assert.equal(sc[1].steps.kick.filter(Boolean).length, 1, `${style}/${seed} pre-chorus holds the kick back`);
+    assert.notEqual(sc[4].prog[0].r, 0, `${style}/${seed} bridge starts away from home`);
+    assert(sc[2].steps.stab.filter(Boolean).length <= sc[6].steps.stab.filter(Boolean).length, `${style}/${seed} verse chords are sparser`);
+    assert(!sc[2].steps.oh.some(Boolean) && sc[6].steps.oh.some(Boolean), `${style}/${seed} open hats wait for the chorus`);
+    if (g.pattern.hook) {
+      assert.deepEqual(sc[6].hook, g.pattern.hook, `${style} chorus plays the hook as generated`);
+      assert.deepEqual(sc[2].hook.s.map((x) => x && x[1]), g.pattern.hook.s.map((x) => x && x[1]), `${style} verse keeps the hook's rhythm`);
+      const lo = (h) => h.s.filter(Boolean).reduce((a, x) => a + x[0], 0);
+      assert(lo(sc[2].hook) < lo(g.pattern.hook), `${style}/${seed} verse melody sits lower`);
+    }
+    const round = sanitize(JSON.parse(JSON.stringify({ ...defaultState(), patterns: sc })));
+    assert.deepEqual(round.patterns.map((p) => p.sec), sc.map((p) => p.sec), 'sections survive save and load');
+  }
+  for (const style of ['hypnotic', 'peak', 'trance', 'ambient', 'dnb']) {
+    const g = generate(style, 5);
+    assert(!g.pattern.sections && arrangement(g.pattern, 5).every((p) => !p.sec), `${style} keeps its club scenes`);
+  }
+  // The pre-chorus melody climbs a step per bar, and only the chorus opens the stab voicing.
+  const s = buildSong('euphoric', 101), { log } = playSong(s);
+  const pre = s.chain.indexOf('B'), tops = [0, 1, 2, 3].map((k) => Math.max(...log.filter((L) => L.k === 'hook' && !L.a[9]?.counter && Math.floor(L.step / 16) === pre + k).map((L) => L.a[2])));
+  assert(tops[3] > tops[0], `pre-chorus climbs (${tops})`);
+  console.log('song sections passed');
 }
 
 // Harmony for the styles without written changes, in their own idiom, and the final-chorus lift.

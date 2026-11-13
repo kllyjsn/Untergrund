@@ -948,7 +948,9 @@ export class Engine {
     const h = this.harm;
     const { root, notes, home } = stabNotes(this.state, h);
     const vo = Math.round(p.voice), voiced = this.lastChord = voiceLead(notes, this.lastChord, home);
-    const iv = (STAB_VOICES[vo] === 'guitar' ? notes : voiced).map((m) => m - root), out = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
+    // A song's chorus opens the voicing: the top voice doubled an octave up.
+    const vi = (STAB_VOICES[vo] === 'guitar' ? notes : voiced).map((m) => m - root);
+    const iv = this.wide && STAB_VOICES[vo] !== 'guitar' && vi.length > 2 ? [...vi, Math.max(...vi) + 12] : vi, out = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
     if (vo > 0) return this[STAB_VOICES[vo]](t, v, iv, root, p, out);
     const lp = this.filter('lowpass', p.cutoff, p.reso);
     const amp = this.gain(0);
@@ -1753,6 +1755,7 @@ export class Sequencer {
     const bar = Math.floor(abs / 16), vary = s.master.vary || 0;
     e.harm = pat.prog?.length ? pat.prog[bar % pat.prog.length] : null;
     e.step = abs;
+    e.wide = pat.sec === 'chorus';
     const sd = e.stepDur;
     const tt = t + (abs % 2 ? s.swing * sd * 0.5 : 0);
     const n = this.songBars || 0, pos = n ? (this.chainPos - 1) % n : -1, lf = this.liftFrom;
@@ -1848,7 +1851,7 @@ export class Sequencer {
       else if (v) e.trigger(id, ht, vel);
     }
     const hm = pat.hm || 0, scale = SCALES[s.scale]?.notes || SCALES.minor.notes;
-    const hk = pat.hook && !pat.hook.h && this.songBars ? this.motif(pat.hook, motifPlan(bar, this.songBars, this.cur, pat.hook.s.filter(Boolean).length), scale) : pat.hook;
+    const hk = pat.hook && !pat.hook.h && this.songBars ? (pat.sec === 'pre' ? this.climb(pat.hook, bar % 4, scale) : this.motif(pat.hook, motifPlan(bar, this.songBars, this.cur, pat.hook.s.filter(Boolean).length), scale)) : pat.hook;
     const leadOn = !s.mutes.stab && (!anySolo || s.solos.stab), busy = this.songBars && hk && hm && leadOn && hookBusy(hk, abs % 32, hm);
     const sp = pat.steps.stab;
     // Licks fill the lead's rests instead of talking over it.
@@ -1861,12 +1864,12 @@ export class Sequencer {
       const hi = abs % 32, st = hk.s[hi];
       const x = hk.x || { space: 0.4, risk: 0.4, feel: 0.4, warmth: 0.5 };
       // One remembered motif, played like a musician: breathe in phrase three,
-      // lean into answers, then spend the octave leap only at the peak.
+      // lean into answers, then spend the octave leap only at the peak (in a song, only in the chorus).
       const ph = Math.floor(bar / 2) % 4;
       const breathe = hm > 1 && ph === 2 && hi < 16 && hash(abs, 95) < 0.2 + x.space * 0.45;
       // The lead also drops out for the last half bar before a drop, leaving the riser and snare roll alone.
       if (st && (hm > 1 || hi < 16) && !breathe && !(this.dropNext && i16 >= 8)) {
-        const lift = (hm > 1 && hi >= 16 && ph === 3 && x.risk >= 0.3 ? 12 : 0) + (this.keyLift || 0);
+        const lift = (hm > 1 && hi >= 16 && ph === 3 && x.risk >= 0.3 && (!pat.sec || pat.sec === 'chorus') ? 12 : 0) + (this.keyLift || 0);
         const b = 0.58 + 0.42 * ((bar % 8) / 7);
         const answer = hi >= 16;
         const phraseVel = [0.82, 0.92, 0.72, 1][ph] * (answer ? 1.04 : 0.96);
@@ -1944,6 +1947,16 @@ export class Sequencer {
     }
     e.impact(t, Math.max(0.4, s.master.arr || 0));
     return this.cur;
+  }
+
+  // A pre-chorus sequences the hook up one scale step per bar, from the verse register into the chorus.
+  climb(hk, k, scale) {
+    if (!k) return hk;
+    const c = (this.climbs ??= new WeakMap());
+    if (!c.has(hk)) c.set(hk, new Map());
+    const m = c.get(hk), key = `${k}:${scale.join()}`;
+    if (!m.has(key)) m.set(key, { ...hk, s: hk.s.map((x) => (x ? [stepDeg(x[0], k, scale), x[1], x[2]] : 0)) });
+    return m.get(key);
   }
 
   // The hook as developed for this point in the song (see js/motif.js), cached per hook and variant.

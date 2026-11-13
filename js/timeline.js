@@ -49,7 +49,9 @@ export function sectionNames(sections, kind = 'club', labels = {}) {
   let tail = sections.length;
   while (tail > 0 && QUIET.has(sections[tail - 1].p)) tail--;
   const opened = sections.slice(0, tail).some((s) => !QUIET.has(s.p));
-  return sections.map((s, i) => labels?.[LETTERS[s.p]] || (opened && i >= tail && i > 0 ? 'OUTRO' : roles[s.p]));
+  // In a song, a build that lands on the hook is its pre-chorus.
+  const pre = (s, i) => kind === 'groove' && s.p === 1 && (sections[i + 1]?.p === 6 || sections[i + 1]?.p === 7);
+  return sections.map((s, i) => labels?.[LETTERS[s.p]] || (opened && i >= tail && i > 0 ? 'OUTRO' : pre(s, i) ? 'PRE-CHORUS' : roles[s.p]));
 }
 
 export function cleanLabel(v) {
