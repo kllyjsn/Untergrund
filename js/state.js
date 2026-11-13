@@ -5,6 +5,7 @@ import { MODELS } from './composer-models.js';
 import { POCKETS, STYLE_POCKET } from './groove.js';
 import { REPERTOIRE, PIECE } from './repertoire.js';
 import { cleanLabels } from './timeline.js';
+import { withMelody, MELODY_BARS } from './melody.js';
 import { stepDeg } from './motif.js';
 import { cleanLyrics } from './lyrics.js';
 import { cleanTakes } from './scope.js';
@@ -791,6 +792,9 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     const v = vampFor(style, Math.round(params.stab.chord ?? 0), rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)));
     if (v?.pedal) P.pedal = v.pedal; else if (v) P.prog = v;
   }
+  // Groove and pop genres sing: the hook becomes a vocal-length melody over the changes (js/melody.js).
+  const sung = withMelody(P.hook, rng(Math.imul((seed | 0) ^ 0x68e31da4, 0x3c6ef372) ^ 0x1b873593), style, musicalScale, { prog: P.prog, alt: P.alt, chord: params.stab.chord | 0 });
+  if (sung) { P.hook = sung; P.hm = 2; }
   if (LIFT.has(style) && P.prog) P.lift = 2;
   if (SONG.has(style) && P.prog && P.alt) {
     const all = PROGS[style].map((pr) => pr.map(([root, c]) => ({ r: root, c })));
@@ -1161,6 +1165,8 @@ export function sanitize(s) {
       s: !!step.s,
     };
   });
+  const cleanNotes = (a) => (Array.isArray(a) ? a : []).filter(Array.isArray).slice(0, 96).map((x) => [Math.round(cl(x[0], -8, MELODY_BARS * 16 - 1)), Math.round(cl(x[1], 1, 16)), Math.round(cl(x[2], -24, 36)), cl(x[3], 0, 1), Math.round(cl(x[4], 0, 7)), Math.round(cl(x[5], 0, 95))]);
+  const cleanMelody = (m) => m && Array.isArray(m.n) && m.n.length ? { bars: MELODY_BARS, n: cleanNotes(m.n), v: cleanNotes(m.v), b: cleanNotes(m.b), ...(m.c ? { c: 1 } : {}) } : null;
   const cleanHook = (hook) => Array.isArray(hook?.s) ? ({
       v: HOOK_VOICES.includes(hook.v) ? hook.v : 'pluck',
       o: Math.round(cl(hook.o, -1, 1)),
@@ -1172,6 +1178,7 @@ export function sanitize(s) {
         warmth: cl(hook.x?.warmth ?? 0.5, 0, 1),
       },
       ...(hook.h ? { h: 1 } : {}),
+      ...(cleanMelody(hook.m) ? { m: cleanMelody(hook.m) } : {}),
     }) : null;
   const cleanProg = (prog) => prog.slice(0, 8).map((c) => ({ r: Math.max(-12, Math.min(12, c?.r | 0)), c: Math.max(0, Math.min(CHORDS.length - 1, c?.c | 0)) }));
   out.patterns = range(8, (i) => {

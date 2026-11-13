@@ -11,9 +11,17 @@ import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROO
 import { makeupGain } from './loudness.js';
 import { harmRoot, chordIv, stabNotes, hookSnap, voiceLead } from './harmony.js';
 import { develop, motifPlan, stepDeg } from './motif.js';
+import { MELODY_BARS, strongNote } from './melody.js';
 import { patternAt } from './scope.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
+// Chords sit under a sung line the way a mix rides the keys under a vocal: a little in the chorus, more in the verse
+// and most in the breakdown, so the drop still lands over it. Songs with sections already set the verse level.
+const STAB_UNDER_VOICE = { n: 0.84, v: 0.78, b: 0.45 };
+// Lead voices balanced for a sung line, so the voice sits at the same level over the band whichever one sings it
+// (the reed is forward, the flute sits back). Songs with sections drop the verse by its section level, so
+// the verse is sung a little forward to stay on top of the band.
+const SUNG_VOICE = { reed: 0.6, flute: 1.3 };
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
 const LIVE_REF = {
   kick: { tune: 52, decay: 0.5, drive: 0.2, click: 0.15, punch: 0.55 },
@@ -1895,7 +1903,8 @@ export class Sequencer {
     const pk = pocketOf(s.master);
     if ((s.master.dust || 0) > 0.01) e.dust(t, sd, abs);
     const arr = s.master.arr || 0, i16 = abs % 16;
-    const hookStep = pat.hook && pat.hm ? pat.hook.s[abs % 32] : 0;
+    const sung = pat.hook?.m && !pat.hook.h ? this.sungBar(bar, n ? pos : bar) : null;
+    const hookStep = sung ? this.songBars && !sung.hook.m.c && sung.notes.some((o) => o.at === i16 && i16 % 8) : pat.hook && pat.hm ? pat.hook.s[abs % 32] : 0;
     if (this.dropNext) {
       if (i16 === 0) e.sweep(t, 16 * sd, arr);
       if (i16 >= 8 && !s.mutes.snare) {
@@ -1988,21 +1997,24 @@ export class Sequencer {
       const swell = drum ? 1 - hum * 0.1 * (3 - (bar % 4)) / 3 : 1;
       const hv = (1 - hum * 0.22 * hash(abs, k + 20)) * (1 - hum * (1 - accent)) * swell * pv;
       const ghostSnare = id === 'snare' && Math.round(s.master.kit || 0) === 1;
-      const vel = (v === 2 ? 1 : v === 1 ? (ghostSnare ? 0.45 : 0.78) : v) * hv;
+      const under = id === 'stab' && this.songBars && sung?.any ? STAB_UNDER_VOICE[pat.sec && sung.part === 'v' ? 'n' : sung.part] ?? STAB_UNDER_VOICE.n : 1;
+      const vel = (v === 2 ? 1 : v === 1 ? (ghostSnare ? 0.45 : 0.78) : v) * hv * under;
       if (v && id === 'vox') e.vox(ht, vel, i);
       else if (v && band && id === 'snare' && (this.cur === 3 ? i16 >= 12 : i16 >= fillAt)) e.tom(ht, vel, i16 < 14);
       else if (v) e.trigger(id, ht, vel);
     }
     const hm = pat.hm || 0, scale = SCALES[s.scale]?.notes || SCALES.minor.notes;
-    const hk = pat.hook && !pat.hook.h && this.songBars ? (pat.sec === 'pre' ? this.climb(pat.hook, bar % 4, scale) : this.motif(pat.hook, motifPlan(bar, this.songBars, this.cur, pat.hook.s.filter(Boolean).length), scale)) : pat.hook;
-    const leadOn = !s.mutes.stab && (!anySolo || s.solos.stab), busy = this.songBars && hk && hm && leadOn && hookBusy(hk, abs % 32, hm);
+    const hk = sung ? null : pat.hook && !pat.hook.h && this.songBars ? (pat.sec === 'pre' ? this.climb(pat.hook, bar % 4, scale) : this.motif(pat.hook, motifPlan(bar, this.songBars, this.cur, pat.hook.s.filter(Boolean).length), scale)) : pat.hook;
+    const leadOn = !s.mutes.stab && (!anySolo || s.solos.stab), busy = sung ? this.songBars && leadOn && sung.busy[i16] : this.songBars && hk && hm && leadOn && hookBusy(hk, abs % 32, hm);
     const sp = pat.steps.stab;
     // Licks fill the lead's rests instead of talking over it.
-    if (vary && leadOn && !busy && !(this.songBars && hk && hm && i16 === 15) && bar % 2 === 1 && !sp[abs % (pat.len.stab || 16)] && hash(abs, 77) < vary * 0.28) {
+    if (vary && leadOn && !busy && !(this.songBars && ((hk && hm) || sung?.any) && i16 === 15) && bar % 2 === 1 && !sp[abs % (pat.len.stab || 16)] && hash(abs, 77) < vary * 0.28) {
       const k = Math.floor(hash(abs, 78) * 6) + (bar % 4 === 3 ? 2 : 0);
       e.lick(tt + (s.master.humanize || 0) * 0.02, 0.35 + hash(abs, 79) * 0.3, k);
     }
-    if (this.songBars && hk && hm && leadOn) this.interplay(pat, hk, abs, bar, tt, sd, busy, anySolo);
+    if (this.songBars && hk && hm && leadOn) this.interplay(pat, hk, abs, bar, tt, sd, busy, anySolo, !!hk.s[abs % 32]);
+    if (this.songBars && sung?.part && leadOn) this.interplay(pat, pat.hook, abs, bar, tt, sd, busy, anySolo, sung.notes.some((o) => o.at === i16));
+    if (sung && leadOn) this.sing(sung, i16, bar, tt, sd, scale);
     if (hk && hm && !s.mutes.stab && (!anySolo || s.solos.stab)) {
       const hi = abs % 32, st = hk.s[hi];
       const x = hk.x || { space: 0.4, risk: 0.4, feel: 0.4, warmth: 0.5 };
@@ -2061,7 +2073,7 @@ export class Sequencer {
 
   // Parts that listen to the lead. In grooves and peaks the bass answers the hook's rests with an off-beat octave,
   // or a walk into the next chord; breakdowns get a quiet guide-tone line (3rds and 7ths) under the B-phrase.
-  interplay(pat, hk, abs, bar, t, sd, busy, anySolo) {
+  interplay(pat, hk, abs, bar, t, sd, busy, anySolo, leadStarts) {
     const s = this.s, e = this.e, i16 = abs % 16, len = pat.len.acid || 16, a = pat.steps.acid;
     if ((this.cur === 2 || this.cur === 6) && (i16 === 6 || i16 === 14) && !busy && !a[abs % len]?.on &&
         !s.mutes.acid && (!anySolo || s.solos.acid) && a.some((x) => x?.on) && hash(bar * 2 + (i16 > 8), 96) < 0.6) {
@@ -2071,13 +2083,95 @@ export class Sequencer {
       e.acid(t, { on: true, n: d ? d - Math.sign(d) : 12, a: false, s: false, answer: 1 }, false, false, sd);
       this.acidPrevSlide = false;
     }
-    if ((this.cur === 4 || this.cur === 5) && i16 % 8 === 0 && !hk.s[abs % 32]) {
+    if ((this.cur === 4 || this.cur === 5) && i16 % 8 === 0 && !leadStarts) {
       const ns = hk.s.filter(Boolean).map((x) => x[0]), home = 12 * Math.round(ns.reduce((p, q) => p + q, 0) / ns.length / 12) - 12;
       const iv = chordIv(e.harm, s.params.stab), r = harmRoot(e.harm) + (this.keyLift || 0), prev = this.counter ?? home + r + iv[1];
       const cands = [iv[1], iv[3] ?? iv[2]].flatMap((x) => [-12, 0, 12].map((o) => home + r + x + o)).filter((m) => m !== prev || i16 === 0);
       const n = cands.reduce((b, m) => (Math.abs(m - prev) < Math.abs(b - prev) ? m : b));
       this.counter = n;
       e.hook(t + 0.003, 0.3, n, 8 * sd, hk.v, hk.o, true, 0.5, false, { ...(hk.x || {}), harm: 1, counter: 1 });
+    }
+  }
+
+  // Vocal-length melodies (js/melody.js): which part a scene sings. Breakdowns sing the bridge, quiet scenes the
+  // verse, full ones the chorus; a one-bar fill finishes the phrase of the section it closes.
+  singPart(p, i, pq, prev) {
+    if (!p?.hook?.m?.n?.length || p.hook.h || !p.hm) return null;
+    if (i === 4 || i === 5) return 'b';
+    if ((i === 3 || i === 7) && pq && prev !== i) { const q = this.singPart(pq, prev); if (q) return q; }
+    return p.hm > 1 ? 'n' : 'v';
+  }
+
+  // The sung notes starting in one bar (with the pickup into the next section's first phrase), and the steps where
+  // the singer is still holding a note, so licks and bass answers stay out of the way. Cached per bar.
+  sungBar(bar, P) {
+    const c = this.sungAt;
+    if (c && c.bar === bar && c.P === P && c.cur === this.cur && c.s === this.s) return c;
+    const n = this.songBars, ch = this.chainArr, B = MELODY_BARS;
+    const at = (k) => (n ? ch[((k % n) + n) % n] : this.cur);
+    const pp = (k) => patternAt(this.s.patterns[at(k)], n ? ((k % n) + n) % n : -1);
+    const part = (k) => this.singPart(pp(k), at(k), pp(k - 1), at(k - 1));
+    const notesIn = (k) => {
+      const cb = ((k % B) + B) % B, out = [], q = part(k), nq = cb === B - 1 && part(k + 1);
+      if (q) {
+        const xs = (pp(k).hook.m[q] || []).filter((x) => x[0] >= cb * 16 && x[0] < cb * 16 + 16), sh = this.register(at(k), bar + k - P, pp(k).hook, q, cb);
+        for (const x of xs) out.push({ at: x[0] - cb * 16, x, q, sh });
+      }
+      if (nq) {
+        const xs = (pp(k + 1).hook.m[nq] || []).filter((x) => x[0] < 0), sh = this.register(at(k + 1), bar + k + 1 - P, pp(k + 1).hook, nq, 0);
+        for (const x of xs) out.push({ at: 16 + x[0], x, q: nq, pickup: 1, sh });
+      }
+      return out;
+    };
+    const notes = notesIn(P), busy = Array(16).fill(false);
+    for (const { at: a, x } of notesIn(P - 1)) for (let j = 0; j < a + x[1] - 16 && j < 16; j++) busy[j] = true;
+    for (const { at: a, x } of notes) for (let j = a; j < Math.min(16, a + x[1]); j++) busy[j] = true;
+    for (const { at: a } of notes) if (a > 0) busy[a - 1] = true;
+    if (notesIn(P + 1).some((o) => o.at === 0)) busy[15] = true;
+    return (this.sungAt = { bar, P, cur: this.cur, s: this.s, notes, busy, hook: pp(P).hook, part: part(P), any: notes.length > 0 || busy.some(Boolean) });
+  }
+
+  // Section register of the sung line, in scale steps (the same moves as the riff hook's vhook and climb()): the verse
+  // sits 2 steps down; the pre-chorus starts there and climbs, each bar above the last and staying under the chorus's
+  // top note; the bridge drops if it would reach that note. Only the chorus sings the peak. Cached per hook.
+  register(i, bar, hk, q, cb) {
+    const sec = this.s.patterns[i]?.sec;
+    if (sec === 'verse') return -2;
+    if (sec !== 'pre' && sec !== 'bridge') return 0;
+    const scale = SCALES[this.s.scale]?.notes || SCALES.minor.notes, j = ((bar % 4) + 4) % 4, B = MELODY_BARS;
+    const c = (this.regs ??= new WeakMap()), key = `${sec}:${q}:${cb}:${j}:${scale.join()}`;
+    if (!c.has(hk)) c.set(hk, new Map());
+    const m = c.get(hk);
+    if (m.has(key)) return m.get(key);
+    const xs = hk.m[q] || [], top = Math.max(...hk.m.n.map((x) => x[2]));
+    const hiOf = (ys) => Math.max(-Infinity, ...ys.map((x) => x[2]));
+    const under = (n, k, room = 0) => { const lim = stepDeg(top, -room, scale); while (k > -6 && stepDeg(n, k, scale) >= lim) k--; return k; };
+    let k = 0;
+    if (sec === 'bridge') k = under(hiOf(xs), 0);
+    else for (let d = 0, hi = -Infinity; d <= j; d++) {
+      const b = (((cb - j + d) % B) + B) % B, t = hiOf(xs.filter((x) => x[0] >= b * 16 && x[0] < b * 16 + 16));
+      k = -2 + d;
+      if (t === -Infinity) continue;
+      while (k < d && stepDeg(t, k, scale) <= hi) k++;
+      k = under(t, k, 3 - d);
+      hi = Math.max(hi, stepDeg(t, k, scale));
+    }
+    m.set(key, k);
+    return k;
+  }
+
+  // Sing the notes that start on this step: pitch and length as written, the verse a little softer than the chorus,
+  // a breath before a drop, and at the peak a second voice a third under the held notes of the answering phrase.
+  sing(sung, i16, bar, t, sd, scale) {
+    const s = this.s, e = this.e, hk = sung.hook, x = hk.x || { space: 0.4, risk: 0.4, feel: 0.4, warmth: 0.5 };
+    for (const o of sung.notes) {
+      if (o.at !== i16 || (this.dropNext && i16 >= 8 && !o.pickup)) continue;
+      const [start, dur, w, vel, ph] = o.x, lift = this.keyLift || 0, semi = o.sh ? stepDeg(w, o.sh, scale) : w;
+      const sec = o.q === 'v' ? (s.patterns[this.cur]?.sec ? 1.15 : 0.82) : o.q === 'b' ? 0.6 : 1, strong = strongNote(start, dur);
+      const ht = t + (hash(start, 97) - 0.5) * 0.008 * x.feel + (s.master.humanize || 0) * 0.008;
+      const b = 0.58 + 0.42 * ((((bar % 8) + 8) % 8) / 7), v = Math.min(1, vel * sec) * (SUNG_VOICE[hk.v] ?? 1);
+      e.hook(ht, v, semi + lift, dur * sd, hk.v, hk.o, strong, b, false, x);
+      if (this.cur === 6 && o.q === 'n' && ph % 2 === 1 && dur >= 6 && this.songBars) e.hook(ht + 0.004, v * 0.55, stepDeg(semi, -2, scale) + lift, dur * sd, hk.v, hk.o, strong, b, false, { ...x, harm: 1 });
     }
   }
 

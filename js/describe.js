@@ -6,6 +6,7 @@ import { SCALES, KEYS, CHORDS, TRACK_IDS, TRACK_BY_ID, MASTER_PARAMS, STEPS } fr
 import { STYLES, mutate, clone, hookLine, songKind } from './state.js';
 import { toSections, sectionNames } from './timeline.js';
 import { rng } from './dsp.js';
+import { withMelody } from './melody.js';
 import { patternAt, setTake, remapTakes, changedBars, barsLabel } from './scope.js';
 
 // ---------------- vocabulary ----------------
@@ -1134,6 +1135,7 @@ export function applyEdits(state, edits, { seed = 1, style } = {}) {
         for (const p of loops) {
           if (!locked('acid')) for (const st of p.steps.acid) if (st.on) st.n = remapNote(st.n, from, to);
           if (p.hook) p.hook.s = p.hook.s.map((x) => (x ? [remapNote(x[0], from, to), ...x.slice(1)] : x));
+          if (p.hook?.m) for (const k of ['n', 'v', 'b']) p.hook.m[k] = (p.hook.m[k] || []).map((x) => [x[0], x[1], remapNote(x[2], from, to), ...x.slice(3)]);
           if (!locked('stab')) for (const arr of [p.prog, p.alt]) if (Array.isArray(arr)) for (const h of arr) {
             h.r = remapNote(h.r, from, to);
             h.c = requality(h.c, quality(e.value, h.r));
@@ -1193,7 +1195,9 @@ export function applyEdits(state, edits, { seed = 1, style } = {}) {
         const notes = (SCALES[S.scale] || SCALES.minor).notes;
         const has = loops.some((p) => p.hook);
         const r = rng(seed * 7 + 3);
-        const line = v === 2 || !has ? [style, 'deephouse'].map((g) => g && STYLES[g] && hookLine(r, g, notes)).find(Boolean) : null;
+        const changes = loops.find((p) => p.prog?.length)?.prog, alt = loops[4]?.prog;
+        const sing = (g, h) => withMelody(h, r, g, notes, { prog: changes, alt, chord: P.stab.chord | 0 });
+        const line = v === 2 || !has ? [style, 'deephouse'].map((g) => g && STYLES[g] && sing(g, hookLine(r, g, notes))).find(Boolean) : null;
         for (const p of loops) {
           if (line) p.hook = clone(line);
           if (p.hook && hits(p.steps.kick)) p.hm = 2;

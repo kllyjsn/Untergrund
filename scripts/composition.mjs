@@ -55,15 +55,16 @@ export function scoreSong(s) {
   });
   const voicings = [], harms = new Set();
   let grip = null, last = null;
+  const lead = [], stepDur = 0.125;
   for (const L of log) {
     const bar = Math.floor(L.step / 16), B = perBar[bar];
     if (!B) continue;
     if (L.harm) { harms.add(`${L.harm.r}:${L.harm.c}`); B.chords.add(`${L.harm.r}:${L.harm.c}`); B.root ??= L.harm.r; }
     if (L.k === 'hook' && L.a[9]?.counter) continue;
     if (L.k === 'hook') {
-      const [, , n, , , , strong, , up] = L.a;
-      const m = hookSnap(n, L.harm, p, strong, up);
-      B.hook.push(`${L.step % 16}:${m}`); B.notes.push(m); B.events++;
+      const [, , n, d, , , strong, , up, x] = L.a, snapped = hookSnap(n, L.harm, p, strong, up);
+      B.hook.push(`${L.step % 16}:${snapped}`); B.notes.push(snapped); B.events++;
+      if (!x?.harm) lead.push([L.step, Math.max(1, Math.round(d / stepDur)), snapped]);
     } else if (L.k === 'trigger' && L.a[0] === 'stab') {
       const { root, notes, home } = stabNotes(s, L.harm);
       const led = last = voiceLead(notes, last, home);
@@ -97,8 +98,41 @@ export function scoreSong(s) {
     voiceMove: +(moves.length ? moves.reduce((a, b) => a + b, 0) / moves.length : 0).toFixed(2),
     contrast: +(mean ? sd / mean : 0).toFixed(3),
     drumBars: new Set(perBar.map((b) => b.drums.join())).size,
+    ...melodyShape(lead),
   };
 }
+
+// The lead as a singer would phrase it: a rest of a beat or more is a breath that ends a phrase.
+// phraseBars: mean phrase length; peakAt: where the phrase's highest note falls (0 start, 1 end);
+// restsPerPhrase: rests of an 8th or more inside a phrase plus the breath after it; stepShare: moves of 1-2 semitones.
+export function melodyShape(lead) {
+  const phrases = [];
+  let cur = null, end = -1e9;
+  for (const [at, d, n] of lead.sort((a, b) => a[0] - b[0])) {
+    if (!cur || at - end >= 4) phrases.push((cur = { notes: [], rests: 1 }));
+    else if (at - end >= 2) cur.rests++;
+    if (cur.notes.at(-1)?.[0] === at) continue;
+    cur.notes.push([at, n]); end = Math.max(end, at + d); cur.end = end;
+  }
+  const full = phrases.filter((q) => q.notes.length >= 4);
+  if (!full.length) return { phraseBars: 0, peakAt: 0, restsPerPhrase: 0, stepShare: 0 };
+  const mean = (a) => a.reduce((x, y) => x + y, 0) / (a.length || 1);
+  let steps = 0, moves = 0;
+  for (const q of full) for (let j = 1; j < q.notes.length; j++) {
+    const iv = Math.abs(q.notes[j][1] - q.notes[j - 1][1]);
+    if (iv) { moves++; if (iv <= 2) steps++; }
+  }
+  return {
+    phraseBars: +mean(full.map((q) => (q.end - q.notes[0][0]) / 16)).toFixed(2),
+    peakAt: +mean(full.map((q) => {
+      const top = Math.max(...q.notes.map((x) => x[1])), j = q.notes.findIndex((x) => x[1] === top);
+      return (q.notes[j][0] - q.notes[0][0]) / Math.max(1, q.notes.at(-1)[0] - q.notes[0][0]);
+    })).toFixed(2),
+    restsPerPhrase: +mean(full.map((q) => q.rests)).toFixed(2),
+    stepShare: +(moves ? steps / moves : 0).toFixed(2),
+  };
+}
+
 
 // Section contrast, from the bars each section plays:
 // verseChorus  share of chorus chords the verse does not play (0 = same changes, or a verse over a pedal),
@@ -132,9 +166,10 @@ function sections(perBar) {
   };
 }
 
-const HIGHER = ['bars', 'melodyWindows', 'motifRecall', 'chords', 'contrast', 'drumBars', 'verseChorus', 'chorusLift', 'chorusPeak', 'chorusEnergy', 'preLift', 'bridgeAway'], LOWER = ['voiceMove'];
+const HIGHER = ['bars', 'melodyWindows', 'motifRecall', 'chords', 'contrast', 'drumBars', 'phraseBars', 'stepShare', 'verseChorus', 'chorusLift', 'chorusPeak', 'chorusEnergy', 'preLift', 'bridgeAway'], LOWER = ['voiceMove'], NEAR = ['peakAt', 'restsPerPhrase'];
 // Allowed slack before a change counts as a regression.
 const TOL = { bars: 0, melodyWindows: 0.5, motifRecall: 0.05, chords: 0, contrast: 0.03, drumBars: 0.5, voiceMove: 0.15,
+  phraseBars: 0.25, stepShare: 0.05, peakAt: 0.1, restsPerPhrase: 0.5,
   verseChorus: 0.05, chorusLift: 0.5, chorusPeak: 0.5, chorusEnergy: 0.05, preLift: 0.05, bridgeAway: 0.05 };
 
 export function runComposition(styles) {
@@ -183,6 +218,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       assert(b, `${style} has no composition baseline (run node scripts/composition.mjs --update)`);
       for (const k of HIGHER) if (m[k] < b[k] - TOL[k]) fails.push(`${style} ${k} ${m[k]} < baseline ${b[k]}`);
       for (const k of LOWER) if (m[k] > b[k] + TOL[k]) fails.push(`${style} ${k} ${m[k]} > baseline ${b[k]}`);
+      for (const k of NEAR) if (b[k] !== undefined && Math.abs(m[k] - b[k]) > TOL[k]) fails.push(`${style} ${k} ${m[k]} moved from baseline ${b[k]}`);
     }
     assert.equal(fails.length, 0, `composition regressed:\n  ${fails.join('\n  ')}`);
     console.log(`composition scorecard passed: ${Object.keys(report).length} genres x ${SEEDS.length} seeds`);
