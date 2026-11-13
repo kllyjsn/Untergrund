@@ -6,3 +6,6 @@ node_modules/
 js/vendor/
 .data/
 .cache/
+# Suno A/B references: local, user-supplied, never committed or deployed (docs/suno-benchmark.md)
+suno-lab/
+/suno/
