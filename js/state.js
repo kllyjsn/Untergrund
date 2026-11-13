@@ -812,8 +812,12 @@ function songSections(progs, P, scale, c, r) {
     const h = vocab.find((y) => y.r === x);
     return { r: x, c: h ? h.c : major ? (x === 5 ? 9 : 1) : quality(x, c) };
   }).concat({ r: 7, c: 5 });
-  const k = Math.max(0, P.alt.findIndex((h) => h.r !== 0));
-  const bridge = clone([...P.alt.slice(k), ...P.alt.slice(0, k)]);
+  // The bridge takes the changes that share the fewest chords with the verse and chorus (the alt on a tie).
+  const heard = new Set([...P.prog, ...verse].map((h) => `${h.r}:${h.c}`));
+  const away = (p) => p.filter((h) => !heard.has(`${h.r}:${h.c}`)).length;
+  const far = [P.alt, ...progs.filter((p) => !same(p, P.prog) && !same(p, verse))].reduce((a, p) => (away(p) > away(a) ? p : a));
+  const k = Math.max(0, far.findIndex((h) => h.r !== 0));
+  const bridge = [...far.slice(k), ...far.slice(0, k)].map((h) => (heard.has(`${h.r}:${h.c}`) ? rich(h) : { ...h }));
   const vhook = P.hook && { ...clone(P.hook), s: P.hook.s.map((x) => (x ? [stepDeg(x[0], -2, scale), x[1], x[2]] : 0)) };
   return { verse, pre, bridge, ...(vhook ? { vhook } : {}) };
 }
