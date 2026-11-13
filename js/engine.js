@@ -2,7 +2,7 @@ import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES } from './params.js';
 import { getSample } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
-import { liveSet, loadLiveKit, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND, SOFT_LAYER } from './livekit.js';
+import { liveSet, loadLiveKit, loadKitExtra, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND, SOFT_LAYER } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel } from './groove.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ } from './lead.js';
@@ -30,7 +30,10 @@ const LIVE_REF = {
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
 const EPS = 0.0001;
 const SAMPLE_FADE = 1;
-const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings'];
+const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic'];
+const GRIPPED = new Set(['guitar', 'driveGuitar', 'acoustic']);
+// Soft-knee, slightly asymmetric clipping: even harmonics like a pushed preamp tube.
+const AMP_CURVE = (() => { const n = 2048, c = new Float32Array(n); for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; c[i] = Math.tanh(x * 2.2 + 0.18) - Math.tanh(0.18); } return c; })();
 // How each recorded instrument is played: level, DECAY->length, strum spread, register shift, held like a bow.
 // CLASSICAL orchestra: each part is a recorded player at its seat (pan), in its register, with its section on the mixer.
 const ORCH = {
@@ -99,7 +102,13 @@ const BAND_PLAY = {
   gtr: { gain: 4.4, len: 2.6, min: 0.6, softBelow: 0.75, strum: 0.006, shift: 0, lo: 40, hi: 74, lp: 2900, peak: [3600, 1.2, -6], soft: 1100, fade: 0.008, rel: 0.22, grip: true, even: 0.2 },
   horn: { gain: 2.2, len: 1.2, min: 0.25, strum: 0.003, shift: 12, lo: 53, hi: 81, lp: 4800, rel: 0.09 },
   str: { gain: 1.2, len: 2, min: 0.5, strum: 0, shift: 0, hold: true, lo: 55, hi: 79, lp: 4200, rel: 0.25 },
+  // The hollow-body played through a cranked amp: power chords sustain, the cab rolls off the fizz.
+  drive: { set: 'gtr', amp: true, gain: 3.2, len: 3.4, min: 0.18, strum: 0.004, shift: 0, lo: 40, hi: 64, lp: 5200, soft: 1800, fade: 0.008, rel: 0.12, grip: true, even: 0.15 },
+  // Steel-string acoustic: a wider strum, bright top, long ring.
+  agtr: { gain: 4.2, len: 3.2, min: 0.7, strum: 0.011, shift: 0, lo: 40, hi: 76, lp: 7800, soft: 0, fade: 0.01, rel: 0.3, grip: true, even: 0.35 },
 };
+// The rock band's riff guitar: the rhythm amp, double-stops up the neck.
+BAND_PLAY.lead = { ...BAND_PLAY.drive, lo: 45, hi: 79, grip: false, even: 0.4, gain: 2.2, lp: 4400, soft: 1600, vib: 8, rel: 0.16, oct: -1, dyad: true };
 const LIM_TRIM = 1.4;
 // The clipper rounds overs up to +6 dB over full scale instead of flat-topping them (see clipCurve).
 const CLIP_HEADROOM = 2;
@@ -578,6 +587,13 @@ export class Engine {
       g.gain.linearRampToValueAtTime(level, t + 0.04);
     }
     node.connect(g).connect(out);
+    // A held lead note: vibrato that the player leans into after the pick attack.
+    if (fx.vib && dur > 0.2) {
+      const lfo = this.ctx.createOscillator(), depth = this.gain(0);
+      lfo.frequency.value = 5.2 + hash(t, 31) * 0.8;
+      depth.gain.setValueAtTime(0, t + 0.12); depth.gain.linearRampToValueAtTime(fx.vib, t + Math.min(0.45, dur * 0.6));
+      lfo.connect(depth).connect(s.detune); lfo.start(t); lfo.stop(t + dur + 0.5);
+    }
     // Held orchestral notes outlast their recording: loop the sustained middle, after the attack.
     if (fx.loop && dur > buf.duration / rate - 0.3) { const [a, b] = loopPoints(buf); s.loop = true; s.loopStart = a; s.loopEnd = b; }
     if (fx.offset || fx.fade) { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(level, t + (fx.fade || 0.006)); }
@@ -955,7 +971,7 @@ export class Engine {
     const h = this.harm;
     const { root, notes, home } = stabNotes(this.state, h);
     const vo = Math.round(p.voice), voiced = this.lastChord = voiceLead(notes, this.lastChord, home);
-    const iv = (STAB_VOICES[vo] === 'guitar' ? notes : voiced).map((m) => m - root), out = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
+    const iv = (GRIPPED.has(STAB_VOICES[vo]) ? notes : voiced).map((m) => m - root), out = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
     if (vo > 0) return this[STAB_VOICES[vo]](t, v, iv, root, p, out);
     const lp = this.filter('lowpass', p.cutoff, p.reso);
     const amp = this.gain(0);
@@ -1030,11 +1046,12 @@ export class Engine {
   // Brass section: saws scooping into pitch while the filter blooms; ENV sets the blare.
   // Recorded chord instruments (CC0): nearest sample per chord note, repitched; the synth voice covers loading.
   recorded(kind, fallback, t, v, iv, root, p, out) {
-    const set = this.rec(kind);
-    if (!set) { loadBand(kind); return this[fallback](t, v, iv, root, p, out); }
-    const R = BAND_PLAY[kind];
-    const tone = Math.max(-6, Math.min(3, 3 * Math.log2(p.cutoff / 1500)));
-    const dur = Math.min(R.max ?? Infinity, Math.max(R.hold ? this.stepDur * 4 : R.min, p.decay * R.len));
+    const R = BAND_PLAY[kind], set = this.rec(R.set || kind);
+    if (!set) { loadBand(R.set || kind); return this[fallback](t, v, iv, root, p, out); }
+    if (R.amp) out = this.ampFor(out);
+    const palm = R.amp && this.palm;
+    const tone = Math.max(-6, Math.min(3, 3 * Math.log2(p.cutoff / 1500))) - (palm ? 4 : 0);
+    const dur = palm ? Math.min(0.14, this.stepDur * 1.2) : Math.min(R.max ?? Infinity, Math.max(R.hold ? this.stepDur * 4 : R.min, p.decay * R.len));
     const chord = R.grip && iv.length > 1;
     // A guitarist strums down on the beat and up on the offbeats; other players roll the chord either way.
     const up = chord ? (this.step == null ? (this.stroke = !this.stroke) === false : this.step % 4 !== 0) : hash(t, 21) > 0.5;
@@ -1060,7 +1077,7 @@ export class Engine {
       const at = t - lead + order * strum + (hash(t * 3 + k, 22) - 0.5) * (0.003 + articulation * 0.006) * even;
       const sweep = notes.length > 1 ? order / (notes.length - 1) - 0.5 : 0;
       const accent = 1 + sweep * (articulation - 0.5) * 0.35;
-      const lvl = (lift * v * R.gain * accent * (1 - 0.15 * even + 0.3 * even * hash(t + k, 23))) / Math.sqrt(grip.length);
+      const lvl = ((palm ? 0.8 : 1) * lift * v * R.gain * accent * (1 - 0.15 * even + 0.3 * even * hash(t + k, 23))) / Math.sqrt(grip.length);
       // A single-note fill rings briefly and is stopped by the next chord like any other string.
       const h = this.recordedNote(set, at, lvl, m + R.shift, R.grip && !chord ? Math.min(dur, 0.9) : dur, out, tone, kind, v);
       if (R.grip && h) { h.m = m; (this.gripHeld ||= []).push(h); }
@@ -1079,9 +1096,53 @@ export class Engine {
     let [c, buf] = set[0];
     for (const [cm, b] of set) if (Math.abs(cm - m) < Math.abs(c - m)) [c, buf] = [cm, b];
     return this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
-      shelves: [[3000, tone]], peaks: R?.peak ? [R.peak] : [], lp: R ? R.lp * (0.4 + 0.6 * hv) : 0, lpFrom: R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05,
+      shelves: [[3000, tone]], peaks: R?.peak ? [R.peak] : [], lp: R ? R.lp * (0.4 + 0.6 * hv) : 0, lpFrom: R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
     });
   }
+  // A guitar amp for the DRIVE GTR: tightened lows into an asymmetric tube-style clipper, then a 4x12 cab
+  // (body bump, scooped fizz, steep top roll-off). One amp per destination, shared by every string.
+  ampFor(dest, lead = false) {
+    if (dest === this.ch.stab.input) dest = this.ch.stab.band;
+    const amps = (this.amps ||= new Map()), key = dest;
+    const known = lead ? this.leadAmps?.get(dest) : amps.get(dest);
+    if (known) return known;
+    // The lead channel: less gain, a vocal mid push and a darker cab, so single notes sing instead of buzz.
+    const inp = this.gain(1), hp = this.filter('highpass', lead ? 220 : 120, 0.7), mid = this.filter('peaking', lead ? 1100 : 850, 0.9);
+    mid.gain.value = lead ? 7 : 5;
+    const sh = this.ctx.createWaveShaper();
+    sh.curve = AMP_CURVE; sh.oversample = '4x';
+    const body = this.filter('peaking', 140, 1.1), fizz = this.filter('peaking', 3200, 1.4), cab = this.filter('lowpass', 4300, 0.9), cab2 = this.filter('lowpass', 6500, 0.6);
+    body.gain.value = lead ? 0 : 3; fizz.gain.value = lead ? -9 : -5;
+    if (lead) cab.frequency.value = 3400;
+    inp.connect(hp).connect(mid).connect(this.gain(lead ? 1.4 : 7)).connect(sh).connect(body).connect(fizz).connect(cab).connect(cab2).connect(this.gain(lead ? 0.42 : 0.16)).connect(dest);
+    if (lead) (this.leadAmps ||= new Map()).set(dest, inp); else amps.set(key, inp);
+    return inp;
+  }
+
+  // Electric bass guitar (fingerstyle, recorded), with the same tone and drive knobs as the upright.
+  ebass(t, st, sd, holdNext) {
+    const set = this.rec('ebass');
+    if (!set) { loadBand('ebass'); return this.bass(t, st, sd, holdNext); }
+    const p = this.state.params.acid, m = this.bassMidi(st);
+    const len = st.ap ? sd * 0.9 : holdNext ? sd * 2 : sd * (0.9 + p.decay * 2);
+    let [c, buf] = set[0];
+    for (const [cm, b] of set) if (Math.abs(cm - m) < Math.abs(c - m)) [c, buf] = [cm, b];
+    const ref = LIVE_REF.acid, fx = { shelves: [[900, Math.max(-24, Math.min(10, 8 * Math.log2(p.cutoff / ref.cutoff)))]], drive: Math.max(0, p.drive - ref.drive) * 1.4, release: 0.05 };
+    this.playBuf(buf, t, 1.1 * (st.a ? 1.15 : 1) * (this.noteVel ?? 1), this.ch.acid.input, Math.pow(2, (m - c) / 12) * (1 + (hash(t * 1000, 5) - 0.5) * 0.002), len, fx);
+  }
+
+  // Crash and toms of the recorded kit, for the band pockets. Without the samples the open hat and snare stand in.
+  crash(t, v) {
+    const kit = this.rec('kitx');
+    if (!kit) { loadKitExtra(); return this.trigger('oh', t, v * 0.8); }
+    this.playBuf(kit[v > 0.8 ? 'crash_v3' : 'crash_v2'], t, 0.42 * v, this.ch.oh.input, 1 + (hash(t, 31) - 0.5) * 0.01, 2.8, { release: 0.4 });
+  }
+  tom(t, v, high) {
+    const kit = this.rec('kitx');
+    if (!kit) { loadKitExtra(); return this.trigger('snare', t, v); }
+    this.playBuf(kit[`${high ? 'htom' : 'ltom'}_v${v > 0.7 ? 14 : 8}`], t, 0.55 * v, this.ch.snare.input, 1, 1.2, { release: 0.15 });
+  }
+
   // One section bus per orchestra part: seat panning, then dry into the mix plus the room and the hall.
   orchBus(part) {
     this.orchBuses ||= {};
@@ -1131,6 +1192,8 @@ export class Engine {
     try { h.s.stop(t + damp * 8); } catch {}
   }
   piano(...a) { return this.recorded('piano', 'keys', ...a); }
+  driveGuitar(...a) { return this.recorded('drive', 'pluck', ...a); }
+  acoustic(...a) { return this.recorded('agtr', 'pluck', ...a); }
   guitar(...a) { return this.recorded('gtr', 'pluck', ...a); }
   horns(...a) { return this.recorded('horn', 'brass', ...a); }
   strings(...a) { return this.recorded('str', 'pad', ...a); }
@@ -1271,8 +1334,13 @@ export class Engine {
     // Genres on a recorded instrument let that player take the melody too; synth-pop leads stay synths.
     const band = voice !== 'pulse' && STAB_BAND[Math.round(p.voice)], set = band && this.rec(band);
     if (set) {
-      const R = BAND_PLAY[band], ring = R.hold ? dur * 1.05 : Math.max(R.min * 0.6, dur * 1.5);
-      return this.recordedNote(set, t, Math.min(1.3, v) * R.gain * 0.6, 60 + k + oct * 12 + n, ring, this.hookBus || this.ch.stab.input, 0, band, v / 1.3);
+      const kind = Math.round(p.voice) === 11 ? 'lead' : band, R = BAND_PLAY[kind], ring = R.hold ? dur * 1.05 : Math.max(R.min * 0.6, dur * 1.5);
+      let dest = this.hookBus || this.ch.stab.input;
+      if (R.amp) dest = this.ampFor(dest === this.ch.stab.input ? this.ch.stab.band : dest, R.lead);
+      const m = 60 + k + (oct + (R.oct || 0)) * 12 + n, g = Math.min(1.3, v) * R.gain * 0.6;
+      // A rock riff is a double-stop: the melody note with its fifth underneath, through the rhythm amp.
+      if (R.dyad && m - 5 >= R.lo) this.recordedNote(set, t + 0.004, g * 0.7, m - 5, ring, dest, 0, kind, v / 1.3);
+      return this.recordedNote(set, t, g, m, ring, dest, 0, kind, v / 1.3);
     }
     const f = midiHz(60 + k + oct * 12 + n), L = leadPreset(voice, pocketOf(this.state.master)?.name);
     const hdb = this.soulBand() ? 0 : HOOK_TRIM_DB[voice] || 0;
@@ -1536,7 +1604,7 @@ export class Engine {
   acid(t, st, sliding, holdNext, sd) {
     const a = this.acidNodes, p = this.state.params.acid;
     const vo = Math.round(p.voice);
-    if (vo > 0) { a.vca.gain.setTargetAtTime(0, t, 0.005); return this[['', 'bass', 'eight08', 'reese', 'logdrum'][vo]](t, st, sd, holdNext, sliding); }
+    if (vo > 0) { a.vca.gain.setTargetAtTime(0, t, 0.005); return this[['', 'bass', 'eight08', 'reese', 'logdrum', 'ebass'][vo]](t, st, sd, holdNext, sliding); }
     const f = midiHz(this.bassMidi(st)), sub = lowEnd(this.state.master)?.sub[0];
     if (sub) this.subLayer(t, midiHz(this.bassMidi(st, 36, 38)), holdNext ? sd * 1.05 : sd * 0.6, sub * (st.a ? 1 : 0.85) * (this.noteVel ?? 1), sliding);
     for (const o of [a.o1, a.o2]) {
@@ -1789,6 +1857,13 @@ export class Sequencer {
     const rp = arr && !vary && n && !pat.score && this.runLen >= 8 ? this.runPos : -1;
     const fillAt = rp >= 0 && (this.cur === 2 || this.cur === 6) && rp % 8 === 7 && rp < this.runLen - 1 ? (rp % 16 === 15 ? 8 : 12) : 16;
     const roller = pat.steps.snare.some(Boolean) ? 'snare' : 'clap';
+    // A band drummer marks each new section with a crash and plays the fills around the toms.
+    const band = pk?.band && Math.round(s.master.kit || 0) === 1;
+    // The rhythm guitar palm-mutes the verse and breakdown and opens up for the pre-chorus and chorus.
+    e.palm = band && (this.cur === 2 || this.cur === 4);
+    if (band && i16 === 0 && pos > 0 && this.chainArr[pos - 1] !== this.cur && pat.steps.kick.some(Boolean) && !s.mutes.oh && (!anySolo || s.solos.oh)) {
+      e.crash(tt + pocketLate(pk, 'oh', 0), this.cur === 6 || this.cur === 7 ? 1 : 0.7);
+    }
     for (const id of TRACK_IDS) {
       const on = !s.mutes[id] && (!anySolo || s.solos[id]);
       const len = pat.len[id] || 16;
@@ -1802,7 +1877,13 @@ export class Sequencer {
         this.acidMuted = false;
         // A bass player leans on the one and plays the in-between notes softer
         e.noteVel = pk ? pocketVel(pk, 'acid', i16) * (1 + (hash(abs, 93) - 0.5) * 0.1) : 1;
-        const nextH = vary && i === len - 1 && pat.prog?.length > 1 ? pat.prog[(bar + 1) % pat.prog.length] : null;
+        const walk = pk?.walk && (i16 === 12 || i16 === 14) && e.harm ? this.walkUp(pat, nx, bar, kl) : null;
+        if (walk) {
+          e.acid(tt + pocketLate(pk, 'acid', i16), { on: true, n: walk[i16 === 12 ? 0 : 1] - (e.harm.r - kl), a: false, s: false, ap: true }, false, false, sd);
+          this.acidPrevSlide = false; this.walked = bar;
+          continue;
+        }
+        const nextH = vary && i === len - 1 && pat.prog?.length > 1 && this.walked !== bar ? pat.prog[(bar + 1) % pat.prog.length] : null;
         if (nextH && nextH.r !== e.harm?.r && hash(bar, 91) < vary) {
           const cur = e.harm; e.harm = nextH;
           e.acid(tt + (s.master.humanize || 0) * 0.016, { on: true, n: hash(bar, 92) < 0.5 ? -1 : 1, a: false, s: false, ap: true }, false, false, sd);
@@ -1854,6 +1935,7 @@ export class Sequencer {
       const under = id === 'stab' && this.songBars && sung?.any ? STAB_UNDER_VOICE[sung.part] ?? STAB_UNDER_VOICE.n : 1;
       const vel = (v === 2 ? 1 : v === 1 ? (ghostSnare ? 0.45 : 0.78) : v) * hv * under;
       if (v && id === 'vox') e.vox(ht, vel, i);
+      else if (v && band && id === 'snare' && (this.cur === 3 ? i16 >= 12 : i16 >= fillAt)) e.tom(ht, vel, i16 < 14);
       else if (v) e.trigger(id, ht, vel);
     }
     const hm = pat.hm || 0, scale = SCALES[s.scale]?.notes || SCALES.minor.notes;
@@ -1897,6 +1979,15 @@ export class Sequencer {
   // the intro brings in hats then percussion, the outro takes them away again, the first drop holds its ride back for
   // a phrase, the peak's second phrase opens up off-16th hats, every 8 bars ends on a snare/clap roll over a dropped
   // kick (two beats at 16-bar ends), and every fourth bar turns around on the percussion.
+  // Country bass walks up the scale into a change: the two scale tones under the next root, on beat 4 and its "and".
+  walkUp(pat, nx, bar, kl) {
+    const prog = pat.prog, next = (nx?.prog?.length ? nx.prog : prog)?.[(bar + 1) % (nx?.prog?.length || prog?.length || 1)];
+    if (!prog?.length || !next || next.r === prog[bar % prog.length].r || hash(bar, 95) > 0.5) return null;
+    const T = next.r, scale = SCALES[this.s.scale]?.notes || SCALES.major.notes;
+    const below = [...new Set(scale.map((d) => { let x = ((d % 12) + 12) % 12; while (x >= T) x -= 12; while (x < T - 12) x += 12; return x; }))].sort((a, b) => b - a);
+    return below.length >= 2 ? [below[1], below[0]] : null;
+  }
+
   build(id, v, pat, i16, rp, intro, fillAt, roller) {
     const cur = this.cur, rl = this.runLen, has = (x) => pat.steps[x].some(Boolean);
     if (cur === 0) {

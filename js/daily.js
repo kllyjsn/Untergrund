@@ -1,9 +1,10 @@
 // DAILY DROP: one seed + genre per UTC day, the same for everyone, computed locally (no server).
-import { STYLES, defaultState, generate, arrangement, songChain, applyOverrides } from './state.js';
+import { STYLES, MAJOR_STYLES, defaultState, generate, arrangement, songChain, applyOverrides } from './state.js';
 
 // Fixed order so the schedule never depends on how STYLES happens to be sorted. Classical scores are left out.
 const POOL = ['hypnotic', 'deephouse', 'neosoul', 'breaks', 'amapiano', 'trance', 'ukg', 'boombap', 'acid', 'afrobeats', 'dnb', 'minimal',
-  'trap', 'dub', 'reggaeton', 'euphoric', 'electro', 'industrial', 'drill', 'ambient', 'bailefunk', 'peak', 'jerseyclub', 'hardtechno', 'hyperpop'];
+  'trap', 'dub', 'reggaeton', 'euphoric', 'electro', 'industrial', 'drill', 'ambient', 'bailefunk', 'peak', 'jerseyclub', 'hardtechno', 'hyperpop',
+  'pop', 'rock', 'rnb', 'country', 'folk'];
 const FIRST = ['Morning', 'Copper', 'Soft', 'Paper', 'Silver', 'Midnight', 'Lucid', 'Sunday', 'Velvet', 'Stray', 'Distant', 'Warm', 'Quiet', 'Rising'];
 const SECOND = ['Light', 'Current', 'Weather', 'Signal', 'Garden', 'Motion', 'Static', 'Harbor', 'Orbit', 'Bloom', 'Transit', 'Mirror', 'Fever', 'Thread'];
 const DAY = 86400e3, FIRST_DROP = Date.UTC(2026, 10, 3);
@@ -50,7 +51,7 @@ export const recentDrops = (n = 14, now = Date.now()) => Array.from({ length: n 
 // The drop as a full song from a clean project, so it sounds the same for every listener.
 export function dropSong(drop) {
   const s = defaultState();
-  if (drop.style === 'euphoric') s.scale = 'major';
+  if (drop.style === 'euphoric' || MAJOR_STYLES.has(drop.style)) s.scale = 'major';
   const g = generate(drop.style, drop.seed, s.scale);
   s.patterns = arrangement(g.pattern, drop.seed, g.bpm >= 115);
   s.key = g.key;

@@ -42,6 +42,32 @@ export const POCKETS = [
     hat: bar([1, 0.55, 0.8, 0.62]), kick: [1, 0.96, 0.98, 0.96], back: [1, 0.97], bass: [1, 0.9, 0.95, 0.9],
     at: { snare: 3, clap: 3 },
   },
+  // The band pockets: a drummer and a bass player in a room. `band` adds crashes into sections and tom fills.
+  { // POP: tight and bright, eighth hats leaning on the downbeats, the backbeat a hair late
+    name: 'POP', hum: 0.32, jitter: 2.2, ghost: 0.12, band: true,
+    hat: bar([1, 0.5, 0.82, 0.55]), kick: [1, 0.92, 0.96, 0.92], back: [1, 0.97], bass: [1, 0.82, 0.92, 0.86],
+    at: { snare: 4, clap: 4, ch: [0, 2, 0, 4], stab: 2, acid: [0, 2, 1, 3] },
+  },
+  { // R&B: laid back; snare and hats drag behind the bass, sixteenths whisper
+    name: 'R&B', hum: 0.6, jitter: 3.2, ghost: 0.28, band: true,
+    hat: bar([1, 0.4, 0.75, 0.5]), kick: [1, 0.9, 0.95, 0.9], back: [1, 0.95], bass: [1, 0.8, 0.9, 0.85],
+    at: { snare: 9, clap: 9, ch: [0, 5, 3, 8], ride: [0, 5, 3, 8], stab: 6, acid: [0, 4, 3, 6] },
+  },
+  { // ROCK: driving eighths, everything on top of the beat except a fat, slightly late snare
+    name: 'ROCK', hum: 0.26, jitter: 2.8, ghost: 0.08, band: true,
+    hat: bar([1, 0.6, 0.9, 0.62]), kick: [1, 0.95, 0.98, 0.95], back: [1, 0.98], bass: [1, 0.9, 0.95, 0.9],
+    at: { snare: 3, ch: [0, 1, 0, 2], ride: [0, 1, 0, 2], acid: [0, 1, 0, 2] },
+  },
+  { // FOLK: a player, not a drummer; loose and breathing, the strum pushes, the brush lags
+    name: 'FOLK', hum: 0.7, jitter: 4, ghost: 0.15, band: true,
+    hat: bar([0.9, 0.4, 0.7, 0.5], [1, 0.95, 0.98, 0.95]), kick: [1, 0.88, 0.94, 0.88], back: [1, 0.94], bass: [1, 0.78, 0.9, 0.82],
+    at: { snare: 6, ch: [0, 4, 2, 6], stab: [-2, 3, 0, 4] },
+  },
+  { // COUNTRY: train beat; boom-chick with the bass right on the beat and the snare on 2 and 4 snapping
+    name: 'COUNTRY', hum: 0.4, jitter: 2.6, ghost: 0.2, band: true, walk: true,
+    hat: bar([1, 0.45, 0.85, 0.5]), kick: [1, 0.9, 0.96, 0.9], back: [1, 0.97], bass: [1, 0.85, 0.95, 0.85],
+    at: { snare: 2, ch: [0, 3, 1, 4], stab: [0, 3, 1, 4] },
+  },
 ];
 export const POCKET_NAMES = ['GRID', ...POCKETS.slice(1).map((p) => p.name)];
 const P = Object.fromEntries(POCKET_NAMES.map((n, i) => [n, i]));
@@ -54,6 +80,7 @@ export const STYLE_POCKET = {
   breaks: P.BREAKS, dnb: P.BREAKS,
   amapiano: P.AFRO, afrobeats: P.AFRO, reggaeton: P.AFRO, bailefunk: P.AFRO,
   trap: P.TRAP, drill: P.TRAP, hyperpop: P.TRAP,
+  pop: P.POP, rnb: P['R&B'], rock: P.ROCK, folk: P.FOLK, country: P.COUNTRY,
 };
 
 export const pocketOf = (master) => POCKETS[Math.round(master?.pocket || 0)] || null;

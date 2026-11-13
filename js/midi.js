@@ -50,6 +50,8 @@ class Recorder {
   add(track, t, m, dur, v) { (this.notes[track] ||= []).push({ t, m, dur: Math.max(0.01, dur), v }); }
   chord() { const p = this.state.params.stab, h = this.harm; return CHORDS[h ? h.c : Math.round(p.chord)].iv; }
   dust() {} sweep() {} impact() {} breakSweep() {} breakOpen() {}
+  crash(t, v) { this.add('oh', t, 49, this.stepDur * 4, v); }
+  tom(t, v, high) { this.add('snare', t, high ? 48 : 45, this.stepDur, v); }
   acidRelease(t) { if (this.bass) { this.bass.dur = Math.max(0.01, Math.min(this.bass.dur, t - this.bass.t)); this.bass = null; } }
   trigger(id, t, v) {
     if (id === 'stab') {
