@@ -3,39 +3,76 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
-import { createRooms, memoryRoomStore, corsHeaders } from '../api/_lib/rooms.js';
+import { createRooms, memoryRoomsKv, corsHeaders, normalizeSet, routeRooms } from '../api/_lib/rooms.js';
+import { startUpstash } from './fake-upstash.mjs';
 
 const secret = (id) => createHash('sha256').update(id).digest('hex');
 
-// Rooms survive a restart when a store is configured.
-const store = memoryRoomStore();
-let rooms = createRooms({ store, saveDelay: 1 });
+// Stateless instances sharing one KV see the same room (a new instance = a cold Vercel function or a restart).
+const kv = memoryRoomsKv();
+let rooms = createRooms({ kv });
 let r = await rooms.post('restart-room', { type: 'presence', clientId: 'host', clientSecret: secret('host'), user: { name: 'Host' } });
 const token = r.json.sessionToken;
 await rooms.post('restart-room', { id: 'c1', type: 'chat', clientId: 'host', token, clientSecret: secret('host'), user: { name: 'Host' }, payload: { text: 'still here' } });
-await rooms.post('restart-room', { id: 's1', type: 'set', clientId: 'host', token, clientSecret: secret('host'), user: { name: 'Host' }, payload: { title: 'Kept', state: { patterns: [], bpm: 130 } } });
-await rooms.flush();
-assert(store.data.has('restart-room'));
-assert(!JSON.parse(store.data.get('restart-room')).secrets[0][1].includes(secret('host')), 'only secret hashes are stored');
+await rooms.post('restart-room', { id: 's1', type: 'set', clientId: 'host', token, clientSecret: secret('host'), user: { name: 'Host' }, payload: { title: 'Kept', public: false, state: { patterns: [], bpm: 130 } } });
+assert(!JSON.stringify([...kv.dump()]).includes(secret('host')), 'only secret hashes are stored');
 
-rooms = createRooms({ store });
+rooms = createRooms({ kv });
 r = await rooms.get('restart-room');
 assert.equal(r.json.currentSet.title, 'Kept');
+assert.equal(r.json.currentSet.public, false);
 assert.equal(r.json.events.find((e) => e.type === 'chat').payload.text, 'still here');
+assert.equal(r.json.events.find((e) => e.type === 'set').payload.state, undefined, 'set events stay small; the body lives in currentSet');
 r = await rooms.post('restart-room', { type: 'presence', clientId: 'host', token, clientSecret: secret('host'), user: { name: 'Host' } });
-assert.equal(r.status, 200, 'returning host keeps its session after restart');
+assert.equal(r.status, 200, 'returning host keeps its session on another instance');
 r = await rooms.post('restart-room', { type: 'presence', clientId: 'host', token: 'forged', clientSecret: secret('guest'), user: { name: 'Impostor' } });
-assert.equal(r.status, 401, 'restored secrets still block impersonation');
+assert.equal(r.status, 401, 'stored secrets still block impersonation');
+r = await rooms.post('restart-room', { type: 'presence', clientId: 'host', token: 'forged', clientSecret: secret('host'), user: { name: 'Host' } });
+assert.equal(r.status, 401, 'a right secret with a wrong session token is refused');
 assert.equal((await rooms.post('restart-room', null)).status, 400);
+assert.equal(normalizeSet({ state: { patterns: [] } }).public, true, 'sets are public by default');
 
-// Presence-only heartbeats from known members do not write to the store.
-const writes = { n: 0 };
-rooms = createRooms({ store: { kind: 'count', async load() { return null; }, async save() { writes.n++; } }, saveDelay: 1 });
+// Cost: a known member's heartbeat is one KV read (no write) until its `seen` is BEAT_WRITE_MS old; idle polls are one read.
+let clock = 1e12;
+const quietKv = memoryRoomsKv();
+rooms = createRooms({ kv: quietKv, now: () => clock });
 r = await rooms.post('quiet', { type: 'presence', clientId: 'a', clientSecret: secret('a'), user: {} });
-await rooms.flush();
-for (let i = 0; i < 5; i++) await rooms.post('quiet', { type: 'presence', clientId: 'a', token: r.json.sessionToken, clientSecret: secret('a'), user: {} });
-await rooms.flush();
-assert.equal(writes.n, 1);
+const beat = () => rooms.post('quiet', { type: 'presence', clientId: 'a', token: r.json.sessionToken, clientSecret: secret('a'), user: {}, knownJam: '0' });
+await beat(); clock += 4000;
+let before = quietKv.stats.count;
+await beat();
+assert.equal(quietKv.stats.count - before, 1, 'quiet heartbeat = 1 command');
+clock += 4000; before = quietKv.stats.count;
+await beat();
+assert.equal(quietKv.stats.count - before, 2, 'refreshing seen = read + one HSET');
+before = quietKv.stats.count;
+await rooms.get('quiet', 0, { knownJam: '0' });
+assert.equal(quietKv.stats.count - before, 1, 'idle poll = 1 command');
+
+// Live directory: only public rooms with a set and someone present, listeners desc then newest set, max 24.
+clock = 2e12;
+const dirKv = memoryRoomsKv();
+const at = (t) => createRooms({ kv: dirKv, now: () => t });
+const join = async (svc, room, id, extra = {}) => (await svc.post(room, { type: 'presence', clientId: id, clientSecret: secret(id), user: { name: id, avatar: { shape: 'orb', color: 'cyan', gear: 'cap' } }, ...extra })).json.sessionToken;
+const publish = async (svc, room, id, tok, payload) => assert.equal((await svc.post(room, { type: 'set', clientId: id, clientSecret: secret(id), token: tok, payload: { state: { patterns: [], bpm: 124 }, ...payload } })).status, 200);
+let svc = at(clock);
+await publish(svc, 'small', 'dj1', await join(svc, 'small', 'dj1'), { title: 'Small', artist: 'One' });
+await new Promise((ok) => setTimeout(ok, 5));
+svc = at(clock + 10);
+const t2 = await join(svc, 'big', 'dj2');
+await join(svc, 'big', 'fan');
+await publish(svc, 'big', 'dj2', t2, { title: 'Big', artist: 'Two', style: 'techno', key: 'Am' });
+await publish(svc, 'hidden', 'dj3', await join(svc, 'hidden', 'dj3'), { title: 'Secret', public: false });
+await join(svc, 'empty', 'nobody');
+const d = await at(clock + 20).directory();
+assert.equal(d.enabled, true);
+assert.deepEqual(d.rooms.map((x) => x.id), ['big', 'small']);
+assert.deepEqual(Object.keys(d.rooms[0]).sort(), ['artist', 'bpm', 'dj', 'id', 'key', 'listeners', 'replay', 'startsAt', 'style', 'title']);
+assert.deepEqual(d.rooms[0].dj, { name: 'dj2', shape: 'orb', color: 'cyan', gear: 'cap' });
+assert.equal(d.rooms[0].listeners, 2);
+assert.equal(d.rooms[0].replay, false);
+assert.deepEqual((await at(clock + 20 + 16000).directory()).rooms, [], 'rooms drop out once nobody is present');
+assert.deepEqual(await routeRooms(null, { method: 'GET', path: '/api/rooms' }), { status: 200, json: { enabled: false, rooms: [] } });
 
 assert.equal(corsHeaders('https://evil.example', 'https://www.untergrund.sh,https://untergrund.sh')['Access-Control-Allow-Origin'], 'https://www.untergrund.sh');
 assert.equal(corsHeaders('https://untergrund.sh', 'https://www.untergrund.sh, https://untergrund.sh')['Access-Control-Allow-Origin'], 'https://untergrund.sh');
@@ -60,33 +97,24 @@ const start = (extra = {}) => {
   return { child, ready, stopped: new Promise((resolve) => child.on('exit', resolve)) };
 };
 
-// Fake Upstash REST endpoint: a SIGTERM'd server flushes rooms and the next one restores them.
-const kv = new Map();
-const fakeRedis = http.createServer((req, res) => {
-  const chunks = [];
-  req.on('data', (c) => chunks.push(c));
-  req.on('end', () => {
-    const [cmd, key, value] = JSON.parse(Buffer.concat(chunks).toString());
-    if (req.headers.authorization !== 'Bearer test-token') { res.writeHead(401); return res.end('{"error":"unauthorized"}'); }
-    const result = cmd === 'SET' ? (kv.set(key, value), 'OK') : cmd === 'GET' ? (kv.get(key) ?? null) : null;
-    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ result }));
-  });
-});
-await new Promise((resolve) => fakeRedis.listen(0, resolve));
-const kvEnv = { KV_REST_API_URL: `http://127.0.0.1:${fakeRedis.address().port}`, KV_REST_API_TOKEN: 'test-token' };
+// Fake Upstash REST endpoint: rooms written by one rooms-server are there for the next one.
+const upstashKv = memoryRoomsKv();
+const fakeRedis = await startUpstash(upstashKv);
+const kvEnv = fakeRedis.env;
 let srv = start(kvEnv);
 await srv.ready;
 const roomUrl = `http://localhost:${port}/api/rooms/kv-room/events`;
 await fetch(roomUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: 'k1', type: 'chat', clientId: 'kv', clientSecret: secret('kv'), user: { name: 'KV' }, payload: { text: 'survives deploys' } }) });
 assert.equal((await (await fetch(`http://localhost:${port}/healthz`)).json()).persistence, 'redis');
 srv.child.kill('SIGTERM'); await srv.stopped;
-assert(kv.has('untergrund:room:kv-room'));
+assert(upstashKv.dump().has('untergrund:room:kv-room'));
 srv = start(kvEnv);
 await srv.ready;
 const restored = await (await fetch(roomUrl.replace('/events', ''))).json();
 assert.equal(restored.events.at(-1).payload.text, 'survives deploys');
 srv.child.kill('SIGTERM'); await srv.stopped;
 fakeRedis.close();
+
 
 const { child: server, ready } = start();
 try {
