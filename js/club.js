@@ -133,7 +133,14 @@ class RoomBus {
     this.channel = 'BroadcastChannel' in window ? new BroadcastChannel(`untergrund:${this.id}`) : null;
     if (this.channel) this.channel.onmessage = (e) => this.handleChannel(e.data);
     this.timer = setInterval(() => this.heartbeat(), 4000);
-    this.poller = setInterval(() => this.poll(), 700);
+    // Polls back off: fast right after activity or while holding a jam part, slower when idle, none while hidden
+    // (the 4 s heartbeat still returns the room). Each heartbeat or POST reply also counts as a poll.
+    this.activeAt = Date.now();
+    this.lastSync = 0;
+    this.failures = 0;
+    this.poller = 0;
+    this.onVisible = () => { if (!document.hidden) { this.activeAt = Date.now(); this.poll(); } };
+    document.addEventListener('visibilitychange', this.onVisible);
     this.ready = this.heartbeat();
     this.channel?.postMessage({ kind: 'snapshot-request', requester: this.clientId });
     this.poll();
@@ -211,6 +218,7 @@ class RoomBus {
       at: Date.now(),
     };
     // A jam move only counts once the room service accepts it, so it never goes over the local channel.
+    this.activeAt = Date.now();
     if (type !== 'jam') {
       this.receive({ ...event, local: true });
       this.channel?.postMessage(event);
@@ -220,7 +228,7 @@ class RoomBus {
       const response = await fetch(this.endpoint('/events'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...event, clientId: this.clientId, clientSecret: this.clientSecret, token: this.token, since: this.seq }),
+        body: JSON.stringify({ ...event, clientId: this.clientId, clientSecret: this.clientSecret, token: this.token, since: this.seq, ...this.known() }),
       });
       const json = await response.json().catch(() => null);
       if (response.ok || json?.jam) this.applySnapshot(json);
@@ -302,21 +310,44 @@ class RoomBus {
       const response = await fetch(this.endpoint('/events'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'presence', clientId: this.clientId, clientSecret: this.clientSecret, token: this.token, user: { ...this.user, joinedAt: this.joinedAt }, since: this.seq }),
+        body: JSON.stringify({ type: 'presence', clientId: this.clientId, clientSecret: this.clientSecret, token: this.token, user: { ...this.user, joinedAt: this.joinedAt }, since: this.seq, ...this.known() }),
       });
       if (response.ok) this.applySnapshot(await response.json());
     } catch {}
   }
 
+  // What this client already holds, so the room only sends the set/jam bodies when they changed.
+  known() {
+    return { knownSet: this.currentSet?.version ?? '', knownJam: this.jam?.rev ?? '' };
+  }
+
+  pollDelay() {
+    if (document.hidden) return 15000;
+    if (this.failures) return Math.min(15000, 1000 * 2 ** this.failures);
+    return Date.now() - this.activeAt < 12000 || this.myPart() ? 700 : 2000;
+  }
+
   async poll() {
-    try {
-      const response = await fetch(`${this.endpoint()}?since=${this.seq}`);
-      if (response.ok) this.applySnapshot(await response.json());
-    } catch {}
+    clearTimeout(this.poller);
+    if (this.closed) return;
+    const due = this.pollDelay() - (Date.now() - this.lastSync);
+    if (!document.hidden && due <= 50) {
+      try {
+        const { knownSet, knownJam } = this.known();
+        const response = await fetch(`${this.endpoint()}?since=${this.seq}&set=${knownSet}&jam=${knownJam}`);
+        if (response.ok) this.applySnapshot(await response.json());
+        else this.failures++;
+      } catch { this.failures++; }
+    }
+    if (this.closed) return;
+    clearTimeout(this.poller);
+    this.poller = setTimeout(() => this.poll(), Math.max(50, this.pollDelay() - (Date.now() - this.lastSync)));
   }
 
   applySnapshot(snapshot) {
     this.serverConnected = true;
+    this.lastSync = Date.now();
+    this.failures = 0;
     if (snapshot.sessionToken) {
       this.token = snapshot.sessionToken;
       sessionStorage.setItem(this.tokenKey, this.token);
@@ -397,6 +428,7 @@ class RoomBus {
     if (!event?.id || this.seen.has(event.id)) return;
     this.seen.add(event.id);
     if (this.seen.size > 400) this.seen.delete(this.seen.values().next().value);
+    if (event.type !== 'presence') this.activeAt = Date.now();
     if (event.user?.id) {
       const existing = this.members.get(event.user.id);
       this.members.set(event.user.id, normalizeMember({
@@ -425,9 +457,11 @@ class RoomBus {
   }
 
   close() {
+    this.closed = true;
     clearInterval(this.jamTimer);
     clearInterval(this.timer);
-    clearInterval(this.poller);
+    clearTimeout(this.poller);
+    document.removeEventListener('visibilitychange', this.onVisible);
     this.channel?.close();
   }
 }
