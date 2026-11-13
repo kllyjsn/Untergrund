@@ -61,10 +61,11 @@ try {
     const { defaultState, generate, applyOverrides, arrangement, songChain } = await import('/js/state.js');
     const { renderStems, renderPreBus, stemList } = await import('/js/stems.js');
     const out = [];
-    for (const [style, seed, bars] of [['neosoul', 42, 3], ['deephouse', 7, 2], ['nocturne', 9, 2]]) {
+    for (const [style, seed, bars] of [['neosoul', 42, 4], ['deephouse', 7, 4], ['nocturne', 9, 2]]) {
       const s = defaultState(), g = generate(style, seed);
       applyOverrides(s, g); s.key = g.key; s.patterns = arrangement(g.pattern, seed); s.chainOn = true; s.chain = songChain(style, seed);
-      // Start inside the song (bars 8+) so the full band and the hook are playing.
+      // Start inside the song (bars 8+) so the full band and the hook are playing. Four bars of the sung genres:
+      // the chords' licks answer the singer in the breath at the end of the 4-bar phrase.
       if (!g.pattern.score) s.chain = s.chain.slice(8);
       const ref = await renderPreBus(s, bars);
       let ticks = 0;

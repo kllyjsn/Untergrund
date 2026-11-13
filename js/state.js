@@ -5,6 +5,7 @@ import { MODELS } from './composer-models.js';
 import { POCKETS, STYLE_POCKET } from './groove.js';
 import { REPERTOIRE, PIECE } from './repertoire.js';
 import { cleanLabels } from './timeline.js';
+import { withMelody, MELODY_BARS } from './melody.js';
 
 export const STYLES = {
   hypnotic: { name: 'HYPNOTIC', bpm: [130, 134], family: 'TECHNO', tag: 'deep · rolling' },
@@ -665,6 +666,9 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     const v = vampFor(style, Math.round(params.stab.chord ?? 0), rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)));
     if (v?.pedal) P.pedal = v.pedal; else if (v) P.prog = v;
   }
+  // Groove and pop genres sing: the hook becomes a vocal-length melody over the changes (js/melody.js).
+  const sung = withMelody(P.hook, rng(Math.imul((seed | 0) ^ 0x68e31da4, 0x3c6ef372) ^ 0x1b873593), style, musicalScale, { prog: P.prog, alt: P.alt, chord: params.stab.chord | 0 });
+  if (sung) { P.hook = sung; P.hm = 2; }
   if (LIFT.has(style) && P.prog) P.lift = 2;
   return { pattern: P, params, master, bpm, key, swing: swing ?? 0.06 };
 }
@@ -911,6 +915,11 @@ export function sanitize(s) {
         },
         ...(p.hook.h ? { h: 1 } : {}),
       };
+      const m = p.hook.m;
+      if (m && Array.isArray(m.n) && m.n.length) {
+        const part = (a) => (Array.isArray(a) ? a : []).filter(Array.isArray).slice(0, 96).map((x) => [Math.round(cl(x[0], -8, MELODY_BARS * 16 - 1)), Math.round(cl(x[1], 1, 16)), Math.round(cl(x[2], -24, 36)), cl(x[3], 0, 1), Math.round(cl(x[4], 0, 7)), Math.round(cl(x[5], 0, 95))]);
+        e.hook.m = { bars: MELODY_BARS, n: part(m.n), v: part(m.v), b: part(m.b) };
+      }
       e.hm = Math.round(cl(p.hm ?? 2, 0, 2));
     }
     if (p.score?.piece && PIECE[p.score.piece]) e.score = { piece: p.score.piece };
