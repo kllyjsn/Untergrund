@@ -17,7 +17,7 @@ import { patternAt } from './scope.js';
 const DUCKED = new Set(['acid', 'stab', 'vox']);
 // Chords sit under a sung line the way a mix rides the keys under a vocal: a little in the chorus, more in the verse
 // and most in the breakdown, so the drop still lands over it.
-const STAB_UNDER_VOICE = { n: 0.84, v: 0.78, b: 0.55 };
+const STAB_UNDER_VOICE = { n: 0.84, v: 0.78, b: 0.45 };
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
 const LIVE_REF = {
   kick: { tune: 52, decay: 0.5, drive: 0.2, click: 0.15, punch: 0.55 },
@@ -1976,7 +1976,7 @@ export class Sequencer {
     for (const o of sung.notes) {
       if (o.at !== i16 || (this.dropNext && i16 >= 8 && !o.pickup)) continue;
       const [start, dur, semi, vel, ph] = o.x, lift = this.keyLift || 0;
-      const sec = o.q === 'v' ? 0.82 : o.q === 'b' ? 0.7 : 1, strong = strongNote(start, dur);
+      const sec = o.q === 'v' ? 0.82 : o.q === 'b' ? 0.6 : 1, strong = strongNote(start, dur);
       const ht = t + (hash(start, 97) - 0.5) * 0.008 * x.feel + (s.master.humanize || 0) * 0.008;
       const b = 0.58 + 0.42 * ((((bar % 8) + 8) % 8) / 7), v = Math.min(1, vel * sec);
       e.hook(ht, v, semi + lift, dur * sd, hk.v, hk.o, strong, b, false, x);

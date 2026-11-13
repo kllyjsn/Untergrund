@@ -38,7 +38,7 @@ hook = {
 - `semi`: semitones above the key root at octave 4 (MIDI `60 + key + 12 * o + semi`), as in `hook.s`.
 - `vel`: 0..1, shaped along the phrase's contour.
 - `c`: set for styles whose chords comp under the voice instead of leaving gaps at off-beat sung onsets.
-  Under any sung line the stabs sit lower (chorus 0.84, verse 0.78, bridge 0.55, `STAB_UNDER_VOICE` in js/engine.js).
+  Under any sung line the stabs sit lower (chorus 0.84, verse 0.78, bridge 0.45, `STAB_UNDER_VOICE` in js/engine.js).
 - `phrase`: line number inside the part; `slot`: syllable number inside the phrase, one per sung note, so
   lyrics map one syllable per slot.
 
