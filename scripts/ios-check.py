@@ -31,6 +31,8 @@ for path in required:
 project = (IOS / "project.yml").read_text()
 for value in ["sh.untergrund.app", 'iOS: "17.0"', "UntergrundTests", "Resources/Info.plist"]:
     assert value in project, f"project.yml missing {value}"
+assert "\n    resources:" not in project, "XcodeGen ignores target resources:; keep Assets.xcassets under sources"
+assert "- Resources/Info.plist" in project, "only Info.plist should be excluded from app sources"
 assert "\n    info:" not in project, "XcodeGen info: would overwrite Info.plist; use INFOPLIST_FILE"
 
 with (APP / "Resources" / "Info.plist").open("rb") as file:
@@ -58,5 +60,6 @@ media = (ROOT / "js" / "media-session.js").read_text()
 for value in ["untergrund:native-command", "type: 'nowPlaying'", "type: 'playback'", "type: 'position'"]:
     assert value in media, f"native bridge missing {value}"
 assert "type: 'audioMode'" in (ROOT / "js" / "sampler.js").read_text()
+assert "'play-and-record'" in (ROOT / "js" / "sampler.js").read_text(), "recordMic must switch navigator.audioSession before getUserMedia"
 
 print("ios project ok")

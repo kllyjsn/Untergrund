@@ -850,6 +850,8 @@ const GROOVE = new Set(['neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric', 'a
 // keep their repetition-led forms, where a section change is a mute or a filter, not new material).
 export const SONG_STYLES = new Set([...GROOVE, 'hyperpop']);
 const SONG = SONG_STYLES;
+// Which section names the timeline shows for a style (timeline.js ROLES).
+export const songKind = (style) => (SONG_STYLES.has(style) ? 'groove' : 'club');
 // Club forms in 8-bar phrases (16 for techno), about 3 minutes. Each phrase ends on a fill or half-time bar (D/H)
 // as its turnaround, and a generated song (state.ending) closes on one final downbeat instead of looping straight back.
 const SONG_FORMS = {
