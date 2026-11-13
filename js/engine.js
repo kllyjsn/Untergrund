@@ -11,6 +11,7 @@ import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROO
 import { makeupGain } from './loudness.js';
 import { harmRoot, chordIv, stabNotes, hookSnap, voiceLead } from './harmony.js';
 import { develop, motifPlan, stepDeg } from './motif.js';
+import { patternAt } from './scope.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
@@ -1781,18 +1782,18 @@ export class Sequencer {
     const s = this.s, e = this.e;
     this.advanceBar(abs, t);
     if (this.finished && this.songBars) return this.cur;
-    const pat = s.patterns[this.cur];
+    const n = this.songBars || 0, pos = n ? (this.chainPos - 1) % n : -1, lf = this.liftFrom;
+    const pat = patternAt(s.patterns[this.cur], pos);
     const bar = Math.floor(abs / 16), vary = s.master.vary || 0;
     e.harm = pat.prog?.length ? pat.prog[bar % pat.prog.length] : null;
     e.step = abs;
     e.wide = pat.sec === 'chorus';
     const sd = e.stepDur;
     const tt = t + (abs % 2 ? s.swing * sd * 0.5 : 0);
-    const n = this.songBars || 0, pos = n ? (this.chainPos - 1) % n : -1, lf = this.liftFrom;
     const kl = this.keyLift = s.ending && pat.lift && lf > 0 && (pos >= lf || (pos === lf - 1 && abs % 16 >= 12)) ? pat.lift : 0;
     if (s.ending && n >= 16 && pos === n - 1 && !pat.score) return this.ending(pat, abs % 16, tt, sd, kl);
     // Turnaround: the last beat of a section anticipates the next section's first chord.
-    const nx = n && pos + 1 < n && this.chainArr[pos + 1] !== this.cur ? s.patterns[this.chainArr[pos + 1]] : null;
+    const nx = n && pos + 1 < n && this.chainArr[pos + 1] !== this.cur ? patternAt(s.patterns[this.chainArr[pos + 1]], pos + 1) : null;
     if (nx && abs % 16 >= 12 && pat.prog?.length && nx.prog?.length) e.harm = nx.prog[(bar + 1) % nx.prog.length];
     if (kl && e.harm) e.harm = { r: e.harm.r + kl, c: e.harm.c };
     const pk = pocketOf(s.master);

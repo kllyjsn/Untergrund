@@ -5,12 +5,15 @@ import {
   LETTERS, COLORS, toSections, toChain, totalBars, starts, locate, sectionNames, cleanLabel,
   move, resize, duplicate, remove, setPattern, append, dropIndex, loopSkip,
 } from './timeline.js';
+import { ranges, remapTakes, barsLabel } from './scope.js';
+
+const HIT_MS = 2400;
 
 // o: { state, kind, playing, current, before, after, select, jump, setSong, track }
 export function songTimeline(o) {
   let cache = { chain: null, sections: [] };
   let sel = 0, loopAt = null, drag = null, nowIdx = -1;
-  let el = null, lane = null, ph = null;
+  let el = null, lane = null, ph = null, hit = null;
 
   const sections = () => {
     const chain = o.state().chain;
@@ -37,6 +40,8 @@ export function songTimeline(o) {
     const chain = toChain(next);
     if (chain === st.chain) { cache = { chain, sections: next }; render(); return; }
     o.before();
+    // Per-bar edits ("bass up an octave in the second drop") move with their section.
+    remapTakes(st.patterns, st.chain, chain);
     st.chain = chain;
     cache = { chain, sections: next };
     o.after();
@@ -115,7 +120,23 @@ export function songTimeline(o) {
       if (i === lift) { b.classList.add('lift'); b.style.transform = `translateX(${shift}px)`; }
       return b;
     });
+    hitEls(list, blocks);
     lane.replaceChildren(...blocks, ph);
+  }
+
+  // Bars a Describe edit just changed glow for a moment ("no hats in bars 9-16"), drawn inside each
+  // block they touch so the glow follows the blocks as laid out.
+  function hitEls(list, blocks) {
+    if (!hit || Date.now() > hit.until || hit.chain !== o.state().chain) return;
+    const delay = `${Math.max(0, hit.until - Date.now()) - HIT_MS}ms`, at = starts(list);
+    for (const [a, b] of ranges(hit.bars)) {
+      list.forEach((s, i) => {
+        const x = Math.max(a, at[i]), y = Math.min(b, at[i] + s.bars - 1);
+        if (x > y) return;
+        blocks[i].append(h('i', { class: 'tl-hit', 'aria-hidden': 'true',
+          style: `left:${((x - at[i]) / s.bars) * 100}%;width:${((y - x + 1) / s.bars) * 100}%;animation-delay:${delay}` }));
+      });
+    }
   }
 
   function onDown(e) {
@@ -202,7 +223,8 @@ export function songTimeline(o) {
     el.replaceChildren(
       h('div', { class: 'tl-head' },
         h('b', {}, 'SONG'),
-        h('span', { class: 'tl-meta' }, `${n} BARS · ${fmt((n * 4 * 60) / (st.bpm || 120))}`),
+        h('span', { class: 'tl-meta' }, `${n} BARS · ${fmt((n * 4 * 60) / (st.bpm || 120))}`,
+          hit && Date.now() < hit.until && hit.chain === st.chain ? h('em', { class: 'tl-hit-note' }, ` · CHANGED ${barsLabel(hit.bars).toUpperCase()}`) : null),
         h('div', { class: 'tl-play seg', role: 'group', 'aria-label': 'Play' }, seg(st.chainOn, 'WHOLE SONG', true), seg(!st.chainOn, `LOOP ${LETTERS[o.current()] || 'A'}`, false))),
       h('div', { class: 'tl-row' }, lane,
         h('button', { class: 'tl-add', title: `Add 4 bars of pattern ${LETTERS[o.current()] || 'A'} at the end`, 'aria-label': 'Add a section', onclick: () => edit('add', 0, o.current() || 0) }, '+')),
@@ -229,6 +251,13 @@ export function songTimeline(o) {
         lane.querySelector(`.tl-block[data-i="${at}"]`)?.classList.add('now');
         nowIdx = at;
       }
+    },
+    flash(bars) {
+      const st = o.state();
+      if (!bars?.length || !st.chainOn) return;
+      hit = { bars, chain: st.chain, until: Date.now() + HIT_MS };
+      render();
+      setTimeout(() => { if (hit && Date.now() >= hit.until) { hit = null; render(); } }, HIT_MS + 50);
     },
     skip(chainPos) {
       if (loopAt == null || !o.state().chainOn) return 0;

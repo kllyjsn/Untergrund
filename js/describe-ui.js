@@ -2,6 +2,10 @@
 import { h } from './ui.js';
 import { parse, applyEdits, genreOf, suggest, chipsFor, mergeEdits, needsMix, mixAdjust, heard, validateEdits } from './describe.js';
 import { privacyOptOut } from './analytics.js';
+import { barsLabel } from './scope.js';
+import { isSongPrompt, localSpec, validateSpec } from './song-spec.js';
+import { KEYS } from './params.js';
+import { STYLES } from './state.js';
 
 let last = null, hint = null, draft = '', recent = null, net = null, ticket = 0;
 // Phrases the rules can't read go to /api/describe (an LLM limited to the app's own edits); [] if it's off.
@@ -13,6 +17,19 @@ async function askAI(text, style) {
     return res.ok ? validateEdits((await res.json()).edits) : [];
   } catch { return []; } finally { clearTimeout(timer); }
 }
+// A whole song from one sentence: the server's model (or its rules, with no key) writes a validated spec;
+// offline or on any error the same rules run here, so a song always arrives.
+async function askSong(text, style) {
+  const local = () => localSpec(text, { style });
+  if (navigator.onLine === false) return local();
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 10000);
+  try {
+    const res = await fetch('/api/describe', { method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, style, mode: 'song' }) });
+    const spec = res.ok ? (await res.json()).spec : null;
+    return spec ? validateSpec(spec, { style: local().style, prompt: text }) : local();
+  } catch { return local(); } finally { clearTimeout(timer); }
+}
 const Speech = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
 const MIC = '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
 const SPEECH_ERR = { 'not-allowed': 'Microphone is blocked. Allow the mic for this site in your browser settings, then try again.', 'service-not-allowed': 'Speech input is turned off in this browser.',
@@ -21,13 +38,16 @@ const SPEECH_ERR = { 'not-allowed': 'Microphone is blocked. Allow the mic for th
 // Renders two bars of the drop and measures each part; null if it fails or takes too long.
 const listen = (state) => Promise.race([import('./mix-check.js').then((m) => m.measureMix(state)), new Promise((r) => setTimeout(() => r(null), 8000))]).catch(() => null);
 
-// ctx: state(), style(), styleName(id), depth(), pushUndo(label), undo(), switchGenre(id, steer, label), commit(nextState), track(props)
+const songChip = (style) => (/CLASSICAL|JAZZ/.test(STYLE_FAMILY(style)) ? 'A late-night rainy track' : 'A sunrise drive song');
+const STYLE_FAMILY = (id) => STYLES[id]?.family || '';
+// ctx: state(), style(), styleName(id), depth(), pushUndo(label), undo(), switchGenre(id, steer, label), song(spec, label, done(title, key)), commit(nextState), track(props),
+// highlight(bars) (optional: shows which bars of the song a scoped edit changed)
 export function describeBar(ctx) {
-  const input = h('input', { class: 'describe-input', type: 'text', placeholder: 'Describe it: “darker and slower”', 'aria-label': 'Describe the change you want',
+  const input = h('input', { class: 'describe-input', type: 'text', placeholder: 'Describe a song', 'aria-label': 'Describe a song to write, or a change to this one',
     autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'go', maxlength: '140', oninput: () => { draft = input.value; } });
   input.value = draft;
   const receipt = h('div', { class: 'describe-receipt', 'aria-live': 'polite' });
-  const chips = h('div', { class: 'describe-chips' }, chipsFor(ctx.style()).map((c) => h('button', { type: 'button', class: 'describe-chip', onclick: () => run(c) }, c)));
+  const chips = h('div', { class: 'describe-chips' }, [songChip(ctx.style()), ...chipsFor(ctx.style())].map((c) => h('button', { type: 'button', class: 'describe-chip', onclick: () => run(c) }, c)));
   const box = h('form', { class: 'describe', onsubmit: (e) => { e.preventDefault(); run(input.value); } },
     h('div', { class: 'describe-row' }, input, Speech ? mic() : null, h('button', { class: 'describe-go', type: 'submit' }, 'DO IT')), receipt, chips);
   paint();
@@ -65,6 +85,14 @@ export function describeBar(ctx) {
     if (live) {
       receipt.append(h('div', { class: 'describe-line' }, h('span', { class: 'describe-did' }, h('b', {}, 'Did: '), last.did.join(', '), last.miss ? h('em', {}, ` · skipped “${last.miss}”`) : null),
         h('button', { type: 'button', class: 'describe-undo', onclick: () => { last = hint = recent = net = null; ctx.undo(); } }, 'UNDO')));
+      // Where it landed: one cell per bar of the song, the changed ones lit.
+      if (last.bars && last.chain === ctx.state().chain) {
+        const on = new Set(last.bars), c = last.chain;
+        receipt.append(h('div', { class: 'describe-line describe-at' },
+          h('div', { class: 'describe-where', role: 'img', 'aria-label': `Changed ${barsLabel(last.bars)} of ${c.length}` },
+            [...c].map((L, i) => h('i', { class: (on.has(i) ? 'on' : '') + (i && c[i - 1] !== L ? ' edge' : '') }))),
+          h('span', { class: 'describe-note', 'aria-hidden': 'true' }, `${barsLabel(last.bars)} of ${c.length}`)));
+      }
       const nudges = recent?.some((e) => e.amt != null) ? ['more', 'too much', 'other way'] : recent?.some((e) => e.id === 'mute') ? ['other way'] : [];
       if (nudges.length) receipt.append(h('div', { class: 'describe-line' }, ...nudges.map((s) => h('button', { type: 'button', class: 'describe-chip sm', onclick: () => run(s) }, s))));
     }
@@ -75,7 +103,7 @@ export function describeBar(ctx) {
   }
 
   function miss(text, why) {
-    const shown = new Set(chipsFor(ctx.style()).map((c) => c.toLowerCase()));
+    const shown = new Set([songChip(ctx.style()), ...chipsFor(ctx.style())].map((c) => c.toLowerCase()));
     hint = { note: why || `Not sure what “${text.slice(0, 40)}” means yet. Try:`, suggestions: suggest(text, 16).filter((x) => !shown.has(x.toLowerCase())).slice(0, 5) };
     paint();
   }
@@ -84,8 +112,9 @@ export function describeBar(ctx) {
     const text = String(raw || '').trim();
     if (!text) return input.focus();
     const style = ctx.style();
-    const parsed = parse(text, { style, last: recent, net });
     const mine = ++ticket;
+    if (ctx.song && isSongPrompt(text, { style })) return song(text, style, mine);
+    const parsed = parse(text, { style, last: recent, net });
     if (!parsed.edits.length) {
       if (navigator.onLine === false || /^(?:more|again|less|too much|other way|undo\b)/.test(text.toLowerCase())) return miss(text);
       hint = { note: 'Thinking…', suggestions: [] };
@@ -109,6 +138,21 @@ export function describeBar(ctx) {
       });
     }
     apply(text, style, parsed, []);
+  }
+
+  function song(text, style, mine) {
+    hint = { note: 'Writing the song…', suggestions: [] };
+    paint();
+    return askSong(text, style).then((spec) => {
+      if (mine !== ticket) return;
+      hint = null; draft = ''; recent = null; net = null;
+      const label = `“${text.length > 32 ? text.slice(0, 31) + '…' : text}”`;
+      const bars = spec.sections.reduce((a, x) => a + x.bars, 0);
+      ctx.song(spec, label, (title, key) => {
+        last = { did: [`new ${ctx.styleName(spec.style)} song “${title}”`, `${spec.sections.length} sections, ${bars} bars, ${spec.bpm} BPM in ${KEYS[key]} ${spec.scale}`], miss: '', depth: ctx.depth() };
+      });
+      ctx.track({ kind: 'song', genre: spec.style });
+    });
   }
 
   function apply(text, style, { edits, unknown, next, follow }, notes) {
@@ -137,8 +181,9 @@ export function describeBar(ctx) {
       if (!r.did.length) return miss(text, r.skipped.length ? `Nothing to change: ${r.skipped.map((s) => s.replace(' (already there)', ' already')).join(', ')}. Try:` : 'It already sounds like that. Try:');
       ctx.pushUndo(label);
       remember();
-      last = { did: [...r.did, ...notes], miss: unknown.join(', '), depth: ctx.depth() };
+      last = { did: [...r.did, ...notes], miss: unknown.join(', '), depth: ctx.depth(), ...(r.bars?.length ? { bars: r.bars, chain: r.state.chain } : {}) };
       ctx.commit(r.state);
+      if (r.bars?.length) ctx.highlight?.(r.bars);
     }
     ctx.track({ kind: genre ? 'genre' : edits[0].id, genre: genre || style });
   }

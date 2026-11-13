@@ -18,6 +18,11 @@ assert(unhealthy.clips > 0);
 assert(unhealthy.flags.includes('clipping'));
 assert(unhealthy.flags.includes('dc-offset'));
 
+// Dynamic arc: a song that drops 20 dB for a breakdown spreads wide; a steady loop sits near 0.
+const arc = (gainOf) => { const x = new Float32Array(sr * 20); for (let i = 0; i < x.length; i++) x[i] = Math.sin(2 * Math.PI * 220 * i / sr) * gainOf(i / sr); return analyzePcm([x], sr).arcDb; };
+assert(arc(() => 0.5) < 0.5, 'steady loop has no arc');
+assert(arc((t) => (t > 8 && t < 14 ? 0.05 : 0.5)) > 15, 'a breakdown shows up as arc');
+
 const summary = summarizeRatings([{
   identity: { left: 'new', right: 'old' },
   ratings: { left: { musicality: 5, originality: 4 }, right: { musicality: 2, originality: 3 } },
