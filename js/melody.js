@@ -14,7 +14,9 @@ const mod = (x, n) => ((x % n) + n) % n;
 const pick = (r, a) => a[Math.floor(r() * a.length)];
 
 // Per genre: syllables per bar, articulation (how much of the gap to the next syllable a note holds), level, offbeat
-// and 16th syncopation, leap appetite, how high the chorus peaks.
+// and 16th syncopation, leap appetite, how high the chorus peaks. Optional: pk/pks pickup chance and shapes, jump the
+// chance a pickup leaps up a 4th/5th into the line, mel the
+// chance a held note opens with a melisma (one syllable over a turn to the note above), belt a louder, flatter line.
 // A new song genre sings once it has an entry here.
 export const SING_PROFILES = {
   deephouse: { k: [3, 5], art: 0.85, off: 0.35, six: 0.05, leap: 0.25, hi: 0 },
@@ -29,6 +31,16 @@ export const SING_PROFILES = {
   trap: { k: [4, 5], art: 0.7, off: 0.4, six: 0.25, leap: 0.25, hi: 0 },
   drill: { k: [4, 5], art: 0.65, gain: 0.7, off: 0.45, six: 0.3, leap: 0.25, hi: 0 },
   hyperpop: { k: [5, 6], art: 0.8, gain: 0.85, off: 0.3, six: 0.15, leap: 0.45, hi: 1 },
+  // Song genres. Pop: a hook you can sing back, square and repeated, lifting to the chorus top.
+  pop: { k: [3, 5], art: 0.85, off: 0.3, six: 0.05, leap: 0.3, hi: 1, v: ['vocal', 'reed'] },
+  // R&B: few syllables, long and laid back, held notes ornamented with melismas.
+  rnb: { k: [3, 4], art: 0.9, off: 0.55, six: 0.2, leap: 0.3, hi: 0, mel: 0.6, v: ['vocal', 'warm'], x: { space: 0.55, risk: 0.35, feel: 0.75, warmth: 0.7 } },
+  // Rock: belted on the beat in a middle register, no falsetto lift.
+  rock: { k: [4, 5], art: 0.8, off: 0.25, six: 0.05, leap: 0.25, hi: -1, belt: 1 },
+  // Folk: a story, many syllables, almost all steps.
+  folk: { k: [4, 6], art: 0.8, off: 0.3, six: 0.05, leap: 0.1, hi: 0 },
+  // Country: twang, leaps of a fourth or more, and pickups into nearly every line.
+  country: { k: [4, 5], art: 0.75, off: 0.35, six: 0.1, leap: 0.5, hi: 0, pk: 0.9, jump: 0.8, pks: [[-2], [-4, -2], [-3, -2], [-4, -3, -2]] },
 };
 export const sings = (style) => !!SING_PROFILES[style];
 
@@ -136,7 +148,7 @@ function writePart(r, P, kind, deg, chordTones, hookHead) {
   const notes = [];
   let bar0 = 0, head = null;
   lens.forEach((bars, ph) => {
-    const pickup = r() < 0.6 ? pick(r, [[-2], [-4, -2], [-3]]) : null;
+    const pickup = r() < (P.pk ?? 0.6) ? pick(r, P.pks || [[-2], [-4, -2], [-3]]) : null;
     const rh = phraseRhythm(r, P, kind === 'n' && hookHead ? hookHead.rh : hookBar, bars, pickup);
     const last = ph === lens.length - 1;
     const plan = kind === 'v'
@@ -149,6 +161,8 @@ function writePart(r, P, kind, deg, chordTones, hookHead) {
     const snap = (d, s) => [0, 1, -1, 2, -2].map((x) => d + x).find((q) => ctAt(s, q)) ?? d;
     plan.end = snap(plan.end, rh[rh.length - 1][0]);
     const forced = {};
+    // Country twang: the pickup starts a fourth or fifth under the line and leaps up into it.
+    if (P.jump && pickup && r() < P.jump) forced[pickup.length - 1] = Math.max(plan.lo, plan.start - pick(r, [3, 4]));
     // The chorus hook: every phrase opens with the same first bar, note for note.
     if (kind === 'n' && head) rh.forEach(([s0], j) => { const q = head.at.indexOf(s0); if (q >= 0 && s0 >= 0 && s0 < 16) forced[j] = head[q]; });
     plan.peak = Math.max(plan.peak, ...Object.values(forced).map((d) => d + 1), plan.end + 1);
@@ -163,8 +177,12 @@ function writePart(r, P, kind, deg, chordTones, hookHead) {
     const peakJ = ds.indexOf(Math.max(...ds));
     rh.forEach(([s, d], j) => {
       const x = (s - rh[0][0]) / ((rh[rh.length - 1][0] - rh[0][0]) || 1), pk = peakJ / Math.max(1, rh.length - 1);
-      const arc = 0.76 + 0.18 * Math.max(0, 1 - Math.abs(x - pk) * 1.6) + (mod(s, 16) === 0 ? 0.04 : 0) - (s < 0 || mod(s, 16) >= 12 && j < 2 ? 0.08 : 0);
-      notes.push([bar0 * 16 + s, d, semi(ds[j]), +(Math.min(1, j === peakJ ? 0.98 : arc) * (P.gain || 1)).toFixed(3), ph, j]);
+      const arc = (P.belt ? 0.86 : 0.76) + (P.belt ? 0.1 : 0.18) * Math.max(0, 1 - Math.abs(x - pk) * 1.6) + (mod(s, 16) === 0 ? 0.04 : 0) - (s < 0 || mod(s, 16) >= 12 && j < 2 ? 0.08 : 0);
+      const at = bar0 * 16 + s, v = +(Math.min(1, j === peakJ ? 0.98 : arc) * (P.gain || 1)).toFixed(3);
+      // A melisma keeps the syllable's slot: the note, a 16th on the step above, back to the note and hold (never in the
+      // hook bar, which must return note for note).
+      if (P.mel && d >= 6 && ds[j] + 1 < ds[peakJ] && !(kind === 'n' && s < 16) && r() < P.mel) notes.push([at, 1, semi(ds[j]), v, ph, j], [at + 1, 1, semi(ds[j] + 1), +(v * 0.9).toFixed(3), ph, j], [at + 2, d - 2, semi(ds[j]), v, ph, j]);
+      else notes.push([at, d, semi(ds[j]), v, ph, j]);
     });
     bar0 += bars;
   });
@@ -219,7 +237,7 @@ export function melodyScore(hook, { key = 0, bpm = 120 } = {}) {
     for (const [start, dur, semi, vel, ph, slot] of m[id] || []) {
       (phrases[ph] ??= { phrase: ph, notes: [] }).notes.push({ slot, midi: base + semi, start: start / 4, dur: dur / 4, vel, strong: strongNote(start, dur) });
     }
-    parts[name] = phrases.filter(Boolean).map((p) => ({ ...p, start: p.notes[0].start, end: p.notes.at(-1).start + p.notes.at(-1).dur, syllables: p.notes.length }));
+    parts[name] = phrases.filter(Boolean).map((p) => ({ ...p, start: p.notes[0].start, end: p.notes.at(-1).start + p.notes.at(-1).dur, syllables: new Set(p.notes.map((n) => n.slot)).size }));
   }
   return { format: 'untergrund-melody/1', bpm, bars: m.bars, beatsPerBar: 4, parts };
 }

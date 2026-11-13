@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { generate, sanitize, defaultState, applyOverrides, STYLES } from '../js/state.js';
+import { generate, sanitize, defaultState, applyOverrides, STYLES, MAJOR_STYLES } from '../js/state.js';
 import { CHORDS, SCALES } from '../js/params.js';
 import { SING_PROFILES, MELODY_BARS, melodyScore, strongNote, sings } from '../js/melody.js';
 import { buildSong, playSong, melodyShape } from '../scripts/composition.mjs';
@@ -15,14 +15,14 @@ for (const style of Object.keys(SING_PROFILES)) for (const seed of [1, 2, 3, 5, 
   assert(m && m.bars === MELODY_BARS && m.n.length && m.v.length && m.b.length, `${style}/${seed} sings`);
   assert.deepEqual(generate(style, seed, 'minor').pattern.hook, h, `${style}/${seed} is deterministic`);
   assert.equal(h.s.length, 32, `${style}/${seed} keeps a 32-step preview`);
-  const scale = new Set(SCALES.minor.notes.map(pc));
+  const scale = new Set(SCALES[MAJOR_STYLES.has(style) ? 'major' : 'minor'].notes.map(pc));
   for (const [id, alt] of [['n', 0], ['v', 0], ['b', 1]]) {
     const prog = (alt && g.pattern.alt) || g.pattern.prog;
     const ph = phrasesOf(m[id]);
     assert(ph.length >= 1 && ph.length <= 2, `${style}/${seed} ${id} has 1-2 phrases`);
     let prevEnd = null;
     for (const q of ph) {
-      q.forEach((x, j) => assert.equal(x[5], j, `${style}/${seed} ${id} syllable slots count up`));
+      q.forEach((x, j) => assert(j ? x[5] - q[j - 1][5] === 1 || (SING_PROFILES[style].mel && x[5] === q[j - 1][5]) : x[5] === 0, `${style}/${seed} ${id} syllable slots count up (a melisma repeats one)`));
       const span = (q.at(-1)[0] + q.at(-1)[1] - q[0][0]) / 16;
       assert(span >= 3 && span <= 8.5, `${style}/${seed} ${id} phrase spans ${span} bars`);
       assert(q.at(-1)[1] >= 4, `${style}/${seed} ${id} phrase ends on a held note`);
@@ -81,6 +81,27 @@ console.log('legacy hooks passed');
     assert.equal(p.syllables, p.notes.length);
     p.notes.forEach((n, j) => { assert.equal(n.slot, j); assert(n.midi >= 40 && n.midi <= 96 && n.dur > 0); });
   }
+}
+// R&B melismas: one syllable carried over a turn, so the score counts syllables, not notes.
+{
+  let mel = 0;
+  for (const seed of [1, 2, 3, 4, 5, 6]) {
+    const sc = melodyScore(generate('rnb', seed).pattern.hook);
+    for (const p of Object.values(sc.parts).flat()) {
+      assert.equal(p.syllables, new Set(p.notes.map((n) => n.slot)).size);
+      if (p.syllables < p.notes.length) mel++;
+    }
+  }
+  assert(mel >= 3, `R&B sings melismas (${mel} phrases)`);
+}
+// Country leans on pickups; rock stays in a middle register below pop's chorus top.
+{
+  const pick = (st) => [1, 2, 3, 4, 5, 6].map((sd) => generate(st, sd).pattern.hook.m.n.filter((x) => x[0] < 0 || x[0] % 64 >= 58).length).reduce((a, b) => a + b);
+  assert(pick('country') > pick('folk'), 'country lines start with pickups');
+  const leaps = (st) => { let mv = 0, lp = 0; for (const sd of [1, 2, 3, 4, 5, 6, 7, 8]) for (const a of Object.values(generate(st, sd).pattern.hook.m).filter(Array.isArray)) for (let j = 1; j < a.length; j++) { const iv = Math.abs(a[j][2] - a[j - 1][2]); if (a[j][4] === a[j - 1][4] && iv) { mv++; if (iv >= 5) lp++; } } return lp / mv; };
+  assert(leaps('country') > 2 * leaps('folk'), `country leaps, folk steps (${leaps('country').toFixed(3)} / ${leaps('folk').toFixed(3)})`);
+  const top = (st) => Math.max(...[1, 2, 3, 4, 5, 6].map((sd) => Math.max(...generate(st, sd, 'major').pattern.hook.m.n.map((x) => x[2]))));
+  assert(top('rock') < top('pop'), `rock is belted lower than pop (${top('rock')} / ${top('pop')})`);
 }
 console.log('melody score passed');
 

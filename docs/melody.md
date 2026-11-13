@@ -1,7 +1,7 @@
 # Vocal-length melodies
 
 Groove and pop genres (`SING_PROFILES` in `js/melody.js`: deephouse, ukg, euphoric, trance, neosoul, boombap,
-amapiano, afrobeats, reggaeton, trap, drill, hyperpop) write their hook as a sung-style lead line instead of the
+amapiano, afrobeats, reggaeton, trap, drill, hyperpop, and the song genres pop, rnb, rock, folk, country) write their hook as a sung-style lead line instead of the
 2-bar call/answer riff. A new song genre sings once it has an entry in `SING_PROFILES`. Techno and the other
 riff genres, and every project saved before this, keep the 32-step `hook.s` path unchanged.
 
@@ -39,6 +39,8 @@ hook = {
 - `vel`: 0..1, shaped along the phrase's contour.
 - `c`: set for styles whose chords comp under the voice instead of leaving gaps at off-beat sung onsets.
   Under any sung line the stabs sit lower (chorus 0.84, verse 0.78, bridge 0.45, `STAB_UNDER_VOICE` in js/engine.js).
+- Melisma (R&B): notes that share a `slot` are one syllable sung over several pitches, so a phrase has as many
+  syllables as distinct slots; `melodyScore()` reports `syllables` that way.
 - `phrase`: line number inside the part; `slot`: syllable number inside the phrase, one per sung note, so
   lyrics map one syllable per slot.
 
