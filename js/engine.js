@@ -1969,7 +1969,7 @@ export class Sequencer {
     for (const o of sung.notes) {
       if (o.at !== i16 || (this.dropNext && i16 >= 8 && !o.pickup)) continue;
       const [start, dur, semi, vel, ph] = o.x, lift = this.keyLift || 0;
-      const sec = o.q === 'v' ? 0.88 : o.q === 'b' ? 0.9 : 1, strong = strongNote(start, dur);
+      const sec = o.q === 'v' ? 0.82 : o.q === 'b' ? 0.7 : 1, strong = strongNote(start, dur);
       const ht = t + (hash(start, 97) - 0.5) * 0.008 * x.feel + (s.master.humanize || 0) * 0.008;
       const b = 0.58 + 0.42 * ((((bar % 8) + 8) % 8) / 7), v = Math.min(1, vel * sec);
       e.hook(ht, v, semi + lift, dur * sd, hk.v, hk.o, strong, b, false, x);

@@ -27,8 +27,8 @@ export const SING_PROFILES = {
   afrobeats: { k: [4, 6], art: 0.7, off: 0.5, six: 0.2, leap: 0.25, hi: 0 },
   reggaeton: { k: [4, 6], art: 0.6, gain: 0.85, off: 0.45, six: 0.2, leap: 0.2, hi: 0 },
   trap: { k: [4, 5], art: 0.7, off: 0.4, six: 0.25, leap: 0.25, hi: 0 },
-  drill: { k: [4, 5], art: 0.65, off: 0.45, six: 0.3, leap: 0.25, hi: 0 },
-  hyperpop: { k: [5, 6], art: 0.8, off: 0.3, six: 0.15, leap: 0.45, hi: 1 },
+  drill: { k: [4, 5], art: 0.65, gain: 0.8, off: 0.45, six: 0.3, leap: 0.25, hi: 0 },
+  hyperpop: { k: [5, 6], art: 0.8, gain: 0.85, off: 0.3, six: 0.15, leap: 0.45, hi: 1 },
 };
 export const sings = (style) => !!SING_PROFILES[style];
 
