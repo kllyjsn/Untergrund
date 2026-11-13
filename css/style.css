@@ -1258,3 +1258,7 @@ body.recording .btn.rec .dot, body.recording .np-actions .btn.rec .dot { backgro
 .modal.panel { border-radius: var(--r2); border-color: var(--hair2); box-shadow: var(--pop); }
 .pub-head, .artist-head { background: var(--panel); }
 .k-val { filter: none; }
+
+/* Paused from the lock screen or by an interruption: the stop control becomes resume. */
+.np-stop.resume i { width: 0; height: 0; border-radius: 0; background: none; border-left: 16px solid #fff; border-top: 10px solid transparent; border-bottom: 10px solid transparent; margin-left: 4px; }
+body.paused .np-dot { animation: none; opacity: .5; }

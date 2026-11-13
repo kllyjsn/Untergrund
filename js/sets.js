@@ -297,10 +297,30 @@ export function openSongPublish({ state, style, title, artist, toast, soundcloud
   input.focus();
 }
 
-export function openJukebox({ playSong, playReplay, stopSong, toast, onCreate, onClose, onRemix, onShare }) {
+export function openJukebox({ playSong, playReplay, stopSong, toast, onCreate, onClose, onRemix, onShare, onNowPlaying }) {
   const audio = new Audio();
-  let items = [], queue = [], idx = -1, timer = null, filter = 'all', urls = [];
-  const stopAll = () => { audio.pause(); clearTimeout(timer); stopSong(); idx = -1; };
+  let items = [], queue = [], idx = -1, timer = null, filter = 'all', urls = [], due = 0, left = 0;
+  const stopAll = () => { audio.pause(); clearTimeout(timer); stopSong(); idx = -1; onNowPlaying?.(null); };
+  // Songs and replays have no media element of their own: a timer moves on when they're done.
+  const advance = (ms) => { clearTimeout(timer); due = Date.now() + ms; timer = setTimeout(() => playAt(idx + 1), ms); };
+  // Lock-screen controls for the playing item. Pausing a song holds its timer (the app pauses the music);
+  // a recorded set pauses its own audio; a replay can't hold its room timeline, so PLAY starts it over.
+  const remote = (it) => ({
+    title: it.title, artist: it.artist, kind: it.replay ? 'replay' : it.kind,
+    playing: () => (it.kind === 'set' && !it.replay ? !audio.paused : null),
+    next: () => playAt(idx + 1),
+    prev: () => playAt(Math.max(0, idx - 1)),
+    pause: (pauseSong) => {
+      if (it.kind === 'set' && !it.replay) return audio.pause();
+      left = Math.max(1000, due - Date.now()); clearTimeout(timer); pauseSong();
+    },
+    resume: (resumeSong) => {
+      if (it.kind === 'set' && !it.replay) return audio.play().catch(() => {});
+      if (it.replay) return playAt(idx);
+      resumeSong(); advance(left);
+    },
+  });
+  audio.onplay = audio.onpause = () => { const it = queue[idx]; if (it?.kind === 'set') onNowPlaying?.(remote(it)); };
   const jb = sheet('JUKEBOX', { onClose: () => { if (idx >= 0) stopAll(); urls.forEach((u) => URL.revokeObjectURL(u)); onClose?.(); } });
   const { body } = jb;
   const now = h('div', { class: 'jb-now' }, 'Every song and set here was made inside UNTERGRUND.');
@@ -320,7 +340,7 @@ export function openJukebox({ playSong, playReplay, stopSong, toast, onCreate, o
     try {
       if (it.replay) {
         const secs = await playReplay(it);
-        timer = setTimeout(() => playAt(idx + 1), Math.max(1, secs) * 1000);
+        advance(Math.max(1, secs) * 1000);
         now.textContent = `NOW PLAYING · ${it.title} · ${it.artist} live${it.room ? ` in ${it.room}` : ''}`;
       } else if (it.kind === 'set') {
         const src = it.url || URL.createObjectURL(it.blob);
@@ -331,13 +351,14 @@ export function openJukebox({ playSong, playReplay, stopSong, toast, onCreate, o
         await audio.play();
       } else {
         const secs = await playSong(it);
-        timer = setTimeout(() => playAt(idx + 1), Math.max(10, secs) * 1000);
+        advance(Math.max(10, secs) * 1000);
         const credit = creditLine(it.remixOf);
         now.replaceChildren(h('span', { class: 'jb-now-text' }, `NOW PLAYING · ${it.title} · ${it.artist}`, credit && h('small', {}, credit)),
           onRemix && h('span', { class: 'jb-now-actions' },
             h('button', { class: 'btn accent', onclick: () => { jb.close(); onRemix(it); } }, 'REMIX IT'),
             onShare && h('button', { class: 'btn ghost', onclick: () => onShare(it) }, 'SHARE')));
       }
+      if (idx === i) onNowPlaying?.(remote(it));
     } catch (err) {
       console.error(err); toast(`Couldn't play “${it.title}”`);
       timer = setTimeout(() => playAt(idx + 1), 800);

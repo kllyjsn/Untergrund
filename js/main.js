@@ -33,6 +33,8 @@ import { readShareParams, decodeSong, normalizeSong, remixState } from './share-
 import { dailyDrop, dropSong, isDropDate } from './daily.js';
 import { songTimeline } from './timeline-ui.js';
 import { handoffStep, reanchor, MIN_LEAD } from './handoff.js';
+import { createNowPlaying, resumeStep, songClock } from './media-session.js';
+import { drawArtwork, artSeed } from './artwork.js';
 import { applyPart } from './jam.js';
 
 let state = load() || defaultState();
@@ -84,6 +86,14 @@ function persist() { if (guest) return; clearTimeout(saveTimer); saveTimer = set
 // it uses the same media channel as music and video playback.
 let mediaUnlock = null;
 let mediaRoute = null;
+let mediaIdle = 0;
+// Hidden or locked, timers can be throttled to about once a second: queue this much audio instead of 0.12 s.
+const BG_LEAD = 1.5;
+// After stopping, let the media element go so the lock screen shows paused (and iOS can release the audio session).
+function releaseMedia() {
+  clearTimeout(mediaIdle);
+  if (mediaUnlock) mediaIdle = setTimeout(() => { if (!playing && !tuning && !mediaUnlock.paused) mediaUnlock.pause(); }, 1500);
+}
 const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent)
   || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function unlockMediaChannel() {
@@ -93,6 +103,7 @@ function unlockMediaChannel() {
 
 function ensureAudio() {
   try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
+  clearTimeout(mediaIdle);
   if (ctx) {
     if (ctx.state !== 'running') ctx.resume()?.catch?.((err) => reportError(err, { kind: 'audio_resume' }));
     if (mediaUnlock?.paused) mediaUnlock.play().catch(() => {});
@@ -115,9 +126,14 @@ function ensureAudio() {
     mediaUnlock.autoplay = true;
     mediaUnlock.srcObject = mediaRoute.stream;
     mediaUnlock.style.display = 'none';
+    // iOS pauses the element for calls, Siri, other apps' audio or unplugged headphones: show paused, not silence.
+    mediaUnlock.addEventListener('pause', () => { if (playing && mediaUnlock.paused) interrupt(); });
+    // Its clock keeps ticking with the screen locked: a second heartbeat for the scheduler.
+    mediaUnlock.addEventListener('timeupdate', () => { if (playing && document.hidden) schedule(BG_LEAD); });
     document.body.append(mediaUnlock);
     unlockMediaChannel();
   }
+  ctx.addEventListener?.('statechange', onAudioState);
   seq = new Sequencer(engine, state);
   const src = "let id=null;onmessage=e=>{if(e.data==='start'&&!id)id=setInterval(()=>postMessage(0),15);if(e.data==='stop'){clearInterval(id);id=null;}}";
   timer = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
@@ -129,7 +145,7 @@ function ensureAudio() {
 let songOver = false;
 function schedule(lead) {
   if (!playing || songOver) return;
-  const ahead = typeof lead === 'number' ? lead : 0.12;
+  const ahead = typeof lead === 'number' ? lead : document.hidden ? BG_LEAD : 0.12;
   const offset = Date.now() / 1000 - ctx.currentTime;
   clockOffset = clockOffset === null ? offset : clockOffset + (offset - clockOffset) * 0.05;
   let base = 60 / state.bpm / 4, landed = null;
@@ -237,7 +253,7 @@ function landSong(t) {
   if (engine.recLock) engine.recLock = new Map();
   uiQueue.length = 0;
   lastPlayedPat = null;
-  return () => plan.finish(true);
+  return () => { plan.finish(true); syncNowPlaying(); };
 }
 
 // A song on recorded instruments holds its first downbeat until they're decoded (up to 8 s); a score waits longer,
@@ -260,6 +276,7 @@ function play(opts = {}) {
   (t.done = need.load().catch(() => {})).then(go);
   document.body.classList.add('tuning');
   renderHome();
+  syncNowPlaying();
 }
 function endTuning() {
   clearTimeout(tuning?.timer);
@@ -269,6 +286,8 @@ function endTuning() {
 
 function start({ step = 0, delay = 0.06 } = {}) {
   const seeking = playing;
+  clearPaused();
+  roomResume = null;
   stopPreview();
   closePractice();
   ensureAudio();
@@ -295,12 +314,14 @@ function start({ step = 0, delay = 0.06 } = {}) {
   schedule();
   document.body.classList.add('playing');
   for (const b of document.querySelectorAll('.btn.play')) b.setAttribute('aria-label', 'Stop');
+  syncNowPlaying();
   if (seeking) return;
   playStarted({ genre: style });
   renderHome();
 }
 
 function stop() {
+  clearPaused();
   endTuning();
   if (engine) engine.recLock = null;
   clearTimeout(roomJoinTimer);
@@ -323,9 +344,112 @@ function stop() {
   for (const b of document.querySelectorAll('.btn.play')) b.setAttribute('aria-label', 'Play');
   renderPatterns();
   renderHome();
+  releaseMedia();
+  syncNowPlaying();
 }
 
-const toggle = () => (playing || tuning ? stop() : play());
+const toggle = () => (playing || tuning ? stop() : paused ? remote.play() : play());
+
+// ---------------- lock screen / Control Center ----------------
+// PAUSE (lock screen, headphones, or an iOS interruption) stops the transport but keeps the song;
+// PLAY picks it up from the bar it paused in. A Club listener re-syncs to the room instead.
+let paused = null, roomResume = null, jukeboxNow = null;
+const RESUME_WINDOW = 5 * 60 * 1000;
+const nowPlaying = createNowPlaying();
+function clearPaused() {
+  paused = null;
+  document.body.classList.remove('paused');
+}
+function pause(reason = 'remote') {
+  if (!playing && !tuning) return;
+  const step = playing ? resumeStep({ next: abs, origin: seq.origin, ahead: nextTime - ctx.currentTime, stepSec: engine.stepDur, ended: songOver }) : 0;
+  const live = artistLive && { ...artistLive, bar: -1 };
+  const rejoin = roomResume;
+  stop();
+  paused = { step, reason, live, at: Date.now(), resume: rejoin || (() => {
+    play({ step });
+    // Artist Live carries on with the same performer and seed.
+    if (live && !artistLive && (playing || tuning)) { artistLive = live; state.chainOn = true; document.body.classList.add('artist-live'); build(); syncNowPlaying(); }
+  }) };
+  document.body.classList.add('paused');
+  renderHome();
+  if (ui.npCells?.length) updateNowPlaying({ abs: step });
+  syncNowPlaying();
+}
+function resume() {
+  if (playing || tuning) return;
+  const p = paused;
+  clearPaused();
+  ensureAudio();
+  if (p) p.resume(); else play();
+}
+function interrupt() {
+  if (!playing) return;
+  if (jukeboxNow) jukeboxNow.pause(() => pause('interrupted')); else pause('interrupted');
+}
+// The audio clock stopping under a playing song (a call, Siri, iOS suspending the page) pauses it;
+// when it runs again soon after, the song carries on.
+function onAudioState() {
+  if (ctx.state === 'running') {
+    if (paused?.reason === 'interrupted' && Date.now() - paused.at < RESUME_WINDOW) remote.play();
+  } else if (ctx.state !== 'closed') interrupt();
+}
+function restartSong() {
+  if (playing) return start({ step: 0 });
+  clearPaused();
+  play();
+}
+// ⏭ is GENERATE (the next song lands on the bar, as on screen); in the Jukebox it's the next item.
+const remote = {
+  play: () => (jukeboxNow ? jukeboxNow.resume(resume) : resume()),
+  pause: () => (jukeboxNow ? jukeboxNow.pause(() => pause()) : pause()),
+  nexttrack: () => (jukeboxNow ? jukeboxNow.next() : generateNow()),
+  previoustrack: () => (jukeboxNow ? jukeboxNow.prev() : restartSong()),
+};
+
+// Lock-screen cover: the song's own procedural artwork, drawn once per song off the critical path.
+let cover = { key: '', url: '' };
+function coverArt(title, sid) {
+  const key = `${title}|${sid}|${state.bpm}|${state.chain}`;
+  if (cover.key !== key) {
+    if (cover.url) URL.revokeObjectURL(cover.url);
+    const mine = cover = { key, url: '' }, s = state;
+    setTimeout(() => {
+      if (cover !== mine) return;
+      try {
+        drawArtwork(s, { title, style: STYLES[sid]?.name, seed: artSeed(key), size: 512 }).toBlob((b) => {
+          if (cover !== mine || !b) return;
+          mine.url = URL.createObjectURL(b);
+          syncNowPlaying();
+        }, 'image/jpeg', 0.9);
+      } catch {}
+    }, 300);
+  }
+  return cover.url ? [{ src: cover.url, sizes: '512x512', type: 'image/jpeg' }] : null;
+}
+
+function syncNowPlaying() {
+  if (!nowPlaying.supported || (!ctx && !jukeboxNow)) return;
+  const jb = jukeboxNow, a = state.artist || {}, song = guest?.song, live = artistLive || paused?.live;
+  const sid = STYLES[a.style] ? a.style : style;
+  // A recorded set in the Jukebox plays through its own audio element.
+  const ownAudio = jb?.playing() != null;
+  const on = ownAudio ? jb.playing() : !!(playing || tuning);
+  const title = jb?.title || song?.title || live?.title || a.title || 'Untitled set';
+  nowPlaying.metadata({
+    title,
+    artist: jb?.artist || song?.artist || live?.profile?.name || a.name || 'UNTERGRUND',
+    album: jb ? 'UNTERGRUND · JUKEBOX' : roomResume ? 'UNTERGRUND · CLUB' : live ? 'UNTERGRUND · LIVE' : `UNTERGRUND · ${STYLES[sid].name}`,
+    artwork: ownAudio ? null : coverArt(title, sid),
+  });
+  nowPlaying.state(on ? 'playing' : 'paused');
+  // A Club listener follows the room: no skipping ahead of it.
+  const room = !!roomResume && !jb;
+  nowPlaying.actions({ play: remote.play, pause: remote.pause, nexttrack: room ? null : remote.nexttrack, previoustrack: room ? null : remote.previoustrack });
+  const timed = !ownAudio && !live && !room && !pat()?.score && state.chainOn;
+  const step = playing ? abs - seq.origin - Math.max(0, nextTime - ctx.currentTime) / engine.stepDur : paused?.step || 0;
+  nowPlaying.position((timed && songClock({ bars: parseChain(state.chain).length, bpm: state.bpm, step })) || {});
+}
 
 function audition(id) {
   ensureAudio();
@@ -496,6 +620,7 @@ function showJukebox() {
     onCreate: () => generateNow(),
     stopSong: () => { if (playing) stop(); },
     onClose: leaveGuest,
+    onNowPlaying: (ctl) => { jukeboxNow = ctl; syncNowPlaying(); },
     onRemix: () => current && remixSong(current, true),
     onShare: () => current && showShare(current, 'jukebox'),
     playReplay: async (item) => {
@@ -555,7 +680,11 @@ function timelineHooks(asGuest) {
     play, isPlaying: () => playing, onEnd: () => playing && stop(),
   };
 }
-function replayToRoom(timeline, startsAt) { playTimeline(timeline, startsAt, timelineHooks(false)); }
+function replayToRoom(timeline, startsAt) {
+  playTimeline(timeline, startsAt, timelineHooks(false));
+  roomResume = () => replayToRoom(timeline, startsAt);
+  syncNowPlaying();
+}
 
 async function joinRoomReplay(item) {
   try {
@@ -577,6 +706,8 @@ function joinRoomSet(item) {
   const sync = () => {
     const { step, delay } = roomTransportPosition(startsAt, roomState.bpm);
     play({ step, delay });
+    roomResume = () => joinRoomSet(item);
+    syncNowPlaying();
     toast(`Synced to “${item.title || 'Live Machine Set'}”`);
   };
   const wait = startsAt - Date.now();
@@ -639,7 +770,7 @@ function startArtistLive(item = null) {
   state.chainOn = true;
   document.body.classList.add('artist-live');
   if (!playing) play();
-  else build();
+  else { build(); syncNowPlaying(); }
   toast(`${profile.name} is performing “${artistLive.title}”`);
 }
 
@@ -659,6 +790,7 @@ function stopArtistLive(rebuild = true) {
   }
   if (rebuild) build();
   persist();
+  syncNowPlaying();
   toast('Artist Live stopped');
 }
 
@@ -1012,6 +1144,7 @@ function selectFamily(f) {
 }
 function generateNow(drop = null) {
   if (!drop?.date) drop = null;
+  roomResume = null;
   stopPreview();
   generatedAt = performance.now();
   localStorage.setItem('untergrund.made', '1');
@@ -1163,14 +1296,15 @@ function buildNowPlaying(primary) {
   ui.npStyle = sid;
   return [
     h('div', { class: 'now-playing' },
-      h('span', { class: 'np-eyebrow' }, h('i', { class: 'np-dot' }), 'NOW PLAYING'),
+      h('span', { class: 'np-eyebrow' }, h('i', { class: 'np-dot' }), paused ? 'PAUSED' : 'NOW PLAYING'),
       h('h1', {}, a.title || 'Untitled set'),
       h('div', { class: 'np-meta' }, [a.name || 'UNTERGRUND', STYLES[sid].name, `${state.bpm} BPM`, sc?.meta ? sc.meta.key.toUpperCase() : `${KEYS[state.key]} ${sc ? (pat().score.mode === 'm' ? 'MINOR' : 'MAJOR') : SCALES[state.scale]?.name || 'MINOR'}`]
         .flatMap((v, i) => [i ? ' ' : '', h('span', {}, i ? `· ${v}` : v)])),
       ui.npCanvas,
       h('div', { class: 'np-progress' }, h('div', { class: 'np-label' }, ui.npSection, ui.npBar), h('div', { class: 'np-cells' }, ui.npCells))),
     h('div', { class: 'generate-actions np-actions' },
-      h('button', { class: 'np-stop', title: 'Stop (Space)', 'aria-label': 'Stop', onclick: toggle }, h('i')),
+      paused ? h('button', { class: 'np-stop resume', title: 'Resume (Space)', 'aria-label': 'Resume', onclick: toggle }, h('i'))
+        : h('button', { class: 'np-stop', title: 'Stop (Space)', 'aria-label': 'Stop', onclick: toggle }, h('i')),
       primary,
       h('button', { class: 'btn refine-toggle', onclick: toggleStudio }, 'REFINE'),
       pat()?.score ? null : h('button', { class: 'btn ghost', title: 'Hum a melody and make it the hook', onclick: () => openHum(humApi, { from: 'studio' }) }, 'HUM'),
@@ -1245,7 +1379,7 @@ function buildGenerateHome() {
   ui.npCanvas = null; ui.npCells = null;
   const families = [...new Set(Object.values(STYLES).map((v) => v.family))];
   if (!families.includes(family)) family = STYLES[style].family;
-  const playingStyle = playing && state.artist?.style;
+  const playingStyle = (playing || paused) && state.artist?.style;
   const picker = h('div', { class: 'generate-families' },
     h('div', { class: 'family-tabs', role: 'group', 'aria-label': 'Genre family' },
       families.map((f) => h('button', { class: 'family-tab' + (f === family ? ' on' : ''), 'aria-pressed': String(f === family), onclick: () => selectFamily(f) }, f)),
@@ -1259,7 +1393,7 @@ function buildGenerateHome() {
       h('span', {}, 'TUNING UP'), h('small', {}, `${STYLES[state.artist?.style]?.name || STYLES[style].name} · ${tuning.label}`))
     : h('button', { class: 'generate-primary' + (performance.now() - generatedAt < 900 ? ' fired' : '') + (wait || band ? ' gen-queued' : ''), style: wait ? `--gen-wait:${Math.round(handoff.total)}ms;--gen-at:${Math.round(wait - handoff.total)}ms` : null, onclick: () => generateNow() },
       h('span', {}, 'GENERATE'), h('small', {}, band ? 'Up next · seating the band' : wait ? 'Up next · on the bar' : `${STYLES[style].name} · full track`));
-  const showNp = playing && !studioOpen;
+  const showNp = (playing || !!paused) && !studioOpen;
   // First visit shows only the essentials; the rest unlocks once a track has been made.
   const made = studioOpen || playing || localStorage.getItem('untergrund.made') === '1' || recentTracks().length > 0;
   if (playing) localStorage.setItem('untergrund.made', '1');
@@ -1980,7 +2114,11 @@ window.addEventListener('keyup', (e) => {
   if (ui.perf?.[K]) ui.perf[K].up();
 });
 
-document.addEventListener('visibilitychange', () => { if (!guest) save(state); });
+document.addEventListener('visibilitychange', () => {
+  if (!guest) save(state);
+  // Going to the lock screen or another app: queue extra audio before timers slow down.
+  if (playing && document.hidden) schedule(BG_LEAD);
+});
 
 build();
 // Once the page is idle, warm the recordings the selected style and the saved song will play.
