@@ -1,7 +1,7 @@
 // Prompt to song: an LLM (or the local rules) writes a small song spec; this file validates it and the
 // deterministic engine performs it with the usual generators. The result is an ordinary project, so every
 // note, chord, section and knob stays editable afterwards. Pure module: runs in the browser and in Node.
-import { STYLES, generate, arrangement, songChain, defaultState, applyOverrides, clone, emptyAcidStep } from './state.js';
+import { STYLES, MAJOR_STYLES, generate, arrangement, songChain, defaultState, applyOverrides, clone, emptyAcidStep } from './state.js';
 import { SCALES, KEYS, TRACK_IDS, STEPS } from './params.js';
 import { toSections, MAX_BARS } from './timeline.js';
 import { parse, applyEdits, validateEdits, genreOf } from './describe.js';
@@ -70,7 +70,7 @@ export function validateSpec(raw, { style: fallbackStyle = 'deephouse', prompt =
   spec.title = cleanText(src.title, 40) || null;
   spec.bpm = Math.round(clamp(src.bpm, Math.max(60, lo - 20), Math.min(200, hi + 20), Math.round((lo + hi) / 2)));
   const scale = String(src.scale || '').toLowerCase();
-  spec.scale = SCALES[scale] ? scale : { aeolian: 'minor', ionian: 'major', 'harmonic minor': 'harmonic' }[scale] || (style === 'euphoric' ? 'major' : 'minor');
+  spec.scale = SCALES[scale] ? scale : { aeolian: 'minor', ionian: 'major', 'harmonic minor': 'harmonic' }[scale] || (style === 'euphoric' || MAJOR_STYLES.has(style) ? 'major' : 'minor');
   const k = typeof src.key === 'string' ? KEYS.indexOf(src.key.trim().toUpperCase().replace('♯', '#').replace(/^([A-G])B$/, (_, n) => KEYS[(KEYS.indexOf(n) + 11) % 12])) : src.key != null && src.key !== '' && Number.isFinite(+src.key) ? Math.round(+src.key) : -1;
   spec.key = k >= 0 && k <= 11 ? k : null;
   const hk = src.hook && typeof src.hook === 'object' ? src.hook : {};
@@ -241,6 +241,11 @@ const GENRE_WORDS = [
   [/\blo-?fi\b|\bchillhop\b/, 'boombap'], [/\bhouse\b/, 'deephouse'], [/\btechno\b/, 'hypnotic'], [/\bgarage\b|\b2-?step\b/, 'ukg'], [/\bjungle\b|\bliquid\b/, 'dnb'],
   [/\bsynthwave\b|\boutrun\b|\bretrowave\b/, 'electro'], [/\bchill(?:out)?\b|\bdowntempo\b/, 'ambient'], [/\bedm\b|\bbig\s+room\b/, 'euphoric'],
 ];
+// Where a song genre is named when its words don't contain the style's display name.
+const GENRE_AT = {
+  rnb: /\br\s*(?:&|and|n)\s*b\b|\bslow\s*jams?\b/, folk: /\bfolk|\bsinger|\bsongwriter|\bcampfire|\bballad/,
+  rock: /\brock|\bpunk|\bgrunge|\bindie|\balternative/, country: /\bcountry|\bnashville|\bamericana|\bhonky|\bwestern|\bbluegrass/,
+};
 const TITLE_STOP = new Set(['a', 'an', 'the', 'my', 'our', 'some', 'that', 'with', 'and', 'but', 'builds', 'build', 'big', 'to', 'drop', 'of', 'in', 'on', 'at', 'song', 'track', 'tune', 'beat']);
 function titleFrom(text) {
   const t = text.toLowerCase().replace(/[^a-z' ,.-]/g, ' ');
@@ -255,7 +260,7 @@ export function localSpec(text, { style: current = 'deephouse', seed } = {}) {
   // The first genre named wins ("deep house ... euphoric drop" is deep house with a euphoric drop).
   const genres = edits.filter((e) => e.id === 'genre' && SONG_STYLES.includes(e.value));
   const firstWord = GENRE_WORDS.filter(([re]) => re.test(t)).sort((a, b) => t.search(a[0]) - t.search(b[0]))[0];
-  const named = genres.map((e) => ({ v: e.value, at: t.search(new RegExp(STYLES[e.value].name.split(' ')[0].toLowerCase().replace(/[^a-z]/g, '').slice(0, 4))) }));
+  const named = genres.map((e) => ({ v: e.value, at: t.search(GENRE_AT[e.value] || new RegExp(STYLES[e.value].name.split(' ')[0].toLowerCase().replace(/[^a-z]/g, '').slice(0, 4))) }));
   if (firstWord) named.push({ v: firstWord[1], at: t.search(firstWord[0]) });
   named.sort((a, b) => (a.at < 0 ? 1e9 : a.at) - (b.at < 0 ? 1e9 : b.at));
   const style = named[0]?.v || (SONG_STYLES.includes(current) ? current : genreOf(edits, current) || 'deephouse');
@@ -284,7 +289,7 @@ export function localSpec(text, { style: current = 'deephouse', seed } = {}) {
   if (/\b(?:extended|long|epic|journey|dj\s+mix|club\s+mix)\b/.test(t) && !/\blong\s+intro\b/.test(t)) for (const s of sections) if (s.role === 'drop') s.bars = Math.min(32, s.bars + 8);
   if (M) for (const s of sections) s.chords = M[s.role] || (s.role === 'build' ? M.verse.slice(0, 2) : s.role === 'intro' ? M.verse : []);
   // Major moods only move the scale when the words didn't already pick one.
-  const scale = scaleEdit?.value || M?.scale || (style === 'euphoric' ? 'major' : 'minor');
+  const scale = scaleEdit?.value || M?.scale || (style === 'euphoric' || MAJOR_STYLES.has(style) ? 'major' : 'minor');
   // A minor-mode progression in a major song reads its numerals in the major scale; keep moods coherent.
   if (M && !M.scale && scale === 'major') for (const s of sections) s.chords = [];
   const texture = edits.filter((e) => TEXTURE.includes(e.id) && !e.target && e.amt).map(({ src: _s, ...e }) => e);

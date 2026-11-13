@@ -56,7 +56,7 @@ const PHRASES = [
   [/jazz(?:y)?\s+chords|(?:seventh|7th|extended|ninth|9th)\s+chords|maj(?:or)?\s*7(?:ths?)?/g, ' richer harmony '],
   [/\b(?:19)?80s\b|eighties|retro[\s-]?wave|out[\s-]?run|vapou?r[\s-]?wave/g, ' synthwave '], [/\b(?:19)?90s\b|nineties/g, ' nineties '], [/\b(?:19)?70s\b|seventies/g, ' disco '],
   [/video\s+games?(?:\s+music)?|\b8[\s-]?bit\b|chip[\s-]?tunes?/g, ' chiptune '], [/(?:movie|film|tv)\s+(?:soundtrack|score|music)|soundtrack/g, ' cinematic '],
-  [/trip[\s-]?hop/g, ' triphop '], [/tech[\s-]house/g, ' techhouse '], [/afro[\s-]house/g, ' afrohouse '], [/\br\s*(?:&|and|n)\s*b\b/g, ' rnb '], [/\bk[\s-]?pop\b/g, ' kpop '], [/singer[\s-]*song[\s-]*writer/g, ' folk '], [/acoustic\s+guitars?/g, ' acousticguitar '],
+  [/trip[\s-]?hop/g, ' triphop '], [/tech[\s-]house/g, ' techhouse '], [/afro[\s-]house/g, ' afrohouse '], [/\br\s*(?:&|and|n)\s*b\b/g, ' rnb '], [/\bk[\s-]?pop\b/g, ' kpop '], [/\b(pop|rnb|rock|country)\s+ballads?\b/g, ' $1 '], [/singer[\s-]*song[\s-]*writer/g, ' folk '], [/acoustic\s+guitars?/g, ' acousticguitar '],
   [/(?:distorted|overdriven|electric|crunchy|dirty)\s+guitars?/g, ' driveguitar '], [/(?:electric|fender)\s+bass|bass\s+guitar/g, ' electricbass '],
   [/drum\s+(?:roll|fill)s?/g, ' fills '], [/low[\s-]end/g, ' bass '], [/top[\s-]?line/g, ' melody '],
   [/drum\s*(?:and|&|n|'n'|n')\s*bass|\bd\s*(?:&|n)\s*b\b/g, ' dnb '],
