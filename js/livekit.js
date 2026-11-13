@@ -23,6 +23,7 @@ export const BAND = {
   piano: [48, 52, 57, 60, 64, 67, 71, 74, 77, 81, 84, 88],
   pianosoft: [48, 52, 57, 60, 64, 67, 71, 74, 77, 81, 84, 88],
   gtr: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
+  gtrsoft: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
   horn: [53, 58, 62, 65, 67, 70, 74, 77, 81, 84],
   str: [55, 57, 59, 62, 66, 69, 72, 76, 79, 83, 86],
   // The CLASSICAL orchestra: loaded section by section, only when a score plays it.
@@ -43,7 +44,10 @@ export const BAND = {
   ebass: [28, 31, 34, 37, 40, 43, 46, 49, 52, 55],
 };
 // Measured pitch of a recording minus its name, in cents (python3 test/sampletune.py), for takes played a little off.
-const BAND_TUNE = { gtr: { 40: -4, 42: -2, 45: -8, 48: -6, 51: 8, 54: 4, 57: 9, 60: 4, 63: 2, 66: 2, 72: -2 } };
+const GTR_TUNE = { 40: -4, 42: -2, 45: -8, 48: -6, 51: 8, 54: 4, 57: 9, 60: 4, 63: 2, 66: 2, 72: -2 };
+const BAND_TUNE = { gtr: GTR_TUNE, gtrsoft: GTR_TUNE };
+// Instruments recorded at two dynamics: the softly played layer loads with the instrument.
+export const SOFT_LAYER = { piano: 'pianosoft', gtr: 'gtrsoft' };
 // STAB voice index -> recorded instrument.
 export const STAB_BAND = { 7: 'piano', 8: 'gtr', 9: 'horn', 10: 'str', 11: 'gtr', 12: 'agtr' };
 export const BAND_FILES = Object.entries(BAND).flatMap(([k, ns]) => ns.map((n) => `${k}_${n}`));
@@ -52,7 +56,7 @@ export const KIT_EXTRA = ['crash_v2', 'crash_v3', 'htom_v8', 'htom_v14', 'ltom_v
 
 const BASE = new URL('../samples/live/', import.meta.url);
 // Samples are served with immutable caching: bump SAMPLES_REV whenever a file under samples/live changes.
-const SAMPLES_REV = 2;
+const SAMPLES_REV = 3;
 const sampleUrl = (file) => new URL(`${file}.flac?v=${SAMPLES_REV}`, BASE);
 let buffers = null, loading = null, extra = null, extraLoading = null;
 const band = {}, bandLoading = {};
@@ -60,7 +64,7 @@ const band = {}, bandLoading = {};
 export const bandKit = (name) => band[name] || null;
 
 export function loadBand(name) {
-  if (name === 'piano') loadBand('pianosoft');
+  if (SOFT_LAYER[name]) loadBand(SOFT_LAYER[name]);
   if (band[name]) return Promise.resolve(band[name]);
   if (bandLoading[name]) return bandLoading[name];
   if (!BAND[name] || typeof fetch !== 'function' || typeof OfflineAudioContext === 'undefined') return Promise.resolve(null);
@@ -82,7 +86,7 @@ export function liveSets(st) {
   if (out.length && pocketOf(st.master)?.band) out.push('kitx');
   if (Math.round(st?.params?.acid?.voice || 0) === 5) out.push('ebass');
   const name = STAB_BAND[Math.round(st?.params?.stab?.voice || 0)];
-  if (name) out.push(name, ...(name === 'piano' ? ['pianosoft'] : []));
+  if (name) out.push(name, ...(SOFT_LAYER[name] ? [SOFT_LAYER[name]] : []));
   return out;
 }
 export const liveSet = (name) => (name === 'kit' ? buffers : name === 'kitx' ? extra : bandKit(name));
