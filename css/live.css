@@ -1,0 +1,103 @@
+/* ===== live rooms: LIVE NOW on Home, Club lobby, privacy (js/live-rooms.js) ===== */
+.live-now { grid-area: live; min-width: 0; display: grid; gap: 10px; }
+.live-now[hidden] { display: none; }
+.lr-head { display: flex; align-items: center; gap: 12px; min-width: 0; font: 600 10px var(--mono); letter-spacing: .14em; color: var(--dim); }
+.lr-title { display: inline-flex; align-items: center; gap: 8px; color: var(--text); }
+.lr-count { color: var(--dim2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lr-all { margin-left: auto; height: 24px; padding: 0 2px; border: 0; background: none; color: var(--dim); font: inherit; letter-spacing: inherit; cursor: pointer; white-space: nowrap; }
+.lr-all::after { content: ' →'; }
+.lr-all:hover { color: var(--text); }
+.lr-dot { position: relative; width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--red); }
+.lr-dot::after { content: ''; position: absolute; inset: -4px; border-radius: 50%; border: 1px solid var(--red); opacity: 0; animation: lr-ping 1.8s ease-out infinite; }
+.lr-title:not(.on) .lr-dot, .lr-dot.off { background: var(--line2); }
+.lr-title:not(.on) .lr-dot::after, .lr-dot.off::after { display: none; }
+@keyframes lr-ping { 0% { transform: scale(.5); opacity: .8; } 100% { transform: scale(1.6); opacity: 0; } }
+.lr-row { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; padding-bottom: 2px; }
+.lr-row::-webkit-scrollbar { display: none; }
+.lr-card { --hue: var(--green); flex: 0 0 248px; scroll-snap-align: start; min-width: 0; display: grid; grid-template-columns: 44px minmax(0,1fr); align-items: center; gap: 12px; height: 72px; padding: 8px 12px 8px 8px;
+  border: 1px solid var(--hair2); border-radius: var(--r2); background: var(--panel); box-shadow: inset 2px 0 0 var(--hue); color: var(--text); text-align: left; font: inherit; cursor: pointer;
+  transition: border-color .15s ease, background-color .15s ease; }
+.lr-card:hover { border-color: color-mix(in srgb, var(--hue) 45%, var(--hair2)); background: var(--panel2); }
+.lr-card:active { transform: translateY(1px); }
+.lr-dj { position: relative; width: 44px; height: 56px; overflow: hidden; border-radius: var(--r1); background: #1a1a1c; }
+.lr-dj .club-person { position: absolute; left: 50%; top: 2px; transform: translateX(-50%) scale(.4); transform-origin: 50% 0; pointer-events: none; }
+.lr-dj .club-shadow { display: none; }
+.lr-body { min-width: 0; display: grid; gap: 3px; }
+.lr-body > b { font: 700 14px/1.15 var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lr-body > small { font: 500 10px var(--mono); color: var(--dim); letter-spacing: .04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lr-state { display: flex; align-items: center; gap: 7px; min-width: 0; font: 700 9px var(--mono); letter-spacing: .16em; color: var(--red); }
+.lr-state em { margin-left: auto; font-style: normal; font-weight: 500; letter-spacing: .06em; color: var(--dim); white-space: nowrap; }
+.lr-card.mine .lr-state { color: var(--text); }
+.lr-go { --hue: var(--line2); background: transparent; border-style: solid; }
+.lr-go .lr-state { color: var(--text); }
+.lr-go-mark { position: relative; width: 44px; height: 44px; margin: 0 auto; border-radius: 50%; border: 1px solid var(--line2); display: grid; place-items: center; }
+.lr-go-mark::before { content: ''; position: absolute; inset: 7px; border-radius: 50%; border: 1px solid var(--line); }
+.lr-go-mark i { width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
+.lr-go:hover .lr-go-mark { border-color: var(--dim2); }
+
+/* Home placement: its own row, never between the copy and GENERATE on phone. */
+.generate-home.has-live { grid-template-areas: 'copy styles' 'actions styles' 'describe live' 'status live' 'recents recents'; }
+.generate-home.has-live.has-concert { grid-template-areas: 'copy styles' 'actions styles' 'describe styles' 'status styles' 'concert concert' 'live live' 'recents recents'; }
+@media (min-width: 901px) { .generate-home.has-live:not(.has-concert) > .live-now { align-self: end; } }
+@media (max-width: 900px) {
+  .generate-home.has-live { grid-template-areas: 'copy' 'actions' 'describe' 'live' 'styles' 'status' 'recents'; }
+  .generate-home.has-live.has-concert { grid-template-areas: 'copy' 'actions' 'describe' 'live' 'styles' 'concert' 'status' 'recents'; }
+}
+@media (max-width: 760px) {
+  .generate-home.has-live { grid-template-areas: 'copy' 'styles' 'actions' 'describe' 'live' 'recents'; }
+  .generate-home.is-playing.has-live { grid-template-areas: 'copy' 'actions' 'describe' 'live' 'styles' 'recents'; }
+  .generate-home.has-live.has-concert { grid-template-areas: 'copy' 'styles' 'actions' 'describe' 'live' 'concert' 'recents'; }
+  .generate-home.is-playing.has-concert.has-live { grid-template-areas: 'copy' 'actions' 'describe' 'live' 'styles' 'concert' 'recents'; }
+  .live-now .lr-row { margin: 0 -16px; padding: 0 16px 2px; scroll-padding: 0 16px; }
+  .lr-card { flex-basis: 78%; }
+}
+
+/* GO LIVE in the now-playing actions: a quiet secondary, the red dot is the only color. */
+.np-live i { display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 50%; background: var(--red); vertical-align: 1px; }
+
+/* Club lobby */
+.club-shell.is-lobby { grid-template-rows: auto minmax(0,1fr); }
+.club-lobby { min-height: 0; overflow-y: auto; display: grid; grid-template-columns: minmax(0,1fr) 360px; align-content: start; gap: 24px; padding: 28px clamp(16px,3vw,32px) 40px; }
+.club-lobby h2 { display: flex; align-items: center; gap: 10px; margin: 0; font: 700 22px var(--sans); letter-spacing: -.01em; }
+.lobby-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.lobby-title > span { font: 500 11px var(--mono); color: var(--dim); letter-spacing: .06em; }
+.lobby-title .lr-dot { align-self: center; }
+.lobby-rooms { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px,1fr)); gap: 10px; }
+.lobby-rooms .lr-card { height: auto; min-height: 92px; grid-template-columns: 56px minmax(0,1fr); padding: 12px 14px 12px 10px; }
+.lobby-rooms .lr-dj { width: 56px; height: 70px; }
+.lobby-rooms .lr-dj .club-person { transform: translateX(-50%) scale(.5); }
+.lobby-rooms .lr-body > b { font-size: 16px; }
+.lr-room { color: var(--dim2) !important; }
+.lobby-wait { margin: 0; color: var(--dim); font: 500 11px var(--mono); }
+.lobby-start { align-self: start; display: grid; gap: 12px; padding: 20px; border: 1px solid var(--hair2); border-radius: var(--r2); background: var(--panel); }
+.lobby-start h2 { font-size: 18px; }
+.lobby-start p { margin: 0; color: var(--dim); font: 400 13px/1.45 var(--sans); }
+.lobby-create { display: flex; align-items: center; gap: 8px; }
+.lobby-slug { font: 500 12px var(--mono); color: var(--dim2); }
+.lobby-name { flex: 1; min-width: 0; }
+.lobby-back { justify-self: start; height: 28px; padding: 0; border: 0; background: none; color: var(--dim); font: 600 10px var(--mono); letter-spacing: .14em; cursor: pointer; }
+.lobby-back::before { content: '← '; }
+.lobby-back:hover { color: var(--text); }
+
+/* ROOMS and the privacy toggle flank the room name in the head. */
+.club-rooms-btn, .club-privacy { flex: none; height: 32px; padding: 0 10px; font-size: 9px; }
+.club-privacy i { display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 50%; background: var(--green); vertical-align: 1px; }
+.club-privacy.private i { background: transparent; box-shadow: inset 0 0 0 1px var(--dim); }
+
+@media (max-width: 760px) {
+  /* ROOMS takes the brand's slot on phone, so the head stays one row. */
+  .club-head:has(.club-rooms-btn) .club-brand { display: none; }
+  .club-room-name { gap: 6px; }
+  .club-rooms-btn, .club-privacy { height: 36px; padding: 0 8px; }
+  .club-privacy i { margin-right: 5px; }
+}
+@media (max-width: 760px) {
+  .club-lobby { grid-template-columns: minmax(0,1fr); padding: 20px 16px calc(32px + env(safe-area-inset-bottom)); gap: 20px; }
+  .lobby-rooms { grid-template-columns: minmax(0,1fr); }
+  .lobby-create .lobby-name { font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) { .lr-dot::after { animation: none; } }
+.club-shell.is-lobby .club-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.club-shell.is-lobby .club-head-actions { flex: none; }
+.club-shell.is-lobby .club-head { flex-wrap: nowrap; }
+.club-shell.is-lobby .club-head-actions { width: auto; display: flex; }
