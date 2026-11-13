@@ -35,8 +35,9 @@ This writes, under `suno-lab/` (ignored by git):
   reference-free songwriting metrics attached (shown after rating, never during);
 - `SUNO.md`: the checklist of Suno prompts to generate, one per pair.
 
-Prompts whose genre UNTERGRUND doesn't have yet (synth-pop, R&B, indie rock, country) are listed as `pending` and
-skipped, never substituted; they join automatically once a genre with a matching id or name lands on `main`.
+Synth-pop, R&B, indie rock and country render as POP (`pop`), R&B (`rnb`), ROCK (`rock`) and COUNTRY (`country`).
+A prompt whose genre UNTERGRUND doesn't have yet is listed as `pending` and skipped, never substituted; it joins
+automatically once a genre with a matching id or name lands on `main`.
 
 ## 2. Generate the Suno songs (Jason, by hand)
 
