@@ -405,6 +405,8 @@ a.jb-item.artist-song .jb-side { color: var(--accent); }
   .stats { grid-template-columns: 1fr 1fr; }
   .pub-two { grid-template-columns: 1fr; }
   .artist-modal { width: 100vw; max-height: 100vh; height: 100vh; border: 0; }
+  /* Phone sheets end at the tab bar (.overlay bottom), so their last row stays reachable */
+  .modal.pub, .artist-modal { --sheet-h: calc(100dvh - 64px - env(safe-area-inset-bottom) - env(safe-area-inset-top)); height: var(--sheet-h); max-height: var(--sheet-h); }
   .artist-body { padding: 12px; }
   .artist-identity { grid-template-columns: 1fr; }
   .artist-profile { grid-template-columns: 58px 1fr; }
