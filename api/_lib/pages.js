@@ -130,16 +130,52 @@ export function renderMissing(kind, id, { site = SITE, enabled = true } = {}) {
   return shell(head, body, { kind: 'missing', site, what: kind, id: String(id).slice(0, 40), enabled });
 }
 
+const ROOM_ID = /^[a-z0-9-]{2,32}$/;
+const cleanRoomId = (v) => String(v || '').toLowerCase().slice(0, 32);
+
+// /r/<room>: the invite link. Unfurls with what's playing; the page itself forwards people into the Club (js/page.js).
+export function renderRoomPage(id, snap, { site = SITE } = {}) {
+  const set = snap?.members?.length ? snap.currentSet : null;
+  const dj = set && (snap.members.find((m) => m.id === snap.hostId)?.name || set.artist);
+  const listeners = snap?.members?.length || 0;
+  const url = `${site}/r/${encodeURIComponent(id)}`;
+  const line = set ? [dj, STYLES[set.style]?.name, set.bpm && `${set.bpm} BPM`, `${listeners} listening`].filter(Boolean).join(' · ') : '';
+  const title = set ? `${set.title} — live in ${id}` : `Join ${id} on UNTERGRUND Club`;
+  const description = set ? `${line}. Tap to join the room and hear it in sync. Every set is made live in UNTERGRUND.`
+    : 'A live listening room for original machine music. Tap to join, or GO LIVE yourself.';
+  const image = set ? `${site}/api/page?og_room=${encodeURIComponent(id)}` : `${site}/social-card.png`;
+  const join = `/?room=${encodeURIComponent(id)}`;
+  const body = `<section class="pp-missing pp-room">
+    <span class="pp-eyebrow">${set ? 'LIVE ROOM' : 'CLUB ROOM'} · ${esc(id)}</span>
+    <h1>${esc(set ? set.title : `Room ${id}`)}</h1>
+    <p>${esc(set ? line : 'Nobody is live here right now.')}</p>
+    <a class="pp-play pp-cta" href="${esc(join)}"><span>Join the room</span></a>
+  </section>`;
+  return shell(meta({ title, description, url, image, alt: set ? `${set.title}, live in ${id}` : title }), body, { kind: 'room', site, id, join });
+}
+
 // Shared by api/page.js and server.mjs. Returns { status, type, body, cache }.
-export async function handlePage(query, { kv, crate, site = SITE, og }) {
+export async function handlePage(query, { kv, crate, site = SITE, og, rooms = null }) {
   const cache = 'public, max-age=60, s-maxage=300, stale-while-revalidate=86400';
+  const html = (status, body, c = cache) => ({ status, type: 'text/html; charset=utf-8', body, cache: c });
+  if (query.r || query.og_room) {
+    const id = cleanRoomId(query.r || query.og_room);
+    if (!ROOM_ID.test(id)) return { status: 302, location: '/?room=the-bunker' };
+    const snap = rooms ? (await rooms.get(id).catch(() => null))?.json : null;
+    const live = 'public, max-age=15, s-maxage=30, stale-while-revalidate=60';
+    if (query.og_room) {
+      const set = snap?.members?.length && snap.currentSet;
+      if (!set?.state) return { status: 302, location: `${site}/social-card.png` };
+      return { status: 200, type: 'image/png', body: og.ogImage(set.state, og.artSeed(`room:${id}:${set.broadcastId || set.title}`)), cache: live };
+    }
+    return html(200, renderRoomPage(id, snap, { site }), live);
+  }
   if (query.og) {
     const t = await publicTrack(kv, crate, query.og);
     if (!t) return { status: 302, location: '/social-card.png' };
     const { ogImage, artSeed } = og;
     return { status: 200, type: 'image/png', body: ogImage(t.track.state, artSeed(t.track.id)), cache: 'public, max-age=86400, s-maxage=31536000, immutable' };
   }
-  const html = (status, body, c = cache) => ({ status, type: 'text/html; charset=utf-8', body, cache: c });
   if (query.t) {
     const t = await publicTrack(kv, crate, query.t);
     if (t && crate?.children) t.remixes = await remixTree(crate, t.track.id).catch(() => []);
