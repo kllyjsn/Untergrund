@@ -1,10 +1,12 @@
 // Loudness: BS.1770 meter against known signals, then (in headless Chrome) a fast check that every genre's
-// full song still lands on its target. Full table: node scripts/loudness.mjs.
+// full song still lands on its target, and that the Describe song builder renders as loud as GENERATE.
+// Full table: node scripts/loudness.mjs.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { kWeighting, loudness, truePeak, dbtp, samplePeakDb, targetFor, MAKEUP_DB, PIECE_TRIM_DB, LOUDNESS_TARGET } from '../js/loudness.js';
 import { REPERTOIRE } from '../js/repertoire.js';
 import { STYLES } from '../js/state.js';
+import { SONG_STYLES } from '../js/song-spec.js';
 import { withChrome } from './chrome.mjs';
 
 const close = (a, b, tol, msg) => assert(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b} (±${tol})`);
@@ -74,14 +76,17 @@ for (const { id } of REPERTOIRE) {
   close(b.lufs, rep, PIECE_DRIFT, `${id} whole-score loudness in the baseline`);
   assert(b.tp <= LOUDNESS_TARGET.ceiling + 0.05, `${id} true peak ${b.tp} dBTP`);
 }
+// Window-to-window jitter between the two is under 0.5 LU and 0.4 dB of peak (30 genres, seed 42).
+const BUILDER_LU = 1, BUILDER_TP = 0.5;
 const t0 = Date.now();
 const now = await withChrome(async (runs) => {
-  const ids = Object.keys(STYLES), pieces = REPERTOIRE.map((p) => p.id), out = { styles: {}, pieces: {} };
-  let next = 0, nextPiece = 0;
+  const ids = Object.keys(STYLES), pieces = REPERTOIRE.map((p) => p.id), out = { styles: {}, pieces: {}, builder: [] };
+  let next = 0, nextPiece = 0, nextSong = 0;
   await Promise.all(runs.map(async (run) => {
     await run(`import('/test/loudness-page.js').then((m) => { window.__m = m; })`);
     while (next < ids.length) { const id = ids[next++]; out.styles[id] = await run(`window.__m.windowLoudness(${JSON.stringify(id)})`); }
     while (nextPiece < pieces.length) { const id = pieces[nextPiece++]; out.pieces[id] = await run(`window.__m.pieceWindow(${JSON.stringify(id)})`); }
+    while (nextSong < SONG_STYLES.length) { const id = SONG_STYLES[nextSong++]; out.builder.push(await run(`window.__m.builderWindow(${JSON.stringify(id)})`)); }
   }));
   return out;
 }, { pages: 4 });
@@ -99,5 +104,11 @@ else {
     if (Math.abs(pred - rep) > PIECE_DRIFT) drift.push(`${id}: ~${pred.toFixed(1)} LUFS (window ${w.toFixed(2)} vs ${b.window.toFixed(2)})`);
   }
   assert(!drift.length, `masterworks drifted more than ${PIECE_DRIFT} LU from ${rep} LUFS:\n  ${drift.join('\n  ')}\nre-measure with node scripts/loudness.mjs --pieces --write`);
-  console.log(`loudness: ${Object.keys(now.styles).length} genres within ±1.5 LU of target, ${Object.keys(now.pieces).length} masterworks within ±${PIECE_DRIFT} LU (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
+  const hot = [];
+  for (const { style, gen, builder } of now.builder) {
+    if (Math.abs(builder.lufs - gen.lufs) > BUILDER_LU || builder.tp > gen.tp + BUILDER_TP || builder.tp > LOUDNESS_TARGET.ceiling + 0.05)
+      hot.push(`${style}: song builder ${builder.lufs.toFixed(2)} LUFS ${builder.tp.toFixed(2)} dBTP vs GENERATE ${gen.lufs.toFixed(2)} LUFS ${gen.tp.toFixed(2)} dBTP`);
+  }
+  assert(!hot.length, `the song builder (js/song-spec.js) drifted from GENERATE's loudness (±${BUILDER_LU} LU, peak +${BUILDER_TP} dB):\n  ${hot.join('\n  ')}`);
+  console.log(`loudness: ${Object.keys(now.styles).length} genres within ±1.5 LU of target, ${Object.keys(now.pieces).length} masterworks within ±${PIECE_DRIFT} LU, ${now.builder.length} song-builder genres within ±${BUILDER_LU} LU of GENERATE (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
 }
