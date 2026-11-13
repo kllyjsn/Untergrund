@@ -78,7 +78,7 @@ const listen = (state) => Promise.race([import('./mix-check.js').then((m) => m.m
 // Before the first song, only whole-song prompts: edits like "darker" need a song to change.
 const FIRST_CHIPS = ['A sunrise drive song', 'Dark techno for 3am', 'A breakup country song'];
 const chipList = (ctx) => (ctx.fresh?.() ? FIRST_CHIPS : [songChip(ctx.style()), ...chipsFor(ctx.style())]);
-const placeholder = (ctx) => (lyricsOpen ? 'Describe the song: “sad indie, female vocal, 90 bpm”' : ctx.fresh?.() ? 'Or describe a song' : 'Try “darker”, “more swing”');
+const placeholder = (ctx) => (lyricsOpen ? 'Describe the song: “sad indie, female vocal, 90 bpm”' : ctx.fresh?.() ? 'Or describe a song' : `Try “${chipsFor(ctx.style()).slice(0, 2).join('”, “')}”`);
 const songChip = (style) => (/CLASSICAL|JAZZ/.test(STYLE_FAMILY(style)) ? 'A late-night rainy track' : 'A sunrise drive song');
 const STYLE_FAMILY = (id) => STYLES[id]?.family || '';
 // ctx: state(), style(), styleName(id), depth(), pushUndo(label), undo(), switchGenre(id, steer, label), song(spec, label, done(title, key), lyrics), commit(nextState), track(props), kind(),

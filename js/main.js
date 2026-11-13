@@ -1052,7 +1052,6 @@ const STYLE_HUE = {
   amapiano: '#f5c542', afrobeats: '#ff7b54', reggaeton: '#e83cff', bailefunk: '#4dff4d', trap: '#9b5cff', drill: '#5c7cff', jerseyclub: '#00ffd0', hyperpop: '#ff5ce1',
   pop: '#ff6fae', rnb: '#c77dff', rock: '#ff453a', folk: '#d4a373', country: '#e9b44c',
 };
-const LIVE_KIT_STYLES = new Set(['neosoul', 'boombap']);
 const BAND_STYLES = new Set(['pop', 'rnb', 'rock', 'folk', 'country']);
 const GROOVE_STYLES = new Set(['neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill', 'hyperpop', ...BAND_STYLES]);
 const SECTION_NAMES = {
@@ -1285,12 +1284,6 @@ function styleCard(id, value, isPlaying) {
   return card;
 }
 
-function statusLine() {
-  const s = STYLES[style];
-  const sound = BAND_STYLES.has(style) ? 'RECORDED BAND' : LIVE_KIT_STYLES.has(style) ? 'RECORDED DRUMS + BASS' : getSample().source === 'synth' ? 'SYNTHESIZED' : 'SYNTH + YOUR SAMPLES';
-  return [h('b', {}, s.name), h('span', {}, `${s.bpm[0]}–${s.bpm[1]} BPM`), h('span', {}, 'FULL ARRANGEMENT'), h('span', {}, sound)];
-}
-
 function buildNowPlaying(primary) {
   const a = state.artist || {};
   const sid = STYLES[a.style] ? a.style : style;
@@ -1445,9 +1438,7 @@ function buildGenerateHome() {
     h('div', { class: 'generate-actions' },
       studioOpen ? primary : h('div', { class: 'gen-wrap' }, primary, hum),
       made ? h('button', { class: 'btn refine-toggle', onclick: toggleStudio }, studioOpen ? 'HIDE STUDIO' : 'REFINE IN STUDIO') : null,
-      made ? h('button', { class: 'btn ghost', onclick: () => startArtistLive() }, 'ARTIST LIVE') : null,
       studioOpen ? hum : null),
-    made ? h('div', { class: 'generate-status' }, statusLine()) : null,
   ];
   const classical = STYLES[style].family === 'CLASSICAL' || !!(playing && pat()?.score);
   const concert = classical ? concertPanel({ state: () => state, engine: () => engine, ensureAudio, persist, score: pat()?.score || null, repertoire: style === 'repertoire', onPiece: playPiece, onComposer: setComposer, stopTransport: () => playing && stop() }) : null;
