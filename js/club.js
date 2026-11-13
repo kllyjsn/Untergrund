@@ -468,6 +468,15 @@ let parkedBus = null;
 // The room this tab is still broadcasting to after the Club was closed (shown as "YOU'RE LIVE" on Home).
 export const hostingRoom = () => parkedBus?.id || '';
 
+// The Club header shows one contextual primary action; everything else is secondary.
+export function clubActions({ isHost, live, canListen, queued, queueLength = 0 }) {
+  const queue = { id: queued ? 'unqueue' : 'queue', label: queued ? 'LEAVE QUEUE' : 'JOIN DJ QUEUE' };
+  if (canListen) return { primary: { id: 'listen', label: 'LISTEN LIVE' }, secondary: isHost ? [] : [queue] };
+  if (isHost && !live) return { primary: { id: 'live', label: 'GO LIVE' }, secondary: [] };
+  if (isHost) return { primary: null, secondary: [...(queueLength ? [{ id: 'pass', label: 'PASS DECK' }] : []), { id: 'rebroadcast', label: 'REBROADCAST' }] };
+  return queued ? { primary: null, secondary: [queue] } : { primary: queue, secondary: [] };
+}
+
 export function openClub({ getState, getStyle, loadTrack, getTransport, startRoomBroadcast, unlockAudio, joinRoomSet: joinSet, replayToRoom, jam: jamHooks = null, toast, room: requestedRoom = '', intent = '', hue = null }) {
   const joinRoomSet = (set) => { joinSet(set); bus?.follow(set); };
   let audioReady = false;
@@ -520,6 +529,12 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
   document.body.append(ov);
 
   const onKey = (e) => {
+    if (e.key === 'Escape' && editingRoom && e.target.closest?.('.club-room-input')) {
+      editingRoom = false;
+      render();
+      e.stopPropagation();
+      return;
+    }
     if (e.key === 'Escape') {
       if (lookOpen) closeLook();
       else close();
@@ -705,7 +720,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     };
     const head = h('div', { class: 'club-head' },
       h('div', { class: 'club-brand' }, h('i'), h('div', {}, h('b', {}, 'UNTERGRUND CLUB'), h('span', {}, 'original machine music only'))),
-      h('div', { class: 'club-head-actions' }, h('button', { class: 'btn ghost', onclick: () => close() }, 'CLOSE')));
+      h('div', { class: 'club-head-actions' }, h('button', { class: 'btn ghost club-close', onclick: () => close() }, 'CLOSE')));
     const n = rooms.length, people = rooms.reduce((s, r) => s + r.listeners, 0);
     const list = !dir.loaded ? h('p', { class: 'lobby-wait' }, 'Finding live rooms…')
       : n ? h('div', { class: 'lobby-rooms' }, rooms.map((r) => roomCard(r, { big: true, mine: r.id === hosting, hue, avatar: (dj) => avatarNode(dj, 'lr-avatar'), onJoin: () => enterRoom(r.id, 'lobby') })))
@@ -1001,32 +1016,30 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     if (!closed) render();
   }
   function band() {
-    if (!jamHooks || !bus?.serverConnected) return null;
-    const set = room.currentSet, jam = bus.jam, me = clientId();
+    const set = room.currentSet;
+    if (!jamHooks || !bus?.serverConnected || !jammable(set)) return null;
+    const jam = bus.jam, me = clientId();
     const isHost = !room.hostId || room.hostId === me;
-    const live = !!set && jammable(set);
     const open = jam?.open !== false;
     const mine = bus.myPart();
     const nameOf = (id) => id === me ? 'YOU' : room.members.find((member) => member.id === id)?.name || 'Listener';
-    const note = !set ? 'When a set is live, everyone in the room can take a part.'
-      : !live ? 'Replays and scores play as written. Jam opens on the next live set.'
-      : !open ? (isHost ? 'Band locked. Only you can take a part.' : 'The host locked the band.')
+    const note = !open ? (isHost ? 'Band locked. Only you can take a part.' : 'The host locked the band.')
       : mine ? 'Your moves land on the next bar for the whole room.' : 'Take a part. Every change lands on the bar, for everyone.';
     const cards = PART_IDS.map((part) => {
       const slot = jam?.parts?.[part] || {};
       const ours = slot.owner === me;
-      const roomWall = live && slot.layer && slot.step ? stepWall(set, slot.step) : 0;
+      const roomWall = slot.layer && slot.step ? stepWall(set, slot.step) : 0;
       const wall = Math.max(roomWall, ours ? jamHooks.pending(part) : 0);
       const muted = ours && PARTS[part].tracks.every((id) => getState().mutes?.[id]);
-      const when = live && wall > Date.now() ? h('small', { class: 'club-part-when due', 'data-wall': wall }, landText(wall, set))
-        : h('small', { class: 'club-part-when' }, ours ? (muted ? 'DROPPED OUT' : 'YOURS · STUDIO EDITS GO LIVE') : slot.owner ? 'PLAYING LIVE' : live ? 'ROOM MIX' : 'WAITING FOR A SET');
+      const when = wall > Date.now() ? h('small', { class: 'club-part-when due', 'data-wall': wall }, landText(wall, set))
+        : h('small', { class: 'club-part-when' }, ours ? (muted ? 'DROPPED OUT' : 'YOURS · STUDIO EDITS GO LIVE') : slot.owner ? 'PLAYING LIVE' : 'ROOM MIX');
       const actions = ours ? [
         h('button', { class: 'btn accent', onclick: () => playIdea(part, 'new') }, 'NEW'),
         h('button', { class: 'btn ghost', onclick: () => playIdea(part, 'vary') }, 'VARY'),
         h('button', { class: 'btn ghost', onclick: () => playIdea(part, 'drop') }, muted ? 'BRING IN' : 'DROP'),
         h('button', { class: 'btn ghost', onclick: () => jamSend({ action: 'release', part }) }, 'LET GO'),
       ] : slot.owner ? (isHost ? [h('button', { class: 'btn ghost', onclick: () => jamSend({ action: 'release', part }) }, 'FREE PART')] : [])
-        : [h('button', { class: 'btn club-queue', ...((!live || (!open && !isHost)) && { disabled: '' }), onclick: () => takePart(part) }, `TAKE ${PARTS[part].label}`)];
+        : [h('button', { class: 'btn club-queue', ...(!open && !isHost && { disabled: '' }), onclick: () => takePart(part) }, `TAKE ${PARTS[part].label}`)];
       return h('div', { class: `club-part${ours ? ' mine' : ''}${slot.owner ? ' taken' : ''}${landedPart === part ? ' landed' : ''}`, 'data-part': part },
         h('div', { class: 'club-part-head' }, h('b', {}, PARTS[part].label), h('span', {}, slot.owner ? nameOf(slot.owner) : 'OPEN')),
         when,
@@ -1036,11 +1049,14 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
       h('div', { class: 'club-band-head' },
         h('b', {}, 'JAM'),
         h('span', {}, note),
-        isHost && live ? h('button', { class: 'btn ghost', onclick: () => jamSend({ action: open ? 'lock' : 'open' }) }, open ? 'LOCK BAND' : 'OPEN BAND') : null),
+        isHost ? h('button', { class: 'btn ghost', onclick: () => jamSend({ action: open ? 'lock' : 'open' }) }, open ? 'LOCK BAND' : 'OPEN BAND') : null),
       h('div', { class: 'club-band-parts' }, cards));
   }
 
   let rendering = false;
+  let editingRoom = false;
+  let view = 'stage';
+  let lastSeen = null;
   function render() {
     const focused = modal.contains(document.activeElement) ? document.activeElement : null;
     const draft = focused?.dataset?.focusKey ? {
@@ -1056,13 +1072,20 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     if (lobby) { renderLobby(); restoreDraft(draft); return; }
     const invite = roomInviteUrl(activeRoom);
     const roomPublic = isRoomPublic(activeRoom);
-    const roomInput = h('input', {
-      class: 'inp club-room-input', value: activeRoom, maxlength: 32, 'aria-label': 'Room name', 'data-focus-key': 'room',
-      onkeydown: (e) => { if (e.key === 'Enter') commitRoom(e.target.value); },
-      onblur: (e) => { if (!rendering) commitRoom(e.target.value); },
-    });
+        const shareInvite = async () => {
+      trackEvent('share_link_copied', { what: 'room' });
+      if (navigator.share && matchMedia('(pointer: coarse)').matches) return navigator.share({ title: `UNTERGRUND Club · ${activeRoom}`, url: invite.toString() }).catch(() => {});
+      await navigator.clipboard?.writeText(invite.toString());
+      toast('Room link copied');
+    };
+    const endEdit = (value) => { editingRoom = false; commitRoom(value); render(); };
+    const roomSwitch = editingRoom ? h('input', {
+      class: 'inp club-room-input', value: activeRoom, maxlength: 32, 'aria-label': 'Room name', 'data-focus-key': 'room', enterkeyhint: 'go',
+      onkeydown: (e) => { if (e.key === 'Enter') endEdit(e.target.value); },
+      onblur: (e) => { if (!rendering) endEdit(e.target.value); },
+    }) : h('button', { class: 'club-room-btn', title: 'Switch room', onclick: () => { editingRoom = true; render(); } },
+      h('span', {}, 'ROOM'), h('b', {}, activeRoom));
     const isHost = !room.hostId || room.hostId === clientId();
-    const queued = room.queue?.includes(clientId());
     const syncAudio = async () => {
       await unlock();
       const set = pendingSet || room.currentSet;
@@ -1072,31 +1095,56 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
       }
       render();
     };
+    const { primary, secondary } = clubActions({
+      isHost,
+      live: !!room.currentSet,
+      canListen: !!room.currentSet && !getTransport().playing && shouldJoin(room.currentSet),
+      queued: !!room.queue?.includes(clientId()),
+      queueLength: room.queue?.length || 0,
+    });
+    const run = { listen: syncAudio, live: broadcastSet, rebroadcast: broadcastSet, queue: broadcastSet, unqueue: broadcastSet, pass: () => bus.send('deck', { action: 'pass' }) };
+    const actionBtns = () => [
+      ...secondary.map((a) => h('button', { class: 'btn ghost club-secondary', onclick: () => run[a.id]() }, a.label)),
+      primary ? h('button', { class: 'btn accent club-primary', onclick: () => run[primary.id]() }, primary.label) : null,
+    ];
     const head = h('div', { class: 'club-head' },
       h('div', { class: 'club-brand' }, h('i'), h('div', {}, h('b', {}, 'UNTERGRUND CLUB'), h('span', {}, 'original machine music only'))),
-      h('div', { class: 'club-room-name' }, h('span', {}, 'ROOM'), roomInput,
+      h('div', { class: 'club-room-name' },
+        liveDirectory().enabled ? h('button', { class: 'btn ghost club-rooms-btn', title: 'Live rooms', onclick: () => showLobby() }, 'ROOMS') : null,
+        roomSwitch,
         isHost ? h('button', { class: `btn ghost club-privacy${roomPublic ? '' : ' private'}`, 'aria-pressed': String(!roomPublic), title: roomPublic ? 'Listed in LIVE NOW. Tap to make it link-only.' : 'Link-only. Tap to list it in LIVE NOW.', onclick: () => togglePublic() },
           h('i', { 'aria-hidden': 'true' }), roomPublic ? 'PUBLIC' : 'PRIVATE') : null),
       h('div', { class: 'club-head-actions' },
-        liveDirectory().enabled ? h('button', { class: 'btn ghost club-rooms-btn', onclick: () => showLobby() }, 'ROOMS') : null,
-        h('button', { class: 'btn ghost', onclick: async () => { await navigator.clipboard?.writeText(invite); trackEvent('share_link_copied', { what: 'room' }); toast('Room link copied'); } }, 'COPY INVITE'),
-        room.currentSet && !getTransport().playing && shouldJoin(room.currentSet) ? h('button', { class: 'btn accent', onclick: syncAudio }, 'JOIN LIVE AUDIO') : null,
-        h('button', { class: `btn ${isHost ? 'accent' : 'club-queue'}`, onclick: broadcastSet },
-          isHost ? (room.currentSet ? 'REBROADCAST SET' : 'GO LIVE') : (queued ? 'LEAVE DJ QUEUE' : 'JOIN DJ QUEUE')),
-        isHost && room.queue?.length ? h('button', { class: 'btn club-queue', onclick: () => bus.send('deck', { action: 'pass' }) }, 'PASS DECK') : null,
+        actionBtns(),
+        h('button', { class: 'btn ghost club-invite', onclick: () => shareInvite() }, 'INVITE'),
         lookButton(),
-        h('button', { class: 'btn ghost', onclick: close }, 'CLOSE')));
-    const jamBand = band();
-    modal.classList.toggle('has-band', !!jamBand);
+        h('button', { class: 'btn ghost club-close', onclick: () => close() }, 'CLOSE')));
+    if (view === 'chat') lastSeen = messages[messages.length - 1] || null;
+    const unread = messages.length - (messages.indexOf(lastSeen) + 1);
+    const showView = (next) => {
+      view = next;
+      render();
+      if (next === 'chat') modal.querySelector('[data-focus-key="chat"]')?.focus();
+    };
+    // Phone: one action above the tab bar, and a one-tap switch between the stage and the room chat.
+    const dock = h('div', { class: `club-dock${primary ? ' has-primary' : ''}` },
+      actionBtns(),
+      h('button', { class: 'btn ghost club-view-toggle', 'aria-pressed': String(view === 'chat'), onclick: () => showView(view === 'chat' ? 'stage' : 'chat') },
+        view === 'chat' ? 'STAGE' : 'CHAT', view !== 'chat' && unread > 0 ? h('b', {}, String(Math.min(unread, 99))) : null));
+    const names = (room.queue || []).map((id) => room.members.find((member) => member.id === id)?.name || 'Listener');
+    const upNext = names.length ? h('div', { class: 'club-upnext' }, h('span', {}, 'UP NEXT'), h('b', {}, names.join(' · '))) : null;
+    modal.classList.toggle('view-chat', view === 'chat');
     modal.append(head,
-      jamBand || '',
-      h('div', { class: 'club-main' }, stage(), chatPanel()),
-      h('footer', { class: 'club-footer' },
-        h('div', { class: 'club-principle' },
-          h('b', {}, '100% UNTERGRUND-NATIVE'),
-          h('span', {}, 'Every set in every room is created inside the instrument. No imported catalog. No passive playlist.'),
-          h('small', {}, room.queue?.length ? `UP NEXT · ${room.queue.map((id) => room.members.find((member) => member.id === id)?.name || 'Listener').join(' · ')}` : 'DJ QUEUE OPEN'))),
+      h('div', { class: 'club-main' },
+        h('div', { class: 'club-stage-col' }, stage(), upNext, band()),
+        chatPanel()),
+      dock,
       lookOpen ? lookSheet() : '');
+    if (editingRoom && !draft) {
+      const input = modal.querySelector('[data-focus-key="room"]');
+      input?.focus({ preventScroll: true });
+      input?.select();
+    }
     restoreDraft(draft);
   }
 

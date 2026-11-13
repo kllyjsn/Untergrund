@@ -79,15 +79,17 @@
 .lobby-back::before { content: '← '; }
 .lobby-back:hover { color: var(--text); }
 
-/* Privacy toggle next to the room name; ROOMS sits in the brand row on phone so the action grid keeps its shape. */
-.club-room-name:has(.club-privacy) { max-width: 470px; }
-.club-privacy { flex: none; height: 32px; padding: 0 10px; font-size: 9px; }
+/* ROOMS and the privacy toggle flank the room name in the head. */
+.club-rooms-btn, .club-privacy { flex: none; height: 32px; padding: 0 10px; font-size: 9px; }
 .club-privacy i { display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 50%; background: var(--green); vertical-align: 1px; }
 .club-privacy.private i { background: transparent; box-shadow: inset 0 0 0 1px var(--dim); }
 
-@media (max-width: 560px) {
-  .club-head { position: sticky; }
-  .club-head .club-rooms-btn { position: absolute; top: calc(9px + env(safe-area-inset-top)); right: 9px; height: 32px; padding: 0 12px; }
+@media (max-width: 760px) {
+  /* ROOMS takes the brand's slot on phone, so the head stays one row. */
+  .club-head:has(.club-rooms-btn) .club-brand { display: none; }
+  .club-room-name { gap: 6px; }
+  .club-rooms-btn, .club-privacy { height: 36px; padding: 0 8px; }
+  .club-privacy i { margin-right: 5px; }
 }
 @media (max-width: 760px) {
   .club-lobby { grid-template-columns: minmax(0,1fr); padding: 20px 16px calc(32px + env(safe-area-inset-bottom)); gap: 20px; }
