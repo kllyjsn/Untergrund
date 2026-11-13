@@ -3,7 +3,8 @@
 // (master macros, track params, swing, bpm, scale/key, density, voices, mutes/locks, genre).
 // No network, no paid API. An optional interpreter can be plugged in later via interpret({ remote }).
 import { SCALES, KEYS, CHORDS, TRACK_IDS, TRACK_BY_ID, MASTER_PARAMS, STEPS } from './params.js';
-import { STYLES, mutate, clone, hookLine } from './state.js';
+import { STYLES, mutate, clone, hookLine, songKind } from './state.js';
+import { toSections, sectionNames } from './timeline.js';
 import { rng } from './dsp.js';
 import { patternAt, setTake, remapTakes, changedBars, barsLabel } from './scope.js';
 
@@ -546,11 +547,31 @@ function followUp(text, ctx) {
 
 // ---------------- sections ----------------
 // "no kick in the breakdown", "longer intro", "make the drop bigger" edit one part of the song. Scenes come from
-// arrangement(): 0 intro, 1 build, 2 verse, 3 fill, 4-5 breakdown, 6-7 drop; the chain plays them as letters A-H.
+// arrangement(): 0 intro, 1 build, 2 verse, 3 fill, 4-5 breakdown, 6-7 drop; the chain plays them as letters A-H. With song mode off
+// these patterns are what a section edit changes; in song mode it follows the timeline's labels (sectionRuns).
 export const SECTION = {
   intro: { p: [0], c: 'A', run: 'first' }, outro: { p: [0, 1], c: 'AB', main: 'A', run: 'last' }, build: { p: [1], c: 'B' },
   verse: { p: [2], c: 'C' }, breakdown: { p: [4, 5], c: 'EF', main: 'E' }, drop: { p: [6, 7], c: 'GH', main: 'G' },
 };
+// In song mode a section means the timeline blocks with that label (custom labels included), so "the second
+// drop" is the second block labelled DROP. Neighbouring blocks with the same label (BREAK, BREAK) are one pass.
+const SEC_LABEL = { intro: ['INTRO'], outro: ['OUTRO'], build: ['BUILD', 'BUILDUP', 'RISER'], verse: ['VERSE'],
+  breakdown: ['BREAK', 'BREAKDOWN', 'BRIDGE'], drop: ['DROP', 'HOOK', 'CHORUS', 'PEAK'] };
+export function sectionRuns(chain, sec, kind = 'club', labels = {}) {
+  const blocks = toSections(chain), names = sectionNames(blocks, kind, labels), out = [];
+  let at = 0, prev = null;
+  blocks.forEach((b, i) => {
+    const name = names[i].replace(/[\s\d]+$/, '').replace(/\s+/g, '');
+    if (SEC_LABEL[sec]?.includes(name)) {
+      const last = out[out.length - 1];
+      if (last && prev === name && last.index + last[0].length === at) last[0] += chain.slice(at, at + b.bars);
+      else out.push(Object.assign([chain.slice(at, at + b.bars)], { index: at }));
+      prev = name;
+    } else prev = null;
+    at += b.bars;
+  });
+  return out;
+}
 const SEC_WORD = { intro: 'intro', intros: 'intro', opening: 'intro', start: 'intro', beginning: 'intro', outro: 'outro', ending: 'outro', end: 'outro',
   build: 'build', buildup: 'build', builds: 'build', riser: 'build', verse: 'verse', verses: 'verse', groove: 'verse', breakdown: 'breakdown', breakdowns: 'breakdown',
   break: 'breakdown', bridge: 'breakdown', drop: 'drop', drops: 'drop', chorus: 'drop', choruses: 'drop', peak: 'drop', climax: 'drop' };
@@ -1182,13 +1203,7 @@ export function applyEdits(state, edits, { seed = 1, style } = {}) {
         // The passes of this section in the chain, as [start, length] (nth picks one of them).
         let runs = [];
         if (sd && chain) {
-          const main = sd.main || sd.c[0];
-          runs = [...chain.matchAll(new RegExp(`[${sd.c}]+`, 'g'))].filter((m) => m[0].includes(main));
-          if (sd.run === 'first') runs = runs.filter((m) => m.index === 0);
-          if (sd.run === 'last') runs = runs.filter((m) => m.index + m[0].length === chain.length);
-          // The B bars that wind the song down belong to the outro, not to a build.
-          const outro = chain.match(/[AB]*A$/);
-          if (e.sec === 'build' && outro) runs = runs.filter((m) => m.index < outro.index || m.index === 0);
+          runs = sectionRuns(chain, e.sec, songKind(style), S.labels);
           if (e.nth) runs = [e.nth < 0 ? runs[runs.length + e.nth] : runs[e.nth - 1]].filter(Boolean);
         }
         let spots = null;
@@ -1198,8 +1213,8 @@ export function applyEdits(state, edits, { seed = 1, style } = {}) {
           spots = [];
           for (let q = a0; q <= a1; q++) spots.push(q);
           if (!spots.length) { skipped.push(`${e.src} (the song has ${n} bars)`); continue; }
-        } else if (chain && (e.nth || e.op === 'tension' || runs.length)) spots = runs.flatMap((m) => [...m[0]].map((_, k) => m.index + k));
-        if (scoped && sd && !runs.length) { skipped.push(`no ${ORDINAL[e.nth] || ''}${e.sec} in this song`); continue; }
+        } else if (chain) spots = runs.flatMap((m) => [...m[0]].map((_, k) => m.index + k));
+        if (chain && sd && !runs.length) { skipped.push(`no ${ORDINAL[e.nth] || ''}${e.sec} in this song`); continue; }
         const secName = byBar ? barsLabel(spots) : e.nth ? `${ORDINAL[e.nth]}${e.sec}` : e.sec;
         const where = byBar ? `in ${secName}` : `in the ${secName}`;
         const tr = (e.tracks || []).filter((id) => TRACK_IDS.includes(id) && !locked(id));
@@ -1218,13 +1233,13 @@ export function applyEdits(state, edits, { seed = 1, style } = {}) {
           if (!S.chainOn) { skipped.push(`${e.src || e.sec} (song mode is off)`); continue; }
           if (byBar) { skipped.push(`${e.src} (name a section to make it longer, shorter or skip it)`); continue; }
           if (!runs.length) { skipped.push(`no ${e.sec} in this song`); continue; }
-          const main = sd.main || sd.c[0];
           let c = S.chain;
           for (const m of [...runs].reverse()) {
             const run = m[0];
             let next = '';
+            const end = e.sec === 'outro', main = end ? run[run.length - 1] : run[0];
             if (op === 'skip') next = '';
-            else if (a > 0) { const n = Math.max(2, Math.round(run.length * 0.5 * a)); next = sd.run === 'last' ? run + main.repeat(n) : main.repeat(n) + run; }
+            else if (a > 0) { const n = Math.max(2, Math.round(run.length * 0.5 * a)); next = end ? run + main.repeat(n) : main.repeat(n) + run; }
             else next = run.slice(Math.min(run.length - 1, Math.max(1, Math.round(run.length * 0.5 * Math.abs(a)))));
             c = c.slice(0, m.index) + next + c.slice(m.index + run.length);
           }
