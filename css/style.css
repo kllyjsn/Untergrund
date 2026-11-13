@@ -1149,7 +1149,7 @@ body.recording .np-actions .btn.rec .dot { background: var(--accent); animation:
 .describe-lyrics-sec { color: var(--hue); font: 700 10px var(--mono); letter-spacing: .14em; }
 .describe-lyrics-meta { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim2); font: 500 10px var(--mono); letter-spacing: .12em; }
 .describe-lyrics-lines { margin: 0; padding: 0; list-style: none; max-height: 9.5em; overflow-y: auto; scrollbar-width: none; }
-.describe-lyrics-lines li { color: #8e8e98; font: 500 15px/1.55 var(--sans); transition: color .2s; }
+.describe-lyrics-lines li { color: #8e8e98; font: 500 15px/1.55 var(--sans); transition: color .2s; overflow-wrap: anywhere; }
 .describe-lyrics-lines li.now { color: #fff; }
 .describe-did b { color: var(--hue); font-weight: 700; }
 .describe-did em { color: #94949e; font-style: normal; }

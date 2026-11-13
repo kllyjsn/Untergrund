@@ -1,7 +1,7 @@
 // Prompt-to-song plans and lyrics: plan schema, the rule fallback, the /api/song-plan endpoint, lyric splitting,
 // syllable slots, playback sync, and that lyrics survive sanitize, save and share links.
 import assert from 'node:assert/strict';
-import { validatePlan, rulePlan, planEdits, planLyrics, isSongPrompt, styleFor, lyricLines, PLAN_SYSTEM } from '../js/song-plan.js';
+import { validatePlan, promptGenre, rulePlan, planEdits, planLyrics, isSongPrompt, styleFor, lyricLines, PLAN_SYSTEM } from '../js/song-plan.js';
 import { splitLyrics, cleanLyrics, syllableCount, lineSlots, lyricTimeline, lyricLabels, lyricsText, LIMITS } from '../js/lyrics.js';
 import { applyEdits } from '../js/describe.js';
 import { defaultState, sanitize, generate, applyOverrides, arrangement, songChain, STYLES } from '../js/state.js';
@@ -189,11 +189,20 @@ t('sanitize: lyrics kept, bounded and cleaned', () => {
   assert.equal(back.lyrics.vocal, 'female');
   const dirty = sanitize({ ...s, lyrics: { v: 9, prompt: 'p\u0000'.repeat(500), vocal: 'robot', title: 7, sections: [{ sec: 'verse', lines: ['a\u202Eb', { t: 'x'.repeat(500), n: -4 }] }, { sec: 'evil', lines: ['no'] }, 'junk'], extra: { x: 1 } } });
   assert.equal(dirty.lyrics.vocal, undefined);
+  assert.equal(dirty.lyrics.sections[0].lines[0].t, 'a b');
+  const bidi = cleanLyrics({ sections: [{ sec: 'verse', lines: ['\u2066evil\u2069 \u202Etxet\u202C\u200F\uFEFF ok'] }] });
+  assert.ok(!/[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/.test(bidi.sections[0].lines[0].t), bidi.sections[0].lines[0].t);
   assert.ok(dirty.lyrics.prompt.length <= 200 && !/\u0000/.test(dirty.lyrics.prompt));
   assert.deepEqual(dirty.lyrics.sections.map((x) => x.sec), ['verse']);
   assert.ok(dirty.lyrics.sections[0].lines.every((l) => l.t.length <= LIMITS.line && l.n === syllableCount(l.t)));
   assert.equal(dirty.lyrics.extra, undefined);
   for (const junk of [null, 5, 'x', [], { sections: 'no' }, { sections: [] }]) assert.equal(sanitize({ ...s, lyrics: junk }).lyrics, undefined, JSON.stringify(junk));
+});
+t('promptGenre: the genre a prompt names, whatever is playing', () => {
+  assert.equal(promptGenre('sad indie song about leaving LA, female vocal, 90 bpm'), 'neosoul');
+  assert.equal(promptGenre('dark trap song about money, male rap, 145 bpm'), 'trap');
+  assert.equal(promptGenre('A sunrise drive song'), null);
+  for (const style of ['neosoul', 'breaks', 'deephouse']) assert.equal(rulePlan('sad indie song about leaving LA, 90 bpm', '', { style }).style, 'neosoul');
 });
 t('sanitize: projects without lyrics are unchanged', () => {
   const s = songFor('deephouse');

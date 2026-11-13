@@ -2,7 +2,7 @@
 import { h } from './ui.js';
 import { parse, applyEdits, genreOf, suggest, chipsFor, mergeEdits, needsMix, mixAdjust, heard, validateEdits } from './describe.js';
 import { privacyOptOut } from './analytics.js';
-import { isSongPrompt as isPlanPrompt, rulePlan, planEdits, planLyrics, validatePlan, lyricLines } from './song-plan.js';
+import { isSongPrompt as isPlanPrompt, promptGenre, rulePlan, planEdits, planLyrics, validatePlan, lyricLines } from './song-plan.js';
 import { cleanLyrics, splitLyrics, lyricTimeline, lyricLabels, lyricsText, LIMITS } from './lyrics.js';
 import { isSongPrompt, localSpec, validateSpec, SONG_STYLES } from './song-spec.js';
 import { KEYS } from './params.js';
@@ -51,11 +51,11 @@ async function askAI(text, style) {
 }
 // A whole song from one sentence: the server's model (or its rules, with no key) writes a validated spec;
 // offline or on any error the same rules run here, so a song always arrives.
-// plan: the plan rules' read of the prompt; its genre ("indie", "trap") and explicit BPM win over the spec rules'.
-async function askSong(text, style, plan = null) {
+// hint: the plan rules' read of the prompt; a genre it names ("indie", "trap") and an explicit BPM win over the spec rules'.
+async function askSong(text, style, hint = {}) {
   const local = () => {
-    const sp = localSpec(text, { style }), pick = SONG_STYLES.includes(plan?.style) && plan.style !== style ? plan.style : sp.style;
-    return pick === sp.style && plan?.bpm == null ? sp : validateSpec({ ...sp, style: pick, bpm: plan?.bpm ?? sp.bpm }, { style: pick, prompt: text });
+    const sp = localSpec(text, { style }), pick = SONG_STYLES.includes(hint.genre) ? hint.genre : sp.style;
+    return pick === sp.style && hint.bpm == null ? sp : validateSpec({ ...sp, style: pick, bpm: hint.bpm ?? sp.bpm }, { style: pick, prompt: text });
   };
   if (navigator.onLine === false) return local();
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 10000);
@@ -254,7 +254,7 @@ export function describeBar(ctx) {
     paint();
     // The plan rules read words the spec rules don't ("indie", "female vocal"); the vocal is kept for the singer.
     const plan = rulePlan(text, '', { style }), meta = plan ? cleanLyrics(planLyrics(plan, text)) : null;
-    return askSong(text, style, plan).then((spec) => {
+    return askSong(text, style, { genre: promptGenre(text), bpm: plan?.bpm }).then((spec) => {
       if (mine !== ticket) return;
       hint = null; draft = ''; recent = null; net = null;
       const label = `“${text.length > 32 ? text.slice(0, 31) + '…' : text}”`;

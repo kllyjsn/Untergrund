@@ -8,7 +8,7 @@ export const VOCALS = ['female', 'male', 'duet', 'choir'];
 export const LIMITS = { sections: 16, lines: 16, total: 64, line: 100, text: 4000 };
 export const SEC_LABEL = { intro: 'INTRO', verse: 'VERSE', pre: 'PRE-CHORUS', chorus: 'CHORUS', bridge: 'BRIDGE', outro: 'OUTRO' };
 
-const ctrl = /[\u0000-\u0008\u000b-\u001f\u007f]/g;
+const ctrl = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g;
 export const cleanText = (v, max) => String(v ?? '').replace(ctrl, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 
 // ---------------- syllables ----------------

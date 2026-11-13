@@ -162,11 +162,16 @@ export function isSongPrompt(text, lyrics = '') {
   return /\b(?:song|ballad|anthem|lyrics?)\b/.test(t) || /\b(?:track|tune|piece|banger|beat)\s+about\b/.test(t) || /\b(?:female|male|woman|man|girl|guy|boy)\s+(?:vocals?|voice|singer|rap|rapper)\b/.test(t);
 }
 
+// The sound words of a prompt: no topic, tempo, key or vocal.
+const soundOf = (text) => text.replace(ABOUT, ' ').replace(/\b\d{2,3}\s*bpm\b/gi, ' ').replace(/\b(?:in\s+)?(?:the\s+key\s+of\s+)?[a-g](?:#|b|\s+sharp|\s+flat)?\s+(?:major|minor|dorian|phrygian)\b/gi, ' ').replace(VOCAL_RE, ' ').replace(FILLER, ' ').replace(/\s*,\s*(?:,\s*)*/g, ', ').replace(/\s+/g, ' ').replace(/^[\s,]+|[\s,]+$/g, '');
+// The genre a prompt names ("indie" -> neosoul), or null when it names none.
+export const promptGenre = (prompt) => styleFor(soundOf(cleanText(prompt, PLAN_LIMITS.prompt)));
+
 export function rulePlan(prompt, lyricsText = '', { style = null } = {}) {
   const text = cleanText(prompt, PLAN_LIMITS.prompt);
   const about = (text.match(ABOUT)?.[1] || '').trim();
   const vocalWords = text.match(VOCAL_RE) || [];
-  const sound = text.replace(ABOUT, ' ').replace(/\b\d{2,3}\s*bpm\b/gi, ' ').replace(/\b(?:in\s+)?(?:the\s+key\s+of\s+)?[a-g](?:#|b|\s+sharp|\s+flat)?\s+(?:major|minor|dorian|phrygian)\b/gi, ' ').replace(VOCAL_RE, ' ').replace(FILLER, ' ').replace(/\s*,\s*(?:,\s*)*/g, ', ').replace(/\s+/g, ' ').replace(/^[\s,]+|[\s,]+$/g, '');
+  const sound = soundOf(text);
   const edits = parse(text.replace(ABOUT, ' '), { style, noSection: true }).edits;
   const value = (id) => edits.find((e) => e.id === id)?.value;
   const target = styleFor(sound) || (STYLES[style] ? style : 'deephouse');
