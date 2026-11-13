@@ -787,6 +787,8 @@ function vampFor(style, c, r) {
 }
 
 const GROOVE = new Set(['neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill']);
+// Which section names the timeline shows for a style (timeline.js ROLES).
+export const songKind = (style) => (GROOVE.has(style) ? 'groove' : 'club');
 // Song forms in 8-bar phrases (16 for techno), about 3 minutes. Groove styles: intro, verse, hook, verse, hook,
 // bridge on the alt changes, a doubled last hook, outro. Each phrase ends on a fill or half-time bar (D/H) as its
 // turnaround, and a generated song (state.ending) closes on one final downbeat instead of looping straight back.

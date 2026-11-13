@@ -58,13 +58,15 @@ export function driveCurve(amount, scale = 1) {
   return c;
 }
 
-// Waveshaper input is clamped to [-1, 1]. Transparent below 0.88, smooth knee up to a 0.98 ceiling (~ -0.2 dBFS).
-export function clipCurve() {
+// Transparent below 0.88, smooth knee up to a 0.98 ceiling (~ -0.2 dBFS). A WaveShaper clamps its input to [-1, 1],
+// which flat-tops anything louder; with `headroom` the input is pre-scaled by 1/headroom and the knee keeps rounding
+// peaks up to +20*log10(headroom) dB over full scale instead.
+export function clipCurve(headroom = 1) {
   const n = 8192;
   const c = new Float32Array(n);
   const knee = 0.88, ceil = 0.98, w = ceil - knee;
   for (let i = 0; i < n; i++) {
-    const x = (i / (n - 1)) * 2 - 1;
+    const x = ((i / (n - 1)) * 2 - 1) * headroom;
     const a = Math.abs(x);
     const y = a < knee ? a : knee + w * Math.tanh((a - knee) / w);
     c[i] = Math.sign(x) * y;

@@ -287,8 +287,9 @@ extension WebViewModel: WKDownloadDelegate {
         completionHandler: @escaping (URL?) -> Void
     ) {
         let cleanName = suggestedFilename.isEmpty ? "UNTERGRUND.wav" : suggestedFilename
-        let destination = FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(UUID().uuidString)-\(cleanName)")
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let destination = folder.appendingPathComponent(cleanName)
         downloadDestinations[ObjectIdentifier(download)] = destination
         completionHandler(destination)
     }

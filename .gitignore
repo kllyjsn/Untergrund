@@ -9,3 +9,4 @@ js/vendor/
 # Suno A/B references: local, user-supplied, never committed or deployed (docs/suno-benchmark.md)
 suno-lab/
 /suno/
+ios/build/

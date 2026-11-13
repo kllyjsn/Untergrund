@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { parse, applyEdits, describe, validateEdits, interpret, genreOf, suggest, CHIPS, chipsFor, needsMix, mixAdjust, TYPICAL, heard } from '../js/describe.js';
 import { patternAt, changedBars } from '../js/scope.js';
-import { defaultState, generate, sanitize, clone, applyOverrides, arrangement, songChain, STYLES } from '../js/state.js';
+import { defaultState, generate, sanitize, clone, applyOverrides, arrangement, songChain, STYLES, songKind } from '../js/state.js';
+import { toSections, sectionNames } from '../js/timeline.js';
 
 let fails = 0;
 const t = (name, fn) => { try { fn(); } catch (e) { fails++; console.error('FAIL', name, '\n ', e.message); } };
@@ -325,11 +326,23 @@ function noteLog(state) {
     return out.map((l) => l.join('\n'));
   } finally { Math.random = rnd; }
 }
-const runsOf = (chain, letters) => [...chain.matchAll(new RegExp(`[${letters}]+`, 'g'))].map((m) => [...m[0]].map((_, k) => m.index + k));
 const span = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+// The bars of each pass the timeline labels with one of names (neighbouring blocks with the same label are one pass).
+const labelled = (chain, kind, names, labels = {}) => {
+  const blocks = toSections(chain), shown = sectionNames(blocks, kind, labels), out = [];
+  let at = 0;
+  blocks.forEach((b, i) => {
+    if (names.includes(shown[i])) {
+      if (out.length && shown[i - 1] === shown[i] && out[out.length - 1].at(-1) === at - 1) out[out.length - 1].push(...span(at, at + b.bars - 1));
+      else out.push(span(at, at + b.bars - 1));
+    }
+    at += b.bars;
+  });
+  return out;
+};
 for (const style of ['deephouse', 'hypnotic']) {
-  const base = songFor(style), n = base.chain.length, log0 = noteLog(base);
-  const drops = runsOf(base.chain, 'GH').filter((r) => r.some((q) => base.chain[q] === 'G'));
+  const base = songFor(style), n = base.chain.length, log0 = noteLog(base), kind = songKind(style);
+  const drops = labelled(base.chain, kind, ['DROP', 'HOOK']);
   const SCOPED = [
     ['no hats in bars 9-16', span(8, 15)],
     ['mute the kick in bar 17', [16]],
@@ -341,11 +354,11 @@ for (const style of ['deephouse', 'hypnotic']) {
     ['make the second drop bigger', drops[1]],
     ['make the chorus hit harder', drops.flat()],
     ['no hats in the last drop', drops[drops.length - 1]],
-    ['strip the hats out of the breakdown', runsOf(base.chain, 'EF').flat()],
-    ['more tension in the build', runsOf(base.chain, 'B')[0]],
+    ['strip the hats out of the breakdown', labelled(base.chain, kind, ['BREAK', 'BRIDGE']).flat()],
+    ['more tension in the build', labelled(base.chain, kind, ['BUILD']).flat()],
     ['more tension in the last 4 bars', span(n - 4, n - 1)],
     ['sparser hats in bars 33-40', span(32, 39)],
-    ['no kick and snare in the intro', runsOf(base.chain, 'A')[0]],
+    ['no kick and snare in the intro', labelled(base.chain, kind, ['INTRO']).flat()],
   ];
   for (const [text, want] of SCOPED) t(`${style}: "${text}" changes only its bars`, () => {
     const r = describe(text, base, { style, seed: 3 });
@@ -372,6 +385,52 @@ for (const style of ['deephouse', 'hypnotic']) {
     const lb = noteLog(b), lp = noteLog(plain), moved = lb.map((l, i) => (l !== lp[i] ? i : -1)).filter((i) => i >= 0);
     const want = new Set(drops[1].map((q) => q + d));
     assert.ok(moved.length && moved.every((q) => want.has(q) || want.has(q + 1)), `moved ${moved} want ${[...want]}`);
+  });
+}
+{
+  // Describe's section words follow the timeline's labels, custom ones included.
+  const club = songFor('hypnotic'), names = sectionNames(toSections(club.chain), 'club', {});
+  const blockStarts = (want) => { let at = 0; return toSections(club.chain).flatMap((b, i) => { const a = at; at += b.bars; return names[i] === want ? [[a, a + b.bars - 1]] : []; }); };
+  const dropBlocks = blockStarts('DROP');
+  t('"the second drop" is the second block labelled DROP', () => {
+    const r = describe('bass up an octave in the second drop', club, { style: 'hypnotic', seed: 3 });
+    assert.deepEqual(r.bars, span(...dropBlocks[1]));
+  });
+  t('"the first drop" is the first DROP block, even when its pattern is C', () => {
+    const r = describe('no hats in the first drop', club, { style: 'hypnotic', seed: 3 });
+    assert.equal(club.chain[dropBlocks[0][0]], 'C');
+    assert.deepEqual(r.bars, span(...dropBlocks[0]));
+  });
+  t('a FILL bar after a drop is not part of the drop', () => {
+    const r = describe('make the drop hit harder', club, { style: 'hypnotic', seed: 3 });
+    const fills = new Set(blockStarts('FILL').flatMap(([a, b]) => span(a, b)));
+    assert.ok(r.did.length && !(r.bars || []).some((q) => fills.has(q)), `${r.bars}`);
+  });
+  t('no block labelled VERSE in a club song: the verse edit is skipped, not sent to the DROP', () => {
+    const r = describe('no hats in the verse', club, { style: 'hypnotic', seed: 3 });
+    assert.equal(r.did.length, 0);
+    assert.ok(r.skipped.some((x) => /no verse/.test(x)), r.skipped.join(', '));
+  });
+  t('a custom label renames the section Describe edits', () => {
+    const named = { ...clone(club), labels: { C: 'VERSE' } };
+    const v = describe('no hats in the verse', named, { style: 'hypnotic', seed: 3 });
+    const c = [...club.chain].map((ch, q) => (ch === 'C' ? q : -1)).filter((q) => q >= 0);
+    assert.deepEqual(v.bars, c);
+    const d = describe('bass up an octave in the first drop', named, { style: 'hypnotic', seed: 3 });
+    assert.equal(club.chain[d.bars[0]], 'G');
+  });
+  t('a shorter drop trims each DROP block and leaves the FILL bars', () => {
+    const r = describe('make the drop shorter', club, { style: 'hypnotic', seed: 3 });
+    assert.ok(r.state.chain.length < club.chain.length, r.skipped.join(', '));
+    const after = sectionNames(toSections(r.state.chain), 'club', {});
+    assert.equal(after.filter((x) => x === 'DROP').length, names.filter((x) => x === 'DROP').length);
+    assert.equal([...r.state.chain].filter((x) => x === 'D' || x === 'H').length, [...club.chain].filter((x) => x === 'D' || x === 'H').length);
+  });
+  const groove = songFor('deephouse'), hooks = labelled(groove.chain, 'groove', ['HOOK']);
+  t('groove songs: "the second chorus" is the second HOOK pass', () => {
+    const r = describe('no hats in the second chorus', groove, { style: 'deephouse', seed: 3 });
+    assert.ok(r.did.length, r.skipped.join(', '));
+    assert.ok(r.bars.every((q) => hooks[1].includes(q)), `${r.bars} vs ${hooks[1]}`);
   });
 }
 {

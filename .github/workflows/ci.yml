@@ -56,6 +56,10 @@ jobs:
           xcodebuild \
             -project Untergrund.xcodeproj \
             -scheme Untergrund \
+            -derivedDataPath build \
             -destination 'platform=iOS Simulator,id=${{ steps.simulator.outputs.id }}' \
             CODE_SIGNING_ALLOWED=NO \
             test
+      - name: Check app bundle includes compiled assets
+        working-directory: ios
+        run: test -f build/Build/Products/Debug-iphonesimulator/Untergrund.app/Assets.car
