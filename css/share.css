@@ -5,7 +5,7 @@
 .share-head > div { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .share-head b { font: 900 20px var(--sans); color: #fff; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .share-head small { color: var(--dim); }
-.share-head .share-credit, .remix-credit, .jb-now-text small { color: var(--accent); }
+.share-head .share-credit, .remix-credit { color: var(--accent); }
 .pub-note.remix-credit { padding: 14px 0 0; }
 .share-sec { display: flex; flex-direction: column; gap: 10px; padding: 18px 0; border-bottom: 1px solid var(--line); }
 .share-sec:last-child { border-bottom: 0; }
@@ -25,9 +25,6 @@
 
 .btn.np-share { min-height: 60px; }
 
-.jb-now:has(.jb-now-actions) { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.jb-now-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.jb-now-actions { display: flex; gap: 8px; }
 
 .shared ~ .overlay { z-index: 80; }
 .shared { position: fixed; inset: 0; z-index: 75; display: grid; place-items: center; overflow: auto; padding: 24px 20px calc(24px + env(safe-area-inset-bottom));
@@ -62,4 +59,13 @@
   .share-head canvas { width: 68px; height: 68px; }
   .jb-now-actions { width: 100%; }
   .jb-now-actions .btn { flex: 1; min-height: 44px; }
+  .jb-list { max-height: none; overflow: visible; }
+  .jb-feature { grid-template-columns: 72px 1fr; gap: 14px; }
+  .jb-art { width: 72px; height: 72px; }
+  .jb-feature-text b { font-size: 19px; }
+  .btn.jb-feature-play { grid-column: 1 / -1; width: 100%; height: 48px; }
+  .jb-tabs { width: 100%; }
+  .jb-tabs .family-tab { flex: 1; padding: 0 6px; }
+  .jb-side { max-width: 96px; }
+  .jb-head-actions .btn { padding: 0 12px; }
 }

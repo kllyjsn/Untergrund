@@ -1543,6 +1543,7 @@ function openArtist() {
     loadProject: loadArtistProject,
     performProject: startArtistLive,
     publishProject: (item) => { loadArtistProject(item); showPublish(); },
+    publishCurrent: () => showSongPublish(),
     toast,
   });
 }

@@ -77,6 +77,14 @@ export async function signOut() {
   set({ account: null, following: [] });
 }
 
+// The signed-in artist's published tracks (from their public page), or [] without a claimed link.
+export async function myTracks() {
+  const a = await getAccount();
+  if (!a.account?.handle) return [];
+  const r = await call('GET', null, `?handle=${encodeURIComponent(a.account.handle)}`).catch(() => null);
+  return r?.ok ? r.json.tracks || [] : [];
+}
+
 export async function fetchFeed() {
   const r = await call('GET', null, '?feed=1').catch(() => null);
   return r?.ok ? r.json.items || [] : [];
@@ -125,11 +133,11 @@ export const suggestHandle = (name) => String(name || '').toLowerCase().normaliz
 
 // "Your public page" panel for the Artist sheet. `getProfile` returns { name, bio, dna } from the artist DNA.
 export function accountPanel({ getProfile, toast }) {
-  const el = h('section', { class: 'acct-panel' }, h('div', { class: 'acct-label' }, 'YOUR PUBLIC PAGE'), h('p', { class: 'acct-dim' }, 'Loading…'));
+  const el = h('section', { class: 'acct-panel' }, h('div', { class: 'acct-label' }, 'YOUR LINK'), h('p', { class: 'acct-dim' }, 'Loading…'));
   const copy = async (text) => { try { await navigator.clipboard.writeText(text); toast('Link copied'); } catch { toast(text); } };
   async function render() {
     const [a, cfg] = await Promise.all([getAccount(), sc.getConfig().catch(() => ({ enabled: false }))]);
-    el.replaceChildren(h('div', { class: 'acct-label' }, 'YOUR PUBLIC PAGE'));
+    el.replaceChildren(h('div', { class: 'acct-label' }, 'YOUR LINK'));
     if (!a.enabled) return el.append(h('p', { class: 'acct-dim' }, 'Artist pages go live once public storage is connected. Your music stays saved in this browser.'));
     const acct = a.account;
     const scBtn = (label) => cfg.enabled ? h('button', { class: 'btn sc acct-sc', onclick: async (e) => {

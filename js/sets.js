@@ -4,9 +4,10 @@ import { STYLES } from './state.js';
 import { saveTrack } from './crate.js';
 import { track as trackEvent } from './analytics.js';
 import { encodeWav } from './dsp.js';
-import { ensureDevice } from './account.js';
+import { ensureDevice, myTracks } from './account.js';
 import { creditLine } from './share-code.js';
-import { recentDrops } from './daily.js';
+import { recentDrops, dailyDrop, dropSong } from './daily.js';
+import { drawArtwork } from './artwork.js';
 
 const MAX_WAV_SECONDS = 15 * 60;
 export const fmtTime = (sec) => {
@@ -78,6 +79,16 @@ async function postEntry(entry) {
   return json.item;
 }
 
+// Ids this browser published publicly, so the jukebox and the Artist page can tell "yours" from everyone's.
+const MINE_KEY = 'untergrund.mine.v1';
+export function mineIds() {
+  try { return new Set(JSON.parse(localStorage.getItem(MINE_KEY)) || []); } catch { return new Set(); }
+}
+function rememberMine(item) {
+  try { localStorage.setItem(MINE_KEY, JSON.stringify([...mineIds(), item.id, item.trackId].filter(Boolean).slice(-400))); } catch {}
+  return item;
+}
+
 const localId = () => `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 const downsample = (peaks, n) => (peaks.length <= n ? peaks.slice() : Array.from({ length: n }, (_, i) =>
   Math.max(0, ...peaks.slice(Math.floor((i * peaks.length) / n), Math.floor(((i + 1) * peaks.length) / n)))));
@@ -86,7 +97,7 @@ export async function publishSong({ state, title, style, artist }) {
   const cfg = await jukeboxConfig();
   if (cfg.enabled) {
     await ensureDevice().catch(() => null);
-    return { public: true, item: await postEntry({ kind: 'song', title, style, artist, bpm: state.bpm, state }) };
+    return { public: true, item: rememberMine(await postEntry({ kind: 'song', title, style, artist, bpm: state.bpm, state })) };
   }
   const { track } = await saveTrack({ title, style, artist, state });
   const item = { id: localId(), kind: 'song', title, style, artist, bpm: state.bpm, trackId: track.id, created: new Date().toISOString(), local: true, ...(state.remixOf && { remixOf: state.remixOf }) };
@@ -105,7 +116,7 @@ export async function publishSet({ blob, title, style, bpm, artist, duration, st
       access: 'public', handleUploadUrl: '/api/set-upload', contentType: blob.type.split(';')[0],
       multipart: blob.size > 20e6, onUploadProgress: (p) => onProgress?.(p.percentage / 100),
     });
-    return { public: true, item: await postEntry({ ...meta, url: res.url }) };
+    return { public: true, item: rememberMine(await postEntry({ ...meta, url: res.url })) };
   }
   const item = { ...meta, id: localId(), created: new Date().toISOString(), local: true, blob };
   await idb('put', item);
@@ -117,7 +128,7 @@ export async function publishReplay({ timeline, title, artist, room }) {
   const cfg = await jukeboxConfig();
   if (cfg.enabled) {
     await ensureDevice().catch(() => null);
-    return { public: true, item: await postEntry({ kind: 'set', title, artist, room, timeline }) };
+    return { public: true, item: rememberMine(await postEntry({ kind: 'set', title, artist, room, timeline })) };
   }
   const duration = Math.round(timeline.duration / 100) / 10;
   const item = { id: localId(), kind: 'set', replay: true, title, artist, room, style: timeline.style, bpm: timeline.initial.bpm, duration, start: 0, end: duration, created: new Date().toISOString(), local: true, timeline };
@@ -297,9 +308,28 @@ export function openSongPublish({ state, style, title, artist, toast, soundcloud
   input.focus();
 }
 
+const TINTS = ['--red', '--orange', '--yellow', '--green', '--teal', '--accent', '--purple', '--pink'];
+const tint = (text) => { let n = 0; for (const c of String(text)) n = (n * 31 + c.charCodeAt(0)) >>> 0; return `var(${TINTS[n % TINTS.length]})`; };
+// The row's leading square: the title's initial, or a live level meter while it plays.
+export const jbTile = (title, on = false) => h('span', { class: 'jb-tile' + (on ? ' on' : ''), style: `--tile:${tint(title)}`, 'aria-hidden': 'true' },
+  on ? h('i', { class: 'jb-eq' }, h('i'), h('i'), h('i')) : String(title || '?').trim().charAt(0).toUpperCase());
+
+// Songs this browser or account published, newest first: the Artist page's "Your songs".
+export async function myPublished() {
+  const [cfg, local, tracks] = await Promise.all([jukeboxConfig(), idb('all').catch(() => []), myTracks().catch(() => [])]);
+  const mine = mineIds(), seen = new Set(), out = [];
+  for (const t of tracks) { seen.add(t.id); out.push({ ...t, kind: 'song', trackId: t.id, public: true }); }
+  for (const it of [...local, ...cfg.items]) {
+    if (it.kind !== 'song' || !(it.local || mine.has(it.id)) || seen.has(it.trackId)) continue;
+    seen.add(it.trackId);
+    out.push({ id: it.id, kind: 'song', title: it.title, style: it.style, bpm: it.bpm, created: it.created, trackId: it.trackId, public: !it.local });
+  }
+  return out.sort((a, b) => String(b.created).localeCompare(String(a.created)));
+}
+
 export function openJukebox({ playSong, playReplay, stopSong, toast, onCreate, onClose, onRemix, onShare, onNowPlaying }) {
   const audio = new Audio();
-  let items = [], queue = [], idx = -1, timer = null, filter = 'all', urls = [], due = 0, left = 0;
+  let items = [], queue = [], idx = -1, timer = null, filter = 'all', urls = [], due = 0, left = 0, mine = mineIds(), myTrackIds = new Set();
   const stopAll = () => { audio.pause(); clearTimeout(timer); stopSong(); idx = -1; onNowPlaying?.(null); };
   // Songs and replays have no media element of their own: a timer moves on when they're done.
   const advance = (ms) => { clearTimeout(timer); due = Date.now() + ms; timer = setTimeout(() => playAt(idx + 1), ms); };
@@ -323,25 +353,54 @@ export function openJukebox({ playSong, playReplay, stopSong, toast, onCreate, o
   audio.onplay = audio.onpause = () => { const it = queue[idx]; if (it?.kind === 'set') onNowPlaying?.(remote(it)); };
   const jb = sheet('JUKEBOX', { onClose: () => { if (idx >= 0) stopAll(); urls.forEach((u) => URL.revokeObjectURL(u)); onClose?.(); } });
   const { body } = jb;
-  const now = h('div', { class: 'jb-now' }, 'Every song and set here was made inside UNTERGRUND.');
+  const head = body.previousElementSibling;
+  head.append(h('div', { class: 'jb-head-actions' },
+    h('button', { class: 'btn ghost', title: 'Copy a link to the jukebox', onclick: async () => { await navigator.clipboard?.writeText(`${location.origin}/?jukebox`); trackEvent('share_link_copied', { what: 'jukebox' }); toast('Jukebox link copied'); } }, 'COPY LINK'),
+    head.lastElementChild));
+  const INTRO = 'Songs and sets people made in UNTERGRUND. Tap one to listen.';
+  const now = h('div', { class: 'jb-now' });
   const note = h('div', { class: 'pub-note' }, 'Loading…');
   const list = h('div', { class: 'jb-list' });
-  const tabs = h('div', { class: 'jb-tabs' });
-  const visible = () => items.filter((x) => filter === 'all' || x.kind === filter);
+  const tabs = h('div', { class: 'jb-tabs', role: 'group', 'aria-label': 'Show' });
+  const listHead = h('div', { class: 'jb-listhead' });
+  const feature = h('button', { class: 'jb-feature' });
+  const isMine = (x) => !!(x.local || mine.has(x.id) || (x.trackId && (mine.has(x.trackId) || myTrackIds.has(x.trackId))));
+  const visible = () => items.filter((x) => filter === 'all' || (filter === 'mine' ? isMine(x) : filter === 'song' ? x.kind === 'song' || x.kind === 'drop' : x.kind === filter));
+  const withToday = () => (filter === 'all' || filter === 'song' ? [today, ...visible()] : visible());
   const day = (d) => new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
   const drops = recentDrops().map((d, i) => ({ id: `drop-${d.date}`, kind: 'drop', drop: d.date, today: !i, title: d.title, artist: 'UNTERGRUND', style: d.style, created: `${d.date}T00:00:00.000Z` }));
+  const today = drops[0];
+  const genre = (it) => STYLES[it.style]?.name || it.style || '';
+  const idle = (text = INTRO) => { now.classList.remove('on'); now.replaceChildren(h('span', { class: 'jb-intro' }, text)); };
+  function showNow(it, where = '', actions = false) {
+    const credit = creditLine(it.remixOf);
+    now.classList.add('on');
+    now.replaceChildren(
+      h('span', { class: 'jb-now-text' }, h('small', { class: 'jb-now-label' }, 'NOW PLAYING'), h('b', {}, it.title), h('span', {}, `${it.artist}${where}`), credit && h('small', { class: 'jb-credit' }, credit)),
+      // replaceChildren() stringifies false, so the optional actions fall back to ''.
+      actions && onRemix ? h('span', { class: 'jb-now-actions' },
+        h('button', { class: 'btn accent', onclick: () => { jb.close(); onRemix(it); } }, 'REMIX IT'),
+        onShare && h('button', { class: 'btn ghost', onclick: () => onShare(it) }, 'SHARE')) : '');
+  }
+  const toggle = (it, from) => {
+    if (queue[idx]?.id === it.id) { stopAll(); idle('Stopped.'); return renderList(); }
+    queue = from; playAt(from.indexOf(it));
+  };
+  feature.onclick = () => toggle(today, withToday());
+  let art = null;
+  try { const d = dailyDrop(today.drop); art = drawArtwork(dropSong(d), { title: d.title, style: d.genre, seed: d.seed, size: 240 }); } catch {}
   async function playAt(i) {
     stopAll();
     const it = queue[i];
-    if (!it) { now.textContent = 'That was the whole jukebox.'; return renderList(); }
+    if (!it) { idle('That was the whole jukebox.'); return renderList(); }
     idx = i;
-    now.textContent = `NOW PLAYING · ${it.title} · ${it.artist}`;
+    showNow(it);
     renderList();
     try {
       if (it.replay) {
         const secs = await playReplay(it);
         advance(Math.max(1, secs) * 1000);
-        now.textContent = `NOW PLAYING · ${it.title} · ${it.artist} live${it.room ? ` in ${it.room}` : ''}`;
+        showNow(it, ` · live${it.room ? ` in ${it.room}` : ''}`);
       } else if (it.kind === 'set') {
         const src = it.url || URL.createObjectURL(it.blob);
         if (!it.url) urls.push(src);
@@ -352,11 +411,7 @@ export function openJukebox({ playSong, playReplay, stopSong, toast, onCreate, o
       } else {
         const secs = await playSong(it);
         advance(Math.max(10, secs) * 1000);
-        const credit = creditLine(it.remixOf);
-        now.replaceChildren(h('span', { class: 'jb-now-text' }, `NOW PLAYING · ${it.title} · ${it.artist}`, credit && h('small', {}, credit)),
-          onRemix && h('span', { class: 'jb-now-actions' },
-            h('button', { class: 'btn accent', onclick: () => { jb.close(); onRemix(it); } }, 'REMIX IT'),
-            onShare && h('button', { class: 'btn ghost', onclick: () => onShare(it) }, 'SHARE')));
+        showNow(it, '', true);
       }
       if (idx === i) onNowPlaying?.(remote(it));
     } catch (err) {
@@ -368,31 +423,51 @@ export function openJukebox({ playSong, playReplay, stopSong, toast, onCreate, o
   audio.onended = () => playAt(idx + 1);
   function renderTabs() {
     tabs.innerHTML = '';
-    for (const [id, text] of [['all', 'ALL'], ['song', 'SONGS'], ['drop', 'DROPS'], ['set', 'SETS']]) {
-      tabs.append(h('button', { class: 'family-tab' + (filter === id ? ' on' : ''), onclick: () => { filter = id; renderTabs(); renderList(); } }, text));
+    for (const [id, text] of [['all', 'ALL'], ['mine', 'YOURS'], ['song', 'SONGS'], ['set', 'SETS']]) {
+      tabs.append(h('button', { class: 'family-tab' + (filter === id ? ' on' : ''), 'aria-pressed': String(filter === id), onclick: () => { filter = id; renderTabs(); renderList(); } }, text));
     }
-    tabs.append(h('button', { class: 'btn accent jb-all', onclick: () => { queue = visible(); playAt(0); } }, 'PLAY ALL'),
-      h('button', { class: 'btn ghost', onclick: async () => { await navigator.clipboard?.writeText(`${location.origin}/?jukebox`); trackEvent('share_link_copied', { what: 'jukebox' }); toast('Jukebox link copied'); } }, 'COPY LINK'));
+  }
+  function renderFeature() {
+    const on = queue[idx]?.id === today.id;
+    feature.className = 'jb-feature' + (on ? ' on' : '');
+    feature.style.display = filter === 'all' || filter === 'song' ? '' : 'none';
+    feature.setAttribute('aria-label', `${on ? 'Stop' : 'Play'} today’s drop, ${today.title}`);
+    feature.replaceChildren(
+      h('span', { class: 'jb-art' }, art || jbTile(today.title)),
+      h('span', { class: 'jb-feature-text' }, h('small', {}, 'TODAY’S DROP'), h('b', {}, today.title), h('span', {}, `${genre(today)} · a new song every day`)),
+      h('span', { class: 'btn jb-feature-play' + (on || !queue[idx] ? ' accent' : '') + (on ? ' on' : '') }, on ? 'STOP' : 'PLAY'));
   }
   function renderList() {
+    renderFeature();
     list.innerHTML = '';
     const v = visible();
+    listHead.replaceChildren(h('span', {}, filter === 'mine' ? 'YOUR SONGS AND SETS' : filter === 'set' ? 'SETS' : 'LATEST'));
+    if (v.length) listHead.append(h('button', { class: 'btn ghost jb-all', onclick: () => { queue = withToday(); playAt(0); } }, 'PLAY ALL'));
     if (!v.length) list.append(h('div', { class: 'jb-empty' },
-      h('p', {}, filter === 'set' ? 'No sets yet. GO LIVE in the Club and your set lands here, or hit REC any time.' : 'Nothing here yet. Make a track, then tap PUBLISH to add it.'),
+      h('p', {}, filter === 'set' ? 'No sets yet. GO LIVE in the Club and your set lands here, or hit REC any time.'
+        : filter === 'mine' ? 'Nothing of yours yet. Publish a song and it shows up here and on your page.'
+        : 'Nothing here yet. Make a track, then tap PUBLISH to add it.'),
       onCreate && h('button', { class: 'btn accent', onclick: () => { jb.close?.(); onCreate(); } }, 'MAKE A TRACK')));
     for (const it of v) {
-      const on = queue[idx]?.id === it.id;
-      const len = it.kind === 'set' ? ` · ${fmtTime((it.end || it.duration) - (it.start || 0))}` : '';
-      list.append(h('button', { class: 'jb-item' + (on ? ' on' : ''), onclick: () => { if (on) { stopAll(); now.textContent = 'Stopped.'; return renderList(); } queue = v; playAt(v.indexOf(it)); } },
-        h('span', { class: `jb-kind ${it.kind}` }, it.kind.toUpperCase()),
-        h('span', { class: 'jb-text' }, h('b', {}, it.title), it.kind === 'drop' ? h('small', {}, `${it.today ? 'Today’s drop' : `Daily Drop · ${day(it.drop)}`} · ${STYLES[it.style]?.name || it.style}`) : h('small', {}, `${it.artist} · ${STYLES[it.style]?.name || it.style}${it.bpm ? ` · ${it.bpm} BPM` : ''}${it.room ? ` · ${it.room}` : ''}${len}${it.local ? ' · THIS BROWSER' : ''}`)),
+      const on = queue[idx]?.id === it.id, yours = isMine(it);
+      const len = it.kind === 'set' ? fmtTime((it.end || it.duration) - (it.start || 0)) : '';
+      const meta = it.kind === 'drop' ? `Daily drop · ${day(it.drop)}`
+        : `${it.artist}${it.kind === 'set' && it.room ? ` · live in ${it.room}` : ''}${it.bpm ? ` · ${it.bpm} BPM` : ''}${it.local ? ' · this browser only' : ''}`;
+      list.append(h('button', { class: 'jb-item' + (on ? ' on' : ''), 'aria-label': `${on ? 'Stop' : 'Play'} ${it.title}`, onclick: () => toggle(it, v) },
+        jbTile(it.title, on),
+        h('span', { class: 'jb-text' }, h('b', {}, it.title), h('small', {}, yours && h('em', { class: 'jb-yours' }, 'YOURS'), meta)),
+        h('span', { class: 'jb-side' }, it.kind === 'set' ? `SET · ${len}` : genre(it)),
         h('span', { class: 'jb-play' + (on ? ' on' : '') })));
     }
   }
-  body.append(h('div', { class: 'jb' }, now, tabs, note, list));
+  idle();
+  body.append(h('div', { class: 'jb' }, now, feature, tabs, note, listHead, list));
   renderTabs();
-  Promise.all([jukeboxConfig(), idb('all').catch(() => [])]).then(([cfg, local]) => {
-    items = [drops[0], ...[...local, ...cfg.items, ...drops.slice(1)].sort((a, b) => String(b.created).localeCompare(String(a.created)))];
+  renderList();
+  Promise.all([jukeboxConfig(), idb('all').catch(() => []), myTracks().catch(() => [])]).then(([cfg, local, tracks]) => {
+    myTrackIds = new Set(tracks.map((t) => t.id));
+    mine = mineIds();
+    items = [...local, ...cfg.items, ...drops.slice(1)].sort((a, b) => String(b.created).localeCompare(String(a.created)));
     note.textContent = cfg.enabled ? '' : 'Public storage isn\'t connected yet, so this shows what was published from this browser.';
     renderList();
   });
