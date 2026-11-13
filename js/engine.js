@@ -2,7 +2,7 @@ import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES } from './params.js';
 import { getSample } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
-import { liveSet, loadLiveKit, loadKitExtra, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND, SOFT_LAYER } from './livekit.js';
+import { liveSet, loadLiveKit, loadKitExtra, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel } from './groove.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ } from './lead.js';
@@ -1044,12 +1044,16 @@ export class Engine {
   // Brass section: saws scooping into pitch while the filter blooms; ENV sets the blare.
   // Recorded chord instruments (CC0): nearest sample per chord note, repitched; the synth voice covers loading.
   recorded(kind, fallback, t, v, iv, root, p, out) {
-    const R = BAND_PLAY[kind], set = this.rec(R.set || kind);
-    if (!set) { loadBand(R.set || kind); return this[fallback](t, v, iv, root, p, out); }
+    const R = BAND_PLAY[kind], base = R.set || kind;
+    let set = this.rec(base);
+    if (!set) { loadBand(base); return this[fallback](t, v, iv, root, p, out); }
     if (R.amp) out = this.ampFor(out);
     const palm = R.amp && this.palm;
-    const tone = Math.max(-6, Math.min(3, 3 * Math.log2(p.cutoff / 1500))) - (palm ? 4 : 0);
-    const dur = palm ? Math.min(0.14, this.stepDur * 1.2) : Math.min(R.max ?? Infinity, Math.max(R.hold ? this.stepDur * 4 : R.min, p.decay * R.len));
+    // A palm mute plays the recorded staccato (it damps itself); until that loads, the open note is cut short and darkened.
+    const muted = palm && MUTE_LAYER[base] && this.rec(MUTE_LAYER[base]);
+    if (muted) set = muted;
+    const tone = Math.max(-6, Math.min(3, 3 * Math.log2(p.cutoff / 1500))) - (palm ? (muted ? 1.5 : 4) : 0);
+    const dur = palm ? (muted ? Math.min(0.45, this.stepDur * 3) : Math.min(0.14, this.stepDur * 1.2)) : Math.min(R.max ?? Infinity, Math.max(R.hold ? this.stepDur * 4 : R.min, p.decay * R.len));
     const chord = R.grip && iv.length > 1;
     // A guitarist strums down on the beat and up on the offbeats; other players roll the chord either way.
     const up = chord ? (this.step == null ? (this.stroke = !this.stroke) === false : this.step % 4 !== 0) : hash(t, 21) > 0.5;
@@ -1091,8 +1095,16 @@ export class Engine {
     const touch = 1 - 0.2 * (R?.even ?? 1) + 0.4 * (R?.even ?? 1) * hash(t * 7 + m, 24), hv = Math.max(0.25, Math.min(1.2, vel * touch));
     // Soft touches play the softly struck or plucked recording: a different tone, not just a quieter one.
     if (hv < (R?.softBelow ?? 0) && this.rec(SOFT_LAYER[kind])) set = this.rec(SOFT_LAYER[kind]);
-    let [c, buf] = set[0];
-    for (const [cm, b] of set) if (Math.abs(cm - m) < Math.abs(c - m)) [c, buf] = [cm, b];
+    let i = 0;
+    for (let j = 1; j < set.length; j++) if (Math.abs(set[j][0] - m) < Math.abs(set[i][0] - m)) i = j;
+    let [c, buf] = set[i];
+    // Round robin: every other hit on a string plays the second take of that note.
+    const take = TAKES[bandName(set)], alt = take && this.rec(take);
+    if (alt?.[i]) {
+      const rr = (this.takeTurn ||= new WeakMap()), n = rr.get(buf) || 0;
+      rr.set(buf, n + 1);
+      if (n % 2) [c, buf] = alt[i];
+    }
     return this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
       shelves: [[3000, tone]], peaks: R?.peak ? [R.peak] : [], lp: R ? R.lp * (0.4 + 0.6 * hv) : 0, lpFrom: R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
     });
