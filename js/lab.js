@@ -1,6 +1,4 @@
-import { analyzePcm, summarizeRatings, validateBenchmark } from './lab-metrics.js';
-
-const DIMENSIONS = ['musicality', 'originality', 'genre accuracy', 'emotional pull'];
+import { analyzePcm, lufs, summarizeRatings, validateBenchmark, versusScorecard, DIMENSIONS, SONGWRITING } from './lab-metrics.js';
 const $ = (id) => document.getElementById(id);
 const files = new Map();
 let manifest, order = [], index = 0, results = [];
@@ -11,13 +9,15 @@ function seededFlip(text) {
   return (h >>> 0) % 2 === 1;
 }
 function storageKey() { return `untergrund:lab:${manifest.id}`; }
+// A manifest `file` matches a loaded file by its path inside the chosen folder ("suno/acid-techno.mp3") or by name.
+const local = (candidate) => candidate.file && (files.get(candidate.file) || files.get(candidate.file.split('/').pop()));
 function source(candidate) {
-  if (candidate.file && files.has(candidate.file)) return URL.createObjectURL(files.get(candidate.file));
+  if (local(candidate)) return URL.createObjectURL(local(candidate));
   return candidate.url || null;
 }
 async function metrics(candidate, pair) {
   let response;
-  if (candidate.file && files.has(candidate.file)) response = await files.get(candidate.file).arrayBuffer();
+  if (local(candidate)) response = await local(candidate).arrayBuffer();
   else if (candidate.url) response = await fetch(candidate.url).then((res) => { if (!res.ok) throw new Error(`Audio unavailable: ${candidate.url}`); return res.arrayBuffer(); });
   else throw new Error(`Audio unavailable: ${candidate.file} was not loaded`);
   const context = new AudioContext();
@@ -25,6 +25,7 @@ async function metrics(candidate, pair) {
   try { buffer = await context.decodeAudioData(response.slice(0)); } catch { await context.close(); throw new Error('Audio unavailable: the file could not be decoded'); }
   const channels = Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i));
   const value = analyzePcm(channels, buffer.sampleRate, { bpm: pair.bpm, renderMs: candidate.renderMs });
+  if (manifest.levelMatch) value.lufs = +lufs(channels, buffer.sampleRate).toFixed(2);
   await context.close();
   return value;
 }
@@ -46,12 +47,20 @@ function player(side, candidate, pair) {
     box.dataset.metrics = JSON.stringify(value);
     box.dataset.state = 'ready';
     box.querySelector('.metrics').textContent = metricText(value);
+    matchLevels();
   }).catch((error) => {
     box.dataset.state = 'error';
     box.classList.add('unavailable');
     box.querySelector('.metrics').textContent = `${error.message}. Fix the file before rating this pair.`;
   });
   return box;
+}
+// Louder sounds better in a blind test: with levelMatch, the louder candidate plays turned down to the quieter one.
+function matchLevels() {
+  const boxes = [...document.querySelectorAll('.candidate')], levels = boxes.map((box) => JSON.parse(box.dataset.metrics || 'null')?.lufs);
+  if (!manifest.levelMatch || !levels.every(Number.isFinite)) return;
+  const quiet = Math.min(...levels);
+  boxes.forEach((box, i) => { box.querySelector('audio').volume = Math.min(1, 10 ** ((quiet - levels[i]) / 20)); });
 }
 function scale(name, side) {
   const candidate = side === 'left' ? 'A' : 'B';
@@ -112,7 +121,7 @@ function savePair() {
   const replay = selected('replay'), release = selected('release');
   if (!replay || !release) throw new Error('Choose replay and release intent');
   const pairResult = {
-    pairId: pair.id, style: pair.style, seed: pair.seed, bpm: pair.bpm,
+    pairId: pair.id, style: pair.style, seed: pair.seed, bpm: pair.bpm, ...(pair.genre && { genre: pair.genre }),
     identity: pair._identity, ratings, replay, release,
     metrics: {
       left: JSON.parse(boxes[0].dataset.metrics),
@@ -128,7 +137,7 @@ function savePair() {
 function exportResults() {
   const output = {
     benchmarkId: manifest.id, title: manifest.title, completedAt: new Date().toISOString(),
-    dimensions: DIMENSIONS, summary: summarizeRatings(results), results,
+    dimensions: DIMENSIONS, summary: summarizeRatings(results), ...(versus() && { scorecard: versus() }), results,
   };
   const link = document.createElement('a');
   link.href = URL.createObjectURL(new Blob([JSON.stringify(output, null, 2)], { type: 'application/json' }));
@@ -136,19 +145,42 @@ function exportResults() {
   link.click();
   URL.revokeObjectURL(link.href);
 }
+// Head-to-head benchmarks (npm run benchmark:suno) name the two sides; the scorecard maps blind A/B back to them.
+function versus() {
+  if (!manifest?.versus || !results.length) return null;
+  return versusScorecard([{ results }], manifest, manifest.versus);
+}
+const pct = (v) => (v == null ? '—' : `${Math.round(v * 100)}%`);
+const esc = (v) => String(v ?? '—').replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 function complete() {
   $('test').hidden = true; $('complete').hidden = false;
-  const summary = summarizeRatings(results);
-  $('summary').innerHTML = Object.entries(summary).map(([id, value]) => (
-    `<div class="summary-row"><b>${id}</b><span>${value.meanRating}/5 · replay ${value.replayWins} · release ${value.releaseWins} · flags ${value.technicalFlags}</span></div>`
-  )).join('');
+  const summary = summarizeRatings(results), card = versus();
+  const row = (label, value) => `<div class="summary-row"><b>${esc(label)}</b><span>${esc(value)}</span></div>`;
+  let html = Object.entries(summary).map(([id, value]) => row(id, `${value.meanRating}/5 · replay ${value.replayWins} · release ${value.releaseWins} · flags ${value.technicalFlags}`)).join('');
+  if (card) {
+    const { ours, theirs } = manifest.versus, o = card.overall;
+    html += `<h3>${esc(ours)} vs ${esc(theirs)}: ${pct(o.winRate)} win rate</h3>`
+      + DIMENSIONS.map((d) => row(d, `${pct(o.dimensions[d].winRate)} · ${o.dimensions[d].ours} vs ${o.dimensions[d].theirs}/5`)).join('')
+      + row('replay picks', `${o.replay.ours} ${ours} · ${o.replay.theirs} ${theirs} · ${o.replay.neither} neither`)
+      + row('release picks', `${o.release.ours} ${ours} · ${o.release.theirs} ${theirs} · ${o.release.neither} neither`)
+      + `<h3>By genre</h3>` + Object.entries(card.genres).map(([g, t]) => row(g, `${pct(t.winRate)} over ${t.ratings} pair${t.ratings === 1 ? '' : 's'}`)).join('')
+      + `<h3>Songwriting metrics of ${esc(ours)} (reference-free)</h3>` + card.pairs.map((p) => row(`${p.title} · ${pct(p.winRate)}`,
+        SONGWRITING.filter(([k]) => p.songwriting?.[k] != null).map(([k, label, unit]) => `${label} ${p.songwriting[k]}${unit && unit !== 'share' && unit !== 'cv' ? ` ${unit}` : ''}`).join(' · ') || '—')).join('');
+  }
+  $('summary').innerHTML = html;
 }
 
-$('audio-files').onchange = (event) => {
-  files.clear();
-  for (const file of event.target.files) files.set(file.name, file);
+function addFiles(event) {
+  for (const file of event.target.files) {
+    if (!/\.(mp3|wav|m4a|aac|ogg|opus|flac)$/i.test(file.name)) continue;
+    files.set(file.name, file);
+    if (file.webkitRelativePath) files.set(file.webkitRelativePath.split('/').slice(1).join('/'), file);
+  }
+  $('audio-status').textContent = `${new Set(files.values()).size} audio files loaded`;
   $('start').disabled = !manifest;
-};
+}
+$('audio-files').onchange = addFiles;
+$('audio-folder').onchange = addFiles;
 $('manifest').onchange = async (event) => {
   try {
     manifest = validateBenchmark(JSON.parse(await event.target.files[0].text()));
