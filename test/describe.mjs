@@ -70,6 +70,18 @@ t('unknown phrases get suggestions', () => {
 });
 t('chips all parse', () => { for (const s of Object.keys(STYLES)) for (const c of chipsFor(s)) assert.ok(parse(c, { style: s }).edits.length, c); assert.ok(CHIPS.length >= 6); });
 
+// Song genres: everyday names pick the band genre, not the club style that used to borrow the word.
+for (const [phrase, value] of [['make it pop', 'pop'], ['an r&b slow jam', 'rnb'], ['rock song', 'rock'], ['grunge', 'rock'], ['singer-songwriter ballad', 'folk'],
+  ['folk', 'folk'], ['country', 'country'], ['americana', 'country'], ['k-pop', 'hyperpop'], ['neo-soul', 'neosoul']]) {
+  t(`"${phrase}" picks ${value}`, () => {
+    const { edits } = parse(phrase, { style: 'hypnotic' });
+    assert.ok(edits.some((e) => e.id === 'genre' && e.value === value), `${phrase}: ${JSON.stringify(edits)}`);
+  });
+}
+for (const [phrase, edit] of [['overdriven guitar', { id: 'voice', value: 11 }], ['acoustic guitar', { id: 'voice', value: 12 }], ['electric bass', { id: 'bassVoice', value: 5 }]]) {
+  t(`"${phrase}" picks its player`, () => assert.ok(has(parse(phrase, { style: 'rock' }).edits, [edit]), JSON.stringify(parse(phrase, { style: 'rock' }).edits)));
+}
+
 // Everyday phrasing: complaints, track-scoped words, dislikes, only/except. Each pair is [phrase, must have, must not have].
 const EVERYDAY = [
   ['the bass is too loud', [{ id: 'level', target: 'acid', amt: -1 }], [{ id: 'volume' }, { id: 'level', target: 'acid', amt: 1 }]],

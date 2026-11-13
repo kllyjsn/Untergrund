@@ -1,8 +1,8 @@
 # Recorded instrument samples: licenses
 
-Every audio file in this folder is derived from one of the two sources below. Both are released under the
+Every audio file in this folder is derived from one of the sources below. All are released under the
 **Creative Commons CC0 1.0 Universal** public-domain dedication (full legal text in each source repo's `LICENSE`;
-the two files are byte-identical, sha256 `a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499`).
+the Virtuosity Drums and double-bass files are byte-identical, sha256 `a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499`).
 CC0 waives copyright and related rights, so the files can be redistributed in this app and used in commercial
 music without attribution. We credit the authors anyway.
 
@@ -23,6 +23,12 @@ Stored as lossless FLAC (bit-identical PCM to the original 16-bit WAVs). Drum fi
 | `hh_half.flac` | `oh/hh/oh_hh_half_vl2_rr1.flac` |
 | `hh_open.flac` | `oh/hh/oh_hh_open_vl3_rr1.flac` |
 | `ride_v{1,2,3}_1.flac`, `ride_v2_2.flac` | `oh/ride/oh_ride_ride_vl{1,2,3}_rr1.flac`, `oh/ride/oh_ride_ride_vl2_rr2.flac` |
+| `crash_v2.flac` | `oh/crash/oh_crash_crash_vl2_rr1.flac` + `mid/crash/mid_crash_crash_vl2_rr1.flac` |
+| `crash_v3.flac` | `oh/crash/oh_crash_crash_vl3_rr1.flac` + `mid/crash/mid_crash_crash_vl3_rr1.flac` |
+| `htom_v8.flac` | `mid/htom/mid_htom_center_vl8.flac` + `oh/htom/oh_htom_center_vl8.flac` |
+| `htom_v14.flac` | `mid/htom/mid_htom_center_vl14.flac` + `oh/htom/oh_htom_center_vl14.flac` |
+| `ltom_v8.flac` | `mid/ltom/mid_ltom_center_vl8.flac` + `oh/ltom/oh_ltom_center_vl8.flac` |
+| `ltom_v14.flac` | `mid/ltom/mid_ltom_center_vl14.flac` + `oh/ltom/oh_ltom_center_vl14.flac` |
 
 ## D. Smolken double bass (1958 Otto Rubner, played by D. Smolken)
 
@@ -32,6 +38,47 @@ Stored as lossless FLAC (bit-identical PCM to the original 16-bit WAVs). Drum fi
 | File | Source sample | Key center (MIDI) |
 | --- | --- | --- |
 | `bass_{c1,eb1,g1,bb1,d2,f2,a2,c3}_{a,b}.flac` | `pizz/pizz_{note}_m{a,b}.wav` (mezzo-forte pizzicato, round robins a/b) | 24, 27, 31, 34, 38, 41, 45, 48 |
+
+## Karoryfer Shiny Guitar, acoustic (steel-string acoustic guitar; the SONGS genres' ACOUSTIC voice)
+
+- Source: https://github.com/sfzinstruments/karoryfer.shinyguitar @ `57243cca85277dbcc120ce17c6178032f93c80f3`
+- License: CC0 1.0 Universal (`LICENSE` in that repo)
+- Fetched and processed by `scripts/fetch-band.py`.
+
+| File | Source sample under `Samples/` | Key center (MIDI) |
+| --- | --- | --- |
+| `agtr_40.flac` | `acoustic/e2_vl3_rr1_1.wav` | 40 |
+| `agtr_42.flac` | `acoustic/gb2_vl3_rr1_1.wav` | 42 |
+| `agtr_45.flac` | `acoustic/a2_vl3_rr1_1.wav` | 45 |
+| `agtr_48.flac` | `acoustic/c3_vl3_rr1_1.wav` | 48 |
+| `agtr_51.flac` | `acoustic/eb3_vl3_rr1_1.wav` | 51 |
+| `agtr_54.flac` | `acoustic/gb3_vl3_rr1_1.wav` | 54 |
+| `agtr_57.flac` | `acoustic/a3_vl3_rr1_1.wav` | 57 |
+| `agtr_60.flac` | `acoustic/c4_vl3_rr1_1.wav` | 60 |
+| `agtr_63.flac` | `acoustic/eb4_vl3_rr1_1.wav` | 63 |
+| `agtr_66.flac` | `acoustic/gb4_vl3_rr1_1.wav` | 66 |
+| `agtr_69.flac` | `acoustic/a4_vl3_rr1_1.wav` | 69 |
+| `agtr_72.flac` | `acoustic/c5_vl3_rr1_1.wav` | 72 |
+
+## Karoryfer Black And Blue Basses, Dark Black (fingered electric bass guitar; the E.BASS voice)
+
+- Source: https://github.com/sfzinstruments/karoryfer.black-and-blue-basses @ `6e7d674cdb41be7a54dbccb15472401ad01099b9`
+- License: CC0 1.0 Universal (the `license` file in that repo is the CC0 1.0 legal code)
+- Fetched and processed by `scripts/fetch-band.py`. The library names its notes an octave above concert pitch
+  (`darkblack_e2` sounds E1, MIDI 28, verified by pitch detection).
+
+| File | Source sample under `Samples/` | Key center (MIDI) |
+| --- | --- | --- |
+| `ebass_28.flac` | `darkblack/reg/darkblack_e2_mf_rr1.wav` | 28 |
+| `ebass_31.flac` | `darkblack/reg/darkblack_g2_mf_rr1.wav` | 31 |
+| `ebass_34.flac` | `darkblack/reg/darkblack_bb2_mf_rr1.wav` | 34 |
+| `ebass_37.flac` | `darkblack/reg/darkblack_db3_mf_rr1.wav` | 37 |
+| `ebass_40.flac` | `darkblack/reg/darkblack_e3_mf_rr1.wav` | 40 |
+| `ebass_43.flac` | `darkblack/reg/darkblack_g3_mf_rr1.wav` | 43 |
+| `ebass_46.flac` | `darkblack/reg/darkblack_bb3_mf_rr1.wav` | 46 |
+| `ebass_49.flac` | `darkblack/reg/darkblack_db4_mf_rr1.wav` | 49 |
+| `ebass_52.flac` | `darkblack/reg/darkblack_e4_mf_rr1.wav` | 52 |
+| `ebass_55.flac` | `darkblack/reg/darkblack_g4_mf_rr1.wav` | 55 |
 
 ## Rejected
 

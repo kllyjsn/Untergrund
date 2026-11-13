@@ -96,7 +96,7 @@ export const samplePeakDb = (channels) => { let p = 0; for (const x of channels)
 // release; a nocturne's hammer peaks sit ~17 dB over its average, so louder would clip the piano).
 // Nothing may peak above -1 dBTP.
 export const LOUDNESS_TARGET = { club: -10, quiet: -14, classical: -16, ceiling: -1 };
-const TIER = { ambient: 'quiet', neosoul: 'quiet', boombap: 'quiet', symphony: 'classical', concerto: 'classical', nocturne: 'classical', repertoire: 'classical' };
+const TIER = { ambient: 'quiet', neosoul: 'quiet', boombap: 'quiet', rnb: 'quiet', folk: 'quiet', symphony: 'classical', concerto: 'classical', nocturne: 'classical', repertoire: 'classical' };
 export const targetFor = (style) => LOUDNESS_TARGET[TIER[style] || 'club'];
 
 // Per-style make-up gain (dB) applied in front of the master limiter, measured with scripts/loudness.mjs.

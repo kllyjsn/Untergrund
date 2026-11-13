@@ -56,7 +56,8 @@ const PHRASES = [
   [/jazz(?:y)?\s+chords|(?:seventh|7th|extended|ninth|9th)\s+chords|maj(?:or)?\s*7(?:ths?)?/g, ' richer harmony '],
   [/\b(?:19)?80s\b|eighties|retro[\s-]?wave|out[\s-]?run|vapou?r[\s-]?wave/g, ' synthwave '], [/\b(?:19)?90s\b|nineties/g, ' nineties '], [/\b(?:19)?70s\b|seventies/g, ' disco '],
   [/video\s+games?(?:\s+music)?|\b8[\s-]?bit\b|chip[\s-]?tunes?/g, ' chiptune '], [/(?:movie|film|tv)\s+(?:soundtrack|score|music)|soundtrack/g, ' cinematic '],
-  [/trip[\s-]?hop/g, ' triphop '], [/tech[\s-]house/g, ' techhouse '], [/afro[\s-]house/g, ' afrohouse '], [/\br\s*(?:&|and|n)\s*b\b/g, ' rnb '],
+  [/trip[\s-]?hop/g, ' triphop '], [/tech[\s-]house/g, ' techhouse '], [/afro[\s-]house/g, ' afrohouse '], [/\br\s*(?:&|and|n)\s*b\b/g, ' rnb '], [/\bk[\s-]?pop\b/g, ' kpop '], [/singer[\s-]*song[\s-]*writer/g, ' folk '], [/acoustic\s+guitars?/g, ' acousticguitar '],
+  [/(?:distorted|overdriven|electric|crunchy|dirty)\s+guitars?/g, ' driveguitar '], [/(?:electric|fender)\s+bass|bass\s+guitar/g, ' electricbass '],
   [/drum\s+(?:roll|fill)s?/g, ' fills '], [/low[\s-]end/g, ' bass '], [/top[\s-]?line/g, ' melody '],
   [/drum\s*(?:and|&|n|'n'|n')\s*bass|\bd\s*(?:&|n)\s*b\b/g, ' dnb '],
   [/hip[\s-]?hop/g, ' hiphop '], [/lo[\s-]?fi/g, ' lofi '], [/neo[\s-]?soul/g, ' neosoul '], [/boom[\s-]?bap/g, ' boombap '],
@@ -153,14 +154,19 @@ add(bundle('burial'), 'burial');
 const genre = (id, family) => ({ k: 'genre', id, family });
 add(genre('hypnotic', 'TECHNO'), 'techno');
 add(genre('deephouse', 'HOUSE'), 'house');
-add(genre('neosoul', 'JAZZ & HIP-HOP'), 'jazz', 'soul', 'rnb');
+add(genre('neosoul', 'JAZZ & HIP-HOP'), 'jazz', 'soul');
+add(genre('pop', 'POP & R&B'), 'pop', 'mainstream', 'popsong');
+add(genre('rnb', 'POP & R&B'), 'rnb', 'slowjam', 'slowjams');
+add(genre('rock', 'ROCK & ROOTS'), 'rock', 'punk', 'grunge', 'indie', 'garagerock', 'alternative');
+add(genre('folk', 'ROCK & ROOTS'), 'folk', 'songwriter', 'campfire', 'ballad');
+add(genre('country', 'ROCK & ROOTS'), 'country', 'nashville', 'americana', 'honkytonk', 'western', 'bluegrass');
 add(genre('boombap', 'JAZZ & HIP-HOP'), 'hiphop', 'rap');
 add(genre('breaks'), 'breakbeat', 'breakbeats');
 add(genre('dnb'), 'jungle', 'liquid');
 add(genre('reggaeton'), 'dembow', 'latin');
 add(genre('symphony', 'CLASSICAL'), 'classical', 'symphonic', 'orchestra');
 add(genre('ukg'), 'garage');
-add(genre('hyperpop'), 'kpop', 'pop');
+add(genre('hyperpop'), 'kpop');
 add(genre('minimal'), 'minimalgenre');
 for (const id of Object.keys(STYLES)) if (id !== 'repertoire' && id !== 'minimal') W[id] ??= genre(id);
 const track = (...ids) => ({ k: 'track', ids });
@@ -187,6 +193,8 @@ add(voice(6), 'bells', 'bell', 'mallets', 'chimes', 'glockenspiel');
 add(voice(7), 'piano', 'pianos', 'grand');
 add(voice(8), 'guitar', 'guitars');
 add(voice(9), 'horns', 'horn', 'trumpet', 'trumpets', 'sax', 'saxophone', 'trombone');
+add(voice(11), 'driveguitar', 'overdrive', 'overdriven', 'powerchords');
+add(voice(12), 'acousticguitar', 'strummed', 'strumming');
 add(voice(10), 'strings', 'string', 'violin', 'violins', 'cello', 'cellos', 'viola', 'orchestral');
 const bassVoice = (v) => ({ k: 'bassVoice', v });
 add(bassVoice(0), 'acidbass', 'squelch', 'squelchy');
@@ -194,6 +202,7 @@ add(bassVoice(1), 'livebass');
 add(bassVoice(2), 'eightoheight');
 add(bassVoice(3), 'reese', 'wobble', 'wobbly');
 add(bassVoice(4), 'logdrum');
+add(bassVoice(5), 'electricbass', 'bassguitar');
 const kit = (v) => ({ k: 'kit', v });
 add(kit(1), 'livekit'); add(kit(0), 'machinekit');
 for (const id of Object.keys(SCALES)) W[id] = { k: 'scale', v: id };
@@ -232,7 +241,7 @@ const scene = (genreId, edits) => (a, ctx) => [a > 0 && ctx.style !== genreId &&
 Object.assign(B2, {
   synthwave: scene('electro', (a) => [a > 0 && { id: 'voice', value: 2 }, { id: 'space', amt: 0.5 * a }, { id: 'tone', amt: -0.3 * a }]),
   disco: scene('deephouse', (a) => [{ id: 'swing', amt: 0.5 * a }, { id: 'tone', amt: 0.5 * a }, { id: 'harmony', amt: 0.5 * a }, { id: 'level', target: 'perc', amt: 0.5 * a }]),
-  rock: scene('breaks', (a) => [a > 0 && { id: 'kit', value: 1 }, a > 0 && { id: 'voice', value: 8 }, { id: 'grit', amt: a }]),
+  rock: scene('rock', (a) => [{ id: 'grit', amt: 0.5 * a }]),
   metal: scene('breaks', (a) => [a > 0 && { id: 'kit', value: 1 }, a > 0 && { id: 'voice', value: 8 }, { id: 'grit', amt: 2 * a }, { id: 'tempo', amt: 0.5 * a }]),
   reggae: scene('dub', (a) => [a > 0 && { id: 'bassVoice', value: 1 }, a > 0 && { id: 'voice', value: 3 }, { id: 'swing', amt: 0.5 * a }, { id: 'echo', amt: 0.5 * a }]),
   dubstep: scene('trap', (a) => [a > 0 && { id: 'bassVoice', value: 3 }, { id: 'grit', amt: a }, { id: 'drops', amt: a }]),
@@ -263,7 +272,7 @@ const BW = {
   tribal: ['tribal', 'primal', 'ritual'], acoustic: ['acoustic', 'organic', 'natural', 'unplugged', 'instruments', 'band'],
   electronic: ['electronic', 'synthetic', 'electronica', 'futuristic', 'robot'], texture: ['texture', 'textured', 'textures', 'grainier'],
   holiday: ['christmas', 'xmas', 'festive', 'holiday', 'holidays', 'wintry', 'winter', 'snow'], chiptune: ['chiptune', 'arcade'], nineties: ['nineties'],
-  synthwave: ['synthwave'], disco: ['disco', 'nudisco'], rock: ['rock', 'punk', 'grunge', 'indie'], metal: ['metal', 'heavymetal'],
+  synthwave: ['synthwave'], disco: ['disco', 'nudisco'], metal: ['metal', 'heavymetal'],
   reggae: ['reggae', 'ska', 'rocksteady'], dubstep: ['dubstep', 'brostep', 'riddim'], triphop: ['triphop'], techhouse: ['techhouse'],
   afrohouse: ['afrohouse'], phonk: ['phonk'], edm: ['edm'], progressive: ['progressive'], psytrance: ['psytrance', 'psy', 'goa'],
   idm: ['idm', 'glitch', 'glitchy'], footwork: ['footwork', 'juke'], grime: ['grime'], gospel: ['gospel', 'church'], dancehall: ['dancehall'],
@@ -289,8 +298,8 @@ add(complaint('harsh'), 'harsh', 'harsher', 'shrill', 'piercing', 'abrasive', 't
 add(complaint('cluttered'), 'cluttered', 'messy', 'crowded', 'chaotic', 'cluttery', 'noisy', 'overcrowded');
 add(complaint('dull'), 'dull');
 
-const VOICE_NAMES = ['synth', 'Rhodes keys', 'pads', 'organ', 'brass', 'plucks', 'bells', 'piano', 'guitar', 'horns', 'strings'];
-const BASS_NAMES = ['303 acid bass', 'bass guitar', '808 bass', 'reese bass', 'log drum'];
+const VOICE_NAMES = ['synth', 'Rhodes keys', 'pads', 'organ', 'brass', 'plucks', 'bells', 'piano', 'guitar', 'horns', 'strings', 'overdriven guitar', 'acoustic guitar'];
+const BASS_NAMES = ['303 acid bass', 'bass guitar', '808 bass', 'reese bass', 'log drum', 'electric bass'];
 const TRACK_WORD = { drums: 'drums', melody: 'melody', kick: 'kick', clap: 'claps', snare: 'snare', ch: 'hats', oh: 'open hats', ride: 'ride', perc: 'percussion', acid: 'bass', stab: 'chords', vox: 'vocals' };
 
 // Bundles: moods, scenes and artists expand into the same primitive edits (a = signed amount).
@@ -320,6 +329,7 @@ export function chipsFor(style) {
   const fam = STYLES[style]?.family;
   if (fam === 'CLASSICAL') return ['Slower', 'Faster', 'Warmer', 'More reverb', 'Brighter', 'Quieter'];
   if (fam === 'JAZZ & HIP-HOP') return ['More Glasper', 'More swing', 'Darker', 'Less busy', 'Add strings', 'Make it sad', 'Dustier'];
+  if (fam === 'POP & R&B' || fam === 'ROCK & ROOTS') return ['Make it happy', 'Make it sad', 'Acoustic guitar', 'Overdriven guitar', 'Add strings', 'Less busy', 'Slower'];
   return CHIPS;
 }
 export const SUGGESTIONS = ['darker', 'slower', 'more swing', 'less busy', 'bigger drop', 'add strings', 'make it sad', 'like a 3am warehouse', 'more reverb', 'no hats', 'in D minor', '120 bpm', 'make it happy', 'grittier', 'busier', 'faster', 'up a key', 'more variation'];
@@ -816,7 +826,7 @@ export const INTENTS = {
   swing: 'amt: + swing / - straight', density: 'amt: + busier / - sparser', drops: 'amt: + bigger drops', space: 'amt: + reverb / - drier',
   echo: 'amt: + echo', grit: 'amt: + drive / - cleaner', pump: 'amt: + sidechain', punch: 'amt: + kick punch', variation: 'amt: + mutate / - steadier',
   volume: 'amt: ± master', harmony: 'amt: + richer chords / - plainer', dust: 'amt: + vinyl dust', scale: `value: ${Object.keys(SCALES).join('|')}`,
-  key: 'value: 0-11 (C=0)', keyStep: 'amt: ±1 semitone', voice: `value: 0-10 (${VOICE_NAMES.join(', ')})`, bassVoice: `value: 0-4 (${BASS_NAMES.join(', ')})`,
+  key: 'value: 0-11 (C=0)', keyStep: 'amt: ±1 semitone', voice: `value: 0-12 (${VOICE_NAMES.join(', ')})`, bassVoice: `value: 0-5 (${BASS_NAMES.join(', ')})`,
   bpmScale: 'value: 0.5 half time | 2 double time', hook: 'value: 0 no melody | 1 add melody | 2 new melody',
   kit: 'value: 0 machine | 1 live', level: `target: ${TRACK_IDS.join('|')}, amt`, mute: 'target, value: bool', lock: 'target, value: bool', genre: `value: ${Object.keys(STYLES).join('|')}`,
   section: `sec: ${Object.keys(SECTION).join('|')}; op: mute|add|density (tracks[]), energy|length (amt), skip, strip, hook (value 0|1)`,
@@ -846,8 +856,8 @@ export function validateEdits(list) {
     else if (e.id === 'genre') { if (!STYLES[e.value]) continue; x.value = e.value; }
     else if (e.id === 'bpm') { if ((x.value = num(e.value, 60, 200)) == null) continue; x.value = Math.round(x.value); }
     else if (e.id === 'key') { if ((x.value = num(e.value, 0, 11)) == null) continue; x.value = Math.round(x.value); }
-    else if (e.id === 'voice') { if ((x.value = num(e.value, 0, 10)) == null) continue; x.value = Math.round(x.value); }
-    else if (e.id === 'bassVoice') { if ((x.value = num(e.value, 0, 4)) == null) continue; x.value = Math.round(x.value); }
+    else if (e.id === 'voice') { if ((x.value = num(e.value, 0, 12)) == null) continue; x.value = Math.round(x.value); }
+    else if (e.id === 'bassVoice') { if ((x.value = num(e.value, 0, 5)) == null) continue; x.value = Math.round(x.value); }
     else if (e.id === 'kit') { if ((x.value = num(e.value, 0, 2)) == null) continue; x.value = Math.round(x.value); }
     else { if ((x.amt = num(e.amt, -3, 3)) == null || !x.amt) continue; }
     out.push(x);

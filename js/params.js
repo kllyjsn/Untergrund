@@ -23,6 +23,8 @@ export const CHORDS = [
   { name: 'DIM', iv: [0, 3, 6, 9] },
   { name: 'MAJ9', iv: [0, 4, 7, 11, 14] },
   { name: 'ADD9', iv: [0, 4, 7, 14] },
+  { name: 'MAJ', iv: [0, 4, 7] },
+  { name: 'DOM7', iv: [0, 4, 7, 10] },
 ];
 
 export const DELAY_TIMES = [
@@ -123,7 +125,7 @@ export const TRACKS = [
       p('decay', 'DECAY', 0.04, 1.2, 0.24, { curve: 'exp', unit: 's' }),
       p('accent', 'ACCENT', 0, 1, 0.65),
       p('drive', 'DRIVE', 0, 1, 0.5),
-      p('voice', 'VOICE', 0, 4, 0, { step: 1, list: ['303', 'BASS', '808', 'REESE', 'LOG'] }),
+      p('voice', 'VOICE', 0, 5, 0, { step: 1, list: ['303', 'BASS', '808', 'REESE', 'LOG', 'E.BASS'] }),
     ],
     mix: { level: 0.55, dly: 0.12, rev: 0.05 },
   },
@@ -137,7 +139,7 @@ export const TRACKS = [
       p('env', 'ENV', 0, 1, 0.45),
       p('decay', 'DECAY', 0.05, 2.5, 0.28, { curve: 'exp', unit: 's' }),
       p('detune', 'DETUNE', 0, 40, 12, { unit: 'ct' }),
-      p('voice', 'VOICE', 0, 10, 0, { step: 1, list: ['SAW', 'KEYS', 'PAD', 'ORGAN', 'BRASS', 'PLUCK', 'BELLS', 'PIANO', 'GUITAR', 'HORNS', 'STRINGS'] }),
+      p('voice', 'VOICE', 0, 12, 0, { step: 1, list: ['SAW', 'KEYS', 'PAD', 'ORGAN', 'BRASS', 'PLUCK', 'BELLS', 'PIANO', 'GUITAR', 'HORNS', 'STRINGS', 'DRIVE GTR', 'ACOUSTIC'] }),
     ],
     mix: { level: 0.42, rev: 0.35, dly: 0.42 },
   },
@@ -207,6 +209,6 @@ export function formatValue(q, v) {
 
 export const VOICE_HIDDEN = {
   perc: [[], ['metal'], ['metal'], ['bend', 'metal'], ['bend', 'noise', 'metal']],
-  acid: [[], ['wave', 'reso', 'envmod', 'accent'], ['wave', 'reso', 'envmod'], [], ['wave', 'reso', 'envmod']],
-  stab: [[], ['reso'], [], ['reso', 'env'], [], [], ['reso'], ...Array(4).fill(['reso', 'env', 'detune'])],
+  acid: [[], ['wave', 'reso', 'envmod', 'accent'], ['wave', 'reso', 'envmod'], [], ['wave', 'reso', 'envmod'], ['wave', 'reso', 'envmod', 'accent']],
+  stab: [[], ['reso'], [], ['reso', 'env'], [], [], ['reso'], ...Array(6).fill(['reso', 'env', 'detune'])],
 };

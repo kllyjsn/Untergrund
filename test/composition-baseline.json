@@ -223,5 +223,50 @@
     "voiceMove": 1.04,
     "contrast": 0.353,
     "drumBars": 88
+  },
+  "pop": {
+    "bars": 72,
+    "melodyWindows": 22,
+    "motifRecall": 0.707,
+    "chords": 10,
+    "voiceMove": 1.095,
+    "contrast": 0.298,
+    "drumBars": 71
+  },
+  "rnb": {
+    "bars": 72,
+    "melodyWindows": 18,
+    "motifRecall": 0.81,
+    "chords": 6,
+    "voiceMove": 1.21,
+    "contrast": 0.265,
+    "drumBars": 72
+  },
+  "rock": {
+    "bars": 72,
+    "melodyWindows": 18,
+    "motifRecall": 0.828,
+    "chords": 4.5,
+    "voiceMove": 3.56,
+    "contrast": 0.29,
+    "drumBars": 69
+  },
+  "folk": {
+    "bars": 72,
+    "melodyWindows": 17,
+    "motifRecall": 0.81,
+    "chords": 5.5,
+    "voiceMove": 1,
+    "contrast": 0.283,
+    "drumBars": 72
+  },
+  "country": {
+    "bars": 72,
+    "melodyWindows": 22,
+    "motifRecall": 0.69,
+    "chords": 6,
+    "voiceMove": 1.02,
+    "contrast": 0.297,
+    "drumBars": 72
   }
 }

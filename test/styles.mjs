@@ -148,3 +148,35 @@ console.log('arrangement dynamics passed');
   }
   console.log('bass/chord agreement and guitar grips passed');
 }
+
+// Song genres: a recorded band in a major key (ROCK: power chords over minor/mixolydian roots), each with its own pocket and changes.
+{
+  const { STYLES, MAJOR_STYLES, generate: gen, defaultState: fresh, applyOverrides: apply, sanitize: clean } = await import('../js/state.js');
+  const { pocketOf } = await import('../js/groove.js');
+  const { liveSets } = await import('../js/livekit.js');
+  const { CHORDS } = await import('../js/params.js');
+  for (const style of ['pop', 'rnb', 'rock', 'folk', 'country']) {
+    assert(STYLES[style], style);
+    for (const seed of [1, 7, 42]) {
+      const g = gen(style, seed, 'minor'), s = fresh();
+      s.patterns[0] = g.pattern; apply(s, g, true);
+      assert.equal(Math.round(s.master.kit), 1, `${style} plays the recorded kit`);
+      assert(pocketOf(s.master)?.band, `${style} has a band pocket`);
+      assert(s.params.stab.voice >= 7, `${style} chords come from a recorded player`);
+      assert(g.pattern.prog?.length >= 4, `${style} has written changes`);
+      assert(liveSets(s).includes('kitx'), `${style} loads crashes and toms`);
+      const round = clean(JSON.parse(JSON.stringify(s)));
+      assert.deepEqual(round.patterns[0].prog, g.pattern.prog, `${style} changes survive a share link`);
+    }
+    if (MAJOR_STYLES.has(style)) assert.equal(gen(style, 7, 'minor').pattern.prog.length >= 4, true);
+  }
+  const names = (style, seed) => gen(style, seed).pattern.prog.map((h) => CHORDS[h.c].name);
+  const rock = [1, 2, 3, 4, 5, 6].map((seed) => gen('rock', seed).pattern.prog);
+  assert(rock.every((p) => p.every((h) => CHORDS[h.c].name === '5TH')), 'rock plays power chords');
+  assert(rock.some((p) => p.some((h) => h.r === 10)), 'rock uses the bVII');
+  assert([1, 2, 3, 4, 5, 6, 7, 8].some((seed) => names('rnb', seed).some((n) => /MIN9|MAJ9|DOM7|MIN7|MAJ7/.test(n))), 'r&b uses extended chords');
+  assert([1, 2, 3, 4, 5, 6, 7, 8].some((seed) => gen('country', seed).pattern.prog.map((h) => h.r).join() === '0,5,0,7'), 'country has I-IV-I-V');
+  assert([1, 2, 3, 4, 5, 6, 7, 8].some((seed) => gen('pop', seed).pattern.prog.map((h) => h.r).join() === '0,7,9,5'), 'pop has I-V-vi-IV');
+  console.log('song genres (pop, r&b, rock, folk, country) passed');
+}
+
