@@ -36,6 +36,7 @@ check 200 /samples/live/kick_v2_1.flac
 check 404 /samples/live/kick_v2_1.wav
 check 200 /api/sc-config
 check 200 /api/room-config
+check 200 /api/rooms
 check 200 /api/tracks
 check 200 "/api/tracks?drop=2026-11-03"
 check 400 "/api/tracks?drop=nope"
