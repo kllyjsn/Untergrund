@@ -887,7 +887,7 @@ body.studio-open .generate-primary small { margin-top: 0; }
   .generate-primary { min-height: 76px; }
   .family-tabs { -webkit-mask: linear-gradient(90deg,#000 85%,transparent); mask: linear-gradient(90deg,#000 85%,transparent); }
   .generate-styles { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin: 0; padding: 0; overflow: visible; }
-  .generate-style { min-height: 88px; padding: 14px; border-radius: var(--r2); gap: 3px; }
+  .generate-style { min-height: 88px; padding: 40px 14px 14px; border-radius: var(--r2); gap: 3px; }
   .generate-style .glyph { top: 14px; left: 14px; height: 18px; transform: scale(.8); transform-origin: 0 100%; }
   .generate-style.previewing::after { top: 14px; right: 14px; }
   .generate-style span { font-size: 12px; }

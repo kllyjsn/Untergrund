@@ -165,4 +165,10 @@ assert.equal(keySignature(5, false).sf, -1, 'F major: one flat');
   assert.equal(new DataView(bytes.buffer).getUint32(bytes.length - 22, true), 0x06054b50);
   rmSync(tmp, { recursive: true, force: true });
 }
+{
+  // A rock band's section crashes and tom fills export as GM drums.
+  const { notes } = capture(song('rock', 7));
+  assert(notes.oh.some((n) => n.m === 49), 'rock exports section crashes');
+  assert(notes.snare.some((n) => n.m === 45 || n.m === 48), 'rock exports tom fills');
+}
 console.log('export tests passed');

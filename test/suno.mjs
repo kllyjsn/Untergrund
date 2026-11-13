@@ -23,6 +23,8 @@ const resolved = prompts.prompts.filter((p) => resolveStyle(p));
 assert(resolved.length >= 16, `most prompts map onto a current genre (${resolved.length})`);
 assert(new Set(resolved.map((p) => STYLES[resolveStyle(p)].family)).size >= 6, 'prompts span the genre families');
 assert.equal(resolveStyle({ styles: ['nope', 'DEEP HOUSE'] }), 'deephouse', 'matches by display name too');
+const byId = Object.fromEntries(prompts.prompts.map((p) => [p.id, resolveStyle(p)]));
+assert.deepEqual([byId['synth-pop'], byId.rnb, byId['indie-rock'], byId.country], ['pop', 'rnb', 'rock', 'country'], 'song-genre prompts render as the song genres');
 assert.equal(resolveStyle({ styles: ['country'] }, { techno: { name: 'TECHNO' } }), null, 'no silent substitute for a missing genre');
 
 // Manifest: our render (a) vs the Suno slot (b), nothing on our side that would unblind it in the lab.

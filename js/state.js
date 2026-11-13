@@ -1,4 +1,4 @@
-import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, defaultParams, defaultMaster } from './params.js';
+import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, CHORDS, defaultParams, defaultMaster } from './params.js';
 import { rng } from './dsp.js';
 import { FORMS, SECTIONS } from './classical.js';
 import { MODELS } from './composer-models.js';
@@ -34,6 +34,11 @@ export const STYLES = {
   drill: { name: 'DRILL', bpm: [140, 146], family: 'TRAP & POP', tag: 'sliding 808 · skippy' },
   jerseyclub: { name: 'JERSEY CLUB', bpm: [136, 144], family: 'TRAP & POP', tag: 'triplet kicks · chops' },
   hyperpop: { name: 'HYPERPOP', bpm: [150, 162], family: 'TRAP & POP', tag: 'K-pop sugar · distorted' },
+  pop: { name: 'POP', bpm: [96, 120], family: 'POP & R&B', tag: 'I–V–vi–IV · radio band' },
+  rnb: { name: 'R&B', bpm: [68, 90], family: 'POP & R&B', tag: 'ii–V extensions · laid back' },
+  rock: { name: 'ROCK', bpm: [118, 148], family: 'ROCK & ROOTS', tag: 'driven guitars · live kit' },
+  folk: { name: 'SINGER-SONGWRITER', bpm: [76, 104], family: 'ROCK & ROOTS', tag: 'acoustic · piano · intimate' },
+  country: { name: 'COUNTRY', bpm: [100, 126], family: 'ROCK & ROOTS', tag: 'boom-chick · walk-ups' },
   symphony: { name: 'SYMPHONY', bpm: [104, 120], family: 'CLASSICAL', tag: 'sonata form · full orchestra' },
   concerto: { name: 'PIANO CONCERTO', bpm: [100, 112], family: 'CLASSICAL', tag: 'piano soloist · orchestra' },
   nocturne: { name: 'NOCTURNE', bpm: [60, 72], family: 'CLASSICAL', tag: 'solo piano · cantabile' },
@@ -41,6 +46,8 @@ export const STYLES = {
 };
 
 const range = (n, f) => Array.from({ length: n }, (_, i) => f(i));
+// Song genres written in a major key: asked for in minor, they still play their melodies and bass in major.
+export const MAJOR_STYLES = new Set(['pop', 'rnb', 'folk', 'country']);
 
 export function emptyAcidStep() { return { on: false, n: 0, a: false, s: false }; }
 
@@ -125,11 +132,19 @@ const HOOKS = {
   piano: { v: ['mallet'], o: 0, hits: [4, 6], w: (i) => (i % 4 === 3 || i % 4 === 1 ? 0.8 : 0.2), len: [1, 1, 2], lo: -2, hi: 6, leap: 0.3, x: [0.45, 0.4, 0.6, 0.45] },
   // Hyperpop: busy, high, wide leaps.
   pop: { v: ['pulse'], o: 1, hits: [6, 9], w: (i) => (i % 2 === 0 ? 0.8 : 0.5), len: [1, 1, 2], lo: 0, hi: 9, leap: 0.45, x: [0.2, 0.8, 0.3, 0.25] },
+  // Song genres: a singable line on the band's own instrument (the recorded chord player answers the hook).
+  song: { v: ['vocal', 'reed'], o: 0, hits: [4, 6], w: (i) => ([0, 2, 3, 6, 8, 10, 11, 14].includes(i) ? 0.8 : 0.2), len: [1, 2, 2, 3, 4], lo: 0, hi: 7, leap: 0.25, x: [0.4, 0.5, 0.45, 0.55] },
+  soulful: { v: ['vocal', 'warm'], o: 0, hits: [3, 5], w: (i) => (i % 4 === 2 || i % 4 === 3 ? 0.8 : 0.3), len: [2, 3, 4, 6], lo: -2, hi: 7, leap: 0.3, x: [0.55, 0.4, 0.5, 0.5] },
+  riff: { v: ['saw', 'analog'], o: 0, hits: [4, 6], w: (i) => (i % 2 === 0 ? 0.85 : 0.3), len: [1, 1, 2], lo: -2, hi: 5, leap: 0.2, x: [0.3, 0.6, 0.3, 0.6] },
+  roots: { v: ['flute', 'reed'], o: 0, hits: [3, 5], w: (i) => (i % 4 === 0 ? 0.8 : i % 2 === 0 ? 0.6 : 0.15), len: [2, 2, 3, 4], lo: 0, hi: 7, leap: 0.2, x: [0.5, 0.35, 0.5, 0.4] },
+  // Country's line answers up where a lead guitar or fiddle plays, clear of the strummed chords.
+  twang: { v: ['flute', 'reed'], o: 1, hits: [3, 5], w: (i) => (i % 4 === 0 ? 0.8 : i % 2 === 0 ? 0.6 : 0.15), len: [2, 2, 3, 4], lo: 0, hi: 7, leap: 0.2, x: [0.5, 0.35, 0.5, 0.4] },
 };
 const HOOK_STYLE = {
   hypnotic: 'techno', industrial: 'techno', acid: 'techno', peak: 'techno', hardtechno: 'techno', minimal: 'techno', electro: 'techno', dub: 'dub',
   deephouse: 'house', ukg: 'garage', breaks: 'house', jerseyclub: 'garage', euphoric: 'anthem', trance: 'anthem', hyperpop: 'pop', dnb: 'dnb',
   ambient: 'ambient', amapiano: 'piano', afrobeats: 'afro', reggaeton: 'afro', bailefunk: 'afro', trap: 'trap', drill: 'trap',
+  pop: 'song', rnb: 'soulful', rock: 'riff', folk: 'roots', country: 'twang',
 };
 // 'chop' sings the hook with the user's own recorded voice (js/voice.js); a song without one plays 'vocal'.
 export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell', 'chop'];
@@ -164,6 +179,12 @@ const INSTRUMENTS = {
   drill: [[10, 2, 1, 1.4, 0.2], [7, 2, 0, 0.9, 0.45], [9, 2, 0, 0.5, 0.75], [6, 2, 1, 0.65, 0.8]],
   jerseyclub: [[0, 2, 1, 0.2, 0.75], [4, 2, 0, 0.2, 0.7], [8, 2, 1, 0.4, 0.8], [6, 2, 1, 0.5, 0.85]],
   hyperpop: [[8, 3, 1, 0.4, 0.85], [6, 2, 0, 0.3, 0.75], [10, 3, 1, 1.2, 0.2], [7, 2, 2, 0.65, 0.55]],
+  // The song genres are recorded bands: piano, guitars (clean, driven, acoustic), electric or upright bass, live kit.
+  pop: [[7, 5, 0, 1, 0.4], [7, 5, 1, 1.3, 0.3], [8, 5, 0, 0.8, 0.6], [1, 5, 1, 1.2, 0.35]],
+  rnb: [[7, 5, 1, 1.6, 0.2], [1, 5, 1, 1.5, 0.25], [8, 5, 1, 0.8, 0.6], [1, 1, 1, 1.4, 0.25]],
+  rock: [[11, 5, 0, 0.35, 0.6], [11, 5, 1, 0.5, 0.7], [11, 1, 0, 0.6, 0.65], [11, 1, 1, 0.45, 0.75]],
+  folk: [[12, 1, 0, 1.6, 0.3], [12, 5, 0, 1.4, 0.35], [7, 1, 0, 1.8, 0.2], [12, 1, 1, 1.2, 0.45]],
+  country: [[12, 5, 1, 0.8, 0.5], [8, 5, 1, 0.7, 0.7], [12, 1, 1, 0.9, 0.45], [7, 5, 1, 0.8, 0.5]],
 };
 
 // A 2-bar call and answer: same rhythm both bars, the answer bends its ending (resolve or leave open).
@@ -201,7 +222,7 @@ export function hookLine(r, style, scale) {
 // Returns { pattern, params, master, bpm } — params/master are partial overrides.
 export function generate(style, seed = Date.now(), scaleName = 'minor') {
   const r = rng(seed);
-  const musicalScale = SCALES[scaleName]?.notes || SCALES.minor.notes;
+  const musicalScale = SCALES[MAJOR_STYLES.has(style) && scaleName === 'minor' ? 'major' : scaleName]?.notes || SCALES.minor.notes;
   const P = emptyPattern();
   const S = P.steps;
   const params = { kick: {}, acid: {}, stab: {}, perc: {}, ch: {}, oh: {}, ride: {}, clap: {}, snare: {}, vox: {} };
@@ -567,6 +588,87 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     Object.assign(params.acid, { wave: 0.6, cutoff: 900, reso: 6, envmod: 0.4, decay: 0.3, drive: 0.45, level: 0.45 });
     master.duck = 0.55; master.drive = 0.5;
     swing = 0;
+  } else if (style === 'pop') {
+    // Clean and tight: snare-plus-clap on the backbeat, a pushed kick, quarter hats with a pickup, piano or clean guitar
+    // in a 3-3-2 pulse, and the bass sitting on the kick instead of running eighths.
+    S.kick = pad16(pick(r, [[2, 0, 0, 0, 0, 0, 0, 0, 2, 0, 1], [2, 0, 0, 0, 0, 0, 0, 1, 2], [2, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1]]));
+    S.snare = pad16([0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2]);
+    S.clap = pad16([0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2]);
+    S.ch = range(STEPS, (i) => (i % 4 === 0 ? 2 : i === 14 && r() < 0.6 ? 1 : 0));
+    S.oh = range(STEPS, () => 0);
+    S.stab = pad16(pick(r, [[2, 0, 0, 1, 0, 0, 1, 0, 2, 0, 0, 1, 0, 0, 1], [2, 0, 1, 0, 2, 0, 1, 0, 2, 0, 1, 0, 2, 0, 1], [2, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1]]));
+    S.acid = range(STEPS, (i) => (S.kick[i] || (i === 14 && r() < 0.6) ? { on: true, n: i === 14 ? pick(r, [7, 12]) : 0, a: i === 0, s: false } : emptyAcidStep()));
+    Object.assign(params.kick, { tune: 50, decay: 0.45, drive: 0.25, punch: 0.7, rumble: 0, click: 0.35, level: 1 });
+    Object.assign(params.snare, { tune: 200, snappy: 0.6, decay: 0.2, level: 0.85, rev: 0.25 });
+    Object.assign(params.clap, { level: 0.42 });
+    Object.assign(params.ch, { decay: 0.04, tone: 6500, level: 0.5, rev: 0.1 });
+    Object.assign(params.stab, { chord: 11, octave: 0, cutoff: 3800, reso: 1, decay: 1, env: 0.4, detune: 6, rev: 0.3, dly: 0.05, level: 0.8 });
+    Object.assign(params.acid, { voice: 5, wave: 0, tune: -12, cutoff: 600, reso: 1, envmod: 0.1, decay: 0.45, drive: 0, accent: 0.2, level: 1.1, dly: 0 });
+    master.kit = 1; master.warmth = 0.15; master.room = 0.2; master.duck = 0.15; master.drive = 0; master.revLevel = 0.45;
+    swing = 0.06;
+  } else if (style === 'rnb') {
+    // Slow jam: a lazy kick that skips beat 3, a fat damped backbeat with ghost notes, sparse extended chords.
+    S.kick = pad16(pick(r, [[2, 0, 0, 0, 0, 0, 0, 1, 0, 0, 2], [2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 2, 0, 0, 1], [2, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 1]]));
+    S.snare = pad16([0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2]).map((v, i) => v || ([7, 15].includes(i) && r() < 0.5 ? 1 : 0));
+    S.clap = range(STEPS, () => 0);
+    S.ch = range(STEPS, (i) => (i % 2 === 0 ? (i % 4 === 0 ? 2 : 1) : (r() < 0.4 ? 1 : 0)));
+    S.ride = range(STEPS, () => 0);
+    S.stab = pad16(pick(r, [[2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [2, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1], [0, 0, 2, 0, 0, 0, 0, 0, 1]]));
+    S.acid = range(STEPS, (i) => (i === 0 || i === 10 || (i === 7 && r() < 0.6) || (i === 14 && r() < 0.4) ? { on: true, n: i === 0 ? 0 : pick(r, [0, 7, 12, musicalScale[4]]), a: i === 0, s: r() < 0.3 } : emptyAcidStep()));
+    Object.assign(params.kick, { tune: 48, decay: 0.55, drive: 0.2, punch: 0.6, rumble: 0, click: 0.2, level: 1.05 });
+    Object.assign(params.snare, { tune: 185, snappy: 0.45, decay: 0.16, level: 0.95, rev: 0.3 });
+    Object.assign(params.ch, { decay: 0.04, tone: 5200, level: 0.65, rev: 0.1 });
+    Object.assign(params.stab, { chord: 9, octave: 1, cutoff: 2200, reso: 1, decay: 1.5, env: 0.25, detune: 10, rev: 0.35, dly: 0.1, level: 0.7 });
+    Object.assign(params.acid, { voice: 5, wave: 0, tune: -12, cutoff: 360, reso: 1, envmod: 0.1, decay: 0.6, drive: 0.2, accent: 0.15, level: 1, dly: 0 });
+    master.kit = 1; master.warmth = 0.3; master.room = 0.45; master.duck = 0; master.drive = 0.1; master.revLevel = 0.45;
+    swing = 0.35;
+  } else if (style === 'rock') {
+    // A band in a room: kick and a cracking backbeat, driving eighth hats, the overdriven guitar chugging eighths
+    // (palm-muted in the verse, open in the chorus) with the bass locked to it and accenting with the kick.
+    S.kick = pad16(pick(r, [[2, 0, 0, 0, 0, 0, 0, 0, 2, 0, 1], [2, 0, 0, 0, 0, 0, 0, 1, 0, 0, 2], [2, 0, 0, 0, 0, 0, 2, 0, 2, 0, 0, 0, 0, 0, 1]]));
+    S.snare = pad16([0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2]);
+    S.clap = range(STEPS, () => 0);
+    S.ch = range(STEPS, (i) => (i % 2 === 0 ? (i % 4 === 0 ? 2 : 1) : 0));
+    S.ride = range(STEPS, (i) => (i % 4 === 0 ? (i % 8 === 0 ? 2 : 1) : 0));
+    S.oh = pad16([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, r() < 0.5 ? 1 : 0]);
+    S.stab = range(STEPS, (i) => (i % 2 === 0 ? (i % 8 === 0 ? 2 : 1) : 0));
+    S.acid = range(STEPS, (i) => (i % 2 === 0 ? { on: true, n: 0, a: S.kick[i] > 0, s: false } : emptyAcidStep()));
+    Object.assign(params.kick, { tune: 52, decay: 0.45, drive: 0.35, punch: 0.85, rumble: 0, click: 0.45, level: 1.1 });
+    Object.assign(params.snare, { tune: 190, snappy: 0.75, decay: 0.3, level: 1.05, rev: 0.3 });
+    Object.assign(params.ch, { decay: 0.06, tone: 5500, level: 0.6, rev: 0.1 });
+    Object.assign(params.ride, { tone: 3800, decay: 1.2, level: 0.45, rev: 0.15 });
+    Object.assign(params.stab, { chord: 6, octave: 0, cutoff: 3500, reso: 1, decay: 0.35, env: 0.6, detune: 4, rev: 0.2, dly: 0, level: 1 });
+    Object.assign(params.acid, { voice: 5, wave: 0, tune: -12, cutoff: 520, reso: 1, envmod: 0.1, decay: 0.3, drive: 0.45, accent: 0.3, level: 0.7, dly: 0 });
+    master.kit = 1; master.warmth = 0.3; master.room = 0.5; master.duck = 0; master.drive = 0.4; master.revLevel = 0.22;
+    swing = 0;
+  } else if (style === 'folk') {
+    // One player and a song: a strum (down, down-up, up-down-up), root-fifth bass, a soft kick and brush-light backbeat.
+    S.kick = pad16([1, 0, 0, 0, 0, 0, 0, 0, 1]);
+    S.snare = pad16([0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2]);
+    S.ch = range(STEPS, (i) => (i % 2 === 0 ? 1 : 0));
+    S.stab = pad16(pick(r, [[2, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1], [2, 0, 1, 0, 1, 0, 1, 0, 2, 0, 1, 0, 1, 0, 1], [2, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1]]));
+    S.acid = range(STEPS, (i) => (i === 0 || i === 8 ? { on: true, n: i === 8 ? 7 : 0, a: i === 0, s: false } : emptyAcidStep()));
+    Object.assign(params.kick, { tune: 54, decay: 0.4, drive: 0.1, punch: 0.4, rumble: 0, click: 0.15, level: 0.8 });
+    Object.assign(params.snare, { tune: 200, snappy: 0.2, decay: 0.1, level: 0.45, rev: 0.3 });
+    Object.assign(params.ch, { decay: 0.04, tone: 3000, level: 0.32, rev: 0.15 });
+    Object.assign(params.stab, { chord: 11, octave: 0, cutoff: 3000, reso: 1, decay: 1.6, env: 0.3, detune: 4, rev: 0.3, dly: 0, level: 0.85 });
+    Object.assign(params.acid, { voice: 1, wave: 0, tune: -12, cutoff: 340, reso: 1, envmod: 0.1, decay: 0.6, drive: 0.15, accent: 0.1, level: 0.85, dly: 0 });
+    master.kit = 1; master.warmth = 0.45; master.room = 0.5; master.duck = 0; master.drive = 0.05; master.revLevel = 0.45;
+    swing = 0.15;
+  } else if (style === 'country') {
+    // Boom-chick: bass alternates root and fifth on the beat, the guitar chops the backbeat, a train-beat snare.
+    S.kick = pad16([2, 0, 0, 0, 0, 0, 0, 0, 2]);
+    S.snare = pad16([0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2]).map((v, i) => v || (i % 2 === 0 && i % 4 !== 0 && r() < 0.5 ? 1 : 0));
+    S.ch = range(STEPS, (i) => (i % 2 === 0 ? (i % 4 === 0 ? 2 : 1) : 0));
+    S.stab = pad16(pick(r, [[0, 0, 1, 0, 2, 0, 1, 0, 0, 0, 1, 0, 2, 0, 1], [2, 0, 0, 0, 1, 0, 1, 0, 2, 0, 0, 0, 1, 0, 1], [0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2, 0, 1]]));
+    S.acid = range(STEPS, (i) => (i === 0 || i === 8 ? { on: true, n: i === 8 ? 7 : 0, a: i === 0, s: false } : emptyAcidStep()));
+    Object.assign(params.kick, { tune: 52, decay: 0.4, drive: 0.15, punch: 0.6, rumble: 0, click: 0.3, level: 0.95 });
+    Object.assign(params.snare, { tune: 210, snappy: 0.6, decay: 0.16, level: 0.95, rev: 0.25 });
+    Object.assign(params.ch, { decay: 0.045, tone: 5500, level: 0.6, rev: 0.1 });
+    Object.assign(params.stab, { chord: 11, octave: 0, cutoff: 3200, reso: 1, decay: 0.35, env: 0.75, detune: 4, rev: 0.25, dly: 0, level: 0.7 });
+    Object.assign(params.acid, { voice: 5, wave: 0, tune: -12, cutoff: 450, reso: 1, envmod: 0.1, decay: 0.35, drive: 0.15, accent: 0.2, level: 1.15, dly: 0 });
+    master.kit = 1; master.warmth = 0.35; master.room = 0.4; master.duck = 0; master.drive = 0.1; master.revLevel = 0.35;
+    swing = 0.1;
   }
   const PROGS = {
     neosoul: [[[0, 2], [5, 2], [10, 9], [3, 9]], [[0, 2], [8, 9], [3, 9], [10, 10]], [[0, 2], [3, 9], [5, 1], [7, 1]], [[0, 2], [10, 9], [8, 9], [7, 1]], [[0, 2], [1, 7], [10, 2], [8, 9]]],
@@ -581,6 +683,15 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     trap: [[[0, 0], [8, 7], [0, 0], [7, 0]], [[0, 0], [5, 0], [8, 7], [7, 8]]],
     drill: [[[0, 0], [8, 7], [5, 0], [7, 0]], [[0, 0], [1, 7], [0, 0], [8, 7]]],
     hyperpop: [[[3, 10], [10, 10], [0, 1], [8, 7]], [[8, 9], [10, 10], [3, 9], [0, 1]]],
+    // Major-key songs (11 MAJ, 12 DOM7): I–V–vi–IV, vi–IV–I–V and their cousins.
+    pop: [[[0, 11], [7, 11], [9, 0], [5, 11]], [[9, 0], [5, 11], [0, 11], [7, 11]], [[0, 10], [9, 1], [5, 9], [7, 5]], [[5, 10], [0, 11], [7, 11], [9, 0]], [[0, 11], [4, 0], [5, 11], [7, 11]]],
+    // ii7–V7 into a major ninth; IVmaj7–iii7–ii7–V7.
+    rnb: [[[2, 1], [7, 12], [0, 9], [9, 1]], [[5, 7], [4, 1], [2, 1], [7, 12]], [[0, 9], [9, 1], [2, 2], [7, 12]], [[9, 2], [2, 1], [7, 12], [0, 7]]],
+    // Power chords: I–bVII–IV, I–bIII–bVII–IV, i–bVI–bVII.
+    rock: [[[0, 6], [10, 6], [5, 6], [0, 6]], [[0, 6], [3, 6], [10, 6], [5, 6]], [[0, 6], [8, 6], [10, 6], [0, 6]], [[0, 6], [0, 6], [10, 6], [5, 6]], [[0, 6], [5, 6], [8, 6], [7, 6]]],
+    folk: [[[0, 11], [5, 11], [0, 11], [7, 11]], [[9, 0], [5, 10], [0, 11], [7, 5]], [[0, 10], [4, 0], [5, 11], [0, 11]], [[0, 11], [7, 11], [9, 0], [5, 10]], [[5, 11], [0, 11], [7, 11], [0, 11]]],
+    // I–IV–V; the bass walks up into each change (the COUNTRY pocket).
+    country: [[[0, 11], [5, 11], [0, 11], [7, 11]], [[0, 11], [0, 11], [5, 11], [7, 12]], [[0, 11], [5, 11], [7, 12], [0, 11]], [[0, 11], [9, 0], [5, 11], [7, 12]]],
   };
   if (PROGS[style]) {
     const progs = PROGS[style].map((pr) => pr.map(([root, c]) => ({ r: root, c })));
@@ -588,7 +699,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     P.prog = progs[main];
     P.alt = progs[(main + 1 + Math.floor(r() * (progs.length - 1))) % progs.length];
   }
-  const VARY = { neosoul: 0.8, boombap: 0.6, deephouse: 0.4, ukg: 0.45, breaks: 0.5, euphoric: 0.3, dnb: 0.4, amapiano: 0.4, afrobeats: 0.4, reggaeton: 0.25, bailefunk: 0.35, trap: 0.35, drill: 0.4, jerseyclub: 0.3, hyperpop: 0.3 };
+  const VARY = { neosoul: 0.8, boombap: 0.6, deephouse: 0.4, ukg: 0.45, breaks: 0.5, euphoric: 0.3, dnb: 0.4, amapiano: 0.4, afrobeats: 0.4, reggaeton: 0.25, bailefunk: 0.35, trap: 0.35, drill: 0.4, jerseyclub: 0.3, hyperpop: 0.3, pop: 0.3, rnb: 0.6, rock: 0.35, folk: 0.4, country: 0.35 };
   if (VARY[style]) master.vary = VARY[style];
   if (STYLE_POCKET[style]) { master.pocket = STYLE_POCKET[style]; master.humanize ??= POCKETS[master.pocket].hum; }
   if (['deephouse', 'ukg', 'euphoric'].includes(style)) master.kit ??= 2;
@@ -599,6 +710,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   const ROOM = {
     trap: 0.22, drill: 0.22, bailefunk: 0.2, jerseyclub: 0.25, reggaeton: 0.28, boombap: 0.3, hyperpop: 0.35,
     ukg: 0.35, dnb: 0.35, afrobeats: 0.38, amapiano: 0.4, deephouse: 0.42, breaks: 0.4, neosoul: 0.4,
+    pop: 0.42, rnb: 0.38, rock: 0.22, folk: 0.45, country: 0.35,
   };
   if (ROOM[style] != null) {
     master.revLevel = ROOM[style];
@@ -611,13 +723,15 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   params.stab.octave = octave;
   params.stab.decay = decay;
   params.stab.env = articulation;
-  const ensembleLevel = [0.75, 0.78, 0.72, 0.78, 0.78, 0.8, 0.75, 0.9, 0.9, 0.9, 0.9][stabVoice];
+  const ensembleLevel = [0.75, 0.78, 0.72, 0.78, 0.78, 0.8, 0.75, 0.9, 0.9, 0.9, 0.9, 0.85, 0.9][stabVoice];
   params.stab.level = Math.max(params.stab.level ?? 0.42, ensembleLevel);
   const closeLevel = { 'jerseyclub:0': 0.52, 'jerseyclub:4': 0.55, 'hyperpop:6': 0.5 }[`${style}:${stabVoice}`];
   if (closeLevel) {
     params.stab.level = closeLevel;
     params.stab.cutoff = Math.min(params.stab.cutoff ?? 2400, style === 'hyperpop' ? 2200 : 1800);
   }
+  // Pop's keys carry the song alone where the piano would; they sit up with the band instead of under it.
+  if (style === 'pop' && stabVoice === 1) params.stab.level = 1.1;
   if (style === 'trance' && stabVoice === 0) {
     params.stab.level = 0.5;
     params.stab.cutoff = Math.min(params.stab.cutoff ?? 1800, 1800);
@@ -668,6 +782,8 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     if (v?.pedal) P.pedal = v.pedal; else if (v) P.prog = v;
   }
   if (LIFT.has(style) && P.prog) P.lift = 2;
+  if (MAJOR_STYLES.has(style) || style === 'rock') P.band = true;
+  if (style === 'pop' || style === 'rock') P.lite = true;
   return { pattern: P, params, master, bpm, key, swing: swing ?? 0.06 };
 }
 
@@ -733,6 +849,20 @@ function halfTime(full) {
   return q;
 }
 
+// A band verse holds back so the chorus can open up: rock keeps its eighth hats and saves the ride for the chorus;
+// pop thins to kick, backbeat and quarter hats.
+function liteVerse(full) {
+  const q = clone(full);
+  if (q.steps.ride.some(Boolean)) {
+    q.steps.ride = range(STEPS, () => 0);
+    return q;
+  }
+  q.steps.ch = q.steps.ch.map((v, i) => (i % 4 === 0 ? v : 0));
+  q.steps.clap = range(STEPS, () => 0);
+  q.steps.oh = range(STEPS, () => 0);
+  return q;
+}
+
 // Turn one full pattern into an 8-pattern arrangement: intro → build → peak → breakdown → return.
 export function arrangement(full, seed, half = false) {
   if (full.score) return range(8, () => clone(full));
@@ -749,14 +879,15 @@ export function arrangement(full, seed, half = false) {
   const scenes = [
     strip(full, ['kick', 'ch', 'perc']),
     strip(full, ['kick', 'ch', 'oh', 'perc', 'acid']),
-    strip(full, without('stab')),
+    // A band's verse keeps its rhythm guitar or piano; club tracks hold the chords back for the drop.
+    full.lite ? liteVerse(full) : strip(full, full.band ? all : without('stab')),
     mutate(fill, seed + 1),
     strip(full, ['ride', 'perc', 'stab', 'ch']),
     strip(full, ['ride', 'perc', 'stab', 'acid', 'oh']),
     clone(full),
     half ? halfTime(full) : mutate(full, seed + 2),
   ];
-  for (const p of scenes) { delete p.alt; delete p.pedal; }
+  for (const p of scenes) { delete p.alt; delete p.pedal; delete p.band; delete p.lite; }
   if (full.pedal) for (const i of [6, 7]) scenes[i].prog = clone(full.pedal);
   // Hook: absent in the intro, teased (call only) in the verse and deep breakdown, full in the fill, breakdown and peaks.
   [0, 0, 1, 2, 2, 1, 2, 2].forEach((m, i) => { if (full.hook) scenes[i].hm = m; else delete scenes[i].hm; });
@@ -778,7 +909,7 @@ const VAMP = {
   ambient: [[0, 0, 8, 8, 3, 3, 10, 10], [0, 0, 5, 5, 8, 8, 3, 3]],
 };
 // Pop, trance and anthem songs lift the final chorus a whole step and stay there to the end.
-const LIFT = new Set(['euphoric', 'trance', 'hyperpop']);
+const LIFT = new Set(['euphoric', 'trance', 'hyperpop', 'pop', 'country']);
 const quality = (root, c) => (root === 0 || root === 5 || c === 4 || c === 6 ? c : root === 10 ? 10 : c === 2 ? 9 : 7);
 function vampFor(style, c, r) {
   const chords = (roots) => roots.map((x) => ({ r: x, c: quality(x, c) }));
@@ -786,7 +917,7 @@ function vampFor(style, c, r) {
   return VAMP[style] ? chords(VAMP[style][Math.floor(r() * VAMP[style].length)]) : null;
 }
 
-const GROOVE = new Set(['neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill']);
+const GROOVE = new Set(['neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill', 'pop', 'rnb', 'rock', 'folk', 'country']);
 // Which section names the timeline shows for a style (timeline.js ROLES).
 export const songKind = (style) => (GROOVE.has(style) ? 'groove' : 'club');
 // Song forms in 8-bar phrases (16 for techno), about 3 minutes. Groove styles: intro, verse, hook, verse, hook,
@@ -907,7 +1038,7 @@ export function sanitize(s) {
       },
       ...(hook.h ? { h: 1 } : {}),
     }) : null;
-  const cleanProg = (prog) => prog.slice(0, 8).map((c) => ({ r: Math.max(-12, Math.min(12, c?.r | 0)), c: Math.max(0, Math.min(10, c?.c | 0)) }));
+  const cleanProg = (prog) => prog.slice(0, 8).map((c) => ({ r: Math.max(-12, Math.min(12, c?.r | 0)), c: Math.max(0, Math.min(CHORDS.length - 1, c?.c | 0)) }));
   out.patterns = range(8, (i) => {
     const p = s.patterns[i];
     const e = emptyPattern();
