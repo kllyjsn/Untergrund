@@ -7,6 +7,7 @@ import { track as trackEvent } from './analytics.js';
 import { startLiveSet, endLiveSet, liveSetRecording } from './live-sets.js';
 import { listReplays, loadReplay, fmtTime } from './sets.js';
 import { PARTS, PART_IDS, extractPart, jamKey, jamStep, stepWall, jammable, partIdea } from './jam.js';
+import { createStage } from './club-stage.js';
 
 const AVATAR_KEY = 'untergrund.avatar.v1';
 const ROOM_KEY = 'untergrund.room.v1';
@@ -88,14 +89,6 @@ function avatarNode(avatar, extra = '', style = '') {
           cube('bot-phone left'), cube('bot-phone right'), h('i', { class: 'bot-band' }),
           h('i', { class: 'bot-antenna' })))),
     safe.name ? h('div', { class: 'club-name' }, safe.name) : null);
-}
-
-function crowdSlots() {
-  const slots = [];
-  [[5, 4, 1], [6, 19, .8], [7, 31, .64]].forEach(([count, y, depth], row) => {
-    for (let i = 0; i < count; i++) slots.push({ x: 10 + (80 * (i + .5)) / count + (row === 1 ? 2.5 : 0), y, depth, row });
-  });
-  return slots.sort((a, b) => a.row - b.row || Math.abs(a.x - 50) - Math.abs(b.x - 50));
 }
 
 class RoomBus {
@@ -452,8 +445,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
   let bus = null;
   let room = { members: [], currentSet: null };
   let messages = [];
-  let reactionTimer = 0;
-  let reaction = null;
+  const stageView = createStage({ avatarNode, normalizeMember, looks: { SHAPES, COLORS, GEAR } });
   let apiBase = '';
   let pendingSet = null;
   let closed = false;
@@ -487,7 +479,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
   window.addEventListener('keydown', onKey, true);
   let kickTimer = 0;
   const onStep = (e) => {
-    modal.style.setProperty('--club-step', e.detail.step);
+    stageView.step(e.detail);
     modal.classList.toggle('club-kick', e.detail.kick);
     modal.classList.toggle('club-accent', e.detail.accent);
     if (e.detail.step % 16 === 0) paintCountdowns();
@@ -542,27 +534,8 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     return musicKey(set.state) === musicKey(getState());
   }
 
-  function paintReaction(fx, restart = false) {
-    const elapsed = reaction ? performance.now() - reaction.at : Infinity;
-    if (!fx || elapsed >= 1400) return fx;
-    fx.textContent = reaction.text;
-    fx.style.animationDelay = `${-Math.round(elapsed)}ms`;
-    if (!restart) fx.classList.add('show');
-    else {
-      fx.classList.remove('show');
-      requestAnimationFrame(() => fx.classList.add('show'));
-    }
-    return fx;
-  }
-
   function showReaction(event) {
-    reaction = { text: `${event.user?.name || 'Listener'} · ${event.payload?.value || 'HYPE'}`, at: performance.now() };
-    paintReaction(modal.querySelector('.club-reaction-fx'), true);
-    clearTimeout(reactionTimer);
-    reactionTimer = setTimeout(() => {
-      reaction = null;
-      modal.querySelector('.club-reaction-fx')?.classList.remove('show');
-    }, 1400);
+    stageView.react({ id: event.user?.id, name: event.user?.name, value: event.payload?.value || 'HYPE' });
   }
 
   function nowPlaying() {
@@ -643,29 +616,12 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
 
   function stage() {
     const members = (room.members.length ? room.members : [{ id: clientId(), ...avatar }]).map(normalizeMember);
-    const current = room.currentSet || nowPlaying();
-    const dj = members.find((member) => member.id === room.hostId) || members[0] || normalizeMember(avatar);
-    const crowd = members.filter((member) => member.id !== dj.id);
-    const slots = crowdSlots();
-    const ambient = Array.from({ length: Math.max(0, 14 - crowd.length) }, (_, i) =>
-      ({ name: '', shape: SHAPES[i % SHAPES.length], color: COLORS[(i + 2) % COLORS.length], gear: GEAR[i % GEAR.length] }));
-    const people = [...crowd, ...ambient].slice(0, slots.length).map((member, i) => {
-      const slot = slots[i];
-      const style = `--x:${slot.x.toFixed(1)}%;--y:${slot.y}%;--depth:${slot.depth};--z:${10 - slot.row};` +
-        `--turn:${((50 - slot.x) * .55).toFixed(1)}deg;--delay:${(-((i * .37) % 1)).toFixed(2)}s`;
-      return avatarNode(member, i < crowd.length ? `listener p${i}` : 'ambient', style);
+    const set = room.currentSet;
+    return stageView.update({
+      members, hostId: room.hostId,
+      current: { ...(set || nowPlaying()), startsAt: set?.startsAt },
+      label: set ? `${set.replay ? 'REPLAY' : 'LIVE'} IN THIS ROOM${liveSetRecording() ? ' · RECORDING' : ''}` : 'READY TO BROADCAST',
     });
-    return h('section', { class: 'club-stage', style: `--beat:${(60 / (current.bpm || 132)).toFixed(3)}s` },
-      h('div', { class: 'club-lights' }, h('i'), h('i'), h('i')),
-      paintReaction(h('div', { class: 'club-reaction-fx' })),
-      h('div', { class: 'club-dj' },
-        avatarNode(dj, 'dj', '--turn:0deg'),
-        h('div', { class: 'club-booth' }, h('i'), h('b', {}, 'UNTERGRUND'), h('i'))),
-      h('div', { class: 'club-now' },
-        h('span', {}, room.currentSet ? `${room.currentSet.replay ? 'REPLAY' : 'LIVE'} IN THIS ROOM${liveSetRecording() ? ' · RECORDING' : ''}` : 'READY TO BROADCAST'),
-        h('strong', {}, current.title),
-        h('small', {}, `${current.artist} · ${current.bpm} BPM · ${current.key || ''}`)),
-      h('div', { class: 'club-floor' }, people));
   }
 
   let sideTab = 'signal';
