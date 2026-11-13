@@ -1421,7 +1421,8 @@ function buildGenerateHome() {
     h('div', { class: 'recents-row' }, recent.map((t) => h('button', { class: 'recent', style: `--hue:${hue(t.style)}`, onclick: () => openRecent(t) },
       h('i'), h('b', {}, t.title || 'Untitled'), h('span', {}, [STYLES[t.style]?.name, t.bpm && `${t.bpm} BPM`].filter(Boolean).join(' · ')))))) : null;
   const following = followingRow({ hue, onPlay: (t) => openShared(t.id, true), onLoad: renderHome });
-  const home = h('section', { role: studioOpen ? 'region' : 'main', 'aria-label': 'Create', class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : '') + (made ? '' : ' first-run') + (unlock ? ' unlock' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` + (unlock ? `;--ua:${-Math.round(since)}ms` : '') }, left, made ? describeBox() : null, picker, concert, recents, following);
+  const home = h('section', { role: studioOpen ? 'region' : 'main', 'aria-label': 'Create', class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : '') + (made ? '' : ' first-run') + (unlock ? ' unlock' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` + (unlock ? `;--ua:${-Math.round(since)}ms` : '') }, left, made ? describeBox() : null, picker, concert, recents, following,
+    h('a', { class: 'home-research', href: '/research/' }, 'RESEARCH', h('span', {}, 'How we measure the sound')));
   ui.home = home;
   return home;
 }
