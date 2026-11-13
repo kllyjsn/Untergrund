@@ -1387,6 +1387,7 @@ function renderHome() {
   guardPushOffer();
 }
 
+const hasMade = () => studioOpen || playing || localStorage.getItem('untergrund.made') === '1' || recentTracks().length > 0;
 function buildGenerateHome() {
   ui.npCanvas = null; ui.npCells = null;
   const families = [...new Set(Object.values(STYLES).map((v) => v.family))];
@@ -1407,18 +1408,18 @@ function buildGenerateHome() {
       h('span', {}, 'GENERATE'), h('small', {}, band ? 'Up next · seating the band' : wait ? 'Up next · on the bar' : `${STYLES[style].name} · full track`));
   const showNp = (playing || !!paused) && !studioOpen;
   // First visit shows only the essentials; the rest unlocks once a track has been made.
-  const made = studioOpen || playing || localStorage.getItem('untergrund.made') === '1' || recentTracks().length > 0;
+  const made = hasMade();
   if (playing) localStorage.setItem('untergrund.made', '1');
   // The home re-renders often; keep the reveal running across rebuilds by offsetting its delay.
   if (made && madeShown === false) unlockAt = performance.now();
   madeShown = made;
   const since = performance.now() - unlockAt, unlock = unlockAt > 0 && since < 900;
-  const hum = STYLES[style].family === 'CLASSICAL' ? null : humButton(humApi);
+  const hum = !made || STYLES[style].family === 'CLASSICAL' ? null : humButton(humApi);
   const left = showNp ? buildNowPlaying(primary) : [
     h('div', { class: 'generate-copy' },
       h('h1', {}, 'Press Generate. Hear a finished track.'),
-      h('p', {}, made ? 'Refine it in Studio, perform it live, or spin it in the Club.' : 'Pick a sound, or describe the song you want. UNTERGRUND writes the whole arrangement.'),
-      dropPeek()),
+      h('p', {}, made ? 'Change it in words, refine it in Studio, or play it live in the Club.' : 'One tap writes, arranges and plays a whole song. Pick a sound first, or describe the song you want.'),
+      made ? dropPeek() : null),
     h('div', { class: 'generate-actions' },
       studioOpen ? primary : h('div', { class: 'gen-wrap' }, primary, hum),
       made ? h('button', { class: 'btn refine-toggle', onclick: toggleStudio }, studioOpen ? 'HIDE STUDIO' : 'REFINE IN STUDIO') : null,
@@ -1434,9 +1435,9 @@ function buildGenerateHome() {
     h('div', { class: 'recents-row' }, recent.map((t) => h('button', { class: 'recent', style: `--hue:${hue(t.style)}`, onclick: () => openRecent(t) },
       h('i'), h('b', {}, t.title || 'Untitled'), h('span', {}, [STYLES[t.style]?.name, t.bpm && `${t.bpm} BPM`].filter(Boolean).join(' · ')))))) : null;
   const following = followingRow({ hue, onPlay: (t) => openShared(t.id, true), onLoad: renderHome });
-  const live = liveStrip();
-  const home = h('section', { role: studioOpen ? 'region' : 'main', 'aria-label': 'Create', class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : '') + (live.hidden ? '' : ' has-live') + (made ? '' : ' first-run') + (unlock ? ' unlock' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` + (unlock ? `;--ua:${-Math.round(since)}ms` : '') }, left, describeBox(), live, picker, concert, recents, following,
-    h('a', { class: 'home-research', href: '/research/' }, 'RESEARCH', h('span', {}, 'How we measure the sound')));
+  const live = made ? liveStrip() : null;
+  const home = h('section', { role: studioOpen ? 'region' : 'main', 'aria-label': 'Create', class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : '') + (live && !live.hidden ? ' has-live' : '') + (made ? '' : ' first-run') + (unlock ? ' unlock' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` + (unlock ? `;--ua:${-Math.round(since)}ms` : '') }, left, describeBox(), live, picker, concert, recents, following,
+    made ? h('a', { class: 'home-research', href: '/research/' }, 'RESEARCH', h('span', {}, 'How we measure the sound')) : null);
   ui.home = home;
   return home;
 }
@@ -1474,7 +1475,7 @@ function dropPeek() {
 
 function describeBox() {
   return describeBar({
-    state: () => state, style: () => style, styleName: (id) => STYLES[id].name, depth: () => history.depth,
+    state: () => state, style: () => style, styleName: (id) => STYLES[id].name, depth: () => history.depth, fresh: () => !hasMade(),
     pushUndo, undo, track: (p) => trackEvent('describe', p), kind: () => (GROOVE_STYLES.has(style) ? 'groove' : 'club'),
     // Undo of a genre switch also brings back the old genre and song title.
     switchGenre: (id, steer, label) => {
@@ -1622,10 +1623,12 @@ function buildHeader() {
           ...exportButtons({ getState: () => state, getBars: () => +bars.value, download, toast, track: trackEvent, reportError }),
           h('button', { class: 'btn ghost', title: 'Save project file (.json) to reopen later', onclick: () => download(new Blob([JSON.stringify(state)], { type: 'application/json' }), `untergrund-${stamp()}.json`) }, 'SAVE PROJECT'),
           h('button', { class: 'btn ghost', title: 'Open a saved project file', onclick: () => fileIn.click() }, 'OPEN PROJECT'), fileIn,
-          h('button', { class: 'btn ghost', title: 'Share a link, a 9:16 video or an embed code', onclick: () => showShare() }, 'SHARE LINK & VIDEO')))),
-    h('nav', { class: 'group nav seg' }, artistBtn, clubBtn, jukeboxBtn,
-      h('button', { class: 'btn studio-toggle' + (studioOpen ? ' on' : ''), title: 'Sequencer, mixer, export and every control', onclick: toggleStudio }, studioOpen ? 'DONE' : 'STUDIO')),
-    h('button', { class: 'btn ghost help studio-only studio-more', title: 'Shortcuts', 'aria-label': 'Keyboard shortcuts', onclick: showHelp }, '?'),
+          h('button', { class: 'btn ghost', title: 'Share a link, a 9:16 video or an embed code', onclick: () => showShare() }, 'SHARE LINK & VIDEO'),
+          h('button', { class: 'btn ghost', title: 'Keyboard shortcuts (?)', onclick: showHelp }, 'KEYBOARD SHORTCUTS')))),
+    h('nav', { class: 'group nav seg', 'aria-label': 'Sections' },
+      h('button', { class: 'btn' + (studioOpen ? '' : ' on'), ...(!studioOpen && { 'aria-current': 'page' }), title: 'Generate and play songs', onclick: () => { if (studioOpen) toggleStudio(); } }, 'CREATE'),
+      h('button', { class: 'btn studio-toggle' + (studioOpen ? ' on' : ''), ...(studioOpen && { 'aria-current': 'page' }), title: 'Sequencer, mixer, export and every control', onclick: () => { if (!studioOpen) toggleStudio(); } }, 'STUDIO'),
+      clubBtn, jukeboxBtn, artistBtn),
     h('button', { class: 'btn ghost tools-toggle studio-only', 'aria-expanded': 'false', onclick: (e) => {
       const open = document.body.classList.toggle('tools-open');
       e.currentTarget.setAttribute('aria-expanded', String(open));
