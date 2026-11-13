@@ -2,7 +2,7 @@ import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES } from './params.js';
 import { getSample } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
-import { liveSet, loadLiveKit, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND } from './livekit.js';
+import { liveSet, loadLiveKit, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND, SOFT_LAYER } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel } from './groove.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ } from './lead.js';
@@ -46,7 +46,7 @@ const ORCH = {
   tpt: { kinds: ['tpt'], gain: 0.3, lo: 55, hi: 84, pan: 0.05, lp: 6000, rel: 0.08, loop: true, hp: 160 },
   harp: { kinds: ['harp'], gain: 0.55, lo: 40, hi: 96, pan: -0.5, lp: 8000, rel: 0.6 },
   timp: { kinds: ['timp'], gain: 0.85, lo: 40, hi: 57, pan: 0.15, lp: 3000, rel: 0.5 },
-  pno: { kinds: ['pianoext', 'piano'], soft: ['pianoextsoft', 'pianosoft'], gain: 1.8, lo: 21, hi: 104, pan: 0, lp: 9000, rel: 0.3 },
+  pno: { kinds: ['pianoext', 'piano'], soft: ['pianoextsoft', 'pianosoft'], gain: 1.8, lo: 21, hi: 104, pan: 0, lp: 12000, rel: 0.3 },
 };
 const kindsOf = (parts) => [...new Set(parts.flatMap((p) => [...ORCH[p].kinds, ...(ORCH[p].soft || []), ...(p === 'timp' ? ['timproll'] : [])]))];
 export const ORCH_KINDS = kindsOf(Object.keys(ORCH));
@@ -95,12 +95,14 @@ export function guitarGrip(root, iv, prev = null) {
 }
 
 const BAND_PLAY = {
-  piano: { gain: 4, len: 4, min: 1.2, strum: 0.004, shift: 0, lo: 45, hi: 79, lp: 7000, rel: 0.18 },
-  gtr: { gain: 4.4, len: 2.6, min: 0.6, strum: 0.006, shift: 0, lo: 40, hi: 74, lp: 2900, peak: [3600, 1.2, -6], soft: 1100, fade: 0.008, rel: 0.22, grip: true, even: 0.2 },
+  piano: { gain: 4, len: 4, min: 1.2, max: 3, softBelow: 0.88, strum: 0.004, shift: 0, lo: 45, hi: 79, lp: 7000, rel: 0.18 },
+  gtr: { gain: 4.4, len: 2.6, min: 0.6, softBelow: 0.75, strum: 0.006, shift: 0, lo: 40, hi: 74, lp: 2900, peak: [3600, 1.2, -6], soft: 1100, fade: 0.008, rel: 0.22, grip: true, even: 0.2 },
   horn: { gain: 2.2, len: 1.2, min: 0.25, strum: 0.003, shift: 12, lo: 53, hi: 81, lp: 4800, rel: 0.09 },
   str: { gain: 1.2, len: 2, min: 0.5, strum: 0, shift: 0, hold: true, lo: 55, hi: 79, lp: 4200, rel: 0.25 },
 };
 const LIM_TRIM = 1.4;
+// The clipper rounds overs up to +6 dB over full scale instead of flat-topping them (see clipCurve).
+const CLIP_HEADROOM = 2;
 // The clipper tops out at 0.98; this trim keeps the master output (true peak, 4x oversampled) under -1 dBTP.
 const OUT_TRIM = 0.78;
 
@@ -174,8 +176,8 @@ export class Engine {
     this.master = this.gain(0.85);
     this.limIn = this.gain(0.5);
     this.limiter = this.comp(-6, 12, 3, 0.002, 0.12);
-    this.limTrim = this.gain(LIM_TRIM);
-    this.clip = c.createWaveShaper(); this.clip.curve = clipCurve(); this.clip.oversample = '4x';
+    this.limTrim = this.gain(LIM_TRIM / CLIP_HEADROOM);
+    this.clip = c.createWaveShaper(); this.clip.curve = clipCurve(CLIP_HEADROOM); this.clip.oversample = '4x';
     this.out = this.gain(OUT_TRIM);
     this.mix.connect(this.djHP).connect(this.djLP).connect(this.arrLP).connect(this.glue).connect(this.satIn).connect(this.sat)
       .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.clip).connect(this.out);
@@ -1032,7 +1034,7 @@ export class Engine {
     if (!set) { loadBand(kind); return this[fallback](t, v, iv, root, p, out); }
     const R = BAND_PLAY[kind];
     const tone = Math.max(-6, Math.min(3, 3 * Math.log2(p.cutoff / 1500)));
-    const dur = Math.max(R.hold ? this.stepDur * 4 : R.min, p.decay * R.len);
+    const dur = Math.min(R.max ?? Infinity, Math.max(R.hold ? this.stepDur * 4 : R.min, p.decay * R.len));
     const chord = R.grip && iv.length > 1;
     // A guitarist strums down on the beat and up on the offbeats; other players roll the chord either way.
     const up = chord ? (this.step == null ? (this.stroke = !this.stroke) === false : this.step % 4 !== 0) : hash(t, 21) > 0.5;
@@ -1072,8 +1074,8 @@ export class Engine {
     if (R) { while (m > R.hi) m -= 12; while (m < R.lo) m += 12; }
     if (out === this.ch.stab.input) out = this.ch.stab.band;
     const touch = 1 - 0.2 * (R?.even ?? 1) + 0.4 * (R?.even ?? 1) * hash(t * 7 + m, 24), hv = Math.max(0.25, Math.min(1.2, vel * touch));
-    // Soft touches play the softly struck piano recording: a different tone, not just a quieter one.
-    if (kind === 'piano' && hv < 0.88 && this.rec('pianosoft')) set = this.rec('pianosoft');
+    // Soft touches play the softly struck or plucked recording: a different tone, not just a quieter one.
+    if (hv < (R?.softBelow ?? 0) && this.rec(SOFT_LAYER[kind])) set = this.rec(SOFT_LAYER[kind]);
     let [c, buf] = set[0];
     for (const [cm, b] of set) if (Math.abs(cm - m) < Math.abs(c - m)) [c, buf] = [cm, b];
     return this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
