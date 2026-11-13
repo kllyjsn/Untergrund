@@ -7,12 +7,11 @@ import { track as trackEvent } from './analytics.js';
 import { startLiveSet, endLiveSet, liveSetRecording } from './live-sets.js';
 import { listReplays, loadReplay, fmtTime } from './sets.js';
 import { PARTS, PART_IDS, extractPart, jamKey, jamStep, stepWall, jammable, partIdea } from './jam.js';
+import { SHAPES, COLORS, GEAR, FALLBACK_NAME, generateName, randomLook, migrateAvatar, chatGroups } from './club-identity.js';
+import { createStage } from './club-stage.js';
 
 const AVATAR_KEY = 'untergrund.avatar.v1';
 const ROOM_KEY = 'untergrund.room.v1';
-const SHAPES = ['block', 'round', 'visor'];
-const COLORS = ['lime', 'red', 'blue', 'violet', 'bone'];
-const GEAR = ['none', 'hood', 'goggles', 'antenna', 'phones'];
 const REACTIONS = ['HYPE', 'DEEP', 'ACID'];
 const JAM_LINES = {
   claim: (part) => `took the ${part}`,
@@ -42,11 +41,15 @@ const clientCredentials = () => {
   return { id, secret };
 };
 const clientId = () => clientCredentials().id;
-const defaultAvatar = () => ({ name: 'Night Listener', shape: 'block', color: 'lime', gear: 'hood' });
+const defaultAvatar = () => ({ name: FALLBACK_NAME, shape: 'block', color: 'lime', gear: 'hood' });
 
+// New visitors get a generated name and look; saved avatars keep theirs (see migrateAvatar).
 export function loadAvatar() {
-  try { return { ...defaultAvatar(), ...JSON.parse(localStorage.getItem(AVATAR_KEY)) }; }
-  catch { return defaultAvatar(); }
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(AVATAR_KEY)); } catch {}
+  const { avatar, changed } = migrateAvatar(saved);
+  if (changed) saveAvatar(avatar);
+  return avatar;
 }
 
 const pick = (value, values, fallback) => values.includes(value) ? value : fallback;
@@ -64,8 +67,8 @@ export function normalizeMember(member = {}) {
   };
 }
 
-function saveAvatar(avatar) {
-  localStorage.setItem(AVATAR_KEY, JSON.stringify(avatar));
+function saveAvatar({ name, shape, color, gear }) {
+  try { localStorage.setItem(AVATAR_KEY, JSON.stringify({ name, shape, color, gear, v: 2 })); } catch {}
 }
 
 const cube = (cls, faces = ['f', 't', 'l', 'r'], front = []) => h('div', { class: `cube ${cls}` },
@@ -75,7 +78,8 @@ function avatarNode(avatar, extra = '', style = '') {
   const safe = normalizeMember(avatar);
   const screen = h('span', { class: 'bot-screen' },
     h('i', { class: 'bot-eye left' }), h('i', { class: 'bot-eye right' }), h('i', { class: 'bot-mouth' }), h('i', { class: 'bot-goggles' }));
-  return h('div', { class: `club-person ${safe.shape} ${safe.color} gear-${safe.gear} ${extra}`, style, role: 'img', 'aria-label': safe.name ? `${safe.name} avatar` : 'Crowd silhouette' },
+  const me = safe.id && safe.id === clientId() ? ' me' : '';
+  return h('div', { class: `club-person ${safe.shape} ${safe.color} gear-${safe.gear}${me} ${extra}`, style, role: 'img', 'aria-label': safe.name ? `${safe.name} avatar` : 'Crowd silhouette', ...(me && { title: 'You. Tap to change your look' }) },
     h('div', { class: 'club-shadow' }),
     h('div', { class: 'bot' },
       h('div', { class: 'bot-rig' },
@@ -88,14 +92,6 @@ function avatarNode(avatar, extra = '', style = '') {
           cube('bot-phone left'), cube('bot-phone right'), h('i', { class: 'bot-band' }),
           h('i', { class: 'bot-antenna' })))),
     safe.name ? h('div', { class: 'club-name' }, safe.name) : null);
-}
-
-function crowdSlots() {
-  const slots = [];
-  [[5, 4, 1], [6, 19, .8], [7, 31, .64]].forEach(([count, y, depth], row) => {
-    for (let i = 0; i < count; i++) slots.push({ x: 10 + (80 * (i + .5)) / count + (row === 1 ? 2.5 : 0), y, depth, row });
-  });
-  return slots.sort((a, b) => a.row - b.row || Math.abs(a.x - 50) - Math.abs(b.x - 50));
 }
 
 class RoomBus {
@@ -133,7 +129,14 @@ class RoomBus {
     this.channel = 'BroadcastChannel' in window ? new BroadcastChannel(`untergrund:${this.id}`) : null;
     if (this.channel) this.channel.onmessage = (e) => this.handleChannel(e.data);
     this.timer = setInterval(() => this.heartbeat(), 4000);
-    this.poller = setInterval(() => this.poll(), 700);
+    // Polls back off: fast right after activity or while holding a jam part, slower when idle, none while hidden
+    // (the 4 s heartbeat still returns the room). Each heartbeat or POST reply also counts as a poll.
+    this.activeAt = Date.now();
+    this.lastSync = 0;
+    this.failures = 0;
+    this.poller = 0;
+    this.onVisible = () => { if (!document.hidden) { this.activeAt = Date.now(); this.poll(); } };
+    document.addEventListener('visibilitychange', this.onVisible);
     this.ready = this.heartbeat();
     this.channel?.postMessage({ kind: 'snapshot-request', requester: this.clientId });
     this.poll();
@@ -211,6 +214,7 @@ class RoomBus {
       at: Date.now(),
     };
     // A jam move only counts once the room service accepts it, so it never goes over the local channel.
+    this.activeAt = Date.now();
     if (type !== 'jam') {
       this.receive({ ...event, local: true });
       this.channel?.postMessage(event);
@@ -220,7 +224,7 @@ class RoomBus {
       const response = await fetch(this.endpoint('/events'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...event, clientId: this.clientId, clientSecret: this.clientSecret, token: this.token, since: this.seq }),
+        body: JSON.stringify({ ...event, clientId: this.clientId, clientSecret: this.clientSecret, token: this.token, since: this.seq, ...this.known() }),
       });
       const json = await response.json().catch(() => null);
       if (response.ok || json?.jam) this.applySnapshot(json);
@@ -302,21 +306,44 @@ class RoomBus {
       const response = await fetch(this.endpoint('/events'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'presence', clientId: this.clientId, clientSecret: this.clientSecret, token: this.token, user: { ...this.user, joinedAt: this.joinedAt }, since: this.seq }),
+        body: JSON.stringify({ type: 'presence', clientId: this.clientId, clientSecret: this.clientSecret, token: this.token, user: { ...this.user, joinedAt: this.joinedAt }, since: this.seq, ...this.known() }),
       });
       if (response.ok) this.applySnapshot(await response.json());
     } catch {}
   }
 
+  // What this client already holds, so the room only sends the set/jam bodies when they changed.
+  known() {
+    return { knownSet: this.currentSet?.version ?? '', knownJam: this.jam?.rev ?? '' };
+  }
+
+  pollDelay() {
+    if (document.hidden) return 15000;
+    if (this.failures) return Math.min(15000, 1000 * 2 ** this.failures);
+    return Date.now() - this.activeAt < 12000 || this.myPart() ? 700 : 2000;
+  }
+
   async poll() {
-    try {
-      const response = await fetch(`${this.endpoint()}?since=${this.seq}`);
-      if (response.ok) this.applySnapshot(await response.json());
-    } catch {}
+    clearTimeout(this.poller);
+    if (this.closed) return;
+    const due = this.pollDelay() - (Date.now() - this.lastSync);
+    if (!document.hidden && due <= 50) {
+      try {
+        const { knownSet, knownJam } = this.known();
+        const response = await fetch(`${this.endpoint()}?since=${this.seq}&set=${knownSet}&jam=${knownJam}`);
+        if (response.ok) this.applySnapshot(await response.json());
+        else this.failures++;
+      } catch { this.failures++; }
+    }
+    if (this.closed) return;
+    clearTimeout(this.poller);
+    this.poller = setTimeout(() => this.poll(), Math.max(50, this.pollDelay() - (Date.now() - this.lastSync)));
   }
 
   applySnapshot(snapshot) {
     this.serverConnected = true;
+    this.lastSync = Date.now();
+    this.failures = 0;
     if (snapshot.sessionToken) {
       this.token = snapshot.sessionToken;
       sessionStorage.setItem(this.tokenKey, this.token);
@@ -397,6 +424,7 @@ class RoomBus {
     if (!event?.id || this.seen.has(event.id)) return;
     this.seen.add(event.id);
     if (this.seen.size > 400) this.seen.delete(this.seen.values().next().value);
+    if (event.type !== 'presence') this.activeAt = Date.now();
     if (event.user?.id) {
       const existing = this.members.get(event.user.id);
       this.members.set(event.user.id, normalizeMember({
@@ -425,9 +453,11 @@ class RoomBus {
   }
 
   close() {
+    this.closed = true;
     clearInterval(this.jamTimer);
     clearInterval(this.timer);
-    clearInterval(this.poller);
+    clearTimeout(this.poller);
+    document.removeEventListener('visibilitychange', this.onVisible);
     this.channel?.close();
   }
 }
@@ -452,8 +482,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
   let bus = null;
   let room = { members: [], currentSet: null };
   let messages = [];
-  let reactionTimer = 0;
-  let reaction = null;
+  const stageView = createStage({ avatarNode, normalizeMember, looks: { SHAPES, COLORS, GEAR } });
   let apiBase = '';
   let pendingSet = null;
   let closed = false;
@@ -477,7 +506,8 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
 
   const onKey = (e) => {
     if (e.key === 'Escape') {
-      close();
+      if (lookOpen) closeLook();
+      else close();
       e.stopPropagation();
       return;
     }
@@ -487,7 +517,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
   window.addEventListener('keydown', onKey, true);
   let kickTimer = 0;
   const onStep = (e) => {
-    modal.style.setProperty('--club-step', e.detail.step);
+    stageView.step(e.detail);
     modal.classList.toggle('club-kick', e.detail.kick);
     modal.classList.toggle('club-accent', e.detail.accent);
     if (e.detail.step % 16 === 0) paintCountdowns();
@@ -542,27 +572,8 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     return musicKey(set.state) === musicKey(getState());
   }
 
-  function paintReaction(fx, restart = false) {
-    const elapsed = reaction ? performance.now() - reaction.at : Infinity;
-    if (!fx || elapsed >= 1400) return fx;
-    fx.textContent = reaction.text;
-    fx.style.animationDelay = `${-Math.round(elapsed)}ms`;
-    if (!restart) fx.classList.add('show');
-    else {
-      fx.classList.remove('show');
-      requestAnimationFrame(() => fx.classList.add('show'));
-    }
-    return fx;
-  }
-
   function showReaction(event) {
-    reaction = { text: `${event.user?.name || 'Listener'} · ${event.payload?.value || 'HYPE'}`, at: performance.now() };
-    paintReaction(modal.querySelector('.club-reaction-fx'), true);
-    clearTimeout(reactionTimer);
-    reactionTimer = setTimeout(() => {
-      reaction = null;
-      modal.querySelector('.club-reaction-fx')?.classList.remove('show');
-    }, 1400);
+    stageView.react({ id: event.user?.id, name: event.user?.name, value: event.payload?.value || 'HYPE' });
   }
 
   function nowPlaying() {
@@ -611,11 +622,6 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     connect();
   }
 
-  function commitName(value) {
-    const name = value.trim() || 'Night Listener';
-    if (name !== avatar.name) setAvatar({ name });
-  }
-
   function setAvatar(next) {
     avatar = { ...avatar, ...next };
     saveAvatar(avatar);
@@ -623,49 +629,93 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     render();
   }
 
-  function avatarEditor() {
-    const choice = (label, key, values) => h('label', { class: 'club-field' }, h('span', {}, label),
-      h('select', { class: 'sel', onchange: (e) => setAvatar({ [key]: e.target.value }) },
-        values.map((value) => {
-          const option = h('option', { value }, value.toUpperCase());
-          if (avatar[key] === value) option.selected = true;
-          return option;
-        })));
-    return h('div', { class: 'club-customizer' },
-      h('div', { class: 'club-custom-preview' }, avatarNode(avatar, 'preview')),
-      h('div', { class: 'club-custom-fields' },
-        h('label', { class: 'club-field' }, h('span', {}, 'DISPLAY NAME'),
-          h('input', { class: 'inp', maxlength: 28, value: avatar.name, 'data-focus-key': 'avatar-name', onkeydown: (e) => { if (e.key === 'Enter') commitName(e.target.value); }, onblur: (e) => { if (!rendering) commitName(e.target.value); } })),
-        choice('HEAD', 'shape', SHAPES),
-        choice('COLOR', 'color', COLORS),
-        choice('GEAR', 'gear', GEAR)));
+  // YOUR LOOK: name, head, color and gear, each a live preview. Opened from the head button or by tapping your own bot.
+  let lookOpen = false;
+  let nameTimer = 0;
+  function openLook() {
+    if (lookOpen) return;
+    lookOpen = true;
+    render();
+    modal.querySelector('.club-look-done')?.focus({ preventScroll: true });
+  }
+  function closeLook() {
+    if (!lookOpen) return;
+    lookOpen = false;
+    clearTimeout(nameTimer);
+    bus?.updateUser(avatar);
+    render();
+    modal.querySelector('.club-look-btn')?.focus({ preventScroll: true });
+  }
+  modal.addEventListener('click', (e) => { if (e.target.closest('.club-stage .club-person.me')) openLook(); });
+
+  // Typing never re-renders, so a tap on a tile right after typing still lands.
+  function typeName(value) {
+    const name = value.trim().slice(0, 28);
+    if (!name || name === avatar.name) return;
+    avatar = { ...avatar, name };
+    saveAvatar(avatar);
+    for (const el of modal.querySelectorAll('.club-look-preview .club-name')) el.textContent = name;
+    clearTimeout(nameTimer);
+    nameTimer = setTimeout(() => bus?.updateUser(avatar), 400);
+  }
+
+  const lookButton = () => h('button', {
+    class: `btn ghost club-look-btn${lookOpen ? ' on' : ''}`, 'aria-haspopup': 'dialog', 'aria-expanded': String(lookOpen),
+    title: `${avatar.name}: change your name and look`, onclick: () => (lookOpen ? closeLook() : openLook()),
+  }, h('i', { class: `club-face ${avatar.shape} ${avatar.color}` }), h('span', {}, 'YOUR LOOK'));
+
+  function lookSheet() {
+    const tile = (key, value) => {
+      const on = avatar[key] === value;
+      return h('button', {
+        class: `club-look-tile${on ? ' on' : ''}`, 'aria-pressed': String(on), 'aria-label': `${key === 'shape' ? 'Head' : 'Gear'}: ${value}`,
+        'data-focus-key': `look-${key}-${value}`, onclick: () => setAvatar({ [key]: value }),
+      }, h('span', { class: 'club-look-mini', 'aria-hidden': 'true' }, avatarNode({ ...avatar, name: '', [key]: value })), h('small', {}, value.toUpperCase()));
+    };
+    const swatch = (color) => {
+      const on = avatar.color === color;
+      return h('button', {
+        class: `club-look-swatch ${color}${on ? ' on' : ''}`, 'aria-pressed': String(on), 'aria-label': `Color: ${color}`, title: color.toUpperCase(),
+        'data-focus-key': `look-color-${color}`, onclick: () => setAvatar({ color }),
+      });
+    };
+    const group = (label, cls, items) => h('div', { class: 'club-look-group' }, h('span', { class: 'club-look-label' }, label),
+      h('div', { class: cls, role: 'group', 'aria-label': label }, items));
+    const nameInput = h('input', {
+      id: 'club-look-name', class: 'inp club-look-name', maxlength: 28, value: avatar.name, autocomplete: 'off', spellcheck: 'false', enterkeyhint: 'done',
+      'data-focus-key': 'avatar-name',
+      oninput: (e) => typeName(e.target.value),
+      onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); closeLook(); } },
+      onblur: (e) => { if (!e.target.value.trim()) e.target.value = avatar.name; },
+    });
+    return h('div', { class: 'club-look-layer' },
+      h('div', { class: 'club-look-scrim', onclick: () => closeLook() }),
+      h('section', { class: 'club-look', role: 'dialog', 'aria-label': 'Your look' },
+        h('header', { class: 'club-look-head' },
+          h('b', {}, 'YOUR LOOK'),
+          h('button', { class: 'btn accent club-look-done', 'data-focus-key': 'look-done', onclick: () => closeLook() }, 'DONE')),
+        h('div', { class: 'club-look-hero' },
+          h('div', { class: 'club-look-preview' }, avatarNode(avatar, 'preview')),
+          h('div', { class: 'club-look-id' },
+            h('label', { class: 'club-look-label', for: 'club-look-name' }, 'NAME'),
+            h('div', { class: 'club-look-name-row' }, nameInput,
+              h('button', { class: 'btn ghost', 'aria-label': 'Generate a new name', 'data-focus-key': 'look-rename', onclick: () => setAvatar({ name: generateName() }) }, 'NEW NAME')),
+            h('small', {}, 'How the room sees you, on stage and in chat.'))),
+        group('HEAD', 'club-look-tiles three', SHAPES.map((v) => tile('shape', v))),
+        group('COLOR', 'club-look-swatches', COLORS.map(swatch)),
+        group('GEAR', 'club-look-tiles five', GEAR.map((v) => tile('gear', v))),
+        h('footer', { class: 'club-look-foot' },
+          h('button', { class: 'btn ghost', 'data-focus-key': 'look-shuffle', onclick: () => setAvatar(randomLook()) }, 'SHUFFLE LOOK'))));
   }
 
   function stage() {
     const members = (room.members.length ? room.members : [{ id: clientId(), ...avatar }]).map(normalizeMember);
-    const current = room.currentSet || nowPlaying();
-    const dj = members.find((member) => member.id === room.hostId) || members[0] || normalizeMember(avatar);
-    const crowd = members.filter((member) => member.id !== dj.id);
-    const slots = crowdSlots();
-    const ambient = Array.from({ length: Math.max(0, 14 - crowd.length) }, (_, i) =>
-      ({ name: '', shape: SHAPES[i % SHAPES.length], color: COLORS[(i + 2) % COLORS.length], gear: GEAR[i % GEAR.length] }));
-    const people = [...crowd, ...ambient].slice(0, slots.length).map((member, i) => {
-      const slot = slots[i];
-      const style = `--x:${slot.x.toFixed(1)}%;--y:${slot.y}%;--depth:${slot.depth};--z:${10 - slot.row};` +
-        `--turn:${((50 - slot.x) * .55).toFixed(1)}deg;--delay:${(-((i * .37) % 1)).toFixed(2)}s`;
-      return avatarNode(member, i < crowd.length ? `listener p${i}` : 'ambient', style);
+    const set = room.currentSet;
+    return stageView.update({
+      members, hostId: room.hostId,
+      current: { ...(set || nowPlaying()), startsAt: set?.startsAt },
+      label: set ? `${set.replay ? 'REPLAY' : 'LIVE'} IN THIS ROOM${liveSetRecording() ? ' · RECORDING' : ''}` : 'READY TO BROADCAST',
     });
-    return h('section', { class: 'club-stage', style: `--beat:${(60 / (current.bpm || 132)).toFixed(3)}s` },
-      h('div', { class: 'club-lights' }, h('i'), h('i'), h('i')),
-      paintReaction(h('div', { class: 'club-reaction-fx' })),
-      h('div', { class: 'club-dj' },
-        avatarNode(dj, 'dj', '--turn:0deg'),
-        h('div', { class: 'club-booth' }, h('i'), h('b', {}, 'UNTERGRUND'), h('i'))),
-      h('div', { class: 'club-now' },
-        h('span', {}, room.currentSet ? `${room.currentSet.replay ? 'REPLAY' : 'LIVE'} IN THIS ROOM${liveSetRecording() ? ' · RECORDING' : ''}` : 'READY TO BROADCAST'),
-        h('strong', {}, current.title),
-        h('small', {}, `${current.artist} · ${current.bpm} BPM · ${current.key || ''}`)),
-      h('div', { class: 'club-floor' }, people));
   }
 
   let sideTab = 'signal';
@@ -733,25 +783,62 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
       h('div', { class: 'club-crate-note' }, crate.shared ? 'Shared crate: every UNTERGRUND DJ can spin these, except tracks marked this browser only.' : 'Saved in this browser. Shared storage is not connected yet.'));
   }
 
+  // Chat follows the newest line unless you scrolled up to read; then a NEW button brings you back.
+  let chatPinned = true, chatTop = 0, chatSeen = '';
+  const clock = (at) => at ? new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  const chatGroup = (g) => g.system
+    ? h('div', { class: 'club-chat-system' }, h('b', {}, g.mine ? 'You' : g.name), ` ${g.text}`)
+    : h('div', { class: `club-chat-group ${g.color}${g.mine ? ' mine' : ''}` },
+      h('div', { class: 'club-chat-who' },
+        h('i', { class: `club-face ${g.shape} ${g.color}` }),
+        h('b', {}, g.name),
+        g.mine ? h('em', {}, 'YOU') : null,
+        g.host ? h('em', { class: 'dj' }, 'DJ') : null,
+        h('time', {}, clock(g.at))),
+      g.lines.map((line) => h('p', {}, line.text)));
+
   function chatPanel() {
     if (sideTab === 'crate') return cratePanel();
     if (sideTab === 'sets') return setsPanel();
-    const feed = h('div', { class: 'club-chat-feed' },
-      messages.length ? messages.map((message) => h('div', { class: `club-chat-line${message.jam ? ' jam' : ''}` },
-        h('b', {}, message.user?.name || 'Listener'), h('span', {}, message.payload?.text || ''))) :
-        h('div', { class: 'club-chat-empty' }, 'The room is quiet. Start the signal.'));
-    const input = h('input', {
-      class: 'inp', maxlength: 280, placeholder: 'Message the room', 'data-focus-key': 'chat',
-      onkeydown: (e) => {
-        if (e.key !== 'Enter' || !e.target.value.trim()) return;
-        bus.send('chat', { text: e.target.value.trim() });
-        e.target.value = '';
+    const me = clientId();
+    const groups = chatGroups(messages, { me, hostId: room.hostId });
+    const lastId = messages[messages.length - 1]?.id || '';
+    if (chatPinned) chatSeen = lastId;
+    const unread = chatPinned ? 0 : messages.slice(messages.findIndex((m) => m.id === chatSeen) + 1).filter((m) => !m.jam && m.user?.id !== me).length;
+    const toBottom = () => { chatPinned = true; feed.scrollTop = feed.scrollHeight; feed.querySelector('.club-chat-new')?.remove(); };
+    const others = Math.max(0, (room.members.length || 1) - 1);
+    const feed = h('div', {
+      class: 'club-chat-feed', role: 'log', 'aria-label': 'Room chat',
+      onscroll: () => {
+        chatTop = feed.scrollTop;
+        chatPinned = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 32;
+        if (chatPinned) { chatSeen = lastId; feed.querySelector('.club-chat-new')?.remove(); }
       },
+    },
+    groups.length ? groups.map(chatGroup) : h('div', { class: 'club-chat-hello' },
+      h('i', { class: `club-face ${avatar.shape} ${avatar.color}` }),
+      h('b', {}, `You're in as ${avatar.name}`),
+      h('span', {}, others ? `${others === 1 ? 'One person is' : `${others} people are`} here with you. Say hi: everyone hears the same set, on the same beat.`
+        : 'Nobody else is here yet. Copy the invite and bring someone in.')),
+    unread ? h('button', { class: 'club-chat-new', onclick: toBottom }, `${unread} NEW ↓`) : null);
+    queueMicrotask(() => { if (feed.isConnected) feed.scrollTop = chatPinned ? feed.scrollHeight : chatTop; });
+    const send = () => {
+      const text = input.value.trim();
+      if (!text) return;
+      chatPinned = true;
+      bus.send('chat', { text });
+      input.value = '';
+    };
+    const input = h('input', {
+      class: 'inp', maxlength: 280, placeholder: 'Message the room', 'aria-label': 'Message the room', 'data-focus-key': 'chat',
+      autocomplete: 'off', enterkeyhint: 'send',
+      onkeydown: (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); send(); } },
     });
     return h('aside', { class: 'club-social' },
       h('div', { class: 'club-social-head' }, tabs(), h('b', {}, `${room.members.length || 1} LIVE`)),
       feed,
-      h('div', { class: 'club-chat-compose' }, input),
+      h('div', { class: 'club-chat-compose' }, input,
+        h('button', { class: 'btn club-chat-send', 'aria-label': 'Send message', onpointerdown: (e) => e.preventDefault(), onclick: () => send() }, 'SEND')),
       h('div', { class: 'club-reactions' }, REACTIONS.map((value) =>
         h('button', { class: 'btn ghost', onclick: () => bus.send('reaction', { value }) }, value))));
   }
@@ -879,6 +966,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
         h('button', { class: `btn ${isHost ? 'accent' : 'club-queue'}`, onclick: broadcastSet },
           isHost ? (room.currentSet ? 'REBROADCAST SET' : 'GO LIVE') : (queued ? 'LEAVE DJ QUEUE' : 'JOIN DJ QUEUE')),
         isHost && room.queue?.length ? h('button', { class: 'btn club-queue', onclick: () => bus.send('deck', { action: 'pass' }) }, 'PASS DECK') : null,
+        lookButton(),
         h('button', { class: 'btn ghost', onclick: close }, 'CLOSE')));
     const jamBand = band();
     modal.classList.toggle('has-band', !!jamBand);
@@ -886,11 +974,11 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
       jamBand || '',
       h('div', { class: 'club-main' }, stage(), chatPanel()),
       h('footer', { class: 'club-footer' },
-        avatarEditor(),
         h('div', { class: 'club-principle' },
           h('b', {}, '100% UNTERGRUND-NATIVE'),
           h('span', {}, 'Every set in every room is created inside the instrument. No imported catalog. No passive playlist.'),
-          h('small', {}, room.queue?.length ? `UP NEXT · ${room.queue.map((id) => room.members.find((member) => member.id === id)?.name || 'Listener').join(' · ')}` : 'DJ QUEUE OPEN'))));
+          h('small', {}, room.queue?.length ? `UP NEXT · ${room.queue.map((id) => room.members.find((member) => member.id === id)?.name || 'Listener').join(' · ')}` : 'DJ QUEUE OPEN'))),
+      lookOpen ? lookSheet() : '');
     const restored = draft && modal.querySelector(`[data-focus-key="${draft.key}"]`);
     if (restored) {
       restored.value = draft.value;
