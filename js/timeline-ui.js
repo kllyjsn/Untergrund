@@ -120,15 +120,23 @@ export function songTimeline(o) {
       if (i === lift) { b.classList.add('lift'); b.style.transform = `translateX(${shift}px)`; }
       return b;
     });
-    lane.replaceChildren(...blocks, ...hitEls(total), ph);
+    hitEls(list, blocks);
+    lane.replaceChildren(...blocks, ph);
   }
 
-  // Bars a Describe edit just changed glow for a moment ("no hats in bars 9-16").
-  function hitEls(total) {
-    if (!hit || Date.now() > hit.until || !total || hit.chain !== o.state().chain) return [];
-    const left = Math.max(0, hit.until - Date.now());
-    return ranges(hit.bars).map(([a, b]) => h('i', { class: 'tl-hit', 'aria-hidden': 'true',
-      style: `left:${(a / total) * 100}%;width:${((b - a + 1) / total) * 100}%;animation-delay:${left - HIT_MS}ms` }));
+  // Bars a Describe edit just changed glow for a moment ("no hats in bars 9-16"), drawn inside each
+  // block they touch so the glow follows the blocks as laid out.
+  function hitEls(list, blocks) {
+    if (!hit || Date.now() > hit.until || hit.chain !== o.state().chain) return;
+    const delay = `${Math.max(0, hit.until - Date.now()) - HIT_MS}ms`, at = starts(list);
+    for (const [a, b] of ranges(hit.bars)) {
+      list.forEach((s, i) => {
+        const x = Math.max(a, at[i]), y = Math.min(b, at[i] + s.bars - 1);
+        if (x > y) return;
+        blocks[i].append(h('i', { class: 'tl-hit', 'aria-hidden': 'true',
+          style: `left:${((x - at[i]) / s.bars) * 100}%;width:${((y - x + 1) / s.bars) * 100}%;animation-delay:${delay}` }));
+      });
+    }
   }
 
   function onDown(e) {
