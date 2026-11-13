@@ -2267,3 +2267,7 @@ window.__untergrund = { get state() { return state; }, get engine() { return eng
 document.addEventListener('click', (e) => {
   for (const m of document.querySelectorAll('details.menu[open]')) if (!m.contains(e.target)) m.open = false;
 });
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  for (const m of document.querySelectorAll('details.menu[open]')) { m.open = false; if (m.contains(document.activeElement)) m.querySelector('summary')?.focus(); }
+});
