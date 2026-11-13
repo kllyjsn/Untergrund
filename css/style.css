@@ -1247,7 +1247,7 @@ body.studio-open .generate-actions .hum-cta { flex: 1 1 200px; }
   body:has(.overlay, .club-overlay) .tabbar { background: #1d1d1e; }
 }
 @media (max-width: 560px) {
-  .club-dj { top: 96px; transform: translateX(-50%) scale(.7); transform-origin: 50% 0; }
+  .club-dj { top: 136px; transform: translateX(-50%) scale(.7); transform-origin: 50% 0; }
   .club-chat-feed { padding: 8px 12px; }
   .club-chat-compose .inp { font-size: 16px; }
   .club-look-btn span { display: none; }
