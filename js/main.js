@@ -28,6 +28,7 @@ import { compose } from './classical.js';
 import { PIECE, loadPiece } from './repertoire.js';
 import { followingRow } from './feed.js';
 import { describeBar, syncLyrics } from './describe-ui.js';
+import { songState } from './song-spec.js';
 import { fetchPublicTrack } from './account.js';
 import { openShare, openSharedLanding, countRemix, track } from './share.js';
 import { readShareParams, decodeSong, normalizeSong, remixState } from './share-code.js';
@@ -921,6 +922,7 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   return {
     next: s, undo: true, autoMajor: major,
     finish: (landed = false) => {
+      const title = s.artist.title;
       build(); persist();
       trackEvent('generate', { genre: id, kind: 'song' });
       if (!landed) toast(piece ? `${piece.composer.split(' ').pop()}: ${title}` : `New ${STYLES[id].name} track “${title}”`);
@@ -1410,7 +1412,7 @@ function buildGenerateHome() {
   const left = showNp ? buildNowPlaying(primary) : [
     h('div', { class: 'generate-copy' },
       h('h1', {}, 'Press Generate. Hear a finished track.'),
-      h('p', {}, made ? 'Refine it in Studio, perform it live, or spin it in the Club.' : 'Pick a sound. UNTERGRUND writes the whole arrangement.'),
+      h('p', {}, made ? 'Refine it in Studio, perform it live, or spin it in the Club.' : 'Pick a sound, or describe the song you want. UNTERGRUND writes the whole arrangement.'),
       dropPeek()),
     h('div', { class: 'generate-actions' },
       studioOpen ? primary : h('div', { class: 'gen-wrap' }, primary, hum),
@@ -1428,7 +1430,7 @@ function buildGenerateHome() {
       h('i'), h('b', {}, t.title || 'Untitled'), h('span', {}, [STYLES[t.style]?.name, t.bpm && `${t.bpm} BPM`].filter(Boolean).join(' · ')))))) : null;
   const following = followingRow({ hue, onPlay: (t) => openShared(t.id, true), onLoad: renderHome });
   const live = liveStrip();
-  const home = h('section', { role: studioOpen ? 'region' : 'main', 'aria-label': 'Create', class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : '') + (live.hidden ? '' : ' has-live') + (made ? '' : ' first-run') + (unlock ? ' unlock' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` + (unlock ? `;--ua:${-Math.round(since)}ms` : '') }, left, made ? describeBox() : null, live, picker, concert, recents, following,
+  const home = h('section', { role: studioOpen ? 'region' : 'main', 'aria-label': 'Create', class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : '') + (live.hidden ? '' : ' has-live') + (made ? '' : ' first-run') + (unlock ? ' unlock' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` + (unlock ? `;--ua:${-Math.round(since)}ms` : '') }, left, describeBox(), live, picker, concert, recents, following,
     h('a', { class: 'home-research', href: '/research/' }, 'RESEARCH', h('span', {}, 'How we measure the sound')));
   ui.home = home;
   return home;
@@ -1479,6 +1481,21 @@ function describeBox() {
         return steer(s);
       });
       if (playing && pat().score) stop();
+    },
+    // Prompt to song: a normal GENERATE in the spec's style, rewritten by the spec before it plays.
+    song: (spec, label, done, lyrics) => {
+      const was = { style, family }, artist = clone(state.artist ?? null);
+      style = spec.style; family = STYLES[style].family; localStorage.setItem('untergrund.family', family);
+      if (playing) stop();
+      doGenerateSet(null, null, (s) => {
+        history.amend((snap) => JSON.stringify({ ...JSON.parse(snap), artist, ui: was }));
+        history.relabel(label);
+        const next = songState(spec, s.artist.seed, s).state;
+        if (lyrics) next.lyrics = lyrics;
+        done(next.artist.title, next.key);
+        return next;
+      });
+      play();
     },
     commit: (next) => { adoptState(next); build(); persist(); },
   });

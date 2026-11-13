@@ -66,6 +66,16 @@ export function analyzePcm(channels, sampleRate, { bpm = 0, renderMs = 0 } = {})
     });
     gridErrorMs = round(errors.reduce((a, b) => a + b, 0) / errors.length * 1000, 1);
   }
+  // The song's dynamic arc: spread (p90 - p10) of 2-second loudness, over windows with sound in them. Sections that
+  // build, drop and break down spread wide; a loop at one level all the way through sits near 0.
+  const slow = [];
+  for (let i = 0; i + 200 <= envelope.length; i += 200) {
+    let e = 0; for (let k = i; k < i + 200; k++) e += envelope[k] * envelope[k];
+    const level = db(Math.sqrt(e / 200));
+    if (level > -60) slow.push(level);
+  }
+  slow.sort((a, b) => a - b);
+  const arcDb = slow.length >= 3 ? round(slow[Math.floor((slow.length - 1) * 0.9)] - slow[Math.floor((slow.length - 1) * 0.1)], 1) : null;
   const totalBand = Math.max(1e-12, lowEnergy + midEnergy + highEnergy);
   const duration = length / sampleRate;
   return {
@@ -80,6 +90,7 @@ export function analyzePcm(channels, sampleRate, { bpm = 0, renderMs = 0 } = {})
     highShare: round(highEnergy / totalBand),
     zeroCrossingsPerSecond: round(crossings / duration, 1),
     onsets: onsets.length,
+    arcDb,
     gridErrorMs,
     renderRatio: renderMs ? round(renderMs / 1000 / duration) : null,
     flags: [
@@ -193,3 +204,60 @@ export function lufs(channels, sampleRate) {
   for (const ch of channels) { const k = kWeight(ch, sampleRate); for (let i = 0; i < k.length; i++) e += k[i] * k[i]; n = k.length; }
   return -0.691 + 10 * Math.log10(e / Math.max(1, n) + 1e-20);
 }
+
+const fin = (v, p = 3) => (Number.isFinite(v) ? round(v, p) : null);
+const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+const median = (xs) => { const a = xs.filter(Number.isFinite).sort((x, y) => x - y); return a.length ? (a[(a.length - 1) >> 1] + a[a.length >> 1]) / 2 : null; };
+export const DIMENSIONS = ['musicality', 'originality', 'genre accuracy', 'emotional pull'];
+// Reference-free songwriting metrics a benchmark manifest can carry per pair: [key, label, unit, meaning].
+export const SONGWRITING = [
+  ['secs', 'Length', 's', 'Song length, ring-out trimmed.'],
+  ['sections', 'Sections', '', 'Runs of one pattern letter in the song chain: intro, build, drop, breakdown...'],
+  ['distinctSections', 'Distinct sections', '', 'How many different section patterns the song moves through.'],
+  ['melodyWindows', 'Melody variants', '', 'Distinct two-bar hook windows (composition scorecard).'],
+  ['motifRecall', 'Motif recall', 'share', 'Share of hook windows that still carry the main motif\'s rhythm (composition scorecard).'],
+  ['chords', 'Chords', '', 'Distinct chords the song plays over (composition scorecard).'],
+  ['voiceMove', 'Voice movement', 'st', 'Mean semitones each chord voice travels; lower is smoother (composition scorecard).'],
+  ['contrast', 'Section contrast', 'cv', 'Coefficient of variation of events per bar across the song (composition scorecard).'],
+  ['pitchClasses', 'Pitch classes', '', 'Distinct pitch classes across the melodic parts.'],
+  ['leadRange', 'Lead range', 'st', 'Span of the highest melodic part, in semitones.'],
+  ['partsPerBar', 'Parts per bar', '', 'Median number of parts playing in a bar.'],
+  ['arcDb', 'Dynamic arc', 'dB', 'p90 - p10 of 2-second loudness: how far the song builds and drops (lab metrics).'],
+];
+
+// Lab exports of an OURS-vs-THEIRS benchmark (scripts/suno-benchmark.mjs) -> win rates. A dimension is a win for UNTERGRUND when it rates higher than Suno on that pair (a tie
+// is half a win); replay/release picks count who was picked, with "neither" kept separate.
+export function versusScorecard(exports, manifest = null, { ours: OURS, theirs: THEIRS }) {
+  const meta = new Map((manifest?.pairs || []).map((p) => [p.id, p]));
+  const rows = [];
+  for (const ex of exports) for (const res of ex.results || []) {
+    const side = Object.entries(res.identity || {}).find(([, id]) => id === OURS)?.[0], other = side === 'left' ? 'right' : 'left';
+    if (!side || res.identity[other] !== THEIRS) continue;
+    const m = meta.get(res.pairId) || {};
+    const pick = (v) => (v === side ? 'ours' : v === other ? 'theirs' : 'neither');
+    rows.push({ id: res.pairId, genre: res.genre || m.genre || 'OTHER', style: res.style || m.style, seed: res.seed ?? m.seed, ours: res.ratings[side], theirs: res.ratings[other],
+      replay: pick(res.replay), release: pick(res.release), audio: { ours: res.metrics?.[side] || null, theirs: res.metrics?.[other] || null } });
+  }
+  const tally = (rs) => {
+    const dims = Object.fromEntries(DIMENSIONS.map((d) => {
+      const w = rs.map((x) => Math.sign(x.ours[d] - x.theirs[d])).filter(Number.isFinite);
+      return [d, { winRate: w.length ? fin(mean(w.map((v) => (v + 1) / 2))) : null, wins: w.filter((v) => v > 0).length, ties: w.filter((v) => v === 0).length, losses: w.filter((v) => v < 0).length,
+        ours: fin(mean(rs.map((x) => x.ours[d]).filter(Number.isFinite)), 2), theirs: fin(mean(rs.map((x) => x.theirs[d]).filter(Number.isFinite)), 2) }];
+    }));
+    const picks = (k) => ({ ours: rs.filter((x) => x[k] === 'ours').length, theirs: rs.filter((x) => x[k] === 'theirs').length, neither: rs.filter((x) => x[k] === 'neither').length, oursRate: rs.length ? fin(rs.filter((x) => x[k] === 'ours').length / rs.length) : null });
+    const rates = Object.values(dims).map((d) => d.winRate).filter(Number.isFinite);
+    return { ratings: rs.length, winRate: rates.length ? fin(mean(rates)) : null, dimensions: dims, replay: picks('replay'), release: picks('release') };
+  };
+  const genres = {};
+  for (const g of [...new Set(rows.map((x) => x.genre))]) genres[g] = tally(rows.filter((x) => x.genre === g));
+  const prompts = [...new Set(rows.map((x) => x.id))].map((id) => {
+    const rs = rows.filter((x) => x.id === id), t = tally(rs), m = meta.get(id) || {};
+    const audio = (k) => { const xs = rs.map((x) => x.audio[k]).filter(Boolean); return xs.length ? Object.fromEntries(['lufs', 'rmsDb', 'crestDb', 'arcDb', 'duration'].map((f) => [f, fin(median(xs.map((a) => a[f])), 2)])) : null; };
+    return { id, title: m.title || id, genre: rs[0].genre, style: rs[0].style, seed: rs[0].seed, ratings: rs.length, winRate: t.winRate,
+      dimensions: Object.fromEntries(DIMENSIONS.map((d) => [d, { ours: t.dimensions[d].ours, theirs: t.dimensions[d].theirs }])), replay: t.replay, release: t.release,
+      songwriting: m.songwriting || null, audio: { ours: audio('ours'), theirs: audio('theirs') } };
+  });
+  const sw = Object.fromEntries(SONGWRITING.map(([k]) => [k, fin(median(prompts.map((p) => p.songwriting?.[k])), 3)]));
+  return { schema: 'untergrund.lab-versus/1', ours: OURS, theirs: THEIRS, generated: new Date().toISOString(), commit: manifest?.commit ?? null, listeners: exports.length, prompts: prompts.length, overall: tally(rows), genres, songwritingMedian: sw, songwritingKeys: SONGWRITING.map(([k, label, unit, why]) => ({ k, label, unit, why })), pairs: prompts };
+}
+

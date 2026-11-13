@@ -158,7 +158,7 @@ http.createServer(async (req, res) => {
     }
     if (p.endsWith('/')) p += 'index.html';
     const file = path.join(ROOT, path.normalize(p));
-    if (!file.startsWith(ROOT) || /\/(\.git|api|node_modules)(\/|$)/.test(file.slice(ROOT.length))) { res.writeHead(404); return res.end(); }
+    if (!file.startsWith(ROOT) || /\/(\.git|api|node_modules|suno-lab)(\/|$)/.test(file.slice(ROOT.length))) { res.writeHead(404); return res.end(); }
     const data = await readFile(file);
     res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
     res.end(data);
