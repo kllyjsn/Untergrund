@@ -102,10 +102,27 @@ export function runComposition(styles) {
   return out;
 }
 
+// Prompt to song vs plain GENERATE: the same style and seeds, once as written by the prompt's spec.
+export const PROMPTS = ['melancholic deep house for a sunrise drive, builds to a big euphoric drop', 'dark techno for a warehouse at 4am', 'happy afrobeats summer party',
+  'dreamy ambient for floating in space', 'tense drum and bass chase scene', 'nostalgic synthwave night drive', 'lofi beat for a rainy study night', 'uplifting trance anthem for the sunrise set'];
+async function promptReport() {
+  const { localSpec, songState } = await import('../js/song-spec.js');
+  const mean = (rows) => Object.fromEntries(Object.keys(rows[0]).map((k) => [k, +(rows.reduce((a, r) => a + r[k], 0) / rows.length).toFixed(3)]));
+  const all = { plain: [], prompt: [] }, table = {};
+  for (const p of PROMPTS) {
+    const plain = [], prompt = [];
+    for (const seed of SEEDS) { const sp = localSpec(p, { seed }); plain.push(scoreSong(buildSong(sp.style, seed))); prompt.push(scoreSong(songState(sp, seed).state)); }
+    all.plain.push(...plain); all.prompt.push(...prompt);
+    table[`${p.slice(0, 28)} (plain)`] = mean(plain); table[`${p.slice(0, 28)} (prompt)`] = mean(prompt);
+  }
+  table['ALL (plain)'] = mean(all.plain); table['ALL (prompt)'] = mean(all.prompt);
+  console.table(table);
+}
 export const loopStyles = () => Object.keys(STYLES).filter((id) => STYLES[id].family !== 'CLASSICAL' && id !== 'repertoire');
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2), at = args.indexOf('--style');
+  if (args.includes('--prompts')) { await promptReport(); process.exit(0); }
   const styles = at >= 0 ? [args[at + 1]] : loopStyles();
   const report = runComposition(styles);
   if (!args.includes('--quiet')) console.table(report);

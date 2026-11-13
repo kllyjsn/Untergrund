@@ -6,3 +6,4 @@ fly.toml
 test
 /*.wav
 .data
+suno-lab
