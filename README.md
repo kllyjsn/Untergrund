@@ -4,6 +4,8 @@
 
 Browser music studio: Web Audio synthesis plus bundled CC0 recorded drums, bass, piano, guitar, horns and strings.
 
+The native iPhone app lives in [`ios/`](ios/README.md). It wraps the same engine in SwiftUI with native lock-screen controls, background audio, sharing, exports, haptics, deep links, and microphone permission.
+
 - 9 voices: 909-style kick (pitch env, click, drive, rumble bus), clap, snare, metallic hats/ride, perc, 303-style acid (accent/slide/drive, piano roll), poly chord stabs
 - 8 patterns (A–H), per-track length (polymeter), swing, chain/arrangement mode
 - Generators: hypnotic, industrial, acid, dub, peak-time; NEW SET builds an 8-pattern arrangement
