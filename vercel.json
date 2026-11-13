@@ -6,6 +6,7 @@
   "rewrites": [
     { "source": "/a/:handle", "destination": "/api/page?a=:handle" },
     { "source": "/t/:id", "destination": "/api/page?t=:id" },
+    { "source": "/r/:room", "destination": "/api/page?r=:room" },
     { "source": "/research", "destination": "/research/index.html" },
     { "source": "/research/:slug", "destination": "/research/:slug/index.html" }
   ],
