@@ -4,6 +4,7 @@
   "functions": { "api/push.js": { "maxDuration": 60 }, "api/rooms.js": { "maxDuration": 10 } },
   "crons": [{ "path": "/api/push", "schedule": "0 16 * * *" }],
   "rewrites": [
+    { "source": "/api/song-plan", "destination": "/api/describe?plan=1" },
     { "source": "/api/rooms/:room/events", "destination": "/api/rooms?room=:room&events=1" },
     { "source": "/api/rooms/:room", "destination": "/api/rooms?room=:room" },
     { "source": "/api/room-config", "destination": "/api/rooms?config=1" },
