@@ -446,14 +446,28 @@ body.artist-live .logo b { background: var(--green); }
   repeating-linear-gradient(0deg,transparent 0 24%,rgba(141,92,255,.08) 25% 25.5%);
   transform: rotateX(58deg) scale(1.3); transform-origin: top; }
 .club-stage::after { content: 'UNTERGRUND / ORIGINAL SIGNAL ONLY'; position: absolute; left: 20px; top: 18px; color: rgba(255,255,255,.18); font: 900 10px var(--sans); letter-spacing: .35em; }
-.club-lights { position: absolute; inset: 0; pointer-events: none; }
-.club-lights i { position: absolute; top: -20%; width: 24%; height: 90%; opacity: .14; filter: blur(12px); clip-path: polygon(44% 0,56% 0,100% 100%,0 100%); transform-origin: top; animation: clubSweep 8s ease-in-out infinite alternate; }
+.club-lights { position: absolute; inset: 0; pointer-events: none; opacity: .75; transition: opacity 1.2s ease; }
+.club-lights i { position: absolute; top: -20%; width: 24%; height: 90%; opacity: .14; filter: blur(12px); clip-path: polygon(44% 0,56% 0,100% 100%,0 100%); transform-origin: top; animation: clubSweep 8s ease-in-out infinite alternate; will-change: transform; }
 .club-lights i:nth-child(1) { left: 4%; background: #8d5cff; }
 .club-lights i:nth-child(2) { left: 38%; background: var(--red); animation-delay: -3s; }
 .club-lights i:nth-child(3) { right: 2%; background: var(--green); animation-delay: -6s; }
 @keyframes clubSweep { to { transform: translateX(40%) rotate(8deg); opacity: .24; } }
-.club-kick .club-stage { filter: brightness(1.11); }
 .club-accent .club-lights i { opacity: .34; }
+/* stage follows the song: DROP/HOOK bright, BUILD/FILL restless, BREAKDOWN/BRIDGE/INTRO dim */
+.mood-drop .club-lights, .club-moment .club-lights { opacity: 1; transition-duration: .25s; }
+.mood-break .club-lights { opacity: .38; transition-duration: 2.4s; }
+.mood-build .club-lights i { animation-duration: 2.6s; }
+.club-flash { position: absolute; inset: 0; z-index: 3; pointer-events: none; opacity: 0; background: radial-gradient(ellipse 70% 60% at 50% 28%, rgba(255,255,255,.09), transparent 70%); transition: opacity .2s ease-out; will-change: opacity; }
+.club-kick .club-flash { opacity: .45; transition: none; }
+.club-kick .mood-drop .club-flash { opacity: 1; }
+.club-kick .mood-break .club-flash { opacity: .12; }
+.club-spin { position: absolute; left: 50%; top: 16px; z-index: 11; min-width: 220px; padding: 9px 18px 10px; display: flex; flex-direction: column; align-items: center; gap: 3px; background: var(--bg); border: 1px solid var(--hair2); border-top: 2px solid var(--green); border-radius: var(--r2); opacity: 0; transform: translateX(-50%); pointer-events: none; }
+.club-spin span { color: var(--green); font-size: 8px; letter-spacing: .24em; }
+.club-spin b { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 900 18px var(--sans); letter-spacing: .1em; text-transform: uppercase; }
+.club-fx { position: absolute; inset: 0; z-index: 12; pointer-events: none; }
+.club-chip { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 8px 3px; background: var(--bg); border: 1px solid color-mix(in srgb,var(--c) 70%,transparent); border-top: 2px solid var(--c); border-radius: var(--r1); box-shadow: 0 8px 18px #000a; opacity: 0; white-space: nowrap; will-change: transform, opacity; }
+.club-chip b { color: var(--c); font: 900 13px var(--sans); letter-spacing: .16em; }
+.club-chip span { max-width: 90px; overflow: hidden; text-overflow: ellipsis; color: var(--dim); font-size: 8px; letter-spacing: .08em; }
 .club-dj { position: absolute; left: 50%; top: 11%; width: 320px; height: 250px; transform: translateX(-50%); z-index: 4; }
 .club-booth { position: absolute; left: 0; right: 0; bottom: 0; height: 82px; display: flex; align-items: center; justify-content: space-around; background: linear-gradient(#393741,#201f23); border: 1px solid #3b3546; box-shadow: 0 25px 50px #000; transform: perspective(400px) rotateX(7deg); }
 .club-booth b { color: var(--green); font: 900 14px var(--sans); letter-spacing: .24em; }
@@ -477,8 +491,24 @@ body.artist-live .logo b { background: var(--green); }
 .club-stage .club-person.me { cursor: pointer; }
 .club-shadow { position: absolute; left: 50%; bottom: 18px; width: 70px; height: 14px; transform: translateX(-50%); background: radial-gradient(rgba(0,0,0,.85),transparent 70%); }
 .bot { position: absolute; left: 50%; bottom: 26px; width: 0; height: 0; transform-style: preserve-3d; transform: rotateX(-12deg) rotateY(var(--turn,-20deg)); }
-.bot-rig { position: absolute; width: 0; height: 0; transform-style: preserve-3d; animation: botBounce calc(var(--beat,.455s) * 2) ease-in-out infinite; animation-delay: var(--delay,0s); }
-@keyframes botBounce { 0%,50%,100% { translate: 0 0; rotate: 0 1 0 -7deg; } 25% { translate: 0 -7px; rotate: 0 1 0 0deg; } 75% { translate: 0 -7px; rotate: 0 1 0 7deg; } }
+/* Beat animations: 0% is the kick. club-stage.js pins their start time to the room's beat grid. */
+.bot-rig { position: absolute; width: 0; height: 0; transform-style: preserve-3d; animation: botBounce calc(var(--beat,.455s) * 2) linear infinite; animation-delay: var(--delay,0s); }
+@keyframes botBounce {
+  0%, 50% { translate: 0 0; animation-timing-function: cubic-bezier(.2,.6,.4,1); }
+  25%, 75% { translate: 0 -7px; animation-timing-function: cubic-bezier(.6,0,.8,.4); }
+  0%, 100% { rotate: 0 1 0 -6deg; } 50% { rotate: 0 1 0 6deg; }
+  100% { translate: 0 0; }
+}
+@keyframes botJump {
+  0% { translate: 0 2px; animation-timing-function: cubic-bezier(.15,.7,.35,1); }
+  42% { translate: 0 -15px; animation-timing-function: cubic-bezier(.65,0,.85,.35); }
+  100% { translate: 0 2px; }
+}
+@keyframes botSway { 0%, 100% { translate: -5px 0; rotate: 0 0 1 -4deg; } 50% { translate: 5px 0; rotate: 0 0 1 4deg; } }
+.mood-drop .club-floor .bot-rig, .mood-drop .club-dj .bot-rig { animation-name: botJump; animation-duration: var(--beat,.455s); }
+.mood-break .club-floor .bot-rig { animation-name: botSway; animation-duration: calc(var(--beat,.455s) * 4); animation-timing-function: ease-in-out; }
+.mood-break .bot-head-wrap { animation-duration: calc(var(--beat,.455s) * 2); }
+.mood-build .club-floor .bot-head-wrap { animation-duration: calc(var(--beat,.455s) / 2); }
 .cube { --w: 40px; --h: 40px; --d: 30px; position: absolute; width: var(--w); height: var(--h); margin-left: calc(var(--w) / -2); transform-style: preserve-3d; }
 .cube > i { position: absolute; box-sizing: border-box; border: 2px solid #19191a; }
 .cube > .f { inset: 0; transform: translateZ(calc(var(--d) / 2)); background: var(--face, var(--av)); }
@@ -493,18 +523,21 @@ body.artist-live .logo b { background: var(--green); }
 .bot-led { width: 6px; height: 10px; background: #43414c; transition: background .08s, box-shadow .08s; }
 .club-kick .bot-led:nth-child(1), .club-accent .bot-led { background: var(--av); box-shadow: 0 0 8px var(--av); }
 .club-kick .bot-led:nth-child(2) { background: #fff; }
-.bot-arm { --w: 11px; --h: 38px; --d: 11px; --face: var(--av-side); --top: var(--av); --side: color-mix(in srgb,var(--av) 35%,#19191a); bottom: 32px; transform-origin: 50% 0; }
+.bot-arm { --w: 11px; --h: 38px; --d: 11px; --face: var(--av-side); --top: var(--av); --side: color-mix(in srgb,var(--av) 35%,#19191a); bottom: 32px; transform-origin: 50% 0; transition: rotate .1s ease-out; }
 .bot-arm.left { left: -30px; rotate: 0 0 1 12deg; } .bot-arm.right { left: 30px; rotate: 0 0 1 -12deg; }
 .club-kick .bot-arm.left { rotate: 0 0 1 34deg; } .club-kick .bot-arm.right { rotate: 0 0 1 -34deg; }
 .club-accent .listener .bot-arm.left, .club-accent .dj .bot-arm.left { rotate: 0 0 1 150deg; }
+.club-kick .mood-drop .listener .bot-arm.left { rotate: 0 0 1 150deg; } .club-kick .mood-drop .listener .bot-arm.right { rotate: 0 0 1 -150deg; }
+.mood-break .bot-arm.left, .club-kick .mood-break .bot-arm.left { rotate: 0 0 1 8deg; } .mood-break .bot-arm.right, .club-kick .mood-break .bot-arm.right { rotate: 0 0 1 -8deg; }
+.club-moment .club-floor .bot-arm.left { rotate: 0 0 1 160deg; } .club-moment .club-floor .bot-arm.right { rotate: 0 0 1 -160deg; }
 .bot-head-wrap { position: absolute; bottom: 70px; width: 0; height: 0; transform-style: preserve-3d; animation: botNod var(--beat,.455s) ease-in-out infinite; animation-delay: var(--delay,0s); }
-@keyframes botNod { 0%,100% { rotate: 1 0 0 0deg; } 50% { rotate: 1 0 0 9deg; } }
+@keyframes botNod { 0%, 100% { rotate: 1 0 0 9deg; animation-timing-function: cubic-bezier(.2,.6,.4,1); } 45% { rotate: 1 0 0 -1deg; animation-timing-function: cubic-bezier(.6,0,.8,.4); } }
 .bot-head { --w: 54px; --h: 46px; --d: 42px; bottom: 0; }
 .round .bot-head > i { border-radius: 18px; } .round .bot-head > .t { border-radius: 50%; }
 .visor .bot-head { --h: 40px; } .visor .bot-head > .f { border-radius: 14px 14px 4px 4px; }
 .bot-screen { position: absolute; left: 6px; right: 6px; top: 8px; bottom: 9px; background: #1e1e22; border-radius: 5px; box-shadow: inset 0 0 12px rgba(0,0,0,.9); }
 .round .bot-screen { border-radius: 14px; }
-.bot-eye { position: absolute; top: 9px; width: 8px; height: 8px; background: var(--av); box-shadow: 0 0 9px var(--av); animation: botBlink 4.2s infinite; animation-delay: var(--delay,0s); }
+.bot-eye { position: absolute; top: 9px; width: 8px; height: 8px; background: var(--av); box-shadow: 0 0 9px var(--av); animation: botBlink 4.2s infinite; animation-delay: var(--blink,0s); }
 .bot-eye.left { left: 9px; } .bot-eye.right { right: 9px; }
 .round .bot-eye { border-radius: 50%; }
 .visor .bot-eye { top: 9px; width: 14px; height: 4px; border-radius: 2px; }
@@ -529,10 +562,8 @@ body.artist-live .logo b { background: var(--green); }
 .club-person.ambient .bot-eye { box-shadow: none; }
 @media (prefers-reduced-motion: reduce) {
   .bot-rig, .bot-head-wrap, .bot-eye, .club-lights i { animation: none; }
+  .bot-arm, .club-lights, .club-flash { transition: none; }
 }
-.club-reaction-fx { position: absolute; left: 50%; top: 38%; z-index: 12; transform: translate(-50%,20px) scale(.85); opacity: 0; color: #fff; font: 900 26px var(--sans); letter-spacing: .12em; text-shadow: 0 0 28px #8d5cff; pointer-events: none; }
-.club-reaction-fx.show { animation: clubReaction 1.4s ease-out; }
-@keyframes clubReaction { 0% { opacity: 0; transform: translate(-50%,20px) scale(.85); } 18% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%,-80px) scale(1.1); } }
 .club-social { min-height: 0; display: grid; grid-template-rows: auto minmax(0,1fr) auto auto; background: #1d1d1f; border-left: 1px solid #3c3945; }
 .club-social-head { display: flex; align-items: center; justify-content: space-between; padding: 13px 14px; border-bottom: 1px solid #3c3945; color: #8b8692; font-size: 9px; letter-spacing: .17em; }
 .club-social-head b { color: var(--green); }
@@ -650,6 +681,7 @@ body.artist-live .logo b { background: var(--green); }
   .club-stage::after { display: none; }
   .club-now { top: 10px; left: 10px; width: calc(100% - 20px); box-sizing: border-box; padding: 8px 11px; }
   .club-now strong { font-size: 15px; }
+  .club-spin { top: auto; bottom: 12px; width: calc(100% - 20px); min-width: 0; }
   .club-floor { left: 0; right: 0; overflow: hidden; }
   .club-floor { --crowd-scale: .68; }
 }
