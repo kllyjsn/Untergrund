@@ -1212,7 +1212,7 @@ body.studio-open .generate-actions .hum-cta { flex: 1 1 200px; }
   .club-look-btn span { display: none; }
   .club-head-actions:has(.club-look-btn) { display: flex; }
   .club-head-actions:has(.club-look-btn) .btn { flex: 1 1 0; min-width: 0; }
-  .club-head-actions .club-look-btn { flex: 0 0 40px; justify-content: center; }
+  .club-head-actions:has(.club-look-btn) .club-look-btn { flex: 0 0 44px; justify-content: center; }
   .club-look-layer { position: fixed; bottom: calc(64px + env(safe-area-inset-bottom)); }
   .club-look-scrim { background: rgba(0,0,0,.55); }
   .club-look { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: calc(100% - 24px - env(safe-area-inset-top)); border-width: 1px 0 0; border-radius: var(--r2) var(--r2) 0 0; padding: 12px 14px 16px; }
