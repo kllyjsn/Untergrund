@@ -103,6 +103,8 @@ const BAND_PLAY = {
   // Steel-string acoustic: a wider strum, bright top, long ring.
   agtr: { gain: 4.2, len: 3.2, min: 0.7, strum: 0.011, shift: 0, lo: 40, hi: 76, lp: 7800, soft: 0, fade: 0.01, rel: 0.3, grip: true, even: 0.35 },
 };
+// Country lead: the same guitar clean and bright off the bridge pickup, single notes with a slapback.
+BAND_PLAY.twang = { ...BAND_PLAY.gtr, gain: 3, len: 1.4, min: 0.25, softBelow: 0, lo: 52, hi: 84, lp: 6800, grip: false, even: 0.4, rel: 0.12, oct: 0, slap: true };
 // The rock band's riff guitar: the rhythm amp, double-stops up the neck.
 BAND_PLAY.lead = { ...BAND_PLAY.drive, lo: 45, hi: 79, grip: false, even: 0.4, gain: 2.2, lp: 4400, soft: 1600, vib: 8, rel: 0.16, oct: -1, dyad: true };
 const LIM_TRIM = 1.4;
@@ -1097,6 +1099,18 @@ export class Engine {
   }
   // A guitar amp for the DRIVE GTR: tightened lows into an asymmetric tube-style clipper, then a 4x12 cab
   // (body bump, scooped fizz, steep top roll-off). One amp per destination, shared by every string.
+  // Slapback: one short repeat, no feedback, darker than the dry note.
+  slapFor(dest) {
+    const slaps = (this.slaps ||= new Map());
+    if (slaps.has(dest)) return slaps.get(dest);
+    const inp = this.gain(1), d = this.ctx.createDelay(0.5), g = this.gain(0.3);
+    d.delayTime.value = 0.11;
+    inp.connect(dest);
+    inp.connect(this.filter('highpass', 350, 0.7)).connect(this.filter('lowpass', 3500, 0.7)).connect(d).connect(g).connect(dest);
+    slaps.set(dest, inp);
+    return inp;
+  }
+
   ampFor(dest, lead = false) {
     if (dest === this.ch.stab.input) dest = this.ch.stab.band;
     const amps = (this.amps ||= new Map()), key = dest;
@@ -1328,11 +1342,19 @@ export class Engine {
     voice = { saw: 'analog', sq: 'pulse', flute: 'reed', bell: 'mallet', pluck: 'warm' }[voice] || voice;
     const warmth = expression.warmth ?? 0.5;
     // Genres on a recorded instrument let that player take the melody too; synth-pop leads stay synths.
-    const band = voice !== 'pulse' && STAB_BAND[Math.round(p.voice)], set = band && this.rec(band);
+    const twang = pocketOf(this.state.master)?.walk && this.rec('gtr');
+    const band = twang ? 'gtr' : voice !== 'pulse' && STAB_BAND[Math.round(p.voice)], set = band && this.rec(band);
     if (set) {
-      const kind = Math.round(p.voice) === 11 ? 'lead' : band, R = BAND_PLAY[kind], ring = R.hold ? dur * 1.05 : Math.max(R.min * 0.6, dur * 1.5);
+      const kind = twang ? 'twang' : Math.round(p.voice) === 11 ? 'lead' : band, R = BAND_PLAY[kind], ring = R.hold ? dur * 1.05 : Math.max(R.min * 0.6, dur * 1.5);
       let dest = this.hookBus || this.ch.stab.input;
       if (R.amp) dest = this.ampFor(dest === this.ch.stab.input ? this.ch.stab.band : dest, R.lead);
+      if (R.slap) {
+        dest = this.slapFor(dest);
+        // A country double-stop: a sixth under the melody on the strong notes.
+        const m6 = 60 + k + (oct + R.oct) * 12 + n, scale = SCALES[this.state.scale]?.notes || SCALES.major.notes;
+        const lo = scale.includes((((m6 - 9 - 60 - k) % 12) + 12) % 12) ? m6 - 9 : m6 - 8;
+        if (strong && lo >= R.lo) this.recordedNote(set, t + 0.006, Math.min(1.3, v) * R.gain * 0.36, lo, ring, dest, 0, kind, v / 1.3);
+      }
       const m = 60 + k + (oct + (R.oct || 0)) * 12 + n, g = Math.min(1.3, v) * R.gain * 0.6;
       // A rock riff is a double-stop: the melody note with its fifth underneath, through the rhythm amp.
       if (R.dyad && m - 5 >= R.lo) this.recordedNote(set, t + 0.004, g * 0.7, m - 5, ring, dest, 0, kind, v / 1.3);

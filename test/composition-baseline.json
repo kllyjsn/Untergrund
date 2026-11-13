@@ -228,10 +228,10 @@
     "bars": 72,
     "melodyWindows": 22,
     "motifRecall": 0.707,
-    "chords": 9,
-    "voiceMove": 1.045,
-    "contrast": 0.33,
-    "drumBars": 71
+    "chords": 10.5,
+    "voiceMove": 1.035,
+    "contrast": 0.323,
+    "drumBars": 72
   },
   "rnb": {
     "bars": 72,
@@ -262,11 +262,11 @@
   },
   "country": {
     "bars": 72,
-    "melodyWindows": 22,
+    "melodyWindows": 21,
     "motifRecall": 0.69,
-    "chords": 6,
-    "voiceMove": 1.02,
-    "contrast": 0.297,
+    "chords": 6.5,
+    "voiceMove": 1.01,
+    "contrast": 0.303,
     "drumBars": 72
   }
 }

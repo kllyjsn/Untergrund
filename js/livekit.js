@@ -87,6 +87,8 @@ export function liveSets(st) {
   if (Math.round(st?.params?.acid?.voice || 0) === 5) out.push('ebass');
   const name = STAB_BAND[Math.round(st?.params?.stab?.voice || 0)];
   if (name) out.push(name, ...(SOFT_LAYER[name] ? [SOFT_LAYER[name]] : []));
+  // Country's lead is a Telecaster whatever plays the chords.
+  if (pocketOf(st.master)?.walk && name !== 'gtr') out.push('gtr', 'gtrsoft');
   return out;
 }
 export const liveSet = (name) => (name === 'kit' ? buffers : name === 'kitx' ? extra : bandKit(name));
