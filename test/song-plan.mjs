@@ -130,7 +130,7 @@ t('plan: pasted lines are grouped by range, never rewritten', () => {
 // 4. Rule fallback (no endpoint): the Suno-style prompt still becomes a full plan.
 t('fallback: the example prompt', () => {
   const p = rulePlan('sad indie song about leaving LA, female vocal, 90 bpm', '', { style: 'deephouse' });
-  assert.equal(p.style, 'neosoul'); assert.equal(p.bpm, 90); assert.equal(p.vocal, 'female'); assert.equal(p.mode, 'minor');
+  assert.equal(p.style, 'folk'); assert.equal(p.bpm, 90); assert.equal(p.vocal, 'female'); assert.equal(p.mode, 'minor');
   assert.equal(p.about, 'leaving LA');
   assert.ok(!p.mood.join(' ').match(/bpm|female|about/i), p.mood.join(' '));
   assert.ok(p.form.length >= 4 && p.form.some((f) => f.sec === 'chorus'));
@@ -198,11 +198,31 @@ t('sanitize: lyrics kept, bounded and cleaned', () => {
   assert.equal(dirty.lyrics.extra, undefined);
   for (const junk of [null, 5, 'x', [], { sections: 'no' }, { sections: [] }]) assert.equal(sanitize({ ...s, lyrics: junk }).lyrics, undefined, JSON.stringify(junk));
 });
+t('band genres map to their own styles', () => {
+  const cases = {
+    pop: ['upbeat pop song about summer', 'dance pop, 118 bpm', 'synthpop'],
+    rnb: ['slow r&b song about you, female vocal', 'smooth RnB', 'R and B slow jam', 'soul ballad'],
+    rock: ['loud rock anthem, male vocal', 'punk song about school', 'grunge'],
+    folk: ['sad indie song', 'acoustic singer-songwriter song about home', 'folk ballad', 'campfire song'],
+    country: ['country song about trucks, 110 bpm', 'americana road song', 'nashville heartbreak'],
+  };
+  for (const [id, prompts] of Object.entries(cases)) {
+    assert.ok(STYLES[id], id);
+    for (const p of prompts) {
+      assert.equal(promptGenre(p), id, p);
+      assert.equal(rulePlan(p, '', { style: 'trap' }).style, id, p);
+      assert.equal(validatePlan({ style: id }).style, id, p);
+    }
+  }
+  for (const id of ['pop', 'rnb', 'rock', 'folk', 'country']) assert.match(PLAN_SYSTEM, new RegExp(`\\|${id}[|,]`));
+  assert.match(PLAN_SYSTEM, /indie[^.]*-> folk/);
+  assert.doesNotMatch(PLAN_SYSTEM, /-> neosoul|-> breaks/);
+});
 t('promptGenre: the genre a prompt names, whatever is playing', () => {
-  assert.equal(promptGenre('sad indie song about leaving LA, female vocal, 90 bpm'), 'neosoul');
+  assert.equal(promptGenre('sad indie song about leaving LA, female vocal, 90 bpm'), 'folk');
   assert.equal(promptGenre('dark trap song about money, male rap, 145 bpm'), 'trap');
   assert.equal(promptGenre('A sunrise drive song'), null);
-  for (const style of ['neosoul', 'breaks', 'deephouse']) assert.equal(rulePlan('sad indie song about leaving LA, 90 bpm', '', { style }).style, 'neosoul');
+  for (const style of ['folk', 'neosoul', 'breaks', 'deephouse']) assert.equal(rulePlan('sad indie song about leaving LA, 90 bpm', '', { style }).style, 'folk');
 });
 t('sanitize: projects without lyrics are unchanged', () => {
   const s = songFor('deephouse');
