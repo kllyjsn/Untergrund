@@ -64,6 +64,10 @@ function showCrash(err) {
 }
 window.addEventListener('error', (e) => showCrash(e.error || e.message));
 let studioOpen = localStorage.getItem('untergrund.studio-open') === '1';
+// Phone Studio shows one section at a time; steps show 8 at a time.
+const STUDIO_TABS = [['song', 'SONG'], ['steps', 'STEPS'], ['sound', 'SOUND'], ['mix', 'MIX']];
+let studioTab = STUDIO_TABS.some(([id]) => id === localStorage.getItem('untergrund.studio-tab')) ? localStorage.getItem('untergrund.studio-tab') : 'steps';
+let stepPage = 0;
 let madeShown = null, unlockAt = 0, dropOpen = false, dropCue = false;
 let variation = 0.25;
 let artistLive = null;
@@ -98,6 +102,7 @@ function releaseMedia() {
 }
 const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent)
   || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+if (isIOS()) document.querySelector('meta[name=viewport]')?.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover');
 function unlockMediaChannel() {
   try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
   if (mediaUnlock?.paused) mediaUnlock.play().catch(() => {});
@@ -1025,7 +1030,9 @@ function build() {
   app.innerHTML = '';
   ui.rows = {};
   document.body.classList.toggle('studio-open', studioOpen);
-  app.append(buildHeader(), buildGenerateHome(), state.patterns[0]?.score ? '' : timeline.mount(), h('main', { class: 'main studio-workspace' }, h('div', { class: 'left' }, buildGrid(), buildEditor()), buildMaster()), buildTabBar());
+  document.body.dataset.stab = studioTab;
+  document.body.dataset.spage = String(stepPage);
+  app.append(buildHeader(), studioOpen ? studioTabs() : '', buildGenerateHome(), state.patterns[0]?.score ? '' : timeline.mount(), h('main', { class: 'main studio-workspace' }, h('div', { class: 'left' }, buildGrid(), buildEditor()), buildMaster()), buildTabBar());
   guardPushOffer();
   renderPatterns();
   for (const id of TRACK_IDS) renderRow(id);
@@ -1036,6 +1043,18 @@ function build() {
     const t = tab.getBoundingClientRect(), r = row.getBoundingClientRect();
     row.scrollLeft += t.left - r.left - (row.clientWidth - t.width) / 2;
   }
+}
+
+function studioTabs() {
+  const pick = (id) => {
+    studioTab = id; localStorage.setItem('untergrund.studio-tab', id);
+    document.body.dataset.stab = id;
+    for (const b of nav.children) { const on = b.dataset.tab === id; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); }
+    scrollTo({ top: 0 });
+  };
+  const nav = h('nav', { class: 'studio-tabs', 'aria-label': 'Studio sections' },
+    STUDIO_TABS.map(([id, label]) => h('button', { class: 'studio-tab' + (id === studioTab ? ' on' : ''), 'data-tab': id, 'aria-pressed': String(id === studioTab), onclick: () => pick(id) }, label)));
+  return nav;
 }
 
 function toggleStudio() {
@@ -1668,6 +1687,10 @@ function renderPatterns() {
 
 function buildGrid() {
   const grid = h('section', { class: 'grid panel' });
+  const pages = h('div', { class: 'step-pages', role: 'group', 'aria-label': 'Steps shown' },
+    ['1–8', '9–16'].map((label, i) => h('button', { class: 'step-page' + (i === stepPage ? ' on' : ''), 'aria-pressed': String(i === stepPage),
+      onclick: () => { stepPage = i; document.body.dataset.spage = String(i); for (const [j, b] of [...pages.children].entries()) { b.classList.toggle('on', j === i); b.setAttribute('aria-pressed', String(j === i)); } } }, label)));
+  grid.append(pages);
   const head = h('div', { class: 'row head' }, h('div', { class: 'tname' }, ''), h('div', { class: 'ms' }),
     h('div', { class: 'steps' }, Array.from({ length: STEPS }, (_, i) => h('div', { class: 'num' + (i % 4 === 0 ? ' beat' : '') }, String(i + 1)))),
     h('div', { class: 'len-h' }, 'LEN'), h('div', { class: 'lvl-h' }, 'LVL'));
@@ -1786,6 +1809,7 @@ function renderRow(id) {
   r.m.setAttribute('aria-pressed', String(!!state.mutes[id]));
   r.s.setAttribute('aria-pressed', String(!!state.solos[id]));
   r.l.setAttribute('aria-pressed', String(!!state.locks[id]));
+  if (id === selected && ui.edMs) for (const [k, key] of [['m', 'mutes'], ['s', 'solos'], ['l', 'locks']]) { ui.edMs[k].classList.toggle('on', !!state[key][id]); ui.edMs[k].setAttribute('aria-pressed', String(!!state[key][id])); }
   const name = TRACK_BY_ID[id].name;
   r.cells.forEach((c, i) => {
     const v = p.steps[id][i];
@@ -1866,7 +1890,12 @@ function buildEditor() {
     stab: 'Tap a step to play a chord · shift or right-click makes it louder',
     sampler: 'Tap a step to play a slice · SCATTER picks slices · MELODY sings it in key',
   }[t.kind];
-  const ed = h('section', { class: 'editor panel', style: `--tc:${t.color}` },
+  const flag = (key, cls, label, title) => h('button', { class: cls, title, 'aria-label': `${title} ${t.name}`, onclick: () => { state[key][id] = !state[key][id]; renderAllRows(); persist(); } }, label);
+  ui.edMs = { m: flag('mutes', 'm', 'M', 'Mute'), s: flag('solos', 's', 'S', 'Solo'), l: flag('locks', 'l', 'L', 'Lock') };
+  const picker = h('div', { class: 'track-pick', role: 'group', 'aria-label': 'Track' },
+    TRACKS.map((x) => h('button', { class: 'track-chip' + (x.id === id ? ' on' : ''), style: `--tc:${x.color}`, 'aria-pressed': String(x.id === id), onclick: () => { selected = x.id; build(); audition(x.id); } }, x.name)),
+    h('div', { class: 'ms' }, ui.edMs.m, ui.edMs.s, ui.edMs.l));
+  const ed = h('section', { class: 'editor panel', style: `--tc:${t.color}` }, picker,
     h('div', { class: 'ehead' }, h('div', { class: 'etitle' }, h('span', { class: 'sw' }), t.name), h('div', { class: 'hint' }, hint), tools),
     h('div', { class: 'ebody' },
       h('div', { class: 'kgroup' }, h('div', { class: 'glabel' }, 'INSTRUMENT & TONE'), h('div', { class: 'knobs' }, t.params.filter((q) => !hidden.includes(q.id)).map(mk))),
