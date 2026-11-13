@@ -21,13 +21,13 @@ export const SING_PROFILES = {
   ukg: { k: [4, 6], art: 0.7, off: 0.5, six: 0.3, leap: 0.3, hi: 0 },
   euphoric: { k: [3, 5], art: 0.9, off: 0.25, six: 0, leap: 0.35, hi: 1 },
   trance: { k: [3, 4], art: 0.9, off: 0.2, six: 0, leap: 0.35, hi: 1 },
-  neosoul: { k: [3, 5], art: 0.85, gain: 0.6, off: 0.5, six: 0.15, leap: 0.3, hi: 0, v: ['vocal', 'reed', 'warm'], x: { space: 0.5, risk: 0.35, feel: 0.7, warmth: 0.7 } },
-  boombap: { k: [4, 5], art: 0.75, off: 0.4, six: 0.15, leap: 0.2, hi: 0, v: ['reed', 'vocal', 'warm'], x: { space: 0.55, risk: 0.3, feel: 0.6, warmth: 0.65 } },
+  neosoul: { k: [3, 5], art: 0.85, gain: 0.6, comp: 1, off: 0.5, six: 0.15, leap: 0.3, hi: 0, v: ['vocal', 'reed', 'warm'], x: { space: 0.5, risk: 0.35, feel: 0.7, warmth: 0.7 } },
+  boombap: { k: [4, 5], art: 0.75, gain: 0.8, off: 0.4, six: 0.15, leap: 0.2, hi: 0, v: ['reed', 'vocal', 'warm'], x: { space: 0.55, risk: 0.3, feel: 0.6, warmth: 0.65 } },
   amapiano: { k: [3, 5], art: 0.75, off: 0.45, six: 0.1, leap: 0.25, hi: 0 },
   afrobeats: { k: [4, 6], art: 0.7, off: 0.5, six: 0.2, leap: 0.25, hi: 0 },
   reggaeton: { k: [4, 6], art: 0.6, gain: 0.85, off: 0.45, six: 0.2, leap: 0.2, hi: 0 },
   trap: { k: [4, 5], art: 0.7, off: 0.4, six: 0.25, leap: 0.25, hi: 0 },
-  drill: { k: [4, 5], art: 0.65, gain: 0.8, off: 0.45, six: 0.3, leap: 0.25, hi: 0 },
+  drill: { k: [4, 5], art: 0.65, gain: 0.7, off: 0.45, six: 0.3, leap: 0.25, hi: 0 },
   hyperpop: { k: [5, 6], art: 0.8, gain: 0.85, off: 0.3, six: 0.15, leap: 0.45, hi: 1 },
 };
 export const sings = (style) => !!SING_PROFILES[style];
@@ -183,7 +183,7 @@ export function writeMelody(r, style, scale, { prog, alt, chord = 0 } = {}) {
   const n = writePart(r, P, 'n', deg, tones(prog), null);
   const v = writePart(r, P, 'v', deg, tones(prog), null);
   const b = writePart(r, P, 'b', deg, tones(alt?.length ? alt : prog), null);
-  return { bars: MELODY_BARS, n: n.notes, v: v.notes, b: b.notes };
+  return { bars: MELODY_BARS, n: n.notes, v: v.notes, b: b.notes, ...(SING_PROFILES[style].comp ? { c: 1 } : {}) };
 }
 
 // The chorus's first two bars in the 32-step hook format, for code that only knows hook.s.

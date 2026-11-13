@@ -895,7 +895,7 @@ export function sanitize(s) {
     };
   });
   const cleanNotes = (a) => (Array.isArray(a) ? a : []).filter(Array.isArray).slice(0, 96).map((x) => [Math.round(cl(x[0], -8, MELODY_BARS * 16 - 1)), Math.round(cl(x[1], 1, 16)), Math.round(cl(x[2], -24, 36)), cl(x[3], 0, 1), Math.round(cl(x[4], 0, 7)), Math.round(cl(x[5], 0, 95))]);
-  const cleanMelody = (m) => m && Array.isArray(m.n) && m.n.length ? { bars: MELODY_BARS, n: cleanNotes(m.n), v: cleanNotes(m.v), b: cleanNotes(m.b) } : null;
+  const cleanMelody = (m) => m && Array.isArray(m.n) && m.n.length ? { bars: MELODY_BARS, n: cleanNotes(m.n), v: cleanNotes(m.v), b: cleanNotes(m.b), ...(m.c ? { c: 1 } : {}) } : null;
   const cleanHook = (hook) => Array.isArray(hook?.s) ? ({
       v: HOOK_VOICES.includes(hook.v) ? hook.v : 'pluck',
       o: Math.round(cl(hook.o, -1, 1)),

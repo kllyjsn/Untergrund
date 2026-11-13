@@ -15,6 +15,9 @@ import { MELODY_BARS, strongNote } from './melody.js';
 import { patternAt } from './scope.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
+// Chords sit under a sung line the way a mix rides the keys under a vocal: a little in the chorus, more in the verse
+// and most in the breakdown, so the drop still lands over it.
+const STAB_UNDER_VOICE = { n: 0.84, v: 0.78, b: 0.55 };
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
 const LIVE_REF = {
   kick: { tune: 52, decay: 0.5, drive: 0.2, click: 0.15, punch: 0.55 },
@@ -1768,7 +1771,7 @@ export class Sequencer {
     if ((s.master.dust || 0) > 0.01) e.dust(t, sd, abs);
     const arr = s.master.arr || 0, i16 = abs % 16;
     const sung = pat.hook?.m && !pat.hook.h ? this.sungBar(bar, n ? pos : bar) : null;
-    const hookStep = sung ? this.songBars && sung.notes.some((o) => o.at === i16 && i16 % 8) : pat.hook && pat.hm ? pat.hook.s[abs % 32] : 0;
+    const hookStep = sung ? this.songBars && !sung.hook.m.c && sung.notes.some((o) => o.at === i16 && i16 % 8) : pat.hook && pat.hm ? pat.hook.s[abs % 32] : 0;
     if (this.dropNext) {
       if (i16 === 0) e.sweep(t, 16 * sd, arr);
       if (i16 >= 8 && !s.mutes.snare) {
@@ -1846,7 +1849,8 @@ export class Sequencer {
       const swell = drum ? 1 - hum * 0.1 * (3 - (bar % 4)) / 3 : 1;
       const hv = (1 - hum * 0.22 * hash(abs, k + 20)) * (1 - hum * (1 - accent)) * swell * pv;
       const ghostSnare = id === 'snare' && Math.round(s.master.kit || 0) === 1;
-      const vel = (v === 2 ? 1 : v === 1 ? (ghostSnare ? 0.45 : 0.78) : v) * hv;
+      const under = id === 'stab' && this.songBars && sung?.any ? STAB_UNDER_VOICE[sung.part] ?? STAB_UNDER_VOICE.n : 1;
+      const vel = (v === 2 ? 1 : v === 1 ? (ghostSnare ? 0.45 : 0.78) : v) * hv * under;
       if (v && id === 'vox') e.vox(ht, vel, i);
       else if (v) e.trigger(id, ht, vel);
     }
