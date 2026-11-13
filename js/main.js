@@ -1,7 +1,7 @@
 import { track as trackEvent, reportError, playStarted, playStopped } from './analytics.js';
 import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue, VOICE_HIDDEN } from './params.js';
 import { Engine, Sequencer, parseChain } from './engine.js';
-import { defaultState, generate, mutate, arrangement, songChain, applyOverrides, clone, save, load, sanitize, STYLES, emptyPattern, emptyAcidStep } from './state.js';
+import { defaultState, generate, mutate, arrangement, songChain, applyOverrides, clone, save, load, sanitize, STYLES, MAJOR_STYLES, emptyPattern, emptyAcidStep } from './state.js';
 import { renderBars, bufferToWav } from './render.js';
 import { exportButtons } from './export-ui.js';
 import { encodeWav, rng } from './dsp.js';
@@ -848,10 +848,11 @@ function selectPattern(i) {
 }
 
 let autoMajor = false;
-// EUPHORIC wants major; leaving it puts back the minor it borrowed. Returns the new autoMajor.
+// EUPHORIC and the major-key song genres want major; leaving them puts back the minor they borrowed. Returns the new autoMajor.
 function matchStyleScale(s = state) {
-  if (style === 'euphoric' && s.scale === 'minor') { s.scale = 'major'; return true; }
-  if (style !== 'euphoric' && autoMajor && s.scale === 'major') { s.scale = 'minor'; return false; }
+  const major = style === 'euphoric' || MAJOR_STYLES.has(style);
+  if (major && s.scale === 'minor') { s.scale = 'major'; return true; }
+  if (!major && autoMajor && s.scale === 'major') { s.scale = 'minor'; return false; }
   return autoMajor;
 }
 
@@ -1048,9 +1049,11 @@ const STYLE_HUE = {
   deephouse: '#6f9bff', minimal: '#e4e4ea', ukg: '#b892ff', euphoric: '#ff9ad5', neosoul: '#ffb347', boombap: '#dca86e',
   breaks: '#ff9340', electro: '#2bd9ff', dnb: '#7dff9a', trance: '#a98bff', ambient: '#8fd8ff',
   amapiano: '#f5c542', afrobeats: '#ff7b54', reggaeton: '#e83cff', bailefunk: '#4dff4d', trap: '#9b5cff', drill: '#5c7cff', jerseyclub: '#00ffd0', hyperpop: '#ff5ce1',
+  pop: '#ff6fae', rnb: '#c77dff', rock: '#ff453a', folk: '#d4a373', country: '#e9b44c',
 };
 const LIVE_KIT_STYLES = new Set(['neosoul', 'boombap']);
-const GROOVE_STYLES = new Set(['neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill']);
+const BAND_STYLES = new Set(['pop', 'rnb', 'rock', 'folk', 'country']);
+const GROOVE_STYLES = new Set(['neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill', ...BAND_STYLES]);
 const SECTION_NAMES = {
   groove: ['INTRO', 'BUILD', 'VERSE', 'FILL', 'BRIDGE', 'BRIDGE', 'HOOK', 'HOOK'],
   club: ['INTRO', 'BUILD', 'DROP', 'FILL', 'BREAKDOWN', 'BREAKDOWN', 'DROP', 'HALF-TIME'],
@@ -1283,7 +1286,7 @@ function styleCard(id, value, isPlaying) {
 
 function statusLine() {
   const s = STYLES[style];
-  const sound = LIVE_KIT_STYLES.has(style) ? 'RECORDED DRUMS + BASS' : getSample().source === 'synth' ? 'SYNTHESIZED' : 'SYNTH + YOUR SAMPLES';
+  const sound = BAND_STYLES.has(style) ? 'RECORDED BAND' : LIVE_KIT_STYLES.has(style) ? 'RECORDED DRUMS + BASS' : getSample().source === 'synth' ? 'SYNTHESIZED' : 'SYNTH + YOUR SAMPLES';
   return [h('b', {}, s.name), h('span', {}, `${s.bpm[0]}–${s.bpm[1]} BPM`), h('span', {}, 'FULL ARRANGEMENT'), h('span', {}, sound)];
 }
 

@@ -96,7 +96,7 @@ export const samplePeakDb = (channels) => { let p = 0; for (const x of channels)
 // release; a nocturne's hammer peaks sit ~17 dB over its average, so louder would clip the piano).
 // Nothing may peak above -1 dBTP.
 export const LOUDNESS_TARGET = { club: -10, quiet: -14, classical: -16, ceiling: -1 };
-const TIER = { ambient: 'quiet', neosoul: 'quiet', boombap: 'quiet', symphony: 'classical', concerto: 'classical', nocturne: 'classical', repertoire: 'classical' };
+const TIER = { ambient: 'quiet', neosoul: 'quiet', boombap: 'quiet', rnb: 'quiet', folk: 'quiet', symphony: 'classical', concerto: 'classical', nocturne: 'classical', repertoire: 'classical' };
 export const targetFor = (style) => LOUDNESS_TARGET[TIER[style] || 'club'];
 
 // Per-style make-up gain (dB) applied in front of the master limiter, measured with scripts/loudness.mjs.
@@ -105,6 +105,7 @@ export const MAKEUP_DB = {
   ukg: 2.5, euphoric: 3.5, neosoul: 1.8, boombap: 0.7, breaks: 3.7, electro: 3.9, dnb: 4.3, trance: 3.8,
   ambient: 2.4, amapiano: 3.0, afrobeats: 2.5, reggaeton: 3.4, bailefunk: 2.8, trap: 3.2, drill: 4.2,
   jerseyclub: 4.3, hyperpop: 3.2, symphony: 6.5, concerto: 5.3, nocturne: 11.9, repertoire: 3.6,
+  pop: 3.3, rnb: 2.3, rock: 3.5, folk: 0, country: 2.7,
 };
 // REPERTOIRE masterworks differ from one another by several LU: a per-score trim (dB) on top of the style's make-up
 // lands each on -16 LUFS. Measured on the whole score with node scripts/loudness.mjs --pieces.
