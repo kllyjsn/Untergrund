@@ -27,6 +27,7 @@ import { handleCrate, handleRemix, handleDrop, handlePlay, memoryStore, redisSto
 import { handleJukebox, memoryJukebox, redisJukebox } from './api/_lib/jukebox.js';
 import { handleEvents, memoryKv, redisKv, MAX_BODY as MAX_EVENT_BYTES } from './api/_lib/events.js';
 import { handleDescribe, aiEnv } from './api/_lib/describe-ai.js';
+import { handlePlan, planEnv } from './api/_lib/song-plan-ai.js';
 import { redisKv as redisAccountKv, memoryKv as memoryAccountKv } from './api/_lib/kv.js';
 import { handleAccount, attachPublished } from './api/_lib/accounts.js';
 import { handlePage } from './api/_lib/pages.js';
@@ -97,6 +98,11 @@ http.createServer(async (req, res) => {
     if (url.pathname === '/api/describe') {
       const raw = req.method === 'POST' ? await readBody(req, 4000) : null;
       const { status, json } = await handleDescribe({ method: req.method, body: raw ? raw.toString() : null, client: req.socket.remoteAddress, ...aiEnv(process.env), kv: eventsKv });
+      return sendJson(res, status, json);
+    }
+    if (url.pathname === '/api/song-plan') {
+      const raw = req.method === 'POST' ? await readBody(req, 12000) : null;
+      const { status, json } = await handlePlan({ method: req.method, body: raw ? raw.toString() : null, client: req.socket.remoteAddress, ...planEnv(process.env), kv: eventsKv });
       return sendJson(res, status, json);
     }
     if (url.pathname === '/api/push') {
