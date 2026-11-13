@@ -1,20 +1,15 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "functions": { "api/push.js": { "maxDuration": 60 } },
+  "functions": { "api/push.js": { "maxDuration": 60 }, "api/rooms.js": { "maxDuration": 10 } },
   "crons": [{ "path": "/api/push", "schedule": "0 16 * * *" }],
   "rewrites": [
+    { "source": "/api/rooms/:room/events", "destination": "/api/rooms?room=:room&events=1" },
+    { "source": "/api/rooms/:room", "destination": "/api/rooms?room=:room" },
+    { "source": "/api/room-config", "destination": "/api/rooms?config=1" },
     { "source": "/a/:handle", "destination": "/api/page?a=:handle" },
     { "source": "/t/:id", "destination": "/api/page?t=:id" },
     { "source": "/research", "destination": "/research/index.html" },
     { "source": "/research/:slug", "destination": "/research/:slug/index.html" }
-  ],
-  "headers": [
-    { "source": "/samples/live/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] },
-    { "source": "/icons/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400" }] },
-    { "source": "/(js|css)/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }] },
-    { "source": "/research/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }] },
-    { "source": "/sw.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
-    { "source": "/manifest.webmanifest", "headers": [{ "key": "Content-Type", "value": "application/manifest+json" }, { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }] }
   ]
 }
