@@ -1467,3 +1467,52 @@ body.studio-open .generate-home > .live-now, body.studio-open .generate-home > .
   .generate-actions.np-actions > .np-more > summary { min-height: 48px; padding: 0; }
   .np-more .menu-pop { left: auto; right: 0; }
 }
+
+/* ---------- phone Studio: one section at a time (SONG · STEPS · SOUND · MIX), 8 steps at a time ---------- */
+.studio-tabs, .step-pages, .track-pick { display: none; }
+@media (max-width: 760px) {
+  /* Fixed tab bar: no rubber-band drag and its own layer, so it stays put while the page scrolls */
+  html, body { overscroll-behavior-y: none; }
+  .tabbar { transform: translateZ(0); }
+
+  body.studio-open .studio-tabs { position: sticky; top: 0; z-index: 25; display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; margin: 0; padding: 8px 12px;
+    background: var(--bg, #1c1c1e); border-bottom: 1px solid var(--hair, rgba(255,255,255,.08)); }
+  .studio-tab { height: 40px; border: 0; border-radius: var(--r1); background: transparent; color: #a8a8b2; font: 700 11px var(--mono); letter-spacing: .12em; cursor: pointer; }
+  .studio-tab.on { background: #3a3a3d; color: #fff; }
+
+  /* Header: transport in one row; the pattern picker only where it is used (STEPS); swing with MORE TOOLS */
+  body.studio-open .top { gap: 8px; padding-bottom: 8px; }
+  body.studio-open .brand .name { display: none; }
+  body.studio-open:not(.tools-open) .top .transport .knob { display: none; }
+  body.studio-open:not([data-stab="steps"]) .top > .group.studio-only:not(.studio-more):not(.transport) { display: none; }
+  body.studio-open .generate-home .hum-cta { display: none; }
+
+  /* Sections */
+  body.studio-open:not([data-stab="song"]) .generate-home,
+  body.studio-open:not([data-stab="song"]) .song-tl,
+  body.studio-open[data-stab="song"] .studio-workspace { display: none; }
+  body.studio-open[data-stab="steps"] .editor, body.studio-open[data-stab="steps"] .master,
+  body.studio-open[data-stab="sound"] .grid, body.studio-open[data-stab="sound"] .master,
+  body.studio-open[data-stab="mix"] .left { display: none; }
+  body.studio-open .studio-workspace { padding-top: 10px; }
+
+  /* Step grid: fits the screen, 8 steps per page; mute/solo/lock live with the track in SOUND */
+  body.studio-open .grid { overflow: visible; }
+  body.studio-open .step-pages { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 3px; margin-bottom: 10px; border-radius: var(--r1); background: var(--well, rgba(255,255,255,.05)); }
+  .step-page { height: 36px; border: 0; border-radius: var(--r1); background: transparent; color: #a8a8b2; font: 700 11px var(--mono); letter-spacing: .12em; cursor: pointer; }
+  .step-page.on { background: #3a3a3d; color: #fff; }
+  body.studio-open .row { min-width: 0; grid-template-columns: 82px minmax(0, 1fr); gap: 6px; height: 44px; }
+  body.studio-open .row.head { height: 16px; }
+  body.studio-open .row > .ms, body.studio-open .row > :nth-child(n+4) { display: none; }
+  body.studio-open .tname { height: 40px; padding: 0 6px; gap: 6px; font-size: 10px; letter-spacing: .06em; overflow: hidden; text-overflow: ellipsis; }
+  body.studio-open .steps { grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 3px; }
+  body.studio-open .step { height: 40px; }
+  body.studio-open[data-spage="0"] .steps > :nth-child(n+9), body.studio-open[data-spage="1"] .steps > :nth-child(-n+8) { display: none; }
+
+  /* SOUND: pick the track here, with its mute/solo/lock */
+  body.studio-open .track-pick { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .track-chip { height: 34px; padding: 0 10px; border: 1px solid var(--line2); border-radius: var(--r1); background: transparent; color: #c9c9d1; font: 600 10px var(--mono); letter-spacing: .08em; cursor: pointer; }
+  .track-chip.on { background: var(--tc); border-color: var(--tc); color: #111; }
+  .track-pick .ms { margin-left: auto; }
+  .track-pick .ms button { width: 40px; height: 34px; }
+}
