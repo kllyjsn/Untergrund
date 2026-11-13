@@ -6,7 +6,7 @@ import { OfflineAudioContext, installGlobals } from './offline-audio.mjs';
 installGlobals();
 const { defaultState, generate, applyOverrides, arrangement } = await import('../js/state.js');
 const { Engine, Sequencer } = await import('../js/engine.js');
-const { loadBand, STAB_BAND } = await import('../js/livekit.js');
+const { loadBand, STAB_BAND, SOFT_LAYER } = await import('../js/livekit.js');
 const { spectralBands, kWeight, lufs } = await import('../js/lab-metrics.js');
 const { lowEnd } = await import('../js/lowend.js');
 
@@ -19,7 +19,7 @@ async function render(style, seed, { stem = 'full', bars = 4, voice = null, mute
   applyOverrides(s, g); s.patterns = arrangement(g.pattern, seed); s.current = 6;
   if (voice != null) s.params.stab.voice = voice;
   const band = STAB_BAND[Math.round(s.params.stab.voice)];
-  if (band) { await loadBand(band); if (band === 'piano') await loadBand('pianosoft'); }
+  if (band) { await loadBand(band); if (SOFT_LAYER[band]) await loadBand(SOFT_LAYER[band]); }
   const kicks = [];
   P.stab = stem === 'hook' ? () => {} : orig.stab;
   P.lick = stem === 'hook' ? () => {} : orig.lick;
