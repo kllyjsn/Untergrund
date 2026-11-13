@@ -96,6 +96,8 @@ const BAND_PLAY = {
   str: { gain: 1.2, len: 2, min: 0.5, strum: 0, shift: 0, hold: true, lo: 55, hi: 79, lp: 4200, rel: 0.25 },
 };
 const LIM_TRIM = 1.4;
+// The clipper rounds overs up to +6 dB over full scale instead of flat-topping them (see clipCurve).
+const CLIP_HEADROOM = 2;
 // The clipper tops out at 0.98; this trim keeps the master output (true peak, 4x oversampled) under -1 dBTP.
 const OUT_TRIM = 0.78;
 
@@ -169,8 +171,8 @@ export class Engine {
     this.master = this.gain(0.85);
     this.limIn = this.gain(0.5);
     this.limiter = this.comp(-6, 12, 3, 0.002, 0.12);
-    this.limTrim = this.gain(LIM_TRIM);
-    this.clip = c.createWaveShaper(); this.clip.curve = clipCurve(); this.clip.oversample = '4x';
+    this.limTrim = this.gain(LIM_TRIM / CLIP_HEADROOM);
+    this.clip = c.createWaveShaper(); this.clip.curve = clipCurve(CLIP_HEADROOM); this.clip.oversample = '4x';
     this.out = this.gain(OUT_TRIM);
     this.mix.connect(this.djHP).connect(this.djLP).connect(this.arrLP).connect(this.glue).connect(this.satIn).connect(this.sat)
       .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.clip).connect(this.out);
