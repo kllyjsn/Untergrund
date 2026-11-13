@@ -4,9 +4,11 @@ import { KEYS, SCALES } from './params.js';
 import { STYLES, MAJOR_STYLES, applyOverrides, arrangement, clone, generate, sanitize } from './state.js';
 import { h } from './ui.js';
 import { accountPanel, syncProfile } from './account.js';
+import { jbTile, myPublished } from './sets.js';
 
 const PROFILE_KEY = 'untergrund.artist.v1';
 const CATALOG_KEY = 'untergrund.catalog.v1';
+const MORE_KEY = 'untergrund.artist.more';
 export const TRAITS = [
   ['darkness', 'DARKNESS', 'darker scales, more distortion'],
   ['hypnosis', 'HYPNOSIS', 'trance-like loops, more swing'],
@@ -145,15 +147,16 @@ export function createArtistCatalog(baseState, profile, count = 3, seed = Date.n
   return made;
 }
 
-export function openArtistStudio({ getState, loadProject, performProject, publishProject, toast }) {
+export function openArtistStudio({ getState, loadProject, performProject, publishProject, publishCurrent, toast }) {
   let profile = loadArtistProfile();
+  let moreOpen = localStorage.getItem(MORE_KEY) === '1';
   let catalog = loadCatalog();
   const close = () => ov.remove();
-  const ov = h('div', { class: 'overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Autonomous artist', onclick: (e) => e.target === ov && close() });
+  const ov = h('div', { class: 'overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Your page', onclick: (e) => e.target === ov && close() });
   const body = h('div', { class: 'artist-body' });
   const modal = h('div', { class: 'modal panel artist-modal' },
     h('div', { class: 'artist-head' },
-      h('div', {}, h('div', { class: 'mtitle' }, 'AUTONOMOUS ARTIST'), h('div', { class: 'dim artist-kicker' }, 'identity → musical DNA → live set → release')),
+      h('div', {}, h('div', { class: 'mtitle' }, 'YOUR PAGE'), h('div', { class: 'artist-kicker' }, 'One link for every song you publish.')),
       h('button', { class: 'btn ghost', onclick: close }, 'CLOSE')),
     body);
   ov.append(modal);
@@ -175,7 +178,7 @@ export function openArtistStudio({ getState, loadProject, performProject, publis
   const saveProfile = () => {
     saveArtistProfile(profile);
     syncProfile(accountProfile());
-    toast(`${profile.name} DNA saved`);
+    toast('Saved');
   };
 
   function field(label, el) {
@@ -199,38 +202,64 @@ export function openArtistStudio({ getState, loadProject, performProject, publis
     const manifesto = h('textarea', { class: 'inp', rows: 3, maxlength: 220, onchange: (e) => { profile.manifesto = e.target.value.trim(); saveProfile(); } });
     manifesto.value = profile.manifesto;
     const cadence = h('select', { class: 'sel', onchange: (e) => { profile.cadence = +e.target.value; saveProfile(); } },
-      [[7, 'WEEKLY'], [14, 'EVERY 2 WEEKS'], [30, 'MONTHLY']].map(([v, label]) => {
+      [[7, 'EVERY WEEK'], [14, 'EVERY 2 WEEKS'], [30, 'EVERY MONTH']].map(([v, label]) => {
         const o = h('option', { value: v }, label); if (profile.cadence === v) o.selected = true; return o;
       }));
 
     const identity = h('section', { class: 'artist-identity' },
       h('div', { class: 'artist-profile' },
         h('div', { class: 'artist-monogram' }, profile.name.slice(0, 2).toUpperCase()),
-        h('div', { class: 'artist-profile-fields' }, field('ARTIST NAME', name), field('MANIFESTO', manifesto), field('RELEASE RHYTHM', cadence))),
-      h('div', { class: 'dna' }, h('div', { class: 'artist-label' }, 'MUSICAL DNA'), TRAITS.map(trait)));
+        h('div', { class: 'artist-profile-fields' }, field('ARTIST NAME', name), field('ABOUT YOU', manifesto), field('NEW RELEASE', cadence))),
+      h('div', { class: 'dna' }, h('div', { class: 'artist-label' }, 'YOUR SOUND'), TRAITS.map(trait)));
 
     const make = (count) => {
       const made = createArtistCatalog(getState(), profile, count, Date.now(), catalog);
       catalog = [...catalog, ...made];
       saveCatalog(catalog);
-      toast(count === 1 ? `Created “${made[0].title}”` : `Created ${count}-track release`);
+      toast(count === 1 ? `Made “${made[0].title}”` : `Made ${count} tracks`);
       render();
     };
     const controls = h('section', { class: 'artist-create' },
       h('div', {},
-        h('div', { class: 'artist-label' }, 'THE MACHINE BECOMES THE ARTIST'),
-        h('p', {}, 'Each release is a playable eight-scene project generated from this identity. Load it, let Artist Live perform it, or publish it as-is.')),
+        h('div', { class: 'artist-label' }, 'TRACKS MADE FOR YOU'),
+        h('p', {}, 'UNTERGRUND writes full songs in your sound. Open one in Studio, play it live, or publish it as it is.')),
       h('div', { class: 'artist-actions' },
-        h('button', { class: 'btn', onclick: () => make(1) }, 'CREATE TRACK'),
-        h('button', { class: 'btn accent', onclick: () => make(3) }, 'CREATE 3-TRACK RELEASE')));
+        h('button', { class: 'btn', onclick: () => make(1) }, 'MAKE ONE'),
+        h('button', { class: 'btn', onclick: () => make(3) }, 'MAKE THREE')));
 
     const list = h('section', { class: 'artist-catalog' },
       h('div', { class: 'catalog-head' },
-        h('div', {}, h('div', { class: 'artist-label' }, 'RELEASE CATALOG'), h('span', { class: 'dim' }, `${catalog.length} projects · stored in this browser`)),
-        catalog.length ? h('button', { class: 'btn ghost', onclick: () => { if (confirm('Clear the generated catalog?')) { catalog = []; saveCatalog(catalog); render(); } } }, 'CLEAR') : null),
-      catalog.length ? catalog.slice().reverse().map(releaseCard) : h('div', { class: 'catalog-empty' }, 'No releases yet. Create one from the artist DNA above.'));
+        h('div', {}, h('div', { class: 'artist-label' }, 'DRAFTS'), h('span', { class: 'artist-dim' }, `${catalog.length} ${catalog.length === 1 ? 'track' : 'tracks'} · saved in this browser`)),
+        catalog.length ? h('button', { class: 'btn ghost', onclick: () => { if (confirm('Clear all drafts?')) { catalog = []; saveCatalog(catalog); render(); } } }, 'CLEAR') : null),
+      catalog.length ? catalog.slice().reverse().map(releaseCard) : h('div', { class: 'catalog-empty' }, 'No drafts yet. Tap MAKE ONE above.'));
 
-    body.append(accountPanel({ getProfile: accountProfile, toast }), identity, controls, list);
+    const more = h('details', { class: 'artist-more' },
+      h('summary', {}, h('span', {}, h('b', {}, 'Artist profile and auto-releases'), h('small', {}, 'Your name, bio and sound, plus tracks UNTERGRUND makes for you.'))),
+      h('div', { class: 'artist-more-body' }, identity, controls, list));
+    more.open = moreOpen;
+    more.ontoggle = () => { moreOpen = more.open; localStorage.setItem(MORE_KEY, moreOpen ? '1' : '0'); };
+
+    body.append(accountPanel({ getProfile: accountProfile, toast }), songsSection(), more);
+  }
+
+  function songsSection() {
+    const rows = h('div', { class: 'artist-songs-list' }, h('p', { class: 'artist-dim' }, 'Loading…'));
+    const title = getState()?.artist?.title;
+    myPublished().then((songs) => {
+      if (!songs.length) {
+        return rows.replaceChildren(h('div', { class: 'artist-songs-empty' },
+          h('p', {}, 'Nothing published yet. Publish a song and it gets its own page that plays instantly.'),
+          publishCurrent && h('button', { class: 'btn', onclick: () => { close(); publishCurrent(); } }, title ? `PUBLISH “${title}”` : 'PUBLISH THIS SONG')));
+      }
+      rows.replaceChildren(...songs.map((t) => {
+        const meta = [STYLES[t.style]?.name, t.bpm && `${t.bpm} BPM`].filter(Boolean).join(' · ');
+        const inner = [jbTile(t.title), h('span', { class: 'jb-text' }, h('b', {}, t.title), h('small', {}, t.public ? meta : `${meta} · this browser only`)), h('span', { class: 'jb-side' }, t.public ? 'OPEN' : '')];
+        return t.public
+          ? h('a', { class: 'jb-item artist-song', href: `/t/${t.trackId}`, target: '_blank', rel: 'noopener' }, ...inner)
+          : h('div', { class: 'jb-item artist-song' }, ...inner);
+      }));
+    }).catch(() => rows.replaceChildren(h('p', { class: 'artist-dim' }, 'Couldn’t load your songs right now.')));
+    return h('section', { class: 'artist-songs' }, h('div', { class: 'artist-label' }, 'YOUR SONGS'), rows);
   }
 
   function releaseCard(item) {
@@ -250,10 +279,10 @@ export function openArtistStudio({ getState, loadProject, performProject, publis
       h('div', { class: 'catalog-info' },
         h('div', { class: 'catalog-title' }, item.title),
         h('div', { class: 'catalog-meta' }, `${STYLES[item.style].name} · ${item.bpm} BPM · ${KEYS[item.key]} ${SCALES[item.scale].name}`),
-        h('div', { class: 'catalog-plan' }, field('RELEASE', date), field('STATUS', status)),
+        h('div', { class: 'catalog-plan' }, field('RELEASE DATE', date), field('STATUS', status)),
         h('div', { class: 'catalog-actions' },
-          h('button', { class: 'btn ghost', onclick: () => use(loadProject) }, 'LOAD'),
-          h('button', { class: 'btn live', onclick: () => use(performProject) }, 'ARTIST LIVE'),
+          h('button', { class: 'btn ghost', onclick: () => use(loadProject) }, 'OPEN'),
+          h('button', { class: 'btn live', onclick: () => use(performProject) }, 'PLAY LIVE'),
           h('button', { class: 'btn sc', onclick: () => use(publishProject) }, 'PUBLISH'))));
   }
 
