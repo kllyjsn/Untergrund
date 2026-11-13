@@ -5,6 +5,7 @@ import { MODELS } from './composer-models.js';
 import { POCKETS, STYLE_POCKET } from './groove.js';
 import { REPERTOIRE, PIECE } from './repertoire.js';
 import { cleanLabels } from './timeline.js';
+import { cleanLyrics } from './lyrics.js';
 import { cleanTakes } from './scope.js';
 
 export const STYLES = {
@@ -1027,6 +1028,8 @@ export function sanitize(s) {
   out.chain = String(s.chain || d.chain).toUpperCase().replace(/[^A-H]/g, '').slice(0, 128) || d.chain;
   const labels = cleanLabels(s.labels);
   if (labels) out.labels = labels;
+  const lyrics = cleanLyrics(s.lyrics);
+  if (lyrics) out.lyrics = lyrics;
   out.mutes = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.mutes?.[id]]));
   out.solos = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.solos?.[id]]));
   out.locks = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.locks?.[id]]));

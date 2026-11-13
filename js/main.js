@@ -27,7 +27,7 @@ import { restoreVoice } from './voice.js';
 import { compose } from './classical.js';
 import { PIECE, loadPiece } from './repertoire.js';
 import { followingRow } from './feed.js';
-import { describeBar } from './describe-ui.js';
+import { describeBar, syncLyrics } from './describe-ui.js';
 import { songState } from './song-spec.js';
 import { fetchPublicTrack } from './account.js';
 import { openShare, openSharedLanding, countRemix, track } from './share.js';
@@ -508,7 +508,7 @@ function setMaster(id, v) {
 // Undo / redo. `label` names the edit for the toast ("Undone: CLEAR pattern B").
 function snapshot(like = {}) {
   const { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn } = state;
-  const snap = { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn, labels: state.labels || null };
+  const snap = { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn, labels: state.labels || null, lyrics: state.lyrics || null };
   if ('artist' in like) snap.artist = state.artist ?? null;
   if (like.ui) snap.ui = { style, family };
   return JSON.stringify(snap);
@@ -525,6 +525,7 @@ function restore(entry, verb) {
   if (was) { style = was.style; family = was.family; localStorage.setItem('untergrund.family', family); }
   Object.assign(state, snap);
   if (!state.labels) delete state.labels;
+  if (!state.lyrics) delete state.lyrics;
   engine?.applyAll(); engine?.applyDelayTime();
   build(); persist(); toast(entry.label ? `${verb}: ${entry.label}` : verb);
 }
@@ -918,7 +919,7 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   const title = piece ? piece.title : drop ? drop.title : trackTitle(seed);
   const artist = piece ? piece.composer : loadAvatar().name || 'UNTERGRUND';
   s.artist = { name: artist, title, style: id, seed, created: new Date().toISOString() };
-  delete s.remixOf; delete s.drop;
+  delete s.remixOf; delete s.drop; delete s.lyrics;
   if (drop) Object.assign(s, { drop: drop.date, remixOf: { id: '', title: `Daily Drop · ${drop.title}`, artist: 'UNTERGRUND' } });
   if (typeof steer === 'function') Object.assign(s, steer(s));
   return {
@@ -1474,7 +1475,7 @@ function dropPeek() {
 function describeBox() {
   return describeBar({
     state: () => state, style: () => style, styleName: (id) => STYLES[id].name, depth: () => history.depth,
-    pushUndo, undo, track: (p) => trackEvent('describe', p),
+    pushUndo, undo, track: (p) => trackEvent('describe', p), kind: () => (GROOVE_STYLES.has(style) ? 'groove' : 'club'),
     // Undo of a genre switch also brings back the old genre and song title.
     switchGenre: (id, steer, label) => {
       const was = { style, family }, artist = clone(state.artist ?? null);
@@ -1487,7 +1488,7 @@ function describeBox() {
       if (playing && pat().score) stop();
     },
     // Prompt to song: a normal GENERATE in the spec's style, rewritten by the spec before it plays.
-    song: (spec, label, done) => {
+    song: (spec, label, done, lyrics) => {
       const was = { style, family }, artist = clone(state.artist ?? null);
       style = spec.style; family = STYLES[style].family; localStorage.setItem('untergrund.family', family);
       if (playing) stop();
@@ -1495,6 +1496,7 @@ function describeBox() {
         history.amend((snap) => JSON.stringify({ ...JSON.parse(snap), artist, ui: was }));
         history.relabel(label);
         const next = songState(spec, s.artist.seed, s).state;
+        if (lyrics) next.lyrics = lyrics;
         done(next.artist.title, next.key);
         return next;
       });
@@ -2093,6 +2095,7 @@ function frame() {
       }
       setPlayhead(ev);
       updateNowPlaying(ev);
+      syncLyrics(Math.floor(ev.abs / 16));
       timeline.frame(ev);
       const pattern = state.patterns[ev.pat];
       const step = ev.abs % 16;
