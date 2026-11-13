@@ -55,49 +55,89 @@
 /* GO LIVE in the now-playing actions: a quiet secondary, the red dot is the only color. */
 .np-live i { display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 50%; background: var(--red); vertical-align: 1px; }
 
-/* Club lobby */
+/* Club lobby: live rooms are the hero; with none live, one pitch and one action. */
 .club-shell.is-lobby { grid-template-rows: auto minmax(0,1fr); }
-.club-lobby { min-height: 0; overflow-y: auto; display: grid; grid-template-columns: minmax(0,1fr) 360px; align-content: start; gap: 24px; padding: 28px clamp(16px,3vw,32px) 40px; }
-.club-lobby h2 { display: flex; align-items: center; gap: 10px; margin: 0; font: 700 22px var(--sans); letter-spacing: -.01em; }
-.lobby-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
-.lobby-title > span { font: 500 11px var(--mono); color: var(--dim); letter-spacing: .06em; }
+.club-shell.is-lobby .club-head { justify-content: space-between; gap: 12px; flex-wrap: nowrap; }
+.club-shell.is-lobby .club-head-actions { flex: none; width: auto; display: flex; }
+.club-lobby { min-height: 0; overflow-y: auto; padding: 32px clamp(16px,4vw,56px) 48px; }
+.club-lobby h2 { display: flex; align-items: center; gap: 10px; margin: 0; font: 700 24px/1.15 var(--sans); letter-spacing: -.015em; }
+.lobby-split { display: grid; grid-template-columns: minmax(0,1fr) 320px; align-items: start; gap: 32px; max-width: 1240px; margin: 0 auto; }
+.lobby-title { display: flex; align-items: baseline; gap: 14px; margin-bottom: 16px; }
+.lobby-title > span { font: 400 14px var(--sans); color: var(--dim); }
 .lobby-title .lr-dot { align-self: center; }
-.lobby-rooms { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px,1fr)); gap: 10px; }
-.lobby-rooms .lr-card { height: auto; min-height: 92px; grid-template-columns: 56px minmax(0,1fr); padding: 12px 14px 12px 10px; }
-.lobby-rooms .lr-dj { width: 56px; height: 70px; }
-.lobby-rooms .lr-dj .club-person { transform: translateX(-50%) scale(.5); }
-.lobby-rooms .lr-body > b { font-size: 16px; }
+.lobby-rooms { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px,1fr)); gap: 12px; }
+.lobby-rooms .lr-card { height: auto; min-height: 104px; grid-template-columns: 64px minmax(0,1fr); gap: 14px; padding: 14px 16px 14px 12px; }
+.lobby-rooms .lr-dj { width: 64px; height: 76px; }
+.lobby-rooms .lr-dj .club-person { transform: translateX(-50%) scale(.55); }
+.lobby-rooms .lr-body > b { font-size: 18px; }
 .lr-room { color: var(--dim2) !important; }
-.lobby-wait { margin: 0; color: var(--dim); font: 500 11px var(--mono); }
-.lobby-start { align-self: start; display: grid; gap: 12px; padding: 20px; border: 1px solid var(--hair2); border-radius: var(--r2); background: var(--panel); }
-.lobby-start h2 { font-size: 18px; }
+.lobby-wait { margin: 0; color: var(--dim); font: 400 14px var(--sans); }
+.lobby-start { display: grid; gap: 10px; padding: 20px; border: 1px solid var(--hair); border-radius: var(--r2); background: var(--panel); }
+.lobby-start h3 { margin: 0; font: 600 16px var(--sans); }
 .lobby-start p { margin: 0; color: var(--dim); font: 400 13px/1.45 var(--sans); }
+.lobby-start .lobby-cta { justify-self: stretch; }
+.lobby-cta { height: 44px; padding: 0 22px; font-size: 12px; letter-spacing: .14em; }
+.lobby-fine { margin: 0; color: var(--dim2); font: 400 12px/1.5 var(--sans); }
+.lobby-link { padding: 0; border: 0; background: none; color: var(--dim); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.lobby-link:hover { color: var(--text); }
 .lobby-create { display: flex; align-items: center; gap: 8px; }
 .lobby-slug { font: 500 12px var(--mono); color: var(--dim2); }
 .lobby-name { flex: 1; min-width: 0; }
-.lobby-back { justify-self: start; height: 28px; padding: 0; border: 0; background: none; color: var(--dim); font: 600 10px var(--mono); letter-spacing: .14em; cursor: pointer; }
-.lobby-back::before { content: '← '; }
-.lobby-back:hover { color: var(--text); }
 
-/* ROOMS and the privacy toggle flank the room name in the head. */
-.club-rooms-btn, .club-privacy { flex: none; height: 32px; padding: 0 10px; font-size: 9px; }
-.club-privacy i { display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 50%; background: var(--green); vertical-align: 1px; }
-.club-privacy.private i { background: transparent; box-shadow: inset 0 0 0 1px var(--dim); }
+/* Empty: you on a booth, the pitch, one action, then how it works. */
+.club-lobby.is-empty { display: grid; align-content: center; }
+.lobby-hero { display: grid; grid-template-columns: 240px minmax(0,520px); grid-template-areas: 'booth pitch' 'steps steps'; justify-content: center; align-items: center; column-gap: 56px; row-gap: 48px; }
+.lobby-booth { grid-area: booth; position: relative; height: 260px; border: 1px solid var(--hair); border-radius: var(--r2); background: linear-gradient(180deg,#232226 0 62%,#1c1c1f 62%); overflow: hidden; }
+.lobby-booth .club-person { position: absolute; left: 50%; bottom: 58px; transform: translateX(-50%) scale(1.05); transform-origin: 50% 100%; }
+.lobby-booth .club-name, .lobby-booth .club-shadow { display: none; }
+.lobby-booth > i { position: absolute; left: 24px; right: 24px; bottom: 26px; height: 56px; border: 1px solid #3b3a42; border-radius: var(--r1); background: linear-gradient(#34333a,#222125); }
+.lobby-booth > i::before, .lobby-booth > i::after { content: ''; position: absolute; top: 12px; width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line2); box-shadow: inset 0 0 0 7px #242327; }
+.lobby-booth > i::before { left: 14px; } .lobby-booth > i::after { right: 14px; }
+.lobby-pitch { grid-area: pitch; display: grid; gap: 16px; justify-items: start; }
+.lobby-pitch h2 { font-size: 34px; letter-spacing: -.02em; }
+.lobby-pitch > p { margin: 0; max-width: 46ch; color: var(--dim); font: 400 16px/1.5 var(--sans); }
+.lobby-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 4px; }
+.lobby-actions small { color: var(--dim); font: 400 13px/1.4 var(--sans); }
+.lobby-steps { grid-area: steps; display: grid; align-items: start; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 0; margin: 0; padding: 20px 0 0; list-style: none; border-top: 1px solid var(--hair); counter-reset: step; }
+.lobby-steps li { display: grid; gap: 4px; padding-right: 24px; counter-increment: step; }
+.lobby-steps li::before { content: counter(step, decimal-leading-zero); color: var(--dim2); font: 500 10px var(--mono); letter-spacing: .14em; margin-bottom: 4px; }
+.lobby-steps b { font: 600 14px var(--sans); }
+.lobby-steps span { color: var(--dim); font: 400 13px/1.45 var(--sans); }
 
-@media (max-width: 760px) {
-  /* ROOMS takes the brand's slot on phone, so the head stays one row. */
-  .club-head:has(.club-rooms-btn) .club-brand { display: none; }
-  .club-room-name { gap: 6px; }
-  .club-rooms-btn, .club-privacy { height: 36px; padding: 0 8px; }
-  .club-privacy i { margin-right: 5px; }
+/* Room head: back to rooms, then the room (name, privacy, link live in its sheet). */
+.club-rooms-btn { flex: none; height: 32px; padding: 0 10px; font-size: 9px; }
+.club-rooms-btn::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 7px; border: solid currentColor; border-width: 0 0 1.5px 1.5px; transform: translateY(-1px) rotate(45deg); }
+.club-room-sheet { left: 16px; right: auto; }
+.club-room-link { flex: 1; min-width: 0; padding: 0 10px; height: 30px; line-height: 30px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--hair); border-radius: var(--r1); background: #1c1c1e; color: var(--text); font: 500 12px var(--mono); }
+.club-room-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.club-room-choice { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--hair2); border-radius: var(--r1); background: #1c1c1e; color: var(--text); text-align: left; cursor: pointer; }
+.club-room-choice b { font: 600 14px var(--sans); }
+.club-room-choice small { color: var(--dim); font: 400 12px/1.35 var(--sans); }
+.club-room-choice.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+
+@media (max-width: 900px) {
+  .lobby-split { grid-template-columns: minmax(0,1fr); }
 }
 @media (max-width: 760px) {
-  .club-lobby { grid-template-columns: minmax(0,1fr); padding: 20px 16px calc(32px + env(safe-area-inset-bottom)); gap: 20px; }
+  .club-lobby { padding: 20px 16px calc(28px + env(safe-area-inset-bottom)); }
+  .club-lobby h2 { font-size: 22px; }
   .lobby-rooms { grid-template-columns: minmax(0,1fr); }
   .lobby-create .lobby-name { font-size: 16px; }
+  .club-lobby.is-empty { align-content: start; }
+  .lobby-hero { grid-template-columns: minmax(0,1fr); grid-template-areas: 'booth' 'pitch'; row-gap: 24px; }
+  .lobby-booth { height: 200px; }
+  .lobby-booth .club-person { transform: translateX(-50%) scale(.85); bottom: 52px; }
+  .lobby-booth > i { left: 50%; right: auto; width: 220px; transform: translateX(-50%); }
+  .lobby-pitch { gap: 14px; }
+  .lobby-pitch h2 { font-size: 26px; }
+  .lobby-pitch > p { font-size: 15px; }
+  .lobby-actions { display: grid; width: 100%; gap: 10px; }
+  .lobby-cta { height: 52px; width: 100%; font-size: 13px; }
+  .lobby-steps { display: none; }
+  .club-rooms-btn { width: 36px; height: 36px; padding: 0; }
+  .club-rooms-btn span { display: none; }
+  .club-rooms-btn::before { margin: 0 0 0 3px; }
+  .club-room-btn { padding: 2px 6px; }
+  .club-room-btn b { font-size: 15px; }
 }
 @media (prefers-reduced-motion: reduce) { .lr-dot::after { animation: none; } }
-.club-shell.is-lobby .club-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.club-shell.is-lobby .club-head-actions { flex: none; }
-.club-shell.is-lobby .club-head { flex-wrap: nowrap; }
-.club-shell.is-lobby .club-head-actions { width: auto; display: flex; }

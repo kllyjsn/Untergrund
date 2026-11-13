@@ -410,14 +410,16 @@ body.artist-live .logo b { background: var(--green); }
 .club-brand > i { width: 28px; height: 28px; border: 2px solid var(--green); position: relative; }
 .club-brand > i::after { content: ''; position: absolute; width: 8px; height: 8px; left: 8px; top: 8px; background: var(--green); }
 .club-brand div { display: flex; flex-direction: column; gap: 2px; }
-.club-brand b { font: 900 13px var(--sans); letter-spacing: .18em; }
+.club-brand b { font: 700 19px var(--sans); letter-spacing: -.01em; }
 .club-brand span { color: #86828e; font-size: 8px; letter-spacing: .12em; text-transform: uppercase; }
-.club-room-name { display: flex; align-items: center; gap: 8px; min-width: 0; padding-left: 16px; border-left: 1px solid var(--hair); }
-.club-room-btn { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; max-width: 280px; padding: 4px 8px; border: 1px solid transparent; border-radius: var(--r1); background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.club-room-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.club-room-btn { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; max-width: 320px; padding: 4px 10px; border: 1px solid transparent; border-radius: var(--r1); background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
 @media (hover: hover) { .club-room-btn:hover { background: var(--ctl); border-color: var(--hair); } }
+.club-room-btn.on { background: var(--ctl); border-color: var(--hair2); }
+.club-room-btn b::after { content: ''; display: inline-block; width: 5px; height: 5px; margin-left: 8px; border: solid var(--dim); border-width: 0 1.5px 1.5px 0; transform: translateY(-3px) rotate(45deg); }
 .club-room-btn span { color: var(--dim2); font-size: 8px; letter-spacing: .16em; }
-.club-room-btn b { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 800 13px var(--sans); text-transform: uppercase; letter-spacing: .08em; }
-.club-room-input { width: 240px; font: 800 13px var(--sans); text-transform: uppercase; letter-spacing: .08em; }
+.club-room-btn b { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 16px var(--sans); letter-spacing: -.005em; }
+.club-room-input { flex: 1; min-width: 0; font: 500 13px var(--sans); }
 .club-head-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 .club-main { min-height: 0; display: grid; grid-template-columns: minmax(0,1fr) 320px; }
 .club-stage-col { position: relative; min-height: 0; display: grid; grid-template-rows: minmax(0,1fr) auto; }
@@ -427,8 +429,8 @@ body.artist-live .logo b { background: var(--green); }
 .club-dock { display: none; }
 .club-band { display: grid; grid-template-columns: minmax(180px,.8fr) 3fr; gap: 12px; align-items: stretch; padding: 8px 16px; border-top: 1px solid var(--hair); background: #1c1c1e; }
 .club-band-head { display: flex; flex-direction: column; justify-content: center; gap: 4px; min-width: 0; }
-.club-band-head b { font: 900 13px var(--sans); letter-spacing: .22em; color: var(--green); }
-.club-band-head span { color: #a9a5b1; font-size: 9px; line-height: 1.35; letter-spacing: .04em; }
+.club-band-head b { font: 700 15px var(--sans); color: var(--text); }
+.club-band-head span { color: var(--dim); font: 400 12px/1.35 var(--sans); }
 .club-band-head .btn { align-self: flex-start; margin-top: 2px; }
 .club-band-parts { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; }
 .club-part { min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 7px 9px; border: 1px solid #3c3945; background: rgba(255,255,255,.02); }
@@ -470,7 +472,7 @@ body.artist-live .logo b { background: var(--green); }
 .club-kick .mood-break .club-flash { opacity: .12; }
 .club-spin { position: absolute; left: 50%; top: 16px; z-index: 11; min-width: 220px; padding: 9px 18px 10px; display: flex; flex-direction: column; align-items: center; gap: 3px; background: var(--bg); border: 1px solid var(--hair2); border-top: 2px solid var(--green); border-radius: var(--r2); opacity: 0; transform: translateX(-50%); pointer-events: none; }
 .club-spin span { color: var(--green); font-size: 8px; letter-spacing: .24em; }
-.club-spin b { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 900 18px var(--sans); letter-spacing: .1em; text-transform: uppercase; }
+.club-spin b { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 18px var(--sans); }
 .club-fx { position: absolute; inset: 0; z-index: 12; pointer-events: none; }
 .club-chip { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 8px 3px; background: var(--bg); border: 1px solid color-mix(in srgb,var(--c) 70%,transparent); border-top: 2px solid var(--c); border-radius: var(--r1); box-shadow: 0 8px 18px #000a; opacity: 0; white-space: nowrap; will-change: transform, opacity; }
 .club-chip b { color: var(--c); font: 900 13px var(--sans); letter-spacing: .16em; }
@@ -483,7 +485,7 @@ body.artist-live .logo b { background: var(--green); }
 .club-dj > .club-booth { z-index: 2; }
 .club-now { position: absolute; left: 20px; top: 49%; z-index: 5; width: min(340px,42%); padding: 11px 14px; border-left: 3px solid var(--green); background: rgba(25,25,27,.82); display: flex; flex-direction: column; gap: 3px; }
 .club-now span { color: var(--green); font-size: 8px; letter-spacing: .2em; }
-.club-now strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 900 20px var(--sans); text-transform: uppercase; letter-spacing: .08em; }
+.club-now strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 22px/1.15 var(--sans); letter-spacing: -.01em; }
 .club-now small { color: #a09ba8; font-size: 9px; letter-spacing: .08em; }
 .club-floor { --crowd-scale: 1; position: absolute; left: 0; right: 0; bottom: 0; height: 46%; z-index: 6; }
 .club-floor > .club-person { position: absolute; left: var(--x); bottom: var(--y); z-index: var(--z); transform: translateX(-50%) scale(calc(var(--depth) * var(--crowd-scale))); transform-origin: 50% 100%; }
@@ -579,26 +581,26 @@ body.artist-live .logo b { background: var(--green); }
 .club-tabs button.on { color: #e8e4ec; }
 .club-crate { min-height: 0; overflow-y: auto; padding: 6px 10px; display: flex; flex-direction: column; gap: 6px; }
 .club-crate-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 1px solid #3c3945; background: #232227; }
-.club-crate-row b { display: block; color: #ece8f0; font-size: 12px; letter-spacing: .04em; }
+.club-crate-row b { display: block; color: #ece8f0; font: 600 13px var(--sans); }
 .club-crate-row small { color: #878290; font-size: 9px; letter-spacing: .06em; }
 .club-crate-row .btn { flex: none; height: 28px; padding: 0 12px; font-size: 9px; }
-.club-crate-note { padding: 10px 14px 12px; color: #797482; font-size: 9px; line-height: 1.5; border-top: 1px solid #3c3945; }
+.club-crate-note { padding: 10px 14px 12px; color: #797482; font: 400 12px/1.45 var(--sans); border-top: 1px solid #3c3945; }
 .club-chat-feed { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; }
 .club-chat-group { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding-left: 9px; border-left: 2px solid transparent; }
 .club-chat-group.mine { border-left-color: var(--av); }
 .club-chat-who { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 10px; letter-spacing: .04em; }
-.club-chat-who b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--av); }
+.club-chat-who b { font: 600 12px var(--sans); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--av); }
 .club-chat-who em { flex: none; padding: 1px 4px; border: 1px solid var(--hair2); border-radius: var(--r1); color: #8e8e93; font: 700 7px var(--mono); letter-spacing: .14em; }
 .club-chat-who em.dj { color: var(--green); border-color: rgba(48,209,88,.4); }
 .club-chat-who time { flex: none; margin-left: auto; color: #636366; font-size: 8px; letter-spacing: .04em; }
-.club-chat-group p { margin: 0; color: #e5e5ea; font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+.club-chat-group p { margin: 0; color: #e5e5ea; font: 400 13px/1.45 var(--sans); overflow-wrap: anywhere; }
 .club-chat-system { color: #8e8e93; font-size: 9px; line-height: 1.4; letter-spacing: .04em; text-align: center; }
 .club-chat-system b { color: #aeaeb2; }
-.club-chat-empty { align-self: center; margin: auto; color: #868290; font-size: 10px; }
+.club-chat-empty { align-self: center; margin: auto; padding: 0 12px; color: #868290; font: 400 13px/1.45 var(--sans); text-align: center; }
 .club-chat-hello { margin: auto; max-width: 240px; display: flex; flex-direction: column; align-items: center; gap: 7px; text-align: center; }
 .club-chat-hello .club-face { width: 26px; height: 26px; margin-bottom: 2px; }
-.club-chat-hello b { color: #f2f2f7; font-size: 11px; letter-spacing: .04em; }
-.club-chat-hello span { color: #8e8e93; font-size: 10px; line-height: 1.5; }
+.club-chat-hello b { color: #f2f2f7; font: 600 14px var(--sans); }
+.club-chat-hello span { color: #8e8e93; font: 400 13px/1.45 var(--sans); }
 .club-chat-new { position: sticky; bottom: 0; align-self: center; flex: none; height: 24px; padding: 0 10px; border: 1px solid var(--hair2); border-radius: var(--r1); background: #2c2c2e; color: #f2f2f7; font: 700 9px var(--mono); letter-spacing: .12em; cursor: pointer; }
 .club-chat-compose { display: flex; gap: 6px; padding: 10px; border-top: 1px solid #3c3945; }
 .club-chat-compose .inp { flex: 1; min-width: 0; }
@@ -626,7 +628,7 @@ body.artist-live .logo b { background: var(--green); }
 .club-look-preview .club-person { position: absolute; left: 0; bottom: 4px; }
 .club-look-preview .club-name { bottom: -2px; max-width: 96px; }
 .club-look-id { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.club-look-id small { color: #8e8e93; font-size: 9px; line-height: 1.45; }
+.club-look-id small, .club-room-hint { color: #8e8e93; font: 400 12px/1.45 var(--sans); }
 .club-look-name-row { display: flex; gap: 6px; }
 .club-look-name-row .inp { flex: 1; min-width: 0; font-size: 12px; }
 .club-look-name-row .btn { flex: none; padding: 0 9px; font-size: 8px; }
@@ -663,7 +665,7 @@ body.artist-live .logo b { background: var(--green); }
   .club-head { min-height: 0; gap: 10px; padding: 8px 12px; }
   .club-brand > i { width: 22px; height: 22px; }
   .club-brand > i::after { width: 6px; height: 6px; left: 5px; top: 5px; }
-  .club-room-name { flex: 1; padding-left: 0; border-left: 0; }
+  .club-room-name { flex: 1; }
   .club-room-btn { max-width: 100%; }
   .club-room-input { width: 100%; }
   .club-head-actions > :not(.club-invite, .club-look-btn) { display: none; }
