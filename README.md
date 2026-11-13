@@ -46,7 +46,7 @@ The site is a static build on Vercel project `untergrund-i2i9` (team kllyjsns-pr
 | Public tracks | `/api/tracks` | `KV_REST_API_URL` + `KV_REST_API_TOKEN` (Upstash Redis) | 503 `enabled:false`, browser-only crate |
 | Jukebox | `/api/jukebox` | same Redis env vars | 503 `enabled:false`, browser-only jukebox |
 | Recorded set uploads | `/api/set-upload` | `BLOB_READ_WRITE_TOKEN` (Vercel Blob) | jukebox reports `uploads:false` |
-| Multi-device Club rooms | `ROOMS_API_URL` → `rooms-server.mjs` | a persistent host (Fly.io) | rooms are per-browser |
+| Multi-device Club rooms + live directory | `/api/rooms`, `/api/rooms/:room[/events]` | the same `KV_REST_API_*` Redis (optional override: `ROOMS_API_URL`) | rooms 503 and stay per-browser; directory 200 `enabled:false` |
 
 ### 1. Storage (Vercel dashboard)
 
@@ -55,9 +55,27 @@ The site is a static build on Vercel project `untergrund-i2i9` (team kllyjsns-pr
 3. **Deployments** → newest `main` deployment → ⋯ → **Redeploy**. Env vars only apply to new deployments.
 4. Check: `curl https://www.untergrund.sh/api/tracks` and `/api/jukebox` return 200 with `"enabled":true`. `/api/jukebox` should also show `"uploads":true`.
 
-### 2. Club rooms (Fly.io)
+### 2. Club rooms (Vercel + Upstash)
 
-`rooms-server.mjs` is the production room service: only `/api/rooms/:room[/events]` and `/healthz`, no static files, no SoundCloud mock. `server.mjs` reuses the same logic (`api/_lib/rooms.js`) for local development. Rooms stay in memory in a single process. If the `KV_REST_API_*` secrets are set, changes (chat, sets, DJ queue, joins) are also written to Redis under `untergrund:room:<id>`, kept for 7 days and flushed on SIGTERM. Restarts, deploys and auto-stops then don't wipe rooms. Presence heartbeats are never written, so the Upstash free tier is plenty.
+`api/rooms.js` serves every room route on Vercel (vercel.json rewrites `/api/rooms/:room[/events]` and `/api/room-config` to it); `server.mjs` and `rooms-server.mjs` run the same logic from `api/_lib/rooms.js` against an in-memory KV (or Redis when `KV_REST_API_*` is set). Functions are stateless and concurrent, so nothing lives in process memory:
+
+| Key | Type | Holds |
+|---|---|---|
+| `untergrund:room:<id>` | hash | `rev`, `seq`, `core` (host, queue, set card, jam parts) and one `m:<clientId>` field per member |
+| `untergrund:room:<id>:auth` | hash | `sha256(secret) sessionToken` per client, claimed with `HSETNX` |
+| `untergrund:room:<id>:events` | list | last 120 events |
+| `untergrund:room:<id>:set` / `:jam` | string / hash | current set body, jam layers (sent only when the client's version is stale) |
+| `untergrund:rooms:live` | zset | room ids by last activity: the index behind `GET /api/rooms` |
+
+Members are written as independent fields, so heartbeats never race. Host/queue/set/jam changes and event appends go through one Lua script (`COMMIT` in `api/_lib/rooms.js`) that compare-and-sets `rev` and assigns `seq` atomically; a conflicting writer re-reads and retries. Everything expires after 7 days idle. `test/rooms-concurrency.mjs` fires ~110 parallel POSTs at four service instances, both on the in-memory twin and on a real `redis-server` through an Upstash-style REST shim.
+
+Cost: an idle listener's heartbeat (every 4 s) is one `HGETALL`, plus one `HSET` every other beat; the client polls every 2 s when idle, every 0.7 s for 12 s after any chat/reaction/deck/jam activity or while holding a jam part, and not at all while the tab is hidden. Heartbeat replies count as polls. That is about 1,800 function invocations and 2,250 Redis commands per idle listener-hour (about 5,100 / 5,600 when active, 900 / 1,350 hidden). Room GETs are CDN-cacheable for 1 s, so listeners at the same `seq` share replies.
+
+`GET /api/rooms` lists public live rooms (a current set, someone seen in the last 15 s, set not `public: false`), most listeners first, max 24: `{ enabled, rooms: [{ id, title, artist, style, bpm, key, listeners, dj: { name, shape, color, gear }, startsAt, replay }] }`. Check after a deploy: `curl https://www.untergrund.sh/api/rooms`.
+
+### 2b. Optional: standalone room service (Fly.io)
+
+`rooms-server.mjs` serves only the room routes and `/healthz` (no static files, no SoundCloud mock). Point the app at it with `ROOMS_API_URL` in Vercel; `/api/room-config` returns it as `apiBase` and RoomBus calls it instead of same-origin `/api/rooms`.
 
 Prerequisites: a Fly org with billing enabled (trial orgs can't run machines) and an org-scoped token (`fly tokens create org -o personal`). App deploy tokens can't create apps.
 

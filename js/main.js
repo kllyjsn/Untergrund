@@ -2056,6 +2056,7 @@ function frame() {
         bar: Math.floor(ev.abs / 16),
         kick: !!pattern?.steps?.kick?.[step % (pattern?.len?.kick || 16)],
         accent: step % 4 === 0,
+        section: state.chainOn ? sectionName(style, ev.pat) : '',
       } }));
     }
   }
