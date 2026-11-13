@@ -115,7 +115,14 @@ export function createAnalytics({ win = globalThis, now = () => Date.now(), flus
 const browser = typeof window !== 'undefined' && typeof document !== 'undefined';
 export const analytics = browser ? createAnalytics({ win: window }) : null;
 analytics?.install();
-export const track = (name, props) => analytics?.track(name, props);
+// Lifecycle milestones (keep → share → go live), remembered on this device so Create can suggest the next step.
+const MILESTONES = { publish: 'kept', share_link_copied: 'shared', video_export: 'shared', room_go_live: 'live' };
+const didKey = (m) => `untergrund.did.${m}`;
+export const did = (m) => { try { return localStorage.getItem(didKey(m)) === '1'; } catch { return false; } };
+export const track = (name, props) => {
+  if (MILESTONES[name]) try { localStorage.setItem(didKey(MILESTONES[name]), '1'); } catch {}
+  return analytics?.track(name, props);
+};
 export const reportError = (err, opts) => analytics?.reportError(err, opts);
 export const playStarted = (props) => analytics?.playStarted(props);
 export const playStopped = () => analytics?.playStopped();

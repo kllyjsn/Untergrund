@@ -75,12 +75,16 @@ const SPEECH_ERR = { 'not-allowed': 'Microphone is blocked. Allow the mic for th
 // Renders two bars of the drop and measures each part; null if it fails or takes too long.
 const listen = (state) => Promise.race([import('./mix-check.js').then((m) => m.measureMix(state)), new Promise((r) => setTimeout(() => r(null), 8000))]).catch(() => null);
 
+// Before the first song, only whole-song prompts: edits like "darker" need a song to change.
+const FIRST_CHIPS = ['A sunrise drive song', 'Dark techno for 3am', 'A breakup country song'];
+const chipList = (ctx) => (ctx.fresh?.() ? FIRST_CHIPS : [songChip(ctx.style()), ...chipsFor(ctx.style())]);
+const placeholder = (ctx) => (lyricsOpen ? 'Describe the song: “sad indie, female vocal, 90 bpm”' : ctx.fresh?.() ? 'Or describe a song' : 'Try “darker”, “more swing”');
 const songChip = (style) => (/CLASSICAL|JAZZ/.test(STYLE_FAMILY(style)) ? 'A late-night rainy track' : 'A sunrise drive song');
 const STYLE_FAMILY = (id) => STYLES[id]?.family || '';
 // ctx: state(), style(), styleName(id), depth(), pushUndo(label), undo(), switchGenre(id, steer, label), song(spec, label, done(title, key), lyrics), commit(nextState), track(props), kind(),
 // highlight(bars) (optional: shows which bars of the song a scoped edit changed)
 export function describeBar(ctx) {
-  const input = h('input', { class: 'describe-input', type: 'text', placeholder: lyricsOpen ? 'Describe the song: “sad indie, female vocal, 90 bpm”' : 'Describe a song', 'aria-label': 'Describe a song to write, or a change to this one',
+  const input = h('input', { class: 'describe-input', type: 'text', placeholder: placeholder(ctx), 'aria-label': 'Describe a song to write, or a change to this one',
     autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'go', maxlength: '200', oninput: () => { draft = input.value; } });
   input.value = draft;
   const receipt = h('div', { class: 'describe-receipt', 'aria-live': 'polite' });
@@ -89,9 +93,9 @@ export function describeBar(ctx) {
   lyricsBox.value = lyricsDraft;
   lyricsBox.hidden = !lyricsOpen;
   const lyricsChip = h('button', { type: 'button', class: 'describe-chip lyrics-chip' + (lyricsOpen ? ' on' : ''), 'aria-pressed': String(lyricsOpen), onclick: () => toggleLyrics() }, 'Lyrics');
-  const chips = h('div', { class: 'describe-chips' }, lyricsChip, ...[songChip(ctx.style()), ...chipsFor(ctx.style())].map((c) => h('button', { type: 'button', class: 'describe-chip', onclick: () => run(c) }, c)));
+  const chips = h('div', { class: 'describe-chips' }, lyricsChip, ...chipList(ctx).map((c) => h('button', { type: 'button', class: 'describe-chip', onclick: () => run(c) }, c)));
   const box = h('form', { class: 'describe', onsubmit: (e) => { e.preventDefault(); run(input.value); } },
-    h('div', { class: 'describe-row' }, input, Speech ? mic() : null, h('button', { class: 'describe-go', type: 'submit' }, 'DO IT')), lyricsBox, receipt, lyricsView(), chips);
+    h('div', { class: 'describe-row' }, input, Speech ? mic() : null, h('button', { class: 'describe-go', type: 'submit' }, ctx.fresh?.() ? 'MAKE IT' : 'DO IT')), lyricsBox, receipt, lyricsView(), chips);
   paint();
   return box;
 
@@ -101,7 +105,7 @@ export function describeBar(ctx) {
     lyricsBox.hidden = !open;
     lyricsChip.classList.toggle('on', open);
     lyricsChip.setAttribute('aria-pressed', String(open));
-    input.placeholder = open ? 'Describe the song: “sad indie, female vocal, 90 bpm”' : 'Describe a song';
+    input.placeholder = placeholder(ctx);
     if (open) lyricsBox.focus();
   }
 
@@ -171,7 +175,7 @@ export function describeBar(ctx) {
   }
 
   function miss(text, why) {
-    const shown = new Set([songChip(ctx.style()), ...chipsFor(ctx.style())].map((c) => c.toLowerCase()));
+    const shown = new Set(chipList(ctx).map((c) => c.toLowerCase()));
     hint = { note: why || `Not sure what “${text.slice(0, 40)}” means yet. Try:`, suggestions: suggest(text, 16).filter((x) => !shown.has(x.toLowerCase())).slice(0, 5) };
     paint();
   }
