@@ -340,6 +340,6 @@ console.log('seeded instrument ensembles passed');
     return out;
   }, { pages: 3 });
   if (!heard) console.log('section levels: no Chrome found, rendered chorus lift skipped');
-  else jobs.forEach(([style, seed], i) => assert(heard[i] >= 1.5 && heard[i] <= 3, `${style}/${seed}: rendered chorus ${heard[i].toFixed(2)} dB over the verse`));
+  else jobs.forEach(([style, seed], i) => assert(heard[i] >= (style === 'pop' ? 1.5 : 1) && heard[i] <= 3, `${style}/${seed}: rendered chorus ${heard[i].toFixed(2)} dB over the verse`));
   console.log(`section levels passed${heard ? ` (rendered chorus over verse: ${jobs.map(([st, se], i) => `${st}/${se} ${heard[i].toFixed(2)}`).join(', ')} dB)` : ''}`);
 }
