@@ -106,7 +106,10 @@ export async function recordMic(maxSec = MAX_SEC, constraints = { echoCancellati
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
     throw Object.assign(new Error('This browser cannot record audio here'), { name: 'NotSupportedError' });
   }
-  const nativeAudioMode = (recording) => window.__untergrundNative?.post({ type: 'audioMode', recording });
+  const nativeAudioMode = (recording) => {
+    try { if (navigator.audioSession) navigator.audioSession.type = recording ? 'play-and-record' : 'playback'; } catch {}
+    window.__untergrundNative?.post({ type: 'audioMode', recording });
+  };
   nativeAudioMode(true);
   let stream;
   try {

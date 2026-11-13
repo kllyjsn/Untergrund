@@ -20,9 +20,7 @@ targets:
     sources:
       - path: Untergrund
         excludes:
-          - Resources
-    resources:
-      - path: Untergrund/Resources/Assets.xcassets
+          - Resources/Info.plist
     settings:
       base:
         INFOPLIST_FILE: Untergrund/Resources/Info.plist
