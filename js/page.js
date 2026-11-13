@@ -157,7 +157,8 @@ function localTrack(id) {
   try { return (JSON.parse(localStorage.getItem('untergrund.crate.v1')) || []).find((t) => t.id === id && t.state) || null; } catch { return null; }
 }
 
-if (data.kind === 'track') trackView(data.track, data.artist);
+if (data.kind === 'room') location.replace(data.join);
+else if (data.kind === 'track') trackView(data.track, data.artist);
 else if (data.kind === 'artist') artistView(data.artist, data.tracks);
 else if (data.kind === 'missing' && data.what === 'track') {
   const t = localTrack(data.id);
