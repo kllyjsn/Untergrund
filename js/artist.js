@@ -1,7 +1,7 @@
 import { drawArtwork } from './artwork.js';
 import { rng } from './dsp.js';
 import { KEYS, SCALES } from './params.js';
-import { STYLES, applyOverrides, arrangement, clone, generate, sanitize } from './state.js';
+import { STYLES, MAJOR_STYLES, applyOverrides, arrangement, clone, generate, sanitize } from './state.js';
 import { h } from './ui.js';
 import { accountPanel, syncProfile } from './account.js';
 
@@ -13,6 +13,7 @@ export const TRAITS = [
   ['acid', 'ACID', 'squelchier, more resonant bassline'],
   ['space', 'SPACE', 'more reverb, echo and room'],
   ['energy', 'ENERGY', 'harder, peak-time styles'],
+  ['songs', 'SONGS', 'pop, rock, R&B, country and folk songs with a band'],
 ];
 const FIRST = ['Beton', 'Null', 'Tief', 'Stahl', 'Nacht', 'Dunkel', 'Kalt', 'Grau', 'Strom', 'Schacht', 'Blind', 'Leerer'];
 const SECOND = ['Ritual', 'Körper', 'Maschine', 'Frequenz', 'Tunnel', 'Werk', 'Druck', 'Kreis', 'Raum', 'Signal', 'Kontakt', 'System'];
@@ -32,6 +33,7 @@ export const defaultArtistProfile = () => ({
   acid: 52,
   space: 38,
   energy: 68,
+  songs: 0,
 });
 
 export function loadArtistProfile() {
@@ -71,6 +73,12 @@ export function chooseArtistStyle(profile, seed) {
     ['acid', 8 + profile.acid * 1.4 + profile.energy * .2],
     ['dub', 8 + profile.space * 1.2 + (100 - profile.energy) * .4],
     ['peak', 5 + profile.energy * 1.25],
+    // Song genres only once the artist turns SONGS up, so existing techno artists keep their sound.
+    ['rock', (profile.songs || 0) * (0.4 + profile.energy / 200)],
+    ['pop', (profile.songs || 0) * (0.3 + (100 - profile.darkness) / 250)],
+    ['rnb', (profile.songs || 0) * (0.2 + profile.space / 300)],
+    ['country', (profile.songs || 0) * 0.25],
+    ['folk', (profile.songs || 0) * (0.2 + (100 - profile.energy) / 300)],
   ]);
 }
 
@@ -99,8 +107,8 @@ export function createArtistProject(baseState, profile, seed = Date.now(), index
   const title = `${pick(r, FIRST)} ${pick(r, SECOND)}`;
   const state = sanitize(clone(baseState));
   state.key = Math.floor(r() * KEYS.length);
-  state.scale = scale;
-  const g = generate(style, seed, scale);
+  state.scale = MAJOR_STYLES.has(style) ? 'major' : scale;
+  const g = generate(style, seed, state.scale);
   state.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   applyOverrides(state, g, true);
   state.current = 0;

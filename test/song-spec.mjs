@@ -122,6 +122,13 @@ t('no key: the rule parser writes the spec', () => {
   assert.equal(localSpec('happy afrobeats summer party in D').key, 2);
   assert.equal(localSpec('happy afrobeats summer party').scale, 'major');
   assert.equal(localSpec('dark techno for a warehouse', { style: 'deephouse' }).style, 'hypnotic');
+  for (const [p, id, scale] of [['an upbeat pop song about summer love', 'pop', 'major'], ['a synth-pop anthem', 'pop', 'major'], ['a slow R&B love song', 'rnb', 'major'],
+    ['an indie rock song with distorted guitars', 'rock', 'minor'], ['a singer-songwriter ballad on acoustic guitar', 'folk', 'major'],
+    ['a country song about a dusty road', 'country', 'major'], ['heartbreak pop ballad', 'pop', null]]) {
+    const sp = localSpec(p, { style: 'deephouse', seed: 3 });
+    assert.equal(sp.style, id, p);
+    if (scale) assert.equal(sp.scale, scale, p);
+  }
   const short = localSpec('quick dnb track, no breakdown', { seed: 5 });
   assert.ok(!short.sections.some((x) => x.role === 'breakdown'));
 });

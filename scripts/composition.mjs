@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { STYLES, generate, arrangement, songChain, defaultState, applyOverrides } from '../js/state.js';
+import { STYLES, MAJOR_STYLES, generate, arrangement, songChain, defaultState, applyOverrides } from '../js/state.js';
 import { Sequencer, guitarGrip } from '../js/engine.js';
 import { stabNotes, hookSnap, voiceLead } from '../js/harmony.js';
 
@@ -18,7 +18,9 @@ const ROLE = ['intro', 'pre', 'verse', 'fill', 'bridge', 'bridge', 'chorus', 'ch
 
 // The same song main.js builds on GENERATE.
 export function buildSong(style, seed) {
-  const s = defaultState(), g = generate(style, seed);
+  const s = defaultState();
+  if (MAJOR_STYLES.has(style)) s.scale = 'major';
+  const g = generate(style, seed, s.scale);
   s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   applyOverrides(s, g, true);
   s.chainOn = true; s.chain = songChain(style, seed); s.ending = true; s.current = 0;
