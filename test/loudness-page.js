@@ -3,6 +3,7 @@
 import { defaultState, generate, applyOverrides, arrangement, songChain } from '/js/state.js';
 import { renderBars } from '/js/render.js';
 import { songBars } from '/js/midi.js';
+import { loadPiece, PIECE } from '/js/repertoire.js';
 import { loudness, truePeak } from '/js/loudness.js';
 
 export function song(style, seed) {
@@ -21,8 +22,19 @@ export function song(style, seed) {
 
 // bars: render only that many bars (default the whole song) starting at startBar of the chain.
 // Taps the limiter's input and output next to the master output to measure its gain reduction.
-export async function measure(style, seed, { bars = 0, startBar = 0 } = {}) {
-  const s = song(style, seed), total = songBars(s), n = bars ? Math.min(bars, total) : total;
+// A REPERTOIRE song playing one chosen masterwork, as when it is picked from the concert hall.
+export function pieceSong(piece, seed = 11) {
+  const s = song('repertoire', seed);
+  for (const q of s.patterns) if (q.score) q.score = { piece };
+  s.bpm = PIECE[piece].bpm; s.key = 0;
+  return s;
+}
+
+export async function measure(style, seed, { bars = 0, startBar = 0, piece: only = '' } = {}) {
+  const s = only ? pieceSong(only, seed) : song(style, seed), piece = s.patterns.find((p) => p.score)?.score?.piece;
+  // A REPERTOIRE score is fetched on demand; until it arrives songBars() sees its one silent waiting bar.
+  if (piece) await loadPiece(piece);
+  const total = songBars(s), n = bars ? Math.min(bars, total) : total;
   const buf = await renderBars(s, n, {
     startBar, channels: 6,
     onEngine: (e) => {
@@ -51,7 +63,7 @@ export async function measure(style, seed, { bars = 0, startBar = 0 } = {}) {
   for (let k = 0; k < gr.length; k++) gr[k] = Math.min(0, gr[k] - top);
   const sorted = [...gr].sort((x, y) => x - y), jumps = gr.slice(1).map((v, i) => Math.abs(v - gr[i])).sort((x, y) => x - y);
   return {
-    style, seed, bars: n, secs: buf.length / buf.sampleRate,
+    style, seed, piece: piece || '', bars: n, secs: buf.length / buf.sampleRate,
     lufs: L.integrated, tp: 20 * Math.log10(truePeak(ch)),
     grMean: gr.reduce((a, v) => a + v, 0) / (gr.length || 1), grDeep: sorted[Math.floor(sorted.length * 0.01)] || 0,
     grJump: jumps[Math.floor(jumps.length * 0.99)] || 0,
@@ -65,4 +77,28 @@ export async function windowLoudness(style) {
   const s = song(style, WINDOW.seed), g = s.chain.indexOf('G');
   const buf = await renderBars(s, WINDOW.bars, { sampleRate: WINDOW.sampleRate, tail: 0.5, startBar: Math.max(0, g) });
   return loudness([buf.getChannelData(0), buf.getChannelData(1)], buf.sampleRate).integrated;
+}
+
+// The same fast check for each masterwork: two bars from the middle of the score.
+export async function pieceWindow(piece) {
+  const s = pieceSong(piece);
+  await loadPiece(piece);
+  const total = songBars(s), buf = await renderBars(s, WINDOW.bars, { sampleRate: WINDOW.sampleRate, tail: 0.5, startBar: Math.floor(total / 2) });
+  return loudness([buf.getChannelData(0), buf.getChannelData(1)], buf.sampleRate).integrated;
+}
+
+// The end of a classical export (test/classical-ending.mjs): the last bars through the real export path (renderBars'
+// default tail, trimmed), as 100 ms RMS windows (dBFS) counted back from the end of the file.
+export async function exportEnding(style, seed, piece = '') {
+  const s = piece ? pieceSong(piece, seed) : song(style, seed);
+  const id = s.patterns.find((p) => p.score)?.score?.piece;
+  if (id) await loadPiece(id);
+  const total = songBars(s), bars = Math.min(total, 3), buf = await renderBars(s, bars, { startBar: total - bars });
+  const ch = [buf.getChannelData(0), buf.getChannelData(1)], w = Math.round(buf.sampleRate / 10), env = [];
+  for (let end = buf.length; end - w >= 0 && env.length < 40; end -= w) {
+    let e = 0;
+    for (const d of ch) for (let i = end - w; i < end; i++) e += d[i] * d[i];
+    env.unshift(10 * Math.log10(e / (2 * w) + 1e-24));
+  }
+  return { style, seed, piece: id || '', secs: buf.length / buf.sampleRate, env };
 }

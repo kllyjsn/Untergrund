@@ -24,6 +24,7 @@ const LIVE_REF = {
 };
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
 const EPS = 0.0001;
+const SAMPLE_FADE = 1;
 const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings'];
 // How each recorded instrument is played: level, DECAY->length, strum spread, register shift, held like a bow.
 // CLASSICAL orchestra: each part is a recorded player at its seat (pan), in its register, with its section on the mixer.
@@ -316,8 +317,9 @@ export class Engine {
   applyAll() {
     for (const id of TRACK_IDS) for (const k of Object.keys(this.state.params[id])) this.applyParam(id, k, true);
     for (const k of Object.keys(this.state.master)) this.applyMaster(k, true);
-    // Per-genre make-up gain into the limiter so every style lands on its loudness target (js/loudness.js).
-    this.setTo(this.limIn.gain, 0.5 * makeupGain(this.state.artist?.style), true);
+    // Per-genre (and per-masterwork) make-up gain into the limiter so every song lands on its loudness target (js/loudness.js).
+    const piece = this.state.patterns?.find((p) => p.score?.piece)?.score.piece;
+    this.setTo(this.limIn.gain, 0.5 * makeupGain(this.state.artist?.style, piece), true);
   }
 
   setParam(tid, id, v) { this.state.params[tid][id] = v; this.applyParam(tid, id); }
@@ -574,10 +576,13 @@ export class Engine {
     if (fx.offset || fx.fade) { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(level, t + (fx.fade || 0.006)); }
     s.start(t, fx.offset || 0);
     if (dur) {
-      g.gain.setValueAtTime(level, t + dur);
-      const rel = fx.release || 0.05;
-      g.gain.setTargetAtTime(0, t + dur, rel);
-      s.stop(t + dur + Math.max(0.4, rel * 8));
+      // A score's note held past its recording (a final piano chord) would stop on a still-ringing sample: fade it
+      // out before the sample runs out, at least 40 dB down by its last frame.
+      const left = s.loop || !fx.ringOut ? Infinity : (buf.duration - (fx.offset || 0)) / rate, rel0 = fx.release || 0.05;
+      const end = Math.min(dur, Math.max(0.02, left - SAMPLE_FADE)), rel = Math.min(rel0, (left - end) / 4.6);
+      g.gain.setValueAtTime(level, t + end);
+      g.gain.setTargetAtTime(0, t + end, rel);
+      s.stop(t + Math.min(end + Math.max(0.4, rel * 8), left + 0.01));
     }
     return { s, g };
   }
@@ -1103,7 +1108,7 @@ export class Engine {
     // Short bowed notes are played détaché: skip the slow sustain swell and lift the bow quickly.
     const short = O.loop && dur > 0 && dur < 0.32;
     return this.playBuf(buf, t + (O.off || 0) * hash(t, m), level, this.orchBus(part), Math.pow(2, (m - c + (O.det || 0) / 100) / 12), dur, {
-      lp: O.lp * (0.35 + 0.65 * vel), release: short ? 0.06 : O.rel, loop: O.loop, offset: short ? 0.035 : 0,
+      lp: O.lp * (0.35 + 0.65 * vel), release: short ? 0.06 : O.rel, loop: O.loop, offset: short ? 0.035 : 0, ringOut: true,
     });
   }
   // Played by hand (screen, keyboard, MIDI): sounds now and rings until released.
@@ -1956,6 +1961,8 @@ export class Sequencer {
     // A masterwork plays in its written key; a generated piece follows the KEY control.
     const sc = compose(spec), pos = abs % sc.at.length, k = spec.piece ? 0 : this.s.key > 6 ? this.s.key - 12 : this.s.key;
     this.scoreBar = Math.floor(pos / (sc.barLen || 16));
+    // A generated song plays its score once: after the final chord's step the transport lets it ring and stops.
+    if (this.s.ending && !sc.waiting && abs >= sc.at.length - 1) this.finished = true;
     this.e.stepScale = sc.tempo[pos];
     sd *= sc.tempo[pos];
     const hum = this.s.master.humanize ?? 0.4;

@@ -151,28 +151,28 @@
    "window": -7.33
   },
   "symphony": {
-   "lufs": -15.92,
-   "spread": 0.46,
+   "lufs": -15.99,
+   "spread": 0.43,
    "tp": -2.43,
-   "window": -22.89
+   "window": -23.39
   },
   "concerto": {
-   "lufs": -16.05,
-   "spread": 0.12,
-   "tp": -2.45,
-   "window": -21.85
+   "lufs": -15.98,
+   "spread": 0.06,
+   "tp": -2.46,
+   "window": -22.05
   },
   "nocturne": {
    "lufs": -16.14,
-   "spread": 1.26,
+   "spread": 1.24,
    "tp": -2.47,
    "window": -16.56
   },
   "repertoire": {
-   "lufs": -15.96,
-   "spread": 1.81,
-   "tp": -4.76,
-   "window": -13.03
+   "lufs": -15.99,
+   "spread": 0.05,
+   "tp": -2.48,
+   "window": -15.73
   }
  },
  "seeds": [
@@ -180,5 +180,133 @@
   42,
   77
  ],
- "note": "node scripts/loudness.mjs --write: full-song integrated LUFS (mean over seeds), max dBTP, and the fast-check window LUFS"
+ "note": "node scripts/loudness.mjs --write: full-song integrated LUFS (mean over seeds), max dBTP, and the fast-check window LUFS",
+ "pieces": {
+  "bach-prelude-c": {
+   "trim": 3.3,
+   "lufs": -15.98,
+   "tp": -2.97,
+   "window": -15.59
+  },
+  "beethoven-fur-elise": {
+   "trim": 0.8,
+   "lufs": -16.01,
+   "tp": -2.65,
+   "window": -15.75
+  },
+  "beethoven-pathetique-1": {
+   "trim": 0.4,
+   "lufs": -16.01,
+   "tp": -2.48,
+   "window": -20.81
+  },
+  "beethoven-pathetique-2": {
+   "trim": 0,
+   "lufs": -16.02,
+   "tp": -2.58,
+   "window": -15.07
+  },
+  "chopin-prelude-4": {
+   "trim": 0.7,
+   "lufs": -15.97,
+   "tp": -2.48,
+   "window": -13.88
+  },
+  "chopin-prelude-7": {
+   "trim": -2.3,
+   "lufs": -16.02,
+   "tp": -4.42,
+   "window": -18.04
+  },
+  "chopin-prelude-15": {
+   "trim": -0.3,
+   "lufs": -16.02,
+   "tp": -2.48,
+   "window": -12.74
+  },
+  "chopin-prelude-20": {
+   "trim": 1.5,
+   "lufs": -16.05,
+   "tp": -2.48,
+   "window": -16.59
+  },
+  "chopin-fantaisie-impromptu": {
+   "trim": -1.4,
+   "lufs": -16.02,
+   "tp": -4,
+   "window": -16.58
+  },
+  "chopin-etude-10-1": {
+   "trim": -1.8,
+   "lufs": -15.97,
+   "tp": -5.47,
+   "window": -18.24
+  },
+  "chopin-etude-10-12": {
+   "trim": -3.9,
+   "lufs": -15.96,
+   "tp": -5.02,
+   "window": -18.53
+  },
+  "chopin-waltz-64-1": {
+   "trim": -1.7,
+   "lufs": -15.97,
+   "tp": -4.42,
+   "window": -18.26
+  },
+  "satie-gymnopedie-1": {
+   "trim": 2.7,
+   "lufs": -15.98,
+   "tp": -2.48,
+   "window": -14.66
+  },
+  "schubert-impromptu-899-2": {
+   "trim": -0.5,
+   "lufs": -15.99,
+   "tp": -4.35,
+   "window": -16.68
+  },
+  "schubert-impromptu-899-3": {
+   "trim": 2.1,
+   "lufs": -16.02,
+   "tp": -2.48,
+   "window": -12.48
+  },
+  "schubert-impromptu-935-2": {
+   "trim": 1,
+   "lufs": -16.03,
+   "tp": -2.48,
+   "window": -17.89
+  },
+  "mozart-nachtmusik-1": {
+   "trim": 8.6,
+   "lufs": -16.03,
+   "tp": -2.44,
+   "window": -18.48
+  },
+  "haydn-emperor": {
+   "trim": 9.5,
+   "lufs": -15.97,
+   "tp": -2.55,
+   "window": -15.17
+  },
+  "mozart-k387-1": {
+   "trim": 9.7,
+   "lufs": -15.96,
+   "tp": -2.43,
+   "window": -22.72
+  },
+  "beethoven-op18-1": {
+   "trim": 7.2,
+   "lufs": -16.05,
+   "tp": -2.44,
+   "window": -13
+  },
+  "schubert-death-and-the-maiden": {
+   "trim": 8.7,
+   "lufs": -16.2,
+   "tp": -2.39,
+   "window": -11.57
+  }
+ }
 }
