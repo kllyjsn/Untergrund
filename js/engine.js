@@ -1775,6 +1775,8 @@ function hookBusy(hk, hi, hm) {
 // Output level per song section (dB). The verse sits under the chorus; the chorus's small lift keeps the
 // song's integrated loudness where it was and stays inside the -1 dBTP ceiling.
 const SECTION_DB = { verse: -1.8, chorus: 0.45 };
+// Pop's band already plays a much fuller chorus than its verse, so its verse gives back less level.
+const STYLE_SECTION_DB = { pop: { verse: -1.2 } };
 
 export class Sequencer {
   constructor(engine, state) {
@@ -1836,8 +1838,9 @@ export class Sequencer {
   sectionLevel(t) {
     const pats = this.s.patterns, sec = pats[this.cur]?.sec;
     if (!sec) return this.level(t, pats.some((p) => p.sec) ? this.secDb ?? 0 : 0);
-    if (sec !== 'pre') return this.level(t, SECTION_DB[sec] ?? 0);
-    const { verse: v, chorus: c } = SECTION_DB, at = (k) => v + ((c - v) * k) / this.runLen;
+    const db = { ...SECTION_DB, ...STYLE_SECTION_DB[this.s.artist?.style] };
+    if (sec !== 'pre') return this.level(t, db[sec] ?? 0);
+    const { verse: v, chorus: c } = db, at = (k) => v + ((c - v) * k) / this.runLen;
     this.level(t, at(this.runPos + 1), [at(this.runPos), 16 * this.e.stepDur]);
   }
 

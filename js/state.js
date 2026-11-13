@@ -938,7 +938,8 @@ function songScenes(scenes, full, S) {
 // Pop: a softer vi–IV–I–V colouring under the I–V–vi–IV chorus, a ii–iii–IV pre-chorus onto Vsus, a bVI–bVII
 // bridge or a circle of dominants (III7 VI7 II7 V7). Rock: power-chord riffs on I, bIII and IV, a pre-chorus climbing to V, an I–bVII–IV chorus
 // (unless the style's changes already have one), a bridge that steps off the tonic.
-// Country: a verse that sits on I (I7 into the IV), a pre-chorus through ii to V7, a ragtime circle or relative-minor bridge (the bass walks up into each change).
+// Country: a verse that sits on I (I7 into the IV), a pre-chorus through ii to V7, and a bridge that leaves home: bVII–IV7,
+// a relative-minor turn (iii vi ii) or IV7–V–vi, each landing on a Vsus or the vi (the bass walks up into each change).
 const SECTION_IDIOM = {
   pop: {
     verse: [[[9, 1], [5, 7], [0, 10], [7, 4]], [[0, 10], [5, 9], [0, 10], [5, 9]], [[9, 1], [9, 1], [5, 7], [5, 7]]],
@@ -954,7 +955,7 @@ const SECTION_IDIOM = {
   country: {
     verse: [[[0, 11], [0, 12], [5, 11], [0, 11]], [[0, 11], [5, 11], [0, 11], [0, 12]]],
     pre: [[[5, 11], [5, 11], [2, 0], [7, 12]], [[4, 0], [5, 11], [2, 0], [7, 12]]],
-    bridge: [[[4, 12], [9, 12], [2, 12], [7, 12]], [[9, 1], [4, 0], [2, 1], [7, 12]]],
+    bridge: [[[10, 11], [5, 12], [10, 11], [7, 5]], [[4, 0], [9, 0], [2, 0], [7, 5]], [[5, 12], [7, 5], [9, 0], [9, 0]]],
   },
 };
 

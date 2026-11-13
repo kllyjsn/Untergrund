@@ -326,5 +326,15 @@ console.log('seeded instrument ensembles passed');
     const lift = lv.chorus - lv.verse;
     assert(lift >= 1.5 && lift <= 3, `${style}: chorus ${lift} dB over the verse`);
   }
+  // As heard: pop's band plays a much fuller chorus on top of the level change, so the mastered render
+  // (median 3 s loudness, chorus minus verse) must still land in 1.5-3 dB.
+  const { withChrome } = await import('./chrome.mjs');
+  const jobs = [['pop', 11], ['pop', 42], ['pop', 77]];
+  const heard = await withChrome((runs) => Promise.all(runs.map(async (run, i) => {
+    await run(`import('/test/loudness-page.js').then((m) => { window.__m = m; })`);
+    return run(`window.__m.sectionLift('${jobs[i][0]}', ${jobs[i][1]})`);
+  })), { pages: jobs.length });
+  if (!heard) console.log('section levels: no Chrome found, rendered chorus lift skipped');
+  else jobs.forEach(([style, seed], i) => assert(heard[i] >= 1.5 && heard[i] <= 3, `${style}/${seed}: rendered chorus ${heard[i].toFixed(2)} dB over the verse`));
   console.log('section levels passed');
 }

@@ -441,11 +441,11 @@
     "chorusPeak": 22.5,
     "chorusEnergy": 1.206,
     "preLift": 0.667,
-    "bridgeAway": 0.25,
+    "bridgeAway": 0.5,
     "melodyWindows": 25,
     "motifRecall": 0.744,
-    "chords": 11,
-    "voiceMove": 0.94,
+    "chords": 11.5,
+    "voiceMove": 0.965,
     "contrast": 0.3,
     "drumBars": 80
   }

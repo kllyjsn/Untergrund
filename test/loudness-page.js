@@ -102,3 +102,17 @@ export async function exportEnding(style, seed, piece = '') {
   }
   return { style, seed, piece: id || '', secs: buf.length / buf.sampleRate, env };
 }
+
+// Chorus minus verse short-term loudness (dB): median 3 s loudness over windows wholly inside a verse (C) and
+// wholly inside a chorus (G) of the full song, mastered, at 24 kHz.
+export async function sectionLift(style, seed) {
+  const s = song(style, seed), buf = await renderBars(s, songBars(s), { sampleRate: 24000, tail: 0.5 });
+  const E = loudness([buf.getChannelData(0), buf.getChannelData(1)], buf.sampleRate).blocks.map((x) => 10 ** ((x + 0.691) / 10));
+  const bar = 240 / s.bpm, chain = s.chain, sec = { C: [], G: [] }, med = (a) => [...a].sort((x, y) => x - y)[a.length >> 1];
+  for (let j = 0; j + 27 <= E.length; j++) {
+    const b0 = Math.floor((j * 0.1 - 0.05) / bar), b1 = Math.floor((j * 0.1 + 2.95) / bar);
+    if (b0 < 0 || b1 >= chain.length || !sec[chain[b0]] || [...chain.slice(b0, b1 + 1)].some((x) => x !== chain[b0])) continue;
+    sec[chain[b0]].push(-0.691 + 10 * Math.log10(E.slice(j, j + 27).reduce((a, b) => a + b, 0) / 27));
+  }
+  return med(sec.G) - med(sec.C);
+}
