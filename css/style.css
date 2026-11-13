@@ -416,6 +416,28 @@ body.artist-live .logo b { background: var(--green); }
 .club-room-input { font: 900 14px var(--sans); text-transform: uppercase; letter-spacing: .1em; }
 .club-head-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 .club-main { min-height: 0; display: grid; grid-template-columns: minmax(0,1fr) 320px; }
+.club-shell.has-band { grid-template-rows: auto auto minmax(0,1fr) auto; }
+.club-band { display: grid; grid-template-columns: minmax(180px,.8fr) 3fr; gap: 12px; align-items: stretch; padding: 8px 16px; border-bottom: 1px solid #3c3945; background: rgba(24,22,30,.92); }
+.club-band-head { display: flex; flex-direction: column; justify-content: center; gap: 4px; min-width: 0; }
+.club-band-head b { font: 900 13px var(--sans); letter-spacing: .22em; color: var(--green); }
+.club-band-head span { color: #a9a5b1; font-size: 9px; line-height: 1.35; letter-spacing: .04em; }
+.club-band-head .btn { align-self: flex-start; margin-top: 2px; }
+.club-band-parts { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; }
+.club-part { min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 7px 9px; border: 1px solid #3c3945; background: rgba(255,255,255,.02); }
+.club-part.taken { border-color: #5b4a80; }
+.club-part.mine { border-color: var(--green); box-shadow: inset 0 0 0 1px rgba(48,209,88,.18); }
+.club-part-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.club-part-head b { font: 900 11px var(--sans); letter-spacing: .16em; }
+.club-part-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #cbb2ff; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+.club-part.mine .club-part-head span { color: var(--green); }
+.club-part-when { color: #86828e; font-size: 8px; letter-spacing: .12em; }
+.club-part-when.due { color: var(--green); }
+.club-part-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: auto; }
+.club-part-actions .btn { flex: 1 1 auto; min-height: 28px; padding: 0 7px; font-size: 9px; }
+.club-part-actions .btn:disabled { opacity: .35; cursor: default; }
+.club-kick .club-part.mine { box-shadow: inset 0 0 0 1px rgba(48,209,88,.55); }
+.club-part.landed { border-color: var(--green); background: rgba(48,209,88,.16); }
+.club-chat-line.jam span { color: var(--green); }
 .club-stage { position: relative; overflow: hidden; min-height: 420px; perspective: 900px; background:
   linear-gradient(90deg,transparent 49.7%,rgba(255,255,255,.05) 50%,transparent 50.3%),
   repeating-linear-gradient(90deg, transparent 0 11.8%, rgba(255,255,255,.025) 12% 12.2%),
@@ -556,6 +578,14 @@ body.artist-live .logo b { background: var(--green); }
   .club-head-actions { width: 100%; margin: 0; display: grid; grid-template-columns: 1fr 1.25fr .7fr; }
   .club-head-actions .btn { padding: 0 5px; font-size: 8px; }
   .club-stage { min-height: 500px; }
+  .club-band { grid-template-columns: 1fr; gap: 6px; padding: 8px 9px; }
+  .club-band-head { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+  .club-band-head span { flex: 1; min-width: 0; }
+  .club-band-parts { gap: 5px; }
+  .club-part { padding: 6px; }
+  .club-part-head { flex-direction: column; gap: 1px; }
+  .club-part-head span, .club-part-when { font-size: 7px; }
+  .club-part-actions .btn { min-height: 30px; padding: 0 3px; font-size: 8px; flex-basis: 40%; }
   .club-dj { width: 240px; top: 21%; transform: translateX(-50%) scale(.8); }
   .club-stage::after { display: none; }
   .club-now { top: 10px; left: 10px; width: calc(100% - 20px); box-sizing: border-box; padding: 8px 11px; }

@@ -6,6 +6,7 @@ import { createClientCredentials } from './client-id.js';
 import { track as trackEvent } from './analytics.js';
 import { startLiveSet, endLiveSet, liveSetRecording } from './live-sets.js';
 import { listReplays, loadReplay, fmtTime } from './sets.js';
+import { PARTS, PART_IDS, extractPart, jamKey, jamStep, stepWall, jammable, partIdea } from './jam.js';
 
 const AVATAR_KEY = 'untergrund.avatar.v1';
 const ROOM_KEY = 'untergrund.room.v1';
@@ -13,6 +14,16 @@ const SHAPES = ['block', 'round', 'visor'];
 const COLORS = ['lime', 'red', 'blue', 'violet', 'bone'];
 const GEAR = ['none', 'hood', 'goggles', 'antenna', 'phones'];
 const REACTIONS = ['HYPE', 'DEEP', 'ACID'];
+const JAM_LINES = {
+  claim: (part) => `took the ${part}`,
+  release: (part) => `let go of the ${part}`,
+  lock: () => 'locked the band',
+  open: () => 'opened the band: take a part',
+};
+const JAM_ERRORS = {
+  part_taken: 'Someone just took that part', jam_locked: 'The host locked the band', not_yours: 'That part is not yours any more',
+  not_live: 'Jam opens when a set is live', not_jammable: 'Replays and scores play as written', offline: 'Lost the room. Try again.',
+};
 
 const roomId = () => {
   const query = new URLSearchParams(location.search).get('room');
@@ -112,6 +123,13 @@ class RoomBus {
     this.appliedBroadcasts = new Set();
     this.members = new Map([[this.clientId, normalizeMember({ id: this.clientId, ...user, joinedAt: this.joinedAt, seen: Date.now() })]]);
     this.currentSet = null;
+    this.jam = null;
+    this.jamHooks = null;
+    this.jamFollow = '';
+    this.jamApplied = {};
+    this.jamSent = {};
+    this.jamSeen = {};
+    this.jamTimer = setInterval(() => this.jamTick(), 500);
     this.channel = 'BroadcastChannel' in window ? new BroadcastChannel(`untergrund:${this.id}`) : null;
     if (this.channel) this.channel.onmessage = (e) => this.handleChannel(e.data);
     this.timer = setInterval(() => this.heartbeat(), 4000);
@@ -143,6 +161,7 @@ class RoomBus {
       set: snapshot.currentSet ? [snapshot.currentSet.version, snapshot.currentSet.title, snapshot.currentSet.startsAt] : null,
       hostId: snapshot.hostId || null,
       queue: snapshot.queue || [],
+      jam: this.jam ? [this.jam.rev, this.jam.open, ...PART_IDS.map((p) => [this.jam.parts[p]?.owner, this.jam.parts[p]?.step])] : null,
       seq: this.seq,
     });
     if (signature === this.lastSignature) return;
@@ -191,8 +210,11 @@ class RoomBus {
       payload,
       at: Date.now(),
     };
-    this.receive({ ...event, local: true });
-    this.channel?.postMessage(event);
+    // A jam move only counts once the room service accepts it, so it never goes over the local channel.
+    if (type !== 'jam') {
+      this.receive({ ...event, local: true });
+      this.channel?.postMessage(event);
+    }
     await this.ready;
     try {
       const response = await fetch(this.endpoint('/events'), {
@@ -200,8 +222,65 @@ class RoomBus {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...event, clientId: this.clientId, clientSecret: this.clientSecret, token: this.token, since: this.seq }),
       });
-      if (response.ok) this.applySnapshot(await response.json());
-    } catch {}
+      const json = await response.json().catch(() => null);
+      if (response.ok || json?.jam) this.applySnapshot(json);
+      return { ok: response.ok, error: json?.error };
+    } catch { return { ok: false, error: 'offline' }; }
+  }
+
+  // Jam: the room holds each part's latest layer and the room step it lands on; this client plays them on that bar.
+  follow(set) {
+    const id = set?.broadcastId || '';
+    if (id !== this.jamFollow) {
+      this.jamFollow = id;
+      this.jamApplied = {};
+      this.jamSent = {};
+      this.jamSeen = {};
+      this.jamHooks?.reset();
+    }
+    this.syncJam();
+  }
+
+  jamming(set = this.currentSet) {
+    return !!(this.serverConnected && this.jam && set && jammable(set) && set.broadcastId && set.broadcastId === this.jamFollow);
+  }
+
+  myPart() {
+    return PART_IDS.find((p) => this.jam?.parts?.[p]?.owner === this.clientId) || null;
+  }
+
+  syncJam() {
+    const set = this.currentSet, jam = this.jam;
+    if (!this.jamHooks || !this.jamming(set) || (set.version && jam.setVersion !== set.version)) return;
+    for (const part of PART_IDS) {
+      const slot = jam.parts?.[part];
+      if (!slot?.layer || slot.rev <= (this.jamApplied[part] || 0)) continue;
+      this.jamApplied[part] = slot.rev;
+      // What I play on my own part is already in my song; the room copy only matters after a reload.
+      if (slot.owner === this.clientId && this.jamSent[part]) continue;
+      this.jamHooks.queuePart(part, slot.layer, stepWall(set, slot.step));
+    }
+  }
+
+  playPart(part, layer) {
+    const set = this.currentSet, step = jamStep(set);
+    this.jamSent[part] = jamKey(part, layer);
+    this.jamSeen[part] = null;
+    this.jamHooks?.queuePart(part, layer, stepWall(set, step));
+    return this.send('jam', { action: 'play', part, layer, step });
+  }
+
+  // Edits to my part in the Studio (piano roll, steps, knobs) go to the room on their own.
+  jamTick() {
+    const part = this.myPart();
+    if (!part || !this.jamHooks?.isPlaying() || !this.jamming()) return;
+    if (this.jamHooks.pending(part)) { this.jamSeen[part] = null; return; }
+    const layer = extractPart(this.jamHooks.getState(), part), key = jamKey(part, layer);
+    if (this.jamSeen[part] == null) { this.jamSeen[part] = key; return; }
+    if (key === this.jamSeen[part]) return;
+    this.jamSeen[part] = key;
+    this.jamSent[part] = key;
+    this.send('jam', { action: 'play', part, layer, step: jamStep(this.currentSet) });
   }
 
   updateUser(user) {
@@ -258,6 +337,10 @@ class RoomBus {
     for (const [id, member] of this.members) if ((member.seen || 0) < cutoff) this.members.delete(id);
     if (snapshot.currentSet) {
       this.applySet(snapshot.currentSet, snapshot.hostId, true);
+    }
+    if (snapshot.jam) {
+      this.jam = snapshot.jam;
+      this.syncJam();
     }
     for (const event of snapshot.events || []) if (event.type !== 'set') this.receive(event);
     this.emit({ hostId: snapshot.hostId });
@@ -342,6 +425,7 @@ class RoomBus {
   }
 
   close() {
+    clearInterval(this.jamTimer);
     clearInterval(this.timer);
     clearInterval(this.poller);
     this.channel?.close();
@@ -351,7 +435,8 @@ class RoomBus {
 // A live DJ's room connection outlives the overlay so the deck isn't lost while editing in Studio.
 let parkedBus = null;
 
-export function openClub({ getState, getStyle, loadTrack, getTransport, startRoomBroadcast, unlockAudio, joinRoomSet, replayToRoom, toast }) {
+export function openClub({ getState, getStyle, loadTrack, getTransport, startRoomBroadcast, unlockAudio, joinRoomSet: joinSet, replayToRoom, jam: jamHooks = null, toast }) {
+  const joinRoomSet = (set) => { joinSet(set); bus?.follow(set); };
   let audioReady = false;
   const unlock = () => unlockAudio().then((ok) => (audioReady = ok));
   unlock().then(() => {
@@ -375,12 +460,13 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
 
   const close = () => {
     closed = true;
-    if (bus && bus.hostId === bus.clientId && bus.currentSet && getTransport().playing) {
+    if (bus && (bus.hostId === bus.clientId || bus.myPart()) && bus.currentSet && getTransport().playing) {
       bus.onUpdate = () => {};
       bus.onEvent = () => {};
       parkedBus = bus;
     } else bus?.close();
     window.removeEventListener('untergrund:step', onStep);
+    window.removeEventListener('untergrund:jam', onJam);
     window.removeEventListener('keydown', onKey, true);
     ov.remove();
   };
@@ -404,6 +490,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     modal.style.setProperty('--club-step', e.detail.step);
     modal.classList.toggle('club-kick', e.detail.kick);
     modal.classList.toggle('club-accent', e.detail.accent);
+    if (e.detail.step % 16 === 0) paintCountdowns();
     clearTimeout(kickTimer);
     kickTimer = setTimeout(() => modal.classList.remove('club-kick', 'club-accent'), 120);
   };
@@ -419,6 +506,10 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     const onEvent = (event) => {
       if (event.type === 'chat') messages = [...messages, event].slice(-60);
       if (event.type === 'reaction') showReaction(event);
+      if (event.type === 'jam' && JAM_LINES[event.payload?.action]) {
+        const p = PARTS[event.payload.part]?.label || '';
+        messages = [...messages, { ...event, jam: true, payload: { text: JAM_LINES[event.payload.action](p) } }].slice(-60);
+      }
       if (event.type === 'set') {
         if (!shouldJoin(event.payload, event.user?.id)) { pendingSet = null; return; }
         pendingSet = event.payload;
@@ -439,6 +530,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     parkedBus = null;
     bus?.close();
     bus = new RoomBus(activeRoom, avatar, onUpdate, onEvent, apiBase);
+    if (jamHooks) bus.jamHooks = { ...jamHooks, getState, isPlaying: () => getTransport().playing };
   };
 
   // A DJ's own set never overwrites local edits or a running transport; it only resumes an idle, unedited deck.
@@ -498,6 +590,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     const broadcastId = `${bus.clientId}:${Date.now()}:${++bus.localSetVersion}`;
     bus.initiatedSets.add(broadcastId);
     bus.send('set', { ...track, state: clone(getState()), style: getStyle(), startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId });
+    bus.follow(bus.currentSet);
     if (!transport.playing) startRoomBroadcast(startsAt);
     startLiveSet({
       getState, getStyle, startsAt, toast, dj: avatar.name, room: activeRoom, title: track.title,
@@ -598,6 +691,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
       state: clone(s), style: timeline.style, startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId,
       replay: { ...(item.local ? { timeline } : { id: item.id }), title: item.title, dj: item.artist },
     });
+    bus.follow(bus.currentSet);
     replayToRoom(timeline, startsAt);
     trackEvent('set_replay', { kind: 'room' });
     toast(`Replaying “${item.title}” to ${activeRoom}`);
@@ -643,7 +737,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     if (sideTab === 'crate') return cratePanel();
     if (sideTab === 'sets') return setsPanel();
     const feed = h('div', { class: 'club-chat-feed' },
-      messages.length ? messages.map((message) => h('div', { class: 'club-chat-line' },
+      messages.length ? messages.map((message) => h('div', { class: `club-chat-line${message.jam ? ' jam' : ''}` },
         h('b', {}, message.user?.name || 'Listener'), h('span', {}, message.payload?.text || ''))) :
         h('div', { class: 'club-chat-empty' }, 'The room is quiet. Start the signal.'));
     const input = h('input', {
@@ -660,6 +754,90 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
       h('div', { class: 'club-chat-compose' }, input),
       h('div', { class: 'club-reactions' }, REACTIONS.map((value) =>
         h('button', { class: 'btn ghost', onclick: () => bus.send('reaction', { value }) }, value))));
+  }
+
+  // JAM: each person takes a part; a change is sent for a room downbeat and lands there for everyone.
+  const barMs = (set) => 240000 / (set?.bpm || 132);
+  const landText = (wall, set) => {
+    const bars = Math.ceil((wall - Date.now()) / barMs(set) - 0.05);
+    return bars > 0 ? `LANDS IN ${bars} BAR${bars > 1 ? 'S' : ''}` : 'LANDED';
+  };
+  function paintCountdowns() {
+    let landed = false;
+    for (const el of modal.querySelectorAll('[data-wall]')) {
+      const text = landText(+el.dataset.wall, room.currentSet);
+      el.textContent = text;
+      if (text === 'LANDED') landed = true;
+    }
+    if (landed) setTimeout(() => !closed && render(), 250);
+  }
+  let landedPart = '';
+  const onJam = (e) => {
+    landedPart = e.detail.part;
+    render();
+    setTimeout(() => { if (landedPart === e.detail.part) { landedPart = ''; modal.querySelector('.club-part.landed')?.classList.remove('landed'); } }, 700);
+  };
+  window.addEventListener('untergrund:jam', onJam);
+  async function jamSend(payload) {
+    const result = await bus.send('jam', payload);
+    if (result && !result.ok) toast(JAM_ERRORS[result.error] || 'The band missed that one');
+    if (!closed) render();
+  }
+  async function takePart(part) {
+    const set = room.currentSet;
+    if (!getTransport().playing) {
+      await unlock();
+      if (!audioReady) return toast('Tap again to start the audio');
+      if (set && shouldJoin(set)) { joinRoomSet(set); pendingSet = null; } else bus.follow(set);
+    } else if (!bus.jamming(set)) bus.follow(set);
+    await jamSend({ action: 'claim', part });
+    const label = PARTS[part].label;
+    if (bus.myPart() === part) toast(`You have the ${label}. NEW, VARY or DROP it, or edit it in the Studio.`);
+  }
+  async function playIdea(part, kind) {
+    const layer = partIdea(getState(), getStyle(), part, kind);
+    const result = await bus.playPart(part, layer);
+    if (result && !result.ok) toast(JAM_ERRORS[result.error] || 'The band missed that one');
+    if (!closed) render();
+  }
+  function band() {
+    if (!jamHooks || !bus?.serverConnected) return null;
+    const set = room.currentSet, jam = bus.jam, me = clientId();
+    const isHost = !room.hostId || room.hostId === me;
+    const live = !!set && jammable(set);
+    const open = jam?.open !== false;
+    const mine = bus.myPart();
+    const nameOf = (id) => id === me ? 'YOU' : room.members.find((member) => member.id === id)?.name || 'Listener';
+    const note = !set ? 'When a set is live, everyone in the room can take a part.'
+      : !live ? 'Replays and scores play as written. Jam opens on the next live set.'
+      : !open ? (isHost ? 'Band locked. Only you can take a part.' : 'The host locked the band.')
+      : mine ? 'Your moves land on the next bar for the whole room.' : 'Take a part. Every change lands on the bar, for everyone.';
+    const cards = PART_IDS.map((part) => {
+      const slot = jam?.parts?.[part] || {};
+      const ours = slot.owner === me;
+      const roomWall = live && slot.layer && slot.step ? stepWall(set, slot.step) : 0;
+      const wall = Math.max(roomWall, ours ? jamHooks.pending(part) : 0);
+      const muted = ours && PARTS[part].tracks.every((id) => getState().mutes?.[id]);
+      const when = live && wall > Date.now() ? h('small', { class: 'club-part-when due', 'data-wall': wall }, landText(wall, set))
+        : h('small', { class: 'club-part-when' }, ours ? (muted ? 'DROPPED OUT' : 'YOURS · STUDIO EDITS GO LIVE') : slot.owner ? 'PLAYING LIVE' : live ? 'ROOM MIX' : 'WAITING FOR A SET');
+      const actions = ours ? [
+        h('button', { class: 'btn accent', onclick: () => playIdea(part, 'new') }, 'NEW'),
+        h('button', { class: 'btn ghost', onclick: () => playIdea(part, 'vary') }, 'VARY'),
+        h('button', { class: 'btn ghost', onclick: () => playIdea(part, 'drop') }, muted ? 'BRING IN' : 'DROP'),
+        h('button', { class: 'btn ghost', onclick: () => jamSend({ action: 'release', part }) }, 'LET GO'),
+      ] : slot.owner ? (isHost ? [h('button', { class: 'btn ghost', onclick: () => jamSend({ action: 'release', part }) }, 'FREE PART')] : [])
+        : [h('button', { class: 'btn club-queue', ...((!live || (!open && !isHost)) && { disabled: '' }), onclick: () => takePart(part) }, `TAKE ${PARTS[part].label}`)];
+      return h('div', { class: `club-part${ours ? ' mine' : ''}${slot.owner ? ' taken' : ''}${landedPart === part ? ' landed' : ''}`, 'data-part': part },
+        h('div', { class: 'club-part-head' }, h('b', {}, PARTS[part].label), h('span', {}, slot.owner ? nameOf(slot.owner) : 'OPEN')),
+        when,
+        h('div', { class: 'club-part-actions' }, actions));
+    });
+    return h('section', { class: 'club-band', 'aria-label': 'Jam together' },
+      h('div', { class: 'club-band-head' },
+        h('b', {}, 'JAM'),
+        h('span', {}, note),
+        isHost && live ? h('button', { class: 'btn ghost', onclick: () => jamSend({ action: open ? 'lock' : 'open' }) }, open ? 'LOCK BAND' : 'OPEN BAND') : null),
+      h('div', { class: 'club-band-parts' }, cards));
   }
 
   let rendering = false;
@@ -702,7 +880,10 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
           isHost ? (room.currentSet ? 'REBROADCAST SET' : 'GO LIVE') : (queued ? 'LEAVE DJ QUEUE' : 'JOIN DJ QUEUE')),
         isHost && room.queue?.length ? h('button', { class: 'btn club-queue', onclick: () => bus.send('deck', { action: 'pass' }) }, 'PASS DECK') : null,
         h('button', { class: 'btn ghost', onclick: close }, 'CLOSE')));
+    const jamBand = band();
+    modal.classList.toggle('has-band', !!jamBand);
     modal.append(head,
+      jamBand || '',
       h('div', { class: 'club-main' }, stage(), chatPanel()),
       h('footer', { class: 'club-footer' },
         avatarEditor(),
