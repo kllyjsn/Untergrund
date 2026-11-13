@@ -20,9 +20,9 @@ struct AppConfiguration {
     }
 
     var trustedHosts: Set<String> {
-        var hosts = ["www.untergrund.sh", "untergrund.sh", "soundcloud.com", "secure.soundcloud.com"]
-        if let host = baseURL.host { hosts.insert(host) }
-        return Set(hosts)
+        var hosts: Set<String> = ["www.untergrund.sh", "untergrund.sh", "soundcloud.com", "secure.soundcloud.com"]
+        if let host = baseURL.host?.lowercased() { hosts.insert(host) }
+        return hosts
     }
 
     func isTrusted(_ url: URL) -> Bool {

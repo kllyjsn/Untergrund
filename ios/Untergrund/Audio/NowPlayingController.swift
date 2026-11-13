@@ -38,7 +38,7 @@ final class NowPlayingController {
         info[MPMediaItemPropertyArtist] = artist
         info[MPMediaItemPropertyAlbumTitle] = album
         if let image = UIImage(named: "NowPlayingArtwork") {
-            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+            info[MPMediaItemPropertyArtwork] = Self.artwork(for: image)
         }
         publish()
     }
@@ -70,6 +70,10 @@ final class NowPlayingController {
         commandCenter.pauseCommand.isEnabled = available.contains("pause")
         commandCenter.nextTrackCommand.isEnabled = available.contains("nexttrack")
         commandCenter.previousTrackCommand.isEnabled = available.contains("previoustrack")
+    }
+
+    private nonisolated static func artwork(for image: UIImage) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
 
     private func publish() {

@@ -164,7 +164,7 @@ final class WebViewModel: NSObject, ObservableObject {
     private func configureAudioSession(recording: Bool) {
         let session = AVAudioSession.sharedInstance()
         if recording {
-            try? session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothHFP])
+            try? session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
         } else {
             try? session.setCategory(.playback, mode: .default)
         }

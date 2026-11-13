@@ -31,6 +31,7 @@ for path in required:
 project = (IOS / "project.yml").read_text()
 for value in ["sh.untergrund.app", 'iOS: "17.0"', "UntergrundTests", "Resources/Info.plist"]:
     assert value in project, f"project.yml missing {value}"
+assert "\n    info:" not in project, "XcodeGen info: would overwrite Info.plist; use INFOPLIST_FILE"
 
 with (APP / "Resources" / "Info.plist").open("rb") as file:
     info = plistlib.load(file)
