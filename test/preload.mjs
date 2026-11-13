@@ -8,7 +8,7 @@ import { generate, STYLES } from '../js/state.js';
 const st = (kit, voice) => ({ master: { kit }, params: { stab: { voice } } });
 assert.deepEqual(liveSets(st(0, 1)), []);
 assert.deepEqual(liveSets(st(1, 1)), ['kit']);
-assert.deepEqual(liveSets(st(2, 8)), ['kit', 'gtr']);
+assert.deepEqual(liveSets(st(2, 8)), ['kit', 'gtr', 'gtrsoft']);
 assert.deepEqual(liveSets(st(1, 7)), ['kit', 'piano', 'pianosoft']);
 assert.deepEqual(liveSets(st(0, 10)), ['str']);
 assert.deepEqual(liveSets(st(1.2, 9.4)), ['kit', 'horn']);
@@ -22,6 +22,7 @@ for (const id of Object.keys(STYLES)) {
     if (['neosoul', 'boombap'].includes(id)) assert.ok(sets.includes('kit'), `${id}/${seed} needs the live kit`);
     assert.equal(sets.includes(band), !!band, `${id}/${seed} stab band`);
     assert.equal(sets.includes('pianosoft'), band === 'piano', `${id}/${seed} soft piano layer`);
+    assert.equal(sets.includes('gtrsoft'), band === 'gtr', `${id}/${seed} soft guitar layer`);
   }
 }
 

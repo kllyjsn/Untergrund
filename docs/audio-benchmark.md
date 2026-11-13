@@ -54,7 +54,7 @@ each report under `checks`.
 | balance | kick/bass low-end collision, silent parts that have notes, energetic masking of audible parts, per-stem level drift | a part is missing, buried, or fighting the kick | that the balance is the best one |
 | silence | longest dropout, lead-in (deep) | phantom gaps | intentional breaks quieter than -35 LU |
 | arrangement (deep) | bar-loudness spread, peak sections over breakdowns / intro (loudness; a denser drop is excused from WARN) | a flat loop, or a drop that lands neither louder nor denser | whether the form is interesting |
-| ending | ring-out time to -40 dB (extrapolated past the tail; 8/30 s, or 30/60 s for the long-tail styles ambient and dub), steepest 10 ms drop, dead air before playback stops | truncation, stuck tails, silence after the end | whether the ending is satisfying |
+| ending | ring-out time to -40 dB (extrapolated past the tail; 8/30 s, or 30/60 s for the long-tail styles ambient, dub and nocturne, whose solo piano rings on the pedal), steepest 10 ms drop, dead air before playback stops | truncation, stuck tails, silence after the end | whether the ending is satisfying |
 
 ### Over-limiting and clipping
 
