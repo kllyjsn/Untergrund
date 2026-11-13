@@ -228,9 +228,9 @@
     "bars": 72,
     "melodyWindows": 22,
     "motifRecall": 0.707,
-    "chords": 10,
-    "voiceMove": 1.095,
-    "contrast": 0.298,
+    "chords": 9,
+    "voiceMove": 1.045,
+    "contrast": 0.33,
     "drumBars": 71
   },
   "rnb": {
@@ -247,9 +247,9 @@
     "melodyWindows": 18,
     "motifRecall": 0.828,
     "chords": 4.5,
-    "voiceMove": 3.56,
-    "contrast": 0.29,
-    "drumBars": 69
+    "voiceMove": 2.34,
+    "contrast": 0.296,
+    "drumBars": 70
   },
   "folk": {
     "bars": 72,

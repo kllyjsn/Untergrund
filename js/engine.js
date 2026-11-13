@@ -1043,8 +1043,9 @@ export class Engine {
     const R = BAND_PLAY[kind], set = this.rec(R.set || kind);
     if (!set) { loadBand(R.set || kind); return this[fallback](t, v, iv, root, p, out); }
     if (R.amp) out = this.ampFor(out);
-    const tone = Math.max(-6, Math.min(3, 3 * Math.log2(p.cutoff / 1500)));
-    const dur = Math.max(R.hold ? this.stepDur * 4 : R.min, p.decay * R.len);
+    const palm = R.amp && this.palm;
+    const tone = Math.max(-6, Math.min(3, 3 * Math.log2(p.cutoff / 1500))) - (palm ? 4 : 0);
+    const dur = palm ? Math.min(0.14, this.stepDur * 1.2) : Math.max(R.hold ? this.stepDur * 4 : R.min, p.decay * R.len);
     const chord = R.grip && iv.length > 1;
     // A guitarist strums down on the beat and up on the offbeats; other players roll the chord either way.
     const up = chord ? (this.step == null ? (this.stroke = !this.stroke) === false : this.step % 4 !== 0) : hash(t, 21) > 0.5;
@@ -1070,7 +1071,7 @@ export class Engine {
       const at = t - lead + order * strum + (hash(t * 3 + k, 22) - 0.5) * (0.003 + articulation * 0.006) * even;
       const sweep = notes.length > 1 ? order / (notes.length - 1) - 0.5 : 0;
       const accent = 1 + sweep * (articulation - 0.5) * 0.35;
-      const lvl = (lift * v * R.gain * accent * (1 - 0.15 * even + 0.3 * even * hash(t + k, 23))) / Math.sqrt(grip.length);
+      const lvl = ((palm ? 0.8 : 1) * lift * v * R.gain * accent * (1 - 0.15 * even + 0.3 * even * hash(t + k, 23))) / Math.sqrt(grip.length);
       // A single-note fill rings briefly and is stopped by the next chord like any other string.
       const h = this.recordedNote(set, at, lvl, m + R.shift, R.grip && !chord ? Math.min(dur, 0.9) : dur, out, tone, kind, v);
       if (R.grip && h) { h.m = m; (this.gripHeld ||= []).push(h); }
@@ -1851,6 +1852,8 @@ export class Sequencer {
     const roller = pat.steps.snare.some(Boolean) ? 'snare' : 'clap';
     // A band drummer marks each new section with a crash and plays the fills around the toms.
     const band = pk?.band && Math.round(s.master.kit || 0) === 1;
+    // The rhythm guitar palm-mutes the verse and breakdown and opens up for the pre-chorus and chorus.
+    e.palm = band && (this.cur === 2 || this.cur === 4);
     if (band && i16 === 0 && pos > 0 && this.chainArr[pos - 1] !== this.cur && pat.steps.kick.some(Boolean) && !s.mutes.oh && (!anySolo || s.solos.oh)) {
       e.crash(tt + pocketLate(pk, 'oh', 0), this.cur === 6 || this.cur === 7 ? 1 : 0.7);
     }

@@ -175,22 +175,22 @@
    "window": -15.73
   },
   "pop": {
-   "lufs": -10.07,
-   "spread": 2.54,
-   "tp": -2.23,
-   "window": -9.38
+   "lufs": -10.29,
+   "spread": 0.64,
+   "tp": -2.13,
+   "window": -9.62
   },
   "rnb": {
-   "lufs": -14.01,
-   "spread": 5.2,
-   "tp": -2.45,
-   "window": -10.11
+   "lufs": -14,
+   "spread": 4.92,
+   "tp": -2.38,
+   "window": -10.44
   },
   "rock": {
-   "lufs": -10.06,
-   "spread": 2.35,
-   "tp": -2.41,
-   "window": -10.52
+   "lufs": -9.98,
+   "spread": 0.04,
+   "tp": -2.37,
+   "window": -9.86
   },
   "folk": {
    "lufs": -14.06,
@@ -199,10 +199,10 @@
    "window": -12.6
   },
   "country": {
-   "lufs": -10.03,
-   "spread": 1.47,
-   "tp": -2.32,
-   "window": -9.76
+   "lufs": -10.02,
+   "spread": 2.2,
+   "tp": -2.33,
+   "window": -9.98
   }
  },
  "seeds": [
