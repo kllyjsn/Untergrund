@@ -346,7 +346,7 @@ for (const style of ['deephouse', 'hypnotic']) {
     ['more tension in the last 4 bars', span(n - 4, n - 1)],
     ['sparser hats in bars 33-40', span(32, 39)],
     ['no kick and snare in the intro', runsOf(base.chain, 'A')[0]],
-  ];
+  ].filter(([, want]) => want?.length); // song forms without a pre-chorus have no build
   for (const [text, want] of SCOPED) t(`${style}: "${text}" changes only its bars`, () => {
     const r = describe(text, base, { style, seed: 3 });
     assert.ok(r.did.length, `nothing done: ${r.skipped.join(', ')}`);

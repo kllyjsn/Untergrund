@@ -304,3 +304,26 @@ console.log('seeded instrument ensembles passed');
   }
   console.log('song ending stops passed');
 }
+
+// Song sections set the output level: the chorus lands 1.5-3 dB over the verse; techno and ambient stay at unity.
+{
+  const { buildSong } = await import('../scripts/composition.mjs');
+  const { Sequencer } = await import('../js/engine.js');
+  for (const style of ['euphoric', 'reggaeton', 'neosoul', 'hypnotic', 'ambient']) {
+    const s = buildSong(style, 101), lv = {}, at = [];
+    const e = new Proxy({ stepDur: 0.125, harm: null }, {
+      get: (o, k) => (k in o ? o[k] : k === 'sectionGain' ? (t, db) => at.push(db) : () => {}),
+      set: (o, k, v) => { o[k] = v; return true; },
+    });
+    const seq = new Sequencer(e, s);
+    for (let abs = 0; abs < s.chain.length * 16 && !seq.finished; abs++) {
+      seq.tick(abs, abs * 0.125);
+      const sec = s.patterns[seq.cur].sec;
+      if (abs % 16 === 0 && sec && at.length) lv[sec] = at.at(-1);
+    }
+    if (!s.patterns.some((p) => p.sec)) { assert(at.every((db) => db === 0), `${style}: no section levels`); continue; }
+    const lift = lv.chorus - lv.verse;
+    assert(lift >= 1.5 && lift <= 3, `${style}: chorus ${lift} dB over the verse`);
+  }
+  console.log('section levels passed');
+}
