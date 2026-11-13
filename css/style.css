@@ -1152,7 +1152,9 @@ body.studio-open .describe-chips { flex-wrap: nowrap; overflow-x: auto; scrollba
 }
 .describe-receipt { flex-direction: column; align-items: stretch; }
 .describe-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
-.describe-where { display: flex; gap: 1px; height: 8px; width: 100%; max-width: 420px; }
+.describe-at { flex-wrap: nowrap; }
+.describe-at .describe-note { flex: none; font: 500 11px var(--mono); color: var(--dim); white-space: nowrap; }
+.describe-where { display: flex; flex: 1; gap: 1px; height: 8px; min-width: 0; max-width: 420px; }
 .describe-where i { flex: 1; min-width: 1px; border-radius: 1px; background: var(--line2); }
 .describe-where i.on { background: var(--accent); }
 .describe-where i.edge { margin-left: 2px; }

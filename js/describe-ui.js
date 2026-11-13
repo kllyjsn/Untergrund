@@ -70,8 +70,10 @@ export function describeBar(ctx) {
       // Where it landed: one cell per bar of the song, the changed ones lit.
       if (last.bars && last.chain === ctx.state().chain) {
         const on = new Set(last.bars), c = last.chain;
-        receipt.append(h('div', { class: 'describe-where', role: 'img', title: `Changed ${barsLabel(last.bars)} of ${c.length}`, 'aria-label': `Changed ${barsLabel(last.bars)} of ${c.length}` },
-          [...c].map((L, i) => h('i', { class: (on.has(i) ? 'on' : '') + (i && c[i - 1] !== L ? ' edge' : '') }))));
+        receipt.append(h('div', { class: 'describe-line describe-at' },
+          h('div', { class: 'describe-where', role: 'img', 'aria-label': `Changed ${barsLabel(last.bars)} of ${c.length}` },
+            [...c].map((L, i) => h('i', { class: (on.has(i) ? 'on' : '') + (i && c[i - 1] !== L ? ' edge' : '') }))),
+          h('span', { class: 'describe-note', 'aria-hidden': 'true' }, `${barsLabel(last.bars)} of ${c.length}`)));
       }
       const nudges = recent?.some((e) => e.amt != null) ? ['more', 'too much', 'other way'] : recent?.some((e) => e.id === 'mute') ? ['other way'] : [];
       if (nudges.length) receipt.append(h('div', { class: 'describe-line' }, ...nudges.map((s) => h('button', { type: 'button', class: 'describe-chip sm', onclick: () => run(s) }, s))));
