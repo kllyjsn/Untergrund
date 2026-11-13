@@ -1,5 +1,6 @@
 // Composition scorecard: plays every genre's full song through the real Sequencer with a note-logging
-// engine and measures how the music develops: melody, harmony, voice leading, arrangement contrast.
+// engine and measures how the music develops: melody, harmony, voice leading, arrangement contrast, and how
+// distinct its sections are (verse vs chorus chords, register and energy, the pre-chorus lift, the bridge).
 // node scripts/composition.mjs [--assert] [--update] [--json out.json] [--style id]
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -12,6 +13,8 @@ import { stabNotes, hookSnap, voiceLead } from '../js/harmony.js';
 export const SEEDS = [101, 211, 307, 401, 503, 601, 701, 809];
 const BASELINE = resolve(dirname(fileURLToPath(import.meta.url)), '../test/composition-baseline.json');
 const DRUMS = new Set(['kick', 'snare', 'clap', 'ch', 'oh', 'ride', 'perc']);
+// The section each arrangement slot plays when a pattern does not name one (club forms: B build, G drop).
+const ROLE = ['intro', 'pre', 'verse', 'fill', 'bridge', 'bridge', 'chorus', 'chorus'];
 
 // The same song main.js builds on GENERATE.
 export function buildSong(style, seed) {
@@ -46,17 +49,21 @@ const move = (a, b) => (a.reduce((c, m) => c + Math.min(...b.map((q) => Math.abs
 export function scoreSong(s) {
   const { log, bars } = playSong(s);
   const p = s.params.stab, guitar = Math.round(p.voice) === 8;
-  const perBar = Array.from({ length: bars }, () => ({ hook: [], drums: [], events: 0 }));
+  const perBar = Array.from({ length: bars }, (_, b) => {
+    const i = 'ABCDEFGH'.indexOf(s.chain[b]);
+    return { hook: [], drums: [], events: 0, notes: [], chords: new Set(), kicks: 0, root: null, sec: s.patterns[i]?.sec || ROLE[i] };
+  });
   const voicings = [], harms = new Set();
   let grip = null, last = null;
   for (const L of log) {
     const bar = Math.floor(L.step / 16), B = perBar[bar];
     if (!B) continue;
-    if (L.harm) harms.add(`${L.harm.r}:${L.harm.c}`);
+    if (L.harm) { harms.add(`${L.harm.r}:${L.harm.c}`); B.chords.add(`${L.harm.r}:${L.harm.c}`); B.root ??= L.harm.r; }
     if (L.k === 'hook' && L.a[9]?.counter) continue;
     if (L.k === 'hook') {
       const [, , n, , , , strong, , up] = L.a;
-      B.hook.push(`${L.step % 16}:${hookSnap(n, L.harm, p, strong, up)}`); B.events++;
+      const m = hookSnap(n, L.harm, p, strong, up);
+      B.hook.push(`${L.step % 16}:${m}`); B.notes.push(m); B.events++;
     } else if (L.k === 'trigger' && L.a[0] === 'stab') {
       const { root, notes, home } = stabNotes(s, L.harm);
       const led = last = voiceLead(notes, last, home);
@@ -65,6 +72,7 @@ export function scoreSong(s) {
       B.events++;
     } else if (L.k === 'trigger' && DRUMS.has(L.a[0])) {
       B.drums.push(`${L.a[0]}${L.step % 16}:${Math.round(L.a[2] * 4)}`); B.events++;
+      if (L.a[0] === 'kick') B.kicks++;
     } else if (L.k === 'acid' || L.k === 'lick' || L.k === 'vox') B.events++;
   }
   // Two-bar melody windows that contain hook notes, and how many still carry the motif's rhythm.
@@ -82,6 +90,7 @@ export function scoreSong(s) {
   const sd = Math.sqrt(density.reduce((a, b) => a + (b - mean) ** 2, 0) / bars);
   return {
     bars,
+    ...sections(perBar),
     melodyWindows: new Set(wins.map((w) => w.join())).size,
     motifRecall: +recall.toFixed(3),
     chords: harms.size || 1,
@@ -91,9 +100,42 @@ export function scoreSong(s) {
   };
 }
 
-const HIGHER = ['bars', 'melodyWindows', 'motifRecall', 'chords', 'contrast', 'drumBars'], LOWER = ['voiceMove'];
+// Section contrast, from the bars each section plays:
+// verseChorus  share of chorus chords the verse does not play (0 = same changes, or a verse over a pedal),
+// chorusLift   semitones the chorus melody sits above the verse (median note), chorusPeak the same for the top note,
+// chorusEnergy chorus events per bar over the verse's (fuller drums, more stabs),
+// preLift      per pre-chorus: 1/3 each for a melody that climbs, a kick held back from the chorus and a dominant at the end,
+// bridgeAway   share of bridge chords heard in neither verse nor chorus.
+function sections(perBar) {
+  const of = (k) => perBar.filter((b) => b.sec === k), all = (bs, f) => bs.flatMap(f);
+  const verse = of('verse'), chorus = of('chorus'), bridge = of('bridge');
+  const chords = (bs) => new Set(all(bs, (b) => [...b.chords]));
+  const V = chords(verse), C = chords(chorus), Bd = chords(bridge);
+  const vn = all(verse, (b) => b.notes), cn = all(chorus, (b) => b.notes);
+  const perBarOf = (bs, f) => (bs.length ? bs.reduce((a, b) => a + f(b), 0) / bs.length : 0);
+  const pres = [];
+  perBar.forEach((b, i) => { if (b.sec === 'pre' && perBar[i - 1]?.sec !== 'pre') pres.push([]); if (b.sec === 'pre') pres[pres.length - 1].push(b); });
+  const ck = perBarOf(chorus, (b) => b.kicks);
+  const top = (bs) => Math.max(-Infinity, ...all(bs, (b) => b.notes));
+  const lift = pres.map((bs) => {
+    const h = bs.length >> 1, climb = bs.length > 1 && top(bs.slice(h)) > top(bs.slice(0, h)) ? 1 : 0;
+    return (climb + (perBarOf(bs, (b) => b.kicks) < ck ? 1 : 0) + (bs[bs.length - 1].root === 7 ? 1 : 0)) / 3;
+  });
+  const has = vn.length && cn.length;
+  return {
+    verseChorus: +(C.size && V.size ? [...C].filter((x) => !V.has(x)).length / C.size : 0).toFixed(3),
+    chorusLift: has ? median(cn) - median(vn) : 0,
+    chorusPeak: has ? Math.max(...cn) - Math.max(...vn) : 0,
+    chorusEnergy: +(verse.length && chorus.length ? perBarOf(chorus, (b) => b.events) / Math.max(1, perBarOf(verse, (b) => b.events)) : 1).toFixed(3),
+    preLift: +(lift.length ? lift.reduce((a, b) => a + b, 0) / lift.length : 0).toFixed(3),
+    bridgeAway: +(Bd.size ? [...Bd].filter((x) => !V.has(x) && !C.has(x)).length / Bd.size : 0).toFixed(3),
+  };
+}
+
+const HIGHER = ['bars', 'melodyWindows', 'motifRecall', 'chords', 'contrast', 'drumBars', 'verseChorus', 'chorusLift', 'chorusPeak', 'chorusEnergy', 'preLift', 'bridgeAway'], LOWER = ['voiceMove'];
 // Allowed slack before a change counts as a regression.
-const TOL = { bars: 0, melodyWindows: 0.5, motifRecall: 0.05, chords: 0, contrast: 0.03, drumBars: 0.5, voiceMove: 0.15 };
+const TOL = { bars: 0, melodyWindows: 0.5, motifRecall: 0.05, chords: 0, contrast: 0.03, drumBars: 0.5, voiceMove: 0.15,
+  verseChorus: 0.05, chorusLift: 0.5, chorusPeak: 0.5, chorusEnergy: 0.05, preLift: 0.05, bridgeAway: 0.05 };
 
 export function runComposition(styles) {
   const out = {};

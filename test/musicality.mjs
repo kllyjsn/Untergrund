@@ -39,7 +39,8 @@ console.log('per-seed key and bass passed');
 {
   const g = generate('deephouse', 42);
   const scenes = arrangement(g.pattern, 42);
-  assert.deepEqual(scenes.map((p) => p.hm), [0, 0, 1, 2, 2, 1, 2, 2], 'hook is held back for the intro');
+  assert.deepEqual(scenes.map((p) => p.hm), [0, 2, 1, 2, 2, 1, 2, 2], 'hook is held back for the intro, the pre-chorus climbs it whole');
+  assert.deepEqual(arrangement(generate('peak', 42).pattern, 42).map((p) => p.hm), [0, 0, 1, 2, 2, 1, 2, 2], 'club forms tease the hook in the build');
   const s = defaultState(); s.patterns = scenes;
   const round = sanitize(JSON.parse(JSON.stringify(s)));
   assert.deepEqual(round.patterns[6].hook, g.pattern.hook);
@@ -159,6 +160,43 @@ console.log('seeded instrument ensembles passed');
   console.log('song form passed');
 }
 
+// Songs have real sections: the verse its own changes, sparser and lower; a pre-chorus that holds the kick back and
+// climbs to the dominant; a bridge away from home; a fuller, wider chorus. Club forms keep their own scenes.
+{
+  const { SONG_STYLES } = await import('../js/state.js');
+  const { buildSong, playSong } = await import('../scripts/composition.mjs');
+  const key = (pr) => JSON.stringify(pr);
+  for (const style of SONG_STYLES) for (const seed of [1, 2, 3, 4]) {
+    const g = generate(style, seed), sc = arrangement(g.pattern, seed), S = g.pattern.sections;
+    assert(S, `${style} writes sections`);
+    assert.deepEqual(sc.map((p) => p.sec), [undefined, 'pre', 'verse', undefined, 'bridge', 'bridge', 'chorus', 'chorus'], `${style} section slots`);
+    assert.notEqual(key(sc[2].prog), key(sc[6].prog), `${style}/${seed} verse and chorus have different changes`);
+    assert.equal(sc[1].prog.at(-1).r, 7, `${style}/${seed} pre-chorus ends on the dominant`);
+    assert(sc[1].prog.slice(0, -1).every((h) => h.r !== 0), `${style}/${seed} pre-chorus withholds the tonic`);
+    assert.equal(sc[1].steps.kick.filter(Boolean).length, 1, `${style}/${seed} pre-chorus holds the kick back`);
+    assert.notEqual(sc[4].prog[0].r, 0, `${style}/${seed} bridge starts away from home`);
+    assert(sc[2].steps.stab.filter(Boolean).length <= sc[6].steps.stab.filter(Boolean).length, `${style}/${seed} verse chords are sparser`);
+    assert(!sc[2].steps.oh.some(Boolean) && sc[6].steps.oh.some(Boolean), `${style}/${seed} open hats wait for the chorus`);
+    if (g.pattern.hook) {
+      assert.deepEqual(sc[6].hook, g.pattern.hook, `${style} chorus plays the hook as generated`);
+      assert.deepEqual(sc[2].hook.s.map((x) => x && x[1]), g.pattern.hook.s.map((x) => x && x[1]), `${style} verse keeps the hook's rhythm`);
+      const lo = (h) => h.s.filter(Boolean).reduce((a, x) => a + x[0], 0);
+      assert(lo(sc[2].hook) < lo(g.pattern.hook), `${style}/${seed} verse melody sits lower`);
+    }
+    const round = sanitize(JSON.parse(JSON.stringify({ ...defaultState(), patterns: sc })));
+    assert.deepEqual(round.patterns.map((p) => p.sec), sc.map((p) => p.sec), 'sections survive save and load');
+  }
+  for (const style of ['hypnotic', 'peak', 'trance', 'ambient', 'dnb']) {
+    const g = generate(style, 5);
+    assert(!g.pattern.sections && arrangement(g.pattern, 5).every((p) => !p.sec), `${style} keeps its club scenes`);
+  }
+  // The pre-chorus melody climbs a step per bar, and only the chorus opens the stab voicing.
+  const s = buildSong('euphoric', 101), { log } = playSong(s);
+  const pre = s.chain.indexOf('B'), tops = [0, 1, 2, 3].map((k) => Math.max(...log.filter((L) => L.k === 'hook' && !L.a[9]?.counter && Math.floor(L.step / 16) === pre + k).map((L) => L.a[2])));
+  assert(tops[3] > tops[0], `pre-chorus climbs (${tops})`);
+  console.log('song sections passed');
+}
+
 // Harmony for the styles without written changes, in their own idiom, and the final-chorus lift.
 {
   const { CHORDS } = await import('../js/params.js');
@@ -266,4 +304,42 @@ console.log('seeded instrument ensembles passed');
     assert(end === sc.at.length - 1, `${style}: playback stops after the score's last step (${end} of ${sc.at.length})`);
   }
   console.log('song ending stops passed');
+}
+
+// Song sections set the output level: the chorus lands 1.5-3 dB over the verse; techno and ambient stay at unity.
+{
+  const { buildSong } = await import('../scripts/composition.mjs');
+  const { Sequencer } = await import('../js/engine.js');
+  for (const style of ['euphoric', 'reggaeton', 'neosoul', 'pop', 'rock', 'country', 'hypnotic', 'ambient']) {
+    const s = buildSong(style, 101), lv = {}, at = [];
+    const e = new Proxy({ stepDur: 0.125, harm: null }, {
+      get: (o, k) => (k in o ? o[k] : k === 'sectionGain' ? (t, db) => at.push(db) : () => {}),
+      set: (o, k, v) => { o[k] = v; return true; },
+    });
+    const seq = new Sequencer(e, s);
+    for (let abs = 0; abs < s.chain.length * 16 && !seq.finished; abs++) {
+      seq.tick(abs, abs * 0.125);
+      const sec = s.patterns[seq.cur].sec;
+      if (abs % 16 === 0 && sec && at.length) lv[sec] = at.at(-1);
+    }
+    if (!s.patterns.some((p) => p.sec)) { assert(at.every((db) => db === 0), `${style}: no section levels`); continue; }
+    const lift = lv.chorus - lv.verse;
+    assert(lift >= 1 && lift <= 3, `${style}: chorus ${lift} dB over the verse`);
+  }
+  // As heard: pop's and country's bands play a much fuller chorus on top of the level change, so the mastered
+  // render (median 3 s loudness, chorus minus verse) must still land in 1.5-3 dB.
+  const { withChrome } = await import('./chrome.mjs');
+  const jobs = [['pop', 11], ['pop', 42], ['pop', 77], ['country', 11], ['country', 42], ['country', 77]];
+  const heard = await withChrome(async (runs) => {
+    const out = [];
+    let next = 0;
+    await Promise.all(runs.map(async (run) => {
+      await run(`import('/test/loudness-page.js').then((m) => { window.__m = m; })`);
+      while (next < jobs.length) { const i = next++; out[i] = await run(`window.__m.sectionLift('${jobs[i][0]}', ${jobs[i][1]})`); }
+    }));
+    return out;
+  }, { pages: 3 });
+  if (!heard) console.log('section levels: no Chrome found, rendered chorus lift skipped');
+  else jobs.forEach(([style, seed], i) => assert(heard[i] >= (style === 'pop' ? 1.5 : 1) && heard[i] <= 3, `${style}/${seed}: rendered chorus ${heard[i].toFixed(2)} dB over the verse`));
+  console.log(`section levels passed${heard ? ` (rendered chorus over verse: ${jobs.map(([st, se], i) => `${st}/${se} ${heard[i].toFixed(2)}`).join(', ')} dB)` : ''}`);
 }

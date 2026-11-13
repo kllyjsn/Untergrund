@@ -5,6 +5,7 @@ import { MODELS } from './composer-models.js';
 import { POCKETS, STYLE_POCKET } from './groove.js';
 import { REPERTOIRE, PIECE } from './repertoire.js';
 import { cleanLabels } from './timeline.js';
+import { stepDeg } from './motif.js';
 import { cleanLyrics } from './lyrics.js';
 import { cleanTakes } from './scope.js';
 
@@ -791,6 +792,11 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     if (v?.pedal) P.pedal = v.pedal; else if (v) P.prog = v;
   }
   if (LIFT.has(style) && P.prog) P.lift = 2;
+  if (SONG.has(style) && P.prog && P.alt) {
+    const all = PROGS[style].map((pr) => pr.map(([root, c]) => ({ r: root, c })));
+    P.sections = songSections(all, P, musicalScale, Math.round(params.stab.chord ?? 0), rng(Math.imul((seed | 0) ^ 0x51ed270b, 0x27d4eb2f)), SECTION_IDIOM[style]);
+    if (P.sections.chorus) { P.prog = P.sections.chorus; delete P.sections.chorus; }
+  }
   if (MAJOR_STYLES.has(style) || style === 'rock') P.band = true;
   if (style === 'pop' || style === 'rock') P.lite = true;
   if (style === 'country') P.lite = 'country';
@@ -908,12 +914,96 @@ export function arrangement(full, seed, half = false) {
     clone(full),
     half ? halfTime(full) : mutate(full, seed + 2),
   ];
-  for (const p of scenes) { delete p.alt; delete p.pedal; delete p.band; delete p.lite; }
+  for (const p of scenes) { delete p.alt; delete p.pedal; delete p.sections; delete p.band; delete p.lite; }
   if (full.pedal) for (const i of [6, 7]) scenes[i].prog = clone(full.pedal);
   // Hook: absent in the intro, teased (call only) in the verse and deep breakdown, full in the fill, breakdown and peaks.
   [0, 0, 1, 2, 2, 1, 2, 2].forEach((m, i) => { if (full.hook) scenes[i].hm = m; else delete scenes[i].hm; });
   if (full.alt) for (const i of [4, 5]) scenes[i].prog = clone(full.alt);
+  if (full.sections) songScenes(scenes, full, full.sections);
   return scenes;
+}
+
+// Songs (see SONG) write each section like a songwriter would: B becomes the pre-chorus, C the verse,
+// E-F the bridge and G-H the chorus, each with its own chords, register and energy.
+function songScenes(scenes, full, S) {
+  const st = full.steps, zero = () => range(STEPS, () => 0);
+  // The verse keeps one chord per half bar, low in the mix of the groove; no open hats, ride or chops.
+  const sparse = (row) => row.map((v, i) => (v && !row.slice(i < 8 ? 0 : 8, i).some(Boolean) ? 1 : 0));
+  const verse = scenes[2];
+  for (const id of ['oh', 'ride', 'vox']) verse.steps[id] = zero();
+  if (!full.band) verse.steps.stab = sparse(st.stab); // a band verse keeps its rhythm part
+  Object.assign(verse, { prog: clone(S.verse), sec: 'verse' });
+  // Pre-chorus: the kick holds back to the one, chords pulse on the beat, harmony climbs to the dominant
+  // and the melody sequences up from the verse register into the chorus.
+  const pre = scenes[1] = clone(full);
+  delete pre.alt; delete pre.pedal; delete pre.sections;
+  pre.steps.kick = pad16([2]);
+  pre.steps.oh = zero(); pre.steps.ride = zero();
+  // A band keeps strumming its own part; pop and rock save the moving chorus strum for the chorus and hit the verse's chords.
+  if (!full.band) pre.steps.stab = range(STEPS, (i) => (i % 4 === 0 ? 1 : 0));
+  else if (full.lite === true) pre.steps.stab = clone(verse.steps.stab);
+  Object.assign(pre, { prog: clone(S.pre), sec: 'pre' });
+  if (full.hook) { verse.hook = clone(S.vhook || full.hook); pre.hook = clone(S.vhook || full.hook); pre.hm = 2; }
+  for (const i of [4, 5]) Object.assign(scenes[i], { prog: clone(S.bridge), sec: 'bridge' });
+  // The chorus opens up: open hats on the off-beats, a clap on the snare, the first chord accented.
+  const ch = scenes[6];
+  if (!st.oh.some(Boolean)) { ch.steps.oh[6] = 1; ch.steps.oh[14] = 1; }
+  if (!st.clap.some(Boolean) && st.snare[4] && st.snare[12]) { ch.steps.clap[4] = 1; ch.steps.clap[12] = 1; }
+  const first = ch.steps.stab.findIndex(Boolean);
+  if (first >= 0) ch.steps.stab[first] = 2;
+  for (const i of [6, 7]) scenes[i].sec = 'chorus';
+}
+
+// The written material behind a song's sections, from the style's own progressions: the chorus keeps the
+// main changes, the verse gets another progression (or the chorus's opening chords at half the harmonic
+// rhythm, the tonic coloured with an extension), the pre-chorus climbs without the tonic to a suspended dominant, the bridge starts away from
+// home, and the verse melody sits a third below the chorus.
+// Band genres write their sections in their own idiom ([root, chord] per bar; the chorus keeps the style's changes).
+// Pop: a softer vi–IV–I–V colouring under the I–V–vi–IV chorus, a ii–iii–IV pre-chorus onto Vsus, a bVI–bVII
+// bridge or a circle of dominants (III7 VI7 II7 V7). Rock: power-chord riffs on I, bIII and IV, a pre-chorus climbing to V, an I–bVII–IV chorus
+// (unless the style's changes already have one), a bridge that steps off the tonic.
+// Country: a verse that sits on I (I7 into the IV), a pre-chorus through ii to V7, and a bridge that leaves home: bVII–IV7,
+// a relative-minor turn (iii vi ii) or IV7–V–vi, each landing on a Vsus or the vi (the bass walks up into each change).
+const SECTION_IDIOM = {
+  pop: {
+    verse: [[[9, 1], [5, 7], [0, 10], [7, 4]], [[0, 10], [5, 9], [0, 10], [5, 9]], [[9, 1], [9, 1], [5, 7], [5, 7]]],
+    pre: [[[2, 1], [4, 1], [5, 11], [7, 5]], [[5, 11], [9, 1], [5, 11], [7, 5]]],
+    bridge: [[[8, 11], [10, 11], [5, 11], [7, 12]], [[4, 12], [9, 12], [2, 12], [7, 12]]],
+  },
+  rock: {
+    verse: [[[0, 6], [3, 6], [5, 6], [3, 6]], [[0, 6], [0, 6], [3, 6], [5, 6]]],
+    pre: [[[5, 6], [5, 6], [8, 6], [7, 6]], [[8, 6], [8, 6], [10, 6], [7, 6]]],
+    bridge: [[[9, 6], [4, 6], [2, 6], [7, 6]], [[2, 6], [4, 6], [9, 6], [7, 6]]],
+    chorus: [[[0, 6], [10, 6], [5, 6], [0, 6]], [[0, 6], [0, 6], [10, 6], [5, 6]]],
+  },
+  country: {
+    verse: [[[0, 11], [0, 12], [5, 11], [0, 11]], [[0, 11], [5, 11], [0, 11], [0, 12]]],
+    pre: [[[5, 11], [5, 11], [2, 0], [7, 12]], [[4, 0], [5, 11], [2, 0], [7, 12]]],
+    bridge: [[[10, 11], [5, 12], [10, 11], [7, 5]], [[4, 0], [9, 0], [2, 0], [7, 5]], [[5, 12], [7, 5], [9, 0], [9, 0]]],
+  },
+};
+
+function songSections(progs, P, scale, c, r, idiom) {
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const rest = progs.filter((p) => !same(p, P.prog) && !same(p, P.alt));
+  const [a, b] = [P.prog[0], P.prog.find((h) => h.r !== P.prog[0].r) || P.prog[1]];
+  const rich = (h) => ({ r: h.r, c: { 0: 1, 1: 2, 7: 9 }[h.c] ?? h.c });
+  const verse = clone(rest.length && r() < 0.7 ? pick(r, rest) : [rich(a), rich(a), b, b]);
+  const vocab = [...P.prog, ...P.alt, ...verse], major = vocab.some((h) => h.r === 9 || h.r === 4);
+  const pre = (major ? [2, 4, 5] : [5, 8, 10]).map((x) => {
+    const h = vocab.find((y) => y.r === x);
+    return { r: x, c: h ? h.c : major ? (x === 5 ? 9 : 1) : quality(x, c) };
+  }).concat({ r: 7, c: 5 });
+  // The bridge takes the changes that share the fewest chords with the verse and chorus (the alt on a tie).
+  const heard = new Set([...P.prog, ...verse].map((h) => `${h.r}:${h.c}`));
+  const away = (p) => p.filter((h) => !heard.has(`${h.r}:${h.c}`)).length;
+  const far = [P.alt, ...progs.filter((p) => !same(p, P.prog) && !same(p, verse))].reduce((a, p) => (away(p) > away(a) ? p : a));
+  const k = Math.max(0, far.findIndex((h) => h.r !== 0));
+  const bridge = [...far.slice(k), ...far.slice(0, k)].map((h) => (heard.has(`${h.r}:${h.c}`) ? rich(h) : { ...h }));
+  const vhook = P.hook && { ...clone(P.hook), s: P.hook.s.map((x) => (x ? [stepDeg(x[0], -2, scale), x[1], x[2]] : 0)) };
+  const own = idiom && Object.fromEntries(['verse', 'pre', 'bridge'].map((k) => [k, pick(r, idiom[k]).map(([x, q]) => ({ r: x, c: q }))]));
+  if (idiom?.chorus && !(P.prog.some((h) => h.r === 10) && P.prog.some((h) => h.r === 5))) own.chorus = pick(r, idiom.chorus).map(([x, q]) => ({ r: x, c: q }));
+  return { verse, pre, bridge, ...own, ...(vhook ? { vhook } : {}) };
 }
 
 // Techno holds its pedal and shifts it for the last two bars of every eight at the peak; dub rocks i–iv; breaks,
@@ -939,20 +1029,44 @@ function vampFor(style, c, r) {
 }
 
 const GROOVE = new Set(['neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill', 'pop', 'rnb', 'rock', 'folk', 'country']);
+// Styles written as songs, with verse, pre-chorus, chorus and bridge sections (techno, trance and ambient
+// keep their repetition-led forms, where a section change is a mute or a filter, not new material).
+export const SONG_STYLES = new Set([...GROOVE, 'hyperpop']);
+const SONG = SONG_STYLES;
 // Which section names the timeline shows for a style (timeline.js ROLES).
-export const songKind = (style) => (GROOVE.has(style) ? 'groove' : 'club');
-// Song forms in 8-bar phrases (16 for techno), about 3 minutes. Groove styles: intro, verse, hook, verse, hook,
-// bridge on the alt changes, a doubled last hook, outro. Each phrase ends on a fill or half-time bar (D/H) as its
-// turnaround, and a generated song (state.ending) closes on one final downbeat instead of looping straight back.
+export const songKind = (style) => (SONG_STYLES.has(style) ? 'groove' : 'club');
+// Club forms in 8-bar phrases (16 for techno), about 3 minutes. Each phrase ends on a fill or half-time bar (D/H)
+// as its turnaround, and a generated song (state.ending) closes on one final downbeat instead of looping straight back.
 const SONG_FORMS = {
-  groove: ['AAAABBBBCCCCCCCDGGGGGGGHCCCCCCCDGGGGGGGHEEEEFFFDGGGGGGGHGGGGGGGDBBBBAAAA', 'AAAABBBBCCCCCCCDCCCCGGGHEEEEFFFDGGGGGGGHCCCCCCCDGGGGGGGHGGGGGGGHBBBBAAAA', 'AAAAAAABCCCCCCCDGGGGGGGHCCCCCCCDGGGGGGGHEEEEEEEEFFFFFFFDGGGGGGGHGGGGGGGHBBBAAAAA'],
   ambient: ['AAAAAAAAEEEEEEEEFFFFFFFFGGGGGGGGEEEEEEEEFFFFFFFFAAAAAAAA', 'AAAAAAAAEEEEEEEEGGGGGGGGFFFFFFFFGGGGGGGGEEEEAAAA'],
   techno: ['AAAAAAAABBBBBBBBCCCCCCCCCCCCCCCDGGGGGGGGGGGGGGGHEEEEEEEEFFFFFFFDGGGGGGGGGGGGGGGHCCCCCCCHCCCCCCCDBBBBBBBBAAAAAAAA', 'AAAAAAAABBBBBBBDCCCCCCCDCCCCCCCDGGGGGGGHGGGGGGGHEEEEEEEEFFFFFFFDGGGGGGGHGGGGGGGHGGGGGGGGGGGGGGGDBBBBBBBBAAAAAAAA', 'AAAAAAAABBBBBBBBCCCCCCCCCCCCCCCDEEEEEEEEFFFFFFFDGGGGGGGGGGGGGGGHGGGGGGGGGGGGGGGHCCCCCCCDBBBBAAAA'],
 };
 
+// Song forms per idiom, as sections: i intro, v verse, p pre-chorus, c chorus, b bridge, o outro (bars).
+// Pop and soul write pre-choruses, rap goes verse-to-hook (often hook first), house grooves stay longer.
+const SONGS = {
+  pop: ['i8 v8 p4 c8 v8 p4 c8 b8 p4 c16 o4', 'i4 v8 p4 c8 v8 p4 c8 b8 c16 o4', 'i4 c8 v8 p4 c8 v8 p4 c8 b8 c16 o4', 'i4 v16 p4 c8 v8 p4 c8 b8 c16 o4'],
+  rap: ['i4 c8 v16 c8 v16 c8 b8 c8 o4', 'i8 v16 c8 v16 c8 b8 c8 o8', 'i4 v8 p4 c8 v16 c8 b8 c16 o8'],
+  house: ['i8 v8 c8 v8 c8 b8 c8 c8 o8', 'i8 v8 p4 c8 v8 p4 c8 b8 c16 o8', 'i8 v16 c8 b8 v8 c16 o8'],
+};
+const IDIOM = { boombap: 'rap', trap: 'rap', drill: 'rap', deephouse: 'house', amapiano: 'house' };
+// The intro and each verse running straight into a chorus end on the fill bar; 8 chorus bars end on the half-time switch.
+export function songForm(spec) {
+  const secs = spec.split(' ').map((x) => [x[0], +x.slice(1)]);
+  return secs.map(([k, n], i) => {
+    if (k === 'i') return 'A'.repeat(n - 1) + 'D';
+    if (k === 'o') return 'A'.repeat(n);
+    if (k === 'p') return 'B'.repeat(n);
+    if (k === 'v') return 'C'.repeat(secs[i + 1]?.[0] === 'c' ? n - 1 : n) + (secs[i + 1]?.[0] === 'c' ? 'D' : '');
+    if (k === 'c') return 'GGGGGGGH'.repeat(n >> 3) + (n % 8 ? 'G'.repeat(n % 8 - 1) + 'H' : '');
+    return 'E'.repeat((n >> 1) - 1) + 'F'.repeat(n >> 1) + 'D';
+  }).join('');
+}
+
 export function songChain(style, seed) {
   if (FORMS[style] || style === 'repertoire') return 'A';
-  const forms = SONG_FORMS[GROOVE.has(style) ? 'groove' : style === 'ambient' ? 'ambient' : 'techno'];
+  if (SONG.has(style)) return songForm(pick(rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)), SONGS[IDIOM[style] || 'pop']));
+  const forms = SONG_FORMS[style === 'ambient' ? 'ambient' : 'techno'];
   return pick(rng(seed + 9), forms);
 }
 
@@ -1075,6 +1189,7 @@ export function sanitize(s) {
     if (p.score?.piece && PIECE[p.score.piece]) e.score = { piece: p.score.piece };
     else if (p.score && FORMS[p.score.form]) e.score = { form: p.score.form, seed: Number.isFinite(+p.score.seed) ? +p.score.seed | 0 : 1, mode: p.score.mode === 'm' ? 'm' : 'M', ...(MODELS[p.score.composer] ? { composer: p.score.composer } : {}) };
     if (p.lift) e.lift = Math.max(0, Math.min(3, p.lift | 0));
+    if (['verse', 'pre', 'chorus', 'bridge'].includes(p.sec)) e.sec = p.sec;
     if (Array.isArray(p.prog) && p.prog.length) e.prog = cleanProg(p.prog);
     const at = !e.score && cleanTakes(p.at, cleanTrack, cleanHook, cleanProg);
     if (at) e.at = at;

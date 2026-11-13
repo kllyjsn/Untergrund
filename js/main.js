@@ -1054,7 +1054,7 @@ const STYLE_HUE = {
 };
 const LIVE_KIT_STYLES = new Set(['neosoul', 'boombap']);
 const BAND_STYLES = new Set(['pop', 'rnb', 'rock', 'folk', 'country']);
-const GROOVE_STYLES = new Set(['neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill', ...BAND_STYLES]);
+const GROOVE_STYLES = new Set(['neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill', 'hyperpop', ...BAND_STYLES]);
 const SECTION_NAMES = {
   groove: ['INTRO', 'BUILD', 'VERSE', 'FILL', 'BRIDGE', 'BRIDGE', 'HOOK', 'HOOK'],
   club: ['INTRO', 'BUILD', 'DROP', 'FILL', 'BREAKDOWN', 'BREAKDOWN', 'DROP', 'HALF-TIME'],
