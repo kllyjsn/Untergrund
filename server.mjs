@@ -6,13 +6,13 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { publicConfig, exchangeToken } from './api/_lib/soundcloud.js';
-import { createRooms, redisRooms, roomsHandler } from './api/_lib/rooms.js';
+import { createRooms, roomsKv, memoryRoomsKv, roomsHandler } from './api/_lib/rooms.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = +(process.env.PORT || 8000);
 const MOCK = process.env.SC_MOCK === '1';
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.wav': 'audio/wav', '.flac': 'audio/flac', '.webmanifest': 'application/manifest+json' };
-const rooms = createRooms({ store: redisRooms() });
+const rooms = createRooms({ kv: roomsKv() || memoryRoomsKv() });
 const handleRooms = roomsHandler(rooms, { allowedOrigin: process.env.ROOMS_ALLOWED_ORIGIN || '*' });
 
 let mock = null;
@@ -112,10 +112,10 @@ http.createServer(async (req, res) => {
       res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(cookie && { 'Set-Cookie': cookie }) });
       return res.end(JSON.stringify(json));
     }
-    const pageMatch = url.pathname.match(/^\/(a|t)\/([^/]{1,60})\/?$/);
+    const pageMatch = url.pathname.match(/^\/(a|t|r)\/([^/]{1,60})\/?$/);
     if (pageMatch || url.pathname === '/api/page') {
       const query = pageMatch ? { [pageMatch[1]]: decodeURIComponent(pageMatch[2]) } : Object.fromEntries(url.searchParams);
-      const r = await handlePage(query, { kv: accountKv, crate: crateStore, site: `http://${req.headers.host}`, og: { ogImage, artSeed } });
+      const r = await handlePage(query, { kv: accountKv, crate: crateStore, site: `http://${req.headers.host}`, og: { ogImage, artSeed }, rooms });
       if (r.location) { res.writeHead(r.status, { Location: r.location }); return res.end(); }
       res.writeHead(r.status, { 'Content-Type': r.type, 'Cache-Control': 'no-store' });
       return res.end(r.body);
@@ -152,7 +152,7 @@ http.createServer(async (req, res) => {
     }
     if (p.endsWith('/')) p += 'index.html';
     const file = path.join(ROOT, path.normalize(p));
-    if (!file.startsWith(ROOT) || /\/(\.git|api|node_modules)(\/|$)/.test(file.slice(ROOT.length))) { res.writeHead(404); return res.end(); }
+    if (!file.startsWith(ROOT) || /\/(\.git|api|node_modules|suno-lab)(\/|$)/.test(file.slice(ROOT.length))) { res.writeHead(404); return res.end(); }
     const data = await readFile(file);
     res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
     res.end(data);

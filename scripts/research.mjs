@@ -591,7 +591,31 @@ ${renderBody(post.body, d)}
     png: card({ eyebrow: 'RESEARCH', title: post.card || post.title, line: sub, grid: gridOf(d) }) };
 }
 
-function renderIndex(posts) {
+// UNTERGRUND vs Suno (scripts/suno-benchmark.mjs score --write): the checked-in blind A/B scorecard, or a placeholder.
+export const SUNO_RESULTS = 'research/suno/results.json';
+export function loadSuno(root = ROOT) {
+  const file = join(root, SUNO_RESULTS);
+  if (!existsSync(file)) return null;
+  const d = readJson(file);
+  if (d.schema !== 'untergrund.lab-versus/1') throw new Error(`${SUNO_RESULTS}: schema ${d.schema}, want untergrund.lab-versus/1`);
+  return d.overall?.ratings ? d : null;
+}
+const pct = (v) => (Number.isFinite(v) ? `${Math.round(v * 100)}%` : '—');
+function sunoSection(d) {
+  const how = '<a href="https://github.com/kllyjsn/Untergrund/blob/main/docs/suno-benchmark.md">How the benchmark works</a>';
+  if (!d) return `<section class="rs-suno" aria-labelledby="suno-h"><h2 id="suno-h">UNTERGRUND vs Suno</h2><p class="rs-empty">No results yet. A blind A/B listening test pits our song for each of ${PROMPT_COUNT()} fixed prompts against a Suno song from the same prompt, rated on musicality, originality, genre accuracy and emotional pull. ${how}.</p></section>`;
+  const o = d.overall, picks = (p) => `${p.ours} · ${p.theirs} · ${p.neither}`;
+  const k = [[pct(o.winRate), 'win rate vs Suno, mean of the four dimensions'], [pct(o.replay.oursRate), 'picked ours to replay'], [pct(o.release.oursRate), 'picked ours to release'], [`${o.ratings}`, `rated pairs · ${d.listeners} listener${d.listeners === 1 ? '' : 's'}`]];
+  const dims = table(['Dimension', 'Win rate', 'Ours', 'Suno', 'W · T · L'], Object.entries(o.dimensions).map(([n, x]) => [n, pct(x.winRate), num(x.ours, 2), num(x.theirs, 2), `${x.wins} · ${x.ties} · ${x.losses}`]));
+  const genres = table(['Genre', 'Pairs', 'Win rate', 'Replay', 'Release'], Object.entries(d.genres).map(([g, x]) => [g, x.ratings, pct(x.winRate), picks(x.replay), picks(x.release)]));
+  const keys = (d.songwritingKeys || []).filter(({ k }) => ['secs', 'distinctSections', 'chords', 'motifRecall', 'contrast', 'arcDb'].includes(k));
+  const songs = table(['Prompt', 'Win rate', ...keys.map(({ label, unit }) => (unit && unit !== 'share' && unit !== 'cv' ? `${label} (${unit})` : label))], d.pairs.map((p) => [p.title, pct(p.winRate), ...keys.map(({ k }) => (p.songwriting?.[k] == null ? '—' : num(p.songwriting[k], 2)))]));
+  return `<section class="rs-suno" aria-labelledby="suno-h"><h2 id="suno-h">UNTERGRUND vs Suno</h2><p>Blind A/B: our song at a fixed seed against a Suno song from the same prompt, engine commit <code>${esc(d.commit || '?')}</code>. A win is the higher rating on a dimension; a tie counts half. ${how}.</p><dl class="kpis">${k.map(([v, l]) => `<div><dt>${esc(l)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>${dims}<h3>By genre</h3><p>Replay and release picks: ours · Suno · neither.</p>${genres}<h3>Next to the ratings: reference-free songwriting metrics of our renders</h3>${songs}</section>`;
+}
+let promptCount = null;
+const PROMPT_COUNT = () => (promptCount ??= (() => { try { return readJson(join(ROOT, 'research/suno/prompts.json')).prompts.length; } catch { return 'about 20'; } })());
+
+function renderIndex(posts, suno = null) {
   const list = posts.map((p) => {
     const g = gridOf(p.dataset), c = p.dataset.audio.deep.counts;
     const strip = `<span class="strip" aria-hidden="true">${g.map((row) => `<i class="lv-${row.reduce((a, b) => (b === 'none' ? a : worse(a, b)), 'PASS')}"></i>`).join('')}</span>`;
@@ -602,7 +626,7 @@ function renderIndex(posts) {
     const pts = [...posts].reverse().map((p) => ({ x: p.date.slice(5), y: p.dataset.audio.deep.counts.PASS }));
     trend = figure({ title: 'Passing genres per post.', svgs: `<div class="viz grid2">${spark({ title: 'Genres passing every check', unit: 'count', points: pts, fmt: (v) => num(v, 0) })}${spark({ title: 'Genres failing a check', unit: 'count', points: [...posts].reverse().map((p) => ({ x: p.date.slice(5), y: p.dataset.audio.deep.counts.FAIL })), fmt: (v) => num(v, 0) })}</div>` });
   }
-  const body = `<main class="rs-main"><h1>Research</h1><p class="rs-dek">How UNTERGRUND measures the music it makes: what we test, what the numbers say, and what they can't tell us. Every chart is generated from a checked-in benchmark snapshot.</p>${trend}<ul class="rs-list">${list}</ul></main>`;
+  const body = `<main class="rs-main"><h1>Research</h1><p class="rs-dek">How UNTERGRUND measures the music it makes: what we test, what the numbers say, and what they can't tell us. Every chart is generated from a checked-in benchmark snapshot.</p>${trend}${sunoSection(suno)}<ul class="rs-list">${list}</ul></main>`;
   const latest = posts[0];
   return { html: page({ title: 'Research · UNTERGRUND', description: 'Benchmarks of the music UNTERGRUND generates: loudness, peaks, arrangement and composition, with the data behind every chart.', url: `${SITE}/research/`, image: `${SITE}/research/og.png`, imageAlt: 'UNTERGRUND Research', body }),
     png: card({ eyebrow: 'RESEARCH', title: 'How we measure the sound', line: latest ? [[`LATEST: ${latest.dataset.audio.deep.counts.styles} GENRES TESTED`, 'dim']] : null, grid: latest ? gridOf(latest.dataset) : null }) };
@@ -617,7 +641,7 @@ function feed(posts) {
 export function renderSite(root = ROOT) {
   figureId = 0; cssCache = null;
   const posts = loadPosts(root), files = new Map();
-  const index = renderIndex(posts);
+  const index = renderIndex(posts, loadSuno(root));
   files.set('/research/index.html', { type: 'text/html; charset=utf-8', body: index.html });
   files.set('/research/og.png', { type: 'image/png', body: index.png });
   files.set('/research/feed.xml', { type: 'application/rss+xml; charset=utf-8', body: feed(posts) });

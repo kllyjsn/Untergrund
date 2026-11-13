@@ -27,6 +27,8 @@ jobs:
         run: find js api -name '*.js' -not -path 'js/vendor/*' -print0 | xargs -0 -n1 node --check
       - name: ffmpeg (test/sound.mjs decodes the FLAC samples)
         run: command -v ffmpeg || (sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends ffmpeg)
+      - name: redis-server (test/rooms-concurrency.mjs runs the room Lua script on real Redis)
+        run: command -v redis-server || (sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends redis-server)
       - run: npm test
       - run: npm run build
       - name: Smoke test server.mjs (SC_MOCK=1)
