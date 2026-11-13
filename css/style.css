@@ -1386,3 +1386,27 @@ body.recording .btn.rec .dot, body.recording .np-actions .btn.rec .dot { backgro
 /* Paused from the lock screen or by an interruption: the stop control becomes resume. */
 .np-stop.resume i { width: 0; height: 0; border-radius: 0; background: none; border-left: 16px solid #fff; border-top: 10px solid transparent; border-bottom: 10px solid transparent; margin-left: 4px; }
 body.paused .np-dot { animation: none; opacity: .5; }
+
+/* ---------- now playing: GENERATE, then keep → share → go live, and More ---------- */
+.generate-actions.np-actions > .btn.np-step, .generate-actions.np-actions > .np-more > summary { display: inline-flex; align-items: center; justify-content: center; min-height: 52px; padding: 0 12px; white-space: nowrap; }
+.generate-actions.np-actions > .btn.np-step { flex: 1 1 0; min-width: 0; }
+.generate-actions.np-actions > .np-more { flex: 0 0 56px; }
+.np-more > summary { width: 100%; height: 100%; box-sizing: border-box; letter-spacing: .1em; }
+.np-more > summary::after { display: none; }
+.np-more .menu-pop { min-width: 220px; }
+.generate-actions.np-actions > .btn.np-step.next { border-color: color-mix(in srgb, var(--hue) 70%, transparent); color: #fff; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hue) 35%, transparent); }
+.generate-actions.np-actions > .btn.np-rec-on { display: none; }
+body.recording .generate-actions.np-actions > .btn.np-rec-on { display: inline-flex; align-items: center; justify-content: center; flex: 1 1 100%; min-height: 48px; }
+body.recording .np-more .np-rec { display: none; }
+.np-next { flex: 1 1 100%; margin: 2px 0 0; color: #a8a8b2; font: 400 13px/1.45 var(--sans); }
+.np-next b { color: #fff; font: 600 11px var(--mono); letter-spacing: .12em; }
+/* Studio keeps GENERATE and Describe up top; live rooms and the research link belong to Create. */
+body.studio-open .generate-home > .live-now, body.studio-open .generate-home > .home-research { display: none; }
+@media (max-width: 760px) {
+  .generate-actions.np-actions { flex-wrap: wrap; }
+  .generate-actions.np-actions > .generate-primary { flex: 1 1 calc(100% - 70px); }
+  .generate-actions.np-actions > .btn.np-step { flex: 1 1 0; min-height: 48px; padding: 0 6px; font-size: 10px; letter-spacing: .1em; }
+  .generate-actions.np-actions > .np-more { flex: 0 0 48px; }
+  .generate-actions.np-actions > .np-more > summary { min-height: 48px; padding: 0; }
+  .np-more .menu-pop { left: auto; right: 0; }
+}
