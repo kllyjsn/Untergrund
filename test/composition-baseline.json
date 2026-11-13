@@ -326,16 +326,16 @@
   },
   "pop": {
     "bars": 72,
-    "melodyWindows": 18.5,
-    "motifRecall": 0.508,
-    "chords": 9,
-    "voiceMove": 1.085,
+    "melodyWindows": 19,
+    "motifRecall": 0.525,
+    "chords": 10.5,
+    "voiceMove": 1.035,
     "contrast": 0.302,
-    "drumBars": 71,
-    "phraseBars": 3.63,
-    "peakAt": 0.54,
+    "drumBars": 72,
+    "phraseBars": 3.855,
+    "peakAt": 0.55,
     "restsPerPhrase": 1,
-    "stepShare": 0.81
+    "stepShare": 0.795
   },
   "rnb": {
     "bars": 72,
@@ -379,14 +379,14 @@
   "country": {
     "bars": 72,
     "melodyWindows": 20,
-    "motifRecall": 0.633,
-    "chords": 6,
-    "voiceMove": 1.02,
-    "contrast": 0.276,
+    "motifRecall": 0.7,
+    "chords": 6.5,
+    "voiceMove": 0.99,
+    "contrast": 0.292,
     "drumBars": 72,
-    "phraseBars": 3.72,
-    "peakAt": 0.575,
+    "phraseBars": 3.725,
+    "peakAt": 0.56,
     "restsPerPhrase": 1,
-    "stepShare": 0.82
+    "stepShare": 0.785
   }
 }

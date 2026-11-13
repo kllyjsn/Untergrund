@@ -70,6 +70,7 @@ wrap(S, 'tick', function (o, a) {
 const make = () => {
   const s = defaultState(), g = generate(style, seed);
   applyOverrides(s, g); s.patterns = arrangement(g.pattern, seed);
+  s.artist = { name: 'UNTERGRUND', title: tag, style, seed, created: '' };
   if (pat != null) s.current = +pat;
   return s;
 };

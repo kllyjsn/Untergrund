@@ -22,7 +22,8 @@ for (const id of Object.keys(STYLES)) {
     if (['neosoul', 'boombap'].includes(id)) assert.ok(sets.includes('kit'), `${id}/${seed} needs the live kit`);
     assert.equal(sets.includes(band), !!band, `${id}/${seed} stab band`);
     assert.equal(sets.includes('pianosoft'), band === 'piano', `${id}/${seed} soft piano layer`);
-    assert.equal(sets.includes('gtrsoft'), band === 'gtr', `${id}/${seed} soft guitar layer`);
+    // Country's Telecaster lead loads the guitar whatever plays the chords.
+    assert.equal(sets.includes('gtrsoft'), band === 'gtr' || id === 'country', `${id}/${seed} soft guitar layer`);
   }
 }
 
