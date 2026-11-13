@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { generate, sanitize, defaultState, applyOverrides, STYLES, MAJOR_STYLES } from '../js/state.js';
 import { CHORDS, SCALES } from '../js/params.js';
 import { SING_PROFILES, MELODY_BARS, melodyScore, strongNote, sings } from '../js/melody.js';
+import { stepDeg } from '../js/motif.js';
 import { buildSong, playSong, melodyShape } from '../scripts/composition.mjs';
 
 const pc = (x) => ((x % 12) + 12) % 12;
@@ -107,16 +108,39 @@ console.log('melody score passed');
 
 // In a song the verse sings in C, the chorus in G, the bridge in the breakdown; phrases run 4+ bars with breaths.
 for (const style of ['deephouse', 'neosoul', 'trap']) {
-  const s = buildSong(style, 307), { log } = playSong(s), m = s.patterns[6].hook.m;
+  const s = buildSong(style, 307), { log, seq } = playSong(s), m = s.patterns[6].hook.m, scale = SCALES[s.scale].notes;
   const lead = log.filter((L) => L.k === 'hook' && !L.a[9]?.harm && !L.a[9]?.counter);
   const sect = (c) => lead.filter((L) => s.chain[Math.floor(L.step / 16)] === c).map((L) => L.a[2]);
-  const has = (list, part) => { const ok = new Set(m[part].map((x) => x[2])); return list.every((n) => ok.has(n)); };
+  const has = (list, part) => { const k = seq.register(4, 0, s.patterns[4].hook, part, 0), ok = new Set(m[part].map((x) => stepDeg(x[2], k, scale))); return list.every((n) => ok.has(n)); };
   assert(sect('C').length && sect('G').length && sect('E').length, `${style} sings verse, chorus and bridge`);
   assert(has(sect('E'), 'b'), `${style} breakdown sings the bridge`);
   const shape = melodyShape(lead.map((L) => [L.step, Math.max(1, Math.round(L.a[3] / 0.125)), L.a[2]]));
   assert(shape.phraseBars >= 3, `${style} phrases run ${shape.phraseBars} bars`);
 }
 console.log('sung song passed');
+
+// Section registers: the verse sings lowest, each pre-chorus climbs, and only the chorus reaches the song's top note.
+{
+  let pres = 0, climbs = 0, songs = 0;
+  for (const style of Object.keys(SING_PROFILES)) for (const seed of [101, 307, 503]) {
+    const s = buildSong(style, seed), { log } = playSong(s), by = {}, runs = [];
+    const secOf = (b) => s.patterns['ABCDEFGH'.indexOf(s.chain[b])]?.sec;
+    for (const L of log) {
+      if (L.k !== 'hook' || L.a[9]?.harm || L.a[9]?.counter || s.chain.slice(Math.floor(L.step / 16)).indexOf('G') < 0) continue;
+      const b = Math.floor(L.step / 16), sec = secOf(b);
+      (by[sec] ??= []).push(L.a[2]);
+      if (sec === 'pre') { if (secOf(b - 1) !== 'pre' && runs.at(-1)?.b !== b) runs.push({ b, bars: {} }); const r = runs.at(-1); r.bars[b - r.b] = Math.max(r.bars[b - r.b] ?? -99, L.a[2]); }
+    }
+    if (!by.verse || !by.chorus) continue;
+    songs++;
+    const top = (k) => Math.max(...(by[k] || [-99])), med = (k) => { const a = [...by[k]].sort((x, y) => x - y); return a[a.length >> 1]; };
+    for (const k of ['verse', 'pre', 'bridge']) assert(top(k) < top('chorus'), `${style}/${seed}: the chorus holds the peak (${k} ${top(k)}, chorus ${top('chorus')})`);
+    assert(med('verse') < med('chorus') && (!by.pre || med('verse') <= med('pre')), `${style}/${seed}: the verse sings lowest`);
+    for (const r of runs) { const t = Object.values(r.bars), h = t.length >> 1; pres++; if (Math.max(...t.slice(h)) > Math.max(...t.slice(0, h))) climbs++; }
+  }
+  assert(songs >= 40 && climbs >= pres * 0.9, `pre-choruses climb (${climbs} of ${pres}, ${songs} songs)`);
+  console.log(`section registers passed (${songs} songs, ${climbs}/${pres} pre-choruses climb)`);
+}
 
 // A scoped edit (a take over some bars) that brings its own melody is what those bars sing.
 {

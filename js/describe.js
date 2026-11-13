@@ -566,7 +566,7 @@ export const SECTION = {
 };
 // In song mode a section means the timeline blocks with that label (custom labels included), so "the second
 // drop" is the second block labelled DROP. Neighbouring blocks with the same label (BREAK, BREAK) are one pass.
-const SEC_LABEL = { intro: ['INTRO'], outro: ['OUTRO'], build: ['BUILD', 'BUILDUP', 'RISER'], verse: ['VERSE'],
+const SEC_LABEL = { intro: ['INTRO'], outro: ['OUTRO'], build: ['BUILD', 'BUILDUP', 'RISER', 'PRE-CHORUS', 'PRECHORUS'], verse: ['VERSE'],
   breakdown: ['BREAK', 'BREAKDOWN', 'BRIDGE'], drop: ['DROP', 'HOOK', 'CHORUS', 'PEAK'] };
 export function sectionRuns(chain, sec, kind = 'club', labels = {}) {
   const blocks = toSections(chain), names = sectionNames(blocks, kind, labels), out = [];

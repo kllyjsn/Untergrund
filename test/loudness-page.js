@@ -110,6 +110,24 @@ export async function exportEnding(style, seed, piece = '') {
   return { style, seed, piece: id || '', secs: buf.length / buf.sampleRate, env };
 }
 
+// Chorus minus verse short-term loudness (dB): median 3 s loudness over windows wholly inside a verse (C) and
+// wholly inside a chorus (G) of the full song, mastered, at 24 kHz.
+export async function sectionLift(style, seed) {
+  // Render from the bar before the first verse to the end of the chorus that follows it (the whole song if there is none).
+  const s = song(style, seed), chain = s.chain, c0 = chain.indexOf('C'), g0 = chain.indexOf('G', c0 + 1);
+  let g1 = g0; while (g0 > 0 && chain[g1] === 'G') g1++;
+  const from = c0 >= 0 && g0 > 0 ? Math.max(0, c0 - 1) : 0, to = from ? g1 : songBars(s);
+  const buf = await renderBars(s, to - from, { sampleRate: 24000, tail: 0.5, startBar: from });
+  const E = loudness([buf.getChannelData(0), buf.getChannelData(1)], buf.sampleRate).blocks.map((x) => 10 ** ((x + 0.691) / 10));
+  const bar = 240 / s.bpm, sec = { C: [], G: [] }, med = (a) => [...a].sort((x, y) => x - y)[a.length >> 1];
+  for (let j = 0; j + 27 <= E.length; j++) {
+    const b0 = from + Math.floor((j * 0.1 - 0.05) / bar), b1 = from + Math.floor((j * 0.1 + 2.95) / bar);
+    if (b0 < from || b1 >= to || !sec[chain[b0]] || [...chain.slice(b0, b1 + 1)].some((x) => x !== chain[b0])) continue;
+    sec[chain[b0]].push(-0.691 + 10 * Math.log10(E.slice(j, j + 27).reduce((a, b) => a + b, 0) / 27));
+  }
+  return med(sec.G) - med(sec.C);
+}
+
 // The song builder's peak section against GENERATE's for the same style and seed (test/loudness.mjs): the two
 // share make-up gain and patterns, so a builder change that runs hotter or quieter shows up here.
 export async function builderWindow(style, seed = WINDOW.seed, bars = 4) {

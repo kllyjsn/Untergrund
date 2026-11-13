@@ -37,10 +37,10 @@
    "window": -9.31
   },
   "deephouse": {
-   "lufs": -9.88,
-   "spread": 1.52,
-   "tp": -2.26,
-   "window": -8.73
+   "lufs": -9.8,
+   "spread": 0.92,
+   "tp": -1.91,
+   "window": -8.63
   },
   "minimal": {
    "lufs": -10.52,
@@ -49,28 +49,28 @@
    "window": -10.26
   },
   "ukg": {
-   "lufs": -9.87,
-   "spread": 2.17,
-   "tp": -1.6,
-   "window": -11.15
+   "lufs": -9.84,
+   "spread": 2.07,
+   "tp": -1.41,
+   "window": -10.52
   },
   "euphoric": {
-   "lufs": -9.96,
-   "spread": 2.56,
-   "tp": -1.54,
-   "window": -8.31
+   "lufs": -9.97,
+   "spread": 2.65,
+   "tp": -1.09,
+   "window": -7.86
   },
   "neosoul": {
-   "lufs": -13.94,
-   "spread": 2.35,
-   "tp": -2.48,
-   "window": -12.83
+   "lufs": -13.1,
+   "spread": 2.24,
+   "tp": -1.93,
+   "window": -11.9
   },
   "boombap": {
-   "lufs": -13.97,
-   "spread": 1.75,
-   "tp": -2.48,
-   "window": -14.63
+   "lufs": -14,
+   "spread": 2.19,
+   "tp": -2.02,
+   "window": -13.79
   },
   "breaks": {
    "lufs": -10.03,
@@ -103,22 +103,22 @@
    "window": -11.75
   },
   "amapiano": {
-   "lufs": -10.07,
-   "spread": 1.51,
-   "tp": -2.11,
-   "window": -8.01
+   "lufs": -10.29,
+   "spread": 1.42,
+   "tp": -1.57,
+   "window": -8.47
   },
   "afrobeats": {
-   "lufs": -9.99,
-   "spread": 0.66,
-   "tp": -1.74,
-   "window": -9.33
+   "lufs": -9.97,
+   "spread": 0.86,
+   "tp": -1.35,
+   "window": -8.77
   },
   "reggaeton": {
-   "lufs": -10.07,
-   "spread": 1.65,
-   "tp": -2.04,
-   "window": -8.84
+   "lufs": -10.12,
+   "spread": 1.91,
+   "tp": -1.48,
+   "window": -8.74
   },
   "bailefunk": {
    "lufs": -9.9,
@@ -127,16 +127,16 @@
    "window": -9.56
   },
   "trap": {
-   "lufs": -9.92,
-   "spread": 1.04,
-   "tp": -1.66,
-   "window": -9.46
+   "lufs": -10.13,
+   "spread": 0.53,
+   "tp": -1.08,
+   "window": -9.11
   },
   "drill": {
-   "lufs": -9.64,
-   "spread": 1.34,
-   "tp": -1.54,
-   "window": -10.59
+   "lufs": -10.26,
+   "spread": 1.53,
+   "tp": -1.28,
+   "window": -10.03
   },
   "jerseyclub": {
    "lufs": -9.9,
@@ -145,10 +145,10 @@
    "window": -9.4
   },
   "hyperpop": {
-   "lufs": -9.76,
-   "spread": 2.12,
-   "tp": -2.01,
-   "window": -7.33
+   "lufs": -9.18,
+   "spread": 2.06,
+   "tp": -1.53,
+   "window": -7.34
   },
   "symphony": {
    "lufs": -15.99,
@@ -175,10 +175,10 @@
    "window": -15.73
   },
   "pop": {
-   "lufs": -10.39,
-   "spread": 2.27,
-   "tp": -2.12,
-   "window": -9.06
+   "lufs": -10.35,
+   "spread": 3.11,
+   "tp": -1.79,
+   "window": -8.48
   },
   "rnb": {
    "lufs": -14,
@@ -187,10 +187,10 @@
    "window": -10.44
   },
   "rock": {
-   "lufs": -9.98,
-   "spread": 0.04,
-   "tp": -2.37,
-   "window": -9.86
+   "lufs": -10.13,
+   "spread": 0.06,
+   "tp": -1.77,
+   "window": -9.65
   },
   "folk": {
    "lufs": -14.06,
@@ -199,10 +199,10 @@
    "window": -12.6
   },
   "country": {
-   "lufs": -10.52,
+   "lufs": -10.21,
    "spread": 1.7,
-   "tp": -2.31,
-   "window": -11.07
+   "tp": -1.82,
+   "window": -10.59
   }
  },
  "seeds": [

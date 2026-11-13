@@ -367,11 +367,11 @@ for (const style of ['deephouse', 'hypnotic']) {
     ['make the chorus hit harder', drops.flat()],
     ['no hats in the last drop', drops[drops.length - 1]],
     ['strip the hats out of the breakdown', labelled(base.chain, kind, ['BREAK', 'BRIDGE']).flat()],
-    ['more tension in the build', labelled(base.chain, kind, ['BUILD']).flat()],
+    ['more tension in the build', labelled(base.chain, kind, ['BUILD', 'PRE-CHORUS']).flat()],
     ['more tension in the last 4 bars', span(n - 4, n - 1)],
     ['sparser hats in bars 33-40', span(32, 39)],
     ['no kick and snare in the intro', labelled(base.chain, kind, ['INTRO']).flat()],
-  ];
+  ].filter(([, want]) => want.length); // song forms without a pre-chorus have no build
   for (const [text, want] of SCOPED) t(`${style}: "${text}" changes only its bars`, () => {
     const r = describe(text, base, { style, seed: 3 });
     assert.ok(r.did.length, `nothing done: ${r.skipped.join(', ')}`);
