@@ -1497,6 +1497,7 @@ function describeBox() {
       play();
     },
     commit: (next) => { adoptState(next); build(); persist(); },
+    highlight: (bars) => timeline.flash(bars),
   });
 }
 
