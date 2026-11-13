@@ -106,13 +106,30 @@ export async function recordMic(maxSec = MAX_SEC, constraints = { echoCancellati
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
     throw Object.assign(new Error('This browser cannot record audio here'), { name: 'NotSupportedError' });
   }
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+  const nativeAudioMode = (recording) => {
+    try { if (navigator.audioSession) navigator.audioSession.type = recording ? 'play-and-record' : 'playback'; } catch {}
+    window.__untergrundNative?.post({ type: 'audioMode', recording });
+  };
+  nativeAudioMode(true);
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+  } catch (error) {
+    nativeAudioMode(false);
+    throw error;
+  }
   const rec = new MediaRecorder(stream);
   const chunks = [];
   rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
   const done = new Promise((resolve, reject) => {
+    rec.onerror = (event) => {
+      stream.getTracks().forEach((t) => t.stop());
+      nativeAudioMode(false);
+      reject(event.error || new Error('Microphone recording failed'));
+    };
     rec.onstop = async () => {
       stream.getTracks().forEach((t) => t.stop());
+      nativeAudioMode(false);
       try {
         const decoded = await new OfflineAudioContext(1, 1, 48000).decodeAudioData(await new Blob(chunks).arrayBuffer());
         const len = Math.min(decoded.length, Math.ceil(maxSec * decoded.sampleRate));
