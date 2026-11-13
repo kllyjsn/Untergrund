@@ -96,3 +96,15 @@ for (const style of ['deephouse', 'neosoul', 'trap']) {
   assert(shape.phraseBars >= 3, `${style} phrases run ${shape.phraseBars} bars`);
 }
 console.log('sung song passed');
+
+// A scoped edit (a take over some bars) that brings its own melody is what those bars sing.
+{
+  const s = buildSong('deephouse', 307), pos = s.chain.indexOf('G'), hk = s.patterns[6].hook;
+  const up = (a) => a.map((x) => [x[0], x[1], x[2] + 24, ...x.slice(3)]);
+  s.patterns[6].at = [{ b: [pos, pos + 7], hook: { ...hk, m: { ...hk.m, n: up(hk.m.n) } } }];
+  const lead = playSong(s).log.filter((L) => L.k === 'hook' && !L.a[9]?.harm && !L.a[9]?.counter);
+  const inTake = lead.filter((L) => { const b = Math.floor(L.step / 16); return b >= pos && b <= pos + 7 && s.chain[b] === 'G'; });
+  const want = new Set(up(hk.m.n).map((x) => x[2]));
+  assert(inTake.length && inTake.every((L) => want.has(L.a[2])), 'a take sings its own melody');
+}
+console.log('scoped melody passed');
