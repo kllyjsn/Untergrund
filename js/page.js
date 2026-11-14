@@ -91,7 +91,7 @@ function trackView(track, artist, { localOnly = false } = {}) {
       by,
       h('div', { class: 'pp-meta' }, line(track)),
       remixOf(track),
-      h('div', { class: 'pp-progress', 'aria-hidden': 'true' }, h('div', { class: 'pp-cells' }, cells), time),
+      h('div', { class: 'pp-progress', 'aria-hidden': 'true' }, h('div', { class: total > 64 ? 'pp-cells dense' : 'pp-cells' }, cells), time),
       h('div', { class: 'pp-actions' }, btn,
         localOnly ? null : h('button', { class: 'pp-share', type: 'button', onclick: shareRelease }, 'Share')),
       h('dl', { class: 'pp-facts' }, fact('Released', date), fact('Length', fmt(secs)), fact('Made in', 'UNTERGRUND')),
