@@ -860,7 +860,7 @@ a.jb-item.artist-song .jb-side { color: var(--accent); }
   .club-part-head span, .club-part-when { font-size: 7px; }
   .club-part-actions .btn { min-height: 30px; padding: 0 3px; font-size: 8px; flex-basis: 40%; }
   .club-dj { width: 240px; top: 21%; transform: translateX(-50%) scale(.8); }
-  .club-ensemble { --ens: .6; top: 19%; width: 100%; height: 200px; }
+  .club-ensemble { --ens: .6; top: 19%; width: 92%; height: 200px; }
   .set-hall .curtain { width: 6%; } .set-barn .bale, .set-arena .amp, .set-lounge .lamp { display: none; }
   .club-now { top: 10px; left: 10px; width: calc(100% - 20px); box-sizing: border-box; padding: 8px 11px; }
   .club-now strong { font-size: 15px; }

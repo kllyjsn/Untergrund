@@ -80,7 +80,7 @@ export function ensembleLayout(sc) {
     let xs;
     if (r === 0) {
       // The front row leaves the middle to the lead (a grand piano and its conductor need room to the right).
-      const edge = big ? 7 : 16, left = Math.ceil(row.length / 2);
+      const edge = big ? 11 : 16, left = Math.ceil(row.length / 2);
       const l = spread(left, edge, piano ? 22 : 34), rt = spread(row.length - left, piano ? 76 : 66, 100 - edge);
       xs = [...(left === 1 ? [piano ? 16 : 24] : l), ...(rt.length === 1 ? [piano ? 84 : 82] : rt)];
     } else if (row.length > 1) xs = spread(row.length, big ? 18 : 30, big ? 82 : 70);
