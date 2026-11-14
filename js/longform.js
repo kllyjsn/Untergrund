@@ -110,11 +110,11 @@ function verseTake(C, G) {
   if (!Object.keys(steps).length) steps.perc = on(C.steps.perc) ? SHAKE() : OFF8();
   return { steps, ...(Object.keys(len).length ? { len } : {}) };
 }
-// A later pre-chorus drives harder (Summach's "increased bass motion"): the chorus's bass line under the build while
-// the kick stays held back for the chorus, and a drum roll in its last bar.
+// A later pre-chorus drives harder: the chorus's kick under its first half, then the kick drops out for the last
+// bars and a drum roll, so the chorus still lands as the kick coming back (Summach 2011; Solberg 2014).
 function driveTake(B, G) {
-  if (!on(G.steps.acid) || G.steps.acid.filter((x) => x?.on).length <= (B.steps.acid || []).filter((x) => x?.on).length) return null;
-  return { steps: { acid: clone(G.steps.acid) }, ...(G.len?.acid ? { len: { acid: G.len.acid } } : {}) };
+  const hits = (row) => (row || []).filter((v) => v && (typeof v !== 'object' || v.on)).length;
+  return hits(G.steps.kick) > hits(B.steps.kick) ? { steps: { kick: clone(G.steps.kick) } } : null;
 }
 // The roll itself.
 function rollTake(B) {
@@ -155,9 +155,8 @@ export function developSong(pats, S) {
     // A 16-bar verse accumulates: its second half brings the new part in.
     if (s.k === 'v' && ++verses > 1) add(C, s.bars >= 16 ? s.at + (s.bars >> 1) : s.at, end(s), verseTake(C, G));
     if (s.k === 'p' && ++pres > 1) {
-      const drive = driveTake(B, G), roll = rollTake(B);
-      add(B, s.at, end(s) - 1, drive);
-      add(B, end(s), end(s), drive || roll ? { ...drive, steps: { ...drive?.steps, ...roll?.steps } } : null);
+      add(B, s.at, s.at + (s.bars >> 1) - 1, driveTake(B, G));
+      add(B, end(s), end(s), rollTake(B));
     }
     if (s.k === 'x') add(G, s.at, end(s), instTake(G));
     if (i === last) {
