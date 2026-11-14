@@ -33,9 +33,20 @@ song state ──js/sing-score.js──▶ untergrund-sing/1 request ──/api/
 ## The client
 
 `js/sing.js` + the SING row in the lyrics view (`js/describe-ui.js`): SING asks `/api/sing`, polls while it sings, and
-decodes the stem. `Engine.vocal()` plays it into the mix bus at every bar (restarting only when playback jumps), so the
-glue compressor, limiter and per-genre loudness targets treat it like any other part. The vocal level (−24…+6 dB around a
-base that sits the stem's −20 dBFS RMS level with the band before the master) and a timing trim (±250 ms) are saved in `state.sing` with the project;
+decodes the stem. `Engine.vocal()` plays it at every bar (restarting only when playback jumps) into the master chain,
+past `Engine.bandDuck`: while it sings (`singingEnvelope()`: 40 ms before a phrase to 200 ms after it, 40 ms attack,
+250 ms release) the band dips `VOCAL_DUCK_DB` (3.5 dB) and the vocal sits `VOCAL_OVER_BAND_DB` (+1 dB) over the ducked
+band. Band plus vocal then carry the band's own power, so a sung song lands on its style's loudness target with no extra
+limiting. `VOCAL_STYLE_DB` (pop 13, R&B 9, folk 5.8 dB, others 10) lifts the stem's −20 dBFS RMS to that balance through
+the master chain; it was measured on the seed-7 songs below:
+
+| Seed-7 song | Mix LUFS-I / true peak, before → after | Instrumental | Vocal vs band while singing, before → after |
+|---|---|---|---|
+| Pop (111 BPM, gwen) | −8.7 / −1.7 → MIXPOP | INSTPOP | −3.8 → VVBPOP dB |
+| R&B (79 BPM, felix) | −9.9 / −1.5 → MIXRNB | INSTRNB | −0.2 → VVBRNB dB |
+| Folk (90 BPM, gwen) | −13.5 / −1.9 → MIXFOLK | INSTFOLK | +2.2 → VVBFOLK dB |
+
+The vocal level (−24…+6 dB around that base) and a timing trim (±250 ms) are saved in `state.sing` with the project;
 the stem is not saved and is fetched again by hash. Offline renders, WAV export, video and EXPORT STEMS (`sung-vocal`)
 all include it.
 

@@ -181,12 +181,40 @@ await t('Engine.vocal: the stem plays from the song position, once across consec
     for (const k of Object.keys(st.mutes)) e.state.mutes[k] = true;
     const q = new Sequencer(e, e.state);
     for (let i = 0, at = 0.05; i < 32; i++) { q.tick(i, at); at += e.stepDur; }
-    const d = (await ctx.startRendering(e.mix)).getChannelData(0);
+    const d = (await ctx.startRendering(e.preMaster)).getChannelData(0);
     return { starts, rms: Math.sqrt(d.reduce((a, x) => a + x * x, 0) / d.length) };
   };
   const off = await run(false), on = await run(true);
   assert.ok(on.rms > off.rms + 0.05, `vocal reaches the mix (${off.rms.toFixed(3)} -> ${on.rms.toFixed(3)})`);
   assert.equal(on.starts - off.starts, 1, 'one source for two consecutive bars');
+});
+
+await t('a sung mix stays on the instrumental\'s loudness: the band dips under the vocal', async () => {
+  const { OfflineAudioContext, installGlobals } = await import('./offline-audio.mjs');
+  installGlobals();
+  const { Engine, Sequencer } = await import('../js/engine.js');
+  const { loudness } = await import('../js/loudness.js');
+  const { VOCAL_OVER_BAND_DB, VOCAL_DUCK_DB } = await import('../js/sing.js');
+  const st = song(SONGS.pop), SR = 16000, bars = 8, sd = 60 / st.bpm / 4, len = Math.ceil((0.05 + bars * 16 * sd + 0.3) * SR);
+  const run = async (vocal) => {
+    const ctx = new OfflineAudioContext(1, len, SR), e = new Engine(ctx, JSON.parse(JSON.stringify(st)), { realtime: false, vocal });
+    const q = new Sequencer(e, e.state);
+    let at = 0.05;
+    for (let i = 0; i < bars * 16; i++) { q.tick(i, at); at += e.stepDur; }
+    e.vocalStop(at);
+    return (await ctx.startRendering(e.preMaster)).getChannelData(0);
+  };
+  const band = await run(null), at0 = Math.round(0.05 * SR);
+  // A mock singer: the band played backwards (its spectrum, uncorrelated with it) in 2.5 s phrases with 1.5 s breaths.
+  const gate = (x) => x % (4 * SR) < 2.5 * SR, stem = new AudioBuffer(1, len, SR), d = stem.getChannelData(0);
+  let pv = 0, pb = 0;
+  for (let x = 0; x + at0 < len; x++) if (gate(x)) { d[x] = band[len - 1 - x]; pv += d[x] * d[x]; pb += band[x + at0] ** 2; }
+  const duck = 10 ** (-VOCAL_DUCK_DB / 20), gain = duck * 10 ** (VOCAL_OVER_BAND_DB / 20) * Math.sqrt(pb / pv);
+  const lu = (x) => loudness([x], SR).integrated, inst = lu(band);
+  const sung = lu(await run((s) => (s?.bpm ? { buf: stem, gain, duck, ms: 0 } : null)));
+  const hot = lu(await run((s) => (s?.bpm ? { buf: stem, gain, duck: 1, ms: 0 } : null)));
+  assert.ok(Math.abs(sung - inst) < 0.5, `sung ${sung.toFixed(2)} vs instrumental ${inst.toFixed(2)} LUFS`);
+  assert.ok(hot - inst > 1, `without the dip the vocal would add ${(hot - inst).toFixed(2)} LU`);
 });
 
 console.log(`sing-score: ${n} checks passed`);

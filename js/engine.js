@@ -115,6 +115,24 @@ const BAND_PLAY = {
 BAND_PLAY.twang = { ...BAND_PLAY.gtr, gain: 3, len: 1.4, min: 0.25, softBelow: 0, lo: 52, hi: 84, lp: 6800, grip: false, even: 0.4, rel: 0.12, oct: 0, slap: true };
 // The rock band's riff guitar: the rhythm amp, double-stops up the neck.
 BAND_PLAY.lead = { ...BAND_PLAY.drive, lo: 45, hi: 79, grip: false, even: 0.4, gain: 2.2, lp: 4400, soft: 1600, vib: 8, rel: 0.16, oct: -1, dyad: true };
+// The singing envelope of a vocal stem, ENV_RATE frames a second: 1 while it sings (from 40 ms before a phrase to 200 ms
+// after it), 0 in its rests, smoothed (40 ms attack, 250 ms release). Engine.duckUnder() dips the band by it.
+export const ENV_RATE = 50;
+const envelopes = new WeakMap();
+export function singingEnvelope(buf) {
+  let env = envelopes.get(buf);
+  if (env) return env;
+  const d = buf.getChannelData(0), w = Math.round(buf.sampleRate / ENV_RATE), n = Math.ceil(d.length / w), rms = new Float32Array(n);
+  for (let k = 0; k < n; k++) { let e = 0; const end = Math.min(d.length, (k + 1) * w); for (let j = k * w; j < end; j++) e += d[j] * d[j]; rms[k] = Math.sqrt(e / w); }
+  const floor = Math.max(1e-4, rms.reduce((a, x) => Math.max(a, x), 0) * 0.03), on = new Uint8Array(n);
+  for (let k = 0; k < n; k++) if (rms[k] > floor) for (let j = Math.max(0, k - 2); j <= Math.min(n - 1, k + 10); j++) on[j] = 1;
+  env = new Float32Array(n);
+  const up = 1 - Math.exp(-1 / (0.04 * ENV_RATE)), down = 1 - Math.exp(-1 / (0.25 * ENV_RATE));
+  for (let k = 0, y = 0; k < n; k++) { y += (on[k] - y) * (on[k] > y ? up : down); env[k] = y; }
+  envelopes.set(buf, env);
+  return env;
+}
+
 const LIM_TRIM = 1.4;
 // The clipper rounds overs up to +6 dB over full scale instead of flat-topping them (see clipCurve).
 const CLIP_HEADROOM = 2;
@@ -197,12 +215,16 @@ export class Engine {
     this.out = this.gain(OUT_TRIM);
     // Song sections (Sequencer.sectionLevel) after the clipper, so the limiter and clipper see the same signal.
     this.secGain = this.gain(1);
-    this.mix.connect(this.djHP).connect(this.djLP).connect(this.arrLP).connect(this.glue).connect(this.satIn).connect(this.sat)
+    // While the neural singer sings, the band dips under it (bandDuck) so the sung mix stays on the loudness target.
+    this.bandDuck = this.gain(1);
+    this.preMaster = this.gain(1);
+    this.mix.connect(this.bandDuck).connect(this.preMaster);
+    this.preMaster.connect(this.djHP).connect(this.djLP).connect(this.arrLP).connect(this.glue).connect(this.satIn).connect(this.sat)
       .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.clip).connect(this.secGain).connect(this.out);
     this.out.connect(c.destination);
-    // The neural singer's stem (vocal(), js/sing.js): into the mix bus, so the master chain's loudness targets hold.
+    // The neural singer's stem (vocal(), js/sing.js): past the band's duck, into the master chain.
     this.vocalBus = this.gain(0);
-    this.vocalBus.connect(this.mix);
+    this.vocalBus.connect(this.preMaster);
     if (this.realtime) {
       this.analyser = c.createAnalyser();
       this.analyser.fftSize = 4096;
@@ -1798,12 +1820,27 @@ export class Engine {
     this.vocalBus.gain.setValueAtTime(v.gain, t);
     if (off < 0) src.start(t - off); else src.start(t, off);
     this.vocalNow = { src, g, buf: v.buf, next: pos + 1, sd: this.stepDur, ms: v.ms };
+    if (v.duck < 1) this.duckUnder(v.buf, v.duck, t, t - off);
+  }
+
+  // The band's gain follows the stem's singing envelope down to `depth`; t0 is when the stem's first sample plays.
+  duckUnder(buf, depth, t, t0) {
+    const env = singingEnvelope(buf), p = this.bandDuck.gain, start = Math.max(t, t0) + 0.02;
+    const i = Math.ceil((start - t0) * ENV_RATE), n = env.length - i;
+    if (n < 2) return;
+    const curve = new Float32Array(n);
+    for (let k = 0; k < n; k++) curve[k] = 1 - env[i + k] * (1 - depth);
+    p.setTargetAtTime(curve[0], t, 0.01);
+    p.setValueCurveAtTime(curve, t0 + i / ENV_RATE, (n - 1) / ENV_RATE);
   }
 
   vocalStop(t = this.ctx.currentTime) {
     const cur = this.vocalNow;
     if (!cur) return;
     this.vocalNow = null;
+    const p = this.bandDuck.gain;
+    if (p.cancelAndHoldAtTime) p.cancelAndHoldAtTime(t); else p.cancelScheduledValues(t);
+    p.setTargetAtTime(1, t, 0.08);
     cur.g.gain.cancelScheduledValues(t);
     cur.g.gain.setTargetAtTime(0, t, 0.008);
     try { cur.src.stop(t + 0.06); } catch { /* not started */ }

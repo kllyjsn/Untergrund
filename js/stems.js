@@ -11,7 +11,7 @@ import { loadPiece } from './repertoire.js';
 import { capture, songBars, parseKeyName, PARTS } from './midi.js';
 import { PIECE } from './repertoire.js';
 import { ZipWriter } from './zip.js';
-import { vocalStem } from './sing.js';
+import { vocalStem, VOCAL_DUCK_DB } from './sing.js';
 
 export const STEM_NAMES = {
   kick: 'kick', clap: 'clap', snare: 'snare', ch: 'hats', oh: 'open-hat', ride: 'ride', perc: 'perc',
@@ -35,7 +35,7 @@ export function stemList(state, loopBars = 16) {
   return [...ids.filter((id) => c.notes[id]?.length), ...(vocalStem(state) ? ['sung'] : []), 'fx'];
 }
 
-// Re-routes everything that would reach engine.mix / engine.duck into per-stem sums on its own channel pair.
+// Re-routes everything that would reach engine.mix / engine.duck / engine.preMaster into per-stem sums on its own channel pair.
 // prebus: no stems, just the mix bus straight out (the reference the stems sum to).
 export function router(want, { prebus = false } = {}) {
   const proto = AudioNode.prototype, orig = proto.connect;
@@ -61,7 +61,7 @@ export function router(want, { prebus = false } = {}) {
       ctx = c;
       proto.connect = function (dst, ...a) {
         if (this.context === ctx) {
-          if (E && !prebus && (dst === E.mix || dst === E.duck)) return route(this, dst);
+          if (E && !prebus && (dst === E.mix || dst === E.duck || dst === E.preMaster)) return route(this, dst);
           if (!E) conns.push([this, dst]);
         }
         return orig.call(this, dst, ...a);
@@ -70,7 +70,7 @@ export function router(want, { prebus = false } = {}) {
     onEngine(engine) {
       E = engine;
       E.mix.disconnect();
-      if (prebus) { orig.call(E.mix, ctx.destination); restore(); return; }
+      if (prebus) { orig.call(E.mix, ctx.destination); E.vocalBus.disconnect(); orig.call(E.vocalBus, ctx.destination); restore(); return; }
       const dest = ctx.destination, merge = ctx.createChannelMerger(want.length * 2);
       dest.channelCount = want.length * 2; dest.channelCountMode = 'explicit'; dest.channelInterpretation = 'discrete';
       orig.call(merge, dest);
@@ -82,7 +82,7 @@ export function router(want, { prebus = false } = {}) {
       });
       for (const id of TRACK_IDS) owner.set(E.ch[id].pan, id);
       owner.set(E.vocalBus, 'sung');
-      for (const [src, dst] of conns) if (dst === E.mix || dst === E.duck) { src.disconnect(dst); route(src, dst); }
+      for (const [src, dst] of conns) if (dst === E.mix || dst === E.duck || dst === E.preMaster) { src.disconnect(dst); route(src, dst); }
       // The hook plays through a copy of the CHORDS channel (same level, pan and sends) so it gets its own stem.
       const S = E.ch.stab, g = (v = 1) => { const n = ctx.createGain(); n.gain.value = v; return n; };
       const hc = { input: g(), level: g(S.level.gain.value), pan: ctx.createStereoPanner(), rev: g(S.rev.gain.value), dly: g(S.dly.gain.value), band: g() };
@@ -180,7 +180,7 @@ Each instrument stem is dry plus its own channel processing; reverb, delay, room
 arrangement FX (risers, impacts, vinyl dust) are in the fx-returns stem. Recorded live-kit pieces are
 in the stem of the drum they play (kick.wav holds the recorded kick when the live kit is on).
 Notes come in a separate EXPORT MIDI file from the same FILE menu.
-${r.sungDb ? `sung-vocal.wav is printed ${(-r.sungDb).toFixed(1)} dB under its mix level so it does not clip: raise it ${(-r.sungDb).toFixed(1)} dB to rebuild the mix.\n` : ''}
+${r.stems.some((x) => x.id === 'sung') ? `The other stems are printed without the ${VOCAL_DUCK_DB.toFixed(1)} dB dip the band takes while the sung vocal sings: duck them under sung-vocal.wav to rebuild the mix.\n` : ''}${r.sungDb ? `sung-vocal.wav is printed ${(-r.sungDb).toFixed(1)} dB under its mix level so it does not clip: raise it ${(-r.sungDb).toFixed(1)} dB to rebuild the mix.\n` : ''}
 ${r.stems.map((x, i) => `${String(i + 1).padStart(2, '0')}-${x.name}.wav`).join('\n')}
 `;
 

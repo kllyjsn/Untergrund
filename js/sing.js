@@ -3,9 +3,15 @@
 // Stems live in memory only, keyed by the score they sing: change the melody, lyrics, tempo or voice and the old one stops.
 import { singScore } from './sing-score.js';
 
-// The stem arrives at -20 dBFS RMS on its sung notes (singer/singer.py); +10 dB sits it level with the band before the
-// master (measured after it: pop about 4 dB under, R&B and folk level), and the master chain's limiter keeps the peaks.
+// While it sings, the vocal sits VOCAL_OVER_BAND_DB over the band and the band dips VOCAL_DUCK_DB under it, so band plus
+// vocal carry the band's own power: the sung mix lands on the style's loudness target with no extra limiting.
+export const VOCAL_OVER_BAND_DB = 1;
+export const VOCAL_DUCK_DB = 10 * Math.log10(1 + 10 ** (VOCAL_OVER_BAND_DB / 10));
+// The stem arrives at -20 dBFS RMS on its sung notes (singer/singer.py). These lift it to VOCAL_OVER_BAND_DB over the
+// ducked band per style (measured through the master chain on the seed-7 songs in docs/singer.md); others get the base.
 export const VOCAL_BASE_DB = 10;
+export const VOCAL_STYLE_DB = { pop: 13, rnb: 9, folk: 5.8 };
+export const vocalDb = (state) => (VOCAL_STYLE_DB[state?.artist?.style] ?? VOCAL_BASE_DB) + (state?.sing?.db || 0);
 const STEM_HOSTS = /\.public\.blob\.vercel-storage\.com$/;
 const stems = new Map();
 let probe = null, memo = { sig: null, key: null };
@@ -26,7 +32,7 @@ export const hasStem = (state) => stems.has(stemKey(state));
 export function vocalStem(state) {
   if (!state?.sing?.on || !stems.size) return null;
   const buf = stems.get(stemKey(state));
-  return buf ? { buf, gain: 10 ** ((VOCAL_BASE_DB + (state.sing.db || 0)) / 20), ms: state.sing.ms || 0 } : null;
+  return buf ? { buf, gain: 10 ** (vocalDb(state) / 20), duck: 10 ** (-VOCAL_DUCK_DB / 20), ms: state.sing.ms || 0 } : null;
 }
 
 const wait = (ms, signal) => new Promise((ok, no) => { const t = setTimeout(ok, ms); signal?.addEventListener('abort', () => { clearTimeout(t); no(new DOMException('cancelled', 'AbortError')); }); });
