@@ -122,6 +122,28 @@ the same singing envelope as the band duck and rests at 0 dB.
 | R&B | 90 Hz | +2 dB @ 3.2 kHz | 6 kHz, ≤ 8 dB | −7 dB, 2.5:1 | plate 2.4 s, 0.20 | dotted 1/8, fb 0.3, 0.12 | −3 dB @ 2.8 kHz |
 | Folk | 85 Hz | +1.5 dB @ 3 kHz | 6.5 kHz, ≤ 6 dB | −5 dB, 2:1 | room, 0.35 | 1/16 slap, fb 0.08, 0.09 | −2.5 dB @ 3 kHz |
 
+## Before and after (seed 7, #146 melodies and lyrics)
+
+Before is #137 (stock `runtime.sing()`, no chain or carve, gwen / felix / gwen). After is this expression, the vocal
+chain, the carve and the voice defaults above. Both sang the same songs through `/api/sing` on the local CPU singer and
+mixed them with `renderBars`. Stem metrics come from `singer/evaluate.py` on the raw stem. Phrase start is the first voiced, loud
+10 ms frame minus the phrase's first note, so consonants that `lead` moves ahead of the beat don't count as early.
+Vocal vs band is mix − band rendered with the vocal at −300 dB, over frames where the vocal sings.
+
+| Song | Voice | Mix LUFS-I / TP | Instrumental | Vocal vs band | Pitch error / wobble | HNR | Centroid | Phrase start: signed median, \|x\| median, p90 |
+|---|---|---|---|---|---|---|---|---|
+| Pop, before | gwen | −9.4 / −1.8 | −9.2 / −1.7 | +0.2 dB | 12 c / 26 c | 14.8 dB | 1749 Hz | +50, 50, 134 ms |
+| Pop, after | gwen | −9.2 / −1.8 | −9.2 / −1.7 | +0.8 dB | 17 c / 27 c | 14.2 dB | 1832 Hz | +3, 3, 9 ms |
+| R&B, before | felix | −11.3 / −1.9 | −11.2 / −1.9 | +1.5 dB | 22 c / 18 c | 14.5 dB | 1307 Hz | +22, 38, 65 ms |
+| R&B, after | rex | −11.2 / −1.9 | −11.2 / −1.9 | +1.8 dB | 15 c / 19 c | 16.5 dB | 1535 Hz | +1, 2, 8 ms |
+| Folk, before | gwen | −14.9 / −1.9 | −14.7 / −1.9 | +1.4 dB | 9 c / 15 c | 15.3 dB | 1705 Hz | +30, 32, 114 ms |
+| Folk, after | ariadne | −15.0 / −1.9 | −14.7 / −1.9 | +1.3 dB | 7 c / 13 c | 17.5 dB | 1498 Hz | −3, 3, 9 ms |
+
+R&B's early landing came from its consonants. Measured on any onset energy rather than on voicing, its phrases started
+19 ms early before and 1 ms early after. Pop's pitch error is up because scoops, glides and vibrato move away from the
+written pitch on purpose. One R&B phrase start wasn't detected after (9 of 10). None of the mixes clipped. Nobody has
+listened to these renders, so the numbers say nothing about how natural the voice sounds.
+
 ## `/api/sing` (Vercel)
 
 Served by `api/describe.js` (`vercel.json` rewrite, no extra function); logic in `api/_lib/sing.js`.
