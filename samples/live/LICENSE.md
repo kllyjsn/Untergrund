@@ -60,6 +60,20 @@ Stored as lossless FLAC (bit-identical PCM to the original 16-bit WAVs). Drum fi
 | `agtr_69.flac` | `acoustic/a4_vl3_rr1_1.wav` | 69 |
 | `agtr_72.flac` | `acoustic/c5_vl3_rr1_1.wav` | 72 |
 
+## Guitar takes: round robins and staccato mutes
+
+Same sources, commits and processing as the guitar rows above (`scripts/fetch-band.py --takes`). Each take is
+level-matched to the take it alternates with (RMS over the first second; staccato over its first 150 ms against
+`gtr_*`). Key centers are the MIDI notes of `gtr_*` / `agtr_*`.
+
+| Files | Source | Samples used |
+| --- | --- | --- |
+| `gtrb_40.flac` … `gtrb_72.flac` (12), second take of `gtr_*` | karoryfer.black-and-green-guitars, CC0 1.0 Universal | `Samples/black/ord/twang_{e3,gb3,a3,c4,eb4,gb4,a4,c5,eb5,gb5,a5,c6}_mf_rr2.wav` |
+| `gtrsoftb_40.flac` … `gtrsoftb_72.flac` (12), second take of `gtrsoft_*` | same | `Samples/black/ord/twang_{…}_p_rr2.wav` |
+| `gtrmute_40.flac` … `gtrmute_72.flac` (12), staccato (palm-mute chug) | same | `Samples/black/stac/staccato_{e3,gb3,a3,c4,eb4,gb4,a4,c5,eb5,gb5,a5,c6}_rr1.wav` |
+| `gtrmuteb_40.flac` … `gtrmuteb_72.flac` (12) | same | `Samples/black/stac/staccato_{…}_rr2.wav` |
+| `agtrb_40.flac` … `agtrb_72.flac` (12), second take of `agtr_*` | karoryfer.shinyguitar, CC0 1.0 Universal | `Samples/acoustic/{e2,gb2,a2,c3,eb3,gb3,a3,c4,eb4,gb4,a4,c5}_vl3_rr2_1.wav` |
+
 ## Karoryfer Black And Blue Basses, Dark Black (fingered electric bass guitar; the E.BASS voice)
 
 - Source: https://github.com/sfzinstruments/karoryfer.black-and-blue-basses @ `6e7d674cdb41be7a54dbccb15472401ad01099b9`
