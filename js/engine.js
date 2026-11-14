@@ -731,13 +731,12 @@ export class Engine {
   // `lift` brings the softly recorded cymbals up to sit over a drum machine in HYBRID.
   sampledHit(kit, id, t, v, lift = 1) {
     const all = (this.rr = (this.rr || 0) + 1), rrs = (this.rrs ||= {});
-    const rr = (rrs[id] = (rrs[id] || 0) + 1);
     const drift = 1 + (hash(all, 7) - 0.5) * 0.012;
     // Four takes round-robin the way a sampler does it: a random one, never the take just played.
     const take = (key, n) => { const last = rrs[key], k = last == null ? Math.floor(hash(all, 11) * n) : (last + 1 + Math.floor(hash(all, 11) * (n - 1))) % n; rrs[key] = k; return k + 1; };
     if (id === 'kick') {
       const layer = v > 0.82 ? 4 : v > 0.62 ? 3 : 2;
-      this.liveHit(kit, `kick_v${layer}_${layer === 3 ? (rr % 2) + 1 : take(`kick${layer}`, 4)}`, 'kick', t, 0.95 * v ** 1.2, drift);
+      this.liveHit(kit, `kick_v${layer}_${take(`kick${layer}`, layer === 3 ? 2 : 4)}`, 'kick', t, 0.95 * v ** 1.2, drift);
       this.duckAt(t, v * 0.7);
       return true;
     }
@@ -745,7 +744,7 @@ export class Engine {
       // Center hits only: a rimshot dropped onto random loud backbeats clanks like a cross-stick.
       // Each velocity band alternates two adjacent recorded layers (the kit has no snare round robins); ghosts get the lightest stroke.
       const pair = v > 0.85 ? [34, 33] : v > 0.65 ? [24, 23] : v > 0.45 ? [14, 13] : v > 0.25 ? [6, 5] : [2, 5];
-      const name = `snare_v${pair[rr % 2]}`;
+      const name = `snare_v${pair[take(`snare${pair[0]}`, 2) - 1]}`;
       this.liveHit(kit, name, 'snare', t, 0.85 * v ** 1.4, drift);
       return true;
     }
@@ -757,12 +756,12 @@ export class Engine {
       return true;
     }
     if (id === 'oh') {
-      this.liveHit(kit, (v > 0.7 ? 'hh_open' : 'hh_half') + (rr % 2 ? '_2' : ''), 'oh', t, 0.3 * lift * v, drift, 0.15 + this.state.params.oh.decay * 0.9);
+      this.liveHit(kit, (v > 0.7 ? 'hh_open' : 'hh_half') + (take(v > 0.7 ? 'open' : 'half', 2) === 2 ? '_2' : ''), 'oh', t, 0.3 * lift * v, drift, 0.15 + this.state.params.oh.decay * 0.9);
       return true;
     }
     if (id === 'ride') {
       const layer = v > 0.85 ? 3 : v > 0.55 ? 2 : 1;
-      const name = layer === 2 ? `ride_v2_${(rr % 2) + 1}` : `ride_v${layer}_1`;
+      const name = layer === 2 ? `ride_v2_${take('ride2', 2)}` : `ride_v${layer}_1`;
       this.liveHit(kit, name, 'ride', t, 0.3 * lift * v ** 1.3, drift);
       return true;
     }
@@ -1199,7 +1198,7 @@ export class Engine {
         const len = R.grip && !chord ? Math.min(ring, 0.9) : ring;
         const h = this.recordedNote(set, at, lvl, m + R.shift + cents, len, o, d ? 0 : tone, kind, v);
         if (R.grip && h) { h.m = m; h.at = at; h.end = at + len; (this.gripHeld ||= []).push(h); }
-        if (pedal && h) pedal.push(h);
+        if (pedal && h) { h.end ??= at + len; pedal.push(h); }
       });
     });
     if (hand?.play === 'chop') this.scratch(kind, base, t, v, grip.slice(-3), gap, outs, pk);
@@ -1323,7 +1322,7 @@ export class Engine {
     if (key !== this.pedalKey) {
       for (const h of this.pedalHeld || []) { h.g.gain.cancelScheduledValues(t); h.g.gain.setTargetAtTime(0, t, 0.03); }
       this.pedalHeld = []; this.pedalKey = key;
-    }
+    } else if (this.pedalHeld) this.pedalHeld = this.pedalHeld.filter((h) => h.end > t);
     return (this.pedalHeld ||= []);
   }
 
