@@ -135,10 +135,20 @@ const BAND_PLAY = {
   // The green Gretsch hollow-body: bright, snappy, open chords that ring for country and rockabilly.
   gretsch: { gain: 4.2, len: 2.6, min: 0.6, softBelow: 0, strum: 0.006, shift: 0, lo: 40, hi: 74, lp: 4600, peak: [3400, 1.2, -4], soft: 1100, fade: 0.008, rel: 0.18, grip: true, even: 0.3 },
 };
-// Country lead: the same guitar clean and bright off the bridge pickup, single notes with a slapback.
-BAND_PLAY.twang = { ...BAND_PLAY.gtr, gain: 3, len: 1.4, min: 0.25, softBelow: 0, lo: 52, hi: 84, lp: 6800, grip: false, even: 0.4, rel: 0.12, oct: 0, slap: true };
+// Country lead: a Fender clean off the bridge pickup through a small tube combo (teleFor), single notes with a slapback,
+// bends into the long notes and vibrato on the held ones.
+BAND_PLAY.twang = { set: 'tele', gain: 3, len: 1.6, min: 0.3, strum: 0, shift: 0, lo: 52, hi: 74, lp: 4000, fade: 0.004, rel: 0.15, grip: false, even: 0.4, oct: -1, slap: true, tele: true, vib: 18 };
+// Its answer: a diatonic harmonica in C breathing held notes.
+BAND_PLAY.hca = { gain: 1.7, len: 1.2, min: 0.3, strum: 0, shift: 0, lo: 55, hi: 84, lp: 5200, fade: 0.03, rel: 0.12, even: 0.5, oct: -1, hold: true };
 // The rock band's riff guitar: the rhythm amp, double-stops up the neck.
 BAND_PLAY.lead = { ...BAND_PLAY.drive, lo: 45, hi: 79, grip: false, even: 0.4, gain: 2.2, lp: 4400, soft: 1600, vib: 8, rel: 0.16, oct: -1, dyad: true };
+// The country lead amp's tube stage: a gentle tanh, biased so it adds even harmonics, normalised to +-1.
+const TELE_CURVE = (() => {
+  const n = 2048, c = new Float32Array(n), d = 1.8, b = 0.08, o = Math.tanh(d * b), top = Math.tanh(d * (1 + b)) - o;
+  for (let i = 0; i < n; i++) c[i] = (Math.tanh(d * ((i / (n - 1)) * 2 - 1 + b)) - o) / top;
+  return c;
+})();
+const TELE_OUT = 1.3;
 const LIM_TRIM = 1.4;
 // The clipper rounds overs up to +6 dB over full scale instead of flat-topping them (see clipCurve).
 const CLIP_HEADROOM = 2;
@@ -619,6 +629,8 @@ export class Engine {
       g.gain.linearRampToValueAtTime(level, t + 0.04);
     }
     node.connect(g).connect(out);
+    // A bent note: the string is pushed up from below and lands on the pitch.
+    if (fx.bend) { s.detune.setValueAtTime(-100 * fx.bend, t); s.detune.setTargetAtTime(0, t + 0.015, 0.045); }
     // A held lead note: vibrato that the player leans into after the pick attack.
     if (fx.vib && dur > 0.2) {
       const lfo = this.ctx.createOscillator(), depth = this.gain(0);
@@ -1255,7 +1267,7 @@ export class Engine {
 
   // Kept in the register the instrument was played in; every note lands a little differently and softer
   // notes are darker, the way hammers and plectrums behave. Released through a damper, not a gate.
-  recordedNote(set, t, level, m, dur, out, tone = 0, kind = null, vel = 1) {
+  recordedNote(set, t, level, m, dur, out, tone = 0, kind = null, vel = 1, bend = 0) {
     const R = BAND_PLAY[kind];
     if (R) { while (m > R.hi + 0.5) m -= 12; while (m < R.lo - 0.5) m += 12; }
     if (out === this.ch.stab.input) out = this.ch.stab.band;
@@ -1273,7 +1285,7 @@ export class Engine {
       if (n % 2) [c, buf] = alt[i];
     }
     return this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
-      shelves: [[3000, tone]], peaks: R?.peak ? [R.peak] : [], lp: R ? R.lp * (0.4 + 0.6 * hv) : 0, lpFrom: R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
+      shelves: [[3000, tone]], peaks: R?.peak ? [R.peak] : [], lp: R ? R.lp * (0.4 + 0.6 * hv) : 0, lpFrom: R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0, bend,
     });
   }
   // A guitar amp for the DRIVE GTR: tightened lows into an asymmetric tube-style clipper, then a 4x12 cab
@@ -1287,6 +1299,26 @@ export class Engine {
     inp.connect(dest);
     inp.connect(this.filter('highpass', 350, 0.7)).connect(this.filter('lowpass', 3500, 0.7)).connect(d).connect(g).connect(dest);
     slaps.set(dest, inp);
+    return inp;
+  }
+
+  // The country lead's amp: a small clean tube combo. A gentle tube stage and a leveling compressor into a 1x12:
+  // body and a little low-mid, the bridge pickup's 2-3 kHz zing and the 7 kHz fizz tamed,
+  // a steep roll-off above 4.2 kHz.
+  teleFor(dest) {
+    const amps = (this.teles ||= new Map());
+    if (amps.has(dest)) return amps.get(dest);
+    const inp = this.gain(1), sh = this.ctx.createWaveShaper(), comp = this.ctx.createDynamicsCompressor();
+    sh.curve = TELE_CURVE; sh.oversample = '4x';
+    comp.threshold.value = -22; comp.knee.value = 6; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.14;
+    let node = inp.connect(this.filter('lowpass', 2600, 0.6)).connect(this.gain(0.5)).connect(sh).connect(comp);
+    for (const [type, f, q, db] of [['highpass', 90, 0.7], ['peaking', 180, 0.8, 2], ['peaking', 800, 0.9, 1.5], ['peaking', 2000, 1, -7], ['peaking', 2900, 0.8, -5], ['peaking', 7000, 1, -6], ['lowpass', 3800, 0.54], ['lowpass', 3800, 1.31]]) {
+      const f2 = this.filter(type, f, q);
+      if (db) f2.gain.value = db;
+      node = node.connect(f2);
+    }
+    node.connect(this.gain(TELE_OUT)).connect(dest);
+    amps.set(dest, inp);
     return inp;
   }
 
@@ -1524,23 +1556,29 @@ export class Engine {
     voice = { saw: 'analog', sq: 'pulse', flute: 'reed', bell: 'mallet', pluck: 'warm' }[voice] || voice;
     const warmth = expression.warmth ?? 0.5;
     // Genres on a recorded instrument let that player take the melody too; synth-pop leads stay synths.
-    const twang = pocketOf(this.state.master)?.walk && this.rec('gtr');
-    const band = twang ? 'gtr' : voice !== 'pulse' && STAB_BAND[Math.round(p.voice)], set = band && this.rec(band);
+    // Country's harmony and counter lines, and the melody in the intro and bridge, go to the harmonica; the rest to the Telecaster.
+    const walk = pocketOf(this.state.master)?.walk, harp = walk && (expression.harp || expression.harm || expression.counter) && this.rec('hca');
+    const twang = walk && !harp && this.rec('tele');
+    const band = harp ? 'hca' : twang ? 'tele' : voice !== 'pulse' && STAB_BAND[Math.round(p.voice)], set = band && this.rec(band);
     if (set) {
-      const kind = twang ? 'twang' : Math.round(p.voice) === 11 ? 'lead' : band, R = BAND_PLAY[kind], ring = R.hold ? dur * 1.05 : Math.max(R.min * 0.6, dur * 1.5);
+      const kind = harp ? 'hca' : twang ? 'twang' : Math.round(p.voice) === 11 ? 'lead' : band, R = BAND_PLAY[kind], ring = R.hold ? dur * 1.05 : Math.max(R.min * 0.6, dur * 1.5);
       let dest = this.hookBus || this.ch.stab.input;
       if (R.amp) dest = this.ampFor(dest === this.ch.stab.input ? this.ch.stab.band : dest, R.lead);
-      if (R.slap) {
-        dest = this.slapFor(dest);
-        // A country double-stop: a sixth under the melody on the strong notes.
-        const m6 = 60 + k + (oct + R.oct) * 12 + n, scale = SCALES[this.state.scale]?.notes || SCALES.major.notes;
-        const lo = scale.includes((((m6 - 9 - 60 - k) % 12) + 12) % 12) ? m6 - 9 : m6 - 8;
-        if (strong && lo >= R.lo) this.recordedNote(set, t + 0.006, Math.min(1.3, v) * R.gain * 0.36, lo, ring, dest, 0, kind, v / 1.3);
-      }
       const m = 60 + k + (oct + (R.oct || 0)) * 12 + n, g = Math.min(1.3, v) * R.gain * 0.6;
+      const scale = SCALES[this.state.scale]?.notes || SCALES.major.notes, inKey = (x) => scale.includes((((x - 60 - k) % 12) + 12) % 12);
+      let bend = 0;
+      if (R.slap) {
+        if (R.tele) dest = this.teleFor(dest === this.ch.stab.input ? this.ch.stab.band : dest);
+        dest = this.slapFor(dest);
+        // A country double-stop: now and then a sixth under a long strong note.
+        const lo = inKey(m - 9) ? m - 9 : m - 8;
+        if (strong && dur >= 0.3 && hash(t, 41) < 0.4 && lo >= R.lo) this.recordedNote(set, t + 0.006, g * 0.6, lo, ring, dest, 0, kind, v / 1.3);
+        // Half the long strong notes are bent up into, from the scale tone below.
+        if (R.tele && strong && dur >= 0.3 && hash(t * 5, 42) < 0.5) bend = inKey(m - 2) ? 2 : 1;
+      }
       // A rock riff is a double-stop: the melody note with its fifth underneath, through the rhythm amp.
       if (R.dyad && m - 5 >= R.lo) this.recordedNote(set, t + 0.004, g * 0.7, m - 5, ring, dest, 0, kind, v / 1.3);
-      return this.recordedNote(set, t, g, m, ring, dest, 0, kind, v / 1.3);
+      return this.recordedNote(set, t, g, m, ring, dest, 0, kind, v / 1.3, bend);
     }
     const f = midiHz(60 + k + oct * 12 + n), L = leadPreset(voice, pocketOf(this.state.master)?.name);
     const hdb = this.soulBand() ? 0 : HOOK_TRIM_DB[voice] || 0;
@@ -2202,7 +2240,7 @@ export class Sequencer {
         const lean = (answer ? 0.006 : -0.003) * x.feel + (hash(hi, 97) - 0.5) * 0.008 * x.feel;
         const resolve = hm > 1 && answer && ph === 1 && !hk.s.slice(hi + 1).some(Boolean);
         const strong = !hk.h && (hi % 4 === 0 || st[1] >= 2), ht = tt + lean + (s.master.humanize || 0) * 0.008;
-        e.hook(ht, Math.min(1, st[2] * phraseVel), st[0] + lift, st[1] * sd, hk.v, hk.o, strong, b, !hk.h && resolve, x);
+        e.hook(ht, Math.min(1, st[2] * phraseVel), st[0] + lift, st[1] * sd, hk.v, hk.o, strong, b, !hk.h && resolve, [0, 4, 5].includes(this.cur) ? { ...x, harp: 1 } : x);
         // At the peak a second player doubles the answer's held notes a third below.
         if (this.cur === 6 && answer && hm > 1 && st[1] >= 3 && !hk.h && this.songBars) e.hook(ht + 0.004, Math.min(1, st[2] * phraseVel) * 0.55, stepDeg(st[0], -2, scale) + lift, st[1] * sd, hk.v, hk.o, strong, b, false, { ...x, harm: 1 });
       }
@@ -2341,7 +2379,7 @@ export class Sequencer {
       const sec = o.q === 'v' ? (s.patterns[this.cur]?.sec ? 1.15 : 0.82) : o.q === 'b' ? 0.6 : 1, strong = strongNote(start, dur);
       const ht = t + (hash(start, 97) - 0.5) * 0.008 * x.feel + (s.master.humanize || 0) * 0.008;
       const b = 0.58 + 0.42 * ((((bar % 8) + 8) % 8) / 7), v = Math.min(1, vel * sec) * (SUNG_VOICE[hk.v] ?? 1);
-      e.hook(ht, v, semi + lift, dur * sd, hk.v, hk.o, strong, b, false, x);
+      e.hook(ht, v, semi + lift, dur * sd, hk.v, hk.o, strong, b, false, [0, 4, 5].includes(this.cur) ? { ...x, harp: 1 } : x);
       if (this.cur === 6 && o.q === 'n' && ph % 2 === 1 && dur >= 6 && this.songBars) e.hook(ht + 0.004, v * 0.55, stepDeg(semi, -2, scale) + lift, dur * sd, hk.v, hk.o, strong, b, false, { ...x, harm: 1 });
     }
   }

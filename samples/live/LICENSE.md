@@ -152,3 +152,13 @@ principal pitch read from each drum's 1 : 1.5 : 2 partial series.
 | `harp_47.flac` … `harp_91.flac` (9) | VSCO-2-CE | `Strings/Harp/KSHarp_{B1,F2,C3,E3,B3,F4,A4,C5,G5}_mf.wav` |
 | `timp_42.flac`, `timp_47.flac`, `timp_50.flac`, `timp_52.flac`, `timp_55.flac` | VSCO-2-CE | `Percussion/Timpani/Timpani{1,2,3,4,5}_Hit_v3_rr1_Sum.wav` |
 | `timproll_47.flac`, `timproll_52.flac` | VSCO-2-CE | `Percussion/Timpani/Rolls/Timpani{2,4}_Roll_v3_rr1_Sum.wav` |
+
+## COUNTRY lead guitar and harmonica
+
+Reproducible with `scripts/fetch-band.py` (first 3.0 s of each note, same trim and fade as the other band samples).
+Both sources name notes in scientific pitch (C4 = MIDI 60).
+
+| Files | Source | Commit | Samples used |
+| --- | --- | --- | --- |
+| `tele_52.flac` … `tele_85.flac` (13) | [freepats/electric-guitar-FSBS-clean](https://github.com/freepats/electric-guitar-FSBS-clean) (FreePats, a Fender electric, clean, bridge pickup), CC0 1.0 Universal | `192cf0d9bf2c4ba6ead8e3524ba3f78818e4fe91` | `samples/bridge/{E3_s3,G3_s4,B3_s5,C#4_s5,E4_s6,G4_s6,B4_s6,C5_s6,D5_s6,F5_s6,G#5_s6,A#5_s6,C#6_s6}_01.flac` |
+| `hca_48.flac` … `hca_84.flac` (10) | [sgossner/VCSL](https://github.com/sgossner/VCSL) (Versilian Community Sample Library, Hohner Special 20 in C), CC0 1.0 Universal | `c1ea7bcc3c7309650ab0da9d15c9cd1fbc4a4c7e` | `Aerophones/Free Aerophones/Harmonica-Hohner-Special20-C/Sustains/Vib/Hohner-Special20_Vib_{C3,E3,G3,C4,E4,G4,C5,E5,G5,C6}.wav` |

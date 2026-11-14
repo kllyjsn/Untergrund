@@ -199,10 +199,10 @@
    "window": -12.6
   },
   "country": {
-   "lufs": -10.21,
-   "spread": 1.7,
-   "tp": -1.82,
-   "window": -10.59
+   "lufs": -10.06,
+   "spread": 0.17,
+   "tp": -1.79,
+   "window": -8.95
   }
  },
  "seeds": [
