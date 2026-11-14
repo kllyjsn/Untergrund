@@ -166,4 +166,27 @@ await t('lineSlots and the score agree on syllables', () => {
   assert.equal(lineSlots(first.text).length <= sc.score.notes.filter(([l]) => l !== '-').length, true);
 });
 
+await t('Engine.vocal: the stem plays from the song position, once across consecutive bars, into the mix', async () => {
+  const { OfflineAudioContext, installGlobals } = await import('./offline-audio.mjs');
+  installGlobals();
+  const { Engine, Sequencer } = await import('../js/engine.js');
+  const st = song(SONGS.pop), SR = 16000, sd = 60 / st.bpm / 4, len = Math.ceil((0.05 + 32 * sd + 0.2) * SR);
+  const run = async (vocal) => {
+    const ctx = new OfflineAudioContext(1, len, SR), buf = ctx.createBuffer(1, len, SR);
+    buf.getChannelData(0).fill(0.25);
+    let starts = 0;
+    const e = new Engine(ctx, JSON.parse(JSON.stringify(st)), { realtime: false, vocal: vocal ? (s) => (s?.bpm ? { buf, gain: 1, ms: 0 } : null) : null });
+    const make = ctx.createBufferSource.bind(ctx);
+    ctx.createBufferSource = () => { const src = make(), go = src.start.bind(src); src.start = (...a) => { starts++; return go(...a); }; return src; };
+    for (const k of Object.keys(st.mutes)) e.state.mutes[k] = true;
+    const q = new Sequencer(e, e.state);
+    for (let i = 0, at = 0.05; i < 32; i++) { q.tick(i, at); at += e.stepDur; }
+    const d = (await ctx.startRendering(e.mix)).getChannelData(0);
+    return { starts, rms: Math.sqrt(d.reduce((a, x) => a + x * x, 0) / d.length) };
+  };
+  const off = await run(false), on = await run(true);
+  assert.ok(on.rms > off.rms + 0.05, `vocal reaches the mix (${off.rms.toFixed(3)} -> ${on.rms.toFixed(3)})`);
+  assert.equal(on.starts - off.starts, 1, 'one source for two consecutive bars');
+});
+
 console.log(`sing-score: ${n} checks passed`);

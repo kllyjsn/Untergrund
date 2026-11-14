@@ -35,7 +35,7 @@ song state ──js/sing-score.js──▶ untergrund-sing/1 request ──/api/
 `js/sing.js` + the SING row in the lyrics view (`js/describe-ui.js`): SING asks `/api/sing`, polls while it sings, and
 decodes the stem. `Engine.vocal()` plays it into the mix bus at every bar (restarting only when playback jumps), so the
 glue compressor, limiter and per-genre loudness targets treat it like any other part. The vocal level (−24…+6 dB around a
-base 4 dB under the stem's −20 dBFS RMS) and a timing trim (±250 ms) are saved in `state.sing` with the project;
+base that sits the stem's −20 dBFS RMS level with the band before the master) and a timing trim (±250 ms) are saved in `state.sing` with the project;
 the stem is not saved and is fetched again by hash. Offline renders, WAV export, video and EXPORT STEMS (`sung-vocal`)
 all include it.
 

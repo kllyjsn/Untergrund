@@ -3,8 +3,9 @@
 // Stems live in memory only, keyed by the score they sing: change the melody, lyrics, tempo or voice and the old one stops.
 import { singScore } from './sing-score.js';
 
-// The stem arrives at -20 dBFS RMS on its sung notes (singer/singer.py); this puts it just under the instrumental mix.
-export const VOCAL_BASE_DB = -4;
+// The stem arrives at -20 dBFS RMS on its sung notes (singer/singer.py); +10 dB sits it level with the band before the
+// master (measured after it: pop about 4 dB under, R&B and folk level), and the master chain's limiter keeps the peaks.
+export const VOCAL_BASE_DB = 10;
 const STEM_HOSTS = /\.public\.blob\.vercel-storage\.com$/;
 const stems = new Map();
 let probe = null, memo = { sig: null, key: null };
