@@ -103,7 +103,8 @@ const REACT = { love: 'love', down: 'down', unlove: null, undown: null };
 // With `cleared`, songs whose heart/down was taken back are kept as reaction null, so a merge can drop them.
 export function reactionsOf(signals, { devices, cleared = false } = {}) {
   const rows = new Map();
-  for (const r of [...signals].filter((r) => r?.lid && r.fp).sort((x, y) => (x.t || 0) - (y.t || 0))) {
+// The API lists newest first; reversing before the stable sort keeps same-millisecond switches (unlove, then down) in order.
+  for (const r of [...signals].reverse().filter((r) => r?.lid && r.fp).sort((x, y) => (x.t || 0) - (y.t || 0))) {
     const dev = deviceHash(r.lid);
     if (devices && !devices.has(dev)) continue;
     const id = `${dev}:${r.fp}`, row = rows.get(id) || { id, dev, fp: r.fp, reaction: null, why: null };
