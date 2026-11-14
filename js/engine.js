@@ -85,6 +85,9 @@ export function guitarHand(kind, pocket, chorus) {
   return { play, double, fx };
 }
 
+// Two strings a step apart, or a minor ninth, grate against each other while both ring.
+const rubs = (a, b) => { const d = Math.abs(a - b); return d > 0 && (d <= 2 || d === 13); };
+
 // Stop a ringing string; one not yet sounding is never started.
 function damp(h, at) {
   if (h.at > at) { try { h.s.stop(at); } catch { /* already stopped */ } return; }
@@ -152,7 +155,7 @@ const BAND_PLAY = {
   // The hollow-body played through a cranked amp: power chords sustain, the cab rolls off the fizz.
   drive: { set: 'gtr', amp: true, gain: 3.2, len: 3.4, min: 0.18, strum: 0.004, shift: 0, lo: 40, hi: 64, lp: 5200, soft: 1800, fade: 0.008, rel: 0.12, grip: true, even: 0.15 },
   // Steel-string acoustic: a wider strum, bright top, long ring; the boxy low mids of the close mic dipped.
-  agtr: { gain: 4.2, len: 3.2, min: 0.7, strum: 0.011, shift: 0, lo: 40, hi: 76, lp: 7800, body: [280, 1.1, -4], soft: 0, fade: 0.01, rel: 0.3, grip: true, even: 0.35 },
+  agtr: { gain: 4.2, len: 3.2, min: 0.7, strum: 0.011, shift: 0, lo: 40, hi: 76, lp: 7800, body: [280, 1.1, -4], soft: 0, finger: [1700, 0.6, 3.2], fade: 0.01, rel: 0.3, grip: true, even: 0.35 },
   // The archtop's magnetic pickup, neck position, tone rolled back: round, woody comping for soul and jazz chords.
   jazz: { gain: 9.5, len: 2.4, min: 0.5, softBelow: 0, strum: 0.005, shift: 0, lo: 43, hi: 72, lp: 3400, soft: 900, fade: 0.008, rel: 0.2, grip: true, even: 0.25 },
   // Six-string guitar banjo: a fast snappy strum that dies quickly, all top end.
@@ -1248,6 +1251,19 @@ export class Engine {
     if (hand?.play === 'chop') this.scratch(kind, base, t, v, grip.slice(-3), gap, outs, pk);
   }
 
+  // A melody played on the chord player's own guitar is fretted on a string the chord was ringing: chord
+  // strings that rub against it stop (and are not picked while it sounds).
+  leadOver(m, t, ring, R) {
+    while (m > R.hi + 0.5) m -= 12;
+    while (m < R.lo - 0.5) m += 12;
+    for (const h of this.gripHeld || []) {
+      if (h.m < 0 || h.end <= t || h.at >= t + ring * 0.8 || !rubs(h.m, m)) continue;
+      damp(h, t); h.end = Math.max(t, h.at);
+    }
+    this.leadHeld = [...(this.leadHeld || []).filter((x) => x.end > t), { m, at: t, end: t + ring * 0.8 }];
+  }
+  rubsLead(m, at) { return (this.leadHeld || []).some((x) => x.at <= at && x.end > at && rubs(x.m, m)); }
+
   // Muting the part stops the strings it already scheduled (picks, scratches, ringing chords).
   quietGrip(t) { for (const h of this.gripHeld || []) damp(h, t); this.gripHeld = []; }
 
@@ -1265,8 +1281,11 @@ export class Engine {
   // Fingerstyle between chord hits. Guitar: Travis picking, the thumb alternating bass strings on the beats
   // (pinched with the top string on 1 and 3) and the fingers on the top strings on the offbeat 8ths.
   // Banjo: a forward roll, thumb-index-middle across every 16th. Each string rings until it is picked again.
+  // Fingertips are rounder and quieter than a pick: the thumb leads, the fingers sit under it and now and then
+  // rest, and a finger never sounds a string that rubs against the melody note the same hand is holding.
   pickGrip(kind, set, t, v, grip, same, gap, dur, out, tone, roll, pk) {
-    const R = BAND_PLAY[kind], n = grip.length, sd = this.stepDur, s0 = this.step;
+    const R = BAND_PLAY[kind], n = grip.length, sd = this.stepDur, s0 = this.step, F = !roll && R.finger;
+    if (F) dur = Math.min(dur, F[2]);
     const held = (this.gripHeld || []).filter((h) => h.end > t);
     if (!same) { for (const h of held) damp(h, t); held.length = 0; }
     this.gripHeld = held; this.lastGrip = grip;
@@ -1274,14 +1293,16 @@ export class Engine {
     for (let k = 0; k < Math.min(gap || 4, 16); k++) {
       const s = s0 + k, i = s % 16;
       const play = roll ? [[[0, n - 2, n - 1, n - 3, n - 2, n - 1, n - 3, n - 1][i % 8], i % 4 ? 0.75 : 1]]
-        : i % 4 === 0 ? [[bass[(i >> 2) % 2], 1], ...(i % 8 === 0 ? [[n - 1, 0.7]] : [])] : i % 4 === 2 ? [[top[(i >> 2) % 4], 0.78]]
-          : k === 0 ? [[0, 0.9], [n - 1, 0.7]] : [];
+        : i % 4 === 0 ? [[bass[(i >> 2) % 2], i % 8 ? 0.85 : 1], ...(i % 8 === 0 ? [[n - 1, F ? 0.6 : 0.7]] : [])]
+          : i % 4 === 2 ? (F && k && hash(s, 34) < 0.22 ? [] : [[top[(i >> 2) % 4], F ? 0.62 : 0.78]])
+            : k === 0 ? [[0, 0.9], [n - 1, 0.7]] : [];
       const at0 = t + k * sd + this.stepLate(pk, s) - this.stepLate(pk, s0);
       for (const [j, role] of play) {
         const m = grip[Math.max(0, j)], at = at0 + (hash(s * 1.3 + j, 32) - 0.5) * 0.014;
+        if (F && role < 0.8 && this.rubsLead(m, at)) continue;
         for (const h of held) if (h.m === m && h.end > at) { damp(h, at); h.end = at; }
         const vel = v * role * (0.9 + 0.2 * hash(s + j, 33)), lvl = vel * R.gain * 0.7;
-        const h = this.recordedNote(set, at, lvl, m + R.shift, dur, out, tone, kind, vel);
+        const h = this.recordedNote(set, at, lvl, m + R.shift, dur, out, tone, kind, vel, !!F);
         if (h) { h.m = m; h.at = at; h.end = at + dur; held.push(h); }
       }
     }
@@ -1391,8 +1412,8 @@ export class Engine {
 
   // Kept in the register the instrument was played in; every note lands a little differently and softer
   // notes are darker, the way hammers and plectrums behave. Released through a damper, not a gate.
-  recordedNote(set, t, level, m, dur, out, tone = 0, kind = null, vel = 1) {
-    const R = BAND_PLAY[kind];
+  recordedNote(set, t, level, m, dur, out, tone = 0, kind = null, vel = 1, finger = false) {
+    const R = BAND_PLAY[kind], F = finger && R?.finger;
     if (R) { while (m > R.hi + 0.5) m -= 12; while (m < R.lo - 0.5) m += 12; }
     if (out === this.ch.stab.input) out = this.ch.stab.band;
     const touch = 1 - 0.2 * (R?.even ?? 1) + 0.4 * (R?.even ?? 1) * hash(t * 7 + m, 24), hv = Math.max(0.25, Math.min(1.2, vel * touch));
@@ -1409,7 +1430,7 @@ export class Engine {
       if (n % 2) [c, buf] = alt[i];
     }
     return this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
-      shelves: [[3000, tone]], peaks: R?.peak ? [R.peak] : [], lp: R ? R.lp * (0.4 + 0.6 * hv) : 0, lpFrom: R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
+      shelves: [[3000, tone]], peaks: R?.peak ? [R.peak] : [], lp: R ? R.lp * (F ? F[1] : 1) * (0.4 + 0.6 * hv) : 0, lpFrom: F ? F[0] : R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
     });
   }
   // A guitar amp for the DRIVE GTR: tightened lows into an asymmetric tube-style clipper, then a 4x12 cab
@@ -1678,6 +1699,7 @@ export class Engine {
       const m = 60 + k + (oct + (R.oct || 0)) * 12 + n, g = Math.min(1.3, v) * R.gain * 0.6;
       // A rock riff is a double-stop: the melody note with its fifth underneath, through the rhythm amp.
       if (R.dyad && m - 5 >= R.lo) this.recordedNote(set, t + 0.004, g * 0.7, m - 5, ring, dest, 0, kind, v / 1.3);
+      if (R.grip) this.leadOver(m, t, ring, R);
       return this.recordedNote(set, t, g, m, ring, dest, 0, kind, v / 1.3);
     }
     const f = midiHz(60 + k + oct * 12 + n), L = leadPreset(voice, pocketOf(this.state.master)?.name);
