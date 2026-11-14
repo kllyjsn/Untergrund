@@ -2,6 +2,7 @@
 // track by Engine.vocal() live, in renders and in exports. Off (and invisible) unless the server has a singer configured.
 // Stems live in memory only, keyed by the score they sing: change the melody, lyrics, tempo or voice and the old one stops.
 import { singScore } from './sing-score.js';
+import { processedStem } from './vocal-chain.js';
 
 // While it sings, the vocal sits VOCAL_OVER_BAND_DB over the band and the band dips VOCAL_DUCK_DB under it, so band plus
 // vocal carry the band's own power: the sung mix lands on the style's loudness target with no extra limiting.
@@ -76,7 +77,9 @@ export async function singSong(state, { onWait, signal, poll = 4000, limit = 10 
     if (!url || !STEM_HOSTS.test(new URL(url).hostname)) throw new Error('The singer sent an unexpected answer');
     bytes = await (await fetch(url, { signal })).arrayBuffer();
   } else bytes = await res.arrayBuffer();
-  const buf = await new OfflineAudioContext(1, 1, 48000).decodeAudioData(bytes);
+  const ctx = new OfflineAudioContext(1, 1, 48000), buf = await ctx.decodeAudioData(bytes);
+  // Run the vocal chain now, not on the first downbeat it plays from (Engine.vocal), where it would stall the scheduler.
+  processedStem(buf, vocalFx(state), ctx);
   stems.set(key, buf);
   while (stems.size > 4) stems.delete(stems.keys().next().value);
   return buf;
