@@ -132,8 +132,8 @@ http.createServer(async (req, res) => {
       return res.end(JSON.stringify(json));
     }
     const pageMatch = url.pathname.match(/^\/(a|t|r)\/([^/]{1,60})\/?$/);
-    if (pageMatch || url.pathname === '/api/page') {
-      const query = pageMatch ? { [pageMatch[1]]: decodeURIComponent(pageMatch[2]) } : Object.fromEntries(url.searchParams);
+    if (pageMatch || url.pathname === '/api/page' || url.pathname === '/api/flagship') {
+      const query = pageMatch ? { [pageMatch[1]]: decodeURIComponent(pageMatch[2]) } : url.pathname === '/api/flagship' ? { flagship: '1' } : Object.fromEntries(url.searchParams);
       const r = await handlePage(query, { kv: accountKv, crate: crateStore, site: `http://${req.headers.host}`, og: { ogImage, artSeed }, rooms });
       if (r.location) { res.writeHead(r.status, { Location: r.location }); return res.end(); }
       res.writeHead(r.status, { 'Content-Type': r.type, 'Cache-Control': 'no-store' });

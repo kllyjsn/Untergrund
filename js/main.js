@@ -29,6 +29,7 @@ import { restoreVoice } from './voice.js';
 import { compose } from './classical.js';
 import { PIECE, loadPiece } from './repertoire.js';
 import { followingRow } from './feed.js';
+import { flagshipShelf } from './flagship.js';
 import { describeBar, syncLyrics } from './describe-ui.js';
 import { songState } from './song-spec.js';
 import { fetchPublicTrack } from './account.js';
@@ -1586,8 +1587,9 @@ function buildGenerateHome() {
     h('div', { class: 'recents-row' }, recent.map((t) => h('button', { class: 'recent', style: `--hue:${hue(t.style)}`, onclick: () => openRecent(t) },
       h('i'), h('b', {}, t.title || 'Untitled'), h('span', {}, [STYLES[t.style]?.name, t.bpm && `${t.bpm} BPM`].filter(Boolean).join(' · ')))))) : null;
   const following = followingRow({ hue, onPlay: (t) => openShared(t.id, true), onLoad: renderHome });
+  const flagship = flagshipShelf({ onPlay: (t) => openShared(t.id, true), onLoad: renderHome });
   const live = made ? liveStrip() : null;
-  const home = h('section', { role: studioOpen ? 'region' : 'main', 'aria-label': 'Create', class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : '') + (live && !live.hidden ? ' has-live' : '') + (made ? '' : ' first-run') + (unlock ? ' unlock' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` + (unlock ? `;--ua:${-Math.round(since)}ms` : '') }, left, describeBox(), live, picker, concert, recents, following,
+  const home = h('section', { role: studioOpen ? 'region' : 'main', 'aria-label': 'Create', class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : '') + (live && !live.hidden ? ' has-live' : '') + (made ? '' : ' first-run') + (unlock ? ' unlock' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` + (unlock ? `;--ua:${-Math.round(since)}ms` : '') }, left, describeBox(), live, picker, concert, recents, following, flagship,
     h('div', { class: 'home-foot-links' },
       h('a', { class: 'home-research', href: '/research/' }, 'RESEARCH', h('span', {}, 'How we measure the sound')),
       h('a', { class: 'home-research', href: '/legal/' }, 'LEGAL', h('span', {}, 'Rights, privacy and terms'))));
