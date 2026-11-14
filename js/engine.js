@@ -1143,6 +1143,9 @@ export class Engine {
     if (hand?.play === 'chop') this.scratch(kind, base, t, v, grip.slice(-3), gap, outs, pk);
   }
 
+  // Muting the part stops the strings it already scheduled (picks, scratches, ringing chords).
+  quietGrip(t) { for (const h of this.gripHeld || []) damp(h, t); this.gripHeld = []; }
+
   // Steps from this chord hit to the next one in the part (16 if it is the only one in the bar).
   stabGap() {
     const pat = this.stabPat, n = this.stabLen || pat?.length || 16;
@@ -1193,7 +1196,8 @@ export class Engine {
       let i = 0;
       for (let j = 1; j < set.length; j++) if (Math.abs(set[j][0] - m) < Math.abs(set[i][0] - m)) i = j;
       const [c, buf] = set[i];
-      this.playBuf(buf, at, v * R.gain * 0.2 * (0.8 + 0.4 * hash(s, 31)), outs[s % outs.length], Math.pow(2, (m - c) / 12), 0.05, { lp: 2400, release: 0.02 });
+      const h = this.playBuf(buf, at, v * R.gain * 0.2 * (0.8 + 0.4 * hash(s, 31)), outs[s % outs.length], Math.pow(2, (m - c) / 12), 0.05, { lp: 2400, release: 0.02 });
+      if (h) { h.m = -1; h.at = at; h.end = at + 0.07; (this.gripHeld ||= []).push(h); }
     }
   }
 
@@ -2134,7 +2138,7 @@ export class Sequencer {
         e.trigger(id, tt + sd / 2, base * 0.8);
         continue;
       }
-      if (!on) continue;
+      if (!on) { if (id === 'stab' && e.gripHeld?.length) e.quietGrip(tt); continue; }
       // Accompaniment listens to the lead. Do not stack a chord stab on top of
       // the hook's important notes; the gap makes the motif read as intentional.
       if (id === 'stab' && hookStep) continue;
