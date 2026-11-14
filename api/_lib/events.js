@@ -4,13 +4,16 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { redisEnv } from './crate.js';
 
 export const EVENTS = ['app_open', 'generate', 'play_start', 'play_30s', 'save_track', 'publish', 'share_link_copied',
-  'room_join', 'room_go_live', 'export_wav', 'export_stems', 'export_midi', 'return_visit', 'shared_open', 'remix', 'video_export', 'hum', 'voice_chops', 'song_edit', 'set_replay', 'daily_drop', 'describe', 'push', 'live_rooms', 'go_live_nudge', 'room_create', 'room_privacy', 'error'];
+  'room_join', 'room_go_live', 'export_wav', 'export_stems', 'export_midi', 'return_visit', 'shared_open', 'remix', 'video_export', 'hum', 'voice_chops', 'song_edit', 'set_replay', 'daily_drop', 'describe', 'push', 'live_rooms', 'go_live_nudge', 'room_create', 'room_privacy', 'listen', 'error'];
 export const FUNNEL = ['app_open', 'generate', 'play_start', 'play_30s', 'publish', 'share_link_copied'];
 // One prop per event is also counted as a breakdown field, e.g. `generate:acid`.
-export const DIMENSION = { app_open: 'visitor', generate: 'genre', publish: 'kind', share_link_copied: 'what', return_visit: 'bucket', error: 'kind', save_track: 'shared', shared_open: 'kind', remix: 'kind', video_export: 'kind', hum: 'kind', voice_chops: 'kind', song_edit: 'kind', set_replay: 'kind', daily_drop: 'kind', describe: 'kind', push: 'kind', room_join: 'kind', live_rooms: 'kind', go_live_nudge: 'kind', room_create: 'kind', room_privacy: 'kind' };
+export const DIMENSION = { app_open: 'visitor', generate: 'genre', publish: 'kind', share_link_copied: 'what', return_visit: 'bucket', error: 'kind', save_track: 'shared', shared_open: 'kind', remix: 'kind', video_export: 'kind', hum: 'kind', voice_chops: 'kind', song_edit: 'kind', set_replay: 'kind', daily_drop: 'kind', describe: 'kind', push: 'kind', room_join: 'kind', live_rooms: 'kind', go_live_nudge: 'kind', room_create: 'kind', room_privacy: 'kind', listen: 'kind' };
 const PROPS = ['genre', 'kind', 'what', 'bucket', 'days', 'visitor', 'bars', 'shared', 'public'];
 const P = 'untergrund:ev', TTL = 400 * 86400, MAX_EVENTS = 40, ERROR_LOG = 100;
 export const MAX_BODY = 32_000, BATCHES_PER_HOUR = 400, ERRORS_PER_HOUR = 20;
+// Listen signals (js/listen.js, docs/listen-signals.md): counted like events, and each full record is kept in a capped log.
+export const LISTEN_KINDS = ['start', 'complete', 'skip', 'partial', 'replay', 'keep', 'publish', 'share', 'live', 'love', 'unlove'];
+export const LISTEN_LOG = 5000, LISTENS_PER_HOUR = 300, SIGNALS_MAX = 1000;
 
 const text = (v, max) => String(v ?? '').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim().slice(0, max);
 const slug = (v) => text(v, 32).toLowerCase().replace(/[^a-z0-9_.-]/g, '');
@@ -26,6 +29,22 @@ export function cleanProps(p) {
     else if (typeof v === 'boolean') out[k] = v;
     else if (typeof v === 'string' && slug(v)) out[k] = slug(v);
   }
+  return out;
+}
+
+const int = (v, lo, hi, d) => (Number.isFinite(+v) && v !== '' && v !== null && typeof v !== 'boolean' ? Math.max(lo, Math.min(hi, Math.round(+v))) : d);
+const id = (v, re) => (re.test(String(v ?? '')) ? String(v) : '');
+export function cleanListen(l, p = {}) {
+  const kind = LISTEN_KINDS.includes(p?.kind) ? p.kind : null;
+  const fp = id(l?.fp, /^[a-z0-9]{6,16}$/);
+  if (!kind || !fp) return null;
+  const out = {
+    v: int(l.v, 1, 99, 1), kind, lis: id(l.lis, /^[a-z0-9]{6,16}$/), lid: id(l.lid, /^[a-z0-9]{8,32}$/i), fp,
+    tid: id(l.tid, /^[A-Za-z0-9-]{1,40}$/), seed: int(l.seed, -1, 2 ** 31, -1), style: slug(l.style), src: slug(l.src), surf: slug(l.surf),
+    ph: id(l.ph, /^[a-z0-9]{1,8}$/), bar: int(l.bar, 0, 9999, 0), bars: int(l.bars, 0, 9999, 0), sec: slug(l.sec), pct: int(l.pct, -1, 100, -1),
+    ms: int(l.ms, 0, 864e5, 0), t: int(l.t, 0, 1e14, 0),
+  };
+  if (kind === 'start') { const pt = text(l.pt, 120); if (pt) out.pt = pt; }
   return out;
 }
 
@@ -50,6 +69,11 @@ export function parseBatch(body) {
   for (const e of b.events.slice(0, MAX_EVENTS)) {
     const name = EVENTS.includes(e?.n) ? e.n : null;
     if (!name) continue;
+    if (name === 'listen') {
+      const l = cleanListen({ ...e.l, t: e.t }, e.p);
+      if (l) events.push({ n: name, p: { kind: l.kind, ...(l.style ? { genre: l.style } : {}) }, l });
+      continue;
+    }
     events.push(name === 'error' ? { n: name, p: { kind: slug(e.e?.kind) || 'error' }, e: cleanError(e.e, b.ua, route) } : { n: name, p: cleanProps(e.p) });
   }
   return { sid, route, events };
@@ -77,6 +101,7 @@ export function memoryKv() {
       case 'INCR': { const v = (+get(key) || 0) + 1; data.set(key, v); return v; }
       case 'GET': { const v = get(key); return v == null ? null : String(v); }
       case 'SET': data.set(key, args[0]); return 'OK';
+      case 'INCRBY': { const v = (+get(key) || 0) + +args[0]; data.set(key, v); return v; }
       case 'EXPIRE': return data.has(key) ? 1 : 0;
       case 'PFADD': { const s = get(key, () => new Set()); const n = s.size; args.forEach((a) => s.add(a)); return s.size > n ? 1 : 0; }
       case 'PFCOUNT': { const u = new Set(); for (const k of [key, ...args]) for (const v of get(k) || []) u.add(v); return u.size; }
@@ -103,11 +128,25 @@ async function ingest(batch, kv, client, now) {
     const [n] = await kv([['INCR', `${P}:erate:${who}:${hour}`], ['EXPIRE', `${P}:erate:${who}:${hour}`, 3600]]);
     errorBudget = n <= ERRORS_PER_HOUR ? Math.min(5, errors.length) : 0;
   }
+  const listens = batch.events.filter((e) => e.n === 'listen');
+  let listenBudget = 0;
+  if (listens.length) {
+    const [n] = await kv([['INCRBY', `${P}:lrate:${who}:${hour}`, listens.length], ['EXPIRE', `${P}:lrate:${who}:${hour}`, 3600]]);
+    listenBudget = Math.max(0, Math.min(listens.length, LISTENS_PER_HOUR - (n - listens.length)));
+  }
   const seen = new Set();
   for (const e of batch.events) {
     if (e.n === 'error') {
       if (errorBudget-- <= 0) continue;
       cmds.push(['LPUSH', `${P}:errors`, JSON.stringify({ at: new Date(now).toISOString(), ...e.e })]);
+    }
+    if (e.n === 'listen') {
+      if (listenBudget-- <= 0) continue;
+      const l = e.l;
+      cmds.push(['LPUSH', `${P}:listen`, JSON.stringify({ at: new Date(now).toISOString(), sid: batch.sid, ...l })]);
+      // Per-genre per-day and per-song totals: what the improvement engine scores first.
+      if (l.style) cmds.push(['HINCRBY', `${P}:ls:${day}`, `${l.style}:${l.kind}`, 1], ['EXPIRE', `${P}:ls:${day}`, TTL]);
+      cmds.push(['HINCRBY', `${P}:fp:${l.fp}`, l.kind, 1], ['EXPIRE', `${P}:fp:${l.fp}`, TTL]);
     }
     cmds.push(['HINCRBY', dk, e.n, 1]);
     const dim = DIMENSION[e.n], v = dim && e.p[dim];
@@ -118,6 +157,7 @@ async function ingest(batch, kv, client, now) {
   if (!cmds.length) return { status: 202, json: { ok: true, stored: 0 } };
   cmds.push(['EXPIRE', dk, TTL]);
   if (errors.length) cmds.push(['LTRIM', `${P}:errors`, 0, ERROR_LOG - 1]);
+  if (listens.length) cmds.push(['LTRIM', `${P}:listen`, 0, LISTEN_LOG - 1], ['EXPIRE', `${P}:listen`, TTL]);
   await kv(cmds);
   return { status: 202, json: { ok: true, stored: batch.events.length } };
 }
@@ -142,6 +182,8 @@ export async function summarize(kv, { days = 30, now = Date.now() } = {}) {
   for (const w of windows) for (const e of names) cmds.push(['PFCOUNT', ...dates.slice(-w).map((d) => `${P}:u:${d}:${e}`)]);
   cmds.push(['LRANGE', `${P}:errors`, 0, 49]);
   cmds.push(['LRANGE', `${P}:describe_miss`, 0, 99]);
+  const lsDates = dates.slice(7);
+  for (const d of lsDates) cmds.push(['HGETALL', `${P}:ls:${d}`]);
   const r = await kv(cmds);
   let i = 0;
   const counts = dates.map(() => toObj(r[i++]));
@@ -151,6 +193,11 @@ export async function summarize(kv, { days = 30, now = Date.now() } = {}) {
   for (const w of windows) period[w] = Object.fromEntries(names.map((e) => [e, +r[i++] || 0]));
   const list = (x) => (x || []).map((s) => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
   const errors = list(r[i++]), misses = list(r[i++]);
+  const byStyle = {};
+  for (const _ of lsDates) for (const [k, v] of Object.entries(toObj(r[i++]))) {
+    const [st, kind] = k.split(':');
+    (byStyle[st] ||= {})[kind] = (byStyle[st][kind] || 0) + v;
+  }
 
   const totals = {};
   for (const d of daily) for (const [k, v] of Object.entries(d.counts)) totals[k] = (totals[k] || 0) + v;
@@ -169,7 +216,30 @@ export async function summarize(kv, { days = 30, now = Date.now() } = {}) {
     }
     retention[label] = { returned, cohort, rate: cohort ? returned / cohort : 0 };
   }
-  return { enabled: true, generated: new Date(now).toISOString(), days: n, events: EVENTS, funnel, retention, period, totals, daily, errors, misses };
+  return { enabled: true, generated: new Date(now).toISOString(), days: n, events: EVENTS, funnel, retention, period, totals, daily, errors, misses, listening: listening(totals, byStyle) };
+}
+
+// Enjoyment rates per listen start: how often a song is finished, skipped early, replayed, loved, kept, published, shared or played live.
+const RATES = { completion: 'complete', skip: 'skip', replay: 'replay', love: 'love', keep: 'keep', publish: 'publish', share: 'share', live: 'live' };
+export function listenRates(k = {}) {
+  const starts = k.start || 0;
+  return Object.fromEntries(Object.entries(RATES).map(([name, kind]) => [name, starts ? (name === 'love' ? Math.max(0, (k.love || 0) - (k.unlove || 0)) : k[kind] || 0) / starts : 0]));
+}
+function listening(totals, byStyle) {
+  const kinds = Object.fromEntries(LISTEN_KINDS.map((kind) => [kind, totals[`listen:${kind}`] || 0]));
+  const styles = Object.entries(byStyle).map(([style, k]) => ({ style, starts: k.start || 0, counts: k, rates: listenRates(k) })).sort((a, b) => b.starts - a.starts);
+  return { kinds, rates: listenRates(kinds), styles };
+}
+
+// Raw listen records, newest first (stats-token only): the input for offline learning and automations.
+export async function listSignals(kv, { limit = 500, fp = '' } = {}) {
+  const n = Math.max(1, Math.min(SIGNALS_MAX, Math.round(+limit) || 500));
+  const cmds = [['LRANGE', `${P}:listen`, 0, n - 1]];
+  const song = /^[a-z0-9]{6,16}$/.test(fp) ? fp : '';
+  if (song) cmds.push(['HGETALL', `${P}:fp:${song}`]);
+  const [rows, counts] = await kv(cmds);
+  const signals = (rows || []).map((x) => { try { return JSON.parse(x); } catch { return null; } }).filter(Boolean);
+  return { enabled: true, version: 1, signals, ...(song ? { song: { fp: song, counts: toObj(counts), rates: listenRates(toObj(counts)) } } : {}) };
 }
 
 export function validToken(given, expected) {
@@ -178,11 +248,12 @@ export function validToken(given, expected) {
 }
 
 export async function handleEvents({ method, query = {}, headers = {}, body, kv, client = 'anon', statsToken = '', now = Date.now() }) {
-  if (method === 'GET' && query.summary) {
+  if (method === 'GET' && (query.summary || query.signals)) {
     if (!statsToken) return { status: 404, json: { error: 'stats_disabled' } };
     const given = query.token || headers['x-stats-token'] || String(headers.authorization || '').replace(/^Bearer\s+/i, '');
     if (!validToken(String(given || ''), statsToken)) return { status: 401, json: { error: 'unauthorized' } };
     if (!kv) return { status: 503, json: { enabled: false, error: 'storage_unavailable' } };
+    if (query.signals) return { status: 200, json: await listSignals(kv, { limit: query.limit, fp: String(query.fp || '') }) };
     return { status: 200, json: await summarize(kv, { days: +query.days || 30, now }) };
   }
   if (method === 'GET') return { status: 200, json: { enabled: !!kv } };
