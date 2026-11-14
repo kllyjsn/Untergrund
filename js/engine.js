@@ -2195,8 +2195,8 @@ function hookBusy(hk, hi, hm) {
 // song's integrated loudness where it was and stays inside the -1 dBTP ceiling.
 const SECTION_DB = { verse: -1.8, chorus: 0.45 };
 // Pop's and country's bands already play a much fuller chorus than their verse (pop's moving chorus, country's
-// boom-chick verse), so their verse gives back less level.
-const STYLE_SECTION_DB = { pop: { verse: -1.2 }, country: { verse: -0.8 } };
+// boom-chick verse; pop's chorus strings), so their verse gives back less level.
+const STYLE_SECTION_DB = { pop: { verse: -0.9 }, country: { verse: -0.8 } };
 
 export class Sequencer {
   constructor(engine, state) {
