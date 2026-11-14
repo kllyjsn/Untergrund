@@ -198,7 +198,7 @@ function schedule(lead) {
     // A generated song has played its final bar: let it ring, then stop rather than loop back to the intro.
     if (seq.finished && !handoff) {
       songOver = true;
-      setTimeout(() => { if (playing && songOver) { stop(); if (radioPlays()) { trackEvent('radio', { kind: 'next' }); radioNext(); } } }, Math.max(0, nextTime - ctx.currentTime + 2.5) * 1000);
+      setTimeout(() => { if (playing && songOver) { const radio = radioPlays(); stop(); if (radio) { trackEvent('radio', { kind: 'next' }); radioNext(); } } }, Math.max(0, nextTime - ctx.currentTime + 2.5) * 1000);
       break;
     }
   }
