@@ -72,6 +72,24 @@ function loopPoints(buf) {
   return out;
 }
 
+// How the rhythm player treats a chord hit in each pocket: play is strum | chop | pick | roll, double
+// pans a second take across the stereo field, fx is a pedal or amp effect.
+export function guitarHand(kind, pocket, chorus) {
+  const funk = pocket === 'R&B' || pocket === 'SOUL' || pocket === 'AFRO';
+  const play = kind === 'banjo' && (pocket === 'FOLK' || pocket === 'COUNTRY') ? 'roll'
+    : pocket === 'FOLK' && !chorus && (kind === 'agtr' || kind === 'gtr') ? 'pick'
+      : funk && (kind === 'gtr' || kind === 'jazz') ? 'chop' : 'strum';
+  const double = (kind === 'drive' && pocket === 'ROCK') || (pocket === 'POP' && chorus && (kind === 'gtr' || kind === 'agtr'));
+  const fx = funk && kind === 'gtr' ? 'chorus' : kind === 'gretsch' && pocket === 'COUNTRY' ? 'trem' : null;
+  return { play, double, fx };
+}
+
+// Stop a ringing string; one not yet sounding is never started.
+function damp(h, at) {
+  if (h.at > at) { try { h.s.stop(at); } catch { /* already stopped */ } return; }
+  h.g.gain.cancelScheduledValues(at); h.g.gain.setTargetAtTime(0, at, 0.025);
+}
+
 // How a guitarist grips a chord: the root on a low string with a fifth or more of air above it, the other
 // tones (the fifth left out of five-note chords) within a hand's reach, never a half step or flat nine apart
 // anywhere in the shape, and as close as possible to the last grip so the voices glide instead of jumping.
@@ -1065,43 +1083,170 @@ export class Engine {
     const R = BAND_PLAY[kind], base = R.set || kind;
     let set = this.rec(base);
     if (!set) { loadBand(base); return this[fallback](t, v, iv, root, p, out); }
-    if (R.amp) out = this.ampFor(out);
+    if (out === this.ch.stab.input) out = this.ch.stab.band;
+    const chord = R.grip && iv.length > 1, live = chord && this.step != null;
+    const pk = live ? pocketOf(this.state.master) : null, hand = live ? guitarHand(kind, pk?.name, this.wide) : null;
+    // Two takes of the rhythm part panned hard left and right; a pedal or amp effect per player, then the amp.
+    let outs = hand?.double ? [this.panFor(out, -1, true), this.panFor(out, 1, false)] : [out];
+    if (hand?.fx === 'chorus') outs = outs.map((o) => this.chorusFor(o));
+    if (hand?.fx === 'trem') outs = outs.map((o) => this.tremFor(o, t, this.wide ? 0 : 0.3));
+    if (R.amp) outs = outs.map((o) => this.ampFor(o));
     const palm = R.amp && this.palm;
     // A palm mute plays the recorded staccato (it damps itself); until that loads, the open note is cut short and darkened.
     const muted = palm && MUTE_LAYER[base] && this.rec(MUTE_LAYER[base]);
     if (muted) set = muted;
     const tone = Math.max(-6, Math.min(3, 3 * Math.log2(p.cutoff / 1500))) - (palm ? (muted ? 1.5 : 4) : 0);
     const dur = palm ? (muted ? Math.min(0.45, this.stepDur * 3) : Math.min(0.14, this.stepDur * 1.2)) : Math.min(R.max ?? Infinity, Math.max(R.hold ? this.stepDur * 4 : R.min, p.decay * R.len));
-    const chord = R.grip && iv.length > 1;
-    // A guitarist strums down on the beat and up on the offbeats; other players roll the chord either way.
-    const up = chord ? (this.step == null ? (this.stroke = !this.stroke) === false : this.step % 4 !== 0) : hash(t, 21) > 0.5;
-    const articulation = Math.max(0, Math.min(1, p.env ?? 0.5));
-    const strum = R.strum * (0.45 + articulation * 1.8), even = R.even ?? 1;
     const grip = chord ? guitarGrip(root, iv, this.lastGrip) : iv.map((n) => root + n);
     const same = chord && this.lastGrip && grip.join() === this.lastGrip.join();
-    // An upstroke only catches the top strings, a little softer.
-    const notes = chord && up && grip.length > 3 ? grip.slice(-3) : grip, lift = chord && up ? 0.8 : 1;
+    const gap = live ? this.stabGap() : 0;
+    if (hand?.play === 'pick' || hand?.play === 'roll') return this.pickGrip(kind, set, t, v, grip, same, gap, dur, outs[0], tone, hand.play === 'roll', pk);
+    // The strumming hand keeps moving at the part's subdivision: down on the beat, up on the "and"
+    // (on every other 16th when the part has 16th hits). Upstrokes are quicker and catch fewer strings.
+    const fine = live && this.stabPat?.some((x, i) => x && i % 2);
+    const up = chord ? (!live ? (this.stroke = !this.stroke) === false : fine ? this.step % 2 === 1 : this.step % 4 !== 0) : hash(t, 21) > 0.5;
+    const articulation = Math.max(0, Math.min(1, p.env ?? 0.5));
+    const strum = R.strum * (0.45 + articulation * 1.8) * (live ? (up ? 0.7 : 1) * (0.8 + 0.4 * hash(t, 25)) : 1), even = R.even ?? 1;
+    const beat = live ? (this.step % 16 === 0 ? 1.08 : this.step % 4 === 0 ? 1 : up ? 0.86 : 0.93) : 1;
+    // A chop is a short stab on the top strings; an upstroke only catches the top strings, a little softer;
+    // an offbeat downstroke sometimes misses the low string.
+    let notes = hand?.play === 'chop' ? grip.slice(beat > 1 ? -4 : -3) : chord && up && grip.length > 3 ? grip.slice(-3) : grip;
+    if (hand?.play === 'strum' && !up && this.step % 4 && notes.length > 4 && hash(t, 26) < 0.5) notes = notes.slice(1);
+    const ring = hand?.play === 'chop' ? Math.min(dur, this.stepDur * Math.min(2, gap || 2) * 0.8) : dur, lift = chord && up ? 0.8 : 1;
     // A strummer starts the stroke a little early so the middle of the chord, not its last string, lands on the beat.
     const lead = chord ? Math.min((notes.length - 1) * strum * 0.5, Math.max(0, t - this.ctx.currentTime)) : 0;
     // A struck string stops its last note; on an upstroke of the same grip the low strings ring on.
     if (chord) {
       const keep = [];
       for (const h of this.gripHeld || []) {
-        if (same && !notes.includes(h.m)) { keep.push(h); continue; }
-        h.g.gain.cancelScheduledValues(t - lead); h.g.gain.setTargetAtTime(0, t - lead, 0.025);
+        if (same && !notes.includes(h.m) && h.end > t) { keep.push(h); continue; }
+        damp(h, t - lead);
       }
       this.gripHeld = keep; this.lastGrip = grip;
     }
-    notes.forEach((m, k) => {
-      const order = up ? notes.length - 1 - k : k;
-      const at = t - lead + order * strum + (hash(t * 3 + k, 22) - 0.5) * (0.003 + articulation * 0.006) * even;
-      const sweep = notes.length > 1 ? order / (notes.length - 1) - 0.5 : 0;
-      const accent = 1 + sweep * (articulation - 0.5) * 0.35;
-      const lvl = ((palm ? 0.8 : 1) * lift * v * R.gain * accent * (1 - 0.15 * even + 0.3 * even * hash(t + k, 23))) / Math.sqrt(grip.length);
-      // A single-note fill rings briefly and is stopped by the next chord like any other string.
-      const h = this.recordedNote(set, at, lvl, m + R.shift, R.grip && !chord ? Math.min(dur, 0.9) : dur, out, tone, kind, v);
-      if (R.grip && h) { h.m = m; (this.gripHeld ||= []).push(h); }
+    outs.forEach((o, d) => {
+      // The second take: a few ms late, a hair out of tune, its own stroke speed.
+      const late = d ? 0.008 + 0.01 * hash(t, 27) : 0, cents = d ? (hash(t, 28) - 0.5) * 0.08 : 0, sp = d ? strum * (0.85 + 0.3 * hash(t, 29)) : strum;
+      // The second take leaves out the root (the first take carries the low end).
+      (d && notes.length > 2 ? notes.slice(1) : notes).forEach((m, k, take) => {
+        const order = up ? take.length - 1 - k : k + notes.length - take.length;
+        const at = t - lead + late + order * sp + (hash(t * 3 + k + d * 17, 22) - 0.5) * (0.003 + articulation * 0.006) * even;
+        const sweep = notes.length > 1 ? order / (notes.length - 1) - 0.5 : 0;
+        const accent = (1 + sweep * (articulation - 0.5) * 0.35) * beat;
+        const lvl = ((palm ? 0.8 : 1) * lift * v * R.gain * accent * (1 - 0.15 * even + 0.3 * even * hash(t + k + d * 5, 23))) / Math.sqrt(grip.length);
+        // A single-note fill rings briefly and is stopped by the next chord like any other string.
+        const len = R.grip && !chord ? Math.min(ring, 0.9) : ring;
+        const h = this.recordedNote(set, at, lvl, m + R.shift + cents, len, o, d ? 0 : tone, kind, v);
+        if (R.grip && h) { h.m = m; h.at = at; h.end = at + len; (this.gripHeld ||= []).push(h); }
+      });
     });
+    if (hand?.play === 'chop') this.scratch(kind, base, t, v, grip.slice(-3), gap, outs, pk);
+  }
+
+  // Steps from this chord hit to the next one in the part (16 if it is the only one in the bar).
+  stabGap() {
+    const pat = this.stabPat, n = this.stabLen || pat?.length || 16;
+    if (!pat) return 0;
+    for (let k = 1; k < 16; k++) if (pat[(this.step + k) % n]) return k;
+    return 16;
+  }
+
+  // The step's own offset from the grid (swing and the pocket's push), so notes between hits sit like the hits.
+  stepLate(pk, s) { return (s % 2 ? (this.state.swing || 0) * this.stepDur * 0.5 : 0) + pocketLate(pk, 'stab', s % 16); }
+
+  // Fingerstyle between chord hits. Guitar: Travis picking, the thumb alternating bass strings on the beats
+  // (pinched with the top string on 1 and 3) and the fingers on the top strings on the offbeat 8ths.
+  // Banjo: a forward roll, thumb-index-middle across every 16th. Each string rings until it is picked again.
+  pickGrip(kind, set, t, v, grip, same, gap, dur, out, tone, roll, pk) {
+    const R = BAND_PLAY[kind], n = grip.length, sd = this.stepDur, s0 = this.step;
+    const held = (this.gripHeld || []).filter((h) => h.end > t);
+    if (!same) { for (const h of held) damp(h, t); held.length = 0; }
+    this.gripHeld = held; this.lastGrip = grip;
+    const bass = [0, n >= 5 ? 2 : Math.min(1, n - 1)], top = [n - 1, n - 2, n - 1, n - 3].map((i) => Math.max(bass[1] + 1, i) % n);
+    for (let k = 0; k < Math.min(gap || 4, 16); k++) {
+      const s = s0 + k, i = s % 16;
+      const play = roll ? [[[0, n - 2, n - 1, n - 3, n - 2, n - 1, n - 3, n - 1][i % 8], i % 4 ? 0.75 : 1]]
+        : i % 4 === 0 ? [[bass[(i >> 2) % 2], 1], ...(i % 8 === 0 ? [[n - 1, 0.7]] : [])] : i % 4 === 2 ? [[top[(i >> 2) % 4], 0.78]]
+          : k === 0 ? [[0, 0.9], [n - 1, 0.7]] : [];
+      const at0 = t + k * sd + this.stepLate(pk, s) - this.stepLate(pk, s0);
+      for (const [j, role] of play) {
+        const m = grip[Math.max(0, j)], at = at0 + (hash(s * 1.3 + j, 32) - 0.5) * 0.014;
+        for (const h of held) if (h.m === m && h.end > at) { damp(h, at); h.end = at; }
+        const vel = v * role * (0.9 + 0.2 * hash(s + j, 33)), lvl = vel * R.gain * 0.7;
+        const h = this.recordedNote(set, at, lvl, m + R.shift, dur, out, tone, kind, vel);
+        if (h) { h.m = m; h.at = at; h.end = at + dur; held.push(h); }
+      }
+    }
+  }
+
+  // Funk scratches: the strumming hand keeps going on the empty 16ths with the strings muted, a dead "chk".
+  scratch(kind, base, t, v, top, gap, outs, pk) {
+    const R = BAND_PLAY[kind], set = MUTE_LAYER[base] && this.rec(MUTE_LAYER[base]);
+    if (!set) return;
+    const odds = pk?.name === 'AFRO' ? 0.6 : 0.45, s0 = this.step;
+    // One muted string stands in for the dead strum: a scratch is noise, not pitch, and keeps the per-hit node count down.
+    // Only on the "e" and "a" 16ths, so it never flams against a fill or lick on the 8ths.
+    for (let k = 1; k < Math.min(gap, 8); k++) {
+      const s = s0 + k;
+      if (s % 2 === 0 || hash(s, 30) >= odds) continue;
+      const m = top[s % 2 ? top.length - 1 : 0] + R.shift, at = t + k * this.stepDur + this.stepLate(pk, s) - this.stepLate(pk, s0);
+      let i = 0;
+      for (let j = 1; j < set.length; j++) if (Math.abs(set[j][0] - m) < Math.abs(set[i][0] - m)) i = j;
+      const [c, buf] = set[i];
+      this.playBuf(buf, at, v * R.gain * 0.2 * (0.8 + 0.4 * hash(s, 31)), outs[s % outs.length], Math.pow(2, (m - c) / 12), 0.05, { lp: 2400, release: 0.02 });
+    }
+  }
+
+  // A double-tracked part's seat, after its amp. Each take is trimmed (distortion evens out the level) and
+  // scooped at 350 Hz, where two takes pile up. The first take keeps the low end in the middle (a
+  // Linkwitz-Riley split, so the bands sum flat); the second has none, so the lows never comb or smear.
+  panFor(dest, pan, lows) {
+    const pans = (this.pans ||= new Map()), key = `${pan}:${lows}`;
+    let m = pans.get(dest);
+    if (!m) pans.set(dest, (m = new Map()));
+    if (!m.has(key)) {
+      const inp = this.filter('peaking', 350, 1), p = this.ctx.createStereoPanner(), trim = this.gain(0.5);
+      inp.gain.value = -3; inp.connect(trim);
+      p.pan.value = pan; p.connect(dest);
+      if (lows) trim.connect(this.filter('lowpass', 250)).connect(this.filter('lowpass', 250)).connect(dest);
+      trim.connect(this.filter('highpass', 250)).connect(this.filter('highpass', 250)).connect(p);
+      m.set(key, inp);
+    }
+    return m.get(key);
+  }
+
+  // A chorus pedal for clean funk and soul guitar: two slowly swept short delays spread left and right of the dry signal.
+  chorusFor(dest) {
+    const all = (this.choruses ||= new Map());
+    if (all.has(dest)) return all.get(dest);
+    const inp = this.gain(1), lfo = this.ctx.createOscillator();
+    lfo.frequency.value = 0.8;
+    inp.connect(this.gain(0.7)).connect(dest);
+    for (const side of [-1, 1]) {
+      const d = this.ctx.createDelay(0.05), depth = this.gain(0.0022 * side), pan = this.ctx.createStereoPanner();
+      d.delayTime.value = 0.011; pan.pan.value = 0.6 * side;
+      lfo.connect(depth).connect(d.delayTime);
+      inp.connect(d).connect(this.gain(0.25)).connect(pan).connect(dest);
+    }
+    lfo.start();
+    all.set(dest, inp);
+    return inp;
+  }
+
+  // An amp's tremolo, pulsing in 8ths: the twang guitar's verse sound (depth 0 opens it up for the chorus).
+  tremFor(dest, t, depth) {
+    const all = (this.trems ||= new Map());
+    let tr = all.get(dest);
+    if (!tr) {
+      const inp = this.gain(1), lfo = this.ctx.createOscillator(), amt = this.gain(0);
+      inp.connect(dest); inp.gain.value = 1;
+      lfo.connect(amt).connect(inp.gain); lfo.start();
+      all.set(dest, (tr = { inp, lfo, amt }));
+    }
+    tr.lfo.frequency.setValueAtTime(1 / (2 * this.stepDur), t);
+    tr.amt.gain.setValueAtTime(depth / 2, t);
+    tr.inp.gain.setValueAtTime(1 - depth / 2, t);
+    return tr.inp;
   }
 
   // Kept in the register the instrument was played in; every note lands a little differently and softer
@@ -1912,6 +2057,7 @@ export class Sequencer {
     const bar = Math.floor(abs / 16), vary = s.master.vary || 0;
     e.harm = pat.prog?.length ? pat.prog[bar % pat.prog.length] : null;
     e.step = abs;
+    e.stabPat = pat.steps.stab; e.stabLen = pat.len.stab || 16;
     e.wide = pat.sec === 'chorus';
     const sd = e.stepDur;
     const tt = t + (abs % 2 ? s.swing * sd * 0.5 : 0);
@@ -2206,7 +2352,8 @@ export class Sequencer {
     e.harm = home && { r: home.r + kl, c: home.c };
     if (on('kick')) e.trigger('kick', t, 1);
     if (on('acid')) e.acid(t, { on: true, n: 0, a: true, s: false }, false, false, sd);
-    if (on('stab')) e.trigger('stab', t, 0.85);
+    // The final chord is struck and left to ring: no picking pattern or scratches after it.
+    if (on('stab')) { const st = e.step; e.step = null; e.trigger('stab', t, 0.85); e.step = st; }
     const hk = pat.hook;
     if (hk && on('stab')) {
       const ns = hk.s.filter(Boolean).map((x) => x[0]), tonic = 12 * Math.round(ns.reduce((a, b) => a + b, 0) / ns.length / 12) + kl;
