@@ -69,36 +69,61 @@ export function remixListHtml(remixes = []) {
   return `<section class="pp-tracks pp-remixes"><span class="pp-label">REMIXES · ${remixes.length}</span><ol class="pp-list">${items}</ol></section>`;
 }
 
+// A stable catalogue number for the release, e.g. UG-3K9F2A.
+export const catalogNo = (id) => {
+  let h = 2166136261;
+  for (const c of String(id)) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  return `UG-${(h >>> 0).toString(36).toUpperCase().padStart(6, '0').slice(-6)}`;
+};
+const releaseDate = (iso) => { const d = new Date(iso); return Number.isFinite(d.getTime()) ? d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' }) : ''; };
+export const ogImageUrl = (site, id) => `${site}/api/page?og=${encodeURIComponent(id)}&v=2`;
+
+// The release page: cover, title, artist credit, play, share and the "make your own" invitation.
 export function renderTrackPage({ track, artist, remixes = [] }, { site = SITE } = {}) {
   const by = artist?.name || track.artist || 'UNTERGRUND';
   const url = `${site}/t/${encodeURIComponent(track.id)}`;
   const title = `${track.title} — ${by}`;
-  const description = `${trackLine(track)}. Made in UNTERGRUND. Tap to play it instantly in your browser.`;
-  const image = `${site}/api/page?og=${encodeURIComponent(track.id)}`;
-  const head = meta({ title, description, url, image, type: 'music.song', alt: `Cover art for ${track.title}`,
-    extra: artist ? `\n  <meta property="music:musician" content="${esc(`${site}/a/${artist.handle}`)}" />` : '' });
+  const description = `${trackLine(track)}. Made in UNTERGRUND. Tap to play it instantly in your browser, then remix it into your own.`;
+  const image = ogImageUrl(site, track.id);
+  const cat = catalogNo(track.id), date = releaseDate(track.created);
+  const ld = { '@context': 'https://schema.org', '@type': 'MusicRecording', name: track.title, url, image,
+    byArtist: { '@type': 'MusicGroup', name: by, ...(artist ? { url: `${site}/a/${artist.handle}` } : {}) },
+    ...(STYLES[track.style]?.name ? { genre: STYLES[track.style].name } : {}), ...(date ? { datePublished: String(track.created).slice(0, 10) } : {}) };
+  const head = meta({ title, description, url, image, type: 'music.song', alt: `Cover art for ${track.title} by ${by}`,
+    extra: `${artist ? `\n  <meta property="music:musician" content="${esc(`${site}/a/${artist.handle}`)}" />` : ''}
+  <meta name="twitter:label1" content="Artist" />
+  <meta name="twitter:data1" content="${esc(by)}" />
+  <meta name="twitter:label2" content="Sound" />
+  <meta name="twitter:data2" content="${esc(trackLine(track))}" />
+  <script type="application/ld+json">${safeJson(ld)}</script>` });
   const byline = artist ? `<a class="pp-by" href="/a/${esc(artist.handle)}">${esc(by)}</a>` : `<span class="pp-by">${esc(by)}</span>`;
-  const body = `<article class="pp-track">
+  const remixHref = `/?track=${encodeURIComponent(track.id)}`;
+  const body = `<article class="pp-track pp-release">
     <div class="pp-art" aria-hidden="true"></div>
     <div class="pp-info">
-      <span class="pp-eyebrow">TRACK</span>
+      <div class="pp-eyebrow"><span>RELEASE</span><span class="pp-cat">${esc(cat)}</span></div>
       <h1>${esc(track.title)}</h1>
       ${byline}
       <div class="pp-meta">${esc(trackLine(track))}</div>
       ${remixOfHtml(track)}
       <div class="pp-actions"><button class="pp-play" type="button" disabled><i></i><span>Play</span></button></div>
-      <p class="pp-note">Played live by UNTERGRUND in your browser. Nothing is streamed.</p>
+      <dl class="pp-facts">${date ? `<div><dt>Released</dt><dd>${esc(date)}</dd></div>` : ''}<div><dt>Made in</dt><dd>UNTERGRUND</dd></div></dl>
     </div>
   </article>
-  ${remixListHtml(remixes)}`;
-  return shell(head, body, { kind: 'track', site, track, artist, remixes });
+  <section class="pp-cta" aria-label="Make your own">
+    <div><span class="pp-label">OPEN SOURCE SONG</span><h2>Make it yours.</h2><p>Every part of this track opens in UNTERGRUND. Change the beat, the sound or the hook, then release your own version.</p></div>
+    <div class="pp-cta-go"><a class="pp-remix" href="${remixHref}">Remix this track</a><a class="pp-link" href="/">Start from scratch</a></div>
+  </section>
+  ${remixListHtml(remixes)}
+  <p class="pp-note pp-foot">Played live by UNTERGRUND in your browser. Nothing is streamed.</p>`;
+  return shell(head, body, { kind: 'track', site, track, artist, remixes, cat });
 }
 
 export function renderArtistPage({ artist, tracks }, { site = SITE } = {}) {
   const url = `${site}/a/${artist.handle}`;
   const title = `${artist.name} (@${artist.handle}) on UNTERGRUND`;
   const description = artist.bio || `${tracks.length} track${tracks.length === 1 ? '' : 's'} made in UNTERGRUND. Follow to hear what ${artist.name} makes next.`;
-  const image = tracks[0] ? `${site}/api/page?og=${encodeURIComponent(tracks[0].id)}` : `${site}/social-card.png`;
+  const image = tracks[0] ? ogImageUrl(site, tracks[0].id) : `${site}/social-card.png`;
   const head = meta({ title, description, url, image, type: 'profile', alt: `${artist.name} on UNTERGRUND`,
     extra: `\n  <meta property="profile:username" content="${esc(artist.handle)}" />` });
   const list = tracks.map((t) => `<li><a href="/t/${esc(t.id)}"><b>${esc(t.title)}</b><small>${esc(trackLine(t))}</small></a></li>`).join('');
@@ -166,7 +191,7 @@ export async function handlePage(query, { kv, crate, site = SITE, og, rooms = nu
     if (query.og_room) {
       const set = snap?.members?.length && snap.currentSet;
       if (!set?.state) return { status: 302, location: `${site}/social-card.png` };
-      return { status: 200, type: 'image/png', body: og.ogImage(set.state, og.artSeed(`room:${id}:${set.broadcastId || set.title}`)), cache: live };
+      return { status: 200, type: 'image/png', body: og.ogImage(set.state, og.artSeed(`room:${id}:${set.broadcastId || set.title}`), { title: set.title || 'Live set', artist: 'LIVE NOW', line: `UNTERGRUND · ROOM ${id}` }), cache: live };
     }
     return html(200, renderRoomPage(id, snap, { site }), live);
   }
@@ -174,7 +199,7 @@ export async function handlePage(query, { kv, crate, site = SITE, og, rooms = nu
     const t = await publicTrack(kv, crate, query.og);
     if (!t) return { status: 302, location: '/social-card.png' };
     const { ogImage, artSeed } = og;
-    return { status: 200, type: 'image/png', body: ogImage(t.track.state, artSeed(t.track.id)), cache: 'public, max-age=86400, s-maxage=31536000, immutable' };
+    return { status: 200, type: 'image/png', body: ogImage(t.track.state, artSeed(t.track.id), { title: t.track.title, artist: t.artist?.name || t.track.artist || '', line: trackLine(t.track) }), cache: 'public, max-age=86400, s-maxage=31536000, immutable' };
   }
   if (query.t) {
     const t = await publicTrack(kv, crate, query.t);

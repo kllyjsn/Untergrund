@@ -56,24 +56,30 @@ function trackView(track, artist, { localOnly = false } = {}) {
   if ('mediaSession' in navigator) navigator.mediaSession.metadata = new MediaMetadata({ title: track.title, artist: artist?.name || track.artist || 'UNTERGRUND', album: 'UNTERGRUND' });
   const by = artist ? h('a', { class: 'pp-by', href: `/a/${artist.handle}` }, artist.name) : h('span', { class: 'pp-by' }, track.artist || 'UNTERGRUND');
   const url = `${location.origin}/t/${track.id}`;
+  page.classList.add('pp-release');
+  const created = new Date(track.created), date = Number.isFinite(created.getTime()) ? created.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' }) : '';
+  const fact = (k, v) => (v ? h('div', {}, h('dt', {}, k), h('dd', {}, v)) : null);
   page.replaceChildren(
     h('div', { class: 'pp-art' }, art(track)),
     h('div', { class: 'pp-info' },
-      h('span', { class: 'pp-eyebrow' }, 'TRACK'),
+      h('div', { class: 'pp-eyebrow' }, h('span', {}, 'RELEASE'), data.cat ? h('span', { class: 'pp-cat' }, data.cat) : null),
       h('h1', {}, track.title),
       by,
       h('div', { class: 'pp-meta' }, line(track)),
       remixOf(track),
       h('div', { class: 'pp-progress', 'aria-hidden': 'true' }, h('div', { class: 'pp-cells' }, cells), time),
-      h('div', { class: 'pp-actions' }, btn),
-      h('div', { class: 'pp-links' },
-        localOnly ? null : h('button', { class: 'pp-link', type: 'button', onclick: () => share(url, track.title) }, 'Share'),
-        h('a', { class: 'pp-link', href: `/?track=${encodeURIComponent(track.id)}` }, 'Remix in UNTERGRUND')),
-      h('p', { class: 'pp-note' }, localOnly ? 'Only this browser can open this page until public storage is connected.' : 'Played live by UNTERGRUND in your browser. Nothing is streamed.')));
+      h('div', { class: 'pp-actions' }, btn,
+        localOnly ? null : h('button', { class: 'pp-share', type: 'button', onclick: () => share(url, `${track.title} — ${artist?.name || track.artist || 'UNTERGRUND'}`) }, 'Share')),
+      h('dl', { class: 'pp-facts' }, fact('Released', date), fact('Length', fmt(secs)), fact('Made in', 'UNTERGRUND')),
+      localOnly ? h('p', { class: 'pp-note' }, 'Only this browser can open this page until public storage is connected.') : null));
   if (!page.isConnected) main.replaceChildren(page);
+  if (!main.querySelector('.pp-cta')) page.after(h('section', { class: 'pp-cta', 'aria-label': 'Make your own' },
+    h('div', {}, h('span', { class: 'pp-label' }, 'OPEN SOURCE SONG'), h('h2', {}, 'Make it yours.'),
+      h('p', {}, 'Every part of this track opens in UNTERGRUND. Change the beat, the sound or the hook, then release your own version.')),
+    h('div', { class: 'pp-cta-go' }, h('a', { class: 'pp-remix', href: `/?track=${encodeURIComponent(track.id)}` }, 'Remix this track'), h('a', { class: 'pp-link', href: '/' }, 'Start from scratch'))));
   const remixes = localOnly ? [] : data.remixes || [];
   main.querySelector('.pp-remixes')?.remove();
-  if (remixes.length) main.append(h('section', { class: 'pp-tracks pp-remixes' }, h('div', { class: 'pp-label' }, `REMIXES · ${remixes.length}`),
+  if (remixes.length) main.querySelector('.pp-cta').after(h('section', { class: 'pp-tracks pp-remixes' }, h('div', { class: 'pp-label' }, `REMIXES · ${remixes.length}`),
     h('ol', { class: 'pp-list' }, trackRows(remixes, (t) => [t.artist, line(t), t.plays ? `${t.plays} play${t.plays === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')))));
 }
 

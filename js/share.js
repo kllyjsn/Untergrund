@@ -18,7 +18,7 @@ async function copy(text, toast, what) {
   try { await navigator.clipboard.writeText(text); toast(`${what} copied`); } catch { prompt(`Copy the ${what.toLowerCase()}:`, text); }
 }
 
-// Short /?t=<id> when the crate backend stores it; otherwise the whole song rides in the URL.
+// The /t/<id> release page when the crate backend stores it; otherwise the whole song rides in the URL.
 const linkCache = new Map();
 export async function shareLinks(song, origin = location.origin) {
   const code = await encodeSong(song);
