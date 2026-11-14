@@ -2,6 +2,7 @@
 // daily Redis counters (HINCRBY), daily unique sessions (HyperLogLog) and a short error log.
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { redisEnv } from './crate.js';
+import { analyze } from './improve.js';
 
 export const EVENTS = ['app_open', 'generate', 'play_start', 'play_30s', 'save_track', 'publish', 'share_link_copied',
   'room_join', 'room_go_live', 'export_wav', 'export_stems', 'export_midi', 'return_visit', 'shared_open', 'remix', 'video_export', 'hum', 'voice_chops', 'song_edit', 'set_replay', 'daily_drop', 'describe', 'push', 'live_rooms', 'go_live_nudge', 'room_create', 'room_privacy', 'listen', 'error'];
@@ -12,7 +13,8 @@ const PROPS = ['genre', 'kind', 'what', 'bucket', 'days', 'visitor', 'bars', 'sh
 const P = 'untergrund:ev', TTL = 400 * 86400, MAX_EVENTS = 40, ERROR_LOG = 100;
 export const MAX_BODY = 32_000, BATCHES_PER_HOUR = 400, ERRORS_PER_HOUR = 20;
 // Listen signals (js/listen.js, docs/listen-signals.md): counted like events, and each full record is kept in a capped log.
-export const LISTEN_KINDS = ['start', 'complete', 'skip', 'partial', 'replay', 'keep', 'publish', 'share', 'live', 'love', 'unlove'];
+export const LISTEN_KINDS = ['start', 'complete', 'skip', 'partial', 'replay', 'keep', 'publish', 'share', 'live', 'love', 'unlove', 'down', 'undown', 'why', 'rewind'];
+export const DOWN_REASONS = ['boring', 'sounds_bad', 'not_my_style'], COHORTS = ['d0', 'd1_6', 'd7_29', 'd30_plus'], DEVICES = ['phone', 'tablet', 'desktop'];
 export const LISTEN_LOG = 5000, LISTENS_PER_HOUR = 300, SIGNALS_MAX = 1000;
 
 const text = (v, max) => String(v ?? '').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim().slice(0, max);
@@ -44,7 +46,16 @@ export function cleanListen(l, p = {}) {
     ph: id(l.ph, /^[a-z0-9]{1,8}$/), bar: int(l.bar, 0, 9999, 0), bars: int(l.bars, 0, 9999, 0), sec: slug(l.sec), pct: int(l.pct, -1, 100, -1),
     ms: int(l.ms, 0, 864e5, 0), t: int(l.t, 0, 1e14, 0),
   };
-  if (kind === 'start') { const pt = text(l.pt, 120); if (pt) out.pt = pt; }
+  const co = COHORTS.includes(l.co) ? l.co : '', dev = DEVICES.includes(l.dev) ? l.dev : '';
+  if (co) out.co = co;
+  if (dev) out.dev = dev;
+  if (kind === 'start') {
+    const pt = text(l.pt, 120), arr = id(l.arr, /^[a-z0-9_.-]{1,80}$/);
+    if (pt) out.pt = pt;
+    if (arr) out.arr = arr;
+  }
+  if (kind === 'why') { if (!DOWN_REASONS.includes(l.why)) return null; out.why = l.why; }
+  if (kind === 'rewind') out.to = int(l.to, 0, 9999, 0);
   return out;
 }
 
@@ -218,10 +229,11 @@ export async function summarize(kv, { days = 30, now = Date.now() } = {}) {
 }
 
 // Enjoyment rates per listen start: how often a song is finished, skipped early, replayed, loved, kept, published, shared or played live.
-const RATES = { completion: 'complete', skip: 'skip', replay: 'replay', love: 'love', keep: 'keep', publish: 'publish', share: 'share', live: 'live' };
+const RATES = { completion: 'complete', skip: 'skip', replay: 'replay', rewind: 'rewind', love: 'love', down: 'down', keep: 'keep', publish: 'publish', share: 'share', live: 'live' };
+const NET = { love: 'unlove', down: 'undown' };
 export function listenRates(k = {}) {
   const starts = k.start || 0;
-  return Object.fromEntries(Object.entries(RATES).map(([name, kind]) => [name, starts ? (name === 'love' ? Math.max(0, (k.love || 0) - (k.unlove || 0)) : k[kind] || 0) / starts : 0]));
+  return Object.fromEntries(Object.entries(RATES).map(([name, kind]) => [name, starts ? (NET[name] ? Math.max(0, (k[kind] || 0) - (k[NET[name]] || 0)) : k[kind] || 0) / starts : 0]));
 }
 function listening(totals, byStyle) {
   const kinds = Object.fromEntries(LISTEN_KINDS.map((kind) => [kind, totals[`listen:${kind}`] || 0]));
@@ -240,17 +252,25 @@ export async function listSignals(kv, { limit = 500, fp = '' } = {}) {
   return { enabled: true, version: 1, signals, ...(song ? { song: { fp: song, counts: toObj(counts), rates: listenRates(toObj(counts)) } } : {}) };
 }
 
+// The improvement engine over the whole raw log (stats-token only): ranked findings + proposed experiments, never applied.
+export async function improveReport(kv, { now = Date.now(), ...options } = {}) {
+  const [rows] = await kv([['LRANGE', `${P}:listen`, 0, LISTEN_LOG - 1]]);
+  const signals = (rows || []).map((x) => { try { return JSON.parse(x); } catch { return null; } }).filter(Boolean);
+  return { enabled: true, ...analyze(signals, { now, ...options }) };
+}
+
 export function validToken(given, expected) {
   if (!expected || !given) return false;
   return timingSafeEqual(hash(given), hash(expected));
 }
 
 export async function handleEvents({ method, query = {}, headers = {}, body, kv, client = 'anon', statsToken = '', now = Date.now() }) {
-  if (method === 'GET' && (query.summary || query.signals)) {
+  if (method === 'GET' && (query.summary || query.signals || query.improve)) {
     if (!statsToken) return { status: 404, json: { error: 'stats_disabled' } };
     const given = query.token || headers['x-stats-token'] || String(headers.authorization || '').replace(/^Bearer\s+/i, '');
     if (!validToken(String(given || ''), statsToken)) return { status: 401, json: { error: 'unauthorized' } };
     if (!kv) return { status: 503, json: { enabled: false, error: 'storage_unavailable' } };
+    if (query.improve) return { status: 200, json: await improveReport(kv, { now, ...(+query.min > 0 ? { minListens: Math.min(1000, Math.round(+query.min)) } : {}) }) };
     if (query.signals) return { status: 200, json: await listSignals(kv, { limit: query.limit, fp: String(query.fp || '') }) };
     return { status: 200, json: await summarize(kv, { days: +query.days || 30, now }) };
   }

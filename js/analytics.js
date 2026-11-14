@@ -4,6 +4,7 @@
 const ENDPOINT = '/api/events';
 const FIRST_SEEN = 'untergrund.firstSeen', LAST_DAY = 'untergrund.lastVisitDay', SESSION = 'untergrund.sid', LISTENER = 'untergrund.lid';
 const ID = /^[a-z0-9]{8,32}$/;
+const LONG = { pt: 120, arr: 80 }, URGENT = new Set(['love', 'unlove', 'down', 'undown', 'why']);
 const randomId = () => Array.from({ length: 16 }, () => ((Math.random() * 36) | 0).toString(36)).join('');
 
 export const localDay = (t) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
@@ -73,10 +74,20 @@ export function createAnalytics({ win = globalThis, now = () => Date.now(), flus
   }
 
   // A listen signal (js/listen.js): kind + genre are counted like any event; `l` is the full record, kept for learning.
+  // Cohort context, coarse by design: how long this device has been listening (co) and what kind of screen it is (dev).
+  function cohort() {
+    const first = local.get(FIRST_SEEN);
+    const days = first ? Math.max(0, dayIndex(localDay(now())) - dayIndex(first)) : 0;
+    return days < 1 ? 'd0' : days < 7 ? 'd1_6' : days < 30 ? 'd7_29' : 'd30_plus';
+  }
+  function device() {
+    const coarse = !!win.matchMedia?.('(pointer: coarse)')?.matches, w = +win.innerWidth || 0;
+    return coarse ? (w && w < 700 ? 'phone' : 'tablet') : 'desktop';
+  }
   function signal(kind, rec = {}) {
-    const l = { lid: listener() };
-    for (const [k, v] of Object.entries(rec || {})) if (['string', 'number', 'boolean'].includes(typeof v)) l[k] = typeof v === 'string' ? v.slice(0, k === 'pt' ? 120 : 40) : v;
-    return push({ n: 'listen', p: { kind: String(kind), genre: String(rec?.style || '').slice(0, 32) }, l, t: now() }, kind === 'love' || kind === 'unlove');
+    const l = { lid: listener(), co: cohort(), dev: device() };
+    for (const [k, v] of Object.entries(rec || {})) if (['string', 'number', 'boolean'].includes(typeof v)) l[k] = typeof v === 'string' ? v.slice(0, LONG[k] || 40) : v;
+    return push({ n: 'listen', p: { kind: String(kind), genre: String(rec?.style || '').slice(0, 32) }, l, t: now() }, URGENT.has(kind));
   }
 
   function reportError(err, { kind = 'error', source = '' } = {}) {
