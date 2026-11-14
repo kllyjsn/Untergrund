@@ -52,7 +52,7 @@ export function listensFrom(signals = [], { returnAfterMs = DEFAULTS.returnAfter
     let l = by.get(s.lis);
     if (!l) by.set(s.lis, l = { lis: s.lis, lid: s.lid || '', sid: s.sid || '', fp: s.fp, t: s.t || 0, outcome: null, love: false, down: false, why: null,
       replay: false, rewind: false, keep: false, spread: false, rewinds: [], end: null, downAt: null });
-    for (const k of ['tid', 'seed', 'style', 'src', 'surf', 'ph', 'co', 'dev', 'arr', 'xp', 'arm']) if (l[k] == null || l[k] === '' || l[k] === -1) if (s[k] != null && s[k] !== '') l[k] = s[k];
+    for (const k of ['tid', 'seed', 'style', 'src', 'surf', 'ph', 'co', 'dev', 'arr', 'xp', 'arm', 'via']) if (l[k] == null || l[k] === '' || l[k] === -1) if (s[k] != null && s[k] !== '') l[k] = s[k];
     if (s.kind === 'start' && s.pt) l.pt = s.pt;
     if (s.kind === 'complete' || s.kind === 'skip' || s.kind === 'partial') { l.outcome = s.kind; l.end = { bar: s.bar, bars: s.bars, pct: s.pct, ms: s.ms, sec: s.sec }; }
     else if (s.kind === 'love') { l.love = true; l.down = false; l.why = null; }
@@ -312,6 +312,33 @@ export function experimentResults(rows, running = [], o = DEFAULTS) {
   return out;
 }
 
+// The release loop: do published songs get shared, do shared links bring listeners who finish, replay and come back,
+// and do creators come back within a week of publishing? Rates are null until there is something to divide by.
+export const CREATOR_WEEK_MS = 7 * 864e5;
+export function releaseLoop(signals = [], rows = listensFrom(signals), { returnAfterMs = DEFAULTS.returnAfterMs } = {}) {
+  const sig = signals.filter((s) => s && s.fp), rate = (k, n) => (n ? Math.round((1000 * k) / n) / 1000 : null);
+  const latest = sig.reduce((m, s) => Math.max(m, s.t || 0), 0);
+  const publishes = sig.filter((s) => s.kind === 'publish'), published = new Set(publishes.map((s) => s.fp));
+  const shares = sig.filter((s) => s.kind === 'share' && published.has(s.fp)).length;
+  const shareStarts = sig.filter((s) => s.kind === 'start' && s.via);
+  const heard = (r) => ({ listens: r.length, completion: rate(count(r, 'complete'), r.length), replay: rate(count(r, 'replay'), r.length) });
+  const shared = rows.filter((l) => l.via), judged = shared.filter((l) => l.return !== null);
+  // A creator is a device that published; it came back if it was heard from again between a day and a week after its
+  // first publish. Only creators whose first publish is at least a week old are judged.
+  const first = new Map(), seen = new Map();
+  for (const s of publishes) if (s.lid && !(first.get(s.lid) <= s.t)) first.set(s.lid, s.t || 0);
+  for (const s of sig) if (first.has(s.lid)) (seen.get(s.lid) || seen.set(s.lid, []).get(s.lid)).push(s.t || 0);
+  const ripe = [...first].filter(([, t]) => latest - t >= CREATOR_WEEK_MS);
+  const back = ripe.filter(([lid, t]) => seen.get(lid).some((u) => u - t >= returnAfterMs && u - t <= CREATOR_WEEK_MS)).length;
+  return {
+    published: published.size, shares, sharesPerSong: rate(shares, published.size),
+    shareOrigin: { starts: shareStarts.length, links: new Set(shareStarts.map((s) => s.via)).size, listeners: listeners(shared),
+      returned: count(judged, 'return'), judged: judged.length, returnRate: rate(count(judged, 'return'), judged.length) },
+    heard: { all: heard(rows), published: heard(rows.filter((l) => l.tid || published.has(l.fp))), shared: heard(shared) },
+    creators: { total: first.size, judged: ripe.length, returned: back, returnRate7d: rate(back, ripe.length) },
+  };
+}
+
 export function analyze(signals = [], options = {}) {
   const o = { ...DEFAULTS, ...options };
   const all = listensFrom(signals, o);
@@ -336,7 +363,7 @@ export function analyze(signals = [], options = {}) {
     window: ts.length ? { from: new Date(Math.min(...ts)).toISOString(), to: new Date(Math.max(...ts)).toISOString() } : null,
     totals: { signals: signals.length, listens: all.length, listeners: listeners(all), downs: count(all, 'down'), downsWithReason: all.filter((l) => l.down && l.why).length, reasons },
     thresholds: { minListens: o.minListens, minListeners: o.minListeners, minSongListens: o.minSongListens, z: o.z },
-    findings, experiments, running: experimentResults(all, o.running || [], o),
+    findings, experiments, running: experimentResults(all, o.running || [], o), loop: releaseLoop(signals, all, o),
   };
 }
 
@@ -352,6 +379,16 @@ export function toMarkdown(r) {
   if (r.running?.length) {
     lines.push('', '## Running experiments', '', '| experiment | status | primary | variant | control | z | listens (variant/control) | guardrails |', '|---|---|---|---|---|---|---|---|');
     for (const x of r.running) lines.push(`| ${x.id} | ${x.status}${x.verdict ? ` · ${x.verdict}` : ''} | ${x.primary.metric} (${x.primary.goal}) | ${pct(x.primary.rate)} | ${pct(x.primary.base)} | ${x.primary.z} | ${x.arms.variant.listens}/${x.arms.control.listens} of ≥ ${x.minListensPerArm} | ${x.guardrails.filter((g) => g.breached).map((g) => `${g.metric} breached`).join(', ') || 'ok'} |`);
+  }
+  if (r.loop) {
+    const L = r.loop, p = (x) => (x == null ? '–' : pct(x)), h = L.heard;
+    lines.push('', '## Release loop', '', '| metric | value |', '|---|---|',
+      `| shares per published song | ${L.sharesPerSong ?? '–'} (${L.shares} shares of ${L.published} songs) |`,
+      `| share-origin listens | ${L.shareOrigin.starts} starts from ${L.shareOrigin.links} links, ${L.shareOrigin.listeners} listeners |`,
+      `| completion (shared · published · all) | ${p(h.shared.completion)} · ${p(h.published.completion)} · ${p(h.all.completion)} |`,
+      `| replay (shared · published · all) | ${p(h.shared.replay)} · ${p(h.published.replay)} · ${p(h.all.replay)} |`,
+      `| share-origin listeners back a day later | ${p(L.shareOrigin.returnRate)} (${L.shareOrigin.returned} of ${L.shareOrigin.judged}) |`,
+      `| creator return within 7 days | ${p(L.creators.returnRate7d)} (${L.creators.returned} of ${L.creators.judged} creators a week past their first publish) |`);
   }
   if (r.experiments.length) {
     lines.push('', '## Proposed experiments', '', 'Proposals only: nothing here changes a default. Each runs as a small variant arm against control.', '');

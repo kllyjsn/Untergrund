@@ -308,8 +308,9 @@ export async function runDigest(kv, { now = Date.now(), webhook = '', fetchImpl 
   try {
     r = await improveReport(kv, { now, ...options });
     markdown = toMarkdown(r);
-    const digest = { day, generated: r.generated, coverage: r.coverage, totals: r.totals, findings: r.findings.slice(0, 10), experiments: r.experiments, running: r.running, markdown };
-    brief = { day, generated: r.generated, listens: r.totals.listens, findings: r.findings.length, experiments: r.experiments.length, running: r.running.map((x) => ({ id: x.id, status: x.status })) };
+    const digest = { day, generated: r.generated, coverage: r.coverage, totals: r.totals, findings: r.findings.slice(0, 10), experiments: r.experiments, running: r.running, loop: r.loop, markdown };
+    brief = { day, generated: r.generated, listens: r.totals.listens, findings: r.findings.length, experiments: r.experiments.length, running: r.running.map((x) => ({ id: x.id, status: x.status })),
+      loop: { sharesPerSong: r.loop.sharesPerSong, shareStarts: r.loop.shareOrigin.starts, creatorReturn7d: r.loop.creators.returnRate7d } };
     await kv([['SET', `${P}:digest`, JSON.stringify(digest)], ['LPUSH', `${P}:digests`, JSON.stringify(brief)], ['LTRIM', `${P}:digests`, 0, DIGESTS_KEPT - 1]]);
   } catch (err) {
     // A failed run must not use up the day: the next cron retry tries again. Only the run that set the marker clears it.
