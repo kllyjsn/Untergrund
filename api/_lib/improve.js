@@ -198,16 +198,21 @@ function reasonFindings(rows, o) {
 }
 
 // Single songs (fingerprints) that stand out against their style: candidates to study, hold out or build on.
+const SONG_METRICS = ['down', 'skip', 'love', 'keep'];
+// { listens, <metric>: [judged, hits] } for a set of rows; a song's "rest" is its style's tally minus its own (linear, not songs × rows).
+const tally = (rows) => Object.fromEntries([['listens', rows.length], ...SONG_METRICS.map((m) => { const j = judged(rows, m); return [m, [j.length, count(j, m)]]; })]);
 function songFindings(rows, o) {
-  const out = [];
+  const out = [], byStyle = new Map();
+  const styles = new Map();
+  for (const l of rows) (styles.get(l.style) || styles.set(l.style, []).get(l.style)).push(l);
+  for (const [style, seg] of styles) byStyle.set(style, tally(seg));
   for (const [fp, seg] of groupBy(rows, (l) => l.fp)) {
-    const style = seg[0].style;
-    const rest = rows.filter((l) => l.style === style && l.fp !== fp);
-    if (seg.length < o.minSongListens || rest.length < o.minListens || listeners(seg) < o.minListeners) continue;
-    for (const metric of ['down', 'skip', 'love', 'keep']) {
-      const a = judged(seg, metric), b = judged(rest, metric);
-      if (!a.length || !b.length) continue;
-      const c = compare(count(a, metric), a.length, count(b, metric), b.length);
+    const style = seg[0].style, all = byStyle.get(style), own = tally(seg.filter((l) => l.style === style));
+    if (seg.length < o.minSongListens || !all || all.listens - own.listens < o.minListens || listeners(seg) < o.minListeners) continue;
+    for (const metric of SONG_METRICS) {
+      const a = judged(seg, metric), bn = all[metric][0] - own[metric][0];
+      if (!a.length || !bn) continue;
+      const c = compare(count(a, metric), a.length, all[metric][1] - own[metric][1], bn);
       if (Math.abs(c.z) < o.z) continue;
       const s = seg.find((l) => l.pt) || seg[0];
       out.push(finding('song', { style, fp }, metric, c, a.length, { comparedTo: `other ${style} songs`, listeners: listeners(seg), song: { fp, seed: s.seed ?? -1, tid: s.tid || '', src: s.src || '', arr: s.arr || '', ...(s.pt ? { pt: s.pt } : {}) } }, o));
