@@ -18,7 +18,7 @@ const PART_TRACKS = { kick: ['kick'], drums: ['kick', 'clap', 'snare', 'ch', 'oh
 // Pattern slots keep the roles the engine already plays (see arrangement()): A intro, B build, C verse,
 // D fill, E/F breakdown, G drop, H the drop's turnaround.
 const SLOT = { intro: 0, build: 1, verse: 2, breakdown: 4, drop: 6, outro: 0 };
-const MAX_SECTIONS = 12;
+const MAX_SECTIONS = 16;
 
 const clamp = (v, lo, hi, d) => (Number.isFinite(+v) ? Math.max(lo, Math.min(hi, +v)) : d);
 const cleanText = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f<>{}\[\]`\\]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
