@@ -734,7 +734,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   params.stab.octave = octave;
   params.stab.decay = decay;
   params.stab.env = articulation;
-  const ensembleLevel = [0.75, 0.78, 0.72, 0.78, 0.78, 0.8, 0.75, 0.9, 0.9, 0.9, 0.9, 0.85, 0.9][stabVoice];
+  const ensembleLevel = [0.75, 0.78, 0.72, 0.78, 0.78, 0.8, 0.75, 0.9, 0.9, 0.9, 0.9, 0.85, 0.9, 0.9, 0.9, 0.9][stabVoice] ?? 0.9;
   params.stab.level = Math.max(params.stab.level ?? 0.42, ensembleLevel);
   const closeLevel = { 'jerseyclub:0': 0.52, 'jerseyclub:4': 0.55, 'hyperpop:6': 0.5 }[`${style}:${stabVoice}`];
   if (closeLevel) {

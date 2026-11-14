@@ -81,7 +81,8 @@ console.log('genre signatures passed');
     const recorded = new Set();
     for (const style of Object.keys(STYLES)) {
       for (let seed = 1; seed <= 24; seed++) {
-        const voice = generate(style, seed).params.stab.voice;
+        const { voice, level } = generate(style, seed).params.stab;
+        assert(level === undefined || (Number.isFinite(level) && level > 0), `${style} seed ${seed}: stab level ${level} for voice ${voice}`);
         if (voice >= 7) recorded.add(voice);
       }
     }

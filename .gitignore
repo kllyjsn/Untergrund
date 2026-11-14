@@ -10,3 +10,4 @@ js/vendor/
 suno-lab/
 /suno/
 ios/build/
+__pycache__/
