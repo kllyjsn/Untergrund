@@ -80,5 +80,6 @@ $('copy').onclick = async () => {
   $('title').textContent = song.title;
   $('meta').textContent = [`${song.artist} · ${STYLES[song.style]?.name || ''} · ${song.state.bpm} BPM`, creditLine(song.remixOf)].filter(Boolean).join(' · ');
   $('art').append(drawArtwork(song.state, { title: song.title, style: STYLES[song.style]?.name, seed: 7, size: 240 }));
+  if (params?.id && STYLES[song.style]?.family === 'CLASSICAL') $('open').href = songLink(location.origin, { ...params, release: false });
   $('play').disabled = false;
 })();
