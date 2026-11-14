@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { memoryKv } from '../api/_lib/kv.js';
 import { cleanLegalRequest, handleLegal } from '../api/_lib/legal.js';
 
@@ -44,6 +44,7 @@ const capped = memoryKv();
 for (let i = 0; i < 251; i++) await capped.cmd(['ZADD', 'z', i, `m${i}`]);
 assert.equal(await capped.cmd(['ZREMRANGEBYRANK', 'z', 0, -501]), 0, 'rank trim keeps sets under the cap');
 const file = new URL('./out/legal-kv.json', import.meta.url).pathname;
+rmSync(file, { force: true });
 const disk = memoryKv({ file });
 await handleLegal({ method: 'POST', body: valid, kv: disk, client: 'disk', now });
 await new Promise((ok) => setTimeout(ok, 300));

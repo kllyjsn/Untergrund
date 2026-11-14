@@ -24,7 +24,7 @@ export function memoryKv({ file = '', scripts = {}, delay = 0 } = {}) {
   const shas = new Map(Object.keys(scripts).map((src) => [sha1(src), src]));
   const stats = { count: 0 };
   if (file) {
-    try { for (const [k, v] of Object.entries(JSON.parse(readFileSync(file, 'utf8')))) data.set(k, v.t === 'set' ? { ...v, v: new Set(v.v) } : v.t === 'zset' ? { ...v, v: new Map(v.v) } : v); } catch {}
+    try { for (const [k, v] of Object.entries(JSON.parse(readFileSync(file, 'utf8')))) data.set(k, v.t === 'set' ? { ...v, v: new Set(v.v) } : v.t === 'zset' ? { ...v, v: new Map(Array.isArray(v.v) ? v.v : []) } : v); } catch {}
   }
   let saveTimer = 0;
   const persist = () => {
