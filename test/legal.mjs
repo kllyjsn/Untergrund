@@ -30,4 +30,14 @@ assert.equal(out.json.requests.length, 1);
 assert.equal(out.json.requests[0].email, valid.email);
 assert(!JSON.stringify([...kv.dump().keys()]).includes('1.2.3.4'), 'raw client address is not stored');
 
+out = await handleLegal({
+  method: 'GET',
+  kv,
+  headers: { authorization: 'Bearer secret' },
+  statsToken: 'secret',
+  now: now + 180 * 86400e3 + 1,
+});
+assert.equal(out.status, 200);
+assert.equal(out.json.requests.length, 0, 'requests expire individually after 180 days');
+
 console.log('legal policy and request intake passed');

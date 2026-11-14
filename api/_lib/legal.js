@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 
-const KEY = 'untergrund:legal:requests';
+const KEY = 'untergrund:legal:requests:v2';
 const RETENTION_SECONDS = 180 * 86400;
+const RETENTION_MS = RETENTION_SECONDS * 1000;
 const MAX_REQUESTS = 500;
 const PER_HOUR = 20;
 const TYPES = new Set(['copyright', 'privacy', 'rights', 'safety', 'other']);
@@ -34,7 +35,8 @@ export async function handleLegal({ method, body, headers = {}, query = {}, kv, 
   if (method === 'GET') {
     if (!statsToken || String(headers.authorization || '') !== `Bearer ${statsToken}`) return { status: 401, json: { error: 'unauthorized' } };
     const limit = Math.max(1, Math.min(100, Number(query.limit) || 50));
-    const rows = (await kv.cmd(['LRANGE', KEY, 0, limit - 1])).map((row) => {
+    await kv.cmd(['ZREMRANGEBYSCORE', KEY, '-inf', now - RETENTION_MS]);
+    const rows = (await kv.cmd(['ZREVRANGEBYSCORE', KEY, '+inf', now - RETENTION_MS, 'LIMIT', 0, limit])).map((row) => {
       try { return JSON.parse(row); } catch { return null; }
     }).filter(Boolean);
     return { status: 200, json: { requests: rows } };
@@ -50,8 +52,9 @@ export async function handleLegal({ method, body, headers = {}, query = {}, kv, 
   const request = cleanLegalRequest(body, { now });
   if (!request) return { status: 400, json: { error: 'invalid_request' } };
   await kv.pipe([
-    ['LPUSH', KEY, JSON.stringify(request)],
-    ['LTRIM', KEY, 0, MAX_REQUESTS - 1],
+    ['ZREMRANGEBYSCORE', KEY, '-inf', now - RETENTION_MS],
+    ['ZADD', KEY, now, JSON.stringify(request)],
+    ['ZREMRANGEBYRANK', KEY, 0, -(MAX_REQUESTS + 1)],
     ['EXPIRE', KEY, RETENTION_SECONDS],
   ]);
   return { status: 201, json: { ok: true, id: request.id } };

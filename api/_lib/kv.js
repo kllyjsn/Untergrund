@@ -92,6 +92,15 @@ export function memoryKv({ file = '', scripts = {}, delay = 0 } = {}) {
       for (const [m, sc] of z) if (sc >= lo && sc <= hi) { z.delete(m); n++; }
       return n;
     },
+    ZREMRANGEBYRANK: (k, start, stop) => {
+      const z = of(k, 'zset'); if (!z) return 0;
+      const rows = [...z].sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : 1));
+      const from = +start < 0 ? Math.max(0, rows.length + +start) : +start;
+      const to = +stop < 0 ? rows.length + +stop : +stop;
+      let n = 0;
+      for (const [member] of rows.slice(from, to + 1)) if (z.delete(member)) n++;
+      return n;
+    },
     EVAL: (src, nk, ...rest) => {
       const fn = scripts[src];
       if (!fn) throw new Error('ERR unsupported script');
