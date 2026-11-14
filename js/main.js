@@ -266,7 +266,7 @@ function landSong(t) {
   if (engine.recLock) engine.recLock = new Map();
   uiQueue.length = 0;
   lastPlayedPat = null;
-  return () => { plan.finish(true); listens.begin(listenCtx(), listenPos(0)); syncNowPlaying(); };
+  return () => { plan.finish(true); beginListen(listenPos(0)); syncNowPlaying(); };
 }
 
 // A song on recorded instruments holds its first downbeat until they're decoded (up to 8 s); a score waits longer,
@@ -329,7 +329,7 @@ function start({ step = 0, delay = 0.06 } = {}) {
   for (const b of document.querySelectorAll('.btn.play')) b.setAttribute('aria-label', 'Stop');
   syncNowPlaying();
   if (seeking) return;
-  listens.begin(listenCtx(), listenPos(abs));
+  beginListen(listenPos(abs));
   playStarted({ genre: style });
   renderHome();
 }
@@ -999,7 +999,7 @@ function adoptPlan(plan) {
   autoMajor = plan.autoMajor ?? false;
   for (const k of Object.keys(state)) if (!(k in plan.next)) delete state[k];
   adoptState(plan.next);
-  if (playing) listens.begin(listenCtx(), listenPos());
+  if (playing) beginListen(listenPos());
   if (engine?.recLock) engine.recLock = new Map();
   plan.finish();
 }
@@ -1396,6 +1396,12 @@ function buildNowPlaying(primary) {
 // The explicit reactions: love or down the song you hear, one tap each. After a down, three optional one-tap reasons
 // (never a text box); everything else (where it was, what it is, what you did next) is read from the listen itself.
 const DOWN_WHY = { boring: 'Boring', sounds_bad: 'Sounds bad', not_my_style: 'Not my style' };
+// Now Playing can render before the next song's listen begins (song handoffs), so the controls repaint once it has.
+let paintReactions = null;
+function beginListen(pos) {
+  listens.begin(listenCtx(), pos);
+  paintReactions?.();
+}
 function reactionButtons() {
   const l = listens.recent();
   if (!l) return { buttons: null, reasons: null };
@@ -1413,6 +1419,7 @@ function reactionButtons() {
     for (const c of chips) c.setAttribute('aria-pressed', String(cur?.why === c.dataset.why));
   }
   paint();
+  paintReactions = paint;
   return { buttons: h('span', { class: 'np-react' }, down, love), reasons };
 }
 
