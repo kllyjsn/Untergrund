@@ -103,7 +103,7 @@ const REACT = { love: 'love', down: 'down', unlove: null, undown: null };
 // With `cleared`, songs whose heart/down was taken back are kept as reaction null, so a merge can drop them.
 export function reactionsOf(signals, { devices, cleared = false } = {}) {
   const rows = new Map();
-// The API lists newest first; reversing before the stable sort keeps same-millisecond switches (unlove, then down) in order.
+  // The API lists newest first; reversing before the stable sort keeps same-millisecond switches (unlove, then down) in order.
   for (const r of [...signals].reverse().filter((r) => r?.lid && r.fp).sort((x, y) => (x.t || 0) - (y.t || 0))) {
     const dev = deviceHash(r.lid);
     if (devices && !devices.has(dev)) continue;
@@ -112,7 +112,9 @@ export function reactionsOf(signals, { devices, cleared = false } = {}) {
     if (Number.isInteger(r.seed) && r.seed >= 0) row.seed = r.seed;
     if (r.src) row.src = r.src;
     if (r.kind in REACT) { row.reaction = REACT[r.kind]; if (r.kind !== 'down') row.why = null; row.at = r.at || new Date(r.t).toISOString(); }
-    if (r.kind === 'why' && DOWN_REASONS.includes(r.why)) row.why = r.why;
+    // The player only offers a reason on a downed song, so a reason alone still labels it (its down may be older
+    // than the API window).
+    if (r.kind === 'why' && DOWN_REASONS.includes(r.why)) Object.assign(row, { reaction: 'down', why: r.why, at: r.at || new Date(r.t).toISOString() });
     if (Number.isFinite(r.ms)) row.ms = Math.max(row.ms || 0, r.ms);
     if (Number.isFinite(r.pct)) row.pct = Math.max(row.pct ?? -1, r.pct);
     rows.set(id, row);

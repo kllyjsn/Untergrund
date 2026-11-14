@@ -67,6 +67,7 @@ console.log('ear ok');
   assert.equal(flipped.find((r) => r.fp === 'abc123').why, null, 'a heart clears the down reason');
   const sameMs = reactionsOf([sig(9, 'down'), sig(9, 'unlove'), sig(8, 'love')], { devices: me });
   assert.equal(sameMs[0]?.reaction, 'down', 'newest-first log: a same-ms switch keeps the new reaction');
+  assert.deepEqual(mergeReactions(rows, reactionsOf([sig(20, 'why', { why: 'boring' })], { devices: me })).find((r) => r.fp === 'abc123').why, 'boring', 'a later reason updates a saved down');
   const undone = reactionsOf([...log, sig(6, 'unlove', { fp: 'def456' })], { devices: me, cleared: true });
   assert.deepEqual(mergeReactions(rows, undone).map((r) => r.fp), ['abc123'], 'taken-back heart drops out');
 }
