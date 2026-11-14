@@ -30,7 +30,7 @@
  "repertoire": {"peak":144,"avg":79},
  "pop": {"peak":255,"avg":153},
  "rnb": {"peak":204,"avg":143},
- "rock": {"peak":210,"avg":144},
- "folk": {"peak":206,"avg":120},
- "country": {"peak":243,"avg":142}
+ "rock": {"peak":274,"avg":171},
+ "folk": {"peak":175,"avg":113},
+ "country": {"peak":255,"avg":144}
 }

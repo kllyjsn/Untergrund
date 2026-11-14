@@ -18,7 +18,7 @@ async function copy(text, toast, what) {
   try { await navigator.clipboard.writeText(text); toast(`${what} copied`); } catch { prompt(`Copy the ${what.toLowerCase()}:`, text); }
 }
 
-// Short /?t=<id> when the crate backend stores it; otherwise the whole song rides in the URL.
+// The /t/<id> release page when the crate backend stores it; otherwise the whole song rides in the URL.
 const linkCache = new Map();
 export async function shareLinks(song, origin = location.origin) {
   const code = await encodeSong(song);
@@ -32,7 +32,9 @@ export async function shareLinks(song, origin = location.origin) {
     }
     linkCache.set(code, ref);
   }
-  return { link: songLink(origin, ref), embed: songLink(origin, ref, '/embed.html'), short: !!ref.id };
+  // The release page's light player renders loop/chain songs; classical scores (and repertoire loading) need the full app.
+  const release = STYLES[song.style]?.family !== 'CLASSICAL';
+  return { link: songLink(origin, { ...ref, release }), embed: songLink(origin, ref, '/embed.html'), short: !!ref.id };
 }
 
 export function countRemix(id) {

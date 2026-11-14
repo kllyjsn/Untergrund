@@ -77,7 +77,10 @@ export function readShareParams(loc) {
   return id ? { id } : null;
 }
 
-export const songLink = (origin, { code, id }, page = '/') => `${origin}${page}?${id ? `t=${encodeURIComponent(id)}` : `s=${code}`}`;
+// A stored track shares as its release page /t/<id> (unless `release: false`, e.g. classical pieces that need the full app);
+// the embed keeps ?t=<id>; a code-only song rides in ?s=.
+export const songLink = (origin, { code, id, release = true }, page = '/') => (id && release && page === '/' ? `${origin}/t/${encodeURIComponent(id)}`
+  : `${origin}${page}?${id ? `t=${encodeURIComponent(id)}` : `s=${code}`}`);
 export const embedCode = (src, title = 'UNTERGRUND') =>
   `<iframe src="${src}" title="${clean(title, 80).replace(/"/g, '&quot;')} on UNTERGRUND" width="100%" height="152" style="border:0;border-radius:14px;max-width:560px" allow="autoplay; clipboard-write" loading="lazy"></iframe>`;
 
