@@ -1,4 +1,8 @@
 /* Create home: essentials first; the rest unlocks once a track exists. */
+.gen-length { flex: 1 1 100%; display: flex; gap: 6px; }
+.gen-length-opt { flex: 1 1 0; min-height: 32px; padding: 0 8px; border: 1px solid rgba(255,255,255,.16); border-radius: var(--r2, 4px); background: none; color: #a8a8b2; font: 700 11px var(--sans); letter-spacing: .04em; cursor: pointer; }
+.gen-length-opt.on { border-color: rgba(255,255,255,.6); color: #fff; }
+.gen-length-opt:hover { color: #fff; }
 .gen-wrap { position: relative; flex: 1 1 100%; display: flex; }
 .gen-wrap > .generate-primary { flex: 1 1 auto; padding-right: 84px; }
 .gen-wrap > .hum-cta { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); flex: none; width: 48px; height: 48px; min-height: 0; padding: 0 0 0 16px; gap: 0; justify-content: flex-start; overflow: hidden; border: 0; border-radius: var(--r2, 4px); background: rgba(255,255,255,.22); color: #111; transition: width .28s cubic-bezier(.2,.8,.2,1), background .15s; }
