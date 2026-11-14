@@ -386,7 +386,7 @@ const listenSurface = () => (jukeboxNow ? 'jukebox' : songOrigin.src === 'room' 
 function listenCtx() {
   const a = state.artist || {};
   const ctx = { fp: songFingerprint(state), tid: guest?.song?.trackId || songOrigin.tid || '', seed: Number.isFinite(+a.seed) ? +a.seed : -1, style: STYLES[a.style] ? a.style : style,
-    src: songOrigin.src, surf: listenSurface(), ph: songOrigin.ph || '', pt: songOrigin.pt || '', arr: songShape() };
+    src: songOrigin.src, surf: listenSurface(), ph: songOrigin.ph || '', pt: songOrigin.pt || '', arr: songShape(), via: songOrigin.via || '' };
   const x = experimentFor(ctx);
   // An experiment that changes songs (`apply`) tags only songs made under it, with the arm they were made in;
   // restored, crate, shared and room songs were never treated, so they stay out of its read-out.
@@ -413,7 +413,7 @@ onTrack((name, p) => {
   const kind = name === 'publish' ? (['song', 'soundcloud'].includes(p.kind) && 'publish')
     : name === 'share_link_copied' ? (SONG_SHARES.has(p.what) && 'share')
     : name === 'video_export' ? 'share' : name === 'room_go_live' ? 'live' : /^export_(wav|stems|midi)$/.test(name) ? 'keep' : null;
-  if (kind) listens.act(kind, listenPos());
+  if (kind) listens.act(kind, listenPos(), kind === 'share' && p.ref ? { ref: p.ref } : {});
 });
 addEventListener('pagehide', () => { if (listens.end(listenPos(), { force: true })) flushEvents(); });
 
@@ -680,9 +680,9 @@ function currentSong() {
 function showShare(song = currentSong(), source = 'studio') { openShare({ song, toast, download, source, hue: hue(song.style), beforeExport: () => { if (playing) stop(); } }); }
 
 // Play a shared or jukebox song in place; leaveGuest() puts the listener's own project back.
-function listen(song, src = 'shared') {
+function listen(song, src = 'shared', via = '') {
   ensureAudio();
-  songOrigin = { src, tid: song.trackId || '' };
+  songOrigin = { src, tid: song.trackId || '', ...(via ? { via } : {}) };
   if (!guest) guest = { backup: clone(state), style };
   guest.song = song;
   if (STYLES[song.style]) style = song.style;
@@ -707,11 +707,11 @@ function playFlagship(t) {
 // One Space listener keeps whichever landing is open in sync with the transport.
 let landingNow = null;
 addEventListener('keydown', (e) => { if (e.code === 'Space' && landingNow) setTimeout(landingNow.sync); }, true);
-function openLanding(load, src = 'shared') {
+function openLanding(load, src = 'shared', via = '') {
   const landing = openSharedLanding({
     // Waiting for instruments counts as playing, like the transport toggle, so the landing shows STOP at once.
     load, isPlaying: () => playing || !!tuning,
-    play: (song) => { countPlay(song.trackId); listen(song, src); },
+    play: (song) => { countPlay(song.trackId); listen(song, src, via); },
     fetchSong: (id) => fetch(`/api/tracks?id=${encodeURIComponent(id)}`).then((r) => (r.ok ? r.json() : Promise.reject())).then(({ track: t }) => t?.state && { ...normalizeSong(t), trackId: t.id, remixes: t.remixes || 0, children: t.children || [] }),
     stop: () => { if (playing || tuning) stop(); },
     remix: remixSong,
@@ -2499,7 +2499,7 @@ if (shared) setTimeout(() => {
       .then((song) => (song ? remixSong(song, false) : toast('Could not open that song')), () => toast('Could not open that song'));
     return;
   }
-  openLanding(load);
+  openLanding(load, 'shared', shared.ref);
 });
 else if (new URLSearchParams(location.search).has('drop')) setTimeout(() => openDropLink(new URLSearchParams(location.search)));
 else if (new URLSearchParams(location.search).has('room')) setTimeout(showClub);
