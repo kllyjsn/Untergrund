@@ -122,7 +122,9 @@ export function describeBar(ctx) {
     const voice = h('select', { class: 'describe-sing-voice', 'aria-label': 'Singer voice', onchange: () => { set({ voice: voice.value }, 'Singer voice'); paint(); if (cur().on) go(); } },
       ...SING_VOICES.map((v) => h('option', { value: v }, v.toUpperCase())));
     const level = h('input', { type: 'range', min: '-24', max: '6', step: '1', class: 'describe-sing-level', 'aria-label': 'Vocal level (dB)', title: 'Vocal level',
-      onchange: () => set({ db: +level.value }, 'Vocal level'), oninput: () => { ctx.state().sing = { ...cur(), db: +level.value }; } });
+      onchange: () => { if (pre != null) ctx.state().sing = { ...cur(), db: pre }; pre = null; set({ db: +level.value }, 'Vocal level'); },
+      oninput: () => { pre ??= cur().db ?? 0; ctx.state().sing = { ...cur(), db: +level.value }; } });
+    let pre = null;
     const trim = h('input', { type: 'number', min: '-250', max: '250', step: '5', class: 'describe-sing-trim', 'aria-label': 'Vocal timing trim (ms)', title: 'Vocal timing trim, ms',
       onchange: () => set({ ms: Math.max(-250, Math.min(250, Math.round(+trim.value || 0))) }, 'Vocal timing') });
     let busy = false;
