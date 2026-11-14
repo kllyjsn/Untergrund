@@ -1,10 +1,11 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "functions": { "api/push.js": { "maxDuration": 60 }, "api/rooms.js": { "maxDuration": 10 }, "api/events.js": { "maxDuration": 60 } },
+  "functions": { "api/push.js": { "maxDuration": 60 }, "api/describe.js": { "maxDuration": 30 }, "api/rooms.js": { "maxDuration": 10 }, "api/events.js": { "maxDuration": 60 } },
   "crons": [{ "path": "/api/push", "schedule": "0 16 * * *" }, { "path": "/api/improve-digest", "schedule": "0 15 * * *" }],
   "rewrites": [
     { "source": "/api/song-plan", "destination": "/api/describe?plan=1" },
+    { "source": "/api/sing", "destination": "/api/describe?sing=1" },
     { "source": "/api/improve-digest", "destination": "/api/events?digest=run" },
     { "source": "/api/rooms/:room/events", "destination": "/api/rooms?room=:room&events=1" },
     { "source": "/api/rooms/:room", "destination": "/api/rooms?room=:room" },

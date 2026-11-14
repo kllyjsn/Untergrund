@@ -9,6 +9,7 @@ import { cleanLabels } from './timeline.js';
 import { withMelody, writeMelody, melodySteps, MELODY_BARS, SING_PROFILES } from './melody.js';
 import { stepDeg } from './motif.js';
 import { cleanLyrics } from './lyrics.js';
+import { SING_VOICES } from './sing-score.js';
 import { cleanTakes } from './scope.js';
 
 export const STYLES = {
@@ -1176,6 +1177,8 @@ export function sanitize(s) {
   if (labels) out.labels = labels;
   const lyrics = cleanLyrics(s.lyrics);
   if (lyrics) out.lyrics = lyrics;
+  const sing = cleanSing(s.sing);
+  if (sing) out.sing = sing;
   out.mutes = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.mutes?.[id]]));
   out.solos = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.solos?.[id]]));
   out.locks = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.locks?.[id]]));
@@ -1250,5 +1253,17 @@ export function sanitize(s) {
   }
   // Daily Drop remixes carry the UTC date of the drop they came from (js/daily.js).
   if (typeof s.drop === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s.drop)) out.drop = s.drop;
+  return out;
+}
+
+// The neural singer's settings (js/sing-ui.js): on/off, a built-in voice, vocal level in dB and a timing trim in ms.
+// The stem itself is never stored: it's fetched again by content hash.
+export function cleanSing(v) {
+  if (!v || typeof v !== 'object') return null;
+  const num = (x, lo, hi) => (Number.isFinite(+x) ? Math.max(lo, Math.min(hi, Math.round(+x))) : 0);
+  const out = { on: !!v.on };
+  if (SING_VOICES.includes(v.voice)) out.voice = v.voice;
+  out.db = num(v.db, -24, 6);
+  out.ms = num(v.ms, -250, 250);
   return out;
 }

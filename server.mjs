@@ -28,6 +28,7 @@ import { handleJukebox, memoryJukebox, redisJukebox } from './api/_lib/jukebox.j
 import { handleEvents, memoryKv, redisKv, MAX_BODY as MAX_EVENT_BYTES } from './api/_lib/events.js';
 import { handleDescribe, aiEnv } from './api/_lib/describe-ai.js';
 import { handlePlan, planEnv } from './api/_lib/song-plan-ai.js';
+import { handleSing, singEnv, memorySingStore, MAX_SING_BODY } from './api/_lib/sing.js';
 import { redisKv as redisAccountKv, memoryKv as memoryAccountKv } from './api/_lib/kv.js';
 import { handleAccount, attachPublished } from './api/_lib/accounts.js';
 import { handlePage } from './api/_lib/pages.js';
@@ -38,6 +39,7 @@ const jukeboxStore = redisJukebox() || memoryJukebox();
 const eventsKv = redisKv() || memoryKv();
 const STATS_TOKEN = process.env.STATS_TOKEN || (MOCK ? 'dev' : '');
 const crateStore = redisStore() || memoryStore();
+const singStore = memorySingStore();
 // Accounts/handles/follows persist to a local JSON file when Redis isn't configured.
 const accountKv = redisAccountKv() || memoryAccountKv({ file: process.env.DATA_FILE || path.join(ROOT, '.data/kv.json') });
 let authSecret = process.env.AUTH_SECRET || '';
@@ -108,6 +110,12 @@ http.createServer(async (req, res) => {
       const raw = req.method === 'POST' ? await readBody(req, 12000) : null;
       const { status, json } = await handlePlan({ method: req.method, body: raw ? raw.toString() : null, client: req.socket.remoteAddress, ...planEnv(process.env), kv: eventsKv });
       return sendJson(res, status, json);
+    }
+    if (url.pathname === '/api/sing') {
+      const raw = req.method === 'POST' ? await readBody(req, MAX_SING_BODY) : null;
+      const r = await handleSing({ method: req.method, body: raw ? raw.toString() : req.method === 'POST' ? 'x'.repeat(MAX_SING_BODY + 1) : null, client: req.socket.remoteAddress, ...singEnv(process.env), kv: eventsKv, store: singStore });
+      if (r.body) { res.writeHead(r.status, { 'Content-Type': r.type, 'Cache-Control': 'no-store' }); return res.end(r.body); }
+      return sendJson(res, r.status, r.json);
     }
     if (url.pathname === '/api/push') {
       const raw = req.method === 'POST' ? await readBody(req, 8000) : null;

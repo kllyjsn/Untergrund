@@ -34,6 +34,7 @@ import { PIECE, loadPiece } from './repertoire.js';
 import { followingRow } from './feed.js';
 import { flagshipShelf } from './flagship.js';
 import { describeBar, syncLyrics } from './describe-ui.js';
+import { vocalStem } from './sing.js';
 import { songState } from './song-spec.js';
 import { fetchPublicTrack } from './account.js';
 import { openShare, openSharedLanding, countRemix, track } from './share.js';
@@ -132,7 +133,7 @@ function ensureAudio() {
   try {
     ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: matchMedia('(pointer: coarse)').matches ? 'playback' : 'balanced' });
   } catch (err) { reportError(err, { kind: 'audio_context' }); throw err; }
-  engine = new Engine(ctx, state);
+  engine = new Engine(ctx, state, { vocal: vocalStem });
   if (isIOS() && ctx.createMediaStreamDestination) {
     mediaRoute = ctx.createMediaStreamDestination();
     try { engine.out.disconnect(ctx.destination); } catch {
@@ -606,7 +607,7 @@ function setMaster(id, v) {
 // Undo / redo. `label` names the edit for the toast ("Undone: CLEAR pattern B").
 function snapshot(like = {}) {
   const { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn } = state;
-  const snap = { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn, labels: state.labels || null, lyrics: state.lyrics || null };
+  const snap = { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn, labels: state.labels || null, lyrics: state.lyrics || null, sing: state.sing || null };
   if ('artist' in like) snap.artist = state.artist ?? null;
   if (like.ui) snap.ui = { style, family };
   return JSON.stringify(snap);
@@ -624,6 +625,7 @@ function restore(entry, verb) {
   Object.assign(state, snap);
   if (!state.labels) delete state.labels;
   if (!state.lyrics) delete state.lyrics;
+  if (!state.sing) delete state.sing;
   engine?.applyAll(); engine?.applyDelayTime();
   build(); persist(); toast(entry.label ? `${verb}: ${entry.label}` : verb);
 }
@@ -1740,6 +1742,7 @@ function describeBox() {
       play();
     },
     commit: (next) => { adoptState(next); build(); persist(); },
+    persist: () => persist(),
     highlight: (bars) => timeline.flash(bars),
   });
 }
