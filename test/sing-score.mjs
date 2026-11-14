@@ -204,8 +204,9 @@ await t('a sung mix stays on the instrumental\'s loudness: the band dips under t
     e.vocalStop(at);
     return (await ctx.startRendering(e.preMaster)).getChannelData(0);
   };
-  // The first render starts the guitar's alternate takes loading in the background; measure once they are in.
-  await run(null);
+  // Load the song's recordings and their alternate takes first, as an offline render does, so every run plays the same.
+  const { loadSets, withTakes, liveSets } = await import('../js/livekit.js');
+  await loadSets(withTakes(liveSets(st)));
   const band = await run(null), at0 = Math.round(0.05 * SR);
   // A mock singer: the band played backwards (its spectrum, uncorrelated with it) in 2.5 s phrases with 1.5 s breaths.
   const gate = (x) => x % (4 * SR) < 2.5 * SR, stem = new AudioBuffer(1, len, SR), d = stem.getChannelData(0);
