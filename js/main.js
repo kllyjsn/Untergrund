@@ -596,6 +596,7 @@ async function toggleRec() {
 const pat = () => state.patterns[state.current];
 
 function setParam(tid, id, v) {
+  touched();
   if (engine) engine.setParam(tid, id, v); else state.params[tid][id] = v;
   persist();
 }
@@ -965,6 +966,7 @@ function artistTick(step) {
       evolved.len[id] = source.len[id];
     }
     state.patterns[target] = evolved;
+    touched();
     persist();
   }
 
@@ -1747,7 +1749,7 @@ function describeBox() {
       });
       play();
     },
-    commit: (next) => { adoptState(next); build(); persist(); },
+    commit: (next) => { adoptState({ ...next, fresh: 0 }); build(); persist(); },
     persist: () => persist(),
     highlight: (bars) => timeline.flash(bars),
   });
@@ -1866,7 +1868,7 @@ function buildHeader() {
     h('button', { class: 'btn ghost', title: 'Clear pattern', onclick: () => { pushUndo(`CLEAR pattern ${PATTERN_NAMES[state.current]}`); state.patterns[state.current] = emptyPattern(); build(); persist(); } }, 'CLEAR'));
 
   const chainInput = h('input', { class: 'chain', value: state.chain, spellcheck: 'false', 'aria-label': 'Chain', title: 'Arrangement: one letter per bar, e.g. AABBCCDD',
-    oninput: (e) => { state.chain = e.target.value.toUpperCase().replace(/[^A-H]/g, ''); persist(); timeline.refresh(); } });
+    oninput: (e) => { state.chain = e.target.value.toUpperCase().replace(/[^A-H]/g, ''); touched(); persist(); timeline.refresh(); } });
   const chainBtn = h('button', { class: 'btn toggle chain-toggle' + (state.chainOn ? ' on' : ''), title: 'Play the arrangement chain',
     onclick: () => setSong(!state.chainOn) }, 'CHAIN');
 
