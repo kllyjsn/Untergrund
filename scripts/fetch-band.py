@@ -5,6 +5,8 @@ Sources (all CC0 1.0 Universal, see samples/live/LICENSE.md):
   sfzinstruments/karoryfer.shinyguitar @ 57243cca85277dbcc120ce17c6178032f93c80f3 (steel-string acoustic guitar)
   sfzinstruments/karoryfer.black-and-blue-basses @ 6e7d674cdb41be7a54dbccb15472401ad01099b9 (Dark Black electric bass)
   sfzinstruments/virtuosity_drums @ 9f04cf9a734527edfbb0a4eee1f674e45bbf71bc (crash and toms of the kit we already ship)
+  freepats/electric-guitar-FSBS-clean @ 192cf0d9bf2c4ba6ead8e3524ba3f78818e4fe91 (Fender electric, clean, bridge pickup)
+  sgossner/VCSL @ c1ea7bcc3c7309650ab0da9d15c9cd1fbc4a4c7e (Hohner Special 20 diatonic harmonica in C)
 The acoustic guitar names notes in scientific pitch (A2 = MIDI 45); the bass names them one octave up (its E2 is the
 open low E, MIDI 28), both checked by measuring the recordings' pitch.
 Processing: leading silence removed, mono (drum mics summed), 44.1 kHz 16-bit, trimmed, 80 ms fade, peak -6 dBFS.
@@ -19,11 +21,18 @@ decode, process, write = orch.decode, orch.process, orch.write
 
 SHINY = 'https://raw.githubusercontent.com/sfzinstruments/karoryfer.shinyguitar/57243cca85277dbcc120ce17c6178032f93c80f3/Samples/'
 BASSES = 'https://raw.githubusercontent.com/sfzinstruments/karoryfer.black-and-blue-basses/6e7d674cdb41be7a54dbccb15472401ad01099b9/Samples/'
+TELE = 'https://raw.githubusercontent.com/freepats/electric-guitar-FSBS-clean/192cf0d9bf2c4ba6ead8e3524ba3f78818e4fe91/samples/bridge/'
+VCSL = 'https://raw.githubusercontent.com/sgossner/VCSL/c1ea7bcc3c7309650ab0da9d15c9cd1fbc4a4c7e/'
+HCA_DIR = 'Aerophones/Free Aerophones/Harmonica-Hohner-Special20-C/Sustains/Vib/'
 VD = 'https://raw.githubusercontent.com/sfzinstruments/virtuosity_drums/9f04cf9a734527edfbb0a4eee1f674e45bbf71bc/Samples/'
 
 # MIDI note -> source note name.
 AGTR = {40: 'e2', 42: 'gb2', 45: 'a2', 48: 'c3', 51: 'eb3', 54: 'gb3', 57: 'a3', 60: 'c4', 63: 'eb4', 66: 'gb4', 69: 'a4', 72: 'c5'}
 EBASS = {28: 'e2', 31: 'g2', 34: 'bb2', 37: 'db3', 40: 'e3', 43: 'g3', 46: 'bb3', 49: 'db4', 52: 'e4', 55: 'g4'}
+# Country's lead guitar (scientific pitch, C4 = MIDI 60): first round robin of each string/fret take.
+TELE_NOTES = {52: 'E3_s3', 55: 'G3_s4', 59: 'B3_s5', 61: 'C#4_s5', 64: 'E4_s6', 67: 'G4_s6', 71: 'B4_s6', 72: 'C5_s6', 74: 'D5_s6', 77: 'F5_s6', 80: 'G#5_s6', 82: 'A#5_s6', 85: 'C#6_s6'}
+# The harmonica in C, with vibrato: the blow and draw notes the library recorded (C, E, G in three octaves and top C).
+HCA = {48: 'C3', 52: 'E3', 55: 'G3', 60: 'C4', 64: 'E4', 67: 'G4', 72: 'C5', 76: 'E5', 79: 'G5', 84: 'C6'}
 # name -> (mic files summed, seconds)
 DRUMS = {
     'crash_v2': (['oh/crash/oh_crash_crash_vl2_rr1.flac', 'mid/crash/mid_crash_crash_vl2_rr1.flac'], 3.2),
@@ -39,6 +48,10 @@ if __name__ == '__main__':
         write(f'agtr_{m}', process(decode(f'{SHINY}acoustic/{n}_vl3_rr1_1.wav'), 3.4)); print('agtr', n, m)
     for m, n in EBASS.items():
         write(f'ebass_{m}', process(decode(f'{BASSES}darkblack/reg/darkblack_{n}_mf_rr1.wav'), 3.0)); print('ebass', n, m)
+    for m, n in TELE_NOTES.items():
+        write(f'tele_{m}', process(decode(f'{TELE}{n}_01.flac'), 3.0)); print('tele', n, m)
+    for m, n in HCA.items():
+        write(f'hca_{m}', process(decode(f'{VCSL}{HCA_DIR}Hohner-Special20_Vib_{n}.wav'), 3.0)); print('hca', n, m)
     for name, (files, secs) in DRUMS.items():
         xs = [decode(VD + f) for f in files]
         L = min(len(x) for x in xs)

@@ -42,10 +42,13 @@ export const BAND = {
   // The SONGS band: steel-string acoustic guitar and electric bass guitar.
   agtr: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
   ebass: [28, 31, 34, 37, 40, 43, 46, 49, 52, 55],
+  // COUNTRY: a Fender clean off the bridge pickup for the lead, and a diatonic harmonica in C for the answers.
+  tele: [52, 55, 59, 61, 64, 67, 71, 72, 74, 77, 80, 82, 85],
+  hca: [48, 52, 55, 60, 64, 67, 72, 76, 79, 84],
 };
 // Measured pitch of a recording minus its name, in cents (python3 test/sampletune.py), for takes played a little off.
 const GTR_TUNE = { 40: -4, 42: -2, 45: -8, 48: -6, 51: 8, 54: 4, 57: 9, 60: 4, 63: 2, 66: 2, 72: -2 };
-const BAND_TUNE = { gtr: GTR_TUNE, gtrsoft: GTR_TUNE };
+const BAND_TUNE = { gtr: GTR_TUNE, gtrsoft: GTR_TUNE, tele: { 55: -8 }, hca: { 48: -8 } };
 // Instruments recorded at two dynamics: the softly played layer loads with the instrument.
 export const SOFT_LAYER = { piano: 'pianosoft', gtr: 'gtrsoft' };
 // STAB voice index -> recorded instrument.
@@ -56,7 +59,7 @@ export const KIT_EXTRA = ['crash_v2', 'crash_v3', 'htom_v8', 'htom_v14', 'ltom_v
 
 const BASE = new URL('../samples/live/', import.meta.url);
 // Samples are served with immutable caching: bump SAMPLES_REV whenever a file under samples/live changes.
-const SAMPLES_REV = 3;
+const SAMPLES_REV = 4;
 const sampleUrl = (file) => new URL(`${file}.flac?v=${SAMPLES_REV}`, BASE);
 let buffers = null, loading = null, extra = null, extraLoading = null;
 const band = {}, bandLoading = {};
@@ -87,8 +90,8 @@ export function liveSets(st) {
   if (Math.round(st?.params?.acid?.voice || 0) === 5) out.push('ebass');
   const name = STAB_BAND[Math.round(st?.params?.stab?.voice || 0)];
   if (name) out.push(name, ...(SOFT_LAYER[name] ? [SOFT_LAYER[name]] : []));
-  // Country's lead is a Telecaster whatever plays the chords.
-  if (pocketOf(st.master)?.walk && name !== 'gtr') out.push('gtr', 'gtrsoft');
+  // Country's lead is a Telecaster whatever plays the chords, answered by a harmonica.
+  if (pocketOf(st.master)?.walk) out.push('tele', 'hca');
   return out;
 }
 export const liveSet = (name) => (name === 'kit' ? buffers : name === 'kitx' ? extra : bandKit(name));
