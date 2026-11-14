@@ -7,10 +7,13 @@ import { singScore } from './sing-score.js';
 // vocal carry the band's own power: the sung mix lands on the style's loudness target with no extra limiting.
 export const VOCAL_OVER_BAND_DB = 1;
 export const VOCAL_DUCK_DB = 10 * Math.log10(1 + 10 ** (VOCAL_OVER_BAND_DB / 10));
+// The limiter eases off the ducked band, so the sung parts still came out about 1.2 dB louder after it (seed-7 pop, R&B
+// and folk): the master output dips that much while the vocal sings (Engine.singTrim, after the limiter and clipper).
+export const VOCAL_LIFT_DB = 1.2;
 // The stem arrives at -20 dBFS RMS on its sung notes (singer/singer.py). These lift it to VOCAL_OVER_BAND_DB over the
 // ducked band per style (measured through the master chain on the seed-7 songs in docs/singer.md); others get the base.
 export const VOCAL_BASE_DB = 10;
-export const VOCAL_STYLE_DB = { pop: 13, rnb: 9, folk: 5.8 };
+export const VOCAL_STYLE_DB = { pop: 13.7, rnb: 8.5, folk: 4.5 };
 export const vocalDb = (state) => (VOCAL_STYLE_DB[state?.artist?.style] ?? VOCAL_BASE_DB) + (state?.sing?.db || 0);
 const STEM_HOSTS = /\.public\.blob\.vercel-storage\.com$/;
 const stems = new Map();
@@ -32,7 +35,7 @@ export const hasStem = (state) => stems.has(stemKey(state));
 export function vocalStem(state) {
   if (!state?.sing?.on || !stems.size) return null;
   const buf = stems.get(stemKey(state));
-  return buf ? { buf, gain: 10 ** (vocalDb(state) / 20), duck: 10 ** (-VOCAL_DUCK_DB / 20), ms: state.sing.ms || 0 } : null;
+  return buf ? { buf, gain: 10 ** (vocalDb(state) / 20), duck: 10 ** (-VOCAL_DUCK_DB / 20), lift: 10 ** (-VOCAL_LIFT_DB / 20), ms: state.sing.ms || 0 } : null;
 }
 
 const wait = (ms, signal) => new Promise((ok, no) => { const t = setTimeout(ok, ms); signal?.addEventListener('abort', () => { clearTimeout(t); no(new DOMException('cancelled', 'AbortError')); }); });

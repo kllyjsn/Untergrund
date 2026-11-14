@@ -217,10 +217,12 @@ export class Engine {
     this.secGain = this.gain(1);
     // While the neural singer sings, the band dips under it (bandDuck) so the sung mix stays on the loudness target.
     this.bandDuck = this.gain(1);
+    // ...and the limiter, which then works less, would still let it add about a dB: singTrim takes that back after it.
+    this.singTrim = this.gain(1);
     this.preMaster = this.gain(1);
     this.mix.connect(this.bandDuck).connect(this.preMaster);
     this.preMaster.connect(this.djHP).connect(this.djLP).connect(this.arrLP).connect(this.glue).connect(this.satIn).connect(this.sat)
-      .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.clip).connect(this.secGain).connect(this.out);
+      .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.clip).connect(this.secGain).connect(this.singTrim).connect(this.out);
     this.out.connect(c.destination);
     // The neural singer's stem (vocal(), js/sing.js): past the band's duck, into the master chain.
     this.vocalBus = this.gain(0);
@@ -1832,12 +1834,13 @@ export class Engine {
     this.vocalBus.gain.setValueAtTime(v.gain, t);
     if (off < 0) src.start(t - off); else src.start(t, off);
     this.vocalNow = { src, g, buf: v.buf, next: pos + 1, sd: this.stepDur, ms: v.ms };
-    if (v.duck < 1) this.duckUnder(v.buf, v.duck, t, t - off);
+    if (v.duck < 1) this.duckUnder(v.buf, this.bandDuck.gain, v.duck, t, t - off);
+    if (v.lift < 1) this.duckUnder(v.buf, this.singTrim.gain, v.lift, t, t - off);
   }
 
-  // The band's gain follows the stem's singing envelope down to `depth`; t0 is when the stem's first sample plays.
-  duckUnder(buf, depth, t, t0) {
-    const env = singingEnvelope(buf), p = this.bandDuck.gain, start = Math.max(t, t0) + 0.02;
+  // A gain that follows the stem's singing envelope down to `depth`; t0 is when the stem's first sample plays.
+  duckUnder(buf, p, depth, t, t0) {
+    const env = singingEnvelope(buf), start = Math.max(t, t0) + 0.02;
     const i = Math.ceil((start - t0) * ENV_RATE), n = env.length - i;
     if (n < 2) return;
     const curve = new Float32Array(n);
@@ -1850,9 +1853,10 @@ export class Engine {
     const cur = this.vocalNow;
     if (!cur) return;
     this.vocalNow = null;
-    const p = this.bandDuck.gain;
-    if (p.cancelAndHoldAtTime) p.cancelAndHoldAtTime(t); else p.cancelScheduledValues(t);
-    p.setTargetAtTime(1, t, 0.08);
+    for (const p of [this.bandDuck.gain, this.singTrim.gain]) {
+      if (p.cancelAndHoldAtTime) p.cancelAndHoldAtTime(t); else p.cancelScheduledValues(t);
+      p.setTargetAtTime(1, t, 0.08);
+    }
     cur.g.gain.cancelScheduledValues(t);
     cur.g.gain.setTargetAtTime(0, t, 0.008);
     try { cur.src.stop(t + 0.06); } catch { /* not started */ }
