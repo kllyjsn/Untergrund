@@ -2191,7 +2191,7 @@ export class Sequencer {
       const breathe = hm > 1 && ph === 2 && hi < 16 && hash(abs, 95) < 0.2 + x.space * 0.45;
       // The lead also drops out for the last half bar before a drop, leaving the riser and snare roll alone.
       if (st && (hm > 1 || hi < 16) && !breathe && !(this.dropNext && i16 >= 8)) {
-        const lift = (hm > 1 && hi >= 16 && ph === 3 && x.risk >= 0.3 && (!pat.sec || pat.sec === 'chorus') ? 12 : 0) + (this.keyLift || 0);
+        const lift = (hm > 1 && hi >= 16 && (hk.up || (ph === 3 && x.risk >= 0.3)) && (!pat.sec || pat.sec === 'chorus') ? 12 : 0) + (this.keyLift || 0);
         const b = 0.58 + 0.42 * ((bar % 8) / 7);
         const answer = hi >= 16;
         const phraseVel = [0.82, 0.92, 0.72, 1][ph] * (answer ? 1.04 : 0.96);

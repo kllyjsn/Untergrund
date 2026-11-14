@@ -189,3 +189,16 @@ export function developSong(pats, S, { keep = [], strict = false } = {}) {
   });
   return pats;
 }
+
+// A club form with a third drop saves its biggest moment for last (P4): the final drop's lead takes the octave on
+// every answer instead of only the last phrase's, so the drop sits above the groove before it. Written as a take on
+// the drop patterns (G and its half-time H), so it stays an ordinary edit; a locked lead is left alone.
+export function developFinalDrop(pats, chain, { keep = [] } = {}) {
+  const c = [].concat(chain).join(''), end = c.lastIndexOf('G');
+  if (end < 0 || keep.includes('stab') || !pats || pats.length < 8 || pats.some((p) => p.score)) return pats;
+  let from = end;
+  while (from > 0 && 'GH'.includes(c[from - 1])) from--;
+  const to = c[end + 1] === 'H' ? end + 1 : end;
+  for (const p of [pats[6], pats[7]]) if (p.hook && !p.hook.h) (p.at ??= []).push({ b: [from, to], hook: { ...clone(p.hook), up: 1 } });
+  return pats;
+}
