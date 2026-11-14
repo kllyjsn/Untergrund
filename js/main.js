@@ -985,10 +985,12 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   };
 }
 function adoptPlan(plan) {
+  if (playing) listens.end(listenPos());
   if (plan.origin) songOrigin = plan.origin;
   autoMajor = plan.autoMajor ?? false;
   for (const k of Object.keys(state)) if (!(k in plan.next)) delete state[k];
   adoptState(plan.next);
+  if (playing) listens.begin(listenCtx(), listenPos());
   if (engine?.recLock) engine.recLock = new Map();
   plan.finish();
 }
