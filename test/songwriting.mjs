@@ -58,3 +58,14 @@ for (const style of ['pop', 'rnb', 'folk']) {
   assert.equal(fitLyrics(s, 'peak'), s);
 }
 console.log('songwriting passed');
+
+// Edge lines: a one-word title holds from the chorus downbeat; a long pasted line keeps a note per syllable.
+{
+  const s = buildSong('pop', 5), long = 'and every single little thing that you ever said to me was true';
+  s.lyrics = { v: 1, sections: [{ sec: 'chorus', lines: ['Stay', 'I need you here tonight', 'Stay', 'until the morning light'] }, { sec: 'verse', lines: [long] }] };
+  const m = fitLyrics(s, 'pop').patterns.find((p) => p.hook?.m).hook.m;
+  assert.equal(m.n.filter((x) => x[4] === 0).sort((a, b) => a[0] - b[0])[0][0], 0, 'one-syllable title on the downbeat');
+  assert.equal(new Set(m.v.filter((x) => x[4] === 0 && x[0] < 30).map((x) => x[5])).size, lineStress(long).length, 'every syllable of a long line sung');
+}
+assert.equal(rulePlan('a country instrumental song').lyrics.length, 0, 'instrumental stays wordless');
+console.log('edge lines passed');

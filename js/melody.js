@@ -203,7 +203,7 @@ function writePart(r, P, kind, deg, chordTones, hookHead) {
 // half-bar beats, every line landing on bar 2's downbeat). The chorus's first and third lines are the title: it starts
 // on the chorus downbeat, leaps a signature interval up to the phrase's peak and holds it, and returns note for note.
 const METER = (p) => { const q = mod(p, 16); return q === 0 ? 4 : q === 8 ? 3 : q % 4 === 0 ? 2 : q % 2 === 0 ? 1 : 0; };
-const MAX_SYL = 14;
+const MAX_SYL = 18;
 
 function gapCost(g, stressed, chorus) {
   if (chorus) return g === 4 ? 0 : g === 6 || g === 8 ? 0.15 : g === 2 ? (stressed ? 0.8 : 0.55) : g === 1 || g === 3 ? 1.4 : 0.5 + 0.1 * Math.abs(g - 8);
@@ -284,7 +284,7 @@ function setPart(r, P, kind, deg, chordTones, words, sig) {
   };
   for (let ph = 0; ph < 2; ph++) {
     const ia = 2 * ph, ib = ia + 1, bar0 = ph * 4;
-    const ra = rhythmOf(ia, { last: chorus ? [16] : [14, 16, 18, 20], down: chorus || r() < 0.5, six });
+    const ra = rhythmOf(ia, { last: chorus ? [lines[ia].length > 1 ? 16 : 0] : [14, 16, 18, 20], down: chorus || r() < 0.5, six });
     const rb = rhythmOf(ib, { last: [16], six, from: Math.max(-6, Math.max(...(ra || [0])) + 4 - 32) });
     if (!ra || !rb) continue;
     const at = [...ra, ...rb.map((x) => x + 32)], la = ra.length;
