@@ -654,6 +654,7 @@ function listen(song, src = 'shared') {
   if (STYLES[song.style]) style = song.style;
   stop(); autoMajor = false;
   state = sanitize(clone(song.state));
+  state.artist = { ...(state.artist || {}), title: song.title, name: song.artist, style: song.style };
   if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
   build();
   play();
