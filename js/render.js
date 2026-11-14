@@ -34,7 +34,9 @@ export async function renderBars(state, bars, { sampleRate = 48000, tail, startB
   onEngine?.(engine);
   const seq = new Sequencer(engine, snap);
   if (startBar && chain.length && !sc) { seq.chainPos = startBar; seq.cur = chain[(startBar - 1) % chain.length]; }
-  for (let abs = 0, t = start; abs < steps; abs++) { seq.tick(first + abs, t); t += engine.stepDur; }
+  let end = start;
+  for (let abs = 0; abs < steps; abs++) { seq.tick(first + abs, end); end += engine.stepDur; }
+  engine.vocalStop(end);
   onScheduled?.(ctx);
   const buf = await ctx.startRendering();
   return trim ? trimTail(buf) : buf;
