@@ -52,7 +52,7 @@ export function listensFrom(signals = [], { returnAfterMs = DEFAULTS.returnAfter
     let l = by.get(s.lis);
     if (!l) by.set(s.lis, l = { lis: s.lis, lid: s.lid || '', sid: s.sid || '', fp: s.fp, t: s.t || 0, outcome: null, love: false, down: false, why: null,
       replay: false, rewind: false, keep: false, spread: false, rewinds: [], end: null, downAt: null });
-    for (const k of ['tid', 'seed', 'style', 'src', 'surf', 'ph', 'co', 'dev', 'arr']) if (l[k] == null || l[k] === '' || l[k] === -1) if (s[k] != null && s[k] !== '') l[k] = s[k];
+    for (const k of ['tid', 'seed', 'style', 'src', 'surf', 'ph', 'co', 'dev', 'arr', 'xp', 'arm']) if (l[k] == null || l[k] === '' || l[k] === -1) if (s[k] != null && s[k] !== '') l[k] = s[k];
     if (s.kind === 'start' && s.pt) l.pt = s.pt;
     if (s.kind === 'complete' || s.kind === 'skip' || s.kind === 'partial') { l.outcome = s.kind; l.end = { bar: s.bar, bars: s.bars, pct: s.pct, ms: s.ms, sec: s.sec }; }
     else if (s.kind === 'love') { l.love = true; l.down = false; l.why = null; }
@@ -276,27 +276,62 @@ function dedupe(all) {
     && within(g.scope, f.scope) && excess(g, f.metric) >= 0.8 * excess(f)));
 }
 
+// ---- running experiments: control vs variant on the experiment's own primary metric and guardrails.
+const GUARD_POINTS = 0.02, GUARD_Z = 2;
+const worse = (metric, lift) => (METRICS[metric]?.bad === 'up' ? lift : -lift);
+export function experimentResults(rows, running = [], o = DEFAULTS) {
+  const out = [];
+  const ids = [...new Set([...running.map((e) => e.id), ...rows.map((l) => l.xp).filter(Boolean)])];
+  for (const id of ids) {
+    const spec = running.find((e) => e.id === id), tagged = rows.filter((l) => l.xp === id);
+    const arm = (name) => tagged.filter((l) => l.arm === name);
+    const c = arm('control'), v = arm('variant');
+    const primary = spec?.primary || { metric: 'down', goal: 'lower' };
+    const readout = (metric) => {
+      const a = judged(v, metric), b = judged(c, metric);
+      return { metric, ...Object.fromEntries(Object.entries(compare(count(a, metric), a.length, count(b, metric), b.length)).map(([k, x]) => [k, +x.toFixed(4)])), n: a.length, nControl: b.length };
+    };
+    const main = readout(primary.metric);
+    const guardrails = (spec?.guardrails || ['skip', 'down', 'complete'].filter((m) => m !== primary.metric)).map((m) => {
+      const g = readout(m);
+      return { ...g, breached: worse(m, g.lift) > GUARD_POINTS && Math.abs(g.z) >= GUARD_Z && g.n >= o.minListens && g.nControl >= o.minListens };
+    });
+    const need = spec?.minListensPerArm || Math.max(100, o.minListens * 5);
+    const better = primary.goal === 'lower' ? main.lift < 0 : main.lift > 0;
+    // Stop rule from the proposal: a breached guardrail stops it early; otherwise read out once both arms have enough listens.
+    const status = !spec ? 'ended' : guardrails.some((g) => g.breached) ? 'stop' : v.length >= need && c.length >= need ? 'ready' : 'collecting';
+    const verdict = status === 'collecting' ? null : Math.abs(main.z) >= o.z ? (better ? 'variant_better' : 'variant_worse') : 'no_difference';
+    out.push({ id, lever: spec?.lever || '', scope: spec?.scope || {}, status, verdict, primary: { ...primary, ...main }, guardrails, minListensPerArm: need,
+      arms: { control: { listens: c.length, listeners: listeners(c) }, variant: { listens: v.length, listeners: listeners(v) } } });
+  }
+  return out;
+}
+
 export function analyze(signals = [], options = {}) {
   const o = { ...DEFAULTS, ...options };
-  const rows = listensFrom(signals, o);
+  const all = listensFrom(signals, o);
+  // Findings describe what everyone hears by default: variant-arm listens only count in their experiment's read-out.
+  const rows = all.filter((l) => l.arm !== 'variant');
   const findings = rank(dedupe([...segmentFindings(rows, o), ...sectionFindings(rows, o), ...reasonFindings(rows, o), ...songFindings(rows, o)])).slice(0, o.top).map((f, i) => ({ rank: i + 1, ...f }));
+  // A scope that already has a running experiment gets no new proposal for it.
+  const busy = new Set((o.running || []).map((e) => label(e.scope || {})));
   // One experiment per scope, from the highest-ranked finding that calls for one; capped so review stays short.
   const seen = new Set(), experiments = [];
   for (const f of findings) {
     if (experiments.length >= o.experiments) break;
     if (f.direction !== 'problem' && !(f.type === 'section' && f.metric === 'rewind') && f.type !== 'song') continue;
     const e = proposeExperiment(f, o), key = label(e.scope);
-    if (seen.has(key)) continue;
+    if (seen.has(key) || busy.has(key)) continue;
     seen.add(key); experiments.push({ rank: experiments.length + 1, ...e });
   }
-  const ts = rows.map((l) => l.t).filter(Boolean);
-  const reasons = Object.fromEntries(Object.keys(REASON_LEVER).map((w) => [w, rows.filter((l) => l.down && l.why === w).length]));
+  const ts = all.map((l) => l.t).filter(Boolean);
+  const reasons = Object.fromEntries(Object.keys(REASON_LEVER).map((w) => [w, all.filter((l) => l.down && l.why === w).length]));
   return {
     version: IMPROVE_VERSION, generated: new Date(o.now ?? Date.now()).toISOString(),
     window: ts.length ? { from: new Date(Math.min(...ts)).toISOString(), to: new Date(Math.max(...ts)).toISOString() } : null,
-    totals: { signals: signals.length, listens: rows.length, listeners: listeners(rows), downs: count(rows, 'down'), downsWithReason: rows.filter((l) => l.down && l.why).length, reasons },
+    totals: { signals: signals.length, listens: all.length, listeners: listeners(all), downs: count(all, 'down'), downsWithReason: all.filter((l) => l.down && l.why).length, reasons },
     thresholds: { minListens: o.minListens, minListeners: o.minListeners, minSongListens: o.minSongListens, z: o.z },
-    findings, experiments,
+    findings, experiments, running: experimentResults(all, o.running || [], o),
   };
 }
 
@@ -307,6 +342,11 @@ export function toMarkdown(r) {
   else {
     lines.push('## Findings', '', '| # | type | scope | metric | rate | comparable | n | z |', '|---|---|---|---|---|---|---|---|');
     for (const f of r.findings) lines.push(`| ${f.rank} | ${f.direction} ${f.type} | ${label(f.scope)}${f.reason ? ` · why=${f.reason}` : ''} | ${f.metric} | ${pct(f.rate)} | ${pct(f.comparable)} (${f.comparedTo}) | ${f.n} | ${f.z} |`);
+  }
+  if (r.coverage) lines.splice(3, 0, '', `Window: ${r.coverage.from} to ${r.coverage.to} (${r.coverage.records} records${r.coverage.capped.length ? `; days at the per-day cap: ${r.coverage.capped.join(', ')}` : ''}).`);
+  if (r.running?.length) {
+    lines.push('', '## Running experiments', '', '| experiment | status | primary | variant | control | z | listens (variant/control) | guardrails |', '|---|---|---|---|---|---|---|---|');
+    for (const x of r.running) lines.push(`| ${x.id} | ${x.status}${x.verdict ? ` · ${x.verdict}` : ''} | ${x.primary.metric} (${x.primary.goal}) | ${pct(x.primary.rate)} | ${pct(x.primary.base)} | ${x.primary.z} | ${x.arms.variant.listens}/${x.arms.control.listens} of ≥ ${x.minListensPerArm} | ${x.guardrails.filter((g) => g.breached).map((g) => `${g.metric} breached`).join(', ') || 'ok'} |`);
   }
   if (r.experiments.length) {
     lines.push('', '## Proposed experiments', '', 'Proposals only: nothing here changes a default. Each runs as a small variant arm against control.', '');
