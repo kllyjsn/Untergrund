@@ -24,7 +24,7 @@ for (const [id, prompt] of Object.entries(SONGS)) {
     assert.ok(validateSing(a), 'passes the server check');
     assert.equal(a.score.bpm, st.bpm);
     assert.equal(a.score.style, id === 'folk' || st.bpm < 84 ? 'ballad' : 'pop');
-    assert.equal(a.voice, id === 'rnb' ? 'felix' : 'gwen');
+    assert.equal(a.voice, { pop: 'gwen', rnb: 'rex', folk: 'ariadne' }[id]);
     // Every sung note starts where the engine plays it: the score's clock is the Sequencer's.
     const sung = sungNotes(st), starts = new Set(sung.map((x) => x.at / 4));
     let at = 0, hits = 0, notes = 0;

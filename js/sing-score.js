@@ -29,8 +29,8 @@ export function cleanExpr(raw) {
 const EXPR_BASE = { scoop: 1, scoop_ms: 90, glide_ms: 60, vib_cents: 30, vib_rate: 5.5, vib_delay: 0.3, vib_ramp: 0.4, breath: 22, lead: 0.5, stress_db: 1.5, stress_vowel: 0.3, align: 1 };
 export const SING_STYLE = {
   pop: { female: 'gwen', male: 'felix', expr: { ...EXPR_BASE } },
-  rnb: { female: 'gwen', male: 'felix', expr: { ...EXPR_BASE, scoop: 1.5, scoop_ms: 120, glide_ms: 90, vib_cents: 35, vib_rate: 5.2 } },
-  folk: { female: 'gwen', male: 'felix', expr: { ...EXPR_BASE, scoop: 0.6, glide_ms: 40, vib_cents: 22, vib_rate: 5.0, vib_delay: 0.35, breath: 20 } },
+  rnb: { female: 'ariadne', male: 'rex', expr: { ...EXPR_BASE, scoop: 1.5, scoop_ms: 120, glide_ms: 90, vib_cents: 35, vib_rate: 5.2 } },
+  folk: { female: 'ariadne', male: 'rex', expr: { ...EXPR_BASE, scoop: 0.6, glide_ms: 40, vib_cents: 22, vib_rate: 5.0, vib_delay: 0.35, breath: 20 } },
 };
 const styleSing = (style) => SING_STYLE[style] || SING_STYLE.pop;
 export const SING_LIMITS = { notes: 1500, beats: 1600, seconds: 420, text: 4000, label: 40, bpm: [40, 240], midi: [36, 91], seed: 2 ** 31 - 1 };

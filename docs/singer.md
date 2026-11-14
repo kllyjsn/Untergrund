@@ -78,6 +78,25 @@ Unknown names are dropped and values are clamped. `SING_STYLE` sends one set per
 Every phrase draws its noise from `seed + phrase`, the same as the runtime, and breaths from `seed + 7919 + phrase`,
 so a request is deterministic.
 
+## Voice defaults
+
+`SING_STYLE` picks a voice per genre and vocal. `singer/voice_survey.py` sang the same 8-bar excerpt of each seed-7
+song (seed 7, no expression) in all 14 voices, in the delivery mode that genre uses (pop: `pop`; R&B and folk:
+`ballad`). It then scored the renders with `singer/vocal_metrics.py`:
+score = −pitch error/5 − pitch wobble/5 + HNR/2 + 2 × onset clarity (cents, cents, dB, dB). Spectral centroid was
+recorded as a brightness check but not scored. `voices.json` lists no voice gender, so the male slot uses the
+best-scoring voice with a traditionally male name. Nobody has listened to confirm these picks.
+
+| Genre (mode) | Ranking, best first | Female / default | Male |
+|---|---|---|---|
+| Pop (`pop`) | gwen 6.7, ariadne 6.2, priya 4.8, felix 4.5, thistle, orpheus, scylla, kincade, rex, poppy, stone, tuesday, max, ink | gwen | felix |
+| R&B (`ballad`) | ariadne 6.6, rex 5.7, scylla 5.4, thistle 5.3, poppy 4.8, kincade, priya, tuesday, orpheus, stone, gwen, felix, max, ink | ariadne | rex |
+| Folk (`ballad`) | ariadne 6.9, priya 5.4, thistle 5.1, gwen 4.5, scylla, poppy, rex 2.9, felix, kincade, tuesday, max, stone, ink, orpheus | ariadne | rex |
+
+ink, orpheus and tuesday drift off pitch (36–82 c median error) in at least one genre or mode, and max has the most
+wobble and the least HNR. They stay pickable but are never
+defaults.
+
 ## Vocal chain and band carve
 
 `js/vocal-chain.js` processes the decoded stem once per buffer and settings, and live playback, renders and exports
