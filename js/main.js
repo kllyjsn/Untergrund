@@ -672,10 +672,11 @@ function playFlagship(t) {
 // A shared, linked or shelf song plays as a guest on the landing; closing it restores the listener's project.
 function openLanding(load, src = 'shared') {
   const landing = openSharedLanding({
-    load, isPlaying: () => playing,
+    // Waiting for instruments counts as playing, like the transport toggle, so the landing shows STOP at once.
+    load, isPlaying: () => playing || !!tuning,
     play: (song) => { countPlay(song.trackId); listen(song, src); },
     fetchSong: (id) => fetch(`/api/tracks?id=${encodeURIComponent(id)}`).then((r) => (r.ok ? r.json() : Promise.reject())).then(({ track: t }) => t?.state && { ...normalizeSong(t), trackId: t.id, remixes: t.remixes || 0, children: t.children || [] }),
-    stop: () => { if (playing) stop(); },
+    stop: () => { if (playing || tuning) stop(); },
     remix: remixSong,
     share: (song) => showShare(song, 'shared'),
     close: () => { leaveGuest(); window.history.replaceState(null, '', location.pathname); },
