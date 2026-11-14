@@ -695,7 +695,9 @@ export class Engine {
       const end = Math.min(dur, Math.max(0.02, left - SAMPLE_FADE)), rel = Math.min(rel0, (left - end) / 4.6);
       g.gain.setValueAtTime(level, t + end);
       g.gain.setTargetAtTime(0, t + end, rel);
-      s.stop(t + Math.min(end + Math.max(0.4, rel * 8), left + 0.01));
+      const stop = t + Math.min(end + Math.max(0.4, rel * 8), left + 0.01);
+      s.stop(stop);
+      return { s, g, stop };
     }
     return { s, g };
   }
@@ -1327,7 +1329,7 @@ export class Engine {
     if (key !== this.pedalKey) {
       for (const h of this.pedalHeld || []) { h.g.gain.cancelScheduledValues(t); h.g.gain.setTargetAtTime(0, t, 0.03); }
       this.pedalHeld = []; this.pedalKey = key;
-    } else if (this.pedalHeld) this.pedalHeld = this.pedalHeld.filter((h) => h.end > t);
+    } else if (this.pedalHeld) this.pedalHeld = this.pedalHeld.filter((h) => (h.stop ?? h.end) > t);
     return (this.pedalHeld ||= []);
   }
 
