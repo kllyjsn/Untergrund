@@ -658,6 +658,12 @@ function listen(song, src = 'shared') {
   build();
   play();
 }
+function playFlagship(t) {
+  const song = normalizeSong({ ...t, artist: t.by });
+  if (!song) return toast('Could not open that song');
+  countPlay(t.id);
+  listen({ ...song, trackId: t.id }, 'flagship');
+}
 function leaveGuest() {
   if (!guest) return;
   const { backup, style: own } = guest;
@@ -1587,7 +1593,8 @@ function buildGenerateHome() {
     h('div', { class: 'recents-row' }, recent.map((t) => h('button', { class: 'recent', style: `--hue:${hue(t.style)}`, onclick: () => openRecent(t) },
       h('i'), h('b', {}, t.title || 'Untitled'), h('span', {}, [STYLES[t.style]?.name, t.bpm && `${t.bpm} BPM`].filter(Boolean).join(' · ')))))) : null;
   const following = followingRow({ hue, onPlay: (t) => openShared(t.id, true), onLoad: renderHome });
-  const flagship = flagshipShelf({ onPlay: (t) => openShared(t.id, true), onLoad: renderHome });
+  // Shelf plays are guest listens, so the listener's own project is never overwritten.
+  const flagship = flagshipShelf({ onPlay: playFlagship, onLoad: renderHome });
   const live = made ? liveStrip() : null;
   const home = h('section', { role: studioOpen ? 'region' : 'main', 'aria-label': 'Create', class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : '') + (live && !live.hidden ? ' has-live' : '') + (made ? '' : ' first-run') + (unlock ? ' unlock' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` + (unlock ? `;--ua:${-Math.round(since)}ms` : '') }, left, describeBox(), live, picker, concert, recents, following, flagship,
     h('div', { class: 'home-foot-links' },
