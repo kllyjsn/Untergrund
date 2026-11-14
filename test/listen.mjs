@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createListens, songFingerprint, promptHash, promptText, SKIP_MS, LISTEN_KINDS } from '../js/listen.js';
+import { createListens, songFingerprint, promptHash, promptText, SKIP_MS, LISTEN_KINDS, DOWN_REASONS } from '../js/listen.js';
 
 const storage = () => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), m }; };
 const song = (bpm = 124) => ({ patterns: [{ steps: [1, 0, 1] }], chain: 'AABB', chainOn: true, bpm, key: 'A', scale: 'minor', params: { cutoff: 0.4 }, master: { vol: 0.8 }, artist: { title: 'x' } });
@@ -93,6 +93,35 @@ assert.equal(L.toggleLove(pos(3)), true);
 assert.deepEqual(kinds(), ['start', 'replay', 'love', 'unlove', 'love']);
 assert.ok(make().isLoved(A), 'love persists in storage');
 assert.ok(!make().isLoved(B));
+
+// Down: one tap is a complete signal; it replaces a love (and vice versa), and is remembered per song.
+sent.length = 0;
+assert.equal(L.toggleDown(pos(4, 32, 'drop')), true);
+assert.deepEqual(kinds(), ['unlove', 'down'], 'a down clears the love first');
+assert.ok(!L.isLoved(A) && L.isDowned(A));
+assert.equal(sent.at(-1).sec, 'drop', 'the down keeps where in the song it happened');
+assert.ok(make().isDowned(A), 'down persists in storage');
+// Optional one-tap reasons: only the fixed categories, only after a down; never any free text.
+assert.deepEqual(DOWN_REASONS, ['boring', 'sounds_bad', 'not_my_style']);
+assert.equal(L.reason('too loud!!'), null, 'no free-form reason');
+const why = L.reason('boring', pos(5));
+assert.equal(why.why, 'boring');
+assert.equal(L.reason('boring', pos(5)), null, 'same reason twice is one signal');
+assert.equal(L.reason('sounds_bad', pos(5)).why, 'sounds_bad', 'a later tap replaces the reason');
+assert.ok(Object.keys(why).every((k) => !/text|comment|note|feedback/.test(k)), 'no text field in the record');
+assert.equal(L.toggleLove(pos(6)), true);
+assert.deepEqual(kinds().slice(-2), ['undown', 'love'], 'a love clears the down');
+assert.equal(L.reason('boring'), null, 'no reason without a down');
+// Rewind: jumping back inside the song you hear, with where from and to.
+sent.length = 0;
+const rw = L.rewind(pos(12, 32, 'verse'), 0);
+assert.deepEqual([rw.bar, rw.to, rw.sec], [12, 0, 'verse']);
+assert.equal(L.rewind(pos(0), 0), null, 'restarting from bar 0 is not a rewind');
+L.hold(pos(12));
+assert.equal(L.rewind(pos(12), 0), null, 'not while paused');
+// The song's structure rides on start.
+L.begin(ctx(B, { arr: 'intro-8.drop-16' }), pos(0));
+assert.equal(sent.find((x) => x.kind === 'start').arr, 'intro-8.drop-16');
 
 // Every kind emitted is part of the contract the server accepts.
 assert.ok(sent.every((s) => LISTEN_KINDS.includes(s.kind)));

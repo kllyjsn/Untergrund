@@ -84,7 +84,7 @@ console.log('events rate limit passed');
 
   const lk = memoryKv();
   const sig = (kind, extra = {}) => ({ n: 'listen', p: { kind, genre: 'acid' }, l: { ...rec, ...extra }, t: T0 });
-  const body = { sid: 'cccccccc01', route: '/', events: [sig('start'), sig('replay'), sig('complete'), sig('love'), sig('share'), sig('start', { fp: 'bbbbbbb1234567', style: 'techno' }), sig('skip', { fp: 'bbbbbbb1234567', style: 'techno' })] };
+  const body = { sid: 'cccccccc01', route: '/', events: [sig('start'), sig('replay'), sig('complete'), sig('love'), sig('share'), sig('start', { lis: 'bbbbbb1234', fp: 'bbbbbbb1234567', style: 'techno' }), sig('skip', { lis: 'bbbbbb1234', fp: 'bbbbbbb1234567', style: 'techno' })] };
   assert.equal((await post(lk, body)).status, 202);
   const get = (query, token = 'secret') => handleEvents({ method: 'GET', query: { ...query, token }, kv: lk, statsToken: 'secret', now: T0 });
   const L = (await get({ summary: '1' })).json.listening;
@@ -101,6 +101,23 @@ console.log('events rate limit passed');
   assert.deepEqual(raw.song.counts, { start: 1, replay: 1, complete: 1, love: 1, share: 1 });
   assert.equal(raw.song.rates.share, 1);
   assert.deepEqual(listenRates({ start: 2, love: 1, unlove: 2 }).love, 0, 'unlove cancels love, never negative');
+  assert.equal(listenRates({ start: 4, down: 3, undown: 1 }).down, 0.5, 'net downs per start');
+  // Down reasons are a closed set; cohort/device are enums; structure only on start; rewinds carry their target bar.
+  assert.equal(cleanListen({ ...rec, why: 'boring' }, { kind: 'why' }).why, 'boring');
+  assert.equal(cleanListen({ ...rec, why: 'it was too long' }, { kind: 'why' }), null, 'no free-text reasons');
+  assert.equal(cleanListen({ ...rec, why: 'boring' }, { kind: 'down' }).why, undefined);
+  const ctxRec = cleanListen({ ...rec, co: 'd1_6', dev: 'phone', arr: 'intro-8.drop-16' }, { kind: 'start' });
+  assert.deepEqual([ctxRec.co, ctxRec.dev, ctxRec.arr], ['d1_6', 'phone', 'intro-8.drop-16']);
+  const badCtx = cleanListen({ ...rec, co: 'week', dev: 'iphone 15', arr: '<script>' }, { kind: 'start' });
+  assert.deepEqual([badCtx.co, badCtx.dev, badCtx.arr], [undefined, undefined, undefined]);
+  assert.equal(cleanListen({ ...rec, arr: 'aabb' }, { kind: 'skip' }).arr, undefined);
+  assert.equal(cleanListen({ ...rec, to: 4 }, { kind: 'rewind' }).to, 4);
+  // The improvement report: stats token only, built from the raw log.
+  assert.equal((await get({ improve: '1' }, 'nope')).status, 401);
+  const rep = (await get({ improve: '1' })).json;
+  assert.equal(rep.version, 1);
+  assert.equal(rep.totals.listens, 2);
+  assert.ok(Array.isArray(rep.findings) && Array.isArray(rep.experiments));
 
   // Per-client hourly budget for listen records.
   const rk = memoryKv();

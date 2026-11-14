@@ -24,7 +24,7 @@ export function memoryKv({ file = '', scripts = {}, delay = 0 } = {}) {
   const shas = new Map(Object.keys(scripts).map((src) => [sha1(src), src]));
   const stats = { count: 0 };
   if (file) {
-    try { for (const [k, v] of Object.entries(JSON.parse(readFileSync(file, 'utf8')))) data.set(k, v.t === 'set' ? { ...v, v: new Set(v.v) } : v); } catch {}
+    try { for (const [k, v] of Object.entries(JSON.parse(readFileSync(file, 'utf8')))) data.set(k, v.t === 'set' ? { ...v, v: new Set(v.v) } : v.t === 'zset' ? { ...v, v: new Map(Array.isArray(v.v) ? v.v : []) } : v); } catch {}
   }
   let saveTimer = 0;
   const persist = () => {
@@ -32,7 +32,7 @@ export function memoryKv({ file = '', scripts = {}, delay = 0 } = {}) {
     saveTimer = setTimeout(() => {
       saveTimer = 0;
       const out = {};
-      for (const [k, v] of data) out[k] = v.t === 'set' ? { ...v, v: [...v.v] } : v;
+      for (const [k, v] of data) out[k] = v.t === 'set' || v.t === 'zset' ? { ...v, v: [...v.v] } : v;
       try { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, JSON.stringify(out)); } catch (err) { console.error('kv persist failed', err.message); }
     }, 200);
     saveTimer.unref?.();
@@ -90,6 +90,16 @@ export function memoryKv({ file = '', scripts = {}, delay = 0 } = {}) {
       const z = of(k, 'zset'); if (!z) return 0;
       const lo = min === '-inf' ? -Infinity : +min, hi = max === '+inf' ? Infinity : +max; let n = 0;
       for (const [m, sc] of z) if (sc >= lo && sc <= hi) { z.delete(m); n++; }
+      return n;
+    },
+    ZREMRANGEBYRANK: (k, start, stop) => {
+      const z = of(k, 'zset'); if (!z) return 0;
+      const rows = [...z].sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : 1));
+      const from = +start < 0 ? Math.max(0, rows.length + +start) : +start;
+      const to = Math.min(rows.length - 1, +stop < 0 ? rows.length + +stop : +stop);
+      if (to < from) return 0;
+      let n = 0;
+      for (const [member] of rows.slice(from, to + 1)) if (z.delete(member)) n++;
       return n;
     },
     EVAL: (src, nk, ...rest) => {
