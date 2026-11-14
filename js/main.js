@@ -377,7 +377,15 @@ const listenSurface = () => (jukeboxNow ? 'jukebox' : songOrigin.src === 'room' 
 function listenCtx() {
   const a = state.artist || {};
   return { fp: songFingerprint(state), tid: guest?.song?.trackId || songOrigin.tid || '', seed: Number.isFinite(+a.seed) ? +a.seed : -1, style: STYLES[a.style] ? a.style : style,
-    src: songOrigin.src, surf: listenSurface(), ph: songOrigin.ph || '', pt: songOrigin.pt || '' };
+    src: songOrigin.src, surf: listenSurface(), ph: songOrigin.ph || '', pt: songOrigin.pt || '', arr: songShape() };
+}
+// The song's structure as one short token: sections with their bar counts ("intro-8.verse-16.drop-8") or the pattern chain ("aabbc").
+function songShape() {
+  const sc = pat()?.score ? compose(pat().score) : null;
+  const name = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 10);
+  const shape = sc ? sc.sections.map((x, i) => `${name(x.name)}-${(sc.sections[i + 1]?.at ?? sc.bars) - x.at}`).join('.')
+    : state.chainOn ? String(state.chain || '').toLowerCase().replace(/[^a-z]/g, '') : String(PATTERN_NAMES[state.current] || '').toLowerCase();
+  return shape.slice(0, 80);
 }
 // Publish, share, go live and export count as signals on the song you hear (or just heard).
 const SONG_SHARES = new Set(['song', 'song_sent', 'video_sent', 'video_saved', 'embed', 'soundcloud']);
@@ -438,7 +446,7 @@ function onAudioState() {
   } else if (ctx.state !== 'closed') interrupt();
 }
 function restartSong() {
-  if (playing) return start({ step: 0 });
+  if (playing) { listens.rewind(listenPos(), 0); return start({ step: 0 }); }
   clearPaused();
   play();
 }
@@ -1358,6 +1366,7 @@ function buildNowPlaying(primary) {
   const sid = STYLES[a.style] ? a.style : style;
   const sc = pat()?.score ? compose(pat().score) : null;
   const chain = sc ? sc.sections : state.chainOn ? parseChain(state.chain) : [];
+  const reactions = reactionButtons();
   ui.npScore = sc;
   ui.npCanvas = h('canvas', { class: 'np-viz', width: 1200, height: 220 });
   ui.npSection = h('b', {}, sc ? sc.sections[0].name : chain.length ? sectionName(sid, chain[0]) : `PATTERN ${PATTERN_NAMES[state.current]}`);
@@ -1369,7 +1378,8 @@ function buildNowPlaying(primary) {
   ui.npStyle = sid;
   return [
     h('div', { class: 'now-playing' },
-      h('div', { class: 'np-top' }, h('span', { class: 'np-eyebrow' }, h('i', { class: 'np-dot' }), paused ? 'PAUSED' : 'NOW PLAYING'), loveButton()),
+      h('div', { class: 'np-top' }, h('span', { class: 'np-eyebrow' }, h('i', { class: 'np-dot' }), paused ? 'PAUSED' : 'NOW PLAYING'), reactions.buttons),
+      reactions.reasons,
       h('h1', {}, a.title || 'Untitled set'),
       h('div', { class: 'np-meta' }, [a.name || 'UNTERGRUND', STYLES[sid].name, `${state.bpm} BPM`, sc?.meta ? sc.meta.key.toUpperCase() : `${KEYS[state.key]} ${sc ? (pat().score.mode === 'm' ? 'MINOR' : 'MAJOR') : SCALES[state.scale]?.name || 'MINOR'}`]
         .flatMap((v, i) => [i ? ' ' : '', h('span', {}, i ? `· ${v}` : v)])),
@@ -1383,14 +1393,27 @@ function buildNowPlaying(primary) {
   ];
 }
 
-// The one explicit reaction: love the song you hear. Skips, replays and keeps are read from what you do.
-function loveButton() {
+// The explicit reactions: love or down the song you hear, one tap each. After a down, three optional one-tap reasons
+// (never a text box); everything else (where it was, what it is, what you did next) is read from the listen itself.
+const DOWN_WHY = { boring: 'Boring', sounds_bad: 'Sounds bad', not_my_style: 'Not my style' };
+function reactionButtons() {
   const l = listens.recent();
-  if (!l) return null;
-  const set = (btn, on) => { btn.classList.toggle('on', on); btn.setAttribute('aria-pressed', String(on)); btn.title = on ? 'Loved. Tap to undo' : 'Love this song'; };
-  const btn = h('button', { class: 'np-love', type: 'button', 'aria-label': 'Love this song', onclick: () => { const on = listens.toggleLove(listenPos()); if (on != null) { set(btn, on); nativeHaptic(on ? 'medium' : 'light'); } } }, h('i', { 'aria-hidden': 'true' }));
-  set(btn, listens.isLoved(l.fp));
-  return btn;
+  if (!l) return { buttons: null, reasons: null };
+  const chips = Object.entries(DOWN_WHY).map(([why, label]) => h('button', { class: 'np-why-chip', type: 'button', 'data-why': why,
+    onclick: () => { if (listens.reason(why, listenPos())) { paint(); nativeHaptic('light'); } } }, label));
+  const reasons = h('div', { class: 'np-why', role: 'group', 'aria-label': 'Why? (optional)' }, h('span', {}, 'WHY?'), chips);
+  const tap = (fn) => () => { const on = fn(listenPos()); if (on != null) { paint(); nativeHaptic(on ? 'medium' : 'light'); } };
+  const love = h('button', { class: 'np-love', type: 'button', 'aria-label': 'Love this song', onclick: tap(listens.toggleLove) }, h('i', { 'aria-hidden': 'true' }));
+  const down = h('button', { class: 'np-down', type: 'button', 'aria-label': 'Not for me', onclick: tap(listens.toggleDown) }, h('i', { 'aria-hidden': 'true' }));
+  function paint() {
+    const cur = listens.recent(), loved = listens.isLoved(cur?.fp), downed = listens.isDowned(cur?.fp);
+    love.classList.toggle('on', loved); love.setAttribute('aria-pressed', String(loved)); love.title = loved ? 'Loved. Tap to undo' : 'Love this song';
+    down.classList.toggle('on', downed); down.setAttribute('aria-pressed', String(downed)); down.title = downed ? 'Not for me. Tap to undo' : 'Not for me';
+    reasons.hidden = !downed;
+    for (const c of chips) c.setAttribute('aria-pressed', String(cur?.why === c.dataset.why));
+  }
+  paint();
+  return { buttons: h('span', { class: 'np-react' }, down, love), reasons };
 }
 
 // After a song plays: keep it, share it, play it live. The first step not yet taken on this device is lit, with one line on why.

@@ -134,6 +134,8 @@ for (const opts of [{ dnt: '1' }, { webdriver: true }]) {
   assert.equal(e.l.pt.length, 120);
   assert.equal(e.l.sec.length, 40);
   assert.equal(e.l.obj, undefined);
+  assert.equal(e.l.co, 'd0', 'cohort: how long this device has listened');
+  assert.equal(e.l.dev, 'desktop', 'device class, coarse');
   assert.equal(typeof e.t, 'number');
   assert.equal(createAnalytics({ win: fakeWindow({ local }).win }).lid, e.l.lid);
   trackModule('publish', { kind: 'song' });
