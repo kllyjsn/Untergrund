@@ -478,8 +478,9 @@ const remote = {
 };
 
 // Radio (js/radio.js): when a song ends, the next Library song or a new one in the same style starts.
-// Rooms, the Jukebox, Artist Live and shared links keep their own running order.
-const radioPlays = () => radioOn() && !jukeboxNow && !roomResume && !artistLive && !guest && songOrigin.src !== 'room';
+// Rooms (listening or hosting), the Jukebox, Artist Live and shared links keep their own running order.
+const radioPlays = () => radioOn() && !jukeboxNow && !roomResume && !artistLive && !guest && songOrigin.src !== 'room' &&
+  !hostingRoom() && !document.querySelector('.club-overlay');
 function radioNext(why = '') {
   const n = nextUp({ queue: queue && { ids: queue.items, i: queue.i }, style, styles: STYLES, why, skip: (t) => listens.isDowned(songFingerprint(t.state)) });
   if (n.kind === 'track') { queue.i = n.i; return openRecent(queue.items[n.i]); }
