@@ -122,6 +122,7 @@ export function memoryKv() {
       case 'LPUSH': { const l = get(key, () => []); l.unshift(...args.reverse()); return l.length; }
       case 'LTRIM': { const l = get(key) || []; const end = +args[1] < 0 ? l.length + +args[1] : +args[1]; data.set(key, l.slice(+args[0], end + 1)); return 'OK'; }
       case 'LLEN': return (get(key) || []).length;
+      case 'DEL': return data.delete(key) ? 1 : 0;
       case 'GET': return data.has(key) ? data.get(key) : null;
       case 'SET': { if (args.slice(1).map((a) => String(a).toUpperCase()).includes('NX') && data.has(key)) return null; data.set(key, args[0]); return 'OK'; }
       case 'LRANGE': { const l = get(key) || []; const end = +args[1] < 0 ? l.length + +args[1] : +args[1]; return l.slice(+args[0], end + 1); }
@@ -298,11 +299,18 @@ export async function runDigest(kv, { now = Date.now(), webhook = '', fetchImpl 
   const day = dayKey(now);
   const [fresh] = await kv([['SET', `${P}:digest:ran:${day}`, '1', 'NX', 'EX', 2 * 86400]]);
   if (fresh !== 'OK' && !force) return { ok: true, day, skipped: 'already_ran' };
-  const r = await improveReport(kv, { now, ...options });
-  const markdown = toMarkdown(r);
-  const digest = { day, generated: r.generated, coverage: r.coverage, totals: r.totals, findings: r.findings.slice(0, 10), experiments: r.experiments, running: r.running, markdown };
-  const brief = { day, generated: r.generated, listens: r.totals.listens, findings: r.findings.length, experiments: r.experiments.length, running: r.running.map((x) => ({ id: x.id, status: x.status })) };
-  await kv([['SET', `${P}:digest`, JSON.stringify(digest)], ['LPUSH', `${P}:digests`, JSON.stringify(brief)], ['LTRIM', `${P}:digests`, 0, DIGESTS_KEPT - 1]]);
+  let r, markdown, brief;
+  try {
+    r = await improveReport(kv, { now, ...options });
+    markdown = toMarkdown(r);
+    const digest = { day, generated: r.generated, coverage: r.coverage, totals: r.totals, findings: r.findings.slice(0, 10), experiments: r.experiments, running: r.running, markdown };
+    brief = { day, generated: r.generated, listens: r.totals.listens, findings: r.findings.length, experiments: r.experiments.length, running: r.running.map((x) => ({ id: x.id, status: x.status })) };
+    await kv([['SET', `${P}:digest`, JSON.stringify(digest)], ['LPUSH', `${P}:digests`, JSON.stringify(brief)], ['LTRIM', `${P}:digests`, 0, DIGESTS_KEPT - 1]]);
+  } catch (err) {
+    // A failed run must not use up the day: the next cron retry (or a forced run) tries again.
+    await kv([['DEL', `${P}:digest:ran:${day}`]]).catch(() => {});
+    throw err;
+  }
   let delivered = false;
   if (/^https:\/\//.test(webhook) && fetchImpl) {
     try { delivered = (await fetchImpl(webhook, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: markdown }) })).ok; } catch {}

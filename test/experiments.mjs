@@ -142,4 +142,12 @@ assert.equal((await digest({ digest: '1' }, 'cron')).status, 401, 'reading the d
 const quiet = memoryKv();
 assert.equal((await handleEvents({ method: 'GET', query: { digest: 'run' }, headers: { authorization: 'Bearer s' }, kv: quiet, statsToken: 's', webhook: '', now: T0 })).json.delivered, false, 'no webhook: stored only');
 
+// A run that fails part-way does not use up the day.
+const flaky = memoryKv();
+let fail = true;
+const flakyKv = async (cmds) => { if (fail && cmds.some(([c, k]) => c === 'LLEN' || k === 'untergrund:ev:digest')) throw new Error('redis down'); return flaky(cmds); };
+await assert.rejects(handleEvents({ method: 'GET', query: { digest: 'run' }, headers: { authorization: 'Bearer s' }, kv: flakyKv, statsToken: 's', now: T0 }));
+fail = false;
+assert.equal((await handleEvents({ method: 'GET', query: { digest: 'run' }, headers: { authorization: 'Bearer s' }, kv: flakyKv, statsToken: 's', now: T0 })).json.skipped, undefined, 'the retry runs');
+
 console.log('experiments, history and digest passed');
