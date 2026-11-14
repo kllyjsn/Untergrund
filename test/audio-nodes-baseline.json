@@ -28,9 +28,9 @@
  "concerto": {"peak":189,"avg":82},
  "nocturne": {"peak":39,"avg":35},
  "repertoire": {"peak":144,"avg":79},
- "pop": {"peak":255,"avg":153},
- "rnb": {"peak":204,"avg":143},
- "rock": {"peak":274,"avg":171},
- "folk": {"peak":175,"avg":113},
- "country": {"peak":255,"avg":144}
+ "pop": {"peak":261,"avg":154},
+ "rnb": {"peak":204,"avg":142},
+ "rock": {"peak":292,"avg":169},
+ "folk": {"peak":177,"avg":121},
+ "country": {"peak":260,"avg":149}
 }
