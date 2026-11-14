@@ -43,3 +43,25 @@ body:not(.studio-open) .generate-actions:not(.np-actions) > .btn:hover { backgro
 
 /* Create has one way to play: GENERATE (and the now-playing stop). Transport and REC live in Studio and the now-playing row. */
 body:not(.studio-open) .top .transport { display: none; }
+
+/* Flagship shelf: admin-pinned real releases. */
+.flagship { grid-column: 1 / -1; min-width: 0; border-top: 1px solid var(--hair); }
+.flagship-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.flagship-sub { color: var(--dim2); font: 400 12px var(--sans); }
+.flagship-row { display: flex; gap: 16px; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; scroll-snap-type: x mandatory; }
+.flagship-row::-webkit-scrollbar { display: none; }
+.flag { flex: 0 0 168px; display: flex; flex-direction: column; gap: 3px; min-width: 0; scroll-snap-align: start; }
+.flag-art { position: relative; aspect-ratio: 1; width: 100%; padding: 0; border: 1px solid var(--hair); border-radius: var(--r2); overflow: hidden; background: var(--well); cursor: pointer; margin-bottom: 8px; }
+.flag-art canvas { display: block; width: 100%; height: 100%; }
+.flag-art i { position: absolute; right: 10px; bottom: 10px; width: 36px; height: 36px; border-radius: 50%; background: #fff; opacity: 0; transform: translateY(4px); transition: opacity .15s, transform .15s; }
+.flag-art i::after { content: ''; position: absolute; left: 14px; top: 11px; border-left: 11px solid #111; border-top: 7px solid transparent; border-bottom: 7px solid transparent; }
+.flag-art:hover i, .flag-art:focus-visible i { opacity: 1; transform: none; }
+.flag-title { color: #f2f2f5; font: 700 14px var(--sans); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.flag-by { color: #c8c8d0; font: 500 13px var(--sans); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+a.flag-title:hover, a.flag-by:hover { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
+.flag-meta { color: var(--dim2); font: 400 11px var(--mono); }
+@media (max-width: 760px) {
+  .flag { flex-basis: 140px; }
+  .flag-art i { opacity: 1; transform: none; width: 30px; height: 30px; }
+  .flag-art i::after { left: 12px; top: 9px; border-left-width: 9px; border-top-width: 6px; border-bottom-width: 6px; }
+}

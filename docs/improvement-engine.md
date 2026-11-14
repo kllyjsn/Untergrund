@@ -57,6 +57,19 @@ Research-backed proposals that are ready to start live in `PROPOSED` in `js/prin
 - **Read-out** (`running` in the report): per experiment, control vs variant on its primary metric and guardrails, with `status`: `collecting` (below `minListensPerArm` per arm), `stop` (a guardrail moved > 2 points the wrong way at |z| ≥ 2: end it), `ready` (enough listens: `verdict` is `variant_better`, `variant_worse` or `no_difference`), or `ended` (tags whose entry was removed). Variant-arm listens are left out of the findings, so findings describe what everyone hears by default, and a scope with a running experiment gets no new proposal.
 - Ending one is a PR too: remove the entry (or set `until`), and ship the variant as the default only if it won.
 
+## Release loop
+
+Every report (and so the daily digest and stats.html) carries `loop`, the health of the publish → share → listen → return loop:
+
+| field | meaning |
+| --- | --- |
+| `published`, `shares`, `sharesUnplayed`, `sharesPerSong` | songs with a `publish` signal, `share` signals on them (`sharesUnplayed`: standalone shares made before playing), and the ratio |
+| `shareOrigin` | `start`s that arrived through a shared link (`via`, see [listen-signals.md](listen-signals.md)): starts, distinct links, listeners, and how many came back at least a day later (`returned` of `judged`) |
+| `heard.{shared,published,all}` | listens, completion rate and replay rate for share-origin listens, listens of published songs and all listens |
+| `creators` | devices that published; `returnRate7d` is the share heard from again between a day and a week after their first publish, judged only once that week has passed |
+
+Rates are `null` until there is something to divide by.
+
 ## History
 
 Each listen record is also written to a day log, `untergrund:ev:listen:<YYYY-MM-DD>` (UTC, max 5000 records a day, kept 29 days). The report reads the last 28 days (`?days=1…28`, `--days`) in pages of 1000, four pages at a time, so it covers weeks rather than the newest 5000 records. Days written before day logs existed come from the old newest-5000 log. `coverage` in the report says which days were read, how many records, and which days hit the daily cap.

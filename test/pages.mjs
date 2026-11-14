@@ -66,3 +66,21 @@ assert.deepEqual(ogImage(track.state, 7), ogImage(track.state, 7), 'art is deter
 assert.equal(artSeed(track.id), artSeed(track.id));
 assert.match(renderTrackPage({ track, artist: null }), /<span class="pp-by">Nova<\/span>/);
 console.log('Open Graph image passed');
+
+{
+  const { flagshipTracks, flagshipIds, handlePage: hp } = await import('../api/_lib/pages.js');
+  const store = memoryStore();
+  const real = normalizeTrack({ title: 'Pinned One', artist: 'Real Artist', style: 'acid', state: defaultState() });
+  await store.add(real);
+  await store.countPlay(real.id, 'client-a');
+  const list = await flagshipTracks({ kv: null, crate: store, ids: [real.id, 'gone-404', real.id] });
+  assert.equal(list.length, 1, 'unknown and duplicate pins are dropped, nothing is invented');
+  assert.equal(list[0].by, 'Real Artist');
+  assert.equal(list[0].plays, 1, 'plays come from the crate counts');
+  assert.deepEqual(await flagshipTracks({ kv: null, crate: store, ids: [] }), [], 'empty config hides the shelf');
+  assert.deepEqual(flagshipIds({ FLAGSHIP_TRACKS: ' a-1, b-2 ,' }), ['a-1', 'b-2']);
+  const r = await hp({ flagship: '1' }, { kv: null, crate: store, site, og, flagship: [real.id] });
+  assert.equal(r.status, 200);
+  assert.equal(JSON.parse(r.body).tracks[0].id, real.id);
+  console.log('flagship shelf passed');
+}

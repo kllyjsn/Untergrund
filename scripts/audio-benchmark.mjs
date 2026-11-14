@@ -37,6 +37,7 @@ function denseDrop(x) {
 // [warn, fail, drift, repeat] for the over-limiting checks; calibrated on main (docs/audio-benchmark.md).
 // On main every club style's clipper shaves at most ~2 dB off its loudest peaks; DEEP HOUSE / AMAPIANO (clean by ear)
 // reach 2% of frames over 1 dB, 11% over full scale and a 6.3 dB crest.
+const DRUMS = ['kick', 'snare', 'ch', 'oh', 'ride', 'clap'];
 const CAL = { clipperShare: [0.05, 0.25, 0.03, 0.01], clipperDepth: [3, 6, 0.75, 0.2], hardClip: [0.25, 0.5, 0.06, 0.02], limiterOver6: [0.05, 0.2, 0.03, 0.01], crest: [6, 3.5, 1, 0.3] };
 
 export const CHECKS = [
@@ -68,6 +69,12 @@ export const CHECKS = [
   { id: 'missingParts', group: 'balance', label: 'Silent parts that have notes', unit: 'count', bad: 'high', warn: null, fail: 0.5, drift: null, repeat: 0, get: (x) => x.stems.missing.length, why: 'A part the sequencer played at least twice in the window whose stem stayed below -70 dBFS.' },
   { id: 'masking', group: 'balance', label: 'Most-masked part', unit: 'share', bad: 'high', warn: 0.6, fail: 0.85, drift: 0.15, repeat: 0.04, get: (x) => Math.max(0, ...x.stems.stems.filter((s) => s.id !== 'fx' && (s.notes ?? 0) >= 4 && s.relLu != null && s.relLu > -20).map((s) => s.buriedShare ?? 0)), why: 'Share of a part\'s energy in time/third-octave cells where the rest of the mix is 10 dB louder (energetic masking), for parts within 20 LU of the mix.' },
   { id: 'stemDrift', group: 'balance', label: 'Largest stem level change', unit: 'LU', bad: 'high', warn: null, fail: null, drift: 3, repeat: 0.5, baselineOnly: true, get: () => null, why: 'Per-stem loudness relative to the mix vs baseline; catches one part getting much louder or quieter.' },
+  { id: 'genreBalance', group: 'realism', label: 'Octave balance vs genre target curve (RMS)', unit: 'dB', bad: 'high', warn: null, fail: null, drift: null, repeat: 0.3, get: (x) => x.mix.balance?.rmsDb ?? null, why: 'RMS distance of the 63 Hz-16 kHz octave balance from the genre target curve in js/audio-quality.js (TARGET_CURVES, from published commercial-mix spectra), level offset removed. Informational: band styles only.' },
+  { id: 'drumSpread', group: 'realism', label: 'Drum hit-level spread (median of drum stems)', unit: 'dB', bad: 'low', warn: null, fail: null, drift: null, repeat: 0.2, get: (x) => pct(DRUMS.map((id) => x.stems.stems.find((s) => s.id === id)?.hits?.spreadDb).filter((v) => v != null), 0.5), why: 'Standard deviation of per-hit peak level (first 30 ms after each onset) on the kick/snare/hat/ride stems, a velocity-variance proxy: ~0 dB is a drum machine, players spread 2-6 dB. Informational.' },
+  { id: 'hatSpread', group: 'realism', label: 'Hi-hat/ride hit-level range (p95-p5)', unit: 'dB', bad: 'low', warn: null, fail: null, drift: null, repeat: 0.3, get: (x) => pct(['ch', 'ride'].map((id) => x.stems.stems.find((s) => s.id === id)?.hits?.rangeDb).filter((v) => v != null), 1), why: 'Spread between soft and accented cymbal hits. Informational.' },
+  { id: 'bandSpread', group: 'realism', label: 'Band chord hit-level spread', unit: 'dB', bad: 'low', warn: null, fail: null, drift: null, repeat: 0.2, get: (x) => x.stems.stems.find((s) => s.id === 'stab')?.hits?.spreadDb ?? null, why: 'Per-hit level spread of the chord instrument (piano/guitar) stem. Informational.' },
+  { id: 'snareAttack', group: 'realism', label: 'Snare attack (peak over body)', unit: 'dB', bad: 'low', warn: null, fail: null, drift: null, repeat: 0.5, get: (x) => x.stems.stems.find((s) => s.id === 'snare')?.hits?.attackDb ?? null, why: 'Median peak of the first 30 ms over the RMS of the next 90 ms per snare hit: how much transient survives the bus processing. Informational.' },
+  { id: 'meanCorrelation', group: 'realism', label: 'L/R correlation (energy-weighted mean)', unit: 'r', bad: 'low', warn: null, fail: null, drift: null, repeat: 0.02, get: (x) => x.mix.stereo.correlation, why: '1 = mono, 0 = unrelated channels. Mixed records sit around 0.5-0.85. Informational.' },
   { id: 'gap', group: 'silence', label: 'Longest dropout', unit: 's', bad: 'high', warn: 2, fail: 6, drift: 1, repeat: 0.2, get: (x) => x.mix.silence?.maxGapSec ?? null, why: '400 ms loudness more than 35 LU under the song between the first bar and the final hit (a phantom gap); breakdowns are quieter but not silent. Silence after the final hit is dead air.' },
   { id: 'leadIn', group: 'silence', label: 'Silence before the music', unit: 's', bad: 'high', warn: 1, fail: 4, drift: 0.5, repeat: 0.1, tiers: ['deep'], get: (x) => x.mix.silence?.leadSec ?? null, why: 'Time from play to the first audible note.' },
   { id: 'contrast', group: 'arrangement', label: 'Bar loudness spread (p90-p10)', unit: 'LU', bad: 'low', warn: 1, fail: 0.3, drift: 1.5, repeat: 0.2, tiers: ['deep'], get: (x) => x.mix.arrangement?.contrastLu ?? null, why: 'How much bar-by-bar loudness moves across the song; near zero is a flat loop with no arrangement.' },
@@ -137,8 +144,8 @@ const STEM_LABEL = (at) => { const [seed, id] = String(at).split(':'); return `$
 // What a chart needs per seed, kept small: spectrum, stems, the arrangement curve and the ending envelope.
 function detail(x) {
   const m = x.mix, d = { bars: x.bars, secs: x.secs, bpm: x.bpm, chain: x.chain, windows: x.windows, octaves: m.spectrum.octaves, shares: m.spectrum.shares, centroidHz: m.spectrum.centroid,
-    loudness: m.loudness, stereo: m.stereo, limiter: m.limiter, clipper: m.clipper ?? null, saturator: m.saturator ?? null, crest: m.crest ?? null, kickBass: x.stems.kickBass ?? null,
-    stems: x.stems.stems.map(({ id, notes, relLu, buriedShare }) => ({ id, notes, relLu, buriedShare })) };
+    loudness: m.loudness, stereo: m.stereo, limiter: m.limiter, clipper: m.clipper ?? null, saturator: m.saturator ?? null, crest: m.crest ?? null, balance: m.balance ?? null, kickBass: x.stems.kickBass ?? null,
+    stems: x.stems.stems.map(({ id, notes, relLu, buriedShare, hits }) => ({ id, notes, relLu, buriedShare, hits })) };
   if (m.arrangement) Object.assign(d, { barLufs: m.arrangement.barLufs, sections: m.arrangement.sections ?? [] });
   if (m.ending) d.ending = { t40: m.ending.t40, cliffDb: m.ending.cliffDb, deadAirSec: m.ending.deadAirSec, tailLu: m.ending.tailLu, envelopeDb: m.ending.envelope, envelopeStepSec: 0.05 };
   return d;

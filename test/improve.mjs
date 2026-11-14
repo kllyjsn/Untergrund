@@ -142,5 +142,43 @@ assert.match(md, /## Findings/);
 assert.match(md, /Proposals only/);
 assert.equal(analyze([]).totals.listens, 0);
 
+// Release loop: shares per published song, share-origin listens and their returns, creator return within a week.
+{
+  const D = 864e5;
+  let k = 0;
+  const sig = (lid, fp, t, kinds, { ref, ...extra } = {}) => { const lis = `rl${k++}`; return kinds.map((kind, i) => ({ v: 1, lis, lid, fp, kind, t: t + i, bar: 0, bars: 32, ...extra, ...(kind === 'share' ? { ref } : {}) })); };
+  const S = [
+    ...sig('creator1', 'pubsong1aaaaaa', T0, ['start', 'publish', 'share', 'complete'], { ref: 'aaaa1111' }),
+    ...sig('creator1', 'pubsong1aaaaaa', T0 + 5, ['start', 'share', 'complete'], { ref: 'bbbb2222' }),
+    ...sig('creator2', 'pubsong2aaaaaa', T0, ['start', 'publish', 'complete']),
+    ...sig('creator3', 'pubsong3aaaaaa', T0, ['start', 'publish', 'complete']),
+    ...sig('creator1', 'other00aaaaaaa', T0 + 3 * D, ['start', 'complete']),
+    ...sig('creator3', 'other00aaaaaaa', T0 + 8 * D, ['start', 'complete']),
+    ...sig('fan1', 'pubsong1aaaaaa', T0 + 36e5, ['start', 'replay', 'complete'], { via: 'aaaa1111', tid: 'trk1' }),
+    ...sig('fan2', 'pubsong1aaaaaa', T0 + 72e5, ['start', 'skip'], { via: 'aaaa1111', tid: 'trk1' }),
+    ...sig('fan1', 'other00aaaaaaa', T0 + 2 * D, ['start', 'complete']),
+    ...sig('someone', 'other00aaaaaaa', T0 + 10 * D, ['start', 'complete']),
+  ];
+  const L = analyze(S, { now: T0 + 10 * D }).loop;
+  assert.deepEqual([L.published, L.shares, L.sharesPerSong], [3, 2, 0.667]);
+  assert.deepEqual(L.shareOrigin, { starts: 2, links: 1, listeners: 2, returned: 1, judged: 2, returnRate: 0.5 });
+  assert.deepEqual(L.heard.shared, { listens: 2, completion: 0.5, replay: 0.5 });
+  assert.equal(L.heard.published.listens, 6);
+  assert.deepEqual(L.creators, { total: 3, judged: 3, returned: 1, returnRate7d: 0.333 }, 'back at day 3 counts, day 8 does not');
+  const again = analyze([...S, ...sig('fan1', 'pubsong1aaaaaa', T0 + 3 * D, ['start', 'complete'], { via: 'aaaa1111' })], { now: T0 + 10 * D }).loop.shareOrigin;
+  assert.deepEqual([again.returned, again.judged], [1, 2], 'a listener who opens shared links twice is judged once');
+  const lone = analyze(S.filter((s) => s.lid === 'fan2'), { now: T0 + 2 * D }).loop.shareOrigin;
+  assert.deepEqual([lone.returned, lone.judged, lone.returnRate], [0, 1, 0], 'a day on, a share-origin listener never heard again counts as not back');
+  const solo = analyze([...S, { v: 1, lis: '', lid: 'creator2', fp: 'pubsong2aaaaaa', kind: 'share', ref: 'cccc3333', surf: 'studio', t: T0 + 50 }], { now: T0 + 10 * D }).loop;
+  assert.deepEqual([solo.shares, solo.sharesUnplayed, solo.sharesPerSong, solo.heard.all.listens], [3, 1, 1, L.heard.all.listens], 'a share before playing counts, and adds no listen');
+  const early = S.filter((s) => s.t < T0 + 3 * D);
+  const fresh = analyze(early, { now: T0 + 3 * D }).loop.creators;
+  assert.deepEqual([fresh.judged, fresh.returnRate7d], [0, null], 'nobody judged before a week has passed');
+  const quiet = analyze(early, { now: T0 + 8 * D }).loop.creators;
+  assert.deepEqual([quiet.judged, quiet.returned, quiet.returnRate7d], [3, 0, 0], 'a week later, creators never heard from again count as not back');
+  assert.match(toMarkdown(analyze(S)), /## Release loop[\s\S]*shares per published song \| 0\.667 \(2 shares of 3 songs, 0 before playing\)[\s\S]*creator return within 7 days \| 33% \(1 of 3/);
+  assert.deepEqual(analyze([]).loop.creators, { total: 0, judged: 0, returned: 0, returnRate7d: null });
+}
+
 if (process.argv.includes('--print')) console.log(toMarkdown(r));
 console.log('improvement engine passed');

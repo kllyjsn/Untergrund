@@ -6,9 +6,10 @@ import { MODELS } from './composer-models.js';
 import { POCKETS, STYLE_POCKET } from './groove.js';
 import { REPERTOIRE, PIECE } from './repertoire.js';
 import { cleanLabels } from './timeline.js';
-import { withMelody, MELODY_BARS } from './melody.js';
+import { withMelody, writeMelody, melodySteps, MELODY_BARS, SING_PROFILES } from './melody.js';
 import { stepDeg } from './motif.js';
 import { cleanLyrics } from './lyrics.js';
+import { SING_VOICES } from './sing-score.js';
 import { cleanTakes } from './scope.js';
 
 export const STYLES = {
@@ -809,6 +810,25 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
 }
 
 // CLASSICAL pieces are scores, not step loops: the drum machine rests and the orchestra reads pattern.score.
+// Sets the sung parts to the project's lyrics (js/melody.js text setting): the first verse, chorus and bridge (or pre)
+// give the verse, chorus and bridge parts, so stressed syllables fall on strong beats and the title on the chorus peak.
+// Deterministic from the words and the song's seed; styles that don't write songs keep their melody.
+export function fitLyrics(state, style) {
+  const secs = state?.lyrics?.sections, pats = state?.patterns || [];
+  if (!SING_PROFILES[style]?.song || !secs?.length || !pats.some((p) => p?.hook?.m)) return state;
+  const lines = (sec) => (secs.find((x) => x.sec === sec)?.lines || []).map((l) => (typeof l === 'string' ? l : l?.t)).filter(Boolean).slice(0, 4);
+  const words = { n: lines('chorus'), v: lines('verse'), b: lines('bridge').length ? lines('bridge') : lines('pre') };
+  if (!words.n.length && !words.v.length) return state;
+  const h = [...JSON.stringify(words)].reduce((a, c) => Math.imul(a ^ c.charCodeAt(0), 0x01000193), 0x811c9dc5);
+  const scaleName = state.scale || 'minor';
+  const scale = SCALES[MAJOR_STYLES.has(style) && scaleName === 'minor' ? 'major' : scaleName]?.notes || SCALES.minor.notes;
+  const prog = pats.find((p) => p?.prog?.length)?.prog, alt = pats.find((p) => p?.alt?.length)?.alt;
+  const m = writeMelody(rng(h ^ Math.imul(state.artist?.seed | 0, 0x9e3779b1)), style, scale, { prog, alt, chord: state.params?.stab?.chord | 0, words });
+  if (!m?.n.length) return state;
+  const s = melodySteps(m.n);
+  return { ...state, patterns: pats.map((p) => (p?.hook?.m ? { ...p, hook: { ...p.hook, m: { ...m, ...(p.hook.m.c ? { c: 1 } : {}) }, s } } : p)) };
+}
+
 function generateClassical(style, seed, scaleName, r, P, params, master, bpm) {
   const mode = scaleName === 'major' ? 'M' : scaleName === 'harmonic' ? 'm' : r() < 0.55 ? 'M' : 'm';
   P.score = { form: style, seed: seed | 0, mode };
@@ -1157,6 +1177,8 @@ export function sanitize(s) {
   if (labels) out.labels = labels;
   const lyrics = cleanLyrics(s.lyrics);
   if (lyrics) out.lyrics = lyrics;
+  const sing = cleanSing(s.sing);
+  if (sing) out.sing = sing;
   out.mutes = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.mutes?.[id]]));
   out.solos = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.solos?.[id]]));
   out.locks = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.locks?.[id]]));
@@ -1231,5 +1253,17 @@ export function sanitize(s) {
   }
   // Daily Drop remixes carry the UTC date of the drop they came from (js/daily.js).
   if (typeof s.drop === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s.drop)) out.drop = s.drop;
+  return out;
+}
+
+// The neural singer's settings (js/sing-ui.js): on/off, a built-in voice, vocal level in dB and a timing trim in ms.
+// The stem itself is never stored: it's fetched again by content hash.
+export function cleanSing(v) {
+  if (!v || typeof v !== 'object') return null;
+  const num = (x, lo, hi) => (Number.isFinite(+x) ? Math.max(lo, Math.min(hi, Math.round(+x))) : 0);
+  const out = { on: !!v.on };
+  if (SING_VOICES.includes(v.voice)) out.voice = v.voice;
+  out.db = num(v.db, -24, 6);
+  out.ms = num(v.ms, -250, 250);
   return out;
 }

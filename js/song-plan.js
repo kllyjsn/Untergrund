@@ -7,6 +7,8 @@ import { STYLES } from './state.js';
 import { SCALES } from './params.js';
 import { parse, validateEdits, mergeEdits } from './describe.js';
 import { LYRIC_SECS, VOCALS, LIMITS, cleanText, cleanSections, splitLyrics } from './lyrics.js';
+import { SING_PROFILES } from './melody.js';
+import { writeLyrics } from './lyric-writer.js';
 
 export const PLAN_LIMITS = { prompt: 200, mood: 4, instruments: 6, form: 12 };
 const KEYS = { c: 0, 'c#': 1, db: 1, d: 2, 'd#': 3, eb: 3, e: 4, f: 5, 'f#': 6, gb: 6, g: 7, 'g#': 8, ab: 8, a: 9, 'a#': 10, bb: 10, b: 11 };
@@ -176,12 +178,14 @@ export function rulePlan(prompt, lyricsText = '', { style = null } = {}) {
   const target = styleFor(sound) || (STYLES[style] ? style : 'deephouse');
   const lyrics = splitLyrics(lyricsText);
   const titleLine = lyrics.find((s) => s.sec === 'chorus')?.lines[0]?.t;
+  // No pasted words and a genre that sings a song: write them (js/lyric-writer.js).
+  const written = !lyrics.length && SING_PROFILES[target]?.song && !/\binstrumental\b/i.test(text) ? writeLyrics({ prompt: text, about, style: target, mood: sound ? [sound] : [] }) : null;
   return validatePlan({
     style: target, key: value('key'), mode: value('scale'), bpm: value('bpm'), about,
-    title: titleLine ? titleLine.split(/[,.!?;:]/)[0].trim().split(' ').slice(0, 6).join(' ') : '',
+    title: titleLine ? titleLine.split(/[,.!?;:]/)[0].trim().split(' ').slice(0, 6).join(' ') : written?.title || '',
     mood: sound ? [sound] : [], vocal: vocalWords.join(' '),
     form: lyrics.length ? formFromLyrics(lyrics, target) : [],
-    lyrics: lyrics.map((s) => ({ sec: s.sec, lines: s.lines.map((l) => l.t) })),
+    lyrics: written ? written.sections : lyrics.map((s) => ({ sec: s.sec, lines: s.lines.map((l) => l.t) })),
   }, { fallbackStyle: target });
 }
 

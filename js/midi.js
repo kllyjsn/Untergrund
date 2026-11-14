@@ -44,12 +44,12 @@ export function parseKeyName(name = '') {
 }
 
 // Records what the Sequencer asks the engine to play. Pitch helpers are borrowed from the real Engine.
-class Recorder {
+export class Recorder {
   constructor(state) { this.state = state; this.notes = {}; this.harm = null; this.stepScale = 1; this.noteVel = 1; this.bass = null; }
   get stepDur() { return (60 / this.state.bpm / 4) * (this.stepScale || 1); }
   add(track, t, m, dur, v) { (this.notes[track] ||= []).push({ t, m, dur: Math.max(0.01, dur), v }); }
   chord() { const p = this.state.params.stab, h = this.harm; return CHORDS[h ? h.c : Math.round(p.chord)].iv; }
-  dust() {} sweep() {} impact() {} breakSweep() {} breakOpen() {} sectionGain() {} quietGrip() {}
+  dust() {} vocal() {} sweep() {} impact() {} breakSweep() {} breakOpen() {} sectionGain() {} quietGrip() {}
   crash(t, v) { this.add('oh', t, 49, this.stepDur * 4, v); }
   tom(t, v, high) { this.add('snare', t, high ? 48 : 45, this.stepDur, v); }
   acidRelease(t) { if (this.bass) { this.bass.dur = Math.max(0.01, Math.min(this.bass.dur, t - this.bass.t)); this.bass = null; } }

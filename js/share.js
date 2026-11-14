@@ -4,9 +4,9 @@ import { STYLES } from './state.js';
 import { saveTrack } from './crate.js';
 import { sheet } from './sets.js';
 import { drawArtwork } from './artwork.js';
-import { encodeSong, songLink, embedCode, creditLine } from './share-code.js';
+import { encodeSong, songLink, embedCode, creditLine, newShareRef } from './share-code.js';
 import { exportVideo, videoMime } from './video.js';
-import { track as trackEvent, reportError } from './analytics.js';
+import { track as trackEvent, reportError, analytics } from './analytics.js';
 
 export const track = (name, props = {}) => { try { trackEvent(name, props); window.untergrundTrack?.(name, props); } catch {} };
 const isPhone = () => matchMedia('(max-width: 760px), (pointer: coarse)').matches;
@@ -20,7 +20,7 @@ async function copy(text, toast, what) {
 
 // The /t/<id> release page when the crate backend stores it; otherwise the whole song rides in the URL.
 const linkCache = new Map();
-export async function shareLinks(song, origin = location.origin) {
+export async function shareLinks(song, origin = location.origin, shareRef = '') {
   const code = await encodeSong(song);
   let ref = linkCache.get(code);
   if (!ref) {
@@ -34,7 +34,7 @@ export async function shareLinks(song, origin = location.origin) {
   }
   // The release page's light player renders loop/chain songs; classical scores (and repertoire loading) need the full app.
   const release = STYLES[song.style]?.family !== 'CLASSICAL';
-  return { link: songLink(origin, { ...ref, release }), embed: songLink(origin, ref, '/embed.html'), short: !!ref.id };
+  return { link: songLink(origin, { ...ref, release }, '/', shareRef), embed: songLink(origin, ref, '/embed.html'), short: !!ref.id };
 }
 
 export function countRemix(id) {
@@ -48,7 +48,10 @@ export function openShare({ song, toast, hue, download, source = 'studio', befor
   const linkBox = h('input', { class: 'inp share-link', readonly: '', value: 'Making your link…', 'aria-label': 'Song link' });
   linkBox.onfocus = () => linkBox.select();
   let links = null;
-  const ready = shareLinks(song).then((l) => { links = l; linkBox.value = l.link; return l; })
+  // One ref per share sheet, only when analytics is on (Do Not Track, GPC and automation get a plain link). Every share
+  // from the sheet carries it: a listen records only its first share, which must still join to the link's ref.
+  const ref = analytics?.enabled ? newShareRef() : '';
+  const ready = shareLinks(song, location.origin, ref).then((l) => { links = l; linkBox.value = l.link; return l; })
     .catch((err) => { console.error(err); linkBox.value = 'Could not make a link for this song.'; });
   const withLinks = (fn) => async () => { const l = links || await ready; if (l) fn(l); };
   const text = `${song.title} by ${song.artist}, made in UNTERGRUND`;
@@ -56,9 +59,9 @@ export function openShare({ song, toast, hue, download, source = 'studio', befor
 
   const linkBtns = h('div', { class: 'share-row' },
     canShare && h('button', { class: 'btn', onclick: withLinks(async (l) => {
-      try { await navigator.share({ title: song.title, text, url: l.link }); track('share_link_copied', { what: 'song_sent' }); } catch {}
+      try { await navigator.share({ title: song.title, text, url: l.link }); track('share_link_copied', { what: 'song_sent', ref }); } catch {}
     }) }, 'SEND'),
-    h('button', { class: 'btn ghost', onclick: withLinks((l) => { copy(l.link, toast, 'Link'); track('share_link_copied', { what: 'song' }); }) }, 'COPY LINK'));
+    h('button', { class: 'btn ghost', onclick: withLinks((l) => { copy(l.link, toast, 'Link'); track('share_link_copied', { what: 'song', ref }); }) }, 'COPY LINK'));
 
   let seconds = 15;
   const chosen = () => seconds;
@@ -88,11 +91,11 @@ export function openShare({ song, toast, hue, download, source = 'studio', befor
       preview.append(h('video', { src: videoUrl, controls: '', playsinline: '', loop: '', class: 'share-video' }),
         h('div', { class: 'share-row' },
           shareable && h('button', { class: 'btn accent', onclick: async () => {
-            try { await navigator.share({ files: [file], title: song.title, text: `${text} · untergrund.sh` }); track('share_link_copied', { what: 'video_sent' }); } catch {}
+            try { await navigator.share({ files: [file], title: song.title, text: `${text} · untergrund.sh` }); track('share_link_copied', { what: 'video_sent', ref }); } catch {}
           } }, 'POST VIDEO'),
-          h('button', { class: 'btn' + (shareable ? ' ghost' : ' accent'), onclick: () => { download(out.blob, name); track('share_link_copied', { what: 'video_saved' }); } }, 'SAVE VIDEO')));
+          h('button', { class: 'btn' + (shareable ? ' ghost' : ' accent'), onclick: () => { download(out.blob, name); track('share_link_copied', { what: 'video_saved', ref }); } }, 'SAVE VIDEO')));
       status.textContent = `Ready: ${seconds} seconds, 1080×1920 ${out.ext.toUpperCase()}.${shareable ? '' : ' Save it, then post it from your phone.'}`;
-      track('video_export', { kind: `${seconds}s`, genre: song.style });
+      track('video_export', { kind: `${seconds}s`, genre: song.style, ref });
     } catch (err) {
       status.textContent = err.name === 'AbortError' ? 'Cancelled.' : `Could not make the video: ${err.message}`;
       if (err.name !== 'AbortError') { console.error(err); reportError(err, { kind: 'video_export' }); }
@@ -109,7 +112,7 @@ export function openShare({ song, toast, hue, download, source = 'studio', befor
     h('section', { class: 'share-sec' }, h('h3', {}, 'VIDEO'), h('div', { class: 'share-row' }, ...lenBtns), make, progress, status, preview),
     h('section', { class: 'share-sec' }, h('h3', {}, 'LINK'), h('p', { class: 'pub-note' }, 'Anyone who opens it hears the song right away. No account needed.'), linkBox, linkBtns),
     h('section', { class: 'share-sec' }, h('h3', {}, 'EMBED'), h('p', { class: 'pub-note' }, 'A small player for your site or blog.'),
-      h('button', { class: 'btn ghost', onclick: withLinks((l) => { copy(embedCode(l.embed, song.title), toast, 'Embed code'); track('share_link_copied', { what: 'embed' }); }) }, 'COPY EMBED CODE'))));
+      h('button', { class: 'btn ghost', onclick: withLinks((l) => { copy(embedCode(l.embed, song.title), toast, 'Embed code'); track('share_link_copied', { what: 'embed', ref }); }) }, 'COPY EMBED CODE'))));
 }
 
 // Full-screen landing for a shared song: one big PLAY (the first tap also unlocks audio), then REMIX.
