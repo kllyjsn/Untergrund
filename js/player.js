@@ -2,6 +2,9 @@
 import { Engine, Sequencer, parseChain } from './engine.js';
 import { sanitize, refreshSong } from './state.js';
 
+// The song as it plays: untouched GENERATE songs come back through today's generator (refreshSong).
+export const songOf = (raw) => refreshSong(sanitize(raw));
+
 const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
 export function songBars(state) {
@@ -44,7 +47,7 @@ export function createPlayer({ onBar = () => {}, onEnd = () => {} } = {}) {
     }
   };
   function play(raw) {
-    state = refreshSong(sanitize(raw));
+    state = songOf(raw);
     ensure(state);
     engine.state = state; seq.s = state; engine.applyAll();
     const chain = state.chainOn ? parseChain(state.chain) : [];
@@ -63,5 +66,5 @@ export function createPlayer({ onBar = () => {}, onEnd = () => {} } = {}) {
     clearInterval(timer);
     engine?.panic();
   }
-  return { play, stop, get playing() { return playing; }, get analyser() { return engine?.analyser; }, duration: (s) => (songBars(sanitize(s)) * 16 * 15) / sanitize(s).bpm };
+  return { play, stop, get playing() { return playing; }, get analyser() { return engine?.analyser; }, duration: (raw) => { const s = songOf(raw); return (songBars(s) * 16 * 15) / s.bpm; } };
 }
