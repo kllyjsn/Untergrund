@@ -8,7 +8,7 @@ const $ = (id) => document.getElementById(id);
 try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
 const KEY = 'untergrund:ear:v1';
 const params = new URLSearchParams(location.search);
-const BARS = Math.max(1, Math.min(16, +params.get('bars') || 8));
+const BARS = Math.max(1, Math.min(16, Math.round(+params.get('bars')) || 8));
 const ONLY = params.get('style');
 const STYLE_IDS = Object.keys(STYLES).filter((id) => id !== 'repertoire' && (!ONLY || id === ONLY));
 const load = () => { try { return mergeJudgments(JSON.parse(localStorage.getItem(KEY) || '[]')); } catch { return []; } };
