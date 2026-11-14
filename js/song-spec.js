@@ -182,7 +182,7 @@ export function realize(raw, seed = 1, opts = {}) {
   if (dProg) pats[3].prog = clone(dProg); else delete pats[3].prog;
   if (spec.hook == null && !full.hook) for (const p of pats) delete p.hm;
   const chain = chainFor(spec.sections, pats);
-  developSong(pats, spec.sections.map((x) => [SPEC_KIND[x.role], x.bars]));
+  developSong(pats, spec.sections.map((x) => [SPEC_KIND[x.role], x.bars]), { strict: true });
   return { spec, g, patterns: pats, chain, bpm: spec.bpm, key: spec.key ?? g.key, scale };
 }
 

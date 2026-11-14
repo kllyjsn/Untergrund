@@ -137,28 +137,41 @@ function finalTake(G, level) {
     if (!same(row, G.steps[t])) steps[t] = row;
   };
   fill('ride', 4); fill('oh', 4); fill('perc', level > 1 ? 2 : 4);
-  if (level > 1) fill('hat', 2);
+  if (level > 1) fill('ch', 2);
   if (Object.keys(steps).length) return { steps };
   return on(G.steps.perc) ? null : { steps: { perc: SHAKE() }, len: { perc: STEPS } };
 }
 
 // Writes the development of a planned song into its patterns as per-bar takes (scope.js): repeats stay the same
-// song (the chorus hook and chords are untouched) but never play back identically.
-export function developSong(pats, S) {
+// song (the chorus hook and chords are untouched) but never play back identically. `keep` tracks (locked ones) are
+// never touched; `strict` only develops tracks a section already plays, so an explicit instrument list holds.
+export function developSong(pats, S, { keep = [], strict = false } = {}) {
   if (!S?.length || !pats || pats.length < 8 || pats.some((p) => p.score)) return pats;
   const B = pats[1], C = pats[2], G = pats[6];
-  const add = (pat, from, to, body) => { if (body && to >= from) (pat.at ??= []).push({ b: [from, to], ...body }); };
+  const add = (pat, from, to, body) => {
+    if (!body || to < from) return;
+    if (body.steps) {
+      const ok = (t) => !keep.includes(t) && (!strict || on(pat.steps[t]));
+      const steps = Object.fromEntries(Object.entries(body.steps).filter(([t]) => ok(t)));
+      const len = body.len && Object.fromEntries(Object.entries(body.len).filter(([t]) => ok(t)));
+      body = { ...body, steps, ...(len ? { len } : {}) };
+      if (!Object.keys(steps).length) { delete body.steps; delete body.len; }
+      if (!Object.keys(body).length) return;
+    }
+    (pat.at ??= []).push({ b: [from, to], ...body });
+  };
   let verses = 0, pres = 0;
   const spans = sectionSpans(S), last = kinds(S).lastIndexOf('c'), end = (s) => Math.min(s.at + s.bars, MAX_SONG_BARS) - 1;
   spans.forEach((s, i) => {
     if (s.at >= MAX_SONG_BARS) return;
     // A 16-bar verse accumulates: its second half brings the new part in.
-    if (s.k === 'v' && ++verses > 1) add(C, s.bars >= 16 ? s.at + (s.bars >> 1) : s.at, end(s), verseTake(C, G));
+    if (s.k === 'v' && ++verses > 1) add(C, s.bars >= 16 ? s.at + (s.bars >> 1) : s.at, end(s), strict ? finalTake(C, 1) : verseTake(C, G));
     if (s.k === 'p' && ++pres > 1) {
       add(B, s.at, s.at + (s.bars >> 1) - 1, driveTake(B, G));
       add(B, end(s), end(s), rollTake(B));
     }
-    if (s.k === 'x') add(G, s.at, end(s), instTake(G));
+    // An instrumental's last bar is the switch-up (H): it stays instrumental too.
+    if (s.k === 'x') { add(G, s.at, end(s), instTake(G)); add(pats[7], s.at, end(s), instTake(pats[7])); }
     if (i === last) {
       const half = s.bars >= 16 ? s.at + 8 : end(s) + 1;
       add(G, s.at, Math.min(half, end(s) + 1) - 1, finalTake(G, 1));

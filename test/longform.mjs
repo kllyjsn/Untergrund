@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { STYLES, SONG_STYLES, songPlan } from '../js/state.js';
 import { realize } from '../js/song-spec.js';
-import { planSections, formChain, formSeconds, LENGTHS, MAX_SONG_BARS } from '../js/longform.js';
+import { planSections, formChain, formSeconds, developSong, LENGTHS, MAX_SONG_BARS } from '../js/longform.js';
 import { buildSong, playSong, SEEDS, loopStyles } from '../scripts/composition.mjs';
 
 const LETTERS = 'ABCDEFGH';
@@ -75,6 +75,7 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
     assert.equal(sig(s, c[1].at), sig(s, c[0].at), `${style}/${seed} the second chorus is the same chorus`);
     assert.notEqual(sig(s, c.at(-1).at), sig(s, c[0].at), `${style}/${seed} the last chorus is bigger`);
     if (x) assert.equal(s.patterns[6].at.find((t) => t.b[0] === x.at)?.hook?.h ?? 1, 1, `${style} instrumental plays the riff`);
+    if (x) assert(s.patterns[7].at?.some((t) => t.b[0] === x.at), `${style} the instrumental's last bar (H) stays instrumental`);
     if (seed !== SEEDS[0]) continue;
     const { log } = playSong(s), first = hitsPerBar(log, c[0].at, 7), last = hitsPerBar(log, c.at(-1).at, c.at(-1).bars - 1);
     assert(last > first, `${style} last chorus ${last.toFixed(1)} hits/bar > first ${first.toFixed(1)}`);
@@ -82,7 +83,17 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
   }
   // A described song develops its repeats the same way.
   const r = realize({ style: 'pop', prompt: 'a pop song' }, 7);
-  assert(r.patterns[2].at?.length && r.patterns[6].at?.length, 'a described song develops verse 2 and the last chorus');
+  assert(r.patterns[6].at?.length, 'a described song develops its last chorus');
+  // ...but only with the instruments each of its sections asked for.
+  for (const p of r.patterns) for (const t of p.at || []) for (const id of Object.keys(t.steps || {}))
+    assert(p.steps[id].some((v) => v && (typeof v !== 'object' || v.on)), `a described song keeps ${id} out of a section that excluded it`);
+  // Locked tracks are never developed.
+  const keep = ['kick', 'ch', 'oh', 'ride', 'perc', 'clap', 'snare'];
+  for (const style of SONG_STYLES) {
+    const s = buildSong(style, 7), pats = s.patterns.map((p) => ({ ...p, at: undefined }));
+    developSong(pats, songPlan(style, 7).sections, { keep });
+    for (const p of pats) for (const t of p.at || []) assert(!keep.some((id) => t.steps?.[id] || t.len?.[id]), `${style} develops a locked track`);
+  }
   console.log('long-form development passed');
 }
 

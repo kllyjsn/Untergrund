@@ -1075,7 +1075,7 @@ export const songChain = (style, seed, length = 'song') => songPlan(style, seed,
 export function applySongPlan(s, style, seed, length = 'song') {
   const plan = songPlan(style, seed, length);
   s.chain = plan.chain;
-  developSong(s.patterns, plan.sections);
+  developSong(s.patterns, plan.sections, { keep: Object.keys(s.locks || {}).filter((t) => s.locks[t]) });
   return plan;
 }
 
