@@ -2,7 +2,7 @@ import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES } from './params.js';
 import { getSample } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
-import { liveSet, loadLiveKit, loadKitExtra, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName } from './livekit.js';
+import { liveSet, loadLiveKit, loadKitExtra, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel } from './groove.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ } from './lead.js';
@@ -143,6 +143,14 @@ const BAND_STRIP = {
 // Neo-soul's Rhodes and its hook lines voice low, around 250 Hz, so they get a deeper, lower low-mid cut there.
 const SOUL_STRIP = { ...BAND_STRIP, stab: { eq: [[140, -2], [250, -7, 0.9], [2600, 1.5, 0.9], [9000, 2]] } };
 
+// Mastering per genre: [low shelf 90 Hz, low-mid bell 300 Hz, presence shelf 2.4 kHz, air shelf 10 kHz] in dB, and the
+// side gain above 300 Hz. Set from the measured octave balance against js/audio-quality.js TARGET_CURVES: the band
+// genres came out 6-13 dB heavy at 250 Hz and 7-12 dB short of 2-8 kHz, with an L/R correlation of 0.76-0.89.
+export const MASTER_TONE = {
+  pop: [-1.5, -9, 4.5, 1.5, 0.6], rnb: [0, -7, 6.5, 2.5, 0.6], rock: [-4, -5, 4.5, 3, 0.6],
+  folk: [3, -3, 0.5, 4, 0.5], country: [2, -3, 2.5, 4, 0.6],
+};
+
 const BAND_PLAY = {
   piano: { gain: 4, len: 4, min: 1.2, max: 3, pedal: 5, softBelow: 0.88, strum: 0.004, shift: 0, lo: 45, hi: 79, lp: 7000, rel: 0.18 },
   gtr: { gain: 4.4, len: 2.6, min: 0.6, softBelow: 0.75, strum: 0.006, shift: 0, lo: 40, hi: 74, lp: 2900, peak: [3600, 1.2, -6], soft: 1100, fade: 0.008, rel: 0.22, grip: true, even: 0.2 },
@@ -251,6 +259,17 @@ export class Engine {
     this.djHP = this.filter('highpass', 10, 0.9);
     this.djLP = this.filter('lowpass', 21000, 0.9);
     this.arrLP = this.filter('lowpass', 21000, 0.7);
+    // Mastering EQ and width (MASTER_TONE, applyTone): flat and mono-neutral until a genre sets them.
+    this.toneLow = this.filter('lowshelf', 90, 0.7);
+    this.toneMud = this.filter('peaking', 300, 0.7);
+    this.tonePres = this.filter('highshelf', 2400, 0.7);
+    this.toneAir = this.filter('highshelf', 10000, 0.7);
+    this.widthIn = this.gain(1); this.widthOut = c.createChannelMerger(2);
+    const split = c.createChannelSplitter(2), sideL = this.gain(0.5), sideR = this.gain(-0.5), sideHP = this.filter('highpass', 300, 0.7);
+    this.widthL = this.gain(0); this.widthR = this.gain(0);
+    this.widthIn.connect(split); split.connect(this.widthOut, 0, 0); split.connect(this.widthOut, 1, 1);
+    split.connect(sideL, 0); split.connect(sideR, 1); sideL.connect(sideHP); sideR.connect(sideHP);
+    sideHP.connect(this.widthL).connect(this.widthOut, 0, 0); sideHP.connect(this.widthR).connect(this.widthOut, 0, 1);
     this.glue = this.comp(-14, 2.5, 8, 0.015, 0.16);
     this.satIn = this.gain(1 / SAT_HEADROOM);
     this.sat = c.createWaveShaper(); this.sat.oversample = '4x';
@@ -269,7 +288,8 @@ export class Engine {
     this.singTrim = this.gain(1);
     this.preMaster = this.gain(1);
     this.mix.connect(this.bandDuck).connect(this.preMaster);
-    this.preMaster.connect(this.djHP).connect(this.djLP).connect(this.arrLP).connect(this.glue).connect(this.satIn).connect(this.sat)
+    this.preMaster.connect(this.djHP).connect(this.djLP).connect(this.arrLP).connect(this.toneLow).connect(this.toneMud).connect(this.tonePres).connect(this.toneAir).connect(this.widthIn);
+    this.widthOut.connect(this.glue).connect(this.satIn).connect(this.sat)
       .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.clip).connect(this.secGain).connect(this.singTrim).connect(this.out);
     this.out.connect(c.destination);
     // The neural singer's stem (vocal(), js/sing.js): past the band's duck, into the master chain.
@@ -427,7 +447,16 @@ export class Engine {
     // Per-genre (and per-masterwork) make-up gain into the limiter so every song lands on its loudness target (js/loudness.js).
     const piece = this.state.patterns?.find((p) => p.score?.piece)?.score.piece;
     this.setTo(this.limIn.gain, 0.5 * makeupGain(this.state.artist?.style, piece), true);
+    this.applyTone();
     this.applyStrips();
+  }
+
+  // The genre's mastering EQ and stereo width; the width lifts only the side above 300 Hz, so the mono fold-down is unchanged.
+  applyTone() {
+    const [low, mud, pres, air, width] = MASTER_TONE[this.state.artist?.style] || [0, 0, 0, 0, 0];
+    this.setTo(this.toneLow.gain, low, true); this.setTo(this.toneMud.gain, mud, true);
+    this.setTo(this.tonePres.gain, pres, true); this.setTo(this.toneAir.gain, air, true);
+    this.setTo(this.widthL.gain, width, true); this.setTo(this.widthR.gain, -width, true);
   }
 
   // A band mix is EQ'd per instrument the way an engineer would: drums lose the boxy low mids, the bass gets
@@ -1432,10 +1461,13 @@ export class Engine {
     const set = this.rec('ebass');
     if (!set) { loadBand('ebass'); return this.bass(t, st, sd, holdNext); }
     const p = this.state.params.acid, m = this.bassMidi(st);
-    const len = st.ap ? sd * 0.9 : holdNext ? sd * 2 : sd * (0.9 + p.decay * 2);
+    let len = st.ap ? sd * 0.9 : holdNext ? sd * 2 : sd * (0.9 + p.decay * 2);
+    // A band's bassist holds each note into the next one (up to two beats) instead of stopping short.
+    if (this.stripMode && this.acidGap && !st.ap) len = Math.max(len, Math.min(8, this.acidGap) * sd - 0.025);
+    this.acidGap = 0;
     let [c, buf] = set[0];
     for (const [cm, b] of set) if (Math.abs(cm - m) < Math.abs(c - m)) [c, buf] = [cm, b];
-    const ref = LIVE_REF.acid, fx = { shelves: [[900, Math.max(-24, Math.min(10, 8 * Math.log2(p.cutoff / ref.cutoff)))]], drive: Math.max(0, p.drive - ref.drive) * 1.4, release: 0.05 };
+    const ref = LIVE_REF.acid, fx = { shelves: [[900, Math.max(-24, Math.min(10, 8 * Math.log2(p.cutoff / ref.cutoff)))]], drive: Math.max(0, p.drive - ref.drive) * 1.4, release: this.stripMode ? 0.09 : 0.05 };
     // A harder pluck is brighter: the finger digs in and the string's upper partials speak.
     if (this.stripMode) { const vel = Math.min(1.2, (this.noteVel ?? 1) * (st.a ? 1.15 : 1)); fx.lp = 1400 + 3600 * vel * vel; }
     this.playBuf(buf, t, 1.1 * (st.a ? 1.15 : 1) * (this.noteVel ?? 1), this.ch.acid.input, Math.pow(2, (m - c) / 12) * (1 + (hash(t * 1000, 5) - 0.5) * 0.002), len, fx);
@@ -1502,6 +1534,22 @@ export class Engine {
     try { h.s.stop(t + damp * 8); } catch {}
   }
   piano(...a) { return this.recorded('piano', 'keys', ...a); }
+  // A band's second layer for this section: cello on the root, viola on a middle chord tone, violins on the top
+  // an octave up, each bowed through the bar; or the piano doubling the chords on beats 1 and 3.
+  bandLayer(t, sec, i16, style) {
+    const L = BAND_LAYER[style]?.[sec];
+    if (!L) return;
+    const { root, notes } = stabNotes(this.state, this.harm), sd = this.stepDur;
+    for (const part of L.parts) {
+      if (part === 'pno') {
+        notes.forEach((m, k) => this.orch('pno', t + k * 0.004 + hash(t, m) * 0.006, m + 12, 8 * sd * 0.95, L.v * (i16 ? 0.92 : 1)));
+        continue;
+      }
+      if (i16) continue;
+      const m = part === 'vc' ? root - 12 : part === 'vla' ? notes[1] ?? root : Math.max(...notes) + 12;
+      this.orch(part, t, m, 16 * sd * 1.02, L.v * (part === 'vln1' ? 0.85 : part === 'vla' ? 0.9 : 1));
+    }
+  }
   driveGuitar(...a) { return this.recorded('drive', 'pluck', ...a); }
   acoustic(...a) { return this.recorded('agtr', 'pluck', ...a); }
   jazzGuitar(...a) { return this.recorded('jazz', 'keys', ...a); }
@@ -2345,6 +2393,8 @@ export class Sequencer {
       else if (v && band && id === 'snare' && (this.cur === 3 ? i16 >= 12 : i16 >= fillAt)) e.tom(ht, vel, i16 < 14);
       else if (v) e.trigger(id, ht, vel);
     }
+    // A band adds players by section (BAND_LAYER): strings under the changes, a piano doubling the strum.
+    if (band && i16 % 8 === 0 && pat.sec && !pat.score && !s.mutes.stab && (!anySolo || s.solos.stab)) e.bandLayer(tt, pat.sec, i16, s.artist?.style);
     const hm = pat.hm || 0, scale = SCALES[s.scale]?.notes || SCALES.minor.notes;
     const hk = sung ? null : pat.hook && !pat.hook.h && this.songBars ? (pat.sec === 'pre' ? this.climb(pat.hook, bar % 4, scale) : this.motif(pat.hook, motifPlan(bar, this.songBars, this.cur, pat.hook.s.filter(Boolean).length), scale)) : pat.hook;
     const leadOn = !s.mutes.stab && (!anySolo || s.solos.stab), busy = sung ? this.songBars && leadOn && sung.busy[i16] : this.songBars && hk && hm && leadOn && hookBusy(hk, abs % 32, hm);
@@ -2580,7 +2630,11 @@ export class Sequencer {
     const st = steps[i];
     if (!st.on) { this.acidPrevSlide = false; return; }
     const next = steps[(i + 1) % len];
+    let gap = 1;
+    while (gap < len && !steps[(i + gap) % len].on) gap++;
+    this.e.acidGap = gap;
     this.e.acid(t, st, this.acidPrevSlide, st.s && next.on, sd);
+    this.e.acidGap = 0;
     this.acidPrevSlide = !!st.s;
   }
 }
