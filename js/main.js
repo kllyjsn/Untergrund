@@ -3,7 +3,7 @@ import { assign as assignExperiment } from './experiments.js';
 import { createListens, songFingerprint, promptHash, promptText } from './listen.js';
 import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue, VOICE_HIDDEN } from './params.js';
 import { Engine, Sequencer, parseChain } from './engine.js';
-import { defaultState, generate, mutate, arrangement, songChain, applySongPlan, applyOverrides, clone, save, load, sanitize, STYLES, MAJOR_STYLES, emptyPattern, emptyAcidStep } from './state.js';
+import { defaultState, generate, mutate, arrangement, songChain, applySongPlan, applyOverrides, clone, save, load, sanitize, STYLES, MAJOR_STYLES, emptyPattern, emptyAcidStep, fitLyrics } from './state.js';
 import { renderBars, bufferToWav } from './render.js';
 import { exportButtons } from './export-ui.js';
 import { encodeWav, rng } from './dsp.js';
@@ -1699,9 +1699,10 @@ function describeBox() {
         history.amend((snap) => JSON.stringify({ ...JSON.parse(snap), artist, ui: was }));
         history.relabel(label);
         const next = songState(spec, s.artist.seed, s).state;
-        if (lyrics) next.lyrics = lyrics;
-        done(next.artist.title, next.key);
-        return next;
+        // Written lyrics sing their title: the song takes it too.
+        const out = lyrics ? fitLyrics({ ...next, lyrics, artist: lyrics.title ? { ...next.artist, title: lyrics.title } : next.artist }, spec.style) : next;
+        done(out.artist.title, out.key);
+        return out;
       });
       play();
     },

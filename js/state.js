@@ -6,7 +6,7 @@ import { MODELS } from './composer-models.js';
 import { POCKETS, STYLE_POCKET } from './groove.js';
 import { REPERTOIRE, PIECE } from './repertoire.js';
 import { cleanLabels } from './timeline.js';
-import { withMelody, MELODY_BARS } from './melody.js';
+import { withMelody, writeMelody, melodySteps, MELODY_BARS, SING_PROFILES } from './melody.js';
 import { stepDeg } from './motif.js';
 import { cleanLyrics } from './lyrics.js';
 import { SING_VOICES } from './sing-score.js';
@@ -810,6 +810,25 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
 }
 
 // CLASSICAL pieces are scores, not step loops: the drum machine rests and the orchestra reads pattern.score.
+// Sets the sung parts to the project's lyrics (js/melody.js text setting): the first verse, chorus and bridge (or pre)
+// give the verse, chorus and bridge parts, so stressed syllables fall on strong beats and the title on the chorus peak.
+// Deterministic from the words and the song's seed; styles that don't write songs keep their melody.
+export function fitLyrics(state, style) {
+  const secs = state?.lyrics?.sections, pats = state?.patterns || [];
+  if (!SING_PROFILES[style]?.song || !secs?.length || !pats.some((p) => p?.hook?.m)) return state;
+  const lines = (sec) => (secs.find((x) => x.sec === sec)?.lines || []).map((l) => (typeof l === 'string' ? l : l?.t)).filter(Boolean).slice(0, 4);
+  const words = { n: lines('chorus'), v: lines('verse'), b: lines('bridge').length ? lines('bridge') : lines('pre') };
+  if (!words.n.length && !words.v.length) return state;
+  const h = [...JSON.stringify(words)].reduce((a, c) => Math.imul(a ^ c.charCodeAt(0), 0x01000193), 0x811c9dc5);
+  const scaleName = state.scale || 'minor';
+  const scale = SCALES[MAJOR_STYLES.has(style) && scaleName === 'minor' ? 'major' : scaleName]?.notes || SCALES.minor.notes;
+  const prog = pats.find((p) => p?.prog?.length)?.prog, alt = pats.find((p) => p?.alt?.length)?.alt;
+  const m = writeMelody(rng(h ^ Math.imul(state.artist?.seed | 0, 0x9e3779b1)), style, scale, { prog, alt, chord: state.params?.stab?.chord | 0, words });
+  if (!m?.n.length) return state;
+  const s = melodySteps(m.n);
+  return { ...state, patterns: pats.map((p) => (p?.hook?.m ? { ...p, hook: { ...p.hook, m: { ...m, ...(p.hook.m.c ? { c: 1 } : {}) }, s } } : p)) };
+}
+
 function generateClassical(style, seed, scaleName, r, P, params, master, bpm) {
   const mode = scaleName === 'major' ? 'M' : scaleName === 'harmonic' ? 'm' : r() < 0.55 ? 'M' : 'm';
   P.score = { form: style, seed: seed | 0, mode };

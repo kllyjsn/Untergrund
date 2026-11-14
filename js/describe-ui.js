@@ -7,7 +7,7 @@ import { cleanLyrics, splitLyrics, lyricTimeline, lyricLabels, lyricsText, LIMIT
 import { barsLabel } from './scope.js';
 import { isSongPrompt, localSpec, validateSpec, SONG_STYLES } from './song-spec.js';
 import { KEYS } from './params.js';
-import { STYLES } from './state.js';
+import { STYLES, fitLyrics } from './state.js';
 import { singAvailable, singSong, hasStem, singRequest } from './sing.js';
 import { SING_VOICES } from './sing-score.js';
 
@@ -274,7 +274,7 @@ export function describeBar(ctx) {
     hint = recent = net = null;
     lyricsDraft = ''; toggleLyrics(false, '');
     last = { did: [`lyrics: ${lyrics.sections.reduce((n, s) => n + s.lines.length, 0)} lines`], miss: '', depth: ctx.depth() };
-    ctx.commit({ ...ctx.state(), lyrics });
+    ctx.commit(fitLyrics({ ...ctx.state(), lyrics }, ctx.style()));
     ctx.track({ kind: 'lyrics', genre: ctx.style() });
   }
 
@@ -307,6 +307,7 @@ export function describeBar(ctx) {
       const lyrics = cleanLyrics(planLyrics(plan, text));
       if (lyrics) r.state.lyrics = lyrics; else delete r.state.lyrics;
       if (plan.title && r.state.artist) r.state.artist.title = plan.title;
+      if (lyrics) r.state = fitLyrics(r.state, plan.style);
       const lines = lyrics?.sections.reduce((n, x) => n + x.lines.length, 0) || 0;
       last = { did: [`new ${ctx.styleName(plan.style)} song`, ...r.did, ...(lines ? [`${lines} lyric lines`] : []), ...(plan.vocal ? [`${plan.vocal} vocal (not sung yet)`] : [])], miss: '', depth: ctx.depth() };
       return r.state;
