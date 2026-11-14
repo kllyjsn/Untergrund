@@ -150,6 +150,7 @@ console.log('arrangement dynamics passed');
   const { guitarHand } = await import('../js/engine.js');
   assert.equal(guitarHand('agtr', 'FOLK', false).play, 'pick', 'folk verses are fingerpicked');
   assert.equal(guitarHand('agtr', 'FOLK', true).play, 'strum', 'folk choruses are strummed');
+  assert.ok(guitarHand('agtr', 'FOLK', true).double && !guitarHand('agtr', 'FOLK', false).double, 'folk choruses double-track the strummed acoustic, verses keep one picker');
   assert.equal(guitarHand('banjo', 'COUNTRY', true).play, 'roll', 'a banjo rolls');
   assert.deepEqual(guitarHand('gtr', 'R&B', false), { play: 'chop', double: false, fx: 'chorus' }, 'R&B guitar chops through a chorus pedal');
   assert(guitarHand('drive', 'ROCK', false).double && !guitarHand('gtr', 'POP', false).double && guitarHand('gtr', 'POP', true).double, 'rock and pop choruses double-track');
