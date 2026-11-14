@@ -21,10 +21,11 @@ function toast(msg) {
   el.textContent = msg; el.classList.add('on');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('on'), 2200);
 }
-// Resolves true once the link was sent or copied; false when the visitor cancelled or the copy failed.
+// Resolves false when the visitor cancelled the share sheet; true once the link was sent, copied or shown to copy.
 async function share(url, title) {
   if (navigator.share && matchMedia('(pointer: coarse)').matches) { try { await navigator.share({ title, url }); return true; } catch (e) { if (e.name === 'AbortError') return false; } }
-  try { await navigator.clipboard.writeText(url); toast('Link copied'); return true; } catch { toast(url); return false; }
+  try { await navigator.clipboard.writeText(url); toast('Link copied'); } catch { toast(url); }
+  return true;
 }
 const art = (track, size = 900) => {
   const c = drawArtwork(track.state, { title: track.title, style: STYLES[track.style]?.name, seed: artSeed(track.id), size });
