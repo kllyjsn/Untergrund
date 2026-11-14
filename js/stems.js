@@ -70,7 +70,7 @@ export function router(want, { prebus = false } = {}) {
     onEngine(engine) {
       E = engine;
       E.mix.disconnect();
-      if (prebus) { orig.call(E.mix, ctx.destination); E.vocalBus.disconnect(); orig.call(E.vocalBus, ctx.destination); restore(); return; }
+      if (prebus) { orig.call(E.mix, ctx.destination); E.vocalOut.disconnect(); orig.call(E.vocalOut, ctx.destination); restore(); return; }
       const dest = ctx.destination, merge = ctx.createChannelMerger(want.length * 2);
       dest.channelCount = want.length * 2; dest.channelCountMode = 'explicit'; dest.channelInterpretation = 'discrete';
       orig.call(merge, dest);
@@ -81,7 +81,7 @@ export function router(want, { prebus = false } = {}) {
         sums[id] = sum;
       });
       for (const id of TRACK_IDS) owner.set(E.ch[id].pan, id);
-      owner.set(E.vocalBus, 'sung');
+      owner.set(E.vocalOut, 'sung');
       for (const [src, dst] of conns) if (dst === E.mix || dst === E.duck || dst === E.preMaster) { src.disconnect(dst); route(src, dst); }
       // The hook plays through a copy of the CHORDS channel (same level, pan and sends) so it gets its own stem.
       const S = E.ch.stab, g = (v = 1) => { const n = ctx.createGain(); n.gain.value = v; return n; };

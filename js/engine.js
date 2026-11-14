@@ -8,6 +8,7 @@ import { pocketOf, pocketLate, pocketVel } from './groove.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ } from './lead.js';
 import { lowEnd } from './lowend.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
+import { processedStem } from './vocal-chain.js';
 import { makeupGain } from './loudness.js';
 import { harmRoot, chordIv, stabNotes, hookSnap, voiceLead } from './harmony.js';
 import { develop, motifPlan, stepDeg } from './motif.js';
@@ -226,7 +227,8 @@ export class Engine {
     this.out.connect(c.destination);
     // The neural singer's stem (vocal(), js/sing.js): past the band's duck, into the master chain.
     this.vocalBus = this.gain(0);
-    this.vocalBus.connect(this.preMaster);
+    this.vocalOut = this.gain(1);
+    this.vocalBus.connect(this.vocalOut).connect(this.preMaster);
     if (this.realtime) {
       this.analyser = c.createAnalyser();
       this.analyser.fftSize = 4096;
@@ -305,13 +307,17 @@ export class Engine {
       const dly = this.gain(0);
       // The bass gets its own kick sidechain (see duckAt) on top of the shared pump.
       const sc = t.id === 'acid' ? this.gain(1) : null;
-      (sc ? input.connect(sc) : input).connect(level).connect(pan);
+      // CHORDS (keys, guitars) step out of the sung vocal's presence band while it sings (Engine.vocal, carve).
+      const carve = t.id === 'stab' ? this.filter('peaking', 3000, 0.8) : null;
+      if (carve) carve.gain.value = 0;
+      (sc ? input.connect(sc) : input).connect(level).connect(carve || pan);
+      if (carve) carve.connect(pan);
       pan.connect(DUCKED.has(t.id) ? this.duck : this.mix);
       pan.connect(rev).connect(this.revIn);
       if (t.id !== 'vox') pan.connect(this.roomIn);
       pan.connect(dly).connect(this.dlyIn);
       pan.connect(this.throwBus);
-      const ch = { input, level, pan, rev, dly, sc };
+      const ch = { input, level, pan, rev, dly, sc, carve };
       if (t.id === 'stab') {
         ch.band = this.gain(1);
         ch.band.connect(input);
@@ -1826,9 +1832,9 @@ export class Engine {
     this.vocalStop(t);
     const off = v ? pos * 16 * this.stepDur - v.ms / 1000 : 0;
     if (!v || off >= v.buf.duration) return;
-    if (!this.vocalRev) { this.vocalRev = this.gain(0.16); this.vocalBus.connect(this.vocalRev).connect(this.revIn); }
+    this.vocalSends(v.fx);
     const src = this.ctx.createBufferSource(), g = this.ctx.createGain();
-    src.buffer = v.buf;
+    src.buffer = processedStem(v.buf, v.fx, this.ctx);
     if (off > 0.001) { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + 0.012); }
     src.connect(g).connect(this.vocalBus);
     this.vocalBus.gain.setValueAtTime(v.gain, t);
@@ -1836,15 +1842,46 @@ export class Engine {
     this.vocalNow = { src, g, buf: v.buf, next: pos + 1, sd: this.stepDur, ms: v.ms };
     if (v.duck < 1) this.duckUnder(v.buf, this.bandDuck.gain, v.duck, t, t - off);
     if (v.lift < 1) this.duckUnder(v.buf, this.singTrim.gain, v.lift, t, t - off);
+    const carve = this.ch.stab?.carve;
+    if (carve && v.fx?.carve) {
+      carve.frequency.setValueAtTime(v.fx.carve.hz, t);
+      this.duckUnder(v.buf, carve.gain, -v.fx.carve.db, t, t - off, 0);
+    }
+  }
+
+  // The vocal's reverb (a plate, or the room) and tempo-synced slap/delay sends, built on first use, set per genre
+  // (VOCAL_FX in js/sing.js): they return through vocalOut, so they ride the vocal's level and its stem.
+  vocalSends(fx) {
+    const c = this.ctx, now = c.currentTime;
+    if (!this.vocalFx) {
+      const plateSend = this.gain(0), plate = c.createConvolver(), roomSend = this.gain(0), dlySend = this.gain(0);
+      const dly = c.createDelay(2), fb = this.gain(0), hp = this.filter('highpass', 280), lp = this.filter('lowpass', 4800);
+      this.vocalBus.connect(plateSend).connect(this.filter('highpass', 220)).connect(plate).connect(this.vocalOut);
+      this.vocalBus.connect(roomSend).connect(this.roomIn);
+      this.vocalBus.connect(dlySend).connect(hp).connect(lp).connect(dly).connect(this.vocalOut);
+      dly.connect(fb).connect(hp);
+      this.vocalFx = { plateSend, plate, roomSend, dlySend, dly, fb, sec: 0 };
+    }
+    const F = this.vocalFx, r = fx?.reverb || { kind: 'plate', sec: 1.8, send: 0.16 }, d = fx?.delay;
+    if (r.kind === 'plate' && F.sec !== r.sec) {
+      F.plate.buffer = makeIR(c, r.sec, { decay: 3.2, brightStart: 0.9, brightEnd: 0.35, predelay: 0.012, seed: 97 });
+      F.sec = r.sec;
+    }
+    F.plateSend.gain.setTargetAtTime(r.kind === 'plate' ? r.send : 0, now, 0.02);
+    F.roomSend.gain.setTargetAtTime(r.kind === 'room' ? r.send : 0, now, 0.02);
+    F.dly.delayTime.setTargetAtTime(d ? Math.min(1.9, (d.beats * 60) / this.state.bpm) : 0.25, now, 0.02);
+    F.dlySend.gain.setTargetAtTime(d ? d.send : 0, now, 0.02);
+    F.fb.gain.setTargetAtTime(d ? d.fb : 0, now, 0.02);
   }
 
   // A gain that follows the stem's singing envelope down to `depth`; t0 is when the stem's first sample plays.
-  duckUnder(buf, p, depth, t, t0) {
+  // `rest` is its value where the stem is silent (a filter's dB gain rests at 0).
+  duckUnder(buf, p, depth, t, t0, rest = 1) {
     const env = singingEnvelope(buf), start = Math.max(t, t0) + 0.02;
     const i = Math.ceil((start - t0) * ENV_RATE), n = env.length - i;
     if (n < 2) return;
     const curve = new Float32Array(n);
-    for (let k = 0; k < n; k++) curve[k] = 1 - env[i + k] * (1 - depth);
+    for (let k = 0; k < n; k++) curve[k] = rest + env[i + k] * (depth - rest);
     p.setTargetAtTime(curve[0], t, 0.01);
     p.setValueCurveAtTime(curve, t0 + i / ENV_RATE, (n - 1) / ENV_RATE);
   }
@@ -1853,9 +1890,9 @@ export class Engine {
     const cur = this.vocalNow;
     if (!cur) return;
     this.vocalNow = null;
-    for (const p of [this.bandDuck.gain, this.singTrim.gain]) {
+    for (const p of [this.bandDuck.gain, this.singTrim.gain, this.ch.stab?.carve?.gain].filter(Boolean)) {
       if (p.cancelAndHoldAtTime) p.cancelAndHoldAtTime(t); else p.cancelScheduledValues(t);
-      p.setTargetAtTime(1, t, 0.08);
+      p.setTargetAtTime(p === this.ch.stab?.carve?.gain ? 0 : 1, t, 0.08);
     }
     cur.g.gain.cancelScheduledValues(t);
     cur.g.gain.setTargetAtTime(0, t, 0.008);

@@ -10,6 +10,29 @@ export const SING_FORMAT = 'untergrund-sing/1';
 export const SING_VOICES = ['ariadne', 'felix', 'gwen', 'ink', 'kincade', 'max', 'orpheus', 'poppy', 'priya', 'rex', 'scylla', 'stone', 'thistle', 'tuesday'];
 export const VOCAL_VOICE = { female: 'gwen', male: 'felix', duet: 'gwen', choir: 'priya' };
 export const SING_FORMATS = ['opus', 'mp3', 'wav'];
+// Expression knobs the singer applies to the score (singer/expression.py has the same names and ranges; docs/singer.md
+// #expression says what each does): [lowest, highest].
+export const SING_EXPR = {
+  scoop: [0, 3], scoop_ms: [20, 250], glide_ms: [0, 150], vib_cents: [0, 80], vib_rate: [3.5, 8], vib_delay: [0, 1], vib_ramp: [0.05, 1.5],
+  breath: [0, 40], lead: [0, 1], stress_db: [0, 4], stress_vowel: [0, 0.6], guidance: [1, 2], align: [0, 1],
+};
+export function cleanExpr(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const out = {};
+  for (const [k, [lo, hi]] of Object.entries(SING_EXPR)) {
+    const v = typeof raw[k] === 'boolean' && k === 'align' ? +raw[k] : raw[k];
+    if (typeof v === 'number' && Number.isFinite(v)) out[k] = k === 'align' ? +!!v : Math.round(Math.min(hi, Math.max(lo, v)) * 1e4) / 1e4;
+  }
+  return Object.keys(out).length ? out : null;
+}
+// Per genre: the voice for a female or male lead and the expression (picked by singer/voice_survey.py; docs/singer.md).
+const EXPR_BASE = { scoop: 1, scoop_ms: 90, glide_ms: 60, vib_cents: 30, vib_rate: 5.5, vib_delay: 0.3, vib_ramp: 0.4, breath: 22, lead: 0.5, stress_db: 1.5, stress_vowel: 0.3, align: 1 };
+export const SING_STYLE = {
+  pop: { female: 'gwen', male: 'felix', expr: { ...EXPR_BASE } },
+  rnb: { female: 'gwen', male: 'felix', expr: { ...EXPR_BASE, scoop: 1.5, scoop_ms: 120, glide_ms: 90, vib_cents: 35, vib_rate: 5.2 } },
+  folk: { female: 'gwen', male: 'felix', expr: { ...EXPR_BASE, scoop: 0.6, glide_ms: 40, vib_cents: 22, vib_rate: 5.0, vib_delay: 0.35, breath: 20 } },
+};
+const styleSing = (style) => SING_STYLE[style] || SING_STYLE.pop;
 export const SING_LIMITS = { notes: 1500, beats: 1600, seconds: 420, text: 4000, label: 40, bpm: [40, 240], midi: [36, 91], seed: 2 ** 31 - 1 };
 // Gaps shorter than this inside a line are sung through (legato); longer ones are rests (a breath).
 const LEGATO = 1;
@@ -189,9 +212,10 @@ export function singScore(state, { voice, seed, kind = 'club', format = 'opus' }
   const text = notesOut.filter(([l]) => l !== '-' && (!l.includes('~') || l.endsWith('~1'))).map(([l]) => l.split('~')[0]).join(' ');
   const style = state.artist?.style || '';
   const score = { text, bpm: state.bpm, style: deliveryFor(style, state.bpm), notes: notesOut };
-  const v = SING_VOICES.includes(voice) ? voice : VOCAL_VOICE[state.lyrics.vocal] || 'gwen';
+  const ss = styleSing(style), gender = state.lyrics.vocal === 'male' ? 'male' : 'female';
+  const v = SING_VOICES.includes(voice) ? voice : (['female', 'male'].includes(state.lyrics.vocal) ? ss[gender] : VOCAL_VOICE[state.lyrics.vocal]) || ss.female;
   const sd = Number.isInteger(seed) ? seed : hash(JSON.stringify(score) + v) % SING_LIMITS.seed;
-  return { format: SING_FORMAT, voice: v, seed: sd, audio: SING_FORMATS.includes(format) ? format : 'opus', score, key: state.key, phrases: meta };
+  return { format: SING_FORMAT, voice: v, seed: sd, audio: SING_FORMATS.includes(format) ? format : 'opus', score, expr: cleanExpr(ss.expr), key: state.key, phrases: meta };
 }
 
 // Server-side check of a sing request (api/_lib/sing.js; singer/singer.py checks the same limits again).
@@ -221,5 +245,6 @@ export function validateSing(raw) {
   if (beats > L.beats || (beats * 60) / bpm > L.seconds || words.join(' ') !== score.text) return null;
   const voice = SING_VOICES.includes(raw.voice) ? raw.voice : null, seed = raw.seed;
   if (!voice || !Number.isInteger(seed) || seed < 0 || seed > L.seed) return null;
-  return { format: SING_FORMAT, voice, seed, audio: SING_FORMATS.includes(raw.audio) ? raw.audio : 'opus', score: { text: score.text, bpm, style: score.style, notes: score.notes.map((r) => [...r]) } };
+  const expr = cleanExpr(raw.expr);
+  return { format: SING_FORMAT, voice, seed, audio: SING_FORMATS.includes(raw.audio) ? raw.audio : 'opus', score: { text: score.text, bpm, style: score.style, notes: score.notes.map((r) => [...r]) }, ...(expr && { expr }) };
 }

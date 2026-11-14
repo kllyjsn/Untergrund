@@ -50,6 +50,51 @@ The vocal level (−24…+6 dB around that base) and a timing trim (±250 ms) ar
 the stem is not saved and is fetched again by hash. Offline renders, WAV export, video and EXPORT STEMS (`sung-vocal`)
 all include it.
 
+## Expression (`singer/expression.py`)
+
+Scylla's Band v4 has no score fields for vibrato, scoops or breaths. It does take the two inputs its own `sing()` builds
+per phrase: the per-frame melody (`note_phase_presence`: pitch, phase in the note, presence) and the per-phone frame
+durations. `expression.sing()` is that same phrase loop with those inputs reshaped, so nothing reaches the model that it
+wasn't trained on. With no knobs set it returns sample-for-sample what `runtime.sing()` returns. The request's `expr`
+object (`SING_EXPR` / `cleanExpr()` in `js/sing-score.js`, `clean_expr()` in Python) is validated against fixed ranges.
+Unknown names are dropped and values are clamped. `SING_STYLE` sends one set per genre:
+
+| Knob | Range | What it does |
+|---|---|---|
+| `scoop` | 0–3 st | A phrase's first note, or a note leapt up to (≥ 3 st), starts this far below and curves up |
+| `scoop_ms` | 20–250 ms | How long that approach takes |
+| `glide_ms` | 0–150 ms | Portamento from the previous note inside a phrase (steps of up to a fifth) |
+| `vib_cents` | 0–80 c | Vibrato depth (±) on held notes |
+| `vib_rate` | 3.5–8 Hz | Vibrato rate |
+| `vib_delay` | 0–1 s | Time into a note before the vibrato starts; shorter notes get none |
+| `vib_ramp` | 0.05–1.5 s | Time the vibrato takes to grow to full depth (about 0.4 s) |
+| `breath` | 0–40 dB | A short shaped-noise inhale before a phrase that follows ≥ 0.5 s of rest, this many dB under the phrase (0 = off) |
+| `lead` | 0–1 | Share of a word's leading consonants moved ahead of its note, so the vowel starts on the beat |
+| `stress_db` | 0–4 dB | Lift on stressed words (on beats 1 and 3, or a beat or longer) |
+| `stress_vowel` | 0–0.6 | Share of a stressed word's consonant frames given to its vowel (a longer vowel) |
+| `guidance` | 1–2 | × the bundle's melody/mode guidance |
+| `align` | 0/1 | Moves each phrase (up to ±80 ms) so its sung onset sits on its first note, measured on the rendered audio the same way the report measures it |
+
+Every phrase draws its noise from `seed + phrase`, the same as the runtime, and breaths from `seed + 7919 + phrase`,
+so a request is deterministic.
+
+## Vocal chain and band carve
+
+`js/vocal-chain.js` processes the decoded stem once per buffer and settings, and live playback, renders and exports
+all play that copy. The chain runs high-pass → presence peak → de-esser (a sidechain above `deess.hz` pulls a high shelf down by up to
+`deess.db` when it passes `deess.over` dB re the sung level) → RMS compressor (10/150 ms, 6 dB knee). The result is
+then matched back to the stem's sung RMS, so the level calibration above still holds. `Engine.vocalSends()` adds a
+plate (a convolver IR of `reverb.sec`) or the band's room, plus a filtered (280 Hz–4.8 kHz) tempo-synced delay. Both
+return through `Engine.vocalOut`, so they follow the vocal's level and land in the `sung-vocal` stem. While the stem
+sings, the CHORDS channel (keys, pads, guitars) gets a peaking cut of `carve.db` at `carve.hz` (Q 0.8). It follows
+the same singing envelope as the band duck and rests at 0 dB.
+
+| `VOCAL_FX` | HPF | Presence | De-ess | Comp | Reverb | Delay | Carve |
+|---|---|---|---|---|---|---|---|
+| Pop | 110 Hz | +2.5 dB @ 3.8 kHz | 6.5 kHz, ≤ 8 dB | −6 dB, 2.5:1 | plate 1.6 s, 0.14 | 1/8, fb 0.22, 0.10 | −3 dB @ 3 kHz |
+| R&B | 90 Hz | +2 dB @ 3.2 kHz | 6 kHz, ≤ 8 dB | −7 dB, 2.5:1 | plate 2.4 s, 0.20 | dotted 1/8, fb 0.3, 0.12 | −3 dB @ 2.8 kHz |
+| Folk | 85 Hz | +1.5 dB @ 3 kHz | 6.5 kHz, ≤ 6 dB | −5 dB, 2:1 | room, 0.35 | 1/16 slap, fb 0.08, 0.09 | −2.5 dB @ 3 kHz |
+
 ## `/api/sing` (Vercel)
 
 Served by `api/describe.js` (`vercel.json` rewrite, no extra function); logic in `api/_lib/sing.js`.
