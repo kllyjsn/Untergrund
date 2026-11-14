@@ -55,11 +55,12 @@ export function listensFrom(signals = [], { returnAfterMs = DEFAULTS.returnAfter
     for (const k of ['tid', 'seed', 'style', 'src', 'surf', 'ph', 'co', 'dev', 'arr']) if (l[k] == null || l[k] === '' || l[k] === -1) if (s[k] != null && s[k] !== '') l[k] = s[k];
     if (s.kind === 'start' && s.pt) l.pt = s.pt;
     if (s.kind === 'complete' || s.kind === 'skip' || s.kind === 'partial') { l.outcome = s.kind; l.end = { bar: s.bar, bars: s.bars, pct: s.pct, ms: s.ms, sec: s.sec }; }
-    else if (s.kind === 'love') { l.love = true; l.down = false; }
+    else if (s.kind === 'love') { l.love = true; l.down = false; l.why = null; }
     else if (s.kind === 'unlove') l.love = false;
     else if (s.kind === 'down') { l.down = true; l.love = false; l.downAt = { bar: s.bar, pct: s.pct, sec: s.sec }; }
     else if (s.kind === 'undown') { l.down = false; l.why = null; l.downAt = null; }
-    else if (s.kind === 'why') { if (l.down) l.why = s.why; }
+    // A reason is only offered on a downed song; without a `down` in this listen, it is still downed from an earlier one.
+    else if (s.kind === 'why') { if (!l.down) { l.down = true; l.love = false; l.downAt = { bar: s.bar, pct: s.pct, sec: s.sec }; } l.why = s.why; }
     else if (s.kind === 'replay') l.replay = true;
     else if (s.kind === 'rewind') { l.rewind = true; l.rewinds.push({ bar: s.bar, to: s.to ?? 0, sec: s.sec }); }
     else if (s.kind === 'keep') l.keep = true;

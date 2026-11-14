@@ -45,7 +45,7 @@ assert.deepEqual(parseShape('aabba').map((s) => [s.kind, s.at, s.bars]), [['patt
 assert.deepEqual(parseShape('intro-8.dr'), [{ kind: 'intro', at: 0, bars: 8 }], 'a cut-off token is ignored');
 assert.deepEqual(parseShape(''), []);
 
-// One row per listen; reactions net out; a reason without a down is ignored; returns only judged after a day.
+// One row per listen; reactions net out (love clears an earlier reason); returns only judged after a day.
 {
   const rows = listensFrom([
     { lis: 'aaaaaa1', lid: 'x1', fp: 'f1', kind: 'start', t: 1, style: 'acid' }, { lis: 'aaaaaa1', fp: 'f1', kind: 'why', why: 'boring', t: 2 },
@@ -57,6 +57,22 @@ assert.deepEqual(parseShape(''), []);
   const [a, b] = rows;
   assert.deepEqual([a.down, a.love, a.why, a.skip, a.downAt.bar, a.return], [true, false, null, true, 9, true]);
   assert.equal(b.return, null, 'too recent to know whether they came back');
+}
+// Replaying a song downed in an earlier listen: no new `down`, but its reason still counts as a down with that reason.
+{
+  const [r1] = listensFrom([{ lis: 'dddddd1', lid: 'x1', fp: 'f3', kind: 'start', t: 1 }, { lis: 'dddddd1', fp: 'f3', kind: 'why', why: 'sounds_bad', bar: 6, t: 2 },
+    { lis: 'dddddd1', fp: 'f3', kind: 'partial', bar: 12, t: 3 }]);
+  assert.deepEqual([r1.down, r1.why, r1.downAt.bar], [true, 'sounds_bad', 6]);
+}
+// Listens with no device (older records) stay out of device baselines: identical phone/desktop groups give no split.
+{
+  const legacy = [];
+  for (let i = 0; i < 120; i++) {
+    const dev = ['phone', 'desktop', ''][i % 3];
+    legacy.push(...listen({ lid: `legacy${i % 12}`, style: 'acid', dev, outcome: dev ? (i % 30 < 3 ? 'skip' : 'complete') : (i % 10 < 9 ? 'skip' : 'complete'), t: T0 + i * 1000 }));
+  }
+  const lr = analyze(legacy, { now: T0 + 864e5 });
+  assert.ok(!lr.findings.some((f) => f.scope.dev), 'no device finding from records without a device');
 }
 
 // Stats helpers.
