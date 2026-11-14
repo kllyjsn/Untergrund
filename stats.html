@@ -101,6 +101,23 @@
       if (res.status === 503 || json.enabled === false) return render(null);
       if (!res.ok) return gate(`Stats are unavailable right now (${res.status}).`);
       render(json);
+      loadFindings();
+    }
+
+    // The improvement engine: ranked findings and proposed experiments (never applied automatically).
+    async function loadFindings() {
+      const box = root.querySelector('#findings');
+      if (!box) return;
+      let r = null;
+      try { const res = await fetch('/api/events?improve=1', { headers: { 'x-stats-token': token }, cache: 'no-store' }); if (res.ok) r = await res.json(); } catch {}
+      if (!r?.findings) { box.innerHTML = '<div class="empty">Findings are unavailable right now.</div>'; return; }
+      const scope = (o) => Object.entries(o).map(([k, v]) => `${k}=${v}`).join(' · ');
+      const head = `<div class="genre"><span>${fmt(r.totals.listens)} LISTENS · ${fmt(r.totals.listeners)} LISTENERS · ${fmt(r.totals.downs)} DOWNS</span><span class="num">${Object.entries(r.totals.reasons).map(([k, v]) => `${esc(k.replace(/_/g, ' '))} ${fmt(v)}`).join(' · ')}</span></div>`;
+      const fs = r.findings.slice(0, 8).map((f) => `<div class="genre"><span>#${f.rank} ${esc(f.direction.toUpperCase())} · ${esc(scope(f.scope))}${f.reason ? ` · ${esc(f.reason.replace(/_/g, ' '))}` : ''}</span><span class="num">${esc(f.metric)} ${pct(f.rate)} vs ${pct(f.comparable)} · n ${fmt(f.n)}</span></div>`).join('')
+        || `<div class="empty">No finding clears the bar yet (≥ ${r.thresholds.minListens} listens from ≥ ${r.thresholds.minListeners} listeners).</div>`;
+      const ex = r.experiments.slice(0, 5).map((e) => `<div class="err"><b>${esc(e.lever.toUpperCase())}</b> ${esc(e.change)}<div class="meta">${esc(scope(e.scope))} · primary ${esc(e.primary.metric)} ${esc(e.primary.goal)} · ${Math.round(e.arms[1].share * 100)}% arm · ≥ ${fmt(e.minListensPerArm)} listens/arm</div></div>`).join('')
+        || '<div class="empty">No experiments proposed yet.</div>';
+      box.innerHTML = `<div class="grid2"><section><h2>FINDINGS · RANKED</h2>${head}${fs}</section><section><h2>PROPOSED EXPERIMENTS · NOT APPLIED</h2>${ex}</section></div>`;
     }
 
     function chart(daily) {
@@ -154,9 +171,9 @@
         : '<div class="empty">No missed phrases logged.</div>';
       const ls = s.listening, lr = ls?.rates || {};
       const listening = ls?.kinds?.start ? `<div class="genre"><span>LISTENS</span><span class="num">${fmt(ls.kinds.start)}</span></div>`
-        + [['completion', 'Finished'], ['skip', 'Skipped early'], ['replay', 'Replayed'], ['love', 'Loved'], ['keep', 'Kept'], ['publish', 'Published'], ['share', 'Shared'], ['live', 'Played live']].map(([k, l]) => `<div class="genre"><span>${l.toUpperCase()}</span><span class="num">${pct(lr[k] || 0)}</span></div>`).join('')
+        + [['completion', 'Finished'], ['skip', 'Skipped early'], ['replay', 'Replayed'], ['rewind', 'Rewound'], ['love', 'Loved'], ['down', 'Downed'], ['keep', 'Kept'], ['publish', 'Published'], ['share', 'Shared'], ['live', 'Played live']].map(([k, l]) => `<div class="genre"><span>${l.toUpperCase()}</span><span class="num">${pct(lr[k] || 0)}</span></div>`).join('')
         : '<div class="empty">No listens yet.</div>';
-      const byStyle = (ls?.styles || []).slice(0, 10).map((x) => `<div class="genre"><span>${esc(x.style.toUpperCase())} · ${fmt(x.starts)}</span><span class="num">${pct(x.rates.completion)} done · ${pct(x.rates.skip)} skip · ${pct(x.rates.love)} ♥</span></div>`).join('') || '<div class="empty">No listens yet.</div>';
+      const byStyle = (ls?.styles || []).slice(0, 10).map((x) => `<div class="genre"><span>${esc(x.style.toUpperCase())} · ${fmt(x.starts)}</span><span class="num">${pct(x.rates.completion)} done · ${pct(x.rates.skip)} skip · ${pct(x.rates.love)} ♥ · ${pct(x.rates.down || 0)} ↓</span></div>`).join('') || '<div class="empty">No listens yet.</div>';
       root.innerHTML = head + `<div class="kpis">${kpis}</div>
         <div class="grid2"><section><h2>FUNNEL · UNIQUE SESSIONS</h2>${funnel}</section>
           <section><h2>DAILY SESSIONS</h2>${chart(s.daily)}</section></div>
@@ -164,6 +181,7 @@
           <section><h2>RECENT ERRORS · ${fmt(t.error || 0)} IN RANGE</h2>${errors}</section></div>
         <div class="grid2" style="margin-top:14px"><section><h2>ENJOYMENT · PER LISTEN</h2>${listening}</section>
           <section><h2>ENJOYMENT · BY GENRE</h2>${byStyle}</section></div>
+        <div id="findings" style="margin-top:14px"><div class="empty">Loading findings…</div></div>
         <section style="margin-top:14px"><h2>DESCRIBE · PHRASES THE RULES COULDN’T READ</h2>${misses}</section>
         <section style="margin-top:14px"><h2>DAILY COUNTS</h2><div class="table"><table><thead><tr><th>Day</th><th>Sessions</th>${events.map((e) => `<th>${LABEL[e]}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div></section>`;
       bindRange();

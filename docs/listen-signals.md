@@ -17,7 +17,10 @@ Code: `js/listen.js` (lifecycle + fingerprint), wired in `js/main.js`; validated
 | `publish` | publishing the song (crate publish, SoundCloud) |
 | `share` | copying/sending a song link, embed, or making/sharing a video |
 | `live` | going live in a room |
-| `love` / `unlove` | the one explicit reaction: the heart in Now Playing (a toggle, remembered per device) |
+| `love` / `unlove` | explicit reaction: the heart in Now Playing (a toggle, remembered per device) |
+| `down` / `undown` | explicit reaction: the down arrow next to the heart. One tap is the whole signal; love and down exclude each other (switching sends `unlove`/`undown` first) |
+| `why` | optional, only after a down: one tap on `boring`, `sounds_bad` or `not_my_style` (field `why`). A closed set; there is never a text box. A later tap replaces the reason |
+| `rewind` | jumping back inside the song you're hearing (previous-track / restart while playing): `bar` is where from, `to` the target bar |
 
 Every listen ends with exactly one of `complete`, `skip` or `partial` (switching songs, stopping, or closing the page). `keep`/`publish`/`share`/`live` count at most once per listen, and still attach to the song that just ended for 10 minutes after it stops.
 
@@ -27,7 +30,7 @@ Sent as `{ n: 'listen', p: { kind, genre }, l: <record>, t }`. The server keeps 
 
 | field | meaning |
 | --- | --- |
-| `v` | contract version (1) |
+| `v` | contract version (1; the fields added since are optional, so v1 readers keep working) |
 | `kind` | one of the kinds above |
 | `fp` | deterministic song fingerprint: two FNV-1a hashes of the musical state (patterns, chain, bpm, key, scale, params, master, ending, lyrics, swing, mutes/solos, orchestra levels/mutes). Same music → same `fp`, across devices; titles don't change it. Required. |
 | `tid` | published track id when the song came from the crate/feed/share, else `''` |
@@ -38,6 +41,11 @@ Sent as `{ n: 'listen', p: { kind, genre }, l: <record>, t }`. The server keeps 
 | `ph` | hash of the normalized Describe prompt, when `src` is `prompt` |
 | `pt` | the prompt text itself, **only on `start`**, max 120 chars, dropped if it looks like an email, URL or phone number |
 | `bar`, `bars`, `sec`, `pct` | position when the signal fired: bar, song length in bars, section name, percent (`-1` if length unknown) |
+| `arr` | song structure, **only on `start`**: score sections with bar counts (`intro-8.verse-16.drop-8`) or the pattern chain (`aabbc`, one letter per bar); max 80 chars |
+| `why` | the down reason, only on `why` |
+| `to` | the rewind target bar, only on `rewind` |
+| `co` | listener cohort: days since this device first opened the app (`d0`, `d1_6`, `d7_29`, `d30_plus`) |
+| `dev` | device class: `phone`, `tablet` or `desktop` (pointer type + width; nothing finer) |
 | `ms` | actual listening time so far in this listen (pauses excluded) |
 | `lis` | random id of this listen (ties start → skip/complete → actions together) |
 | `lid` | random per-device listener id (`localStorage['untergrund.lid']`), created only when analytics is on |
@@ -53,10 +61,12 @@ Anything else is dropped by `cleanListen()`; unknown kinds or a missing fingerpr
 - `untergrund:fp:<fp>` — `<kind>` counts per song fingerprint.
 - `untergrund:listen` — raw records, newest first, capped at 5000. Max 300 records per client per hour.
 
-`GET /api/events?summary=1` (stats token) adds `listening: { kinds, rates, styles }`, where rates are per `start`: `completion`, `skip`, `replay`, `love` (love − unlove), `keep`, `publish`, `share`, `live`. `stats.html` shows them.
+`GET /api/events?summary=1` (stats token) adds `listening: { kinds, rates, styles }`, where rates are per `start`: `completion`, `skip`, `replay`, `rewind`, `love` (love − unlove), `down` (down − undown), `keep`, `publish`, `share`, `live`. `stats.html` shows them.
 
 `GET /api/events?signals=1&limit=500[&fp=<fp>]` (stats token) returns `{ version, signals, song? }`: the raw log for offline learning and automations, plus counts/rates for one song.
 
+`GET /api/events?improve=1[&min=<listens>]` (stats token) runs the improvement engine over the whole raw log: ranked findings and proposed experiments. See [improvement-engine.md](improvement-engine.md).
+
 ## Privacy
 
-Nothing here identifies a person: ids are random, prompt text is short, filtered and only on `start`, client IPs are only used hashed for rate limits. Love/heard lists live in the listener's own `localStorage`.
+Nothing here identifies a person: ids are random, prompt text is short, filtered and only on `start`, client IPs are only used hashed for rate limits. Love/down/heard lists live in the listener's own `localStorage`. Down reasons are categorical only. Cohort and device are coarse enums.
