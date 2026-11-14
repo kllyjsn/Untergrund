@@ -2000,8 +2000,9 @@ export class Engine {
     this.vocalNow = { src, g, buf: v.buf, next: pos + 1, sd: this.stepDur, ms: v.ms };
     if (v.duck < 1) this.duckUnder(v.buf, this.bandDuck.gain, v.duck, t, t - off);
     if (v.lift < 1) this.duckUnder(v.buf, this.singTrim.gain, v.lift, t, t - off);
-    const carve = this.ch.stab?.carve;
-    if (carve && v.fx?.carve) {
+    // hookCarve: the exported hook stem's copy of the CHORDS channel (js/stems.js).
+    for (const carve of [this.ch.stab?.carve, this.hookCarve]) {
+      if (!carve || !v.fx?.carve) continue;
       carve.frequency.setValueAtTime(v.fx.carve.hz, t);
       this.duckUnder(v.buf, carve.gain, -v.fx.carve.db, t, t - off, 0);
     }
