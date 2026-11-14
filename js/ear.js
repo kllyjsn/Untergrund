@@ -1,5 +1,6 @@
 import { STYLES } from './state.js';
 import { renderBars } from './render.js';
+import { liveSets, setsReady, withTakes } from './livekit.js';
 import { analyzePcm, lufs, spectralBands } from './lab-metrics.js';
 import { TAGS, SCHEMA, mergeJudgments, nextStyle, summarize, songFor, windowOf } from './ear-data.js';
 
@@ -18,6 +19,9 @@ async function renderSide(style, seed) {
   const s = songFor(style, seed), w = windowOf(s, BARS);
   const t0 = performance.now();
   const buffer = await renderBars(s, w.bars, { startBar: w.startBar, tail: 1.5 });
+  // A synth stand-in for a recording that failed to load would make the pick unreproducible: don't ask about it.
+  const sets = withTakes(liveSets(s));
+  if (!setsReady(sets)) throw new Error('instrument samples did not load; check the connection and reload');
   const ch = Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i));
   const m = analyzePcm(ch, buffer.sampleRate, { bpm: s.bpm, renderMs: performance.now() - t0 });
   const metrics = { lufs: +lufs(ch, buffer.sampleRate).toFixed(2), ...spectralBands(ch, buffer.sampleRate) };
