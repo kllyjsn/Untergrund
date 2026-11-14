@@ -179,7 +179,7 @@ export function rulePlan(prompt, lyricsText = '', { style = null } = {}) {
   const lyrics = splitLyrics(lyricsText);
   const titleLine = lyrics.find((s) => s.sec === 'chorus')?.lines[0]?.t;
   // No pasted words and a genre that sings a song: write them (js/lyric-writer.js).
-  const written = !lyrics.length && SING_PROFILES[target]?.song ? writeLyrics({ prompt: text, about, style: target, mood: sound ? [sound] : [] }) : null;
+  const written = !lyrics.length && SING_PROFILES[target]?.song && !/\binstrumental\b/i.test(text) ? writeLyrics({ prompt: text, about, style: target, mood: sound ? [sound] : [] }) : null;
   return validatePlan({
     style: target, key: value('key'), mode: value('scale'), bpm: value('bpm'), about,
     title: titleLine ? titleLine.split(/[,.!?;:]/)[0].trim().split(' ').slice(0, 6).join(' ') : written?.title || '',
