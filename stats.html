@@ -120,7 +120,14 @@
       const run = (r.running || []).map((x) => `<div class="genre"><span>${esc(x.id)} · ${esc(x.status.toUpperCase())}${x.verdict ? ` · ${esc(x.verdict.replace(/_/g, ' '))}` : ''}</span><span class="num">${esc(x.primary.metric)} ${pct(x.primary.rate)} vs ${pct(x.primary.base)} · ${fmt(x.arms.variant.listens)}/${fmt(x.arms.control.listens)} of ${fmt(x.minListensPerArm)}${x.guardrails.some((g) => g.breached) ? ' · GUARDRAIL' : ''}</span></div>`).join('')
         || '<div class="empty">No experiment is running.</div>';
       const cov = r.coverage ? `<div class="meta">${esc(r.coverage.from)} to ${esc(r.coverage.to)} · ${fmt(r.coverage.records)} records${r.coverage.capped.length ? ` · ${r.coverage.capped.length} day(s) at the daily cap` : ''}</div>` : '';
-      box.innerHTML = `<div class="grid2"><section><h2>FINDINGS · RANKED</h2>${head}${cov}${fs}</section><section><h2>PROPOSED EXPERIMENTS · NOT APPLIED</h2>${ex}<h2 style="margin-top:14px">RUNNING EXPERIMENTS</h2>${run}</section></div>`;
+      const L = r.loop, rp = (x) => (x == null ? '–' : `${Math.round(x * 100)}%`), row = (k, v) => `<div class="genre"><span>${k}</span><span class="num">${v}</span></div>`;
+      const loop = L ? row('SHARES PER PUBLISHED SONG', `${L.sharesPerSong ?? '–'} · ${fmt(L.shares)} of ${fmt(L.published)} · ${fmt(L.sharesUnplayed ?? 0)} before playing`)
+        + row('SHARE-ORIGIN LISTENS', `${fmt(L.shareOrigin.starts)} starts · ${fmt(L.shareOrigin.links)} links · ${fmt(L.shareOrigin.listeners)} listeners`)
+        + row('COMPLETION · SHARED / PUBLISHED / ALL', `${rp(L.heard.shared.completion)} / ${rp(L.heard.published.completion)} / ${rp(L.heard.all.completion)}`)
+        + row('REPLAY · SHARED / PUBLISHED / ALL', `${rp(L.heard.shared.replay)} / ${rp(L.heard.published.replay)} / ${rp(L.heard.all.replay)}`)
+        + row('SHARED LISTENERS BACK NEXT DAY+', `${rp(L.shareOrigin.returnRate)} · ${fmt(L.shareOrigin.returned)} of ${fmt(L.shareOrigin.judged)}`)
+        + row('CREATOR RETURN ≤ 7 DAYS', `${rp(L.creators.returnRate7d)} · ${fmt(L.creators.returned)} of ${fmt(L.creators.judged)}`) : '';
+      box.innerHTML = `${loop ? `<section><h2>RELEASE LOOP</h2>${loop}</section>` : ''}<div class="grid2"><section><h2>FINDINGS · RANKED</h2>${head}${cov}${fs}</section><section><h2>PROPOSED EXPERIMENTS · NOT APPLIED</h2>${ex}<h2 style="margin-top:14px">RUNNING EXPERIMENTS</h2>${run}</section></div>`;
     }
 
     function chart(daily) {

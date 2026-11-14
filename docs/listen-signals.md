@@ -22,7 +22,7 @@ Code: `js/listen.js` (lifecycle + fingerprint), wired in `js/main.js`; validated
 | `why` | optional, only after a down: one tap on `boring`, `sounds_bad` or `not_my_style` (field `why`). A closed set; there is never a text box. A later tap replaces the reason |
 | `rewind` | jumping back inside the song you're hearing (previous-track / restart while playing): `bar` is where from, `to` the target bar |
 
-Every listen ends with exactly one of `complete`, `skip` or `partial` (switching songs, stopping, or closing the page). `keep`/`publish`/`share`/`live` count at most once per listen, and still attach to the song that just ended for 10 minutes after it stops.
+Every listen ends with exactly one of `complete`, `skip` or `partial` (switching songs, stopping, or closing the page). `keep`/`publish`/`share`/`live` count at most once per listen, and still attach to the song that just ended for 10 minutes after it stops. A `share` with no listen behind it (a link copied before pressing play) is sent standalone: no `lis`, with the shared song's `fp`/`tid`, its `surf` and the minted `ref`. The server accepts a missing `lis` only on `share`, keeps one per minted `ref`, and leaves it out of the per-start rates (`listening`, per-genre and per-song counters); the release loop counts it from the raw log.
 
 ## Record
 
@@ -36,12 +36,14 @@ Sent as `{ n: 'listen', p: { kind, genre }, l: <record>, t }`. The server keeps 
 | `tid` | published track id when the song came from the crate/feed/share, else `''` |
 | `seed` | the generator seed (`state.artist.seed`), `-1` if unknown |
 | `style` | style/genre id (`acid`, `techno`, …) |
-| `src` | how the song came to be: `generate`, `prompt` (Describe), `hum`, `drop` (Daily Drop), `piece`, `remix`, `crate`, `shared`, `jukebox`, `room`, `restored`, `radio` (started by Radio when the last song ended or was turned down) |
-| `surf` | where it was heard: `home`, `studio`, `shared`, `jukebox`, `room` |
+| `src` | how the song came to be: `generate`, `prompt` (Describe), `hum`, `drop` (Daily Drop), `piece`, `remix`, `crate`, `shared`, `jukebox`, `room`, `restored`, `radio` (started by Radio when the last song ended or was turned down), `release` (played on a `/t/<id>` release page without a share ref) |
+| `surf` | where it was heard: `home`, `studio`, `shared`, `jukebox`, `room`, `release` (the `/t/<id>` page) |
 | `ph` | hash of the normalized Describe prompt, when `src` is `prompt` |
 | `pt` | the prompt text itself, **only on `start`**, max 120 chars, dropped if it looks like an email, URL or phone number |
 | `bar`, `bars`, `sec`, `pct` | position when the signal fired: bar, song length in bars, section name, percent (`-1` if length unknown) |
 | `arr` | song structure, **only on `start`**: score sections with bar counts (`intro-8.verse-16.drop-8`) or the pattern chain (`aabbc`, one letter per bar); max 80 chars |
+| `via` | the share ref (`r` in the link, 8 chars) of the shared link this listen arrived through; absent otherwise. A `start` with `via` is a share-origin start; later visits by the same `lid` are returns |
+| `ref` | the share ref minted for the link, **only on `share`** (joins to `via` on the listens it brought) |
 | `why` | the down reason, only on `why` |
 | `to` | the rewind target bar, only on `rewind` |
 | `xp`, `arm` | the running experiment this listen is in and its arm (`control` / `variant`), only when one applies ([improvement-engine.md](improvement-engine.md#running-an-experiment)) |
