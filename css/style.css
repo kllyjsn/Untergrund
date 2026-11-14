@@ -1203,6 +1203,14 @@ body.recording .np-actions .btn.rec .dot { background: var(--accent); animation:
 .describe-lyrics { padding: 12px 14px; border-radius: var(--r2); border: 1px solid var(--hair); background: rgba(255,255,255,.03); transition: opacity .3s; }
 .describe-lyrics.rest { opacity: .55; }
 .describe-lyrics-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.describe-sing { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0 0 6px; }
+.describe-sing[hidden], .describe-sing [hidden] { display: none; }
+.describe-sing .sing-chip.on { color: var(--acid, #c6ff00); }
+.describe-sing select, .describe-sing input[type=number] { background: transparent; color: inherit; border: 1px solid var(--line, #333); border-radius: 6px; font: 500 10px var(--mono); letter-spacing: .08em; padding: 4px 6px; }
+.describe-sing input[type=number] { width: 58px; }
+.describe-sing-level { width: 92px; }
+.describe-sing-status { flex: 1 1 100%; color: var(--dim2); font: 500 10px var(--mono); letter-spacing: .08em; }
+.describe-sing-status:empty { display: none; }
 .describe-lyrics-sec { color: var(--hue); font: 700 10px var(--mono); letter-spacing: .14em; }
 .describe-lyrics-meta { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim2); font: 500 10px var(--mono); letter-spacing: .12em; }
 .describe-lyrics-lines { margin: 0; padding: 0; list-style: none; max-height: 9.5em; overflow-y: auto; scrollbar-width: none; }

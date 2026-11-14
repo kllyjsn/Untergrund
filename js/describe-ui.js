@@ -8,6 +8,8 @@ import { barsLabel } from './scope.js';
 import { isSongPrompt, localSpec, validateSpec, SONG_STYLES } from './song-spec.js';
 import { KEYS } from './params.js';
 import { STYLES } from './state.js';
+import { singAvailable, singSong, hasStem, singRequest } from './sing.js';
+import { SING_VOICES } from './sing-score.js';
 
 let last = null, hint = null, draft = '', recent = null, net = null, ticket = 0;
 let lyricsDraft = '', lyricsOpen = false, planOff = false, view = null;
@@ -109,17 +111,62 @@ export function describeBar(ctx) {
     if (open) lyricsBox.focus();
   }
 
+  // SING (js/sing.js): only once the server says a singer is configured, so a site without one looks exactly as before.
+  function singControls(metaEl) {
+    const row = h('div', { class: 'describe-sing', hidden: '' });
+    const cur = () => ctx.state().sing || {};
+    const set = (patch, label) => { const st = ctx.state(); if (label) ctx.pushUndo?.(label); st.sing = { on: false, db: 0, ms: 0, ...st.sing, ...patch }; ctx.persist?.(); };
+    const status = h('span', { class: 'describe-sing-status', 'aria-live': 'polite' });
+    const btn = h('button', { type: 'button', class: 'describe-chip sing-chip', onclick: () => (busy ? null : cur().on && hasStem(ctx.state()) ? off() : go()) });
+    const voice = h('select', { class: 'describe-sing-voice', 'aria-label': 'Singer voice', onchange: () => { set({ voice: voice.value }, 'Singer voice'); paint(); if (cur().on) go(); } },
+      ...SING_VOICES.map((v) => h('option', { value: v }, v.toUpperCase())));
+    const level = h('input', { type: 'range', min: '-24', max: '6', step: '1', class: 'describe-sing-level', 'aria-label': 'Vocal level (dB)', title: 'Vocal level',
+      onchange: () => set({ db: +level.value }, 'Vocal level'), oninput: () => { ctx.state().sing = { ...cur(), db: +level.value }; } });
+    const trim = h('input', { type: 'number', min: '-250', max: '250', step: '5', class: 'describe-sing-trim', 'aria-label': 'Vocal timing trim (ms)', title: 'Vocal timing trim, ms',
+      onchange: () => set({ ms: Math.max(-250, Math.min(250, Math.round(+trim.value || 0))) }, 'Vocal timing') });
+    let busy = false;
+    const paint = () => {
+      const st = ctx.state(), sung = !!(cur().on && hasStem(st)), can = !!singRequest(st, 'wav');
+      voice.value = cur().voice || singRequest(st, 'wav')?.voice || SING_VOICES[2];
+      level.value = String(cur().db ?? 0); trim.value = String(cur().ms ?? 0);
+      btn.textContent = busy ? 'SINGING…' : sung ? 'SUNG ✓' : 'SING';
+      btn.classList.toggle('on', sung); btn.disabled = busy || !can;
+      level.hidden = trim.hidden = !sung;
+      if (!busy) status.textContent = can ? '' : 'NO MELODY TO SING';
+      if (sung) metaEl.textContent = `SUNG · ${voice.value.toUpperCase()}`;
+    };
+    async function go() {
+      busy = true; set({ on: true, voice: voice.value }, cur().on ? null : 'Sing'); paint();
+      status.textContent = 'Warming up the singer…';
+      try {
+        await singSong(ctx.state(), { onWait: (s) => { status.textContent = `Singing… ${s}s`; } });
+        status.textContent = ''; ctx.track?.({ sing: 'ok' });
+      } catch (err) {
+        status.textContent = err.message; ctx.track?.({ sing: 'error' });
+      } finally { busy = false; paint(); }
+    }
+    function off() { set({ on: false }, 'Unsing'); paint(); metaEl.textContent = 'NOT SUNG'; }
+    row.append(btn, voice, level, trim, status);
+    singAvailable().then((ok) => {
+      if (!ok) return;
+      row.hidden = false; paint();
+      if (cur().on && !hasStem(ctx.state()) && singRequest(ctx.state(), 'wav')) go();
+    });
+    return row;
+  }
+
   function lyricsView() {
     const lyrics = ctx.state().lyrics;
     if (!lyrics?.sections?.length) { view = null; return null; }
     const sec = h('b', { class: 'describe-lyrics-sec' });
     const lines = h('ol', { class: 'describe-lyrics-lines' });
     const meta = [lyrics.vocal && `${lyrics.vocal.toUpperCase()} VOCAL`, 'NOT SUNG YET'].filter(Boolean).join(' · ');
+    const metaEl = h('span', { class: 'describe-lyrics-meta' }, meta), singRow = singControls(metaEl);
     const el = h('div', { class: 'describe-lyrics', 'aria-label': 'Lyrics' },
-      h('div', { class: 'describe-lyrics-head' }, sec, h('span', { class: 'describe-lyrics-meta' }, meta),
+      h('div', { class: 'describe-lyrics-head' }, sec, metaEl,
         h('button', { type: 'button', class: 'describe-undo', onclick: () => { input.value = draft = ''; toggleLyrics(true, lyricsText(ctx.state().lyrics)); } }, 'EDIT')),
-      lines);
-    view = { el, sec, lines, src: () => { const st = ctx.state(); return { lyrics: st.lyrics, chain: st.chain, chainOn: st.chainOn, kind: ctx.kind?.() || 'club' }; } };
+      singRow, lines);
+    view = { el, sec, lines, sing: singRow, src: () => { const st = ctx.state(); return { lyrics: st.lyrics, chain: st.chain, chainOn: st.chainOn, kind: ctx.kind?.() || 'club' }; } };
     // Painted once the element is in the page.
     queueMicrotask(() => syncLyrics(null));
     return el;

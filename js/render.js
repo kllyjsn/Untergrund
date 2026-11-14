@@ -4,6 +4,7 @@ import { loadPiece } from './repertoire.js';
 import { clone } from './state.js';
 import { encodeWav } from './dsp.js';
 import { loadBand, liveSets, loadSets } from './livekit.js';
+import { vocalStem } from './sing.js';
 
 // startBar renders a window from inside the song chain (e.g. the peak), with the arrangement state it would have there.
 // Hooks (used by js/stems.js): onContext(ctx) before the engine is built, onEngine(engine) before the song is
@@ -29,7 +30,7 @@ export async function renderBars(state, bars, { sampleRate = 48000, tail, startB
   const len = Math.ceil((start + span * sd + (tail ?? (sc ? SCORE_TAIL : 4))) * sampleRate);
   const ctx = new OfflineAudioContext(channels, len, sampleRate);
   onContext?.(ctx);
-  const engine = new Engine(ctx, snap, { realtime: false });
+  const engine = new Engine(ctx, snap, { realtime: false, vocal: vocalStem });
   onEngine?.(engine);
   const seq = new Sequencer(engine, snap);
   if (startBar && chain.length && !sc) { seq.chainPos = startBar; seq.cur = chain[(startBar - 1) % chain.length]; }

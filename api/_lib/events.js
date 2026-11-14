@@ -75,6 +75,8 @@ export function memoryKv() {
       case 'HINCRBY': { const h = get(key, () => new Map()); h.set(args[0], (+h.get(args[0]) || 0) + +args[1]); return h.get(args[0]); }
       case 'HGETALL': { const h = get(key); return h ? [...h].flatMap(([f, v]) => [f, String(v)]) : []; }
       case 'INCR': { const v = (+get(key) || 0) + 1; data.set(key, v); return v; }
+      case 'GET': { const v = get(key); return v == null ? null : String(v); }
+      case 'SET': data.set(key, args[0]); return 'OK';
       case 'EXPIRE': return data.has(key) ? 1 : 0;
       case 'PFADD': { const s = get(key, () => new Set()); const n = s.size; args.forEach((a) => s.add(a)); return s.size > n ? 1 : 0; }
       case 'PFCOUNT': { const u = new Set(); for (const k of [key, ...args]) for (const v of get(k) || []) u.add(v); return u.size; }

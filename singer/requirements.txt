@@ -1,0 +1,8 @@
+# Local CPU singer (singer.py render / serve). Python 3.10+. The Modal image pins the same versions (modal_app.py).
+numpy==2.2.6
+huggingface_hub==0.36.2
+soundfile==0.14.0
+ai-edge-litert==2.2.0
+onnxruntime==1.23.2
+# Scylla's Band runtime at the v4-20261106 release commit (Apache-2.0), installed without its optional extras.
+scyllasband @ git+https://github.com/lowkeytea/scyllasband@57271a01f793ec0ed0baa1fd47eb2383518b9e79

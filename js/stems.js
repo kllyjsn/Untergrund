@@ -11,10 +11,11 @@ import { loadPiece } from './repertoire.js';
 import { capture, songBars, parseKeyName, PARTS } from './midi.js';
 import { PIECE } from './repertoire.js';
 import { ZipWriter } from './zip.js';
+import { vocalStem } from './sing.js';
 
 export const STEM_NAMES = {
   kick: 'kick', clap: 'clap', snare: 'snare', ch: 'hats', oh: 'open-hat', ride: 'ride', perc: 'perc',
-  acid: 'bass', stab: 'chords', hook: 'hook', vox: 'vocals', fx: 'fx-returns',
+  acid: 'bass', stab: 'chords', hook: 'hook', vox: 'vocals', sung: 'sung-vocal', fx: 'fx-returns',
   ...Object.fromEntries(Object.entries(PARTS).map(([id, [name]]) => [id, name.toLowerCase().replace(/\s+/g, '-')])),
 };
 const BUDGET = 256 * 1024 * 1024;
@@ -31,7 +32,7 @@ export const exportName = (state, suffix) => `${slug(state.artist?.title)}-${Mat
 // The stems this song actually plays, in mixer order: the instruments with notes, then FX/returns.
 export function stemList(state, loopBars = 16) {
   const c = capture(state, loopBars), ids = c.score ? Object.keys(PARTS) : [...TRACK_IDS.slice(0, TRACK_IDS.indexOf('stab') + 1), 'hook', ...TRACK_IDS.slice(TRACK_IDS.indexOf('stab') + 1)];
-  return [...ids.filter((id) => c.notes[id]?.length), 'fx'];
+  return [...ids.filter((id) => c.notes[id]?.length), ...(vocalStem(state) ? ['sung'] : []), 'fx'];
 }
 
 // Re-routes everything that would reach engine.mix / engine.duck into per-stem sums on its own channel pair.
@@ -80,6 +81,7 @@ export function router(want, { prebus = false } = {}) {
         sums[id] = sum;
       });
       for (const id of TRACK_IDS) owner.set(E.ch[id].pan, id);
+      owner.set(E.vocalBus, 'sung');
       for (const [src, dst] of conns) if (dst === E.mix || dst === E.duck) { src.disconnect(dst); route(src, dst); }
       // The hook plays through a copy of the CHORDS channel (same level, pan and sends) so it gets its own stem.
       const S = E.ch.stab, g = (v = 1) => { const n = ctx.createGain(); n.gain.value = v; return n; };

@@ -151,10 +151,11 @@ function metallicBuf(mul, sr) {
 }
 
 export class Engine {
-  constructor(ctx, state, { realtime = true } = {}) {
+  constructor(ctx, state, { realtime = true, vocal = null } = {}) {
     this.ctx = ctx;
     this.state = state;
     this.realtime = realtime;
+    this.vocalOf = vocal;
     this.noise = makeNoise(ctx, 2);
     this.buildMaster();
     this.buildFx();
@@ -199,6 +200,9 @@ export class Engine {
     this.mix.connect(this.djHP).connect(this.djLP).connect(this.arrLP).connect(this.glue).connect(this.satIn).connect(this.sat)
       .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.clip).connect(this.secGain).connect(this.out);
     this.out.connect(c.destination);
+    // The neural singer's stem (vocal(), js/sing.js): into the mix bus, so the master chain's loudness targets hold.
+    this.vocalBus = this.gain(0);
+    this.vocalBus.connect(this.mix);
     if (this.realtime) {
       this.analyser = c.createAnalyser();
       this.analyser.fftSize = 4096;
@@ -1774,8 +1778,40 @@ export class Engine {
     }
   }
 
+  // The sung vocal stem: bar `pos` of the song starts at t. It keeps playing across consecutive bars and restarts only when
+  // playback jumps (loop, seek, tempo change); sample 0 of the stem is the song's first downbeat, shifted by the trim.
+  vocal(t, pos) {
+    const v = pos >= 0 ? this.vocalOf?.(this.s) : null, cur = this.vocalNow;
+    if (cur && v && cur.buf === v.buf && cur.next === pos && cur.sd === this.stepDur && cur.ms === v.ms) {
+      cur.next = pos + 1;
+      this.vocalBus.gain.setTargetAtTime(v.gain, t, 0.02);
+      return;
+    }
+    this.vocalStop(t);
+    const off = v ? pos * 16 * this.stepDur - v.ms / 1000 : 0;
+    if (!v || off >= v.buf.duration) return;
+    if (!this.vocalRev) { this.vocalRev = this.gain(0.16); this.vocalBus.connect(this.vocalRev).connect(this.revIn); }
+    const src = this.ctx.createBufferSource(), g = this.ctx.createGain();
+    src.buffer = v.buf;
+    if (off > 0.001) { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + 0.012); }
+    src.connect(g).connect(this.vocalBus);
+    this.vocalBus.gain.setValueAtTime(v.gain, t);
+    if (off < 0) src.start(t - off); else src.start(t, off);
+    this.vocalNow = { src, g, buf: v.buf, next: pos + 1, sd: this.stepDur, ms: v.ms };
+  }
+
+  vocalStop(t = this.ctx.currentTime) {
+    const cur = this.vocalNow;
+    if (!cur) return;
+    this.vocalNow = null;
+    cur.g.gain.cancelScheduledValues(t);
+    cur.g.gain.setTargetAtTime(0, t, 0.008);
+    try { cur.src.stop(t + 0.06); } catch { /* not started */ }
+  }
+
   panic() {
     const now = this.ctx.currentTime;
+    this.vocalStop(now);
     this.handoffCancel();
     this.breakOpen(now);
     this.acidRelease(now);
@@ -1887,6 +1923,7 @@ export class Sequencer {
     this.advanceBar(abs, t);
     if (this.finished && this.songBars) return this.cur;
     const n = this.songBars || 0, pos = n ? (this.chainPos - 1) % n : -1, lf = this.liftFrom;
+    if (abs % 16 === 0) e.vocal(t, pos);
     const pat = patternAt(s.patterns[this.cur], pos);
     const bar = Math.floor(abs / 16), vary = s.master.vary || 0;
     e.harm = pat.prog?.length ? pat.prog[bar % pat.prog.length] : null;
