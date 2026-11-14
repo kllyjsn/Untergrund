@@ -6,9 +6,9 @@ development), `songPlan` / `applySongPlan` in `js/state.js`. Benchmark: `test/lo
 below on every style with fixed seeds.
 
 ## Before
-Measured with fixed seeds: hyperpop 1:54-2:08, drill/trap about 2:18, UK garage 2:13-2:28, euphoric and deep house
-2:17-2:40, rock 2:25-2:43, D&B 2:38, ambient 2:00-2:26. A second verse played the first verse's pattern unchanged,
-and nothing separated the last chorus from the first except the key lift, which only some styles get.
+Measured with fixed seeds on main: hyperpop 1:54-2:08, trap and drill about 2:18, UK garage 2:13-2:28, euphoric and deep
+house 2:17-2:40, rock 2:25-2:43, D&B 2:38, ambient 2:25. A second verse played the first verse's pattern unchanged.
+Only the key lift, which some styles get, set the last chorus apart from the first.
 
 ## Principles (each one is tested)
 
