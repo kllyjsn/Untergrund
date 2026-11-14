@@ -17,7 +17,7 @@ export const VOCAL_STYLE_DB = { pop: 13.7, rnb: 8.5, folk: 3.5 };
 export const vocalDb = (state) => (VOCAL_STYLE_DB[state?.artist?.style] ?? VOCAL_BASE_DB) + (state?.sing?.db || 0);
 // The vocal's channel strip per genre (js/vocal-chain.js, Engine.vocalSends; docs/singer.md#vocal-chain): high-pass Hz,
 // presence [Hz, dB], de-esser (band from hz, at most db cut, past `over` dB re the sung level), compression (threshold
-// re the sung level, ratio), reverb (a plate of `sec` seconds, or the band's room) and delay (beats, feedback) sends,
+// re the sung level, ratio), reverb (a plate of `sec` seconds, or a short room) and delay (beats, feedback) sends,
 // and carve: the dB the CHORDS channel (keys, guitars) dips at hz while the vocal sings.
 export const VOCAL_FX = {
   pop: { hp: 110, presence: [3800, 2.5], deess: { hz: 6500, db: 8, over: -10 }, comp: { thr: -6, ratio: 2.5 },

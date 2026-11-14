@@ -111,7 +111,7 @@ defaults.
 all play that copy. The chain runs high-pass → presence peak → de-esser (a sidechain above `deess.hz` pulls a high shelf down by up to
 `deess.db` when it passes `deess.over` dB re the sung level) → RMS compressor (10/150 ms, 6 dB knee). The result is
 then matched back to the stem's sung RMS, so the level calibration above still holds. `Engine.vocalSends()` adds a
-plate (a convolver IR of `reverb.sec`) or the band's room, plus a filtered (280 Hz–4.8 kHz) tempo-synced delay. Both
+plate (a convolver IR of `reverb.sec`) or a short, darker room (its own IR, 0.8 s unless `reverb.sec` is set), plus a filtered (280 Hz–4.8 kHz) tempo-synced delay. Both
 return through `Engine.vocalOut`, so they follow the vocal's level and land in the `sung-vocal` stem. While the stem
 sings, the CHORDS channel (keys, pads, guitars) gets a peaking cut of `carve.db` at `carve.hz` (Q 0.8). It follows
 the same singing envelope as the band duck and rests at 0 dB.

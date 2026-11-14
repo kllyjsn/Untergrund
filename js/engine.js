@@ -2008,26 +2008,27 @@ export class Engine {
     }
   }
 
-  // The vocal's reverb (a plate, or the room) and tempo-synced slap/delay sends, built on first use, set per genre
+  // The vocal's reverb (a plate, or a short room) and tempo-synced slap/delay sends, built on first use, set per genre
   // (VOCAL_FX in js/sing.js): they return through vocalOut, so they ride the vocal's level and its stem.
   vocalSends(fx) {
     const c = this.ctx, now = c.currentTime;
     if (!this.vocalFx) {
-      const plateSend = this.gain(0), plate = c.createConvolver(), roomSend = this.gain(0), dlySend = this.gain(0);
+      const plateSend = this.gain(0), plate = c.createConvolver(), dlySend = this.gain(0);
       const dly = c.createDelay(2), fb = this.gain(0), hp = this.filter('highpass', 280), lp = this.filter('lowpass', 4800);
       this.vocalBus.connect(plateSend).connect(this.filter('highpass', 220)).connect(plate).connect(this.vocalOut);
-      this.vocalBus.connect(roomSend).connect(this.roomIn);
       this.vocalBus.connect(dlySend).connect(hp).connect(lp).connect(dly).connect(this.vocalOut);
       dly.connect(fb).connect(hp);
-      this.vocalFx = { plateSend, plate, roomSend, dlySend, dly, fb, sec: 0 };
+      this.vocalFx = { plateSend, plate, dlySend, dly, fb, ir: '' };
     }
     const F = this.vocalFx, r = fx?.reverb || { kind: 'plate', sec: 1.8, send: 0.16 }, d = fx?.delay;
-    if (r.kind === 'plate' && F.sec !== r.sec) {
-      F.plate.buffer = makeIR(c, r.sec, { decay: 3.2, brightStart: 0.9, brightEnd: 0.35, predelay: 0.012, seed: 97 });
-      F.sec = r.sec;
+    // A plate, or a short, darker room: its own IR so the reverb stays in the vocal's stem.
+    const room = r.kind === 'room', sec = r.sec || (room ? 0.8 : 1.8), ir = `${r.kind}:${sec}`;
+    if (F.ir !== ir) {
+      F.plate.buffer = makeIR(c, sec, room ? { decay: 4.5, brightStart: 0.6, brightEnd: 0.2, predelay: 0.006, seed: 89 }
+        : { decay: 3.2, brightStart: 0.9, brightEnd: 0.35, predelay: 0.012, seed: 97 });
+      F.ir = ir;
     }
-    F.plateSend.gain.setTargetAtTime(r.kind === 'plate' ? r.send : 0, now, 0.02);
-    F.roomSend.gain.setTargetAtTime(r.kind === 'room' ? r.send : 0, now, 0.02);
+    F.plateSend.gain.setTargetAtTime(r.send, now, 0.02);
     F.dly.delayTime.setTargetAtTime(d ? Math.min(1.9, (d.beats * 60) / this.state.bpm) : 0.25, now, 0.02);
     F.dlySend.gain.setTargetAtTime(d ? d.send : 0, now, 0.02);
     F.fb.gain.setTargetAtTime(d ? d.fb : 0, now, 0.02);
