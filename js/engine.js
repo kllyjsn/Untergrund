@@ -119,8 +119,32 @@ export function guitarGrip(root, iv, prev = null) {
   return best;
 }
 
+// Generated impulse responses: [seconds, makeIR options]. The live variants replace the band and room spaces in a band mix.
+const IR = {
+  room: [0.7, { decay: 2.4, brightStart: 0.6, brightEnd: 0.15, predelay: 0.004, seed: 53 }],
+  band: [1.2, { decay: 2.8, brightStart: 0.7, brightEnd: 0.2, predelay: 0.009, seed: 71 }],
+  liveRoom: [0.6, { decay: 2.6, brightStart: 0.7, brightEnd: 0.2, predelay: 0.003, seed: 53, er: { n: 10, span: 0.025, gain: 0.6 } }],
+  liveBand: [1.1, { decay: 3.2, brightStart: 0.75, brightEnd: 0.18, predelay: 0.006, seed: 71, er: { n: 14, span: 0.045, gain: 0.5 } }],
+};
+
+// Band channel strips, [lowshelf, bell, bell, highshelf] as [Hz, dB, Q]. No per-channel compressors: on the
+// sampled kit and bass they flattened the played dynamics and pushed the bass under the kick; the bus glue levels the band.
+const BAND_STRIP = {
+  kick: { eq: [[60, 1.5], [380, -4, 1.1], [3800, 2.5, 1], null] },
+  snare: { eq: [[110, -3], [220, 1.5, 1.4], [5000, 2.5, 0.9], [11000, 2]] },
+  clap: { eq: [[160, -4], null, [4500, 0.5, 1], null] },
+  ch: { eq: [[420, -6], null, [3500, -2, 1.2], [10000, 1]] },
+  oh: { eq: [[420, -6], null, [3500, -2, 1.2], [10000, 1]] },
+  ride: { eq: [[420, -5], null, [3000, -1.5, 1.2], [10000, 1]] },
+  perc: { eq: [[300, -4], null, null, [10000, 1.5]] },
+  acid: { eq: [[45, 1], [260, -3, 0.9], [850, 2, 1.2], [5000, -2]] },
+  stab: { eq: [[140, -2], [320, -3, 0.8], [2600, 1.5, 0.9], [9000, 2]] },
+};
+// Neo-soul's Rhodes and its hook lines voice low, around 250 Hz, so they get a deeper, lower low-mid cut there.
+const SOUL_STRIP = { ...BAND_STRIP, stab: { eq: [[140, -2], [250, -7, 0.9], [2600, 1.5, 0.9], [9000, 2]] } };
+
 const BAND_PLAY = {
-  piano: { gain: 4, len: 4, min: 1.2, max: 3, softBelow: 0.88, strum: 0.004, shift: 0, lo: 45, hi: 79, lp: 7000, rel: 0.18 },
+  piano: { gain: 4, len: 4, min: 1.2, max: 3, pedal: 5, softBelow: 0.88, strum: 0.004, shift: 0, lo: 45, hi: 79, lp: 7000, rel: 0.18 },
   gtr: { gain: 4.4, len: 2.6, min: 0.6, softBelow: 0.75, strum: 0.006, shift: 0, lo: 40, hi: 74, lp: 2900, peak: [3600, 1.2, -6], soft: 1100, fade: 0.008, rel: 0.22, grip: true, even: 0.2 },
   horn: { gain: 2.2, len: 1.2, min: 0.25, strum: 0.003, shift: 12, lo: 53, hi: 81, lp: 4800, rel: 0.09 },
   str: { gain: 1.2, len: 2, min: 0.5, strum: 0, shift: 0, hold: true, lo: 55, hi: 79, lp: 4200, rel: 0.25 },
@@ -272,14 +296,14 @@ export class Engine {
     // Short shared room so the whole band sounds like it plays in one space
     this.roomIn = this.gain(1);
     this.roomConv = c.createConvolver();
-    this.roomConv.buffer = makeIR(c, 0.7, { decay: 2.4, brightStart: 0.6, brightEnd: 0.15, predelay: 0.004, seed: 53 });
+    this.roomConv.buffer = makeIR(c, ...IR.room);
     this.roomHP = this.filter('highpass', 160);
     this.roomOut = this.gain(0);
     this.roomIn.connect(this.roomHP).connect(this.roomConv).connect(this.roomOut).connect(this.mix);
     // Recorded players get the body and air of a real room around them; dry mono samples read as a plug-in.
     this.bandIn = this.gain(1);
     this.bandConv = c.createConvolver();
-    this.bandConv.buffer = makeIR(c, 1.2, { decay: 2.8, brightStart: 0.7, brightEnd: 0.2, predelay: 0.009, seed: 71 });
+    this.bandConv.buffer = makeIR(c, ...IR.band);
     this.bandIn.connect(this.filter('highpass', 140)).connect(this.bandConv).connect(this.filter('lowpass', 7000))
       .connect(this.gain(0.45)).connect(this.mix);
 
@@ -329,13 +353,20 @@ export class Engine {
       const dly = this.gain(0);
       // The bass gets its own kick sidechain (see duckAt) on top of the shared pump.
       const sc = t.id === 'acid' ? this.gain(1) : null;
-      (sc ? input.connect(sc) : input).connect(level).connect(pan);
+      // Channel strip: low shelf, two bells and an air shelf, flat (and bit-transparent) until a band mix sets it.
+      const strip = [this.filter('lowshelf', 120), this.filter('peaking', 300, 1), this.filter('peaking', 3000, 1), this.filter('highshelf', 9000)];
+      strip.forEach((f) => { f.gain.value = 0; });
+      strip.reduce((a, f) => a.connect(f), input);
+      const post = sc || level;
+      if (sc) sc.connect(level);
+      strip[3].connect(post);
+      level.connect(pan);
       pan.connect(DUCKED.has(t.id) ? this.duck : this.mix);
       pan.connect(rev).connect(this.revIn);
       if (t.id !== 'vox') pan.connect(this.roomIn);
       pan.connect(dly).connect(this.dlyIn);
       pan.connect(this.throwBus);
-      const ch = { input, level, pan, rev, dly, sc };
+      const ch = { input, level, pan, rev, dly, sc, strip, post };
       if (t.id === 'stab') {
         ch.band = this.gain(1);
         ch.band.connect(input);
@@ -396,6 +427,34 @@ export class Engine {
     // Per-genre (and per-masterwork) make-up gain into the limiter so every song lands on its loudness target (js/loudness.js).
     const piece = this.state.patterns?.find((p) => p.score?.piece)?.score.piece;
     this.setTo(this.limIn.gain, 0.5 * makeupGain(this.state.artist?.style, piece), true);
+    this.applyStrips();
+  }
+
+  // A band mix is EQ'd per instrument the way an engineer would: drums lose the boxy low mids, the bass gets
+  // growl over mud, the chord instruments are carved out of 200-500 Hz and given presence.
+  // Club styles keep flat strips: their voices are synthesized to sit already.
+  applyStrips() {
+    const pk = pocketOf(this.state.master), mode = pk?.band ? pk.name : this.soulBand() ? 'SOUL' : null;
+    if (mode === this.stripMode) return;
+    // A band plays in a live room: the band and drum spaces get early reflections and a shorter, drier tail.
+    // During a handoff (this.at set) the change lands on the incoming song's downbeat, not when it is queued.
+    const c = this.ctx, at = this.at > c.currentTime ? this.at : 0;
+    const set = (prm, v) => (at ? prm.setValueAtTime(v, at) : (prm.value = v));
+    if (!!mode !== !!this.stripMode) {
+      const swap = () => {
+        this.bandConv.buffer = makeIR(c, ...IR[mode ? 'liveBand' : 'band']);
+        this.roomConv.buffer = makeIR(c, ...IR[mode ? 'liveRoom' : 'room']);
+      };
+      if (at && !(typeof OfflineAudioContext !== 'undefined' && c instanceof OfflineAudioContext)) setTimeout(swap, (at - c.currentTime) * 1000); else swap();
+    }
+    this.stripMode = mode;
+    for (const id of TRACK_IDS) {
+      const ch = this.ch[id], S = (mode && (mode === 'SOUL' ? SOUL_STRIP : BAND_STRIP)[id]) || null;
+      ch.strip.forEach((f, k) => {
+        const b = S?.eq?.[k];
+        if (b) { set(f.frequency, b[0]); set(f.gain, b[1]); if (b[2]) set(f.Q, b[2]); } else set(f.gain, 0);
+      });
+    }
   }
 
   setParam(tid, id, v) { this.state.params[tid][id] = v; this.applyParam(tid, id); }
@@ -428,6 +487,7 @@ export class Engine {
   applyMaster(id, immediate = false) {
     const m = this.state.master;
     const v = m[id];
+    if (id === 'pocket' || id === 'kit') this.applyStrips();
     if (id === 'dj') {
       const { hp, lp, q } = djFilter(v);
       this.setTo(this.djHP.frequency, hp, immediate); this.setTo(this.djLP.frequency, lp, immediate);
@@ -665,7 +725,9 @@ export class Engine {
       const end = Math.min(dur, Math.max(0.02, left - SAMPLE_FADE)), rel = Math.min(rel0, (left - end) / 4.6);
       g.gain.setValueAtTime(level, t + end);
       g.gain.setTargetAtTime(0, t + end, rel);
-      s.stop(t + Math.min(end + Math.max(0.4, rel * 8), left + 0.01));
+      const stop = t + Math.min(end + Math.max(0.4, rel * 8), left + 0.01);
+      s.stop(stop);
+      return { s, g, stop };
     }
     return { s, g };
   }
@@ -705,17 +767,21 @@ export class Engine {
 
   // `lift` brings the softly recorded cymbals up to sit over a drum machine in HYBRID.
   sampledHit(kit, id, t, v, lift = 1) {
-    const rr = (this.rr = (this.rr || 0) + 1);
-    const drift = 1 + (hash(rr, 7) - 0.5) * 0.012;
+    const all = (this.rr = (this.rr || 0) + 1), rrs = (this.rrs ||= {});
+    const drift = 1 + (hash(all, 7) - 0.5) * 0.012;
+    // Four takes round-robin the way a sampler does it: a random one, never the take just played.
+    const take = (key, n) => { const last = rrs[key], k = last == null ? Math.floor(hash(all, 11) * n) : (last + 1 + Math.floor(hash(all, 11) * (n - 1))) % n; rrs[key] = k; return k + 1; };
     if (id === 'kick') {
-      const loud = v > 0.75;
-      this.liveHit(kit, `kick_v${loud ? 4 : 2}_${(rr % 2) + 1}`, 'kick', t, 0.95 * v ** 1.2, drift);
+      const layer = v > 0.82 ? 4 : v > 0.62 ? 3 : 2;
+      this.liveHit(kit, `kick_v${layer}_${take(`kick${layer}`, layer === 3 ? 2 : 4)}`, 'kick', t, 0.95 * v ** 1.2, drift);
       this.duckAt(t, v * 0.7);
       return true;
     }
     if (id === 'snare') {
       // Center hits only: a rimshot dropped onto random loud backbeats clanks like a cross-stick.
-      const name = v > 0.85 ? 'snare_v34' : v > 0.65 ? 'snare_v24' : v > 0.45 ? 'snare_v14' : 'snare_v6';
+      // Each velocity band alternates two adjacent recorded layers (the kit has no snare round robins); ghosts get the lightest stroke.
+      const pair = v > 0.85 ? [34, 33] : v > 0.65 ? [24, 23] : v > 0.45 ? [14, 13] : v > 0.25 ? [6, 5] : [2, 5];
+      const name = `snare_v${pair[take(`snare${pair[0]}`, 2) - 1]}`;
       this.liveHit(kit, name, 'snare', t, 0.85 * v ** 1.4, drift);
       return true;
     }
@@ -723,16 +789,16 @@ export class Engine {
       // A darker TONE is a lighter touch: the hardest stick layer ticks like a clank under soft keys.
       const touch = Math.min(1, this.state.params.ch.tone / LIVE_REF.ch.tone);
       const layer = Math.max(1, Math.min(4, Math.ceil(touch < 1 ? 4 * v ** 1.5 * touch : v * 4)));
-      this.liveHit(kit, `hh_v${layer}_${(rr % 2) + 1}`, 'ch', t, 0.32 * lift * v ** 1.5, drift);
+      this.liveHit(kit, `hh_v${layer}_${take(`hh${layer}`, 4)}`, 'ch', t, 0.32 * lift * v ** 1.5, drift);
       return true;
     }
     if (id === 'oh') {
-      this.liveHit(kit, v > 0.7 ? 'hh_open' : 'hh_half', 'oh', t, 0.3 * lift * v, drift, 0.15 + this.state.params.oh.decay * 0.9);
+      this.liveHit(kit, (v > 0.7 ? 'hh_open' : 'hh_half') + (take(v > 0.7 ? 'open' : 'half', 2) === 2 ? '_2' : ''), 'oh', t, 0.3 * lift * v, drift, 0.15 + this.state.params.oh.decay * 0.9);
       return true;
     }
     if (id === 'ride') {
       const layer = v > 0.85 ? 3 : v > 0.55 ? 2 : 1;
-      const name = layer === 2 ? `ride_v2_${(rr % 2) + 1}` : `ride_v${layer}_1`;
+      const name = layer === 2 ? `ride_v2_${take('ride2', 2)}` : `ride_v${layer}_1`;
       this.liveHit(kit, name, 'ride', t, 0.3 * lift * v ** 1.3, drift);
       return true;
     }
@@ -1124,8 +1190,9 @@ export class Engine {
     const muted = palm && MUTE_LAYER[base] && this.rec(MUTE_LAYER[base]);
     if (muted) set = muted;
     const tone = Math.max(-6, Math.min(3, 3 * Math.log2(p.cutoff / 1500))) - (palm ? (muted ? 1.5 : 4) : 0);
-    const dur = palm ? (muted ? Math.min(0.45, this.stepDur * 3) : Math.min(0.14, this.stepDur * 1.2)) : Math.min(R.max ?? Infinity, Math.max(R.hold ? this.stepDur * 4 : R.min, p.decay * R.len));
-    const grip = chord ? guitarGrip(root, iv, this.lastGrip) : iv.map((n) => root + n);
+    const max = (this.stripMode && R.pedal) || R.max || Infinity;
+    const dur = palm ? (muted ? Math.min(0.45, this.stepDur * 3) : Math.min(0.14, this.stepDur * 1.2)) : Math.min(max, Math.max(R.hold ? this.stepDur * 4 : R.min, p.decay * R.len * (this.stripMode && R.pedal ? 1.6 : 1)));
+    const grip = chord ? guitarGrip(root, iv, this.lastGrip) : iv.map((n) => root + n), pedal = this.pedalFor(kind, t, iv, root);
     const same = chord && this.lastGrip && grip.join() === this.lastGrip.join();
     const gap = live ? this.stabGap() : 0;
     if (hand?.play === 'pick' || hand?.play === 'roll') return this.pickGrip(kind, set, t, v, grip, same, gap, dur, outs[0], tone, hand.play === 'roll', pk);
@@ -1144,6 +1211,8 @@ export class Engine {
     // A strummer starts the stroke a little early so the middle of the chord, not its last string, lands on the beat.
     const lead = chord ? Math.min((notes.length - 1) * strum * 0.5, Math.max(0, t - this.ctx.currentTime)) : 0;
     // A struck string stops its last note; on an upstroke of the same grip the low strings ring on.
+    // Moving to a new grip, the fretting hand slides over the wound strings: a short squeak, now and then.
+    if (chord && this.stripMode && !same && this.lastGrip && !palm && hash(t, 25) < 0.45) this.squeak(t - lead - 0.05, v * R.gain, outs[0]);
     if (chord) {
       const keep = [];
       for (const h of this.gripHeld || []) {
@@ -1166,6 +1235,7 @@ export class Engine {
         const len = R.grip && !chord ? Math.min(ring, 0.9) : ring;
         const h = this.recordedNote(set, at, lvl, m + R.shift + cents, len, o, d ? 0 : tone, kind, v);
         if (R.grip && h) { h.m = m; h.at = at; h.end = at + len; (this.gripHeld ||= []).push(h); }
+        if (pedal && h) { h.end ??= at + len; pedal.push(h); }
       });
     });
     if (hand?.play === 'chop') this.scratch(kind, base, t, v, grip.slice(-3), gap, outs, pk);
@@ -1281,6 +1351,27 @@ export class Engine {
     return tr.inp;
   }
 
+  // A pianist in a band holds the pedal through a chord and changes it on the next one: a new chord damps the
+  // last within ~80 ms, so notes can ring their full length without blurring into the change.
+  pedalFor(kind, t, iv, root) {
+    if (!this.stripMode || !BAND_PLAY[kind]?.pedal) return null;
+    const key = iv.map((n) => (root + n) % 12).sort((a, b) => a - b).join();
+    if (key !== this.pedalKey) {
+      for (const h of this.pedalHeld || []) { h.g.gain.cancelScheduledValues(t); h.g.gain.setTargetAtTime(0, t, 0.03); }
+      this.pedalHeld = []; this.pedalKey = key;
+    } else if (this.pedalHeld) this.pedalHeld = this.pedalHeld.filter((h) => (h.stop ?? h.end) > t);
+    return (this.pedalHeld ||= []);
+  }
+
+  // A fret-hand squeak: band-passed noise swept up the wound strings, ~25-35 dB under the strum.
+  squeak(t, v, out) {
+    if (t <= this.ctx.currentTime) return;
+    const len = 0.06 + hash(t, 26) * 0.05, n = this.noiseSrc(t, len), bp = this.filter('bandpass', 1500 + hash(t, 27) * 900, 5), g = this.gain(0);
+    bp.frequency.setValueAtTime(bp.frequency.value, t); bp.frequency.exponentialRampToValueAtTime(bp.frequency.value * 1.9, t + len);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(Math.min(0.2, 0.012 * v), t + len * 0.4); g.gain.linearRampToValueAtTime(0, t + len);
+    n.connect(bp).connect(g).connect(out);
+  }
+
   // Kept in the register the instrument was played in; every note lands a little differently and softer
   // notes are darker, the way hammers and plectrums behave. Released through a damper, not a gate.
   recordedNote(set, t, level, m, dur, out, tone = 0, kind = null, vel = 1) {
@@ -1345,6 +1436,8 @@ export class Engine {
     let [c, buf] = set[0];
     for (const [cm, b] of set) if (Math.abs(cm - m) < Math.abs(c - m)) [c, buf] = [cm, b];
     const ref = LIVE_REF.acid, fx = { shelves: [[900, Math.max(-24, Math.min(10, 8 * Math.log2(p.cutoff / ref.cutoff)))]], drive: Math.max(0, p.drive - ref.drive) * 1.4, release: 0.05 };
+    // A harder pluck is brighter: the finger digs in and the string's upper partials speak.
+    if (this.stripMode) { const vel = Math.min(1.2, (this.noteVel ?? 1) * (st.a ? 1.15 : 1)); fx.lp = 1400 + 3600 * vel * vel; }
     this.playBuf(buf, t, 1.1 * (st.a ? 1.15 : 1) * (this.noteVel ?? 1), this.ch.acid.input, Math.pow(2, (m - c) / 12) * (1 + (hash(t * 1000, 5) - 0.5) * 0.002), len, fx);
   }
 
