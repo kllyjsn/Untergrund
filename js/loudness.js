@@ -105,7 +105,7 @@ export const MAKEUP_DB = {
   ukg: 2.1, euphoric: 3.5, neosoul: 2.4, boombap: 0.7, breaks: 3.7, electro: 3.9, dnb: 4.3, trance: 3.8,
   ambient: 2.4, amapiano: 3.0, afrobeats: 2.5, reggaeton: 3.4, bailefunk: 2.8, trap: 3.0, drill: 4.2,
   jerseyclub: 4.3, hyperpop: 3.2, symphony: 6.5, concerto: 5.3, nocturne: 11.9, repertoire: 3.6,
-  pop: 3.2, rnb: 3.4, rock: 3.3, folk: 0, country: 1,
+  pop: 3.2, rnb: 3.4, rock: 3.9, folk: 0, country: 2.4,
 };
 // REPERTOIRE masterworks differ from one another by several LU: a per-score trim (dB) on top of the style's make-up
 // lands each on -16 LUFS. Measured on the whole score with node scripts/loudness.mjs --pieces.
