@@ -140,6 +140,8 @@ const BAND_STRIP = {
   acid: { eq: [[45, 1], [260, -3, 0.9], [850, 2, 1.2], [5000, -2]] },
   stab: { eq: [[140, -2], [320, -3, 0.8], [2600, 1.5, 0.9], [9000, 2]] },
 };
+// Neo-soul's Rhodes and its hook lines voice low, around 250 Hz, so they get a deeper, lower low-mid cut there.
+const SOUL_STRIP = { ...BAND_STRIP, stab: { eq: [[140, -2], [250, -7, 0.9], [2600, 1.5, 0.9], [9000, 2]] } };
 
 const BAND_PLAY = {
   piano: { gain: 4, len: 4, min: 1.2, max: 3, pedal: 5, softBelow: 0.88, strum: 0.004, shift: 0, lo: 45, hi: 79, lp: 7000, rel: 0.18 },
@@ -419,7 +421,7 @@ export class Engine {
     }
     this.stripMode = mode;
     for (const id of TRACK_IDS) {
-      const ch = this.ch[id], S = (mode && BAND_STRIP[id]) || null;
+      const ch = this.ch[id], S = (mode && (mode === 'SOUL' ? SOUL_STRIP : BAND_STRIP)[id]) || null;
       ch.strip.forEach((f, k) => {
         const b = S?.eq?.[k];
         if (b) { set(f.frequency, b[0]); set(f.gain, b[1]); if (b[2]) set(f.Q, b[2]); } else set(f.gain, 0);
