@@ -214,9 +214,12 @@ await t('a sung mix stays on the instrumental\'s loudness: the band dips under t
   const band = await run(null), at0 = Math.round(0.05 * SR);
   // A mock singer: the band played backwards (its spectrum, uncorrelated with it) in 2.5 s phrases with 1.5 s breaths.
   const gate = (x) => x % (4 * SR) < 2.5 * SR, stem = new AudioBuffer(1, len, SR), d = stem.getChannelData(0);
+  for (let x = 0; x + at0 < len; x++) if (gate(x)) d[x] = band[len - 1 - x];
+  // It sits VOCAL_OVER_BAND_DB over the band as mixed (dipped) while it sings, as the per-style levels are set.
+  const duck = 10 ** (-VOCAL_DUCK_DB / 20), dipped = await run((s) => (s?.bpm ? { buf: stem, gain: 0, duck, ms: 0 } : null));
   let pv = 0, pb = 0;
-  for (let x = 0; x + at0 < len; x++) if (gate(x)) { d[x] = band[len - 1 - x]; pv += d[x] * d[x]; pb += band[x + at0] ** 2; }
-  const duck = 10 ** (-VOCAL_DUCK_DB / 20), gain = duck * 10 ** (VOCAL_OVER_BAND_DB / 20) * Math.sqrt(pb / pv);
+  for (let x = 0; x + at0 < len; x++) if (gate(x)) { pv += d[x] * d[x]; pb += dipped[x + at0] ** 2; }
+  const gain = 10 ** (VOCAL_OVER_BAND_DB / 20) * Math.sqrt(pb / pv);
   const lu = (x) => loudness([x], SR).integrated, inst = lu(band);
   const sung = lu(await run((s) => (s?.bpm ? { buf: stem, gain, duck, ms: 0 } : null)));
   const hot = lu(await run((s) => (s?.bpm ? { buf: stem, gain, duck: 1, ms: 0 } : null)));
