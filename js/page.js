@@ -72,7 +72,10 @@ function trackView(track, artist, { localOnly = false } = {}) {
   const shareRelease = () => {
     const ref = analytics?.enabled ? (pageRef ||= newShareRef()) : '';
     share(ref ? `${url}?r=${ref}` : url, `${track.title} — ${artist?.name || track.artist || 'UNTERGRUND'}`)
-      .then((sent) => { if (sent) listens.act('share', heardPos, ref ? { ref } : {}); });
+      .then((sent) => {
+        if (sent) listens.share({ fp: songFingerprint(track.state), tid: track.id, style: track.style || '', src: arrivedVia ? 'shared' : 'release', surf: 'release',
+          ...(arrivedVia ? { via: arrivedVia } : {}) }, heardPos, ref ? { ref } : {});
+      });
   };
   if ('mediaSession' in navigator) navigator.mediaSession.metadata = new MediaMetadata({ title: track.title, artist: artist?.name || track.artist || 'UNTERGRUND', album: 'UNTERGRUND' });
   const by = artist ? h('a', { class: 'pp-by', href: `/a/${artist.handle}` }, artist.name) : h('span', { class: 'pp-by' }, track.artist || 'UNTERGRUND');

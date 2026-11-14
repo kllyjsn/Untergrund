@@ -51,6 +51,8 @@ export function cleanListen(l, p = {}) {
     ph: id(l.ph, /^[a-z0-9]{1,8}$/), bar: int(l.bar, 0, 9999, 0), bars: int(l.bars, 0, 9999, 0), sec: slug(l.sec), pct: int(l.pct, -1, 100, -1),
     ms: int(l.ms, 0, 864e5, 0), t: int(l.t, 0, 1e14, 0),
   };
+  // Only a share can stand alone (a link copied before pressing play); every other signal belongs to a listen.
+  if (!out.lis && kind !== 'share') return null;
   const co = COHORTS.includes(l.co) ? l.co : '', dev = DEVICES.includes(l.dev) ? l.dev : '';
   if (co) out.co = co;
   if (dev) out.dev = dev;
@@ -168,12 +170,15 @@ async function ingest(batch, kv, client, now) {
       const l = e.l;
       const rec = JSON.stringify({ at: new Date(now).toISOString(), sid: batch.sid, ...l });
       cmds.push(['LPUSH', `${P}:listen`, rec], ['LPUSH', `${P}:listen:${day}`, rec]);
-      // Per-genre per-day and per-song totals: what the improvement engine scores first.
-      if (l.style) cmds.push(['HINCRBY', `${P}:ls:${day}`, `${l.style}:${l.kind}`, 1], ['EXPIRE', `${P}:ls:${day}`, TTL]);
-      cmds.push(['HINCRBY', `${P}:fp:${l.fp}`, l.kind, 1], ['EXPIRE', `${P}:fp:${l.fp}`, TTL]);
+      // Per-genre per-day and per-song totals: what the improvement engine scores first. Rates divide them by starts,
+      // so a standalone share (no listen behind it) stays out of them and of `listen:<kind>`; the release loop reads it from the raw log.
+      if (l.lis) {
+        if (l.style) cmds.push(['HINCRBY', `${P}:ls:${day}`, `${l.style}:${l.kind}`, 1], ['EXPIRE', `${P}:ls:${day}`, TTL]);
+        cmds.push(['HINCRBY', `${P}:fp:${l.fp}`, l.kind, 1], ['EXPIRE', `${P}:fp:${l.fp}`, TTL]);
+      }
     }
     cmds.push(['HINCRBY', dk, e.n, 1]);
-    const dim = DIMENSION[e.n], v = dim && e.p[dim];
+    const dim = DIMENSION[e.n], v = dim && !(e.n === 'listen' && !e.l.lis) ? e.p[dim] : undefined;
     if (v !== undefined && v !== '') cmds.push(['HINCRBY', dk, `${e.n}:${v}`, 1]);
     if (batch.sid && !seen.has(e.n)) { seen.add(e.n); cmds.push(['PFADD', `${P}:u:${day}:${e.n}`, batch.sid], ['EXPIRE', `${P}:u:${day}:${e.n}`, TTL]); }
   }
@@ -308,8 +313,9 @@ export async function runDigest(kv, { now = Date.now(), webhook = '', fetchImpl 
   try {
     r = await improveReport(kv, { now, ...options });
     markdown = toMarkdown(r);
-    const digest = { day, generated: r.generated, coverage: r.coverage, totals: r.totals, findings: r.findings.slice(0, 10), experiments: r.experiments, running: r.running, markdown };
-    brief = { day, generated: r.generated, listens: r.totals.listens, findings: r.findings.length, experiments: r.experiments.length, running: r.running.map((x) => ({ id: x.id, status: x.status })) };
+    const digest = { day, generated: r.generated, coverage: r.coverage, totals: r.totals, findings: r.findings.slice(0, 10), experiments: r.experiments, running: r.running, loop: r.loop, markdown };
+    brief = { day, generated: r.generated, listens: r.totals.listens, findings: r.findings.length, experiments: r.experiments.length, running: r.running.map((x) => ({ id: x.id, status: x.status })),
+      loop: { sharesPerSong: r.loop.sharesPerSong, shareStarts: r.loop.shareOrigin.starts, creatorReturn7d: r.loop.creators.returnRate7d } };
     await kv([['SET', `${P}:digest`, JSON.stringify(digest)], ['LPUSH', `${P}:digests`, JSON.stringify(brief)], ['LTRIM', `${P}:digests`, 0, DIGESTS_KEPT - 1]]);
   } catch (err) {
     // A failed run must not use up the day: the next cron retry tries again. Only the run that set the marker clears it.

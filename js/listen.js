@@ -39,6 +39,7 @@ const rid = () => Array.from({ length: 10 }, () => ((Math.random() * 36) | 0).to
 // ctx (per listen): { fp, tid, seed, style, src, surf, ph, pt, arr, via?, xp?, arm? } (via: the share ref the listener arrived through) (xp/arm: js/experiments.js); pos (per signal): { bar, bars, sec }.
 export function createListens({ emit = () => {}, now = () => Date.now(), store = globalThis.localStorage } = {}) {
   let cur = null, last = null;
+  const soloShared = new Set();
   const heard = new Set(list(store, HEARD)), loved = new Set(list(store, LOVED)), downed = new Set(list(store, DOWNED));
   const played = (l) => l.ms + (l.since != null ? now() - l.since : 0);
   const pctOf = (pos) => (pos?.bars > 0 ? Math.max(0, Math.min(100, Math.round((100 * pos.bar) / pos.bars))) : -1);
@@ -92,6 +93,20 @@ export function createListens({ emit = () => {}, now = () => Date.now(), store =
     return send(kind, l, l === cur && !l.held ? pos : l.pos, extra);
   }
 
+  // A share: on the song being heard (or just heard) like any act; with no listen behind it (a link copied before
+  // pressing play) it goes out standalone, without `lis`, carrying the shared song's fp/tid, its surface and the ref.
+  function share(song, pos, extra = {}) {
+    if (target()) return act('share', pos, extra);
+    // One share per minted ref, like ONCE on a listen: one share sheet can send a link and a video under the same ref.
+    const key = `${song?.fp}:${extra.ref || ''}`;
+    if (!song?.fp || soloShared.has(key)) return null;
+    soloShared.add(key);
+    const rec = { v: LISTEN_VERSION, lis: '', fp: song.fp, tid: song.tid || '', seed: Number.isFinite(song.seed) ? song.seed : -1, style: song.style || '',
+      src: song.src || '', surf: song.surf || '', ph: '', bar: 0, bars: 0, sec: '', pct: -1, ms: 0, ...(song.via ? { via: song.via } : {}), ...extra };
+    emit('share', rec);
+    return rec;
+  }
+
   const isLoved = (fp) => !!fp && loved.has(fp);
   const isDowned = (fp) => !!fp && downed.has(fp);
   const at = (l, pos) => (l === cur && !l.held ? pos : l.pos);
@@ -125,5 +140,5 @@ export function createListens({ emit = () => {}, now = () => Date.now(), store =
     return send('rewind', l, pos, { to: Math.max(0, Math.round(to)) });
   }
 
-  return { begin, end, hold, act, toggleLove, toggleDown, reason, rewind, isLoved, isDowned, current: () => cur, recent: target };
+  return { begin, end, hold, act, share, toggleLove, toggleDown, reason, rewind, isLoved, isDowned, current: () => cur, recent: target };
 }

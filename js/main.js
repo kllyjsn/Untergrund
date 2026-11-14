@@ -413,7 +413,8 @@ onTrack((name, p) => {
   const kind = name === 'publish' ? (['song', 'soundcloud'].includes(p.kind) && 'publish')
     : name === 'share_link_copied' ? (SONG_SHARES.has(p.what) && 'share')
     : name === 'video_export' ? 'share' : name === 'room_go_live' ? 'live' : /^export_(wav|stems|midi)$/.test(name) ? 'keep' : null;
-  if (kind) listens.act(kind, listenPos(), kind === 'share' && p.ref ? { ref: p.ref } : {});
+  if (kind === 'share') listens.share(sharingCtx(), listenPos(), p.ref ? { ref: p.ref } : {});
+  else if (kind) listens.act(kind, listenPos());
 });
 addEventListener('pagehide', () => { if (listens.end(listenPos(), { force: true })) flushEvents(); });
 
@@ -677,7 +678,10 @@ function currentSong() {
   const a = state.artist || {};
   return { state: clone(state), title: a.title || 'Untitled set', artist: a.name || 'UNTERGRUND', style: STYLES[a.style] ? a.style : style, remixOf: state.remixOf };
 }
-function showShare(song = currentSong(), source = 'studio') { openShare({ song, toast, download, source, hue: hue(song.style), beforeExport: () => { if (playing) stop(); } }); }
+// The song whose share sheet is open, so a share made before pressing play still names the song it shared.
+let sharing = null;
+const sharingCtx = () => (sharing?.song?.state ? { fp: songFingerprint(sharing.song.state), tid: sharing.song.trackId || '', style: sharing.song.style || '', surf: sharing.source || '' } : null);
+function showShare(song = currentSong(), source = 'studio') { sharing = { song, source }; openShare({ song, toast, download, source, hue: hue(song.style), beforeExport: () => { if (playing) stop(); } }); }
 
 // Play a shared or jukebox song in place; leaveGuest() puts the listener's own project back.
 function listen(song, src = 'shared', via = '') {
