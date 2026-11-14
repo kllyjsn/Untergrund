@@ -137,7 +137,7 @@ Vocal vs band is mix − band rendered with the vocal at −300 dB, over frames 
 | R&B, before | felix | −11.3 / −1.9 | −11.2 / −1.9 | +1.5 dB | 22 c / 18 c | 14.5 dB | 1307 Hz | +22, 38, 65 ms |
 | R&B, after | rex | −11.2 / −1.9 | −11.2 / −1.9 | +1.8 dB | 15 c / 19 c | 16.5 dB | 1535 Hz | +1, 2, 8 ms |
 | Folk, before | gwen | −14.9 / −1.9 | −14.7 / −1.9 | +1.4 dB | 9 c / 15 c | 15.3 dB | 1705 Hz | +30, 32, 114 ms |
-| Folk, after | ariadne | −15.0 / −1.9 | −14.7 / −1.9 | +1.3 dB | 7 c / 13 c | 17.5 dB | 1498 Hz | −3, 3, 9 ms |
+| Folk, after | ariadne | −15.0 / −1.9 | −14.7 / −1.9 | +1.4 dB | 7 c / 13 c | 17.5 dB | 1498 Hz | −3, 3, 9 ms |
 
 R&B's early landing came from its consonants. Measured on any onset energy rather than on voicing, its phrases started
 19 ms early before and 1 ms early after. Pop's pitch error is up because scoops, glides and vibrato move away from the
