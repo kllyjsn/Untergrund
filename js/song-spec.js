@@ -272,7 +272,9 @@ function titleFrom(text) {
   const t = text.toLowerCase().replace(/[^a-z' ,.-]/g, ' ');
   const m = t.match(/\b(?:for|about|like|called|titled|named)\s+(?:a|an|the|my|our|some)?\s*([a-z' -]{3,40}?)(?=[,.]|\s+(?:that|which|with|and|but|builds?|into|where)\b|$)/);
   const words = (m ? m[1] : '').split(/\s+/).filter((w) => w && !TITLE_STOP.has(w)).slice(0, 4);
-  return words.length ? words.map((w) => w[0].toUpperCase() + w.slice(1)).join(' ') : null;
+  // Words written in capitals stay that way ("about leaving LA" is "Leaving LA").
+  const caps = new Set(String(text).match(/\b[A-Z]{2,}\b/g) || []);
+  return words.length ? words.map((w) => (caps.has(w.toUpperCase()) ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1))).join(' ') : null;
 }
 
 export function localSpec(text, { style: current = 'deephouse', seed } = {}) {
