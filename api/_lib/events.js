@@ -2,7 +2,8 @@
 // daily Redis counters (HINCRBY), daily unique sessions (HyperLogLog) and a short error log.
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { redisEnv } from './crate.js';
-import { analyze } from './improve.js';
+import { analyze, toMarkdown } from './improve.js';
+import { EXPERIMENTS, ARMS, XP_ID } from '../../js/experiments.js';
 
 export const EVENTS = ['app_open', 'generate', 'play_start', 'play_30s', 'save_track', 'publish', 'share_link_copied',
   'room_join', 'room_go_live', 'export_wav', 'export_stems', 'export_midi', 'return_visit', 'shared_open', 'remix', 'video_export', 'hum', 'voice_chops', 'song_edit', 'set_replay', 'daily_drop', 'describe', 'push', 'live_rooms', 'go_live_nudge', 'room_create', 'room_privacy', 'listen', 'error'];
@@ -16,6 +17,9 @@ export const MAX_BODY = 32_000, BATCHES_PER_HOUR = 400, ERRORS_PER_HOUR = 20;
 export const LISTEN_KINDS = ['start', 'complete', 'skip', 'partial', 'replay', 'keep', 'publish', 'share', 'live', 'love', 'unlove', 'down', 'undown', 'why', 'rewind'];
 export const DOWN_REASONS = ['boring', 'sounds_bad', 'not_my_style'], COHORTS = ['d0', 'd1_6', 'd7_29', 'd30_plus'], DEVICES = ['phone', 'tablet', 'desktop'];
 export const LISTEN_LOG = 5000, LISTENS_PER_HOUR = 300, SIGNALS_MAX = 1000;
+// Day logs (untergrund:ev:listen:<day>) keep every day's records for HISTORY_DAYS, read in pages, so the improvement
+// engine sees weeks instead of the newest LISTEN_LOG records. DAY_LOG caps one day (reported as `capped`).
+export const DAY_LOG = 5000, HISTORY_DAYS = 28, PAGE = 1000, PAGES_AT_ONCE = 4, DIGESTS_KEPT = 30;
 
 const text = (v, max) => String(v ?? '').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim().slice(0, max);
 const slug = (v) => text(v, 32).toLowerCase().replace(/[^a-z0-9_.-]/g, '');
@@ -56,6 +60,7 @@ export function cleanListen(l, p = {}) {
   }
   if (kind === 'why') { if (!DOWN_REASONS.includes(l.why)) return null; out.why = l.why; }
   if (kind === 'rewind') out.to = int(l.to, 0, 9999, 0);
+  if (XP_ID.test(String(l.xp ?? '')) && ARMS.includes(l.arm)) { out.xp = l.xp; out.arm = l.arm; }
   return out;
 }
 
@@ -116,6 +121,10 @@ export function memoryKv() {
       case 'PFCOUNT': { const u = new Set(); for (const k of [key, ...args]) for (const v of get(k) || []) u.add(v); return u.size; }
       case 'LPUSH': { const l = get(key, () => []); l.unshift(...args.reverse()); return l.length; }
       case 'LTRIM': { const l = get(key) || []; const end = +args[1] < 0 ? l.length + +args[1] : +args[1]; data.set(key, l.slice(+args[0], end + 1)); return 'OK'; }
+      case 'LLEN': return (get(key) || []).length;
+      case 'DEL': return data.delete(key) ? 1 : 0;
+      case 'GET': return data.has(key) ? data.get(key) : null;
+      case 'SET': { if (args.slice(1).map((a) => String(a).toUpperCase()).includes('NX') && data.has(key)) return null; data.set(key, args[0]); return 'OK'; }
       case 'LRANGE': { const l = get(key) || []; const end = +args[1] < 0 ? l.length + +args[1] : +args[1]; return l.slice(+args[0], end + 1); }
       default: throw new Error(`unsupported ${cmd}`);
     }
@@ -152,7 +161,8 @@ async function ingest(batch, kv, client, now) {
     if (e.n === 'listen') {
       if (listenBudget-- <= 0) continue;
       const l = e.l;
-      cmds.push(['LPUSH', `${P}:listen`, JSON.stringify({ at: new Date(now).toISOString(), sid: batch.sid, ...l })]);
+      const rec = JSON.stringify({ at: new Date(now).toISOString(), sid: batch.sid, ...l });
+      cmds.push(['LPUSH', `${P}:listen`, rec], ['LPUSH', `${P}:listen:${day}`, rec]);
       // Per-genre per-day and per-song totals: what the improvement engine scores first.
       if (l.style) cmds.push(['HINCRBY', `${P}:ls:${day}`, `${l.style}:${l.kind}`, 1], ['EXPIRE', `${P}:ls:${day}`, TTL]);
       cmds.push(['HINCRBY', `${P}:fp:${l.fp}`, l.kind, 1], ['EXPIRE', `${P}:fp:${l.fp}`, TTL]);
@@ -166,7 +176,8 @@ async function ingest(batch, kv, client, now) {
   if (!cmds.length) return { status: 202, json: { ok: true, stored: 0 } };
   cmds.push(['EXPIRE', dk, TTL]);
   if (errors.length) cmds.push(['LTRIM', `${P}:errors`, 0, ERROR_LOG - 1]);
-  if (listens.length) cmds.push(['LTRIM', `${P}:listen`, 0, LISTEN_LOG - 1], ['EXPIRE', `${P}:listen`, TTL]);
+  if (listens.length) cmds.push(['LTRIM', `${P}:listen`, 0, LISTEN_LOG - 1], ['EXPIRE', `${P}:listen`, TTL],
+    ['LTRIM', `${P}:listen:${day}`, 0, DAY_LOG - 1], ['EXPIRE', `${P}:listen:${day}`, (HISTORY_DAYS + 1) * 86400]);
   await kv(cmds);
   return { status: 202, json: { ok: true, stored: batch.events.length } };
 }
@@ -252,11 +263,66 @@ export async function listSignals(kv, { limit = 500, fp = '' } = {}) {
   return { enabled: true, version: 1, signals, ...(song ? { song: { fp: song, counts: toObj(counts), rates: listenRates(toObj(counts)) } } : {}) };
 }
 
-// The improvement engine over the whole raw log (stats-token only): ranked findings + proposed experiments, never applied.
-export async function improveReport(kv, { now = Date.now(), ...options } = {}) {
-  const [rows] = await kv([['LRANGE', `${P}:listen`, 0, LISTEN_LOG - 1]]);
-  const signals = (rows || []).map((x) => { try { return JSON.parse(x); } catch { return null; } }).filter(Boolean);
-  return { enabled: true, ...analyze(signals, { now, ...options }) };
+const parseAll = (rows) => (rows || []).map((x) => { try { return JSON.parse(x); } catch { return null; } }).filter(Boolean);
+
+// Every listen record of the last `days` UTC days, newest day first: day logs read in pages of PAGE, plus records from the
+// newest-5000 log for days that have no day log (written before day logs existed).
+export async function readHistory(kv, { days = HISTORY_DAYS, now = Date.now() } = {}) {
+  const n = Math.max(1, Math.min(HISTORY_DAYS, Math.round(+days) || HISTORY_DAYS));
+  const dates = Array.from({ length: n }, (_, i) => dayKey(now - i * 864e5));
+  const lens = await kv(dates.map((d) => ['LLEN', `${P}:listen:${d}`]));
+  const pages = [];
+  dates.forEach((d, i) => { for (let at = 0; at < Math.min(+lens[i] || 0, DAY_LOG); at += PAGE) pages.push(['LRANGE', `${P}:listen:${d}`, at, at + PAGE - 1]); });
+  const signals = [];
+  for (let i = 0; i < pages.length; i += PAGES_AT_ONCE) {
+    const got = await Promise.all(pages.slice(i, i + PAGES_AT_ONCE).map((c) => kv([c])));
+    for (const [rows] of got) signals.push(...parseAll(rows));
+  }
+  const logged = new Set(dates.filter((_, i) => +lens[i] > 0)), window = new Set(dates);
+  const [old] = await kv([['LRANGE', `${P}:listen`, 0, LISTEN_LOG - 1]]);
+  const legacy = parseAll(old).filter((r) => r.at && window.has(r.at.slice(0, 10)) && !logged.has(r.at.slice(0, 10)));
+  signals.push(...legacy);
+  return { signals, coverage: { days: n, from: dates[n - 1], to: dates[0], records: signals.length, pages: pages.length, legacy: legacy.length,
+    capped: dates.filter((_, i) => +lens[i] >= DAY_LOG) } };
+}
+
+// The improvement engine over the history (stats-token only): ranked findings, proposed experiments (never applied) and
+// the read-out of running ones.
+export async function improveReport(kv, { now = Date.now(), days = HISTORY_DAYS, running = EXPERIMENTS, ...options } = {}) {
+  const { signals, coverage } = await readHistory(kv, { days, now });
+  return { enabled: true, coverage, ...analyze(signals, { now, running, ...options }) };
+}
+
+// The daily digest (Vercel cron → /api/improve-digest): the report, stored for stats.html, and posted to
+// DIGEST_WEBHOOK_URL (Slack-style `{ text }`) when set. Once per UTC day unless forced.
+export async function runDigest(kv, { now = Date.now(), webhook = '', fetchImpl = globalThis.fetch, force = false, ...options } = {}) {
+  const day = dayKey(now);
+  const [fresh] = await kv([['SET', `${P}:digest:ran:${day}`, '1', 'NX', 'EX', 2 * 86400]]);
+  if (fresh !== 'OK' && !force) return { ok: true, day, skipped: 'already_ran' };
+  let r, markdown, brief;
+  try {
+    r = await improveReport(kv, { now, ...options });
+    markdown = toMarkdown(r);
+    const digest = { day, generated: r.generated, coverage: r.coverage, totals: r.totals, findings: r.findings.slice(0, 10), experiments: r.experiments, running: r.running, markdown };
+    brief = { day, generated: r.generated, listens: r.totals.listens, findings: r.findings.length, experiments: r.experiments.length, running: r.running.map((x) => ({ id: x.id, status: x.status })) };
+    await kv([['SET', `${P}:digest`, JSON.stringify(digest)], ['LPUSH', `${P}:digests`, JSON.stringify(brief)], ['LTRIM', `${P}:digests`, 0, DIGESTS_KEPT - 1]]);
+  } catch (err) {
+    // A failed run must not use up the day: the next cron retry tries again. Only the run that set the marker clears it.
+    if (fresh === 'OK') await kv([['DEL', `${P}:digest:ran:${day}`]]).catch(() => {});
+    throw err;
+  }
+  let delivered = false;
+  if (/^https:\/\//.test(webhook) && fetchImpl) {
+    try { delivered = (await fetchImpl(webhook, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: markdown }) })).ok; } catch {}
+  }
+  return { ok: true, day, findings: r.findings.length, experiments: r.experiments.length, running: brief.running, records: r.coverage.records, delivered };
+}
+
+export async function latestDigest(kv) {
+  const [d, list] = await kv([['GET', `${P}:digest`], ['LRANGE', `${P}:digests`, 0, DIGESTS_KEPT - 1]]);
+  let digest = null;
+  try { digest = d ? JSON.parse(d) : null; } catch {}
+  return { enabled: true, digest, history: parseAll(list) };
 }
 
 export function validToken(given, expected) {
@@ -264,13 +330,18 @@ export function validToken(given, expected) {
   return timingSafeEqual(hash(given), hash(expected));
 }
 
-export async function handleEvents({ method, query = {}, headers = {}, body, kv, client = 'anon', statsToken = '', now = Date.now() }) {
-  if (method === 'GET' && (query.summary || query.signals || query.improve)) {
+export async function handleEvents({ method, query = {}, headers = {}, body, kv, client = 'anon', statsToken = '', cronSecret = '', webhook = '', fetchImpl, now = Date.now() }) {
+  if (method === 'GET' && (query.summary || query.signals || query.improve || query.digest)) {
     if (!statsToken) return { status: 404, json: { error: 'stats_disabled' } };
-    const given = query.token || headers['x-stats-token'] || String(headers.authorization || '').replace(/^Bearer\s+/i, '');
-    if (!validToken(String(given || ''), statsToken)) return { status: 401, json: { error: 'unauthorized' } };
+    const given = String(query.token || headers['x-stats-token'] || String(headers.authorization || '').replace(/^Bearer\s+/i, '') || '');
+    // The digest run also takes Vercel's cron secret, which is what its scheduler sends.
+    const run = query.digest === 'run';
+    if (!validToken(given, statsToken) && !(run && validToken(given, cronSecret))) return { status: 401, json: { error: 'unauthorized' } };
     if (!kv) return { status: 503, json: { enabled: false, error: 'storage_unavailable' } };
-    if (query.improve) return { status: 200, json: await improveReport(kv, { now, ...(+query.min > 0 ? { minListens: Math.min(1000, Math.round(+query.min)) } : {}) }) };
+    const opts = { now, ...(+query.min > 0 ? { minListens: Math.min(1000, Math.round(+query.min)) } : {}), ...(+query.days > 0 ? { days: +query.days } : {}) };
+    if (run) return { status: 200, json: await runDigest(kv, { ...opts, webhook, fetchImpl, force: query.force === '1' && validToken(given, statsToken) }) };
+    if (query.digest) return { status: 200, json: await latestDigest(kv) };
+    if (query.improve) return { status: 200, json: await improveReport(kv, opts) };
     if (query.signals) return { status: 200, json: await listSignals(kv, { limit: query.limit, fp: String(query.fp || '') }) };
     return { status: 200, json: await summarize(kv, { days: +query.days || 30, now }) };
   }
