@@ -270,6 +270,7 @@ def serve(port: int, singer: Singer, secret: str):
                 return self.json(404, {"error": "unknown_job"})
             if not job.done():
                 return self.json(202, {"status": "pending"})
+            jobs.pop((parse_qs(url.query).get("id") or [""])[0], None)
             try:
                 audio, kind, meta = job.result()
             except BadRequest as err:
@@ -292,6 +293,8 @@ def serve(port: int, singer: Singer, secret: str):
             if self.path == "/submit":
                 if sum(not j.done() for j in jobs.values()) >= 4:
                     return self.json(429, {"error": "busy"})
+                for old in [k for k, j in jobs.items() if j.done()][:-8]:
+                    jobs.pop(old, None)
                 jid = uuid.uuid4().hex
                 jobs[jid] = pool.submit(singer.render, req)
                 return self.json(202, {"id": jid})
