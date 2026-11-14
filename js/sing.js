@@ -13,7 +13,7 @@ let probe = null, memo = { sig: null, key: null };
 export const singAvailable = () => (probe ??= fetch('/api/sing').then((r) => (r.ok ? r.json() : {})).then((j) => j.enabled === true).catch(() => false));
 export const audioFormat = () => (typeof Audio !== 'undefined' && new Audio().canPlayType('audio/ogg; codecs=opus') ? 'opus' : 'wav');
 const keyOf = (req) => (req ? JSON.stringify([req.score, req.voice, req.seed]) : null);
-const sigOf = (s) => JSON.stringify([s.chain, s.chainOn, s.bpm, s.key, s.scale, s.swing, s.lyrics, s.patterns, s.artist?.style, s.sing?.voice]);
+const sigOf = (s) => JSON.stringify([s.chain, s.chainOn, s.bpm, s.key, s.scale, s.swing, s.lyrics, s.patterns, s.master?.arr, s.ending, s.artist?.style, s.sing?.voice]);
 export const singRequest = (state, format = audioFormat()) => singScore(state, { voice: state.sing?.voice, format });
 export function stemKey(state) {
   const sig = sigOf(state);
