@@ -2,7 +2,7 @@
 // half), keeps its genre's section roles, repeats with development, and never pads time with copied loops.
 // Principles and research basis: docs/long-form.md.
 import assert from 'node:assert/strict';
-import { STYLES, SONG_STYLES, songPlan } from '../js/state.js';
+import { STYLES, SONG_STYLES, songPlan, sanitize } from '../js/state.js';
 import { realize, validateSpec, localSpec } from '../js/song-spec.js';
 import { planSections, formChain, formSeconds, developSong, developFinalDrop, LENGTHS, MAX_SONG_BARS } from '../js/longform.js';
 import { buildSong, playSong, SEEDS, loopStyles, runComposition } from '../scripts/composition.mjs';
@@ -121,6 +121,8 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
     const G = d.patterns[6], last = d.chain.lastIndexOf('G');
     assert(G.at?.some((t) => t.hook?.up && t.b[0] <= last && last <= t.b[1]) && !G.at.some((t) => t.hook?.up && t.b[0] < 96), `dnb/${seed} lifts only its final drop`);
   }
+  const re = sanitize(JSON.parse(JSON.stringify(buildSong('dnb', 7))));
+  assert(re.patterns[6].at?.some((t) => t.hook?.up), 'the final-drop lift survives a save and reload');
   const d = buildSong('dnb', 7), pats = d.patterns.map((p) => ({ ...p, at: undefined }));
   developFinalDrop(pats, d.chain, { keep: ['stab'] });
   assert(!pats.some((p) => p.at), 'a locked lead keeps its final drop as written');

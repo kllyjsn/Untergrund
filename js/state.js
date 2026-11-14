@@ -1187,6 +1187,7 @@ export function sanitize(s) {
         warmth: cl(hook.x?.warmth ?? 0.5, 0, 1),
       },
       ...(hook.h ? { h: 1 } : {}),
+      ...(hook.up ? { up: 1 } : {}),
       ...(cleanMelody(hook.m) ? { m: cleanMelody(hook.m) } : {}),
     }) : null;
   const cleanProg = (prog) => prog.slice(0, 8).map((c) => ({ r: Math.max(-12, Math.min(12, c?.r | 0)), c: Math.max(0, Math.min(CHORDS.length - 1, c?.c | 0)) }));
