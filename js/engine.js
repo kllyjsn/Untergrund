@@ -1537,17 +1537,18 @@ export class Engine {
   // A band's second layer for this section: cello on the root, viola on a middle chord tone, violins on the top
   // an octave up, each bowed through the bar; or the piano doubling the chords on beats 1 and 3.
   bandLayer(t, sec, i16, style) {
-    const L = BAND_LAYER[style]?.[sec];
-    if (!L) return;
-    const { root, notes } = stabNotes(this.state, this.harm), sd = this.stepDur;
+    const L = BAND_LAYER[style]?.[sec], fader = this.state.params.stab.level ?? 1;
+    if (!L || fader <= 0.001) return;
+    // The layer rides the CHORDS fader: its level goes as vel^1.5 (orch), so vel scales by fader^(2/3).
+    const { root, notes } = stabNotes(this.state, this.harm), sd = this.stepDur, v = L.v * fader ** (2 / 3);
     for (const part of L.parts) {
       if (part === 'pno') {
-        notes.forEach((m, k) => this.orch('pno', t + k * 0.004 + hash(t, m) * 0.006, m + 12, 8 * sd * 0.95, L.v * (i16 ? 0.92 : 1)));
+        notes.forEach((m, k) => this.orch('pno', t + k * 0.004 + hash(t, m) * 0.006, m + 12, 8 * sd * 0.95, v * (i16 ? 0.92 : 1)));
         continue;
       }
       if (i16) continue;
       const m = part === 'vc' ? root - 12 : part === 'vla' ? notes[1] ?? root : Math.max(...notes) + 12;
-      this.orch(part, t, m, 16 * sd * 1.02, L.v * (part === 'vln1' ? 0.85 : part === 'vla' ? 0.9 : 1));
+      this.orch(part, t, m, 16 * sd * 1.02, v * (part === 'vln1' ? 0.85 : part === 'vla' ? 0.9 : 1));
     }
   }
   driveGuitar(...a) { return this.recorded('drive', 'pluck', ...a); }

@@ -115,7 +115,7 @@ export const BAND_LAYER = {
   folk: { pre: { parts: ['vc'], v: 0.45 }, chorus: { parts: ['vc', 'vla'], v: 0.5 }, bridge: { parts: ['vln1', 'vla', 'vc'], v: 0.45 } },
   country: { pre: { parts: ['pno'], v: 0.62 }, chorus: { parts: ['pno', 'vla'], v: 0.62 }, bridge: { parts: ['vln1', 'vla'], v: 0.45 } },
 };
-const LAYER_SETS = { vc: ['cello'], vla: ['cello', 'str'], vln1: ['str'], pno: ['pianoext', 'piano'] };
+const LAYER_SETS = { vc: ['cello'], vla: ['cello', 'str'], vln1: ['str'], pno: ['pianoext', 'piano', 'pianoextsoft', 'pianosoft'] };
 const layerSets = (style) => [...new Set(Object.values(BAND_LAYER[style] || {}).flatMap((x) => x.parts.flatMap((p) => LAYER_SETS[p])))];
 export function liveSets(st) {
   const out = Math.round(st?.master?.kit || 0) >= 1 ? ['kit'] : [];
