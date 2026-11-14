@@ -593,8 +593,151 @@ a.jb-item.artist-song .jb-side { color: var(--accent); }
 .club-dj .club-name { bottom: auto; top: -18px; color: #1b1c1b; background: var(--green); border-color: var(--green); font-weight: 900; }
 .club-person.ambient { filter: brightness(.32) saturate(.25) blur(.4px); }
 .club-person.ambient .bot-eye { box-shadow: none; }
+/* Stage sets: the room changes with the music (club-stage.js stageScene). */
+.club-set { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+.club-set > i { position: absolute; display: block; }
+.club-stage.set-hall { background: repeating-linear-gradient(90deg, transparent 0 7.8%, rgba(232,194,122,.05) 8% 8.3%), linear-gradient(180deg,#2a1c16 0 61%,#20160f 61%); }
+.club-stage.set-hall::before, .club-stage.set-barn::before, .club-stage.set-lounge::before { background: repeating-linear-gradient(90deg,#3a2718 0 5.8%,#2c1d12 6% 6.3%); }
+.set-hall .curtain { top: 0; bottom: 39%; width: 9%; background: repeating-linear-gradient(90deg,#4a1014 0,#7a1d22 10px,#4a1014 20px); box-shadow: inset 0 -30px 40px rgba(0,0,0,.5); }
+.set-hall .curtain.left { left: 0; border-bottom-right-radius: 60% 18%; } .set-hall .curtain.right { right: 0; border-bottom-left-radius: 60% 18%; }
+.set-hall .valance { left: 0; right: 0; top: 0; height: 30px; background: radial-gradient(circle at 50% 0,#7a1d22 0 22px,transparent 23px) 0 0 / 44px 30px repeat-x, linear-gradient(#4a1014,#4a1014) 0 0 / 100% 8px no-repeat; }
+.set-hall .club-lights i { animation: none; opacity: .2; background: #ffdca8; }
+.set-hall .club-lights i:nth-child(1) { left: 18%; } .set-hall .club-lights i:nth-child(3) { right: 18%; }
+.club-stage.set-barn { background: repeating-linear-gradient(180deg,#3a291c 0 26px,#2b1e14 26px 28px) 0 0 / 100% 61% no-repeat, #1f1a16; }
+.set-barn .bulbs { left: 4%; right: 4%; top: 7%; height: 26px; border-radius: 0 0 50% 50% / 0 0 100% 100%; border-bottom: 1px solid #5b4a38; background: radial-gradient(circle at 50% 88%, #ffd68a 0 3px, rgba(255,190,90,.35) 4px, transparent 9px) 0 0 / 38px 26px repeat-x; }
+.set-barn .bulbs.low { left: 10%; right: 10%; top: 15%; background-position: 19px 0; }
+.set-barn .bale { bottom: 39%; width: 13%; height: 46px; background: repeating-linear-gradient(0deg,#b38a3a 0 6px,#9c7631 6px 8px); border: 2px solid #19191a; border-radius: 4px; }
+.set-barn .bale.right { right: 3%; } .set-barn .bale.left { right: 4%; bottom: calc(39% + 46px); width: 10%; }
+.set-barn .club-lights i:nth-child(1) { background: #ffb04d; } .set-barn .club-lights i:nth-child(2) { background: #ff8a3d; } .set-barn .club-lights i:nth-child(3) { background: #ffe3a3; }
+.set-barn .club-lights i { animation-duration: 14s; }
+.club-stage.set-arena { background: linear-gradient(180deg,#141417 0 61%,#18181b 61%); }
+.club-stage.set-arena::before { background: repeating-linear-gradient(90deg,transparent 0 9.8%,rgba(255,255,255,.05) 10% 10.3%), repeating-linear-gradient(0deg,transparent 0 24%,rgba(255,255,255,.05) 25% 25.5%); }
+.set-arena .truss { left: 3%; right: 3%; top: 5%; height: 12px; border: 2px solid #3b3a40; background: repeating-linear-gradient(60deg,transparent 0 9px,#3b3a40 9px 11px); }
+.set-arena .amp { bottom: 39%; width: 11%; max-width: 96px; height: 150px; background: radial-gradient(circle,#2a2a2e 0 1px,transparent 1.5px) 0 0 / 6px 6px, #161618; border: 3px solid #2e2d33; box-shadow: inset 0 26px 0 #222126; }
+.set-arena .amp.left { left: 4%; } .set-arena .amp.right { right: 4%; }
+.set-arena .club-lights i:nth-child(1) { background: var(--red); } .set-arena .club-lights i:nth-child(2) { background: #fff; } .set-arena .club-lights i:nth-child(3) { background: var(--blue, #0a84ff); }
+.set-arena .club-lights i { animation-duration: 5s; }
+.club-stage.set-lounge { background: repeating-linear-gradient(90deg,transparent 0 13.8%,rgba(255,255,255,.025) 14% 14.2%), linear-gradient(180deg,#261d29 0 61%,#1d1719 61%); }
+.set-lounge .lamp { bottom: 39%; width: 4px; height: 140px; background: #3a3238; }
+.set-lounge .lamp::before { content: ''; position: absolute; left: -20px; top: -24px; width: 44px; height: 28px; background: #e9b872; clip-path: polygon(22% 0,78% 0,100% 100%,0 100%); box-shadow: 0 0 40px #ffb45c; }
+.set-lounge .lamp.left { left: 8%; } .set-lounge .lamp.right { right: 8%; }
+.set-lounge .club-lights { opacity: .5; }
+.set-lounge .club-lights i:nth-child(1) { background: var(--purple, #bf5af2); } .set-lounge .club-lights i:nth-child(2) { background: #ff9f0a; } .set-lounge .club-lights i:nth-child(3) { background: var(--pink); }
+.set-lounge .club-lights i { animation-duration: 12s; }
+
+/* The ensemble: the host leads, the band plays around them on a riser. */
+.club-ensemble { --ens: 1; position: absolute; left: 50%; bottom: 47%; width: min(820px, 96%); height: 300px; transform: translateX(-50%); z-index: 4; }
+.club-ensemble > .club-booth { display: none; }
+.club-ensemble::before { content: ''; position: absolute; left: 4%; right: 4%; bottom: -10px; height: 26px; background: linear-gradient(#3a3036,#241e22); border-top: 2px solid #4d4249; box-shadow: 0 20px 40px #000; }
+.set-hall .club-ensemble::before, .set-barn .club-ensemble::before { background: linear-gradient(#5a3b22,#3a2616); border-top-color: #7a5434; }
+.club-ensemble > .club-person { position: absolute; left: var(--x); bottom: var(--y); z-index: var(--z); transform: translateX(-50%) scale(calc(var(--s) * var(--ens))); transform-origin: 50% 100%; }
+.club-ensemble .club-name { bottom: auto; top: -18px; color: #1b1c1b; background: var(--green); border-color: var(--green); font-weight: 900; }
+.club-ensemble .player .club-name { display: none; }
+.club-ensemble .bot-arm { translate: 0 0 22px; animation: armPlay var(--ad, calc(var(--beat,.455s) * 2)) ease-in-out infinite; }
+.club-ensemble .bot-arm.left { --a0: var(--la0, 12deg); --a1: var(--la1, var(--la0, 12deg)); --ad: var(--lad); rotate: 0 0 1 var(--a0); }
+.club-ensemble .bot-arm.right { --a0: var(--ra0, -12deg); --a1: var(--ra1, var(--ra0, -12deg)); --ad: var(--rad); rotate: 0 0 1 var(--a0); }
+@keyframes armPlay { 0%, 100% { rotate: 0 0 1 var(--a0); } 50% { rotate: 0 0 1 var(--a1); } }
+@keyframes armConduct { 0% { rotate: 0 0 1 -28deg; } 25% { rotate: 0 0 1 12deg; } 50% { rotate: 0 0 1 -95deg; } 75% { rotate: 0 0 1 -150deg; } 100% { rotate: 0 0 1 -28deg; } }
+.set-hall .club-ensemble .bot-rig { animation-name: botSway; animation-duration: calc(var(--beat,.455s) * 4); animation-timing-function: ease-in-out; }
+.set-hall .club-ensemble .bot-head-wrap { animation-duration: calc(var(--beat,.455s) * 2); }
+.mood-drop .club-ensemble.ens-band .bot-rig { animation-name: botJump; animation-duration: var(--beat,.455s); }
+.club-ensemble .seated .bot-leg { display: none; }
+.club-ensemble .seated .bot { bottom: 12px; }
+.plays-agtr, .plays-egtr, .plays-bass { --la0: 74deg; --ra0: 16deg; --ra1: 40deg; --rad: var(--beat,.455s); }
+.plays-violin, .plays-viola { --la0: 108deg; --ra0: 64deg; --ra1: 96deg; }
+.plays-cello, .plays-contrabass { --la0: -138deg; --ra0: 28deg; --ra1: 58deg; }
+.plays-drums { --la0: -16deg; --la1: -46deg; --ra0: 16deg; --ra1: 46deg; --lad: calc(var(--beat,.455s) / 2); --rad: calc(var(--beat,.455s) / 2); }
+.plays-drums .bot-arm.right, .plays-timpani .bot-arm.right, .plays-keys .bot-arm.right, .plays-grand .bot-arm.right { animation-delay: calc(var(--ad) / -2); }
+.plays-timpani { --la0: -14deg; --la1: -40deg; --ra0: 14deg; --ra1: 40deg; --lad: var(--beat,.455s); --rad: var(--beat,.455s); }
+.plays-keys, .plays-grand { --la0: -14deg; --la1: -26deg; --ra0: 14deg; --ra1: 26deg; --lad: var(--beat,.455s); --rad: var(--beat,.455s); }
+.plays-harp { --la0: 38deg; --la1: 56deg; --ra0: 70deg; --ra1: 84deg; }
+.plays-flute { --la0: -98deg; --ra0: -112deg; --ra1: -118deg; }
+.plays-clarinet, .plays-sax { --la0: -44deg; --la1: -52deg; --ra0: 40deg; --ra1: 46deg; }
+.plays-trumpet { --la0: -70deg; --ra0: 70deg; }
+.plays-horn { --la0: -46deg; --ra0: 14deg; }
+.plays-baton { --la0: 46deg; --la1: 74deg; --lad: calc(var(--beat,.455s) * 4); }
+.club-ensemble .plays-baton .bot-arm.right { animation: armConduct calc(var(--beat,.455s) * 4) ease-in-out infinite; }
+.plays-baton .bot { bottom: 46px; }
+.plays-mic { --la0: 30deg; --la1: 62deg; --ra0: 128deg; --ra1: 134deg; }
+
+/* instruments */
+.prop { position: absolute; display: block; box-sizing: border-box; }
+.prop > i { position: absolute; display: block; box-sizing: border-box; border: 2px solid #19191a; }
+.prop.gtr { --body: #d49a5b; left: -62px; bottom: 30px; width: 96px; height: 32px; transform: translateZ(18px) rotate(22deg); transform-origin: 76px 16px; }
+.prop.gtr > i:nth-child(1) { left: 0; top: 12px; width: 64px; height: 8px; background: #5a3d24; border-radius: 2px; }
+.prop.gtr > i:nth-child(2) { right: 0; top: 0; width: 40px; height: 32px; background: var(--body); border-radius: 46% 54% 54% 46% / 50%; }
+.prop.gtr > i:nth-child(3) { right: 15px; top: 10px; width: 12px; height: 12px; border-radius: 50%; background: #24160d; border-color: #6b4a2b; }
+.prop.gtr.electric { --body: #c8342c; }
+.set-barn .prop.gtr.electric { --body: #e5b24f; }
+.prop.gtr.electric > i:nth-child(3), .prop.gtr.bassgtr > i:nth-child(3) { right: 8px; top: 8px; width: 18px; height: 16px; border-radius: 3px; background: #f4efe6; border-width: 1.5px; }
+.prop.gtr.bassgtr { --body: #2c5fb8; left: -78px; width: 112px; }
+.prop.gtr.bassgtr > i:nth-child(1) { width: 82px; height: 7px; }
+.prop.violin { left: -52px; bottom: 60px; width: 58px; height: 16px; transform: translateZ(18px) rotate(-8deg); }
+.prop.violin > i:nth-child(1) { left: 0; top: 6px; width: 38px; height: 5px; background: #2a1b12; border-width: 1px; }
+.prop.violin > i:nth-child(2) { right: 0; top: 0; width: 24px; height: 16px; border-radius: 45%; background: #a4521f; }
+.prop.violin.viola { width: 62px; } .prop.violin.viola > i:nth-child(2) { width: 28px; height: 18px; top: -1px; }
+.prop.cello { left: -18px; bottom: -6px; width: 32px; height: 56px; transform: translateZ(19px); }
+.prop.cello > i:nth-child(1) { left: 12px; bottom: 50px; width: 6px; height: 50px; background: #251810; border-width: 1px; }
+.prop.cello > i:nth-child(2) { inset: 0; background: #8b3f17; border-radius: 42% 42% 46% 46% / 30% 30% 50% 50%; }
+.prop.cello.contrabass { left: -24px; width: 42px; height: 76px; } .prop.cello.contrabass > i:nth-child(1) { left: 17px; bottom: 70px; height: 58px; }
+.prop.flute { left: -12px; bottom: 80px; width: 72px; height: 5px; background: linear-gradient(#f4f4f6,#9a9aa2); border: 1px solid #19191a; transform: translateZ(24px) rotate(-6deg); }
+.prop.flute > i { display: none; }
+.prop.clarinet { left: -3px; bottom: 28px; width: 7px; height: 52px; background: #1b1b1d; border: 1px solid #4a4a50; border-radius: 3px 3px 6px 6px; transform: translateZ(26px) rotate(6deg); }
+.prop.clarinet > i, .prop.sax > i, .prop.trumpet > i { display: none; }
+.prop.sax { left: -4px; bottom: 24px; width: 12px; height: 54px; background: linear-gradient(90deg,#b8862a,#f0c85a,#b8862a); border: 2px solid #19191a; border-radius: 6px 6px 10px 10px; transform: translateZ(26px) rotate(12deg); }
+.prop.sax::after { content: ''; position: absolute; right: -14px; bottom: 2px; width: 16px; height: 16px; border-radius: 50%; background: radial-gradient(#3a2a10 0 35%,#e2b544 40%); border: 2px solid #19191a; }
+.prop.trumpet { left: -13px; bottom: 64px; width: 26px; height: 26px; border-radius: 50%; background: radial-gradient(#2a2010 0 30%,#e9bd4a 34%,#b8862a); border: 2px solid #19191a; transform: translateZ(36px); }
+.prop.horn { left: 2px; bottom: 32px; width: 34px; height: 34px; border-radius: 50%; border: 5px solid #d8a13a; background: radial-gradient(#3a2a12 0 34%,#e9b84d 38%); outline: 2px solid #19191a; transform: translateZ(24px); }
+.prop.horn > i { display: none; }
+.prop.kit { left: -50px; bottom: -6px; width: 100px; height: 56px; transform: translateZ(30px); }
+.prop.kit > i:nth-child(1) { left: 28px; bottom: 0; width: 44px; height: 44px; border-radius: 50%; background: radial-gradient(#f2efe8 0 56%,#c8342c 58%); border-width: 3px; }
+.set-barn .prop.kit > i:nth-child(1) { background: radial-gradient(#f2efe8 0 56%,#7a4a24 58%); }
+.prop.kit > i:nth-child(2) { left: 2px; bottom: 30px; width: 30px; height: 12px; border-radius: 50%; background: #d9d6cf; }
+.prop.kit > i:nth-child(3) { right: 2px; bottom: 32px; width: 28px; height: 12px; border-radius: 50%; background: #d9d6cf; }
+.prop.kit > i:nth-child(4) { left: -12px; bottom: 52px; width: 34px; height: 6px; border-radius: 50%; background: #e2b544; border-width: 1.5px; }
+.prop.kit > i:nth-child(5) { right: -16px; bottom: 62px; width: 42px; height: 6px; border-radius: 50%; background: #e2b544; border-width: 1.5px; }
+.prop.timpani { left: -58px; bottom: -6px; width: 116px; height: 38px; transform: translateZ(30px); }
+.prop.timpani > i { bottom: 0; width: 54px; height: 36px; background: radial-gradient(ellipse at 50% 0,#e8a060,#9c5226); border-radius: 0 0 50% 50% / 0 0 100% 100%; border-top: 5px solid #e8e4dc; }
+.prop.timpani > i:nth-child(1) { left: 0; } .prop.timpani > i:nth-child(2) { right: 0; }
+.prop.keys { left: -44px; bottom: -6px; width: 88px; height: 48px; transform: translateZ(30px); }
+.prop.keys > i:nth-child(1) { left: 0; right: 0; top: 0; height: 14px; background: linear-gradient(#26252b 0 4px, transparent 4px), repeating-linear-gradient(90deg,#f4f1ea 0 5px,#19191a 5px 6px); }
+.prop.keys > i:nth-child(2) { left: 30%; right: 30%; top: 14px; bottom: 0; border: 0; background: linear-gradient(60deg,transparent 46%,#3a383f 46% 54%,transparent 54%), linear-gradient(-60deg,transparent 46%,#3a383f 46% 54%,transparent 54%); }
+.prop.harp { left: -88px; bottom: -6px; width: 50px; height: 124px; transform: translateZ(10px); }
+.prop.harp > i:nth-child(1) { left: 0; bottom: 0; width: 9px; height: 100%; background: #d8a13a; border-radius: 4px; }
+.prop.harp > i:nth-child(2) { left: 7px; top: 6px; right: 0; bottom: 10px; border-width: 4px 4px 0 0; border-color: #b8862a; border-radius: 0 60% 0 0; background: repeating-linear-gradient(90deg,transparent 0 4px,rgba(244,239,230,.7) 4px 5px); clip-path: polygon(0 0,100% 0,0 100%); }
+.prop.micstand { left: -1px; bottom: -6px; width: 3px; height: 82px; background: #2a2a2e; transform: translateZ(36px); }
+.prop.micstand::before { content: ''; position: absolute; left: -12px; bottom: -2px; width: 27px; height: 5px; border-radius: 50%; background: #2a2a2e; }
+.prop.micstand::after { content: ''; position: absolute; left: -4px; top: -10px; width: 11px; height: 14px; border-radius: 5px; background: radial-gradient(circle,#8a8a90 0 1px,#45454b 1.5px) 0 0 / 3px 3px; border: 1.5px solid #19191a; }
+.prop.hand { left: 50%; top: 100%; transform: translateZ(8px); }
+.prop.bow { width: 66px; height: 2px; margin-left: -33px; background: #e2d6b8; }
+.prop.baton { width: 2px; height: 30px; margin-left: -1px; background: #f4f1ea; }
+.prop.stick, .prop.mallet { top: 85%; width: 3px; height: 30px; margin-left: -1.5px; background: #e7c58b; transform-origin: 50% 0; }
+.bot-arm.left .prop.stick, .bot-arm.left .prop.mallet { transform: translateZ(8px) rotate(-38deg); }
+.bot-arm.right .prop.stick, .bot-arm.right .prop.mallet { transform: translateZ(8px) rotate(38deg); }
+.prop.mallet::after { content: ''; position: absolute; left: -4px; bottom: -6px; width: 11px; height: 11px; border-radius: 50%; background: #f4f1ea; }
+.prop.mic { top: 80%; width: 8px; height: 18px; margin-left: -4px; background: #222226; border-radius: 3px; }
+.prop.mic::after { content: ''; position: absolute; left: -3px; bottom: -9px; width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle,#9a9aa0 0 1px,#55555b 1.5px) 0 0 / 3px 3px; border: 1.5px solid #19191a; }
+.prop.grand { left: calc(50% + 14px); bottom: 14px; width: 158px; height: 62px; z-index: 2; }
+.prop.grand > i:nth-child(1) { left: 0; bottom: 18px; width: 100%; height: 30px; background: linear-gradient(#2a2a2e,#0f0f11); border-radius: 4px 70% 18px 4px / 4px 100% 18px 4px; }
+.prop.grand > i:nth-child(2) { left: 18px; bottom: 44px; width: 132px; height: 40px; border: 0; background: #19191a; clip-path: polygon(0 100%, 100% 100%, 96% 88%, 4% 0, 0 4%); }
+.prop.grand > i:nth-child(3) { left: -6px; bottom: 34px; width: 26px; height: 8px; background: repeating-linear-gradient(90deg,#f4f1ea 0 4px,#19191a 4px 5px); border-width: 1.5px; }
+.prop.grand > i:nth-child(4) { left: 10px; bottom: 0; width: 7px; height: 20px; background: #111; }
+.prop.grand > i:nth-child(5) { right: 18px; bottom: 0; width: 7px; height: 20px; background: #111; }
+.prop.bench { left: calc(50% - 30px); bottom: 14px; width: 56px; height: 24px; border: 2px solid #19191a; border-top: 7px solid #2a2a2e; background: linear-gradient(90deg,#1a1a1d 0 7px,transparent 7px calc(100% - 7px),#1a1a1d 0); }
+.prop.podium { left: calc(50% - 34px); bottom: 12px; width: 68px; height: 36px; background: linear-gradient(#5a3b22,#3a2616); border: 2px solid #19191a; border-top: 4px solid #7a5434; }
+.prop.chair { left: calc(50% - 22px); bottom: 14px; width: 44px; height: 22px; border: 2px solid #19191a; border-top: 6px solid #3a2a20; background: linear-gradient(90deg,#241a14 0 6px,transparent 6px calc(100% - 6px),#241a14 0); }
+
+/* A seated hall: the audience sits in velvet seats and sways instead of dancing. */
+.club-stage.crowd-seated .club-floor .bot-leg { display: none; }
+.club-stage.crowd-seated .club-floor .bot-rig { animation-name: botSway; animation-duration: calc(var(--beat,.455s) * 8); animation-timing-function: ease-in-out; }
+.club-stage.crowd-seated .club-floor .bot-head-wrap { animation-duration: calc(var(--beat,.455s) * 2); }
+.club-stage.crowd-seated .club-floor .club-person .bot-arm.left { rotate: 0 0 1 6deg; }
+.club-stage.crowd-seated .club-floor .club-person .bot-arm.right { rotate: 0 0 1 -6deg; }
+.club-stage.crowd-seated .club-floor .club-person::before { content: ''; position: absolute; left: 50%; bottom: 14px; z-index: -1; width: 84px; height: 92px; translate: -50% 0; background: linear-gradient(#8a2630,#4d1218); border: 2px solid #19191a; border-radius: 16px 16px 4px 4px; }
+.club-stage.crowd-seated .club-floor .club-person::after { content: ''; position: absolute; left: 50%; bottom: 14px; width: 92px; height: 30px; translate: -50% 0; background: linear-gradient(#6d1b23,#3d0e13); border: 2px solid #19191a; border-radius: 6px; }
+.club-stage.crowd-seated .club-floor .club-person.ambient::before, .club-stage.crowd-seated .club-floor .club-person.ambient::after { filter: none; }
 @media (prefers-reduced-motion: reduce) {
-  .bot-rig, .bot-head-wrap, .bot-eye, .club-lights i { animation: none; }
+  .bot-rig, .bot-head-wrap, .bot-eye, .club-lights i, .club-ensemble .bot-arm, .club-ensemble .plays-baton .bot-arm.right { animation: none; }
   .bot-arm, .club-lights, .club-flash { transition: none; }
 }
 .club-social { min-height: 0; display: grid; grid-template-rows: auto minmax(0,1fr) auto auto; background: #1d1d1f; border-left: 1px solid #3c3945; }
@@ -717,6 +860,8 @@ a.jb-item.artist-song .jb-side { color: var(--accent); }
   .club-part-head span, .club-part-when { font-size: 7px; }
   .club-part-actions .btn { min-height: 30px; padding: 0 3px; font-size: 8px; flex-basis: 40%; }
   .club-dj { width: 240px; top: 21%; transform: translateX(-50%) scale(.8); }
+  .club-ensemble { --ens: .6; top: 19%; width: 100%; height: 200px; }
+  .set-hall .curtain { width: 6%; } .set-barn .bale, .set-arena .amp, .set-lounge .lamp { display: none; }
   .club-now { top: 10px; left: 10px; width: calc(100% - 20px); box-sizing: border-box; padding: 8px 11px; }
   .club-now strong { font-size: 15px; }
   .club-spin { top: auto; bottom: 12px; width: calc(100% - 20px); min-width: 0; }
