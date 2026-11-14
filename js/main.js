@@ -384,7 +384,7 @@ const SONG_SHARES = new Set(['song', 'song_sent', 'video_sent', 'video_saved', '
 onTrack((name, p) => {
   const kind = name === 'publish' ? (['song', 'soundcloud'].includes(p.kind) && 'publish')
     : name === 'share_link_copied' ? (SONG_SHARES.has(p.what) && 'share')
-    : name === 'video_export' ? 'share' : name === 'room_go_live' ? 'live' : name === 'save_track' || /^export_(wav|stems|midi)$/.test(name) ? 'keep' : null;
+    : name === 'video_export' ? 'share' : name === 'room_go_live' ? 'live' : /^export_(wav|stems|midi)$/.test(name) ? 'keep' : null;
   if (kind) listens.act(kind, listenPos());
 });
 addEventListener('pagehide', () => { if (listens.end(listenPos(), { force: true })) flushEvents(); });

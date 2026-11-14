@@ -13,7 +13,7 @@ Code: `js/listen.js` (lifecycle + fingerprint), wired in `js/main.js`; validated
 | `skip` | the listen ends after < 30 s of actual listening (paused time doesn't count) |
 | `partial` | the listen ends after ≥ 30 s but before 90% |
 | `replay` | sent right after `start` when this device has heard the same fingerprint before |
-| `keep` | saving to the crate, WAV/stems/MIDI export, or remixing the song |
+| `keep` | WAV/stems/MIDI export, or remixing the song (crate saves are automatic on every new song, so they don't count) |
 | `publish` | publishing the song (crate publish, SoundCloud) |
 | `share` | copying/sending a song link, embed, or making/sharing a video |
 | `live` | going live in a room |
