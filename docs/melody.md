@@ -17,6 +17,26 @@ riff genres, and every project saved before this, keep the 32-step `hook.s` path
   chord, and only the peak note reaches the peak.
 - The chorus's first bar is the hook: every chorus phrase opens with it, note for note.
 
+## Songs set to words (pop, rnb, rock, folk, country)
+
+The song genres (`song: 1` in `SING_PROFILES`) text-set every part instead: each part is four 2-bar lines, two
+to a phrase, and each line's rhythm is derived from its syllable stresses (`js/prosody.js`: spelling-based word
+stress and rhyme keys, no dictionary).
+
+- A small dynamic program places syllables on the 16th grid: stressed syllables on beats (the downbeat best),
+  weak ones between, leading weak syllables as a pickup. The verse talks (8ths and 16ths, lines ending anywhere in
+  bar 2); the chorus sings (quarters and held notes, every line landing on bar 2's downbeat).
+- The chorus's first and third lines are the title (the hook). The title starts on the chorus downbeat, rises by
+  the song's signature interval (a 3rd to a 5th, chosen once per song) to the chorus peak and holds it, and returns
+  note for note in the second phrase. The verse is AABA: its first line returns exactly in the second and fourth.
+- Stressed syllables prefer chord tones, weak ones may pass or lean on a non-chord tone, held notes on strong beats
+  stay chord tones. Pickup genres (country) leap from the pickup onto the line's first beat.
+- Without words (GENERATE) the parts are set to virtual meters of the same shape. With lyrics (`fitLyrics` in
+  `js/state.js`: the prompt plan, a song spec with lyrics, edited lyrics) the first verse, chorus and bridge (or pre)
+  are set to their actual lines, deterministically from the words and the song's seed. Other genres never change.
+- Without a model key, `rulePlan` writes the words (`js/lyric-writer.js`): a story verse in concrete pictures, a
+  chorus that states the feeling around the title, rhymed couplets, and the title twice in every chorus.
+
 ## Format (`pattern.hook.m`)
 
 ```js
@@ -65,3 +85,12 @@ the written notes are already chord tones). Licks and bass answers wait for the 
 From the played lead (doubled harmony and countermelody excluded), a rest of a beat or more ends a phrase:
 `phraseBars` (mean phrase length), `peakAt` (where the highest note falls, 0 start to 1 end),
 `restsPerPhrase` (silences inside a phrase plus the breath after it) and `stepShare` (moves of 1-2 semitones).
+
+Songwriting (song genres, each seed sung to rule-written lyrics, syllables laid on notes in order the way the
+singer does): `stressBeat` (stressed syllables on a beat or a note of a quarter or longer), `titleDownbeat` (the
+title's first stressed syllable on the chorus downbeat), `titlePeak` (the title carries the chorus's highest or
+longest note), `hookRepeats` (title lines sung per song), `hookRecall` (title returns with the same onsets and
+pitches), `rhythmContrast` and `onsetContrast` (verse vs chorus note-length classes and onset positions, total
+variation distance), `holdRatio` (mean chorus note length over verse), `vocalRange` (semitones over all parts) and
+`rhymeRate` (rhymed couplets in the written lyrics).
+
