@@ -1558,14 +1558,16 @@ export class Engine {
     if (!L || fader <= 0.001) return;
     // The layer rides the CHORDS fader: its level goes as vel^1.5 (orch), so vel scales by fader^(2/3).
     const { root, notes } = stabNotes(this.state, this.harm), sd = this.stepDur, v = L.v * fader ** (2 / 3);
+    // Folded into the part's range here, as orch() would, so a MIDI export (Recorder.orch) gets the pitch that sounds.
+    const fit = (part, m) => { const O = ORCH[part]; while (m > O.hi) m -= 12; while (m < O.lo) m += 12; return m; };
     for (const part of L.parts) {
       if (part === 'pno') {
-        notes.forEach((m, k) => this.orch('pno', t + k * 0.004 + hash(t, m) * 0.006, m + 12, 8 * sd * 0.95, v * (i16 ? 0.92 : 1)));
+        notes.forEach((m, k) => this.orch('pno', t + k * 0.004 + hash(t, m) * 0.006, fit('pno', m + 12), 8 * sd * 0.95, v * (i16 ? 0.92 : 1)));
         continue;
       }
       if (i16) continue;
       const m = part === 'vc' ? root - 12 : part === 'vla' ? notes[1] ?? root : Math.max(...notes) + 12;
-      this.orch(part, t, m, 16 * sd * 1.02, v * (part === 'vln1' ? 0.85 : part === 'vla' ? 0.9 : 1));
+      this.orch(part, t, fit(part, m), 16 * sd * 1.02, v * (part === 'vln1' ? 0.85 : part === 'vla' ? 0.9 : 1));
     }
   }
   driveGuitar(...a) { return this.recorded('drive', 'pluck', ...a); }
