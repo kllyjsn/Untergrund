@@ -162,6 +162,19 @@ const BAND_PLAY = {
 };
 // Country lead: a Fender clean off the bridge pickup through a small tube combo (teleFor), single notes with a slapback,
 // bends into the long notes and vibrato on the held ones.
+// A country bend: picked on the scale tone below, held a moment, then pushed up on an S-curve that lands exactly on
+// the note. Only notes held long enough to hear it land are bent, from a whole step below or a half step when that is
+// the scale tone.
+export const BEND_HOLD = 0.02, BEND_RISE = 0.12;
+export function bendCurve(semis, n = 32) {
+  const c = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const x = i / (n - 1); c[i] = 100 * semis * (x * x * (3 - 2 * x) - 1); }
+  return c;
+}
+export function teleBend(m, dur, strong, inKey, r) {
+  if (!strong || dur < 0.5 || r >= 0.4) return 0;
+  return inKey(m - 2) ? 2 : inKey(m - 1) ? 1 : 0;
+}
 BAND_PLAY.twang = { set: 'tele', gain: 3, len: 1.6, min: 0.3, strum: 0, shift: 0, lo: 52, hi: 74, lp: 4000, fade: 0.004, rel: 0.15, grip: false, even: 0.4, oct: -1, slap: true, tele: true, vib: 18 };
 // Its answer: a diatonic harmonica in C breathing held notes.
 BAND_PLAY.hca = { gain: 1.7, len: 1.2, min: 0.3, strum: 0, shift: 0, lo: 55, hi: 84, lp: 5200, fade: 0.03, rel: 0.12, even: 0.5, oct: -1, hold: true };
@@ -719,12 +732,13 @@ export class Engine {
     }
     node.connect(g).connect(out);
     // A bent note: the string is pushed up from below and lands on the pitch.
-    if (fx.bend) { s.detune.setValueAtTime(-100 * fx.bend, t); s.detune.setTargetAtTime(0, t + 0.015, 0.045); }
+    if (fx.bend) { s.detune.setValueAtTime(-100 * fx.bend, t); s.detune.setValueCurveAtTime(bendCurve(fx.bend), t + BEND_HOLD, BEND_RISE); }
     // A held lead note: vibrato that the player leans into after the pick attack.
     if (fx.vib && dur > 0.2) {
       const lfo = this.ctx.createOscillator(), depth = this.gain(0);
       lfo.frequency.value = 5.2 + hash(t, 31) * 0.8;
-      depth.gain.setValueAtTime(0, t + 0.12); depth.gain.linearRampToValueAtTime(fx.vib, t + Math.min(0.45, dur * 0.6));
+      const still = fx.bend ? BEND_HOLD + BEND_RISE + 0.05 : 0.12;
+      depth.gain.setValueAtTime(0, t + still); depth.gain.linearRampToValueAtTime(fx.vib, t + Math.max(still + 0.1, Math.min(0.45, dur * 0.6)));
       lfo.connect(depth).connect(s.detune); lfo.start(t); lfo.stop(t + dur + 0.5);
     }
     // Held orchestral notes outlast their recording: loop the sustained middle, after the attack.
@@ -1699,11 +1713,11 @@ export class Engine {
       if (R.slap) {
         if (R.tele) dest = this.teleFor(dest === this.ch.stab.input ? this.ch.stab.band : dest);
         dest = this.slapFor(dest);
-        // A country double-stop: now and then a sixth under a long strong note.
+        if (R.tele) bend = teleBend(m, dur, strong, inKey, hash(t * 5, 42));
+        // A country double-stop: now and then a sixth under a long strong note that is not bent (a bend sliding
+        // against a held sixth sounds out of tune).
         const lo = inKey(m - 9) ? m - 9 : m - 8;
-        if (strong && dur >= 0.3 && hash(t, 41) < 0.4 && lo >= R.lo) this.recordedNote(set, t + 0.006, g * 0.6, lo, ring, dest, 0, kind, v / 1.3);
-        // Half the long strong notes are bent up into, from the scale tone below.
-        if (R.tele && strong && dur >= 0.3 && hash(t * 5, 42) < 0.5) bend = inKey(m - 2) ? 2 : 1;
+        if (!bend && strong && dur >= 0.3 && hash(t, 41) < 0.4 && lo >= R.lo) this.recordedNote(set, t + 0.006, g * 0.6, lo, ring, dest, 0, kind, v / 1.3);
       }
       // A rock riff is a double-stop: the melody note with its fifth underneath, through the rhythm amp.
       if (R.dyad && m - 5 >= R.lo) this.recordedNote(set, t + 0.004, g * 0.7, m - 5, ring, dest, 0, kind, v / 1.3);

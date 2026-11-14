@@ -155,6 +155,26 @@ console.log('arrangement dynamics passed');
   assert(guitarHand('drive', 'ROCK', false).double && !guitarHand('gtr', 'POP', false).double && guitarHand('gtr', 'POP', true).double, 'rock and pop choruses double-track');
   assert.equal(guitarHand('gretsch', 'COUNTRY', false).fx, 'trem', 'twang guitar plays through amp tremolo');
   assert.equal(guitarHand('agtr', 'COUNTRY', false).play, 'boom', 'country acoustic plays boom-chick');
+  {
+    // Country lead bends land exactly on the note, start from a scale tone, and only on notes long enough to hear it land.
+    const { teleBend, bendCurve, BEND_HOLD, BEND_RISE } = await import('../js/engine.js');
+    const { SCALES } = await import('../js/params.js');
+    for (const st of [1, 2]) {
+      const c = bendCurve(st);
+      assert.equal(c[0], -100 * st); assert.equal(c[c.length - 1], 0, 'a bend lands on the note');
+      for (let i = 1; i < c.length; i++) assert(c[i] >= c[i - 1], 'a bend only rises');
+    }
+    assert(BEND_HOLD + BEND_RISE <= 0.16, 'a bend lands within 160 ms');
+    for (const [name, sc] of Object.entries(SCALES)) for (let k = 0; k < 12; k++) for (let m = 52; m <= 74; m++) {
+      const inKey = (x) => sc.notes.includes((((x - 60 - k) % 12) + 12) % 12);
+      for (const r of [0, 0.2, 0.39, 0.5, 0.9]) for (const dur of [0.2, 0.45, 0.5, 1.2]) {
+        const b = teleBend(m, dur, true, inKey, r);
+        if (dur < 0.5 || r >= 0.4) assert.equal(b, 0, 'short or unlucky notes are not bent');
+        if (b) assert(inKey(m - b), `${name} bend starts on a scale tone`);
+      }
+      assert.equal(teleBend(m, 1.2, false, inKey, 0), 0, 'weak beats are not bent');
+    }
+  }
   assert.equal(guitarHand('piano', 'POP', true).play, 'strum');
   console.log('guitar hands passed');
 }
