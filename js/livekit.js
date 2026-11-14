@@ -106,6 +106,17 @@ export function loadBand(name) {
 export const liveKit = () => buffers;
 
 // The recordings a song plays: 'kit' (drums + upright bass, for LIVE and HYBRID kits) and the chord instrument.
+// A band's second layer by section (Engine.bandLayer), on the recorded orchestra: vc cello, vla viola, vln1 violins,
+// pno the concert grand. Loudness of the part is v.
+export const BAND_LAYER = {
+  pop: { pre: { parts: ['vc'], v: 0.5 }, chorus: { parts: ['vln1', 'vla', 'vc'], v: 0.55 }, bridge: { parts: ['vla', 'vc'], v: 0.5 } },
+  rnb: { chorus: { parts: ['vln1', 'vla'], v: 0.45 }, bridge: { parts: ['vln1', 'vla', 'vc'], v: 0.45 } },
+  rock: { chorus: { parts: ['pno'], v: 0.64 }, bridge: { parts: ['vla', 'vc'], v: 0.5 } },
+  folk: { pre: { parts: ['vc'], v: 0.45 }, chorus: { parts: ['vc', 'vla'], v: 0.5 }, bridge: { parts: ['vln1', 'vla', 'vc'], v: 0.45 } },
+  country: { pre: { parts: ['pno'], v: 0.62 }, chorus: { parts: ['pno', 'vla'], v: 0.62 }, bridge: { parts: ['vln1', 'vla'], v: 0.45 } },
+};
+const LAYER_SETS = { vc: ['cello'], vla: ['cello', 'str'], vln1: ['str'], pno: ['pianoext', 'piano', 'pianoextsoft', 'pianosoft'] };
+const layerSets = (style) => [...new Set(Object.values(BAND_LAYER[style] || {}).flatMap((x) => x.parts.flatMap((p) => LAYER_SETS[p])))];
 export function liveSets(st) {
   const out = Math.round(st?.master?.kit || 0) >= 1 ? ['kit'] : [];
   if (out.length && pocketOf(st.master)?.band) out.push('kitx');
@@ -114,7 +125,8 @@ export function liveSets(st) {
   if (name) out.push(name, ...(SOFT_LAYER[name] ? [SOFT_LAYER[name]] : []));
   // Country's lead is a Telecaster whatever plays the chords.
   if (pocketOf(st.master)?.walk && name !== 'gtr') out.push('gtr', 'gtrsoft');
-  return out;
+  if (out.length && pocketOf(st.master)?.band) out.push(...layerSets(st.artist?.style));
+  return [...new Set(out)];
 }
 // A song's recordings plus their alternate takes and mutes: what an offline render waits for, so exports get every take.
 export const withTakes = (names) => [...new Set(names.flatMap((n) => [n, TAKES[n], MUTE_LAYER[n], TAKES[MUTE_LAYER[n]]].filter(Boolean)))];
