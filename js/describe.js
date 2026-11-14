@@ -60,7 +60,7 @@ const PHRASES = [
   [/\b(?:19)?80s\b|eighties|retro[\s-]?wave|out[\s-]?run|vapou?r[\s-]?wave/g, ' synthwave '], [/\b(?:19)?90s\b|nineties/g, ' nineties '], [/\b(?:19)?70s\b|seventies/g, ' disco '],
   [/video\s+games?(?:\s+music)?|\b8[\s-]?bit\b|chip[\s-]?tunes?/g, ' chiptune '], [/(?:movie|film|tv)\s+(?:soundtrack|score|music)|soundtrack/g, ' cinematic '],
   [/trip[\s-]?hop/g, ' triphop '], [/tech[\s-]house/g, ' techhouse '], [/afro[\s-]house/g, ' afrohouse '], [/\br\s*(?:&|and|n)\s*b\b/g, ' rnb '], [/\bk[\s-]?pop\b/g, ' kpop '], [/\b(pop|rnb|rock|country)\s+ballads?\b/g, ' $1 '], [/singer[\s-]*song[\s-]*writer/g, ' folk '], [/acoustic\s+guitars?/g, ' acousticguitar '],
-  [/(?:distorted|overdriven|electric|crunchy|dirty)\s+guitars?/g, ' driveguitar '], [/(?:electric|fender)\s+bass|bass\s+guitar/g, ' electricbass '],
+  [/(jazz|jazzy|funky|archtop|hollow[\s-]?body)\s+guitars?/g, ' $1 jazzguitar '], [/(twangy?|country|gretsch|rockabilly|chicken[\s-]picking)\s+guitars?/g, ' $1 twangguitar '], [/(?:distorted|overdriven|electric|crunchy|dirty)\s+guitars?/g, ' driveguitar '], [/(?:electric|fender)\s+bass|bass\s+guitar/g, ' electricbass '],
   [/drum\s+(?:roll|fill)s?/g, ' fills '], [/low[\s-]end/g, ' bass '], [/top[\s-]?line/g, ' melody '],
   [/drum\s*(?:and|&|n|'n'|n')\s*bass|\bd\s*(?:&|n)\s*b\b/g, ' dnb '],
   [/hip[\s-]?hop/g, ' hiphop '], [/lo[\s-]?fi/g, ' lofi '], [/neo[\s-]?soul/g, ' neosoul '], [/boom[\s-]?bap/g, ' boombap '],
@@ -198,6 +198,9 @@ add(voice(8), 'guitar', 'guitars');
 add(voice(9), 'horns', 'horn', 'trumpet', 'trumpets', 'sax', 'saxophone', 'trombone');
 add(voice(11), 'driveguitar', 'overdrive', 'overdriven', 'powerchords');
 add(voice(12), 'acousticguitar', 'strummed', 'strumming');
+add(voice(13), 'jazzguitar', 'archtop');
+add(voice(14), 'banjo', 'banjos');
+add(voice(15), 'twangguitar', 'gretsch');
 add(voice(10), 'strings', 'string', 'violin', 'violins', 'cello', 'cellos', 'viola', 'orchestral');
 const bassVoice = (v) => ({ k: 'bassVoice', v });
 add(bassVoice(0), 'acidbass', 'squelch', 'squelchy');
@@ -301,7 +304,7 @@ add(complaint('harsh'), 'harsh', 'harsher', 'shrill', 'piercing', 'abrasive', 't
 add(complaint('cluttered'), 'cluttered', 'messy', 'crowded', 'chaotic', 'cluttery', 'noisy', 'overcrowded');
 add(complaint('dull'), 'dull');
 
-const VOICE_NAMES = ['synth', 'Rhodes keys', 'pads', 'organ', 'brass', 'plucks', 'bells', 'piano', 'guitar', 'horns', 'strings', 'overdriven guitar', 'acoustic guitar'];
+const VOICE_NAMES = ['synth', 'Rhodes keys', 'pads', 'organ', 'brass', 'plucks', 'bells', 'piano', 'guitar', 'horns', 'strings', 'overdriven guitar', 'acoustic guitar', 'jazz guitar', 'banjo', 'twangy guitar'];
 const BASS_NAMES = ['303 acid bass', 'bass guitar', '808 bass', 'reese bass', 'log drum', 'electric bass'];
 const TRACK_WORD = { drums: 'drums', melody: 'melody', kick: 'kick', clap: 'claps', snare: 'snare', ch: 'hats', oh: 'open hats', ride: 'ride', perc: 'percussion', acid: 'bass', stab: 'chords', vox: 'vocals' };
 
@@ -890,7 +893,7 @@ export const INTENTS = {
   swing: 'amt: + swing / - straight', density: 'amt: + busier / - sparser', drops: 'amt: + bigger drops', space: 'amt: + reverb / - drier',
   echo: 'amt: + echo', grit: 'amt: + drive / - cleaner', pump: 'amt: + sidechain', punch: 'amt: + kick punch', variation: 'amt: + mutate / - steadier',
   volume: 'amt: ± master', harmony: 'amt: + richer chords / - plainer', dust: 'amt: + vinyl dust', scale: `value: ${Object.keys(SCALES).join('|')}`,
-  key: 'value: 0-11 (C=0)', keyStep: 'amt: ±1 semitone', voice: `value: 0-12 (${VOICE_NAMES.join(', ')})`, bassVoice: `value: 0-5 (${BASS_NAMES.join(', ')})`,
+  key: 'value: 0-11 (C=0)', keyStep: 'amt: ±1 semitone', voice: `value: 0-15 (${VOICE_NAMES.join(', ')})`, bassVoice: `value: 0-5 (${BASS_NAMES.join(', ')})`,
   bpmScale: 'value: 0.5 half time | 2 double time', hook: 'value: 0 no melody | 1 add melody | 2 new melody',
   kit: 'value: 0 machine | 1 live', level: `target: ${TRACK_IDS.join('|')}, amt`, mute: 'target, value: bool', lock: 'target, value: bool', genre: `value: ${Object.keys(STYLES).join('|')}`,
   section: `sec: ${Object.keys(SECTION).join('|')}|bars; op: mute|add|density (tracks[]), energy|length|tension (amt), octave (tracks[] acid|stab, amt ±1|2), skip, strip, hook (value 0|1); `

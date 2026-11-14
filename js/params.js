@@ -139,7 +139,7 @@ export const TRACKS = [
       p('env', 'ENV', 0, 1, 0.45),
       p('decay', 'DECAY', 0.05, 2.5, 0.28, { curve: 'exp', unit: 's' }),
       p('detune', 'DETUNE', 0, 40, 12, { unit: 'ct' }),
-      p('voice', 'VOICE', 0, 12, 0, { step: 1, list: ['SAW', 'KEYS', 'PAD', 'ORGAN', 'BRASS', 'PLUCK', 'BELLS', 'PIANO', 'GUITAR', 'HORNS', 'STRINGS', 'DRIVE GTR', 'ACOUSTIC'] }),
+      p('voice', 'VOICE', 0, 15, 0, { step: 1, list: ['SAW', 'KEYS', 'PAD', 'ORGAN', 'BRASS', 'PLUCK', 'BELLS', 'PIANO', 'GUITAR', 'HORNS', 'STRINGS', 'DRIVE GTR', 'ACOUSTIC', 'JAZZ GTR', 'BANJO', 'TWANG GTR'] }),
     ],
     mix: { level: 0.42, rev: 0.35, dly: 0.42 },
   },

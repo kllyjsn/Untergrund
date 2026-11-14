@@ -85,7 +85,7 @@ console.log('genre signatures passed');
         if (voice >= 7) recorded.add(voice);
       }
     }
-    assert.deepEqual([...recorded].sort((a, b) => a - b), [7, 8, 9, 10, 11, 12], 'all recorded families should appear across generated songs');
+    assert.deepEqual([...recorded].sort((a, b) => a - b), [7, 8, 9, 10, 11, 12, 13, 14, 15], 'all recorded families should appear across generated songs');
     for (const style of ['trap', 'drill']) {
       for (let seed = 1; seed <= 24; seed++) assert.equal(generate(style, seed).params.acid.voice, 2, `${style} must keep its sliding 808`);
     }
