@@ -1257,10 +1257,10 @@ export class Engine {
     while (m > R.hi + 0.5) m -= 12;
     while (m < R.lo - 0.5) m += 12;
     for (const h of this.gripHeld || []) {
-      if (h.m < 0 || h.end <= t || h.at >= t + ring * 0.8 || !rubs(h.m, m)) continue;
+      if (h.m < 0 || h.end <= t || h.at >= t + ring || !rubs(h.m, m)) continue;
       damp(h, t); h.end = Math.max(t, h.at);
     }
-    this.leadHeld = [...(this.leadHeld || []).filter((x) => x.end > t), { m, at: t, end: t + ring * 0.8 }];
+    this.leadHeld = [...(this.leadHeld || []).filter((x) => x.end > t), { m, at: t, end: t + ring }];
   }
   rubsLead(m, at) { return (this.leadHeld || []).some((x) => x.at <= at && x.end > at && rubs(x.m, m)); }
 
