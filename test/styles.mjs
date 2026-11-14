@@ -147,6 +147,15 @@ console.log('arrangement dynamics passed');
     prev = g;
   }
   console.log('bass/chord agreement and guitar grips passed');
+  const { guitarHand } = await import('../js/engine.js');
+  assert.equal(guitarHand('agtr', 'FOLK', false).play, 'pick', 'folk verses are fingerpicked');
+  assert.equal(guitarHand('agtr', 'FOLK', true).play, 'strum', 'folk choruses are strummed');
+  assert.equal(guitarHand('banjo', 'COUNTRY', true).play, 'roll', 'a banjo rolls');
+  assert.deepEqual(guitarHand('gtr', 'R&B', false), { play: 'chop', double: false, fx: 'chorus' }, 'R&B guitar chops through a chorus pedal');
+  assert(guitarHand('drive', 'ROCK', false).double && !guitarHand('gtr', 'POP', false).double && guitarHand('gtr', 'POP', true).double, 'rock and pop choruses double-track');
+  assert.equal(guitarHand('gretsch', 'COUNTRY', false).fx, 'trem', 'twang guitar plays through amp tremolo');
+  assert.equal(guitarHand('piano', 'POP', true).play, 'strum');
+  console.log('guitar hands passed');
 }
 
 // Song genres: a recorded band in a major key (ROCK: power chords over minor/mixolydian roots), each with its own pocket and changes.

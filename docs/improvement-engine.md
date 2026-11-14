@@ -48,6 +48,8 @@ A proposal runs only once a reviewed PR adds it to `EXPERIMENTS` in `js/experime
   from: '2026-11-20', until: '2026-12-20', apply(song, { seed }) { /* one change, variant arm only */ } }
 ```
 
+Research-backed proposals that are ready to start live in `PROPOSED` in `js/principles.js`, each tied to a product principle in [research/program.md](../research/program.md) and checked offline by `test/principles.mjs`. Starting one is copying it here with dates.
+
 - **Assignment** is deterministic: `fnv(lid + ':' + id) % 100 < share × 100` → `variant`, else `control`. The same device gets the same arm every visit, and arms of different experiments are independent. Scope keys are listen context (`style`, `src`, `surf`, `dev`, `co`); a listen outside the scope is never assigned. The first live experiment whose scope matches takes the listen, so a listen is in at most one. `share` is capped at 50%.
 - **Privacy**: assignment needs the listener id, which exists only when analytics is on. Under Do Not Track, Global Privacy Control or an automated browser there is no id, so no arm, no tag, and the default song.
 - **Applying**: `apply(song, { seed })` runs on new songs made by Generate/Describe/Hum/Daily Drop (`planSet` in `js/main.js`), for the variant arm only. Scope an experiment with an `apply` on fields known when a song is made (`style`, `src`, `dev`, `co`). Experiments without `apply` (targeting, rotation) act wherever their PR changes behavior, using `assign()`.
