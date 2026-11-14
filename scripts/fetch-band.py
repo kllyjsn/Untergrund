@@ -10,7 +10,7 @@ open low E, MIDI 28), both checked by measuring the recordings' pitch.
 Processing: leading silence removed, mono (drum mics summed), 44.1 kHz 16-bit, trimmed, 80 ms fade, peak -6 dBFS.
 Guitar takes (--takes): a second round-robin take of every guitar note (gtrb_, gtrsoftb_, agtrb_) and the Hofner's staccato (fretting hand lifted, the palm-mute chug;
 gtrmute_, gtrmuteb_), each matched to the loudness of the take it alternates with.
-Requires ffmpeg and numpy.  Usage: python3 scripts/fetch-band.py [--takes]   (--takes fetches only the guitar takes, --guitars only JAZZ GTR, TWANG GTR and BANJO)
+Requires ffmpeg and numpy.  Usage: python3 scripts/fetch-band.py [--takes]   (--takes fetches only the guitar takes, --guitars only JAZZ GTR, TWANG GTR and BANJO, --kit only the extra kit takes)
 """
 import os, sys
 sys.path.insert(0, os.path.dirname(__file__))
@@ -62,6 +62,36 @@ DRUMS = {
     'ltom_v14': (['mid/ltom/mid_ltom_center_vl14.flac', 'oh/ltom/oh_ltom_center_vl14.flac'], 1.6),
 }
 
+# More kit takes (--kit): round robins and in-between velocity layers of the kick, snare and hats we already ship, so
+# repeated hits and ghost notes don't machine-gun. Snare has no round robins upstream; an adjacent velocity layer is
+# the alternate take. Normalized like the shipped kit files (peak -1 dBFS).
+def _kick(v, r): return (['kickmic/kick/kickmic_kick_snoff_vl%d_rr%d.flac' % (v, r), 'oh/kick/oh_kick_snoff_vl%d_rr%d.flac' % (v, r)], 0.7)
+def _snare(v): return (['snaremic/snare/snaremic_snare_center_vl%d.flac' % v, 'oh/snare/oh_snare_center_vl%d.flac' % v], 0.8)
+KIT = {
+    **{f'kick_v{v}_{r}': _kick(v, r) for v, r in [(2, 3), (2, 4), (4, 3), (4, 4), (3, 1), (3, 2)]},
+    **{f'snare_v{v}': _snare(v) for v in (2, 5, 13, 23, 33)},
+    **{f'hh_v{v}_{r}': ([f'oh/hh/oh_hh_closed_vl{v}_rr{r}.flac'], 0.35) for v in range(1, 5) for r in (3, 4)},
+    'hh_half_2': (['oh/hh/oh_hh_half_vl2_rr2.flac'], 0.7),
+    'hh_open_2': (['oh/hh/oh_hh_open_vl3_rr2.flac'], 1.2),
+}
+
+def onset(x, frac=0.1):
+    import numpy as np
+    return int(np.argmax(np.abs(x) > frac * np.max(np.abs(x))))
+
+def drum(files, secs, ref=None, peak=10 ** (-1 / 20)):
+    import numpy as np
+    xs = [decode(VD + f) for f in files]
+    L = min(len(x) for x in xs)
+    x = process(sum(x[:L] for x in xs), secs + 0.05)
+    if ref is not None:  # land the attack on the same sample as the shipped take it alternates with
+        d = onset(x) - onset(ref)
+        x = x[d:] if d > 0 else np.concatenate([np.zeros(-d, np.float32), x])
+    x = x[: int(secs * orch.SR)].copy()
+    fade = int(0.08 * orch.SR)
+    x[-fade:] *= np.linspace(1, 0, fade)
+    return x * (peak / max(1e-9, float(np.max(np.abs(x)))))
+
 def load(name):
     import subprocess, numpy as np
     pcm = subprocess.run(['ffmpeg', '-v', 'error', '-i', os.path.join(orch.OUT, f'{name}.flac'), '-f', 'f32le', 'pipe:1'], capture_output=True, check=True).stdout
@@ -89,6 +119,10 @@ def guitars():
 if __name__ == '__main__':
     if '--takes' in sys.argv: takes(); sys.exit()
     if '--guitars' in sys.argv: guitars(); sys.exit()
+    if '--kit' in sys.argv:
+        ref = lambda n: load({'kick': 'kick_v2_1', 'snare': 'snare_v6', 'hh_v': 'hh_v1_1', 'hh_half': 'hh_half', 'hh_open': 'hh_open'}[next(k for k in ('kick', 'snare', 'hh_v', 'hh_half', 'hh_open') if n.startswith(k))])
+        for name, (files, secs) in KIT.items(): write(name, drum(files, secs, ref(name))); print(name)
+        sys.exit()
     for m, n in AGTR.items():
         write(f'agtr_{m}', process(decode(f'{SHINY}acoustic/{n}_vl3_rr1_1.wav'), 3.4)); print('agtr', n, m)
     for m, n in EBASS.items():

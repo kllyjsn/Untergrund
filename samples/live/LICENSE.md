@@ -30,6 +30,33 @@ Stored as lossless FLAC (bit-identical PCM to the original 16-bit WAVs). Drum fi
 | `ltom_v8.flac` | `mid/ltom/mid_ltom_center_vl8.flac` + `oh/ltom/oh_ltom_center_vl8.flac` |
 | `ltom_v14.flac` | `mid/ltom/mid_ltom_center_vl14.flac` + `oh/ltom/oh_ltom_center_vl14.flac` |
 
+Extra kit takes (round robins and in-between velocity layers, CC0 1.0 from the same commit; fetched by
+`scripts/fetch-band.py --kit`, attack aligned to the shipped take they alternate with, peak -1 dBFS like the rest of the kit):
+
+| File | Source sample(s) under `Samples/` |
+| --- | --- |
+| `kick_v2_3.flac` | `kickmic/kick/kickmic_kick_snoff_vl2_rr3.flac` + `oh/kick/oh_kick_snoff_vl2_rr3.flac` |
+| `kick_v2_4.flac` | `kickmic/kick/kickmic_kick_snoff_vl2_rr4.flac` + `oh/kick/oh_kick_snoff_vl2_rr4.flac` |
+| `kick_v4_3.flac` | `kickmic/kick/kickmic_kick_snoff_vl4_rr3.flac` + `oh/kick/oh_kick_snoff_vl4_rr3.flac` |
+| `kick_v4_4.flac` | `kickmic/kick/kickmic_kick_snoff_vl4_rr4.flac` + `oh/kick/oh_kick_snoff_vl4_rr4.flac` |
+| `kick_v3_1.flac` | `kickmic/kick/kickmic_kick_snoff_vl3_rr1.flac` + `oh/kick/oh_kick_snoff_vl3_rr1.flac` |
+| `kick_v3_2.flac` | `kickmic/kick/kickmic_kick_snoff_vl3_rr2.flac` + `oh/kick/oh_kick_snoff_vl3_rr2.flac` |
+| `snare_v2.flac` | `snaremic/snare/snaremic_snare_center_vl2.flac` + `oh/snare/oh_snare_center_vl2.flac` |
+| `snare_v5.flac` | `snaremic/snare/snaremic_snare_center_vl5.flac` + `oh/snare/oh_snare_center_vl5.flac` |
+| `snare_v13.flac` | `snaremic/snare/snaremic_snare_center_vl13.flac` + `oh/snare/oh_snare_center_vl13.flac` |
+| `snare_v23.flac` | `snaremic/snare/snaremic_snare_center_vl23.flac` + `oh/snare/oh_snare_center_vl23.flac` |
+| `snare_v33.flac` | `snaremic/snare/snaremic_snare_center_vl33.flac` + `oh/snare/oh_snare_center_vl33.flac` |
+| `hh_v1_3.flac` | `oh/hh/oh_hh_closed_vl1_rr3.flac` |
+| `hh_v1_4.flac` | `oh/hh/oh_hh_closed_vl1_rr4.flac` |
+| `hh_v2_3.flac` | `oh/hh/oh_hh_closed_vl2_rr3.flac` |
+| `hh_v2_4.flac` | `oh/hh/oh_hh_closed_vl2_rr4.flac` |
+| `hh_v3_3.flac` | `oh/hh/oh_hh_closed_vl3_rr3.flac` |
+| `hh_v3_4.flac` | `oh/hh/oh_hh_closed_vl3_rr4.flac` |
+| `hh_v4_3.flac` | `oh/hh/oh_hh_closed_vl4_rr3.flac` |
+| `hh_v4_4.flac` | `oh/hh/oh_hh_closed_vl4_rr4.flac` |
+| `hh_half_2.flac` | `oh/hh/oh_hh_half_vl2_rr2.flac` |
+| `hh_open_2.flac` | `oh/hh/oh_hh_open_vl3_rr2.flac` |
+
 ## D. Smolken double bass (1958 Otto Rubner, played by D. Smolken)
 
 - Source: https://github.com/sfzinstruments/dsmolken.double-bass @ `c2985eb647109d2a8f30a70071e3e163339d7396`

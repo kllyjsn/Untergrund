@@ -88,13 +88,16 @@ export function router(want, { prebus = false } = {}) {
       const hc = { input: g(), level: g(S.level.gain.value), pan: ctx.createStereoPanner(), rev: g(S.rev.gain.value), dly: g(S.dly.gain.value), band: g() };
       hc.pan.pan.value = S.pan.pan.value;
       owner.set(hc.pan, 'hook');
+      // Its own copy of the CHORDS channel strip EQ too, kept in step with the band mix (see Engine.applyStrips).
+      hc.strip = (S.strip || []).map((f) => { const n = ctx.createBiquadFilter(); n.type = f.type; return n; });
+      const syncStrip = () => hc.strip.forEach((n, k) => { for (const p of ['frequency', 'Q', 'gain']) n[p].value = S.strip[k][p].value; });
       if (S.carve) { hc.carve = E.filter('peaking', 3000, 0.8); hc.carve.gain.value = 0; E.hookCarve = hc.carve; }
-      hc.input.connect(hc.level).connect(hc.carve || hc.pan);
+      [hc.input, ...hc.strip].reduce((a, n) => a.connect(n)).connect(hc.level).connect(hc.carve || hc.pan);
       if (hc.carve) hc.carve.connect(hc.pan);
       hc.pan.connect(E.duck); hc.pan.connect(hc.rev).connect(E.revIn); hc.pan.connect(E.roomIn); hc.pan.connect(hc.dly).connect(E.dlyIn); hc.pan.connect(E.throwBus);
       hc.band.connect(hc.input); hc.band.connect(E.bandIn);
       const P = Engine.prototype;
-      E.hook = function (...a) { const s = this.ch.stab; this.ch.stab = hc; try { return P.hook.apply(this, a); } finally { this.ch.stab = s; } };
+      E.hook = function (...a) { const s = this.ch.stab; syncStrip(); this.ch.stab = hc; try { return P.hook.apply(this, a); } finally { this.ch.stab = s; } };
       E.orchBus = function (p) {
         if (this.orchBuses?.[p]) return this.orchBuses[p];
         part = p;

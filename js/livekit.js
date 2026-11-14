@@ -2,9 +2,9 @@ import { pocketOf } from './groove.js';
 // Recorded acoustic kit and upright bass for the live-kit genres (CC0, see samples/live/LICENSE.md).
 // Loads lazily; until the buffers arrive the engine keeps using the synthesized live voices.
 export const LIVE_KIT = {
-  kick: ['kick_v2_1', 'kick_v2_2', 'kick_v4_1', 'kick_v4_2'],
-  snare: ['snare_v6', 'snare_v14', 'snare_v24', 'snare_v34', 'snare_rim'],
-  hat: ['hh_v1_1', 'hh_v1_2', 'hh_v2_1', 'hh_v2_2', 'hh_v3_1', 'hh_v3_2', 'hh_v4_1', 'hh_v4_2', 'hh_half', 'hh_open'],
+  kick: ['kick_v2_1', 'kick_v2_2', 'kick_v2_3', 'kick_v2_4', 'kick_v3_1', 'kick_v3_2', 'kick_v4_1', 'kick_v4_2', 'kick_v4_3', 'kick_v4_4'],
+  snare: ['snare_v2', 'snare_v5', 'snare_v6', 'snare_v13', 'snare_v14', 'snare_v23', 'snare_v24', 'snare_v33', 'snare_v34', 'snare_rim'],
+  hat: [1, 2, 3, 4].flatMap((v) => [1, 2, 3, 4].map((r) => `hh_v${v}_${r}`)).concat(['hh_half', 'hh_half_2', 'hh_open', 'hh_open_2']),
   ride: ['ride_v1_1', 'ride_v2_1', 'ride_v2_2', 'ride_v3_1'],
 };
 // Centers are the measured pitch of each recording (python3 test/sampletune.py), not its name: the Eb1 take
@@ -75,7 +75,7 @@ export const KIT_EXTRA = ['crash_v2', 'crash_v3', 'htom_v8', 'htom_v14', 'ltom_v
 
 const BASE = new URL('../samples/live/', import.meta.url);
 // Samples are served with immutable caching: bump SAMPLES_REV whenever a file under samples/live changes.
-const SAMPLES_REV = 3;
+const SAMPLES_REV = 4;
 const sampleUrl = (file) => new URL(`${file}.flac?v=${SAMPLES_REV}`, BASE);
 let buffers = null, loading = null, extra = null, extraLoading = null;
 const band = {}, bandLoading = {}, names = new WeakMap();
