@@ -46,6 +46,14 @@ the master chain; it was measured on the seed-7 songs below:
 | R&B (79 BPM, felix) | −9.9 / −1.5 → −10.8 / −1.9 | −10.7 / −1.9 | −0.2 → +1.3 dB |
 | Folk (90 BPM, gwen) | −13.5 / −1.9 → −15.0 / −2.0 | −14.8 / −2.0 | +2.2 → +1.4 dB |
 
+Re-sung after the text-set melodies and written lyrics (#146), with the same settings:
+
+| Seed-7 song | Mix LUFS-I / true peak | Instrumental | Vocal vs band while singing | Clipped samples |
+|---|---|---|---|---|
+| Pop | −9.4 / −1.8 | −9.2 / −1.7 | +0.2 dB | 0 |
+| R&B | −11.3 / −1.9 | −11.2 / −1.9 | +1.5 dB | 0 |
+| Folk | −14.9 / −1.9 | −14.7 / −1.9 | +1.4 dB | 0 |
+
 The vocal level (−24…+6 dB around that base) and a timing trim (±250 ms) are saved in `state.sing` with the project;
 the stem is not saved and is fetched again by hash. Offline renders, WAV export, video and EXPORT STEMS (`sung-vocal`)
 all include it.
