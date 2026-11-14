@@ -407,17 +407,22 @@ export class Engine {
     const pk = pocketOf(this.state.master), mode = pk?.band ? pk.name : this.soulBand() ? 'SOUL' : null;
     if (mode === this.stripMode) return;
     // A band plays in a live room: the band and drum spaces get early reflections and a shorter, drier tail.
+    // During a handoff (this.at set) the change lands on the incoming song's downbeat, not when it is queued.
+    const c = this.ctx, at = this.at > c.currentTime ? this.at : 0;
+    const set = (prm, v) => (at ? prm.setValueAtTime(v, at) : (prm.value = v));
     if (!!mode !== !!this.stripMode) {
-      const c = this.ctx;
-      this.bandConv.buffer = makeIR(c, ...IR[mode ? 'liveBand' : 'band']);
-      this.roomConv.buffer = makeIR(c, ...IR[mode ? 'liveRoom' : 'room']);
+      const swap = () => {
+        this.bandConv.buffer = makeIR(c, ...IR[mode ? 'liveBand' : 'band']);
+        this.roomConv.buffer = makeIR(c, ...IR[mode ? 'liveRoom' : 'room']);
+      };
+      if (at && !(typeof OfflineAudioContext !== 'undefined' && c instanceof OfflineAudioContext)) setTimeout(swap, (at - c.currentTime) * 1000); else swap();
     }
     this.stripMode = mode;
     for (const id of TRACK_IDS) {
       const ch = this.ch[id], S = (mode && BAND_STRIP[id]) || null;
       ch.strip.forEach((f, k) => {
         const b = S?.eq?.[k];
-        if (b) { f.frequency.value = b[0]; f.gain.value = b[1]; if (b[2]) f.Q.value = b[2]; } else f.gain.value = 0;
+        if (b) { set(f.frequency, b[0]); set(f.gain, b[1]); if (b[2]) set(f.Q, b[2]); } else set(f.gain, 0);
       });
     }
   }
