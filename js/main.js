@@ -385,7 +385,8 @@ function songShape() {
   const name = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 10);
   const shape = sc ? sc.sections.map((x, i) => `${name(x.name)}-${(sc.sections[i + 1]?.at ?? sc.bars) - x.at}`).join('.')
     : state.chainOn ? String(state.chain || '').toLowerCase().replace(/[^a-z]/g, '') : String(PATTERN_NAMES[state.current] || '').toLowerCase();
-  return shape.slice(0, 80);
+  // Cut on a section boundary so a long score never ends in a half-written length.
+  return shape.length <= 80 ? shape : sc ? shape.slice(0, shape.lastIndexOf('.', 80)) : shape.slice(0, 80);
 }
 // Publish, share, go live and export count as signals on the song you hear (or just heard).
 const SONG_SHARES = new Set(['song', 'song_sent', 'video_sent', 'video_saved', 'embed', 'soundcloud']);

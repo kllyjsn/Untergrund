@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { analyze, listensFrom, parseShape, compare, perArm, proposeExperiment, toMarkdown, METRICS } from '../api/_lib/improve.js';
+import { analyze, listensFrom, parseShape, sectionAt, compare, perArm, proposeExperiment, toMarkdown, METRICS } from '../api/_lib/improve.js';
 
 // Deterministic pseudo-random so the fixture is the same every run.
 let seed = 7;
@@ -110,6 +110,10 @@ assert.ok(exp((e) => e.lever === 'arrangement' && e.scope.style === 'techno'), '
 assert.ok(exp((e) => e.lever === 'targeting' && e.scope.style === 'house'), 'a taste split → targeting, not a generator change');
 assert.equal(proposeExperiment({ ...reason, reason: 'not_my_style' }).lever, 'targeting');
 assert.equal(proposeExperiment({ ...reason, reason: 'sounds_bad' }).lever, 'sound');
+
+// A truncated shape (long song, 80-char cap) assigns nothing past its end.
+assert.equal(sectionAt(parseShape('intro-8.drop-8'), 12).kind, 'drop');
+assert.equal(sectionAt(parseShape('intro-8.drop-8'), 40), null);
 
 // Too little data: no findings, no experiments; the bar is reported.
 const first = new Set([...new Set(signals.map((x) => x.lis))].slice(0, 30));

@@ -43,7 +43,8 @@ export function parseShape(arr = '') {
   }
   return out;
 }
-const sectionAt = (shape, bar) => shape.findLast((s) => s.at <= bar) || null;
+// `arr` is capped at 80 chars, so a long song's shape can end early: bars past its end belong to no known section.
+export const sectionAt = (shape, bar) => shape.findLast((s) => s.at <= bar && bar < s.at + s.bars) || null;
 
 export function listensFrom(signals = [], { returnAfterMs = DEFAULTS.returnAfterMs } = {}) {
   const by = new Map();
