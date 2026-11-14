@@ -31,8 +31,9 @@ body:not(.studio-open) .generate-actions:not(.np-actions) > .btn:hover { backgro
   .drop-peek i, .drop-card.drop-in, .generate-home.unlock * { animation: none !important; }
   .gen-wrap > .hum-cta { transition: none; }
 }
-/* Quiet link to /research at the foot of the home; never competes with GENERATE. */
-.home-research { grid-column: 1 / -1; justify-self: start; display: flex; gap: 10px; align-items: baseline; padding: 6px 0; color: #8e8e96; font: 600 11px var(--mono); letter-spacing: .16em; text-decoration: none; }
+/* Quiet links at the foot of the home; never compete with GENERATE. */
+.home-foot-links { grid-column: 1 / -1; justify-self: start; display: flex; flex-wrap: wrap; gap: 6px 22px; }
+.home-research { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; color: #8e8e96; font: 600 11px var(--mono); letter-spacing: .16em; text-decoration: none; }
 .home-research span { font: 500 12px var(--sans); letter-spacing: 0; color: #7c7c84; }
 .home-research:hover, .home-research:hover span { color: var(--text); }
 

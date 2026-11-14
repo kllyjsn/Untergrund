@@ -1529,7 +1529,9 @@ function buildGenerateHome() {
   const following = followingRow({ hue, onPlay: (t) => openShared(t.id, true), onLoad: renderHome });
   const live = made ? liveStrip() : null;
   const home = h('section', { role: studioOpen ? 'region' : 'main', 'aria-label': 'Create', class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : '') + (live && !live.hidden ? ' has-live' : '') + (made ? '' : ' first-run') + (unlock ? ' unlock' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` + (unlock ? `;--ua:${-Math.round(since)}ms` : '') }, left, describeBox(), live, picker, concert, recents, following,
-    made ? h('a', { class: 'home-research', href: '/research/' }, 'RESEARCH', h('span', {}, 'How we measure the sound')) : null);
+    h('div', { class: 'home-foot-links' },
+      h('a', { class: 'home-research', href: '/research/' }, 'RESEARCH', h('span', {}, 'How we measure the sound')),
+      h('a', { class: 'home-research', href: '/legal/' }, 'LEGAL', h('span', {}, 'Rights, privacy and terms'))));
   ui.home = home;
   return home;
 }
