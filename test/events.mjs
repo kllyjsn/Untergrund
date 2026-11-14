@@ -83,7 +83,10 @@ console.log('events rate limit passed');
   assert.equal(cleanListen({ ...rec, ref: 'k3j9x0aa' }, { kind: 'share' }).ref, 'k3j9x0aa', 'a share records the ref it minted');
   assert.equal(cleanListen({ ...rec, ref: 'k3j9x0aa' }, { kind: 'start' }).ref, undefined, 'minted ref only on share');
   assert.equal(cleanListen({ ...rec, fp: '<b>' }, { kind: 'start' }), null, 'no fingerprint, no signal');
-  const junk = cleanListen({ fp: 'abcdefg1234567', lid: 'x', seed: 'nope', pct: 400, ms: -5 }, { kind: 'love' });
+  const alone = cleanListen({ ...rec, lis: '', ref: 'k3j9x0aa', surf: 'studio' }, { kind: 'share' });
+  assert.deepEqual([alone.lis, alone.fp, alone.tid, alone.ref, alone.surf], ['', 'abcdefg1234567', 'trk-1', 'k3j9x0aa', 'studio'], 'a share before playing stands alone');
+  assert.equal(cleanListen({ ...rec, lis: '' }, { kind: 'start' }), null, 'only a share can stand alone');
+  const junk = cleanListen({ lis: 'abcdef1234', fp: 'abcdefg1234567', lid: 'x', seed: 'nope', pct: 400, ms: -5 }, { kind: 'love' });
   assert.deepEqual([junk.lid, junk.seed, junk.pct, junk.ms], ['', -1, 100, 0]);
 
   const lk = memoryKv();

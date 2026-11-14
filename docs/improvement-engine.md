@@ -63,7 +63,7 @@ Every report (and so the daily digest and stats.html) carries `loop`, the health
 
 | field | meaning |
 | --- | --- |
-| `published`, `shares`, `sharesPerSong` | songs with a `publish` signal, `share` signals on them, and the ratio |
+| `published`, `shares`, `sharesUnplayed`, `sharesPerSong` | songs with a `publish` signal, `share` signals on them (`sharesUnplayed`: standalone shares made before playing), and the ratio |
 | `shareOrigin` | `start`s that arrived through a shared link (`via`, see [listen-signals.md](listen-signals.md)): starts, distinct links, listeners, and how many came back at least a day later (`returned` of `judged`) |
 | `heard.{shared,published,all}` | listens, completion rate and replay rate for share-origin listens, listens of published songs and all listens |
 | `creators` | devices that published; `returnRate7d` is the share heard from again between a day and a week after their first publish, judged only once that week has passed |

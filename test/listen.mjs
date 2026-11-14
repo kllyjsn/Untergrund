@@ -137,8 +137,13 @@ console.log('listen signals passed');
   const S = createListens({ emit: (kind, rec) => out.push({ kind, ...rec }), now: () => 0, store: storage() });
   S.begin(ctx(A, { src: 'shared', via: 'k3j9x0aa' }));
   S.act('share', { bar: 1, bars: 8, sec: 'a' }, { ref: 'zz11yy22' });
+  assert.equal(S.share({ fp: 'other00000000' }, null, { ref: 'zz11yy33' }), null, 'one share per listen, even through share()');
   assert.deepEqual(out.map((r) => [r.kind, r.via, r.ref]), [['start', 'k3j9x0aa', undefined], ['share', 'k3j9x0aa', 'zz11yy22']]);
   S.begin(ctx(B));
   assert.equal(out.at(-1).via, undefined, 'no ref, no via');
+  const lone = [], L = createListens({ emit: (kind, rec) => lone.push({ kind, ...rec }), now: () => 0, store: storage() });
+  assert.equal(L.share(null, null, { ref: 'zz11yy44' }), null, 'no song, no share');
+  L.share({ fp: 'other00000000', tid: 'trk-9', style: 'acid', surf: 'studio' }, null, { ref: 'zz11yy44' });
+  assert.deepEqual(lone.map((r) => [r.kind, r.lis, r.fp, r.tid, r.surf, r.ref]), [['share', '', 'other00000000', 'trk-9', 'studio', 'zz11yy44']], 'a share before playing goes out standalone');
   console.log('share attribution passed');
 }

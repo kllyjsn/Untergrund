@@ -92,6 +92,17 @@ export function createListens({ emit = () => {}, now = () => Date.now(), store =
     return send(kind, l, l === cur && !l.held ? pos : l.pos, extra);
   }
 
+  // A share: on the song being heard (or just heard) like any act; with no listen behind it (a link copied before
+  // pressing play) it goes out standalone, without `lis`, carrying the shared song's fp/tid, its surface and the ref.
+  function share(song, pos, extra = {}) {
+    if (target()) return act('share', pos, extra);
+    if (!song?.fp) return null;
+    const rec = { v: LISTEN_VERSION, lis: '', fp: song.fp, tid: song.tid || '', seed: Number.isFinite(song.seed) ? song.seed : -1, style: song.style || '',
+      src: song.src || '', surf: song.surf || '', ph: '', bar: 0, bars: 0, sec: '', pct: -1, ms: 0, ...(song.via ? { via: song.via } : {}), ...extra };
+    emit('share', rec);
+    return rec;
+  }
+
   const isLoved = (fp) => !!fp && loved.has(fp);
   const isDowned = (fp) => !!fp && downed.has(fp);
   const at = (l, pos) => (l === cur && !l.held ? pos : l.pos);
@@ -125,5 +136,5 @@ export function createListens({ emit = () => {}, now = () => Date.now(), store =
     return send('rewind', l, pos, { to: Math.max(0, Math.round(to)) });
   }
 
-  return { begin, end, hold, act, toggleLove, toggleDown, reason, rewind, isLoved, isDowned, current: () => cur, recent: target };
+  return { begin, end, hold, act, share, toggleLove, toggleDown, reason, rewind, isLoved, isDowned, current: () => cur, recent: target };
 }

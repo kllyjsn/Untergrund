@@ -318,7 +318,8 @@ export const CREATOR_WEEK_MS = 7 * 864e5;
 export function releaseLoop(signals = [], rows = listensFrom(signals), { returnAfterMs = DEFAULTS.returnAfterMs, now = Date.now() } = {}) {
   const sig = signals.filter((s) => s && s.fp), rate = (k, n) => (n ? Math.round((1000 * k) / n) / 1000 : null);
   const publishes = sig.filter((s) => s.kind === 'publish'), published = new Set(publishes.map((s) => s.fp));
-  const shares = sig.filter((s) => s.kind === 'share' && published.has(s.fp)).length;
+  const shareSignals = sig.filter((s) => s.kind === 'share' && published.has(s.fp)), shares = shareSignals.length;
+  const sharesUnplayed = shareSignals.filter((s) => !s.lis).length;
   const shareStarts = sig.filter((s) => s.kind === 'start' && s.via);
   const heard = (r) => ({ listens: r.length, completion: rate(count(r, 'complete'), r.length), replay: rate(count(r, 'replay'), r.length) });
   const shared = rows.filter((l) => l.via);
@@ -337,7 +338,7 @@ export function releaseLoop(signals = [], rows = listensFrom(signals), { returnA
   const ripe = [...first].filter(([, t]) => now - t >= CREATOR_WEEK_MS);
   const back = ripe.filter(([lid, t]) => seen.get(lid).some((u) => u - t >= returnAfterMs && u - t <= CREATOR_WEEK_MS)).length;
   return {
-    published: published.size, shares, sharesPerSong: rate(shares, published.size),
+    published: published.size, shares, sharesUnplayed, sharesPerSong: rate(shares, published.size),
     shareOrigin: { starts: shareStarts.length, links: new Set(shareStarts.map((s) => s.via)).size, listeners: listeners(shared),
       returned: cameBack, judged: visited.length, returnRate: rate(cameBack, visited.length) },
     heard: { all: heard(rows), published: heard(rows.filter((l) => l.tid || published.has(l.fp))), shared: heard(shared) },
@@ -389,7 +390,7 @@ export function toMarkdown(r) {
   if (r.loop) {
     const L = r.loop, p = (x) => (x == null ? '–' : pct(x)), h = L.heard;
     lines.push('', '## Release loop', '', '| metric | value |', '|---|---|',
-      `| shares per published song | ${L.sharesPerSong ?? '–'} (${L.shares} shares of ${L.published} songs) |`,
+      `| shares per published song | ${L.sharesPerSong ?? '–'} (${L.shares} shares of ${L.published} songs, ${L.sharesUnplayed ?? 0} before playing) |`,
       `| share-origin listens | ${L.shareOrigin.starts} starts from ${L.shareOrigin.links} links, ${L.shareOrigin.listeners} listeners |`,
       `| completion (shared · published · all) | ${p(h.shared.completion)} · ${p(h.published.completion)} · ${p(h.all.completion)} |`,
       `| replay (shared · published · all) | ${p(h.shared.replay)} · ${p(h.published.replay)} · ${p(h.all.replay)} |`,

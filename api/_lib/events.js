@@ -51,6 +51,8 @@ export function cleanListen(l, p = {}) {
     ph: id(l.ph, /^[a-z0-9]{1,8}$/), bar: int(l.bar, 0, 9999, 0), bars: int(l.bars, 0, 9999, 0), sec: slug(l.sec), pct: int(l.pct, -1, 100, -1),
     ms: int(l.ms, 0, 864e5, 0), t: int(l.t, 0, 1e14, 0),
   };
+  // Only a share can stand alone (a link copied before pressing play); every other signal belongs to a listen.
+  if (!out.lis && kind !== 'share') return null;
   const co = COHORTS.includes(l.co) ? l.co : '', dev = DEVICES.includes(l.dev) ? l.dev : '';
   if (co) out.co = co;
   if (dev) out.dev = dev;

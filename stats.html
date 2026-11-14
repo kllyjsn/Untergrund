@@ -121,7 +121,7 @@
         || '<div class="empty">No experiment is running.</div>';
       const cov = r.coverage ? `<div class="meta">${esc(r.coverage.from)} to ${esc(r.coverage.to)} · ${fmt(r.coverage.records)} records${r.coverage.capped.length ? ` · ${r.coverage.capped.length} day(s) at the daily cap` : ''}</div>` : '';
       const L = r.loop, rp = (x) => (x == null ? '–' : `${Math.round(x * 100)}%`), row = (k, v) => `<div class="genre"><span>${k}</span><span class="num">${v}</span></div>`;
-      const loop = L ? row('SHARES PER PUBLISHED SONG', `${L.sharesPerSong ?? '–'} · ${fmt(L.shares)} of ${fmt(L.published)}`)
+      const loop = L ? row('SHARES PER PUBLISHED SONG', `${L.sharesPerSong ?? '–'} · ${fmt(L.shares)} of ${fmt(L.published)} · ${fmt(L.sharesUnplayed ?? 0)} before playing`)
         + row('SHARE-ORIGIN LISTENS', `${fmt(L.shareOrigin.starts)} starts · ${fmt(L.shareOrigin.links)} links · ${fmt(L.shareOrigin.listeners)} listeners`)
         + row('COMPLETION · SHARED / PUBLISHED / ALL', `${rp(L.heard.shared.completion)} / ${rp(L.heard.published.completion)} / ${rp(L.heard.all.completion)}`)
         + row('REPLAY · SHARED / PUBLISHED / ALL', `${rp(L.heard.shared.replay)} / ${rp(L.heard.published.replay)} / ${rp(L.heard.all.replay)}`)

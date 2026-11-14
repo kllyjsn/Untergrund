@@ -169,12 +169,14 @@ assert.equal(analyze([]).totals.listens, 0);
   assert.deepEqual([again.returned, again.judged], [1, 2], 'a listener who opens shared links twice is judged once');
   const lone = analyze(S.filter((s) => s.lid === 'fan2'), { now: T0 + 2 * D }).loop.shareOrigin;
   assert.deepEqual([lone.returned, lone.judged, lone.returnRate], [0, 1, 0], 'a day on, a share-origin listener never heard again counts as not back');
+  const solo = analyze([...S, { v: 1, lis: '', lid: 'creator2', fp: 'pubsong2aaaaaa', kind: 'share', ref: 'cccc3333', surf: 'studio', t: T0 + 50 }], { now: T0 + 10 * D }).loop;
+  assert.deepEqual([solo.shares, solo.sharesUnplayed, solo.sharesPerSong, solo.heard.all.listens], [3, 1, 1, L.heard.all.listens], 'a share before playing counts, and adds no listen');
   const early = S.filter((s) => s.t < T0 + 3 * D);
   const fresh = analyze(early, { now: T0 + 3 * D }).loop.creators;
   assert.deepEqual([fresh.judged, fresh.returnRate7d], [0, null], 'nobody judged before a week has passed');
   const quiet = analyze(early, { now: T0 + 8 * D }).loop.creators;
   assert.deepEqual([quiet.judged, quiet.returned, quiet.returnRate7d], [3, 0, 0], 'a week later, creators never heard from again count as not back');
-  assert.match(toMarkdown(analyze(S)), /## Release loop[\s\S]*shares per published song \| 0\.667 \(2 shares of 3 songs\)[\s\S]*creator return within 7 days \| 33% \(1 of 3/);
+  assert.match(toMarkdown(analyze(S)), /## Release loop[\s\S]*shares per published song \| 0\.667 \(2 shares of 3 songs, 0 before playing\)[\s\S]*creator return within 7 days \| 33% \(1 of 3/);
   assert.deepEqual(analyze([]).loop.creators, { total: 0, judged: 0, returned: 0, returnRate7d: null });
 }
 
