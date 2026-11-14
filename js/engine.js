@@ -2379,7 +2379,7 @@ export class Sequencer {
       const sec = o.q === 'v' ? (s.patterns[this.cur]?.sec ? 1.15 : 0.82) : o.q === 'b' ? 0.6 : 1, strong = strongNote(start, dur);
       const ht = t + (hash(start, 97) - 0.5) * 0.008 * x.feel + (s.master.humanize || 0) * 0.008;
       const b = 0.58 + 0.42 * ((((bar % 8) + 8) % 8) / 7), v = Math.min(1, vel * sec) * (SUNG_VOICE[hk.v] ?? 1);
-      e.hook(ht, v, semi + lift, dur * sd, hk.v, hk.o, strong, b, false, x);
+      e.hook(ht, v, semi + lift, dur * sd, hk.v, hk.o, strong, b, false, [0, 4, 5].includes(this.cur) ? { ...x, harp: 1 } : x);
       if (this.cur === 6 && o.q === 'n' && ph % 2 === 1 && dur >= 6 && this.songBars) e.hook(ht + 0.004, v * 0.55, stepDeg(semi, -2, scale) + lift, dur * sd, hk.v, hk.o, strong, b, false, { ...x, harm: 1 });
     }
   }
