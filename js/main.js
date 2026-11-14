@@ -32,6 +32,7 @@ import { restoreVoice } from './voice.js';
 import { compose } from './classical.js';
 import { PIECE, loadPiece } from './repertoire.js';
 import { followingRow } from './feed.js';
+import { flagshipShelf } from './flagship.js';
 import { describeBar, syncLyrics } from './describe-ui.js';
 import { songState } from './song-spec.js';
 import { fetchPublicTrack } from './account.js';
@@ -385,7 +386,7 @@ const listenSurface = () => (jukeboxNow ? 'jukebox' : songOrigin.src === 'room' 
 function listenCtx() {
   const a = state.artist || {};
   const ctx = { fp: songFingerprint(state), tid: guest?.song?.trackId || songOrigin.tid || '', seed: Number.isFinite(+a.seed) ? +a.seed : -1, style: STYLES[a.style] ? a.style : style,
-    src: songOrigin.src, surf: listenSurface(), ph: songOrigin.ph || '', pt: songOrigin.pt || '', arr: songShape() };
+    src: songOrigin.src, surf: listenSurface(), ph: songOrigin.ph || '', pt: songOrigin.pt || '', arr: songShape(), via: songOrigin.via || '' };
   const x = experimentFor(ctx);
   // An experiment that changes songs (`apply`) tags only songs made under it, with the arm they were made in;
   // restored, crate, shared and room songs were never treated, so they stay out of its read-out.
@@ -412,7 +413,8 @@ onTrack((name, p) => {
   const kind = name === 'publish' ? (['song', 'soundcloud'].includes(p.kind) && 'publish')
     : name === 'share_link_copied' ? (SONG_SHARES.has(p.what) && 'share')
     : name === 'video_export' ? 'share' : name === 'room_go_live' ? 'live' : /^export_(wav|stems|midi)$/.test(name) ? 'keep' : null;
-  if (kind) listens.act(kind, listenPos());
+  if (kind === 'share') listens.share(sharingCtx(), listenPos(), p.ref ? { ref: p.ref } : {});
+  else if (kind) listens.act(kind, listenPos());
 });
 addEventListener('pagehide', () => { if (listens.end(listenPos(), { force: true })) flushEvents(); });
 
@@ -676,20 +678,52 @@ function currentSong() {
   const a = state.artist || {};
   return { state: clone(state), title: a.title || 'Untitled set', artist: a.name || 'UNTERGRUND', style: STYLES[a.style] ? a.style : style, remixOf: state.remixOf };
 }
-function showShare(song = currentSong(), source = 'studio') { openShare({ song, toast, download, source, hue: hue(song.style), beforeExport: () => { if (playing) stop(); } }); }
+// The song whose share sheet is open, so a share made before pressing play still names the song it shared.
+let sharing = null;
+const sharingCtx = () => (sharing?.song?.state ? { fp: songFingerprint(sharing.song.state), tid: sharing.song.trackId || '', style: sharing.song.style || '', surf: sharing.source || '' } : null);
+function showShare(song = currentSong(), source = 'studio') { sharing = { song, source }; openShare({ song, toast, download, source, hue: hue(song.style), beforeExport: () => { if (playing) stop(); } }); }
 
 // Play a shared or jukebox song in place; leaveGuest() puts the listener's own project back.
-function listen(song, src = 'shared') {
+function listen(song, src = 'shared', via = '') {
   ensureAudio();
-  songOrigin = { src, tid: song.trackId || '' };
+  songOrigin = { src, tid: song.trackId || '', ...(via ? { via } : {}) };
   if (!guest) guest = { backup: clone(state), style };
   guest.song = song;
   if (STYLES[song.style]) style = song.style;
   stop(); autoMajor = false;
   state = sanitize(clone(song.state));
+  state.artist = { ...(state.artist || {}), title: song.title, name: song.artist, style: song.style };
   if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
   build();
   play();
+}
+// Shelf plays open the shared-song landing, so closing it (or remixing) hands the listener's own project back.
+function playFlagship(t) {
+  const song = normalizeSong({ ...t, artist: t.by });
+  if (!song) return toast('Could not open that song');
+  const next = { ...song, trackId: t.id, remixes: t.remixes || 0 };
+  const landing = openLanding(next, 'flagship');
+  countPlay(t.id);
+  listen(next, 'flagship');
+  landing.sync();
+}
+// A shared, linked or shelf song plays as a guest on the landing; closing it restores the listener's project.
+// One Space listener keeps whichever landing is open in sync with the transport.
+let landingNow = null;
+addEventListener('keydown', (e) => { if (e.code === 'Space' && landingNow) setTimeout(landingNow.sync); }, true);
+function openLanding(load, src = 'shared', via = '') {
+  const landing = openSharedLanding({
+    // Waiting for instruments counts as playing, like the transport toggle, so the landing shows STOP at once.
+    load, isPlaying: () => playing || !!tuning,
+    play: (song) => { countPlay(song.trackId); listen(song, src, via); },
+    fetchSong: (id) => fetch(`/api/tracks?id=${encodeURIComponent(id)}`).then((r) => (r.ok ? r.json() : Promise.reject())).then(({ track: t }) => t?.state && { ...normalizeSong(t), trackId: t.id, remixes: t.remixes || 0, children: t.children || [] }),
+    stop: () => { if (playing || tuning) stop(); },
+    remix: remixSong,
+    share: (song) => showShare(song, 'shared'),
+    close: () => { leaveGuest(); window.history.replaceState(null, '', location.pathname); },
+  });
+  landingNow = landing;
+  return landing;
 }
 function leaveGuest() {
   if (!guest) return;
@@ -1633,8 +1667,9 @@ function buildGenerateHome() {
     h('div', { class: 'recents-row' }, recent.map((t) => h('button', { class: 'recent', style: `--hue:${hue(t.style)}`, onclick: () => openRecent(t) },
       h('i'), h('b', {}, t.title || 'Untitled'), h('span', {}, [STYLES[t.style]?.name, t.bpm && `${t.bpm} BPM`].filter(Boolean).join(' · ')))))) : null;
   const following = followingRow({ hue, onPlay: (t) => openShared(t.id, true), onLoad: renderHome });
+  const flagship = flagshipShelf({ onPlay: playFlagship, onLoad: renderHome });
   const live = made ? liveStrip() : null;
-  const home = h('section', { role: studioOpen ? 'region' : 'main', 'aria-label': 'Create', class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : '') + (live && !live.hidden ? ' has-live' : '') + (made ? '' : ' first-run') + (unlock ? ' unlock' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` + (unlock ? `;--ua:${-Math.round(since)}ms` : '') }, left, describeBox(), live, picker, concert, recents, following,
+  const home = h('section', { role: studioOpen ? 'region' : 'main', 'aria-label': 'Create', class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : '') + (live && !live.hidden ? ' has-live' : '') + (made ? '' : ' first-run') + (unlock ? ' unlock' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` + (unlock ? `;--ua:${-Math.round(since)}ms` : '') }, left, describeBox(), live, picker, concert, recents, following, flagship,
     h('div', { class: 'home-foot-links' },
       h('a', { class: 'home-research', href: '/research/' }, 'RESEARCH', h('span', {}, 'How we measure the sound')),
       h('a', { class: 'home-research', href: '/legal/' }, 'LEGAL', h('span', {}, 'Rights, privacy and terms'))));
@@ -2468,16 +2503,7 @@ if (shared) setTimeout(() => {
       .then((song) => (song ? remixSong(song, false) : toast('Could not open that song')), () => toast('Could not open that song'));
     return;
   }
-  const landing = openSharedLanding({
-    load, isPlaying: () => playing,
-    play: (song) => { countPlay(song.trackId); listen(song); },
-    fetchSong: (id) => fetch(`/api/tracks?id=${encodeURIComponent(id)}`).then((r) => (r.ok ? r.json() : Promise.reject())).then(({ track: t }) => t?.state && { ...normalizeSong(t), trackId: t.id, remixes: t.remixes || 0, children: t.children || [] }),
-    stop: () => { if (playing) stop(); },
-    remix: remixSong,
-    share: (song) => showShare(song, 'shared'),
-    close: () => { leaveGuest(); window.history.replaceState(null, '', location.pathname); },
-  });
-  addEventListener('keydown', (e) => { if (e.code === 'Space') setTimeout(landing.sync); }, true);
+  openLanding(load, 'shared', shared.ref);
 });
 else if (new URLSearchParams(location.search).has('drop')) setTimeout(() => openDropLink(new URLSearchParams(location.search)));
 else if (new URLSearchParams(location.search).has('room')) setTimeout(showClub);

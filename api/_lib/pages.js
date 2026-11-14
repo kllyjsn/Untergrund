@@ -4,6 +4,7 @@ import { KEYS, SCALES } from '../../js/params.js';
 import { STYLES } from '../../js/state.js';
 import { publicArtistPage, publicTrack } from './accounts.js';
 import { remixTree } from './crate.js';
+import { FLAGSHIP } from '../../config/flagship.js';
 
 export const SITE = 'https://www.untergrund.sh';
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -119,6 +120,19 @@ export function renderTrackPage({ track, artist, remixes = [] }, { site = SITE }
   return shell(head, body, { kind: 'track', site, track, artist, remixes, cat });
 }
 
+// The pinned flagship tracks with their real artist credit and real play/remix counts; unresolvable ids are dropped.
+// FLAGSHIP_TRACKS (comma-separated ids) overrides the committed list so an admin can re-pin without a deploy.
+export const flagshipIds = (env = process.env) => (env.FLAGSHIP_TRACKS ? env.FLAGSHIP_TRACKS.split(',').map((s) => s.trim()).filter(Boolean) : FLAGSHIP);
+export async function flagshipTracks({ kv, crate, ids = FLAGSHIP, max = 12 }) {
+  const found = (await Promise.all([...new Set(ids)].slice(0, max).map((id) => publicTrack(kv, crate, id).catch(() => null)))).filter(Boolean);
+  const counts = crate?.counts ? await crate.counts(found.map((f) => f.track.id)).catch(() => []) : [];
+  return found.map(({ track: t, artist }, i) => ({
+    id: t.id, title: t.title, style: t.style, bpm: t.bpm, key: t.key, scale: t.scale, state: t.state,
+    by: artist?.name || t.artist || 'UNTERGRUND', artist: artist ? { handle: artist.handle, name: artist.name } : null,
+    plays: counts[i]?.plays || 0, remixes: counts[i]?.remixes || 0,
+  }));
+}
+
 export function renderArtistPage({ artist, tracks }, { site = SITE } = {}) {
   const url = `${site}/a/${artist.handle}`;
   const title = `${artist.name} (@${artist.handle}) on UNTERGRUND`;
@@ -180,7 +194,7 @@ export function renderRoomPage(id, snap, { site = SITE } = {}) {
 }
 
 // Shared by api/page.js and server.mjs. Returns { status, type, body, cache }.
-export async function handlePage(query, { kv, crate, site = SITE, og, rooms = null }) {
+export async function handlePage(query, { kv, crate, site = SITE, og, rooms = null, flagship = flagshipIds() }) {
   const cache = 'public, max-age=60, s-maxage=300, stale-while-revalidate=86400';
   const html = (status, body, c = cache) => ({ status, type: 'text/html; charset=utf-8', body, cache: c });
   if (query.r || query.og_room) {
@@ -194,6 +208,10 @@ export async function handlePage(query, { kv, crate, site = SITE, og, rooms = nu
       return { status: 200, type: 'image/png', body: og.ogImage(set.state, og.artSeed(`room:${id}:${set.broadcastId || set.title}`), { title: set.title || 'Live set', artist: 'LIVE NOW', line: `UNTERGRUND · ROOM ${id}` }), cache: live };
     }
     return html(200, renderRoomPage(id, snap, { site }), live);
+  }
+  if (query.flagship) {
+    const tracks = await flagshipTracks({ kv, crate, ids: flagship });
+    return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify({ tracks }), cache: 'public, max-age=60, s-maxage=300, stale-while-revalidate=600' };
   }
   if (query.og) {
     const t = await publicTrack(kv, crate, query.og);
