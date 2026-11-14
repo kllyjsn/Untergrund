@@ -44,6 +44,7 @@ Sent as `{ n: 'listen', p: { kind, genre }, l: <record>, t }`. The server keeps 
 | `arr` | song structure, **only on `start`**: score sections with bar counts (`intro-8.verse-16.drop-8`) or the pattern chain (`aabbc`, one letter per bar); max 80 chars |
 | `why` | the down reason, only on `why` |
 | `to` | the rewind target bar, only on `rewind` |
+| `xp`, `arm` | the running experiment this listen is in and its arm (`control` / `variant`), only when one applies ([improvement-engine.md](improvement-engine.md#running-an-experiment)) |
 | `co` | listener cohort: days since this device first opened the app (`d0`, `d1_6`, `d7_29`, `d30_plus`) |
 | `dev` | device class: `phone`, `tablet` or `desktop` (pointer type + width; nothing finer) |
 | `ms` | actual listening time so far in this listen (pauses excluded) |
@@ -60,12 +61,13 @@ Anything else is dropped by `cleanListen()`; unknown kinds or a missing fingerpr
 - `untergrund:ls:<day>` — `<style>:<kind>` counts per day.
 - `untergrund:fp:<fp>` — `<kind>` counts per song fingerprint.
 - `untergrund:listen` — raw records, newest first, capped at 5000. Max 300 records per client per hour.
+- `untergrund:ev:listen:<day>` — the same records per UTC day (max 5000 a day, kept 29 days), read in pages by the improvement report.
 
 `GET /api/events?summary=1` (stats token) adds `listening: { kinds, rates, styles }`, where rates are per `start`: `completion`, `skip`, `replay`, `rewind`, `love` (love − unlove), `down` (down − undown), `keep`, `publish`, `share`, `live`. `stats.html` shows them.
 
 `GET /api/events?signals=1&limit=500[&fp=<fp>]` (stats token) returns `{ version, signals, song? }`: the raw log for offline learning and automations, plus counts/rates for one song.
 
-`GET /api/events?improve=1[&min=<listens>]` (stats token) runs the improvement engine over the whole raw log: ranked findings and proposed experiments. See [improvement-engine.md](improvement-engine.md).
+`GET /api/events?improve=1[&min=<listens>]` (stats token) runs the improvement engine over the last 28 days of day logs (`&days=` for fewer): ranked findings, proposed experiments and the read-out of running ones. `GET /api/events?digest=1` returns the latest daily digest. See [improvement-engine.md](improvement-engine.md).
 
 ## Privacy
 
