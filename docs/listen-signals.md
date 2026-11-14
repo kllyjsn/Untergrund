@@ -36,8 +36,8 @@ Sent as `{ n: 'listen', p: { kind, genre }, l: <record>, t }`. The server keeps 
 | `tid` | published track id when the song came from the crate/feed/share, else `''` |
 | `seed` | the generator seed (`state.artist.seed`), `-1` if unknown |
 | `style` | style/genre id (`acid`, `techno`, …) |
-| `src` | how the song came to be: `generate`, `prompt` (Describe), `hum`, `drop` (Daily Drop), `piece`, `remix`, `crate`, `shared`, `jukebox`, `room`, `restored`, `radio` (started by Radio when the last song ended or was turned down) |
-| `surf` | where it was heard: `home`, `studio`, `shared`, `jukebox`, `room` |
+| `src` | how the song came to be: `generate`, `prompt` (Describe), `hum`, `drop` (Daily Drop), `piece`, `remix`, `crate`, `shared`, `jukebox`, `room`, `restored`, `radio` (started by Radio when the last song ended or was turned down), `release` (played on a `/t/<id>` release page without a share ref) |
+| `surf` | where it was heard: `home`, `studio`, `shared`, `jukebox`, `room`, `release` (the `/t/<id>` page) |
 | `ph` | hash of the normalized Describe prompt, when `src` is `prompt` |
 | `pt` | the prompt text itself, **only on `start`**, max 120 chars, dropped if it looks like an email, URL or phone number |
 | `bar`, `bars`, `sec`, `pct` | position when the signal fired: bar, song length in bars, section name, percent (`-1` if length unknown) |
