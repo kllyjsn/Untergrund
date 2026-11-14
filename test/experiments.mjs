@@ -149,5 +149,9 @@ const flakyKv = async (cmds) => { if (fail && cmds.some(([c, k]) => c === 'LLEN'
 await assert.rejects(handleEvents({ method: 'GET', query: { digest: 'run' }, headers: { authorization: 'Bearer s' }, kv: flakyKv, statsToken: 's', now: T0 }));
 fail = false;
 assert.equal((await handleEvents({ method: 'GET', query: { digest: 'run' }, headers: { authorization: 'Bearer s' }, kv: flakyKv, statsToken: 's', now: T0 })).json.skipped, undefined, 'the retry runs');
+fail = true;
+await assert.rejects(handleEvents({ method: 'GET', query: { digest: 'run', force: '1' }, headers: { authorization: 'Bearer s' }, kv: flakyKv, statsToken: 's', now: T0 }));
+fail = false;
+assert.equal((await handleEvents({ method: 'GET', query: { digest: 'run' }, headers: { authorization: 'Bearer s' }, kv: flakyKv, statsToken: 's', now: T0 })).json.skipped, 'already_ran', 'a failed forced rerun keeps the successful run\'s marker');
 
 console.log('experiments, history and digest passed');

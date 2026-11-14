@@ -307,8 +307,8 @@ export async function runDigest(kv, { now = Date.now(), webhook = '', fetchImpl 
     brief = { day, generated: r.generated, listens: r.totals.listens, findings: r.findings.length, experiments: r.experiments.length, running: r.running.map((x) => ({ id: x.id, status: x.status })) };
     await kv([['SET', `${P}:digest`, JSON.stringify(digest)], ['LPUSH', `${P}:digests`, JSON.stringify(brief)], ['LTRIM', `${P}:digests`, 0, DIGESTS_KEPT - 1]]);
   } catch (err) {
-    // A failed run must not use up the day: the next cron retry (or a forced run) tries again.
-    await kv([['DEL', `${P}:digest:ran:${day}`]]).catch(() => {});
+    // A failed run must not use up the day: the next cron retry tries again. Only the run that set the marker clears it.
+    if (fresh === 'OK') await kv([['DEL', `${P}:digest:ran:${day}`]]).catch(() => {});
     throw err;
   }
   let delivered = false;
