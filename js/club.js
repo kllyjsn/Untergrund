@@ -9,7 +9,7 @@ import { listReplays, loadReplay, fmtTime } from './sets.js';
 import { PARTS, PART_IDS, extractPart, jamKey, jamStep, stepWall, jammable, partIdea } from './jam.js';
 import { fetchLiveRooms, liveDirectory, roomCard, goLiveTile, isRoomPublic, setRoomPublic, myRoom, setMyRoom, roomInviteUrl } from './live-rooms.js';
 import { SHAPES, COLORS, GEAR, FALLBACK_NAME, generateName, randomLook, migrateAvatar, chatGroups } from './club-identity.js';
-import { createStage } from './club-stage.js';
+import { createStage, stageScene } from './club-stage.js';
 
 const AVATAR_KEY = 'untergrund.avatar.v1';
 const ROOM_KEY = 'untergrund.room.v1';
@@ -861,6 +861,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     return stageView.update({
       members, hostId: room.hostId,
       current: { ...(set || nowPlaying()), startsAt: set?.startsAt },
+      scene: set ? stageScene(set.style, set.state) : stageScene(getStyle(), getState()),
       label: set ? `${set.replay ? 'REPLAY' : 'LIVE'} IN THIS ROOM${liveSetRecording() ? ' · RECORDING' : ''}` : 'READY TO BROADCAST',
     });
   }
