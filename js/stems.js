@@ -31,7 +31,7 @@ export const exportName = (state, suffix) => `${slug(state.artist?.title)}-${Mat
 
 // The stems this song actually plays, in mixer order: the instruments with notes, then FX/returns.
 export function stemList(state, loopBars = 16) {
-  const c = capture(state, loopBars), ids = c.score ? Object.keys(PARTS) : [...TRACK_IDS.slice(0, TRACK_IDS.indexOf('stab') + 1), 'hook', ...TRACK_IDS.slice(TRACK_IDS.indexOf('stab') + 1)];
+  const c = capture(state, loopBars), ids = c.score ? Object.keys(PARTS) : [...TRACK_IDS.slice(0, TRACK_IDS.indexOf('stab') + 1), 'hook', ...TRACK_IDS.slice(TRACK_IDS.indexOf('stab') + 1), ...Object.keys(PARTS)];
   return [...ids.filter((id) => c.notes[id]?.length), ...(vocalStem(state) ? ['sung'] : []), 'fx'];
 }
 

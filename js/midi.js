@@ -50,6 +50,7 @@ export class Recorder {
   add(track, t, m, dur, v) { (this.notes[track] ||= []).push({ t, m, dur: Math.max(0.01, dur), v }); }
   chord() { const p = this.state.params.stab, h = this.harm; return CHORDS[h ? h.c : Math.round(p.chord)].iv; }
   dust() {} vocal() {} sweep() {} impact() {} breakSweep() {} breakOpen() {} sectionGain() {} quietGrip() {}
+  bandLayer(...a) { return Engine.prototype.bandLayer.apply(this, a); }
   crash(t, v) { this.add('oh', t, 49, this.stepDur * 4, v); }
   tom(t, v, high) { this.add('snare', t, high ? 48 : 45, this.stepDur, v); }
   acidRelease(t) { if (this.bass) { this.bass.dur = Math.max(0.01, Math.min(this.bass.dur, t - this.bass.t)); this.bass = null; } }
@@ -169,7 +170,7 @@ export function writeMidi({ title = 'UNTERGRUND', tempos, timeSig = [4, 4], key,
 // The whole song (or score) as a .mid; also returns per-track note counts.
 export function songMidi(state, { loopBars = 16, title } = {}) {
   const c = capture(state, loopBars), tick = ticker(c.at, c.dur), s = c.state;
-  const order = c.score ? Object.keys(PARTS) : [...Object.keys(GM_DRUMS), 'acid', 'stab', 'hook', 'vox'];
+  const order = c.score ? Object.keys(PARTS) : [...Object.keys(GM_DRUMS), 'acid', 'stab', 'hook', 'vox', ...Object.keys(PARTS)];
   let chan = 0;
   const tracks = [];
   for (const id of order) {
@@ -178,8 +179,8 @@ export function songMidi(state, { loopBars = 16, title } = {}) {
     const drum = !c.score && GM_DRUMS[id] != null;
     const channel = drum ? 9 : chan === 9 ? ++chan : chan;
     if (!drum) chan = Math.min(15, channel + 1);
-    const name = c.score ? PARTS[id][0] : drum ? DRUM_NAMES[id] : { acid: 'Bass', stab: 'Chords', hook: 'Hook', vox: 'Vocals' }[id];
-    const program = c.score ? PARTS[id][1] : drum ? null : { acid: Math.round(s.params.acid.voice) === 1 ? 33 : 38, stab: STAB_PROGRAM[Math.round(s.params.stab.voice)] ?? 4, hook: 80, vox: 54 }[id];
+    const name = c.score || PARTS[id] ? PARTS[id][0] : drum ? DRUM_NAMES[id] : { acid: 'Bass', stab: 'Chords', hook: 'Hook', vox: 'Vocals' }[id];
+    const program = c.score || PARTS[id] ? PARTS[id][1] : drum ? null : { acid: Math.round(s.params.acid.voice) === 1 ? 33 : 38, stab: STAB_PROGRAM[Math.round(s.params.stab.voice)] ?? 4, hook: 80, vox: 54 }[id];
     // Two hits of one pitch on the same tick (a lick doubling a chord tone) are one note, at the louder velocity.
     const seen = new Map(), out = [];
     for (const n of notes) {
