@@ -1,0 +1,28 @@
+{
+  "schema": "untergrund.critiques/1",
+  "about": "Jason's listening verdicts from past build sessions, as labels for the digital ear (docs/taste.md). Notes are paraphrased; tags use js/ear-data.js TAGS. prs are the PRs under review when the verdict was given. A verdict says what was wrong, not which exact render, so these seed the tag vocabulary and per-genre priors; ear.html pairs are the training target.",
+  "critiques": [
+    { "date": "2026-10-31", "prs": [1, 2, 4], "genre": "jazz", "verdict": "bad", "tags": ["thin", "computer"], "note": "Instrumentation doesn't sound like real players (Robert Glasper as the reference)." },
+    { "date": "2026-11-01", "prs": [1, 2, 4], "verdict": "mixed", "score": 5, "tags": [], "note": "Getting better, about 5/10." },
+    { "date": "2026-11-01", "prs": [1, 2, 4], "verdict": "bad", "tags": ["repetitive", "emotion"], "note": "Songs sound too similar to each other, like elevator music." },
+    { "date": "2026-11-01", "prs": [1, 2, 4], "verdict": "mixed", "tags": ["computer"], "note": "Better, but too electronic; not enough real instruments." },
+    { "date": "2026-11-02", "prs": [48], "genre": "house", "verdict": "bad", "tags": ["metallic", "groove", "emotion", "computer"], "note": "House is clanging, no groove or soul, computer-like." },
+    { "date": "2026-11-02", "prs": [49, 47, 50], "genre": "classical", "verdict": "mixed", "tags": ["emotion"], "note": "Chopin sample is one-dimensional; the real thing is more floral and expressive." },
+    { "date": "2026-11-02", "prs": [58, 53, 54], "verdict": "bad", "tags": [], "note": "Still doesn't sound right." },
+    { "date": "2026-11-02", "prs": [58, 53, 54], "verdict": "mixed", "tags": ["metallic"], "note": "Better, still clangy." },
+    { "date": "2026-11-03", "prs": [58, 53, 54], "verdict": "bad", "tags": ["metallic", "tune"], "note": "Still metallic and sounds out of tune." },
+    { "date": "2026-11-13", "prs": [116, 120], "genre": "pop", "verdict": "bad", "tags": ["static"], "note": "Pop sounds staticky." },
+    { "date": "2026-11-13", "genre": "country", "verdict": "bad", "tags": ["thin"], "note": "Country has no guitar, mostly piano, sounds like a kid's piano." },
+    { "date": "2026-11-13", "prs": [148], "genre": "country", "instrument": "harmonica", "verdict": "good", "tags": [], "note": "Harmonica sounds good." },
+    { "date": "2026-11-13", "prs": [148], "genre": "country", "instrument": "guitar", "verdict": "bad", "tags": ["thin"], "note": "Telecaster-style guitar and honky-tonk piano sound bad." },
+    { "date": "2026-11-13", "prs": [148], "genre": "country", "verdict": "mixed", "tags": ["metallic"], "note": "Best so far, on the right track, still a little metallic." },
+    { "date": "2026-11-14", "prs": [148], "genre": "country", "verdict": "mixed", "tags": [], "note": "Getting there but still not great." },
+    { "date": "2026-11-14", "verdict": "bad", "tags": ["static"], "note": "Lots of static in the song." },
+    { "date": "2026-11-14", "verdict": "mixed", "tags": [], "note": "The music isn't great yet but is on the right track." },
+    { "date": "2026-11-14", "verdict": "bad", "tags": ["repetitive", "emotion"], "note": "Generation isn't creative enough; genres still sound too similar." },
+    { "date": "2026-11-14", "verdict": "bad", "tags": ["repetitive"], "note": "Too little contrast between genres to hold interest; needs new instruments." },
+    { "date": "2026-11-14", "prs": [145, 151], "instrument": "guitar", "verdict": "prefer", "prefer": "rock", "over": "folk", "tags": [], "note": "Rock guitar sounded way better than folk." },
+    { "date": "2026-11-14", "prs": [145, 151], "instrument": "guitar", "verdict": "bad", "tags": ["tune"], "note": "Guitar seems out of tune; the plucking is very annoying." },
+    { "date": "2026-11-14", "instrument": "guitar", "verdict": "bad", "tags": ["tune", "groove"], "note": "Seed 20 guitar strings sound out of tune and beginner-level; should be smoother." }
+  ]
+}

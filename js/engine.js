@@ -8,6 +8,7 @@ import { pocketOf, pocketLate, pocketVel } from './groove.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ } from './lead.js';
 import { lowEnd } from './lowend.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
+import { processedStem } from './vocal-chain.js';
 import { makeupGain } from './loudness.js';
 import { harmRoot, chordIv, stabNotes, hookSnap, voiceLead } from './harmony.js';
 import { develop, motifPlan, stepDeg } from './motif.js';
@@ -79,7 +80,7 @@ export function guitarHand(kind, pocket, chorus) {
   const play = kind === 'banjo' && (pocket === 'FOLK' || pocket === 'COUNTRY') ? 'roll'
     : pocket === 'FOLK' && !chorus && (kind === 'agtr' || kind === 'gtr') ? 'pick'
       : funk && (kind === 'gtr' || kind === 'jazz') ? 'chop' : 'strum';
-  const double = (kind === 'drive' && pocket === 'ROCK') || (pocket === 'POP' && chorus && (kind === 'gtr' || kind === 'agtr'));
+  const double = (kind === 'drive' && pocket === 'ROCK') || ((pocket === 'POP' || pocket === 'FOLK') && chorus && (kind === 'gtr' || kind === 'agtr'));
   const fx = funk && kind === 'gtr' ? 'chorus' : kind === 'gretsch' && pocket === 'COUNTRY' ? 'trem' : null;
   return { play, double, fx };
 }
@@ -158,8 +159,8 @@ const BAND_PLAY = {
   str: { gain: 1.2, len: 2, min: 0.5, strum: 0, shift: 0, hold: true, lo: 55, hi: 79, lp: 4200, rel: 0.25 },
   // The hollow-body played through a cranked amp: power chords sustain, the cab rolls off the fizz.
   drive: { set: 'gtr', amp: true, gain: 3.2, len: 3.4, min: 0.18, strum: 0.004, shift: 0, lo: 40, hi: 64, lp: 5200, soft: 1800, fade: 0.008, rel: 0.12, grip: true, even: 0.15 },
-  // Steel-string acoustic: a wider strum, bright top, long ring.
-  agtr: { gain: 4.2, len: 3.2, min: 0.7, strum: 0.011, shift: 0, lo: 40, hi: 76, lp: 7800, soft: 0, fade: 0.01, rel: 0.3, grip: true, even: 0.35 },
+  // Steel-string acoustic: a wider strum, bright top, long ring; the boxy low mids of the close mic dipped.
+  agtr: { gain: 4.2, len: 3.2, min: 0.7, strum: 0.011, shift: 0, lo: 40, hi: 76, lp: 7800, body: [280, 1.1, -4], soft: 0, fade: 0.01, rel: 0.3, grip: true, even: 0.35 },
   // The archtop's magnetic pickup, neck position, tone rolled back: round, woody comping for soul and jazz chords.
   jazz: { gain: 9.5, len: 2.4, min: 0.5, softBelow: 0, strum: 0.005, shift: 0, lo: 43, hi: 72, lp: 3400, soft: 900, fade: 0.008, rel: 0.2, grip: true, even: 0.25 },
   // Six-string guitar banjo: a fast snappy strum that dies quickly, all top end.
@@ -294,7 +295,8 @@ export class Engine {
     this.out.connect(c.destination);
     // The neural singer's stem (vocal(), js/sing.js): past the band's duck, into the master chain.
     this.vocalBus = this.gain(0);
-    this.vocalBus.connect(this.preMaster);
+    this.vocalOut = this.gain(1);
+    this.vocalBus.connect(this.vocalOut).connect(this.preMaster);
     if (this.realtime) {
       this.analyser = c.createAnalyser();
       this.analyser.fftSize = 4096;
@@ -380,13 +382,17 @@ export class Engine {
       const post = sc || level;
       if (sc) sc.connect(level);
       strip[3].connect(post);
-      level.connect(pan);
+      // CHORDS (keys, guitars) step out of the sung vocal's presence band while it sings (Engine.vocal, carve).
+      const carve = t.id === 'stab' ? this.filter('peaking', 3000, 0.8) : null;
+      if (carve) carve.gain.value = 0;
+      level.connect(carve || pan);
+      if (carve) carve.connect(pan);
       pan.connect(DUCKED.has(t.id) ? this.duck : this.mix);
       pan.connect(rev).connect(this.revIn);
       if (t.id !== 'vox') pan.connect(this.roomIn);
       pan.connect(dly).connect(this.dlyIn);
       pan.connect(this.throwBus);
-      const ch = { input, level, pan, rev, dly, sc, strip, post };
+      const ch = { input, level, pan, rev, dly, sc, strip, post, carve };
       if (t.id === 'stab') {
         ch.band = this.gain(1);
         ch.band.connect(input);
@@ -1211,6 +1217,7 @@ export class Engine {
     const pk = live ? pocketOf(this.state.master) : null, hand = live ? guitarHand(kind, pk?.name, this.wide) : null;
     // Two takes of the rhythm part panned hard left and right; a pedal or amp effect per player, then the amp.
     let outs = hand?.double ? [this.panFor(out, -1, true), this.panFor(out, 1, false)] : [out];
+    if (R.body) outs = outs.map((o) => this.bodyFor(o, R.body));
     if (hand?.fx === 'chorus') outs = outs.map((o) => this.chorusFor(o));
     if (hand?.fx === 'trem') outs = outs.map((o) => this.tremFor(o, t, this.wide ? 0 : 0.3));
     if (R.amp) outs = outs.map((o) => this.ampFor(o));
@@ -1344,6 +1351,16 @@ export class Engine {
       m.set(key, inp);
     }
     return m.get(key);
+  }
+
+  // One shared EQ per destination for a player's body tone (instead of a filter on every string).
+  bodyFor(dest, [f, q, db]) {
+    const all = (this.bodies ||= new Map());
+    if (!all.has(dest)) {
+      const eq = this.filter('peaking', f, q);
+      eq.gain.value = db; eq.connect(dest); all.set(dest, eq);
+    }
+    return all.get(dest);
   }
 
   // A chorus pedal for clean funk and soul guitar: two slowly swept short delays spread left and right of the dry signal.
@@ -2126,9 +2143,9 @@ export class Engine {
     this.vocalStop(t);
     const off = v ? pos * 16 * this.stepDur - v.ms / 1000 : 0;
     if (!v || off >= v.buf.duration) return;
-    if (!this.vocalRev) { this.vocalRev = this.gain(0.16); this.vocalBus.connect(this.vocalRev).connect(this.revIn); }
+    this.vocalSends(v.fx);
     const src = this.ctx.createBufferSource(), g = this.ctx.createGain();
-    src.buffer = v.buf;
+    src.buffer = processedStem(v.buf, v.fx, this.ctx);
     if (off > 0.001) { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + 0.012); }
     src.connect(g).connect(this.vocalBus);
     this.vocalBus.gain.setValueAtTime(v.gain, t);
@@ -2136,15 +2153,48 @@ export class Engine {
     this.vocalNow = { src, g, buf: v.buf, next: pos + 1, sd: this.stepDur, ms: v.ms };
     if (v.duck < 1) this.duckUnder(v.buf, this.bandDuck.gain, v.duck, t, t - off);
     if (v.lift < 1) this.duckUnder(v.buf, this.singTrim.gain, v.lift, t, t - off);
+    // hookCarve: the exported hook stem's copy of the CHORDS channel (js/stems.js).
+    for (const carve of [this.ch.stab?.carve, this.hookCarve]) {
+      if (!carve || !v.fx?.carve) continue;
+      carve.frequency.setValueAtTime(v.fx.carve.hz, t);
+      this.duckUnder(v.buf, carve.gain, -v.fx.carve.db, t, t - off, 0);
+    }
+  }
+
+  // The vocal's reverb (a plate, or a short room) and tempo-synced slap/delay sends, built on first use, set per genre
+  // (VOCAL_FX in js/sing.js): they return through vocalOut, so they ride the vocal's level and its stem.
+  vocalSends(fx) {
+    const c = this.ctx, now = c.currentTime;
+    if (!this.vocalFx) {
+      const plateSend = this.gain(0), plate = c.createConvolver(), dlySend = this.gain(0);
+      const dly = c.createDelay(2), fb = this.gain(0), hp = this.filter('highpass', 280), lp = this.filter('lowpass', 4800);
+      this.vocalBus.connect(plateSend).connect(this.filter('highpass', 220)).connect(plate).connect(this.vocalOut);
+      this.vocalBus.connect(dlySend).connect(hp).connect(lp).connect(dly).connect(this.vocalOut);
+      dly.connect(fb).connect(hp);
+      this.vocalFx = { plateSend, plate, dlySend, dly, fb, ir: '' };
+    }
+    const F = this.vocalFx, r = fx?.reverb || { kind: 'plate', sec: 1.8, send: 0.16 }, d = fx?.delay;
+    // A plate, or a short, darker room: its own IR so the reverb stays in the vocal's stem.
+    const room = r.kind === 'room', sec = r.sec || (room ? 0.8 : 1.8), ir = `${r.kind}:${sec}`;
+    if (F.ir !== ir) {
+      F.plate.buffer = makeIR(c, sec, room ? { decay: 4.5, brightStart: 0.6, brightEnd: 0.2, predelay: 0.006, seed: 89 }
+        : { decay: 3.2, brightStart: 0.9, brightEnd: 0.35, predelay: 0.012, seed: 97 });
+      F.ir = ir;
+    }
+    F.plateSend.gain.setTargetAtTime(r.send, now, 0.02);
+    F.dly.delayTime.setTargetAtTime(d ? Math.min(1.9, (d.beats * 60) / this.state.bpm) : 0.25, now, 0.02);
+    F.dlySend.gain.setTargetAtTime(d ? d.send : 0, now, 0.02);
+    F.fb.gain.setTargetAtTime(d ? d.fb : 0, now, 0.02);
   }
 
   // A gain that follows the stem's singing envelope down to `depth`; t0 is when the stem's first sample plays.
-  duckUnder(buf, p, depth, t, t0) {
+  // `rest` is its value where the stem is silent (a filter's dB gain rests at 0).
+  duckUnder(buf, p, depth, t, t0, rest = 1) {
     const env = singingEnvelope(buf), start = Math.max(t, t0) + 0.02;
     const i = Math.ceil((start - t0) * ENV_RATE), n = env.length - i;
     if (n < 2) return;
     const curve = new Float32Array(n);
-    for (let k = 0; k < n; k++) curve[k] = 1 - env[i + k] * (1 - depth);
+    for (let k = 0; k < n; k++) curve[k] = rest + env[i + k] * (depth - rest);
     p.setTargetAtTime(curve[0], t, 0.01);
     p.setValueCurveAtTime(curve, t0 + i / ENV_RATE, (n - 1) / ENV_RATE);
   }
@@ -2153,9 +2203,10 @@ export class Engine {
     const cur = this.vocalNow;
     if (!cur) return;
     this.vocalNow = null;
-    for (const p of [this.bandDuck.gain, this.singTrim.gain]) {
+    const carves = [this.ch.stab?.carve?.gain, this.hookCarve?.gain].filter(Boolean);
+    for (const p of [this.bandDuck.gain, this.singTrim.gain, ...carves]) {
       if (p.cancelAndHoldAtTime) p.cancelAndHoldAtTime(t); else p.cancelScheduledValues(t);
-      p.setTargetAtTime(1, t, 0.08);
+      p.setTargetAtTime(carves.includes(p) ? 0 : 1, t, 0.08);
     }
     cur.g.gain.cancelScheduledValues(t);
     cur.g.gain.setTargetAtTime(0, t, 0.008);
