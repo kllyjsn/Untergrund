@@ -2,7 +2,7 @@ import { track as trackEvent, reportError, playStarted, playStopped, did, signal
 import { createListens, songFingerprint, promptHash, promptText } from './listen.js';
 import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue, VOICE_HIDDEN } from './params.js';
 import { Engine, Sequencer, parseChain } from './engine.js';
-import { defaultState, generate, mutate, arrangement, songChain, applyOverrides, clone, save, load, sanitize, STYLES, MAJOR_STYLES, emptyPattern, emptyAcidStep } from './state.js';
+import { defaultState, generate, mutate, arrangement, songChain, applySongPlan, applyOverrides, clone, save, load, sanitize, STYLES, MAJOR_STYLES, emptyPattern, emptyAcidStep } from './state.js';
 import { renderBars, bufferToWav } from './render.js';
 import { exportButtons } from './export-ui.js';
 import { encodeWav, rng } from './dsp.js';
@@ -65,6 +65,8 @@ function showCrash(err) {
 }
 window.addEventListener('error', (e) => showCrash(e.error || e.message));
 let studioOpen = localStorage.getItem('untergrund.studio-open') === '1';
+// GENERATE writes a full 3-4 minute song, or a sketch of the idea (longform.js).
+let songLength = localStorage.getItem('untergrund.length') === 'sketch' ? 'sketch' : 'song';
 // Phone Studio shows one section at a time; steps show 8 at a time.
 const STUDIO_TABS = [['song', 'SONG'], ['steps', 'STEPS'], ['sound', 'SOUND'], ['mix', 'MIX']];
 let studioTab = STUDIO_TABS.some(([id]) => id === localStorage.getItem('untergrund.studio-tab')) ? localStorage.getItem('untergrund.studio-tab') : 'steps';
@@ -956,11 +958,11 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   applyOverrides(s, g, withBpm);
   for (const [t, params] of Object.entries(lockedParams)) s.params[t] = params;
   s.chainOn = true;
-  s.chain = songChain(id, seed);
   s.ending = true;
   // A score sets its own tempo even mid-set; a masterwork keeps its title and composer.
   if (g.pattern.score) s.bpm = g.bpm;
   if (typeof hum === 'function' && !g.pattern.score) { const r = hum(s.bpm, s.scale); s.key = r.key; if (r.hook) placeHook(s.patterns, r.hook); }
+  applySongPlan(s, id, seed, drop ? 'song' : songLength);
   const piece = PIECE[g.pattern.score?.piece];
   const title = piece ? piece.title : drop ? drop.title : trackTitle(seed);
   const artist = piece ? piece.composer : loadAvatar().name || 'UNTERGRUND';
@@ -1212,6 +1214,14 @@ function preloadStyle(id) {
   else loadSets(liveSets(g));
 }
 function selectStyle(id) { style = id; preloadStyle(id); if (STYLES[id].family === 'CLASSICAL') loadPiano(); build(); }
+function lengthPicker() {
+  const opt = (id, label, title) => h('button', { class: 'gen-length-opt' + (songLength === id ? ' on' : ''), 'aria-pressed': String(songLength === id), title,
+    onclick: () => { songLength = id; localStorage.setItem('untergrund.length', id); build(); } }, label);
+  return h('div', { class: 'gen-length', role: 'group', 'aria-label': 'Song length' },
+    opt('song', 'FULL SONG · 3–4 MIN', 'Verses that develop, a bridge, an instrumental and a bigger last chorus'),
+    opt('sketch', 'SKETCH · ~1 MIN', 'Just the idea: intro, verse, chorus, out'));
+}
+
 function selectFamily(f) {
   family = f;
   localStorage.setItem('untergrund.family', f);
@@ -1499,7 +1509,7 @@ function buildGenerateHome() {
     ? h('button', { class: 'generate-primary tuning', 'aria-busy': 'true', style: `--tune-at:${((tuning.at - performance.now()) / 1000).toFixed(2)}s`, onclick: () => generateNow() },
       h('span', {}, 'TUNING UP'), h('small', {}, `${STYLES[state.artist?.style]?.name || STYLES[style].name} · ${tuning.label}`))
     : h('button', { class: 'generate-primary' + (performance.now() - generatedAt < 900 ? ' fired' : '') + (wait || band ? ' gen-queued' : ''), style: wait ? `--gen-wait:${Math.round(handoff.total)}ms;--gen-at:${Math.round(wait - handoff.total)}ms` : null, onclick: () => generateNow() },
-      h('span', {}, 'GENERATE'), h('small', {}, band ? 'Up next · seating the band' : wait ? 'Up next · on the bar' : `${STYLES[style].name} · full track`));
+      h('span', {}, 'GENERATE'), h('small', {}, band ? 'Up next · seating the band' : wait ? 'Up next · on the bar' : `${STYLES[style].name} · ${STYLES[style].family === 'CLASSICAL' ? 'full piece' : songLength === 'sketch' ? 'sketch' : 'full song'}`));
   const showNp = (playing || !!paused) && !studioOpen;
   // First visit shows only the essentials; the rest unlocks once a track has been made.
   const made = hasMade();
@@ -1516,6 +1526,7 @@ function buildGenerateHome() {
       made ? dropPeek() : null),
     h('div', { class: 'generate-actions' },
       studioOpen ? primary : h('div', { class: 'gen-wrap' }, primary, hum),
+      made && STYLES[style].family !== 'CLASSICAL' ? lengthPicker() : null,
       made ? h('button', { class: 'btn refine-toggle', onclick: toggleStudio }, studioOpen ? 'HIDE STUDIO' : 'REFINE IN STUDIO') : null,
       studioOpen ? hum : null),
   ];

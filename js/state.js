@@ -1,5 +1,6 @@
 import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, CHORDS, defaultParams, defaultMaster } from './params.js';
 import { rng } from './dsp.js';
+import { planSections, formChain, parseForm, developSong } from './longform.js';
 import { FORMS, SECTIONS } from './classical.js';
 import { MODELS } from './composer-models.js';
 import { POCKETS, STYLE_POCKET } from './groove.js';
@@ -1046,32 +1047,36 @@ const SONG_FORMS = {
   techno: ['AAAAAAAABBBBBBBBCCCCCCCCCCCCCCCDGGGGGGGGGGGGGGGHEEEEEEEEFFFFFFFDGGGGGGGGGGGGGGGHCCCCCCCHCCCCCCCDBBBBBBBBAAAAAAAA', 'AAAAAAAABBBBBBBDCCCCCCCDCCCCCCCDGGGGGGGHGGGGGGGHEEEEEEEEFFFFFFFDGGGGGGGHGGGGGGGHGGGGGGGGGGGGGGGDBBBBBBBBAAAAAAAA', 'AAAAAAAABBBBBBBBCCCCCCCCCCCCCCCDEEEEEEEEFFFFFFFDGGGGGGGGGGGGGGGHGGGGGGGGGGGGGGGHCCCCCCCDBBBBAAAA'],
 };
 
-// Song forms per idiom, as sections: i intro, v verse, p pre-chorus, c chorus, b bridge, o outro (bars).
-// Pop and soul write pre-choruses, rap goes verse-to-hook (often hook first), house grooves stay longer.
-const SONGS = {
-  pop: ['i8 v8 p4 c8 v8 p4 c8 b8 p4 c16 o4', 'i4 v8 p4 c8 v8 p4 c8 b8 c16 o4', 'i4 c8 v8 p4 c8 v8 p4 c8 b8 c16 o4', 'i4 v16 p4 c8 v8 p4 c8 b8 c16 o4'],
-  rap: ['i4 c8 v16 c8 v16 c8 b8 c8 o4', 'i8 v16 c8 v16 c8 b8 c8 o8', 'i4 v8 p4 c8 v16 c8 b8 c16 o8'],
-  house: ['i8 v8 c8 v8 c8 b8 c8 c8 o8', 'i8 v8 p4 c8 v8 p4 c8 b8 c16 o8', 'i8 v16 c8 b8 v8 c16 o8'],
-};
 const IDIOM = { boombap: 'rap', trap: 'rap', drill: 'rap', deephouse: 'house', amapiano: 'house' };
-// The intro and each verse running straight into a chorus end on the fill bar; 8 chorus bars end on the half-time switch.
-export function songForm(spec) {
-  const secs = spec.split(' ').map((x) => [x[0], +x.slice(1)]);
-  return secs.map(([k, n], i) => {
-    if (k === 'i') return 'A'.repeat(n - 1) + 'D';
-    if (k === 'o') return 'A'.repeat(n);
-    if (k === 'p') return 'B'.repeat(n);
-    if (k === 'v') return 'C'.repeat(secs[i + 1]?.[0] === 'c' ? n - 1 : n) + (secs[i + 1]?.[0] === 'c' ? 'D' : '');
-    if (k === 'c') return 'GGGGGGGH'.repeat(n >> 3) + (n % 8 ? 'G'.repeat(n % 8 - 1) + 'H' : '');
-    return 'E'.repeat((n >> 1) - 1) + 'F'.repeat(n >> 1) + 'D';
-  }).join('');
-}
+// Ambient drifts longer: each return of a texture comes back after something else has been heard.
+const AMBIENT_FULL = ['AAAAAAAAEEEEEEEEFFFFFFFFGGGGGGGGEEEEEEEEFFFFFFFFGGGGGGGGGGGGGGGGFFFFFFFFAAAAAAAA', 'AAAAAAAAEEEEEEEEGGGGGGGGFFFFFFFFGGGGGGGGEEEEEEEEFFFFFFFFGGGGGGGGEEEEEEEEAAAAAAAA'];
+// At drum & bass and hard-techno tempos 112 bars is under 3 minutes: a second break and a third, final drop.
+const TECHNO_LONG = 'AAAAAAAABBBBBBBBCCCCCCCCCCCCCCCDGGGGGGGGGGGGGGGHEEEEEEEEFFFFFFFDGGGGGGGGGGGGGGGHCCCCCCCHCCCCCCCDGGGGGGGGGGGGGGGHBBBBBBBBAAAAAAAA';
+const CLUB_SKETCH = { techno: 'AAAABBBBCCCCCCCDGGGGGGGHEEEDGGGGGGGHAAAA', ambient: 'AAAAAAAAEEEEEEEEGGGGGGGGAAAAAAAA' };
+export const SONG_LENGTHS = ['song', 'sketch'];
+const midBpm = (style) => (STYLES[style].bpm[0] + STYLES[style].bpm[1]) / 2;
+export const songForm = (spec) => formChain(parseForm(spec));
 
-export function songChain(style, seed) {
-  if (FORMS[style] || style === 'repertoire') return 'A';
-  if (SONG.has(style)) return songForm(pick(rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)), SONGS[IDIOM[style] || 'pop']));
-  const forms = SONG_FORMS[style === 'ambient' ? 'ambient' : 'techno'];
-  return pick(rng(seed + 9), forms);
+// A generated song's form: the chain, plus its sections for song styles (longform.js grows them to the tempo and
+// developSong writes the second verse, instrumental and final chorus). `length` is 'song' (3-4 min) or 'sketch'.
+export function songPlan(style, seed, length = 'song') {
+  if (FORMS[style] || style === 'repertoire') return { chain: 'A', sections: null };
+  if (SONG.has(style)) {
+    const sections = planSections(IDIOM[style] || 'pop', midBpm(style), length, rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)));
+    return { chain: formChain(sections), sections };
+  }
+  const kind = style === 'ambient' ? 'ambient' : 'techno';
+  if (length === 'sketch') return { chain: CLUB_SKETCH[kind], sections: null };
+  if (kind === 'ambient') return { chain: pick(rng(seed + 9), AMBIENT_FULL), sections: null };
+  return { chain: (112 * 240) / midBpm(style) < 175 ? TECHNO_LONG : pick(rng(seed + 9), SONG_FORMS.techno), sections: null };
+}
+export const songChain = (style, seed, length = 'song') => songPlan(style, seed, length).chain;
+// The form written into a fresh arrangement: chain plus the takes that develop each repeat.
+export function applySongPlan(s, style, seed, length = 'song') {
+  const plan = songPlan(style, seed, length);
+  s.chain = plan.chain;
+  developSong(s.patterns, plan.sections);
+  return plan;
 }
 
 export function defaultState() {

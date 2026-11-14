@@ -1,6 +1,6 @@
 // Loaded inside headless Chrome by scripts/audio-benchmark.mjs: builds a song the way NEW SET does, renders it with
 // the real offline engine and measures the master output and the pre-master stems (js/audio-quality.js).
-import { defaultState, generate, applyOverrides, arrangement, songChain, clone, STYLES } from '/js/state.js';
+import { defaultState, generate, applyOverrides, arrangement, applySongPlan, clone, STYLES } from '/js/state.js';
 import { Engine, Sequencer, parseChain, scoreKinds } from '/js/engine.js';
 import { compose } from '/js/classical.js';
 import { loadPiece } from '/js/repertoire.js';
@@ -21,7 +21,7 @@ export function song(style, seed) {
   s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   s.key = g.key;
   applyOverrides(s, g, true);
-  s.chainOn = true; s.chain = songChain(style, seed); s.ending = true;
+  s.chainOn = true; applySongPlan(s, style, seed); s.ending = true;
   if (g.pattern.score) s.bpm = g.bpm;
   s.artist = { name: 'UNTERGRUND', title: 'benchmark', style, seed, created: '' };
   return s;
