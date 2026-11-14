@@ -89,14 +89,41 @@ export async function takeSnapshot(slug, { run = false, deepFile, fastFile } = {
   const { runComposition, loopStyles, SEEDS } = await import('./composition.mjs');
   const music = readJson(out('music-benchmark.json'));
   const deep = readJson(out('audio-benchmark-deep.json')), fast = readJson(out('audio-benchmark-fast.json'));
+  const compositionStyles = runComposition(loopStyles());
+  const compositionValues = (key, filter = () => true) => Object.values(compositionStyles).filter(filter).map((x) => x[key]).filter(Number.isFinite).sort((a, b) => a - b);
+  const compositionMedian = (key, filter) => {
+    const values = compositionValues(key, filter);
+    return values.length ? r((values[(values.length - 1) >> 1] + values[values.length >> 1]) / 2, 3) : null;
+  };
+  const sung = (x) => x.phraseBars >= 3;
   let commit = null;
   try { commit = git('rev-parse', '--short', 'HEAD'); } catch {}
   commit = deep.run?.commit?.slice(0, 7) || commit;
   const data = {
     schema: SCHEMA, slug, taken: new Date().toISOString(), commit,
     audio: { deep: compactAudio(deep, { charts: true }), fast: compactAudio(fast, { charts: false }) },
-    composition: { seeds: SEEDS, styles: runComposition(loopStyles()) },
-    music: { projects: music.projects, genres: music.genres, seeds: music.seeds?.length ?? null, determinism: music.determinism, genreDistance: { p10: music.genreDistance.p10, median: music.genreDistance.median, p90: music.genreDistance.p90, exactCollisions: music.genreDistance.exactCollisions } },
+    composition: {
+      seeds: SEEDS, styles: compositionStyles,
+      summary: {
+        motifRecall: compositionMedian('motifRecall'),
+        contrast: compositionMedian('contrast'),
+        voiceMove: compositionMedian('voiceMove'),
+        phraseBars: compositionMedian('phraseBars', sung),
+        peakAt: compositionMedian('peakAt', sung),
+        stepShare: compositionMedian('stepShare', sung),
+        chorusLift: compositionMedian('chorusLift', sung),
+        chorusEnergy: compositionMedian('chorusEnergy', sung),
+        bridgeAway: compositionMedian('bridgeAway', sung),
+      },
+    },
+    music: {
+      projects: music.projects, genres: music.genres, seeds: music.seeds?.length ?? null,
+      determinism: music.determinism, diversity: music.diversity, thresholds: music.thresholds,
+      genreDistance: {
+        p10: music.genreDistance.p10, median: music.genreDistance.median, p90: music.genreDistance.p90,
+        exactCollisions: music.genreDistance.exactCollisions, closest: music.genreDistance.closest,
+      },
+    },
     history: history(),
   };
   mkdirSync(DATA, { recursive: true });
@@ -332,6 +359,81 @@ function compositionChart(d) {
   return figure({ title: 'Composition scorecard.', caption: `Note-level measurements of every non-classical genre's full song, played through the real sequencer: the median of ${c.seeds.length} seeds. ${COMP.map(([, l, why]) => `<i>${esc(l)}</i>: ${esc(why)}.`).join(' ')}`, svgs: html });
 }
 
+const WRITING = [
+  ['motifRecall', 'Hook return', 'share', 1],
+  ['phraseBars', 'Phrase', 'bars', 4],
+  ['chorusLift', 'Chorus lift', 'semitones', 10],
+  ['chorusEnergy', 'Chorus energy', '× verse', 1.8],
+  ['bridgeAway', 'Bridge away', 'share', 1],
+];
+function songwritingChart(d, arg) {
+  const all = d.composition.styles, names = d.audio.deep.styles;
+  const defaults = ['pop', 'rnb', 'rock', 'folk', 'country', 'deephouse', 'neosoul', 'afrobeats', 'trap', 'drill'];
+  const ids = (arg ? arg.split(',') : defaults).filter((id) => all[id]);
+  const draw = (W) => {
+    const narrow = W < 500, lw = narrow ? 84 : 124, gap = narrow ? 5 : 10;
+    const cw = (W - lw - gap * (WRITING.length - 1)) / WRITING.length, rh = 25, top = 38;
+    let body = '';
+    WRITING.forEach(([key, label, unit, max], i) => {
+      const x = lw + i * (cw + gap);
+      body += text(x + cw / 2, 13, narrow ? label.split(' ')[0].toUpperCase() : label, narrow ? 'ax b tiny' : 'ax b', 'middle');
+      body += text(x + cw / 2, 27, unit, 'ax tiny', 'middle');
+      ids.forEach((id, j) => {
+        const v = all[id][key], y = top + j * rh;
+        body += rect(x, y + 5, cw, rh - 10, 'grid faint', ' rx="2"');
+        body += rect(x, y + 5, (Math.max(0, Math.min(max, v)) / max) * cw, rh - 10, 'bar lv-PASS', ' rx="2"');
+      });
+    });
+    ids.forEach((id, j) => body += text(0, top + j * rh + rh / 2 + 4, names[id]?.name || id, 'lab'));
+    return svg(W, top + ids.length * rh + 4, 'Songwriting behaviors by genre',
+      ids.map((id) => `${names[id]?.name || id}: hook return ${num(all[id].motifRecall, 2)}, phrase ${num(all[id].phraseBars, 2)} bars, chorus lift ${num(all[id].chorusLift, 1)} semitones, chorus energy ${num(all[id].chorusEnergy, 2)} times verse, bridge away ${num(all[id].bridgeAway, 2)}`).join('; '), body);
+  };
+  return figure({
+    title: 'The song has to go somewhere.',
+    caption: 'Five note-level behaviors measured over full songs, each the median of eight fixed seeds. The bars show behavior, not a universal score: ambient should not chase a pop chorus, and techno develops differently from country.',
+    draw,
+    data: table(
+      ['Genre', 'Hook return', 'Phrase (bars)', 'Chorus lift (semitones)', 'Chorus energy (× verse)', 'Bridge away'],
+      ids.map((id) => [names[id]?.name || id, num(all[id].motifRecall, 3), num(all[id].phraseBars, 2), num(all[id].chorusLift, 1), num(all[id].chorusEnergy, 3), num(all[id].bridgeAway, 3)]),
+    ),
+  });
+}
+
+function identityChart(d) {
+  const m = d.music, g = m.genreDistance, threshold = m.thresholds?.genreDistanceP10 ?? 0.09;
+  const pts = [['10th percentile', g.p10], ['median', g.median], ['90th percentile', g.p90]];
+  const max = Math.max(0.3, g.p90 * 1.1);
+  const draw = (W) => {
+    const x0 = 24, x1 = W - 12, y = 74, X = (v) => x0 + (v / max) * (x1 - x0);
+    let body = line(x0, y, x1, y, 'axis0') + line(X(threshold), 26, X(threshold), 112, 'warnline');
+    for (let v = 0; v <= max + 1e-9; v += 0.05) body += line(X(v), y - 4, X(v), y + 4, 'grid') + text(X(v), 99, num(v, 2), 'ax tiny', 'middle');
+    pts.forEach(([label, value], i) => {
+      const cy = y + (i - 1) * 17;
+      body += `<circle cx="${r(X(value), 1)}" cy="${cy}" r="${i === 1 ? 6 : 4}" class="dot lv-PASS"/>`;
+      body += text(X(value) + 8, cy + 4, `${label} ${num(value, 3)}`, 'val');
+    });
+    body += text(X(threshold) - 4, 17, `minimum p10 ${num(threshold, 2)}`, 'ax', 'end');
+    return svg(W, 120, 'Distance between each generated project and the nearest other genre',
+      `Across ${m.projects} projects in ${m.genres} genres, nearest-genre distance is ${num(g.p10, 3)} at the 10th percentile, ${num(g.median, 3)} at the median and ${num(g.p90, 3)} at the 90th percentile. The 10th-percentile minimum is ${num(threshold, 2)}. There are ${g.exactCollisions} exact collisions.`, body);
+  };
+  const diversity = Object.values(m.diversity || {});
+  const min = (key) => Math.min(...diversity.map((x) => x[key]));
+  return figure({
+    title: 'Genre identity without copy-and-paste.',
+    caption: `For each of ${m.projects} fixed-seed projects, the benchmark finds the nearest project made with the same seed in another genre. Larger distance means the genres made different choices about tempo, groove, ensemble, register, harmony and arrangement.`,
+    draw,
+    data: table(['Measure', 'Result'], [
+      ['Exact cross-genre collisions', g.exactCollisions],
+      ['Nearest-genre distance, p10', num(g.p10, 6)],
+      ['Nearest-genre distance, median', num(g.median, 6)],
+      ['Nearest-genre distance, p90', num(g.p90, 6)],
+      ['Minimum unique projects per genre', min('uniqueProjects')],
+      ['Minimum unique patterns per genre', min('uniquePatterns')],
+      ['Minimum unique arrangements per genre', min('uniqueArrangements')],
+    ]),
+  });
+}
+
 function spark({ title, unit, points, fmt = (v) => num(v, 2), better }) {
   const W = 340, H = 120, x0 = 6, x1 = W - 6, y0 = 30, y1 = 92, ys = points.map((p) => p.y);
   let lo = Math.min(...ys), hi = Math.max(...ys);
@@ -425,7 +527,11 @@ function kpis(d) {
   return `<dl class="kpis">${k.map(([v, l]) => `<div><dt>${esc(l)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>`;
 }
 
-const CHARTS = { scoreboard, loudness: loudnessChart, truepeak: truePeakChart, energy: energyChart, endings: endingsChart, composition: compositionChart, trend: trendChart, squash: squashChart };
+const CHARTS = {
+  scoreboard, loudness: loudnessChart, truepeak: truePeakChart, energy: energyChart,
+  endings: endingsChart, composition: compositionChart, songwriting: songwritingChart,
+  identity: identityChart, trend: trendChart, squash: squashChart,
+};
 
 // ---------------- posts ----------------
 
