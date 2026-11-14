@@ -137,7 +137,10 @@ export function createAnalytics({ win = globalThis, now = () => Date.now(), flus
     }
   }
 
-  return { enabled, sid, get lid() { return listener(); }, track, signal, reportError, playStarted, playStopped, visit, install, flush: send, queue };
+  // What experiment assignment (js/experiments.js) may know about this device: nothing at all when analytics is off.
+  const context = () => (enabled ? { lid: listener(), co: cohort(), dev: device() } : {});
+
+  return { enabled, sid, get lid() { return listener(); }, context, track, signal, reportError, playStarted, playStopped, visit, install, flush: send, queue };
 }
 
 const browser = typeof window !== 'undefined' && typeof document !== 'undefined';
@@ -156,6 +159,7 @@ export const track = (name, props) => {
   return analytics?.track(name, props);
 };
 export const signal = (kind, rec) => analytics?.signal(kind, rec);
+export const listenerContext = () => analytics?.context() || {};
 export const flushEvents = () => analytics?.flush(true);
 export const reportError = (err, opts) => analytics?.reportError(err, opts);
 export const playStarted = (props) => analytics?.playStarted(props);

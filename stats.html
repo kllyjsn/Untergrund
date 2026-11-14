@@ -117,7 +117,10 @@
         || `<div class="empty">No finding clears the bar yet (≥ ${r.thresholds.minListens} listens from ≥ ${r.thresholds.minListeners} listeners).</div>`;
       const ex = r.experiments.slice(0, 5).map((e) => `<div class="err"><b>${esc(e.lever.toUpperCase())}</b> ${esc(e.change)}<div class="meta">${esc(scope(e.scope))} · primary ${esc(e.primary.metric)} ${esc(e.primary.goal)} · ${Math.round(e.arms[1].share * 100)}% arm · ≥ ${fmt(e.minListensPerArm)} listens/arm</div></div>`).join('')
         || '<div class="empty">No experiments proposed yet.</div>';
-      box.innerHTML = `<div class="grid2"><section><h2>FINDINGS · RANKED</h2>${head}${fs}</section><section><h2>PROPOSED EXPERIMENTS · NOT APPLIED</h2>${ex}</section></div>`;
+      const run = (r.running || []).map((x) => `<div class="genre"><span>${esc(x.id)} · ${esc(x.status.toUpperCase())}${x.verdict ? ` · ${esc(x.verdict.replace(/_/g, ' '))}` : ''}</span><span class="num">${esc(x.primary.metric)} ${pct(x.primary.rate)} vs ${pct(x.primary.base)} · ${fmt(x.arms.variant.listens)}/${fmt(x.arms.control.listens)} of ${fmt(x.minListensPerArm)}${x.guardrails.some((g) => g.breached) ? ' · GUARDRAIL' : ''}</span></div>`).join('')
+        || '<div class="empty">No experiment is running.</div>';
+      const cov = r.coverage ? `<div class="meta">${esc(r.coverage.from)} to ${esc(r.coverage.to)} · ${fmt(r.coverage.records)} records${r.coverage.capped.length ? ` · ${r.coverage.capped.length} day(s) at the daily cap` : ''}</div>` : '';
+      box.innerHTML = `<div class="grid2"><section><h2>FINDINGS · RANKED</h2>${head}${cov}${fs}</section><section><h2>PROPOSED EXPERIMENTS · NOT APPLIED</h2>${ex}<h2 style="margin-top:14px">RUNNING EXPERIMENTS</h2>${run}</section></div>`;
     }
 
     function chart(daily) {

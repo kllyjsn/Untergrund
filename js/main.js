@@ -1,4 +1,5 @@
-import { track as trackEvent, reportError, playStarted, playStopped, did, signal, onTrack, flushEvents } from './analytics.js';
+import { track as trackEvent, reportError, playStarted, playStopped, did, signal, onTrack, flushEvents, listenerContext } from './analytics.js';
+import { assign as assignExperiment } from './experiments.js';
 import { createListens, songFingerprint, promptHash, promptText } from './listen.js';
 import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue, VOICE_HIDDEN } from './params.js';
 import { Engine, Sequencer, parseChain } from './engine.js';
@@ -377,8 +378,18 @@ function listenPos(step = playing && seq ? abs - seq.origin : paused?.step ?? 0)
 const listenSurface = () => (jukeboxNow ? 'jukebox' : songOrigin.src === 'room' ? 'room' : guest ? 'shared' : studioOpen ? 'studio' : 'home');
 function listenCtx() {
   const a = state.artist || {};
-  return { fp: songFingerprint(state), tid: guest?.song?.trackId || songOrigin.tid || '', seed: Number.isFinite(+a.seed) ? +a.seed : -1, style: STYLES[a.style] ? a.style : style,
+  const ctx = { fp: songFingerprint(state), tid: guest?.song?.trackId || songOrigin.tid || '', seed: Number.isFinite(+a.seed) ? +a.seed : -1, style: STYLES[a.style] ? a.style : style,
     src: songOrigin.src, surf: listenSurface(), ph: songOrigin.ph || '', pt: songOrigin.pt || '', arr: songShape() };
+  const x = experimentFor(ctx);
+  // An experiment that changes songs (`apply`) tags only songs made under it, with the arm they were made in;
+  // restored, crate, shared and room songs were never treated, so they stay out of its read-out.
+  if (typeof x?.exp.apply === 'function') return songOrigin.xp === x.xp ? { ...ctx, xp: x.xp, arm: songOrigin.arm } : ctx;
+  return x ? { ...ctx, xp: x.xp, arm: x.arm } : ctx;
+}
+// The experiment arm (js/experiments.js) for a listen or a song about to be made: none when analytics is off.
+function experimentFor(ctx) {
+  const { lid, co, dev } = listenerContext();
+  return assignExperiment(lid, { ...ctx, co, dev });
 }
 // The song's structure as one short token: sections with their bar counts ("intro-8.verse-16.drop-8") or the pattern chain ("aabbc").
 function songShape() {
@@ -982,6 +993,12 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   pendingPrompt = null;
   if (typeof steer === 'function') Object.assign(s, steer(s));
   const origin = { src: typeof hum === 'function' ? 'hum' : drop ? 'drop' : steer ? 'prompt' : 'generate', ...(prompt ? { ph: promptHash(prompt), pt: promptText(prompt) } : {}) };
+  // A running experiment changes only the variant arm's new songs, and only the one thing its `apply` does.
+  const x = experimentFor({ style: id, src: origin.src, surf: listenSurface() });
+  if (typeof x?.exp.apply === 'function') {
+    if (x.arm === 'variant') x.exp.apply(s, { seed });
+    Object.assign(origin, { xp: x.xp, arm: x.arm });
+  }
   return {
     next: s, undo: true, autoMajor: major, origin,
     finish: (landed = false) => {

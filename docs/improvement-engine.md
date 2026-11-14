@@ -38,8 +38,28 @@ Each proposal (top 8, one per scope) comes from one finding and names a single *
 
 Every proposal has: `status: 'proposed'`, the `scope` it applies to (listens outside it are never assigned), `arms` (control 90% / variant 10%), `unit: 'lid'` with a deterministic hash assignment rule, a `primary` metric and goal, `guardrails` (skip/down/complete must not move > 2 points the wrong way), `minListensPerArm` (two-sided α = .05, power .8, to close half the gap) and a stop rule.
 
+## Running an experiment
+
+A proposal runs only once a reviewed PR adds it to `EXPERIMENTS` in `js/experiments.js` (validated by `experimentErrors()` in `test/experiments.mjs`):
+
+```js
+{ id: 'techno-prompt-drop', lever: 'arrangement', scope: { style: 'techno', src: 'prompt' }, share: 0.1,
+  primary: { metric: 'down', goal: 'lower' }, guardrails: ['skip', 'complete'], minListensPerArm: 400,
+  from: '2026-11-20', until: '2026-12-20', apply(song, { seed }) { /* one change, variant arm only */ } }
+```
+
+- **Assignment** is deterministic: `fnv(lid + ':' + id) % 100 < share × 100` → `variant`, else `control`. The same device gets the same arm every visit, and arms of different experiments are independent. Scope keys are listen context (`style`, `src`, `surf`, `dev`, `co`); a listen outside the scope is never assigned. The first live experiment whose scope matches takes the listen, so a listen is in at most one. `share` is capped at 50%.
+- **Privacy**: assignment needs the listener id, which exists only when analytics is on. Under Do Not Track, Global Privacy Control or an automated browser there is no id, so no arm, no tag, and the default song.
+- **Applying**: `apply(song, { seed })` runs on new songs made by Generate/Describe/Hum/Daily Drop (`planSet` in `js/main.js`), for the variant arm only. Scope an experiment with an `apply` on fields known when a song is made (`style`, `src`, `dev`, `co`). Experiments without `apply` (targeting, rotation) act wherever their PR changes behavior, using `assign()`.
+- **Tagging**: for an experiment with `apply`, only songs made under it are tagged, with the arm they were made in (a restored, crate, shared or room song was never treated). Otherwise every listen in scope is. Every signal of a tagged listen carries `xp` (experiment id) and `arm` (`control` / `variant`); the server keeps them only when both are valid.
+- **Read-out** (`running` in the report): per experiment, control vs variant on its primary metric and guardrails, with `status`: `collecting` (below `minListensPerArm` per arm), `stop` (a guardrail moved > 2 points the wrong way at |z| ≥ 2: end it), `ready` (enough listens: `verdict` is `variant_better`, `variant_worse` or `no_difference`), or `ended` (tags whose entry was removed). Variant-arm listens are left out of the findings, so findings describe what everyone hears by default, and a scope with a running experiment gets no new proposal.
+- Ending one is a PR too: remove the entry (or set `until`), and ship the variant as the default only if it won.
+
+## History
+
+Each listen record is also written to a day log, `untergrund:ev:listen:<YYYY-MM-DD>` (UTC, max 5000 records a day, kept 29 days). The report reads the last 28 days (`?days=1…28`, `--days`) in pages of 1000, four pages at a time, so it covers weeks rather than the newest 5000 records. Days written before day logs existed come from the old newest-5000 log. `coverage` in the report says which days were read, how many records, and which days hit the daily cap.
+
 ## Automating it
 
-- `STATS_TOKEN=… node scripts/improve.mjs --url https://untergrund.sh --json report.json` prints the Markdown digest; schedule it (cron, a Devin automation) and post the digest or open an issue from it.
-- The raw log keeps the newest 5000 listen records, so the report is a rolling window; archive `?signals=1` exports to analyze longer periods with `--file`.
-- Not in this version: arm assignment in the client and an `exp` field on listen records. Those come with the first experiment that is actually run.
+- **Daily digest**: a Vercel cron (`vercel.json`, daily at 15:00 UTC; Hobby allows daily at most) calls `/api/improve-digest`, rewritten to `/api/events?digest=run` (no new function). It needs `Authorization: Bearer <STATS_TOKEN>`, or Vercel's `CRON_SECRET`, which is what the scheduler sends. It runs once per UTC day (retries are no-ops; `&force=1` with the stats token reruns), stores the digest for `GET /api/events?digest=1` (stats token: the latest digest plus the last 30 run summaries), and posts the Markdown as `{ "text": … }` to `DIGEST_WEBHOOK_URL` when set (a Slack incoming webhook works). Nothing in it is applied.
+- `STATS_TOKEN=… node scripts/improve.mjs --url https://untergrund.sh [--days 7] --json report.json` prints the same Markdown on demand; `--file` analyzes an exported `?signals=1` log offline.
