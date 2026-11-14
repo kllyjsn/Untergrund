@@ -74,6 +74,10 @@ export function songwriting(m, sections) {
   const hv = hist(m.v || []), hn = hist(n), mean = (xs) => xs.reduce((a, x) => a + x[1], 0) / Math.max(1, xs.length);
   const all = ['n', 'v', 'b'].flatMap((q) => m[q] || []).map((x) => x[2]);
   const pairs = rhymePairs(sections);
+  // Each verse phrase's climb from its floor to its peak, and the share that climb a 4th to a 6th and stay under the title.
+  const titleTop = Math.max(...n.filter((x) => x[4] === 0).map((x) => x[2]));
+  const vph = [...new Set((m.v || []).map((x) => x[4]))].map((ph) => m.v.filter((x) => x[4] === ph).map((x) => x[2]));
+  const vspan = vph.map((xs) => Math.max(...xs) - Math.min(...xs));
   return {
     stressBeat: stressed ? onBeat / stressed : 0,
     titleDownbeat: head && ((head[0] % 16) + 16) % 16 === 0 ? 1 : 0,
@@ -85,6 +89,8 @@ export function songwriting(m, sections) {
     holdRatio: mean(n) / Math.max(1e-9, mean(m.v || [])),
     vocalRange: all.length ? Math.max(...all) - Math.min(...all) : 0,
     rhymeRate: pairs.length ? pairs.filter(([a, b]) => rhymes(a, b)).length / pairs.length : 0,
+    verseSpan: vspan.length ? vspan.reduce((a, b) => a + b, 0) / vspan.length : 0,
+    verseFit: vspan.length ? vph.filter((xs, i) => vspan[i] >= 5 && vspan[i] <= 9 && Math.max(...xs) < titleTop).length / vspan.length : 0,
   };
 }
 
@@ -228,12 +234,12 @@ function sections(perBar) {
 }
 
 const HIGHER = ['bars', 'melodyWindows', 'motifRecall', 'chords', 'contrast', 'drumBars', 'phraseBars', 'stepShare', 'verseChorus', 'chorusLift', 'chorusPeak', 'chorusEnergy', 'preLift', 'bridgeAway',
-  'stressBeat', 'titleDownbeat', 'titlePeak', 'hookRepeats', 'hookRecall', 'rhythmContrast', 'onsetContrast', 'holdRatio', 'rhymeRate'], LOWER = ['voiceMove', 'vocalRange'], NEAR = ['peakAt', 'restsPerPhrase'];
+  'stressBeat', 'titleDownbeat', 'titlePeak', 'hookRepeats', 'hookRecall', 'rhythmContrast', 'onsetContrast', 'holdRatio', 'rhymeRate', 'verseFit'], LOWER = ['voiceMove', 'vocalRange'], NEAR = ['peakAt', 'restsPerPhrase', 'verseSpan'];
 // Allowed slack before a change counts as a regression.
 const TOL = { bars: 0, melodyWindows: 0.5, motifRecall: 0.05, chords: 0, contrast: 0.03, drumBars: 0.5, voiceMove: 0.15,
   phraseBars: 0.25, stepShare: 0.05, peakAt: 0.1, restsPerPhrase: 0.5,
   verseChorus: 0.05, chorusLift: 0.5, chorusPeak: 0.5, chorusEnergy: 0.05, preLift: 0.05, bridgeAway: 0.05,
-  stressBeat: 0.03, titleDownbeat: 0.1, titlePeak: 0.1, hookRepeats: 0, hookRecall: 0.1, rhythmContrast: 0.03, onsetContrast: 0.03, holdRatio: 0.1, vocalRange: 1, rhymeRate: 0.03 };
+  stressBeat: 0.03, titleDownbeat: 0.1, titlePeak: 0.1, hookRepeats: 0, hookRecall: 0.1, rhythmContrast: 0.03, onsetContrast: 0.03, holdRatio: 0.1, vocalRange: 1, rhymeRate: 0.03, verseSpan: 1, verseFit: 0.05 };
 
 export function runComposition(styles) {
   const out = {};

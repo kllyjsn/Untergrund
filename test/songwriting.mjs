@@ -49,6 +49,7 @@ for (const style of ['pop', 'rnb', 'folk']) {
   const sw = songwriting(m, a.lyrics.sections);
   assert(sw.stressBeat >= 0.9 && sw.titleDownbeat === 1 && sw.titlePeak === 1 && sw.hookRecall === 1, `${style} ${JSON.stringify(sw)}`);
   assert(sw.vocalRange <= 17, `${style} range ${sw.vocalRange}`);
+  assert.equal(sw.verseFit, 1, `${style} verse phrases climb a 4th to a 6th, under the title`);
   assert.deepEqual(sanitize(JSON.parse(JSON.stringify(a))).patterns.find((p) => p.hook?.m).hook.m, m, `${style} melody survives sanitize`);
 }
 // Genres that don't write songs keep their hook.

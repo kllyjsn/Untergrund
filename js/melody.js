@@ -266,7 +266,7 @@ function virtualLines(r, P, kind) {
 }
 
 // One part set to `words` (up to 4 lines) or to a virtual meter.
-function setPart(r, P, kind, deg, chordTones, words, sig) {
+function setPart(r, P, kind, deg, chordTones, words, sig, ceil = Infinity) {
   const N = deg.length, semi = (d) => deg[mod(d, N)] + 12 * Math.floor(d / N);
   const virt = virtualLines(r, P, kind);
   const lines = [0, 1, 2, 3].map((i) => {
@@ -298,7 +298,7 @@ function setPart(r, P, kind, deg, chordTones, words, sig) {
     const stress = [...lines[ia], ...lines[ib]].map((x) => !!x);
     const last = ph === 1;
     const plan = kind === 'v'
-      ? { lo: -2, hi: 5, start: pick(r, [0, 1, 2]), peak: pick(r, [2, 3, 4]), peakAt: 0.35 + r() * 0.25, end: last ? pick(r, [4, 1]) : pick(r, [2, 0]) }
+      ? { lo: -2, hi: 6, start: pick(r, [0, 1, 2]), peak: pick(r, [2, 3, 4]), peakAt: 0.35 + r() * 0.25, end: last ? pick(r, [4, 1]) : pick(r, [2, 0]) }
       : kind === 'b'
         ? { lo: -2, hi: top + 3, start: pick(r, [-1, 0, 1]), peak: last ? top + 1 : top, peakAt: 0.65 + r() * 0.2, end: last ? 4 : 2 }
         : { lo: -1, hi: top + 2, start: pick(r, [2, 4]), peak: last ? top + 1 : top, peakAt: 0.5, end: last ? 0 : pick(r, [4, 1]) };
@@ -326,7 +326,24 @@ function setPart(r, P, kind, deg, chordTones, words, sig) {
     }
     if (opt.kp === undefined) plan.peak = Math.max(plan.peak, ...Object.values(forced).map((d) => d + 1), plan.end + 1);
     plan.hi = Math.max(plan.hi, plan.peak);
-    const ds = phrasePitches(r, P, rh, plan, ctAt, forced, opt) || phrasePitches(r, P, rh, { ...plan, peak: plan.peak + 1, hi: plan.hi + 1 }, () => true, {}, { kp: opt.kp });
+    let ds = null;
+    if (kind === 'v') {
+      // A verse phrase climbs a 4th to a 6th above its floor, and stays under the chorus title.
+      const fits = (xs) => { const t = semi(Math.max(...xs)), sp = t - semi(Math.min(...xs)); return sp >= 5 && sp <= 9 && t < ceil; };
+      // It widens from below first (a lower start or ending keeps the chorus above it), then moves the peak.
+      const p0 = plan.peak;
+      const ends = [...new Set([plan.end, snap(plan.end - 2, at.at(-1)), snap(plan.end - 3, at.at(-1))])];
+      search: for (const fz of [forced, {}]) for (const p of [p0, p0 - 1, p0 + 1, p0 - 2, p0 + 2, p0 - 3]) {
+        if (semi(p) >= ceil) continue;
+        for (const st of [plan.start, plan.start - 1, plan.start - 2, plan.start - 3, plan.start + 1]) for (const end of ends) {
+          if (p < Math.max(end + 1, st + 1, ...Object.values(fz))) continue;
+          const xs = phrasePitches(r, P, rh, { ...plan, start: st, end, peak: p, hi: Math.max(plan.hi, p), lo: Math.min(plan.lo, end, st - 1) }, ctAt, fz, opt);
+          if (xs && !ds) ds = xs;
+          if (xs && fits(xs)) { ds = xs; break search; }
+        }
+      }
+    }
+    ds ||= phrasePitches(r, P, rh, plan, ctAt, forced, opt) || phrasePitches(r, P, rh, { ...plan, peak: plan.peak + 1, hi: plan.hi + 1 }, () => true, {}, { kp: opt.kp });
     if (!ds) continue;
     if (!head) head = { ds: ds.slice(0, la), stress: lines[ia].join(''), n: la };
     const peakJ = ds.indexOf(Math.max(...ds));
@@ -353,7 +370,8 @@ export function writeMelody(r, style, scale, { prog, alt, chord = 0, words = nul
   };
   if (P.song || words) {
     const sig = P.jump && r() < P.jump ? pick(r, [4, 5]) : pick(r, [2, 3, 3, 4]);
-    const n = setPart(r, P, 'n', deg, tones(prog), words?.n, sig), v = setPart(r, P, 'v', deg, tones(prog), words?.v, sig);
+    const n = setPart(r, P, 'n', deg, tones(prog), words?.n, sig), title = n.notes.filter((x) => x[4] === 0).map((x) => x[2]);
+    const v = setPart(r, P, 'v', deg, tones(prog), words?.v, sig, title.length ? Math.max(...title) : Infinity);
     const b = setPart(r, P, 'b', deg, tones(alt?.length ? alt : prog), words?.b, sig);
     return { bars: MELODY_BARS, n: n.notes, v: v.notes, b: b.notes, ...(P.comp ? { c: 1 } : {}) };
   }
