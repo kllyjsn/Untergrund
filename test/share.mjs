@@ -26,6 +26,7 @@ for (const style of Object.keys(STYLES)) {
 assert.deepEqual(readShareParams(new URL('https://x.sh/#s=zAbc')), { code: 'zAbc' });
 assert.deepEqual(readShareParams(new URL('https://x.sh/?t=abc-123<script>')), { id: 'abc-123script' });
 assert.equal(songLink('https://x.sh', { id: 'abc-123' }), 'https://x.sh/t/abc-123', 'stored tracks share their release page');
+assert.equal(songLink('https://x.sh', { id: 'abc-123', release: false }), 'https://x.sh/?t=abc-123', 'classical pieces open in the app');
 assert.equal(songLink('https://x.sh', { id: 'abc-123' }, '/embed.html'), 'https://x.sh/embed.html?t=abc-123');
 assert.equal(readShareParams(new URL('https://x.sh/?jukebox')), null);
 for (const junk of ['', 'z', 'z!!!', 'zAAAA', 'j' + btoa('{"s":1}'), 'x' + 'A'.repeat(10), 'z' + 'A'.repeat(70_000)]) assert.equal(await decodeSong(junk), null);

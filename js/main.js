@@ -2357,6 +2357,8 @@ if (shared) setTimeout(() => {
   const load = shared.code ? decodeSong(shared.code)
     : fetch(`/api/tracks?id=${encodeURIComponent(shared.id)}`).then((r) => (r.ok ? r.json().then((j) => j.track) : Promise.reject()))
       .catch(() => fetchTrack(shared.id)).then((t) => t?.state && { ...normalizeSong({ ...t, remixOf: t.remixOf }), trackId: t.id, remixes: t.remixes || 0, children: t.children || [] }).catch(() => null);
+  // "Remix this track" from a release page goes straight into a credited remix.
+  if (shared.id && new URLSearchParams(location.search).has('remix')) { load.then((song) => (song ? remixSong(song, false) : toast('Could not open that song'))); return; }
   const landing = openSharedLanding({
     load, isPlaying: () => playing,
     play: (song) => { countPlay(song.trackId); listen(song); },

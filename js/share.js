@@ -32,7 +32,9 @@ export async function shareLinks(song, origin = location.origin) {
     }
     linkCache.set(code, ref);
   }
-  return { link: songLink(origin, ref), embed: songLink(origin, ref, '/embed.html'), short: !!ref.id };
+  // The release page's light player renders loop/chain songs; classical scores (and repertoire loading) need the full app.
+  const release = STYLES[song.style]?.family !== 'CLASSICAL';
+  return { link: songLink(origin, { ...ref, release }), embed: songLink(origin, ref, '/embed.html'), short: !!ref.id };
 }
 
 export function countRemix(id) {

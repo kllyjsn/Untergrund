@@ -73,13 +73,13 @@ function trackView(track, artist, { localOnly = false } = {}) {
       h('dl', { class: 'pp-facts' }, fact('Released', date), fact('Length', fmt(secs)), fact('Made in', 'UNTERGRUND')),
       localOnly ? h('p', { class: 'pp-note' }, 'Only this browser can open this page until public storage is connected.') : null));
   if (!page.isConnected) main.replaceChildren(page);
-  if (!main.querySelector('.pp-cta')) page.after(h('section', { class: 'pp-cta', 'aria-label': 'Make your own' },
+  if (!main.querySelector('.pp-yours')) page.after(h('section', { class: 'pp-yours', 'aria-label': 'Make your own' },
     h('div', {}, h('span', { class: 'pp-label' }, 'OPEN SOURCE SONG'), h('h2', {}, 'Make it yours.'),
       h('p', {}, 'Every part of this track opens in UNTERGRUND. Change the beat, the sound or the hook, then release your own version.')),
-    h('div', { class: 'pp-cta-go' }, h('a', { class: 'pp-remix', href: `/?track=${encodeURIComponent(track.id)}` }, 'Remix this track'), h('a', { class: 'pp-link', href: '/' }, 'Start from scratch'))));
+    h('div', { class: 'pp-yours-go' }, h('a', { class: 'pp-remix', href: `/?t=${encodeURIComponent(track.id)}&remix=1` }, 'Remix this track'), h('a', { class: 'pp-link', href: '/' }, 'Start from scratch'))));
   const remixes = localOnly ? [] : data.remixes || [];
   main.querySelector('.pp-remixes')?.remove();
-  if (remixes.length) main.querySelector('.pp-cta').after(h('section', { class: 'pp-tracks pp-remixes' }, h('div', { class: 'pp-label' }, `REMIXES · ${remixes.length}`),
+  if (remixes.length) main.querySelector('.pp-yours').after(h('section', { class: 'pp-tracks pp-remixes' }, h('div', { class: 'pp-label' }, `REMIXES · ${remixes.length}`),
     h('ol', { class: 'pp-list' }, trackRows(remixes, (t) => [t.artist, line(t), t.plays ? `${t.plays} play${t.plays === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')))));
 }
 

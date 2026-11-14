@@ -97,7 +97,7 @@ export function renderTrackPage({ track, artist, remixes = [] }, { site = SITE }
   <meta name="twitter:data2" content="${esc(trackLine(track))}" />
   <script type="application/ld+json">${safeJson(ld)}</script>` });
   const byline = artist ? `<a class="pp-by" href="/a/${esc(artist.handle)}">${esc(by)}</a>` : `<span class="pp-by">${esc(by)}</span>`;
-  const remixHref = `/?track=${encodeURIComponent(track.id)}`;
+  const remixHref = `/?t=${encodeURIComponent(track.id)}&remix=1`;
   const body = `<article class="pp-track pp-release">
     <div class="pp-art" aria-hidden="true"></div>
     <div class="pp-info">
@@ -110,9 +110,9 @@ export function renderTrackPage({ track, artist, remixes = [] }, { site = SITE }
       <dl class="pp-facts">${date ? `<div><dt>Released</dt><dd>${esc(date)}</dd></div>` : ''}<div><dt>Made in</dt><dd>UNTERGRUND</dd></div></dl>
     </div>
   </article>
-  <section class="pp-cta" aria-label="Make your own">
+  <section class="pp-yours" aria-label="Make your own">
     <div><span class="pp-label">OPEN SOURCE SONG</span><h2>Make it yours.</h2><p>Every part of this track opens in UNTERGRUND. Change the beat, the sound or the hook, then release your own version.</p></div>
-    <div class="pp-cta-go"><a class="pp-remix" href="${remixHref}">Remix this track</a><a class="pp-link" href="/">Start from scratch</a></div>
+    <div class="pp-yours-go"><a class="pp-remix" href="${esc(remixHref)}">Remix this track</a><a class="pp-link" href="/">Start from scratch</a></div>
   </section>
   ${remixListHtml(remixes)}
   <p class="pp-note pp-foot">Played live by UNTERGRUND in your browser. Nothing is streamed.</p>`;

@@ -23,7 +23,7 @@ assert.equal(tag(t.body, 'og:title'), '&lt;/title&gt;&lt;script&gt;alert(1)&lt;/
 assert.equal(tag(t.body, 'og:type'), 'music.song');
 assert.equal(tag(t.body, 'og:url'), `${site}/t/${track.id}`);
 assert.equal(tag(t.body, 'og:image'), `${site}/api/page?og=${track.id}&amp;v=2`);
-assert.match(t.body, /class="pp-cta"[\s\S]*href="\/\?track=/, 'release page invites a remix');
+assert.match(t.body, /class="pp-yours"[\s\S]*href="\/\?t=[^"]+&amp;remix=1"/, 'release page invites a remix');
 assert.match(t.body, /class="pp-cat">UG-[0-9A-Z]{6}</, 'release page has a catalogue number');
 assert.match(t.body, /"@type":"MusicRecording"/);
 assert.match(t.body, /twitter:label1" content="Artist"/);
