@@ -79,7 +79,7 @@ export function guitarHand(kind, pocket, chorus) {
   const play = kind === 'banjo' && (pocket === 'FOLK' || pocket === 'COUNTRY') ? 'roll'
     : pocket === 'FOLK' && !chorus && (kind === 'agtr' || kind === 'gtr') ? 'pick'
       : funk && (kind === 'gtr' || kind === 'jazz') ? 'chop' : 'strum';
-  const double = (kind === 'drive' && pocket === 'ROCK') || (pocket === 'POP' && chorus && (kind === 'gtr' || kind === 'agtr'));
+  const double = (kind === 'drive' && pocket === 'ROCK') || ((pocket === 'POP' || pocket === 'FOLK') && chorus && (kind === 'gtr' || kind === 'agtr'));
   const fx = funk && kind === 'gtr' ? 'chorus' : kind === 'gretsch' && pocket === 'COUNTRY' ? 'trem' : null;
   return { play, double, fx };
 }
@@ -126,8 +126,8 @@ const BAND_PLAY = {
   str: { gain: 1.2, len: 2, min: 0.5, strum: 0, shift: 0, hold: true, lo: 55, hi: 79, lp: 4200, rel: 0.25 },
   // The hollow-body played through a cranked amp: power chords sustain, the cab rolls off the fizz.
   drive: { set: 'gtr', amp: true, gain: 3.2, len: 3.4, min: 0.18, strum: 0.004, shift: 0, lo: 40, hi: 64, lp: 5200, soft: 1800, fade: 0.008, rel: 0.12, grip: true, even: 0.15 },
-  // Steel-string acoustic: a wider strum, bright top, long ring.
-  agtr: { gain: 4.2, len: 3.2, min: 0.7, strum: 0.011, shift: 0, lo: 40, hi: 76, lp: 7800, soft: 0, fade: 0.01, rel: 0.3, grip: true, even: 0.35 },
+  // Steel-string acoustic: a wider strum, bright top, long ring; the boxy low mids of the close mic dipped.
+  agtr: { gain: 4.2, len: 3.2, min: 0.7, strum: 0.011, shift: 0, lo: 40, hi: 76, lp: 7800, body: [280, 1.1, -4], soft: 0, fade: 0.01, rel: 0.3, grip: true, even: 0.35 },
   // The archtop's magnetic pickup, neck position, tone rolled back: round, woody comping for soul and jazz chords.
   jazz: { gain: 9.5, len: 2.4, min: 0.5, softBelow: 0, strum: 0.005, shift: 0, lo: 43, hi: 72, lp: 3400, soft: 900, fade: 0.008, rel: 0.2, grip: true, even: 0.25 },
   // Six-string guitar banjo: a fast snappy strum that dies quickly, all top end.
@@ -1088,6 +1088,7 @@ export class Engine {
     const pk = live ? pocketOf(this.state.master) : null, hand = live ? guitarHand(kind, pk?.name, this.wide) : null;
     // Two takes of the rhythm part panned hard left and right; a pedal or amp effect per player, then the amp.
     let outs = hand?.double ? [this.panFor(out, -1, true), this.panFor(out, 1, false)] : [out];
+    if (R.body) outs = outs.map((o) => this.bodyFor(o, R.body));
     if (hand?.fx === 'chorus') outs = outs.map((o) => this.chorusFor(o));
     if (hand?.fx === 'trem') outs = outs.map((o) => this.tremFor(o, t, this.wide ? 0 : 0.3));
     if (R.amp) outs = outs.map((o) => this.ampFor(o));
@@ -1217,6 +1218,16 @@ export class Engine {
       m.set(key, inp);
     }
     return m.get(key);
+  }
+
+  // One shared EQ per destination for a player's body tone (instead of a filter on every string).
+  bodyFor(dest, [f, q, db]) {
+    const all = (this.bodies ||= new Map());
+    if (!all.has(dest)) {
+      const eq = this.filter('peaking', f, q);
+      eq.gain.value = db; eq.connect(dest); all.set(dest, eq);
+    }
+    return all.get(dest);
   }
 
   // A chorus pedal for clean funk and soul guitar: two slowly swept short delays spread left and right of the dry signal.
