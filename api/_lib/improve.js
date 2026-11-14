@@ -321,7 +321,14 @@ export function releaseLoop(signals = [], rows = listensFrom(signals), { returnA
   const shares = sig.filter((s) => s.kind === 'share' && published.has(s.fp)).length;
   const shareStarts = sig.filter((s) => s.kind === 'start' && s.via);
   const heard = (r) => ({ listens: r.length, completion: rate(count(r, 'complete'), r.length), replay: rate(count(r, 'replay'), r.length) });
-  const shared = rows.filter((l) => l.via), judged = shared.filter((l) => l.return !== null);
+  const shared = rows.filter((l) => l.via);
+  // A share-origin listener came back if heard again at least a day after their first share-origin start; judged
+  // per listener, once that day has passed at report time.
+  const firstVia = new Map(), heardVia = new Map();
+  for (const s of shareStarts) if (s.lid && !(firstVia.get(s.lid) <= s.t)) firstVia.set(s.lid, s.t || 0);
+  for (const s of sig) if (firstVia.has(s.lid)) (heardVia.get(s.lid) || heardVia.set(s.lid, []).get(s.lid)).push(s.t || 0);
+  const visited = [...firstVia].filter(([, t]) => now - t >= returnAfterMs);
+  const cameBack = visited.filter(([lid, t]) => heardVia.get(lid).some((u) => u - t >= returnAfterMs)).length;
   // A creator is a device that published; it came back if it was heard from again between a day and a week after its
   // first publish. Only creators whose first publish is at least a week old (at report time) are judged.
   const first = new Map(), seen = new Map();
@@ -332,7 +339,7 @@ export function releaseLoop(signals = [], rows = listensFrom(signals), { returnA
   return {
     published: published.size, shares, sharesPerSong: rate(shares, published.size),
     shareOrigin: { starts: shareStarts.length, links: new Set(shareStarts.map((s) => s.via)).size, listeners: listeners(shared),
-      returned: count(judged, 'return'), judged: judged.length, returnRate: rate(count(judged, 'return'), judged.length) },
+      returned: cameBack, judged: visited.length, returnRate: rate(cameBack, visited.length) },
     heard: { all: heard(rows), published: heard(rows.filter((l) => l.tid || published.has(l.fp))), shared: heard(shared) },
     creators: { total: first.size, judged: ripe.length, returned: back, returnRate7d: rate(back, ripe.length) },
   };
