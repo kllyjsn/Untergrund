@@ -22,7 +22,7 @@ Code: `js/listen.js` (lifecycle + fingerprint), wired in `js/main.js`; validated
 | `why` | optional, only after a down: one tap on `boring`, `sounds_bad` or `not_my_style` (field `why`). A closed set; there is never a text box. A later tap replaces the reason |
 | `rewind` | jumping back inside the song you're hearing (previous-track / restart while playing): `bar` is where from, `to` the target bar |
 
-Every listen ends with exactly one of `complete`, `skip` or `partial` (switching songs, stopping, or closing the page). `keep`/`publish`/`share`/`live` count at most once per listen, and still attach to the song that just ended for 10 minutes after it stops. A `share` with no listen behind it (a link copied before pressing play) is sent standalone: no `lis`, with the shared song's `fp`/`tid`, its `surf` and the minted `ref`. The server accepts a missing `lis` only on `share`.
+Every listen ends with exactly one of `complete`, `skip` or `partial` (switching songs, stopping, or closing the page). `keep`/`publish`/`share`/`live` count at most once per listen, and still attach to the song that just ended for 10 minutes after it stops. A `share` with no listen behind it (a link copied before pressing play) is sent standalone: no `lis`, with the shared song's `fp`/`tid`, its `surf` and the minted `ref`. The server accepts a missing `lis` only on `share`, keeps one per minted `ref`, and leaves it out of the per-start rates (`listening`, per-genre and per-song counters); the release loop counts it from the raw log.
 
 ## Record
 
