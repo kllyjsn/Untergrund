@@ -37,7 +37,7 @@ decodes the stem. `Engine.vocal()` plays it at every bar (restarting only when p
 past `Engine.bandDuck`: while it sings (`singingEnvelope()`: 40 ms before a phrase to 200 ms after it, 40 ms attack,
 250 ms release) the band dips `VOCAL_DUCK_DB` (3.5 dB) and the vocal sits `VOCAL_OVER_BAND_DB` (+1 dB) over the ducked
 band. Band plus vocal then carry the band's own power, so a sung song lands on its style's loudness target with no extra
-limiting. `VOCAL_STYLE_DB` (pop 13.7, R&B 8.5, folk 4.5 dB, others 10) lifts the stem's −20 dBFS RMS to that balance through
+limiting. `VOCAL_STYLE_DB` (pop 13.7, R&B 8.5, folk 3.5 dB, others 10) lifts the stem's −20 dBFS RMS to that balance through
 the master chain; it was measured on the seed-7 songs below:
 
 | Seed-7 song | Mix LUFS-I / true peak, before → after | Instrumental | Vocal vs band while singing, before → after |
@@ -57,6 +57,92 @@ Re-sung after the text-set melodies and written lyrics (#146), with the same set
 The vocal level (−24…+6 dB around that base) and a timing trim (±250 ms) are saved in `state.sing` with the project;
 the stem is not saved and is fetched again by hash. Offline renders, WAV export, video and EXPORT STEMS (`sung-vocal`)
 all include it.
+
+## Expression (`singer/expression.py`)
+
+Scylla's Band v4 has no score fields for vibrato, scoops or breaths. It does take the two inputs its own `sing()` builds
+per phrase: the per-frame melody (`note_phase_presence`: pitch, phase in the note, presence) and the per-phone frame
+durations. `expression.sing()` is that same phrase loop with those inputs reshaped, so nothing reaches the model that it
+wasn't trained on. With no knobs set it returns sample-for-sample what `runtime.sing()` returns. The request's `expr`
+object (`SING_EXPR` / `cleanExpr()` in `js/sing-score.js`, `clean_expr()` in Python) is validated against fixed ranges.
+Unknown names are dropped and values are clamped. `SING_STYLE` sends one set per genre:
+
+| Knob | Range | What it does |
+|---|---|---|
+| `scoop` | 0–3 st | A phrase's first note, or a note leapt up to (≥ 3 st), starts this far below and curves up |
+| `scoop_ms` | 20–250 ms | How long that approach takes |
+| `glide_ms` | 0–150 ms | Portamento from the previous note inside a phrase (steps of up to a fifth) |
+| `vib_cents` | 0–80 c | Vibrato depth (±) on held notes |
+| `vib_rate` | 3.5–8 Hz | Vibrato rate |
+| `vib_delay` | 0–1 s | Time into a note before the vibrato starts; shorter notes get none |
+| `vib_ramp` | 0.05–1.5 s | Time the vibrato takes to grow to full depth (about 0.4 s) |
+| `breath` | 0–40 dB | A short shaped-noise inhale before a phrase that follows ≥ 0.5 s of rest, this many dB under the phrase (0 = off) |
+| `lead` | 0–1 | Share of a word's leading consonants moved ahead of its note, so the vowel starts on the beat |
+| `stress_db` | 0–4 dB | Lift on stressed words (on beats 1 and 3, or a beat or longer) |
+| `stress_vowel` | 0–0.6 | Share of a stressed word's consonant frames given to its vowel (a longer vowel) |
+| `guidance` | 1–2 | × the bundle's melody/mode guidance |
+| `align` | 0/1 | Moves each phrase (up to ±80 ms) so its sung onset sits on its first note, measured on the rendered audio the same way the report measures it |
+
+Every phrase draws its noise from `seed + phrase`, the same as the runtime, and breaths from `seed + 7919 + phrase`,
+so a request is deterministic.
+
+## Voice defaults
+
+`SING_STYLE` picks a voice per genre and vocal. `singer/voice_survey.py` sang the same 8-bar excerpt of each seed-7
+song (seed 7, no expression) in all 14 voices, in the delivery mode that genre uses (pop: `pop`; R&B and folk:
+`ballad`). It then scored the renders with `singer/vocal_metrics.py`:
+score = −pitch error/5 − pitch wobble/5 + HNR/2 + 2 × onset clarity (cents, cents, dB, dB). Spectral centroid was
+recorded as a brightness check but not scored. `voices.json` lists no voice gender, so the male slot uses the
+best-scoring voice with a traditionally male name. Nobody has listened to confirm these picks.
+
+| Genre (mode) | Ranking, best first | Female / default | Male |
+|---|---|---|---|
+| Pop (`pop`) | gwen 6.7, ariadne 6.2, priya 4.8, felix 4.5, thistle, orpheus, scylla, kincade, rex, poppy, stone, tuesday, max, ink | gwen | felix |
+| R&B (`ballad`) | ariadne 6.6, rex 5.7, scylla 5.4, thistle 5.3, poppy 4.8, kincade, priya, tuesday, orpheus, stone, gwen, felix, max, ink | ariadne | rex |
+| Folk (`ballad`) | ariadne 6.9, priya 5.4, thistle 5.1, gwen 4.5, scylla, poppy, rex 2.9, felix, kincade, tuesday, max, stone, ink, orpheus | ariadne | rex |
+
+ink, orpheus and tuesday drift off pitch (36–82 c median error) in at least one genre or mode, and max has the most
+wobble and the least HNR. They stay pickable but are never
+defaults.
+
+## Vocal chain and band carve
+
+`js/vocal-chain.js` processes the decoded stem once per buffer and settings, and live playback, renders and exports
+all play that copy. The chain runs high-pass → presence peak → de-esser (a sidechain above `deess.hz` pulls a high shelf down by up to
+`deess.db` when it passes `deess.over` dB re the sung level) → RMS compressor (10/150 ms, 6 dB knee). The result is
+then matched back to the stem's sung RMS, so the level calibration above still holds. `Engine.vocalSends()` adds a
+plate (a convolver IR of `reverb.sec`) or a short, darker room (its own IR, 0.8 s unless `reverb.sec` is set), plus a filtered (280 Hz–4.8 kHz) tempo-synced delay. Both
+return through `Engine.vocalOut`, so they follow the vocal's level and land in the `sung-vocal` stem. While the stem
+sings, the CHORDS channel (keys, pads, guitars) gets a peaking cut of `carve.db` at `carve.hz` (Q 0.8). It follows
+the same singing envelope as the band duck and rests at 0 dB.
+
+| `VOCAL_FX` | HPF | Presence | De-ess | Comp | Reverb | Delay | Carve |
+|---|---|---|---|---|---|---|---|
+| Pop | 110 Hz | +2.5 dB @ 3.8 kHz | 6.5 kHz, ≤ 8 dB | −6 dB, 2.5:1 | plate 1.6 s, 0.14 | 1/8, fb 0.22, 0.10 | −3 dB @ 3 kHz |
+| R&B | 90 Hz | +2 dB @ 3.2 kHz | 6 kHz, ≤ 8 dB | −7 dB, 2.5:1 | plate 2.4 s, 0.20 | dotted 1/8, fb 0.3, 0.12 | −3 dB @ 2.8 kHz |
+| Folk | 85 Hz | +1.5 dB @ 3 kHz | 6.5 kHz, ≤ 6 dB | −5 dB, 2:1 | room, 0.35 | 1/16 slap, fb 0.08, 0.09 | −2.5 dB @ 3 kHz |
+
+## Before and after (seed 7, #146 melodies and lyrics)
+
+Before is #137 (stock `runtime.sing()`, no chain or carve, gwen / felix / gwen). After is this expression, the vocal
+chain, the carve and the voice defaults above. Both sang the same songs through `/api/sing` on the local CPU singer and
+mixed them with `renderBars`. Stem metrics come from `singer/evaluate.py` on the raw stem. Phrase start is the first voiced, loud
+10 ms frame minus the phrase's first note, so consonants that `lead` moves ahead of the beat don't count as early.
+Vocal vs band is mix − band rendered with the vocal at −300 dB, over frames where the vocal sings.
+
+| Song | Voice | Mix LUFS-I / TP | Instrumental | Vocal vs band | Pitch error / wobble | HNR | Centroid | Phrase start: signed median, \|x\| median, p90 |
+|---|---|---|---|---|---|---|---|---|
+| Pop, before | gwen | −9.4 / −1.8 | −9.2 / −1.7 | +0.2 dB | 12 c / 26 c | 14.8 dB | 1749 Hz | +50, 50, 134 ms |
+| Pop, after | gwen | −9.2 / −1.8 | −9.2 / −1.7 | +0.8 dB | 17 c / 27 c | 14.2 dB | 1832 Hz | +3, 3, 9 ms |
+| R&B, before | felix | −11.3 / −1.9 | −11.2 / −1.9 | +1.5 dB | 22 c / 18 c | 14.5 dB | 1307 Hz | +22, 38, 65 ms |
+| R&B, after | rex | −11.2 / −1.9 | −11.2 / −1.9 | +1.8 dB | 15 c / 19 c | 16.5 dB | 1535 Hz | +1, 2, 8 ms |
+| Folk, before | gwen | −14.9 / −1.9 | −14.7 / −1.9 | +1.4 dB | 9 c / 15 c | 15.3 dB | 1705 Hz | +30, 32, 114 ms |
+| Folk, after | ariadne | −15.0 / −1.9 | −14.7 / −1.9 | +1.4 dB | 7 c / 13 c | 17.5 dB | 1498 Hz | −3, 3, 9 ms |
+
+R&B's early landing came from its consonants. Measured on any onset energy rather than on voicing, its phrases started
+19 ms early before and 1 ms early after. Pop's pitch error is up because scoops, glides and vibrato move away from the
+written pitch on purpose. One R&B phrase start wasn't detected after (9 of 10). None of the mixes clipped. Nobody has
+listened to these renders, so the numbers say nothing about how natural the voice sounds.
 
 ## `/api/sing` (Vercel)
 
