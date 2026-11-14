@@ -144,7 +144,8 @@ def measure(voc: np.ndarray, sr: int, score: dict) -> dict:
                 errs_p.append((i * 0.01 + 0.02) - s)  # frame i covers i*10 ms .. +40 ms: its centre
                 break
     ep = np.array(errs_p) * 1000
+    fin = lambda v, n=None: round(v, n) if np.isfinite(v) else None  # None when nothing was voiced
     q = lambda v, f=np.median: round(float(f(v)), 1) if len(v) else None
-    return dict(pitch_err_c=q(errs), pitch_wobble=q(wob), vibrato_c=q(vib), hnr_db=round(hnr, 1), centroid_hz=round(centroid),
-                onset_db=round(onset, 2), phrase_ms=q(ep), phrase_abs_ms=q(np.abs(ep)), phrase_p90_ms=q(np.abs(ep), lambda v: np.percentile(v, 90)),
+    return dict(pitch_err_c=q(errs), pitch_wobble=q(wob), vibrato_c=q(vib), hnr_db=fin(hnr, 1), centroid_hz=fin(centroid),
+                onset_db=fin(onset, 2), phrase_ms=q(ep), phrase_abs_ms=q(np.abs(ep)), phrase_p90_ms=q(np.abs(ep), lambda v: np.percentile(v, 90)),
                 phrases=int(ep.size))
