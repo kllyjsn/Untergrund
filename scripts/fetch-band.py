@@ -10,7 +10,7 @@ open low E, MIDI 28), both checked by measuring the recordings' pitch.
 Processing: leading silence removed, mono (drum mics summed), 44.1 kHz 16-bit, trimmed, 80 ms fade, peak -6 dBFS.
 Guitar takes (--takes): a second round-robin take of every guitar note (gtrb_, gtrsoftb_, agtrb_) and the Hofner's staccato (fretting hand lifted, the palm-mute chug;
 gtrmute_, gtrmuteb_), each matched to the loudness of the take it alternates with.
-Requires ffmpeg and numpy.  Usage: python3 scripts/fetch-band.py [--takes]   (--takes fetches only the guitar takes)
+Requires ffmpeg and numpy.  Usage: python3 scripts/fetch-band.py [--takes]   (--takes fetches only the guitar takes, --guitars only JAZZ GTR, TWANG GTR and BANJO)
 """
 import os, sys
 sys.path.insert(0, os.path.dirname(__file__))
@@ -37,6 +37,21 @@ TAKES = {
     'gtrmuteb': (KARORYFER + 'stac/staccato_{h}_rr2.wav', 0.8, 'gtr', 0.15),
     'agtrb': (SHINY + 'acoustic/{a}_vl3_rr2_1.wav', 3.4, 'agtr', 1.0),
 }
+GREEN = KARORYFER.replace('/black/', '/green/')
+GANJO = 'https://raw.githubusercontent.com/sfzinstruments/ganjo/ccff5cd5cd3b513873a48994c07724d9d3c39e1c/Common/Banjo_Common - '
+# ganjo.sfz maps each sample an octave below its name (E3 is MIDI 40), like the Hofner.
+BANJO = {40: 'E3', 42: 'F#3', 45: 'A3', 49: 'C#4', 51: 'D#4', 54: 'F#4', 57: 'A4', 60: 'C5', 63: 'D#5', 68: 'G#5', 71: 'B5'}
+# More guitars (--guitars): the archtop's magnetic pickup (JAZZ GTR), the green Gretsch Anniversary (TWANG GTR) and
+# the SX six-string guitar banjo (BANJO). prefix -> (notes, url template, seconds)
+GUITARS = {
+    'jazz': (AGTR, SHINY + 'electric/{n}_vl3_rr1_2.wav', 3.0),
+    'gretsch': (HOFNER, GREEN + 'ord/twang_{n}_mf_rr1.wav', 2.4),
+    'banjo': (BANJO, GANJO + '{n}.wav', 2.4),
+}
+GUITAR_TAKES = {
+    'jazzb': (AGTR, SHINY + 'electric/{n}_vl3_rr2_2.wav', 3.0, 'jazz'),
+    'gretschb': (HOFNER, GREEN + 'ord/twang_{n}_mf_rr2.wav', 2.4, 'gretsch'),
+}
 # name -> (mic files summed, seconds)
 DRUMS = {
     'crash_v2': (['oh/crash/oh_crash_crash_vl2_rr1.flac', 'mid/crash/mid_crash_crash_vl2_rr1.flac'], 3.2),
@@ -61,8 +76,19 @@ def takes():
             rms = lambda z: np.sqrt(np.mean(z[:n] ** 2))
             write(f'{prefix}_{m}', x * min(rms(y) / rms(x), 0.98 / np.max(np.abs(x)))); print(prefix, m)
 
+def guitars():
+    import numpy as np
+    for prefix, (notes, tpl, secs) in GUITARS.items():
+        for m, n in notes.items(): write(f'{prefix}_{m}', process(decode(tpl.format(n=n)), secs)); print(prefix, m)
+    for prefix, (notes, tpl, secs, ref) in GUITAR_TAKES.items():
+        for m, n in notes.items():
+            x, y, k = process(decode(tpl.format(n=n)), secs), load(f'{ref}_{m}'), orch.SR
+            rms = lambda z: np.sqrt(np.mean(z[:k] ** 2))
+            write(f'{prefix}_{m}', x * min(rms(y) / rms(x), 0.98 / np.max(np.abs(x)))); print(prefix, m)
+
 if __name__ == '__main__':
     if '--takes' in sys.argv: takes(); sys.exit()
+    if '--guitars' in sys.argv: guitars(); sys.exit()
     for m, n in AGTR.items():
         write(f'agtr_{m}', process(decode(f'{SHINY}acoustic/{n}_vl3_rr1_1.wav'), 3.4)); print('agtr', n, m)
     for m, n in EBASS.items():
