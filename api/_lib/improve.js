@@ -258,7 +258,8 @@ export function proposeExperiment(f, o = DEFAULTS) {
 
 const rank = (fs) => fs.sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id));
 const within = (narrow, broad) => Object.entries(broad).every(([k, v]) => narrow[k] === v) && Object.keys(narrow).length > Object.keys(broad).length;
-const excess = (f) => f.n * Math.abs(f.lift);
+// How much of `metric` a finding accounts for: its lead metric, or one riding along in `also`.
+const excess = (f, metric = f.metric) => { const x = f.metric === metric ? f : f.also?.find((a) => a.metric === metric); return x ? x.n * Math.abs(x.lift) : 0; };
 // Keep review short: one finding per scope and direction (other metrics that moved ride along in `also`), and a broad
 // finding is dropped when a narrower one in the same direction explains most of it (techno·prompt explains "prompt").
 function dedupe(all) {
@@ -267,12 +268,11 @@ function dedupe(all) {
     const key = `${f.type === 'reason' ? `reason:${f.reason}` : f.type === 'song' ? 'song' : 'metric'}|${label(f.scope)}|${f.direction}`;
     const top = byScope.get(key);
     if (!top) byScope.set(key, { ...f, also: [] });
-    else top.also.push({ metric: f.metric, rate: f.rate, comparable: f.comparable, z: f.z });
+    else top.also.push({ metric: f.metric, rate: f.rate, comparable: f.comparable, z: f.z, n: f.n, lift: f.lift });
   }
   const kept = [...byScope.values()];
-  const metrics = (f) => new Set([f.metric, ...f.also.map((x) => x.metric)]);
   return kept.filter((f) => !kept.some((g) => g !== f && g.direction === f.direction && (g.type === 'reason') === (f.type === 'reason') && g.reason === f.reason
-    && within(g.scope, f.scope) && metrics(g).has(f.metric) && excess(g) >= 0.8 * excess(f)));
+    && within(g.scope, f.scope) && excess(g, f.metric) >= 0.8 * excess(f)));
 }
 
 export function analyze(signals = [], options = {}) {
