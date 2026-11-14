@@ -1462,11 +1462,11 @@ const DOWN_WHY = { boring: 'Boring', sounds_bad: 'Sounds bad', not_my_style: 'No
 const reactionPaints = new Set();
 function paintReactions() {
   for (const p of reactionPaints) if (p.el.isConnected) p(); else reactionPaints.delete(p);
+  ui.lib?.paint();
 }
 function beginListen(pos) {
   listens.begin(listenCtx(), pos);
   paintReactions();
-  ui.lib?.paint();
 }
 function reactionButtons() {
   const l = listens.recent();
@@ -1743,7 +1743,7 @@ function showLibrary() {
   if (ui.lib?.el.isConnected) return;
   trackEvent('library', { kind: 'open' });
   ui.lib = openLibrary({
-    tracks: libraryTracks(), styles: STYLES, hue,
+    tracks: libraryTracks, styles: STYLES, hue,
     isLoved: (fp) => listens.isLoved(fp), isDowned: (fp) => listens.isDowned(fp),
     nowFp: () => (playing || tuning || paused ? songFingerprint(state) : ''),
     onPlay: (items, i) => {

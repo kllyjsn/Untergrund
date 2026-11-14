@@ -12,11 +12,11 @@ export function songSeconds(state) {
   return bars && state.bpm ? (bars * 4 * 60) / state.bpm : 0;
 }
 
-// tracks: libraryTracks(); styles: STYLES; isLoved/isDowned(fp); nowFp(): fingerprint playing now;
+// tracks(): libraryTracks (re-read on every paint); styles: STYLES; isLoved/isDowned(fp); nowFp(): fingerprint playing now;
 // onPlay(items, i): play items[i] and queue the rest; radio: { on(), toggle() }.
 export function openLibrary({ tracks, styles, hue, isLoved, isDowned, nowFp, onPlay, onJukebox, onCreate, radio, onClose }) {
   let filter = 'all';
-  const items = tracks.map((t) => ({ ...t, fp: songFingerprint(t.state) }));
+  let items = [];
   const lib = sheet('LIBRARY', { onClose });
   const { body } = lib;
   body.closest('.modal')?.classList.add('lib-modal');
@@ -49,6 +49,8 @@ export function openLibrary({ tracks, styles, hue, isLoved, isDowned, nowFp, onP
       h('span', { class: 'lib-time' }, secs ? fmt(secs) : ''));
   }
   function paint() {
+    items = tracks().map((t) => ({ ...t, fp: songFingerprint(t.state) }));
+    paintRadio();
     paintTabs();
     const v = visible(), playingFp = nowFp();
     list.replaceChildren(...(v.length ? v.map((t, i) => row(t, i, v, playingFp)) : [h('div', { class: 'jb-empty' },
@@ -61,7 +63,6 @@ export function openLibrary({ tracks, styles, hue, isLoved, isDowned, nowFp, onP
     list,
     h('button', { class: 'lib-jukebox', type: 'button', onclick: () => { lib.close(); onJukebox(); } },
       h('span', {}, h('b', {}, 'JUKEBOX'), h('small', {}, 'Songs and sets everyone published')), h('i', { 'aria-hidden': 'true' })));
-  paintRadio();
   paint();
   return { el: body, close: lib.close, paint };
 }
