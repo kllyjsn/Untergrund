@@ -91,11 +91,12 @@ console.log('events rate limit passed');
 
   const lk = memoryKv();
   const sig = (kind, extra = {}) => ({ n: 'listen', p: { kind, genre: 'acid' }, l: { ...rec, ...extra }, t: T0 });
-  const body = { sid: 'cccccccc01', route: '/', events: [sig('start'), sig('replay'), sig('complete'), sig('love'), sig('share'), sig('start', { lis: 'bbbbbb1234', fp: 'bbbbbbb1234567', style: 'techno' }), sig('skip', { lis: 'bbbbbb1234', fp: 'bbbbbbb1234567', style: 'techno' })] };
+  const body = { sid: 'cccccccc01', route: '/', events: [sig('start'), sig('replay'), sig('complete'), sig('love'), sig('share'), sig('share', { lis: '', ref: 'k3j9x0aa' }), sig('start', { lis: 'bbbbbb1234', fp: 'bbbbbbb1234567', style: 'techno' }), sig('skip', { lis: 'bbbbbb1234', fp: 'bbbbbbb1234567', style: 'techno' })] };
   assert.equal((await post(lk, body)).status, 202);
   const get = (query, token = 'secret') => handleEvents({ method: 'GET', query: { ...query, token }, kv: lk, statsToken: 'secret', now: T0 });
   const L = (await get({ summary: '1' })).json.listening;
   assert.equal(L.kinds.start, 2);
+  assert.equal(L.kinds.share, 1, 'a share before playing is not a listen share');
   assert.equal(L.rates.completion, 0.5);
   assert.equal(L.rates.skip, 0.5);
   assert.deepEqual(L.styles.map((x) => [x.style, x.starts, x.rates.completion, x.rates.love]), [['acid', 1, 1, 1], ['techno', 1, 0, 0]]);

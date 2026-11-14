@@ -170,12 +170,15 @@ async function ingest(batch, kv, client, now) {
       const l = e.l;
       const rec = JSON.stringify({ at: new Date(now).toISOString(), sid: batch.sid, ...l });
       cmds.push(['LPUSH', `${P}:listen`, rec], ['LPUSH', `${P}:listen:${day}`, rec]);
-      // Per-genre per-day and per-song totals: what the improvement engine scores first.
-      if (l.style) cmds.push(['HINCRBY', `${P}:ls:${day}`, `${l.style}:${l.kind}`, 1], ['EXPIRE', `${P}:ls:${day}`, TTL]);
-      cmds.push(['HINCRBY', `${P}:fp:${l.fp}`, l.kind, 1], ['EXPIRE', `${P}:fp:${l.fp}`, TTL]);
+      // Per-genre per-day and per-song totals: what the improvement engine scores first. Rates divide them by starts,
+      // so a standalone share (no listen behind it) stays out of them and of `listen:<kind>`; the release loop reads it from the raw log.
+      if (l.lis) {
+        if (l.style) cmds.push(['HINCRBY', `${P}:ls:${day}`, `${l.style}:${l.kind}`, 1], ['EXPIRE', `${P}:ls:${day}`, TTL]);
+        cmds.push(['HINCRBY', `${P}:fp:${l.fp}`, l.kind, 1], ['EXPIRE', `${P}:fp:${l.fp}`, TTL]);
+      }
     }
     cmds.push(['HINCRBY', dk, e.n, 1]);
-    const dim = DIMENSION[e.n], v = dim && e.p[dim];
+    const dim = DIMENSION[e.n], v = dim && !(e.n === 'listen' && !e.l.lis) && e.p[dim];
     if (v !== undefined && v !== '') cmds.push(['HINCRBY', dk, `${e.n}:${v}`, 1]);
     if (batch.sid && !seen.has(e.n)) { seen.add(e.n); cmds.push(['PFADD', `${P}:u:${day}:${e.n}`, batch.sid], ['EXPIRE', `${P}:u:${day}:${e.n}`, TTL]); }
   }
