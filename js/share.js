@@ -4,9 +4,9 @@ import { STYLES } from './state.js';
 import { saveTrack } from './crate.js';
 import { sheet } from './sets.js';
 import { drawArtwork } from './artwork.js';
-import { encodeSong, songLink, embedCode, creditLine } from './share-code.js';
+import { encodeSong, songLink, embedCode, creditLine, newShareRef } from './share-code.js';
 import { exportVideo, videoMime } from './video.js';
-import { track as trackEvent, reportError } from './analytics.js';
+import { track as trackEvent, reportError, analytics } from './analytics.js';
 
 export const track = (name, props = {}) => { try { trackEvent(name, props); window.untergrundTrack?.(name, props); } catch {} };
 const isPhone = () => matchMedia('(max-width: 760px), (pointer: coarse)').matches;
@@ -20,7 +20,7 @@ async function copy(text, toast, what) {
 
 // Short /?t=<id> when the crate backend stores it; otherwise the whole song rides in the URL.
 const linkCache = new Map();
-export async function shareLinks(song, origin = location.origin) {
+export async function shareLinks(song, origin = location.origin, shareRef = '') {
   const code = await encodeSong(song);
   let ref = linkCache.get(code);
   if (!ref) {
@@ -32,7 +32,7 @@ export async function shareLinks(song, origin = location.origin) {
     }
     linkCache.set(code, ref);
   }
-  return { link: songLink(origin, ref), embed: songLink(origin, ref, '/embed.html'), short: !!ref.id };
+  return { link: songLink(origin, ref, '/', shareRef), embed: songLink(origin, ref, '/embed.html'), short: !!ref.id };
 }
 
 export function countRemix(id) {
@@ -46,7 +46,9 @@ export function openShare({ song, toast, hue, download, source = 'studio', befor
   const linkBox = h('input', { class: 'inp share-link', readonly: '', value: 'Making your link…', 'aria-label': 'Song link' });
   linkBox.onfocus = () => linkBox.select();
   let links = null;
-  const ready = shareLinks(song).then((l) => { links = l; linkBox.value = l.link; return l; })
+  // One ref per share sheet, only when analytics is on (Do Not Track, GPC and automation get a plain link).
+  const ref = analytics?.enabled ? newShareRef() : '';
+  const ready = shareLinks(song, location.origin, ref).then((l) => { links = l; linkBox.value = l.link; return l; })
     .catch((err) => { console.error(err); linkBox.value = 'Could not make a link for this song.'; });
   const withLinks = (fn) => async () => { const l = links || await ready; if (l) fn(l); };
   const text = `${song.title} by ${song.artist}, made in UNTERGRUND`;
@@ -54,9 +56,9 @@ export function openShare({ song, toast, hue, download, source = 'studio', befor
 
   const linkBtns = h('div', { class: 'share-row' },
     canShare && h('button', { class: 'btn', onclick: withLinks(async (l) => {
-      try { await navigator.share({ title: song.title, text, url: l.link }); track('share_link_copied', { what: 'song_sent' }); } catch {}
+      try { await navigator.share({ title: song.title, text, url: l.link }); track('share_link_copied', { what: 'song_sent', ref }); } catch {}
     }) }, 'SEND'),
-    h('button', { class: 'btn ghost', onclick: withLinks((l) => { copy(l.link, toast, 'Link'); track('share_link_copied', { what: 'song' }); }) }, 'COPY LINK'));
+    h('button', { class: 'btn ghost', onclick: withLinks((l) => { copy(l.link, toast, 'Link'); track('share_link_copied', { what: 'song', ref }); }) }, 'COPY LINK'));
 
   let seconds = 15;
   const chosen = () => seconds;

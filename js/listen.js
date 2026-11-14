@@ -36,7 +36,7 @@ const list = (store, key) => { try { const v = JSON.parse(store?.getItem(key) ||
 const keep = (store, key, arr, max) => { try { store?.setItem(key, JSON.stringify(arr.slice(-max))); } catch {} };
 const rid = () => Array.from({ length: 10 }, () => ((Math.random() * 36) | 0).toString(36)).join('');
 
-// ctx (per listen): { fp, tid, seed, style, src, surf, ph, pt, arr, xp?, arm? } (xp/arm: js/experiments.js); pos (per signal): { bar, bars, sec }.
+// ctx (per listen): { fp, tid, seed, style, src, surf, ph, pt, arr, via?, xp?, arm? } (via: the share ref the listener arrived through) (xp/arm: js/experiments.js); pos (per signal): { bar, bars, sec }.
 export function createListens({ emit = () => {}, now = () => Date.now(), store = globalThis.localStorage } = {}) {
   let cur = null, last = null;
   const heard = new Set(list(store, HEARD)), loved = new Set(list(store, LOVED)), downed = new Set(list(store, DOWNED));
@@ -48,7 +48,7 @@ export function createListens({ emit = () => {}, now = () => Date.now(), store =
     const p = l.pos || {};
     const rec = { v: LISTEN_VERSION, lis: l.id, fp: l.fp, tid: l.tid || '', seed: Number.isFinite(l.seed) ? l.seed : -1, style: l.style || '',
       src: l.src || '', surf: l.surf || '', ph: l.ph || '', bar: p.bar ?? 0, bars: p.bars ?? 0, sec: p.sec || '', pct: pctOf(p), ms: Math.round(played(l)),
-      ...(l.xp && l.arm ? { xp: l.xp, arm: l.arm } : {}), ...extra };
+      ...(l.via ? { via: l.via } : {}), ...(l.xp && l.arm ? { xp: l.xp, arm: l.arm } : {}), ...extra };
     emit(kind, rec);
     return rec;
   }
@@ -85,11 +85,11 @@ export function createListens({ emit = () => {}, now = () => Date.now(), store =
 
   // An action on the song playing, or the one that just ended (publish after it finishes).
   function target() { return cur || (last && now() - last.at < AFTER_MS ? last.l : null); }
-  function act(kind, pos) {
+  function act(kind, pos, extra = {}) {
     const l = target();
     if (!l || !LISTEN_KINDS.includes(kind)) return null;
     if (ONCE.has(kind)) { if (l.done.has(kind)) return null; l.done.add(kind); }
-    return send(kind, l, l === cur && !l.held ? pos : l.pos);
+    return send(kind, l, l === cur && !l.held ? pos : l.pos, extra);
   }
 
   const isLoved = (fp) => !!fp && loved.has(fp);

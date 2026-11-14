@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { defaultState, generate, songChain, sanitize, STYLES } from '../js/state.js';
-import { encodeSong, decodeSong, readShareParams, songLink, remixState, creditLine, embedCode, normalizeSong } from '../js/share-code.js';
+import { encodeSong, decodeSong, readShareParams, songLink, remixState, creditLine, embedCode, normalizeSong, newShareRef, SHARE_REF } from '../js/share-code.js';
 import { peakWindow } from '../js/video.js';
 import { handleCrate, handleRemix, memoryStore } from '../api/_lib/crate.js';
 
@@ -26,6 +26,13 @@ for (const style of Object.keys(STYLES)) {
 assert.deepEqual(readShareParams(new URL('https://x.sh/#s=zAbc')), { code: 'zAbc' });
 assert.deepEqual(readShareParams(new URL('https://x.sh/?t=abc-123<script>')), { id: 'abc-123script' });
 assert.equal(readShareParams(new URL('https://x.sh/?jukebox')), null);
+// Share refs: one per shared link, read back on arrival; anything malformed is dropped.
+assert.match(newShareRef(), SHARE_REF);
+assert.equal(songLink('https://x.sh', { id: 'abc-123' }, '/', 'k3j9x0aa'), 'https://x.sh/?t=abc-123&r=k3j9x0aa');
+assert.equal(songLink('https://x.sh', { id: 'abc-123' }, '/', '<bad>'), 'https://x.sh/?t=abc-123');
+assert.deepEqual(readShareParams(new URL('https://x.sh/?t=abc-123&r=k3j9x0aa')), { id: 'abc-123', ref: 'k3j9x0aa' });
+assert.deepEqual(readShareParams(new URL('https://x.sh/?s=zAbc&r=k3j9x0aa')), { code: 'zAbc', ref: 'k3j9x0aa' });
+assert.deepEqual(readShareParams(new URL('https://x.sh/?t=abc-123&r=NOPE!')), { id: 'abc-123' });
 for (const junk of ['', 'z', 'z!!!', 'zAAAA', 'j' + btoa('{"s":1}'), 'x' + 'A'.repeat(10), 'z' + 'A'.repeat(70_000)]) assert.equal(await decodeSong(junk), null);
 
 // Hostile payload is clamped by the existing sanitizer.

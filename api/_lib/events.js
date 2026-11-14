@@ -38,6 +38,7 @@ export function cleanProps(p) {
   return out;
 }
 
+const SHARE_REF = /^[a-z0-9]{8}$/; // js/share-code.js mints these
 const int = (v, lo, hi, d) => (Number.isFinite(+v) && v !== '' && v !== null && typeof v !== 'boolean' ? Math.max(lo, Math.min(hi, Math.round(+v))) : d);
 const id = (v, re) => (re.test(String(v ?? '')) ? String(v) : '');
 export function cleanListen(l, p = {}) {
@@ -58,6 +59,10 @@ export function cleanListen(l, p = {}) {
     if (pt) out.pt = pt;
     if (arr) out.arr = arr;
   }
+  // Share attribution: `via` is the ref of the link a listen arrived through; a `share` carries the ref it minted.
+  const via = id(l.via, SHARE_REF), ref = kind === 'share' ? id(l.ref, SHARE_REF) : '';
+  if (via) out.via = via;
+  if (ref) out.ref = ref;
   if (kind === 'why') { if (!DOWN_REASONS.includes(l.why)) return null; out.why = l.why; }
   if (kind === 'rewind') out.to = int(l.to, 0, 9999, 0);
   if (XP_ID.test(String(l.xp ?? '')) && ARMS.includes(l.arm)) { out.xp = l.xp; out.arm = l.arm; }

@@ -130,3 +130,15 @@ const bare = createListens({ store: null, now: () => 0 });
 bare.begin(ctx(A)); assert.equal(bare.toggleLove(), true);
 
 console.log('listen signals passed');
+
+// Share attribution: a listen that arrived through a shared link carries its ref on every signal; a share records the ref it minted.
+{
+  const out = [];
+  const S = createListens({ emit: (kind, rec) => out.push({ kind, ...rec }), now: () => 0, store: storage() });
+  S.begin(ctx(A, { src: 'shared', via: 'k3j9x0aa' }));
+  S.act('share', { bar: 1, bars: 8, sec: 'a' }, { ref: 'zz11yy22' });
+  assert.deepEqual(out.map((r) => [r.kind, r.via, r.ref]), [['start', 'k3j9x0aa', undefined], ['share', 'k3j9x0aa', 'zz11yy22']]);
+  S.begin(ctx(B));
+  assert.equal(out.at(-1).via, undefined, 'no ref, no via');
+  console.log('share attribution passed');
+}
