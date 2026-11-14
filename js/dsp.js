@@ -20,7 +20,9 @@ export function makeNoise(ctx, seconds = 2) {
 }
 
 // Stereo exponentially-decaying noise impulse that darkens over time (plate/hall-ish).
-export function makeIR(ctx, seconds, { decay = 3, brightStart = 0.85, brightEnd = 0.08, predelay = 0.012, seed = 7 } = {}) {
+// `er`: early reflections of a real room ({ n, span s, gain }): sparse, slightly darkened taps whose times differ per
+// channel, ahead of the diffuse tail. They give a recorded space its size and walls, which noise alone lacks.
+export function makeIR(ctx, seconds, { decay = 3, brightStart = 0.85, brightEnd = 0.08, predelay = 0.012, seed = 7, er = null } = {}) {
   const sr = ctx.sampleRate;
   const len = Math.floor(sr * seconds);
   const buf = ctx.createBuffer(2, len, sr);
@@ -35,6 +37,15 @@ export function makeIR(ctx, seconds, { decay = 3, brightStart = 0.85, brightEnd 
       y += a * ((r() * 2 - 1) - y);
       const env = i < pre ? 0 : Math.pow(1 - t, decay) * Math.min(1, (i - pre) / (sr * 0.004));
       d[i] = y * env;
+    }
+    if (er) {
+      const lateAt = Math.floor((predelay + er.span) * sr);
+      for (let i = Math.floor(predelay * sr); i < Math.min(len, lateAt); i++) d[i] *= (i - predelay * sr) / (lateAt - predelay * sr);
+      for (let k = 0; k < er.n; k++) {
+        const at = Math.floor((predelay * 0.5 + er.span * Math.pow((k + 0.5 + (r() - 0.5) * 0.8) / er.n, 1.4)) * sr);
+        const a = er.gain * Math.pow(1 - k / er.n, 1.5) * (r() < 0.5 ? -1 : 1);
+        [0.25, 0.5, 0.25].forEach((w, j) => { if (at + j < len) d[at + j] += a * w; });
+      }
     }
   }
   return buf;

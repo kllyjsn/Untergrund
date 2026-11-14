@@ -172,8 +172,8 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const num = (v, p = 1) => (Number.isFinite(v) ? String(+v.toFixed(p)).replace('-', '−') : '–');
 const signed = (v, p = 1) => (Number.isFinite(v) && v > 0 ? '+' : '') + num(v, p);
 const FAMILY_ORDER = ['TECHNO', 'HOUSE', 'JAZZ & HIP-HOP', 'BREAKS & BASS', 'TRANCE & AMBIENT', 'AFRO & LATIN', 'TRAP & POP', 'CLASSICAL'];
-const GROUPS = [['peaks', 'PEAK', 'Peaks'], ['loudness', 'LOUD', 'Loudness'], ['spectrum', 'TONE', 'Spectrum'], ['stereo', 'WIDE', 'Stereo'], ['balance', 'MIX', 'Balance'], ['silence', 'GAPS', 'Silence'], ['arrangement', 'FORM', 'Arrangement'], ['ending', 'END', 'Ending']];
-const TINY = { peaks: 'PK', loudness: 'LUD', spectrum: 'TON', stereo: 'WID', balance: 'MIX', silence: 'GAP', arrangement: 'FRM', ending: 'END', fast: 'FST' };
+const GROUPS = [['peaks', 'PEAK', 'Peaks'], ['loudness', 'LOUD', 'Loudness'], ['spectrum', 'TONE', 'Spectrum'], ['stereo', 'WIDE', 'Stereo'], ['balance', 'MIX', 'Balance'], ['silence', 'GAPS', 'Silence'], ['arrangement', 'FORM', 'Arrangement'], ['ending', 'END', 'Ending'], ['realism', 'REAL', 'Realism']];
+const TINY = { peaks: 'PK', loudness: 'LUD', spectrum: 'TON', stereo: 'WID', balance: 'MIX', silence: 'GAP', arrangement: 'FRM', ending: 'END', realism: 'RLM', fast: 'FST' };
 const GLYPH = { PASS: '✓', WARN: '!', FAIL: '×' };
 const PALETTE = ['var(--accent)', 'var(--teal)', 'var(--purple)', 'var(--orange)', 'var(--pink)', 'var(--green)', 'var(--yellow)', 'var(--red)'];
 const WIDE = 680, NARROW = 350;

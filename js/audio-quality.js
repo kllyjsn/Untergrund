@@ -110,6 +110,30 @@ export function spectrum(L, R, fs, { size = 8192 } = {}) {
   return out;
 }
 
+// Genre target curves: octave-band energy (dB re the 1 kHz octave, 63 Hz-16 kHz) of a finished commercial mix,
+// approximated from published long-term average spectra of commercial recordings by genre (Pestana et al. 2013,
+// AES 135; the shapes match commercial tonal-balance reference curves). Band genres sit near flat-to-pink
+// low end with a -2 to -3 dB/octave fall above 1 kHz; R&B, neo-soul and house carry a heavier low end.
+export const TARGET_CURVES = {
+  pop: [4, 4, 2, 1, 0, -2, -4, -7, -13],
+  rnb: [6, 5, 2, 0.5, 0, -2.5, -5, -8, -14],
+  rock: [2, 3, 2, 1, 0, -1, -3, -6, -12],
+  acoustic: [0, 2, 2, 1, 0, -1.5, -3.5, -6.5, -12],
+  house: [8, 5, 1.5, 0, 0, -2, -4, -7, -12],
+};
+const TARGET_FOR = { pop: 'pop', rnb: 'rnb', neosoul: 'rnb', rock: 'rock', folk: 'acoustic', country: 'acoustic', deephouse: 'house' };
+export const targetCurve = (style) => TARGET_CURVES[TARGET_FOR[style]] ?? null;
+// RMS distance (dB) of the mix's octave balance from its genre curve, after removing the overall level offset;
+// also the worst single octave (signed: + = too much energy there).
+export function targetBalance(octaves, style) {
+  const tc = targetCurve(style);
+  if (!tc || !octaves?.length) return null;
+  const d = octaves.map(([f, v]) => [f, v - tc[OCTAVES.indexOf(f)]]).filter(([f, v]) => OCTAVES.includes(f) && Number.isFinite(v));
+  const off = mean(d.map((x) => x[1])), dev = d.map(([f, v]) => [f, v - off]);
+  const worst = dev.reduce((a, x) => (Math.abs(x[1]) > Math.abs(a[1]) ? x : a), [0, 0]);
+  return { curve: TARGET_FOR[style], rmsDb: r(Math.sqrt(mean(dev.map((x) => x[1] ** 2))), 1), worstHz: worst[0], worstDb: r(worst[1], 1) };
+}
+
 // Stereo image: energy-weighted L/R correlation, its 5th percentile over loud 400 ms blocks, side/mid ratio,
 // mono fold-down loss ((L+R)/2 on both channels vs the stereo mix, LU) and side energy under 120 Hz.
 export function stereo(L, R, fs) {
@@ -281,7 +305,29 @@ export function analyzeMix(L, R, fs, { barTimes = [], sections = [], finalHit = 
 // Pre-master stems over one window. stems: [{ id, left, right, notes }] (notes = onsets the song plays in the window),
 // kicks: kick onsets (s). Per-stem loudness relative to the stem sum, energetic masking (share of a stem's energy in
 // time-frequency cells where the rest of the band is 10 dB louder), and kick/bass low-end collision at each kick.
-export function analyzeStems(stems, fs, { kicks = [] } = {}) {
+// Performance realism per stem: the peak of each hit (first 30 ms after its onset, so the previous note's tail
+// barely counts) as a velocity proxy, and its attack (peak over the 30-120 ms body). A machine plays every hit
+// alike (spread ~0 dB); a player's hats and ghost notes spread 2-6 dB.
+export function hits(left, right, fs, times) {
+  const m = mono(left, right), n = m.length, peaks = [], attacks = [];
+  const pk = (a, b) => { let x = 0; for (let i = a; i < b; i++) x = Math.max(x, Math.abs(m[i])); return x; };
+  const rms = (a, b) => { let x = 0; for (let i = a; i < b; i++) x += m[i] * m[i]; return Math.sqrt(x / Math.max(1, b - a)); };
+  const ts = [...times].sort((a, b) => a - b);
+  ts.forEach((t, k) => {
+    const a = Math.round(t * fs), next = k + 1 < ts.length ? Math.round(ts[k + 1] * fs) : n, w = Math.round(fs * 0.03);
+    if (a < 0 || a + w > n || next - a < w) return;
+    const p = pk(a, a + w);
+    if (p < 1e-4) return;
+    peaks.push(20 * Math.log10(p));
+    const b = Math.min(next, a + Math.round(fs * 0.12));
+    if (b - (a + w) > fs * 0.02) attacks.push(20 * Math.log10(p / (rms(a + w, b) + 1e-9)));
+  });
+  if (peaks.length < 8) return null;
+  const mu = mean(peaks);
+  return { n: peaks.length, spreadDb: r(Math.sqrt(mean(peaks.map((x) => (x - mu) ** 2))), 2), rangeDb: r(quantile(peaks, 0.95) - quantile(peaks, 0.05), 1), attackDb: attacks.length >= 8 ? r(quantile(attacks, 0.5), 1) : null };
+}
+
+export function analyzeStems(stems, fs, { kicks = [], onsets = {} } = {}) {
   const n = stems[0].left.length, sumL = new Float32Array(n), sumR = new Float32Array(n);
   for (const s of stems) for (let i = 0; i < n; i++) { sumL[i] += s.left[i]; sumR[i] += s.right[i]; }
   const mix = loudness([sumL, sumR], fs).integrated;
@@ -298,7 +344,8 @@ export function analyzeStems(stems, fs, { kicks = [] } = {}) {
     cells[k].forEach((fr, f) => fr.forEach((e, b) => { all += e; if (total[f][b] - e > 10 * e) buried += e; }));
     for (let i = 0; i < n; i++) sq += s.left[i] * s.left[i] + s.right[i] * s.right[i];
     const rms = db(sq / (2 * n)), l = loudness([s.left, s.right], fs).integrated;
-    return { id: s.id, notes: s.notes ?? null, rmsDb: r(rms, 1), relLu: Number.isFinite(l) ? r(l - mix, 1) : null, buriedShare: all > 0 ? r(buried / all, 3) : null, active: rms > -70 };
+    const h = onsets[s.id]?.length >= 8 && rms > -70 ? hits(s.left, s.right, fs, onsets[s.id]) : null;
+    return { id: s.id, notes: s.notes ?? null, rmsDb: r(rms, 1), relLu: Number.isFinite(l) ? r(l - mix, 1) : null, buriedShare: all > 0 ? r(buried / all, 3) : null, active: rms > -70, hits: h };
   });
   const out = { mixLufs: r(mix), stems: rows, missing: rows.filter((s) => s.id !== 'fx' && (s.notes ?? 0) >= 2 && !s.active).map((s) => s.id) };
   const kick = stems.find((s) => s.id === 'kick'), bass = stems.find((s) => s.id === 'acid');

@@ -9,7 +9,7 @@ import { capture } from '/js/midi.js';
 import { router, stemList } from '/js/stems.js';
 import { encodeWav } from '/js/dsp.js';
 import { targetFor } from '/js/loudness.js';
-import { analyzeMix, analyzeStems } from '/js/audio-quality.js';
+import { analyzeMix, analyzeStems, targetBalance } from '/js/audio-quality.js';
 
 const START = 0.05, LETTERS = 'ABCDEFGH';
 
@@ -119,7 +119,8 @@ async function stems(s, p, fromBar, toBar) {
   try { buf = await render({ ...clone(s), solos: {} }, fromBar, toBar, { channels: ids.length * 2, tail: 1, onContext: r.onContext, onEngine: r.onEngine }); } finally { r.restore(); }
   const at = (t) => START + t - t0, inWin = (n) => n.t >= t0 && n.t < t1;
   const list = ids.map((id, k) => ({ id, left: buf.getChannelData(2 * k), right: buf.getChannelData(2 * k + 1), notes: id === 'fx' ? null : (p.c.notes[id] || []).filter(inWin).length }));
-  return analyzeStems(list, buf.sampleRate, { kicks: (p.c.notes.kick || []).filter(inWin).map((n) => at(n.t)) });
+  const onsets = Object.fromEntries(ids.map((id) => [id, (p.c.notes[id] || []).filter(inWin).map((n) => at(n.t))]));
+  return analyzeStems(list, buf.sampleRate, { kicks: onsets.kick || [], onsets });
 }
 
 // tier 'deep': the whole song (+ 8 s tail) and an 8-bar stem window. tier 'fast': the 2 densest bars (master + stems)
@@ -145,6 +146,7 @@ export async function measure(style, seed, { tier = 'fast' } = {}) {
   out.windows.peak = tier === 'deep' ? [0, p.bars] : win;
   const ts = performance.now();
   out.stems = await stems(s, p, win[0], win[1]);
+  out.mix.balance = targetBalance(out.mix.spectrum.octaves, style);
   (out.ms ||= {}).stems = Math.round(performance.now() - ts);
   out.renderMs = Math.round(performance.now() - t0);
   return out;
