@@ -125,7 +125,7 @@ function segmentFindings(rows, o) {
       for (const metric of Object.keys(METRICS)) {
         const found = [];
         for (const [v, seg] of segs) {
-          const a = judged(seg, metric), rest = parent.filter((l) => l[dim] !== v), b = judged(rest, metric);
+          const a = judged(seg, metric), rest = parent.filter((l) => l[dim] && l[dim] !== v), b = judged(rest, metric);
           if (a.length < o.minListens || b.length < o.minListens || listeners(a) < o.minListeners) continue;
           const c = compare(count(a, metric), a.length, count(b, metric), b.length);
           if (Math.abs(c.z) < o.z) continue;
