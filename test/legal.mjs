@@ -40,4 +40,14 @@ out = await handleLegal({
 assert.equal(out.status, 200);
 assert.equal(out.json.requests.length, 0, 'requests expire individually after 180 days');
 
+const capped = memoryKv();
+for (let i = 0; i < 251; i++) await capped.cmd(['ZADD', 'z', i, `m${i}`]);
+assert.equal(await capped.cmd(['ZREMRANGEBYRANK', 'z', 0, -501]), 0, 'rank trim keeps sets under the cap');
+const file = new URL('./out/legal-kv.json', import.meta.url).pathname;
+const disk = memoryKv({ file });
+await handleLegal({ method: 'POST', body: valid, kv: disk, client: 'disk', now });
+await new Promise((ok) => setTimeout(ok, 300));
+out = await handleLegal({ method: 'GET', kv: memoryKv({ file }), headers: { authorization: 'Bearer secret' }, statsToken: 'secret', now });
+assert.equal(out.json.requests.length, 1, 'file-backed requests survive restart');
+
 console.log('legal policy and request intake passed');
