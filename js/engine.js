@@ -34,8 +34,8 @@ const LIVE_REF = {
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
 const EPS = 0.0001;
 const SAMPLE_FADE = 1;
-const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic'];
-const GRIPPED = new Set(['guitar', 'driveGuitar', 'acoustic']);
+const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar'];
+const GRIPPED = new Set(['guitar', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar']);
 // Soft-knee, slightly asymmetric clipping: even harmonics like a pushed preamp tube.
 const AMP_CURVE = (() => { const n = 2048, c = new Float32Array(n); for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; c[i] = Math.tanh(x * 2.2 + 0.18) - Math.tanh(0.18); } return c; })();
 // How each recorded instrument is played: level, DECAY->length, strum spread, register shift, held like a bow.
@@ -110,6 +110,12 @@ const BAND_PLAY = {
   drive: { set: 'gtr', amp: true, gain: 3.2, len: 3.4, min: 0.18, strum: 0.004, shift: 0, lo: 40, hi: 64, lp: 5200, soft: 1800, fade: 0.008, rel: 0.12, grip: true, even: 0.15 },
   // Steel-string acoustic: a wider strum, bright top, long ring.
   agtr: { gain: 4.2, len: 3.2, min: 0.7, strum: 0.011, shift: 0, lo: 40, hi: 76, lp: 7800, soft: 0, fade: 0.01, rel: 0.3, grip: true, even: 0.35 },
+  // The archtop's magnetic pickup, neck position, tone rolled back: round, woody comping for soul and jazz chords.
+  jazz: { gain: 9.5, len: 2.4, min: 0.5, softBelow: 0, strum: 0.005, shift: 0, lo: 43, hi: 72, lp: 3400, soft: 900, fade: 0.008, rel: 0.2, grip: true, even: 0.25 },
+  // Six-string guitar banjo: a fast snappy strum that dies quickly, all top end.
+  banjo: { gain: 5, len: 1.2, min: 0.3, strum: 0.007, shift: 0, lo: 45, hi: 79, lp: 9000, soft: 0, fade: 0.006, rel: 0.12, grip: true, even: 0.4 },
+  // The green Gretsch hollow-body: bright, snappy, open chords that ring for country and rockabilly.
+  gretsch: { gain: 4.2, len: 2.6, min: 0.6, softBelow: 0, strum: 0.006, shift: 0, lo: 40, hi: 74, lp: 4600, peak: [3400, 1.2, -4], soft: 1100, fade: 0.008, rel: 0.18, grip: true, even: 0.3 },
 };
 // Country lead: the same guitar clean and bright off the bridge pickup, single notes with a slapback.
 BAND_PLAY.twang = { ...BAND_PLAY.gtr, gain: 3, len: 1.4, min: 0.25, softBelow: 0, lo: 52, hi: 84, lp: 6800, grip: false, even: 0.4, rel: 0.12, oct: 0, slap: true };
@@ -1228,6 +1234,9 @@ export class Engine {
   piano(...a) { return this.recorded('piano', 'keys', ...a); }
   driveGuitar(...a) { return this.recorded('drive', 'pluck', ...a); }
   acoustic(...a) { return this.recorded('agtr', 'pluck', ...a); }
+  jazzGuitar(...a) { return this.recorded('jazz', 'keys', ...a); }
+  banjo(...a) { return this.recorded('banjo', 'pluck', ...a); }
+  twangGuitar(...a) { return this.recorded('gretsch', 'pluck', ...a); }
   guitar(...a) { return this.recorded('gtr', 'pluck', ...a); }
   horns(...a) { return this.recorded('horn', 'brass', ...a); }
   strings(...a) { return this.recorded('str', 'pad', ...a); }
@@ -2036,7 +2045,7 @@ export class Sequencer {
       const breathe = hm > 1 && ph === 2 && hi < 16 && hash(abs, 95) < 0.2 + x.space * 0.45;
       // The lead also drops out for the last half bar before a drop, leaving the riser and snare roll alone.
       if (st && (hm > 1 || hi < 16) && !breathe && !(this.dropNext && i16 >= 8)) {
-        const lift = (hm > 1 && hi >= 16 && ph === 3 && x.risk >= 0.3 && (!pat.sec || pat.sec === 'chorus') ? 12 : 0) + (this.keyLift || 0);
+        const lift = (hm > 1 && hi >= 16 && (hk.up || (ph === 3 && x.risk >= 0.3)) && (!pat.sec || pat.sec === 'chorus') ? 12 : 0) + (this.keyLift || 0);
         const b = 0.58 + 0.42 * ((bar % 8) / 7);
         const answer = hi >= 16;
         const phraseVel = [0.82, 0.92, 0.72, 1][ph] * (answer ? 1.04 : 0.96);
