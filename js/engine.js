@@ -2050,9 +2050,10 @@ export class Engine {
     const cur = this.vocalNow;
     if (!cur) return;
     this.vocalNow = null;
-    for (const p of [this.bandDuck.gain, this.singTrim.gain, this.ch.stab?.carve?.gain].filter(Boolean)) {
+    const carves = [this.ch.stab?.carve?.gain, this.hookCarve?.gain].filter(Boolean);
+    for (const p of [this.bandDuck.gain, this.singTrim.gain, ...carves]) {
       if (p.cancelAndHoldAtTime) p.cancelAndHoldAtTime(t); else p.cancelScheduledValues(t);
-      p.setTargetAtTime(p === this.ch.stab?.carve?.gain ? 0 : 1, t, 0.08);
+      p.setTargetAtTime(carves.includes(p) ? 0 : 1, t, 0.08);
     }
     cur.g.gain.cancelScheduledValues(t);
     cur.g.gain.setTargetAtTime(0, t, 0.008);
