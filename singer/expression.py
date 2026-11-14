@@ -273,8 +273,8 @@ def sing(engine, score: dict, voice: str, seed: int, expr: dict, language: str =
             for w, s in zip(ph.words, stressed):
                 if not s:
                     continue
-                a = int((ph.start + w.start) * sr)
-                z = int((ph.start + min(w.end, w.start + 2 * beat)) * sr)
+                a = max(0, int((ph.start + shift + w.start) * sr))
+                z = int((ph.start + shift + min(w.end, w.start + 2 * beat)) * sr)
                 if z - a <= 2 * ramp:
                     continue
                 env = np.ones(z - a, np.float32)
