@@ -13,7 +13,7 @@ export const VOCAL_LIFT_DB = 1.2;
 // The stem arrives at -20 dBFS RMS on its sung notes (singer/singer.py). These lift it to VOCAL_OVER_BAND_DB over the
 // ducked band per style (measured through the master chain on the seed-7 songs in docs/singer.md); others get the base.
 export const VOCAL_BASE_DB = 10;
-export const VOCAL_STYLE_DB = { pop: 13.7, rnb: 8.5, folk: 4.5 };
+export const VOCAL_STYLE_DB = { pop: 13.7, rnb: 8.5, folk: 3.5 };
 export const vocalDb = (state) => (VOCAL_STYLE_DB[state?.artist?.style] ?? VOCAL_BASE_DB) + (state?.sing?.db || 0);
 // The vocal's channel strip per genre (js/vocal-chain.js, Engine.vocalSends; docs/singer.md#vocal-chain): high-pass Hz,
 // presence [Hz, dB], de-esser (band from hz, at most db cut, past `over` dB re the sung level), compression (threshold
