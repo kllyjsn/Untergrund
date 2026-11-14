@@ -242,6 +242,7 @@ t('validateEdits drops anything outside the vocabulary', () => {
   const ok = validateEdits([{ id: 'tone', amt: -1 }, { id: 'rm -rf' }, { id: 'bpm', value: 9999 }, { id: 'mute', target: 'window', value: true }, { id: 'voice', value: 10 }, null, 'x']);
   assert.deepEqual(ok.map((e) => e.id), ['tone', 'bpm', 'voice']);
   assert.ok(ok[1].value <= 200);
+  assert.deepEqual(validateEdits([{ id: 'voice', value: 14 }, { id: 'voice', value: 99 }]).map((e) => e.value), [14, 15], 'jazz guitar, banjo and twang guitar survive validation');
 });
 let remoteCalls = 0;
 const remote = async (text) => { remoteCalls++; return { edits: [{ id: 'space', amt: 1 }, { id: 'evil', amt: 5 }] }; };

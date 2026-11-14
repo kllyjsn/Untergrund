@@ -937,7 +937,7 @@ export function validateEdits(list) {
     else if (e.id === 'genre') { if (!STYLES[e.value]) continue; x.value = e.value; }
     else if (e.id === 'bpm') { if ((x.value = num(e.value, 60, 200)) == null) continue; x.value = Math.round(x.value); }
     else if (e.id === 'key') { if ((x.value = num(e.value, 0, 11)) == null) continue; x.value = Math.round(x.value); }
-    else if (e.id === 'voice') { if ((x.value = num(e.value, 0, 12)) == null) continue; x.value = Math.round(x.value); }
+    else if (e.id === 'voice') { if ((x.value = num(e.value, 0, VOICE_NAMES.length - 1)) == null) continue; x.value = Math.round(x.value); }
     else if (e.id === 'bassVoice') { if ((x.value = num(e.value, 0, 5)) == null) continue; x.value = Math.round(x.value); }
     else if (e.id === 'kit') { if ((x.value = num(e.value, 0, 2)) == null) continue; x.value = Math.round(x.value); }
     else { if ((x.amt = num(e.amt, -3, 3)) == null || !x.amt) continue; }
