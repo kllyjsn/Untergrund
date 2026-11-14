@@ -94,8 +94,8 @@ export function validateSpec(raw, { style: fallbackStyle = 'deephouse', prompt =
   }
   // "sketch", "demo" or "snippet" asks for the short form: a longer plan keeps its chords and parts, in the sketch form.
   const sketch = SKETCH_WORDS.test(String(prompt).toLowerCase()), seedOf = specSeed({ style, prompt });
-  spec.sections = bars >= 16 ? sections : formSections(style, seedOf, sketch ? 'sketch' : 'song');
-  if (sketch && (bars * 240) / spec.bpm > LENGTHS.sketch.hi) spec.sections = formSections(style, seedOf, 'sketch').map((x) => {
+  spec.sections = bars >= 16 ? sections : formSections(style, seedOf, sketch ? 'sketch' : 'song', spec.bpm);
+  if (sketch && (bars * 240) / spec.bpm > LENGTHS.sketch.hi) spec.sections = formSections(style, seedOf, 'sketch', spec.bpm).map((x) => {
     const a = sections.find((y) => y.role === x.role);
     return a ? { ...x, chords: a.chords, ...(a.instruments ? { instruments: a.instruments } : {}), ...(a.density != null ? { density: a.density } : {}) } : x;
   });
@@ -109,9 +109,9 @@ const PART_WORD = { bassline: 'bass', sub: 'bass', keys: 'chords', pads: 'chords
 const LETTER_ROLE = ['intro', 'build', 'verse', null, 'breakdown', 'breakdown', 'drop', null];
 const ROLE_ENERGY = { intro: 0.25, build: 0.5, verse: 0.65, breakdown: 0.35, drop: 0.95, outro: 0.2 };
 const KIND_ROLE = { i: 'intro', v: 'verse', p: 'build', c: 'drop', x: 'breakdown', b: 'breakdown', o: 'outro' };
-export function formSections(style, seed, length = 'song') {
+export function formSections(style, seed, length = 'song', bpm) {
   const out = [];
-  const { sections: plan } = songPlan(style, seed, length);
+  const { sections: plan } = songPlan(style, seed, length, bpm);
   if (plan) {
     for (const [k, bars] of plan) {
       const role = KIND_ROLE[k], last = out[out.length - 1];
@@ -292,7 +292,8 @@ export function localSpec(text, { style: current = 'deephouse', seed } = {}) {
   const scaleEdit = edits.find((e) => e.id === 'scale' && SCALES[e.value]);
   const keyEdit = edits.find((e) => e.id === 'key' && /\b(?:in|key\s+of)\s+[a-g](?:#|b|\s+sharp|\s+flat)?\b/.test(e.src || ''));
   const s0 = seed ?? hashStr(t);
-  const sections = formSections(style, s0, SKETCH_WORDS.test(t) ? 'sketch' : 'song');
+  const bpm0 = bpmEdit?.value ?? Math.round((lo + hi) / 2 + tempo * 6);
+  const sections = formSections(style, s0, SKETCH_WORDS.test(t) ? 'sketch' : 'song', bpm0);
   const find = (role) => sections.find((s) => s.role === role);
   // Structure words.
   if (/\b(?:long|slow)[\s-]+(?:intro|burn)\b|\bslow[\s-]?burn\b|\btakes?\s+its\s+time\b/.test(t) && find('intro')) find('intro').bars = 16;
@@ -316,7 +317,7 @@ export function localSpec(text, { style: current = 'deephouse', seed } = {}) {
   const texture = edits.filter((e) => TEXTURE.includes(e.id) && !e.target && e.amt).map(({ src: _s, ...e }) => e);
   const spec = {
     title: titleFrom(raw), style,
-    bpm: bpmEdit?.value ?? Math.round((lo + hi) / 2 + tempo * 6),
+    bpm: bpm0,
     key: keyEdit ? keyEdit.value : null, scale,
     hook: M ? { contour: M.hook } : null,
     sections, texture,

@@ -91,6 +91,8 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
   const long = { style: 'pop', bpm: 120, sections: ['intro', 'verse', 'drop', 'verse', 'drop', 'breakdown', 'drop', 'outro'].map((role) => ({ role, bars: 16, energy: 0.7, chords: ['i', 'VI', 'III', 'VII'] })) };
   const demo = validateSpec(long, { prompt: 'a short pop demo' }), dBars = demo.sections.reduce((a, x) => a + x.bars, 0);
   assert((dBars * 240) / demo.bpm <= 120 && demo.sections.some((x) => x.chords?.length), `a demo prompt gets a sketch (${dBars} bars)`);
+  const slow = validateSpec({ ...long, style: 'folk', bpm: 60 }, { prompt: 'a folk demo' }), sBars = slow.sections.reduce((a, x) => a + x.bars, 0);
+  assert((sBars * 240) / slow.bpm <= 120, `a slow demo is sized at its own tempo (${sBars} bars at ${slow.bpm})`);
   assert.equal(validateSpec(long, { prompt: 'a pop song' }).sections.length, 8, 'a full prompt keeps its plan');
   // Locked tracks are never developed.
   const keep = ['kick', 'ch', 'oh', 'ride', 'perc', 'clap', 'snare'];
