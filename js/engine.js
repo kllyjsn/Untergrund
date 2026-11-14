@@ -1253,7 +1253,7 @@ export class Engine {
   // notes are darker, the way hammers and plectrums behave. Released through a damper, not a gate.
   recordedNote(set, t, level, m, dur, out, tone = 0, kind = null, vel = 1) {
     const R = BAND_PLAY[kind];
-    if (R) { while (m > R.hi) m -= 12; while (m < R.lo) m += 12; }
+    if (R) { while (m > R.hi + 0.5) m -= 12; while (m < R.lo - 0.5) m += 12; }
     if (out === this.ch.stab.input) out = this.ch.stab.band;
     const touch = 1 - 0.2 * (R?.even ?? 1) + 0.4 * (R?.even ?? 1) * hash(t * 7 + m, 24), hv = Math.max(0.25, Math.min(1.2, vel * touch));
     // Soft touches play the softly struck or plucked recording: a different tone, not just a quieter one.
