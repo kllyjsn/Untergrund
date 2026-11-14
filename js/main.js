@@ -380,6 +380,9 @@ function listenCtx() {
   const ctx = { fp: songFingerprint(state), tid: guest?.song?.trackId || songOrigin.tid || '', seed: Number.isFinite(+a.seed) ? +a.seed : -1, style: STYLES[a.style] ? a.style : style,
     src: songOrigin.src, surf: listenSurface(), ph: songOrigin.ph || '', pt: songOrigin.pt || '', arr: songShape() };
   const x = experimentFor(ctx);
+  // An experiment that changes songs (`apply`) tags only songs made under it, with the arm they were made in;
+  // restored, crate, shared and room songs were never treated, so they stay out of its read-out.
+  if (typeof x?.exp.apply === 'function') return songOrigin.xp === x.xp ? { ...ctx, xp: x.xp, arm: songOrigin.arm } : ctx;
   return x ? { ...ctx, xp: x.xp, arm: x.arm } : ctx;
 }
 // The experiment arm (js/experiments.js) for a listen or a song about to be made: none when analytics is off.
@@ -990,7 +993,10 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   const origin = { src: typeof hum === 'function' ? 'hum' : drop ? 'drop' : steer ? 'prompt' : 'generate', ...(prompt ? { ph: promptHash(prompt), pt: promptText(prompt) } : {}) };
   // A running experiment changes only the variant arm's new songs, and only the one thing its `apply` does.
   const x = experimentFor({ style: id, src: origin.src, surf: listenSurface() });
-  if (x?.arm === 'variant' && typeof x.exp.apply === 'function') x.exp.apply(s, { seed });
+  if (typeof x?.exp.apply === 'function') {
+    if (x.arm === 'variant') x.exp.apply(s, { seed });
+    Object.assign(origin, { xp: x.xp, arm: x.arm });
+  }
   return {
     next: s, undo: true, autoMajor: major, origin,
     finish: (landed = false) => {
