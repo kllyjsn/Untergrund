@@ -37,14 +37,14 @@ decodes the stem. `Engine.vocal()` plays it at every bar (restarting only when p
 past `Engine.bandDuck`: while it sings (`singingEnvelope()`: 40 ms before a phrase to 200 ms after it, 40 ms attack,
 250 ms release) the band dips `VOCAL_DUCK_DB` (3.5 dB) and the vocal sits `VOCAL_OVER_BAND_DB` (+1 dB) over the ducked
 band. Band plus vocal then carry the band's own power, so a sung song lands on its style's loudness target with no extra
-limiting. `VOCAL_STYLE_DB` (pop 13, R&B 9, folk 5.8 dB, others 10) lifts the stem's −20 dBFS RMS to that balance through
+limiting. `VOCAL_STYLE_DB` (pop 13.7, R&B 8.5, folk 4.5 dB, others 10) lifts the stem's −20 dBFS RMS to that balance through
 the master chain; it was measured on the seed-7 songs below:
 
 | Seed-7 song | Mix LUFS-I / true peak, before → after | Instrumental | Vocal vs band while singing, before → after |
 |---|---|---|---|
-| Pop (111 BPM, gwen) | −8.7 / −1.7 → MIXPOP | INSTPOP | −3.8 → VVBPOP dB |
-| R&B (79 BPM, felix) | −9.9 / −1.5 → MIXRNB | INSTRNB | −0.2 → VVBRNB dB |
-| Folk (90 BPM, gwen) | −13.5 / −1.9 → MIXFOLK | INSTFOLK | +2.2 → VVBFOLK dB |
+| Pop (111 BPM, gwen) | −8.7 / −1.7 → −9.2 / −1.7 | −9.0 / −1.7 | −3.8 → +0.6 dB |
+| R&B (79 BPM, felix) | −9.9 / −1.5 → −10.8 / −1.9 | −10.7 / −1.9 | −0.2 → +1.3 dB |
+| Folk (90 BPM, gwen) | −13.5 / −1.9 → −15.0 / −2.0 | −14.8 / −2.0 | +2.2 → +1.4 dB |
 
 The vocal level (−24…+6 dB around that base) and a timing trim (±250 ms) are saved in `state.sing` with the project;
 the stem is not saved and is fetched again by hash. Offline renders, WAV export, video and EXPORT STEMS (`sung-vocal`)

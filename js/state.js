@@ -1,11 +1,12 @@
 import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, CHORDS, defaultParams, defaultMaster } from './params.js';
 import { rng } from './dsp.js';
+import { planSections, formChain, parseForm, developSong, developFinalDrop, LENGTHS } from './longform.js';
 import { FORMS, SECTIONS } from './classical.js';
 import { MODELS } from './composer-models.js';
 import { POCKETS, STYLE_POCKET } from './groove.js';
 import { REPERTOIRE, PIECE } from './repertoire.js';
 import { cleanLabels } from './timeline.js';
-import { withMelody, MELODY_BARS } from './melody.js';
+import { withMelody, writeMelody, melodySteps, MELODY_BARS, SING_PROFILES } from './melody.js';
 import { stepDeg } from './motif.js';
 import { cleanLyrics } from './lyrics.js';
 import { SING_VOICES } from './sing-score.js';
@@ -167,7 +168,7 @@ const INSTRUMENTS = {
   ukg: [[3, 3, 0, 0.25, 0.45], [7, 1, 0, 0.75, 0.5], [5, 3, 1, 0.25, 0.85], [8, 2, 1, 0.4, 0.8]],
   euphoric: [[7, 1, 0, 1.6, 0.25], [10, 1, 0, 1.8, 0.2], [2, 1, 0, 2.1, 0.15], [9, 0, 0, 0.65, 0.7]],
   // Neo-soul is a Rhodes/piano/guitar band; strings pad the changes; the horn section honked.
-  neosoul: [[7, 1, 0, 1.6, 0.2], [1, 1, 0, 1.4, 0.25], [8, 1, 0, 0.75, 0.7], [10, 1, 0, 1.4, 0.2]],
+  neosoul: [[7, 1, 0, 1.6, 0.2], [1, 1, 0, 1.4, 0.25], [13, 1, 0, 0.75, 0.7], [10, 1, 0, 1.4, 0.2]],
   boombap: [[9, 1, 0, 0.7, 0.6], [7, 1, 0, 1.2, 0.2], [8, 1, 0, 0.6, 0.75], [10, 1, 0, 1.1, 0.3]],
   breaks: [[8, 0, 0, 0.6, 0.75], [5, 1, 1, 0.25, 0.85], [3, 0, 0, 0.55, 0.35], [7, 0, 1, 0.7, 0.5]],
   electro: [[0, 0, 0, 0.25, 0.7], [6, 2, 0, 0.4, 0.75], [5, 2, 0, 0.2, 0.9], [4, 0, 0, 0.3, 0.65]],
@@ -182,12 +183,12 @@ const INSTRUMENTS = {
   drill: [[10, 2, 1, 1.4, 0.2], [7, 2, 0, 0.9, 0.45], [9, 2, 0, 0.5, 0.75], [6, 2, 1, 0.65, 0.8]],
   jerseyclub: [[0, 2, 1, 0.2, 0.75], [4, 2, 0, 0.2, 0.7], [8, 2, 1, 0.4, 0.8], [6, 2, 1, 0.5, 0.85]],
   hyperpop: [[8, 3, 1, 0.4, 0.85], [6, 2, 0, 0.3, 0.75], [10, 3, 1, 1.2, 0.2], [7, 2, 2, 0.65, 0.55]],
-  // The song genres are recorded bands: piano, guitars (clean, driven, acoustic), electric or upright bass, live kit.
+  // The song genres are recorded bands: piano, guitars (clean, driven, acoustic, jazz archtop, banjo, Gretsch twang), electric or upright bass, live kit.
   pop: [[7, 5, 0, 1, 0.4], [7, 5, 1, 1.3, 0.3], [8, 5, 0, 0.8, 0.6], [1, 5, 1, 1.2, 0.35]],
-  rnb: [[7, 5, 1, 1.6, 0.2], [1, 5, 1, 1.5, 0.25], [8, 5, 1, 0.8, 0.6], [1, 1, 1, 1.4, 0.25]],
+  rnb: [[7, 5, 1, 1.6, 0.2], [1, 5, 1, 1.5, 0.25], [13, 5, 1, 0.8, 0.6], [1, 1, 1, 1.4, 0.25]],
   rock: [[11, 5, 0, 0.35, 0.6], [11, 5, 1, 0.5, 0.7], [11, 1, 0, 0.6, 0.65], [11, 1, 1, 0.45, 0.75]],
-  folk: [[12, 1, 0, 1.6, 0.3], [12, 5, 0, 1.4, 0.35], [7, 1, 0, 1.8, 0.2], [12, 1, 1, 1.2, 0.45]],
-  country: [[12, 5, 1, 0.8, 0.5], [8, 5, 1, 0.7, 0.7], [12, 1, 1, 0.9, 0.45], [7, 5, 1, 0.8, 0.5]],
+  folk: [[12, 1, 0, 1.6, 0.3], [12, 5, 0, 1.4, 0.35], [7, 1, 0, 1.8, 0.2], [14, 1, 1, 1.2, 0.45]],
+  country: [[12, 5, 1, 0.8, 0.5], [15, 5, 1, 0.7, 0.7], [14, 1, 1, 0.9, 0.45], [7, 5, 1, 0.8, 0.5]],
 };
 
 // A 2-bar call and answer: same rhythm both bars, the answer bends its ending (resolve or leave open).
@@ -735,7 +736,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   params.stab.octave = octave;
   params.stab.decay = decay;
   params.stab.env = articulation;
-  const ensembleLevel = [0.75, 0.78, 0.72, 0.78, 0.78, 0.8, 0.75, 0.9, 0.9, 0.9, 0.9, 0.85, 0.9][stabVoice];
+  const ensembleLevel = [0.75, 0.78, 0.72, 0.78, 0.78, 0.8, 0.75, 0.9, 0.9, 0.9, 0.9, 0.85, 0.9, 0.9, 0.9, 0.9][stabVoice] ?? 0.9;
   params.stab.level = Math.max(params.stab.level ?? 0.42, ensembleLevel);
   const closeLevel = { 'jerseyclub:0': 0.52, 'jerseyclub:4': 0.55, 'hyperpop:6': 0.5 }[`${style}:${stabVoice}`];
   if (closeLevel) {
@@ -809,6 +810,25 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
 }
 
 // CLASSICAL pieces are scores, not step loops: the drum machine rests and the orchestra reads pattern.score.
+// Sets the sung parts to the project's lyrics (js/melody.js text setting): the first verse, chorus and bridge (or pre)
+// give the verse, chorus and bridge parts, so stressed syllables fall on strong beats and the title on the chorus peak.
+// Deterministic from the words and the song's seed; styles that don't write songs keep their melody.
+export function fitLyrics(state, style) {
+  const secs = state?.lyrics?.sections, pats = state?.patterns || [];
+  if (!SING_PROFILES[style]?.song || !secs?.length || !pats.some((p) => p?.hook?.m)) return state;
+  const lines = (sec) => (secs.find((x) => x.sec === sec)?.lines || []).map((l) => (typeof l === 'string' ? l : l?.t)).filter(Boolean).slice(0, 4);
+  const words = { n: lines('chorus'), v: lines('verse'), b: lines('bridge').length ? lines('bridge') : lines('pre') };
+  if (!words.n.length && !words.v.length) return state;
+  const h = [...JSON.stringify(words)].reduce((a, c) => Math.imul(a ^ c.charCodeAt(0), 0x01000193), 0x811c9dc5);
+  const scaleName = state.scale || 'minor';
+  const scale = SCALES[MAJOR_STYLES.has(style) && scaleName === 'minor' ? 'major' : scaleName]?.notes || SCALES.minor.notes;
+  const prog = pats.find((p) => p?.prog?.length)?.prog, alt = pats.find((p) => p?.alt?.length)?.alt;
+  const m = writeMelody(rng(h ^ Math.imul(state.artist?.seed | 0, 0x9e3779b1)), style, scale, { prog, alt, chord: state.params?.stab?.chord | 0, words });
+  if (!m?.n.length) return state;
+  const s = melodySteps(m.n);
+  return { ...state, patterns: pats.map((p) => (p?.hook?.m ? { ...p, hook: { ...p.hook, m: { ...m, ...(p.hook.m.c ? { c: 1 } : {}) }, s } } : p)) };
+}
+
 function generateClassical(style, seed, scaleName, r, P, params, master, bpm) {
   const mode = scaleName === 'major' ? 'M' : scaleName === 'harmonic' ? 'm' : r() < 0.55 ? 'M' : 'm';
   P.score = { form: style, seed: seed | 0, mode };
@@ -1047,32 +1067,40 @@ const SONG_FORMS = {
   techno: ['AAAAAAAABBBBBBBBCCCCCCCCCCCCCCCDGGGGGGGGGGGGGGGHEEEEEEEEFFFFFFFDGGGGGGGGGGGGGGGHCCCCCCCHCCCCCCCDBBBBBBBBAAAAAAAA', 'AAAAAAAABBBBBBBDCCCCCCCDCCCCCCCDGGGGGGGHGGGGGGGHEEEEEEEEFFFFFFFDGGGGGGGHGGGGGGGHGGGGGGGGGGGGGGGDBBBBBBBBAAAAAAAA', 'AAAAAAAABBBBBBBBCCCCCCCCCCCCCCCDEEEEEEEEFFFFFFFDGGGGGGGGGGGGGGGHGGGGGGGGGGGGGGGHCCCCCCCDBBBBAAAA'],
 };
 
-// Song forms per idiom, as sections: i intro, v verse, p pre-chorus, c chorus, b bridge, o outro (bars).
-// Pop and soul write pre-choruses, rap goes verse-to-hook (often hook first), house grooves stay longer.
-const SONGS = {
-  pop: ['i8 v8 p4 c8 v8 p4 c8 b8 p4 c16 o4', 'i4 v8 p4 c8 v8 p4 c8 b8 c16 o4', 'i4 c8 v8 p4 c8 v8 p4 c8 b8 c16 o4', 'i4 v16 p4 c8 v8 p4 c8 b8 c16 o4'],
-  rap: ['i4 c8 v16 c8 v16 c8 b8 c8 o4', 'i8 v16 c8 v16 c8 b8 c8 o8', 'i4 v8 p4 c8 v16 c8 b8 c16 o8'],
-  house: ['i8 v8 c8 v8 c8 b8 c8 c8 o8', 'i8 v8 p4 c8 v8 p4 c8 b8 c16 o8', 'i8 v16 c8 b8 v8 c16 o8'],
-};
 const IDIOM = { boombap: 'rap', trap: 'rap', drill: 'rap', deephouse: 'house', amapiano: 'house' };
-// The intro and each verse running straight into a chorus end on the fill bar; 8 chorus bars end on the half-time switch.
-export function songForm(spec) {
-  const secs = spec.split(' ').map((x) => [x[0], +x.slice(1)]);
-  return secs.map(([k, n], i) => {
-    if (k === 'i') return 'A'.repeat(n - 1) + 'D';
-    if (k === 'o') return 'A'.repeat(n);
-    if (k === 'p') return 'B'.repeat(n);
-    if (k === 'v') return 'C'.repeat(secs[i + 1]?.[0] === 'c' ? n - 1 : n) + (secs[i + 1]?.[0] === 'c' ? 'D' : '');
-    if (k === 'c') return 'GGGGGGGH'.repeat(n >> 3) + (n % 8 ? 'G'.repeat(n % 8 - 1) + 'H' : '');
-    return 'E'.repeat((n >> 1) - 1) + 'F'.repeat(n >> 1) + 'D';
-  }).join('');
-}
+// Ambient drifts longer: each return of a texture comes back after something else has been heard, and the opening
+// theme (E) comes back three times against the peak's two, so the motif stays the thread of a 3.5-minute piece.
+const AMBIENT_FULL = ['AAAAAAAAEEEEEEEEGGGGGGGGFFFFFFFFEEEEEEEEFFFFFFFFGGGGGGGGEEEEEEEEFFFFFFFFAAAAAAAA', 'AAAAAAAAEEEEEEEEFFFFFFFFGGGGGGGGEEEEEEEEGGGGGGGGFFFFFFFFEEEEEEEEFFFFFFFFAAAAAAAA'];
+// At drum & bass and hard-techno tempos 112 bars is under 3 minutes: a second break and a third, final drop.
+const TECHNO_LONG = 'AAAAAAAABBBBBBBBCCCCCCCCCCCCCCCDGGGGGGGGGGGGGGGHEEEEEEEEFFFFFFFDGGGGGGGGGGGGGGGHCCCCCCCHCCCCCCCDGGGGGGGGGGGGGGGHBBBBBBBBAAAAAAAA';
+const CLUB_SKETCH = { techno: 'AAAABBBBCCCCCCCDGGGGGGGHEEEDGGGGGGGHAAAA', ambient: 'AAAAAAAAEEEEEEEEGGGGGGGGAAAAAAAA' };
+export const SONG_LENGTHS = ['song', 'sketch'];
+const midBpm = (style) => (STYLES[style].bpm[0] + STYLES[style].bpm[1]) / 2;
+export const songForm = (spec) => formChain(parseForm(spec));
 
-export function songChain(style, seed) {
-  if (FORMS[style] || style === 'repertoire') return 'A';
-  if (SONG.has(style)) return songForm(pick(rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)), SONGS[IDIOM[style] || 'pop']));
-  const forms = SONG_FORMS[style === 'ambient' ? 'ambient' : 'techno'];
-  return pick(rng(seed + 9), forms);
+// A generated song's form: the chain, plus its sections for song styles (longform.js grows them to the tempo and
+// developSong writes the second verse, instrumental and final chorus). `length` is 'song' (3-4 min) or 'sketch'.
+// `bpm` is the tempo the song will actually play at, so the form is sized in seconds, not bars.
+export function songPlan(style, seed, length = 'song', bpm = midBpm(style)) {
+  if (FORMS[style] || style === 'repertoire') return { chain: 'A', sections: null };
+  if (SONG.has(style)) {
+    const sections = planSections(IDIOM[style] || 'pop', bpm, length, rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)));
+    return { chain: formChain(sections), sections };
+  }
+  const kind = style === 'ambient' ? 'ambient' : 'techno';
+  if (length === 'sketch') return { chain: CLUB_SKETCH[kind], sections: null };
+  if (kind === 'ambient') return { chain: pick(rng(seed + 9), AMBIENT_FULL), sections: null };
+  return { chain: (112 * 240) / bpm < LENGTHS.song.lo ? TECHNO_LONG : pick(rng(seed + 9), SONG_FORMS.techno), sections: null };
+}
+export const songChain = (style, seed, length = 'song') => songPlan(style, seed, length).chain;
+// The form written into a fresh arrangement: chain plus the takes that develop each repeat.
+export function applySongPlan(s, style, seed, length = 'song') {
+  const plan = songPlan(style, seed, length, s.bpm || midBpm(style));
+  s.chain = plan.chain;
+  const keep = Object.keys(s.locks || {}).filter((t) => s.locks[t]);
+  developSong(s.patterns, plan.sections, { keep });
+  if (plan.chain === TECHNO_LONG) developFinalDrop(s.patterns, plan.chain, { keep });
+  return plan;
 }
 
 export function defaultState() {
@@ -1181,6 +1209,7 @@ export function sanitize(s) {
         warmth: cl(hook.x?.warmth ?? 0.5, 0, 1),
       },
       ...(hook.h ? { h: 1 } : {}),
+      ...(hook.up ? { up: 1 } : {}),
       ...(cleanMelody(hook.m) ? { m: cleanMelody(hook.m) } : {}),
     }) : null;
   const cleanProg = (prog) => prog.slice(0, 8).map((c) => ({ r: Math.max(-12, Math.min(12, c?.r | 0)), c: Math.max(0, Math.min(CHORDS.length - 1, c?.c | 0)) }));
