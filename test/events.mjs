@@ -97,6 +97,7 @@ console.log('events rate limit passed');
   const L = (await get({ summary: '1' })).json.listening;
   assert.equal(L.kinds.start, 2);
   assert.equal(L.kinds.share, 1, 'a share before playing is not a listen share');
+  assert.deepEqual(Object.keys((await get({ summary: '1' })).json.totals).filter((k) => /^listen:(false|undefined)?$/.test(k)), [], 'no junk breakdown field');
   assert.equal(L.rates.completion, 0.5);
   assert.equal(L.rates.skip, 0.5);
   assert.deepEqual(L.styles.map((x) => [x.style, x.starts, x.rates.completion, x.rates.love]), [['acid', 1, 1, 1], ['techno', 1, 0, 0]]);

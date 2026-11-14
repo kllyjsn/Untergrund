@@ -178,7 +178,7 @@ async function ingest(batch, kv, client, now) {
       }
     }
     cmds.push(['HINCRBY', dk, e.n, 1]);
-    const dim = DIMENSION[e.n], v = dim && !(e.n === 'listen' && !e.l.lis) && e.p[dim];
+    const dim = DIMENSION[e.n], v = dim && !(e.n === 'listen' && !e.l.lis) ? e.p[dim] : undefined;
     if (v !== undefined && v !== '') cmds.push(['HINCRBY', dk, `${e.n}:${v}`, 1]);
     if (batch.sid && !seen.has(e.n)) { seen.add(e.n); cmds.push(['PFADD', `${P}:u:${day}:${e.n}`, batch.sid], ['EXPIRE', `${P}:u:${day}:${e.n}`, TTL]); }
   }
