@@ -7,6 +7,7 @@
 // start/dur in 16th steps inside the cycle (a pickup into the first phrase starts below 0, in the bar before),
 // semi in semitones above the key root (like hook.s), phrase is the line number and slot the syllable in it.
 import { CHORDS } from './params.js';
+import { lineStress } from './prosody.js';
 
 export const MELODY_BARS = 8;
 export const PARTS = { n: 'hook', v: 'verse', b: 'bridge' };
@@ -32,15 +33,15 @@ export const SING_PROFILES = {
   drill: { k: [4, 5], art: 0.65, gain: 0.7, off: 0.45, six: 0.3, leap: 0.25, hi: 0 },
   hyperpop: { k: [5, 6], art: 0.8, gain: 0.85, off: 0.3, six: 0.15, leap: 0.45, hi: 1 },
   // Song genres. Pop: a hook you can sing back, square and repeated, lifting to the chorus top.
-  pop: { k: [3, 5], art: 0.85, off: 0.3, six: 0.05, leap: 0.3, hi: 1, v: ['vocal', 'reed'] },
+  pop: { song: 1, k: [3, 5], art: 0.85, off: 0.3, six: 0.05, leap: 0.3, hi: 1, v: ['vocal', 'reed'] },
   // R&B: few syllables, long and laid back, held notes ornamented with melismas.
-  rnb: { k: [3, 4], art: 0.9, off: 0.55, six: 0.2, leap: 0.3, hi: 0, mel: 0.6, v: ['vocal', 'warm'], x: { space: 0.55, risk: 0.35, feel: 0.75, warmth: 0.7 } },
+  rnb: { song: 1, k: [3, 4], art: 0.9, off: 0.55, six: 0.2, leap: 0.3, hi: 0, mel: 0.6, v: ['vocal', 'warm'], x: { space: 0.55, risk: 0.35, feel: 0.75, warmth: 0.7 } },
   // Rock: belted on the beat in a middle register, no falsetto lift.
-  rock: { k: [4, 5], art: 0.8, off: 0.25, six: 0.05, leap: 0.25, hi: -1, belt: 1 },
+  rock: { song: 1, k: [4, 5], art: 0.8, off: 0.25, six: 0.05, leap: 0.25, hi: -1, belt: 1 },
   // Folk: a story, many syllables, almost all steps.
-  folk: { k: [4, 6], art: 0.8, off: 0.3, six: 0.05, leap: 0.1, hi: 0 },
+  folk: { song: 1, k: [4, 6], art: 0.8, off: 0.3, six: 0.05, leap: 0.1, hi: 0 },
   // Country: twang, leaps of a fourth or more, and pickups into nearly every line.
-  country: { k: [4, 5], art: 0.75, off: 0.35, six: 0.1, leap: 0.5, hi: 0, pk: 0.9, jump: 0.8, pks: [[-2], [-4, -2], [-3, -2], [-4, -3, -2]] },
+  country: { song: 1, k: [4, 5], art: 0.75, off: 0.35, six: 0.1, leap: 0.5, hi: 0, pk: 0.9, jump: 0.8, pks: [[-2], [-4, -2], [-3, -2], [-4, -3, -2]] },
 };
 export const sings = (style) => !!SING_PROFILES[style];
 
@@ -85,21 +86,24 @@ function phraseRhythm(r, P, hookBar, bars, pickup) {
 
 // Pitches for one phrase by dynamic programming over scale degrees: follow the planned contour, move by step,
 // recover every leap by a step back, land strong notes on chord tones, touch the peak exactly once, end on `end`.
-function phrasePitches(r, P, rh, plan, ctAt, forced) {
+function phrasePitches(r, P, rh, plan, ctAt, forced, opt = {}) {
   const { lo, hi, start, peak, peakAt, end } = plan, J = rh.length;
   const span = rh[J - 1][0] - rh[0][0] || 1;
   const f = (j) => (rh[j][0] - rh[0][0]) / span;
+  const strong = (j) => (opt.strong ? opt.strong[j] : false) || strongNote(...rh[j]);
   let kp = 0;
-  for (let j = 1; j < J - 1; j++) {
-    const score = (q) => Math.abs(f(q) - peakAt) - (strongNote(...rh[q]) ? 0.08 : 0) - rh[q][1] * 0.01;
+  if (opt.kp !== undefined) kp = opt.kp;
+  else for (let j = 1; j < J - 1; j++) {
+    const score = (q) => Math.abs(f(q) - peakAt) - (strong(q) ? 0.08 : 0) - rh[q][1] * 0.01;
     if (forced[j] === undefined && (forced[kp] !== undefined || score(j) < score(kp))) kp = j;
   }
+  const peakX = opt.kp !== undefined ? f(kp) : peakAt;
   const target = (j) => {
-    const x = f(j);
+    const x = f(j), peakAt = peakX;
     if (x <= peakAt) return start + (peak - start) * Math.sin((x / (peakAt || 1)) * Math.PI / 2);
     return peak + (end - peak) * ((x - peakAt) / (1 - peakAt || 1));
   };
-  const leapCost = 1.4 - P.leap;
+  const leapCost = (1.4 - P.leap) * (opt.leapMul || 1);
   const step = (a) => [0.7, 0, 0.45, 2.4 * leapCost, 3 * leapCost, 4 * leapCost][a] ?? 12;
   const D = hi - lo + 1, INF = 1e9;
   // cost[d][m]: best cost ending on degree lo+d whose last move was m-7.
@@ -109,8 +113,10 @@ function phrasePitches(r, P, rh, plan, ctAt, forced) {
     if (j === kp && deg !== peak) return INF;
     if (j !== kp && deg >= peak) return INF;
     if (j === J - 1 && deg !== end) return INF;
-    const s = rh[j];
-    return Math.abs(deg - target(j)) * 0.7 + (strongNote(...s) && !ctAt(s[0], deg) ? 6 : 0) + r() * 0.5;
+    const s = rh[j], ct = ctAt(s[0], deg);
+    // A weak syllable between chord tones may pass or lean (a non-chord tone) when the line asks for colour.
+    const hard = strongNote(...s), lean = opt.strong?.[j];
+    return Math.abs(deg - target(j)) * 0.7 + (!ct ? (hard ? 6 : lean ? 1 : opt.colour ? -opt.colour : 0) : 0) + r() * 0.5;
   };
   for (let d = 0; d < D; d++) cost[d][7] = local(0, lo + d);
   for (let j = 1; j < J; j++) {
@@ -124,6 +130,7 @@ function phrasePitches(r, P, rh, plan, ctAt, forced) {
         const mv = d - p, last = m - 7;
         if (Math.abs(mv) > 7) continue;
         let c = c0 + lc + step(Math.abs(mv));
+        if (opt.jump?.has(j) && mv >= 3) c -= opt.jumpBonus;
         if (Math.abs(last) >= 3 && !(Math.abs(mv) >= 1 && Math.abs(mv) <= 2 && Math.sign(mv) === -Math.sign(last))) c += 6;
         if (mv === 0 && last === 0) c += 1.5;
         if (c < nc[d][mv + 7]) { nc[d][mv + 7] = c; bk[d][mv + 7] = [p, m]; }
@@ -189,8 +196,154 @@ function writePart(r, P, kind, deg, chordTones, hookHead) {
   return { notes, head };
 }
 
+// ---------------- text setting (the song genres, and any part sung to words) ----------------
+// A part is 4 lines of 2 bars, two lines to a 4-bar phrase. Each line's rhythm comes from its words: stressed syllables
+// take the beats, weak ones the 8ths between, leading weak syllables a pickup (dynamic programming over positions).
+// The verse talks (8ths, now and then a 16th, lines landing anywhere in bar 2); the chorus sings (quarters and held
+// half-bar beats, every line landing on bar 2's downbeat). The chorus's first and third lines are the title: it starts
+// on the chorus downbeat, leaps a signature interval up to the phrase's peak and holds it, and returns note for note.
+const METER = (p) => { const q = mod(p, 16); return q === 0 ? 4 : q === 8 ? 3 : q % 4 === 0 ? 2 : q % 2 === 0 ? 1 : 0; };
+const MAX_SYL = 14;
+
+function gapCost(g, stressed, chorus) {
+  if (chorus) return g === 4 ? 0 : g === 6 || g === 8 ? 0.15 : g === 2 ? (stressed ? 0.8 : 0.55) : g === 1 || g === 3 ? 1.4 : 0.5 + 0.1 * Math.abs(g - 8);
+  return g === 2 ? 0 : g === 1 ? 0.25 : g === 3 ? 0.3 : g === 4 ? 0.45 : 0.8 + 0.15 * (g - 5);
+}
+
+// Onsets (16th steps from the line's downbeat) for one line's stress pattern. `last` lists where the last syllable
+// may land; `down` forces the first stressed syllable onto the downbeat.
+function lineRhythm(r, P, chorus, stress, { last, down = false, six = false, from = -6 }) {
+  const L = stress.length, f = Math.max(0, stress.indexOf(1));
+  const top = Math.max(...last), pos = [];
+  for (let p = from; p <= top; p++) if (six || p % 2 === 0) pos.push(p);
+  const local = (j, p) => {
+    const w = METER(p), s = stress[j];
+    let c = s ? (4 - w) * (chorus ? 1.6 : 1.1) : w >= 3 ? 2.5 : w === 2 ? (chorus ? 0.9 : 0.4) : 0;
+    if (p < 0 && j >= f) c += 6;
+    if (j === f && f > 0 === false && p < 0) c += 6;
+    if (j === f && down && p !== 0) c += 40;
+    if (j === f && !down && p > 4) c += 1;
+    if (s && P.off && !chorus && mod(p, 4) === 2) c -= P.off;
+    if (j === L - 1 && !last.includes(p)) return Infinity;
+    return c + r() * 0.35;
+  };
+  const N = pos.length, INF = Infinity;
+  let cost = pos.map((p) => local(0, p)), back = [];
+  for (let j = 1; j < L; j++) {
+    const nc = Array(N).fill(INF), bk = Array(N).fill(-1);
+    for (let i = 0; i < N; i++) {
+      const lc = local(j, pos[i]);
+      if (lc === INF) continue;
+      for (let k = 0; k < i; k++) {
+        if (cost[k] === INF) continue;
+        const c = cost[k] + lc + gapCost(pos[i] - pos[k], stress[j], chorus);
+        if (c < nc[i]) { nc[i] = c; bk[i] = k; }
+      }
+    }
+    cost = nc; back.push(bk);
+  }
+  let bi = -1;
+  for (let i = 0; i < N; i++) if (cost[i] < INF && (bi < 0 || cost[i] < cost[bi])) bi = i;
+  if (bi < 0) return null;
+  const out = Array(L);
+  for (let j = L - 1, i = bi; j >= 0; j--) { out[j] = pos[i]; if (j) i = back[j - 1][i]; }
+  return out;
+}
+
+// Stress patterns for a part sung without words: the chorus a short title line and a longer answer (T B T B'),
+// the verse an AABA of conversational lines. Pickup genres (country) start lines on a weak syllable.
+function virtualLines(r, P, kind) {
+  const k = (P.k[0] + P.k[1]) / 2;
+  const line = (n, iamb) => Array.from({ length: n }, (_, i) => ((i + (iamb ? 1 : 0)) % 2 === 0 ? 1 : 0));
+  const vary = (a) => { const b = a.slice(); const i = 1 + Math.floor(r() * (b.length - 2)); if (!b[i] && !b[i + 1]) return b; b.splice(i, 0, 0); return b; };
+  if (kind === 'n') {
+    const t = pick(r, [[1, 0, 1], [1, 0, 0, 1], [1, 0, 1, 0, 1], [1, 1, 0, 1], [0, 1, 0, 1]]);
+    const T = P.pk && t[0] && r() < P.pk ? [0, ...t] : t, B = line(Math.round(k) + (r() < 0.5 ? 1 : 2), r() < (P.pk ?? 0.5));
+    return [T, B, T, r() < 0.5 ? B : vary(B)];
+  }
+  const A = line(Math.max(5, Math.min(10, Math.round(k * 1.7))), r() < (P.pk ?? 0.6)), B = vary(line(A.length - 1, r() < (P.pk ?? 0.5)));
+  return kind === 'b' ? [A, vary(A), B, B] : [A, A, B, A];
+}
+
+// One part set to `words` (up to 4 lines) or to a virtual meter.
+function setPart(r, P, kind, deg, chordTones, words, sig) {
+  const N = deg.length, semi = (d) => deg[mod(d, N)] + 12 * Math.floor(d / N);
+  const virt = virtualLines(r, P, kind);
+  const lines = [0, 1, 2, 3].map((i) => {
+    const w = words?.[i] && lineStress(words[i]).slice(0, MAX_SYL);
+    return w?.length ? w : virt[i];
+  });
+  const chorus = kind === 'n', top = 6 + P.hi, notes = [];
+  const six = !chorus && r() < Math.min(0.95, 0.5 + P.six * 4 + P.off * 0.5);
+  const seen = new Map(), titleAt = [];
+  let head = null;
+  const rhythmOf = (i, opts) => {
+    const key = `${lines[i].join('')}:${i % 2}:${words?.[i] ?? ''}`;
+    if (!seen.has(key)) seen.set(key, lineRhythm(r, P, chorus, lines[i], opts) || lineRhythm(r, P, chorus, lines[i], { ...opts, six: true, down: false, from: -8 }));
+    return seen.get(key);
+  };
+  for (let ph = 0; ph < 2; ph++) {
+    const ia = 2 * ph, ib = ia + 1, bar0 = ph * 4;
+    const ra = rhythmOf(ia, { last: chorus ? [16] : [14, 16, 18, 20], down: chorus || r() < 0.5, six });
+    const rb = rhythmOf(ib, { last: [16], six, from: Math.max(-6, Math.max(...(ra || [0])) + 4 - 32) });
+    if (!ra || !rb) continue;
+    const at = [...ra, ...rb.map((x) => x + 32)], la = ra.length;
+    const nextFirst = (ph === 0 ? 64 : 128) + -6;
+    const rh = at.map((s, j) => {
+      const next = at[j + 1];
+      if (j === la - 1) return [s, Math.max(1, Math.min(16, next - s - 1))];
+      if (next === undefined) return [s, Math.max(4, Math.min(pick(r, [6, 8, 8]), nextFirst - 4 - s))];
+      return [s, Math.max(1, Math.max(Math.min(next - s - 1, 15), Math.round(Math.min(next - s, 8) * P.art)))];
+    });
+    const stress = [...lines[ia], ...lines[ib]].map((x) => !!x);
+    const last = ph === 1;
+    const plan = kind === 'v'
+      ? { lo: -2, hi: 5, start: pick(r, [0, 1, 2]), peak: pick(r, [2, 3, 4]), peakAt: 0.35 + r() * 0.25, end: last ? pick(r, [4, 1]) : pick(r, [2, 0]) }
+      : kind === 'b'
+        ? { lo: -2, hi: top + 3, start: pick(r, [-1, 0, 1]), peak: last ? top + 1 : top, peakAt: 0.65 + r() * 0.2, end: last ? 4 : 2 }
+        : { lo: -1, hi: top + 2, start: pick(r, [2, 4]), peak: last ? top + 1 : top, peakAt: 0.5, end: last ? 0 : pick(r, [4, 1]) };
+    const ctAt = (s, d) => chordTones(Math.floor(mod(bar0 * 16 + s, MELODY_BARS * 16) / 16)).has(mod(semi(d), 12));
+    const snap = (d, s) => [0, 1, -1, 2, -2].map((x) => d + x).find((q) => ctAt(s, q)) ?? d;
+    plan.end = snap(plan.end, at.at(-1));
+    const forced = {}, opt = { strong: stress, colour: chorus ? 0.25 : 0.15, leapMul: P.jump ? 1 : 1.6 };
+    // Pickup genres leap up from the pickup onto the line's first downbeat (country's "and-a HOME").
+    if (P.jump) { const fa = lines[ia].indexOf(1), fb = lines[ib].indexOf(1); opt.jump = new Set([fa, la + fb].filter((j) => j > 0 && j !== la)); opt.jumpBonus = P.jump * 8; }
+    if (chorus && ph === 0) {
+      // The title: its held last note is the phrase's peak, reached by the song's signature leap.
+      opt.kp = la - 1;
+      plan.peak = [0, 1, -1].map((x) => plan.peak + x).find((q) => ctAt(at[la - 1], q)) ?? plan.peak;
+      if (plan.end >= plan.peak) plan.end = [2, 3, 4, 1].map((x) => plan.peak - x).find((q) => ctAt(at.at(-1), q)) ?? plan.peak - 2;
+      plan.lo = Math.min(plan.lo, plan.end);
+      if (la >= 2) {
+        const q = plan.peak - sig;
+        if (!(stress[la - 2] || strongNote(...rh[la - 2])) || ctAt(at[la - 2], q)) forced[la - 2] = Math.max(plan.lo, q);
+      }
+      titleAt.push(bar0 * 16 + at[0]);
+    } else if (head && (chorus || kind === 'v') && lines[ia].join('') === head.stress && head.n === la) {
+      // The title (or the verse's first line) returns note for note.
+      head.ds.forEach((d, j) => { forced[j] = d; });
+      if (chorus) titleAt.push(bar0 * 16 + at[0]);
+    }
+    if (opt.kp === undefined) plan.peak = Math.max(plan.peak, ...Object.values(forced).map((d) => d + 1), plan.end + 1);
+    plan.hi = Math.max(plan.hi, plan.peak);
+    const ds = phrasePitches(r, P, rh, plan, ctAt, forced, opt) || phrasePitches(r, P, rh, { ...plan, peak: plan.peak + 1, hi: plan.hi + 1 }, () => true, {}, { kp: opt.kp });
+    if (!ds) continue;
+    if (!head) head = { ds: ds.slice(0, la), stress: lines[ia].join(''), n: la };
+    const peakJ = ds.indexOf(Math.max(...ds));
+    rh.forEach(([s, d], j) => {
+      const x = (s - rh[0][0]) / ((rh.at(-1)[0] - rh[0][0]) || 1), pk = peakJ / Math.max(1, rh.length - 1);
+      const arc = (P.belt ? 0.86 : 0.76) + (P.belt ? 0.1 : 0.18) * Math.max(0, 1 - Math.abs(x - pk) * 1.6) + (stress[j] ? 0.05 : 0) - (s < 0 ? 0.08 : 0);
+      const a = bar0 * 16 + s, v = +(Math.min(1, j === peakJ ? 0.98 : arc) * (P.gain || 1)).toFixed(3);
+      if (P.mel && d >= 6 && ds[j] + 1 < ds[peakJ] && !(chorus && j < la) && r() < P.mel) notes.push([a, 1, semi(ds[j]), v, ph, j], [a + 1, 1, semi(ds[j] + 1), +(v * 0.9).toFixed(3), ph, j], [a + 2, d - 2, semi(ds[j]), v, ph, j]);
+      else notes.push([a, d, semi(ds[j]), v, ph, j]);
+    });
+  }
+  return { notes, titleAt };
+}
+
 // The whole melody for a song. `prog` is the main changes (one chord per bar), `alt` the bridge's.
-export function writeMelody(r, style, scale, { prog, alt, chord = 0 } = {}) {
+// `words` ({ n, v, b }: up to 4 lyric lines each) sets the parts to those lines; the song genres always text-set.
+export function writeMelody(r, style, scale, { prog, alt, chord = 0, words = null } = {}) {
   const P = SING_PROFILES[style];
   if (!P) return null;
   const deg = scale.length >= 7 ? scale.slice(0, 7) : scale.slice(0, scale.length - 1);
@@ -198,6 +351,12 @@ export function writeMelody(r, style, scale, { prog, alt, chord = 0 } = {}) {
     const h = pr?.length ? pr[mod(bar, pr.length)] : { r: 0, c: chord };
     return new Set((CHORDS[h.c] || CHORDS[0]).iv.map((x) => mod(h.r + x, 12)));
   };
+  if (P.song || words) {
+    const sig = P.jump && r() < P.jump ? pick(r, [4, 5]) : pick(r, [2, 3, 3, 4]);
+    const n = setPart(r, P, 'n', deg, tones(prog), words?.n, sig), v = setPart(r, P, 'v', deg, tones(prog), words?.v, sig);
+    const b = setPart(r, P, 'b', deg, tones(alt?.length ? alt : prog), words?.b, sig);
+    return { bars: MELODY_BARS, n: n.notes, v: v.notes, b: b.notes, ...(P.comp ? { c: 1 } : {}) };
+  }
   const n = writePart(r, P, 'n', deg, tones(prog), null);
   const v = writePart(r, P, 'v', deg, tones(prog), null);
   const b = writePart(r, P, 'b', deg, tones(alt?.length ? alt : prog), null);
