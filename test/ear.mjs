@@ -49,3 +49,26 @@ const page = readFileSync(new URL('../ear.html', import.meta.url), 'utf8'), scri
 for (const [, id] of script.matchAll(/\$\('([\w-]+)'\)/g)) assert(page.includes(`id="${id}"`), `ear.html has #${id}`);
 assert(readFileSync(new URL('../scripts/build.mjs', import.meta.url), 'utf8').includes("'ear.html'"), 'ear.html ships');
 console.log('ear ok');
+
+// Player hearts/downs: the latest reaction per device and song wins, a reason only rides on a down, and taking a
+// reaction back removes it from the log on the next pull.
+{
+  const { reactionsOf, mergeReactions, summarizeReactions, deviceHash } = await import('../js/ear-data.js');
+  const sig = (t, kind, over = {}) => ({ t, at: new Date(t).toISOString(), kind, lid: 'phone1', fp: 'abc123', style: 'folk', seed: 7, ms: t, ...over });
+  const log = [sig(1, 'start'), sig(2, 'down'), sig(3, 'why', { why: 'sounds_bad' }), sig(4, 'love', { fp: 'def456', style: 'rock' }), sig(5, 'love', { lid: 'other', fp: 'zzz999' })];
+  const me = new Set([deviceHash('phone1')]);
+  const rows = reactionsOf(log, { devices: me });
+  assert.deepEqual(rows.map((r) => [r.fp, r.reaction, r.why, r.style, r.seed]), [['abc123', 'down', 'sounds_bad', 'folk', 7], ['def456', 'love', null, 'rock', 7]]);
+  assert(!JSON.stringify(rows).includes('phone1'), 'raw device id never written');
+  assert.deepEqual(summarizeReactions(rows).why.sounds_bad, 1);
+  assert.equal(reactionsOf(log).length, 3, 'every device without a filter');
+  const flipped = reactionsOf([...log, sig(6, 'undown'), sig(7, 'love')], { devices: me });
+  assert.deepEqual(flipped.find((r) => r.fp === 'abc123').reaction, 'love');
+  assert.equal(flipped.find((r) => r.fp === 'abc123').why, null, 'a heart clears the down reason');
+  const sameMs = reactionsOf([sig(9, 'down'), sig(9, 'unlove'), sig(8, 'love')], { devices: me });
+  assert.equal(sameMs[0]?.reaction, 'down', 'newest-first log: a same-ms switch keeps the new reaction');
+  assert.deepEqual(mergeReactions(rows, reactionsOf([sig(20, 'why', { why: 'boring' })], { devices: me })).find((r) => r.fp === 'abc123').why, 'boring', 'a later reason updates a saved down');
+  const undone = reactionsOf([...log, sig(6, 'unlove', { fp: 'def456' })], { devices: me, cleared: true });
+  assert.deepEqual(mergeReactions(rows, undone).map((r) => r.fp), ['abc123'], 'taken-back heart drops out');
+}
+console.log('ear reactions ok');

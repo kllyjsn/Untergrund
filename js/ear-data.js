@@ -88,3 +88,57 @@ export function summarize(judgments) {
   }
   return { judgments: judgments.length, picks, styles, tags };
 }
+
+// Hearts, downs and down reasons from the player (docs/listen-signals.md) are labels too: absolute ones, on whole
+// songs. The device id stays out of the public repo; only this short hash of it is kept.
+export const DOWN_REASONS = ['boring', 'sounds_bad', 'not_my_style'];
+export function deviceHash(lid) {
+  let h = 0x811c9dc5;
+  for (const c of `ear:${lid}`) h = Math.imul(h ^ c.charCodeAt(0), 0x01000193);
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
+const REACT = { love: 'love', down: 'down', unlove: null, undown: null };
+
+// Raw listen records → one row per device and song: its latest reaction (love/down) and down reason.
+// With `cleared`, songs whose heart/down was taken back are kept as reaction null, so a merge can drop them.
+export function reactionsOf(signals, { devices, cleared = false } = {}) {
+  const rows = new Map();
+  // The API lists newest first; reversing before the stable sort keeps same-millisecond switches (unlove, then down) in order.
+  for (const r of [...signals].reverse().filter((r) => r?.lid && r.fp).sort((x, y) => (x.t || 0) - (y.t || 0))) {
+    const dev = deviceHash(r.lid);
+    if (devices && !devices.has(dev)) continue;
+    const id = `${dev}:${r.fp}`, row = rows.get(id) || { id, dev, fp: r.fp, reaction: null, why: null };
+    if (r.style) row.style = r.style;
+    if (Number.isInteger(r.seed) && r.seed >= 0) row.seed = r.seed;
+    if (r.src) row.src = r.src;
+    if (r.kind in REACT) { row.reaction = REACT[r.kind]; if (r.kind !== 'down') row.why = null; row.at = r.at || new Date(r.t).toISOString(); }
+    // The player only offers a reason on a downed song, so a reason alone still labels it (its down may be older
+    // than the API window).
+    if (r.kind === 'why' && DOWN_REASONS.includes(r.why)) Object.assign(row, { reaction: 'down', why: r.why, at: r.at || new Date(r.t).toISOString() });
+    if (Number.isFinite(r.ms)) row.ms = Math.max(row.ms || 0, r.ms);
+    if (Number.isFinite(r.pct)) row.pct = Math.max(row.pct ?? -1, r.pct);
+    rows.set(id, row);
+  }
+  return [...rows.values()].filter((r) => r.at && (cleared || r.reaction));
+}
+export const validReaction = (r) => !!r && typeof r.id === 'string' && /^[0-9a-f]{8}$/.test(r.dev) && typeof r.fp === 'string'
+  && (r.reaction === 'love' || r.reaction === 'down') && (r.why === null || DOWN_REASONS.includes(r.why)) && Number.isFinite(Date.parse(r.at));
+export function mergeReactions(...lists) {
+  const byId = new Map();
+  for (const list of lists) for (const r of list || []) {
+    if (byId.get(r?.id)?.at > r.at) continue;
+    if (validReaction(r)) byId.set(r.id, r);
+    else if (r?.reaction === null) byId.delete(r.id);
+  }
+  return [...byId.values()].sort((x, y) => Date.parse(x.at) - Date.parse(y.at) || x.id.localeCompare(y.id));
+}
+export function summarizeReactions(reactions) {
+  const out = { love: 0, down: 0, why: Object.fromEntries(DOWN_REASONS.map((w) => [w, 0])), styles: {} };
+  for (const r of reactions) {
+    out[r.reaction]++;
+    if (r.why) out.why[r.why]++;
+    const s = (out.styles[r.style || '?'] ||= { love: 0, down: 0 });
+    s[r.reaction]++;
+  }
+  return out;
+}
