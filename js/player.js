@@ -1,6 +1,6 @@
 // Minimal standalone player for public pages: plays a stored song state through the real engine, once through its arrangement.
 import { Engine, Sequencer, parseChain } from './engine.js';
-import { sanitize } from './state.js';
+import { sanitize, refreshSong } from './state.js';
 
 const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
@@ -44,7 +44,7 @@ export function createPlayer({ onBar = () => {}, onEnd = () => {} } = {}) {
     }
   };
   function play(raw) {
-    state = sanitize(raw);
+    state = refreshSong(sanitize(raw));
     ensure(state);
     engine.state = state; seq.s = state; engine.applyAll();
     const chain = state.chainOn ? parseChain(state.chain) : [];

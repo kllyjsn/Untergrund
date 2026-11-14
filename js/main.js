@@ -3,7 +3,7 @@ import { assign as assignExperiment } from './experiments.js';
 import { createListens, songFingerprint, promptHash, promptText } from './listen.js';
 import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue, VOICE_HIDDEN } from './params.js';
 import { Engine, Sequencer, parseChain } from './engine.js';
-import { defaultState, generate, mutate, arrangement, songChain, applySongPlan, applyOverrides, clone, save, load, sanitize, STYLES, MAJOR_STYLES, emptyPattern, emptyAcidStep, fitLyrics } from './state.js';
+import { defaultState, generate, mutate, arrangement, songChain, applySongPlan, applyOverrides, clone, save, load, sanitize, STYLES, MAJOR_STYLES, emptyPattern, emptyAcidStep, fitLyrics, refreshSong } from './state.js';
 import { renderBars, bufferToWav } from './render.js';
 import { exportButtons } from './export-ui.js';
 import { encodeWav, rng } from './dsp.js';
@@ -46,7 +46,7 @@ import { createNowPlaying, resumeStep, songClock } from './media-session.js';
 import { drawArtwork, artSeed } from './artwork.js';
 import { applyPart } from './jam.js';
 
-let state = load() || defaultState();
+let state = (() => { const s = load(); return s?.fresh === 1 ? refreshSong(s) : s || defaultState(); })();
 let ctx = null, engine = null, seq = null, timer = null, setRec = null;
 const heldPads = new Map(), keyPads = new Set();
 // A held pad releases wherever the finger lifts, even if the pad was re-rendered mid-hold
@@ -612,8 +612,11 @@ function snapshot(like = {}) {
   if (like.ui) snap.ui = { style, family };
   return JSON.stringify(snap);
 }
+// Any edit makes the song the listener's own: it keeps its notes instead of following the generator (refreshSong).
+const touched = () => { state.fresh = 0; };
 function pushUndo(label = '') {
   if (typeof label !== 'string') label = '';
+  touched();
   knobGesture.reset();
   history.push(snapshot(), label);
   syncHistory();
@@ -623,6 +626,7 @@ function restore(entry, verb) {
   const { ui: was, ...snap } = JSON.parse(entry.snap);
   if (was) { style = was.style; family = was.family; localStorage.setItem('untergrund.family', family); }
   Object.assign(state, snap);
+  touched();
   if (!state.labels) delete state.labels;
   if (!state.lyrics) delete state.lyrics;
   if (!state.sing) delete state.sing;
@@ -645,7 +649,7 @@ function syncHistory() {
   for (const b of document.querySelectorAll('.redo-btn')) b.disabled = !history.canRedo;
 }
 // One knob drag (or a burst of wheel ticks / arrow keys / MIDI CC) is one undo step.
-controlHooks.change = (el, label, held) => { if (knobGesture.begin(el, held)) { history.push(snapshot(), label); syncHistory(); } };
+controlHooks.change = (el, label, held) => { touched(); if (knobGesture.begin(el, held)) { history.push(snapshot(), label); syncHistory(); } };
 controlHooks.end = () => knobGesture.end();
 
 function replaceState(s) {
@@ -874,7 +878,7 @@ function showClub({ room = '', intent = '' } = {}) {
     getStyle: () => style,
     loadTrack: (track) => {
       style = STYLES[track.style] ? track.style : style;
-      replaceState(sanitize(clone(track.state)));
+      replaceState(refreshSong(sanitize(clone(track.state))));
     },
     // Rooms count steps from where the playing song started (a GENERATE handoff restarts the song, not the clock).
     getTransport: () => ({ playing, startsAt: transportOrigin + (seq?.origin || 0) * (15000 / state.bpm) }),
@@ -1058,6 +1062,8 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   const artist = piece ? piece.composer : loadAvatar().name || 'UNTERGRUND';
   s.artist = { name: artist, title, style: id, seed, created: new Date().toISOString() };
   delete s.remixOf; delete s.drop; delete s.lyrics;
+  // Hummed, prompted and experiment songs aren't just their seed, so they keep the notes they were written with.
+  s.fresh = typeof hum === 'function' || typeof steer === 'function' ? 0 : 1;
   if (drop) Object.assign(s, { drop: drop.date, remixOf: { id: '', title: `Daily Drop · ${drop.title}`, artist: 'UNTERGRUND' } });
   const prompt = typeof steer === 'function' ? pendingPrompt : null;
   pendingPrompt = null;
@@ -1066,7 +1072,7 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   // A running experiment changes only the variant arm's new songs, and only the one thing its `apply` does.
   const x = experimentFor({ style: id, src: origin.src, surf: listenSurface() });
   if (typeof x?.exp.apply === 'function') {
-    if (x.arm === 'variant') x.exp.apply(s, { seed });
+    if (x.arm === 'variant') { x.exp.apply(s, { seed }); s.fresh = 0; }
     Object.assign(origin, { xp: x.xp, arm: x.arm });
   }
   return {
@@ -1414,7 +1420,7 @@ async function openRecent(t) {
     if (!track?.state) throw new Error('track_missing');
     const saved = track.style || t.style;
     if (STYLES[saved]) { style = saved; family = STYLES[saved].family; }
-    const next = sanitize(track.state), origin = { src: 'crate', tid: String(t.id || '').startsWith('local-') ? '' : t.id || '' };
+    const next = refreshSong(sanitize(track.state)), origin = { src: 'crate', tid: String(t.id || '').startsWith('local-') ? '' : t.id || '' };
     if (playing && !pat().score && !next.patterns.some((q) => q.score)) return queueSong({ next, origin, finish: () => { build(); persist(); } });
     songOrigin = origin;
     replaceState(next);
@@ -1431,7 +1437,7 @@ async function openShared(id, autoplay = false) {
     if (!track?.state) throw new Error('track_missing');
     if (STYLES[track.style]) { style = track.style; family = STYLES[track.style].family; }
     if (playing) stop();
-    const next = sanitize(track.state);
+    const next = refreshSong(sanitize(track.state));
     next.artist = { ...(next.artist || {}), title: track.title, name: pub?.artist?.name || track.artist || next.artist?.name, style: track.style };
     songOrigin = { src: 'shared', tid: track.id || id };
     replaceState(next);
@@ -1841,15 +1847,15 @@ function buildHeader() {
       const currentStep = (Date.now() - transportOrigin) / (15000 / state.bpm);
       transportOrigin = Date.now() - currentStep * (15000 / v);
     }
-    state.bpm = v; engine?.applyDelayTime(); persist();
+    state.bpm = v; touched(); engine?.applyDelayTime(); persist();
   }, { cls: 'bpm' });
   bpm.el.title = 'Tempo — drag / wheel / arrows';
-  const swing = knob({ id: 'swing', label: 'SWING', min: 0, max: 0.6, def: 0.06 }, state.swing, (v) => { state.swing = v; persist(); },
+  const swing = knob({ id: 'swing', label: 'SWING', min: 0, max: 0.6, def: 0.06 }, state.swing, (v) => { state.swing = v; touched(); persist(); },
     { size: 36, format: (v) => Math.round(v * 100) + '%', cls: 'sm' });
-  const key = h('select', { class: 'sel', title: 'Key', 'aria-label': 'Key', onchange: (e) => { state.key = +e.target.value; persist(); renderRow('acid'); renderRoll(); } },
+  const key = h('select', { class: 'sel', title: 'Key', 'aria-label': 'Key', onchange: (e) => { state.key = +e.target.value; touched(); persist(); renderRow('acid'); renderRoll(); } },
     KEYS.map((k, i) => { const o = h('option', { value: i }, k); if (i === state.key) o.selected = true; return o; }));
   const scale = h('select', { class: 'sel', 'aria-label': 'Scale', title: 'Scale used by the acid generator and highlighted in the piano roll',
-    onchange: (e) => { state.scale = e.target.value; autoMajor = false; persist(); renderRoll(); } },
+    onchange: (e) => { state.scale = e.target.value; autoMajor = false; touched(); persist(); renderRoll(); } },
     Object.entries(SCALES).map(([id, s]) => { const o = h('option', { value: id }, s.name); if (id === state.scale) o.selected = true; return o; }));
 
   const pats = h('div', { class: 'pats' }, PATTERN_NAMES.map((n, i) => h('button', { class: 'pat', 'data-i': i, onclick: () => selectPattern(i), title: `Pattern ${n} (← →)`, 'aria-label': `Pattern ${n}` }, n)));
