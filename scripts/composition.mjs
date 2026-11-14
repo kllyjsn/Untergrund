@@ -6,7 +6,10 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { STYLES, MAJOR_STYLES, generate, arrangement, applySongPlan, defaultState, applyOverrides } from '../js/state.js';
+import { STYLES, MAJOR_STYLES, generate, arrangement, applySongPlan, defaultState, applyOverrides, fitLyrics } from '../js/state.js';
+import { SING_PROFILES } from '../js/melody.js';
+import { lineStress, rhymes } from '../js/prosody.js';
+import { writeLyrics, rhymePairs } from '../js/lyric-writer.js';
 import { Sequencer, guitarGrip } from '../js/engine.js';
 import { stabNotes, hookSnap, voiceLead } from '../js/harmony.js';
 
@@ -25,6 +28,64 @@ export function buildSong(style, seed, length = 'song') {
   applyOverrides(s, g, true);
   s.chainOn = true; applySongPlan(s, style, seed, length); s.ending = true; s.current = 0;
   return s;
+}
+
+// Songwriting: the song genres sung to rule-written lyrics (js/lyric-writer.js, as the Describe path without a model
+// writes them), syllables laid on each phrase's notes in order the way the singer does. Measured on the written parts.
+export const LYRIC_PROMPTS = ['a song about leaving LA', 'a love song', 'a sad song about missing you', 'a song about a night out in the city',
+  'a summer song about the beach', 'a song about going home'];
+export const songWords = (style, seed) => writeLyrics({ prompt: LYRIC_PROMPTS[seed % LYRIC_PROMPTS.length], style, seed });
+export function lyricSong(style, seed) {
+  const lyr = songWords(style, seed), s = buildSong(style, seed);
+  s.lyrics = { v: 1, title: lyr.title, sections: lyr.sections };
+  return fitLyrics(s, style);
+}
+const linesOf = (secs, sec) => (secs.find((x) => x.sec === sec)?.lines || []).slice(0, 4).map((l) => (typeof l === 'string' ? l : l.t));
+// A hook's identity: its onsets and pitches (a held last note may release earlier for the next line's pickup).
+const motifOf = (xs) => xs.map((x) => `${x[0] - xs[0][0]}:${x[2]}`).join();
+export function songwriting(m, sections) {
+  const words = { n: linesOf(sections, 'chorus'), v: linesOf(sections, 'verse') };
+  let stressed = 0, onBeat = 0;
+  const laid = {};
+  for (const q of ['n', 'v']) {
+    laid[q] = [];
+    for (let ph = 0; ph < 2; ph++) {
+      const notes = (m[q] || []).filter((x) => x[4] === ph).sort((a, b) => a[5] - b[5]);
+      const syl = [words[q][2 * ph], words[q][2 * ph + 1]].map((l) => (l ? lineStress(l) : []));
+      let j = 0;
+      syl.forEach((st, li) => {
+        const xs = notes.slice(j, j + st.length); j += st.length;
+        laid[q].push(xs);
+        xs.forEach((x, i) => { if (st[i]) { stressed++; if (((x[0] % 4) + 4) % 4 === 0 || x[1] >= 4) onBeat++; } });
+      });
+    }
+  }
+  // The title line: chorus lines that repeat the first one.
+  const n = m.n || [], title = words.n[0], at = words.n.map((l, i) => (l === title ? i : -1)).filter((i) => i >= 0 && laid.n[i]?.length);
+  const first = laid.n[0] || [], st0 = title ? lineStress(title) : [];
+  const head = first[st0.indexOf(1)] || first[0];
+  const hi = Math.max(...n.map((x) => x[2])), long = Math.max(...n.map((x) => x[1]));
+  const titleNotes = at.flatMap((i) => laid.n[i]);
+  // Verse vs chorus rhythm (total variation distance): note-length classes and onset positions in the bar; and how
+  // much longer chorus notes are than verse notes.
+  const hist = (xs) => { const h = Array(16).fill(0); xs.forEach((x) => { h[((x[0] % 16) + 16) % 16] += 1 / xs.length; }); return h; };
+  const cls = (xs) => { const h = Array(5).fill(0); xs.forEach((x) => { h[x[1] <= 1 ? 0 : x[1] <= 2 ? 1 : x[1] <= 4 ? 2 : x[1] <= 8 ? 3 : 4] += 1 / xs.length; }); return h; };
+  const tv = (a, b) => a.reduce((t, v, i) => t + Math.abs(v - b[i]), 0) / 2;
+  const hv = hist(m.v || []), hn = hist(n), mean = (xs) => xs.reduce((a, x) => a + x[1], 0) / Math.max(1, xs.length);
+  const all = ['n', 'v', 'b'].flatMap((q) => m[q] || []).map((x) => x[2]);
+  const pairs = rhymePairs(sections);
+  return {
+    stressBeat: stressed ? onBeat / stressed : 0,
+    titleDownbeat: head && ((head[0] % 16) + 16) % 16 === 0 ? 1 : 0,
+    titlePeak: titleNotes.some((x) => x[2] === hi || x[1] === long) ? 1 : 0,
+    hookRepeats: sections.filter((x) => x.sec === 'chorus').length * at.length,
+    hookRecall: at.length > 1 ? at.slice(1).filter((i) => motifOf(laid.n[i]) === motifOf(first)).length / (at.length - 1) : 0,
+    rhythmContrast: tv(cls(m.v || []), cls(n)),
+    onsetContrast: tv(hv, hn),
+    holdRatio: mean(n) / Math.max(1e-9, mean(m.v || [])),
+    vocalRange: all.length ? Math.max(...all) - Math.min(...all) : 0,
+    rhymeRate: pairs.length ? pairs.filter(([a, b]) => rhymes(a, b)).length / pairs.length : 0,
+  };
 }
 
 // Every musical event of one pass through the song, with the harmony it was played over.
@@ -166,17 +227,24 @@ function sections(perBar) {
   };
 }
 
-const HIGHER = ['bars', 'melodyWindows', 'motifRecall', 'chords', 'contrast', 'drumBars', 'phraseBars', 'stepShare', 'verseChorus', 'chorusLift', 'chorusPeak', 'chorusEnergy', 'preLift', 'bridgeAway'], LOWER = ['voiceMove'], NEAR = ['peakAt', 'restsPerPhrase'];
+const HIGHER = ['bars', 'melodyWindows', 'motifRecall', 'chords', 'contrast', 'drumBars', 'phraseBars', 'stepShare', 'verseChorus', 'chorusLift', 'chorusPeak', 'chorusEnergy', 'preLift', 'bridgeAway',
+  'stressBeat', 'titleDownbeat', 'titlePeak', 'hookRepeats', 'hookRecall', 'rhythmContrast', 'onsetContrast', 'holdRatio', 'rhymeRate'], LOWER = ['voiceMove', 'vocalRange'], NEAR = ['peakAt', 'restsPerPhrase'];
 // Allowed slack before a change counts as a regression.
 const TOL = { bars: 0, melodyWindows: 0.5, motifRecall: 0.05, chords: 0, contrast: 0.03, drumBars: 0.5, voiceMove: 0.15,
   phraseBars: 0.25, stepShare: 0.05, peakAt: 0.1, restsPerPhrase: 0.5,
-  verseChorus: 0.05, chorusLift: 0.5, chorusPeak: 0.5, chorusEnergy: 0.05, preLift: 0.05, bridgeAway: 0.05 };
+  verseChorus: 0.05, chorusLift: 0.5, chorusPeak: 0.5, chorusEnergy: 0.05, preLift: 0.05, bridgeAway: 0.05,
+  stressBeat: 0.03, titleDownbeat: 0.1, titlePeak: 0.1, hookRepeats: 0, hookRecall: 0.1, rhythmContrast: 0.03, onsetContrast: 0.03, holdRatio: 0.1, vocalRange: 1, rhymeRate: 0.03 };
 
 export function runComposition(styles) {
   const out = {};
   for (const style of styles) {
     const rows = SEEDS.map((seed) => scoreSong(buildSong(style, seed)));
     out[style] = Object.fromEntries(Object.keys(rows[0]).map((k) => [k, +median(rows.map((r) => r[k])).toFixed(3)]));
+    if (SING_PROFILES[style]?.song) {
+      const sw = SEEDS.map((seed) => { const st = lyricSong(style, seed); return songwriting(st.patterns.find((p) => p.hook?.m).hook.m, st.lyrics.sections); });
+      const avg = (k) => +(sw.reduce((a, r) => a + r[k], 0) / sw.length).toFixed(3);
+      Object.assign(out[style], Object.fromEntries(Object.keys(sw[0]).map((k) => [k, k === 'vocalRange' ? +median(sw.map((r) => r[k])).toFixed(3) : avg(k)])));
+    }
   }
   return out;
 }
@@ -216,8 +284,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     for (const [style, m] of Object.entries(report)) {
       const b = base[style];
       assert(b, `${style} has no composition baseline (run node scripts/composition.mjs --update)`);
-      for (const k of HIGHER) if (m[k] < b[k] - TOL[k]) fails.push(`${style} ${k} ${m[k]} < baseline ${b[k]}`);
-      for (const k of LOWER) if (m[k] > b[k] + TOL[k]) fails.push(`${style} ${k} ${m[k]} > baseline ${b[k]}`);
+      for (const k of HIGHER) if (b[k] !== undefined && m[k] < b[k] - TOL[k]) fails.push(`${style} ${k} ${m[k]} < baseline ${b[k]}`);
+      for (const k of LOWER) if (b[k] !== undefined && m[k] > b[k] + TOL[k]) fails.push(`${style} ${k} ${m[k]} > baseline ${b[k]}`);
       for (const k of NEAR) if (b[k] !== undefined && Math.abs(m[k] - b[k]) > TOL[k]) fails.push(`${style} ${k} ${m[k]} moved from baseline ${b[k]}`);
     }
     assert.equal(fails.length, 0, `composition regressed:\n  ${fails.join('\n  ')}`);

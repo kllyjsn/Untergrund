@@ -9,6 +9,7 @@
     { "source": "/api/rooms/:room/events", "destination": "/api/rooms?room=:room&events=1" },
     { "source": "/api/rooms/:room", "destination": "/api/rooms?room=:room" },
     { "source": "/api/room-config", "destination": "/api/rooms?config=1" },
+    { "source": "/api/flagship", "destination": "/api/page?flagship=1" },
     { "source": "/a/:handle", "destination": "/api/page?a=:handle" },
     { "source": "/t/:id", "destination": "/api/page?t=:id" },
     { "source": "/r/:room", "destination": "/api/page?r=:room" },
