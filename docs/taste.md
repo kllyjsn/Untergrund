@@ -26,6 +26,22 @@ node scripts/ear.mjs report                          # counts, reasons, which me
 `report` shows, for every measured feature, how often the picked side had the higher value. A feature near 50% says
 nothing about taste; one far from it is a candidate critic input (and a hint where the generator is losing him).
 
+## Player reactions: `research/taste/reactions.json`
+
+The heart, the down arrow and the down reasons in the player (boring / sounds bad / not my style) already reach
+production as listen signals ([listen-signals.md](listen-signals.md)), with the song's fingerprint, style and seed.
+They are absolute labels on whole songs, weaker than a blind A/B pick but free.
+
+```
+STATS_TOKEN=… node scripts/ear.mjs signals                    # lists devices that reacted recently
+STATS_TOKEN=… node scripts/ear.mjs signals --device 1a2b3c4d  # pull that device's latest reaction per song
+```
+
+Only Jason's devices count. An ear.html export carries a hash of the phone's listener id (`untergrund.lid`), and
+`ingest` remembers it, so after the first SEND PICKS the `signals` pull picks his phone automatically. The raw id
+never leaves the phone. A heart or down taken back later drops out on the next pull. The server keeps the newest
+1000 records for this pull, so pull at least weekly.
+
 ## Past verdicts: `research/taste/critiques.json`
 
 Jason's listening verdicts from earlier build sessions, paraphrased and tagged with the same reasons. They aren't

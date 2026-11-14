@@ -2,7 +2,7 @@ import { STYLES } from './state.js';
 import { renderBars } from './render.js';
 import { liveSets, setsReady, withTakes } from './livekit.js';
 import { analyzePcm, lufs, spectralBands } from './lab-metrics.js';
-import { TAGS, SCHEMA, mergeJudgments, nextStyle, summarize, songFor, windowOf } from './ear-data.js';
+import { TAGS, SCHEMA, deviceHash, mergeJudgments, nextStyle, summarize, songFor, windowOf } from './ear-data.js';
 
 const $ = (id) => document.getElementById(id);
 // Play through the iPhone silent switch, like the app.
@@ -114,7 +114,11 @@ function choose(pick) {
   show();
 }
 async function send() {
-  const body = JSON.stringify({ schema: SCHEMA, exportedAt: new Date().toISOString(), summary: summarize(judgments), judgments }, null, 1);
+  // Ties this phone's hearts and downs in the player (same device id) to these picks; only a hash leaves the phone.
+  let lid = '';
+  try { lid = localStorage.getItem('untergrund.lid') || ''; } catch {}
+  const device = lid ? deviceHash(lid) : undefined;
+  const body = JSON.stringify({ schema: SCHEMA, exportedAt: new Date().toISOString(), device, summary: summarize(judgments), judgments }, null, 1);
   const name = `ear-${new Date().toISOString().slice(0, 10)}-${judgments.length}.json`;
   const file = new File([body], name, { type: 'application/json' });
   if (navigator.canShare?.({ files: [file] })) {
