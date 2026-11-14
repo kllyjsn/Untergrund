@@ -8,11 +8,13 @@ import { sanitize, refreshSong } from './state.js';
 
 const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 // A row shows how long the song plays: untouched GENERATE songs open through today's generator (refreshSong).
-const played = new WeakMap();
+// Rows are re-read on every paint, so cache by what decides the result rather than by object.
+const played = new Map();
 const playedSeconds = (raw) => {
   if (!raw || typeof raw !== 'object') return songSeconds(raw);
-  if (!played.has(raw)) played.set(raw, songSeconds(refreshSong(sanitize(raw))));
-  return played.get(raw);
+  const a = raw.artist || {}, k = [a.style, a.seed, a.title, raw.fresh, raw.key, raw.bpm, raw.scale, raw.chain, !!raw.remixOf, raw.drop].join('|');
+  if (!played.has(k)) { if (played.size > 500) played.clear(); played.set(k, songSeconds(refreshSong(sanitize(raw)))); }
+  return played.get(k);
 };
 export function songSeconds(state) {
   const bars = state?.chainOn ? parseChain(state.chain || '').length : 0;
