@@ -670,6 +670,9 @@ function playFlagship(t) {
   landing.sync();
 }
 // A shared, linked or shelf song plays as a guest on the landing; closing it restores the listener's project.
+// One Space listener keeps whichever landing is open in sync with the transport.
+let landingNow = null;
+addEventListener('keydown', (e) => { if (e.code === 'Space' && landingNow) setTimeout(landingNow.sync); }, true);
 function openLanding(load, src = 'shared') {
   const landing = openSharedLanding({
     // Waiting for instruments counts as playing, like the transport toggle, so the landing shows STOP at once.
@@ -681,7 +684,7 @@ function openLanding(load, src = 'shared') {
     share: (song) => showShare(song, 'shared'),
     close: () => { leaveGuest(); window.history.replaceState(null, '', location.pathname); },
   });
-  addEventListener('keydown', (e) => { if (e.code === 'Space') setTimeout(landing.sync); }, true);
+  landingNow = landing;
   return landing;
 }
 function leaveGuest() {
