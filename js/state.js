@@ -1,6 +1,6 @@
 import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, CHORDS, defaultParams, defaultMaster } from './params.js';
 import { rng } from './dsp.js';
-import { planSections, formChain, parseForm, developSong, LENGTHS } from './longform.js';
+import { planSections, formChain, parseForm, developSong, developFinalDrop, LENGTHS } from './longform.js';
 import { FORMS, SECTIONS } from './classical.js';
 import { MODELS } from './composer-models.js';
 import { POCKETS, STYLE_POCKET } from './groove.js';
@@ -1067,8 +1067,9 @@ const SONG_FORMS = {
 };
 
 const IDIOM = { boombap: 'rap', trap: 'rap', drill: 'rap', deephouse: 'house', amapiano: 'house' };
-// Ambient drifts longer: each return of a texture comes back after something else has been heard.
-const AMBIENT_FULL = ['AAAAAAAAEEEEEEEEFFFFFFFFGGGGGGGGEEEEEEEEFFFFFFFFGGGGGGGGGGGGGGGGFFFFFFFFAAAAAAAA', 'AAAAAAAAEEEEEEEEGGGGGGGGFFFFFFFFGGGGGGGGEEEEEEEEFFFFFFFFGGGGGGGGEEEEEEEEAAAAAAAA'];
+// Ambient drifts longer: each return of a texture comes back after something else has been heard, and the opening
+// theme (E) comes back three times against the peak's two, so the motif stays the thread of a 3.5-minute piece.
+const AMBIENT_FULL = ['AAAAAAAAEEEEEEEEGGGGGGGGFFFFFFFFEEEEEEEEFFFFFFFFGGGGGGGGEEEEEEEEFFFFFFFFAAAAAAAA', 'AAAAAAAAEEEEEEEEFFFFFFFFGGGGGGGGEEEEEEEEGGGGGGGGFFFFFFFFEEEEEEEEFFFFFFFFAAAAAAAA'];
 // At drum & bass and hard-techno tempos 112 bars is under 3 minutes: a second break and a third, final drop.
 const TECHNO_LONG = 'AAAAAAAABBBBBBBBCCCCCCCCCCCCCCCDGGGGGGGGGGGGGGGHEEEEEEEEFFFFFFFDGGGGGGGGGGGGGGGHCCCCCCCHCCCCCCCDGGGGGGGGGGGGGGGHBBBBBBBBAAAAAAAA';
 const CLUB_SKETCH = { techno: 'AAAABBBBCCCCCCCDGGGGGGGHEEEDGGGGGGGHAAAA', ambient: 'AAAAAAAAEEEEEEEEGGGGGGGGAAAAAAAA' };
@@ -1095,7 +1096,9 @@ export const songChain = (style, seed, length = 'song') => songPlan(style, seed,
 export function applySongPlan(s, style, seed, length = 'song') {
   const plan = songPlan(style, seed, length, s.bpm || midBpm(style));
   s.chain = plan.chain;
-  developSong(s.patterns, plan.sections, { keep: Object.keys(s.locks || {}).filter((t) => s.locks[t]) });
+  const keep = Object.keys(s.locks || {}).filter((t) => s.locks[t]);
+  developSong(s.patterns, plan.sections, { keep });
+  if (plan.chain === TECHNO_LONG) developFinalDrop(s.patterns, plan.chain, { keep });
   return plan;
 }
 
@@ -1203,6 +1206,7 @@ export function sanitize(s) {
         warmth: cl(hook.x?.warmth ?? 0.5, 0, 1),
       },
       ...(hook.h ? { h: 1 } : {}),
+      ...(hook.up ? { up: 1 } : {}),
       ...(cleanMelody(hook.m) ? { m: cleanMelody(hook.m) } : {}),
     }) : null;
   const cleanProg = (prog) => prog.slice(0, 8).map((c) => ({ r: Math.max(-12, Math.min(12, c?.r | 0)), c: Math.max(0, Math.min(CHORDS.length - 1, c?.c | 0)) }));
