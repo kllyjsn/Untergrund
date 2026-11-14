@@ -24,7 +24,7 @@ for (const [id, prompt] of Object.entries(SONGS)) {
     assert.ok(validateSing(a), 'passes the server check');
     assert.equal(a.score.bpm, st.bpm);
     assert.equal(a.score.style, id === 'folk' || st.bpm < 84 ? 'ballad' : 'pop');
-    assert.equal(a.voice, id === 'rnb' ? 'felix' : 'gwen');
+    assert.equal(a.voice, { pop: 'gwen', rnb: 'rex', folk: 'ariadne' }[id]);
     // Every sung note starts where the engine plays it: the score's clock is the Sequencer's.
     const sung = sungNotes(st), starts = new Set(sung.map((x) => x.at / 4));
     let at = 0, hits = 0, notes = 0;
@@ -80,7 +80,11 @@ await t('validateSing rejects hostile or oversized requests', () => {
   assert.equal(bad((r) => { r.seed = -1; }), null);
   assert.equal(validateSing(null), null);
   const clean = validateSing({ ...ok, extra: 'dropped' });
-  assert.deepEqual(Object.keys(clean).sort(), ['audio', 'format', 'score', 'seed', 'voice']);
+  assert.deepEqual(Object.keys(clean).sort(), ['audio', 'expr', 'format', 'score', 'seed', 'voice']);
+  // Expression knobs: known names only, clamped to their ranges; none at all leaves the runtime's own singing.
+  const x = validateSing({ ...ok, expr: { vib_cents: 900, scoop: -4, lead: 0.5, align: true, eval: 'x', breath: NaN } }).expr;
+  assert.deepEqual(x, { scoop: 0, vib_cents: 80, lead: 0.5, align: 1 });
+  assert.equal('expr' in validateSing({ ...ok, expr: { nope: 1 } }), false);
 });
 
 await t('old projects and share links still load; sing settings survive sanitize', () => {
@@ -218,6 +222,43 @@ await t('a sung mix stays on the instrumental\'s loudness: the band dips under t
   const hot = lu(await run((s) => (s?.bpm ? { buf: stem, gain, duck: 1, ms: 0 } : null)));
   assert.ok(Math.abs(sung - inst) < 0.5, `sung ${sung.toFixed(2)} vs instrumental ${inst.toFixed(2)} LUFS`);
   assert.ok(hot - inst > 0.7, `without the dip the vocal would add ${(hot - inst).toFixed(2)} LU`);
+});
+
+await t('the vocal chain: high-pass, de-ess and compression keep the stem at its sung level', async () => {
+  const { processVocal, sungRms } = await import('../js/vocal-chain.js');
+  const { VOCAL_FX } = await import('../js/sing.js');
+  const SR = 24000, x = new Float32Array(SR * 2), band = (y, f0, f1) => {
+    let s = 0; const N = 4096;
+    for (let f = f0; f <= f1; f += 25) { let re = 0, im = 0; for (let i = 0; i < N; i++) { const w = (2 * Math.PI * f * i) / SR; re += y[SR + i] * Math.cos(w); im += y[SR + i] * Math.sin(w); } s += re * re + im * im; }
+    return 10 * Math.log10(s + 1e-12);
+  };
+  let r = 1;
+  for (let i = 0; i < x.length; i++) { r = (r * 16807) % 2147483647; x[i] = 0.2 * Math.sin((2 * Math.PI * 220 * i) / SR) + 0.1 * Math.sin((2 * Math.PI * 40 * i) / SR) + (i > SR && i < SR + 4096 ? 0.3 * Math.sin((2 * Math.PI * 8000 * i) / SR) : 0) + 0.002 * (r / 2147483647 - 0.5); }
+  const y = processVocal(x, SR, VOCAL_FX.pop);
+  assert.ok(Math.abs(20 * Math.log10(sungRms(y, SR) / sungRms(x, SR))) < 0.1, 'sung level kept');
+  assert.ok(band(x, 25, 50) - band(y, 25, 50) > 10, 'rumble under the high-pass goes');
+  assert.ok(band(x, 7800, 8200) - band(y, 7800, 8200) > 3, 'sibilance is turned down');
+  assert.equal(processVocal(x, SR, null), x);
+});
+
+await t('while the vocal sings the CHORDS channel dips in the presence band; genres send their own expression', async () => {
+  const { OfflineAudioContext, installGlobals } = await import('./offline-audio.mjs');
+  installGlobals();
+  const { Engine } = await import('../js/engine.js');
+  const { VOCAL_FX } = await import('../js/sing.js');
+  const { SING_STYLE } = await import('../js/sing-score.js');
+  const st = song(SONGS.pop), SR = 16000, ctx = new OfflineAudioContext(1, SR * 4, SR), buf = ctx.createBuffer(1, SR * 4, SR);
+  buf.getChannelData(0).fill(0.25, SR, 3 * SR);
+  const e = new Engine(ctx, JSON.parse(JSON.stringify(st)), { realtime: false, vocal: () => ({ buf, gain: 1, duck: 1, lift: 1, ms: 0, fx: VOCAL_FX.pop }) });
+  e.vocal(0, 0);
+  const g = e.ch.stab.carve.gain.events.map((x) => x.v);
+  assert.ok(Math.abs(Math.min(...g) + VOCAL_FX.pop.carve.db) < 0.05 && Math.abs(g.at(-1)) < 0.25, `carve ${Math.min(...g)} dB, back to 0`);
+  assert.equal(e.ch.stab.carve.frequency.events[0].v, VOCAL_FX.pop.carve.hz);
+  for (const style of ['pop', 'rnb', 'folk']) {
+    const s2 = song(SONGS[style]), req = singScore(s2);
+    assert.deepEqual(req.expr, (SING_STYLE[s2.artist.style] || SING_STYLE.pop).expr);
+    assert.deepEqual(validateSing(req).expr, req.expr);
+  }
 });
 
 console.log(`sing-score: ${n} checks passed`);

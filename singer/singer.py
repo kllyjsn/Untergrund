@@ -28,6 +28,9 @@ from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from expression import clean_expr, is_off, sing as sing_expressive  # noqa: E402
+
 # Pins (docs/singer.md#licenses): weights spybyscript/scyllasband tag v4-20261106, runtime lowkeytea/scyllasband
 # commit "Release v4-20261106". Both Apache-2.0.
 MODEL_REPO = "spybyscript/scyllasband"
@@ -101,7 +104,11 @@ def validate(raw: Any) -> dict:
     if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed <= LIMITS["seed"]:
         raise BadRequest("bad seed")
     audio = raw.get("audio") if raw.get("audio") in AUDIO else "opus"
-    return {"format": FORMAT, "voice": voice, "seed": seed, "audio": audio, "score": {"text": text, "bpm": float(bpm), "style": score["style"], "notes": out}}
+    req = {"format": FORMAT, "voice": voice, "seed": seed, "audio": audio, "score": {"text": text, "bpm": float(bpm), "style": score["style"], "notes": out}}
+    expr = clean_expr(raw.get("expr"))
+    if expr:
+        req["expr"] = expr
+    return req
 
 
 def request_hash(req: dict) -> str:
@@ -193,8 +200,11 @@ class ScyllasBand:
                 raise ValueError(f"unknown SINGER_BACKEND {self.backend!r}")
         return self
 
-    def sing(self, score: dict, voice: str, seed: int) -> np.ndarray:
-        return np.asarray(self.load().rt.sing(score, voice, seed=seed).audio, np.float32).reshape(-1)
+    def sing(self, score: dict, voice: str, seed: int, expr: dict | None = None) -> np.ndarray:
+        rt = self.load().rt
+        if not expr or is_off(expr):
+            return np.asarray(rt.sing(score, voice, seed=seed).audio, np.float32).reshape(-1)
+        return np.asarray(sing_expressive(rt.engine, score, voice, seed, expr), np.float32).reshape(-1)
 
 
 class SoulXSinger:
@@ -204,7 +214,7 @@ class SoulXSinger:
         raise NotImplementedError("SoulX-Singer is not implemented; only Scylla's Band's built-in voices are approved")
 
 
-# Singing engines behind one interface: Engine(models_dir, backend, threads).load(); .sing(score, voice, seed) -> mono
+# Singing engines behind one interface: Engine(models_dir, backend, threads).load(); .sing(score, voice, seed, expr) -> mono
 # float32 at SAMPLE_RATE, sample 0 on the score's first beat.
 BACKENDS = {"scyllasband": ScyllasBand, "soulx-singer": SoulXSinger}
 
@@ -226,7 +236,7 @@ class Singer:
         req = validate(raw)
         with self.lock:
             t0 = time.time()
-            sung = self.engine.sing(req["score"], req["voice"], req["seed"])
+            sung = self.engine.sing(req["score"], req["voice"], req["seed"], req.get("expr"))
         score = req["score"]
         seconds = sum(r[2] for r in score["notes"]) * 60.0 / score["bpm"]
         audio = master(sung, seconds)

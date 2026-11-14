@@ -27,7 +27,7 @@ image = (
     # The runtime at its release commit, without its LiteRT dependency (the GPU runs ONNX Runtime).
     .pip_install(f"scyllasband @ git+{RUNTIME_REPO}@{RUNTIME_COMMIT}", extra_options="--no-deps")
     .env({"SINGER_MODELS": MODELS, "SINGER_BACKEND": "onnx-gpu", "HF_HUB_DISABLE_TELEMETRY": "1", "SCYLLASBAND_NO_BOOTSTRAP": "1"})
-    .add_local_python_source("singer")
+    .add_local_python_source("singer", "expression", "vocal_metrics")
 )
 
 
