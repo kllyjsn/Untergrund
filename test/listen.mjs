@@ -144,6 +144,7 @@ console.log('listen signals passed');
   const lone = [], L = createListens({ emit: (kind, rec) => lone.push({ kind, ...rec }), now: () => 0, store: storage() });
   assert.equal(L.share(null, null, { ref: 'zz11yy44' }), null, 'no song, no share');
   L.share({ fp: 'other00000000', tid: 'trk-9', style: 'acid', surf: 'studio' }, null, { ref: 'zz11yy44' });
+  assert.equal(L.share({ fp: 'other00000000', surf: 'studio' }, null, { ref: 'zz11yy44' }), null, 'a link and a video from one share sheet are one share');
   assert.deepEqual(lone.map((r) => [r.kind, r.lis, r.fp, r.tid, r.surf, r.ref]), [['share', '', 'other00000000', 'trk-9', 'studio', 'zz11yy44']], 'a share before playing goes out standalone');
   console.log('share attribution passed');
 }
