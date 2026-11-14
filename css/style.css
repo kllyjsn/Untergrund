@@ -894,6 +894,7 @@ body.studio-open .generate-primary small { margin-top: 0; }
 .tabbar, .tools-toggle { display: none; }
 @media (max-width: 760px) {
   body { padding-bottom: calc(66px + env(safe-area-inset-bottom)); }
+  .generate-home { padding-bottom: calc(28px + 66px + env(safe-area-inset-bottom)); }
   .tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(5,1fr);
     padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); background: rgba(29,29,30,.86); border-top: 1px solid rgba(255,255,255,.08);
  }
