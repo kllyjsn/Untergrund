@@ -32,6 +32,7 @@ import { redisKv as redisAccountKv, memoryKv as memoryAccountKv } from './api/_l
 import { handleAccount, attachPublished } from './api/_lib/accounts.js';
 import { handlePage } from './api/_lib/pages.js';
 import { handlePush } from './api/_lib/push.js';
+import { handleLegal } from './api/_lib/legal.js';
 import { ogImage, artSeed } from './api/_lib/og.js';
 const jukeboxStore = redisJukebox() || memoryJukebox();
 const eventsKv = redisKv() || memoryKv();
@@ -108,6 +109,15 @@ http.createServer(async (req, res) => {
     if (url.pathname === '/api/push') {
       const raw = req.method === 'POST' ? await readBody(req, 8000) : null;
       const { status, json } = await handlePush({ method: req.method, query: Object.fromEntries(url.searchParams), headers: req.headers, body: raw ? raw.toString() : null, kv: accountKv, client: req.socket.remoteAddress });
+      return sendJson(res, status, json);
+    }
+    if (url.pathname === '/api/legal') {
+      const raw = req.method === 'POST' ? await readBody(req, 7000) : null;
+      if (raw === null && req.method === 'POST') return sendJson(res, 413, { error: 'too_large' });
+      const { status, json } = await handleLegal({
+        method: req.method, body: raw ? raw.toString() : null, query: Object.fromEntries(url.searchParams),
+        headers: req.headers, kv: accountKv, client: req.socket.remoteAddress, statsToken: STATS_TOKEN,
+      });
       return sendJson(res, status, json);
     }
     if (url.pathname === '/api/account') {

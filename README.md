@@ -108,6 +108,10 @@ The secret is only used by `/api/sc-token`; audio uploads go directly from the b
 - Stats: set `STATS_TOKEN` in Vercel, then open `/stats.html?token=<STATS_TOKEN>` (the token moves into session storage and leaves the URL). Locally with `SC_MOCK=1` the token is `dev`.
 - Page views: the free Vercel Web Analytics script loads on untergrund.sh once Web Analytics is enabled for the project in the Vercel dashboard. Custom events there need a paid plan, which is why the funnel is first-party.
 
+## Legal requests
+
+`/legal/` publishes the current terms, privacy notice, music-rights rules, provenance policy and contributor terms. Its private request form posts to `/api/legal`; requests are capped at 500 and expire after 180 days. Read them with `GET /api/legal?limit=50` and `Authorization: Bearer $STATS_TOKEN`. The rate limiter stores only a short hash of the requester's network address.
+
 ## Daily Drop notifications
 
 Opt-in Web Push for the Daily Drop: "Today's drop: Paper Mirror" with the listener's streak, deep-linking to `/?drop=<date>`. Standard Web Push with VAPID, no paid provider or npm dependency (`api/_lib/webpush.js`). iOS allows it only from the installed home-screen app (iOS 16.4+), and the prompt only appears from a tap, so the app asks after someone has played a drop for 30 seconds (once, at most twice ever), and the Daily Drop card offers **Notify me** / **Turn off** after their first drop.
