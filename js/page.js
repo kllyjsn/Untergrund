@@ -44,7 +44,7 @@ let current = null;
 // carries that ref as `via`; analytics' Do Not Track/GPC/automation opt-outs apply here as in the app.
 const listens = createListens({ emit: signal });
 const arrivedVia = ((r) => (SHARE_REF.test(r) ? r : ''))(new URLSearchParams(location.search).get('r') || '');
-let heardPos = null;
+let heardPos = null, pageRef = '';
 addEventListener('pagehide', () => { if (listens.end(heardPos, { force: true })) flushEvents(); });
 
 function trackView(track, artist, { localOnly = false } = {}) {
@@ -65,9 +65,10 @@ function trackView(track, artist, { localOnly = false } = {}) {
     listens.begin({ fp: songFingerprint(track.state), tid: track.id, seed: Number.isFinite(seed) ? seed : -1, style: track.style || '',
       src: arrivedVia ? 'shared' : 'release', surf: 'release', ph: '', ...(arrivedVia ? { via: arrivedVia } : {}) }, heardPos = { bar: 0, bars: total, sec: '' });
   };
-  // Sharing from the release page mints its own ref, like the app's share sheet.
+  // Sharing from the release page mints its own ref, like the app's share sheet: one per page view, so every link
+  // shared from it joins to the listen's single share signal.
   const shareRelease = () => {
-    const ref = analytics?.enabled ? newShareRef() : '';
+    const ref = analytics?.enabled ? (pageRef ||= newShareRef()) : '';
     share(ref ? `${url}?r=${ref}` : url, `${track.title} — ${artist?.name || track.artist || 'UNTERGRUND'}`);
     listens.act('share', heardPos, ref ? { ref } : {});
   };
