@@ -1,5 +1,6 @@
 import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { execSync } from 'node:child_process';
 import { build } from 'esbuild';
 import { writeSite as writeResearch } from './research.mjs';
 
@@ -8,7 +9,7 @@ await build({ entryPoints: ['scripts/blob-client-entry.js'], bundle: true, forma
 
 rmSync('dist', { recursive: true, force: true });
 mkdirSync('dist');
-for (const path of ['index.html', 'embed.html', 'lab.html', 'sc-callback.html', 'stats.html', 'social-card.png', 'manifest.webmanifest', 'sw.js', 'icons', 'css', 'js', 'samples', 'data', 'legal']) {
+for (const path of ['index.html', 'embed.html', 'lab.html', 'ear.html', 'sc-callback.html', 'stats.html', 'social-card.png', 'manifest.webmanifest', 'sw.js', 'icons', 'css', 'js', 'samples', 'data', 'legal']) {
   cpSync(path, `dist/${path}`, { recursive: true });
 }
 
@@ -23,6 +24,11 @@ const built = sw.replace(/^const VERSION = .*$/m, `const VERSION = '${hash.updat
   .replace(/^const SHELL = .*$/m, `const SHELL = ${JSON.stringify(['/', ...shell.map((f) => `/${f}`)])};`);
 if (built === sw) throw new Error('sw.js: VERSION/SHELL placeholders not found');
 writeFileSync('dist/sw.js', built);
+
+// The deployed commit, so ear.html picks name the generator build they judged.
+let commit = process.env.VERCEL_GIT_COMMIT_SHA || '';
+try { commit ||= execSync('git rev-parse HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch {}
+writeFileSync('dist/build.json', JSON.stringify({ commit: commit.slice(0, 12) || 'dev' }));
 
 // /research: static posts and social cards rendered from the checked-in benchmark snapshots (scripts/research.mjs).
 writeResearch('dist');
