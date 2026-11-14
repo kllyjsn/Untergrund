@@ -331,7 +331,7 @@ export async function handleEvents({ method, query = {}, headers = {}, body, kv,
     if (!validToken(given, statsToken) && !(run && validToken(given, cronSecret))) return { status: 401, json: { error: 'unauthorized' } };
     if (!kv) return { status: 503, json: { enabled: false, error: 'storage_unavailable' } };
     const opts = { now, ...(+query.min > 0 ? { minListens: Math.min(1000, Math.round(+query.min)) } : {}), ...(+query.days > 0 ? { days: +query.days } : {}) };
-    if (run) return { status: 200, json: await runDigest(kv, { ...opts, webhook, fetchImpl, force: query.force === '1' }) };
+    if (run) return { status: 200, json: await runDigest(kv, { ...opts, webhook, fetchImpl, force: query.force === '1' && validToken(given, statsToken) }) };
     if (query.digest) return { status: 200, json: await latestDigest(kv) };
     if (query.improve) return { status: 200, json: await improveReport(kv, opts) };
     if (query.signals) return { status: 200, json: await listSignals(kv, { limit: query.limit, fp: String(query.fp || '') }) };

@@ -131,6 +131,7 @@ assert.equal(posts.length, 1);
 assert.match(posts[0].body.text, /# Listen findings/);
 assert.equal((await digest({ digest: 'run' }, 's')).json.skipped, 'already_ran', 'cron retries never post twice');
 assert.equal(posts.length, 1);
+assert.equal((await digest({ digest: 'run', force: '1' }, 'cron')).json.skipped, 'already_ran', 'the cron secret cannot force a rerun');
 assert.equal((await digest({ digest: 'run', force: '1' }, 's')).json.ok, true);
 assert.equal(posts.length, 2, 'forced with the stats token');
 const latest = (await digest({ digest: '1' }, 's')).json;
