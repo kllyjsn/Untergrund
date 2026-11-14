@@ -3,14 +3,14 @@ import { compose } from './classical.js';
 import { loadPiece } from './repertoire.js';
 import { clone } from './state.js';
 import { encodeWav } from './dsp.js';
-import { loadBand, liveSets, loadSets } from './livekit.js';
+import { loadBand, liveSets, loadSets, withTakes } from './livekit.js';
 
 // startBar renders a window from inside the song chain (e.g. the peak), with the arrangement state it would have there.
 // Hooks (used by js/stems.js): onContext(ctx) before the engine is built, onEngine(engine) before the song is
 // scheduled, onScheduled(ctx) just before rendering; channels sets the output channel count.
 export async function renderBars(state, bars, { sampleRate = 48000, tail, startBar = 0, channels = 2, onContext, onEngine, onScheduled } = {}) {
   const snap = clone(state);
-  await loadSets(liveSets(snap));
+  await loadSets(withTakes(liveSets(snap)));
   const score = snap.patterns.find((p) => p.score)?.score;
   if (score?.piece) await loadPiece(score.piece);
   if (score) await Promise.all(scoreKinds(score).map((k) => loadBand(k)));

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createAnalytics, privacyOptOut, retentionBucket, localDay } from '../js/analytics.js';
+import { createAnalytics, privacyOptOut, retentionBucket, localDay, onTrack, track as trackModule } from '../js/analytics.js';
 
 const storage = () => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), m }; };
 function fakeWindow({ dnt, webdriver, local = storage() } = {}) {
@@ -116,6 +116,37 @@ for (const opts of [{ dnt: '1' }, { webdriver: true }]) {
   a.track('generate'); a.flush(false); await tick();
   a.track('generate'); a.flush(false); await tick();
   assert.equal(sent.length, 1);
+}
+// Listen signals: full record rides along as `l` with a per-device listener id; nothing under DNT.
+{
+  const local = storage();
+  const { win, sent } = fakeWindow({ local });
+  const a = createAnalytics({ win, flushMs: 60_000 });
+  const seen = [];
+  const off = onTrack((n, p) => seen.push([n, p.kind]));
+  assert.ok(a.signal('start', { v: 1, lis: 'abcdef1234', fp: 'abcdefg1234567', style: 'acid', seed: 7, pt: 'p'.repeat(200), sec: 's'.repeat(60), obj: { x: 1 } }));
+  a.flush(false); await tick();
+  const e = sent[0].body.events[0];
+  assert.equal(e.n, 'listen');
+  assert.deepEqual(e.p, { kind: 'start', genre: 'acid' });
+  assert.match(e.l.lid, /^[a-z0-9]{16}$/);
+  assert.equal(local.getItem('untergrund.lid'), e.l.lid, 'listener id persists per device');
+  assert.equal(e.l.pt.length, 120);
+  assert.equal(e.l.sec.length, 40);
+  assert.equal(e.l.obj, undefined);
+  assert.equal(e.l.co, 'd0', 'cohort: how long this device has listened');
+  assert.equal(e.l.dev, 'desktop', 'device class, coarse');
+  assert.equal(typeof e.t, 'number');
+  assert.equal(createAnalytics({ win: fakeWindow({ local }).win }).lid, e.l.lid);
+  trackModule('publish', { kind: 'song' });
+  off();
+  trackModule('publish', { kind: 'song' });
+  assert.deepEqual(seen, [['publish', 'song']]);
+  const dnt = fakeWindow({ dnt: '1' });
+  const b = createAnalytics({ win: dnt.win });
+  assert.equal(b.signal('love', { fp: 'abcdefg1234567' }), false);
+  assert.equal(b.lid, '');
+  assert.equal(dnt.win.localStorage.getItem('untergrund.lid'), null, 'no listener id without consent to analytics');
 }
 console.log('analytics module passed');
 process.exit(0);

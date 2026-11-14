@@ -74,7 +74,7 @@
   <script type="module">
     const LABEL = { app_open: 'Visited', generate: 'Made a song', play_start: 'Pressed play', play_30s: 'Listened 30s+', save_track: 'Saved', publish: 'Published',
       share_link_copied: 'Shared a link', room_join: 'Joined a room', room_go_live: 'Went live', live_rooms: 'Saw LIVE NOW', go_live_nudge: 'Tapped GO LIVE', room_create: 'Opened a room', room_privacy: 'Changed room privacy', export_wav: 'Exported WAV', export_stems: 'Exported stems', export_midi: 'Exported MIDI', return_visit: 'Came back',
-      shared_open: 'Opened a shared song', remix: 'Remixed a song', video_export: 'Made a video', hum: 'Hummed a melody', voice_chops: 'Recorded voice chops', song_edit: 'Edited a song timeline', set_replay: 'Replayed a set', daily_drop: 'Daily Drop', describe: 'Described a change', error: 'Errors' };
+      shared_open: 'Opened a shared song', remix: 'Remixed a song', video_export: 'Made a video', hum: 'Hummed a melody', voice_chops: 'Recorded voice chops', song_edit: 'Edited a song timeline', set_replay: 'Replayed a set', daily_drop: 'Daily Drop', describe: 'Described a change', listen: 'Listen signals', error: 'Errors' };
     const root = document.getElementById('root');
     const params = new URLSearchParams(location.search);
     if (params.get('token')) { sessionStorage.setItem('untergrund.statsToken', params.get('token')); params.delete('token'); history.replaceState(null, '', location.pathname + (params.size ? `?${params}` : '')); }
@@ -101,6 +101,26 @@
       if (res.status === 503 || json.enabled === false) return render(null);
       if (!res.ok) return gate(`Stats are unavailable right now (${res.status}).`);
       render(json);
+      loadFindings();
+    }
+
+    // The improvement engine: ranked findings and proposed experiments (never applied automatically).
+    async function loadFindings() {
+      const box = root.querySelector('#findings');
+      if (!box) return;
+      let r = null;
+      try { const res = await fetch('/api/events?improve=1', { headers: { 'x-stats-token': token }, cache: 'no-store' }); if (res.ok) r = await res.json(); } catch {}
+      if (!r?.findings) { box.innerHTML = '<div class="empty">Findings are unavailable right now.</div>'; return; }
+      const scope = (o) => Object.entries(o).map(([k, v]) => `${k}=${v}`).join(' · ');
+      const head = `<div class="genre"><span>${fmt(r.totals.listens)} LISTENS · ${fmt(r.totals.listeners)} LISTENERS · ${fmt(r.totals.downs)} DOWNS</span><span class="num">${Object.entries(r.totals.reasons).map(([k, v]) => `${esc(k.replace(/_/g, ' '))} ${fmt(v)}`).join(' · ')}</span></div>`;
+      const fs = r.findings.slice(0, 8).map((f) => `<div class="genre"><span>#${f.rank} ${esc(f.direction.toUpperCase())} · ${esc(scope(f.scope))}${f.reason ? ` · ${esc(f.reason.replace(/_/g, ' '))}` : ''}</span><span class="num">${esc(f.metric)} ${pct(f.rate)} vs ${pct(f.comparable)} · n ${fmt(f.n)}</span></div>`).join('')
+        || `<div class="empty">No finding clears the bar yet (≥ ${r.thresholds.minListens} listens from ≥ ${r.thresholds.minListeners} listeners).</div>`;
+      const ex = r.experiments.slice(0, 5).map((e) => `<div class="err"><b>${esc(e.lever.toUpperCase())}</b> ${esc(e.change)}<div class="meta">${esc(scope(e.scope))} · primary ${esc(e.primary.metric)} ${esc(e.primary.goal)} · ${Math.round(e.arms[1].share * 100)}% arm · ≥ ${fmt(e.minListensPerArm)} listens/arm</div></div>`).join('')
+        || '<div class="empty">No experiments proposed yet.</div>';
+      const run = (r.running || []).map((x) => `<div class="genre"><span>${esc(x.id)} · ${esc(x.status.toUpperCase())}${x.verdict ? ` · ${esc(x.verdict.replace(/_/g, ' '))}` : ''}</span><span class="num">${esc(x.primary.metric)} ${pct(x.primary.rate)} vs ${pct(x.primary.base)} · ${fmt(x.arms.variant.listens)}/${fmt(x.arms.control.listens)} of ${fmt(x.minListensPerArm)}${x.guardrails.some((g) => g.breached) ? ' · GUARDRAIL' : ''}</span></div>`).join('')
+        || '<div class="empty">No experiment is running.</div>';
+      const cov = r.coverage ? `<div class="meta">${esc(r.coverage.from)} to ${esc(r.coverage.to)} · ${fmt(r.coverage.records)} records${r.coverage.capped.length ? ` · ${r.coverage.capped.length} day(s) at the daily cap` : ''}</div>` : '';
+      box.innerHTML = `<div class="grid2"><section><h2>FINDINGS · RANKED</h2>${head}${cov}${fs}</section><section><h2>PROPOSED EXPERIMENTS · NOT APPLIED</h2>${ex}<h2 style="margin-top:14px">RUNNING EXPERIMENTS</h2>${run}</section></div>`;
     }
 
     function chart(daily) {
@@ -152,11 +172,19 @@
       const misses = (s.misses || []).length ? s.misses.slice(0, 40).map((m) => `<div class="err"><b>${esc(m.text)}</b>
         <div class="meta">${esc(new Date(m.at).toLocaleString())} · ${esc(m.style || '-')} · ${m.ai ? `AI: ${esc(m.ai)}` : 'AI: nothing'}</div></div>`).join('')
         : '<div class="empty">No missed phrases logged.</div>';
+      const ls = s.listening, lr = ls?.rates || {};
+      const listening = ls?.kinds?.start ? `<div class="genre"><span>LISTENS</span><span class="num">${fmt(ls.kinds.start)}</span></div>`
+        + [['completion', 'Finished'], ['skip', 'Skipped early'], ['replay', 'Replayed'], ['rewind', 'Rewound'], ['love', 'Loved'], ['down', 'Downed'], ['keep', 'Kept'], ['publish', 'Published'], ['share', 'Shared'], ['live', 'Played live']].map(([k, l]) => `<div class="genre"><span>${l.toUpperCase()}</span><span class="num">${pct(lr[k] || 0)}</span></div>`).join('')
+        : '<div class="empty">No listens yet.</div>';
+      const byStyle = (ls?.styles || []).slice(0, 10).map((x) => `<div class="genre"><span>${esc(x.style.toUpperCase())} · ${fmt(x.starts)}</span><span class="num">${pct(x.rates.completion)} done · ${pct(x.rates.skip)} skip · ${pct(x.rates.love)} ♥ · ${pct(x.rates.down || 0)} ↓</span></div>`).join('') || '<div class="empty">No listens yet.</div>';
       root.innerHTML = head + `<div class="kpis">${kpis}</div>
         <div class="grid2"><section><h2>FUNNEL · UNIQUE SESSIONS</h2>${funnel}</section>
           <section><h2>DAILY SESSIONS</h2>${chart(s.daily)}</section></div>
         <div class="grid2" style="margin-top:14px"><section><h2>TOP GENRES · SONGS MADE</h2>${genres.length ? genres.map(([k, v]) => `<div class="genre"><span>${esc(k.slice(9).toUpperCase())}</span><span class="num">${fmt(v)}</span></div>`).join('') : '<div class="empty">No songs made yet.</div>'}</section>
           <section><h2>RECENT ERRORS · ${fmt(t.error || 0)} IN RANGE</h2>${errors}</section></div>
+        <div class="grid2" style="margin-top:14px"><section><h2>ENJOYMENT · PER LISTEN</h2>${listening}</section>
+          <section><h2>ENJOYMENT · BY GENRE</h2>${byStyle}</section></div>
+        <div id="findings" style="margin-top:14px"><div class="empty">Loading findings…</div></div>
         <section style="margin-top:14px"><h2>DESCRIBE · PHRASES THE RULES COULDN’T READ</h2>${misses}</section>
         <section style="margin-top:14px"><h2>DAILY COUNTS</h2><div class="table"><table><thead><tr><th>Day</th><th>Sessions</th>${events.map((e) => `<th>${LABEL[e]}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div></section>`;
       bindRange();

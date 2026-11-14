@@ -2,10 +2,9 @@ import assert from 'node:assert/strict';
 import { generate, arrangement, sanitize, defaultState, STYLES, MAJOR_STYLES, MUSICIAN_PRINCIPLES } from '../js/state.js';
 import { SCALES } from '../js/params.js';
 
-// Every club/pop style gets its own seeded hook; NEO-SOUL and BOOM BAP keep their Rhodes licks.
+// Every club/pop style gets its own seeded hook; NEO-SOUL and BOOM BAP sing one over their Rhodes licks.
 for (const style of Object.keys(STYLES)) {
   const a = generate(style, 11, 'minor'), b = generate(style, 22, 'minor');
-  if (style === 'neosoul' || style === 'boombap') { assert.equal(a.pattern.hook, undefined, style); continue; }
   if (STYLES[style].family === 'CLASSICAL') { assert(a.pattern.score && !a.pattern.hook, `${style} is a score, not a hook loop`); continue; }
   assert(a.pattern.hook && a.pattern.hook.s.length === 32, `${style} needs a hook`);
   const notes = a.pattern.hook.s.filter(Boolean);
@@ -82,11 +81,12 @@ console.log('genre signatures passed');
     const recorded = new Set();
     for (const style of Object.keys(STYLES)) {
       for (let seed = 1; seed <= 24; seed++) {
-        const voice = generate(style, seed).params.stab.voice;
+        const { voice, level } = generate(style, seed).params.stab;
+        assert(level === undefined || (Number.isFinite(level) && level > 0), `${style} seed ${seed}: stab level ${level} for voice ${voice}`);
         if (voice >= 7) recorded.add(voice);
       }
     }
-    assert.deepEqual([...recorded].sort((a, b) => a - b), [7, 8, 9, 10, 11, 12], 'all recorded families should appear across generated songs');
+    assert.deepEqual([...recorded].sort((a, b) => a - b), [7, 8, 9, 10, 11, 12, 13, 14, 15], 'all recorded families should appear across generated songs');
     for (const style of ['trap', 'drill']) {
       for (let seed = 1; seed <= 24; seed++) assert.equal(generate(style, seed).params.acid.voice, 2, `${style} must keep its sliding 808`);
     }

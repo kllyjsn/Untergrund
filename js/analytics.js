@@ -2,7 +2,10 @@
 // No PII: only event names, a whitelisted handful of short props, and a random per-tab session id.
 // Disabled entirely under Do Not Track / Global Privacy Control and for automated browsers.
 const ENDPOINT = '/api/events';
-const FIRST_SEEN = 'untergrund.firstSeen', LAST_DAY = 'untergrund.lastVisitDay', SESSION = 'untergrund.sid';
+const FIRST_SEEN = 'untergrund.firstSeen', LAST_DAY = 'untergrund.lastVisitDay', SESSION = 'untergrund.sid', LISTENER = 'untergrund.lid';
+const ID = /^[a-z0-9]{8,32}$/;
+const LONG = { pt: 120, arr: 80 }, URGENT = new Set(['love', 'unlove', 'down', 'undown', 'why']);
+const randomId = () => Array.from({ length: 16 }, () => ((Math.random() * 36) | 0).toString(36)).join('');
 
 export const localDay = (t) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const dayIndex = (day) => Math.round(Date.parse(`${day}T00:00:00Z`) / 864e5);
@@ -23,7 +26,15 @@ export function createAnalytics({ win = globalThis, now = () => Date.now(), flus
   const enabled = force || !(privacyOptOut(win) || nav.webdriver);
   const local = safeStore(win.localStorage), session = safeStore(win.sessionStorage);
   let sid = session.get(SESSION);
-  if (!/^[a-z0-9]{8,32}$/.test(sid || '')) { sid = Array.from({ length: 16 }, () => ((Math.random() * 36) | 0).toString(36)).join(''); session.set(SESSION, sid); }
+  if (!ID.test(sid || '')) { sid = randomId(); session.set(SESSION, sid); }
+  // Listen signals also carry a random per-device listener id (made only when analytics is on), so taste can be learned across visits.
+  let lid = '';
+  const listener = () => {
+    if (lid || !enabled) return lid;
+    lid = local.get(LISTENER);
+    if (!ID.test(lid || '')) { lid = randomId(); local.set(LISTENER, lid); }
+    return lid;
+  };
   const queue = [];
   let timer = 0, offline = false, playTimer = 0, errorsSent = 0;
   const seenErrors = new Set();
@@ -60,6 +71,23 @@ export function createAnalytics({ win = globalThis, now = () => Date.now(), flus
     const p = {};
     for (const [k, v] of Object.entries(props || {})) if (['string', 'number', 'boolean'].includes(typeof v)) p[k] = typeof v === 'string' ? v.slice(0, 32) : v;
     return push({ n: String(name), p, t: now() });
+  }
+
+  // A listen signal (js/listen.js): kind + genre are counted like any event; `l` is the full record, kept for learning.
+  // Cohort context, coarse by design: how long this device has been listening (co) and what kind of screen it is (dev).
+  function cohort() {
+    const first = local.get(FIRST_SEEN);
+    const days = first ? Math.max(0, dayIndex(localDay(now())) - dayIndex(first)) : 0;
+    return days < 1 ? 'd0' : days < 7 ? 'd1_6' : days < 30 ? 'd7_29' : 'd30_plus';
+  }
+  function device() {
+    const coarse = !!win.matchMedia?.('(pointer: coarse)')?.matches, w = +win.innerWidth || 0;
+    return coarse ? (w && w < 700 ? 'phone' : 'tablet') : 'desktop';
+  }
+  function signal(kind, rec = {}) {
+    const l = { lid: listener(), co: cohort(), dev: device() };
+    for (const [k, v] of Object.entries(rec || {})) if (['string', 'number', 'boolean'].includes(typeof v)) l[k] = typeof v === 'string' ? v.slice(0, LONG[k] || 40) : v;
+    return push({ n: 'listen', p: { kind: String(kind), genre: String(rec?.style || '').slice(0, 32) }, l, t: now() }, URGENT.has(kind));
   }
 
   function reportError(err, { kind = 'error', source = '' } = {}) {
@@ -109,7 +137,10 @@ export function createAnalytics({ win = globalThis, now = () => Date.now(), flus
     }
   }
 
-  return { enabled, sid, track, reportError, playStarted, playStopped, visit, install, flush: send, queue };
+  // What experiment assignment (js/experiments.js) may know about this device: nothing at all when analytics is off.
+  const context = () => (enabled ? { lid: listener(), co: cohort(), dev: device() } : {});
+
+  return { enabled, sid, get lid() { return listener(); }, context, track, signal, reportError, playStarted, playStopped, visit, install, flush: send, queue };
 }
 
 const browser = typeof window !== 'undefined' && typeof document !== 'undefined';
@@ -119,10 +150,17 @@ analytics?.install();
 const MILESTONES = { publish: 'kept', share_link_copied: 'shared', video_export: 'shared', room_go_live: 'live' };
 const didKey = (m) => `untergrund.did.${m}`;
 export const did = (m) => { try { return localStorage.getItem(didKey(m)) === '1'; } catch { return false; } };
+const trackHooks = new Set();
+// Other modules can watch events as they're tracked (main.js turns publish/share/go live into listen signals).
+export const onTrack = (fn) => { trackHooks.add(fn); return () => trackHooks.delete(fn); };
 export const track = (name, props) => {
   if (MILESTONES[name]) try { localStorage.setItem(didKey(MILESTONES[name]), '1'); } catch {}
+  for (const fn of trackHooks) try { fn(name, props || {}); } catch {}
   return analytics?.track(name, props);
 };
+export const signal = (kind, rec) => analytics?.signal(kind, rec);
+export const listenerContext = () => analytics?.context() || {};
+export const flushEvents = () => analytics?.flush(true);
 export const reportError = (err, opts) => analytics?.reportError(err, opts);
 export const playStarted = (props) => analytics?.playStarted(props);
 export const playStopped = () => analytics?.playStopped();

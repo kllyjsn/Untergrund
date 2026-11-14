@@ -32,6 +32,7 @@ import { redisKv as redisAccountKv, memoryKv as memoryAccountKv } from './api/_l
 import { handleAccount, attachPublished } from './api/_lib/accounts.js';
 import { handlePage } from './api/_lib/pages.js';
 import { handlePush } from './api/_lib/push.js';
+import { handleLegal } from './api/_lib/legal.js';
 import { ogImage, artSeed } from './api/_lib/og.js';
 const jukeboxStore = redisJukebox() || memoryJukebox();
 const eventsKv = redisKv() || memoryKv();
@@ -89,10 +90,13 @@ http.createServer(async (req, res) => {
       res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       return res.end(JSON.stringify(json));
     }
-    if (url.pathname === '/api/events') {
+    if (url.pathname === '/api/events' || url.pathname === '/api/improve-digest') {
       const raw = req.method === 'POST' ? await readBody(req, MAX_EVENT_BYTES) : null;
       if (raw === null && req.method === 'POST') return sendJson(res, 413, { error: 'too_large' });
-      const { status, json } = await handleEvents({ method: req.method, query: Object.fromEntries(url.searchParams), headers: req.headers, body: raw ? raw.toString() : null, kv: eventsKv, client: req.socket.remoteAddress, statsToken: STATS_TOKEN });
+      // Same rewrite as vercel.json: the daily digest cron runs inside the events function.
+      const query = url.pathname === '/api/improve-digest' ? { ...Object.fromEntries(url.searchParams), digest: 'run' } : Object.fromEntries(url.searchParams);
+      const { status, json } = await handleEvents({ method: req.method, query, headers: req.headers, body: raw ? raw.toString() : null, kv: eventsKv, client: req.socket.remoteAddress,
+        statsToken: STATS_TOKEN, cronSecret: process.env.CRON_SECRET || '', webhook: process.env.DIGEST_WEBHOOK_URL || '' });
       return sendJson(res, status, json);
     }
     if (url.pathname === '/api/describe') {
@@ -108,6 +112,15 @@ http.createServer(async (req, res) => {
     if (url.pathname === '/api/push') {
       const raw = req.method === 'POST' ? await readBody(req, 8000) : null;
       const { status, json } = await handlePush({ method: req.method, query: Object.fromEntries(url.searchParams), headers: req.headers, body: raw ? raw.toString() : null, kv: accountKv, client: req.socket.remoteAddress });
+      return sendJson(res, status, json);
+    }
+    if (url.pathname === '/api/legal') {
+      const raw = req.method === 'POST' ? await readBody(req, 7000) : null;
+      if (raw === null && req.method === 'POST') return sendJson(res, 413, { error: 'too_large' });
+      const { status, json } = await handleLegal({
+        method: req.method, body: raw ? raw.toString() : null, query: Object.fromEntries(url.searchParams),
+        headers: req.headers, kv: accountKv, client: req.socket.remoteAddress, statsToken: STATS_TOKEN,
+      });
       return sendJson(res, status, json);
     }
     if (url.pathname === '/api/account') {

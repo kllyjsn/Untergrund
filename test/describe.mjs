@@ -81,7 +81,7 @@ for (const [phrase, value] of [['make it pop', 'pop'], ['an r&b slow jam', 'rnb'
     assert.ok(edits.some((e) => e.id === 'genre' && e.value === value), `${phrase}: ${JSON.stringify(edits)}`);
   });
 }
-for (const [phrase, edit] of [['overdriven guitar', { id: 'voice', value: 11 }], ['acoustic guitar', { id: 'voice', value: 12 }], ['electric bass', { id: 'bassVoice', value: 5 }]]) {
+for (const [phrase, edit] of [['overdriven guitar', { id: 'voice', value: 11 }], ['acoustic guitar', { id: 'voice', value: 12 }], ['jazz guitar', { id: 'voice', value: 13 }], ['banjo', { id: 'voice', value: 14 }], ['twangy guitar', { id: 'voice', value: 15 }], ['electric bass', { id: 'bassVoice', value: 5 }]]) {
   t(`"${phrase}" picks its player`, () => assert.ok(has(parse(phrase, { style: 'rock' }).edits, [edit]), JSON.stringify(parse(phrase, { style: 'rock' }).edits)));
 }
 
@@ -242,6 +242,7 @@ t('validateEdits drops anything outside the vocabulary', () => {
   const ok = validateEdits([{ id: 'tone', amt: -1 }, { id: 'rm -rf' }, { id: 'bpm', value: 9999 }, { id: 'mute', target: 'window', value: true }, { id: 'voice', value: 10 }, null, 'x']);
   assert.deepEqual(ok.map((e) => e.id), ['tone', 'bpm', 'voice']);
   assert.ok(ok[1].value <= 200);
+  assert.deepEqual(validateEdits([{ id: 'voice', value: 14 }, { id: 'voice', value: 99 }]).map((e) => e.value), [14, 15], 'jazz guitar, banjo and twang guitar survive validation');
 });
 let remoteCalls = 0;
 const remote = async (text) => { remoteCalls++; return { edits: [{ id: 'space', amt: 1 }, { id: 'evil', amt: 5 }] }; };

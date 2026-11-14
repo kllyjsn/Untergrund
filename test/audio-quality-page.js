@@ -1,10 +1,10 @@
 // Loaded inside headless Chrome by scripts/audio-benchmark.mjs: builds a song the way NEW SET does, renders it with
 // the real offline engine and measures the master output and the pre-master stems (js/audio-quality.js).
-import { defaultState, generate, applyOverrides, arrangement, songChain, clone, STYLES } from '/js/state.js';
+import { defaultState, generate, applyOverrides, arrangement, applySongPlan, clone, STYLES } from '/js/state.js';
 import { Engine, Sequencer, parseChain, scoreKinds } from '/js/engine.js';
 import { compose } from '/js/classical.js';
 import { loadPiece } from '/js/repertoire.js';
-import { loadBand, liveSets, loadSets } from '/js/livekit.js';
+import { loadBand, liveSets, loadSets, withTakes } from '/js/livekit.js';
 import { capture } from '/js/midi.js';
 import { router, stemList } from '/js/stems.js';
 import { encodeWav } from '/js/dsp.js';
@@ -21,7 +21,7 @@ export function song(style, seed) {
   s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   s.key = g.key;
   applyOverrides(s, g, true);
-  s.chainOn = true; s.chain = songChain(style, seed); s.ending = true;
+  s.chainOn = true; applySongPlan(s, style, seed); s.ending = true;
   if (g.pattern.score) s.bpm = g.bpm;
   s.artist = { name: 'UNTERGRUND', title: 'benchmark', style, seed, created: '' };
   return s;
@@ -57,7 +57,7 @@ export function plan(s, windowBars = 2) {
 // renders ~7x slower. fromBar starts inside the song with the arrangement state it has there.
 export async function render(s, fromBar, toBar, { sampleRate = 48000, tail = 8, channels = 2, onContext, onEngine } = {}) {
   const snap = clone(s);
-  await loadSets(liveSets(snap));
+  await loadSets(withTakes(liveSets(snap)));
   const score = snap.patterns.find((p) => p.score)?.score;
   if (score?.piece) await loadPiece(score.piece);
   if (score) await Promise.all(scoreKinds(score).map((k) => loadBand(k)));
