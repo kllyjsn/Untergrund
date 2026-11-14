@@ -30,7 +30,8 @@ async function renderSide(style, seed) {
 }
 const seed = () => (Math.random() * 1e9) | 0;
 async function makePair() {
-  const style = nextStyle(STYLE_IDS, judgments);
+  // The pair on screen counts as rated, so the prefetched pair balances styles as of after this pick.
+  const style = nextStyle(STYLE_IDS, pair ? [...judgments, { style: pair.style }] : judgments);
   const [a, b] = await Promise.all([renderSide(style, seed()), renderSide(style, seed())]);
   // Louder sounds better in a blind test: both play at the quieter one's loudness.
   const quiet = Math.min(a.metrics.lufs, b.metrics.lufs);
