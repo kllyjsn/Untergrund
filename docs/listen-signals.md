@@ -29,7 +29,7 @@ Sent as `{ n: 'listen', p: { kind, genre }, l: <record>, t }`. The server keeps 
 | --- | --- |
 | `v` | contract version (1) |
 | `kind` | one of the kinds above |
-| `fp` | deterministic song fingerprint: two FNV-1a hashes of the musical state (patterns, chain, bpm, key, scale, params, master, ending, lyrics). Same music → same `fp`, across devices; titles don't change it. Required. |
+| `fp` | deterministic song fingerprint: two FNV-1a hashes of the musical state (patterns, chain, bpm, key, scale, params, master, ending, lyrics, swing, mutes/solos, orchestra levels/mutes). Same music → same `fp`, across devices; titles don't change it. Required. |
 | `tid` | published track id when the song came from the crate/feed/share, else `''` |
 | `seed` | the generator seed (`state.artist.seed`), `-1` if unknown |
 | `style` | style/genre id (`acid`, `techno`, …) |

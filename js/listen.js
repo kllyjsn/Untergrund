@@ -14,10 +14,12 @@ export function fnv(str, basis = 0x811c9dc5) {
   for (let i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 0x01000193); }
   return (x >>> 0).toString(36);
 }
-// Same notes, sounds, arrangement and tempo -> same fingerprint; any edit makes a new version. Titles and names don't count.
+// Same notes, sounds, arrangement, tempo, swing and mutes -> same fingerprint; any edit makes a new version. Titles and names don't count.
 export function songFingerprint(s) {
   if (!s) return '';
-  const json = JSON.stringify([s.patterns, s.chainOn ? s.chain : '', !!s.chainOn, s.bpm, s.key, s.scale, s.params, s.master, s.ending ?? null, s.lyrics ?? null]);
+  const on = (o) => Object.keys(o || {}).filter((k) => o[k]).sort();
+  const json = JSON.stringify([s.patterns, s.chainOn ? s.chain : '', !!s.chainOn, s.bpm, s.key, s.scale, s.params, s.master, s.ending ?? null, s.lyrics ?? null,
+    s.swing ?? 0, on(s.mutes), on(s.solos), s.orch ?? null, on(s.orchMute)]);
   return fnv(json).padStart(7, '0') + fnv(json, 0x01000193).padStart(7, '0');
 }
 const normPrompt = (t) => String(t || '').toLowerCase().replace(/\s+/g, ' ').trim();

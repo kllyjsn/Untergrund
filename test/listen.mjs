@@ -10,6 +10,9 @@ assert.match(songFingerprint(song()), /^[a-z0-9]{14}$/);
 assert.equal(songFingerprint(song()), songFingerprint({ ...song(), artist: { title: 'renamed' } }));
 assert.notEqual(songFingerprint(song()), songFingerprint(song(125)));
 assert.equal(songFingerprint(null), '');
+assert.notEqual(songFingerprint(song()), songFingerprint({ ...song(), swing: 0.3 }), 'swing is a different version');
+assert.notEqual(songFingerprint(song()), songFingerprint({ ...song(), mutes: { kick: true } }), 'a muted track is a different version');
+assert.equal(songFingerprint(song()), songFingerprint({ ...song(), mutes: { kick: false } }), 'unmuted flags do not count');
 
 // Prompts: hashed always; plain text only when it has nothing that looks like contact details.
 assert.equal(promptHash('  Dark  ACID at 4am '), promptHash('dark acid at 4am'));
