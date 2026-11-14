@@ -12,7 +12,7 @@ const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(
 const played = new Map();
 const playedSeconds = (raw) => {
   if (!raw || typeof raw !== 'object') return songSeconds(raw);
-  const a = raw.artist || {}, k = [a.style, a.seed, a.title, raw.fresh, raw.key, raw.bpm, raw.scale, raw.chain, !!raw.remixOf, raw.drop].join('|');
+  const a = raw.artist || {}, k = [a.style, a.seed, a.title, raw.fresh, raw.key, raw.bpm, raw.scale, raw.chainOn, raw.chain, !!raw.remixOf, raw.drop].join('|');
   if (!played.has(k)) { if (played.size > 500) played.clear(); played.set(k, songSeconds(refreshSong(sanitize(raw)))); }
   return played.get(k);
 };
