@@ -77,6 +77,7 @@ function loopPoints(buf) {
 export function guitarHand(kind, pocket, chorus) {
   const funk = pocket === 'R&B' || pocket === 'SOUL' || pocket === 'AFRO';
   const play = kind === 'banjo' && (pocket === 'FOLK' || pocket === 'COUNTRY') ? 'roll'
+    : pocket === 'COUNTRY' && (kind === 'agtr' || kind === 'gtr') ? 'boom'
     : pocket === 'FOLK' && !chorus && (kind === 'agtr' || kind === 'gtr') ? 'pick'
       : funk && (kind === 'gtr' || kind === 'jazz') ? 'chop' : 'strum';
   const double = (kind === 'drive' && pocket === 'ROCK') || (pocket === 'POP' && chorus && (kind === 'gtr' || kind === 'agtr'));
@@ -1219,7 +1220,13 @@ export class Engine {
     // an offbeat downstroke sometimes misses the low string.
     let notes = hand?.play === 'chop' ? grip.slice(beat > 1 ? -4 : -3) : chord && up && grip.length > 3 ? grip.slice(-3) : grip;
     if (hand?.play === 'strum' && !up && this.step % 4 && notes.length > 4 && hash(t, 26) < 0.5) notes = notes.slice(1);
-    const ring = hand?.play === 'chop' ? Math.min(dur, this.stepDur * Math.min(2, gap || 2) * 0.8) : dur, lift = chord && up ? 0.8 : 1;
+    // Boom-chick: the thumb picks the root on 1 and the fifth on 3 and lets it ring; every other hit is a quick
+    // strum of the top strings, damped by the fretting hand.
+    const boom = hand?.play === 'boom' && chord && this.step % 8 === 0;
+    if (boom) notes = [this.step % 16 ? grip.find((m) => (m - grip[0]) % 12 === 7) ?? grip[1] : grip[0]];
+    else if (hand?.play === 'boom' && chord) notes = grip.slice(up ? -3 : -4);
+    const ring = hand?.play === 'chop' ? Math.min(dur, this.stepDur * Math.min(2, gap || 2) * 0.8)
+      : boom ? Math.min(dur, this.stepDur * 3.6) : hand?.play === 'boom' && chord ? Math.min(dur, this.stepDur * (up ? 1 : 1.6)) : dur, lift = chord && up ? 0.8 : 1;
     // A strummer starts the stroke a little early so the middle of the chord, not its last string, lands on the beat.
     const lead = chord ? Math.min((notes.length - 1) * strum * 0.5, Math.max(0, t - this.ctx.currentTime)) : 0;
     // A struck string stops its last note; on an upstroke of the same grip the low strings ring on.
@@ -1245,7 +1252,8 @@ export class Engine {
         const lvl = ((palm ? 0.8 : 1) * lift * v * R.gain * accent * (1 - 0.15 * even + 0.3 * even * hash(t + k + d * 5, 23))) / Math.sqrt(grip.length);
         // A single-note fill rings briefly and is stopped by the next chord like any other string.
         const len = R.grip && !chord ? Math.min(ring, 0.9) : ring;
-        const h = this.recordedNote(set, at, lvl, m + R.shift + cents, len, o, d ? 0 : tone, kind, v);
+        const h = this.recordedNote(set, at, lvl * (boom ? 1.6 : 1), m + R.shift + cents, len, o, d ? 0 : tone, kind, v);
+        if (h && hand?.play === 'boom' && !boom) damp(h, at + len);
         if (R.grip && h) { h.m = m; h.at = at; h.end = at + len; (this.gripHeld ||= []).push(h); }
         if (pedal && h) { h.end ??= at + len; pedal.push(h); }
       });
