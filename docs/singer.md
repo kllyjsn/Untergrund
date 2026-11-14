@@ -44,7 +44,7 @@ all include it.
 Served by `api/describe.js` (`vercel.json` rewrite, no extra function); logic in `api/_lib/sing.js`.
 `POST <request>` → `202 { hash, job }` (or `200` if cached); `POST { job, hash }` → `202` while singing, then `200`
 with `{ url }` (Blob) or the audio itself. 6 new songs per client per hour, 8 s upstream timeout, 256 KB body limit,
-only `audio/ogg|mpeg|wav` up to 12 MB passed on.
+only `audio/ogg|mpeg|wav` up to 21 MB (seven minutes of 24 kHz WAV) passed on.
 
 Env on the **untergrund-i2i9** Vercel project:
 

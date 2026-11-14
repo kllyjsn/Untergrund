@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import { validateSing } from '../../js/sing-score.js';
 
-export const SING_PER_HOUR = 6, SING_TIMEOUT = 8000, MAX_SING_BODY = 256 * 1024, MAX_STEM_BYTES = 12 * 1024 * 1024;
+export const SING_PER_HOUR = 6, SING_TIMEOUT = 8000, MAX_SING_BODY = 256 * 1024, MAX_STEM_BYTES = 21 * 1024 * 1024;
 export const MODEL_PIN = 'spybyscript/scyllasband@de0d1d9dd9ddb23ba8c7cd8b3ec6ea842f250868';
 const TYPES = { 'audio/ogg': 'ogg', 'audio/mpeg': 'mp3', 'audio/wav': 'wav' };
 const HEX = /^[0-9a-f]{64}$/, JOB = /^[A-Za-z0-9_-]{1,64}$/;
