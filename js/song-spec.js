@@ -292,7 +292,7 @@ export function localSpec(text, { style: current = 'deephouse', seed } = {}) {
   const scaleEdit = edits.find((e) => e.id === 'scale' && SCALES[e.value]);
   const keyEdit = edits.find((e) => e.id === 'key' && /\b(?:in|key\s+of)\s+[a-g](?:#|b|\s+sharp|\s+flat)?\b/.test(e.src || ''));
   const s0 = seed ?? hashStr(t);
-  const bpm0 = bpmEdit?.value ?? Math.round((lo + hi) / 2 + tempo * 6);
+  const bpm0 = Math.round(clamp(bpmEdit?.value ?? (lo + hi) / 2 + tempo * 6, Math.max(60, lo - 20), Math.min(200, hi + 20), Math.round((lo + hi) / 2)));
   const sections = formSections(style, s0, SKETCH_WORDS.test(t) ? 'sketch' : 'song', bpm0);
   const find = (role) => sections.find((s) => s.role === role);
   // Structure words.
