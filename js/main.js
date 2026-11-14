@@ -479,10 +479,12 @@ const remote = {
 
 // Radio (js/radio.js): when a song ends, the next Library song or a new one in the same style starts.
 // Rooms (listening or hosting), the Jukebox, Artist Live and shared links keep their own running order.
+// A saved song's fingerprints as made and as reopened (sanitize can reorder keys), so hearts and ↓ match either way.
+const songFps = (s) => [...new Set([songFingerprint(s), songFingerprint(sanitize(s))])];
 const radioPlays = () => radioOn() && !jukeboxNow && !roomResume && !artistLive && !guest && songOrigin.src !== 'room' &&
   !hostingRoom() && !document.querySelector('.club-overlay');
 function radioNext(why = '') {
-  const n = nextUp({ queue: queue && { ids: queue.items, i: queue.i }, style, styles: STYLES, why, skip: (t) => listens.isDowned(songFingerprint(t.state)) });
+  const n = nextUp({ queue: queue && { ids: queue.items, i: queue.i }, style, styles: STYLES, why, skip: (t) => songFps(t.state).some(listens.isDowned) });
   if (n.kind === 'track') { queue.i = n.i; return openRecent(queue.items[n.i]); }
   queue = null;
   if (n.style !== style) {
@@ -1745,6 +1747,7 @@ function showLibrary() {
   trackEvent('library', { kind: 'open' });
   ui.lib = openLibrary({
     tracks: libraryTracks, styles: STYLES, hue,
+    fps: songFps,
     isLoved: (fp) => listens.isLoved(fp), isDowned: (fp) => listens.isDowned(fp),
     nowFp: () => (playing || tuning || paused ? songFingerprint(state) : ''),
     onPlay: (items, i) => {

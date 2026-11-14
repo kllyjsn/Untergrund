@@ -4,7 +4,6 @@ import { h } from './ui.js';
 import { sheet } from './sets.js';
 import { drawArtwork, artSeed } from './artwork.js';
 import { parseChain } from './engine.js';
-import { songFingerprint } from './listen.js';
 
 const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 export function songSeconds(state) {
@@ -12,9 +11,9 @@ export function songSeconds(state) {
   return bars && state.bpm ? (bars * 4 * 60) / state.bpm : 0;
 }
 
-// tracks(): libraryTracks (re-read on every paint); styles: STYLES; isLoved/isDowned(fp); nowFp(): fingerprint playing now;
+// tracks(): libraryTracks (re-read on every paint); styles: STYLES; fps(state): a song's fingerprints; isLoved/isDowned(fp); nowFp(): fingerprint playing now;
 // onPlay(items, i): play items[i] and queue the rest; radio: { on(), toggle() }.
-export function openLibrary({ tracks, styles, hue, isLoved, isDowned, nowFp, onPlay, onJukebox, onCreate, radio, onClose }) {
+export function openLibrary({ tracks, fps, styles, hue, isLoved, isDowned, nowFp, onPlay, onJukebox, onCreate, radio, onClose }) {
   let filter = 'all';
   let items = [];
   const lib = sheet('LIBRARY', { onClose });
@@ -25,7 +24,8 @@ export function openLibrary({ tracks, styles, hue, isLoved, isDowned, nowFp, onP
   const tabs = h('div', { class: 'jb-tabs lib-tabs', role: 'group', 'aria-label': 'Show' });
   const radioBtn = h('button', { class: 'btn ghost lib-radio', type: 'button', onclick: () => { radio.toggle(); paintRadio(); } }, 'RADIO');
   const playAll = h('button', { class: 'btn accent lib-play', type: 'button', onclick: () => { const v = visible(); if (v.length) onPlay(v, 0); paint(); } }, 'PLAY');
-  const visible = () => items.filter((t) => (filter === 'liked' ? isLoved(t.fp) : true));
+  const loved = (t) => t.fps.some(isLoved);
+  const visible = () => items.filter((t) => (filter === 'liked' ? loved(t) : true));
   function paintRadio() {
     const on = radio.on();
     radioBtn.classList.toggle('on', on);
@@ -33,23 +33,23 @@ export function openLibrary({ tracks, styles, hue, isLoved, isDowned, nowFp, onP
     radioBtn.title = on ? 'Radio on: when the list ends, new songs keep coming' : 'Radio off: music stops after each song';
   }
   function paintTabs() {
-    const liked = items.filter((t) => isLoved(t.fp)).length;
+    const liked = items.filter(loved).length;
     tabs.replaceChildren(...[['all', `SONGS ${items.length}`], ['liked', `LIKED ${liked}`]].map(([id, label]) =>
       h('button', { class: 'family-tab' + (filter === id ? ' on' : ''), 'aria-pressed': String(filter === id), onclick: () => { filter = id; paint(); } }, label)));
   }
   function row(t, i, v, playingFp) {
-    const s = styles[t.style], secs = songSeconds(t.state), now = playingFp === t.fp;
+    const s = styles[t.style], secs = songSeconds(t.state), now = t.fps.includes(playingFp);
     const art = h('span', { class: 'lib-art', 'aria-hidden': 'true' });
     requestAnimationFrame(() => { try { art.append(drawArtwork(t.state, { title: t.title, style: s?.name, seed: artSeed(`${t.title}|${s?.name}`), size: 96 })); } catch {} });
-    return h('button', { class: 'lib-row' + (now ? ' now' : '') + (isDowned(t.fp) ? ' downed' : ''), role: 'listitem', style: `--hue:${hue(t.style)}`, title: `Play “${t.title || 'Untitled'}”`,
+    return h('button', { class: 'lib-row' + (now ? ' now' : '') + (t.fps.some(isDowned) ? ' downed' : ''), role: 'listitem', style: `--hue:${hue(t.style)}`, title: `Play “${t.title || 'Untitled'}”`,
       onclick: () => { onPlay(v, i); paint(); } },
       art,
       h('span', { class: 'lib-text' }, h('b', {}, t.title || 'Untitled'), h('span', {}, [t.artist, s?.name].filter(Boolean).join(' · '))),
-      isLoved(t.fp) ? h('i', { class: 'lib-loved', title: 'Loved', 'aria-label': 'Loved' }) : h('i', { class: 'lib-gap', 'aria-hidden': 'true' }),
+      loved(t) ? h('i', { class: 'lib-loved', title: 'Loved', 'aria-label': 'Loved' }) : h('i', { class: 'lib-gap', 'aria-hidden': 'true' }),
       h('span', { class: 'lib-time' }, secs ? fmt(secs) : ''));
   }
   function paint() {
-    items = tracks().map((t) => ({ ...t, fp: songFingerprint(t.state) }));
+    items = tracks().map((t) => ({ ...t, fps: fps(t.state) }));
     paintRadio();
     paintTabs();
     const v = visible(), playingFp = nowFp();
