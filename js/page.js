@@ -21,9 +21,10 @@ function toast(msg) {
   el.textContent = msg; el.classList.add('on');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('on'), 2200);
 }
+// Resolves true once the link was sent or copied; false when the visitor cancelled or the copy failed.
 async function share(url, title) {
-  if (navigator.share && matchMedia('(pointer: coarse)').matches) { try { await navigator.share({ title, url }); return; } catch (e) { if (e.name === 'AbortError') return; } }
-  try { await navigator.clipboard.writeText(url); toast('Link copied'); } catch { toast(url); }
+  if (navigator.share && matchMedia('(pointer: coarse)').matches) { try { await navigator.share({ title, url }); return true; } catch (e) { if (e.name === 'AbortError') return false; } }
+  try { await navigator.clipboard.writeText(url); toast('Link copied'); return true; } catch { toast(url); return false; }
 }
 const art = (track, size = 900) => {
   const c = drawArtwork(track.state, { title: track.title, style: STYLES[track.style]?.name, seed: artSeed(track.id), size });
@@ -69,8 +70,8 @@ function trackView(track, artist, { localOnly = false } = {}) {
   // shared from it joins to the listen's single share signal.
   const shareRelease = () => {
     const ref = analytics?.enabled ? (pageRef ||= newShareRef()) : '';
-    share(ref ? `${url}?r=${ref}` : url, `${track.title} — ${artist?.name || track.artist || 'UNTERGRUND'}`);
-    listens.act('share', heardPos, ref ? { ref } : {});
+    share(ref ? `${url}?r=${ref}` : url, `${track.title} — ${artist?.name || track.artist || 'UNTERGRUND'}`)
+      .then((sent) => { if (sent) listens.act('share', heardPos, ref ? { ref } : {}); });
   };
   if ('mediaSession' in navigator) navigator.mediaSession.metadata = new MediaMetadata({ title: track.title, artist: artist?.name || track.artist || 'UNTERGRUND', album: 'UNTERGRUND' });
   const by = artist ? h('a', { class: 'pp-by', href: `/a/${artist.handle}` }, artist.name) : h('span', { class: 'pp-by' }, track.artist || 'UNTERGRUND');
