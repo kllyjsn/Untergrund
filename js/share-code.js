@@ -69,18 +69,25 @@ export async function decodeSong(code) {
 }
 
 // ?s=<code> or #s=<code> carries the whole song; ?t=<id> is a short id from the shared crate.
+// A share ref (`r`) tags one shared link so listens that arrive through it can be counted (docs/listen-signals.md).
+export const SHARE_REF = /^[a-z0-9]{8}$/;
+export const newShareRef = () => Array.from({ length: 8 }, () => ((Math.random() * 36) | 0).toString(36)).join('');
 export function readShareParams(loc) {
   const q = new URLSearchParams(loc.search), hash = new URLSearchParams(String(loc.hash || '').replace(/^#/, ''));
+  const r = q.get('r') || hash.get('r'), ref = SHARE_REF.test(r || '') ? { ref: r } : {};
   const code = q.get('s') || hash.get('s');
-  if (code) return { code };
+  if (code) return { code, ...ref };
   const id = cleanId(q.get('t'));
-  return id ? { id } : null;
+  return id ? { id, ...ref } : null;
 }
 
 // A stored track shares as its release page /t/<id> (unless `release: false`, e.g. classical pieces that need the full app);
-// the embed keeps ?t=<id>; a code-only song rides in ?s=.
-export const songLink = (origin, { code, id, release = true }, page = '/') => (id && release && page === '/' ? `${origin}/t/${encodeURIComponent(id)}`
-  : `${origin}${page}?${id ? `t=${encodeURIComponent(id)}` : `s=${code}`}`);
+// the embed keeps ?t=<id>; a code-only song rides in ?s=. A valid share ref rides along as r=.
+export function songLink(origin, { code, id, release = true }, page = '/', ref = '') {
+  const r = SHARE_REF.test(ref) ? ref : '';
+  if (id && release && page === '/') return `${origin}/t/${encodeURIComponent(id)}${r ? `?r=${r}` : ''}`;
+  return `${origin}${page}?${id ? `t=${encodeURIComponent(id)}` : `s=${code}`}${r ? `&r=${r}` : ''}`;
+}
 export const embedCode = (src, title = 'UNTERGRUND') =>
   `<iframe src="${src}" title="${clean(title, 80).replace(/"/g, '&quot;')} on UNTERGRUND" width="100%" height="152" style="border:0;border-radius:14px;max-width:560px" allow="autoplay; clipboard-write" loading="lazy"></iframe>`;
 

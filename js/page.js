@@ -6,6 +6,9 @@ import { KEYS, SCALES } from './params.js';
 import { TRAITS } from './artist.js';
 import { createPlayer, songBars } from './player.js';
 import { follow, getAccount, fetchPublicTrack } from './account.js';
+import { createListens, songFingerprint } from './listen.js';
+import { analytics, signal, flushEvents } from './analytics.js';
+import { SHARE_REF, newShareRef } from './share-code.js';
 
 const data = JSON.parse(document.getElementById('page-data').textContent);
 const main = document.getElementById('page');
@@ -18,9 +21,11 @@ function toast(msg) {
   el.textContent = msg; el.classList.add('on');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('on'), 2200);
 }
+// Resolves false when the visitor cancelled the share sheet; true once the link was sent, copied or shown to copy.
 async function share(url, title) {
-  if (navigator.share && matchMedia('(pointer: coarse)').matches) { try { await navigator.share({ title, url }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+  if (navigator.share && matchMedia('(pointer: coarse)').matches) { try { await navigator.share({ title, url }); return true; } catch (e) { if (e.name === 'AbortError') return false; } }
   try { await navigator.clipboard.writeText(url); toast('Link copied'); } catch { toast(url); }
+  return true;
 }
 const art = (track, size = 900) => {
   const c = drawArtwork(track.state, { title: track.title, style: STYLES[track.style]?.name, seed: artSeed(track.id), size });
@@ -37,6 +42,12 @@ function countPlay(id) {
 
 const player = createPlayer({ onBar: (bar, total) => current?.onBar(bar, total), onEnd: () => current?.onEnd() });
 let current = null;
+// Listen signals for the release player (docs/listen-signals.md). A visitor who came through a shared link (?r=<ref>)
+// carries that ref as `via`; analytics' Do Not Track/GPC/automation opt-outs apply here as in the app.
+const listens = createListens({ emit: signal });
+const arrivedVia = ((r) => (SHARE_REF.test(r) ? r : ''))(new URLSearchParams(location.search).get('r') || '');
+let heardPos = null, pageRef = '';
+addEventListener('pagehide', () => { if (listens.end(heardPos, { force: true })) flushEvents(); });
 
 function trackView(track, artist, { localOnly = false } = {}) {
   const page = main.querySelector('.pp-track') || h('article', { class: 'pp-track' });
@@ -46,12 +57,25 @@ function trackView(track, artist, { localOnly = false } = {}) {
   const btn = h('button', { class: 'pp-play', type: 'button', 'aria-label': `Play ${track.title}` }, h('i'), h('span', {}, 'Play'));
   const setBtn = (on) => { btn.classList.toggle('on', on); btn.lastChild.textContent = on ? 'Stop' : 'Play'; btn.setAttribute('aria-label', `${on ? 'Stop' : 'Play'} ${track.title}`); document.body.classList.toggle('pp-playing', on); };
   const ctl = {
-    onBar: (bar) => { cells.forEach((c, i) => { c.className = i < bar ? 'past' : i === bar ? 'now' : ''; }); time.textContent = `${fmt((bar / total) * secs)} / ${fmt(secs)}`; },
-    onEnd: () => { setBtn(false); cells.forEach((c) => { c.className = ''; }); time.textContent = fmt(secs); },
+    onBar: (bar) => { heardPos = { bar, bars: total, sec: '' }; cells.forEach((c, i) => { c.className = i < bar ? 'past' : i === bar ? 'now' : ''; }); time.textContent = `${fmt((bar / total) * secs)} / ${fmt(secs)}`; },
+    onEnd: () => { listens.end(heardPos, { finished: true }); setBtn(false); cells.forEach((c) => { c.className = ''; }); time.textContent = fmt(secs); },
   };
   btn.onclick = () => {
-    if (player.playing && current === ctl) { player.stop(); ctl.onEnd(); return; }
+    if (player.playing && current === ctl) { player.stop(); listens.end(heardPos); ctl.onEnd(); return; }
     current = ctl; player.play(track.state); setBtn(true); countPlay(track.id);
+    const seed = +track.state?.artist?.seed;
+    listens.begin({ fp: songFingerprint(track.state), tid: track.id, seed: Number.isFinite(seed) ? seed : -1, style: track.style || '',
+      src: arrivedVia ? 'shared' : 'release', surf: 'release', ph: '', ...(arrivedVia ? { via: arrivedVia } : {}) }, heardPos = { bar: 0, bars: total, sec: '' });
+  };
+  // Sharing from the release page mints its own ref, like the app's share sheet: one per page view, so every link
+  // shared from it joins to the listen's single share signal.
+  const shareRelease = () => {
+    const ref = analytics?.enabled ? (pageRef ||= newShareRef()) : '';
+    share(ref ? `${url}?r=${ref}` : url, `${track.title} — ${artist?.name || track.artist || 'UNTERGRUND'}`)
+      .then((sent) => {
+        if (sent) listens.share({ fp: songFingerprint(track.state), tid: track.id, style: track.style || '', src: arrivedVia ? 'shared' : 'release', surf: 'release',
+          ...(arrivedVia ? { via: arrivedVia } : {}) }, heardPos, ref ? { ref } : {});
+      });
   };
   if ('mediaSession' in navigator) navigator.mediaSession.metadata = new MediaMetadata({ title: track.title, artist: artist?.name || track.artist || 'UNTERGRUND', album: 'UNTERGRUND' });
   const by = artist ? h('a', { class: 'pp-by', href: `/a/${artist.handle}` }, artist.name) : h('span', { class: 'pp-by' }, track.artist || 'UNTERGRUND');
@@ -69,7 +93,7 @@ function trackView(track, artist, { localOnly = false } = {}) {
       remixOf(track),
       h('div', { class: 'pp-progress', 'aria-hidden': 'true' }, h('div', { class: 'pp-cells' }, cells), time),
       h('div', { class: 'pp-actions' }, btn,
-        localOnly ? null : h('button', { class: 'pp-share', type: 'button', onclick: () => share(url, `${track.title} — ${artist?.name || track.artist || 'UNTERGRUND'}`) }, 'Share')),
+        localOnly ? null : h('button', { class: 'pp-share', type: 'button', onclick: shareRelease }, 'Share')),
       h('dl', { class: 'pp-facts' }, fact('Released', date), fact('Length', fmt(secs)), fact('Made in', 'UNTERGRUND')),
       localOnly ? h('p', { class: 'pp-note' }, 'Only this browser can open this page until public storage is connected.') : null));
   if (!page.isConnected) main.replaceChildren(page);
@@ -105,7 +129,7 @@ function trackRows(tracks, sub = line) {
       if (!t.state) t.state = (await fetchPublicTrack(t.id))?.track?.state;
       play.classList.remove('busy');
       if (!t.state) return toast('Couldn’t load that track');
-      countPlay(t.id);
+      countPlay(t.id); listens.end(heardPos);
       document.querySelectorAll('.pp-row-play.on').forEach((b) => b.classList.remove('on'));
       document.querySelectorAll('.pp-row-bar').forEach((b) => { b.style.width = '0'; });
       current = ctl; player.play(t.state); play.classList.add('on');
