@@ -31,6 +31,6 @@
  "pop": {"peak":261,"avg":154},
  "rnb": {"peak":204,"avg":142},
  "rock": {"peak":292,"avg":169},
- "folk": {"peak":177,"avg":121},
+ "folk": {"peak":213,"avg":138},
  "country": {"peak":260,"avg":149}
 }
