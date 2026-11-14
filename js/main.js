@@ -32,6 +32,7 @@ import { restoreVoice } from './voice.js';
 import { compose } from './classical.js';
 import { PIECE, loadPiece } from './repertoire.js';
 import { followingRow } from './feed.js';
+import { flagshipShelf } from './flagship.js';
 import { describeBar, syncLyrics } from './describe-ui.js';
 import { songState } from './song-spec.js';
 import { fetchPublicTrack } from './account.js';
@@ -687,9 +688,38 @@ function listen(song, src = 'shared') {
   if (STYLES[song.style]) style = song.style;
   stop(); autoMajor = false;
   state = sanitize(clone(song.state));
+  state.artist = { ...(state.artist || {}), title: song.title, name: song.artist, style: song.style };
   if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
   build();
   play();
+}
+// Shelf plays open the shared-song landing, so closing it (or remixing) hands the listener's own project back.
+function playFlagship(t) {
+  const song = normalizeSong({ ...t, artist: t.by });
+  if (!song) return toast('Could not open that song');
+  const next = { ...song, trackId: t.id, remixes: t.remixes || 0 };
+  const landing = openLanding(next, 'flagship');
+  countPlay(t.id);
+  listen(next, 'flagship');
+  landing.sync();
+}
+// A shared, linked or shelf song plays as a guest on the landing; closing it restores the listener's project.
+// One Space listener keeps whichever landing is open in sync with the transport.
+let landingNow = null;
+addEventListener('keydown', (e) => { if (e.code === 'Space' && landingNow) setTimeout(landingNow.sync); }, true);
+function openLanding(load, src = 'shared') {
+  const landing = openSharedLanding({
+    // Waiting for instruments counts as playing, like the transport toggle, so the landing shows STOP at once.
+    load, isPlaying: () => playing || !!tuning,
+    play: (song) => { countPlay(song.trackId); listen(song, src); },
+    fetchSong: (id) => fetch(`/api/tracks?id=${encodeURIComponent(id)}`).then((r) => (r.ok ? r.json() : Promise.reject())).then(({ track: t }) => t?.state && { ...normalizeSong(t), trackId: t.id, remixes: t.remixes || 0, children: t.children || [] }),
+    stop: () => { if (playing || tuning) stop(); },
+    remix: remixSong,
+    share: (song) => showShare(song, 'shared'),
+    close: () => { leaveGuest(); window.history.replaceState(null, '', location.pathname); },
+  });
+  landingNow = landing;
+  return landing;
 }
 function leaveGuest() {
   if (!guest) return;
@@ -1633,8 +1663,9 @@ function buildGenerateHome() {
     h('div', { class: 'recents-row' }, recent.map((t) => h('button', { class: 'recent', style: `--hue:${hue(t.style)}`, onclick: () => openRecent(t) },
       h('i'), h('b', {}, t.title || 'Untitled'), h('span', {}, [STYLES[t.style]?.name, t.bpm && `${t.bpm} BPM`].filter(Boolean).join(' · ')))))) : null;
   const following = followingRow({ hue, onPlay: (t) => openShared(t.id, true), onLoad: renderHome });
+  const flagship = flagshipShelf({ onPlay: playFlagship, onLoad: renderHome });
   const live = made ? liveStrip() : null;
-  const home = h('section', { role: studioOpen ? 'region' : 'main', 'aria-label': 'Create', class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : '') + (live && !live.hidden ? ' has-live' : '') + (made ? '' : ' first-run') + (unlock ? ' unlock' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` + (unlock ? `;--ua:${-Math.round(since)}ms` : '') }, left, describeBox(), live, picker, concert, recents, following,
+  const home = h('section', { role: studioOpen ? 'region' : 'main', 'aria-label': 'Create', class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : '') + (live && !live.hidden ? ' has-live' : '') + (made ? '' : ' first-run') + (unlock ? ' unlock' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` + (unlock ? `;--ua:${-Math.round(since)}ms` : '') }, left, describeBox(), live, picker, concert, recents, following, flagship,
     h('div', { class: 'home-foot-links' },
       h('a', { class: 'home-research', href: '/research/' }, 'RESEARCH', h('span', {}, 'How we measure the sound')),
       h('a', { class: 'home-research', href: '/legal/' }, 'LEGAL', h('span', {}, 'Rights, privacy and terms'))));
@@ -2468,16 +2499,7 @@ if (shared) setTimeout(() => {
       .then((song) => (song ? remixSong(song, false) : toast('Could not open that song')), () => toast('Could not open that song'));
     return;
   }
-  const landing = openSharedLanding({
-    load, isPlaying: () => playing,
-    play: (song) => { countPlay(song.trackId); listen(song); },
-    fetchSong: (id) => fetch(`/api/tracks?id=${encodeURIComponent(id)}`).then((r) => (r.ok ? r.json() : Promise.reject())).then(({ track: t }) => t?.state && { ...normalizeSong(t), trackId: t.id, remixes: t.remixes || 0, children: t.children || [] }),
-    stop: () => { if (playing) stop(); },
-    remix: remixSong,
-    share: (song) => showShare(song, 'shared'),
-    close: () => { leaveGuest(); window.history.replaceState(null, '', location.pathname); },
-  });
-  addEventListener('keydown', (e) => { if (e.code === 'Space') setTimeout(landing.sync); }, true);
+  openLanding(load);
 });
 else if (new URLSearchParams(location.search).has('drop')) setTimeout(() => openDropLink(new URLSearchParams(location.search)));
 else if (new URLSearchParams(location.search).has('room')) setTimeout(showClub);
