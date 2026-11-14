@@ -42,24 +42,32 @@ export const BAND = {
   // The SONGS band: steel-string acoustic guitar and electric bass guitar.
   agtr: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
   ebass: [28, 31, 34, 37, 40, 43, 46, 49, 52, 55],
+  // More guitars: the archtop's magnetic pickup (JAZZ GTR), the SX guitar banjo, the green Gretsch (TWANG GTR).
+  jazz: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
+  banjo: [40, 42, 45, 49, 51, 54, 57, 60, 63, 68, 71],
+  gretsch: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
 };
 // Measured pitch of a recording minus its name, in cents (python3 test/sampletune.py), for takes played a little off.
 const GTR_TUNE = { 40: -4, 42: -2, 45: -8, 48: -6, 51: 8, 54: 4, 57: 9, 60: 4, 63: 2, 66: 2, 72: -2 };
 // The staccato takes are read over their first 170 ms (they are damped by 250 ms): a muted pick attack rides sharp.
 const MUTE_TUNE = { 40: 17, 42: 27, 45: 8, 48: 7, 51: 22, 54: 15, 57: 17, 60: 12, 63: 4, 66: 5, 69: -2 };
 const MUTE_TUNE_B = { 40: 23, 42: 21, 45: 6, 48: 5, 51: 18, 54: 15, 57: 15, 60: 10, 66: 5, 69: -1, 72: -6 };
-const BAND_TUNE = { gtr: GTR_TUNE, gtrsoft: GTR_TUNE, gtrb: GTR_TUNE, gtrsoftb: GTR_TUNE, gtrmute: MUTE_TUNE, gtrmuteb: MUTE_TUNE_B };
+const JAZZ_TUNE = { 42: -7, 48: -10, 51: -3, 57: -3, 63: -3, 66: 4, 69: -3, 72: -4 };
+const GRETSCH_TUNE = { 42: 19, 48: 6, 51: 5, 54: 5, 57: 10, 60: 7, 63: 6, 66: 4, 69: 2 };
+// The guitar banjo was tuned up a little under a quarter tone.
+const BANJO_TUNE = { 40: 41, 42: 41, 45: 48, 49: 39, 51: 43, 54: 34, 57: 13, 60: 30, 63: 41, 68: 23, 71: 10 };
+const BAND_TUNE = { jazz: JAZZ_TUNE, jazzb: JAZZ_TUNE, gretsch: GRETSCH_TUNE, gretschb: GRETSCH_TUNE, banjo: BANJO_TUNE, gtr: GTR_TUNE, gtrsoft: GTR_TUNE, gtrb: GTR_TUNE, gtrsoftb: GTR_TUNE, gtrmute: MUTE_TUNE, gtrmuteb: MUTE_TUNE_B };
 // Instruments recorded at two dynamics: the softly played layer loads with the instrument.
 export const SOFT_LAYER = { piano: 'pianosoft', gtr: 'gtrsoft' };
 // A second take of every guitar note, so a repeated strum alternates recordings instead of machine-gunning one.
 // Loaded in the background once the first take is in; until then every hit plays the first take.
-export const TAKES = { gtr: 'gtrb', gtrsoft: 'gtrsoftb', agtr: 'agtrb', gtrmute: 'gtrmuteb' };
+export const TAKES = { gtr: 'gtrb', gtrsoft: 'gtrsoftb', agtr: 'agtrb', gtrmute: 'gtrmuteb', jazz: 'jazzb', gretsch: 'gretschb' };
 // The Hofner's staccato (fretting hand lifted right after the pick): the DRIVE GTR's palm-muted chug.
 export const MUTE_LAYER = { gtr: 'gtrmute' };
 // Background-only recordings: alternate takes and mutes, never waited on before a song starts.
-const EXTRA_TAKES = Object.fromEntries([...Object.values(TAKES), ...Object.values(MUTE_LAYER)].map((k) => [k, BAND.gtr]));
+const EXTRA_TAKES = Object.fromEntries([...Object.entries(TAKES), ...Object.entries(MUTE_LAYER)].map(([k, alt]) => [alt, BAND[k] || BAND.gtr]));
 // STAB voice index -> recorded instrument.
-export const STAB_BAND = { 7: 'piano', 8: 'gtr', 9: 'horn', 10: 'str', 11: 'gtr', 12: 'agtr' };
+export const STAB_BAND = { 7: 'piano', 8: 'gtr', 9: 'horn', 10: 'str', 11: 'gtr', 12: 'agtr', 13: 'jazz', 14: 'banjo', 15: 'gretsch' };
 Object.assign(BAND, EXTRA_TAKES);
 export const BAND_FILES = Object.entries(BAND).flatMap(([k, ns]) => ns.map((n) => `${k}_${n}`));
 // Crash and toms of the same recorded kit, loaded only by the band pockets that play them (POP, R&B, ROCK, FOLK, COUNTRY).
