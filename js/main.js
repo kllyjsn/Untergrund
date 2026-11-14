@@ -640,6 +640,7 @@ function leaveGuest() {
   const { backup, style: own } = guest;
   guest = null;
   style = own;
+  songOrigin = { src: 'restored' };
   replaceState(backup);
 }
 function remixSong(song, autoplay = playing) {
