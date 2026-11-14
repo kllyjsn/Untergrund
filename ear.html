@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="robots" content="noindex" />
+  <meta name="theme-color" content="#1c1c1e" />
+  <title>UNTERGRUND · Ear</title>
+  <link rel="stylesheet" href="css/ear.css" />
+</head>
+<body>
+  <main>
+    <header><a href="/">UNTERGRUND</a><span id="count">0 picks</span></header>
+    <p class="eyebrow">TRAIN THE EAR · <span id="genre">…</span></p>
+    <h1>Which one sounds like a record?</h1>
+    <div class="players">
+      <button id="play-a" class="play" type="button" aria-pressed="false" disabled><b>A</b><i aria-hidden="true"></i></button>
+      <button id="play-b" class="play" type="button" aria-pressed="false" disabled><b>B</b><i aria-hidden="true"></i></button>
+    </div>
+    <p id="status" class="status" role="status">Rendering two songs…</p>
+    <p class="label">WHAT'S WRONG WITH THE WORSE ONE <span>optional</span></p>
+    <div id="tags" class="tags"></div>
+    <div class="picks">
+      <button id="pick-a" type="button" disabled>A IS BETTER</button>
+      <button id="pick-same" class="quiet" type="button" disabled>SAME</button>
+      <button id="pick-b" type="button" disabled>B IS BETTER</button>
+    </div>
+    <button id="send" class="send" type="button" disabled>SEND PICKS</button>
+    <p class="hint">Blind and level-matched. Picks stay on this phone until you send them.</p>
+  </main>
+  <script type="module" src="js/ear.js"></script>
+</body>
+</html>
