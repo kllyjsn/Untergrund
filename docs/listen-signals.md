@@ -36,7 +36,7 @@ Sent as `{ n: 'listen', p: { kind, genre }, l: <record>, t }`. The server keeps 
 | `tid` | published track id when the song came from the crate/feed/share, else `''` |
 | `seed` | the generator seed (`state.artist.seed`), `-1` if unknown |
 | `style` | style/genre id (`acid`, `techno`, …) |
-| `src` | how the song came to be: `generate`, `prompt` (Describe), `hum`, `drop` (Daily Drop), `piece`, `remix`, `crate`, `shared`, `jukebox`, `room`, `restored` |
+| `src` | how the song came to be: `generate`, `prompt` (Describe), `hum`, `drop` (Daily Drop), `piece`, `remix`, `crate`, `shared`, `jukebox`, `room`, `restored`, `radio` (started by Radio when the last song ended or was turned down) |
 | `surf` | where it was heard: `home`, `studio`, `shared`, `jukebox`, `room` |
 | `ph` | hash of the normalized Describe prompt, when `src` is `prompt` |
 | `pt` | the prompt text itself, **only on `start`**, max 120 chars, dropped if it looks like an email, URL or phone number |
@@ -54,6 +54,8 @@ Sent as `{ n: 'listen', p: { kind, genre }, l: <record>, t }`. The server keeps 
 | `lid` | random per-device listener id (`localStorage['untergrund.lid']`), created only when analytics is on |
 | `sid` | per-tab session id (added server-side from the batch) |
 | `t`, `at` | client timestamp (ms) and server receive time (ISO) |
+
+With Radio on (the default, `localStorage['untergrund.radio']`), picking a down reason moves on to the next song on the bar, so a `why` is usually followed by a `skip`; `not_my_style` also switches to another style in the same family. Radio itself sends `radio` events (`kind`: `on`, `off`, `next`, `skip`) and the Library sends `library` (`open`, `play`).
 
 Anything else is dropped by `cleanListen()`; unknown kinds or a missing fingerprint drop the whole signal.
 

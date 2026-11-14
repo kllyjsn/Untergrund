@@ -25,11 +25,16 @@ for (const style of Object.keys(STYLES)) {
 // Hash links and short ids parse too; junk never throws.
 assert.deepEqual(readShareParams(new URL('https://x.sh/#s=zAbc')), { code: 'zAbc' });
 assert.deepEqual(readShareParams(new URL('https://x.sh/?t=abc-123<script>')), { id: 'abc-123script' });
+assert.equal(songLink('https://x.sh', { id: 'abc-123' }), 'https://x.sh/t/abc-123', 'stored tracks share their release page');
+assert.equal(songLink('https://x.sh', { id: 'abc-123', release: false }), 'https://x.sh/?t=abc-123', 'classical pieces open in the app');
+assert.equal(songLink('https://x.sh', { id: 'abc-123' }, '/embed.html'), 'https://x.sh/embed.html?t=abc-123');
 assert.equal(readShareParams(new URL('https://x.sh/?jukebox')), null);
 // Share refs: one per shared link, read back on arrival; anything malformed is dropped.
 assert.match(newShareRef(), SHARE_REF);
-assert.equal(songLink('https://x.sh', { id: 'abc-123' }, '/', 'k3j9x0aa'), 'https://x.sh/?t=abc-123&r=k3j9x0aa');
-assert.equal(songLink('https://x.sh', { id: 'abc-123' }, '/', '<bad>'), 'https://x.sh/?t=abc-123');
+assert.equal(songLink('https://x.sh', { id: 'abc-123' }, '/', 'k3j9x0aa'), 'https://x.sh/t/abc-123?r=k3j9x0aa');
+assert.equal(songLink('https://x.sh', { id: 'abc-123', release: false }, '/', 'k3j9x0aa'), 'https://x.sh/?t=abc-123&r=k3j9x0aa');
+assert.equal(songLink('https://x.sh', { code: 'zAbc' }, '/', 'k3j9x0aa'), 'https://x.sh/?s=zAbc&r=k3j9x0aa');
+assert.equal(songLink('https://x.sh', { id: 'abc-123' }, '/', '<bad>'), 'https://x.sh/t/abc-123');
 assert.deepEqual(readShareParams(new URL('https://x.sh/?t=abc-123&r=k3j9x0aa')), { id: 'abc-123', ref: 'k3j9x0aa' });
 assert.deepEqual(readShareParams(new URL('https://x.sh/?s=zAbc&r=k3j9x0aa')), { code: 'zAbc', ref: 'k3j9x0aa' });
 assert.deepEqual(readShareParams(new URL('https://x.sh/?t=abc-123&r=NOPE!')), { id: 'abc-123' });

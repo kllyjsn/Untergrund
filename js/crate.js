@@ -14,6 +14,8 @@ function keepLocal(track) {
 const meta = ({ state, ...rest }) => rest;
 
 export const recentTracks = () => localTracks().map(meta);
+// Every song made or saved in this browser, newest first, with its state (for the Library).
+export const libraryTracks = () => localTracks().filter((t) => t?.state);
 
 export async function listCrate() {
   try {
