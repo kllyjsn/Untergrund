@@ -3,7 +3,7 @@
 // Principles and research basis: docs/long-form.md.
 import assert from 'node:assert/strict';
 import { STYLES, SONG_STYLES, songPlan } from '../js/state.js';
-import { realize } from '../js/song-spec.js';
+import { realize, validateSpec } from '../js/song-spec.js';
 import { planSections, formChain, formSeconds, developSong, LENGTHS, MAX_SONG_BARS } from '../js/longform.js';
 import { buildSong, playSong, SEEDS, loopStyles } from '../scripts/composition.mjs';
 
@@ -87,6 +87,11 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
   // ...but only with the instruments each of its sections asked for.
   for (const p of r.patterns) for (const t of p.at || []) for (const id of Object.keys(t.steps || {}))
     assert(p.steps[id].some((v) => v && (typeof v !== 'object' || v.on)), `a described song keeps ${id} out of a section that excluded it`);
+  // An AI plan that ignores a "demo" request is cut to the sketch form, keeping its chords.
+  const long = { style: 'pop', bpm: 120, sections: ['intro', 'verse', 'drop', 'verse', 'drop', 'breakdown', 'drop', 'outro'].map((role) => ({ role, bars: 16, energy: 0.7, chords: ['i', 'VI', 'III', 'VII'] })) };
+  const demo = validateSpec(long, { prompt: 'a short pop demo' }), dBars = demo.sections.reduce((a, x) => a + x.bars, 0);
+  assert((dBars * 240) / demo.bpm <= 120 && demo.sections.some((x) => x.chords?.length), `a demo prompt gets a sketch (${dBars} bars)`);
+  assert.equal(validateSpec(long, { prompt: 'a pop song' }).sections.length, 8, 'a full prompt keeps its plan');
   // Locked tracks are never developed.
   const keep = ['kick', 'ch', 'oh', 'ride', 'perc', 'clap', 'snare'];
   for (const style of SONG_STYLES) {

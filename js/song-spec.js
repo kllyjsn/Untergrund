@@ -1,8 +1,8 @@
 // Prompt to song: an LLM (or the local rules) writes a small song spec; this file validates it and the
 // deterministic engine performs it with the usual generators. The result is an ordinary project, so every
 // note, chord, section and knob stays editable afterwards. Pure module: runs in the browser and in Node.
-import { developSong } from './longform.js';
-import { STYLES, MAJOR_STYLES, generate, arrangement, songChain, defaultState, applyOverrides, clone, emptyAcidStep } from './state.js';
+import { developSong, LENGTHS } from './longform.js';
+import { STYLES, MAJOR_STYLES, generate, arrangement, songChain, songPlan, defaultState, applyOverrides, clone, emptyAcidStep } from './state.js';
 import { SCALES, KEYS, TRACK_IDS, STEPS } from './params.js';
 import { toSections, MAX_BARS } from './timeline.js';
 import { parse, applyEdits, validateEdits, genreOf } from './describe.js';
@@ -62,6 +62,7 @@ const CH_RE = /^(b|#)?(vii|vi|v|iv|iii|ii|i)(°|o|ø|\+)?(maj7|maj9|M7|M9|add9|s
 // ---------------- validation ----------------
 // Anything the model (or a hand-edited share) sends is clamped here; unknown fields are dropped and a
 // missing part falls back to the style's own choice. Always returns a playable spec.
+const SKETCH_WORDS = /\b(?:sketch|demo|snippet)\b/;
 export function validateSpec(raw, { style: fallbackStyle = 'deephouse', prompt = '' } = {}) {
   const src = raw && typeof raw === 'object' ? raw : {};
   const sid = String(src.style || '').toLowerCase().replace(/[^a-z]/g, '');
@@ -91,7 +92,13 @@ export function validateSpec(raw, { style: fallbackStyle = 'deephouse', prompt =
     const parts = Array.isArray(s.instruments) ? [...new Set(s.instruments.map((x) => String(x).toLowerCase()).map((x) => PART_WORD[x] || x).filter((x) => PARTS.includes(x)))] : null;
     sections.push({ role, bars: n, energy: +energy.toFixed(2), chords, ...(parts ? { instruments: parts } : {}), ...(s.density != null ? { density: +clamp(s.density, 0, 1, 0.6).toFixed(2) } : {}) });
   }
-  spec.sections = bars >= 16 ? sections : formSections(style, specSeed({ style, prompt }));
+  // "sketch", "demo" or "snippet" asks for the short form: a longer plan keeps its chords and parts, in the sketch form.
+  const sketch = SKETCH_WORDS.test(String(prompt).toLowerCase()), seedOf = specSeed({ style, prompt });
+  spec.sections = bars >= 16 ? sections : formSections(style, seedOf, sketch ? 'sketch' : 'song');
+  if (sketch && (bars * 240) / spec.bpm > LENGTHS.sketch.hi) spec.sections = formSections(style, seedOf, 'sketch').map((x) => {
+    const a = sections.find((y) => y.role === x.role);
+    return a ? { ...x, chords: a.chords, ...(a.instruments ? { instruments: a.instruments } : {}), ...(a.density != null ? { density: a.density } : {}) } : x;
+  });
   spec.texture = validateEdits(Array.isArray(src.texture) ? src.texture : []).filter((e) => TEXTURE.includes(e.id) && !e.target).slice(0, 6).map(({ src: _s, ...e }) => e);
   return spec;
 }
@@ -101,8 +108,18 @@ const PART_WORD = { bassline: 'bass', sub: 'bass', keys: 'chords', pads: 'chords
 // The style's own song form as spec sections (fills and turnarounds are folded into their section).
 const LETTER_ROLE = ['intro', 'build', 'verse', null, 'breakdown', 'breakdown', 'drop', null];
 const ROLE_ENERGY = { intro: 0.25, build: 0.5, verse: 0.65, breakdown: 0.35, drop: 0.95, outro: 0.2 };
+const KIND_ROLE = { i: 'intro', v: 'verse', p: 'build', c: 'drop', x: 'breakdown', b: 'breakdown', o: 'outro' };
 export function formSections(style, seed, length = 'song') {
   const out = [];
+  const { sections: plan } = songPlan(style, seed, length);
+  if (plan) {
+    for (const [k, bars] of plan) {
+      const role = KIND_ROLE[k], last = out[out.length - 1];
+      if (last && last.role === role) last.bars += bars;
+      else out.push({ role, bars, energy: ROLE_ENERGY[role], chords: [] });
+    }
+    return out;
+  }
   const secs = toSections(songChain(style, seed, length));
   secs.forEach((s, i) => {
     let role = LETTER_ROLE[s.p];
@@ -275,7 +292,7 @@ export function localSpec(text, { style: current = 'deephouse', seed } = {}) {
   const scaleEdit = edits.find((e) => e.id === 'scale' && SCALES[e.value]);
   const keyEdit = edits.find((e) => e.id === 'key' && /\b(?:in|key\s+of)\s+[a-g](?:#|b|\s+sharp|\s+flat)?\b/.test(e.src || ''));
   const s0 = seed ?? hashStr(t);
-  const sections = formSections(style, s0, /\b(?:sketch|demo|snippet)\b/.test(t) ? 'sketch' : 'song');
+  const sections = formSections(style, s0, SKETCH_WORDS.test(t) ? 'sketch' : 'song');
   const find = (role) => sections.find((s) => s.role === role);
   // Structure words.
   if (/\b(?:long|slow)[\s-]+(?:intro|burn)\b|\bslow[\s-]?burn\b|\btakes?\s+its\s+time\b/.test(t) && find('intro')) find('intro').bars = 16;
