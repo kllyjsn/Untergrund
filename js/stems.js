@@ -180,13 +180,24 @@ Each instrument stem is dry plus its own channel processing; reverb, delay, room
 arrangement FX (risers, impacts, vinyl dust) are in the fx-returns stem. Recorded live-kit pieces are
 in the stem of the drum they play (kick.wav holds the recorded kick when the live kit is on).
 Notes come in a separate EXPORT MIDI file from the same FILE menu.
-
+${r.sungDb ? `sung-vocal.wav is printed ${(-r.sungDb).toFixed(1)} dB under its mix level so it does not clip: raise it ${(-r.sungDb).toFixed(1)} dB to rebuild the mix.\n` : ''}
 ${r.stems.map((x, i) => `${String(i + 1).padStart(2, '0')}-${x.name}.wav`).join('\n')}
 `;
 
 // The finished .zip: one WAV per stem plus a README.
 export async function stemsZip(state, opts = {}) {
   const r = await renderStems(state, opts);
+  const sung = r.stems.find((x) => x.id === 'sung');
+  if (sung) {
+    let peak = 0;
+    for (const c of [sung.left, sung.right]) for (const v of c) peak = Math.max(peak, Math.abs(v));
+    // The singer's stem peaks far above its RMS; at mix level it would clip in a fixed-point WAV.
+    if (peak > 0.99) {
+      const g = 0.99 / peak;
+      for (const c of [sung.left, sung.right]) for (let i = 0; i < c.length; i++) c[i] *= g;
+      r.sungDb = 20 * Math.log10(g);
+    }
+  }
   const zip = new ZipWriter(), dir = exportName(state, '-stems');
   for (const [i, x] of r.stems.entries()) {
     if (opts.signal?.aborted) throw abortError();
