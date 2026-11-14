@@ -51,7 +51,7 @@ const GROW = {
   outro16: (S) => S.at(-1)[0] === 'o' && grow(S, S.length - 1, 16),
 };
 const ORDER = {
-  pop: ['final', 'inst', 'verse2', 'pre', 'outro', 'intro', 'verse1', 'bridge'],
+  pop: ['final', 'inst', 'verse2', 'pre', 'outro', 'intro', 'verse1', 'bridge', 'intro16', 'outro16'],
   rap: ['final', 'inst', 'outro', 'intro', 'verse3', 'bridge'],
   house: ['final', 'inst', 'intro16', 'outro16', 'verse2', 'verse1', 'bridge'],
 };
@@ -64,7 +64,16 @@ export const formSeconds = (S, bpm) => (formBars(S) * 240) / bpm;
 // The section plan for an idiom at a tempo. `r` is the seeded random source that picks the base.
 export function planSections(idiom, bpm, length = 'song', r = Math.random) {
   const L = LENGTHS[length] ? length : 'song', T = LENGTHS[L], list = BASES[L][idiom] || BASES[L].pop;
-  const S = parseForm(list[Math.floor(r() * list.length)]);
+  // The last chorus is the longest wherever the tempo allows; at ballad tempos, bases that already fill the
+  // song are preferred, and the shortest is used when none fits.
+  const forms = list.map((f) => {
+    const S = parseForm(f), t = S.map((x) => [...x]);
+    if (L === 'song' && GROW.final(t) && formSeconds(t, bpm) <= T.hi) return t;
+    return S;
+  });
+  const fit = forms.filter((S) => formSeconds(S, bpm) <= T.hi);
+  const pick = forms[Math.floor(r() * forms.length)];
+  const S = fit.length ? (fit.includes(pick) ? pick : fit[Math.floor(r() * fit.length)]) : forms.reduce((a, b) => (formBars(b) < formBars(a) ? b : a));
   for (const op of L === 'song' ? ORDER[idiom] || ORDER.pop : SKETCH_ORDER) {
     if (formSeconds(S, bpm) >= T.mid) break;
     const trial = S.map((s) => [...s]);

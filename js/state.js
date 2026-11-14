@@ -1,6 +1,6 @@
 import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, CHORDS, defaultParams, defaultMaster } from './params.js';
 import { rng } from './dsp.js';
-import { planSections, formChain, parseForm, developSong } from './longform.js';
+import { planSections, formChain, parseForm, developSong, LENGTHS } from './longform.js';
 import { FORMS, SECTIONS } from './classical.js';
 import { MODELS } from './composer-models.js';
 import { POCKETS, STYLE_POCKET } from './groove.js';
@@ -1059,21 +1059,22 @@ export const songForm = (spec) => formChain(parseForm(spec));
 
 // A generated song's form: the chain, plus its sections for song styles (longform.js grows them to the tempo and
 // developSong writes the second verse, instrumental and final chorus). `length` is 'song' (3-4 min) or 'sketch'.
-export function songPlan(style, seed, length = 'song') {
+// `bpm` is the tempo the song will actually play at, so the form is sized in seconds, not bars.
+export function songPlan(style, seed, length = 'song', bpm = midBpm(style)) {
   if (FORMS[style] || style === 'repertoire') return { chain: 'A', sections: null };
   if (SONG.has(style)) {
-    const sections = planSections(IDIOM[style] || 'pop', midBpm(style), length, rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)));
+    const sections = planSections(IDIOM[style] || 'pop', bpm, length, rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)));
     return { chain: formChain(sections), sections };
   }
   const kind = style === 'ambient' ? 'ambient' : 'techno';
   if (length === 'sketch') return { chain: CLUB_SKETCH[kind], sections: null };
   if (kind === 'ambient') return { chain: pick(rng(seed + 9), AMBIENT_FULL), sections: null };
-  return { chain: (112 * 240) / midBpm(style) < 175 ? TECHNO_LONG : pick(rng(seed + 9), SONG_FORMS.techno), sections: null };
+  return { chain: (112 * 240) / bpm < LENGTHS.song.lo ? TECHNO_LONG : pick(rng(seed + 9), SONG_FORMS.techno), sections: null };
 }
 export const songChain = (style, seed, length = 'song') => songPlan(style, seed, length).chain;
 // The form written into a fresh arrangement: chain plus the takes that develop each repeat.
 export function applySongPlan(s, style, seed, length = 'song') {
-  const plan = songPlan(style, seed, length);
+  const plan = songPlan(style, seed, length, s.bpm || midBpm(style));
   s.chain = plan.chain;
   developSong(s.patterns, plan.sections, { keep: Object.keys(s.locks || {}).filter((t) => s.locks[t]) });
   return plan;

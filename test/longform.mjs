@@ -69,7 +69,7 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
 // the instrumental hands the lead line to the riff, and the rendered last chorus is the densest.
 {
   for (const style of SONG_STYLES) for (const seed of SEEDS.slice(0, 3)) {
-    const s = buildSong(style, seed), { sections } = songPlan(style, seed), sp = spans(sections);
+    const s = buildSong(style, seed), { sections } = songPlan(style, seed, 'song', s.bpm), sp = spans(sections);
     const v = sp.filter((x) => x.k === 'v'), c = sp.filter((x) => x.k === 'c'), x = sp.find((y) => y.k === 'x');
     assert.notEqual(sig(s, v[1].at + v[1].bars - 2), sig(s, v[0].at + v[0].bars - 2), `${style}/${seed} verse 2 develops verse 1`);
     assert.equal(sig(s, c[1].at), sig(s, c[0].at), `${style}/${seed} the second chorus is the same chorus`);
@@ -91,7 +91,7 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
   const keep = ['kick', 'ch', 'oh', 'ride', 'perc', 'clap', 'snare'];
   for (const style of SONG_STYLES) {
     const s = buildSong(style, 7), pats = s.patterns.map((p) => ({ ...p, at: undefined }));
-    developSong(pats, songPlan(style, 7).sections, { keep });
+    developSong(pats, songPlan(style, 7, 'song', s.bpm).sections, { keep });
     for (const p of pats) for (const t of p.at || []) assert(!keep.some((id) => t.steps?.[id] || t.len?.[id]), `${style} develops a locked track`);
   }
   console.log('long-form development passed');
