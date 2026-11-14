@@ -1,4 +1,5 @@
-import { track as trackEvent, reportError, playStarted, playStopped, did } from './analytics.js';
+import { track as trackEvent, reportError, playStarted, playStopped, did, signal, onTrack, flushEvents } from './analytics.js';
+import { createListens, songFingerprint, promptHash, promptText } from './listen.js';
 import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue, VOICE_HIDDEN } from './params.js';
 import { Engine, Sequencer, parseChain } from './engine.js';
 import { defaultState, generate, mutate, arrangement, songChain, applyOverrides, clone, save, load, sanitize, STYLES, MAJOR_STYLES, emptyPattern, emptyAcidStep } from './state.js';
@@ -84,6 +85,9 @@ const isText = (el) => el && (el.tagName === 'INPUT' || el.tagName === 'SELECT' 
 let saveTimer = 0;
 // While someone else's song plays (shared link, jukebox) the listener's own project stays untouched in storage.
 let guest = null;
+// Listen signals (js/listen.js): songOrigin says how the song in `state` came to be; pendingPrompt is a Describe prompt about to become a song.
+const listens = createListens({ emit: signal });
+let songOrigin = { src: 'restored' }, pendingPrompt = null;
 function persist() { if (guest) return; clearTimeout(saveTimer); saveTimer = setTimeout(() => save(state), 300); }
 
 // ---------------- audio ----------------
@@ -249,6 +253,8 @@ function landSong(t) {
   handoff = null;
   const fromBpm = state.bpm;
   if (plan.undo) pushUndo(plan.label || 'GENERATE');
+  listens.end(listenPos());
+  songOrigin = plan.origin || { src: 'crate' };
   autoMajor = plan.autoMajor ?? false;
   for (const k of Object.keys(state)) if (!(k in plan.next)) delete state[k];
   Object.assign(state, plan.next);
@@ -260,7 +266,7 @@ function landSong(t) {
   if (engine.recLock) engine.recLock = new Map();
   uiQueue.length = 0;
   lastPlayedPat = null;
-  return () => { plan.finish(true); syncNowPlaying(); };
+  return () => { plan.finish(true); listens.begin(listenCtx(), listenPos(0)); syncNowPlaying(); };
 }
 
 // A song on recorded instruments holds its first downbeat until they're decoded (up to 8 s); a score waits longer,
@@ -323,11 +329,13 @@ function start({ step = 0, delay = 0.06 } = {}) {
   for (const b of document.querySelectorAll('.btn.play')) b.setAttribute('aria-label', 'Stop');
   syncNowPlaying();
   if (seeking) return;
+  listens.begin(listenCtx(), listenPos(abs));
   playStarted({ genre: style });
   renderHome();
 }
 
 function stop() {
+  listens.end(listenPos(), { finished: songOver });
   clearPaused();
   endTuning();
   if (engine) engine.recLock = null;
@@ -355,6 +363,32 @@ function stop() {
   syncNowPlaying();
 }
 
+// Where the listener is in the song now: bar, length in bars and the section name.
+function listenPos(step = playing && seq ? abs - seq.origin : paused?.step ?? 0) {
+  const sid = STYLES[state.artist?.style] ? state.artist.style : style;
+  const sc = pat()?.score ? ui.npScore : null;
+  const chain = state.chainOn ? parseChain(state.chain) : [];
+  const bars = sc ? sc.bars : chain.length;
+  const bar = Math.max(0, Math.floor(step / (sc?.barLen || 16)));
+  const sec = sc ? sc.sections.findLast((x) => x.at <= bar)?.name : chain.length ? sectionName(sid, chain[Math.min(bar, chain.length - 1)]) : PATTERN_NAMES[state.current];
+  return { bar, bars, sec: String(sec || '').toLowerCase().replace(/\s+/g, '_') };
+}
+const listenSurface = () => (jukeboxNow ? 'jukebox' : songOrigin.src === 'room' ? 'room' : guest ? 'shared' : studioOpen ? 'studio' : 'home');
+function listenCtx() {
+  const a = state.artist || {};
+  return { fp: songFingerprint(state), tid: guest?.song?.trackId || songOrigin.tid || '', seed: Number.isFinite(+a.seed) ? +a.seed : -1, style: STYLES[a.style] ? a.style : style,
+    src: songOrigin.src, surf: listenSurface(), ph: songOrigin.ph || '', pt: songOrigin.pt || '' };
+}
+// Publish, share, go live and export count as signals on the song you hear (or just heard).
+const SONG_SHARES = new Set(['song', 'song_sent', 'video_sent', 'video_saved', 'embed', 'soundcloud']);
+onTrack((name, p) => {
+  const kind = name === 'publish' ? (['song', 'soundcloud'].includes(p.kind) && 'publish')
+    : name === 'share_link_copied' ? (SONG_SHARES.has(p.what) && 'share')
+    : name === 'video_export' ? 'share' : name === 'room_go_live' ? 'live' : name === 'save_track' || /^export_(wav|stems|midi)$/.test(name) ? 'keep' : null;
+  if (kind) listens.act(kind, listenPos());
+});
+addEventListener('pagehide', () => { if (listens.end(listenPos(), { force: true })) flushEvents(); });
+
 const nativeHaptic = (style = 'light') => window.__untergrundNative?.haptic(style);
 const toggle = () => { nativeHaptic(); return playing || tuning ? stop() : paused ? remote.play() : play(); };
 
@@ -373,6 +407,7 @@ function pause(reason = 'remote') {
   const step = playing ? resumeStep({ next: abs, origin: seq.origin, ahead: nextTime - ctx.currentTime, stepSec: engine.stepDur, ended: songOver }) : 0;
   const live = artistLive && { ...artistLive, bar: -1 };
   const rejoin = roomResume;
+  listens.hold(listenPos());
   stop();
   paused = { step, reason, live, at: Date.now(), resume: rejoin || (() => {
     play({ step });
@@ -588,8 +623,9 @@ function currentSong() {
 function showShare(song = currentSong(), source = 'studio') { openShare({ song, toast, download, source, hue: hue(song.style), beforeExport: () => { if (playing) stop(); } }); }
 
 // Play a shared or jukebox song in place; leaveGuest() puts the listener's own project back.
-function listen(song) {
+function listen(song, src = 'shared') {
   ensureAudio();
+  songOrigin = { src, tid: song.trackId || '' };
   if (!guest) guest = { backup: clone(state), style };
   guest.song = song;
   if (STYLES[song.style]) style = song.style;
@@ -609,6 +645,8 @@ function leaveGuest() {
 function remixSong(song, autoplay = playing) {
   const next = remixState(song, { name: loadArtistProfile().name });
   if (!next) return toast('Could not open that song');
+  listens.act('keep', listenPos());
+  songOrigin = { src: 'remix', tid: song.trackId || '' };
   const own = guest ? guest.backup : clone(state);
   guest = null;
   history.push(JSON.stringify({ patterns: own.patterns, params: own.params, master: own.master, bpm: own.bpm }), 'REMIX');
@@ -650,7 +688,7 @@ function showJukebox() {
         if (!saved?.state) throw new Error('track_missing');
         current = { ...normalizeSong({ ...item, state: saved.state, remixOf: saved.remixOf || item.remixOf }), trackId: item.local ? '' : item.trackId };
       }
-      listen(current);
+      listen(current, item.kind === 'drop' ? 'drop' : 'jukebox');
       const bars = state.chainOn ? parseChain(state.chain).length || 8 : 8;
       return (Math.min(bars, 64) * 16 * 15) / state.bpm;
     },
@@ -662,6 +700,7 @@ function timelineHooks(asGuest) {
   return {
     load: (s, st) => {
       if (asGuest && !guest) guest = { backup: clone(state), style };
+      songOrigin = { src: asGuest ? 'jukebox' : 'room' };
       if (STYLES[st]) style = st;
       const next = sanitize({ ...s, artist: state.artist });
       if (!asGuest) return replaceState(next);
@@ -676,7 +715,7 @@ function timelineHooks(asGuest) {
       const newSong = next.chain !== state.chain && JSON.stringify(next.patterns[0]) !== JSON.stringify(state.patterns[0]);
       if (playing && seq && newSong && !pat().score && !next.patterns.some((q) => q.score)) {
         next.artist = state.artist;
-        return queueSong({ next, quiet: true, finish: () => { build(); if (!guest) persist(); } });
+        return queueSong({ next, quiet: true, origin: { src: asGuest ? 'jukebox' : 'room' }, finish: () => { build(); if (!guest) persist(); } });
       }
       if (playing && next.bpm !== state.bpm) transportOrigin = Date.now() - ((Date.now() - transportOrigin) / (15000 / state.bpm)) * (15000 / next.bpm);
       const want = next.current;
@@ -710,6 +749,7 @@ function joinRoomSet(item) {
   if (!item?.state) return;
   style = STYLES[item.style] ? item.style : STYLES[item.state.artist?.style] ? item.state.artist.style : style;
   const roomState = sanitize(clone(item.state));
+  songOrigin = { src: 'room' };
   const startsAt = Number.isFinite(+item.startsAt) ? +item.startsAt : Date.now();
   replaceState(roomState);
   const sync = () => {
@@ -926,9 +966,12 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   s.artist = { name: artist, title, style: id, seed, created: new Date().toISOString() };
   delete s.remixOf; delete s.drop; delete s.lyrics;
   if (drop) Object.assign(s, { drop: drop.date, remixOf: { id: '', title: `Daily Drop · ${drop.title}`, artist: 'UNTERGRUND' } });
+  const prompt = typeof steer === 'function' ? pendingPrompt : null;
+  pendingPrompt = null;
   if (typeof steer === 'function') Object.assign(s, steer(s));
+  const origin = { src: typeof hum === 'function' ? 'hum' : drop ? 'drop' : steer ? 'prompt' : 'generate', ...(prompt ? { ph: promptHash(prompt), pt: promptText(prompt) } : {}) };
   return {
-    next: s, undo: true, autoMajor: major,
+    next: s, undo: true, autoMajor: major, origin,
     finish: (landed = false) => {
       const title = s.artist.title;
       build(); persist();
@@ -942,6 +985,7 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   };
 }
 function adoptPlan(plan) {
+  if (plan.origin) songOrigin = plan.origin;
   autoMajor = plan.autoMajor ?? false;
   for (const k of Object.keys(state)) if (!(k in plan.next)) delete state[k];
   adoptState(plan.next);
@@ -1212,6 +1256,7 @@ function playPiece(id) {
   if (!p) return;
   if (playing) stop();
   if (style !== 'repertoire' || !state.patterns.every((q) => q.score)) { style = 'repertoire'; family = 'CLASSICAL'; doGenerateSet(); }
+  songOrigin = { src: 'piece' };
   pushUndo(p.title);
   for (const q of state.patterns) q.score = { piece: id };
   state.bpm = p.bpm; state.key = 0;
@@ -1258,8 +1303,9 @@ async function openRecent(t) {
     if (!track?.state) throw new Error('track_missing');
     const saved = track.style || t.style;
     if (STYLES[saved]) { style = saved; family = STYLES[saved].family; }
-    const next = sanitize(track.state);
-    if (playing && !pat().score && !next.patterns.some((q) => q.score)) return queueSong({ next, finish: () => { build(); persist(); } });
+    const next = sanitize(track.state), origin = { src: 'crate', tid: String(t.id || '').startsWith('local-') ? '' : t.id || '' };
+    if (playing && !pat().score && !next.patterns.some((q) => q.score)) return queueSong({ next, origin, finish: () => { build(); persist(); } });
+    songOrigin = origin;
     replaceState(next);
     play();
   } catch { toast('Could not load that track'); }
@@ -1276,6 +1322,7 @@ async function openShared(id, autoplay = false) {
     if (playing) stop();
     const next = sanitize(track.state);
     next.artist = { ...(next.artist || {}), title: track.title, name: pub?.artist?.name || track.artist || next.artist?.name, style: track.style };
+    songOrigin = { src: 'shared', tid: track.id || id };
     replaceState(next);
     if (autoplay) play(); else toast(`Loaded “${track.title}”. Press play.`);
   } catch { toast('Could not load that track'); }
@@ -1319,7 +1366,7 @@ function buildNowPlaying(primary) {
   ui.npStyle = sid;
   return [
     h('div', { class: 'now-playing' },
-      h('span', { class: 'np-eyebrow' }, h('i', { class: 'np-dot' }), paused ? 'PAUSED' : 'NOW PLAYING'),
+      h('div', { class: 'np-top' }, h('span', { class: 'np-eyebrow' }, h('i', { class: 'np-dot' }), paused ? 'PAUSED' : 'NOW PLAYING'), loveButton()),
       h('h1', {}, a.title || 'Untitled set'),
       h('div', { class: 'np-meta' }, [a.name || 'UNTERGRUND', STYLES[sid].name, `${state.bpm} BPM`, sc?.meta ? sc.meta.key.toUpperCase() : `${KEYS[state.key]} ${sc ? (pat().score.mode === 'm' ? 'MINOR' : 'MAJOR') : SCALES[state.scale]?.name || 'MINOR'}`]
         .flatMap((v, i) => [i ? ' ' : '', h('span', {}, i ? `· ${v}` : v)])),
@@ -1331,6 +1378,16 @@ function buildNowPlaying(primary) {
       primary,
       ...lifecycleActions()),
   ];
+}
+
+// The one explicit reaction: love the song you hear. Skips, replays and keeps are read from what you do.
+function loveButton() {
+  const l = listens.recent();
+  if (!l) return null;
+  const set = (btn, on) => { btn.classList.toggle('on', on); btn.setAttribute('aria-pressed', String(on)); btn.title = on ? 'Loved. Tap to undo' : 'Love this song'; };
+  const btn = h('button', { class: 'np-love', type: 'button', 'aria-label': 'Love this song', onclick: () => { const on = listens.toggleLove(listenPos()); if (on != null) { set(btn, on); nativeHaptic(on ? 'medium' : 'light'); } } }, h('i', { 'aria-hidden': 'true' }));
+  set(btn, listens.isLoved(l.fp));
+  return btn;
 }
 
 // After a song plays: keep it, share it, play it live. The first step not yet taken on this device is lit, with one line on why.
@@ -1508,7 +1565,7 @@ function dropPeek() {
 function describeBox() {
   return describeBar({
     state: () => state, style: () => style, styleName: (id) => STYLES[id].name, depth: () => history.depth, fresh: () => !hasMade(),
-    pushUndo, undo, track: (p) => trackEvent('describe', p), kind: () => (GROOVE_STYLES.has(style) ? 'groove' : 'club'),
+    pushUndo, undo, track: (p) => trackEvent('describe', p), prompted: (text) => { pendingPrompt = text; }, kind: () => (GROOVE_STYLES.has(style) ? 'groove' : 'club'),
     // Undo of a genre switch also brings back the old genre and song title.
     switchGenre: (id, steer, label) => {
       const was = { style, family }, artist = clone(state.artist ?? null);

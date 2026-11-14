@@ -82,6 +82,7 @@ const placeholder = (ctx) => (lyricsOpen ? 'Describe the song: “sad indie, fem
 const songChip = (style) => (/CLASSICAL|JAZZ/.test(STYLE_FAMILY(style)) ? 'A late-night rainy track' : 'A sunrise drive song');
 const STYLE_FAMILY = (id) => STYLES[id]?.family || '';
 // ctx: state(), style(), styleName(id), depth(), pushUndo(label), undo(), switchGenre(id, steer, label), song(spec, label, done(title, key), lyrics), commit(nextState), track(props), kind(),
+// prompted(text) (optional: the prompt the next switchGenre/song is written from, for listen signals)
 // highlight(bars) (optional: shows which bars of the song a scoped edit changed)
 export function describeBar(ctx) {
   const input = h('input', { class: 'describe-input', type: 'text', placeholder: placeholder(ctx), 'aria-label': 'Describe a song to write, or a change to this one',
@@ -251,6 +252,7 @@ export function describeBar(ctx) {
     hint = recent = net = null;
     draft = ''; lyricsDraft = '';
     lyricsOpen = false;
+    ctx.prompted?.(text || plan.lyrics[0]?.lines[0]?.t || '');
     ctx.switchGenre(plan.style, (s) => {
       const r = applyEdits(s, edits, { seed, style: plan.style });
       const lyrics = cleanLyrics(planLyrics(plan, text));
@@ -273,6 +275,7 @@ export function describeBar(ctx) {
       hint = null; draft = ''; recent = null; net = null;
       const label = `“${text.length > 32 ? text.slice(0, 31) + '…' : text}”`;
       const bars = spec.sections.reduce((a, x) => a + x.bars, 0);
+      ctx.prompted?.(text);
       ctx.song(spec, label, (title, key) => {
         last = { did: [`new ${ctx.styleName(spec.style)} song “${title}”`, `${spec.sections.length} sections, ${bars} bars, ${spec.bpm} BPM in ${KEYS[key]} ${spec.scale}`, ...(meta?.vocal ? [`${meta.vocal} vocal (not sung yet)`] : [])], miss: '', depth: ctx.depth() };
       }, meta);
