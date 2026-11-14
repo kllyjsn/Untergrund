@@ -165,8 +165,11 @@ assert.equal(analyze([]).totals.listens, 0);
   assert.deepEqual(L.heard.shared, { listens: 2, completion: 0.5, replay: 0.5 });
   assert.equal(L.heard.published.listens, 6);
   assert.deepEqual(L.creators, { total: 3, judged: 3, returned: 1, returnRate7d: 0.333 }, 'back at day 3 counts, day 8 does not');
-  const fresh = analyze(S.filter((s) => s.t < T0 + 3 * D)).loop.creators;
+  const early = S.filter((s) => s.t < T0 + 3 * D);
+  const fresh = analyze(early, { now: T0 + 3 * D }).loop.creators;
   assert.deepEqual([fresh.judged, fresh.returnRate7d], [0, null], 'nobody judged before a week has passed');
+  const quiet = analyze(early, { now: T0 + 8 * D }).loop.creators;
+  assert.deepEqual([quiet.judged, quiet.returned, quiet.returnRate7d], [3, 0, 0], 'a week later, creators never heard from again count as not back');
   assert.match(toMarkdown(analyze(S)), /## Release loop[\s\S]*shares per published song \| 0\.667 \(2 shares of 3 songs\)[\s\S]*creator return within 7 days \| 33% \(1 of 3/);
   assert.deepEqual(analyze([]).loop.creators, { total: 0, judged: 0, returned: 0, returnRate7d: null });
 }

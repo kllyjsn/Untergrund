@@ -315,20 +315,19 @@ export function experimentResults(rows, running = [], o = DEFAULTS) {
 // The release loop: do published songs get shared, do shared links bring listeners who finish, replay and come back,
 // and do creators come back within a week of publishing? Rates are null until there is something to divide by.
 export const CREATOR_WEEK_MS = 7 * 864e5;
-export function releaseLoop(signals = [], rows = listensFrom(signals), { returnAfterMs = DEFAULTS.returnAfterMs } = {}) {
+export function releaseLoop(signals = [], rows = listensFrom(signals), { returnAfterMs = DEFAULTS.returnAfterMs, now = Date.now() } = {}) {
   const sig = signals.filter((s) => s && s.fp), rate = (k, n) => (n ? Math.round((1000 * k) / n) / 1000 : null);
-  const latest = sig.reduce((m, s) => Math.max(m, s.t || 0), 0);
   const publishes = sig.filter((s) => s.kind === 'publish'), published = new Set(publishes.map((s) => s.fp));
   const shares = sig.filter((s) => s.kind === 'share' && published.has(s.fp)).length;
   const shareStarts = sig.filter((s) => s.kind === 'start' && s.via);
   const heard = (r) => ({ listens: r.length, completion: rate(count(r, 'complete'), r.length), replay: rate(count(r, 'replay'), r.length) });
   const shared = rows.filter((l) => l.via), judged = shared.filter((l) => l.return !== null);
   // A creator is a device that published; it came back if it was heard from again between a day and a week after its
-  // first publish. Only creators whose first publish is at least a week old are judged.
+  // first publish. Only creators whose first publish is at least a week old (at report time) are judged.
   const first = new Map(), seen = new Map();
   for (const s of publishes) if (s.lid && !(first.get(s.lid) <= s.t)) first.set(s.lid, s.t || 0);
   for (const s of sig) if (first.has(s.lid)) (seen.get(s.lid) || seen.set(s.lid, []).get(s.lid)).push(s.t || 0);
-  const ripe = [...first].filter(([, t]) => latest - t >= CREATOR_WEEK_MS);
+  const ripe = [...first].filter(([, t]) => now - t >= CREATOR_WEEK_MS);
   const back = ripe.filter(([lid, t]) => seen.get(lid).some((u) => u - t >= returnAfterMs && u - t <= CREATOR_WEEK_MS)).length;
   return {
     published: published.size, shares, sharesPerSong: rate(shares, published.size),
