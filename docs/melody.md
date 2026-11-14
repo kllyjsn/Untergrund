@@ -91,6 +91,7 @@ singer does): `stressBeat` (stressed syllables on a beat or a note of a quarter 
 title's first stressed syllable on the chorus downbeat), `titlePeak` (the title carries the chorus's highest or
 longest note), `hookRepeats` (title lines sung per song), `hookRecall` (title returns with the same onsets and
 pitches), `rhythmContrast` and `onsetContrast` (verse vs chorus note-length classes and onset positions, total
-variation distance), `holdRatio` (mean chorus note length over verse), `vocalRange` (semitones over all parts) and
-`rhymeRate` (rhymed couplets in the written lyrics).
+variation distance), `holdRatio` (mean chorus note length over verse), `vocalRange` (semitones over all parts),
+`rhymeRate` (rhymed couplets in the written lyrics), `verseSpan` (semitones from each verse phrase's floor to its
+peak) and `verseFit` (verse phrases that climb a 4th to a 6th and peak below the chorus title).
 
