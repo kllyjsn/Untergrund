@@ -520,7 +520,7 @@ function audition(id) {
   ensureAudio();
   const t = ctx.currentTime + 0.01;
   if (id === 'acid') engine.acid(t, { n: 0, a: true }, false, false, engine.stepDur * 2);
-  else engine.trigger(id, t, 1);
+  else { const st = engine.step; engine.step = null; engine.trigger(id, t, 1); engine.step = st; }
 }
 
 function auditionNote(n) {
