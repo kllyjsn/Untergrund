@@ -92,6 +92,10 @@ assert.equal(tag(onAir.body, 'og:url'), `${site}/t/${song.id}`);
 assert.match(tag(onAir.body, 'og:description'), /^Live now in UNTERGRUND Club live-room\./);
 assert.match(onAir.cache, /max-age=15/);
 assert.match(onAir.body, /href="\/\?room=live-room">Join the live room/);
+assert.match(onAir.body, /"room":"live-room"/, 'the hydrated page keeps the room link');
+const untitled = normalizeTrack({ title: 'Untitled Signal', artist: 'Mira', style: 'hypnotic', state: snap.currentSet.state });
+await crate.add(untitled);
+assert.match((await handlePage({ t: untitled.id, room: 'live-room' }, { site, og, crate, rooms })).body, /og_room=live-room/, 'same notes, different title');
 const shot = await handlePage({ og_room: 'live-room', t: song.id }, { site, og, crate, rooms });
 assert(png(shot.body));
 for (const q of [{ t: song.id, room: 'quiet-room' }, { t: song.id, room: '../x' }, { t: song.id }]) {
@@ -99,7 +103,7 @@ for (const q of [{ t: song.id, room: 'quiet-room' }, { t: song.id, room: '../x' 
   assert.equal(tag(page.body, 'og:image'), `${site}/api/page?og=${song.id}&amp;v=2`, JSON.stringify(q));
   assert.doesNotMatch(page.body, /Join the live room/);
 }
-const other = normalizeTrack({ title: 'Something Else', artist: 'Mira', style: 'acid', state: defaultState() });
+const other = normalizeTrack({ title: 'Something Else', artist: 'Mira', style: 'acid', state: { ...defaultState(), bpm: 99 } });
 await crate.add(other);
 assert.doesNotMatch((await handlePage({ t: other.id, room: 'live-room' }, { site, og, crate, rooms })).body, /og_room/, 'only the song on stage gets the room');
 assert.equal((await handlePage({ og_room: 'live-room', t: other.id }, { site, og, crate, rooms })).location, `${site}/api/page?og=${other.id}&v=2`);

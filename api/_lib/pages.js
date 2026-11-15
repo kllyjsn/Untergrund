@@ -2,6 +2,7 @@
 // js/page.js hydrates them (artwork, instant in-browser playback, follow).
 import { KEYS, SCALES } from '../../js/params.js';
 import { STYLES } from '../../js/state.js';
+import { songFingerprint } from '../../js/listen.js';
 import { publicArtistPage, publicTrack } from './accounts.js';
 import { remixTree } from './crate.js';
 import { FLAGSHIP } from '../../config/flagship.js';
@@ -175,7 +176,9 @@ const ROOM_ID = /^[a-z0-9-]{2,32}$/;
 const cleanRoomId = (v) => String(v || '').toLowerCase().slice(0, 32);
 const roomSnap = async (rooms, id) => (rooms ? (await rooms.get(id).catch(() => null))?.json : null);
 const liveSet = (snap) => (snap?.members?.length && snap.currentSet?.state ? snap.currentSet : null);
-const sameTrack = (track, set) => !!set && String(set.title || '').trim().toLowerCase() === String(track.title || '').trim().toLowerCase();
+// The set on stage is this song when its notes match (titles can differ: untitled sets go live as 'Live Machine Set') or its title does.
+const sameTrack = (track, set) => !!set && ((!!track.state && songFingerprint(set.state) === songFingerprint(track.state))
+  || String(set.title || '').trim().toLowerCase() === String(track.title || '').trim().toLowerCase());
 const sameSong = async (kv, crate, id, set) => { const t = await publicTrack(kv, crate, id).catch(() => null); return !!t && sameTrack(t.track, set); };
 
 // /r/<room>: the invite link. Unfurls with what's playing; the page itself forwards people into the Club (js/page.js).
