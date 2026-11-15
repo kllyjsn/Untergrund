@@ -233,10 +233,11 @@ function sections(perBar) {
   };
 }
 
-const HIGHER = ['bars', 'melodyWindows', 'motifRecall', 'chords', 'contrast', 'drumBars', 'phraseBars', 'stepShare', 'verseChorus', 'chorusLift', 'chorusPeak', 'chorusEnergy', 'preLift', 'bridgeAway',
-  'stressBeat', 'titleDownbeat', 'titlePeak', 'hookRepeats', 'hookRecall', 'rhythmContrast', 'onsetContrast', 'holdRatio', 'rhymeRate', 'verseFit'], LOWER = ['voiceMove', 'vocalRange'], NEAR = ['peakAt', 'restsPerPhrase', 'verseSpan'];
+export const HIGHER = ['bars', 'melodyWindows', 'motifRecall', 'chords', 'contrast', 'drumBars', 'phraseBars', 'stepShare', 'verseChorus', 'chorusLift', 'chorusPeak', 'chorusEnergy', 'preLift', 'bridgeAway',
+  'stressBeat', 'titleDownbeat', 'titlePeak', 'hookRepeats', 'hookRecall', 'rhythmContrast', 'onsetContrast', 'holdRatio', 'rhymeRate', 'verseFit'];
+export const LOWER = ['voiceMove', 'vocalRange'], NEAR = ['peakAt', 'restsPerPhrase', 'verseSpan'];
 // Allowed slack before a change counts as a regression.
-const TOL = { bars: 0, melodyWindows: 0.5, motifRecall: 0.05, chords: 0, contrast: 0.03, drumBars: 0.5, voiceMove: 0.15,
+export const TOL = { bars: 0, melodyWindows: 0.5, motifRecall: 0.05, chords: 0, contrast: 0.03, drumBars: 0.5, voiceMove: 0.15,
   phraseBars: 0.25, stepShare: 0.05, peakAt: 0.1, restsPerPhrase: 0.5,
   verseChorus: 0.05, chorusLift: 0.5, chorusPeak: 0.5, chorusEnergy: 0.05, preLift: 0.05, bridgeAway: 0.05,
   stressBeat: 0.03, titleDownbeat: 0.1, titlePeak: 0.1, hookRepeats: 0, hookRecall: 0.1, rhythmContrast: 0.03, onsetContrast: 0.03, holdRatio: 0.1, vocalRange: 1, rhymeRate: 0.03, verseSpan: 1, verseFit: 0.05 };
