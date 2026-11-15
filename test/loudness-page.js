@@ -1,6 +1,6 @@
 // Loaded inside headless Chrome by scripts/loudness.mjs and test/loudness.mjs: builds a generated song the way
 // GENERATE does, renders it with the real offline engine and meters the master output.
-import { defaultState, generate, applyOverrides, arrangement, songChain, STYLES } from '/js/state.js';
+import { defaultState, generate, applyOverrides, arrangement, songChain, STYLES, MAJOR_STYLES } from '/js/state.js';
 import { renderBars } from '/js/render.js';
 import { songBars } from '/js/midi.js';
 import { loadPiece, PIECE } from '/js/repertoire.js';
@@ -10,7 +10,7 @@ import { localSpec, songState } from '/js/song-spec.js';
 
 export function song(style, seed) {
   const s = defaultState();
-  s.scale = style === 'euphoric' ? 'major' : 'minor';
+  s.scale = style === 'euphoric' || MAJOR_STYLES.has(style) ? 'major' : 'minor';
   const g = generate(style, seed, s.scale);
   s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   s.key = g.key;
