@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { compareComposition, compareAudio, verdict, nextTarget, readLedger, LEDGER } from '../scripts/quality-ratchet.mjs';
+import { compareComposition, compareAudio, audioMismatch, verdict, nextTarget, readLedger, LEDGER } from '../scripts/quality-ratchet.mjs';
 import { dailyDrop } from '../js/daily.js';
 
 // Gains and losses respect each metric's direction and tolerance.
@@ -21,6 +21,11 @@ assert.deepEqual(audio.cleared.map((r) => `${r.style} ${r.check}`).sort(), ['fol
 assert.deepEqual(audio.appeared.map((r) => `${r.style} ${r.check}`), ['rock clipper']);
 assert.equal(verdict({ gains: [], losses: [] }, audio, 'folk').ok, false, 'a new audio WARN blocks the day');
 assert.equal(verdict({ gains: [], losses: [] }, compareAudio(a, rep({ folk: { reasons: [] } }, 0, 0)), 'folk').ok, true, 'clearing a target WARN is a gain');
+
+assert.deepEqual(compareAudio(a, rep({ rock: { reasons: [] } }, 0, 0)).cleared, [], 'a style the after report never measured is not cleared');
+assert.deepEqual(audioMismatch(a, rep({ rock: { reasons: [] } }, 0, 0)), ['styles missing after: folk']);
+assert.deepEqual(audioMismatch({ ...a, tier: 'fast' }, { ...b, tier: 'deep' }), ['tier fast vs deep']);
+assert.deepEqual(audioMismatch(a, b), []);
 
 // The target is tomorrow's Daily Drop genre.
 const t = nextTarget(Date.parse('2026-11-15T13:00:00Z'));

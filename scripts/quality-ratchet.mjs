@@ -45,9 +45,18 @@ const reasonKeys = (report) => {
   }
   return out;
 };
+// Reports are only comparable when they measured the same tier, seeds and styles; otherwise a missing style reads as cleared.
+export function audioMismatch(before, after) {
+  const out = [];
+  if ((before?.tier ?? null) !== (after?.tier ?? null)) out.push(`tier ${before?.tier} vs ${after?.tier}`);
+  if (JSON.stringify(before?.seeds ?? null) !== JSON.stringify(after?.seeds ?? null)) out.push('different seeds');
+  const missing = Object.keys(before?.styles || {}).filter((s) => !after?.styles?.[s]);
+  if (missing.length) out.push(`styles missing after: ${missing.join(', ')}`);
+  return out;
+}
 export function compareAudio(before, after) {
   const a = reasonKeys(before), b = reasonKeys(after);
-  const cleared = [...a].filter(([k, r]) => !b.has(k) || (r.level === 'FAIL' && b.get(k).level === 'WARN')).map(([, r]) => r);
+  const cleared = [...a].filter(([k, r]) => after?.styles?.[r.style] && (!b.has(k) || (r.level === 'FAIL' && b.get(k).level === 'WARN'))).map(([, r]) => r);
   const appeared = [...b].filter(([k, r]) => !a.has(k) || (r.level === 'FAIL' && a.get(k).level === 'WARN')).map(([, r]) => r);
   const count = (r, lvl) => r?.counts?.[lvl] ?? 0;
   return { cleared, appeared, warn: [count(before, 'WARN'), count(after, 'WARN')], fail: [count(before, 'FAIL'), count(after, 'FAIL')] };
@@ -115,7 +124,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   if (!target || !STYLES[target]) { console.error('Pass --target <style id> (see --plan).'); process.exit(2); }
   const before = JSON.parse(readFileSync(BASELINE, 'utf8')), after = runComposition(loopStyles());
   const comp = compareComposition(before, after);
+  if (!opt('audio-before') !== !opt('audio-after')) { console.error('Pass both --audio-before and --audio-after, or neither.'); process.exit(2); }
   const ab = json(opt('audio-before')), aa = json(opt('audio-after'));
+  const mismatch = ab && aa ? audioMismatch(ab, aa) : [];
+  if (mismatch.length) { console.error(`Audio reports are not comparable (${mismatch.join('; ')}); rerun both with the same --tier/--seeds/--styles.`); process.exit(2); }
   const audio = ab && aa ? compareAudio(ab, aa) : null;
   const v = verdict(comp, audio, target);
   process.stdout.write(toMarkdown({ target, comp, audio, v }));
