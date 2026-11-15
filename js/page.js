@@ -93,7 +93,8 @@ function trackView(track, artist, { localOnly = false } = {}) {
       remixOf(track),
       h('div', { class: 'pp-progress', 'aria-hidden': 'true' }, h('div', { class: 'pp-cells' }, cells), time),
       h('div', { class: 'pp-actions' }, btn,
-        localOnly ? null : h('button', { class: 'pp-share', type: 'button', onclick: shareRelease }, 'Share')),
+        localOnly ? null : h('button', { class: 'pp-share', type: 'button', onclick: shareRelease }, 'Share'),
+        data.room ? h('a', { class: 'pp-link', href: `/?room=${encodeURIComponent(data.room)}` }, 'Join the live room') : null),
       h('dl', { class: 'pp-facts' }, fact('Released', date), fact('Length', fmt(secs)), fact('Made in', 'UNTERGRUND')),
       localOnly ? h('p', { class: 'pp-note' }, 'Only this browser can open this page until public storage is connected.') : null));
   if (!page.isConnected) main.replaceChildren(page);

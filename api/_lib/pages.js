@@ -2,6 +2,7 @@
 // js/page.js hydrates them (artwork, instant in-browser playback, follow).
 import { KEYS, SCALES } from '../../js/params.js';
 import { STYLES } from '../../js/state.js';
+import { songFingerprint } from '../../js/listen.js';
 import { publicArtistPage, publicTrack } from './accounts.js';
 import { remixTree } from './crate.js';
 import { FLAGSHIP } from '../../config/flagship.js';
@@ -78,19 +79,21 @@ export const catalogNo = (id) => {
 };
 const releaseDate = (iso) => { const d = new Date(iso); return Number.isFinite(d.getTime()) ? d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' }) : ''; };
 export const ogImageUrl = (site, id) => `${site}/api/page?og=${encodeURIComponent(id)}&v=2`;
+const clubImageUrl = (site, room, id = '') => `${site}/api/page?og_room=${encodeURIComponent(room)}${id ? `&t=${encodeURIComponent(id)}` : ''}&v=club`;
 
 // The release page: cover, title, artist credit, play, share and the "make your own" invitation.
-export function renderTrackPage({ track, artist, remixes = [] }, { site = SITE } = {}) {
+export function renderTrackPage({ track, artist, remixes = [] }, { site = SITE, room = '' } = {}) {
   const by = artist?.name || track.artist || 'UNTERGRUND';
   const url = `${site}/t/${encodeURIComponent(track.id)}`;
   const title = `${track.title} — ${by}`;
-  const description = `${trackLine(track)}. Made in UNTERGRUND. Tap to play it instantly in your browser, then remix it into your own.`;
-  const image = ogImageUrl(site, track.id);
+  const description = room ? `Live now in UNTERGRUND Club ${room}. ${trackLine(track)}. Tap to join the room and hear it in sync.`
+    : `${trackLine(track)}. Made in UNTERGRUND. Tap to play it instantly in your browser, then remix it into your own.`;
+  const image = room ? clubImageUrl(site, room, track.id) : ogImageUrl(site, track.id);
   const cat = catalogNo(track.id), date = releaseDate(track.created);
   const ld = { '@context': 'https://schema.org', '@type': 'MusicRecording', name: track.title, url, image,
     byArtist: { '@type': 'MusicGroup', name: by, ...(artist ? { url: `${site}/a/${artist.handle}` } : {}) },
     ...(STYLES[track.style]?.name ? { genre: STYLES[track.style].name } : {}), ...(date ? { datePublished: String(track.created).slice(0, 10) } : {}) };
-  const head = meta({ title, description, url, image, type: 'music.song', alt: `Cover art for ${track.title} by ${by}`,
+  const head = meta({ title, description, url, image, type: 'music.song', alt: room ? `${by} playing ${track.title} live in ${room}` : `Cover art for ${track.title} by ${by}`,
     extra: `${artist ? `\n  <meta property="music:musician" content="${esc(`${site}/a/${artist.handle}`)}" />` : ''}
   <meta name="twitter:label1" content="Artist" />
   <meta name="twitter:data1" content="${esc(by)}" />
@@ -107,7 +110,7 @@ export function renderTrackPage({ track, artist, remixes = [] }, { site = SITE }
       ${byline}
       <div class="pp-meta">${esc(trackLine(track))}</div>
       ${remixOfHtml(track)}
-      <div class="pp-actions"><button class="pp-play" type="button" disabled><i></i><span>Play</span></button></div>
+      <div class="pp-actions"><button class="pp-play" type="button" disabled><i></i><span>Play</span></button>${room ? `<a class="pp-link" href="/?room=${esc(encodeURIComponent(room))}">Join the live room</a>` : ''}</div>
       <dl class="pp-facts">${date ? `<div><dt>Released</dt><dd>${esc(date)}</dd></div>` : ''}<div><dt>Made in</dt><dd>UNTERGRUND</dd></div></dl>
     </div>
   </article>
@@ -117,7 +120,7 @@ export function renderTrackPage({ track, artist, remixes = [] }, { site = SITE }
   </section>
   ${remixListHtml(remixes)}
   <p class="pp-note pp-foot">Played live by UNTERGRUND in your browser. Nothing is streamed.</p>`;
-  return shell(head, body, { kind: 'track', site, track, artist, remixes, cat });
+  return shell(head, body, { kind: 'track', site, track, artist, remixes, cat, ...(room ? { room } : {}) });
 }
 
 // The pinned flagship tracks with their real artist credit and real play/remix counts; unresolvable ids are dropped.
@@ -171,6 +174,12 @@ export function renderMissing(kind, id, { site = SITE, enabled = true } = {}) {
 
 const ROOM_ID = /^[a-z0-9-]{2,32}$/;
 const cleanRoomId = (v) => String(v || '').toLowerCase().slice(0, 32);
+const roomSnap = async (rooms, id) => (rooms ? (await rooms.get(id).catch(() => null))?.json : null);
+const liveSet = (snap) => (snap?.members?.length && snap.currentSet?.state ? snap.currentSet : null);
+// The set on stage is this song when its notes match (titles can differ: untitled sets go live as 'Live Machine Set') or its title does.
+const sameTrack = (track, set) => !!set && ((!!track.state && songFingerprint(set.state) === songFingerprint(track.state))
+  || String(set.title || '').trim().toLowerCase() === String(track.title || '').trim().toLowerCase());
+const sameSong = async (kv, crate, id, set) => { const t = await publicTrack(kv, crate, id).catch(() => null); return !!t && sameTrack(t.track, set); };
 
 // /r/<room>: the invite link. Unfurls with what's playing; the page itself forwards people into the Club (js/page.js).
 export function renderRoomPage(id, snap, { site = SITE } = {}) {
@@ -182,7 +191,7 @@ export function renderRoomPage(id, snap, { site = SITE } = {}) {
   const title = set ? `${set.title} — live in ${id}` : `Join ${id} on UNTERGRUND Club`;
   const description = set ? `${line}. Tap to join the room and hear it in sync. Every set is made live in UNTERGRUND.`
     : 'A live listening room for original machine music. Tap to join, or GO LIVE yourself.';
-  const image = set ? `${site}/api/page?og_room=${encodeURIComponent(id)}` : `${site}/social-card.png`;
+  const image = set ? clubImageUrl(site, id) : `${site}/social-card.png`;
   const join = `/?room=${encodeURIComponent(id)}`;
   const body = `<section class="pp-missing pp-room">
     <span class="pp-eyebrow">${set ? 'LIVE ROOM' : 'CLUB ROOM'} · ${esc(id)}</span>
@@ -197,15 +206,19 @@ export function renderRoomPage(id, snap, { site = SITE } = {}) {
 export async function handlePage(query, { kv, crate, site = SITE, og, rooms = null, flagship = flagshipIds() }) {
   const cache = 'public, max-age=60, s-maxage=300, stale-while-revalidate=86400';
   const html = (status, body, c = cache) => ({ status, type: 'text/html; charset=utf-8', body, cache: c });
-  if (query.r || query.og_room) {
-    const id = cleanRoomId(query.r || query.og_room);
-    if (!ROOM_ID.test(id)) return { status: 302, location: '/?room=the-bunker' };
-    const snap = rooms ? (await rooms.get(id).catch(() => null))?.json : null;
-    const live = 'public, max-age=15, s-maxage=30, stale-while-revalidate=60';
+  const live = 'public, max-age=15, s-maxage=30, stale-while-revalidate=60';
+  // `r` is a room for /r/<room>, but a share ref on /t and /a links (?r=<ref>).
+  const roomInvite = query.r && !query.t && !query.a;
+  if (roomInvite || query.og_room) {
+    const id = cleanRoomId(query.og_room || query.r);
+    if (!ROOM_ID.test(id)) return { status: 302, location: query.og_room ? `${site}/social-card.png` : '/?room=the-bunker' };
+    const snap = await roomSnap(rooms, id);
     if (query.og_room) {
-      const set = snap?.members?.length && snap.currentSet;
-      if (!set?.state) return { status: 302, location: `${site}/social-card.png` };
-      return { status: 200, type: 'image/png', body: og.ogImage(set.state, og.artSeed(`room:${id}:${set.broadcastId || set.title}`), { title: set.title || 'Live set', artist: 'LIVE NOW', line: `UNTERGRUND · ROOM ${id}` }), cache: live };
+      const set = liveSet(snap);
+      // A song link's preview shows the room only while that song is the set on stage; otherwise its own cover.
+      if (!set || (query.t && !(await sameSong(kv, crate, query.t, set)))) return { status: 302, location: query.t ? ogImageUrl(site, query.t) : `${site}/social-card.png` };
+      const body = og.clubImage ? og.clubImage(snap, id) : og.ogImage(set.state, og.artSeed(`room:${id}:${set.broadcastId || set.title}`), { title: set.title || 'Live set', artist: 'LIVE NOW', line: `UNTERGRUND · ROOM ${id}` });
+      return { status: 200, type: 'image/png', body, cache: live };
     }
     return html(200, renderRoomPage(id, snap, { site }), live);
   }
@@ -222,6 +235,9 @@ export async function handlePage(query, { kv, crate, site = SITE, og, rooms = nu
   if (query.t) {
     const t = await publicTrack(kv, crate, query.t);
     if (t && crate?.children) t.remixes = await remixTree(crate, t.track.id).catch(() => []);
+    const room = cleanRoomId(query.room);
+    const onStage = t && ROOM_ID.test(room) && sameTrack(t.track, liveSet(await roomSnap(rooms, room)));
+    if (t && onStage) return html(200, renderTrackPage(t, { site, room }), live);
     return t ? html(200, renderTrackPage(t, { site })) : html(404, renderMissing('track', query.t, { site, enabled: !!(kv || crate) }), 'no-store');
   }
   if (query.a) {

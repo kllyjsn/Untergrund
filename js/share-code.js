@@ -83,9 +83,13 @@ export function readShareParams(loc) {
 
 // A stored track shares as its release page /t/<id> (unless `release: false`, e.g. classical pieces that need the full app);
 // the embed keeps ?t=<id>; a code-only song rides in ?s=. A valid share ref rides along as r=.
-export function songLink(origin, { code, id, release = true }, page = '/', ref = '') {
+// `room`: the Club room the song is live in, so the release page unfurls with that room's stage while the set is on.
+export function songLink(origin, { code, id, release = true, room = '' }, page = '/', ref = '') {
   const r = SHARE_REF.test(ref) ? ref : '';
-  if (id && release && page === '/') return `${origin}/t/${encodeURIComponent(id)}${r ? `?r=${r}` : ''}`;
+  if (id && release && page === '/') {
+    const q = [r && `r=${r}`, /^[a-z0-9-]{2,32}$/.test(room) && `room=${room}`].filter(Boolean).join('&');
+    return `${origin}/t/${encodeURIComponent(id)}${q ? `?${q}` : ''}`;
+  }
   return `${origin}${page}?${id ? `t=${encodeURIComponent(id)}` : `s=${code}`}${r ? `&r=${r}` : ''}`;
 }
 export const embedCode = (src, title = 'UNTERGRUND') =>
