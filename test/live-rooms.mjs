@@ -96,6 +96,9 @@ assert.match(onAir.body, /"room":"live-room"/, 'the hydrated page keeps the room
 const untitled = normalizeTrack({ title: 'Untitled Signal', artist: 'Mira', style: 'hypnotic', state: snap.currentSet.state });
 await crate.add(untitled);
 assert.match((await handlePage({ t: untitled.id, room: 'live-room' }, { site, og, crate, rooms })).body, /og_room=live-room/, 'same notes, different title');
+const referred = await handlePage({ t: song.id, r: 'k3j9x0aa', room: 'live-room' }, { site, og, crate, rooms });
+assert.equal(referred.status, 200, 'a share ref on a song link is not a room');
+assert.match(referred.body, /og_room=live-room/);
 const shot = await handlePage({ og_room: 'live-room', t: song.id }, { site, og, crate, rooms });
 assert(png(shot.body));
 for (const q of [{ t: song.id, room: 'quiet-room' }, { t: song.id, room: '../x' }, { t: song.id }]) {

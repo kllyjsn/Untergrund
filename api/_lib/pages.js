@@ -207,8 +207,10 @@ export async function handlePage(query, { kv, crate, site = SITE, og, rooms = nu
   const cache = 'public, max-age=60, s-maxage=300, stale-while-revalidate=86400';
   const html = (status, body, c = cache) => ({ status, type: 'text/html; charset=utf-8', body, cache: c });
   const live = 'public, max-age=15, s-maxage=30, stale-while-revalidate=60';
-  if (query.r || query.og_room) {
-    const id = cleanRoomId(query.r || query.og_room);
+  // `r` is a room for /r/<room>, but a share ref on /t and /a links (?r=<ref>).
+  const roomInvite = query.r && !query.t && !query.a;
+  if (roomInvite || query.og_room) {
+    const id = cleanRoomId(query.og_room || query.r);
     if (!ROOM_ID.test(id)) return { status: 302, location: query.og_room ? `${site}/social-card.png` : '/?room=the-bunker' };
     const snap = await roomSnap(rooms, id);
     if (query.og_room) {
