@@ -683,7 +683,7 @@ function currentSong() {
 // The song whose share sheet is open, so a share made before pressing play still names the song it shared.
 let sharing = null;
 const sharingCtx = () => (sharing?.song?.state ? { fp: songFingerprint(sharing.song.state), tid: sharing.song.trackId || '', style: sharing.song.style || '', surf: sharing.source || '' } : null);
-function showShare(song = currentSong(), source = 'studio') { sharing = { song, source }; openShare({ song, toast, download, source, hue: hue(song.style), beforeExport: () => { if (playing) stop(); } }); }
+function showShare(song = currentSong(), source = 'studio') { sharing = { song, source }; openShare({ song, toast, download, source, hue: hue(song.style), room: hostingRoom(), beforeExport: () => { if (playing) stop(); } }); }
 
 // Play a shared or jukebox song in place; leaveGuest() puts the listener's own project back.
 function listen(song, src = 'shared', via = '') {
