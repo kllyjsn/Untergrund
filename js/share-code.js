@@ -1,6 +1,6 @@
 // Share links: a song's replayable state packed into a short URL that works with no backend.
 // Format: z<base64url(deflate-raw(JSON))>, or j<base64url(JSON)> where CompressionStream is missing.
-import { sanitize, STYLES } from './state.js';
+import { sanitize, refreshSong, STYLES } from './state.js';
 
 const MAX_CODE = 60_000, MAX_JSON = 400_000;
 const clean = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max);
@@ -39,7 +39,7 @@ export function remixCredit(r) {
 // Every value that comes out of a link goes through the same sanitization as saved projects.
 export function normalizeSong(song) {
   if (!song || typeof song !== 'object' || !song.state || !Array.isArray(song.state.patterns)) return null;
-  const state = sanitize(song.state);
+  const state = refreshSong(sanitize(song.state));
   const style = STYLES[song.style] ? song.style : STYLES[state.artist?.style] ? state.artist.style : 'hypnotic';
   return {
     title: clean(song.title, 80) || state.artist?.title || 'Untitled Signal',

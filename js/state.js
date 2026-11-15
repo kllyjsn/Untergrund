@@ -11,6 +11,7 @@ import { stepDeg } from './motif.js';
 import { cleanLyrics } from './lyrics.js';
 import { SING_VOICES } from './sing-score.js';
 import { cleanTakes } from './scope.js';
+import { trackTitle } from './crate.js';
 
 export const STYLES = {
   hypnotic: { name: 'HYPNOTIC', bpm: [130, 134], family: 'TECHNO', tag: 'deep · rolling' },
@@ -1108,6 +1109,50 @@ export function applySongPlan(s, style, seed, length = 'song') {
   return plan;
 }
 
+// GENERATE's song for a style and seed, written on top of `base` (its mix, artist and mutes carry over).
+// `bpm`/`swing` keep a tempo the song already plays at; a score always sets its own.
+export function freshSong(style, seed, { base = defaultState(), scale = null, length = 'song', bpm = null, swing = null } = {}) {
+  const s = clone(base);
+  s.scale = scale || (style === 'euphoric' || MAJOR_STYLES.has(style) ? 'major' : s.scale);
+  const g = generate(style, seed, s.scale);
+  s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
+  s.key = g.key;
+  applyOverrides(s, g, true);
+  if (bpm != null && !g.pattern.score) { s.bpm = bpm; if (swing != null) s.swing = swing; }
+  s.chainOn = true;
+  s.ending = true;
+  s.current = 0;
+  applySongPlan(s, style, seed, length);
+  return s;
+}
+
+// A song GENERATE wrote and nobody changed is just its style, seed and length, so it always plays as today's
+// generator writes it: new melodies, forms, players and mixes reach songs made before them.
+// `fresh` is 1 on an untouched GENERATE song and 0 once it's edited; songs saved before the flag existed count
+// as untouched only while their title, key and tempo are still the ones that seed was given.
+export function refreshable(s) {
+  const a = s?.artist, style = a?.style;
+  if (!a || !STYLES[style] || style === 'repertoire' || !Number.isFinite(a.seed) || !a.seed || s.remixOf || s.fresh === 0) return false;
+  if (s.patterns?.some((p) => p.score?.piece)) return false;
+  if (s.fresh === 1) return true;
+  if (s.drop || a.title !== trackTitle(a.seed)) return false;
+  const g = generate(style, a.seed, s.scale);
+  return s.key === g.key && s.bpm === g.bpm;
+}
+// A sketch stays a sketch; anything longer than a sketch can run was a song, and grows to today's song length.
+const lengthOf = (s) => String(s.chain || 'A').length * 240 / (s.bpm || 120) <= LENGTHS.sketch.hi + 10 ? 'sketch' : 'song';
+export function refreshSong(s) {
+  if (!refreshable(s)) return s;
+  const { style, seed } = s.artist;
+  const composer = s.patterns.find((p) => p.score?.composer)?.score.composer;
+  const base = { ...s, locks: Object.fromEntries(TRACK_IDS.map((t) => [t, false])) };
+  const out = freshSong(style, seed, { base, scale: s.scale, length: lengthOf(s), bpm: s.bpm, swing: s.swing });
+  if (composer) for (const p of out.patterns) if (p.score?.form) p.score.composer = composer;
+  if (out.chain !== s.chain) delete out.labels;
+  out.fresh = 1;
+  return out.lyrics ? fitLyrics(out, style) : out;
+}
+
 export function defaultState() {
   const g = generate('hypnotic', 1337);
   const full = g.pattern;
@@ -1177,6 +1222,7 @@ export function sanitize(s) {
   out.current = Math.max(0, Math.min(7, Number.isFinite(+s.current) ? Math.round(+s.current) : 0));
   out.chainOn = !!s.chainOn;
   if (s.ending) out.ending = true;
+  if (s.fresh === 0 || s.fresh === 1) out.fresh = s.fresh;
   out.chain = String(s.chain || d.chain).toUpperCase().replace(/[^A-H]/g, '').slice(0, 128) || d.chain;
   const labels = cleanLabels(s.labels);
   if (labels) out.labels = labels;

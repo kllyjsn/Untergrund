@@ -4,7 +4,7 @@ import { drawArtwork, artSeed } from './artwork.js';
 import { STYLES } from './state.js';
 import { KEYS, SCALES } from './params.js';
 import { TRAITS } from './artist.js';
-import { createPlayer, songBars } from './player.js';
+import { createPlayer, songBars, songOf } from './player.js';
 import { follow, getAccount, fetchPublicTrack } from './account.js';
 import { createListens, songFingerprint } from './listen.js';
 import { analytics, signal, flushEvents } from './analytics.js';
@@ -51,7 +51,7 @@ addEventListener('pagehide', () => { if (listens.end(heardPos, { force: true }))
 
 function trackView(track, artist, { localOnly = false } = {}) {
   const page = main.querySelector('.pp-track') || h('article', { class: 'pp-track' });
-  const total = songBars(track.state), secs = player.duration(track.state);
+  const song = songOf(track.state), total = songBars(song), secs = player.duration(song);
   const cells = Array.from({ length: total }, () => h('i'));
   const time = h('span', { class: 'pp-time' }, fmt(secs));
   const btn = h('button', { class: 'pp-play', type: 'button', 'aria-label': `Play ${track.title}` }, h('i'), h('span', {}, 'Play'));
@@ -91,7 +91,7 @@ function trackView(track, artist, { localOnly = false } = {}) {
       by,
       h('div', { class: 'pp-meta' }, line(track)),
       remixOf(track),
-      h('div', { class: 'pp-progress', 'aria-hidden': 'true' }, h('div', { class: 'pp-cells' }, cells), time),
+      h('div', { class: 'pp-progress', 'aria-hidden': 'true' }, h('div', { class: total > 64 ? 'pp-cells dense' : 'pp-cells' }, cells), time),
       h('div', { class: 'pp-actions' }, btn,
         localOnly ? null : h('button', { class: 'pp-share', type: 'button', onclick: shareRelease }, 'Share'),
         data.room ? h('a', { class: 'pp-link', href: `/?room=${encodeURIComponent(data.room)}` }, 'Join the live room') : null),
