@@ -119,7 +119,7 @@ export function renderTrackPage({ track, artist, remixes = [] }, { site = SITE, 
   </section>
   ${remixListHtml(remixes)}
   <p class="pp-note pp-foot">Played live by UNTERGRUND in your browser. Nothing is streamed.</p>`;
-  return shell(head, body, { kind: 'track', site, track, artist, remixes, cat });
+  return shell(head, body, { kind: 'track', site, track, artist, remixes, cat, ...(room ? { room } : {}) });
 }
 
 // The pinned flagship tracks with their real artist credit and real play/remix counts; unresolvable ids are dropped.
