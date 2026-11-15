@@ -786,11 +786,12 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   if (hook) { P.hook = hook; P.hm = 2; }
   // One seeded idea per track, chosen from moves that fit any groove: an octave pop at the end of
   // the bass phrase, displaced percussion, or a chord that anticipates the beat. Sometimes restraint.
+  // A folk guitarist's thumb keeps the beat, so the whole part never slides a 16th early.
   const idea = Math.floor(r2() * 4);
   const on = S.acid.map((st, i) => (st.on ? i : -1)).filter((i) => i >= 0);
   if (idea === 0 && on.length > 2) S.acid[on[on.length - 1]].n += 12;
   else if (idea === 1 && S.perc.some(Boolean)) { const k = 1 + Math.floor(r2() * 3), q = S.perc.slice(); S.perc = q.map((_, i) => q[(i - k + STEPS) % STEPS]); }
-  else if (idea === 2 && S.stab.some(Boolean) && !['neosoul', 'boombap', 'country'].includes(style)) { const q = S.stab.slice(); S.stab = q.map((_, i) => q[(i + 1) % STEPS]); }
+  else if (idea === 2 && S.stab.some(Boolean) && !['neosoul', 'boombap', 'country', 'folk'].includes(style)) { const q = S.stab.slice(); S.stab = q.map((_, i) => q[(i + 1) % STEPS]); }
   // Styles without written changes get harmony in their own idiom, from a separate stream so nothing above moves.
   if (!P.prog) {
     const v = vampFor(style, Math.round(params.stab.chord ?? 0), rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)));
