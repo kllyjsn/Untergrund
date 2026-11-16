@@ -41,7 +41,9 @@ export const SING_PROFILES = {
   // Folk: a story, many syllables, almost all steps.
   folk: { song: 1, k: [4, 6], art: 0.8, off: 0.3, six: 0.05, leap: 0.1, hi: 0 },
   // Country: twang, leaps of a fourth or more, and pickups into nearly every line.
-  country: { song: 1, k: [4, 5], art: 0.75, off: 0.35, six: 0.1, leap: 0.5, hi: 0, pk: 0.9, jump: 0.8, pks: [[-2], [-4, -2], [-3, -2], [-4, -3, -2]] },
+  // Lines say a few words on one note and step to the next (rep, zz: no seesaw between two neighbours), and the chorus
+  // can open on any chord tone (cs).
+  country: { song: 1, k: [4, 5], art: 0.75, off: 0.35, six: 0.1, leap: 0.5, hi: 0, pk: 0.9, jump: 0.8, pks: [[-2], [-4, -2], [-3, -2], [-4, -3, -2]], rep: 0.15, zz: 1.6, cs: [0, 2, 4, 5] },
 };
 export const sings = (style) => !!SING_PROFILES[style];
 
@@ -104,7 +106,7 @@ function phrasePitches(r, P, rh, plan, ctAt, forced, opt = {}) {
     return peak + (end - peak) * ((x - peakAt) / (1 - peakAt || 1));
   };
   const leapCost = (1.4 - P.leap) * (opt.leapMul || 1);
-  const step = (a) => [0.7, 0, 0.45, 2.4 * leapCost, 3 * leapCost, 4 * leapCost][a] ?? 12;
+  const step = (a) => [P.rep ?? 0.7, 0, 0.45, 2.4 * leapCost, 3 * leapCost, 4 * leapCost][a] ?? 12;
   const D = hi - lo + 1, INF = 1e9;
   // cost[d][m]: best cost ending on degree lo+d whose last move was m-7.
   let cost = Array.from({ length: D }, () => Array(15).fill(INF)), back = [];
@@ -133,6 +135,7 @@ function phrasePitches(r, P, rh, plan, ctAt, forced, opt = {}) {
         if (opt.jump?.has(j) && mv >= 3) c -= opt.jumpBonus;
         if (Math.abs(last) >= 3 && !(Math.abs(mv) >= 1 && Math.abs(mv) <= 2 && Math.sign(mv) === -Math.sign(last))) c += 6;
         if (mv === 0 && last === 0) c += 1.5;
+        if (P.zz && mv && last && Math.abs(mv) <= 2 && Math.abs(last) <= 2 && Math.sign(mv) !== Math.sign(last)) c += P.zz;
         if (c < nc[d][mv + 7]) { nc[d][mv + 7] = c; bk[d][mv + 7] = [p, m]; }
       }
     }
@@ -301,7 +304,7 @@ function setPart(r, P, kind, deg, chordTones, words, sig, ceil = Infinity) {
       ? { lo: -2, hi: 6, start: pick(r, [0, 1, 2]), peak: pick(r, [2, 3, 4]), peakAt: 0.35 + r() * 0.25, end: last ? pick(r, [4, 1]) : pick(r, [2, 0]) }
       : kind === 'b'
         ? { lo: -2, hi: top + 3, start: pick(r, [-1, 0, 1]), peak: last ? top + 1 : top, peakAt: 0.65 + r() * 0.2, end: last ? 4 : 2 }
-        : { lo: -1, hi: top + 2, start: pick(r, [2, 4]), peak: last ? top + 1 : top, peakAt: 0.5, end: last ? 0 : pick(r, [4, 1]) };
+        : { lo: -1, hi: top + 2, start: pick(r, P.cs || [2, 4]), peak: last ? top + 1 : top, peakAt: 0.5, end: last ? 0 : pick(r, [4, 1]) };
     const ctAt = (s, d) => chordTones(Math.floor(mod(bar0 * 16 + s, MELODY_BARS * 16) / 16)).has(mod(semi(d), 12));
     const snap = (d, s) => [0, 1, -1, 2, -2].map((x) => d + x).find((q) => ctAt(s, q)) ?? d;
     plan.end = snap(plan.end, at.at(-1));

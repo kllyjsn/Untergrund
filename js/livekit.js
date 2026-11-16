@@ -110,15 +110,16 @@ export const liveKit = () => buffers;
 
 // The recordings a song plays: 'kit' (drums + upright bass, for LIVE and HYBRID kits) and the chord instrument.
 // A band's second layer by section (Engine.bandLayer), on the recorded orchestra: vc cello, vla viola, vln1 violins,
-// pno the concert grand. Loudness of the part is v.
+// pno the concert grand, egtr a second electric (the Gretsch) chopping the backbeat. Loudness of the part is v. Country
+// opens its chorus up with that second guitar, never a piano or a string pad.
 export const BAND_LAYER = {
   pop: { pre: { parts: ['vc'], v: 0.5 }, chorus: { parts: ['vln1', 'vla', 'vc'], v: 0.55 }, bridge: { parts: ['vla', 'vc'], v: 0.5 } },
   rnb: { chorus: { parts: ['vln1', 'vla'], v: 0.45 }, bridge: { parts: ['vln1', 'vla', 'vc'], v: 0.45 } },
   rock: { chorus: { parts: ['pno'], v: 0.64 }, bridge: { parts: ['vla', 'vc'], v: 0.5 } },
   folk: { pre: { parts: ['vc'], v: 0.45 }, chorus: { parts: ['vc', 'vla'], v: 0.5 }, bridge: { parts: ['vln1', 'vla', 'vc'], v: 0.45 } },
-  country: { pre: { parts: ['pno'], v: 0.62 }, chorus: { parts: ['pno', 'vla'], v: 0.62 }, bridge: { parts: ['vln1', 'vla'], v: 0.45 } },
+  country: { chorus: { parts: ['egtr'], v: 0.5 } },
 };
-const LAYER_SETS = { vc: ['cello'], vla: ['cello', 'str'], vln1: ['str'], pno: ['pianoext', 'piano', 'pianoextsoft', 'pianosoft'] };
+const LAYER_SETS = { vc: ['cello'], vla: ['cello', 'str'], vln1: ['str'], pno: ['pianoext', 'piano', 'pianoextsoft', 'pianosoft'], egtr: ['gretsch', 'gretschb'] };
 const layerSets = (style) => [...new Set(Object.values(BAND_LAYER[style] || {}).flatMap((x) => x.parts.flatMap((p) => LAYER_SETS[p])))];
 export function liveSets(st) {
   const out = Math.round(st?.master?.kit || 0) >= 1 ? ['kit'] : [];

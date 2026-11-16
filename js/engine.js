@@ -1640,6 +1640,17 @@ export class Engine {
         notes.forEach((m, k) => this.orch('pno', t + k * 0.004 + hash(t, m) * 0.006, fit('pno', m + 12), 8 * sd * 0.95, v * (i16 ? 0.92 : 1)));
         continue;
       }
+      // The second guitar: the top three strings of the chord, struck short on 2 and 4 and panned off the rhythm part.
+      if (part === 'egtr') {
+        const R = BAND_PLAY.gretsch, at = t + 4 * sd, top = notes.slice(-3).map((m) => { while (m < 60) m += 12; while (m > R.hi) m -= 12; return m; });
+        // The MIDI export (Recorder) borrows this method: the chops go on the chords track there.
+        if (!this.rec) { top.forEach((m) => this.add('stab', at, m, sd * 1.4, v)); continue; }
+        const set = this.rec('gretsch');
+        if (!set) continue;
+        const out = this.panFor(this.ch.stab.band, 0.55, false);
+        top.forEach((m, k) => this.recordedNote(set, at + k * 0.006 + hash(t, m) * 0.004, (v * R.gain) / Math.sqrt(3), m, sd * 1.4, out, -1, 'gretsch', v));
+        continue;
+      }
       if (i16) continue;
       const m = part === 'vc' ? root - 12 : part === 'vla' ? notes[1] ?? root : Math.max(...notes) + 12;
       this.orch(part, t, fit(part, m), 16 * sd * 1.02, v * (part === 'vln1' ? 0.85 : part === 'vla' ? 0.9 : 1));
@@ -2536,13 +2547,14 @@ export class Sequencer {
     const leadOn = !s.mutes.stab && (!anySolo || s.solos.stab), busy = sung ? this.songBars && leadOn && sung.busy[i16] : this.songBars && hk && hm && leadOn && hookBusy(hk, abs % 32, hm);
     const sp = pat.steps.stab;
     // Licks fill the lead's rests instead of talking over it.
-    if (vary && leadOn && !busy && !(this.songBars && ((hk && hm) || sung?.any) && i16 === 15) && bar % 2 === 1 && !sp[abs % (pat.len.stab || 16)] && hash(abs, 77) < vary * 0.28) {
+    if (vary && leadOn && !busy && !(sung && pocketOf(s.master)?.walk) && !(this.songBars && ((hk && hm) || sung?.any) && i16 === 15) && bar % 2 === 1 && !sp[abs % (pat.len.stab || 16)] && hash(abs, 77) < vary * 0.28) {
       const k = Math.floor(hash(abs, 78) * 6) + (bar % 4 === 3 ? 2 : 0);
       e.lick(tt + (s.master.humanize || 0) * 0.02, 0.35 + hash(abs, 79) * 0.3, k);
     }
     if (this.songBars && hk && hm && leadOn) this.interplay(pat, hk, abs, bar, tt, sd, busy, anySolo, !!hk.s[abs % 32]);
     if (this.songBars && sung?.part && leadOn) this.interplay(pat, pat.hook, abs, bar, tt, sd, busy, anySolo, sung.notes.some((o) => o.at === i16));
     if (sung && leadOn) this.sing(sung, i16, bar, tt, sd, scale);
+    if (sung && leadOn && pocketOf(s.master)?.walk) this.answer(sung, i16, bar, tt, sd);
     if (hk && hm && !s.mutes.stab && (!anySolo || s.solos.stab)) {
       const hi = abs % 32, st = hk.s[hi];
       const x = hk.x || { space: 0.4, risk: 0.4, feel: 0.4, warmth: 0.5 };
@@ -2698,9 +2710,25 @@ export class Sequencer {
       const sec = o.q === 'v' ? (s.patterns[this.cur]?.sec ? 1.15 : 0.82) : o.q === 'b' ? 0.6 : 1, strong = strongNote(start, dur);
       const ht = t + (hash(start, 97) - 0.5) * 0.008 * x.feel + (s.master.humanize || 0) * 0.008;
       const b = 0.58 + 0.42 * ((((bar % 8) + 8) % 8) / 7), v = Math.min(1, vel * sec) * (SUNG_VOICE[hk.v] ?? 1);
-      e.hook(ht, v, semi + lift, dur * sd, hk.v, hk.o, strong, b, false, [0, 4, 5].includes(this.cur) ? { ...x, harp: 1 } : x);
+      // Country: the harmonica takes the verse, the Telecaster the chorus.
+      const harp = [0, 4, 5].includes(this.cur) || (o.q === 'v' && pocketOf(s.master)?.walk);
+      e.hook(ht, v, semi + lift, dur * sd, hk.v, hk.o, strong, b, false, harp ? { ...x, harp: 1 } : x);
       if (this.cur === 6 && o.q === 'n' && ph % 2 === 1 && dur >= 6 && this.songBars) e.hook(ht + 0.004, v * 0.55, stepDeg(semi, -2, scale) + lift, dur * sd, hk.v, hk.o, strong, b, false, { ...x, harm: 1 });
     }
+  }
+
+  // Country call and response: where the melody breathes for a beat and a half, the other player answers with a short
+  // run down (or up) the chord's major pentatonic onto a chord tone. The Telecaster answers the harmonica's verse, the
+  // harmonica the Telecaster's chorus. One answer a bar at most, never over a melody note.
+  answer(sung, i16, bar, t, sd) {
+    if ((this.cur !== 2 && this.cur !== 6) || i16 % 2 || i16 < 2 || i16 > 10 || this.answered === bar || !sung.part) return;
+    if (sung.busy.slice(i16, i16 + 5).some(Boolean) || hash(bar, 131) > 0.85) return;
+    this.answered = bar;
+    const e = this.e, hk = sung.hook, x = hk.x || {}, root = harmRoot(e.harm) + (this.keyLift || 0);
+    const runs = [[9, 7, 4], [4, 2, 0], [12, 9, 7], [2, 4, 7], [7, 9, 12]], run = runs[Math.floor(hash(bar, 132) * runs.length)];
+    const base = ((root % 12) + 12) % 12 - (root % 12 > 6 ? 12 : 0) + (sung.part === 'v' ? -2 : 0);
+    const ex = this.cur === 2 ? { ...x, fill: 1 } : { ...x, harp: 1, fill: 1 };
+    run.forEach((d, j) => e.hook(t + j * 2 * sd + (hash(bar * 3 + j, 133) - 0.5) * 0.01, (j === 2 ? 0.62 : 0.5), base + d, (j === 2 ? 4 : 1.8) * sd, hk.v, hk.o, j === 2, 0.6, false, ex));
   }
 
   // The last bar of a generated song: one final downbeat on the home chord, left to ring out.

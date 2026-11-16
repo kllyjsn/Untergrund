@@ -70,7 +70,7 @@ export class Recorder {
     const p = this.state.params.stab, iv = this.chord(), n = iv[k % iv.length] + 12 * Math.floor(k / iv.length);
     this.add('stab', t, 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + n, this.stepDur * 2, v);
   }
-  hook(t, v, n, dur, voice, oct = 0, strong = false, b = 1, up = false) {
+  hook(t, v, n, dur, voice, oct = 0, strong = false, b = 1, up = false, x = null) {
     const h = this.harm;
     if (strong || up) {
       const tones = this.chord().map((x) => ((((h ? h.r : 0) + x) % 12) + 12) % 12), pc = ((n % 12) + 12) % 12;
@@ -78,7 +78,8 @@ export class Recorder {
       n += d ?? 0;
     }
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
-    this.add('hook', t, 60 + k + oct * 12 + n, dur * 0.92, v);
+    // A country fill answering the melody (Sequencer.answer) is a guitar part, not the tune: it goes with the licks.
+    this.add(x?.fill ? 'stab' : 'hook', t, 60 + k + oct * 12 + n, dur * 0.92, v);
   }
   acid(t, st, sliding, holdNext, sd) {
     const p = this.state.params.acid, vo = Math.round(p.voice);
