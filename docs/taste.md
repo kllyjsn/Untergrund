@@ -28,7 +28,7 @@ nothing about taste; one far from it is a candidate critic input (and a hint whe
 
 ## Player reactions: `research/taste/reactions.json`
 
-The heart, the down arrow and the down reasons in the player (boring / sounds bad / not my style) already reach
+The heart, the down arrow and the down reasons in the player (boring / didn't feel anything / sounds bad / not my style) already reach
 production as listen signals ([listen-signals.md](listen-signals.md)), with the song's fingerprint, style and seed.
 They are absolute labels on whole songs, weaker than a blind A/B pick but free.
 

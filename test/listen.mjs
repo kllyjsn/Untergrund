@@ -102,12 +102,13 @@ assert.ok(!L.isLoved(A) && L.isDowned(A));
 assert.equal(sent.at(-1).sec, 'drop', 'the down keeps where in the song it happened');
 assert.ok(make().isDowned(A), 'down persists in storage');
 // Optional one-tap reasons: only the fixed categories, only after a down; never any free text.
-assert.deepEqual(DOWN_REASONS, ['boring', 'sounds_bad', 'not_my_style']);
+assert.deepEqual(DOWN_REASONS, ['boring', 'sounds_bad', 'not_my_style', 'no_feeling']);
 assert.equal(L.reason('too loud!!'), null, 'no free-form reason');
 const why = L.reason('boring', pos(5));
 assert.equal(why.why, 'boring');
 assert.equal(L.reason('boring', pos(5)), null, 'same reason twice is one signal');
 assert.equal(L.reason('sounds_bad', pos(5)).why, 'sounds_bad', 'a later tap replaces the reason');
+assert.equal(L.reason('no_feeling', pos(5)).why, 'no_feeling', "\"Didn't feel anything\" is a reason of its own");
 assert.ok(Object.keys(why).every((k) => !/text|comment|note|feedback/.test(k)), 'no text field in the record');
 assert.equal(L.toggleLove(pos(6)), true);
 assert.deepEqual(kinds().slice(-2), ['undown', 'love'], 'a love clears the down');
@@ -128,6 +129,22 @@ assert.ok(sent.every((s) => LISTEN_KINDS.includes(s.kind)));
 // No storage (private mode): still works, just forgets.
 const bare = createListens({ store: null, now: () => 0 });
 bare.begin(ctx(A)); assert.equal(bare.toggleLove(), true);
+
+// The song's intended feeling rides on every record of its listen; a love keeps the moment it was tapped.
+{
+  const F = createListens({ store: storage(), now: () => t, emit: (kind, rec) => sent.push({ kind, ...rec }) });
+  sent.length = 0;
+  F.begin(ctx('feelsong000001', { feel: 'longing' }), pos(0));
+  t += 40_000;
+  assert.equal(F.toggleLove(pos(13, 32, 'chorus')), true);
+  F.end(pos(31), { finished: true });
+  assert.ok(sent.length >= 3 && sent.every((r) => r.feel === 'longing'), 'every signal carries the feeling');
+  const heart = sent.find((r) => r.kind === 'love');
+  assert.deepEqual([heart.bar, heart.bars, heart.sec], [13, 32, 'chorus'], 'the love records where the heart was tapped');
+  sent.length = 0;
+  F.begin(ctx('nofeel00000001'), pos(0));
+  assert.ok(sent.length && sent.every((r) => !('feel' in r)), 'a song without a feeling sends no feel field');
+}
 
 console.log('listen signals passed');
 

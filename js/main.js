@@ -36,6 +36,7 @@ import { flagshipShelf } from './flagship.js';
 import { describeBar, syncLyrics } from './describe-ui.js';
 import { vocalStem } from './sing.js';
 import { songState } from './song-spec.js';
+import { isFeel } from './feel.js';
 import { fetchPublicTrack } from './account.js';
 import { openShare, openSharedLanding, countRemix, track } from './share.js';
 import { readShareParams, decodeSong, normalizeSong, remixState } from './share-code.js';
@@ -387,7 +388,7 @@ const listenSurface = () => (jukeboxNow ? 'jukebox' : songOrigin.src === 'room' 
 function listenCtx() {
   const a = state.artist || {};
   const ctx = { fp: songFingerprint(state), tid: guest?.song?.trackId || songOrigin.tid || '', seed: Number.isFinite(+a.seed) ? +a.seed : -1, style: STYLES[a.style] ? a.style : style,
-    src: songOrigin.src, surf: listenSurface(), ph: songOrigin.ph || '', pt: songOrigin.pt || '', arr: songShape(), via: songOrigin.via || '' };
+    src: songOrigin.src, surf: listenSurface(), ph: songOrigin.ph || '', pt: songOrigin.pt || '', arr: songShape(), via: songOrigin.via || '', feel: isFeel(state.feel) ? state.feel : '' };
   const x = experimentFor(ctx);
   // An experiment that changes songs (`apply`) tags only songs made under it, with the arm they were made in;
   // restored, crate, shared and room songs were never treated, so they stay out of its read-out.
@@ -688,7 +689,7 @@ function currentSong() {
 }
 // The song whose share sheet is open, so a share made before pressing play still names the song it shared.
 let sharing = null;
-const sharingCtx = () => (sharing?.song?.state ? { fp: songFingerprint(sharing.song.state), tid: sharing.song.trackId || '', style: sharing.song.style || '', surf: sharing.source || '' } : null);
+const sharingCtx = () => (sharing?.song?.state ? { fp: songFingerprint(sharing.song.state), tid: sharing.song.trackId || '', style: sharing.song.style || '', surf: sharing.source || '', feel: isFeel(sharing.song.state.feel) ? sharing.song.state.feel : '' } : null);
 function showShare(song = currentSong(), source = 'studio') { sharing = { song, source }; openShare({ song, toast, download, source, hue: hue(song.style), room: hostingRoom(), beforeExport: () => { if (playing) stop(); } }); }
 
 // Play a shared or jukebox song in place; leaveGuest() puts the listener's own project back.
@@ -1502,9 +1503,9 @@ function buildNowPlaying(primary) {
   ];
 }
 
-// The explicit reactions: love or down the song you hear, one tap each. After a down, three optional one-tap reasons
+// The explicit reactions: love or down the song you hear, one tap each. After a down, four optional one-tap reasons
 // (never a text box); everything else (where it was, what it is, what you did next) is read from the listen itself.
-const DOWN_WHY = { boring: 'Boring', sounds_bad: 'Sounds bad', not_my_style: 'Not my style' };
+const DOWN_WHY = { boring: 'Boring', no_feeling: "Didn't feel anything", sounds_bad: 'Sounds bad', not_my_style: 'Not my style' };
 // Now Playing can render before the next song's listen begins (song handoffs), so the controls repaint once it has.
 // Now Playing and the mini-player each have a set; a tap on either repaints both.
 const reactionPaints = new Set();
