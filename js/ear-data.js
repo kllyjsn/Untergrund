@@ -1,6 +1,6 @@
 // The digital ear's training data: Jason's blind A/B picks (ear.html) and what each render measured.
 // No DOM, so the page, scripts/ear.mjs and test/ear.mjs share it.
-import { defaultState, generate, arrangement, applyOverrides, applySongPlan, MAJOR_STYLES } from './state.js';
+import { defaultState, generate, arrangement, applyOverrides, applySongPlan, songFeel, MAJOR_STYLES } from './state.js';
 
 // One-tap reasons, in Jason's own words from past feedback (research/taste/critiques.json). They describe the worse
 // render (both, on SAME). A closed set: there is never a text box.
@@ -16,7 +16,7 @@ export const SCHEMA = 'untergrund.ear/1';
 export function songFor(style, seed) {
   const s = defaultState();
   if (style === 'euphoric' || MAJOR_STYLES.has(style)) s.scale = 'major';
-  const g = generate(style, seed, s.scale);
+  const g = generate(style, seed, s.scale, { feel: songFeel(style, seed) });
   s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   s.key = g.key;
   applyOverrides(s, g, true);

@@ -6,7 +6,7 @@ import { recordMic } from './sampler.js';
 import { prepareHum, hookFor, fitProg, livePitch, noteLabel, NOTE_NAMES, tuneChops } from './hum.js';
 import { getChops, setVoice, clearVoice, buildVoice } from './voice.js';
 import { KEYS, SCALES, CHORDS } from './params.js';
-import { generate } from './state.js';
+import { generate, songFeel } from './state.js';
 import { track as trackEvent } from './analytics.js';
 
 const MAX_SEC = 8;
@@ -45,7 +45,7 @@ export function songKey(detected, scaleName) {
 export function humSeed(style, scale, hum, tries = 24) {
   let best = (Math.random() * 1e9) | 0, score = -1;
   for (let i = 0; i < tries; i++) {
-    const seed = (Math.random() * 1e9) | 0, g = generate(style, seed, scale);
+    const seed = (Math.random() * 1e9) | 0, g = generate(style, seed, scale, { feel: songFeel(style, seed) });
     if (!g.pattern.prog?.length || g.pattern.score) return seed;
     const { hook } = hum(g.bpm, scale);
     const fit = fitProg(hook, g.pattern.prog, CHORDS) + 0.3 * fitProg(hook, g.pattern.alt, CHORDS);

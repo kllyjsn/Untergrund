@@ -146,6 +146,16 @@ function phrasePitches(r, P, rh, plan, ctAt, forced, opt = {}) {
   return out;
 }
 
+// A feeling's register and contour on a phrase plan: the range moves by `lift` scale steps (the cadence note
+// stays, snapped to the chord later) and the peak moves later or earlier by `arc`. A low feeling sings its verses
+// and bridge low but keeps the chorus at home, so the title still rises above the band.
+function shapePlan(P, plan, chorus) {
+  if (!P.lift && !P.arc) return;
+  const k = chorus ? Math.max(0, P.lift || 0) : P.lift || 0;
+  Object.assign(plan, { lo: plan.lo + k, hi: plan.hi + k, start: plan.start + k, peak: plan.peak + k, peakAt: Math.max(0.2, Math.min(0.85, plan.peakAt + (P.arc || 0))) });
+  plan.lo = Math.min(plan.lo, plan.end - 1);
+}
+
 // Write one part (hook, verse or bridge): phrases of 4 bars (or one 8-bar phrase) over an 8-bar cycle.
 function writePart(r, P, kind, deg, chordTones, hookHead) {
   const N = deg.length, semi = (d) => deg[mod(d, N)] + 12 * Math.floor(d / N);
@@ -163,6 +173,7 @@ function writePart(r, P, kind, deg, chordTones, hookHead) {
       : kind === 'b'
         ? { lo: -3, hi: top + 3, start: pick(r, [-1, 0, 1]), peak: last ? top + 2 : top, peakAt: 0.65 + r() * 0.2, end: last ? 4 : 2 }
         : { lo: -3, hi: top + 2, start: pick(r, [2, 4]), peak: ph ? top + (r() < 0.5 ? 1 : 0) : top, peakAt: ph ? 0.55 + r() * 0.2 : 0.4 + r() * 0.2, end: last ? pick(r, [0, 0, 2]) : pick(r, [4, 1]) };
+    shapePlan(P, plan, kind === 'n');
     const ctAt = (s, d) => chordTones(Math.floor(mod(bar0 * 16 + s, MELODY_BARS * 16) / 16)).has(mod(semi(d), 12));
     // Strong-beat peaks and endings move to the nearest chord tone so the plan itself is singable.
     const snap = (d, s) => [0, 1, -1, 2, -2].map((x) => d + x).find((q) => ctAt(s, q)) ?? d;
@@ -302,6 +313,7 @@ function setPart(r, P, kind, deg, chordTones, words, sig, ceil = Infinity) {
       : kind === 'b'
         ? { lo: -2, hi: top + 3, start: pick(r, [-1, 0, 1]), peak: last ? top + 1 : top, peakAt: 0.65 + r() * 0.2, end: last ? 4 : 2 }
         : { lo: -1, hi: top + 2, start: pick(r, [2, 4]), peak: last ? top + 1 : top, peakAt: 0.5, end: last ? 0 : pick(r, [4, 1]) };
+    shapePlan(P, plan, kind === 'n');
     const ctAt = (s, d) => chordTones(Math.floor(mod(bar0 * 16 + s, MELODY_BARS * 16) / 16)).has(mod(semi(d), 12));
     const snap = (d, s) => [0, 1, -1, 2, -2].map((x) => d + x).find((q) => ctAt(s, q)) ?? d;
     plan.end = snap(plan.end, at.at(-1));
@@ -360,16 +372,20 @@ function setPart(r, P, kind, deg, chordTones, words, sig, ceil = Infinity) {
 
 // The whole melody for a song. `prog` is the main changes (one chord per bar), `alt` the bridge's.
 // `words` ({ n, v, b }: up to 4 lyric lines each) sets the parts to those lines; the song genres always text-set.
-export function writeMelody(r, style, scale, { prog, alt, chord = 0, words = null } = {}) {
-  const P = SING_PROFILES[style];
-  if (!P) return null;
+// `shape` ({ reg, leap, arousal } from the song's feeling, js/feel.js) moves the register (semitones, as scale steps),
+// the leap appetite and the signature leap, and where phrases peak: an aroused line climbs late, a low one sighs early.
+export function writeMelody(r, style, scale, { prog, alt, chord = 0, words = null, shape = null } = {}) {
+  const base = SING_PROFILES[style];
+  if (!base) return null;
+  const P = shape ? { ...base, leap: Math.max(0.05, Math.min(0.95, base.leap + (shape.leap - 0.45) * 0.6)), lift: Math.round(shape.reg / 1.7), arc: 0.08 * (shape.arousal || 0) } : base;
   const deg = scale.length >= 7 ? scale.slice(0, 7) : scale.slice(0, scale.length - 1);
   const tones = (pr) => (bar) => {
     const h = pr?.length ? pr[mod(bar, pr.length)] : { r: 0, c: chord };
     return new Set((CHORDS[h.c] || CHORDS[0]).iv.map((x) => mod(h.r + x, 12)));
   };
   if (P.song || words) {
-    const sig = P.jump && r() < P.jump ? pick(r, [4, 5]) : pick(r, [2, 3, 3, 4]);
+    const sigs = !shape ? [2, 3, 3, 4] : shape.leap > 0.55 ? [3, 4, 4, 5] : shape.leap < 0.35 ? [2, 2, 3, 3] : [2, 3, 3, 4];
+    const sig = P.jump && r() < P.jump ? pick(r, [4, 5]) : pick(r, sigs);
     const n = setPart(r, P, 'n', deg, tones(prog), words?.n, sig), title = n.notes.filter((x) => x[4] === 0).map((x) => x[2]);
     const v = setPart(r, P, 'v', deg, tones(prog), words?.v, sig, title.length ? Math.max(...title) : Infinity);
     const b = setPart(r, P, 'b', deg, tones(alt?.length ? alt : prog), words?.b, sig);
@@ -378,7 +394,7 @@ export function writeMelody(r, style, scale, { prog, alt, chord = 0, words = nul
   const n = writePart(r, P, 'n', deg, tones(prog), null);
   const v = writePart(r, P, 'v', deg, tones(prog), null);
   const b = writePart(r, P, 'b', deg, tones(alt?.length ? alt : prog), null);
-  return { bars: MELODY_BARS, n: n.notes, v: v.notes, b: b.notes, ...(SING_PROFILES[style].comp ? { c: 1 } : {}) };
+  return { bars: MELODY_BARS, n: n.notes, v: v.notes, b: b.notes, ...(base.comp ? { c: 1 } : {}) };
 }
 
 // The chorus's first two bars in the 32-step hook format, for code that only knows hook.s.
