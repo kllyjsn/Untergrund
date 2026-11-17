@@ -2395,14 +2395,14 @@ export class Sequencer {
         if (i16 >= 12) e.trigger('snare', tt + sd / 2, rv * 0.85);
       }
     }
-    if (this.dropNow && i16 === 0) e.impact(t, arr);
-    if (pat.score) this.scoreStep(pat.score, abs, t, sd);
-    else this.e.stepScale = 1;
-    const anySolo = TRACK_IDS.some((id) => s.solos[id]);
     // The peak's dropout (longform.js writePeak): one bar of only the lead (the chords, with no lead), then the band returns.
     const alone = pat.peak === 'dropout' ? (sung || (pat.hook && !pat.hook.h && pat.hm) ? 'lead' : 'stab') : null;
     if (alone) this.peakDrop = pos;
     else if (i16 === 0 && pos > 0 && this.peakDrop === pos - 1) e.impact(t, Math.max(0.5, arr));
+    if (this.dropNow && i16 === 0 && !alone) e.impact(t, arr);
+    if (pat.score) this.scoreStep(pat.score, abs, t, sd);
+    else this.e.stepScale = 1;
+    const anySolo = TRACK_IDS.some((id) => s.solos[id]);
     const rp = arr && !vary && n && !pat.score && this.runLen >= 8 ? this.runPos : -1;
     // A song verse running straight into the pre-chorus fills its own last bar (no D/H turnaround follows it).
     const turn = pat.sec && (this.cur === 2 || this.cur === 6) && this.runPos === this.runLen - 1 && pos + 1 < n && ![3, 7].includes(this.chainArr[pos + 1]);
@@ -2412,7 +2412,7 @@ export class Sequencer {
     const band = pk?.band && Math.round(s.master.kit || 0) === 1;
     // The rhythm guitar palm-mutes the verse and breakdown and opens up for the pre-chorus and chorus.
     e.palm = band && (this.cur === 2 || this.cur === 4);
-    if (band && i16 === 0 && pos > 0 && this.chainArr[pos - 1] !== this.cur && pat.steps.kick.some(Boolean) && !s.mutes.oh && (!anySolo || s.solos.oh)) {
+    if (band && !alone && i16 === 0 && pos > 0 && this.chainArr[pos - 1] !== this.cur && pat.steps.kick.some(Boolean) && !s.mutes.oh && (!anySolo || s.solos.oh)) {
       e.crash(tt + pocketLate(pk, 'oh', 0), this.cur === 6 || this.cur === 7 ? 1 : 0.7);
     }
     for (const id of TRACK_IDS) {
