@@ -53,7 +53,7 @@ export function sungNotes(state) {
   const chain = s.chainOn ? parseChain(s.chain) : [];
   if (!chain.length || !s.patterns?.some((p) => p.hook?.m)) return [];
   const rec = new Recorder(s), seq = new Sequencer(rec, s), out = [], hook = rec.hook.bind(rec), sing = seq.sing.bind(seq);
-  let now = null, abs = 0;
+  let now = null, abs = 0, held = null;
   seq.sing = (sung, i16, ...a) => {
     now = sung.notes.filter((o) => o.at === i16 && !(seq.dropNext && i16 >= 8 && !o.pickup));
     sing(sung, i16, ...a);
@@ -61,9 +61,17 @@ export function sungNotes(state) {
   };
   rec.hook = (...a) => {
     hook(...a);
-    if (!now?.length || a[9]?.harm) return;
+    const x = a[9];
+    // A peak suspension (Sequencer.suspend): the syllable's upper neighbour, then its resolution sung on the same slot.
+    if (x?.res && held) {
+      out.push({ ...held, at: held.at + x.res, dur: held.dur - x.res, midi: rec.notes.hook.at(-1).m });
+      held.dur = x.res; held = null;
+      return;
+    }
+    if (!now?.length || x?.harm) return;
     const o = now.shift(), m = rec.notes.hook.at(-1).m;
     out.push({ at: abs, dur: o.x[1], midi: m, q: o.q, ph: o.x[4], slot: o.x[5], cycle: abs - o.x[0], pickup: !!o.pickup });
+    held = x?.app ? out.at(-1) : null;
   };
   for (; abs < chain.length * 16 && !seq.finished; abs++) seq.tick(abs, abs * rec.stepDur);
   return out;
