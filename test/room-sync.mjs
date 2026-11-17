@@ -40,7 +40,3 @@ const rebasedOrigin = changeAt - currentStep * (15000 / newBpm);
 const before = (changeAt - oldOrigin) / (15000 / oldBpm);
 const after = (changeAt - rebasedOrigin) / (15000 / newBpm);
 close(before, after);
-// A stretched transport (a feeling's tempo breath): a late listener counts the DJ's stretched steps.
-for (const now of [origin + 1500, origin + 1562.5, origin + 9000]) assert.deepEqual(roomTransportPosition(origin, 120, now, () => 1), roomTransportPosition(origin, 120, now));
-pos = roomTransportPosition(origin, 120, origin + 1500, () => 2);
-assert.equal(pos.step, 7);

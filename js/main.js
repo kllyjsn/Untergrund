@@ -2,7 +2,7 @@ import { track as trackEvent, reportError, playStarted, playStopped, did, signal
 import { assign as assignExperiment } from './experiments.js';
 import { createListens, songFingerprint, promptHash, promptText } from './listen.js';
 import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue, VOICE_HIDDEN } from './params.js';
-import { Engine, Sequencer, parseChain, feelTempo } from './engine.js';
+import { Engine, Sequencer, parseChain } from './engine.js';
 import { defaultState, generate, mutate, arrangement, songChain, applySongPlan, applyOverrides, clone, save, load, sanitize, STYLES, MAJOR_STYLES, emptyPattern, emptyAcidStep, fitLyrics, refreshSong } from './state.js';
 import { renderBars, bufferToWav } from './render.js';
 import { exportButtons } from './export-ui.js';
@@ -852,9 +852,7 @@ function joinRoomSet(item) {
   const startsAt = Number.isFinite(+item.startsAt) ? +item.startsAt : Date.now();
   replaceState(roomState);
   const sync = () => {
-    const chain = roomState.chainOn ? parseChain(roomState.chain) : [];
-    const scaleAt = roomState.feel && chain.length ? (i) => feelTempo(roomState, chain, Math.floor(i / 16) % chain.length, i % 16) : null;
-    const { step, delay } = roomTransportPosition(startsAt, roomState.bpm, Date.now(), scaleAt);
+    const { step, delay } = roomTransportPosition(startsAt, roomState.bpm);
     play({ step, delay });
     roomResume = () => joinRoomSet(item);
     syncNowPlaying();
