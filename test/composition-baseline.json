@@ -17,7 +17,7 @@
     "peakAt": 0.135,
     "restsPerPhrase": 2.29,
     "stepShare": 0.225,
-    "feelFit": 0.549
+    "feelFit": 0.548
   },
   "industrial": {
     "bars": 112,
@@ -37,7 +37,7 @@
     "peakAt": 0.165,
     "restsPerPhrase": 1.91,
     "stepShare": 0.24,
-    "feelFit": 0.581
+    "feelFit": 0.591
   },
   "acid": {
     "bars": 112,
@@ -57,7 +57,7 @@
     "peakAt": 0.165,
     "restsPerPhrase": 1.91,
     "stepShare": 0.24,
-    "feelFit": 0.564
+    "feelFit": 0.56
   },
   "dub": {
     "bars": 112,
@@ -77,7 +77,7 @@
     "peakAt": 0.225,
     "restsPerPhrase": 1.335,
     "stepShare": 0,
-    "feelFit": 0.551
+    "feelFit": 0.55
   },
   "peak": {
     "bars": 112,
@@ -97,7 +97,7 @@
     "peakAt": 0.165,
     "restsPerPhrase": 1.91,
     "stepShare": 0.24,
-    "feelFit": 0.568
+    "feelFit": 0.563
   },
   "hardtechno": {
     "bars": 128,
@@ -117,7 +117,7 @@
     "peakAt": 0.195,
     "restsPerPhrase": 1.905,
     "stepShare": 0.24,
-    "feelFit": 0.627
+    "feelFit": 0.643
   },
   "deephouse": {
     "bars": 112,
@@ -157,7 +157,7 @@
     "peakAt": 0.125,
     "restsPerPhrase": 2.29,
     "stepShare": 0.195,
-    "feelFit": 0.537
+    "feelFit": 0.536
   },
   "ukg": {
     "bars": 116,
@@ -177,7 +177,7 @@
     "peakAt": 0.55,
     "restsPerPhrase": 1.195,
     "stepShare": 0.85,
-    "feelFit": 0.465
+    "feelFit": 0.466
   },
   "euphoric": {
     "bars": 116,
@@ -197,7 +197,7 @@
     "peakAt": 0.53,
     "restsPerPhrase": 1.085,
     "stepShare": 0.635,
-    "feelFit": 0.605
+    "feelFit": 0.609
   },
   "neosoul": {
     "bars": 80,
@@ -217,7 +217,7 @@
     "peakAt": 0.545,
     "restsPerPhrase": 1.06,
     "stepShare": 0.83,
-    "feelFit": 0.594
+    "feelFit": 0.631
   },
   "boombap": {
     "bars": 88,
@@ -237,7 +237,7 @@
     "peakAt": 0.49,
     "restsPerPhrase": 1,
     "stepShare": 0.88,
-    "feelFit": 0.558
+    "feelFit": 0.569
   },
   "breaks": {
     "bars": 112,
@@ -257,7 +257,7 @@
     "peakAt": 0.35,
     "restsPerPhrase": 2.73,
     "stepShare": 0.165,
-    "feelFit": 0.558
+    "feelFit": 0.559
   },
   "electro": {
     "bars": 112,
@@ -277,7 +277,7 @@
     "peakAt": 0.165,
     "restsPerPhrase": 1.91,
     "stepShare": 0.245,
-    "feelFit": 0.595
+    "feelFit": 0.597
   },
   "dnb": {
     "bars": 128,
@@ -297,7 +297,7 @@
     "peakAt": 0.055,
     "restsPerPhrase": 2.195,
     "stepShare": 0,
-    "feelFit": 0.496
+    "feelFit": 0.518
   },
   "trance": {
     "bars": 112,
@@ -317,7 +317,7 @@
     "peakAt": 0.56,
     "restsPerPhrase": 1,
     "stepShare": 0.74,
-    "feelFit": 0.608
+    "feelFit": 0.619
   },
   "ambient": {
     "bars": 80,
@@ -337,7 +337,7 @@
     "peakAt": 0.4,
     "restsPerPhrase": 1.335,
     "stepShare": 0.1,
-    "feelFit": 0.596
+    "feelFit": 0.654
   },
   "amapiano": {
     "bars": 104,
@@ -357,7 +357,7 @@
     "peakAt": 0.55,
     "restsPerPhrase": 1.095,
     "stepShare": 0.78,
-    "feelFit": 0.477
+    "feelFit": 0.496
   },
   "afrobeats": {
     "bars": 88,
@@ -377,7 +377,7 @@
     "peakAt": 0.495,
     "restsPerPhrase": 1.22,
     "stepShare": 0.87,
-    "feelFit": 0.397
+    "feelFit": 0.399
   },
   "reggaeton": {
     "bars": 80,
@@ -397,7 +397,7 @@
     "peakAt": 0.565,
     "restsPerPhrase": 1.03,
     "stepShare": 0.85,
-    "feelFit": 0.405
+    "feelFit": 0.427
   },
   "bailefunk": {
     "bars": 112,
@@ -437,7 +437,7 @@
     "peakAt": 0.56,
     "restsPerPhrase": 1.08,
     "stepShare": 0.815,
-    "feelFit": 0.51
+    "feelFit": 0.537
   },
   "drill": {
     "bars": 128,
@@ -457,7 +457,7 @@
     "peakAt": 0.49,
     "restsPerPhrase": 1.06,
     "stepShare": 0.77,
-    "feelFit": 0.542
+    "feelFit": 0.571
   },
   "jerseyclub": {
     "bars": 112,
@@ -477,7 +477,7 @@
     "peakAt": 0.345,
     "restsPerPhrase": 2.755,
     "stepShare": 0.325,
-    "feelFit": 0.611
+    "feelFit": 0.62
   },
   "hyperpop": {
     "bars": 124,
@@ -529,7 +529,7 @@
     "rhymeRate": 0.977,
     "verseSpan": 6.25,
     "verseFit": 1,
-    "feelFit": 0.542
+    "feelFit": 0.502
   },
   "rnb": {
     "bars": 64,
@@ -561,7 +561,7 @@
     "rhymeRate": 0.977,
     "verseSpan": 6.313,
     "verseFit": 1,
-    "feelFit": 0.563
+    "feelFit": 0.51
   },
   "rock": {
     "bars": 108,
@@ -625,7 +625,7 @@
     "rhymeRate": 0.972,
     "verseSpan": 6.125,
     "verseFit": 1,
-    "feelFit": 0.489
+    "feelFit": 0.52
   },
   "country": {
     "bars": 94,
@@ -657,6 +657,6 @@
     "rhymeRate": 0.972,
     "verseSpan": 6.375,
     "verseFit": 1,
-    "feelFit": 0.519
+    "feelFit": 0.523
   }
 }

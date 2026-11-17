@@ -184,7 +184,7 @@ const quantile = (xs, q) => { const a = [...xs].sort((x, y) => x - y); return a.
 const avgOf = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
 function rawCues(s, lead, perBar) {
   // Note length over the gap to the next onset, inside a phrase (a gap of a bar or more is a rest, not a line).
-  const leg = [], step = 15 / (s.bpm || 120);
+  const leg = [], step = 0.125; // playSong ticks at a fixed stepDur, so lengths are in 0.125 s steps at any bpm
   for (let i = 0; i + 1 < lead.length; i++) { const gap = lead[i + 1][0] - lead[i][0]; if (gap > 0 && gap < 16) leg.push(Math.min(1, lead[i][5] / step / gap)); }
   // Soft/loud range (10th/90th percentile velocity) inside each section, so section levels count only as contrast.
   const bySec = new Map();

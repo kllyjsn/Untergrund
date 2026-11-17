@@ -149,7 +149,6 @@
         <div class="range">${[7, 30, 90].map((d) => `<button data-days="${d}" class="${d === days ? 'on' : ''}">${d} DAYS</button>`).join('')}</div>
         ${s ? `<div class="updated">Updated ${new Date(s.generated).toLocaleString()} · days are UTC · sessions are anonymous tabs</div>` : ''}</header>`;
       if (!s) {
-        const byFeel = (ls?.feels || []).map((x) => `<div class="genre"><span>${esc(x.feel.toUpperCase())} · ${fmt(x.starts)}</span><span class="num">${pct(x.rates.completion)} done · ${pct(x.rates.skip)} skip · ${pct(x.rates.love)} ♥ · ${pct(x.rates.down || 0)} ↓</span></div>`).join('') || '<div class="empty">No listens with a feeling yet.</div>';
       root.innerHTML = head + `<section class="notice"><h2>STORAGE NOT CONNECTED</h2>The app is ready to count events, but no Redis store is connected, so nothing is saved yet.
           Connect Upstash Redis (free) to the Vercel project so <code>KV_REST_API_URL</code> and <code>KV_REST_API_TOKEN</code> are set, then redeploy.</section>`;
         return bindRange();
@@ -185,6 +184,7 @@
         + [['completion', 'Finished'], ['skip', 'Skipped early'], ['replay', 'Replayed'], ['rewind', 'Rewound'], ['love', 'Loved'], ['down', 'Downed'], ['keep', 'Kept'], ['publish', 'Published'], ['share', 'Shared'], ['live', 'Played live']].map(([k, l]) => `<div class="genre"><span>${l.toUpperCase()}</span><span class="num">${pct(lr[k] || 0)}</span></div>`).join('')
         : '<div class="empty">No listens yet.</div>';
       const byStyle = (ls?.styles || []).slice(0, 10).map((x) => `<div class="genre"><span>${esc(x.style.toUpperCase())} · ${fmt(x.starts)}</span><span class="num">${pct(x.rates.completion)} done · ${pct(x.rates.skip)} skip · ${pct(x.rates.love)} ♥ · ${pct(x.rates.down || 0)} ↓</span></div>`).join('') || '<div class="empty">No listens yet.</div>';
+      const byFeel = (ls?.feels || []).map((x) => `<div class="genre"><span>${esc(x.feel.toUpperCase())} · ${fmt(x.starts)}</span><span class="num">${pct(x.rates.completion)} done · ${pct(x.rates.skip)} skip · ${pct(x.rates.love)} ♥ · ${pct(x.rates.down || 0)} ↓</span></div>`).join('') || '<div class="empty">No listens with a feeling yet.</div>';
       root.innerHTML = head + `<div class="kpis">${kpis}</div>
         <div class="grid2"><section><h2>FUNNEL · UNIQUE SESSIONS</h2>${funnel}</section>
           <section><h2>DAILY SESSIONS</h2>${chart(s.daily)}</section></div>

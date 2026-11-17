@@ -151,7 +151,7 @@ function sectionFindings(rows, o) {
     for (const l of group) {
       const shape = parseShape(l.arr);
       if (!shape.length) continue;
-      const lastBar = l.outcome === 'complete' ? Infinity : l.end?.bar ?? l.downAt?.bar ?? 0;
+      const lastBar = l.outcome === 'complete' ? Infinity : Math.max(l.end?.bar ?? l.downAt?.bar ?? 0, l.loveAt?.bar ?? 0);
       for (const s of shape) if (s.at <= lastBar) { const x = at(s.kind); x.reached++; x.lids.add(l.lid || l.lis); }
       if (l.outcome && l.outcome !== 'complete') { const s = sectionAt(shape, l.end?.bar ?? 0); if (s) at(s.kind).exits++; }
       if (l.down && l.downAt) { const s = sectionAt(shape, l.downAt.bar); if (s) at(s.kind).downs++; }
