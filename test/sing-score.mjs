@@ -116,6 +116,8 @@ await t('the singer sings the song\'s feeling, the verse closer than the chorus;
   }
   assert.ok(by.heartbroken.expr.vib_cents > by.tense.expr.vib_cents && by.heartbroken.expr.glide_ms > by.euphoric.expr.glide_ms && by.tense.expr.stress_db > by.tender.expr.stress_db);
   assert.ok(by.tense.expr.vib_rate > by.heartbroken.expr.vib_rate, 'arousal quickens the vibrato');
+  const verses = { ...base, feel: 'tender', lyrics: { ...base.lyrics, sections: base.lyrics.sections.map((x) => ({ ...x, sec: 'verse' })) } }, vr = singScore(verses);
+  assert.ok(vr.parts?.length === 1 && vr.parts[0].expr.vib_cents < vr.expr.vib_cents, 'verse-only words still sing intimately');
 });
 
 await t('old projects and share links still load; sing settings survive sanitize', () => {

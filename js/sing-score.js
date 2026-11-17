@@ -257,7 +257,7 @@ export function singScore(state, { voice, seed, kind = 'club', format = 'opus' }
       if (JSON.stringify(e) !== JSON.stringify(parts.at(-1)?.expr)) parts.push({ beat: parts.length ? m.start : 0, expr: e });
     });
   }
-  return { format: SING_FORMAT, voice: v, seed: sd, audio: SING_FORMATS.includes(format) ? format : 'opus', score, expr, ...(parts.length > 1 && { parts }), key: state.key, phrases: meta };
+  return { format: SING_FORMAT, voice: v, seed: sd, audio: SING_FORMATS.includes(format) ? format : 'opus', score, expr, ...(parts.some((p) => JSON.stringify(p.expr) !== JSON.stringify(expr)) && { parts }), key: state.key, phrases: meta };
 }
 
 // Section deliveries: [{ beat, expr }] with rising beats inside the score; anything else drops them all.
