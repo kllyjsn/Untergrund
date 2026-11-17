@@ -1,7 +1,7 @@
 // The feeling model: every feeling is complete, GENERATE and song prompts carry one, and it survives a reload.
 import assert from 'node:assert/strict';
 import { FEELS, FEEL_IDS, feelOf, pickFeel, feelsFor, isFeel } from '../js/feel.js';
-import { STYLES, freshSong, sanitize } from '../js/state.js';
+import { STYLES, freshSong, sanitize, applySongPlan, defaultState } from '../js/state.js';
 import { localSpec, songState } from '../js/song-spec.js';
 import { themeOf } from '../js/lyric-writer.js';
 
@@ -38,6 +38,14 @@ const s = freshSong('deephouse', 7);
 assert.ok(isFeel(s.feel));
 assert.equal(sanitize(JSON.parse(JSON.stringify(s))).feel, s.feel);
 assert.equal(sanitize({ ...JSON.parse(JSON.stringify(s)), feel: 'bogus' }).feel, undefined);
+
+// Every GENERATE path writes its song through applySongPlan, so a new song never keeps the last one's feeling.
+const prev = { ...defaultState(), feel: 'tense' };
+applySongPlan(prev, 'pop', 11);
+assert.equal(prev.feel, pickFeel('pop', STYLES.pop.family, 11));
+const score = { ...defaultState(), feel: 'tense' };
+applySongPlan(score, 'nocturne', 11);
+assert.equal(score.feel, undefined);
 
 const spec = localSpec('a heartbroken pop song about leaving', { style: 'pop', seed: 3 });
 assert.equal(spec.feel, 'heartbroken');

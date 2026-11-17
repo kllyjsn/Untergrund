@@ -1104,6 +1104,9 @@ export const songChain = (style, seed, length = 'song') => songPlan(style, seed,
 export function applySongPlan(s, style, seed, length = 'song') {
   const plan = songPlan(style, seed, length, s.bpm || midBpm(style));
   s.chain = plan.chain;
+  // Scores carry their own expression; every other GENERATE song gets a feeling from its seed.
+  if (FORMS[style] || style === 'repertoire') delete s.feel;
+  else s.feel = pickFeel(style, STYLES[style].family, seed);
   const keep = Object.keys(s.locks || {}).filter((t) => s.locks[t]);
   developSong(s.patterns, plan.sections, { keep });
   if (plan.chain === TECHNO_LONG) developFinalDrop(s.patterns, plan.chain, { keep });
@@ -1116,7 +1119,6 @@ export function freshSong(style, seed, { base = defaultState(), scale = null, le
   const s = clone(base);
   s.scale = scale || (style === 'euphoric' || MAJOR_STYLES.has(style) ? 'major' : s.scale);
   const g = generate(style, seed, s.scale);
-  s.feel = pickFeel(style, STYLES[style].family, seed);
   s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   s.key = g.key;
   applyOverrides(s, g, true);
