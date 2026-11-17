@@ -7,6 +7,8 @@ import { realize, validateSpec, localSpec } from '../js/song-spec.js';
 import { planSections, formChain, formSeconds, developSong, developFinalDrop, finalPeak, writePeak, LENGTHS, MAX_SONG_BARS } from '../js/longform.js';
 import { buildSong, playSong, peakDevices, SEEDS, loopStyles, runComposition } from '../scripts/composition.mjs';
 import { FEELS } from '../js/feel.js';
+import { sungNotes } from '../js/sing-score.js';
+import { liveSets } from '../js/livekit.js';
 
 const LETTERS = 'ABCDEFGH';
 const secs = (s) => (s.chain.length * 240) / s.bpm;
@@ -163,6 +165,17 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
   }
   const s = buildSong('pop', 101), re = sanitize(JSON.parse(JSON.stringify(s)));
   assert.deepEqual(peakDevices(re), peakDevices(s), 'the peak device survives a save and reload');
+  // The neural singer sings the suspension's resolution too, and an offline render loads the entering violins.
+  const seen = { suspension: 0, entry: 0 };
+  for (const seed of SEEDS) {
+    const x = buildSong('pop', seed), w = x.patterns.flatMap((p) => p.at || []).find((t) => t.peak)?.peak, o = sungNotes(x);
+    if (w === 'suspension') {
+      seen.suspension++;
+      assert(o.some((n, i) => i && o[i - 1].slot === n.slot && o[i - 1].at + o[i - 1].dur === n.at && [1, 2].includes(o[i - 1].midi - n.midi)), `pop/${seed} sings the suspension resolving down a step`);
+    }
+    if (w === 'entry') { seen.entry++; assert(liveSets(x).includes('str'), `pop/${seed} loads the violins its final chorus enters on`); }
+  }
+  assert(seen.suspension && seen.entry, `pop seeds cover both sung devices: ${JSON.stringify(seen)}`);
   // No feeling (old saves, the repertoire, the classical scores, which carry their own arc): the arrangement is what it was.
   const old = buildSong('peak', 101);
   for (const p of old.patterns) if (p.at) p.at = p.at.filter((t) => !t.peak);
