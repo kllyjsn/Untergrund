@@ -8,7 +8,7 @@ export const MAX_EVENTS = 6000;
 export const MAX_SET_MS = 6 * 3600e3;
 export const MIN_SET_MS = 15000;
 // What a DJ performs with. `current` is the pattern on deck; replay queues it for the next bar.
-export const LIVE_KEYS = ['bpm', 'swing', 'key', 'scale', 'current', 'chainOn', 'chain', 'params', 'master', 'mutes', 'solos', 'orch', 'orchMute', 'patterns'];
+export const LIVE_KEYS = ['bpm', 'swing', 'key', 'scale', 'current', 'chainOn', 'chain', 'params', 'master', 'mutes', 'solos', 'orch', 'orchMute', 'patterns', 'feel'];
 
 const copy = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
