@@ -1165,11 +1165,13 @@ export function applySongPlan(s, style, seed, length = 'song') {
   return plan;
 }
 
+// The scale a new song starts from: a dark pedal song's automatic phrygian goes back to minor.
+export const songScale = (s) => (s.feel === 'dark' && s.scale === 'phrygian' ? 'minor' : s.scale);
 // GENERATE's song for a style and seed, written on top of `base` (its mix, artist and mutes carry over).
 // `bpm`/`swing` keep a tempo the song already plays at; a score always sets its own.
 export function freshSong(style, seed, { base = defaultState(), scale = null, length = 'song', bpm = null, swing = null } = {}) {
   const s = clone(base);
-  s.scale = scale || (style === 'euphoric' || MAJOR_STYLES.has(style) ? 'major' : s.scale);
+  s.scale = scale || (style === 'euphoric' || MAJOR_STYLES.has(style) ? 'major' : songScale(s));
   const g = generate(style, seed, s.scale, { feel: songFeel(style, seed) });
   s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   s.key = g.key;

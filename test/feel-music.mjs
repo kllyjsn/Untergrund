@@ -2,7 +2,7 @@
 // a song without one is written exactly as before.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { STYLES, MAJOR_STYLES, generate, songFeel } from '../js/state.js';
+import { STYLES, MAJOR_STYLES, generate, songFeel, freshSong, songScale } from '../js/state.js';
 import { FEELS } from '../js/feel.js';
 import { CHORDS } from '../js/params.js';
 import { FORMS } from '../js/classical.js';
@@ -71,5 +71,15 @@ for (const style of ['pop', 'rock', 'deephouse']) {
   assert.ok(register(style, 'heartbroken') < register(style, 'joyful') - 1.5, `${style} register`);
   assert.ok(register(style, 'tender') < register(style, 'euphoric') - 1.5, `${style} register`);
   assert.ok(leap(style, 'joyful') > leap(style, 'heartbroken'), `${style} leaps`);
+}
+// A dark pedal song's automatic phrygian does not carry into the next song.
+{
+  let seed = 1; while (songFeel('hypnotic', seed) !== 'dark') seed++;
+  let next = 1; while (songFeel('acid', next) === 'dark') next++;
+  const dark = freshSong('hypnotic', seed);
+  assert.equal(dark.scale, 'phrygian');
+  assert.equal(songScale(dark), 'minor');
+  assert.equal(freshSong('acid', next, { base: dark }).scale, 'minor');
+  assert.equal(songScale({ feel: 'tense', scale: 'phrygian' }), 'phrygian');
 }
 console.log('feel music: ok', { pop: Object.fromEntries(['heartbroken', 'longing', 'tender', 'joyful', 'euphoric'].map((f) => [f, { tempo: +tempoPos('pop', f).toFixed(2), register: +register('pop', f).toFixed(2), leap: +leap('pop', f).toFixed(2) }])) });
