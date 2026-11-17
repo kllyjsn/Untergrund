@@ -12,6 +12,7 @@ import { cleanLyrics } from './lyrics.js';
 import { SING_VOICES } from './sing-score.js';
 import { cleanTakes } from './scope.js';
 import { trackTitle } from './crate.js';
+import { pickFeel, isFeel } from './feel.js';
 
 export const STYLES = {
   hypnotic: { name: 'HYPNOTIC', bpm: [130, 134], family: 'TECHNO', tag: 'deep · rolling' },
@@ -1115,6 +1116,7 @@ export function freshSong(style, seed, { base = defaultState(), scale = null, le
   const s = clone(base);
   s.scale = scale || (style === 'euphoric' || MAJOR_STYLES.has(style) ? 'major' : s.scale);
   const g = generate(style, seed, s.scale);
+  s.feel = pickFeel(style, STYLES[style].family, seed);
   s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   s.key = g.key;
   applyOverrides(s, g, true);
@@ -1230,6 +1232,7 @@ export function sanitize(s) {
   if (lyrics) out.lyrics = lyrics;
   const sing = cleanSing(s.sing);
   if (sing) out.sing = sing;
+  if (isFeel(s.feel)) out.feel = s.feel;
   out.mutes = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.mutes?.[id]]));
   out.solos = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.solos?.[id]]));
   out.locks = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.locks?.[id]]));

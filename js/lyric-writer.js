@@ -3,6 +3,7 @@
 // long (4-9 syllables), 4 to a section, so the melody's phrases (two lines each) sing them one syllable per slot.
 // Deterministic: the same prompt and seed always write the same song.
 import { rng } from './dsp.js';
+import { feelOf, FEELS } from './feel.js';
 
 // Per theme: a default place, titles, and rhymed couplets for each job in the story. {place} is filled in from the
 // prompt ("leaving LA") and never ends a line, so the rhymes hold.
@@ -84,7 +85,7 @@ const fill = (line, place) => line.replace(/\{place\}/g, place);
 export function themeOf(text = '', mood = []) {
   const t = String(text || '');
   for (const [id, T] of Object.entries(THEMES)) if (T.words.test(t)) return id;
-  return MOOD_THEME[mood[0]] || 'love';
+  return MOOD_THEME[mood[0]] || FEELS[feelOf(mood.join(' '))]?.theme || 'love';
 }
 
 // { title, sections: [{ sec, lines }] } for a prompt. `about` is the prompt's subject ("leaving LA").
