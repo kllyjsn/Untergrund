@@ -8,7 +8,8 @@ import { SCALES } from './params.js';
 import { parse, validateEdits, mergeEdits } from './describe.js';
 import { LYRIC_SECS, VOCALS, LIMITS, cleanText, cleanSections, splitLyrics } from './lyrics.js';
 import { SING_PROFILES } from './melody.js';
-import { writeLyrics } from './lyric-writer.js';
+import { writeLyrics, namedTheme, THEME_FEEL } from './lyric-writer.js';
+import { FEEL_IDS, feelOf, isFeel, pickFeel } from './feel.js';
 
 export const PLAN_LIMITS = { prompt: 200, mood: 4, instruments: 6, form: 12 };
 const KEYS = { c: 0, 'c#': 1, db: 1, d: 2, 'd#': 3, eb: 3, e: 4, f: 5, 'f#': 6, gb: 6, g: 7, 'g#': 8, ab: 8, a: 9, 'a#': 10, bb: 10, b: 11 };
@@ -101,11 +102,13 @@ export function validatePlan(raw, { lines = null, fallbackStyle = null } = {}) {
     title: cleanText(raw.title, 60),
     about: cleanText(raw.about ?? raw.topic, 120),
     mood: words(raw.mood, PLAN_LIMITS.mood),
+    feel: null,
     vocal: vocalOf(raw.vocal),
     instruments: words(raw.instruments, PLAN_LIMITS.instruments, 24),
     form: [],
     lyrics: [],
   };
+  plan.feel = isFeel(raw.feel) ? raw.feel : feelOf(plan.mood.join(' '));
   if (plan.bpm != null) plan.bpm = Math.round(plan.bpm);
   if (!SCALES[plan.mode]) plan.mode = null;
   for (const f of (Array.isArray(raw.form) ? raw.form : []).slice(0, PLAN_LIMITS.form)) {
@@ -168,7 +171,7 @@ const soundOf = (text) => text.replace(ABOUT, ' ').replace(/\b\d{2,3}\s*bpm\b/gi
 // The genre a prompt names ("indie" -> folk), or null when it names none.
 export const promptGenre = (prompt) => styleFor(soundOf(cleanText(prompt, PLAN_LIMITS.prompt)));
 
-export function rulePlan(prompt, lyricsText = '', { style = null } = {}) {
+export function rulePlan(prompt, lyricsText = '', { style = null, feel = null } = {}) {
   const text = cleanText(prompt, PLAN_LIMITS.prompt);
   const about = (text.match(ABOUT)?.[1] || '').trim();
   const vocalWords = text.match(VOCAL_RE) || [];
@@ -178,12 +181,17 @@ export function rulePlan(prompt, lyricsText = '', { style = null } = {}) {
   const target = styleFor(sound) || (STYLES[style] ? style : 'deephouse');
   const lyrics = splitLyrics(lyricsText);
   const titleLine = lyrics.find((s) => s.sec === 'chorus')?.lines[0]?.t;
-  // No pasted words and a genre that sings a song: write them (js/lyric-writer.js).
-  const written = !lyrics.length && SING_PROFILES[target]?.song && !/\binstrumental\b/i.test(text) ? writeLyrics({ prompt: text, about, style: target, mood: sound ? [sound] : [] }) : null;
+  const writes = !lyrics.length && SING_PROFILES[target]?.song && !/\binstrumental\b/i.test(text);
+  // The song's feeling: asked for, named in the prompt or pasted words, the topic's own, or (for written words) one the genre carries.
+  const named = isFeel(feel) ? feel : feelOf(text) || feelOf(lyrics.flatMap((x) => x.lines.map((l) => l.t)).join(' '));
+  const topic = THEME_FEEL[namedTheme(`${about} ${text}`)] || null;
+  const songFeel = named || topic || (writes ? pickFeel(target, STYLES[target].family, [...text].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 0x01000193), 0x811c9dc5)) : null);
+  // No pasted words and a genre that sings a song: write them (js/lyric-writer.js) in that feeling.
+  const written = writes ? writeLyrics({ prompt: text, about, style: target, mood: sound ? [sound] : [], feel: songFeel }) : null;
   return validatePlan({
     style: target, key: value('key'), mode: value('scale'), bpm: value('bpm'), about,
     title: titleLine ? titleLine.split(/[,.!?;:]/)[0].trim().split(' ').slice(0, 6).join(' ') : written?.title || '',
-    mood: sound ? [sound] : [], vocal: vocalWords.join(' '),
+    mood: sound ? [sound] : [], feel: songFeel, vocal: vocalWords.join(' '),
     form: lyrics.length ? formFromLyrics(lyrics, target) : [],
     lyrics: written ? written.sections : lyrics.map((s) => ({ sec: s.sec, lines: s.lines.map((l) => l.t) })),
   }, { fallbackStyle: target });
@@ -232,7 +240,7 @@ export const planLyrics = (plan, prompt = '') => ({ v: 1, prompt: cleanText(prom
 // What the model is told. The JSON schema is the contract validatePlan enforces.
 export const PLAN_SYSTEM = `You plan songs for a music app. Reply with JSON only, this shape:
 {"title":str,"about":str,"style":one of ${Object.keys(STYLES).filter((s) => s !== 'repertoire').join('|')},"key":"C".."B" (e.g. "F#"),"mode":${Object.keys(SCALES).join('|')},"bpm":60-200,
-"mood":[up to 4 short sound words, e.g. "dark","warm","dreamy","driving"],"vocal":${VOCALS.join('|')}|null,"instruments":[up to 6, e.g. "piano","strings","guitar","808","organ","brass"],
+"mood":[up to 4 short sound words, e.g. "dark","warm","dreamy","driving"],"feel":${FEEL_IDS.join('|')} (what the listener should feel; the lyrics say that feeling, e.g. no heartbreak lines in a joyful song),"vocal":${VOCALS.join('|')}|null,"instruments":[up to 6, e.g. "piano","strings","guitar","808","organ","brass"],
 "form":[{"sec":${LYRIC_SECS.join('|')},"bars":4-16,"energy":0-1}],"lyrics":...}
 Band genres: pop -> pop, R&B/soul -> rnb, rock/punk -> rock, folk/indie/acoustic/singer-songwriter -> folk, country/americana -> country. For genres the list lacks pick the closest (rap -> boombap, edm -> euphoric).
 "lyrics": if the user gave numbered lines, group them in order as [{"sec":...,"from":n,"to":n}] and never change their words.

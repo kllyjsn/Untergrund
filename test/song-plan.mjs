@@ -7,6 +7,7 @@ import { applyEdits } from '../js/describe.js';
 import { defaultState, sanitize, generate, applyOverrides, arrangement, songChain, STYLES } from '../js/state.js';
 import { encodeSong, decodeSong } from '../js/share-code.js';
 import { handlePlan } from '../api/_lib/song-plan-ai.js';
+import { FEELS } from '../js/feel.js';
 
 let fails = 0;
 const t = (name, fn) => { try { fn(); } catch (e) { fails++; console.error('FAIL', name, '\n ', e.message); } };
@@ -100,6 +101,21 @@ t('plan: a good answer passes intact', () => {
   assert.deepEqual(p.form.map((f) => f.sec), ['intro', 'verse', 'chorus', 'outro']);
   assert.deepEqual(p.lyrics.map((s) => [s.sec, s.lines.map((l) => l.t)]), [['verse', ['Packed the car', 'Left the keys']], ['chorus', ['Goodbye LA']]]);
   assert.equal(p.lyrics[0].lines[0].n, syllableCount('Packed the car'));
+});
+t('plan: the feeling travels with the plan', () => {
+  assert.equal(validatePlan({ ...GOOD, feel: 'tender' }).feel, 'tender', 'the model names it');
+  assert.equal(validatePlan(GOOD).feel, 'heartbroken', 'or the mood words do');
+  assert.equal(validatePlan({ ...GOOD, feel: 'nope', mood: [] }).feel, null);
+  assert.match(PLAN_SYSTEM, /"feel":heartbroken\|/);
+  const sad = rulePlan('a sad pop song', '', { style: 'pop' });
+  assert.equal(sad.feel, 'heartbroken');
+  const happy = rulePlan('a happy pop song about the rain', '', { style: 'pop' });
+  assert.equal(happy.feel, 'joyful');
+  assert(!/\b(?:cry|tears|cold|without|empty|falling)\b/i.test(happy.lyrics.flatMap((x) => x.lines.map((l) => l.t)).join(' ')), 'no heartbreak in a joyful song');
+  assert.equal(rulePlan('a pop song about going home', '', { style: 'pop' }).feel, 'longing', 'the topic carries a feeling');
+  assert.equal(rulePlan('write me a pop song', '', { style: 'pop', feel: 'dark' }).feel, 'dark', 'the caller can set it');
+  assert.ok(FEELS[rulePlan('write me a pop song', '', { style: 'pop' }).feel], 'written words always have a feeling');
+  assert.equal(rulePlan('techno with a big kick', '', { style: 'techno' }).feel, null, 'an instrumental without feeling words has none');
 });
 t('plan: junk is rejected or clamped', () => {
   for (const bad of [null, 1, 'x', [], {}, { style: 'xyzzy' }]) assert.equal(validatePlan(bad), null, JSON.stringify(bad));
