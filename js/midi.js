@@ -191,7 +191,8 @@ export function songMidi(state, { loopBars = 16, title } = {}) {
     tracks.push({ id, name, channel, program, notes: out });
   }
   const base = s.bpm, tempos = [[0, base]];
-  if (c.score) {
+  // A score's rubato, or a feeling's tempo breath and ritardando (js/engine.js feelTempo), as a tempo map.
+  if (c.score || c.dur.some((d) => d !== c.dur[0])) {
     let lastBpm = base;
     c.dur.forEach((d, i) => { const bpm = Math.round((60 / (d * 4)) * 1000) / 1000; if (i && Math.abs(bpm - lastBpm) > 0.01) { tempos.push([i * (PPQ / 4), bpm]); lastBpm = bpm; } });
     tempos[0][1] = Math.round((60 / (c.dur[0] * 4)) * 1000) / 1000;
