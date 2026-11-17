@@ -14,6 +14,7 @@ import { harmRoot, chordIv, stabNotes, hookSnap, voiceLead } from './harmony.js'
 import { develop, motifPlan, stepDeg } from './motif.js';
 import { MELODY_BARS, strongNote } from './melody.js';
 import { patternAt } from './scope.js';
+import { FEELS } from './feel.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
 // Chords sit under a sung line the way a mix rides the keys under a vocal: a little in the chorus, more in the verse
@@ -2067,9 +2068,9 @@ export class Engine {
   }
 
   // Breakdowns start dark and open back up over the whole section
-  breakSweep(t, dur) {
+  breakSweep(t, dur, from = 700) {
     const f = this.arrLP.frequency;
-    f.cancelScheduledValues(t); f.setValueAtTime(700, t); f.exponentialRampToValueAtTime(18000, t + dur);
+    f.cancelScheduledValues(t); f.setValueAtTime(from, t); f.exponentialRampToValueAtTime(18000, t + dur);
     this.arrClosed = true;
   }
 
@@ -2273,6 +2274,37 @@ const SECTION_DB = { verse: -1.8, chorus: 0.45 };
 // boom-chick verse; pop's chorus strings), so their verse gives back less level.
 const STYLE_SECTION_DB = { pop: { verse: -0.9 }, country: { verse: -0.8 } };
 
+// A song's feeling (js/feel.js) shapes how it is performed; a song without one plays exactly as written.
+const feelOf = (s) => (s.feel && Object.hasOwn(FEELS, s.feel) ? FEELS[s.feel] : null);
+// The written melody's 0.68-0.98 velocity band, played across the feeling's own range (its arc into each phrase's
+// peak note becomes a real hairpin).
+const feelVel = (f, v) => { const [lo, hi] = f.mel.vel; return lo + (hi - lo) * Math.max(0, Math.min(1, (v - 0.68) / 0.3)); };
+// Low-pass the mix starts from as a pre-chorus (or a club build) opens up into its peak.
+const PRE_HZ = 4500, BUILD_HZ = 3000;
+
+// Step-length multiplier (1 = metronome) at step i16 of chain bar pos. A song genre breathes a little over each 4-bar
+// phrase and broadens into a new section (classical.js tempoMap at low depth, deeper for calmer feelings), and the
+// ending slows over its last bars by the feeling's end.rit. A song with a sung stem keeps strict time, as does one
+// without a feeling.
+export function feelTempo(s, chain, pos, i16) {
+  const f = feelOf(s), n = chain.length;
+  if (!f || !n || s.sing?.on) return 1;
+  let m = 1;
+  if (s.patterns[chain[pos]]?.sec) {
+    let a = pos;
+    while (a > 0 && chain[a - 1] === chain[pos]) a--;
+    const d = 0.25 + 0.1 * (1 - f.arousal), ph = ((((pos - a) % 4) * 16) + i16) / 64;
+    m += -0.025 * d * Math.sin(Math.PI * ph * 1.6) + (ph > 0.85 ? (0.05 * d * (ph - 0.85)) / 0.15 : 0);
+    if (pos + 1 < n && chain[pos + 1] !== chain[pos] && i16 >= 8) m += (0.06 * d * (i16 - 7)) / 8;
+  }
+  const rit = f.end?.rit || 0;
+  if (s.ending && n >= 16 && rit) {
+    if (pos === n - 1) m *= 1 + 0.5 * rit;
+    else if (pos >= n - 3) m *= 1 + 0.3 * rit * ((((pos - (n - 3)) * 16) + i16) / 32) ** 1.6;
+  }
+  return m;
+}
+
 export class Sequencer {
   constructor(engine, state) {
     this.e = engine;
@@ -2318,7 +2350,10 @@ export class Sequencer {
           this.e.breakSweep(t, k * 16 * this.e.stepDur);
         }
       }
-      if (!arr || !brk(this.cur)) this.e.breakOpen(t);
+      const f = feelOf(this.s), sec = this.s.patterns[this.cur]?.sec;
+      if (f && sec === 'pre') { if (!this.runPos) this.e.breakSweep(t, this.runLen * 16 * this.e.stepDur, PRE_HZ); }
+      else if (f && !sec && this.dropNext && !this.e.arrClosed) this.e.breakSweep(t, 16 * this.e.stepDur, BUILD_HZ);
+      else if (!arr || !brk(this.cur)) this.e.breakOpen(t);
       this.sectionLevel(t);
       return;
     }
@@ -2330,10 +2365,14 @@ export class Sequencer {
 
   // Verses sit under the chorus and a pre-chorus swells up into it; bars without a section role
   // (intro, fills, outro) hold the level. Songs without sections stay at unity.
+  // A feeling scales the verse's distance under the chorus by its dyn.contrast (the chorus never goes above its
+  // ceiling-safe lift), and a club build dips and swells back up into the drop.
   sectionLevel(t) {
-    const pats = this.s.patterns, sec = pats[this.cur]?.sec;
+    const pats = this.s.patterns, sec = pats[this.cur]?.sec, f = feelOf(this.s);
+    if (!sec && f && this.dropNext) return this.level(t, 0, [-1.2 * f.dyn.contrast, 16 * this.e.stepDur]);
     if (!sec) return this.level(t, pats.some((p) => p.sec) ? this.secDb ?? 0 : 0);
     const db = { ...SECTION_DB, ...STYLE_SECTION_DB[this.s.artist?.style] };
+    if (f) db.verse *= f.dyn.contrast;
     if (sec !== 'pre') return this.level(t, db[sec] ?? 0);
     const { verse: v, chorus: c } = db, at = (k) => v + ((c - v) * k) / this.runLen;
     this.level(t, at(this.runPos + 1), [at(this.runPos), 16 * this.e.stepDur]);
@@ -2353,6 +2392,7 @@ export class Sequencer {
     const n = this.songBars || 0, pos = n ? (this.chainPos - 1) % n : -1, lf = this.liftFrom;
     if (abs % 16 === 0) e.vocal(t, pos);
     const pat = patternAt(s.patterns[this.cur], pos);
+    if (!pat.score) e.stepScale = n ? feelTempo(s, this.chainArr, pos, abs % 16) : 1;
     const bar = Math.floor(abs / 16), vary = s.master.vary || 0;
     e.harm = pat.prog?.length ? pat.prog[bar % pat.prog.length] : null;
     e.step = abs;
@@ -2361,6 +2401,10 @@ export class Sequencer {
     const sd = e.stepDur;
     const tt = t + (abs % 2 ? s.swing * sd * 0.5 : 0);
     const kl = this.keyLift = s.ending && pat.lift && lf > 0 && (pos >= lf || (pos === lf - 1 && abs % 16 >= 12)) ? pat.lift : 0;
+    // With a feeling, the band holds its breath for the last beat before the final chorus (or drop); only the lead's
+    // pickup sounds. Every player leans in towards the third bar of each 4-bar phrase and eases off into its end.
+    const f = feelOf(s), held = f && lf > 0 && pos === lf - 1 && abs % 16 >= 12;
+    const hp = f ? this.hairpin(f, abs) : 1;
     if (s.ending && n >= 16 && pos === n - 1 && !pat.score) return this.ending(pat, abs % 16, tt, sd, kl);
     // Turnaround: the last beat of a section anticipates the next section's first chord.
     const nx = n && pos + 1 < n && this.chainArr[pos + 1] !== this.cur ? patternAt(s.patterns[this.chainArr[pos + 1]], pos + 1) : null;
@@ -2373,7 +2417,7 @@ export class Sequencer {
     const hookStep = sung ? this.songBars && !sung.hook.m.c && sung.notes.some((o) => o.at === i16 && i16 % 8) : pat.hook && pat.hm ? pat.hook.s[abs % 32] : 0;
     if (this.dropNext) {
       if (i16 === 0) e.sweep(t, 16 * sd, arr);
-      if (i16 >= 8 && !s.mutes.snare) {
+      if (i16 >= 8 && !s.mutes.snare && !held) {
         const rv = (0.25 + (0.6 * (i16 - 8)) / 7) * arr;
         e.trigger('snare', tt, rv);
         if (i16 >= 12) e.trigger('snare', tt + sd / 2, rv * 0.85);
@@ -2381,7 +2425,6 @@ export class Sequencer {
     }
     if (this.dropNow && i16 === 0) e.impact(t, arr);
     if (pat.score) this.scoreStep(pat.score, abs, t, sd);
-    else this.e.stepScale = 1;
     const anySolo = TRACK_IDS.some((id) => s.solos[id]);
     const rp = arr && !vary && n && !pat.score && this.runLen >= 8 ? this.runPos : -1;
     // A song verse running straight into the pre-chorus fills its own last bar (no D/H turnaround follows it).
@@ -2396,7 +2439,7 @@ export class Sequencer {
       e.crash(tt + pocketLate(pk, 'oh', 0), this.cur === 6 || this.cur === 7 ? 1 : 0.7);
     }
     for (const id of TRACK_IDS) {
-      const on = !s.mutes[id] && (!anySolo || s.solos[id]);
+      const on = !held && !s.mutes[id] && (!anySolo || s.solos[id]);
       const len = pat.len[id] || 16;
       const i = abs % len;
       if (id === 'acid') {
@@ -2407,7 +2450,7 @@ export class Sequencer {
         }
         this.acidMuted = false;
         // A bass player leans on the one and plays the in-between notes softer
-        e.noteVel = pk ? pocketVel(pk, 'acid', i16) * (1 + (hash(abs, 93) - 0.5) * 0.1) : 1;
+        e.noteVel = (pk ? pocketVel(pk, 'acid', i16) * (1 + (hash(abs, 93) - 0.5) * 0.1) : 1) * hp;
         const walk = pk?.walk && (i16 === 12 || i16 === 14) && e.harm ? this.walkUp(pat, nx, bar, kl) : null;
         if (walk) {
           e.acid(tt + pocketLate(pk, 'acid', i16), { on: true, n: walk[i16 === 12 ? 0 : 1] - (e.harm.r - kl), a: false, s: false, ap: true }, false, false, sd);
@@ -2464,7 +2507,7 @@ export class Sequencer {
       const hv = (1 - hum * 0.22 * hash(abs, k + 20)) * (1 - hum * (1 - accent)) * swell * pv;
       const ghostSnare = id === 'snare' && Math.round(s.master.kit || 0) === 1;
       const under = id === 'stab' && this.songBars && sung?.any ? STAB_UNDER_VOICE[pat.sec && sung.part === 'v' ? 'n' : sung.part] ?? STAB_UNDER_VOICE.n : 1;
-      const vel = (v === 2 ? 1 : v === 1 ? (ghostSnare ? 0.45 : 0.78) : v) * hv * under;
+      const vel = (v === 2 ? 1 : v === 1 ? (ghostSnare ? 0.45 : 0.78) : v) * hv * under * hp;
       if (v && id === 'vox') e.vox(ht, vel, i);
       else if (v && band && id === 'snare' && (this.cur === 3 ? i16 >= 12 : i16 >= fillAt)) e.tom(ht, vel, i16 < 14);
       else if (v) e.trigger(id, ht, vel);
@@ -2476,12 +2519,12 @@ export class Sequencer {
     const leadOn = !s.mutes.stab && (!anySolo || s.solos.stab), busy = sung ? this.songBars && leadOn && sung.busy[i16] : this.songBars && hk && hm && leadOn && hookBusy(hk, abs % 32, hm);
     const sp = pat.steps.stab;
     // Licks fill the lead's rests instead of talking over it.
-    if (vary && leadOn && !busy && !(this.songBars && ((hk && hm) || sung?.any) && i16 === 15) && bar % 2 === 1 && !sp[abs % (pat.len.stab || 16)] && hash(abs, 77) < vary * 0.28) {
+    if (vary && leadOn && !busy && !held && !(this.songBars && ((hk && hm) || sung?.any) && i16 === 15) && bar % 2 === 1 && !sp[abs % (pat.len.stab || 16)] && hash(abs, 77) < vary * 0.28) {
       const k = Math.floor(hash(abs, 78) * 6) + (bar % 4 === 3 ? 2 : 0);
       e.lick(tt + (s.master.humanize || 0) * 0.02, 0.35 + hash(abs, 79) * 0.3, k);
     }
-    if (this.songBars && hk && hm && leadOn) this.interplay(pat, hk, abs, bar, tt, sd, busy, anySolo, !!hk.s[abs % 32]);
-    if (this.songBars && sung?.part && leadOn) this.interplay(pat, pat.hook, abs, bar, tt, sd, busy, anySolo, sung.notes.some((o) => o.at === i16));
+    if (this.songBars && hk && hm && leadOn && !held) this.interplay(pat, hk, abs, bar, tt, sd, busy, anySolo, !!hk.s[abs % 32]);
+    if (this.songBars && sung?.part && leadOn && !held) this.interplay(pat, pat.hook, abs, bar, tt, sd, busy, anySolo, sung.notes.some((o) => o.at === i16));
     if (sung && leadOn) this.sing(sung, i16, bar, tt, sd, scale);
     if (hk && hm && !s.mutes.stab && (!anySolo || s.solos.stab)) {
       const hi = abs % 32, st = hk.s[hi];
@@ -2499,9 +2542,9 @@ export class Sequencer {
         const lean = (answer ? 0.006 : -0.003) * x.feel + (hash(hi, 97) - 0.5) * 0.008 * x.feel;
         const resolve = hm > 1 && answer && ph === 1 && !hk.s.slice(hi + 1).some(Boolean);
         const strong = !hk.h && (hi % 4 === 0 || st[1] >= 2), ht = tt + lean + (s.master.humanize || 0) * 0.008;
-        e.hook(ht, Math.min(1, st[2] * phraseVel), st[0] + lift, st[1] * sd, hk.v, hk.o, strong, b, !hk.h && resolve, x);
+        e.hook(ht, Math.min(1, (f ? feelVel(f, st[2]) : st[2]) * phraseVel), st[0] + lift, st[1] * sd, hk.v, hk.o, strong, b, !hk.h && resolve, x);
         // At the peak a second player doubles the answer's held notes a third below.
-        if (this.cur === 6 && answer && hm > 1 && st[1] >= 3 && !hk.h && this.songBars) e.hook(ht + 0.004, Math.min(1, st[2] * phraseVel) * 0.55, stepDeg(st[0], -2, scale) + lift, st[1] * sd, hk.v, hk.o, strong, b, false, { ...x, harm: 1 });
+        if (this.cur === 6 && answer && hm > 1 && st[1] >= 3 && !hk.h && this.songBars) e.hook(ht + 0.004, Math.min(1, (f ? feelVel(f, st[2]) : st[2]) * phraseVel) * 0.55, stepDeg(st[0], -2, scale) + lift, st[1] * sd, hk.v, hk.o, strong, b, false, { ...x, harm: 1 });
       }
     }
     if (this.roll === null) this.rollCount = 0;
@@ -2637,10 +2680,18 @@ export class Sequencer {
       const [start, dur, w, vel, ph] = o.x, lift = this.keyLift || 0, semi = o.sh ? stepDeg(w, o.sh, scale) : w;
       const sec = o.q === 'v' ? (s.patterns[this.cur]?.sec ? 1.15 : 0.82) : o.q === 'b' ? 0.6 : 1, strong = strongNote(start, dur);
       const ht = t + (hash(start, 97) - 0.5) * 0.008 * x.feel + (s.master.humanize || 0) * 0.008;
-      const b = 0.58 + 0.42 * ((((bar % 8) + 8) % 8) / 7), v = Math.min(1, vel * sec) * (SUNG_VOICE[hk.v] ?? 1);
+      const f = feelOf(s), b = 0.58 + 0.42 * ((((bar % 8) + 8) % 8) / 7), v = Math.min(1, (f ? feelVel(f, vel) : vel) * sec) * (SUNG_VOICE[hk.v] ?? 1);
       e.hook(ht, v, semi + lift, dur * sd, hk.v, hk.o, strong, b, false, x);
       if (this.cur === 6 && o.q === 'n' && ph % 2 === 1 && dur >= 6 && this.songBars) e.hook(ht + 0.004, v * 0.55, stepDeg(semi, -2, scale) + lift, dur * sd, hk.v, hk.o, strong, b, false, { ...x, harm: 1 });
     }
+  }
+
+  // Velocity multiplier (<= 1) over the 4-bar phrase of the section: swells into its third bar, eases off to the end.
+  // The swing is a third of the feeling's melody velocity range.
+  hairpin(f, abs) {
+    const x = ((((this.songBars ? this.runPos : Math.floor(abs / 16)) || 0) % 4) * 16 + (abs % 16)) / 64;
+    const shape = x < 0.7 ? Math.sin((Math.PI / 2) * (x / 0.7)) : 1 - (0.6 * (x - 0.7)) / 0.3;
+    return 1 - ((f.mel.vel[1] - f.mel.vel[0]) / 3) * (1 - shape);
   }
 
   // The last bar of a generated song: one final downbeat on the home chord, left to ring out.
@@ -2654,7 +2705,12 @@ export class Sequencer {
     if (on('kick')) e.trigger('kick', t, 1);
     if (on('acid')) e.acid(t, { on: true, n: 0, a: true, s: false }, false, false, sd);
     // The final chord is struck and left to ring: no picking pattern or scratches after it.
-    if (on('stab')) { const st = e.step; e.step = null; e.trigger('stab', t, 0.85); e.step = st; }
+    // A feeling that slows into its ending (end.rit) also lets that chord ring longer.
+    if (on('stab')) {
+      const st = e.step, p = s.params.stab, decay = p.decay, f = feelOf(s);
+      e.step = null; if (f) p.decay = decay * (1 + f.end.rit);
+      try { e.trigger('stab', t, 0.85); } finally { e.step = st; p.decay = decay; }
+    }
     const hk = pat.hook;
     if (hk && on('stab')) {
       const ns = hk.s.filter(Boolean).map((x) => x[0]), tonic = 12 * Math.round(ns.reduce((a, b) => a + b, 0) / ns.length / 12) + kl;

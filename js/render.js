@@ -1,4 +1,4 @@
-import { Engine, Sequencer, parseChain, scoreKinds } from './engine.js';
+import { Engine, Sequencer, parseChain, scoreKinds, feelTempo } from './engine.js';
 import { compose } from './classical.js';
 import { loadPiece } from './repertoire.js';
 import { clone } from './state.js';
@@ -19,12 +19,14 @@ export async function renderBars(state, bars, { sampleRate = 48000, tail, startB
   const sc = score ? compose(score) : null;
   const steps = bars * (sc?.barLen || 16);
   const start = 0.05;
-  // A score's rubato stretches the timeline; size the render to the music, not the metronome.
+  // A score's rubato (or a feeling's tempo breath) stretches the timeline; size the render to the music, not the metronome.
   const tempo = sc ? sc.tempo : null;
   const chain = snap.chainOn ? parseChain(snap.chain) : [];
   const first = sc ? startBar * (sc.barLen || 16) : chain.length ? startBar * 16 : 0;
   let span = 0;
-  for (let i = 0; i < steps; i++) span += tempo ? tempo[(first + i) % tempo.length] : 1;
+  for (let i = 0; i < steps; i++) {
+    span += tempo ? tempo[(first + i) % tempo.length] : chain.length ? feelTempo(snap, chain, Math.floor((first + i) / 16) % chain.length, i % 16) : 1;
+  }
   // A score's last bar is its final chord: render room for it to ring out, then end the file once it has died away.
   const trim = tail == null && sc && !sc.waiting && !onContext && !onEngine;
   const len = Math.ceil((start + span * sd + (tail ?? (sc ? SCORE_TAIL : 4))) * sampleRate);
