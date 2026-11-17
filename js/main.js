@@ -76,6 +76,7 @@ let studioOpen = localStorage.getItem('untergrund.studio-open') === '1';
 let songLength = localStorage.getItem('untergrund.length') === 'sketch' ? 'sketch' : 'song';
 // The feeling the listener asked for (a chip on Create); null lets each song's seed pick one that fits the genre.
 let feelPick = isFeel(localStorage.getItem('untergrund.feel')) ? localStorage.getItem('untergrund.feel') : null;
+let feelScroll = 0;
 // Phone Studio shows one section at a time; steps show 8 at a time.
 const STUDIO_TABS = [['song', 'SONG'], ['steps', 'STEPS'], ['sound', 'SOUND'], ['mix', 'MIX']];
 let studioTab = STUDIO_TABS.some(([id]) => id === localStorage.getItem('untergrund.studio-tab')) ? localStorage.getItem('untergrund.studio-tab') : 'steps';
@@ -1334,9 +1335,21 @@ const feelAsked = () => (STYLES[style].family === 'CLASSICAL' ? null : feelPick)
 function feelPicker() {
   const opt = (id, label, title) => h('button', { class: 'feel-chip' + (feelPick === id ? ' on' : ''), type: 'button', 'data-feel': id || 'any', 'aria-pressed': String(feelPick === id), title,
     onclick: () => { feelPick = id; if (id) localStorage.setItem('untergrund.feel', id); else localStorage.removeItem('untergrund.feel'); build(); } }, label);
-  return h('div', { class: 'gen-feel', role: 'group', 'aria-label': 'How do you want to feel?' },
+  const row = h('div', { class: 'gen-feel', role: 'group', 'aria-label': 'How do you want to feel?', onscroll: () => { feelScroll = row.scrollLeft; } },
     opt(null, 'Any', 'Each song picks a feeling that fits the genre'),
     FEEL_IDS.map((id) => opt(id, FEELS[id].label, `Every new song feels ${FEELS[id].label.toLowerCase()}`)));
+  // build() replaces the row: on phone (where it scrolls) keep where the listener left it, with the picked chip in view.
+  queueMicrotask(() => {
+    if (!row.isConnected) return;
+    row.scrollLeft = feelScroll;
+    const on = row.querySelector('.on');
+    if (!on || row.scrollWidth <= row.clientWidth) return;
+    const box = row.getBoundingClientRect(), chip = on.getBoundingClientRect(), fade = row.clientWidth * 0.15 + 4;
+    if (chip.left < box.left + 20) row.scrollLeft += chip.left - box.left - 20;
+    else if (chip.right > box.right - fade) row.scrollLeft += chip.right - box.right + fade;
+    feelScroll = row.scrollLeft;
+  });
+  return row;
 }
 
 function selectFamily(f) {
