@@ -50,4 +50,13 @@ assert.equal(score.feel, undefined);
 const spec = localSpec('a heartbroken pop song about leaving', { style: 'pop', seed: 3 });
 assert.equal(spec.feel, 'heartbroken');
 assert.equal(songState(spec, 3).state.feel, 'heartbroken');
+// A feeling the listener picked wins over the seed, and an untouched song keeps it when it refreshes.
+import { refreshSong } from '../js/state.js';
+const asked = freshSong('hypnotic', 5, { feel: 'tender' });
+assert.equal(asked.feel, 'tender');
+assert.equal(freshSong('hypnotic', 5, { feel: 'bogus' }).feel, freshSong('hypnotic', 5).feel, 'unknown feel falls back to the seed');
+const saved = sanitize(JSON.parse(JSON.stringify({ ...asked, fresh: 1, artist: { name: 'x', title: 't', style: 'hypnotic', seed: 5 } })));
+assert.equal(refreshSong(saved).feel, 'tender');
+const piece = defaultState(); applySongPlan(piece, 'repertoire', 1, 'song', 'joyful');
+assert.equal(piece.feel, undefined, 'scores never take a feeling');
 console.log('feel: ok');
