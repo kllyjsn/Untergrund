@@ -45,6 +45,8 @@ const lf = sad.seq.liftFrom ?? sad.chain.findLastIndex((p, i) => p === 6 && sad.
 const beat = (r) => r.log.filter((x) => x.abs >= lf * 16 - 4 && x.abs < lf * 16 && x.k === 'trigger');
 assert.equal(beat(sad).length, 0, 'no drums or chords in the held breath');
 assert.ok(beat(plain).length > 0, 'without a feeling the band plays through');
+assert.deepEqual(sad.log.filter((x) => x.k === 'breath').map((x) => x.abs - lf * 16), [-4, -1], 'ringing chords and bass are damped for the breath');
+assert.ok(!plain.log.some((x) => x.k === 'breath'), 'no breath without a feeling');
 
 // Velocity range: a tender song plays softer than a euphoric one from the same written melody.
 assert.ok(hookVel(tender) < hookVel(euphoric) - 0.03, `tender ${hookVel(tender)} vs euphoric ${hookVel(euphoric)}`);

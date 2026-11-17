@@ -2039,6 +2039,9 @@ export class Engine {
     if (!holdNext) a.vca.gain.setTargetAtTime(0, t + sd * 0.55, 0.006);
   }
 
+  breath(t, open) {
+    for (const g of [this.ch.stab.band.gain, this.ch.acid.input.gain]) { g.cancelScheduledValues(t); g.setTargetAtTime(open ? 1 : 0, t, open ? 0.003 : 0.03); }
+  }
   acidRelease(t) { this.acidNodes.vca.gain.setTargetAtTime(0, t, 0.008); this.subVoice?.amp.gain.setTargetAtTime(0, t, 0.01); if (this.mono) { this.mono.amp.gain.setTargetAtTime(0, t, 0.01); this.mono = null; } }
 
   // ---------- arrangement FX ----------
@@ -2405,6 +2408,9 @@ export class Sequencer {
     // pickup sounds. Every player leans in towards the third bar of each 4-bar phrase and eases off into its end.
     const f = feelOf(s), held = f && lf > 0 && pos === lf - 1 && abs % 16 >= 12;
     const hp = f ? this.hairpin(f, abs) : 1;
+    // The breath is a lifted hand: ringing chords and the bass are damped, then let back in for the downbeat.
+    if (held && abs % 16 === 12) e.breath(tt, false);
+    if (held && abs % 16 === 15) e.breath(tt + sd - 0.012, true);
     if (s.ending && n >= 16 && pos === n - 1 && !pat.score) return this.ending(pat, abs % 16, tt, sd, kl);
     // Turnaround: the last beat of a section anticipates the next section's first chord.
     const nx = n && pos + 1 < n && this.chainArr[pos + 1] !== this.cur ? patternAt(s.patterns[this.chainArr[pos + 1]], pos + 1) : null;
