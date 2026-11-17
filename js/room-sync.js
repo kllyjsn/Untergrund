@@ -1,4 +1,6 @@
-export function roomTransportPosition(startsAt, bpm, now = Date.now()) {
+// scaleAt(step), when given, is each step's length multiplier (a feeling's tempo breath, js/engine.js feelTempo),
+// so a late listener lands where the DJ's stretched transport is, not where the metronome would be.
+export function roomTransportPosition(startsAt, bpm, now = Date.now(), scaleAt = null) {
   const origin = Number.isFinite(+startsAt) ? +startsAt : now;
   const tempo = Math.max(40, Math.min(240, Number.isFinite(+bpm) ? +bpm : 132));
   const untilStart = origin - now;
@@ -6,6 +8,11 @@ export function roomTransportPosition(startsAt, bpm, now = Date.now()) {
 
   const stepMs = 15000 / tempo;
   const elapsed = Math.max(0, now - origin);
+  if (scaleAt) {
+    let step = 0, at = 0;
+    while (at <= elapsed) at += stepMs * scaleAt(step++);
+    return { step, delay: (origin + at - now) / 1000 };
+  }
   const step = Math.floor(elapsed / stepMs) + 1;
   return { step, delay: (origin + step * stepMs - now) / 1000 };
 }
