@@ -1,6 +1,6 @@
 import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, CHORDS, defaultParams, defaultMaster } from './params.js';
 import { rng } from './dsp.js';
-import { planSections, formChain, parseForm, developSong, developFinalDrop, LENGTHS } from './longform.js';
+import { planSections, formChain, parseForm, developSong, developFinalDrop, writePeak, LENGTHS } from './longform.js';
 import { FORMS, SECTIONS } from './classical.js';
 import { MODELS } from './composer-models.js';
 import { POCKETS, STYLE_POCKET } from './groove.js';
@@ -12,7 +12,7 @@ import { cleanLyrics } from './lyrics.js';
 import { SING_VOICES } from './sing-score.js';
 import { cleanTakes } from './scope.js';
 import { trackTitle } from './crate.js';
-import { pickFeel, isFeel } from './feel.js';
+import { pickFeel, isFeel, FEELS } from './feel.js';
 
 export const STYLES = {
   hypnotic: { name: 'HYPNOTIC', bpm: [130, 134], family: 'TECHNO', tag: 'deep · rolling' },
@@ -1110,6 +1110,7 @@ export function applySongPlan(s, style, seed, length = 'song') {
   const keep = Object.keys(s.locks || {}).filter((t) => s.locks[t]);
   developSong(s.patterns, plan.sections, { keep });
   if (plan.chain === TECHNO_LONG) developFinalDrop(s.patterns, plan.chain, { keep });
+  if (s.feel) writePeak(s.patterns, plan.chain, FEELS[s.feel].peak, seed, { keep });
   return plan;
 }
 

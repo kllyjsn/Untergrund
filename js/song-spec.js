@@ -1,7 +1,7 @@
 // Prompt to song: an LLM (or the local rules) writes a small song spec; this file validates it and the
 // deterministic engine performs it with the usual generators. The result is an ordinary project, so every
 // note, chord, section and knob stays editable afterwards. Pure module: runs in the browser and in Node.
-import { developSong, LENGTHS } from './longform.js';
+import { developSong, writePeak, LENGTHS } from './longform.js';
 import { STYLES, MAJOR_STYLES, generate, arrangement, songChain, songPlan, defaultState, applyOverrides, clone, emptyAcidStep } from './state.js';
 import { SCALES, KEYS, TRACK_IDS, STEPS } from './params.js';
 import { toSections, MAX_BARS } from './timeline.js';
@@ -239,6 +239,7 @@ export function songState(spec, seed = 1, base = defaultState(), opts = {}) {
   const tex = r.spec.texture?.length ? applyEdits(s, r.spec.texture, { seed, style: r.spec.style }) : null;
   const out = tex?.state || s;
   out.feel = r.spec.feel || pickFeel(r.spec.style, STYLES[r.spec.style].family, seed);
+  writePeak(out.patterns, out.chain, FEELS[out.feel].peak, seed);
   out.artist = { name: base.artist?.name || 'UNTERGRUND', title: r.spec.title || trackTitle(seed), style: r.spec.style, seed, created: base.artist?.created || new Date(0).toISOString() };
   return { state: out, spec: r.spec, did: tex?.did || [] };
 }

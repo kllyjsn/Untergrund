@@ -202,3 +202,48 @@ export function developFinalDrop(pats, chain, { keep = [] } = {}) {
   for (const p of [pats[6], pats[7]]) if (p.hook && !p.hook.h) (p.at ??= []).push({ b: [from, to], hook: { ...clone(p.hook), up: 1 } });
   return pats;
 }
+
+// The chill (emotion.peak-last): the final chorus, or a club form's final drop, gets one device no earlier chorus
+// has, chosen per seed from the feeling's peak devices (js/feel.js FEELS[feel].peak). Sloboda 1991 and Grewe 2007
+// name the triggers: an appoggiatura on the peak note (`suspension`), a new voice entering (`entry`, the hook
+// doubled an octave up on strings), a sudden dynamic change (`dropout`, one bar with only the lead, then the full
+// return) and the key change (`lift`, where the style already lifts). Written as `peak` on the final run's takes
+// (scope.js), so it stays an ordinary, saved edit. Songs without a feeling keep the arrangement they had.
+export const PEAK_DEVICES = ['suspension', 'entry', 'dropout', 'lift'];
+// The final run of peak bars (G and its switch-up H) after an earlier peak, as the engine's key lift finds it.
+export function finalPeak(chain) {
+  const c = [].concat(chain).join('');
+  let to = c.lastIndexOf('G');
+  if (to < 0) return null;
+  while (to + 1 < c.length && c[to + 1] === 'H') to++;
+  let from = to;
+  while (from > 0 && 'GH'.includes(c[from - 1])) from--;
+  return from > 0 && c.slice(0, from).includes('G') ? { from, to } : null;
+}
+export function writePeak(pats, chain, devices, seed = 0, { keep = [] } = {}) {
+  const run = finalPeak(chain), G = pats?.[6];
+  if (!devices?.length || !run || !G || pats.length < 8 || pats.some((p) => p.score)) return null;
+  const c = [].concat(chain).join(''), lead = G.hook && !G.hook.h && G.hm > 0 && !keep.includes('stab');
+  // The key lift stays with the styles that idiomatically change key (state.js LIFT): there it is already written.
+  const ok = (d) => (d === 'lift' ? pats.some((p) => p.lift) : d === 'dropout' || lead);
+  const opts = devices.filter((d) => PEAK_DEVICES.includes(d) && ok(d));
+  if (!opts.length) return null;
+  // The feeling's first device is its most idiomatic; drawn on its own stream so no other seeded choice moves.
+  const w = opts.map((_, i) => opts.length - i), h = (Math.imul((seed | 0) ^ 0x5bd1e995, 0x27d4eb2f) >>> 0) / 4294967296;
+  let x = h * w.reduce((a, b) => a + b, 0), d = opts[0];
+  for (let i = 0; i < opts.length; i++) if ((x -= w[i]) < 0) { d = opts[i]; break; }
+  if (d === 'lift') return d;
+  // Dropout: the final chorus opens on its title with only the lead (the chords, if it has none), then the band returns.
+  const to = d === 'dropout' ? run.from : run.to;
+  for (let pos = run.from; pos <= to;) {
+    const p = pats['ABCDEFGH'.indexOf(c[pos])], at = (p.at ??= []);
+    const cover = (q) => { for (let i = at.length - 1; i >= 0; i--) if (at[i].b[0] <= q && q <= at[i].b[1]) return at[i]; return null; };
+    const t = cover(pos);
+    let end = pos;
+    while (end < to && c[end + 1] === c[pos] && cover(end + 1) === t) end++;
+    if (t && t.b[0] === pos && t.b[1] === end) t.peak = d;
+    else at.push({ ...(t ? clone(t) : {}), b: [pos, end], peak: d });
+    pos = end + 1;
+  }
+  return d;
+}
