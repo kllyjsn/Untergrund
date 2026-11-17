@@ -42,8 +42,8 @@ export const SING_PROFILES = {
   folk: { song: 1, k: [4, 6], art: 0.8, off: 0.3, six: 0.05, leap: 0.1, hi: 0 },
   // Country: twang, leaps of a fourth or more, and pickups into nearly every line.
   // Lines say a few words on one note and step to the next (rep, zz: no seesaw between two neighbours), and the chorus
-  // can open on any chord tone (cs).
-  country: { song: 1, k: [4, 5], art: 0.75, off: 0.35, six: 0.1, leap: 0.5, hi: 0, pk: 0.9, jump: 0.8, pks: [[-2], [-4, -2], [-3, -2], [-4, -3, -2]], rep: 0.15, zz: 1.6, cs: [0, 2, 4, 5] },
+  // can open on any chord tone (cs). The chorus pushes words an 8th ahead of beats 1 and 3 (push).
+  country: { song: 1, k: [4, 5], art: 0.75, off: 0.35, six: 0.1, leap: 0.5, hi: 0, pk: 0.9, jump: 0.8, pks: [[-2], [-4, -2], [-3, -2], [-4, -3, -2]], rep: 0.15, zz: 1.6, cs: [0, 2, 4, 5], push: 3.5 },
 };
 export const sings = (style) => !!SING_PROFILES[style];
 
@@ -227,6 +227,7 @@ function lineRhythm(r, P, chorus, stress, { last, down = false, six = false, fro
     if (j === f && down && p !== 0) c += 40;
     if (j === f && !down && p > 4) c += 1;
     if (s && P.off && !chorus && mod(p, 4) === 2) c -= P.off;
+    if (s && P.push && chorus && j !== f && j < L - 1 && mod(p, 8) === 6) c -= P.push;
     if (j === L - 1 && !last.includes(p)) return Infinity;
     return c + r() * 0.35;
   };
@@ -239,7 +240,9 @@ function lineRhythm(r, P, chorus, stress, { last, down = false, six = false, fro
       if (lc === INF) continue;
       for (let k = 0; k < i; k++) {
         if (cost[k] === INF) continue;
-        const c = cost[k] + lc + gapCost(pos[i] - pos[k], stress[j], chorus);
+        let c = cost[k] + lc + gapCost(pos[i] - pos[k], stress[j], chorus);
+        // A pushed word is held over the beat it anticipates.
+        if (P.push && chorus && stress[j - 1] && mod(pos[k], 8) === 6 && pos[i] - pos[k] < 6) c += P.push + 1;
         if (c < nc[i]) { nc[i] = c; bk[i] = k; }
       }
     }

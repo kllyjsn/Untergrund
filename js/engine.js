@@ -178,6 +178,17 @@ const BAND_PLAY = {
 // the note. Only notes held long enough to hear it land are bent, from a whole step below or a half step when that is
 // the scale tone.
 export const BEND_HOLD = 0.02, BEND_RISE = 0.12;
+// Fills between sung lines, in semitones over the chord root: [16th, semitone, length in 16ths, velocity].
+// The Telecaster's are chicken-picked 16th runs down and up the major pentatonic, the harmonica's breathed 8ths.
+export const TELE_LICKS = [
+  [[0, 9, 1, 0.55], [1, 7, 1, 0.42], [2, 4, 1, 0.5], [3, 7, 1, 0.4], [4, 4, 3, 0.6]],
+  [[0, 2, 1, 0.5], [1, 4, 1, 0.45], [2, 7, 2, 0.55], [4, 9, 1, 0.45], [5, 7, 3, 0.6]],
+  [[0, 7, 1, 0.3], [1, 7, 1, 0.55], [2, 4, 1, 0.45], [3, 2, 1, 0.42], [4, 0, 4, 0.62]],
+  [[0, 4, 2, 0.5], [2, 7, 1, 0.45], [3, 9, 1, 0.5], [4, 12, 4, 0.62]],
+  [[0, 12, 1, 0.55], [1, 9, 1, 0.42], [2, 7, 1, 0.48], [3, 4, 1, 0.42], [4, 2, 1, 0.45], [5, 4, 3, 0.6]],
+  [[0, 2, 1, 0.45], [1, 4, 2, 0.55], [3, 2, 1, 0.42], [4, 0, 4, 0.6]],
+];
+export const HARP_RUNS = [[9, 7, 4], [4, 2, 0], [12, 9, 7], [2, 4, 7], [7, 9, 12]].map((r) => r.map((d, j) => [j * 2, d, j === 2 ? 4 : 1.8, j === 2 ? 0.62 : 0.5]));
 export function bendCurve(semis, n = 32) {
   const c = new Float32Array(n);
   for (let i = 0; i < n; i++) { const x = i / (n - 1); c[i] = 100 * semis * (x * x * (3 - 2 * x) - 1); }
@@ -188,6 +199,8 @@ export function teleBend(m, dur, strong, inKey, r) {
   return inKey(m - 2) ? 2 : inKey(m - 1) ? 1 : 0;
 }
 BAND_PLAY.twang = { set: 'tele', gain: 3, len: 1.6, min: 0.3, strum: 0, shift: 0, lo: 52, hi: 74, lp: 4000, fade: 0.004, rel: 0.15, grip: false, even: 0.4, oct: -1, slap: true, tele: true, vib: 18 };
+// A hammer-on's grace note: the step below, cut off by the finger landing on the note.
+BAND_PLAY.grace = { ...BAND_PLAY.twang, rel: 0.015, fade: 0.003, vib: 0 };
 // Its answer: a diatonic harmonica in C breathing held notes.
 BAND_PLAY.hca = { gain: 1.7, len: 1.2, min: 0.3, strum: 0, shift: 0, lo: 55, hi: 84, lp: 5200, fade: 0.03, rel: 0.12, even: 0.5, oct: -1, hold: true };
 // The rock band's riff guitar: the rhythm amp, double-stops up the neck.
@@ -1808,6 +1821,8 @@ export class Engine {
       let dest = this.hookBus || this.ch.stab.input;
       if (R.amp) dest = this.ampFor(dest === this.ch.stab.input ? this.ch.stab.band : dest, R.lead);
       const m = 60 + k + (oct + (R.oct || 0)) * 12 + n, g = Math.min(1.3, v) * R.gain * 0.6;
+      // The Telecaster player sits a hair behind the beat, never exactly on the grid.
+      if (twang) t += (hash(t * 3, 44) - 0.3) * 0.016;
       const scale = SCALES[this.state.scale]?.notes || SCALES.major.notes, inKey = (x) => scale.includes((((x - 60 - k) % 12) + 12) % 12);
       let bend = 0;
       if (R.slap) {
@@ -1818,6 +1833,12 @@ export class Engine {
         // against a held sixth sounds out of tune).
         const lo = inKey(m - 9) ? m - 9 : m - 8;
         if (!bend && strong && dur >= 0.3 && hash(t, 41) < 0.4 && lo >= R.lo) this.recordedNote(set, t + 0.006, g * 0.6, lo, ring, dest, 0, kind, v / 1.3);
+        // A hammer-on: now and then the note is picked a scale step below and the finger hammers it home.
+        const under = inKey(m - 2) ? m - 2 : inKey(m - 1) ? m - 1 : 0;
+        if (R.tele && !bend && under >= R.lo && dur >= 0.22 && hash(t * 3, 43) < (expression.fill ? 0.35 : 0.2)) {
+          this.recordedNote(set, t - 0.012, g * 0.8, under, 0.055, dest, 0, 'grace', v / 1.3);
+          return this.recordedNote(set, t + 0.043, g * 0.85, m, ring - 0.043, dest, 0, kind, v / 1.4);
+        }
       }
       // A rock riff is a double-stop: the melody note with its fifth underneath, through the rhythm amp.
       if (R.dyad && m - 5 >= R.lo) this.recordedNote(set, t + 0.004, g * 0.7, m - 5, ring, dest, 0, kind, v / 1.3);
@@ -2587,7 +2608,7 @@ export class Sequencer {
   // Country bass walks up the scale into a change: the two scale tones under the next root, on beat 4 and its "and".
   walkUp(pat, nx, bar, kl) {
     const prog = pat.prog, next = (nx?.prog?.length ? nx.prog : prog)?.[(bar + 1) % (nx?.prog?.length || prog?.length || 1)];
-    if (!prog?.length || !next || next.r === prog[bar % prog.length].r || hash(bar, 95) > 0.5) return null;
+    if (!prog?.length || !next || next.r === prog[bar % prog.length].r || hash(bar, 95) > 0.7) return null;
     const T = next.r, scale = SCALES[this.s.scale]?.notes || SCALES.major.notes;
     const below = [...new Set(scale.map((d) => { let x = ((d % 12) + 12) % 12; while (x >= T) x -= 12; while (x < T - 12) x += 12; return x; }))].sort((a, b) => b - a);
     return below.length >= 2 ? [below[1], below[0]] : null;
@@ -2722,13 +2743,15 @@ export class Sequencer {
   // harmonica the Telecaster's chorus. One answer a bar at most, never over a melody note.
   answer(sung, i16, bar, t, sd) {
     if ((this.cur !== 2 && this.cur !== 6) || i16 % 2 || i16 < 2 || i16 > 10 || this.answered === bar || !sung.part) return;
-    if (sung.busy.slice(i16, i16 + 5).some(Boolean) || hash(bar, 131) > 0.85) return;
-    this.answered = bar;
+    if (hash(bar, 131) > 0.85) return;
     const e = this.e, hk = sung.hook, x = hk.x || {}, root = harmRoot(e.harm) + (this.keyLift || 0);
-    const runs = [[9, 7, 4], [4, 2, 0], [12, 9, 7], [2, 4, 7], [7, 9, 12]], run = runs[Math.floor(hash(bar, 132) * runs.length)];
+    const tele = this.cur === 2, licks = tele ? TELE_LICKS : HARP_RUNS, lick = licks[Math.floor(hash(bar, 132) * licks.length)];
+    const len = Math.max(...lick.map(([at, , d]) => at + Math.min(d, 2)));
+    if (sung.busy.slice(i16, i16 + len + 1).some(Boolean)) return;
+    this.answered = bar;
     const base = ((root % 12) + 12) % 12 - (root % 12 > 6 ? 12 : 0) + (sung.part === 'v' ? -2 : 0);
-    const ex = this.cur === 2 ? { ...x, fill: 1 } : { ...x, harp: 1, fill: 1 };
-    run.forEach((d, j) => e.hook(t + j * 2 * sd + (hash(bar * 3 + j, 133) - 0.5) * 0.01, (j === 2 ? 0.62 : 0.5), base + d, (j === 2 ? 4 : 1.8) * sd, hk.v, hk.o, j === 2, 0.6, false, ex));
+    const ex = tele ? { ...x, fill: 1 } : { ...x, harp: 1, fill: 1 };
+    lick.forEach(([at, d, dur, v], j) => e.hook(t + at * sd + (hash(bar * 3 + j, 133) - 0.5) * 0.01, v, base + d, dur * sd, hk.v, hk.o, j === lick.length - 1, 0.6, false, ex));
   }
 
   // The last bar of a generated song: one final downbeat on the home chord, left to ring out.

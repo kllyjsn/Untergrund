@@ -158,7 +158,7 @@ console.log('arrangement dynamics passed');
   assert.equal(guitarHand('agtr', 'COUNTRY', false).play, 'boom', 'country acoustic plays boom-chick');
   {
     // Country lead bends land exactly on the note, start from a scale tone, and only on notes long enough to hear it land.
-    const { teleBend, bendCurve, BEND_HOLD, BEND_RISE } = await import('../js/engine.js');
+    const { teleBend, bendCurve, BEND_HOLD, BEND_RISE, TELE_LICKS, HARP_RUNS } = await import('../js/engine.js');
     const { SCALES } = await import('../js/params.js');
     for (const st of [1, 2]) {
       const c = bendCurve(st);
@@ -174,6 +174,7 @@ console.log('arrangement dynamics passed');
         if (b) assert(inKey(m - b), `${name} bend starts on a scale tone`);
       }
       assert.equal(teleBend(m, 1.2, false, inKey, 0), 0, 'weak beats are not bent');
+      for (const L of [...TELE_LICKS, ...HARP_RUNS]) for (const [, d] of L) assert.ok([0, 2, 4, 7, 9, 12].includes(d), `country fill note ${d} is off the major pentatonic`);
     }
   }
   assert.equal(guitarHand('piano', 'POP', true).play, 'strum');
