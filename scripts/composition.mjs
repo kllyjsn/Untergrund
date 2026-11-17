@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { STYLES, MAJOR_STYLES, generate, arrangement, applySongPlan, defaultState, applyOverrides, fitLyrics } from '../js/state.js';
+import { STYLES, MAJOR_STYLES, generate, arrangement, applySongPlan, songFeel, defaultState, applyOverrides, fitLyrics } from '../js/state.js';
 import { SING_PROFILES } from '../js/melody.js';
 import { lineStress, rhymes } from '../js/prosody.js';
 import { writeLyrics, rhymePairs } from '../js/lyric-writer.js';
@@ -23,7 +23,7 @@ const ROLE = ['intro', 'pre', 'verse', 'fill', 'bridge', 'bridge', 'chorus', 'ch
 export function buildSong(style, seed, length = 'song') {
   const s = defaultState();
   if (MAJOR_STYLES.has(style)) s.scale = 'major';
-  const g = generate(style, seed, s.scale);
+  const g = generate(style, seed, s.scale, { feel: songFeel(style, seed) });
   s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   applyOverrides(s, g, true);
   s.chainOn = true; applySongPlan(s, style, seed, length); s.ending = true; s.current = 0;

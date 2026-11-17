@@ -1,6 +1,6 @@
 import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, CHORDS, defaultParams, defaultMaster } from './params.js';
 import { rng } from './dsp.js';
-import { planSections, formChain, parseForm, developSong, developFinalDrop, LENGTHS } from './longform.js';
+import { planSections, formChain, parseForm, developSong, developFinalDrop, LENGTHS, MAX_SONG_BARS } from './longform.js';
 import { FORMS, SECTIONS } from './classical.js';
 import { MODELS } from './composer-models.js';
 import { POCKETS, STYLE_POCKET } from './groove.js';
@@ -12,7 +12,7 @@ import { cleanLyrics } from './lyrics.js';
 import { SING_VOICES } from './sing-score.js';
 import { cleanTakes } from './scope.js';
 import { trackTitle } from './crate.js';
-import { pickFeel, isFeel } from './feel.js';
+import { pickFeel, isFeel, FEELS } from './feel.js';
 
 export const STYLES = {
   hypnotic: { name: 'HYPNOTIC', bpm: [130, 134], family: 'TECHNO', tag: 'deep · rolling' },
@@ -225,9 +225,42 @@ export function hookLine(r, style, scale) {
   return { v: pick(r, H.v), o: H.o, s, x: { space, risk, feel, warmth } };
 }
 
+// The feeling GENERATE gives a style's song at a seed; scores carry their own expression.
+export const songFeel = (style, seed) => (FORMS[style] || style === 'repertoire' || !STYLES[style] ? null : pickFeel(style, STYLES[style].family, seed));
+
+// How well a progression carries a feeling, from its chord qualities: sad feelings lean on minor and borrowed
+// chords (iv, bIII, bVI, bVII in a major key), happy ones on major chords, tense ones on suspended and dominant
+// chords that keep the tonic away. Only ever weighs the genre's own progressions against each other.
+const fitFeel = (prog, F, major) => {
+  const n = prog.length || 1, share = (f) => prog.filter(f).length / n, iv = (h) => CHORDS[h.c]?.iv || [];
+  const minor = share((h) => iv(h).includes(3) && !iv(h).includes(4));
+  const borrowed = major ? share((h) => [3, 8, 10].includes(h.r) || (h.r === 5 && iv(h).includes(3) && !iv(h).includes(4))) : 0;
+  const open = share((h) => [4, 5, 8, 12].includes(h.c) || (h.r === 7 && h.c !== 6)), home = share((h) => h.r === 0);
+  // Opening on a minor chord (vi–IV–I–V) sounds sadder than opening on the tonic (I–V–vi–IV).
+  const first = prog[0] ? (iv(prog[0]).includes(3) && !iv(prog[0]).includes(4) ? 0.5 : prog[0].r === 0 ? -0.5 : 0) : 0;
+  return F.valence * (0.5 - minor - borrowed - first) + (F.tension - 0.4) * (open - home / 2);
+};
+// A seeded draw from `items`, weighted toward the ones that suit the feeling (one r() draw, like pick()).
+const feelPick = (x, items, F, major) => {
+  const w = items.map((p) => Math.exp(4 * fitFeel(p, F, major))), sum = w.reduce((a, b) => a + b, 0);
+  let t = x * sum;
+  for (let i = 0; i < items.length; i++) if ((t -= w[i]) < 0) return i;
+  return items.length - 1;
+};
+// Dark techno sits in phrygian (the flat second over the pedal); every other genre keeps its own mode.
+const feelMode = (style, feel, scaleName) => (feel === 'dark' && PEDAL.has(style) && (scaleName === 'minor' || scaleName === 'phrygian') ? 'phrygian' : null);
+
+// The melody shape a feeling asks for (js/melody.js writeMelody).
+const feelShape = (F) => (F ? { reg: F.mel.reg, leap: F.mel.leap, arousal: F.arousal } : null);
+
 // Returns { pattern, params, master, bpm } — params/master are partial overrides.
-export function generate(style, seed = Date.now(), scaleName = 'minor') {
+// With a `feel` (js/feel.js) the tempo, progression, mode and melody shape follow the feeling inside the genre's idiom,
+// and `scale` is returned when the mode changed.
+export function generate(style, seed = Date.now(), scaleName = 'minor', { feel = null } = {}) {
   const r = rng(seed);
+  const F = !FORMS[style] && style !== 'repertoire' && isFeel(feel) ? FEELS[feel] : null;
+  const mode = F && feelMode(style, feel, scaleName);
+  if (mode) scaleName = mode;
   const musicalScale = SCALES[MAJOR_STYLES.has(style) && scaleName === 'minor' ? 'major' : scaleName]?.notes || SCALES.minor.notes;
   const P = emptyPattern();
   const S = P.steps;
@@ -235,7 +268,11 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   let swing;
   const master = {};
   const [lo, hi] = STYLES[style].bpm;
-  const bpm = Math.round(lo + r() * (hi - lo));
+  // A feeling sets the tempo, give or take 15% of the style's range on its own seeded stream.
+  const x0 = r(), jitter = F ? (rng(Math.imul((seed | 0) ^ 0x7f4a7c15, 0x165667b1) ^ 0x2545f491)() - 0.5) * 0.3 : 0;
+  // ...but never so fast that the longest form (MAX_SONG_BARS) runs under a full song (D&B's top end).
+  const bpm = F ? Math.max(lo, Math.min(Math.round(lo + Math.max(0, Math.min(1, F.tempo + jitter)) * (hi - lo)), Math.floor((MAX_SONG_BARS * 240) / LENGTHS.song.lo)))
+    : Math.round(lo + x0 * (hi - lo));
   if (style === 'repertoire') return generateRepertoire(r, P, params, master);
   if (FORMS[style]) return generateClassical(style, seed, scaleName, r, P, params, master, bpm);
 
@@ -710,7 +747,8 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   };
   if (PROGS[style]) {
     const progs = PROGS[style].map((pr) => pr.map(([root, c]) => ({ r: root, c })));
-    const main = Math.floor(r() * progs.length);
+    const major = musicalScale[2] === 4;
+    const main = F ? feelPick(r(), progs, F, major) : Math.floor(r() * progs.length);
     P.prog = progs[main];
     P.alt = progs[(main + 1 + Math.floor(r() * (progs.length - 1))) % progs.length];
   }
@@ -795,22 +833,24 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   else if (idea === 2 && S.stab.some(Boolean) && !['neosoul', 'boombap', 'country'].includes(style)) { const q = S.stab.slice(); S.stab = q.map((_, i) => q[(i + 1) % STEPS]); }
   // Styles without written changes get harmony in their own idiom, from a separate stream so nothing above moves.
   if (!P.prog) {
-    const v = vampFor(style, Math.round(params.stab.chord ?? 0), rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)));
+    // Phrygian keeps the tonic chord free of the natural 2nd.
+    if (mode === 'phrygian' && [2, 4].includes(Math.round(params.stab.chord ?? 0))) params.stab.chord = 1;
+    const v = vampFor(style, Math.round(params.stab.chord ?? 0), rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)), F, mode);
     if (v?.pedal) P.pedal = v.pedal; else if (v) P.prog = v;
   }
   // Groove and pop genres sing: the hook becomes a vocal-length melody over the changes (js/melody.js).
-  const sung = withMelody(P.hook, rng(Math.imul((seed | 0) ^ 0x68e31da4, 0x3c6ef372) ^ 0x1b873593), style, musicalScale, { prog: P.prog, alt: P.alt, chord: params.stab.chord | 0 });
+  const sung = withMelody(P.hook, rng(Math.imul((seed | 0) ^ 0x68e31da4, 0x3c6ef372) ^ 0x1b873593), style, musicalScale, { prog: P.prog, alt: P.alt, chord: params.stab.chord | 0, shape: feelShape(F) });
   if (sung) { P.hook = sung; P.hm = 2; }
   if (LIFT.has(style) && P.prog) P.lift = 2;
   if (SONG.has(style) && P.prog && P.alt) {
     const all = PROGS[style].map((pr) => pr.map(([root, c]) => ({ r: root, c })));
-    P.sections = songSections(all, P, musicalScale, Math.round(params.stab.chord ?? 0), rng(Math.imul((seed | 0) ^ 0x51ed270b, 0x27d4eb2f)), SECTION_IDIOM[style]);
+    P.sections = songSections(all, P, musicalScale, Math.round(params.stab.chord ?? 0), rng(Math.imul((seed | 0) ^ 0x51ed270b, 0x27d4eb2f)), SECTION_IDIOM[style], F);
     if (P.sections.chorus) { P.prog = P.sections.chorus; delete P.sections.chorus; }
   }
   if (MAJOR_STYLES.has(style) || style === 'rock') P.band = true;
   if (style === 'pop' || style === 'rock') P.lite = true;
   if (style === 'country') P.lite = 'country';
-  return { pattern: P, params, master, bpm, key, swing: swing ?? 0.06 };
+  return { pattern: P, params, master, bpm, key, swing: swing ?? 0.06, ...(mode ? { scale: mode } : {}) };
 }
 
 // CLASSICAL pieces are scores, not step loops: the drum machine rests and the orchestra reads pattern.score.
@@ -827,7 +867,7 @@ export function fitLyrics(state, style) {
   const scaleName = state.scale || 'minor';
   const scale = SCALES[MAJOR_STYLES.has(style) && scaleName === 'minor' ? 'major' : scaleName]?.notes || SCALES.minor.notes;
   const prog = pats.find((p) => p?.prog?.length)?.prog, alt = pats.find((p) => p?.alt?.length)?.alt;
-  const m = writeMelody(rng(h ^ Math.imul(state.artist?.seed | 0, 0x9e3779b1)), style, scale, { prog, alt, chord: state.params?.stab?.chord | 0, words });
+  const m = writeMelody(rng(h ^ Math.imul(state.artist?.seed | 0, 0x9e3779b1)), style, scale, { prog, alt, chord: state.params?.stab?.chord | 0, words, shape: feelShape(isFeel(state.feel) ? FEELS[state.feel] : null) });
   if (!m?.n.length) return state;
   const s = melodySteps(m.n);
   return { ...state, patterns: pats.map((p) => (p?.hook?.m ? { ...p, hook: { ...p.hook, m: { ...m, ...(p.hook.m.c ? { c: 1 } : {}) }, s } } : p)) };
@@ -1015,12 +1055,13 @@ const SECTION_IDIOM = {
   },
 };
 
-function songSections(progs, P, scale, c, r, idiom) {
+function songSections(progs, P, scale, c, r, idiom, F = null) {
+  const inMajor = scale[2] === 4, choose = (xs) => (F ? xs[feelPick(r(), xs, F, inMajor)] : pick(r, xs));
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const rest = progs.filter((p) => !same(p, P.prog) && !same(p, P.alt));
   const [a, b] = [P.prog[0], P.prog.find((h) => h.r !== P.prog[0].r) || P.prog[1]];
   const rich = (h) => ({ r: h.r, c: { 0: 1, 1: 2, 7: 9 }[h.c] ?? h.c });
-  const verse = clone(rest.length && r() < 0.7 ? pick(r, rest) : [rich(a), rich(a), b, b]);
+  const verse = clone(rest.length && r() < 0.7 ? choose(rest) : [rich(a), rich(a), b, b]);
   const vocab = [...P.prog, ...P.alt, ...verse], major = vocab.some((h) => h.r === 9 || h.r === 4);
   const pre = (major ? [2, 4, 5] : [5, 8, 10]).map((x) => {
     const h = vocab.find((y) => y.r === x);
@@ -1033,9 +1074,13 @@ function songSections(progs, P, scale, c, r, idiom) {
   const k = Math.max(0, far.findIndex((h) => h.r !== 0));
   const bridge = [...far.slice(k), ...far.slice(0, k)].map((h) => (heard.has(`${h.r}:${h.c}`) ? rich(h) : { ...h }));
   const vhook = P.hook && { ...clone(P.hook), s: P.hook.s.map((x) => (x ? [stepDeg(x[0], -2, scale), x[1], x[2]] : 0)) };
-  const own = idiom && Object.fromEntries(['verse', 'pre', 'bridge'].map((k) => [k, pick(r, idiom[k]).map(([x, q]) => ({ r: x, c: q }))]));
-  if (idiom?.chorus && !(P.prog.some((h) => h.r === 10) && P.prog.some((h) => h.r === 5))) own.chorus = pick(r, idiom.chorus).map(([x, q]) => ({ r: x, c: q }));
-  return { verse, pre, bridge, ...own, ...(vhook ? { vhook } : {}) };
+  const chords = (p) => p.map(([x, q]) => ({ r: x, c: q }));
+  const own = idiom && Object.fromEntries(['verse', 'pre', 'bridge'].map((k) => [k, chords(F ? choose(idiom[k].map(chords)).map((h) => [h.r, h.c]) : pick(r, idiom[k]))]));
+  if (idiom?.chorus && !(P.prog.some((h) => h.r === 10) && P.prog.some((h) => h.r === 5))) own.chorus = chords(pick(r, idiom.chorus));
+  const out = { verse, pre, bridge, ...own, ...(vhook ? { vhook } : {}) };
+  // Sad feelings in a major key borrow the minor iv on the way to the chorus (the heartbreak chord).
+  if (F && inMajor && F.valence < -0.3) out.pre = out.pre.map((h) => (h.r === 5 && (CHORDS[h.c]?.iv || []).includes(4) ? { r: 5, c: h.c === 11 || h.c === 0 ? 0 : 1 } : h));
+  return out;
 }
 
 // Techno holds its pedal and shifts it for the last two bars of every eight at the peak; dub rocks i–iv; breaks,
@@ -1054,10 +1099,17 @@ const VAMP = {
 // Pop, trance and anthem songs lift the final chorus a whole step and stay there to the end.
 const LIFT = new Set(['euphoric', 'trance', 'hyperpop', 'pop', 'country']);
 const quality = (root, c) => (root === 0 || root === 5 || c === 4 || c === 6 ? c : root === 10 ? 10 : c === 2 ? 9 : 7);
-function vampFor(style, c, r) {
+// Phrygian pedals shift through the flat second (bII, bVI) instead of bIII and bVII.
+const PHRYGIAN_SHIFT = [[1, 0], [8, 1], [1, 8]];
+function vampFor(style, c, r, F = null, mode = null) {
   const chords = (roots) => roots.map((x) => ({ r: x, c: quality(x, c) }));
-  if (PEDAL.has(style)) { const [a, b] = [[5, 3], [8, 10], [10, 5]][Math.floor(r() * 3)]; return { pedal: chords([0, 0, 0, 0, 0, 0, a, b]) }; }
-  return VAMP[style] ? chords(VAMP[style][Math.floor(r() * VAMP[style].length)]) : null;
+  if (PEDAL.has(style)) {
+    const shifts = mode === 'phrygian' ? PHRYGIAN_SHIFT : [[5, 3], [8, 10], [10, 5]], all = shifts.map(([a, b]) => chords([0, 0, 0, 0, 0, 0, a, b]));
+    return { pedal: all[F ? feelPick(r(), all, F, false) : Math.floor(r() * 3)] };
+  }
+  if (!VAMP[style]) return null;
+  const all = VAMP[style].map(chords);
+  return all[F ? feelPick(r(), all, F, false) : Math.floor(r() * all.length)];
 }
 
 const GROOVE = new Set(['neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill', 'pop', 'rnb', 'rock', 'folk', 'country']);
@@ -1105,8 +1157,8 @@ export function applySongPlan(s, style, seed, length = 'song') {
   const plan = songPlan(style, seed, length, s.bpm || midBpm(style));
   s.chain = plan.chain;
   // Scores carry their own expression; every other GENERATE song gets a feeling from its seed.
-  if (FORMS[style] || style === 'repertoire') delete s.feel;
-  else s.feel = pickFeel(style, STYLES[style].family, seed);
+  const feel = songFeel(style, seed);
+  if (feel) s.feel = feel; else delete s.feel;
   const keep = Object.keys(s.locks || {}).filter((t) => s.locks[t]);
   developSong(s.patterns, plan.sections, { keep });
   if (plan.chain === TECHNO_LONG) developFinalDrop(s.patterns, plan.chain, { keep });
@@ -1118,7 +1170,7 @@ export function applySongPlan(s, style, seed, length = 'song') {
 export function freshSong(style, seed, { base = defaultState(), scale = null, length = 'song', bpm = null, swing = null } = {}) {
   const s = clone(base);
   s.scale = scale || (style === 'euphoric' || MAJOR_STYLES.has(style) ? 'major' : s.scale);
-  const g = generate(style, seed, s.scale);
+  const g = generate(style, seed, s.scale, { feel: songFeel(style, seed) });
   s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   s.key = g.key;
   applyOverrides(s, g, true);
@@ -1186,6 +1238,7 @@ export function defaultState() {
 export function applyOverrides(state, g, withBpm = true) {
   for (const [tid, o] of Object.entries(g.params)) Object.assign(state.params[tid], o);
   Object.assign(state.master, g.master);
+  if (g.scale) state.scale = g.scale;
   if (withBpm) state.bpm = g.bpm;
   if (withBpm && g.swing != null) state.swing = g.swing;
 }
