@@ -2246,6 +2246,7 @@ export class Engine {
     this.vocalStop(now);
     this.handoffCancel();
     this.breakOpen(now);
+    this.breath(now, true);
     this.acidRelease(now);
     this.riserStop();
     this.setThrow(false);
