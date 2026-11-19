@@ -128,26 +128,61 @@ const after = (changeAt - rebasedOrigin) / (15000 / newBpm);
 close(before, after);
 
 const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+const stopSource = main.slice(main.indexOf('function roomStartPending()'), main.indexOf('\nfunction recordPlayback'));
+for (const [action, currentTime, playing, expected] of [
+  ['stop', 1.8, true, ['discard@1.8', 'timer', 'panic']],
+  ['cancelRoomStart', 1.8, true, ['discard@1.8', 'timer', 'panic']],
+  ['cancelRoomStart', 1.8, false, ['timer']],
+  ['stop', 2.1, true, ['timer', 'panic']],
+  ['cancelRoomStart', 2.1, true, []],
+]) {
+  const calls = [], noop = () => {};
+  const sandbox = {
+    playing, roomFirstNote: playing ? 2 : null, roomPlayback: true, roomEditor: false, roomJoinTimer: 1, roomResume: noop,
+    ctx: {currentTime}, engine: {editableHits: [], discardQueuedNotes: t => calls.push(`discard@${t}`), panic: () => calls.push('panic')},
+    playbackStats: {end: noop}, trackingReplay: false, listens: {end: noop}, listenPos: noop, songOver: false,
+    clearPaused: noop, endTuning: noop, clearTimeout: () => calls.push('timer'), handoff: null,
+    jamQueue: [], guardPushOffer: noop, playStopped: noop, timer: null, midiClockStop: noop,
+    uiQueue: [], setPlayhead: noop, timeline: {frame: noop}, lastPlayedPat: null, seq: null, artistLive: null,
+    document: {body: {classList: {remove: noop}}, querySelectorAll: () => []},
+    renderPatterns: noop, renderHome: noop, releaseMedia: noop, syncNowPlaying: noop,
+  };
+  runInNewContext(`${stopSource}\n${action}()`, sandbox);
+  assert.deepEqual(calls, expected, `${action} at audio time ${currentTime} (playing: ${playing})`);
+  assert.equal(sandbox.playing, playing && !expected.length);
+}
 const joinSource = main.slice(main.indexOf('function joinRoomSet(item)'), main.indexOf('\nfunction startRoomBroadcast'));
 function roomJoin(change = () => {}, options = {}) {
   const state = freshSong('hypnotic', 7, { length:'sketch', bpm:123 });
   state.artist = {name:'Sync fixture', title:'Seed 7', style:'hypnotic', seed:7};
   state.sing = {on:true, voice:'gwen', db:0, ms:0};
   const item = {state:clone(state), startsAt:origin, style:'hypnotic', title:'New DJ'};
-  const calls = [], analytics = [];
+  const calls = [], analytics = [], timers = [], starts = [];
   const engine = {state, editableHits:[{}], vocalNow:{source:'continuous'}, stepDur:.125};
   const seq = {s:state, origin:0, queued:null};
   const sandbox = {state, engine, seq, playing:true, roomPlayback:true, roomEditor:true, artistLive:null, handoff:null, jamQueue:[],
     transportOrigin:origin, style:'hypnotic', songOrigin:{}, STYLES, sanitize, clone, songFingerprint,
     roomStatsItem:null, playbackSources:new WeakMap(), playbackStats:{end:(outcome) => analytics.push(outcome)},
     ctx:{currentTime:8}, abs:65, nextTime:8.125, recordPlayback:(source) => analytics.push(source),
-    Date:{now:() => origin + 8000}, stopTimeline(){}, joinRoomReplay(){calls.push('replay');},
-    replaceState(){calls.push('replace');}, play(){calls.push('play');}, build(){}, persist(){}, syncNowPlaying(){}, toast(){},
-    setTimeout(){calls.push('timer');}, ...options};
+    Date:{now:() => origin + 8000}, ROOM_LEAD:.42, roomJoinTimer:0, stopTimeline(){}, joinRoomReplay(){calls.push('replay');},
+    replaceState(){calls.push('replace');}, play({startsAt}){calls.push('play'); starts.push(startsAt);}, build(){}, persist(){}, syncNowPlaying(){}, toast(){},
+    setTimeout(fn, delay){calls.push('timer'); return timers.push({fn, delay});}, ...options};
   change(item, sandbox);
   const join = runInNewContext(`${joinSource}\njoinRoomSet`, sandbox);
   join(item);
-  return {calls, sandbox, item, join, analytics};
+  return {calls, sandbox, item, join, analytics, timers, starts};
+}
+{
+  const {calls, timers, starts, item} = roomJoin((_, s) => { s.playing = false; }, {Date:{now:() => origin - 1600}});
+  assert.deepEqual(calls, ['replace', 'timer']);
+  assert.equal(timers[0].delay, 1180, 'cold join starts with a scheduler lookahead before the downbeat');
+  timers[0].fn();
+  assert.deepEqual(starts, [item.startsAt], 'earlier startup still uses the published grid origin');
+}
+{
+  const {calls, starts} = roomJoin((_, s) => { s.playing = false; }, {Date:{now:() => origin - 300}});
+  assert.deepEqual(calls, ['replace', 'play'], 'a join already inside the lookahead starts without waiting');
+  assert.deepEqual(starts, [origin]);
 }
 {
   const {calls, sandbox, item, analytics} = roomJoin((item, s) => {
