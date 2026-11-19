@@ -495,14 +495,18 @@ export class Engine {
         if (b) { set(f.frequency, b[0]); set(f.gain, b[1]); if (b[2]) set(f.Q, b[2]); } else set(f.gain, 0);
       });
     }
+    if (!mode && this.smoothOn) this.smoothChords(true, at);
   }
 
   // A smooth style thins its chords below 400 Hz so they sit above the bass instead of on it.
-  smoothChords(on) {
+  smoothChords(on, at = 0) {
     this.smoothOn = on;
     if (this.stripMode) return;
-    const shelf = this.ch.stab.strip[0];
-    shelf.frequency.value = on ? 400 : 120; shelf.gain.value = on ? -12 : 0;
+    const shelf = this.ch.stab.strip[0], t = at || this.ctx.currentTime;
+    for (const [prm, v] of [[shelf.frequency, on ? 400 : 120], [shelf.gain, on ? -12 : 0]]) {
+      if (!at) prm.cancelScheduledValues(t);
+      prm.setValueAtTime(v, t);
+    }
   }
 
   setParam(tid, id, v) { this.state.params[tid][id] = v; this.applyParam(tid, id); }
