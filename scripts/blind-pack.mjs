@@ -41,6 +41,15 @@ export function detectStyles(text, diff = '') {
     return named || condition.test(changed);
   }).map(([id]) => id);
 }
+export function baseSelection(options, previous, now = Date.now()) {
+  if (options.base) return { ref: options.base, sinceTime: options.since || null };
+  if (options.since) return { ref: null, sinceTime: options.since };
+  if (previous) {
+    if (!previous.commit) throw new Error('Previous pack key lacks its head commit');
+    return { ref: previous.commit, sinceTime: null };
+  }
+  return { ref: null, sinceTime: new Date(now - 86400000).toISOString() };
+}
 function ff(args) {
   const p = spawnSync('ffmpeg', ['-hide_banner', '-nostats', '-y', ...args], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
   if (p.status !== 0) throw new Error(p.error?.message || p.stderr);
@@ -76,9 +85,9 @@ export async function main(argv = process.argv.slice(2)) {
   git('fetch', 'origin', 'main');
   const head = git('rev-parse', '--verify', `${options.head || 'origin/main'}^{commit}`);
   const previous = existsSync(keyDir) ? readdirSync(keyDir).filter((f) => /^\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort().at(-1) : null;
-  const sinceTime = options.since || (previous ? JSON.parse(readFileSync(join(keyDir, previous), 'utf8')).generatedAt : new Date(Date.now() - 86400000).toISOString());
-  if (!Number.isFinite(Date.parse(sinceTime))) throw new Error('Invalid since time');
-  const base = options.base ? git('rev-parse', '--verify', `${options.base}^{commit}`) : git('rev-list', '--first-parent', '-1', `--before=${sinceTime}`, 'origin/main');
+  const { ref, sinceTime } = baseSelection(options, previous ? JSON.parse(readFileSync(join(keyDir, previous), 'utf8')) : null);
+  if (sinceTime !== null && !Number.isFinite(Date.parse(sinceTime))) throw new Error('Invalid since time');
+  const base = ref ? git('rev-parse', '--verify', `${ref}^{commit}`) : git('rev-list', '--first-parent', '-1', `--before=${sinceTime}`, 'origin/main');
   if (!base) throw new Error(`No first-parent base commit before ${sinceTime}`);
   git('merge-base', '--is-ancestor', base, head);
   const mergedPRs = [];

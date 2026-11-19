@@ -3,8 +3,8 @@
 Run `npm run blind-pack -- --date YYYY-MM-DD --key-dir /private/path/blind-packs`.
 Requires Node 22+, Chrome, ffmpeg (libmp3lame), zip, and access to origin. The script fetches
 main, renders both revisions in disposable worktrees, and removes those worktrees even on failure.
-The default base is the first-parent main revision before the newest key's `generatedAt`,
-or 24 hours ago when no key exists. Override with `--base <ref>` or `--since <ISO time>`;
+The default base is the newest key's recorded head commit, or the first-parent main
+revision 24 hours ago when no key exists. Override with `--base <ref>` or `--since <ISO time>`;
 `--head <ref>` overrides the fetched main head. `--genres a,b` adds style IDs or names.
 `--seed N` fixes the shuffle and per-style render seeds (default: a hash of the UTC date).
 The same seed and revisions reproduce the assignment; generation timestamps and measured

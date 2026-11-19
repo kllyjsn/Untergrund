@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
-import { detectStyles, hash, random, shuffle, main } from '../scripts/blind-pack.mjs';
+import { baseSelection, detectStyles, hash, random, shuffle, main } from '../scripts/blind-pack.mjs';
 
 const input = ['minimal', 'drill', 'hardtechno', 'trap'];
+const previous = { commit: 'recorded-head', generatedAt: '2026-11-19T05:44:25.978Z' };
+assert.deepEqual(baseSelection({}, previous), { ref: 'recorded-head', sinceTime: null });
+assert.deepEqual(baseSelection({ base: 'explicit' }, previous), { ref: 'explicit', sinceTime: null });
+assert.deepEqual(baseSelection({ since: '2026-11-18T00:00:00Z' }, previous), { ref: null, sinceTime: '2026-11-18T00:00:00Z' });
+assert.deepEqual(baseSelection({}, null, Date.parse('2026-11-19T00:00:00Z')), { ref: null, sinceTime: '2026-11-18T00:00:00.000Z' });
+assert.throws(() => baseSelection({}, {}), /lacks its head commit/);
 assert.deepEqual(shuffle(input, random(42)), shuffle(input, random(42)));
 assert.deepEqual(input, ['minimal', 'drill', 'hardtechno', 'trap']);
 assert.deepEqual(shuffle([], random(42)), []);
