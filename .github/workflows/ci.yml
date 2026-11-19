@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -13,6 +14,28 @@ permissions:
   contents: read
 
 jobs:
+  club-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    env:
+      CHROME_PATH: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:club-sync -- --assert
+      - name: Upload rendered-audio sync evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: club-rendered-audio-sync
+          path: test/out/club-sync.json
+          if-no-files-found: warn
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
