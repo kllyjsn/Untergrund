@@ -2067,16 +2067,25 @@ export class Engine {
   }
 
   // Breakdowns start dark and open back up over the whole section
-  breakSweep(t, dur) {
+  breakSweep(t, dur, smooth) {
     const f = this.arrLP.frequency;
-    f.cancelScheduledValues(t); f.setValueAtTime(700, t); f.exponentialRampToValueAtTime(18000, t + dur);
+    f.cancelScheduledValues(t);
+    // A smooth style glides into the dark over a beat instead of cutting to it.
+    if (smooth) { f.setValueAtTime(f.value, t); f.setTargetAtTime(900, t, 0.12); f.setTargetAtTime(18000, t + 0.6, dur / 3); } else { f.setValueAtTime(700, t); f.exponentialRampToValueAtTime(18000, t + dur); }
     this.arrClosed = true;
   }
 
-  breakOpen(t) {
+  // A smooth drop: the bar before it slowly closes the filter, and the drop opens it back up, with no riser or boom.
+  dropDip(t, dur) {
+    const f = this.arrLP.frequency;
+    f.cancelScheduledValues(t); f.setValueAtTime(f.value, t); f.exponentialRampToValueAtTime(2200, t + dur);
+    this.arrClosed = true;
+  }
+
+  breakOpen(t, smooth) {
     if (!this.arrClosed) return;
     const f = this.arrLP.frequency;
-    f.cancelScheduledValues(t); f.setTargetAtTime(21000, t, 0.02);
+    f.cancelScheduledValues(t); f.setTargetAtTime(21000, t, smooth ? 0.09 : 0.02);
     this.arrClosed = false;
   }
 
@@ -2271,6 +2280,8 @@ function hookBusy(hk, hi, hm) {
 const SECTION_DB = { verse: -1.8, chorus: 0.45 };
 // Pop's and country's bands already play a much fuller chorus than their verse (pop's moving chorus, country's
 // boom-chick verse; pop's chorus strings), so their verse gives back less level.
+// Styles that move between sections with filter glides instead of risers, snare rolls and impacts.
+const SMOOTH = new Set(['minimal']);
 const STYLE_SECTION_DB = { pop: { verse: -0.9 }, country: { verse: -0.8 } };
 
 export class Sequencer {
@@ -2315,10 +2326,10 @@ export class Sequencer {
         this.dropNext = peak(chain[(p + 1) % n]) && !peak(this.cur) && !(fill && peak(prev));
         if (arr >= 0.75 && brk(this.cur) && !brk(prev)) {
           let k = 0; while (k < n && brk(chain[(p + k) % n])) k++;
-          this.e.breakSweep(t, k * 16 * this.e.stepDur);
+          this.e.breakSweep(t, k * 16 * this.e.stepDur, SMOOTH.has(this.s.artist?.style));
         }
       }
-      if (!arr || !brk(this.cur)) this.e.breakOpen(t);
+      if (!arr || !brk(this.cur)) this.e.breakOpen(t, SMOOTH.has(this.s.artist?.style));
       this.sectionLevel(t);
       return;
     }
@@ -2371,7 +2382,8 @@ export class Sequencer {
     const arr = s.master.arr || 0, i16 = abs % 16;
     const sung = pat.hook?.m && !pat.hook.h ? this.sungBar(bar, n ? pos : bar) : null;
     const hookStep = sung ? this.songBars && !sung.hook.m.c && sung.notes.some((o) => o.at === i16 && i16 % 8) : pat.hook && pat.hm ? pat.hook.s[abs % 32] : 0;
-    if (this.dropNext) {
+    this.smooth = SMOOTH.has(s.artist?.style);
+    if (this.dropNext && this.smooth) { if (i16 === 0) e.dropDip(t, 16 * sd); } else if (this.dropNext) {
       if (i16 === 0) e.sweep(t, 16 * sd, arr);
       if (i16 >= 8 && !s.mutes.snare) {
         const rv = (0.25 + (0.6 * (i16 - 8)) / 7) * arr;
@@ -2379,7 +2391,7 @@ export class Sequencer {
         if (i16 >= 12) e.trigger('snare', tt + sd / 2, rv * 0.85);
       }
     }
-    if (this.dropNow && i16 === 0) e.impact(t, arr);
+    if (this.dropNow && i16 === 0 && !this.smooth) e.impact(t, arr);
     if (pat.score) this.scoreStep(pat.score, abs, t, sd);
     else this.e.stepScale = 1;
     const anySolo = TRACK_IDS.some((id) => s.solos[id]);
@@ -2438,7 +2450,7 @@ export class Sequencer {
       // the hook's important notes; the gap makes the motif read as intentional.
       if (id === 'stab' && hookStep) continue;
       if (this.dropNext && id === 'kick' && i16 >= (arr >= 0.75 ? 12 : 14)) continue;
-      if (this.dropNext && id === 'snare' && arr > 0 && i16 >= 8) continue;
+      if (this.dropNext && id === 'snare' && arr > 0 && i16 >= 8 && !this.smooth) continue;
       let v = pat.steps[id][i];
       if (vary) {
         const k = TRACK_IDS.indexOf(id), roll = hash(abs * 1.37 + bar, k + 40);
@@ -2533,7 +2545,7 @@ export class Sequencer {
     if (cur === 6 && id === 'ch' && !v && rp >= 8 && i16 % 2 && has('ch')) return 0.28;
     if (i16 >= fillAt) {
       if (id === 'kick' && i16 >= 12) return 0;
-      if (id === roller) return 0.22 + (0.5 * (i16 - fillAt)) / (15 - fillAt);
+      if (id === roller) return this.smooth ? (i16 === 15 ? 0.3 : v) : 0.22 + (0.5 * (i16 - fillAt)) / (15 - fillAt);
     }
     if (id === 'perc' && fillAt === 16 && rp % 4 === 3 && !v && (i16 === 13 || i16 === 15) && has('perc')) return 0.5;
     return v;
