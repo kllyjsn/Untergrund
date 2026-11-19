@@ -1,3 +1,22 @@
+# Daily blind rating pack
+
+Run `npm run blind-pack -- --date YYYY-MM-DD --key-dir /private/path/blind-packs`.
+Requires Node 22+, Chrome, ffmpeg (libmp3lame), zip, and access to origin. The script fetches
+main, renders both revisions in disposable worktrees, and removes those worktrees even on failure.
+The default base is the first-parent main revision before the newest key's `generatedAt`,
+or 24 hours ago when no key exists. Override with `--base <ref>` or `--since <ISO time>`;
+`--head <ref>` overrides the fetched main head. `--genres a,b` adds style IDs or names.
+`--seed N` fixes the shuffle and per-style render seeds (default: a hash of the UTC date).
+The same seed and revisions reproduce the assignment; generation timestamps and measured
+audio values can differ between runs. Reuse `--base` for a repeat after recording a key.
+
+Share only `test/out/blind-packs/<date>/blind-rating-pack-<date>.zip` (or its
+`blind-pilot` folder). The separate `<key-dir>/<date>.json` reveals the identities;
+never include it in the listener pack. Rerunning a date replaces that date's pack and key.
+Levels in the key are measured with ebur128 after normalization and gain matching, before
+lossy MP3 encoding. The README requests a whole-pair rating plus first/second/tie and why.
+Pure Chrome-free checks: `node test/blind-pack.mjs`.
+
 # Rendered-audio benchmark
 
 `scripts/audio-benchmark.mjs` renders fixed seeds of every style through the real offline engine (headless Chrome,
