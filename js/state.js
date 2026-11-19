@@ -559,7 +559,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     // The pickup has to touch its destination, and octave doubles fold to the same 808 pitch.
     const pitchClass = (n) => (n + 12) % 12;
     if (pitchClass(S.acid[11].n) === pitchClass(S.acid[12].n)) S.acid[11].n = pitchClass(S.acid[12].n) ? 0 : 7;
-    Object.assign(params.kick, { tune: 50, decay: 0.28, drive: 0.35, punch: 0.75, click: 0.45, rumble: 0 });
+    Object.assign(params.kick, { tune: 50, decay: 0.17, drive: 0.35, punch: 0.75, click: 0.45, rumble: 0 });
     Object.assign(params.snare, { tune: 230, snappy: 0.85, decay: 0.16 });
     Object.assign(params.perc, { tune: 800, decay: 0.05, metal: 0.6 });
     Object.assign(params.stab, { chord: pick(r, [0, 8]), cutoff: 1400, decay: 2, env: 0.3, rev: 0.6 });
