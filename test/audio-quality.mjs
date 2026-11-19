@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { analyzeMix, analyzeStems, ending, stereo, spectrum, loudnessRange, kHops, shaper, crest, limiter } from '../js/audio-quality.js';
 import { clipCurve, satCurve } from '../js/dsp.js';
+import { withChrome } from './chrome.mjs';
 
 const fs = 48000, sec = (s) => Math.round(s * fs);
 const tone = (f, s, a = 0.5, ph = 0) => Float32Array.from({ length: sec(s) }, (_, i) => a * Math.sin(2 * Math.PI * f * i / fs + ph));
@@ -93,3 +94,12 @@ near(limiter([lin, lin, half, half], fs, -Infinity, null, 20 * Math.log10(1.5)).
 near(limiter([lin, lin, half, half], fs).grMean, 0, 0.01, 'relative gain reduction without make-up');
 
 console.log('audio quality metrics: synthetic checks passed');
+
+const drill = await withChrome((run) => run("import('/test/audio-quality-page.js').then(m => m.measure('drill', 1234))"));
+if (drill) {
+  const collision = drill.stems.kickBass;
+  assert(collision && collision.collisionP90Db < 0, `kick/808 overlap uses rendered kicks: ${JSON.stringify(collision)}`);
+  console.log('audio quality metrics: kick window boundaries passed');
+} else {
+  console.log('audio quality metrics: kick window test skipped (Chrome unavailable)');
+}

@@ -114,12 +114,21 @@ async function master(s, fromBar, toBar, tail, taps = true) {
 
 // Pre-master stems of a window (js/stems.js routing), with each part's onsets inside it.
 async function stems(s, p, fromBar, toBar) {
-  const ids = stemList(s, p.bars), r = router(ids), t0 = p.barTimes[fromBar], t1 = p.barTimes[toBar];
+  const ids = stemList(s, p.bars), r = router(ids), t0 = p.barTimes[fromBar], t1 = p.barTimes[toBar], kicks = [];
+  // Timing humanization can put a kick on the other side of a window boundary.
+  const onEngine = (e) => {
+    r.onEngine(e);
+    const trigger = e.trigger;
+    e.trigger = (id, t, v) => {
+      if (id === 'kick') kicks.push(t);
+      return trigger.call(e, id, t, v);
+    };
+  };
   let buf;
-  try { buf = await render({ ...clone(s), solos: {} }, fromBar, toBar, { channels: ids.length * 2, tail: 1, onContext: r.onContext, onEngine: r.onEngine }); } finally { r.restore(); }
+  try { buf = await render({ ...clone(s), solos: {} }, fromBar, toBar, { channels: ids.length * 2, tail: 1, onContext: r.onContext, onEngine }); } finally { r.restore(); }
   const at = (t) => START + t - t0, inWin = (n) => n.t >= t0 && n.t < t1;
-  const list = ids.map((id, k) => ({ id, left: buf.getChannelData(2 * k), right: buf.getChannelData(2 * k + 1), notes: id === 'fx' ? null : (p.c.notes[id] || []).filter(inWin).length }));
-  const onsets = Object.fromEntries(ids.map((id) => [id, (p.c.notes[id] || []).filter(inWin).map((n) => at(n.t))]));
+  const onsets = Object.fromEntries(ids.map((id) => [id, id === 'kick' ? kicks : (p.c.notes[id] || []).filter(inWin).map((n) => at(n.t))]));
+  const list = ids.map((id, k) => ({ id, left: buf.getChannelData(2 * k), right: buf.getChannelData(2 * k + 1), notes: id === 'fx' ? null : onsets[id].length }));
   return analyzeStems(list, buf.sampleRate, { kicks: onsets.kick || [], onsets });
 }
 
