@@ -308,7 +308,7 @@ function needsTuning() {
   return setsReady(names) ? null : { load: () => loadSets(names), wait: 8000, label: 'SEATING THE BAND' };
 }
 function play(opts = {}) {
-  const need = playing || opts.delay != null || opts.startsAt != null ? null : needsTuning();
+  const need = playing || opts.delay != null || opts.startsAt != null || opts.stepWall != null ? null : needsTuning();
   if (!need) return start(opts);
   ensureAudio(); stopPreview();
   clearTimeout(tuning?.timer);
@@ -326,7 +326,7 @@ function endTuning() {
   document.body.classList.remove('tuning');
 }
 
-function start({ step = 0, delay = 0.06, startsAt = null, room = startsAt !== null || roomPlayback } = {}) {
+function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room = startsAt !== null || roomPlayback } = {}) {
   const seeking = playing;
   clearPaused();
   roomResume = null;
@@ -347,9 +347,10 @@ function start({ step = 0, delay = 0.06, startsAt = null, room = startsAt !== nu
   seq.origin = 0;
   if (handoff) { handoff = null; engine.handoffCancel(); }
   state.current = seq.cur;
-  nextTime = audioNow + Math.max(0.01, delay);
+  const wait = stepWall === null ? Math.max(0.01, delay) : (stepWall - wallNow) / 1000;
+  nextTime = audioNow + wait;
   clockOffset = null;
-  transportOrigin = startsAt ?? (wallNow + Math.max(0.01, delay) * 1000 - abs * (15000 / state.bpm));
+  transportOrigin = startsAt ?? ((stepWall ?? wallNow + wait * 1000) - abs * (15000 / state.bpm));
   if (!seeking) engine.recLock = new Map();
   roomPlayback = room;
   playing = true;

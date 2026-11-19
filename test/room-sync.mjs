@@ -78,21 +78,24 @@ assert.deepEqual(transportResync(9.0, 9.0, 9.6, 0.125), { skip: 5, nextTime: 9.6
   const short = syncAudioClock(before.offset, 1000.25);
   assert.deepEqual(transportResync(1011.5 - short.offset, 11.5, 10, 0.125, short.jumped), { skip: -10, nextTime: 10, discard: true, firstTime: 10.005 });
   const stall = syncAudioClock(before.offset, 1000.8);
-  const recovery = transportResync(1011.5 - stall.offset, 11.5, 10, 0.125, stall.jumped);
+  const recovery = transportResync(1011.475 - stall.offset, 11.5, 10, 0.125, stall.jumped);
   assert.equal(recovery.discard, true);
   assert.equal(recovery.skip, -5);
-  close(recovery.nextTime, 10.075);
+  close(recovery.nextTime, 10.05);
   assert.equal(transportResync(recovery.nextTime, recovery.nextTime, 10, 0.125), null);
 }
 
 {
-  const late = transportResync(9.985, 11.5, 10, 0.125, true, 0);
-  assert.deepEqual(late, { skip: 0, nextTime: 9.985, discard: true, firstTime: 10.005 });
-  close(late.nextTime + 0.125, 10.11);
-  const missed = transportResync(9.975, 11.5, 10, 0.125, true, 0);
+  const late = transportResync(9.955, 11.5, 10, 0.125, true, 0);
+  assert.deepEqual(late, { skip: 0, nextTime: 9.955, discard: true, firstTime: 10.005 });
+  close(late.nextTime + 0.125, 10.08);
+  const missed = transportResync(9.945, 11.5, 10, 0.125, true, 0);
   assert.equal(missed.skip, 1);
   assert.equal(missed.firstTime, undefined);
-  close(missed.nextTime, 10.1);
+  close(missed.nextTime, 10.07);
+  const fast = transportResync(9.965, 11.5, 10, 0.0625, true, 0);
+  assert.equal(fast.skip, 1, 'a fast song does not crowd the next step to recover a late one');
+  close(fast.nextTime, 10.0275);
 }
 
 {
