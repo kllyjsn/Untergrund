@@ -1301,6 +1301,11 @@ export function applyOverrides(state, g, withBpm = true) {
   if (withBpm && g.swing != null) state.swing = g.swing;
 }
 
+export function withPlaybackStyle(state, style) {
+  if (!Object.hasOwn(STYLES, style) || state.artist?.style === style) return state;
+  return { ...state, artist: { ...state.artist, style } };
+}
+
 const KEY = 'untergrund.v1';
 export function save(state) {
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {}

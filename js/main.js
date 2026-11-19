@@ -4,7 +4,7 @@ import { assign as assignExperiment } from './experiments.js';
 import { createListens, songFingerprint, promptHash, promptText } from './listen.js';
 import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue, VOICE_HIDDEN } from './params.js';
 import { Engine, Sequencer, parseChain } from './engine.js';
-import { defaultState, generate, mutate, arrangement, songChain, applySongPlan, applyOverrides, clone, save, load, sanitize, STYLES, MAJOR_STYLES, emptyPattern, emptyAcidStep, fitLyrics, refreshSong } from './state.js';
+import { defaultState, generate, mutate, arrangement, songChain, applySongPlan, applyOverrides, clone, save, load, sanitize, STYLES, MAJOR_STYLES, emptyPattern, emptyAcidStep, fitLyrics, refreshSong, withPlaybackStyle } from './state.js';
 import { renderBars, bufferToWav } from './render.js';
 import { exportButtons } from './export-ui.js';
 import { encodeWav, rng } from './dsp.js';
@@ -858,7 +858,7 @@ function timelineHooks(asGuest, replayStats = null) {
       if (asGuest && !guest) guest = { backup: clone(state), style };
       songOrigin = { src: asGuest ? 'jukebox' : 'room' };
       if (STYLES[st]) style = st;
-      const next = sanitize({ ...s, artist: state.artist });
+      const next = sanitize(withPlaybackStyle({ ...s, artist: state.artist }, st));
       if (!asGuest) return replaceState(next);
       stop(); autoMajor = false; state = next;
       if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
@@ -866,11 +866,10 @@ function timelineHooks(asGuest, replayStats = null) {
     },
     apply: (s, st) => {
       if (STYLES[st]) style = st;
-      const next = sanitize({ ...clone(state), ...s });
+      const next = sanitize(withPlaybackStyle({ ...clone(state), ...s }, st));
       // The DJ generated a new song: the replay hands off on a downbeat too, from the new song's bar 1.
       const newSong = next.chain !== state.chain && JSON.stringify(next.patterns[0]) !== JSON.stringify(state.patterns[0]);
       if (playing && seq && newSong && !pat().score && !next.patterns.some((q) => q.score)) {
-        next.artist = state.artist;
         return queueSong({ next, quiet: true, origin: { src: asGuest ? 'jukebox' : 'room' }, finish: () => { build(); if (!guest) persist(); } });
       }
       if (playing && next.bpm !== state.bpm) transportOrigin = Date.now() - ((Date.now() - transportOrigin) / (15000 / state.bpm)) * (15000 / next.bpm);
@@ -1371,7 +1370,7 @@ async function startPreview(id, card) {
   try {
     let p = previewCache.get(id);
     if (!p) {
-      const snap = clone(state);
+      const snap = withPlaybackStyle(clone(state), id);
       const scale = id === 'euphoric' ? 'major' : 'minor';
       const g = generate(id, (Math.random() * 1e9) | 0, scale);
       Object.assign(snap, { patterns: [g.pattern], current: 0, chainOn: false, scale, mutes: {}, solos: {} });
