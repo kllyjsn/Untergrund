@@ -41,6 +41,22 @@ export function detectStyles(text, diff = '') {
     return named || condition.test(changed);
   }).map(([id]) => id);
 }
+export function parseMergedPR(message) {
+  const [subject, ...body] = message.trim().split('\n');
+  const merge = /^Merge pull request #(\d+)\b/.exec(subject);
+  if (merge) return { number: Number(merge[1]), title: body.join('\n').trim() };
+  const squash = /^(.*?)\s+\(#(\d+)\)$/.exec(subject);
+  return squash ? { number: Number(squash[2]), title: squash[1] } : null;
+}
+export function mergedPRsBetween(base, head) {
+  const mergedPRs = [];
+  for (const sha of git('rev-list', '--first-parent', '--reverse', `${base}..${head}`).split('\n').filter(Boolean)) {
+    const message = git('show', '-s', '--format=%B', sha), pr = parseMergedPR(message);
+    if (!pr) continue;
+    mergedPRs.push({ ...pr, commit: sha, styles: detectStyles(message, git('diff', `${sha}^1`, sha, '--', '.', ':!test/**', ':!docs/**', ':!research/**', ':!*.md')) });
+  }
+  return mergedPRs;
+}
 export function baseSelection(options, previous, now = Date.now()) {
   if (options.base) return { ref: options.base, sinceTime: options.since || null };
   if (options.since) return { ref: null, sinceTime: options.since };
@@ -100,13 +116,7 @@ export async function main(argv = process.argv.slice(2)) {
   const base = ref ? git('rev-parse', '--verify', `${ref}^{commit}`) : git('rev-list', '--first-parent', '-1', `--before=${sinceTime}`, 'origin/main');
   if (!base) throw new Error(`No first-parent base commit before ${sinceTime}`);
   git('merge-base', '--is-ancestor', base, head);
-  const mergedPRs = [];
-  for (const sha of git('rev-list', '--first-parent', '--merges', '--reverse', `${base}..${head}`).split('\n').filter(Boolean)) {
-    const message = git('show', '-s', '--format=%B', sha), number = Number(/Merge pull request #(\d+)/.exec(message)?.[1]);
-    if (!number) continue;
-    const title = message.split('\n').slice(2).join('\n').trim();
-    mergedPRs.push({ number, title, commit: sha, styles: detectStyles(message, git('diff', `${sha}^1`, sha, '--')) });
-  }
+  const mergedPRs = mergedPRsBetween(base, head);
   const extra = (options.genres || '').split(',').filter(Boolean).map((s) => {
     const id = Object.keys(STYLES).find((id) => id === s.trim().toLowerCase() || STYLES[id].name.toLowerCase() === s.trim().toLowerCase());
     if (!id) throw new Error(`Unknown genre: ${s}`);

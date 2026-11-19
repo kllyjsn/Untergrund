@@ -262,7 +262,7 @@ export function summarizeRatings(results) {
 // of the content inside each band; shares are fractions of the 20 Hz–Nyquist energy.
 export const BANDS = { sub: [30, 60], low: [60, 120], mud: [200, 500], harsh: [2000, 5000] };
 
-function fft(re, im) {
+export function fft(re, im) {
   const n = re.length;
   for (let i = 1, j = 0; i < n; i++) {
     let bit = n >> 1;
