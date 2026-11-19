@@ -10,66 +10,174 @@ npm run benchmark:timbre -- --ref origin/pr243 --json test/out/timbre-pr243.json
 node test/timbre.mjs
 ```
 
-The evaluator comes from the invoking checkout; `--ref` creates and removes a detached worktree of the target. No evaluator files are copied into that tree. `--root` serves an existing worktree, including its uncommitted changes. Chrome is required; its absence is an error, not a passing measurement. JSON is written under `test/out/` by default (ignored by git). No listening-pack audio, keys or clip identifiers are consumed or emitted.
+The evaluator comes from the invoking checkout; `--ref` creates/removes a detached target worktree. `--root` serves an existing worktree, including uncommitted changes. Chrome is required; absence is an error. JSON defaults to ignored `test/out/`. No listening-pack audio, keys or clip identifiers are read or emitted.
 
-## Method
+## Method (schema v2)
 
-All `STYLES` in the target's `js/state.js`, three fixed seeds (11, 42, 1234), eight densest bars per song. Uses `song`, `plan`, and `render` from `test/audio-quality-page.js`, the same offline sequencer used by the audio benchmark and listening packs. Captures the actual pre-master stereo stems with `js/stems.js` routing in one render per seed, 24 kHz plus one second of tail. Returns and vocals are excluded rather than mistaken for instruments. There is no full-mix substitution: the renderer can isolate stems.
+All target `STYLES`, **six seeds: 11, 42, 1234, 73, 211, 997**, eight densest bars per song, 24 kHz and one second of tail. Reuses `song`, `plan`, `render` from `test/audio-quality-page.js` and actual pre-master stereo stem routing from `js/stems.js`, not a substitute synthesizer or full mix. FX returns and vocals are excluded.
 
-Role groups are bass (acid/contrabass), chords (stab), lead (hook), drums, strings, winds, keys. Orchestral groups are kept separate, not falsely called electronic chords or lead. A missing role remains explicitly missing, even if its absence is intentional.
+Five disjoint role groups:
+- **bass:** acid, contrabass;
+- **chords:** stab, piano, harp;
+- **lead:** hook, flute, oboe, clarinet, horn, trumpet;
+- **pad:** orchestral violin/viola/cello strings (a sustained-texture proxy);
+- **drums:** kick, snare, clap, hats, ride, percussion, timpani.
 
-For each summed role, RMS-normalize the waveform (a loudness proxy, **not** BS.1770 perceptual loudness), Hann-window FFT using the lab's existing FFT, at most approximately 160 windows. Compute 24 equal-mel-width power bands; log the normalized time-mean band energies. Also retain centroid, geometric/arithmetic spectral flatness, and 85% rolloff. This is a log mean spectrum, not a mean of framewise log spectra. Spectra describe the played register as well as the instrument.
+Electronic pad voices routed through `stab` remain **chords**: there is no independent electronic pad stem, and counting the same sound twice would inflate melodic coverage. Grouping orchestral parts by musical function is approximate. JSON retains source stem IDs and note counts, so absence can be distinguished from failed measurement.
 
-At recorded note onsets, measure a 5 ms RMS envelope: time to 90% peak, early post-peak decay/late sustain ratio, and time after note-off to 10% peak. Aggregate with medians. Require two isolated envelopes with observable releases per seed; overlapping notes, busy drum patterns, held pads and tails beyond the excerpt can be **UNMEASURED**. These are played-envelope proxies, not recovered synth ADSR parameters. Alignment comes from the sequencer recorder, not transient detection; humanization is approximate.
+RMS-normalize each summed role (a loudness proxy, **not** BS.1770); Hann-window FFT using the lab's FFT, approximately 160 windows; 24 equal-mel-width log time-mean power bands plus centroid, flatness and 85% rolloff. These are log mean spectra, not means of framewise log spectra. Register/voicing affect them as well as instrument identity.
 
-Standardize each feature across the rendered style/seed population within its role (SD floor 0.05); distance is RMS standardized Euclidean distance, with each coordinate equally weighted. The 24 spectral coordinates consequently have more weight than the envelope coordinates. Between distance is the mean of all cross-genre seed distances; noise is all off-diagonal within-genre seed distances. For 300 deterministic bootstrap replicates, resample each genre's seeds with replacement for the between estimate and resample within distances for the noise estimate. Require the lower 95% percentile bound of between-minus-noise to exceed zero. Three seeds give only a coarse, exploratory uncertainty estimate, not calibrated statistical significance; pairwise multiple comparisons are not corrected.
+Measure 5 ms RMS envelopes at recorded note onsets: time to 90% peak, early post-peak decay/late sustain ratio, and note-off to 10% peak. Require two distinct uncensored onset events; overlapping notes, short gates and long tails can prevent this. Deduplicate simultaneous chord tones rather than treating them as independent envelopes. These are played-envelope proxies, not recovered synth ADSR. Recorder timing only approximately follows humanization.
 
-Only separable roles receive similarity `1/(1+distance)` (higher is more alike). Identical signals have the smallest raw feature distance, but identical genres cannot be statistically separated: they correctly become **UNMEASURED**, not a fake 1.0 pass. Missing, silent (< -120 dBFS RMS), invalid or envelope-censored roles have null scores and reasons.
+**A censored envelope does not discard a valid spectrum.** Its envelope and envelope vector remain null with `envelopeStatus: UNMEASURED` and a reason; its role still supports a clearly identified spectral-only comparison. No fake attack/release values are imputed. JSON `envelopePairs` counts cross-seed comparisons with both envelopes available.
 
-A full pair score requires all seven roles to be measured. This conservative rule means a normal electronic pair, lacking orchestral roles, is **UNMEASURED** overall. `partialSimilarity` is an explicitly incomplete screening aid averaging only measured roles; its highest-scoring role is the driver. The CLI ranks these partial candidates, **not** asserted whole-genre nearest neighbours. JSON provides every pair's per-role results and a per-genre summary with a null verified neighbour and an optional partial candidate. Compare coverage before comparing partial scores; different role subsets are not directly comparable. Human ears must resolve the unknowns.
+Standardize spectral and envelope coordinates separately within each role over the rendered population (SD floor 0.05). Distance is RMS standardized Euclidean: 75% spectral squared distance / 25% envelope squared distance when both envelopes exist; spectral-only otherwise. Seed-pair similarity is `1/(1+distance)`; the role estimate averages all cross-genre seed pairs. Within-genre mean off-diagonal distance is context only, **never a separability gate**. Identical instruments can score 1.0.
 
-## Limits and interpretation
+### Presence, uncertainty and combination
 
-This measures a few arranged passages, not every available voice or the whole song. Pitch, voicing, articulation, velocity, EQ, sidechain and arrangement affect results. Silence and overlapping sustained instruments deliberately reduce coverage. Per-run standardization makes cross-ref scalar differences descriptive only: inspect role distances/coverage and listen, rather than treating a tiny ranking change as improvement. Browser DSP and sample decoding can vary slightly. No aesthetic quality, genre correctness, complexity or human preference is inferred. Increasing independent seeds and collecting human timbre judgements are the next calibration steps.
+- A silent role (< -120 dBFS RMS) is `ABSENT`, not a measurement failure. Absent in both genres across the seeds: **skip**. Absent in one genre only: **similarity 0**, maximal difference. If both genres sometimes play it, seed-pair presence mismatches score 0 and simultaneous absences score 1.
+- Missing/invalid render data are **UNMEASURED**, never treated as absence.
+- Bootstrap **500 times over seeds**, independently resampling each genre's complete seed rows with replacement. Use the same sampled indices across every role to retain cross-role dependence. Compute role, combined and melodic-only percentile **95% similarity CIs**.
+- A role/pair with CI width **> 0.25** on the 0–1 similarity scale is **UNMEASURED**. This preselected advisory threshold rejects uncertainty spanning more than one quarter of the scale; it is not human-calibrated. Overlapping narrower CIs still mean the exact ordering is uncertain. Unavailable role scores stay null and are listed in `excludedRoles`; the CI, when available, remains visible.
+- A pair requires **at least two shared measurable melodic roles** (bass/chords/lead/pad), each present in both genres and passing the CI-width rule. Intermittent roles are included with their seed-presence variability, not rejected by a separate coverage gate. Drums alone, or one melodic role plus drums, cannot qualify.
+- Combine all remaining measured shared roles and one-sided presence differences: **weight 3 per melodic role, 1 for drums**. With two shared melodic roles drums have at most 1/7 of the total weight. Both-absent roles do not enter the denominator. Wide-CI roles are explicitly excluded, not silently passed.
+- Also rank **melodic-only** scores, excluding drums entirely. Driver is the largest weighted positive contribution to the corresponding similarity. Per-genre summaries contain three nearest measured neighbours, scores, CIs and drivers.
 
-## Main-branch top ten
+## Why v1 lost chords and leads
 
-Main `d0d4a99131064089cfc5cf0127cfa31344d328d7`; PR 242 head `9cb33c5198902984b05774e6b04140bc6239571f`; PR 243 head `7c33580c201ffe990fca1b50620c03ab25cc9fec`. Each run rendered 102 excerpts (34 styles), zero render errors, 561 pairs. **All whole-pair scores and verified nearest neighbours are UNMEASURED**. Every candidate below has only one measured role; the displayed number is that role's similarity, not a whole-genre score. All other roles are UNMEASURED. Unrounded distances, noise estimates, confidence intervals, failure reasons and all per-genre partial candidates are in the JSON reports.
+The original main JSON (34 styles × three seeds) identifies two different problems, **not a general inability to isolate stems**:
 
-| Rank | Main pair | Measured role similarity | Driver |
-|---|---|---:|---|
-| 1 | trap / jerseyclub | 0.743 | drums |
-| 2 | pop / rock | 0.738 | drums |
-| 3 | breaks / jerseyclub | 0.728 | drums |
-| 4 | ukg / trap | 0.727 | drums |
-| 5 | minimal / trance | 0.717 | bass |
-| 6 | ukg / breaks | 0.711 | drums |
-| 7 | euphoric / trap | 0.708 | drums |
-| 8 | ukg / euphoric | 0.696 | drums |
-| 9 | boombap / rnb | 0.694 | drums |
-| 10 | breaks / trap | 0.691 | drums |
+| Original role | Measured seed observations | Envelope-rejected (but nonsilent spectrum retained) | Silent observations | Measured genre pairs | Pair rejections: envelopes / separability / silence |
+|---|---:|---:|---:|---:|---|
+| chords | 57/102 | 32 | 13 | 7/561 | 416 / 59 / 79 |
+| lead | 88/102 | 2 | 12 | 78/561 | 33 / 328 / 122 |
+| bass | 74/102 | 19 | 9 | 182/561 | 229 / 71 / 79 |
 
-Main has 314 measured role/seed observations of 714: 307 are silent and 93 lack two usable envelopes. The bootstrap further removes nonseparable pair/role comparisons. This is insufficient evidence for a global timbre-distinctness verdict.
+V1 required usable envelopes in **every seed** to construct a role vector. A single busy/sustained chord excerpt therefore removed every pair involving its genre (only 12/34 genres had all three chord seeds accepted). All 32 envelope-rejected chord observations had nonempty spectra; e.g. industrial seed 1234 had centroid 1079 Hz. This disproves missing/silent stems as their explanation. Lead extraction itself was mostly healthy (29/34 genres had all three seeds accepted), but the backwards between-distance-minus-noise gate rejected **328** lead comparisons precisely because they were not separable. Finally, requiring all seven old role groups made electronic pairs fail for absent orchestral instruments. V2 removes all three decision-rule failures while preserving explicit unknown envelope fields.
 
-### PR 242
+Some silence is real excerpt/role coverage: old lead silence was the four classical styles, whose winds were in a separate role; old chord silence included classical piano/strings in other roles and one electro seed. V2's functional groups fix that taxonomy mismatch without inventing stems. The rerun reports below disclose any remaining absent/uncertain roles.
 
-| Rank | Pair (overall UNMEASURED) | Measured role similarity | Driver |
-|---|---|---:|---|
-| 1 | trap / jerseyclub | 0.742 | drums |
-| 2 | pop / rock | 0.737 | drums |
-| 3 | minimal / trance | 0.716 | bass |
-| 4 | euphoric / trap | 0.702 | drums |
-| 5 | dnb / trap | 0.693 | drums |
-| 6 | boombap / rnb | 0.693 | drums |
-| 7 | neosoul / rnb | 0.690 | drums |
-| 8 | ukg / euphoric | 0.689 | drums |
-| 9 | ukg / jerseyclub | 0.686 | drums |
-| 10 | rnb / rock | 0.679 | drums |
+## Limits
 
-Source diff against main: changes the seed-selected instrument ensembles for hypnotic, industrial, peak, deep house, UKG, euphoric, breaks, DnB, trance, ambient, afrobeats, reggaeton and hyperpop; chooses recorded kit 1 for breaks and kit 3 for DnB; trims one deep-house organ ensemble. Adds palette/preload tests and updates audio baselines. The old breaks candidates no longer appear in the top ten, but this is not a demonstrated perceptual improvement. Coverage is 316 measured role/seed observations. Standardization changes globally, so even untouched pairs' scores can move.
+This is a seed-sampled arranged-passage descriptor, not an isolated preset audition or a human quality judgement. Pitch, harmony, articulation, processing and sample decoding all matter. Envelope availability changes which feature components are comparable; inspect per-role coverage. Population standardization is per ref, so small cross-ref scalar changes are not proof of improvement. Presence decisions and CIs are conditional on the sampled seeds; six seeds do not exhaust every palette. No perceptual calibration, multiple-comparison correction or claim of statistically unique ordering. Listen to assess aesthetic value and whether apparently similar timbres matter musically.
 
-### PR 243
+## Six-seed results
 
-Top ten, drivers and role similarities are the same as main to three decimals (table above); every whole-pair score remains UNMEASURED. Coverage is 315 measured role/seed observations.
+All runs: **204 renders (34 styles × six seeds), zero render errors; 495 measured / 66 UNMEASURED pairs of 561**. Of the 66 failures, 65 involve piano-only nocturne/repertoire, with at most one shared melodic role; the other is industrial/electro, whose bass and chord CIs exceed the width limit, leaving only lead. These are not backwards separability failures. Combined and melodic-only rankings below include bootstrap 95% CIs; overlapping CIs do not establish a strict ordering.
 
-Source diff against main: Drill gains recorded cello/clarinet chords and oboe/airy-flute leads alongside its harp option. Adds wind tuning/lead-in/gain calibration, loads hook samples before playback, and separates body-EQ caches by destination **and tone**. Extends voice names/UI descriptions and tests. Drill seed 42 now has a measurable chord envelope; main did not. Drill still has no measurable bass envelope in any of these seeds, and the global top ten does not test the intended new voices directly. The eval does **not** establish that the PR sounds better or more distinct to humans.
+### Main — `d0d4a99131064089cfc5cf0127cfa31344d328d7`
+
+JSON: `test/out/timbre-main.json`.
+
+| Rank | Combined pair | Similarity [95% CI] | Driver |
+|---|---|---|---|
+| 1 | industrial / peak | 0.656 [0.623, 0.695] | lead |
+| 2 | industrial / acid | 0.647 [0.615, 0.681] | lead |
+| 3 | acid / peak | 0.637 [0.604, 0.676] | lead |
+| 4 | hypnotic / electro | 0.622 [0.585, 0.657] | lead |
+| 5 | acid / electro | 0.605 [0.560, 0.647] | lead |
+| 6 | reggaeton / trap | 0.600 [0.557, 0.656] | bass |
+| 7 | neosoul / boombap | 0.595 [0.567, 0.629] | bass |
+| 8 | afrobeats / trap | 0.578 [0.536, 0.624] | bass |
+| 9 | trap / jerseyclub | 0.577 [0.553, 0.602] | bass |
+| 10 | peak / electro | 0.575 [0.534, 0.617] | lead |
+
+**Melodic only (no drums):**
+
+| Rank | Pair | Similarity [95% CI] | Driver |
+|---|---|---|---|
+| 1 | industrial / peak | 0.667 [0.628, 0.714] | lead |
+| 2 | hypnotic / electro | 0.634 [0.592, 0.675] | lead |
+| 3 | industrial / acid | 0.632 [0.594, 0.673] | lead |
+| 4 | acid / peak | 0.631 [0.595, 0.675] | lead |
+| 5 | deephouse / ambient | 0.615 [0.572, 0.653] | bass |
+| 6 | acid / electro | 0.614 [0.558, 0.664] | lead |
+| 7 | reggaeton / trap | 0.613 [0.566, 0.677] | bass |
+| 8 | euphoric / ambient | 0.599 [0.550, 0.642] | bass |
+| 9 | peak / electro | 0.596 [0.547, 0.646] | lead |
+| 10 | neosoul / boombap | 0.596 [0.563, 0.631] | bass |
+
+### PR 242 head — `9cb33c5198902984b05774e6b04140bc6239571f`
+
+JSON: `test/out/timbre-pr242.json`.
+
+| Rank | Combined pair | Similarity [95% CI] | Driver |
+|---|---|---|---|
+| 1 | industrial / acid | 0.644 [0.610, 0.681] | lead |
+| 2 | acid / peak | 0.637 [0.600, 0.677] | lead |
+| 3 | industrial / peak | 0.635 [0.593, 0.680] | lead |
+| 4 | hypnotic / electro | 0.620 [0.584, 0.661] | lead |
+| 5 | acid / electro | 0.609 [0.563, 0.650] | lead |
+| 6 | neosoul / boombap | 0.593 [0.564, 0.625] | bass |
+| 7 | euphoric / ambient | 0.587 [0.562, 0.620] | bass |
+| 8 | peak / electro | 0.580 [0.539, 0.623] | lead |
+| 9 | trap / jerseyclub | 0.576 [0.553, 0.603] | bass |
+| 10 | reggaeton / trap | 0.575 [0.539, 0.624] | bass |
+
+**Melodic only (no drums):**
+
+| Rank | Pair | Similarity [95% CI] | Driver |
+|---|---|---|---|
+| 1 | industrial / peak | 0.642 [0.592, 0.696] | lead |
+| 2 | acid / peak | 0.632 [0.590, 0.676] | lead |
+| 3 | hypnotic / electro | 0.631 [0.591, 0.678] | lead |
+| 4 | euphoric / ambient | 0.628 [0.600, 0.667] | bass |
+| 5 | industrial / acid | 0.628 [0.586, 0.673] | lead |
+| 6 | acid / electro | 0.618 [0.562, 0.668] | lead |
+| 7 | deephouse / ambient | 0.609 [0.566, 0.638] | bass |
+| 8 | peak / electro | 0.602 [0.552, 0.653] | lead |
+| 9 | neosoul / boombap | 0.592 [0.560, 0.627] | bass |
+| 10 | reggaeton / trap | 0.586 [0.547, 0.639] | bass |
+
+### PR 243 head — `076603e972d26ab1007f785ad0fd11b6695cce3c`
+
+JSON: `test/out/timbre-pr243.json`.
+
+| Rank | Combined pair | Similarity [95% CI] | Driver |
+|---|---|---|---|
+| 1 | industrial / peak | 0.655 [0.622, 0.695] | lead |
+| 2 | industrial / acid | 0.647 [0.614, 0.681] | lead |
+| 3 | acid / peak | 0.636 [0.604, 0.675] | lead |
+| 4 | hypnotic / electro | 0.622 [0.585, 0.657] | lead |
+| 5 | acid / electro | 0.605 [0.560, 0.647] | lead |
+| 6 | reggaeton / trap | 0.599 [0.556, 0.655] | bass |
+| 7 | neosoul / boombap | 0.595 [0.566, 0.628] | bass |
+| 8 | afrobeats / trap | 0.577 [0.535, 0.622] | bass |
+| 9 | trap / jerseyclub | 0.576 [0.553, 0.602] | bass |
+| 10 | peak / electro | 0.575 [0.534, 0.617] | lead |
+
+**Melodic only (no drums):**
+
+| Rank | Pair | Similarity [95% CI] | Driver |
+|---|---|---|---|
+| 1 | industrial / peak | 0.666 [0.628, 0.713] | lead |
+| 2 | hypnotic / electro | 0.634 [0.592, 0.675] | lead |
+| 3 | acid / peak | 0.631 [0.594, 0.675] | lead |
+| 4 | industrial / acid | 0.631 [0.593, 0.673] | lead |
+| 5 | deephouse / ambient | 0.614 [0.572, 0.653] | bass |
+| 6 | acid / electro | 0.614 [0.558, 0.664] | lead |
+| 7 | reggaeton / trap | 0.612 [0.565, 0.676] | bass |
+| 8 | euphoric / ambient | 0.598 [0.550, 0.641] | bass |
+| 9 | peak / electro | 0.596 [0.547, 0.646] | lead |
+| 10 | neosoul / boombap | 0.595 [0.563, 0.630] | bass |
+
+### Drill nearest neighbours (combined)
+
+| Ref | Rank | Neighbour | Similarity [95% CI] | Driver |
+|---|---|---|---|---|
+| main | 1 | afrobeats | 0.562 [0.538, 0.584] | bass |
+| main | 2 | trap | 0.562 [0.528, 0.610] | bass |
+| main | 3 | euphoric | 0.550 [0.513, 0.593] | bass |
+| pr243 | 1 | afrobeats | 0.569 [0.546, 0.594] | bass |
+| pr243 | 2 | jerseyclub | 0.560 [0.545, 0.573] | bass |
+| pr243 | 3 | trap | 0.549 [0.529, 0.569] | bass |
+
+### Remaining coverage and PR interpretation
+
+On main, spectra are measurable for bass 187/204, chords 196/204, lead 192/204, pad 36/204 and drums 192/204; every other observation is explicitly absent, with no render/feature failures. Complete envelopes are available for bass 153, chords 88, lead 177, pad 0 and drums 116 observations. Pads therefore use spectra only, not invented envelopes. Role CIs wider than 0.25 exclude 21 bass and 58 chord pair comparisons on main (PR 242: 21/57; PR 243: 21/56); none of the lead CIs is too wide.
+
+PR 242 changes electronic seed-selected instrument ensembles across 13 styles, assigns recorded drum kits to breaks/DnB and trims one deep-house organ ensemble. Its high-similarity techno cluster remains; palette changes alter the ordering and bring euphoric/ambient into the combined top ten. These are descriptive changes, not proof of audible improvement.
+
+PR 243 gives Drill recorded cello/clarinet chords and oboe/airy-flute leads alongside harp, calibrates/preloads the new samples, separates body-EQ caches by tone, and updates MIDI instrument labels. Its fetched head advanced from the earlier 7c33580 to 076603e (the additional change is MIDI labels, not synthesis). Drill neighbours change from afrobeats/trap/euphoric to afrobeats/jerseyclub/trap. Bass still drives each, and broad overlapping CIs prevent a firm perceptual-improvement conclusion. The new melodic voices are now included in scored comparisons rather than suppressed by the old separability rule.
+
+The final shared-role eligibility adjustment was applied to the saved six-seed feature rows without rerendering unchanged audio; reports use the checked-in ranking rules.

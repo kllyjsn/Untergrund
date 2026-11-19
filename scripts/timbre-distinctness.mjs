@@ -3,20 +3,20 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { withChrome } from '../test/chrome.mjs';
-import { rankTimbres } from '../js/timbre-metrics.js';
+import { rankTimbres, MAX_CI_WIDTH } from '../js/timbre-metrics.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const option = (key, fallback) => args.includes(key) ? args[args.indexOf(key) + 1] : fallback;
 if (args.includes('--help')) {
-  console.log('node scripts/timbre-distinctness.mjs [--ref git-ref | --root worktree] [--json test/out/timbre.json] [--seeds 11,42,1234] [--styles a,b]');
+  console.log('node scripts/timbre-distinctness.mjs [--ref git-ref | --root worktree] [--json test/out/timbre.json] [--seeds 11,42,1234,73,211,997] [--styles a,b]');
   process.exit(0);
 }
 const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
 const ref = option('--ref', null), commit = git('rev-parse', ref || 'HEAD');
 let target = resolve(option('--root', root)), worktree;
 const output = resolve(root, option('--json', 'test/out/timbre-distinctness.json'));
-const seeds = option('--seeds', '11,42,1234').split(',').map(Number);
+const seeds = option('--seeds', '11,42,1234,73,211,997').split(',').map(Number);
 if (seeds.length < 3 || new Set(seeds).size !== seeds.length || seeds.some((v) => !Number.isFinite(v))) throw new Error('Need at least three distinct numeric seeds');
 const dataUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 const lab = dataUrl(readFileSync(resolve(root, 'js/lab-metrics.js'), 'utf8'));
@@ -48,6 +48,8 @@ try {
             for (const id of parts) { const k = ids.indexOf(id); if (k < 0) continue; for(let c=0;c<2;c++) { const x = buf.getChannelData(k*2+c); for(let i=0;i<x.length;i++) channels[c][i] += x[i]; } }
             const notes = parts.flatMap(id => p.c.notes[id] || []).filter(n => n.t >= p.barTimes[from] && n.t < p.barTimes[to]).map(n => ({...n, t: n.t - p.barTimes[from] + 0.05})).sort((a,b) => a.t-b.t);
             result[role] = tm.timbreFeatures(channels, buf.sampleRate, notes);
+            result[role].stemIds = parts.filter(id => ids.includes(id));
+            result[role].noteCount = notes.length;
           }
           return result;
         })()`);
@@ -60,10 +62,15 @@ try {
     return rows;
   });
   if (!rows) throw new Error('Chrome unavailable: no measurements made');
-  const report = { schema: 'untergrund.timbre-distinctness/1', ref: ref || target, commit: ref ? commit : execFileSync('git', ['rev-parse', 'HEAD'], {cwd: target, encoding:'utf8'}).trim(), seeds, bars: 8, sampleRate: 24000, bootstrap: 300, generated: new Date().toISOString(), rows, ...rankTimbres(rows) };
+  const report = { schema: 'untergrund.timbre-distinctness/2', ref: ref || target, commit: ref ? commit : execFileSync('git', ['rev-parse', 'HEAD'], {cwd: target, encoding:'utf8'}).trim(), seeds, bars: 8, sampleRate: 24000, bootstrap: 500, maxCIWidth: MAX_CI_WIDTH, generated: new Date().toISOString(), rows, ...rankTimbres(rows) };
   mkdirSync(dirname(output), { recursive: true }); writeFileSync(output, JSON.stringify(report, null, 2) + '\n');
-  console.log('Most-alike candidates (partial similarities are NOT pair scores; all unavailable roles remain UNMEASURED):');
-  report.pairs.slice(0, 10).forEach((p, i) => console.log(`${i + 1}. ${p.a} / ${p.b}: ${p.status}; score=${p.similarity?.toFixed(3) ?? 'UNMEASURED'}; partial=${p.partialSimilarity?.toFixed(3) ?? 'UNMEASURED'} (${p.measuredRoles}/7 roles); driver=${p.drivingRole ?? 'UNMEASURED'}`));
+  const print = (p, i) => console.log(`${i + 1}. ${p.a} / ${p.b}: ${p.status}; similarity=${p.similarity?.toFixed(3) ?? 'UNMEASURED'}; 95% CI=${p.ci?.map(x => x.toFixed(3)).join('..') ?? 'UNMEASURED'}; driver=${p.drivingRole ?? 'UNMEASURED'}`);
+  console.log('Combined (melodic roles weight 3 each, drums weight 1):');
+  report.pairs.filter(p => p.status === 'MEASURED').slice(0, 10).forEach(print);
+  console.log('Melodic only:');
+  report.melodicRanking.slice(0, 10).forEach(print);
+  console.log(`UNMEASURED pairs: ${report.pairs.filter(p => p.status === 'UNMEASURED').length}/${report.pairs.length}`);
+  console.log(`Drill neighbours: ${JSON.stringify(report.nearest.find(x => x.style === 'drill')?.neighbours ?? [])}`);
   console.log(`JSON: ${output}`);
 } finally {
   process.chdir(root);
