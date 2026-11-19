@@ -2,7 +2,7 @@
 // "a bit darker and slower" or "like a 3am warehouse" into concrete edits on the existing controls
 // (master macros, track params, swing, bpm, scale/key, density, voices, mutes/locks, genre).
 // No network, no paid API. An optional interpreter can be plugged in later via interpret({ remote }).
-import { SCALES, KEYS, CHORDS, TRACK_IDS, TRACK_BY_ID, MASTER_PARAMS, STEPS, KIT_BACKBEAT } from './params.js';
+import { SCALES, KEYS, CHORDS, TRACK_IDS, TRACK_BY_ID, MASTER_PARAMS, STEPS, KIT_BACKBEAT, DRILL_808 } from './params.js';
 import { STYLES, mutate, clone, hookLine, songKind } from './state.js';
 import { toSections, sectionNames } from './timeline.js';
 import { rng } from './dsp.js';
@@ -72,7 +72,7 @@ const PHRASES = [
   [/(?:live|real|acoustic|recorded)\s+drums/g, ' livekit '],
   [/electric\s+piano|e[\s-]piano|fender\s+rhodes|wurlitzer|wurli/g, ' rhodes '], [/log[\s-]?drums?/g, ' logdrum '],
   [/acid\s+bass|\b303\b/g, ' acidbass '], [/(?:double|upright|live|bass)\s+(?:bass|guitar)/g, ' livebass '],
-  [/\b808s?\b/g, ' eightoheight '],
+  [/\bdrill[\s-]+808s?\b/g, ' drill808 '], [/\b808s?\b/g, ' eightoheight '],
   [/open[\s-]hi[\s-]?hats?|open[\s-]hats?/g, ' openhat '], [/(?:closed[\s-])?hi[\s-]?hats?/g, ' hats '], [/bass[\s-]?drums?/g, ' kick '],
   [/robert\s+glasper/g, ' glasper '], [/j\.?\s*dilla/g, ' dilla '],
   [/\b(?:3|three)\s*(?:am|a\.m\.)|late[\s-]night|after[\s-]?hours|warehouse/g, ' latenight '],
@@ -211,6 +211,7 @@ add(bassVoice(2), 'eightoheight');
 add(bassVoice(3), 'reese', 'wobble', 'wobbly');
 add(bassVoice(4), 'logdrum');
 add(bassVoice(5), 'electricbass', 'bassguitar');
+add(bassVoice(DRILL_808), 'drill808');
 const kit = (v) => ({ k: 'kit', v });
 add(kit(1), 'livekit'); add(kit(0), 'machinekit');
 for (const id of Object.keys(SCALES)) W[id] = { k: 'scale', v: id };

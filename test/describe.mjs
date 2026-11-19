@@ -5,6 +5,7 @@ import { parse, applyEdits, describe, validateEdits, interpret, genreOf, suggest
 import { patternAt, changedBars } from '../js/scope.js';
 import { defaultState, generate, sanitize, clone, applyOverrides, arrangement, songChain, STYLES, songKind } from '../js/state.js';
 import { toSections, sectionNames } from '../js/timeline.js';
+import { DRILL_808 } from '../js/params.js';
 
 let fails = 0;
 const t = (name, fn) => { try { fn(); } catch (e) { fails++; console.error('FAIL', name, '\n ', e.message); } };
@@ -84,6 +85,15 @@ for (const [phrase, value] of [['make it pop', 'pop'], ['an r&b slow jam', 'rnb'
 for (const [phrase, edit] of [['overdriven guitar', { id: 'voice', value: 11 }], ['acoustic guitar', { id: 'voice', value: 12 }], ['jazz guitar', { id: 'voice', value: 13 }], ['banjo', { id: 'voice', value: 14 }], ['twangy guitar', { id: 'voice', value: 15 }], ['cello', { id: 'voice', value: 16 }], ['clarinet', { id: 'voice', value: 17 }], ['electric bass', { id: 'bassVoice', value: 5 }]]) {
   t(`"${phrase}" picks its player`, () => assert.ok(has(parse(phrase, { style: 'rock' }).edits, [edit]), JSON.stringify(parse(phrase, { style: 'rock' }).edits)));
 }
+
+t('Drill 808 names a bass voice without changing the genre', () => {
+  for (const text of ['switch the bass to Drill 808', 'drill-808', 'drill 808s']) {
+    const { edits } = parse(text, { style: 'trap' });
+    assert.deepEqual(edits.map(({ id, value }) => ({ id, value })), [{ id: 'bassVoice', value: DRILL_808 }]);
+  }
+  assert.ok(has(parse('808').edits, [{ id: 'bassVoice', value: 2 }]));
+  assert.ok(has(parse('make it Drill').edits, [{ id: 'genre', value: 'drill' }]));
+});
 
 // Everyday phrasing: complaints, track-scoped words, dislikes, only/except. Each pair is [phrase, must have, must not have].
 const EVERYDAY = [
