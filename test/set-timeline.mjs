@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { generate, defaultState, clone, sanitize, withPlaybackStyle } from '../js/state.js';
+import { generate, defaultState, clone, sanitize } from '../js/state.js';
 import { createTimelineRecorder, stateAt, trimTimeline, createReplayer, normalizeTimeline, diffOps, applyOps, stepAt, compactTimeline, liveView, MAX_TIMELINE_BYTES } from '../js/set-timeline.js';
-import { playTimeline, stopTimeline } from '../js/live-sets.js';
+import { startLiveSet, endLiveSet, playTimeline, stopTimeline } from '../js/live-sets.js';
 
 // Deterministic "DJ": a seeded run of knob turns, mutes, pattern switches, tempo and genre changes.
 function rng(seed) { let x = seed >>> 0; return () => ((x = (x * 1664525 + 1013904223) >>> 0) / 2 ** 32); }
@@ -93,20 +93,33 @@ assert.equal(stepAt(tempo, 12000).steps, 100);
 }
 assert.equal(stepAt(tempo, 12000).bpm, 150);
 
-// The replay starts on the timeline's genre, not the open project's, and carries genre changes in its audio state.
+// A set records the playing song's genre, not the genre picker.
 {
-  const project = { ...defaultState(), artist: { name: 'Listener', title: 'Open project', style: 'hypnotic', seed: 7 } };
-  const t0 = 1000;
-  const rec = createTimelineRecorder({ state: project, style: 'drill', startsAt: t0 });
-  rec.capture(project, 'trap', t0 + 500);
-  const replay = rec.finish(t0 + 1000);
-  const load = ({ state, style }) => sanitize(withPlaybackStyle({ ...state, artist: project.artist }, style));
-  assert.deepEqual(load(stateAt(replay, 0)).artist, { ...project.artist, style: 'drill', created: '' });
-  assert.equal(load(stateAt(replay, 750)).artist.style, 'trap');
-  assert.equal(project.artist.style, 'hypnotic');
-  const blank = defaultState();
-  assert.equal(withPlaybackStyle(blank, 'drill').artist.style, 'drill', 'auditions also work without project metadata');
-  assert.equal(withPlaybackStyle(blank, 'constructor'), blank);
+  const project = { ...defaultState(), artist: { style: 'drill' } };
+  const storage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const realNow = Date.now, interval = globalThis.setInterval, clear = globalThis.clearInterval;
+  const startsAt = 1000;
+  let now = startsAt, picker = 'trap', tick;
+  try {
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => null } });
+    Date.now = () => now;
+    globalThis.setInterval = (fn) => { tick = fn; return 1; };
+    globalThis.clearInterval = () => {};
+    startLiveSet({ getState: () => project, getStyle: () => picker, startsAt, isPlaying: () => true, isDJ: () => true });
+    now += 500; picker = 'hardtechno'; tick();
+    now += 500; project.artist.style = 'trap'; tick();
+    const replay = endLiveSet({ offer: false });
+    assert.equal(stateAt(replay, 0).style, 'drill');
+    assert.equal(stateAt(replay, 500).style, 'drill');
+    assert.equal(stateAt(replay, 1000).style, 'trap');
+  } finally {
+    endLiveSet({ offer: false });
+    if (storage) Object.defineProperty(globalThis, 'localStorage', storage);
+    else delete globalThis.localStorage;
+    Date.now = realNow;
+    globalThis.setInterval = interval;
+    globalThis.clearInterval = clear;
+  }
 }
 
 // untrusted input: survives normalize unchanged, drops prototype pollution and foreign keys
