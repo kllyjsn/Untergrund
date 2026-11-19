@@ -2,6 +2,7 @@
 // Extend SCENARIOS rather than adding app test hooks. Node >=22 required.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { availableParallelism } from 'node:os';
 import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { resolve, join } from 'node:path';
@@ -42,14 +43,15 @@ const args = process.argv.slice(2);
 const options = { repeat: 1, output: 'club-sync.json' };
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
-  if (arg === '--assert' || arg === '--diagnostics') options[arg.slice(2)] = true;
-  else if (['--scenario', '--repeat', '--output'].includes(arg) && args[i + 1]) options[arg.slice(2)] = args[++i];
+  if (['--assert', '--diagnostics', '--mute-audio', '--no-audio-device', '--startup-contention'].includes(arg)) options[arg.slice(2)] = true;
+  else if (['--scenario', '--repeat', '--output', '--cpu-throttle'].includes(arg) && args[i + 1]) options[arg.slice(2)] = args[++i];
   else throw new Error(`Unknown/missing argument: ${arg}`);
 }
 const selected = options.scenario;
 assert.ok(!selected || SCENARIOS.some(s => s.name === selected), 'Unknown scenario');
 assert.ok(/^\d+$/.test(String(options.repeat)) && +options.repeat >= 1 && +options.repeat <= 20, '--repeat must be 1..20');
 assert.match(options.output, /^[a-z0-9-]+\.json$/, '--output must be a JSON filename under test/out');
+assert.ok(options['cpu-throttle'] === undefined || (Number.isFinite(+options['cpu-throttle']) && +options['cpu-throttle'] >= 1 && +options['cpu-throttle'] <= 20), '--cpu-throttle must be 1..20');
 const pause = ms => new Promise(r => setTimeout(r, ms));
 async function until(fn, label, timeout = 25000) {
   const end = Date.now() + timeout;
@@ -68,8 +70,9 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = 
   const chrome = findChrome(); if (!chrome) throw new Error('Chrome required');
   const profile = await mkdtemp(join(out, 'chrome-'));
   const proc = spawn(chrome, ['--headless=new', '--no-sandbox', '--no-first-run', '--disable-background-timer-throttling',
-    '--disable-renderer-backgrounding', '--autoplay-policy=no-user-gesture-required', '--remote-debugging-port=0',
-    `--user-data-dir=${profile}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
+    '--disable-renderer-backgrounding', ...(options['mute-audio'] ? ['--mute-audio'] : []), '--autoplay-policy=no-user-gesture-required', '--remote-debugging-port=0',
+    `--user-data-dir=${profile}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'],
+    env: !fixture && options['no-audio-device'] ? { ...process.env, PULSE_SERVER: 'unix:/nonexistent/untergrund-pulse', ALSA_CONFIG_PATH: '/dev/null' } : process.env });
   let stderr = ''; proc.stderr.on('data', d => stderr += d);
   let ws;
   const close = async () => {
@@ -97,9 +100,15 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = 
       return r.result?.value;
     };
     await send('Page.enable');
+    if (options['cpu-throttle']) await send('Emulation.setCPUThrottlingRate', { rate: +options['cpu-throttle'] });
     await send('Network.enable');
     await send('Network.setCacheDisabled', { cacheDisabled: true });
-    if (options.diagnostics) await installDiagnostics(send, base);
+    if (options.diagnostics) {
+      await installDiagnostics(send, base);
+      await send('Profiler.enable');
+      await send('Profiler.start');
+      await send('Performance.enable');
+    }
     const graph = mix ? await mixGraphEdges() : null;
     await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${installAudioTap})(${skew}, ${JSON.stringify(fixture)}, ${displacementMs}, ${mix}, ${JSON.stringify(graph)})` });
     if (mix) await installMixStem(send, base, mixFixture());
@@ -113,7 +122,8 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = 
     };
     const click = selector => clickElement(`document.querySelector(${JSON.stringify(selector)})`, selector);
     const clickText = label => clickElement(`[...document.querySelectorAll('.club-shell button')].find(b => b.textContent.trim() === ${JSON.stringify(label)})`, label);
-    return { run, nav, click, clickText, close, send };
+    return { run, nav, click, clickText, clickElement, close, send,
+      audioErrors: () => stderr.split('\n').filter(l => /alsa|pulse|audio.*(?:error|fail)|(?:error|fail).*audio/i.test(l)) };
   } catch (e) { await close(); throw e; }
 }
 
@@ -134,6 +144,8 @@ function fixture() {
 
 async function scenario(base, spec) {
   const clients = [];
+  const contention = [];
+  const contentionFile = join(out, 'club-sync-contention.bin');
   try {
     const song = spec.mix ? mixFixture() : fixture();
     if (spec.djLatency) {
@@ -143,7 +155,8 @@ async function scenario(base, spec) {
       song.patterns[0].steps.kick[0] = 1;
     }
     const host = await client(base, spec.hostSkew, song, 0, spec.mix); clients.push(host);
-    await host.nav('/'); await host.click('.club-btn');
+    await host.nav('/');
+    await host.clickElement(`[...document.querySelectorAll('.tab-club, .club-btn')].find(e => e.getBoundingClientRect().width && e.getBoundingClientRect().height)`, 'visible Club navigation');
     let listener;
     if (!spec.cold) { listener = await client(base, spec.listenerSkew, null, spec.displacementMs, spec.mix); clients.push(listener); await listener.nav('/'); }
     const action = await until(() => host.run(`document.querySelector('.lobby-cta')?.textContent === 'GO LIVE' ? '.lobby-cta' : document.querySelector('.club-primary')?.textContent === 'GO LIVE' ? '.club-primary' : null`), 'GO LIVE');
@@ -152,6 +165,11 @@ async function scenario(base, spec) {
     const broadcast = Date.now();
     if (spec.joinDelay) await pause(spec.joinDelay);
     if (!listener) { listener = await client(base, spec.listenerSkew); clients.push(listener); }
+    if (options['startup-contention']) {
+      for (let i = 0; i < availableParallelism(); i++) contention.push(spawn(process.execPath,
+        ['-e', 'const end=Date.now()+12000;let x=1;while(Date.now()<end){for(let i=0;i<10000;i++)x=Math.sin(x+i)}'], { stdio: 'ignore' }));
+      contention.push(spawn(process.execPath, ['-e', `const fs=require('node:fs');const fd=fs.openSync(process.argv[1],'w');const b=Buffer.alloc(1048576,1),end=Date.now()+12000;let n=0;while(Date.now()<end){fs.writeSync(fd,b,0,b.length,(n++%16)*b.length);fs.fsyncSync(fd)}fs.closeSync(fd)`, contentionFile], { stdio: 'ignore' }));
+    }
     const navigation = Date.now();
     await listener.nav(`/?room=${encodeURIComponent(room)}`);
     // Chrome's autoplay grant may already unlock and join on invite entry.
@@ -261,6 +279,13 @@ async function scenario(base, spec) {
       events.after = await snapshot();
     } else await pause(22000);
     const raw = await Promise.all(clients.map(c => c.run('({...__clubAudio, clockSkew: Date.now() - (performance.timeOrigin + performance.now())})')));
+    if (options.diagnostics) await Promise.all(clients.map(async (c, i) => {
+      raw[i].cpuProfile = (await c.send('Profiler.stop')).profile;
+      raw[i].browserAudioErrors = c.audioErrors();
+      const metrics = await c.send('Performance.getMetrics');
+      raw[i].profileClock = { timestamp: metrics.metrics.find(m => m.name === 'Timestamp')?.value,
+        epoch: await c.run('performance.timeOrigin + performance.now()') };
+    }));
     if (spec.mix) {
       const mix = analyzeMix(raw, song, events, initial.startsAt, { resume: !!spec.freezeMs });
       const failures = mixFailures(mix);
@@ -370,7 +395,10 @@ async function scenario(base, spec) {
       navigationToFirstAlignedKickMs: aligned ? aligned - navigation : null, broadcast, navigation,
       detected: { host: ho.length, listener: lo.length }, detectorValidation: { selfMaxMs: self.max },
       spec, join: joined, raw: { captures: raw, hostOnsets: ho, listenerOnsets: lo } };
-  } finally { await Promise.all(clients.map(c => c.close())); }
+  } finally {
+    await Promise.all([...clients.map(c => c.close()), ...contention.map(terminate)]);
+    if (options['startup-contention']) await rm(contentionFile, { force: true });
+  }
 }
 
 await mkdir(out, { recursive: true });
