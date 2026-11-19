@@ -48,11 +48,11 @@ export function syncAudioClock(previous, measured) {
 }
 
 // Re-anchor the audio schedule to the shared transport when it drifts or stalls.
-export function transportResync(target, nextTime, now, stepSec, jumped = false) {
+export function transportResync(target, nextTime, now, stepSec, jumped = false, minSkip = -Infinity) {
   if (!jumped && Math.abs(target - nextTime) <= 0.03 && nextTime >= now) return null;
   const ready = now + 0.005;
   const discard = jumped;
-  let skip = jumped ? Math.ceil((ready - target) / stepSec) : 0;
+  let skip = jumped ? Math.max(minSkip, Math.ceil((ready - target) / stepSec)) : 0;
   target += skip * stepSec;
   while (target < ready) { target += stepSec; skip++; }
   return { skip, nextTime: target, discard };

@@ -85,6 +85,19 @@ assert.deepEqual(transportResync(9.0, 9.0, 9.6, 0.125), { skip: 5, nextTime: 9.6
   assert.equal(transportResync(recovery.nextTime, recovery.nextTime, 10, 0.125), null);
 }
 
+{
+  const songOrigin = 64, nextStep = 68;
+  const recovery = transportResync(10.75, 11.5, 10, 0.125, true, songOrigin - nextStep);
+  assert.equal(recovery.skip, -4, 'a landed handoff cannot rewind into the outgoing song');
+  assert.equal(nextStep + recovery.skip, songOrigin);
+  close(recovery.nextTime, 10.25);
+  assert.equal(recovery.discard, true);
+  const ordinary = transportResync(10.75, 11.5, 10, 0.125, true, -nextStep);
+  assert.equal(ordinary.skip, -5, 'lookahead within the current song can still rewind');
+  const long = transportResync(-3.5, 11.5, 10, 0.125, true, songOrigin - nextStep);
+  assert.equal(long.skip, 109, 'the origin bound does not change long-stall forward skips');
+}
+
 console.log('room transport alignment passed');
 
 const oldOrigin = origin;

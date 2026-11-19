@@ -172,12 +172,13 @@ function schedule(lead) {
   clockOffset = clock.offset;
   let base = 60 / state.bpm / 4, landed = null;
   const target = transportOrigin / 1000 + abs * base - clockOffset;
-  const fix = transportResync(target, nextTime, now, base, clock.jumped);
+  const fix = transportResync(target, nextTime, now, base, clock.jumped, seq.origin - abs);
   if (fix) {
     if (fix.discard) {
       engine.discardQueuedNotes(now);
       uiQueue.length = 0;
       seq.acidPrevSlide = false;
+      if (handoff) { engine.handoffCancel(); handoff.out = false; }
     }
     if (fix.skip < 0) {
       abs += fix.skip;
