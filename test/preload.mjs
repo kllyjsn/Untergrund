@@ -41,16 +41,18 @@ globalThis.OfflineAudioContext = class { decodeAudioData(b) { return Promise.res
 const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
 {
   const state = defaultState(), fallback = new Error('synth fallback'), hits = [];
+  const ctx = new FakeContext(2, 4096, 48000);
   state.key = 0;
   state.patterns.at(-1).hook = { v: 'harpplk' };
   assert.deepEqual(liveSets(state), ['harp'], 'load a hook from any part of a saved song');
   const e = {
     state, recLock: new Map(), rec: Engine.prototype.rec, harpHook: Engine.prototype.harpHook,
-    ch: { stab: { input: 'chord strip' } }, soulBand: () => false,
+    ctx, filter: Engine.prototype.filter,
+    ch: { stab: { input: ctx.createGain() } }, soulBand: () => false,
     trimOut: (key, db, dest) => { if (key === 'hook-softmallet') throw fallback; return dest; },
     playBuf: (...args) => hits.push(args),
   };
-  const hit = (voice = 'harpplk') => Engine.prototype.hook.call(e, 1, 0.5, 12, 0.3, voice);
+  const hit = (voice = 'harpplk', note = 12) => Engine.prototype.hook.call(e, 1, 0.5, note, 0.3, voice);
   assert.throws(hit, (err) => err === fallback);
   await loadSets(liveSets(state));
   assert.deepEqual([...files].sort(), BAND.harp.map((n) => `harp_${n}.flac`).sort());
@@ -61,7 +63,11 @@ const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
   assert.equal(hits.length, 1);
   const [, t, , dest, rate, dur, fx] = hits[0];
   assert.equal(t, 1);
-  assert.equal(dest, 'chord strip');
+  const [presence] = e.ch.stab.input.inputs;
+  assert.equal(presence.inputs[0], dest, 'the harp EQ feeds the chord strip');
+  hit('harpplk', 30);
+  assert.equal(hits[1][3], dest, 'successive notes reuse the same EQ');
+  assert.ok(hits[1][2] < hits[0][2], 'the highest transposed notes get less make-up gain');
   assert.ok(Math.abs(12 * Math.log2(rate) - 0.11) < 0.001, 'choose the nearest recorded pitch, not the file label');
   assert.equal(dur, 0.3 * 0.92);
   assert.equal(fx.offset, 0.002, 'trim just the lead-in before the pluck');

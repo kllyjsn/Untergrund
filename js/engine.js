@@ -1922,7 +1922,16 @@ export class Engine {
     const best = set.reduce((pick, take) => Math.abs(HARP_PLUCK[take[0]][0] - m) < Math.abs(HARP_PLUCK[pick[0]][0] - m) ? take : pick);
     const [center, offset] = HARP_PLUCK[best[0]];
     const out = this.trimOut('hook-harpplk', 4, this.hookBus || this.ch.stab.input, -2, 700);
-    return this.playBuf(best[1], t, 2.85 * v, out, 2 ** ((m - center) / 12), Math.max(0.06, dur * 0.92), {
+    const tones = (this.harpTones ||= new WeakMap());
+    if (!tones.has(out)) {
+      const dip = this.filter('peaking', 640, 2.6); dip.gain.value = -3.8;
+      const presence = this.filter('peaking', 2200, 0.8); presence.gain.value = 3;
+      dip.connect(presence).connect(out);
+      tones.set(out, dip);
+    }
+    // The top strings speak louder when played above the recorded range.
+    const level = 2.85 * v * dbGain(1.35 - Math.min(3.3, Math.max(0, m - 81) * 0.42));
+    return this.playBuf(best[1], t, level, tones.get(out), 2 ** ((m - center) / 12), Math.max(0.06, dur * 0.92), {
       lp: 3100 + 2300 * Math.min(1, v / 1.3), offset, fade: 0.007, release: 0.09, ringOut: true,
     });
   }
