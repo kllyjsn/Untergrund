@@ -1275,6 +1275,7 @@ export class Engine {
 
   perc(t, v) {
     const c = this.ctx, p = this.state.params.perc, out = this.ch.perc.input;
+    if (this.hardTechno) this.hardPalette(t, v, [p.tune * 2], p.decay, out, 'metal');
     const vo = Math.round(p.voice || 0);
     if (vo > 0) return this[['', 'hand', 'hand', 'shaker', 'clave'][vo]](t, v, p, out, vo === 2);
     const o = c.createOscillator(); o.type = 'sine';
@@ -1301,6 +1302,50 @@ export class Engine {
       this.adEnv(ng.gain, t, v * p.noise * 0.9, 0.0008, 0.035);
       n.connect(bp).connect(ng).connect(out);
     }
+  }
+
+  hardPalette(t, v, frequencies, dur, out, kind) {
+    if (!this.hardTechno || !(v > 0) || !Number.isFinite(v) || !(dur > 0) || !Number.isFinite(dur)) return;
+    const fs = frequencies.filter(f => Number.isFinite(f) && f > 0);
+    if (!fs.length) return;
+    const c = this.ctx, metal = kind === 'metal', air = kind === 'air';
+    const formant = this.filter('bandpass', metal ? 1600 : air ? 680 : 1050, metal ? 0.8 : 1.1);
+    formant.frequency.setValueAtTime(metal ? 1600 : air ? 680 : 1050, t);
+    formant.frequency.exponentialRampToValueAtTime(metal ? 950 : air ? 1100 : 720, t + dur * 0.7);
+    const drive = c.createWaveShaper(); drive.curve = driveCurve(metal ? 0.32 : 0.5); drive.oversample = '4x';
+    const vowel = metal ? drive : this.filter('bandpass', air ? 2600 : 1800, air ? 3.5 : 2.8);
+    formant.connect(drive);
+    if (!metal) {
+      drive.connect(vowel);
+      vowel.frequency.setValueAtTime(air ? 2600 : 1800, t);
+      vowel.frequency.exponentialRampToValueAtTime(air ? 1300 : 650, t + dur * 0.7);
+    }
+    const cutoff = metal ? 4200 : air ? 1800 : 2800, amp = this.gain(0);
+    vowel.connect(this.filter('lowpass', cutoff, 0.6)).connect(this.filter('lowpass', cutoff, 0.6))
+      .connect(this.filter('highpass', 350, 0.7)).connect(this.filter('highpass', 350, 0.7)).connect(amp).connect(out);
+    const attack = metal ? 0.006 : air ? 0.18 : 0.025, release = Math.max(attack, dur * (air ? 0.55 : 0.12));
+    const decay = Math.max(0.025, dur * (air ? 0.23 : 0.25)), end = t + Math.max(dur + 0.8, release + 8 * decay);
+    amp.gain.setValueAtTime(0, t);
+    amp.gain.linearRampToValueAtTime(v * (metal ? 0.22 : air ? 0.09 : 0.16) / Math.sqrt(fs.length), t + attack);
+    amp.gain.setTargetAtTime(0, t + release, decay);
+    let last;
+    for (const f of fs) {
+      for (const side of metal ? [0] : [-1, 1]) {
+        const car = c.createOscillator(); car.type = metal ? 'sine' : 'sawtooth';
+        car.frequency.value = f; car.detune.setValueAtTime(side * (air ? 7 : 16) + (kind === 'rave' ? 35 : 0), t);
+        if (kind === 'rave') car.detune.linearRampToValueAtTime(side * 16, t + 0.06);
+        car.connect(formant);
+        if (metal || air) {
+          const mod = c.createOscillator(), index = this.gain(0);
+          mod.frequency.value = f * (metal ? 2.414 : 1.618);
+          index.gain.setValueAtTime(f * (metal ? 1.4 : 1.2), t);
+          index.gain.exponentialRampToValueAtTime(f * 0.04, t + Math.max(0.08, dur * 0.7));
+          mod.connect(index).connect(car.frequency); this.startSource(mod, t); mod.stop(end);
+        }
+        this.startSource(car, t); car.stop(end); last = car;
+      }
+    }
+    this.retire(last, amp);
   }
 
   // FM electric piano: sine carrier, 1:1 modulator for the bark, 14:1 burst for the tine.
@@ -1342,6 +1387,7 @@ export class Engine {
     // A song's chorus opens the voicing: the top voice doubled an octave up.
     const vi = (GRIPPED.has(STAB_VOICES[vo]) ? notes : voiced).map((m) => m - root);
     const iv = this.wide && !GRIPPED.has(STAB_VOICES[vo]) && vi.length > 2 ? [...vi, Math.max(...vi) + 12] : vi, out = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
+    if (this.hardTechno) this.hardPalette(t, v, iv.map(n => midiHz(root + n)), Math.max(0.12, p.decay), out, 'rave');
     // A lifted breakdown plays decaying chords an octave up, filling it above the bass range it no longer shares.
     if (vo > 0) {
       const pitches = this.smoothOn > 0 ? iv.map((m) => m + 12) : iv;
@@ -2008,6 +2054,7 @@ export class Engine {
     const L = this.hardTechno ? { ...preset, cut: 380, env: 500, spread: 10, atk: 0.18, sus: 0.45, rel: 0.6, level: 0.12, bite: 0, air: 0.2 } : preset;
     const hdb = this.soulBand() ? 0 : HOOK_TRIM_DB[voice] || 0;
     const out = this.trimOut(`hook-${voice}`, hdb, this.hookBus || this.ch.stab.input, voice === 'softmallet' ? 4 : HOOK_LOW_DB);
+    if (this.hardTechno) this.hardPalette(t, v / 1.3 * L.level, [f * 2], Math.max(0.2, dur), out, 'air');
     const len = Math.max(0.06, dur * 0.92), end = t + len + 0.6, vn = Math.min(1, v / 1.3);
     // Played legato into a close note, the lead slides there instead of re-striking.
     const prev = this.lastLead, semis = prev ? Math.abs(12 * Math.log2(f / prev.f)) : 0;
