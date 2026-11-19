@@ -61,7 +61,9 @@ export class Recorder {
       const p = this.state.params.stab, up = this.smoothOn > 0 && Math.round(p.voice) > 0 ? 12 : 0;
       const root = 48 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + up;
       const len = Math.max(this.stepDur * 2, (p.decay || 0.3) * 1.5);
-      for (const n of this.chord()) this.add('stab', t, root + n, len, v);
+      // A smooth style folds voiced chord notes above D6 down an octave, as the engine does.
+      const fold = (m) => (this.smoothOn && Math.round(p.voice) > 0 && m > 86 ? m - 12 * Math.ceil((m - 86) / 12) : m);
+      for (const m of new Set(this.chord().map((n) => fold(root + n)))) this.add('stab', t, m, len, v);
     } else if (GM_DRUMS[id]) this.add(id, t, GM_DRUMS[id], this.stepDur, v);
   }
   vox(t, v, step) {
