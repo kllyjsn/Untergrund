@@ -2507,7 +2507,7 @@ export class Engine {
     return { freqs, waves, lp, drive, amp };
   }
 
-  pulseBass(t, st, sd, holdNext, sliding) {
+  pulseBass(t, st, sd, holdNext, sliding, slideUntil = t) {
     const p = this.state.params.acid, a = this.pulseVoice ??= this.buildPulseBass();
     const { freqs, waves, lp, drive, amp } = a, f = midiHz(this.bassMidi(st));
     const len = sd * (0.88 - 0.25 * p.wave) + p.decay * 0.23;
@@ -2529,17 +2529,18 @@ export class Engine {
     if (!sliding) amp.gain.setTargetAtTime(0, t, 0.001);
     amp.gain.setTargetAtTime(v, t + (sliding ? 0 : 0.003), 0.0025);
     amp.gain.setTargetAtTime(v * 0.51, t + 0.008, 0.036);
-    amp.gain.setTargetAtTime(0, t + (holdNext ? Math.max(len, sd * 1.15) : len), 0.016);
+    const release = holdNext ? Math.max(t + len, t + sd * 1.15, slideUntil) : t + len;
+    amp.gain.setTargetAtTime(0, release, 0.016);
   }
 
-  acid(t, st, sliding, holdNext, sd) {
+  acid(t, st, sliding, holdNext, sd, slideUntil) {
     const a = this.acidNodes, p = this.state.params.acid;
     const vo = Math.round(p.voice);
     if (vo !== 7 && this.pulseVoice) {
       const gain = this.pulseVoice.amp.gain;
       gain.cancelScheduledValues(t); gain.setTargetAtTime(0, t, 0.005);
     }
-    if (vo > 0) { a.vca.gain.setTargetAtTime(0, t, 0.005); return this[['', 'bass', 'eight08', 'reese', 'logdrum', 'ebass', 'fmBass', 'pulseBass'][vo]](t, st, sd, holdNext, sliding); }
+    if (vo > 0) { a.vca.gain.setTargetAtTime(0, t, 0.005); return this[['', 'bass', 'eight08', 'reese', 'logdrum', 'ebass', 'fmBass', 'pulseBass'][vo]](t, st, sd, holdNext, sliding, slideUntil); }
     const f = midiHz(this.bassMidi(st)), sub = lowEnd(this.state.master)?.sub[0];
     if (sub) this.subLayer(t, midiHz(this.bassMidi(st, 36, 38)), holdNext ? sd * 1.05 : sd * 0.6, sub * (st.a ? 1 : 0.85) * (this.noteVel ?? 1), sliding);
     for (const o of [a.o1, a.o2]) {
@@ -3164,7 +3165,14 @@ export class Sequencer {
         } else {
           const feel = s.master.humanize || 0;
           const bassLean = feel * (i % 4 ? 0.032 : 0.009);
-          this.acidStep(pat, i, len, tt + bassLean + pocketLate(pk, 'acid', i16), sd);
+          let slideUntil;
+          if (s.params.acid.voice === 7 && pat.steps.acid[i].s) {
+            const nextSwing = abs % 2 ? 0 : s.swing * sd * 0.5;
+            const nextLean = feel * (((i + 1) % len) % 4 ? 0.032 : 0.009);
+            // Leave time for the next hit to cancel this fallback release.
+            slideUntil = t + sd + nextSwing + nextLean + pocketLate(pk, 'acid', (i16 + 1) % 16) + 0.001;
+          }
+          this.acidStep(pat, i, len, tt + bassLean + pocketLate(pk, 'acid', i16), sd, slideUntil);
         }
         continue;
       }
@@ -3468,7 +3476,7 @@ export class Sequencer {
     }
   }
 
-  acidStep(pat, i, len, t, sd) {
+  acidStep(pat, i, len, t, sd, slideUntil) {
     const steps = pat.steps.acid;
     const st = steps[i];
     if (!st.on) { this.acidPrevSlide = false; return; }
@@ -3478,7 +3486,7 @@ export class Sequencer {
     this.e.acidGap = gap;
     const vel = this.e.noteVel;
     this.e.noteVel = (vel ?? 1) * (st.v ?? 1);
-    this.e.acid(t, st, this.acidPrevSlide, st.s && next.on, sd);
+    this.e.acid(t, st, this.acidPrevSlide, st.s && next.on, sd, slideUntil);
     this.e.noteVel = vel;
     this.e.acidGap = 0;
     this.acidPrevSlide = !!st.s;

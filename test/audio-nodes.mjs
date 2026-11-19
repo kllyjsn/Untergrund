@@ -123,6 +123,22 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ctx.currentTime = 1.18;
     e.panic();
     assert.deepEqual(automation.at(-1), { value: 0, time: 1.18, tc: 0.008 }, 'Stop discards queued pulse targets');
+
+    state.chainOn = false;
+    state.swing = 0.6;
+    state.master.humanize = 0.4;
+    const pat = state.patterns[state.current];
+    pat.steps.acid[0] = { on: true, n: 0, a: false, s: true };
+    pat.steps.acid[1] = { on: true, n: 7, a: false, s: false };
+    const seq = new Sequencer(e, state), sd = e.stepDur;
+    automation = [];
+    seq.tick(0, 2);
+    const release = automation.at(-1);
+    assert.equal(release.value, 0, 'even a long slide has a fallback release');
+    seq.tick(1, 2 + sd);
+    const attack = automation.filter(({ value }) => value > 0).at(-2);
+    assert(release.time >= attack.time, 'a held pulse must not release before the swung next note');
+    assert(!automation.includes(release), 'the next pulse replaces the fallback release');
   }
 
   {
