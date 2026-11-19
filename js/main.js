@@ -934,6 +934,7 @@ function stopRoomStats(item) {
 
 function startRoomBroadcast(startsAt) {
   if (playing) {
+    playbackStats.end();
     roomPlayback = roomEditor = true;
     schedule();
     return;
