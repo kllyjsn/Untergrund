@@ -19,6 +19,8 @@ const DUCKED = new Set(['acid', 'stab', 'vox']);
 // Chords sit under a sung line the way a mix rides the keys under a vocal: a little in the chorus, more in the verse
 // and most in the breakdown, so the drop still lands over it. Songs with sections already set the verse level.
 const STAB_UNDER_VOICE = { n: 0.84, v: 0.78, b: 0.45 };
+// The final chorus's entering voice, against the lead it doubles.
+const PEAK_ENTRY = 0.5;
 // Lead voices balanced for a sung line, so the voice sits at the same level over the band whichever one sings it
 // (the reed is forward, the flute sits back). Songs with sections drop the verse by its section level, so
 // the verse is sung a little forward to stay on top of the band.
@@ -1572,6 +1574,14 @@ export class Engine {
     try { h.s.stop(t + damp * 8); } catch {}
   }
   piano(...a) { return this.recorded('piano', 'keys', ...a); }
+  // The final chorus's new voice (longform.js writePeak 'entry'): the lead doubled an octave up on the recorded
+  // violins, or by a second synth lead until they have loaded.
+  peakVoice(t, v, n, dur, oct = 0, strong = false) {
+    n = hookSnap(n, this.harm, this.state.params.stab, strong, false);
+    const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
+    if (this.orch('vln1', t, 60 + k + (oct + 1) * 12 + n, Math.max(dur, this.stepDur * 2), v)) return;
+    this.hook(t, v * 0.6, n + 12, dur, 'warm', oct, false, 1, false, { harm: 1 });
+  }
   // A band's second layer for this section: cello on the root, viola on a middle chord tone, violins on the top
   // an octave up, each bowed through the bar; or the piano doubling the chords on beats 1 and 3.
   bandLayer(t, sec, i16, style) {
@@ -2260,6 +2270,12 @@ export function parseChain(str) {
 const DRUMS = new Set(['kick', 'clap', 'snare', 'ch', 'oh', 'ride', 'perc']);
 
 // Is the hook sounding at (or about to play) step hi? A note started k steps ago still rings for its length.
+// The answer half's highest held note: where the final chorus's suspension lands.
+function peakStep(s) {
+  let at = -1;
+  for (let i = 16; i < 32; i++) if (s[i] && s[i][1] >= 2 && (at < 0 || s[i][0] > s[at][0])) at = i;
+  return at;
+}
 function hookBusy(hk, hi, hm) {
   const plays = (j) => hk.s[j] && (hm > 1 || j < 16);
   for (let k = 0; k < 16; k++) { const j = (hi - k + 32) % 32; if (plays(j) && hk.s[j][1] > k) return true; }
@@ -2379,7 +2395,11 @@ export class Sequencer {
         if (i16 >= 12) e.trigger('snare', tt + sd / 2, rv * 0.85);
       }
     }
-    if (this.dropNow && i16 === 0) e.impact(t, arr);
+    // The peak's dropout (longform.js writePeak): one bar of only the lead (the chords, with no lead), then the band returns.
+    const alone = pat.peak === 'dropout' ? (sung || (pat.hook && !pat.hook.h && pat.hm) ? 'lead' : 'stab') : null;
+    if (alone) this.peakDrop = pos;
+    else if (i16 === 0 && pos > 0 && this.peakDrop === pos - 1) e.impact(t, Math.max(0.5, arr));
+    if (this.dropNow && i16 === 0 && !alone) e.impact(t, arr);
     if (pat.score) this.scoreStep(pat.score, abs, t, sd);
     else this.e.stepScale = 1;
     const anySolo = TRACK_IDS.some((id) => s.solos[id]);
@@ -2392,11 +2412,11 @@ export class Sequencer {
     const band = pk?.band && Math.round(s.master.kit || 0) === 1;
     // The rhythm guitar palm-mutes the verse and breakdown and opens up for the pre-chorus and chorus.
     e.palm = band && (this.cur === 2 || this.cur === 4);
-    if (band && i16 === 0 && pos > 0 && this.chainArr[pos - 1] !== this.cur && pat.steps.kick.some(Boolean) && !s.mutes.oh && (!anySolo || s.solos.oh)) {
+    if (band && !alone && i16 === 0 && pos > 0 && this.chainArr[pos - 1] !== this.cur && pat.steps.kick.some(Boolean) && !s.mutes.oh && (!anySolo || s.solos.oh)) {
       e.crash(tt + pocketLate(pk, 'oh', 0), this.cur === 6 || this.cur === 7 ? 1 : 0.7);
     }
     for (const id of TRACK_IDS) {
-      const on = !s.mutes[id] && (!anySolo || s.solos[id]);
+      const on = (!alone || (alone === 'stab' && id === 'stab')) && !s.mutes[id] && (!anySolo || s.solos[id]);
       const len = pat.len[id] || 16;
       const i = abs % len;
       if (id === 'acid') {
@@ -2470,19 +2490,19 @@ export class Sequencer {
       else if (v) e.trigger(id, ht, vel);
     }
     // A band adds players by section (BAND_LAYER): strings under the changes, a piano doubling the strum.
-    if (band && i16 % 8 === 0 && pat.sec && !pat.score && !s.mutes.stab && (!anySolo || s.solos.stab)) e.bandLayer(tt, pat.sec, i16, s.artist?.style);
+    if (band && !alone && i16 % 8 === 0 && pat.sec && !pat.score && !s.mutes.stab && (!anySolo || s.solos.stab)) e.bandLayer(tt, pat.sec, i16, s.artist?.style);
     const hm = pat.hm || 0, scale = SCALES[s.scale]?.notes || SCALES.minor.notes;
     const hk = sung ? null : pat.hook && !pat.hook.h && this.songBars ? (pat.sec === 'pre' ? this.climb(pat.hook, bar % 4, scale) : this.motif(pat.hook, motifPlan(bar, this.songBars, this.cur, pat.hook.s.filter(Boolean).length), scale)) : pat.hook;
     const leadOn = !s.mutes.stab && (!anySolo || s.solos.stab), busy = sung ? this.songBars && leadOn && sung.busy[i16] : this.songBars && hk && hm && leadOn && hookBusy(hk, abs % 32, hm);
     const sp = pat.steps.stab;
     // Licks fill the lead's rests instead of talking over it.
-    if (vary && leadOn && !busy && !(this.songBars && ((hk && hm) || sung?.any) && i16 === 15) && bar % 2 === 1 && !sp[abs % (pat.len.stab || 16)] && hash(abs, 77) < vary * 0.28) {
+    if (vary && leadOn && !alone && !busy && !(this.songBars && ((hk && hm) || sung?.any) && i16 === 15) && bar % 2 === 1 && !sp[abs % (pat.len.stab || 16)] && hash(abs, 77) < vary * 0.28) {
       const k = Math.floor(hash(abs, 78) * 6) + (bar % 4 === 3 ? 2 : 0);
       e.lick(tt + (s.master.humanize || 0) * 0.02, 0.35 + hash(abs, 79) * 0.3, k);
     }
-    if (this.songBars && hk && hm && leadOn) this.interplay(pat, hk, abs, bar, tt, sd, busy, anySolo, !!hk.s[abs % 32]);
-    if (this.songBars && sung?.part && leadOn) this.interplay(pat, pat.hook, abs, bar, tt, sd, busy, anySolo, sung.notes.some((o) => o.at === i16));
-    if (sung && leadOn) this.sing(sung, i16, bar, tt, sd, scale);
+    if (this.songBars && hk && hm && leadOn && !alone) this.interplay(pat, hk, abs, bar, tt, sd, busy, anySolo, !!hk.s[abs % 32]);
+    if (this.songBars && sung?.part && leadOn && !alone) this.interplay(pat, pat.hook, abs, bar, tt, sd, busy, anySolo, sung.notes.some((o) => o.at === i16));
+    if (sung && leadOn) this.sing(sung, i16, bar, tt, sd, scale, pat.peak, !!alone);
     if (hk && hm && !s.mutes.stab && (!anySolo || s.solos.stab)) {
       const hi = abs % 32, st = hk.s[hi];
       const x = hk.x || { space: 0.4, risk: 0.4, feel: 0.4, warmth: 0.5 };
@@ -2499,9 +2519,12 @@ export class Sequencer {
         const lean = (answer ? 0.006 : -0.003) * x.feel + (hash(hi, 97) - 0.5) * 0.008 * x.feel;
         const resolve = hm > 1 && answer && ph === 1 && !hk.s.slice(hi + 1).some(Boolean);
         const strong = !hk.h && (hi % 4 === 0 || st[1] >= 2), ht = tt + lean + (s.master.humanize || 0) * 0.008;
-        e.hook(ht, Math.min(1, st[2] * phraseVel), st[0] + lift, st[1] * sd, hk.v, hk.o, strong, b, !hk.h && resolve, x);
+        const v = Math.min(1, st[2] * phraseVel), top = pat.peak === 'suspension' && answer && st[1] >= 2 && hi === peakStep(hk.s);
+        if (top) this.suspend(ht, v, st[0] + lift, st[1], sd, hk, strong, b, x, scale);
+        else e.hook(ht, v, st[0] + lift, st[1] * sd, hk.v, hk.o, strong, b, !hk.h && resolve, x);
+        if (pat.peak === 'entry') e.peakVoice(ht + 0.006, v * PEAK_ENTRY, st[0] + lift, st[1] * sd, hk.o, strong);
         // At the peak a second player doubles the answer's held notes a third below.
-        if (this.cur === 6 && answer && hm > 1 && st[1] >= 3 && !hk.h && this.songBars) e.hook(ht + 0.004, Math.min(1, st[2] * phraseVel) * 0.55, stepDeg(st[0], -2, scale) + lift, st[1] * sd, hk.v, hk.o, strong, b, false, { ...x, harm: 1 });
+        if (this.cur === 6 && !alone && answer && hm > 1 && st[1] >= 3 && !hk.h && this.songBars) e.hook(ht + 0.004, Math.min(1, st[2] * phraseVel) * 0.55, stepDeg(st[0], -2, scale) + lift, st[1] * sd, hk.v, hk.o, strong, b, false, { ...x, harm: 1 });
       }
     }
     if (this.roll === null) this.rollCount = 0;
@@ -2630,17 +2653,29 @@ export class Sequencer {
 
   // Sing the notes that start on this step: pitch and length as written, the verse a little softer than the chorus,
   // a breath before a drop, and at the peak a second voice a third under the held notes of the answering phrase.
-  sing(sung, i16, bar, t, sd, scale) {
+  sing(sung, i16, bar, t, sd, scale, peak = null, alone = false) {
     const s = this.s, e = this.e, hk = sung.hook, x = hk.x || { space: 0.4, risk: 0.4, feel: 0.4, warmth: 0.5 };
+    // The suspension lands on the answer bar's highest held note.
+    const top = peak === 'suspension' && bar % 2 === 1 ? sung.notes.reduce((a, o) => (o.x[1] >= 2 && (!a || o.x[2] > a.x[2]) ? o : a), null) : null;
     for (const o of sung.notes) {
       if (o.at !== i16 || (this.dropNext && i16 >= 8 && !o.pickup)) continue;
       const [start, dur, w, vel, ph] = o.x, lift = this.keyLift || 0, semi = o.sh ? stepDeg(w, o.sh, scale) : w;
       const sec = o.q === 'v' ? (s.patterns[this.cur]?.sec ? 1.15 : 0.82) : o.q === 'b' ? 0.6 : 1, strong = strongNote(start, dur);
       const ht = t + (hash(start, 97) - 0.5) * 0.008 * x.feel + (s.master.humanize || 0) * 0.008;
       const b = 0.58 + 0.42 * ((((bar % 8) + 8) % 8) / 7), v = Math.min(1, vel * sec) * (SUNG_VOICE[hk.v] ?? 1);
-      e.hook(ht, v, semi + lift, dur * sd, hk.v, hk.o, strong, b, false, x);
-      if (this.cur === 6 && o.q === 'n' && ph % 2 === 1 && dur >= 6 && this.songBars) e.hook(ht + 0.004, v * 0.55, stepDeg(semi, -2, scale) + lift, dur * sd, hk.v, hk.o, strong, b, false, { ...x, harm: 1 });
+      if (o === top && !o.sh) this.suspend(ht, v, semi + lift, dur, sd, hk, strong, b, x, scale);
+      else e.hook(ht, v, semi + lift, dur * sd, hk.v, hk.o, strong, b, false, x);
+      if (peak === 'entry') e.peakVoice(ht + 0.006, v * PEAK_ENTRY, semi + lift, dur * sd, hk.o, strong);
+      if (this.cur === 6 && !alone && o.q === 'n' && ph % 2 === 1 && dur >= 6 && this.songBars) e.hook(ht + 0.004, v * 0.55, stepDeg(semi, -2, scale) + lift, dur * sd, hk.v, hk.o, strong, b, false, { ...x, harm: 1 });
     }
+  }
+
+  // The peak's suspension (Sloboda 1991): the peak note is approached from the scale step above, held over the
+  // chord as a dissonance for half its length, then resolved down by step onto the written note.
+  suspend(t, v, n, steps, sd, hk, strong, b, x, scale) {
+    const e = this.e, to = hookSnap(n, e.harm, this.s.params.stab, strong, false), hold = Math.max(1, steps >> 1);
+    e.hook(t, Math.min(1, v * 1.08), stepDeg(to, 1, scale), hold * sd, hk.v, hk.o, false, b, false, { ...x, app: 1, to });
+    e.hook(t + hold * sd, v * 0.9, to, (steps - hold) * sd, hk.v, hk.o, false, b, false, { ...x, res: hold });
   }
 
   // The last bar of a generated song: one final downbeat on the home chord, left to ring out.

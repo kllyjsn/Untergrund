@@ -88,6 +88,11 @@ export class Recorder {
     this.bass = this.notes.acid.at(-1);
   }
   orch(part, t, m, dur, vel) { this.add(part, t, m, dur, vel); }
+  peakVoice(t, v, n, dur, oct = 0, strong = false) {
+    this.hook(t, v, n + 12, dur, null, oct, strong);
+    const x = this.notes.hook.pop();
+    this.add('vln1', x.t, x.m, x.dur, x.v);
+  }
 }
 Recorder.prototype.harmRoot = Engine.prototype.harmRoot;
 Recorder.prototype.bassMidi = Engine.prototype.bassMidi;

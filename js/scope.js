@@ -5,6 +5,8 @@
 import { TRACK_IDS, STEPS } from './params.js';
 
 export const MAX_TAKES = 32;
+// Final-chorus devices a take can carry (longform.js writePeak).
+const PEAKS = new Set(['suspension', 'entry', 'dropout']);
 const LETTERS = 'ABCDEFGH';
 const cache = new WeakMap();
 
@@ -19,7 +21,7 @@ export function patternAt(pat, pos) {
   if (c && c.base === pat && TRACK_IDS.every((id) => v.steps?.[id] || c.merged.steps[id] === pat.steps[id]) && (v.hook || c.merged.hook === pat.hook) && (v.prog || c.merged.prog === pat.prog)) return c.merged;
   const merged = { ...pat, steps: { ...pat.steps, ...(v.steps || {}) }, len: { ...pat.len, ...(v.len || {}) } };
   delete merged.at;
-  for (const k of ['hm', 'prog', 'hook']) if (v[k] !== undefined) merged[k] = v[k];
+  for (const k of ['hm', 'prog', 'hook', 'peak']) if (v[k] !== undefined) merged[k] = v[k];
   cache.set(v, { base: pat, merged });
   return merged;
 }
@@ -33,7 +35,7 @@ export function setTake(base, pos, eff) {
     if (!sameJSON(eff.steps[id], base.steps[id])) (take.steps ??= {})[id] = eff.steps[id];
     if ((eff.len?.[id] || STEPS) !== (base.len?.[id] || STEPS)) (take.len ??= {})[id] = eff.len[id];
   }
-  for (const k of ['hm', 'prog', 'hook']) if (!sameJSON(eff[k], base[k])) take[k] = eff[k] ?? null;
+  for (const k of ['hm', 'prog', 'hook', 'peak']) if (!sameJSON(eff[k], base[k])) take[k] = eff[k] ?? null;
   const at = (base.at || []).map((v) => ({ ...v, b: [...v.b] }));
   // Cut pos out of any take that covers it, then add the new one-bar take.
   const out = [];
@@ -129,6 +131,7 @@ export function cleanTakes(at, cleanSteps, cleanHook, cleanProg) {
     if (v.hm != null) x.hm = Math.max(0, Math.min(2, Math.round(+v.hm) || 0));
     if (v.hook === null) x.hook = null; else if (v.hook && cleanHook) x.hook = cleanHook(v.hook);
     if (Array.isArray(v.prog) && cleanProg) x.prog = cleanProg(v.prog);
+    if (PEAKS.has(v.peak)) x.peak = v.peak;
     if (Object.keys(x).length > 1) out.push(x);
   }
   return out.length ? out : null;

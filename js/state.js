@@ -1,6 +1,6 @@
 import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, CHORDS, defaultParams, defaultMaster } from './params.js';
 import { rng } from './dsp.js';
-import { planSections, formChain, parseForm, developSong, developFinalDrop, LENGTHS } from './longform.js';
+import { planSections, formChain, parseForm, developSong, developFinalDrop, writePeak, LENGTHS } from './longform.js';
 import { FORMS, SECTIONS } from './classical.js';
 import { MODELS } from './composer-models.js';
 import { POCKETS, STYLE_POCKET } from './groove.js';
@@ -12,6 +12,7 @@ import { cleanLyrics } from './lyrics.js';
 import { SING_VOICES } from './sing-score.js';
 import { cleanTakes } from './scope.js';
 import { trackTitle } from './crate.js';
+import { pickFeel, isFeel, FEELS } from './feel.js';
 
 export const STYLES = {
   hypnotic: { name: 'HYPNOTIC', bpm: [130, 134], family: 'TECHNO', tag: 'deep · rolling' },
@@ -1111,9 +1112,13 @@ export const songChain = (style, seed, length = 'song') => songPlan(style, seed,
 export function applySongPlan(s, style, seed, length = 'song') {
   const plan = songPlan(style, seed, length, s.bpm || midBpm(style));
   s.chain = plan.chain;
+  // Scores carry their own expression; every other GENERATE song gets a feeling from its seed.
+  if (FORMS[style] || style === 'repertoire') delete s.feel;
+  else s.feel = pickFeel(style, STYLES[style].family, seed);
   const keep = Object.keys(s.locks || {}).filter((t) => s.locks[t]);
   developSong(s.patterns, plan.sections, { keep });
   if (plan.chain === TECHNO_LONG) developFinalDrop(s.patterns, plan.chain, { keep });
+  if (s.feel) writePeak(s.patterns, plan.chain, FEELS[s.feel].peak, seed, { keep });
   return plan;
 }
 
@@ -1238,6 +1243,7 @@ export function sanitize(s) {
   if (lyrics) out.lyrics = lyrics;
   const sing = cleanSing(s.sing);
   if (sing) out.sing = sing;
+  if (isFeel(s.feel)) out.feel = s.feel;
   out.mutes = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.mutes?.[id]]));
   out.solos = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.solos?.[id]]));
   out.locks = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.locks?.[id]]));
