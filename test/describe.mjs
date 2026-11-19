@@ -85,6 +85,16 @@ for (const [phrase, edit] of [['overdriven guitar', { id: 'voice', value: 11 }],
   t(`"${phrase}" picks its player`, () => assert.ok(has(parse(phrase, { style: 'rock' }).edits, [edit]), JSON.stringify(parse(phrase, { style: 'rock' }).edits)));
 }
 
+t('bass-only Drill 808 requests keep the current song', () => {
+  for (const text of ['make the bass sound like a Drill 808', 'switch the bass to UK Drill 808']) {
+    const { edits, unknown } = parse(text, { style: 'deephouse' });
+    assert.deepEqual(unknown, [], text);
+    assert.deepEqual(edits.map(({ id, value }) => ({ id, value })), [{ id: 'bassVoice', value: 2 }], text);
+  }
+  const { edits } = parse('Make it UK Drill 808s at 142 BPM', { style: 'deephouse' });
+  assert.ok(has(edits, [{ id: 'genre', value: 'drill' }, { id: 'bassVoice', value: 2 }, { id: 'bpm', value: 142 }]));
+});
+
 // Everyday phrasing: complaints, track-scoped words, dislikes, only/except. Each pair is [phrase, must have, must not have].
 const EVERYDAY = [
   ['the bass is too loud', [{ id: 'level', target: 'acid', amt: -1 }], [{ id: 'volume' }, { id: 'level', target: 'acid', amt: 1 }]],
