@@ -48,22 +48,34 @@ jobs:
       - run: npm ci
       - name: Syntax check (js/, api/)
         run: find js api -name '*.js' -not -path 'js/vendor/*' -print0 | xargs -0 -n1 node --check
-      - name: Install missing FFmpeg and Redis test dependencies
+      - name: Cache FFmpeg and Redis test binaries
+        id: test-binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/untergrund-test-bin
+          key: test-bin-${{ runner.os }}-${{ runner.arch }}-ffmpeg-6.0-redis-7.4.2-v1
+      - name: Download pinned FFmpeg and Redis test binaries
+        if: steps.test-binaries.outputs.cache-hit != 'true'
         run: |
-          packages=()
-          command -v ffmpeg || packages+=(ffmpeg)
-          command -v redis-server || packages+=(redis-server)
-          if (( ${#packages[@]} )); then
-            # The EC2 mirror has exhausted the whole Linux job downloading FFmpeg.
-            if grep -q '^http://us-east-2\.ec2\.archive\.ubuntu\.com/ubuntu/' /etc/apt/apt-mirrors.txt; then
-              sudo sed -Ei \
-                -e '/^http:\/\/us-east-2\.ec2\.archive\.ubuntu\.com\/ubuntu\// s/priority:1$/priority:2/' \
-                -e '/^https:\/\/archive\.ubuntu\.com\/ubuntu\// s/priority:2$/priority:1/' \
-                /etc/apt/apt-mirrors.txt
-            fi
-            sudo apt-get update -q
-            sudo apt-get install -yq --no-install-recommends "${packages[@]}"
-          fi
+          bin="$HOME/.cache/untergrund-test-bin"
+          mkdir -p "$bin"
+          curl -fL --retry 3 --connect-timeout 15 --max-time 120 \
+            https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-linux-x64.gz \
+            -o "$RUNNER_TEMP/ffmpeg.gz"
+          echo "17c1ae10b52ac499180679fe6ba77e17642390c4eedb0f1e3b0ac045da55128f  $RUNNER_TEMP/ffmpeg.gz" | sha256sum -c -
+          gzip -dc "$RUNNER_TEMP/ffmpeg.gz" > "$bin/ffmpeg"
+          # Tests spawn their own redis-server on a random port, rather than a service.
+          image=redis:7.4.2-bookworm@sha256:fbdbaea47b9ae4ecc2082ecdb4e1cea81e32176ffb1dcf643d422ad07427e5d9
+          container=$(docker create "$image")
+          trap 'docker rm -f "$container"' EXIT
+          docker cp "$container:/usr/local/bin/redis-server" "$bin/redis-server"
+          chmod +x "$bin/ffmpeg" "$bin/redis-server"
+      - name: Verify and expose test binaries
+        run: |
+          bin="$HOME/.cache/untergrund-test-bin"
+          "$bin/ffmpeg" -version
+          "$bin/redis-server" --version
+          echo "$bin" >> "$GITHUB_PATH"
       - run: npm test
       - run: npm run build
       - name: Smoke test server.mjs (SC_MOCK=1)
