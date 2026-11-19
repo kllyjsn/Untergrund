@@ -172,15 +172,22 @@ function schedule(lead) {
   clockOffset = clock.offset;
   let base = 60 / state.bpm / 4, landed = null;
   const target = transportOrigin / 1000 + abs * base - clockOffset;
-  const fix = transportResync(target, nextTime, now, base, clock.jumped);
+  const fix = transportResync(target, nextTime, now, base, clock.jumped, seq.origin - abs);
   if (fix) {
     if (fix.discard) {
       engine.discardQueuedNotes(now);
       uiQueue.length = 0;
       seq.acidPrevSlide = false;
+      if (handoff) { engine.handoffCancel(); handoff.out = false; }
+    }
+    if (fix.skip < 0) {
+      abs += fix.skip;
+      seq.rewind(abs, now);
     }
     for (let i = 0; i < fix.skip; i++, abs++) { artistTick(abs - seq.origin); seq.advanceBar(abs - seq.origin, ctx.currentTime); }
     nextTime = fix.nextTime;
+    const step = (abs - seq.origin) % 16;
+    if (fix.discard && step) engine.vocal(nextTime, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, step);
   }
   // Landing redraws the whole UI for the new song, so schedule further ahead first to ride out that frame.
   while (nextTime < ctx.currentTime + (landed ? Math.max(ahead, 0.5) : ahead)) {
