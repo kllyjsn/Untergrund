@@ -44,6 +44,19 @@ function hitDb(d) {
 }
 const rmsDb = (d, a, b) => { let e = 0; for (let i = a; i < b; i++) e += d[i] * d[i]; return 10 * Math.log10(e / Math.max(1, b - a) + 1e-20); };
 
+// A long 808 left alone at a break must go quiet before the oscillators are stopped.
+{
+  const s = defaultState(), t = 0.05;
+  s.params.acid.decay = 1;
+  const ctx = new OfflineAudioContext(1, 3 * SR, SR), e = new Engine(ctx, s, { realtime: false });
+  e.ch.acid.input = ctx.destination;
+  e.eight08(t, { n: 0, a: true }, 0.1, false, false);
+  const d = (await ctx.startRendering()).getChannelData(0), end = e.mono.end;
+  const db = (a, b) => rmsDb(d, Math.round((end - a) * SR), Math.round((end - b) * SR));
+  assert(db(0.3, 0.12) > -35, 'the sustained tail stays audible before the final fade');
+  assert(db(0.01, 0) < -85, 'the 808 is quiet by its oscillator cutoff');
+}
+
 process.on('exit', () => console.table(rows));
 
 // 1. Club low end: the bass carries real sub next to the kick, the kick ducks it, and the low mids stay clear.
