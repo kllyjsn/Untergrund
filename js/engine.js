@@ -1364,6 +1364,7 @@ export class Engine {
       const m = c.createOscillator(); m.type = 'square';
       m.frequency.value = f * 2.76;
       if (this.hardTechno) {
+        m.detune.value = (hash(t * 97, 29) - 0.5) * 100;
         m.frequency.setValueAtTime(f * 2.76 * 1.12, t);
         m.frequency.exponentialRampToValueAtTime(f * 2.76 * 0.88, t + p.decay * 0.8);
       }
@@ -1412,8 +1413,9 @@ export class Engine {
     for (const f of fs) {
       for (const side of metal ? [0] : [-1, 1]) {
         const car = c.createOscillator(); car.type = metal ? 'sine' : 'sawtooth';
-        car.frequency.value = f; car.detune.setValueAtTime(side * (air ? 7 : 42) + (kind === 'rave' ? 240 : 0), t);
-        if (kind === 'rave') car.detune.linearRampToValueAtTime(side * 42, t + 0.12);
+        const detune = metal ? (hash(t * 97, 29) - 0.5) * 100 : side * (air ? 7 : 42);
+        car.frequency.value = f; car.detune.setValueAtTime(detune + (kind === 'rave' ? 240 : 0), t);
+        if (kind === 'rave') car.detune.setTargetAtTime(side * 42, t + 0.008, 0.014);
         if (kind === 'rave') {
           const pan = c.createStereoPanner(); pan.pan.value = side * 0.9;
           car.connect(pan).connect(formant);
@@ -1422,6 +1424,7 @@ export class Engine {
           const mod = c.createOscillator(), index = this.gain(0);
           mod.frequency.value = f * (metal ? 2.414 : 1.618);
           if (metal) {
+            mod.detune.value = detune;
             car.frequency.setValueAtTime(f * 1.08, t);
             car.frequency.exponentialRampToValueAtTime(f * 0.94, t + dur * 0.8);
             mod.frequency.setValueAtTime(f * 2.61, t);
@@ -1443,7 +1446,7 @@ export class Engine {
       const tone = this.filter('highshelf', 1800); tone.gain.value = -5;
       const core = this.gain(1); core.channelCount = 1; core.channelCountMode = 'explicit';
       core.connect(tone).connect(out);
-      buses.set(out, { core, rave: this.hardVoiceOut(tone, 0, false, 300, 4.5) });
+      buses.set(out, { core, rave: this.hardVoiceOut(tone, 0, false, 300, 5) });
     }
     return buses.get(out);
   }
@@ -1572,7 +1575,7 @@ export class Engine {
         o.detune.value = side * p.detune;
         if (this.hardTechno) {
           o.detune.setValueAtTime(240 + side * p.detune * 3.5, t);
-          o.detune.linearRampToValueAtTime(side * p.detune * 3.5, t + 0.12);
+          o.detune.setTargetAtTime(side * p.detune * 3.5, t + 0.008, 0.014);
         }
         o.connect(pans[side < 0 ? 0 : 1]);
         this.startSource(o, t); o.stop(end);
@@ -1614,7 +1617,7 @@ export class Engine {
         o.frequency.value = midiHz(root + n); o.detune.value = side * (4 + p.detune);
         if (this.hardTechno) {
           o.detune.setValueAtTime(240 + side * (4 + p.detune) * 3, t);
-          o.detune.linearRampToValueAtTime(side * (4 + p.detune) * 3, t + 0.12);
+          o.detune.setTargetAtTime(side * (4 + p.detune) * 3, t + 0.008, 0.014);
         }
         if (drift && side) drift[side < 0 ? 0 : 1].connect(o.detune);
         o.connect(pans[side + 1]); this.startSource(o, t); o.stop(end);
