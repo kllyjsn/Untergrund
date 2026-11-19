@@ -26,6 +26,8 @@ for (const id of Object.keys(STYLES)) {
     if (['neosoul', 'boombap'].includes(id)) assert.ok(sets.includes('kit'), `${id}/${seed} needs the live kit`);
     assert.equal(sets.includes('snare'), id === 'drill', `${id}/${seed} snare-only sample set`);
     assert.equal(sets.includes('harp'), g.pattern.hook?.v === 'harpplk', `${id}/${seed} recorded harp hook`);
+    assert.equal(sets.includes('ob'), g.pattern.hook?.v === 'oboe', `${id}/${seed} recorded oboe hook`);
+    assert.equal(sets.includes('fl'), g.pattern.hook?.v === 'airflute', `${id}/${seed} recorded flute hook`);
     assert.equal(sets.includes(band), !!band, `${id}/${seed} stab band`);
     assert.equal(sets.includes('pianosoft'), band === 'piano', `${id}/${seed} soft piano layer`);
     // Country's Telecaster lead loads the guitar whatever plays the chords.
@@ -40,6 +42,38 @@ globalThis.OfflineAudioContext = class { decodeAudioData(b) { return Promise.res
 
 const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
 const feeds = (source, dest) => source === dest || dest.inputs.some((input) => feeds(source, input));
+{
+  const ctx = new FakeContext(2, 4096, 48000), state = defaultState(), out = ctx.createGain();
+  const hits = [], fallback = new Error('synth fallback');
+  state.key = 0;
+  state.params.stab.voice = 16;
+  state.patterns[5].hook = { v: 'oboe' };
+  state.patterns[6].hook = { v: 'airflute' };
+  const e = {
+    state, ctx, ch: { stab: { input: out } }, rec: Engine.prototype.rec, recLock: new Map(),
+    windHook: Engine.prototype.windHook, bodyFor: Engine.prototype.bodyFor, filter: Engine.prototype.filter,
+    soulBand: () => false,
+    trimOut: (key, db, dest) => { if (key === 'hook-reed') throw fallback; return dest; },
+    playBuf: (...args) => hits.push(args),
+  };
+  const hit = (voice) => Engine.prototype.hook.call(e, 1, 0.6, 12, 0.3, voice);
+  assert.deepEqual(liveSets(state), ['cello', 'ob', 'fl'], 'preload the backing and all wind hooks for playback');
+  assert.throws(() => hit('oboe'), (err) => err === fallback);
+  await loadSets(liveSets(state));
+  assert.throws(() => hit('oboe'), (err) => err === fallback, 'a late decode keeps the same synth for this song');
+  assert.equal(hits.length, 0, 'a missing wind does not switch to the recorded chords');
+  e.recLock = new Map();
+  hit('oboe'); hit('airflute');
+  assert.equal(hits.length, 2);
+  for (const [i, [, t, , dest, rate, gate, fx]] of hits.entries()) {
+    assert.equal(t, 1);
+    assert.equal(gate, 0.3 * 0.92);
+    assert.ok(feeds(dest, out), 'wind EQ feeds the hook bus');
+    assert.ok(Math.abs(12 * Math.log2(rate) - [2.03, 0.05][i]) < 0.001, 'choose and tune the nearest recorded pitch');
+    assert.ok(fx.ringOut, 'fade before the sample runs out');
+  }
+  files.clear();
+}
 {
   const state = defaultState(), fallback = new Error('synth fallback'), hits = [];
   const ctx = new FakeContext(2, 4096, 48000);
