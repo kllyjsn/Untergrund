@@ -611,7 +611,8 @@ export class Engine {
       this.setTo(this.djHP.frequency, hp, immediate); this.setTo(this.djLP.frequency, lp, immediate);
       this.setTo(this.djHP.Q, q, immediate); this.setTo(this.djLP.Q, q, immediate);
     } else if (id === 'drive') {
-      this.sat.curve = satCurve(v);
+      // A smooth style with no drive gets a straight line through the saturator's headroom: even its gentlest curve intermodulates held chords.
+      this.sat.curve = !v && SMOOTH.has(this.state.artist?.style) ? new Float32Array([-SAT_HEADROOM, SAT_HEADROOM]) : satCurve(v);
     } else if (id === 'volume') this.setTo(this.master.gain, v, immediate);
     else if (id === 'room') this.setTo(this.roomOut.gain, (v || 0) * 0.9, immediate);
     else if (id === 'warmth') this.setTo(this.warm.frequency, 20000 * Math.pow(0.22, v || 0), immediate);
@@ -1496,10 +1497,10 @@ export class Engine {
     });
     // A smooth style's pad rolls its saw partials off at 24 dB/oct, so no harmonic rings at 2-3 kHz, and takes its air from a breath of noise between 5 and 9 kHz.
     if (this.smoothOn) {
-      const lp2 = this.filter('lowpass', p.cutoff * 1.3, 0.5), hp = this.filter('highpass', 5000, 0.5), airTop = this.filter('lowpass', 9000, 0.5);
+      const lp2 = this.filter('lowpass', p.cutoff * 0.85, 0.5), hp = this.filter('highpass', 5000, 0.5), airTop = this.filter('lowpass', 9000, 0.5);
       lp.connect(lp2).connect(amp);
       const air = this.noiseSrc(t, end - t); air.loop = true;
-      air.connect(hp).connect(airTop).connect(this.gain(0.06)).connect(amp);
+      air.connect(hp).connect(airTop).connect(this.gain(0.05)).connect(amp);
     } else lp.connect(amp);
     amp.connect(out);
   }
