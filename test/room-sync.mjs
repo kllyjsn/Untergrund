@@ -130,6 +130,39 @@ assert.deepEqual(roomTransportPosition(origin + 1600, 120, origin), { step: 0, d
     assert.equal(corrections.length, 2, 'another broadcast cannot move the current grid');
   }
 }
+{
+  const source = await readFile(new URL('../js/club.js', import.meta.url), 'utf8');
+  const body = source.slice(source.indexOf('export class RoomBus'), source.indexOf('\nlet parkedBus')).replace('export class', 'class');
+  for (const mode of ['warm', 'error', 'closed', 'empty', 'fast']) {
+    let requests = 0, release;
+    const snapshots = [], latencies = [];
+    const reply = name => ({ok:true, json:async () => ({name, clock:[], sessionToken:name})});
+    const RoomBus = runInNewContext(`${body}\nRoomBus`, {Date, AbortController, setTimeout, clearTimeout,
+      calibrateRoomClock, performance:{now:() => 0}, fetch:async () => {
+        requests++;
+        if (requests === 1) return mode === 'empty' ? {ok:false} : reply('initial');
+        if (requests === 2) return new Promise((resolve, reject) => { release = () => mode === 'error' ? reject(new Error('offline')) : resolve(reply('warm')); });
+        throw new Error('offline');
+      }});
+    const bus = Object.assign(Object.create(RoomBus.prototype), {clientId:'listener', user:{}, token:'', apiBase:'/remote',
+      endpoint:path => path, known:() => ({}), receive(){}, applySnapshot:s => snapshots.push(s.name),
+      roomClock:{observe:() => { const latency = mode === 'fast' || latencies.length ? 5 : 330; latencies.push(latency); return latency; }}});
+    await bus.heartbeat(true);
+    assert.deepEqual(snapshots, mode === 'empty' ? [] : ['initial'], `${mode}: ready adopts the first estimate without waiting for warm calibration`);
+    if (mode === 'fast' || mode === 'empty') {
+      assert.equal(requests, 1, `${mode}: no unnecessary calibration traffic`);
+    } else {
+      assert.equal(requests, 2, 'warm calibration can remain in flight while playback starts');
+      if (mode === 'closed') bus.closed = true;
+      release();
+    }
+    await bus.calibration;
+    assert.deepEqual(snapshots, mode === 'warm' ? ['initial', 'warm'] : mode === 'empty' ? [] : ['initial'],
+      `${mode}: later samples update the playing origin, but failures or a closed room cannot replace it`);
+    if (mode === 'warm') assert.deepEqual(latencies, [330, 5]);
+  }
+}
+console.log('Room join latency PASS: first estimate starts playback while bounded warm calibration runs; fast, empty, failed and closed-room probes are safe.');
 console.log('Room clock calibration PASS: bounded recent minimum, adaptive probes, same-broadcast host/listener re-anchor and per-step slew.');
 
 let pos = roomTransportPosition(origin, 120, origin + 1500);

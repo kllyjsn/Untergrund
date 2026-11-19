@@ -349,10 +349,14 @@ export class RoomBus {
     };
     try {
       const initial = await sample(this.token, 5000);
-      if (!initial) return;
-      const snapshot = calibrate ? await calibrateRoomClock(initial,
-        (token, timeout) => sample(token || this.token, timeout)) : initial.snapshot;
-      this.applySnapshot(snapshot);
+      if (!initial || this.closed) return;
+      this.applySnapshot(initial.snapshot);
+      if (calibrate) this.calibration = calibrateRoomClock(initial, async (token, timeout) => {
+        if (this.closed) return null;
+        const warm = await sample(token || this.token, timeout);
+        if (warm && !this.closed) this.applySnapshot(warm.snapshot);
+        return warm;
+      }).catch(() => {});
     } catch {}
   }
 
