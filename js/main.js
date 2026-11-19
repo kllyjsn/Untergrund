@@ -471,10 +471,12 @@ function cancelRoomStart() {
 
 function cancelRoomPrime() {
   if (!mediaRoute || !roomPlayback) return;
+  const pendingControls = jamControls.size;
   jamControlVersion++;
   jamControls.clear();
   const now = ctx.currentTime;
   if (roomMediaSync.cancel(now)) engine.discardQueuedNotes(now);
+  if (pendingControls) engine.applyAll();
 }
 
 function stop(playbackOutcome = 'stop') {
