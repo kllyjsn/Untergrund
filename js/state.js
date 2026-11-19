@@ -12,6 +12,7 @@ import { cleanLyrics } from './lyrics.js';
 import { SING_VOICES } from './sing-score.js';
 import { cleanTakes } from './scope.js';
 import { trackTitle } from './crate.js';
+import { pickFeel, isFeel } from './feel.js';
 
 export const STYLES = {
   hypnotic: { name: 'HYPNOTIC', bpm: [130, 134], family: 'TECHNO', tag: 'deep · rolling' },
@@ -1108,9 +1109,13 @@ export function songPlan(style, seed, length = 'song', bpm = midBpm(style)) {
 }
 export const songChain = (style, seed, length = 'song') => songPlan(style, seed, length).chain;
 // The form written into a fresh arrangement: chain plus the takes that develop each repeat.
-export function applySongPlan(s, style, seed, length = 'song') {
+// `feel` is the feeling the listener asked for; without one the seed picks a feeling that fits the genre.
+export function applySongPlan(s, style, seed, length = 'song', feel = null) {
   const plan = songPlan(style, seed, length, s.bpm || midBpm(style));
   s.chain = plan.chain;
+  // Scores carry their own expression; every other GENERATE song gets a feeling from its seed.
+  if (FORMS[style] || style === 'repertoire') delete s.feel;
+  else s.feel = isFeel(feel) ? feel : pickFeel(style, STYLES[style].family, seed);
   const keep = Object.keys(s.locks || {}).filter((t) => s.locks[t]);
   developSong(s.patterns, plan.sections, { keep });
   if (plan.chain === TECHNO_LONG) developFinalDrop(s.patterns, plan.chain, { keep });
@@ -1119,7 +1124,7 @@ export function applySongPlan(s, style, seed, length = 'song') {
 
 // GENERATE's song for a style and seed, written on top of `base` (its mix, artist and mutes carry over).
 // `bpm`/`swing` keep a tempo the song already plays at; a score always sets its own.
-export function freshSong(style, seed, { base = defaultState(), scale = null, length = 'song', bpm = null, swing = null } = {}) {
+export function freshSong(style, seed, { base = defaultState(), scale = null, length = 'song', bpm = null, swing = null, feel = null } = {}) {
   const s = clone(base);
   s.scale = scale || (style === 'euphoric' || MAJOR_STYLES.has(style) ? 'major' : s.scale);
   const g = generate(style, seed, s.scale);
@@ -1130,7 +1135,7 @@ export function freshSong(style, seed, { base = defaultState(), scale = null, le
   s.chainOn = true;
   s.ending = true;
   s.current = 0;
-  applySongPlan(s, style, seed, length);
+  applySongPlan(s, style, seed, length, feel);
   return s;
 }
 
@@ -1154,7 +1159,7 @@ export function refreshSong(s) {
   const { style, seed } = s.artist;
   const composer = s.patterns.find((p) => p.score?.composer)?.score.composer;
   const base = { ...s, locks: Object.fromEntries(TRACK_IDS.map((t) => [t, false])) };
-  const out = freshSong(style, seed, { base, scale: s.scale, length: lengthOf(s), bpm: s.bpm, swing: s.swing });
+  const out = freshSong(style, seed, { base, scale: s.scale, length: lengthOf(s), bpm: s.bpm, swing: s.swing, feel: s.feel });
   if (composer) for (const p of out.patterns) if (p.score?.form) p.score.composer = composer;
   if (out.chain !== s.chain) delete out.labels;
   out.fresh = 1;
@@ -1238,6 +1243,7 @@ export function sanitize(s) {
   if (lyrics) out.lyrics = lyrics;
   const sing = cleanSing(s.sing);
   if (sing) out.sing = sing;
+  if (isFeel(s.feel)) out.feel = s.feel;
   out.mutes = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.mutes?.[id]]));
   out.solos = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.solos?.[id]]));
   out.locks = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.locks?.[id]]));
