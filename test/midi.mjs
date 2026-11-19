@@ -145,6 +145,17 @@ function fakeAccess(inNames = ['Pad Ctl'], outNames = ['TR-8']) {
   sent.length = 0;
   cs.start(130, 2000);
   assert.deepEqual(sent.map(([b]) => b), [[0xf2, 130 & 0x7f, 130 >> 7], [0xfb]], 'mid-song: SPP then Continue');
+  cs.step(130, 2000, 125);
+  const count = sent.length;
+  cs.step(137, 2125, 125);
+  assert.deepEqual(sent.slice(count, count + 2), [[[0xf2, 9, 1], 2123], [[0xfb], 2124]], 'skipped steps locate external gear before the next clock tick');
+  assert.equal(sent.slice(count + 2).filter(([b]) => b[0] === 0xf8).length, 6);
+  assert.equal(sent.at(-6)[1], 2125);
+  const located = sent.length;
+  cs.step(137, 2125, 125);
+  assert.equal(sent.length, located, 'duplicate calls do not relocate or resend ticks');
+  cs.step(138, 2250, 125);
+  assert.equal(sent.slice(located).length, 6, 'adjacent steps send only clocks');
 }
 
 // Hub with a fake MIDIAccess: default map, learn, takeover + glide, pads, clock in/out
