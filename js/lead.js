@@ -36,7 +36,7 @@ const PRESETS = {
   vocal: { ...STACK, glide: 0.04, vib: [5, 14], cut: 1300, env: 1600, dec: 0.18, thin: 5, bite: 7 },
   reed: { ...STACK, glide: 0.05, vib: [0, 0], cut: 1300, env: 1800, dec: 0.2 },
   mallet: { ...STACK, vib: [0, 0] },
-  softmallet: { ...STACK, vib: [0, 0], thin: 3, bite: 4, tame: 6, air: 0.86 },
+  softmallet: { ...STACK, vib: [0, 0], thin: 3, bite: 4, tame: 6, air: 0.63 },
 };
 const POCKET_PRESETS = {
   // Hyperpop: wide bright saws, quick glides, fast deep vibrato.

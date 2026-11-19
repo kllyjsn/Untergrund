@@ -1874,12 +1874,14 @@ export class Engine {
     } else if (voice === 'softmallet') {
       const attack = 0.01 + 0.009 * (1 - vn);
       const body = Math.min(0.34, 0.15 + len * 0.24);
-      const car = osc('sine', f, 0, 1, amp);
+      const head = this.filter('lowpass', 2100 + 500 * b, 0.5);
+      head.connect(amp);
+      const car = osc('sine', f, 0, 1, head);
       const mod = c.createOscillator(), strike = this.gain(0);
       mod.frequency.value = f * 2.5;
       mod.connect(strike).connect(car.frequency); oscs.push(mod);
-      strike.gain.setValueAtTime(f * (0.17 + 0.18 * vn) * b, t);
-      strike.gain.setTargetAtTime(0, t + attack, 0.037);
+      strike.gain.setValueAtTime(f * (0.15 + 0.15 * vn) * b, t);
+      strike.gain.setTargetAtTime(0, t + attack, 0.024);
       const overtone = this.gain(0.32 + 0.11 * vn);
       osc('sine', f * 2, 1.5, 1, overtone); overtone.connect(amp);
       overtone.gain.setTargetAtTime(0.12, t + attack, body * 0.64);
