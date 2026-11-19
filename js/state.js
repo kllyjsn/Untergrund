@@ -371,16 +371,16 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.acid = range(STEPS, (i) => ([2, 10].includes(i) ? { on: true, n: i === 10 ? musicalScale[3] : 0, a: false, s: false } : emptyAcidStep()));
     S.stab = pad16([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
     P.len.stab = 13;
-    Object.assign(params.kick, { tune: 54, decay: 0.26, drive: 0.05, rumble: 0, punch: 0.6, click: 0.35, level: 0.78 });
+    Object.assign(params.kick, { tune: 58, decay: 0.24, drive: 0.05, rumble: 0, punch: 0.6, click: 0.35, level: 0.78 });
     Object.assign(params.perc, { tune: 300, decay: 0.08, noise: 0.35, level: 0.42 });
     Object.assign(params.snare, { tune: 240, snappy: 0.15, decay: 0.08, level: 0.5 });
-    Object.assign(params.ch, { decay: 0.035, tone: 9500, level: 0.55 });
+    Object.assign(params.ch, { decay: 0.07, tone: 8000, level: 0.5 });
     // A soft ride on the off-beats in the full groove gives the top end air without a bright lead.
     S.ride = range(STEPS, (i) => (i % 4 === 2 ? 1 : 0));
     Object.assign(params.ride, { decay: 0.5, tone: 7000, level: 0.22 });
     // A round bass with some edge for definition, barely resonant, the filter only opening a little on each note.
-    Object.assign(params.acid, { wave: 0.3, cutoff: 520, reso: 2, envmod: 0.2, decay: 0.12, drive: 0.1, accent: 0.1, level: 0.48 });
-    Object.assign(params.stab, { chord: pick(r, [1, 2, 3]), cutoff: 2600, reso: 1, decay: 0.3, env: 0.25, detune: 6, dly: 0.45, rev: 0.4 });
+    Object.assign(params.acid, { wave: 0.3, cutoff: 600, reso: 1.5, envmod: 0.2, decay: 0.12, drive: 0.1, accent: 0.1, level: 0.42 });
+    Object.assign(params.stab, { chord: pick(r, [1, 2, 3]), cutoff: 1900, reso: 0.4, decay: 0.45, env: 0.45, detune: 4, dly: 0.45, rev: 0.4 });
     master.duck = 0.3; master.revLevel = 0.35;
     swing = 0.04;
   } else if (style === 'ukg') {

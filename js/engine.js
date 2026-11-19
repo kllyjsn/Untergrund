@@ -2127,7 +2127,7 @@ export class Engine {
   // A smooth drop: the bar before it slowly closes the filter, and the drop opens it back up, with no riser or boom.
   dropDip(t, dur) {
     const f = this.arrLP.frequency;
-    f.cancelScheduledValues(t); f.setValueAtTime(f.value, t); f.exponentialRampToValueAtTime(2200, t + dur);
+    f.cancelScheduledValues(t); f.setValueAtTime(f.value, t); f.exponentialRampToValueAtTime(4000, t + dur);
     this.arrClosed = true;
   }
 
