@@ -48,7 +48,7 @@ const PRESETS = {
   mallet: { ...STACK, vib: [0, 0] },
   softmallet: { ...STACK, vib: [0, 0], thin: 3, bite: 4, tame: 6, air: 0.63 },
   ravestack: { ...STACK, stack: true, wave: 'sawtooth', uni: 5, spread: 35, mix: 0.66, body: ['sawtooth', 0.23, 2], cut: 2170, env: 850, q: 0.7, dec: 0.17, atk: 0.048, sus: 0.70, hold: 0.14, rel: 0.11, vib: [0, 0], tame: 4, air: 0.98, bite: 3, level: 0.34 },
-  acidlead: { ...STACK, stack: true, wave: 'sawtooth', uni: 1, mix: 0.70, body: ['triangle', 0.30, 1], cut: 296, env: 1620, q: 9.9, dec: 0.033, atk: 0.003, sus: 0.14, hold: 0.052, rel: 0.026, glide: 0.075, vib: [0, 0], tame: 6, air: 0.78, bite: 2, level: 0.64, bend: 70 },
+  acidlead: { ...STACK, stack: true, wave: 'sawtooth', uni: 1, mix: 0.70, body: ['triangle', 0.30, 1], cut: 296, env: 1620, q: 9.9, dec: 0.033, atk: 0.003, sus: 0.14, hold: 0.052, rel: 0.026, glide: 0.075, vib: [0, 0], tame: 6, air: 0.78, bite: 2, level: 0.60, bend: 70 },
 };
 const POCKET_PRESETS = {
   // Hyperpop: wide bright saws, quick glides, fast deep vibrato.

@@ -2262,7 +2262,7 @@ export class Engine {
     };
     const metal = voice === 'metalstrike', soft = voice === 'softresonator';
     const out = this.technoHookOut(voice);
-    const lp = this.filter('lowpass', metal ? 3500 : soft ? 4000 : 3650, 0.6);
+    const lp = this.filter('lowpass', metal ? 3500 : soft ? 4400 : 3650, 0.6);
     lp.connect(amp).connect(out);
     if (metal) {
       // The strike has inharmonic steel sidebands; the settled note still has a clear pitch.
@@ -2283,15 +2283,15 @@ export class Engine {
     } else if (soft) {
       // Moving upper partials leave a hollow space above the fundamental.
       const color = hash(this.step ?? 0, 141);
-      const partials = this.filter('highpass', 2050, 0.65), drift = 1.57;
+      const partials = this.filter('highpass', 2150, 0.65), drift = 1.63;
       partials.connect(lp);
-      osc('sine', f, 0.37, lp);
-      const ring = osc('sine', f * 7, 0.74, partials);
-      ring.frequency.setValueAtTime(f * (7 - drift * (0.65 - 0.47 * color)), t);
-      ring.frequency.exponentialRampToValueAtTime(f * (7 + drift * (0.43 + 0.36 * color)), t + Math.max(0.23, len));
-      const halo = osc('sine', f * 11, 0.18, partials);
-      halo.frequency.setValueAtTime(f * (11 + drift * color), t);
-      halo.frequency.linearRampToValueAtTime(f * (11 - drift), t + Math.max(0.30, len));
+      osc('sine', f, 0.28, lp);
+      const ring = osc('sine', f * 8, 0.74, partials);
+      ring.frequency.setValueAtTime(f * (8 - drift * (0.65 - 0.47 * color)), t);
+      ring.frequency.exponentialRampToValueAtTime(f * (8 + drift * (0.43 + 0.36 * color)), t + Math.max(0.23, len));
+      const halo = osc('sine', f * 12, 0.28, partials);
+      halo.frequency.setValueAtTime(f * (12 + drift * color), t);
+      halo.frequency.linearRampToValueAtTime(f * (12 - drift), t + Math.max(0.30, len));
     } else {
       // Two moving parallel formants make a short, voiced syllable, not another filter pluck.
       const source = this.gain(1), low = this.filter('bandpass', 650, 3.1), high = this.filter('bandpass', 2050, 3.2);
@@ -2307,7 +2307,7 @@ export class Engine {
       source.connect(high).connect(this.gain(1.82)).connect(lp);
     }
     const attack = metal ? 0.005 : soft ? 0.078 : 0.009;
-    const peak = v * (metal ? 0.63 : soft ? 0.83 : 0.64);
+    const peak = v * (metal ? 0.63 : soft ? 0.58 : 0.64);
     amp.gain.setValueAtTime(0, t);
     amp.gain.linearRampToValueAtTime(peak, t + attack);
     amp.gain.setTargetAtTime(peak * (metal ? 0.16 : soft ? 0.62 : 0.55), t + attack, metal ? 0.036 : 0.084);
