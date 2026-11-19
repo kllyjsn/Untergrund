@@ -134,21 +134,23 @@ function roomJoin(change = () => {}, options = {}) {
   state.artist = {name:'Sync fixture', title:'Seed 7', style:'hypnotic', seed:7};
   state.sing = {on:true, voice:'gwen', db:0, ms:0};
   const item = {state:clone(state), startsAt:origin, style:'hypnotic', title:'New DJ'};
-  const calls = [];
-  const engine = {state, editableHits:[{}], vocalNow:{source:'continuous'}};
+  const calls = [], analytics = [];
+  const engine = {state, editableHits:[{}], vocalNow:{source:'continuous'}, stepDur:.125};
   const seq = {s:state, origin:0, queued:null};
   const sandbox = {state, engine, seq, playing:true, roomPlayback:true, roomEditor:true, artistLive:null, handoff:null, jamQueue:[],
     transportOrigin:origin, style:'hypnotic', songOrigin:{}, STYLES, sanitize, clone, songFingerprint,
+    roomStatsItem:null, playbackSources:new WeakMap(), playbackStats:{end:(outcome) => analytics.push(outcome)},
+    ctx:{currentTime:8}, abs:65, nextTime:8.125, recordPlayback:(source) => analytics.push(source),
     Date:{now:() => origin + 8000}, stopTimeline(){}, joinRoomReplay(){calls.push('replay');},
     replaceState(){calls.push('replace');}, play(){calls.push('play');}, build(){}, persist(){}, syncNowPlaying(){}, toast(){},
     setTimeout(){calls.push('timer');}, ...options};
   change(item, sandbox);
   const join = runInNewContext(`${joinSource}\njoinRoomSet`, sandbox);
   join(item);
-  return {calls, sandbox, item, join};
+  return {calls, sandbox, item, join, analytics};
 }
 {
-  const {calls, sandbox, item} = roomJoin((item, s) => {
+  const {calls, sandbox, item, analytics} = roomJoin((item, s) => {
     item.state.artist.title = 'Same song, new DJ';
     item.state.current = 1;
     s.state.current = 2;
@@ -164,8 +166,11 @@ function roomJoin(change = () => {}, options = {}) {
   assert.equal(sandbox.engine.vocalNow.source, 'continuous');
   assert.equal(sandbox.roomEditor, false, 'the former DJ becomes a listener');
   assert.equal(sandbox.engine.editableHits.length, 0);
+  assert.equal(analytics[0], 'skip');
+  assert.equal(analytics[1].surface, 'club', 'a seamless DJ handoff starts capturing the former host as a listener');
   sandbox.roomResume();
   assert.deepEqual(calls, [], 'resuming the same active room does not rebuild its transport');
+  assert.equal(analytics.length, 2, 'resyncing the same broadcast keeps one play');
 }
 for (const change of [
   (i) => { i.startsAt += 31; },

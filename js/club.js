@@ -97,7 +97,7 @@ export function avatarNode(avatar, extra = '', style = '') {
 }
 
 let clockProbe = 0;
-class RoomBus {
+export class RoomBus {
   constructor(id, user, onUpdate, onEvent, apiBase = '') {
     this.id = cleanRoom(id);
     this.user = user;
@@ -165,7 +165,7 @@ class RoomBus {
     const snapshot = this.snapshot(extra);
     const signature = JSON.stringify({
       members: snapshot.members.map((member) => [member.id, member.name, member.avatar || member.shape, member.color, member.gear]),
-      set: snapshot.currentSet ? [snapshot.currentSet.version, snapshot.currentSet.title, snapshot.currentSet.startsAt] : null,
+      set: snapshot.currentSet ? [snapshot.currentSet.version, snapshot.currentSet.title, snapshot.currentSet.startsAt, snapshot.currentSet.public] : null,
       hostId: snapshot.hostId || null,
       queue: snapshot.queue || [],
       jam: this.jam ? [this.jam.rev, this.jam.open, ...PART_IDS.map((p) => [this.jam.parts[p]?.owner, this.jam.parts[p]?.step])] : null,
@@ -192,7 +192,12 @@ class RoomBus {
   applySet(set, userId, snapshot = false) {
     if (!set || !this.acceptsSet(set)) return;
     const key = this.setKey(set);
-    if (key === this.currentSetKey) return;
+    const sameBroadcast = set.broadcastId && set.broadcastId === this.currentSet?.broadcastId;
+    if (sameBroadcast && set.public === false) this.onPlaybackUnavailable?.(set);
+    if (key === this.currentSetKey) {
+      if (sameBroadcast) this.currentSet.public = set.public;
+      return;
+    }
     this.currentSet = set;
     this.currentSetKey = key;
     const seenBroadcast = !!(set.broadcastId && this.appliedBroadcasts.has(set.broadcastId));
@@ -505,6 +510,7 @@ class RoomBus {
 
   close() {
     this.closed = true;
+    if (this.currentSet) this.onPlaybackUnavailable?.(this.currentSet);
     clearInterval(this.jamTimer);
     clearInterval(this.timer);
     clearTimeout(this.poller);
@@ -527,7 +533,7 @@ export function clubActions({ isHost, live, canListen, queued, queueLength = 0 }
   return queued ? { primary: null, secondary: [queue] } : { primary: queue, secondary: [] };
 }
 
-export function openClub({ getState, getStyle, loadTrack, getTransport, startRoomBroadcast, unlockAudio, joinRoomSet: joinSet, replayToRoom, jam: jamHooks = null, toast, room: requestedRoom = '', intent = '', hue = null }) {
+export function openClub({ getState, getStyle, loadTrack, getTransport, getReleaseId = () => '', startRoomBroadcast, unlockAudio, joinRoomSet: joinSet, onPlaybackUnavailable, replayToRoom, jam: jamHooks = null, toast, room: requestedRoom = '', intent = '', hue = null }) {
   const joinRoomSet = (set) => { joinSet(set); bus?.follow(set); };
   let audioReady = false;
   const unlock = () => unlockAudio().then((ok) => (audioReady = ok));
@@ -637,6 +643,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     parkedBus = null;
     bus?.close();
     bus = new RoomBus(activeRoom, avatar, onUpdate, onEvent, apiBase);
+    bus.onPlaybackUnavailable = onPlaybackUnavailable;
     if (jamHooks) bus.jamHooks = { ...jamHooks, getState, isPlaying: () => getTransport().playing };
     if (goLive) {
       const mine = bus;
@@ -684,9 +691,11 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     const transport = getTransport();
     const startsAt = transport.playing ? transport.startsAt : Date.now() + 1600;
     const track = nowPlaying();
+    const trackId = getReleaseId();
     const broadcastId = `${bus.clientId}:${Date.now()}:${++bus.localSetVersion}`;
     bus.initiatedSets.add(broadcastId);
-    bus.send('set', { ...track, state: clone(getState()), style: getStyle(), startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId, public: isRoomPublic(activeRoom) });
+    const listed = roomIsPublic();
+    bus.send('set', { ...track, ...(trackId && { trackId }), state: clone(getState()), style: getStyle(), startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId, public: listed });
     bus.follow(bus.currentSet);
     startRoomBroadcast(startsAt);
     startLiveSet({
@@ -694,17 +703,17 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
       isPlaying: () => getTransport().playing,
       isDJ: () => { const b = parkedBus || bus; return !b.hostId || b.hostId === b.clientId; },
     });
-    trackEvent('room_go_live', { kind: room.currentSet ? 'rebroadcast' : 'first', public: isRoomPublic(activeRoom) });
+    trackEvent('room_go_live', { kind: room.currentSet ? 'rebroadcast' : 'first', public: listed });
     toast(`Broadcasting “${track.title}” to ${activeRoom}`);
   }
 
-  // Public rooms are listed in LIVE NOW; private ones are link-only. A live DJ re-sends the running set so the directory updates now.
-  function togglePublic() {
-    const next = !isRoomPublic(activeRoom);
+  const roomIsPublic = () => room.currentSet ? room.currentSet.public !== false : isRoomPublic(activeRoom);
+  // The current DJ can change the running set's visibility, including after a handoff.
+  function togglePublic(next) {
     setRoomPublic(activeRoom, next);
     trackEvent('room_privacy', { kind: next ? 'public' : 'private' });
     const set = room.currentSet, isHost = !room.hostId || room.hostId === clientId();
-    if (bus && set && isHost && set.by === bus.clientId && getTransport().playing) {
+    if (bus && set && isHost) {
       const { version, ...payload } = set;
       bus.send('set', { ...payload, public: next, orderAt: Date.now() });
     }
@@ -936,7 +945,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     const s = timeline.initial;
     bus.send('set', {
       title: item.title, artist: item.artist, bpm: s.bpm, key: `${KEYS[s.key]} ${SCALES[s.scale]?.name || 'MINOR'}`,
-      state: clone(s), style: timeline.style, startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId,
+      state: clone(s), style: timeline.style, startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId, public: roomIsPublic(),
       replay: { ...(item.local ? { timeline } : { id: item.id }), title: item.title, dj: item.artist },
     });
     bus.follow(bus.currentSet);
@@ -1132,7 +1141,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     const nameInput = h('input', { class: 'inp club-room-input', value: activeRoom, maxlength: 32, 'aria-label': 'Room name', 'data-focus-key': 'room', enterkeyhint: 'go', spellcheck: 'false', autocapitalize: 'off',
       onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } } });
     const choice = (pub, label, hint) => h('button', { class: `club-room-choice${roomPublic === pub ? ' on' : ''}`, 'aria-pressed': String(roomPublic === pub),
-      onclick: () => { if (roomPublic !== pub) togglePublic(); } }, h('b', {}, label), h('small', {}, hint));
+      onclick: () => { if (roomPublic !== pub) togglePublic(pub); } }, h('b', {}, label), h('small', {}, hint));
     return h('div', { class: 'club-look-layer' },
       h('div', { class: 'club-look-scrim', onclick: done }),
       h('section', { class: 'club-look club-room-sheet', role: 'dialog', 'aria-label': 'Room' },
@@ -1167,14 +1176,14 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     modal.classList.toggle('is-lobby', lobby);
     if (lobby) { renderLobby(); restoreDraft(draft); return; }
     const invite = roomInviteUrl(activeRoom);
-    const roomPublic = isRoomPublic(activeRoom);
+    const isHost = !room.hostId || room.hostId === clientId();
+    const roomPublic = roomIsPublic();
         const shareInvite = async () => {
       trackEvent('share_link_copied', { what: 'room' });
       if (navigator.share && matchMedia('(pointer: coarse)').matches) return navigator.share({ title: `UNTERGRUND Club · ${activeRoom}`, url: invite.toString() }).catch(() => {});
       await navigator.clipboard?.writeText(invite.toString());
       toast('Room link copied');
     };
-    const isHost = !room.hostId || room.hostId === clientId();
     const here = room.members.length || 1;
     const roomBtn = h('button', { class: `club-room-btn${roomOpen ? ' on' : ''}`, 'aria-haspopup': 'dialog', 'aria-expanded': String(roomOpen), title: 'Room name, link and privacy',
       onclick: () => { roomOpen = !roomOpen; lookOpen = false; render(); } },

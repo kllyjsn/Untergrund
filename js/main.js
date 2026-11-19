@@ -1,4 +1,5 @@
 import { track as trackEvent, reportError, playStarted, playStopped, did, signal, onTrack, flushEvents, listenerContext } from './analytics.js';
+import { createPlaybackAnalytics, RELEASE_ID } from './playback-analytics.js';
 import { assign as assignExperiment } from './experiments.js';
 import { createListens, songFingerprint, promptHash, promptText } from './listen.js';
 import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue, VOICE_HIDDEN } from './params.js';
@@ -97,6 +98,10 @@ let saveTimer = 0;
 let guest = null;
 // Listen signals (js/listen.js): songOrigin says how the song in `state` came to be; pendingPrompt is a Describe prompt about to become a song.
 const listens = createListens({ emit: signal });
+const playbackStats = createPlaybackAnalytics();
+const playbackSources = new WeakMap();
+let trackingReplay = false;
+let roomStatsItem = null;
 let songOrigin = { src: 'restored' }, pendingPrompt = null;
 // The Library list being played through ({ items, i }); GENERATE ends it.
 let queue = null;
@@ -222,7 +227,7 @@ function schedule(lead) {
     // A generated song has played its final bar: let it ring, then stop rather than loop back to the intro.
     if (seq.finished && !handoff) {
       songOver = true;
-      setTimeout(() => { if (playing && songOver) { const radio = radioPlays(); stop(); if (radio) { trackEvent('radio', { kind: 'next' }); radioNext(); } } }, Math.max(0, nextTime - ctx.currentTime + 2.5) * 1000);
+      setTimeout(() => { if (playing && songOver) { const radio = radioPlays(); stop('complete'); if (radio) { trackEvent('radio', { kind: 'next' }); radioNext(); } } }, Math.max(0, nextTime - ctx.currentTime + 2.5) * 1000);
       break;
     }
   }
@@ -285,8 +290,10 @@ function landSong(t) {
   const { plan } = handoff;
   handoff = null;
   const fromBpm = state.bpm;
+  if (!trackingReplay) playbackStats.end('skip');
   if (plan.undo) pushUndo(plan.label || 'GENERATE');
   listens.end(listenPos());
+  playbackSources.delete(state);
   songOrigin = plan.origin || { src: 'crate' };
   autoMajor = plan.autoMajor ?? false;
   for (const k of Object.keys(state)) if (!(k in plan.next)) delete state[k];
@@ -331,7 +338,7 @@ function endTuning() {
   document.body.classList.remove('tuning');
 }
 
-function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room = startsAt !== null || roomPlayback, editRoom = roomEditor } = {}) {
+function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room = startsAt !== null || roomPlayback, editRoom = roomEditor, replayStats = null } = {}) {
   const seeking = playing;
   clearPaused();
   roomResume = null;
@@ -356,6 +363,7 @@ function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room 
   roomPlayback = room;
   roomEditor = room && editRoom;
   playing = true;
+  if (replayStats || !trackingReplay) recordPlayback(replayStats || (!editRoom && playbackSources.get(state)), nextTime, abs);
   if (pat().score) preloadScore(pat().score);
   timer.postMessage('start');
   midiClockStart(ctx, abs, nextTime);
@@ -369,7 +377,9 @@ function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room 
   renderHome();
 }
 
-function stop() {
+function stop(playbackOutcome = 'stop') {
+  playbackStats.end(playbackOutcome);
+  trackingReplay = false;
   listens.end(listenPos(), { finished: songOver });
   clearPaused();
   endTuning();
@@ -399,6 +409,19 @@ function stop() {
   renderHome();
   releaseMedia();
   syncNowPlaying();
+}
+
+function recordPlayback(source, at, step) {
+  trackingReplay = Boolean(source?.replay);
+  if (!source) return;
+  const { surface, trackId, genre, replay } = source;
+  const score = !replay && pat()?.score ? compose(pat().score) : null;
+  const steps = score ? score.at.length : state.chainOn ? parseChain(state.chain).length * 16 : 0;
+  const expectedSeconds = replay ? replay.duration / 1000 : (score ? score.tempo.reduce((a, b) => a + b, 0) : steps) * 15 / state.bpm;
+  const from = replay ? (Date.now() - replay.startsAt) / replay.duration : steps ? (step - seq.origin) / steps : null;
+  const progress = () => replay ? (Date.now() - replay.startsAt) / replay.duration : steps
+    ? (abs - seq.origin - Math.max(0, nextTime - ctx.currentTime) / engine.stepDur) / steps : null;
+  playbackStats.start({ surface, ...(trackId ? { trackId } : { genre }) }, { ctx, at, from: from === null ? null : Math.max(0, from), progress, expectedSeconds });
 }
 
 // Where the listener is in the song now: bar, length in bars and the section name.
@@ -498,7 +521,7 @@ function onAudioState() {
   } else if (ctx.state !== 'closed') interrupt();
 }
 function restartSong() {
-  if (playing) { listens.rewind(listenPos(), 0); return start({ step: 0 }); }
+  if (playing) { listens.rewind(listenPos(), 0); if (!trackingReplay) playbackStats.end('skip'); return start({ step: 0 }); }
   clearPaused();
   play();
 }
@@ -644,7 +667,10 @@ function snapshot(like = {}) {
   return JSON.stringify(snap);
 }
 // Any edit makes the song the listener's own: it keeps its notes instead of following the generator (refreshSong).
-const touched = () => { state.fresh = 0; };
+const touched = () => {
+  state.fresh = 0;
+  if (playbackSources.delete(state)) playbackStats.end();
+};
 function pushUndo(label = '') {
   if (typeof label !== 'string') label = '';
   touched();
@@ -683,8 +709,8 @@ function syncHistory() {
 controlHooks.change = (el, label, held) => { touched(); if (knobGesture.begin(el, held)) { history.push(snapshot(), label); syncHistory(); } };
 controlHooks.end = () => knobGesture.end();
 
-function replaceState(s) {
-  stop();
+function replaceState(s, outcome) {
+  stop(outcome);
   autoMajor = false;
   state = s;
   if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
@@ -727,9 +753,11 @@ function listen(song, src = 'shared', via = '') {
   if (!guest) guest = { backup: clone(state), style };
   guest.song = song;
   if (STYLES[song.style]) style = song.style;
-  stop(); autoMajor = false;
+  stop('skip'); autoMajor = false;
   state = sanitize(clone(song.state));
   state.artist = { ...(state.artist || {}), title: song.title, name: song.artist, style: song.style };
+  if (song.trackId || src === 'shared' || src === 'drop') playbackSources.set(state, { surface: 'public', trackId: song.trackId, genre: song.style,
+    ...(song.trackId && { fingerprint: songFingerprint(state) }) });
   if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
   build();
   play();
@@ -793,7 +821,7 @@ function showJukebox() {
   openJukebox({
     toast,
     onCreate: () => generateNow(),
-    stopSong: () => { if (playing) stop(); },
+    stopSong: (outcome) => { if (playing || tuning) stop(outcome); },
     onClose: leaveGuest,
     onNowPlaying: (ctl) => { jukeboxNow = ctl; syncNowPlaying(); },
     onRemix: () => current && remixSong(current, true),
@@ -824,7 +852,7 @@ function showJukebox() {
 }
 
 // Saved Club sets replay from their timeline; `asGuest` (jukebox) keeps the listener's own project safe.
-function timelineHooks(asGuest) {
+function timelineHooks(asGuest, replayStats = null) {
   return {
     load: (s, st) => {
       if (asGuest && !guest) guest = { backup: clone(state), style };
@@ -853,19 +881,22 @@ function timelineHooks(asGuest) {
       if (seq && !state.chainOn && want !== seq.cur) seq.queued = want;
       build(); if (!guest) persist();
     },
-    play: (opts) => play({ ...opts, room: !asGuest }), isPlaying: () => playing, onEnd: () => playing && stop(),
+    play: (opts) => play({ ...opts, room: !asGuest, replayStats }), isPlaying: () => playing, onEnd: () => playing && stop('complete'),
   };
 }
-function replayToRoom(timeline, startsAt) {
-  playTimeline(timeline, startsAt, timelineHooks(false));
-  roomResume = () => replayToRoom(timeline, startsAt);
+function replayToRoom(timeline, startsAt, item) {
+  const stats = item && item.public !== false && timeline.duration > 0
+    ? { surface: 'club', genre: timeline.style, replay: { startsAt, duration: timeline.duration } } : null;
+  playTimeline(timeline, startsAt, timelineHooks(false, stats));
+  roomResume = () => replayToRoom(timeline, startsAt, item);
   syncNowPlaying();
 }
 
 async function joinRoomReplay(item) {
   try {
     const timeline = item.replay.timeline || await loadReplay(item.replay);
-    replayToRoom(timeline, +item.startsAt);
+    playbackStats.end('skip');
+    replayToRoom(timeline, +item.startsAt, item);
     toast(`Replaying “${item.title}” with the room`);
     trackEvent('set_replay', { kind: 'room_listener' });
   } catch { joinRoomSet({ ...item, replay: null }); }
@@ -873,6 +904,8 @@ async function joinRoomReplay(item) {
 
 function joinRoomSet(item) {
   stopTimeline();
+  const sameSet = roomStatsItem === item;
+  roomStatsItem = item;
   if (item?.replay) return joinRoomReplay(item);
   if (!item?.state) return;
   const nextStyle = STYLES[item.style] ? item.style : STYLES[item.state.artist?.style] ? item.state.artist.style : style;
@@ -885,6 +918,7 @@ function joinRoomSet(item) {
     nextStyle === style && roomState.artist?.style === localState.artist?.style && roomState.artist?.seed === localState.artist?.seed &&
     songFingerprint(roomState) === songFingerprint(localState) && JSON.stringify(roomState.sing) === JSON.stringify(localState.sing) &&
     (state.chainOn || roomState.current === state.current);
+  if (!continuous || !sameSet) playbackStats.end('skip');
   style = nextStyle;
   if (continuous) {
     roomState.current = state.current;
@@ -894,8 +928,10 @@ function joinRoomSet(item) {
     engine.editableHits.length = 0;
     build(); persist();
   } else replaceState(roomState);
+  if (item.public !== false) playbackSources.set(state, { surface: 'club', trackId: item.trackId, genre: nextStyle });
   const sync = () => {
     if (!continuous) play({ startsAt });
+    else if (!sameSet) recordPlayback(playbackSources.get(state), ctx.currentTime, abs - Math.max(0, nextTime - ctx.currentTime) / engine.stepDur);
     roomResume = () => joinRoomSet(item);
     syncNowPlaying();
     toast(`Synced to “${item.title || 'Live Machine Set'}”`);
@@ -905,8 +941,16 @@ function joinRoomSet(item) {
   else sync();
 }
 
+function stopRoomStats(item) {
+  if (!item.broadcastId || item.broadcastId !== roomStatsItem?.broadcastId) return;
+  roomStatsItem.public = false;
+  if (trackingReplay || playbackSources.get(state)?.surface === 'club') playbackStats.cancel();
+  if (playbackSources.get(state)?.surface === 'club') playbackSources.delete(state);
+}
+
 function startRoomBroadcast(startsAt) {
   if (playing) {
+    playbackStats.end();
     roomPlayback = roomEditor = true;
     schedule();
     return;
@@ -925,9 +969,16 @@ function showClub({ room = '', intent = '' } = {}) {
     loadTrack: (track) => {
       style = STYLES[track.style] ? track.style : style;
       replaceState(refreshSong(sanitize(clone(track.state))));
+      if (!track.id?.startsWith('local-') && RELEASE_ID.test(track.id || ''))
+        playbackSources.set(state, { surface: 'public', trackId: track.id, fingerprint: songFingerprint(state) });
     },
     // Rooms count steps from where the playing song started (a GENERATE handoff restarts the song, not the clock).
     getTransport: () => ({ playing, startsAt: transportOrigin + (seq?.origin || 0) * (15000 / state.bpm) }),
+    getReleaseId: () => {
+      const source = playbackSources.get(state);
+      return source?.trackId && source.fingerprint === songFingerprint(state) ? source.trackId : '';
+    },
+    onPlaybackUnavailable: stopRoomStats,
     startRoomBroadcast,
     unlockAudio: async () => {
       ensureAudio();
@@ -1485,11 +1536,11 @@ async function openShared(id, autoplay = false) {
     const track = await fetchReleaseTrack(id);
     if (!track?.state) throw new Error('track_missing');
     if (STYLES[track.style]) { style = track.style; family = STYLES[track.style].family; }
-    if (playing) stop();
     const next = refreshSong(sanitize(track.state));
     next.artist = { ...(next.artist || {}), title: track.title, name: track.artist || next.artist?.name, style: track.style };
     songOrigin = { src: 'shared', tid: track.id || id };
-    replaceState(next);
+    replaceState(next, 'skip');
+    playbackSources.set(state, { surface: 'public', trackId: track.id || id, fingerprint: songFingerprint(state) });
     if (autoplay) play(); else toast(`Loaded “${track.title}”. Press play.`);
   } catch { toast('Could not load that track'); }
 }
@@ -1804,6 +1855,7 @@ function describeBox() {
 }
 
 function adoptState(next) {
+  if (playbackSources.delete(state)) playbackStats.end('skip');
   if (playing && next.bpm !== state.bpm) transportOrigin = Date.now() - ((Date.now() - transportOrigin) / (15000 / state.bpm)) * (15000 / next.bpm);
   Object.assign(state, next);
   engine?.prepareVocal();
