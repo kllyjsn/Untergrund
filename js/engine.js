@@ -536,8 +536,8 @@ export class Engine {
     const ch = this.ch[tid];
     if (id === 'level') return this.setTo(ch.level.gain, v, immediate);
     if (id === 'pan') return this.setTo(ch.pan.pan, v, immediate);
-    if (id === 'rev') return this.setTo(ch.rev.gain, v, immediate);
-    if (id === 'dly') return this.setTo(ch.dly.gain, v, immediate);
+    if (id === 'rev') return this.setTo(ch.rev.gain, v * (tid === 'stab' && this.smoothOn > 0 ? 1.6 : 1), immediate);
+    if (id === 'dly') return this.setTo(ch.dly.gain, v * (tid === 'stab' && this.smoothOn > 0 ? 1.6 : 1), immediate);
     if (tid === 'kick' && id === 'rumble') return this.setTo(ch.rumble.gain, v * v, immediate);
     if (tid === 'acid') {
       const a = this.acidNodes;
