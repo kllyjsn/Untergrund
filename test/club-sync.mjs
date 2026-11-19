@@ -10,6 +10,7 @@ import { findChrome } from './chrome.mjs';
 import { defaultState, emptyPattern } from '../js/state.js';
 import { installAudioTap, envelope, postResumeEnvelope, onsets, resolvedCompare, fixtureMissing, BPM, KICK_STEPS, PERIOD_MS } from './club-sync-audio.mjs';
 import { transitionAudio } from './club-sync-transition.mjs';
+import { measureDJEdits } from './club-dj-edit.mjs';
 import { installDiagnostics, diagnose } from './club-sync-diagnostics.mjs';
 import { mixFixture, mixBoundaries, mixGraphEdges, installMixStem, analyzeMix, mixFailures } from './club-sync-mix.mjs';
 
@@ -24,6 +25,8 @@ const SCENARIOS = [
   { name: 'reconnect', offlineMs: 10000 },
   { name: 'reconnect-expired', offlineMs: 20000 },
   { name: 'foreground-stall', mainThreadStallMs: 320 },
+  { name: 'dj-foreground-stall', mainThreadStallMs: 320, stallDJ: true },
+  { name: 'dj-edit-latency', djLatency: true },
   { name: 'background-wake', freezeMs: 15000 },
   { name: 'downbeat-wake', freezeMs: 15000, wakeOnDownbeat: true },
   { name: 'short-wake', freezeMs: 800 },
@@ -130,6 +133,12 @@ async function scenario(base, spec) {
   const clients = [];
   try {
     const song = spec.mix ? mixFixture() : fixture();
+    if (spec.djLatency) {
+      song.chainOn = false;
+      song.patterns[0].len.kick = 4;
+      song.patterns[0].steps.kick.fill(0);
+      song.patterns[0].steps.kick[0] = 1;
+    }
     const host = await client(base, spec.hostSkew, song, 0, spec.mix); clients.push(host);
     await host.nav('/'); await host.click('.club-btn');
     let listener;
@@ -157,10 +166,12 @@ async function scenario(base, spec) {
         memberSeen: r.members.map(m => ({ id: m.id, seen: m.seen })), startsAt: r.currentSet?.startsAt };
     };
     const initial = await snapshot(), events = { initial };
+    if (spec.djLatency)
+      return { name: spec.name, spec, edits: await measureDJEdits(host, listener, initial.startsAt, { until, pause }) };
     const listenerId = await listener.run('sessionStorage.getItem("untergrund.client")');
     if (spec.mainThreadStallMs) {
       const target = initial.startsAt + Math.ceil((Date.now() + 2500 - initial.startsAt) / PERIOD_MS) * PERIOD_MS;
-      await listener.run(`(() => {
+      await (spec.stallDJ ? host : listener).run(`(() => {
         const epoch = () => performance.timeOrigin + performance.now();
         setTimeout(() => {
           const visibility = document.visibilityState, from = epoch();
@@ -261,7 +272,7 @@ async function scenario(base, spec) {
     const start = Math.max(he[0][0], le[0][0], ho[0], lo[0], events.newSet ? events.broadcastAt ?? events.newSet.startsAt : 0) + 500;
     const end = Math.min(he.at(-1)[0], le.at(-1)[0]) - 100;
     if (spec.mainThreadStallMs) {
-      const { mainThreadStall: stall, anchors } = raw[1];
+      const { mainThreadStall: stall, anchors } = raw[spec.stallDJ ? 0 : 1];
       assert.ok(stall && stall.visibility === 'visible' && stall.from < events.stallTarget && stall.to > events.stallTarget,
         'Foreground main-thread stall straddled the intended downbeat');
       assert.ok(stall.from >= start && stall.to <= end, 'Stall was inside the capture window');
@@ -363,13 +374,14 @@ try {
       results.push({ ...await scenario(base, spec), run });
     }
   }
-  console.table(results.map(r => ({ scenario: r.name, 'median |Δ| ms': r.median?.toFixed(2), 'p95 ms': r.p95?.toFixed(2),
+  console.table(results.filter(r => !r.spec.djLatency).map(r => ({ scenario: r.name, 'median |Δ| ms': r.median?.toFixed(2), 'p95 ms': r.p95?.toFixed(2),
     'max ms': r.max?.toFixed(2), matched: r.matched, missing: `${r.hostFixture.missing}/${r.missing}`,
     'signed lag ms': r.signedLagMs, 'entry→aligned ms': r.navigationToFirstAlignedKickMs?.toFixed(0) })));
   console.log('Detector validation: empty audio has no onsets; empty comparison cannot pass.');
   assert.deepEqual(onsets([], BPM), []); assert.equal(resolvedCompare([], [], 0, 10000).median, null);
   assert.throws(() => envelope({ errors: ['unsupported route'], anchors: [], samples: [] }), /unsupported route/);
   const failures = results.filter(r => {
+    if (r.spec.djLatency) return r.edits.missed > 0;
     if (r.spec.mix) return r.failures.length;
     if (r.spec.displacementMs) return !r.injectedEvidence || Math.abs(r.injectedEvidence.errorMs) > 50;
     const s = r.phases.after || r;

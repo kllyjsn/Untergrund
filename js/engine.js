@@ -238,6 +238,8 @@ export class Engine {
     this.vocalOf = vocal;
     this.queuedNotes = trackQueuedNotes ? [] : null;
     this.queuedNotesPrunedAt = 0;
+    this.editableHits = [];
+    this.ducks = [];
     this.noise = makeNoise(ctx, 2);
     this.buildMaster();
     this.buildFx();
@@ -577,7 +579,59 @@ export class Engine {
       this.queuedNotes = this.queuedNotes.filter(note => note.t > now);
       this.queuedNotesPrunedAt = now;
     }
-    this.queuedNotes.push({ src, t });
+    const note = { src, t };
+    this.queuedNotes.push(note);
+    this.editingHit?.sources.push(note);
+  }
+
+  planHit(time, track, pattern, plan) {
+    const hit = { time, track, pattern, plan, note: plan(), sources: [], ducks: [] };
+    this.editableHits.push(hit);
+    if (hit.note) this.renderHit(hit);
+  }
+
+  renderHit(hit) {
+    if (!hit.note) return;
+    const { method, args, step, scale, harm } = hit.note;
+    const previous = { step: this.step, stepScale: this.stepScale, harm: this.harm };
+    Object.assign(this, { step, stepScale: scale, harm, editingHit: hit });
+    try { this[method](...args); }
+    finally { Object.assign(this, previous, { editingHit: null }); }
+  }
+
+  pruneEditableHits(now) {
+    this.editableHits = this.editableHits.filter(hit => hit.time + 0.08 >= now);
+  }
+
+  reviseHits(track, pattern) {
+    if (!this.editableHits.length) return;
+    const now = this.ctx.currentTime, ready = now + HIT_EDIT_GUARD;
+    this.pruneEditableHits(now);
+    const removed = new Set();
+    let duckFrom = Infinity;
+    this.revisingHits = true;
+    try {
+      for (const hit of this.editableHits) {
+        if ((track && hit.track !== track) || (pattern != null && hit.pattern !== pattern)) continue;
+        const next = hit.plan(), prev = hit.note;
+        if (next?.key === prev?.key ||
+            (next && next.time < ready) || (prev && prev.time < ready) ||
+            hit.sources.some(src => src.t < ready)) continue;
+        for (const note of hit.sources) {
+          note.src.stop(now);
+          removed.add(note);
+        }
+        for (const { t } of hit.ducks) duckFrom = Math.min(duckFrom, t);
+        this.ducks = this.ducks.filter(d => !hit.ducks.includes(d));
+        Object.assign(hit, { note: next, sources: [], ducks: [] });
+        if (next) this.renderHit(hit);
+        for (const { t } of hit.ducks) duckFrom = Math.min(duckFrom, t);
+      }
+    } finally {
+      this.revisingHits = false;
+      if (removed.size) this.queuedNotes = this.queuedNotes.filter(note => !removed.has(note));
+      if (Number.isFinite(duckFrom)) this.rebuildDucks(duckFrom);
+    }
   }
 
   discardQueuedNotes(now) {
@@ -585,6 +639,8 @@ export class Engine {
     // stop() before a source's scheduled start prevents it from sounding.
     for (const { src, t } of this.queuedNotes) if (t > now) src.stop(now);
     this.queuedNotes.length = 0;
+    this.editableHits.length = 0;
+    this.ducks.length = 0;
 
     const acid = this.acidNodes;
     for (const p of [acid.env.offset, acid.o1.frequency, acid.o2.frequency, this.subVoice?.o.frequency]) p?.cancelScheduledValues(now);
@@ -621,19 +677,45 @@ export class Engine {
   duckAt(t, v) {
     const depth = this.state.master.duck * Math.min(1, v * 1.25) * 0.9;
     // Pump recovers over roughly one beat so offbeat basslines and pads audibly breathe
-    const pairs = [[this.duck.gain, depth, this.stepDur * 1.5], [this.rumbleDuck.gain, 0.98, this.stepDur * 0.47]];
-    for (const [param, d, rel] of pairs) {
-      param.cancelScheduledValues(t);
-      param.setTargetAtTime(1 - d, t, 0.0025);
-      param.setTargetAtTime(1, t + 0.03, rel);
-    }
+    const parts = [[this.duck.gain, depth, this.stepDur * 1.5, 0.0025, 0.03],
+      [this.rumbleDuck.gain, 0.98, this.stepDur * 0.47, 0.0025, 0.03]];
     // Club low end: the kick owns the first few ms, then the bass comes straight back.
     const L = lowEnd(this.state.master), sc = this.ch.acid.sc?.gain;
-    if (L && sc) {
-      sc.cancelScheduledValues(t);
-      sc.setTargetAtTime(1 - L.dip * Math.min(1, v * 1.2), t, 0.002);
-      sc.setTargetAtTime(1, t + 0.012, L.rel);
+    if (L && sc) parts.push([sc, L.dip * Math.min(1, v * 1.2), L.rel, 0.002, 0.012]);
+    const duck = { t, parts };
+    if (this.queuedNotes) {
+      this.ducks = this.ducks.filter(d => d.t + 0.03 >= this.ctx.currentTime);
+      this.ducks.push(duck);
+      this.editingHit?.ducks.push(duck);
     }
+    if (!this.revisingHits) this.scheduleDuck(duck);
+  }
+
+  scheduleDuck({ t, parts }) {
+    for (const [param, depth, release, attack, hold] of parts) {
+      param.cancelScheduledValues(t);
+      param.setTargetAtTime(1 - depth, t, attack);
+      param.setTargetAtTime(1, t + hold, release);
+    }
+  }
+
+  // Rebuild only future ducking; a hit already sounding keeps its current pump.
+  rebuildDucks(from) {
+    this.ducks.sort((a, b) => a.t - b.t);
+    for (const param of [this.duck.gain, this.rumbleDuck.gain, this.ch.acid.sc?.gain]) {
+      if (!param) continue;
+      param.cancelScheduledValues(from);
+      let previous;
+      for (const duck of this.ducks) {
+        if (duck.t >= from) break;
+        if (duck.parts.some(p => p[0] === param)) previous = duck;
+      }
+      if (previous) {
+        const [, , release, , hold] = previous.parts.find(p => p[0] === param);
+        if (previous.t + hold >= from) param.setTargetAtTime(1, previous.t + hold, release);
+      }
+    }
+    for (const duck of this.ducks) if (duck.t >= from) this.scheduleDuck(duck);
   }
 
   // A live band (SOUL pocket on the LIVE kit) is balanced as recorded; level matching is for club mixes.
@@ -2446,6 +2528,9 @@ export function parseChain(str) {
 }
 
 const DRUMS = new Set(['kick', 'clap', 'snare', 'ch', 'oh', 'ride', 'perc']);
+// Hats choke other hits; acid slides and stab voicings also carry state across steps.
+const EDITABLE_HITS = new Set(['kick', 'clap', 'snare', 'ride', 'perc', 'vox']);
+const HIT_EDIT_GUARD = 0.012;
 
 // Is the hook sounding at (or about to play) step hi? A note started k steps ago still rings for its length.
 function hookBusy(hk, hi, hm) {
@@ -2545,7 +2630,7 @@ export class Sequencer {
     this.e.sectionGain(t, db, ramp);
   }
 
-  tick(abs, t, roomGridTime) {
+  tick(abs, t, roomGridTime, editable = false) {
     abs -= this.origin || 0;
     const s = this.s, e = this.e;
     this.advanceBar(abs, t);
@@ -2595,7 +2680,6 @@ export class Sequencer {
     // A song verse running straight into the pre-chorus fills its own last bar (no D/H turnaround follows it).
     const turn = pat.sec && (this.cur === 2 || this.cur === 6) && this.runPos === this.runLen - 1 && pos + 1 < n && ![3, 7].includes(this.chainArr[pos + 1]);
     const fillAt = turn ? 12 : rp >= 0 && (this.cur === 2 || this.cur === 6) && rp % 8 === 7 && rp < this.runLen - 1 ? (rp % 16 === 15 ? 8 : 12) : 16;
-    const roller = pat.steps.snare.some(Boolean) ? 'snare' : 'clap';
     // A band drummer marks each new section with a crash and plays the fills around the toms.
     const band = pk?.band && Math.round(s.master.kit || 0) === 1;
     // The rhythm guitar palm-mutes the verse and breakdown and opens up for the pre-chorus and chorus.
@@ -2603,6 +2687,10 @@ export class Sequencer {
     if (band && i16 === 0 && pos > 0 && this.chainArr[pos - 1] !== this.cur && pat.steps.kick.some(Boolean) && !s.mutes.oh && (!anySolo || s.solos.oh)) {
       e.crash(tt + pocketLate(pk, 'oh', 0), this.cur === 6 || this.cur === 7 ? 1 : 0.7);
     }
+    // A queued fill keeps its instrument when a single track is edited.
+    const roller = rp >= 0 && i16 >= fillAt && pat.steps.snare.some(Boolean) ? 'snare' : 'clap';
+    const grid = { abs, tt, bar, i16, vary, rp, pos, n, fillAt, roller, pk, band, sung, hum: s.master.humanize || 0, liveKit: Math.round(s.master.kit || 0) === 1 };
+    const hitContext = editable ? { cur: this.cur, runLen: this.runLen, smooth: this.smooth, build: this.build } : null;
     for (const id of TRACK_IDS) {
       const on = !s.mutes[id] && (!anySolo || s.solos[id]);
       const len = pat.len[id] || 16;
@@ -2641,41 +2729,25 @@ export class Sequencer {
         e.trigger(id, tt + sd / 2, base * 0.8);
         continue;
       }
+      if (!hard && this.dropNext && id === 'kick' && i16 >= (this.smooth ? 15 : arr >= 0.75 ? 12 : 14)) continue;
+      if (this.dropNext && id === 'snare' && arr > 0 && i16 >= 8 && !this.smooth) continue;
+      if (editable && EDITABLE_HITS.has(id)) {
+        const step = e.step, scale = e.stepScale, harm = e.harm;
+        e.planHit(t, id, hitContext.cur, () => {
+          if (this.s !== s || s.mutes[id] || (TRACK_IDS.some(k => s.solos[k]) && !s.solos[id])) return null;
+          const current = patternAt(s.patterns[hitContext.cur], pos);
+          if (!current) return null;
+          const hit = this.gridHit.call(hitContext, id, current, grid);
+          return hit && { ...hit, key: JSON.stringify([hit.method, ...hit.args]), step, scale, harm };
+        });
+        continue;
+      }
       if (!on) { if (id === 'stab' && e.gripHeld?.length) e.quietGrip(tt); continue; }
       // Accompaniment listens to the lead. Do not stack a chord stab on top of
       // the hook's important notes; the gap makes the motif read as intentional.
       if (id === 'stab' && hookStep) continue;
-      if (!hard && this.dropNext && id === 'kick' && i16 >= (this.smooth ? 15 : arr >= 0.75 ? 12 : 14)) continue;
-      if (this.dropNext && id === 'snare' && arr > 0 && i16 >= 8 && !this.smooth) continue;
-      let v = pat.steps[id][i];
-      if (vary) {
-        const k = TRACK_IDS.indexOf(id), roll = hash(abs * 1.37 + bar, k + 40);
-        if (v && (id === 'ch' || id === 'perc' || id === 'ride' || id === 'vox') && roll < vary * 0.18) v = 0;
-        else if (!v && id === 'snare' && roll < vary * (bar % 4 === 3 && i >= 12 ? 0.7 : 0.1)) v = 0.45;
-        else if (!v && id === 'ch' && roll < vary * 0.12) v = 0.4;
-        else if (!v && id === 'kick' && i % 4 === 3 && roll < vary * 0.08) v = 0.6;
-        if (bar % 8 === 7 && i >= 12 && (id === 'kick' || id === 'stab') && hash(bar, k) < vary) v = 0;
-      }
-      if (rp >= 0) v = this.build(id, v, pat, i16, rp, pos < n / 2, fillAt, roller);
-      // Ghost hats: the hand keeps moving between the written hits, barely touching the cymbal
-      if (pk?.ghost && !v && id === 'ch' && i16 % 2 && pat.steps.ch.some(Boolean) && hash(abs * 1.91 + bar, 97) < pk.ghost) v = 0.26;
-      const hum = s.master.humanize || 0;
-      const k = TRACK_IDS.indexOf(id), drum = DRUMS.has(id), cym = id === 'ch' || id === 'ride' || id === 'oh';
-      const late = hum * ((id === 'snare' || id === 'clap') ? 0.03 : id === 'perc' ? (i % 2 ? 0.02 : 0.008) : cym ? (i % 2 ? 0.016 : 0.006) : id === 'kick' ? -0.003 : id === 'stab' || id === 'acid' ? 0.016 : 0);
-      // Drummer feel: the whole kit breathes together over 8 bars and pushes into each 4-bar fill
-      const phrase = drum ? hum * (0.007 * Math.sin((Math.PI * 2 * abs) / 128 + 1.3) - (bar % 4 === 3 && i >= 8 ? 0.005 : 0)) : 0;
-      const ht = tt + late + phrase + (hash(bar, k + 60) - 0.5) * hum * 0.006 + (hash(abs, k) - 0.5) * hum * 0.008
-        + (pk ? pocketLate(pk, id, i16) + (hash(abs, k + 70) - 0.5) * pk.jitter / 1000 : 0);
-      const pv = pk ? pocketVel(pk, id, i16) : 1;
-      const accent = cym && !pk ? (i % 4 === 0 ? 1 : i % 2 === 0 ? 0.84 : 0.68) : 1;
-      const swell = drum ? 1 - hum * 0.1 * (3 - (bar % 4)) / 3 : 1;
-      const hv = (1 - hum * 0.22 * hash(abs, k + 20)) * (1 - hum * (1 - accent)) * swell * pv;
-      const ghostSnare = id === 'snare' && Math.round(s.master.kit || 0) === 1;
-      const under = id === 'stab' && this.songBars && sung?.any ? STAB_UNDER_VOICE[pat.sec && sung.part === 'v' ? 'n' : sung.part] ?? STAB_UNDER_VOICE.n : 1;
-      const vel = (v === 2 ? 1 : v === 1 ? (ghostSnare ? 0.45 : 0.78) : v) * hv * under;
-      if (v && id === 'vox') e.vox(ht, vel, i);
-      else if (v && band && id === 'snare' && (this.cur === 3 ? i16 >= 12 : i16 >= fillAt)) e.tom(ht, vel, i16 < 14);
-      else if (v) e.trigger(id, ht, vel);
+      const hit = this.gridHit(id, pat, grid);
+      if (hit) e[hit.method](...hit.args);
     }
     // A band adds players by section (BAND_LAYER): strings under the changes, a piano doubling the strum.
     if (band && i16 % 8 === 0 && pat.sec && !pat.score && !s.mutes.stab && (!anySolo || s.solos.stab)) e.bandLayer(tt, pat.sec, i16, s.artist?.style);
@@ -2714,6 +2786,40 @@ export class Sequencer {
     }
     if (this.roll === null) this.rollCount = 0;
     return this.cur;
+  }
+
+  gridHit(id, pat, { abs, tt, bar, i16, vary, rp, pos, n, fillAt, roller, pk, band, sung, hum, liveKit }) {
+    const i = abs % (pat.len[id] || 16);
+    let v = pat.steps[id][i];
+    if (vary) {
+      const k = TRACK_IDS.indexOf(id), roll = hash(abs * 1.37 + bar, k + 40);
+      if (v && (id === 'ch' || id === 'perc' || id === 'ride' || id === 'vox') && roll < vary * 0.18) v = 0;
+      else if (!v && id === 'snare' && roll < vary * (bar % 4 === 3 && i >= 12 ? 0.7 : 0.1)) v = 0.45;
+      else if (!v && id === 'ch' && roll < vary * 0.12) v = 0.4;
+      else if (!v && id === 'kick' && i % 4 === 3 && roll < vary * 0.08) v = 0.6;
+      if (bar % 8 === 7 && i >= 12 && (id === 'kick' || id === 'stab') && hash(bar, k) < vary) v = 0;
+    }
+    if (rp >= 0) v = this.build(id, v, pat, i16, rp, pos < n / 2, fillAt, roller);
+    // Ghost hats: the hand keeps moving between the written hits, barely touching the cymbal
+    if (pk?.ghost && !v && id === 'ch' && i16 % 2 && pat.steps.ch.some(Boolean) && hash(abs * 1.91 + bar, 97) < pk.ghost) v = 0.26;
+    const k = TRACK_IDS.indexOf(id), drum = DRUMS.has(id), cym = id === 'ch' || id === 'ride' || id === 'oh';
+    const late = hum * ((id === 'snare' || id === 'clap') ? 0.03 : id === 'perc' ? (i % 2 ? 0.02 : 0.008) : cym ? (i % 2 ? 0.016 : 0.006) : id === 'kick' ? -0.003 : id === 'stab' || id === 'acid' ? 0.016 : 0);
+    // Drummer feel: the whole kit breathes together over 8 bars and pushes into each 4-bar fill
+    const phrase = drum ? hum * (0.007 * Math.sin((Math.PI * 2 * abs) / 128 + 1.3) - (bar % 4 === 3 && i >= 8 ? 0.005 : 0)) : 0;
+    const ht = tt + late + phrase + (hash(bar, k + 60) - 0.5) * hum * 0.006 + (hash(abs, k) - 0.5) * hum * 0.008
+      + (pk ? pocketLate(pk, id, i16) + (hash(abs, k + 70) - 0.5) * pk.jitter / 1000 : 0);
+    const pv = pk ? pocketVel(pk, id, i16) : 1;
+    const accent = cym && !pk ? (i % 4 === 0 ? 1 : i % 2 === 0 ? 0.84 : 0.68) : 1;
+    const swell = drum ? 1 - hum * 0.1 * (3 - (bar % 4)) / 3 : 1;
+    const hv = (1 - hum * 0.22 * hash(abs, k + 20)) * (1 - hum * (1 - accent)) * swell * pv;
+    const ghostSnare = id === 'snare' && liveKit;
+    const under = id === 'stab' && n && sung?.any ? STAB_UNDER_VOICE[pat.sec && sung.part === 'v' ? 'n' : sung.part] ?? STAB_UNDER_VOICE.n : 1;
+    const vel = (v === 2 ? 1 : v === 1 ? (ghostSnare ? 0.45 : 0.78) : v) * hv * under;
+    if (!v) return null;
+    if (id === 'vox') return { method: 'vox', args: [ht, vel, i], time: ht };
+    if (band && id === 'snare' && (this.cur === 3 ? i16 >= 12 : i16 >= fillAt))
+      return { method: 'tom', args: [ht, vel, i16 < 14], time: ht };
+    return { method: 'trigger', args: [id, ht, vel], time: ht };
   }
 
   // With arrangement dynamics on (arr > 0), styles without humanized variation (vary 0, the techno family) develop their long runs by arrangement instead:

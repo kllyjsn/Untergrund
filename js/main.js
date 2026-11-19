@@ -55,6 +55,7 @@ addEventListener('blur', () => { for (const k of [...heldPads.keys()]) ui.perf?.
 let playing = false, abs = 0, nextTime = 0, lastPlayedPat = null;
 let transportOrigin = 0, roomJoinTimer = 0, clockOffset = null;
 let roomPlayback = false;
+let roomEditor = false;
 // A song waiting for its downbeat: { step, from, plan, out } (see queueSong).
 let handoff = null;
 const uiQueue = [];
@@ -171,6 +172,7 @@ function schedule(lead) {
   if (!playing || songOver) return;
   const ahead = typeof lead === 'number' ? lead : document.hidden ? BG_LEAD : roomPlayback ? ROOM_LEAD : 0.12;
   const now = ctx.currentTime;
+  if (roomEditor) engine.pruneEditableHits(now);
   const clock = syncAudioClock(clockOffset, Date.now() / 1000 - now);
   clockOffset = clock.offset;
   let base = 60 / state.bpm / 4, landed = null;
@@ -209,7 +211,7 @@ function schedule(lead) {
     }
     if (jamQueue.length && (abs - seq.origin) % 16 === 0) landJamParts((nextTime + clockOffset) * 1000 + base * 500, t);
     artistTick(abs - seq.origin);
-    const pat = seq.tick(abs, t, roomPlayback ? nextTime : undefined);
+    const pat = seq.tick(abs, t, roomPlayback ? nextTime : undefined, roomEditor);
     uiQueue.push({ abs: abs - seq.origin, t, pat });
     // A score breathes (rubato): the transport clock follows the stretched step, not the metronome.
     const sd = engine.stepDur;
@@ -293,6 +295,7 @@ function landSong(t) {
   const chain = state.chainOn ? parseChain(state.chain) : [];
   state.current = chain.length ? chain[0] : state.current;
   Object.assign(seq, { origin: abs, chainPos: 0, cur: state.current, queued: null, acidPrevSlide: false, dropNext: false });
+  engine.editableHits.length = 0;
   engine.handoffIn(t);
   if (engine.recLock) engine.recLock = new Map();
   uiQueue.length = 0;
@@ -328,7 +331,7 @@ function endTuning() {
   document.body.classList.remove('tuning');
 }
 
-function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room = startsAt !== null || roomPlayback } = {}) {
+function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room = startsAt !== null || roomPlayback, editRoom = roomEditor } = {}) {
   const seeking = playing;
   clearPaused();
   roomResume = null;
@@ -336,6 +339,7 @@ function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room 
   closePractice();
   ensureAudio();
   engine.prepareVocal();
+  engine.editableHits.length = 0;
   const wallNow = Date.now(), audioNow = ctx.currentTime;
   if (startsAt !== null) ({ step, delay } = roomTransportPosition(startsAt, state.bpm, wallNow));
   uiQueue.length = 0;
@@ -356,6 +360,7 @@ function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room 
   transportOrigin = startsAt ?? ((stepWall ?? wallNow + wait * 1000) - abs * (15000 / state.bpm));
   if (!seeking) engine.recLock = new Map();
   roomPlayback = room;
+  roomEditor = room && editRoom;
   playing = true;
   if (pat().score) preloadScore(pat().score);
   timer.postMessage('start');
@@ -379,6 +384,8 @@ function stop() {
   roomJoinTimer = 0;
   playing = false;
   roomPlayback = false;
+  roomEditor = false;
+  if (engine) engine.editableHits.length = 0;
   handoff = null;
   for (const q of jamQueue.splice(0)) applyPart(state, q.part, q.layer);
   guardPushOffer();
@@ -465,10 +472,11 @@ function pause(reason = 'remote') {
   const live = artistLive && { ...artistLive, bar: -1 };
   const rejoin = roomResume;
   const room = roomPlayback;
+  const editRoom = roomEditor;
   listens.hold(listenPos());
   stop();
   paused = { step, reason, live, at: Date.now(), resume: rejoin || (() => {
-    play({ step, room });
+    play({ step, room, editRoom });
     // Artist Live carries on with the same performer and seed.
     if (live && !artistLive && (playing || tuning)) { artistLive = live; state.chainOn = true; document.body.classList.add('artist-live'); build(); syncNowPlaying(); }
   }) };
@@ -891,12 +899,12 @@ function joinRoomSet(item) {
 
 function startRoomBroadcast(startsAt) {
   if (playing) {
-    roomPlayback = true;
+    roomPlayback = roomEditor = true;
     schedule();
     return;
   }
   clearTimeout(roomJoinTimer);
-  roomJoinTimer = setTimeout(() => play({ startsAt }), Math.max(0, startsAt - Date.now() - 60));
+  roomJoinTimer = setTimeout(() => play({ startsAt, editRoom: true }), Math.max(0, startsAt - Date.now() - 60));
 }
 
 function showClub({ room = '', intent = '' } = {}) {
@@ -1163,12 +1171,14 @@ function randomTrack(id) {
   const g = generate(style, (Math.random() * 1e9) | 0);
   pat().steps[id] = g.pattern.steps[id];
   pat().len[id] = g.pattern.len[id];
+  reviseRoomHits(id, state.current);
   renderRow(id); if (id === 'acid') renderRoll(); persist();
 }
 
 function clearTrack(id) {
   pushUndo(`CLR ${TRACK_BY_ID[id].name}`);
   pat().steps[id] = id === 'acid' ? Array.from({ length: STEPS }, emptyAcidStep) : Array(STEPS).fill(0);
+  reviseRoomHits(id, state.current);
   renderRow(id); if (id === 'acid') renderRoll(); persist();
 }
 
@@ -1179,6 +1189,7 @@ function rotateTrack(id, dir) {
   const head = s.slice(0, len);
   const r = dir > 0 ? [head[len - 1], ...head.slice(0, len - 1)] : [...head.slice(1), head[0]];
   for (let i = 0; i < len; i++) s[i] = r[i];
+  reviseRoomHits(id, state.current);
   renderRow(id); if (id === 'acid') renderRoll(); persist();
 }
 
@@ -2002,8 +2013,8 @@ function buildGrid() {
     const id = t.id;
     const name = h('button', { class: 'tname', style: `--tc:${t.color}`, title: `${t.name} — click to edit & audition (key ${ti + 1} mutes)`, 'aria-pressed': String(selected === id),
       onclick: () => { selected = id; build(); audition(id); } }, h('span', { class: 'led' }), t.name);
-    const m = h('button', { class: 'm', title: 'Mute', 'aria-label': `Mute ${t.name}`, onclick: () => { state.mutes[id] = !state.mutes[id]; renderAllRows(); persist(); } }, 'M');
-    const s = h('button', { class: 's', title: 'Solo', 'aria-label': `Solo ${t.name}`, onclick: () => { state.solos[id] = !state.solos[id]; renderAllRows(); persist(); } }, 'S');
+    const m = h('button', { class: 'm', title: 'Mute', 'aria-label': `Mute ${t.name}`, onclick: () => toggleTrackFlag('mutes', id) }, 'M');
+    const s = h('button', { class: 's', title: 'Solo', 'aria-label': `Solo ${t.name}`, onclick: () => toggleTrackFlag('solos', id) }, 'S');
     const l = h('button', { class: 'l', title: 'Lock this track so generation and evolution preserve it', 'aria-label': `Lock ${t.name}`,
       onclick: () => { state.locks[id] = !state.locks[id]; renderAllRows(); persist(); } }, 'L');
     const cells = Array.from({ length: STEPS }, (_, i) => h('div', { class: 'step' + (i % 4 === 0 ? ' beat' : ''), 'data-i': i, role: 'button', tabindex: '-1' }, h('span', { class: 'nl', 'aria-hidden': 'true' })));
@@ -2025,7 +2036,7 @@ function buildGrid() {
       if (+cell.dataset.i !== paint.i && !paint.many) { paint.many = true; history.relabel(`PAINT ${t.name} steps`); }
       applyStep(id, +cell.dataset.i, paint.target);
     });
-    const len = numBox({ min: 1, max: STEPS, step: 1, def: STEPS }, pat().len[id], (v) => { pat().len[id] = v; renderRow(id); persist(); }, { cls: 'len', name: `${t.name} LEN` });
+    const len = numBox({ min: 1, max: STEPS, step: 1, def: STEPS }, pat().len[id], (v) => { pat().len[id] = v; reviseRoomHits(id, state.current); renderRow(id); persist(); }, { cls: 'len', name: `${t.name} LEN` });
     len.el.title = 'Track length (polymeter) — drag / wheel';
     const lvlQ = MIX_PARAMS[0];
     const lvl = knob(lvlQ, state.params[id].level, (v) => { setParam(id, 'level', v); if (selected === id) ui.editorKnobs?.level?.set(v); },
@@ -2083,6 +2094,17 @@ function stepTarget(id, i, e) {
   return cur ? 0 : 1;
 }
 
+function reviseRoomHits(track, pattern) {
+  if (roomEditor && !document.hidden && ctx.state === 'running') engine.reviseHits(track, pattern);
+}
+
+function toggleTrackFlag(key, id) {
+  state[key][id] = !state[key][id];
+  if (key === 'mutes') reviseRoomHits(id);
+  if (key === 'solos') reviseRoomHits();
+  renderAllRows(); persist();
+}
+
 function applyStep(id, i, target) {
   const s = pat().steps[id];
   if (id === 'acid') {
@@ -2091,6 +2113,7 @@ function applyStep(id, i, target) {
     else { st[target.mode] = target.val; if (target.val) st.on = true; }
     renderRoll();
   } else s[i] = target;
+  reviseRoomHits(id, state.current);
   renderRow(id); renderPatterns(); persist();
 }
 
@@ -2189,7 +2212,7 @@ function buildEditor() {
     stab: 'Tap a step to play a chord · shift or right-click makes it louder',
     sampler: 'Tap a step to play a slice · SCATTER picks slices · MELODY sings it in key',
   }[t.kind];
-  const flag = (key, cls, label, title) => h('button', { class: cls, title, 'aria-label': `${title} ${t.name}`, onclick: () => { state[key][id] = !state[key][id]; renderAllRows(); persist(); } }, label);
+  const flag = (key, cls, label, title) => h('button', { class: cls, title, 'aria-label': `${title} ${t.name}`, onclick: () => toggleTrackFlag(key, id) }, label);
   ui.edMs = { m: flag('mutes', 'm', 'M', 'Mute'), s: flag('solos', 's', 'S', 'Solo'), l: flag('locks', 'l', 'L', 'Lock') };
   const picker = h('div', { class: 'track-pick', role: 'group', 'aria-label': 'Track' },
     TRACKS.map((x) => h('button', { class: 'track-chip' + (x.id === id ? ' on' : ''), style: `--tc:${x.color}`, 'aria-pressed': String(x.id === id), onclick: () => { selected = x.id; build(); audition(x.id); } }, x.name)),
@@ -2494,8 +2517,7 @@ window.addEventListener('keydown', (e) => {
   const digit = e.code.startsWith('Digit') ? +e.code.slice(5) : NaN;
   if (digit >= 1 && digit <= TRACK_IDS.length) {
     const id = TRACK_IDS[digit - 1];
-    if (e.shiftKey) state.solos[id] = !state.solos[id]; else state.mutes[id] = !state.mutes[id];
-    renderAllRows(); persist(); return;
+    toggleTrackFlag(e.shiftKey ? 'solos' : 'mutes', id); return;
   }
   if (k === 'arrowleft' || k === 'arrowright') {
     e.preventDefault();
