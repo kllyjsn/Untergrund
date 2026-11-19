@@ -1601,6 +1601,7 @@ export class Engine {
 
   // One saw per chord note, except where 3 or more notes' harmonics land within 1.2% of each other at 1.9-3.4 kHz:
   // stacked there, they ring as one tone the chord never plays, so each note's share is cut 20 dB (10 dB where only 2 meet).
+  // A lone harmonic at 2.2-2.5 kHz, where the ensemble's drift makes it swell, is trimmed 6 dB.
   chordSaws(notes) {
     if (this._saws?.ctx !== this.ctx) this._saws = { ctx: this.ctx, cache: new Map() };
     const fs = notes.map(midiHz), near = (a, b) => Math.abs(a - b) / a < 0.012;
@@ -1611,6 +1612,7 @@ export class Engine {
         if (h < 1900 || h > 3400) continue;
         const mates = fs.filter((g, j) => j !== i && Array.from({ length: Math.ceil(3500 / g) }, (_, q) => (q + 1) * g).some((x) => near(h, x))).length;
         if (mates) cut.push(`${k}:${mates >= 2 ? 0.1 : 0.3}`);
+        else if (h > 2200 && h < 2500) cut.push(`${k}:0.5`);
       }
       const key = `${notes[i]}|${cut.join(',')}`;
       if (!this._saws.cache.has(key)) {
