@@ -267,8 +267,15 @@ async function scenario(base, spec) {
       const diagnostics = options.diagnostics ? diagnose(raw, initial.startsAt) : null;
       if (diagnostics) assert.ok(diagnostics.every(d => d.roomClock?.best && d.starts.length && d.schedulerSamples >= 5), 'Diagnostic breakpoints captured both app paths');
       console.log(`${spec.name}: ${spec.offlineMs ? `offline ${spec.offlineMs}ms` : spec.handoff ? 'PASS DECK → new DJ UPDATE ROOM' : 'frozen → wake'}; realign=${mix.timeToRealignMs}ms / budget=${mix.budgetMs}ms`);
-      for (const [name, p] of Object.entries(mix.phases)) console.log(`  ${name}: ${JSON.stringify({
-        kicks:{...p.kicks, pairs:undefined, hostOnsets:undefined, listenerOnsets:undefined}, vocal:{...p.vocal, pairs:undefined}})}`);
+      for (const [name, p] of Object.entries(mix.phases)) {
+        console.log(`  ${name}: ${JSON.stringify({
+          kicks:{...p.kicks, pairs:undefined, hostOnsets:undefined, listenerOnsets:undefined}, vocal:{...p.vocal, pairs:undefined}})}`);
+        for (const [i, stats] of p.attribution.clients.entries())
+          console.log(`  underruns ${name.toUpperCase()} ${['host', 'listener'][i]}: ${stats.countDelta === null ? 'unavailable' : `+${stats.countDelta} / ${stats.durationDeltaMs.toFixed(1)}ms (sampled)`}`);
+        const point = p => `${p.onset === null ? 'missing@' : ''}${(p.referenceAt - initial.startsAt).toFixed(1)}ms start=${p.nearestStart?.when.toFixed(6) ?? 'none'} submit=${p.nearestStart?.submitContextTime.toFixed(6) ?? 'none'} overlap=${p.underrunOverlap === null ? 'unknown' : p.underrunOverlap ? 'yes' : 'no'}`;
+        for (const pair of p.attribution.pairs)
+          console.log(`  kick evidence ${name.toUpperCase()} ${pair.kind}${pair.deltaMs === null ? '' : ` Δ=${pair.deltaMs.toFixed(1)}ms`}: host[${point(pair.host)}] listener[${point(pair.listener)}]`);
+      }
       for (const b of mix.boundaries) console.log(`  boundary: ${JSON.stringify(b)}`);
       console.log(`  summary: ${JSON.stringify({ missing:mix.phases.after.kicks.missing, extra:mix.phases.after.kicks.extra,
         medianMs:mix.phases.after.kicks.median, maxMs:mix.phases.after.kicks.max, recoveryMs:mix.timeToRealignMs,

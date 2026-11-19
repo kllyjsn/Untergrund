@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mixFixture, mixBoundaries, mixGraphEdges, channelEnvelope, analyzeMix, matchEvents, realignment, phraseOnsets, boundaryMetric, mixFailures } from './club-sync-mix.mjs';
+import { mixFixture, mixBoundaries, mixGraphEdges, channelEnvelope, analyzeMix, matchEvents, realignment, phraseOnsets, boundaryMetric, mixFailures, underrunEvidence, kickAttribution } from './club-sync-mix.mjs';
 import { postResumeEnvelope, onsets } from './club-sync-audio.mjs';
 
 const s = mixFixture();
@@ -110,3 +110,50 @@ assert.ok(noBoundary.baselineFailures.includes('no section boundaries measured')
 assert.throws(() => analyzeMix([continuous(0), {...continuous(0), channels:{}}], s, {interruptAt:7000, recoverAt:17000}, 0, {resume:false}), /Missing rendered kick graph tap/);
 console.log('Full-mix analysis PASS: isolated rendered channels despite unrelated destination audio; signed offsets; missing/extra kicks/phrases; strict BEFORE limits; realignment; wrong section; resume boundaries; missing tap errors.');
 console.log('Continuous mix analysis PASS: 10s/20s reconnect and handoff windows without resume markers; boundary coverage; maximum alignment; missing tap errors.');
+
+const evidenceCapture = () => ({ anchors:[[0, 0]], errors:[],
+  channels:{kick:{samples:[[1.1, 1], [1.18, 1], [1.5, 1], [1.9, 1]]}},
+  sources:[1.08, 1.48, 1.88].map(when => ({ tag:'kick', when, at:500,
+    clock:{contextTime:.5, outputContextTime:.48, outputEpochMs:480} })),
+  playbackStats:[
+    {at:500, underrunEvents:0, underrunDuration:0, totalDuration:.5},
+    {at:1000, underrunEvents:0, underrunDuration:0, totalDuration:.5},
+    {at:1400, underrunEvents:1, underrunDuration:.03, totalDuration:1.4},
+    {at:1500, underrunEvents:1, underrunDuration:.03, totalDuration:1.4},
+    {at:2200, underrunEvents:1, underrunDuration:.03, totalDuration:2.2},
+  ] });
+const attributedKicks = {...matchEvents([1100, 1500], [1180, 1900], 500, 2200, 150),
+  hostOnsets:[1100, 1500], listenerOnsets:[1180, 1900]};
+const telemetry = evidenceCapture(), missingStats = evidenceCapture();
+delete missingStats.playbackStats;
+telemetry.sources.push({when:1.099, at:500, clock:{contextTime:.5}});
+const unchanged = structuredClone(attributedKicks);
+const evidence = kickAttribution([telemetry, missingStats], attributedKicks);
+assert.deepEqual(attributedKicks, unchanged);
+assert.deepEqual(evidence.pairs.map(p => p.kind), ['displaced', 'unmatched-host', 'unmatched-listener']);
+assert.equal(evidence.clients[0].countDelta, 1);
+assert.equal(evidence.clients[0].durationDeltaMs, 30);
+assert.deepEqual(evidence.clients[0].intervals, [{from:500, to:1400, count:1, durationMs:30}]);
+assert.equal(evidence.clients[1].available, false);
+assert.equal(evidence.clients[1].countDelta, null);
+assert.equal(evidence.clients[1].durationDeltaMs, null);
+assert.equal(evidence.pairs[0].host.underrunOverlap, true);
+assert.equal(evidence.pairs[0].host.nearestStart.when, 1.08, 'Only tagged starts participate');
+assert.equal(evidence.pairs[0].host.nearestStart.submitContextTime, .5);
+assert.ok(Math.abs(evidence.pairs[0].host.nearestStart.nativeAttackDelayMs - 20) < 1e-9);
+assert.equal(evidence.pairs[0].listener.underrunOverlap, null);
+assert.equal(evidence.pairs[1].host.underrunOverlap, false);
+assert.equal(evidence.pairs[1].listener.onset, null);
+assert.equal(evidence.pairs[1].listener.nearestStart.when, 1.48);
+assert.equal(evidence.pairs[2].host.onset, null);
+const noStarts = evidenceCapture(); noStarts.sources = [];
+assert.equal(kickAttribution([noStarts, missingStats], attributedKicks).pairs[0].host.nearestStart, null);
+const alignedKicks = {...matchEvents([1100], [1120], 500, 2200, 150), hostOnsets:[1100], listenerOnsets:[1120]};
+assert.deepEqual(kickAttribution([telemetry, missingStats], alignedKicks).pairs, []);
+assert.deepEqual(underrunEvidence({playbackStats:[]}, 0, 100).intervals, []);
+assert.equal(underrunEvidence(telemetry, 1000, 1000).countDelta, null);
+assert.equal(underrunEvidence({playbackStats:[{at:0, underrunEvents:NaN, underrunDuration:0}]}, 0, 100).available, false);
+const resetStats = {playbackStats:[{at:0, underrunEvents:2, underrunDuration:.2}, {at:100, underrunEvents:0, underrunDuration:0}]};
+assert.equal(underrunEvidence(resetStats, 0, 100).countDelta, null);
+assert.deepEqual(underrunEvidence(resetStats, 0, 100).intervals, []);
+console.log('Kick attribution PASS: overlapping cached-counter interval; tagged native start/submit; unmatched/displaced kicks; no overlap; absent/invalid/reset stats; empty starts; unchanged kick metrics.');

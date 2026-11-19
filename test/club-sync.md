@@ -319,6 +319,25 @@ The normal connections remain untouched. Each parallel worklet passes the
 samples through to its own zero-gain destination branch, so it is pulled by
 the same audio graph without changing the song or adding audible output.
 
+The connect/start probes also tag kick oscillators by their path to the kick
+level, recording requested `when` and submit-time `clock.contextTime`. The
+existing 100ms clock sampler records `playbackStats` counters when supported;
+older Chrome leaves the array empty. BEFORE/AFTER reports include each client's
+underrun count/duration delta between the first and last samples inside the
+window (`sampledFrom`/`sampledTo` in JSON). Missing, insufficient or reset stats
+report unavailable, not zero. No assertions depend on this telemetry.
+
+`mix.phases.*.attribution` lists unmatched onsets and pairs displaced by more
+than 50ms, with nearest tagged starts and observed underrun overlap. Detected
+onsets select starts by native context time; a missing counterpart uses the
+other client's onset as its reference and selects by projected output time.
+Unmatched onsets are not re-paired. Counter-update brackets merge unchanged
+cached snapshots (using `totalDuration`), because Chrome can refresh stats
+less often than they are sampled. Overlap is coarse evidence, not a precise
+underrun timestamp or proof of causation; `no` means no observed bracket,
+and `unknown` means absent/out-of-range stats. Tagged starts may have been
+cancelled; nearest-start attribution alone does not prove a source played.
+
 Each isolated tap reports full-range RMS; no spectral separation, score gating
 or host-template acceptance threshold is needed. The existing smoothed flux
 detector finds isolated kick onsets, matched one-to-one within ±150ms with
