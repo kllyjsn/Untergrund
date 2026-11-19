@@ -153,3 +153,19 @@ console.log('sung song passed');
   assert(inTake.length && inTake.every((L) => want.has(L.a[2])), 'a take sings its own melody');
 }
 console.log('scoped melody passed');
+
+{
+  const piano = generate('trap', 42), bells = generate('trap', 11);
+  assert.equal(piano.params.stab.voice, 7);
+  assert.notEqual(bells.params.stab.voice, 7);
+  assert.equal(piano.pattern.hook.v, bells.pattern.hook.v);
+  const peak = (g, part) => Math.max(...g.pattern.hook.m[part].map((note) => note[3]));
+  for (const part of ['n', 'v', 'b']) {
+    assert(peak(piano, part) < peak(bells, part), `Trap's piano melody leaves more headroom in ${part}`);
+  }
+  const { m, s } = piano.pattern.hook;
+  assert.deepEqual(piano.pattern.sections.vhook.m, m, 'section variations inherit the lighter touch');
+  for (const [step, , , vel] of m.n) {
+    if (step >= 0 && step < 32) assert.equal(s[step][2], vel, 'preview matches the piano performance');
+  }
+}
