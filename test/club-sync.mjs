@@ -248,10 +248,10 @@ async function scenario(base, spec, network, run) {
       song.patterns[0].steps.kick.fill(0);
       song.patterns[0].steps.kick[0] = 1;
     }
-    const prejoin = spec.mix && !options.net && !spec.expiredMix && !!(spec.offlineMs || spec.freezeMs);
-    const limitPaint = spec.expiredMix || prejoin;
-    const hideStage = spec.handoff && spec.mix;
-    const rendering = { limitPaint: limitPaint || hideStage, hideStage };
+    const handoffMix = spec.handoff && spec.mix;
+    const prejoin = spec.mix && !options.net && !spec.expiredMix && !!(spec.offlineMs || spec.freezeMs || handoffMix);
+    const skipPaint = () => Promise.all(clients.map(c => c.run("document.body.style.contentVisibility = 'hidden'")));
+    const rendering = { limitPaint: spec.expiredMix || prejoin || handoffMix, hideStage: handoffMix };
     let room = prejoin || spec.coldDownbeat ? `sync-${randomBytes(6).toString('hex')}` : null;
     const snapshot = async () => {
       const response = await fetch(`${base}/api/rooms/${room}`);
@@ -305,9 +305,9 @@ async function scenario(base, spec, network, run) {
       return b?.textContent === 'LISTEN LIVE' ? 'listen' : (__clubAudio.samples.some(r => r[1] > .001) ? 'automatic' : null);
     })()`), 'listener audio or LISTEN LIVE');
     if (joined === 'listen') await listener.click('.club-primary');
-    if (limitPaint) {
+    if (!handoffMix && rendering.limitPaint) {
       // The real UI actions are done; skip painting while the audio and network run.
-      await Promise.all(clients.map(c => c.run("document.body.style.contentVisibility = 'hidden'")));
+      await skipPaint();
     }
     const initial = await snapshot(); events.initial = initial;
     events.cdpProbeMs = clients.map(c => c.cdpProbe);
@@ -355,6 +355,7 @@ async function scenario(base, spec, network, run) {
         events.passed = await until(async () => { const s = await snapshot(); return s.hostId === listenerId && s; }, 'deck passed on room server');
         await until(() => listener.run(`[...document.querySelectorAll('.club-secondary')].some(b => b.textContent === 'UPDATE ROOM')`), 'new DJ controls');
         events.broadcastAt = await listener.clickText('UPDATE ROOM');
+        if (handoffMix) await skipPaint();
       } else {
         events.seed = await seedReplay(host, room, fixture());
         const barMs = 240000 / song.bpm, leadMs = 3000;
