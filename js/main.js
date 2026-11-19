@@ -54,6 +54,7 @@ addEventListener('pointerup', (e) => { if (e.pointerType !== 'mouse' || !e.butto
 addEventListener('blur', () => { for (const k of [...heldPads.keys()]) ui.perf?.[k]?.up(); });
 let playing = false, abs = 0, nextTime = 0, lastPlayedPat = null;
 let transportOrigin = 0, roomJoinTimer = 0, clockOffset = null;
+let roomPlayback = false;
 // A song waiting for its downbeat: { step, from, plan, out } (see queueSong).
 let handoff = null;
 const uiQueue = [];
@@ -107,8 +108,10 @@ function persist() { if (guest) return; clearTimeout(saveTimer); saveTimer = set
 let mediaUnlock = null;
 let mediaRoute = null;
 let mediaIdle = 0;
-// Hidden or locked, timers can be throttled to about once a second: queue this much audio instead of 0.12 s.
+// Hidden or locked, timers can be throttled to about once a second.
 const BG_LEAD = 1.5;
+// Room playback needs enough queued audio to ride out a busy main thread.
+const ROOM_LEAD = 0.42;
 // After stopping, let the media element go so the lock screen shows paused (and iOS can release the audio session).
 function releaseMedia() {
   clearTimeout(mediaIdle);
@@ -166,7 +169,7 @@ function ensureAudio() {
 let songOver = false;
 function schedule(lead) {
   if (!playing || songOver) return;
-  const ahead = typeof lead === 'number' ? lead : document.hidden ? BG_LEAD : 0.12;
+  const ahead = typeof lead === 'number' ? lead : document.hidden ? BG_LEAD : roomPlayback ? ROOM_LEAD : 0.12;
   const now = ctx.currentTime;
   const clock = syncAudioClock(clockOffset, Date.now() / 1000 - now);
   clockOffset = clock.offset;
@@ -320,7 +323,7 @@ function endTuning() {
   document.body.classList.remove('tuning');
 }
 
-function start({ step = 0, delay = 0.06, startsAt = null } = {}) {
+function start({ step = 0, delay = 0.06, startsAt = null, room = startsAt !== null } = {}) {
   const seeking = playing;
   clearPaused();
   roomResume = null;
@@ -345,6 +348,7 @@ function start({ step = 0, delay = 0.06, startsAt = null } = {}) {
   clockOffset = null;
   transportOrigin = startsAt ?? (wallNow + Math.max(0.01, delay) * 1000 - abs * (15000 / state.bpm));
   if (!seeking) engine.recLock = new Map();
+  roomPlayback = room;
   playing = true;
   if (pat().score) preloadScore(pat().score);
   timer.postMessage('start');
@@ -838,7 +842,7 @@ function timelineHooks(asGuest) {
       if (seq && !state.chainOn && want !== seq.cur) seq.queued = want;
       build(); if (!guest) persist();
     },
-    play, isPlaying: () => playing, onEnd: () => playing && stop(),
+    play: (opts) => play({ ...opts, room: !asGuest }), isPlaying: () => playing, onEnd: () => playing && stop(),
   };
 }
 function replayToRoom(timeline, startsAt) {
@@ -877,7 +881,11 @@ function joinRoomSet(item) {
 }
 
 function startRoomBroadcast(startsAt) {
-  if (playing) return;
+  if (playing) {
+    roomPlayback = true;
+    schedule();
+    return;
+  }
   clearTimeout(roomJoinTimer);
   roomJoinTimer = setTimeout(() => play({ startsAt }), Math.max(0, startsAt - Date.now() - 60));
 }

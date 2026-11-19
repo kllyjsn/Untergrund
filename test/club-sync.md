@@ -3,7 +3,7 @@
 Run `npm run test:club-sync` with Node 22 and Chrome installed (`CHROME_PATH`
 overrides discovery). Add `-- --assert` for exit-status thresholds, or
 `-- --scenario late-join` (also `listener-skew`, `host-skew`, `cold-invite`,
-`injected-offset`, `reconnect`, `reconnect-expired`, `background-wake`,
+`injected-offset`, `reconnect`, `reconnect-expired`, `foreground-stall`, `background-wake`,
 `dj-handoff`, `replay`). Detector tests: `node test/club-sync-detector.mjs`.
 Transition/diagnostic metric tests: `node test/club-sync-metrics.mjs`.
 
@@ -57,6 +57,10 @@ destination path **before** the PCM tap, leaving Date/performance untouched.
 It asserts measured signed lag is within 50ms of 2000ms, not near zero.
 
 ## Recovery scenarios
+
+`foreground-stall` blocks the visible listener's main thread for 320ms
+across a fixture downbeat. The audio clock must keep running and playback must
+stay aligned without missing or extra kicks.
 
 `reconnect` and `reconnect-expired` record 7s of baseline, then 10s/20s offline,
 then 12s after recovery. Both CDP Network.emulateNetworkConditions(offline) and
