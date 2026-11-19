@@ -2298,7 +2298,7 @@ export class Engine {
       osc('square', f * 2, 0.21, source);
       osc('sine', f, 0.13, lp);
       source.connect(low).connect(this.gain(0.9)).connect(lp);
-      source.connect(high).connect(this.gain(1.48)).connect(lp);
+      source.connect(high).connect(this.gain(1.82)).connect(lp);
     }
     const attack = metal ? 0.005 : soft ? 0.038 : 0.009;
     const peak = v * (metal ? 0.63 : soft ? 0.40 : 0.64);
