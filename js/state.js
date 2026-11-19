@@ -343,9 +343,9 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     Object.assign(params.acid, { wave: 0.55, cutoff: 240, reso: 2.5, envmod: 0.25, decay: 0.18, drive: 0.75 });
     Object.assign(params.stab, { cutoff: 850, reso: 0.8, detune: 9, rev: 0.22, dly: 0.12 });
     Object.assign(params.clap, { tone: 950, decay: 0.2, level: 0.45 });
-    Object.assign(params.ch, { tune: 0.85, decay: 0.045, level: 0.38 });
-    Object.assign(params.oh, { tune: 0.85, decay: 0.22, level: 0.3 });
-    master.duck = 0.7; master.drive = 0.48;
+    Object.assign(params.ch, { tune: 1, decay: 0.055, level: 0.4 });
+    Object.assign(params.oh, { tune: 1, decay: 0.26, level: 0.34 });
+    master.duck = 0.7; master.drive = 0.08;
   } else if (style === 'deephouse') {
     S.ch = range(STEPS, (i) => (i % 4 === 2 ? 1 : 0));
     // A hand shaker playing every 16th; the HOUSE pocket decides which ones it leans on
@@ -792,7 +792,10 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   const hook = hookLine(r2, style, musicalScale);
   if (hook && style === 'hardtechno') {
     hook.v = 'analog';
-    hook.s = hook.s.map((st) => st ? [st[0], st[1], st[2] * 0.9] : 0);
+    hook.o = -1; hook.h = 1;
+    hook.up = 0; hook.x.risk = 0.1;
+    const vel = 0.22 + r2() * 0.08;
+    hook.s = range(32, (i) => i === 0 ? [0, 12, vel] : i === 16 ? [7, 12, vel * 0.9] : 0);
   }
   if (hook) { P.hook = hook; P.hm = 2; }
   // One seeded idea per track, chosen from moves that fit any groove: an octave pop at the end of
@@ -1109,6 +1112,13 @@ export function songPlan(style, seed, length = 'song', bpm = midBpm(style)) {
     const sections = planSections(IDIOM[style] || 'pop', bpm, length, rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)));
     return { chain: formChain(sections), sections };
   }
+  if (style === 'hardtechno' && length !== 'sketch') {
+    const r = rng(Math.imul(seed ^ 0x45d9f3b, 0x27d4eb2d));
+    const runs = [['A', 8], ['B', 8], ['C', pick(r, [16, 24])], ['E', pick(r, [4, 8, 12])], ['F', pick(r, [4, 8])], ['G', 16], ['E', pick(r, [8, 12])], ['F', 8]];
+    const used = runs.reduce((n, [, len]) => n + len, 0);
+    runs.push(['G', 112 - used], ['B', 8], ['A', 8]);
+    return { chain: runs.map(([id, len]) => id.repeat(len)).join(''), sections: null };
+  }
   const kind = style === 'ambient' ? 'ambient' : 'techno';
   if (length === 'sketch') return { chain: CLUB_SKETCH[kind], sections: null };
   if (kind === 'ambient') return { chain: pick(rng(seed + 9), AMBIENT_FULL), sections: null };
@@ -1121,6 +1131,18 @@ export function applySongPlan(s, style, seed, length = 'song') {
   s.chain = plan.chain;
   const keep = Object.keys(s.locks || {}).filter((t) => s.locks[t]);
   developSong(s.patterns, plan.sections, { keep });
+  if (style === 'hardtechno') {
+    for (const i of [4, 5]) for (const id of TRACK_IDS) if (!keep.includes(id)) s.patterns[i].steps[id] = clone(s.patterns[6].steps[id]);
+    for (const run of plan.chain.matchAll(/([A-H])\1*/g)) {
+      const p = s.patterns['ABCDEFGH'.indexOf(run[1])];
+      const id = ['perc', 'ch', 'oh'].find((t) => !keep.includes(t) && p.steps[t].some(Boolean));
+      if (!id) continue;
+      for (let at = run.index + 16; at < run.index + run[0].length; at += 16) {
+        const level = 0.82 + (((seed >>> 0) + at) % 3) * 0.06;
+        (p.at ??= []).push({ b: [at, Math.min(at + 15, run.index + run[0].length - 1)], steps: { [id]: p.steps[id].map((v) => v * level) } });
+      }
+    }
+  }
   if (plan.chain === TECHNO_LONG) developFinalDrop(s.patterns, plan.chain, { keep });
   return plan;
 }

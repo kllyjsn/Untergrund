@@ -8,7 +8,7 @@ for (const style of Object.keys(STYLES)) {
   if (STYLES[style].family === 'CLASSICAL') { assert(a.pattern.score && !a.pattern.hook, `${style} is a score, not a hook loop`); continue; }
   assert(a.pattern.hook && a.pattern.hook.s.length === 32, `${style} needs a hook`);
   const notes = a.pattern.hook.s.filter(Boolean);
-  assert(notes.length >= 4, `${style} hook too sparse`);
+  assert(notes.length >= (style === 'hardtechno' ? 2 : 4), `${style} hook too sparse`);
   // Song genres are major-key; generate() moves them off the minor default.
   const pcs = new Set(SCALES[MAJOR_STYLES.has(style) ? 'major' : 'minor'].notes.map((n) => n % 12));
   for (const [n] of notes) assert(pcs.has(((n % 12) + 12) % 12), `${style} hook note ${n} out of scale`);
