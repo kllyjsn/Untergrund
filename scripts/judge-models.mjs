@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, realpa
 import { resolve, join, dirname, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { judgeAudio, checkModel } from './judge-audio.mjs';
-import { canResumeModel } from './judge-checkpoint.mjs';
+import { canResumeModel, checkpointFingerprint, assertCheckpointInputs } from './judge-checkpoint.mjs';
 import { REVIEW_IDS, flipRate, controlScores, calibrationGate, humanAgreement } from '../js/listen-review.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..'), options = {};
@@ -27,16 +27,24 @@ const fixtureDir = join(root, 'test/out/judge-stability');
 const screening = ['trap', 'minimal', 'uk-drill', 'hard-techno'];
 const fullIds = [...REVIEW_IDS, 'minimal', 'uk-drill', 'hard-techno', 'trap'];
 const run = (args) => execFileSync('ffmpeg', ['-v', 'error', '-y', ...args]);
+const manifestBytes = readFileSync(resolve(options['private-manifest']));
+const manifest = JSON.parse(manifestBytes);
+const audioEntries = readdirSync(resolve(options['private-audio-root']), { recursive: true, withFileTypes: true });
+const sources = manifest.pairs.map((p) => {
+  const entry = audioEntries.find((e) => e.isFile() && e.name === `Pair-${p.pair}.mp3`);
+  if (!entry) throw new Error('Private audio file missing');
+  return join(entry.parentPath, entry.name);
+});
+const inputFingerprint = checkpointFingerprint([manifestBytes, ...sources.map((source) => readFileSync(source))]);
+assertCheckpointInputs(existsSync(stateFile) ? state : undefined, inputFingerprint);
+state.inputFingerprint = inputFingerprint;
+save();
 const catalogResponse = await fetch('https://openrouter.ai/api/v1/models', { signal: AbortSignal.timeout(30000) });
 if (!catalogResponse.ok) throw new Error('Cannot load model pricing');
 const catalog = (await catalogResponse.json()).data;
-const manifest = JSON.parse(readFileSync(resolve(options['private-manifest'])));
-const audioEntries = readdirSync(resolve(options['private-audio-root']), { recursive: true, withFileTypes: true });
 const pack = [];
-for (const p of manifest.pairs) {
-  const entry = audioEntries.find((e) => e.isFile() && e.name === `Pair-${p.pair}.mp3`);
-  if (!entry) throw new Error('Private audio file missing');
-  const source = join(entry.parentPath, entry.name);
+for (const [index, p] of manifest.pairs.entries()) {
+  const source = sources[index];
   const id = ({ drill: 'uk-drill', hardtechno: 'hard-techno' })[p.style] || p.style;
   const first = join(privateOut, `${id}-first.wav`), second = join(privateOut, `${id}-second.wav`);
   run(['-i', source, '-t', String(p.silence.startSeconds), first]);

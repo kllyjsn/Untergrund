@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { judgeRequest } from '../scripts/judge-audio.mjs';
-import { canResumeModel } from '../scripts/judge-checkpoint.mjs';
+import { canResumeModel, checkpointFingerprint, assertCheckpointInputs } from '../scripts/judge-checkpoint.mjs';
 import { DIMENSIONS, REVIEW_IDS, reviewTrack, verdict, orderAgreement, validateJudgment, markdownReview, flipRate, controlScores, calibrationGate, validateScores, aggregateScores, humanAgreement, trapOrdering } from '../js/listen-review.js';
 import { targetCurve, targetBalance } from '../js/audio-quality.js';
 
@@ -126,4 +126,15 @@ assert.equal(canResumeModel({ finished: true }), false);
 assert.equal(canResumeModel({ finished: true, error: 'OpenRouter HTTP 400' }), false);
 assert.equal(canResumeModel({ finished: true, error: 'Budget exhausted', trials: [{}] }), true);
 assert.equal(canResumeModel({ finished: true, fullSkipped: 'Insufficient budget' }), true);
+const fingerprint = checkpointFingerprint([Buffer.from('manifest'), Buffer.from('audio')]);
+assert.equal(fingerprint, checkpointFingerprint([Buffer.from('manifest'), Buffer.from('audio')]));
+assert.notEqual(fingerprint, checkpointFingerprint([Buffer.from('changed manifest'), Buffer.from('audio')]));
+assert.notEqual(fingerprint, checkpointFingerprint([Buffer.from('manifest'), Buffer.from('changed audio')]));
+assert.notEqual(checkpointFingerprint(['a', 'bc']), checkpointFingerprint(['ab', 'c']));
+assert.equal(checkpointFingerprint([]), checkpointFingerprint([]));
+assert.throws(() => checkpointFingerprint([null]), /argument/i);
+assert.doesNotThrow(() => assertCheckpointInputs(undefined, fingerprint));
+assert.doesNotThrow(() => assertCheckpointInputs({ inputFingerprint: fingerprint }, fingerprint));
+assert.throws(() => assertCheckpointInputs({}, fingerprint), /fingerprint missing/);
+assert.throws(() => assertCheckpointInputs({ inputFingerprint: 'old' }, fingerprint), /inputs changed/);
 console.log('listening review: thresholds, Hold safety, missing metrics, order agreement, stable scores, controls, calibration and markdown passed');
