@@ -49,9 +49,9 @@ for (const bpm of [122, 138, 150]) {
 }
 
 assert.equal(transportResync(10.01, 10, 9.9, 0.125), null);
-assert.deepEqual(transportResync(10.2, 10, 9.9, 0.125), { skip: 0, nextTime: 10.2 });
-assert.deepEqual(transportResync(9.5, 10, 9.9, 0.125), { skip: 4, nextTime: 10 });
-assert.deepEqual(transportResync(9.0, 9.0, 9.6, 0.125), { skip: 5, nextTime: 9.625 });
+assert.deepEqual(transportResync(10.2, 10, 9.9, 0.125), { skip: 0, nextTime: 10.2, discard: false });
+assert.deepEqual(transportResync(9.5, 10, 9.9, 0.125), { skip: 4, nextTime: 10, discard: false });
+assert.deepEqual(transportResync(9.0, 9.0, 9.6, 0.125), { skip: 5, nextTime: 9.625, discard: false });
 
 {
   const before = syncAudioClock(null, 1000);
@@ -62,8 +62,11 @@ assert.deepEqual(transportResync(9.0, 9.0, 9.6, 0.125), { skip: 5, nextTime: 9.6
 
   const wake = syncAudioClock(jitter.offset, 1015);
   assert.deepEqual(wake, { offset: 1015, jumped: true });
-  assert.deepEqual(transportResync(1011.5 - wake.offset, 11.5, 10, 0.125), { skip: 109, nextTime: 10.125 });
+  assert.deepEqual(transportResync(1011.5 - wake.offset, 11.5, 10, 0.125, wake.jumped), { skip: 109, nextTime: 10.125, discard: true });
   assert.equal(syncAudioClock(wake.offset, 1015.02).jumped, false);
+
+  const short = syncAudioClock(before.offset, 1000.25);
+  assert.deepEqual(transportResync(1011.5 - short.offset, 11.5, 10, 0.125, short.jumped), { skip: 2, nextTime: 11.5, discard: false });
 }
 
 console.log('room transport alignment passed');

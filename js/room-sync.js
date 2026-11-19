@@ -46,9 +46,14 @@ export function syncAudioClock(previous, measured) {
 }
 
 // Re-anchor the audio schedule to the shared transport when it drifts or stalls.
-export function transportResync(target, nextTime, now, stepSec, tolerance = 0.03) {
-  if (Math.abs(target - nextTime) <= tolerance && nextTime >= now) return null;
+export function transportResync(target, nextTime, now, stepSec, jumped = false) {
+  if (!jumped && Math.abs(target - nextTime) <= 0.03 && nextTime >= now) return null;
+  const ready = now + 0.005;
+  // Only discard the lookahead when the first unqueued step is due too.
+  // Otherwise keep the queued beats and rejoin the grid beyond them.
+  const discard = jumped && target < ready;
+  const earliest = jumped && !discard ? Math.max(ready, nextTime) : ready;
   let skip = 0;
-  while (target < now + 0.005) { target += stepSec; skip++; }
-  return { skip, nextTime: target };
+  while (target < earliest) { target += stepSec; skip++; }
+  return { skip, nextTime: target, discard };
 }

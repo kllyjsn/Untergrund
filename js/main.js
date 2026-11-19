@@ -170,15 +170,15 @@ function schedule(lead) {
   const now = ctx.currentTime;
   const clock = syncAudioClock(clockOffset, Date.now() / 1000 - now);
   clockOffset = clock.offset;
-  if (clock.jumped) {
-    engine.discardQueuedNotes(now);
-    uiQueue.length = 0;
-    seq.acidPrevSlide = false;
-  }
   let base = 60 / state.bpm / 4, landed = null;
   const target = transportOrigin / 1000 + abs * base - clockOffset;
-  const fix = transportResync(target, nextTime, ctx.currentTime, base);
+  const fix = transportResync(target, nextTime, now, base, clock.jumped);
   if (fix) {
+    if (fix.discard) {
+      engine.discardQueuedNotes(now);
+      uiQueue.length = 0;
+      seq.acidPrevSlide = false;
+    }
     for (let i = 0; i < fix.skip; i++, abs++) { artistTick(abs - seq.origin); seq.advanceBar(abs - seq.origin, ctx.currentTime); }
     nextTime = fix.nextTime;
   }
