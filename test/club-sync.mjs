@@ -477,10 +477,12 @@ async function saveClips(clients, song, name, run, events, origin, afterEnd) {
   const audio = { host: decode(capture[0].vocal), listener: decode(capture[1].vocal), expected: decode(capture[0].expected),
     'host-mix': decode(capture[0].mix), 'listener-mix': decode(capture[1].mix) };
   const matching = levelMatchClips(audio, capture[0].sampleRate);
-  await mkdir(join(out, 'clips'), { recursive: true });
+  const profileId = createHash('sha256').update(JSON.stringify(Object.entries(networkProfile).sort())).digest('hex').slice(0, 12);
+  const directory = `clips/${options.output.slice(0, -5)}/${options['net-label']}-${options['net-target']}-${profileId}`;
+  await mkdir(join(out, directory), { recursive: true });
   const paths = {};
   for (const [role, samples] of Object.entries(audio)) {
-    const path = `clips/${name}-${options.vocal}-${run}-${role}.wav`;
+    const path = `${directory}/${name}-${options.vocal}-${run}-${role}.wav`;
     await writeFile(join(out, path), floatWav(samples, capture[0].sampleRate)); paths[role] = path;
   }
   return { fromEpochMs: from, toEpochMs: to, markerOffsetMs: 4000, sampleRate: capture[0].sampleRate,

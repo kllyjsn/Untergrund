@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { parseNetwork, netemArgs, portFilters, clockSpread, networkController, probe } from './club-sync-network.mjs';
@@ -57,3 +58,37 @@ for (const failed of [false, true]) for (const unavailable of [false, true]) for
   assert.equal(process.exitCode, exitCode, 'optional plotting never changes the scenario verdict');
 }
 console.log('Club optional plots PASS: success, empty results and missing matplotlib preserve the scenario exit status.');
+
+const clipStart = source.indexOf('async function saveClips(');
+const clipSource = source.slice(clipStart, source.indexOf('\n}', clipStart) + 2);
+const pcm = {pcm:Buffer.alloc(8).toString('base64'), coverage:1};
+const clients = [0, 1].map(() => ({run:async () => ({vocal:pcm, mix:pcm, expected:pcm, sampleRate:48000})}));
+const written = new Map();
+const save = (options, networkProfile, writeFile = async (path, samples) => {
+  assert.ok(!written.has(path), 'network clip path must not overwrite earlier audio');
+  written.set(path, samples);
+}) => runInNewContext(`(${clipSource})`, {options, networkProfile, createHash, Buffer, Float32Array, out:'out',
+  clipRange:() => ({from:0, to:1000}), extractPCM:() => {}, vocalDb:() => 0, levelMatchClips:() => ({}),
+  mkdir:async () => {}, join:(...parts) => parts.join('/'), floatWav:samples => samples, writeFile});
+const clipOptions = {output:'capture.json', vocal:'real', 'net-label':'L1', 'net-target':'listener'};
+const profile = {delay:50, jitter:10};
+const original = await save(clipOptions, profile)(clients, {}, 'reconnect-mix', 1, {recoverAt:0}, 0, 1000);
+for (const [options, networkProfile, run] of [
+  [{...clipOptions, 'net-label':'L2'}, profile, 1],
+  [clipOptions, {...profile, delay:150}, 1],
+  [{...clipOptions, 'net-target':'both'}, profile, 1],
+  [clipOptions, profile, 2],
+  [{...clipOptions, output:'other.json'}, profile, 1],
+  [{...clipOptions, vocal:'synthetic-pop'}, profile, 1],
+]) {
+  const result = await save(options, networkProfile)(clients, {}, 'reconnect-mix', run, {recoverAt:0}, 0, 1000);
+  assert.equal(Object.keys(result.paths).length, 5);
+  assert.equal(result.sampleRate, 48000);
+  assert.equal(result.markerOffsetMs, 4000);
+}
+const reordered = await save(clipOptions, {jitter:10, delay:50}, async () => {})(clients, {}, 'reconnect-mix', 1, {recoverAt:0}, 0, 1000);
+assert.equal(reordered.paths.host, original.paths.host, 'profile key order does not change its evidence identity');
+assert.equal(written.size, 35, 'all earlier JSON clip references still address their original audio');
+await assert.rejects(() => save(clipOptions, profile)([], {}, 'reconnect-mix', 1, {recoverAt:0}, 0, 1000));
+await assert.rejects(() => save(clipOptions, profile, async () => { throw new Error('disk full'); })(clients, {}, 'reconnect-mix', 1, {recoverAt:0}, 0, 1000), /disk full/);
+console.log('Club clip paths PASS: labels, profiles, targets, repeats, outputs and vocal modes preserve earlier WAVs; canonical profile order, empty captures and write errors covered.');
