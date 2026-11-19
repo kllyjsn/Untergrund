@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
-import { baseSelection, detectStyles, hash, random, shuffle, main, parseMergedPR } from '../scripts/blind-pack.mjs';
+import { baseSelection, detectStyles, hash, random, shuffle, main, seedOverrides, parseMergedPR } from '../scripts/blind-pack.mjs';
+
+assert.deepEqual(seedOverrides(), {});
+assert.deepEqual(seedOverrides('afrobeats:0,hyperpop:4294967295'), { afrobeats: 0, hyperpop: 4294967295 });
+for (const value of ['unknown:1', 'dnb:', 'dnb:1.5', 'dnb:-1', 'dnb:4294967296', 'dnb:NaN', 'dnb:1:2', 'dnb:1,dnb:2']) assert.throws(() => seedOverrides(value), /Invalid genre seed/);
 
 const input = ['minimal', 'drill', 'hardtechno', 'trap'];
 assert.deepEqual(parseMergedPR('Merge pull request #241 from owner/minimal\n\nNotch Minimal chord harmonics\n'), { number: 241, title: 'Notch Minimal chord harmonics' });

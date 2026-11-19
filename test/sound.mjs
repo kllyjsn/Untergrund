@@ -6,6 +6,7 @@ import { OfflineAudioContext, installGlobals } from './offline-audio.mjs';
 installGlobals();
 const { defaultState, generate, applyOverrides, arrangement } = await import('../js/state.js');
 const { Engine, Sequencer } = await import('../js/engine.js');
+const { Recorder } = await import('../js/midi.js');
 const { loadBand, STAB_BAND, SOFT_LAYER } = await import('../js/livekit.js');
 const { spectralBands, kWeight, lufs } = await import('../js/lab-metrics.js');
 const { lowEnd } = await import('../js/lowend.js');
@@ -156,6 +157,75 @@ for (const [style, seed] of [['deephouse', 211], ['trance', 211]]) {
   assert(e.soulBand() && lowEnd(s.master) === null, 'NEO-SOUL must keep its live-band balance');
   e.stab(0.1, 0.8); e.hook(0.2, 0.8, 4, 0.5, 'reed');
   assert(!Object.keys(e.trims || {}).length, 'NEO-SOUL voices must not get club make-up gain');
+}
+
+{
+  for (const [style, seed] of [['afrobeats', 1168184795], ['reggaeton', 131219516], ['hyperpop', 273450247], ['hyperpop', 20], ['hyperpop', 3], ['ukg', 1800668011], ['breaks', 3], ['breaks', 4293831530]]) {
+    const s = defaultState(); applyOverrides(s, generate(style, seed));
+    s.artist = { style, seed };
+    const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false }), dst = e.ch.stab.input;
+    const tone = e.chordTone(s.params.stab.voice, dst);
+    assert.notEqual(tone, dst, `${style} uses its chord voice's tone circuit`);
+    assert.equal(e.chordTone(s.params.stab.voice, dst), tone, 'notes share the tone circuit');
+    assert.equal(e.chordTone(-1, dst), dst, 'unknown voices keep their destination');
+    s.artist.style = 'trap';
+    assert.equal(e.chordTone(s.params.stab.voice, dst), dst, 'unmodified genres keep their voice');
+    delete s.artist;
+    assert.equal(e.chordTone(s.params.stab.voice, dst), dst, 'legacy states keep their voice');
+  }
+  for (const style of ['breaks', 'neosoul']) {
+    const s = defaultState(); applyOverrides(s, generate(style, 3));
+    s.artist = { style, seed: 3 };
+    const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
+    let samples = 0;
+    e.rec = () => ({}); e.sampledBass = () => samples++;
+    e.bass(0.1, { n: 0, a: true }, 0.1, false);
+    assert.equal(samples, style === 'breaks' ? 0 : 1, `${style} keeps its intended bass player under recorded drums`);
+  }
+  for (const style of ['breaks', 'neosoul', undefined]) {
+    const s = defaultState(); s.master.kit = 1;
+    if (style) s.artist = { style };
+    const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
+    assert.equal(e.soulBand(), style !== 'breaks', 'only Breaks keeps club processing with the recorded kit');
+    let kicks = 0, samples = 0;
+    e.rec = () => ({});
+    e.kick = () => kicks++;
+    e.sampledHit = () => { samples++; return true; };
+    e.trigger('kick', 0.1, 0.8);
+    assert.equal(kicks, style === 'breaks' ? 1 : 0);
+    assert.equal(samples, style === 'breaks' ? 0 : 1);
+    e.trigger('snare', 0.2, 0.8);
+    assert.equal(samples, style === 'breaks' ? 1 : 2, 'the snare stays recorded');
+  }
+  for (const [style, voice, player] of [['breaks', 1, 'keys'], ['reggaeton', 3, 'organ'], ['neosoul', 1, 'keys']]) {
+    const s = defaultState(); s.params.stab.voice = voice; s.artist = { style };
+    const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
+    let out;
+    e[player] = (...args) => { out = args.at(-1); };
+    e.lick(0.1, 0.6, 0);
+    assert.equal(out === e.ch.stab.input, style === 'neosoul', `${style} fills use their intended tone path`);
+  }
+  for (const [style, voice, reed] of [['breaks', 1, true], ['reggaeton', 3, true], ['breaks', 8, false], ['trap', 1, false], ['afrobeats', 1, false], [undefined, 1, false]]) {
+    const s = defaultState(); s.params.stab.voice = voice;
+    s.key = 11;
+    if (style) s.artist = { style };
+    const ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
+    let player, pitch;
+    for (const name of ['keys', 'organ']) e[name] = (...args) => { player = name; pitch = args[3]; };
+    e.rec = () => null;
+    e.hook(0.1, 0.4, 0, 0.2, 'vocal');
+    assert.equal(player, reed ? voice === 1 ? 'keys' : 'organ' : undefined, `${style}/${voice} keeps its intended hook player`);
+    for (const hook of ['vocal', 'reed', 'analog']) for (const n of [-36, -12, -11, 0, 20, 21, 48]) {
+      const rec = new Recorder(s);
+      rec.hook(0.1, 0.4, n, 0.2, hook);
+      const note = rec.notes.hook[0].m;
+      if (reed && hook !== 'analog') {
+        e.hook(0.1, 0.4, n, 0.2, hook);
+        assert.equal(note, pitch, `${style}/${voice}/${hook}/${n} MIDI matches played pitch`);
+        assert(note >= 48 && note <= 79);
+      } else assert.equal(note, 59 + n, `${style}/${voice}/${hook} MIDI register is unchanged`);
+    }
+  }
 }
 
 console.log('sound ok');

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { generate, defaultState, applyOverrides, sanitize, arrangement, songChain } from '../js/state.js';
+import { generate, defaultState, applyOverrides, sanitize, arrangement, songChain, INSTRUMENTS } from '../js/state.js';
 
 for (const seed of [1, 7, 42, 1337]) {
   const g = generate('euphoric', seed, 'major');
@@ -53,6 +53,14 @@ const saved = sanitize(JSON.parse(JSON.stringify({ ...defaultState(), master: { 
 assert.equal(saved.master.pocket, 2); assert.equal(saved.master.kit, 2);
 console.log('live kit defaults passed');
 console.log('genre pockets passed');
+for (const [style, seed, voice, cutoff] of [['afrobeats', 1168184795, 1, 600], ['reggaeton', 131219516, 3, 600], ['hyperpop', 273450247, 0, 900], ['hyperpop', 20, 5, 350], ['hyperpop', 3, 11, 900], ['ukg', 1800668011, 5, 400], ['breaks', 3, 1, 600], ['breaks', 4293831530, 5, 900]]) {
+  const { params } = generate(style, seed);
+  assert.equal(params.stab.voice, voice);
+  assert.equal(params.stab.octave, 0, `${style}/${voice} stays in the body register`);
+  assert.equal(params.stab.cutoff, cutoff);
+  assert.equal(params.stab.reso, 0.7);
+}
+console.log('electronic chord registers and brightness passed');
 assert(generate('neosoul', 9, 'dorian').master.room > 0.3);
 console.log('room defaults passed');
 for (const style of ['neosoul', 'boombap', 'hypnotic', 'ambient', 'euphoric']) {
@@ -91,6 +99,28 @@ console.log('live-kit settings do not leak into the next style passed');
   assert(all.size >= 6, 'genres use most stab instruments');
 }
 console.log('per-genre instrument palettes passed');
+{
+  const noPiano = ['deephouse', 'ukg', 'breaks', 'dnb', 'trance', 'ambient', 'afrobeats', 'reggaeton', 'hyperpop', 'industrial', 'peak', 'acid', 'hypnotic', 'electro', 'dub', 'jerseyclub', 'bailefunk'];
+  assert.deepEqual(INSTRUMENTS.breaks.at(-1), [1, 1, 1, 0.7, 0.5]);
+  assert.deepEqual(INSTRUMENTS.reggaeton.at(-1), [3, 2, 1, 0.55, 0.45]);
+  for (const style of noPiano) assert(INSTRUMENTS[style].every(([voice]) => voice !== 7), `${style} has no recorded piano`);
+  const palettes = Object.entries(INSTRUMENTS).map(([style, tuples]) => {
+    assert(tuples.length > 0, `${style} has an ensemble`);
+    return [style, new Set(tuples.map(([voice]) => voice))];
+  });
+  let worst = 0, total = 0, pairs = 0;
+  for (let i = 0; i < palettes.length; i++) for (let j = i + 1; j < palettes.length; j++) {
+    const [a, av] = palettes[i], [b, bv] = palettes[j];
+    const overlap = [...av].filter((voice) => bv.has(voice)).length / new Set([...av, ...bv]).size;
+    assert(overlap < 1, `${a}/${b} have identical chord-voice sets`);
+    assert(overlap <= 0.75, `${a}/${b} chord-voice Jaccard overlap ${overlap} exceeds 0.75`);
+    worst = Math.max(worst, overlap); total += overlap; pairs++;
+  }
+  for (const [style, kit] of [['breaks', 1], ['dnb', 3]]) for (const seed of [1, 7, 42, 1337]) {
+    assert.equal(generate(style, seed).master.kit, kit, `${style} uses its recorded drum kit`);
+  }
+  console.log(`electronic palettes: no piano; ${pairs} unique pairs; max Jaccard ${worst.toFixed(5)} <= 0.75; mean ${(total / pairs).toFixed(5)}`);
+}
 {
   const percs = new Set(Object.keys(STYLES).map((k) => generate(k, 3, 'minor').params.perc.voice));
   assert(percs.size >= 4, 'genres use several percussion instruments');
@@ -189,4 +219,3 @@ console.log('arrangement dynamics passed');
   assert([1, 2, 3, 4, 5, 6, 7, 8].some((seed) => gen('pop', seed).pattern.prog.map((h) => h.r).join() === '0,7,9,5'), 'pop has I-V-vi-IV');
   console.log('song genres (pop, r&b, rock, folk, country) passed');
 }
-

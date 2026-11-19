@@ -16,6 +16,8 @@ import { MELODY_BARS, strongNote } from './melody.js';
 import { patternAt } from './scope.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
+const dampedChord = (e) => (e.state.artist?.style === 'breaks' && Math.round(e.state.params.stab.voice) === 1)
+  || (e.state.artist?.style === 'reggaeton' && Math.round(e.state.params.stab.voice) === 3);
 // Chords sit under a sung line the way a mix rides the keys under a vocal: a little in the chorus, more in the verse
 // and most in the breakdown, so the drop still lands over it. Songs with sections already set the verse level.
 const STAB_UNDER_VOICE = { n: 0.84, v: 0.78, b: 0.45 };
@@ -791,7 +793,7 @@ export class Engine {
   }
 
   // A live band (SOUL pocket on the LIVE kit) is balanced as recorded; level matching is for club mixes.
-  soulBand() { return pocketOf(this.state.master)?.name === 'SOUL' || Math.round(this.state.master.kit || 0) === 1; }
+  soulBand() { return pocketOf(this.state.master)?.name === 'SOUL' || (Math.round(this.state.master.kit || 0) === 1 && this.state.artist?.style !== 'breaks'); }
 
   // Synth chord and lead voices go through a make-up gain so they sit level with the recorded players.
   // A lead preset's fixed EQ is linear and time-invariant, so every note of that preset shares one
@@ -825,8 +827,30 @@ export class Engine {
     return byKey[key];
   }
 
+  chordTone(voice, dst) {
+    const tone = {
+      'afrobeats:1': [1300, -6.6], 'breaks:1': [650, -3.6],
+      'reggaeton:3': [450, 3],
+      'breaks:5': [1500, 0],
+      'hyperpop:0': [1800, 2.9], 'hyperpop:5': [1800, 6.9], 'hyperpop:11': [1450, 13.1],
+      'ukg:5': [1500, 6.1],
+    }[`${this.state.artist?.style}:${voice}`];
+    if (!tone) return dst;
+    if (voice >= 7 && dst === this.ch.stab.input) dst = this.ch.stab.band;
+    const tones = (this.chordTones ||= new Map());
+    if (!tones.has(dst)) tones.set(dst, new Map());
+    const byTone = tones.get(dst), key = tone.join();
+    if (!byTone.has(key)) {
+      const first = this.filter('lowpass', tone[0], 0.5411961), second = this.filter('lowpass', tone[0], 1.3065630);
+      first.connect(second).connect(this.gain(dbGain(tone[1]))).connect(dst);
+      byTone.set(key, first);
+    }
+    return byTone.get(key);
+  }
+
   trigger(id, t, v, underHarp = false) {
     const kitMode = Math.round(this.state.master.kit || 0);
+    if (kitMode === 1 && id === 'kick' && this.state.artist?.style === 'breaks') return this.kick(t, v);
     if (kitMode === KIT_BACKBEAT && id === 'kick') this.backbeatKickAt = t;
     if (kitMode === KIT_BACKBEAT && id === 'snare') {
       const kit = this.rec('snare');
@@ -1486,6 +1510,7 @@ export class Engine {
   // FM electric piano: sine carrier, 1:1 modulator for the bark, 14:1 burst for the tine.
   keys(t, v, iv, root, p, out) {
     const c = this.ctx, end = t + Math.max(0.6, p.decay * 3) + 0.3;
+    const damped = this.state.artist?.style === 'breaks' && Math.round(p.voice) === 1;
     const lp = this.filter('lowpass', Math.min(9000, p.cutoff * 2.5), 0.5);
     const trem = c.createStereoPanner();
     const lfo = c.createOscillator(); lfo.frequency.value = 4.8;
@@ -1495,7 +1520,7 @@ export class Engine {
     iv.forEach((n, k) => {
       const f = midiHz(root + n), vel = v * (0.85 + hash(t * 97, k) * 0.3);
       // A smooth style's upper tines bark less, as a real Rhodes does, so high chords stay round instead of ringing.
-      const reg = this.smoothOn ? Math.min(1, 523 / f) : 1;
+      const reg = damped ? Math.min(1, 200 / f) ** 4 : this.smoothOn ? Math.min(1, 523 / f) : 1;
       const car = c.createOscillator(); car.frequency.value = f; car.detune.value = (k % 2 ? 1 : -1) * p.detune * 0.15;
       const mod = c.createOscillator(); mod.frequency.value = f;
       const modAmt = this.gain(0); mod.connect(modAmt).connect(car.frequency);
@@ -1503,7 +1528,7 @@ export class Engine {
       modAmt.gain.setTargetAtTime(f * 0.15 * reg, t + 0.005, 0.12 + p.env * 0.3);
       const tine = c.createOscillator(); tine.frequency.value = f * 14;
       const tineAmt = this.gain(0); tine.connect(tineAmt).connect(car.frequency);
-      tineAmt.gain.setValueAtTime(f * 2.5 * vel * bite * (p.tine ?? 1), t);
+      tineAmt.gain.setValueAtTime(damped ? 0 : f * 2.5 * vel * bite * (p.tine ?? 1), t);
       tineAmt.gain.setTargetAtTime(0, t + 0.002, 0.018);
       const amp = this.gain(0);
       amp.gain.setValueAtTime(EPS, t);
@@ -1519,7 +1544,7 @@ export class Engine {
   stab(t, v, underHarp = false) {
     const c = this.ctx, p = this.state.params.stab;
     const { root, vo, iv } = stabPitches(this);
-    const trimmed = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
+    const trimmed = this.chordTone(vo, this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]));
     const layers = this.hardTechno ? this.hardStabOut(trimmed) : null, out = layers ? layers.core : trimmed;
     if (layers) this.hardPalette(t, v, iv.map(n => midiHz(root + n)), Math.max(0.12, p.decay), layers.rave, 'rave');
     // A lifted breakdown plays decaying chords an octave up, filling it above the bass range it no longer shares.
@@ -1608,6 +1633,7 @@ export class Engine {
   // Drawbar organ with key click and a rotary-style vibrato; DETUNE sets rotor depth.
   organ(t, v, iv, root, p, out) {
     const c = this.ctx, gate = Math.max(0.08, p.decay * 0.9), end = t + gate + 0.25;
+    const damped = this.state.artist?.style === 'reggaeton' && Math.round(p.voice) === 3;
     const lp = this.filter('lowpass', Math.min(12000, p.cutoff * 3), 0.6);
     const amp = this.gain(0), peak = (v * 0.24) / Math.sqrt(iv.length);
     amp.gain.setValueAtTime(EPS, t);
@@ -1618,8 +1644,10 @@ export class Engine {
     for (const n of iv) {
       const f = midiHz(root + n);
       for (const [mul, lvl] of [[0.5, 0.6], [1, 1], [2, 0.55], [3, 0.3]]) {
+        const roll = damped ? Math.max(0, Math.min(1, (1800 - f * mul) / 700)) ** 2 : 1;
+        if (!roll) continue;
         const o = c.createOscillator(); o.frequency.value = f * mul; vib.connect(o.detune);
-        const g = this.gain(lvl); o.connect(g).connect(lp); this.startSource(o, t); o.stop(end);
+        const g = this.gain(lvl * roll); o.connect(g).connect(lp); this.startSource(o, t); o.stop(end);
       }
     }
     const ck = this.noiseSrc(t, 0.012), cbp = this.filter('bandpass', 2400, 0.8), cg = this.gain(0);
@@ -2120,7 +2148,9 @@ export class Engine {
     const n = iv[k % iv.length] + 12 * Math.floor(k / iv.length);
     if (this.hardTechno) return this.hardLead(t, v * 0.12, midiHz(60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + n), Math.max(0.12, p.decay), this.ch.stab.input);
     const vo = Math.round(p.voice), lead = vo > 1 ? STAB_VOICES[vo] : 'keys';
-    return this[lead](t, v, [n], 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot(), p, this.ch.stab.input);
+    const style = this.state.artist?.style;
+    const out = style === 'breaks' || style === 'reggaeton' ? this.chordTone(vo, this.ch.stab.input) : this.ch.stab.input;
+    return this[lead](t, v, [n], 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot(), p, out);
   }
 
   // The user's own voice, one chop per note: the nearest-pitched chop, retuned by playback rate.
@@ -2270,6 +2300,14 @@ export class Engine {
     v *= 1.3;
     n = hookSnap(n, h, p, strong, up);
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
+    if (dampedChord(this) && (voice === 'vocal' || voice === 'reed')) {
+      const name = Math.round(p.voice) === 1 ? 'keys' : 'organ';
+      const out = this.trimOut(`hook-${name}`, 4, this.hookBus || this.ch.stab.input, -4, 500);
+      let root = 60 + k + oct * 12 + n;
+      while (root > 79) root -= 12;
+      while (root < 48) root += 12;
+      return this[name](t, v, [0], root, { ...p, decay: Math.max(0.1, dur / 0.9) }, out);
+    }
     const wind = Object.hasOwn(WIND_HOOK, voice);
     if (wind) {
       const name = HOOK_BAND[voice], set = this.rec(name);
@@ -2460,7 +2498,7 @@ export class Engine {
     const note = this.bassMidi(st), f = midiHz(note), subF = midiHz(this.bassMidi(st, 36, 38));
     // A chromatic approach note leads into the next bar and gets out of the way when the chord lands.
     const len = st.ap ? sd * 0.9 : holdNext ? sd * 2 : sd * (0.9 + p.decay * 2);
-    if (Math.round(this.state.master.kit || 0) === 1) {
+    if (Math.round(this.state.master.kit || 0) === 1 && this.state.artist?.style !== 'breaks') {
       const kit = this.rec('kit');
       if (kit) return this.sampledBass(kit, t, note, len, st.a);
       loadLiveKit();
