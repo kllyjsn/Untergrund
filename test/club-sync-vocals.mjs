@@ -255,6 +255,11 @@ export function referenceEnvelope(song, gain) {
   return rows;
 }
 
+export function clipRange(marker, afterEnd) {
+  if (!Number.isFinite(marker) || !Number.isFinite(afterEnd) || afterEnd <= marker) throw new RangeError('Invalid AFTER clip bounds');
+  return { from: marker - 4000, to: afterEnd };
+}
+
 export async function extractPCM({ from, to, origin, gain, updatedOrigin = origin, updateAt = Infinity, sampleRate = 24000 }) {
   const length = Math.round((to - from) * sampleRate / 1000);
   const resample = async (data, rate) => {

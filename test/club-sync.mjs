@@ -14,9 +14,9 @@ import { installAudioTap, envelope, postResumeEnvelope, onsets, resolvedCompare,
 import { transitionAudio } from './club-sync-transition.mjs';
 import { measureDJEdits } from './club-dj-edit.mjs';
 import { installDiagnostics, diagnose } from './club-sync-diagnostics.mjs';
-import { mixFixture, realMixFixture, loadRealMixStem, mixBoundaries, mixGraphEdges, installMixStem, analyzeMix, mixFailures } from './club-sync-mix.mjs';
+import { mixFixture, realMixFixture, loadRealMixStem, mixBoundaries, mixGraphEdges, installMixStem, analyzeMix, mixFailures, channelEnvelope } from './club-sync-mix.mjs';
 import { singRequest, vocalDb } from '../js/sing.js';
-import { analyzeVocalGrid, vocalFindings, referenceEnvelope, extractPCM, floatWav, levelMatchClips } from './club-sync-vocals.mjs';
+import { analyzeVocalGrid, vocalFindings, referenceEnvelope, clipRange, extractPCM, floatWav, levelMatchClips } from './club-sync-vocals.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const out = resolve(root, 'test/out');
@@ -321,7 +321,8 @@ async function scenario(base, spec, run) {
       const vocalGrid = analyzeVocalGrid(raw, song, reference, events, initial.startsAt, !!spec.freezeMs);
       const findings = vocalFindings(vocalGrid);
       const clips = options.clips || failures.length || findings.length
-        ? await saveClips(clients, song, spec.name, run, events, initial.startsAt) : null;
+        ? await saveClips(clients, song, spec.name, run, events, initial.startsAt,
+          Math.min(...raw.map(r => channelEnvelope(r, 'vocal').at(-1)[0])) - 200) : null;
       console.table(vocalGrid.map((client, i) => ({ scenario: spec.name, mode: options.vocal, run, client: i ? 'listener' : 'host',
         beforeMs: client.before.vocalVsKick?.medianMs, afterMs: client.after.vocalVsKick?.medianMs,
         beforeP95Ms: client.before.vocalVsKick?.p95AbsMs, afterP95Ms: client.after.vocalVsKick?.p95AbsMs, gaps: client.after.gaps?.count, gapTotalMs: client.after.gaps?.totalMs,
@@ -448,9 +449,9 @@ async function scenario(base, spec, run) {
   }
 }
 
-async function saveClips(clients, song, name, run, events, origin) {
+async function saveClips(clients, song, name, run, events, origin, afterEnd) {
   const marker = events.recoverAt;
-  const from = marker - 4000, to = marker + 8000;
+  const { from, to } = clipRange(marker, afterEnd);
   const capture = await Promise.all(clients.map(c => c.run(`(${extractPCM})(${JSON.stringify({ from, to, origin, gain: 10 ** (vocalDb(song) / 20),
     updatedOrigin: events.newSet?.startsAt ?? origin, ...(events.broadcastAt ? {updateAt:events.broadcastAt} : {}) })})`)));
   const decode = value => { const b = Buffer.from(value.pcm, 'base64'); return Float32Array.from(new Float32Array(b.buffer, b.byteOffset, b.length / 4)); };

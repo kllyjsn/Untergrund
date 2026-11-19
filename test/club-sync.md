@@ -72,7 +72,10 @@ criterion as secondary. Null means not demonstrated, not instantaneous recovery.
 
 `test/out/clips/<scenario>-<mode>-<run>-{host,listener,expected}.wav` contains the
 isolated processed vocal; `*-{host,listener}-mix.wav` contains full destination
-audio, each spanning marker−4 s … +8 s. Capture is raw channel-0 PCM (mono),
+audio, each spanning marker−4 s through the full measured AFTER window (the
+common captured vocal-envelope end minus the analyzer's 200 ms guard). This
+retains late gap/displaced-phrase evidence rather than stopping at +8 s.
+Capture is raw channel-0 PCM (mono),
 mapped with output-clock anchors at the native rate and band-limited to 24 kHz
 using OfflineAudioContext. A shared expected-active
 mask normalizes each clip to the same RMS (target −20 dBFS, reduced jointly if

@@ -3,9 +3,13 @@ import { mixFixture, realMixFixture, mixBoundaries, mixGraphEdges, channelEnvelo
 import { singRequest } from '../js/sing.js';
 import { sanitize } from '../js/state.js';
 import { postResumeEnvelope, onsets } from './club-sync-audio.mjs';
-import { vocalMetrics, sustainedRecovery, vocalFindings, windowOffset, floatWav, levelMatchClips } from './club-sync-vocals.mjs';
+import { vocalMetrics, sustainedRecovery, vocalFindings, windowOffset, clipRange, floatWav, levelMatchClips } from './club-sync-vocals.mjs';
 
 const bin = 4, expectedVoice = new Float64Array(8000);
+assert.deepEqual(clipRange(10000, 40000), {from:6000,to:40000});
+assert.ok(clipRange(10000, 40000).to >= 10000 + 28000);
+assert.throws(() => clipRange(10000, 10000), RangeError);
+assert.throws(() => clipRange(10000, NaN), RangeError);
 for (let p = 0; p < 9; p++) {
   for (let t = 0; t < 1000; t += bin) {
     const at = 1000 + p * 3000 + t;
