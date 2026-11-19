@@ -2541,7 +2541,7 @@ export class Sequencer {
     const sung = pat.hook?.m && !pat.hook.h ? this.sungBar(bar, n ? pos : bar) : null;
     const hookStep = sung ? this.songBars && !sung.hook.m.c && sung.notes.some((o) => o.at === i16 && i16 % 8) : pat.hook && pat.hm ? pat.hook.s[abs % 32] : 0;
     const hard = s.artist?.style === 'hardtechno';
-    if (hard && this.cur === 5) {
+    if (hard && this.cur === 5 && this.runLen > 0) {
       const drum = (s.artist.seed || 0) % 2 ? 'clap' : 'snare';
       const progress = (this.runPos + i16 / 16) / this.runLen;
       const every = progress > 0.8 ? 1 : progress > 0.5 ? 2 : 4;

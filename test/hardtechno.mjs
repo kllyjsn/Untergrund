@@ -89,4 +89,14 @@ for (const [seed, drum] of [[11, 'clap'], [42, 'snare']]) {
   assert(hits.includes(drum));
 }
 assert.doesNotThrow(() => new Sequencer({}, state).interplay());
+for (const chainOn of [false, true]) {
+  const { e } = instrument('hardtechno'), s = e.state;
+  s.chainOn = chainOn;
+  s.chain = '';
+  s.current = 5;
+  let hits = 0;
+  e.trigger = (id, t, v) => { assert(Number.isFinite(v)); hits++; };
+  new Sequencer(e, s).tick(0, 0.1);
+  assert(hits > 0);
+}
 console.log('hardtechno: 64 ensembles, dark saw hooks, gated filters/envelopes, breakdown ramps, muted rolls and empty artist passed');
