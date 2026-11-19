@@ -1905,7 +1905,7 @@ export class Engine {
     for (const o of [tri, sub]) { o.start(t); o.stop(t + len + 0.3); }
   }
 
-  // Mono note helper for 808/REESE: chokes the previous note and glides on SLIDE steps.
+  // Choke the previous mono voice; Reese and log drum reuse its pitch on slide steps.
   monoNote(t, f, sliding) {
     const prev = this.mono;
     if (prev && prev.end > t) prev.amp.gain.setTargetAtTime(0, t, sliding ? 0.02 : 0.006);
@@ -1917,27 +1917,43 @@ export class Engine {
   eight08(t, st, sd, holdNext, sliding) {
     const c = this.ctx, p = this.state.params.acid;
     const f = midiHz(this.bassMidi(st, 36, 38));
-    const from = this.monoNote(t, f, sliding), len = holdNext ? sd * 2 : 0.15 + p.decay * 1.6, end = t + len + 0.4;
+    const len = holdNext ? sd * 2 : 0.15 + p.decay * 1.6, end = t + len + 0.4;
+    const decay = Math.max(0.05, len * 0.45), prev = this.mono;
+    if (sliding && prev?.eight08 && prev.end > t) {
+      // Keep oscillator phase and the envelope's current level through the slide.
+      prev.eight08.forEach((x, i) => {
+        x.frequency.setTargetAtTime(f * (i + 1), t, 0.0225);
+        x.stop(end);
+      });
+      prev.amp.gain.cancelScheduledValues(t);
+      prev.amp.gain.setTargetAtTime(0, t, decay);
+      prev.amp.gain.setTargetAtTime(0, end - 0.09, 0.009);
+      Object.assign(prev, { f, end });
+      return;
+    }
+    this.monoNote(t, f, false);
+    const knock = sliding ? 1 : 1.9;
     const o = c.createOscillator();
-    o.frequency.setValueAtTime(sliding ? from : f * 1.9, t);
-    o.frequency.exponentialRampToValueAtTime(f, t + (sliding ? 0.09 : 0.03));
+    o.frequency.setValueAtTime(f * knock, t);
+    o.frequency.exponentialRampToValueAtTime(f, t + 0.03);
     const sh = c.createWaveShaper(); sh.curve = driveCurve(0.1 + p.drive * 0.85);
     const lp = this.filter('lowpass', Math.max(80, p.cutoff * 2), 0.7);
     const amp = this.gain(0), vel = (st.a ? 1 : 0.85) * (1 + p.accent * (st.a ? 0.2 : 0)) * 0.9 * (this.noteVel ?? 1);
     amp.gain.setValueAtTime(EPS, t);
     amp.gain.linearRampToValueAtTime(vel, t + 0.004);
-    amp.gain.setTargetAtTime(0, t + 0.02, Math.max(0.05, len * 0.45));
+    amp.gain.setTargetAtTime(0, t + 0.02, decay);
     // The longest decays can still be audible when the oscillators stop.
     amp.gain.setTargetAtTime(0, end - 0.09, 0.009);
     // A quiet octave harmonic lets the 808 line read on small speakers without lifting the sub.
     const h2 = c.createOscillator(); h2.type = 'triangle';
-    h2.frequency.setValueAtTime((sliding ? from : f * 1.9) * 2, t);
-    h2.frequency.exponentialRampToValueAtTime(f * 2, t + (sliding ? 0.09 : 0.03));
+    h2.frequency.setValueAtTime(f * knock * 2, t);
+    h2.frequency.exponentialRampToValueAtTime(f * 2, t + 0.03);
     const h2g = this.gain(0.2);
     o.connect(sh).connect(lp).connect(amp).connect(this.ch.acid.input);
     h2.connect(h2g).connect(lp);
-    for (const x of [o, h2]) { x.start(t); x.stop(end); }
-    this.mono = { amp, f, end };
+    const eight08 = [o, h2];
+    for (const x of eight08) { x.start(t); x.stop(end); }
+    this.mono = { amp, f, end, eight08 };
   }
 
   // Reese: two detuned saws beating against each other plus a sine sub. SAW/SQR sets the detune spread,

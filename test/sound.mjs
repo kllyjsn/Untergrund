@@ -57,6 +57,34 @@ const rmsDb = (d, a, b) => { let e = 0; for (let i = a; i < b; i++) e += d[i] * 
   assert(db(0.01, 0) < -85, 'the 808 is quiet by its oscillator cutoff');
 }
 
+// Glide a held 808 down a fifth without resetting phase or re-attacking its envelope.
+{
+  const s = defaultState(), t = 0.05, sd = 0.12, slide = t + sd;
+  s.params.acid.decay = 0.75;
+  const ctx = new OfflineAudioContext(1, 3 * SR, SR), e = new Engine(ctx, s, { realtime: false });
+  e.ch.acid.input = ctx.destination;
+  e.eight08(t, { n: 0, a: false }, sd, true, false);
+  const held = e.mono, from = held.f, firstEnd = held.end;
+  e.eight08(slide, { n: 5, a: true }, sd, false, true);
+  assert.equal(e.mono, held, 'a slide uses the already playing voice, even with a destination accent');
+  assert(held.end > firstEnd, 'the slide extends the oscillator stop to the new release');
+  const d = (await ctx.startRendering()).getChannelData(0);
+  const crossings = [];
+  for (let i = Math.round((slide - 0.06) * SR); i < Math.round((slide + 0.24) * SR); i++) {
+    if (d[i - 1] < 0 && d[i] >= 0) crossings.push(i / SR);
+  }
+  const hz = (a, b) => {
+    const times = crossings.filter((x) => x >= slide + a && x < slide + b);
+    return (times.length - 1) / (times.at(-1) - times[0]);
+  };
+  assert(Math.abs(hz(-0.06, 0) / from - 1) < 0.04, 'pitch is settled before the slide');
+  assert(Math.abs(hz(0.12, 0.24) / held.f - 1) < 0.04, 'the pitch reaches the slide destination');
+  const db = (a, b) => rmsDb(d, Math.round((slide + a) * SR), Math.round((slide + b) * SR));
+  assert(Math.abs(db(0, 0.035) - db(-0.035, 0)) < 4, 'no level jump or dip at the slide');
+  assert(db(firstEnd - slide + 0.02, firstEnd - slide + 0.06) > -55, 'the bass continues past the pickup cutoff');
+  assert(db(held.end - slide - 0.01, held.end - slide) < -85, 'the extended tail fades before stopping');
+}
+
 process.on('exit', () => console.table(rows));
 
 // 1. Club low end: the bass carries real sub next to the kick, the kick ducks it, and the low mids stay clear.
