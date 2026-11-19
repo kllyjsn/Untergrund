@@ -80,7 +80,7 @@ async function terminate(p) {
   if (!p || p.exitCode !== null) return;
   const done = new Promise(r => p.once('exit', r)); p.kill('SIGKILL'); await done;
 }
-async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = false, limitPaint = false) {
+async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = false, { limitPaint = false, hideStage = false } = {}) {
   const chrome = findChrome(); if (!chrome) throw new Error('Chrome required');
   const profile = await mkdtemp(join(out, 'chrome-'));
   const proc = spawn(chrome, ['--headless=new', '--no-sandbox', '--no-first-run', '--disable-background-timer-throttling',
@@ -141,6 +141,14 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = 
         if (!pending.size && frame !== null) { cancel(frame); frame = null; }
       };
     }` });
+    // Queue, Pass Deck and Update Room stay visible; only the decorative stage is skipped.
+    if (hideStage) await send('Page.addScriptToEvaluateOnNewDocument', { source: `
+      document.addEventListener('DOMContentLoaded', () => {
+        const style = document.createElement('style');
+        style.textContent = '.club-stage { content-visibility: hidden; animation: none !important; }';
+        document.head.append(style);
+      }, { once: true });
+    ` });
     if (options['cpu-throttle']) await send('Emulation.setCPUThrottlingRate', { rate: +options['cpu-throttle'] });
     await send('Network.enable');
     await send('Network.setCacheDisabled', { cacheDisabled: true });
@@ -240,8 +248,10 @@ async function scenario(base, spec, network, run) {
       song.patterns[0].steps.kick.fill(0);
       song.patterns[0].steps.kick[0] = 1;
     }
-    const prejoin = spec.mix && !options.net && !spec.expiredMix && !!(spec.offlineMs || spec.freezeMs);
-    const limitPaint = spec.expiredMix || prejoin;
+    const handoffMix = spec.handoff && spec.mix;
+    const prejoin = spec.mix && !options.net && !spec.expiredMix && !!(spec.offlineMs || spec.freezeMs || handoffMix);
+    const skipPaint = () => Promise.all(clients.map(c => c.run("document.body.style.contentVisibility = 'hidden'")));
+    const rendering = { limitPaint: spec.expiredMix || prejoin || handoffMix, hideStage: handoffMix };
     let room = prejoin || spec.coldDownbeat ? `sync-${randomBytes(6).toString('hex')}` : null;
     const snapshot = async () => {
       const response = await fetch(`${base}/api/rooms/${room}`);
@@ -251,13 +261,13 @@ async function scenario(base, spec, network, run) {
         set: { by: r.currentSet?.by, broadcastId: r.currentSet?.broadcastId, replay: !!r.currentSet?.replay },
         memberSeen: r.members.map(m => ({ id: m.id, seen: m.seen })), startsAt: r.currentSet?.startsAt };
     };
-    const host = await client(network.base('host'), spec.hostSkew, song, 0, spec.mix, limitPaint); clients.push(host);
+    const host = await client(network.base('host'), spec.hostSkew, song, 0, spec.mix, rendering); clients.push(host);
     await host.nav(room ? `/?room=${room}` : '/');
     if (room) await until(async () => (await snapshot()).members.length === 1, 'host in room');
     else await host.clickElement(`[...document.querySelectorAll('.tab-club, .club-btn')].find(e => e.getBoundingClientRect().width && e.getBoundingClientRect().height)`, 'visible Club navigation');
     let listener;
     if (!spec.cold || spec.coldDownbeat) {
-      listener = await client(network.base('listener'), spec.listenerSkew, null, spec.displacementMs, spec.mix, limitPaint);
+      listener = await client(network.base('listener'), spec.listenerSkew, null, spec.displacementMs, spec.mix, rendering);
       clients.push(listener);
       if (!spec.cold) await listener.nav(prejoin ? `/?room=${room}` : '/');
     }
@@ -295,9 +305,9 @@ async function scenario(base, spec, network, run) {
       return b?.textContent === 'LISTEN LIVE' ? 'listen' : (__clubAudio.samples.some(r => r[1] > .001) ? 'automatic' : null);
     })()`), 'listener audio or LISTEN LIVE');
     if (joined === 'listen') await listener.click('.club-primary');
-    if (limitPaint) {
+    if (!handoffMix && rendering.limitPaint) {
       // The real UI actions are done; skip painting while the audio and network run.
-      await Promise.all(clients.map(c => c.run("document.body.style.contentVisibility = 'hidden'")));
+      await skipPaint();
     }
     const initial = await snapshot(); events.initial = initial;
     events.cdpProbeMs = clients.map(c => c.cdpProbe);
@@ -345,6 +355,7 @@ async function scenario(base, spec, network, run) {
         events.passed = await until(async () => { const s = await snapshot(); return s.hostId === listenerId && s; }, 'deck passed on room server');
         await until(() => listener.run(`[...document.querySelectorAll('.club-secondary')].some(b => b.textContent === 'UPDATE ROOM')`), 'new DJ controls');
         events.broadcastAt = await listener.clickText('UPDATE ROOM');
+        if (handoffMix) await skipPaint();
       } else {
         events.seed = await seedReplay(host, room, fixture());
         const barMs = 240000 / song.bpm, leadMs = 3000;
@@ -383,6 +394,19 @@ async function scenario(base, spec, network, run) {
         assert.ok(drop, 'Fixture has a DROP after the expiry interval and seven-second baseline');
         events.reconnectTarget = drop.at - beatMs / 4;
         await pause(Math.max(0, events.reconnectTarget - spec.offlineMs - controlLeadMs - Date.now()));
+      } else if (prejoin && spec.offlineMs) {
+        // A fill can rest for a beat on both clients; measure the three-kick budget in a continuous DROP.
+        const beatMs = 60000 / song.bpm, barMs = 4 * beatMs, controlLeadMs = 250;
+        const earliest = Math.max(initial.startsAt + 7000, Date.now()) + spec.offlineMs + controlLeadMs;
+        const sections = mixBoundaries(song, initial.startsAt);
+        events.reconnectTarget = sections.flatMap((section, i) => {
+          if (section.section !== 'DROP') return [];
+          const barAt = section.at + Math.max(0, Math.ceil((earliest + beatMs / 4 - section.at) / barMs)) * barMs;
+          const end = sections[i + 1]?.at ?? initial.startsAt + song.chain.length * barMs;
+          return barAt + 3 * beatMs < end ? [barAt - beatMs / 4] : [];
+        })[0];
+        assert.ok(events.reconnectTarget, 'Fixture has a continuous DROP after the baseline and disconnect');
+        await pause(Math.max(0, events.reconnectTarget - spec.offlineMs - controlLeadMs - Date.now()));
       } else await pause(7000);
       const wakeTarget = spec.wakeOnDownbeat
         ? initial.startsAt + Math.ceil((Date.now() + spec.freezeMs + 250 - initial.startsAt) / PERIOD_MS) * PERIOD_MS
@@ -398,8 +422,8 @@ async function scenario(base, spec, network, run) {
         const offlineAt = Date.now();
         events.offlineProbe = await listener.run(`fetch('/api/rooms/${room}').then(() => 'UNEXPECTED success', () => 'blocked')`);
         assert.equal(events.offlineProbe, 'blocked');
-        if (spec.expiredMix) {
-          assert.ok(offlineAt + spec.offlineMs <= events.reconnectTarget, 'Network block began in time for the full expiry interval');
+        if (events.reconnectTarget !== undefined) {
+          assert.ok(offlineAt + spec.offlineMs <= events.reconnectTarget, 'Network block began in time for the full disconnect interval');
           await pause(Math.max(0, offlineAt + spec.offlineMs - Date.now()));
         } else await pause(spec.offlineMs);
       } else {
@@ -411,8 +435,11 @@ async function scenario(base, spec, network, run) {
       if (spec.expiredMix) {
         assert.ok(events.before.members.includes(listenerId) && !events.during.members.includes(listenerId),
           'The listener was present before disconnect and expired before reconnect');
-        await pause(Math.max(0, events.reconnectTarget - Date.now()));
+      } else if (events.reconnectTarget !== undefined) {
+        assert.ok(events.before.members.includes(listenerId) && events.during.members.includes(listenerId),
+          'The short disconnect retained the listener');
       }
+      if (events.reconnectTarget !== undefined) await pause(Math.max(0, events.reconnectTarget - Date.now()));
       if (wakeTarget !== null) await pause(Math.max(0, wakeTarget - Date.now() - 4));
       events.recoverAt = Date.now();
       if (spec.offlineMs) {
