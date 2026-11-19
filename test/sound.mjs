@@ -44,6 +44,19 @@ function hitDb(d) {
 }
 const rmsDb = (d, a, b) => { let e = 0; for (let i = a; i < b; i++) e += d[i] * d[i]; return 10 * Math.log10(e / Math.max(1, b - a) + 1e-20); };
 
+// The dry renderer retains short, in-line modulation delays, including fractional samples across blocks.
+{
+  const ctx = new OfflineAudioContext(1, 256, SR), delay = ctx.createDelay(0.002);
+  const source = ctx.createBufferSource();
+  source.buffer = ctx.createBuffer(1, 256, SR);
+  source.buffer.getChannelData(0)[126] = 1;
+  delay.delayTime.value = 2.5 / SR;
+  source.connect(delay).connect(ctx.destination);
+  source.start();
+  const y = (await ctx.startRendering()).getChannelData(0);
+  [0, 0.5, 0.5, 0].forEach((sample, i) => assert(Math.abs(y[127 + i] - sample) < 1e-6));
+}
+
 // A long 808 left alone at a break must go quiet before the oscillators are stopped.
 {
   const s = defaultState(), t = 0.05;
