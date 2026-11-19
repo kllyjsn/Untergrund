@@ -1314,11 +1314,13 @@ export class Engine {
     const bite = 0.4 + 1.2 * Math.max(0, Math.min(1, p.env ?? 0.5));
     iv.forEach((n, k) => {
       const f = midiHz(root + n), vel = v * (0.85 + hash(t * 97, k) * 0.3);
+      // A smooth style's upper tines bark less, as a real Rhodes does, so high chords stay round instead of ringing.
+      const reg = this.smoothOn ? Math.min(1, 523 / f) : 1;
       const car = c.createOscillator(); car.frequency.value = f; car.detune.value = (k % 2 ? 1 : -1) * p.detune * 0.15;
       const mod = c.createOscillator(); mod.frequency.value = f;
       const modAmt = this.gain(0); mod.connect(modAmt).connect(car.frequency);
-      modAmt.gain.setValueAtTime(f * (0.6 + vel * 1.6) * bite, t);
-      modAmt.gain.setTargetAtTime(f * 0.15, t + 0.005, 0.12 + p.env * 0.3);
+      modAmt.gain.setValueAtTime(f * (0.6 + vel * 1.6) * bite * reg, t);
+      modAmt.gain.setTargetAtTime(f * 0.15 * reg, t + 0.005, 0.12 + p.env * 0.3);
       const tine = c.createOscillator(); tine.frequency.value = f * 14;
       const tineAmt = this.gain(0); tine.connect(tineAmt).connect(car.frequency);
       tineAmt.gain.setValueAtTime(f * 2.5 * vel * bite * (p.tine ?? 1), t);
@@ -1344,7 +1346,9 @@ export class Engine {
     const iv = this.wide && !GRIPPED.has(STAB_VOICES[vo]) && vi.length > 2 ? [...vi, Math.max(...vi) + 12] : vi, out = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
     // A lifted breakdown plays decaying chords an octave up, filling it above the bass range it no longer shares.
     if (vo > 0) {
-      const pitches = this.smoothOn > 0 ? iv.map((m) => m + 12) : iv;
+      // A smooth style folds chord notes above D6 down an octave: a doubled or raised top up there rings out as a whistle.
+      const top = this.smoothOn ? 86 - root : Infinity;
+      const pitches = [...new Set((this.smoothOn > 0 ? iv.map((m) => m + 12) : iv).map((m) => (m > top ? m - 12 * Math.ceil((m - top) / 12) : m)))];
       if (STAB_VOICES[vo] === 'bells' && underHarp && this.rec('harp', false)) {
         return this.bells(t, v, pitches, root, { ...p, decay: p.decay * 0.57 }, this.harpBacking(out));
       }
@@ -1387,20 +1391,31 @@ export class Engine {
     return tones.get(out);
   }
 
+  // A saw whose partials fall as 1/n^1.4: a smooth style's pad keeps its body without a buzzy top.
+  warmWave() {
+    if (this._warm?.ctx !== this.ctx) {
+      const re = new Float32Array(33), im = new Float32Array(33);
+      for (let k = 1; k <= 32; k++) im[k] = k ** -1.4;
+      this._warm = { ctx: this.ctx, wave: this.ctx.createPeriodicWave(re, im) };
+    }
+    return this._warm.wave;
+  }
+
   // Slow-swelling ensemble: three detuned saws per note, filter opens with ENV, DECAY sets release.
   pad(t, v, iv, root, p, out) {
     const c = this.ctx, atk = 0.04 + p.env * 0.9, hold = Math.max(this.stepDur * 4, p.decay * 1.2), end = t + atk + hold + p.decay * 2 + 0.2;
     const lp = this.filter('lowpass', p.cutoff * 0.5, Math.max(0.5, p.reso * 0.4));
     lp.frequency.setValueAtTime(p.cutoff * 0.4, t);
     lp.frequency.linearRampToValueAtTime(p.cutoff, t + atk);
-    const amp = this.gain(0), peak = (v * 0.3) / Math.sqrt(iv.length);
+    const amp = this.gain(0), peak = (v * (this.smoothOn ? 0.18 : 0.3)) / Math.sqrt(iv.length);
     amp.gain.setValueAtTime(EPS, t);
     amp.gain.linearRampToValueAtTime(peak, t + atk);
     amp.gain.setTargetAtTime(0, t + atk + hold, Math.max(0.1, p.decay * 0.6));
     const pans = this.sidePans([-0.7, 0, 0.7], lp);
     iv.forEach((n) => {
       [-1, 0, 1].forEach((side) => {
-        const o = c.createOscillator(); o.type = 'sawtooth';
+        const o = c.createOscillator();
+        if (this.smoothOn) o.setPeriodicWave(this.warmWave()); else o.type = 'sawtooth';
         o.frequency.value = midiHz(root + n); o.detune.value = side * (4 + p.detune);
         o.connect(pans[side + 1]); this.startSource(o, t); o.stop(end);
       });
