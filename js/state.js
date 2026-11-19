@@ -1137,7 +1137,7 @@ export function songPlan(style, seed, length = 'song', bpm = midBpm(style)) {
   if (style === 'hardtechno' && length !== 'sketch') {
     const r = rng(Math.imul(seed ^ 0x45d9f3b, 0x27d4eb2d));
     const phrase = ((seed >>> 0) ^ (seed >>> 2)) & 3, outro = 4 + 4 * (phrase % 2);
-    const runs = [['A', 4 + 4 * phrase], ['B', 8], ['C', [16, 20, 16, 12][phrase]], ['E', 8 + 4 * (phrase % 2)], ['F', pick(r, [4, 8])], ['G', 16 + 4 * ((phrase + 1) % 3)], ['E', 12 - 4 * (phrase % 2)], ['F', 4 + 4 * (phrase % 2)]];
+    const runs = [['A', 4 + 4 * phrase], ['B', 8], ['C', [16, 20, 16, 8][phrase]], ['E', 8 + 4 * (phrase % 2)], ['F', pick(r, [4, 8])], ['G', 16 + 4 * ((phrase + 1) % 3) + (phrase === 3 ? 4 : 0)], ['E', 12 - 4 * (phrase % 2)], ['F', 4 + 4 * (phrase % 2)]];
     const used = runs.reduce((n, [, len]) => n + len, 0);
     runs.push(['G', 120 - outro - used], ['B', 8], ['A', outro]);
     return { chain: runs.map(([id, len]) => id.repeat(len)).join(''), sections: null };
