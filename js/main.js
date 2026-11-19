@@ -880,7 +880,7 @@ function joinRoomSet(item) {
   songOrigin = { src: 'room' };
   const startsAt = Number.isFinite(+item.startsAt) ? +item.startsAt : Date.now();
   const localState = sanitize(state);
-  const continuous = playing && roomPlayback && !handoff && !jamQueue.length && seq.queued === null &&
+  const continuous = playing && roomPlayback && !artistLive && !handoff && !jamQueue.length && seq.queued === null &&
     Math.abs(startsAt - (transportOrigin + seq.origin * (15000 / state.bpm))) <= 30 &&
     nextStyle === style && roomState.artist?.style === localState.artist?.style && roomState.artist?.seed === localState.artist?.seed &&
     songFingerprint(roomState) === songFingerprint(localState) && JSON.stringify(roomState.sing) === JSON.stringify(localState.sing) &&

@@ -137,7 +137,7 @@ function roomJoin(change = () => {}, options = {}) {
   const calls = [];
   const engine = {state, editableHits:[{}], vocalNow:{source:'continuous'}};
   const seq = {s:state, origin:0, queued:null};
-  const sandbox = {state, engine, seq, playing:true, roomPlayback:true, roomEditor:true, handoff:null, jamQueue:[],
+  const sandbox = {state, engine, seq, playing:true, roomPlayback:true, roomEditor:true, artistLive:null, handoff:null, jamQueue:[],
     transportOrigin:origin, style:'hypnotic', songOrigin:{}, STYLES, sanitize, clone, songFingerprint,
     Date:{now:() => origin + 8000}, stopTimeline(){}, joinRoomReplay(){calls.push('replay');},
     replaceState(){calls.push('replace');}, play(){calls.push('play');}, build(){}, persist(){}, syncNowPlaying(){}, toast(){},
@@ -180,6 +180,7 @@ for (const change of [
   (i) => { i.state.artist.style = i.style = 'hardtechno'; },
   (i, s) => { s.playing = false; },
   (i, s) => { s.roomPlayback = false; },
+  (i, s) => { s.artistLive = {}; },
   (i, s) => { s.handoff = {}; },
   (i, s) => { s.seq.queued = 1; },
   (i, s) => { s.jamQueue.push({}); },
