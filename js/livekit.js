@@ -42,6 +42,9 @@ export const BAND = {
   // The SONGS band: steel-string acoustic guitar and electric bass guitar.
   agtr: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
   ebass: [28, 31, 34, 37, 40, 43, 46, 49, 52, 55],
+  // COUNTRY: a Fender clean off the bridge pickup for the lead, and a diatonic harmonica in C for the answers.
+  tele: [52, 55, 59, 61, 64, 67, 71, 72, 74, 77, 80, 82, 85],
+  hca: [48, 52, 55, 60, 64, 67, 72, 76, 79, 84],
   // More guitars: the archtop's magnetic pickup (JAZZ GTR), the SX guitar banjo, the green Gretsch (TWANG GTR).
   jazz: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
   banjo: [40, 42, 45, 49, 51, 54, 57, 60, 63, 68, 71],
@@ -56,7 +59,7 @@ const JAZZ_TUNE = { 42: -7, 48: -10, 51: -3, 57: -3, 63: -3, 66: 4, 69: -3, 72: 
 const GRETSCH_TUNE = { 42: 19, 48: 6, 51: 5, 54: 5, 57: 10, 60: 7, 63: 6, 66: 4, 69: 2 };
 // The guitar banjo was tuned up a little under a quarter tone.
 const BANJO_TUNE = { 40: 41, 42: 41, 45: 48, 49: 39, 51: 43, 54: 34, 57: 13, 60: 30, 63: 41, 68: 23, 71: 10 };
-const BAND_TUNE = { jazz: JAZZ_TUNE, jazzb: JAZZ_TUNE, gretsch: GRETSCH_TUNE, gretschb: GRETSCH_TUNE, banjo: BANJO_TUNE, gtr: GTR_TUNE, gtrsoft: GTR_TUNE, gtrb: GTR_TUNE, gtrsoftb: GTR_TUNE, gtrmute: MUTE_TUNE, gtrmuteb: MUTE_TUNE_B };
+const BAND_TUNE = { tele: { 55: -8 }, hca: { 48: -8 }, jazz: JAZZ_TUNE, jazzb: JAZZ_TUNE, gretsch: GRETSCH_TUNE, gretschb: GRETSCH_TUNE, banjo: BANJO_TUNE, gtr: GTR_TUNE, gtrsoft: GTR_TUNE, gtrb: GTR_TUNE, gtrsoftb: GTR_TUNE, gtrmute: MUTE_TUNE, gtrmuteb: MUTE_TUNE_B };
 // Instruments recorded at two dynamics: the softly played layer loads with the instrument.
 export const SOFT_LAYER = { piano: 'pianosoft', gtr: 'gtrsoft' };
 // A second take of every guitar note, so a repeated strum alternates recordings instead of machine-gunning one.
@@ -123,8 +126,8 @@ export function liveSets(st) {
   if (Math.round(st?.params?.acid?.voice || 0) === 5) out.push('ebass');
   const name = STAB_BAND[Math.round(st?.params?.stab?.voice || 0)];
   if (name) out.push(name, ...(SOFT_LAYER[name] ? [SOFT_LAYER[name]] : []));
-  // Country's lead is a Telecaster whatever plays the chords.
-  if (pocketOf(st.master)?.walk && name !== 'gtr') out.push('gtr', 'gtrsoft');
+  // Country's lead is a Telecaster whatever plays the chords, answered by a harmonica.
+  if (pocketOf(st.master)?.walk) out.push('tele', 'hca');
   if (out.length && pocketOf(st.master)?.band) out.push(...layerSets(st.artist?.style));
   return [...new Set(out)];
 }
