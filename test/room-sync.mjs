@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createRoomClock, roomTransportPosition, shiftRoomSet, transportResync } from '../js/room-sync.js';
+import { createRoomClock, roomTransportPosition, shiftRoomSet, syncAudioClock, transportResync } from '../js/room-sync.js';
 
 const origin = 1_000_000;
 const close = (a, b) => assert(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
@@ -52,6 +52,19 @@ assert.equal(transportResync(10.01, 10, 9.9, 0.125), null);
 assert.deepEqual(transportResync(10.2, 10, 9.9, 0.125), { skip: 0, nextTime: 10.2 });
 assert.deepEqual(transportResync(9.5, 10, 9.9, 0.125), { skip: 4, nextTime: 10 });
 assert.deepEqual(transportResync(9.0, 9.0, 9.6, 0.125), { skip: 5, nextTime: 9.625 });
+
+{
+  const before = syncAudioClock(null, 1000);
+  assert.deepEqual(before, { offset: 1000, jumped: false });
+  const jitter = syncAudioClock(before.offset, 1000.02);
+  assert.equal(jitter.jumped, false);
+  close(jitter.offset, 1000.001);
+
+  const wake = syncAudioClock(jitter.offset, 1015);
+  assert.deepEqual(wake, { offset: 1015, jumped: true });
+  assert.deepEqual(transportResync(1011.5 - wake.offset, 11.5, 10, 0.125), { skip: 109, nextTime: 10.125 });
+  assert.equal(syncAudioClock(wake.offset, 1015.02).jumped, false);
+}
 
 console.log('room transport alignment passed');
 
