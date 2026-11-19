@@ -139,7 +139,7 @@ assert.equal(matchEvents(onsets(kickSignal(), 123), [], 900, 2600).missing, 4);
 const capture = {errors:[], samples:[[1, .2, .3, .4], [2, .5, .6, .7]], anchors:[[1, 1000], [2, 3000]],
   resumeBoundary:{frame:200, sampleRate:100}};
 assert.deepEqual(postResumeEnvelope(capture), [[3000, .5]]);
-assert.deepEqual(postResumeEnvelope(capture, 3), [[3000, .7]]);
+assert.deepEqual(postResumeEnvelope(capture, 2), [[3000, .6]]);
 assert.throws(() => postResumeEnvelope({...capture, resumeBoundary:null}), /Missing resume PCM boundary/);
 const graph = await mixGraphEdges();
 assert.ok(graph.kick > graph.vocal && graph.vocal > 0);
@@ -201,6 +201,11 @@ for (const events of [{interruptAt:7000, recoverAt:17000}, {interruptAt:7000, re
 }
 const noBoundary = analyzeMix([continuous(0), continuous(0)], s, {interruptAt:39000, recoverAt:39000}, 0, {resume:false});
 assert.ok(noBoundary.baselineFailures.includes('no section boundaries measured'));
+const steadyState = analyzeMix([continuous(0), continuous(60)], s,
+  {baselineAt:2000, interruptAt:9000, recoverAt:29000}, 0, {resume:false});
+assert.equal(steadyState.phases.before.kicks.from, 2150);
+assert.ok(steadyState.baselineFailures.includes('kicks BEFORE'));
+assert.ok(mixFailures(steadyState).includes('kicks AFTER'));
 assert.throws(() => analyzeMix([continuous(0), {...continuous(0), channels:{}}], s, {interruptAt:7000, recoverAt:17000}, 0, {resume:false}), /Missing rendered kick graph tap/);
 console.log('Full-mix analysis PASS: isolated rendered channels despite unrelated destination audio; signed offsets; missing/extra kicks/phrases; strict BEFORE limits; realignment; wrong section; resume boundaries; missing tap errors.');
 console.log('Continuous mix analysis PASS: 10s/20s reconnect and handoff windows without resume markers; boundary coverage; maximum alignment; missing tap errors.');

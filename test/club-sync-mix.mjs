@@ -210,7 +210,8 @@ export function kickAttribution(raw, kicks) {
 export function analyzeMix(raw, s, events, origin, { resume = true } = {}) {
   const [he, le] = raw.map(r => envelope(r));
   const [hb, lb] = raw.map(r => envelope(r, 2));
-  const start = Math.max(he[0][0], le[0][0]) + 500, end = Math.min(he.at(-1)[0], le.at(-1)[0]) - 200;
+  const start = Math.max(Math.max(he[0][0], le[0][0]) + 500, events.baselineAt ?? -Infinity);
+  const end = Math.min(he.at(-1)[0], le.at(-1)[0]) - 200;
   const phases = {};
   // The host keeps rendering: match its continuous onsets by output time,
   // not by the (possibly delayed) resume marker for the frozen listener.

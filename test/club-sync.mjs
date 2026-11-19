@@ -30,7 +30,7 @@ const SCENARIOS = [
   { name: 'reconnect', offlineMs: 10000 },
   { name: 'reconnect-expired', offlineMs: 20000 },
   { name: 'reconnect-mix', offlineMs: 10000, mix: true },
-  { name: 'reconnect-expired-mix', offlineMs: 20000, mix: true },
+  { name: 'reconnect-expired-mix', offlineMs: 20000, mix: true, expiredMix: true },
   { name: 'foreground-stall', mainThreadStallMs: 320 },
   { name: 'dj-foreground-stall', mainThreadStallMs: 320, stallDJ: true },
   { name: 'dj-edit-latency', djLatency: true },
@@ -78,7 +78,7 @@ async function terminate(p) {
   if (!p || p.exitCode !== null) return;
   const done = new Promise(r => p.once('exit', r)); p.kill('SIGKILL'); await done;
 }
-async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = false) {
+async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = false, limitPaint = false) {
   const chrome = findChrome(); if (!chrome) throw new Error('Chrome required');
   const profile = await mkdtemp(join(out, 'chrome-'));
   const proc = spawn(chrome, ['--headless=new', '--no-sandbox', '--no-first-run', '--disable-background-timer-throttling',
@@ -114,6 +114,31 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = 
       return r.result?.value;
     };
     await send('Page.enable');
+    if (limitPaint) await send('Page.addScriptToEvaluateOnNewDocument', { source: `{
+      // Keep headless visual updates from competing with both realtime audio threads.
+      const raf = window.requestAnimationFrame.bind(window);
+      const cancel = window.cancelAnimationFrame.bind(window);
+      const pending = new Map();
+      let frame = null, last = -Infinity, id = 0;
+      function tick(at) {
+        if (at - last < 1000 / 12) { frame = raf(tick); return; }
+        last = at;
+        frame = null;
+        for (const [key, callback] of [...pending]) {
+          if (!pending.delete(key)) continue;
+          try { callback(at); } catch (error) { reportError(error); }
+        }
+      }
+      window.requestAnimationFrame = callback => {
+        pending.set(++id, callback);
+        frame ??= raf(tick);
+        return id;
+      };
+      window.cancelAnimationFrame = key => {
+        pending.delete(key);
+        if (!pending.size && frame !== null) { cancel(frame); frame = null; }
+      };
+    }` });
     if (options['cpu-throttle']) await send('Emulation.setCPUThrottlingRate', { rate: +options['cpu-throttle'] });
     await send('Network.enable');
     await send('Network.setCacheDisabled', { cacheDisabled: true });
@@ -195,11 +220,11 @@ async function scenario(base, spec, network, run) {
       song.patterns[0].steps.kick.fill(0);
       song.patterns[0].steps.kick[0] = 1;
     }
-    const host = await client(network.base('host'), spec.hostSkew, song, 0, spec.mix); clients.push(host);
+    const host = await client(network.base('host'), spec.hostSkew, song, 0, spec.mix, spec.expiredMix); clients.push(host);
     await host.nav('/');
     await host.clickElement(`[...document.querySelectorAll('.tab-club, .club-btn')].find(e => e.getBoundingClientRect().width && e.getBoundingClientRect().height)`, 'visible Club navigation');
     let listener;
-    if (!spec.cold) { listener = await client(network.base('listener'), spec.listenerSkew, null, spec.displacementMs, spec.mix); clients.push(listener); await listener.nav('/'); }
+    if (!spec.cold) { listener = await client(network.base('listener'), spec.listenerSkew, null, spec.displacementMs, spec.mix, spec.expiredMix); clients.push(listener); await listener.nav('/'); }
     const action = await until(() => host.run(`document.querySelector('.lobby-cta')?.textContent === 'GO LIVE' ? '.lobby-cta' : document.querySelector('.club-primary')?.textContent === 'GO LIVE' ? '.club-primary' : null`), 'GO LIVE');
     await host.click(action);
     const room = await until(() => host.run('new URL(location.href).searchParams.get("room")'), 'Host room invite');
@@ -219,6 +244,10 @@ async function scenario(base, spec, network, run) {
       return b?.textContent === 'LISTEN LIVE' ? 'listen' : (__clubAudio.samples.some(r => r[1] > .001) ? 'automatic' : null);
     })()`), 'listener audio or LISTEN LIVE');
     if (joined === 'listen') await listener.click('.club-primary');
+    if (spec.expiredMix) {
+      // The real UI actions are done; skip painting while the audio and network run.
+      await Promise.all(clients.map(c => c.run("document.body.style.contentVisibility = 'hidden'")));
+    }
     const snapshot = async () => {
       const response = await fetch(`${base}/api/rooms/${room}`);
       assert.ok(response.ok, `Room snapshot HTTP ${response.status}`);
@@ -296,6 +325,15 @@ async function scenario(base, spec, network, run) {
         events.plannedDrop = mixBoundaries(song, initial.startsAt).find(b => b.section === 'DROP');
         assert.ok(events.plannedDrop.at - 400 > Date.now(), 'Listener ready before drop freeze');
         await pause(events.plannedDrop.at - 400 - Date.now());
+      } else if (spec.expiredMix) {
+        // Start the baseline after the join; restore into a DROP with continuous kicks, not a fill.
+        const beatMs = 60000 / song.bpm, controlLeadMs = 250;
+        events.baselineAt = initial.startsAt + 4 * beatMs;
+        const drop = mixBoundaries(song, initial.startsAt)
+          .find(b => b.section === 'DROP' && b.at - beatMs / 4 >= events.baselineAt + 7000 + spec.offlineMs + controlLeadMs);
+        assert.ok(drop, 'Fixture has a DROP after the expiry interval and seven-second baseline');
+        events.reconnectTarget = drop.at - beatMs / 4;
+        await pause(Math.max(0, events.reconnectTarget - spec.offlineMs - controlLeadMs - Date.now()));
       } else await pause(7000);
       const wakeTarget = spec.wakeOnDownbeat
         ? initial.startsAt + Math.ceil((Date.now() + spec.freezeMs + 250 - initial.startsAt) / PERIOD_MS) * PERIOD_MS
@@ -308,15 +346,24 @@ async function scenario(base, spec, network, run) {
       if (spec.offlineMs) {
         await listener.send('Network.setBlockedURLs', { urls: [`${network.base('listener')}/api/rooms*`] });
         await listener.send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+        const offlineAt = Date.now();
         events.offlineProbe = await listener.run(`fetch('/api/rooms/${room}').then(() => 'UNEXPECTED success', () => 'blocked')`);
         assert.equal(events.offlineProbe, 'blocked');
-        await pause(spec.offlineMs);
+        if (spec.expiredMix) {
+          assert.ok(offlineAt + spec.offlineMs <= events.reconnectTarget, 'Network block began in time for the full expiry interval');
+          await pause(Math.max(0, offlineAt + spec.offlineMs - Date.now()));
+        } else await pause(spec.offlineMs);
       } else {
         events.visibilityBefore = await listener.run('document.visibilityState');
         await listener.send('Page.setWebLifecycleState', { state: 'frozen' });
         await pause(wakeTarget === null ? spec.freezeMs : Math.max(0, wakeTarget - Date.now() - 250));
       }
       events.during = await snapshot();
+      if (spec.expiredMix) {
+        assert.ok(events.before.members.includes(listenerId) && !events.during.members.includes(listenerId),
+          'The listener was present before disconnect and expired before reconnect');
+        await pause(Math.max(0, events.reconnectTarget - Date.now()));
+      }
       if (wakeTarget !== null) await pause(Math.max(0, wakeTarget - Date.now() - 4));
       events.recoverAt = Date.now();
       if (spec.offlineMs) {
@@ -330,6 +377,7 @@ async function scenario(base, spec, network, run) {
       }
       await pause(spec.mix ? 20000 : 12000);
       events.after = await snapshot();
+      if (spec.expiredMix) assert.ok(events.after.members.includes(listenerId), 'The expired listener rejoined');
     } else await pause(22000);
     const raw = await Promise.all(clients.map(c => c.run('({...__clubAudio, clockSkew: Date.now() - (performance.timeOrigin + performance.now())})')));
     if (options.diagnostics) await Promise.all(clients.map(async (c, i) => {

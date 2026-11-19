@@ -71,33 +71,38 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
   const connect = AudioNode.prototype.connect;
   if (mix) globalThis.__clubNativeConnect = connect;
   const taps = new WeakMap();
-  const code = `class Tap extends AudioWorkletProcessor {
-    constructor(options) { super(); this.isolated = !!options.processorOptions?.isolated; this.capture = !!options.processorOptions?.capture; this.pcm = new Float32Array(8192); this.used = 0; this.low = 0; this.vi = 0; this.vq = 0; this.rows = []; }
+  const code = `const lowPass = 1 - Math.exp(-2 * Math.PI * 180 / sampleRate);
+  class Tap extends AudioWorkletProcessor {
+    constructor(options) { super(); this.isolated = !!options.processorOptions?.isolated; this.capture = !!options.processorOptions?.capture; this.pcm = this.capture ? new Float32Array(8192) : null; this.used = 0; this.low = 0; this.rows = []; }
     process(inputs, outputs) {
       const input = inputs[0], output = outputs[0];
-      for (let c = 0; c < output.length; c++) output[c].set(input[c] || input[0] || new Float32Array(128));
-      let energy = 0, band = 0, vocal = 0;
+      for (let c = 0; c < output.length; c++) {
+        const samples = input[c] || input[0];
+        if (samples) output[c].set(samples); else output[c].fill(0);
+      }
+      let energy = 0, band = 0;
       const x = input[0];
       if (this.capture) {
         if (!this.used) this.frame = currentFrame;
-        this.pcm.set(x || new Float32Array(128), this.used); this.used += 128;
+        if (x) this.pcm.set(x, this.used);
+        this.used += 128;
         if (this.used === this.pcm.length) {
           this.port.postMessage({pcm:this.pcm, frame:this.frame, sampleRate}, [this.pcm.buffer]);
           this.pcm = new Float32Array(8192); this.used = 0;
         }
       }
-      if (x) for (let i = 0; i < x.length; i++) {
-        this.low += (1 - Math.exp(-2 * Math.PI * 180 / sampleRate)) * (x[i] - this.low);
-        energy += this.isolated ? x[i] * x[i] : this.low * this.low;
-        if (${mix} && !this.isolated) {
-          const phase = 2 * Math.PI * 10500 * (currentFrame + i) / sampleRate;
-          this.vi += .002 * (x[i] * Math.cos(phase) - this.vi);
-          this.vq += .002 * (x[i] * Math.sin(phase) - this.vq);
-          vocal += this.vi ** 2 + this.vq ** 2;
-          band += (x[i] - this.low) ** 2;
+      if (x && this.isolated) {
+        for (let i = 0; i < x.length; i++) energy += x[i] * x[i];
+      } else if (x) {
+        let low = this.low;
+        for (let i = 0; i < x.length; i++) {
+          low += lowPass * (x[i] - low);
+          energy += low * low;
+          if (${mix}) band += (x[i] - low) ** 2;
         }
+        this.low = low;
       }
-      this.rows.push([currentFrame / sampleRate, Math.sqrt(energy / 128), Math.sqrt(band / 128), Math.sqrt(vocal / 128)]);
+      this.rows.push([currentFrame / sampleRate, Math.sqrt(energy / 128), Math.sqrt(band / 128)]);
       if (this.rows.length >= 64) { this.port.postMessage(this.rows); this.rows = []; }
       return true;
     }
