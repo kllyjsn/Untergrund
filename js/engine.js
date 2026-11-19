@@ -521,8 +521,8 @@ export class Engine {
     this.smoothOn = db;
     if (this.stripMode) return;
     const shelf = this.ch.stab.strip[0], t = Math.max(at, this.ctx.currentTime);
-    const { rev, dly } = this.ch.stab, ps = this.state.params.stab, wet = db > 0 ? 1.6 : 1;
-    for (const [prm, v] of [[shelf.frequency, db > 0 ? 700 : db ? 400 : 120], [shelf.gain, db], [rev.gain, ps.rev * wet], [dly.gain, ps.dly * wet]]) {
+    const { rev, dly, level } = this.ch.stab, ps = this.state.params.stab, up = db > 0 ? 10 ** (db / 20) : 1, wet = db > 0 ? 1.6 : 1;
+    for (const [prm, v] of [[shelf.frequency, db < 0 ? 400 : 120], [shelf.gain, Math.min(db, 0)], [level.gain, ps.level * up], [rev.gain, ps.rev * wet], [dly.gain, ps.dly * wet]]) {
       prm.cancelScheduledValues(t);
       prm.setTargetAtTime(v, t, 0.12);
     }
@@ -538,7 +538,7 @@ export class Engine {
     }
     const v = this.state.params[tid][id];
     const ch = this.ch[tid];
-    if (id === 'level') return this.setTo(ch.level.gain, v, immediate);
+    if (id === 'level') return this.setTo(ch.level.gain, v * (tid === 'stab' && this.smoothOn > 0 ? 10 ** (this.smoothOn / 20) : 1), immediate);
     if (id === 'pan') return this.setTo(ch.pan.pan, v, immediate);
     if (id === 'rev') return this.setTo(ch.rev.gain, v * (tid === 'stab' && this.smoothOn > 0 ? 1.6 : 1), immediate);
     if (id === 'dly') return this.setTo(ch.dly.gain, v * (tid === 'stab' && this.smoothOn > 0 ? 1.6 : 1), immediate);
@@ -1317,7 +1317,8 @@ export class Engine {
     // A song's chorus opens the voicing: the top voice doubled an octave up.
     const vi = (GRIPPED.has(STAB_VOICES[vo]) ? notes : voiced).map((m) => m - root);
     const iv = this.wide && !GRIPPED.has(STAB_VOICES[vo]) && vi.length > 2 ? [...vi, Math.max(...vi) + 12] : vi, out = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
-    if (vo > 0) return this[STAB_VOICES[vo]](t, v, iv, root, p, out);
+    // A lifted breakdown plays decaying chords an octave up, filling it above the bass range it no longer shares.
+    if (vo > 0) return this[STAB_VOICES[vo]](t, v, this.smoothOn > 0 ? iv.map((m) => m + 12) : iv, root, p, out);
     const lp = this.filter('lowpass', p.cutoff, p.reso);
     const amp = this.gain(0);
     const env = c.createConstantSource();
@@ -2721,8 +2722,13 @@ export class Sequencer {
     }
     this.smooth = SMOOTH.has(s.artist?.style);
     // The chords make room under the bass while it plays and fill the low mids back in when it drops out.
-    const sc = !this.smooth ? 0 : !s.mutes.acid && pat.steps.acid.some((st) => st?.on) ? -12 : HELD_CHORDS.has(STAB_VOICES[s.params.stab.voice]) ? -4 : 8;
-    if (sc !== (e.smoothOn || 0)) e.smoothChords(sc, t);
+    const sc = !this.smooth ? 0 : !s.mutes.acid && pat.steps.acid.some((st) => st?.on) ? -12 : HELD_CHORDS.has(STAB_VOICES[s.params.stab.voice]) ? -2 : 0.5;
+    if (sc !== (e.smoothOn || 0)) {
+      e.smoothChords(sc, t);
+      // A lifted breakdown opens on a chord so its first bar does not fall into a gap.
+      const soloed = Object.values(s.solos || {}).some(Boolean);
+      if (sc > 0 && i16 === 0 && !s.mutes.stab && (!soloed || s.solos.stab)) e.trigger('stab', t, 0.45);
+    }
     if (this.dropNext && this.smooth) { if (i16 === 0) e.dropDip(t, 16 * sd); } else if (this.dropNext && !hard) {
       if (i16 === 0) e.sweep(t, 16 * sd, arr);
       if (i16 >= 8 && !s.mutes.snare) {
