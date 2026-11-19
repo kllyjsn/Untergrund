@@ -286,5 +286,20 @@ for (const style of ['trap', 'reggaeton', 'afrobeats', 'jerseyclub', undefined])
     bassIdentities.push(pcm);
   }
 }
+for (const style of ['jerseyclub', 'trap', 'reggaeton', 'afrobeats', 'drill', 'minimal', 'hardtechno']) {
+  const s = freshSong(style, 42);
+  s.artist = { style, seed: 42 };
+  const e = new Engine(new OfflineAudioContext(2, SR, SR), s, { realtime: false }), L = lowEnd(s.master);
+  let duck;
+  e.scheduleDuck = d => { duck = d; };
+  e.duckAt(0.05, 1);
+  const pump = duck.parts.find(p => p[0] === e.duck.gain), bass = duck.parts.find(p => p[0] === e.ch.acid.sc.gain);
+  assert.equal(pump[1], s.master.duck * 0.9, `${style} preserves the shared pump`);
+  if (L) {
+    assert.equal(bass[1], L.dip * (style === 'jerseyclub' ? 0.65 : 1), `${style} bass duck depth`);
+    assert.equal(bass[2], L.rel * (style === 'jerseyclub' ? 0.6 : 1), `${style} bass recovery`);
+  } else assert.equal(bass, undefined, `${style} retains no extra bass sidechain`);
+}
+console.log('Jersey bass: faster, shallower bass-only duck; shared pump and other genre ducks unchanged');
 console.log('bass colors: all ensembles, attack/slide playback, finite PCM, matched-note identities and protected/missing-style bypass passed');
 console.log('sound ok');
