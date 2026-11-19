@@ -93,6 +93,12 @@ for (const [style, seed] of [['neosoul', 42], ['deephouse', 7], ['hypnotic', 3]]
   console.log(`${style} ${seed}: ${r.tracks.map((t) => `${t.name} ${t.notes}`).join(', ')}`);
 }
 
+for (const [seed, chords, hook] of [[7, 42, 68], [503, 71, 73]]) {
+  const { tracks } = parseMidi(songMidi(song('drill', seed)).bytes);
+  assert.deepEqual(tracks.find((t) => t.name === 'Chords').programs, [chords], `Drill ${seed} chord instrument`);
+  assert.deepEqual(tracks.find((t) => t.name === 'Hook').programs, [hook], `Drill ${seed} lead instrument`);
+}
+
 // Independent kick count: with variation and the drop build off, every written kick in the chain plays once.
 {
   const s = song('hypnotic', 3);
