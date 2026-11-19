@@ -314,6 +314,10 @@ DROP so the fixture provides three consecutive kicks inside the recovery window.
 It caps headless animation callbacks at 12 Hz and skips painting after the UI
 join to leave CPU for both realtime audio threads, without changing app audio,
 room polling, or timing limits.
+Without a `--net` profile, `reconnect-mix`, `short-wake-mix`, and
+`background-wake-mix` also check the first downbeat independently of the baseline
+window. Both isolated kick taps must capture it within 50 ms of each other, so
+a shared startup miss cannot pass as later baseline alignment.
 `dj-handoff-mix` uses the same queue/pass/update UI flow as `dj-handoff`.
 All three use the existing full-mix fixture, processedStem prewarm and isolated
 rendered kick/vocal taps. Continuous audio is not cropped by a freeze/resume

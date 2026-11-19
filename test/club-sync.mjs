@@ -388,7 +388,10 @@ async function scenario(base, spec, network, run) {
         epoch: await c.run('performance.timeOrigin + performance.now()') };
     }));
     if (spec.mix) {
-      const mix = analyzeMix(raw, song, events, initial.startsAt, { resume: !!spec.freezeMs });
+      const mix = analyzeMix(raw, song, events, initial.startsAt, {
+        resume: !!spec.freezeMs,
+        checkFirstDownbeat: !options.net && !spec.expiredMix && !!(spec.offlineMs || spec.freezeMs),
+      });
       const failures = mixFailures(mix, realVocal);
       const reference = await host.run(`(${referenceEnvelope})(${JSON.stringify(song)}, ${10 ** (vocalDb(song) / 20)})`);
       const vocalGrid = analyzeVocalGrid(raw, song, reference, events, initial.startsAt, !!spec.freezeMs);
@@ -418,6 +421,7 @@ async function scenario(base, spec, network, run) {
         for (const pair of p.attribution.pairs)
           console.log(`  kick evidence ${name.toUpperCase()} ${pair.kind}${pair.deltaMs === null ? '' : ` Δ=${pair.deltaMs.toFixed(1)}ms`}: host[${point(pair.host)}] listener[${point(pair.listener)}]`);
       }
+      if (mix.firstDownbeat) console.log(`  first downbeat: ${JSON.stringify(mix.firstDownbeat)}`);
       for (const b of mix.boundaries) console.log(`  boundary: ${JSON.stringify(b)}`);
       console.log(`  summary: ${JSON.stringify({ missing:mix.phases.after.kicks.missing, extra:mix.phases.after.kicks.extra,
         medianMs:mix.phases.after.kicks.median, maxMs:mix.phases.after.kicks.max, recoveryMs:mix.timeToRealignMs,

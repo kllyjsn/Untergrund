@@ -189,6 +189,25 @@ const continuous = shift => {
   delete c.resumeBoundary;
   return c;
 };
+{
+  const check = (host, listener) => analyzeMix([host, listener], s,
+    {interruptAt:7000, recoverAt:17000}, 0, {resume:false, checkFirstDownbeat:true});
+  const noFirstKick = () => {
+    const c = continuous(0);
+    c.channels.kick.samples = c.channels.kick.samples.map(([t, rms]) => [t, t < .25 ? 0 : rms]);
+    return c;
+  };
+  const aligned = check(continuous(0), continuous(24));
+  assert.ok(Math.abs(aligned.firstDownbeat.deltaMs - 24) < 1e-6);
+  assert.ok(!mixFailures(aligned).includes('first downbeat'));
+  assert.ok(mixFailures(check(continuous(0), continuous(60))).includes('first downbeat'));
+  for (const host of [continuous(0), noFirstKick()]) {
+    const miss = check(host, noFirstKick());
+    assert.equal(miss.phases.before.kicks.missing, 0, 'later baseline still matches');
+    assert.equal(miss.firstDownbeat.listenerAt, null, 'the next beat is not the first downbeat');
+    assert.ok(mixFailures(miss).includes('first downbeat'));
+  }
+}
 for (const events of [{interruptAt:7000, recoverAt:17000}, {interruptAt:7000, recoverAt:27000}, {interruptAt:7000, recoverAt:7000}]) {
   const mix = analyzeMix([continuous(0), continuous(24)], s, events, 0, {resume:false});
   assert.ok(Math.abs(mix.phases.after.kicks.median - 24) < 1e-6);

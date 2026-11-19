@@ -207,7 +207,7 @@ export function kickAttribution(raw, kicks) {
   return { displacedThresholdMs: 50, clients, pairs };
 }
 
-export function analyzeMix(raw, s, events, origin, { resume = true } = {}) {
+export function analyzeMix(raw, s, events, origin, { resume = true, checkFirstDownbeat = false } = {}) {
   const [he, le] = raw.map(r => envelope(r));
   const [hb, lb] = raw.map(r => envelope(r, 2));
   const start = Math.max(Math.max(he[0][0], le[0][0]) + 500, events.baselineAt ?? -Infinity);
@@ -247,10 +247,20 @@ export function analyzeMix(raw, s, events, origin, { resume = true } = {}) {
   const bk = phases.before.kicks, bv = phases.before.vocal;
   if (!bk.matched || bk.median === null || bk.median > 25 || bk.p95 > 50 || bk.missing || bk.extra) baselineFailures.push('kicks BEFORE');
   if (bv.lagMs === null || Math.abs(bv.lagMs) > 50 || bv.relativeToKickMs === null || Math.abs(bv.relativeToKickMs) > 10) baselineFailures.push('vocal BEFORE');
+  let firstDownbeat = null;
+  if (checkFirstDownbeat) {
+    // These fixtures start with a kick and have no second kick within half a beat.
+    const halfBeat = 30000 / s.bpm;
+    const first = onsets => onsets.find(at => Math.abs(at - origin) < halfBeat) ?? null;
+    const hostAt = first(bk.hostOnsets), listenerAt = first(bk.listenerOnsets);
+    const deltaMs = hostAt === null || listenerAt === null ? null : listenerAt - hostAt;
+    firstDownbeat = { hostAt, listenerAt, deltaMs };
+    if (deltaMs === null || Math.abs(deltaMs) > 50) baselineFailures.push('first downbeat');
+  }
   for (const [i, capture] of raw.entries()) {
     if (!capture.stemWarm || capture.sources.some(source => source.at < capture.stemWarm.end)) baselineFailures.push(`client ${i} stem not warmed before audio graph`);
   }
-  return { phases, boundaries, timeToRealignMs, budgetMs, baselineFailures,
+  return { phases, boundaries, timeToRealignMs, budgetMs, baselineFailures, firstDownbeat,
     stemWarm:raw.map(r => r.stemWarm),
     realStems:raw.map(r => r.realStem),
     graphEdges:raw.map(r => Object.fromEntries(Object.entries(r.channels).map(([name, c]) => [name, c.edge]))),
