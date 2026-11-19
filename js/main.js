@@ -57,6 +57,7 @@ let playing = false, abs = 0, nextTime = 0, lastPlayedPat = null;
 let transportOrigin = 0, roomJoinTimer = 0, clockOffset = null;
 let roomPlayback = false;
 let roomEditor = false;
+let roomFirstNote = null;
 // A song waiting for its downbeat: { step, from, plan, out } (see queueSong).
 let handoff = null;
 const uiQueue = [];
@@ -364,6 +365,7 @@ function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room 
   if (!seeking) engine.recLock = new Map();
   roomPlayback = room;
   roomEditor = room && editRoom;
+  roomFirstNote = room && startsAt !== null && startsAt > wallNow ? nextTime : null;
   playing = true;
   if (replayStats || !trackingReplay) recordPlayback(replayStats || (!editRoom && playbackSources.get(state)), nextTime, abs);
   if (pat().score) preloadScore(pat().score);
@@ -379,7 +381,22 @@ function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room 
   renderHome();
 }
 
+function roomStartPending() {
+  return playing && roomFirstNote !== null && ctx.currentTime < roomFirstNote;
+}
+
+function cancelRoomStart() {
+  if (roomStartPending()) {
+    roomResume = null;
+    stop();
+  } else if (!playing) {
+    clearTimeout(roomJoinTimer);
+    roomJoinTimer = 0;
+  }
+}
+
 function stop(playbackOutcome = 'stop') {
+  if (roomStartPending()) engine.discardQueuedNotes(ctx.currentTime);
   playbackStats.end(playbackOutcome);
   trackingReplay = false;
   listens.end(listenPos(), { finished: songOver });
@@ -391,6 +408,7 @@ function stop(playbackOutcome = 'stop') {
   playing = false;
   roomPlayback = false;
   roomEditor = false;
+  roomFirstNote = null;
   if (engine) engine.editableHits.length = 0;
   handoff = null;
   for (const q of jamQueue.splice(0)) applyPart(state, q.part, q.layer);
@@ -980,6 +998,7 @@ function showClub({ room = '', intent = '' } = {}) {
     },
     // Rooms count steps from where the playing song started (a GENERATE handoff restarts the song, not the clock).
     getTransport: () => ({ playing, startsAt: transportOrigin + (seq?.origin || 0) * (15000 / state.bpm) }),
+    onLeaveRoom: cancelRoomStart,
     getReleaseId: () => {
       const source = playbackSources.get(state);
       return source?.trackId && source.fingerprint === songFingerprint(state) ? source.trackId : '';

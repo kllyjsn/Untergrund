@@ -128,6 +128,29 @@ const after = (changeAt - rebasedOrigin) / (15000 / newBpm);
 close(before, after);
 
 const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+const stopSource = main.slice(main.indexOf('function roomStartPending()'), main.indexOf('\nfunction recordPlayback'));
+for (const [action, currentTime, playing, expected] of [
+  ['stop', 1.8, true, ['discard@1.8', 'timer', 'panic']],
+  ['cancelRoomStart', 1.8, true, ['discard@1.8', 'timer', 'panic']],
+  ['cancelRoomStart', 1.8, false, ['timer']],
+  ['stop', 2.1, true, ['timer', 'panic']],
+  ['cancelRoomStart', 2.1, true, []],
+]) {
+  const calls = [], noop = () => {};
+  const sandbox = {
+    playing, roomFirstNote: playing ? 2 : null, roomPlayback: true, roomEditor: false, roomJoinTimer: 1, roomResume: noop,
+    ctx: {currentTime}, engine: {editableHits: [], discardQueuedNotes: t => calls.push(`discard@${t}`), panic: () => calls.push('panic')},
+    playbackStats: {end: noop}, trackingReplay: false, listens: {end: noop}, listenPos: noop, songOver: false,
+    clearPaused: noop, endTuning: noop, clearTimeout: () => calls.push('timer'), handoff: null,
+    jamQueue: [], guardPushOffer: noop, playStopped: noop, timer: null, midiClockStop: noop,
+    uiQueue: [], setPlayhead: noop, timeline: {frame: noop}, lastPlayedPat: null, seq: null, artistLive: null,
+    document: {body: {classList: {remove: noop}}, querySelectorAll: () => []},
+    renderPatterns: noop, renderHome: noop, releaseMedia: noop, syncNowPlaying: noop,
+  };
+  runInNewContext(`${stopSource}\n${action}()`, sandbox);
+  assert.deepEqual(calls, expected, `${action} at audio time ${currentTime} (playing: ${playing})`);
+  assert.equal(sandbox.playing, playing && !expected.length);
+}
 const joinSource = main.slice(main.indexOf('function joinRoomSet(item)'), main.indexOf('\nfunction startRoomBroadcast'));
 function roomJoin(change = () => {}, options = {}) {
   const state = freshSong('hypnotic', 7, { length:'sketch', bpm:123 });

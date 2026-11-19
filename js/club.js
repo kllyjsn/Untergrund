@@ -533,7 +533,7 @@ export function clubActions({ isHost, live, canListen, queued, queueLength = 0 }
   return queued ? { primary: null, secondary: [queue] } : { primary: queue, secondary: [] };
 }
 
-export function openClub({ getState, getStyle, loadTrack, getTransport, getReleaseId = () => '', startRoomBroadcast, unlockAudio, joinRoomSet: joinSet, onPlaybackUnavailable, replayToRoom, jam: jamHooks = null, toast, room: requestedRoom = '', intent = '', hue = null }) {
+export function openClub({ getState, getStyle, loadTrack, getTransport, getReleaseId = () => '', startRoomBroadcast, unlockAudio, joinRoomSet: joinSet, onLeaveRoom, onPlaybackUnavailable, replayToRoom, jam: jamHooks = null, toast, room: requestedRoom = '', intent = '', hue = null }) {
   const joinRoomSet = (set) => { joinSet(set); bus?.follow(set); };
   let audioReady = false;
   const unlock = () => unlockAudio().then((ok) => (audioReady = ok));
@@ -564,13 +564,19 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, getRelea
     history.replaceState(history.state, '', url);
   };
 
+  const leaveRoom = (leaving = bus) => {
+    if (!leaving) return;
+    leaving.close();
+    onLeaveRoom?.();
+  };
+
   const close = () => {
     closed = true;
     if (bus && (bus.hostId === bus.clientId || bus.myPart()) && bus.currentSet && getTransport().playing) {
       bus.onUpdate = () => {};
       bus.onEvent = () => {};
       parkedBus = bus;
-    } else bus?.close();
+    } else leaveRoom();
     clearTimeout(lobbyTimer);
     setRoomQuery('');
     window.dispatchEvent(new Event('untergrund:club-closed'));
@@ -639,9 +645,9 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, getRelea
       goLive = false;
       return;
     }
-    parkedBus?.close();
+    leaveRoom(parkedBus);
     parkedBus = null;
-    bus?.close();
+    leaveRoom();
     bus = new RoomBus(activeRoom, avatar, onUpdate, onEvent, apiBase);
     bus.onPlaybackUnavailable = onPlaybackUnavailable;
     if (jamHooks) bus.jamHooks = { ...jamHooks, getState, isPlaying: () => getTransport().playing };
@@ -740,7 +746,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, getRelea
       bus.onUpdate = () => {};
       bus.onEvent = () => {};
       parkedBus = bus;
-    } else bus?.close();
+    } else leaveRoom();
     bus = null;
     joinedRoom = '';
     lobby = true;
