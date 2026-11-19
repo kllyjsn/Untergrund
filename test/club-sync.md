@@ -307,7 +307,13 @@ it does not emulate mobile gesture restrictions.
 ## Deck handoff and replay
 
 `reconnect-mix` and `reconnect-expired-mix` use the same 10s/20s network
-interruption as their dry counterparts, after a 7s baseline, with 20s recovery.
+interruption as their dry counterparts, with 20s recovery. The expired scenario
+measures at least seven seconds of baseline after the first bar, asserts the
+listener expires and rejoins, and restores the network a quarter beat before a
+DROP so the fixture provides three consecutive kicks inside the recovery window.
+It caps headless animation callbacks at 12 Hz and skips painting after the UI
+join to leave CPU for both realtime audio threads, without changing app audio,
+room polling, or timing limits.
 `dj-handoff-mix` uses the same queue/pass/update UI flow as `dj-handoff`.
 All three use the existing full-mix fixture, processedStem prewarm and isolated
 rendered kick/vocal taps. Continuous audio is not cropped by a freeze/resume
