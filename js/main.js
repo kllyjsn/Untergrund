@@ -101,6 +101,7 @@ const listens = createListens({ emit: signal });
 const playbackStats = createPlaybackAnalytics();
 const playbackSources = new WeakMap();
 let trackingReplay = false;
+let roomStatsItem = null;
 let songOrigin = { src: 'restored' }, pendingPrompt = null;
 // The Library list being played through ({ items, i }); GENERATE ends it.
 let queue = null;
@@ -903,6 +904,7 @@ async function joinRoomReplay(item) {
 
 function joinRoomSet(item) {
   stopTimeline();
+  roomStatsItem = item;
   if (item?.replay) return joinRoomReplay(item);
   if (!item?.state) return;
   playbackStats.end('skip');
@@ -921,6 +923,13 @@ function joinRoomSet(item) {
   const wait = startsAt - Date.now();
   if (wait > 50) roomJoinTimer = setTimeout(sync, wait - 40);
   else sync();
+}
+
+function stopRoomStats(item) {
+  if (!item.broadcastId || item.broadcastId !== roomStatsItem?.broadcastId) return;
+  roomStatsItem.public = false;
+  if (trackingReplay || playbackSources.get(state)?.surface === 'club') playbackStats.cancel();
+  if (playbackSources.get(state)?.surface === 'club') playbackSources.delete(state);
 }
 
 function startRoomBroadcast(startsAt) {
@@ -952,6 +961,7 @@ function showClub({ room = '', intent = '' } = {}) {
       const source = playbackSources.get(state);
       return source?.trackId && source.fingerprint === songFingerprint(state) ? source.trackId : '';
     },
+    onPlaybackUnavailable: stopRoomStats,
     startRoomBroadcast,
     unlockAudio: async () => {
       ensureAudio();

@@ -97,7 +97,7 @@ export function avatarNode(avatar, extra = '', style = '') {
 }
 
 let clockProbe = 0;
-class RoomBus {
+export class RoomBus {
   constructor(id, user, onUpdate, onEvent, apiBase = '') {
     this.id = cleanRoom(id);
     this.user = user;
@@ -192,7 +192,12 @@ class RoomBus {
   applySet(set, userId, snapshot = false) {
     if (!set || !this.acceptsSet(set)) return;
     const key = this.setKey(set);
-    if (key === this.currentSetKey) return;
+    const sameBroadcast = set.broadcastId && set.broadcastId === this.currentSet?.broadcastId;
+    if (sameBroadcast && set.public === false) this.onPlaybackUnavailable?.(set);
+    if (key === this.currentSetKey) {
+      if (sameBroadcast) this.currentSet.public = set.public;
+      return;
+    }
     this.currentSet = set;
     this.currentSetKey = key;
     const seenBroadcast = !!(set.broadcastId && this.appliedBroadcasts.has(set.broadcastId));
@@ -505,6 +510,7 @@ class RoomBus {
 
   close() {
     this.closed = true;
+    if (this.currentSet) this.onPlaybackUnavailable?.(this.currentSet);
     clearInterval(this.jamTimer);
     clearInterval(this.timer);
     clearTimeout(this.poller);
@@ -527,7 +533,7 @@ export function clubActions({ isHost, live, canListen, queued, queueLength = 0 }
   return queued ? { primary: null, secondary: [queue] } : { primary: queue, secondary: [] };
 }
 
-export function openClub({ getState, getStyle, loadTrack, getTransport, getReleaseId = () => '', startRoomBroadcast, unlockAudio, joinRoomSet: joinSet, replayToRoom, jam: jamHooks = null, toast, room: requestedRoom = '', intent = '', hue = null }) {
+export function openClub({ getState, getStyle, loadTrack, getTransport, getReleaseId = () => '', startRoomBroadcast, unlockAudio, joinRoomSet: joinSet, onPlaybackUnavailable, replayToRoom, jam: jamHooks = null, toast, room: requestedRoom = '', intent = '', hue = null }) {
   const joinRoomSet = (set) => { joinSet(set); bus?.follow(set); };
   let audioReady = false;
   const unlock = () => unlockAudio().then((ok) => (audioReady = ok));
@@ -637,6 +643,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, getRelea
     parkedBus = null;
     bus?.close();
     bus = new RoomBus(activeRoom, avatar, onUpdate, onEvent, apiBase);
+    bus.onPlaybackUnavailable = onPlaybackUnavailable;
     if (jamHooks) bus.jamHooks = { ...jamHooks, getState, isPlaying: () => getTransport().playing };
     if (goLive) {
       const mine = bus;

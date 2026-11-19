@@ -6,6 +6,7 @@ import eventsHandler from '../api/events.js';
 import { normalizeTrack, redisStore } from '../api/_lib/crate.js';
 import { memoryPlaybackKv } from '../api/_lib/playback.js';
 import { normalizeSet } from '../api/_lib/rooms.js';
+import { RoomBus } from '../js/club.js';
 import { createPlaybackAnalytics } from '../js/playback-analytics.js';
 import { respKv, startUpstash } from './fake-upstash.mjs';
 
@@ -15,6 +16,16 @@ const roomSet = normalizeSet({ state: track.state, trackId: track.id, style: 'ac
 assert.equal(roomSet.trackId, track.id, 'a broadcast preserves the published song on deck');
 assert.equal(normalizeSet({ state: track.state, trackId: '../other' }).trackId, undefined);
 assert.equal(normalizeSet({ state: track.state, trackId: track.id, replay: { id: 'set-recording' } }).trackId, undefined);
+
+const publicSet = { ...roomSet, broadcastId: 'same-broadcast', version: 1, public: true };
+const bus = Object.assign(Object.create(RoomBus.prototype), {
+  onEvent: () => assert.fail('a privacy update must not restart playback'),
+  currentSet: publicSet, currentSetKey: 'server:1', appliedBroadcasts: new Set(['same-broadcast']), initiatedSets: new Set(),
+});
+const visibility = [];
+bus.onPlaybackUnavailable = (set) => visibility.push(set.public);
+bus.applySet({ ...publicSet, public: false, version: 2 }, 'dj', true);
+assert.deepEqual(visibility, [false], 'privacy updates bypass playback rejoin deduplication');
 
 async function scenario(label, kv) {
   const upstash = await startUpstash(kv);
@@ -95,6 +106,14 @@ async function scenario(label, kv) {
     for (const sample of sent.slice(n)) assert.equal((await post(sample)).status, 202);
     const loose = play({ trackId: undefined, genre: 'acid', surface: 'club', progress: null, elapsed: 31, outcome: 'stop' });
     await post(loose);
+
+    player.start({ surface: 'club', genre: 'acid' }, { ...clock, at: 65 });
+    time(66);
+    const beforePrivacyChange = sent.length;
+    player.cancel();
+    time(85);
+    player.end();
+    assert.equal(sent.length, beforePrivacyChange, 'privacy changes suppress even the final checkpoint');
 
     // Page exit flushes a final snapshot, and opted-out browsers don't send even on exit.
     player.start({ surface: 'embed', genre: 'acid' }, { ...clock, at: 70 });

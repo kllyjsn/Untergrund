@@ -51,5 +51,5 @@ export function createPlaybackAnalytics(win = globalThis) {
     sample();
   }
   win.addEventListener?.('pagehide', () => end());
-  return { start, end };
+  return { start, end, cancel: clear };
 }
