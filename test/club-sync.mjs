@@ -260,8 +260,9 @@ async function scenario(base, spec) {
     console.log(`${spec.name}: detector self=${self.max}ms; resolved lag=${stats.signedLagMs}ms; skew host/listener=${raw.map(r => Math.round(r.clockSkew)).join('/')}ms; join=${joined}`);
     const diagnostics = options.diagnostics ? diagnose(raw, initial.startsAt) : null;
     if (diagnostics) {
+      const ms = value => Number.isFinite(value) ? value.toFixed(2) : 'unavailable';
       assert.ok(diagnostics.every(d => d.roomClock?.best && d.starts.length && d.schedulerSamples >= 5), 'Diagnostic breakpoints captured both app paths');
-      console.log(`  diagnostics host/listener: clock shift=${diagnostics.map(d => d.roomClock.shiftMs.toFixed(2)).join('/')}ms; origin−server=${diagnostics.map(d => d.originMinusServerMs.toFixed(2)).join('/')}ms; scheduled output offset=${diagnostics.map(d => d.scheduledOutputOffsetMs.toFixed(2)).join('/')}ms; output clock lead=${diagnostics.map(d => d.outputClockLeadMs.toFixed(2)).join('/')}ms; smoothing residual=${diagnostics.map(d => d.smoothingResidualMs.toFixed(2)).join('/')}ms; tolerance residual=${diagnostics.map(d => d.toleranceResidualMs.toFixed(2)).join('/')}ms`);
+      console.log(`  diagnostics host/listener: clock shift=${diagnostics.map(d => ms(d.roomClock.shiftMs)).join('/')}ms; origin−server=${diagnostics.map(d => ms(d.originMinusServerMs)).join('/')}ms; scheduled output offset=${diagnostics.map(d => ms(d.scheduledOutputOffsetMs)).join('/')}ms; output clock lead=${diagnostics.map(d => ms(d.outputClockLeadMs)).join('/')}ms; smoothing residual=${diagnostics.map(d => ms(d.smoothingResidualMs)).join('/')}ms; tolerance residual=${diagnostics.map(d => ms(d.toleranceResidualMs)).join('/')}ms`);
     }
     return { name: spec.name, ...stats, hostFixture, phases, events, transition, diagnostics, injectedEvidence, navigationToFirstKickMs: lo[0] - navigation,
       navigationToFirstAlignedKickMs: aligned ? aligned - navigation : null, broadcast, navigation,

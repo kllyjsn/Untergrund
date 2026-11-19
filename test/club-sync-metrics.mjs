@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { runInNewContext } from 'node:vm';
 import { transitionAudio } from './club-sync-transition.mjs';
-import { diagnose } from './club-sync-diagnostics.mjs';
+import { diagnose, installDiagnostics } from './club-sync-diagnostics.mjs';
 
 const rows = Array.from({ length: 2500 }, (_, i) => {
   const t = i * 2;
@@ -26,4 +27,15 @@ assert.equal(diagnostic.scheduledOutputOffsetMs, 30);
 assert.ok(Math.abs(diagnostic.smoothingResidualMs - 10) < .001);
 assert.ok(Math.abs(diagnostic.toleranceResidualMs) < .001);
 assert.equal(diagnose([{}], 10000)[0].scheduledOutputOffsetMs, null);
+const probes = [];
+await installDiagnostics(async (method, params) => {
+  if (method === 'Debugger.setBreakpointByUrl') probes.push(params.condition);
+}, 'http://localhost:1234');
+const sandbox = { __clubAudio: {}, performance: { timeOrigin: 1000, now: () => 2000 },
+  ctx: { currentTime: 1, baseLatency: .01, outputLatency: .04, getOutputTimestamp: () => ({ contextTime: 1, performanceTime: 2000 }) } };
+for (const condition of probes) assert.equal(runInNewContext(condition, sandbox), false);
+assert.equal(sandbox.__clubAudio.probeErrors, undefined);
+assert.ok(Number.isFinite(sandbox.__clubAudio.scheduler[0].wallOffset));
+assert.equal(sandbox.__clubAudio.scheduler[0].clockOffset, undefined);
 console.log('Club transition/diagnostic metrics PASS: downbeat, inter-kick/silence gaps, empty/silent/error, known output-clock decomposition.');
+console.log('Diagnostic probes PASS: absent scheduler/clock locals do not throw; wallOffset is computed without offset.');

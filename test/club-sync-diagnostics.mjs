@@ -9,18 +9,27 @@ export async function installDiagnostics(send, base) {
     const lineNumber = source.split('\n').findIndex(l => l.includes(marker));
     assert.ok(lineNumber >= 0, `Diagnostic marker missing: ${file}: ${marker}`);
     await send('Debugger.setBreakpointByUrl', { url: `${base}/js/${file}`, lineNumber,
-      condition: `(() => { if (!globalThis.__clubAudio) return false; ${body}; return false; })()` });
+      condition: `(() => { if (!globalThis.__clubAudio) return false;
+        try { ${body}; } catch (e) {
+          const errors = __clubAudio.probeErrors ||= [];
+          const message = ${JSON.stringify(file + ': ' + marker + ': ')} + String(e);
+          if (!errors.includes(message)) errors.push(message);
+        } return false; })()` });
   };
-  const clock = `const a = __clubAudio.roomClocks ||= []; if (!a.length || a.at(-1).best?.at !== best?.at)
-    a.push({at:performance.timeOrigin + performance.now(), best:best ? {...best} : null,
-      shiftMs:best ? monotonic() + best.offset - wall() : 0})`;
+  const optional = name => `${name}:typeof ${name} === 'undefined' ? undefined : ${name}`;
+  const clock = `const selected = typeof best === 'undefined' ? null : best;
+    const a = __clubAudio.roomClocks ||= []; if (!a.length || a.at(-1).best?.at !== selected?.at)
+    a.push({at:performance.timeOrigin + performance.now(), best:selected ? {...selected} : null,
+      shiftMs:selected && typeof monotonic === 'function' && typeof wall === 'function' ? monotonic() + selected.offset - wall() : 0})`;
   await at('room-sync.js', 'return best ? monotonic()', clock);
   await at('main.js', 'if (!seeking) engine.recLock', `(__clubAudio.starts ||= []).push({at:performance.timeOrigin + performance.now(),
-    step:abs, delay, nextTime, transportOrigin, contextTime:ctx.currentTime})`);
+    step:typeof abs === 'undefined' ? undefined : abs, ${['delay', 'nextTime', 'transportOrigin'].map(optional).join(', ')},
+    contextTime:typeof ctx === 'undefined' ? undefined : ctx.currentTime})`);
   await at('main.js', 'while (nextTime < ctx.currentTime +', `const a = __clubAudio.scheduler ||= [];
-    if (!a.length || performance.now() - a.at(-1).monotonic >= 1000)
-      a.push({at:performance.timeOrigin + performance.now(), monotonic:performance.now(), abs, base, nextTime,
-        transportOrigin, clockOffset, wallOffset:offset, contextTime:ctx.currentTime,
+    if (typeof ctx !== 'undefined' && (!a.length || performance.now() - a.at(-1).monotonic >= 1000))
+      a.push({at:performance.timeOrigin + performance.now(), monotonic:performance.now(),
+        ${['abs', 'base', 'nextTime', 'transportOrigin', 'clockOffset'].map(optional).join(', ')},
+        wallOffset:Date.now()/1000 - ctx.currentTime, contextTime:ctx.currentTime,
         baseLatency:ctx.baseLatency, outputLatency:ctx.outputLatency, output:ctx.getOutputTimestamp()})`);
 }
 
