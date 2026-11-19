@@ -77,6 +77,31 @@ const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
   files.clear();
 }
 {
+  const state = defaultState(), ctx = new FakeContext(2, 4096, 48000), out = ctx.createGain(), hits = [];
+  state.params.stab.voice = 6;
+  const e = {
+    state, ctx, rec: Engine.prototype.rec, recLock: new Map([['harp', false]]),
+    stab: Engine.prototype.stab, harpBacking: Engine.prototype.harpBacking, filter: Engine.prototype.filter,
+    ch: { stab: { input: out } }, trimOut: (key, db, dest) => dest,
+    soulBand: () => false, bells: (...args) => hits.push(args),
+  };
+  const hit = (underHarp) => Engine.prototype.trigger.call(e, 'stab', 1, 0.8, underHarp);
+  hit(true);
+  e.recLock = new Map();
+  hit(false);
+  hit(true);
+  hit(true);
+  for (const [, , , , p, dest] of hits.slice(0, 2)) {
+    assert.equal(p, state.params.stab, 'fallback and unaccompanied bells keep their original ring');
+    assert.equal(dest, out);
+  }
+  const [, , pitches, root, p, dest] = hits[2];
+  assert.deepEqual([pitches, root], hits[1].slice(2, 4), 'the backing uses the same chord voicing');
+  assert.ok(p.decay < state.params.stab.decay, 'the recorded harp gets a shorter bell tail');
+  assert.equal(dest, hits[3][5], 'backing chords reuse the presence cut');
+  assert.equal(out.inputs[0].inputs[0], dest);
+}
+{
   const state = st(KIT_BACKBEAT, 1), seen = [];
   const part = {
     state, recLock: new Map(), rec: Engine.prototype.rec, sampledHit: Engine.prototype.sampledHit,
