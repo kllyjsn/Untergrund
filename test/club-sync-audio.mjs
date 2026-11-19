@@ -153,31 +153,36 @@ export function resolvedCompare(hostEnvelope, listenerEnvelope, from, to) {
   const enough = host.filter(t => t >= from && t <= to).length >= 4 && listener.filter(t => t >= from && t <= to).length >= 4;
   const correlation = correlate(enough ? he : [], enough ? le : [], PERIOD_MS / 2 - 4);
   const lag = correlation.lagMs;
-  const h = host.filter(t => t >= from && t <= to && t + (lag || 0) >= from && t + (lag || 0) <= to);
-  const l = listener.filter(t => t >= from && t <= to && t - (lag || 0) >= from && t - (lag || 0) <= to);
-  const used = new Set(), pairs = [], unmatched = [];
-  for (const t of l) {
+  const used = new Set(), matched = [], unmatched = [];
+  for (const t of listener) {
     let index = -1, distance = Infinity;
-    for (let i = 0; i < h.length; i++) {
-      const d = Math.abs(t - h[i] - (lag || 0));
+    for (let i = 0; i < host.length; i++) {
+      const d = Math.abs(t - host[i] - (lag || 0));
       if (!used.has(i) && d < distance) { distance = d; index = i; }
     }
     if (lag !== null && distance <= STEP_MS * .48) {
-      used.add(index); pairs.push({ host: h[index], listener: t, delta: t - h[index] });
+      used.add(index); matched.push({ host: host[index], listener: t, delta: t - host[index] });
     } else unmatched.push(t);
   }
+  // Guards constrain the host events counted, not where their counterparts may lie.
+  const observableFrom = lag === null ? from : Math.max(from, listenerEnvelope[0][0] - lag);
+  const observableTo = lag === null ? to : Math.min(to, listenerEnvelope.at(-1)[0] - lag);
+  const inside = t => t >= observableFrom && t <= observableTo;
+  const h = host.filter(inside), pairs = matched.filter(p => inside(p.host));
+  const missing = h.filter(t => !used.has(host.indexOf(t)));
   const deltas = pairs.map(p => p.delta), abs = deltas.map(Math.abs);
   const gaps = [];
   for (let i = 0; i < h.length; i++) {
-    if (used.has(i)) continue;
+    if (!missing.includes(h[i])) continue;
     const first = i;
-    while (i + 1 < h.length && !used.has(i + 1)) i++;
-    const end = h[i + 1] ?? to;
+    while (i + 1 < h.length && missing.includes(h[i + 1])) i++;
+    const end = h[i + 1] ?? observableTo;
     gaps.push({ from: h[first], to: end, missing: i - first + 1, durationMs: end - h[first] });
   }
   return { signedLagMs: lag, correlation, median: quantile(abs, .5), p95: quantile(abs, .95),
     max: abs.length ? Math.max(...abs) : null, matched: pairs.length,
-    expected: h.length, missing: h.length - used.size, extra: unmatched.length, gaps, deltas, pairs, from, to };
+    expected: h.length, missing: missing.length, extra: unmatched.filter(t => inside(t - (lag || 0))).length,
+    gaps, deltas, pairs, from, to, observableFrom, observableTo };
 }
 
 export function fixtureMissing(hostEnvelope, origin, from, to) {
@@ -185,9 +190,11 @@ export function fixtureMissing(hostEnvelope, origin, from, to) {
   const host = onsets(hostEnvelope, BPM);
   const positions = KICK_STEPS.flatMap((bar, b) => bar.map(s => (b * 16 + s) * STEP_MS));
   const expected = [];
-  for (let n = Math.floor((from - origin) / PERIOD_MS) - 1; origin + n * PERIOD_MS <= to; n++)
-    for (const t of positions) { const at = origin + n * PERIOD_MS + t; if (at >= from && at <= to) expected.push(at); }
+  for (let n = Math.floor((from - origin - 200) / PERIOD_MS) - 1; origin + n * PERIOD_MS <= to + 200; n++)
+    for (const t of positions) { const at = origin + n * PERIOD_MS + t; if (at >= from - 200 && at <= to + 200) expected.push(at); }
   const offsets = expected.map(t => host.reduce((a, b) => Math.abs(b - t) < Math.abs(a - t) ? b : a, Infinity) - t).filter(d => Math.abs(d) < 200);
   const offset = quantile(offsets, .5) || 0;
-  return { expected: expected.length, missing: expected.filter(t => !host.some(h => Math.abs(h - t - offset) <= 60)).length, outputOffsetMs: offset };
+  const rendered = expected.map(t => t + offset).filter(t => t >= from && t <= to);
+  const missingAt = rendered.filter(t => !host.some(h => Math.abs(h - t) <= 60));
+  return { expected: rendered.length, missing: missingAt.length, missingAt, outputOffsetMs: offset };
 }

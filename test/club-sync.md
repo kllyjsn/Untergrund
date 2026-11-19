@@ -3,8 +3,9 @@
 Run `npm run test:club-sync` with Node 22 and Chrome installed (`CHROME_PATH`
 overrides discovery). Add `-- --assert` for exit-status thresholds, or
 `-- --scenario late-join` (also `listener-skew`, `host-skew`, `cold-invite`,
-`injected-offset`, `reconnect`, `reconnect-expired`, `background-wake`).
-Detector tests: `node test/club-sync-detector.mjs`.
+`injected-offset`, `reconnect`, `reconnect-expired`, `background-wake`,
+`dj-handoff`, `replay`). Detector tests: `node test/club-sync-detector.mjs`.
+Transition/diagnostic metric tests: `node test/club-sync-metrics.mjs`.
 
 Each client owns an OS Chrome process/profile, not just a tab. The server has
 Redis/remote room environment variables removed and uses the in-memory rooms
@@ -36,8 +37,14 @@ There is no lag estimate when either envelope is silent/empty.
 Statistics use a 500ms startup guard and end at the common captured envelope
 boundary, **not** the final audible kick (so dropouts cannot shorten the window).
 Listener missing counts are unmatched host onsets, respecting irregular rests.
+Matching uses full onset lists before counting only host-window events: a
+counterpart across either analysis guard is still matched. Only true capture
+boundaries censor events whose lagged counterpart cannot have been captured.
 Host missing counts compare the known fixture against the server's transport
-origin with a fitted constant output/detector latency. Large gaps are retained.
+origin with a fitted constant output/detector latency. Fixture bounds apply to
+the latency-shifted expected render times too, not nominal transport times;
+otherwise a final expected kick can be counted outside the actual capture.
+JSON includes exact missing fixture timestamps. Large gaps are retained.
 Entry latency reports first kick and first globally pattern-aligned kick.
 
 The period bounds the unambiguous range: whole steps, beats, bars and ±2000ms
@@ -142,3 +149,108 @@ automatically after unlock; otherwise the harness clicks LISTEN LIVE using CDP
 pointer input. The JSON records which path executed. Cold invite still uses a
 brand-new profile and starts its entry timer immediately before navigation;
 it does not emulate mobile gesture restrictions.
+
+## Deck handoff and replay
+
+`dj-handoff` records 7s, clicks JOIN DJ QUEUE on the listener, verifies the
+server queue, clicks PASS DECK on the host and verifies the new host ID. The
+new DJ taps UPDATE ROOM. This real rebroadcast flow preserves the running
+transport origin; it does not restart the song at bar 1. The downbeat comparison
+therefore uses the first ABCD-cycle downbeat after rebroadcast. Neither deck
+assignment nor broadcasting is performed through a direct room API call.
+
+`replay` seeds a 30s saved timeline using the real createTimelineRecorder and
+publishReplay modules (the memory server saves to the browser's IndexedDB),
+then clicks REPLAYS → REPLAY TO ROOM. It verifies the server's replay flag and
+new broadcast ID. Seeding avoids a recording/save-dialog prerequisite, but
+replay dispatch, timeline playback and listener delivery are the real UI path.
+
+Both capture 22s after the measured downbeat. Main statistics and host fixture
+checks apply only after rebroadcast/replay starts, not a correlation across two origins.
+JSON records each original client's first downbeat in true epoch milliseconds,
+its signed listener-minus-host delta, action-to-first-aligned-kick latency,
+the inter-kick gap straddling the action, and rendered near-silence gaps around
+the transition. Near-silence is envelope below 2.5% of that client's peak
+(minimum 0.0001), with active segments joined across ≤20ms holes. This is not
+digital-zero silence; normal fixture rests are included, not mislabeled as
+dropouts. The first downbeat must be detected within ±200ms of the new origin;
+missing either downbeat, |delta| >50ms or no aligned kick also fails --assert.
+For handoff the role names remain **original** host/listener after the swap.
+
+## Repeated join diagnostics
+
+```
+npm run test:club-sync -- --scenario cold-invite --repeat 5 --diagnostics --output club-sync-cold-invites.json
+```
+
+Each repeat uses a new room and two new Chrome processes/profiles. Diagnostic
+mode uses false CDP conditional breakpoints to read module locals without
+pausing or editing application files. Source markers are looked up rather than
+hard-coded line numbers; missing markers/captures fail explicitly. It records
+the room clock estimate at join and later, transport starts, and one scheduler
+sample/second: transport origin, nextTime, wall/audio clock offset, smoothing
+residual, 30ms tolerance residual and getOutputTimestamp mapping. These separate
+a wrong room origin from the mapping of a correctly anchored schedule to
+rendered output. Debugger attachment can itself affect scheduling; compare
+these diagnostic runs with the uninstrumented full run, not as pristine timing.
+The reported output offset predicts rendered sample position, not acoustic
+device delay. Raw snapshots are preserved for checking the decomposition.
+
+### Five cold invites: first clock samples are frozen into the origin
+
+All five diagnostic repeats took LISTEN LIVE, with zero missing kicks. Signed
+lag varied from -56 to +8ms (median -24ms); three failed unchanged thresholds.
+The signed onset medians in the first/last five seconds did not converge to zero.
+
+| Run | Signed lag | Median signed delta | p95 absolute | First clock RTT host/listener | First clock shift host/listener | True origin minus server host/listener | Predicted rendered lag |
+| --- | ---: | ---: | ---: | --- | --- | --- | ---: |
+| 1 | +8 | +8.49 | 14.47 | 47.40 / 19.10 | +19.60 / +8.55 | -18.80 / -7.55 | +8.60 |
+| 2 | -28 | -25.94 | 31.46 | 47.20 / 13.80 | -22.40 / +6.10 | +29.30 / -5.70 | -27.54 |
+| 3 | -56 | -54.62 | 60.71 | 83.40 / 14.60 | -40.30 / +6.60 | +41.70 / -5.90 | -56.36 |
+| 4 | +8 | +8.97 | 14.29 | 22.30 / 12.80 | +10.95 / +5.30 | -8.35 / -3.90 | +7.61 |
+| 5 | -24 | -25.36 | 29.95 | 40.30 / 13.60 | -18.65 / +5.80 | +19.45 / -5.40 | -25.67 |
+
+Times are milliseconds. Prediction = listener-minus-host transport origin error
+plus listener-minus-host scheduled output offset from getOutputTimestamp.
+It agrees with signed onset medians within 1.8ms in all five runs.
+
+The dominant variable is the initial presence clock estimate, not schedule()
+clockOffset smoothing. In run 3 the first host sample had 83.4ms RTT and
+-41.10ms error against the unskewed performance.timeOrigin; its shift was
+-40.30ms (Date's integer rounding differs slightly). RoomBus.send shifts the
+outgoing startsAt with that estimate; the local host remains +41.70ms relative
+to the server origin. The listener's initial +6.60ms shift gives a -5.90ms
+origin error. Origin difference alone is -47.60ms. The measured audio scheduling
+offset difference contributes -8.76ms, predicting -56.36ms versus measured
+-54.62ms. Later host/listener samples have 2.3/2.4ms RTT and -0.15/+0.10ms
+clock errors, yet the existing origins stay unchanged. Every run has one
+start() invocation per client: there is no subsequent rejoin correcting it.
+
+The checked causal path is RoomBus's initial presence observe → send('set')
+shiftRoomSet(payload, roomClock.shift()) → server stores the shifted origin →
+listener applySnapshot shifts it back using its initial estimate → joinRoomSet
+starts playback. applySnapshot explicitly preserves an existing broadcast's
+startsAt, and applySet deduplicates it; later improved clock samples therefore
+do not re-anchor that set. schedule() targets the already-fixed local
+transportOrigin. Module-local snapshots confirm these paths actually ran.
+
+Checks against alternatives: both clients report the same 10ms baseLatency and
+40ms outputLatency in all five runs. Median clockOffset smoothing residuals
+are only -1.55..+4.30ms, versus a -47.60ms origin difference in run 3. The
+30ms transportResync tolerance does preserve additional small phase residuals
+(-14.52..+2.19ms in these samples), but cannot correct a transport origin that
+is already wrong. Thus this distribution supports asymmetric initial clock
+samples being frozen into startsAt as the principal source of the intermittent
+large constant offsets. It does not claim every millisecond of rendered delta
+comes from the estimator. No application code was changed.
+
+Evidence is in ignored test/out/club-sync-cold-invites.json. Debugger overhead
+can affect the distribution; these are five fresh desktop headless joins, not
+a population estimate or a mobile-network measurement. The ordinary cold-invite
+scenario remains in the default suite without diagnostics.
+
+The separate advisory GitHub Actions `club-sync` job runs the complete harness
+with --assert on PRs, main pushes and manual dispatch. It uses Node 22 and the
+Ubuntu runner's Chrome, and uploads JSON with `if: always()`. Known threshold
+failures return a nonzero process status but the job is continue-on-error.
+The harness remains outside npm test.

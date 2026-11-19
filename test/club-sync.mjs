@@ -8,7 +8,9 @@ import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findChrome } from './chrome.mjs';
 import { defaultState, emptyPattern } from '../js/state.js';
-import { installAudioTap, envelope, onsets, resolvedCompare, fixtureMissing, BPM, KICK_STEPS } from './club-sync-audio.mjs';
+import { installAudioTap, envelope, onsets, resolvedCompare, fixtureMissing, BPM, KICK_STEPS, PERIOD_MS } from './club-sync-audio.mjs';
+import { transitionAudio } from './club-sync-transition.mjs';
+import { installDiagnostics, diagnose } from './club-sync-diagnostics.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const out = resolve(root, 'test/out');
@@ -21,12 +23,21 @@ const SCENARIOS = [
   { name: 'reconnect', offlineMs: 10000 },
   { name: 'reconnect-expired', offlineMs: 20000 },
   { name: 'background-wake', freezeMs: 15000 },
+  { name: 'dj-handoff', handoff: true },
+  { name: 'replay', replay: true },
 ];
 const args = process.argv.slice(2);
-const selected = args.includes('--scenario') ? args[args.indexOf('--scenario') + 1] : null;
-if (args.some((a, i) => a !== '--assert' && a !== '--scenario' && args[i - 1] !== '--scenario') ||
-    (args.includes('--scenario') && !SCENARIOS.some(s => s.name === selected)))
-  throw new Error(`Usage: node test/club-sync.mjs [--assert] [--scenario ${SCENARIOS.map(s => s.name).join('|')}]`);
+const options = { repeat: 1, output: 'club-sync.json' };
+for (let i = 0; i < args.length; i++) {
+  const arg = args[i];
+  if (arg === '--assert' || arg === '--diagnostics') options[arg.slice(2)] = true;
+  else if (['--scenario', '--repeat', '--output'].includes(arg) && args[i + 1]) options[arg.slice(2)] = args[++i];
+  else throw new Error(`Unknown/missing argument: ${arg}`);
+}
+const selected = options.scenario;
+assert.ok(!selected || SCENARIOS.some(s => s.name === selected), 'Unknown scenario');
+assert.ok(/^\d+$/.test(String(options.repeat)) && +options.repeat >= 1 && +options.repeat <= 20, '--repeat must be 1..20');
+assert.match(options.output, /^[a-z0-9-]+\.json$/, '--output must be a JSON filename under test/out');
 const pause = ms => new Promise(r => setTimeout(r, ms));
 async function until(fn, label, timeout = 25000) {
   const end = Date.now() + timeout;
@@ -76,14 +87,19 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0) {
     await send('Page.enable');
     await send('Network.enable');
     await send('Network.setCacheDisabled', { cacheDisabled: true });
+    if (options.diagnostics) await installDiagnostics(send, base);
     await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${installAudioTap})(${skew}, ${JSON.stringify(fixture)}, ${displacementMs})` });
     const nav = async path => { await send('Page.navigate', { url: base + path }); await until(() => run('!!document.querySelector(".club-btn, .club-modal, .club-head")'), 'app ready'); };
-    const click = async selector => {
-      const point = await until(() => run(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); if (!e) return null; const r = e.getBoundingClientRect(); return r.width && r.height ? {x:r.x+r.width/2,y:r.y+r.height/2} : null; })()`), selector);
+    const clickElement = async (expression, label) => {
+      const point = await until(() => run(`(() => { const e = ${expression}; if (!e) return null; e.scrollIntoView({block:'center'}); const r = e.getBoundingClientRect(); return r.width && r.height && !e.disabled ? {x:r.x+r.width/2,y:r.y+r.height/2} : null; })()`), label);
+      const at = Date.now();
       await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
       await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
+      return at;
     };
-    return { run, nav, click, close, send };
+    const click = selector => clickElement(`document.querySelector(${JSON.stringify(selector)})`, selector);
+    const clickText = label => clickElement(`[...document.querySelectorAll('.club-shell button')].find(b => b.textContent.trim() === ${JSON.stringify(label)})`, label);
+    return { run, nav, click, clickText, close, send };
   } catch (e) { await close(); throw e; }
 }
 
@@ -127,12 +143,46 @@ async function scenario(base, spec) {
       const response = await fetch(`${base}/api/rooms/${room}`);
       assert.ok(response.ok, `Room snapshot HTTP ${response.status}`);
       const r = await response.json();
-      return { at: Date.now(), members: r.members.map(m => m.id),
+      return { at: Date.now(), members: r.members.map(m => m.id), hostId: r.hostId, queue: r.queue,
+        set: { by: r.currentSet?.by, broadcastId: r.currentSet?.broadcastId, replay: !!r.currentSet?.replay },
         memberSeen: r.members.map(m => ({ id: m.id, seen: m.seen })), startsAt: r.currentSet?.startsAt };
     };
     const initial = await snapshot(), events = { initial };
     const listenerId = await listener.run('sessionStorage.getItem("untergrund.client")');
-    if (spec.offlineMs || spec.freezeMs) {
+    if (spec.handoff || spec.replay) {
+      await pause(7000);
+      events.before = await snapshot();
+      if (spec.handoff) {
+        await listener.clickText('JOIN DJ QUEUE');
+        await until(async () => (await snapshot()).queue?.includes(listenerId), 'listener queued on room server');
+        events.actionAt = await host.clickText('PASS DECK');
+        events.passed = await until(async () => { const s = await snapshot(); return s.hostId === listenerId && s; }, 'deck passed on room server');
+        await until(() => listener.run(`[...document.querySelectorAll('.club-secondary')].some(b => b.textContent === 'UPDATE ROOM')`), 'new DJ controls');
+        events.broadcastAt = await listener.clickText('UPDATE ROOM');
+      } else {
+        events.seed = await host.run(`(async () => {
+          const {createTimelineRecorder} = await import('/js/set-timeline.js');
+          const {publishReplay} = await import('/js/sets.js');
+          const rec = createTimelineRecorder({state:${JSON.stringify(fixture())}, style:'hypnotic', startsAt:0,
+            dj:'Sync fixture', room:${JSON.stringify(room)}, title:'Club sync replay'});
+          const result = await publishReplay({timeline:rec.finish(30000), title:'Club sync replay', artist:'Sync fixture', room:${JSON.stringify(room)}});
+          return {id:result.item.id, public:result.public, durationMs:30000};
+        })()`);
+        if (await host.run('!document.querySelector(".club-social")?.getClientRects().length')) await host.click('.club-view-toggle');
+        await host.clickText('REPLAYS');
+        events.actionAt = await host.clickText('REPLAY TO ROOM');
+      }
+      events.newSet = await until(async () => {
+        const s = await snapshot();
+        return s.set.broadcastId && s.set.broadcastId !== initial.set.broadcastId && s;
+      }, 'new set broadcast on room server');
+      assert.equal(events.newSet.set.by, spec.handoff ? listenerId : initial.hostId);
+      assert.equal(events.newSet.set.replay, !!spec.replay);
+      if (spec.replay) assert.ok(events.newSet.startsAt > events.actionAt, 'Fresh future replay origin');
+      events.firstDownbeatAt = spec.handoff ? events.newSet.startsAt + Math.ceil((events.broadcastAt - events.newSet.startsAt) / PERIOD_MS) * PERIOD_MS : events.newSet.startsAt;
+      await pause(Math.max(0, events.firstDownbeatAt - Date.now()) + 22000);
+      events.after = await snapshot();
+    } else if (spec.offlineMs || spec.freezeMs) {
       await pause(7000);
       events.before = await snapshot(); events.interruptAt = Date.now();
       if (spec.offlineMs) {
@@ -162,13 +212,23 @@ async function scenario(base, spec) {
     const raw = await Promise.all(clients.map(c => c.run('({...__clubAudio, clockSkew: Date.now() - (performance.timeOrigin + performance.now())})')));
     const [he, le] = raw.map(envelope), [ho, lo] = [he, le].map(e => onsets(e, BPM));
     assert.ok(ho.length > 10 && lo.length > 10, 'Enough detected rendered kicks');
-    const start = Math.max(he[0][0], le[0][0], ho[0], lo[0]) + 500;
+    const start = Math.max(he[0][0], le[0][0], ho[0], lo[0], events.newSet ? events.broadcastAt ?? events.newSet.startsAt : 0) + 500;
     const end = Math.min(he.at(-1)[0], le.at(-1)[0]) - 100;
     const stats = resolvedCompare(he, le, start, end);
-    const hostFixture = fixtureMissing(he, initial.startsAt, start, end);
+    const hostFixture = fixtureMissing(he, events.newSet?.startsAt ?? initial.startsAt, start, end);
     const self = resolvedCompare(he, he, start, end);
     assert.equal(self.max, 0);
     const phases = {};
+    let transition;
+    if (events.newSet) {
+      const rendered = [he, le].map(e => transitionAudio(e, events.actionAt, events.firstDownbeatAt));
+      const first = resolvedCompare(he, le, Math.max(events.broadcastAt ?? events.actionAt, events.newSet.startsAt - 50), end).pairs.find(p => Math.abs(p.delta) <= 50);
+      const firstDownbeatDeltaMs = rendered.every(r => r.firstDownbeat !== null) ? rendered[1].firstDownbeat - rendered[0].firstDownbeat : null;
+      transition = { actionAt: events.actionAt, startsAt: events.newSet.startsAt, firstDownbeatAt: events.firstDownbeatAt, host: rendered[0], listener: rendered[1],
+        firstDownbeatDeltaMs, actionToFirstAlignedKickMs: first ? Math.max(first.host, first.listener) - events.actionAt : null };
+      console.log(`${spec.name}: ${spec.handoff ? 'PASS DECK → new DJ UPDATE ROOM (running origin preserved; next ABCD downbeat)' : 'seeded saved timeline → REPLAYS → REPLAY TO ROOM'}; first downbeat host/listener=${rendered.map(r => r.firstDownbeat?.toFixed(1) ?? 'none').join('/')} true epoch ms; Δ=${firstDownbeatDeltaMs?.toFixed(2) ?? 'none'}ms; action→aligned=${transition.actionToFirstAlignedKickMs?.toFixed(0) ?? 'none'}ms`);
+      for (const [i, name] of ['original host', 'original listener'].entries()) console.log(`  ${name}: action→first kick=${rendered[i].actionToFirstKickMs?.toFixed(0) ?? 'none'}ms; inter-kick gap across action=${rendered[i].interKickGapAcrossActionMs?.toFixed(0) ?? 'none'}ms; silence before new downbeat=${rendered[i].silenceBeforeFirstDownbeatMs?.toFixed(0) ?? 'none'}ms; longest transition silence=${rendered[i].longestSilenceAroundTransitionMs?.toFixed(0) ?? 'none'}ms`);
+    }
     if (events.recoverAt) {
       for (const [name, from, to] of [['before', start, events.interruptAt], ['during', events.interruptAt, events.recoverAt], ['after', events.recoverAt, end]])
         phases[name] = resolvedCompare(he, le, from, to);
@@ -198,7 +258,12 @@ async function scenario(base, spec) {
     const entry = resolvedCompare(he, le, Math.max(he[0][0], le[0][0]), end);
     const aligned = entry.pairs.find(p => Math.abs(p.delta) <= 50)?.listener;
     console.log(`${spec.name}: detector self=${self.max}ms; resolved lag=${stats.signedLagMs}ms; skew host/listener=${raw.map(r => Math.round(r.clockSkew)).join('/')}ms; join=${joined}`);
-    return { name: spec.name, ...stats, hostFixture, phases, events, injectedEvidence, navigationToFirstKickMs: lo[0] - navigation,
+    const diagnostics = options.diagnostics ? diagnose(raw, initial.startsAt) : null;
+    if (diagnostics) {
+      assert.ok(diagnostics.every(d => d.roomClock?.best && d.starts.length && d.schedulerSamples >= 5), 'Diagnostic breakpoints captured both app paths');
+      console.log(`  diagnostics host/listener: clock shift=${diagnostics.map(d => d.roomClock.shiftMs.toFixed(2)).join('/')}ms; origin−server=${diagnostics.map(d => d.originMinusServerMs.toFixed(2)).join('/')}ms; scheduled output offset=${diagnostics.map(d => d.scheduledOutputOffsetMs.toFixed(2)).join('/')}ms; output clock lead=${diagnostics.map(d => d.outputClockLeadMs.toFixed(2)).join('/')}ms; smoothing residual=${diagnostics.map(d => d.smoothingResidualMs.toFixed(2)).join('/')}ms; tolerance residual=${diagnostics.map(d => d.toleranceResidualMs.toFixed(2)).join('/')}ms`);
+    }
+    return { name: spec.name, ...stats, hostFixture, phases, events, transition, diagnostics, injectedEvidence, navigationToFirstKickMs: lo[0] - navigation,
       navigationToFirstAlignedKickMs: aligned ? aligned - navigation : null, broadcast, navigation,
       detected: { host: ho.length, listener: lo.length }, detectorValidation: { selfMaxMs: self.max },
       spec, join: joined, raw: { captures: raw, hostOnsets: ho, listenerOnsets: lo } };
@@ -212,14 +277,17 @@ for (const k of Object.keys(env)) if (/REDIS|KV_REST|ROOMS_API_URL/.test(k)) del
 const server = spawn(process.execPath, ['server.mjs'], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
 let serverLog = ''; server.stdout.on('data', d => serverLog += d); server.stderr.on('data', d => serverLog += d);
 const results = [];
+let error = null;
 try {
   await until(async () => { try { return (await fetch(base)).ok; } catch { return false; } }, 'server');
   console.log('Club sync: isolated Chrome processes; memory rooms; dry irregular ABCD kick fixture / 123 BPM / 7805ms period.');
   console.log('PCM destination tap → 180Hz low-pass RMS; getOutputTimestamp + true performance.timeOrigin.');
   console.log('Signed lag resolved across ±3900ms BEFORE onset matching; offline/freeze = 7s baseline + interruption + 12s recovery.');
   for (const spec of SCENARIOS.filter(s => !selected || s.name === selected)) {
-    console.log(`Running ${spec.name}…`);
-    results.push(await scenario(base, spec));
+    for (let run = 1; run <= +options.repeat; run++) {
+      console.log(`Running ${spec.name}${+options.repeat > 1 ? ` (${run}/${options.repeat})` : ''}…`);
+      results.push({ ...await scenario(base, spec), run });
+    }
   }
   console.table(results.map(r => ({ scenario: r.name, 'median |Δ| ms': r.median?.toFixed(2), 'p95 ms': r.p95?.toFixed(2),
     'max ms': r.max?.toFixed(2), matched: r.matched, missing: `${r.hostFixture.missing}/${r.missing}`,
@@ -230,14 +298,15 @@ try {
   const failures = results.filter(r => {
     if (r.spec.displacementMs) return !r.injectedEvidence || Math.abs(r.injectedEvidence.errorMs) > 50;
     const s = r.phases.after || r;
-    return s.median === null || s.median > 25 || s.p95 > 50 || !s.matched || s.missing || r.hostFixture.missing;
+    return s.median === null || s.median > 25 || s.p95 > 50 || !s.matched || s.missing || r.hostFixture.missing ||
+      (r.transition && (r.transition.firstDownbeatDeltaMs === null || Math.abs(r.transition.firstDownbeatDeltaMs) > 50 || r.transition.actionToFirstAlignedKickMs === null));
   });
   console.log(`Thresholds: median ≤25ms, p95 ≤50ms, missing=0 (recovery scenarios: AFTER window; injected-offset: |lag−2000|≤50ms): ${failures.length ? 'FAIL: ' + failures.map(r => r.name).join(', ') : 'PASS'}`);
-  if (args.includes('--assert') && failures.length) process.exitCode = 1;
-} catch (e) { console.error(e); process.exitCode = 1; }
+  if (options.assert && failures.length) process.exitCode = 1;
+} catch (e) { error = String(e.stack || e); console.error(e); process.exitCode = 1; }
 finally {
-  await writeFile(join(out, 'club-sync.json'), JSON.stringify({ generatedAt: new Date().toISOString(), results, serverLog }, null, 2));
-  console.log('JSON: test/out/club-sync.json');
+  await writeFile(join(out, options.output), JSON.stringify({ generatedAt: new Date().toISOString(), options, error, results, serverLog }, null, 2));
+  console.log(`JSON: test/out/${options.output}`);
   await terminate(server);
   await rm(join(out, 'club-sync-kv.json'), { force: true });
 }

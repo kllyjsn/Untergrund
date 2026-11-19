@@ -23,6 +23,21 @@ const gap = resolvedCompare(host, signal(0, true), from, to);
 assert.ok(gap.missing >= 8);
 assert.ok(gap.gaps.some(g => g.missing >= 8 && g.durationMs >= 4000));
 assert.equal(fixtureMissing(host, origin, from, to).missing, 0);
+for (const sign of [-1, 1]) {
+  const kick = onsets(host, BPM).find(t => t > origin + (sign < 0 ? 9000 : 20000));
+  const shifted = signal(sign * 16).map(([t, e]) => [t + (Math.abs(t - kick) < 200 ? sign * 12.4 : 0), e])
+    .sort((a, b) => a[0] - b[0]);
+  const result = resolvedCompare(host, shifted, sign < 0 ? kick - 20.7 : from, sign > 0 ? kick + 20.7 : to);
+  assert.equal(result.missing, 0, `Guard boundary ${sign}: ${JSON.stringify(result)}`);
+  const pair = result.pairs.find(p => p.host === kick);
+  assert.ok(pair && Math.abs(pair.delta - sign * 28.4) < .01);
+  assert.ok(sign < 0 ? pair.listener < result.from : pair.listener > result.to);
+}
+const fixtureEnd = origin + PERIOD_MS * 2 + positions[5] + 10;
+const clipped = signal(130).filter(([t]) => t <= fixtureEnd + 100);
+const boundaryFixture = fixtureMissing(clipped, origin, from, fixtureEnd);
+assert.equal(boundaryFixture.missing, 0, JSON.stringify(boundaryFixture));
+assert.ok(boundaryFixture.outputOffsetMs > 120);
 assert.deepEqual(onsets([], BPM), []);
 assert.deepEqual(onsets([[0, 0], [1, 0]], BPM), []);
 assert.equal(resolvedCompare([], [], 0, 10000).median, null);
@@ -30,4 +45,4 @@ assert.ok(resolvedCompare(host, [], from, to).missing > 0);
 assert.throws(() => envelope({ errors: [], anchors: [], samples: [] }), /No rendered audio/);
 assert.throws(() => envelope({ errors: ['route error'] }), /route error/);
 assert.deepEqual(envelope({ errors: [], anchors: [[1, 10000]], samples: [[1.5, .2]] }), [[10500, .2]]);
-console.log(`Detector tests PASS: self=0ms; whole-step/beat/bar and ±2000ms unaliased; dropout missing=${gap.missing}; fixture rests not missing; silence/empty/error; output-clock mapping.`);
+console.log(`Detector tests PASS: self=0ms; whole-step/beat/bar and ±2000ms unaliased; dropout missing=${gap.missing}; both guard-straddling pairs matched; fixture bounds use rendered time; fixture rests not missing; silence/empty/error; output-clock mapping.`);
