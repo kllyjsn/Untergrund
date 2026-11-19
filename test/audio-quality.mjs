@@ -156,7 +156,33 @@ for (const pcm of [tone(800, 0.04), tone(800, 2, 1e-6), new Float32Array(sec(2))
 
 console.log('audio quality metrics: synthetic checks passed');
 
-const drill = await withChrome((run) => run("import('/test/audio-quality-page.js').then(m => m.measure('drill', 1234))"));
+const drill = await withChrome(async (run) => {
+  const switches = await run(`(async () => {
+    const { freshSong } = await import('/js/state.js');
+    const { Engine, MASTER_TONE } = await import('/js/engine.js');
+    const results = [];
+    for (const [from, to, stop, handoff] of [['hardtechno', 'minimal', true], ['hardtechno', 'minimal', false], ['hardtechno', 'pop', true], ['hardtechno', null, true], ['minimal', 'minimal', false], ['hardtechno', 'minimal', false, true]]) {
+      const ctx = new OfflineAudioContext(2, 96000, 48000), state = freshSong(from, 42);
+      state.artist = { style: from, seed: 42 };
+      const e = new Engine(ctx, state, { realtime: false });
+      e.tonalSweep = () => {};
+      if (from === 'hardtechno') e.hardSection(0.05, 5, 0, 4, 5);
+      const paused = ctx.suspend(0.8), rendering = ctx.startRendering();
+      await paused;
+      if (stop) e.panic();
+      e.state = freshSong(to || 'minimal', 42);
+      if (to) e.state.artist = { style: to, seed: 42 }; else delete e.state.artist;
+      if (handoff) e.handoffIn(1.2); else e.applyAll();
+      await ctx.resume();
+      await rendering;
+      results.push({ from, to, stop, handoff: !!handoff, gain: e.tonePres.gain.value, expected: MASTER_TONE[to]?.[2] || 0 });
+    }
+    return results;
+  })()`);
+  for (const result of switches) near(result.gain, result.expected, 1e-5, `genre-switch presence ${JSON.stringify(result)}`);
+  console.log('audio quality: native mid-bar genre switches clear Hard Techno presence ramps (6 cases)');
+  return run("import('/test/audio-quality-page.js').then(m => m.measure('drill', 1234))");
+});
 if (drill) {
   const collision = drill.stems.kickBass;
   assert(collision && collision.collisionP90Db < 0, `kick/808 overlap uses rendered kicks: ${JSON.stringify(collision)}`);
