@@ -93,16 +93,18 @@ const localId = () => `local-${Date.now().toString(36)}-${Math.random().toString
 const downsample = (peaks, n) => (peaks.length <= n ? peaks.slice() : Array.from({ length: n }, (_, i) =>
   Math.max(0, ...peaks.slice(Math.floor((i * peaks.length) / n), Math.floor(((i + 1) * peaks.length) / n)))));
 
-export async function publishSong({ state, title, style, artist }) {
+export async function publishSong({ state: draft, title, style, artist }) {
+  // Pin the arrangement even when only the local crate is available.
+  const state = { ...draft, fresh: 0 };
   const cfg = await jukeboxConfig();
   if (cfg.enabled) {
     await ensureDevice().catch(() => null);
-    return { public: true, item: rememberMine(await postEntry({ kind: 'song', title, style, artist, bpm: state.bpm, state })) };
+    return { public: true, state, item: rememberMine(await postEntry({ kind: 'song', title, style, artist, bpm: state.bpm, state })) };
   }
   const { track } = await saveTrack({ title, style, artist, state });
   const item = { id: localId(), kind: 'song', title, style, artist, bpm: state.bpm, trackId: track.id, created: new Date().toISOString(), local: true, ...(state.remixOf && { remixOf: state.remixOf }) };
   await idb('put', item);
-  return { public: false, item };
+  return { public: false, state, item };
 }
 
 export async function publishSet({ blob, title, style, bpm, artist, duration, start, end, peaks, onProgress }) {
@@ -291,7 +293,7 @@ export function openSongPublish({ state, style, title, artist, toast, soundcloud
       if (r.public && r.item?.trackId) status.after(trackLink(r.item.trackId, toast));
       toast(`“${name}” is in the jukebox`);
       if (share) {
-        const song = { state, title: name, style, artist, remixOf: state.remixOf, trackId: r.public ? r.item.trackId : '' };
+        const song = { state: r.state, title: name, style, artist, remixOf: r.state.remixOf, trackId: r.public ? r.item.trackId : '' };
         pub.replaceWith(h('button', { class: 'btn accent', onclick: () => { close(true); share(song); } }, 'SHARE IT'));
       }
     } catch (err) { status.textContent = 'Failed: ' + err.message; pub.disabled = false; }
