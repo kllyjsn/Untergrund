@@ -36,6 +36,13 @@ for (const [style, hook, bass] of [
   }
 }
 
+for (const [style, voice] of [['trap', 2], ['hardtechno', 3]]) {
+  const { params } = freshSong(style, 42);
+  assert.equal(params.acid.voice, voice, `${style} keeps its bass voice`);
+  assert.equal(params.acid.level, 0.55, `${style} does not inherit Hypnotic's generated bass level`);
+  assert.equal(params.acid.accent, 0.4, `${style} keeps its bass accent`);
+}
+
 assert.deepEqual(Object.keys(MUSICIAN_PRINCIPLES), ['listen', 'respond', 'space', 'develop', 'risk', 'remember']);
 for (const style of ['hypnotic', 'deephouse', 'euphoric', 'afrobeats', 'trap']) {
   const hook = generate(style, 84).pattern.hook;

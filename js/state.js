@@ -159,7 +159,7 @@ export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet'
 // register and articulation while the genre keeps its drum, harmony and room identity.
 const INSTRUMENTS = {
   // voice, bass, octave, release, articulation
-  hypnotic: [[0, 1, 0, 0.25, 0.25], [6, 1, 0, 0.38, 0.7], [3, 1, 0, 0.3, 0.2], [5, 1, 0, 0.28, 0.8]],
+  hypnotic: [[0, 0, 0, 0.25, 0.25], [6, 0, 0, 0.38, 0.7], [3, 0, 0, 0.3, 0.2], [5, 3, 0, 0.28, 0.8]],
   industrial: [[6, 6, 0, 0.3, 0.75], [4, 6, 0, 0.35, 0.65], [0, 6, 0, 0.24, 0.55], [10, 6, 0, 0.65, 0.85]],
   acid: [[0, 0, 0, 0.35, 0.45], [5, 0, 1, 0.28, 0.8], [3, 0, 0, 0.4, 0.3], [6, 0, 0, 0.35, 0.75]],
   dub: [[0, 2, 0, 0.35, 0.55], [3, 1, 0, 0.5, 0.25], [5, 2, 0, 0.45, 0.7], [9, 1, 0, 0.4, 0.55]],
@@ -229,6 +229,10 @@ export function hookLine(r, style, scale) {
 
 // Returns { pattern, params, master, bpm } — params/master are partial overrides.
 export function generate(style, seed = Date.now(), scaleName = 'minor') {
+  return generatePattern(style, seed, scaleName, false);
+}
+
+function generatePattern(style, seed, scaleName, starter) {
   const r = rng(seed);
   const musicalScale = SCALES[MAJOR_STYLES.has(style) && scaleName === 'minor' ? 'major' : scaleName]?.notes || SCALES.minor.notes;
   const P = emptyPattern();
@@ -261,7 +265,10 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     P.len.stab = pick(r, [7, 11, 13]);
     if (r() < 0.5) S.clap[12] = 1;
     Object.assign(params.kick, { tune: 44 + r() * 6, decay: 0.5 + r() * 0.25, drive: 0.35, rumble: 0.45, punch: 0.5 });
-    Object.assign(params.acid, { cutoff: 130 + r() * 85, decay: 0.055, drive: 0.16, level: 0.25 });
+    const bassShade = r();
+    Object.assign(params.acid, starter
+      ? { wave: 0.15, cutoff: 180 + bassShade * 120, reso: 8, envmod: 0.35, decay: 0.18, accent: 0.4, drive: 0.35 }
+      : { cutoff: 130 + bassShade * 85, decay: 0.055, drive: 0.16, level: 0.25 });
     Object.assign(params.stab, { chord: pick(r, [1, 3, 4]), cutoff: 1100, decay: 0.22, env: 0.4 });
     Object.assign(params.perc, { tune: 180 + r() * 300, metal: 0.4, bend: 0.3 });
     master.duck = 0.55;
@@ -779,7 +786,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     params.stab.dly = Math.min(params.stab.dly ?? 0.42, 0.08);
     params.stab.rev = Math.min(params.stab.rev ?? 0.3, 0.2);
   }
-  params.acid.voice = bassVoice;
+  params.acid.voice = style === 'hypnotic' && !starter ? 1 : bassVoice;
   for (const t of ['acid', 'stab']) params[t].voice ??= 0;
   const PERC = { dnb: 3, deephouse: 3, ukg: 3, boombap: 3, neosoul: 3, breaks: 2, minimal: 3, dub: 4, euphoric: 3, ambient: 2, amapiano: 3, afrobeats: 1, reggaeton: 2, bailefunk: 1 };
   params.perc.voice = PERC[style] ?? 0;
@@ -806,7 +813,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     params.acid.level = style === 'trance' ? 0.72 : Math.max(params.acid.level ?? 0.55, 0.98);
   }
   const hook = hookLine(r2, style, musicalScale);
-  if (hook && TECHNO_HOOK[style]) hook.v = TECHNO_HOOK[style];
+  if (hook && !starter && TECHNO_HOOK[style]) hook.v = TECHNO_HOOK[style];
   if (hook && style === 'hardtechno') {
     hook.v = 'analog';
     hook.o = -1; hook.h = 1;
@@ -1271,7 +1278,8 @@ export function refreshSong(s) {
 }
 
 export function defaultState() {
-  const g = generate('hypnotic', 1337);
+  // The starter also supplies defaults for missing save fields and other genres' partial overrides.
+  const g = generatePattern('hypnotic', 1337, 'minor', true);
   const full = g.pattern;
   full.steps.clap = pad16([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
   const s = {
