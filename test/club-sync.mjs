@@ -23,7 +23,9 @@ const SCENARIOS = [
   { name: 'injected-offset', displacementMs: 2000 },
   { name: 'reconnect', offlineMs: 10000 },
   { name: 'reconnect-expired', offlineMs: 20000 },
+  { name: 'foreground-stall', mainThreadStallMs: 320 },
   { name: 'background-wake', freezeMs: 15000 },
+  { name: 'downbeat-wake', freezeMs: 15000, wakeOnDownbeat: true },
   { name: 'short-wake', freezeMs: 800 },
   { name: 'short-wake-mix', freezeMs: 800, mix: true },
   { name: 'background-wake-mix', freezeMs: 15000, mix: true },
@@ -156,6 +158,19 @@ async function scenario(base, spec) {
     };
     const initial = await snapshot(), events = { initial };
     const listenerId = await listener.run('sessionStorage.getItem("untergrund.client")');
+    if (spec.mainThreadStallMs) {
+      const target = initial.startsAt + Math.ceil((Date.now() + 2500 - initial.startsAt) / PERIOD_MS) * PERIOD_MS;
+      await listener.run(`(() => {
+        const epoch = () => performance.timeOrigin + performance.now();
+        setTimeout(() => {
+          const visibility = document.visibilityState, from = epoch();
+          while (epoch() - from < ${spec.mainThreadStallMs}) {}
+          __clubAudio.mainThreadStall = { from, to: epoch(), visibility };
+        }, Math.max(0, ${target - 200} - epoch()));
+        return true;
+      })()`);
+      events.stallTarget = target;
+    }
     if (spec.handoff || spec.replay) {
       await pause(7000);
       events.before = await snapshot();
@@ -195,6 +210,13 @@ async function scenario(base, spec) {
         assert.ok(events.plannedDrop.at - 400 > Date.now(), 'Listener ready before drop freeze');
         await pause(events.plannedDrop.at - 400 - Date.now());
       } else await pause(7000);
+      const wakeTarget = spec.wakeOnDownbeat
+        ? initial.startsAt + Math.ceil((Date.now() + spec.freezeMs + 250 - initial.startsAt) / PERIOD_MS) * PERIOD_MS
+        : null;
+      if (wakeTarget !== null) {
+        events.wakeTarget = wakeTarget;
+        await pause(Math.max(0, wakeTarget - Date.now() - spec.freezeMs));
+      }
       events.before = await snapshot(); events.interruptAt = Date.now();
       if (spec.offlineMs) {
         await listener.send('Network.setBlockedURLs', { urls: [`${base}/api/rooms*`] });
@@ -205,9 +227,10 @@ async function scenario(base, spec) {
       } else {
         events.visibilityBefore = await listener.run('document.visibilityState');
         await listener.send('Page.setWebLifecycleState', { state: 'frozen' });
-        await pause(spec.freezeMs);
+        await pause(wakeTarget === null ? spec.freezeMs : Math.max(0, wakeTarget - Date.now() - 250));
       }
       events.during = await snapshot();
+      if (wakeTarget !== null) await pause(Math.max(0, wakeTarget - Date.now() - 4));
       events.recoverAt = Date.now();
       if (spec.offlineMs) {
         await listener.send('Network.setBlockedURLs', { urls: [] });
@@ -237,6 +260,17 @@ async function scenario(base, spec) {
     assert.ok(ho.length > 10 && lo.length > 10, 'Enough detected rendered kicks');
     const start = Math.max(he[0][0], le[0][0], ho[0], lo[0], events.newSet ? events.broadcastAt ?? events.newSet.startsAt : 0) + 500;
     const end = Math.min(he.at(-1)[0], le.at(-1)[0]) - 100;
+    if (spec.mainThreadStallMs) {
+      const { mainThreadStall: stall, anchors } = raw[1];
+      assert.ok(stall && stall.visibility === 'visible' && stall.from < events.stallTarget && stall.to > events.stallTarget,
+        'Foreground main-thread stall straddled the intended downbeat');
+      assert.ok(stall.from >= start && stall.to <= end, 'Stall was inside the capture window');
+      const before = anchors.findLast(([, wall]) => wall <= stall.from);
+      const after = anchors.find(([, wall]) => wall >= stall.to);
+      assert.ok(before && after && Math.abs((after[0] - before[0]) * 1000 - (after[1] - before[1])) < 100,
+        'Audio clock kept running during the foreground stall');
+      events.mainThreadStall = stall;
+    }
     const stats = resolvedCompare(he, le, start, end);
     const hostFixture = fixtureMissing(he, events.newSet?.startsAt ?? initial.startsAt, start, end);
     const self = resolvedCompare(he, he, start, end);
@@ -261,6 +295,15 @@ async function scenario(base, spec) {
       }
       // Freeze must not shorten the analysis window to the last audible kick.
       const after = phases.after;
+      if (spec.wakeOnDownbeat) {
+        const resumeAt = raw[1].resumeBoundary.at;
+        assert.ok(Math.abs(resumeAt - events.wakeTarget) <= 35, 'AudioContext resumed near the target fixture downbeat');
+        const hostDownbeat = recoveryHostOnsets.find(t => t >= events.wakeTarget && t < events.wakeTarget + 150);
+        assert.ok(hostDownbeat !== undefined, 'Host rendered the target downbeat');
+        const first = after.pairs.find(p => p.host === hostDownbeat);
+        events.wakeDownbeatDeltaMs = first?.delta ?? null;
+        console.log(`  first downbeat: host rendered ${(hostDownbeat - resumeAt).toFixed(1)}ms after resume, listener delta=${first?.delta.toFixed(1) ?? 'MISSING'}ms`);
+      }
       let streak = 0;
       for (const p of after.pairs) {
         const previous = after.pairs[after.pairs.indexOf(p) - 1];
@@ -330,7 +373,9 @@ try {
     if (r.spec.mix) return r.failures.length;
     if (r.spec.displacementMs) return !r.injectedEvidence || Math.abs(r.injectedEvidence.errorMs) > 50;
     const s = r.phases.after || r;
-    return s.median === null || s.median > 25 || s.p95 > 50 || !s.matched || s.missing || (r.spec.freezeMs && s.extra) || r.hostFixture.missing ||
+    return s.median === null || s.median > 25 || s.p95 > 50 || !s.matched || s.missing ||
+      ((r.spec.freezeMs || r.spec.mainThreadStallMs) && s.extra) || r.hostFixture.missing ||
+      (r.spec.wakeOnDownbeat && (r.events.wakeDownbeatDeltaMs === null || Math.abs(r.events.wakeDownbeatDeltaMs) > 50)) ||
       (r.transition && (r.transition.firstDownbeatDeltaMs === null || Math.abs(r.transition.firstDownbeatDeltaMs) > 50 || r.transition.actionToFirstAlignedKickMs === null));
   });
   console.log(`Thresholds: median ≤25ms, p95 ≤50ms, missing=0 (recovery scenarios: AFTER window; injected-offset: |lag−2000|≤50ms): ${failures.length ? 'FAIL: ' + failures.map(r => r.name).join(', ') : 'PASS'}`);

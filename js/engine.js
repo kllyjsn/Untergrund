@@ -2231,9 +2231,9 @@ export class Engine {
     }
   }
 
-  // The sung vocal stem: bar `pos` of the song starts at t. It keeps playing across consecutive bars and restarts only when
-  // playback jumps (loop, seek, tempo change); sample 0 of the stem is the song's first downbeat, shifted by the trim.
-  vocal(t, pos, step = 0) {
+  // Keep a continuous stem across bars; discarding the queue on a clock jump stops it.
+  // On wake, gridTime can precede t: advance the source offset instead of moving the stem.
+  vocal(t, pos, step = 0, gridTime) {
     const v = pos >= 0 ? this.vocalOf?.(this.state) : null, cur = this.vocalNow;
     if (cur && v && cur.buf === v.buf && cur.next === pos && cur.sd === this.stepDur && cur.ms === v.ms) {
       cur.next = pos + 1;
@@ -2241,11 +2241,16 @@ export class Engine {
       return;
     }
     this.vocalStop(t);
-    const off = v ? (pos * 16 + step) * this.stepDur - v.ms / 1000 : 0;
-    if (!v || off >= v.buf.duration) return;
+    if (!v) return;
+    const phase = (pos * 16 + step) * this.stepDur - v.ms / 1000;
+    if (phase >= v.buf.duration) return;
     this.vocalSends(v.fx);
     const src = this.ctx.createBufferSource(), g = this.ctx.createGain();
     src.buffer = processedStem(v.buf, v.fx, this.ctx);
+    const origin = (gridTime ?? t) - phase;
+    if (gridTime != null) t = Math.max(t, this.ctx.currentTime + 0.005);
+    const off = gridTime == null ? phase : t - origin;
+    if (off >= v.buf.duration) return;
     if (off > 0.001) { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + 0.012); }
     src.connect(g).connect(this.vocalBus);
     this.vocalBus.gain.setValueAtTime(v.gain, t);
@@ -2429,13 +2434,13 @@ export class Sequencer {
     this.e.sectionGain(t, db, ramp);
   }
 
-  tick(abs, t) {
+  tick(abs, t, roomGridTime) {
     abs -= this.origin || 0;
     const s = this.s, e = this.e;
     this.advanceBar(abs, t);
     if (this.finished && this.songBars) return this.cur;
     const n = this.songBars || 0, pos = n ? (this.chainPos - 1) % n : -1, lf = this.liftFrom;
-    if (abs % 16 === 0) e.vocal(t, pos);
+    if (abs % 16 === 0) e.vocal(t, pos, 0, roomGridTime);
     const pat = patternAt(s.patterns[this.cur], pos);
     const bar = Math.floor(abs / 16), vary = s.master.vary || 0;
     e.harm = pat.prog?.length ? pat.prog[bar % pat.prog.length] : null;

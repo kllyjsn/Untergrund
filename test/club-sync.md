@@ -3,8 +3,9 @@
 Run `npm run test:club-sync` with Node 22 and Chrome installed (`CHROME_PATH`
 overrides discovery). Add `-- --assert` for exit-status thresholds, or
 `-- --scenario late-join` (also `listener-skew`, `host-skew`, `cold-invite`,
-`injected-offset`, `reconnect`, `reconnect-expired`, `background-wake`,
-`dj-handoff`, `replay`). Detector tests: `node test/club-sync-detector.mjs`.
+`injected-offset`, `reconnect`, `reconnect-expired`, `foreground-stall`,
+`background-wake`, `downbeat-wake`, `short-wake`, `dj-handoff`, `replay`).
+Detector tests: `node test/club-sync-detector.mjs`.
 Transition/diagnostic metric tests: `node test/club-sync-metrics.mjs`.
 
 Each client owns an OS Chrome process/profile, not just a tab. The server has
@@ -58,6 +59,10 @@ It asserts measured signed lag is within 50ms of 2000ms, not near zero.
 
 ## Recovery scenarios
 
+`foreground-stall` blocks the visible listener's main thread for 320ms
+across a fixture downbeat. The audio clock must keep running and playback must
+stay aligned without missing or extra kicks.
+
 `reconnect` and `reconnect-expired` record 7s of baseline, then 10s/20s offline,
 then 12s after recovery. Both CDP Network.emulateNetworkConditions(offline) and
 Network.setBlockedURLs on the room API are used. A fetch probe must fail; actual
@@ -66,6 +71,8 @@ listener is present before/during/after, including the 15s membership cutoff.
 Only the listener is blocked, not the DJ or the server's availability to others.
 
 `background-wake` uses Page.setWebLifecycleState frozen → active for 15s.
+`downbeat-wake` uses the same freeze but times resume at a fixture downbeat
+and requires the listener to render that specific kick within 50ms of the host.
 `short-wake` uses the same lifecycle transition for 800ms. Freeze recovery
 assertions require zero extra as well as zero missing kicks. Recovery analysis
 uses the per-client PCM resume-boundary detector from PR #198 (631a571)
