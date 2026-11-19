@@ -215,9 +215,26 @@ npm run test:club-sync -- --scenario cold-invite --repeat 5 --diagnostics --outp
 ```
 
 Each repeat uses a new room and two new Chrome processes/profiles. Diagnostic
+startup experiments can add `--cpu-throttle 4` (CDP CPU slowdown, 1..20) and
+`--mute-audio`. `--no-audio-device` points only the listener at a nonexistent
+PulseAudio server and an empty ALSA config; it does not stop shared audio services.
+`--startup-contention` starts one 12s busy Node process per available CPU plus
+a bounded 16MiB fsync/write workload just before listener navigation. These
+options apply to every repeat and are not enabled by default. Captures include
+actual anchor-poll callback times in `anchorPolls`; `profileClock` maps the CPU
+profile's monotonic seconds to epoch milliseconds (two sequential CDP reads,
+so the mapping has control-channel latency uncertainty).
+Diagnostic
 mode uses false CDP conditional breakpoints to read module locals without
 pausing or editing application files. Source markers are looked up rather than
 hard-coded line numbers; missing markers/captures fail explicitly. It records
+every scheduler invocation in `schedulerCalls` and a CDP sampling CPU profile
+in each capture's `cpuProfile` (Chrome DevTools Performance can import this
+profile after saving that object as a `.cpuprofile` file). All runs also retain
+PerformanceObserver long tasks as epoch `at` and `duration` in milliseconds.
+Profiling and debugger overhead can affect timing; these are diagnostic runs,
+not an uninstrumented performance baseline.
+It also records
 the room clock estimate at join and later, transport starts, and one scheduler
 sample/second: transport origin, nextTime, wall/audio clock offset, smoothing
 residual, 30ms tolerance residual and getOutputTimestamp mapping. These separate

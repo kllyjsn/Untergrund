@@ -16,6 +16,8 @@ import { MELODY_BARS, strongNote } from './melody.js';
 import { patternAt } from './scope.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
+const dampedChord = (e) => (e.state.artist?.style === 'breaks' && Math.round(e.state.params.stab.voice) === 1)
+  || (e.state.artist?.style === 'reggaeton' && Math.round(e.state.params.stab.voice) === 3);
 // Chords sit under a sung line the way a mix rides the keys under a vocal: a little in the chorus, more in the verse
 // and most in the breakdown, so the drop still lands over it. Songs with sections already set the verse level.
 const STAB_UNDER_VOICE = { n: 0.84, v: 0.78, b: 0.45 };
@@ -1415,6 +1417,7 @@ export class Engine {
   // FM electric piano: sine carrier, 1:1 modulator for the bark, 14:1 burst for the tine.
   keys(t, v, iv, root, p, out) {
     const c = this.ctx, end = t + Math.max(0.6, p.decay * 3) + 0.3;
+    const damped = this.state.artist?.style === 'breaks' && Math.round(p.voice) === 1;
     const lp = this.filter('lowpass', Math.min(9000, p.cutoff * 2.5), 0.5);
     const trem = c.createStereoPanner();
     const lfo = c.createOscillator(); lfo.frequency.value = 4.8;
@@ -1424,7 +1427,7 @@ export class Engine {
     iv.forEach((n, k) => {
       const f = midiHz(root + n), vel = v * (0.85 + hash(t * 97, k) * 0.3);
       // A smooth style's upper tines bark less, as a real Rhodes does, so high chords stay round instead of ringing.
-      const reg = this.smoothOn ? Math.min(1, 523 / f) : 1;
+      const reg = damped ? Math.min(1, 200 / f) ** 4 : this.smoothOn ? Math.min(1, 523 / f) : 1;
       const car = c.createOscillator(); car.frequency.value = f; car.detune.value = (k % 2 ? 1 : -1) * p.detune * 0.15;
       const mod = c.createOscillator(); mod.frequency.value = f;
       const modAmt = this.gain(0); mod.connect(modAmt).connect(car.frequency);
@@ -1432,7 +1435,7 @@ export class Engine {
       modAmt.gain.setTargetAtTime(f * 0.15 * reg, t + 0.005, 0.12 + p.env * 0.3);
       const tine = c.createOscillator(); tine.frequency.value = f * 14;
       const tineAmt = this.gain(0); tine.connect(tineAmt).connect(car.frequency);
-      tineAmt.gain.setValueAtTime(f * 2.5 * vel * bite * (p.tine ?? 1), t);
+      tineAmt.gain.setValueAtTime(damped ? 0 : f * 2.5 * vel * bite * (p.tine ?? 1), t);
       tineAmt.gain.setTargetAtTime(0, t + 0.002, 0.018);
       const amp = this.gain(0);
       amp.gain.setValueAtTime(EPS, t);
@@ -1524,6 +1527,7 @@ export class Engine {
   // Drawbar organ with key click and a rotary-style vibrato; DETUNE sets rotor depth.
   organ(t, v, iv, root, p, out) {
     const c = this.ctx, gate = Math.max(0.08, p.decay * 0.9), end = t + gate + 0.25;
+    const damped = this.state.artist?.style === 'reggaeton' && Math.round(p.voice) === 3;
     const lp = this.filter('lowpass', Math.min(12000, p.cutoff * 3), 0.6);
     const amp = this.gain(0), peak = (v * 0.24) / Math.sqrt(iv.length);
     amp.gain.setValueAtTime(EPS, t);
@@ -1534,8 +1538,10 @@ export class Engine {
     for (const n of iv) {
       const f = midiHz(root + n);
       for (const [mul, lvl] of [[0.5, 0.6], [1, 1], [2, 0.55], [3, 0.3]]) {
+        const roll = damped ? Math.max(0, Math.min(1, (1800 - f * mul) / 700)) ** 2 : 1;
+        if (!roll) continue;
         const o = c.createOscillator(); o.frequency.value = f * mul; vib.connect(o.detune);
-        const g = this.gain(lvl); o.connect(g).connect(lp); this.startSource(o, t); o.stop(end);
+        const g = this.gain(lvl * roll); o.connect(g).connect(lp); this.startSource(o, t); o.stop(end);
       }
     }
     const ck = this.noiseSrc(t, 0.012), cbp = this.filter('bandpass', 2400, 0.8), cg = this.gain(0);
@@ -2111,6 +2117,14 @@ export class Engine {
     v *= 1.3;
     n = hookSnap(n, h, p, strong, up);
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
+    if (dampedChord(this) && (voice === 'vocal' || voice === 'reed')) {
+      const name = Math.round(p.voice) === 1 ? 'keys' : 'organ';
+      const out = this.trimOut(`hook-${name}`, 4, this.hookBus || this.ch.stab.input, -4, 500);
+      let root = 60 + k + oct * 12 + n;
+      while (root > 79) root -= 12;
+      while (root < 48) root += 12;
+      return this[name](t, v, [0], root, { ...p, decay: Math.max(0.1, dur / 0.9) }, out);
+    }
     const wind = Object.hasOwn(WIND_HOOK, voice);
     if (wind) {
       const name = HOOK_BAND[voice], set = this.rec(name);

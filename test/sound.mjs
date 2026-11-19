@@ -204,6 +204,16 @@ for (const [style, seed] of [['deephouse', 211], ['trance', 211]]) {
     e.lick(0.1, 0.6, 0);
     assert.equal(out === e.ch.stab.input, style === 'neosoul', `${style} fills use their intended tone path`);
   }
+  for (const [style, voice, reed] of [['breaks', 1, true], ['reggaeton', 3, true], ['breaks', 8, false], ['trap', 1, false], ['afrobeats', 1, false], [undefined, 1, false]]) {
+    const s = defaultState(); s.params.stab.voice = voice;
+    if (style) s.artist = { style };
+    const ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
+    let player;
+    for (const name of ['keys', 'organ']) e[name] = () => { player = name; };
+    e.rec = () => null;
+    e.hook(0.1, 0.4, 0, 0.2, 'vocal');
+    assert.equal(player, reed ? voice === 1 ? 'keys' : 'organ' : undefined, `${style}/${voice} keeps its intended hook player`);
+  }
 }
 
 console.log('sound ok');
