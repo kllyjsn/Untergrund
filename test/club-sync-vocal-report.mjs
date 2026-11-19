@@ -28,7 +28,7 @@ for (const path of paths) {
     rows.push(row); console.log(`vocal summary: ${JSON.stringify(row)}`);
     clips.push(...Object.values(result.clips?.paths || {}).map(p => `test/out/${p}`));
   }
-  capture.vocalAnalysis = { version:'grid-v2-ambiguity', reanalyzedAt:new Date().toISOString(),
+  capture.vocalAnalysis = { version:'kick-relative-recovery-v3', reanalyzedAt:new Date().toISOString(),
     source:'recorded isolated tap envelopes and processed ground-truth stem; no audio regenerated' };
   await writeFile(path, JSON.stringify(capture, null, 2));
 }

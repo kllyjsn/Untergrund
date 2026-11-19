@@ -134,7 +134,19 @@ function replayWindows(expected, rendered, from, to, threshold, bin) {
   return replays.filter(r => r.end - r.start >= 1000);
 }
 
-export function vocalMetrics({ expected, rendered, kickOffsets = [], from = 0, to, marker = 0, bin = BIN_MS }) {
+export function sustainedRecovery(windows, gaps, baselineMs, marker) {
+  if (baselineMs === null) return null;
+  let streak = 0;
+  for (const w of windows) {
+    const gap = gaps.some(g => g.startMs + marker < w.end && g.startMs + marker + g.durationMs > w.start);
+    const aligned = w.activeMs >= 250 && w.vocalVsKickMs !== null && Math.abs(w.vocalVsKickMs - baselineMs) <= 25 && !gap;
+    streak = aligned ? streak + 1 : 0;
+    if (streak === 3) return w.end - marker;
+  }
+  return null;
+}
+
+export function vocalMetrics({ expected, rendered, kickOffsets = [], from = 0, to, marker = 0, bin = BIN_MS, baselineMs = null }) {
   if (!(to > from) || !expected.length || !rendered.length) return { measured: false, reason: 'empty vocal comparison', windows: [], recoveryMs: null };
   const peak = Math.max(...expected), activeThreshold = peak * 10 ** (-30 / 20), silenceThreshold = peak * .01;
   if (!peak) return { measured: false, reason: 'silent ground truth', windows: [], recoveryMs: null };
@@ -163,12 +175,25 @@ export function vocalMetrics({ expected, rendered, kickOffsets = [], from = 0, t
     .filter(g => g.end - g.start >= 40).map(g => ({ startMs: g.start - marker, durationMs: g.end - g.start }));
   const phrases = phraseMatches(expected, rendered, from, to, activeThreshold, bin);
   const replays = replayWindows(expected, rendered, from, to, activeThreshold, bin);
-  let streak = 0, recoveryMs = null;
+  let streak = 0, absoluteGridRecoveryMs = null;
   for (const w of windows.filter(w => w.start >= marker)) {
     if (w.activeMs < 100) continue;
     streak = w.offsetMs !== null && Math.abs(w.offsetMs) <= 25 ? streak + 1 : 0;
-    if (streak === 3) { recoveryMs = w.end - marker; break; }
+    if (streak === 3) { absoluteGridRecoveryMs = w.end - marker; break; }
   }
+  const recoveryWindows = [];
+  for (let at = Math.max(from, marker); at + 500 <= to; at += 100) {
+    const start = Math.round(at / bin), length = Math.round(500 / bin);
+    const activeMs = expected.subarray(start, start + length).filter(v => v > activeThreshold).length * bin;
+    const anchor = windows.filter(w => w.offsetMs !== null && w.start <= at + 250 && w.end >= at + 250)
+      .sort((a, b) => Math.abs(a.start + 1000 - at - 250) - Math.abs(b.start + 1000 - at - 250))[0];
+    const hit = activeMs >= 250 ? windowOffset(expected, rendered, start, length, 500, bin, anchor?.offsetMs ?? null) : null;
+    const kickMs = q(kickOffsets.filter(k => k.at >= at && k.at < at + 500).map(k => k.offsetMs), .5);
+    const offsetMs = hit && hit.score >= .65 && !hit.ambiguous ? hit.lagMs : null;
+    recoveryWindows.push({ start: at, end: at + 500, activeMs, offsetMs, kickMs,
+      vocalVsKickMs: offsetMs !== null && kickMs !== null ? offsetMs - kickMs : null });
+  }
+  const recoveryMs = sustainedRecovery(recoveryWindows, gaps, baselineMs, marker);
   const offsets = windows.map(w => w.vocalVsKickMs).filter(v => v !== null);
   const gridOffsets = windows.map(w => w.offsetMs).filter(v => v !== null);
   return { measured: windows.some(w => w.offsetMs !== null), binMs: bin, windowMs: 2000, hopMs: 1000,
@@ -178,7 +203,7 @@ export function vocalMetrics({ expected, rendered, kickOffsets = [], from = 0, t
     gaps: { intervals: gaps, count: gaps.length, totalMs: gaps.reduce((s, g) => s + g.durationMs, 0), longestMs: Math.max(0, ...gaps.map(g => g.durationMs)) },
     phrases: { events: phrases, expected: phrases.length, missing: phrases.filter(p => p.status === 'missing').length,
       displaced: phrases.filter(p => p.status === 'displaced').length, doubled: phrases.filter(p => p.status === 'doubled').length, replays },
-    windows, recoveryMs };
+    windows, recoveryMs, absoluteGridRecoveryMs, recovery: { baselineMs, toleranceMs:25, consecutive:3, windowMs:500, hopMs:100, minimumActiveMs:250, windows:recoveryWindows } };
 }
 
 export function analyzeVocalGrid(raw, song, reference, events, origin, resume) {
@@ -202,7 +227,8 @@ export function analyzeVocalGrid(raw, song, reference, events, origin, resume) {
         if (nearest < 0) return [];
         used.add(nearest); return [{ at: t - origin, offsetMs: kicks[nearest] - t }];
       });
-      phases[name] = vocalMetrics({ expected, rendered, kickOffsets, from: from - origin, to: to - origin, marker: events.recoverAt - origin });
+      phases[name] = vocalMetrics({ expected, rendered, kickOffsets, from: from - origin, to: to - origin, marker: events.recoverAt - origin,
+        baselineMs: name === 'after' ? phases.before.vocalVsKick?.medianMs ?? null : null });
     }
     return phases;
   });

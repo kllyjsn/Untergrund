@@ -3,7 +3,7 @@ import { mixFixture, realMixFixture, mixBoundaries, mixGraphEdges, channelEnvelo
 import { singRequest } from '../js/sing.js';
 import { sanitize } from '../js/state.js';
 import { postResumeEnvelope, onsets } from './club-sync-audio.mjs';
-import { vocalMetrics, vocalFindings, windowOffset, floatWav, levelMatchClips } from './club-sync-vocals.mjs';
+import { vocalMetrics, sustainedRecovery, vocalFindings, windowOffset, floatWav, levelMatchClips } from './club-sync-vocals.mjs';
 
 const bin = 4, expectedVoice = new Float64Array(8000);
 for (let p = 0; p < 9; p++) {
@@ -13,13 +13,20 @@ for (let p = 0; p < 9; p++) {
   }
 }
 const kickOffsets = Array.from({length:64}, (_, i) => ({at:i * 500, offsetMs:12}));
-const measureVoice = rendered => vocalMetrics({expected:expectedVoice, rendered, kickOffsets, from:0, to:30000, marker:6000});
+const measureVoice = rendered => vocalMetrics({expected:expectedVoice, rendered, kickOffsets, from:0, to:30000, marker:6000, baselineMs:-12});
 const cleanVoice = measureVoice(expectedVoice);
 assert.equal(cleanVoice.vocalVsKick.medianMs, -12);
 assert.equal(cleanVoice.gaps.count, 0);
 assert.equal(cleanVoice.phrases.missing, 0);
 assert.equal(cleanVoice.phrases.doubled, 0);
-assert.equal(cleanVoice.recoveryMs, 5000);
+assert.equal(cleanVoice.absoluteGridRecoveryMs, 5000);
+assert.ok(cleanVoice.recoveryMs >= 700 && cleanVoice.recoveryMs < 2000);
+const recoveryWindows = Array.from({length:8}, (_, i) => ({start:i * 100, end:i * 100 + 500, activeMs:500, vocalVsKickMs:-20}));
+assert.equal(sustainedRecovery(recoveryWindows, [], -20, 0), 700);
+assert.equal(sustainedRecovery(recoveryWindows, [], null, 0), null);
+assert.equal(sustainedRecovery(recoveryWindows.map(w => ({...w,vocalVsKickMs:20})), [], -20, 0), null);
+assert.equal(sustainedRecovery(recoveryWindows, [{startMs:200,durationMs:40}], -20, 0), 1000);
+assert.equal(sustainedRecovery(recoveryWindows.map(w => ({...w,vocalVsKickMs:null})), [], -20, 0), null);
 assert.deepEqual(vocalFindings([{after:cleanVoice}]), []);
 const offsetVoice = new Float64Array(expectedVoice.length);
 offsetVoice.set(expectedVoice.subarray(0, -10), 10);

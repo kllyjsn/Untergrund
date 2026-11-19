@@ -61,10 +61,14 @@ are excluded from extra occurrences and counted as ambiguous.
 An additional 800 ms template scan flags earlier-content replays (up to 8 s back,
 ≥0.92 similarity and ≥0.15 improvement over on-grid content). These are acoustic
 envelope findings, not semantic/lyric recognition; repeated or low-information
-content can remain ambiguous. Recovery is the end of the third consecutive
-voiced overlapping window with vocal-grid offset within ±25 ms (minimum four
-seconds; wholly unvoiced windows are skipped, active uncorrelated windows reset);
-null means not demonstrated, not instantaneous recovery.
+content can remain ambiguous. Primary recovery is the end of three consecutive
+500 ms windows (100 ms hop), each with at least 250 ms expected singing, a
+measured same-client kick-relative offset within ±25 ms of that client's BEFORE
+median, and no ≥40 ms vocal gap. Unvoiced, unmeasured or gapped windows reset
+the streak; the minimum is 700 ms. Missing BEFORE baselines yield null.
+`recovery` records the baseline, parameters and fine windows;
+`absoluteGridRecoveryMs` retains the original two-second-window absolute-grid
+criterion as secondary. Null means not demonstrated, not instantaneous recovery.
 
 `test/out/clips/<scenario>-<mode>-<run>-{host,listener,expected}.wav` contains the
 isolated processed vocal; `*-{host,listener}-mix.wav` contains full destination
