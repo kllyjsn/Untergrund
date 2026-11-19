@@ -536,13 +536,13 @@ export function clubActions({ isHost, live, canListen, queued, queueLength = 0 }
 }
 
 export function openClub({ getState, getStyle, loadTrack, getTransport, getReleaseId = () => '', startRoomBroadcast, unlockAudio, joinRoomSet: joinSet, onLeaveRoom, onPlaybackUnavailable, replayToRoom, jam: jamHooks = null, toast, room: requestedRoom = '', intent = '', hue = null }) {
-  const joinRoomSet = (set) => { joinSet(set); bus?.follow(set); };
+  const joinRoomSet = (set, options) => { joinSet(set, options); bus?.follow(set); };
   let audioReady = false;
   const unlock = () => unlockAudio().then((ok) => (audioReady = ok));
   unlock().then(() => {
     if (closed) return;
     if (audioReady && pendingSet && !getTransport().playing) {
-      joinRoomSet(pendingSet);
+      joinRoomSet(pendingSet, { initial: true });
       pendingSet = null;
     }
     render();
@@ -1205,7 +1205,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, getRelea
       await unlock();
       const set = pendingSet || room.currentSet;
       if (set && audioReady && shouldJoin(set)) {
-        joinRoomSet(set);
+        joinRoomSet(set, { initial: true });
         pendingSet = null;
       }
       render();

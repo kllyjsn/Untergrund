@@ -152,7 +152,7 @@ for (const [action, currentTime, playing, expected] of [
   assert.deepEqual(calls, expected, `${action} at audio time ${currentTime} (playing: ${playing})`);
   assert.equal(sandbox.playing, playing && !expected.length);
 }
-const joinSource = main.slice(main.indexOf('function joinRoomSet(item)'), main.indexOf('\nfunction startRoomBroadcast'));
+const joinSource = main.slice(main.indexOf('function joinRoomSet('), main.indexOf('\nfunction startRoomBroadcast'));
 function roomJoin(change = () => {}, options = {}) {
   const state = freshSong('hypnotic', 7, { length:'sketch', bpm:123 });
   state.artist = {name:'Sync fixture', title:'Seed 7', style:'hypnotic', seed:7};
@@ -232,15 +232,21 @@ assert.deepEqual(roomJoin(i => { i.replay = {}; }).calls, ['replay']);
 console.log('Room continuity PASS: role-only rebroadcast retains vocal/scheduler; changed song, vocal, origin, queued edits, replay and stopped transport still join normally.');
 {
   let builds = 0;
-  const { item, join, sandbox, calls } = roomJoin(i => Object.assign(i, { broadcastId: 'a:1', version: 1, by: 'a' }), {
+  const { item, join, sandbox, calls } = roomJoin((i, s) => {
+    Object.assign(i, { broadcastId: 'a:1', version: 1, by: 'a' });
+    s.roomMediaSync.begin(i, false, false, s.mediaRoute);
+    s.roomMediaSync.start(true, s.mediaRoute);
+  }, {
     mediaRoute: {}, roomMediaSync: createRoomMediaSync(), roomMediaLead, build: () => builds++,
   });
   assert.equal(builds, 1);
-  join({ ...item });
+  join({ ...item }, { initial: true });
   assert.equal(builds, 1, 'an already-playing media-route set is a complete no-op');
   assert.equal(sandbox.roomStatsItem, item);
+  sandbox.roomResume();
+  assert.equal(builds, 2, 'wake rejoin bypasses initial duplicate suppression even inside the window');
   join({ ...item, by: 'b' });
-  assert.equal(builds, 2, 'role-only DJ handoff still reaches continuity handling');
+  assert.equal(builds, 3, 'role-only DJ handoff still reaches continuity handling');
   const update = clone(item);
   update.broadcastId = 'a:2'; update.version++;
   update.state.patterns[0].steps.kick[0] = update.state.patterns[0].steps.kick[0] ? 0 : 1;

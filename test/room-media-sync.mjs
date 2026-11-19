@@ -13,19 +13,31 @@ for (const time of [0, -0, NaN, Infinity, -Infinity, .04, 10.1, 1e12]) {
   assert(Object.is(roomMediaTime(time, true, null), time), 'destination times are bit-identical');
   assert(Object.is(roomMediaTime(time, false, route), time), 'solo media-route times are unchanged');
 }
-const sync = createRoomMediaSync();
+let now = 1000;
+const sync = createRoomMediaSync(() => now);
+const item = { broadcastId: 'a:1', version: 1, startsAt: 1000, by: 'a', state: {} };
+const warming = createRoomMediaSync();
+warming.begin(item, false, false, route);
+warming.remember(item);
+warming.begin(item, false, false, route);
+warming.start(true, route);
+assert.equal(warming.horizon(.42, true, route), 4, 'a repeated join while band/vocal tuning preserves the first cold prime');
+warming.start(true, route);
+assert.equal(warming.horizon(.42, true, route), .42);
 sync.start(true, null);
 assert.equal(sync.horizon(.42, true, null), .42);
 sync.start(false, route);
 assert.equal(sync.horizon(.42, false, route), .42);
+sync.begin(item, false, false, route);
 sync.start(true, route);
-assert.equal(sync.horizon(.42, true, route), 2);
+assert.equal(sync.horizon(.42, true, route), 4);
 assert.equal(sync.horizon(.42, true, route), .42);
 sync.start(true, route);
-assert.equal(sync.horizon(1.5, true, route), 2);
+assert.equal(sync.horizon(1.5, true, route), 1.5, 'a transport restart does not re-prime');
 assert.equal(sync.horizon(1.5, true, route), 1.5);
-const item = { broadcastId: 'a:1', version: 1, startsAt: 1000, by: 'a', state: {} };
 assert.equal(sync.duplicate(item, true, true, route), false);
+sync.begin(item, false, false, route);
+sync.start(true, route);
 sync.remember(item);
 assert.equal(sync.duplicate({ ...item }, true, true, route), true);
 for (const changed of [null, {}, { ...item, replay: {} }, { ...item, state: null },
@@ -34,6 +46,13 @@ for (const changed of [null, {}, { ...item, replay: {} }, { ...item, state: null
 assert.equal(sync.duplicate(item, false, true, route), false);
 assert.equal(sync.duplicate(item, true, false, route), false);
 assert.equal(sync.duplicate(item, true, true, null), false);
+now += 251;
+assert.equal(sync.duplicate(item, true, true, route), false, 'initial duplicate window expires');
+for (const next of [item, { ...item, version: 2 }, { ...item, broadcastId: 'a:2' }]) {
+  sync.begin(next, false, false, route);
+  sync.start(true, route);
+  assert.equal(sync.horizon(.42, true, route), .42, 'wake/reconnect, including a changed set, never re-primes');
+}
 item.version++;
 assert.equal(sync.duplicate(item, true, true, route), false, 'identity is snapshotted before a mutable item changes');
 
@@ -60,6 +79,7 @@ function transport(mediaRoute, room = true) {
     timeline: { skip: () => 0 }, artistTick: noop,
   };
   const api = runInNewContext(`${schedule}\n${start}\n({start,schedule})`, s);
+  s.roomMediaSync.begin(item, false, false, mediaRoute);
   api.start({ startsAt: 1000100, room });
   return { s, api, hits, vocals };
 }
@@ -67,7 +87,7 @@ const desktop = transport(null), media = transport(route), solo = transport(rout
 assert.equal(desktop.s.transportOrigin, 1000100);
 assert.equal(media.s.transportOrigin, desktop.s.transportOrigin, 'shared wall origin must not be advanced twice');
 assert.equal(desktop.hits.length, 3, 'normal room queue remains 420 ms');
-assert.equal(media.hits.length, 16, 'only the initial media room queue covers two seconds');
+assert.equal(media.hits.length, 32, 'only the initial media room queue covers four seconds');
 for (let i = 0; i < desktop.hits.length; i++) {
   assert.equal(desktop.hits[i].t, 10.1 + i * .125, 'legacy desktop expression is bit-identical');
   assert.equal(media.hits[i].t, desktop.hits[i].t - ROOM_MEDIA_LEAD);
@@ -93,4 +113,4 @@ for (const mediaRoute of [null, route]) {
   go(2000);
   assert.equal(delay, mediaRoute ? 900 : 940, 'future DJ starts retain the original margin plus route lead');
 }
-console.log('Room media sync PASS: desktop bit identity, 40ms route-only lead including vocal grids, one-shot 2s queue, duplicate identity and updates.');
+console.log('Room media sync PASS: desktop bit identity, 40ms route-only lead, one cold-only 4s queue, bounded initial duplicate window, wake/reconnect never re-prime.');

@@ -977,14 +977,15 @@ async function joinRoomReplay(item) {
   trackEvent('set_replay', { kind: 'room_listener' });
 }
 
-function joinRoomSet(item) {
-  if (mediaRoute && roomMediaSync.duplicate(item, playing, roomPlayback, mediaRoute)) return;
+function joinRoomSet(item, { initial = false } = {}) {
+  if (mediaRoute && initial && roomMediaSync.duplicate(item, playing, roomPlayback, mediaRoute)) return;
   queuedRoomReplay = roomReplayLoad = null;
   const sameSet = roomStatsItem === item;
   roomStatsItem = item;
   if (item?.replay) return joinRoomReplay(item);
   stopTimeline();
   if (!item?.state) return;
+  if (mediaRoute) roomMediaSync.begin(item, playing, roomPlayback, mediaRoute);
   const nextStyle = STYLES[item.style] ? item.style : STYLES[item.state.artist?.style] ? item.state.artist.style : style;
   const roomState = sanitize(clone(item.state));
   songOrigin = { src: 'room' };
