@@ -360,9 +360,11 @@ console.log('seeded instrument ensembles passed');
 {
   const { buildSong, playSong } = await import('../scripts/composition.mjs');
   for (const style of ['industrial', 'acid', 'peak', 'hardtechno', 'electro']) for (const seed of [101, 307]) {
-    const s = buildSong(style, seed), { log } = playSong(s), chain = s.chain;
+    const s = buildSong(style, seed);
+    if (style === 'hardtechno') s.artist = { style, seed };
+    const { log } = playSong(s), chain = s.chain;
     const at = (k, bar) => log.filter((L) => L.k === 'trigger' && L.a[0] === k && Math.floor(L.step / 16) === bar).map((L) => L.step % 16);
-    assert(chain.startsWith('AAAAAAAA') && at('ch', 0).length === 0, `${style} intro opens on the kick alone`);
+    assert(chain.startsWith('A'.repeat(style === 'hardtechno' ? 4 : 8)) && at('ch', 0).length === 0, `${style} intro opens on the kick alone`);
     assert(at('kick', 0).length, `${style} intro has its kick`);
     let fills = 0;
     for (let b = 0; b + 1 < chain.length; b++) {

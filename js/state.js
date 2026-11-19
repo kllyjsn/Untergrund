@@ -1132,9 +1132,10 @@ export function songPlan(style, seed, length = 'song', bpm = midBpm(style)) {
   }
   if (style === 'hardtechno' && length !== 'sketch') {
     const r = rng(Math.imul(seed ^ 0x45d9f3b, 0x27d4eb2d));
-    const runs = [['A', 8], ['B', 8], ['C', pick(r, [16, 24])], ['E', pick(r, [4, 8, 12])], ['F', pick(r, [4, 8])], ['G', 16], ['E', pick(r, [8, 12])], ['F', 8]];
+    const phrase = ((seed >>> 0) ^ (seed >>> 2)) & 3, outro = 4 + 4 * (phrase % 2);
+    const runs = [['A', 4 + 4 * phrase], ['B', 8], ['C', 16], ['E', pick(r, [8, 12])], ['F', pick(r, [4, 8])], ['G', 16], ['E', pick(r, [8, 12])], ['F', pick(r, [4, 8])]];
     const used = runs.reduce((n, [, len]) => n + len, 0);
-    runs.push(['G', 112 - used], ['B', 8], ['A', 8]);
+    runs.push(['G', 120 - outro - used], ['B', 8], ['A', outro]);
     return { chain: runs.map(([id, len]) => id.repeat(len)).join(''), sections: null };
   }
   const kind = style === 'ambient' ? 'ambient' : 'techno';
