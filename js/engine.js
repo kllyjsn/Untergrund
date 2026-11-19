@@ -45,7 +45,7 @@ const EPS = 0.0001;
 const SAMPLE_FADE = 1;
 // Chord voices that sustain fill a breakdown on their own, so a smooth style only lifts the ones that decay.
 const HELD_CHORDS = new Set(['pad', 'organ', 'strings']);
-const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar'];
+export const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar'];
 const GRIPPED = new Set(['guitar', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar']);
 // Soft-knee, slightly asymmetric clipping: even harmonics like a pushed preamp tube.
 const AMP_CURVE = (() => { const n = 2048, c = new Float32Array(n); for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; c[i] = Math.tanh(x * 2.2 + 0.18) - Math.tanh(0.18); } return c; })();
@@ -186,6 +186,29 @@ const BAND_PLAY = {
 BAND_PLAY.twang = { ...BAND_PLAY.gtr, gain: 3, len: 1.4, min: 0.25, softBelow: 0, lo: 52, hi: 84, lp: 6800, grip: false, even: 0.4, rel: 0.12, oct: 0, slap: true };
 // The rock band's riff guitar: the rhythm amp, double-stops up the neck.
 BAND_PLAY.lead = { ...BAND_PLAY.drive, lo: 45, hi: 79, grip: false, even: 0.4, gain: 2.2, lp: 4400, soft: 1600, vib: 8, rel: 0.16, oct: -1, dyad: true };
+// The pitch a non-gripped recorded chord voice sounds: shifted and kept in the register its samples were played in.
+const REC_KIND = { piano: 'piano', horns: 'horn', strings: 'str' };
+export function soundingPitch(voice, m) {
+  const R = BAND_PLAY[REC_KIND[voice]];
+  if (!R) return m;
+  m += R.shift;
+  while (m > R.hi + 0.5) m -= 12;
+  while (m < R.lo - 0.5) m += 12;
+  return m;
+}
+// The notes a chord stab plays, relative to root: voice-led, the top doubled an octave up in a chorus.
+// A smooth style raises a lifted breakdown an octave and folds notes above A5 down, where their harmonics ring as a whistle.
+export function stabPitches(e) {
+  const p = e.state.params.stab, vo = Math.round(p.voice);
+  const { root, notes, home } = stabNotes(e.state, e.harm);
+  const voiced = e.lastChord = voiceLead(notes, e.lastChord, home);
+  const vi = (GRIPPED.has(STAB_VOICES[vo]) ? notes : voiced).map((m) => m - root);
+  const iv = e.wide && !GRIPPED.has(STAB_VOICES[vo]) && vi.length > 2 ? [...vi, Math.max(...vi) + 12] : vi;
+  if (vo <= 0) return { root, vo, iv };
+  const top = e.smoothOn ? 81 - root : Infinity;
+  return { root, vo, iv: [...new Set((e.smoothOn > 0 ? iv.map((m) => m + 12) : iv).map((m) => (m > top ? m - 12 * Math.ceil((m - top) / 12) : m)))] };
+}
+
 // The singing envelope of a vocal stem, ENV_RATE frames a second: 1 while it sings (from 40 ms before a phrase to 200 ms
 // after it), 0 in its rests, smoothed (40 ms attack, 250 ms release). Engine.duckUnder() dips the band by it.
 export const ENV_RATE = 50;
@@ -1336,22 +1359,9 @@ export class Engine {
     this.startSource(lfo, t); lfo.stop(end);
   }
 
-  // The notes a chord stab plays, relative to root: voice-led, the top doubled an octave up in a chorus.
-  // A smooth style raises a lifted breakdown an octave and folds notes above A5 down, where their harmonics ring as a whistle.
-  stabPitches() {
-    const p = this.state.params.stab, vo = Math.round(p.voice);
-    const { root, notes, home } = stabNotes(this.state, this.harm);
-    const voiced = this.lastChord = voiceLead(notes, this.lastChord, home);
-    const vi = (GRIPPED.has(STAB_VOICES[vo]) ? notes : voiced).map((m) => m - root);
-    const iv = this.wide && !GRIPPED.has(STAB_VOICES[vo]) && vi.length > 2 ? [...vi, Math.max(...vi) + 12] : vi;
-    if (vo <= 0) return { root, vo, iv };
-    const top = this.smoothOn ? 81 - root : Infinity;
-    return { root, vo, iv: [...new Set((this.smoothOn > 0 ? iv.map((m) => m + 12) : iv).map((m) => (m > top ? m - 12 * Math.ceil((m - top) / 12) : m)))] };
-  }
-
   stab(t, v, underHarp = false) {
     const c = this.ctx, p = this.state.params.stab;
-    const { root, vo, iv } = this.stabPitches(), out = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
+    const { root, vo, iv } = stabPitches(this), out = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
     if (vo > 0) {
       if (STAB_VOICES[vo] === 'bells' && underHarp && this.rec('harp', false)) {
         return this.bells(t, v, iv, root, { ...p, decay: p.decay * 0.57 }, this.harpBacking(out));

@@ -1,6 +1,6 @@
 // EXPORT MIDI: plays the song through the real Sequencer into a recorder instead of the audio engine,
 // so every pocket, swing and humanize offset and every velocity lands in the file as played.
-import { Engine, Sequencer, parseChain } from './engine.js';
+import { Engine, Sequencer, parseChain, stabPitches, soundingPitch, STAB_VOICES } from './engine.js';
 import { CHORDS, KEYS, SCALES } from './params.js';
 import { compose } from './classical.js';
 import { PIECE } from './repertoire.js';
@@ -58,9 +58,9 @@ export class Recorder {
   trigger(id, t, v) {
     if (id === 'stab') {
       // The export plays the engine's own voicing (voice leading, chorus doubling, smooth lift and fold), so its notes match the render.
-      const p = this.state.params.stab, { root, iv } = this.stabPitches();
+      const p = this.state.params.stab, { root, vo, iv } = stabPitches(this), name = STAB_VOICES[vo];
       const len = Math.max(this.stepDur * 2, (p.decay || 0.3) * 1.5);
-      for (const n of iv) this.add('stab', t, root + n, len, v);
+      for (const m of new Set(iv.map((n) => soundingPitch(name, root + n)))) this.add('stab', t, m, len, v);
     } else if (GM_DRUMS[id]) this.add(id, t, GM_DRUMS[id], this.stepDur, v);
   }
   vox(t, v, step) {
@@ -92,7 +92,6 @@ export class Recorder {
   orch(part, t, m, dur, vel) { this.add(part, t, m, dur, vel); }
 }
 Recorder.prototype.harmRoot = Engine.prototype.harmRoot;
-Recorder.prototype.stabPitches = Engine.prototype.stabPitches;
 Recorder.prototype.bassMidi = Engine.prototype.bassMidi;
 
 // Plays the full arrangement (or score) into note lists, plus the timeline needed to place them in ticks.
