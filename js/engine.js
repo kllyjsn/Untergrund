@@ -2441,7 +2441,7 @@ export class Engine {
       const [from, dur, hold = 0] = ramp, start = 10 ** (from / 20);
       g.setValueAtTime(start, t);
       if (hold) g.setValueAtTime(start, t + hold);
-      g.linearRampToValueAtTime(v, t + hold + dur);
+      if (dur) g.linearRampToValueAtTime(v, t + hold + dur);
     } else g.setTargetAtTime(v, t, 0.012);
   }
 
@@ -2802,12 +2802,12 @@ export class Sequencer {
     const pats = this.s.patterns, fill = pats[chain[pos]], style = this.s.artist?.style;
     if (!fill?.verseSwell || fill.sec || style === 'hardtechno' ||
         pats[chain[pos - 1]]?.sec !== 'verse' || pats[chain[pos + 1]]?.sec !== 'chorus') return false;
-    // Lift the fill after the limiter so the extra level can't soften the landing.
+    // Reach the crest before the last beat, giving the pickup room before the chorus lands.
     const db = { ...SECTION_DB, ...STYLE_SECTION_DB[style] }, sd = this.e.stepDur;
-    const progress = Math.max(0, offset - 4) / 12;
-    const v = 10 ** (db.verse / 20), c = 10 ** (db.chorus / 20);
-    const from = progress ? 20 * Math.log10(v + (c - v) * progress) : db.verse;
-    this.level(t, db.chorus, [from, (16 - Math.max(4, offset)) * sd, Math.max(0, 4 - offset) * sd]);
+    const crest = db.chorus + 0.35, left = Math.max(0, 12 - offset);
+    const v = 10 ** (db.verse / 20), c = 10 ** (crest / 20);
+    const from = left === 12 ? db.verse : left === 0 ? crest : 20 * Math.log10(c + (v - c) * left / 12);
+    this.level(t, crest, [from, left * sd]);
     return true;
   }
 
