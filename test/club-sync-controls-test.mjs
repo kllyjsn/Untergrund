@@ -34,6 +34,6 @@ assert.equal(select({ '.tab-club': [control('', { visibility: 'hidden' })], '.cl
 assert.equal(select({ '.tab-club': [control('', { disabled: true })], '.club-btn': [legacy] }), legacy);
 assert.equal(select({}), null);
 const pass = control(' PASS DECK ');
-assert.equal(select({ button: [control('PASS DECK', { disabled: true }), hidden, pass] }, ['button'], 'PASS DECK'), pass);
+assert.equal(select({ button: [control('PASS DECK', { disabled: true }), control('PASS DECK', { getBoundingClientRect: () => ({ width: 0, height: 0 }) }), pass] }, ['button'], 'PASS DECK'), pass);
 assert.equal(select({ button: [pass] }, ['button'], 'UPDATE ROOM'), null);
 console.log('Club sync Chrome discovery and visible controls passed');

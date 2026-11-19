@@ -301,7 +301,7 @@ remained hidden after activation/bringToFront; no claim is made about iOS or
 Android behavior. No app code was modified.
 
 Autoplay is enabled as required for headless audio. Invite entry sometimes joins
-automatically after unlock; otherwise the harness clicks LISTEN LIVE using CDP
+automatically after unlock; otherwise the harness clicks a visible LISTEN LIVE using CDP
 pointer input. The JSON records which path executed. Cold invite still uses a
 brand-new profile and starts its entry timer immediately before navigation;
 it does not emulate mobile gesture restrictions.
