@@ -19,7 +19,8 @@
     "test:club-sync": "node test/club-sync.mjs",
     "test:ios": "python3 scripts/ios-check.py && node test/media-session.mjs",
     "start:rooms": "node rooms-server.mjs",
-    "review:listen": "node scripts/listen-review.mjs"
+    "review:listen": "node scripts/listen-review.mjs",
+    "review:judge-stability": "node scripts/judge-stability.mjs"
   },
   "engines": {
     "node": ">=18"
