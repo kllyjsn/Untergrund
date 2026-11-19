@@ -17,7 +17,7 @@ class FakeBuffer {
   copyToChannel(d, i) { this.ch[i].set(d); }
 }
 const param = () => new Proxy({ value: 0 }, { get: (o, k) => (k in o ? o[k] : typeof k === 'string' ? () => o : undefined) });
-const node = (ctx, kind) => new Proxy({ kind, ctx, numberOfInputs: 1, connect: (dst) => dst, disconnect() {}, start() {}, stop() {}, addEventListener() {} }, {
+const node = (ctx, kind) => new Proxy({ kind, ctx, numberOfInputs: 1, connect: (dst) => dst, disconnect() {}, start() {}, stop() {}, setPeriodicWave() { this.type = 'custom'; }, addEventListener() {} }, {
   get(o, k) { if (k in o) return o[k]; if (typeof k !== 'string' || k === 'then') return undefined; return (o[k] = param()); },
   set(o, k, v) { o[k] = v; return true; },
 });
