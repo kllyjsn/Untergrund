@@ -1,8 +1,32 @@
 import assert from 'node:assert/strict';
-import { roomTransportPosition, transportResync } from '../js/room-sync.js';
+import { createRoomClock, roomTransportPosition, shiftRoomSet, transportResync } from '../js/room-sync.js';
 
 const origin = 1_000_000;
 const close = (a, b) => assert(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
+
+{
+  let now = 100;
+  const host = createRoomClock({ wall: () => origin + now - 1500, monotonic: () => now });
+  const guest = createRoomClock({ wall: () => origin + now + 2000, monotonic: () => now });
+  assert.equal(host.shift(), 0, 'offline and older room servers keep local timestamps');
+  for (const clock of [host, guest]) {
+    clock.observe([origin + 110, origin + 210], 100, 220);
+    clock.observe([origin + 600, origin + 610], 500, 625);
+    clock.observe([origin + 700, origin + 710], 720, 715);
+  }
+  now = 800;
+  assert.equal(host.shift(), 1500);
+  assert.equal(guest.shift(), -2000);
+  const hostSet = { startsAt: origin + now - 1500 + 1600, orderAt: origin + now - 1500, bpm: 120 };
+  const wire = shiftRoomSet(hostSet, host.shift());
+  const listenerSet = shiftRoomSet(wire, -guest.shift());
+  for (const elapsed of [200, 1400, 2300, 4860]) {
+    const djNow = hostSet.orderAt + elapsed;
+    const guestNow = listenerSet.orderAt + elapsed;
+    assert.deepEqual(roomTransportPosition(hostSet.startsAt, 120, djNow), roomTransportPosition(listenerSet.startsAt, 120, guestNow));
+  }
+  assert.equal(shiftRoomSet(hostSet, 0), hostSet, 'local BroadcastChannel path does not translate timestamps');
+}
 
 assert.deepEqual(roomTransportPosition(origin + 1600, 120, origin), { step: 0, delay: 1.6 });
 
