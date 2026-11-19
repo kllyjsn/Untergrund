@@ -30,8 +30,8 @@ const HARP_PLUCK = {
 };
 // Wind takes: cents from the file's pitch, lead-in seconds to skip, gain trim in dB.
 const WIND_HOOK = {
-  oboe: { gain: 1.4, takes: { 58: [15, 0.048, 0], 62: [-4, 0.01, 0], 65: [-3, 0.01, 0], 70: [-3, 0.02, -2.3], 74: [1, 0, 1], 77: [3, 0.03, 0], 82: [6, 0, -1.5] } },
-  airflute: { gain: 1.15, takes: { 60: [1, 0.18, 3], 64: [-4, 0.11, 0], 69: [-18, 0.05, 0], 72: [-5, 0.01, 0], 76: [-5, 0.022, 0], 81: [-3, 0.022, -1.5], 84: [0, 0.043, 0] } },
+  oboe: { gain: 1.23, presence: [2700, 0.8, 5.5], takes: { 58: [15, 0.048, 0], 62: [-4, 0.01, 0], 65: [-3, 0.01, 0], 70: [-3, 0.02, -2.3], 74: [1, 0, 1], 77: [3, 0.03, 0], 82: [6, 0, -1.5] } },
+  airflute: { gain: 1.02, presence: [2950, 0.8, 6.2], takes: { 60: [1, 0.18, 3], 64: [-4, 0.11, 0], 69: [-18, 0.05, 0], 72: [-5, 0.01, 0], 76: [-5, 0.022, 0], 81: [-3, 0.022, -1.5], 84: [0, 0.043, 0] } },
 };
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
 const LIVE_REF = {
@@ -176,8 +176,8 @@ const BAND_PLAY = {
   gtr: { gain: 4.4, len: 2.6, min: 0.6, softBelow: 0.75, strum: 0.006, shift: 0, lo: 40, hi: 74, lp: 2900, peak: [3600, 1.2, -6], soft: 1100, fade: 0.008, rel: 0.22, grip: true, even: 0.2 },
   horn: { gain: 2.2, len: 1.2, min: 0.25, strum: 0.003, shift: 12, lo: 53, hi: 81, lp: 4800, rel: 0.09 },
   str: { gain: 1.2, len: 2, min: 0.5, strum: 0, shift: 0, hold: true, lo: 55, hi: 79, lp: 4200, rel: 0.25 },
-  cello: { gain: 1.05, len: 0.7, max: 0.94, strum: 0, shift: 0, hold: true, lo: 51, hi: 75, lp: 2800, body: [420, 0.8, -3], fade: 0.02, rel: 0.17 },
-  cl: { gain: 1.15, len: 0.9, min: 0.32, max: 0.65, strum: 0, shift: 0, lo: 55, hi: 78, lp: 2650, body: [720, 0.9, -3], fade: 0.026, rel: 0.13 },
+  cello: { gain: 1.05, len: 0.7, max: 0.94, strum: 0, shift: 0, hold: true, lo: 51, hi: 75, lp: 4100, body: [420, 0.8, -3], peak: [2750, 0.9, 2.8], fade: 0.02, rel: 0.17 },
+  cl: { gain: 1.08, len: 0.75, min: 0.26, max: 0.53, strum: 0, shift: 0, lo: 55, hi: 78, lp: 4450, body: [480, 0.55, -7.5], peak: [2600, 0.8, 2.8], fade: 0.02, rel: 0.09 },
   // The hollow-body played through a cranked amp: power chords sustain, the cab rolls off the fizz.
   drive: { set: 'gtr', amp: true, gain: 3.2, len: 3.4, min: 0.18, strum: 0.004, shift: 0, lo: 40, hi: 64, lp: 5200, soft: 1800, fade: 0.008, rel: 0.12, grip: true, even: 0.15 },
   // Steel-string acoustic: a wider strum, bright top, long ring; the boxy low mids of the close mic dipped.
@@ -1976,14 +1976,21 @@ export class Engine {
     });
   }
 
-  windHook(set, t, v, m, dur, voice) {
-    const { gain, takes } = WIND_HOOK[voice];
+  windHook(set, t, v, m, dur, voice, strong, harmony) {
+    const { gain, presence, takes } = WIND_HOOK[voice];
     const [pitch, buf] = set.reduce((best, take) => Math.abs(take[0] - m) < Math.abs(best[0] - m) ? take : best);
     const [cents, offset, trim] = takes[pitch];
+    // Vary the air and tongue by song step so late joins and offline renders use the same attack.
+    const step = (this.step ?? 0) * 2 + (harmony ? 1 : 0);
+    const air = hash(step, m + 29), tongue = hash(step, m + 71), touch = Math.min(1, v);
     const out = this.trimOut(`hook-${voice}`, 1, this.hookBus || this.ch.stab.input, -4, 500);
-    return this.playBuf(buf, t, gain * Math.min(1, v) * dbGain(trim), this.bodyFor(out, [780, 1.2, -2.5]),
+    const eq = this.bodyFor(this.bodyFor(out, presence), [780, 1.2, -2.5]);
+    return this.playBuf(buf, t, gain * touch * dbGain(trim + (air - 0.5) * 1.2), eq,
       2 ** ((m - pitch - cents / 100) / 12), Math.max(0.06, dur * 0.92), {
-        lp: 2050 + 1400 * Math.min(1, v), offset, fade: 0.013, release: 0.055, ringOut: true,
+        lp: 3850 + 2100 * touch + 650 * (air - 0.5), offset: offset + tongue * 0.012,
+        fade: (strong ? 0.007 : 0.012) + 0.009 * (1 - tongue),
+        attackGain: (strong ? 1.04 : 0.9) + (tongue - 0.5) * 0.24,
+        release: 0.055, ringOut: true,
       });
   }
 
@@ -1996,7 +2003,7 @@ export class Engine {
     const wind = Object.hasOwn(WIND_HOOK, voice);
     if (wind) {
       const name = HOOK_BAND[voice], set = this.rec(name);
-      if (set) return this.windHook(set, t, v, 60 + k + oct * 12 + n, dur, voice);
+      if (set) return this.windHook(set, t, v, 60 + k + oct * 12 + n, dur, voice, strong, expression.harm);
       loadBand(name);
       voice = 'reed';
     }

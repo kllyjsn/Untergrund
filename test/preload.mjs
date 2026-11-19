@@ -56,7 +56,7 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
     trimOut: (key, db, dest) => { if (key === 'hook-reed') throw fallback; return dest; },
     playBuf: (...args) => hits.push(args),
   };
-  const hit = (voice) => Engine.prototype.hook.call(e, 1, 0.6, 12, 0.3, voice);
+  const hit = (voice, at = 1) => Engine.prototype.hook.call(e, at, 0.6, 12, 0.3, voice);
   assert.deepEqual(liveSets(state), ['cello', 'ob', 'fl'], 'preload the backing and all wind hooks for playback');
   assert.throws(() => hit('oboe'), (err) => err === fallback);
   await loadSets(liveSets(state));
@@ -71,6 +71,20 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
     assert.ok(feeds(dest, out), 'wind EQ feeds the hook bus');
     assert.ok(Math.abs(12 * Math.log2(rate) - [2.03, 0.05][i]) < 0.001, 'choose and tune the nearest recorded pitch');
     assert.ok(fx.ringOut, 'fade before the sample runs out');
+  }
+  for (const voice of ['oboe', 'airflute']) {
+    const i = hits.length;
+    e.step = 32; hit(voice);
+    e.step = 64; hit(voice);
+    e.step = 32; hit(voice, 5);
+    const [first, repeat, resumed] = hits.slice(i);
+    assert.equal(first[0], repeat[0], 'repeated notes keep the same reference take');
+    assert.equal(first[4], repeat[4], 'variation does not detune the note');
+    assert.equal(first[5], repeat[5], 'variation does not change the written gate');
+    assert.equal(first[1], repeat[1], 'variation does not move the scheduled note');
+    assert.notEqual(first[6].offset, repeat[6].offset, 'the repeated note uses a different attack');
+    assert.notEqual(first[6].lp, repeat[6].lp, 'the repeated note has different breath tone');
+    assert.deepEqual(first.slice(2), resumed.slice(2), 'the attack is independent of the playback clock');
   }
   files.clear();
 }
