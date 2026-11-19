@@ -12,12 +12,21 @@ export function findChrome() {
   const cands = [process.env.CHROME_PATH];
   const devin = '/opt/.devin/chrome/chrome';
   if (existsSync(devin)) for (const d of readdirSync(devin)) cands.push(join(devin, d, 'chrome-linux64/chrome'));
-  cands.push('/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser');
+  cands.push('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser');
   for (const c of cands) if (c && existsSync(c)) return c;
   try { return execFileSync('which', ['google-chrome'], { encoding: 'utf8' }).trim() || null; } catch { return null; }
 }
 
 const TYPES = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.html': 'text/html', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.flac': 'audio/flac' };
+
+export function findVisibleControl(selectors, label) {
+  for (const selector of selectors) for (const el of document.querySelectorAll(selector)) {
+    const rect = el.getBoundingClientRect(), visibility = getComputedStyle(el).visibility;
+    if (rect.width && rect.height && visibility !== 'hidden' && visibility !== 'collapse' && !el.disabled
+      && (label === undefined || el.textContent.trim() === label)) return el;
+  }
+  return null;
+}
 
 export async function withChrome(fn, { pages = 1 } = {}) {
   const chrome = findChrome();
