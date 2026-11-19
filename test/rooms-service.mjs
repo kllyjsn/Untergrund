@@ -63,7 +63,8 @@ svc = at(clock + 10);
 const t2 = await join(svc, 'big', 'dj2');
 await join(svc, 'big', 'fan');
 await publish(svc, 'big', 'dj2', t2, { title: 'Big', artist: 'Two', style: 'techno', key: 'Am' });
-await publish(svc, 'hidden', 'dj3', await join(svc, 'hidden', 'dj3'), { title: 'Secret', public: false });
+const hiddenToken = await join(svc, 'hidden', 'dj3');
+await publish(svc, 'hidden', 'dj3', hiddenToken, { title: 'Secret', public: false });
 await join(svc, 'empty', 'nobody');
 const d = await at(clock + 20).directory();
 assert.equal(d.enabled, true);
@@ -72,6 +73,15 @@ assert.deepEqual(Object.keys(d.rooms[0]).sort(), ['artist', 'bpm', 'dj', 'id', '
 assert.deepEqual(d.rooms[0].dj, { name: 'dj2', shape: 'orb', color: 'cyan', gear: 'cap' });
 assert.equal(d.rooms[0].listeners, 2);
 assert.equal(d.rooms[0].replay, false);
+const nextToken = await join(svc, 'hidden', 'next-dj');
+const deck = async (id, tok, action) => assert.equal((await svc.post('hidden', { type: 'deck', clientId: id, clientSecret: secret(id), token: tok, payload: { action } })).status, 200);
+await deck('next-dj', nextToken, 'join');
+await deck('dj3', hiddenToken, 'pass');
+const { json: inherited } = await svc.get('hidden');
+assert.equal(inherited.hostId, 'next-dj');
+assert.equal(inherited.currentSet.public, false);
+await publish(svc, 'hidden', 'next-dj', nextToken, { ...inherited.currentSet, public: true });
+assert((await svc.directory()).rooms.some((room) => room.id === 'hidden'), 'the new DJ can list an inherited private set');
 assert.deepEqual((await at(clock + 20 + 16000).directory()).rooms, [], 'rooms drop out once nobody is present');
 assert.deepEqual(await routeRooms(null, { method: 'GET', path: '/api/rooms' }), { status: 200, json: { enabled: false, rooms: [] } });
 

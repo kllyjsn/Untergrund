@@ -110,6 +110,61 @@ export function boundaryMetric(host, listener, boundary) {
     correctSection:after.lagMs !== null && Math.abs(after.lagMs) <= 50 && after.score >= .8 };
 }
 
+export function underrunEvidence(capture, from, to) {
+  const samples = (capture.playbackStats || []).filter(s => (s.context ?? 0) === 0 &&
+    Number.isFinite(s.at) && Number.isFinite(s.underrunEvents) && Number.isFinite(s.underrunDuration));
+  const intervals = [];
+  let prior = samples[0], since = prior?.at;
+  for (let i = 1; i < samples.length; i++) {
+    const s = samples[i];
+    if (s.totalDuration === prior.totalDuration && s.underrunEvents === prior.underrunEvents &&
+      s.underrunDuration === prior.underrunDuration) continue;
+    const count = s.underrunEvents - prior.underrunEvents, durationMs = (s.underrunDuration - prior.underrunDuration) * 1000;
+    if (count >= 0 && durationMs >= 0 && (count || durationMs)) intervals.push({ from: since, to: s.at, count, durationMs });
+    since = samples[i - 1].at;
+    prior = s;
+  }
+  const window = samples.filter(s => s.at >= from && s.at <= to), first = window[0], last = window.at(-1);
+  const reset = window.some((s, i) => i && (s.underrunEvents < window[i - 1].underrunEvents || s.underrunDuration < window[i - 1].underrunDuration));
+  const measured = window.length >= 2 && !reset;
+  return { available: samples.length > 0, sampledFrom: first?.at ?? null, sampledTo: last?.at ?? null,
+    countDelta: measured ? last.underrunEvents - first.underrunEvents : null,
+    durationDeltaMs: measured ? (last.underrunDuration - first.underrunDuration) * 1000 : null,
+    intervals: intervals.filter(i => i.to >= from && i.from <= to) };
+}
+
+export function kickAttribution(raw, kicks) {
+  const clients = raw.map(c => underrunEvidence(c, kicks.from, kicks.to));
+  const channels = raw.map(c => {
+    const samples = c.channels.kick.samples;
+    const mapped = envelope({ ...c, samples });
+    const starts = (c.sources || []).filter(s => s.tag === 'kick').map(s => ({ when: s.when,
+      submitContextTime: s.clock.contextTime, submitAt: s.at, leadMs: (s.when - s.clock.contextTime) * 1000,
+      projectedOutputAt: s.clock.outputEpochMs + (s.when - s.clock.outputContextTime) * 1000 }));
+    return { samples, mapped, starts, underruns: underrunEvidence(c, -Infinity, Infinity) };
+  });
+  const describe = (client, onset, referenceAt = onset) => {
+    const c = channels[client];
+    const index = onset === null ? -1 : c.mapped.findIndex(r => r[0] === onset);
+    const nativeTime = index < 0 ? null : c.samples[index][0];
+    const distance = s => Math.abs(nativeTime === null ? s.projectedOutputAt - referenceAt : (s.when - nativeTime) * 1000);
+    const nearest = c.starts.reduce((best, s) => !best || distance(s) < distance(best) ? s : best, null);
+    const intervals = c.underruns.intervals.filter(i => i.from <= referenceAt && i.to >= referenceAt);
+    const covered = c.underruns.sampledFrom !== null && referenceAt >= c.underruns.sampledFrom && referenceAt <= c.underruns.sampledTo;
+    return { onset, referenceAt, nativeTime, nearestStart: nearest && { ...nearest,
+      nativeAttackDelayMs: nativeTime === null ? null : (nativeTime - nearest.when) * 1000 },
+      underrunOverlap: covered ? intervals.length > 0 : null, underrunIntervals: intervals };
+  };
+  const pairs = kicks.pairs.filter(p => Math.abs(p.delta) > 50)
+    .map(p => ({ kind: 'displaced', deltaMs: p.delta, host: describe(0, p.host), listener: describe(1, p.listener) }));
+  const pairedHost = new Set(kicks.pairs.map(p => p.host)), pairedListener = new Set(kicks.pairs.map(p => p.listener));
+  for (const t of kicks.hostOnsets.filter(t => t >= kicks.from && t <= kicks.to && !pairedHost.has(t)))
+    pairs.push({ kind: 'unmatched-host', deltaMs: null, host: describe(0, t), listener: describe(1, null, t) });
+  for (const t of kicks.listenerOnsets.filter(t => t >= kicks.from && t <= kicks.to && !pairedListener.has(t)))
+    pairs.push({ kind: 'unmatched-listener', deltaMs: null, host: describe(0, null, t), listener: describe(1, t) });
+  return { displacedThresholdMs: 50, clients, pairs };
+}
+
 export function analyzeMix(raw, s, events, origin, { resume = true } = {}) {
   const [he, le] = raw.map(r => envelope(r));
   const [hb, lb] = raw.map(r => envelope(r, 2));
@@ -135,7 +190,7 @@ export function analyzeMix(raw, s, events, origin, { resume = true } = {}) {
       .filter(t => t >= from && t <= to);
     vocal.returnMs = vl.find(([t, e]) => t >= from && t <= to && e > threshold)?.[0] - from;
     if (!Number.isFinite(vocal.returnMs)) vocal.returnMs = null;
-    phases[name] = { kicks, vocal };
+    phases[name] = { kicks, vocal, attribution: kickAttribution(raw, kicks) };
   }
   const boundaries = mixBoundaries(s, origin).filter(b => b.at >= events.interruptAt && b.at + 3200 < end)
     .map(b => {

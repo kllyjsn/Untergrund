@@ -5,6 +5,7 @@ import { STYLES, sanitize } from '../../js/state.js';
 import { memoryKv, redisKv, sha1 } from './kv.js';
 import { normalizeTimeline } from '../../js/set-timeline.js';
 import { jamAction, jammable, reconcileJam } from '../../js/jam.js';
+import { RELEASE_ID } from '../../js/playback-analytics.js';
 
 export const ROOM_ID = /^[a-z0-9-]{2,32}$/;
 export const MAX_ROOM_BODY = 480000;
@@ -27,6 +28,7 @@ export function normalizeSet(payload, now = Date.now()) {
     startsAt: Number.isFinite(requestedStart) ? Math.max(now - 864e5, Math.min(now + 300000, requestedStart)) : now + 1000,
     by: clean(payload.by, 64),
     broadcastId: clean(payload.broadcastId, 120),
+    ...(!payload.replay && typeof payload.trackId === 'string' && RELEASE_ID.test(payload.trackId) && { trackId: payload.trackId }),
     orderAt: Number.isFinite(+payload.orderAt) ? +payload.orderAt : now,
     public: payload.public !== false,
     ...(payload.replay && { replay: normalizeReplay(payload.replay) }),

@@ -2,6 +2,7 @@
 import { Engine, Sequencer, parseChain } from './engine.js';
 import { sanitize, refreshSong } from './state.js';
 import { liveSet, liveSets, loadSets, setsReady, withTakes } from './livekit.js';
+import { createPlaybackAnalytics } from './playback-analytics.js';
 
 // The song as it plays: untouched GENERATE songs come back through today's generator (refreshSong).
 export const songOf = (raw) => refreshSong(sanitize(raw));
@@ -14,6 +15,7 @@ export function songBars(state) {
 }
 
 export function createPlayer({ onStart = () => {}, onBar = () => {}, onEnd = () => {} } = {}) {
+  const analytics = createPlaybackAnalytics();
   let ctx = null, engine = null, seq = null, state = null, timer = 0, playing = false, abs = 0, nextTime = 0, total = 0, media = null;
   let pending = null, tuningTimer = 0, playback = 0;
   const ensure = (s) => {
@@ -39,7 +41,7 @@ export function createPlayer({ onStart = () => {}, onBar = () => {}, onEnd = () 
     if (!playing) return;
     while (nextTime < ctx.currentTime + 0.12) {
       if (abs >= total * 16) {
-        if (ctx.currentTime > nextTime + 0.3) { stop(); onEnd(); }
+        if (ctx.currentTime > nextTime + 0.3) { stop('complete'); onEnd(); }
         return;
       }
       if (abs % 16 === 0) {
@@ -51,8 +53,8 @@ export function createPlayer({ onStart = () => {}, onBar = () => {}, onEnd = () 
       abs++;
     }
   };
-  function play(raw) {
-    if (playing) stop();
+  function play(raw, releaseId) {
+    if (playing) stop('skip');
     state = songOf(raw);
     ensure(state);
     playing = true;
@@ -69,6 +71,9 @@ export function createPlayer({ onStart = () => {}, onBar = () => {}, onEnd = () 
       seq.cur = chain.length ? chain[0] : state.current;
       seq.queued = null; seq.chainPos = 0; seq.acidPrevSlide = false;
       nextTime = ctx.currentTime + 0.08;
+      const at = nextTime, steps = total * 16;
+      if (releaseId) analytics.start({ surface: 'public', trackId: releaseId }, { ctx, at, from: 0,
+        progress: () => (abs - Math.max(0, nextTime - ctx.currentTime) / engine.stepDur) / steps });
       timer = setInterval(tick, 25);
       tick();
       onStart();
@@ -79,7 +84,8 @@ export function createPlayer({ onStart = () => {}, onBar = () => {}, onEnd = () 
       loadSets(sets).then(start, start);
     }
   }
-  function stop() {
+  function stop(outcome) {
+    analytics.end(outcome);
     playing = false;
     playback++;
     clearTimeout(tuningTimer); pending = null;
