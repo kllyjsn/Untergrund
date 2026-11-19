@@ -327,13 +327,14 @@ export function melodyPanel(api) {
   const s = api.state(), hk = s.patterns[s.current]?.hook;
   const setVoice = (v) => api.edit((st) => st.patterns.forEach((p) => { if (p.hook) p.hook.v = v; }), 'HOOK sound');
   const mine = hk?.v === 'chop';
+  const sound = { harpplk: 'HARP', oboe: 'OBOE', airflute: 'FLUTE' }[hk?.v] || 'SYNTH';
   return h('div', { class: 'melody-panel' },
     h('div', { class: 'glabel' }, 'MELODY'),
     h('b', {}, !hk ? 'No melody yet' : hk.h ? 'Your hummed melody' : 'Generated melody'),
     h('small', {}, mine ? (getChops() ? 'Sung with your voice' : 'Record your voice to hear it') : 'Hum your own and it plays here'),
     h('button', { class: 'btn accent', onclick: () => openHum(api, { from: 'studio' }) }, 'HUM A MELODY'),
     hk ? h('div', { class: 'voice-chips', role: 'radiogroup', 'aria-label': 'Melody sound' },
-      [[hk.v === 'harpplk' ? 'HARP' : 'SYNTH', false], ['MY VOICE', true]].map(([name, on]) => h('button', {
+      [[sound, false], ['MY VOICE', true]].map(([name, on]) => h('button', {
         class: `vchip${on === mine ? ' on' : ''}`, role: 'radio', 'aria-checked': String(on === mine),
         onclick: () => { if (on === mine) return; if (on && !getChops()) return openVoice(api); setVoice(on ? 'chop' : 'warm'); },
       }, name))) : null,

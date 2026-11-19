@@ -165,7 +165,7 @@ export class RoomBus {
     const snapshot = this.snapshot(extra);
     const signature = JSON.stringify({
       members: snapshot.members.map((member) => [member.id, member.name, member.avatar || member.shape, member.color, member.gear]),
-      set: snapshot.currentSet ? [snapshot.currentSet.version, snapshot.currentSet.title, snapshot.currentSet.startsAt] : null,
+      set: snapshot.currentSet ? [snapshot.currentSet.version, snapshot.currentSet.title, snapshot.currentSet.startsAt, snapshot.currentSet.public] : null,
       hostId: snapshot.hostId || null,
       queue: snapshot.queue || [],
       jam: this.jam ? [this.jam.rev, this.jam.open, ...PART_IDS.map((p) => [this.jam.parts[p]?.owner, this.jam.parts[p]?.step])] : null,
@@ -1175,14 +1175,14 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, getRelea
     modal.classList.toggle('is-lobby', lobby);
     if (lobby) { renderLobby(); restoreDraft(draft); return; }
     const invite = roomInviteUrl(activeRoom);
-    const roomPublic = isRoomPublic(activeRoom);
+    const isHost = !room.hostId || room.hostId === clientId();
+    const roomPublic = isHost || !room.currentSet ? isRoomPublic(activeRoom) : room.currentSet.public !== false;
         const shareInvite = async () => {
       trackEvent('share_link_copied', { what: 'room' });
       if (navigator.share && matchMedia('(pointer: coarse)').matches) return navigator.share({ title: `UNTERGRUND Club · ${activeRoom}`, url: invite.toString() }).catch(() => {});
       await navigator.clipboard?.writeText(invite.toString());
       toast('Room link copied');
     };
-    const isHost = !room.hostId || room.hostId === clientId();
     const here = room.members.length || 1;
     const roomBtn = h('button', { class: `club-room-btn${roomOpen ? ' on' : ''}`, 'aria-haspopup': 'dialog', 'aria-expanded': String(roomOpen), title: 'Room name, link and privacy',
       onclick: () => { roomOpen = !roomOpen; lookOpen = false; render(); } },

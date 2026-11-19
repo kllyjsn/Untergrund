@@ -4,6 +4,7 @@ import { SCALES, KIT_BACKBEAT } from '../js/params.js';
 import { Sequencer } from '../js/engine.js';
 import { capture, Recorder } from '../js/midi.js';
 import { patternAt } from '../js/scope.js';
+import { STAB_BAND } from '../js/livekit.js';
 
 // Every club/pop style gets its own seeded hook; NEO-SOUL and BOOM BAP sing one over their Rhodes licks.
 for (const style of Object.keys(STYLES)) {
@@ -193,8 +194,28 @@ console.log('Drill verse and turnaround passed');
   for (const p of previous.patterns) if (p.hook?.v === 'harpplk') p.hook.v = 'softmallet';
   assert.equal(sanitize(previous).patterns[6].hook.v, 'softmallet', 'existing songs keep the synth hook');
   assert.deepEqual(capture(song).notes, capture(previous).notes, 'the harp does not rewrite the melody');
-  assert.equal(generate('drill', 42).pattern.hook.v, 'mallet', 'recorded ensembles keep their existing lead');
-  assert.equal(generate('drill', 13).pattern.hook.v, 'reed', 'the reed keeps its existing sound');
+}
+
+{
+  for (const [seed, chord, hook, oldChord, oldHook] of [
+    [7, 16, 'oboe', 10, 'reed'],
+    [42, 16, 'airflute', 10, 'mallet'],
+    [211, 16, 'oboe', 7, 'reed'],
+    [503, 17, 'airflute', 9, 'mallet'],
+    [13, 6, 'oboe', 6, 'reed'],
+  ]) {
+    const current = freshSong('drill', seed);
+    const saved = sanitize(JSON.parse(JSON.stringify(current)));
+    assert.equal(saved.params.stab.voice, chord, `Drill ${seed} chord voice survives replay`);
+    assert.equal(saved.patterns[6].hook.v, hook, `Drill ${seed} lead survives replay`);
+    const older = JSON.parse(JSON.stringify(current));
+    older.params.stab.voice = oldChord;
+    for (const p of older.patterns) if (p.hook) p.hook.v = oldHook;
+    const restored = sanitize(older);
+    assert.equal(restored.params.stab.voice, oldChord);
+    assert.equal(restored.patterns[6].hook.v, oldHook);
+    assert.deepEqual(capture(current).notes, capture(older).notes, `Drill ${seed} palette does not rewrite the performance`);
+  }
 }
 
 {
@@ -248,7 +269,7 @@ console.log('genre signatures passed');
         if (voice >= 7) recorded.add(voice);
       }
     }
-    assert.deepEqual([...recorded].sort((a, b) => a - b), [7, 8, 9, 10, 11, 12, 13, 14, 15], 'all recorded families should appear across generated songs');
+    assert.deepEqual([...recorded].sort((a, b) => a - b), Object.keys(STAB_BAND).map(Number), 'all recorded voices should appear across generated songs');
     for (const style of ['trap', 'drill']) {
       for (let seed = 1; seed <= 24; seed++) assert.equal(generate(style, seed).params.acid.voice, 2, `${style} must keep its sliding 808`);
     }

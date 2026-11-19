@@ -904,18 +904,34 @@ async function joinRoomReplay(item) {
 
 function joinRoomSet(item) {
   stopTimeline();
+  const sameSet = roomStatsItem === item;
   roomStatsItem = item;
   if (item?.replay) return joinRoomReplay(item);
   if (!item?.state) return;
-  playbackStats.end('skip');
-  style = STYLES[item.style] ? item.style : STYLES[item.state.artist?.style] ? item.state.artist.style : style;
+  const nextStyle = STYLES[item.style] ? item.style : STYLES[item.state.artist?.style] ? item.state.artist.style : style;
   const roomState = sanitize(clone(item.state));
   songOrigin = { src: 'room' };
   const startsAt = Number.isFinite(+item.startsAt) ? +item.startsAt : Date.now();
-  replaceState(roomState);
-  if (item.public !== false) playbackSources.set(state, { surface: 'club', trackId: item.trackId, genre: item.style });
+  const localState = sanitize(state);
+  const continuous = playing && roomPlayback && !artistLive && !handoff && !jamQueue.length && seq.queued === null &&
+    Math.abs(startsAt - (transportOrigin + seq.origin * (15000 / state.bpm))) <= 30 &&
+    nextStyle === style && roomState.artist?.style === localState.artist?.style && roomState.artist?.seed === localState.artist?.seed &&
+    songFingerprint(roomState) === songFingerprint(localState) && JSON.stringify(roomState.sing) === JSON.stringify(localState.sing) &&
+    (state.chainOn || roomState.current === state.current);
+  if (!continuous || !sameSet) playbackStats.end('skip');
+  style = nextStyle;
+  if (continuous) {
+    roomState.current = state.current;
+    state = roomState;
+    engine.state = seq.s = state;
+    roomEditor = false;
+    engine.editableHits.length = 0;
+    build(); persist();
+  } else replaceState(roomState);
+  if (item.public !== false) playbackSources.set(state, { surface: 'club', trackId: item.trackId, genre: nextStyle });
   const sync = () => {
-    play({ startsAt });
+    if (!continuous) play({ startsAt });
+    else if (!sameSet) recordPlayback(playbackSources.get(state), ctx.currentTime, abs - Math.max(0, nextTime - ctx.currentTime) / engine.stepDur);
     roomResume = () => joinRoomSet(item);
     syncNowPlaying();
     toast(`Synced to “${item.title || 'Live Machine Set'}”`);
