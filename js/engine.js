@@ -2349,13 +2349,15 @@ export class Engine {
     h2.connect(h2g).connect(lp);
     const eight08 = [o, h2];
     if (drill) {
-      // Color the glide above the original sub and octave layer, without turning either up.
-      this.drill808Wave ??= c.createPeriodicWave(new Float32Array(8),
-        new Float32Array([0, 0, 0, -0.42, 0.21, 0.4, -0.68, 0.55]), { disableNormalization: true });
+      // Keep the grit above the sub but below the hook's presence range.
+      this.drill808Wave ??= c.createPeriodicWave(new Float32Array(5),
+        new Float32Array([0, 0, 0.62, -0.3, 0.24]), { disableNormalization: true });
       const edge = c.createOscillator(); edge.setPeriodicWave(this.drill808Wave);
       edge.frequency.setValueAtTime(f * knock * 3, t);
       edge.frequency.exponentialRampToValueAtTime(f * 3, t + 0.03);
-      edge.connect(this.filter('lowpass', Math.max(80, p.cutoff * 3.5), 0.7)).connect(this.gain(0.13)).connect(amp);
+      const gritCutoff = Math.min(480, p.cutoff * 3.5);
+      edge.connect(this.filter('lowpass', gritCutoff, 0.7)).connect(this.filter('lowpass', gritCutoff, 0.7))
+        .connect(this.gain(0.11)).connect(amp);
       eight08.push(edge);
     }
     for (const x of eight08) { this.startSource(x, t); x.stop(end); }

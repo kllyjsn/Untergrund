@@ -106,7 +106,10 @@ try {
         }
         return re * re + im * im;
       };
-      return { continued, sub: harmonic(e.mono.f), upper: harmonic(18 * e.mono.f), pitch: e.mono.f };
+      const pitch = e.mono.f;
+      const edge = [9, 12, 15, 18, 21].map(n => n * pitch).filter(hz => hz >= 500)
+        .reduce((sum, hz) => sum + harmonic(hz), 0);
+      return { continued, sub: harmonic(pitch), grit: harmonic(6 * pitch), edge, pitch };
     };
     const saved = (await decodeSong(await encodeSong({ state, style: 'drill' }))).state;
     const candidate = await render(saved);
@@ -119,7 +122,8 @@ try {
   assert(bass.candidate.continued && bass.legacy.continued, 'both 808 voices glide without restarting');
   assert.equal(bass.candidate.pitch, bass.legacy.pitch, 'the new voice lands on the written pitch');
   assert(Math.abs(10 * Math.log10(bass.candidate.sub / bass.legacy.sub)) < 0.4, 'the 808 fundamental stays in place');
-  assert(bass.candidate.upper > 10 * bass.legacy.upper, 'the Drill 808 has a stronger upper harmonic');
+  assert(bass.candidate.grit > 10 * bass.legacy.grit, 'the Drill 808 has a stronger low-mid harmonic');
+  assert(bass.candidate.edge < bass.candidate.grit, 'the added grit is stronger below the hook band than in it');
   for (const r of result) {
     console.log(`${r.style}: ${r.stems.join(', ')} · sum vs mix bus rel err ${r.relErr.toExponential(2)} · peak ${r.peak.toFixed(2)}`);
     assert.equal(r.rate, 48000);
