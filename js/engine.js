@@ -2254,20 +2254,40 @@ export class Engine {
 
   // ---------- arrangement FX ----------
   tonalSweep(t, dur, amt, down = false) {
-    const c = this.ctx, lp = this.filter('lowpass', down ? 2600 : 350, 0.9), g = this.gain(0);
+    if (!(dur > 0) || !Number.isFinite(dur) || !(amt > 0) || !Number.isFinite(amt)) return null;
+    const c = this.ctx, lp = this.filter('lowpass', down ? 2600 : 350, 0.9), g = this.gain(0), gate = this.gain(0.2);
+    const root = (down ? 36 : 48) + (Number.isFinite(this.state.key) ? this.state.key : 0);
     lp.frequency.setValueAtTime(down ? 2600 : 350, t);
     lp.frequency.exponentialRampToValueAtTime(down ? 180 : 3200, t + dur);
-    g.gain.setValueAtTime(EPS, t);
-    g.gain.linearRampToValueAtTime(0.045 * amt, t + dur * (down ? 0.08 : 0.75));
-    g.gain.linearRampToValueAtTime(EPS, t + dur);
-    let s;
-    for (const detune of [-8, 8]) {
-      const o = c.createOscillator(); o.type = 'sawtooth'; o.detune.value = detune;
-      o.frequency.setValueAtTime(down ? 140 : 45, t);
-      o.frequency.exponentialRampToValueAtTime(down ? 35 : 180, t + dur);
-      o.connect(lp); this.startSource(o, t); o.stop(t + dur + 0.1); s = o;
+    lp.Q.setValueAtTime(0.9, t);
+    lp.Q.linearRampToValueAtTime(down ? 0.7 : 1.4, t + dur * 0.8);
+    lp.Q.linearRampToValueAtTime(0.7, t + dur);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime((down ? 0.06 : 0.16) * amt, t + dur * (down ? 0.25 : 0.8));
+    g.gain.linearRampToValueAtTime(0, t + dur);
+    const half = this.stepDur / 2, ticks = Math.max(1, Math.round(dur / half));
+    gate.gain.setValueAtTime(0.2, t);
+    for (let tick = 0; tick < ticks;) {
+      const span = down || tick < ticks / 3 ? 4 : tick < ticks * 2 / 3 ? 2 : 1;
+      const at = t + tick * half, end = Math.min(t + dur, at + span * half), width = end - at;
+      gate.gain.linearRampToValueAtTime(1, at + width * 0.16);
+      gate.gain.linearRampToValueAtTime(1, at + width * 0.5);
+      gate.gain.linearRampToValueAtTime(0.2, end);
+      tick += span;
     }
-    lp.connect(g); g.connect(this.mix); g.connect(this.revIn);
+    let s;
+    for (const [i, semitone] of [0, 12, 24, 7].entries()) {
+      const o = c.createOscillator(), voice = this.gain(0);
+      o.type = 'sawtooth'; o.detune.value = i % 2 ? 3 : -3;
+      o.frequency.setValueAtTime(midiHz(root + semitone), t);
+      const levels = [[0.65, 0.4, 0.18], [0.08, 0.5, 0.15], [EPS, 0.12, 0.45], [0.18, 0.15, 0.1]][i];
+      if (down) levels.reverse();
+      voice.gain.setValueAtTime(levels[0], t);
+      voice.gain.linearRampToValueAtTime(levels[1], t + dur / 2);
+      voice.gain.linearRampToValueAtTime(levels[2], t + dur);
+      o.connect(voice).connect(lp); this.startSource(o, t); o.stop(t + dur + 0.1); s = o;
+    }
+    lp.connect(gate).connect(g); g.connect(this.mix); g.connect(this.revIn);
     return { s, g };
   }
 
@@ -2296,6 +2316,10 @@ export class Engine {
       this.secGain.gain.setValueAtTime(10 ** (prev.db / 20), t);
       this.tonePres.gain.cancelScheduledValues(t);
       this.tonePres.gain.setValueAtTime(prev.bite, t);
+    }
+    if (cur === 5 && pos === len - 1 && next === 6) {
+      this.secGain.gain.linearRampToValueAtTime(10 ** (target.db / 20), t + dur - 0.08);
+      target.db -= 0.3;
     }
     this.secGain.gain.linearRampToValueAtTime(10 ** (target.db / 20), t + dur);
     this.tonePres.gain.linearRampToValueAtTime(target.bite, t + dur);
@@ -2706,8 +2730,11 @@ export class Sequencer {
     if (hard && this.cur === 5 && this.runLen > 0) {
       const drum = (s.artist.seed || 0) % 2 ? 'clap' : 'snare';
       const progress = (this.runPos + i16 / 16) / this.runLen;
-      const every = progress > 0.8 ? 1 : progress > 0.5 ? 2 : 4;
-      if (i16 % every === 0 && !s.mutes[drum]) e.trigger(drum, tt, 0.1 + 0.35 * progress);
+      const every = progress < 1 / 3 ? 2 : 1;
+      if (i16 % every === 0 && !s.mutes[drum]) {
+        e.trigger(drum, t, 0.1 + 0.25 * progress);
+        if (progress >= 2 / 3) e.trigger(drum, t + sd / 2, (0.1 + 0.25 * progress) * 0.85);
+      }
     }
     this.smooth = SMOOTH.has(s.artist?.style);
     // The chords make room under the bass while it plays and fill the low mids back in when it drops out.
