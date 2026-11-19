@@ -13,8 +13,10 @@ audio values can differ between runs. Reuse `--base` for a repeat after recordin
 Share only `test/out/blind-packs/<date>/blind-rating-pack-<date>.zip` (or its
 `blind-pilot` folder). The separate `<key-dir>/<date>.json` reveals the identities;
 never include it in the listener pack. Rerunning a date replaces that date's pack and key.
-Levels in the key are measured with ebur128 after normalization and gain matching, before
-lossy MP3 encoding. The README requests a whole-pair rating plus first/second/tie and why.
+Levels in the key are measured with ebur128 on decoded MP3 halves, split at the known
+inserted silence boundaries (also recorded in the key). A difference over 0.1 LU fails
+the run. Style detection ignores diffs under test/, docs/, research/, and Markdown files.
+The README requests a whole-pair rating plus first/second/tie and why.
 Pure Chrome-free checks: `node test/blind-pack.mjs`.
 
 # Rendered-audio benchmark

@@ -10,6 +10,10 @@ assert.deepEqual(detectStyles('Fix Hard Techno transients /devin/minimal-balance
 assert.deepEqual(detectStyles('Balance', "+ if (style === 'drill') gain = 1;\n- if ('trap' === style) gain = 2;"), ['trap', 'drill']);
 assert.deepEqual(detectStyles('Housekeeping', " context style === 'drill'\n+const unrelated = 1;"), []);
 assert.deepEqual(detectStyles(''), []);
+for (const path of ['test/jukebox.mjs', 'docs/example.js', 'research/example.js', 'notes.md']) {
+  assert.deepEqual(detectStyles('Maintenance', `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n+const fixture = { style: 'amapiano' };`), []);
+}
+assert.deepEqual(detectStyles('Maintenance', "diff --git a/test/x.js b/test/x.js\n--- a/test/x.js\n+++ b/test/x.js\n+const fixture = { style: 'acid' };\ndiff --git a/js/x.js b/js/x.js\n--- a/js/x.js\n+++ b/js/x.js\n+if (style === 'drill') play();"), ['drill']);
 assert.deepEqual(detectStyles('Maintenance', "+const mode = 'acid';\n+const style = config.style;"), []);
 await assert.rejects(main(['--seed', 'NaN']), /Seed must/);
 await assert.rejects(main(['--unknown', 'x']), /Invalid option/);
