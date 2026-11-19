@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { onsets, envelope, resolvedCompare, fixtureMissing, BPM, STEP_MS, PERIOD_MS, KICK_STEPS } from './club-sync-audio.mjs';
+import { onsets, envelope, postResumeEnvelope, resolvedCompare, fixtureMissing, BPM, STEP_MS, PERIOD_MS, KICK_STEPS } from './club-sync-audio.mjs';
 
 const origin = 100000;
 const positions = KICK_STEPS.flatMap((bar, b) => bar.map(s => (b * 16 + s) * STEP_MS));
@@ -45,4 +45,22 @@ assert.ok(resolvedCompare(host, [], from, to).missing > 0);
 assert.throws(() => envelope({ errors: [], anchors: [], samples: [] }), /No rendered audio/);
 assert.throws(() => envelope({ errors: ['route error'] }), /route error/);
 assert.deepEqual(envelope({ errors: [], anchors: [[1, 10000]], samples: [[1.5, .2]] }), [[10500, .2]]);
+const wakeCapture = { errors: [], anchors: [[7.20, origin - 15062], [7.262, origin - 83]],
+  resumeBoundary: { contextTime: 7.262, sampleRate: 1000, frame: 7262 },
+  samples: [...Array.from({ length: 9 }, (_, i) => [7.245 + i * .002, 3 * Math.exp(-i * 2 / 10)]),
+    ...host.map(([t, e]) => [7.345 + (t - origin) / 1000, e])] };
+const wakeFrom = origin - 120;
+const contaminated = resolvedCompare(host, envelope(wakeCapture), wakeFrom, to);
+assert.equal(contaminated.missing, 1);
+assert.equal(contaminated.extra, 1);
+const cleanWake = postResumeEnvelope(wakeCapture);
+assert.ok(cleanWake[0][0] >= origin - .001);
+const resumed = resolvedCompare(host, cleanWake, wakeFrom, to);
+assert.equal(resumed.missing, 0);
+assert.equal(resumed.extra, 0);
+assert.ok(resumed.max < .001);
+assert.throws(() => postResumeEnvelope({}), /Missing resume PCM boundary/);
+assert.throws(() => postResumeEnvelope({ ...wakeCapture, samples: [] }), /No rendered audio/);
+assert.throws(() => postResumeEnvelope({ ...wakeCapture, errors: ['route error'] }), /route error/);
+console.log('Wake boundary PASS: pre-freeze frame at 7.245s maps after recovery but is excluded by 7.262s PCM boundary; false missing/extra 1/1 → 0/0.');
 console.log(`Detector tests PASS: self=0ms; whole-step/beat/bar and ±2000ms unaliased; dropout missing=${gap.missing}; both guard-straddling pairs matched; fixture bounds use rendered time; fixture rests not missing; silence/empty/error; output-clock mapping.`);

@@ -8,7 +8,7 @@ import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findChrome } from './chrome.mjs';
 import { defaultState, emptyPattern } from '../js/state.js';
-import { installAudioTap, envelope, onsets, resolvedCompare, fixtureMissing, BPM, KICK_STEPS, PERIOD_MS } from './club-sync-audio.mjs';
+import { installAudioTap, envelope, postResumeEnvelope, onsets, resolvedCompare, fixtureMissing, BPM, KICK_STEPS, PERIOD_MS } from './club-sync-audio.mjs';
 import { transitionAudio } from './club-sync-transition.mjs';
 import { installDiagnostics, diagnose } from './club-sync-diagnostics.mjs';
 
@@ -23,6 +23,7 @@ const SCENARIOS = [
   { name: 'reconnect', offlineMs: 10000 },
   { name: 'reconnect-expired', offlineMs: 20000 },
   { name: 'background-wake', freezeMs: 15000 },
+  { name: 'short-wake', freezeMs: 800 },
   { name: 'dj-handoff', handoff: true },
   { name: 'replay', replay: true },
 ];
@@ -202,6 +203,7 @@ async function scenario(base, spec) {
         await listener.send('Network.setBlockedURLs', { urls: [] });
         await listener.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
       } else {
+        await host.run('__clubAudio.markResume()');
         await listener.send('Page.setWebLifecycleState', { state: 'active' });
         await listener.send('Page.bringToFront');
         events.visibilityAfter = await listener.run('document.visibilityState');
@@ -230,14 +232,18 @@ async function scenario(base, spec) {
       for (const [i, name] of ['original host', 'original listener'].entries()) console.log(`  ${name}: action→first kick=${rendered[i].actionToFirstKickMs?.toFixed(0) ?? 'none'}ms; inter-kick gap across action=${rendered[i].interKickGapAcrossActionMs?.toFixed(0) ?? 'none'}ms; silence before new downbeat=${rendered[i].silenceBeforeFirstDownbeatMs?.toFixed(0) ?? 'none'}ms; longest transition silence=${rendered[i].longestSilenceAroundTransitionMs?.toFixed(0) ?? 'none'}ms`);
     }
     if (events.recoverAt) {
-      for (const [name, from, to] of [['before', start, events.interruptAt], ['during', events.interruptAt, events.recoverAt], ['after', events.recoverAt, end]])
-        phases[name] = resolvedCompare(he, le, from, to);
+      const recoveryEnvelopes = spec.freezeMs ? raw.map(postResumeEnvelope) : [he, le];
+      const recoveryHostOnsets = onsets(recoveryEnvelopes[0], BPM);
+      for (const [name, from, to] of [['before', start, events.interruptAt], ['during', events.interruptAt, events.recoverAt], ['after', events.recoverAt, end]]) {
+        const rows = name === 'after' ? recoveryEnvelopes : [he, le];
+        phases[name] = resolvedCompare(...rows, from, to);
+      }
       // Freeze must not shorten the analysis window to the last audible kick.
       const after = phases.after;
       let streak = 0;
       for (const p of after.pairs) {
         const previous = after.pairs[after.pairs.indexOf(p) - 1];
-        const contiguous = !previous || !ho.some(t => t > previous.host + 1 && t < p.host - 1);
+        const contiguous = !previous || !recoveryHostOnsets.some(t => t > previous.host + 1 && t < p.host - 1);
         streak = Math.abs(p.delta) <= 50 && contiguous ? streak + 1 : Math.abs(p.delta) <= 50 ? 1 : 0;
         if (streak >= 3) { events.timeToRealignMs = p.listener - events.recoverAt; break; }
       }
@@ -246,7 +252,10 @@ async function scenario(base, spec) {
       events.failedRoomRequests = raw[1].requests.filter(r => r.error && r.start >= events.interruptAt && r.start <= events.recoverAt).length;
       console.log(`${spec.name}: ${spec.offlineMs ? `offline+room URL block ${spec.offlineMs}ms` : `Page frozen→active ${spec.freezeMs}ms (desktop lifecycle, not phone)`}; presence=${JSON.stringify(events.listenerPresent)}; failed room requests=${events.failedRoomRequests}; realign=${events.timeToRealignMs?.toFixed(0) ?? 'none'}ms`);
       for (const [name, p] of Object.entries(phases)) console.log(`  ${name}: lag=${p.signedLagMs === null ? 'none' : p.signedLagMs + 'ms'} median=${p.median === null ? 'none' : p.median.toFixed(2) + 'ms'} p95=${p.p95 === null ? 'none' : p.p95.toFixed(2) + 'ms'} missing=${p.missing}/${p.expected} extra=${p.extra}; longest missing run=${Math.max(0, ...p.gaps.map(g => g.durationMs)).toFixed(0)}ms`);
-      if (spec.freezeMs) console.log(`  visibility ${events.visibilityBefore}→${events.visibilityAfter}; lifecycle=${raw[1].lifecycle.map(e => e.name + ':' + e.visibility).join(', ')}`);
+      if (spec.freezeMs) {
+        console.log(`  visibility ${events.visibilityBefore}→${events.visibilityAfter}; lifecycle=${raw[1].lifecycle.map(e => e.name + ':' + e.visibility).join(', ')}`);
+        console.log(`  resume PCM boundary host/listener: ${raw.map(r => `${r.resumeBoundary.contextTime.toFixed(6)}s (frame ${r.resumeBoundary.frame})`).join(' / ')}`);
+      }
     }
     let injectedEvidence;
     if (spec.displacementMs) {
@@ -299,7 +308,7 @@ try {
   const failures = results.filter(r => {
     if (r.spec.displacementMs) return !r.injectedEvidence || Math.abs(r.injectedEvidence.errorMs) > 50;
     const s = r.phases.after || r;
-    return s.median === null || s.median > 25 || s.p95 > 50 || !s.matched || s.missing || r.hostFixture.missing ||
+    return s.median === null || s.median > 25 || s.p95 > 50 || !s.matched || s.missing || (r.spec.freezeMs && s.extra) || r.hostFixture.missing ||
       (r.transition && (r.transition.firstDownbeatDeltaMs === null || Math.abs(r.transition.firstDownbeatDeltaMs) > 50 || r.transition.actionToFirstAlignedKickMs === null));
   });
   console.log(`Thresholds: median ≤25ms, p95 ≤50ms, missing=0 (recovery scenarios: AFTER window; injected-offset: |lag−2000|≤50ms): ${failures.length ? 'FAIL: ' + failures.map(r => r.name).join(', ') : 'PASS'}`);
