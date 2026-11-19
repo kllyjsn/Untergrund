@@ -1,6 +1,7 @@
 // Composition scorecard: plays every genre's full song through the real Sequencer with a note-logging
 // engine and measures how the music develops: melody, harmony, voice leading, arrangement contrast, and how
-// distinct its sections are (verse vs chorus chords, register and energy, the pre-chorus lift, the bridge).
+// distinct its sections are (verse vs chorus chords, register and energy, the pre-chorus lift, the bridge), and whether
+// its measurable cues agree with the feeling it was written for (feelFit, FEELS in js/feel.js).
 // node scripts/composition.mjs [--assert] [--update] [--json out.json] [--style id]
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -12,6 +13,7 @@ import { lineStress, rhymes } from '../js/prosody.js';
 import { writeLyrics, rhymePairs } from '../js/lyric-writer.js';
 import { Sequencer, guitarGrip } from '../js/engine.js';
 import { stabNotes, hookSnap, voiceLead } from '../js/harmony.js';
+import { FEELS } from '../js/feel.js';
 
 export const SEEDS = [101, 211, 307, 401, 503, 601, 701, 809];
 const BASELINE = resolve(dirname(fileURLToPath(import.meta.url)), '../test/composition-baseline.json');
@@ -113,7 +115,7 @@ const jaccard = (a, b) => { const A = new Set(a), B = new Set(b); const u = new 
 const move = (a, b) => (a.reduce((c, m) => c + Math.min(...b.map((q) => Math.abs(q - m))), 0) / a.length
   + b.reduce((c, m) => c + Math.min(...a.map((q) => Math.abs(q - m))), 0) / b.length) / 2;
 
-export function scoreSong(s) {
+export function scoreSong(s, o = {}) {
   const { log, bars } = playSong(s);
   const p = s.params.stab, guitar = Math.round(p.voice) === 8;
   const perBar = Array.from({ length: bars }, (_, b) => {
@@ -131,7 +133,7 @@ export function scoreSong(s) {
     if (L.k === 'hook') {
       const [, , n, d, , , strong, , up, x] = L.a, snapped = hookSnap(n, L.harm, p, strong, up);
       B.hook.push(`${L.step % 16}:${snapped}`); B.notes.push(snapped); B.events++;
-      if (!x?.harm) lead.push([L.step, Math.max(1, Math.round(d / stepDur)), snapped]);
+      if (!x?.harm) lead.push([L.step, Math.max(1, Math.round(d / stepDur)), snapped, L.a[1], B.sec, d]);
     } else if (L.k === 'trigger' && L.a[0] === 'stab') {
       const { root, notes, home } = stabNotes(s, L.harm);
       const led = last = voiceLead(notes, last, home);
@@ -156,6 +158,9 @@ export function scoreSong(s) {
   const moves = voicings.slice(1).map((v, i) => move(voicings[i], v));
   const density = perBar.map((b) => b.events), mean = density.reduce((a, b) => a + b, 0) / bars;
   const sd = Math.sqrt(density.reduce((a, b) => a + (b - mean) ** 2, 0) / bars);
+  const raw = rawCues(s, lead, perBar);
+  if (o.raw) return raw;
+  const fit = feelCues(s, raw, o.style);
   return {
     bars,
     ...sections(perBar),
@@ -166,7 +171,58 @@ export function scoreSong(s) {
     contrast: +(mean ? sd / mean : 0).toFixed(3),
     drumBars: new Set(perBar.map((b) => b.drums.join())).size,
     ...melodyShape(lead),
+    ...(fit ? { feelFit: fit.fit } : {}),
   };
+}
+
+// ---- Feel coherence: do the song's measurable cues agree with FEELS[s.feel]?
+// Six cues, each scored 0..1 and averaged: tempo position in the style's range, mode, lead register and section
+// contrast (both relative to the style's own benchmark songs), lead velocity range, and legato (note length / gap).
+const MODE_FAMILY = { major: 'major', minor: 'minor', dorian: 'minor', phrygian: 'minor', harmonic: 'minor', pentatonic: 'minor' };
+const clamp01 = (x) => Math.max(0, Math.min(1, x));
+const quantile = (xs, q) => { const a = [...xs].sort((x, y) => x - y); return a.length ? a[Math.min(a.length - 1, Math.round(q * (a.length - 1)))] : NaN; };
+const avgOf = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
+function rawCues(s, lead, perBar) {
+  // Note length over the gap to the next onset, inside a phrase (a gap of a bar or more is a rest, not a line).
+  const leg = [], step = 0.125; // playSong ticks at a fixed stepDur, so lengths are in 0.125 s steps at any bpm
+  for (let i = 0; i + 1 < lead.length; i++) { const gap = lead[i + 1][0] - lead[i][0]; if (gap > 0 && gap < 16) leg.push(Math.min(1, lead[i][5] / step / gap)); }
+  // Soft/loud range (10th/90th percentile velocity) inside each section, so section levels count only as contrast.
+  const bySec = new Map();
+  for (const x of lead) if (Number.isFinite(x[3])) (bySec.get(x[4]) || bySec.set(x[4], []).get(x[4])).push(x[3]);
+  const spans = [...bySec.values()].filter((v) => v.length >= 4).map((v) => quantile(v, 0.1) / Math.max(1e-6, quantile(v, 0.9)));
+  const velIn = (sec) => avgOf(lead.filter((x) => x[4] === sec).map((x) => x[3]));
+  const events = (sec) => avgOf(perBar.filter((b) => b.sec === sec).map((b) => b.events));
+  const lift = (events('chorus') / Math.max(1, events('verse'))) * ((velIn('chorus') || 1) / (velIn('verse') || 1));
+  return { pitch: median(lead.map((x) => x[2])), vel: avgOf(spans), legato: avgOf(leg), contrast: Number.isFinite(lift) && lift > 0 ? Math.log(lift) : NaN };
+}
+// A style's own register and contrast, from its benchmark songs, and the feelings those songs carried.
+const NORMS = new Map();
+function styleNorm(style) {
+  if (!NORMS.has(style)) {
+    const songs = SEEDS.map((seed) => buildSong(style, seed)), raws = songs.map((x) => scoreSong(x, { raw: true }));
+    const fs = songs.map((x) => FEELS[x.feel]).filter(Boolean), ok = (xs) => xs.filter(Number.isFinite);
+    NORMS.set(style, { pitch: median(ok(raws.map((r) => r.pitch))), contrast: median(ok(raws.map((r) => r.contrast))),
+      reg: avgOf(fs.map((f) => f.mel.reg)) || 0, dyn: avgOf(fs.map((f) => Math.log(f.dyn.contrast))) || 0 });
+  }
+  return NORMS.get(style);
+}
+export function feelCues(s, raw, style = s.artist?.style) {
+  const f = FEELS[s.feel];
+  if (!f || !STYLES[style]) return null;
+  const [lo, hi] = STYLES[style].bpm, pos = hi > lo ? clamp01((s.bpm - lo) / (hi - lo)) : 0.5;
+  const fam = (m) => MODE_FAMILY[m] || m;
+  const cues = {
+    tempo: 1 - clamp01(Math.abs(pos - f.tempo) / 0.5),
+    mode: s.scale === f.mode ? 1 : fam(s.scale) === fam(f.mode) ? 0.75 : 0,
+  };
+  const n = styleNorm(style), ok = Number.isFinite;
+  // One step of mel.reg is about a whole tone; the song should sit above or below its style-mates by that much.
+  if (ok(raw.pitch) && ok(n.pitch)) cues.register = 1 - clamp01(Math.abs(raw.pitch - n.pitch - 2 * (f.mel.reg - n.reg)) / 8);
+  if (ok(raw.vel)) cues.velocity = 1 - clamp01(Math.abs(raw.vel - f.mel.vel[0] / f.mel.vel[1]) / 0.3);
+  if (ok(raw.legato)) cues.legato = 1 - clamp01(Math.abs(raw.legato - f.mel.legato) / 0.5);
+  if (ok(raw.contrast) && ok(n.contrast)) cues.contrast = 1 - clamp01(Math.abs(raw.contrast - n.contrast - (Math.log(f.dyn.contrast) - n.dyn)) / 0.3);
+  const v = Object.values(cues);
+  return { feel: s.feel, cues, fit: +(v.reduce((a, b) => a + b, 0) / v.length).toFixed(3) };
 }
 
 // The lead as a singer would phrase it: a rest of a beat or more is a breath that ends a phrase.
@@ -234,18 +290,18 @@ function sections(perBar) {
 }
 
 export const HIGHER = ['bars', 'melodyWindows', 'motifRecall', 'chords', 'contrast', 'drumBars', 'phraseBars', 'stepShare', 'verseChorus', 'chorusLift', 'chorusPeak', 'chorusEnergy', 'preLift', 'bridgeAway',
-  'stressBeat', 'titleDownbeat', 'titlePeak', 'hookRepeats', 'hookRecall', 'rhythmContrast', 'onsetContrast', 'holdRatio', 'rhymeRate', 'verseFit'];
+  'stressBeat', 'titleDownbeat', 'titlePeak', 'hookRepeats', 'hookRecall', 'rhythmContrast', 'onsetContrast', 'holdRatio', 'rhymeRate', 'verseFit', 'feelFit'];
 export const LOWER = ['voiceMove', 'vocalRange'], NEAR = ['peakAt', 'restsPerPhrase', 'verseSpan'];
 // Allowed slack before a change counts as a regression.
 export const TOL = { bars: 0, melodyWindows: 0.5, motifRecall: 0.05, chords: 0, contrast: 0.03, drumBars: 0.5, voiceMove: 0.15,
   phraseBars: 0.25, stepShare: 0.05, peakAt: 0.1, restsPerPhrase: 0.5,
   verseChorus: 0.05, chorusLift: 0.5, chorusPeak: 0.5, chorusEnergy: 0.05, preLift: 0.05, bridgeAway: 0.05,
-  stressBeat: 0.03, titleDownbeat: 0.1, titlePeak: 0.1, hookRepeats: 0, hookRecall: 0.1, rhythmContrast: 0.03, onsetContrast: 0.03, holdRatio: 0.1, vocalRange: 1, rhymeRate: 0.03, verseSpan: 1, verseFit: 0.05 };
+  stressBeat: 0.03, titleDownbeat: 0.1, titlePeak: 0.1, hookRepeats: 0, hookRecall: 0.1, rhythmContrast: 0.03, onsetContrast: 0.03, holdRatio: 0.1, vocalRange: 1, rhymeRate: 0.03, verseSpan: 1, verseFit: 0.05, feelFit: 0.05 };
 
 export function runComposition(styles) {
   const out = {};
   for (const style of styles) {
-    const rows = SEEDS.map((seed) => scoreSong(buildSong(style, seed)));
+    const rows = SEEDS.map((seed) => scoreSong(buildSong(style, seed), { style }));
     out[style] = Object.fromEntries(Object.keys(rows[0]).map((k) => [k, +median(rows.map((r) => r[k])).toFixed(3)]));
     if (SING_PROFILES[style]?.song) {
       const sw = SEEDS.map((seed) => { const st = lyricSong(style, seed); return songwriting(st.patterns.find((p) => p.hook?.m).hook.m, st.lyrics.sections); });
