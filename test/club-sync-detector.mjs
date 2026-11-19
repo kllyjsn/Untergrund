@@ -59,8 +59,22 @@ const resumed = resolvedCompare(host, cleanWake, wakeFrom, to);
 assert.equal(resumed.missing, 0);
 assert.equal(resumed.extra, 0);
 assert.ok(resumed.max < .001);
+for (const staleTime of [7.1, 7.2]) {
+  const staleCapture = { ...wakeCapture, anchors: [wakeCapture.anchors[0], [staleTime, origin - 15062], wakeCapture.anchors[1]] };
+  const staleMapped = wakeCapture.samples.filter(([t]) => t >= 7.262)
+    .map(([t, e]) => [wakeCapture.anchors[0][1] + (t - 7.2) * 1000, e]);
+  const staleOnsets = onsets(staleMapped, BPM);
+  assert.ok(onsets(host, BPM).filter(t => t >= wakeFrom && t <= to)
+    .some(t => staleOnsets.every(l => Math.abs(l - t) > 50)));
+  const fixed = resolvedCompare(host, postResumeEnvelope(staleCapture), wakeFrom, to);
+  assert.equal(fixed.missing, 0);
+  assert.equal(fixed.extra, 0);
+  assert.ok(fixed.max < .001);
+}
+assert.throws(() => envelope({ errors: [], anchors: [[NaN, 10000]], samples: [[1.5, .2]] }), /No rendered audio/);
 assert.throws(() => postResumeEnvelope({}), /Missing resume PCM boundary/);
 assert.throws(() => postResumeEnvelope({ ...wakeCapture, samples: [] }), /No rendered audio/);
 assert.throws(() => postResumeEnvelope({ ...wakeCapture, errors: ['route error'] }), /route error/);
 console.log('Wake boundary PASS: pre-freeze frame at 7.245s maps after recovery but is excluded by 7.262s PCM boundary; false missing/extra 1/1 → 0/0.');
+console.log('Stale output anchors PASS: repeated/backward context times cannot trap post-wake mapping on the pre-freeze clock; zero missing/extra.');
 console.log(`Detector tests PASS: self=0ms; whole-step/beat/bar and ±2000ms unaliased; dropout missing=${gap.missing}; both guard-straddling pairs matched; fixture bounds use rendered time; fixture rests not missing; silence/empty/error; output-clock mapping.`);

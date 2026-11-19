@@ -89,7 +89,7 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
     }).catch(e => tap.errors.push(String(e)));
   };
   AudioNode.prototype.connect = function (dest, ...args) {
-    if (graph && this instanceof GainNode && dest instanceof GainNode) {
+    if (graph && !(tap.channels.kick.edge && tap.channels.vocal.edge) && this instanceof GainNode && dest instanceof GainNode) {
       const stack = new Error().stack || '';
       if (stack.includes('/js/engine.js:' + graph.kick + ':') && dest.gain.value === 0) captureChannel(this, 'kick');
       if (stack.includes('/js/engine.js:' + graph.vocal + ':') && this.gain.value === 0) captureChannel(this, 'vocal');
@@ -131,12 +131,16 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
 
 export function envelope(capture, column = 1) {
   if (capture.errors.length) throw new Error(capture.errors.join('; '));
-  if (!capture.anchors.length || !capture.samples.length) throw new Error('No rendered audio/output timestamps');
+  const anchors = [];
+  for (const a of capture.anchors) {
+    if (Number.isFinite(a[0]) && Number.isFinite(a[1]) && (!anchors.length || a[0] > anchors.at(-1)[0])) anchors.push(a);
+  }
+  if (!anchors.length || !capture.samples.length) throw new Error('No rendered audio/output timestamps');
   let j = 0;
   return capture.samples.map(row => {
     const t = row[0], e = row[column];
-    while (j + 1 < capture.anchors.length && Math.abs(capture.anchors[j + 1][0] - t) < Math.abs(capture.anchors[j][0] - t)) j++;
-    const a = capture.anchors[j];
+    while (j + 1 < anchors.length && Math.abs(anchors[j + 1][0] - t) < Math.abs(anchors[j][0] - t)) j++;
+    const a = anchors[j];
     return [a[1] + (t - a[0]) * 1000, e];
   });
 }
