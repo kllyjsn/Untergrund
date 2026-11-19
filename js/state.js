@@ -368,7 +368,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.acid = range(STEPS, (i) => ([2, 11].includes(i) ? { on: true, n: i === 11 ? musicalScale[3] : 0, a: false, s: false } : emptyAcidStep()));
     S.stab = pad16([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
     P.len.stab = 13;
-    Object.assign(params.kick, { tune: 54, decay: 0.28, drive: 0.1, rumble: 0, punch: 0.7, click: 0.55 });
+    Object.assign(params.kick, { tune: 54, decay: 0.28, drive: 0.1, rumble: 0, punch: 0.7, click: 0.55, level: 0.78 });
     Object.assign(params.perc, { tune: 700 + r() * 150, decay: 0.05, metal: 0.2, noise: 0.1, bend: 0.1 });
     Object.assign(params.snare, { tune: 300, snappy: 0.2, decay: 0.06 });
     Object.assign(params.acid, { wave: 0.6, cutoff: 420, reso: 6, envmod: 0.3, decay: 0.09, drive: 0.1 });
@@ -744,6 +744,8 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     params.stab.level = closeLevel;
     params.stab.cutoff = Math.min(params.stab.cutoff ?? 2400, style === 'hyperpop' ? 2200 : 1800);
   }
+  // The recorded guitar needs more headroom than Minimal's synth stabs.
+  if (style === 'minimal') params.stab.level *= stabVoice === 8 ? 0.56 : 0.82;
   // Pop's keys carry the song alone where the piano would; they sit up with the band instead of under it.
   if (style === 'pop' && stabVoice === 1) params.stab.level = 1.1;
   // Folk and country are a band around the guitar, not a guitar over a click: it sits with the bass and kit.
