@@ -1173,8 +1173,8 @@ export function applySongPlan(s, style, seed, length = 'song') {
   const plan = songPlan(style, seed, length, s.bpm || midBpm(style));
   s.chain = plan.chain;
   const keep = Object.keys(s.locks || {}).filter((t) => s.locks[t]);
-  if (style === 'drill' && plan.sections) drillVerses(s.patterns, plan, keep);
   developSong(s.patterns, plan.sections, { keep });
+  if (style === 'drill' && plan.sections) drillVerses(s.patterns, plan, keep);
   if (plan.chain === TECHNO_LONG) developFinalDrop(s.patterns, plan.chain, { keep });
   return plan;
 }

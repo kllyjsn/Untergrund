@@ -99,6 +99,16 @@ for (const seed of [7, 42, 211, 1234]) {
 console.log('Drill verse and turnaround passed');
 
 {
+  const s = freshSong('drill', 42, { length: 'sketch' });
+  const at = s.chain.indexOf('CDG') + 2, chorus = s.patterns[6];
+  assert(at > 1, 'the sketch has a verse-to-chorus turnaround');
+  const first = patternAt(chorus, at), next = patternAt(chorus, at + 1);
+  assert.deepEqual(first.steps.kick.slice(0, 2), [0, next.steps.kick[0]], 'the kick answers the 808 even in the sketch’s final chorus');
+  assert.deepEqual(first.steps.perc, next.steps.perc, 'the landing keeps the developed percussion');
+  assert.notDeepEqual(first.steps.perc, chorus.steps.perc, 'the final-chorus development is audible');
+}
+
+{
   const g = generate('deephouse', 42);
   const scenes = arrangement(g.pattern, 42);
   assert.deepEqual(scenes.map((p) => p.hm), [0, 2, 1, 2, 2, 1, 2, 2], 'hook is held back for the intro, the pre-chorus climbs it whole');
