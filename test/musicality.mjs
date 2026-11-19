@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
-import { generate, arrangement, sanitize, defaultState, STYLES, MAJOR_STYLES, MUSICIAN_PRINCIPLES } from '../js/state.js';
+import { generate, arrangement, sanitize, defaultState, freshSong, STYLES, MAJOR_STYLES, MUSICIAN_PRINCIPLES } from '../js/state.js';
 import { SCALES } from '../js/params.js';
+import { Sequencer } from '../js/engine.js';
+import { Recorder } from '../js/midi.js';
 
 // Every club/pop style gets its own seeded hook; NEO-SOUL and BOOM BAP sing one over their Rhodes licks.
 for (const style of Object.keys(STYLES)) {
@@ -34,6 +36,19 @@ for (const style of ['deephouse', 'ukg', 'afrobeats']) {
   assert(lines.size >= 4, `${style} bass lines repeat across seeds`);
 }
 console.log('per-seed key and bass passed');
+
+for (const seed of [7, 42, 211, 1234]) {
+  const s = freshSong('drill', seed), rec = new Recorder(s);
+  s.current = 6; s.chainOn = false; s.ending = false;
+  const notes = [];
+  rec.acid = (t, st, slide, hold) => notes.push({ t, m: rec.bassMidi(st, 36, 38), slide, hold });
+  const peak = new Sequencer(rec, s);
+  for (let i = 0; i < 16; i++) peak.tick(i, i * rec.stepDur);
+  const glide = notes.findIndex((n) => n.slide);
+  assert.equal(s.patterns[6].steps.acid.filter((st) => st.on).length, 5, 'the slide pickup replaces an existing bass hit');
+  assert(glide > 0 && notes[glide - 1].hold && notes[glide - 1].m !== notes[glide].m, `Drill/${seed}: an audible pitch glide reaches the 808`);
+}
+console.log('Drill pitched 808 glides passed');
 
 {
   const g = generate('deephouse', 42);
