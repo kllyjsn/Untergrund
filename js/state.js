@@ -167,7 +167,7 @@ const INSTRUMENTS = {
   deephouse: [[7, 1, 0, 1.5, 0.25], [1, 1, 0, 0.9, 0.35], [8, 1, 0, 0.65, 0.75], [10, 1, 0, 1.4, 0.2]],
   // Minimal is a felt Rhodes, a recorded piano, a dark dub chord or a slow pad over a round, filtered bass:
   // no bells, plucks or guitar, which read as toys against its dry clicks.
-  minimal: [[1, 1, 0, 0.6, 0.2], [7, 1, 0, 0.7, 0.3], [2, 1, 0, 0.6, 0.2], [2, 1, 0, 0.9, 0.15]],
+  minimal: [[1, 1, 0, 0.6, 0.2], [7, 1, 0, 0.7, 0.3], [2, 1, 0, 0.6, 0.2], [10, 1, 0, 0.9, 0.15]],
   ukg: [[3, 3, 0, 0.25, 0.45], [7, 1, 0, 0.75, 0.5], [5, 3, 1, 0.25, 0.85], [8, 2, 1, 0.4, 0.8]],
   euphoric: [[7, 1, 0, 1.6, 0.25], [10, 1, 0, 1.8, 0.2], [2, 1, 0, 2.1, 0.15], [9, 0, 0, 0.65, 0.7]],
   // Neo-soul is a Rhodes/piano/guitar band; strings pad the changes; the horn section honked.
