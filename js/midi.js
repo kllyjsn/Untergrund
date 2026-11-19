@@ -57,13 +57,10 @@ export class Recorder {
   acidRelease(t) { if (this.bass) { this.bass.dur = Math.max(0.01, Math.min(this.bass.dur, t - this.bass.t)); this.bass = null; } }
   trigger(id, t, v) {
     if (id === 'stab') {
-      // A lifted smooth breakdown raises voiced chords an octave in the engine; the export follows it.
-      const p = this.state.params.stab, up = this.smoothOn > 0 && Math.round(p.voice) > 0 ? 12 : 0;
-      const root = 48 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + up;
+      // The export plays the engine's own voicing (voice leading, chorus doubling, smooth lift and fold), so its notes match the render.
+      const p = this.state.params.stab, { root, iv } = this.stabPitches();
       const len = Math.max(this.stepDur * 2, (p.decay || 0.3) * 1.5);
-      // A smooth style folds voiced chord notes above D6 down an octave, as the engine does.
-      const fold = (m) => (this.smoothOn && Math.round(p.voice) > 0 && m > 86 ? m - 12 * Math.ceil((m - 86) / 12) : m);
-      for (const m of new Set(this.chord().map((n) => fold(root + n)))) this.add('stab', t, m, len, v);
+      for (const n of iv) this.add('stab', t, root + n, len, v);
     } else if (GM_DRUMS[id]) this.add(id, t, GM_DRUMS[id], this.stepDur, v);
   }
   vox(t, v, step) {
@@ -95,6 +92,7 @@ export class Recorder {
   orch(part, t, m, dur, vel) { this.add(part, t, m, dur, vel); }
 }
 Recorder.prototype.harmRoot = Engine.prototype.harmRoot;
+Recorder.prototype.stabPitches = Engine.prototype.stabPitches;
 Recorder.prototype.bassMidi = Engine.prototype.bassMidi;
 
 // Plays the full arrangement (or score) into note lists, plus the timeline needed to place them in ticks.

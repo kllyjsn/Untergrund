@@ -1336,23 +1336,27 @@ export class Engine {
     this.startSource(lfo, t); lfo.stop(end);
   }
 
+  // The notes a chord stab plays, relative to root: voice-led, the top doubled an octave up in a chorus.
+  // A smooth style raises a lifted breakdown an octave and folds notes above A5 down, where their harmonics ring as a whistle.
+  stabPitches() {
+    const p = this.state.params.stab, vo = Math.round(p.voice);
+    const { root, notes, home } = stabNotes(this.state, this.harm);
+    const voiced = this.lastChord = voiceLead(notes, this.lastChord, home);
+    const vi = (GRIPPED.has(STAB_VOICES[vo]) ? notes : voiced).map((m) => m - root);
+    const iv = this.wide && !GRIPPED.has(STAB_VOICES[vo]) && vi.length > 2 ? [...vi, Math.max(...vi) + 12] : vi;
+    if (vo <= 0) return { root, vo, iv };
+    const top = this.smoothOn ? 81 - root : Infinity;
+    return { root, vo, iv: [...new Set((this.smoothOn > 0 ? iv.map((m) => m + 12) : iv).map((m) => (m > top ? m - 12 * Math.ceil((m - top) / 12) : m)))] };
+  }
+
   stab(t, v, underHarp = false) {
     const c = this.ctx, p = this.state.params.stab;
-    const h = this.harm;
-    const { root, notes, home } = stabNotes(this.state, h);
-    const vo = Math.round(p.voice), voiced = this.lastChord = voiceLead(notes, this.lastChord, home);
-    // A song's chorus opens the voicing: the top voice doubled an octave up.
-    const vi = (GRIPPED.has(STAB_VOICES[vo]) ? notes : voiced).map((m) => m - root);
-    const iv = this.wide && !GRIPPED.has(STAB_VOICES[vo]) && vi.length > 2 ? [...vi, Math.max(...vi) + 12] : vi, out = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
-    // A lifted breakdown plays decaying chords an octave up, filling it above the bass range it no longer shares.
+    const { root, vo, iv } = this.stabPitches(), out = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
     if (vo > 0) {
-      // A smooth style folds chord notes above D6 down an octave: a doubled or raised top up there rings out as a whistle.
-      const top = this.smoothOn ? 86 - root : Infinity;
-      const pitches = [...new Set((this.smoothOn > 0 ? iv.map((m) => m + 12) : iv).map((m) => (m > top ? m - 12 * Math.ceil((m - top) / 12) : m)))];
       if (STAB_VOICES[vo] === 'bells' && underHarp && this.rec('harp', false)) {
-        return this.bells(t, v, pitches, root, { ...p, decay: p.decay * 0.57 }, this.harpBacking(out));
+        return this.bells(t, v, iv, root, { ...p, decay: p.decay * 0.57 }, this.harpBacking(out));
       }
-      return this[STAB_VOICES[vo]](t, v, pitches, root, p, out);
+      return this[STAB_VOICES[vo]](t, v, iv, root, p, out);
     }
     const lp = this.filter('lowpass', p.cutoff, p.reso);
     const amp = this.gain(0);
@@ -1391,36 +1395,31 @@ export class Engine {
     return tones.get(out);
   }
 
-  // A saw whose partials fall as 1/n^1.4: a smooth style's pad keeps its body without a buzzy top.
-  warmWave() {
-    if (this._warm?.ctx !== this.ctx) {
-      const re = new Float32Array(33), im = new Float32Array(33);
-      for (let k = 1; k <= 32; k++) im[k] = k ** -1.4;
-      this._warm = { ctx: this.ctx, wave: this.ctx.createPeriodicWave(re, im) };
-    }
-    return this._warm.wave;
-  }
-
   // Slow-swelling ensemble: three detuned saws per note, filter opens with ENV, DECAY sets release.
   pad(t, v, iv, root, p, out) {
     const c = this.ctx, atk = 0.04 + p.env * 0.9, hold = Math.max(this.stepDur * 4, p.decay * 1.2), end = t + atk + hold + p.decay * 2 + 0.2;
     const lp = this.filter('lowpass', p.cutoff * 0.5, Math.max(0.5, p.reso * 0.4));
     lp.frequency.setValueAtTime(p.cutoff * 0.4, t);
     lp.frequency.linearRampToValueAtTime(p.cutoff, t + atk);
-    const amp = this.gain(0), peak = (v * (this.smoothOn ? 0.18 : 0.3)) / Math.sqrt(iv.length);
+    const amp = this.gain(0), peak = (v * 0.3) / Math.sqrt(iv.length);
     amp.gain.setValueAtTime(EPS, t);
     amp.gain.linearRampToValueAtTime(peak, t + atk);
     amp.gain.setTargetAtTime(0, t + atk + hold, Math.max(0.1, p.decay * 0.6));
     const pans = this.sidePans([-0.7, 0, 0.7], lp);
     iv.forEach((n) => {
       [-1, 0, 1].forEach((side) => {
-        const o = c.createOscillator();
-        if (this.smoothOn) o.setPeriodicWave(this.warmWave()); else o.type = 'sawtooth';
+        const o = c.createOscillator(); o.type = 'sawtooth';
         o.frequency.value = midiHz(root + n); o.detune.value = side * (4 + p.detune);
         o.connect(pans[side + 1]); this.startSource(o, t); o.stop(end);
       });
     });
-    lp.connect(amp).connect(out);
+    // A smooth style's pad rolls its saw partials off at 24 dB/oct, so no harmonic rings at 2-3 kHz, and takes its air from a breath of noise.
+    if (this.smoothOn) {
+      const lp2 = this.filter('lowpass', p.cutoff * 1.3, 0.5), hp = this.filter('highpass', 5000, 0.5);
+      lp.connect(lp2).connect(amp);
+      this.noiseSrc(t, end - t).connect(hp).connect(this.gain(0.06)).connect(amp);
+    } else lp.connect(amp);
+    amp.connect(out);
   }
 
   // Drawbar organ with key click and a rotary-style vibrato; DETUNE sets rotor depth.
