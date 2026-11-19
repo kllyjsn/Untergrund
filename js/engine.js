@@ -1338,6 +1338,10 @@ export class Engine {
     if (p.metal > 0.01) {
       const m = c.createOscillator(); m.type = 'square';
       m.frequency.value = f * 2.76;
+      if (this.hardTechno) {
+        m.frequency.setValueAtTime(f * 2.76 * 1.12, t);
+        m.frequency.exponentialRampToValueAtTime(f * 2.76 * 0.88, t + p.decay * 0.8);
+      }
       const mf = this.filter('bandpass', f * 5.4, 3);
       const mg = this.gain(0);
       this.adEnv(mg.gain, t, v * p.metal * 0.5, 0.001, p.decay * 0.6);
@@ -1358,35 +1362,46 @@ export class Engine {
     const fs = frequencies.filter(f => Number.isFinite(f) && f > 0);
     if (!fs.length) return;
     const c = this.ctx, metal = kind === 'metal', air = kind === 'air';
-    const formant = this.filter('bandpass', metal ? 1600 : air ? 680 : 1050, metal ? 0.8 : 1.1);
-    formant.frequency.setValueAtTime(metal ? 1600 : air ? 680 : 1050, t);
-    formant.frequency.exponentialRampToValueAtTime(metal ? 950 : air ? 1100 : 720, t + dur * 0.7);
+    const formant = this.filter(kind === 'rave' ? 'lowpass' : 'bandpass', metal ? 1600 : air ? 680 : 3200, metal ? 0.8 : 1.1);
+    formant.frequency.setValueAtTime(metal ? 1600 : air ? 680 : 3200, t);
+    formant.frequency.exponentialRampToValueAtTime(metal ? 950 : air ? 1100 : 1200, t + dur * 0.7);
     const drive = c.createWaveShaper(); drive.curve = driveCurve(metal ? 0.32 : 0.5); drive.oversample = '4x';
-    const vowel = metal ? drive : this.filter('bandpass', air ? 2600 : 1800, air ? 3.5 : 2.8);
+    const vowel = metal ? drive : this.filter(air ? 'bandpass' : 'peaking', air ? 2600 : 1800, air ? 3.5 : 1.1);
+    if (kind === 'rave') vowel.gain.value = -5;
     formant.connect(drive);
     if (!metal) {
       drive.connect(vowel);
       vowel.frequency.setValueAtTime(air ? 2600 : 1800, t);
       vowel.frequency.exponentialRampToValueAtTime(air ? 1300 : 650, t + dur * 0.7);
     }
-    const cutoff = metal ? 4200 : air ? 1800 : 2800, amp = this.gain(0);
-    vowel.connect(this.filter('lowpass', cutoff, 0.6)).connect(this.filter('lowpass', cutoff, 0.6))
+    const cutoff = metal ? 4200 : 1800, amp = this.gain(0);
+    const presence = this.filter('peaking', 2800, 0.7); presence.gain.value = metal ? -3 : 0;
+    vowel.connect(presence).connect(this.filter('lowpass', cutoff, 0.6)).connect(this.filter('lowpass', cutoff, 0.6))
       .connect(this.filter('highpass', 350, 0.7)).connect(this.filter('highpass', 350, 0.7)).connect(amp).connect(out);
     const attack = metal ? 0.006 : air ? 0.18 : 0.025, release = Math.max(attack, dur * (air ? 0.55 : 0.12));
     const decay = Math.max(0.025, dur * (air ? 0.23 : 0.25)), end = t + Math.max(dur + 0.8, release + 8 * decay);
     amp.gain.setValueAtTime(0, t);
-    amp.gain.linearRampToValueAtTime(v * (metal ? 0.22 : air ? 0.09 : 0.16) / Math.sqrt(fs.length), t + attack);
+    amp.gain.linearRampToValueAtTime(v * (metal ? 0.22 : air ? 0.09 : 0.12) / Math.sqrt(fs.length), t + (kind === 'rave' ? 0.008 : attack));
     amp.gain.setTargetAtTime(0, t + release, decay);
     let last;
     for (const f of fs) {
       for (const side of metal ? [0] : [-1, 1]) {
         const car = c.createOscillator(); car.type = metal ? 'sine' : 'sawtooth';
-        car.frequency.value = f; car.detune.setValueAtTime(side * (air ? 7 : 16) + (kind === 'rave' ? 35 : 0), t);
-        if (kind === 'rave') car.detune.linearRampToValueAtTime(side * 16, t + 0.06);
-        car.connect(formant);
+        car.frequency.value = f; car.detune.setValueAtTime(side * (air ? 7 : 42) + (kind === 'rave' ? 240 : 0), t);
+        if (kind === 'rave') car.detune.linearRampToValueAtTime(side * 42, t + 0.12);
+        if (kind === 'rave') {
+          const pan = c.createStereoPanner(); pan.pan.value = side * 0.9;
+          car.connect(pan).connect(formant);
+        } else car.connect(formant);
         if (metal || air) {
           const mod = c.createOscillator(), index = this.gain(0);
           mod.frequency.value = f * (metal ? 2.414 : 1.618);
+          if (metal) {
+            car.frequency.setValueAtTime(f * 1.08, t);
+            car.frequency.exponentialRampToValueAtTime(f * 0.94, t + dur * 0.8);
+            mod.frequency.setValueAtTime(f * 2.61, t);
+            mod.frequency.exponentialRampToValueAtTime(f * 1.71, t + dur * 0.8);
+          }
           index.gain.setValueAtTime(f * (metal ? 1.4 : 1.2), t);
           index.gain.exponentialRampToValueAtTime(f * 0.04, t + Math.max(0.08, dur * 0.7));
           mod.connect(index).connect(car.frequency); this.startSource(mod, t); mod.stop(end);
@@ -1395,6 +1410,76 @@ export class Engine {
       }
     }
     this.retire(last, amp);
+  }
+
+  hardStabOut(out) {
+    const buses = (this.hardStabBuses ||= new WeakMap());
+    if (!buses.has(out)) {
+      const tone = this.filter('highshelf', 1800); tone.gain.value = -5;
+      const core = this.gain(1); core.channelCount = 1; core.channelCountMode = 'explicit';
+      core.connect(tone).connect(out);
+      buses.set(out, { core, rave: this.hardVoiceOut(tone, 0, false, 300, 4.5) });
+    }
+    return buses.get(out);
+  }
+
+  hardVoiceOut(out, presence = 0, bell = false, sideCutoff = 300, sideLevel = 1) {
+    if (!this.hardTechno) return out;
+    const buses = (this.hardVoiceBuses ||= new WeakMap());
+    if (!buses.has(out)) buses.set(out, new Map());
+    const tones = buses.get(out);
+    const key = `${presence}:${bell}:${sideCutoff}:${sideLevel}`;
+    if (tones.has(key)) return tones.get(key);
+    const c = this.ctx, input = this.gain(1), split = c.createChannelSplitter(2), stereo = c.createChannelMerger(2);
+    input.channelCount = 2; input.channelCountMode = 'explicit';
+    const mid = this.gain(0.5), side = this.gain(0.5 * sideLevel), negative = this.gain(-1);
+    input.connect(split);
+    split.connect(mid, 0); split.connect(mid, 1);
+    split.connect(side, 0); split.connect(negative, 1); negative.connect(side);
+    mid.connect(stereo, 0, 0); mid.connect(stereo, 0, 1);
+    const high = this.filter('highpass', sideCutoff, Math.SQRT1_2), invert = this.gain(-1);
+    side.connect(high).connect(this.filter('highpass', sideCutoff, Math.SQRT1_2)).connect(invert);
+    invert.connect(stereo, 0, 1);
+    const positive = this.gain(-1); invert.connect(positive).connect(stereo, 0, 0);
+    const tone = this.filter(bell ? 'peaking' : 'highshelf', bell ? 2800 : 1800, 0.7); tone.gain.value = presence;
+    stereo.connect(tone).connect(out);
+    tones.set(key, input);
+    return input;
+  }
+
+  hardLead(t, v, f, dur, out) {
+    if (!this.hardTechno || ![t, v, f, dur].every(Number.isFinite) || v <= 0 || f <= 0 || dur <= 0) return;
+    const c = this.ctx, len = Math.max(0.08, dur * 0.92), end = t + len + 1.2;
+    const stereo = c.createChannelMerger(2);
+    stereo.connect(this.hardVoiceOut(out, -4, true));
+    const voice = (detune, side) => {
+      const osc = c.createOscillator(), mod = c.createOscillator(), index = this.gain(0);
+      osc.type = 'sawtooth'; osc.frequency.value = f; osc.detune.value = detune;
+      mod.frequency.value = f * 2;
+      index.gain.setValueAtTime(f * 0.9, t);
+      index.gain.exponentialRampToValueAtTime(f * 0.08, t + Math.max(0.06, len * 0.65));
+      mod.connect(index).connect(osc.frequency);
+      const motion = this.filter('lowpass', 4800, 0.6);
+      motion.frequency.setValueAtTime(4800, t);
+      motion.frequency.exponentialRampToValueAtTime(700, t + len * 0.55);
+      motion.frequency.exponentialRampToValueAtTime(3200, t + len);
+      const drive = c.createWaveShaper(); drive.curve = driveCurve(0.14); drive.oversample = '4x';
+      const amp = this.gain(0);
+      osc.connect(motion).connect(drive).connect(this.filter('lowpass', 5200, 0.6))
+        .connect(this.filter('lowpass', 5200, 0.6)).connect(this.filter('highpass', 350, 0.7))
+        .connect(this.filter('highpass', 350, 0.7)).connect(amp);
+      const peak = v * 0.17 * (side ? 0.25 / Math.SQRT2 : 1);
+      amp.gain.setValueAtTime(0, t);
+      amp.gain.linearRampToValueAtTime(peak, t + Math.min(0.08, len * 0.2));
+      amp.gain.setTargetAtTime(peak * 0.55, t + Math.min(0.08, len * 0.2), 0.12);
+      amp.gain.setTargetAtTime(0, t + len, 0.18);
+      amp.connect(stereo, 0, 0);
+      if (side) { const invert = this.gain(-1); amp.connect(invert).connect(stereo, 0, 1); }
+      else amp.connect(stereo, 0, 1);
+      for (const source of [osc, mod]) { this.startSource(source, t); source.stop(end); }
+      this.retire(osc, amp, stereo);
+    };
+    voice(0, false); voice(-13, true); voice(13, true);
   }
 
   // FM electric piano: sine carrier, 1:1 modulator for the bark, 14:1 burst for the tine.
@@ -1432,8 +1517,10 @@ export class Engine {
 
   stab(t, v, underHarp = false) {
     const c = this.ctx, p = this.state.params.stab;
-    const { root, vo, iv } = stabPitches(this), out = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
-    if (this.hardTechno) this.hardPalette(t, v, iv.map(n => midiHz(root + n)), Math.max(0.12, p.decay), out, 'rave');
+    const { root, vo, iv } = stabPitches(this);
+    const trimmed = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
+    const layers = this.hardTechno ? this.hardStabOut(trimmed) : null, out = layers ? layers.core : trimmed;
+    if (layers) this.hardPalette(t, v, iv.map(n => midiHz(root + n)), Math.max(0.12, p.decay), layers.rave, 'rave');
     // A lifted breakdown plays decaying chords an octave up, filling it above the bass range it no longer shares.
     if (vo > 0) {
       if (STAB_VOICES[vo] === 'bells' && underHarp && this.rec('harp', false)) {
@@ -1451,12 +1538,16 @@ export class Engine {
     amp.gain.setValueAtTime(EPS, t);
     amp.gain.linearRampToValueAtTime(peak, t + (this.hardTechno ? 0.018 : 0.003));
     amp.gain.setTargetAtTime(0, t + (this.hardTechno ? 0.04 : 0.012), Math.max(0.02, p.decay * 0.5));
-    const end = t + p.decay * 4 + 0.2, pans = this.sidePans([-0.55, 0.55], lp);
+    const end = t + p.decay * 4 + 0.2, pans = this.sidePans(this.hardTechno ? [-0.85, 0.85] : [-0.55, 0.55], lp);
     for (const n of iv) {
       for (const side of [-1, 1]) {
         const o = c.createOscillator(); o.type = 'sawtooth';
         o.frequency.value = midiHz(root + n);
         o.detune.value = side * p.detune;
+        if (this.hardTechno) {
+          o.detune.setValueAtTime(240 + side * p.detune * 3.5, t);
+          o.detune.linearRampToValueAtTime(side * p.detune * 3.5, t + 0.12);
+        }
         o.connect(pans[side < 0 ? 0 : 1]);
         this.startSource(o, t); o.stop(end);
       }
@@ -1488,13 +1579,17 @@ export class Engine {
     amp.gain.setValueAtTime(EPS, t);
     amp.gain.linearRampToValueAtTime(peak, t + atk);
     amp.gain.setTargetAtTime(0, t + atk + hold, Math.max(0.1, p.decay * 0.6));
-    const pans = this.sidePans([-0.7, 0, 0.7], lp);
+    const pans = this.sidePans(this.hardTechno ? [-0.9, 0, 0.9] : [-0.7, 0, 0.7], lp);
     // A smooth style's outer voices drift slowly against the centre, as a string ensemble's chorus does, so no partial holds one exact pitch.
     const drift = this.smoothOn ? [0.31, 0.47].map((hz) => { const l = c.createOscillator(), g = this.gain(7); l.frequency.value = hz; l.connect(g); this.startSource(l, t); l.stop(end); return g; }) : null;
     iv.forEach((n) => {
       [-1, 0, 1].forEach((side) => {
         const o = c.createOscillator(); o.type = 'sawtooth';
         o.frequency.value = midiHz(root + n); o.detune.value = side * (4 + p.detune);
+        if (this.hardTechno) {
+          o.detune.setValueAtTime(240 + side * (4 + p.detune) * 3, t);
+          o.detune.linearRampToValueAtTime(side * (4 + p.detune) * 3, t + 0.12);
+        }
         if (drift && side) drift[side < 0 ? 0 : 1].connect(o.detune);
         o.connect(pans[side + 1]); this.startSource(o, t); o.stop(end);
       });
@@ -2022,6 +2117,7 @@ export class Engine {
     const p = this.state.params.stab, h = this.harm;
     const iv = CHORDS[h ? h.c : Math.round(p.chord)].iv;
     const n = iv[k % iv.length] + 12 * Math.floor(k / iv.length);
+    if (this.hardTechno) return this.hardLead(t, v * 0.12, midiHz(60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + n), Math.max(0.12, p.decay), this.ch.stab.input);
     const vo = Math.round(p.voice), lead = vo > 1 ? STAB_VOICES[vo] : 'keys';
     return this[lead](t, v, [n], 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot(), p, this.ch.stab.input);
   }
@@ -2220,6 +2316,7 @@ export class Engine {
     const hdb = this.soulBand() ? 0 : HOOK_TRIM_DB[voice] || 0;
     const out = this.trimOut(`hook-${voice}`, hdb, synth ? this.technoHookOut(voice) : this.hookBus || this.ch.stab.input, voice === 'softmallet' ? 4 : HOOK_LOW_DB);
     if (this.hardTechno) this.hardPalette(t, v / 1.3 * L.level, [f * 2], Math.max(0.2, dur), out, 'air');
+    if (this.hardTechno) return this.hardLead(t, v * L.level, f, dur, out);
     const len = Math.max(0.06, dur * 0.92), end = t + len + 0.6, vn = Math.min(1, v / 1.3);
     // Played legato into a close note, the lead slides there instead of re-striking.
     const prev = this.lastLead, semis = prev ? Math.abs(12 * Math.log2(f / prev.f)) : 0;
