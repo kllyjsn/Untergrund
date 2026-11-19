@@ -1124,7 +1124,7 @@ export const songChain = (style, seed, length = 'song') => songPlan(style, seed,
 
 // Drill answers its lower verse hook with syncopated chords and carries the pocket through the fill.
 function drillVerses(pats, { chain, sections }, keep) {
-  const verse = pats[2], fill = pats[3];
+  const verse = pats[2], fill = pats[3], chorus = pats[6];
   const edit = (base, rows) => ({ ...base, steps: { ...base.steps,
     ...Object.fromEntries(Object.entries(rows).filter(([id]) => !keep.includes(id))) } });
   verse.steps = edit(verse, {
@@ -1149,7 +1149,7 @@ function drillVerses(pats, { chain, sections }, keep) {
     const steps = clone(verse.steps);
     steps.perc[15] = 1;
     const acid = steps.acid.map((note, step) => step === 11 || step === 12 ? emptyAcidStep() :
-      step === 14 ? { ...emptyAcidStep(), on: true } : note);
+      step >= 14 ? { ...emptyAcidStep(), on: true } : note);
     const base = patternAt(fill, bar);
     setTake(fill, bar, edit(base, {
       ...steps, acid,
@@ -1158,6 +1158,13 @@ function drillVerses(pats, { chain, sections }, keep) {
       stab: pad16([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
       snare: pad16([0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 1, 1]),
     }));
+    // Let the 808 land on the one, then answer it with the kick instead of stacking their attacks.
+    const landing = patternAt(chorus, at);
+    const kick = [...landing.steps.kick];
+    if (!keep.includes('kick') && landing.steps.acid[0].on && kick[0] && !kick[1]) {
+      [kick[0], kick[1]] = [kick[1], kick[0]];
+      setTake(chorus, at, edit(landing, { kick }));
+    }
   }
 }
 

@@ -68,8 +68,14 @@ for (const seed of [7, 42, 211, 1234]) {
   for (const at of transitions) {
     const fill = patternAt(song.patterns[3], at);
     assert(fill.steps.acid[14].on && !fill.steps.acid[14].s, 'the fill carries a bass note into the last beat');
+    assert(fill.steps.acid[15].on && !fill.steps.acid[15].a && !fill.steps.acid[15].s, 'the final step adds a soft 808 pickup');
     assert(fill.steps.snare[15] && fill.steps.ch[15], 'the pocket continues until the downbeat');
     assert.deepEqual(patternAt(saves.patterns[3], at).steps, fill.steps, 'written fills survive save and load');
+    const landing = patternAt(song.patterns[6], at + 1);
+    assert.deepEqual(landing.steps.kick.slice(0, 2), [0, song.patterns[6].steps.kick[0]], 'the opening kick answers the 808');
+    assert.deepEqual(landing.steps.acid, original[6].steps.acid, 'the chorus entrance keeps the written 808 line');
+    assert.deepEqual(patternAt(saves.patterns[6], at + 1).steps, landing.steps, 'the landing survives save and load');
+    assert.deepEqual(patternAt(song.patterns[6], at + 2).steps.kick, song.patterns[6].steps.kick, 'later chorus bars keep their downbeat');
   }
   const verseSteps = song.patterns[2].steps;
   verseSteps.perc[5] = 0;
@@ -80,11 +86,15 @@ for (const seed of [7, 42, 211, 1234]) {
   }
   song.patterns = original;
   song.locks.kick = true;
+  song.locks.acid = true;
   const kick = original[2].steps.kick;
+  const fillBass = patternAt(original[3], transitions[0]).steps.acid;
   applySongPlan(song, 'drill', seed);
   assert.deepEqual(song.patterns[2].steps.kick, kick, 'the verse does not replace a locked kick');
   assert.deepEqual(patternAt(song.patterns[2], secondVerse).steps.kick, kick, 'the response respects the kick lock');
   assert.deepEqual(patternAt(song.patterns[3], transitions[0]).steps.kick, original[3].steps.kick, 'the fill respects the kick lock too');
+  assert.deepEqual(patternAt(song.patterns[3], transitions[0]).steps.acid, fillBass, 'the pickup respects the bass lock');
+  assert.deepEqual(patternAt(song.patterns[6], transitions[0] + 1).steps.kick, original[6].steps.kick, 'the landing respects the kick lock');
 }
 console.log('Drill verse and turnaround passed');
 
