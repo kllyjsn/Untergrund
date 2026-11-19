@@ -26,6 +26,7 @@ export async function installDiagnostics(send, base) {
     step:typeof abs === 'undefined' ? undefined : abs, ${['delay', 'nextTime', 'transportOrigin'].map(optional).join(', ')},
     contextTime:typeof ctx === 'undefined' ? undefined : ctx.currentTime})`);
   await at('main.js', 'while (nextTime < ctx.currentTime +', `const a = __clubAudio.scheduler ||= [];
+    (__clubAudio.schedulerCalls ||= []).push(performance.timeOrigin + performance.now());
     if (typeof ctx !== 'undefined' && (!a.length || performance.now() - a.at(-1).monotonic >= 1000))
       a.push({at:performance.timeOrigin + performance.now(), monotonic:performance.now(),
         ${['abs', 'base', 'nextTime', 'transportOrigin', 'clockOffset'].map(optional).join(', ')},

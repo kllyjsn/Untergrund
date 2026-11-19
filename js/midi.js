@@ -1,6 +1,6 @@
 // EXPORT MIDI: plays the song through the real Sequencer into a recorder instead of the audio engine,
 // so every pocket, swing and humanize offset and every velocity lands in the file as played.
-import { Engine, Sequencer, parseChain } from './engine.js';
+import { Engine, Sequencer, parseChain, stabPitches, soundingPitch, STAB_VOICES } from './engine.js';
 import { CHORDS, KEYS, SCALES } from './params.js';
 import { compose } from './classical.js';
 import { PIECE } from './repertoire.js';
@@ -58,11 +58,11 @@ export class Recorder {
   acidRelease(t) { if (this.bass) { this.bass.dur = Math.max(0.01, Math.min(this.bass.dur, t - this.bass.t)); this.bass = null; } }
   trigger(id, t, v) {
     if (id === 'stab') {
-      // A lifted smooth breakdown raises voiced chords an octave in the engine; the export follows it.
-      const p = this.state.params.stab, up = this.smoothOn > 0 && Math.round(p.voice) > 0 ? 12 : 0;
-      const root = 48 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + up;
-      const len = Math.max(this.stepDur * 2, (p.decay || 0.3) * 1.5);
-      for (const n of this.chord()) this.add('stab', t, root + n, len, v);
+      // A smooth style exports the engine's own voicing (voice leading, chorus doubling, lift and fold) in each voice's
+      // sounding register, so its notes match the render. Other styles keep the plain chord their sung parts are written against.
+      const p = this.state.params.stab, len = Math.max(this.stepDur * 2, (p.decay || 0.3) * 1.5), { root, vo, iv } = stabPitches(this);
+      if (this.smoothOn) for (const m of new Set(iv.map((n) => soundingPitch(STAB_VOICES[vo], root + n)))) this.add('stab', t, m, len, v);
+      else for (const n of this.chord()) this.add('stab', t, 48 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + n, len, v);
     } else if (GM_DRUMS[id]) this.add(id, t, GM_DRUMS[id], this.stepDur, v);
   }
   vox(t, v, step) {
