@@ -423,8 +423,9 @@ export class RoomBus {
     if (this.serverOrigin?.broadcastId && this.serverOrigin.broadcastId === this.currentSet?.broadcastId) {
       const startsAt = this.serverOrigin.startsAt - shift;
       if (Number.isFinite(startsAt) && Math.abs(startsAt - this.currentSet.startsAt) > 3) {
+        const previousStartsAt = this.currentSet.startsAt;
         this.currentSet = { ...this.currentSet, startsAt };
-        this.onClock?.({ broadcastId:this.currentSet.broadcastId, startsAt });
+        this.onClock?.({ broadcastId:this.currentSet.broadcastId, startsAt, previousStartsAt });
       }
     }
     if (snapshot.jam) {
@@ -656,8 +657,8 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, getRelea
     leaveRoom();
     bus = new RoomBus(activeRoom, avatar, onUpdate, onEvent, apiBase);
     const clockBus = bus;
-    bus.onClock = ({ broadcastId, startsAt }) => {
-      if (clockBus.jamFollow === broadcastId && getTransport().playing) reanchorRoomSet?.(startsAt);
+    bus.onClock = ({ broadcastId, startsAt, previousStartsAt }) => {
+      if (clockBus.jamFollow === broadcastId && getTransport().playing) reanchorRoomSet?.(startsAt, previousStartsAt);
     };
     bus.onPlaybackUnavailable = onPlaybackUnavailable;
     if (jamHooks) bus.jamHooks = { ...jamHooks, getState, isPlaying: () => getTransport().playing };

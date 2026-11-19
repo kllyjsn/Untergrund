@@ -116,6 +116,7 @@ assert.deepEqual(roomTransportPosition(origin + 1600, 120, origin), { step: 0, d
     bus.applySnapshot({currentSet:set, hostId:'host'});
     assert.equal(bus.currentSet.startsAt, origin + 20);
     assert.equal(corrections.length, 1, `${clientId} is notified despite same-version dedupe`);
+    assert.equal(corrections[0].previousStartsAt, origin + 200, 'clock notifications carry a delta independent of live tempo edits');
     assert.equal(events.length, 0, 'clock correction does not rebroadcast or replay the set');
     shift = 0;
     bus.applySnapshot({hostId:'host'});
@@ -305,6 +306,21 @@ for (const [action, currentTime, playing, expected] of [
   runInNewContext(`${stopSource}\n${action}()`, sandbox);
   assert.deepEqual(calls, expected, `${action} at audio time ${currentTime} (playing: ${playing})`);
   assert.equal(sandbox.playing, playing && !expected.length);
+}
+{
+  const reanchorSource = main.slice(main.indexOf('function reanchorRoomSet('), main.indexOf('\nfunction stopRoomStats'));
+  const sandbox = {playing:true, roomPlayback:true, state:{bpm:newBpm}, seq:{origin:64}, transportOrigin:rebasedOrigin, vocalGridDirty:false};
+  const reanchor = runInNewContext(`${reanchorSource}\nreanchorRoomSet`, sandbox);
+  reanchor(oldOrigin + 5, oldOrigin);
+  close(sandbox.transportOrigin, rebasedOrigin + 5);
+  assert.equal(sandbox.vocalGridDirty, true);
+  reanchor(oldOrigin + 8, oldOrigin + 5);
+  close(sandbox.transportOrigin, rebasedOrigin + 8);
+  reanchor(oldOrigin + 8, oldOrigin + 8);
+  close(sandbox.transportOrigin, rebasedOrigin + 8);
+  sandbox.playing = false;
+  reanchor(oldOrigin + 100, oldOrigin + 8);
+  close(sandbox.transportOrigin, rebasedOrigin + 8);
 }
 const joinSource = main.slice(main.indexOf('function joinRoomSet('), main.indexOf('\nfunction startRoomBroadcast'));
 function roomJoin(change = () => {}, options = {}) {

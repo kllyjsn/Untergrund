@@ -1085,9 +1085,10 @@ function joinRoomSet(item, { initial = false } = {}) {
   else sync();
 }
 
-function reanchorRoomSet(startsAt) {
+function reanchorRoomSet(startsAt, previousStartsAt) {
   if (!playing || !roomPlayback || !Number.isFinite(startsAt)) return;
-  const origin = startsAt - (seq?.origin || 0) * (15000 / state.bpm);
+  const origin = Number.isFinite(previousStartsAt) ? transportOrigin + startsAt - previousStartsAt
+    : startsAt - (seq?.origin || 0) * (15000 / state.bpm);
   if (Math.abs(origin - transportOrigin) > 0.5) vocalGridDirty = true;
   transportOrigin = origin;
 }
