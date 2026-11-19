@@ -805,6 +805,10 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   const sung = withMelody(P.hook, rng(Math.imul((seed | 0) ^ 0x68e31da4, 0x3c6ef372) ^ 0x1b873593), style, musicalScale, { prog: P.prog, alt: P.alt, chord: params.stab.chord | 0, gainScale });
   if (sung) { P.hook = sung; P.hm = 2; }
   if (LIFT.has(style) && P.prog) P.lift = 2;
+  if (style === 'trap' && stabVoice === 7 && sung?.v === 'mallet' && sung.m) {
+    for (const part of ['n', 'v', 'b']) for (const note of sung.m[part]) note[3] *= 0.78;
+    sung.s = melodySteps(sung.m.n);
+  }
   if (SONG.has(style) && P.prog && P.alt) {
     const all = PROGS[style].map((pr) => pr.map(([root, c]) => ({ r: root, c })));
     P.sections = songSections(all, P, musicalScale, Math.round(params.stab.chord ?? 0), rng(Math.imul((seed | 0) ^ 0x51ed270b, 0x27d4eb2f)), SECTION_IDIOM[style]);
