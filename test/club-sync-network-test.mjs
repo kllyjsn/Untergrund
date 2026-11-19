@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { runInNewContext } from 'node:vm';
 import { parseNetwork, netemArgs, portFilters, clockSpread, networkController, probe } from './club-sync-network.mjs';
 
 assert.deepEqual(parseNetwork(), {});
@@ -38,3 +40,20 @@ try {
 assert.equal((await probe(`http://127.0.0.1:${port}`, 1)).failed, 1);
 console.log('Club network tests PASS: profile parsing, subsets, invalid/empty input, safe tc args, IPv4/IPv6 bidirectional port filters, empty and segmented output clocks.');
 console.log('Club network probes PASS: no-impairment controller, HTTP success/failure samples and cleanup without sudo.');
+
+const source = await readFile(new URL('./club-sync.mjs', import.meta.url), 'utf8');
+const start = source.indexOf('if (results.some(r => r.failed))');
+const plot = source.slice(start, source.indexOf('\n  } finally {', start));
+for (const failed of [false, true]) for (const unavailable of [false, true]) for (const exitCode of [undefined, 1]) {
+  let calls = 0;
+  const process = {exitCode};
+  runInNewContext(plot, {results:[{failed}], process, root:'', out:'', options:{output:'capture.json'},
+    join:(...parts) => parts.join('/'), console:{log(){}, error(){}}, execFileSync:() => {
+      calls++;
+      if (unavailable) throw new Error('matplotlib unavailable');
+      return 'plot.png';
+    }});
+  assert.equal(calls, Number(failed));
+  assert.equal(process.exitCode, exitCode, 'optional plotting never changes the scenario verdict');
+}
+console.log('Club optional plots PASS: success, empty results and missing matplotlib preserve the scenario exit status.');

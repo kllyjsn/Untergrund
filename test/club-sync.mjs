@@ -592,7 +592,7 @@ finally {
     console.log(`JSON: test/out/${options.output}`);
     if (results.some(r => r.failed)) {
       try { console.log(execFileSync('python3', [join(root, 'test/club-sync-plot.py'), join(out, options.output)], {encoding:'utf8'})); }
-      catch (plotError) { console.error('Failure plots unavailable:', String(plotError)); process.exitCode = 1; }
+      catch (plotError) { console.error('Failure plots unavailable:', String(plotError)); }
     }
   } finally {
     await network?.close();
