@@ -232,7 +232,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   const musicalScale = SCALES[MAJOR_STYLES.has(style) && scaleName === 'minor' ? 'major' : scaleName]?.notes || SCALES.minor.notes;
   const P = emptyPattern();
   const S = P.steps;
-  const params = { kick: {}, acid: {}, stab: {}, perc: {}, ch: {}, oh: {}, ride: {}, clap: {}, snare: {}, vox: {} };
+  const params = { kick: {}, acid: { edge: 0 }, stab: { tine: 1 }, perc: {}, ch: {}, oh: {}, ride: {}, clap: {}, snare: {}, vox: {} };
   let swing;
   const master = {};
   const [lo, hi] = STYLES[style].bpm;
