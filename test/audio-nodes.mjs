@@ -1,6 +1,7 @@
 // Audio-thread load guard: drives the real Engine + Sequencer through every style's song against a counting fake
 // AudioContext and fails if the AudioNodes created per bar (the per-hit churn that crackles on phones) rise well
 // above test/audio-nodes-baseline.json. `node test/audio-nodes.mjs --update` rewrites the baseline after a deliberate change.
+import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { STYLES, defaultState, generate, applyOverrides, arrangement, songChain } from '../js/state.js';
@@ -91,6 +92,17 @@ export async function measure(style, seed = 7) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const ctx = fakeCtx();
+  const player = new Engine(ctx, defaultState(), { trackQueuedNotes: true });
+  const events = [];
+  const source = name => ({ start: (...args) => events.push([name, 'start', ...args]), stop: t => events.push([name, 'stop', t]) });
+  player.startSource(source('ringing'), 1);
+  player.startSource(source('queued'), 2, 0.4, 0.2);
+  ctx.currentTime = 1.5;
+  player.discardQueuedNotes(ctx.currentTime);
+  player.discardQueuedNotes(ctx.currentTime);
+  assert.deepEqual(events, [['ringing', 'start', 1], ['queued', 'start', 2, 0.4, 0.2], ['queued', 'stop', 1.5]]);
+
   const rows = [];
   for (const style of Object.keys(STYLES)) rows.push(await measure(style));
   if (process.argv.includes('--verbose')) for (const r of rows) console.log(r.style.padEnd(11), 'peak', String(r.peak).padStart(4), 'avg', String(r.avg).padStart(4), JSON.stringify(r.by));
