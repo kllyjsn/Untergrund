@@ -30,7 +30,7 @@ export const HOOK_TRIM_DB = {
 export const TECHNO_HOOK_SPACE = {
   metalstrike: { eq: [3110, 1.7, -9], diffusion: 0.00014, taps: [0.007, 0.014], width: 0.45 },
   softresonator: { eq: [2490, 2.1, -12], diffusion: 0.00016, taps: [0.011, 0.019], width: 0.34 },
-  robotformant: { eq: [2490, 1.9, -7], diffusion: 0.00012, taps: [0.005, 0.011], width: 0.38 },
+  robotformant: { eq: [2490, 1.9, -7], diffusion: 0.00021, taps: [0.005, 0.011], width: 0.38 },
   ravestack: { eq: [2650, 7, -14], diffusion: 0.00018, taps: [0.009, 0.017], width: 0.42 },
   acidlead: { eq: [2800, 1.5, -6], diffusion: 0.00012, taps: [0.006, 0.013], width: 0.29 },
 };
