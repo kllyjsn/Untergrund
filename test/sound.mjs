@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { OfflineAudioContext, installGlobals } from './offline-audio.mjs';
 installGlobals();
-const { defaultState, generate, applyOverrides, arrangement } = await import('../js/state.js');
+const { defaultState, generate, applyOverrides, arrangement, freshSong, INSTRUMENTS } = await import('../js/state.js');
 const { Engine, Sequencer } = await import('../js/engine.js');
 const { Recorder } = await import('../js/midi.js');
 const { loadBand, STAB_BAND, SOFT_LAYER } = await import('../js/livekit.js');
@@ -241,4 +241,33 @@ for (const [style, seed] of [['deephouse', 211], ['trance', 211]]) {
   }
 }
 
+for (const [style, name] of [['reggaeton', 'dembow'], ['afrobeats', 'finger'], ['jerseyclub', 'bounce']]) {
+  const seen = new Set();
+  for (let seed = 1; seed <= 100 && seen.size < INSTRUMENTS[style].length; seed++) {
+    const s = freshSong(style, seed), chord = s.params.stab.voice;
+    if (seen.has(chord)) continue;
+    seen.add(chord);
+    assert([1, 2].includes(Math.round(s.params.acid.voice)));
+    assert.equal(s.master.kit, 0);
+    const ctx = new OfflineAudioContext(2, SR * 0.6, SR), e = new Engine(ctx, s, { realtime: false });
+    let calls = 0;
+    const color = e.bassColor;
+    e.bassColor = function () { calls++; const p = color.call(this); assert.equal(p.name, name); return p; };
+    e.acid(0.05, { on: true, n: 0, a: true }, false, false, 0.12);
+    e.acid(0.18, { on: true, n: 2, a: false }, true, false, 0.12);
+    e.acidRelease(0.4);
+    assert.equal(calls, 2, `${style}/${chord} dispatches its own bass on attacks and slides`);
+    const buf = await ctx.startRendering(), pcm = buf.getChannelData(0);
+    assert(pcm.every(Number.isFinite), `${style}/${chord} finite bass PCM`);
+    assert(pcm.some(x => Math.abs(x) > 0.001), `${style}/${chord} audible bass`);
+  }
+  assert.equal(seen.size, INSTRUMENTS[style].length, `${style} covers every ensemble`);
+}
+for (const style of ['trap', 'drill', 'minimal', 'hardtechno', 'industrial', 'peak', 'acid', 'hypnotic', 'electro', undefined]) {
+  const s = defaultState();
+  if (style) s.artist = { style };
+  const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
+  assert.equal(e.bassColor(), undefined, `${style} retains its stock bass`);
+}
+console.log('bass colors: all target ensembles, attack/slide playback, finite PCM and protected/missing-style bypass passed');
 console.log('sound ok');
