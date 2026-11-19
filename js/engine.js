@@ -755,6 +755,7 @@ export class Engine {
 
   trigger(id, t, v) {
     const kitMode = Math.round(this.state.master.kit || 0);
+    if (kitMode === KIT_BACKBEAT && id === 'kick') this.backbeatKickAt = t;
     if (kitMode === KIT_BACKBEAT && id === 'snare') {
       const kit = this.rec('snare');
       if (!kit) loadSnare();
@@ -912,10 +913,16 @@ export class Engine {
     if (ref.click != null) shelves.push([3000, clamp((p.click - ref.click) * 22, -12, 15)]);
     // A shorter snare DECAY damps the shell ring (485-885 Hz) the way a towel or gel on the head does.
     const peaks = id === 'snare' && p.decay < ref.decay ? [[550, 1.5, -10 * (1 - p.decay / ref.decay)], [880, 2, -8 * (1 - p.decay / ref.decay)]] : [];
-    if (id === 'snare' && Math.round(this.state.master.kit) === KIT_BACKBEAT) peaks.push([650, 1.1, -8], [1800, 0.8, 5.5]);
     const drive = ref.drive != null ? Math.max(0, p.drive - ref.drive) * 1.2 : 0;
     const punch = ref.punch != null ? (p.punch - ref.punch) * 1.4 : 0;
-    return { rate, dur, fx: { shelves, peaks, drive, punch } };
+    const fx = { shelves, peaks, drive, punch };
+    if (id === 'snare' && Math.round(this.state.master.kit) === KIT_BACKBEAT) {
+      peaks.push([650, 1.1, -8], [630, 3.5, -4], [1800, 0.8, 5.5]);
+      // Dampen the head before the hat roll; DECAY still controls when the fade starts.
+      fx.release = 0.03;
+      return { rate, dur: Math.min(dur || full, p.decay * 1.05), fx };
+    }
+    return { rate, dur, fx };
   }
 
   liveHit(kit, name, id, t, level, drift, durOverride) {
@@ -937,7 +944,7 @@ export class Engine {
   // `lift` brings up softly recorded parts in a mix with machine drums.
   sampledHit(kit, id, t, v, lift = 1) {
     const all = (this.rr = (this.rr || 0) + 1), rrs = (this.rrs ||= {});
-    const drift = 1 + (hash(all, 7) - 0.5) * 0.012;
+    const pitch = hash(all, 7) - 0.5, drift = 1 + pitch * 0.012;
     // Four takes round-robin the way a sampler does it: a random one, never the take just played.
     const take = (key, n) => { const last = rrs[key], k = last == null ? Math.floor(hash(all, 11) * n) : (last + 1 + Math.floor(hash(all, 11) * (n - 1))) % n; rrs[key] = k; return k + 1; };
     if (id === 'kick') {
@@ -948,10 +955,17 @@ export class Engine {
     }
     if (id === 'snare') {
       // Center hits only: a rimshot dropped onto random loud backbeats clanks like a cross-stick.
-      // Each velocity band alternates two adjacent recorded layers (the kit has no snare round robins); ghosts get the lightest stroke.
       const pair = v > 0.85 ? [34, 33] : v > 0.65 ? [24, 23] : v > 0.45 ? [14, 13] : v > 0.25 ? [6, 5] : [2, 5];
-      const name = `snare_v${pair[take(`snare${pair[0]}`, 2) - 1]}`;
-      this.liveHit(kit, name, 'snare', t, 0.85 * lift * v ** 1.4, drift);
+      let layer = pair[take(`snare${pair[0]}`, 2) - 1], rate = drift;
+      if (v > 0.85 && Math.round(this.state.master.kit) === KIT_BACKBEAT) {
+        const accent = [34, 33, 24, 23][take('snareAccent', 4) - 1];
+        // Keep the familiar attack when an accent shares the first 40 ms of a kick.
+        if (Math.abs(t - (this.backbeatKickAt ?? -Infinity)) >= 0.04) {
+          layer = accent;
+          rate = 1 + pitch * 0.026;
+        }
+      }
+      this.liveHit(kit, `snare_v${layer}`, 'snare', t, 0.85 * lift * v ** 1.4, rate);
       return true;
     }
     if (id === 'ch') {
