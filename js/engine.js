@@ -30,8 +30,16 @@ const HARP_PLUCK = {
 };
 // Wind takes: cents from the file's pitch, lead-in seconds to skip, gain trim in dB.
 const WIND_HOOK = {
-  oboe: { gain: 1.23, presence: [2700, 0.8, 5.5], takes: { 58: [15, 0.048, 0], 62: [-4, 0.01, 0], 65: [-3, 0.01, 0], 70: [-3, 0.02, -2.3], 74: [1, 0, 1], 77: [3, 0.03, 0], 82: [6, 0, -1.5] } },
-  airflute: { gain: 1.02, presence: [2950, 0.8, 6.2], takes: { 60: [1, 0.18, 3], 64: [-4, 0.11, 0], 69: [-18, 0.05, 0], 72: [-5, 0.01, 0], 76: [-5, 0.022, 0], 81: [-3, 0.022, -1.5], 84: [0, 0.043, 0] } },
+  oboe: {
+    gain: 1.23, presence: [2700, 0.8, 5.5],
+    takes: { 58: [15, 0.048, 0], 62: [-4, 0.01, 0], 65: [-3, 0.01, 0], 70: [-3, 0.02, -2.3], 74: [1, 0, 1], 77: [3, 0.03, 0], 82: [6, 0, -1.5] },
+    second: { 58: [2, 0.012, -1], 62: [-2, 0.012, -3], 65: [-1, 0.008, -3.7], 70: [-2, 0.032, -2.1], 74: [-1, 0.012, 1.9], 77: [0, 0.008, -3.8], 82: [2, 0, 1] },
+  },
+  airflute: {
+    gain: 1.02, presence: [2950, 0.8, 6.2],
+    takes: { 60: [1, 0.18, 3], 64: [-4, 0.11, 0], 69: [-18, 0.05, 0], 72: [-5, 0.01, 0], 76: [-5, 0.022, 0], 81: [-3, 0.022, -1.5], 84: [0, 0.043, 0] },
+    second: { 60: [-36, 0.145, 3.8], 64: [-12, 0.105, 3], 69: [-2, 0.061, 0.8], 72: [2, 0.092, 3], 76: [0, 0.088, -0.5], 81: [0, 0.098, 0], 84: [0, 0.105, -3.2] },
+  },
 };
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
 const LIVE_REF = {
@@ -430,6 +438,8 @@ export class Engine {
       }
       this.ch[t.id] = ch;
     }
+    this.windDuck = this.gain(1);
+    this.windDuck.connect(this.ch.stab.input);
   }
 
   buildAcid() {
@@ -677,7 +687,7 @@ export class Engine {
     for (const p of [acid.env.offset, acid.o1.frequency, acid.o2.frequency, this.subVoice?.o.frequency]) p?.cancelScheduledValues(now);
     for (const p of [acid.vca.gain, this.subVoice?.amp.gain, this.mono?.amp.gain]) p?.cancelScheduledValues(now);
     this.acidRelease(now);
-    for (const p of [this.duck.gain, this.rumbleDuck.gain, this.ch.acid.sc?.gain]) {
+    for (const p of [this.duck.gain, this.rumbleDuck.gain, this.ch.acid.sc?.gain, this.windDuck?.gain]) {
       if (!p) continue;
       p.cancelScheduledValues(now);
       p.setTargetAtTime(1, now, 0.01);
@@ -713,6 +723,8 @@ export class Engine {
     // Club low end: the kick owns the first few ms, then the bass comes straight back.
     const L = lowEnd(this.state.master), sc = this.ch.acid.sc?.gain;
     if (L && sc) parts.push([sc, L.dip * Math.min(1, v * 1.2), L.rel, 0.002, 0.012]);
+    // Keep the wind lead out of the glue compressor's way during a kick's attack.
+    if (this.windDuck) parts.push([this.windDuck.gain, 0.62 * Math.min(1, v * 1.2), 0.045, 0.003, 0.035]);
     const duck = { t, parts };
     if (this.queuedNotes) {
       this.ducks = this.ducks.filter(d => d.t + 0.03 >= this.ctx.currentTime);
@@ -733,7 +745,7 @@ export class Engine {
   // Rebuild only future ducking; a hit already sounding keeps its current pump.
   rebuildDucks(from) {
     this.ducks.sort((a, b) => a.t - b.t);
-    for (const param of [this.duck.gain, this.rumbleDuck.gain, this.ch.acid.sc?.gain]) {
+    for (const param of [this.duck.gain, this.rumbleDuck.gain, this.ch.acid.sc?.gain, this.windDuck?.gain]) {
       if (!param) continue;
       param.cancelScheduledValues(from);
       let previous;
@@ -1976,14 +1988,17 @@ export class Engine {
     });
   }
 
-  windHook(set, t, v, m, dur, voice, strong, harmony) {
-    const { gain, presence, takes } = WIND_HOOK[voice];
-    const [pitch, buf] = set.reduce((best, take) => Math.abs(take[0] - m) < Math.abs(best[0] - m) ? take : best);
-    const [cents, offset, trim] = takes[pitch];
+  windHook(set, t, v, m, dur, voice, strong, { harm, take = 0 }) {
+    const { gain, presence, takes, second } = WIND_HOOK[voice];
+    const alt = this.rec(TAKES[HOOK_BAND[voice]]);
+    // The longer primary take can sustain through holds after transposition.
+    const useAlt = alt && (take + (harm ? 1 : 0)) % 2 && dur <= 0.85;
+    const [pitch, buf] = (useAlt ? alt : set).reduce((best, note) => Math.abs(note[0] - m) < Math.abs(best[0] - m) ? note : best);
+    const [cents, offset, trim] = (useAlt ? second : takes)[pitch];
     // Vary the air and tongue by song step so late joins and offline renders use the same attack.
-    const step = (this.step ?? 0) * 2 + (harmony ? 1 : 0);
+    const step = (this.step ?? 0) * 2 + (harm ? 1 : 0);
     const air = hash(step, m + 29), tongue = hash(step, m + 71), touch = Math.min(1, v);
-    const out = this.trimOut(`hook-${voice}`, 1, this.hookBus || this.ch.stab.input, -4, 500);
+    const out = this.trimOut(`hook-${voice}`, 1, this.windDuck, -4, 500);
     const eq = this.bodyFor(this.bodyFor(out, presence), [780, 1.2, -2.5]);
     return this.playBuf(buf, t, gain * touch * dbGain(trim + (air - 0.5) * 1.2), eq,
       2 ** ((m - pitch - cents / 100) / 12), Math.max(0.06, dur * 0.92), {
@@ -2003,7 +2018,7 @@ export class Engine {
     const wind = Object.hasOwn(WIND_HOOK, voice);
     if (wind) {
       const name = HOOK_BAND[voice], set = this.rec(name);
-      if (set) return this.windHook(set, t, v, 60 + k + oct * 12 + n, dur, voice, strong, expression.harm);
+      if (set) return this.windHook(set, t, v, 60 + k + oct * 12 + n, dur, voice, strong, expression);
       loadBand(name);
       voice = 'reed';
     }
@@ -3015,9 +3030,12 @@ export class Sequencer {
         const lean = (answer ? 0.006 : -0.003) * x.feel + (hash(hi, 97) - 0.5) * 0.008 * x.feel;
         const resolve = hm > 1 && answer && ph === 1 && !hk.s.slice(hi + 1).some(Boolean);
         const strong = !hk.h && (hi % 4 === 0 || st[1] >= 2), ht = tt + lean + (s.master.humanize || 0) * 0.008;
-        e.hook(ht, Math.min(1, st[2] * phraseVel), st[0] + lift, st[1] * sd, hk.v, hk.o, strong, b, !hk.h && resolve, x);
+        // Alternate repetitions inside the motif and between passes; no counter to reset on a seek.
+        const expression = Object.hasOwn(WIND_HOOK, hk.v)
+          ? { ...x, take: (Math.floor(abs / 32) + hk.s.slice(0, hi).filter((note) => note?.[0] === st[0]).length) % 2 } : x;
+        e.hook(ht, Math.min(1, st[2] * phraseVel), st[0] + lift, st[1] * sd, hk.v, hk.o, strong, b, !hk.h && resolve, expression);
         // At the peak a second player doubles the answer's held notes a third below.
-        if (this.cur === 6 && answer && hm > 1 && st[1] >= 3 && !hk.h && this.songBars) e.hook(ht + 0.004, Math.min(1, st[2] * phraseVel) * 0.55, stepDeg(st[0], -2, scale) + lift, st[1] * sd, hk.v, hk.o, strong, b, false, { ...x, harm: 1 });
+        if (this.cur === 6 && answer && hm > 1 && st[1] >= 3 && !hk.h && this.songBars) e.hook(ht + 0.004, Math.min(1, st[2] * phraseVel) * 0.55, stepDeg(st[0], -2, scale) + lift, st[1] * sd, hk.v, hk.o, strong, b, false, { ...expression, harm: 1 });
       }
     }
     if (this.roll === null) this.rollCount = 0;

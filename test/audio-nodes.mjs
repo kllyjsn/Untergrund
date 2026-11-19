@@ -116,6 +116,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     pat.steps.kick[0] = pat.steps.kick[1] = pat.steps.clap[1] = 1;
     const e = new Engine(ctx, state, { trackQueuedNotes: true });
     const seq = new Sequencer(e, state);
+    const windGain = e.windDuck.gain, windDucks = [];
+    windGain.cancelScheduledValues = t => windDucks.push(['cancel', t]);
+    windGain.setTargetAtTime = (gain, t) => windDucks.push(['target', gain, t]);
     const started = [], stopped = [];
     e.trigger = (id, t) => {
       const hit = [id, t];
@@ -127,11 +130,13 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     seq.tick(2, 1.5, 1.5, true);
     const [ringing, kick, clap] = started;
     assert.deepEqual(started.map(([id]) => id), ['kick', 'kick', 'clap']);
+    assert.ok(windDucks.some(([op, gain, t]) => op === 'target' && gain < 1 && t === kick[1]), 'the kick keys the wind bus');
     ctx.currentTime = 1.05;
     state.mutes.kick = true;
     e.reviseHits('kick');
     assert.deepEqual(stopped, [kick], 'mute leaves the ringing kick and unrelated queued clap');
     assert.deepEqual(e.ducks.map(d => d.t), [ringing[1]], 'muting the queued kick removes only its sidechain');
+    assert.deepEqual(windDucks.at(-1), ['cancel', kick[1]], 'muting the kick cancels its scheduled wind duck');
     state.mutes.kick = false;
     e.reviseHits('kick');
     assert.deepEqual(started.slice(3), [kick], 'unmute restores the queued kick once at its original time');
@@ -142,6 +147,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     assert.equal(started[4][0], 'kick');
     assert.ok(Math.abs(started[4][1] - 1.5) < 0.05);
     e.discardQueuedNotes(ctx.currentTime);
+    assert.deepEqual(windDucks.at(-1), ['target', 1, ctx.currentTime], 'discarding the queue restores the wind gain');
     assert.deepEqual(stopped.slice(2), [clap, started[4]], 'wake only stops still-queued notes once');
     e.reviseHits('kick');
     assert.equal(started.length, 5, 'edits cannot resurrect an old transport queue after wake');
