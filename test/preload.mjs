@@ -1,7 +1,7 @@
 // Live-kit preloading: which recordings a song needs, and the per-song lock that keeps a part on one sound.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { liveSets, setsReady, loadSets, STAB_BAND, LIVE_FILES, LIVE_KIT } from '../js/livekit.js';
+import { liveSets, setsReady, loadSets, BAND, STAB_BAND, LIVE_FILES, LIVE_KIT } from '../js/livekit.js';
 import { Engine, Sequencer } from '../js/engine.js';
 import { KIT_BACKBEAT } from '../js/params.js';
 import { defaultState, generate, STYLES } from '../js/state.js';
@@ -25,6 +25,7 @@ for (const id of Object.keys(STYLES)) {
     const g = generate(id, seed), sets = liveSets(g), band = STAB_BAND[Math.round(g.params.stab.voice)];
     if (['neosoul', 'boombap'].includes(id)) assert.ok(sets.includes('kit'), `${id}/${seed} needs the live kit`);
     assert.equal(sets.includes('snare'), id === 'drill', `${id}/${seed} snare-only sample set`);
+    assert.equal(sets.includes('harp'), g.pattern.hook?.v === 'harpplk', `${id}/${seed} recorded harp hook`);
     assert.equal(sets.includes(band), !!band, `${id}/${seed} stab band`);
     assert.equal(sets.includes('pianosoft'), band === 'piano', `${id}/${seed} soft piano layer`);
     // Country's Telecaster lead loads the guitar whatever plays the chords.
@@ -38,6 +39,34 @@ globalThis.fetch = async (url) => { const u = new URL(url); u.search = ''; files
 globalThis.OfflineAudioContext = class { decodeAudioData(b) { return Promise.resolve({ length: b.byteLength }); } };
 
 const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
+{
+  const state = defaultState(), fallback = new Error('synth fallback'), hits = [];
+  state.key = 0;
+  state.patterns.at(-1).hook = { v: 'harpplk' };
+  assert.deepEqual(liveSets(state), ['harp'], 'load a hook from any part of a saved song');
+  const e = {
+    state, recLock: new Map(), rec: Engine.prototype.rec, harpHook: Engine.prototype.harpHook,
+    ch: { stab: { input: 'chord strip' } }, soulBand: () => false,
+    trimOut: (key, db, dest) => { if (key === 'hook-softmallet') throw fallback; return dest; },
+    playBuf: (...args) => hits.push(args),
+  };
+  const hit = (voice = 'harpplk') => Engine.prototype.hook.call(e, 1, 0.5, 12, 0.3, voice);
+  assert.throws(hit, (err) => err === fallback);
+  await loadSets(liveSets(state));
+  assert.deepEqual([...files].sort(), BAND.harp.map((n) => `harp_${n}.flac`).sort());
+  assert.throws(hit, (err) => err === fallback, 'a late download does not change the hook during playback');
+  assert.throws(() => hit('softmallet'), (err) => err === fallback, 'saved mallets do not switch to the harp');
+  e.recLock = new Map();
+  hit();
+  assert.equal(hits.length, 1);
+  const [, t, , dest, rate, dur, fx] = hits[0];
+  assert.equal(t, 1);
+  assert.equal(dest, 'chord strip');
+  assert.ok(Math.abs(12 * Math.log2(rate) - 0.11) < 0.001, 'choose the nearest recorded pitch, not the file label');
+  assert.equal(dur, 0.3 * 0.92);
+  assert.equal(fx.offset, 0.002, 'trim just the lead-in before the pluck');
+  files.clear();
+}
 {
   const state = st(KIT_BACKBEAT, 1), seen = [];
   const part = {

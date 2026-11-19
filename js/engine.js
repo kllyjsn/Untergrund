@@ -23,6 +23,11 @@ const STAB_UNDER_VOICE = { n: 0.84, v: 0.78, b: 0.45 };
 // (the reed is forward, the flute sits back). Songs with sections drop the verse by its section level, so
 // the verse is sung a little forward to stay on top of the band.
 const SUNG_VOICE = { reed: 0.6, flute: 1.3 };
+// The harp files are labeled an octave above the recorded strings. For the hook, map file IDs to measured pitch and trim the lead-in.
+const HARP_PLUCK = {
+  47: [34.82, 0.026], 53: [40.91, 0.030], 60: [47.98, 0], 64: [51.94, 0.044], 71: [58.86, 0.028],
+  77: [64.99, 0.006], 81: [68.91, 0], 84: [71.89, 0.002], 91: [78.95, 0.016],
+};
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
 const LIVE_REF = {
   kick: { tune: 52, decay: 0.5, drive: 0.2, click: 0.15, punch: 0.55 },
@@ -1900,12 +1905,27 @@ export class Engine {
     src.stop(t + len + 0.05);
   }
 
+  harpHook(set, t, v, m, dur) {
+    const best = set.reduce((pick, take) => Math.abs(HARP_PLUCK[take[0]][0] - m) < Math.abs(HARP_PLUCK[pick[0]][0] - m) ? take : pick);
+    const [center, offset] = HARP_PLUCK[best[0]];
+    const out = this.trimOut('hook-harpplk', 4, this.hookBus || this.ch.stab.input, -2, 700);
+    return this.playBuf(best[1], t, 2.85 * v, out, 2 ** ((m - center) / 12), Math.max(0.06, dur * 0.92), {
+      lp: 3100 + 2300 * Math.min(1, v / 1.3), offset, fade: 0.007, release: 0.09, ringOut: true,
+    });
+  }
+
   // Song hook: one lead note per call, snapped to the current chord on strong beats so it follows the changes.
   hook(t, v, n, dur, voice, oct = 0, strong = false, b = 1, up = false, expression = {}) {
     const c = this.ctx, p = this.state.params.stab, h = this.harm;
     v *= 1.3;
     n = hookSnap(n, h, p, strong, up);
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
+    if (voice === 'harpplk') {
+      const harp = this.rec('harp');
+      if (harp) return this.harpHook(harp, t, v, 60 + k + oct * 12 + n, dur);
+      loadBand('harp');
+      voice = 'softmallet';
+    }
     if (voice === 'chop') {
       const vc = getChops();
       if (vc) return this.chopNote(vc, t, v, 60 + k + oct * 12 + n, dur, expression, null, this.hookBus || this.ch.stab.input);
