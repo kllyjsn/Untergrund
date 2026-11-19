@@ -22,8 +22,8 @@ console.log('seeded hooks passed');
 
 // Separate players, including when the chord ensemble picks a recorded instrument.
 for (const [style, hook, bass] of [
-  ['hypnotic', 'softresonator', 1], ['industrial', 'metalstrike', 6], ['acid', 'acidlead', 0],
-  ['peak', 'ravestack', 3], ['electro', 'robotformant', 7], ['hardtechno', 'analog', 3], ['trap', null, 2],
+  ['hypnotic', 'softresonator', 7], ['industrial', 'metalstrike', 6], ['acid', 'acidlead', 0],
+  ['peak', 'ravestack', null], ['electro', 'robotformant', 7], ['hardtechno', 'analog', 3], ['trap', null, 2],
 ]) {
   for (const seed of [11, 42, 73, 211, 997, 1234]) {
     const g = generate(style, seed);
@@ -32,15 +32,17 @@ for (const [style, hook, bass] of [
     s.params.acid.voice = g.params.acid.voice;
     const saved = sanitize(JSON.parse(JSON.stringify(s)));
     if (hook) assert.equal(saved.patterns[0].hook.v, hook, `${style}/${seed} hook round-trip`);
-    assert.equal(saved.params.acid.voice, bass, `${style}/${seed} bass round-trip`);
+    assert.equal(saved.params.acid.voice, bass ?? g.params.acid.voice, `${style}/${seed} bass round-trip`);
   }
 }
 
 for (const [style, voice] of [['trap', 2], ['hardtechno', 3]]) {
-  const { params } = freshSong(style, 42);
-  assert.equal(params.acid.voice, voice, `${style} keeps its bass voice`);
-  assert.equal(params.acid.level, 0.55, `${style} does not inherit Hypnotic's generated bass level`);
-  assert.equal(params.acid.accent, 0.4, `${style} keeps its bass accent`);
+  for (const prior of [undefined, 'hypnotic', 'electro', 'peak']) {
+    const { params } = freshSong(style, 42, { base: prior && freshSong(prior, 42) });
+    assert.equal(params.acid.voice, voice, `${style} keeps its bass voice`);
+    assert.equal(params.acid.level, 0.55, `${style} does not inherit a different generated bass level`);
+    assert.equal(params.acid.accent, 0.4, `${style} keeps its bass accent`);
+  }
 }
 
 assert.deepEqual(Object.keys(MUSICIAN_PRINCIPLES), ['listen', 'respond', 'space', 'develop', 'risk', 'remember']);
