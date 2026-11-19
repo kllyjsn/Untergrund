@@ -307,6 +307,8 @@ export function describeBar(ctx) {
       const lyrics = cleanLyrics(planLyrics(plan, text));
       if (lyrics) r.state.lyrics = lyrics; else delete r.state.lyrics;
       if (plan.title && r.state.artist) r.state.artist.title = plan.title;
+      // The plan's feeling (named, or the one its words were written in) is the song's, so the singer agrees with the words.
+      if (plan.feel && r.state.feel) r.state.feel = plan.feel;
       if (lyrics) r.state = fitLyrics(r.state, plan.style);
       const lines = lyrics?.sections.reduce((n, x) => n + x.lines.length, 0) || 0;
       last = { did: [`new ${ctx.styleName(plan.style)} song`, ...r.did, ...(lines ? [`${lines} lyric lines`] : []), ...(plan.vocal ? [`${plan.vocal} vocal (not sung yet)`] : [])], miss: '', depth: ctx.depth() };
@@ -319,9 +321,12 @@ export function describeBar(ctx) {
     hint = { note: 'Writing the song…', suggestions: [] };
     paint();
     // The plan rules read words the spec rules don't ("indie", "female vocal"); the vocal is kept for the singer.
-    const plan = rulePlan(text, '', { style }), meta = plan ? cleanLyrics(planLyrics(plan, text)) : null;
+    let plan = rulePlan(text, '', { style }), meta = plan ? cleanLyrics(planLyrics(plan, text)) : null;
     return askSong(text, style, { genre: promptGenre(text), bpm: plan?.bpm }).then((spec) => {
       if (mine !== ticket) return;
+      // The written words and the song share one feeling: the spec's if it names one, else the one the words were written in.
+      if (meta && plan.feel && spec.feel && spec.feel !== plan.feel) { plan = rulePlan(text, '', { style, feel: spec.feel }); meta = cleanLyrics(planLyrics(plan, text)); }
+      else if (meta && plan.feel && !spec.feel) spec = { ...spec, feel: plan.feel };
       hint = null; draft = ''; recent = null; net = null;
       const label = `“${text.length > 32 ? text.slice(0, 31) + '…' : text}”`;
       const bars = spec.sections.reduce((a, x) => a + x.bars, 0);
