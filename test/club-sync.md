@@ -314,6 +314,13 @@ DROP so the fixture provides three consecutive kicks inside the recovery window.
 It caps headless animation callbacks at 12 Hz and skips painting after the UI
 join to leave CPU for both realtime audio threads, without changing app audio,
 room polling, or timing limits.
+Without a `--net` profile, `reconnect-mix`, `short-wake-mix`, and
+`background-wake-mix` join both clients before GO LIVE, with the listener's
+rendered audio tap active. These scenarios measure a room start, not how long a
+fresh page takes to load. Like the
+expired reconnect scenario, they reduce headless painting after joining.
+Both isolated kick taps must capture the first downbeat within 50 ms of each
+other, so a shared startup miss cannot pass as later baseline alignment.
 `dj-handoff-mix` uses the same queue/pass/update UI flow as `dj-handoff`.
 All three use the existing full-mix fixture, processedStem prewarm and isolated
 rendered kick/vocal taps. Continuous audio is not cropped by a freeze/resume
@@ -351,6 +358,13 @@ missing either downbeat, |delta| >50ms or no aligned kick also fails --assert.
 For handoff the role names remain **original** host/listener after the swap.
 
 ## Repeated join diagnostics
+
+`cold-invite-first-downbeat` keeps the cold-page race covered in the default
+unshaped suite. It opens a fresh invite immediately after the DJ clicks GO LIVE,
+before the room's first downbeat; only the listener's blank Chrome process is
+launched in advance. Both isolated kick taps must render beat one within 50 ms
+of each other. The existing `cold-invite` scenario separately measures alignment
+after a listener starts a new Chrome process and joins an already announced set.
 
 ```
 npm run test:club-sync -- --scenario cold-invite --repeat 5 --diagnostics --output club-sync-cold-invites.json
