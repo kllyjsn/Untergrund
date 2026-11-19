@@ -234,7 +234,8 @@ export function createRooms({ kv = memoryRoomsKv(), now = Date.now } = {}) {
     };
     const withMe = (l) => ({ ...l, members: [...l.members.filter((m) => m.id !== clientId), user] });
     const known = { since: body.since, knownSet: body.knownSet, knownJam: body.knownJam, poster: clientId };
-    const reply = async (status, extra = {}) => ({ status, json: { ...extra, ...(await view(id, k, withMe(await read(k)), t, known)), sessionToken } });
+    const response = (status, snapshot) => ({ status, json: { ...snapshot, sessionToken, clock: [t, now()] } });
+    const reply = async (status, extra = {}) => response(status, { ...extra, ...(await view(id, k, withMe(await read(k)), t, known)) });
 
     if (type === 'presence') {
       const { core, clearLayers } = reconcile(withMe(live), t, clientId);
@@ -245,7 +246,7 @@ export function createRooms({ kv = memoryRoomsKv(), now = Date.now } = {}) {
       }
       const cmds = memberCmds();
       if (cmds.length) { const out = await kv.pipe(cmds); for (const r of out) if (r instanceof Error) throw r; }
-      return { status: 200, json: { ...(await view(id, k, withMe(live), t, known)), sessionToken } };
+      return response(200, await view(id, k, withMe(live), t, known));
     }
 
     let payload = body.payload || {};

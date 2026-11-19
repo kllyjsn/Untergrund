@@ -10,6 +10,7 @@ import { PARTS, PART_IDS, extractPart, jamKey, jamStep, stepWall, jammable, part
 import { fetchLiveRooms, liveDirectory, roomCard, goLiveTile, isRoomPublic, setRoomPublic, myRoom, setMyRoom, roomInviteUrl } from './live-rooms.js';
 import { SHAPES, COLORS, GEAR, FALLBACK_NAME, generateName, randomLook, migrateAvatar, chatGroups } from './club-identity.js';
 import { createStage, stageScene } from './club-stage.js';
+import { createRoomClock, shiftRoomSet } from './room-sync.js';
 
 const AVATAR_KEY = 'untergrund.avatar.v1';
 const ROOM_KEY = 'untergrund.room.v1';
@@ -108,6 +109,7 @@ class RoomBus {
     this.tokenKey = `untergrund.room-token:${this.id}:${this.clientId}`;
     this.token = sessionStorage.getItem(this.tokenKey) || '';
     this.apiBase = String(apiBase || '').replace(/\/$/, '');
+    this.roomClock = createRoomClock();
     this.serverConnected = false;
     this.seq = 0;
     this.seen = new Set();
@@ -222,12 +224,22 @@ class RoomBus {
     }
     await this.ready;
     try {
+      const from = performance.now();
+      let wirePayload = event.payload;
+      if (type === 'set') {
+        wirePayload = shiftRoomSet(event.payload, this.roomClock.shift());
+        if (wirePayload.broadcastId && this.serverOrigin?.broadcastId === wirePayload.broadcastId) {
+          wirePayload = { ...wirePayload, startsAt: this.serverOrigin.startsAt };
+        }
+      }
       const response = await fetch(this.endpoint('/events'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...event, clientId: this.clientId, clientSecret: this.clientSecret, token: this.token, since: this.seq, ...this.known() }),
+        body: JSON.stringify({ ...event, payload: wirePayload, clientId: this.clientId, clientSecret: this.clientSecret, token: this.token, since: this.seq, ...this.known() }),
       });
+      const to = performance.now();
       const json = await response.json().catch(() => null);
+      this.roomClock.observe(json?.clock, from, to);
       if (response.ok || json?.jam) this.applySnapshot(json);
       return { ok: response.ok, error: json?.error };
     } catch { return { ok: false, error: 'offline' }; }
@@ -304,12 +316,19 @@ class RoomBus {
     this.channel?.postMessage(event);
     this.receive(event);
     try {
+      const from = performance.now();
       const response = await fetch(this.endpoint('/events'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'presence', clientId: this.clientId, clientSecret: this.clientSecret, token: this.token, user: { ...this.user, joinedAt: this.joinedAt }, since: this.seq, ...this.known() }),
+        signal: AbortSignal.timeout?.(5000),
       });
-      if (response.ok) this.applySnapshot(await response.json());
+      const to = performance.now();
+      if (response.ok) {
+        const snapshot = await response.json();
+        this.roomClock.observe(snapshot.clock, from, to);
+        this.applySnapshot(snapshot);
+      }
     } catch {}
   }
 
@@ -325,6 +344,8 @@ class RoomBus {
   }
 
   async poll() {
+    // The uncached presence POST gives us a clock sample before a CDN-cached poll can return a set.
+    await this.ready;
     clearTimeout(this.poller);
     if (this.closed) return;
     const due = this.pollDelay() - (Date.now() - this.lastSync);
@@ -352,8 +373,9 @@ class RoomBus {
     this.seq = Math.max(this.seq, snapshot.seq || 0);
     this.hostId = snapshot.hostId || this.hostId;
     this.queue = snapshot.queue || this.queue;
+    const shift = this.roomClock.shift();
     for (const member of snapshot.members || []) {
-      if (member.id !== this.clientId) this.members.set(member.id, normalizeMember(member));
+      if (member.id !== this.clientId) this.members.set(member.id, normalizeMember({ ...member, seen: member.seen - shift }));
     }
     this.members.set(this.clientId, normalizeMember({
       id: this.clientId,
@@ -364,7 +386,11 @@ class RoomBus {
     const cutoff = Date.now() - 15000;
     for (const [id, member] of this.members) if ((member.seen || 0) < cutoff) this.members.delete(id);
     if (snapshot.currentSet) {
-      this.applySet(snapshot.currentSet, snapshot.hostId, true);
+      const { broadcastId, startsAt } = snapshot.currentSet;
+      let set = shiftRoomSet(snapshot.currentSet, -shift);
+      if (broadcastId && broadcastId === this.currentSet?.broadcastId) set = { ...set, startsAt: this.currentSet.startsAt };
+      this.applySet(set, snapshot.hostId, true);
+      if (this.currentSet === set) this.serverOrigin = { broadcastId, startsAt };
     }
     if (snapshot.jam) {
       this.jam = snapshot.jam;

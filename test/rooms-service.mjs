@@ -37,16 +37,17 @@ let clock = 1e12;
 const quietKv = memoryRoomsKv();
 rooms = createRooms({ kv: quietKv, now: () => clock });
 r = await rooms.post('quiet', { type: 'presence', clientId: 'a', clientSecret: secret('a'), user: {} });
+assert.deepEqual(r.json.clock, [clock, clock], 'initial presence returns a fresh timing sample');
 const beat = () => rooms.post('quiet', { type: 'presence', clientId: 'a', token: r.json.sessionToken, clientSecret: secret('a'), user: {}, knownJam: '0' });
 await beat(); clock += 4000;
 let before = quietKv.stats.count;
-await beat();
+assert.deepEqual((await beat()).json.clock, [clock, clock], 'quiet heartbeats refresh the sample');
 assert.equal(quietKv.stats.count - before, 1, 'quiet heartbeat = 1 command');
 clock += 4000; before = quietKv.stats.count;
 await beat();
 assert.equal(quietKv.stats.count - before, 2, 'refreshing seen = read + one HSET');
 before = quietKv.stats.count;
-await rooms.get('quiet', 0, { knownJam: '0' });
+assert.equal((await rooms.get('quiet', 0, { knownJam: '0' })).json.clock, undefined, 'cacheable GETs are not timing samples');
 assert.equal(quietKv.stats.count - before, 1, 'idle poll = 1 command');
 
 // Live directory: only public rooms with a set and someone present, listeners desc then newest set, max 24.
