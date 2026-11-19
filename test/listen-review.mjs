@@ -7,6 +7,11 @@ assert.equal(REVIEW_IDS.length, 6);
 assert.equal(compare(() => {}).verdict, 'Ship');
 assert.equal(compare((b) => { b.balance.rmsDb += 1.49; }).verdict, 'Ship');
 assert.equal(compare((b) => { b.balance.rmsDb += 1.5; }).verdict, 'Hold');
+{
+  const a = fixture(), b = fixture();
+  a.balance.rmsDb = 2.6; b.balance.rmsDb = 4.1;
+  assert.equal(reviewTrack('fractional-threshold', a, b).verdict, 'Hold');
+}
 assert.equal(compare((b) => { b.mix.peak.truePeakDb = -0.9; }).verdict, 'Hold');
 assert.equal(compare((b) => { b.mix.peak.clipRuns = 1; }).verdict, 'Hold');
 assert.equal(compare((b) => { b.pcm.clips = 1; }).verdict, 'Hold');

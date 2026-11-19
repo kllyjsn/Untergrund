@@ -8,7 +8,7 @@ export function reviewTrack(id, base, head) {
   const findings = [];
   const compare = (name, a, b, threshold, higher, description, hold = false) => {
     const known = finite(a) && finite(b), delta = b - a;
-    const changed = known && Math.abs(delta) >= threshold;
+    const changed = known && Math.abs(delta) + 1e-9 >= threshold;
     const status = changed ? ((delta > 0) === higher ? 'better' : 'worse') : 'same';
     findings.push({ dimension: name, status, severity: status === 'worse' ? (hold ? 'critical' : 'warning') : 'info', note: `${description}: ${num(a)} → ${num(b)}${known ? '' : ' (not measured; no preference inferred)'}.` });
   };
