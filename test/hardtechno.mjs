@@ -106,6 +106,35 @@ for (const style of ['hardtechno', 'minimal']) {
   assert.equal(e.ch.kick.level.gain.events.some((ev) => ev.k === 'l' && ev.t === 4 + 16 * e.stepDur), hard);
 }
 const fallback = instrument('hardtechno').e, frequency = fallback.arrLP.frequency;
+const landing = instrument('hardtechno').e, barDuration = landing.stepDur * 16;
+landing.hardSection(4, 5, 3, 4, 6);
+assert(landing.secGain.gain.events.some(ev => ev.k === 'l' && ev.t === 4 + barDuration - 0.08 && ev.v === 1));
+assert(landing.secGain.gain.events.some(ev => ev.k === 'l' && ev.t === 4 + barDuration && ev.v === 10 ** (-0.3 / 20)));
+landing.hardSection(4 + barDuration, 6, 0, 20, 6);
+assert(landing.secGain.gain.events.some(ev => ev.k === 'l' && Math.abs(ev.t - (4 + barDuration * 2)) < 1e-9 && ev.v === 1));
+for (const key of [...Array.from({ length: 12 }, (_, i) => i), undefined]) {
+  const { e, nodes } = instrument('hardtechno');
+  e.state.key = key;
+  const oscillators = [], original = e.ctx.createOscillator.bind(e.ctx);
+  e.ctx.createOscillator = () => { const o = original(); oscillators.push(o); return o; };
+  for (const down of [false, true]) {
+    nodes.length = 0; oscillators.length = 0;
+    e.tonalSweep(1, e.stepDur * 128, 0.8, down);
+    assert.equal(oscillators.length, 4);
+    const expected = [0, 12, 24, 7].map(n => 440 * 2 ** (((down ? 36 : 48) + (key ?? 0) + n - 69) / 12));
+    assert.deepEqual(oscillators.map(o => o.frequency.events[0].v), expected);
+    assert(oscillators.every(o => !o.frequency.events.some(ev => ev.k === 'e')));
+    assert(nodes.some(({ node }) => node.Q?.events.some(ev => ev.k === 'l')));
+    if (!down) {
+      const gate = nodes.find(({ node }) => node.gain?.events.filter(ev => ev.k === 'l' && ev.v === 1).length > 100).node.gain;
+      assert.equal(gate.events.filter(ev => ev.k === 's').length, 1);
+      const starts = gate.events.filter(ev => ev.k === 'l' && ev.v === 1).filter((ev, i) => i % 2 === 0).map(ev => ev.t);
+      const periods = starts.slice(1).map((t, i) => t - starts[i]);
+      for (const ratio of [2, 1, 0.5]) assert(periods.some(p => Math.abs(p - e.stepDur * ratio) < 1e-9));
+    }
+  }
+  for (const [dur, amount] of [[0, 1], [NaN, 1], [1, 0], [1, NaN]]) assert.equal(e.tonalSweep(1, dur, amount), null);
+}
 frequency.cancelAndHoldAtTime = undefined;
 frequency.value = 12345;
 frequency.setValueAtTime(800, 99);
@@ -160,6 +189,19 @@ for (const [seed, drum] of [[11, 'clap'], [42, 'snare']]) {
   new Sequencer(e, s).tick(0, 0.1);
   assert(hits.includes(drum));
 }
+for (const [seed, drum] of [[11, 'clap'], [42, 'snare']]) {
+  const { e } = instrument('hardtechno'), s = e.state, hits = [];
+  s.artist.seed = seed; s.chain = 'FFFFGGGG'; s.swing = 0.2;
+  for (const p of s.patterns) { p.steps.clap.fill(0); p.steps.snare.fill(0); }
+  for (const method of ['acid', 'hook', 'vocal', 'tonalSweep']) e[method] = () => {};
+  e.trigger = (id, t, v) => { if (id === drum) hits.push({ t, v }); };
+  const q = new Sequencer(e, s), start = 0.05;
+  for (let step = 0; step < 64; step++) q.tick(step, start + step * e.stepDur);
+  assert(hits.every(h => Math.abs((h.t - start) / (e.stepDur / 2) - Math.round((h.t - start) / (e.stepDur / 2))) < 1e-8));
+  assert(hits.every(h => Number.isFinite(h.v) && h.v > 0 && h.v < 0.4));
+  assert(hits.some(h => Math.abs((h.t - start) / e.stepDur % 1 - 0.5) < 1e-8));
+  assert(hits.filter(h => h.t > start + 48 * e.stepDur).length > hits.filter(h => h.t < start + 16 * e.stepDur).length);
+}
 assert.doesNotThrow(() => new Sequencer({}, state).interplay());
 for (const chainOn of [false, true]) {
   const { e } = instrument('hardtechno'), s = e.state;
@@ -171,4 +213,4 @@ for (const chainOn of [false, true]) {
   new Sequencer(e, s).tick(0, 0.1);
   assert(hits > 0);
 }
-console.log('hardtechno: 64 ensembles, dark saw hooks, gated filters/envelopes, breakdown ramps, muted rolls, standalone loops, optional hold API, fractional reloads and empty artist passed');
+console.log('hardtechno: 64 ensembles, 12-key gated FX, grid-synced rolls, dark saw hooks, gated filters/envelopes, breakdown ramps, muted rolls, standalone loops, optional hold API, fractional reloads and empty artist passed');
