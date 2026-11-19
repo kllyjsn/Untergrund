@@ -181,6 +181,18 @@ const drill = await withChrome(async (run) => {
   })()`);
   for (const result of switches) near(result.gain, result.expected, 1e-5, `genre-switch presence ${JSON.stringify(result)}`);
   console.log('audio quality: native mid-bar genre switches clear Hard Techno presence ramps (6 cases)');
+  const harpPeak = await run(`(async () => {
+    const { song, render } = await import('/test/audio-quality-page.js');
+    const { router } = await import('/js/stems.js');
+    const r = router(['hook']);
+    try {
+      const audio = await render(song('drill', 3), 62, 66, { tail: 0.5, onContext: r.onContext, onEngine: r.onEngine });
+      let peak = 0;
+      for (let ch = 0; ch < 2; ch++) for (const x of audio.getChannelData(ch)) peak = Math.max(peak, Math.abs(x));
+      return 20 * Math.log10(peak);
+    } finally { r.restore(); }
+  })()`);
+  assert(harpPeak > -6 && harpPeak <= -1, `Drill's upper harp accents leave 1 dB of stem headroom (peak ${harpPeak.toFixed(2)} dBFS)`);
   return run("import('/test/audio-quality-page.js').then(m => m.measure('drill', 1234))");
 });
 if (drill) {

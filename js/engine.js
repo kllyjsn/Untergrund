@@ -914,14 +914,21 @@ export class Engine {
     }
     // Held orchestral notes outlast their recording: loop the sustained middle, after the attack.
     if (fx.loop && dur > buf.duration / rate - 0.3) { const [a, b] = loopPoints(buf); s.loop = true; s.loopStart = a; s.loopEnd = b; }
-    if (fx.offset || fx.fade) { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(level, t + (fx.fade || 0.006)); }
+    if (fx.offset || fx.fade) {
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(level * (fx.attackGain ?? 1), t + (fx.fade || 0.006));
+    }
     this.startSource(s, t, fx.offset || 0);
     if (dur) {
       // A score's note held past its recording (a final piano chord) would stop on a still-ringing sample: fade it
       // out before the sample runs out, at least 40 dB down by its last frame.
       const left = s.loop || !fx.ringOut ? Infinity : (buf.duration - (fx.offset || 0)) / rate, rel0 = fx.release || 0.05;
       const end = Math.min(dur, Math.max(0.02, left - SAMPLE_FADE)), rel = Math.min(rel0, (left - end) / 4.6);
-      g.gain.setValueAtTime(level, t + end);
+      if (fx.attackGain != null && end > 0.03) {
+        g.gain.setValueAtTime(level * fx.attackGain, t + 0.03);
+        g.gain.linearRampToValueAtTime(level, t + Math.min(0.06, end));
+      }
+      g.gain.setValueAtTime(level * (end <= 0.03 ? (fx.attackGain ?? 1) : 1), t + end);
       g.gain.setTargetAtTime(0, t + end, rel);
       const stop = t + Math.min(end + Math.max(0.4, rel * 8), left + 0.01);
       s.stop(stop);
@@ -1371,10 +1378,11 @@ export class Engine {
   harpBacking(out) {
     const tones = (this.harpBackingTones ||= new WeakMap());
     if (!tones.has(out)) {
+      const box = this.filter('peaking', 750, 0.9); box.gain.value = -2.5;
       const space = this.filter('peaking', 1450, 0.42); space.gain.value = -4.5;
       const shimmer = this.filter('highshelf', 1550); shimmer.gain.value = -2;
-      space.connect(shimmer).connect(out);
-      tones.set(out, space);
+      box.connect(space).connect(shimmer).connect(out);
+      tones.set(out, box);
     }
     return tones.get(out);
   }
@@ -1942,14 +1950,18 @@ export class Engine {
     const tones = (this.harpTones ||= new WeakMap());
     if (!tones.has(out)) {
       const dip = this.filter('peaking', 640, 2.6); dip.gain.value = -3.8;
+      const box = this.filter('peaking', 780, 1.5); box.gain.value = -2.65;
+      const harmonics = this.filter('peaking', 1650, 1.1); harmonics.gain.value = 0.9;
       const presence = this.filter('peaking', 2200, 0.8); presence.gain.value = 3;
-      dip.connect(presence).connect(out);
+      dip.connect(presence).connect(box).connect(harmonics).connect(out);
       tones.set(out, dip);
     }
     // Keep the closing accent in range, and trim strings pitched above the recording.
     const level = 2.85 * Math.min(v, 0.8) * dbGain(1.35 - Math.min(3.3, Math.max(0, m - 81) * 0.42));
+    const attackTrim = Math.min(1.3, Math.max(0, m - 82) * 0.22) * Math.min(1, Math.max(0, v - 0.36) / 0.15);
     return this.playBuf(best[1], t, level, tones.get(out), 2 ** ((m - center) / 12), Math.max(0.06, dur * 0.92), {
       lp: 3100 + 2300 * Math.min(1, v / 1.3), offset, fade: 0.007, release: 0.09, ringOut: true,
+      attackGain: attackTrim > 0 ? dbGain(-attackTrim) : undefined,
     });
   }
 
