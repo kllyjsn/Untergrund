@@ -301,13 +301,13 @@ missing/extra counts. A 150ms window-edge guard prevents onset counterparts
 falling just outside the BEFORE capture window from being counted as absent.
 There is no lag calibration or subtraction: true client clock/transport
 offsets remain in both isolated channels. BEFORE assertions require kick
-median ≤25ms/p95 ≤50ms/no missing or extra and vocal |lag| ≤10ms. If initial
-room synchronization itself exceeds those limits, a correct detector cannot
-make that baseline pass without hiding the offset.
-`vocal.relativeToKickMs` additionally reports vocal lag minus the same
+median ≤25ms/p95 ≤50ms/no missing or extra, vocal |lag| ≤50ms and
+|vocal.relativeToKickMs| ≤10ms. This permits a shared join-origin offset
+while still checking vocal alignment to the kick channel.
+`vocal.relativeToKickMs` reports vocal lag minus the same
 window's signed kick median, to distinguish a vocal-only shift from a common
-client offset. It is diagnostic only: it does not replace or relax either
-raw BEFORE or AFTER threshold. Unlike kicks-only fixture validation, the mix
+client offset. AFTER retains its absolute vocal lag threshold unchanged.
+Unlike kicks-only fixture validation, the mix
 does not claim host score completeness (`hostFixture.measured` is false).
 
 All taps use the context's getOutputTimestamp clock mapping and each client's

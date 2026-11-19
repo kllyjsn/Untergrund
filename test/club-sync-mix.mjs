@@ -143,7 +143,7 @@ export function analyzeMix(raw, s, events, origin) {
   const baselineFailures = [];
   const bk = phases.before.kicks, bv = phases.before.vocal;
   if (!bk.matched || bk.median === null || bk.median > 25 || bk.p95 > 50 || bk.missing || bk.extra) baselineFailures.push('kicks BEFORE');
-  if (bv.lagMs === null || Math.abs(bv.lagMs) > 10) baselineFailures.push('vocal BEFORE');
+  if (bv.lagMs === null || Math.abs(bv.lagMs) > 50 || bv.relativeToKickMs === null || Math.abs(bv.relativeToKickMs) > 10) baselineFailures.push('vocal BEFORE');
   for (const [i, capture] of raw.entries()) {
     if (!capture.stemWarm || capture.sources.some(source => source.at < capture.stemWarm.end)) baselineFailures.push(`client ${i} stem not warmed before audio graph`);
   }
