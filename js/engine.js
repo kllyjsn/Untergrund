@@ -35,6 +35,8 @@ const LIVE_REF = {
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
 const EPS = 0.0001;
 const SAMPLE_FADE = 1;
+// Chord voices that sustain fill a breakdown on their own, so a smooth style only lifts the ones that decay.
+const HELD_CHORDS = new Set(['pad', 'organ', 'strings']);
 const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar'];
 const GRIPPED = new Set(['guitar', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar']);
 // Soft-knee, slightly asymmetric clipping: even harmonics like a pushed preamp tube.
@@ -2583,7 +2585,7 @@ export class Sequencer {
     }
     this.smooth = SMOOTH.has(s.artist?.style);
     // The chords make room under the bass while it plays and fill the low mids back in when it drops out.
-    const sc = !this.smooth ? 0 : !s.mutes.acid && pat.steps.acid.some((st) => st?.on) ? -12 : 8;
+    const sc = !this.smooth ? 0 : !s.mutes.acid && pat.steps.acid.some((st) => st?.on) ? -12 : HELD_CHORDS.has(STAB_VOICES[s.params.stab.voice]) ? -4 : 8;
     if (sc !== (e.smoothOn || 0)) e.smoothChords(sc, t);
     if (this.dropNext && this.smooth) { if (i16 === 0) e.dropDip(t, 16 * sd); } else if (this.dropNext && !hard) {
       if (i16 === 0) e.sweep(t, 16 * sd, arr);
