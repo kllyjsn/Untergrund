@@ -1344,8 +1344,9 @@ export class Engine {
       vowel.frequency.setValueAtTime(air ? 2600 : 1800, t);
       vowel.frequency.exponentialRampToValueAtTime(air ? 1300 : 650, t + dur * 0.7);
     }
-    const cutoff = metal ? 4200 : air ? 1800 : 2800, amp = this.gain(0);
-    vowel.connect(this.filter('lowpass', cutoff, 0.6)).connect(this.filter('lowpass', cutoff, 0.6))
+    const cutoff = metal ? 4200 : 1800, amp = this.gain(0);
+    const presence = this.filter('peaking', 2800, 0.7); presence.gain.value = metal ? -3 : 0;
+    vowel.connect(presence).connect(this.filter('lowpass', cutoff, 0.6)).connect(this.filter('lowpass', cutoff, 0.6))
       .connect(this.filter('highpass', 350, 0.7)).connect(this.filter('highpass', 350, 0.7)).connect(amp).connect(out);
     const attack = metal ? 0.006 : air ? 0.18 : 0.025, release = Math.max(attack, dur * (air ? 0.55 : 0.12));
     const decay = Math.max(0.025, dur * (air ? 0.23 : 0.25)), end = t + Math.max(dur + 0.8, release + 8 * decay);
@@ -1381,11 +1382,46 @@ export class Engine {
     this.retire(last, amp);
   }
 
+  hardStabOut(out) {
+    const buses = (this.hardStabBuses ||= new WeakMap());
+    if (!buses.has(out)) {
+      const tone = this.filter('highshelf', 1800); tone.gain.value = -5;
+      const core = this.gain(1); core.channelCount = 1; core.channelCountMode = 'explicit';
+      core.connect(tone).connect(out);
+      buses.set(out, { core, rave: this.hardVoiceOut(tone, 0, false, 300, 4.5) });
+    }
+    return buses.get(out);
+  }
+
+  hardVoiceOut(out, presence = 0, bell = false, sideCutoff = 300, sideLevel = 1) {
+    if (!this.hardTechno) return out;
+    const buses = (this.hardVoiceBuses ||= new WeakMap());
+    if (!buses.has(out)) buses.set(out, new Map());
+    const tones = buses.get(out);
+    const key = `${presence}:${bell}:${sideCutoff}:${sideLevel}`;
+    if (tones.has(key)) return tones.get(key);
+    const c = this.ctx, input = this.gain(1), split = c.createChannelSplitter(2), stereo = c.createChannelMerger(2);
+    input.channelCount = 2; input.channelCountMode = 'explicit';
+    const mid = this.gain(0.5), side = this.gain(0.5 * sideLevel), negative = this.gain(-1);
+    input.connect(split);
+    split.connect(mid, 0); split.connect(mid, 1);
+    split.connect(side, 0); split.connect(negative, 1); negative.connect(side);
+    mid.connect(stereo, 0, 0); mid.connect(stereo, 0, 1);
+    const high = this.filter('highpass', sideCutoff, Math.SQRT1_2), invert = this.gain(-1);
+    side.connect(high).connect(this.filter('highpass', sideCutoff, Math.SQRT1_2)).connect(invert);
+    invert.connect(stereo, 0, 1);
+    const positive = this.gain(-1); invert.connect(positive).connect(stereo, 0, 0);
+    const tone = this.filter(bell ? 'peaking' : 'highshelf', bell ? 2800 : 1800, 0.7); tone.gain.value = presence;
+    stereo.connect(tone).connect(out);
+    tones.set(key, input);
+    return input;
+  }
+
   hardLead(t, v, f, dur, out) {
     if (!this.hardTechno || ![t, v, f, dur].every(Number.isFinite) || v <= 0 || f <= 0 || dur <= 0) return;
     const c = this.ctx, len = Math.max(0.08, dur * 0.92), end = t + len + 1.2;
     const stereo = c.createChannelMerger(2);
-    stereo.connect(out);
+    stereo.connect(this.hardVoiceOut(out, -4, true));
     const voice = (detune, side) => {
       const osc = c.createOscillator(), mod = c.createOscillator(), index = this.gain(0);
       osc.type = 'sawtooth'; osc.frequency.value = f; osc.detune.value = detune;
@@ -1454,8 +1490,10 @@ export class Engine {
     const vo = Math.round(p.voice), voiced = this.lastChord = voiceLead(notes, this.lastChord, home);
     // A song's chorus opens the voicing: the top voice doubled an octave up.
     const vi = (GRIPPED.has(STAB_VOICES[vo]) ? notes : voiced).map((m) => m - root);
-    const iv = this.wide && !GRIPPED.has(STAB_VOICES[vo]) && vi.length > 2 ? [...vi, Math.max(...vi) + 12] : vi, out = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
-    if (this.hardTechno) this.hardPalette(t, v, iv.map(n => midiHz(root + n)), Math.max(0.12, p.decay), out, 'rave');
+    const iv = this.wide && !GRIPPED.has(STAB_VOICES[vo]) && vi.length > 2 ? [...vi, Math.max(...vi) + 12] : vi;
+    const trimmed = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
+    const layers = this.hardTechno ? this.hardStabOut(trimmed) : null, out = layers ? layers.core : trimmed;
+    if (layers) this.hardPalette(t, v, iv.map(n => midiHz(root + n)), Math.max(0.12, p.decay), layers.rave, 'rave');
     // A lifted breakdown plays decaying chords an octave up, filling it above the bass range it no longer shares.
     if (vo > 0) {
       const pitches = this.smoothOn > 0 ? iv.map((m) => m + 12) : iv;
