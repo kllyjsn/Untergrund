@@ -2499,7 +2499,7 @@ export class Engine {
     lp.frequency.setValueAtTime(p.cutoff * (1 + p.envmod * (st.a ? 2 : 1)), t);
     lp.frequency.setTargetAtTime(p.cutoff, t + 0.01, 0.035);
     let last;
-    for (const [wave, k, level] of [['sine', 1, 0.5], ['sawtooth', 2, (1 - p.wave) * 0.62], ['square', 2, p.wave * 0.62]]) {
+    for (const [wave, k, level] of [['sine', 1, 1], ['sawtooth', 2, (1 - p.wave) * 0.62], ['square', 2, p.wave * 0.62]]) {
       const o = c.createOscillator(); o.type = wave;
       o.frequency.setValueAtTime(from * k, t);
       if (from !== f) o.frequency.exponentialRampToValueAtTime(f * k, t + 0.04);

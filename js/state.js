@@ -261,7 +261,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     P.len.stab = pick(r, [7, 11, 13]);
     if (r() < 0.5) S.clap[12] = 1;
     Object.assign(params.kick, { tune: 44 + r() * 6, decay: 0.5 + r() * 0.25, drive: 0.35, rumble: 0.45, punch: 0.5 });
-    Object.assign(params.acid, { cutoff: 130 + r() * 85, decay: 0.07, drive: 0.16, level: 0.30 });
+    Object.assign(params.acid, { cutoff: 130 + r() * 85, decay: 0.055, drive: 0.16, level: 0.25 });
     Object.assign(params.stab, { chord: pick(r, [1, 3, 4]), cutoff: 1100, decay: 0.22, env: 0.4 });
     Object.assign(params.perc, { tune: 180 + r() * 300, metal: 0.4, bend: 0.3 });
     master.duck = 0.55;
@@ -289,7 +289,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.stab = pad16(pick(r, [[0, 0, 0, 0, 0, 0, 1], [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]]));
     S.acid = acidLine(r, { density: 0.75, accent: 0.35, slide: 0.25, scale: [0, 0, ...musicalScale] });
     Object.assign(params.kick, { tune: 48, decay: 0.45, drive: 0.4, rumble: 0.25 });
-    Object.assign(params.acid, { wave: r() < 0.7 ? 0 : 1, cutoff: 255 + r() * 195, reso: 17, envmod: 0.81, decay: 0.21, accent: 0.8, drive: 0.46 });
+    Object.assign(params.acid, { wave: r() < 0.7 ? 0 : 1, cutoff: 255 + r() * 195, reso: 17, envmod: 0.81, decay: 0.245, accent: 0.8, drive: 0.57 });
     master.duck = 0.45;
   } else if (style === 'dub') {
     S.ch = range(STEPS, (i) => (i % 4 === 2 ? 1 : 0));
