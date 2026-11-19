@@ -347,7 +347,14 @@ async function scenario(base, spec, network, run) {
         events.broadcastAt = await listener.clickText('UPDATE ROOM');
       } else {
         events.seed = await seedReplay(host, room, fixture());
+        const barMs = 240000 / song.bpm, leadMs = 3000;
+        // Put the end of the warmup well inside a bar, where snapping to a beat gives a different answer.
+        const bar = Math.ceil((Date.now() + leadMs - initial.startsAt) / barMs);
+        const actionTarget = initial.startsAt + (bar + 3 / 8) * barMs - leadMs;
+        await pause(actionTarget - Date.now());
         events.actionAt = await host.clickText('REPLAY TO ROOM');
+        assert.ok(Math.abs(events.actionAt - actionTarget) < barMs / 8, 'Requested replay between outgoing beats');
+        events.expectedReplayBarAt = initial.startsAt + (bar + 1) * barMs;
       }
       events.newSet = await until(async () => {
         const s = await snapshot();
@@ -355,7 +362,9 @@ async function scenario(base, spec, network, run) {
       }, 'new set broadcast on room server');
       assert.equal(events.newSet.set.by, spec.handoff ? listenerId : initial.hostId);
       assert.equal(events.newSet.set.replay, !!spec.replay);
-      if (spec.replay) assert.ok(events.newSet.startsAt > events.actionAt, 'Fresh future replay origin');
+      if (spec.replay) {
+        assert.ok(Math.abs(events.newSet.startsAt - events.expectedReplayBarAt) <= 50, 'Replay starts on the first outgoing bar after invite warmup');
+      }
       events.firstDownbeatAt = spec.handoff ? events.newSet.startsAt + Math.ceil((events.broadcastAt - events.newSet.startsAt) / PERIOD_MS) * PERIOD_MS : events.newSet.startsAt;
       const nextBoundary = spec.mix ? mixBoundaries(song, events.newSet.startsAt).find(b => b.at >= events.broadcastAt) : null;
       await pause(Math.max(events.firstDownbeatAt + 22000, nextBoundary ? nextBoundary.at + 4000 : 0) - Date.now());
