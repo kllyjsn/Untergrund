@@ -106,6 +106,48 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   assert.deepEqual(events, [['ringing', 'start', 1], ['queued', 'start', 2, 0.4, 0.2], ['queued', 'stop', 1.5]]);
 
   {
+    const ctx = fakeCtx(), state = defaultState();
+    state.master.arr = state.master.humanize = state.master.variation = 0;
+    state.chainOn = false;
+    const pat = state.patterns[state.current];
+    for (const [id, steps] of Object.entries(pat.steps))
+      if (id !== 'acid') steps.fill(0);
+    state.mutes.acid = true;
+    pat.steps.kick[0] = pat.steps.kick[1] = pat.steps.clap[1] = 1;
+    const e = new Engine(ctx, state, { trackQueuedNotes: true });
+    const seq = new Sequencer(e, state);
+    const started = [], stopped = [];
+    e.trigger = (id, t) => {
+      const hit = [id, t];
+      e.startSource({ start: () => started.push(hit), stop: () => stopped.push(hit) }, t);
+      if (id === 'kick') e.duckAt(t, 1);
+    };
+    seq.tick(0, 1, 1, true);
+    seq.tick(1, 1.25, 1.25, true);
+    seq.tick(2, 1.5, 1.5, true);
+    const [ringing, kick, clap] = started;
+    assert.deepEqual(started.map(([id]) => id), ['kick', 'kick', 'clap']);
+    ctx.currentTime = 1.05;
+    state.mutes.kick = true;
+    e.reviseHits('kick');
+    assert.deepEqual(stopped, [kick], 'mute leaves the ringing kick and unrelated queued clap');
+    assert.deepEqual(e.ducks.map(d => d.t), [ringing[1]], 'muting the queued kick removes only its sidechain');
+    state.mutes.kick = false;
+    e.reviseHits('kick');
+    assert.deepEqual(started.slice(3), [kick], 'unmute restores the queued kick once at its original time');
+    pat.steps.kick[1] = 0; pat.steps.kick[2] = 1;
+    e.reviseHits('kick', state.current);
+    assert.deepEqual(stopped, [kick, kick], 'step edit removes only the replacement kick');
+    assert.equal(started.length, 5, 'a previously empty step can be filled');
+    assert.equal(started[4][0], 'kick');
+    assert.ok(Math.abs(started[4][1] - 1.5) < 0.05);
+    e.discardQueuedNotes(ctx.currentTime);
+    assert.deepEqual(stopped.slice(2), [clap, started[4]], 'wake only stops still-queued notes once');
+    e.reviseHits('kick');
+    assert.equal(started.length, 5, 'edits cannot resurrect an old transport queue after wake');
+  }
+
+  {
     const s = defaultState();
     s.chainOn = true; s.chain = 'AC'; s.master.arr = 1;
     const e = new Engine(fakeCtx(), s, { realtime: false });
