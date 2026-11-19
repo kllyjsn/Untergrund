@@ -2,20 +2,22 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { checkModel, judgeAudio, MODEL } from './judge-audio.mjs';
 import { analyzeMix, targetBalance } from '../js/audio-quality.js';
 import { analyzePcm } from '../js/lab-metrics.js';
 import { targetFor } from '../js/loudness.js';
-import { REVIEW_IDS, DIMENSIONS, reviewTrack, verdict, validateJudgment, orderAgreement, markdownReview } from '../js/listen-review.js';
+import { REVIEW_IDS, reviewTrack, verdict, markdownReview } from '../js/listen-review.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2), options = {};
 for (let i = 0; i < args.length; i++) {
   const key = args[i];
   if (key === '--judge') options.judge = true;
-  else if (['--base', '--only', '--out', '--pages', '--comment'].includes(key) && args[i + 1] && !args[i + 1].startsWith('--')) options[key.slice(2)] = args[++i];
+  else if (['--base', '--only', '--out', '--pages', '--comment', '--judge-protocol'].includes(key) && args[i + 1] && !args[i + 1].startsWith('--')) options[key.slice(2)] = args[++i];
   else throw new Error(`Unknown option or missing value: ${key}`);
 }
 const run = (bin, argv, cwd = root, extra = {}) => execFileSync(bin, argv, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], maxBuffer: 128 * 1024 * 1024, ...extra });
+if (options['judge-protocol'] && !['legacy', 'stable'].includes(options['judge-protocol'])) throw new Error('--judge-protocol must be stable or legacy');
 const git = (...argv) => run('git', argv).trim();
 const ids = options.only ? options.only.split(',') : REVIEW_IDS;
 const prompts = JSON.parse(readFileSync(join(root, 'research/suno/prompts.json')));
@@ -44,34 +46,18 @@ function analyze(dir, id) {
 }
 
 async function judge(track) {
-  const model = process.env.LISTEN_JUDGE_MODEL || 'google/gemini-2.5-flash';
   if (!options.judge) return { id: track.id, note: 'Skipped (use --judge).' };
-  if (!process.env.OPENROUTER_API_KEY) return { id: track.id, note: 'Skipped: OPENROUTER_API_KEY missing.' };
   try {
-    const catalog = await fetch('https://openrouter.ai/api/v1/models', { signal: AbortSignal.timeout(30000) }).then((r) => r.json());
-    if (!catalog.data?.find((m) => m.id === model)?.architecture?.input_modalities?.includes('audio')) throw new Error(`Model ${model} does not advertise audio input`);
-    const audio = [track.base, track.head].map((side, i) => {
-      const file = join(out, `${track.id}-${i}-judge.mp3`);
-      run('ffmpeg', ['-v', 'error', '-y', '-i', side.wav, '-ss', '30', '-t', '24', '-af', 'loudnorm=I=-18:TP=-2:LRA=11', '-ar', '24000', '-ac', '1', '-b:a', '64k', file]);
-      return readFileSync(file).toString('base64');
-    });
-    const orders = [];
-    for (const order of [[0, 1], [1, 0]]) {
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST', signal: AbortSignal.timeout(120000), headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, temperature: 0, max_tokens: 2200, response_format: { type: 'json_object' }, messages: [
-          { role: 'system', content: `You are a seasoned producer and mix engineer reviewing two blind, loudness-matched generated music excerpts. Judge groove, musical intent, arrangement, harmony, tonal masking, punch, headroom and mono-compatible imaging. Do not favor louder or brighter. Do not invent numeric measurements. Genre: ${track.head.style}. Only return strict JSON: {"preference":"A"|"B"|"same","dimensions":[{"dimension":name,"preference":"A"|"B"|"same","note":"specific audible evidence or uncertainty"}]}. Include these dimensions exactly in order: ${DIMENSIONS.join('; ')}. These are short mono excerpts: explicitly acknowledge inability to judge stereo and full-song form.` },
-          { role: 'user', content: order.flatMap((index, i) => [{ type: 'text', text: `Candidate ${i === 0 ? 'A' : 'B'}` }, { type: 'input_audio', input_audio: { data: audio[index], format: 'mp3' } }]) },
-        ] }),
-      });
-      if (!response.ok) throw new Error(`OpenRouter HTTP ${response.status}`);
-      const data = await response.json();
-      orders.push(validateJudgment(JSON.parse(data.choices?.[0]?.message?.content)));
-    }
-    return { id: track.id, model, preference: orderAgreement(...orders), orders };
-  } catch (error) { return { id: track.id, model, note: `Judge unavailable: ${error.message}` }; }
+    await checkModel();
+    const protocol = options['judge-protocol'] || 'stable';
+    const result = await judgeAudio({ files: [track.base.wav, track.head.wav], style: track.head.style, protocol, out, prefix: track.id });
+    const calibrationFile = join(root, 'docs/judge-stability-results.json');
+    const calibration = existsSync(calibrationFile) ? JSON.parse(readFileSync(calibrationFile)) : { genres: [] };
+    const genre = calibration.genres.find((g) => g.id === track.id);
+    const calibrated = calibration.model === MODEL && genre?.summary?.[protocol]?.calibration === 'calibrated';
+    return { id: track.id, model: MODEL, protocol, ...result, preference: calibrated ? result.preference : undefined, note: calibrated ? undefined : 'uncalibrated (advisory, not counted)', calibration: calibrated ? 'calibrated' : 'uncalibrated' };
+  } catch (error) { return { id: track.id, model: MODEL, note: `Judge unavailable: ${error.message}` }; }
 }
-
 try {
   const baseDir = join(out, 'base'), headDir = join(out, 'head');
   const worktree = join(mkdtempSync(join(out, 'base-worktree-')), 'checkout');
