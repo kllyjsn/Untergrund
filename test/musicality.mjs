@@ -20,6 +20,22 @@ for (const style of Object.keys(STYLES)) {
 }
 console.log('seeded hooks passed');
 
+// Separate players, including when the chord ensemble picks a recorded instrument.
+for (const [style, hook, bass] of [
+  ['hypnotic', 'softresonator', 1], ['industrial', 'metalstrike', 6], ['acid', 'acidlead', 0],
+  ['peak', 'ravestack', 3], ['electro', 'robotformant', 7], ['hardtechno', 'analog', 3], ['trap', null, 2],
+]) {
+  for (const seed of [11, 42, 73, 211, 997, 1234]) {
+    const g = generate(style, seed);
+    const s = defaultState();
+    s.patterns[0] = g.pattern;
+    s.params.acid.voice = g.params.acid.voice;
+    const saved = sanitize(JSON.parse(JSON.stringify(s)));
+    if (hook) assert.equal(saved.patterns[0].hook.v, hook, `${style}/${seed} hook round-trip`);
+    assert.equal(saved.params.acid.voice, bass, `${style}/${seed} bass round-trip`);
+  }
+}
+
 assert.deepEqual(Object.keys(MUSICIAN_PRINCIPLES), ['listen', 'respond', 'space', 'develop', 'risk', 'remember']);
 for (const style of ['hypnotic', 'deephouse', 'euphoric', 'afrobeats', 'trap']) {
   const hook = generate(style, 84).pattern.hook;

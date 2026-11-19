@@ -126,7 +126,7 @@ export const TRACKS = [
       p('accent', 'ACCENT', 0, 1, 0.65),
       p('drive', 'DRIVE', 0, 1, 0.5),
       p('edge', 'EDGE', 0, 1, 0),
-      p('voice', 'VOICE', 0, 5, 0, { step: 1, list: ['303', 'BASS', '808', 'REESE', 'LOG', 'E.BASS'] }),
+      p('voice', 'VOICE', 0, 7, 0, { step: 1, list: ['303', 'BASS', '808', 'REESE', 'LOG', 'E.BASS', 'FM', 'PULSE'] }),
     ],
     mix: { level: 0.55, dly: 0.12, rev: 0.05 },
   },
