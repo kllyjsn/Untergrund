@@ -80,7 +80,7 @@ function transport(mediaRoute, room = true, roomItem = item) {
   const noop = () => {};
   const s = { mediaRoute, roomMediaSync: createRoomMediaSync(), roomMediaTime, roomMediaLead,
     roomTransportPosition, syncAudioClock, transportResync, BG_LEAD: 1.5, ROOM_LEAD: .42,
-    playing: true, songOver: false, roomPlayback: room, roomEditor: false, roomResume: null, roomFirstNote: null,
+    playing: true, songOver: false, queuedRoomReplay: null, roomPlayback: room, roomEditor: false, roomResume: null, roomFirstNote: null,
     roomJoinTimer: 0, handoff: null, jamQueue: [], trackingReplay: false, playbackSources: new WeakMap(), state: { bpm: 120, current: 0 },
     ctx: { currentTime: 10 }, Date: { now: () => 1000000 }, nextTime: 0, abs: 0,
     transportOrigin: 0, clockOffset: null, uiQueue: [],
@@ -91,7 +91,8 @@ function transport(mediaRoute, room = true, roomItem = item) {
     document: { hidden: false, body: { classList: { add: noop } }, querySelectorAll: () => [] },
     clearPaused: noop, stopPreview: noop, closePractice: noop, ensureAudio: noop,
     recordPlayback: noop, pat: () => ({}), timer: { postMessage: noop },
-    midiClockStart: noop, midiClockStep: noop, syncNowPlaying: noop,
+    midiClockStart: noop, midiClockStep: noop, syncNowPlaying: noop, beginListen: noop, listenPos: noop,
+    playStarted: noop, renderHome: noop, style: 'test',
     timeline: { skip: () => 0 }, artistTick: noop,
   };
   const api = runInNewContext(`${schedule}\n${start}\n({start,schedule})`, s);
@@ -110,6 +111,23 @@ for (let i = 0; i < desktop.hits.length; i++) {
   assert.equal(media.hits[i].gridTime, media.hits[i].t, 'vocal grid receives the same advanced deadline');
 }
 assert.equal(solo.hits[0].t, desktop.hits[0].t, 'non-room media playback has no lead');
+for (const mediaRoute of [null, route]) {
+  const { s, api } = transport(mediaRoute);
+  const switches = [];
+  s.songOver = true;
+  s.queuedRoomReplay = { startsAt: 1000300 };
+  s.switchRoomReplay = at => { switches.push(at); s.queuedRoomReplay = null; };
+  api.schedule();
+  assert(Math.abs(switches[0] - (mediaRoute ? 10.26 : 10.3)) < 1e-9);
+  let canceled = 0;
+  s.engine.cancelJamParams = () => canceled++;
+  const at = mediaRoute ? 10.46 : 10.5;
+  api.start({ startsAt: 1000500, switchAt: at, room: true });
+  assert.equal(s.nextTime, at, 'a replay switch already has its compensated audio boundary');
+  assert.equal(canceled, 0, 'a future replay must retain its handoff mix instead of applying it now');
+  assert.equal(s.roomMediaSync.active(10), false, 'the old startup queue is no longer primed');
+}
+console.log('Room media replay PASS: latest-main replay boundaries keep the route lead once and retain future handoff controls; desktop unchanged.');
 assert.equal(solo.hits[0].gridTime, undefined);
 const jamTransport = transport(route, true, { ...item, state: { patterns: [{}] } });
 assert.equal(jamTransport.hits.length, media.hits.length, 'jam-capable join retains four seconds of priming');
