@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { generate, sanitize, defaultState, applyOverrides, STYLES, MAJOR_STYLES } from '../js/state.js';
 import { CHORDS, SCALES } from '../js/params.js';
-import { SING_PROFILES, MELODY_BARS, melodyScore, strongNote, sings } from '../js/melody.js';
+import { SING_PROFILES, MELODY_BARS, melodyScore, strongNote, sings, writeMelody } from '../js/melody.js';
 import { stepDeg } from '../js/motif.js';
 import { buildSong, playSong, melodyShape } from '../scripts/composition.mjs';
 
@@ -67,6 +67,12 @@ console.log('vocal-length melodies passed');
   const peak = (g, part) => Math.max(...g.pattern.hook.m[part].map((note) => note[3]));
   for (const part of ['n', 'v', 'b']) {
     assert(peak(bells, part) < peak(other, part), `Drill's bell ensemble leaves more headroom in ${part}`);
+  }
+}
+for (const style of ['drill', 'pop']) {
+  const melody = writeMelody(() => 0.5, style, SCALES.minor.notes, { gainScale: 0 });
+  for (const part of ['n', 'v', 'b']) {
+    assert(melody[part].length && melody[part].every((note) => note[3] === 0), `${style} preserves zero note velocity`);
   }
 }
 
