@@ -2559,15 +2559,15 @@ export class Engine {
 
   buildHarmonicBass(wide) {
     const c = this.ctx, amp = this.gain(0), drive = c.createWaveShaper(), lp = this.filter('lowpass', 500, 0.7);
-    const tone = this.gain(wide ? 0.64 : 0.5);
+    const tone = this.gain(wide ? 0.81 : 0.5);
     const sub = c.createOscillator();
-    sub.connect(this.gain(wide ? 0.74 : 0.88)).connect(amp);
+    sub.connect(this.gain(wide ? 1.24 : 0.88)).connect(amp);
     sub.start(0);
     const freqs = [sub.frequency], detunes = [];
     const seats = wide ? this.sidePans([-0.48, 0.48], lp) : [lp];
     for (const dest of seats) {
       const o = c.createOscillator(); o.type = wide ? 'sawtooth' : 'triangle';
-      if (wide) o.connect(this.filter('highpass', 200, 0.7)).connect(dest);
+      if (wide) o.connect(this.filter('highpass', 260, 0.7)).connect(dest);
       else o.connect(dest);
       o.start(0);
       freqs.push(o.frequency); detunes.push(o.detune);

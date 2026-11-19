@@ -320,7 +320,7 @@ function generatePattern(style, seed, scaleName, starter) {
     S.stab = pad16(pick(r, [[0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1], [1, 0, 0, 0, 0, 0, 0, 1]]));
     S.acid = acidLine(r, { density: 0.8, scale: [0, 0, ...musicalScale], accent: 0.4, slide: 0.15, jump: 0.3 });
     Object.assign(params.kick, { tune: 50, decay: 0.42, drive: 0.75, punch: 0.75, rumble: 0.4, click: 0.45 });
-    Object.assign(params.acid, { wave: 0.72, cutoff: 660, reso: 1.5, envmod: 0.24, decay: 0.11, accent: 0.4, drive: 0.22 });
+    Object.assign(params.acid, { wave: 0.72, cutoff: 1060, reso: 1.5, envmod: 0.24, decay: 0.11, accent: 0.4, drive: 0.22 });
     master.duck = 0.5; master.drive = 0.45;
   } else if (style === 'euphoric') {
     const twoStep = r() < 0.5;

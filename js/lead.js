@@ -47,7 +47,7 @@ const PRESETS = {
   reed: { ...STACK, glide: 0.05, vib: [0, 0], cut: 1300, env: 1800, dec: 0.2 },
   mallet: { ...STACK, vib: [0, 0] },
   softmallet: { ...STACK, vib: [0, 0], thin: 3, bite: 4, tame: 6, air: 0.63 },
-  ravestack: { ...STACK, stack: true, wave: 'sawtooth', uni: 5, spread: 22, mix: 0.62, body: ['sawtooth', 0.22, 2], cut: 1800, env: 1550, q: 0.7, dec: 0.16, atk: 0.043, sus: 0.66, hold: 0.14, rel: 0.11, vib: [0, 0], tame: 4, bite: 3, level: 0.29 },
+  ravestack: { ...STACK, stack: true, wave: 'sawtooth', uni: 5, spread: 22, mix: 0.62, body: ['sawtooth', 0.22, 2], cut: 1800, env: 1550, q: 0.7, dec: 0.16, atk: 0.043, sus: 0.66, hold: 0.14, rel: 0.11, vib: [0, 0], tame: 4, bite: 3, level: 0.34 },
   acidlead: { ...STACK, stack: true, wave: 'sawtooth', uni: 1, mix: 0.74, cut: 500, env: 1700, q: 8, dec: 0.047, atk: 0.003, sus: 0.21, hold: 0.1, rel: 0.036, glide: 0.075, vib: [0, 0], tame: 6, air: 1.1, bite: 2, level: 0.43 },
 };
 const POCKET_PRESETS = {
