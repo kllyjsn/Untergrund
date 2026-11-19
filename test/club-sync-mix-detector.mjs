@@ -15,6 +15,7 @@ for (const delta of [-80, -24, 0, 24, 80]) {
   assert.equal(stats.signedP95Ms, delta);
   assert.equal(stats.missing, 0);
   assert.equal(stats.extra, 0);
+  assert.equal(stats.max, Math.abs(delta));
   assert.equal(realignment({...stats, hostOnsets:hs}, 900), Math.abs(delta) <= 50 ? 1100 + delta : null);
 }
 const missing = matchEvents(hs, [1020, 2020, 2520, 2300], 900, 2600);
@@ -22,6 +23,7 @@ assert.equal(missing.missing, 1); assert.equal(missing.extra, 1);
 assert.equal(realignment({...missing, hostOnsets:hs}, 900), null);
 const silent = matchEvents(hs, [], 900, 2600);
 assert.equal(silent.missing, 4); assert.equal(silent.median, null);
+assert.equal(silent.max, null);
 assert.equal(matchEvents([], [], 0, 10000).median, null);
 assert.deepEqual(phraseOnsets([], .2), []);
 const signal = (shift = 0, wrong = false) => Array.from({length:6000}, (_, i) => {
@@ -88,4 +90,23 @@ for (const [shift, vocalShift, fails] of [[-60, 0, true], [60, 0, true], [0, -16
 const silentVocal = synthetic();
 silentVocal.channels.vocal.samples = silentVocal.channels.vocal.samples.map(([t]) => [t, 0]);
 assert.ok(analyzeMix([synthetic(), silentVocal], s, {interruptAt:15000, recoverAt:15800}, 0).baselineFailures.includes('vocal BEFORE'));
+const continuous = shift => {
+  const c = synthetic(shift);
+  delete c.resumeBoundary;
+  return c;
+};
+for (const events of [{interruptAt:7000, recoverAt:17000}, {interruptAt:7000, recoverAt:27000}, {interruptAt:7000, recoverAt:7000}]) {
+  const mix = analyzeMix([continuous(0), continuous(24)], s, events, 0, {resume:false});
+  assert.ok(Math.abs(mix.phases.after.kicks.median - 24) < 1e-6);
+  assert.ok(Math.abs(mix.phases.after.kicks.max - 24) < 1e-6);
+  assert.equal(mix.phases.after.kicks.missing, 0);
+  assert.ok(Math.abs(mix.phases.after.vocal.relativeToKickMs) <= 4);
+  assert.ok(mix.boundaries.length > 0);
+  assert.ok(mix.boundaries.every(b => !b.duringFreeze));
+  assert.equal(!!mix.phases.during, events.recoverAt > events.interruptAt);
+}
+const noBoundary = analyzeMix([continuous(0), continuous(0)], s, {interruptAt:39000, recoverAt:39000}, 0, {resume:false});
+assert.ok(noBoundary.baselineFailures.includes('no section boundaries measured'));
+assert.throws(() => analyzeMix([continuous(0), {...continuous(0), channels:{}}], s, {interruptAt:7000, recoverAt:17000}, 0, {resume:false}), /Missing rendered kick graph tap/);
 console.log('Full-mix analysis PASS: isolated rendered channels despite unrelated destination audio; signed offsets; missing/extra kicks/phrases; strict BEFORE limits; realignment; wrong section; resume boundaries; missing tap errors.');
+console.log('Continuous mix analysis PASS: 10s/20s reconnect and handoff windows without resume markers; boundary coverage; maximum alignment; missing tap errors.');
