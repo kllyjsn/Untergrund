@@ -68,10 +68,10 @@ Only the listener is blocked, not the DJ or the server's availability to others.
 `background-wake` uses Page.setWebLifecycleState frozen → active for 15s.
 `short-wake` uses the same lifecycle transition for 800ms. Freeze recovery
 assertions require zero extra as well as zero missing kicks. Recovery analysis
-should use the per-client PCM resume-boundary detector from PR #198 (631a571)
+uses the per-client PCM resume-boundary detector from PR #198 (631a571)
 when measuring wakes: without it, pre-freeze PCM can map across the output-clock
-jump and contaminate the post-wake window. That detector was applied locally
-for the short-stall measurements, not bundled with the application fix.
+jump and contaminate the post-wake window. It is now bundled in the harness
+for both dry and full-mix wakes (the application remains unchanged).
 The harness records freeze/resume/visibility events and AudioContext clocks.
 It also calls Page.bringToFront after activation and reports actual visibility
 (Chrome can remain hidden after this lifecycle transition). This is desktop
@@ -254,6 +254,63 @@ Evidence is in ignored test/out/club-sync-cold-invites.json. Debugger overhead
 can affect the distribution; these are five fresh desktop headless joins, not
 a population estimate or a mobile-network measurement. The ordinary cold-invite
 scenario remains in the default suite without diagnostics.
+
+## Full-mix wake scenarios
+
+`short-wake-mix` and `background-wake-mix` are also in the default suite.
+They use `freshSong('hypnotic', 7, {length:'sketch', bpm:123, swing:0})`:
+the app's generated instruments, arrangement, normal FX and unsoloed mix,
+stored on the host before navigation. The unmodified generated sketch chain
+is `AAAABBBBCCCCCCCDGGGGGGGHEEEDGGGGGGGHAAAA`.
+Freeze begins 400ms before the first DROP (bar 8); the 15s freeze also crosses
+the bar-15 FILL. Capture continues for 20s after wake. Boundary rows include
+crossed boundaries as diagnostic evidence, but only boundaries after wake are
+asserted. This is desktop lifecycle freeze, not a phone background test.
+
+No local neural singer runs. Existing singer unit tests mock HTTP responses,
+not a playable stem. A harness-only false CDP conditional breakpoint in
+`vocalStem` populates its private cache before the cache gate. No module source
+or app hook is changed. Both clients receive the same deterministic 10.5kHz
+synthetic stem, with two-bar phrases lasting 1.85 bars and a changing 5–8Hz AM
+signature. Wake lands inside a phrase for both durations. `sing.on` is true;
+the real Engine.vocal, processing, ducking, FX and resume-offset path play it.
+JSON records cache injections; a missing injection fails assertions.
+
+The unchanged destination tap additionally reports broad non-low-band RMS and
+a narrow 10.5kHz quadrature envelope (about 8Hz demodulation bandwidth).
+It uses each client's own PCM resume boundary: the host is marked just before
+activation and the listener on its resume event, and pre-boundary PCM is
+excluded from every AFTER channel, including section correlation. Low-band
+host onsets are gated to the generated kick score (65ms around the median
+host score/output offset) to reject bass attacks. Each host onset's smoothed 180ms
+demeaned low-band envelope is then matched to listener audio over ±100ms
+(the detector's existing .2 exponential smoothing removes bass-cycle ripple;
+4ms increments, correlation ≥0.8, at least 4% of host variance). This avoids
+the full mix's bass and ducking moving the listener's global flux threshold.
+Extra listener score-gated onsets unmatched within 100ms are counted too.
+This is not source separation: coincident bass can still bias a kick onset,
+and similar adjacent bass transients can confuse templates. Host-gating cannot
+prove every score kick rendered. The dry fixture remains the completeness control.
+
+JSON `mix.phases.before/after` contains kicks (signed median/p95, absolute
+median/p95, missing/extra and timestamped pairs) and vocal phrase matching,
+band lag and wake-to-energy-return. The vocal threshold is 25% of the host's
+peak in the window; phrases crossing the window edge are not counted as new
+onsets. Broad-band envelope correlation around each expected section change
+estimates listener-minus-host boundary delta; a separate following window
+must correlate at ≥0.8 with lag within ±50ms to identify the correct section.
+This measures local acoustic similarity, not a semantic classifier: repeated
+or similar sections can be ambiguous, and normal random instrument detail
+can lower correlation. Raw envelopes remain in JSON for inspection.
+
+`--assert` requires AFTER kick median absolute delta ≤25ms, p95 ≤50ms,
+no missing kicks; wake→third consecutive matched kick within ±50ms and
+vocal energy return both within three beats (1463ms). Vocal lag must be
+within ±50ms with no missing/extra phrase onsets. Every post-wake boundary
+must have |delta| ≤50ms and the correct following section. Threshold failures
+are reported without loosening them. Run the synthetic analysis tests with
+`node test/club-sync-mix-detector.mjs` (known signed offsets, missing phrase,
+wrong section, empty capture).
 
 The separate advisory GitHub Actions `club-sync` job runs the complete harness
 with --assert on PRs, main pushes and manual dispatch. It uses Node 22 and the

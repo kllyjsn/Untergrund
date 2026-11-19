@@ -1,6 +1,6 @@
 // Runs before app modules. Only the destination edge is replaced: the worklet
 // passes the original samples through unchanged and reports a low-pass envelope.
-export function installAudioTap(skew, fixture, displacementMs = 0) {
+export function installAudioTap(skew, fixture, displacementMs = 0, mix = false) {
   const RealDate = Date;
   globalThis.Date = new Proxy(RealDate, {
     apply: () => new RealDate(RealDate.now() + skew).toString(),
@@ -48,17 +48,24 @@ export function installAudioTap(skew, fixture, displacementMs = 0) {
   const connect = AudioNode.prototype.connect;
   const taps = new WeakMap();
   const code = `class Tap extends AudioWorkletProcessor {
-    constructor() { super(); this.low = 0; this.rows = []; }
+    constructor() { super(); this.low = 0; this.vi = 0; this.vq = 0; this.rows = []; }
     process(inputs, outputs) {
       const input = inputs[0], output = outputs[0];
       for (let c = 0; c < output.length; c++) output[c].set(input[c] || input[0] || new Float32Array(128));
-      let energy = 0;
+      let energy = 0, band = 0, vocal = 0;
       const x = input[0];
       if (x) for (let i = 0; i < x.length; i++) {
         this.low += (1 - Math.exp(-2 * Math.PI * 180 / sampleRate)) * (x[i] - this.low);
         energy += this.low * this.low;
+        if (${mix}) {
+          const phase = 2 * Math.PI * 10500 * (currentFrame + i) / sampleRate;
+          this.vi += .002 * (x[i] * Math.cos(phase) - this.vi);
+          this.vq += .002 * (x[i] * Math.sin(phase) - this.vq);
+          vocal += this.vi ** 2 + this.vq ** 2;
+          band += (x[i] - this.low) ** 2;
+        }
       }
-      this.rows.push([currentFrame / sampleRate, Math.sqrt(energy / 128)]);
+      this.rows.push([currentFrame / sampleRate, Math.sqrt(energy / 128), Math.sqrt(band / 128), Math.sqrt(vocal / 128)]);
       if (this.rows.length >= 64) { this.port.postMessage(this.rows); this.rows = []; }
       return true;
     }
@@ -99,23 +106,24 @@ export function installAudioTap(skew, fixture, displacementMs = 0) {
   }, 1000);
 }
 
-export function envelope(capture) {
+export function envelope(capture, column = 1) {
   if (capture.errors.length) throw new Error(capture.errors.join('; '));
   if (!capture.anchors.length || !capture.samples.length) throw new Error('No rendered audio/output timestamps');
   let j = 0;
-  return capture.samples.map(([t, e]) => {
+  return capture.samples.map(row => {
+    const t = row[0], e = row[column];
     while (j + 1 < capture.anchors.length && Math.abs(capture.anchors[j + 1][0] - t) < Math.abs(capture.anchors[j][0] - t)) j++;
     const a = capture.anchors[j];
     return [a[1] + (t - a[0]) * 1000, e];
   });
 }
 
-export function postResumeEnvelope(capture) {
+export function postResumeEnvelope(capture, column = 1) {
   const boundary = capture.resumeBoundary;
   if (!boundary || !Number.isFinite(boundary.frame) || !(boundary.sampleRate > 0))
     throw new Error('Missing resume PCM boundary');
   return envelope({ ...capture,
-    samples: capture.samples.filter(([t]) => Math.round(t * boundary.sampleRate) >= boundary.frame) });
+    samples: capture.samples.filter(([t]) => Math.round(t * boundary.sampleRate) >= boundary.frame) }, column);
 }
 
 export function onsets(rows, bpm) {
