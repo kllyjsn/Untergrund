@@ -2559,7 +2559,7 @@ export class Engine {
 
   buildHarmonicBass(wide) {
     const c = this.ctx, amp = this.gain(0), drive = c.createWaveShaper(), lp = this.filter('lowpass', 500, 0.7);
-    const tone = this.gain(wide ? 0.56 : 0.5);
+    const tone = this.gain(wide ? 0.64 : 0.5);
     const sub = c.createOscillator();
     sub.connect(this.gain(wide ? 0.74 : 0.88)).connect(amp);
     sub.start(0);
