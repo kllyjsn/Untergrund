@@ -2323,12 +2323,15 @@ export class Engine {
       const input = this.filter('peaking', space.eq[0], space.eq[1]);
       input.gain.value = space.eq[2];
       // A sub-millisecond delay sweep spreads narrow upper harmonics more than the fundamental.
-      const diffuse = this.ctx.createDelay(0.002);
-      diffuse.delayTime.value = 0.00075;
+      const rates = [6.7, 11.3, 17.9];
+      const excursion = rates.length * space.diffusion;
+      const center = Math.max(0.00075, excursion);
+      const diffuse = this.ctx.createDelay(Math.max(0.002, center + excursion));
+      diffuse.delayTime.value = center;
       const depth = this.gain(space.diffusion);
       if (!this.technoHookMotion) {
         this.technoHookMotion = this.gain(1);
-        for (const rate of [6.7, 11.3, 17.9]) {
+        for (const rate of rates) {
           const lfo = this.ctx.createOscillator();
           lfo.frequency.value = rate;
           lfo.connect(this.technoHookMotion);
