@@ -151,6 +151,7 @@ const SOUL_STRIP = { ...BAND_STRIP, stab: { eq: [[140, -2], [250, -7, 0.9], [260
 // side gain above 300 Hz. Set from the measured octave balance against js/audio-quality.js TARGET_CURVES: the band
 // genres came out 6-13 dB heavy at 250 Hz and 7-12 dB short of 2-8 kHz, with an L/R correlation of 0.76-0.89.
 export const MASTER_TONE = {
+  hardtechno: [0, -1, -1.5, -3, 0.12],
   pop: [-1.5, -9, 4.5, 1.5, 0.6], rnb: [0, -7, 6.5, 2.5, 0.6], rock: [-4, -5, 4.5, 3, 0.6],
   folk: [3, -3, 0.5, 4, 0.5], country: [2, -3, 2.5, 4, 0.6],
 };
@@ -229,6 +230,7 @@ function metallicBuf(mul, sr) {
 }
 
 export class Engine {
+  get hardTechno() { return this.state.artist?.style === 'hardtechno'; }
   constructor(ctx, state, { realtime = true, vocal = null } = {}) {
     this.ctx = ctx;
     this.state = state;
@@ -865,6 +867,7 @@ export class Engine {
     const o = c.createOscillator();
     const g = this.gain(0);
     const sh = c.createWaveShaper(); sh.curve = driveCurve(p.drive * 0.6, 0.92);
+    if (this.hardTechno) sh.oversample = '4x';
     const start = f * (3 + p.punch * 9);
     o.frequency.setValueAtTime(start, t);
     o.frequency.exponentialRampToValueAtTime(f * 1.6, t + 0.006 + 0.014 * (1 - p.punch));
@@ -874,15 +877,18 @@ export class Engine {
     g.gain.linearRampToValueAtTime(v, t + 0.0012);
     g.gain.exponentialRampToValueAtTime(v * 0.62, t + dec * 0.32);
     g.gain.exponentialRampToValueAtTime(EPS, t + dec);
-    o.connect(g).connect(sh).connect(out);
+    o.connect(g).connect(sh);
+    if (this.hardTechno) sh.connect(this.filter('lowpass', 4800, 0.6)).connect(out);
+    else sh.connect(out);
     o.start(t); o.stop(t + dec + 0.08);
     this.retire(o, sh);
 
     if (p.click > 0.01) {
       const n = this.noiseSrc(t, 0.03);
-      const bp = this.filter('bandpass', 3200, 0.6);
+      const bp = this.filter('bandpass', this.hardTechno ? 2200 : 3200, 0.6);
       const cg = this.gain(0);
-      cg.gain.setValueAtTime(p.click * v * 2.4, t);
+      cg.gain.setValueAtTime(this.hardTechno ? EPS : p.click * v * 2.4, t);
+      if (this.hardTechno) cg.gain.linearRampToValueAtTime(p.click * v * 1.6, t + 0.002);
       cg.gain.exponentialRampToValueAtTime(EPS, t + 0.014);
       n.connect(bp).connect(cg).connect(out);
     }
@@ -902,10 +908,12 @@ export class Engine {
     const g = this.gain(0), k = 3.4;
     g.gain.setValueAtTime(EPS * k, t);
     for (let i = 0; i < offs.length - 1; i++) {
-      g.gain.setValueAtTime(v * k, t + offs[i]);
+      if (!this.hardTechno) g.gain.setValueAtTime(v * k, t + offs[i]);
+      if (this.hardTechno) g.gain.linearRampToValueAtTime(v * k, t + offs[i] + 0.002);
       g.gain.exponentialRampToValueAtTime(v * 0.08 * k, t + offs[i] + 0.0095 * sp);
     }
-    g.gain.setValueAtTime(v * k, t + last);
+    if (!this.hardTechno) g.gain.setValueAtTime(v * k, t + last);
+    if (this.hardTechno) g.gain.linearRampToValueAtTime(v * k, t + last + 0.002);
     g.gain.exponentialRampToValueAtTime(EPS * k, t + last + p.decay);
     n.connect(bp).connect(hp).connect(g).connect(out);
     this.retire(n, g);
@@ -1033,7 +1041,9 @@ export class Engine {
     n.connect(this.gain((0.55 + (1 - soft) * 0.35) / ring)).connect(bp);
     const env = this.gain(0);
     this.adEnv(env.gain, t, v * 3.4, 0.0008, dur, ring);
-    bp.connect(hp).connect(env);
+    bp.connect(hp);
+    if (this.hardTechno) hp.connect(this.filter('lowpass', 10000, 0.6)).connect(env);
+    else hp.connect(env);
     for (const o of oscs) o.stop(t + dur + 0.05);
     if (open) {
       const choke = this.gain(1);
@@ -1147,8 +1157,8 @@ export class Engine {
     env.connect(lp.detune);
     const peak = (v * 0.55) / Math.sqrt(iv.length);
     amp.gain.setValueAtTime(EPS, t);
-    amp.gain.linearRampToValueAtTime(peak, t + 0.003);
-    amp.gain.setTargetAtTime(0, t + 0.012, Math.max(0.02, p.decay * 0.5));
+    amp.gain.linearRampToValueAtTime(peak, t + (this.hardTechno ? 0.018 : 0.003));
+    amp.gain.setTargetAtTime(0, t + (this.hardTechno ? 0.04 : 0.012), Math.max(0.02, p.decay * 0.5));
     const end = t + p.decay * 4 + 0.2, pans = this.sidePans([-0.55, 0.55], lp);
     for (const n of iv) {
       for (const side of [-1, 1]) {
@@ -1753,7 +1763,8 @@ export class Engine {
       if (R.grip) this.leadOver(m, t, ring, R);
       return this.recordedNote(set, t, g, m, ring, dest, 0, kind, v / 1.3);
     }
-    const f = midiHz(60 + k + oct * 12 + n), L = leadPreset(voice, pocketOf(this.state.master)?.name);
+    const f = midiHz(60 + k + oct * 12 + n), preset = leadPreset(voice, pocketOf(this.state.master)?.name);
+    const L = this.hardTechno ? { ...preset, cut: 600, env: 1400, spread: 10, atk: 0.025, sus: 0.3, rel: 0.16, level: 0.26, bite: 0, air: 0.7 } : preset;
     const hdb = this.soulBand() ? 0 : HOOK_TRIM_DB[voice] || 0;
     const out = this.trimOut(`hook-${voice}`, hdb, this.hookBus || this.ch.stab.input, HOOK_LOW_DB);
     const len = Math.max(0.06, dur * 0.92), end = t + len + 0.6, vn = Math.min(1, v / 1.3);
@@ -1962,7 +1973,10 @@ export class Engine {
       o.connect(g).connect(type === 'sine' ? amp : lp);
       o.start(t); o.stop(end);
     }
-    lp.connect(sh).connect(amp).connect(this.ch.acid.input);
+    lp.connect(sh);
+    if (this.hardTechno) { sh.oversample = '4x'; sh.connect(this.filter('lowpass', 2400, 0.6)).connect(amp); }
+    else sh.connect(amp);
+    amp.connect(this.ch.acid.input);
     this.mono = { amp, f, end };
   }
 
@@ -2043,6 +2057,7 @@ export class Engine {
   // ---------- arrangement FX ----------
   // One-bar noise sweep into a drop, then a sub boom and crash on its downbeat
   sweep(t, dur, amt) {
+    if (this.hardTechno) amt *= 0.5;
     const s = this.noiseSrc(t, dur + 0.05), bp = this.filter('bandpass', 500, 2), g = this.gain(0);
     bp.frequency.setValueAtTime(500, t); bp.frequency.exponentialRampToValueAtTime(8000, t + dur);
     g.gain.setValueAtTime(EPS, t); g.gain.exponentialRampToValueAtTime(0.32 * amt, t + dur * 0.97); g.gain.linearRampToValueAtTime(0, t + dur);
@@ -2057,7 +2072,10 @@ export class Engine {
     o.connect(g).connect(this.mix); o.start(t); o.stop(t + 1.2);
     const n = this.noiseSrc(t, 1.6), hp = this.filter('highpass', 3000, 0.5), ng = this.gain(0);
     this.adEnv(ng.gain, t, 0.16 * amt, 0.001, 1.4);
-    n.connect(hp).connect(ng); ng.connect(this.mix); ng.connect(this.revIn);
+    n.connect(hp);
+    if (this.hardTechno) hp.connect(this.filter('lowpass', 7500, 0.6)).connect(this.gain(0.55)).connect(ng);
+    else hp.connect(ng);
+    ng.connect(this.mix); ng.connect(this.revIn);
   }
 
   sectionGain(t, db, ramp = 0) {
@@ -2069,7 +2087,11 @@ export class Engine {
   // Breakdowns start dark and open back up over the whole section
   breakSweep(t, dur) {
     const f = this.arrLP.frequency;
-    f.cancelScheduledValues(t); f.setValueAtTime(700, t); f.exponentialRampToValueAtTime(18000, t + dur);
+    if (this.hardTechno) {
+      f.cancelAndHoldAtTime(t);
+      f.exponentialRampToValueAtTime(1000, t + 0.12);
+    } else { f.cancelScheduledValues(t); f.setValueAtTime(700, t); }
+    f.exponentialRampToValueAtTime(18000, t + dur);
     this.arrClosed = true;
   }
 
@@ -2095,7 +2117,7 @@ export class Engine {
     bp.frequency.exponentialRampToValueAtTime(9000, now + dur);
     g.gain.setValueAtTime(0, now);
     g.gain.linearRampToValueAtTime(0.12, now + 0.05);
-    g.gain.linearRampToValueAtTime(0.55, now + dur);
+    g.gain.linearRampToValueAtTime(this.hardTechno ? 0.25 : 0.55, now + dur);
     s.connect(bp).connect(g);
     g.connect(this.mix); g.connect(this.revIn);
     s.start(now);

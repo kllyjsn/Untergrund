@@ -163,7 +163,7 @@ const INSTRUMENTS = {
   acid: [[0, 0, 0, 0.35, 0.45], [5, 0, 1, 0.28, 0.8], [3, 0, 0, 0.4, 0.3], [6, 0, 0, 0.35, 0.75]],
   dub: [[0, 2, 0, 0.35, 0.55], [3, 1, 0, 0.5, 0.25], [5, 2, 0, 0.45, 0.7], [9, 1, 0, 0.4, 0.55]],
   peak: [[4, 0, 0, 0.3, 0.65], [6, 3, 0, 0.3, 0.75], [0, 0, 0, 0.22, 0.6], [10, 3, 1, 0.8, 0.8]],
-  hardtechno: [[0, 3, 0, 0.2, 0.65], [4, 3, 0, 0.3, 0.7], [6, 0, 0, 0.25, 0.8], [5, 3, 0, 0.22, 0.9]],
+  hardtechno: [[0, 3, 0, 0.45, 0.22], [0, 3, 1, 0.6, 0.18], [2, 3, 0, 0.65, 0.2], [2, 3, 1, 0.8, 0.15]],
   deephouse: [[7, 1, 0, 1.5, 0.25], [1, 1, 0, 0.9, 0.35], [8, 1, 0, 0.65, 0.75], [10, 1, 0, 1.4, 0.2]],
   minimal: [[6, 2, 0, 0.12, 0.65], [5, 1, 0, 0.1, 0.8], [3, 2, 0, 0.15, 0.25], [8, 1, 0, 0.15, 0.7]],
   ukg: [[3, 3, 0, 0.25, 0.45], [7, 1, 0, 0.75, 0.5], [5, 3, 1, 0.25, 0.85], [8, 2, 1, 0.4, 0.8]],
@@ -338,9 +338,13 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.perc = pad16(euclid(5, 16, Math.floor(r() * 16)));
     S.stab = pad16(pick(r, [[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1], [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]]));
     S.acid = range(STEPS, (i) => (i % 4 === 2 || i % 4 === 3 ? { on: true, n: 0, a: i % 4 === 2, s: false } : emptyAcidStep()));
-    Object.assign(params.kick, { tune: 52, decay: 0.38, drive: 1, punch: 0.9, click: 0.7, rumble: 0.68 });
-    Object.assign(params.perc, { tune: 420, metal: 0.9, noise: 0.6, bend: 0.8 });
-    Object.assign(params.acid, { wave: 0.9, cutoff: 300, reso: 10, envmod: 0.5, decay: 0.12, drive: 1 });
+    Object.assign(params.kick, { tune: 47, decay: 0.42, drive: 0.9, punch: 0.8, click: 0.3, rumble: 0.68 });
+    Object.assign(params.perc, { tune: 230, metal: 0.35, noise: 0.25, bend: 0.35, level: 0.3 });
+    Object.assign(params.acid, { wave: 0.55, cutoff: 240, reso: 2.5, envmod: 0.25, decay: 0.18, drive: 0.75 });
+    Object.assign(params.stab, { cutoff: 850, reso: 0.8, detune: 9, rev: 0.22, dly: 0.12 });
+    Object.assign(params.clap, { tone: 950, decay: 0.2, level: 0.45 });
+    Object.assign(params.ch, { tune: 0.85, decay: 0.045, level: 0.38 });
+    Object.assign(params.oh, { tune: 0.85, decay: 0.22, level: 0.3 });
     master.duck = 0.7; master.drive = 0.48;
   } else if (style === 'deephouse') {
     S.ch = range(STEPS, (i) => (i % 4 === 2 ? 1 : 0));
@@ -777,7 +781,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   if (['deephouse', 'ukg', 'afrobeats', 'amapiano', 'euphoric'].includes(style)) {
     for (let g = 0, n = 1 + Math.floor(r2() * 3); g < n; g++) { const i = 1 + 2 * Math.floor(r2() * 8); if (!S.ch[i]) S.ch[i] = 1; }
   }
-  if (params.stab.cutoff) params.stab.cutoff = Math.round(params.stab.cutoff * (0.75 + r2() * 0.6));
+  if (params.stab.cutoff && style !== 'hardtechno') params.stab.cutoff = Math.round(params.stab.cutoff * (0.75 + r2() * 0.6));
   if (params.stab.decay) params.stab.decay = +(params.stab.decay * (0.8 + r2() * 0.4)).toFixed(3);
   const PUNCH = { deephouse: 0.55, ukg: 0.7, afrobeats: 0.7, amapiano: 0.65, euphoric: 0.72, trance: 0.72, reggaeton: 0.7 };
   if (PUNCH[style]) {
@@ -786,6 +790,10 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     params.acid.level = style === 'trance' ? 0.72 : Math.max(params.acid.level ?? 0.55, 0.98);
   }
   const hook = hookLine(r2, style, musicalScale);
+  if (hook && style === 'hardtechno') {
+    hook.v = 'analog';
+    hook.s = hook.s.map((st) => st ? [st[0], st[1], st[2] * 0.9] : 0);
+  }
   if (hook) { P.hook = hook; P.hm = 2; }
   // One seeded idea per track, chosen from moves that fit any groove: an octave pop at the end of
   // the bass phrase, displaced percussion, or a chord that anticipates the beat. Sometimes restraint.
