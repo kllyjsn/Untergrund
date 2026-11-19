@@ -22,7 +22,7 @@ import { openLibrary } from './library.js';
 import { dropCard, pushOffer, guardPushOffer } from './drop.js';
 import { initPush, onPushChange, recordDropPlay, shouldOffer } from './push.js';
 import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
-import { roomTransportPosition, syncAudioClock, transportResync } from './room-sync.js';
+import { roomTransportPosition, audioClockOffset, syncAudioClock, transportResync } from './room-sync.js';
 import { concertPanel, concertBar, preloadScore, scoreReady, loadPiano } from './concert.js';
 import { liveSets, loadSets, setsReady } from './livekit.js';
 import { closePractice } from './practice-ui.js';
@@ -173,7 +173,8 @@ function schedule(lead) {
   const ahead = typeof lead === 'number' ? lead : document.hidden ? BG_LEAD : roomPlayback ? ROOM_LEAD : 0.12;
   const now = ctx.currentTime;
   if (roomEditor) engine.pruneEditableHits(now);
-  const clock = syncAudioClock(clockOffset, Date.now() / 1000 - now);
+  const output = ctx.getOutputTimestamp?.();
+  const clock = syncAudioClock(clockOffset, audioClockOffset(now, Date.now(), performance.now(), output));
   clockOffset = clock.offset;
   let base = 60 / state.bpm / 4, landed = null;
   const target = transportOrigin / 1000 + abs * base - clockOffset;

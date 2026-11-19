@@ -39,6 +39,15 @@ export function roomTransportPosition(startsAt, bpm, now = Date.now()) {
   return { step, delay: (origin + step * stepMs - now) / 1000 };
 }
 
+export function audioClockOffset(contextTime, wallTime, performanceTime, output) {
+  const offset = wallTime / 1000 - contextTime;
+  const age = performanceTime - output?.performanceTime;
+  if (Number.isFinite(output?.contextTime) && output.contextTime > 0 &&
+      Number.isFinite(output.performanceTime) && output.performanceTime > 0 && age >= -5 && age <= 100)
+    return Math.min(offset, (wallTime - age) / 1000 - output.contextTime);
+  return offset;
+}
+
 export function syncAudioClock(previous, measured) {
   // A frozen audio clock can fall seconds behind wall time. Don't sweep the
   // playhead through that gap; only smooth ordinary timing jitter.

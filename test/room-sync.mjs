@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createRoomClock, roomTransportPosition, shiftRoomSet, syncAudioClock, transportResync } from '../js/room-sync.js';
+import { createRoomClock, roomTransportPosition, shiftRoomSet, audioClockOffset, syncAudioClock, transportResync } from '../js/room-sync.js';
 
 const origin = 1_000_000;
 const close = (a, b) => assert(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
@@ -62,6 +62,37 @@ assert.equal(transportResync(10.01, 10, 9.9, 0.125), null);
 assert.deepEqual(transportResync(10.2, 10, 9.9, 0.125), { skip: 0, nextTime: 10.2, discard: false });
 assert.deepEqual(transportResync(9.5, 10, 9.9, 0.125), { skip: 4, nextTime: 10, discard: false });
 assert.deepEqual(transportResync(9.0, 9.0, 9.6, 0.125), { skip: 5, nextTime: 9.625, discard: false });
+
+{
+  const output = { contextTime: 9.98, performanceTime: 9980 };
+  const offset = audioClockOffset(10, 1_010_000, 10000, output);
+  close(offset, 1000);
+  close(audioClockOffset(10.03, 1_010_000, 10000, output), 999.97);
+  close(audioClockOffset(9.94, 1_010_000, 10000, output), offset);
+  close(audioClockOffset(10, 1_012_000, 10000, output), offset + 2);
+  close(audioClockOffset(10, 1_010_000, 10000, { contextTime: 9.94, performanceTime: 9980 }), offset);
+  for (const missing of [undefined, null, {}, { contextTime: 0, performanceTime: 0 },
+    { contextTime: NaN, performanceTime: 9980 }, { contextTime: 9.98, performanceTime: Infinity },
+    { contextTime: 9.98, performanceTime: 9800 }, { contextTime: 9.98, performanceTime: 10100 }])
+    close(audioClockOffset(10.03, 1_010_000, 10000, missing), 999.97);
+  const wake = audioClockOffset(10.03, 1_025_000, 25000, output);
+  close(wake, 1014.97);
+  assert.equal(syncAudioClock(offset, wake).jumped, true, 'a stale output anchor cannot hide a frozen audio clock');
+
+  let clock = offset;
+  for (let i = 0; i < 100; i++) {
+    clock = syncAudioClock(clock, audioClockOffset(9.94, 1_010_000, 10000, output)).offset;
+    assert.equal(transportResync(1010.5 - clock, 10.5, 10, 0.125), null,
+      'a stale render-clock snapshot cannot pull the grid off a stable output clock');
+  }
+  const moved = audioClockOffset(9.94, 1_010_000, 10000, { contextTime: 9.94, performanceTime: 9980 });
+  assert.equal(syncAudioClock(offset, moved).jumped, false);
+  const correction = transportResync(1010.5 - moved, 10.5, 10, 0.125);
+  assert.equal(correction.skip, 0);
+  assert.equal(correction.discard, false);
+  close(correction.nextTime, 10.46);
+  console.log('Audio output clock PASS: stale render snapshots are bounded by output; normal render lead is retained; noisy/invalid/stale output and freezes are handled.');
+}
 
 {
   const before = syncAudioClock(null, 1000);
