@@ -58,11 +58,11 @@ export class Recorder {
   acidRelease(t) { if (this.bass) { this.bass.dur = Math.max(0.01, Math.min(this.bass.dur, t - this.bass.t)); this.bass = null; } }
   trigger(id, t, v) {
     if (id === 'stab') {
-      // The export plays the engine's own voicing (voice leading, chorus doubling, smooth lift and fold), so its notes match the render.
-      // A smooth style also writes a recorded voice's sounding register; other styles keep the played notes, whatever the palette.
-      const p = this.state.params.stab, { root, vo, iv } = stabPitches(this), name = this.smoothOn ? STAB_VOICES[vo] : null;
-      const len = Math.max(this.stepDur * 2, (p.decay || 0.3) * 1.5);
-      for (const m of new Set(iv.map((n) => soundingPitch(name, root + n)))) this.add('stab', t, m, len, v);
+      // A smooth style exports the engine's own voicing (voice leading, chorus doubling, lift and fold) in each voice's
+      // sounding register, so its notes match the render. Other styles keep the plain chord their sung parts are written against.
+      const p = this.state.params.stab, len = Math.max(this.stepDur * 2, (p.decay || 0.3) * 1.5), { root, vo, iv } = stabPitches(this);
+      if (this.smoothOn) for (const m of new Set(iv.map((n) => soundingPitch(STAB_VOICES[vo], root + n)))) this.add('stab', t, m, len, v);
+      else for (const n of this.chord()) this.add('stab', t, 48 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + n, len, v);
     } else if (GM_DRUMS[id]) this.add(id, t, GM_DRUMS[id], this.stepDur, v);
   }
   vox(t, v, step) {
