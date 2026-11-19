@@ -76,13 +76,14 @@ export function transportResync(target, nextTime, now, stepSec, jumped = false, 
     return { skip: 0, nextTime: nextTime + duration - stepSec, discard: false, slew: true, rate, endRate };
   }
   const ready = now + 0.005;
+  const reset = jumped || (target < nextTime - stepSec && nextTime - stepSec > now);
   // Recover one step near the render deadline without moving the grid or
   // squeezing the gap to its following step below half a step.
-  const earliest = jumped ? ready - Math.min(0.055, stepSec / 2) : ready;
-  let skip = jumped ? Math.max(minSkip, Math.ceil((earliest - target) / stepSec)) : 0;
+  const earliest = reset ? ready - Math.min(0.055, stepSec / 2) : ready;
+  let skip = reset ? Math.max(minSkip, Math.ceil((earliest - target) / stepSec)) : 0;
   target += skip * stepSec;
   while (target < earliest) { target += stepSec; skip++; }
-  return { skip, nextTime: target, discard: jumped, ...(target < ready && { firstTime: ready }) };
+  return { skip, nextTime: target, discard: reset, ...(target < ready && { firstTime: ready }) };
 }
 
 export function slewTransport(target, nextTime) {

@@ -215,6 +215,14 @@ assert.deepEqual(transportResync(10.2, 10, 9.9, .125, false, -Infinity, 1), { sk
 console.log('Room residual slew PASS: both signs, 40–240 BPM, smooth bounded rates, phase-locked steps, unity within <5s, floor and render guard.');
 
 {
+  const correction = transportResync(10.75, 11.5, 10, 0.125, false, -4);
+  assert.equal(correction.discard, true, 'an earlier room grid cancels the old lookahead before rescheduling');
+  assert.equal(correction.skip, -4, 'rewind future steps without crossing the current song origin');
+  close(correction.nextTime, 10.25);
+  assert.deepEqual(transportResync(11.4, 11.5, 10, 0.125), {skip:0, nextTime:11.4, discard:false}, 'a sub-step correction keeps ordered queued notes');
+}
+
+{
   const before = syncAudioClock(null, 1000);
   assert.deepEqual(before, { offset: 1000, jumped: false });
   const jitter = syncAudioClock(before.offset, 1000.02);
