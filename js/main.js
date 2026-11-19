@@ -256,26 +256,7 @@ function schedule(lead) {
 
 // Jam: another player's part lands on the room downbeat it was sent for (wall-clock ms), the same bar for everyone.
 // Old changes (catching up on join) or a stopped transport apply at once.
-let jamQueue = [], jamRedraw = 0, jamReschedule = false, jamControlVersion = 0;
-const jamControls = new Map();
-function deferJamControls(at, part, layer) {
-  const owner = engine, song = state, version = jamControlVersion;
-  const params = JSON.parse(JSON.stringify(layer.params || {}));
-  const token = {};
-  jamControls.set(part, token);
-  const apply = () => {
-    if (!playing || !roomPlayback || engine !== owner || state !== song || version !== jamControlVersion || jamControls.get(part) !== token) return;
-    if (ctx.currentTime < at) return setTimeout(apply, Math.max(1, (at - ctx.currentTime) * 1000));
-    jamControls.delete(part);
-    const current = owner.state;
-    owner.state = { ...current, params: { ...current.params, ...params } };
-    try {
-      for (const [track, values] of Object.entries(params))
-        for (const key of Object.keys(values)) owner.applyParam(track, key, true);
-    } finally { owner.state = current; }
-  };
-  setTimeout(apply, Math.max(0, (at - ctx.currentTime) * 1000));
-}
+let jamQueue = [], jamRedraw = 0, jamReschedule = false;
 function refreshJamPrime(wall = null) {
   if (!playing || !roomPlayback || !mediaRoute || !roomMediaSync.active(ctx.currentTime)) return;
   const safe = Math.max(ctx.currentTime + ROOM_LEAD, wall == null ? 0 : roomMediaTime(wall / 1000 - clockOffset, true, mediaRoute));
@@ -303,7 +284,6 @@ function refreshJamPrime(wall = null) {
   });
 }
 function queueJamPart(part, layer, wall) {
-  if (mediaRoute) jamControls.delete(part);
   jamQueue = jamQueue.filter((q) => q.part !== part);
   if (!playing || wall < Date.now() - 2000) return landJamPart(part, layer);
   jamQueue.push({ part, layer, wall });
@@ -323,7 +303,7 @@ function landJamPart(part, layer, t = null) {
   setTimeout(() => window.dispatchEvent(new CustomEvent('untergrund:jam', { detail: { part } })), wait);
   if (t == null) refreshJamPrime();
   if (engine) {
-    if (primed) deferJamControls(t ?? nextTime, part, layer);
+    if (primed) engine.scheduleJamParams(layer.params || {}, t ?? nextTime);
     else engine.applyAll();
   }
   cancelAnimationFrame(jamRedraw);
@@ -471,12 +451,9 @@ function cancelRoomStart() {
 
 function cancelRoomPrime() {
   if (!mediaRoute || !roomPlayback) return;
-  const pendingControls = jamControls.size;
-  jamControlVersion++;
-  jamControls.clear();
   const now = ctx.currentTime;
   if (roomMediaSync.cancel(now)) engine.discardQueuedNotes(now);
-  if (pendingControls) engine.applyAll();
+  engine.cancelJamParams();
 }
 
 function stop(playbackOutcome = 'stop') {
