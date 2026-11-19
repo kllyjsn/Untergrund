@@ -101,7 +101,7 @@ for (const style of ['hardtechno', 'hypnotic', 'minimal', 'drill', null]) {
     if (method === 'stab') {
       const pitched = nodes.filter(({ node }) => node.detune?.events.some(ev => ev.k === 's' && ev.v >= 198));
       assert(pitched.length >= 2);
-      assert(pitched.every(({ node }) => node.detune.events.some(ev => ev.k === 'l' && Math.abs(ev.v) >= 31.5 && ev.t === 0.22)));
+      assert(pitched.every(({ node }) => node.detune.events.some(ev => ev.k === 'g' && Math.abs(ev.v) >= 31.5 && Math.abs(ev.t - 0.108) < 1e-9 && ev.tc === 0.014)));
     }
     if (method === 'perc') assert(nodes.some(({ node }) => node.frequency?.events.some(ev => ev.k === 'e' && Math.abs(ev.v - e.state.params.perc.tune * 2 * 1.71) < 1e-9)));
     if (method === 'hook') assert(nodes.some(({ node }) => node.gain?.events.some(ev => ev.k === 'l' && Math.abs(ev.t - 0.28) < 1e-9 && Math.abs(ev.v - 0.8 * 0.12 * 0.09) < 1e-9)));
@@ -122,6 +122,37 @@ for (const style of ['hardtechno', 'hypnotic', 'minimal', 'drill', null]) {
     e.hardPalette(0.1, ...args, e.ch.stab.input, 'rave');
     assert.equal(nodes.length, 0);
   }
+}
+for (const seed of [11, 42, 1234, 777]) {
+  for (const voice of [0, 2]) {
+    const { e, nodes } = instrument('hardtechno');
+    e.state = freshSong('hardtechno', seed);
+    e.state.artist = { style: 'hardtechno', seed };
+    e.state.params.stab.voice = voice;
+    e.stab(0.1, 0.8);
+    const pitched = nodes.filter(({ node }) => node.detune?.events.some(ev => ev.k === 's' && ev.v >= 198));
+    assert(pitched.length >= 2);
+    for (const { node } of pitched) {
+      assert(node.detune.at(0.11) - node.detune.at(0.15) >= 150);
+      assert(node.detune.at(0.1) - node.detune.at(0.25) >= 200);
+    }
+    assert(nodes.some(({ node }) => node.gain?.events.some(ev => ev.k === 's' && ev.t === 0.1 && ev.v === 0) && node.gain.events.some(ev => ev.k === 'l' && Math.abs(ev.t - 0.108) < 1e-9)));
+  }
+}
+{
+  const detunes = [];
+  for (const time of [0.1, 0.4, 0.1]) {
+    const { e, nodes } = instrument('hardtechno');
+    e.perc(time, 0.8);
+    const carrier = nodes.find(({ node }) => node.type === 'sine' && node.detune?.events.some(ev => ev.k === 's')).node;
+    const detune = carrier.detune.events.find(ev => ev.k === 's').v;
+    assert(Math.abs(detune) <= 50);
+    assert(nodes.some(({ node }) => node.type === 'square' && node.detune.value === detune));
+    assert(nodes.some(({ node }) => node.frequency?.events.some(ev => ev.k === 'e' && Math.abs(ev.v - e.state.params.perc.tune * 2 * 1.71) < 1e-9) && node.detune.value === detune));
+    detunes.push(detune);
+  }
+  assert.notEqual(detunes[0], detunes[1]);
+  assert.equal(detunes[0], detunes[2]);
 }
 {
   for (const style of ['hardtechno', 'minimal', null]) {
