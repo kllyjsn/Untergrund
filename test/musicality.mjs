@@ -128,6 +128,12 @@ console.log('Drill verse and turnaround passed');
 }
 
 {
+  const song = freshSong('drill', 503);
+  assert.equal(song.params.snare.level, 0.66);
+  assert.equal(sanitize(JSON.parse(JSON.stringify(song))).params.snare.level, 0.66);
+}
+
+{
   const song = freshSong('drill', 1234), chorus = song.patterns[6];
   assert.equal(song.params.stab.voice, 6);
   assert.equal(chorus.hook.v, 'softmallet');
