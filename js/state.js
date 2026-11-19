@@ -382,7 +382,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     Object.assign(params.acid, { wave: 0.3, cutoff: 520, reso: 2, envmod: 0.2, decay: 0.12, drive: 0.1, accent: 0.1, level: 0.48 });
     Object.assign(params.stab, { chord: pick(r, [1, 2, 3]), cutoff: 2600, reso: 1, decay: 0.3, env: 0.25, detune: 6, dly: 0.45, rev: 0.4 });
     master.duck = 0.3; master.revLevel = 0.35;
-    swing = 0.1;
+    swing = 0.04;
   } else if (style === 'ukg') {
     S.kick = pad16([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1]);
     S.snare = pad16([0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]);
