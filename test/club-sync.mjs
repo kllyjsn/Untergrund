@@ -11,6 +11,7 @@ import { defaultState, emptyPattern } from '../js/state.js';
 import { installAudioTap, envelope, postResumeEnvelope, onsets, resolvedCompare, fixtureMissing, BPM, KICK_STEPS, PERIOD_MS } from './club-sync-audio.mjs';
 import { transitionAudio } from './club-sync-transition.mjs';
 import { installDiagnostics, diagnose } from './club-sync-diagnostics.mjs';
+import { mixFixture, mixBoundaries, mixGraphEdges, installMixStem, analyzeMix, mixFailures } from './club-sync-mix.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const out = resolve(root, 'test/out');
@@ -24,6 +25,8 @@ const SCENARIOS = [
   { name: 'reconnect-expired', offlineMs: 20000 },
   { name: 'background-wake', freezeMs: 15000 },
   { name: 'short-wake', freezeMs: 800 },
+  { name: 'short-wake-mix', freezeMs: 800, mix: true },
+  { name: 'background-wake-mix', freezeMs: 15000, mix: true },
   { name: 'dj-handoff', handoff: true },
   { name: 'replay', replay: true },
 ];
@@ -53,7 +56,7 @@ async function terminate(p) {
   if (!p || p.exitCode !== null) return;
   const done = new Promise(r => p.once('exit', r)); p.kill('SIGKILL'); await done;
 }
-async function client(base, skew = 0, fixture = null, displacementMs = 0) {
+async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = false) {
   const chrome = findChrome(); if (!chrome) throw new Error('Chrome required');
   const profile = await mkdtemp(join(out, 'chrome-'));
   const proc = spawn(chrome, ['--headless=new', '--no-sandbox', '--no-first-run', '--disable-background-timer-throttling',
@@ -89,7 +92,9 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0) {
     await send('Network.enable');
     await send('Network.setCacheDisabled', { cacheDisabled: true });
     if (options.diagnostics) await installDiagnostics(send, base);
-    await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${installAudioTap})(${skew}, ${JSON.stringify(fixture)}, ${displacementMs})` });
+    const graph = mix ? await mixGraphEdges() : null;
+    await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${installAudioTap})(${skew}, ${JSON.stringify(fixture)}, ${displacementMs}, ${mix}, ${JSON.stringify(graph)})` });
+    if (mix) await installMixStem(send, base, mixFixture());
     const nav = async path => { await send('Page.navigate', { url: base + path }); await until(() => run('!!document.querySelector(".club-btn, .club-modal, .club-head")'), 'app ready'); };
     const clickElement = async (expression, label) => {
       const point = await until(() => run(`(() => { const e = ${expression}; if (!e) return null; e.scrollIntoView({block:'center'}); const r = e.getBoundingClientRect(); return r.width && r.height && !e.disabled ? {x:r.x+r.width/2,y:r.y+r.height/2} : null; })()`), label);
@@ -122,10 +127,11 @@ function fixture() {
 async function scenario(base, spec) {
   const clients = [];
   try {
-    const host = await client(base, spec.hostSkew, fixture()); clients.push(host);
+    const song = spec.mix ? mixFixture() : fixture();
+    const host = await client(base, spec.hostSkew, song, 0, spec.mix); clients.push(host);
     await host.nav('/'); await host.click('.club-btn');
     let listener;
-    if (!spec.cold) { listener = await client(base, spec.listenerSkew, null, spec.displacementMs); clients.push(listener); await listener.nav('/'); }
+    if (!spec.cold) { listener = await client(base, spec.listenerSkew, null, spec.displacementMs, spec.mix); clients.push(listener); await listener.nav('/'); }
     const action = await until(() => host.run(`document.querySelector('.lobby-cta')?.textContent === 'GO LIVE' ? '.lobby-cta' : document.querySelector('.club-primary')?.textContent === 'GO LIVE' ? '.club-primary' : null`), 'GO LIVE');
     await host.click(action);
     const room = await until(() => host.run('new URL(location.href).searchParams.get("room")'), 'Host room invite');
@@ -184,7 +190,11 @@ async function scenario(base, spec) {
       await pause(Math.max(0, events.firstDownbeatAt - Date.now()) + 22000);
       events.after = await snapshot();
     } else if (spec.offlineMs || spec.freezeMs) {
-      await pause(7000);
+      if (spec.mix) {
+        events.plannedDrop = mixBoundaries(song, initial.startsAt).find(b => b.section === 'DROP');
+        assert.ok(events.plannedDrop.at - 400 > Date.now(), 'Listener ready before drop freeze');
+        await pause(events.plannedDrop.at - 400 - Date.now());
+      } else await pause(7000);
       events.before = await snapshot(); events.interruptAt = Date.now();
       if (spec.offlineMs) {
         await listener.send('Network.setBlockedURLs', { urls: [`${base}/api/rooms*`] });
@@ -208,11 +218,22 @@ async function scenario(base, spec) {
         await listener.send('Page.bringToFront');
         events.visibilityAfter = await listener.run('document.visibilityState');
       }
-      await pause(12000);
+      await pause(spec.mix ? 20000 : 12000);
       events.after = await snapshot();
     } else await pause(22000);
     const raw = await Promise.all(clients.map(c => c.run('({...__clubAudio, clockSkew: Date.now() - (performance.timeOrigin + performance.now())})')));
-    const [he, le] = raw.map(envelope), [ho, lo] = [he, le].map(e => onsets(e, BPM));
+    if (spec.mix) {
+      const mix = analyzeMix(raw, song, events, initial.startsAt);
+      const failures = mixFailures(mix);
+      console.log(`${spec.name}: frozen ${events.interruptAt} → wake ${events.recoverAt}; realign=${mix.timeToRealignMs}ms / budget=${mix.budgetMs}ms`);
+      for (const [name, p] of Object.entries(mix.phases)) console.log(`  ${name}: ${JSON.stringify({
+        kicks:{...p.kicks, pairs:undefined, hostOnsets:undefined, listenerOnsets:undefined}, vocal:{...p.vocal, pairs:undefined}})}`);
+      for (const b of mix.boundaries) console.log(`  boundary: ${JSON.stringify(b)}`);
+      console.log(`  mix thresholds: ${failures.length ? 'FAIL: ' + failures.join(', ') : 'PASS'}`);
+      return { name:spec.name, spec, mix, events, failures, raw:{captures:raw},
+        ...mix.phases.after.kicks, hostFixture:{missing:null, measured:false}, phases:{after:mix.phases.after.kicks} };
+    }
+    const [he, le] = raw.map(r => envelope(r)), [ho, lo] = [he, le].map(e => onsets(e, BPM));
     assert.ok(ho.length > 10 && lo.length > 10, 'Enough detected rendered kicks');
     const start = Math.max(he[0][0], le[0][0], ho[0], lo[0], events.newSet ? events.broadcastAt ?? events.newSet.startsAt : 0) + 500;
     const end = Math.min(he.at(-1)[0], le.at(-1)[0]) - 100;
@@ -232,7 +253,7 @@ async function scenario(base, spec) {
       for (const [i, name] of ['original host', 'original listener'].entries()) console.log(`  ${name}: action→first kick=${rendered[i].actionToFirstKickMs?.toFixed(0) ?? 'none'}ms; inter-kick gap across action=${rendered[i].interKickGapAcrossActionMs?.toFixed(0) ?? 'none'}ms; silence before new downbeat=${rendered[i].silenceBeforeFirstDownbeatMs?.toFixed(0) ?? 'none'}ms; longest transition silence=${rendered[i].longestSilenceAroundTransitionMs?.toFixed(0) ?? 'none'}ms`);
     }
     if (events.recoverAt) {
-      const recoveryEnvelopes = spec.freezeMs ? raw.map(postResumeEnvelope) : [he, le];
+      const recoveryEnvelopes = spec.freezeMs ? raw.map(r => postResumeEnvelope(r)) : [he, le];
       const recoveryHostOnsets = onsets(recoveryEnvelopes[0], BPM);
       for (const [name, from, to] of [['before', start, events.interruptAt], ['during', events.interruptAt, events.recoverAt], ['after', events.recoverAt, end]]) {
         const rows = name === 'after' ? recoveryEnvelopes : [he, le];
@@ -290,9 +311,9 @@ const results = [];
 let error = null;
 try {
   await until(async () => { try { return (await fetch(base)).ok; } catch { return false; } }, 'server');
-  console.log('Club sync: isolated Chrome processes; memory rooms; dry irregular ABCD kick fixture / 123 BPM / 7805ms period.');
+  console.log('Club sync: isolated Chrome processes; memory rooms; dry irregular ABCD kicks or seed-7 full-mix hypnotic sketch / 123 BPM.');
   console.log('PCM destination tap → 180Hz low-pass RMS; getOutputTimestamp + true performance.timeOrigin.');
-  console.log('Signed lag resolved across ±3900ms BEFORE onset matching; offline/freeze = 7s baseline + interruption + 12s recovery.');
+  console.log('Dry: signed lag resolved across ±3900ms; 7s baseline + interruption + 12s recovery. Mix: isolated rendered kick/vocal graph taps, drop−400ms freeze + 20s recovery; PCM resume boundaries for wakes.');
   for (const spec of SCENARIOS.filter(s => !selected || s.name === selected)) {
     for (let run = 1; run <= +options.repeat; run++) {
       console.log(`Running ${spec.name}${+options.repeat > 1 ? ` (${run}/${options.repeat})` : ''}…`);
@@ -306,6 +327,7 @@ try {
   assert.deepEqual(onsets([], BPM), []); assert.equal(resolvedCompare([], [], 0, 10000).median, null);
   assert.throws(() => envelope({ errors: ['unsupported route'], anchors: [], samples: [] }), /unsupported route/);
   const failures = results.filter(r => {
+    if (r.spec.mix) return r.failures.length;
     if (r.spec.displacementMs) return !r.injectedEvidence || Math.abs(r.injectedEvidence.errorMs) > 50;
     const s = r.phases.after || r;
     return s.median === null || s.median > 25 || s.p95 > 50 || !s.matched || s.missing || (r.spec.freezeMs && s.extra) || r.hostFixture.missing ||
