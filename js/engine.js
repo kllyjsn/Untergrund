@@ -2326,6 +2326,14 @@ export class Engine {
     }
   }
 
+  prepareVocal(state = this.state) {
+    const v = this.vocalOf?.(state);
+    if (!v) return;
+    this.vocalSends(v.fx, true);
+    processedStem(v.buf, v.fx, this.ctx);
+    singingEnvelope(v.buf);
+  }
+
   // Keep a continuous stem across bars; discarding the queue on a clock jump stops it.
   // On wake, gridTime can precede t: advance the source offset instead of moving the stem.
   vocal(t, pos, step = 0, gridTime) {
@@ -2363,7 +2371,7 @@ export class Engine {
 
   // The vocal's reverb (a plate, or a short room) and tempo-synced slap/delay sends, built on first use, set per genre
   // (VOCAL_FX in js/sing.js): they return through vocalOut, so they ride the vocal's level and its stem.
-  vocalSends(fx) {
+  vocalSends(fx, prepare = false) {
     const c = this.ctx, now = c.currentTime;
     if (!this.vocalFx) {
       const plateSend = this.gain(0), plate = c.createConvolver(), dlySend = this.gain(0);
@@ -2371,16 +2379,20 @@ export class Engine {
       this.vocalBus.connect(plateSend).connect(this.filter('highpass', 220)).connect(plate).connect(this.vocalOut);
       this.vocalBus.connect(dlySend).connect(hp).connect(lp).connect(dly).connect(this.vocalOut);
       dly.connect(fb).connect(hp);
-      this.vocalFx = { plateSend, plate, dlySend, dly, fb, ir: '' };
+      this.vocalFx = { plateSend, plate, dlySend, dly, fb, ir: '', impulses: new Map() };
     }
     const F = this.vocalFx, r = fx?.reverb || { kind: 'plate', sec: 1.8, send: 0.16 }, d = fx?.delay;
     // A plate, or a short, darker room: its own IR so the reverb stays in the vocal's stem.
     const room = r.kind === 'room', sec = r.sec || (room ? 0.8 : 1.8), ir = `${r.kind}:${sec}`;
-    if (F.ir !== ir) {
-      F.plate.buffer = makeIR(c, sec, room ? { decay: 4.5, brightStart: 0.6, brightEnd: 0.2, predelay: 0.006, seed: 89 }
-        : { decay: 3.2, brightStart: 0.9, brightEnd: 0.35, predelay: 0.012, seed: 97 });
+    if (!F.impulses.has(ir)) {
+      F.impulses.set(ir, makeIR(c, sec, room ? { decay: 4.5, brightStart: 0.6, brightEnd: 0.2, predelay: 0.006, seed: 89 }
+        : { decay: 3.2, brightStart: 0.9, brightEnd: 0.35, predelay: 0.012, seed: 97 }));
+    }
+    if (F.ir !== ir && (!prepare || !F.ir)) {
+      F.plate.buffer = F.impulses.get(ir);
       F.ir = ir;
     }
+    if (prepare) return;
     F.plateSend.gain.setTargetAtTime(r.send, now, 0.02);
     F.dly.delayTime.setTargetAtTime(d ? Math.min(1.9, (d.beats * 60) / this.state.bpm) : 0.25, now, 0.02);
     F.dlySend.gain.setTargetAtTime(d ? d.send : 0, now, 0.02);
