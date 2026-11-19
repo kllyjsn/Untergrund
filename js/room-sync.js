@@ -51,11 +51,9 @@ export function syncAudioClock(previous, measured) {
 export function transportResync(target, nextTime, now, stepSec, jumped = false) {
   if (!jumped && Math.abs(target - nextTime) <= 0.03 && nextTime >= now) return null;
   const ready = now + 0.005;
-  // Only discard the lookahead when the first unqueued step is due too.
-  // Otherwise keep the queued beats and rejoin the grid beyond them.
-  const discard = jumped && target < ready;
-  const earliest = jumped && !discard ? Math.max(ready, nextTime) : ready;
-  let skip = 0;
-  while (target < earliest) { target += stepSec; skip++; }
+  const discard = jumped;
+  let skip = jumped ? Math.ceil((ready - target) / stepSec) : 0;
+  target += skip * stepSec;
+  while (target < ready) { target += stepSec; skip++; }
   return { skip, nextTime: target, discard };
 }

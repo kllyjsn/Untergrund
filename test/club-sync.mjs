@@ -23,6 +23,7 @@ const SCENARIOS = [
   { name: 'reconnect', offlineMs: 10000 },
   { name: 'reconnect-expired', offlineMs: 20000 },
   { name: 'background-wake', freezeMs: 15000 },
+  { name: 'short-wake', freezeMs: 800 },
   { name: 'dj-handoff', handoff: true },
   { name: 'replay', replay: true },
 ];
@@ -299,7 +300,7 @@ try {
   const failures = results.filter(r => {
     if (r.spec.displacementMs) return !r.injectedEvidence || Math.abs(r.injectedEvidence.errorMs) > 50;
     const s = r.phases.after || r;
-    return s.median === null || s.median > 25 || s.p95 > 50 || !s.matched || s.missing || r.hostFixture.missing ||
+    return s.median === null || s.median > 25 || s.p95 > 50 || !s.matched || s.missing || (r.spec.freezeMs && s.extra) || r.hostFixture.missing ||
       (r.transition && (r.transition.firstDownbeatDeltaMs === null || Math.abs(r.transition.firstDownbeatDeltaMs) > 50 || r.transition.actionToFirstAlignedKickMs === null));
   });
   console.log(`Thresholds: median ≤25ms, p95 ≤50ms, missing=0 (recovery scenarios: AFTER window; injected-offset: |lag−2000|≤50ms): ${failures.length ? 'FAIL: ' + failures.map(r => r.name).join(', ') : 'PASS'}`);

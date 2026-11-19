@@ -179,6 +179,13 @@ function schedule(lead) {
       uiQueue.length = 0;
       seq.acidPrevSlide = false;
     }
+    if (fix.skip < 0) {
+      abs += fix.skip;
+      const step = abs - seq.origin, bar = Math.floor(step / 16);
+      seq.chainPos = bar;
+      seq.advanceBar(bar * 16, now);
+      if (step % 16 === 0) seq.chainPos = bar;
+    }
     for (let i = 0; i < fix.skip; i++, abs++) { artistTick(abs - seq.origin); seq.advanceBar(abs - seq.origin, ctx.currentTime); }
     nextTime = fix.nextTime;
   }
