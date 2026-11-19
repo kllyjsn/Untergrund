@@ -192,6 +192,7 @@ function schedule(lead) {
   }
   let base = 60 / state.bpm / 4, landed = null;
   const target = roomMediaTime(transportOrigin / 1000 + abs * base - clockOffset, roomPlayback, mediaRoute);
+  if (roomPlayback && Math.abs(target - nextTime) > 0.000001) vocalGridDirty = true;
   const fix = transportResync(target, nextTime, now, base, clock.jumped, seq.origin - abs, roomPlayback);
   let firstTime = fix?.firstTime;
   if (fix) {
@@ -246,10 +247,10 @@ function schedule(lead) {
       landJamParts((gridTime + clockOffset) * 1000 + base * 500, t);
     }
     artistTick(abs - seq.origin);
-    const pat = seq.tick(abs, t, roomPlayback ? nextTime : undefined, roomEditor);
+    const pat = seq.tick(abs, t, roomPlayback ? nextTime : undefined, roomEditor, roomPlayback && vocalGridDirty);
     if (roomPlayback && vocalGridDirty && Math.abs(gridTarget - nextTime) < 0.002) {
-      engine.vocal(t, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, (abs - seq.origin) % 16, nextTime, true);
-      vocalGridDirty = false;
+      const aligned = engine.vocal(t, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, (abs - seq.origin) % 16, nextTime, true);
+      vocalGridDirty = aligned === false;
     }
     uiQueue.push({ abs: abs - seq.origin, t, pat });
     // A score breathes (rubato): the transport clock follows the stretched step, not the metronome.

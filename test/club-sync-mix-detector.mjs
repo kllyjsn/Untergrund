@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
-import { mixFixture, realMixFixture, popHandoffTargetAt, syntheticHandoffTargetAt, mixBoundaries, mixGraphEdges, channelEnvelope, analyzeMix, matchEvents, realignment, beatRealignment, realignmentEvidence, phraseOnsets, boundaryMetric, mixFailures, underrunEvidence, kickAttribution } from './club-sync-mix.mjs';
+import { mixFixture, realMixFixture, popHandoffTargetAt, syntheticHandoffTargetAt, mixBoundaries, mixGraphEdges, channelEnvelope, analyzeMix, matchEvents, realignment, beatRealignment, realignmentEvidence, phraseOnsets, boundaryMetric, mixFailures, underrunEvidence, kickAttribution, vocalSourceEvidence } from './club-sync-mix.mjs';
 import { singRequest } from '../js/sing.js';
 import { sanitize } from '../js/state.js';
 import { postResumeEnvelope, onsets } from './club-sync-audio.mjs';
 import { gridKicks, vocalMetrics, sustainedRecovery, vocalFindings, windowOffset, clipRange, floatWav, levelMatchClips } from './club-sync-vocals.mjs';
 
 const bin = 4, expectedVoice = new Float64Array(8000);
+assert.equal(vocalSourceEvidence({vocalStarts:[{}]}).allowed, 1);
+assert.deepEqual(vocalSourceEvidence({vocalStarts:[{}, {}]}, 1), {count:2, expected:2, corrections:[], allowed:2});
+assert.equal(vocalSourceEvidence({vocalStarts:[{}, {}, {}], vocalCorrections:[{errorMs:20}, {errorMs:-40}]}, 1).allowed, 3);
+assert.equal(vocalSourceEvidence({vocalStarts:[]}).count, 0);
+assert.equal(vocalSourceEvidence({}).count, null);
+console.log('Vocal source evidence PASS: join/wake bounds, only >30ms correction credit, empty and missing telemetry remain distinct.');
 assert.deepEqual(clipRange(10000, 40000), {from:6000,to:40000});
 assert.ok(clipRange(10000, 40000).to >= 10000 + 28000);
 assert.throws(() => clipRange(10000, 10000), RangeError);

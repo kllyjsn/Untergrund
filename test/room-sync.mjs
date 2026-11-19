@@ -369,7 +369,7 @@ for (const [action, currentTime, playing, expected] of [
 }
 console.log('Room frontier PASS: no reordered/rebuilt notes, solo tempo no-repeat, monotonic MIDI and no Jam part before its queued downbeat.');
 {
-  const runBoundary = ({step=63, nextTime=10.5, gridOrigin=2325, now=10, wall=10325} = {}) => {
+  const runBoundary = ({step=63, nextTime=10.5, gridOrigin=2325, now=10, wall=10325, clockOffset=0} = {}) => {
     const notes = [], effects = [], state = freshSong('hypnotic', 7, {length:'sketch', bpm:120});
     state.bpm = 120; state.chainOn = true; state.chain = 'CCCCEEEECCCC'; state.master.arr = 1; state.part = 'old';
     const engine = new Recorder(state), seq = new Sequencer(engine, state);
@@ -382,7 +382,7 @@ console.log('Room frontier PASS: no reordered/rebuilt notes, solo tempo no-repea
     seq.tick = (abs, time, ...args) => { notes.push({abs, time, part:state.part}); return tick(abs, time, ...args); };
     const sandbox = {playing:true, songOver:false, roomPlayback:true, roomEditor:false, ROOM_LEAD:0.25, BG_LEAD:1,
       document:{hidden:false}, ctx:{currentTime:now}, Date:{now:() => now * 1000},
-      state, engine, seq, abs:step, nextTime, transportOrigin:gridOrigin, clockOffset:0,
+      state, engine, seq, abs:step, nextTime, transportOrigin:gridOrigin, clockOffset,
       syncAudioClock, transportResync, slewTransport, handoff:null, vocalGridDirty:false, uiQueue:[],
       jamQueue:[{part:'kick', layer:{id:'new'}, wall}], jamRedraw:0,
       timeline:{skip:() => 0}, artistTick(){}, midiClockStep(){},
@@ -409,6 +409,8 @@ console.log('Room frontier PASS: no reordered/rebuilt notes, solo tempo no-repea
   const late = runBoundary({wall:10500});
   assert.equal(late.sandbox.state.part, 'new', 'a Jam due between skipped and playable steps lands on the first playable grid time');
   close(late.effects.find(e => e.kind === 'mix').time, 10.575);
+  const clockOnly = runBoundary({step:64, nextTime:11.5, gridOrigin:3500, clockOffset:-0.02});
+  assert.equal(clockOnly.sandbox.vocalGridDirty, true, 'clock-offset-only slews request the same deferred vocal alignment');
 }
 console.log('Room skipped boundaries PASS: sub-step Jam downbeat retained; skipped Jam, breakdown and mix automation land at grid time; late Jam catches the first playable step.');
 {

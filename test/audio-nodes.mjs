@@ -391,8 +391,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     e.vocal(1, 0, 0, 1);
     const before = e.vocalNow.src;
     e.vocal(3.02, 1, 0, 3.02, true);
-    assert.notEqual(e.vocalNow.src, before, 'explicit room re-anchoring bypasses the ordinary jitter fast path');
-    assert.ok(Math.abs(e.vocalNow.origin - 1.27) < 1e-9);
+    assert.equal(e.vocalNow.src, before, 'a converged sub-30ms room correction keeps the source');
+    assert.ok(Math.abs(e.vocalNow.origin - 1.25) < 1e-9);
     const aligned = e.vocalNow.src;
     e.vocal(5.02, 2, 0, 5.02);
     assert.equal(e.vocalNow.src, aligned, 'the aligned stem stays continuous on the new grid');
@@ -403,8 +403,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     assert.equal(e.vocalNow.src, stable, 'room grid correction preserves sub-3ms jitter');
     e.vocal(5.008, 2, 0, 5.008, true);
     const corrected = e.vocalNow.src;
-    assert.notEqual(corrected, stable, 'a slewed room grid cannot leave the vocal on its old phase');
-    assert.ok(Math.abs(e.vocalNow.origin - 1.258) < 1e-9);
+    assert.equal(corrected, stable, 'ordinary slews retain the original 30ms vocal tolerance');
+    assert.ok(Math.abs(e.vocalNow.origin - 1.25) < 1e-9);
     e.vocal(5.008, 2, 0, 5.008, true);
     assert.equal(e.vocalNow.src, corrected, 'an explicit correction after a bar tick does not restart an aligned stem twice');
     e.vocal(7.006, 3, 0, 7.006, true);
@@ -414,8 +414,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const roomSeq = new Sequencer(roomEngine, roomEngine.state);
     roomSeq.tick(0, 1, 1);
     roomSeq.tick(16, 3);
-    assert.deepEqual(calls.map(args => args[4]), [true, false], 'only room bar ticks request the tighter vocal grid');
-    console.log('Room vocal slew PASS: bar ticks follow the corrected grid within 3ms; aligned duplicate updates and solo playback remain continuous.');
+    assert.deepEqual(calls.map(args => args[4]), [false, false], 'bar ticks retain the original tolerance in rooms and solo');
+    roomSeq.tick(32, 5, 5, false, true);
+    assert.equal(calls.at(-1)[5], true, 'room bars hold their phase check during a slew');
+    console.log('Room vocal slew PASS: room bars retain 30ms tolerance and hold phase rechecks during a slew; solo stays unchanged.');
     console.log('Vocal grid drift PASS: solo and room sources follow cumulative forward/backward corrections; small jitter stays continuous.');
   }
 
@@ -502,6 +504,39 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       assert.ok(Math.abs(phase - (end2 - e.vocalNow.origin)) < 1e-12, 'effective vocal phase matches both grid corrections');
     }
     console.log('Vocal slew ordering PASS: one-ulp early boundaries append increasing ramps, preserving the effective rate and integrated phase for both signs.');
+  }
+
+  {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 70, sampleRate:48000}), starts = [];
+    c.createBufferSource = () => ({connect:dst => dst, start:(...args) => starts.push(args), stop(){}});
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    let shift = 0, target = 0, dirty = false;
+    const counts = [];
+    for (let step = 0; step < 320; step++) {
+      if (step === 14) { target = 0.02; dirty = true; }
+      if (step === 94) { counts.push(starts.length); target = 0.08; dirty = true; }
+      if (step === 190) { counts.push(starts.length); target = 0.07; dirty = true; }
+      shift += Math.max(-0.0015, Math.min(0.0015, target - shift));
+      const time = 1 + step * 0.125 + shift, pos = Math.floor(step / 16);
+      c.currentTime = time - 0.01;
+      if (step % 16 === 0) e.vocal(time, pos, 0, time, false, dirty);
+      if (dirty && Math.abs(target - shift) < 0.002) dirty = e.vocal(time, pos, step % 16, time, true) === false;
+    }
+    assert.deepEqual(counts, [1, 2]);
+    assert.equal(starts.length, 2, '40s playback has no restart for ordinary slews and only one for the large correction');
+    assert.ok(Math.abs(e.vocalNow.origin - 1.08) < 0.002);
+    e.vocalStop();
+    buf.getChannelData(0).fill(0.1);
+    const sung = new FakeBuffer({length:48000 * 70, sampleRate:48000}); sung.getChannelData(0).fill(0.1);
+    e.vocalOf = () => ({buf:sung, gain:1, duck:1, lift:1, ms:0});
+    c.currentTime = 0; e.vocal(1, 0, 0, 1);
+    const first = e.vocalNow.src;
+    assert.equal(e.vocal(3.08, 1, 0, 3.08, true), false);
+    assert.equal(e.vocalNow.src, first, 'a large correction cannot restart a phrase with no gap');
+    e.vocal(42, 0, 0, 42, false, true);
+    assert.notEqual(e.vocalNow.src, first, 'holding a correction cannot suppress the next natural song cycle');
+    console.log('Room vocal continuity PASS: 40s, three slews across bar lines, zero ordinary restarts and one large-gap reanchor; no-gap phrase remains continuous.');
   }
 
   {

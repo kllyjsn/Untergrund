@@ -586,6 +586,18 @@ files or the host. JSON `events.injectedKickDrop` records each suppressed native
 call, and the harness requires at least two. Both missing-kick and recovery
 assertions must fail; use distinct output and network labels for this control.
 
+Wake mix assertions also require zero extra vocal onsets and native vocal-stem
+source starts no greater than join + wake + one per recorded correction exceeding
+30ms. The graph-filtered `AudioBufferSourceNode.start` tap excludes drum buffers
+and offline preparation. JSON `vocalStarts` and `diagnostics[].vocalCorrections`
+show the measured counts and allowance; absent telemetry cannot pass. During a
+slew room bar checks hold their existing source; a converged large correction
+may restart only in a quiet phrase gap, without changing playback rate or pitch.
+
+`--vocal-slew-test` is an opt-in wake-mix control. A test-only conditional
+breakpoint applies one 20ms transport-origin correction near a bar end on each
+client, recording `forcedVocalSlew`; normal runs do not change the origin.
+
 The separate advisory GitHub Actions `club-sync` job runs the complete harness
 with --assert on PRs, main pushes and manual dispatch. It uses Node 22 and the
 Ubuntu runner's Chrome, and uploads JSON with `if: always()`. Known threshold

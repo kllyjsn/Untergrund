@@ -3331,14 +3331,28 @@ export class Engine {
 
   // Keep a continuous stem across bars; discarding the queue on a clock jump stops it.
   // On wake, gridTime can precede t: advance the source offset instead of moving the stem.
-  vocal(t, pos, step = 0, gridTime, reanchor = false) {
+  vocal(t, pos, step = 0, gridTime, reanchor = false, settling = false) {
     const v = pos >= 0 ? this.vocalOf?.(this.state) : null, cur = this.vocalNow;
     const phase = v ? (pos * 16 + step) * this.stepDur - v.ms / 1000 : 0;
     const origin = (gridTime ?? t) - phase;
-    if (cur && v && cur.buf === v.buf && (cur.next === pos || (reanchor && cur.next === pos + 1)) && cur.sd === this.stepDur && cur.ms === v.ms && Math.abs(origin - cur.origin) <= (reanchor ? 0.003 : 0.03)) {
+    const continuous = cur && v && cur.buf === v.buf && (cur.next === pos || (reanchor && cur.next === pos + 1) || (settling && pos >= cur.next - 1)) && cur.sd === this.stepDur && cur.ms === v.ms;
+    if (continuous && (settling || Math.abs(origin - cur.origin) <= 0.03)) {
       cur.next = pos + 1;
       this.vocalBus.gain.setTargetAtTime(v.gain, t, 0.02);
-      return;
+      return true;
+    }
+    if (continuous && reanchor) {
+      const errorMs = (origin - cur.origin) * 1000;
+      const env = singingEnvelope(v.buf), actual = t - cur.origin;
+      const quiet = at => at >= 0 && at < v.buf.duration &&
+        Array.from(env.slice(Math.floor(at * ENV_RATE), Math.ceil((at + 0.06) * ENV_RATE))).every(x => x < 0.01);
+      const gap = quiet(phase) && quiet(actual);
+      this.vocalCorrection = { at:t, origin, previousOrigin:cur.origin, errorMs, gap };
+      if (!gap) {
+        cur.next = pos + 1;
+        this.vocalBus.gain.setTargetAtTime(v.gain, t, 0.02);
+        return false;
+      }
     }
     this.vocalStop(t);
     if (!v) return;
@@ -3362,6 +3376,7 @@ export class Engine {
       carve.frequency.setValueAtTime(v.fx.carve.hz, t);
       this.duckUnder(v.buf, carve.gain, -v.fx.carve.db, t, t - off, 0);
     }
+    return true;
   }
 
   // The vocal's reverb (a plate, or a short room) and tempo-synced slap/delay sends, built on first use, set per genre
@@ -3581,13 +3596,13 @@ export class Sequencer {
     this.e.sectionGain(t, db, ramp);
   }
 
-  tick(abs, t, roomGridTime, editable = false) {
+  tick(abs, t, roomGridTime, editable = false, vocalSettling = false) {
     abs -= this.origin || 0;
     const s = this.s, e = this.e;
     this.advanceBar(abs, t);
     if (this.finished && this.songBars) return this.cur;
     const n = this.songBars || 0, pos = n ? (this.chainPos - 1) % n : -1, lf = this.liftFrom;
-    if (abs % 16 === 0) e.vocal(t, pos, 0, roomGridTime, roomGridTime != null);
+    if (abs % 16 === 0) e.vocal(t, pos, 0, roomGridTime, false, vocalSettling);
     const pat = patternAt(s.patterns[this.cur], pos);
     const bar = Math.floor(abs / 16), vary = s.master.vary || 0;
     e.harm = pat.prog?.length ? pat.prog[bar % pat.prog.length] : null;

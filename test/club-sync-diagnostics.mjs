@@ -2,11 +2,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 // False conditional breakpoints observe module locals without changing app sources or pausing.
-export async function installDiagnostics(send, base) {
+export async function installDiagnostics(send, base, {vocalSlew = false} = {}) {
   await send('Debugger.enable');
-  const at = async (file, marker, body) => {
+  const at = async (file, marker, body, required = true) => {
     const source = await readFile(new URL(`../js/${file}`, import.meta.url), 'utf8');
     const lineNumber = source.split('\n').findIndex(l => l.includes(marker));
+    if (lineNumber < 0 && !required) return;
     assert.ok(lineNumber >= 0, `Diagnostic marker missing: ${file}: ${marker}`);
     await send('Debugger.setBreakpointByUrl', { url: `${base}/js/${file}`, lineNumber,
       condition: `(() => { if (!globalThis.__clubAudio) return false;
@@ -25,13 +26,19 @@ export async function installDiagnostics(send, base) {
   await at('main.js', 'if (!seeking) engine.recLock', `(__clubAudio.starts ||= []).push({at:performance.timeOrigin + performance.now(),
     step:typeof abs === 'undefined' ? undefined : abs, ${['delay', 'nextTime', 'transportOrigin'].map(optional).join(', ')},
     contextTime:typeof ctx === 'undefined' ? undefined : ctx.currentTime})`);
-  await at('main.js', 'const t = firstTime ?? nextTime;', `const a = __clubAudio.scheduler ||= [];
+  await at('main.js', 'const target = transportOrigin', `const a = __clubAudio.scheduler ||= [];
+    ${vocalSlew ? `if (!__clubAudio.forcedVocalSlew && abs >= 32 && abs % 16 >= 13) {
+      transportOrigin += 20; __clubAudio.forcedVocalSlew = {at:performance.timeOrigin + performance.now(), step:abs, deltaMs:20}; }` : ''}
     (__clubAudio.schedulerCalls ||= []).push(performance.timeOrigin + performance.now());
     if (typeof ctx !== 'undefined' && (!a.length || performance.now() - a.at(-1).monotonic >= 1000))
       a.push({at:performance.timeOrigin + performance.now(), monotonic:performance.now(),
         ${['abs', 'base', 'nextTime', 'transportOrigin', 'clockOffset'].map(optional).join(', ')},
         wallOffset:Date.now()/1000 - ctx.currentTime, contextTime:ctx.currentTime,
         baseLatency:ctx.baseLatency, outputLatency:ctx.outputLatency, output:ctx.getOutputTimestamp()})`);
+  await at('engine.js', 'this.vocalCorrection = {', `const a = __clubAudio.vocalCorrections ||= [];
+    const ids = globalThis.__clubVocalCorrectionIds ||= new WeakMap();
+    if (!ids.has(cur.src)) { const id = a.length; ids.set(cur.src, id);
+      a.push({id, at:performance.timeOrigin + performance.now(), time:t, origin, previousOrigin:cur.origin, errorMs, gap}); }`, false);
 }
 
 const median = values => {
@@ -43,7 +50,8 @@ export function diagnose(captures, serverOrigin) {
   return captures.map(c => {
     const sched = (c.scheduler || []).filter(r => r.output.contextTime > 0 && r.at > serverOrigin + 3000);
     const mapped = r => r.at - r.monotonic + r.output.performanceTime + (r.nextTime - r.output.contextTime) * 1000;
-    return { roomClock: c.roomClocks?.at(-1) ?? null,
+    return { vocalCorrections:c.vocalCorrections || [], vocalStarts:c.vocalStarts || [], forcedVocalSlew:c.forcedVocalSlew ?? null,
+      roomClock: c.roomClocks?.at(-1) ?? null,
       joinRoomClock: c.roomClocks?.filter(r => r.at <= c.starts?.[0]?.at).at(-1) ?? null,
       starts: c.starts || [], schedulerSamples: sched.length,
       originMinusServerMs: median(sched.map(r => r.transportOrigin - serverOrigin - c.clockSkew)),

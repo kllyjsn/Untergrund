@@ -193,6 +193,13 @@ export function channelEnvelope(capture, name, after = false) {
   return after ? postResumeEnvelope(data) : envelope(data);
 }
 
+export function vocalSourceEvidence(capture, wakes = 0) {
+  const corrections = (capture.vocalCorrections || []).filter(c => Math.abs(c.errorMs) > 30);
+  const expected = 1 + wakes;
+  return {count:Array.isArray(capture.vocalStarts) ? capture.vocalStarts.length : null,
+    expected, corrections, allowed:expected + corrections.length};
+}
+
 export function boundaryMetric(host, listener, boundary) {
   const slice = (rows, a, b) => rows.filter(([t]) => t >= a && t <= b);
   const around = correlate(slice(host, boundary - 1200, boundary + 2000), slice(listener, boundary - 1600, boundary + 2400), 400);
