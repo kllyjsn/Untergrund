@@ -14,7 +14,7 @@ import { installAudioTap, envelope, postResumeEnvelope, onsets, resolvedCompare,
 import { transitionAudio } from './club-sync-transition.mjs';
 import { measureDJEdits } from './club-dj-edit.mjs';
 import { installDiagnostics, diagnose } from './club-sync-diagnostics.mjs';
-import { mixFixture, realMixFixture, popHandoffTargetAt, loadRealMixStem, mixBoundaries, mixGraphEdges, installMixStem, analyzeMix, mixFailures, channelEnvelope } from './club-sync-mix.mjs';
+import { mixFixture, realMixFixture, popHandoffTargetAt, loadRealMixStem, mixBoundaries, mixGraphEdges, installMixStem, analyzeMix, mixFailures, channelEnvelope, firstMixDownbeat, missedFirstMixDownbeat } from './club-sync-mix.mjs';
 import { singRequest, vocalDb } from '../js/sing.js';
 import { analyzeVocalGrid, vocalFindings, referenceEnvelope, clipRange, extractPCM, floatWav, levelMatchClips } from './club-sync-vocals.mjs';
 import { parseNetwork, networkController, clockSpread } from './club-sync-network.mjs';
@@ -26,6 +26,7 @@ const SCENARIOS = [
   { name: 'host-skew', hostSkew: 2000 },
   { name: 'late-join', joinDelay: 10000 },
   { name: 'cold-invite', cold: true },
+  { name: 'cold-invite-first-downbeat', cold: true, coldDownbeat: true, mix: true },
   { name: 'injected-offset', displacementMs: 2000 },
   { name: 'reconnect', offlineMs: 10000 },
   { name: 'reconnect-expired', offlineMs: 20000 },
@@ -222,7 +223,7 @@ async function scenario(base, spec, network, run) {
     }
     const prejoin = spec.mix && !options.net && !spec.expiredMix && !!(spec.offlineMs || spec.freezeMs);
     const limitPaint = spec.expiredMix || prejoin;
-    let room = prejoin ? `sync-${randomBytes(6).toString('hex')}` : null;
+    let room = prejoin || spec.coldDownbeat ? `sync-${randomBytes(6).toString('hex')}` : null;
     const snapshot = async () => {
       const response = await fetch(`${base}/api/rooms/${room}`);
       assert.ok(response.ok, `Room snapshot HTTP ${response.status}`);
@@ -232,14 +233,14 @@ async function scenario(base, spec, network, run) {
         memberSeen: r.members.map(m => ({ id: m.id, seen: m.seen })), startsAt: r.currentSet?.startsAt };
     };
     const host = await client(network.base('host'), spec.hostSkew, song, 0, spec.mix, limitPaint); clients.push(host);
-    await host.nav(prejoin ? `/?room=${room}` : '/');
-    if (prejoin) await until(async () => (await snapshot()).members.length === 1, 'host in room');
+    await host.nav(room ? `/?room=${room}` : '/');
+    if (room) await until(async () => (await snapshot()).members.length === 1, 'host in room');
     else await host.clickElement(`[...document.querySelectorAll('.tab-club, .club-btn')].find(e => e.getBoundingClientRect().width && e.getBoundingClientRect().height)`, 'visible Club navigation');
     let listener;
-    if (!spec.cold) {
+    if (!spec.cold || spec.coldDownbeat) {
       listener = await client(network.base('listener'), spec.listenerSkew, null, spec.displacementMs, spec.mix, limitPaint);
       clients.push(listener);
-      await listener.nav(prejoin ? `/?room=${room}` : '/');
+      if (!spec.cold) await listener.nav(prejoin ? `/?room=${room}` : '/');
     }
     if (prejoin) {
       // These scenarios exercise an already-listening room, not invite navigation.
@@ -287,7 +288,12 @@ async function scenario(base, spec, network, run) {
       })()`);
       events.stallTarget = target;
     }
-    if (spec.handoff || spec.replay) {
+    if (spec.coldDownbeat) {
+      events.navigation = navigation;
+      events.join = joined;
+      assert.ok(initial.startsAt > navigation, 'Cold invite navigation must start before the published downbeat');
+      await pause(Math.max(0, initial.startsAt + 2000 - Date.now()));
+    } else if (spec.handoff || spec.replay) {
       const popHandoff = spec.handoff && spec.mix && options.vocal !== 'synthetic';
       if (popHandoff) {
         events.passTargetAt = popHandoffTargetAt(initial.startsAt, song.bpm);
@@ -400,6 +406,13 @@ async function scenario(base, spec, network, run) {
       raw[i].profileClock = { timestamp: metrics.metrics.find(m => m.name === 'Timestamp')?.value,
         epoch: await c.run('performance.timeOrigin + performance.now()') };
     }));
+    if (spec.coldDownbeat) {
+      const [hostOnsets, listenerOnsets] = raw.map(c => onsets(channelEnvelope(c, 'kick'), song.bpm));
+      const firstDownbeat = firstMixDownbeat(hostOnsets, listenerOnsets, initial.startsAt, song.bpm);
+      const failures = missedFirstMixDownbeat(firstDownbeat) ? ['first downbeat'] : [];
+      console.log(`  cold-invite first downbeat: ${JSON.stringify({ ...firstDownbeat, navigationLeadMs: initial.startsAt - navigation, failures })}`);
+      return { name: spec.name, spec, events, firstDownbeat, failures, raw: { captures: raw, hostOnsets, listenerOnsets } };
+    }
     if (spec.mix) {
       const mix = analyzeMix(raw, song, events, initial.startsAt, {
         resume: !!spec.freezeMs,
@@ -641,7 +654,7 @@ try {
   console.log(`Club sync: isolated Chrome processes; memory rooms; dry irregular ABCD kicks or seed-7 full-mix ${realVocal ? 'neural pop' : options.vocal === 'synthetic-pop' ? 'synthetic pop' : 'hypnotic sketch'} / 123 BPM.`);
   console.log('PCM destination tap → 180Hz low-pass RMS; getOutputTimestamp + true performance.timeOrigin.');
   console.log('Dry: signed lag resolved across ±3900ms; 7s baseline + interruption + 12s recovery. Mix: isolated rendered kick/vocal graph taps, drop−400ms freeze + 20s recovery; PCM resume boundaries for wakes.');
-  for (const spec of SCENARIOS.filter(s => !selectedScenarios || selectedScenarios.includes(s.name))) {
+  for (const spec of SCENARIOS.filter(s => selectedScenarios ? selectedScenarios.includes(s.name) : !(options.net && s.coldDownbeat))) {
     for (let run = 1; run <= +options.repeat; run++) {
       console.log(`Running ${spec.name}${+options.repeat > 1 ? ` (${run}/${options.repeat})` : ''}…`);
       const result = { ...await scenario(base, spec, network, run), run,
@@ -652,7 +665,7 @@ try {
       results.push(result);
     }
   }
-  console.table(results.filter(r => !r.spec.djLatency && !r.error).map(r => ({ scenario: r.name, 'median |Δ| ms': r.median?.toFixed(2), 'p95 ms': r.p95?.toFixed(2),
+  console.table(results.filter(r => !r.spec.djLatency && !r.spec.coldDownbeat && !r.error).map(r => ({ scenario: r.name, 'median |Δ| ms': r.median?.toFixed(2), 'p95 ms': r.p95?.toFixed(2),
     'max ms': r.max?.toFixed(2), matched: r.matched, missing: `${r.hostFixture.missing}/${r.missing}`,
     'signed lag ms': r.signedLagMs, 'entry→aligned ms': r.navigationToFirstAlignedKickMs?.toFixed(0) })));
   console.log('Detector validation: empty audio has no onsets; empty comparison cannot pass.');
