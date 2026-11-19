@@ -1,5 +1,97 @@
 # Club rendered-audio sync harness
 
+## Real neural vocals (local CPU)
+
+`npm run test:club-sync -- --vocal real --scenario short-wake-mix --diagnostics`
+uses a fixed seed-7 lyric-bearing pop fixture. The default remains synthetic.
+Install `singer/requirements.txt` in a venv first; set `SINGER_PYTHON` to its Python
+executable (default `~/singer-investigation-venv/bin/python`). The harness starts
+`test/club-sync-singer.py`, wrapping the production `Singer.render` with LiteRT,
+using the normal authenticated submit/result protocol and local `server.mjs`
+proxy. A model/request-pinned disk cache in `test/out/singer-cache` reuses the
+first neural render across invocations as well as the API's per-process cache.
+Weights download on first use.
+Allow up to 15 minutes for startup and another 15 minutes for the one prewarm render.
+
+Before Chrome starts, the harness prewarms `/api/sing` with the exact Opus request
+the browser will send. The server's memory cache is shared across clients and
+repeats. Each new page pauses only the main app module request while the real
+browser `singSong()` fetches, decodes and processes the cached API audio. No stem
+cache injection runs in real mode. Results require successful API audio responses,
+resolved `singSong()`, and starts of the processed vocal AudioBuffer on both clients.
+
+Alongside the output JSON, `*-stem.ogg` preserves the API response and `*-stem.wav`
+is its decoded PCM16 copy. `vocalGroundTruth` records the request, hash, BPM and
+sample-zero placement at bar 0 (zero timing trim); each result's `vocalTimeline`
+records the corresponding room epoch. `realStems` records per-page load/playback
+evidence. Existing synthetic-oriented analysis/thresholds are unchanged: these
+legacy thresholds still run unchanged.
+
+## Ground-truth metrics and clips
+
+`--vocal synthetic-pop` uses exactly the real-mode pop song but injects the
+original synthetic stem. `synthetic` retains the hypnotic fixture. Use a comma
+list of `--scenario` names and `--repeat 3` for sequential trials in one process.
+Add `--clips` to always save clips; otherwise existing threshold failures or new
+vocal findings trigger them. New measurements are diagnostic, not new CI gates.
+AFTER findings include gaps/phrase anomalies, vocal-to-kick absolute median
+above 25 ms or p95 above 50 ms, unresolved grid measurement or sustained recovery.
+
+`vocalGrid[0/1]` contains host/listener BEFORE and AFTER measurements. Reference
+audio is the actual decoded/processed stem at the isolated vocalBus tap's gain,
+placed at bar 0 (updated broadcast origins are honored on handoff). The reference
+envelope is saved in each result. Rendered RMS is binned at 4 ms; two-second
+windows hop one second, searching ±500 ms with mean-centered/cosine correlation.
+Competing periodic peaks are unresolved unless a silence transition or prior
+unambiguous window anchors their lag; ambiguous windows report null. Replay
+matching first compensates ±100 ms local timing drift and requires a unique
+earlier-content match sustained across at least two overlapping windows.
+Positive offsets mean late. `vocalVsKick` subtracts that client's median rendered
+kick onset offset from its Sequencer/Recorder grid over the same window; missing
+kicks or unvoiced/uncorrelated windows yield null, not zero. Signed median and
+absolute median/p95 are reported. This includes native kick attack delay.
+
+Gaps require expected >−30 dB relative to reference peak, rendered <−40 dB,
+for ≥40 ms. Intervals are relative to wake/handoff (`recoverAt`). Phrases are
+≥200 ms activity regions with ≤120 ms internal silence bridged; only fully
+observed phrases in each phase are scored. Envelope template matches ≥0.85
+classify present (±50 ms), missing, displaced or doubled. Known identical
+scheduled repeats, or occurrences better explained by their own on-grid phrase,
+are excluded from extra occurrences and counted as ambiguous.
+An additional 800 ms template scan flags earlier-content replays (up to 8 s back,
+≥0.92 similarity and ≥0.15 improvement over on-grid content). These are acoustic
+envelope findings, not semantic/lyric recognition; repeated or low-information
+content can remain ambiguous. Primary recovery is the end of three consecutive
+500 ms windows (100 ms hop), each with at least 250 ms expected singing, a
+measured same-client kick-relative offset within ±25 ms of that client's BEFORE
+median, and no ≥40 ms vocal gap. Unvoiced, unmeasured or gapped windows reset
+the streak; the minimum is 700 ms. Missing BEFORE baselines yield null.
+`recovery` records the baseline, parameters and fine windows;
+`absoluteGridRecoveryMs` retains the original two-second-window absolute-grid
+criterion as secondary. Null means not demonstrated, not instantaneous recovery.
+
+`test/out/clips/<scenario>-<mode>-<run>-{host,listener,expected}.wav` contains the
+isolated processed vocal; `*-{host,listener}-mix.wav` contains full destination
+audio, each spanning marker−4 s through the full measured AFTER window (the
+common captured vocal-envelope end minus the analyzer's 200 ms guard). This
+retains late gap/displaced-phrase evidence rather than stopping at +8 s.
+Capture is raw channel-0 PCM (mono),
+mapped with output-clock anchors at the native rate and band-limited to 24 kHz
+using OfflineAudioContext. A shared expected-active
+mask normalizes each clip to the same RMS (target −20 dBFS, reduced jointly if
+needed for headroom). Float WAV preserves samples; divide by the recorded gain
+to recover unscaled PCM. JSON records gains, target RMS, coverage and marker.
+Unobserved output-time regions are zero-filled and coverage is explicit.
+Clips with zero energy under the reference-active mask cannot be RMS-matched;
+their recorded RMS is zero and gain stays one (for example, frozen listeners
+when the only expected singing in the clip precedes wake).
+
+To recompute these metrics without repeating browser/audio trials:
+`node test/club-sync-vocal-report.mjs test/out/<capture>.json [...]`.
+This updates the input JSON from saved envelopes/reference, records the analyzer
+version/time, and prints listener summaries and all clip paths. Original legacy
+threshold results and audio clips are preserved.
+
 Run `npm run test:club-sync` with Node 22 and Chrome installed (`CHROME_PATH`
 overrides discovery). Add `-- --assert` for exit-status thresholds, or
 `-- --scenario late-join` (also `listener-skew`, `host-skew`, `cold-invite`,
