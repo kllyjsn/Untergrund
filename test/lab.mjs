@@ -12,6 +12,34 @@ assert.equal(healthy.clips, 0);
 assert.equal(healthy.renderRatio, 0.5);
 assert(!healthy.flags.includes('clipping'));
 
+for (const rate of [44100, sr]) {
+  for (const hz of [20, 27.5, 32.7, 55, 110]) {
+    const sub = Float32Array.from({ length: rate * 8 }, (_, i) => 0.5 * Math.sin(2 * Math.PI * hz * i / rate));
+    const sustainedSub = analyzePcm([sub], rate, { bpm: 120 });
+    assert.equal(sustainedSub.onsets, 0, `sustained ${hz} Hz at ${rate} Hz has no repeated attacks`);
+    assert.equal(sustainedSub.gridErrorMs, null, 'sustained sub-bass timing is unmeasured');
+  }
+}
+
+// Dense kicks over a sustained bed never reach 1.8 times the song's median RMS.
+// Flux must still find their attacks, at different tempi and recording levels.
+for (const bpm of [126, 154, 174]) {
+  for (const gain of [1, 0.05]) {
+    const kick = Float32Array.from({ length: sr * 6 }, (_, i) => {
+      const t = i / sr, phase = t % (60 / bpm);
+      return gain * (0.3 * Math.sin(2 * Math.PI * 440 * t) +
+        0.35 * Math.exp(-phase * 15) * Math.sin(2 * Math.PI * 65 * t));
+    });
+    const measured = analyzePcm([kick], sr, { bpm });
+    const expected = Math.floor(6 * bpm / 60);
+    assert(measured.onsets >= expected - 2 && measured.onsets <= expected + 2, `dense ${bpm}/${gain}: ${measured.onsets}`);
+    assert(measured.gridErrorMs < 20, `dense kick timing ${measured.gridErrorMs}`);
+  }
+}
+assert.equal(analyzePcm([new Float32Array(sr)], sr, { bpm: 120 }).gridErrorMs, null);
+assert.equal(analyzePcm([clean], sr, { bpm: 120 }).onsets, 0, 'steady tone is not a groove');
+assert.equal(analyzePcm([clean], sr).gridErrorMs, null, 'no tempo means no timing estimate');
+
 const clipped = new Float32Array(sr).fill(1);
 const unhealthy = analyzePcm([clipped], sr);
 assert(unhealthy.clips > 0);

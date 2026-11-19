@@ -24,7 +24,67 @@ Measured differences ignore changes smaller than these inclusive thresholds. Fin
 | Loudness & headroom | absolute target deviation 1 LU; lower preferred |
 | Stereo / mono | fold-down loss 0.5 LU; less loss preferred; correlation also reported |
 
-**Hold**: genre-balance deviation worsens by at least 1.5 dB, clipping increases, or true peak exceeds -1 dBTP and worsens by more than 0.05 dB. Existing unchanged safety breaches yield **Ship with notes**, as do other regressions; otherwise **Ship**. A single Hold holds the PR. Safety/genre regressions are critical, other regressions warning, remaining findings informational. Missing measurements infer no preference. Review notes include before/after numbers. `analyzeMix`, `targetBalance`, `analyzePcm` reuse the existing analyzers; songwriting comes from each render manifest.
+**Hold**: genre-balance deviation worsens by at least 1.5 dB, clipping increases, or true peak exceeds -1 dBTP and worsens by more than 0.05 dB. Existing unchanged safety breaches yield **Ship with notes**, as do other regressions, any **UNMEASURED** comparison, or an empty review; otherwise **Ship**. A single Hold holds the PR. Safety/genre regressions are critical, other regressions warning, remaining findings informational. Missing measurements infer no preference but never count as unchanged/passing evidence. Review notes include before/after numbers. `analyzeMix`, `targetBalance`, `analyzePcm` reuse the existing analyzers; songwriting comes from each render manifest.
+
+### Measurement limits and target provenance
+
+Groove uses positive log-RMS flux across low (<180 Hz), mid and high (>2.5 kHz) bands,
+with 10 ms frames, an 80 ms power-average envelope, a 20 ms rise, local 300 ms
+adaptive threshold and 50 ms refractory period. The power average and 0.2 minimum
+log rise suppress within-cycle RMS ripple from sustained sub-bass; flux starts
+only after both compared envelopes have complete averaging windows. This detects
+fresh attacks above sustained/limited dense kicks without a
+genre switch or a whole-song absolute loudness gate. Grid error remains a timing
+proxy, not a groove-quality or swing score. Silence, steady tones and missing BPM
+do not imply perfect timing: missing grid error is UNMEASURED.
+
+The original seven style mappings retain their commercial-LTAS-inspired curves
+(Pestana et al., AES 135, 2013; see `TARGET_CURVES` in `js/audio-quality.js`). New
+techno, hard-techno, minimal and trap/drill curves are **engineering priors**, not
+published per-genre measurements or fitted render medians: house supplies the
+baseline, with kick weight, distortion harmonics, sparse click percussion, and
+deep 808/bright-hat characteristics respectively supplying the documented offsets.
+Drill shares the trap prior; all six techno variants have explicit mappings.
+These curves are provisional spectral references, not a claim of perceptual
+acceptability. In particular, a stable bad render will not be improved simply by
+comparing it with itself. Unsupported styles and spectra lacking any octave from
+63 Hz through 8 kHz return no balance value and receive UNMEASURED; the optional
+16 kHz octave is omitted by the spectrum analyzer at 44.1 kHz (Nyquist).
+
+### Fixed-seed measurement audit
+
+Full-song Chrome offline renders, seed 42, main `a875e32` versus this measurement
+change. Each checkout was rendered independently using
+`test/suno-benchmark-page.js:full`; WAVs were decoded by ffmpeg to stereo 44.1 kHz
+and measured with that checkout's `analyzePcm`, `analyzeMix`, `targetBalance` and
+`reviewTrack` (the same pipeline as `scripts/listen-review.mjs`). Techno here is
+the HYPNOTIC style. No audio generator or mix settings were changed.
+
+| Style | BPM | Onsets before → after | Grid error ms before → after | Balance RMS dB before → after | New target | Worst deviation after |
+| --- | --- | --- | --- | --- | --- | --- |
+| Techno | 130 | 0 → 1333 | unavailable → 36.0 | unavailable → 4.3 | techno | +8.9 dB at 63 Hz |
+| Hard Techno | 150 | 0 → 1044 | unavailable → 22.2 | unavailable → 5.1 | hardtechno | +10.7 dB at 63 Hz |
+| Minimal | 124 | 752 → 1147 | 41.2 → 37.1 | unavailable → 3.2 | minimal | +6.3 dB at 63 Hz |
+| Drill | 140 | 228 → 715 | 32.1 → 27.2 | unavailable → 2.9 | trap | +5.6 dB at 500 Hz |
+| Trap | 138 | 124 → 938 | 21.1 → 29.0 | unavailable → 7.1 | trap | +12.2 dB at 500 Hz |
+
+The after columns were remeasured on the same saved WAVs after the sub-bass
+ripple correction. The initial flux detector incorrectly found 52 attacks in an
+eight-second sustained 32.7 Hz sine at 48 kHz; the corrected detector finds zero
+and leaves grid error unmeasured. Regression fixtures also cover sustained
+20, 27.5, 55 and 110 Hz tones at 44.1 and 48 kHz, while retaining the dense-kick
+tempo/level fixtures.
+
+Before, all five missing balance comparisons were misleadingly `same`; Techno
+and Hard Techno's missing groove comparisons were also `same`. After, all five
+have finite groove and balance measurements. Comparing a render with itself
+still yields `same` (not an absolute quality pass). Comparing against the old,
+missing measurements now yields **UNMEASURED / Ship with notes**, not Ship.
+Balance is a deviation, not an absolute accept/reject gate: the review's 1.5 dB
+threshold applies to *regression*. Onset counts cover all bands, not only kicks;
+more onsets or lower grid error does not establish improved musical quality.
+The high Trap balance error illustrates that these priors were not fitted to
+the listener's relative preference for the current renders.
 
 ## Optional model opinion
 
