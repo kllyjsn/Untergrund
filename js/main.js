@@ -256,7 +256,7 @@ function landJamPart(part, layer, t = null) {
 // Pressing again replaces the waiting song; the switch moment and transition stay put.
 // A song on recordings not yet downloaded waits (the old one keeps playing) until they're in, up to 8 s.
 function queueSong(plan) {
-  engine.prepareVocal(plan.next);
+  engine?.prepareVocal(plan.next);
   if (!handoff) handoff = { since: performance.now() };
   const h = handoff;
   h.plan = plan;
