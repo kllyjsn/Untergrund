@@ -197,7 +197,7 @@ const drill = await withChrome(async (run) => {
       return (await ctx.startRendering()).getChannelData(0);
     }
     const full = await gainCurve(0), errors = [];
-    for (const step of [2, 10, 12, 14]) {
+    for (const step of [2, 10, 14, 15]) {
       const joined = await gainCurve(step);
       let max = 0;
       for (let i = sd * rate; i < joined.length; i++) max = Math.max(max, Math.abs(joined[i] - full[i + step * sd * rate]));

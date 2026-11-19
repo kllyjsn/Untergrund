@@ -2802,12 +2802,13 @@ export class Sequencer {
     const pats = this.s.patterns, fill = pats[chain[pos]], style = this.s.artist?.style;
     if (!fill?.verseSwell || fill.sec || style === 'hardtechno' ||
         pats[chain[pos - 1]]?.sec !== 'verse' || pats[chain[pos + 1]]?.sec !== 'chorus') return false;
-    // Reach the crest before the last beat, giving the pickup room before the chorus lands.
+    // Keep the first beat at verse level and lift through the pickup before the chorus lands.
     const db = { ...SECTION_DB, ...STYLE_SECTION_DB[style] }, sd = this.e.stepDur;
-    const crest = db.chorus + 0.35, left = Math.max(0, 12 - offset);
+    const start = 4, end = 14, crest = db.chorus + 0.5;
+    const left = Math.max(0, end - Math.max(start, offset)), span = end - start;
     const v = 10 ** (db.verse / 20), c = 10 ** (crest / 20);
-    const from = left === 12 ? db.verse : left === 0 ? crest : 20 * Math.log10(c + (v - c) * left / 12);
-    this.level(t, crest, [from, left * sd]);
+    const from = left === span ? db.verse : left === 0 ? crest : 20 * Math.log10(c + (v - c) * left / span);
+    this.level(t, crest, [from, left * sd, Math.max(0, start - offset) * sd]);
     return true;
   }
 
