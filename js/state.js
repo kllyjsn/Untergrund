@@ -1118,15 +1118,25 @@ function drillVerses(pats, { chain, sections }, keep) {
     ...Object.fromEntries(Object.entries(rows).filter(([id]) => !keep.includes(id))) } });
   verse.steps = edit(verse, {
     kick: pad16([2, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
-    ch: pad16([1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1]),
+    ch: pad16([1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1]),
     stab: pad16([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
-    perc: pad16([0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1]),
+    perc: pad16([0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1]),
   }).steps;
   const spans = sectionSpans(sections);
+  let verses = 0;
+  for (const { k, at, bars } of spans) {
+    if (k !== 'v' || ++verses === 1 || bars < 16 || keep.includes('kick')) continue;
+    const response = pad16([2, 0, 0, 0, 0, 0, 0, 1]);
+    response[verses % 2 ? 13 : 11] = 1;
+    for (let bar = at; bar < at + (bars >> 1) && chain[bar] === 'C'; bar++) {
+      setTake(verse, bar, edit(patternAt(verse, bar), { kick: [...response] }));
+    }
+  }
   for (let i = 1; i < spans.length; i++) {
     const { k, at } = spans[i], bar = at - 1;
     if (k !== 'c' || spans[i - 1].k !== 'v' || chain[bar] !== 'D' || chain[at] !== 'G') continue;
     const steps = clone(verse.steps);
+    steps.perc[15] = 1;
     const acid = steps.acid.map((note, step) => step === 11 || step === 12 ? emptyAcidStep() :
       step === 14 ? { ...emptyAcidStep(), on: true } : note);
     const base = patternAt(fill, bar);

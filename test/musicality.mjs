@@ -59,6 +59,10 @@ for (const seed of [7, 42, 211, 1234]) {
   assert.notDeepEqual(song.patterns[2].steps.kick, song.patterns[6].steps.kick, 'the verse and chorus have different grooves');
   assert.deepEqual(song.patterns[6].steps.acid, original[6].steps.acid, 'the chorus glides are untouched');
   const saves = sanitize(JSON.parse(JSON.stringify(song)));
+  const secondVerse = [...song.chain.matchAll(/C+/g)][1].index;
+  const response = patternAt(song.patterns[2], secondVerse).steps.kick;
+  assert.notDeepEqual(response, song.patterns[2].steps.kick, 'the second verse answers with a different kick pickup');
+  assert.deepEqual(patternAt(saves.patterns[2], secondVerse).steps.kick, response, 'the pickup survives save and load');
   const transitions = [...song.chain.matchAll(/CDG/g)].map(({ index }) => index + 1);
   assert(transitions.length, 'the song has a verse-to-chorus turnaround');
   for (const at of transitions) {
@@ -79,6 +83,7 @@ for (const seed of [7, 42, 211, 1234]) {
   const kick = original[2].steps.kick;
   applySongPlan(song, 'drill', seed);
   assert.deepEqual(song.patterns[2].steps.kick, kick, 'the verse does not replace a locked kick');
+  assert.deepEqual(patternAt(song.patterns[2], secondVerse).steps.kick, kick, 'the response respects the kick lock');
   assert.deepEqual(patternAt(song.patterns[3], transitions[0]).steps.kick, original[3].steps.kick, 'the fill respects the kick lock too');
 }
 console.log('Drill verse and turnaround passed');
