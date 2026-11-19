@@ -72,6 +72,8 @@ const PHRASES = [
   [/(?:live|real|acoustic|recorded)\s+drums/g, ' livekit '],
   [/electric\s+piano|e[\s-]piano|fender\s+rhodes|wurlitzer|wurli/g, ' rhodes '], [/log[\s-]?drums?/g, ' logdrum '],
   [/acid\s+bass|\b303\b/g, ' acidbass '], [/(?:double|upright|live|bass)\s+(?:bass|guitar)/g, ' livebass '],
+  [/\bfm[\s-]+bass\b/g, ' fmbass '], [/\bpulse[\s-]+bass\b/g, ' pulsebass '],
+  [/\bwide[\s-]+reese(?:[\s-]+bass)?\b/g, ' widereese '], [/\bpluck[\s-]+bass\b/g, ' pluckbass '],
   [/\b(bass(?:\s+voice)?\s+(?:to|sound\s+like))\s+(?:an?\s+)?(?:uk[\s-]+)?drill[\s-]+808s?\b/g, '$1 eightoheight '],
   [/\b808s?\b/g, ' eightoheight '],
   [/open[\s-]hi[\s-]?hats?|open[\s-]hats?/g, ' openhat '], [/(?:closed[\s-])?hi[\s-]?hats?/g, ' hats '], [/bass[\s-]?drums?/g, ' kick '],
@@ -212,6 +214,10 @@ add(bassVoice(2), 'eightoheight');
 add(bassVoice(3), 'reese', 'wobble', 'wobbly');
 add(bassVoice(4), 'logdrum');
 add(bassVoice(5), 'electricbass', 'bassguitar');
+add(bassVoice(6), 'fmbass');
+add(bassVoice(7), 'pulsebass');
+add(bassVoice(8), 'widereese');
+add(bassVoice(9), 'pluckbass');
 const kit = (v) => ({ k: 'kit', v });
 add(kit(1), 'livekit'); add(kit(0), 'machinekit');
 for (const id of Object.keys(SCALES)) W[id] = { k: 'scale', v: id };
@@ -308,7 +314,7 @@ add(complaint('cluttered'), 'cluttered', 'messy', 'crowded', 'chaotic', 'clutter
 add(complaint('dull'), 'dull');
 
 const VOICE_NAMES = ['synth', 'Rhodes keys', 'pads', 'organ', 'brass', 'plucks', 'bells', 'piano', 'guitar', 'horns', 'strings', 'overdriven guitar', 'acoustic guitar', 'jazz guitar', 'banjo', 'twangy guitar', 'cello', 'clarinet'];
-const BASS_NAMES = ['303 acid bass', 'bass guitar', '808 bass', 'reese bass', 'log drum', 'electric bass'];
+const BASS_NAMES = ['303 acid bass', 'bass guitar', '808 bass', 'reese bass', 'log drum', 'electric bass', 'FM bass', 'pulse bass', 'wide Reese bass', 'pluck bass'];
 const TRACK_WORD = { drums: 'drums', melody: 'melody', kick: 'kick', clap: 'claps', snare: 'snare', ch: 'hats', oh: 'open hats', ride: 'ride', perc: 'percussion', acid: 'bass', stab: 'chords', vox: 'vocals' };
 
 // Bundles: moods, scenes and artists expand into the same primitive edits (a = signed amount).
@@ -896,7 +902,7 @@ export const INTENTS = {
   swing: 'amt: + swing / - straight', density: 'amt: + busier / - sparser', drops: 'amt: + bigger drops', space: 'amt: + reverb / - drier',
   echo: 'amt: + echo', grit: 'amt: + drive / - cleaner', pump: 'amt: + sidechain', punch: 'amt: + kick punch', variation: 'amt: + mutate / - steadier',
   volume: 'amt: ± master', harmony: 'amt: + richer chords / - plainer', dust: 'amt: + vinyl dust', scale: `value: ${Object.keys(SCALES).join('|')}`,
-  key: 'value: 0-11 (C=0)', keyStep: 'amt: ±1 semitone', voice: `value: 0-${VOICE_NAMES.length - 1} (${VOICE_NAMES.join(', ')})`, bassVoice: `value: 0-5 (${BASS_NAMES.join(', ')})`,
+  key: 'value: 0-11 (C=0)', keyStep: 'amt: ±1 semitone', voice: `value: 0-${VOICE_NAMES.length - 1} (${VOICE_NAMES.join(', ')})`, bassVoice: `value: 0-${BASS_NAMES.length - 1} (${BASS_NAMES.join(', ')})`,
   bpmScale: 'value: 0.5 half time | 2 double time', hook: 'value: 0 no melody | 1 add melody | 2 new melody',
   kit: `value: 0 machine | 1 live | 2 hybrid | ${KIT_BACKBEAT} recorded snare`, level: `target: ${TRACK_IDS.join('|')}, amt`, mute: 'target, value: bool', lock: 'target, value: bool', genre: `value: ${Object.keys(STYLES).join('|')}`,
   section: `sec: ${Object.keys(SECTION).join('|')}|bars; op: mute|add|density (tracks[]), energy|length|tension (amt), octave (tracks[] acid|stab, amt ±1|2), skip, strip, hook (value 0|1); `
@@ -941,7 +947,7 @@ export function validateEdits(list) {
     else if (e.id === 'bpm') { if ((x.value = num(e.value, 60, 200)) == null) continue; x.value = Math.round(x.value); }
     else if (e.id === 'key') { if ((x.value = num(e.value, 0, 11)) == null) continue; x.value = Math.round(x.value); }
     else if (e.id === 'voice') { if ((x.value = num(e.value, 0, VOICE_NAMES.length - 1)) == null) continue; x.value = Math.round(x.value); }
-    else if (e.id === 'bassVoice') { if ((x.value = num(e.value, 0, 5)) == null) continue; x.value = Math.round(x.value); }
+    else if (e.id === 'bassVoice') { if ((x.value = num(e.value, 0, BASS_NAMES.length - 1)) == null) continue; x.value = Math.round(x.value); }
     else if (e.id === 'kit') { if ((x.value = num(e.value, 0, KIT_BACKBEAT)) == null) continue; x.value = Math.round(x.value); }
     else { if ((x.amt = num(e.amt, -3, 3)) == null || !x.amt) continue; }
     out.push(x);

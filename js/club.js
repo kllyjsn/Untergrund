@@ -699,7 +699,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, getRelea
     bus.follow(bus.currentSet);
     startRoomBroadcast(startsAt);
     startLiveSet({
-      getState, getStyle, startsAt, toast, dj: avatar.name, room: activeRoom, title: track.title,
+      getState, startsAt, toast, dj: avatar.name, room: activeRoom, title: track.title,
       isPlaying: () => getTransport().playing,
       isDJ: () => { const b = parkedBus || bus; return !b.hostId || b.hostId === b.clientId; },
     });

@@ -23,8 +23,8 @@ for (const id of Object.keys(STYLES)) {
   if (STYLES[id].family === 'CLASSICAL') continue;
   for (let seed = 1; seed <= 12; seed++) {
     const g = generate(id, seed), sets = liveSets(g), band = STAB_BAND[Math.round(g.params.stab.voice)];
-    if (['neosoul', 'boombap'].includes(id)) assert.ok(sets.includes('kit'), `${id}/${seed} needs the live kit`);
-    assert.equal(sets.includes('snare'), id === 'drill', `${id}/${seed} snare-only sample set`);
+    if (['neosoul', 'boombap', 'breaks'].includes(id)) assert.ok(sets.includes('kit'), `${id}/${seed} needs the live kit`);
+    assert.equal(sets.includes('snare'), ['drill', 'dnb'].includes(id), `${id}/${seed} snare-only sample set`);
     assert.equal(sets.includes('harp'), g.pattern.hook?.v === 'harpplk', `${id}/${seed} recorded harp hook`);
     assert.equal(sets.includes('ob'), g.pattern.hook?.v === 'oboe', `${id}/${seed} recorded oboe hook`);
     assert.equal(sets.includes('fl'), g.pattern.hook?.v === 'airflute', `${id}/${seed} recorded flute hook`);
@@ -121,7 +121,7 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
   assert.deepEqual(liveSets(state), ['harp'], 'load a hook from any part of a saved song');
   const e = {
     state, recLock: new Map(), rec: Engine.prototype.rec, harpHook: Engine.prototype.harpHook,
-    ctx, filter: Engine.prototype.filter,
+    ctx, filter: Engine.prototype.filter, chordTone: Engine.prototype.chordTone,
     ch: { stab: { input: ctx.createGain() } }, soulBand: () => false,
     trimOut: (key, db, dest) => { if (key === 'hook-softmallet') throw fallback; return dest; },
     playBuf: (...args) => hits.push(args), bells: () => {},
@@ -159,7 +159,7 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
   state.params.stab.voice = 6;
   const e = {
     state, ctx, rec: Engine.prototype.rec, recLock: new Map([['harp', false]]),
-    stab: Engine.prototype.stab, harpBacking: Engine.prototype.harpBacking, filter: Engine.prototype.filter,
+    stab: Engine.prototype.stab, harpBacking: Engine.prototype.harpBacking, filter: Engine.prototype.filter, chordTone: Engine.prototype.chordTone,
     ch: { stab: { input: out } }, trimOut: (key, db, dest) => dest,
     soulBand: () => false, bells: (...args) => hits.push(args),
   };

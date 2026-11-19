@@ -83,7 +83,13 @@ export class Recorder {
       n += d ?? 0;
     }
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
-    this.add('hook', t, 60 + k + oct * 12 + n, dur * 0.92, v);
+    let pitch = 60 + k + oct * 12 + n;
+    const style = this.state.artist?.style, vo = Math.round(this.state.params.stab.voice);
+    if (((style === 'breaks' && vo === 1) || (style === 'reggaeton' && vo === 3)) && (voice === 'vocal' || voice === 'reed')) {
+      while (pitch > 79) pitch -= 12;
+      while (pitch < 48) pitch += 12;
+    }
+    this.add('hook', t, pitch, dur * 0.92, v);
   }
   acid(t, st, sliding, holdNext, sd) {
     const p = this.state.params.acid, vo = Math.round(p.voice);

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { freshSong, generate, sanitize, songPlan } from '../js/state.js';
 import { OfflineAudioContext, installGlobals } from './offline-audio.mjs';
 import { Engine, Sequencer, MASTER_TONE } from '../js/engine.js';
+import { withChrome } from './chrome.mjs';
 
 installGlobals();
 for (let seed = 1; seed <= 64; seed++) {
@@ -76,7 +77,7 @@ function instrument(style) {
   s.artist = { ...s.artist, style };
   const ctx = new OfflineAudioContext(2, 48000, 48000);
   const nodes = [];
-  for (const method of ['createGain', 'createBiquadFilter', 'createWaveShaper', 'createOscillator']) {
+  for (const method of ['createGain', 'createBiquadFilter', 'createWaveShaper', 'createOscillator', 'createChannelMerger']) {
     const original = ctx[method].bind(ctx);
     ctx[method] = () => { const node = original(); nodes.push({ method, node }); return node; };
   }
@@ -91,20 +92,66 @@ for (const style of ['hardtechno', 'hypnotic', 'minimal', 'drill', null]) {
     nodes.length = 0;
     e[method](...args);
     const colors = nodes.filter(({ node }) => node.oversample === '4x' && node.curve);
-    assert.equal(colors.length, style === 'hardtechno' ? 1 : 0, `${style} ${method} palette gate`);
+    assert.equal(colors.length, style === 'hardtechno' ? method === 'hook' ? 4 : 1 : 0, `${style} ${method} palette gate`);
     if (style !== 'hardtechno') continue;
-    assert.equal(nodes.filter(({ node }) => node.type === 'highpass' && node.frequency.value === 350).length, 2);
-    const cutoff = method === 'perc' ? 4200 : method === 'stab' ? 2800 : 1800;
+    assert.equal(nodes.filter(({ node }) => node.type === 'highpass' && node.frequency.value === 350).length, method === 'hook' ? 8 : 2);
+    const cutoff = method === 'perc' ? 4200 : 1800;
     assert.equal(nodes.filter(({ node }) => node.type === 'lowpass' && node.frequency.value === cutoff).length, 2);
     assert(nodes.some(({ node }) => node.gain?.events.some(ev => ev.k === 's' && ev.v === 0) && node.gain.events.some(ev => ev.k === 'l' && ev.t > 0.1)));
-    if (method === 'stab') assert(nodes.some(({ node }) => node.detune?.events.some(ev => ev.k === 'l' && ev.v === -16)));
-    if (method === 'perc') assert(nodes.some(({ node }) => node.frequency?.value === e.state.params.perc.tune * 2 * 2.414));
+    if (method === 'stab') {
+      const pitched = nodes.filter(({ node }) => node.detune?.events.some(ev => ev.k === 's' && ev.v >= 198));
+      assert(pitched.length >= 2);
+      assert(pitched.every(({ node }) => node.detune.events.some(ev => ev.k === 'l' && Math.abs(ev.v) >= 31.5 && ev.t === 0.22)));
+    }
+    if (method === 'perc') assert(nodes.some(({ node }) => node.frequency?.events.some(ev => ev.k === 'e' && Math.abs(ev.v - e.state.params.perc.tune * 2 * 1.71) < 1e-9)));
     if (method === 'hook') assert(nodes.some(({ node }) => node.gain?.events.some(ev => ev.k === 'l' && Math.abs(ev.t - 0.28) < 1e-9 && Math.abs(ev.v - 0.8 * 0.12 * 0.09) < 1e-9)));
+  }
+  for (const args of [[0.1, 0.2, 220, 0.6], [0.1, 0, 220, 0.6], [0.1, NaN, 220, 0.6], [0.1, 0.2, 0, 0.6], [0.1, 0.2, Infinity, 0.6], [0.1, 0.2, 220, 0], [NaN, 0.2, 220, 0.6]]) {
+    nodes.length = 0;
+    e.hardLead(...args, e.ch.stab.input);
+    const valid = style === 'hardtechno' && args.every(Number.isFinite) && args.slice(1).every(n => n > 0);
+    assert.equal(nodes.length > 0, valid);
+    if (valid) {
+      assert.equal(nodes.filter(({ node }) => node.detune?.value === -13 || node.detune?.value === 13).length, 2);
+      assert.equal(nodes.filter(({ node }) => node.type === 'lowpass' && node.frequency.value === 5200).length, 6);
+      assert.equal(nodes.filter(({ node }) => node.frequency?.events.some(ev => ev.k === 'e' && ev.v === 700)).length, 3);
+    }
   }
   for (const args of [[0, [440], 0.3], [NaN, [440], 0.3], [Infinity, [440], 0.3], [1, [], 0.3], [1, [NaN, 0, -440], 0.3], [1, [440], 0], [1, [440], NaN]]) {
     nodes.length = 0;
     e.hardPalette(0.1, ...args, e.ch.stab.input, 'rave');
     assert.equal(nodes.length, 0);
+  }
+}
+{
+  for (const style of ['hardtechno', 'minimal', null]) {
+    const { e, nodes } = instrument(style || 'minimal'), out = e.ch.stab.input;
+    if (!style) e.state.artist = null;
+    nodes.length = 0;
+    const bus = e.hardVoiceOut(out, -5);
+    assert.equal(bus === out, style !== 'hardtechno');
+    if (style !== 'hardtechno') { assert.equal(nodes.length, 0); continue; }
+    assert.equal(e.hardVoiceOut(out, -5), bus, 'Hard Techno tone bus is reused');
+    assert.equal(nodes.filter(({ node }) => node.type === 'highpass' && node.frequency.value === 300).length, 2);
+    assert(nodes.some(({ node }) => node.type === 'highshelf' && node.frequency.value === 1800 && node.gain.value === -5));
+  }
+  const { e, nodes } = instrument('hardtechno');
+  const split = e.hardStabOut(e.ch.stab.input);
+  assert.equal(split.core.channelCount, 1, 'Hard Techno stab core is mono');
+  assert.equal(split.core.channelCountMode, 'explicit');
+  assert.equal(e.hardStabOut(e.ch.stab.input), split, 'split stab buses are reused');
+  nodes.length = 0;
+  e.realtime = true;
+  e.hardLead(0.1, 0.12, 220, 0.6, e.ch.stab.input);
+  const stereo = nodes.find(({ method }) => method === 'createChannelMerger').node;
+  for (const { node } of nodes.filter(({ node }) => node.onended)) node.onended();
+  assert(stereo.cut, 'finished Hard Techno lead releases its stereo bus');
+  for (const style of ['hardtechno', 'minimal']) {
+    const { e, nodes } = instrument(style);
+    e.state.params.stab.voice = 2;
+    e.stab(0.1, 0.8);
+    const bends = nodes.filter(({ node }) => node.detune?.events.some(ev => ev.k === 's' && ev.v >= 198));
+    assert.equal(bends.length > 0, style === 'hardtechno', 'pad stab pitch envelope gate');
   }
 }
 for (const style of ['hardtechno', 'minimal']) {
@@ -243,5 +290,33 @@ for (const chainOn of [false, true]) {
   e.trigger = (id, t, v) => { assert(Number.isFinite(v)); hits++; };
   new Sequencer(e, s).tick(0, 0.1);
   assert(hits > 0);
+}
+const lowSide = await withChrome(run => run(`(async () => {
+  const { Engine } = await import('/js/engine.js'), { freshSong } = await import('/js/state.js');
+  const render = async (enabled, mono = false, otherGenre = false) => {
+    const c = new OfflineAudioContext(2, 96000, 48000), s = freshSong('hardtechno', 42);
+    s.artist = { style: 'hardtechno', seed: 42 };
+    const e = new Engine(c, s, { realtime: false }), merge = c.createChannelMerger(2);
+    e.out.disconnect();
+    if (otherGenre) s.artist.style = 'minimal';
+    const out = c.createGain(); out.connect(c.destination);
+    const mid = c.createOscillator(), side = c.createOscillator(), center = c.createGain(), edge = c.createGain(), invert = c.createGain();
+    mid.frequency.value = 100; side.frequency.value = 103; center.gain.value = 0.1; edge.gain.value = mono ? 0 : 0.025; invert.gain.value = -1;
+    mid.connect(center); center.connect(merge, 0, 0); center.connect(merge, 0, 1);
+    side.connect(edge); edge.connect(merge, 0, 0); edge.connect(invert).connect(merge, 0, 1);
+    merge.connect(enabled ? e.hardVoiceOut(out) : out); mid.start(); side.start();
+    const b = await c.startRendering(), L = b.getChannelData(0), R = b.getChannelData(1);
+    return { mid: L.map((x, i) => (x + R[i]) / 2), side: L.map((x, i) => (x - R[i]) / 2) };
+  };
+  const [dry, wet, mono, switched] = await Promise.all([render(0), render(1), render(1, true), render(1, false, true)]);
+  const power = x => x.slice(24000).reduce((sum, v) => sum + v * v, 0);
+  return { delta: 10 * Math.log10(power(wet.side) / power(dry.side)), midError: Math.sqrt(power(wet.mid.map((x, i) => x - dry.mid[i])) / power(dry.mid)), monoSide: power(mono.side), otherGenreError: power(switched.side.map((x, i) => x - dry.side[i])) };
+})()`));
+if (lowSide) {
+  assert(lowSide.delta < -30, JSON.stringify(lowSide));
+  assert(lowSide.midError < 1e-6, 'low-side correction preserves mono lows');
+  assert.equal(lowSide.monoSide, 0, 'mono input must not acquire side energy');
+  assert.equal(lowSide.otherGenreError, 0, 'other genres bypass voice side filtering');
+  console.log('hardtechno: native voice side highpasses, mono preservation and other-genre bypass passed');
 }
 console.log('hardtechno: 64 ensembles, 12-key gated FX, grid-synced rolls, dark saw hooks, gated filters/envelopes, breakdown ramps, muted rolls, standalone loops, optional hold API, fractional reloads and empty artist passed');
