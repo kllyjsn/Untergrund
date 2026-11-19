@@ -65,10 +65,12 @@ for (const seed of [7, 42, 211, 1234]) {
   assert.deepEqual(patternAt(saves.patterns[2], secondVerse).steps.kick, response, 'the pickup survives save and load');
   const transitions = [...song.chain.matchAll(/CDG/g)].map(({ index }) => index + 1);
   assert(transitions.length, 'the song has a verse-to-chorus turnaround');
-  for (const at of transitions) {
+  for (const [index, at] of transitions.entries()) {
     const fill = patternAt(song.patterns[3], at);
-    assert(fill.steps.acid[14].on && !fill.steps.acid[14].s, 'the fill carries a bass note into the last beat');
-    assert.equal(fill.steps.acid[14].v, 0.71, 'the pickup starts with a ghosted hit');
+    const pickup = index === 0 ? 14 : 12;
+    assert(fill.steps.acid[pickup].on && !fill.steps.acid[pickup].s, 'the fill carries a bass note into the last beat');
+    assert.equal(fill.steps.acid[pickup].v, index === 0 ? 0.71 : 0.92, 'later 808s enter earlier without losing the ghosted first entrance');
+    assert(!fill.steps.acid[index === 0 ? 12 : 14].on && fill.steps.kick[13], 'only the bass pickup moves ahead of the kick on repeats');
     assert(fill.steps.acid[15].on && !fill.steps.acid[15].a && !fill.steps.acid[15].s, 'the final step adds a soft 808 pickup');
     assert(fill.steps.snare[15] && fill.steps.ch[15], 'the pocket continues until the downbeat');
     assert.deepEqual(patternAt(saves.patterns[3], at).steps, fill.steps, 'written fills survive save and load');
@@ -102,7 +104,10 @@ console.log('Drill verse and turnaround passed');
 {
   const song = sanitize(freshSong('drill', 211));
   const loud = structuredClone(song);
-  for (const take of loud.patterns[3].at) delete take.steps?.acid?.[14]?.v;
+  for (const take of loud.patterns[3].at) {
+    delete take.steps?.acid?.[12]?.v;
+    delete take.steps?.acid?.[14]?.v;
+  }
   const notes = capture(song).notes.acid, unshaped = capture(loud).notes.acid;
   let softened = 0;
   assert.equal(notes.length, unshaped.length);
@@ -110,7 +115,8 @@ console.log('Drill verse and turnaround passed');
     const { v: normal, ...same } = unshaped[i];
     assert.deepEqual(note, same, 'the pickup voicing does not change bass pitch or timing');
     if (v !== normal) {
-      assert(Math.abs(v / normal - 0.71) < 1e-9, 'the MIDI pickup is about 3 dB softer');
+      const expected = softened === 0 ? 0.71 : 0.92;
+      assert(Math.abs(v / normal - expected) < 1e-9, 'the MIDI pickup keeps its written velocity');
       softened++;
     }
   }
