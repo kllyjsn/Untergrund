@@ -23,8 +23,8 @@ for (const id of Object.keys(STYLES)) {
   if (STYLES[id].family === 'CLASSICAL') continue;
   for (let seed = 1; seed <= 12; seed++) {
     const g = generate(id, seed), sets = liveSets(g), band = STAB_BAND[Math.round(g.params.stab.voice)];
-    if (['neosoul', 'boombap'].includes(id)) assert.ok(sets.includes('kit'), `${id}/${seed} needs the live kit`);
-    assert.equal(sets.includes('snare'), id === 'drill', `${id}/${seed} snare-only sample set`);
+    if (['neosoul', 'boombap', 'breaks'].includes(id)) assert.ok(sets.includes('kit'), `${id}/${seed} needs the live kit`);
+    assert.equal(sets.includes('snare'), ['drill', 'dnb'].includes(id), `${id}/${seed} snare-only sample set`);
     assert.equal(sets.includes('harp'), g.pattern.hook?.v === 'harpplk', `${id}/${seed} recorded harp hook`);
     assert.equal(sets.includes(band), !!band, `${id}/${seed} stab band`);
     assert.equal(sets.includes('pianosoft'), band === 'piano', `${id}/${seed} soft piano layer`);
