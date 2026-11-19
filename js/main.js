@@ -290,9 +290,9 @@ function landSong(t) {
   const { plan } = handoff;
   handoff = null;
   const fromBpm = state.bpm;
+  if (!trackingReplay) playbackStats.end('skip');
   if (plan.undo) pushUndo(plan.label || 'GENERATE');
   listens.end(listenPos());
-  if (!trackingReplay) playbackStats.end('skip');
   playbackSources.delete(state);
   songOrigin = plan.origin || { src: 'crate' };
   autoMajor = plan.autoMajor ?? false;
@@ -709,8 +709,8 @@ function syncHistory() {
 controlHooks.change = (el, label, held) => { touched(); if (knobGesture.begin(el, held)) { history.push(snapshot(), label); syncHistory(); } };
 controlHooks.end = () => knobGesture.end();
 
-function replaceState(s) {
-  stop();
+function replaceState(s, outcome) {
+  stop(outcome);
   autoMajor = false;
   state = s;
   if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
@@ -753,7 +753,7 @@ function listen(song, src = 'shared', via = '') {
   if (!guest) guest = { backup: clone(state), style };
   guest.song = song;
   if (STYLES[song.style]) style = song.style;
-  stop(); autoMajor = false;
+  stop('skip'); autoMajor = false;
   state = sanitize(clone(song.state));
   state.artist = { ...(state.artist || {}), title: song.title, name: song.artist, style: song.style };
   if (song.trackId || src === 'shared' || src === 'drop') playbackSources.set(state, { surface: 'public', trackId: song.trackId, genre: song.style,
@@ -1519,11 +1519,10 @@ async function openShared(id, autoplay = false) {
     const track = await fetchReleaseTrack(id);
     if (!track?.state) throw new Error('track_missing');
     if (STYLES[track.style]) { style = track.style; family = STYLES[track.style].family; }
-    if (playing) stop();
     const next = refreshSong(sanitize(track.state));
     next.artist = { ...(next.artist || {}), title: track.title, name: track.artist || next.artist?.name, style: track.style };
     songOrigin = { src: 'shared', tid: track.id || id };
-    replaceState(next);
+    replaceState(next, 'skip');
     playbackSources.set(state, { surface: 'public', trackId: track.id || id, fingerprint: songFingerprint(state) });
     if (autoplay) play(); else toast(`Loaded “${track.title}”. Press play.`);
   } catch { toast('Could not load that track'); }
