@@ -270,6 +270,66 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
 
   {
+    const curveStart = 2.153393336377362, wake = 15.461587301587302;
+    const curveParam = () => ({
+      value: 1, curve: { start: curveStart, duration: 76.06 }, targets: [],
+      cancelAndHoldAtTime(t) {
+        if (this.curve && t > this.curve.start && t < this.curve.start + this.curve.duration)
+          this.curve.duration = t - this.curve.start;
+      },
+      setTargetAtTime(value, t, constant) {
+        if (this.curve && t >= this.curve.start && t < this.curve.start + this.curve.duration)
+          throw new DOMException('setTargetAtTime overlaps setValueCurveAtTime', 'NotSupportedError');
+        this.targets.push([value, t, constant]);
+      },
+      setValueCurveAtTime(values, t, duration) { this.curve = { start: t, duration }; },
+    });
+    const rounded = curveParam();
+    rounded.cancelAndHoldAtTime(wake);
+    assert.ok(rounded.curve.start + rounded.curve.duration > wake);
+    assert.throws(() => rounded.setTargetAtTime(1, wake, .08), { name: 'NotSupportedError' });
+    for (const future of [false, true]) {
+      const c = fakeCtx(), s = defaultState(), starts = [], stops = [];
+      s.bpm = 123;
+      const buf = new FakeBuffer({ length: 48000 * 24, sampleRate: 48000 });
+      c.createBufferSource = () => {
+        const src = { connect: dst => dst, start: (...args) => starts.push(args), stop: t => stops.push([src, t]) };
+        return src;
+      };
+      const e = new Engine(c, s, { trackQueuedNotes: true,
+        vocal: () => ({ buf, gain: 1, duck: .5, lift: .75, ms: 0 }) });
+      e.vocal(2.124612848572484, 1);
+      const old = e.vocalNow.src;
+      const params = Array.from({ length: 4 }, curveParam);
+      [e.bandDuck.gain, e.singTrim.gain] = params;
+      e.ch.stab.carve = { gain: params[2] };
+      e.hookCarve = { gain: params[3] };
+      const queued = { start() {}, stop: t => stops.push(['queued', t]) };
+      e.startSource(queued, wake + 1);
+      c.currentTime = future ? wake - .1 : wake;
+      assert.doesNotThrow(() => e.discardQueuedNotes(wake), 'a rounded held curve cannot abort queue discard');
+      assert.equal(e.vocalNow, null);
+      assert.deepEqual(stops, [[old, wake + .06], ['queued', wake]]);
+      assert.equal(e.queuedNotes.length, 0);
+      assert.equal(e.editableHits.length, 0);
+      assert.equal(e.ducks.length, 0);
+      for (const [i, p] of params.entries())
+        assert.deepEqual(p.targets, [[i < 2 ? 1 : 0, wake + 1 / c.sampleRate, .08]]);
+      assert.doesNotThrow(() => e.vocal(wake, 8, 4, wake), 'the replacement stem can automate the held parameters');
+      assert.notEqual(e.vocalNow.src, old);
+      assert.equal(starts.length, 2);
+      e.vocalStop(wake + .1);
+      const count = stops.length;
+      e.vocalStop(wake + .1);
+      assert.equal(stops.length, count, 'an empty vocal stop stays a no-op');
+      e.vocalOf = () => null;
+      e.vocal(wake + .2, 9);
+      assert.equal(starts.length, 2, 'a missing stem stays silent after discard');
+    }
+    console.log('Vocal cancellation PASS: captured rounded-curve overlap throws; wake/future discard completes, stops sources, clears queues and restarts; empty/missing stems stay silent.');
+  }
+
+  {
     const c = fakeCtx(24000), s = defaultState();
     const buf = new FakeBuffer({ length: 48000, sampleRate: 24000 });
     buf.getChannelData(0).fill(.1);

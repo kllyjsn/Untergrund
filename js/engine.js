@@ -2629,7 +2629,7 @@ export class Engine {
     if (n < 2) return;
     const curve = new Float32Array(n);
     for (let k = 0; k < n; k++) curve[k] = rest + env[i + k] * (depth - rest);
-    p.setTargetAtTime(curve[0], t, 0.01);
+    p.setTargetAtTime(curve[0], t + 1 / this.ctx.sampleRate, 0.01);
     p.setValueCurveAtTime(curve, t0 + i / ENV_RATE, (n - 1) / ENV_RATE);
   }
 
@@ -2640,7 +2640,8 @@ export class Engine {
     const carves = [this.ch.stab?.carve?.gain, this.hookCarve?.gain].filter(Boolean);
     for (const p of [this.bandDuck.gain, this.singTrim.gain, ...carves]) {
       if (p.cancelAndHoldAtTime) p.cancelAndHoldAtTime(t); else p.cancelScheduledValues(t);
-      p.setTargetAtTime(carves.includes(p) ? 0 : 1, t, 0.08);
+      // A held curve's rounded endpoint can extend just past t.
+      p.setTargetAtTime(carves.includes(p) ? 0 : 1, t + 1 / this.ctx.sampleRate, 0.08);
     }
     cur.g.gain.cancelScheduledValues(t);
     cur.g.gain.setTargetAtTime(0, t, 0.008);
