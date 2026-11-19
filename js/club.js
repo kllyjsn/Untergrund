@@ -947,7 +947,12 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, getRelea
     let timeline;
     try { timeline = await loadReplay(item); } catch { return toast('That set is no longer in the jukebox'); }
     endLiveSet({ offer: false });
-    const startsAt = Date.now() + ROOM_BROADCAST_LEAD_MS;
+    const earliest = Date.now() + ROOM_BROADCAST_LEAD_MS;
+    // Take the next outgoing beat after the invite warmup, so the floor doesn't lose the pulse.
+    const transport = getTransport(), beatMs = 60000 / getState().bpm;
+    const startsAt = transport.playing
+      ? transport.startsAt + Math.ceil((earliest - transport.startsAt) / beatMs) * beatMs
+      : earliest;
     const broadcastId = `${bus.clientId}:${Date.now()}:${++bus.localSetVersion}`;
     bus.initiatedSets.add(broadcastId);
     const s = timeline.initial;

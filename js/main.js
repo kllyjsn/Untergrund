@@ -58,6 +58,7 @@ let transportOrigin = 0, roomJoinTimer = 0, clockOffset = null;
 let roomPlayback = false;
 let roomEditor = false;
 let roomFirstNote = null;
+let queuedRoomReplay = null, roomReplayLoad = null;
 // A song waiting for its downbeat: { step, from, plan, out } (see queueSong).
 let handoff = null;
 const uiQueue = [];
@@ -175,12 +176,17 @@ function ensureAudio() {
 // lead: how far ahead to queue audio (seconds); the worker tick passes its message event.
 let songOver = false;
 function schedule(lead) {
-  if (!playing || songOver) return;
+  if (!playing || (songOver && !queuedRoomReplay)) return;
   const ahead = typeof lead === 'number' ? lead : document.hidden ? BG_LEAD : roomPlayback ? ROOM_LEAD : 0.12;
   const now = ctx.currentTime;
   if (roomEditor) engine.pruneEditableHits(now);
   const clock = syncAudioClock(clockOffset, Date.now() / 1000 - now);
   clockOffset = clock.offset;
+  const replayAt = queuedRoomReplay ? queuedRoomReplay.startsAt / 1000 - clockOffset : Infinity;
+  if (songOver) {
+    if (replayAt < now + ahead) switchRoomReplay(replayAt);
+    return;
+  }
   let base = 60 / state.bpm / 4, landed = null;
   const target = transportOrigin / 1000 + abs * base - clockOffset;
   const fix = transportResync(target, nextTime, now, base, clock.jumped, seq.origin - abs);
@@ -203,9 +209,15 @@ function schedule(lead) {
       engine.vocal(firstTime ?? nextTime, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, step, roomPlayback ? nextTime : undefined);
   }
   // Landing redraws the whole UI for the new song, so schedule further ahead first to ride out that frame.
-  while (nextTime < ctx.currentTime + (landed ? Math.max(ahead, 0.5) : ahead)) {
+  while (true) {
+    const horizon = ctx.currentTime + (landed ? Math.max(ahead, 0.5) : ahead);
+    if (!(Math.min(nextTime, replayAt) < horizon)) break;
     const t = firstTime ?? nextTime;
     firstTime = undefined;
+    // Leave a nearly coincident outgoing step to the incoming replay downbeat.
+    if (t >= replayAt - 0.03 && replayAt < horizon) {
+      return switchRoomReplay(replayAt);
+    }
     if (handoff && !handoff.out && abs >= handoff.from) { engine.handoffOut(t, Math.max(t, nextTime + (handoff.step - abs) * engine.stepDur)); handoff.out = true; }
     // A stalled main thread can make the resync skip the planned downbeat; then the new song
     // starts on the first step that still sounds rather than holding the sweep for another bar.
@@ -340,8 +352,8 @@ function endTuning() {
   document.body.classList.remove('tuning');
 }
 
-function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room = startsAt !== null || roomPlayback, editRoom = roomEditor, replayStats = null, replay808Style = engine?.replay808Style } = {}) {
-  const seeking = playing;
+function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room = startsAt !== null || roomPlayback, editRoom = roomEditor, replayStats = null, replay808Style = engine?.replay808Style, switchAt = null } = {}) {
+  const seeking = playing && switchAt === null;
   clearPaused();
   roomResume = null;
   stopPreview();
@@ -356,16 +368,16 @@ function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room 
   abs = Math.max(0, Math.floor(step));
   if (handoff) { handoff = null; engine.handoffCancel(); }
   const wait = stepWall === null ? Math.max(0.01, delay) : (stepWall - wallNow) / 1000;
-  nextTime = audioNow + wait;
+  nextTime = switchAt ?? audioNow + wait;
   seq.startAt(abs, Math.max(audioNow, nextTime));
   state.current = seq.cur;
   songOver = false;
-  clockOffset = null;
+  if (switchAt === null) clockOffset = null;
   transportOrigin = startsAt ?? ((stepWall ?? wallNow + wait * 1000) - abs * (15000 / state.bpm));
   if (!seeking) engine.recLock = new Map();
   roomPlayback = room;
   roomEditor = room && editRoom;
-  roomFirstNote = room && startsAt !== null && startsAt > wallNow ? nextTime : null;
+  roomFirstNote = room && (startsAt > wallNow || stepWall > wallNow || switchAt !== null) ? nextTime : null;
   playing = true;
   if (replayStats || !trackingReplay) recordPlayback(replayStats || (!editRoom && playbackSources.get(state)), nextTime, abs);
   if (pat().score) preloadScore(pat().score);
@@ -386,6 +398,7 @@ function roomStartPending() {
 }
 
 function cancelRoomStart() {
+  queuedRoomReplay = roomReplayLoad = null;
   if (roomStartPending()) {
     roomResume = null;
     stop();
@@ -396,6 +409,8 @@ function cancelRoomStart() {
 }
 
 function stop(playbackOutcome = 'stop') {
+  const replay = playbackOutcome === 'complete' ? queuedRoomReplay : null;
+  queuedRoomReplay = roomReplayLoad = null;
   if (roomStartPending()) engine.discardQueuedNotes(ctx.currentTime);
   playbackStats.end(playbackOutcome);
   trackingReplay = false;
@@ -429,6 +444,7 @@ function stop(playbackOutcome = 'stop') {
   renderHome();
   releaseMedia();
   syncNowPlaying();
+  if (replay) startRoomReplay(replay);
 }
 
 function recordPlayback(source, at, step) {
@@ -872,7 +888,7 @@ function showJukebox() {
 }
 
 // Saved Club sets replay from their timeline; `asGuest` (jukebox) keeps the listener's own project safe.
-function timelineHooks(asGuest, replayStats = null) {
+function timelineHooks(asGuest, replayStats = null, switchAt = null) {
   // The timeline carries a genre but not the seed needed by other genre-specific processing.
   let replay808Style;
   return {
@@ -881,6 +897,21 @@ function timelineHooks(asGuest, replayStats = null) {
       songOrigin = { src: asGuest ? 'jukebox' : 'room' };
       if (STYLES[st]) replay808Style = style = st;
       const next = sanitize({ ...s, artist: state.artist });
+      if (switchAt !== null) {
+        playbackStats.end('skip');
+        trackingReplay = false;
+        listens.end(listenPos());
+        if (artistLive) stopArtistLive(false);
+        jamQueue.length = 0;
+        seq.dropNext = false;
+        engine.discardQueuedNotes(switchAt);
+        autoMajor = false;
+        state = next;
+        engine.state = seq.s = state;
+        engine.replay808Style = replay808Style;
+        engine.handoffIn(switchAt);
+        return;
+      }
       if (!asGuest) return replaceState(next);
       stop(); autoMajor = false; state = next;
       if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
@@ -903,32 +934,52 @@ function timelineHooks(asGuest, replayStats = null) {
       if (seq && !state.chainOn && want !== seq.cur) seq.queued = want;
       build(); if (!guest) persist();
     },
-    play: (opts) => play({ ...opts, room: !asGuest, replayStats, replay808Style }), isPlaying: () => playing, onEnd: () => playing && stop('complete'),
+    play: (opts) => play({ ...opts, room: !asGuest, editRoom: false, replayStats, replay808Style, switchAt }), isPlaying: () => playing, onEnd: () => playing && stop('complete'),
   };
 }
 function replayToRoom(timeline, startsAt, item) {
+  const replay = { timeline, startsAt, item };
+  queuedRoomReplay = roomReplayLoad = null;
+  if (playing && startsAt > Date.now()) queuedRoomReplay = replay;
+  else startRoomReplay(replay);
+}
+
+function switchRoomReplay(at) {
+  const replay = queuedRoomReplay;
+  queuedRoomReplay = null;
+  startRoomReplay(replay, at > ctx.currentTime ? at : null);
+}
+
+function startRoomReplay({ timeline, startsAt, item }, switchAt = null) {
   const stats = item && item.public !== false && timeline.duration > 0
     ? { surface: 'club', genre: timeline.style, replay: { startsAt, duration: timeline.duration } } : null;
-  playTimeline(timeline, startsAt, timelineHooks(false, stats));
+  playTimeline(timeline, startsAt, timelineHooks(false, stats, switchAt));
   roomResume = () => replayToRoom(timeline, startsAt, item);
+  if (switchAt !== null) { build(); persist(); }
   syncNowPlaying();
 }
 
 async function joinRoomReplay(item) {
+  const request = roomReplayLoad = {};
+  let timeline;
   try {
-    const timeline = item.replay.timeline || await loadReplay(item.replay);
-    playbackStats.end('skip');
-    replayToRoom(timeline, +item.startsAt, item);
-    toast(`Replaying “${item.title}” with the room`);
-    trackEvent('set_replay', { kind: 'room_listener' });
-  } catch { joinRoomSet({ ...item, replay: null }); }
+    timeline = item.replay.timeline || await loadReplay(item.replay);
+  } catch {
+    if (roomReplayLoad === request) joinRoomSet({ ...item, replay: null });
+    return;
+  }
+  if (roomReplayLoad !== request) return;
+  try { replayToRoom(timeline, +item.startsAt, item); } catch { return joinRoomSet({ ...item, replay: null }); }
+  toast(`Replaying “${item.title}” with the room`);
+  trackEvent('set_replay', { kind: 'room_listener' });
 }
 
 function joinRoomSet(item) {
-  stopTimeline();
+  queuedRoomReplay = roomReplayLoad = null;
   const sameSet = roomStatsItem === item;
   roomStatsItem = item;
   if (item?.replay) return joinRoomReplay(item);
+  stopTimeline();
   if (!item?.state) return;
   const nextStyle = STYLES[item.style] ? item.style : STYLES[item.state.artist?.style] ? item.state.artist.style : style;
   const roomState = sanitize(clone(item.state));
@@ -973,6 +1024,7 @@ function stopRoomStats(item) {
 }
 
 function startRoomBroadcast(startsAt) {
+  queuedRoomReplay = roomReplayLoad = null;
   if (playing) {
     playbackStats.end();
     roomPlayback = roomEditor = true;
