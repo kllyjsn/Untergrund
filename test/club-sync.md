@@ -79,6 +79,10 @@ uses the per-client PCM resume-boundary detector from PR #198 (631a571)
 when measuring wakes: without it, pre-freeze PCM can map across the output-clock
 jump and contaminate the post-wake window. It is now bundled in the harness
 for both dry and full-mix wakes (the application remains unchanged).
+In full-mix wakes, detect kicks on the continuous host envelope and match them
+by output time: cropping there can turn a pre-recovery kick tail into a false
+attack, and a delayed marker can hide a real one. Only the frozen listener's
+kick PCM is cropped before detection.
 The harness records freeze/resume/visibility events and AudioContext clocks.
 It also calls Page.bringToFront after activation and reports actual visibility
 (Chrome can remain hidden after this lifecycle transition). This is desktop

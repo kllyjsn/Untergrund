@@ -115,10 +115,13 @@ export function analyzeMix(raw, s, events, origin) {
   const [hb, lb] = raw.map(r => envelope(r, 2));
   const start = Math.max(he[0][0], le[0][0]) + 500, end = Math.min(he.at(-1)[0], le.at(-1)[0]) - 200;
   const phases = {};
+  // The host keeps rendering: match its continuous onsets by output time,
+  // not by the (possibly delayed) resume marker for the frozen listener.
+  const host = onsets(channelEnvelope(raw[0], 'kick'), s.bpm);
   for (const [name, from, to] of [['before', start, events.interruptAt], ['after', events.recoverAt, end]]) {
     const rows = channel => raw.map(r => channelEnvelope(r, channel, name === 'after'));
-    const [kh, kl] = rows('kick'), [vh, vl] = rows('vocal');
-    const host = onsets(kh, s.bpm), listener = onsets(kl, s.bpm);
+    const listener = onsets(channelEnvelope(raw[1], 'kick', name === 'after'), s.bpm);
+    const [vh, vl] = rows('vocal');
     const kicks = matchEvents(host, listener, from + (name === 'before' ? 150 : 0), to - 150, 150);
     kicks.hostOnsets = host; kicks.listenerOnsets = listener;
     const threshold = Math.max(...vh.filter(([t]) => t >= from && t <= to).map(r => r[1]), 0) * .25;
