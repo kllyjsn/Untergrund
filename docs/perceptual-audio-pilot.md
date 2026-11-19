@@ -2,44 +2,22 @@
 
 ## Listener-rated pack
 
-Scored the original level-matched `blind-genre-listening-pack.zip`, not regenerated audio. The pack ZIP SHA-256 is
-`2bf0e9f7eb8663068e08ec947eeeedc2d29a2521b828456e5a70bb4ee51325b7`. The corrected unblinding key puts Trap
-first. One listener rated each **pair as a whole**, with no version preference or separate labels for dimensions or
-parts. “Halfway decent” is not a pass, and the eight excerpts are only four independent musical passages.
+We scored the exact loudness-matched masters used for listening, excluding the separator silence. Each pack
+had four independent musical passages, with two versions per passage. One listener gave overall judgments,
+not separate ratings for each cue, part, or version preference. The blind key and clip-level results stay private.
 
-Each cell is first / second in original playback order. Higher means more of the cue, not worse music by definition.
+For each cue, we averaged the two versions of each passage and asked whether more of the cue was measured in
+the three poorly rated passages than in the best-rated passage. No single cue separated all three in either
+pack. Small shifts to the analysis start did not change the first pack's comparisons. In the follow-up pack,
+a resonance score fell after a revision that the listener still rated poorly in both versions.
 
-| Pair | Genre / seed | Pair rating | Harsh transients | Transition jolt | Lack of smoothness | Toy-like resonance |
-| --- | --- | --- | ---: | ---: | ---: | ---: |
-| 01 | Trap / 42 | Halfway decent | 16.16 / 15.35 | 34.06 / 35.64 | 7.40 / 7.48 | 1.02 / 1.22 |
-| 02 | Hard Techno / 42 | Terrible | 14.63 / 10.05 | 10.72 / 8.44 | 9.15 / 7.25 | 0.74 / 0.30 |
-| 03 | Minimal / 1234 | Terrible | 27.15 / 31.37 | 92.15 / 90.66 | 14.29 / 14.66 | 10.72 / 9.92 |
-| 04 | Drill / 1234 | Terrible | 43.63 / 41.02 | 36.28 / 36.00 | 6.05 / 5.67 | 56.92 / 66.96 |
-
-On the mean of each pair’s two versions, **Minimal scores higher than Trap on all four cues**. **Drill** scores higher
-on three, with the largest transient and resonance values, but is missed by the smoothness cue. **Hard Techno** scores
-higher only on the smoothness cue, and only on the pair mean: one version is below both Trap versions. None of the
-individual cues separates all three pairs. In particular, the resonance cue should not be used as a realism judgment,
-and a low score in any column does not clear a track. The pack contains only masters and no section markers.
-The pair-mean ordering against Trap was unchanged when moving both excerpt starts by 0, 4, 8, 12 or 16 ms
-relative to the 20 ms analysis hop. This checks alignment sensitivity, not listener or genre generalization.
-
-Reproduce against the unzipped `blind-pilot/` folder below. The end of version one and start of version two bracket the
-separator silence (detected with ffmpeg `silencedetect=noise=-65dB:d=0.6`). Do not score the separator as a transition.
-
-```sh
-d=/path/to/blind-pilot
-for spec in '01 21.42 22.98' '02 19.75 21.31' '03 16.03 17.59' '04 21.12 22.68'; do
-  set -- $spec
-  node scripts/perceptual-clip.mjs "$d/Pair-$1.mp3" 0 "$2"
-  node scripts/perceptual-clip.mjs "$d/Pair-$1.mp3" "$3"
-done
-```
+This is partial separation, not a calibrated measure of sound quality or instrument realism. Do not use a low score
+to clear a track or a lower score to claim a listener-preferred improvement. The blind audio had no stems or
+section markers; those measurements come from separate benchmark renders below.
 
 ## Fixed-seed coverage
 
-The recorded run used the fast tier (the densest two bars for each master and its pre-master stems) at the audio
-implementation revision [`f9cc15e`](https://github.com/kllyjsn/Untergrund/commit/f9cc15ec8441384b88dfb0901f83ee74cd96160c).
+The recorded run used the fast tier (the densest two bars for each master and its pre-master stems).
 It produced 102 master rows and 1,073 stem rows, including silent or otherwise unmeasurable parts. All masters
 had all four excerpt cues; 37 also had a measurable section boundary in their two-bar window.
 
@@ -93,7 +71,7 @@ A dash means unmeasured. The scores are not a cross-genre quality ranking.
 | `nocturne` | 2.85 / 4.33 / 0.77 | 56.66 / 51.25 / 51.88 | — / — / — | 7.94 / 9.72 / 6.67 | 65.74 / 55.96 / 0.24 |
 | `repertoire` | 1.30 / 0.48 / 2.65 | 24.34 / 24.33 / 32.73 | — / — / — | 13.36 / 12.52 / 9.76 | 6.91 / 0.13 / 40.65 |
 
-### Highest part scores in the four pilot genres
+### Example part scores from the fixed-seed run
 
 These are medians of the new fixed-seed stem renders, not stem measurements of the blind pack. Each column shows
 the part with the highest measured p50 for that cue, with its measured seed count. Pre-master stem coloration,
@@ -101,10 +79,10 @@ level in the arrangement, and the mix result need not agree.
 
 | Style | Harsh transients | Transition jolt | Section jolt | Lack of smoothness | Toy-like resonance |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `trap` | `clap` 67.04 (n=3) | `clap` 53.20 (n=3) | — | `ch` 40.74 (n=3) | `stab` 18.29 (n=3) |
+| `drill` | `snare` 68.51 (n=3) | `clap` 52.41 (n=3) | — | `ch` 41.23 (n=3) | `hook` 22.72 (n=3) |
 | `hardtechno` | `ride` 68.21 (n=2) | `stab` 57.44 (n=3) | `kick` 50.00 (n=3) | `ch` 36.43 (n=3) | `hook` 51.10 (n=3) |
 | `minimal` | `perc` 99.76 (n=3) | `snare` 60.26 (n=2) | `fx` 98.85 (n=2) | `snare` 41.61 (n=3) | `stab` 33.16 (n=3) |
-| `drill` | `snare` 68.51 (n=3) | `clap` 52.41 (n=3) | — | `ch` 41.23 (n=3) | `hook` 22.72 (n=3) |
+| `trap` | `clap` 67.04 (n=3) | `clap` 53.20 (n=3) | — | `ch` 40.74 (n=3) | `stab` 18.29 (n=3) |
 
 ### Next calibration
 
