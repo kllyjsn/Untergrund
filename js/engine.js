@@ -2329,7 +2329,7 @@ export class Engine {
       const edge = c.createOscillator(); edge.setPeriodicWave(this.drill808Wave);
       edge.frequency.setValueAtTime(f * knock * 3, t);
       edge.frequency.exponentialRampToValueAtTime(f * 3, t + 0.03);
-      edge.connect(this.filter('lowpass', Math.max(80, p.cutoff * 3.5), 0.7)).connect(this.gain(0.17)).connect(amp);
+      edge.connect(this.filter('lowpass', Math.max(80, p.cutoff * 3.5), 0.7)).connect(this.gain(0.13)).connect(amp);
       eight08.push(edge);
     }
     for (const x of eight08) { this.startSource(x, t); x.stop(end); }
