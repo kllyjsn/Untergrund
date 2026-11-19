@@ -230,6 +230,28 @@ console.log('Drill verse and turnaround passed');
 }
 console.log('hook arrangement and save round-trip passed');
 
+for (const seed of [7, 211, 503]) {
+  const song = freshSong('drill', seed);
+  const chorus = song.chain.indexOf('G') * 16;
+  assert(song.patterns[6].hook.m, 'generated Drill plays the sung melody path');
+  const collect = (s, from, until) => {
+    const rec = new Recorder(s), seq = new Sequencer(rec, s), hits = [];
+    rec.hook = (_t, _v, pitch, dur, voice, _oct, _strong, _b, _up, x) => {
+      if (!x.harm && dur <= 0.85) hits.push([rec.step, pitch, voice, x.take]);
+    };
+    if (from) seq.startAt(from, 100);
+    for (let i = from; i < until; i++) seq.tick(i, 100 + (i - from) * rec.stepDur);
+    return hits;
+  };
+  const hits = collect(song, 0, song.chain.length * 16);
+  assert(hits.some(([, pitch, , take]) => take === 1 && hits.some(([, p, , t]) => p === pitch && t === 0)),
+    `Drill/${seed}: a repeated sung pitch uses both takes`);
+  const saved = sanitize(JSON.parse(JSON.stringify(song)));
+  const inChorus = hits.filter(([i]) => i >= chorus && i < chorus + 64);
+  assert(inChorus.length > 0, `Drill/${seed}: first chorus contains sung hits`);
+  assert.deepEqual(collect(saved, chorus, chorus + 64), inChorus, `Drill/${seed}: late start of a saved song selects the same takes`);
+}
+
 // Neighbouring genres must not share one template: different rooms, lead roles and hook writing.
 {
   const g = (st) => generate(st, 21);

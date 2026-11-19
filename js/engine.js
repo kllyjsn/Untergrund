@@ -2741,6 +2741,13 @@ const DRUMS = new Set(['kick', 'clap', 'snare', 'ch', 'oh', 'ride', 'perc']);
 const EDITABLE_HITS = new Set(['kick', 'clap', 'snare', 'ride', 'perc', 'vox']);
 const HIT_EDIT_GUARD = 0.012;
 
+// Alternate repeats within a phrase and on the next pass, without a counter to reset on seek.
+function windTake(notes, index, pitchIndex, pass) {
+  const pitch = notes[index][pitchIndex];
+  for (let i = 0; i < index; i++) if (notes[i]?.[pitchIndex] === pitch) pass++;
+  return pass % 2;
+}
+
 // Is the hook sounding at (or about to play) step hi? A note started k steps ago still rings for its length.
 function hookBusy(hk, hi, hm) {
   const plays = (j) => hk.s[j] && (hm > 1 || j < 16);
@@ -3030,9 +3037,8 @@ export class Sequencer {
         const lean = (answer ? 0.006 : -0.003) * x.feel + (hash(hi, 97) - 0.5) * 0.008 * x.feel;
         const resolve = hm > 1 && answer && ph === 1 && !hk.s.slice(hi + 1).some(Boolean);
         const strong = !hk.h && (hi % 4 === 0 || st[1] >= 2), ht = tt + lean + (s.master.humanize || 0) * 0.008;
-        // Alternate repetitions inside the motif and between passes; no counter to reset on a seek.
         const expression = Object.hasOwn(WIND_HOOK, hk.v)
-          ? { ...x, take: (Math.floor(abs / 32) + hk.s.slice(0, hi).filter((note) => note?.[0] === st[0]).length) % 2 } : x;
+          ? { ...x, take: windTake(hk.s, hi, 0, Math.floor(abs / 32)) } : x;
         e.hook(ht, Math.min(1, st[2] * phraseVel), st[0] + lift, st[1] * sd, hk.v, hk.o, strong, b, !hk.h && resolve, expression);
         // At the peak a second player doubles the answer's held notes a third below.
         if (this.cur === 6 && answer && hm > 1 && st[1] >= 3 && !hk.h && this.songBars) e.hook(ht + 0.004, Math.min(1, st[2] * phraseVel) * 0.55, stepDeg(st[0], -2, scale) + lift, st[1] * sd, hk.v, hk.o, strong, b, false, { ...expression, harm: 1 });
@@ -3149,15 +3155,17 @@ export class Sequencer {
     const at = (k) => (n ? ch[((k % n) + n) % n] : this.cur);
     const pp = (k) => patternAt(this.s.patterns[at(k)], n ? ((k % n) + n) % n : -1);
     const part = (k) => this.singPart(pp(k), at(k), pp(k - 1), at(k - 1));
+    const hook = pp(P).hook, wind = Object.hasOwn(WIND_HOOK, hook?.v);
+    const takeAt = (xs, i, k) => wind ? windTake(xs, i, 2, Math.floor((bar + k - P) / B)) : undefined;
     const notesIn = (k) => {
       const cb = ((k % B) + B) % B, out = [], q = part(k), nq = cb === B - 1 && part(k + 1);
       if (q) {
-        const xs = (pp(k).hook.m[q] || []).filter((x) => x[0] >= cb * 16 && x[0] < cb * 16 + 16), sh = this.register(at(k), bar + k - P, pp(k).hook, q, cb);
-        for (const x of xs) out.push({ at: x[0] - cb * 16, x, q, sh });
+        const xs = pp(k).hook.m[q] || [], sh = this.register(at(k), bar + k - P, pp(k).hook, q, cb);
+        xs.forEach((x, i) => { if (x[0] >= cb * 16 && x[0] < cb * 16 + 16) out.push({ at: x[0] - cb * 16, x, q, sh, take: takeAt(xs, i, k) }); });
       }
       if (nq) {
-        const xs = (pp(k + 1).hook.m[nq] || []).filter((x) => x[0] < 0), sh = this.register(at(k + 1), bar + k + 1 - P, pp(k + 1).hook, nq, 0);
-        for (const x of xs) out.push({ at: 16 + x[0], x, q: nq, pickup: 1, sh });
+        const xs = pp(k + 1).hook.m[nq] || [], sh = this.register(at(k + 1), bar + k + 1 - P, pp(k + 1).hook, nq, 0);
+        xs.forEach((x, i) => { if (x[0] < 0) out.push({ at: 16 + x[0], x, q: nq, pickup: 1, sh, take: takeAt(xs, i, k + 1) }); });
       }
       return out;
     };
@@ -3166,7 +3174,7 @@ export class Sequencer {
     for (const { at: a, x } of notes) for (let j = a; j < Math.min(16, a + x[1]); j++) busy[j] = true;
     for (const { at: a } of notes) if (a > 0) busy[a - 1] = true;
     if (notesIn(P + 1).some((o) => o.at === 0)) busy[15] = true;
-    return (this.sungAt = { bar, P, cur: this.cur, s: this.s, notes, busy, hook: pp(P).hook, part: part(P), any: notes.length > 0 || busy.some(Boolean) });
+    return (this.sungAt = { bar, P, cur: this.cur, s: this.s, notes, busy, hook, part: part(P), any: notes.length > 0 || busy.some(Boolean) });
   }
 
   // Section register of the sung line, in scale steps (the same moves as the riff hook's vhook and climb()): the verse
@@ -3208,8 +3216,9 @@ export class Sequencer {
       const sec = o.q === 'v' ? (s.patterns[this.cur]?.sec ? 1.15 : 0.82) : o.q === 'b' ? 0.6 : 1, strong = strongNote(start, dur);
       const ht = t + (hash(start, 97) - 0.5) * 0.008 * x.feel + (s.master.humanize || 0) * 0.008;
       const b = 0.58 + 0.42 * ((((bar % 8) + 8) % 8) / 7), v = Math.min(1, vel * sec) * (SUNG_VOICE[hk.v] ?? 1);
-      e.hook(ht, v, semi + lift, dur * sd, hk.v, hk.o, strong, b, false, x);
-      if (this.cur === 6 && o.q === 'n' && ph % 2 === 1 && dur >= 6 && this.songBars) e.hook(ht + 0.004, v * 0.55, stepDeg(semi, -2, scale) + lift, dur * sd, hk.v, hk.o, strong, b, false, { ...x, harm: 1 });
+      const expression = o.take == null ? x : { ...x, take: o.take };
+      e.hook(ht, v, semi + lift, dur * sd, hk.v, hk.o, strong, b, false, expression);
+      if (this.cur === 6 && o.q === 'n' && ph % 2 === 1 && dur >= 6 && this.songBars) e.hook(ht + 0.004, v * 0.55, stepDeg(semi, -2, scale) + lift, dur * sd, hk.v, hk.o, strong, b, false, { ...expression, harm: 1 });
     }
   }
 
