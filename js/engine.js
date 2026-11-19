@@ -497,12 +497,12 @@ export class Engine {
     }
   }
 
-  // A smooth style thins its chords below 420 Hz so they sit above the bass instead of on it.
+  // A smooth style thins its chords below 400 Hz so they sit above the bass instead of on it.
   smoothChords(on) {
     this.smoothOn = on;
     if (this.stripMode) return;
     const shelf = this.ch.stab.strip[0];
-    shelf.frequency.value = on ? 420 : 120; shelf.gain.value = on ? -15 : 0;
+    shelf.frequency.value = on ? 400 : 120; shelf.gain.value = on ? -12 : 0;
   }
 
   setParam(tid, id, v) { this.state.params[tid][id] = v; this.applyParam(tid, id); }
