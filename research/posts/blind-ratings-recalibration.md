@@ -42,16 +42,9 @@ So the judge stays an advisory note. It never overrides a measurement or a perso
 
 The ratings gave us three words to measure: jarring, not smooth, toy-like. A pull request in review, [#185](https://github.com/kllyjsn/Untergrund/pull/185), adds four listening cues computed from the rendered stereo audio: how sharply attacks stand out (harsh transients), how hard the sound jumps between moments (transition jolt), how much short-term level jitters (lack of smoothness), and how much energy piles into narrow upper-mid resonances (toy-like resonance). They are tracked per genre and per part and are kept out of every gate and baseline: they report, they do not fail anything.
 
-Scored on the rated pack itself, averaged over each pair's two versions (higher means more of the cue, not worse music by definition):
+Scored on the rated pack itself and averaged over each pair's two versions, the cues point the right way, but only partly. Of the three pairs rated terrible, one scores above the halfway-decent pair on all four cues, one on three, and one on only a single cue, and only on the pair average: one of its versions scores below both halfway-decent versions. No single cue separates all three terrible pairs from the halfway-decent one. We do not publish per-pair or per-genre scores, because anyone who rescored the clips could use them to recover the blind key.
 
-| Genre | Rating | Harsh transients | Transition jolt | Lack of smoothness | Toy-like resonance |
-| --- | --- | ---: | ---: | ---: | ---: |
-| TRAP | Halfway decent | 15.75 | 34.85 | 7.44 | 1.12 |
-| MINIMAL | Terrible | 29.26 | 91.41 | 14.47 | 10.32 |
-| DRILL | Terrible | 42.33 | 36.14 | 5.86 | 61.94 |
-| HARD TECHNO | Terrible | 12.34 | 9.58 | 8.20 | 0.52 |
-
-This is partial separation, not calibration. MINIMAL scores higher than TRAP on all four cues. DRILL scores higher on three, with by far the largest transient and resonance values, but the smoothness cue misses it. HARD TECHNO scores higher only on smoothness, and only on the pair average: one of its versions is below both TRAP versions. No single cue separates all three terrible genres from the halfway-decent one. With four passages and one listener, these numbers can show the cues are pointing the right way; they cannot set a threshold.
+This is partial separation, not calibration. With four passages and one listener, these numbers can show the cues are pointing the right way; they cannot set a threshold.
 
 ## How we are recalibrating
 
