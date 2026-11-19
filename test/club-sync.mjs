@@ -27,6 +27,7 @@ const SCENARIOS = [
   { name: 'late-join', joinDelay: 10000 },
   { name: 'cold-invite', cold: true },
   { name: 'cold-invite-first-downbeat', cold: true, coldDownbeat: true, mix: true },
+  { name: 'cold-invite-replay-first-downbeat', cold: true, coldDownbeat: true, replay: true, mix: true },
   { name: 'injected-offset', displacementMs: 2000 },
   { name: 'reconnect', offlineMs: 10000 },
   { name: 'reconnect-expired', offlineMs: 20000 },
@@ -208,6 +209,20 @@ function fixture() {
   return s;
 }
 
+async function seedReplay(host, room, song) {
+  const saved = await host.run(`(async () => {
+    const {createTimelineRecorder} = await import('/js/set-timeline.js');
+    const {publishReplay} = await import('/js/sets.js');
+    const rec = createTimelineRecorder({state:${JSON.stringify(song)}, style:'hypnotic', startsAt:0,
+      dj:'Sync fixture', room:${JSON.stringify(room)}, title:'Club sync replay'});
+    const result = await publishReplay({timeline:rec.finish(30000), title:'Club sync replay', artist:'Sync fixture', room:${JSON.stringify(room)}});
+    return {id:result.item.id, public:result.public, durationMs:30000};
+  })()`);
+  if (await host.run('!document.querySelector(".club-social")?.getClientRects().length')) await host.click('.club-view-toggle');
+  await host.clickText('REPLAYS');
+  return saved;
+}
+
 async function scenario(base, spec, network, run) {
   const clients = [];
   const contention = [];
@@ -247,8 +262,18 @@ async function scenario(base, spec, network, run) {
       await until(async () => (await snapshot()).members.length === 2 &&
         (await listener.run('__clubAudio.samples.length > 0')), 'listener in room with active audio capture');
     }
-    const action = await until(() => host.run(`document.querySelector('.lobby-cta')?.textContent === 'GO LIVE' ? '.lobby-cta' : document.querySelector('.club-primary')?.textContent === 'GO LIVE' ? '.club-primary' : null`), 'GO LIVE');
-    await host.click(action);
+    if (spec.coldDownbeat && spec.replay) {
+      events.seed = await seedReplay(host, room, song);
+      events.actionAt = await host.clickText('REPLAY TO ROOM');
+      const replay = await until(async () => {
+        const s = await snapshot();
+        return s.set.replay && s;
+      }, 'replay published before opening invite');
+      assert.deepEqual(replay.members, [replay.hostId], 'The cold listener has not joined the replay room yet');
+    } else {
+      const action = await until(() => host.run(`document.querySelector('.lobby-cta')?.textContent === 'GO LIVE' ? '.lobby-cta' : document.querySelector('.club-primary')?.textContent === 'GO LIVE' ? '.club-primary' : null`), 'GO LIVE');
+      await host.click(action);
+    }
     room ??= await until(() => host.run('new URL(location.href).searchParams.get("room")'), 'Host room invite');
     const broadcast = Date.now();
     if (spec.joinDelay) await pause(spec.joinDelay);
@@ -291,6 +316,7 @@ async function scenario(base, spec, network, run) {
     if (spec.coldDownbeat) {
       events.navigation = navigation;
       events.join = joined;
+      assert.equal(initial.set.replay, !!spec.replay, 'Room broadcast is the intended kind');
       assert.ok(initial.startsAt > navigation, 'Cold invite navigation must start before the published downbeat');
       await pause(Math.max(0, initial.startsAt + 2000 - Date.now()));
     } else if (spec.handoff || spec.replay) {
@@ -316,16 +342,7 @@ async function scenario(base, spec, network, run) {
         await until(() => listener.run(`[...document.querySelectorAll('.club-secondary')].some(b => b.textContent === 'UPDATE ROOM')`), 'new DJ controls');
         events.broadcastAt = await listener.clickText('UPDATE ROOM');
       } else {
-        events.seed = await host.run(`(async () => {
-          const {createTimelineRecorder} = await import('/js/set-timeline.js');
-          const {publishReplay} = await import('/js/sets.js');
-          const rec = createTimelineRecorder({state:${JSON.stringify(fixture())}, style:'hypnotic', startsAt:0,
-            dj:'Sync fixture', room:${JSON.stringify(room)}, title:'Club sync replay'});
-          const result = await publishReplay({timeline:rec.finish(30000), title:'Club sync replay', artist:'Sync fixture', room:${JSON.stringify(room)}});
-          return {id:result.item.id, public:result.public, durationMs:30000};
-        })()`);
-        if (await host.run('!document.querySelector(".club-social")?.getClientRects().length')) await host.click('.club-view-toggle');
-        await host.clickText('REPLAYS');
+        events.seed = await seedReplay(host, room, song);
         events.actionAt = await host.clickText('REPLAY TO ROOM');
       }
       events.newSet = await until(async () => {
@@ -410,7 +427,7 @@ async function scenario(base, spec, network, run) {
       const [hostOnsets, listenerOnsets] = raw.map(c => onsets(channelEnvelope(c, 'kick'), song.bpm));
       const firstDownbeat = firstMixDownbeat(hostOnsets, listenerOnsets, initial.startsAt, song.bpm);
       const failures = missedFirstMixDownbeat(firstDownbeat) ? ['first downbeat'] : [];
-      console.log(`  cold-invite first downbeat: ${JSON.stringify({ ...firstDownbeat, navigationLeadMs: initial.startsAt - navigation, failures })}`);
+      console.log(`  ${spec.name}: ${JSON.stringify({ ...firstDownbeat, navigationLeadMs: initial.startsAt - navigation, failures })}`);
       return { name: spec.name, spec, events, firstDownbeat, failures, raw: { captures: raw, hostOnsets, listenerOnsets } };
     }
     if (spec.mix) {
