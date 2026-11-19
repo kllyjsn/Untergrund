@@ -654,6 +654,7 @@ export class Engine {
     const hit = { time, track, pattern, plan, note: plan(), sources: [], ducks: [] };
     this.editableHits.push(hit);
     if (hit.note) this.renderHit(hit);
+    return hit.note;
   }
 
   renderHit(hit) {
@@ -2497,7 +2498,7 @@ export class Engine {
   }
 
   // Tuned 808: sine sub with a pitch knock, long tail on DECAY, CUTOFF/DRIVE add harmonics; slides glide.
-  eight08(t, st, sd, holdNext, sliding) {
+  eight08(t, st, sd, holdNext, sliding, kickAt) {
     const c = this.ctx, p = this.state.params.acid;
     const f = midiHz(this.bassMidi(st, 36, 38));
     const len = holdNext ? sd * 2 : 0.15 + p.decay * 1.6, end = t + len + 0.4;
@@ -2505,17 +2506,21 @@ export class Engine {
     if (sliding && prev?.eight08 && prev.end > t) {
       // Keep oscillator phase and the envelope's current level through the slide.
       const drill = (this.replay808Style ?? this.state.artist?.style) === 'drill' && f !== prev.f;
+      const kickGap = kickAt - t;
+      // Let the kick speak first, without pushing the octave into the next step.
+      const flickDelay = Math.abs(kickGap) < 0.02 ? Math.max(0.017, Math.min(kickGap + 0.045, sd * 0.5)) : 0.017;
       prev.eight08.forEach((x, i) => {
         const flick = drill && i === 1;
-        // The delayed octave catches up to the unchanged sub: delay + time constant stays the same.
-        x.frequency.setTargetAtTime(f * (i + 1), t + (flick ? 0.017 : 0), flick ? 0.0055 : 0.0225);
+        if (drill && i === 1) x.frequency.cancelScheduledValues(t);
+        x.frequency.setTargetAtTime(f * (i + 1), t + (flick ? flickDelay : 0), flick ? 0.0055 : 0.0225);
         x.stop(end);
       });
       if (drill) {
         const g = prev.octave.gain;
+        const accentAt = t + (flickDelay > 0.017 ? flickDelay : 0);
         g.cancelScheduledValues(t);
-        g.setTargetAtTime(0.38, t, Math.min(0.012, sd * 0.12));
-        g.setTargetAtTime(0.2, t + Math.min(0.032, sd * 0.32), Math.min(0.02, sd * 0.2));
+        g.setTargetAtTime(0.38, accentAt, Math.min(0.012, sd * 0.12));
+        g.setTargetAtTime(0.2, accentAt + Math.min(0.032, sd * 0.32), Math.min(0.02, sd * 0.2));
       }
       prev.amp.gain.cancelScheduledValues(t);
       prev.amp.gain.setTargetAtTime(0, t, decay);
@@ -2752,13 +2757,13 @@ export class Engine {
     }
   }
 
-  acid(t, st, sliding, holdNext, sd, slideUntil) {
+  acid(t, st, sliding, holdNext, sd, slideUntil, kickAt) {
     const a = this.acidNodes, p = this.state.params.acid;
     const vo = Math.round(p.voice);
     for (const [voice, { amp: { gain } }] of this.gatedBasses) if (vo !== voice) {
       gain.cancelScheduledValues(t); gain.setTargetAtTime(0, t, 0.005);
     }
-    if (vo > 0) { a.vca.gain.setTargetAtTime(0, t, 0.005); return this[['', 'bass', 'eight08', 'reese', 'logdrum', 'ebass', 'fmBass', 'pulseBass', 'harmonicBass', 'harmonicBass'][vo]](t, st, sd, holdNext, sliding, slideUntil); }
+    if (vo > 0) { a.vca.gain.setTargetAtTime(0, t, 0.005); return this[['', 'bass', 'eight08', 'reese', 'logdrum', 'ebass', 'fmBass', 'pulseBass', 'harmonicBass', 'harmonicBass'][vo]](t, st, sd, holdNext, sliding, vo === 2 ? kickAt : slideUntil); }
     const f = midiHz(this.bassMidi(st)), sub = lowEnd(this.state.master)?.sub[0];
     if (sub) this.subLayer(t, midiHz(this.bassMidi(st, 36, 38)), holdNext ? sd * 1.05 : sd * 0.6, sub * (st.a ? 1 : 0.85) * (this.noteVel ?? 1), sliding);
     for (const o of [a.o1, a.o2]) {
@@ -3355,6 +3360,7 @@ export class Sequencer {
     const roller = rp >= 0 && i16 >= fillAt && pat.steps.snare.some(Boolean) ? 'snare' : 'clap';
     const grid = { abs, tt, bar, i16, vary, rp, pos, n, fillAt, roller, pk, band, sung, hum: s.master.humanize || 0, liveKit: Math.round(s.master.kit || 0) === 1 };
     const hitContext = editable ? { cur: this.cur, runLen: this.runLen, smooth: this.smooth, build: this.build } : null;
+    let kickAt;
     for (const id of TRACK_IDS) {
       const on = !s.mutes[id] && (!anySolo || s.solos[id]);
       const len = pat.len[id] || 16;
@@ -3389,7 +3395,7 @@ export class Sequencer {
             // Leave time for the next hit to cancel this fallback release.
             slideUntil = t + sd + nextSwing + nextLean + pocketLate(pk, 'acid', (i16 + 1) % 16) + 0.001;
           }
-          this.acidStep(pat, i, len, tt + bassLean + pocketLate(pk, 'acid', i16), sd, slideUntil);
+          this.acidStep(pat, i, len, tt + bassLean + pocketLate(pk, 'acid', i16), sd, slideUntil, kickAt);
         }
         continue;
       }
@@ -3398,19 +3404,21 @@ export class Sequencer {
         const base = 0.45 + Math.min(0.5, r * 0.02);
         e.trigger(id, tt, base);
         e.trigger(id, tt + sd / 2, base * 0.8);
+        if (id === 'kick') kickAt = tt;
         continue;
       }
       if (!hard && this.dropNext && id === 'kick' && i16 >= (this.smooth ? 15 : arr >= 0.75 ? 12 : 14)) continue;
       if (this.dropNext && id === 'snare' && arr > 0 && i16 >= 8 && !this.smooth) continue;
       if (editable && EDITABLE_HITS.has(id)) {
         const step = e.step, scale = e.stepScale, harm = e.harm;
-        e.planHit(t, id, hitContext.cur, () => {
+        const hit = e.planHit(t, id, hitContext.cur, () => {
           if (this.s !== s || s.mutes[id] || (TRACK_IDS.some(k => s.solos[k]) && !s.solos[id])) return null;
           const current = patternAt(s.patterns[hitContext.cur], pos);
           if (!current) return null;
           const hit = this.gridHit.call(hitContext, id, current, grid);
           return hit && { ...hit, key: JSON.stringify([hit.method, ...hit.args]), step, scale, harm };
         });
+        if (id === 'kick') kickAt = hit?.time;
         continue;
       }
       if (!on) { if (id === 'stab' && e.gripHeld?.length) e.quietGrip(tt); continue; }
@@ -3419,6 +3427,7 @@ export class Sequencer {
       if (id === 'stab' && hookStep) continue;
       const hit = this.gridHit(id, pat, grid);
       if (hit) e[hit.method](...hit.args);
+      if (id === 'kick') kickAt = hit?.time;
     }
     // A band adds players by section (BAND_LAYER): strings under the changes, a piano doubling the strum.
     if (band && i16 % 8 === 0 && pat.sec && !pat.score && !s.mutes.stab && (!anySolo || s.solos.stab)) e.bandLayer(tt, pat.sec, i16, s.artist?.style);
@@ -3693,7 +3702,7 @@ export class Sequencer {
     }
   }
 
-  acidStep(pat, i, len, t, sd, slideUntil) {
+  acidStep(pat, i, len, t, sd, slideUntil, kickAt) {
     const steps = pat.steps.acid;
     const st = steps[i];
     if (!st.on) { this.acidPrevSlide = false; return; }
@@ -3703,7 +3712,7 @@ export class Sequencer {
     this.e.acidGap = gap;
     const vel = this.e.noteVel;
     this.e.noteVel = (vel ?? 1) * (st.v ?? 1);
-    this.e.acid(t, st, this.acidPrevSlide, st.s && next.on, sd, slideUntil);
+    this.e.acid(t, st, this.acidPrevSlide, st.s && next.on, sd, slideUntil, kickAt);
     this.e.noteVel = vel;
     this.e.acidGap = 0;
     this.acidPrevSlide = !!st.s;

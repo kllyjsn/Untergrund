@@ -218,7 +218,7 @@ const drill = await withChrome(async (run) => {
     const { defaultState } = await import('/js/state.js');
     const { Engine } = await import('/js/engine.js');
     const fs = 48000, t = 0.2, sd = 0.1;
-    async function dry(style, target, includeOctave, replayStyle) {
+    async function dry(style, target, includeOctave, replayStyle, kickAt) {
       const ctx = new OfflineAudioContext(1, fs / 2, fs), state = defaultState();
       state.artist = { style };
       const e = new Engine(ctx, state, { realtime: false });
@@ -229,7 +229,7 @@ const drill = await withChrome(async (run) => {
       e.eight08(t - sd, { n: 0, a: true }, sd, true, false);
       const prev = e.mono;
       if (!includeOctave) prev.octave.disconnect();
-      e.eight08(t, { n: 5, a: true, ...target }, sd, false, true);
+      e.eight08(t, { n: 5, a: true, ...target }, sd, false, true, kickAt);
       if (e.mono !== prev) throw new Error('808 slide must keep the same oscillators and envelope');
       return (await ctx.startRendering()).getChannelData(0);
     }
@@ -242,6 +242,8 @@ const drill = await withChrome(async (run) => {
     const trapSub = await dry('trap', null, false), drillSub = await dry('drill', null, false);
     const trapRepeat = await dry('trap', { n: 0 }, true), drillRepeat = await dry('drill', { n: 0 }, true);
     const drillReplay = await dry('trap', null, true, 'drill'), trapReplay = await dry('drill', null, true, 'trap');
+    const afterKick = await dry('drill', null, true, undefined, t - 0.003);
+    const replayAfterKick = await dry('trap', null, true, 'drill', t - 0.003);
     await dry('trap', null, true, 'hardtechno');
     return {
       before: compare(trap, drill, 0, t),
@@ -251,10 +253,18 @@ const drill = await withChrome(async (run) => {
       repeat: compare(trapRepeat, drillRepeat, 0, 0.5),
       drillReplay: compare(drill, drillReplay, 0, 0.5),
       trapReplay: compare(trap, trapReplay, 0, 0.5),
+      kickReplay: compare(afterKick, replayAfterKick, 0, 0.5),
+      kickSub: compare(drillSub, await dry('drill', null, false, undefined, t - 0.003), 0, 0.5),
+      trapKick: compare(trap, await dry('trap', null, true, undefined, t - 0.003), 0, 0.5),
+      distantKick: compare(drill, await dry('drill', null, true, undefined, t - 0.06), 0, 0.5),
+      beforeKickFlick: compare(drill, afterKick, 0, t),
+      kickFlick: compare(drill, afterKick, t + 0.042, t + sd),
     };
   })()`);
   assert(slides.slide > 0.008, `Drill accent must change the octave during a slide: ${JSON.stringify(slides)}`);
   for (const key of ['before', 'sub', 'repeat', 'drillReplay', 'trapReplay']) near(slides[key], 0, 1e-6, `Drill 808 ${key} stays unchanged`);
+  for (const key of ['kickReplay', 'kickSub', 'trapKick', 'distantKick', 'beforeKickFlick']) near(slides[key], 0, 1e-6, `Drill 808 ${key} stays unchanged`);
+  assert(slides.kickFlick > 0.008, `The kick should move the octave flick, not the 808 note: ${JSON.stringify(slides)}`);
   assert(slides.settled < slides.slide * 0.035, `Drill octave should converge to the original slide: ${JSON.stringify(slides)}`);
   const harpPeak = await run(`(async () => {
     const { song, render } = await import('/test/audio-quality-page.js');
