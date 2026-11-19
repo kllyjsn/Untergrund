@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, realpa
 import { resolve, join, dirname, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { judgeAudio, checkModel } from './judge-audio.mjs';
+import { canResumeModel } from './judge-checkpoint.mjs';
 import { REVIEW_IDS, flipRate, controlScores, calibrationGate, humanAgreement } from '../js/listen-review.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..'), options = {};
@@ -85,11 +86,13 @@ async function evaluate(m, files, style, prefix) {
   throw error;
 }
 await Promise.all(models.map(async (model) => {
-  if (state.models.some((m) => m.model === model && m.finished)) return;
+  const previous = state.models.find((m) => m.model === model);
+  if (!canResumeModel(previous)) return;
   const pricing = catalog.find((m) => m.id === model)?.pricing;
   const promptRate = Math.max(Number(pricing?.prompt), Number(pricing?.audio || 0)), completionRate = Number(pricing?.completion);
-  const previous = state.models.find((m) => m.model === model && !m.finished);
   const m = previous || { model, promptRate, completionRate, requestBound: promptRate * 10000 + completionRate * 2200, requests: 0, cost: 0, trials: [], pack: [], full: [], finished: false };
+  m.finished = false;
+  for (const key of ['error', 'privateError', 'fullSkipped', 'screen', 'passes']) delete m[key];
   if (![promptRate, completionRate, m.requestBound].every(Number.isFinite)) throw new Error('Missing pricing; refusing unbudgeted model');
   if (!previous) state.models.push(m);
   save();
@@ -114,7 +117,7 @@ await Promise.all(models.map(async (model) => {
     };
     m.passes = m.screen.calibration === 'calibrated' && Object.values(m.human.trapAbove).every(Boolean) && !Object.values(m.human.badAcceptable).some(Boolean) && !Object.values(m.human.badFalsePreference).some(Boolean);
     if (m.screen.calibration === 'calibrated') {
-      const fullBound = 480 * Math.max(m.cost / m.requests * 1.5, 0.002);
+      const fullBound = (80 - m.full.length) * 6 * Math.max(m.cost / m.requests * 1.5, 0.002);
       if (state.charged + fullBound > budget) m.fullSkipped = 'Conservative full-run reservation exceeds remaining budget';
       else {
         console.log(`Full benchmark ${model}`);
@@ -129,7 +132,7 @@ await Promise.all(models.map(async (model) => {
     m.error = /^OpenRouter HTTP \d+$/.test(error.message) || error.message === 'Budget exhausted' ? error.message : 'Audio response unavailable or invalid after one retry';
   }
   if (!m.screen && m.trials.length) m.screen = summarize(m.trials);
-  m.finished = true; save();
+  m.finished = m.error !== 'Budget exhausted' && !m.fullSkipped; save();
   console.log(`Finished ${model}: ${m.error || m.screen?.calibration}, requests ${m.requests}`);
 }));
 const aggregate = { generated: new Date().toISOString(), requests: state.requests, reportedCost: state.reportedCost, conservativeCharge: state.charged, budget, models: state.models.map((m) => ({

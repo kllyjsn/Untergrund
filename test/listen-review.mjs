@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { judgeRequest } from '../scripts/judge-audio.mjs';
+import { canResumeModel } from '../scripts/judge-checkpoint.mjs';
 import { DIMENSIONS, REVIEW_IDS, reviewTrack, verdict, orderAgreement, validateJudgment, markdownReview, flipRate, controlScores, calibrationGate, validateScores, aggregateScores, humanAgreement, trapOrdering } from '../js/listen-review.js';
 import { targetCurve, targetBalance } from '../js/audio-quality.js';
 
@@ -119,4 +120,10 @@ assert.equal(request.max_tokens, 2200);
 for (const audio of [[], ['first'], [null, 'second']]) assert.throws(() => judgeRequest({ model: 'audio-model', prompt: '', audio, order: [0, 1] }), /Invalid/);
 assert.throws(() => judgeRequest({ model: '', prompt: '', audio: ['first', 'second'], order: [0, 1] }), /Invalid/);
 assert.throws(() => judgeRequest({ model: 'audio-model', prompt: '', audio: ['first', 'second'], order: [1, 1] }), /Invalid/);
+assert.equal(canResumeModel(undefined), true);
+assert.equal(canResumeModel({ finished: false }), true);
+assert.equal(canResumeModel({ finished: true }), false);
+assert.equal(canResumeModel({ finished: true, error: 'OpenRouter HTTP 400' }), false);
+assert.equal(canResumeModel({ finished: true, error: 'Budget exhausted', trials: [{}] }), true);
+assert.equal(canResumeModel({ finished: true, fullSkipped: 'Insufficient budget' }), true);
 console.log('listening review: thresholds, Hold safety, missing metrics, order agreement, stable scores, controls, calibration and markdown passed');
