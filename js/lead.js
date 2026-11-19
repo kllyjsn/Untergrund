@@ -29,10 +29,10 @@ export const HOOK_TRIM_DB = {
 
 export const TECHNO_HOOK_SPACE = {
   metalstrike: { eq: [3110, 1.7, -9], diffusion: 0.00018, taps: [0.007, 0.014], width: 0.45 },
-  softresonator: { eq: [2490, 2.1, -12], diffusion: 0.00016, taps: [0.011, 0.019], width: 0.34 },
+  softresonator: { eq: [2490, 2.1, -12], diffusion: 0.00028, taps: [0.013, 0.023], width: 0.37 },
   robotformant: { eq: [2490, 1.9, -4.5], diffusion: 0.00021, taps: [0.005, 0.011], width: 0.38 },
-  ravestack: { eq: [2650, 7, -14], diffusion: 0.00018, taps: [0.009, 0.017], width: 0.42 },
-  acidlead: { eq: [2800, 1.5, -6], diffusion: 0.00020, taps: [0.006, 0.013], width: 0.29 },
+  ravestack: { eq: [2650, 7, -14], diffusion: 0.00023, taps: [0.009, 0.017], width: 0.47 },
+  acidlead: { eq: [2840, 1.15, -9], diffusion: 0.00032, taps: [0.006, 0.013], width: 0.34 },
 };
 
 const STACK = { atk: 0.008, sus: 0.5, hold: 0.2, rel: 0.1, q: 1, body: null, sub: 0, glide: 0, vib: [5.2, 10], tame: 3, air: 1.4, bite: 5, thin: 5 };
@@ -47,8 +47,8 @@ const PRESETS = {
   reed: { ...STACK, glide: 0.05, vib: [0, 0], cut: 1300, env: 1800, dec: 0.2 },
   mallet: { ...STACK, vib: [0, 0] },
   softmallet: { ...STACK, vib: [0, 0], thin: 3, bite: 4, tame: 6, air: 0.63 },
-  ravestack: { ...STACK, stack: true, wave: 'sawtooth', uni: 5, spread: 22, mix: 0.62, body: ['sawtooth', 0.22, 2], cut: 1800, env: 1550, q: 0.7, dec: 0.16, atk: 0.043, sus: 0.66, hold: 0.14, rel: 0.11, vib: [0, 0], tame: 4, bite: 3, level: 0.34 },
-  acidlead: { ...STACK, stack: true, wave: 'sawtooth', uni: 1, mix: 0.74, cut: 500, env: 1700, q: 8, dec: 0.047, atk: 0.003, sus: 0.21, hold: 0.1, rel: 0.036, glide: 0.075, vib: [0, 0], tame: 6, air: 1.1, bite: 2, level: 0.43 },
+  ravestack: { ...STACK, stack: true, wave: 'sawtooth', uni: 5, spread: 34, mix: 0.66, body: ['sawtooth', 0.15, 2], cut: 2060, env: 1700, q: 0.7, dec: 0.17, atk: 0.048, sus: 0.70, hold: 0.14, rel: 0.11, vib: [0, 0], tame: 4, bite: 3, level: 0.34 },
+  acidlead: { ...STACK, stack: true, wave: 'sawtooth', uni: 1, mix: 0.67, cut: 410, env: 2200, q: 9.3, dec: 0.03, atk: 0.003, sus: 0.14, hold: 0.052, rel: 0.026, glide: 0.075, vib: [0, 0], tame: 6, air: 0.97, bite: 2, level: 0.52, bend: 70 },
 };
 const POCKET_PRESETS = {
   // Hyperpop: wide bright saws, quick glides, fast deep vibrato.

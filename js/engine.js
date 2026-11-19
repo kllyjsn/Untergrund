@@ -2262,7 +2262,7 @@ export class Engine {
     };
     const metal = voice === 'metalstrike', soft = voice === 'softresonator';
     const out = this.technoHookOut(voice);
-    const lp = this.filter('lowpass', metal ? 3500 : soft ? 1350 : 3650, 0.6);
+    const lp = this.filter('lowpass', metal ? 3500 : soft ? 1230 : 3650, 0.6);
     lp.connect(amp).connect(out);
     if (metal) {
       // The strike has inharmonic steel sidebands; the settled note still has a clear pitch.
@@ -2283,11 +2283,13 @@ export class Engine {
     } else if (soft) {
       // A rounded resonator blooms behind the drums, with no bright pick or pulse edge.
       osc('sine', f, 0.78, lp);
-      osc('sine', f * 2, 0.4, lp);
-      const upper = this.gain(0);
-      upper.gain.setValueAtTime(strong ? 0.18 : 0.12, t);
-      upper.gain.setTargetAtTime(0.045, t + 0.024, 0.055);
-      osc('sine', f * 3.01, 1, upper); upper.connect(lp);
+      const color = hash(this.step ?? 0, 141);
+      const ring = osc('sine', f * 2, 0.24, lp);
+      ring.frequency.setValueAtTime(f * (2.04 + 0.07 * color), t);
+      ring.frequency.linearRampToValueAtTime(f * 1.96, t + Math.max(0.18, len));
+      const air = this.noiseSrc(t, len + 0.45), breath = this.filter('bandpass', Math.min(1400, f * 3), 1.2);
+      air.loop = true;
+      air.connect(breath).connect(this.gain(0.065)).connect(lp);
     } else {
       // Two moving parallel formants make a short, voiced syllable, not another filter pluck.
       const source = this.gain(1), low = this.filter('bandpass', 650, 3.1), high = this.filter('bandpass', 2050, 3.2);
@@ -2302,12 +2304,12 @@ export class Engine {
       source.connect(low).connect(this.gain(0.9)).connect(lp);
       source.connect(high).connect(this.gain(1.82)).connect(lp);
     }
-    const attack = metal ? 0.005 : soft ? 0.038 : 0.009;
+    const attack = metal ? 0.005 : soft ? 0.065 : 0.009;
     const peak = v * (metal ? 0.63 : soft ? 0.40 : 0.64);
     amp.gain.setValueAtTime(0, t);
     amp.gain.linearRampToValueAtTime(peak, t + attack);
     amp.gain.setTargetAtTime(peak * (metal ? 0.16 : soft ? 0.62 : 0.55), t + attack, metal ? 0.036 : 0.084);
-    amp.gain.setTargetAtTime(0, t + len, soft ? 0.18 : 0.048);
+    amp.gain.setTargetAtTime(0, t + (soft ? Math.max(len, attack) : len), soft ? 0.21 : 0.048);
     for (const o of oscs) { this.startSource(o, t); o.stop(end); }
     this.retire(oscs.at(-1), amp);
   }
@@ -2439,6 +2441,11 @@ export class Engine {
     }
     const osc = (type, freq, det = 0, g = 1, dst = null) => {
       const o = c.createOscillator(), mul = freq / f; o.type = type; o.detune.value = det + drift;
+      if (L.bend) {
+        o.detune.setValueAtTime(det + drift + (from ? 0 : L.bend * vn), t);
+        o.detune.linearRampToValueAtTime(det + drift, t + 0.032);
+        o.detune.linearRampToValueAtTime(det + drift - L.bend * 0.35, t + Math.max(0.07, len));
+      }
       if (from) { o.frequency.setValueAtTime(from * mul, t); o.frequency.exponentialRampToValueAtTime(freq, t + glide); } else o.frequency.value = freq;
       if (vibDepth) vibDepth.connect(o.detune);
       const og = this.gain(g); o.connect(og).connect(dst); oscs.push(o); return o;
