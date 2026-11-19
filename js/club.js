@@ -15,7 +15,7 @@ import { createRoomClock, shiftRoomSet } from './room-sync.js';
 const AVATAR_KEY = 'untergrund.avatar.v1';
 const ROOM_KEY = 'untergrund.room.v1';
 // A fresh invite needs time to load the page, connect to the room and warm its audio graph.
-const LIVE_START_LEAD_MS = 3000;
+const ROOM_BROADCAST_LEAD_MS = 3000;
 const REACTIONS = ['HYPE', 'DEEP', 'ACID'];
 const JAM_LINES = {
   claim: (part) => `took the ${part}`,
@@ -697,7 +697,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, getRelea
       return;
     }
     const transport = getTransport();
-    const startsAt = transport.playing ? transport.startsAt : Date.now() + LIVE_START_LEAD_MS;
+    const startsAt = transport.playing ? transport.startsAt : Date.now() + ROOM_BROADCAST_LEAD_MS;
     const track = nowPlaying();
     const trackId = getReleaseId();
     const broadcastId = `${bus.clientId}:${Date.now()}:${++bus.localSetVersion}`;
@@ -947,7 +947,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, getRelea
     let timeline;
     try { timeline = await loadReplay(item); } catch { return toast('That set is no longer in the jukebox'); }
     endLiveSet({ offer: false });
-    const startsAt = Date.now() + 1600;
+    const startsAt = Date.now() + ROOM_BROADCAST_LEAD_MS;
     const broadcastId = `${bus.clientId}:${Date.now()}:${++bus.localSetVersion}`;
     bus.initiatedSets.add(broadcastId);
     const s = timeline.initial;
