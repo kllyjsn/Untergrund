@@ -49,7 +49,8 @@ export class Recorder {
   get stepDur() { return (60 / this.state.bpm / 4) * (this.stepScale || 1); }
   add(track, t, m, dur, v) { (this.notes[track] ||= []).push({ t, m, dur: Math.max(0.01, dur), v }); }
   chord() { const p = this.state.params.stab, h = this.harm; return CHORDS[h ? h.c : Math.round(p.chord)].iv; }
-  dust() {} vocal() {} sweep() {} impact() {} breakSweep() {} dropDip() {} breakOpen() {} sectionGain() {} quietGrip() {}
+  dust() {} vocal() {} sweep() {} impact() {} breakSweep() {} dropDip() {}
+  smoothChords() {} breakOpen() {} sectionGain() {} quietGrip() {}
   bandLayer(...a) { return Engine.prototype.bandLayer.apply(this, a); }
   crash(t, v) { this.add('oh', t, 49, this.stepDur * 4, v); }
   tom(t, v, high) { this.add('snare', t, high ? 48 : 45, this.stepDur, v); }

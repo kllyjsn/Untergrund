@@ -42,6 +42,14 @@ for (const chain of plans) {
   assert(chain.match(/F+/g).every((build) => build.length >= 4));
 }
 assert.equal(songPlan('hardtechno', 42).chain, plans[1]);
+assert.equal(new Set(plans.map((chain) => chain.match(/^A+/)[0].length)).size, 4);
+assert.notEqual(plans[0].match(/A+$/)[0].length, plans[1].match(/A+$/)[0].length);
+for (let seed = 1; seed <= 64; seed++) {
+  const chain = songPlan('hardtechno', seed).chain;
+  assert.equal(chain.length, 128);
+  assert(chain.match(/E+/g).every((breakdown) => breakdown.length >= 8));
+  assert(chain.match(/G+/g).every((drop) => drop.length >= 16));
+}
 assert(freshSong('hardtechno').patterns.every((p) => !p.at || p.at.every((take) => Object.values(take.steps || {}).flat().every(Number.isFinite))));
 
 function instrument(style) {
@@ -117,6 +125,16 @@ for (const open of [3.5, 5]) {
 const empty = instrument('minimal');
 delete empty.e.state.artist;
 assert.equal(empty.e.hardTechno, false);
+const smooth = instrument('hardtechno').e;
+for (const method of ['trigger', 'acid', 'hook', 'vocal', 'tonalSweep']) smooth[method] = () => {};
+const sequence = new Sequencer(smooth, smooth.state);
+let clock = 0.05;
+for (let abs = 0; abs < 80 * 16; abs++) { sequence.tick(abs, clock); clock += smooth.stepDur; }
+assert.equal(smooth.secGain.gain.events.filter((ev) => ev.k === 's').length, 1);
+assert.equal(smooth.ch.kick.level.gain.events.filter((ev) => ev.k === 's').length, 1);
+assert(smooth.secGain.gain.events.some((ev) => ev.k === 'l' && Math.abs(ev.v - 10 ** (-3.25 / 20)) < 1e-9));
+assert(smooth.tonePres.gain.events.some((ev) => ev.v === -2.5));
+assert(smooth.tonePres.gain.events.some((ev) => ev.k === 'l' && ev.v === MASTER_TONE.hardtechno[2]));
 for (const [seed, drum] of [[11, 'clap'], [42, 'snare']]) {
   const { e } = instrument('hardtechno'), s = e.state, hits = [];
   s.artist.seed = seed;

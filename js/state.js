@@ -167,7 +167,7 @@ const INSTRUMENTS = {
   deephouse: [[7, 1, 0, 1.5, 0.25], [1, 1, 0, 0.9, 0.35], [8, 1, 0, 0.65, 0.75], [10, 1, 0, 1.4, 0.2]],
   // Minimal is a felt Rhodes, a recorded piano, a dark dub chord or a slow pad over a round, filtered bass:
   // no bells, plucks or guitar, which read as toys against its dry clicks.
-  minimal: [[1, 1, 1, 0.6, 0.2], [7, 1, 0, 0.7, 0.3], [2, 1, 0, 0.6, 0.2], [2, 1, 1, 0.9, 0.15]],
+  minimal: [[1, 1, 0, 0.6, 0.2], [7, 1, 0, 0.7, 0.3], [2, 1, 0, 0.6, 0.2], [2, 0, 0, 0.9, 0.15]],
   ukg: [[3, 3, 0, 0.25, 0.45], [7, 1, 0, 0.75, 0.5], [5, 3, 1, 0.25, 0.85], [8, 2, 1, 0.4, 0.8]],
   euphoric: [[7, 1, 0, 1.6, 0.25], [10, 1, 0, 1.8, 0.2], [2, 1, 0, 2.1, 0.15], [9, 0, 0, 0.65, 0.7]],
   // Neo-soul is a Rhodes/piano/guitar band; strings pad the changes; the horn section honked.
@@ -232,7 +232,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   const musicalScale = SCALES[MAJOR_STYLES.has(style) && scaleName === 'minor' ? 'major' : scaleName]?.notes || SCALES.minor.notes;
   const P = emptyPattern();
   const S = P.steps;
-  const params = { kick: {}, acid: {}, stab: {}, perc: {}, ch: {}, oh: {}, ride: {}, clap: {}, snare: {}, vox: {} };
+  const params = { kick: {}, acid: { edge: 0 }, stab: { tine: 1 }, perc: {}, ch: {}, oh: {}, ride: {}, clap: {}, snare: {}, vox: {} };
   let swing;
   const master = {};
   const [lo, hi] = STYLES[style].bpm;
@@ -378,13 +378,13 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     Object.assign(params.kick, { tune: 58, decay: 0.24, drive: 0.05, rumble: 0, punch: 0.6, click: 0.35, level: 0.78 });
     Object.assign(params.perc, { tune: 300, decay: 0.08, noise: 0.35, level: 0.42 });
     Object.assign(params.snare, { tune: 240, snappy: 0.15, decay: 0.08, level: 0.5 });
-    Object.assign(params.ch, { decay: 0.07, tone: 8000, level: 0.5 });
+    Object.assign(params.ch, { decay: 0.12, tone: 8000, level: 0.48 });
     // A soft ride on the off-beats in the full groove gives the top end air without a bright lead.
     S.ride = range(STEPS, (i) => (i % 4 === 2 ? 1 : 0));
     Object.assign(params.ride, { decay: 0.5, tone: 7000, level: 0.22 });
     // A round bass with some edge for definition, barely resonant, the filter only opening a little on each note.
-    Object.assign(params.acid, { wave: 0.3, cutoff: 600, reso: 1.5, envmod: 0.2, decay: 0.12, drive: 0.1, accent: 0.1, level: 0.42 });
-    Object.assign(params.stab, { chord: pick(r, [1, 2, 3]), cutoff: 1900, reso: 0.4, decay: 0.45, env: 0.45, detune: 4, dly: 0.45, rev: 0.4 });
+    Object.assign(params.acid, { wave: 0.3, cutoff: 1400, edge: 0.35, reso: 1.5, envmod: 0.3, decay: 0.12, drive: 0.1, accent: 0.1, level: 0.42 });
+    Object.assign(params.stab, { chord: pick(r, [1, 2, 3]), cutoff: 1900, reso: 0.4, decay: 0.45, env: 0.45, detune: 4, level: 0.55, dly: 0.45, rev: 0.4 });
     master.duck = 0.3; master.revLevel = 0.35;
     swing = 0.04;
   } else if (style === 'ukg') {
@@ -795,7 +795,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   if (params.stab.cutoff && style !== 'hardtechno') params.stab.cutoff = Math.round(params.stab.cutoff * (0.75 + r2() * 0.6));
   if (params.stab.decay) params.stab.decay = +(params.stab.decay * (0.8 + r2() * 0.4)).toFixed(3);
   // Minimal's chords stay soft whatever the ensemble picked: a long decay, a gentle touch and a dark, unresonant filter.
-  if (style === 'minimal') Object.assign(params.stab, { decay: Math.max(params.stab.decay, 0.45), env: Math.min(params.stab.env, 0.08), cutoff: Math.min(params.stab.cutoff, 1300), reso: 0.4 });
+  if (style === 'minimal') Object.assign(params.stab, { decay: Math.max(params.stab.decay, 0.45), env: Math.min(params.stab.env, 0.08), cutoff: Math.min(params.stab.cutoff, 1300), reso: 0.4, tine: 0.15 });
   const PUNCH = { deephouse: 0.55, ukg: 0.7, afrobeats: 0.7, amapiano: 0.65, euphoric: 0.72, trance: 0.72, reggaeton: 0.7 };
   if (PUNCH[style]) {
     params.kick.punch = Math.max(params.kick.punch ?? 0, PUNCH[style]);
@@ -1133,9 +1133,10 @@ export function songPlan(style, seed, length = 'song', bpm = midBpm(style)) {
   }
   if (style === 'hardtechno' && length !== 'sketch') {
     const r = rng(Math.imul(seed ^ 0x45d9f3b, 0x27d4eb2d));
-    const runs = [['A', 8], ['B', 8], ['C', pick(r, [16, 24])], ['E', pick(r, [4, 8, 12])], ['F', pick(r, [4, 8])], ['G', 16], ['E', pick(r, [8, 12])], ['F', 8]];
+    const phrase = ((seed >>> 0) ^ (seed >>> 2)) & 3, outro = 4 + 4 * (phrase % 2);
+    const runs = [['A', 4 + 4 * phrase], ['B', 8], ['C', 16], ['E', pick(r, [8, 12])], ['F', pick(r, [4, 8])], ['G', 16], ['E', pick(r, [8, 12])], ['F', pick(r, [4, 8])]];
     const used = runs.reduce((n, [, len]) => n + len, 0);
-    runs.push(['G', 112 - used], ['B', 8], ['A', 8]);
+    runs.push(['G', 120 - outro - used], ['B', 8], ['A', outro]);
     return { chain: runs.map(([id, len]) => id.repeat(len)).join(''), sections: null };
   }
   const kind = style === 'ambient' ? 'ambient' : 'techno';

@@ -36,6 +36,8 @@ const BACKBEAT_TOUCH = [0.42, 0.03, -0.42, -0.03];
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
 const EPS = 0.0001;
 const SAMPLE_FADE = 1;
+// Chord voices that sustain fill a breakdown on their own, so a smooth style only lifts the ones that decay.
+const HELD_CHORDS = new Set(['pad', 'organ', 'strings']);
 const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar'];
 const GRIPPED = new Set(['guitar', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar']);
 // Soft-knee, slightly asymmetric clipping: even harmonics like a pushed preamp tube.
@@ -481,6 +483,7 @@ export class Engine {
     this.tonePres.Q.value = this.hardTechno ? 0.8 : 0.7;
     const [low, mud, pres, air, width] = MASTER_TONE[this.state.artist?.style] || [0, 0, 0, 0, 0];
     this.setTo(this.toneLow.gain, low, true); this.setTo(this.toneMud.gain, mud, true);
+    if (this.hardLevels) this.tonePres.gain.cancelScheduledValues(this.at || this.ctx.currentTime);
     this.setTo(this.tonePres.gain, pres, true); this.setTo(this.toneAir.gain, air, true);
     this.setTo(this.widthL.gain, width, true); this.setTo(this.widthR.gain, -width, true);
   }
@@ -510,6 +513,19 @@ export class Engine {
         if (b) { set(f.frequency, b[0]); set(f.gain, b[1]); if (b[2]) set(f.Q, b[2]); } else set(f.gain, 0);
       });
     }
+    if (!mode && this.smoothOn) this.smoothChords(this.smoothOn, at);
+  }
+
+  // A smooth style shelves its chords by db: a cut below 400 Hz under the bass, a lift below 700 Hz and wetter sends when the bass drops out.
+  smoothChords(db, at = 0) {
+    this.smoothOn = db;
+    if (this.stripMode) return;
+    const shelf = this.ch.stab.strip[0], t = Math.max(at, this.ctx.currentTime);
+    const { rev, dly } = this.ch.stab, ps = this.state.params.stab, wet = db > 0 ? 1.6 : 1;
+    for (const [prm, v] of [[shelf.frequency, db > 0 ? 700 : db ? 400 : 120], [shelf.gain, db], [rev.gain, ps.rev * wet], [dly.gain, ps.dly * wet]]) {
+      prm.cancelScheduledValues(t);
+      prm.setTargetAtTime(v, t, 0.12);
+    }
   }
 
   setParam(tid, id, v) { this.state.params[tid][id] = v; this.applyParam(tid, id); }
@@ -524,8 +540,8 @@ export class Engine {
     const ch = this.ch[tid];
     if (id === 'level') return this.setTo(ch.level.gain, v, immediate);
     if (id === 'pan') return this.setTo(ch.pan.pan, v, immediate);
-    if (id === 'rev') return this.setTo(ch.rev.gain, v, immediate);
-    if (id === 'dly') return this.setTo(ch.dly.gain, v, immediate);
+    if (id === 'rev') return this.setTo(ch.rev.gain, v * (tid === 'stab' && this.smoothOn > 0 ? 1.6 : 1), immediate);
+    if (id === 'dly') return this.setTo(ch.dly.gain, v * (tid === 'stab' && this.smoothOn > 0 ? 1.6 : 1), immediate);
     if (tid === 'kick' && id === 'rumble') return this.setTo(ch.rumble.gain, v * v, immediate);
     if (tid === 'acid') {
       const a = this.acidNodes;
@@ -1280,7 +1296,7 @@ export class Engine {
       modAmt.gain.setTargetAtTime(f * 0.15, t + 0.005, 0.12 + p.env * 0.3);
       const tine = c.createOscillator(); tine.frequency.value = f * 14;
       const tineAmt = this.gain(0); tine.connect(tineAmt).connect(car.frequency);
-      tineAmt.gain.setValueAtTime(f * 2.5 * vel * bite, t);
+      tineAmt.gain.setValueAtTime(f * 2.5 * vel * bite * (p.tine ?? 1), t);
       tineAmt.gain.setTargetAtTime(0, t + 0.002, 0.018);
       const amp = this.gain(0);
       amp.gain.setValueAtTime(EPS, t);
@@ -2084,7 +2100,10 @@ export class Engine {
     tri.connect(lp); lp.connect(grit).connect(amp);
     sub.connect(subLevel).connect(amp);
     amp.connect(this.ch.acid.input);
-    for (const o of [tri, sub]) { this.startSource(o, t); o.stop(t + len + 0.3); }
+    const oscs = [tri, sub];
+    // An optional saw layer under the same filter gives the note upper harmonics the triangle lacks.
+    if (p.edge) { const saw = c.createOscillator(); saw.type = 'sawtooth'; saw.frequency.value = f; saw.connect(this.gain(p.edge)).connect(lp); oscs.push(saw); }
+    for (const o of oscs) { this.startSource(o, t); o.stop(t + len + 0.3); }
   }
 
   // Choke the previous mono voice; Reese and log drum reuse its pitch on slide steps.
@@ -2267,22 +2286,29 @@ export class Engine {
     const dur = this.stepDur * 16;
     const profile = (scene, at = 1) => {
       const build = scene === 5, brk = scene === 4 || build;
-      const lift = build ? at : 0;
-      return { kick: brk ? 0.6 + 0.4 * lift : 1, acid: brk ? 0.6 + 0.4 * lift : 1,
+      const lift = build ? at : 0, early = scene === 0 || scene === 1;
+      return { kick: brk ? 0.7 + 0.3 * lift : 1, acid: brk ? 0.7 + 0.3 * lift : 1,
         ch: brk ? 0.8 + 0.2 * lift : 1, oh: brk ? 0.8 + 0.2 * lift : 1,
-        perc: brk ? 0.45 + 0.55 * lift : 1, clap: brk ? 0.4 + 0.6 * lift : 1,
-        snare: brk ? 0.4 + 0.6 * lift : 1, ride: brk ? 0.65 + 0.35 * lift : 1,
-        stab: 1, vox: 1, db: brk ? -0.75 * (1 - lift) : scene === 0 || scene === 1 ? -3 : 0 };
+        perc: brk ? 0.65 + 0.35 * lift : early ? 0.7 : 1, clap: brk ? 0.65 + 0.35 * lift : 1,
+        snare: brk ? 0.65 + 0.35 * lift : 1, ride: brk ? 0.7 + 0.3 * lift : 1,
+        stab: scene === 2 ? 0.45 + 0.55 * Math.min(1, at * 4) : 1, vox: 1,
+        bite: early ? -2.5 : scene === 2 ? -4.5 + 3 * Math.max(0, at * 2 - 1) : brk ? -1.5 + 5.25 * lift : MASTER_TONE.hardtechno[2],
+        db: brk ? -3.25 * (1 - lift) : scene === 0 ? -5 : scene === 1 ? -4 : scene === 2 ? -1 : 0 };
     };
     const target = pos === len - 1 && next !== cur && next != null ? profile(next, 0) : profile(cur, (pos + 1) / len);
     const prev = this.hardLevels || profile(cur, 0);
     for (const id of TRACK_IDS) {
       const p = this.ch[id].level.gain, level = this.state.params[id].level;
-      p.setValueAtTime(level * (prev[id] ?? 1), t);
+      if (!this.hardLevels) p.setValueAtTime(level * (prev[id] ?? 1), t);
       p.linearRampToValueAtTime(level * (target[id] ?? 1), t + dur);
     }
-    this.secGain.gain.setValueAtTime(10 ** (prev.db / 20), t);
+    if (!this.hardLevels) {
+      this.secGain.gain.setValueAtTime(10 ** (prev.db / 20), t);
+      this.tonePres.gain.cancelScheduledValues(t);
+      this.tonePres.gain.setValueAtTime(prev.bite, t);
+    }
     this.secGain.gain.linearRampToValueAtTime(10 ** (target.db / 20), t + dur);
+    this.tonePres.gain.linearRampToValueAtTime(target.bite, t + dur);
     this.hardLevels = target;
     if (cur === 5 && pos === 0) this.tonalSweep(t, dur * len, 0.8);
     if (cur === 4 && pos === 0) this.tonalSweep(t, dur * 2, 0.4, true);
@@ -2694,6 +2720,9 @@ export class Sequencer {
       if (i16 % every === 0 && !s.mutes[drum]) e.trigger(drum, tt, 0.1 + 0.35 * progress);
     }
     this.smooth = SMOOTH.has(s.artist?.style);
+    // The chords make room under the bass while it plays and fill the low mids back in when it drops out.
+    const sc = !this.smooth ? 0 : !s.mutes.acid && pat.steps.acid.some((st) => st?.on) ? -12 : HELD_CHORDS.has(STAB_VOICES[s.params.stab.voice]) ? -4 : 8;
+    if (sc !== (e.smoothOn || 0)) e.smoothChords(sc, t);
     if (this.dropNext && this.smooth) { if (i16 === 0) e.dropDip(t, 16 * sd); } else if (this.dropNext && !hard) {
       if (i16 === 0) e.sweep(t, 16 * sd, arr);
       if (i16 >= 8 && !s.mutes.snare) {
@@ -2706,7 +2735,7 @@ export class Sequencer {
     if (pat.score) this.scoreStep(pat.score, abs, t, sd);
     else this.e.stepScale = 1;
     const anySolo = TRACK_IDS.some((id) => s.solos[id]);
-    const rp = arr && !vary && n && !pat.score && this.runLen >= 8 ? this.runPos : -1;
+    const rp = arr && !vary && n && !pat.score && (this.runLen >= 8 || (hard && this.runLen >= 4)) ? this.runPos : -1;
     // A song verse running straight into the pre-chorus fills its own last bar (no D/H turnaround follows it).
     const turn = pat.sec && (this.cur === 2 || this.cur === 6) && this.runPos === this.runLen - 1 && pos + 1 < n && ![3, 7].includes(this.chainArr[pos + 1]);
     const fillAt = turn ? 12 : rp >= 0 && (this.cur === 2 || this.cur === 6) && rp % 8 === 7 && rp < this.runLen - 1 ? (rp % 16 === 15 ? 8 : 12) : 16;
