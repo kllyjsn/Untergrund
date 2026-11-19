@@ -1,7 +1,7 @@
 // Real app, separate OS browser processes, HTTP rooms, rendered PCM only.
 // Extend SCENARIOS rather than adding app test hooks. Node >=22 required.
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { availableParallelism } from 'node:os';
 import { randomBytes, createHash } from 'node:crypto';
 import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
@@ -17,6 +17,7 @@ import { installDiagnostics, diagnose } from './club-sync-diagnostics.mjs';
 import { mixFixture, realMixFixture, loadRealMixStem, mixBoundaries, mixGraphEdges, installMixStem, analyzeMix, mixFailures, channelEnvelope } from './club-sync-mix.mjs';
 import { singRequest, vocalDb } from '../js/sing.js';
 import { analyzeVocalGrid, vocalFindings, referenceEnvelope, clipRange, extractPCM, floatWav, levelMatchClips } from './club-sync-vocals.mjs';
+import { parseNetwork, networkController, clockSpread } from './club-sync-network.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const out = resolve(root, 'test/out');
@@ -43,11 +44,11 @@ const SCENARIOS = [
   { name: 'replay', replay: true },
 ];
 const args = process.argv.slice(2);
-const options = { repeat: 1, output: 'club-sync.json', vocal: 'synthetic' };
+const options = { repeat: 1, output: 'club-sync.json', vocal: 'synthetic', 'net-target':'listener', 'net-label':'default' };
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
   if (['--assert', '--diagnostics', '--mute-audio', '--no-audio-device', '--startup-contention', '--clips'].includes(arg)) options[arg.slice(2)] = true;
-  else if (['--scenario', '--repeat', '--output', '--cpu-throttle', '--vocal'].includes(arg) && args[i + 1]) options[arg.slice(2)] = args[++i];
+  else if (['--scenario', '--repeat', '--output', '--cpu-throttle', '--vocal', '--net', '--net-target', '--net-label'].includes(arg) && args[i + 1]) options[arg.slice(2)] = args[++i];
   else throw new Error(`Unknown/missing argument: ${arg}`);
 }
 const selected = options.scenario;
@@ -59,8 +60,12 @@ assert.ok(!selectedScenarios || selectedScenarios.every(name => SCENARIOS.some(s
 assert.ok(/^\d+$/.test(String(options.repeat)) && +options.repeat >= 1 && +options.repeat <= 20, '--repeat must be 1..20');
 assert.match(options.output, /^[a-z0-9-]+\.json$/, '--output must be a JSON filename under test/out');
 assert.ok(options['cpu-throttle'] === undefined || (Number.isFinite(+options['cpu-throttle']) && +options['cpu-throttle'] >= 1 && +options['cpu-throttle'] <= 20), '--cpu-throttle must be 1..20');
+const networkProfile = parseNetwork(options.net);
+assert.ok(['listener', 'both'].includes(options['net-target']), '--net-target must be listener or both');
+assert.match(options['net-label'], /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/, 'Invalid --net-label');
+const activeClients = new Set();
 const pause = ms => new Promise(r => setTimeout(r, ms));
-async function until(fn, label, timeout = 25000) {
+async function until(fn, label, timeout = options.net ? 180000 : 25000) {
   const end = Date.now() + timeout;
   while (Date.now() < end) { const value = await fn(); if (value) return value; await pause(100); }
   throw new Error(`Timed out: ${label}`);
@@ -83,9 +88,11 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = 
   let stderr = ''; proc.stderr.on('data', d => stderr += d);
   let ws;
   const close = async () => {
+    activeClients.delete(close);
     ws?.close(); await terminate(proc);
     await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   };
+  activeClients.add(close);
   try {
     const debug = await until(() => /DevTools listening on (ws:\/\/\S+)/.exec(stderr)?.[1], 'Chrome startup');
     const http = debug.replace(/^ws/, 'http').replace(/\/devtools\/browser\/.*/, '');
@@ -110,6 +117,11 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = 
     if (options['cpu-throttle']) await send('Emulation.setCPUThrottlingRate', { rate: +options['cpu-throttle'] });
     await send('Network.enable');
     await send('Network.setCacheDisabled', { cacheDisabled: true });
+    const cdpProbe = [];
+    for (let i = 0; i < 5; i++) {
+      const start = performance.now(); await run('1+1'); cdpProbe.push(performance.now() - start);
+    }
+    console.log(`CDP control RTT (unfiltered): ${JSON.stringify(cdpProbe)}ms`);
     if (options.diagnostics) {
       await installDiagnostics(send, base);
       await send('Profiler.enable');
@@ -150,7 +162,7 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = 
     };
     const click = selector => clickElement(`document.querySelector(${JSON.stringify(selector)})`, selector);
     const clickText = label => clickElement(`[...document.querySelectorAll('.club-shell button')].find(b => b.textContent.trim() === ${JSON.stringify(label)})`, label);
-    return { run, nav, click, clickText, clickElement, close, send,
+    return { run, nav, click, clickText, clickElement, close, send, cdpProbe,
       audioErrors: () => stderr.split('\n').filter(l => /alsa|pulse|audio.*(?:error|fail)|(?:error|fail).*audio/i.test(l)) };
   } catch (e) { await close(); throw e; }
 }
@@ -170,10 +182,11 @@ function fixture() {
   return s;
 }
 
-async function scenario(base, spec, run) {
+async function scenario(base, spec, network, run) {
   const clients = [];
   const contention = [];
   const contentionFile = join(out, 'club-sync-contention.bin');
+  let events = {};
   try {
     const song = spec.mix ? mixSong() : fixture();
     if (spec.djLatency) {
@@ -182,17 +195,17 @@ async function scenario(base, spec, run) {
       song.patterns[0].steps.kick.fill(0);
       song.patterns[0].steps.kick[0] = 1;
     }
-    const host = await client(base, spec.hostSkew, song, 0, spec.mix); clients.push(host);
+    const host = await client(network.base('host'), spec.hostSkew, song, 0, spec.mix); clients.push(host);
     await host.nav('/');
     await host.clickElement(`[...document.querySelectorAll('.tab-club, .club-btn')].find(e => e.getBoundingClientRect().width && e.getBoundingClientRect().height)`, 'visible Club navigation');
     let listener;
-    if (!spec.cold) { listener = await client(base, spec.listenerSkew, null, spec.displacementMs, spec.mix); clients.push(listener); await listener.nav('/'); }
+    if (!spec.cold) { listener = await client(network.base('listener'), spec.listenerSkew, null, spec.displacementMs, spec.mix); clients.push(listener); await listener.nav('/'); }
     const action = await until(() => host.run(`document.querySelector('.lobby-cta')?.textContent === 'GO LIVE' ? '.lobby-cta' : document.querySelector('.club-primary')?.textContent === 'GO LIVE' ? '.club-primary' : null`), 'GO LIVE');
     await host.click(action);
     const room = await until(() => host.run('new URL(location.href).searchParams.get("room")'), 'Host room invite');
     const broadcast = Date.now();
     if (spec.joinDelay) await pause(spec.joinDelay);
-    if (!listener) { listener = await client(base, spec.listenerSkew); clients.push(listener); }
+    if (!listener) { listener = await client(network.base('listener'), spec.listenerSkew); clients.push(listener); }
     if (options['startup-contention']) {
       for (let i = 0; i < availableParallelism(); i++) contention.push(spawn(process.execPath,
         ['-e', 'const end=Date.now()+12000;let x=1;while(Date.now()<end){for(let i=0;i<10000;i++)x=Math.sin(x+i)}'], { stdio: 'ignore' }));
@@ -214,7 +227,8 @@ async function scenario(base, spec, run) {
         set: { by: r.currentSet?.by, broadcastId: r.currentSet?.broadcastId, replay: !!r.currentSet?.replay },
         memberSeen: r.members.map(m => ({ id: m.id, seen: m.seen })), startsAt: r.currentSet?.startsAt };
     };
-    const initial = await snapshot(), events = { initial };
+    const initial = await snapshot(); events.initial = initial;
+    events.cdpProbeMs = clients.map(c => c.cdpProbe);
     if (spec.djLatency)
       return { name: spec.name, spec, edits: await measureDJEdits(host, listener, initial.startsAt, { until, pause }) };
     const listenerId = await listener.run('sessionStorage.getItem("untergrund.client")');
@@ -281,7 +295,7 @@ async function scenario(base, spec, run) {
       }
       events.before = await snapshot(); events.interruptAt = Date.now();
       if (spec.offlineMs) {
-        await listener.send('Network.setBlockedURLs', { urls: [`${base}/api/rooms*`] });
+        await listener.send('Network.setBlockedURLs', { urls: [`${network.base('listener')}/api/rooms*`] });
         await listener.send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
         events.offlineProbe = await listener.run(`fetch('/api/rooms/${room}').then(() => 'UNEXPECTED success', () => 'blocked')`);
         assert.equal(events.offlineProbe, 'blocked');
@@ -443,6 +457,11 @@ async function scenario(base, spec, run) {
       navigationToFirstAlignedKickMs: aligned ? aligned - navigation : null, broadcast, navigation,
       detected: { host: ho.length, listener: lo.length }, detectorValidation: { selfMaxMs: self.max },
       spec, join: joined, raw: { captures: raw, hostOnsets: ho, listenerOnsets: lo } };
+  } catch (error) {
+    console.error(`${spec.name}: ${error.stack || error}`);
+    events.cdpProbeMs = clients.map(c => c.cdpProbe);
+    const captures = await Promise.all(clients.map(c => c.run('({...__clubAudio})').catch(() => ({}))));
+    return { name:spec.name, spec, events, error:String(error.stack || error), raw:{captures} };
   } finally {
     await Promise.all([...clients.map(c => c.close()), ...contention.map(terminate)]);
     if (options['startup-contention']) await rm(contentionFile, { force: true });
@@ -482,6 +501,28 @@ const server = spawn(process.execPath, ['server.mjs'], { cwd: root, env, stdio: 
 let serverLog = ''; server.stdout.on('data', d => serverLog += d); server.stderr.on('data', d => serverLog += d);
 const results = [];
 let error = null;
+let network;
+let stopping = false;
+const stop = async signal => {
+  if (stopping) return;
+  stopping = true;
+  try { await network?.close(); } finally {
+    await Promise.all([...activeClients].map(close => close()));
+    await terminate(server); process.exit(signal === 'SIGINT' ? 130 : 143);
+  }
+};
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(signal, () => { void stop(signal); });
+function failed(r) {
+  if (r.error) return true;
+  if (r.spec.djLatency) return r.edits.missed > 0;
+  if (r.spec.mix) return r.failures.length > 0;
+  if (r.spec.displacementMs) return !r.injectedEvidence || Math.abs(r.injectedEvidence.errorMs) > 50;
+  const s = r.phases.after || r;
+  return s.median === null || s.median > 25 || s.p95 > 50 || !s.matched || s.missing ||
+    ((r.spec.freezeMs || r.spec.mainThreadStallMs) && s.extra) || r.hostFixture.missing ||
+    (r.spec.wakeOnDownbeat && (r.events.wakeDownbeatDeltaMs === null || Math.abs(r.events.wakeDownbeatDeltaMs) > 50)) ||
+    (r.transition && (r.transition.firstDownbeatDeltaMs === null || Math.abs(r.transition.firstDownbeatDeltaMs) > 50 || r.transition.actionToFirstAlignedKickMs === null));
+}
 try {
   if (realVocal) {
     singer = spawn(python, ['test/club-sync-singer.py', '--port', new URL(env.SINGER_URL).port, '--cache', join(out, 'singer-cache')],
@@ -494,6 +535,7 @@ try {
     }, 'CPU singer health', 15 * 60e3);
   }
   await until(async () => { try { return (await fetch(base)).ok; } catch { return false; } }, 'server');
+  network = await networkController(port, networkProfile, options['net-target'], options['net-label']);
   if (realVocal) {
     const request = singRequest(mixSong(), 'opus');
     assert.ok(request, 'Real fixture has a singable score');
@@ -523,32 +565,39 @@ try {
   for (const spec of SCENARIOS.filter(s => !selectedScenarios || selectedScenarios.includes(s.name))) {
     for (let run = 1; run <= +options.repeat; run++) {
       console.log(`Running ${spec.name}${+options.repeat > 1 ? ` (${run}/${options.repeat})` : ''}…`);
-      results.push({ ...await scenario(base, spec, run), run });
+      const result = { ...await scenario(base, spec, network, run), run,
+        network:{profile:networkProfile, target:options['net-target'], label:options['net-label']} };
+      result.outputClockSpread = (result.raw?.captures || []).map(clockSpread);
+      result.failed = !!failed(result);
+      console.log(`Output clock spread: ${JSON.stringify(result.outputClockSpread)}`);
+      results.push(result);
     }
   }
-  console.table(results.filter(r => !r.spec.djLatency).map(r => ({ scenario: r.name, 'median |Δ| ms': r.median?.toFixed(2), 'p95 ms': r.p95?.toFixed(2),
+  console.table(results.filter(r => !r.spec.djLatency && !r.error).map(r => ({ scenario: r.name, 'median |Δ| ms': r.median?.toFixed(2), 'p95 ms': r.p95?.toFixed(2),
     'max ms': r.max?.toFixed(2), matched: r.matched, missing: `${r.hostFixture.missing}/${r.missing}`,
     'signed lag ms': r.signedLagMs, 'entry→aligned ms': r.navigationToFirstAlignedKickMs?.toFixed(0) })));
   console.log('Detector validation: empty audio has no onsets; empty comparison cannot pass.');
   assert.deepEqual(onsets([], BPM), []); assert.equal(resolvedCompare([], [], 0, 10000).median, null);
   assert.throws(() => envelope({ errors: ['unsupported route'], anchors: [], samples: [] }), /unsupported route/);
-  const failures = results.filter(r => {
-    if (r.spec.djLatency) return r.edits.missed > 0;
-    if (r.spec.mix) return r.failures.length;
-    if (r.spec.displacementMs) return !r.injectedEvidence || Math.abs(r.injectedEvidence.errorMs) > 50;
-    const s = r.phases.after || r;
-    return s.median === null || s.median > 25 || s.p95 > 50 || !s.matched || s.missing ||
-      ((r.spec.freezeMs || r.spec.mainThreadStallMs) && s.extra) || r.hostFixture.missing ||
-      (r.spec.wakeOnDownbeat && (r.events.wakeDownbeatDeltaMs === null || Math.abs(r.events.wakeDownbeatDeltaMs) > 50)) ||
-      (r.transition && (r.transition.firstDownbeatDeltaMs === null || Math.abs(r.transition.firstDownbeatDeltaMs) > 50 || r.transition.actionToFirstAlignedKickMs === null));
-  });
+  const failures = results.filter(failed);
   console.log(`Thresholds: median ≤25ms, p95 ≤50ms, missing=0 (recovery scenarios: AFTER window; injected-offset: |lag−2000|≤50ms): ${failures.length ? 'FAIL: ' + failures.map(r => r.name).join(', ') : 'PASS'}`);
-  if (options.assert && failures.length) process.exitCode = 1;
+  if (results.some(r => r.error) || (options.assert && failures.length)) process.exitCode = 1;
 } catch (e) { error = String(e.stack || e); console.error(e); process.exitCode = 1; }
 finally {
-  await writeFile(join(out, options.output), JSON.stringify({ generatedAt: new Date().toISOString(), options, error, results, serverLog, singerLog, vocalGroundTruth }, null, 2));
-  console.log(`JSON: test/out/${options.output}`);
-  await terminate(server);
-  await terminate(singer);
-  await rm(join(out, 'club-sync-kv.json'), { force: true });
+  try {
+    const metadata = network?.metadata || {label:options['net-label'], target:options['net-target'], profile:networkProfile};
+    metadata.cdpProbes = results.map(r => ({name:r.name, run:r.run, clientsMs:r.events?.cdpProbeMs || []}));
+    metadata.finalQdisc = network?.counters();
+    await writeFile(join(out, options.output), JSON.stringify({ generatedAt: new Date().toISOString(), options, network:metadata, error, results, serverLog, singerLog, vocalGroundTruth }, null, 2));
+    console.log(`JSON: test/out/${options.output}`);
+    if (results.some(r => r.failed)) {
+      try { console.log(execFileSync('python3', [join(root, 'test/club-sync-plot.py'), join(out, options.output)], {encoding:'utf8'})); }
+      catch (plotError) { console.error('Failure plots unavailable:', String(plotError)); process.exitCode = 1; }
+    }
+  } finally {
+    await network?.close();
+    await terminate(server);
+    await terminate(singer);
+    await rm(join(out, 'club-sync-kv.json'), { force: true });
+  }
 }
