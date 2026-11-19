@@ -1,6 +1,6 @@
 // Runs before app modules. Only the destination edge is replaced: the worklet
 // passes the original samples through unchanged and reports a low-pass envelope.
-export function installAudioTap(skew, fixture) {
+export function installAudioTap(skew, fixture, displacementMs = 0) {
   const RealDate = Date;
   globalThis.Date = new Proxy(RealDate, {
     apply: () => new RealDate(RealDate.now() + skew).toString(),
@@ -11,7 +11,30 @@ export function installAudioTap(skew, fixture) {
     localStorage.setItem('untergrund.v1', JSON.stringify(fixture));
     localStorage.setItem('untergrund.made', '1');
   }
-  const tap = globalThis.__clubAudio = { samples: [], anchors: [], errors: [], routes: [] };
+  const tap = globalThis.__clubAudio = { samples: [], anchors: [], errors: [], routes: [], requests: [], lifecycle: [], sources: [] };
+  const epoch = () => performance.timeOrigin + performance.now();
+  const contexts = [];
+  const clock = ctx => {
+    const t = ctx.getOutputTimestamp();
+    return { contextTime: ctx.currentTime, outputContextTime: t.contextTime,
+      outputEpochMs: performance.timeOrigin + t.performanceTime, state: ctx.state };
+  };
+  const startOscillator = OscillatorNode.prototype.start;
+  OscillatorNode.prototype.start = function (when = 0) {
+    tap.sources.push({ at: epoch(), when, clock: clock(this.context), frequency: this.frequency.value });
+    return startOscillator.call(this, when);
+  };
+  const fetchOriginal = globalThis.fetch;
+  globalThis.fetch = async (...args) => {
+    const url = String(args[0]?.url || args[0]);
+    if (!url.includes('/api/rooms')) return fetchOriginal(...args);
+    const row = { url, method: args[1]?.method || 'GET', start: epoch() }; tap.requests.push(row);
+    try { const r = await fetchOriginal(...args); row.status = r.status; return r; }
+    catch (e) { row.error = String(e); throw e; }
+    finally { row.end = epoch(); }
+  };
+  for (const name of ['freeze', 'resume', 'visibilitychange']) document.addEventListener(name,
+    () => tap.lifecycle.push({ name, at: epoch(), visibility: document.visibilityState, clocks: contexts.map(clock) }));
   const connect = AudioNode.prototype.connect;
   const taps = new WeakMap();
   const code = `class Tap extends AudioWorkletProcessor {
@@ -36,8 +59,12 @@ export function installAudioTap(skew, fixture) {
     const ctx = this.context;
     let entry = taps.get(ctx);
     if (!entry) {
+      contexts.push(ctx);
       const gain = ctx.createGain();
-      entry = { gain }; taps.set(ctx, entry);
+      const delay = ctx.createDelay(3);
+      delay.delayTime.value = displacementMs / 1000;
+      connect.call(delay, gain);
+      entry = { gain, input: delay }; taps.set(ctx, entry);
       tap.routes.push('AudioContext.destination');
       const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
       entry.ready = ctx.audioWorklet.addModule(url).then(() => {
@@ -53,7 +80,7 @@ export function installAudioTap(skew, fixture) {
           tap.anchors.push([t.contextTime, performance.timeOrigin + t.performanceTime]);
       }, 100);
     }
-    connect.call(this, entry.gain, ...args);
+    connect.call(this, entry.input, ...args);
     return dest;
   };
   setInterval(() => {
@@ -83,24 +110,17 @@ export function onsets(rows, bpm) {
   const out = [];
   for (const [t, f] of [...flux].sort((a, b) => b[1] - a[1])) {
     if (f < peak * .25) break;
-    if (out.every(x => Math.abs(x - t) > 60000 / bpm * .72)) out.push(t);
+    if (out.every(x => Math.abs(x - t) > 60000 / bpm * .35)) out.push(t);
   }
   return out.sort((a, b) => a - b);
 }
 
 const quantile = (a, p) => a.length ? [...a].sort((x, y) => x - y)[Math.ceil((a.length - 1) * p)] : null;
-export function compare(host, listener, bpm) {
-  const beat = 60000 / bpm;
-  const deltas = listener.map(t => t - host.reduce((a, b) => Math.abs(b - t) < Math.abs(a - t) ? b : a, Infinity));
-  const matched = deltas.filter(d => Math.abs(d) < beat / 2);
-  const gaps = a => a.slice(1).reduce((n, t, i) => n + Math.max(0, Math.round((t - a[i]) / beat) - 1), 0);
-  const abs = matched.map(Math.abs);
-  return { median: quantile(abs, .5), p95: quantile(abs, .95), max: abs.length ? Math.max(...abs) : null,
-    matched: matched.length, missing: { host: gaps(host), listener: gaps(listener) }, deltas: matched };
-}
 
-export function correlate(host, listener) {
+export function correlate(host, listener, searchMs = 3900) {
+  if (!host.length || !listener.length) return { lagMs: null, score: null, searchMs };
   const start = Math.max(host[0][0], listener[0][0]), end = Math.min(host.at(-1)[0], listener.at(-1)[0]);
+  if (end - start < 1000) return { lagMs: null, score: null, searchMs };
   const bin = rows => {
     const a = new Float64Array(Math.max(0, Math.ceil((end - start) / 4)));
     for (const [t, e] of rows) { const i = Math.floor((t - start) / 4); if (i >= 0 && i < a.length) a[i] = Math.max(a[i], e); }
@@ -108,11 +128,66 @@ export function correlate(host, listener) {
   };
   const a = bin(host), b = bin(listener);
   let best = -Infinity, lag = null;
-  for (let d = -25; d <= 25; d++) {
+  for (let d = -Math.floor(searchMs / 4); d <= Math.floor(searchMs / 4); d++) {
     let ab = 0, aa = 0, bb = 0;
-    for (let i = 25; i < a.length - 25; i++) { ab += a[i] * b[i + d]; aa += a[i] ** 2; bb += b[i + d] ** 2; }
+    const lo = Math.max(0, -d), hi = Math.min(a.length, b.length - d);
+    if ((hi - lo) * 4 < Math.max(2000, (end - start) * .6)) continue;
+    for (let i = lo; i < hi; i++) { ab += a[i] * b[i + d]; aa += a[i] ** 2; bb += b[i + d] ** 2; }
     const score = ab / Math.sqrt(aa * bb);
     if (score > best) { best = score; lag = d * 4; }
   }
-  return { lagMs: lag, score: Number.isFinite(best) ? best : null, searchMs: 100 };
+  return { lagMs: lag, score: Number.isFinite(best) ? best : null, searchMs };
+}
+
+export const BPM = 123;
+export const STEP_MS = 15000 / BPM;
+export const KICK_STEPS = [[0, 3, 8, 12], [0, 6, 10, 14], [2, 5, 9, 13], [1, 4, 8, 13]];
+export const PERIOD_MS = STEP_MS * 64;
+
+// Resolve the pattern's signed lag first; only then assign individual onsets.
+// A displaced listener is matched to host(t - lag), never nearest host(t).
+export function resolvedCompare(hostEnvelope, listenerEnvelope, from, to) {
+  const slice = rows => rows.filter(([t]) => t >= from && t <= to);
+  const he = slice(hostEnvelope), le = slice(listenerEnvelope);
+  const host = onsets(hostEnvelope, BPM), listener = onsets(listenerEnvelope, BPM);
+  const enough = host.filter(t => t >= from && t <= to).length >= 4 && listener.filter(t => t >= from && t <= to).length >= 4;
+  const correlation = correlate(enough ? he : [], enough ? le : [], PERIOD_MS / 2 - 4);
+  const lag = correlation.lagMs;
+  const h = host.filter(t => t >= from && t <= to && t + (lag || 0) >= from && t + (lag || 0) <= to);
+  const l = listener.filter(t => t >= from && t <= to && t - (lag || 0) >= from && t - (lag || 0) <= to);
+  const used = new Set(), pairs = [], unmatched = [];
+  for (const t of l) {
+    let index = -1, distance = Infinity;
+    for (let i = 0; i < h.length; i++) {
+      const d = Math.abs(t - h[i] - (lag || 0));
+      if (!used.has(i) && d < distance) { distance = d; index = i; }
+    }
+    if (lag !== null && distance <= STEP_MS * .48) {
+      used.add(index); pairs.push({ host: h[index], listener: t, delta: t - h[index] });
+    } else unmatched.push(t);
+  }
+  const deltas = pairs.map(p => p.delta), abs = deltas.map(Math.abs);
+  const gaps = [];
+  for (let i = 0; i < h.length; i++) {
+    if (used.has(i)) continue;
+    const first = i;
+    while (i + 1 < h.length && !used.has(i + 1)) i++;
+    const end = h[i + 1] ?? to;
+    gaps.push({ from: h[first], to: end, missing: i - first + 1, durationMs: end - h[first] });
+  }
+  return { signedLagMs: lag, correlation, median: quantile(abs, .5), p95: quantile(abs, .95),
+    max: abs.length ? Math.max(...abs) : null, matched: pairs.length,
+    expected: h.length, missing: h.length - used.size, extra: unmatched.length, gaps, deltas, pairs, from, to };
+}
+
+export function fixtureMissing(hostEnvelope, origin, from, to) {
+  if (!Number.isFinite(origin)) throw new Error('Missing server transport origin');
+  const host = onsets(hostEnvelope, BPM);
+  const positions = KICK_STEPS.flatMap((bar, b) => bar.map(s => (b * 16 + s) * STEP_MS));
+  const expected = [];
+  for (let n = Math.floor((from - origin) / PERIOD_MS) - 1; origin + n * PERIOD_MS <= to; n++)
+    for (const t of positions) { const at = origin + n * PERIOD_MS + t; if (at >= from && at <= to) expected.push(at); }
+  const offsets = expected.map(t => host.reduce((a, b) => Math.abs(b - t) < Math.abs(a - t) ? b : a, Infinity) - t).filter(d => Math.abs(d) < 200);
+  const offset = quantile(offsets, .5) || 0;
+  return { expected: expected.length, missing: expected.filter(t => !host.some(h => Math.abs(h - t - offset) <= 60)).length, outputOffsetMs: offset };
 }

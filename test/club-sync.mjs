@@ -7,8 +7,8 @@ import { createServer } from 'node:net';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findChrome } from './chrome.mjs';
-import { defaultState } from '../js/state.js';
-import { installAudioTap, envelope, onsets, compare, correlate } from './club-sync-audio.mjs';
+import { defaultState, emptyPattern } from '../js/state.js';
+import { installAudioTap, envelope, onsets, resolvedCompare, fixtureMissing, BPM, KICK_STEPS } from './club-sync-audio.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const out = resolve(root, 'test/out');
@@ -17,6 +17,10 @@ const SCENARIOS = [
   { name: 'host-skew', hostSkew: 2000 },
   { name: 'late-join', joinDelay: 10000 },
   { name: 'cold-invite', cold: true },
+  { name: 'injected-offset', displacementMs: 2000 },
+  { name: 'reconnect', offlineMs: 10000 },
+  { name: 'reconnect-expired', offlineMs: 20000 },
+  { name: 'background-wake', freezeMs: 15000 },
 ];
 const args = process.argv.slice(2);
 const selected = args.includes('--scenario') ? args[args.indexOf('--scenario') + 1] : null;
@@ -37,7 +41,7 @@ async function terminate(p) {
   if (!p || p.exitCode !== null) return;
   const done = new Promise(r => p.once('exit', r)); p.kill('SIGKILL'); await done;
 }
-async function client(base, skew = 0, fixture = null) {
+async function client(base, skew = 0, fixture = null, displacementMs = 0) {
   const chrome = findChrome(); if (!chrome) throw new Error('Chrome required');
   const profile = await mkdtemp(join(out, 'chrome-'));
   const proc = spawn(chrome, ['--headless=new', '--no-sandbox', '--no-first-run', '--disable-background-timer-throttling',
@@ -70,22 +74,31 @@ async function client(base, skew = 0, fixture = null) {
       return r.result?.value;
     };
     await send('Page.enable');
-    await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${installAudioTap})(${skew}, ${JSON.stringify(fixture)})` });
+    await send('Network.enable');
+    await send('Network.setCacheDisabled', { cacheDisabled: true });
+    await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${installAudioTap})(${skew}, ${JSON.stringify(fixture)}, ${displacementMs})` });
     const nav = async path => { await send('Page.navigate', { url: base + path }); await until(() => run('!!document.querySelector(".club-btn, .club-modal, .club-head")'), 'app ready'); };
     const click = async selector => {
       const point = await until(() => run(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); if (!e) return null; const r = e.getBoundingClientRect(); return r.width && r.height ? {x:r.x+r.width/2,y:r.y+r.height/2} : null; })()`), selector);
       await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
       await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
     };
-    return { run, nav, click, close };
+    return { run, nav, click, close, send };
   } catch (e) { await close(); throw e; }
 }
 
 function fixture() {
   const s = defaultState();
-  s.bpm = 123; s.swing = 0; s.chainOn = false; s.current = 0;
+  s.bpm = BPM; s.swing = 0; s.chainOn = true; s.chain = 'ABCD'; s.current = 0;
   s.solos = { kick: true }; s.mutes = {};
-  for (const p of s.patterns) p.steps.kick = Array.from({ length: 16 }, (_, i) => i % 4 === 0 ? 1 : 0);
+  s.patterns = Array.from({ length: 8 }, (_, b) => {
+    const p = emptyPattern();
+    for (const [i, step] of KICK_STEPS[b % 4].entries()) p.steps.kick[step] = i === b % 4 ? 2 : 1;
+    return p;
+  });
+  Object.assign(s.master, { arr: 0, vary: 0, humanize: 0, pocket: 0, dust: 0, kit: 0,
+    revLevel: 0, dlyLevel: 0, room: 0, warmth: 0, drive: 0 });
+  Object.assign(s.params.kick, { decay: .12, rumble: 0, rev: 0, dly: 0, click: 0, drive: 0 });
   return s;
 }
 
@@ -95,7 +108,7 @@ async function scenario(base, spec) {
     const host = await client(base, spec.hostSkew, fixture()); clients.push(host);
     await host.nav('/'); await host.click('.club-btn');
     let listener;
-    if (!spec.cold) { listener = await client(base, spec.listenerSkew); clients.push(listener); await listener.nav('/'); }
+    if (!spec.cold) { listener = await client(base, spec.listenerSkew, null, spec.displacementMs); clients.push(listener); await listener.nav('/'); }
     const action = await until(() => host.run(`document.querySelector('.lobby-cta')?.textContent === 'GO LIVE' ? '.lobby-cta' : document.querySelector('.club-primary')?.textContent === 'GO LIVE' ? '.club-primary' : null`), 'GO LIVE');
     await host.click(action);
     const room = await until(() => host.run('new URL(location.href).searchParams.get("room")'), 'Host room invite');
@@ -110,24 +123,84 @@ async function scenario(base, spec) {
       return b?.textContent === 'LISTEN LIVE' ? 'listen' : (__clubAudio.samples.some(r => r[1] > .001) ? 'automatic' : null);
     })()`), 'listener audio or LISTEN LIVE');
     if (joined === 'listen') await listener.click('.club-primary');
-    await pause(22000);
+    const snapshot = async () => {
+      const response = await fetch(`${base}/api/rooms/${room}`);
+      assert.ok(response.ok, `Room snapshot HTTP ${response.status}`);
+      const r = await response.json();
+      return { at: Date.now(), members: r.members.map(m => m.id),
+        memberSeen: r.members.map(m => ({ id: m.id, seen: m.seen })), startsAt: r.currentSet?.startsAt };
+    };
+    const initial = await snapshot(), events = { initial };
+    const listenerId = await listener.run('sessionStorage.getItem("untergrund.client")');
+    if (spec.offlineMs || spec.freezeMs) {
+      await pause(7000);
+      events.before = await snapshot(); events.interruptAt = Date.now();
+      if (spec.offlineMs) {
+        await listener.send('Network.setBlockedURLs', { urls: [`${base}/api/rooms*`] });
+        await listener.send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+        events.offlineProbe = await listener.run(`fetch('/api/rooms/${room}').then(() => 'UNEXPECTED success', () => 'blocked')`);
+        assert.equal(events.offlineProbe, 'blocked');
+        await pause(spec.offlineMs);
+      } else {
+        events.visibilityBefore = await listener.run('document.visibilityState');
+        await listener.send('Page.setWebLifecycleState', { state: 'frozen' });
+        await pause(spec.freezeMs);
+      }
+      events.during = await snapshot();
+      events.recoverAt = Date.now();
+      if (spec.offlineMs) {
+        await listener.send('Network.setBlockedURLs', { urls: [] });
+        await listener.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+      } else {
+        await listener.send('Page.setWebLifecycleState', { state: 'active' });
+        await listener.send('Page.bringToFront');
+        events.visibilityAfter = await listener.run('document.visibilityState');
+      }
+      await pause(12000);
+      events.after = await snapshot();
+    } else await pause(22000);
     const raw = await Promise.all(clients.map(c => c.run('({...__clubAudio, clockSkew: Date.now() - (performance.timeOrigin + performance.now())})')));
-    const [he, le] = raw.map(envelope), [ho, lo] = [he, le].map(e => onsets(e, 123));
+    const [he, le] = raw.map(envelope), [ho, lo] = [he, le].map(e => onsets(e, BPM));
     assert.ok(ho.length > 10 && lo.length > 10, 'Enough detected rendered kicks');
-    const start = Math.max(ho[0], lo[0]) + 500, end = Math.min(ho.at(-1), lo.at(-1)) - 100;
-    const h = ho.filter(t => t >= start && t <= end), l = lo.filter(t => t >= start && t <= end);
-    const stats = compare(ho, l, 123);
-    stats.missing.host = compare(h, h, 123).missing.host;
-    const self = compare(h, h, 123);
+    const start = Math.max(he[0][0], le[0][0], ho[0], lo[0]) + 500;
+    const end = Math.min(he.at(-1)[0], le.at(-1)[0]) - 100;
+    const stats = resolvedCompare(he, le, start, end);
+    const hostFixture = fixtureMissing(he, initial.startsAt, start, end);
+    const self = resolvedCompare(he, he, start, end);
     assert.equal(self.max, 0);
-    const offsetMs = 80;
-    const offset = compare(h, h.map(t => t + offsetMs), 123);
-    assert.ok(Math.abs(offset.median - offsetMs) < .001);
-    const aligned = lo.find(t => Math.abs(t - ho.reduce((a, b) => Math.abs(b - t) < Math.abs(a - t) ? b : a, Infinity)) <= 50);
-    console.log(`${spec.name}: detector self=${self.max}ms; injected +${offsetMs}ms=${offset.median}ms; skew host/listener=${raw.map(r => Math.round(r.clockSkew)).join('/')}ms; join=${joined}`);
-    return { name: spec.name, ...stats, crossCorrelation: correlate(he, le), navigationToFirstKickMs: lo[0] - navigation,
+    const phases = {};
+    if (events.recoverAt) {
+      for (const [name, from, to] of [['before', start, events.interruptAt], ['during', events.interruptAt, events.recoverAt], ['after', events.recoverAt, end]])
+        phases[name] = resolvedCompare(he, le, from, to);
+      // Freeze must not shorten the analysis window to the last audible kick.
+      const after = phases.after;
+      let streak = 0;
+      for (const p of after.pairs) {
+        const previous = after.pairs[after.pairs.indexOf(p) - 1];
+        const contiguous = !previous || !ho.some(t => t > previous.host + 1 && t < p.host - 1);
+        streak = Math.abs(p.delta) <= 50 && contiguous ? streak + 1 : Math.abs(p.delta) <= 50 ? 1 : 0;
+        if (streak >= 3) { events.timeToRealignMs = p.listener - events.recoverAt; break; }
+      }
+      events.timeToRealignMs ??= null;
+      events.listenerPresent = Object.fromEntries(['before', 'during', 'after'].map(k => [k, events[k].members.includes(listenerId)]));
+      events.failedRoomRequests = raw[1].requests.filter(r => r.error && r.start >= events.interruptAt && r.start <= events.recoverAt).length;
+      console.log(`${spec.name}: ${spec.offlineMs ? `offline+room URL block ${spec.offlineMs}ms` : `Page frozen→active ${spec.freezeMs}ms (desktop lifecycle, not phone)`}; presence=${JSON.stringify(events.listenerPresent)}; failed room requests=${events.failedRoomRequests}; realign=${events.timeToRealignMs?.toFixed(0) ?? 'none'}ms`);
+      for (const [name, p] of Object.entries(phases)) console.log(`  ${name}: lag=${p.signedLagMs === null ? 'none' : p.signedLagMs + 'ms'} median=${p.median === null ? 'none' : p.median.toFixed(2) + 'ms'} p95=${p.p95 === null ? 'none' : p.p95.toFixed(2) + 'ms'} missing=${p.missing}/${p.expected} extra=${p.extra}; longest missing run=${Math.max(0, ...p.gaps.map(g => g.durationMs)).toFixed(0)}ms`);
+      if (spec.freezeMs) console.log(`  visibility ${events.visibilityBefore}→${events.visibilityAfter}; lifecycle=${raw[1].lifecycle.map(e => e.name + ':' + e.visibility).join(', ')}`);
+    }
+    let injectedEvidence;
+    if (spec.displacementMs) {
+      injectedEvidence = { injectedMs: spec.displacementMs, measuredMs: stats.signedLagMs, errorMs: stats.signedLagMs - spec.displacementMs };
+      assert.ok(Math.abs(injectedEvidence.errorMs) <= 50, `Unaliased browser displacement: ${JSON.stringify(injectedEvidence)}`);
+      console.log(`Browser displacement PROVED: destination DelayNode +${spec.displacementMs}ms BEFORE PCM tap → resolved ${stats.signedLagMs}ms (not nearest-kick phase).`);
+    }
+    // Assign first entry kicks using the globally resolved pattern, not local phase.
+    const entry = resolvedCompare(he, le, Math.max(he[0][0], le[0][0]), end);
+    const aligned = entry.pairs.find(p => Math.abs(p.delta) <= 50)?.listener;
+    console.log(`${spec.name}: detector self=${self.max}ms; resolved lag=${stats.signedLagMs}ms; skew host/listener=${raw.map(r => Math.round(r.clockSkew)).join('/')}ms; join=${joined}`);
+    return { name: spec.name, ...stats, hostFixture, phases, events, injectedEvidence, navigationToFirstKickMs: lo[0] - navigation,
       navigationToFirstAlignedKickMs: aligned ? aligned - navigation : null, broadcast, navigation,
-      detected: { host: ho.length, listener: lo.length }, detectorValidation: { selfMaxMs: self.max, offsetMs, measuredMs: offset.median },
+      detected: { host: ho.length, listener: lo.length }, detectorValidation: { selfMaxMs: self.max },
       spec, join: joined, raw: { captures: raw, hostOnsets: ho, listenerOnsets: lo } };
   } finally { await Promise.all(clients.map(c => c.close())); }
 }
@@ -141,20 +214,25 @@ let serverLog = ''; server.stdout.on('data', d => serverLog += d); server.stderr
 const results = [];
 try {
   await until(async () => { try { return (await fetch(base)).ok; } catch { return false; } }, 'server');
-  console.log('Club sync: isolated Chrome processes; memory rooms; 22s captures; kick-only fixed seed 1337 / 123 BPM.');
+  console.log('Club sync: isolated Chrome processes; memory rooms; dry irregular ABCD kick fixture / 123 BPM / 7805ms period.');
   console.log('PCM destination tap → 180Hz low-pass RMS; getOutputTimestamp + true performance.timeOrigin.');
+  console.log('Signed lag resolved across ±3900ms BEFORE onset matching; offline/freeze = 7s baseline + interruption + 12s recovery.');
   for (const spec of SCENARIOS.filter(s => !selected || s.name === selected)) {
     console.log(`Running ${spec.name}…`);
     results.push(await scenario(base, spec));
   }
   console.table(results.map(r => ({ scenario: r.name, 'median |Δ| ms': r.median?.toFixed(2), 'p95 ms': r.p95?.toFixed(2),
-    'max ms': r.max?.toFixed(2), matched: r.matched, missing: `${r.missing.host}/${r.missing.listener}`,
-    'xcorr ms': r.crossCorrelation.lagMs, 'entry→aligned ms': r.navigationToFirstAlignedKickMs?.toFixed(0) })));
+    'max ms': r.max?.toFixed(2), matched: r.matched, missing: `${r.hostFixture.missing}/${r.missing}`,
+    'signed lag ms': r.signedLagMs, 'entry→aligned ms': r.navigationToFirstAlignedKickMs?.toFixed(0) })));
   console.log('Detector validation: empty audio has no onsets; empty comparison cannot pass.');
-  assert.deepEqual(onsets([], 123), []); assert.equal(compare([], [], 123).median, null);
+  assert.deepEqual(onsets([], BPM), []); assert.equal(resolvedCompare([], [], 0, 10000).median, null);
   assert.throws(() => envelope({ errors: ['unsupported route'], anchors: [], samples: [] }), /unsupported route/);
-  const failures = results.filter(r => r.median === null || r.median > 25 || r.p95 > 50 || !r.matched || r.missing.host || r.missing.listener);
-  console.log(`Thresholds (unchanged): median ≤25ms, p95 ≤50ms, missing=0: ${failures.length ? 'FAIL: ' + failures.map(r => r.name).join(', ') : 'PASS'}`);
+  const failures = results.filter(r => {
+    if (r.spec.displacementMs) return !r.injectedEvidence || Math.abs(r.injectedEvidence.errorMs) > 50;
+    const s = r.phases.after || r;
+    return s.median === null || s.median > 25 || s.p95 > 50 || !s.matched || s.missing || r.hostFixture.missing;
+  });
+  console.log(`Thresholds: median ≤25ms, p95 ≤50ms, missing=0 (recovery scenarios: AFTER window; injected-offset: |lag−2000|≤50ms): ${failures.length ? 'FAIL: ' + failures.map(r => r.name).join(', ') : 'PASS'}`);
   if (args.includes('--assert') && failures.length) process.exitCode = 1;
 } catch (e) { console.error(e); process.exitCode = 1; }
 finally {
