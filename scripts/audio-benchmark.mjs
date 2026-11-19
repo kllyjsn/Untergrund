@@ -17,7 +17,7 @@ export const SCHEMA = 'untergrund.audio-benchmark/1';
 export const SEEDS = { fast: [42], deep: [11, 42, 1234] };
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const baselineFile = (tier) => join(ROOT, `test/audio-baseline/${tier}.json`);
-const LEVEL = { PASS: 0, WARN: 1, FAIL: 2 }, worse = (a, b) => (LEVEL[b] > LEVEL[a] ? b : a);
+const LEVEL = { INFO: -1, PASS: 0, WARN: 1, FAIL: 2 }, worse = (a, b) => (LEVEL[b] > LEVEL[a] ? b : a);
 // Styles that end on a long pad, reverb or delay fade by design.
 export const LONG_TAIL = ['ambient', 'dub', 'nocturne'];
 const classical = (style) => targetFor(style) === LOUDNESS_TARGET.classical;
@@ -109,7 +109,7 @@ export function evaluate(tier, results, baseline) {
       if (!seeds.length) continue;
       const hi = c.bad === 'high', worstSeed = seeds.reduce((a, s) => ((hi ? vals[s] > vals[a] : vals[s] < vals[a]) ? s : a)), worst = vals[worstSeed];
       const over = (v, t) => t != null && (hi ? v > t : v < t);
-      const m = { worst, worstSeed: +worstSeed, p50: r(pct(Object.values(vals), 0.5)), values: vals, level: 'PASS' };
+      const m = { worst, worstSeed: +worstSeed, p50: r(pct(Object.values(vals), 0.5)), values: vals, level: [c.warn, c.fail, c.drift].some((v) => v != null) ? 'PASS' : 'INFO' };
       // A seed the check's excuse() clears (e.g. a drop no louder than the breakdown but clearly denser) keeps its
       // value and is still held to the FAIL guardrail, but not to WARN.
       const excused = c.excuse ? Object.fromEntries(rs.filter((x) => x.seed in vals).map((x) => [x.seed, c.excuse(x)]).filter(([, v]) => v)) : {};
@@ -117,7 +117,7 @@ export function evaluate(tier, results, baseline) {
       const held = seeds.filter((sd) => !(sd in excused)), ts = held.length ? held.reduce((a, sd) => ((hi ? vals[sd] > vals[a] : vals[sd] < vals[a]) ? sd : a)) : null, tv = ts == null ? null : vals[ts];
       let at = worstSeed;
       if (over(worst, c.fail)) m.level = 'FAIL'; else if (ts != null && over(tv, c.warn)) { m.level = 'WARN'; at = ts; }
-      if (m.level !== 'PASS') row.reasons.push({ check: c.id, level: m.level, kind: 'threshold', seed: +at, value: vals[at], threshold: m.level === 'FAIL' ? c.fail : c.warn, message: `${c.label} ${vals[at]} ${c.unit} (seed ${at}) ${hi ? '>' : '<'} ${m.level === 'FAIL' ? c.fail : c.warn}` });
+      if (m.level === 'WARN' || m.level === 'FAIL') row.reasons.push({ check: c.id, level: m.level, kind: 'threshold', seed: +at, value: vals[at], threshold: m.level === 'FAIL' ? c.fail : c.warn, message: `${c.label} ${vals[at]} ${c.unit} (seed ${at}) ${hi ? '>' : '<'} ${m.level === 'FAIL' ? c.fail : c.warn}` });
       // Margin to the WARN guardrail in units of the drift tolerance: the "closest to threshold" ranking.
       const t = c.warn ?? c.fail;
       if (t != null && c.drift) m.margin = r((hi ? t - worst : worst - t) / c.drift);
@@ -161,7 +161,7 @@ export function report(tier, seeds, results, baseline, run) {
     if (!all.length) continue;
     const hi = c.bad === 'high', w = all.reduce((a, b) => ((hi ? b.v > a.v : b.v < a.v) ? b : a));
     global[c.id] = { n: all.length, p10: r(pct(all.map((a) => a.v), 0.1)), p50: r(pct(all.map((a) => a.v), 0.5)), p90: r(pct(all.map((a) => a.v), 0.9)), worst: w.v, worstStyle: w.style, worstSeed: w.seed,
-      levels: { PASS: list.filter(([, s]) => s.metrics[c.id]?.level === 'PASS').length, WARN: list.filter(([, s]) => s.metrics[c.id]?.level === 'WARN').length, FAIL: list.filter(([, s]) => s.metrics[c.id]?.level === 'FAIL').length } };
+      levels: { INFO: list.filter(([, s]) => s.metrics[c.id]?.level === 'INFO').length, PASS: list.filter(([, s]) => s.metrics[c.id]?.level === 'PASS').length, WARN: list.filter(([, s]) => s.metrics[c.id]?.level === 'WARN').length, FAIL: list.filter(([, s]) => s.metrics[c.id]?.level === 'FAIL').length } };
   }
   const reasons = list.flatMap(([id, s]) => s.reasons.map((x) => ({ style: id, ...x }))).sort((a, b) => LEVEL[b.level] - LEVEL[a.level]);
   const closest = list.flatMap(([id, s]) => Object.entries(s.metrics).filter(([, m]) => m.margin != null && m.level === 'PASS').map(([check, m]) => ({ style: id, seed: m.worstSeed, check, value: m.worst, margin: m.margin }))).sort((a, b) => a.margin - b.margin).slice(0, 12);
