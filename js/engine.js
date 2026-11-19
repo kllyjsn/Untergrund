@@ -2716,7 +2716,8 @@ export class Sequencer {
     if (sc !== (e.smoothOn || 0)) {
       e.smoothChords(sc, t);
       // A lifted breakdown opens on a chord so its first bar does not fall into a gap.
-      if (sc > 0 && i16 === 0) e.trigger('stab', t, 0.45);
+      const soloed = Object.values(s.solos || {}).some(Boolean);
+      if (sc > 0 && i16 === 0 && !s.mutes.stab && (!soloed || s.solos.stab)) e.trigger('stab', t, 0.45);
     }
     if (this.dropNext && this.smooth) { if (i16 === 0) e.dropDip(t, 16 * sd); } else if (this.dropNext && !hard) {
       if (i16 === 0) e.sweep(t, 16 * sd, arr);
