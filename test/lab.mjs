@@ -12,6 +12,15 @@ assert.equal(healthy.clips, 0);
 assert.equal(healthy.renderRatio, 0.5);
 assert(!healthy.flags.includes('clipping'));
 
+for (const rate of [44100, sr]) {
+  for (const hz of [20, 27.5, 32.7, 55, 110]) {
+    const sub = Float32Array.from({ length: rate * 8 }, (_, i) => 0.5 * Math.sin(2 * Math.PI * hz * i / rate));
+    const sustainedSub = analyzePcm([sub], rate, { bpm: 120 });
+    assert.equal(sustainedSub.onsets, 0, `sustained ${hz} Hz at ${rate} Hz has no repeated attacks`);
+    assert.equal(sustainedSub.gridErrorMs, null, 'sustained sub-bass timing is unmeasured');
+  }
+}
+
 // Dense kicks over a sustained bed never reach 1.8 times the song's median RMS.
 // Flux must still find their attacks, at different tempi and recording levels.
 for (const bpm of [126, 154, 174]) {

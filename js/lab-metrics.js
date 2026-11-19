@@ -176,12 +176,17 @@ export function analyzePcm(channels, sampleRate, { bpm = 0, renderMs = 0 } = {})
   // Positive log-envelope flux in three bands detects attacks above sustained bass/pads.
   // A local 300 ms threshold follows density and level instead of requiring a kick to
   // exceed the whole song's median RMS (impossible for many limited dance mixes).
-  const flux = bands.map((band, i) => i < 2 ? 0 : Math.max(0, ...band.map((v, k) =>
-    Math.log((v + 1e-5) / (bands[i - 2][k] + 1e-5)))));
+  // Average power over 80 ms before taking flux: short RMS frames ripple at
+  // twice a sustained sub-bass frequency. Require two complete windows and
+  // a log rise above the residual ripple of audible (>=20 Hz) steady tones.
+  const smooth = bands.map((_, i) => [0, 1, 2].map((k) =>
+    Math.sqrt(bands.slice(Math.max(0, i - 7), i + 1).reduce((s, b) => s + b[k] ** 2, 0) / Math.min(i + 1, 8))));
+  const flux = smooth.map((band, i) => i < 9 ? 0 : Math.max(0, ...band.map((v, k) =>
+    Math.log((v + 1e-5) / (smooth[i - 2][k] + 1e-5)))));
   const onsets = [];
   for (let i = 2; i < envelope.length - 1; i++) {
     const local = flux.slice(Math.max(0, i - 15), i + 16);
-    const threshold = Math.max(0.15, local.reduce((a, b) => a + b, 0) / local.length * 1.5);
+    const threshold = Math.max(0.2, local.reduce((a, b) => a + b, 0) / local.length * 1.5);
     if (flux[i] > threshold && flux[i] >= flux[i - 1] && flux[i] > flux[i + 1] && i - (onsets.at(-1) ?? -10) > 4) onsets.push(i);
   }
   let gridErrorMs = null;

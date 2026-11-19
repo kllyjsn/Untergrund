@@ -29,8 +29,11 @@ Measured differences ignore changes smaller than these inclusive thresholds. Fin
 ### Measurement limits and target provenance
 
 Groove uses positive log-RMS flux across low (<180 Hz), mid and high (>2.5 kHz) bands,
-with 10 ms frames, a 20 ms rise, local 300 ms adaptive threshold and 50 ms refractory
-period. This detects fresh attacks above sustained/limited dense kicks without a
+with 10 ms frames, an 80 ms power-average envelope, a 20 ms rise, local 300 ms
+adaptive threshold and 50 ms refractory period. The power average and 0.2 minimum
+log rise suppress within-cycle RMS ripple from sustained sub-bass; flux starts
+only after both compared envelopes have complete averaging windows. This detects
+fresh attacks above sustained/limited dense kicks without a
 genre switch or a whole-song absolute loudness gate. Grid error remains a timing
 proxy, not a groove-quality or swing score. Silence, steady tones and missing BPM
 do not imply perfect timing: missing grid error is UNMEASURED.
@@ -59,11 +62,18 @@ the HYPNOTIC style. No audio generator or mix settings were changed.
 
 | Style | BPM | Onsets before → after | Grid error ms before → after | Balance RMS dB before → after | New target | Worst deviation after |
 | --- | --- | --- | --- | --- | --- | --- |
-| Techno | 130 | 0 → 1927 | unavailable → 38.5 | unavailable → 4.3 | techno | +8.9 dB at 63 Hz |
-| Hard Techno | 150 | 0 → 1917 | unavailable → 27.6 | unavailable → 5.1 | hardtechno | +10.7 dB at 63 Hz |
-| Minimal | 124 | 752 → 1596 | 41.2 → 40.9 | unavailable → 3.2 | minimal | +6.3 dB at 63 Hz |
-| Drill | 140 | 228 → 2175 | 32.1 → 29.3 | unavailable → 2.9 | trap | +5.6 dB at 500 Hz |
-| Trap | 138 | 124 → 2309 | 21.1 → 31.7 | unavailable → 7.1 | trap | +12.2 dB at 500 Hz |
+| Techno | 130 | 0 → 1333 | unavailable → 36.0 | unavailable → 4.3 | techno | +8.9 dB at 63 Hz |
+| Hard Techno | 150 | 0 → 1044 | unavailable → 22.2 | unavailable → 5.1 | hardtechno | +10.7 dB at 63 Hz |
+| Minimal | 124 | 752 → 1147 | 41.2 → 37.1 | unavailable → 3.2 | minimal | +6.3 dB at 63 Hz |
+| Drill | 140 | 228 → 715 | 32.1 → 27.2 | unavailable → 2.9 | trap | +5.6 dB at 500 Hz |
+| Trap | 138 | 124 → 938 | 21.1 → 29.0 | unavailable → 7.1 | trap | +12.2 dB at 500 Hz |
+
+The after columns were remeasured on the same saved WAVs after the sub-bass
+ripple correction. The initial flux detector incorrectly found 52 attacks in an
+eight-second sustained 32.7 Hz sine at 48 kHz; the corrected detector finds zero
+and leaves grid error unmeasured. Regression fixtures also cover sustained
+20, 27.5, 55 and 110 Hz tones at 44.1 and 48 kHz, while retaining the dense-kick
+tempo/level fixtures.
 
 Before, all five missing balance comparisons were misleadingly `same`; Techno
 and Hard Techno's missing groove comparisons were also `same`. After, all five
