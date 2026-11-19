@@ -107,6 +107,26 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
   {
     const ctx = fakeCtx(), state = defaultState();
+    state.params.acid.voice = 7;
+    const e = new Engine(ctx, state);
+    const pulse = e.pulseVoice = e.buildPulseBass(), gain = pulse.amp.gain;
+    let automation = [];
+    gain.setTargetAtTime = (value, time, tc) => automation.push({ value, time, tc });
+    gain.cancelScheduledValues = time => { automation = automation.filter(event => event.time < time); };
+    gain.setValueAtTime = () => assert.fail('a retrigger must not jump to zero');
+    const st = { n: 0, a: false };
+    e.acid(1, st, false, false, 0.12);
+    e.acid(1.12, st, false, true, 0.12);
+    assert.equal(automation.at(-1).value, 0, 'a slide at the end of a section still releases');
+    assert(automation.at(-1).time < 1.36);
+    e.acid(1.24, st, true, true, 0.12);
+    ctx.currentTime = 1.18;
+    e.panic();
+    assert.deepEqual(automation.at(-1), { value: 0, time: 1.18, tc: 0.008 }, 'Stop discards queued pulse targets');
+  }
+
+  {
+    const ctx = fakeCtx(), state = defaultState();
     state.master.arr = state.master.humanize = state.master.variation = 0;
     state.chainOn = false;
     const pat = state.patterns[state.current];

@@ -688,8 +688,8 @@ export class Engine {
     for (const p of [acid.env.offset, acid.o1.frequency, acid.o2.frequency, this.subVoice?.o.frequency]) p?.cancelScheduledValues(now);
     for (const p of [acid.vca.gain, this.subVoice?.amp.gain, this.mono?.amp.gain]) p?.cancelScheduledValues(now);
     if (this.pulseVoice) {
-      const { freqs, waves, lp, amp } = this.pulseVoice;
-      for (const p of [...freqs, ...waves, lp.frequency, lp.Q, amp.gain]) p.cancelScheduledValues(now);
+      const { freqs, waves, lp } = this.pulseVoice;
+      for (const p of [...freqs, ...waves, lp.frequency, lp.Q]) p.cancelScheduledValues(now);
     }
     this.acidRelease(now);
     for (const p of [this.duck.gain, this.rumbleDuck.gain, this.ch.acid.sc?.gain, this.windDuck?.gain]) {
@@ -2526,10 +2526,10 @@ export class Engine {
     if (a.driveAmount !== p.drive) { drive.curve = driveCurve(p.drive * 0.42); a.driveAmount = p.drive; }
     const v = (st.a ? 0.74 + 0.15 * p.accent : 0.63) * (0.65 + 0.53 * p.wave) * (this.noteVel ?? 1);
     amp.gain.cancelScheduledValues(t);
-    if (!sliding) amp.gain.setValueAtTime(0, t);
-    amp.gain.setTargetAtTime(v, t, 0.0025);
+    if (!sliding) amp.gain.setTargetAtTime(0, t, 0.001);
+    amp.gain.setTargetAtTime(v, t + (sliding ? 0 : 0.003), 0.0025);
     amp.gain.setTargetAtTime(v * 0.51, t + 0.008, 0.036);
-    if (!holdNext) amp.gain.setTargetAtTime(0, t + len, 0.016);
+    amp.gain.setTargetAtTime(0, t + (holdNext ? Math.max(len, sd * 1.15) : len), 0.016);
   }
 
   acid(t, st, sliding, holdNext, sd) {
@@ -2564,7 +2564,11 @@ export class Engine {
 
   acidRelease(t) {
     this.acidNodes.vca.gain.setTargetAtTime(0, t, 0.008);
-    this.pulseVoice?.amp.gain.setTargetAtTime(0, t, 0.008);
+    if (this.pulseVoice) {
+      const gain = this.pulseVoice.amp.gain;
+      gain.cancelScheduledValues(t);
+      gain.setTargetAtTime(0, t, 0.008);
+    }
     this.subVoice?.amp.gain.setTargetAtTime(0, t, 0.01);
     if (this.mono) { this.mono.amp.gain.setTargetAtTime(0, t, 0.01); this.mono = null; }
   }
