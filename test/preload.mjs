@@ -42,7 +42,7 @@ const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
   const state = st(KIT_BACKBEAT, 1), seen = [];
   const part = {
     state, recLock: new Map(), rec: Engine.prototype.rec, sampledHit: Engine.prototype.sampledHit,
-    liveHit: (samples, take, id, t, v, rate) => { assert.ok(samples[take]); seen.push([id, take, t, v, rate]); },
+    liveHit: (samples, take, id, t, v, rate, _dur, touch) => { assert.ok(samples[take]); seen.push([id, take, t, v, rate, touch]); },
     snare: () => seen.push('synth snare'), kick: () => seen.push('synth kick'), hat: () => seen.push('synth hat'),
   };
   const hit = (id, t = 1) => Engine.prototype.trigger.call(part, id, t, 0.9);
@@ -56,7 +56,7 @@ const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
   part.recLock = new Map();
   hit('kick'); hit('ch'); hit('oh');
   assert.deepEqual(seen.splice(0), ['synth kick', 'synth hat', 'synth hat']);
-  for (let i = 0; i < 16; i++) hit('snare', i + 2);
+  for (let i = 0; i < 16; i++) { part.step = i * 16 + 8; hit('snare', i + 2); }
   assert.ok(seen.every(([id, , t, v], i) => id === 'snare' && t === i + 2 && v > 1), 'recorded backbeat keeps timing and lift');
   const takes = seen.map(([, take]) => take);
   assert.equal(new Set(takes).size, 4, 'hard strokes use four recordings');
@@ -64,6 +64,16 @@ const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
   const rates = seen.map(([, , , , rate]) => rate);
   assert.ok(rates.every((rate) => Math.abs(rate - 1) <= 0.013));
   assert.ok(new Set(rates).size > new Set(takes).size, 'pitch varies even when a take repeats');
+  const touches = seen.map(([, , , , , touch]) => touch);
+  assert.ok(Math.min(...touches) < -0.32 && Math.max(...touches) > 0.32,
+    'identical written accents still have lighter and heavier strikes');
+  assert.ok(touches.slice(1).every((touch, i) => Math.abs(touch - touches[i]) <= 0.74),
+    'intermediate bars bridge the strongest and softest strokes');
+  const levels = seen.map(([, , , level]) => level);
+  assert.ok(20 * Math.log10(Math.max(...levels) / Math.min(...levels)) > 0.5,
+    'the strike changes playback level as well as tone');
+  assert.ok(Math.max(...levels) < 0.85 * 2.5 * 0.9 ** 1.4,
+    'shaped accents never boost the unshaped level');
   seen.length = 0;
   for (let t = 20; t < 28; t++) {
     hit('kick', t);
@@ -73,23 +83,33 @@ const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
   assert.equal(paired.length, 8);
   assert.deepEqual([...new Set(paired.map(([, take]) => take))].sort(), ['snare_v33', 'snare_v34']);
   assert.ok(paired.every(([, , , , rate]) => Math.abs(rate - 1) <= 0.006), 'kick overlaps keep the original attack');
+  assert.ok(paired.every(([, , , level, , touch]) => touch === undefined && level === 0.85 * 2.5 * 0.9 ** 1.4),
+    'kick overlaps keep the original snare level and EQ');
 
   const soft = (kit) => {
     const strikes = [];
-    const e = { state: st(kit, 1), liveHit: (_samples, take, _id, _t, _v, rate) => strikes.push([take, rate]) };
+    const e = { state: st(kit, 1), liveHit: (_samples, take, _id, _t, _v, rate, _dur, touch) => {
+      if (take === 'snare_v5' || take === 'snare_v6') assert.equal(touch, undefined, 'ghosts stay under the backbeat');
+      strikes.push([take, rate]);
+    } };
     for (const v of [0.67, 0.38, 0.7, 0.38]) Engine.prototype.sampledHit.call(e, {}, 'snare', 1, v);
     return strikes;
   };
   assert.deepEqual(soft(KIT_BACKBEAT), soft(1), 'softer strokes keep the regular kit takes and detune range');
 
-  const shape = (kit, decay) => Engine.prototype.liveFx.call({
+  const shape = (kit, decay, touch) => Engine.prototype.liveFx.call({
     state: { master: { kit }, params: { snare: { tune: 211, snappy: 0.64, decay } } },
-  }, 'snare', { duration: 0.8 });
+  }, 'snare', { duration: 0.8 }, touch);
   const backbeat = shape(KIT_BACKBEAT, 0.15), live = shape(1, 0.15);
   assert.ok(backbeat.dur + backbeat.fx.release * 4.6 < 0.3, 'default backbeat damps by 40 dB in 300 ms');
   assert.ok(backbeat.fx.peaks.some(([hz, , dB]) => hz === 630 && dB < 0));
   assert.ok(shape(KIT_BACKBEAT, 0.3).dur > backbeat.dur, 'the decay knob still opens the snare up');
   assert.ok(live.dur > backbeat.dur && !live.fx.release, 'the full live kit retains its longer tail');
+  const light = shape(KIT_BACKBEAT, 0.15, -0.65), hard = shape(KIT_BACKBEAT, 0.15, 0.65);
+  assert.equal(light.dur, hard.dur, 'strike variation leaves the damped tail intact');
+  assert.ok(light.fx.peaks.at(-1)[2] < -2 && hard.fx.peaks.at(-1)[2] > 2,
+    'lighter strokes are darker and harder strokes add crack');
+  assert.deepEqual(shape(1, 0.15, 0.65), live, 'the full recorded kit is untouched');
 }
 const song = new Map();
 assert.equal(setsReady(['gtr']), false);
