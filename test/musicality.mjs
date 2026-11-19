@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { generate, arrangement, sanitize, defaultState, freshSong, STYLES, MAJOR_STYLES, MUSICIAN_PRINCIPLES } from '../js/state.js';
+import { generate, arrangement, applySongPlan, sanitize, defaultState, freshSong, STYLES, MAJOR_STYLES, MUSICIAN_PRINCIPLES } from '../js/state.js';
 import { SCALES } from '../js/params.js';
 import { Sequencer } from '../js/engine.js';
 import { Recorder } from '../js/midi.js';
+import { patternAt } from '../js/scope.js';
 
 // Every club/pop style gets its own seeded hook; NEO-SOUL and BOOM BAP sing one over their Rhodes licks.
 for (const style of Object.keys(STYLES)) {
@@ -49,6 +50,31 @@ for (const seed of [7, 42, 211, 1234]) {
   assert(glide > 0 && notes[glide - 1].hold && notes[glide - 1].m !== notes[glide].m, `Drill/${seed}: an audible pitch glide reaches the 808`);
 }
 console.log('Drill pitched 808 glides passed');
+
+for (const seed of [7, 42, 211, 1234]) {
+  const g = generate('drill', seed);
+  const original = arrangement(g.pattern, seed, true);
+  const song = freshSong('drill', seed);
+  assert.equal(song.master.arr, 0, 'written Drill fills replace the generic drop effect');
+  assert.notDeepEqual(song.patterns[2].steps.kick, song.patterns[6].steps.kick, 'the verse and chorus have different grooves');
+  assert.deepEqual(song.patterns[6].steps.acid, original[6].steps.acid, 'the chorus glides are untouched');
+  const saves = sanitize(JSON.parse(JSON.stringify(song)));
+  const transitions = [...song.chain.matchAll(/CDG/g)].map(({ index }) => index + 1);
+  assert(transitions.length, 'the song has a verse-to-chorus turnaround');
+  for (const at of transitions) {
+    const fill = patternAt(song.patterns[3], at);
+    assert(fill.steps.acid[14].on && !fill.steps.acid[14].s, 'the fill carries a bass note into the last beat');
+    assert(fill.steps.snare[15] && fill.steps.ch[15], 'the pocket continues until the downbeat');
+    assert.deepEqual(patternAt(saves.patterns[3], at).steps, fill.steps, 'written fills survive save and load');
+  }
+  song.patterns = original;
+  song.locks.kick = true;
+  const kick = original[2].steps.kick;
+  applySongPlan(song, 'drill', seed);
+  assert.deepEqual(song.patterns[2].steps.kick, kick, 'the verse does not replace a locked kick');
+  assert.deepEqual(patternAt(song.patterns[3], transitions[0]).steps.kick, original[3].steps.kick, 'the fill respects the kick lock too');
+}
+console.log('Drill verse and turnaround passed');
 
 {
   const g = generate('deephouse', 42);

@@ -1,6 +1,6 @@
 import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, CHORDS, defaultParams, defaultMaster } from './params.js';
 import { rng } from './dsp.js';
-import { planSections, formChain, parseForm, developSong, developFinalDrop, LENGTHS } from './longform.js';
+import { planSections, formChain, parseForm, sectionSpans, developSong, developFinalDrop, LENGTHS } from './longform.js';
 import { FORMS, SECTIONS } from './classical.js';
 import { MODELS } from './composer-models.js';
 import { POCKETS, STYLE_POCKET } from './groove.js';
@@ -10,7 +10,7 @@ import { withMelody, writeMelody, melodySteps, MELODY_BARS, SING_PROFILES } from
 import { stepDeg } from './motif.js';
 import { cleanLyrics } from './lyrics.js';
 import { SING_VOICES } from './sing-score.js';
-import { cleanTakes } from './scope.js';
+import { cleanTakes, patternAt, setTake } from './scope.js';
 import { trackTitle } from './crate.js';
 
 export const STYLES = {
@@ -770,7 +770,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   params.perc.voice = PERC[style] ?? 0;
   const DUST = { boombap: 0.45, dub: 0.3, ambient: 0.2, deephouse: 0.12, minimal: 0.1 };
   master.dust = DUST[style] ?? 0;
-  master.arr = { neosoul: 0, boombap: 0, ambient: 0 }[style] ?? (GROOVE.has(style) ? 0.5 : 1);
+  master.arr = { neosoul: 0, boombap: 0, drill: 0, ambient: 0 }[style] ?? (GROOVE.has(style) ? 0.5 : 1);
   // Per-seed identity on its own RNG so the genre grammar above stays stable.
   const r2 = rng(Math.imul((seed | 0) ^ 0x5bd1e995, 0x9e3779b1) ^ 0x2545f491);
   for (let k = 0; k < 4; k++) r2();
@@ -1110,11 +1110,41 @@ export function songPlan(style, seed, length = 'song', bpm = midBpm(style)) {
   return { chain: (112 * 240) / bpm < LENGTHS.song.lo ? TECHNO_LONG : pick(rng(seed + 9), SONG_FORMS.techno), sections: null };
 }
 export const songChain = (style, seed, length = 'song') => songPlan(style, seed, length).chain;
+
+// Drill answers its lower verse hook with syncopated chords and carries the pocket through the fill.
+function drillVerses(pats, { chain, sections }, keep) {
+  const verse = pats[2], fill = pats[3];
+  const edit = (base, rows) => ({ ...base, steps: { ...base.steps,
+    ...Object.fromEntries(Object.entries(rows).filter(([id]) => !keep.includes(id))) } });
+  verse.steps = edit(verse, {
+    kick: pad16([2, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
+    ch: pad16([1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1]),
+    stab: pad16([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    perc: pad16([0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1]),
+  }).steps;
+  const spans = sectionSpans(sections);
+  for (let i = 1; i < spans.length; i++) {
+    const { k, at } = spans[i], bar = at - 1;
+    if (k !== 'c' || spans[i - 1].k !== 'v' || chain[bar] !== 'D' || chain[at] !== 'G') continue;
+    const acid = verse.steps.acid.map((note, step) => step === 11 || step === 12 ? emptyAcidStep() :
+      step === 14 ? { ...emptyAcidStep(), on: true } : note);
+    const base = patternAt(fill, bar);
+    setTake(fill, bar, edit(base, {
+      ...verse.steps, acid,
+      kick: pad16([2, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1]),
+      ch: pad16([1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1]),
+      stab: pad16([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+      snare: pad16([0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 1, 1]),
+    }));
+  }
+}
+
 // The form written into a fresh arrangement: chain plus the takes that develop each repeat.
 export function applySongPlan(s, style, seed, length = 'song') {
   const plan = songPlan(style, seed, length, s.bpm || midBpm(style));
   s.chain = plan.chain;
   const keep = Object.keys(s.locks || {}).filter((t) => s.locks[t]);
+  if (style === 'drill' && plan.sections) drillVerses(s.patterns, plan, keep);
   developSong(s.patterns, plan.sections, { keep });
   if (plan.chain === TECHNO_LONG) developFinalDrop(s.patterns, plan.chain, { keep });
   return plan;
