@@ -21,7 +21,7 @@ const dampedChord = (e) => (e.state.artist?.style === 'breaks' && Math.round(e.s
 const BASS_COLOR = {
   reggaeton: { name: 'dembow', knock: 1.12, settle: 0.045, wave: 'sine', ratio: 4, harmonic: 0.55, tail: 0.35, decay: 0.12, round: 'sine', pick: 0.6 },
   afrobeats: { name: 'finger', knock: 1, settle: 0.018, wave: 'triangle', ratio: 3, harmonic: 0.8, tail: 0.25, decay: 0.07, round: 'triangle', pick: 1, gain: 0.85 },
-  jerseyclub: { name: 'bounce', knock: 2.6, settle: 0.012, wave: 'sawtooth', ratio: 2, harmonic: 0.35, tail: 0.015, decay: 0.025, round: 'triangle', pick: 0.5 },
+  jerseyclub: { name: 'bounce', knock: 2.6, settle: 0.012, wave: 'sawtooth', ratio: 2, harmonic: 0.35, tail: 0.015, decay: 0.025, round: 'triangle', pick: 0.5, gain: 1.6, duckScale: 0.65, recoveryScale: 0.6 },
 };
 // Chords sit under a sung line the way a mix rides the keys under a vocal: a little in the chorus, more in the verse
 // and most in the breakdown, so the drop still lands over it. Songs with sections already set the verse level.
@@ -759,7 +759,8 @@ export class Engine {
       [this.rumbleDuck.gain, 0.98, this.stepDur * 0.47, 0.0025, 0.03]];
     // Club low end: the kick owns the first few ms, then the bass comes straight back.
     const L = lowEnd(this.state.master), sc = this.ch.acid.sc?.gain;
-    if (L && sc) parts.push([sc, L.dip * Math.min(1, v * 1.2), L.rel, 0.002, 0.012]);
+    const color = this.bassColor();
+    if (L && sc) parts.push([sc, L.dip * (color?.duckScale ?? 1) * Math.min(1, v * 1.2), L.rel * (color?.recoveryScale ?? 1), 0.002, 0.012]);
     // Keep the wind lead out of the glue compressor's way during a kick's attack.
     if (this.windDuck) parts.push([this.windDuck.gain, 0.62 * Math.min(1, v * 1.2), 0.045, 0.003, 0.035]);
     const duck = { t, parts };
