@@ -2336,6 +2336,12 @@ export class Sequencer {
     this.acidMuted = false;
   }
 
+  rewind(abs, t) {
+    const step = abs - this.origin, bar = Math.floor(step / 16);
+    this.chainPos = bar;
+    if (step % 16 !== 0) this.advanceBar(bar * 16, t);
+  }
+
   // Song form: C and G are drops, E and F breakdowns, D and H one-bar fills/switches
   advanceBar(abs, t) {
     if (abs % 16 !== 0) return;
