@@ -2107,9 +2107,11 @@ export class Engine {
       // The strike has inharmonic steel sidebands; the settled note still has a clear pitch.
       const body = this.filter('highpass', 420, 0.8);
       const carrier = osc('sine', f * 2, 0.67, body), depth = this.gain(0);
-      osc('sine', f * 2.73, 1, depth);
+      const mod = osc('sine', f * 2.86, 1, depth);
+      mod.frequency.setValueAtTime(f * 2.86, t);
+      mod.frequency.exponentialRampToValueAtTime(f * 2.62, t + 0.055);
       depth.gain.setValueAtTime(f * (strong ? 4.1 : 3.35) * brightness, t);
-      depth.gain.setTargetAtTime(f * 0.9, t + 0.004, 0.022);
+      depth.gain.setTargetAtTime(f * 0.65, t + 0.004, 0.022);
       depth.connect(carrier.frequency);
       osc('triangle', f, 0.43, lp);
       body.connect(lp);
