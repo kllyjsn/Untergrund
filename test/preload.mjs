@@ -65,11 +65,15 @@ const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
   assert.ok(rates.every((rate) => Math.abs(rate - 1) <= 0.013));
   assert.ok(new Set(rates).size > new Set(takes).size, 'pitch varies even when a take repeats');
   const touches = seen.map(([, , , , , touch]) => touch);
-  assert.ok(Math.min(...touches) < -0.4 && Math.max(...touches) > 0.4,
-    'identical written accents alternate lighter and heavier strikes');
+  assert.ok(Math.min(...touches) < -0.32 && Math.max(...touches) > 0.32,
+    'identical written accents still have lighter and heavier strikes');
+  assert.ok(touches.slice(1).every((touch, i) => Math.abs(touch - touches[i]) <= 0.74),
+    'intermediate bars bridge the strongest and softest strokes');
   const levels = seen.map(([, , , level]) => level);
-  assert.ok(20 * Math.log10(Math.max(...levels) / Math.min(...levels)) > 1,
+  assert.ok(20 * Math.log10(Math.max(...levels) / Math.min(...levels)) > 0.5,
     'the strike changes playback level as well as tone');
+  assert.ok(Math.max(...levels) < 0.85 * 2.5 * 0.9 ** 1.4,
+    'shaped accents never boost the unshaped level');
   seen.length = 0;
   for (let t = 20; t < 28; t++) {
     hit('kick', t);

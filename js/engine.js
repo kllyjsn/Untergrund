@@ -32,7 +32,7 @@ const LIVE_REF = {
   ride: { tune: 1, decay: 1.4, tone: 3800 },
   acid: { cutoff: 320, drive: 0.3 },
 };
-const BACKBEAT_TOUCH = [0.88, -0.75, 0.43, -0.56];
+const BACKBEAT_TOUCH = [0.42, 0.03, -0.42, -0.03];
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
 const EPS = 0.0001;
 const SAMPLE_FADE = 1;
@@ -919,7 +919,7 @@ export class Engine {
     const fx = { shelves, peaks, drive, punch };
     if (id === 'snare' && Math.round(this.state.master.kit) === KIT_BACKBEAT) {
       peaks.push([650, 1.1, -8], [630, 3.5, -4], [1800, 0.8, 5.5]);
-      if (touch != null) peaks.push([1370, 0.75, 5.2 * touch - 0.26], [3600, 1, 4.42 * touch]);
+      if (touch != null) peaks.push([1370, 0.75, 4.4 * touch], [3600, 1, 3.9 * touch]);
       // Dampen the head before the hat roll; DECAY still controls when the fade starts.
       fx.release = 0.03;
       return { rate, dur: Math.min(dur || full, p.decay * 1.05), fx };
@@ -969,12 +969,12 @@ export class Engine {
           }
         }
         if (awayFromKick && v > 0.6) {
-          // Lean into alternate bars, with smaller variation on individual strokes.
+          // Move between strong and soft strokes through a neutral bar in either direction.
           const bar = this.step == null ? all - 1 : Math.floor(this.step / 16);
-          touch = 0.75 * BACKBEAT_TOUCH[bar & 3] + 0.25 * (2 * hash(all, 47) - 1);
+          touch = BACKBEAT_TOUCH[bar & 3] + 0.14 * (2 * hash(all, 47) - 1);
         }
       }
-      const gain = touch == null ? 1 : dbGain(1.1 * touch - 0.12);
+      const gain = touch == null ? 1 : dbGain(0.8 * touch - 0.85);
       this.liveHit(kit, `snare_v${layer}`, 'snare', t, 0.85 * lift * v ** 1.4 * gain, rate, undefined, touch);
       return true;
     }
