@@ -514,9 +514,8 @@ export class Engine {
   smoothChords(db, at = 0) {
     this.smoothOn = db;
     if (this.stripMode) return;
-    const shelf = this.ch.stab.strip[0], t = at || this.ctx.currentTime;
+    const shelf = this.ch.stab.strip[0], t = Math.max(at, this.ctx.currentTime);
     for (const [prm, v] of [[shelf.frequency, db ? 400 : 120], [shelf.gain, db]]) {
-      if (at) { prm.setValueAtTime(v, t); continue; }
       prm.cancelScheduledValues(t);
       prm.setTargetAtTime(v, t, 0.12);
     }
@@ -2585,7 +2584,7 @@ export class Sequencer {
     this.smooth = SMOOTH.has(s.artist?.style);
     // The chords make room under the bass while it plays and fill the low mids back in when it drops out.
     const sc = !this.smooth ? 0 : !s.mutes.acid && pat.steps.acid.some((st) => st?.on) ? -12 : 6;
-    if (sc !== (e.smoothOn || 0)) e.smoothChords(sc);
+    if (sc !== (e.smoothOn || 0)) e.smoothChords(sc, t);
     if (this.dropNext && this.smooth) { if (i16 === 0) e.dropDip(t, 16 * sd); } else if (this.dropNext && !hard) {
       if (i16 === 0) e.sweep(t, 16 * sd, arr);
       if (i16 >= 8 && !s.mutes.snare) {
