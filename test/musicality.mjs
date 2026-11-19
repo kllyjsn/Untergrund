@@ -4,6 +4,7 @@ import { SCALES, KIT_BACKBEAT } from '../js/params.js';
 import { Sequencer } from '../js/engine.js';
 import { capture, Recorder } from '../js/midi.js';
 import { patternAt } from '../js/scope.js';
+import { STAB_BAND } from '../js/livekit.js';
 
 // Every club/pop style gets its own seeded hook; NEO-SOUL and BOOM BAP sing one over their Rhodes licks.
 for (const style of Object.keys(STYLES)) {
@@ -110,26 +111,36 @@ console.log('Drill verse and turnaround passed');
   rec.sectionGain = (t, db, ramp) => levels.push({ t, db, ramp });
   const sd = rec.stepDur;
   for (let i = 0; i < song.chain.length * 16; i++) seq.tick(i, i * sd);
-  assert.deepEqual(levels.filter(({ ramp }) => ramp), [{ t: 7 * 16 * sd, db: 0.45, ramp: [-1.8, 12 * sd, 4 * sd] }],
-    'only the verse fill into a chorus ramps, ending at the existing chorus level');
-  assert(!levels.some(({ t }) => t === 8 * 16 * sd), 'the chorus does not restart the ramp');
+  const crest = 0.95;
+  assert.deepEqual(levels.filter(({ ramp }) => ramp), [{ t: 7 * 16 * sd, db: crest, ramp: [-1.8, 10 * sd, 4 * sd] }],
+    'only the verse fill into a chorus ramps, cresting halfway through the last beat');
+  assert.deepEqual(levels.find(({ t }) => t === 8 * 16 * sd), { t: 8 * 16 * sd, db: 0.45, ramp: undefined },
+    'the chorus returns to its existing level without restarting the swell');
   seq.rewind(7 * 16 + 10, 100);
   const resumed = levels.at(-1);
   assert.equal(resumed.t, 100);
-  assert.deepEqual(resumed.ramp.slice(1), [6 * sd, 0], 'rewinding into the fill plays only the remainder of the ramp');
-  const halfway = (10 ** (-1.8 / 20) + 10 ** (0.45 / 20)) / 2;
-  assert(Math.abs(10 ** (resumed.ramp[0] / 20) - halfway) < 1e-9, 'the resumed lift starts halfway up');
+  assert.deepEqual(resumed.ramp.slice(1), [4 * sd, 0], 'rewinding into the fill plays only the remainder of the ramp');
+  const gainAt = (step) => 10 ** (-1.8 / 20) * (14 - step) / 10 + 10 ** (crest / 20) * (step - 4) / 10;
+  assert(Math.abs(10 ** (resumed.ramp[0] / 20) - gainAt(10)) < 1e-9, 'the resumed lift starts at the current gain');
   const listener = new Sequencer(rec, song);
   levels.length = 0;
   listener.startAt(16 + 10, 100);
   assert.deepEqual(levels, [], 'joining another fill does not start a swell');
   listener.startAt(7 * 16 + 2, 100);
-  assert.deepEqual(levels.pop()?.ramp, [-1.8, 12 * sd, 2 * sd], 'joining before the swell preserves the remaining hold');
+  assert.deepEqual(levels.pop()?.ramp, [-1.8, 10 * sd, 2 * sd], 'joining early preserves the remaining verse-level hold');
   listener.startAt(7 * 16 + 10, 100);
   assert.deepEqual(levels.at(-1), resumed, 'a new listener hears the same remaining swell as a rewound listener');
   assert.equal(listener.chainPos, 8, 'joining mid-fill leaves the chorus queued as the next bar');
-  listener.tick(8 * 16, 100 + 6 * sd);
-  assert.deepEqual(levels, [resumed], 'the chorus does not restart the swell after a join');
+  levels.length = 0;
+  listener.startAt(7 * 16 + 15, 100);
+  assert.deepEqual(levels, [{ t: 100, db: crest, ramp: [crest, 0, 0] }], 'joining after the crest sets the gain immediately');
+  const land = 100 + sd;
+  listener.tick(8 * 16, land);
+  assert.deepEqual(levels.at(-1), { t: land, db: 0.45, ramp: undefined }, 'joining in the swell preserves the chorus level');
+  levels.length = 0;
+  const fresh = new Sequencer(rec, song);
+  fresh.startAt(8 * 16 + 8, 100);
+  assert.deepEqual(levels, [], 'joining during the chorus does not replay the swell');
 }
 
 {
@@ -183,8 +194,28 @@ console.log('Drill verse and turnaround passed');
   for (const p of previous.patterns) if (p.hook?.v === 'harpplk') p.hook.v = 'softmallet';
   assert.equal(sanitize(previous).patterns[6].hook.v, 'softmallet', 'existing songs keep the synth hook');
   assert.deepEqual(capture(song).notes, capture(previous).notes, 'the harp does not rewrite the melody');
-  assert.equal(generate('drill', 42).pattern.hook.v, 'mallet', 'recorded ensembles keep their existing lead');
-  assert.equal(generate('drill', 13).pattern.hook.v, 'reed', 'the reed keeps its existing sound');
+}
+
+{
+  for (const [seed, chord, hook, oldChord, oldHook] of [
+    [7, 16, 'oboe', 10, 'reed'],
+    [42, 16, 'airflute', 10, 'mallet'],
+    [211, 16, 'oboe', 7, 'reed'],
+    [503, 17, 'airflute', 9, 'mallet'],
+    [13, 6, 'oboe', 6, 'reed'],
+  ]) {
+    const current = freshSong('drill', seed);
+    const saved = sanitize(JSON.parse(JSON.stringify(current)));
+    assert.equal(saved.params.stab.voice, chord, `Drill ${seed} chord voice survives replay`);
+    assert.equal(saved.patterns[6].hook.v, hook, `Drill ${seed} lead survives replay`);
+    const older = JSON.parse(JSON.stringify(current));
+    older.params.stab.voice = oldChord;
+    for (const p of older.patterns) if (p.hook) p.hook.v = oldHook;
+    const restored = sanitize(older);
+    assert.equal(restored.params.stab.voice, oldChord);
+    assert.equal(restored.patterns[6].hook.v, oldHook);
+    assert.deepEqual(capture(current).notes, capture(older).notes, `Drill ${seed} palette does not rewrite the performance`);
+  }
 }
 
 {
@@ -198,6 +229,28 @@ console.log('Drill verse and turnaround passed');
   assert.equal(round.patterns[0].hm, 0);
 }
 console.log('hook arrangement and save round-trip passed');
+
+for (const seed of [7, 211, 503]) {
+  const song = freshSong('drill', seed);
+  const chorus = song.chain.indexOf('G') * 16;
+  assert(song.patterns[6].hook.m, 'generated Drill plays the sung melody path');
+  const collect = (s, from, until) => {
+    const rec = new Recorder(s), seq = new Sequencer(rec, s), hits = [];
+    rec.hook = (_t, _v, pitch, dur, voice, _oct, _strong, _b, _up, x) => {
+      if (!x.harm && dur <= 0.85) hits.push([rec.step, pitch, voice, x.take]);
+    };
+    if (from) seq.startAt(from, 100);
+    for (let i = from; i < until; i++) seq.tick(i, 100 + (i - from) * rec.stepDur);
+    return hits;
+  };
+  const hits = collect(song, 0, song.chain.length * 16);
+  assert(hits.some(([, pitch, , take]) => take === 1 && hits.some(([, p, , t]) => p === pitch && t === 0)),
+    `Drill/${seed}: a repeated sung pitch uses both takes`);
+  const saved = sanitize(JSON.parse(JSON.stringify(song)));
+  const inChorus = hits.filter(([i]) => i >= chorus && i < chorus + 64);
+  assert(inChorus.length > 0, `Drill/${seed}: first chorus contains sung hits`);
+  assert.deepEqual(collect(saved, chorus, chorus + 64), inChorus, `Drill/${seed}: late start of a saved song selects the same takes`);
+}
 
 // Neighbouring genres must not share one template: different rooms, lead roles and hook writing.
 {
@@ -238,7 +291,7 @@ console.log('genre signatures passed');
         if (voice >= 7) recorded.add(voice);
       }
     }
-    assert.deepEqual([...recorded].sort((a, b) => a - b), [7, 8, 9, 10, 11, 12, 13, 14, 15], 'all recorded families should appear across generated songs');
+    assert.deepEqual([...recorded].sort((a, b) => a - b), Object.keys(STAB_BAND).map(Number), 'all recorded voices should appear across generated songs');
     for (const style of ['trap', 'drill']) {
       for (let seed = 1; seed <= 24; seed++) assert.equal(generate(style, seed).params.acid.voice, 2, `${style} must keep its sliding 808`);
     }

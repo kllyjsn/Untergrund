@@ -42,6 +42,14 @@ for (const chain of plans) {
   assert(chain.match(/F+/g).every((build) => build.length >= 4));
 }
 assert.equal(songPlan('hardtechno', 42).chain, plans[1]);
+const expectedRuns = [
+  [8, 8, 20, 12, 4, 24, 8, 8, 20, 8, 8],
+  [4, 8, 16, 8, 4, 20, 12, 4, 40, 8, 4],
+  [12, 8, 16, 8, 4, 16, 12, 4, 36, 8, 4],
+  [16, 8, 8, 12, 4, 24, 8, 8, 24, 8, 8],
+];
+plans.forEach((chain, i) => assert.deepEqual([...chain.matchAll(/([A-H])\1*/g)].map(run => run[0].length), expectedRuns[i]));
+for (const scene of ['E', 'F', 'G']) assert.notEqual(plans[0].indexOf(scene), plans[3].indexOf(scene));
 assert.equal(new Set(plans.map((chain) => chain.match(/^A+/)[0].length)).size, 4);
 assert.notEqual(plans[0].match(/A+$/)[0].length, plans[1].match(/A+$/)[0].length);
 const middle = plans.slice(0, 2).map((chain) => [...chain.matchAll(/([EFG])\1*/g)].map((run) => ({ scene: run[1], at: run.index, bars: run[0].length })));
@@ -68,13 +76,36 @@ function instrument(style) {
   s.artist = { ...s.artist, style };
   const ctx = new OfflineAudioContext(2, 48000, 48000);
   const nodes = [];
-  for (const method of ['createGain', 'createBiquadFilter', 'createWaveShaper']) {
+  for (const method of ['createGain', 'createBiquadFilter', 'createWaveShaper', 'createOscillator']) {
     const original = ctx[method].bind(ctx);
     ctx[method] = () => { const node = original(); nodes.push({ method, node }); return node; };
   }
   const e = new Engine(ctx, s, { realtime: false });
   nodes.length = 0;
   return { e, nodes };
+}
+for (const style of ['hardtechno', 'hypnotic', 'minimal', 'drill', null]) {
+  const { e, nodes } = instrument(style || 'hardtechno');
+  if (!style) delete e.state.artist;
+  for (const [method, args] of [['perc', [0.1, 0.8]], ['stab', [0.1, 0.8]], ['hook', [0.1, 0.8, 0, 0.6, 'analog']]]) {
+    nodes.length = 0;
+    e[method](...args);
+    const colors = nodes.filter(({ node }) => node.oversample === '4x' && node.curve);
+    assert.equal(colors.length, style === 'hardtechno' ? 1 : 0, `${style} ${method} palette gate`);
+    if (style !== 'hardtechno') continue;
+    assert.equal(nodes.filter(({ node }) => node.type === 'highpass' && node.frequency.value === 350).length, 2);
+    const cutoff = method === 'perc' ? 4200 : method === 'stab' ? 2800 : 1800;
+    assert.equal(nodes.filter(({ node }) => node.type === 'lowpass' && node.frequency.value === cutoff).length, 2);
+    assert(nodes.some(({ node }) => node.gain?.events.some(ev => ev.k === 's' && ev.v === 0) && node.gain.events.some(ev => ev.k === 'l' && ev.t > 0.1)));
+    if (method === 'stab') assert(nodes.some(({ node }) => node.detune?.events.some(ev => ev.k === 'l' && ev.v === -16)));
+    if (method === 'perc') assert(nodes.some(({ node }) => node.frequency?.value === e.state.params.perc.tune * 2 * 2.414));
+    if (method === 'hook') assert(nodes.some(({ node }) => node.gain?.events.some(ev => ev.k === 'l' && Math.abs(ev.t - 0.28) < 1e-9 && Math.abs(ev.v - 0.8 * 0.12 * 0.09) < 1e-9)));
+  }
+  for (const args of [[0, [440], 0.3], [NaN, [440], 0.3], [Infinity, [440], 0.3], [1, [], 0.3], [1, [NaN, 0, -440], 0.3], [1, [440], 0], [1, [440], NaN]]) {
+    nodes.length = 0;
+    e.hardPalette(0.1, ...args, e.ch.stab.input, 'rave');
+    assert.equal(nodes.length, 0);
+  }
 }
 for (const style of ['hardtechno', 'minimal']) {
   const { e, nodes } = instrument(style), hard = style === 'hardtechno';

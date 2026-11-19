@@ -11,7 +11,8 @@ const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453;
 // GM drum map (channel 10) and GM programs, so a DAW opens the file on sensible instruments.
 export const GM_DRUMS = { kick: 36, clap: 39, snare: 38, ch: 42, oh: 46, ride: 51, perc: 63 };
 const DRUM_NAMES = { kick: 'Kick', clap: 'Clap', snare: 'Snare', ch: 'Hats', oh: 'Open Hat', ride: 'Ride', perc: 'Perc' };
-const STAB_PROGRAM = [81, 4, 89, 16, 61, 45, 14, 0, 25, 61, 48];
+const STAB_PROGRAM = { 0: 81, 1: 4, 2: 89, 3: 16, 4: 61, 5: 45, 6: 14, 7: 0, 8: 25, 9: 61, 10: 48, 16: 42, 17: 71 };
+const HOOK_PROGRAM = new Map([['oboe', 68], ['airflute', 73]]);
 export const PARTS = {
   vln1: ['Violin I', 40], vln2: ['Violin II', 40], vla: ['Viola', 41], vc: ['Cello', 42], cb: ['Contrabass', 43],
   fl: ['Flute', 73], ob: ['Oboe', 68], cl: ['Clarinet', 71], hn: ['Horn', 60], tpt: ['Trumpet', 56],
@@ -74,6 +75,7 @@ export class Recorder {
     this.add('stab', t, 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + n, this.stepDur * 2, v);
   }
   hook(t, v, n, dur, voice, oct = 0, strong = false, b = 1, up = false) {
+    this.hookVoice ??= voice;
     const h = this.harm;
     if (strong || up) {
       const tones = this.chord().map((x) => ((((h ? h.r : 0) + x) % 12) + 12) % 12), pc = ((n % 12) + 12) % 12;
@@ -118,7 +120,7 @@ export function capture(state, loopBars = 16) {
   else key = { pc: s.key, minor: s.scale !== 'major' };
   // A bar of n 16ths: 4/4, 3/4, 2/4 ... or n/2 eighths (6/8, 12/8) when it isn't a whole number of beats.
   const timeSig = barLen % 4 === 0 && barLen !== 24 ? [barLen / 4, 4] : [barLen / 2, 8];
-  return { state: s, score, sc, notes: rec.notes, at, dur, chords, bars, barLen, key, timeSig };
+  return { state: s, score, sc, notes: rec.notes, hookVoice: rec.hookVoice, at, dur, chords, bars, barLen, key, timeSig };
 }
 
 // Seconds -> ticks through the step timeline: each 16th step is PPQ/4 ticks, a score's rubato becomes tempo changes.
@@ -183,7 +185,7 @@ export function songMidi(state, { loopBars = 16, title } = {}) {
     const channel = drum ? 9 : chan === 9 ? ++chan : chan;
     if (!drum) chan = Math.min(15, channel + 1);
     const name = c.score || PARTS[id] ? PARTS[id][0] : drum ? DRUM_NAMES[id] : { acid: 'Bass', stab: 'Chords', hook: 'Hook', vox: 'Vocals' }[id];
-    const program = c.score || PARTS[id] ? PARTS[id][1] : drum ? null : { acid: Math.round(s.params.acid.voice) === 1 ? 33 : 38, stab: STAB_PROGRAM[Math.round(s.params.stab.voice)] ?? 4, hook: 80, vox: 54 }[id];
+    const program = c.score || PARTS[id] ? PARTS[id][1] : drum ? null : { acid: Math.round(s.params.acid.voice) === 1 ? 33 : 38, stab: STAB_PROGRAM[Math.round(s.params.stab.voice)] ?? 4, hook: HOOK_PROGRAM.get(c.hookVoice) ?? 80, vox: 54 }[id];
     // Two hits of one pitch on the same tick (a lick doubling a chord tone) are one note, at the louder velocity.
     const seen = new Map(), out = [];
     for (const n of notes) {
@@ -203,4 +205,3 @@ export function songMidi(state, { loopBars = 16, title } = {}) {
   const bytes = writeMidi({ title: title || s.artist?.title || 'UNTERGRUND', tempos, timeSig: c.timeSig, key: keySignature(c.key.pc, c.key.minor), markers, tracks });
   return { bytes, tracks: tracks.map((t) => ({ id: t.id, name: t.name, channel: t.channel, notes: t.notes.length })), bars: c.bars, key: c.key };
 }
-

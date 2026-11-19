@@ -159,7 +159,7 @@ for (const [style, seed] of [['deephouse', 211], ['trance', 211]]) {
 }
 
 {
-  for (const [style, seed] of [['afrobeats', 1168184795], ['reggaeton', 131219516], ['hyperpop', 273450247], ['hyperpop', 20], ['hyperpop', 3], ['ukg', 1800668011]]) {
+  for (const [style, seed] of [['afrobeats', 1168184795], ['reggaeton', 131219516], ['hyperpop', 273450247], ['hyperpop', 20], ['hyperpop', 3], ['ukg', 1800668011], ['breaks', 3], ['breaks', 4293831530]]) {
     const s = defaultState(); applyOverrides(s, generate(style, seed));
     s.artist = { style, seed };
     const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false }), dst = e.ch.stab.input;
@@ -180,6 +180,29 @@ for (const [style, seed] of [['deephouse', 211], ['trance', 211]]) {
     e.rec = () => ({}); e.sampledBass = () => samples++;
     e.bass(0.1, { n: 0, a: true }, 0.1, false);
     assert.equal(samples, style === 'breaks' ? 0 : 1, `${style} keeps its intended bass player under recorded drums`);
+  }
+  for (const style of ['breaks', 'neosoul', undefined]) {
+    const s = defaultState(); s.master.kit = 1;
+    if (style) s.artist = { style };
+    const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
+    assert.equal(e.soulBand(), style !== 'breaks', 'only Breaks keeps club processing with the recorded kit');
+    let kicks = 0, samples = 0;
+    e.rec = () => ({});
+    e.kick = () => kicks++;
+    e.sampledHit = () => { samples++; return true; };
+    e.trigger('kick', 0.1, 0.8);
+    assert.equal(kicks, style === 'breaks' ? 1 : 0);
+    assert.equal(samples, style === 'breaks' ? 0 : 1);
+    e.trigger('snare', 0.2, 0.8);
+    assert.equal(samples, style === 'breaks' ? 1 : 2, 'the snare stays recorded');
+  }
+  for (const [style, voice, player] of [['breaks', 1, 'keys'], ['reggaeton', 3, 'organ'], ['neosoul', 1, 'keys']]) {
+    const s = defaultState(); s.params.stab.voice = voice; s.artist = { style };
+    const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
+    let out;
+    e[player] = (...args) => { out = args.at(-1); };
+    e.lick(0.1, 0.6, 0);
+    assert.equal(out === e.ch.stab.input, style === 'neosoul', `${style} fills use their intended tone path`);
   }
 }
 

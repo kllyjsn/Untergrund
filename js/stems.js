@@ -96,6 +96,7 @@ export function router(want, { prebus = false } = {}) {
       if (hc.carve) hc.carve.connect(hc.pan);
       hc.pan.connect(E.duck); hc.pan.connect(hc.rev).connect(E.revIn); hc.pan.connect(E.roomIn); hc.pan.connect(hc.dly).connect(E.dlyIn); hc.pan.connect(E.throwBus);
       hc.band.connect(hc.input); hc.band.connect(E.bandIn);
+      E.windDuck.disconnect(); E.windDuck.connect(hc.input);
       const P = Engine.prototype;
       E.hook = function (...a) { const s = this.ch.stab; syncStrip(); this.ch.stab = hc; try { return P.hook.apply(this, a); } finally { this.ch.stab = s; } };
       // A smooth style's chord shaping is scheduled automation, which syncStrip's value copy misses: schedule it on the copy too.

@@ -11,10 +11,25 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
     localStorage.setItem('untergrund.v1', JSON.stringify(fixture));
     localStorage.setItem('untergrund.made', '1');
   }
-  const tap = globalThis.__clubAudio = { samples: [], anchors: [], errors: [], routes: [], requests: [], lifecycle: [], sources: [] };
+  const tap = globalThis.__clubAudio = { samples: [], anchors: [], errors: [], routes: [], requests: [], lifecycle: [], sources: [], playbackStats: [] };
   if (mix) tap.channels = { kick: { samples: [] }, vocal: { samples: [] } };
   const epoch = () => performance.timeOrigin + performance.now();
   const contexts = [];
+  const edges = new WeakMap(), kickNodes = new WeakSet();
+  const reachesKick = (node, seen = new Set()) => {
+    if (kickNodes.has(node)) return true;
+    if (seen.has(node)) return false;
+    seen.add(node);
+    return [...(edges.get(node) || [])].some(dest => reachesKick(dest, seen));
+  };
+  const samplePlayback = ctx => {
+    try {
+      const stats = ctx.playbackStats;
+      if (stats && Number.isFinite(stats.underrunEvents) && Number.isFinite(stats.underrunDuration))
+        tap.playbackStats.push({ at: epoch(), context: contexts.indexOf(ctx), contextTime: ctx.currentTime,
+          underrunEvents: stats.underrunEvents, underrunDuration: stats.underrunDuration, totalDuration: stats.totalDuration });
+    } catch (e) { tap.playbackStatsError = String(e); }
+  };
   tap.markResume = () => {
     const ctx = contexts[0];
     if (!ctx) return;
@@ -29,7 +44,9 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
   };
   const startOscillator = OscillatorNode.prototype.start;
   OscillatorNode.prototype.start = function (when = 0) {
-    tap.sources.push({ at: epoch(), when, clock: clock(this.context), frequency: this.frequency.value });
+    const kick = graph && reachesKick(this);
+    tap.sources.push({ at: epoch(), when, clock: clock(this.context), frequency: this.frequency.value,
+      ...(kick ? { tag: 'kick' } : {}) });
     return startOscillator.call(this, when);
   };
   const fetchOriginal = globalThis.fetch;
@@ -80,6 +97,7 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
     const channel = tap.channels[name];
     if (channel.edge) { tap.errors.push('Duplicate channel edge: ' + name); return; }
     channel.edge = { name, source:source.constructor.name, at:epoch(), line:graph[name] };
+    if (name === 'kick') kickNodes.add(source);
     entry.ready.then(() => {
       const node = new AudioWorkletNode(ctx, 'club-tap', { outputChannelCount:[2], processorOptions:{isolated:true} });
       const mute = ctx.createGain(); mute.gain.value = 0;
@@ -89,6 +107,10 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
     }).catch(e => tap.errors.push(String(e)));
   };
   AudioNode.prototype.connect = function (dest, ...args) {
+    if (graph) {
+      if (!edges.has(this)) edges.set(this, new Set());
+      edges.get(this).add(dest);
+    }
     if (graph && !(tap.channels.kick.edge && tap.channels.vocal.edge) && this instanceof GainNode && dest instanceof GainNode) {
       const stack = new Error().stack || '';
       if (stack.includes('/js/engine.js:' + graph.kick + ':') && dest.gain.value === 0) captureChannel(this, 'kick');
@@ -100,6 +122,7 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
     let entry = taps.get(ctx);
     if (!entry) {
       contexts.push(ctx);
+      samplePlayback(ctx);
       const gain = ctx.createGain();
       const delay = ctx.createDelay(3);
       delay.delayTime.value = displacementMs / 1000;
@@ -115,6 +138,7 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
         entry.node = node;
       }).catch(e => tap.errors.push(String(e)));
       setInterval(() => {
+        samplePlayback(ctx);
         const t = ctx.getOutputTimestamp();
         if (t.contextTime > 0 && t.performanceTime > 0)
           tap.anchors.push([t.contextTime, performance.timeOrigin + t.performanceTime]);

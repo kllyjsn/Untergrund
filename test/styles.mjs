@@ -53,7 +53,7 @@ const saved = sanitize(JSON.parse(JSON.stringify({ ...defaultState(), master: { 
 assert.equal(saved.master.pocket, 2); assert.equal(saved.master.kit, 2);
 console.log('live kit defaults passed');
 console.log('genre pockets passed');
-for (const [style, seed, voice, cutoff] of [['afrobeats', 1168184795, 1, 600], ['reggaeton', 131219516, 4, 700], ['hyperpop', 273450247, 0, 900], ['hyperpop', 20, 5, 350], ['hyperpop', 3, 11, 900], ['ukg', 1800668011, 5, 400]]) {
+for (const [style, seed, voice, cutoff] of [['afrobeats', 1168184795, 1, 600], ['reggaeton', 131219516, 3, 600], ['hyperpop', 273450247, 0, 900], ['hyperpop', 20, 5, 350], ['hyperpop', 3, 11, 900], ['ukg', 1800668011, 5, 400], ['breaks', 3, 1, 600], ['breaks', 4293831530, 5, 900]]) {
   const { params } = generate(style, seed);
   assert.equal(params.stab.voice, voice);
   assert.equal(params.stab.octave, 0, `${style}/${voice} stays in the body register`);
@@ -101,6 +101,8 @@ console.log('live-kit settings do not leak into the next style passed');
 console.log('per-genre instrument palettes passed');
 {
   const noPiano = ['deephouse', 'ukg', 'breaks', 'dnb', 'trance', 'ambient', 'afrobeats', 'reggaeton', 'hyperpop', 'industrial', 'peak', 'acid', 'hypnotic', 'electro', 'dub', 'jerseyclub', 'bailefunk'];
+  assert.deepEqual(INSTRUMENTS.breaks.at(-1), [1, 1, 1, 0.7, 0.5]);
+  assert.deepEqual(INSTRUMENTS.reggaeton.at(-1), [3, 2, 1, 0.55, 0.45]);
   for (const style of noPiano) assert(INSTRUMENTS[style].every(([voice]) => voice !== 7), `${style} has no recorded piano`);
   const palettes = Object.entries(INSTRUMENTS).map(([style, tuples]) => {
     assert(tuples.length > 0, `${style} has an ensemble`);

@@ -181,6 +181,31 @@ const drill = await withChrome(async (run) => {
   })()`);
   for (const result of switches) near(result.gain, result.expected, 1e-5, `genre-switch presence ${JSON.stringify(result)}`);
   console.log('audio quality: native mid-bar genre switches clear Hard Techno presence ramps (6 cases)');
+  const joinErrors = await run(`(async () => {
+    const { song } = await import('/test/audio-quality-page.js');
+    const { Engine, Sequencer } = await import('/js/engine.js');
+    const s = song('drill', 7), bar = s.chain.indexOf('CDG') + 1, rate = 48000, sd = (48 * 128) / rate;
+    async function gainCurve(step) {
+      const ctx = new OfflineAudioContext(1, (19 - step) * sd * rate, rate);
+      const secGain = ctx.createGain(), source = ctx.createConstantSource();
+      source.connect(secGain).connect(ctx.destination);
+      source.start();
+      const seq = new Sequencer({ secGain, stepDur: sd, sectionGain: Engine.prototype.sectionGain, breakOpen() {} }, s);
+      seq.startAt(bar * 16 + step, sd);
+      if (step === 0) seq.advanceBar(bar * 16, sd);
+      seq.advanceBar((bar + 1) * 16, (17 - step) * sd);
+      return (await ctx.startRendering()).getChannelData(0);
+    }
+    const full = await gainCurve(0), errors = [];
+    for (const step of [2, 10, 14, 15]) {
+      const joined = await gainCurve(step);
+      let max = 0;
+      for (let i = sd * rate; i < joined.length; i++) max = Math.max(max, Math.abs(joined[i] - full[i + step * sd * rate]));
+      errors.push(max);
+    }
+    return errors;
+  })()`);
+  for (const [i, error] of joinErrors.entries()) near(error, 0, 1e-5, `Drill fill join ${i} matches uninterrupted native gain`);
   const harpPeak = await run(`(async () => {
     const { song, render } = await import('/test/audio-quality-page.js');
     const { router } = await import('/js/stems.js');

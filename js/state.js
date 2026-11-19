@@ -152,7 +152,7 @@ const HOOK_STYLE = {
   pop: 'song', rnb: 'soulful', rock: 'riff', folk: 'roots', country: 'twang',
 };
 // 'chop' sings the hook with the user's own recorded voice (js/voice.js); a song without one plays 'vocal'.
-export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell', 'chop', 'softmallet', 'harpplk'];
+export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell', 'chop', 'softmallet', 'harpplk', 'oboe', 'airflute'];
 
 // Every genre has several plausible ensembles. The seed chooses a player,
 // register and articulation while the genre keeps its drum, harmony and room identity.
@@ -173,17 +173,17 @@ export const INSTRUMENTS = {
   // Neo-soul is a Rhodes/piano/guitar band; strings pad the changes; the horn section honked.
   neosoul: [[7, 1, 0, 1.6, 0.2], [1, 1, 0, 1.4, 0.25], [13, 1, 0, 0.75, 0.7], [10, 1, 0, 1.4, 0.2]],
   boombap: [[9, 1, 0, 0.7, 0.6], [7, 1, 0, 1.2, 0.2], [8, 1, 0, 0.6, 0.75], [10, 1, 0, 1.1, 0.3]],
-  breaks: [[8, 0, 0, 0.6, 0.75], [5, 1, 1, 0.25, 0.85], [3, 0, 0, 0.55, 0.35], [9, 1, 1, 0.7, 0.5]],
+  breaks: [[8, 0, 0, 0.6, 0.75], [5, 1, 1, 0.25, 0.85], [3, 0, 0, 0.55, 0.35], [1, 1, 1, 0.7, 0.5]],
   electro: [[0, 0, 0, 0.25, 0.7], [6, 2, 0, 0.4, 0.75], [5, 2, 0, 0.2, 0.9], [4, 0, 0, 0.3, 0.65]],
   dnb: [[10, 3, 0, 1.6, 0.25], [2, 3, 1, 1.8, 0.2], [1, 3, 1, 1.2, 0.45], [5, 3, 1, 0.55, 0.75]],
   trance: [[5, 0, 0, 0.35, 0.85], [0, 0, 1, 0.14, 0.7], [2, 0, 1, 1.2, 0.35], [4, 0, 1, 1.2, 0.15]],
   ambient: [[2, 1, 0, 2.4, 0.1], [10, 1, 1, 2.8, 0.15], [6, 1, 1, 2.2, 0.3], [1, 1, 1, 2.5, 0.15]],
   amapiano: [[7, 4, 0, 0.7, 0.35], [3, 4, 1, 0.55, 0.45], [8, 4, 0, 0.55, 0.8], [5, 4, 1, 0.25, 0.85]],
   afrobeats: [[8, 2, 0, 0.55, 0.8], [9, 1, 0, 0.55, 0.65], [1, 2, 1, 0.7, 0.45], [5, 2, 0, 0.5, 0.5]],
-  reggaeton: [[8, 2, 0, 0.45, 0.8], [5, 2, 1, 0.22, 0.9], [9, 1, 0, 0.45, 0.7], [4, 2, 1, 0.55, 0.45]],
+  reggaeton: [[8, 2, 0, 0.45, 0.8], [5, 2, 1, 0.22, 0.9], [9, 1, 0, 0.45, 0.7], [3, 2, 1, 0.55, 0.45]],
   bailefunk: [[4, 2, 0, 0.3, 0.75], [6, 2, 0, 0.25, 0.85], [8, 2, 0, 0.4, 0.8], [5, 3, 1, 0.2, 0.9]],
   trap: [[7, 2, 1, 0.75, 0.4], [6, 2, 0, 0.8, 0.7], [10, 2, 1, 1.5, 0.2], [8, 2, 1, 0.5, 0.8]],
-  drill: [[10, 2, 1, 1.4, 0.2], [7, 2, 0, 0.9, 0.45], [9, 2, 0, 0.5, 0.75], [6, 2, 1, 0.65, 0.8]],
+  drill: [[16, 2, 1, 1.4, 0.2], [16, 2, 0, 0.9, 0.45], [17, 2, 0, 0.5, 0.75], [6, 2, 1, 0.65, 0.8]],
   jerseyclub: [[0, 2, 1, 0.2, 0.75], [4, 2, 0, 0.2, 0.7], [8, 2, 1, 0.4, 0.8], [6, 2, 1, 0.5, 0.85]],
   hyperpop: [[0, 3, 1, 0.4, 0.85], [6, 2, 0, 0.3, 0.75], [5, 2, 1, 1.2, 0.2], [11, 3, 2, 0.65, 0.55]],
   // The song genres are recorded bands: piano, guitars (clean, driven, acoustic, jazz archtop, banjo, Gretsch twang), electric or upright bass, live kit.
@@ -803,16 +803,18 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   if (style === 'minimal') Object.assign(params.stab, { decay: Math.max(params.stab.decay, 0.45), env: Math.min(params.stab.env, 0.08), cutoff: Math.min(params.stab.cutoff, 1300), reso: 0.4, tine: 0.15 });
   const color = {
     'afrobeats:1': { cutoff: 600, env: 0.15, tine: 0.1 },
-    'reggaeton:4': { cutoff: 700, env: 0.12 },
+    'breaks:1': { cutoff: 600, env: 0.15, tine: 0.1 },
+    'reggaeton:3': { cutoff: 600, env: 0.15 },
+    'breaks:5': { cutoff: 900, env: 0.15 },
     'hyperpop:0': { cutoff: 900, env: 0.15 },
     'hyperpop:5': { cutoff: 350, env: 0.12 },
     'hyperpop:11': { cutoff: 900, env: 0.4, level: 0.85 },
     'ukg:5': { cutoff: 400, env: 0.2 },
   }[`${style}:${stabVoice}`];
   if (color) Object.assign(params.stab, { octave: 0, reso: 0.7, level: 1 }, color);
-  if (style === 'breaks') {
-    if (bassVoice !== 1) params.kick.level = 1.13;
-    if (bassVoice === 1) params.acid.level = 0.35;
+  if (style === 'breaks' && stabVoice === 1) {
+    params.acid.level = 0.18;
+    params.kick.level = 0.55;
   }
   const PUNCH = { deephouse: 0.55, ukg: 0.7, afrobeats: 0.7, amapiano: 0.65, euphoric: 0.72, trance: 0.72, reggaeton: 0.7 };
   if (PUNCH[style]) {
@@ -848,7 +850,9 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   const gainScale = harpHook ? 0.72 : 1;
   const sung = withMelody(P.hook, rng(Math.imul((seed | 0) ^ 0x68e31da4, 0x3c6ef372) ^ 0x1b873593), style, musicalScale, { prog: P.prog, alt: P.alt, chord: params.stab.chord | 0, gainScale });
   if (sung) { P.hook = sung; P.hm = 2; }
-  if (harpHook) P.hook.v = 'harpplk';
+  if (style === 'drill' && P.hook) {
+    P.hook.v = harpHook ? 'harpplk' : P.hook.v === 'reed' ? 'oboe' : 'airflute';
+  }
   if (LIFT.has(style) && P.prog) P.lift = 2;
   if (style === 'trap' && stabVoice === 7 && sung?.v === 'mallet' && sung.m) {
     for (const part of ['n', 'v', 'b']) for (const note of sung.m[part]) note[3] *= 0.78;
@@ -1151,7 +1155,7 @@ export function songPlan(style, seed, length = 'song', bpm = midBpm(style)) {
   if (style === 'hardtechno' && length !== 'sketch') {
     const r = rng(Math.imul(seed ^ 0x45d9f3b, 0x27d4eb2d));
     const phrase = ((seed >>> 0) ^ (seed >>> 2)) & 3, outro = 4 + 4 * (phrase % 2);
-    const runs = [['A', 4 + 4 * phrase], ['B', 8], ['C', [16, 20, 16, 12][phrase]], ['E', 8 + 4 * (phrase % 2)], ['F', pick(r, [4, 8])], ['G', 16 + 4 * ((phrase + 1) % 3)], ['E', 12 - 4 * (phrase % 2)], ['F', 4 + 4 * (phrase % 2)]];
+    const runs = [['A', 4 + 4 * phrase], ['B', 8], ['C', [16, 20, 16, 8][phrase]], ['E', 8 + 4 * (phrase % 2)], ['F', pick(r, [4, 8])], ['G', 16 + 4 * ((phrase + 1) % 3) + (phrase === 3 ? 4 : 0)], ['E', 12 - 4 * (phrase % 2)], ['F', 4 + 4 * (phrase % 2)]];
     const used = runs.reduce((n, [, len]) => n + len, 0);
     runs.push(['G', 120 - outro - used], ['B', 8], ['A', outro]);
     return { chain: runs.map(([id, len]) => id.repeat(len)).join(''), sections: null };
