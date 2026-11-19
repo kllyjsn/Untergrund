@@ -6,6 +6,7 @@ import { OfflineAudioContext, installGlobals } from './offline-audio.mjs';
 installGlobals();
 const { defaultState, generate, applyOverrides, arrangement } = await import('../js/state.js');
 const { Engine, Sequencer } = await import('../js/engine.js');
+const { Recorder } = await import('../js/midi.js');
 const { loadBand, STAB_BAND, SOFT_LAYER } = await import('../js/livekit.js');
 const { spectralBands, kWeight, lufs } = await import('../js/lab-metrics.js');
 const { lowEnd } = await import('../js/lowend.js');
@@ -206,13 +207,24 @@ for (const [style, seed] of [['deephouse', 211], ['trance', 211]]) {
   }
   for (const [style, voice, reed] of [['breaks', 1, true], ['reggaeton', 3, true], ['breaks', 8, false], ['trap', 1, false], ['afrobeats', 1, false], [undefined, 1, false]]) {
     const s = defaultState(); s.params.stab.voice = voice;
+    s.key = 11;
     if (style) s.artist = { style };
     const ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
-    let player;
-    for (const name of ['keys', 'organ']) e[name] = () => { player = name; };
+    let player, pitch;
+    for (const name of ['keys', 'organ']) e[name] = (...args) => { player = name; pitch = args[3]; };
     e.rec = () => null;
     e.hook(0.1, 0.4, 0, 0.2, 'vocal');
     assert.equal(player, reed ? voice === 1 ? 'keys' : 'organ' : undefined, `${style}/${voice} keeps its intended hook player`);
+    for (const hook of ['vocal', 'reed', 'analog']) for (const n of [-36, -12, -11, 0, 20, 21, 48]) {
+      const rec = new Recorder(s);
+      rec.hook(0.1, 0.4, n, 0.2, hook);
+      const note = rec.notes.hook[0].m;
+      if (reed && hook !== 'analog') {
+        e.hook(0.1, 0.4, n, 0.2, hook);
+        assert.equal(note, pitch, `${style}/${voice}/${hook}/${n} MIDI matches played pitch`);
+        assert(note >= 48 && note <= 79);
+      } else assert.equal(note, 59 + n, `${style}/${voice}/${hook} MIDI register is unchanged`);
+    }
   }
 }
 
