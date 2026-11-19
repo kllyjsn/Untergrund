@@ -160,6 +160,8 @@ export const TRACKS = [
 export const TRACK_IDS = TRACKS.map((t) => t.id);
 export const TRACK_BY_ID = Object.fromEntries(TRACKS.map((t) => [t.id, t]));
 
+export const KIT_BACKBEAT = 3;
+
 export const MASTER_PARAMS = [
   p('dj', 'FILTER', -1, 1, 0, { bipolar: true }),
   p('duck', 'SIDECHAIN', 0, 1, 0.5),
@@ -173,7 +175,7 @@ export const MASTER_PARAMS = [
   p('humanize', 'HUMANIZE', 0, 1, 0),
   p('warmth', 'WARMTH', 0, 1, 0),
   p('room', 'ROOM', 0, 1, 0),
-  p('kit', 'KIT', 0, 2, 0, { step: 1, list: ['MACHINE', 'LIVE', 'HYBRID'] }),
+  p('kit', 'KIT', 0, KIT_BACKBEAT, 0, { step: 1, list: ['MACHINE', 'LIVE', 'HYBRID', 'BACKBEAT'] }),
   p('vary', 'VARIATION', 0, 1, 0),
   p('pocket', 'POCKET', 0, POCKET_NAMES.length - 1, 0, { step: 1, list: POCKET_NAMES }),
   p('dust', 'DUST', 0, 1, 0),

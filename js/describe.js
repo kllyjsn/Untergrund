@@ -2,7 +2,7 @@
 // "a bit darker and slower" or "like a 3am warehouse" into concrete edits on the existing controls
 // (master macros, track params, swing, bpm, scale/key, density, voices, mutes/locks, genre).
 // No network, no paid API. An optional interpreter can be plugged in later via interpret({ remote }).
-import { SCALES, KEYS, CHORDS, TRACK_IDS, TRACK_BY_ID, MASTER_PARAMS, STEPS } from './params.js';
+import { SCALES, KEYS, CHORDS, TRACK_IDS, TRACK_BY_ID, MASTER_PARAMS, STEPS, KIT_BACKBEAT } from './params.js';
 import { STYLES, mutate, clone, hookLine, songKind } from './state.js';
 import { toSections, sectionNames } from './timeline.js';
 import { rng } from './dsp.js';
@@ -895,7 +895,7 @@ export const INTENTS = {
   volume: 'amt: ± master', harmony: 'amt: + richer chords / - plainer', dust: 'amt: + vinyl dust', scale: `value: ${Object.keys(SCALES).join('|')}`,
   key: 'value: 0-11 (C=0)', keyStep: 'amt: ±1 semitone', voice: `value: 0-15 (${VOICE_NAMES.join(', ')})`, bassVoice: `value: 0-5 (${BASS_NAMES.join(', ')})`,
   bpmScale: 'value: 0.5 half time | 2 double time', hook: 'value: 0 no melody | 1 add melody | 2 new melody',
-  kit: 'value: 0 machine | 1 live', level: `target: ${TRACK_IDS.join('|')}, amt`, mute: 'target, value: bool', lock: 'target, value: bool', genre: `value: ${Object.keys(STYLES).join('|')}`,
+  kit: `value: 0 machine | 1 live | 2 hybrid | ${KIT_BACKBEAT} recorded snare`, level: `target: ${TRACK_IDS.join('|')}, amt`, mute: 'target, value: bool', lock: 'target, value: bool', genre: `value: ${Object.keys(STYLES).join('|')}`,
   section: `sec: ${Object.keys(SECTION).join('|')}|bars; op: mute|add|density (tracks[]), energy|length|tension (amt), octave (tracks[] acid|stab, amt ±1|2), skip, strip, hook (value 0|1); `
     + 'optional nth: 1-8 or -1 (which pass of sec: "second drop" = 2, "last drop" = -1); sec bars needs bars: [from, to] 1-based ("bars 9-16" = [9,16], "last 8 bars" = [-8,-1])',
 };
@@ -939,7 +939,7 @@ export function validateEdits(list) {
     else if (e.id === 'key') { if ((x.value = num(e.value, 0, 11)) == null) continue; x.value = Math.round(x.value); }
     else if (e.id === 'voice') { if ((x.value = num(e.value, 0, VOICE_NAMES.length - 1)) == null) continue; x.value = Math.round(x.value); }
     else if (e.id === 'bassVoice') { if ((x.value = num(e.value, 0, 5)) == null) continue; x.value = Math.round(x.value); }
-    else if (e.id === 'kit') { if ((x.value = num(e.value, 0, 2)) == null) continue; x.value = Math.round(x.value); }
+    else if (e.id === 'kit') { if ((x.value = num(e.value, 0, KIT_BACKBEAT)) == null) continue; x.value = Math.round(x.value); }
     else { if ((x.amt = num(e.amt, -3, 3)) == null || !x.amt) continue; }
     out.push(x);
   }
@@ -1171,7 +1171,7 @@ export function applyEdits(state, edits, { seed = 1, style } = {}) {
         P.acid.voice = Math.round(e.value); S.mutes.acid = false;
         label = BASS_NAMES[P.acid.voice];
         break;
-      case 'kit': M.kit = Math.round(e.value); label = M.kit === 1 ? 'live drums' : M.kit === 2 ? 'hybrid kit' : 'drum machine'; break;
+      case 'kit': M.kit = Math.round(e.value); label = M.kit === 1 ? 'live drums' : M.kit === 2 ? 'hybrid kit' : M.kit === KIT_BACKBEAT ? 'recorded snare' : 'drum machine'; break;
       case 'level': {
         const empty = !S.patterns.some((p) => hits(p.steps[t], p.len[t]));
         if (a > 0 && empty && DEFAULT_HITS[t]) {

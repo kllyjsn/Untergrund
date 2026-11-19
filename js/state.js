@@ -1,4 +1,4 @@
-import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, CHORDS, defaultParams, defaultMaster } from './params.js';
+import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, CHORDS, KIT_BACKBEAT, defaultParams, defaultMaster } from './params.js';
 import { rng } from './dsp.js';
 import { planSections, formChain, parseForm, sectionSpans, developSong, developFinalDrop, LENGTHS } from './longform.js';
 import { FORMS, SECTIONS } from './classical.js';
@@ -572,11 +572,12 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     const pitchClass = (n) => (n + 12) % 12;
     if (pitchClass(S.acid[11].n) === pitchClass(S.acid[12].n)) S.acid[11].n = pitchClass(S.acid[12].n) ? 0 : 7;
     Object.assign(params.kick, { tune: 50, decay: 0.17, drive: 0.35, punch: 0.75, click: 0.45, rumble: 0 });
-    Object.assign(params.snare, { tune: 230, snappy: 0.85, decay: 0.16, level: 0.66 });
+    Object.assign(params.snare, { tune: 211, snappy: 0.64, decay: 0.15, level: 0.96 });
+    params.clap.level = 0.23;
     Object.assign(params.perc, { tune: 800, decay: 0.05, metal: 0.6 });
     Object.assign(params.stab, { chord: pick(r, [0, 8]), cutoff: 1400, decay: 2, env: 0.3, rev: 0.6 });
     Object.assign(params.acid, { tune: 0, cutoff: 350, decay: 1, drive: 0.2, level: 0.45 });
-    master.duck = 0.15;
+    master.duck = 0.15; master.kit = KIT_BACKBEAT;
     swing = 0;
   } else if (style === 'jerseyclub') {
     S.kick = pad16(pick(r, [[2, 0, 0, 0, 2, 0, 0, 1, 0, 0, 1, 0, 2], [2, 0, 0, 1, 0, 0, 1, 0, 2, 0, 0, 0, 1, 0, 1]]));
