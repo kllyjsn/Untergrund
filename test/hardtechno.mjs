@@ -92,12 +92,28 @@ frequency.value = 12345;
 frequency.setValueAtTime(800, 99);
 assert.doesNotThrow(() => fallback.breakSweep(0.4, 1.6));
 assert(!frequency.events.some((ev) => ev.t === 99));
-assert(frequency.events.some((ev) => ev.k === 's' && ev.t === 0.4 && ev.v === 12345));
+assert(frequency.events.some((ev) => ev.k === 'e' && ev.t === 0.4 && ev.v === 12345));
 assert(frequency.events.some((ev) => ev.k === 'e' && ev.v === 10000));
 assert.doesNotThrow(() => fallback.breakOpen(2));
-assert(frequency.events.some((ev) => ev.k === 's' && ev.t === 2 && ev.v === 12345));
+assert(frequency.events.some((ev) => ev.k === 'e' && ev.t === 2 && ev.v === 18000));
 assert(frequency.events.some((ev) => ev.k === 'e' && ev.v === 21000));
 assert.equal(fallback.arrClosed, false);
+for (const open of [3.5, 5]) {
+  const e = instrument('hardtechno').e, f = e.arrLP.frequency;
+  f.cancelAndHoldAtTime = undefined;
+  e.breakSweep(1, 4);
+  e.breakOpen(open);
+  const held = 10000 * 1.8 ** ((open - 2) / 3), dur = 16 * e.stepDur;
+  for (const [t, expected] of [[2, 10000], [2.75, 10000 * 1.8 ** 0.25], [open, held], [open + dur / 2, Math.sqrt(held * 21000)], [open + dur, 21000]]) {
+    assert(Math.abs(f.at(t) - expected) < 0.01, `cutoff at ${t} should be ${expected}`);
+  }
+  for (let now = 10; now <= 100; now += 10) {
+    e.ctx.currentTime = now;
+    e.breakSweep(now + 1, 4);
+    e.breakOpen(now + 5);
+    assert(e.hardFilterRamp.length <= 5);
+  }
+}
 const empty = instrument('minimal');
 delete empty.e.state.artist;
 assert.equal(empty.e.hardTechno, false);

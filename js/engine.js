@@ -2206,14 +2206,27 @@ export class Engine {
     if (ramp) { g.setValueAtTime(10 ** (ramp[0] / 20), t); g.linearRampToValueAtTime(v, t + ramp[1]); } else g.setTargetAtTime(v, t, 0.012);
   }
 
+  hardFilter(t, targets) {
+    const f = this.arrLP.frequency, points = this.hardFilterRamp || [[f.value, this.ctx.currentTime]];
+    let [value, start] = points[0];
+    for (const [next, end] of points.slice(1)) {
+      if (t < end) { value *= (next / value) ** Math.max(0, (t - start) / (end - start)); break; }
+      value = next; start = end;
+    }
+    if (f.cancelAndHoldAtTime) f.cancelAndHoldAtTime(t);
+    else { f.cancelScheduledValues(t); f.exponentialRampToValueAtTime(value, t); }
+    for (const [v, end] of targets) f.exponentialRampToValueAtTime(v, end);
+    const past = points.filter((p) => p[1] < t);
+    let first = 0;
+    while (first + 1 < past.length && past[first + 1][1] <= this.ctx.currentTime) first++;
+    this.hardFilterRamp = [...past.slice(first), [value, t], ...targets];
+  }
+
   // Breakdowns start dark and open back up over the whole section
   breakSweep(t, dur, smooth) {
     const f = this.arrLP.frequency;
     if (this.hardTechno) {
-      if (f.cancelAndHoldAtTime) f.cancelAndHoldAtTime(t);
-      else { const v = f.value; f.cancelScheduledValues(t); f.setValueAtTime(v, t); }
-      f.exponentialRampToValueAtTime(10000, t + Math.min(dur * 0.25, 16 * this.stepDur));
-      f.exponentialRampToValueAtTime(18000, t + dur);
+      this.hardFilter(t, [[10000, t + Math.min(dur * 0.25, 16 * this.stepDur)], [18000, t + dur]]);
     } else {
       f.cancelScheduledValues(t);
       // A smooth style glides into the dark over a beat instead of cutting to it.
@@ -2232,11 +2245,7 @@ export class Engine {
   breakOpen(t, smooth) {
     if (!this.arrClosed) return;
     const f = this.arrLP.frequency;
-    if (this.hardTechno) {
-      if (f.cancelAndHoldAtTime) f.cancelAndHoldAtTime(t);
-      else { const v = f.value; f.cancelScheduledValues(t); f.setValueAtTime(v, t); }
-      f.exponentialRampToValueAtTime(21000, t + 16 * this.stepDur);
-    }
+    if (this.hardTechno) this.hardFilter(t, [[21000, t + 16 * this.stepDur]]);
     else { f.cancelScheduledValues(t); f.setTargetAtTime(21000, t, smooth ? 0.09 : 0.02); }
     this.arrClosed = false;
   }
