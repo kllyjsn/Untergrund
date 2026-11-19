@@ -39,6 +39,7 @@ globalThis.fetch = async (url) => { const u = new URL(url); u.search = ''; files
 globalThis.OfflineAudioContext = class { decodeAudioData(b) { return Promise.resolve({ length: b.byteLength }); } };
 
 const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
+const feeds = (source, dest) => source === dest || dest.inputs.some((input) => feeds(source, input));
 {
   const state = defaultState(), fallback = new Error('synth fallback'), hits = [];
   const ctx = new FakeContext(2, 4096, 48000);
@@ -68,11 +69,11 @@ const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
   assert.equal(hits.length, 1);
   const [, t, , dest, rate, dur, fx] = hits[0];
   assert.equal(t, 1);
-  const [presence] = e.ch.stab.input.inputs;
-  assert.equal(presence.inputs[0], dest, 'the harp EQ feeds the chord strip');
+  assert.ok(feeds(dest, e.ch.stab.input), 'the harp EQ feeds the chord strip');
   hit('harpplk', 30);
   assert.equal(hits[1][3], dest, 'successive notes reuse the same EQ');
   assert.ok(hits[1][2] < hits[0][2], 'the highest transposed notes get less make-up gain');
+  assert.ok(hits[1][6].attackGain < 1 && fx.attackGain == null, 'trim the upper attack without dulling the lower plucks');
   hit('harpplk', 12, 0.8);
   hit('harpplk', 12, 1);
   assert.equal(hits[2][2], hits[3][2], 'very hard plucks do not overload the harp stem');
@@ -104,7 +105,7 @@ const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
   assert.deepEqual([pitches, root], hits[1].slice(2, 4), 'the backing uses the same chord voicing');
   assert.ok(p.decay < state.params.stab.decay, 'the recorded harp gets a shorter bell tail');
   assert.equal(dest, hits[3][5], 'backing chords reuse the presence cut');
-  assert.equal(out.inputs[0].inputs[0], dest);
+  assert.ok(feeds(dest, out), 'the shared bell EQ feeds the chord strip');
 }
 {
   const { pattern } = generate('drill', 8);
