@@ -51,6 +51,12 @@ for (const seed of [7, 42, 211, 1234]) {
 console.log('Drill pitched 808 glides passed');
 
 {
+  const song = freshSong('drill', 503);
+  assert.equal(song.params.snare.level, 0.66);
+  assert.equal(sanitize(JSON.parse(JSON.stringify(song))).params.snare.level, 0.66);
+}
+
+{
   const g = generate('deephouse', 42);
   const scenes = arrangement(g.pattern, 42);
   assert.deepEqual(scenes.map((p) => p.hm), [0, 2, 1, 2, 2, 1, 2, 2], 'hook is held back for the intro, the pre-chorus climbs it whole');
