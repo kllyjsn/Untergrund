@@ -1278,13 +1278,15 @@ const trackActive = (id) => {
 };
 
 // ---------------- build ----------------
-function build() {
-  app.innerHTML = '';
+// keepHeader leaves the transport header in place so an open menu there (style, key, FILE) survives playback redraws.
+function build({ keepHeader = false } = {}) {
+  const top = keepHeader && ui.pats?.closest('header.top');
+  if (top?.parentNode === app) { for (const n of [...app.children]) if (n !== top) n.remove(); } else app.innerHTML = '';
   ui.rows = {};
   document.body.classList.toggle('studio-open', studioOpen);
   document.body.dataset.stab = studioTab;
   document.body.dataset.spage = String(stepPage);
-  app.append(buildHeader(), studioOpen ? studioTabs() : '', buildGenerateHome(), state.patterns[0]?.score ? '' : timeline.mount(), h('main', { class: 'main studio-workspace' }, h('div', { class: 'left' }, buildGrid(), buildEditor()), buildMaster()), buildTabBar());
+  app.append(top?.parentNode === app ? '' : buildHeader(), studioOpen ? studioTabs() : '', buildGenerateHome(), state.patterns[0]?.score ? '' : timeline.mount(), h('main', { class: 'main studio-workspace' }, h('div', { class: 'left' }, buildGrid(), buildEditor()), buildMaster()), buildTabBar());
   guardPushOffer();
   renderPatterns();
   for (const id of TRACK_IDS) renderRow(id);
@@ -2518,7 +2520,7 @@ function frame() {
       if (ev.pat !== lastPlayedPat) {
         const followView = lastPlayedPat === null || state.current === lastPlayedPat || state.chainOn;
         lastPlayedPat = ev.pat;
-        if (followView && state.current !== ev.pat) { state.current = ev.pat; build(); }
+        if (followView && state.current !== ev.pat) { state.current = ev.pat; build({ keepHeader: true }); }
         renderPatterns();
       }
       setPlayhead(ev);
