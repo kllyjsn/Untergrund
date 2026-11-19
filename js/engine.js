@@ -3335,7 +3335,7 @@ export class Engine {
     const v = pos >= 0 ? this.vocalOf?.(this.state) : null, cur = this.vocalNow;
     const phase = v ? (pos * 16 + step) * this.stepDur - v.ms / 1000 : 0;
     const origin = (gridTime ?? t) - phase;
-    if (!reanchor && cur && v && cur.buf === v.buf && cur.next === pos && cur.sd === this.stepDur && cur.ms === v.ms && Math.abs(origin - cur.origin) <= 0.03) {
+    if (cur && v && cur.buf === v.buf && (cur.next === pos || (reanchor && cur.next === pos + 1)) && cur.sd === this.stepDur && cur.ms === v.ms && Math.abs(origin - cur.origin) <= (reanchor ? 0.003 : 0.03)) {
       cur.next = pos + 1;
       this.vocalBus.gain.setTargetAtTime(v.gain, t, 0.02);
       return;
@@ -3587,7 +3587,7 @@ export class Sequencer {
     this.advanceBar(abs, t);
     if (this.finished && this.songBars) return this.cur;
     const n = this.songBars || 0, pos = n ? (this.chainPos - 1) % n : -1, lf = this.liftFrom;
-    if (abs % 16 === 0) e.vocal(t, pos, 0, roomGridTime);
+    if (abs % 16 === 0) e.vocal(t, pos, 0, roomGridTime, roomGridTime != null);
     const pat = patternAt(s.patterns[this.cur], pos);
     const bar = Math.floor(abs / 16), vary = s.master.vary || 0;
     e.harm = pat.prog?.length ? pat.prog[bar % pat.prog.length] : null;

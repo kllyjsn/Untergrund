@@ -396,6 +396,26 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const aligned = e.vocalNow.src;
     e.vocal(5.02, 2, 0, 5.02);
     assert.equal(e.vocalNow.src, aligned, 'the aligned stem stays continuous on the new grid');
+    e.vocalStop();
+    e.vocal(1, 0, 0, 1, true);
+    const stable = e.vocalNow.src;
+    e.vocal(3.002, 1, 0, 3.002, true);
+    assert.equal(e.vocalNow.src, stable, 'room grid correction preserves sub-3ms jitter');
+    e.vocal(5.008, 2, 0, 5.008, true);
+    const corrected = e.vocalNow.src;
+    assert.notEqual(corrected, stable, 'a slewed room grid cannot leave the vocal on its old phase');
+    assert.ok(Math.abs(e.vocalNow.origin - 1.258) < 1e-9);
+    e.vocal(5.008, 2, 0, 5.008, true);
+    assert.equal(e.vocalNow.src, corrected, 'an explicit correction after a bar tick does not restart an aligned stem twice');
+    e.vocal(7.006, 3, 0, 7.006, true);
+    assert.equal(e.vocalNow.src, corrected, 'the corrected source stays continuous through small room jitter');
+    const roomEngine = new Engine(fakeCtx(), defaultState(), {realtime:false}), calls = [];
+    roomEngine.vocal = (...args) => calls.push(args);
+    const roomSeq = new Sequencer(roomEngine, roomEngine.state);
+    roomSeq.tick(0, 1, 1);
+    roomSeq.tick(16, 3);
+    assert.deepEqual(calls.map(args => args[4]), [true, false], 'only room bar ticks request the tighter vocal grid');
+    console.log('Room vocal slew PASS: bar ticks follow the corrected grid within 3ms; aligned duplicate updates and solo playback remain continuous.');
     console.log('Vocal grid drift PASS: solo and room sources follow cumulative forward/backward corrections; small jitter stays continuous.');
   }
 
