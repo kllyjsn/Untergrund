@@ -18,6 +18,11 @@ import { patternAt } from './scope.js';
 const DUCKED = new Set(['acid', 'stab', 'vox']);
 const dampedChord = (e) => (e.state.artist?.style === 'breaks' && Math.round(e.state.params.stab.voice) === 1)
   || (e.state.artist?.style === 'reggaeton' && Math.round(e.state.params.stab.voice) === 3);
+const BASS_COLOR = {
+  reggaeton: { name: 'dembow', knock: 1.12, settle: 0.045, wave: 'sine', ratio: 4, harmonic: 0.55, tail: 0.35, decay: 0.12, round: 'sine', pick: 0.6 },
+  afrobeats: { name: 'finger', knock: 1, settle: 0.018, wave: 'triangle', ratio: 3, harmonic: 0.8, tail: 0.25, decay: 0.07, round: 'triangle', pick: 1, gain: 0.85 },
+  jerseyclub: { name: 'bounce', knock: 2.6, settle: 0.012, wave: 'sawtooth', ratio: 2, harmonic: 0.35, tail: 0.015, decay: 0.025, round: 'triangle', pick: 0.5 },
+};
 // Chords sit under a sung line the way a mix rides the keys under a vocal: a little in the chorus, more in the verse
 // and most in the breakdown, so the drop still lands over it. Songs with sections already set the verse level.
 const STAB_UNDER_VOICE = { n: 0.84, v: 0.78, b: 0.45 };
@@ -2546,9 +2551,12 @@ export class Engine {
     return n;
   }
 
+  bassColor() { return BASS_COLOR[this.state.artist?.style]; }
+
   // Round finger-style bass: triangle + sine, short pluck through a gentle lowpass.
   bass(t, st, sd, holdNext) {
     const c = this.ctx, p = this.state.params.acid;
+    const color = this.bassColor();
     const note = this.bassMidi(st), f = midiHz(note), subF = midiHz(this.bassMidi(st, 36, 38));
     // A chromatic approach note leads into the next bar and gets out of the way when the chord lands.
     const len = st.ap ? sd * 0.9 : holdNext ? sd * 2 : sd * (0.9 + p.decay * 2);
@@ -2557,25 +2565,32 @@ export class Engine {
       if (kit) return this.sampledBass(kit, t, note, len, st.a);
       loadLiveKit();
     }
-    const tri = c.createOscillator(); tri.type = 'triangle'; tri.frequency.value = f;
+    const tri = c.createOscillator(); tri.type = color?.round ?? 'triangle'; tri.frequency.value = f;
     const sub = c.createOscillator(); sub.frequency.value = subF;
     const lp = this.filter('lowpass', 180 + p.cutoff * 0.6 + (st.a ? 500 : 0), 0.7);
     lp.frequency.setTargetAtTime(160 + p.cutoff * 0.3, t + 0.01, 0.08);
     const grit = this.ctx.createWaveShaper(); grit.curve = driveCurve(0.18 + p.drive * 0.5);
     const pick = this.noiseSrc(t, 0.02), pbp = this.filter('bandpass', 1100 + f * 4, 1.2), pg = this.gain(0);
-    this.adEnv(pg.gain, t, st.a ? 0.16 : 0.1, 0.0008, 0.012);
+    this.adEnv(pg.gain, t, (st.a ? 0.16 : 0.1) * (color?.pick ?? 1) * (color?.gain ?? 1), 0.0008, 0.012);
     pick.connect(pbp).connect(pg).connect(this.ch.acid.input);
-    const amp = this.gain(0), vel = (st.a ? 1 : 0.82) * (1 - p.drive * 0.2) * (this.noteVel ?? 1);
+    const amp = this.gain(0), vel = (st.a ? 1 : 0.82) * (1 - p.drive * 0.2) * (this.noteVel ?? 1) * (color?.gain ?? 1);
     amp.gain.setValueAtTime(EPS, t);
     amp.gain.linearRampToValueAtTime(vel, t + 0.006);
     amp.gain.setTargetAtTime(vel * 0.55, t + 0.02, 0.12);
     amp.gain.setTargetAtTime(0, t + len, 0.03);
     const subLevel = this.gain(0.72);
     // A smooth style rolls off the grit's new harmonics above 1.5 kHz at 24 dB/oct, so the bass keeps its definition without tones up among the chords.
-    if (this.smoothOn) { tri.connect(lp); lp.connect(grit).connect(this.filter('lowpass', 1500, 0.7)).connect(this.filter('lowpass', 1500, 0.7)).connect(amp); } else { tri.connect(lp); lp.connect(grit).connect(amp); }
+    if (color) { tri.connect(lp); lp.connect(grit).connect(this.filter('lowpass', 650, 0.7)).connect(this.filter('lowpass', 650, 0.7)).connect(amp); }
+    else if (this.smoothOn) { tri.connect(lp); lp.connect(grit).connect(this.filter('lowpass', 1500, 0.7)).connect(this.filter('lowpass', 1500, 0.7)).connect(amp); } else { tri.connect(lp); lp.connect(grit).connect(amp); }
     sub.connect(subLevel).connect(amp);
     amp.connect(this.ch.acid.input);
     const oscs = [tri, sub];
+    if (color) {
+      const touch = c.createOscillator(); touch.type = color.wave; touch.frequency.value = f * color.ratio;
+      const level = this.gain(0);
+      this.adEnv(level.gain, t, color.harmonic * 0.4, 0.006, color.decay);
+      touch.connect(level).connect(lp); this.startSource(touch, t); touch.stop(t + len + 0.3);
+    }
     // An optional saw layer under the same filter gives the note upper harmonics the triangle lacks.
     if (p.edge) { const saw = c.createOscillator(); saw.type = 'sawtooth'; saw.frequency.value = f; saw.connect(this.gain(p.edge)).connect(lp); oscs.push(saw); }
     for (const o of oscs) { this.startSource(o, t); o.stop(t + len + 0.3); }
@@ -2592,6 +2607,7 @@ export class Engine {
   // Tuned 808: sine sub with a pitch knock, long tail on DECAY, CUTOFF/DRIVE add harmonics; slides glide.
   eight08(t, st, sd, holdNext, sliding, kickAt) {
     const c = this.ctx, p = this.state.params.acid;
+    const color = this.bassColor();
     const f = midiHz(this.bassMidi(st, 36, 38));
     const len = holdNext ? sd * 2 : 0.15 + p.decay * 1.6, end = t + len + 0.4;
     const decay = Math.max(0.05, len * 0.45), prev = this.mono;
@@ -2604,7 +2620,7 @@ export class Engine {
       prev.eight08.forEach((x, i) => {
         const flick = drill && i === 1;
         if (drill && i === 1) x.frequency.cancelScheduledValues(t);
-        x.frequency.setTargetAtTime(f * (i + 1), t + (flick ? flickDelay : 0), flick ? 0.0055 : 0.0225);
+        x.frequency.setTargetAtTime(f * (color && i ? color.ratio : i + 1), t + (flick ? flickDelay : 0), flick ? 0.0055 : 0.0225);
         x.stop(end);
       });
       if (drill) {
@@ -2621,25 +2637,32 @@ export class Engine {
       return;
     }
     this.monoNote(t, f, false);
-    const knock = sliding ? 1 : 1.9;
+    const knock = sliding ? 1 : color?.knock ?? 1.9;
     const o = c.createOscillator();
     o.frequency.setValueAtTime(f * knock, t);
-    o.frequency.exponentialRampToValueAtTime(f, t + 0.03);
+    o.frequency.exponentialRampToValueAtTime(f, t + (color?.settle ?? 0.03));
     const sh = c.createWaveShaper(); sh.curve = driveCurve(0.1 + p.drive * 0.85);
     const lp = this.filter('lowpass', Math.max(80, p.cutoff * 2), 0.7);
-    const amp = this.gain(0), vel = (st.a ? 1 : 0.85) * (1 + p.accent * (st.a ? 0.2 : 0)) * 0.9 * (this.noteVel ?? 1);
+    const amp = this.gain(0), vel = (st.a ? 1 : 0.85) * (1 + p.accent * (st.a ? 0.2 : 0)) * 0.9 * (this.noteVel ?? 1) * (color?.gain ?? 1);
     amp.gain.setValueAtTime(EPS, t);
     amp.gain.linearRampToValueAtTime(vel, t + 0.004);
     amp.gain.setTargetAtTime(0, t + 0.02, decay);
     // The longest decays can still be audible when the oscillators stop.
     amp.gain.setTargetAtTime(0, end - 0.09, 0.009);
     // A quiet octave harmonic lets the 808 line read on small speakers without lifting the sub.
-    const h2 = c.createOscillator(); h2.type = 'triangle';
-    h2.frequency.setValueAtTime(f * knock * 2, t);
-    h2.frequency.exponentialRampToValueAtTime(f * 2, t + 0.03);
-    const h2g = this.gain(0.2);
+    const h2 = c.createOscillator(); h2.type = color?.wave ?? 'triangle';
+    h2.frequency.setValueAtTime(f * knock * (color?.ratio ?? 2), t);
+    h2.frequency.exponentialRampToValueAtTime(f * (color?.ratio ?? 2), t + (color?.settle ?? 0.03));
+    const h2g = this.gain(color ? 0 : 0.2);
+    if (color) {
+      h2g.gain.setValueAtTime(0, t);
+      h2g.gain.linearRampToValueAtTime(color.harmonic, t + 0.004);
+      h2g.gain.setTargetAtTime(color.tail, t + 0.008, color.decay);
+    }
     o.connect(sh).connect(lp).connect(amp).connect(this.ch.acid.input);
-    h2.connect(h2g).connect(lp);
+    h2.connect(h2g);
+    if (color?.name === 'finger') h2g.connect(this.filter('lowpass', 350, 0.7)).connect(lp);
+    else h2g.connect(lp);
     const eight08 = [o, h2];
     for (const x of eight08) { this.startSource(x, t); x.stop(end); }
     this.mono = { amp, f, end, eight08, octave: h2g };
