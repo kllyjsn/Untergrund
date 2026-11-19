@@ -5,6 +5,8 @@ import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { STYLES, defaultState, generate, applyOverrides, arrangement, songChain } from '../js/state.js';
+import { makeIR } from '../js/dsp.js';
+import { VOCAL_FX } from '../js/sing.js';
 
 const BASELINE = new URL('./audio-nodes-baseline.json', import.meta.url);
 const SLACK = 1.15, FLOOR = 12;
@@ -170,6 +172,51 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     e.vocalOf = () => null;
     e.vocal(4, 1, 5);
     assert.equal(e.vocalNow, null, 'songs without a stem do not start a source');
+  }
+
+  {
+    const c = fakeCtx(24000), s = defaultState();
+    const buf = new FakeBuffer({ length: 48000, sampleRate: 24000 });
+    buf.getChannelData(0).fill(.1);
+    let stem = null, buffers = 0;
+    const createBuffer = c.createBuffer;
+    c.createBuffer = (...args) => { buffers++; return createBuffer(...args); };
+    const e = new Engine(c, s, { vocal: () => stem });
+    e.prepareVocal();
+    assert.equal(e.vocalFx, undefined, 'no stem leaves the vocal FX unbuilt');
+    stem = { buf, fx: VOCAL_FX.pop, gain: 1, duck: .5, lift: .8, ms: 0 };
+    e.prepareVocal();
+    const F = e.vocalFx, impulse = F.plate.buffer, preparedBuffers = buffers, preparedNodes = counts.n;
+    const expected = makeIR(c, 1.6, { decay: 3.2, brightStart: .9, brightEnd: .35, predelay: .012, seed: 97 });
+    assert.deepEqual(impulse.getChannelData(0), expected.getChannelData(0), 'preparation preserves the plate IR');
+    assert.deepEqual(impulse.getChannelData(1), expected.getChannelData(1));
+    buffers = preparedBuffers;
+    const automation = [];
+    for (const [name, p] of [['plate', F.plateSend.gain], ['delay', F.dly.delayTime], ['send', F.dlySend.gain], ['feedback', F.fb.gain]])
+      p.setTargetAtTime = (...args) => automation.push([name, ...args]);
+    const getChannelData = buf.getChannelData.bind(buf);
+    buf.getChannelData = () => { throw new Error('Unprepared vocal buffer scan'); };
+    e.prepareVocal();
+    assert.equal(counts.n, preparedNodes, 'preparing again does not rebuild FX');
+    assert.equal(buffers, preparedBuffers, 'IR and processed stem are cached');
+    assert.deepEqual(automation, [], 'preparation does not automate audible send levels');
+    e.vocal(1, 0);
+    assert.equal(counts.n - preparedNodes, 2, 'first solo vocal creates only its source and fade gain');
+    assert.equal(buffers, preparedBuffers, 'first vocal does not build an IR or process the stem');
+    assert.equal(F.plate.buffer, impulse);
+    assert.deepEqual(automation, [['plate', .14, 0, .02], ['delay', .5 * 60 / s.bpm, 0, .02], ['send', .1, 0, .02], ['feedback', .22, 0, .02]]);
+    buf.getChannelData = getChannelData;
+    const roomState = { ...s, room: true };
+    e.vocalOf = state => state.room ? { ...stem, fx: VOCAL_FX.folk } : stem;
+    e.prepareVocal(roomState);
+    assert.equal(F.plate.buffer, impulse, 'preparing a queued genre does not change the playing reverb');
+    assert.equal(automation.length, 4);
+    e.vocalOf = () => null;
+    e.prepareVocal();
+    assert.equal(F.plate.buffer, impulse);
+    e.vocalOf = () => { throw new Error('Stem lookup failed'); };
+    assert.throws(() => e.prepareVocal(), /Stem lookup failed/);
+    console.log('Vocal preparation PASS: first solo source has no FX/IR/stem/envelope build; identical IR and send automation; cached preparation; silent/queued stems.');
   }
 
   const rows = [];

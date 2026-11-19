@@ -143,6 +143,7 @@ export function describeBar(ctx) {
       status.textContent = 'Warming up the singer…';
       try {
         await singSong(ctx.state(), { onWait: (s) => { status.textContent = `Singing… ${s}s`; } });
+        ctx.sung?.();
         status.textContent = ''; ctx.track?.({ sing: 'ok' });
       } catch (err) {
         status.textContent = err.message; ctx.track?.({ sing: 'error' });

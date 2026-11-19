@@ -256,6 +256,7 @@ function landJamPart(part, layer, t = null) {
 // Pressing again replaces the waiting song; the switch moment and transition stay put.
 // A song on recordings not yet downloaded waits (the old one keeps playing) until they're in, up to 8 s.
 function queueSong(plan) {
+  engine.prepareVocal(plan.next);
   if (!handoff) handoff = { since: performance.now() };
   const h = handoff;
   h.plan = plan;
@@ -334,6 +335,7 @@ function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room 
   stopPreview();
   closePractice();
   ensureAudio();
+  engine.prepareVocal();
   const wallNow = Date.now(), audioNow = ctx.currentTime;
   if (startsAt !== null) ({ step, delay } = roomTransportPosition(startsAt, state.bpm, wallNow));
   uiQueue.length = 0;
@@ -1777,6 +1779,7 @@ function describeBox() {
     },
     commit: (next) => { adoptState({ ...next, fresh: 0 }); build(); persist(); },
     persist: () => persist(),
+    sung: () => engine?.prepareVocal(),
     highlight: (bars) => timeline.flash(bars),
   });
 }
@@ -1784,6 +1787,7 @@ function describeBox() {
 function adoptState(next) {
   if (playing && next.bpm !== state.bpm) transportOrigin = Date.now() - ((Date.now() - transportOrigin) / (15000 / state.bpm)) * (15000 / next.bpm);
   Object.assign(state, next);
+  engine?.prepareVocal();
   engine?.applyAll(); engine?.applyDelayTime();
 }
 
