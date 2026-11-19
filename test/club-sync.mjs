@@ -508,7 +508,8 @@ const stop = async signal => {
   stopping = true;
   try { await network?.close(); } finally {
     await Promise.all([...activeClients].map(close => close()));
-    await terminate(server); process.exit(signal === 'SIGINT' ? 130 : 143);
+    await terminate(server);
+    await terminate(singer); process.exit(signal === 'SIGINT' ? 130 : 143);
   }
 };
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(signal, () => { void stop(signal); });
