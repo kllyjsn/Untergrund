@@ -119,6 +119,17 @@ console.log('Drill verse and turnaround passed');
   assert.deepEqual(resumed.ramp.slice(1), [6 * sd, 0], 'rewinding into the fill plays only the remainder of the ramp');
   const halfway = (10 ** (-1.8 / 20) + 10 ** (0.45 / 20)) / 2;
   assert(Math.abs(10 ** (resumed.ramp[0] / 20) - halfway) < 1e-9, 'the resumed lift starts halfway up');
+  const listener = new Sequencer(rec, song);
+  levels.length = 0;
+  listener.startAt(16 + 10, 100);
+  assert.deepEqual(levels, [], 'joining another fill does not start a swell');
+  listener.startAt(7 * 16 + 2, 100);
+  assert.deepEqual(levels.pop()?.ramp, [-1.8, 12 * sd, 2 * sd], 'joining before the swell preserves the remaining hold');
+  listener.startAt(7 * 16 + 10, 100);
+  assert.deepEqual(levels.at(-1), resumed, 'a new listener hears the same remaining swell as a rewound listener');
+  assert.equal(listener.chainPos, 8, 'joining mid-fill leaves the chorus queued as the next bar');
+  listener.tick(8 * 16, 100 + 6 * sd);
+  assert.deepEqual(levels, [resumed], 'the chorus does not restart the swell after a join');
 }
 
 {
