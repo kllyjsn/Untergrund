@@ -105,6 +105,16 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   player.discardQueuedNotes(ctx.currentTime);
   assert.deepEqual(events, [['ringing', 'start', 1], ['queued', 'start', 2, 0.4, 0.2], ['queued', 'stop', 1.5]]);
 
+  {
+    const ctx = fakeCtx(), engine = new Engine(ctx, defaultState());
+    const peak = engine.technoHookOut('ravestack'), motion = engine.technoHookMotion;
+    const h = counts.n;
+    assert.equal(engine.technoHookOut('ravestack'), peak);
+    assert.equal(counts.n, h, 'lead diffusion is reused per voice, not allocated per note');
+    assert.notEqual(engine.technoHookOut('robotformant'), peak);
+    assert.equal(engine.technoHookMotion, motion, 'lead diffusion shares one modulation source');
+  }
+
   for (const [voice, wide] of [[8, true], [9, false]]) {
     const ctx = fakeCtx(), state = defaultState();
     Object.assign(state.params.acid, { voice, decay: wide ? 0.11 : 0.044 });
