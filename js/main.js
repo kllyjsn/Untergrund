@@ -23,7 +23,7 @@ import { openLibrary } from './library.js';
 import { dropCard, pushOffer, guardPushOffer } from './drop.js';
 import { initPush, onPushChange, recordDropPlay, shouldOffer } from './push.js';
 import { getSample, prepareSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
-import { roomTransportPosition, syncAudioClock, transportResync } from './room-sync.js';
+import { roomTransportPosition, syncAudioClock, transportResync, slewTransport } from './room-sync.js';
 import { createRoomMediaSync, roomMediaLead, roomMediaTime } from './room-media-sync.js';
 import { concertPanel, concertBar, preloadScore, scoreReady, loadPiano } from './concert.js';
 import { liveSets, loadSets, setsReady } from './livekit.js';
@@ -56,6 +56,7 @@ addEventListener('pointerup', (e) => { if (e.pointerType !== 'mouse' || !e.butto
 addEventListener('blur', () => { for (const k of [...heldPads.keys()]) ui.perf?.[k]?.up(); });
 let playing = false, abs = 0, nextTime = 0, lastPlayedPat = null;
 let transportOrigin = 0, roomJoinTimer = 0, clockOffset = null;
+let vocalGridDirty = false;
 let roomPlayback = false;
 let roomEditor = false;
 let roomFirstNote = null;
@@ -215,16 +216,8 @@ function schedule(lead) {
   while (true) {
     const horizon = ctx.currentTime + (landed ? Math.max(ahead, 0.5) : ahead);
     if (!(Math.min(nextTime, replayAt) < horizon)) break;
-    if (roomPlayback) {
-      const target = roomMediaTime(transportOrigin / 1000 + abs * base - clockOffset, roomPlayback, mediaRoute);
-      const duration = engine.stepDur;
-      const slew = transportResync(target, nextTime, ctx.currentTime, duration, false, seq.origin - abs, engine.roomSlewRate ?? 1);
-      if (slew?.slew) {
-        engine.slewVocal(slew.nextTime - nextTime, nextTime - duration, duration, slew.rate, slew.endRate);
-        engine.roomSlewRate = slew.endRate;
-        nextTime = slew.nextTime;
-      }
-    }
+    const gridTarget = transportOrigin / 1000 + abs * base - clockOffset;
+    if (roomPlayback) nextTime = slewTransport(gridTarget, nextTime);
     const t = firstTime ?? nextTime;
     firstTime = undefined;
     // Leave a nearly coincident outgoing step to the incoming replay downbeat.
@@ -246,6 +239,10 @@ function schedule(lead) {
     }
     artistTick(abs - seq.origin);
     const pat = seq.tick(abs, t, roomPlayback ? nextTime : undefined, roomEditor);
+    if (roomPlayback && vocalGridDirty && Math.abs(gridTarget - nextTime) < 0.002) {
+      engine.vocal(t, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, (abs - seq.origin) % 16, nextTime, true);
+      vocalGridDirty = false;
+    }
     uiQueue.push({ abs: abs - seq.origin, t, pat });
     // A score breathes (rubato): the transport clock follows the stretched step, not the metronome.
     const sd = engine.stepDur;
@@ -431,6 +428,7 @@ function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room 
   state.current = seq.cur;
   songOver = false;
   if (switchAt === null) clockOffset = null;
+  vocalGridDirty = false;
   transportOrigin = startsAt ?? ((stepWall ?? wallNow + wait * 1000) - abs * (15000 / state.bpm));
   if (!seeking) engine.recLock = new Map();
   roomPlayback = room;
@@ -1044,7 +1042,7 @@ async function joinRoomReplay(item) {
 function joinRoomSet(item, { initial = false } = {}) {
   if (mediaRoute && initial && roomMediaSync.duplicate(item, playing, roomPlayback, mediaRoute)) return;
   queuedRoomReplay = roomReplayLoad = null;
-  const sameSet = roomStatsItem === item;
+  const sameSet = roomStatsItem === item || !!(item?.broadcastId && item.broadcastId === roomStatsItem?.broadcastId);
   roomStatsItem = item;
   if (item?.replay) return joinRoomReplay(item);
   stopTimeline();
@@ -1056,13 +1054,14 @@ function joinRoomSet(item, { initial = false } = {}) {
   const startsAt = Number.isFinite(+item.startsAt) ? +item.startsAt : Date.now();
   const localState = sanitize(state);
   const continuous = playing && roomPlayback && !artistLive && !handoff && !jamQueue.length && seq.queued === null &&
-    Math.abs(startsAt - (transportOrigin + seq.origin * (15000 / state.bpm))) <= 30 &&
+    (sameSet || Math.abs(startsAt - (transportOrigin + seq.origin * (15000 / state.bpm))) <= 30) &&
     nextStyle === style && roomState.artist?.style === localState.artist?.style && roomState.artist?.seed === localState.artist?.seed &&
     songFingerprint(roomState) === songFingerprint(localState) && JSON.stringify(roomState.sing) === JSON.stringify(localState.sing) &&
     (state.chainOn || roomState.current === state.current);
   if (!continuous || !sameSet) playbackStats.end('skip');
   style = nextStyle;
   if (continuous) {
+    reanchorRoomSet(startsAt);
     roomState.current = state.current;
     state = roomState;
     engine.state = seq.s = state;
@@ -1084,6 +1083,13 @@ function joinRoomSet(item, { initial = false } = {}) {
   const leadMs = continuous ? 40 : ROOM_LEAD * 1000;
   if (wait > Math.max(50, leadMs)) roomJoinTimer = setTimeout(sync, mediaRoute ? Math.max(0, wait - leadMs - roomMediaLead(true, mediaRoute) * 1000) : wait - leadMs);
   else sync();
+}
+
+function reanchorRoomSet(startsAt) {
+  if (!playing || !roomPlayback || !Number.isFinite(startsAt)) return;
+  const origin = startsAt - (seq?.origin || 0) * (15000 / state.bpm);
+  if (Math.abs(origin - transportOrigin) > 0.5) vocalGridDirty = true;
+  transportOrigin = origin;
 }
 
 function stopRoomStats(item) {
@@ -1133,6 +1139,7 @@ function showClub({ room = '', intent = '' } = {}) {
       return ctx.state === 'running';
     },
     joinRoomSet,
+    reanchorRoomSet,
     replayToRoom,
     jam: {
       queuePart: queueJamPart,

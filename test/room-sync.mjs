@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
-import { createRoomClock, roomTransportPosition, shiftRoomSet, syncAudioClock, transportResync } from '../js/room-sync.js';
+import { createRoomClock, roomTransportPosition, shiftRoomSet, syncAudioClock, transportResync, calibrateRoomClock, slewTransport } from '../js/room-sync.js';
 import { freshSong, clone, sanitize, STYLES } from '../js/state.js';
 import { songFingerprint } from '../js/listen.js';
 import { createRoomMediaSync, roomMediaLead } from '../js/room-media-sync.js';
@@ -44,6 +44,93 @@ const close = (a, b) => assert(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
 }
 
 assert.deepEqual(roomTransportPosition(origin + 1600, 120, origin), { step: 0, delay: 1.6 });
+
+{
+  const clock = createRoomClock({wall:() => origin, monotonic:() => 0});
+  const observe = (from, latency, offset) => clock.observe([origin + from + latency / 2 + offset, origin + from + latency / 2 + offset], from, from + latency);
+  observe(0, 4, 0);
+  observe(20000, 20, 100);
+  observe(31000, 100, 500);
+  assert.equal(clock.shift(), 0, 'ageing past 30s cannot replace a fast sample with an outlier');
+  observe(61000, 200, 999);
+  assert.equal(clock.shift(), 100, 'expiration selects the fastest remaining sample, not the newest outlier');
+  for (let i = 1; i <= 16; i++) observe(62000 + i * 100, 30, i);
+  assert.equal(clock.shift(), 1, 'the window retains at most sixteen observations');
+  clock.observe([NaN, origin], 1, 2);
+  assert.equal(clock.shift(), 1, 'invalid samples cannot corrupt the window');
+}
+
+{
+  let now = 0;
+  const calls = [];
+  const initial = {snapshot:{sessionToken:'cold'}, latency:330};
+  const result = await calibrateRoomClock(initial, async (token, timeout) => {
+    calls.push({token, timeout});
+    const latency = [320, 290, 18][calls.length - 1];
+    assert(timeout >= latency, 'warm probes use latency-scaled rather than 250ms timeouts');
+    now += latency;
+    return {snapshot:{sessionToken:`warm${calls.length}`}, latency};
+  }, () => now);
+  assert.equal(result.sessionToken, 'warm3');
+  assert.equal(calls.length, 3, 'a fast sample stops calibration early');
+  assert.equal(calls[1].token, 'warm1');
+  assert(now <= 1500);
+  assert.equal(await calibrateRoomClock({...initial, latency:2}, () => assert.fail('fast joins do not need extra probes')), initial.snapshot);
+  now = 0;
+  assert.equal(await calibrateRoomClock(initial, async (_, timeout) => {
+    now += timeout;
+    throw new Error('timeout');
+  }, () => now), initial.snapshot, 'failed probes preserve the initial snapshot');
+  assert(now <= 1500, 'calibration has a bounded total deadline');
+  let empty = 0;
+  assert.equal(await calibrateRoomClock(initial, async () => { empty++; return null; }, () => 0), initial.snapshot);
+  assert.equal(empty, 4, 'empty responses cannot cause unlimited probes');
+}
+
+{
+  close(slewTransport(10.02, 10), 10.0015);
+  close(slewTransport(9.98, 10), 9.9985);
+  assert.equal(slewTransport(10, 10), 10);
+  assert.equal(slewTransport(10.2, 10), 10, 'large corrections remain transportResync work');
+  let at = 10;
+  for (let i = 0; i < 20; i++) at = slewTransport(10.02, at);
+  close(at, 10.02);
+}
+
+{
+  const source = await readFile(new URL('../js/club.js', import.meta.url), 'utf8');
+  const body = source.slice(source.indexOf('export class RoomBus'), source.indexOf('\nlet parkedBus')).replace('export class', 'class');
+  const RoomBus = runInNewContext(`${body}\nRoomBus`, {shiftRoomSet, normalizeMember:x => x,
+    sessionStorage:{setItem(){}}, Date});
+  for (const clientId of ['host', 'listener']) {
+    let shift = -200;
+    const corrections = [], events = [];
+    const set = {broadcastId:'live', startsAt:origin, version:1};
+    const bus = Object.assign(Object.create(RoomBus.prototype), {clientId, user:{}, members:new Map(), seq:0,
+      roomClock:{shift:() => shift}, currentSet:{...set, startsAt:origin + 200}, currentSetKey:'server:1',
+      serverOrigin:{broadcastId:'live', startsAt:origin}, hostId:'host', appliedBroadcasts:new Set(['live']),
+      initiatedSets:new Set(), onClock:value => corrections.push(value), onEvent:value => events.push(value), emit(){}});
+    bus.applySnapshot({currentSet:set, hostId:'host'});
+    assert.equal(corrections.length, 0);
+    shift = -20;
+    bus.applySnapshot({currentSet:set, hostId:'host'});
+    assert.equal(bus.currentSet.startsAt, origin + 20);
+    assert.equal(corrections.length, 1, `${clientId} is notified despite same-version dedupe`);
+    assert.equal(events.length, 0, 'clock correction does not rebroadcast or replay the set');
+    shift = 0;
+    bus.applySnapshot({hostId:'host'});
+    assert.equal(bus.currentSet.startsAt, origin, 'omitted known-set bodies still allow re-anchoring');
+    assert.equal(corrections.length, 2);
+    shift = 1;
+    bus.applySnapshot({hostId:'host'});
+    assert.equal(corrections.length, 2, 'sub-threshold jitter is ignored');
+    bus.serverOrigin.broadcastId = 'old';
+    shift = 100;
+    bus.applySnapshot({hostId:'host'});
+    assert.equal(corrections.length, 2, 'another broadcast cannot move the current grid');
+  }
+}
+console.log('Room clock calibration PASS: bounded recent minimum, adaptive probes, same-broadcast host/listener re-anchor and per-step slew.');
 
 let pos = roomTransportPosition(origin, 120, origin + 1500);
 assert.equal(pos.step, 13);
@@ -188,7 +275,7 @@ function roomJoin(change = () => {}, options = {}) {
   const engine = {state, editableHits:[{}], vocalNow:{source:'continuous'}, stepDur:.125};
   const seq = {s:state, origin:0, queued:null};
   const sandbox = {state, engine, seq, playing:true, roomPlayback:true, roomEditor:true, artistLive:null, handoff:null, jamQueue:[], mediaRoute:null,
-    transportOrigin:origin, style:'hypnotic', songOrigin:{}, STYLES, sanitize, clone, songFingerprint,
+    transportOrigin:origin, vocalGridDirty:false, style:'hypnotic', songOrigin:{}, STYLES, sanitize, clone, songFingerprint,
     roomStatsItem:null, playbackSources:new WeakMap(), playbackStats:{end:(outcome) => analytics.push(outcome)},
     ctx:{currentTime:8}, abs:65, nextTime:8.125, recordPlayback:(source) => analytics.push(source),
     Date:{now:() => origin + 8000}, ROOM_LEAD:.42, roomJoinTimer:0, stopTimeline(){}, joinRoomReplay(){calls.push('replay');},
@@ -253,6 +340,18 @@ for (const change of [
   (i, s) => { s.jamQueue.push({}); },
   (i, s) => { i.state.chainOn = s.state.chainOn = false; i.state.current = 1; },
 ]) assert.deepEqual(roomJoin(change).calls, ['replace', 'play'], 'changed music/origin or inactive transport takes the normal join path');
+{
+  const {calls, sandbox, analytics} = roomJoin((item, s) => {
+    item.broadcastId = 'live';
+    s.roomStatsItem = {broadcastId:'live'};
+    item.startsAt += 235;
+  });
+  assert.deepEqual(calls, [], 'a large same-broadcast correction never restarts playback');
+  assert.equal(sandbox.transportOrigin, origin + 235);
+  assert.equal(sandbox.vocalGridDirty, true, 'the continuous vocal must follow the corrected grid');
+  assert.equal(sandbox.engine.vocalNow.source, 'continuous');
+  assert.deepEqual(analytics, [], 'clock corrections keep the active play');
+}
 assert.deepEqual(roomJoin(i => { delete i.state; }).calls, []);
 assert.deepEqual(roomJoin(i => { i.replay = {}; }).calls, ['replay']);
 console.log('Room continuity PASS: role-only rebroadcast retains vocal/scheduler; changed song, vocal, origin, queued edits, replay and stopped transport still join normally.');

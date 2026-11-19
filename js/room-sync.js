@@ -1,5 +1,6 @@
 export function createRoomClock({ wall = () => Date.now(), monotonic = () => performance.now() } = {}) {
   let best;
+  let samples = [];
   return {
     observe(clock, from, to) {
       if (!Array.isArray(clock)) return;
@@ -7,15 +8,30 @@ export function createRoomClock({ wall = () => Date.now(), monotonic = () => per
       if (![received, sent, from, to].every(Number.isFinite) || sent < received || to < from) return;
       // Subtract time spent on the server; keep the lowest-latency observation from recent heartbeats.
       const latency = Math.max(0, to - from - (sent - received));
-      if (!best || (to >= best.at && (to - best.at >= 30000 || latency < best.latency))) {
-        best = { offset: (received - from + sent - to) / 2, at: to, latency };
-      }
+      const latest = Math.max(to, samples.at(-1)?.at ?? to);
+      samples.push({ offset: (received - from + sent - to) / 2, at: to, latency });
+      samples = samples.filter(s => latest - s.at <= 60000).sort((a, b) => a.at - b.at).slice(-16);
+      best = samples.reduce((a, b) => a.latency <= b.latency ? a : b);
       return latency;
     },
     shift() {
       return best ? monotonic() + best.offset - wall() : 0;
     },
   };
+}
+
+export async function calibrateRoomClock(initial, sample, monotonic = () => performance.now()) {
+  let latest = initial;
+  const deadline = monotonic() + 1500;
+  for (let i = 0; i < 4 && latest.latency > 20; i++) {
+    const remaining = deadline - monotonic();
+    if (remaining < 50) break;
+    try {
+      const warm = await sample(latest.snapshot.sessionToken, Math.min(remaining, Math.max(250, latest.latency * 2 + 50)));
+      if (warm) latest = warm;
+    } catch {}
+  }
+  return latest.snapshot;
 }
 
 export function shiftRoomSet(set, by) {
@@ -67,4 +83,9 @@ export function transportResync(target, nextTime, now, stepSec, jumped = false, 
   target += skip * stepSec;
   while (target < earliest) { target += stepSec; skip++; }
   return { skip, nextTime: target, discard: jumped, ...(target < ready && { firstTime: ready }) };
+}
+
+export function slewTransport(target, nextTime) {
+  const error = target - nextTime;
+  return Math.abs(error) <= 0.03 ? nextTime + Math.max(-0.0015, Math.min(0.0015, error)) : nextTime;
 }

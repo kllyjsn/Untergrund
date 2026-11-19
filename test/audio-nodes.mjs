@@ -387,6 +387,15 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       assert.equal(starts.length, count + 2, 'backward grid corrections also re-anchor');
       assert.ok(Math.abs(starts.at(-1)[1] - 7.75) < 1e-9);
     }
+    e.vocalStop();
+    e.vocal(1, 0, 0, 1);
+    const before = e.vocalNow.src;
+    e.vocal(3.02, 1, 0, 3.02, true);
+    assert.notEqual(e.vocalNow.src, before, 'explicit room re-anchoring bypasses the ordinary jitter fast path');
+    assert.ok(Math.abs(e.vocalNow.origin - 1.27) < 1e-9);
+    const aligned = e.vocalNow.src;
+    e.vocal(5.02, 2, 0, 5.02);
+    assert.equal(e.vocalNow.src, aligned, 'the aligned stem stays continuous on the new grid');
     console.log('Vocal grid drift PASS: solo and room sources follow cumulative forward/backward corrections; small jitter stays continuous.');
   }
 
