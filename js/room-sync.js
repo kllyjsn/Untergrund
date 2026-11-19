@@ -7,8 +7,10 @@ export function createRoomClock({ wall = () => Date.now(), monotonic = () => per
       if (![received, sent, from, to].every(Number.isFinite) || sent < received || to < from) return;
       // Subtract time spent on the server; keep the lowest-latency observation from recent heartbeats.
       const latency = Math.max(0, to - from - (sent - received));
-      if (best && (to < best.at || (to - best.at < 30000 && latency >= best.latency))) return;
-      best = { offset: (received - from + sent - to) / 2, at: to, latency };
+      if (!best || (to >= best.at && (to - best.at >= 30000 || latency < best.latency))) {
+        best = { offset: (received - from + sent - to) / 2, at: to, latency };
+      }
+      return latency;
     },
     shift() {
       return best ? monotonic() + best.offset - wall() : 0;

@@ -28,6 +28,16 @@ const close = (a, b) => assert(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
   assert.equal(shiftRoomSet(hostSet, 0), hostSet, 'local BroadcastChannel path does not translate timestamps');
 }
 
+{
+  const clock = createRoomClock({ wall: () => origin + 2000 + 200, monotonic: () => 200 });
+  assert.equal(clock.observe([origin + 101, origin + 103], 100, 162), 60);
+  assert.equal(clock.shift(), -2029, 'cold response with asymmetric delay biases the first offset');
+  assert.equal(clock.observe([origin + 165, origin + 165], 163, 167), 4);
+  assert.equal(clock.shift(), -2000, 'warm sample removes the startup bias before a set is adopted');
+  assert.equal(clock.observe([origin + 171, origin + 171], 170, 200), 30);
+  assert.equal(clock.shift(), -2000, 'a slower response does not replace the warm sample');
+}
+
 assert.deepEqual(roomTransportPosition(origin + 1600, 120, origin), { step: 0, delay: 1.6 });
 
 let pos = roomTransportPosition(origin, 120, origin + 1500);

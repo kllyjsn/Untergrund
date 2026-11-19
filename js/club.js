@@ -140,7 +140,7 @@ class RoomBus {
     this.poller = 0;
     this.onVisible = () => { if (!document.hidden) { this.activeAt = Date.now(); this.poll(); } };
     document.addEventListener('visibilitychange', this.onVisible);
-    this.ready = this.heartbeat();
+    this.ready = this.heartbeat(true);
     this.channel?.postMessage({ kind: 'snapshot-request', requester: this.clientId });
     this.poll();
   }
@@ -306,7 +306,7 @@ class RoomBus {
     this.heartbeat();
   }
 
-  async heartbeat() {
+  async heartbeat(calibrate = false) {
     const event = {
       id: `${this.clientId}-presence-${Date.now()}`,
       type: 'presence',
@@ -315,20 +315,35 @@ class RoomBus {
     };
     this.channel?.postMessage(event);
     this.receive(event);
-    try {
-      const from = performance.now();
-      const response = await fetch(this.endpoint('/events'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'presence', clientId: this.clientId, clientSecret: this.clientSecret, token: this.token, user: { ...this.user, joinedAt: this.joinedAt }, since: this.seq, ...this.known() }),
-        signal: AbortSignal.timeout?.(5000),
-      });
-      const to = performance.now();
-      if (response.ok) {
+    const sample = async (token, timeout) => {
+      const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), timeout);
+      try {
+        const from = performance.now();
+        const response = await fetch(this.endpoint('/events'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'presence', clientId: this.clientId, clientSecret: this.clientSecret, token, user: { ...this.user, joinedAt: this.joinedAt }, since: this.seq, ...this.known() }),
+          signal: ctrl.signal,
+        });
+        const to = performance.now();
+        if (!response.ok) return null;
         const snapshot = await response.json();
-        this.roomClock.observe(snapshot.clock, from, to);
-        this.applySnapshot(snapshot);
+        return { snapshot, latency: this.roomClock.observe(snapshot.clock, from, to) };
+      } finally { clearTimeout(timer); }
+    };
+    try {
+      const initial = await sample(this.token, 5000);
+      if (!initial) return;
+      let { snapshot } = initial;
+      // A cold connection can bias the clock used for the entire set. Sample
+      // once more before adopting the set or publishing our own.
+      if (calibrate && initial.latency > 20) {
+        try {
+          const warm = await sample(snapshot.sessionToken || this.token, 250);
+          if (warm) snapshot = warm.snapshot;
+        } catch {}
       }
+      this.applySnapshot(snapshot);
     } catch {}
   }
 
