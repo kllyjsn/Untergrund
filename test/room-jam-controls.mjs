@@ -124,8 +124,12 @@ async function renderDrive(drive, edit = '') {
     }
     if (edit === 'cancel') engine.cancelJamParams();
   }
-  const buffer = await ctx.startRendering(), y = buffer.getChannelData(0);
-  return [1.56, 2.56, 3.56].map(t => {
+  const live = edit === 'live' ? ctx.suspend(1.06).then(async () => {
+    engine.setParam('acid', 'drive', .5);
+    await ctx.resume();
+  }) : Promise.resolve();
+  const [buffer] = await Promise.all([ctx.startRendering(), live]), y = buffer.getChannelData(0);
+  return [1.56, 2.56, 3.56, .56].map(t => {
     let sum = 0;
     for (let i = Math.round(t * rate); i < Math.round((t + .075) * rate); i++) sum += y[i] ** 2;
     return 20 * Math.log10(Math.sqrt(sum / (.075 * rate)));
@@ -140,8 +144,8 @@ const result = await withChrome(async run => {
   };
   for (const action of ['seek', 'stop', 'stall', 'multi', 'replace', 'handoff']) out[action] = await run('(' + render.toString() + `)(true,true,${JSON.stringify(action)})`);
   out.drive = {};
-  for (const drive of [.2, .8, .3]) out.drive[drive] = await run('(' + renderDrive.toString() + `)(${drive})`);
-  for (const edit of ['edit', 'cancel']) out.drive[edit] = await run('(' + renderDrive.toString() + `)(.2,${JSON.stringify(edit)})`);
+  for (const drive of [.2, .8, .3, .5]) out.drive[drive] = await run('(' + renderDrive.toString() + `)(${drive})`);
+  for (const edit of ['edit', 'cancel', 'live']) out.drive[edit] = await run('(' + renderDrive.toString() + `)(.2,${JSON.stringify(edit)})`);
   return out;
 });
 if (result) {
@@ -180,6 +184,10 @@ if (result) {
     assert(Math.abs(result.drive.cancel[i] - result.drive[.3][i]) < .01, 'cancel restores the latest drive and removes future switches');
   }
   console.log('Room jam FX PASS: acid waveshaper and post-gain switch at both audio-clock boundaries; cancel restores one current path.');
+  assert(Math.abs(result.drive.live[3] - result.drive[.2][3]) < .01, 'the pre-knob acid retains its original timbre');
+  for (const i of [0,1,2]) assert(Math.abs(result.drive.live[i] - result.drive[.5][i]) < .01,
+    'a live acid knob changes the active path now and overrides both pending drive boundaries');
+  console.log('Room jam live drive PASS: setParam changes the active acid now and carries its drive/post-gain across both queued boundaries.');
   console.log('Room jam restart PASS: real Engine stop/resume and seek retain updated levels/FX and invalidate old callbacks.');
   for (const action of ['replace', 'handoff']) for (const i of [3,4,5,6])
     assert(Math.abs(result[action].rmsDb[i] - result.primed.control.rmsDb[i] - 20 * Math.log10(.7 / .9)) < .01,

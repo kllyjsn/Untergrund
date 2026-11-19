@@ -667,6 +667,10 @@ export class Engine {
       if (id === 'reso') { this.setTo(a.f2.Q, v, immediate); this.setTo(a.f1.Q, v * 0.12, immediate); }
       if (id === 'drive') {
         if (this.schedulingJam) this.scheduleJamDrive(v);
+        else if (!immediate && !this.at && this.jamDrives) {
+          for (const p of this.jamDrives) p.shaper.curve = driveCurve(v * .75);
+          a.post.gain.cancelScheduledValues(this.ctx.currentTime);
+        }
         else a.shaper.curve = driveCurve(v * 0.75);
         this.setTo(a.post.gain, 1.05 / (1 + v * 1.1), immediate);
       }
