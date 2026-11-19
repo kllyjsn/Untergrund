@@ -1,16 +1,11 @@
-import { Sequencer } from '../js/engine.js';
-import { Recorder } from '../js/midi.js';
+import { gridKicks } from './club-sync-grid.mjs';
 import { channelEnvelope } from './club-sync-mix.mjs';
 import { onsets } from './club-sync-audio.mjs';
 
 export const BIN_MS = 4;
 const q = (xs, p) => xs.length ? [...xs].sort((a, b) => a - b)[Math.ceil((xs.length - 1) * p)] : null;
 
-export function gridKicks(song) {
-  const recorder = new Recorder(song), seq = new Sequencer(recorder, song);
-  for (let step = 0; step < song.chain.length * 16 && !seq.finished; step++) seq.tick(step, step * recorder.stepDur);
-  return (recorder.notes.kick || []).map(n => n.t * 1000);
-}
+export { gridKicks };
 
 export function denseEnvelope(rows, from, to, bin = BIN_MS) {
   const out = new Float64Array(Math.ceil((to - from) / bin)), counts = new Uint16Array(out.length);

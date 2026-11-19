@@ -48,11 +48,12 @@ const args = process.argv.slice(2);
 const options = { repeat: 1, output: 'club-sync.json', vocal: 'synthetic', 'net-target':'listener', 'net-label':'default' };
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
-  if (['--assert', '--diagnostics', '--mute-audio', '--no-audio-device', '--startup-contention', '--clips'].includes(arg)) options[arg.slice(2)] = true;
+  if (['--assert', '--diagnostics', '--mute-audio', '--no-audio-device', '--startup-contention', '--clips', '--handoff-drop-kicks'].includes(arg)) options[arg.slice(2)] = true;
   else if (['--scenario', '--repeat', '--output', '--cpu-throttle', '--vocal', '--net', '--net-target', '--net-label'].includes(arg) && args[i + 1]) options[arg.slice(2)] = args[++i];
   else throw new Error(`Unknown/missing argument: ${arg}`);
 }
 const selected = options.scenario;
+assert.ok(!options['handoff-drop-kicks'] || selected === 'dj-handoff-mix', '--handoff-drop-kicks requires --scenario dj-handoff-mix');
 assert.ok(['synthetic', 'synthetic-pop', 'real'].includes(options.vocal), '--vocal must be synthetic, synthetic-pop or real');
 const realVocal = options.vocal === 'real';
 const mixSong = () => options.vocal === 'synthetic' ? mixFixture() : realMixFixture();
@@ -312,6 +313,16 @@ async function scenario(base, spec, network, run) {
         events.actionAt = await host.clickText('PASS DECK');
         if (popHandoff) assert.ok(Math.abs(events.actionAt - events.passTargetAt) <= 100, 'PASS DECK within 100ms of the pop handoff target');
         if (spec.mix) events.interruptAt = events.recoverAt = events.actionAt;
+        if (options['handoff-drop-kicks']) events.injectedKickDrop = await listener.run(`(async () => {
+          const {Engine} = await import('/js/engine.js');
+          const kick = Engine.prototype.kick;
+          const drop = __clubAudio.injectedKickDrop = {from:${events.actionAt}, until:${events.actionAt + 2200}, dropped:[]};
+          Engine.prototype.kick = function(t, ...args) {
+            if (Date.now() < drop.until) { drop.dropped.push({at:Date.now(), when:t}); return; }
+            return kick.call(this, t, ...args);
+          };
+          return drop;
+        })()`);
         events.passed = await until(async () => { const s = await snapshot(); return s.hostId === listenerId && s; }, 'deck passed on room server');
         await until(() => listener.run(`[...document.querySelectorAll('.club-secondary')].some(b => b.textContent === 'UPDATE ROOM')`), 'new DJ controls');
         events.broadcastAt = await listener.clickText('UPDATE ROOM');
@@ -399,6 +410,10 @@ async function scenario(base, spec, network, run) {
       if (spec.expiredMix) assert.ok(events.after.members.includes(listenerId), 'The expired listener rejoined');
     } else await pause(22000);
     const raw = await Promise.all(clients.map(c => c.run('({...__clubAudio, clockSkew: Date.now() - (performance.timeOrigin + performance.now())})')));
+    if (options['handoff-drop-kicks']) {
+      events.injectedKickDrop = raw[1].injectedKickDrop;
+      assert.ok(events.injectedKickDrop?.dropped.length >= 2, 'handoff regression dropped multiple actual listener kicks');
+    }
     if (options.diagnostics) await Promise.all(clients.map(async (c, i) => {
       raw[i].cpuProfile = (await c.send('Profiler.stop')).profile;
       raw[i].browserAudioErrors = c.audioErrors();

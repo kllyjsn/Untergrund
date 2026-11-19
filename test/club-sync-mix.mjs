@@ -5,6 +5,7 @@ import { localSpec, songState } from '../js/song-spec.js';
 import { rulePlan, planLyrics } from '../js/song-plan.js';
 import { vocalFx } from '../js/sing.js';
 import { envelope, postResumeEnvelope, onsets, correlate } from './club-sync-audio.mjs';
+import { gridKicks } from './club-sync-grid.mjs';
 
 export function mixFixture() {
   const s = freshSong('hypnotic', 7, { length: 'sketch', bpm: 123, swing: 0 });
@@ -126,6 +127,39 @@ export function realignment(stats, wake) {
     if (streak === 3) return p.listener - wake;
   }
   return null;
+}
+
+export function beatRealignment(stats, wake, { bpm, origin, expectedKicks }) {
+  assert.ok(Number.isFinite(bpm) && bpm > 0 && Number.isFinite(origin) && Number.isFinite(wake), 'Finite recovery grid required');
+  const beatMs = 60000 / bpm, stepMs = beatMs / 4;
+  if (!expectedKicks.length) return {timeToRealignMs:null, beatMs, gridOrigin:null, phaseMs:null, beats:[], attackConfirmationMs:realignment(stats, wake)};
+  const offsets = stats.hostOnsets.map(h => {
+    const nearest = expectedKicks.reduce((a, b) => Math.abs(origin + a - h) <= Math.abs(origin + b - h) ? a : b);
+    return h - origin - nearest;
+  });
+  const phaseMs = quantile(offsets, .5) ?? 0, gridOrigin = origin + phaseMs;
+  const slot = time => Math.floor((time + stepMs / 2) / beatMs);
+  const planned = new Set(expectedKicks.map(slot));
+  const played = new Map(), paired = new Map(stats.pairs.map(p => [p.host, p]));
+  for (const h of stats.hostOnsets.filter(h => h >= wake && h <= stats.to)) {
+    const index = slot(h - gridOrigin);
+    if (!played.has(index)) played.set(index, []);
+    played.get(index).push(h);
+  }
+  const beats = []; let streak = 0, timeToRealignMs = null;
+  for (let index = Math.max(0, slot(wake - gridOrigin)); gridOrigin + index * beatMs <= stats.to; index++) {
+    const host = played.get(index) || [], pairs = host.map(h => paired.get(h));
+    if (!host.length && gridOrigin + index * beatMs < wake) continue;
+    const rest = !host.length && !planned.has(index);
+    const aligned = host.length > 0 && pairs.every(p => p && Math.abs(p.delta) <= 50);
+    const status = rest ? 'planned-rest' : !host.length ? 'missing-host' : pairs.some(p => !p) ? 'missing-listener' : aligned ? 'aligned' : 'misaligned';
+    streak = aligned ? streak + 1 : rest ? (streak ? streak + 1 : 0) : 0;
+    const at = aligned ? Math.max(...pairs.map(p => p.listener)) : gridOrigin + index * beatMs;
+    beats.push({ index, at, status, streak, host, pairs:pairs.filter(Boolean) });
+    if (streak >= 3) { timeToRealignMs = at - wake; break; }
+  }
+  return { timeToRealignMs, beatMs, gridOrigin, phaseMs, beats,
+    attackConfirmationMs:realignment(stats, wake) };
 }
 
 export function phraseOnsets(rows, threshold) {
@@ -251,7 +285,10 @@ export function analyzeMix(raw, s, events, origin, { resume = true, checkFirstDo
       const rows = resume && b.at >= events.recoverAt ? raw.map(r => postResumeEnvelope(r, 2)) : [hb, lb];
       return {...b, duringFreeze:resume && b.at < events.recoverAt, ...boundaryMetric(...rows, b.at)};
     });
-  const timeToRealignMs = realignment(phases.after.kicks, events.recoverAt);
+  const recoveryEvidence = beatRealignment(phases.after.kicks, events.recoverAt, {
+    bpm:s.bpm, origin, expectedKicks:gridKicks(s),
+  });
+  const timeToRealignMs = recoveryEvidence.timeToRealignMs;
   const budgetMs = 3 * 60000 / s.bpm;
   const baselineFailures = [];
   if (!resume && !boundaries.length) baselineFailures.push('no section boundaries measured');
@@ -263,7 +300,7 @@ export function analyzeMix(raw, s, events, origin, { resume = true, checkFirstDo
   for (const [i, capture] of raw.entries()) {
     if (!capture.stemWarm || capture.sources.some(source => source.at < capture.stemWarm.end)) baselineFailures.push(`client ${i} stem not warmed before audio graph`);
   }
-  return { phases, boundaries, timeToRealignMs, budgetMs, baselineFailures, firstDownbeat,
+  return { phases, boundaries, timeToRealignMs, recoveryEvidence, budgetMs, baselineFailures, firstDownbeat,
     stemWarm:raw.map(r => r.stemWarm),
     realStems:raw.map(r => r.realStem),
     graphEdges:raw.map(r => Object.fromEntries(Object.entries(r.channels).map(([name, c]) => [name, c.edge]))),
