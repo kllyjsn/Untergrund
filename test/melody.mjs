@@ -63,7 +63,7 @@ console.log('vocal-length melodies passed');
   const bells = generate('drill', 1234), other = generate('drill', 42);
   assert.equal(bells.params.stab.voice, 6);
   assert.notEqual(other.params.stab.voice, 6);
-  assert.equal(bells.pattern.hook.v, 'softmallet');
+  assert.equal(bells.pattern.hook.v, 'harpplk');
   assert.equal(other.pattern.hook.v, 'mallet');
   const peak = (g, part) => Math.max(...g.pattern.hook.m[part].map((note) => note[3]));
   for (const part of ['n', 'v', 'b']) {

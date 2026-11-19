@@ -152,7 +152,7 @@ const HOOK_STYLE = {
   pop: 'song', rnb: 'soulful', rock: 'riff', folk: 'roots', country: 'twang',
 };
 // 'chop' sings the hook with the user's own recorded voice (js/voice.js); a song without one plays 'vocal'.
-export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell', 'chop', 'softmallet'];
+export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell', 'chop', 'softmallet', 'harpplk'];
 
 // Every genre has several plausible ensembles. The seed chooses a player,
 // register and articulation while the genre keeps its drum, harmony and room identity.
@@ -828,12 +828,11 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     if (v?.pedal) P.pedal = v.pedal; else if (v) P.prog = v;
   }
   // Groove and pop genres sing: the hook becomes a vocal-length melody over the changes (js/melody.js).
-  // In Drill's synth-bell ensemble, the mallet plays lighter behind the 808.
-  const softMallet = style === 'drill' && stabVoice === 6 && hook?.v === 'mallet';
-  const gainScale = softMallet ? 0.72 : 1;
+  const harpHook = style === 'drill' && stabVoice === 6 && hook?.v === 'mallet';
+  const gainScale = harpHook ? 0.72 : 1;
   const sung = withMelody(P.hook, rng(Math.imul((seed | 0) ^ 0x68e31da4, 0x3c6ef372) ^ 0x1b873593), style, musicalScale, { prog: P.prog, alt: P.alt, chord: params.stab.chord | 0, gainScale });
   if (sung) { P.hook = sung; P.hm = 2; }
-  if (softMallet) P.hook.v = 'softmallet';
+  if (harpHook) P.hook.v = 'harpplk';
   if (LIFT.has(style) && P.prog) P.lift = 2;
   if (style === 'trap' && stabVoice === 7 && sung?.v === 'mallet' && sung.m) {
     for (const part of ['n', 'v', 'b']) for (const note of sung.m[part]) note[3] *= 0.78;

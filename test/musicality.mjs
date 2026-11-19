@@ -146,8 +146,12 @@ console.log('Drill verse and turnaround passed');
 {
   const song = freshSong('drill', 1234), chorus = song.patterns[6];
   assert.equal(song.params.stab.voice, 6);
-  assert.equal(chorus.hook.v, 'softmallet');
+  assert.equal(chorus.hook.v, 'harpplk');
   assert.deepEqual(sanitize(JSON.parse(JSON.stringify(song))).patterns[6].hook, chorus.hook);
+  const previous = JSON.parse(JSON.stringify(song));
+  for (const p of previous.patterns) if (p.hook?.v === 'harpplk') p.hook.v = 'softmallet';
+  assert.equal(sanitize(previous).patterns[6].hook.v, 'softmallet', 'existing songs keep the synth hook');
+  assert.deepEqual(capture(song).notes, capture(previous).notes, 'the harp does not rewrite the melody');
   assert.equal(generate('drill', 42).pattern.hook.v, 'mallet', 'recorded ensembles keep their existing lead');
   assert.equal(generate('drill', 13).pattern.hook.v, 'reed', 'the reed keeps its existing sound');
 }
