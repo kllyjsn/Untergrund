@@ -1,6 +1,123 @@
 const db = (value) => 20 * Math.log10(Math.max(value, 1e-9));
 const round = (value, places = 3) => +value.toFixed(places);
 
+export function seededRandom(seed) {
+  let h = 2166136261;
+  for (const c of seed) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  return () => { h += 0x6D2B79F5; let t = h; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+export function planSession(manifest, listenerId) {
+  validateBenchmark(manifest);
+  const seed = `${manifest.id}:${listenerId}`, random = seededRandom(seed);
+  const shuffle = (items) => {
+    for (let i = items.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); [items[i], items[j]] = [items[j], items[i]]; }
+    return items;
+  };
+  const trials = shuffle(manifest.pairs.map((pair) => ({
+    pairId: pair.id, kind: pair.catch ? 'catch' : 'main', flipped: random() < 0.5,
+    ...(pair.catch && { expect: pair.expect }),
+  })));
+  const mains = trials.filter((t) => t.kind === 'main');
+  const repeats = shuffle([...mains]).slice(0, Math.max(1, Math.round(mains.length * (manifest.repeatShare ?? 0.25))));
+  const catches = manifest.catchTrials ?? Math.max(1, Math.round(manifest.pairs.length * 0.1));
+  for (let i = 0; i < catches; i++) {
+    const pair = manifest.pairs[Math.floor(random() * manifest.pairs.length)];
+    trials.push({ pairId: pair.id, kind: 'catch', generated: true, anchor: random() < 0.5 ? 'a' : 'b', expect: 'a', flipped: random() < 0.5 });
+  }
+  for (const original of repeats) {
+    // A one-pair session uses its generated catch as the separating trial.
+    if (trials.at(-1) === original) {
+      if (trials.length === 1) throw new Error('A single pair needs a catch trial to separate its repeat');
+      trials.unshift(trials.pop());
+    }
+    trials.push({ pairId: original.pairId, kind: 'repeat', repeatOf: original.pairId, flipped: !original.flipped });
+  }
+  trials.forEach((t, i) => { t.id = `trial-${i + 1}`; });
+  return { seed, trials };
+}
+function preference(result) {
+  return result.release === 'neither' ? 'tie' : result.identity[result.release];
+}
+export function raterQuality(results) {
+  const catches = results.filter((r) => r.trial?.kind === 'catch');
+  const passed = catches.filter((r) => {
+    const expected = r.trial.expect === 'b' ? (r.trial.flipped ? 'left' : 'right') : (r.trial.flipped ? 'right' : 'left');
+    const other = expected === 'left' ? 'right' : 'left';
+    return DIMENSIONS.filter((d) => r.ratings[expected][d] > r.ratings[other][d]).length > DIMENSIONS.length / 2 && r.release !== other;
+  }).length;
+  const repeats = results.filter((r) => r.trial?.kind === 'repeat');
+  const comparisons = repeats.flatMap((r) => {
+    const original = results.find((o) => o.pairId === r.trial.repeatOf && o.trial?.kind === 'main');
+    return original ? [preference(r) === preference(original)] : [];
+  });
+  const catchPassRate = catches.length ? passed / catches.length : null;
+  const repeatConsistency = comparisons.length ? comparisons.filter(Boolean).length / comparisons.length : null;
+  const reasons = [];
+  // With fewer than three catches require all to pass; otherwise >=2/3. Repeats must agree >=50%.
+  if (catches.length && (catches.length < 3 ? passed < catches.length : catchPassRate < 2 / 3)) reasons.push('failed catch threshold');
+  if (repeatConsistency !== null && repeatConsistency < 0.5) reasons.push('repeat agreement below 0.5');
+  return { catches: catches.length, passed, catchPassRate, repeats: comparisons.length, repeatConsistency, flagged: reasons.length > 0, reasons };
+}
+export function fitBradleyTerry(comparisons, ids = [...new Set(comparisons.flatMap((c) => [c.a, c.b]))]) {
+  if (!ids.length) return {};
+  let strengths = Object.fromEntries(ids.map((id) => [id, 1]));
+  const wins = Object.fromEntries(ids.map((id) => [id, 0]));
+  const games = Object.fromEntries(ids.map((id) => [id, {}]));
+  // Symmetric half-win prior on every edge keeps undefeated and disconnected items finite.
+  for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
+    const a = ids[i], b = ids[j]; wins[a] += 0.5; wins[b] += 0.5; games[a][b] = games[b][a] = 1;
+  }
+  for (const { a, b, outcome } of comparisons) {
+    if (a === b) continue;
+    wins[a] += outcome; wins[b] += 1 - outcome;
+    games[a][b] = (games[a][b] || 0) + 1; games[b][a] = (games[b][a] || 0) + 1;
+  }
+  for (let iteration = 0; iteration < 1000 && ids.length > 1; iteration++) {
+    const next = Object.fromEntries(ids.map((a) => [a, wins[a] / Object.entries(games[a]).reduce((sum, [b, n]) => sum + n / (strengths[a] + strengths[b]), 0)]));
+    const total = Object.values(next).reduce((a, b) => a + b, 0);
+    ids.forEach((id) => { next[id] = next[id] / total * ids.length; });
+    const delta = Math.max(...ids.map((id) => Math.abs(next[id] - strengths[id])));
+    strengths = next;
+    if (delta < 1e-8) break;
+  }
+  const total = Object.values(strengths).reduce((a, b) => a + b, 0);
+  return Object.fromEntries(ids.map((id) => [id, strengths[id] / total]));
+}
+export function aggregateRatings(exports, manifest = {}, { bootstrap = 200, seed = 'lab-bootstrap', excludeFlagged = true } = {}) {
+  const grouped = new Map();
+  for (const ex of exports) {
+    if (!ex.listenerId) throw new Error('Every export needs a listenerId');
+    if (manifest.id && ex.benchmarkId !== manifest.id) throw new Error('Benchmark id mismatch');
+    const prior = grouped.get(ex.listenerId);
+    if (!prior || ex.results.length >= prior.results.length) grouped.set(ex.listenerId, ex);
+  }
+  const raters = [...grouped.values()].map((ex) => ({ listenerId: ex.listenerId, quality: raterQuality(ex.results) }));
+  const eligible = [...grouped.values()].filter((ex) => !excludeFlagged || !raters.find((r) => r.listenerId === ex.listenerId).quality.flagged);
+  // The gate counts only raters who answered a catch and rated real pairs: an empty or partial export proves nothing.
+  const qualified = (ex) => { const q = raters.find((r) => r.listenerId === ex.listenerId).quality; return !q.flagged && q.catches > 0 && ex.results.some((r) => r.trial?.kind !== 'catch'); };
+  const unflagged = [...grouped.values()].filter(qualified).length;
+  const rows = (listeners, dimension) => listeners.flatMap((ex) => ex.results.filter((r) => r.trial?.kind !== 'catch').map((r) => ({
+    a: r.identity.left, b: r.identity.right,
+    outcome: dimension === 'overall' ? (r.release === 'left' ? 1 : r.release === 'right' ? 0 : 0.5) : (Math.sign(r.ratings.left[dimension] - r.ratings.right[dimension]) + 1) / 2,
+  })));
+  const random = seededRandom(seed), dimensions = {};
+  for (const dimension of [...DIMENSIONS, 'overall']) {
+    const data = rows(eligible, dimension), ids = [...new Set(data.flatMap((r) => [r.a, r.b]))].sort();
+    const fit = fitBradleyTerry(data, ids), samples = Object.fromEntries(ids.map((id) => [id, []]));
+    for (let i = 0; i < bootstrap && eligible.length; i++) {
+      const sample = Array.from({ length: eligible.length }, () => eligible[Math.floor(random() * eligible.length)]);
+      const values = fitBradleyTerry(rows(sample, dimension), ids);
+      ids.forEach((id) => samples[id].push(values[id]));
+    }
+    dimensions[dimension] = Object.fromEntries(ids.map((id) => {
+      const values = samples[id].sort((a, b) => a - b);
+      return [id, { strength: fit[id], ci: values.length ? [values[Math.floor(values.length * 0.025)], values[Math.min(values.length - 1, Math.floor(values.length * 0.975))]] : [fit[id], fit[id]] }];
+    }));
+  }
+  const minRaters = manifest.minRaters ?? 5;
+  return { status: unflagged >= minRaters ? 'sufficient' : 'insufficient', minRaters, unflaggedRaters: unflagged, includedRaters: eligible.length, bootstrap, seed, raters, dimensions };
+}
+
 export function validateBenchmark(manifest) {
   if (!manifest || typeof manifest !== 'object') throw new Error('Benchmark must be a JSON object');
   if (!manifest.id || !Array.isArray(manifest.pairs) || !manifest.pairs.length) throw new Error('Benchmark needs an id and at least one pair');
@@ -8,6 +125,7 @@ export function validateBenchmark(manifest) {
   for (const pair of manifest.pairs) {
     if (!pair.id || pairIds.has(pair.id)) throw new Error('Every pair needs a unique id');
     pairIds.add(pair.id);
+    if (pair.catch && !['a', 'b'].includes(pair.expect)) throw new Error('Catch pairs need expect: a or b');
     for (const side of ['a', 'b']) {
       const candidate = pair[side];
       if (!candidate?.id || (!candidate.url && !candidate.file)) throw new Error(`${pair.id}.${side} needs id plus url or file`);
@@ -105,6 +223,7 @@ export function analyzePcm(channels, sampleRate, { bpm = 0, renderMs = 0 } = {})
 export function summarizeRatings(results) {
   const candidates = {};
   for (const result of results) {
+    if (result.trial?.kind === 'catch') continue;
     for (const side of ['left', 'right']) {
       const id = result.identity[side];
       const bucket = candidates[id] ||= { ratings: [], replay: 0, release: 0, appearances: 0, flags: 0 };
@@ -231,6 +350,7 @@ export function versusScorecard(exports, manifest = null, { ours: OURS, theirs: 
   const meta = new Map((manifest?.pairs || []).map((p) => [p.id, p]));
   const rows = [];
   for (const ex of exports) for (const res of ex.results || []) {
+    if (res.trial?.kind === 'catch') continue;
     const side = Object.entries(res.identity || {}).find(([, id]) => id === OURS)?.[0], other = side === 'left' ? 'right' : 'left';
     if (!side || res.identity[other] !== THEIRS) continue;
     const m = meta.get(res.pairId) || {};
@@ -260,4 +380,3 @@ export function versusScorecard(exports, manifest = null, { ours: OURS, theirs: 
   const sw = Object.fromEntries(SONGWRITING.map(([k]) => [k, fin(median(prompts.map((p) => p.songwriting?.[k])), 3)]));
   return { schema: 'untergrund.lab-versus/1', ours: OURS, theirs: THEIRS, generated: new Date().toISOString(), commit: manifest?.commit ?? null, listeners: exports.length, prompts: prompts.length, overall: tally(rows), genres, songwritingMedian: sw, songwritingKeys: SONGWRITING.map(([k, label, unit, why]) => ({ k, label, unit, why })), pairs: prompts };
 }
-

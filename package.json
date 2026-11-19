@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "blind-pack": "node scripts/blind-pack.mjs",
+    "lab:aggregate": "node scripts/lab-aggregate.mjs",
     "build": "node scripts/build.mjs",
     "start": "node server.mjs",
     "dev": "SC_MOCK=1 node server.mjs",

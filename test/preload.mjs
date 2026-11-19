@@ -2,8 +2,10 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { liveSets, setsReady, loadSets, STAB_BAND, LIVE_FILES } from '../js/livekit.js';
-import { Engine } from '../js/engine.js';
-import { generate, STYLES } from '../js/state.js';
+import { Engine, Sequencer } from '../js/engine.js';
+import { defaultState, generate, STYLES } from '../js/state.js';
+import { createPlayer } from '../js/player.js';
+import { OfflineAudioContext as FakeContext, AudioBuffer } from './offline-audio.mjs';
 
 const st = (kit, voice) => ({ master: { kit }, params: { stab: { voice } } });
 assert.deepEqual(liveSets(st(0, 1)), []);
@@ -50,3 +52,71 @@ assert.equal(rec(later, 'kit'), null, 'each set is locked on its own');
 assert.ok(files.has('gtr_40.flac') && files.has(`${LIVE_FILES[0]}.flac`));
 assert.deepEqual(await loadSets([]), []);
 console.log('live-kit preload + per-song lock passed');
+
+{
+  globalThis.AudioBuffer = AudioBuffer;
+  globalThis.window = { AudioContext: class extends FakeContext { constructor() { super(2, 4096, 48000); } } };
+  const fetchFile = globalThis.fetch;
+  let allowGuitar, allowJazz, finishWaiting;
+  const guitarReady = new Promise((r) => { allowGuitar = r; });
+  const jazzReady = new Promise((r) => { allowJazz = r; });
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('/agtr')) await guitarReady;
+    if (String(url).includes('/jazz')) await jazzReady;
+    return fetchFile(url);
+  };
+  const realTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...args) => {
+    if (ms !== 8000) return realTimeout(fn, ms, ...args);
+    finishWaiting = fn;
+    return 0;
+  };
+  const tick = Sequencer.prototype.tick, scheduled = [];
+  let engine, starts = 0;
+  Sequencer.prototype.tick = function () {
+    engine = this.e;
+    const names = engine.state.params.stab.voice === 12 ? ['agtr', 'agtrb'] : ['jazz', 'jazzb'];
+    scheduled.push(names.map((name) => !!engine.rec(name)));
+  };
+  const player = createPlayer({ onStart: () => starts++ });
+  const release = { ...defaultState(), fresh: 0 };
+  release.params.stab.voice = 12;
+  try {
+    assert.equal(setsReady(['agtr']), false);
+    player.play(release);
+    assert.equal(player.playing, true, 'stop is available even while instruments are loading');
+    assert.equal(player.loading, true);
+    assert.deepEqual(scheduled, [], 'the first downbeat waits for the recordings rather than using a synth');
+    player.stop();
+    assert.equal(player.loading, false);
+    player.play(release);
+    allowGuitar();
+    await loadSets(['agtr', 'agtrb']);
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(scheduled, [[true, true]], 'only the latest play starts, with both guitar takes on the first step');
+    assert.equal(player.loading, false);
+    assert.equal(starts, 1);
+
+    release.params.stab.voice = 13;
+    player.play(release);
+    assert.equal(player.loading, true);
+    finishWaiting();
+    assert.deepEqual(scheduled, [[true, true], [false, false]], 'slow downloads do not block playback forever');
+    const fallbackEngine = engine;
+    allowJazz();
+    await loadSets(['jazz', 'jazzb']);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(fallbackEngine.rec('jazz'), null, 'a late recording does not change the sound mid-song');
+    assert.equal(starts, 2, 'late downloads do not restart playback');
+    player.play(release);
+    assert.deepEqual(scheduled.at(-1), [true, true], 'the next play uses the cached recordings');
+  } finally {
+    player.stop();
+    allowGuitar();
+    allowJazz();
+    globalThis.setTimeout = realTimeout;
+    Sequencer.prototype.tick = tick;
+    globalThis.fetch = fetchFile;
+  }
+}
+console.log('public player instrument readiness and fallback passed');

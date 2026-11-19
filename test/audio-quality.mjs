@@ -3,6 +3,40 @@ import assert from 'node:assert/strict';
 import { analyzeMix, analyzeStems, ending, stereo, spectrum, loudnessRange, kHops, shaper, crest, limiter } from '../js/audio-quality.js';
 import { clipCurve, satCurve } from '../js/dsp.js';
 import { withChrome } from './chrome.mjs';
+import { report } from '../scripts/audio-benchmark.mjs';
+
+{
+  const result = {
+    style: 'minimal', seed: 42,
+    mix: {
+      peak: { truePeakDb: -2, clipRuns: 0, dcDb: -80 }, loudness: { integrated: -10 }, limiter: { strainShare: 0 },
+      spectrum: { tilt: -4, mudBumpDb: 0, harshBumpDb: 0, shares: { sub: 0.3 } },
+      stereo: { monoLossLu: 0, correlationP5: 1, lowSideDb: -40, correlation: 0.5 }, balance: { rmsDb: 4 },
+    },
+    stems: { missing: [], stems: ['ch', 'snare', 'stab'].map((id) => ({ id, notes: 4, relLu: -10, buriedShare: 0, hits: { spreadDb: 1, rangeDb: 2, attackDb: 3 } })) },
+  };
+  const run = () => report('fast', [42], [result], null, {});
+  const rep = run();
+  for (const id of ['genreBalance', 'drumSpread', 'hatSpread', 'bandSpread', 'snareAttack', 'meanCorrelation']) {
+    assert.equal(rep.styles.minimal.metrics[id].level, 'INFO', id);
+    assert.deepEqual(rep.global[id].levels, { INFO: 1, PASS: 0, WARN: 0, FAIL: 0 }, `${id} is not counted as a pass`);
+  }
+  assert.equal(rep.styles.minimal.metrics.windowLufs.level, 'PASS', 'drift-only checks remain gated');
+  assert.equal(rep.styles.minimal.metrics.clipRuns.level, 'PASS', 'fail-only checks remain gated');
+  assert.equal(rep.verdict, 'PASS');
+  assert.deepEqual(rep.styles.minimal.reasons, []);
+  assert.equal(rep.counts.PASS, 1, 'style verdict counts are unchanged');
+  result.mix.balance = null;
+  const missing = run();
+  assert.equal(missing.styles.minimal.metrics.genreBalance, undefined);
+  assert.equal(missing.global.genreBalance, undefined);
+  assert.deepEqual(report('fast', [], [], null, {}).global, {});
+  result.mix.peak.truePeakDb = -0.5;
+  assert.equal(run().verdict, 'WARN');
+  result.mix.peak.clipRuns = 1;
+  assert.equal(run().verdict, 'FAIL');
+  console.log('audio benchmark applicability passed: INFO counts, missing measurements and unchanged PASS/WARN/FAIL verdicts');
+}
 
 const fs = 48000, sec = (s) => Math.round(s * fs);
 const tone = (f, s, a = 0.5, ph = 0) => Float32Array.from({ length: sec(s) }, (_, i) => a * Math.sin(2 * Math.PI * f * i / fs + ph));

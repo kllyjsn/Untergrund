@@ -1,14 +1,43 @@
-import { analyzePcm, lufs, summarizeRatings, validateBenchmark, versusScorecard, DIMENSIONS, SONGWRITING } from './lab-metrics.js';
+import { analyzePcm, lufs, summarizeRatings, validateBenchmark, versusScorecard, DIMENSIONS, SONGWRITING, planSession, raterQuality, aggregateRatings } from './lab-metrics.js';
 const $ = (id) => document.getElementById(id);
 const files = new Map();
-let manifest, order = [], index = 0, results = [];
+let manifest, plan, order = [], index = 0, results = [];
+const storedListener = localStorage.getItem('untergrund:lab:listener') || crypto.randomUUID();
+localStorage.setItem('untergrund:lab:listener', storedListener);
+const listenerId = new URLSearchParams(location.search).get('listener') || storedListener;
+document.querySelectorAll('.listener-id').forEach((el) => { el.textContent = `Listener: ${listenerId}`; });
 
-function seededFlip(text) {
-  let h = 2166136261;
-  for (const char of text) h = Math.imul(h ^ char.charCodeAt(0), 16777619);
-  return (h >>> 0) % 2 === 1;
+function storageKey() { return `untergrund:lab:${manifest.id}:${listenerId}`; }
+function persist() { localStorage.setItem(storageKey(), JSON.stringify({ plan, results })); }
+async function degrade(candidate) {
+  const response = local(candidate) ? await local(candidate).arrayBuffer() : await fetch(candidate.url).then((r) => { if (!r.ok) throw new Error('Catch audio unavailable'); return r.arrayBuffer(); });
+  const decoder = new AudioContext();
+  let input;
+  try { input = await decoder.decodeAudioData(response); } finally { await decoder.close(); }
+  const context = new OfflineAudioContext(input.numberOfChannels, input.length, input.sampleRate);
+  const source = context.createBufferSource(), filter = context.createBiquadFilter();
+  source.buffer = input; filter.type = 'lowpass'; filter.frequency.value = 3000; filter.Q.value = 0.7;
+  source.connect(filter).connect(context.destination); source.start();
+  const rendered = await context.startRendering();
+  let originalEnergy = 0, energy = 0, peak = 0;
+  for (let c = 0; c < rendered.numberOfChannels; c++) {
+    const data = rendered.getChannelData(c), original = input.getChannelData(c);
+    for (let i = 0; i < data.length; i++) {
+      originalEnergy += original[i] ** 2;
+      data[i] = Math.round(data[i] * 16) / 16 + 0.025 * Math.sin(i * 1.789 + c);
+      energy += data[i] ** 2; peak = Math.max(peak, Math.abs(data[i]));
+    }
+  }
+  const gain = Math.min(Math.sqrt(originalEnergy / Math.max(energy, 1e-12)), 0.99 / Math.max(peak, 1e-12));
+  const channels = rendered.numberOfChannels, bytes = new ArrayBuffer(44 + rendered.length * channels * 2), view = new DataView(bytes);
+  const str = (offset, value) => [...value].forEach((ch, i) => view.setUint8(offset + i, ch.charCodeAt(0)));
+  str(0, 'RIFF'); view.setUint32(4, bytes.byteLength - 8, true); str(8, 'WAVE'); str(12, 'fmt ');
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, channels, true);
+  view.setUint32(24, input.sampleRate, true); view.setUint32(28, input.sampleRate * channels * 2, true);
+  view.setUint16(32, channels * 2, true); view.setUint16(34, 16, true); str(36, 'data'); view.setUint32(40, bytes.byteLength - 44, true);
+  for (let i = 0; i < rendered.length; i++) for (let c = 0; c < channels; c++) view.setInt16(44 + (i * channels + c) * 2, rendered.getChannelData(c)[i] * gain * 32767, true);
+  return { id: candidate.id + ':anchor', url: URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' })) };
 }
-function storageKey() { return `untergrund:lab:${manifest.id}`; }
 // A manifest `file` matches a loaded file by its path inside the chosen folder ("suno/acid-techno.mp3") or by name.
 const local = (candidate) => candidate.file && (files.get(candidate.file) || files.get(candidate.file.split('/').pop()));
 function source(candidate) {
@@ -90,21 +119,29 @@ function renderRatings() {
     $('ratings').append(row);
   }
 }
-function renderPair() {
+async function renderPair() {
   const pair = order[index];
   if (!pair) return complete();
-  const flip = seededFlip(`${manifest.id}:${pair.id}`);
+  $('next').disabled = true;
+  try {
+  if (pair.trial.generated && !pair._prepared) {
+    const original = pair[pair.trial.anchor];
+    pair.a = original; pair.b = await degrade(original); pair._prepared = true;
+  }
+  const flip = pair.trial.flipped;
   const left = flip ? pair.b : pair.a;
   const right = flip ? pair.a : pair.b;
   pair._identity = { left: left.id, right: right.id };
   pair._candidates = { left, right };
-  $('genre').textContent = `${pair.style || 'MUSIC'} · SEED ${pair.seed ?? '—'}`;
-  $('pair-title').textContent = pair.title || `Pair ${index + 1}`;
+  $('genre').textContent = 'BLIND LISTENING';
+  $('pair-title').textContent = `Trial ${index + 1}`;
   $('progress-label').textContent = `${index + 1} / ${order.length}`;
   $('progress-bar').style.width = `${(index / order.length) * 100}%`;
   $('players').replaceChildren(player('left', left, pair), player('right', right, pair));
   renderRatings();
   document.querySelectorAll('input[type=radio]').forEach((input) => { input.checked = false; });
+  $('next').disabled = false;
+  } catch (error) { alert(error.message); }
 }
 function selected(name) { return document.querySelector(`input[name="${name}"]:checked`)?.value; }
 function savePair() {
@@ -121,6 +158,7 @@ function savePair() {
   const replay = selected('replay'), release = selected('release');
   if (!replay || !release) throw new Error('Choose replay and release intent');
   const pairResult = {
+    listenerId, trial: pair.trial,
     pairId: pair.id, style: pair.style, seed: pair.seed, bpm: pair.bpm, ...(pair.genre && { genre: pair.genre }),
     identity: pair._identity, ratings, replay, release,
     metrics: {
@@ -128,20 +166,20 @@ function savePair() {
       right: JSON.parse(boxes[1].dataset.metrics),
     },
   };
-  results = results.filter((result) => result.pairId !== pair.id);
   results.push(pairResult);
-  localStorage.setItem(storageKey(), JSON.stringify(results));
+  persist();
   index++;
   renderPair();
 }
 function exportResults() {
   const output = {
     benchmarkId: manifest.id, title: manifest.title, completedAt: new Date().toISOString(),
+    listenerId, planSeed: plan.seed, plan, quality: raterQuality(results),
     dimensions: DIMENSIONS, summary: summarizeRatings(results), ...(versus() && { scorecard: versus() }), results,
   };
   const link = document.createElement('a');
   link.href = URL.createObjectURL(new Blob([JSON.stringify(output, null, 2)], { type: 'application/json' }));
-  link.download = `${manifest.id}-results.json`;
+  link.download = `${manifest.id}-${listenerId.replace(/[^a-z0-9_-]/gi, '_')}-results.json`;
   link.click();
   URL.revokeObjectURL(link.href);
 }
@@ -157,6 +195,14 @@ function complete() {
   const summary = summarizeRatings(results), card = versus();
   const row = (label, value) => `<div class="summary-row"><b>${esc(label)}</b><span>${esc(value)}</span></div>`;
   let html = Object.entries(summary).map(([id, value]) => row(id, `${value.meanRating}/5 · replay ${value.replayWins} · release ${value.releaseWins} · flags ${value.technicalFlags}`)).join('');
+  const quality = raterQuality(results), aggregate = aggregateRatings([{ listenerId, benchmarkId: manifest.id, results }], manifest, { excludeFlagged: false });
+  html = '<h3>Rater quality</h3>' + row('Quality', quality.flagged ? 'Flagged: ' + quality.reasons.join('; ') : 'Not flagged')
+    + row('Catch pass rate', pct(quality.catchPassRate)) + row('Repeat consistency', pct(quality.repeatConsistency))
+    + (quality.flagged ? row('Provisional only', 'Flagged ratings shown here but excluded from aggregate reports by default') : '')
+    + `<h3>${aggregate.status === 'insufficient' ? 'Insufficient raters — provisional estimates, not a ranking' : 'Bradley–Terry strengths'}</h3>`
+    + row('Minimum raters', `${aggregate.unflaggedRaters} / ${aggregate.minRaters}`)
+    + Object.entries(aggregate.dimensions).map(([dimension, values]) => '<h4>' + esc(dimension) + '</h4>' + Object.entries(values).map(([id, v]) => row(id, `${v.strength.toFixed(3)} (95% CI ${v.ci.map((n) => n.toFixed(3)).join('–')}) · provisional`)).join('')).join('')
+    + '<h3>Descriptive ratings</h3>' + html;
   if (card) {
     const { ours, theirs } = manifest.versus, o = card.overall;
     html += `<h3>${esc(ours)} vs ${esc(theirs)}: ${pct(o.winRate)} win rate</h3>`
@@ -190,11 +236,16 @@ $('manifest').onchange = async (event) => {
   }
 };
 $('start').onclick = () => {
-  order = manifest.pairs;
-  results = JSON.parse(localStorage.getItem(storageKey()) || '[]');
+  try {
+  const saved = JSON.parse(localStorage.getItem(storageKey()) || 'null');
+  plan = saved?.plan || planSession(manifest, listenerId);
+  results = saved?.results || [];
+  order = plan.trials.map((trial) => ({ ...manifest.pairs.find((p) => p.id === trial.pairId), trial }));
+  persist();
   index = results.length;
   $('setup').hidden = true; $('test').hidden = false;
   renderPair();
+  } catch (error) { alert(error.message); }
 };
 $('next').onclick = () => { try { savePair(); } catch (error) { alert(error.message); } };
 $('export').onclick = exportResults;
