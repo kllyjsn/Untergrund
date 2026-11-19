@@ -1427,7 +1427,8 @@ export class Engine {
     if (this.smoothOn) {
       const lp2 = this.filter('lowpass', p.cutoff * 1.3, 0.5), hp = this.filter('highpass', 5000, 0.5);
       lp.connect(lp2).connect(amp);
-      this.noiseSrc(t, end - t).connect(hp).connect(this.gain(0.06)).connect(amp);
+      const air = this.noiseSrc(t, end - t); air.loop = true;
+      air.connect(hp).connect(this.gain(0.06)).connect(amp);
     } else lp.connect(amp);
     amp.connect(out);
   }
