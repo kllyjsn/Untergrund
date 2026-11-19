@@ -20,6 +20,19 @@ const state = freshSong('hardtechno', 42);
 state.artist = { ...state.artist, style: 'hardtechno' };
 assert.equal(sanitize(state).artist.style, 'hardtechno');
 assert(state.patterns[6].at?.some((take) => take.steps.perc));
+for (const seed of [11, 42, 1234, 777]) {
+  const song = freshSong('hardtechno', seed);
+  song.artist = { style: 'hardtechno', seed };
+  assert.deepEqual(sanitize(JSON.parse(JSON.stringify(song))).patterns.map((p) => p.at), song.patterns.map((p) => p.at));
+}
+for (const style of ['hardtechno', 'minimal', 'drill', null]) {
+  const song = structuredClone(state);
+  if (style) song.artist.style = style;
+  else delete song.artist;
+  song.patterns[0].steps.perc = [0.82, 0.88, 0.94, 2, NaN, -1, 3, Infinity];
+  const expected = style === 'hardtechno' ? [0.82, 0.88, 0.94, 2, 0, 0, 2, 0] : [1, 1, 1, 2, 0, 1, 1, 1];
+  assert.deepEqual(sanitize(song).patterns[0].steps.perc.slice(0, 8), expected);
+}
 assert(MASTER_TONE.hardtechno[2] > 0 && MASTER_TONE.hardtechno[3] < 0);
 const plans = [11, 42, 1234, 777].map((seed) => songPlan('hardtechno', seed).chain);
 assert.equal(new Set(plans).size, plans.length);
@@ -111,4 +124,4 @@ for (const chainOn of [false, true]) {
   new Sequencer(e, s).tick(0, 0.1);
   assert(hits > 0);
 }
-console.log('hardtechno: 64 ensembles, dark saw hooks, gated filters/envelopes, breakdown ramps, muted rolls and empty artist passed');
+console.log('hardtechno: 64 ensembles, dark saw hooks, gated filters/envelopes, breakdown ramps, muted rolls, standalone loops, optional hold API, fractional reloads and empty artist passed');

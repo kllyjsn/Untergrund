@@ -1343,7 +1343,7 @@ export function sanitize(s) {
   out.orchMute = Object.fromEntries(SECTIONS.map((k) => [k, !!s.orchMute?.[k]]));
   const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, Number.isFinite(+v) ? +v : lo));
   const cleanTrack = (id, arr) => pad16(arr).map((v, j) => {
-    if (id !== 'acid') return v === 2 ? 2 : v ? 1 : 0;
+    if (id !== 'acid') return s.artist?.style === 'hardtechno' ? cl(v, 0, 2) : v === 2 ? 2 : v ? 1 : 0;
     const step = arr[j] || {};
     return {
       on: !!step.on,
