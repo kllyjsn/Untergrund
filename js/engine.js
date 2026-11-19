@@ -28,6 +28,7 @@ const HARP_PLUCK = {
   47: [34.82, 0.026], 53: [40.91, 0.030], 60: [47.98, 0], 64: [51.94, 0.044], 71: [58.86, 0.028],
   77: [64.99, 0.006], 81: [68.91, 0], 84: [71.89, 0.002], 91: [78.95, 0.016],
 };
+const WIND_HEADROOM_DB = 0.25;
 // Wind takes: cents from the file's pitch, lead-in seconds to skip, gain trim in dB.
 const WIND_HOOK = {
   oboe: {
@@ -2000,7 +2001,7 @@ export class Engine {
     const air = hash(step, m + 29), tongue = hash(step, m + 71), touch = Math.min(1, v);
     const out = this.trimOut(`hook-${voice}`, 1, this.hookBus || this.windDuck, -4, 500);
     const eq = this.bodyFor(this.bodyFor(out, presence), [780, 1.2, -2.5]);
-    return this.playBuf(buf, t, gain * touch * dbGain(trim + (air - 0.5) * 1.2), eq,
+    return this.playBuf(buf, t, gain * touch * dbGain(trim + (air - 0.5) * 1.2 - WIND_HEADROOM_DB), eq,
       2 ** ((m - pitch - cents / 100) / 12), Math.max(0.06, dur * 0.92), {
         lp: 3850 + 2100 * touch + 650 * (air - 0.5), offset: offset + tongue * 0.012,
         fade: (strong ? 0.007 : 0.012) + 0.009 * (1 - tongue),
