@@ -2260,7 +2260,7 @@ export class Engine {
       const build = scene === 5, brk = scene === 4 || build;
       const lift = build ? at : 0, early = scene === 0 || scene === 1;
       return { kick: brk ? 0.7 + 0.3 * lift : 1, acid: brk ? 0.7 + 0.3 * lift : 1,
-        ch: brk ? 0.8 + 0.2 * lift : 1, oh: brk ? 0.8 + 0.2 * lift : 1,
+        ch: brk ? 0.8 + 0.2 * lift : early ? 0.75 : 1, oh: brk ? 0.8 + 0.2 * lift : early ? 0.8 : 1,
         perc: brk ? 0.65 + 0.35 * lift : early ? 0.7 : 1, clap: brk ? 0.65 + 0.35 * lift : 1,
         snare: brk ? 0.65 + 0.35 * lift : 1, ride: brk ? 0.7 + 0.3 * lift : 1,
         stab: scene === 2 ? 0.45 + 0.55 * Math.min(1, at * 4) : 1, vox: 1,

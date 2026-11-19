@@ -333,16 +333,18 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     master.duck = 0.8; master.revLevel = 0.8; master.dlyTime = 1; master.dlyFb = 0.38;
     swing = twoStep ? 0.28 : 0.14;
   } else if (style === 'hardtechno') {
+    const color = ((seed >>> 0) ^ (seed >>> 2)) & 3;
+    const bass = [[2, 6, 10, 14], [2, 3, 6, 10, 11, 14], [2, 6, 7, 10, 14, 15], [2, 3, 6, 7, 10, 14]][color];
     S.kick = range(STEPS, (i) => (i % 4 === 0 ? 2 : 0));
     S.oh = offbeatOH;
     S.ch = range(STEPS, (i) => (i % 2 ? 1 : 0));
     S.clap = pad16([0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]);
-    S.perc = pad16(euclid(5, 16, Math.floor(r() * 16)));
+    S.perc = pad16(euclid([3, 5, 7, 5][color], 16, Math.floor(r() * 16)));
     S.stab = pad16(pick(r, [[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1], [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]]));
-    S.acid = range(STEPS, (i) => (i % 4 === 2 || i % 4 === 3 ? { on: true, n: 0, a: i % 4 === 2, s: false } : emptyAcidStep()));
-    Object.assign(params.kick, { tune: 47, decay: 0.42, drive: 0.9, punch: 0.8, click: 0.3, rumble: 0.68 });
-    Object.assign(params.perc, { tune: 230, metal: 0.35, noise: 0.25, bend: 0.35, level: 0.3 });
-    Object.assign(params.acid, { wave: 0.55, cutoff: 240, reso: 2.5, envmod: 0.25, decay: 0.18, drive: 0.75 });
+    S.acid = range(STEPS, (i) => (bass.includes(i) ? { on: true, n: 0, a: i % 4 === 2, s: false } : emptyAcidStep()));
+    Object.assign(params.kick, { tune: [47, 49, 46, 51][color], decay: [0.42, 0.37, 0.48, 0.4][color], drive: 0.9, punch: 0.8, click: 0.3, rumble: 0.68 });
+    Object.assign(params.perc, { tune: [210, 260, 230, 285][color], metal: [0.3, 0.42, 0.36, 0.48][color], noise: 0.25, bend: 0.35, level: 0.3 });
+    Object.assign(params.acid, { wave: 0.55, cutoff: [210, 280, 240, 190][color], reso: 2.5, envmod: 0.25, decay: 0.18, drive: 0.75 });
     Object.assign(params.stab, { cutoff: 850, reso: 0.8, detune: 9, rev: 0.22, dly: 0.12 });
     Object.assign(params.clap, { tone: 950, decay: 0.2, level: 0.45 });
     Object.assign(params.ch, { tune: 1, decay: 0.055, level: 0.4 });
@@ -1134,7 +1136,7 @@ export function songPlan(style, seed, length = 'song', bpm = midBpm(style)) {
   if (style === 'hardtechno' && length !== 'sketch') {
     const r = rng(Math.imul(seed ^ 0x45d9f3b, 0x27d4eb2d));
     const phrase = ((seed >>> 0) ^ (seed >>> 2)) & 3, outro = 4 + 4 * (phrase % 2);
-    const runs = [['A', 4 + 4 * phrase], ['B', 8], ['C', 16], ['E', pick(r, [8, 12])], ['F', pick(r, [4, 8])], ['G', 16], ['E', pick(r, [8, 12])], ['F', pick(r, [4, 8])]];
+    const runs = [['A', 4 + 4 * phrase], ['B', 8], ['C', [16, 20, 16, 12][phrase]], ['E', 8 + 4 * (phrase % 2)], ['F', pick(r, [4, 8])], ['G', 16 + 4 * ((phrase + 1) % 3)], ['E', 12 - 4 * (phrase % 2)], ['F', 4 + 4 * (phrase % 2)]];
     const used = runs.reduce((n, [, len]) => n + len, 0);
     runs.push(['G', 120 - outro - used], ['B', 8], ['A', outro]);
     return { chain: runs.map(([id, len]) => id.repeat(len)).join(''), sections: null };

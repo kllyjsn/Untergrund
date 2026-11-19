@@ -44,6 +44,17 @@ for (const chain of plans) {
 assert.equal(songPlan('hardtechno', 42).chain, plans[1]);
 assert.equal(new Set(plans.map((chain) => chain.match(/^A+/)[0].length)).size, 4);
 assert.notEqual(plans[0].match(/A+$/)[0].length, plans[1].match(/A+$/)[0].length);
+const middle = plans.slice(0, 2).map((chain) => [...chain.matchAll(/([EFG])\1*/g)].map((run) => ({ scene: run[1], at: run.index, bars: run[0].length })));
+for (const scene of ['E', 'F', 'G']) assert.equal(new Set(plans.map((chain) => [...chain.matchAll(new RegExp(scene + '+', 'g'))][1].index)).size, 4);
+for (const scene of ['E', 'F', 'G']) {
+  const [a, b] = middle.map((runs) => runs.filter((run) => run.scene === scene)[1]);
+  assert.notEqual(a.at, b.at, `second ${scene} starts differ`);
+  if (scene !== 'G') assert.notEqual(a.bars, b.bars, `second ${scene} lengths differ`);
+}
+const identities = [11, 42, 1234, 777].map((seed) => generate('hardtechno', seed));
+assert.equal(new Set(identities.map((g) => g.params.kick.tune)).size, 4);
+assert.equal(new Set(identities.map((g) => g.params.perc.tune)).size, 4);
+assert.notDeepEqual(identities[0].pattern.steps.acid, identities[1].pattern.steps.acid);
 for (let seed = 1; seed <= 64; seed++) {
   const chain = songPlan('hardtechno', seed).chain;
   assert.equal(chain.length, 128);
@@ -132,6 +143,8 @@ let clock = 0.05;
 for (let abs = 0; abs < 80 * 16; abs++) { sequence.tick(abs, clock); clock += smooth.stepDur; }
 assert.equal(smooth.secGain.gain.events.filter((ev) => ev.k === 's').length, 1);
 assert.equal(smooth.ch.kick.level.gain.events.filter((ev) => ev.k === 's').length, 1);
+assert(smooth.ch.ch.level.gain.events.some((ev) => ev.k === 's' && ev.v === smooth.state.params.ch.level * 0.75));
+assert(smooth.ch.oh.level.gain.events.some((ev) => ev.k === 's' && ev.v === smooth.state.params.oh.level * 0.8));
 assert(smooth.secGain.gain.events.some((ev) => ev.k === 'l' && Math.abs(ev.v - 10 ** (-3.25 / 20)) < 1e-9));
 assert(smooth.tonePres.gain.events.some((ev) => ev.v === -2.5));
 assert(smooth.tonePres.gain.events.some((ev) => ev.k === 'l' && ev.v === MASTER_TONE.hardtechno[2]));
