@@ -1,4 +1,5 @@
 import { pocketOf } from './groove.js';
+import { KIT_BACKBEAT } from './params.js';
 // Recorded acoustic kit and upright bass for the live-kit genres (CC0, see samples/live/LICENSE.md).
 // Loads lazily; until the buffers arrive the engine keeps using the synthesized live voices.
 export const LIVE_KIT = {
@@ -78,6 +79,7 @@ const BASE = new URL('../samples/live/', import.meta.url);
 const SAMPLES_REV = 4;
 const sampleUrl = (file) => new URL(`${file}.flac?v=${SAMPLES_REV}`, BASE);
 let buffers = null, loading = null, extra = null, extraLoading = null;
+let snare = null, snareLoading = null;
 const band = {}, bandLoading = {}, names = new WeakMap();
 
 export const bandKit = (name) => band[name] || null;
@@ -118,21 +120,36 @@ export const BAND_LAYER = {
 const LAYER_SETS = { vc: ['cello'], vla: ['cello', 'str'], vln1: ['str'], pno: ['pianoext', 'piano', 'pianoextsoft', 'pianosoft'] };
 const layerSets = (style) => [...new Set(Object.values(BAND_LAYER[style] || {}).flatMap((x) => x.parts.flatMap((p) => LAYER_SETS[p])))];
 export function liveSets(st) {
-  const out = Math.round(st?.master?.kit || 0) >= 1 ? ['kit'] : [];
-  if (out.length && pocketOf(st.master)?.band) out.push('kitx');
+  const mode = Math.round(st?.master?.kit || 0), fullKit = mode === 1 || mode === 2;
+  const out = fullKit ? ['kit'] : mode === KIT_BACKBEAT ? ['snare'] : [];
+  if (fullKit && pocketOf(st.master)?.band) out.push('kitx');
   if (Math.round(st?.params?.acid?.voice || 0) === 5) out.push('ebass');
   const name = STAB_BAND[Math.round(st?.params?.stab?.voice || 0)];
   if (name) out.push(name, ...(SOFT_LAYER[name] ? [SOFT_LAYER[name]] : []));
   // Country's lead is a Telecaster whatever plays the chords.
   if (pocketOf(st.master)?.walk && name !== 'gtr') out.push('gtr', 'gtrsoft');
-  if (out.length && pocketOf(st.master)?.band) out.push(...layerSets(st.artist?.style));
+  if (fullKit && pocketOf(st.master)?.band) out.push(...layerSets(st.artist?.style));
   return [...new Set(out)];
 }
 // A song's recordings plus their alternate takes and mutes: what an offline render waits for, so exports get every take.
 export const withTakes = (names) => [...new Set(names.flatMap((n) => [n, TAKES[n], MUTE_LAYER[n], TAKES[MUTE_LAYER[n]]].filter(Boolean)))];
-export const liveSet = (name) => (name === 'kit' ? buffers : name === 'kitx' ? extra : bandKit(name));
+export const liveSet = (name) => (name === 'kit' ? buffers : name === 'kitx' ? extra : name === 'snare' ? snare || buffers : bandKit(name));
 export const setsReady = (names) => names.every((n) => liveSet(n));
-export const loadSets = (names) => Promise.all(names.map((n) => (n === 'kit' ? loadLiveKit() : n === 'kitx' ? loadKitExtra() : loadBand(n))));
+export const loadSets = (names) => Promise.all(names.map((n) => (n === 'kit' ? loadLiveKit() : n === 'kitx' ? loadKitExtra() : n === 'snare' ? loadSnare() : loadBand(n))));
+
+export function loadSnare() {
+  if (snare || buffers) return Promise.resolve(snare || buffers);
+  if (snareLoading) return snareLoading;
+  if (typeof fetch !== 'function' || typeof OfflineAudioContext === 'undefined') return Promise.resolve(null);
+  const dec = new OfflineAudioContext(1, 1, 44100);
+  snareLoading = Promise.all(LIVE_KIT.snare.map(async (name) => {
+    const res = await fetch(sampleUrl(name));
+    if (!res.ok) throw new Error(`${name}: HTTP ${res.status}`);
+    return [name, await dec.decodeAudioData(await res.arrayBuffer())];
+  })).then((entries) => (snare = Object.fromEntries(entries)))
+    .catch((err) => { console.warn('snare samples unavailable, using synth voice', err); return null; });
+  return snareLoading;
+}
 
 export function loadKitExtra() {
   if (extra) return Promise.resolve(extra);

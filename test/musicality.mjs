@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { generate, arrangement, applySongPlan, sanitize, defaultState, freshSong, STYLES, MAJOR_STYLES, MUSICIAN_PRINCIPLES } from '../js/state.js';
-import { SCALES } from '../js/params.js';
+import { SCALES, KIT_BACKBEAT } from '../js/params.js';
 import { Sequencer } from '../js/engine.js';
 import { capture, Recorder } from '../js/midi.js';
 import { patternAt } from '../js/scope.js';
@@ -135,8 +135,12 @@ console.log('Drill verse and turnaround passed');
 
 {
   const song = freshSong('drill', 503);
-  assert.equal(song.params.snare.level, 0.66);
-  assert.equal(sanitize(JSON.parse(JSON.stringify(song))).params.snare.level, 0.66);
+  const saved = sanitize(JSON.parse(JSON.stringify(song)));
+  assert.equal(saved.master.kit, KIT_BACKBEAT);
+  assert.equal(saved.params.snare.level, 0.96);
+  assert.equal(saved.params.clap.level, 0.23);
+  const machine = { ...saved, master: { ...saved.master, kit: 0 } };
+  assert.deepEqual(capture(saved).notes, capture(machine).notes, 'the new snare does not change the performance');
 }
 
 {

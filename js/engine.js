@@ -1,8 +1,8 @@
-import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES } from './params.js';
+import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES, KIT_BACKBEAT } from './params.js';
 import { getSample } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
-import { liveSet, loadLiveKit, loadKitExtra, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
+import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel } from './groove.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ } from './lead.js';
@@ -755,6 +755,11 @@ export class Engine {
 
   trigger(id, t, v) {
     const kitMode = Math.round(this.state.master.kit || 0);
+    if (kitMode === KIT_BACKBEAT && id === 'snare') {
+      const kit = this.rec('snare');
+      if (!kit) loadSnare();
+      else if (this.sampledHit(kit, id, t, v, 2.5)) return;
+    }
     // HYBRID: drum-machine kick and clap under recorded cymbals, the way house records sample their hats
     if (kitMode === 2 && (id === 'ch' || id === 'oh' || id === 'ride')) {
       const kit = this.rec('kit');
@@ -907,6 +912,7 @@ export class Engine {
     if (ref.click != null) shelves.push([3000, clamp((p.click - ref.click) * 22, -12, 15)]);
     // A shorter snare DECAY damps the shell ring (485-885 Hz) the way a towel or gel on the head does.
     const peaks = id === 'snare' && p.decay < ref.decay ? [[550, 1.5, -10 * (1 - p.decay / ref.decay)], [880, 2, -8 * (1 - p.decay / ref.decay)]] : [];
+    if (id === 'snare' && Math.round(this.state.master.kit) === KIT_BACKBEAT) peaks.push([650, 1.1, -8], [1800, 0.8, 5.5]);
     const drive = ref.drive != null ? Math.max(0, p.drive - ref.drive) * 1.2 : 0;
     const punch = ref.punch != null ? (p.punch - ref.punch) * 1.4 : 0;
     return { rate, dur, fx: { shelves, peaks, drive, punch } };
@@ -928,7 +934,7 @@ export class Engine {
   }
 
 
-  // `lift` brings the softly recorded cymbals up to sit over a drum machine in HYBRID.
+  // `lift` brings up softly recorded parts in a mix with machine drums.
   sampledHit(kit, id, t, v, lift = 1) {
     const all = (this.rr = (this.rr || 0) + 1), rrs = (this.rrs ||= {});
     const drift = 1 + (hash(all, 7) - 0.5) * 0.012;
@@ -945,7 +951,7 @@ export class Engine {
       // Each velocity band alternates two adjacent recorded layers (the kit has no snare round robins); ghosts get the lightest stroke.
       const pair = v > 0.85 ? [34, 33] : v > 0.65 ? [24, 23] : v > 0.45 ? [14, 13] : v > 0.25 ? [6, 5] : [2, 5];
       const name = `snare_v${pair[take(`snare${pair[0]}`, 2) - 1]}`;
-      this.liveHit(kit, name, 'snare', t, 0.85 * v ** 1.4, drift);
+      this.liveHit(kit, name, 'snare', t, 0.85 * lift * v ** 1.4, drift);
       return true;
     }
     if (id === 'ch') {
