@@ -478,6 +478,7 @@ export class Engine {
     this.tonePres.Q.value = this.hardTechno ? 0.8 : 0.7;
     const [low, mud, pres, air, width] = MASTER_TONE[this.state.artist?.style] || [0, 0, 0, 0, 0];
     this.setTo(this.toneLow.gain, low, true); this.setTo(this.toneMud.gain, mud, true);
+    if (this.hardLevels) this.tonePres.gain.cancelScheduledValues(this.at || this.ctx.currentTime);
     this.setTo(this.tonePres.gain, pres, true); this.setTo(this.toneAir.gain, air, true);
     this.setTo(this.widthL.gain, width, true); this.setTo(this.widthR.gain, -width, true);
   }
