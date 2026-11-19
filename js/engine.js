@@ -1310,7 +1310,9 @@ export class Engine {
     env.gain.linearRampToValueAtTime(v * (2.4 + 1.2 * soft), t + 0.001);
     env.gain.exponentialRampToValueAtTime(v * 1.1, t + 0.05);
     env.gain.exponentialRampToValueAtTime(EPS, t + p.decay);
-    bp.connect(hp).connect(env).connect(out);
+    // A smooth style doubles the ride's highpass to 24 dB/oct, so the metallic partials below it don't ring at 3 kHz.
+    if (this.smoothOn) bp.connect(hp).connect(this.filter('highpass', p.tone * (0.85 + 0.15 * soft), 0.7)).connect(env).connect(out);
+    else bp.connect(hp).connect(env).connect(out);
     for (const o of [...oscs, ...oscs2]) o.stop(t + p.decay + 0.05);
     this.retire(wash, env);
   }
@@ -1482,19 +1484,22 @@ export class Engine {
     amp.gain.linearRampToValueAtTime(peak, t + atk);
     amp.gain.setTargetAtTime(0, t + atk + hold, Math.max(0.1, p.decay * 0.6));
     const pans = this.sidePans([-0.7, 0, 0.7], lp);
+    // A smooth style's outer voices drift slowly against the centre, as a string ensemble's chorus does, so no partial holds one exact pitch.
+    const drift = this.smoothOn ? [0.31, 0.47].map((hz) => { const l = c.createOscillator(), g = this.gain(7); l.frequency.value = hz; l.connect(g); this.startSource(l, t); l.stop(end); return g; }) : null;
     iv.forEach((n) => {
       [-1, 0, 1].forEach((side) => {
         const o = c.createOscillator(); o.type = 'sawtooth';
         o.frequency.value = midiHz(root + n); o.detune.value = side * (4 + p.detune);
+        if (drift && side) drift[side < 0 ? 0 : 1].connect(o.detune);
         o.connect(pans[side + 1]); this.startSource(o, t); o.stop(end);
       });
     });
-    // A smooth style's pad rolls its saw partials off at 24 dB/oct, so no harmonic rings at 2-3 kHz, and takes its air from a breath of noise.
+    // A smooth style's pad rolls its saw partials off at 24 dB/oct, so no harmonic rings at 2-3 kHz, and takes its air from a breath of noise between 5 and 9 kHz.
     if (this.smoothOn) {
-      const lp2 = this.filter('lowpass', p.cutoff * 1.3, 0.5), hp = this.filter('highpass', 5000, 0.5);
+      const lp2 = this.filter('lowpass', p.cutoff * 1.3, 0.5), hp = this.filter('highpass', 5000, 0.5), airTop = this.filter('lowpass', 9000, 0.5);
       lp.connect(lp2).connect(amp);
       const air = this.noiseSrc(t, end - t); air.loop = true;
-      air.connect(hp).connect(this.gain(0.06)).connect(amp);
+      air.connect(hp).connect(airTop).connect(this.gain(0.06)).connect(amp);
     } else lp.connect(amp);
     amp.connect(out);
   }
@@ -2293,7 +2298,8 @@ export class Engine {
     amp.gain.setTargetAtTime(vel * 0.55, t + 0.02, 0.12);
     amp.gain.setTargetAtTime(0, t + len, 0.03);
     const subLevel = this.gain(0.72);
-    tri.connect(lp); lp.connect(grit).connect(amp);
+    // A smooth style rolls off the grit's new harmonics above 1.8 kHz at 24 dB/oct, so the bass keeps its definition without tones up among the chords.
+    if (this.smoothOn) { tri.connect(lp); lp.connect(grit).connect(this.filter('lowpass', 1800, 0.7)).connect(this.filter('lowpass', 1800, 0.7)).connect(amp); } else { tri.connect(lp); lp.connect(grit).connect(amp); }
     sub.connect(subLevel).connect(amp);
     amp.connect(this.ch.acid.input);
     const oscs = [tri, sub];
