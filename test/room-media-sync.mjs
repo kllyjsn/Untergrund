@@ -80,7 +80,7 @@ function transport(mediaRoute, room = true, roomItem = item) {
   const noop = () => {};
   const s = { mediaRoute, roomMediaSync: createRoomMediaSync(), roomMediaTime, roomMediaLead,
     roomTransportPosition, syncAudioClock, transportResync, BG_LEAD: 1.5, ROOM_LEAD: .42,
-    playing: true, songOver: false, roomPlayback: room, roomEditor: false, roomResume: null,
+    playing: true, songOver: false, roomPlayback: room, roomEditor: false, roomResume: null, jamControlVersion: 0, jamControls: new Map(),
     roomJoinTimer: 0, handoff: null, jamQueue: [], trackingReplay: false, playbackSources: new WeakMap(), state: { bpm: 120, current: 0 },
     ctx: { currentTime: 10 }, Date: { now: () => 1000000 }, nextTime: 0, abs: 0,
     transportOrigin: 0, clockOffset: null, uiQueue: [],
@@ -181,7 +181,7 @@ for (const action of ['stop', 'replaceState', 'start']) for (const mode of ['pri
   }
 }
 console.log('Room prime cancellation PASS: real Engine queue discard prevents future starts on stop, set replacement and restart, including jam rooms; desktop and expired-prime paths unchanged.');
-const jamSource = main.slice(main.indexOf('function refreshJamPrime('), main.indexOf('\n// GENERATE while'));
+const jamSource = main.slice(main.indexOf('function deferJamControls('), main.indexOf('\n// GENERATE while'));
 for (const mediaRoute of [null, route]) for (const kind of ['snapshot', 'late', 'future', 'beyond', 'expired']) {
   const { s, hits, vocals } = transport(mediaRoute, true, { ...item, state: { patterns: [{}] } });
   const noop = () => {}, tasks = [], sources = hits.map(h => ({ ...h, layer: 'old', stopped: Infinity }));
@@ -226,6 +226,39 @@ for (const mediaRoute of [null, route]) for (const kind of ['snapshot', 'late', 
   }
 }
 console.log('Room jam refill PASS: snapshot and live/late layers replace stale primed notes at a safe prefix/bar, preserve the original horizon and stop tracking; desktop and beyond-prime queues unchanged.');
+const deferSource = main.slice(main.indexOf('function deferJamControls('), main.indexOf('\nfunction refreshJamPrime('));
+for (const kind of ['normal', 'empty', 'stop', 'restart', 'song', 'owner', 'replacement', 'error']) {
+  const state = { params: { kick: { level: .9 }, bass: { level: .8 } } }, timers = [], calls = [];
+  const engine = { state, applyParam(track, key) {
+    if (kind === 'error') throw Error('control failure');
+    calls.push([track, key, this.state.params[track][key]]);
+  } };
+  const s = { engine, state, ctx: { currentTime: 10 }, playing: true, roomPlayback: true,
+    jamControlVersion: 0, jamControls: new Map(), setTimeout: fn => timers.push(fn) };
+  const defer = runInNewContext(`${deferSource}\ndeferJamControls`, s);
+  const layer = kind === 'empty' ? {} : { params: { kick: { level: 0 } } };
+  defer(12, 'drums', layer);
+  timers.shift()();
+  assert.equal(calls.length, 0, 'an early timer must wait for the audio boundary');
+  if (layer.params) layer.params.kick.level = .7;
+  state.params.bass.level = .4;
+  if (kind === 'stop') s.playing = false;
+  if (kind === 'restart') s.jamControlVersion++;
+  if (kind === 'song') s.state = { ...state };
+  if (kind === 'owner') s.engine = { ...engine };
+  if (kind === 'replacement') defer(13, 'drums', { params: { kick: { level: .5 } } });
+  s.ctx.currentTime = 12;
+  if (kind === 'error') assert.throws(() => timers.shift()(), /control failure/);
+  else timers.shift()();
+  assert.equal(engine.state, state, 'temporary control snapshots never replace the current engine state');
+  assert.deepEqual(calls, kind === 'normal' ? [['kick', 'level', 0]] : [], 'only the intended part and snapshot apply at the boundary');
+  if (kind === 'replacement') {
+    s.ctx.currentTime = 13;
+    timers.shift()();
+    assert.deepEqual(calls, [['kick', 'level', .5]], 'a newer edit supersedes pending controls for its part');
+  }
+}
+console.log('Room jam control timing PASS: audio-clock boundary, isolated snapshots, empty/error cleanup and stop/restart/replacement invalidation.');
 const broadcast = main.slice(main.indexOf('function startRoomBroadcast('), main.indexOf('\nfunction showClub('));
 for (const mediaRoute of [null, route]) {
   let delay;
@@ -238,3 +271,4 @@ for (const mediaRoute of [null, route]) {
   assert.equal(delay, mediaRoute ? 900 : 940, 'future DJ starts retain the original margin plus route lead');
 }
 console.log('Room media sync PASS: desktop bit identity, 40ms route-only lead, one cold-only 4s queue, bounded initial duplicate window, wake/reconnect never re-prime.');
+await import('./room-jam-controls.mjs');
