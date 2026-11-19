@@ -5,6 +5,8 @@ import { envelope, onsets, BPM, PERIOD_MS } from './club-sync-audio.mjs';
 const LEADS_MS = [215, 295, 375];
 
 export async function measureDJEdits(host, listener, origin, { until, pause }) {
+  // Closing Club before the DJ starts can cancel pending playback.
+  await until(() => host.run('__clubAudio.samples.some(r => r[1] > .001)'), 'DJ has rendered a kick before closing Club');
   await host.click('.club-close');
   await host.click('.studio-toggle');
   const period = PERIOD_MS / 16;
