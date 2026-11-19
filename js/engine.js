@@ -2267,7 +2267,7 @@ export class Engine {
     };
     const metal = voice === 'metalstrike', soft = voice === 'softresonator';
     const out = this.technoHookOut(voice);
-    const lp = this.filter('lowpass', metal ? 3500 : soft ? 1350 : 3650, 0.6);
+    const lp = this.filter('lowpass', metal ? 3500 : soft ? 4400 : 3650, 0.6);
     lp.connect(amp).connect(out);
     if (metal) {
       // The strike has inharmonic steel sidebands; the settled note still has a clear pitch.
@@ -2286,13 +2286,17 @@ export class Engine {
       osc('triangle', f, 0.43, lp);
       body.connect(lp);
     } else if (soft) {
-      // A rounded resonator blooms behind the drums, with no bright pick or pulse edge.
-      osc('sine', f, 0.78, lp);
-      osc('sine', f * 2, 0.4, lp);
-      const upper = this.gain(0);
-      upper.gain.setValueAtTime(strong ? 0.18 : 0.12, t);
-      upper.gain.setTargetAtTime(0.045, t + 0.024, 0.055);
-      osc('sine', f * 3.01, 1, upper); upper.connect(lp);
+      // Moving upper partials leave a hollow space above the fundamental.
+      const color = hash(this.step ?? 0, 141);
+      const partials = this.filter('highpass', 2150, 0.65), drift = 1.63;
+      partials.connect(lp);
+      osc('sine', f, 0.42, lp);
+      const ring = osc('sine', f * 8, 0.74, partials);
+      ring.frequency.setValueAtTime(f * (8 - drift * (0.65 - 0.47 * color)), t);
+      ring.frequency.exponentialRampToValueAtTime(f * (8 + drift * (0.43 + 0.36 * color)), t + Math.max(0.23, len));
+      const halo = osc('sine', f * 12, 0.28, partials);
+      halo.frequency.setValueAtTime(f * (12 + drift * color), t);
+      halo.frequency.linearRampToValueAtTime(f * (12 - drift), t + Math.max(0.30, len));
     } else {
       // Two moving parallel formants make a short, voiced syllable, not another filter pluck.
       const source = this.gain(1), low = this.filter('bandpass', 650, 3.1), high = this.filter('bandpass', 2050, 3.2);
@@ -2307,12 +2311,12 @@ export class Engine {
       source.connect(low).connect(this.gain(0.9)).connect(lp);
       source.connect(high).connect(this.gain(1.82)).connect(lp);
     }
-    const attack = metal ? 0.005 : soft ? 0.038 : 0.009;
-    const peak = v * (metal ? 0.63 : soft ? 0.40 : 0.64);
+    const attack = metal ? 0.005 : soft ? 0.078 : 0.009;
+    const peak = v * (metal ? 0.63 : soft ? 0.58 : 0.64);
     amp.gain.setValueAtTime(0, t);
     amp.gain.linearRampToValueAtTime(peak, t + attack);
     amp.gain.setTargetAtTime(peak * (metal ? 0.16 : soft ? 0.62 : 0.55), t + attack, metal ? 0.036 : 0.084);
-    amp.gain.setTargetAtTime(0, t + len, soft ? 0.18 : 0.048);
+    amp.gain.setTargetAtTime(0, t + (soft ? Math.max(len, attack) : len), soft ? 0.22 : 0.048);
     for (const o of oscs) { this.startSource(o, t); o.stop(end); }
     this.retire(oscs.at(-1), amp);
   }
@@ -2326,12 +2330,15 @@ export class Engine {
       const input = this.filter('peaking', space.eq[0], space.eq[1]);
       input.gain.value = space.eq[2];
       // A sub-millisecond delay sweep spreads narrow upper harmonics more than the fundamental.
-      const diffuse = this.ctx.createDelay(0.002);
-      diffuse.delayTime.value = 0.00075;
+      const rates = [6.7, 11.3, 17.9];
+      const excursion = rates.length * space.diffusion;
+      const center = Math.max(0.00075, excursion);
+      const diffuse = this.ctx.createDelay(Math.max(0.002, center + excursion));
+      diffuse.delayTime.value = center;
       const depth = this.gain(space.diffusion);
       if (!this.technoHookMotion) {
         this.technoHookMotion = this.gain(1);
-        for (const rate of [6.7, 11.3, 17.9]) {
+        for (const rate of rates) {
           const lfo = this.ctx.createOscillator();
           lfo.frequency.value = rate;
           lfo.connect(this.technoHookMotion);
@@ -2444,6 +2451,11 @@ export class Engine {
     }
     const osc = (type, freq, det = 0, g = 1, dst = null) => {
       const o = c.createOscillator(), mul = freq / f; o.type = type; o.detune.value = det + drift;
+      if (L.bend) {
+        o.detune.setValueAtTime(det + drift + (from ? 0 : L.bend * vn), t);
+        o.detune.linearRampToValueAtTime(det + drift, t + 0.032);
+        o.detune.linearRampToValueAtTime(det + drift - L.bend * 0.35, t + Math.max(0.07, len));
+      }
       if (from) { o.frequency.setValueAtTime(from * mul, t); o.frequency.exponentialRampToValueAtTime(freq, t + glide); } else o.frequency.value = freq;
       if (vibDepth) vibDepth.connect(o.detune);
       const og = this.gain(g); o.connect(og).connect(dst); oscs.push(o); return o;

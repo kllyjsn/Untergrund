@@ -6,6 +6,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { STYLES, defaultState, generate, applyOverrides, arrangement, songChain } from '../js/state.js';
 import { makeIR } from '../js/dsp.js';
+import { TECHNO_HOOK_SPACE } from '../js/lead.js';
 import { VOCAL_FX } from '../js/sing.js';
 
 const BASELINE = new URL('./audio-nodes-baseline.json', import.meta.url);
@@ -107,12 +108,29 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
   {
     const ctx = fakeCtx(), engine = new Engine(ctx, defaultState());
+    const delays = [], createDelay = ctx.createDelay, createOscillator = ctx.createOscillator;
+    let oscillators = 0;
+    ctx.createDelay = max => {
+      const delay = createDelay();
+      delays.push({ delay, max });
+      return delay;
+    };
+    ctx.createOscillator = () => { oscillators++; return createOscillator(); };
     const peak = engine.technoHookOut('ravestack'), motion = engine.technoHookMotion;
     const h = counts.n;
     assert.equal(engine.technoHookOut('ravestack'), peak);
     assert.equal(counts.n, h, 'lead diffusion is reused per voice, not allocated per note');
     assert.notEqual(engine.technoHookOut('robotformant'), peak);
     assert.equal(engine.technoHookMotion, motion, 'lead diffusion shares one modulation source');
+    engine.hookBus = ctx.createGain();
+    for (const [voice, { diffusion }] of Object.entries(TECHNO_HOOK_SPACE)) {
+      delays.length = 0;
+      engine.technoHookOut(voice);
+      const { delay, max } = delays[0], center = delay.delayTime.value;
+      const excursion = oscillators * diffusion;
+      assert(oscillators > 0 && center >= excursion && center + excursion <= max,
+        `${voice} delay sweep must stay inside its bounds`);
+    }
   }
 
   for (const [voice, wide] of [[8, true], [9, false]]) {
