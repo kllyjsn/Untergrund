@@ -67,6 +67,13 @@ for (const seed of [7, 42, 211, 1234]) {
     assert(fill.steps.snare[15] && fill.steps.ch[15], 'the pocket continues until the downbeat');
     assert.deepEqual(patternAt(saves.patterns[3], at).steps, fill.steps, 'written fills survive save and load');
   }
+  const verseSteps = song.patterns[2].steps;
+  verseSteps.perc[5] = 0;
+  verseSteps.acid[0].on = false;
+  for (const at of transitions) {
+    assert.deepEqual(patternAt(song.patterns[3], at).steps, patternAt(saves.patterns[3], at).steps,
+      'editing verse percussion or bass does not change the written fill');
+  }
   song.patterns = original;
   song.locks.kick = true;
   const kick = original[2].steps.kick;

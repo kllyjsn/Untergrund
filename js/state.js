@@ -1126,11 +1126,12 @@ function drillVerses(pats, { chain, sections }, keep) {
   for (let i = 1; i < spans.length; i++) {
     const { k, at } = spans[i], bar = at - 1;
     if (k !== 'c' || spans[i - 1].k !== 'v' || chain[bar] !== 'D' || chain[at] !== 'G') continue;
-    const acid = verse.steps.acid.map((note, step) => step === 11 || step === 12 ? emptyAcidStep() :
+    const steps = clone(verse.steps);
+    const acid = steps.acid.map((note, step) => step === 11 || step === 12 ? emptyAcidStep() :
       step === 14 ? { ...emptyAcidStep(), on: true } : note);
     const base = patternAt(fill, bar);
     setTake(fill, bar, edit(base, {
-      ...verse.steps, acid,
+      ...steps, acid,
       kick: pad16([2, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1]),
       ch: pad16([1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1]),
       stab: pad16([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
