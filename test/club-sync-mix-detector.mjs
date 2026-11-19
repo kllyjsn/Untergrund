@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mixFixture, realMixFixture, popHandoffTargetAt, syntheticHandoffTargetAt, mixBoundaries, mixGraphEdges, channelEnvelope, analyzeMix, matchEvents, realignment, beatRealignment, phraseOnsets, boundaryMetric, mixFailures, underrunEvidence, kickAttribution } from './club-sync-mix.mjs';
+import { mixFixture, realMixFixture, popHandoffTargetAt, syntheticHandoffTargetAt, mixBoundaries, mixGraphEdges, channelEnvelope, analyzeMix, matchEvents, realignment, beatRealignment, realignmentEvidence, phraseOnsets, boundaryMetric, mixFailures, underrunEvidence, kickAttribution } from './club-sync-mix.mjs';
 import { singRequest } from '../js/sing.js';
 import { sanitize } from '../js/state.js';
 import { postResumeEnvelope, onsets } from './club-sync-audio.mjs';
@@ -168,6 +168,30 @@ assert.equal(unexpected.timeToRealignMs, 2000);
 assert.equal(beatRealignment({...silent, hostOnsets:hs}, 900, {bpm:120, origin:0, expectedKicks:[]}).timeToRealignMs, null);
 assert.throws(() => beatRealignment(silent, 0, {bpm:0, origin:0, expectedKicks:[]}), /Finite recovery grid/);
 console.log(`Beat recovery PASS: sparse zero-offset ${sparse.attackConfirmationMs.toFixed(1)}→${sparse.timeToRealignMs.toFixed(1)}ms / ${budget.toFixed(1)}ms; misalignment, 2s origin delay, dropped kicks, missing kick after rest and silence still fail.`);
+const emptyRecovery = realignmentEvidence({...silent, hostOnsets:hs}, 900);
+assert.deepEqual(emptyRecovery, {firstAlignedMs:null, confirmationMs:null, confirmationSpanMs:null, confirmingPairs:[], hostGapsMs:[]});
+const alignedRecovery = realignmentEvidence({...matchEvents(hs, hs.map(t => t + 24), 900, 2600), hostOnsets:hs}, 900);
+assert.equal(alignedRecovery.firstAlignedMs, 124);
+assert.equal(alignedRecovery.confirmationMs, 1124);
+assert.equal(alignedRecovery.confirmationSpanMs, 1000);
+assert.deepEqual(alignedRecovery.hostGapsMs, [500, 500]);
+const driftHost = [1000, 1500, 2000, 2500, 3000];
+const correctedRecovery = realignmentEvidence({...matchEvents(driftHost, [1080, 1580, 2020, 2520, 3020], 900, 3100), hostOnsets:driftHost}, 900);
+assert.equal(correctedRecovery.firstAlignedMs, 1120);
+assert.equal(correctedRecovery.confirmationMs, 2120);
+assert.deepEqual(correctedRecovery.confirmingPairs.map(p => p.deltaMs), [20, 20, 20]);
+const unalignedRecovery = realignmentEvidence({...matchEvents(hs, hs.map(t => t + 80), 900, 2600), hostOnsets:hs}, 900);
+assert.equal(unalignedRecovery.firstAlignedMs, null);
+assert.equal(unalignedRecovery.confirmationMs, null);
+assert.deepEqual(unalignedRecovery.confirmingPairs, []);
+const fixtureKicks = gridKicks(s), passAt = 14350;
+const sparseRecovery = realignmentEvidence({...matchEvents(fixtureKicks, fixtureKicks, passAt, passAt + 2500), hostOnsets:fixtureKicks}, passAt);
+assert.deepEqual(fixtureKicks.filter(t => t >= passAt).slice(0, 3).map(t => Math.round(t * s.bpm / 60000)), [30, 32, 33]);
+assert.ok(sparseRecovery.firstAlignedMs < 350);
+assert.ok(sparseRecovery.confirmationMs > 3 * 60000 / s.bpm, 'the fixture rest alone exceeds the unchanged recovery budget even with perfect alignment');
+assert.ok(sparseRecovery.hostGapsMs[0] > 1.9 * 60000 / s.bpm);
+assert.ok(sparseRecovery.confirmingPairs.every(p => p.deltaMs === 0));
+console.log('Club recovery evidence PASS: first alignment, three-kick confirmation, corrected/unaligned/empty input and the synthetic fixture rest remain distinct.');
 assert.equal(matchEvents([], [], 0, 10000).median, null);
 assert.deepEqual(phraseOnsets([], .2), []);
 const signal = (shift = 0, wrong = false) => Array.from({length:6000}, (_, i) => {
@@ -226,6 +250,8 @@ const synthetic = (shift = 0, vocalShift = 0) => {
 };
 for (const shift of [-24, 0, 24]) {
   const mix = analyzeMix([synthetic(), synthetic(shift)], s, {interruptAt:15000, recoverAt:15800}, 0);
+  assert.equal(mix.timeToRealignMs, realignment(mix.phases.after.kicks, 15800));
+  assert.equal(mix.recoveryEvidence.confirmationMs, mix.timeToRealignMs);
   for (const phase of Object.values(mix.phases)) {
     assert.equal(phase.kicks.median, Math.abs(shift));
     assert.equal(phase.kicks.missing, 0); assert.equal(phase.kicks.extra, 0);

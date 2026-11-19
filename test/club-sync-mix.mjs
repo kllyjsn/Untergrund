@@ -163,6 +163,20 @@ export function beatRealignment(stats, wake, { bpm, origin, expectedKicks }) {
     attackConfirmationMs:realignment(stats, wake) };
 }
 
+export function realignmentEvidence(stats, wake) {
+  const confirmationMs = realignment(stats, wake);
+  const first = stats.pairs.find(p => Math.abs(p.delta) <= 50);
+  const end = confirmationMs === null ? -1 : stats.pairs.findIndex(p => p.listener - wake === confirmationMs);
+  const pairs = end < 2 ? [] : stats.pairs.slice(end - 2, end + 1);
+  return {
+    firstAlignedMs: first ? first.listener - wake : null,
+    confirmationMs,
+    confirmationSpanMs: pairs.length ? pairs.at(-1).listener - pairs[0].listener : null,
+    confirmingPairs: pairs.map(p => ({hostMs:p.host - wake, listenerMs:p.listener - wake, deltaMs:p.delta})),
+    hostGapsMs: pairs.slice(1).map((p, i) => p.host - pairs[i].host),
+  };
+}
+
 export function phraseOnsets(rows, threshold) {
   const out = []; let active = false, last = -Infinity;
   for (const [t, e] of rows) {
