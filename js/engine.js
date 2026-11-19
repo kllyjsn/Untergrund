@@ -516,13 +516,13 @@ export class Engine {
     if (!mode && this.smoothOn) this.smoothChords(this.smoothOn, at);
   }
 
-  // A smooth style shelves its chords by db: a cut below 400 Hz under the bass, a lift below 700 Hz and wetter sends when the bass drops out.
+  // A smooth style shelves its chords by db: a cut below 400 Hz under the bass; when it drops out, wetter sends and a 2.5 kHz dip under the raised voicing.
   smoothChords(db, at = 0) {
     this.smoothOn = db;
     if (this.stripMode) return;
-    const shelf = this.ch.stab.strip[0], t = Math.max(at, this.ctx.currentTime);
+    const [shelf, , bell] = this.ch.stab.strip, t = Math.max(at, this.ctx.currentTime);
     const { rev, dly, level } = this.ch.stab, ps = this.state.params.stab, up = db > 0 ? 10 ** (db / 20) : 1, wet = db > 0 ? 1.6 : 1;
-    for (const [prm, v] of [[shelf.frequency, db < 0 ? 400 : 120], [shelf.gain, Math.min(db, 0)], [level.gain, ps.level * up], [rev.gain, ps.rev * wet], [dly.gain, ps.dly * wet]]) {
+    for (const [prm, v] of [[shelf.frequency, db < 0 ? 400 : 120], [shelf.gain, Math.min(db, 0)], [bell.frequency, 2500], [bell.Q, 1], [bell.gain, db > 0 ? -9 : 0], [level.gain, ps.level * up], [rev.gain, ps.rev * wet], [dly.gain, ps.dly * wet]]) {
       prm.cancelScheduledValues(t);
       prm.setTargetAtTime(v, t, 0.12);
     }
@@ -2722,7 +2722,8 @@ export class Sequencer {
     }
     this.smooth = SMOOTH.has(s.artist?.style);
     // The chords make room under the bass while it plays and fill the low mids back in when it drops out.
-    const sc = !this.smooth ? 0 : !s.mutes.acid && pat.steps.acid.some((st) => st?.on) ? -12 : HELD_CHORDS.has(STAB_VOICES[s.params.stab.voice]) ? -2 : 0.5;
+    const held = HELD_CHORDS.has(STAB_VOICES[s.params.stab.voice]);
+    const sc = !this.smooth ? 0 : !s.mutes.acid && pat.steps.acid.some((st) => st?.on) ? (held ? -6 : -12) : held ? -2 : 0.5;
     if (sc !== (e.smoothOn || 0)) {
       e.smoothChords(sc, t);
       // A lifted breakdown opens on a chord so its first bar does not fall into a gap.
