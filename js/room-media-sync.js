@@ -14,6 +14,7 @@ export function roomMediaTime(time, room, mediaRoute) {
 
 export function createRoomMediaSync(now = Date.now) {
   let startup = false, pendingCold = false, joiningCold = false, jamCapable = false, joined = null, duplicateUntil = 0;
+  let priming = false, primedUntil = 0;
   const identity = item => item?.broadcastId && Number.isFinite(item.startsAt)
     ? [item.broadcastId, item.version, item.startsAt, item.by] : null;
   return {
@@ -30,7 +31,18 @@ export function createRoomMediaSync(now = Date.now) {
     horizon(normal, room, mediaRoute) {
       const prime = startup && room && mediaRoute;
       startup = false;
+      priming = Boolean(prime);
       return prime ? Math.max(normal, ROOM_MEDIA_STARTUP_HORIZON) : normal;
+    },
+    queued(until, sources = []) {
+      if (priming) primedUntil = sources.reduce((end, note) => Math.max(end, note.t), until);
+      priming = false;
+    },
+    cancel(time) {
+      const active = time < primedUntil;
+      primedUntil = 0;
+      priming = false;
+      return active;
     },
     remember(item) {
       joined = identity(item);

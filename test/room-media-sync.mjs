@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { createRoomMediaSync, roomMediaLead, roomMediaTime, ROOM_MEDIA_LEAD } from '../js/room-media-sync.js';
 import { roomTransportPosition, syncAudioClock, transportResync } from '../js/room-sync.js';
+import { Engine } from '../js/engine.js';
 
 const route = {};
 assert.equal(ROOM_MEDIA_LEAD, .04);
@@ -36,6 +37,9 @@ const score = createRoomMediaSync();
 score.begin({ ...item, state: { patterns: [{ score: 'written' }] } }, false, false, route);
 score.start(true, route);
 assert.equal(score.horizon(.42, true, route), 4, 'non-jammable scores retain the one-time cold prime');
+score.queued(4, [{ t: 4.5 }]);
+assert.equal(score.cancel(4.25), true, 'priming stays active until delayed sources beyond the last grid step start');
+assert.equal(score.cancel(4.3), false, 'cancellation consumes the primed queue');
 sync.start(true, null);
 assert.equal(sync.horizon(.42, true, null), .42);
 sync.start(false, route);
@@ -137,6 +141,45 @@ for (const bpm of [120, 240]) for (const mediaRoute of [null, route]) {
   assert.deepEqual(landed, [10 - lead], 'jam lands on its intended bar, including above 187.5 BPM');
 }
 console.log('Room jam cutoff PASS: wall-aligned at 120/240 BPM; route audio stays 40ms early; desktop cutoff unchanged.');
+const cancelSource = main.slice(main.indexOf('function cancelRoomPrime('), main.indexOf('\nfunction recordPlayback('));
+const replaceSource = main.slice(main.indexOf('function replaceState('), main.indexOf('\nfunction showPublish('));
+for (const action of ['stop', 'replaceState', 'start']) for (const mode of ['primed', 'desktop', 'jam', 'expired']) {
+  const { s, api, hits } = transport(mode === 'desktop' ? null : route, true,
+    mode === 'jam' ? { ...item, state: { patterns: [{}] } } : item);
+  const noop = () => {}, parameter = () => ({ cancelScheduledValues: noop, setTargetAtTime: noop });
+  const sources = hits.map(({ t }) => ({ t, stopped: Infinity,
+    src: { stop(time) { this.note.stopped = time; }, note: null } }));
+  for (const note of sources) note.src.note = note;
+  const engine = Object.assign(Object.create(Engine.prototype), {
+    ctx: s.ctx, queuedNotes: [...sources], editableHits: [], ducks: [],
+    acidNodes: { env: { offset: parameter() }, o1: { frequency: parameter() }, o2: { frequency: parameter() }, vca: { gain: parameter() } },
+    gatedBasses: new Map(), duck: { gain: parameter() }, rumbleDuck: { gain: parameter() }, ch: { acid: {} },
+    vocalStop: noop, acidRelease: noop, handoffCancel: noop, breakOpen: noop, riserStop: noop, setThrow: noop,
+    applyAll: noop, prepareVocal: noop, state: s.state,
+  });
+  let discarded = 0;
+  engine.discardQueuedNotes = (now) => { discarded++; Engine.prototype.discardQueuedNotes.call(engine, now); };
+  Object.assign(s, { engine, playbackStats: { end: noop }, listens: { end: noop }, listenPos: noop,
+    endTuning: noop, guardPushOffer: noop, playStopped: noop, midiClockStop: noop,
+    setPlayhead: noop, artistLive: null, renderPatterns: noop, renderHome: noop,
+    releaseMedia: noop, build: noop, persist: noop, clearTimeout: noop, timeline: { frame: noop, skip: () => 0 },
+  });
+  s.document.body.classList.remove = noop;
+  s.ctx.currentTime = mode === 'expired' ? s.nextTime + 1 : 10.1;
+  s.Date.now = () => (s.ctx.currentTime + 990) * 1000;
+  const end = runInNewContext(`${cancelSource}\n${replaceSource}\n({stop,replaceState})`, s);
+  if (action === 'start') api.start({ startsAt: s.Date.now() + 100, room: true });
+  else if (action === 'replaceState') end.replaceState({ bpm: 100 });
+  else end.stop();
+  assert.equal(discarded, mode === 'primed' ? 1 : 0, `${action}: no new discard outside an active primed queue`);
+  for (const note of sources) {
+    assert.equal(note.stopped, mode === 'primed' && note.t > s.ctx.currentTime ? s.ctx.currentTime : Infinity,
+      `${action}: only future primed sources are stopped; desktop/unprimed paths retain legacy behavior`);
+    if (mode === 'primed' && note.t > s.ctx.currentTime)
+      assert(note.stopped < note.t, 'Web Audio stop before scheduled start prevents any future onset');
+  }
+}
+console.log('Room prime cancellation PASS: real Engine queue discard prevents future starts on stop, set replacement and restart; desktop, jam and expired-prime paths unchanged.');
 const broadcast = main.slice(main.indexOf('function startRoomBroadcast('), main.indexOf('\nfunction showClub('));
 for (const mediaRoute of [null, route]) {
   let delay;

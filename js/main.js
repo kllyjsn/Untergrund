@@ -250,6 +250,7 @@ function schedule(lead) {
     }
   }
   // The audio is queued; now redraw for the new song (it sounds ~0.1 s from now).
+  if (mediaRoute && roomPlayback) roomMediaSync.queued(nextTime, engine.queuedNotes);
   landed?.();
 }
 
@@ -359,6 +360,8 @@ function endTuning() {
 
 function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room = startsAt !== null || roomPlayback, editRoom = roomEditor, replayStats = null, replay808Style = engine?.replay808Style, switchAt = null } = {}) {
   const seeking = playing && switchAt === null;
+  if (switchAt === null) cancelRoomPrime();
+  else if (mediaRoute && roomPlayback) roomMediaSync.cancel(switchAt);
   clearPaused();
   roomResume = null;
   stopPreview();
@@ -414,10 +417,17 @@ function cancelRoomStart() {
   }
 }
 
+function cancelRoomPrime() {
+  if (!mediaRoute || !roomPlayback) return;
+  const now = ctx.currentTime;
+  if (roomMediaSync.cancel(now)) engine.discardQueuedNotes(now);
+}
+
 function stop(playbackOutcome = 'stop') {
   const replay = playbackOutcome === 'complete' ? queuedRoomReplay : null;
   queuedRoomReplay = roomReplayLoad = null;
-  if (roomStartPending()) engine.discardQueuedNotes(ctx.currentTime);
+  if (roomStartPending() && !(mediaRoute && roomPlayback && roomMediaSync.active(ctx.currentTime))) engine.discardQueuedNotes(ctx.currentTime);
+  cancelRoomPrime();
   playbackStats.end(playbackOutcome);
   trackingReplay = false;
   listens.end(listenPos(), { finished: songOver });
