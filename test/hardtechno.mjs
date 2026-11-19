@@ -73,6 +73,18 @@ for (const style of ['hardtechno', 'minimal']) {
   e.hardSection(4, 5, 0, 8, 5);
   assert.equal(e.ch.kick.level.gain.events.some((ev) => ev.k === 'l' && ev.t === 4 + 16 * e.stepDur), hard);
 }
+const fallback = instrument('hardtechno').e, frequency = fallback.arrLP.frequency;
+frequency.cancelAndHoldAtTime = undefined;
+frequency.value = 12345;
+frequency.setValueAtTime(800, 99);
+assert.doesNotThrow(() => fallback.breakSweep(0.4, 1.6));
+assert(!frequency.events.some((ev) => ev.t === 99));
+assert(frequency.events.some((ev) => ev.k === 's' && ev.t === 0.4 && ev.v === 12345));
+assert(frequency.events.some((ev) => ev.k === 'e' && ev.v === 10000));
+assert.doesNotThrow(() => fallback.breakOpen(2));
+assert(frequency.events.some((ev) => ev.k === 's' && ev.t === 2 && ev.v === 12345));
+assert(frequency.events.some((ev) => ev.k === 'e' && ev.v === 21000));
+assert.equal(fallback.arrClosed, false);
 const empty = instrument('minimal');
 delete empty.e.state.artist;
 assert.equal(empty.e.hardTechno, false);

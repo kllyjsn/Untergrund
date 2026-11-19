@@ -2210,7 +2210,8 @@ export class Engine {
   breakSweep(t, dur, smooth) {
     const f = this.arrLP.frequency;
     if (this.hardTechno) {
-      f.cancelAndHoldAtTime(t);
+      if (f.cancelAndHoldAtTime) f.cancelAndHoldAtTime(t);
+      else { const v = f.value; f.cancelScheduledValues(t); f.setValueAtTime(v, t); }
       f.exponentialRampToValueAtTime(10000, t + Math.min(dur * 0.25, 16 * this.stepDur));
       f.exponentialRampToValueAtTime(18000, t + dur);
     } else {
@@ -2231,7 +2232,11 @@ export class Engine {
   breakOpen(t, smooth) {
     if (!this.arrClosed) return;
     const f = this.arrLP.frequency;
-    if (this.hardTechno) { f.cancelAndHoldAtTime(t); f.exponentialRampToValueAtTime(21000, t + 16 * this.stepDur); }
+    if (this.hardTechno) {
+      if (f.cancelAndHoldAtTime) f.cancelAndHoldAtTime(t);
+      else { const v = f.value; f.cancelScheduledValues(t); f.setValueAtTime(v, t); }
+      f.exponentialRampToValueAtTime(21000, t + 16 * this.stepDur);
+    }
     else { f.cancelScheduledValues(t); f.setTargetAtTime(21000, t, smooth ? 0.09 : 0.02); }
     this.arrClosed = false;
   }
