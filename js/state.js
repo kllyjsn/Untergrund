@@ -1172,6 +1172,7 @@ function drillVerses(pats, { chain, sections }, keep) {
   for (let i = 1; i < spans.length; i++) {
     const { k, at } = spans[i], bar = at - 1;
     if (k !== 'c' || spans[i - 1].k !== 'v' || chain[bar] !== 'D' || chain[at] !== 'G') continue;
+    fill.verseSwell = true;
     const steps = clone(verse.steps);
     steps.perc[15] = 1;
     // On repeats the 808 starts before the last kick, carrying through its tail instead of coming in after it.
@@ -1392,6 +1393,7 @@ export function sanitize(s) {
     if (p.score?.piece && PIECE[p.score.piece]) e.score = { piece: p.score.piece };
     else if (p.score && FORMS[p.score.form]) e.score = { form: p.score.form, seed: Number.isFinite(+p.score.seed) ? +p.score.seed | 0 : 1, mode: p.score.mode === 'm' ? 'm' : 'M', ...(MODELS[p.score.composer] ? { composer: p.score.composer } : {}) };
     if (p.lift) e.lift = Math.max(0, Math.min(3, p.lift | 0));
+    if (p.verseSwell === true) e.verseSwell = true;
     if (['verse', 'pre', 'chorus', 'bridge'].includes(p.sec)) e.sec = p.sec;
     if (Array.isArray(p.prog) && p.prog.length) e.prog = cleanProg(p.prog);
     const at = !e.score && cleanTakes(p.at, cleanTrack, cleanHook, cleanProg);

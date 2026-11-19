@@ -102,6 +102,37 @@ for (const seed of [7, 42, 211, 1234]) {
 console.log('Drill verse and turnaround passed');
 
 {
+  const song = sanitize(freshSong('drill', 42));
+  // A replay keeps its pattern data even when the listener's artist differs.
+  song.artist = { style: 'trap' };
+  song.chain = 'ADGCDECDG';
+  const rec = new Recorder(song), seq = new Sequencer(rec, song), levels = [];
+  rec.sectionGain = (t, db, ramp) => levels.push({ t, db, ramp });
+  const sd = rec.stepDur;
+  for (let i = 0; i < song.chain.length * 16; i++) seq.tick(i, i * sd);
+  assert.deepEqual(levels.filter(({ ramp }) => ramp), [{ t: 7 * 16 * sd, db: 0.45, ramp: [-1.8, 12 * sd, 4 * sd] }],
+    'only the verse fill into a chorus ramps, ending at the existing chorus level');
+  assert(!levels.some(({ t }) => t === 8 * 16 * sd), 'the chorus does not restart the ramp');
+  seq.rewind(7 * 16 + 10, 100);
+  const resumed = levels.at(-1);
+  assert.equal(resumed.t, 100);
+  assert.deepEqual(resumed.ramp.slice(1), [6 * sd, 0], 'rewinding into the fill plays only the remainder of the ramp');
+  const halfway = (10 ** (-1.8 / 20) + 10 ** (0.45 / 20)) / 2;
+  assert(Math.abs(10 ** (resumed.ramp[0] / 20) - halfway) < 1e-9, 'the resumed lift starts halfway up');
+  const listener = new Sequencer(rec, song);
+  levels.length = 0;
+  listener.startAt(16 + 10, 100);
+  assert.deepEqual(levels, [], 'joining another fill does not start a swell');
+  listener.startAt(7 * 16 + 2, 100);
+  assert.deepEqual(levels.pop()?.ramp, [-1.8, 12 * sd, 2 * sd], 'joining before the swell preserves the remaining hold');
+  listener.startAt(7 * 16 + 10, 100);
+  assert.deepEqual(levels.at(-1), resumed, 'a new listener hears the same remaining swell as a rewound listener');
+  assert.equal(listener.chainPos, 8, 'joining mid-fill leaves the chorus queued as the next bar');
+  listener.tick(8 * 16, 100 + 6 * sd);
+  assert.deepEqual(levels, [resumed], 'the chorus does not restart the swell after a join');
+}
+
+{
   const song = sanitize(freshSong('drill', 211));
   const loud = structuredClone(song);
   for (const take of loud.patterns[3].at) {

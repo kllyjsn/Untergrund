@@ -344,18 +344,12 @@ function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room 
   if (startsAt !== null) ({ step, delay } = roomTransportPosition(startsAt, state.bpm, wallNow));
   uiQueue.length = 0;
   abs = Math.max(0, Math.floor(step));
-  const bar = Math.floor(abs / 16);
-  const chain = state.chainOn ? parseChain(state.chain) : [];
-  seq.cur = chain.length ? chain[bar % chain.length] : state.current;
-  seq.queued = null;
-  seq.chainPos = bar + (abs % 16 === 0 ? 0 : 1);
-  seq.acidPrevSlide = false;
-  seq.finished = false; songOver = false;
-  seq.origin = 0;
   if (handoff) { handoff = null; engine.handoffCancel(); }
-  state.current = seq.cur;
   const wait = stepWall === null ? Math.max(0.01, delay) : (stepWall - wallNow) / 1000;
   nextTime = audioNow + wait;
+  seq.startAt(abs, Math.max(audioNow, nextTime));
+  state.current = seq.cur;
+  songOver = false;
   clockOffset = null;
   transportOrigin = startsAt ?? ((stepWall ?? wallNow + wait * 1000) - abs * (15000 / state.bpm));
   if (!seeking) engine.recLock = new Map();
