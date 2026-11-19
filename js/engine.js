@@ -451,9 +451,9 @@ export class Engine {
 
   // One sound per part for a whole song: while `recLock` is set (main.js sets it per song), a recording is used from
   // the first note that needs it or not at all, so a slow download never swaps a synth stand-in for it mid-song.
-  rec(name) {
+  rec(name, lockOnUse = true) {
     const got = liveSet(name), lock = this.recLock;
-    if (!lock) return got;
+    if (!lock || (!lockOnUse && !lock.has(name))) return got;
     if (!lock.has(name)) lock.set(name, !!got);
     return lock.get(name) ? got : null;
   }
@@ -1338,7 +1338,7 @@ export class Engine {
     // A lifted breakdown plays decaying chords an octave up, filling it above the bass range it no longer shares.
     if (vo > 0) {
       const pitches = this.smoothOn > 0 ? iv.map((m) => m + 12) : iv;
-      if (STAB_VOICES[vo] === 'bells' && underHarp && this.rec('harp')) {
+      if (STAB_VOICES[vo] === 'bells' && underHarp && this.rec('harp', false)) {
         return this.bells(t, v, pitches, root, { ...p, decay: p.decay * 0.57 }, this.harpBacking(out));
       }
       return this[STAB_VOICES[vo]](t, v, pitches, root, p, out);
