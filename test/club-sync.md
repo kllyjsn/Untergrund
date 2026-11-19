@@ -66,6 +66,12 @@ listener is present before/during/after, including the 15s membership cutoff.
 Only the listener is blocked, not the DJ or the server's availability to others.
 
 `background-wake` uses Page.setWebLifecycleState frozen → active for 15s.
+`short-wake` uses the same lifecycle transition for 800ms. Freeze recovery
+assertions require zero extra as well as zero missing kicks. Recovery analysis
+should use the per-client PCM resume-boundary detector from PR #198 (631a571)
+when measuring wakes: without it, pre-freeze PCM can map across the output-clock
+jump and contaminate the post-wake window. That detector was applied locally
+for the short-stall measurements, not bundled with the application fix.
 The harness records freeze/resume/visibility events and AudioContext clocks.
 It also calls Page.bringToFront after activation and reports actual visibility
 (Chrome can remain hidden after this lifecycle transition). This is desktop

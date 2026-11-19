@@ -103,6 +103,62 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   player.discardQueuedNotes(ctx.currentTime);
   assert.deepEqual(events, [['ringing', 'start', 1], ['queued', 'start', 2, 0.4, 0.2], ['queued', 'stop', 1.5]]);
 
+  {
+    const s = defaultState();
+    s.chainOn = true; s.chain = 'AC'; s.master.arr = 1;
+    const e = new Engine(fakeCtx(), s, { realtime: false });
+    const seq = new Sequencer(e, s);
+    let impacts = 0, advances = 0;
+    e.impact = () => impacts++;
+    const advance = seq.advanceBar.bind(seq);
+    seq.advanceBar = (...args) => { advances++; return advance(...args); };
+    seq.origin = 64;
+    seq.rewind(64, 1);
+    assert.equal(advances, 0, 'boundary recovery leaves one-shot bar state for tick');
+    seq.tick(64, 1);
+    assert.equal(advances, 1);
+    assert.equal(impacts, 0, 'the build downbeat is not a drop');
+    assert.equal(seq.dropNext, true, 'the following peak still gets its build');
+    seq.rewind(68, 2);
+    assert.equal(advances, 2, 'mid-bar recovery restores its bar exactly once');
+    assert.equal(seq.chainPos, 1);
+    assert.equal(seq.cur, 0);
+    seq.tick(68, 2);
+    assert.equal(impacts, 0);
+    seq.queued = 3;
+    s.chainOn = false;
+    seq.rewind(80, 3);
+    assert.equal(seq.queued, 3, 'a queued pattern is not consumed before the recovered downbeat');
+    seq.tick(80, 3);
+    assert.equal(seq.queued, null);
+    assert.equal(seq.cur, 3);
+  }
+
+  {
+    const c = fakeCtx(), s = defaultState();
+    s.bpm = 120;
+    const buf = new FakeBuffer({ length: 48000 * 20, sampleRate: 48000 });
+    const starts = [];
+    c.createBufferSource = () => ({ connect: dst => dst, start: (...args) => starts.push(args), stop() {} });
+    const e = new Engine(c, s, { trackQueuedNotes: true,
+      vocal: () => ({ buf, gain: 1, duck: 1, lift: 1, ms: 250 }) });
+    e.vocal(1, 0);
+    c.currentTime = 1.5;
+    e.discardQueuedNotes(1.5);
+    assert.equal(e.vocalNow, null);
+    e.vocal(1.6, 1, 5);
+    assert.deepEqual(starts.at(-1), [1.6, 2.375], 'mid-bar recovery resumes at the trimmed stem offset');
+    assert.equal(e.vocalNow.next, 2);
+    const count = starts.length;
+    e.vocal(2.975, 2);
+    assert.equal(starts.length, count, 'the next boundary keeps the resumed source playing');
+    e.vocal(3, 20, 5);
+    assert.equal(e.vocalNow, null, 'an exhausted stem stays silent');
+    e.vocalOf = () => null;
+    e.vocal(4, 1, 5);
+    assert.equal(e.vocalNow, null, 'songs without a stem do not start a source');
+  }
+
   const rows = [];
   for (const style of Object.keys(STYLES)) rows.push(await measure(style));
   if (process.argv.includes('--verbose')) for (const r of rows) console.log(r.style.padEnd(11), 'peak', String(r.peak).padStart(4), 'avg', String(r.avg).padStart(4), JSON.stringify(r.by));

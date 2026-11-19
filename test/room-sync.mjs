@@ -76,7 +76,26 @@ assert.deepEqual(transportResync(9.0, 9.0, 9.6, 0.125), { skip: 5, nextTime: 9.6
   assert.equal(syncAudioClock(wake.offset, 1015.02).jumped, false);
 
   const short = syncAudioClock(before.offset, 1000.25);
-  assert.deepEqual(transportResync(1011.5 - short.offset, 11.5, 10, 0.125, short.jumped), { skip: 2, nextTime: 11.5, discard: false });
+  assert.deepEqual(transportResync(1011.5 - short.offset, 11.5, 10, 0.125, short.jumped), { skip: -9, nextTime: 10.125, discard: true });
+  const stall = syncAudioClock(before.offset, 1000.8);
+  const recovery = transportResync(1011.5 - stall.offset, 11.5, 10, 0.125, stall.jumped);
+  assert.equal(recovery.discard, true);
+  assert.equal(recovery.skip, -5);
+  close(recovery.nextTime, 10.075);
+  assert.equal(transportResync(recovery.nextTime, recovery.nextTime, 10, 0.125), null);
+}
+
+{
+  const songOrigin = 64, nextStep = 68;
+  const recovery = transportResync(10.75, 11.5, 10, 0.125, true, songOrigin - nextStep);
+  assert.equal(recovery.skip, -4, 'a landed handoff cannot rewind into the outgoing song');
+  assert.equal(nextStep + recovery.skip, songOrigin);
+  close(recovery.nextTime, 10.25);
+  assert.equal(recovery.discard, true);
+  const ordinary = transportResync(10.75, 11.5, 10, 0.125, true, -nextStep);
+  assert.equal(ordinary.skip, -5, 'lookahead within the current song can still rewind');
+  const long = transportResync(-3.5, 11.5, 10, 0.125, true, songOrigin - nextStep);
+  assert.equal(long.skip, 109, 'the origin bound does not change long-stall forward skips');
 }
 
 console.log('room transport alignment passed');
