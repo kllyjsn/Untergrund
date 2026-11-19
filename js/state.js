@@ -387,7 +387,8 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     // A round bass with some edge for definition, barely resonant, the filter only opening a little on each note.
     Object.assign(params.acid, { wave: 0.3, cutoff: 1400, edge: 0.5, reso: 1.5, envmod: 0.3, decay: 0.12, drive: 0.1, accent: 0.1, level: 0.37 });
     Object.assign(params.stab, { chord: pick(r, [1, 2, 3]), cutoff: 1900, reso: 0.4, decay: 0.45, env: 0.45, detune: 4, level: 0.55, dly: 0.45, rev: 0.4 });
-    master.duck = 0.3; master.revLevel = 0.35;
+    // Clean master bus: the saturator's intermodulation of the held chords lands as faint tones at 2-2.5 kHz.
+    master.duck = 0.3; master.revLevel = 0.35; master.drive = 0;
     swing = 0.04;
   } else if (style === 'ukg') {
     S.kick = pad16([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1]);

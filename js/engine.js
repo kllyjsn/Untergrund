@@ -58,7 +58,7 @@ const EPS = 0.0001;
 const SAMPLE_FADE = 1;
 // Chord voices that sustain fill a breakdown on their own, so a smooth style only lifts the ones that decay.
 const HELD_CHORDS = new Set(['pad', 'organ', 'strings', 'cello']);
-const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar', 'cello', 'clarinet'];
+export const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar', 'cello', 'clarinet'];
 const GRIPPED = new Set(['guitar', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar']);
 // Soft-knee, slightly asymmetric clipping: even harmonics like a pushed preamp tube.
 const AMP_CURVE = (() => { const n = 2048, c = new Float32Array(n); for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; c[i] = Math.tanh(x * 2.2 + 0.18) - Math.tanh(0.18); } return c; })();
@@ -201,6 +201,29 @@ const BAND_PLAY = {
 BAND_PLAY.twang = { ...BAND_PLAY.gtr, gain: 3, len: 1.4, min: 0.25, softBelow: 0, lo: 52, hi: 84, lp: 6800, grip: false, even: 0.4, rel: 0.12, oct: 0, slap: true };
 // The rock band's riff guitar: the rhythm amp, double-stops up the neck.
 BAND_PLAY.lead = { ...BAND_PLAY.drive, lo: 45, hi: 79, grip: false, even: 0.4, gain: 2.2, lp: 4400, soft: 1600, vib: 8, rel: 0.16, oct: -1, dyad: true };
+// The pitch a non-gripped recorded chord voice sounds: shifted and kept in the register its samples were played in.
+const REC_KIND = { piano: 'piano', horns: 'horn', strings: 'str', cello: 'cello', clarinet: 'cl' };
+export function soundingPitch(voice, m) {
+  const R = BAND_PLAY[REC_KIND[voice]];
+  if (!R) return m;
+  m += R.shift;
+  while (m > R.hi + 0.5) m -= 12;
+  while (m < R.lo - 0.5) m += 12;
+  return m;
+}
+// The notes a chord stab plays, relative to root: voice-led, the top doubled an octave up in a chorus.
+// A smooth style raises a lifted breakdown an octave and folds notes above A5 down, where their harmonics ring as a whistle.
+export function stabPitches(e) {
+  const p = e.state.params.stab, vo = Math.round(p.voice);
+  const { root, notes, home } = stabNotes(e.state, e.harm);
+  const voiced = e.lastChord = voiceLead(notes, e.lastChord, home);
+  const vi = (GRIPPED.has(STAB_VOICES[vo]) ? notes : voiced).map((m) => m - root);
+  const iv = e.wide && !GRIPPED.has(STAB_VOICES[vo]) && vi.length > 2 ? [...vi, Math.max(...vi) + 12] : vi;
+  if (vo <= 0) return { root, vo, iv };
+  const top = e.smoothOn ? 81 - root : Infinity;
+  return { root, vo, iv: [...new Set((e.smoothOn > 0 ? iv.map((m) => m + 12) : iv).map((m) => (m > top ? m - 12 * Math.ceil((m - top) / 12) : m)))] };
+}
+
 // The singing envelope of a vocal stem, ENV_RATE frames a second: 1 while it sings (from 40 ms before a phrase to 200 ms
 // after it), 0 in its rests, smoothed (40 ms attack, 250 ms release). Engine.duckUnder() dips the band by it.
 export const ENV_RATE = 50;
@@ -1287,7 +1310,9 @@ export class Engine {
     env.gain.linearRampToValueAtTime(v * (2.4 + 1.2 * soft), t + 0.001);
     env.gain.exponentialRampToValueAtTime(v * 1.1, t + 0.05);
     env.gain.exponentialRampToValueAtTime(EPS, t + p.decay);
-    bp.connect(hp).connect(env).connect(out);
+    // A smooth style doubles the ride's highpass to 24 dB/oct, so the metallic partials below it don't ring at 3 kHz.
+    if (this.smoothOn) bp.connect(hp).connect(this.filter('highpass', p.tone * (0.85 + 0.15 * soft), 0.7)).connect(env).connect(out);
+    else bp.connect(hp).connect(env).connect(out);
     for (const o of [...oscs, ...oscs2]) o.stop(t + p.decay + 0.05);
     this.retire(wash, env);
   }
@@ -1463,11 +1488,13 @@ export class Engine {
     const bite = 0.4 + 1.2 * Math.max(0, Math.min(1, p.env ?? 0.5));
     iv.forEach((n, k) => {
       const f = midiHz(root + n), vel = v * (0.85 + hash(t * 97, k) * 0.3);
+      // A smooth style's upper tines bark less, as a real Rhodes does, so high chords stay round instead of ringing.
+      const reg = this.smoothOn ? Math.min(1, 523 / f) : 1;
       const car = c.createOscillator(); car.frequency.value = f; car.detune.value = (k % 2 ? 1 : -1) * p.detune * 0.15;
       const mod = c.createOscillator(); mod.frequency.value = f;
       const modAmt = this.gain(0); mod.connect(modAmt).connect(car.frequency);
-      modAmt.gain.setValueAtTime(f * (0.6 + vel * 1.6) * bite, t);
-      modAmt.gain.setTargetAtTime(f * 0.15, t + 0.005, 0.12 + p.env * 0.3);
+      modAmt.gain.setValueAtTime(f * (0.6 + vel * 1.6) * bite * reg, t);
+      modAmt.gain.setTargetAtTime(f * 0.15 * reg, t + 0.005, 0.12 + p.env * 0.3);
       const tine = c.createOscillator(); tine.frequency.value = f * 14;
       const tineAmt = this.gain(0); tine.connect(tineAmt).connect(car.frequency);
       tineAmt.gain.setValueAtTime(f * 2.5 * vel * bite * (p.tine ?? 1), t);
@@ -1485,22 +1512,16 @@ export class Engine {
 
   stab(t, v, underHarp = false) {
     const c = this.ctx, p = this.state.params.stab;
-    const h = this.harm;
-    const { root, notes, home } = stabNotes(this.state, h);
-    const vo = Math.round(p.voice), voiced = this.lastChord = voiceLead(notes, this.lastChord, home);
-    // A song's chorus opens the voicing: the top voice doubled an octave up.
-    const vi = (GRIPPED.has(STAB_VOICES[vo]) ? notes : voiced).map((m) => m - root);
-    const iv = this.wide && !GRIPPED.has(STAB_VOICES[vo]) && vi.length > 2 ? [...vi, Math.max(...vi) + 12] : vi;
+    const { root, vo, iv } = stabPitches(this);
     const trimmed = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
     const layers = this.hardTechno ? this.hardStabOut(trimmed) : null, out = layers ? layers.core : trimmed;
     if (layers) this.hardPalette(t, v, iv.map(n => midiHz(root + n)), Math.max(0.12, p.decay), layers.rave, 'rave');
     // A lifted breakdown plays decaying chords an octave up, filling it above the bass range it no longer shares.
     if (vo > 0) {
-      const pitches = this.smoothOn > 0 ? iv.map((m) => m + 12) : iv;
       if (STAB_VOICES[vo] === 'bells' && underHarp && this.rec('harp', false)) {
-        return this.bells(t, v, pitches, root, { ...p, decay: p.decay * 0.57 }, this.harpBacking(out));
+        return this.bells(t, v, iv, root, { ...p, decay: p.decay * 0.57 }, this.harpBacking(out));
       }
-      return this[STAB_VOICES[vo]](t, v, pitches, root, p, out);
+      return this[STAB_VOICES[vo]](t, v, iv, root, p, out);
     }
     const lp = this.filter('lowpass', p.cutoff, p.reso);
     const amp = this.gain(0);
@@ -1554,6 +1575,8 @@ export class Engine {
     amp.gain.linearRampToValueAtTime(peak, t + atk);
     amp.gain.setTargetAtTime(0, t + atk + hold, Math.max(0.1, p.decay * 0.6));
     const pans = this.sidePans(this.hardTechno ? [-0.9, 0, 0.9] : [-0.7, 0, 0.7], lp);
+    // A smooth style's outer voices drift slowly against the centre, as a string ensemble's chorus does, so no partial holds one exact pitch.
+    const drift = this.smoothOn ? [0.31, 0.47].map((hz) => { const l = c.createOscillator(), g = this.gain(7); l.frequency.value = hz; l.connect(g); this.startSource(l, t); l.stop(end); return g; }) : null;
     iv.forEach((n) => {
       [-1, 0, 1].forEach((side) => {
         const o = c.createOscillator(); o.type = 'sawtooth';
@@ -1562,10 +1585,18 @@ export class Engine {
           o.detune.setValueAtTime(240 + side * (4 + p.detune) * 3, t);
           o.detune.linearRampToValueAtTime(side * (4 + p.detune) * 3, t + 0.12);
         }
+        if (drift && side) drift[side < 0 ? 0 : 1].connect(o.detune);
         o.connect(pans[side + 1]); this.startSource(o, t); o.stop(end);
       });
     });
-    lp.connect(amp).connect(out);
+    // A smooth style's pad rolls its saw partials off at 24 dB/oct, so no harmonic rings at 2-3 kHz, and takes its air from a breath of noise between 5 and 9 kHz.
+    if (this.smoothOn) {
+      const lp2 = this.filter('lowpass', p.cutoff * 1.3, 0.5), hp = this.filter('highpass', 5000, 0.5), airTop = this.filter('lowpass', 9000, 0.5);
+      lp.connect(lp2).connect(amp);
+      const air = this.noiseSrc(t, end - t); air.loop = true;
+      air.connect(hp).connect(airTop).connect(this.gain(0.06)).connect(amp);
+    } else lp.connect(amp);
+    amp.connect(out);
   }
 
   // Drawbar organ with key click and a rotary-style vibrato; DETUNE sets rotor depth.
@@ -2364,7 +2395,8 @@ export class Engine {
     amp.gain.setTargetAtTime(vel * 0.55, t + 0.02, 0.12);
     amp.gain.setTargetAtTime(0, t + len, 0.03);
     const subLevel = this.gain(0.72);
-    tri.connect(lp); lp.connect(grit).connect(amp);
+    // A smooth style rolls off the grit's new harmonics above 1.8 kHz at 24 dB/oct, so the bass keeps its definition without tones up among the chords.
+    if (this.smoothOn) { tri.connect(lp); lp.connect(grit).connect(this.filter('lowpass', 1800, 0.7)).connect(this.filter('lowpass', 1800, 0.7)).connect(amp); } else { tri.connect(lp); lp.connect(grit).connect(amp); }
     sub.connect(subLevel).connect(amp);
     amp.connect(this.ch.acid.input);
     const oscs = [tri, sub];
