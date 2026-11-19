@@ -688,7 +688,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     bus.initiatedSets.add(broadcastId);
     bus.send('set', { ...track, state: clone(getState()), style: getStyle(), startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId, public: isRoomPublic(activeRoom) });
     bus.follow(bus.currentSet);
-    if (!transport.playing) startRoomBroadcast(startsAt);
+    startRoomBroadcast(startsAt);
     startLiveSet({
       getState, getStyle, startsAt, toast, dj: avatar.name, room: activeRoom, title: track.title,
       isPlaying: () => getTransport().playing,
