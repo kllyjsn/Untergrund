@@ -98,6 +98,44 @@ This updates the input JSON from saved envelopes/reference, records the analyzer
 version/time, and prints listener summaries and all clip paths. Original legacy
 threshold results and audio clips are preserved.
 
+## Network impairment (Linux, opt-in)
+
+```
+npm run test:club-sync -- --scenario reconnect-mix --diagnostics --assert \
+  --net 'delay=150,jitter=50,loss=3,rate=1mbit' --net-target listener \
+  --net-label L2 --output club-sync-l2.json
+```
+
+`--net` accepts any subset of delay/jitter (milliseconds), loss/reorder
+(percent), and rate (kbit/mbit/gbit). Jitter/reorder require delay.
+`--net-target listener|both` defaults to listener. Omit `--net` for the control;
+`--net-label` still labels its evidence. Run sequentially, never in parallel.
+
+Each impaired client navigates through its own TCP proxy port, including static
+assets and room traffic. Passwordless `sudo -n tc` is required. A four-band lo
+prio qdisc leaves default traffic in band 1; IPv4/IPv6 TCP source/destination
+proxy-port filters select netem in band 4. CDP and direct server snapshots are
+not selected. Delay is **per packet per direction**, not a desired HTTP RTT;
+TCP retransmission and multiple exchanges can amplify transaction latency.
+Existing lo qdiscs are refused, never replaced. Owned qdiscs are removed on
+normal exit, failure, SIGINT/SIGTERM/SIGHUP and process exit (not SIGKILL or an
+OS crash). After a hard kill inspect `sudo tc qdisc show dev lo` and remove only
+the harness's `prio 7f00:` root if left behind.
+
+JSON `network` records the profile, ports, direct/proxied fresh-connection HTTP
+probes, request failures and qdisc/drop counters. A finite probe is not an
+estimate of configured packet loss: TCP normally retransmits dropped packets.
+Each result repeats its profile, records unfiltered CDP control round trips,
+and reports output-epoch-minus-context-time spread, separately before/after
+resume so the expected frozen-clock jump is not mistaken for runner jitter.
+
+Failed runs automatically invoke `python3 test/club-sync-plot.py <json>`
+(requires matplotlib), writing rendered-envelope/kick/vocal PNG evidence under
+`test/out/net/<label>/`. These are PCM-derived envelopes, not saved raw PCM or
+WAV files. JSON remains the reanalysis source. Plotting can be repeated offline.
+Network helper tests: `node test/club-sync-network-test.mjs`.
+Plot tests: `python3 test/club-sync-plot-test.py`.
+
 Run `npm run test:club-sync` with Node 22 and Chrome installed (`CHROME_PATH`
 overrides discovery). Add `-- --assert` for exit-status thresholds, or
 `-- --scenario late-join` (also `listener-skew`, `host-skew`, `cold-invite`,
