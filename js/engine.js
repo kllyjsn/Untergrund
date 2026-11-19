@@ -2153,10 +2153,24 @@ export class Engine {
     if (!paths.has(voice)) {
       const input = this.filter('peaking', space.eq[0], space.eq[1]);
       input.gain.value = space.eq[2];
-      input.connect(this.gain(0.87)).connect(dest);
+      // A sub-millisecond delay sweep spreads narrow upper harmonics more than the fundamental.
+      const diffuse = this.ctx.createDelay(0.002);
+      diffuse.delayTime.value = 0.00075;
+      const depth = this.gain(space.diffusion);
+      if (!this.technoHookMotion) {
+        this.technoHookMotion = this.gain(1);
+        for (const rate of [6.7, 11.3, 17.9]) {
+          const lfo = this.ctx.createOscillator();
+          lfo.frequency.value = rate;
+          lfo.connect(this.technoHookMotion);
+          lfo.start();
+        }
+      }
+      this.technoHookMotion.connect(depth).connect(diffuse.delayTime);
+      input.connect(diffuse).connect(this.gain(0.87)).connect(dest);
       const sides = this.filter('highpass', 520, 0.7);
       sides.channelCount = 1; sides.channelCountMode = 'explicit';
-      input.connect(sides);
+      diffuse.connect(sides);
       const seats = this.sidePans([-0.9, 0.9], dest);
       space.taps.forEach((time, i) => {
         const tap = this.ctx.createDelay(0.025); tap.delayTime.value = time;
@@ -2606,7 +2620,12 @@ export class Engine {
     }
     lp.connect(drive);
     const upper = wide ? drive.connect(this.filter('highpass', 220, 0.7)).connect(this.filter('highpass', 220, 0.7)) : drive;
-    upper.connect(tone).connect(amp).connect(this.ch.acid.input);
+    if (wide) {
+      const shelf = this.filter('highshelf', 650);
+      shelf.gain.value = 3.5;
+      upper.connect(shelf).connect(tone);
+    } else upper.connect(tone);
+    tone.connect(amp).connect(this.ch.acid.input);
     return { freqs, detunes, tone, lp, drive, amp };
   }
 
