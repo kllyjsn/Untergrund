@@ -1,4 +1,4 @@
-import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, CHORDS, KIT_BACKBEAT, defaultParams, defaultMaster } from './params.js';
+import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, CHORDS, KIT_BACKBEAT, DRILL_808, defaultParams, defaultMaster } from './params.js';
 import { rng } from './dsp.js';
 import { planSections, formChain, parseForm, sectionSpans, developSong, developFinalDrop, LENGTHS } from './longform.js';
 import { FORMS, SECTIONS } from './classical.js';
@@ -183,7 +183,7 @@ const INSTRUMENTS = {
   reggaeton: [[8, 2, 0, 0.45, 0.8], [5, 2, 1, 0.22, 0.9], [9, 1, 0, 0.45, 0.7], [7, 2, 1, 0.55, 0.45]],
   bailefunk: [[4, 2, 0, 0.3, 0.75], [6, 2, 0, 0.25, 0.85], [8, 2, 0, 0.4, 0.8], [5, 3, 1, 0.2, 0.9]],
   trap: [[7, 2, 1, 0.75, 0.4], [6, 2, 0, 0.8, 0.7], [10, 2, 1, 1.5, 0.2], [8, 2, 1, 0.5, 0.8]],
-  drill: [[16, 2, 1, 1.4, 0.2], [16, 2, 0, 0.9, 0.45], [17, 2, 0, 0.5, 0.75], [6, 2, 1, 0.65, 0.8]],
+  drill: [[16, DRILL_808, 1, 1.4, 0.2], [16, DRILL_808, 0, 0.9, 0.45], [17, DRILL_808, 0, 0.5, 0.75], [6, DRILL_808, 1, 0.65, 0.8]],
   jerseyclub: [[0, 2, 1, 0.2, 0.75], [4, 2, 0, 0.2, 0.7], [8, 2, 1, 0.4, 0.8], [6, 2, 1, 0.5, 0.85]],
   hyperpop: [[8, 3, 1, 0.4, 0.85], [6, 2, 0, 0.3, 0.75], [10, 3, 1, 1.2, 0.2], [7, 2, 2, 0.65, 0.55]],
   // The song genres are recorded bands: piano, guitars (clean, driven, acoustic, jazz archtop, banjo, Gretsch twang), electric or upright bass, live kit.

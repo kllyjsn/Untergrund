@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { generate, arrangement, applySongPlan, sanitize, defaultState, freshSong, STYLES, MAJOR_STYLES, MUSICIAN_PRINCIPLES } from '../js/state.js';
-import { SCALES, KIT_BACKBEAT } from '../js/params.js';
+import { SCALES, KIT_BACKBEAT, DRILL_808 } from '../js/params.js';
 import { Sequencer } from '../js/engine.js';
 import { capture, Recorder } from '../js/midi.js';
 import { patternAt } from '../js/scope.js';
@@ -292,8 +292,8 @@ console.log('genre signatures passed');
       }
     }
     assert.deepEqual([...recorded].sort((a, b) => a - b), Object.keys(STAB_BAND).map(Number), 'all recorded voices should appear across generated songs');
-    for (const style of ['trap', 'drill']) {
-      for (let seed = 1; seed <= 24; seed++) assert.equal(generate(style, seed).params.acid.voice, 2, `${style} must keep its sliding 808`);
+    for (const [style, voice] of [['trap', 2], ['drill', DRILL_808]]) {
+      for (let seed = 1; seed <= 24; seed++) assert.equal(generate(style, seed).params.acid.voice, voice, `${style} must get its own sliding 808`);
     }
     for (const style of ['bailefunk', 'jerseyclub']) {
       for (let seed = 1; seed <= 24; seed++) assert.notEqual(generate(style, seed).params.acid.voice, 4, `${style} must not borrow amapiano's log drum`);

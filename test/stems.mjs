@@ -84,6 +84,42 @@ try {
     }
     return out;
   })()`);
+  const bass = await run(`(async () => {
+    const { Engine } = await import('/js/engine.js');
+    const { DRILL_808 } = await import('/js/params.js');
+    const { freshSong } = await import('/js/state.js');
+    const { encodeSong, decodeSong } = await import('/js/share-code.js');
+    const state = freshSong('drill', 7);
+    const render = async (s) => {
+      const ctx = new OfflineAudioContext(1, 48000, 48000), e = new Engine(ctx, s, { realtime: false });
+      e.ch.acid.input = ctx.destination;
+      e.acid(.05, { n: 0, a: false }, false, true, .11);
+      const pickup = e.mono;
+      e.acid(.16, { n: 5, a: true }, true, false, .11);
+      const continued = e.mono === pickup;
+      const x = (await ctx.startRendering()).getChannelData(0);
+      const harmonic = (hz) => {
+        let re = 0, im = 0;
+        for (let i = 14400; i < 33600; i++) {
+          const z = x[i] * (1 - Math.cos(2 * Math.PI * (i - 14400) / 19200)), p = 2 * Math.PI * i * hz / 48000;
+          re += z * Math.cos(p); im += z * Math.sin(p);
+        }
+        return re * re + im * im;
+      };
+      return { continued, sub: harmonic(e.mono.f), upper: harmonic(18 * e.mono.f), pitch: e.mono.f };
+    };
+    const saved = (await decodeSong(await encodeSong({ state, style: 'drill' }))).state;
+    const candidate = await render(saved);
+    state.fresh = 0;
+    state.params.acid.voice = 2;
+    const legacy = (await decodeSong(await encodeSong({ state, style: 'drill' }))).state;
+    return { candidate, legacy: await render(legacy), savedVoice: saved.params.acid.voice === DRILL_808, legacyVoice: legacy.params.acid.voice };
+  })()`);
+  assert(bass.savedVoice && bass.legacyVoice === 2, 'shared Drill songs preserve their selected 808, including the old voice');
+  assert(bass.candidate.continued && bass.legacy.continued, 'both 808 voices glide without restarting');
+  assert.equal(bass.candidate.pitch, bass.legacy.pitch, 'the new voice lands on the written pitch');
+  assert(Math.abs(10 * Math.log10(bass.candidate.sub / bass.legacy.sub)) < 0.4, 'the 808 fundamental stays in place');
+  assert(bass.candidate.upper > 10 * bass.legacy.upper, 'the Drill 808 has a stronger upper harmonic');
   for (const r of result) {
     console.log(`${r.style}: ${r.stems.join(', ')} · sum vs mix bus rel err ${r.relErr.toExponential(2)} · peak ${r.peak.toFixed(2)}`);
     assert.equal(r.rate, 48000);

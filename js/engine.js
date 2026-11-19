@@ -1,4 +1,4 @@
-import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES, KIT_BACKBEAT } from './params.js';
+import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES, KIT_BACKBEAT, DRILL_808 } from './params.js';
 import { getSample } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
@@ -2285,12 +2285,12 @@ export class Engine {
   }
 
   // Tuned 808: sine sub with a pitch knock, long tail on DECAY, CUTOFF/DRIVE add harmonics; slides glide.
-  eight08(t, st, sd, holdNext, sliding) {
+  eight08(t, st, sd, holdNext, sliding, drill = false) {
     const c = this.ctx, p = this.state.params.acid;
     const f = midiHz(this.bassMidi(st, 36, 38));
     const len = holdNext ? sd * 2 : 0.15 + p.decay * 1.6, end = t + len + 0.4;
     const decay = Math.max(0.05, len * 0.45), prev = this.mono;
-    if (sliding && prev?.eight08 && prev.end > t) {
+    if (sliding && prev?.eight08 && prev.drill === drill && prev.end > t) {
       // Keep oscillator phase and the envelope's current level through the slide.
       prev.eight08.forEach((x, i) => {
         x.frequency.setTargetAtTime(f * (i + 1), t, 0.0225);
@@ -2315,7 +2315,6 @@ export class Engine {
     amp.gain.setTargetAtTime(0, t + 0.02, decay);
     // The longest decays can still be audible when the oscillators stop.
     amp.gain.setTargetAtTime(0, end - 0.09, 0.009);
-    // A quiet octave harmonic lets the 808 line read on small speakers without lifting the sub.
     const h2 = c.createOscillator(); h2.type = 'triangle';
     h2.frequency.setValueAtTime(f * knock * 2, t);
     h2.frequency.exponentialRampToValueAtTime(f * 2, t + 0.03);
@@ -2323,8 +2322,18 @@ export class Engine {
     o.connect(sh).connect(lp).connect(amp).connect(this.ch.acid.input);
     h2.connect(h2g).connect(lp);
     const eight08 = [o, h2];
+    if (drill) {
+      // Color the glide above the original sub and octave layer, without turning either up.
+      this.drill808Wave ??= c.createPeriodicWave(new Float32Array(8),
+        new Float32Array([0, 0, 0, -0.42, 0.21, 0.4, -0.68, 0.55]), { disableNormalization: true });
+      const edge = c.createOscillator(); edge.setPeriodicWave(this.drill808Wave);
+      edge.frequency.setValueAtTime(f * knock * 3, t);
+      edge.frequency.exponentialRampToValueAtTime(f * 3, t + 0.03);
+      edge.connect(this.filter('lowpass', Math.max(80, p.cutoff * 3.5), 0.7)).connect(this.gain(0.17)).connect(amp);
+      eight08.push(edge);
+    }
     for (const x of eight08) { this.startSource(x, t); x.stop(end); }
-    this.mono = { amp, f, end, eight08 };
+    this.mono = { amp, f, end, eight08, drill };
   }
 
   // Reese: two detuned saws beating against each other plus a sine sub. SAW/SQR sets the detune spread,
@@ -2407,7 +2416,11 @@ export class Engine {
   acid(t, st, sliding, holdNext, sd) {
     const a = this.acidNodes, p = this.state.params.acid;
     const vo = Math.round(p.voice);
-    if (vo > 0) { a.vca.gain.setTargetAtTime(0, t, 0.005); return this[['', 'bass', 'eight08', 'reese', 'logdrum', 'ebass'][vo]](t, st, sd, holdNext, sliding); }
+    if (vo > 0) {
+      a.vca.gain.setTargetAtTime(0, t, 0.005);
+      if (vo === DRILL_808) return this.eight08(t, st, sd, holdNext, sliding, true);
+      return this[['', 'bass', 'eight08', 'reese', 'logdrum', 'ebass'][vo]](t, st, sd, holdNext, sliding);
+    }
     const f = midiHz(this.bassMidi(st)), sub = lowEnd(this.state.master)?.sub[0];
     if (sub) this.subLayer(t, midiHz(this.bassMidi(st, 36, 38)), holdNext ? sd * 1.05 : sd * 0.6, sub * (st.a ? 1 : 0.85) * (this.noteVel ?? 1), sliding);
     for (const o of [a.o1, a.o2]) {

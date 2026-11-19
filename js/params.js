@@ -2,6 +2,7 @@ import { POCKET_NAMES } from './groove.js';
 export const KEYS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 export const PATTERN_NAMES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 export const STEPS = 16;
+export const DRILL_808 = 6;
 export const SCALES = {
   minor: { name: 'MINOR', notes: [0, 2, 3, 5, 7, 8, 10, 12] },
   dorian: { name: 'DORIAN', notes: [0, 2, 3, 5, 7, 9, 10, 12] },
@@ -126,7 +127,7 @@ export const TRACKS = [
       p('accent', 'ACCENT', 0, 1, 0.65),
       p('drive', 'DRIVE', 0, 1, 0.5),
       p('edge', 'EDGE', 0, 1, 0),
-      p('voice', 'VOICE', 0, 5, 0, { step: 1, list: ['303', 'BASS', '808', 'REESE', 'LOG', 'E.BASS'] }),
+      p('voice', 'VOICE', 0, DRILL_808, 0, { step: 1, list: ['303', 'BASS', '808', 'REESE', 'LOG', 'E.BASS', 'DRILL 808'] }),
     ],
     mix: { level: 0.55, dly: 0.12, rev: 0.05 },
   },
