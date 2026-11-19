@@ -941,7 +941,9 @@ function joinRoomSet(item) {
     toast(`Synced to “${item.title || 'Live Machine Set'}”`);
   };
   const wait = startsAt - Date.now();
-  if (wait > 50) roomJoinTimer = setTimeout(sync, wait - 40);
+  // Prepare the graph with the same lookahead as room playback, not on the downbeat's deadline.
+  const leadMs = continuous ? 40 : ROOM_LEAD * 1000;
+  if (wait > Math.max(50, leadMs)) roomJoinTimer = setTimeout(sync, wait - leadMs);
   else sync();
 }
 
@@ -960,7 +962,7 @@ function startRoomBroadcast(startsAt) {
     return;
   }
   clearTimeout(roomJoinTimer);
-  roomJoinTimer = setTimeout(() => play({ startsAt, editRoom: true }), Math.max(0, startsAt - Date.now() - 60));
+  roomJoinTimer = setTimeout(() => play({ startsAt, editRoom: true }), Math.max(0, startsAt - Date.now() - ROOM_LEAD * 1000));
 }
 
 function showClub({ room = '', intent = '' } = {}) {
