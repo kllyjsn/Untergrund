@@ -14,6 +14,13 @@ export function installAudioTap(skew, fixture, displacementMs = 0) {
   const tap = globalThis.__clubAudio = { samples: [], anchors: [], errors: [], routes: [], requests: [], lifecycle: [], sources: [] };
   const epoch = () => performance.timeOrigin + performance.now();
   const contexts = [];
+  tap.markResume = () => {
+    const ctx = contexts[0];
+    if (!ctx) return;
+    const contextTime = ctx.currentTime;
+    tap.resumeBoundary = { at: epoch(), contextTime, sampleRate: ctx.sampleRate,
+      frame: Math.round(contextTime * ctx.sampleRate) };
+  };
   const clock = ctx => {
     const t = ctx.getOutputTimestamp();
     return { contextTime: ctx.currentTime, outputContextTime: t.contextTime,
@@ -34,7 +41,10 @@ export function installAudioTap(skew, fixture, displacementMs = 0) {
     finally { row.end = epoch(); }
   };
   for (const name of ['freeze', 'resume', 'visibilitychange']) document.addEventListener(name,
-    () => tap.lifecycle.push({ name, at: epoch(), visibility: document.visibilityState, clocks: contexts.map(clock) }));
+    () => {
+      if (name === 'resume') tap.markResume();
+      tap.lifecycle.push({ name, at: epoch(), visibility: document.visibilityState, clocks: contexts.map(clock) });
+    });
   const connect = AudioNode.prototype.connect;
   const taps = new WeakMap();
   const code = `class Tap extends AudioWorkletProcessor {
@@ -98,6 +108,14 @@ export function envelope(capture) {
     const a = capture.anchors[j];
     return [a[1] + (t - a[0]) * 1000, e];
   });
+}
+
+export function postResumeEnvelope(capture) {
+  const boundary = capture.resumeBoundary;
+  if (!boundary || !Number.isFinite(boundary.frame) || !(boundary.sampleRate > 0))
+    throw new Error('Missing resume PCM boundary');
+  return envelope({ ...capture,
+    samples: capture.samples.filter(([t]) => Math.round(t * boundary.sampleRate) >= boundary.frame) });
 }
 
 export function onsets(rows, bpm) {
