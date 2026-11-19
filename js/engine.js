@@ -1998,7 +1998,7 @@ export class Engine {
     // Vary the air and tongue by song step so late joins and offline renders use the same attack.
     const step = (this.step ?? 0) * 2 + (harm ? 1 : 0);
     const air = hash(step, m + 29), tongue = hash(step, m + 71), touch = Math.min(1, v);
-    const out = this.trimOut(`hook-${voice}`, 1, this.windDuck, -4, 500);
+    const out = this.trimOut(`hook-${voice}`, 1, this.hookBus || this.windDuck, -4, 500);
     const eq = this.bodyFor(this.bodyFor(out, presence), [780, 1.2, -2.5]);
     return this.playBuf(buf, t, gain * touch * dbGain(trim + (air - 0.5) * 1.2), eq,
       2 ** ((m - pitch - cents / 100) / 12), Math.max(0.06, dur * 0.92), {

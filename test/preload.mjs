@@ -105,6 +105,11 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
     assert.equal(repeat[0], resumed[0], 'the same score position keeps its take after a seek');
     assert.deepEqual(repeat.slice(2), resumed.slice(2), 'the attack is independent of the playback clock');
   }
+  const preview = ctx.createGain();
+  e.hookBus = preview;
+  hit('oboe');
+  const dest = hits.at(-1)[3];
+  assert.ok(feeds(dest, preview) && !feeds(dest, e.windDuck), 'the preview bus can silence already scheduled winds');
   files.clear();
 }
 {
