@@ -76,7 +76,7 @@ function instrument(style) {
   s.artist = { ...s.artist, style };
   const ctx = new OfflineAudioContext(2, 48000, 48000);
   const nodes = [];
-  for (const method of ['createGain', 'createBiquadFilter', 'createWaveShaper', 'createOscillator']) {
+  for (const method of ['createGain', 'createBiquadFilter', 'createWaveShaper', 'createOscillator', 'createChannelMerger']) {
     const original = ctx[method].bind(ctx);
     ctx[method] = () => { const node = original(); nodes.push({ method, node }); return node; };
   }
@@ -91,20 +91,50 @@ for (const style of ['hardtechno', 'hypnotic', 'minimal', 'drill', null]) {
     nodes.length = 0;
     e[method](...args);
     const colors = nodes.filter(({ node }) => node.oversample === '4x' && node.curve);
-    assert.equal(colors.length, style === 'hardtechno' ? 1 : 0, `${style} ${method} palette gate`);
+    assert.equal(colors.length, style === 'hardtechno' ? method === 'hook' ? 4 : 1 : 0, `${style} ${method} palette gate`);
     if (style !== 'hardtechno') continue;
-    assert.equal(nodes.filter(({ node }) => node.type === 'highpass' && node.frequency.value === 350).length, 2);
+    assert.equal(nodes.filter(({ node }) => node.type === 'highpass' && node.frequency.value === 350).length, method === 'hook' ? 8 : 2);
     const cutoff = method === 'perc' ? 4200 : method === 'stab' ? 2800 : 1800;
     assert.equal(nodes.filter(({ node }) => node.type === 'lowpass' && node.frequency.value === cutoff).length, 2);
     assert(nodes.some(({ node }) => node.gain?.events.some(ev => ev.k === 's' && ev.v === 0) && node.gain.events.some(ev => ev.k === 'l' && ev.t > 0.1)));
-    if (method === 'stab') assert(nodes.some(({ node }) => node.detune?.events.some(ev => ev.k === 'l' && ev.v === -16)));
-    if (method === 'perc') assert(nodes.some(({ node }) => node.frequency?.value === e.state.params.perc.tune * 2 * 2.414));
+    if (method === 'stab') {
+      const pitched = nodes.filter(({ node }) => node.detune?.events.some(ev => ev.k === 's' && ev.v >= 198));
+      assert(pitched.length >= 2);
+      assert(pitched.every(({ node }) => node.detune.events.some(ev => ev.k === 'l' && Math.abs(ev.v) >= 31.5 && ev.t === 0.22)));
+    }
+    if (method === 'perc') assert(nodes.some(({ node }) => node.frequency?.events.some(ev => ev.k === 'e' && Math.abs(ev.v - e.state.params.perc.tune * 2 * 1.71) < 1e-9)));
     if (method === 'hook') assert(nodes.some(({ node }) => node.gain?.events.some(ev => ev.k === 'l' && Math.abs(ev.t - 0.28) < 1e-9 && Math.abs(ev.v - 0.8 * 0.12 * 0.09) < 1e-9)));
+  }
+  for (const args of [[0.1, 0.2, 220, 0.6], [0.1, 0, 220, 0.6], [0.1, NaN, 220, 0.6], [0.1, 0.2, 0, 0.6], [0.1, 0.2, Infinity, 0.6], [0.1, 0.2, 220, 0], [NaN, 0.2, 220, 0.6]]) {
+    nodes.length = 0;
+    e.hardLead(...args, e.ch.stab.input);
+    const valid = style === 'hardtechno' && args.every(Number.isFinite) && args.slice(1).every(n => n > 0);
+    assert.equal(nodes.length > 0, valid);
+    if (valid) {
+      assert.equal(nodes.filter(({ node }) => node.detune?.value === -13 || node.detune?.value === 13).length, 2);
+      assert.equal(nodes.filter(({ node }) => node.type === 'lowpass' && node.frequency.value === 5200).length, 6);
+      assert.equal(nodes.filter(({ node }) => node.frequency?.events.some(ev => ev.k === 'e' && ev.v === 700)).length, 3);
+    }
   }
   for (const args of [[0, [440], 0.3], [NaN, [440], 0.3], [Infinity, [440], 0.3], [1, [], 0.3], [1, [NaN, 0, -440], 0.3], [1, [440], 0], [1, [440], NaN]]) {
     nodes.length = 0;
     e.hardPalette(0.1, ...args, e.ch.stab.input, 'rave');
     assert.equal(nodes.length, 0);
+  }
+}
+{
+  const { e, nodes } = instrument('hardtechno');
+  e.realtime = true;
+  e.hardLead(0.1, 0.12, 220, 0.6, e.ch.stab.input);
+  const stereo = nodes.find(({ method }) => method === 'createChannelMerger').node;
+  for (const { node } of nodes.filter(({ node }) => node.onended)) node.onended();
+  assert(stereo.cut, 'finished Hard Techno lead releases its stereo bus');
+  for (const style of ['hardtechno', 'minimal']) {
+    const { e, nodes } = instrument(style);
+    e.state.params.stab.voice = 2;
+    e.stab(0.1, 0.8);
+    const bends = nodes.filter(({ node }) => node.detune?.events.some(ev => ev.k === 's' && ev.v >= 198));
+    assert.equal(bends.length > 0, style === 'hardtechno', 'pad stab pitch envelope gate');
   }
 }
 for (const style of ['hardtechno', 'minimal']) {
