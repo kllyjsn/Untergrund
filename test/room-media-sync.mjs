@@ -29,7 +29,7 @@ for (const normal of [.42, 1.5]) {
   const jam = createRoomMediaSync(() => 1000), jamSet = { ...item, state: { patterns: [{}] } };
   jam.begin(jamSet, false, false, route);
   jam.start(true, route);
-  assert.equal(jam.horizon(normal, true, route), normal, 'jam-capable rooms never prime before snapshot layers arrive');
+  assert.equal(jam.horizon(normal, true, route), 4, 'jam-capable rooms retain the cold prime');
   jam.remember(jamSet);
   assert.equal(jam.duplicate(jamSet, true, true, route), true, 'cold duplicate guard does not depend on priming');
 }
@@ -112,10 +112,10 @@ for (let i = 0; i < desktop.hits.length; i++) {
 assert.equal(solo.hits[0].t, desktop.hits[0].t, 'non-room media playback has no lead');
 assert.equal(solo.hits[0].gridTime, undefined);
 const jamTransport = transport(route, true, { ...item, state: { patterns: [{}] } });
-assert.equal(jamTransport.hits.length, desktop.hits.length, 'jam-capable join queues only the normal 420ms, not four seconds');
+assert.equal(jamTransport.hits.length, media.hits.length, 'jam-capable join retains four seconds of priming');
 for (let i = 0; i < desktop.hits.length; i++)
-  assert.equal(jamTransport.hits[i].t, desktop.hits[i].t - ROOM_MEDIA_LEAD, 'jam rooms retain the route lead without priming');
-console.log('Room jam startup PASS: jam-capable joins keep normal horizons before snapshot layers; duplicate guard and score priming retained.');
+  assert.equal(jamTransport.hits[i].t, desktop.hits[i].t - ROOM_MEDIA_LEAD, 'jam rooms retain the route lead');
+console.log('Room jam startup PASS: jam-capable joins retain the one-time 4s prime and route lead.');
 assert.equal(media.s.roomMediaSync.horizon(.42, true, route), .42);
 for (const t of [desktop, media]) {
   Object.assign(t.s, { transportOrigin: 999800, abs: 2, nextTime: 14, clockOffset: 0 });
@@ -171,15 +171,61 @@ for (const action of ['stop', 'replaceState', 'start']) for (const mode of ['pri
   if (action === 'start') api.start({ startsAt: s.Date.now() + 100, room: true });
   else if (action === 'replaceState') end.replaceState({ bpm: 100 });
   else end.stop();
-  assert.equal(discarded, mode === 'primed' ? 1 : 0, `${action}: no new discard outside an active primed queue`);
+  const primed = mode === 'primed' || mode === 'jam';
+  assert.equal(discarded, primed ? 1 : 0, `${action}: no new discard outside an active primed queue`);
   for (const note of sources) {
-    assert.equal(note.stopped, mode === 'primed' && note.t > s.ctx.currentTime ? s.ctx.currentTime : Infinity,
+    assert.equal(note.stopped, primed && note.t > s.ctx.currentTime ? s.ctx.currentTime : Infinity,
       `${action}: only future primed sources are stopped; desktop/unprimed paths retain legacy behavior`);
-    if (mode === 'primed' && note.t > s.ctx.currentTime)
+    if (primed && note.t > s.ctx.currentTime)
       assert(note.stopped < note.t, 'Web Audio stop before scheduled start prevents any future onset');
   }
 }
-console.log('Room prime cancellation PASS: real Engine queue discard prevents future starts on stop, set replacement and restart; desktop, jam and expired-prime paths unchanged.');
+console.log('Room prime cancellation PASS: real Engine queue discard prevents future starts on stop, set replacement and restart, including jam rooms; desktop and expired-prime paths unchanged.');
+const jamSource = main.slice(main.indexOf('function refreshJamPrime('), main.indexOf('\n// GENERATE while'));
+for (const mediaRoute of [null, route]) for (const kind of ['snapshot', 'late', 'future', 'beyond', 'expired']) {
+  const { s, hits, vocals } = transport(mediaRoute, true, { ...item, state: { patterns: [{}] } });
+  const noop = () => {}, tasks = [], sources = hits.map(h => ({ ...h, layer: 'old', stopped: Infinity }));
+  const makeSource = note => { note.src = { stop: t => { note.stopped = t; } }; return note; };
+  sources.forEach(makeSource);
+  const end = s.nextTime;
+  Object.assign(s, { jamReschedule: false, jamRedraw: 0,
+    queueMicrotask: task => tasks.push(task), applyPart: (state, part, layer) => { state[part] = layer; },
+    setTimeout: noop, cancelAnimationFrame: noop, requestAnimationFrame: noop,
+    engine: { ...s.engine, queuedNotes: [...sources], applyAll: noop,
+      discardQueuedNotes: function(t) { for (const note of this.queuedNotes) if (note.t > t) note.src.stop(t); this.queuedNotes.length = 0; },
+    },
+  });
+  s.seq.rewind = abs => { s.seq.chainPos = Math.floor(abs / 16) + (abs % 16 ? 1 : 0); };
+  s.seq.tick = (abs, t) => {
+    const note = makeSource({ abs, t, layer: s.state.kick || 'old', stopped: Infinity });
+    sources.push(note); s.engine.queuedNotes.push(note); return 0;
+  };
+  const jam = runInNewContext(`${jamSource}\n({landJamPart,queueJamPart,landJamParts})`, s);
+  s.landJamParts = jam.landJamParts;
+  s.ctx.currentTime = kind === 'expired' ? end + 1 : 10.1;
+  s.Date.now = () => (s.ctx.currentTime + 990) * 1000;
+  if (kind === 'snapshot' || kind === 'expired') { jam.landJamPart('kick', 'new'); jam.landJamPart('bass', 'new'); }
+  else jam.queueJamPart('kick', 'new', kind === 'late' ? 1000000 : kind === 'future' ? 1002100 : 1010000);
+  const boundary = s.nextTime, replaced = mediaRoute && kind !== 'beyond' && kind !== 'expired';
+  assert.equal(tasks.length, replaced ? 1 : 0, 'snapshot layers coalesce before the next redraw; desktop/far-future edits do not requeue');
+  for (const task of tasks) task();
+  if (replaced) {
+    assert(boundary >= 10.1 + .42 - 1e-6, 'preserve the safe 420ms queue');
+    if (kind === 'future') assert(Math.abs(boundary - (12.1 - ROOM_MEDIA_LEAD)) < 1e-6, 'future change keeps its bar');
+    else assert.equal(vocals.at(-1).gridTime, boundary, 'partial-bar vocal restarts on the compensated grid');
+    for (const note of sources.filter(n => n.layer === 'old'))
+      assert.equal(note.stopped < note.t, note.t >= boundary - 1e-6, 'all stale future sources are cancelled, and the safe prefix is retained');
+    const replacement = sources.filter(n => n.layer === 'new');
+    assert(replacement.length && replacement.every(n => n.t >= boundary - 1e-6), 'refill uses current jam patterns at the safe boundary');
+    assert(Math.abs(s.nextTime - end) < 1e-6, 'refill restores the original cold horizon without re-priming');
+    assert(s.engine.queuedNotes.some(n => n.t < boundary), 'safe-prefix sources remain tracked for a subsequent stop');
+    assert.equal(s.roomMediaSync.horizon(.42, true, mediaRoute, 10.1), .42, 'refill horizon is consumed once');
+  } else {
+    assert.equal(s.nextTime, end, 'unaffected scheduler cursor is bit-identical');
+    assert(sources.every(n => n.stopped === Infinity), 'desktop and beyond-prime edits do not stop sources');
+  }
+}
+console.log('Room jam refill PASS: snapshot and live/late layers replace stale primed notes at a safe prefix/bar, preserve the original horizon and stop tracking; desktop and beyond-prime queues unchanged.');
 const broadcast = main.slice(main.indexOf('function startRoomBroadcast('), main.indexOf('\nfunction showClub('));
 for (const mediaRoute of [null, route]) {
   let delay;

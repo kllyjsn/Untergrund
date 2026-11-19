@@ -179,7 +179,7 @@ function ensureAudio() {
 let songOver = false;
 function schedule(lead) {
   if (!playing || (songOver && !queuedRoomReplay)) return;
-  const ahead = roomMediaSync.horizon(typeof lead === 'number' ? lead : document.hidden ? BG_LEAD : roomPlayback ? ROOM_LEAD : 0.12, roomPlayback, mediaRoute);
+  const ahead = roomMediaSync.horizon(typeof lead === 'number' ? lead : document.hidden ? BG_LEAD : roomPlayback ? ROOM_LEAD : 0.12, roomPlayback, mediaRoute, roomPlayback && mediaRoute ? ctx.currentTime : 0);
   const now = ctx.currentTime;
   if (roomEditor) engine.pruneEditableHits(now);
   const clock = syncAudioClock(clockOffset, Date.now() / 1000 - now);
@@ -229,7 +229,7 @@ function schedule(lead) {
       abs += skip * 16; seq.chainPos += skip; transportOrigin -= skip * 16 * base * 1000;
       if (handoff?.step != null) { handoff.step += skip * 16; handoff.from += skip * 16; }
     }
-    if (jamQueue.length && (abs - seq.origin) % 16 === 0) {
+    if (jamQueue.length && ((abs - seq.origin) % 16 === 0 || (roomPlayback && mediaRoute && roomMediaSync.active(now)))) {
       const gridTime = roomPlayback && mediaRoute ? nextTime + roomMediaLead(roomPlayback, mediaRoute) : nextTime;
       landJamParts((gridTime + clockOffset) * 1000 + base * 500, t);
     }
@@ -256,11 +256,38 @@ function schedule(lead) {
 
 // Jam: another player's part lands on the room downbeat it was sent for (wall-clock ms), the same bar for everyone.
 // Old changes (catching up on join) or a stopped transport apply at once.
-let jamQueue = [], jamRedraw = 0;
+let jamQueue = [], jamRedraw = 0, jamReschedule = false;
+function refreshJamPrime(wall = null) {
+  if (!playing || !roomPlayback || !mediaRoute || !roomMediaSync.active(ctx.currentTime)) return;
+  const safe = Math.max(ctx.currentTime + ROOM_LEAD, wall == null ? 0 : roomMediaTime(wall / 1000 - clockOffset, true, mediaRoute));
+  const steps = Math.floor((nextTime - safe) / engine.stepDur + 1e-7);
+  if (steps <= 0) return;
+  nextTime -= steps * engine.stepDur;
+  abs -= steps;
+  const retained = engine.queuedNotes.filter(note => note.t < nextTime - 1e-6);
+  engine.discardQueuedNotes(nextTime - 1e-6);
+  engine.queuedNotes.push(...retained);
+  uiQueue.splice(0, uiQueue.length, ...uiQueue.filter(q => q.t < nextTime - 1e-6));
+  seq.rewind(abs, nextTime);
+  seq.acidPrevSlide = false;
+  seq.finished = songOver = false;
+  if (handoff) { engine.handoffCancel(); handoff.out = false; }
+  roomMediaSync.refill();
+  if (jamReschedule) return;
+  jamReschedule = true;
+  queueMicrotask(() => {
+    jamReschedule = false;
+    if (!playing || !roomPlayback || !mediaRoute) return;
+    const step = (abs - seq.origin) % 16;
+    if (step) engine.vocal(nextTime, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, step, nextTime);
+    schedule();
+  });
+}
 function queueJamPart(part, layer, wall) {
   jamQueue = jamQueue.filter((q) => q.part !== part);
   if (!playing || wall < Date.now() - 2000) return landJamPart(part, layer);
   jamQueue.push({ part, layer, wall });
+  refreshJamPrime(wall);
 }
 function landJamParts(stepWallMs, t) {
   const due = jamQueue.filter((q) => q.wall <= stepWallMs);
@@ -274,6 +301,7 @@ function landJamPart(part, layer, t = null) {
   const wait = t == null ? 0 : Math.max(0, (t - ctx.currentTime) * 1000);
   setTimeout(() => window.dispatchEvent(new CustomEvent('untergrund:jam', { detail: { part } })), wait);
   if (engine) engine.applyAll();
+  if (t == null) refreshJamPrime();
   cancelAnimationFrame(jamRedraw);
   jamRedraw = requestAnimationFrame(() => { build(); persist(); });
 }
