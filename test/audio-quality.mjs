@@ -34,6 +34,14 @@ import { withChrome } from './chrome.mjs';
   assert.deepEqual(report('fast', [], [], null, {}).global, {});
   result.mix.peak.truePeakDb = -0.5;
   assert.equal(run().verdict, 'WARN');
+  result.stems.kickBass = { collisionP90Db: -20 };
+  const base = JSON.parse(baselineOf(run()));
+  const kickBassLevel = (value) => {
+    result.stems.kickBass.collisionP90Db = value;
+    return report('fast', [42], [result], base, {}).styles.minimal.metrics.kickBass.level;
+  };
+  assert.equal(kickBassLevel(-200), 'PASS', 'offbeat bass does not collide with the kick');
+  assert.equal(kickBassLevel(-8), 'FAIL', 'an increase in kick masking still fails drift');
   result.mix.peak.clipRuns = 1;
   assert.equal(run().verdict, 'FAIL');
   console.log('audio benchmark applicability passed: INFO counts, missing measurements and unchanged PASS/WARN/FAIL verdicts');

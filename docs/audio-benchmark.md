@@ -65,6 +65,7 @@ p10/p50/p90 over all songs. `warn`/`fail` are absolute guardrails; `drift` is th
 FAIL); `repeat` is the agreement two runs of one commit must reach (Chrome renders aren't bit-identical, so there are no
 waveform hashes). The authoritative list with every threshold and its rationale is `CHECKS` in the script, copied into
 each report under `checks`.
+For kick/bass collision, drift only flags increases: reducing bass overlap with the kick is intentional in offbeat grooves.
 
 | group | checks | can conclude | cannot conclude |
 |---|---|---|---|
