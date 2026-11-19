@@ -230,6 +230,10 @@ async function scenario(base, spec, network, run) {
   let events = {};
   try {
     const song = spec.mix ? mixSong() : fixture();
+    if (spec.replay && !spec.cold) {
+      // The outgoing fixture promises one kick per beat; the replay uses the irregular grid.
+      for (const p of song.patterns) p.steps.kick = p.steps.kick.map((_, step) => step % 4 === 0 ? 1 : 0);
+    }
     if (spec.djLatency) {
       song.chainOn = false;
       song.patterns[0].len.kick = 4;
@@ -342,7 +346,7 @@ async function scenario(base, spec, network, run) {
         await until(() => listener.run(`[...document.querySelectorAll('.club-secondary')].some(b => b.textContent === 'UPDATE ROOM')`), 'new DJ controls');
         events.broadcastAt = await listener.clickText('UPDATE ROOM');
       } else {
-        events.seed = await seedReplay(host, room, song);
+        events.seed = await seedReplay(host, room, fixture());
         events.actionAt = await host.clickText('REPLAY TO ROOM');
       }
       events.newSet = await until(async () => {
@@ -506,7 +510,7 @@ async function scenario(base, spec, network, run) {
       transition = { actionAt: events.actionAt, startsAt: events.newSet.startsAt, firstDownbeatAt: events.firstDownbeatAt, host: rendered[0], listener: rendered[1],
         firstDownbeatDeltaMs, actionToFirstAlignedKickMs: first ? Math.max(first.host, first.listener) - events.actionAt : null };
       console.log(`${spec.name}: ${spec.handoff ? 'PASS DECK → new DJ UPDATE ROOM (running origin preserved; next ABCD downbeat)' : 'seeded saved timeline → REPLAYS → REPLAY TO ROOM'}; first downbeat host/listener=${rendered.map(r => r.firstDownbeat?.toFixed(1) ?? 'none').join('/')} true epoch ms; Δ=${firstDownbeatDeltaMs?.toFixed(2) ?? 'none'}ms; action→aligned=${transition.actionToFirstAlignedKickMs?.toFixed(0) ?? 'none'}ms`);
-      for (const [i, name] of ['original host', 'original listener'].entries()) console.log(`  ${name}: action→first kick=${rendered[i].actionToFirstKickMs?.toFixed(0) ?? 'none'}ms; inter-kick gap across action=${rendered[i].interKickGapAcrossActionMs?.toFixed(0) ?? 'none'}ms; silence before new downbeat=${rendered[i].silenceBeforeFirstDownbeatMs?.toFixed(0) ?? 'none'}ms; longest transition silence=${rendered[i].longestSilenceAroundTransitionMs?.toFixed(0) ?? 'none'}ms`);
+      for (const [i, name] of ['original host', 'original listener'].entries()) console.log(`  ${name}: action→first kick=${rendered[i].actionToFirstKickMs?.toFixed(0) ?? 'none'}ms; inter-kick gap across action=${rendered[i].interKickGapAcrossActionMs?.toFixed(0) ?? 'none'}ms; silence before new downbeat=${rendered[i].silenceBeforeFirstDownbeatMs?.toFixed(0) ?? 'none'}ms; longest transition silence=${rendered[i].longestSilenceAroundTransitionMs?.toFixed(0) ?? 'none'}ms; largest pre-roll kick gap=${rendered[i].maxPrerollKickGapMs?.toFixed(0) ?? 'none'}ms`);
     }
     if (events.recoverAt) {
       const recoveryEnvelopes = spec.freezeMs ? raw.map(r => postResumeEnvelope(r)) : [he, le];
@@ -630,6 +634,8 @@ function failed(r) {
   return s.median === null || s.median > 25 || s.p95 > 50 || !s.matched || s.missing ||
     ((r.spec.freezeMs || r.spec.mainThreadStallMs) && s.extra) || r.hostFixture.missing ||
     (r.spec.wakeOnDownbeat && (r.events.wakeDownbeatDeltaMs === null || Math.abs(r.events.wakeDownbeatDeltaMs) > 50)) ||
+    (r.spec.replay && (!r.transition || [r.transition.host, r.transition.listener].some(c =>
+      c.maxPrerollKickGapMs === null || c.maxPrerollKickGapMs > 60000 / BPM + 50))) ||
     (r.transition && (r.transition.firstDownbeatDeltaMs === null || Math.abs(r.transition.firstDownbeatDeltaMs) > 50 || r.transition.actionToFirstAlignedKickMs === null));
 }
 try {

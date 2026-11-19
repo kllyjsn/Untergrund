@@ -18,11 +18,14 @@ export function transitionAudio(rows, actionAt, startsAt) {
   const gaps = active.slice(1).map((s, i) => ({ from: active[i].to, to: s.from, durationMs: s.from - active[i].to }))
     .filter(g => g.to >= actionAt && g.from <= startsAt + 500);
   const preceding = firstDownbeat === null ? null : gaps.filter(g => g.to <= firstDownbeat).at(-1) ?? null;
+  const prerollKicks = firstDownbeat === null ? [] : kicks.filter(t => t > actionAt && t <= firstDownbeat);
+  const prerollGaps = prerollKicks.map((t, i) => t - (prerollKicks[i - 1] ?? lastKickBeforeAction));
   return { firstDownbeat, lastKickBeforeAction, firstKickAfterAction,
     actionToFirstKickMs: firstKickAfterAction === null ? null : firstKickAfterAction - actionAt,
     actionToFirstDownbeatMs: firstDownbeat === null ? null : firstDownbeat - actionAt,
     interKickGapAcrossActionMs: lastKickBeforeAction === null || firstKickAfterAction === null ? null : firstKickAfterAction - lastKickBeforeAction,
     silenceBeforeFirstDownbeatMs: preceding?.durationMs ?? null,
     longestSilenceAroundTransitionMs: gaps.length ? Math.max(...gaps.map(g => g.durationMs)) : null,
+    maxPrerollKickGapMs: lastKickBeforeAction !== null && prerollGaps.length ? Math.max(...prerollGaps) : null,
     silenceThreshold: threshold, gaps };
 }
