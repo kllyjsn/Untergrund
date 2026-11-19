@@ -360,9 +360,10 @@ function setPart(r, P, kind, deg, chordTones, words, sig, ceil = Infinity) {
 
 // The whole melody for a song. `prog` is the main changes (one chord per bar), `alt` the bridge's.
 // `words` ({ n, v, b }: up to 4 lyric lines each) sets the parts to those lines; the song genres always text-set.
-export function writeMelody(r, style, scale, { prog, alt, chord = 0, words = null } = {}) {
-  const P = SING_PROFILES[style];
-  if (!P) return null;
+export function writeMelody(r, style, scale, { prog, alt, chord = 0, words = null, gainScale = 1 } = {}) {
+  const profile = SING_PROFILES[style];
+  if (!profile) return null;
+  const P = gainScale === 1 ? profile : { ...profile, gain: (profile.gain || 1) * gainScale };
   const deg = scale.length >= 7 ? scale.slice(0, 7) : scale.slice(0, scale.length - 1);
   const tones = (pr) => (bar) => {
     const h = pr?.length ? pr[mod(bar, pr.length)] : { r: 0, c: chord };
