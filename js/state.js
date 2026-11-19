@@ -1147,14 +1147,18 @@ function drillVerses(pats, { chain, sections }, keep) {
       setTake(verse, bar, edit(patternAt(verse, bar), { kick: [...response] }));
     }
   }
+  let firstPickup = true;
   for (let i = 1; i < spans.length; i++) {
     const { k, at } = spans[i], bar = at - 1;
     if (k !== 'c' || spans[i - 1].k !== 'v' || chain[bar] !== 'D' || chain[at] !== 'G') continue;
     const steps = clone(verse.steps);
     steps.perc[15] = 1;
-    const acid = steps.acid.map((note, step) => step === 11 || step === 12 ? emptyAcidStep() :
-      step === 14 ? { ...emptyAcidStep(), on: true, v: 0.71 } :
-      step === 15 ? { ...emptyAcidStep(), on: true } : note);
+    // On repeats the 808 starts before the last kick, carrying through its tail instead of coming in after it.
+    const pickup = firstPickup ? 14 : 12;
+    const acid = steps.acid.map((note, step) => step === pickup ? { ...emptyAcidStep(), on: true, v: firstPickup ? 0.71 : 0.92 } :
+      step === 15 ? { ...emptyAcidStep(), on: true } :
+      step === 11 || step === 12 || step === 14 ? emptyAcidStep() : note);
+    firstPickup = false;
     const base = patternAt(fill, bar);
     setTake(fill, bar, edit(base, {
       ...steps, acid,
