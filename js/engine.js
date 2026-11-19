@@ -687,6 +687,10 @@ export class Engine {
     const acid = this.acidNodes;
     for (const p of [acid.env.offset, acid.o1.frequency, acid.o2.frequency, this.subVoice?.o.frequency]) p?.cancelScheduledValues(now);
     for (const p of [acid.vca.gain, this.subVoice?.amp.gain, this.mono?.amp.gain]) p?.cancelScheduledValues(now);
+    if (this.pulseVoice) {
+      const { freqs, waves, lp, amp } = this.pulseVoice;
+      for (const p of [...freqs, ...waves, lp.frequency, lp.Q, amp.gain]) p.cancelScheduledValues(now);
+    }
     this.acidRelease(now);
     for (const p of [this.duck.gain, this.rumbleDuck.gain, this.ch.acid.sc?.gain, this.windDuck?.gain]) {
       if (!p) continue;
@@ -2490,37 +2494,51 @@ export class Engine {
     this.retire(sub, amp);
   }
 
-  // A dry machine bass: stable pitch and upper odd harmonics, leaving the pitch knock to the kick.
+  // A single gated oscillator bank for the whole song. Fast pulse lines don't allocate nodes per hit.
+  buildPulseBass() {
+    const c = this.ctx, lp = this.filter('lowpass', 700, 1), amp = this.gain(0), drive = c.createWaveShaper();
+    const waves = [], freqs = [];
+    for (const wave of ['sine', 'sawtooth', 'square']) {
+      const o = c.createOscillator(), gain = this.gain(0);
+      o.type = wave; o.connect(gain).connect(lp); o.start(0);
+      waves.push(gain.gain); freqs.push(o.frequency);
+    }
+    lp.connect(drive).connect(amp).connect(this.ch.acid.input);
+    return { freqs, waves, lp, drive, amp };
+  }
+
   pulseBass(t, st, sd, holdNext, sliding) {
-    const c = this.ctx, p = this.state.params.acid;
-    const f = midiHz(this.bassMidi(st)), from = this.monoNote(t, f, sliding);
-    const len = sd * (holdNext ? 1.2 : 0.63) + p.decay * 0.23, end = t + len + 0.25;
-    const lp = this.filter('lowpass', p.cutoff, p.reso * 0.5), amp = this.gain(0);
+    const p = this.state.params.acid, a = this.pulseVoice ??= this.buildPulseBass();
+    const { freqs, waves, lp, drive, amp } = a, f = midiHz(this.bassMidi(st));
+    const len = sd * (0.88 - 0.25 * p.wave) + p.decay * 0.23;
+    if (this.mono) this.monoNote(t, f, false);
+    freqs.forEach((target, i) => {
+      const hz = f * (i ? 2 : 1);
+      if (sliding) target.setTargetAtTime(hz, t, 0.019); else target.setValueAtTime(hz, t);
+    });
+    waves[0].setValueAtTime(1, t);
+    waves[1].setValueAtTime((1 - p.wave) * 0.18, t);
+    waves[2].setValueAtTime(p.wave * 0.62, t);
+    lp.Q.setValueAtTime(p.reso * 0.5, t);
+    lp.frequency.cancelScheduledValues(t);
     lp.frequency.setValueAtTime(p.cutoff * (1 + p.envmod * (st.a ? 2 : 1)), t);
     lp.frequency.setTargetAtTime(p.cutoff, t + 0.01, 0.035);
-    let last;
-    for (const [wave, k, level] of [['sine', 1, 1], ['sawtooth', 2, (1 - p.wave) * 0.62], ['square', 2, p.wave * 0.62]]) {
-      const o = c.createOscillator(); o.type = wave;
-      o.frequency.setValueAtTime(from * k, t);
-      if (from !== f) o.frequency.exponentialRampToValueAtTime(f * k, t + 0.04);
-      o.connect(this.gain(level)).connect(lp);
-      this.startSource(o, t); o.stop(end);
-      last = o;
-    }
-    const drive = c.createWaveShaper(); drive.curve = driveCurve(p.drive * 0.42);
-    const v = (st.a ? 0.74 + 0.15 * p.accent : 0.63) * (this.noteVel ?? 1);
-    lp.connect(drive).connect(amp).connect(this.ch.acid.input);
-    amp.gain.setValueAtTime(0, t);
-    amp.gain.linearRampToValueAtTime(v, t + 0.006);
+    if (a.driveAmount !== p.drive) { drive.curve = driveCurve(p.drive * 0.42); a.driveAmount = p.drive; }
+    const v = (st.a ? 0.74 + 0.15 * p.accent : 0.63) * (0.65 + 0.53 * p.wave) * (this.noteVel ?? 1);
+    amp.gain.cancelScheduledValues(t);
+    if (!sliding) amp.gain.setValueAtTime(0, t);
+    amp.gain.setTargetAtTime(v, t, 0.0025);
     amp.gain.setTargetAtTime(v * 0.51, t + 0.008, 0.036);
-    amp.gain.setTargetAtTime(0, t + len, 0.016);
-    this.mono = { amp, f, end };
-    this.retire(last, amp);
+    if (!holdNext) amp.gain.setTargetAtTime(0, t + len, 0.016);
   }
 
   acid(t, st, sliding, holdNext, sd) {
     const a = this.acidNodes, p = this.state.params.acid;
     const vo = Math.round(p.voice);
+    if (vo !== 7 && this.pulseVoice) {
+      const gain = this.pulseVoice.amp.gain;
+      gain.cancelScheduledValues(t); gain.setTargetAtTime(0, t, 0.005);
+    }
     if (vo > 0) { a.vca.gain.setTargetAtTime(0, t, 0.005); return this[['', 'bass', 'eight08', 'reese', 'logdrum', 'ebass', 'fmBass', 'pulseBass'][vo]](t, st, sd, holdNext, sliding); }
     const f = midiHz(this.bassMidi(st)), sub = lowEnd(this.state.master)?.sub[0];
     if (sub) this.subLayer(t, midiHz(this.bassMidi(st, 36, 38)), holdNext ? sd * 1.05 : sd * 0.6, sub * (st.a ? 1 : 0.85) * (this.noteVel ?? 1), sliding);
@@ -2544,7 +2562,12 @@ export class Engine {
     if (!holdNext) a.vca.gain.setTargetAtTime(0, t + sd * 0.55, 0.006);
   }
 
-  acidRelease(t) { this.acidNodes.vca.gain.setTargetAtTime(0, t, 0.008); this.subVoice?.amp.gain.setTargetAtTime(0, t, 0.01); if (this.mono) { this.mono.amp.gain.setTargetAtTime(0, t, 0.01); this.mono = null; } }
+  acidRelease(t) {
+    this.acidNodes.vca.gain.setTargetAtTime(0, t, 0.008);
+    this.pulseVoice?.amp.gain.setTargetAtTime(0, t, 0.008);
+    this.subVoice?.amp.gain.setTargetAtTime(0, t, 0.01);
+    if (this.mono) { this.mono.amp.gain.setTargetAtTime(0, t, 0.01); this.mono = null; }
+  }
 
   // ---------- arrangement FX ----------
   tonalSweep(t, dur, amt, down = false) {

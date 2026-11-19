@@ -268,7 +268,7 @@ function generatePattern(style, seed, scaleName, starter) {
     const bassShade = r();
     Object.assign(params.acid, starter
       ? { wave: 0.15, cutoff: 180 + bassShade * 120, reso: 8, envmod: 0.35, decay: 0.18, accent: 0.4, drive: 0.35 }
-      : { wave: 0.06, cutoff: 160 + bassShade * 85, reso: 0.55, envmod: 0.17, decay: 0.065, accent: 0.4, drive: 0.16 });
+      : { wave: 0.32, cutoff: 180 + bassShade * 90, reso: 0.55, envmod: 0.17, decay: 0.065, accent: 0.4, drive: 0.16 });
     Object.assign(params.stab, { chord: pick(r, [1, 3, 4]), cutoff: 1100, decay: 0.22, env: 0.4 });
     Object.assign(params.perc, { tune: 180 + r() * 300, metal: 0.4, bend: 0.3 });
     master.duck = 0.55;
