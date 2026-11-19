@@ -32,6 +32,12 @@ legacy thresholds still run unchanged.
 `--vocal synthetic-pop` uses exactly the real-mode pop song but injects the
 original synthetic stem. `synthetic` retains the hypnotic fixture. Use a comma
 list of `--scenario` names and `--repeat 3` for sequential trials in one process.
+For `dj-handoff-mix`, both pop modes queue before PASS DECK and pass at the
+same score position (13⅜ beats from the initial room origin, within 100ms).
+Otherwise navigation and queue timing can move PASS across a kick into the
+sparse build: even uninterrupted audio then takes over three beats to produce
+three post-pass kicks. JSON records the target as `events.passTargetAt` and
+still measures recovery from the actual click.
 Add `--clips` to always save clips; otherwise existing threshold failures or new
 vocal findings trigger them. New measurements are diagnostic, not new CI gates.
 AFTER findings include gaps/phrase anomalies, vocal-to-kick absolute median

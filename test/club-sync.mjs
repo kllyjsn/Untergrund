@@ -14,7 +14,7 @@ import { installAudioTap, envelope, postResumeEnvelope, onsets, resolvedCompare,
 import { transitionAudio } from './club-sync-transition.mjs';
 import { measureDJEdits } from './club-dj-edit.mjs';
 import { installDiagnostics, diagnose } from './club-sync-diagnostics.mjs';
-import { mixFixture, realMixFixture, loadRealMixStem, mixBoundaries, mixGraphEdges, installMixStem, analyzeMix, mixFailures, channelEnvelope } from './club-sync-mix.mjs';
+import { mixFixture, realMixFixture, popHandoffTargetAt, loadRealMixStem, mixBoundaries, mixGraphEdges, installMixStem, analyzeMix, mixFailures, channelEnvelope } from './club-sync-mix.mjs';
 import { singRequest, vocalDb } from '../js/sing.js';
 import { analyzeVocalGrid, vocalFindings, referenceEnvelope, clipRange, extractPCM, floatWav, levelMatchClips } from './club-sync-vocals.mjs';
 
@@ -232,12 +232,23 @@ async function scenario(base, spec, run) {
       events.stallTarget = target;
     }
     if (spec.handoff || spec.replay) {
-      await pause(7000);
+      const popHandoff = spec.handoff && spec.mix && options.vocal !== 'synthetic';
+      if (popHandoff) {
+        events.passTargetAt = popHandoffTargetAt(initial.startsAt, song.bpm);
+        await pause(Math.max(0, events.passTargetAt - Date.now() - 2000));
+      } else await pause(7000);
       events.before = await snapshot();
       if (spec.handoff) {
         await listener.clickText('JOIN DJ QUEUE');
         await until(async () => (await snapshot()).queue?.includes(listenerId), 'listener queued on room server');
+        if (popHandoff) {
+          await until(() => host.run(`[...document.querySelectorAll('.club-secondary')].some(b => b.textContent === 'PASS DECK')`),
+            'host sees queued listener', Math.max(0, events.passTargetAt - Date.now()));
+          assert.ok(Date.now() < events.passTargetAt, 'DJ queue ready before the pop handoff target');
+          await pause(events.passTargetAt - Date.now());
+        }
         events.actionAt = await host.clickText('PASS DECK');
+        if (popHandoff) assert.ok(Math.abs(events.actionAt - events.passTargetAt) <= 100, 'PASS DECK within 100ms of the pop handoff target');
         if (spec.mix) events.interruptAt = events.recoverAt = events.actionAt;
         events.passed = await until(async () => { const s = await snapshot(); return s.hostId === listenerId && s; }, 'deck passed on room server');
         await until(() => listener.run(`[...document.querySelectorAll('.club-secondary')].some(b => b.textContent === 'UPDATE ROOM')`), 'new DJ controls');

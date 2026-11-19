@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { mixFixture, realMixFixture, mixBoundaries, mixGraphEdges, channelEnvelope, analyzeMix, matchEvents, realignment, phraseOnsets, boundaryMetric, mixFailures, underrunEvidence, kickAttribution } from './club-sync-mix.mjs';
+import { mixFixture, realMixFixture, popHandoffTargetAt, mixBoundaries, mixGraphEdges, channelEnvelope, analyzeMix, matchEvents, realignment, phraseOnsets, boundaryMetric, mixFailures, underrunEvidence, kickAttribution } from './club-sync-mix.mjs';
 import { singRequest } from '../js/sing.js';
 import { sanitize } from '../js/state.js';
 import { postResumeEnvelope, onsets } from './club-sync-audio.mjs';
-import { vocalMetrics, sustainedRecovery, vocalFindings, windowOffset, clipRange, floatWav, levelMatchClips } from './club-sync-vocals.mjs';
+import { gridKicks, vocalMetrics, sustainedRecovery, vocalFindings, windowOffset, clipRange, floatWav, levelMatchClips } from './club-sync-vocals.mjs';
 
 const bin = 4, expectedVoice = new Float64Array(8000);
 assert.deepEqual(clipRange(10000, 40000), {from:6000,to:40000});
@@ -83,6 +83,11 @@ assert.ok(singRequest(real, 'opus')?.score.notes.length);
 assert.deepEqual(singRequest(sanitize(real), 'opus'), singRequest(real, 'opus'));
 assert.equal(real.bpm, 123);
 assert.equal(mixBoundaries(real, 0).find(b => b.section === 'DROP').bar, 8);
+const popOrigin = 100000, passTarget = popHandoffTargetAt(popOrigin, real.bpm);
+const popKickGrid = gridKicks(real).map(t => t + popOrigin);
+const kicksAfterPass = marker => popKickGrid.filter(t => t >= marker).slice(0, 3);
+assert.deepEqual(kicksAfterPass(passTarget - 100), kicksAfterPass(passTarget + 100));
+assert.ok(kicksAfterPass(passTarget - 100)[2] - (passTarget - 100) < 3 * 60000 / real.bpm);
 
 const s = mixFixture();
 assert.deepEqual(s, mixFixture());
