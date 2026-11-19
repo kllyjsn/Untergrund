@@ -512,12 +512,13 @@ export class Engine {
     if (!mode && this.smoothOn) this.smoothChords(this.smoothOn, at);
   }
 
-  // A smooth style shelves its chords by db: a cut below 400 Hz under the bass, a lift below 700 Hz when the bass drops out.
+  // A smooth style shelves its chords by db: a cut below 400 Hz under the bass, a lift below 700 Hz and wetter sends when the bass drops out.
   smoothChords(db, at = 0) {
     this.smoothOn = db;
     if (this.stripMode) return;
     const shelf = this.ch.stab.strip[0], t = Math.max(at, this.ctx.currentTime);
-    for (const [prm, v] of [[shelf.frequency, db > 0 ? 700 : db ? 400 : 120], [shelf.gain, db]]) {
+    const { rev, dly } = this.ch.stab, ps = this.state.params.stab, wet = db > 0 ? 1.6 : 1;
+    for (const [prm, v] of [[shelf.frequency, db > 0 ? 700 : db ? 400 : 120], [shelf.gain, db], [rev.gain, ps.rev * wet], [dly.gain, ps.dly * wet]]) {
       prm.cancelScheduledValues(t);
       prm.setTargetAtTime(v, t, 0.12);
     }
