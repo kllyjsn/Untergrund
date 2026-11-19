@@ -712,7 +712,7 @@ export class Engine {
   discardQueuedNotes(now) {
     this.vocalStop(now);
     // stop() before a source's scheduled start prevents it from sounding.
-    for (const { src, t } of this.queuedNotes) if (t > now) src.stop(now);
+    for (const { src, t } of this.queuedNotes) if (t >= now) src.stop(now);
     this.queuedNotes.length = 0;
     this.editableHits.length = 0;
     this.ducks.length = 0;

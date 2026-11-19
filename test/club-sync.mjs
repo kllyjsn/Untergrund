@@ -27,6 +27,7 @@ const SCENARIOS = [
   { name: 'late-join', joinDelay: 10000 },
   { name: 'cold-invite', cold: true },
   { name: 'cold-invite-first-downbeat', cold: true, coldDownbeat: true, mix: true },
+  { name: 'cold-invite-replay-first-downbeat', cold: true, coldDownbeat: true, replay: true, mix: true },
   { name: 'injected-offset', displacementMs: 2000 },
   { name: 'reconnect', offlineMs: 10000 },
   { name: 'reconnect-expired', offlineMs: 20000 },
@@ -208,6 +209,20 @@ function fixture() {
   return s;
 }
 
+async function seedReplay(host, room, song) {
+  const saved = await host.run(`(async () => {
+    const {createTimelineRecorder} = await import('/js/set-timeline.js');
+    const {publishReplay} = await import('/js/sets.js');
+    const rec = createTimelineRecorder({state:${JSON.stringify(song)}, style:'hypnotic', startsAt:0,
+      dj:'Sync fixture', room:${JSON.stringify(room)}, title:'Club sync replay'});
+    const result = await publishReplay({timeline:rec.finish(30000), title:'Club sync replay', artist:'Sync fixture', room:${JSON.stringify(room)}});
+    return {id:result.item.id, public:result.public, durationMs:30000};
+  })()`);
+  if (await host.run('!document.querySelector(".club-social")?.getClientRects().length')) await host.click('.club-view-toggle');
+  await host.clickText('REPLAYS');
+  return saved;
+}
+
 async function scenario(base, spec, network, run) {
   const clients = [];
   const contention = [];
@@ -215,6 +230,10 @@ async function scenario(base, spec, network, run) {
   let events = {};
   try {
     const song = spec.mix ? mixSong() : fixture();
+    if (spec.replay && !spec.cold) {
+      // The outgoing fixture promises one kick per beat; the replay uses the irregular grid.
+      for (const p of song.patterns) p.steps.kick = p.steps.kick.map((_, step) => step % 4 === 0 ? 1 : 0);
+    }
     if (spec.djLatency) {
       song.chainOn = false;
       song.patterns[0].len.kick = 4;
@@ -247,8 +266,18 @@ async function scenario(base, spec, network, run) {
       await until(async () => (await snapshot()).members.length === 2 &&
         (await listener.run('__clubAudio.samples.length > 0')), 'listener in room with active audio capture');
     }
-    const action = await until(() => host.run(`document.querySelector('.lobby-cta')?.textContent === 'GO LIVE' ? '.lobby-cta' : document.querySelector('.club-primary')?.textContent === 'GO LIVE' ? '.club-primary' : null`), 'GO LIVE');
-    await host.click(action);
+    if (spec.coldDownbeat && spec.replay) {
+      events.seed = await seedReplay(host, room, song);
+      events.actionAt = await host.clickText('REPLAY TO ROOM');
+      const replay = await until(async () => {
+        const s = await snapshot();
+        return s.set.replay && s;
+      }, 'replay published before opening invite');
+      assert.deepEqual(replay.members, [replay.hostId], 'The cold listener has not joined the replay room yet');
+    } else {
+      const action = await until(() => host.run(`document.querySelector('.lobby-cta')?.textContent === 'GO LIVE' ? '.lobby-cta' : document.querySelector('.club-primary')?.textContent === 'GO LIVE' ? '.club-primary' : null`), 'GO LIVE');
+      await host.click(action);
+    }
     room ??= await until(() => host.run('new URL(location.href).searchParams.get("room")'), 'Host room invite');
     const broadcast = Date.now();
     if (spec.joinDelay) await pause(spec.joinDelay);
@@ -291,6 +320,7 @@ async function scenario(base, spec, network, run) {
     if (spec.coldDownbeat) {
       events.navigation = navigation;
       events.join = joined;
+      assert.equal(initial.set.replay, !!spec.replay, 'Room broadcast is the intended kind');
       assert.ok(initial.startsAt > navigation, 'Cold invite navigation must start before the published downbeat');
       await pause(Math.max(0, initial.startsAt + 2000 - Date.now()));
     } else if (spec.handoff || spec.replay) {
@@ -316,16 +346,7 @@ async function scenario(base, spec, network, run) {
         await until(() => listener.run(`[...document.querySelectorAll('.club-secondary')].some(b => b.textContent === 'UPDATE ROOM')`), 'new DJ controls');
         events.broadcastAt = await listener.clickText('UPDATE ROOM');
       } else {
-        events.seed = await host.run(`(async () => {
-          const {createTimelineRecorder} = await import('/js/set-timeline.js');
-          const {publishReplay} = await import('/js/sets.js');
-          const rec = createTimelineRecorder({state:${JSON.stringify(fixture())}, style:'hypnotic', startsAt:0,
-            dj:'Sync fixture', room:${JSON.stringify(room)}, title:'Club sync replay'});
-          const result = await publishReplay({timeline:rec.finish(30000), title:'Club sync replay', artist:'Sync fixture', room:${JSON.stringify(room)}});
-          return {id:result.item.id, public:result.public, durationMs:30000};
-        })()`);
-        if (await host.run('!document.querySelector(".club-social")?.getClientRects().length')) await host.click('.club-view-toggle');
-        await host.clickText('REPLAYS');
+        events.seed = await seedReplay(host, room, fixture());
         events.actionAt = await host.clickText('REPLAY TO ROOM');
       }
       events.newSet = await until(async () => {
@@ -410,7 +431,7 @@ async function scenario(base, spec, network, run) {
       const [hostOnsets, listenerOnsets] = raw.map(c => onsets(channelEnvelope(c, 'kick'), song.bpm));
       const firstDownbeat = firstMixDownbeat(hostOnsets, listenerOnsets, initial.startsAt, song.bpm);
       const failures = missedFirstMixDownbeat(firstDownbeat) ? ['first downbeat'] : [];
-      console.log(`  cold-invite first downbeat: ${JSON.stringify({ ...firstDownbeat, navigationLeadMs: initial.startsAt - navigation, failures })}`);
+      console.log(`  ${spec.name}: ${JSON.stringify({ ...firstDownbeat, navigationLeadMs: initial.startsAt - navigation, failures })}`);
       return { name: spec.name, spec, events, firstDownbeat, failures, raw: { captures: raw, hostOnsets, listenerOnsets } };
     }
     if (spec.mix) {
@@ -489,7 +510,7 @@ async function scenario(base, spec, network, run) {
       transition = { actionAt: events.actionAt, startsAt: events.newSet.startsAt, firstDownbeatAt: events.firstDownbeatAt, host: rendered[0], listener: rendered[1],
         firstDownbeatDeltaMs, actionToFirstAlignedKickMs: first ? Math.max(first.host, first.listener) - events.actionAt : null };
       console.log(`${spec.name}: ${spec.handoff ? 'PASS DECK → new DJ UPDATE ROOM (running origin preserved; next ABCD downbeat)' : 'seeded saved timeline → REPLAYS → REPLAY TO ROOM'}; first downbeat host/listener=${rendered.map(r => r.firstDownbeat?.toFixed(1) ?? 'none').join('/')} true epoch ms; Δ=${firstDownbeatDeltaMs?.toFixed(2) ?? 'none'}ms; action→aligned=${transition.actionToFirstAlignedKickMs?.toFixed(0) ?? 'none'}ms`);
-      for (const [i, name] of ['original host', 'original listener'].entries()) console.log(`  ${name}: action→first kick=${rendered[i].actionToFirstKickMs?.toFixed(0) ?? 'none'}ms; inter-kick gap across action=${rendered[i].interKickGapAcrossActionMs?.toFixed(0) ?? 'none'}ms; silence before new downbeat=${rendered[i].silenceBeforeFirstDownbeatMs?.toFixed(0) ?? 'none'}ms; longest transition silence=${rendered[i].longestSilenceAroundTransitionMs?.toFixed(0) ?? 'none'}ms`);
+      for (const [i, name] of ['original host', 'original listener'].entries()) console.log(`  ${name}: action→first kick=${rendered[i].actionToFirstKickMs?.toFixed(0) ?? 'none'}ms; inter-kick gap across action=${rendered[i].interKickGapAcrossActionMs?.toFixed(0) ?? 'none'}ms; silence before new downbeat=${rendered[i].silenceBeforeFirstDownbeatMs?.toFixed(0) ?? 'none'}ms; longest transition silence=${rendered[i].longestSilenceAroundTransitionMs?.toFixed(0) ?? 'none'}ms; largest pre-roll kick gap=${rendered[i].maxPrerollKickGapMs?.toFixed(0) ?? 'none'}ms`);
     }
     if (events.recoverAt) {
       const recoveryEnvelopes = spec.freezeMs ? raw.map(r => postResumeEnvelope(r)) : [he, le];
@@ -613,6 +634,8 @@ function failed(r) {
   return s.median === null || s.median > 25 || s.p95 > 50 || !s.matched || s.missing ||
     ((r.spec.freezeMs || r.spec.mainThreadStallMs) && s.extra) || r.hostFixture.missing ||
     (r.spec.wakeOnDownbeat && (r.events.wakeDownbeatDeltaMs === null || Math.abs(r.events.wakeDownbeatDeltaMs) > 50)) ||
+    (r.spec.replay && (!r.transition || [r.transition.host, r.transition.listener].some(c =>
+      c.maxPrerollKickGapMs === null || c.maxPrerollKickGapMs > 60000 / BPM + 50))) ||
     (r.transition && (r.transition.firstDownbeatDeltaMs === null || Math.abs(r.transition.firstDownbeatDeltaMs) > 50 || r.transition.actionToFirstAlignedKickMs === null));
 }
 try {
