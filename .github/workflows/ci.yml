@@ -37,7 +37,7 @@ jobs:
           if-no-files-found: warn
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
@@ -48,10 +48,15 @@ jobs:
       - run: npm ci
       - name: Syntax check (js/, api/)
         run: find js api -name '*.js' -not -path 'js/vendor/*' -print0 | xargs -0 -n1 node --check
-      - name: ffmpeg (test/sound.mjs decodes the FLAC samples)
-        run: command -v ffmpeg || (sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends ffmpeg)
-      - name: redis-server (test/rooms-concurrency.mjs runs the room Lua script on real Redis)
-        run: command -v redis-server || (sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends redis-server)
+      - name: Install missing FFmpeg and Redis test dependencies
+        run: |
+          packages=()
+          command -v ffmpeg || packages+=(ffmpeg)
+          command -v redis-server || packages+=(redis-server)
+          if (( ${#packages[@]} )); then
+            sudo apt-get update -q
+            sudo apt-get install -yq --no-install-recommends "${packages[@]}"
+          fi
       - run: npm test
       - run: npm run build
       - name: Smoke test server.mjs (SC_MOCK=1)
