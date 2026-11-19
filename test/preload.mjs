@@ -1,7 +1,7 @@
 // Live-kit preloading: which recordings a song needs, and the per-song lock that keeps a part on one sound.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { liveSets, setsReady, loadSets, BAND, STAB_BAND, LIVE_FILES, LIVE_KIT } from '../js/livekit.js';
+import { liveSets, setsReady, loadSets, loadBand, BAND, STAB_BAND, LIVE_FILES, LIVE_KIT } from '../js/livekit.js';
 import { Engine, Sequencer } from '../js/engine.js';
 import { KIT_BACKBEAT } from '../js/params.js';
 import { defaultState, generate, STYLES } from '../js/state.js';
@@ -37,7 +37,16 @@ for (const id of Object.keys(STYLES)) {
 
 // Load the guitar for real (from disk, with a stub decoder) to exercise the lock.
 const files = new Set();
-globalThis.fetch = async (url) => { const u = new URL(url); u.search = ''; files.add(u.pathname.split('/').pop()); const b = await readFile(u); return { ok: true, arrayBuffer: async () => b.buffer }; };
+const { promise: oboeAltReady, resolve: releaseOboeAlt } = Promise.withResolvers();
+globalThis.fetch = async (url) => {
+  const u = new URL(url);
+  u.search = '';
+  const file = u.pathname.split('/').pop();
+  files.add(file);
+  if (file.startsWith('obb_')) await oboeAltReady;
+  const b = await readFile(u);
+  return { ok: true, arrayBuffer: async () => b.buffer };
+};
 globalThis.OfflineAudioContext = class { decodeAudioData(b) { return Promise.resolve({ length: b.byteLength }); } };
 
 const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
@@ -51,17 +60,26 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
   state.patterns[6].hook = { v: 'airflute' };
   const e = {
     state, ctx, ch: { stab: { input: out } }, rec: Engine.prototype.rec, recLock: new Map(),
+    windDuck: ctx.createGain(),
     windHook: Engine.prototype.windHook, bodyFor: Engine.prototype.bodyFor, filter: Engine.prototype.filter,
     soulBand: () => false,
     trimOut: (key, db, dest) => { if (key === 'hook-reed') throw fallback; return dest; },
     playBuf: (...args) => hits.push(args),
   };
-  const hit = (voice) => Engine.prototype.hook.call(e, 1, 0.6, 12, 0.3, voice);
-  assert.deepEqual(liveSets(state), ['cello', 'ob', 'fl'], 'preload the backing and all wind hooks for playback');
+  e.windDuck.connect(out);
+  const hit = (voice, at = 1, take = 0) => Engine.prototype.hook.call(e, at, 0.6, 12, 0.3, voice, 0, false, 1, false, { take });
+  assert.deepEqual(liveSets(state), ['cello', 'ob', 'obb', 'fl', 'flb'], 'preload both takes with the wind hooks');
   assert.throws(() => hit('oboe'), (err) => err === fallback);
-  await loadSets(liveSets(state));
+  await loadBand('ob');
   assert.throws(() => hit('oboe'), (err) => err === fallback, 'a late decode keeps the same synth for this song');
   assert.equal(hits.length, 0, 'a missing wind does not switch to the recorded chords');
+  e.recLock = new Map();
+  hit('oboe', 1, 1);
+  releaseOboeAlt();
+  await loadSets(liveSets(state));
+  hit('oboe', 1, 1);
+  assert.equal(hits[0][0], hits[1][0], 'a late alternate does not change the recorded color mid-song');
+  hits.length = 0;
   e.recLock = new Map();
   hit('oboe'); hit('airflute');
   assert.equal(hits.length, 2);
@@ -72,6 +90,26 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
     assert.ok(Math.abs(12 * Math.log2(rate) - [2.03, 0.05][i]) < 0.001, 'choose and tune the nearest recorded pitch');
     assert.ok(fx.ringOut, 'fade before the sample runs out');
   }
+  for (const [voice, semitones] of [['oboe', 2.02], ['airflute', -0.02]]) {
+    const i = hits.length;
+    e.step = 32; hit(voice);
+    e.step = 64; hit(voice, 1, 1);
+    hit(voice, 5, 1);
+    const [first, repeat, resumed] = hits.slice(i);
+    assert.notEqual(first[0], repeat[0], 'repeated notes can use a different recording');
+    assert.ok(Math.abs(12 * Math.log2(repeat[4]) - semitones) < 0.001, 'the alternate is tuned to the same pitch');
+    assert.equal(first[5], repeat[5], 'variation does not change the written gate');
+    assert.equal(first[1], repeat[1], 'variation does not move the scheduled note');
+    assert.notEqual(first[6].offset, repeat[6].offset, 'the repeated note uses a different attack');
+    assert.notEqual(first[6].lp, repeat[6].lp, 'the repeated note has different breath tone');
+    assert.equal(repeat[0], resumed[0], 'the same score position keeps its take after a seek');
+    assert.deepEqual(repeat.slice(2), resumed.slice(2), 'the attack is independent of the playback clock');
+  }
+  const preview = ctx.createGain();
+  e.hookBus = preview;
+  hit('oboe');
+  const dest = hits.at(-1)[3];
+  assert.ok(feeds(dest, preview) && !feeds(dest, e.windDuck), 'the preview bus can silence already scheduled winds');
   files.clear();
 }
 {

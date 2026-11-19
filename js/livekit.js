@@ -60,9 +60,9 @@ const BANJO_TUNE = { 40: 41, 42: 41, 45: 48, 49: 39, 51: 43, 54: 34, 57: 13, 60:
 const BAND_TUNE = { jazz: JAZZ_TUNE, jazzb: JAZZ_TUNE, gretsch: GRETSCH_TUNE, gretschb: GRETSCH_TUNE, banjo: BANJO_TUNE, gtr: GTR_TUNE, gtrsoft: GTR_TUNE, gtrb: GTR_TUNE, gtrsoftb: GTR_TUNE, gtrmute: MUTE_TUNE, gtrmuteb: MUTE_TUNE_B };
 // Instruments recorded at two dynamics: the softly played layer loads with the instrument.
 export const SOFT_LAYER = { piano: 'pianosoft', gtr: 'gtrsoft' };
-// A second take of every guitar note, so a repeated strum alternates recordings instead of machine-gunning one.
+// Alternate woodwind and guitar takes for repeated notes.
 // Loaded in the background once the first take is in; until then every hit plays the first take.
-export const TAKES = { gtr: 'gtrb', gtrsoft: 'gtrsoftb', agtr: 'agtrb', gtrmute: 'gtrmuteb', jazz: 'jazzb', gretsch: 'gretschb' };
+export const TAKES = { gtr: 'gtrb', gtrsoft: 'gtrsoftb', agtr: 'agtrb', gtrmute: 'gtrmuteb', jazz: 'jazzb', gretsch: 'gretschb', ob: 'obb', fl: 'flb' };
 // The Hofner's staccato (fretting hand lifted right after the pick): the DRIVE GTR's palm-muted chug.
 export const MUTE_LAYER = { gtr: 'gtrmute' };
 // Background-only recordings: alternate takes and mutes, never waited on before a song starts.
@@ -77,7 +77,7 @@ export const KIT_EXTRA = ['crash_v2', 'crash_v3', 'htom_v8', 'htom_v14', 'ltom_v
 
 const BASE = new URL('../samples/live/', import.meta.url);
 // Samples are served with immutable caching: bump SAMPLES_REV whenever a file under samples/live changes.
-const SAMPLES_REV = 4;
+const SAMPLES_REV = 5;
 const sampleUrl = (file) => new URL(`${file}.flac?v=${SAMPLES_REV}`, BASE);
 let buffers = null, loading = null, extra = null, extraLoading = null;
 let snare = null, snareLoading = null;
@@ -129,7 +129,7 @@ export function liveSets(st) {
   if (name) out.push(name, ...(SOFT_LAYER[name] ? [SOFT_LAYER[name]] : []));
   for (const p of [st?.pattern, ...(st?.patterns || [])]) {
     const v = p?.hook?.v, voice = Object.hasOwn(HOOK_BAND, v) && HOOK_BAND[v];
-    if (voice) out.push(voice);
+    if (voice) out.push(voice, ...(TAKES[voice] ? [TAKES[voice]] : []));
   }
   // Country's lead is a Telecaster whatever plays the chords.
   if (pocketOf(st.master)?.walk && name !== 'gtr') out.push('gtr', 'gtrsoft');
