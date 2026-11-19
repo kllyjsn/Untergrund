@@ -38,7 +38,7 @@ async function render(withEdit, route = true, action = '') {
   const env = {
     ...sync, ...media, seq, engine, ctx, state, applyPart, roomMediaSync, mediaRoute,
     document: {hidden: false, body: {classList: {add: noop}}, querySelectorAll: () => []}, Date: {now: () => 1000000 + 1000 * ctx.currentTime},
-    playing: true, roomPlayback: true, songOver: false, roomEditor: false, clockOffset: 1000,
+    playing: true, roomPlayback: true, songOver: false, roomEditor: false, roomFirstNote: null, clockOffset: 1000,
     abs: 0, nextTime: .06, transportOrigin: 1000100, uiQueue: [], handoff: null,
     timeline: {skip: () => 0}, artistTick: noop, midiClockStep: noop, BG_LEAD: 1.5, ROOM_LEAD: .42,
     requestAnimationFrame: noop, cancelAnimationFrame: noop,
@@ -86,7 +86,7 @@ async function render(withEdit, route = true, action = '') {
       if (['replace', 'handoff'].includes(action) && Math.abs(t - .9) < 1e-9) {
         if (action === 'replace') api.cancelRoomPrime();
         state.params.kick.level = .7;
-        if (action === 'replace') engine.applyAll();
+        if (action === 'replace') { engine.applyAll(); api.start({startsAt: 1000100, room: true}); }
         else engine.handoffIn(1.06);
       }
       await Promise.resolve();

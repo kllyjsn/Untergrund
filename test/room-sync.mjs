@@ -139,7 +139,7 @@ for (const [action, currentTime, playing, expected] of [
 ]) {
   const calls = [], noop = () => {};
   const sandbox = {
-    playing, roomFirstNote: playing ? 2 : null, roomPlayback: true, roomEditor: false, roomJoinTimer: 1, roomResume: noop,
+    playing, roomFirstNote: playing ? 2 : null, roomPlayback: true, roomEditor: false, roomJoinTimer: 1, roomResume: noop, mediaRoute: null,
     ctx: {currentTime}, engine: {editableHits: [], discardQueuedNotes: t => calls.push(`discard@${t}`), panic: () => calls.push('panic')},
     playbackStats: {end: noop}, trackingReplay: false, listens: {end: noop}, listenPos: noop, songOver: false,
     clearPaused: noop, endTuning: noop, clearTimeout: () => calls.push('timer'), handoff: null,
@@ -260,5 +260,5 @@ for (const mediaRoute of [null, {}]) {
     mediaRoute, roomMediaSync: createRoomMediaSync(), roomMediaLead,
     setTimeout: (fn, wait) => { delay = wait; },
   });
-  assert.equal(delay, mediaRoute ? 920 : 960, 'future listener starts wake early only on the media route');
+  assert.equal(delay, mediaRoute ? 540 : 580, 'future listener starts retain main\'s lookahead plus route lead');
 }

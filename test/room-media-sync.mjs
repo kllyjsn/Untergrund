@@ -80,7 +80,7 @@ function transport(mediaRoute, room = true, roomItem = item) {
   const noop = () => {};
   const s = { mediaRoute, roomMediaSync: createRoomMediaSync(), roomMediaTime, roomMediaLead,
     roomTransportPosition, syncAudioClock, transportResync, BG_LEAD: 1.5, ROOM_LEAD: .42,
-    playing: true, songOver: false, roomPlayback: room, roomEditor: false, roomResume: null,
+    playing: true, songOver: false, roomPlayback: room, roomEditor: false, roomResume: null, roomFirstNote: null,
     roomJoinTimer: 0, handoff: null, jamQueue: [], trackingReplay: false, playbackSources: new WeakMap(), state: { bpm: 120, current: 0 },
     ctx: { currentTime: 10 }, Date: { now: () => 1000000 }, nextTime: 0, abs: 0,
     transportOrigin: 0, clockOffset: null, uiQueue: [],
@@ -141,7 +141,7 @@ for (const bpm of [120, 240]) for (const mediaRoute of [null, route]) {
   assert.deepEqual(landed, [10 - lead], 'jam lands on its intended bar, including above 187.5 BPM');
 }
 console.log('Room jam cutoff PASS: wall-aligned at 120/240 BPM; route audio stays 40ms early; desktop cutoff unchanged.');
-const cancelSource = main.slice(main.indexOf('function cancelRoomPrime('), main.indexOf('\nfunction recordPlayback('));
+const cancelSource = main.slice(main.indexOf('function roomStartPending('), main.indexOf('\nfunction recordPlayback('));
 const replaceSource = main.slice(main.indexOf('function replaceState('), main.indexOf('\nfunction showPublish('));
 for (const action of ['stop', 'replaceState', 'start']) for (const mode of ['primed', 'desktop', 'jam', 'expired']) {
   const { s, api, hits } = transport(mode === 'desktop' ? null : route, true,
@@ -245,12 +245,12 @@ const broadcast = main.slice(main.indexOf('function startRoomBroadcast('), main.
 for (const mediaRoute of [null, route]) {
   let delay;
   const go = runInNewContext(`${broadcast}\nstartRoomBroadcast`, {
-    playing: false, roomJoinTimer: 0, mediaRoute, roomMediaLead,
+    playing: false, roomJoinTimer: 0, mediaRoute, roomMediaLead, ROOM_LEAD: .42,
     Date: { now: () => 1000 }, clearTimeout() {},
     setTimeout: (fn, wait) => { delay = wait; },
   });
   go(2000);
-  assert.equal(delay, mediaRoute ? 900 : 940, 'future DJ starts retain the original margin plus route lead');
+  assert.equal(delay, mediaRoute ? 540 : 580, 'future DJ starts retain main\'s lookahead plus route lead');
 }
 console.log('Room media sync PASS: desktop bit identity, 40ms route-only lead, one cold-only 4s queue, bounded initial duplicate window, wake/reconnect never re-prime.');
 await import('./room-jam-controls.mjs');
