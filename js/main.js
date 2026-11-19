@@ -186,6 +186,8 @@ function schedule(lead) {
     }
     for (let i = 0; i < fix.skip; i++, abs++) { artistTick(abs - seq.origin); seq.advanceBar(abs - seq.origin, ctx.currentTime); }
     nextTime = fix.nextTime;
+    const step = (abs - seq.origin) % 16;
+    if (fix.discard && step) engine.vocal(nextTime, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, step);
   }
   // Landing redraws the whole UI for the new song, so schedule further ahead first to ride out that frame.
   while (nextTime < ctx.currentTime + (landed ? Math.max(ahead, 0.5) : ahead)) {

@@ -2206,7 +2206,7 @@ export class Engine {
 
   // The sung vocal stem: bar `pos` of the song starts at t. It keeps playing across consecutive bars and restarts only when
   // playback jumps (loop, seek, tempo change); sample 0 of the stem is the song's first downbeat, shifted by the trim.
-  vocal(t, pos) {
+  vocal(t, pos, step = 0) {
     const v = pos >= 0 ? this.vocalOf?.(this.state) : null, cur = this.vocalNow;
     if (cur && v && cur.buf === v.buf && cur.next === pos && cur.sd === this.stepDur && cur.ms === v.ms) {
       cur.next = pos + 1;
@@ -2214,7 +2214,7 @@ export class Engine {
       return;
     }
     this.vocalStop(t);
-    const off = v ? pos * 16 * this.stepDur - v.ms / 1000 : 0;
+    const off = v ? (pos * 16 + step) * this.stepDur - v.ms / 1000 : 0;
     if (!v || off >= v.buf.duration) return;
     this.vocalSends(v.fx);
     const src = this.ctx.createBufferSource(), g = this.ctx.createGain();
