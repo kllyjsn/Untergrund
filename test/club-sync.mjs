@@ -99,7 +99,11 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = 
     await send('Page.enable');
     await send('Network.enable');
     await send('Network.setCacheDisabled', { cacheDisabled: true });
-    if (options.diagnostics) await installDiagnostics(send, base);
+    if (options.diagnostics) {
+      await installDiagnostics(send, base);
+      await send('Profiler.enable');
+      await send('Profiler.start');
+    }
     const graph = mix ? await mixGraphEdges() : null;
     await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${installAudioTap})(${skew}, ${JSON.stringify(fixture)}, ${displacementMs}, ${mix}, ${JSON.stringify(graph)})` });
     if (mix) await installMixStem(send, base, mixFixture());
@@ -113,7 +117,7 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = 
     };
     const click = selector => clickElement(`document.querySelector(${JSON.stringify(selector)})`, selector);
     const clickText = label => clickElement(`[...document.querySelectorAll('.club-shell button')].find(b => b.textContent.trim() === ${JSON.stringify(label)})`, label);
-    return { run, nav, click, clickText, close, send };
+    return { run, nav, click, clickText, clickElement, close, send };
   } catch (e) { await close(); throw e; }
 }
 
@@ -143,7 +147,8 @@ async function scenario(base, spec) {
       song.patterns[0].steps.kick[0] = 1;
     }
     const host = await client(base, spec.hostSkew, song, 0, spec.mix); clients.push(host);
-    await host.nav('/'); await host.click('.club-btn');
+    await host.nav('/');
+    await host.clickElement(`[...document.querySelectorAll('.tab-club, .club-btn')].find(e => e.getBoundingClientRect().width && e.getBoundingClientRect().height)`, 'visible Club navigation');
     let listener;
     if (!spec.cold) { listener = await client(base, spec.listenerSkew, null, spec.displacementMs, spec.mix); clients.push(listener); await listener.nav('/'); }
     const action = await until(() => host.run(`document.querySelector('.lobby-cta')?.textContent === 'GO LIVE' ? '.lobby-cta' : document.querySelector('.club-primary')?.textContent === 'GO LIVE' ? '.club-primary' : null`), 'GO LIVE');
@@ -261,6 +266,9 @@ async function scenario(base, spec) {
       events.after = await snapshot();
     } else await pause(22000);
     const raw = await Promise.all(clients.map(c => c.run('({...__clubAudio, clockSkew: Date.now() - (performance.timeOrigin + performance.now())})')));
+    if (options.diagnostics) await Promise.all(clients.map(async (c, i) => {
+      raw[i].cpuProfile = (await c.send('Profiler.stop')).profile;
+    }));
     if (spec.mix) {
       const mix = analyzeMix(raw, song, events, initial.startsAt, { resume: !!spec.freezeMs });
       const failures = mixFailures(mix);

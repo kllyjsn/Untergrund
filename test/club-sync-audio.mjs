@@ -12,6 +12,10 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
     localStorage.setItem('untergrund.made', '1');
   }
   const tap = globalThis.__clubAudio = { samples: [], anchors: [], errors: [], routes: [], requests: [], lifecycle: [], sources: [], playbackStats: [] };
+  tap.longTasks = [];
+  new PerformanceObserver(list => {
+    for (const e of list.getEntries()) tap.longTasks.push({ at: performance.timeOrigin + e.startTime, duration: e.duration });
+  }).observe({ type: 'longtask', buffered: true });
   if (mix) tap.channels = { kick: { samples: [] }, vocal: { samples: [] } };
   const epoch = () => performance.timeOrigin + performance.now();
   const contexts = [];
