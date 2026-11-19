@@ -374,12 +374,12 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     Object.assign(params.kick, { tune: 58, decay: 0.24, drive: 0.05, rumble: 0, punch: 0.6, click: 0.35, level: 0.78 });
     Object.assign(params.perc, { tune: 300, decay: 0.08, noise: 0.35, level: 0.42 });
     Object.assign(params.snare, { tune: 240, snappy: 0.15, decay: 0.08, level: 0.5 });
-    Object.assign(params.ch, { decay: 0.07, tone: 8000, level: 0.5 });
+    Object.assign(params.ch, { decay: 0.12, tone: 8000, level: 0.48 });
     // A soft ride on the off-beats in the full groove gives the top end air without a bright lead.
     S.ride = range(STEPS, (i) => (i % 4 === 2 ? 1 : 0));
     Object.assign(params.ride, { decay: 0.5, tone: 7000, level: 0.22 });
     // A round bass with some edge for definition, barely resonant, the filter only opening a little on each note.
-    Object.assign(params.acid, { wave: 0.3, cutoff: 600, reso: 1.5, envmod: 0.2, decay: 0.12, drive: 0.1, accent: 0.1, level: 0.42 });
+    Object.assign(params.acid, { wave: 0.3, cutoff: 800, reso: 1.5, envmod: 0.3, decay: 0.12, drive: 0.1, accent: 0.1, level: 0.42 });
     Object.assign(params.stab, { chord: pick(r, [1, 2, 3]), cutoff: 1900, reso: 0.4, decay: 0.45, env: 0.45, detune: 4, dly: 0.45, rev: 0.4 });
     master.duck = 0.3; master.revLevel = 0.35;
     swing = 0.04;
@@ -790,7 +790,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   if (params.stab.cutoff) params.stab.cutoff = Math.round(params.stab.cutoff * (0.75 + r2() * 0.6));
   if (params.stab.decay) params.stab.decay = +(params.stab.decay * (0.8 + r2() * 0.4)).toFixed(3);
   // Minimal's chords stay soft whatever the ensemble picked: a long decay, a gentle touch and a dark, unresonant filter.
-  if (style === 'minimal') Object.assign(params.stab, { decay: Math.max(params.stab.decay, 0.45), env: Math.min(params.stab.env, 0.08), cutoff: Math.min(params.stab.cutoff, 1300), reso: 0.4 });
+  if (style === 'minimal') Object.assign(params.stab, { decay: Math.max(params.stab.decay, 0.45), env: Math.min(params.stab.env, 0.08), cutoff: Math.min(params.stab.cutoff, 1300), reso: 0.4, tine: 0.15 });
   const PUNCH = { deephouse: 0.55, ukg: 0.7, afrobeats: 0.7, amapiano: 0.65, euphoric: 0.72, trance: 0.72, reggaeton: 0.7 };
   if (PUNCH[style]) {
     params.kick.punch = Math.max(params.kick.punch ?? 0, PUNCH[style]);
