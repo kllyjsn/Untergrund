@@ -5,6 +5,7 @@ import { createRoomClock, roomTransportPosition, shiftRoomSet, syncAudioClock, t
 import { freshSong, clone, sanitize, STYLES } from '../js/state.js';
 import { songFingerprint } from '../js/listen.js';
 import { createRoomMediaSync, roomMediaLead } from '../js/room-media-sync.js';
+import { createClockSender } from '../js/midi-core.js';
 
 const origin = 1_000_000;
 const close = (a, b) => assert(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
@@ -235,10 +236,11 @@ assert.deepEqual(transportResync(10.2, 10, 9.9, .125, false, -Infinity, 1), { sk
 console.log('Room residual slew PASS: both signs, 40–240 BPM, smooth bounded rates, phase-locked steps, unity within <5s, floor and render guard.');
 
 {
-  const correction = transportResync(10.75, 11.5, 10, 0.125, false, -4);
-  assert.equal(correction.discard, true, 'an earlier room grid cancels the old lookahead before rescheduling');
-  assert.equal(correction.skip, -4, 'rewind future steps without crossing the current song origin');
-  close(correction.nextTime, 10.25);
+  const correction = transportResync(10.75, 11.5, 10, 0.125, false, -4, true);
+  assert.equal(correction.discard, false, 'room corrections preserve every queued note');
+  assert.equal(correction.skip, 6, 'skip forward on the new grid rather than rebuilding old steps');
+  close(correction.nextTime, 11.5);
+  assert.deepEqual(transportResync(10.75, 11.5, 10, 0.0625), {skip:0, nextTime:10.75, discard:false}, 'solo tempo increases retain pre-room-correction behavior without rewinding');
   assert.deepEqual(transportResync(11.4, 11.5, 10, 0.125), {skip:0, nextTime:11.4, discard:false}, 'a sub-step correction keeps ordered queued notes');
 }
 
@@ -326,6 +328,41 @@ for (const [action, currentTime, playing, expected] of [
   assert.deepEqual(calls, expected, `${action} at audio time ${currentTime} (playing: ${playing})`);
   assert.equal(sandbox.playing, playing && !expected.length);
 }
+{
+  const notes = [], rewinds = [], cancelled = [], sent = [];
+  const clock = createClockSender((bytes, time) => { if (bytes[0] === 0xf8) sent.push(time); });
+  clock.start(64, 11000);
+  for (let step = 64; step < 68; step++) clock.step(step, 11000 + (step - 64) * 125, 125);
+  const oldTickCount = sent.length, oldLastTick = sent.at(-1);
+  const sandbox = {playing:true, songOver:false, roomPlayback:true, roomEditor:false, ROOM_LEAD:0.25, BG_LEAD:1,
+    document:{hidden:false}, ctx:{currentTime:10}, Date:{now:() => sandbox.ctx.currentTime * 1000},
+    state:{bpm:120, part:'old'}, clockOffset:0, transportOrigin:2250, abs:68, nextTime:11.5,
+    syncAudioClock, transportResync, slewTransport, handoff:null, jamQueue:[], vocalGridDirty:false,
+    engine:{stepDur:0.125, applyAll(){}, discardQueuedNotes:t => cancelled.push(t), vocal(){}},
+    seq:{origin:0, chainPos:5, songBars:8, advanceBar(){}, rewind:step => rewinds.push(step),
+      tick:(step, time) => { notes.push({step, time, part:sandbox.state.part}); return {}; }},
+    uiQueue:[], timeline:{skip:() => 0}, artistTick(){}, landJamParts(){},
+    midiClockStep:(ctx, step, time, duration) => clock.step(step, time * 1000, duration * 1000),
+    applyPart:(state, part, layer) => { state.part = layer.id; }, setTimeout(){}, cancelAnimationFrame(){},
+    requestAnimationFrame:() => 0, jamRedraw:0};
+  const schedulerSource = main.slice(main.indexOf('function schedule(lead)'), main.indexOf('\n// Jam:'));
+  const jamSource = main.slice(main.indexOf('function landJamPart(part,'), main.indexOf('\n// GENERATE while'));
+  const f = runInNewContext(`${schedulerSource}\n${jamSource}\n({schedule, landJamPart})`, sandbox);
+  f.landJamPart('kick', {id:'new'}, 11);
+  f.schedule();
+  assert.equal(sandbox.abs, 74, 'a room correction skips forward without repeating already queued steps');
+  assert.equal(notes.length, 0, 'do not rebuild any audio ahead of the queued frontier');
+  assert.equal(cancelled.length, 0);
+  assert.equal(rewinds.length, 0);
+  sandbox.ctx.currentTime = 11.4;
+  f.schedule();
+  assert.ok(notes.length > 0);
+  assert.ok(notes.every(n => n.part === 'new' && n.time >= 11 && n.step >= 68), 'a part applied for a queued Jam downbeat cannot sound before it');
+  assert.equal(sent.length, oldTickCount + notes.length * 6, 'every new step sends its six MIDI ticks, with none suppressed by rewind');
+  assert.ok(sent[oldTickCount] > oldLastTick);
+  assert.ok(sent.every((time, i) => !i || time > sent[i - 1]), 'old and new MIDI clock queues stay strictly monotonic without overlap');
+}
+console.log('Room frontier PASS: no reordered/rebuilt notes, solo tempo no-repeat, monotonic MIDI and no Jam part before its queued downbeat.');
 {
   const reanchorSource = main.slice(main.indexOf('function reanchorRoomSet('), main.indexOf('\nfunction stopRoomStats'));
   const sandbox = {playing:true, roomPlayback:true, state:{bpm:newBpm}, seq:{origin:64}, transportOrigin:rebasedOrigin, vocalGridDirty:false};

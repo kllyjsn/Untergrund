@@ -192,7 +192,7 @@ function schedule(lead) {
   }
   let base = 60 / state.bpm / 4, landed = null;
   const target = roomMediaTime(transportOrigin / 1000 + abs * base - clockOffset, roomPlayback, mediaRoute);
-  const fix = transportResync(target, nextTime, now, base, clock.jumped, seq.origin - abs);
+  const fix = transportResync(target, nextTime, now, base, clock.jumped, seq.origin - abs, roomPlayback);
   let firstTime = fix?.firstTime;
   if (fix) {
     if (fix.discard) {

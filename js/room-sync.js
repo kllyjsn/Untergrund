@@ -64,8 +64,9 @@ export function syncAudioClock(previous, measured) {
 }
 
 // Re-anchor the audio schedule to the shared transport when it drifts or stalls.
-export function transportResync(target, nextTime, now, stepSec, jumped = false, minSkip = -Infinity, rate = null) {
-  if (!jumped && Math.abs(target - nextTime) <= 0.03 && nextTime >= now) {
+export function transportResync(target, nextTime, now, stepSec, jumped = false, minSkip = -Infinity, room = false, rate = null) {
+  if (typeof room === 'number') { rate = room; room = false; }
+  if (!room && rate !== null && !jumped && Math.abs(target - nextTime) <= 0.03 && nextTime >= now) {
     const error = target - nextTime;
     if (rate === null || (Math.abs(error) <= 0.002 && rate === 1) || nextTime - stepSec < now + 0.005) return null;
     const desired = Math.abs(error) <= 0.002 ? 1 : 1 - Math.max(-0.008, Math.min(0.008, error * 2.5));
@@ -75,15 +76,15 @@ export function transportResync(target, nextTime, now, stepSec, jumped = false, 
     const duration = 2 * stepSec / (rate + endRate);
     return { skip: 0, nextTime: nextTime + duration - stepSec, discard: false, slew: true, rate, endRate };
   }
+  if (!jumped && Math.abs(target - nextTime) <= 0.03 && nextTime >= now) return null;
   const ready = now + 0.005;
-  const reset = jumped || (target < nextTime - stepSec && nextTime - stepSec > now);
   // Recover one step near the render deadline without moving the grid or
   // squeezing the gap to its following step below half a step.
-  const earliest = reset ? ready - Math.min(0.055, stepSec / 2) : ready;
-  let skip = reset ? Math.max(minSkip, Math.ceil((earliest - target) / stepSec)) : 0;
+  const earliest = jumped ? ready - Math.min(0.055, stepSec / 2) : room ? Math.max(ready, nextTime) : ready;
+  let skip = jumped ? Math.max(minSkip, Math.ceil((earliest - target) / stepSec)) : 0;
   target += skip * stepSec;
   while (target < earliest) { target += stepSec; skip++; }
-  return { skip, nextTime: target, discard: reset, ...(target < ready && { firstTime: ready }) };
+  return { skip, nextTime: target, discard: jumped, ...(target < ready && { firstTime: ready }) };
 }
 
 export function slewTransport(target, nextTime) {
