@@ -1474,6 +1474,32 @@ export class Engine {
     return tones.get(out);
   }
 
+  // One saw per chord note, except where 3 or more notes' harmonics land within 1.2% of each other at 1.9-3.4 kHz:
+  // stacked there, they ring as one tone the chord never plays, so each note's share is cut 20 dB (10 dB where only 2 meet).
+  chordSaws(notes) {
+    if (this._saws?.ctx !== this.ctx) this._saws = { ctx: this.ctx, cache: new Map() };
+    const fs = notes.map(midiHz), near = (a, b) => Math.abs(a - b) / a < 0.012;
+    return fs.map((f, i) => {
+      const n = Math.max(1, Math.min(64, Math.floor(12000 / f))), cut = [];
+      for (let k = 1; k <= n; k++) {
+        const h = k * f;
+        if (h < 1900 || h > 3400) continue;
+        const mates = fs.filter((g, j) => j !== i && Array.from({ length: 24 }, (_, q) => (q + 1) * g).some((x) => near(h, x))).length;
+        if (mates) cut.push(`${k}:${mates >= 2 ? 0.1 : 0.3}`);
+      }
+      const key = `${notes[i]}|${cut.join(',')}`;
+      if (!this._saws.cache.has(key)) {
+        // Scaled as the built-in saw is normalized, before the cuts, so a cut partial does not raise the note's level.
+        const re = new Float32Array(n + 1), im = new Float32Array(n + 1), scale = new Map(cut.map((x) => x.split(':').map(Number)));
+        let peak = 0;
+        for (let i = 0; i < 1024; i++) { let y = 0; for (let k = 1; k <= n; k++) y += ((k % 2 ? 2 : -2) / (Math.PI * k)) * Math.sin((2 * Math.PI * k * i) / 1024); peak = Math.max(peak, Math.abs(y)); }
+        for (let k = 1; k <= n; k++) im[k] = ((k % 2 ? 2 : -2) / (Math.PI * k * peak)) * (scale.get(k) ?? 1);
+        this._saws.cache.set(key, this.ctx.createPeriodicWave(re, im, { disableNormalization: true }));
+      }
+      return this._saws.cache.get(key);
+    });
+  }
+
   // Slow-swelling ensemble: three detuned saws per note, filter opens with ENV, DECAY sets release.
   pad(t, v, iv, root, p, out) {
     const c = this.ctx, atk = 0.04 + p.env * 0.9, hold = Math.max(this.stepDur * 4, p.decay * 1.2), end = t + atk + hold + p.decay * 2 + 0.2;
@@ -1485,19 +1511,21 @@ export class Engine {
     amp.gain.linearRampToValueAtTime(peak, t + atk);
     amp.gain.setTargetAtTime(0, t + atk + hold, Math.max(0.1, p.decay * 0.6));
     const pans = this.sidePans([-0.7, 0, 0.7], lp);
-    // A smooth style's outer voices drift slowly against the centre, as a string ensemble's chorus does, so no partial holds one exact pitch.
-    const drift = this.smoothOn ? [0.31, 0.47].map((hz) => { const l = c.createOscillator(), g = this.gain(7); l.frequency.value = hz; l.connect(g); this.startSource(l, t); l.stop(end); return g; }) : null;
-    iv.forEach((n) => {
+    // A smooth style's voices drift slowly (the outer two by 7 cents, the centre by 4), as a string ensemble's chorus does, so no partial holds one exact pitch.
+    const drift = this.smoothOn ? [[0.31, 7], [0.19, 4], [0.47, 7]].map(([hz, cents]) => { const l = c.createOscillator(), g = this.gain(cents); l.frequency.value = hz; l.connect(g); this.startSource(l, t); l.stop(end); return g; }) : null;
+    const waves = this.smoothOn ? this.chordSaws(iv.map((n) => root + n)) : null;
+    iv.forEach((n, k) => {
       [-1, 0, 1].forEach((side) => {
-        const o = c.createOscillator(); o.type = 'sawtooth';
+        const o = c.createOscillator();
+        if (waves) o.setPeriodicWave(waves[k]); else o.type = 'sawtooth';
         o.frequency.value = midiHz(root + n); o.detune.value = side * (4 + p.detune);
-        if (drift && side) drift[side < 0 ? 0 : 1].connect(o.detune);
+        if (drift) drift[side + 1].connect(o.detune);
         o.connect(pans[side + 1]); this.startSource(o, t); o.stop(end);
       });
     });
-    // A smooth style's pad rolls its saw partials off at 24 dB/oct, so no harmonic rings at 2-3 kHz, and takes its air from a breath of noise between 5 and 9 kHz.
+    // A smooth style's pad rolls its saw partials off at 24 dB/oct above about 1.7 kHz, and takes its air from a breath of noise between 5 and 9 kHz.
     if (this.smoothOn) {
-      const lp2 = this.filter('lowpass', p.cutoff * 0.85, 0.5), hp = this.filter('highpass', 5000, 0.5), airTop = this.filter('lowpass', 9000, 0.5);
+      const lp2 = this.filter('lowpass', p.cutoff * 1.3, 0.5), hp = this.filter('highpass', 5000, 0.5), airTop = this.filter('lowpass', 9000, 0.5);
       lp.connect(lp2).connect(amp);
       const air = this.noiseSrc(t, end - t); air.loop = true;
       air.connect(hp).connect(airTop).connect(this.gain(0.05)).connect(amp);
@@ -2299,8 +2327,8 @@ export class Engine {
     amp.gain.setTargetAtTime(vel * 0.55, t + 0.02, 0.12);
     amp.gain.setTargetAtTime(0, t + len, 0.03);
     const subLevel = this.gain(0.72);
-    // A smooth style rolls off the grit's new harmonics above 1.8 kHz at 24 dB/oct, so the bass keeps its definition without tones up among the chords.
-    if (this.smoothOn) { tri.connect(lp); lp.connect(grit).connect(this.filter('lowpass', 1800, 0.7)).connect(this.filter('lowpass', 1800, 0.7)).connect(amp); } else { tri.connect(lp); lp.connect(grit).connect(amp); }
+    // A smooth style rolls off the grit's new harmonics above 1.5 kHz at 24 dB/oct, so the bass keeps its definition without tones up among the chords.
+    if (this.smoothOn) { tri.connect(lp); lp.connect(grit).connect(this.filter('lowpass', 1500, 0.7)).connect(this.filter('lowpass', 1500, 0.7)).connect(amp); } else { tri.connect(lp); lp.connect(grit).connect(amp); }
     sub.connect(subLevel).connect(amp);
     amp.connect(this.ch.acid.input);
     const oscs = [tri, sub];
