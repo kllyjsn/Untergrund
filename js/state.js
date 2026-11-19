@@ -1149,7 +1149,8 @@ function drillVerses(pats, { chain, sections }, keep) {
     const steps = clone(verse.steps);
     steps.perc[15] = 1;
     const acid = steps.acid.map((note, step) => step === 11 || step === 12 ? emptyAcidStep() :
-      step >= 14 ? { ...emptyAcidStep(), on: true } : note);
+      step === 14 ? { ...emptyAcidStep(), on: true, v: 0.71 } :
+      step === 15 ? { ...emptyAcidStep(), on: true } : note);
     const base = patternAt(fill, bar);
     setTake(fill, bar, edit(base, {
       ...steps, acid,
@@ -1315,6 +1316,7 @@ export function sanitize(s) {
       n: Math.max(-24, Math.min(24, Number.isFinite(+step.n) ? Math.round(+step.n) : 0)),
       a: !!step.a,
       s: !!step.s,
+      ...(step.on && Number.isFinite(step.v) && step.v > 0 && step.v < 1 ? { v: step.v } : {}),
     };
   });
   const cleanNotes = (a) => (Array.isArray(a) ? a : []).filter(Array.isArray).slice(0, 96).map((x) => [Math.round(cl(x[0], -8, MELODY_BARS * 16 - 1)), Math.round(cl(x[1], 1, 16)), Math.round(cl(x[2], -24, 36)), cl(x[3], 0, 1), Math.round(cl(x[4], 0, 7)), Math.round(cl(x[5], 0, 95))]);

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { generate, arrangement, applySongPlan, sanitize, defaultState, freshSong, STYLES, MAJOR_STYLES, MUSICIAN_PRINCIPLES } from '../js/state.js';
 import { SCALES } from '../js/params.js';
 import { Sequencer } from '../js/engine.js';
-import { Recorder } from '../js/midi.js';
+import { capture, Recorder } from '../js/midi.js';
 import { patternAt } from '../js/scope.js';
 
 // Every club/pop style gets its own seeded hook; NEO-SOUL and BOOM BAP sing one over their Rhodes licks.
@@ -68,6 +68,7 @@ for (const seed of [7, 42, 211, 1234]) {
   for (const at of transitions) {
     const fill = patternAt(song.patterns[3], at);
     assert(fill.steps.acid[14].on && !fill.steps.acid[14].s, 'the fill carries a bass note into the last beat');
+    assert.equal(fill.steps.acid[14].v, 0.71, 'the pickup starts with a ghosted hit');
     assert(fill.steps.acid[15].on && !fill.steps.acid[15].a && !fill.steps.acid[15].s, 'the final step adds a soft 808 pickup');
     assert(fill.steps.snare[15] && fill.steps.ch[15], 'the pocket continues until the downbeat');
     assert.deepEqual(patternAt(saves.patterns[3], at).steps, fill.steps, 'written fills survive save and load');
@@ -97,6 +98,24 @@ for (const seed of [7, 42, 211, 1234]) {
   assert.deepEqual(patternAt(song.patterns[6], transitions[0] + 1).steps.kick, original[6].steps.kick, 'the landing respects the kick lock');
 }
 console.log('Drill verse and turnaround passed');
+
+{
+  const song = sanitize(freshSong('drill', 211));
+  const loud = structuredClone(song);
+  for (const take of loud.patterns[3].at) delete take.steps?.acid?.[14]?.v;
+  const notes = capture(song).notes.acid, unshaped = capture(loud).notes.acid;
+  let softened = 0;
+  assert.equal(notes.length, unshaped.length);
+  for (const [i, { v, ...note }] of notes.entries()) {
+    const { v: normal, ...same } = unshaped[i];
+    assert.deepEqual(note, same, 'the pickup voicing does not change bass pitch or timing');
+    if (v !== normal) {
+      assert(Math.abs(v / normal - 0.71) < 1e-9, 'the MIDI pickup is about 3 dB softer');
+      softened++;
+    }
+  }
+  assert.equal(softened, [...song.chain.matchAll(/CDG/g)].length, 'only the first pickup hit in each fill is softened');
+}
 
 {
   const s = freshSong('drill', 42, { length: 'sketch' });

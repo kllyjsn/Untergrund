@@ -2770,7 +2770,10 @@ export class Sequencer {
     let gap = 1;
     while (gap < len && !steps[(i + gap) % len].on) gap++;
     this.e.acidGap = gap;
+    const vel = this.e.noteVel;
+    this.e.noteVel = (vel ?? 1) * (st.v ?? 1);
     this.e.acid(t, st, this.acidPrevSlide, st.s && next.on, sd);
+    this.e.noteVel = vel;
     this.e.acidGap = 0;
     this.acidPrevSlide = !!st.s;
   }
