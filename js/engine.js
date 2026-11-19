@@ -2407,10 +2407,19 @@ export class Engine {
     const decay = Math.max(0.05, len * 0.45), prev = this.mono;
     if (sliding && prev?.eight08 && prev.end > t) {
       // Keep oscillator phase and the envelope's current level through the slide.
+      const drill = (this.replay808Style ?? this.state.artist?.style) === 'drill' && f !== prev.f;
       prev.eight08.forEach((x, i) => {
-        x.frequency.setTargetAtTime(f * (i + 1), t, 0.0225);
+        const flick = drill && i === 1;
+        // The delayed octave catches up to the unchanged sub: delay + time constant stays the same.
+        x.frequency.setTargetAtTime(f * (i + 1), t + (flick ? 0.017 : 0), flick ? 0.0055 : 0.0225);
         x.stop(end);
       });
+      if (drill) {
+        const g = prev.octave.gain;
+        g.cancelScheduledValues(t);
+        g.setTargetAtTime(0.38, t, Math.min(0.012, sd * 0.12));
+        g.setTargetAtTime(0.2, t + Math.min(0.032, sd * 0.32), Math.min(0.02, sd * 0.2));
+      }
       prev.amp.gain.cancelScheduledValues(t);
       prev.amp.gain.setTargetAtTime(0, t, decay);
       prev.amp.gain.setTargetAtTime(0, end - 0.09, 0.009);
@@ -2439,7 +2448,7 @@ export class Engine {
     h2.connect(h2g).connect(lp);
     const eight08 = [o, h2];
     for (const x of eight08) { this.startSource(x, t); x.stop(end); }
-    this.mono = { amp, f, end, eight08 };
+    this.mono = { amp, f, end, eight08, octave: h2g };
   }
 
   // Reese: two detuned saws beating against each other plus a sine sub. SAW/SQR sets the detune spread,
