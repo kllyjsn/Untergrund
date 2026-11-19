@@ -87,7 +87,7 @@ for (const [phrase, edit] of [['overdriven guitar', { id: 'voice', value: 11 }],
 }
 
 t('Drill 808 names a bass voice without changing the genre', () => {
-  for (const text of ['switch the bass to Drill 808', 'switch the bass to UK Drill 808', 'drill-808', 'drill 808s']) {
+  for (const text of ['switch the bass to Drill 808', 'switch the bass to UK Drill 808', 'make the bass sound like a Drill 808', 'drill-808', 'drill 808s']) {
     const { edits } = parse(text, { style: 'trap' });
     assert.deepEqual(edits.map(({ id, value }) => ({ id, value })), [{ id: 'bassVoice', value: DRILL_808 }]);
   }
@@ -95,9 +95,11 @@ t('Drill 808 names a bass voice without changing the genre', () => {
   assert.ok(has(parse('make it Drill').edits, [{ id: 'genre', value: 'drill' }]));
 });
 t('whole-track Drill 808 requests keep the genre change', () => {
-  const { edits, unknown } = parse('Make it UK Drill 808s at 142 BPM', { style: 'trap' });
-  assert.deepEqual(unknown, []);
-  assert.ok(has(edits, [{ id: 'genre', value: 'drill' }, { id: 'bassVoice', value: DRILL_808 }, { id: 'bpm', value: 142 }]));
+  for (const text of ['Make it UK Drill 808s at 142 BPM', 'Make this track sound like a Drill 808 at 142 BPM']) {
+    const { edits, unknown } = parse(text, { style: 'trap' });
+    assert.deepEqual(unknown, [], text);
+    assert.ok(has(edits, [{ id: 'genre', value: 'drill' }, { id: 'bassVoice', value: DRILL_808 }, { id: 'bpm', value: 142 }]), text);
+  }
 });
 
 // Everyday phrasing: complaints, track-scoped words, dislikes, only/except. Each pair is [phrase, must have, must not have].

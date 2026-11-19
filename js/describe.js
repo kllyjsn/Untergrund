@@ -72,7 +72,7 @@ const PHRASES = [
   [/(?:live|real|acoustic|recorded)\s+drums/g, ' livekit '],
   [/electric\s+piano|e[\s-]piano|fender\s+rhodes|wurlitzer|wurli/g, ' rhodes '], [/log[\s-]?drums?/g, ' logdrum '],
   [/acid\s+bass|\b303\b/g, ' acidbass '], [/(?:double|upright|live|bass)\s+(?:bass|guitar)/g, ' livebass '],
-  [/\b(make\s+(?:it|(?:this|the)\s+(?:song|track|beat))|sounds?\s+like)\s+(?:an?\s+)?(?:uk[\s-]+)?drill[\s-]+808s?\b/g, '$1 drill drill808 '],
+  [/\b(make\s+(?:it|(?:this|the)\s+(?:song|track|beat))(?:\s+sound\s+like)?)\s+(?:an?\s+)?(?:uk[\s-]+)?drill[\s-]+808s?\b/g, '$1 drill drill808 '],
   [/\b(?:uk[\s-]+)?drill[\s-]+808s?\b/g, ' drill808 '], [/\b808s?\b/g, ' eightoheight '],
   [/open[\s-]hi[\s-]?hats?|open[\s-]hats?/g, ' openhat '], [/(?:closed[\s-])?hi[\s-]?hats?/g, ' hats '], [/bass[\s-]?drums?/g, ' kick '],
   [/robert\s+glasper/g, ' glasper '], [/j\.?\s*dilla/g, ' dilla '],
