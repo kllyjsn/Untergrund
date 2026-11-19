@@ -2425,7 +2425,12 @@ export class Engine {
   sectionGain(t, db, ramp = 0) {
     const g = this.secGain.gain, v = 10 ** (db / 20);
     g.cancelScheduledValues(t);
-    if (ramp) { g.setValueAtTime(10 ** (ramp[0] / 20), t); g.linearRampToValueAtTime(v, t + ramp[1]); } else g.setTargetAtTime(v, t, 0.012);
+    if (ramp) {
+      const [from, dur, hold = 0] = ramp, start = 10 ** (from / 20);
+      g.setValueAtTime(start, t);
+      if (hold) g.setValueAtTime(start, t + hold);
+      g.linearRampToValueAtTime(v, t + hold + dur);
+    } else g.setTargetAtTime(v, t, 0.012);
   }
 
   hardFilter(t, targets) {
@@ -2705,11 +2710,11 @@ export class Sequencer {
   rewind(abs, t) {
     const step = abs - this.origin, bar = Math.floor(step / 16);
     this.chainPos = bar;
-    if (step % 16 !== 0) this.advanceBar(bar * 16, t);
+    if (step % 16 !== 0) this.advanceBar(bar * 16, t, step % 16);
   }
 
   // Song form: C and G are drops, E and F breakdowns, D and H one-bar fills/switches
-  advanceBar(abs, t) {
+  advanceBar(abs, t, offset = 0) {
     if (abs % 16 !== 0) return;
     const chain = this.s.chainOn ? parseChain(this.s.chain) : [];
     const arr = this.s.master.arr || 0;
@@ -2740,7 +2745,7 @@ export class Sequencer {
         }
       }
       if (!arr || !brk(this.cur)) this.e.breakOpen(t, SMOOTH.has(this.s.artist?.style));
-      this.sectionLevel(t);
+      this.sectionLevel(t, p, offset);
       return;
     }
     this.dropNow = false; this.runLen = 0;
@@ -2749,16 +2754,25 @@ export class Sequencer {
     if (this.queued !== null) { this.cur = this.queued; this.queued = null; }
   }
 
-  // Verses sit under the chorus and a pre-chorus swells up into it; bars without a section role
-  // (intro, fills, outro) hold the level. Songs without sections stay at unity.
-  sectionLevel(t) {
+  // Verses sit under the chorus. A pre-chorus or a written verse fill can swell into it.
+  sectionLevel(t, pos, offset) {
     if (this.s.artist?.style === 'hardtechno') {
       this.e.hardSection?.(t, this.cur, this.runPos, this.runLen, this.chainArr[this.chainPos]);
       return;
     }
     const pats = this.s.patterns, sec = pats[this.cur]?.sec;
-    if (!sec) return this.level(t, pats.some((p) => p.sec) ? this.secDb ?? 0 : 0);
     const db = { ...SECTION_DB, ...STYLE_SECTION_DB[this.s.artist?.style] };
+    if (!sec) {
+      const chain = this.chainArr, sd = this.e.stepDur;
+      if (pats[this.cur]?.verseSwell && pats[chain[pos - 1]]?.sec === 'verse' && pats[chain[pos + 1]]?.sec === 'chorus') {
+        // Lift the fill after the limiter so the extra level can't soften the landing.
+        const progress = Math.max(0, offset - 4) / 12;
+        const v = 10 ** (db.verse / 20), c = 10 ** (db.chorus / 20);
+        const from = progress ? 20 * Math.log10(v + (c - v) * progress) : db.verse;
+        return this.level(t, db.chorus, [from, (16 - Math.max(4, offset)) * sd, Math.max(0, 4 - offset) * sd]);
+      }
+      return this.level(t, pats.some((p) => p.sec) ? this.secDb ?? 0 : 0);
+    }
     if (sec !== 'pre') return this.level(t, db[sec] ?? 0);
     const { verse: v, chorus: c } = db, at = (k) => v + ((c - v) * k) / this.runLen;
     this.level(t, at(this.runPos + 1), [at(this.runPos), 16 * this.e.stepDur]);

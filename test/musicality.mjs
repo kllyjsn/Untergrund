@@ -102,6 +102,26 @@ for (const seed of [7, 42, 211, 1234]) {
 console.log('Drill verse and turnaround passed');
 
 {
+  const song = sanitize(freshSong('drill', 42));
+  // A replay keeps its pattern data even when the listener's artist differs.
+  song.artist = { style: 'trap' };
+  song.chain = 'ADGCDECDG';
+  const rec = new Recorder(song), seq = new Sequencer(rec, song), levels = [];
+  rec.sectionGain = (t, db, ramp) => levels.push({ t, db, ramp });
+  const sd = rec.stepDur;
+  for (let i = 0; i < song.chain.length * 16; i++) seq.tick(i, i * sd);
+  assert.deepEqual(levels.filter(({ ramp }) => ramp), [{ t: 7 * 16 * sd, db: 0.45, ramp: [-1.8, 12 * sd, 4 * sd] }],
+    'only the verse fill into a chorus ramps, ending at the existing chorus level');
+  assert(!levels.some(({ t }) => t === 8 * 16 * sd), 'the chorus does not restart the ramp');
+  seq.rewind(7 * 16 + 10, 100);
+  const resumed = levels.at(-1);
+  assert.equal(resumed.t, 100);
+  assert.deepEqual(resumed.ramp.slice(1), [6 * sd, 0], 'rewinding into the fill plays only the remainder of the ramp');
+  const halfway = (10 ** (-1.8 / 20) + 10 ** (0.45 / 20)) / 2;
+  assert(Math.abs(10 ** (resumed.ramp[0] / 20) - halfway) < 1e-9, 'the resumed lift starts halfway up');
+}
+
+{
   const song = sanitize(freshSong('drill', 211));
   const loud = structuredClone(song);
   for (const take of loud.patterns[3].at) {
