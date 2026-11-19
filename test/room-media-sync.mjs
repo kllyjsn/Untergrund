@@ -102,6 +102,24 @@ for (const t of [desktop, media]) {
 }
 assert.equal(media.vocals[0].gridTime, desktop.vocals[0].gridTime - ROOM_MEDIA_LEAD, 'resync vocal grid advances too');
 assert.equal(media.vocals[0].t, desktop.vocals[0].t - ROOM_MEDIA_LEAD);
+for (const bpm of [120, 240]) for (const mediaRoute of [null, route]) {
+  const { s, api } = transport(mediaRoute), landed = [];
+  const base = 60 / bpm / 4, lead = roomMediaLead(true, mediaRoute);
+  Object.assign(s, { abs: 16, transportOrigin: 1000000 - 16 * base * 1000,
+    clockOffset: 990, nextTime: 10 - lead, jamQueue: [{ wall: 1000000 }],
+    landJamParts: (wall, t) => {
+      assert.equal(wall, (10 + 990) * 1000 + base * 500, 'jam cutoff retains the unshifted wall grid');
+      if (s.jamQueue[0].wall <= wall) { landed.push(t); s.jamQueue.length = 0; }
+    },
+  });
+  s.ctx.currentTime = 9.8;
+  s.Date.now = () => 999800;
+  s.state.bpm = bpm;
+  s.engine.stepDur = base;
+  api.schedule(.3);
+  assert.deepEqual(landed, [10 - lead], 'jam lands on its intended bar, including above 187.5 BPM');
+}
+console.log('Room jam cutoff PASS: wall-aligned at 120/240 BPM; route audio stays 40ms early; desktop cutoff unchanged.');
 const broadcast = main.slice(main.indexOf('function startRoomBroadcast('), main.indexOf('\nfunction showClub('));
 for (const mediaRoute of [null, route]) {
   let delay;

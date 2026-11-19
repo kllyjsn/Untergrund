@@ -229,7 +229,10 @@ function schedule(lead) {
       abs += skip * 16; seq.chainPos += skip; transportOrigin -= skip * 16 * base * 1000;
       if (handoff?.step != null) { handoff.step += skip * 16; handoff.from += skip * 16; }
     }
-    if (jamQueue.length && (abs - seq.origin) % 16 === 0) landJamParts((nextTime + clockOffset) * 1000 + base * 500, t);
+    if (jamQueue.length && (abs - seq.origin) % 16 === 0) {
+      const gridTime = roomPlayback && mediaRoute ? nextTime + roomMediaLead(roomPlayback, mediaRoute) : nextTime;
+      landJamParts((gridTime + clockOffset) * 1000 + base * 500, t);
+    }
     artistTick(abs - seq.origin);
     const pat = seq.tick(abs, t, roomPlayback ? nextTime : undefined, roomEditor);
     uiQueue.push({ abs: abs - seq.origin, t, pat });
