@@ -50,6 +50,16 @@ export function baseSelection(options, previous, now = Date.now()) {
   }
   return { ref: null, sinceTime: new Date(now - 86400000).toISOString() };
 }
+export function seedOverrides(text = '') {
+  const out = {};
+  for (const pair of text.split(',').filter(Boolean)) {
+    const [style, value, ...rest] = pair.split(':');
+    const seed = Number(value);
+    if (!Object.hasOwn(STYLES, style) || value === undefined || value === '' || rest.length || !Number.isInteger(seed) || seed < 0 || seed > 0xffffffff || Object.hasOwn(out, style)) throw new Error(`Invalid genre seed: ${pair}`);
+    out[style] = seed;
+  }
+  return out;
+}
 function ff(args) {
   const p = spawnSync('ffmpeg', ['-hide_banner', '-nostats', '-y', ...args], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
   if (p.status !== 0) throw new Error(p.error?.message || p.stderr);
@@ -71,13 +81,14 @@ function normalize(input, output) {
 export async function main(argv = process.argv.slice(2)) {
   const options = {};
   for (let i = 0; i < argv.length; i += 2) {
-    if (!/^--(date|seed|head|base|since|genres|key-dir)$/.test(argv[i]) || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Invalid option: ${argv[i]}`);
+    if (!/^--(date|seed|seeds|head|base|since|genres|key-dir)$/.test(argv[i]) || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Invalid option: ${argv[i]}`);
     options[argv[i].slice(2)] = argv[i + 1];
   }
   const date = options.date || new Date().toISOString().slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || new Date(date).toISOString().slice(0, 10) !== date) throw new Error('Invalid date');
   const seed = options.seed === undefined ? hash(date) : Number(options.seed);
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) throw new Error('Seed must be a uint32');
+  const seeds = seedOverrides(options.seeds);
   const keyDir = resolve(options['key-dir'] || join(ROOT, 'test/out/blind-packs'));
   const out = join(ROOT, 'test/out/blind-packs', date), pack = join(out, 'blind-pilot');
   if (keyDir === pack || keyDir.startsWith(pack + '/')) throw new Error('Key directory must be outside the blind pack');
@@ -102,7 +113,7 @@ export async function main(argv = process.argv.slice(2)) {
     return id;
   });
   const rng = random(seed), styles = shuffle([...new Set(['minimal', 'drill', 'hardtechno', 'trap', ...mergedPRs.flatMap((p) => p.styles), ...extra])], rng);
-  const pairs = styles.map((style, i) => { const first = rng() < 0.5 ? 'original' : 'revised'; return { pair: String(i + 1).padStart(2, '0'), genre: STYLES[style].name, style, renderSeed: hash(`${seed}:${style}`) || 1, bars: 8, first, second: first === 'original' ? 'revised' : 'original' }; });
+  const pairs = styles.map((style, i) => { const first = rng() < 0.5 ? 'original' : 'revised'; return { pair: String(i + 1).padStart(2, '0'), genre: STYLES[style].name, style, renderSeed: seeds[style] ?? (hash(`${seed}:${style}`) || 1), bars: 8, first, second: first === 'original' ? 'revised' : 'original' }; });
   mkdirSync(out, { recursive: true });
   const temp = mkdtempSync(join(tmpdir(), 'ug-blind-')), worktrees = [];
   try {

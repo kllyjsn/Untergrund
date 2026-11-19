@@ -777,6 +777,25 @@ export class Engine {
     return byKey[key];
   }
 
+  chordTone(voice, dst) {
+    const tone = {
+      'afrobeats:1': [1300, -6.6], 'reggaeton:4': [1250, 5.4],
+      'hyperpop:0': [1800, 2.9], 'hyperpop:5': [1800, 6.9], 'hyperpop:11': [1450, 13.1],
+      'ukg:5': [1500, 6.1],
+    }[`${this.state.artist?.style}:${voice}`];
+    if (!tone) return dst;
+    if (voice >= 7 && dst === this.ch.stab.input) dst = this.ch.stab.band;
+    const tones = (this.chordTones ||= new Map());
+    if (!tones.has(dst)) tones.set(dst, new Map());
+    const byTone = tones.get(dst), key = tone.join();
+    if (!byTone.has(key)) {
+      const first = this.filter('lowpass', tone[0], 0.5411961), second = this.filter('lowpass', tone[0], 1.3065630);
+      first.connect(second).connect(this.gain(dbGain(tone[1]))).connect(dst);
+      byTone.set(key, first);
+    }
+    return byTone.get(key);
+  }
+
   trigger(id, t, v, underHarp = false) {
     const kitMode = Math.round(this.state.master.kit || 0);
     if (kitMode === KIT_BACKBEAT && id === 'kick') this.backbeatKickAt = t;
@@ -1341,7 +1360,7 @@ export class Engine {
     const vo = Math.round(p.voice), voiced = this.lastChord = voiceLead(notes, this.lastChord, home);
     // A song's chorus opens the voicing: the top voice doubled an octave up.
     const vi = (GRIPPED.has(STAB_VOICES[vo]) ? notes : voiced).map((m) => m - root);
-    const iv = this.wide && !GRIPPED.has(STAB_VOICES[vo]) && vi.length > 2 ? [...vi, Math.max(...vi) + 12] : vi, out = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
+    const iv = this.wide && !GRIPPED.has(STAB_VOICES[vo]) && vi.length > 2 ? [...vi, Math.max(...vi) + 12] : vi, out = this.chordTone(vo, this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]));
     // A lifted breakdown plays decaying chords an octave up, filling it above the bass range it no longer shares.
     if (vo > 0) {
       const pitches = this.smoothOn > 0 ? iv.map((m) => m + 12) : iv;
@@ -2150,7 +2169,7 @@ export class Engine {
     const note = this.bassMidi(st), f = midiHz(note), subF = midiHz(this.bassMidi(st, 36, 38));
     // A chromatic approach note leads into the next bar and gets out of the way when the chord lands.
     const len = st.ap ? sd * 0.9 : holdNext ? sd * 2 : sd * (0.9 + p.decay * 2);
-    if (Math.round(this.state.master.kit || 0) === 1) {
+    if (Math.round(this.state.master.kit || 0) === 1 && this.state.artist?.style !== 'breaks') {
       const kit = this.rec('kit');
       if (kit) return this.sampledBass(kit, t, note, len, st.a);
       loadLiveKit();

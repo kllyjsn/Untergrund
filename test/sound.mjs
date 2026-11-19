@@ -158,4 +158,29 @@ for (const [style, seed] of [['deephouse', 211], ['trance', 211]]) {
   assert(!Object.keys(e.trims || {}).length, 'NEO-SOUL voices must not get club make-up gain');
 }
 
+{
+  for (const [style, seed] of [['afrobeats', 1168184795], ['reggaeton', 131219516], ['hyperpop', 273450247], ['hyperpop', 20], ['hyperpop', 3], ['ukg', 1800668011]]) {
+    const s = defaultState(); applyOverrides(s, generate(style, seed));
+    s.artist = { style, seed };
+    const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false }), dst = e.ch.stab.input;
+    const tone = e.chordTone(s.params.stab.voice, dst);
+    assert.notEqual(tone, dst, `${style} uses its chord voice's tone circuit`);
+    assert.equal(e.chordTone(s.params.stab.voice, dst), tone, 'notes share the tone circuit');
+    assert.equal(e.chordTone(-1, dst), dst, 'unknown voices keep their destination');
+    s.artist.style = 'trap';
+    assert.equal(e.chordTone(s.params.stab.voice, dst), dst, 'unmodified genres keep their voice');
+    delete s.artist;
+    assert.equal(e.chordTone(s.params.stab.voice, dst), dst, 'legacy states keep their voice');
+  }
+  for (const style of ['breaks', 'neosoul']) {
+    const s = defaultState(); applyOverrides(s, generate(style, 3));
+    s.artist = { style, seed: 3 };
+    const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
+    let samples = 0;
+    e.rec = () => ({}); e.sampledBass = () => samples++;
+    e.bass(0.1, { n: 0, a: true }, 0.1, false);
+    assert.equal(samples, style === 'breaks' ? 0 : 1, `${style} keeps its intended bass player under recorded drums`);
+  }
+}
+
 console.log('sound ok');

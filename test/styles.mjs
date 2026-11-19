@@ -53,6 +53,14 @@ const saved = sanitize(JSON.parse(JSON.stringify({ ...defaultState(), master: { 
 assert.equal(saved.master.pocket, 2); assert.equal(saved.master.kit, 2);
 console.log('live kit defaults passed');
 console.log('genre pockets passed');
+for (const [style, seed, voice, cutoff] of [['afrobeats', 1168184795, 1, 600], ['reggaeton', 131219516, 4, 700], ['hyperpop', 273450247, 0, 900], ['hyperpop', 20, 5, 350], ['hyperpop', 3, 11, 900], ['ukg', 1800668011, 5, 400]]) {
+  const { params } = generate(style, seed);
+  assert.equal(params.stab.voice, voice);
+  assert.equal(params.stab.octave, 0, `${style}/${voice} stays in the body register`);
+  assert.equal(params.stab.cutoff, cutoff);
+  assert.equal(params.stab.reso, 0.7);
+}
+console.log('electronic chord registers and brightness passed');
 assert(generate('neosoul', 9, 'dorian').master.room > 0.3);
 console.log('room defaults passed');
 for (const style of ['neosoul', 'boombap', 'hypnotic', 'ambient', 'euphoric']) {

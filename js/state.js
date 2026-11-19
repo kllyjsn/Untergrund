@@ -801,6 +801,19 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   if (params.stab.decay) params.stab.decay = +(params.stab.decay * (0.8 + r2() * 0.4)).toFixed(3);
   // Minimal's chords stay soft whatever the ensemble picked: a long decay, a gentle touch and a dark, unresonant filter.
   if (style === 'minimal') Object.assign(params.stab, { decay: Math.max(params.stab.decay, 0.45), env: Math.min(params.stab.env, 0.08), cutoff: Math.min(params.stab.cutoff, 1300), reso: 0.4, tine: 0.15 });
+  const color = {
+    'afrobeats:1': { cutoff: 600, env: 0.15, tine: 0.1 },
+    'reggaeton:4': { cutoff: 700, env: 0.12 },
+    'hyperpop:0': { cutoff: 900, env: 0.15 },
+    'hyperpop:5': { cutoff: 350, env: 0.12 },
+    'hyperpop:11': { cutoff: 900, env: 0.4, level: 0.85 },
+    'ukg:5': { cutoff: 400, env: 0.2 },
+  }[`${style}:${stabVoice}`];
+  if (color) Object.assign(params.stab, { octave: 0, reso: 0.7, level: 1 }, color);
+  if (style === 'breaks') {
+    if (bassVoice !== 1) params.kick.level = 1.13;
+    if (bassVoice === 1) params.acid.level = 0.35;
+  }
   const PUNCH = { deephouse: 0.55, ukg: 0.7, afrobeats: 0.7, amapiano: 0.65, euphoric: 0.72, trance: 0.72, reggaeton: 0.7 };
   if (PUNCH[style]) {
     params.kick.punch = Math.max(params.kick.punch ?? 0, PUNCH[style]);

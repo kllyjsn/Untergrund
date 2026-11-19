@@ -49,7 +49,7 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
   assert.deepEqual(liveSets(state), ['harp'], 'load a hook from any part of a saved song');
   const e = {
     state, recLock: new Map(), rec: Engine.prototype.rec, harpHook: Engine.prototype.harpHook,
-    ctx, filter: Engine.prototype.filter,
+    ctx, filter: Engine.prototype.filter, chordTone: Engine.prototype.chordTone,
     ch: { stab: { input: ctx.createGain() } }, soulBand: () => false,
     trimOut: (key, db, dest) => { if (key === 'hook-softmallet') throw fallback; return dest; },
     playBuf: (...args) => hits.push(args), bells: () => {},
@@ -87,7 +87,7 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
   state.params.stab.voice = 6;
   const e = {
     state, ctx, rec: Engine.prototype.rec, recLock: new Map([['harp', false]]),
-    stab: Engine.prototype.stab, harpBacking: Engine.prototype.harpBacking, filter: Engine.prototype.filter,
+    stab: Engine.prototype.stab, harpBacking: Engine.prototype.harpBacking, filter: Engine.prototype.filter, chordTone: Engine.prototype.chordTone,
     ch: { stab: { input: out } }, trimOut: (key, db, dest) => dest,
     soulBand: () => false, bells: (...args) => hits.push(args),
   };
