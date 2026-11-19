@@ -2687,7 +2687,9 @@ export class Sequencer {
     if (band && i16 === 0 && pos > 0 && this.chainArr[pos - 1] !== this.cur && pat.steps.kick.some(Boolean) && !s.mutes.oh && (!anySolo || s.solos.oh)) {
       e.crash(tt + pocketLate(pk, 'oh', 0), this.cur === 6 || this.cur === 7 ? 1 : 0.7);
     }
-    const grid = { abs, tt, bar, i16, vary, rp, pos, n, fillAt, pk, band, sung, hum: s.master.humanize || 0, liveKit: Math.round(s.master.kit || 0) === 1 };
+    // A queued fill keeps its instrument when a single track is edited.
+    const roller = rp >= 0 && i16 >= fillAt && pat.steps.snare.some(Boolean) ? 'snare' : 'clap';
+    const grid = { abs, tt, bar, i16, vary, rp, pos, n, fillAt, roller, pk, band, sung, hum: s.master.humanize || 0, liveKit: Math.round(s.master.kit || 0) === 1 };
     const hitContext = editable ? { cur: this.cur, runLen: this.runLen, smooth: this.smooth, build: this.build } : null;
     for (const id of TRACK_IDS) {
       const on = !s.mutes[id] && (!anySolo || s.solos[id]);
@@ -2786,7 +2788,7 @@ export class Sequencer {
     return this.cur;
   }
 
-  gridHit(id, pat, { abs, tt, bar, i16, vary, rp, pos, n, fillAt, pk, band, sung, hum, liveKit }) {
+  gridHit(id, pat, { abs, tt, bar, i16, vary, rp, pos, n, fillAt, roller, pk, band, sung, hum, liveKit }) {
     const i = abs % (pat.len[id] || 16);
     let v = pat.steps[id][i];
     if (vary) {
@@ -2797,7 +2799,7 @@ export class Sequencer {
       else if (!v && id === 'kick' && i % 4 === 3 && roll < vary * 0.08) v = 0.6;
       if (bar % 8 === 7 && i >= 12 && (id === 'kick' || id === 'stab') && hash(bar, k) < vary) v = 0;
     }
-    if (rp >= 0) v = this.build(id, v, pat, i16, rp, pos < n / 2, fillAt, pat.steps.snare.some(Boolean) ? 'snare' : 'clap');
+    if (rp >= 0) v = this.build(id, v, pat, i16, rp, pos < n / 2, fillAt, roller);
     // Ghost hats: the hand keeps moving between the written hits, barely touching the cymbal
     if (pk?.ghost && !v && id === 'ch' && i16 % 2 && pat.steps.ch.some(Boolean) && hash(abs * 1.91 + bar, 97) < pk.ghost) v = 0.26;
     const k = TRACK_IDS.indexOf(id), drum = DRUMS.has(id), cym = id === 'ch' || id === 'ride' || id === 'oh';
