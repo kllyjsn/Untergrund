@@ -206,6 +206,42 @@ const drill = await withChrome(async (run) => {
     return errors;
   })()`);
   for (const [i, error] of joinErrors.entries()) near(error, 0, 1e-5, `Drill fill join ${i} matches uninterrupted native gain`);
+  const slides = await run(`(async () => {
+    const { defaultState } = await import('/js/state.js');
+    const { Engine } = await import('/js/engine.js');
+    const fs = 48000, t = 0.2, sd = 0.1;
+    async function dry(style, target, includeOctave) {
+      const ctx = new OfflineAudioContext(1, fs / 2, fs), state = defaultState();
+      state.artist = { style };
+      const e = new Engine(ctx, state, { realtime: false });
+      e.out.disconnect();
+      e.ch.acid.input.connect(ctx.destination);
+      e.eight08(t - sd, { n: 0, a: true }, sd, true, false);
+      const prev = e.mono;
+      if (!includeOctave) prev.octave.disconnect();
+      e.eight08(t, { n: 5, a: true, ...target }, sd, false, true);
+      if (e.mono !== prev) throw new Error('808 slide must keep the same oscillators and envelope');
+      return (await ctx.startRendering()).getChannelData(0);
+    }
+    const compare = (a, b, start, end) => {
+      let sq = 0;
+      for (let i = Math.round(start * fs); i < Math.round(end * fs); i++) sq += (a[i] - b[i]) ** 2;
+      return Math.sqrt(sq / ((end - start) * fs));
+    };
+    const trap = await dry('trap', null, true), drill = await dry('drill', null, true);
+    const trapSub = await dry('trap', null, false), drillSub = await dry('drill', null, false);
+    const trapRepeat = await dry('trap', { n: 0 }, true), drillRepeat = await dry('drill', { n: 0 }, true);
+    return {
+      before: compare(trap, drill, 0, t),
+      slide: compare(trap, drill, t, t + sd),
+      settled: compare(trap, drill, 0.39, 0.45),
+      sub: compare(trapSub, drillSub, 0, 0.5),
+      repeat: compare(trapRepeat, drillRepeat, 0, 0.5),
+    };
+  })()`);
+  assert(slides.slide > 0.008, `Drill accent must change the octave during a slide: ${JSON.stringify(slides)}`);
+  for (const key of ['before', 'sub', 'repeat']) near(slides[key], 0, 1e-6, `Drill 808 ${key} stays unchanged`);
+  assert(slides.settled < slides.slide * 0.035, `Drill octave should converge to the original slide: ${JSON.stringify(slides)}`);
   const harpPeak = await run(`(async () => {
     const { song, render } = await import('/test/audio-quality-page.js');
     const { router } = await import('/js/stems.js');
