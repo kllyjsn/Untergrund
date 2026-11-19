@@ -170,6 +170,28 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
 
   {
+    for (const editable of [false, true]) for (const kickMuted of [false, true]) {
+      const state = defaultState();
+      state.artist = { style: 'drill' };
+      state.chainOn = false;
+      state.mutes.kick = kickMuted;
+      state.params.acid.voice = 2;
+      const pat = state.patterns[state.current];
+      pat.steps.kick.fill(0); pat.steps.kick[1] = 1;
+      pat.steps.acid[0] = { on: true, n: 0, a: false, s: true };
+      pat.steps.acid[1] = { on: true, n: 5, a: false, s: false };
+      const e = new Engine(fakeCtx(), state), seq = new Sequencer(e, state);
+      const kicks = [], slides = [];
+      e.trigger = (id, t) => { if (id === 'kick') kicks.push(t); };
+      e.eight08 = (t, st, sd, hold, sliding, kickAt) => { if (sliding) slides.push(kickAt); };
+      seq.tick(0, 1, undefined, editable);
+      seq.tick(1, 1 + e.stepDur, undefined, editable);
+      assert.deepEqual(slides, [kicks[0]], 'the slide uses the kick actually scheduled on its step');
+      assert.equal(kicks.length, Number(!kickMuted));
+    }
+  }
+
+  {
     const ctx = fakeCtx(), state = defaultState();
     state.master.arr = state.master.humanize = state.master.variation = 0;
     state.chainOn = false;
