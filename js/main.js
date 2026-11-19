@@ -206,7 +206,15 @@ function schedule(lead) {
       abs += fix.skip;
       seq.rewind(abs, now);
     }
-    for (let i = 0; i < fix.skip; i++, abs++) { artistTick(abs - seq.origin); seq.advanceBar(abs - seq.origin, ctx.currentTime); }
+    for (let i = 0; i < fix.skip; i++, abs++) {
+      const gridTime = target + i * base, t = roomPlayback ? Math.max(now, gridTime) : now;
+      if (roomPlayback && jamQueue.length && (abs - seq.origin) % 16 === 0)
+        landJamParts((gridTime + clockOffset) * 1000 + base * 500, t);
+      artistTick(abs - seq.origin);
+      seq.advanceBar(abs - seq.origin, t);
+    }
+    if (roomPlayback && fix.skip > 0 && jamQueue.length)
+      landJamParts((fix.nextTime + clockOffset) * 1000, fix.nextTime);
     nextTime = fix.nextTime;
     const step = (abs - seq.origin) % 16;
     if (fix.discard && step)

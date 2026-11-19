@@ -6,6 +6,8 @@ import { freshSong, clone, sanitize, STYLES } from '../js/state.js';
 import { songFingerprint } from '../js/listen.js';
 import { createRoomMediaSync, roomMediaLead } from '../js/room-media-sync.js';
 import { createClockSender } from '../js/midi-core.js';
+import { Sequencer } from '../js/engine.js';
+import { Recorder } from '../js/midi.js';
 
 const origin = 1_000_000;
 const close = (a, b) => assert(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
@@ -366,6 +368,49 @@ for (const [action, currentTime, playing, expected] of [
   assert.ok(sent.every((time, i) => !i || time > sent[i - 1]), 'old and new MIDI clock queues stay strictly monotonic without overlap');
 }
 console.log('Room frontier PASS: no reordered/rebuilt notes, solo tempo no-repeat, monotonic MIDI and no Jam part before its queued downbeat.');
+{
+  const runBoundary = ({step=63, nextTime=10.5, gridOrigin=2325, now=10, wall=10325} = {}) => {
+    const notes = [], effects = [], state = freshSong('hypnotic', 7, {length:'sketch', bpm:120});
+    state.bpm = 120; state.chainOn = true; state.chain = 'CCCCEEEECCCC'; state.master.arr = 1; state.part = 'old';
+    const engine = new Recorder(state), seq = new Sequencer(engine, state);
+    seq.chainPos = 4; seq.cur = 2;
+    engine.at = 0;
+    engine.applyAll = () => effects.push({kind:'mix', time:engine.at});
+    engine.breakSweep = time => effects.push({kind:'break', time});
+    engine.discardQueuedNotes = () => assert.fail('a room correction must preserve the queued notes');
+    const tick = seq.tick.bind(seq);
+    seq.tick = (abs, time, ...args) => { notes.push({abs, time, part:state.part}); return tick(abs, time, ...args); };
+    const sandbox = {playing:true, songOver:false, roomPlayback:true, roomEditor:false, ROOM_LEAD:0.25, BG_LEAD:1,
+      document:{hidden:false}, ctx:{currentTime:now}, Date:{now:() => now * 1000},
+      state, engine, seq, abs:step, nextTime, transportOrigin:gridOrigin, clockOffset:0,
+      syncAudioClock, transportResync, slewTransport, handoff:null, vocalGridDirty:false, uiQueue:[],
+      jamQueue:[{part:'kick', layer:{id:'new'}, wall}], jamRedraw:0,
+      timeline:{skip:() => 0}, artistTick(){}, midiClockStep(){},
+      applyPart:(s, part, layer) => { s.part = layer.id; }, setTimeout(){}, cancelAnimationFrame(){}, requestAnimationFrame:() => 0};
+    const scheduler = main.slice(main.indexOf('function schedule(lead)'), main.indexOf('\n// Jam:'));
+    const jam = main.slice(main.indexOf('function landJamParts('), main.indexOf('\n// GENERATE while'));
+    runInNewContext(`${scheduler}\n${jam}\nschedule()`, sandbox);
+    return {sandbox, notes, effects};
+  };
+  const small = runBoundary({step:64, nextTime:11.5, gridOrigin:3460, now:11.3, wall:11460});
+  assert.equal(small.notes[0]?.abs, 64, 'a small calibration never skips the playable Jam downbeat');
+  assert.equal(small.notes[0].part, 'new');
+  close(small.notes[0].time, 11.4985);
+  const skipped = runBoundary();
+  assert.equal(skipped.sandbox.abs, 66);
+  assert.equal(skipped.sandbox.state.part, 'new', 'a skipped Jam boundary lands rather than waiting another bar');
+  assert.equal(skipped.sandbox.jamQueue.length, 0);
+  assert.equal(skipped.sandbox.seq.cur, 4, 'a skipped breakdown advances the actual section');
+  assert.equal(skipped.notes.length, 0, 'existing queued notes are not rebuilt');
+  close(skipped.effects.find(e => e.kind === 'break').time, 10.325);
+  close(skipped.effects.find(e => e.kind === 'mix').time, 10.325);
+  assert.ok(skipped.effects.every(e => e.time > 10), 'future section and mix automation do not fire at scheduler-now');
+  assert.equal(skipped.sandbox.engine.at, 0, 'temporary scheduled mix time is restored');
+  const late = runBoundary({wall:10500});
+  assert.equal(late.sandbox.state.part, 'new', 'a Jam due between skipped and playable steps lands on the first playable grid time');
+  close(late.effects.find(e => e.kind === 'mix').time, 10.575);
+}
+console.log('Room skipped boundaries PASS: sub-step Jam downbeat retained; skipped Jam, breakdown and mix automation land at grid time; late Jam catches the first playable step.');
 {
   const reanchorSource = main.slice(main.indexOf('function reanchorRoomSet('), main.indexOf('\nfunction stopRoomStats'));
   const sandbox = {playing:true, roomPlayback:true, state:{bpm:newBpm}, seq:{origin:64}, transportOrigin:rebasedOrigin, vocalGridDirty:false};
