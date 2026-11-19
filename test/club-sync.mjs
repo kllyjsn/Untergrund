@@ -24,6 +24,8 @@ const SCENARIOS = [
   { name: 'injected-offset', displacementMs: 2000 },
   { name: 'reconnect', offlineMs: 10000 },
   { name: 'reconnect-expired', offlineMs: 20000 },
+  { name: 'reconnect-mix', offlineMs: 10000, mix: true },
+  { name: 'reconnect-expired-mix', offlineMs: 20000, mix: true },
   { name: 'foreground-stall', mainThreadStallMs: 320 },
   { name: 'dj-foreground-stall', mainThreadStallMs: 320, stallDJ: true },
   { name: 'dj-edit-latency', djLatency: true },
@@ -33,6 +35,7 @@ const SCENARIOS = [
   { name: 'short-wake-mix', freezeMs: 800, mix: true },
   { name: 'background-wake-mix', freezeMs: 15000, mix: true },
   { name: 'dj-handoff', handoff: true },
+  { name: 'dj-handoff-mix', handoff: true, mix: true },
   { name: 'replay', replay: true },
 ];
 const args = process.argv.slice(2);
@@ -189,6 +192,7 @@ async function scenario(base, spec) {
         await listener.clickText('JOIN DJ QUEUE');
         await until(async () => (await snapshot()).queue?.includes(listenerId), 'listener queued on room server');
         events.actionAt = await host.clickText('PASS DECK');
+        if (spec.mix) events.interruptAt = events.recoverAt = events.actionAt;
         events.passed = await until(async () => { const s = await snapshot(); return s.hostId === listenerId && s; }, 'deck passed on room server');
         await until(() => listener.run(`[...document.querySelectorAll('.club-secondary')].some(b => b.textContent === 'UPDATE ROOM')`), 'new DJ controls');
         events.broadcastAt = await listener.clickText('UPDATE ROOM');
@@ -213,10 +217,11 @@ async function scenario(base, spec) {
       assert.equal(events.newSet.set.replay, !!spec.replay);
       if (spec.replay) assert.ok(events.newSet.startsAt > events.actionAt, 'Fresh future replay origin');
       events.firstDownbeatAt = spec.handoff ? events.newSet.startsAt + Math.ceil((events.broadcastAt - events.newSet.startsAt) / PERIOD_MS) * PERIOD_MS : events.newSet.startsAt;
-      await pause(Math.max(0, events.firstDownbeatAt - Date.now()) + 22000);
+      const nextBoundary = spec.mix ? mixBoundaries(song, events.newSet.startsAt).find(b => b.at >= events.broadcastAt) : null;
+      await pause(Math.max(events.firstDownbeatAt + 22000, nextBoundary ? nextBoundary.at + 4000 : 0) - Date.now());
       events.after = await snapshot();
     } else if (spec.offlineMs || spec.freezeMs) {
-      if (spec.mix) {
+      if (spec.mix && spec.freezeMs) {
         events.plannedDrop = mixBoundaries(song, initial.startsAt).find(b => b.section === 'DROP');
         assert.ok(events.plannedDrop.at - 400 > Date.now(), 'Listener ready before drop freeze');
         await pause(events.plannedDrop.at - 400 - Date.now());
@@ -257,14 +262,20 @@ async function scenario(base, spec) {
     } else await pause(22000);
     const raw = await Promise.all(clients.map(c => c.run('({...__clubAudio, clockSkew: Date.now() - (performance.timeOrigin + performance.now())})')));
     if (spec.mix) {
-      const mix = analyzeMix(raw, song, events, initial.startsAt);
+      const mix = analyzeMix(raw, song, events, initial.startsAt, { resume: !!spec.freezeMs });
       const failures = mixFailures(mix);
-      console.log(`${spec.name}: frozen ${events.interruptAt} → wake ${events.recoverAt}; realign=${mix.timeToRealignMs}ms / budget=${mix.budgetMs}ms`);
+      const diagnostics = options.diagnostics ? diagnose(raw, initial.startsAt) : null;
+      if (diagnostics) assert.ok(diagnostics.every(d => d.roomClock?.best && d.starts.length && d.schedulerSamples >= 5), 'Diagnostic breakpoints captured both app paths');
+      console.log(`${spec.name}: ${spec.offlineMs ? `offline ${spec.offlineMs}ms` : spec.handoff ? 'PASS DECK → new DJ UPDATE ROOM' : 'frozen → wake'}; realign=${mix.timeToRealignMs}ms / budget=${mix.budgetMs}ms`);
       for (const [name, p] of Object.entries(mix.phases)) console.log(`  ${name}: ${JSON.stringify({
         kicks:{...p.kicks, pairs:undefined, hostOnsets:undefined, listenerOnsets:undefined}, vocal:{...p.vocal, pairs:undefined}})}`);
       for (const b of mix.boundaries) console.log(`  boundary: ${JSON.stringify(b)}`);
+      console.log(`  summary: ${JSON.stringify({ missing:mix.phases.after.kicks.missing, extra:mix.phases.after.kicks.extra,
+        medianMs:mix.phases.after.kicks.median, maxMs:mix.phases.after.kicks.max, recoveryMs:mix.timeToRealignMs,
+        vocalVsKickMs:mix.phases.after.vocal.relativeToKickMs, boundaries:mix.boundaries.map(b => ({bar:b.bar, correctSection:b.correctSection, deltaMs:b.deltaMs})), failures })}`);
+      if (diagnostics) console.log(`  diagnostics: ${JSON.stringify(diagnostics)}`);
       console.log(`  mix thresholds: ${failures.length ? 'FAIL: ' + failures.join(', ') : 'PASS'}`);
-      return { name:spec.name, spec, mix, events, failures, raw:{captures:raw},
+      return { name:spec.name, spec, mix, events, failures, diagnostics, raw:{captures:raw},
         ...mix.phases.after.kicks, hostFixture:{missing:null, measured:false}, phases:{after:mix.phases.after.kicks} };
     }
     const [he, le] = raw.map(r => envelope(r)), [ho, lo] = [he, le].map(e => onsets(e, BPM));

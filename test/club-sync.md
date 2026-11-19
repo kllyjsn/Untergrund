@@ -4,7 +4,8 @@ Run `npm run test:club-sync` with Node 22 and Chrome installed (`CHROME_PATH`
 overrides discovery). Add `-- --assert` for exit-status thresholds, or
 `-- --scenario late-join` (also `listener-skew`, `host-skew`, `cold-invite`,
 `injected-offset`, `reconnect`, `reconnect-expired`, `foreground-stall`,
-`background-wake`, `downbeat-wake`, `short-wake`, `dj-handoff`, `replay`).
+`background-wake`, `downbeat-wake`, `short-wake`, `dj-handoff`, `replay`,
+`reconnect-mix`, `reconnect-expired-mix`, `dj-handoff-mix`).
 Detector tests: `node test/club-sync-detector.mjs`.
 Transition/diagnostic metric tests: `node test/club-sync-metrics.mjs`.
 
@@ -168,6 +169,19 @@ brand-new profile and starts its entry timer immediately before navigation;
 it does not emulate mobile gesture restrictions.
 
 ## Deck handoff and replay
+
+`reconnect-mix` and `reconnect-expired-mix` use the same 10s/20s network
+interruption as their dry counterparts, after a 7s baseline, with 20s recovery.
+`dj-handoff-mix` uses the same queue/pass/update UI flow as `dj-handoff`.
+All three use the existing full-mix fixture, processedStem prewarm and isolated
+rendered kick/vocal taps. Continuous audio is not cropped by a freeze/resume
+marker. Reconnect also reports a DURING window; section boundaries during the
+network interruption are checked, not exempted as frozen audio. Handoff uses
+PASS DECK as the recovery origin and retains at least one subsequent section
+boundary in the capture. Each summary reports AFTER missing/extra kicks,
+median/max alignment, three-kick realignment time, vocal lag minus signed kick
+median, boundary results and assertion failures. Diagnostic mode retains both
+clients' clock/origin/scheduler decomposition in JSON for these mix scenarios.
 
 `dj-handoff` records 7s, clicks JOIN DJ QUEUE on the listener, verifies the
 server queue, clicks PASS DECK on the host and verifies the new host ID. The

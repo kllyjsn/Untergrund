@@ -72,7 +72,7 @@ export function matchEvents(host, listener, from, to, tolerance = 100) {
   const ds = pairs.map(p => p.delta), abs = ds.map(Math.abs);
   return { from, to, expected:hs.length, matched:pairs.length, missing:hs.length - pairs.length,
     extra:ls.filter((l, i) => l >= from && l <= to && !used.has(i)).length,
-    signedMedianMs:quantile(ds, .5), signedP95Ms:quantile(ds, .95), median:quantile(abs, .5), p95:quantile(abs, .95), pairs };
+    signedMedianMs:quantile(ds, .5), signedP95Ms:quantile(ds, .95), median:quantile(abs, .5), p95:quantile(abs, .95), max:quantile(abs, 1), pairs };
 }
 
 export function realignment(stats, wake) {
@@ -110,7 +110,7 @@ export function boundaryMetric(host, listener, boundary) {
     correctSection:after.lagMs !== null && Math.abs(after.lagMs) <= 50 && after.score >= .8 };
 }
 
-export function analyzeMix(raw, s, events, origin) {
+export function analyzeMix(raw, s, events, origin, { resume = true } = {}) {
   const [he, le] = raw.map(r => envelope(r));
   const [hb, lb] = raw.map(r => envelope(r, 2));
   const start = Math.max(he[0][0], le[0][0]) + 500, end = Math.min(he.at(-1)[0], le.at(-1)[0]) - 200;
@@ -118,9 +118,10 @@ export function analyzeMix(raw, s, events, origin) {
   // The host keeps rendering: match its continuous onsets by output time,
   // not by the (possibly delayed) resume marker for the frozen listener.
   const host = onsets(channelEnvelope(raw[0], 'kick'), s.bpm);
-  for (const [name, from, to] of [['before', start, events.interruptAt], ['after', events.recoverAt, end]]) {
-    const rows = channel => raw.map(r => channelEnvelope(r, channel, name === 'after'));
-    const listener = onsets(channelEnvelope(raw[1], 'kick', name === 'after'), s.bpm);
+  const windows = [['before', start, events.interruptAt], ...(!resume && events.recoverAt > events.interruptAt ? [['during', events.interruptAt, events.recoverAt]] : []), ['after', events.recoverAt, end]];
+  for (const [name, from, to] of windows) {
+    const rows = channel => raw.map(r => channelEnvelope(r, channel, resume && name === 'after'));
+    const listener = onsets(channelEnvelope(raw[1], 'kick', resume && name === 'after'), s.bpm);
     const [vh, vl] = rows('vocal');
     const kicks = matchEvents(host, listener, from + (name === 'before' ? 150 : 0), to - 150, 150);
     kicks.hostOnsets = host; kicks.listenerOnsets = listener;
@@ -138,12 +139,13 @@ export function analyzeMix(raw, s, events, origin) {
   }
   const boundaries = mixBoundaries(s, origin).filter(b => b.at >= events.interruptAt && b.at + 3200 < end)
     .map(b => {
-      const rows = b.at >= events.recoverAt ? raw.map(r => postResumeEnvelope(r, 2)) : [hb, lb];
-      return {...b, duringFreeze:b.at < events.recoverAt, ...boundaryMetric(...rows, b.at)};
+      const rows = resume && b.at >= events.recoverAt ? raw.map(r => postResumeEnvelope(r, 2)) : [hb, lb];
+      return {...b, duringFreeze:resume && b.at < events.recoverAt, ...boundaryMetric(...rows, b.at)};
     });
   const timeToRealignMs = realignment(phases.after.kicks, events.recoverAt);
   const budgetMs = 3 * 60000 / s.bpm;
   const baselineFailures = [];
+  if (!resume && !boundaries.length) baselineFailures.push('no section boundaries measured');
   const bk = phases.before.kicks, bv = phases.before.vocal;
   if (!bk.matched || bk.median === null || bk.median > 25 || bk.p95 > 50 || bk.missing || bk.extra) baselineFailures.push('kicks BEFORE');
   if (bv.lagMs === null || Math.abs(bv.lagMs) > 50 || bv.relativeToKickMs === null || Math.abs(bv.relativeToKickMs) > 10) baselineFailures.push('vocal BEFORE');
