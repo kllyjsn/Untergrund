@@ -656,11 +656,11 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.ch = range(STEPS, (i) => (i % 2 === 0 ? 1 : 0));
     S.stab = pad16(pick(r, [[2, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1], [2, 0, 1, 0, 1, 0, 1, 0, 2, 0, 1, 0, 1, 0, 1], [2, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1]]));
     S.acid = range(STEPS, (i) => (i === 0 || i === 8 ? { on: true, n: i === 8 ? 7 : 0, a: i === 0, s: false } : emptyAcidStep()));
-    Object.assign(params.kick, { tune: 54, decay: 0.4, drive: 0.1, punch: 0.4, rumble: 0, click: 0.15, level: 1.25 });
+    Object.assign(params.kick, { tune: 54, decay: 0.4, drive: 0.1, punch: 0.4, rumble: 0, click: 0.15, level: 1.2 });
     Object.assign(params.snare, { tune: 200, snappy: 0.2, decay: 0.1, level: 0.9, rev: 0.3 });
     Object.assign(params.ch, { decay: 0.04, tone: 3000, level: 0.5, rev: 0.15 });
     Object.assign(params.stab, { chord: 11, octave: 0, cutoff: 3000, reso: 1, decay: 1.6, env: 0.3, detune: 4, rev: 0.3, dly: 0, level: 0.85 });
-    Object.assign(params.acid, { voice: 1, wave: 0, tune: -12, cutoff: 340, reso: 1, envmod: 0.1, decay: 0.6, drive: 0.15, accent: 0.1, level: 1.4, dly: 0 });
+    Object.assign(params.acid, { voice: 1, wave: 0, tune: -12, cutoff: 340, reso: 1, envmod: 0.1, decay: 0.6, drive: 0.15, accent: 0.1, level: 1.2, dly: 0 });
     master.kit = 1; master.warmth = 0.45; master.room = 0.5; master.duck = 0; master.drive = 0.05; master.revLevel = 0.45;
     swing = 0.15;
   } else if (style === 'country') {
@@ -680,7 +680,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     Object.assign(params.snare, { tune: 210, snappy: 0.6, decay: 0.16, level: 1.15, rev: 0.25 });
     Object.assign(params.ch, { decay: 0.045, tone: 5500, level: 0.6, rev: 0.1 });
     Object.assign(params.stab, { chord: 11, octave: 0, cutoff: 3200, reso: 1, decay: 0.35, env: 0.75, detune: 4, rev: 0.25, dly: 0, level: 0.6 });
-    Object.assign(params.acid, { voice: 5, wave: 0, tune: -12, cutoff: 450, reso: 1, envmod: 0.1, decay: 0.35, drive: 0.15, accent: 0.2, level: 1.4, dly: 0 });
+    Object.assign(params.acid, { voice: 5, wave: 0, tune: -12, cutoff: 450, reso: 1, envmod: 0.1, decay: 0.35, drive: 0.15, accent: 0.2, level: 1.2, dly: 0 });
     master.kit = 1; master.warmth = 0.35; master.room = 0.3; master.duck = 0; master.drive = 0.05; master.revLevel = 0.25;
     swing = 0.1;
   }
@@ -749,7 +749,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   // Pop's keys carry the song alone where the piano would; they sit up with the band instead of under it.
   if (style === 'pop' && stabVoice === 1) params.stab.level = 1.1;
   // Folk and country are a band around the guitar, not a guitar over a click: it sits with the bass and kit.
-  if (style === 'folk' || style === 'country') params.stab.level = 0.6;
+  if (style === 'folk' || style === 'country') params.stab.level = 0.5;
   if (style === 'trance' && stabVoice === 0) {
     params.stab.level = 0.5;
     params.stab.cutoff = Math.min(params.stab.cutoff ?? 1800, 1800);
@@ -789,11 +789,12 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   if (hook) { P.hook = hook; P.hm = 2; }
   // One seeded idea per track, chosen from moves that fit any groove: an octave pop at the end of
   // the bass phrase, displaced percussion, or a chord that anticipates the beat. Sometimes restraint.
+  // A folk guitarist's thumb keeps the beat, so the whole part never slides a 16th early.
   const idea = Math.floor(r2() * 4);
   const on = S.acid.map((st, i) => (st.on ? i : -1)).filter((i) => i >= 0);
   if (idea === 0 && on.length > 2) S.acid[on[on.length - 1]].n += 12;
   else if (idea === 1 && S.perc.some(Boolean)) { const k = 1 + Math.floor(r2() * 3), q = S.perc.slice(); S.perc = q.map((_, i) => q[(i - k + STEPS) % STEPS]); }
-  else if (idea === 2 && S.stab.some(Boolean) && !['neosoul', 'boombap', 'country'].includes(style)) { const q = S.stab.slice(); S.stab = q.map((_, i) => q[(i + 1) % STEPS]); }
+  else if (idea === 2 && S.stab.some(Boolean) && !['neosoul', 'boombap', 'country', 'folk'].includes(style)) { const q = S.stab.slice(); S.stab = q.map((_, i) => q[(i + 1) % STEPS]); }
   // Styles without written changes get harmony in their own idiom, from a separate stream so nothing above moves.
   if (!P.prog) {
     const v = vampFor(style, Math.round(params.stab.chord ?? 0), rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)));

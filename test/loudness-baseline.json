@@ -193,16 +193,16 @@
    "window": -9.15
   },
   "folk": {
-   "lufs": -13.52,
-   "spread": 1.77,
-   "tp": -1.62,
-   "window": -12.93
+   "lufs": -14.35,
+   "spread": 1.51,
+   "tp": -1.72,
+   "window": -13.57
   },
   "country": {
-   "lufs": -9.92,
+   "lufs": -10.46,
    "spread": 0.3,
-   "tp": -1.49,
-   "window": -9.1
+   "tp": -1.47,
+   "window": -9.61
   }
  },
  "seeds": [
