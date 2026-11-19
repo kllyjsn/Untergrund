@@ -120,8 +120,20 @@ export const TARGET_CURVES = {
   rock: [2, 3, 2, 1, 0, -1, -3, -6, -12],
   acoustic: [0, 2, 2, 1, 0, -1.5, -3.5, -6.5, -12],
   house: [8, 5, 1.5, 0, 0, -2, -4, -7, -12],
+  // Engineering priors, not measured genre medians: extend the house LTAS shape
+  // above with kick weight (techno), distortion's low-mid/upper-mid harmonics
+  // (hard techno), sparse click percussion (minimal), or octave-deeper 808s
+  // and bright hats (trap/drill). No generated renders were used as references.
+  techno: [8, 6, 2, 0, 0, -2, -4, -7, -12],
+  hardtechno: [8, 7, 3, 1, 0, -1, -3, -6, -12],
+  minimal: [7, 4, 1, -1, 0, -2, -3, -6, -12],
+  trap: [10, 5, 0, -1, 0, -2, -3, -5, -11],
 };
-const TARGET_FOR = { pop: 'pop', rnb: 'rnb', neosoul: 'rnb', rock: 'rock', folk: 'acoustic', country: 'acoustic', deephouse: 'house' };
+const TARGET_FOR = {
+  pop: 'pop', rnb: 'rnb', neosoul: 'rnb', rock: 'rock', folk: 'acoustic', country: 'acoustic', deephouse: 'house',
+  hypnotic: 'techno', industrial: 'hardtechno', acid: 'techno', dub: 'techno', peak: 'techno', hardtechno: 'hardtechno',
+  minimal: 'minimal', trap: 'trap', drill: 'trap',
+};
 export const targetCurve = (style) => TARGET_CURVES[TARGET_FOR[style]] ?? null;
 // RMS distance (dB) of the mix's octave balance from its genre curve, after removing the overall level offset;
 // also the worst single octave (signed: + = too much energy there).
@@ -129,6 +141,8 @@ export function targetBalance(octaves, style) {
   const tc = targetCurve(style);
   if (!tc || !octaves?.length) return null;
   const d = octaves.map(([f, v]) => [f, v - tc[OCTAVES.indexOf(f)]]).filter(([f, v]) => OCTAVES.includes(f) && Number.isFinite(v));
+  // The 16 kHz octave extends beyond Nyquist at 44.1 kHz; require 63 Hz-8 kHz.
+  if (!OCTAVES.slice(0, -1).every((f) => d.some(([hz]) => hz === f)) || new Set(d.map(([f]) => f)).size !== d.length) return null;
   const off = mean(d.map((x) => x[1])), dev = d.map(([f, v]) => [f, v - off]);
   const worst = dev.reduce((a, x) => (Math.abs(x[1]) > Math.abs(a[1]) ? x : a), [0, 0]);
   return { curve: TARGET_FOR[style], rmsDb: r(Math.sqrt(mean(dev.map((x) => x[1] ** 2))), 1), worstHz: worst[0], worstDb: r(worst[1], 1) };

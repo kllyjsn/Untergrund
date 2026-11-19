@@ -142,8 +142,8 @@ export function analyzePcm(channels, sampleRate, { bpm = 0, renderMs = 0 } = {})
   const lowAlpha = 1 - Math.exp((-2 * Math.PI * 180) / sampleRate);
   const midAlpha = 1 - Math.exp((-2 * Math.PI * 2500) / sampleRate);
   const window = Math.max(1, Math.round(sampleRate * 0.01));
-  const envelope = [];
-  let windowEnergy = 0;
+  const envelope = [], bands = [];
+  let windowEnergy = 0, bandEnergy = [0, 0, 0];
   for (let i = 0; i < length; i++) {
     let sample = 0;
     for (const channel of channels) sample += channel[i] / channels.length;
@@ -162,18 +162,27 @@ export function analyzePcm(channels, sampleRate, { bpm = 0, renderMs = 0 } = {})
     midEnergy += mid * mid;
     highEnergy += high * high;
     windowEnergy += sample * sample;
+    bandEnergy[0] += low * low;
+    bandEnergy[1] += mid * mid;
+    bandEnergy[2] += high * high;
     if ((i + 1) % window === 0) {
       envelope.push(Math.sqrt(windowEnergy / window));
+      bands.push(bandEnergy.map((e) => Math.sqrt(e / window)));
+      bandEnergy = [0, 0, 0];
       windowEnergy = 0;
     }
   }
   const rms = Math.sqrt(sum / length);
-  const sortedEnv = [...envelope].sort((a, b) => a - b);
-  const floor = sortedEnv[Math.floor(sortedEnv.length * 0.55)] || 0;
+  // Positive log-envelope flux in three bands detects attacks above sustained bass/pads.
+  // A local 300 ms threshold follows density and level instead of requiring a kick to
+  // exceed the whole song's median RMS (impossible for many limited dance mixes).
+  const flux = bands.map((band, i) => i < 2 ? 0 : Math.max(0, ...band.map((v, k) =>
+    Math.log((v + 1e-5) / (bands[i - 2][k] + 1e-5)))));
   const onsets = [];
   for (let i = 2; i < envelope.length - 1; i++) {
-    const rise = envelope[i] - envelope[i - 2];
-    if (envelope[i] > floor * 1.8 && rise > Math.max(0.006, floor * 0.45) && i - (onsets.at(-1) ?? -10) > 4) onsets.push(i);
+    const local = flux.slice(Math.max(0, i - 15), i + 16);
+    const threshold = Math.max(0.15, local.reduce((a, b) => a + b, 0) / local.length * 1.5);
+    if (flux[i] > threshold && flux[i] >= flux[i - 1] && flux[i] > flux[i + 1] && i - (onsets.at(-1) ?? -10) > 4) onsets.push(i);
   }
   let gridErrorMs = null;
   if (bpm > 0 && onsets.length) {

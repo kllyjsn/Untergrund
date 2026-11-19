@@ -10,8 +10,8 @@ export function reviewTrack(id, base, head) {
   const compare = (name, a, b, threshold, higher, description, hold = false) => {
     const known = finite(a) && finite(b), delta = b - a;
     const changed = known && Math.abs(delta) + 1e-9 >= threshold;
-    const status = changed ? ((delta > 0) === higher ? 'better' : 'worse') : 'same';
-    findings.push({ dimension: name, status, severity: status === 'worse' ? (hold ? 'critical' : 'warning') : 'info', note: `${description}: ${num(a)} → ${num(b)}${known ? '' : ' (not measured; no preference inferred)'}.` });
+    const status = !known ? 'UNMEASURED' : changed ? ((delta > 0) === higher ? 'better' : 'worse') : 'same';
+    findings.push({ dimension: name, status, severity: status === 'worse' ? (hold ? 'critical' : 'warning') : 'info', note: `${description}: ${num(a)} → ${num(b)}${known ? '' : ' (UNMEASURED; no preference inferred)'}.` });
   };
   compare(DIMENSIONS[0], base.pcm.gridErrorMs, head.pcm.gridErrorMs, THRESHOLDS.timingMs, false, 'Onset-to-grid error (ms); a timing proxy, not a swing-quality score');
   compare(DIMENSIONS[1], base.pcm.arcDb, head.pcm.arcDb, THRESHOLDS.arcDb, true, 'Energy-arc spread (dB); more contrast gives the sections room to breathe');
@@ -34,7 +34,7 @@ export function reviewTrack(id, base, head) {
 
 export function verdict(findings) {
   if (findings.some((f) => f.severity === 'critical')) return 'Hold';
-  return findings.some((f) => f.status === 'worse' || /breach/.test(f.note)) ? 'Ship with notes' : 'Ship';
+  return !findings.length || findings.some((f) => f.status === 'UNMEASURED' || f.status === 'worse' || /breach/.test(f.note)) ? 'Ship with notes' : 'Ship';
 }
 
 export function validateJudgment(value) {
