@@ -46,6 +46,7 @@ export function timbreFeatures(channels, fs, notes = []) {
   const envelopes = [];
   const events = notes.filter((note, i) => !i || note.t - notes[i - 1].t > 0.01);
   for (const note of events) {
+    if (notes.some((earlier) => earlier.t < note.t - 0.01 && earlier.t + earlier.dur + 0.1 > note.t)) continue;
     const start = Math.max(0, Math.round(note.t / 0.005)), end = Math.round((note.t + note.dur) / 0.005);
     const next = events.find((x) => x.t > note.t + 0.01)?.t ?? n / fs;
     if (next < note.t + note.dur + 0.1 || end + 20 >= env.length || end - start < 4) continue;
