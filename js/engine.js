@@ -2260,17 +2260,21 @@ export class Engine {
     };
     const metal = voice === 'metalstrike', soft = voice === 'softresonator';
     const out = this.technoHookOut(voice);
-    const lp = this.filter('lowpass', metal ? 3500 : soft ? 1350 : 2800, 0.6);
+    const lp = this.filter('lowpass', metal ? 3500 : soft ? 1350 : 3650, 0.6);
     lp.connect(amp).connect(out);
     if (metal) {
       // The strike has inharmonic steel sidebands; the settled note still has a clear pitch.
       const body = this.filter('highpass', 420, 0.8);
       const carrier = osc('sine', f * 2, 0.67, body), depth = this.gain(0);
-      const mod = osc('sine', f * 2.86, 1, depth);
-      mod.frequency.setValueAtTime(f * 2.86, t);
-      mod.frequency.exponentialRampToValueAtTime(f * 2.62, t + 0.055);
+      const strike = hash(this.step ?? 0, 955);
+      carrier.frequency.setValueAtTime(f * (2.23 + strike * 0.52), t);
+      carrier.frequency.exponentialRampToValueAtTime(f * 1.81, t + 0.23);
+      const strikeHz = f * (3.55 + strike * 0.8);
+      const mod = osc('sine', strikeHz, 1, depth);
+      mod.frequency.setValueAtTime(strikeHz, t);
+      mod.frequency.exponentialRampToValueAtTime(f * 1.67, t + 0.12);
       depth.gain.setValueAtTime(f * (strong ? 4.1 : 3.35) * brightness, t);
-      depth.gain.setTargetAtTime(f * 0.65, t + 0.004, 0.022);
+      depth.gain.setTargetAtTime(0, t + 0.004, 0.035);
       depth.connect(carrier.frequency);
       osc('triangle', f, 0.43, lp);
       body.connect(lp);
@@ -2284,7 +2288,7 @@ export class Engine {
       osc('sine', f * 3.01, 1, upper); upper.connect(lp);
     } else {
       // Two moving parallel formants make a short, voiced syllable, not another filter pluck.
-      const source = this.gain(1), low = this.filter('bandpass', 650, 3.1), high = this.filter('bandpass', 2050, 4);
+      const source = this.gain(1), low = this.filter('bandpass', 650, 3.1), high = this.filter('bandpass', 2050, 3.2);
       const vowel = hash(t, 711), change = Math.min(len * 0.68, 0.092);
       low.frequency.setValueAtTime(650 + vowel * 260, t);
       low.frequency.exponentialRampToValueAtTime(430 + vowel * 120, t + change);
@@ -2294,7 +2298,7 @@ export class Engine {
       osc('square', f * 2, 0.21, source);
       osc('sine', f, 0.13, lp);
       source.connect(low).connect(this.gain(0.9)).connect(lp);
-      source.connect(high).connect(this.gain(1.3)).connect(lp);
+      source.connect(high).connect(this.gain(1.48)).connect(lp);
     }
     const attack = metal ? 0.005 : soft ? 0.038 : 0.009;
     const peak = v * (metal ? 0.63 : soft ? 0.40 : 0.64);
