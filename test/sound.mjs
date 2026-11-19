@@ -245,6 +245,7 @@ for (const [style, name] of [['reggaeton', 'dembow'], ['afrobeats', 'finger'], [
   const seen = new Set();
   for (let seed = 1; seed <= 100 && seen.size < INSTRUMENTS[style].length; seed++) {
     const s = freshSong(style, seed), chord = s.params.stab.voice;
+    s.artist = { style, seed };
     if (seen.has(chord)) continue;
     seen.add(chord);
     assert([1, 2].includes(Math.round(s.params.acid.voice)));
@@ -269,5 +270,21 @@ for (const style of ['trap', 'drill', 'minimal', 'hardtechno', 'industrial', 'pe
   const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
   assert.equal(e.bassColor(), undefined, `${style} retains its stock bass`);
 }
-console.log('bass colors: all target ensembles, attack/slide playback, finite PCM and protected/missing-style bypass passed');
+const bassIdentities = [];
+for (const style of ['trap', 'reggaeton', 'afrobeats', 'jerseyclub', undefined]) {
+  const s = defaultState();
+  s.key = 0;
+  if (style) s.artist = { style };
+  Object.assign(s.params.acid, { voice: 2, cutoff: 400, decay: 0.4, drive: 0.2 });
+  const ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
+  e.ch.acid.input = ctx.destination;
+  e.eight08(0.05, { on: true, n: 0, a: true }, 0.12, false, false);
+  const pcm = (await ctx.startRendering()).getChannelData(0);
+  if (!style) assert.deepEqual(pcm, bassIdentities[0], 'missing artist keeps the unmodified Trap 808');
+  else {
+    for (const other of bassIdentities) assert.notDeepEqual(pcm, other, `${style} has a distinct matched-note bass`);
+    bassIdentities.push(pcm);
+  }
+}
+console.log('bass colors: all ensembles, attack/slide playback, finite PCM, matched-note identities and protected/missing-style bypass passed');
 console.log('sound ok');
