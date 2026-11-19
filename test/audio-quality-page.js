@@ -162,8 +162,9 @@ export async function measure(style, seed, { tier = 'fast' } = {}) {
 }
 
 // A listening excerpt (master only) as base64 WAV: kind 'peak' = densest bars, 'ending' = last bars and the ring-out.
-export async function excerpt(style, seed, { kind = 'peak', bars = 8 } = {}) {
+export async function excerpt(style, seed, { kind = 'peak', bars = 8, solo = null } = {}) {
   const s = await ready(song(style, seed)), p = plan(s, bars);
+  if (solo) s.solos = { [solo]: true };
   const [a, b, tail] = kind === 'ending' ? [Math.max(0, Math.min(p.bars - 2, p.finalBar - 2)), p.bars, 8] : [p.peakBar, Math.min(p.bars, p.peakBar + bars), 0.5];
   const buf = await render(s, a, b, { tail });
   const bytes = new Uint8Array(await encodeWav([buf.getChannelData(0), buf.getChannelData(1)], buf.sampleRate).arrayBuffer());
