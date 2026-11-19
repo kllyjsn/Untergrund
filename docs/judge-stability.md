@@ -47,3 +47,22 @@ Re-aggregated the same raw scores (no extra API calls), rather than changing pro
 Interpretation: read flips together with controls. Constant or near-constant scores can yield zero flips while failing every degraded control; that is not a useful calibrated judge. A low flip rate alone is not evidence of listening accuracy, and failed genres remain uncalibrated. Acceptability on these proxy renders is not a re-rating of the original human pack.
 
 Raw responses, order decisions, sample counts and errors: [judge-stability-results.json](judge-stability-results.json).
+
+## Model screening comparison
+
+Stable scoring only; one repetition, both orders across three windows, four genres, same/mild/severe controls plus the actual private human-rated pack. Private per-half scores and identifiers are stored outside this repository. The pack labels are not disclosed in the scoring prompt. Degraded accuracy requires the clean candidate in both orders. A pass requires control calibration, Trap strictly above each bad genre, no bad genre acceptable, no false preference on its human-rated halves, and a calibrated full benchmark. Error rows contain partial controls only; missing tests are not passes.
+
+| Model | Controls /12; pack genres /4 | Requests | Null false preference | Mild accuracy | Severe accuracy | Flips | Trap above all three | Any bad genre acceptable | Passes everything | Error / full run |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| google/gemini-2.5-pro | 2; 0 | 18 | 0.0% | 0.0% | n/a | 0.0% | n/a | n/a | false | Audio response unavailable or invalid after one retry |
+| google/gemini-3.1-pro-preview | 12; 4 | 111 | 0.0% | 0.0% | 100.0% | 0.0% | false | false | false | not eligible |
+| google/gemini-3.8-flash | 12; 4 | 101 | 0.0% | 0.0% | 25.0% | 25.0% | false | true | false | not eligible |
+| google/gemini-4-hydrogen | 8; 0 | 68 | 0.0% | 0.0% | 66.7% | 12.5% | n/a | n/a | false | Audio response unavailable or invalid after one retry |
+| openai/gpt-audio-mini | 0; 0 | 2 | n/a | n/a | n/a | n/a | n/a | n/a | false | OpenRouter HTTP 400 |
+| qwen/qwen3.8-omni-flash | 12; 4 | 107 | 0.0% | 0.0% | 25.0% | 8.3% | false | true | false | not eligible |
+
+Requests: 407; reported/estimated API cost: $3.3945; conservative charge including failed/missing-usage requests: $3.6590 (budget $18). No private half-level scores or pair identifiers are published. Per-genre aggregates: [judge-model-comparison.json](judge-model-comparison.json).
+
+Models eligible for the full ten-genre, two-repetition benchmark: 0. Models completing it: 0.
+
+To repeat, first create the ignored audio fixtures with the stability benchmark, then run `node scripts/judge-models.mjs --private-manifest /private/manifest.json --private-audio-root /private/audio --private-out /private/judge-models --budget 18`. The private output directory must exist outside this repository; its checkpoint resumes completed trials without rescoring them. Model selection in the ordinary stability benchmark also honors `LISTEN_JUDGE_MODEL`.

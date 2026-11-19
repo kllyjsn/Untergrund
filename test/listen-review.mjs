@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { judgeRequest } from '../scripts/judge-audio.mjs';
 import { DIMENSIONS, REVIEW_IDS, reviewTrack, verdict, orderAgreement, validateJudgment, markdownReview, flipRate, controlScores, calibrationGate, validateScores, aggregateScores, humanAgreement, trapOrdering } from '../js/listen-review.js';
 import { targetCurve, targetBalance } from '../js/audio-quality.js';
 
@@ -109,4 +110,13 @@ assert.equal(trapOrdering(5, [6, 4, 3]).gatePass, true);
 assert.equal(trapOrdering(5, [5, 5, 5]).agrees, false);
 assert.equal(trapOrdering(4, [5, 6, 7]).gatePass, false);
 assert.throws(() => trapOrdering(5, []), /Invalid/);
+const request = judgeRequest({ model: 'audio-model', prompt: 'Scoring rubric', audio: ['first', 'second'], order: [1, 0] });
+assert.equal(request.model, 'audio-model');
+assert.equal(request.messages[1].content[1].input_audio.data, 'second');
+assert.equal(request.messages[1].content[3].input_audio.data, 'first');
+assert.deepEqual(request.response_format, { type: 'json_object' });
+assert.equal(request.max_tokens, 2200);
+for (const audio of [[], ['first'], [null, 'second']]) assert.throws(() => judgeRequest({ model: 'audio-model', prompt: '', audio, order: [0, 1] }), /Invalid/);
+assert.throws(() => judgeRequest({ model: '', prompt: '', audio: ['first', 'second'], order: [0, 1] }), /Invalid/);
+assert.throws(() => judgeRequest({ model: 'audio-model', prompt: '', audio: ['first', 'second'], order: [1, 1] }), /Invalid/);
 console.log('listening review: thresholds, Hold safety, missing metrics, order agreement, stable scores, controls, calibration and markdown passed');

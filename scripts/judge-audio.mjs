@@ -5,15 +5,22 @@ import { DIMENSIONS, validateJudgment, validateScores, aggregateScores, orderAgr
 
 export const MODEL = process.env.LISTEN_JUDGE_MODEL || 'google/gemini-2.5-flash';
 const legacyPrompt = (style) => `You are a seasoned producer and mix engineer reviewing two blind, loudness-matched generated music excerpts. Judge groove, musical intent, arrangement, harmony, tonal masking, punch, headroom and mono-compatible imaging. Do not favor louder or brighter. Do not invent numeric measurements. Genre: ${style}. Only return strict JSON: {"preference":"A"|"B"|"same","dimensions":[{"dimension":name,"preference":"A"|"B"|"same","note":"specific audible evidence or uncertainty"}]}. Include these dimensions exactly in order: ${DIMENSIONS.join('; ')}. These are short mono excerpts: explicitly acknowledge inability to judge stereo and full-song form.`;
-export async function checkModel() {
+export async function checkModel(model = MODEL) {
   if (!process.env.OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY missing');
   const r = await fetch('https://openrouter.ai/api/v1/models', { signal: AbortSignal.timeout(30000) });
   if (!r.ok) throw new Error(`Model catalog HTTP ${r.status}`);
   const catalog = await r.json();
-  if (!catalog.data?.find((m) => m.id === MODEL)?.architecture?.input_modalities?.includes('audio')) throw new Error(`Model ${MODEL} does not advertise audio input`);
+  if (!catalog.data?.find((m) => m.id === model)?.architecture?.input_modalities?.includes('audio')) throw new Error(`Model ${model} does not advertise audio input`);
 }
 const run = (bin, args) => execFileSync(bin, args, { encoding: 'utf8' });
-export async function judgeAudio({ files, style, protocol = 'stable', out, prefix, onCall = () => {} }) {
+export function judgeRequest({ model, prompt, audio, order }) {
+  if (typeof model !== 'string' || !model || typeof prompt !== 'string' || !Array.isArray(audio) || audio.length !== 2 || !audio.every((a) => typeof a === 'string' && a.length) || !Array.isArray(order) || !['0,1', '1,0'].includes(order.join(','))) throw new Error('Invalid judge request');
+  return { model, temperature: 0, max_tokens: 2200, response_format: { type: 'json_object' }, messages: [
+    { role: 'system', content: prompt },
+    { role: 'user', content: order.flatMap((index, i) => [{ type: 'text', text: `Candidate ${i === 0 ? 'A' : 'B'}` }, { type: 'input_audio', input_audio: { data: audio[index], format: 'mp3' } }]) },
+  ] };
+}
+export async function judgeAudio({ files, style, protocol = 'stable', out, prefix, model = MODEL, onCall = () => {}, onUsage = () => {} }) {
   if (!['stable', 'legacy'].includes(protocol)) throw new Error('Unknown judge protocol');
   const durations = files.map((f) => Number(run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', f])));
   const duration = Math.min(...durations);
@@ -33,13 +40,11 @@ export async function judgeAudio({ files, style, protocol = 'stable', out, prefi
       onCall();
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST', signal: AbortSignal.timeout(120000), headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: MODEL, temperature: 0, max_tokens: 2200, response_format: { type: 'json_object' }, messages: [
-          { role: 'system', content: prompt },
-          { role: 'user', content: order.flatMap((index, i) => [{ type: 'text', text: `Candidate ${i === 0 ? 'A' : 'B'}` }, { type: 'input_audio', input_audio: { data: audio[index], format: 'mp3' } }]) },
-        ] }),
+        body: JSON.stringify(judgeRequest({ model, prompt, audio, order })),
       });
       if (!response.ok) throw new Error(`OpenRouter HTTP ${response.status}`);
       const data = await response.json();
+      onUsage(data.usage || {});
       const value = JSON.parse(data.choices?.[0]?.message?.content);
       orders.push(protocol === 'legacy' ? validateJudgment(value) : validateScores(value));
     }
