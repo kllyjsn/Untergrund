@@ -25,6 +25,7 @@ const SCENARIOS = [
   { name: 'reconnect-expired', offlineMs: 20000 },
   { name: 'foreground-stall', mainThreadStallMs: 320 },
   { name: 'background-wake', freezeMs: 15000 },
+  { name: 'downbeat-wake', freezeMs: 15000, wakeOnDownbeat: true },
   { name: 'short-wake', freezeMs: 800 },
   { name: 'short-wake-mix', freezeMs: 800, mix: true },
   { name: 'background-wake-mix', freezeMs: 15000, mix: true },
@@ -209,6 +210,13 @@ async function scenario(base, spec) {
         assert.ok(events.plannedDrop.at - 400 > Date.now(), 'Listener ready before drop freeze');
         await pause(events.plannedDrop.at - 400 - Date.now());
       } else await pause(7000);
+      const wakeTarget = spec.wakeOnDownbeat
+        ? initial.startsAt + Math.ceil((Date.now() + spec.freezeMs + 250 - initial.startsAt) / PERIOD_MS) * PERIOD_MS
+        : null;
+      if (wakeTarget !== null) {
+        events.wakeTarget = wakeTarget;
+        await pause(Math.max(0, wakeTarget - Date.now() - spec.freezeMs));
+      }
       events.before = await snapshot(); events.interruptAt = Date.now();
       if (spec.offlineMs) {
         await listener.send('Network.setBlockedURLs', { urls: [`${base}/api/rooms*`] });
@@ -219,9 +227,10 @@ async function scenario(base, spec) {
       } else {
         events.visibilityBefore = await listener.run('document.visibilityState');
         await listener.send('Page.setWebLifecycleState', { state: 'frozen' });
-        await pause(spec.freezeMs);
+        await pause(wakeTarget === null ? spec.freezeMs : Math.max(0, wakeTarget - Date.now() - 250));
       }
       events.during = await snapshot();
+      if (wakeTarget !== null) await pause(Math.max(0, wakeTarget - Date.now() - 4));
       events.recoverAt = Date.now();
       if (spec.offlineMs) {
         await listener.send('Network.setBlockedURLs', { urls: [] });
@@ -286,6 +295,15 @@ async function scenario(base, spec) {
       }
       // Freeze must not shorten the analysis window to the last audible kick.
       const after = phases.after;
+      if (spec.wakeOnDownbeat) {
+        const resumeAt = raw[1].resumeBoundary.at;
+        assert.ok(Math.abs(resumeAt - events.wakeTarget) <= 35, 'AudioContext resumed near the target fixture downbeat');
+        const hostDownbeat = recoveryHostOnsets.find(t => t >= events.wakeTarget && t < events.wakeTarget + 150);
+        assert.ok(hostDownbeat !== undefined, 'Host rendered the target downbeat');
+        const first = after.pairs.find(p => p.host === hostDownbeat);
+        events.wakeDownbeatDeltaMs = first?.delta ?? null;
+        console.log(`  first downbeat: host rendered ${(hostDownbeat - resumeAt).toFixed(1)}ms after resume, listener delta=${first?.delta.toFixed(1) ?? 'MISSING'}ms`);
+      }
       let streak = 0;
       for (const p of after.pairs) {
         const previous = after.pairs[after.pairs.indexOf(p) - 1];
@@ -357,6 +375,7 @@ try {
     const s = r.phases.after || r;
     return s.median === null || s.median > 25 || s.p95 > 50 || !s.matched || s.missing ||
       ((r.spec.freezeMs || r.spec.mainThreadStallMs) && s.extra) || r.hostFixture.missing ||
+      (r.spec.wakeOnDownbeat && (r.events.wakeDownbeatDeltaMs === null || Math.abs(r.events.wakeDownbeatDeltaMs) > 50)) ||
       (r.transition && (r.transition.firstDownbeatDeltaMs === null || Math.abs(r.transition.firstDownbeatDeltaMs) > 50 || r.transition.actionToFirstAlignedKickMs === null));
   });
   console.log(`Thresholds: median ≤25ms, p95 ≤50ms, missing=0 (recovery scenarios: AFTER window; injected-offset: |lag−2000|≤50ms): ${failures.length ? 'FAIL: ' + failures.map(r => r.name).join(', ') : 'PASS'}`);

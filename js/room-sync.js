@@ -51,9 +51,11 @@ export function syncAudioClock(previous, measured) {
 export function transportResync(target, nextTime, now, stepSec, jumped = false, minSkip = -Infinity) {
   if (!jumped && Math.abs(target - nextTime) <= 0.03 && nextTime >= now) return null;
   const ready = now + 0.005;
-  const discard = jumped;
-  let skip = jumped ? Math.max(minSkip, Math.ceil((ready - target) / stepSec)) : 0;
+  // A wake notification can arrive just after the render deadline. Let at
+  // most one near-boundary step sound late without shifting the shared grid.
+  const earliest = jumped ? now - 0.020 : ready;
+  let skip = jumped ? Math.max(minSkip, Math.ceil((earliest - target) / stepSec)) : 0;
   target += skip * stepSec;
-  while (target < ready) { target += stepSec; skip++; }
-  return { skip, nextTime: target, discard };
+  while (target < earliest) { target += stepSec; skip++; }
+  return { skip, nextTime: target, discard: jumped, ...(target < ready && { firstTime: ready }) };
 }

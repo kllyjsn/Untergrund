@@ -176,6 +176,7 @@ function schedule(lead) {
   let base = 60 / state.bpm / 4, landed = null;
   const target = transportOrigin / 1000 + abs * base - clockOffset;
   const fix = transportResync(target, nextTime, now, base, clock.jumped, seq.origin - abs);
+  let firstTime = fix?.firstTime;
   if (fix) {
     if (fix.discard) {
       engine.discardQueuedNotes(now);
@@ -190,26 +191,28 @@ function schedule(lead) {
     for (let i = 0; i < fix.skip; i++, abs++) { artistTick(abs - seq.origin); seq.advanceBar(abs - seq.origin, ctx.currentTime); }
     nextTime = fix.nextTime;
     const step = (abs - seq.origin) % 16;
-    if (fix.discard && step) engine.vocal(nextTime, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, step);
+    if (fix.discard && step) engine.vocal(firstTime ?? nextTime, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, step);
   }
   // Landing redraws the whole UI for the new song, so schedule further ahead first to ride out that frame.
   while (nextTime < ctx.currentTime + (landed ? Math.max(ahead, 0.5) : ahead)) {
-    if (handoff && !handoff.out && abs >= handoff.from) { engine.handoffOut(nextTime, nextTime + (handoff.step - abs) * engine.stepDur); handoff.out = true; }
+    const t = firstTime ?? nextTime;
+    firstTime = undefined;
+    if (handoff && !handoff.out && abs >= handoff.from) { engine.handoffOut(t, Math.max(t, nextTime + (handoff.step - abs) * engine.stepDur)); handoff.out = true; }
     // A stalled main thread can make the resync skip the planned downbeat; then the new song
     // starts on the first step that still sounds rather than holding the sweep for another bar.
-    if (handoff && abs >= handoff.step) { landed = landSong(nextTime); base = 60 / state.bpm / 4; }
+    if (handoff && abs >= handoff.step) { landed = landSong(t); base = 60 / state.bpm / 4; }
     const skip = (abs - seq.origin) % 16 === 0 ? timeline.skip(seq.chainPos) : 0;
     if (skip) {
       abs += skip * 16; seq.chainPos += skip; transportOrigin -= skip * 16 * base * 1000;
       if (handoff?.step != null) { handoff.step += skip * 16; handoff.from += skip * 16; }
     }
-    if (jamQueue.length && (abs - seq.origin) % 16 === 0) landJamParts((nextTime + clockOffset) * 1000 + base * 500, nextTime);
+    if (jamQueue.length && (abs - seq.origin) % 16 === 0) landJamParts((nextTime + clockOffset) * 1000 + base * 500, t);
     artistTick(abs - seq.origin);
-    const pat = seq.tick(abs, nextTime);
-    uiQueue.push({ abs: abs - seq.origin, t: nextTime, pat });
+    const pat = seq.tick(abs, t);
+    uiQueue.push({ abs: abs - seq.origin, t, pat });
     // A score breathes (rubato): the transport clock follows the stretched step, not the metronome.
     const sd = engine.stepDur;
-    midiClockStep(ctx, abs, nextTime, sd);
+    midiClockStep(ctx, abs, t, sd);
     nextTime += sd;
     transportOrigin += (sd - base) * 1000;
     abs++;
@@ -2507,6 +2510,7 @@ document.addEventListener('visibilitychange', () => {
   // Going to the lock screen or another app: queue extra audio before timers slow down.
   if (playing && document.hidden) schedule(BG_LEAD);
 });
+document.addEventListener('resume', () => { if (ctx?.state === 'running') schedule(); });
 
 build();
 // Once the page is idle, warm the recordings the selected style and the saved song will play.
