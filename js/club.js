@@ -96,6 +96,7 @@ export function avatarNode(avatar, extra = '', style = '') {
     safe.name ? h('div', { class: 'club-name' }, safe.name) : null);
 }
 
+let clockProbe = 0;
 class RoomBus {
   constructor(id, user, onUpdate, onEvent, apiBase = '') {
     this.id = cleanRoom(id);
@@ -140,7 +141,7 @@ class RoomBus {
     this.poller = 0;
     this.onVisible = () => { if (!document.hidden) { this.activeAt = Date.now(); this.poll(); } };
     document.addEventListener('visibilitychange', this.onVisible);
-    this.ready = this.heartbeat();
+    this.ready = this.heartbeat(true);
     this.channel?.postMessage({ kind: 'snapshot-request', requester: this.clientId });
     this.poll();
   }
@@ -306,7 +307,7 @@ class RoomBus {
     this.heartbeat();
   }
 
-  async heartbeat() {
+  async heartbeat(calibrate = false) {
     const event = {
       id: `${this.clientId}-presence-${Date.now()}`,
       type: 'presence',
@@ -315,20 +316,43 @@ class RoomBus {
     };
     this.channel?.postMessage(event);
     this.receive(event);
-    try {
-      const from = performance.now();
-      const response = await fetch(this.endpoint('/events'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'presence', clientId: this.clientId, clientSecret: this.clientSecret, token: this.token, user: { ...this.user, joinedAt: this.joinedAt }, since: this.seq, ...this.known() }),
-        signal: AbortSignal.timeout?.(5000),
-      });
-      const to = performance.now();
-      if (response.ok) {
+    const sample = async (token, timeout) => {
+      const probe = calibrate && !this.apiBase;
+      const url = this.endpoint(probe ? `/events?clockProbe=${++clockProbe}` : '/events');
+      const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), timeout);
+      try {
+        const from = performance.now();
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'presence', clientId: this.clientId, clientSecret: this.clientSecret, token, user: { ...this.user, joinedAt: this.joinedAt }, since: this.seq, ...this.known() }),
+          signal: ctrl.signal,
+        });
+        const to = performance.now();
+        if (!response.ok) return null;
         const snapshot = await response.json();
-        this.roomClock.observe(snapshot.clock, from, to);
-        this.applySnapshot(snapshot);
+        // Use the browser's wire timing rather than time waiting for the
+        // startup page to run fetch callbacks. A unique URL identifies this POST.
+        const timing = probe && performance.getEntriesByName(response.url, 'resource')[0];
+        const wire = timing?.requestStart > 0 && timing.requestStart >= from
+          && timing.responseStart >= timing.requestStart && timing.responseStart <= to;
+        const latency = this.roomClock.observe(snapshot.clock, wire ? timing.requestStart : from, wire ? timing.responseStart : to);
+        return { snapshot, latency };
+      } finally { clearTimeout(timer); }
+    };
+    try {
+      const initial = await sample(this.token, 5000);
+      if (!initial) return;
+      let { snapshot } = initial;
+      // A cold connection can bias the clock used for the entire set. Sample
+      // once more before adopting the set or publishing our own.
+      if (calibrate && initial.latency > 20) {
+        try {
+          const warm = await sample(snapshot.sessionToken || this.token, 250);
+          if (warm) snapshot = warm.snapshot;
+        } catch {}
       }
+      this.applySnapshot(snapshot);
     } catch {}
   }
 

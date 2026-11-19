@@ -7,8 +7,10 @@ export function createRoomClock({ wall = () => Date.now(), monotonic = () => per
       if (![received, sent, from, to].every(Number.isFinite) || sent < received || to < from) return;
       // Subtract time spent on the server; keep the lowest-latency observation from recent heartbeats.
       const latency = Math.max(0, to - from - (sent - received));
-      if (best && (to < best.at || (to - best.at < 30000 && latency >= best.latency))) return;
-      best = { offset: (received - from + sent - to) / 2, at: to, latency };
+      if (!best || (to >= best.at && (to - best.at >= 30000 || latency < best.latency))) {
+        best = { offset: (received - from + sent - to) / 2, at: to, latency };
+      }
+      return latency;
     },
     shift() {
       return best ? monotonic() + best.offset - wall() : 0;
@@ -37,10 +39,23 @@ export function roomTransportPosition(startsAt, bpm, now = Date.now()) {
   return { step, delay: (origin + step * stepMs - now) / 1000 };
 }
 
+export function syncAudioClock(previous, measured) {
+  // A frozen audio clock can fall seconds behind wall time. Don't sweep the
+  // playhead through that gap; only smooth ordinary timing jitter.
+  const jumped = previous !== null && Math.abs(measured - previous) > 0.15;
+  const offset = previous === null || jumped ? measured : previous + (measured - previous) * 0.05;
+  return { offset, jumped };
+}
+
 // Re-anchor the audio schedule to the shared transport when it drifts or stalls.
-export function transportResync(target, nextTime, now, stepSec, tolerance = 0.03) {
-  if (Math.abs(target - nextTime) <= tolerance && nextTime >= now) return null;
+export function transportResync(target, nextTime, now, stepSec, jumped = false) {
+  if (!jumped && Math.abs(target - nextTime) <= 0.03 && nextTime >= now) return null;
+  const ready = now + 0.005;
+  // Only discard the lookahead when the first unqueued step is due too.
+  // Otherwise keep the queued beats and rejoin the grid beyond them.
+  const discard = jumped && target < ready;
+  const earliest = jumped && !discard ? Math.max(ready, nextTime) : ready;
   let skip = 0;
-  while (target < now + 0.005) { target += stepSec; skip++; }
-  return { skip, nextTime: target };
+  while (target < earliest) { target += stepSec; skip++; }
+  return { skip, nextTime: target, discard };
 }
