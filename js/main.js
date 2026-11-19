@@ -185,11 +185,15 @@ function schedule(lead) {
   const fix = transportResync(target, nextTime, now, base, clock.jumped, seq.origin - abs);
   let firstTime = fix?.firstTime;
   if (fix) {
+    let discardError;
     if (fix.discard) {
-      engine.discardQueuedNotes(now);
-      uiQueue.length = 0;
-      seq.acidPrevSlide = false;
-      if (handoff) { engine.handoffCancel(); handoff.out = false; }
+      try { engine.discardQueuedNotes(now); }
+      catch (error) { discardError = error; }
+      finally {
+        uiQueue.length = 0;
+        seq.acidPrevSlide = false;
+        if (handoff) { engine.handoffCancel(); handoff.out = false; }
+      }
     }
     if (fix.skip < 0) {
       abs += fix.skip;
@@ -197,6 +201,7 @@ function schedule(lead) {
     }
     for (let i = 0; i < fix.skip; i++, abs++) { artistTick(abs - seq.origin); seq.advanceBar(abs - seq.origin, ctx.currentTime); }
     nextTime = fix.nextTime;
+    if (discardError) throw discardError;
     const step = (abs - seq.origin) % 16;
     if (fix.discard && step)
       engine.vocal(firstTime ?? nextTime, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, step, roomPlayback ? nextTime : undefined);

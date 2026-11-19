@@ -55,6 +55,13 @@ const BACKBEAT_TAKE_TRIM = { 23: -1.15, 24: 0.2, 33: 0.25, 34: 0.3 };
 const BACKBEAT_ATTACK_TRIM = [0, -0.25, 0.45, -0.05];
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
 const EPS = 0.0001;
+function completeAudioActions(actions) {
+  let failure;
+  for (const action of actions) {
+    try { action(); } catch (error) { failure ||= error; }
+  }
+  if (failure) throw failure;
+}
 const SAMPLE_FADE = 1;
 // Chord voices that sustain fill a breakdown on their own, so a smooth style only lifts the ones that decay.
 const HELD_CHORDS = new Set(['pad', 'organ', 'strings', 'cello']);
@@ -676,21 +683,23 @@ export class Engine {
   }
 
   discardQueuedNotes(now) {
-    this.vocalStop(now);
-    // stop() before a source's scheduled start prevents it from sounding.
-    for (const { src, t } of this.queuedNotes) if (t > now) src.stop(now);
-    this.queuedNotes.length = 0;
-    this.editableHits.length = 0;
-    this.ducks.length = 0;
-
     const acid = this.acidNodes;
-    for (const p of [acid.env.offset, acid.o1.frequency, acid.o2.frequency, this.subVoice?.o.frequency]) p?.cancelScheduledValues(now);
-    for (const p of [acid.vca.gain, this.subVoice?.amp.gain, this.mono?.amp.gain]) p?.cancelScheduledValues(now);
-    this.acidRelease(now);
-    for (const p of [this.duck.gain, this.rumbleDuck.gain, this.ch.acid.sc?.gain, this.windDuck?.gain]) {
-      if (!p) continue;
-      p.cancelScheduledValues(now);
-      p.setTargetAtTime(1, now, 0.01);
+    try {
+      completeAudioActions([
+        () => this.vocalStop(now),
+        ...this.queuedNotes.filter(note => note.t > now).map(({ src }) => () => src.stop(now)),
+        ...[acid.env.offset, acid.o1.frequency, acid.o2.frequency, this.subVoice?.o.frequency,
+          acid.vca.gain, this.subVoice?.amp.gain, this.mono?.amp.gain].filter(Boolean).map(p => () => p.cancelScheduledValues(now)),
+        () => this.acidRelease(now),
+        ...[this.duck.gain, this.rumbleDuck.gain, this.ch.acid.sc?.gain, this.windDuck?.gain].filter(Boolean).map(p => () => {
+          p.cancelScheduledValues(now);
+          p.setTargetAtTime(1, now, 0.01);
+        }),
+      ]);
+    } finally {
+      this.queuedNotes.length = 0;
+      this.editableHits.length = 0;
+      this.ducks.length = 0;
     }
   }
 
@@ -2736,15 +2745,36 @@ export class Engine {
     F.fb.gain.setTargetAtTime(d ? d.fb : 0, now, 0.02);
   }
 
+  vocalTarget(p, value, t, constant) {
+    if (p.cancelAndHoldAtTime) p.cancelAndHoldAtTime(t); else p.cancelScheduledValues(t);
+    let at = t + 1 / this.ctx.sampleRate;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { p.setTargetAtTime(value, at, constant); return at; }
+      catch (error) {
+        if (error.name !== 'NotSupportedError') throw error;
+        at = Math.max(t, this.ctx.currentTime) + (128 * 2 ** attempt) / this.ctx.sampleRate;
+      }
+    }
+    const held = p.value;
+    p.cancelScheduledValues(0);
+    at = Math.max(t, this.ctx.currentTime);
+    p.setValueAtTime(held, this.ctx.currentTime);
+    p.setTargetAtTime(value, at, constant);
+    return at;
+  }
+
   // A gain that follows the stem's singing envelope down to `depth`; t0 is when the stem's first sample plays.
   // `rest` is its value where the stem is silent (a filter's dB gain rests at 0).
   duckUnder(buf, p, depth, t, t0, rest = 1) {
-    const env = singingEnvelope(buf), start = Math.max(t, t0) + 0.02;
-    const i = Math.ceil((start - t0) * ENV_RATE), n = env.length - i;
+    const env = singingEnvelope(buf), start = Math.max(t, t0, this.ctx.currentTime) + 0.02;
+    let i = Math.ceil((start - t0) * ENV_RATE), n = env.length - i;
+    if (n < 2) return;
+    const at = this.vocalTarget(p, rest + env[i] * (depth - rest), t, 0.01);
+    i = Math.max(i, Math.ceil((Math.max(at, this.ctx.currentTime) + 0.02 - t0) * ENV_RATE));
+    n = env.length - i;
     if (n < 2) return;
     const curve = new Float32Array(n);
     for (let k = 0; k < n; k++) curve[k] = rest + env[i + k] * (depth - rest);
-    p.setTargetAtTime(curve[0], t + 1 / this.ctx.sampleRate, 0.01);
     p.setValueCurveAtTime(curve, t0 + i / ENV_RATE, (n - 1) / ENV_RATE);
   }
 
@@ -2753,14 +2783,17 @@ export class Engine {
     if (!cur) return;
     this.vocalNow = null;
     const carves = [this.ch.stab?.carve?.gain, this.hookCarve?.gain].filter(Boolean);
-    for (const p of [this.bandDuck.gain, this.singTrim.gain, ...carves]) {
-      if (p.cancelAndHoldAtTime) p.cancelAndHoldAtTime(t); else p.cancelScheduledValues(t);
-      // A held curve's rounded endpoint can extend just past t.
-      p.setTargetAtTime(carves.includes(p) ? 0 : 1, t + 1 / this.ctx.sampleRate, 0.08);
+    try {
+      completeAudioActions([this.bandDuck.gain, this.singTrim.gain, ...carves].map(p =>
+        () => this.vocalTarget(p, carves.includes(p) ? 0 : 1, t, 0.08)));
+    } finally {
+      try {
+        cur.g.gain.cancelScheduledValues(t);
+        cur.g.gain.setTargetAtTime(0, t, 0.008);
+      } finally {
+        try { cur.src.stop(t + 0.06); } catch { /* not started */ }
+      }
     }
-    cur.g.gain.cancelScheduledValues(t);
-    cur.g.gain.setTargetAtTime(0, t, 0.008);
-    try { cur.src.stop(t + 0.06); } catch { /* not started */ }
   }
 
   panic() {

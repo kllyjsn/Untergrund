@@ -4,9 +4,11 @@
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { runInNewContext } from 'node:vm';
 import { STYLES, defaultState, generate, applyOverrides, arrangement, songChain } from '../js/state.js';
 import { makeIR } from '../js/dsp.js';
 import { VOCAL_FX } from '../js/sing.js';
+import { syncAudioClock, transportResync } from '../js/room-sync.js';
 
 const BASELINE = new URL('./audio-nodes-baseline.json', import.meta.url);
 const SLACK = 1.15, FLOOR = 12;
@@ -333,6 +335,113 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       assert.equal(starts.length, 2, 'a missing stem stays silent after discard');
     }
     console.log('Vocal cancellation PASS: captured rounded-curve overlap throws; wake/future discard completes, stops sources, clears queues and restarts; empty/missing stems stay silent.');
+  }
+
+  {
+    const wake = 15.400634920634921, now = 15.403537414965987, start = 2.097000151499244;
+    const curveParam = (ctx, from = start, forced = 0) => ({
+      value: .7, curve: { start: from, end: from + 76.06 }, targets: [], held: [], failures: 0, resets: 0,
+      cancelAndHoldAtTime(t) {
+        const at = Math.max(t, ctx.currentTime);
+        if (this.curve && at >= this.curve.start && at < this.curve.end)
+          this.curve.end = at + Number.EPSILON * Math.max(1, at);
+      },
+      cancelScheduledValues(t) { if (t === 0) { this.curve = null; this.resets++; } },
+      setValueAtTime(value, t) { this.held.push([value, t]); },
+      setTargetAtTime(value, t, constant) {
+        const at = Math.max(t, ctx.currentTime);
+        if (forced-- > 0 || (this.curve && at >= this.curve.start && at < this.curve.end)) {
+          this.failures++;
+          throw new DOMException('setTargetAtTime overlaps an active curve', 'NotSupportedError');
+        }
+        this.targets.push([value, at, constant]);
+      },
+      setValueCurveAtTime(values, t, duration) {
+        assert.ok(!this.curve || t >= this.curve.end, 'replacement curve follows the held curve');
+        assert.ok(!this.targets.length || t > this.targets.at(-1)[1], 'replacement curve follows its target');
+        this.curve = { start: t, end: t + duration };
+      },
+    });
+    const c = fakeCtx(44100);
+    c.currentTime = now;
+    const legacy = curveParam(c);
+    legacy.cancelAndHoldAtTime(wake);
+    assert.throws(() => legacy.setTargetAtTime(1, wake + 1 / c.sampleRate, .08), { name: 'NotSupportedError' });
+    const e = Object.assign(Object.create(Engine.prototype), { ctx: c });
+    const held = curveParam(c);
+    assert.doesNotThrow(() => e.vocalTarget(held, 1, wake, .08));
+    assert.equal(held.failures, 1);
+    assert.equal(held.resets, 0, 'ordinary overlap recovery preserves the held curve');
+    const exhausted = curveParam(c, start, 3);
+    e.vocalTarget(exhausted, 1, wake, .08);
+    assert.equal(exhausted.resets, 1, 'persistent overlap falls back to a clean automation timeline');
+    assert.deepEqual(exhausted.held, [[.7, now]]);
+    assert.deepEqual(exhausted.targets, [[1, now, .08]]);
+    const fallback = { value: 1, cancelScheduledValues() {}, setTargetAtTime() {} };
+    assert.doesNotThrow(() => e.vocalTarget(fallback, 1, wake, .08), 'older AudioParams need not support hold');
+    const fault = new Error('unexpected parameter failure');
+    assert.throws(() => e.vocalTarget({ cancelAndHoldAtTime() { throw fault; } }, 1, wake, .08), error => error === fault);
+
+    const buf = new FakeBuffer({ length: 44100 * 24, sampleRate: 44100 });
+    buf.getChannelData(0).fill(.1);
+    let seed = 217, retries = 0;
+    const random = () => ((seed = Math.imul(seed, 1664525) + 1013904223 >>> 0) / 2 ** 32);
+    for (let i = 0; i < 256; i++) {
+      c.sampleRate = [44100, 48000, 96000][i % 3];
+      c.currentTime = .5 + random() * 100;
+      const t = c.currentTime + (i % 2 ? random() * .1 : -random() * .02), from = Math.max(0, c.currentTime - .5);
+      const p = curveParam(c, from);
+      assert.doesNotThrow(() => e.vocalTarget(p, 1, t, .08));
+      retries += p.failures;
+      assert.equal(p.targets.length, 1);
+      assert.equal(p.resets, 0);
+      assert.doesNotThrow(() => e.duckUnder(buf, p, .5, t, c.currentTime - .25));
+    }
+    assert.ok(retries > 0, 'fuzz exercises past-time clamping, not only future targets');
+    const empty = curveParam(c);
+    e.duckUnder(new FakeBuffer({ length: 0, sampleRate: 44100 }), empty, .5, c.currentTime, c.currentTime);
+    assert.equal(empty.targets.length, 0);
+
+    for (const mode of ['parameter', 'fade', 'queued source']) {
+      const ctx = fakeCtx(44100), engine = new Engine(ctx, defaultState(), { trackQueuedNotes: true }), stops = [];
+      ctx.currentTime = now;
+      const params = Array.from({ length: 4 }, () => curveParam(ctx));
+      [engine.bandDuck.gain, engine.singTrim.gain] = params;
+      engine.ch.stab.carve = { gain: params[2] };
+      engine.hookCarve = { gain: params[3] };
+      if (mode === 'parameter') params[0].setTargetAtTime = () => { throw fault; };
+      const gain = { cancelScheduledValues() {}, setTargetAtTime() { if (mode === 'fade') throw fault; } };
+      engine.vocalNow = { g: { gain }, src: { stop: t => stops.push(['vocal', t]) } };
+      engine.queuedNotes.push({ t: now + 1, src: { stop() { stops.push(['first']); if (mode === 'queued source') throw fault; } } },
+        { t: now + 2, src: { stop() { stops.push(['second']); } } });
+      engine.editableHits.push({}); engine.ducks.push({});
+      let released = false;
+      engine.acidRelease = () => { released = true; };
+      assert.throws(() => engine.discardQueuedNotes(wake), error => error === fault);
+      assert.equal(engine.vocalNow, null);
+      assert.deepEqual(stops, [['vocal', wake + .06], ['first'], ['second']]);
+      assert.equal(engine.queuedNotes.length, 0);
+      assert.equal(engine.editableHits.length, 0);
+      assert.equal(engine.ducks.length, 0);
+      assert.equal(released, true);
+      assert.ok(params.slice(1).every(p => p.targets.length === 1), 'all other vocal gains are released');
+    }
+
+    const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+    const schedule = main.slice(main.indexOf('function schedule(lead)'), main.indexOf('\n// Jam:'));
+    let advanced = 0;
+    const transport = { playing: true, songOver: false, document: { hidden: false }, BG_LEAD: 1.5, ROOM_LEAD: .42,
+      roomPlayback: true, roomEditor: false, ctx: { currentTime: 10 }, clockOffset: 9, Date: { now: () => 20000 },
+      state: { bpm: 120 }, transportOrigin: 19000, abs: 4, nextTime: 9.5, handoff: null, uiQueue: [{}],
+      engine: { discardQueuedNotes() { throw fault; } }, seq: { origin: 0, acidPrevSlide: true, advanceBar() { advanced++; } },
+      artistTick() {}, syncAudioClock, transportResync };
+    assert.throws(() => runInNewContext(`${schedule}\nschedule();`, transport), error => error === fault);
+    assert.equal(transport.abs, 8);
+    assert.equal(transport.nextTime, 10);
+    assert.equal(transport.uiQueue.length, 0);
+    assert.equal(transport.seq.acidPrevSlide, false);
+    assert.equal(advanced, 4);
+    console.log('Vocal recovery PASS: pair-14 past-time clamp; 256 fuzzed curves; overlap retry/reset; empty/older params; parameter/fade/source failures finish cleanup and transport resync.');
   }
 
   {
