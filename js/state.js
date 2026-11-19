@@ -800,7 +800,9 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     if (v?.pedal) P.pedal = v.pedal; else if (v) P.prog = v;
   }
   // Groove and pop genres sing: the hook becomes a vocal-length melody over the changes (js/melody.js).
-  const sung = withMelody(P.hook, rng(Math.imul((seed | 0) ^ 0x68e31da4, 0x3c6ef372) ^ 0x1b873593), style, musicalScale, { prog: P.prog, alt: P.alt, chord: params.stab.chord | 0 });
+  // In Drill's synth-bell ensemble, the mallet plays lighter behind the 808.
+  const gainScale = style === 'drill' && stabVoice === 6 && hook?.v === 'mallet' ? 0.72 : 1;
+  const sung = withMelody(P.hook, rng(Math.imul((seed | 0) ^ 0x68e31da4, 0x3c6ef372) ^ 0x1b873593), style, musicalScale, { prog: P.prog, alt: P.alt, chord: params.stab.chord | 0, gainScale });
   if (sung) { P.hook = sung; P.hm = 2; }
   if (LIFT.has(style) && P.prog) P.lift = 2;
   if (SONG.has(style) && P.prog && P.alt) {

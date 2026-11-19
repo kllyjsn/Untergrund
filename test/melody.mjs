@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { generate, sanitize, defaultState, applyOverrides, STYLES, MAJOR_STYLES } from '../js/state.js';
 import { CHORDS, SCALES } from '../js/params.js';
-import { SING_PROFILES, MELODY_BARS, melodyScore, strongNote, sings } from '../js/melody.js';
+import { SING_PROFILES, MELODY_BARS, melodyScore, strongNote, sings, writeMelody } from '../js/melody.js';
 import { stepDeg } from '../js/motif.js';
 import { buildSong, playSong, melodyShape } from '../scripts/composition.mjs';
 
@@ -58,6 +58,23 @@ assert(steps / moves >= 0.55, `mostly stepwise (${(steps / moves).toFixed(2)})`)
 assert(!leaps || recovered / leaps >= 0.7, `leaps recover (${recovered}/${leaps})`);
 assert(tones / strong >= 0.9, `strong beats land on chord tones (${tones}/${strong})`);
 console.log('vocal-length melodies passed');
+
+{
+  const bells = generate('drill', 1234), other = generate('drill', 42);
+  assert.equal(bells.params.stab.voice, 6);
+  assert.notEqual(other.params.stab.voice, 6);
+  assert.equal(bells.pattern.hook.v, other.pattern.hook.v);
+  const peak = (g, part) => Math.max(...g.pattern.hook.m[part].map((note) => note[3]));
+  for (const part of ['n', 'v', 'b']) {
+    assert(peak(bells, part) < peak(other, part), `Drill's bell ensemble leaves more headroom in ${part}`);
+  }
+}
+for (const style of ['drill', 'pop']) {
+  const melody = writeMelody(() => 0.5, style, SCALES.minor.notes, { gainScale: 0 });
+  for (const part of ['n', 'v', 'b']) {
+    assert(melody[part].length && melody[part].every((note) => note[3] === 0), `${style} preserves zero note velocity`);
+  }
+}
 
 // The 32-step hook path stays for techno and old projects: no melody, nothing new in a sanitized old hook.
 for (const style of ['hypnotic', 'acid', 'peak', 'dnb', 'jerseyclub', 'dub']) {

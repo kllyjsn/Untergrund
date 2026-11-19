@@ -185,7 +185,7 @@ function writePart(r, P, kind, deg, chordTones, hookHead) {
     rh.forEach(([s, d], j) => {
       const x = (s - rh[0][0]) / ((rh[rh.length - 1][0] - rh[0][0]) || 1), pk = peakJ / Math.max(1, rh.length - 1);
       const arc = (P.belt ? 0.86 : 0.76) + (P.belt ? 0.1 : 0.18) * Math.max(0, 1 - Math.abs(x - pk) * 1.6) + (mod(s, 16) === 0 ? 0.04 : 0) - (s < 0 || mod(s, 16) >= 12 && j < 2 ? 0.08 : 0);
-      const at = bar0 * 16 + s, v = +(Math.min(1, j === peakJ ? 0.98 : arc) * (P.gain || 1)).toFixed(3);
+      const at = bar0 * 16 + s, v = +(Math.min(1, j === peakJ ? 0.98 : arc) * (P.gain ?? 1)).toFixed(3);
       // A melisma keeps the syllable's slot: the note, a 16th on the step above, back to the note and hold (never in the
       // hook bar, which must return note for note).
       if (P.mel && d >= 6 && ds[j] + 1 < ds[peakJ] && !(kind === 'n' && s < 16) && r() < P.mel) notes.push([at, 1, semi(ds[j]), v, ph, j], [at + 1, 1, semi(ds[j] + 1), +(v * 0.9).toFixed(3), ph, j], [at + 2, d - 2, semi(ds[j]), v, ph, j]);
@@ -350,7 +350,7 @@ function setPart(r, P, kind, deg, chordTones, words, sig, ceil = Infinity) {
     rh.forEach(([s, d], j) => {
       const x = (s - rh[0][0]) / ((rh.at(-1)[0] - rh[0][0]) || 1), pk = peakJ / Math.max(1, rh.length - 1);
       const arc = (P.belt ? 0.86 : 0.76) + (P.belt ? 0.1 : 0.18) * Math.max(0, 1 - Math.abs(x - pk) * 1.6) + (stress[j] ? 0.05 : 0) - (s < 0 ? 0.08 : 0);
-      const a = bar0 * 16 + s, v = +(Math.min(1, j === peakJ ? 0.98 : arc) * (P.gain || 1)).toFixed(3);
+      const a = bar0 * 16 + s, v = +(Math.min(1, j === peakJ ? 0.98 : arc) * (P.gain ?? 1)).toFixed(3);
       if (P.mel && d >= 6 && ds[j] + 1 < ds[peakJ] && !(chorus && j < la) && r() < P.mel) notes.push([a, 1, semi(ds[j]), v, ph, j], [a + 1, 1, semi(ds[j] + 1), +(v * 0.9).toFixed(3), ph, j], [a + 2, d - 2, semi(ds[j]), v, ph, j]);
       else notes.push([a, d, semi(ds[j]), v, ph, j]);
     });
@@ -360,9 +360,10 @@ function setPart(r, P, kind, deg, chordTones, words, sig, ceil = Infinity) {
 
 // The whole melody for a song. `prog` is the main changes (one chord per bar), `alt` the bridge's.
 // `words` ({ n, v, b }: up to 4 lyric lines each) sets the parts to those lines; the song genres always text-set.
-export function writeMelody(r, style, scale, { prog, alt, chord = 0, words = null } = {}) {
-  const P = SING_PROFILES[style];
-  if (!P) return null;
+export function writeMelody(r, style, scale, { prog, alt, chord = 0, words = null, gainScale = 1 } = {}) {
+  const profile = SING_PROFILES[style];
+  if (!profile) return null;
+  const P = gainScale === 1 ? profile : { ...profile, gain: (profile.gain ?? 1) * gainScale };
   const deg = scale.length >= 7 ? scale.slice(0, 7) : scale.slice(0, scale.length - 1);
   const tones = (pr) => (bar) => {
     const h = pr?.length ? pr[mod(bar, pr.length)] : { r: 0, c: chord };
