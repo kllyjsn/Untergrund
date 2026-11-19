@@ -107,6 +107,14 @@ const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
   assert.equal(out.inputs[0].inputs[0], dest);
 }
 {
+  const { pattern } = generate('drill', 8);
+  const i = pattern.steps.stab.findIndex(Boolean);
+  const hit = (pat) => Sequencer.prototype.gridHit.call({ s: { artist: { style: 'minimal' } } }, 'stab', pat,
+    { abs: i, tt: 1, bar: 0, i16: i, rp: -1, n: 16, hum: 0 });
+  assert.equal(hit(pattern).args[3], true, 'replayed harp arrangements do not depend on listener artist metadata');
+  assert.equal(hit({ ...pattern, hook: { ...pattern.hook, v: 'softmallet' } }).args.length, 3, 'saved synth hooks keep their bell backing');
+}
+{
   const state = st(KIT_BACKBEAT, 1), seen = [];
   const part = {
     state, recLock: new Map(), rec: Engine.prototype.rec, sampledHit: Engine.prototype.sampledHit,

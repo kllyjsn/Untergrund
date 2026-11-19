@@ -2971,7 +2971,7 @@ export class Sequencer {
     if (id === 'vox') return { method: 'vox', args: [ht, vel, i], time: ht };
     if (band && id === 'snare' && (this.cur === 3 ? i16 >= 12 : i16 >= fillAt))
       return { method: 'tom', args: [ht, vel, i16 < 14], time: ht };
-    const underHarp = id === 'stab' && n && this.s.artist?.style === 'drill' && pat.hook?.v === 'harpplk' && (sung ? sung.any : pat.hm);
+    const underHarp = id === 'stab' && n && pat.hook?.v === 'harpplk' && (sung ? sung.any : pat.hm);
     return { method: 'trigger', args: underHarp ? [id, ht, vel, true] : [id, ht, vel], time: ht };
   }
 
