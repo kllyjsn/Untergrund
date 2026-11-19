@@ -145,27 +145,40 @@ export function envelope(capture, column = 1) {
   });
 }
 
-export function postResumeEnvelope(capture, column = 1) {
+function resumeSampleIndex(capture) {
   const boundary = capture.resumeBoundary;
   if (!boundary || !Number.isFinite(boundary.frame) || !(boundary.sampleRate > 0))
     throw new Error('Missing resume PCM boundary');
-  return envelope({ ...capture,
-    samples: capture.samples.filter(([t]) => Math.round(t * boundary.sampleRate) >= boundary.frame) }, column);
+  const start = capture.samples.findIndex(([t]) => Math.round(t * boundary.sampleRate) >= boundary.frame);
+  return start < 0 ? capture.samples.length : start;
 }
 
-export function onsets(rows, bpm) {
+export function postResumeEnvelope(capture, column = 1) {
+  const start = resumeSampleIndex(capture);
+  return envelope({ ...capture, samples: capture.samples.slice(start) }, column);
+}
+
+export function continuousResumeOnsets(capture, bpm) {
+  // Detect through the cut on a client that kept rendering: cropping a kick
+  // tail before the flux detector can make its first frame look like a new hit.
+  const start = resumeSampleIndex(capture);
+  return onsets(envelope(capture), bpm, start);
+}
+
+export function onsets(rows, bpm, firstSample = 0) {
   // Smooth away individual bass cycles before taking positive spectral flux.
   let smooth = 0;
   const energy = rows.map(([t, e]) => [t, smooth += .2 * (e - smooth)]);
-  const flux = energy.map(([t, e], i) => [t, Math.max(0, e - (energy[Math.max(0, i - 8)]?.[1] || 0))]);
+  const flux = energy.map(([t, e], i) => [t, Math.max(0, e - (energy[Math.max(0, i - 8)]?.[1] || 0)), i]);
   const peak = Math.max(0, ...flux.map(r => r[1]));
   if (!(peak > .0001)) return [];
   const out = [];
-  for (const [t, f] of [...flux].sort((a, b) => b[1] - a[1])) {
+  for (const sample of flux.sort((a, b) => b[1] - a[1])) {
+    const [t, f] = sample;
     if (f < peak * .25) break;
-    if (out.every(x => Math.abs(x - t) > 60000 / bpm * .35)) out.push(t);
+    if (out.every(x => Math.abs(x[0] - t) > 60000 / bpm * .35)) out.push(sample);
   }
-  return out.sort((a, b) => a - b);
+  return out.filter(([, , i]) => i >= firstSample).map(([t]) => t).sort((a, b) => a - b);
 }
 
 const quantile = (a, p) => a.length ? [...a].sort((x, y) => x - y)[Math.ceil((a.length - 1) * p)] : null;

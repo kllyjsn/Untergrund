@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { freshSong } from '../js/state.js';
 import { vocalFx } from '../js/sing.js';
-import { envelope, postResumeEnvelope, onsets, correlate } from './club-sync-audio.mjs';
+import { envelope, postResumeEnvelope, continuousResumeOnsets, onsets, correlate } from './club-sync-audio.mjs';
 
 export function mixFixture() {
   const s = freshSong('hypnotic', 7, { length: 'sketch', bpm: 123, swing: 0 });
@@ -95,10 +95,14 @@ export function phraseOnsets(rows, threshold) {
   return out;
 }
 
-export function channelEnvelope(capture, name, after = false) {
+function channelCapture(capture, name) {
   const channel = capture.channels?.[name];
   assert.ok(channel?.ready && channel.edge, `Missing rendered ${name} graph tap`);
-  const data = {...capture, samples:channel.samples};
+  return {...capture, samples:channel.samples};
+}
+
+export function channelEnvelope(capture, name, after = false) {
+  const data = channelCapture(capture, name);
   return after ? postResumeEnvelope(data) : envelope(data);
 }
 
@@ -117,8 +121,11 @@ export function analyzeMix(raw, s, events, origin) {
   const phases = {};
   for (const [name, from, to] of [['before', start, events.interruptAt], ['after', events.recoverAt, end]]) {
     const rows = channel => raw.map(r => channelEnvelope(r, channel, name === 'after'));
-    const [kh, kl] = rows('kick'), [vh, vl] = rows('vocal');
-    const host = onsets(kh, s.bpm), listener = onsets(kl, s.bpm);
+    const after = name === 'after';
+    const hostKick = channelCapture(raw[0], 'kick');
+    const host = after ? continuousResumeOnsets(hostKick, s.bpm) : onsets(envelope(hostKick), s.bpm);
+    const listener = onsets(channelEnvelope(raw[1], 'kick', after), s.bpm);
+    const [vh, vl] = rows('vocal');
     const kicks = matchEvents(host, listener, from + (name === 'before' ? 150 : 0), to - 150, 150);
     kicks.hostOnsets = host; kicks.listenerOnsets = listener;
     const threshold = Math.max(...vh.filter(([t]) => t >= from && t <= to).map(r => r[1]), 0) * .25;

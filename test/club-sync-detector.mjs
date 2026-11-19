@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { onsets, envelope, postResumeEnvelope, resolvedCompare, fixtureMissing, BPM, STEP_MS, PERIOD_MS, KICK_STEPS } from './club-sync-audio.mjs';
+import { onsets, envelope, postResumeEnvelope, continuousResumeOnsets, resolvedCompare, fixtureMissing, BPM, STEP_MS, PERIOD_MS, KICK_STEPS } from './club-sync-audio.mjs';
+import { matchEvents } from './club-sync-mix.mjs';
 
 const origin = 100000;
 const positions = KICK_STEPS.flatMap((bar, b) => bar.map(s => (b * 16 + s) * STEP_MS));
@@ -75,6 +76,24 @@ assert.throws(() => envelope({ errors: [], anchors: [[NaN, 10000]], samples: [[1
 assert.throws(() => postResumeEnvelope({}), /Missing resume PCM boundary/);
 assert.throws(() => postResumeEnvelope({ ...wakeCapture, samples: [] }), /No rendered audio/);
 assert.throws(() => postResumeEnvelope({ ...wakeCapture, errors: ['route error'] }), /route error/);
+const tailCapture = hits => ({
+  errors: [], anchors: [[0, origin]], resumeBoundary: { sampleRate: 1000, frame: 500 },
+  samples: Array.from({ length: 1000 }, (_, i) => {
+    const t = i * 2, last = hits.filter(hit => hit <= t).at(-1);
+    return [t / 1000, last === undefined ? 0 : Math.exp(-(t - last) / 190)];
+  }),
+});
+const continuousHost = tailCapture([450, 980, 1470]), resumedListener = tailCapture([980, 1470]);
+const listenerOnsets = onsets(postResumeEnvelope(resumedListener), BPM);
+const compareWake = (hostOnsets, listener = listenerOnsets) => matchEvents(hostOnsets, listener, origin + 500, origin + 1900, 150);
+assert.equal(compareWake(onsets(postResumeEnvelope(continuousHost), BPM)).missing, 1, 'Cropping the host tail fabricates a miss');
+const resumedHost = continuousResumeOnsets(continuousHost, BPM);
+assert.equal(resumedHost.length, 2);
+assert.equal(compareWake(resumedHost).missing, 0);
+assert.equal(compareWake(resumedHost, listenerOnsets.slice(1)).missing, 1, 'A real missed kick still counts');
+const nearCut = continuousResumeOnsets(tailCapture([290, 504, 990]), BPM);
+assert.equal(nearCut.length, 2);
+assert.ok(nearCut[0] >= origin + 504 && nearCut[0] < origin + 530, 'A genuine attack immediately after the cut still counts');
 console.log('Wake boundary PASS: pre-freeze frame at 7.245s maps after recovery but is excluded by 7.262s PCM boundary; false missing/extra 1/1 → 0/0.');
 console.log('Stale output anchors PASS: repeated/backward context times cannot trap post-wake mapping on the pre-freeze clock; zero missing/extra.');
 console.log(`Detector tests PASS: self=0ms; whole-step/beat/bar and ±2000ms unaliased; dropout missing=${gap.missing}; both guard-straddling pairs matched; fixture bounds use rendered time; fixture rests not missing; silence/empty/error; output-clock mapping.`);
