@@ -1,3 +1,24 @@
+# Daily blind rating pack
+
+Run `npm run blind-pack -- --date YYYY-MM-DD --key-dir /private/path/blind-packs`.
+Requires Node 22+, Chrome, ffmpeg (libmp3lame), zip, and access to origin. The script fetches
+main, renders both revisions in disposable worktrees, and removes those worktrees even on failure.
+The default base is the newest key's recorded head commit, or the first-parent main
+revision 24 hours ago when no key exists. Override with `--base <ref>` or `--since <ISO time>`;
+`--head <ref>` overrides the fetched main head. `--genres a,b` adds style IDs or names.
+`--seed N` fixes the shuffle and per-style render seeds (default: a hash of the UTC date).
+The same seed and revisions reproduce the assignment; generation timestamps and measured
+audio values can differ between runs. Reuse `--base` for a repeat after recording a key.
+
+Share only `test/out/blind-packs/<date>/blind-rating-pack-<date>.zip` (or its
+`blind-pilot` folder). The separate `<key-dir>/<date>.json` reveals the identities;
+never include it in the listener pack. Rerunning a date replaces that date's pack and key.
+Levels in the key are measured using loudnorm JSON input_i on decoded MP3 halves, split at the known
+inserted silence boundaries (also recorded in the key). A difference over 0.1 LU fails
+the run. Style detection ignores diffs under test/, docs/, research/, and Markdown files.
+The README requests a whole-pair rating plus first/second/tie and why.
+Pure Chrome-free checks: `node test/blind-pack.mjs`.
+
 # Rendered-audio benchmark
 
 `scripts/audio-benchmark.mjs` renders fixed seeds of every style through the real offline engine (headless Chrome,
@@ -20,7 +41,7 @@ node scripts/audio-benchmark.mjs --compare a.json b.json           # repeat run 
 A **regression guard**. It catches a change that makes a mix clip, squash, go muddy or harsh, collapse in mono, lose a
 part, stop building, cut off, ring forever, or leave dead air, and it catches any measured value moving away from the
 known-good baseline. Passing says nothing about whether a song is *good*: melody, groove, sound choice and taste are not
-measured (see `scripts/composition.mjs` for the note-level side, and listen to the pack). Thresholds are physical
+gated (see `scripts/composition.mjs` for the note-level side, and listen to the pack). Thresholds are physical
 guardrails (headroom, phase, decay times, per-octave balance), not genre ideals; style-dependent quantities such as sub
 weight and window loudness are gated only as drift from each style's own baseline.
 
@@ -94,6 +115,33 @@ whole-score loudness calibration (per-piece `PIECE_TRIM_DB`) and the score endin
 chord) landed. Re-record with `--write-baseline` when a change moves a
 metric on purpose, and say why in the PR.
 
+## Advisory listening scores
+
+Both tiers also analyze the same stereo PCM for cues associated with the listener’s complaints. These are versioned
+diagnostics under `perceptual`, deliberately outside `checks`, `--assert`, drift baselines and `--compare`. All scores
+are 0–100 proxy units, higher meaning more of the measured cue, **not** a failure probability. There is no combined
+quality score or cross-genre quality threshold.
+
+| Score | Measures | Confounds |
+| --- | --- | --- |
+| `harshTransients` | p98 upper-mid attack energy relative to the recent background and current frame | Deliberately sharp percussion; not steady distortion or every kind of harshness |
+| `transitionJolt` | p95 sustained level and band-balance change between adjacent 160 ms windows | Intentional drops or repeated gating |
+| `sectionJolt` | Same change at known section boundaries (p90), with measured boundary count | No timeline, no audible signal on either side, or no boundary in the window means unmeasured or limited coverage |
+| `lackOfSmoothness` | Average short-term change in level and normalized band balance at 20 ms intervals | Deliberate chops, articulation, or rhythmic pumping |
+| `toyLikeTimbre` | p85 narrow 0.7–4.5 kHz resonance, weighted by prominence and spectral stability | Real bells can ring narrowly; bass, dense mixes, and complex cheap sounds can hide it. Not an instrument-realism model |
+
+The master uses the densest two bars in fast and the full song in deep; stems use the densest two/eight bars
+respectively. These scores exclude the separate ending window and post-song tail. Stereo band power avoids
+mono cancellation. The relative activity gate ignores quiet frames and an absolute floor excludes near-silence.
+Missing or insufficient measurements are `null`, not zero; `activeSec` and `sectionBoundaries` show coverage. The
+timbre proxy is available for pitched/instrument stems; drums, vocals and FX are unmeasured for timbre only.
+Compare like parts, windows and genres before inferring a change in quality.
+
+`styles.<style>.perceptual.{mix,parts.<part>}.<metric>` aggregates measured seeds as `{n,p50,worst,worstSeed}`.
+`styles.<style>.seeds.<seed>.perceptual` and `stems[].perceptual` hold raw scores. For a local excerpt, use
+`node scripts/perceptual-clip.mjs FILE [START_SECONDS [END_SECONDS]]` (ffmpeg); this has no stems or section times.
+See the [original blind-pack results and their limits](perceptual-audio-pilot.md).
+
 ## Report schema (`untergrund.audio-benchmark/1`)
 
 Written to `test/out/audio-benchmark-<tier>.json`; the checked-in baselines `test/audio-baseline/<tier>.json` are
@@ -115,6 +163,7 @@ Changes within `/1` are additive (a consumer that ignores unknown keys keeps wor
   "counts": { "styles", "songs", "PASS", "WARN", "FAIL" },
   "baseline": { "file", "commit" } | null,          // null: compared against nothing (first run / --no-baseline)
   "checks": { "<checkId>": { "group", "label", "unit", "worseWhen": "high"|"low", "warn", "fail", "drift", "repeat", "appliesTo": "all"|[styles], "why" } },
+  "perceptual": { "version": 1, "gating": false, "worseWhen": "high", "metrics": { "<metric>": "label" } },
   "global": { "<checkId>": { "n", "p10", "p50", "p90", "worst", "worstStyle", "worstSeed", "levels": { "PASS", "WARN", "FAIL" } } },
   "reasons": [ { "style", "check", "level", "kind": "threshold"|"drift", "seed", "value", "threshold", "baseline"?, "delta"?, "message" } ],
   "closest": [ { "style", "seed", "check", "value", "margin" } ],   // passing checks nearest a guardrail, margin in drift units
@@ -123,13 +172,15 @@ Changes within `/1` are additive (a consumer that ignores unknown keys keeps wor
     "<style>": {
       "name", "family", "verdict", "reasons": [...],
       "metrics": { "<checkId>": { "worst", "worstSeed", "p50", "values": { "<seed>": v }, "level", "margin"?, "baseline"?, "delta"?, "excused"?: { "<seed>": why } } },
+      "perceptual": { "mix": { "<metric>": { "n", "p50", "worst", "worstSeed" } }, "parts": { "<part>": { "<metric>": { "n", "p50", "worst", "worstSeed" } } } },
       "seeds": { "<seed>": {                          // chart data
         "bars", "secs", "bpm", "chain", "windows": { "peak": [fromBar, toBar], "stems": [...], "ending"?: [...] },
         "octaves": [[hz, dB rel. total], ...], "shares": { "sub", "bass", "lowMid", "mid", "presence", "brilliance", "air" }, "centroidHz",
         "loudness": { "integrated", "deltaTarget", "lra" }, "stereo": {...}, "limiter": { "grMean", "grP1", "strainShare", "over6Share", "grJumpP99" },
         "clipper"/"saturator": { "share1Db", "share3Db", "shaveP50Db", "shaveP99Db", "shaveMaxDb", "hardShare", "inPeakDb" } | null,
         "crest": { "p10Db", "p50Db", "n" } | null, "kickBass": {...} | null,
-        "stems": [ { "id", "notes", "relLu", "buriedShare" } ],
+        "perceptual": { "<metric>": v, "activeSec", "sectionBoundaries" },
+        "stems": [ { "id", "notes", "relLu", "buriedShare", "perceptual": {...} } ],
         "barLufs"?: [...], "sections"?: [ { "label", "from", "to", "lufs", "notesPerBar", "voices" } ],   // deep only
         "ending"?: { "t40", "cliffDb", "deadAirSec", "tailLu", "envelopeDb": [...], "envelopeStepSec": 0.05 }
       } }

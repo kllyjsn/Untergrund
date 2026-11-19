@@ -40,7 +40,7 @@ function countPlay(id) {
   fetch(`/api/tracks?play=${encodeURIComponent(id)}`, { method: 'POST' }).catch(() => {});
 }
 
-const player = createPlayer({ onBar: (bar, total) => current?.onBar(bar, total), onEnd: () => current?.onEnd() });
+const player = createPlayer({ onStart: () => current?.onStart?.(), onBar: (bar, total) => current?.onBar(bar, total), onEnd: () => current?.onEnd() });
 let current = null;
 // Listen signals for the release player (docs/listen-signals.md). A visitor who came through a shared link (?r=<ref>)
 // carries that ref as `via`; analytics' Do Not Track/GPC/automation opt-outs apply here as in the app.
@@ -56,16 +56,23 @@ function trackView(track, artist, { localOnly = false } = {}) {
   const time = h('span', { class: 'pp-time' }, fmt(secs));
   const btn = h('button', { class: 'pp-play', type: 'button', 'aria-label': `Play ${track.title}` }, h('i'), h('span', {}, 'Play'));
   const setBtn = (on) => { btn.classList.toggle('on', on); btn.lastChild.textContent = on ? 'Stop' : 'Play'; btn.setAttribute('aria-label', `${on ? 'Stop' : 'Play'} ${track.title}`); document.body.classList.toggle('pp-playing', on); };
+  const reset = () => { setBtn(false); cells.forEach((c) => { c.className = ''; }); time.textContent = fmt(secs); };
   const ctl = {
+    onStart: () => {
+      setBtn(true); countPlay(track.id);
+      const seed = +track.state?.artist?.seed;
+      listens.begin({ fp: songFingerprint(track.state), tid: track.id, seed: Number.isFinite(seed) ? seed : -1, style: track.style || '',
+        src: arrivedVia ? 'shared' : 'release', surf: 'release', ph: '', ...(arrivedVia ? { via: arrivedVia } : {}) }, heardPos = { bar: 0, bars: total, sec: '' });
+    },
     onBar: (bar) => { heardPos = { bar, bars: total, sec: '' }; cells.forEach((c, i) => { c.className = i < bar ? 'past' : i === bar ? 'now' : ''; }); time.textContent = `${fmt((bar / total) * secs)} / ${fmt(secs)}`; },
-    onEnd: () => { listens.end(heardPos, { finished: true }); setBtn(false); cells.forEach((c) => { c.className = ''; }); time.textContent = fmt(secs); },
+    reset,
+    onEnd: () => { listens.end(heardPos, { finished: true }); reset(); },
   };
   btn.onclick = () => {
-    if (player.playing && current === ctl) { player.stop(); listens.end(heardPos); ctl.onEnd(); return; }
-    current = ctl; player.play(track.state); setBtn(true); countPlay(track.id);
-    const seed = +track.state?.artist?.seed;
-    listens.begin({ fp: songFingerprint(track.state), tid: track.id, seed: Number.isFinite(seed) ? seed : -1, style: track.style || '',
-      src: arrivedVia ? 'shared' : 'release', surf: 'release', ph: '', ...(arrivedVia ? { via: arrivedVia } : {}) }, heardPos = { bar: 0, bars: total, sec: '' });
+    if (player.playing && current === ctl) { player.stop(); listens.end(heardPos); reset(); return; }
+    current?.reset();
+    current = ctl; setBtn(true); player.play(track.state);
+    if (player.loading) btn.lastChild.textContent = 'Loading instruments…';
   };
   // Sharing from the release page mints its own ref, like the app's share sheet: one per page view, so every link
   // shared from it joins to the listen's single share signal.
@@ -120,20 +127,21 @@ function trackRows(tracks, sub = line) {
   const rows = tracks.map((t) => {
     const play = h('button', { class: 'pp-row-play', type: 'button', 'aria-label': `Play ${t.title}` }, h('i'));
     const bar = h('i', { class: 'pp-row-bar' });
+    const reset = () => { play.classList.remove('on'); play.setAttribute('aria-label', `Play ${t.title}`); bar.style.width = '0'; };
     const ctl = {
+      reset,
+      onStart: () => countPlay(t.id),
       onBar: (b, total) => { bar.style.width = `${((b + 1) / total) * 100}%`; },
-      onEnd: () => { play.classList.remove('on'); bar.style.width = '0'; const next = rows[rows.indexOf(row) + 1]; if (next && current === ctl) next.querySelector('.pp-row-play').click(); },
+      onEnd: () => { reset(); const next = rows[rows.indexOf(row) + 1]; if (next && current === ctl) next.querySelector('.pp-row-play').click(); },
     };
     play.onclick = async () => {
-      if (player.playing && current === ctl) { player.stop(); current = null; play.classList.remove('on'); bar.style.width = '0'; return; }
+      if (player.playing && current === ctl) { player.stop(); current = null; reset(); return; }
       play.classList.add('busy');
       if (!t.state) t.state = (await fetchPublicTrack(t.id))?.track?.state;
       play.classList.remove('busy');
       if (!t.state) return toast('Couldn’t load that track');
-      countPlay(t.id); listens.end(heardPos);
-      document.querySelectorAll('.pp-row-play.on').forEach((b) => b.classList.remove('on'));
-      document.querySelectorAll('.pp-row-bar').forEach((b) => { b.style.width = '0'; });
-      current = ctl; player.play(t.state); play.classList.add('on');
+      listens.end(heardPos); current?.reset();
+      current = ctl; player.play(t.state); play.classList.add('on'); play.setAttribute('aria-label', `Stop ${t.title}`);
     };
     const row = h('li', { class: 'pp-row' },
       h('a', { href: `/t/${t.id}` }, h('img', { src: `/api/page?og=${encodeURIComponent(t.id)}`, alt: '', loading: 'lazy' }),

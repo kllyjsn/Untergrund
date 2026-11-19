@@ -12,12 +12,13 @@ import { cpus } from 'node:os';
 import { withChrome } from '../test/chrome.mjs';
 import { STYLES } from '../js/state.js';
 import { targetFor, LOUDNESS_TARGET } from '../js/loudness.js';
+import { PERCEPTUAL_METRICS } from '../js/perceptual-audio.js';
 
 export const SCHEMA = 'untergrund.audio-benchmark/1';
 export const SEEDS = { fast: [42], deep: [11, 42, 1234] };
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const baselineFile = (tier) => join(ROOT, `test/audio-baseline/${tier}.json`);
-const LEVEL = { PASS: 0, WARN: 1, FAIL: 2 }, worse = (a, b) => (LEVEL[b] > LEVEL[a] ? b : a);
+const LEVEL = { INFO: -1, PASS: 0, WARN: 1, FAIL: 2 }, worse = (a, b) => (LEVEL[b] > LEVEL[a] ? b : a);
 // Styles that end on a long pad, reverb or delay fade by design.
 export const LONG_TAIL = ['ambient', 'dub', 'nocturne'];
 const classical = (style) => targetFor(style) === LOUDNESS_TARGET.classical;
@@ -109,7 +110,7 @@ export function evaluate(tier, results, baseline) {
       if (!seeds.length) continue;
       const hi = c.bad === 'high', worstSeed = seeds.reduce((a, s) => ((hi ? vals[s] > vals[a] : vals[s] < vals[a]) ? s : a)), worst = vals[worstSeed];
       const over = (v, t) => t != null && (hi ? v > t : v < t);
-      const m = { worst, worstSeed: +worstSeed, p50: r(pct(Object.values(vals), 0.5)), values: vals, level: 'PASS' };
+      const m = { worst, worstSeed: +worstSeed, p50: r(pct(Object.values(vals), 0.5)), values: vals, level: [c.warn, c.fail, c.drift].some((v) => v != null) ? 'PASS' : 'INFO' };
       // A seed the check's excuse() clears (e.g. a drop no louder than the breakdown but clearly denser) keeps its
       // value and is still held to the FAIL guardrail, but not to WARN.
       const excused = c.excuse ? Object.fromEntries(rs.filter((x) => x.seed in vals).map((x) => [x.seed, c.excuse(x)]).filter(([, v]) => v)) : {};
@@ -117,7 +118,7 @@ export function evaluate(tier, results, baseline) {
       const held = seeds.filter((sd) => !(sd in excused)), ts = held.length ? held.reduce((a, sd) => ((hi ? vals[sd] > vals[a] : vals[sd] < vals[a]) ? sd : a)) : null, tv = ts == null ? null : vals[ts];
       let at = worstSeed;
       if (over(worst, c.fail)) m.level = 'FAIL'; else if (ts != null && over(tv, c.warn)) { m.level = 'WARN'; at = ts; }
-      if (m.level !== 'PASS') row.reasons.push({ check: c.id, level: m.level, kind: 'threshold', seed: +at, value: vals[at], threshold: m.level === 'FAIL' ? c.fail : c.warn, message: `${c.label} ${vals[at]} ${c.unit} (seed ${at}) ${hi ? '>' : '<'} ${m.level === 'FAIL' ? c.fail : c.warn}` });
+      if (m.level === 'WARN' || m.level === 'FAIL') row.reasons.push({ check: c.id, level: m.level, kind: 'threshold', seed: +at, value: vals[at], threshold: m.level === 'FAIL' ? c.fail : c.warn, message: `${c.label} ${vals[at]} ${c.unit} (seed ${at}) ${hi ? '>' : '<'} ${m.level === 'FAIL' ? c.fail : c.warn}` });
       // Margin to the WARN guardrail in units of the drift tolerance: the "closest to threshold" ranking.
       const t = c.warn ?? c.fail;
       if (t != null && c.drift) m.margin = r((hi ? t - worst : worst - t) / c.drift);
@@ -135,17 +136,32 @@ export function evaluate(tier, results, baseline) {
       row.metrics[c.id] = m; row.verdict = worse(row.verdict, m.level);
     }
     for (const x of rs) row.seeds[x.seed] = detail(x);
+    row.perceptual = {
+      mix: summarizePerceptual(rs.map((x) => [x.seed, x.perceptual])),
+      parts: Object.fromEntries([...new Set(rs.flatMap((x) => x.stems.stems.map((s) => s.id)))].map((part) =>
+        [part, summarizePerceptual(rs.map((x) => [x.seed, x.stems.stems.find((s) => s.id === part)?.perceptual]))])),
+    };
     styles[id] = row;
   }
   return styles;
 }
 const STEM_LABEL = (at) => { const [seed, id] = String(at).split(':'); return `${id} stem (seed ${seed})`; };
 
+function summarizePerceptual(rows) {
+  return Object.fromEntries(Object.keys(PERCEPTUAL_METRICS).map((id) => {
+    const measured = rows.map(([seed, p]) => [seed, p?.[id]]).filter(([, v]) => Number.isFinite(v));
+    if (!measured.length) return [id, { n: 0, p50: null, worst: null, worstSeed: null }];
+    const [worstSeed, worst] = measured.reduce((a, b) => b[1] > a[1] ? b : a);
+    return [id, { n: measured.length, p50: r(pct(measured.map(([, v]) => v), 0.5)), worst, worstSeed }];
+  }));
+}
+
 // What a chart needs per seed, kept small: spectrum, stems, the arrangement curve and the ending envelope.
 function detail(x) {
   const m = x.mix, d = { bars: x.bars, secs: x.secs, bpm: x.bpm, chain: x.chain, windows: x.windows, octaves: m.spectrum.octaves, shares: m.spectrum.shares, centroidHz: m.spectrum.centroid,
     loudness: m.loudness, stereo: m.stereo, limiter: m.limiter, clipper: m.clipper ?? null, saturator: m.saturator ?? null, crest: m.crest ?? null, balance: m.balance ?? null, kickBass: x.stems.kickBass ?? null,
-    stems: x.stems.stems.map(({ id, notes, relLu, buriedShare, hits }) => ({ id, notes, relLu, buriedShare, hits })) };
+    perceptual: x.perceptual ?? null,
+    stems: x.stems.stems.map(({ id, notes, relLu, buriedShare, hits, perceptual }) => ({ id, notes, relLu, buriedShare, hits, perceptual: perceptual ?? null })) };
   if (m.arrangement) Object.assign(d, { barLufs: m.arrangement.barLufs, sections: m.arrangement.sections ?? [] });
   if (m.ending) d.ending = { t40: m.ending.t40, cliffDb: m.ending.cliffDb, deadAirSec: m.ending.deadAirSec, tailLu: m.ending.tailLu, envelopeDb: m.ending.envelope, envelopeStepSec: 0.05 };
   return d;
@@ -161,7 +177,7 @@ export function report(tier, seeds, results, baseline, run) {
     if (!all.length) continue;
     const hi = c.bad === 'high', w = all.reduce((a, b) => ((hi ? b.v > a.v : b.v < a.v) ? b : a));
     global[c.id] = { n: all.length, p10: r(pct(all.map((a) => a.v), 0.1)), p50: r(pct(all.map((a) => a.v), 0.5)), p90: r(pct(all.map((a) => a.v), 0.9)), worst: w.v, worstStyle: w.style, worstSeed: w.seed,
-      levels: { PASS: list.filter(([, s]) => s.metrics[c.id]?.level === 'PASS').length, WARN: list.filter(([, s]) => s.metrics[c.id]?.level === 'WARN').length, FAIL: list.filter(([, s]) => s.metrics[c.id]?.level === 'FAIL').length } };
+      levels: { INFO: list.filter(([, s]) => s.metrics[c.id]?.level === 'INFO').length, PASS: list.filter(([, s]) => s.metrics[c.id]?.level === 'PASS').length, WARN: list.filter(([, s]) => s.metrics[c.id]?.level === 'WARN').length, FAIL: list.filter(([, s]) => s.metrics[c.id]?.level === 'FAIL').length } };
   }
   const reasons = list.flatMap(([id, s]) => s.reasons.map((x) => ({ style: id, ...x }))).sort((a, b) => LEVEL[b.level] - LEVEL[a.level]);
   const closest = list.flatMap(([id, s]) => Object.entries(s.metrics).filter(([, m]) => m.margin != null && m.level === 'PASS').map(([check, m]) => ({ style: id, seed: m.worstSeed, check, value: m.worst, margin: m.margin }))).sort((a, b) => a.margin - b.margin).slice(0, 12);
@@ -170,6 +186,7 @@ export function report(tier, seeds, results, baseline, run) {
     seeds, counts: { styles: list.length, songs: results.length, PASS: list.filter(([, s]) => s.verdict === 'PASS').length, WARN: list.filter(([, s]) => s.verdict === 'WARN').length, FAIL: list.filter(([, s]) => s.verdict === 'FAIL').length },
     baseline: baseline ? { file: `test/audio-baseline/${tier}.json`, commit: baseline.run?.commit ?? null } : null,
     checks: Object.fromEntries(checks.map(({ id, group, label, unit, bad, warn, fail, drift, repeat, why, applies }) => [id, { group, label, unit, worseWhen: bad, warn, fail, drift, repeat, appliesTo: applies ? Object.keys(STYLES).filter(applies) : 'all', why }])),
+    perceptual: { version: 1, gating: false, worseWhen: 'high', metrics: PERCEPTUAL_METRICS },
     global, reasons, closest, families, styles,
   };
 }

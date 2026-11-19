@@ -1,6 +1,6 @@
 import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, CHORDS, defaultParams, defaultMaster } from './params.js';
 import { rng } from './dsp.js';
-import { planSections, formChain, parseForm, developSong, developFinalDrop, LENGTHS } from './longform.js';
+import { planSections, formChain, parseForm, sectionSpans, developSong, developFinalDrop, LENGTHS } from './longform.js';
 import { FORMS, SECTIONS } from './classical.js';
 import { MODELS } from './composer-models.js';
 import { POCKETS, STYLE_POCKET } from './groove.js';
@@ -10,7 +10,7 @@ import { withMelody, writeMelody, melodySteps, MELODY_BARS, SING_PROFILES } from
 import { stepDeg } from './motif.js';
 import { cleanLyrics } from './lyrics.js';
 import { SING_VOICES } from './sing-score.js';
-import { cleanTakes } from './scope.js';
+import { cleanTakes, patternAt, setTake } from './scope.js';
 import { trackTitle } from './crate.js';
 
 export const STYLES = {
@@ -152,7 +152,7 @@ const HOOK_STYLE = {
   pop: 'song', rnb: 'soulful', rock: 'riff', folk: 'roots', country: 'twang',
 };
 // 'chop' sings the hook with the user's own recorded voice (js/voice.js); a song without one plays 'vocal'.
-export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell', 'chop'];
+export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell', 'chop', 'softmallet'];
 
 // Every genre has several plausible ensembles. The seed chooses a player,
 // register and articulation while the genre keeps its drum, harmony and room identity.
@@ -165,7 +165,9 @@ const INSTRUMENTS = {
   peak: [[4, 0, 0, 0.3, 0.65], [6, 3, 0, 0.3, 0.75], [0, 0, 0, 0.22, 0.6], [10, 3, 1, 0.8, 0.8]],
   hardtechno: [[0, 3, 0, 0.45, 0.22], [0, 3, 1, 0.6, 0.18], [2, 3, 0, 0.65, 0.2], [2, 3, 1, 0.8, 0.15]],
   deephouse: [[7, 1, 0, 1.5, 0.25], [1, 1, 0, 0.9, 0.35], [8, 1, 0, 0.65, 0.75], [10, 1, 0, 1.4, 0.2]],
-  minimal: [[6, 2, 0, 0.12, 0.65], [5, 1, 0, 0.1, 0.8], [3, 2, 0, 0.15, 0.25], [8, 1, 0, 0.15, 0.7]],
+  // Minimal is a felt Rhodes, a recorded piano, a dark dub chord or a slow pad over a round, filtered bass:
+  // no bells, plucks or guitar, which read as toys against its dry clicks.
+  minimal: [[1, 1, 1, 0.6, 0.2], [7, 1, 0, 0.7, 0.3], [2, 1, 0, 0.6, 0.2], [2, 1, 1, 0.9, 0.15]],
   ukg: [[3, 3, 0, 0.25, 0.45], [7, 1, 0, 0.75, 0.5], [5, 3, 1, 0.25, 0.85], [8, 2, 1, 0.4, 0.8]],
   euphoric: [[7, 1, 0, 1.6, 0.25], [10, 1, 0, 1.8, 0.2], [2, 1, 0, 2.1, 0.15], [9, 0, 0, 0.65, 0.7]],
   // Neo-soul is a Rhodes/piano/guitar band; strings pad the changes; the horn section honked.
@@ -365,20 +367,26 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   } else if (style === 'minimal') {
     S.kick = range(STEPS, (i) => (i % 4 === 0 ? 1 : 0));
     S.ch = range(STEPS, (i) => (i % 4 === 2 ? 1 : 0));
+    // A soft shaker on a Euclidean loop that drifts against the bar, not a clicking sine clave.
     S.perc = pad16(euclid(pick(r, [5, 7]), 16, Math.floor(r() * 16)));
     P.len.perc = pick(r, [11, 13, 15]);
     S.snare = pad16([0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
     S.clap[12] = 1;
-    S.acid = range(STEPS, (i) => ([2, 11].includes(i) ? { on: true, n: i === 11 ? musicalScale[3] : 0, a: false, s: false } : emptyAcidStep()));
+    S.acid = range(STEPS, (i) => ([2, 10].includes(i) ? { on: true, n: i === 10 ? musicalScale[3] : 0, a: false, s: false } : emptyAcidStep()));
     S.stab = pad16([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
     P.len.stab = 13;
-    Object.assign(params.kick, { tune: 54, decay: 0.28, drive: 0.1, rumble: 0, punch: 0.7, click: 0.55, level: 0.78 });
-    Object.assign(params.perc, { tune: 700 + r() * 150, decay: 0.05, metal: 0.2, noise: 0.1, bend: 0.1 });
-    Object.assign(params.snare, { tune: 300, snappy: 0.2, decay: 0.06 });
-    Object.assign(params.acid, { wave: 0.6, cutoff: 420, reso: 6, envmod: 0.3, decay: 0.09, drive: 0.1 });
-    Object.assign(params.stab, { chord: 6, cutoff: 2500, decay: 0.08, env: 0.6, dly: 0.5 });
-    master.duck = 0.3; master.revLevel = 0.3;
-    swing = 0.1;
+    Object.assign(params.kick, { tune: 58, decay: 0.24, drive: 0.05, rumble: 0, punch: 0.6, click: 0.35, level: 0.78 });
+    Object.assign(params.perc, { tune: 300, decay: 0.08, noise: 0.35, level: 0.42 });
+    Object.assign(params.snare, { tune: 240, snappy: 0.15, decay: 0.08, level: 0.5 });
+    Object.assign(params.ch, { decay: 0.07, tone: 8000, level: 0.5 });
+    // A soft ride on the off-beats in the full groove gives the top end air without a bright lead.
+    S.ride = range(STEPS, (i) => (i % 4 === 2 ? 1 : 0));
+    Object.assign(params.ride, { decay: 0.5, tone: 7000, level: 0.22 });
+    // A round bass with some edge for definition, barely resonant, the filter only opening a little on each note.
+    Object.assign(params.acid, { wave: 0.3, cutoff: 600, reso: 1.5, envmod: 0.2, decay: 0.12, drive: 0.1, accent: 0.1, level: 0.42 });
+    Object.assign(params.stab, { chord: pick(r, [1, 2, 3]), cutoff: 1900, reso: 0.4, decay: 0.45, env: 0.45, detune: 4, dly: 0.45, rev: 0.4 });
+    master.duck = 0.3; master.revLevel = 0.35;
+    swing = 0.04;
   } else if (style === 'ukg') {
     S.kick = pad16([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1]);
     S.snare = pad16([0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]);
@@ -559,9 +567,12 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.ch = pad16([2, 0, 0, 1, 0, 0, 1, 0, 2, 0, 0, 1, 0, 0, 1]);
     S.perc = pad16([0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]);
     S.stab = pad16([1]);
-    S.acid = range(STEPS, (i) => ([0, 3, 6, 10, 12].includes(i) ? { on: true, n: pick(r, [0, 0, musicalScale[2], 12, musicalScale[4] - 12]), a: i === 0, s: i === 6 || i === 12 } : emptyAcidStep()));
-    Object.assign(params.kick, { tune: 50, decay: 0.28, drive: 0.35, punch: 0.75, click: 0.45, rumble: 0 });
-    Object.assign(params.snare, { tune: 230, snappy: 0.85, decay: 0.16 });
+    S.acid = range(STEPS, (i) => ([0, 3, 6, 11, 12].includes(i) ? { on: true, n: pick(r, [0, 0, musicalScale[2], 12, musicalScale[4] - 12]), a: i === 0, s: i === 11 } : emptyAcidStep()));
+    // The pickup has to touch its destination, and octave doubles fold to the same 808 pitch.
+    const pitchClass = (n) => (n + 12) % 12;
+    if (pitchClass(S.acid[11].n) === pitchClass(S.acid[12].n)) S.acid[11].n = pitchClass(S.acid[12].n) ? 0 : 7;
+    Object.assign(params.kick, { tune: 50, decay: 0.17, drive: 0.35, punch: 0.75, click: 0.45, rumble: 0 });
+    Object.assign(params.snare, { tune: 230, snappy: 0.85, decay: 0.16, level: 0.66 });
     Object.assign(params.perc, { tune: 800, decay: 0.05, metal: 0.6 });
     Object.assign(params.stab, { chord: pick(r, [0, 8]), cutoff: 1400, decay: 2, env: 0.3, rev: 0.6 });
     Object.assign(params.acid, { tune: 0, cutoff: 350, decay: 1, drive: 0.2, level: 0.45 });
@@ -748,8 +759,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     params.stab.level = closeLevel;
     params.stab.cutoff = Math.min(params.stab.cutoff ?? 2400, style === 'hyperpop' ? 2200 : 1800);
   }
-  // The recorded guitar needs more headroom than Minimal's synth stabs.
-  if (style === 'minimal') params.stab.level *= stabVoice === 8 ? 0.56 : 0.82;
+  if (style === 'minimal') params.stab.level *= 0.7;
   // Pop's keys carry the song alone where the piano would; they sit up with the band instead of under it.
   if (style === 'pop' && stabVoice === 1) params.stab.level = 1.1;
   // Folk and country are a band around the guitar, not a guitar over a click: it sits with the bass and kit.
@@ -767,11 +777,11 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   }
   params.acid.voice = bassVoice;
   for (const t of ['acid', 'stab']) params[t].voice ??= 0;
-  const PERC = { dnb: 3, deephouse: 3, ukg: 3, boombap: 3, neosoul: 3, breaks: 2, minimal: 4, dub: 4, euphoric: 3, ambient: 2, amapiano: 3, afrobeats: 1, reggaeton: 2, bailefunk: 1 };
+  const PERC = { dnb: 3, deephouse: 3, ukg: 3, boombap: 3, neosoul: 3, breaks: 2, minimal: 3, dub: 4, euphoric: 3, ambient: 2, amapiano: 3, afrobeats: 1, reggaeton: 2, bailefunk: 1 };
   params.perc.voice = PERC[style] ?? 0;
   const DUST = { boombap: 0.45, dub: 0.3, ambient: 0.2, deephouse: 0.12, minimal: 0.1 };
   master.dust = DUST[style] ?? 0;
-  master.arr = { neosoul: 0, boombap: 0, ambient: 0 }[style] ?? (GROOVE.has(style) ? 0.5 : 1);
+  master.arr = { neosoul: 0, boombap: 0, drill: 0, ambient: 0 }[style] ?? (GROOVE.has(style) ? 0.5 : 1);
   // Per-seed identity on its own RNG so the genre grammar above stays stable.
   const r2 = rng(Math.imul((seed | 0) ^ 0x5bd1e995, 0x9e3779b1) ^ 0x2545f491);
   for (let k = 0; k < 4; k++) r2();
@@ -783,6 +793,8 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   }
   if (params.stab.cutoff && style !== 'hardtechno') params.stab.cutoff = Math.round(params.stab.cutoff * (0.75 + r2() * 0.6));
   if (params.stab.decay) params.stab.decay = +(params.stab.decay * (0.8 + r2() * 0.4)).toFixed(3);
+  // Minimal's chords stay soft whatever the ensemble picked: a long decay, a gentle touch and a dark, unresonant filter.
+  if (style === 'minimal') Object.assign(params.stab, { decay: Math.max(params.stab.decay, 0.45), env: Math.min(params.stab.env, 0.08), cutoff: Math.min(params.stab.cutoff, 1300), reso: 0.4 });
   const PUNCH = { deephouse: 0.55, ukg: 0.7, afrobeats: 0.7, amapiano: 0.65, euphoric: 0.72, trance: 0.72, reggaeton: 0.7 };
   if (PUNCH[style]) {
     params.kick.punch = Math.max(params.kick.punch ?? 0, PUNCH[style]);
@@ -797,6 +809,8 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     const vel = 0.22 + r2() * 0.08;
     hook.s = range(32, (i) => i === 0 ? [0, 12, vel] : i === 16 ? [7, 12, vel * 0.9] : 0);
   }
+  // Minimal keeps the techno hook's line but plays it on a warm filtered voice, not a square pulse.
+  if (hook && style === 'minimal') hook.v = 'warm';
   if (hook) { P.hook = hook; P.hm = 2; }
   // One seeded idea per track, chosen from moves that fit any groove: an octave pop at the end of
   // the bass phrase, displaced percussion, or a chord that anticipates the beat. Sometimes restraint.
@@ -812,9 +826,11 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   }
   // Groove and pop genres sing: the hook becomes a vocal-length melody over the changes (js/melody.js).
   // In Drill's synth-bell ensemble, the mallet plays lighter behind the 808.
-  const gainScale = style === 'drill' && stabVoice === 6 && hook?.v === 'mallet' ? 0.72 : 1;
+  const softMallet = style === 'drill' && stabVoice === 6 && hook?.v === 'mallet';
+  const gainScale = softMallet ? 0.72 : 1;
   const sung = withMelody(P.hook, rng(Math.imul((seed | 0) ^ 0x68e31da4, 0x3c6ef372) ^ 0x1b873593), style, musicalScale, { prog: P.prog, alt: P.alt, chord: params.stab.chord | 0, gainScale });
   if (sung) { P.hook = sung; P.hm = 2; }
+  if (softMallet) P.hook.v = 'softmallet';
   if (LIFT.has(style) && P.prog) P.lift = 2;
   if (style === 'trap' && stabVoice === 7 && sung?.v === 'mallet' && sung.m) {
     for (const part of ['n', 'v', 'b']) for (const note of sung.m[part]) note[3] *= 0.78;
@@ -828,6 +844,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   if (MAJOR_STYLES.has(style) || style === 'rock') P.band = true;
   if (style === 'pop' || style === 'rock') P.lite = true;
   if (style === 'country') P.lite = 'country';
+  if (style === 'minimal') P.smooth = true;
   return { pattern: P, params, master, bpm, key, swing: swing ?? 0.06 };
 }
 
@@ -949,7 +966,8 @@ export function arrangement(full, seed, half = false) {
   const without = (...ids) => all.filter((x) => !ids.includes(x));
   const fill = clone(full);
   delete fill.alt;
-  fill.steps.snare = pad16([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2]);
+  // A smooth style turns its phrase over with a ghost note and a dropped kick, not a snare roll.
+  if (full.smooth) { fill.steps.kick[12] = 0; fill.steps.snare[15] = 1; fill.steps.oh[14] = 1; } else fill.steps.snare = pad16([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2]);
   // One chord per half bar, left to ring, so the intro has the band's sound and still leaves the verse room to grow.
   const ringIntro = (p) => { p.steps.stab = p.steps.stab.map((v, i, row) => (v && !row.slice(i < 8 ? 0 : 8, i).some(Boolean) ? 1 : 0)); return p; };
   const scenes = [
@@ -962,9 +980,9 @@ export function arrangement(full, seed, half = false) {
     strip(full, ['ride', 'perc', 'stab', 'ch']),
     strip(full, ['ride', 'perc', 'stab', 'acid', 'oh']),
     clone(full),
-    half ? halfTime(full) : mutate(full, seed + 2),
+    half && !full.smooth ? halfTime(full) : mutate(full, seed + 2),
   ];
-  for (const p of scenes) { delete p.alt; delete p.pedal; delete p.sections; delete p.band; delete p.lite; }
+  for (const p of scenes) { delete p.alt; delete p.pedal; delete p.sections; delete p.band; delete p.lite; delete p.smooth; }
   if (full.pedal) for (const i of [6, 7]) scenes[i].prog = clone(full.pedal);
   // Hook: absent in the intro, teased (call only) in the verse and deep breakdown, full in the fill, breakdown and peaks.
   [0, 0, 1, 2, 2, 1, 2, 2].forEach((m, i) => { if (full.hook) scenes[i].hm = m; else delete scenes[i].hm; });
@@ -1125,6 +1143,54 @@ export function songPlan(style, seed, length = 'song', bpm = midBpm(style)) {
   return { chain: (112 * 240) / bpm < LENGTHS.song.lo ? TECHNO_LONG : pick(rng(seed + 9), SONG_FORMS.techno), sections: null };
 }
 export const songChain = (style, seed, length = 'song') => songPlan(style, seed, length).chain;
+
+// Drill answers its lower verse hook with syncopated chords and carries the pocket through the fill.
+function drillVerses(pats, { chain, sections }, keep) {
+  const verse = pats[2], fill = pats[3], chorus = pats[6];
+  const edit = (base, rows) => ({ ...base, steps: { ...base.steps,
+    ...Object.fromEntries(Object.entries(rows).filter(([id]) => !keep.includes(id))) } });
+  verse.steps = edit(verse, {
+    kick: pad16([2, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
+    ch: pad16([1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1]),
+    stab: pad16([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    perc: pad16([0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1]),
+  }).steps;
+  const spans = sectionSpans(sections);
+  let verses = 0;
+  for (const { k, at, bars } of spans) {
+    if (k !== 'v' || ++verses === 1 || bars < 16 || keep.includes('kick')) continue;
+    const response = pad16([2, 0, 0, 0, 0, 0, 0, 1]);
+    response[verses % 2 ? 13 : 11] = 1;
+    for (let bar = at; bar < at + (bars >> 1) && chain[bar] === 'C'; bar++) {
+      setTake(verse, bar, edit(patternAt(verse, bar), { kick: [...response] }));
+    }
+  }
+  for (let i = 1; i < spans.length; i++) {
+    const { k, at } = spans[i], bar = at - 1;
+    if (k !== 'c' || spans[i - 1].k !== 'v' || chain[bar] !== 'D' || chain[at] !== 'G') continue;
+    const steps = clone(verse.steps);
+    steps.perc[15] = 1;
+    const acid = steps.acid.map((note, step) => step === 11 || step === 12 ? emptyAcidStep() :
+      step === 14 ? { ...emptyAcidStep(), on: true, v: 0.71 } :
+      step === 15 ? { ...emptyAcidStep(), on: true } : note);
+    const base = patternAt(fill, bar);
+    setTake(fill, bar, edit(base, {
+      ...steps, acid,
+      kick: pad16([2, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1]),
+      ch: pad16([1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1]),
+      stab: pad16([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+      snare: pad16([0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 1, 1]),
+    }));
+    // Let the 808 land on the one, then answer it with the kick instead of stacking their attacks.
+    const landing = patternAt(chorus, at);
+    const kick = [...landing.steps.kick];
+    if (!keep.includes('kick') && landing.steps.acid[0].on && kick[0] && !kick[1]) {
+      [kick[0], kick[1]] = [kick[1], kick[0]];
+      setTake(chorus, at, edit(landing, { kick }));
+    }
+  }
+}
+
 // The form written into a fresh arrangement: chain plus the takes that develop each repeat.
 export function applySongPlan(s, style, seed, length = 'song') {
   const plan = songPlan(style, seed, length, s.bpm || midBpm(style));
@@ -1143,6 +1209,7 @@ export function applySongPlan(s, style, seed, length = 'song') {
       }
     }
   }
+  if (style === 'drill' && plan.sections) drillVerses(s.patterns, plan, keep);
   if (plan.chain === TECHNO_LONG) developFinalDrop(s.patterns, plan.chain, { keep });
   return plan;
 }
@@ -1283,6 +1350,7 @@ export function sanitize(s) {
       n: Math.max(-24, Math.min(24, Number.isFinite(+step.n) ? Math.round(+step.n) : 0)),
       a: !!step.a,
       s: !!step.s,
+      ...(step.on && Number.isFinite(step.v) && step.v > 0 && step.v < 1 ? { v: step.v } : {}),
     };
   });
   const cleanNotes = (a) => (Array.isArray(a) ? a : []).filter(Array.isArray).slice(0, 96).map((x) => [Math.round(cl(x[0], -8, MELODY_BARS * 16 - 1)), Math.round(cl(x[1], 1, 16)), Math.round(cl(x[2], -24, 36)), cl(x[3], 0, 1), Math.round(cl(x[4], 0, 7)), Math.round(cl(x[5], 0, 95))]);

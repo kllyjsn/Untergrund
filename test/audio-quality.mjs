@@ -1,8 +1,43 @@
 // js/audio-quality.js on synthetic signals with known answers (the measurements scripts/audio-benchmark.mjs gates on).
 import assert from 'node:assert/strict';
 import { analyzeMix, analyzeStems, ending, stereo, spectrum, loudnessRange, kHops, shaper, crest, limiter } from '../js/audio-quality.js';
+import { analyzePerceptual, PERCEPTUAL_METRICS } from '../js/perceptual-audio.js';
 import { clipCurve, satCurve } from '../js/dsp.js';
+import { baselineOf, compare, report } from '../scripts/audio-benchmark.mjs';
 import { withChrome } from './chrome.mjs';
+
+{
+  const result = {
+    style: 'minimal', seed: 42,
+    mix: {
+      peak: { truePeakDb: -2, clipRuns: 0, dcDb: -80 }, loudness: { integrated: -10 }, limiter: { strainShare: 0 },
+      spectrum: { tilt: -4, mudBumpDb: 0, harshBumpDb: 0, shares: { sub: 0.3 } },
+      stereo: { monoLossLu: 0, correlationP5: 1, lowSideDb: -40, correlation: 0.5 }, balance: { rmsDb: 4 },
+    },
+    stems: { missing: [], stems: ['ch', 'snare', 'stab'].map((id) => ({ id, notes: 4, relLu: -10, buriedShare: 0, hits: { spreadDb: 1, rangeDb: 2, attackDb: 3 } })) },
+  };
+  const run = () => report('fast', [42], [result], null, {});
+  const rep = run();
+  for (const id of ['genreBalance', 'drumSpread', 'hatSpread', 'bandSpread', 'snareAttack', 'meanCorrelation']) {
+    assert.equal(rep.styles.minimal.metrics[id].level, 'INFO', id);
+    assert.deepEqual(rep.global[id].levels, { INFO: 1, PASS: 0, WARN: 0, FAIL: 0 }, `${id} is not counted as a pass`);
+  }
+  assert.equal(rep.styles.minimal.metrics.windowLufs.level, 'PASS', 'drift-only checks remain gated');
+  assert.equal(rep.styles.minimal.metrics.clipRuns.level, 'PASS', 'fail-only checks remain gated');
+  assert.equal(rep.verdict, 'PASS');
+  assert.deepEqual(rep.styles.minimal.reasons, []);
+  assert.equal(rep.counts.PASS, 1, 'style verdict counts are unchanged');
+  result.mix.balance = null;
+  const missing = run();
+  assert.equal(missing.styles.minimal.metrics.genreBalance, undefined);
+  assert.equal(missing.global.genreBalance, undefined);
+  assert.deepEqual(report('fast', [], [], null, {}).global, {});
+  result.mix.peak.truePeakDb = -0.5;
+  assert.equal(run().verdict, 'WARN');
+  result.mix.peak.clipRuns = 1;
+  assert.equal(run().verdict, 'FAIL');
+  console.log('audio benchmark applicability passed: INFO counts, missing measurements and unchanged PASS/WARN/FAIL verdicts');
+}
 
 const fs = 48000, sec = (s) => Math.round(s * fs);
 const tone = (f, s, a = 0.5, ph = 0) => Float32Array.from({ length: sec(s) }, (_, i) => a * Math.sin(2 * Math.PI * f * i / fs + ph));
@@ -93,13 +128,55 @@ const lin = tone(997, 1, 0.5), half = lin.map((v) => v * 0.5 * 1.5);
 near(limiter([lin, lin, half, half], fs, -Infinity, null, 20 * Math.log10(1.5)).grMean, -6.02, 0.05, 'absolute gain reduction');
 near(limiter([lin, lin, half, half], fs).grMean, 0, 0.01, 'relative gain reduction without make-up');
 
+const perceptual = (x, options) => analyzePerceptual(x, x, fs, options);
+const dry = tone(250, 4, 0.25), brightTone = tone(3000, 4, 0.35);
+const brightAttacks = dry.map((v, i) => v + (i % sec(0.4) < sec(0.045) ? brightTone[i] : 0));
+const burstScores = perceptual(brightAttacks);
+assert(burstScores.harshTransients > perceptual(mix(dry, brightTone)).harshTransients + 20, 'bright attacks outrank steady brightness');
+assert(burstScores.lackOfSmoothness > perceptual(dry).lackOfSmoothness, 'repeated irregular energy changes raise the lack-of-smoothness proxy');
+assert.deepEqual(perceptual(brightAttacks.map((v) => 0.1 * v)), burstScores, 'audible scores are gain-relative');
+assert.deepEqual(analyzePerceptual(brightAttacks, brightAttacks.map((v) => -v), fs), burstScores, 'stereo energy is phase-safe');
+
+const after = tone(850, 4, 0.55), abrupt = dry.map((v, i) => i < sec(2) ? v : after[i]);
+const eased = dry.map((v, i) => {
+  const blend = Math.max(0, Math.min(1, i / fs - 1.5));
+  return (1 - blend) * v + blend * after[i];
+});
+const jump = perceptual(abrupt, { boundaries: [0, 2, 4] }), fade = perceptual(eased, { boundaries: [2] });
+assert.equal(jump.sectionBoundaries, 1);
+assert(jump.sectionJolt > fade.sectionJolt + 25, 'the supplied arrangement boundary distinguishes the abrupt cut from the fade');
+assert.equal(perceptual(abrupt).sectionJolt, null, 'no arrangement boundary is not a clean score');
+
+const harmonics = mix(...[1, 2, 3, 4, 5, 6].map((h) => tone(440 * h, 4, 0.1)));
+assert(perceptual(brightTone).toyLikeTimbre > perceptual(harmonics).toyLikeTimbre + 30, 'narrow upper-mid resonance outranks a wider harmonic spectrum');
+assert.equal(perceptual(brightTone, { instrument: false }).toyLikeTimbre, null);
+for (const pcm of [tone(800, 0.04), tone(800, 2, 1e-6), new Float32Array(sec(2))]) {
+  for (const id of Object.keys(PERCEPTUAL_METRICS)) assert.equal(perceptual(pcm)[id], null, id);
+}
+
 console.log('audio quality metrics: synthetic checks passed');
 
 const drill = await withChrome((run) => run("import('/test/audio-quality-page.js').then(m => m.measure('drill', 1234))"));
 if (drill) {
   const collision = drill.stems.kickBass;
   assert(collision && collision.collisionP90Db < 0, `kick/808 overlap uses rendered kicks: ${JSON.stringify(collision)}`);
-  console.log('audio quality metrics: kick window boundaries passed');
+  const kick = drill.stems.stems.find((s) => s.id === 'kick');
+  assert(Number.isFinite(drill.perceptual.harshTransients) && Number.isFinite(kick.perceptual.lackOfSmoothness));
+  assert.equal(kick.perceptual.toyLikeTimbre, null);
+
+  const normal = report('fast', [1234], [drill], null, {});
+  const changed = { ...drill, seed: 42, perceptual: { ...drill.perceptual, harshTransients: 100 } };
+  const more = report('fast', [42, 1234], [drill, changed], null, {});
+  assert.deepEqual(more.styles.drill.perceptual.mix.harshTransients, { n: 2, p50: 100, worst: 100, worstSeed: 42 });
+  assert.equal(more.styles.drill.perceptual.parts.kick.toyLikeTimbre.n, 0);
+  assert.equal(normal.styles.drill.seeds[1234].stems.find((s) => s.id === 'kick').perceptual.lackOfSmoothness, kick.perceptual.lackOfSmoothness);
+  const extreme = report('fast', [1234], [{ ...changed, seed: 1234 }], null, {});
+  assert(!normal.perceptual.gating && !('harshTransients' in normal.checks));
+  assert.equal(extreme.verdict, normal.verdict);
+  assert.deepEqual(extreme.reasons, normal.reasons);
+  assert.equal(baselineOf(extreme), baselineOf(normal));
+  assert(compare(normal, extreme).ok, 'advisory changes are not repeat-check failures');
+  console.log('audio quality metrics: render and non-gating report checks passed');
 } else {
   console.log('audio quality metrics: kick window test skipped (Chrome unavailable)');
 }

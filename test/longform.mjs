@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import { STYLES, SONG_STYLES, songPlan, sanitize } from '../js/state.js';
 import { realize, validateSpec, localSpec } from '../js/song-spec.js';
 import { planSections, formChain, formSeconds, developSong, developFinalDrop, LENGTHS, MAX_SONG_BARS } from '../js/longform.js';
-import { buildSong, playSong, SEEDS, loopStyles, runComposition } from '../scripts/composition.mjs';
+import { patternAt } from '../js/scope.js';
+import { buildSong, playSong, scoreSong, aggregateComposition, compositionRegressions, SEEDS, loopStyles, runComposition } from '../scripts/composition.mjs';
 
 const LETTERS = 'ABCDEFGH';
 const secs = (s) => (s.chain.length * 240) / s.bpm;
@@ -17,6 +18,25 @@ const sig = (s, pos) => {
 };
 const spans = (S) => { let at = 0; return S.map(([k, n]) => { const x = { k, at, bars: n }; at += n; return x; }); };
 const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L.step >= from * 16 && L.step < (from + bars) * 16).length / bars;
+
+{
+  const song = buildSong('minimal', 42), measured = scoreSong(song);
+  assert(measured.melodyWindows > 0 && Number.isFinite(measured.motifRecall));
+  for (const p of song.patterns) delete p.hook;
+  const empty = scoreSong(song);
+  assert.equal(empty.melodyWindows, 0);
+  assert.equal(empty.motifRecall, null, 'no hook windows cannot establish recall');
+  const rows = [{ motifRecall: null }, { motifRecall: 0.4 }, { motifRecall: 0.8 }];
+  assert.deepEqual(aggregateComposition(rows), { motifRecall: 0.6 });
+  assert.deepEqual(aggregateComposition(rows, true), { motifRecall: 0.6 });
+  assert.deepEqual(aggregateComposition([{ motifRecall: null }]), { motifRecall: null });
+  assert.deepEqual(aggregateComposition([]), {});
+  assert.deepEqual(compositionRegressions({ minimal: { motifRecall: null } }, { minimal: { motifRecall: 1 } }), []);
+  assert.deepEqual(compositionRegressions({ minimal: { motifRecall: 0.4 } }, { minimal: { motifRecall: null } }), []);
+  assert.equal(compositionRegressions({ minimal: { motifRecall: 0.4 } }, { minimal: { motifRecall: 1 } }).length, 1);
+  assert.throws(() => compositionRegressions({ minimal: measured }, {}), /no composition baseline/);
+  console.log('composition applicability passed: no-hook recall, measured-only aggregation and regression checks');
+}
 
 // P1 duration: 3-4 minutes at the generated tempo (slow ballads may reach ~4:15, the 128-bar cap keeps the fastest near 3:00).
 {
@@ -72,7 +92,14 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
     const s = buildSong(style, seed), { sections } = songPlan(style, seed, 'song', s.bpm), sp = spans(sections);
     const v = sp.filter((x) => x.k === 'v'), c = sp.filter((x) => x.k === 'c'), x = sp.find((y) => y.k === 'x');
     assert.notEqual(sig(s, v[1].at + v[1].bars - 2), sig(s, v[0].at + v[0].bars - 2), `${style}/${seed} verse 2 develops verse 1`);
-    assert.equal(sig(s, c[1].at), sig(s, c[0].at), `${style}/${seed} the second chorus is the same chorus`);
+    if (style === 'drill') {
+      const theme = (pos) => {
+        const { hook, prog, hm, steps: { kick, ...parts } } = patternAt(s.patterns[6], pos);
+        return { hook, prog, hm, parts };
+      };
+      assert.deepEqual(theme(c[1].at), theme(c[0].at), `${style}/${seed} only the entrance kick can vary`);
+      assert.equal(sig(s, c[1].at + 1), sig(s, c[0].at + 1), `${style}/${seed} the choruses return to the same groove`);
+    } else assert.equal(sig(s, c[1].at), sig(s, c[0].at), `${style}/${seed} the second chorus is the same chorus`);
     assert.notEqual(sig(s, c.at(-1).at), sig(s, c[0].at), `${style}/${seed} the last chorus is bigger`);
     if (x) assert.equal(s.patterns[6].at.find((t) => t.b[0] === x.at)?.hook?.h ?? 1, 1, `${style} instrumental plays the riff`);
     if (x) assert(s.patterns[7].at?.some((t) => t.b[0] === x.at), `${style} the instrumental's last bar (H) stays instrumental`);

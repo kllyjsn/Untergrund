@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
-import { generate, arrangement, sanitize, defaultState, STYLES, MAJOR_STYLES, MUSICIAN_PRINCIPLES } from '../js/state.js';
+import { generate, arrangement, applySongPlan, sanitize, defaultState, freshSong, STYLES, MAJOR_STYLES, MUSICIAN_PRINCIPLES } from '../js/state.js';
 import { SCALES } from '../js/params.js';
+import { Sequencer } from '../js/engine.js';
+import { capture, Recorder } from '../js/midi.js';
+import { patternAt } from '../js/scope.js';
 
 // Every club/pop style gets its own seeded hook; NEO-SOUL and BOOM BAP sing one over their Rhodes licks.
 for (const style of Object.keys(STYLES)) {
@@ -34,6 +37,110 @@ for (const style of ['deephouse', 'ukg', 'afrobeats']) {
   assert(lines.size >= 4, `${style} bass lines repeat across seeds`);
 }
 console.log('per-seed key and bass passed');
+
+for (const seed of [7, 42, 211, 1234]) {
+  const s = freshSong('drill', seed), rec = new Recorder(s);
+  s.current = 6; s.chainOn = false; s.ending = false;
+  const notes = [];
+  rec.acid = (t, st, slide, hold) => notes.push({ t, m: rec.bassMidi(st, 36, 38), slide, hold });
+  const peak = new Sequencer(rec, s);
+  for (let i = 0; i < 16; i++) peak.tick(i, i * rec.stepDur);
+  const glide = notes.findIndex((n) => n.slide);
+  assert.equal(s.patterns[6].steps.acid.filter((st) => st.on).length, 5, 'the slide pickup replaces an existing bass hit');
+  assert(glide > 0 && notes[glide - 1].hold && notes[glide - 1].m !== notes[glide].m, `Drill/${seed}: an audible pitch glide reaches the 808`);
+}
+console.log('Drill pitched 808 glides passed');
+
+for (const seed of [7, 42, 211, 1234]) {
+  const g = generate('drill', seed);
+  const original = arrangement(g.pattern, seed, true);
+  const song = freshSong('drill', seed);
+  assert.equal(song.master.arr, 0, 'written Drill fills replace the generic drop effect');
+  assert.notDeepEqual(song.patterns[2].steps.kick, song.patterns[6].steps.kick, 'the verse and chorus have different grooves');
+  assert.deepEqual(song.patterns[6].steps.acid, original[6].steps.acid, 'the chorus glides are untouched');
+  const saves = sanitize(JSON.parse(JSON.stringify(song)));
+  const secondVerse = [...song.chain.matchAll(/C+/g)][1].index;
+  const response = patternAt(song.patterns[2], secondVerse).steps.kick;
+  assert.notDeepEqual(response, song.patterns[2].steps.kick, 'the second verse answers with a different kick pickup');
+  assert.deepEqual(patternAt(saves.patterns[2], secondVerse).steps.kick, response, 'the pickup survives save and load');
+  const transitions = [...song.chain.matchAll(/CDG/g)].map(({ index }) => index + 1);
+  assert(transitions.length, 'the song has a verse-to-chorus turnaround');
+  for (const at of transitions) {
+    const fill = patternAt(song.patterns[3], at);
+    assert(fill.steps.acid[14].on && !fill.steps.acid[14].s, 'the fill carries a bass note into the last beat');
+    assert.equal(fill.steps.acid[14].v, 0.71, 'the pickup starts with a ghosted hit');
+    assert(fill.steps.acid[15].on && !fill.steps.acid[15].a && !fill.steps.acid[15].s, 'the final step adds a soft 808 pickup');
+    assert(fill.steps.snare[15] && fill.steps.ch[15], 'the pocket continues until the downbeat');
+    assert.deepEqual(patternAt(saves.patterns[3], at).steps, fill.steps, 'written fills survive save and load');
+    const landing = patternAt(song.patterns[6], at + 1);
+    assert.deepEqual(landing.steps.kick.slice(0, 2), [0, song.patterns[6].steps.kick[0]], 'the opening kick answers the 808');
+    assert.deepEqual(landing.steps.acid, original[6].steps.acid, 'the chorus entrance keeps the written 808 line');
+    assert.deepEqual(patternAt(saves.patterns[6], at + 1).steps, landing.steps, 'the landing survives save and load');
+    assert.deepEqual(patternAt(song.patterns[6], at + 2).steps.kick, song.patterns[6].steps.kick, 'later chorus bars keep their downbeat');
+  }
+  const verseSteps = song.patterns[2].steps;
+  verseSteps.perc[5] = 0;
+  verseSteps.acid[0].on = false;
+  for (const at of transitions) {
+    assert.deepEqual(patternAt(song.patterns[3], at).steps, patternAt(saves.patterns[3], at).steps,
+      'editing verse percussion or bass does not change the written fill');
+  }
+  song.patterns = original;
+  song.locks.kick = true;
+  song.locks.acid = true;
+  const kick = original[2].steps.kick;
+  const fillBass = patternAt(original[3], transitions[0]).steps.acid;
+  applySongPlan(song, 'drill', seed);
+  assert.deepEqual(song.patterns[2].steps.kick, kick, 'the verse does not replace a locked kick');
+  assert.deepEqual(patternAt(song.patterns[2], secondVerse).steps.kick, kick, 'the response respects the kick lock');
+  assert.deepEqual(patternAt(song.patterns[3], transitions[0]).steps.kick, original[3].steps.kick, 'the fill respects the kick lock too');
+  assert.deepEqual(patternAt(song.patterns[3], transitions[0]).steps.acid, fillBass, 'the pickup respects the bass lock');
+  assert.deepEqual(patternAt(song.patterns[6], transitions[0] + 1).steps.kick, original[6].steps.kick, 'the landing respects the kick lock');
+}
+console.log('Drill verse and turnaround passed');
+
+{
+  const song = sanitize(freshSong('drill', 211));
+  const loud = structuredClone(song);
+  for (const take of loud.patterns[3].at) delete take.steps?.acid?.[14]?.v;
+  const notes = capture(song).notes.acid, unshaped = capture(loud).notes.acid;
+  let softened = 0;
+  assert.equal(notes.length, unshaped.length);
+  for (const [i, { v, ...note }] of notes.entries()) {
+    const { v: normal, ...same } = unshaped[i];
+    assert.deepEqual(note, same, 'the pickup voicing does not change bass pitch or timing');
+    if (v !== normal) {
+      assert(Math.abs(v / normal - 0.71) < 1e-9, 'the MIDI pickup is about 3 dB softer');
+      softened++;
+    }
+  }
+  assert.equal(softened, [...song.chain.matchAll(/CDG/g)].length, 'only the first pickup hit in each fill is softened');
+}
+
+{
+  const s = freshSong('drill', 42, { length: 'sketch' });
+  const at = s.chain.indexOf('CDG') + 2, chorus = s.patterns[6];
+  assert(at > 1, 'the sketch has a verse-to-chorus turnaround');
+  const first = patternAt(chorus, at), next = patternAt(chorus, at + 1);
+  assert.deepEqual(first.steps.kick.slice(0, 2), [0, next.steps.kick[0]], 'the kick answers the 808 even in the sketch’s final chorus');
+  assert.deepEqual(first.steps.perc, next.steps.perc, 'the landing keeps the developed percussion');
+  assert.notDeepEqual(first.steps.perc, chorus.steps.perc, 'the final-chorus development is audible');
+}
+
+{
+  const song = freshSong('drill', 503);
+  assert.equal(song.params.snare.level, 0.66);
+  assert.equal(sanitize(JSON.parse(JSON.stringify(song))).params.snare.level, 0.66);
+}
+
+{
+  const song = freshSong('drill', 1234), chorus = song.patterns[6];
+  assert.equal(song.params.stab.voice, 6);
+  assert.equal(chorus.hook.v, 'softmallet');
+  assert.deepEqual(sanitize(JSON.parse(JSON.stringify(song))).patterns[6].hook, chorus.hook);
+  assert.equal(generate('drill', 42).pattern.hook.v, 'mallet', 'recorded ensembles keep their existing lead');
+  assert.equal(generate('drill', 13).pattern.hook.v, 'reed', 'the reed keeps its existing sound');
+}
 
 {
   const g = generate('deephouse', 42);

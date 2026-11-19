@@ -63,7 +63,8 @@ console.log('vocal-length melodies passed');
   const bells = generate('drill', 1234), other = generate('drill', 42);
   assert.equal(bells.params.stab.voice, 6);
   assert.notEqual(other.params.stab.voice, 6);
-  assert.equal(bells.pattern.hook.v, other.pattern.hook.v);
+  assert.equal(bells.pattern.hook.v, 'softmallet');
+  assert.equal(other.pattern.hook.v, 'mallet');
   const peak = (g, part) => Math.max(...g.pattern.hook.m[part].map((note) => note[3]));
   for (const part of ['n', 'v', 'b']) {
     assert(peak(bells, part) < peak(other, part), `Drill's bell ensemble leaves more headroom in ${part}`);

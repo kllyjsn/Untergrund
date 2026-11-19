@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createRoomClock, roomTransportPosition, shiftRoomSet, transportResync } from '../js/room-sync.js';
+import { createRoomClock, roomTransportPosition, shiftRoomSet, syncAudioClock, transportResync } from '../js/room-sync.js';
 
 const origin = 1_000_000;
 const close = (a, b) => assert(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
@@ -28,6 +28,16 @@ const close = (a, b) => assert(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
   assert.equal(shiftRoomSet(hostSet, 0), hostSet, 'local BroadcastChannel path does not translate timestamps');
 }
 
+{
+  const clock = createRoomClock({ wall: () => origin + 2000 + 200, monotonic: () => 200 });
+  assert.equal(clock.observe([origin + 101, origin + 103], 100, 162), 60);
+  assert.equal(clock.shift(), -2029, 'cold response with asymmetric delay biases the first offset');
+  assert.equal(clock.observe([origin + 165, origin + 165], 163, 167), 4);
+  assert.equal(clock.shift(), -2000, 'warm sample removes the startup bias before a set is adopted');
+  assert.equal(clock.observe([origin + 171, origin + 171], 170, 200), 30);
+  assert.equal(clock.shift(), -2000, 'a slower response does not replace the warm sample');
+}
+
 assert.deepEqual(roomTransportPosition(origin + 1600, 120, origin), { step: 0, delay: 1.6 });
 
 let pos = roomTransportPosition(origin, 120, origin + 1500);
@@ -49,9 +59,44 @@ for (const bpm of [122, 138, 150]) {
 }
 
 assert.equal(transportResync(10.01, 10, 9.9, 0.125), null);
-assert.deepEqual(transportResync(10.2, 10, 9.9, 0.125), { skip: 0, nextTime: 10.2 });
-assert.deepEqual(transportResync(9.5, 10, 9.9, 0.125), { skip: 4, nextTime: 10 });
-assert.deepEqual(transportResync(9.0, 9.0, 9.6, 0.125), { skip: 5, nextTime: 9.625 });
+assert.deepEqual(transportResync(10.2, 10, 9.9, 0.125), { skip: 0, nextTime: 10.2, discard: false });
+assert.deepEqual(transportResync(9.5, 10, 9.9, 0.125), { skip: 4, nextTime: 10, discard: false });
+assert.deepEqual(transportResync(9.0, 9.0, 9.6, 0.125), { skip: 5, nextTime: 9.625, discard: false });
+
+{
+  const before = syncAudioClock(null, 1000);
+  assert.deepEqual(before, { offset: 1000, jumped: false });
+  const jitter = syncAudioClock(before.offset, 1000.02);
+  assert.equal(jitter.jumped, false);
+  close(jitter.offset, 1000.001);
+
+  const wake = syncAudioClock(jitter.offset, 1015);
+  assert.deepEqual(wake, { offset: 1015, jumped: true });
+  assert.deepEqual(transportResync(1011.5 - wake.offset, 11.5, 10, 0.125, wake.jumped), { skip: 109, nextTime: 10.125, discard: true });
+  assert.equal(syncAudioClock(wake.offset, 1015.02).jumped, false);
+
+  const short = syncAudioClock(before.offset, 1000.25);
+  assert.deepEqual(transportResync(1011.5 - short.offset, 11.5, 10, 0.125, short.jumped), { skip: -9, nextTime: 10.125, discard: true });
+  const stall = syncAudioClock(before.offset, 1000.8);
+  const recovery = transportResync(1011.5 - stall.offset, 11.5, 10, 0.125, stall.jumped);
+  assert.equal(recovery.discard, true);
+  assert.equal(recovery.skip, -5);
+  close(recovery.nextTime, 10.075);
+  assert.equal(transportResync(recovery.nextTime, recovery.nextTime, 10, 0.125), null);
+}
+
+{
+  const songOrigin = 64, nextStep = 68;
+  const recovery = transportResync(10.75, 11.5, 10, 0.125, true, songOrigin - nextStep);
+  assert.equal(recovery.skip, -4, 'a landed handoff cannot rewind into the outgoing song');
+  assert.equal(nextStep + recovery.skip, songOrigin);
+  close(recovery.nextTime, 10.25);
+  assert.equal(recovery.discard, true);
+  const ordinary = transportResync(10.75, 11.5, 10, 0.125, true, -nextStep);
+  assert.equal(ordinary.skip, -5, 'lookahead within the current song can still rewind');
+  const long = transportResync(-3.5, 11.5, 10, 0.125, true, songOrigin - nextStep);
+  assert.equal(long.skip, 109, 'the origin bound does not change long-stall forward skips');
+}
 
 console.log('room transport alignment passed');
 

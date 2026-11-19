@@ -22,7 +22,7 @@ import { openLibrary } from './library.js';
 import { dropCard, pushOffer, guardPushOffer } from './drop.js';
 import { initPush, onPushChange, recordDropPlay, shouldOffer } from './push.js';
 import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
-import { roomTransportPosition, transportResync } from './room-sync.js';
+import { roomTransportPosition, syncAudioClock, transportResync } from './room-sync.js';
 import { concertPanel, concertBar, preloadScore, scoreReady, loadPiano } from './concert.js';
 import { liveSets, loadSets, setsReady } from './livekit.js';
 import { closePractice } from './practice-ui.js';
@@ -133,7 +133,7 @@ function ensureAudio() {
   try {
     ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: matchMedia('(pointer: coarse)').matches ? 'playback' : 'balanced' });
   } catch (err) { reportError(err, { kind: 'audio_context' }); throw err; }
-  engine = new Engine(ctx, state, { vocal: vocalStem });
+  engine = new Engine(ctx, state, { vocal: vocalStem, trackQueuedNotes: true });
   if (isIOS() && ctx.createMediaStreamDestination) {
     mediaRoute = ctx.createMediaStreamDestination();
     try { engine.out.disconnect(ctx.destination); } catch {
@@ -167,14 +167,27 @@ let songOver = false;
 function schedule(lead) {
   if (!playing || songOver) return;
   const ahead = typeof lead === 'number' ? lead : document.hidden ? BG_LEAD : 0.12;
-  const offset = Date.now() / 1000 - ctx.currentTime;
-  clockOffset = clockOffset === null ? offset : clockOffset + (offset - clockOffset) * 0.05;
+  const now = ctx.currentTime;
+  const clock = syncAudioClock(clockOffset, Date.now() / 1000 - now);
+  clockOffset = clock.offset;
   let base = 60 / state.bpm / 4, landed = null;
   const target = transportOrigin / 1000 + abs * base - clockOffset;
-  const fix = transportResync(target, nextTime, ctx.currentTime, base);
+  const fix = transportResync(target, nextTime, now, base, clock.jumped, seq.origin - abs);
   if (fix) {
+    if (fix.discard) {
+      engine.discardQueuedNotes(now);
+      uiQueue.length = 0;
+      seq.acidPrevSlide = false;
+      if (handoff) { engine.handoffCancel(); handoff.out = false; }
+    }
+    if (fix.skip < 0) {
+      abs += fix.skip;
+      seq.rewind(abs, now);
+    }
     for (let i = 0; i < fix.skip; i++, abs++) { artistTick(abs - seq.origin); seq.advanceBar(abs - seq.origin, ctx.currentTime); }
     nextTime = fix.nextTime;
+    const step = (abs - seq.origin) % 16;
+    if (fix.discard && step) engine.vocal(nextTime, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, step);
   }
   // Landing redraws the whole UI for the new song, so schedule further ahead first to ride out that frame.
   while (nextTime < ctx.currentTime + (landed ? Math.max(ahead, 0.5) : ahead)) {
@@ -289,7 +302,7 @@ function needsTuning() {
   return setsReady(names) ? null : { load: () => loadSets(names), wait: 8000, label: 'SEATING THE BAND' };
 }
 function play(opts = {}) {
-  const need = playing || opts.delay != null ? null : needsTuning();
+  const need = playing || opts.delay != null || opts.startsAt != null ? null : needsTuning();
   if (!need) return start(opts);
   ensureAudio(); stopPreview();
   clearTimeout(tuning?.timer);
@@ -307,13 +320,15 @@ function endTuning() {
   document.body.classList.remove('tuning');
 }
 
-function start({ step = 0, delay = 0.06 } = {}) {
+function start({ step = 0, delay = 0.06, startsAt = null } = {}) {
   const seeking = playing;
   clearPaused();
   roomResume = null;
   stopPreview();
   closePractice();
   ensureAudio();
+  const wallNow = Date.now(), audioNow = ctx.currentTime;
+  if (startsAt !== null) ({ step, delay } = roomTransportPosition(startsAt, state.bpm, wallNow));
   uiQueue.length = 0;
   abs = Math.max(0, Math.floor(step));
   const bar = Math.floor(abs / 16);
@@ -326,9 +341,9 @@ function start({ step = 0, delay = 0.06 } = {}) {
   seq.origin = 0;
   if (handoff) { handoff = null; engine.handoffCancel(); }
   state.current = seq.cur;
-  nextTime = ctx.currentTime + Math.max(0.01, delay);
+  nextTime = audioNow + Math.max(0.01, delay);
   clockOffset = null;
-  transportOrigin = Date.now() + Math.max(0.01, delay) * 1000 - abs * (15000 / state.bpm);
+  transportOrigin = startsAt ?? (wallNow + Math.max(0.01, delay) * 1000 - abs * (15000 / state.bpm));
   if (!seeking) engine.recLock = new Map();
   playing = true;
   if (pat().score) preloadScore(pat().score);
@@ -851,8 +866,7 @@ function joinRoomSet(item) {
   const startsAt = Number.isFinite(+item.startsAt) ? +item.startsAt : Date.now();
   replaceState(roomState);
   const sync = () => {
-    const { step, delay } = roomTransportPosition(startsAt, roomState.bpm);
-    play({ step, delay });
+    play({ startsAt });
     roomResume = () => joinRoomSet(item);
     syncNowPlaying();
     toast(`Synced to “${item.title || 'Live Machine Set'}”`);
@@ -865,9 +879,7 @@ function joinRoomSet(item) {
 function startRoomBroadcast(startsAt) {
   if (playing) return;
   clearTimeout(roomJoinTimer);
-  const wait = Math.max(0, startsAt - Date.now());
-  const lead = Math.min(60, wait);
-  roomJoinTimer = setTimeout(() => play({ delay: lead / 1000 }), Math.max(0, wait - lead));
+  roomJoinTimer = setTimeout(() => play({ startsAt }), Math.max(0, startsAt - Date.now() - 60));
 }
 
 function showClub({ room = '', intent = '' } = {}) {
