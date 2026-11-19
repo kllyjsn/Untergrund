@@ -36,7 +36,7 @@ import { flagshipShelf } from './flagship.js';
 import { describeBar, syncLyrics } from './describe-ui.js';
 import { vocalStem } from './sing.js';
 import { songState } from './song-spec.js';
-import { fetchPublicTrack } from './account.js';
+import { fetchReleaseTrack } from './account.js';
 import { openShare, openSharedLanding, countRemix, track } from './share.js';
 import { readShareParams, decodeSong, normalizeSong, remixState } from './share-code.js';
 import { dailyDrop, dropSong, isDropDate } from './daily.js';
@@ -1434,13 +1434,12 @@ async function openRecent(t) {
 async function openShared(id, autoplay = false) {
   if (autoplay) ensureAudio();
   try {
-    const pub = await fetchPublicTrack(id);
-    const track = pub?.track || await fetchTrack(id);
+    const track = await fetchReleaseTrack(id);
     if (!track?.state) throw new Error('track_missing');
     if (STYLES[track.style]) { style = track.style; family = STYLES[track.style].family; }
     if (playing) stop();
     const next = refreshSong(sanitize(track.state));
-    next.artist = { ...(next.artist || {}), title: track.title, name: pub?.artist?.name || track.artist || next.artist?.name, style: track.style };
+    next.artist = { ...(next.artist || {}), title: track.title, name: track.artist || next.artist?.name, style: track.style };
     songOrigin = { src: 'shared', tid: track.id || id };
     replaceState(next);
     if (autoplay) play(); else toast(`Loaded “${track.title}”. Press play.`);
@@ -2503,17 +2502,17 @@ onPushChange(() => { if (dropOpen && !playing) renderHome(); });
 navigator.serviceWorker?.addEventListener('message', (e) => { if (e.data?.type === 'untergrund:open') openDropLink(new URL(e.data.url, location.href).searchParams); });
 const shared = readShareParams(location);
 if (shared) setTimeout(() => {
-  const load = shared.code ? decodeSong(shared.code)
-    : fetch(`/api/tracks?id=${encodeURIComponent(shared.id)}`).then((r) => (r.ok ? r.json().then((j) => j.track) : Promise.reject()))
-      .catch(() => fetchTrack(shared.id)).then((t) => t?.state && { ...normalizeSong({ ...t, remixOf: t.remixOf }), trackId: t.id, remixes: t.remixes || 0, children: t.children || [] }).catch(() => null);
   // "Remix this track" from a release page goes straight into a credited remix.
   // An account's release can outlive its crate copy, so the public record is tried first, as the release page does.
   if (shared.id && new URLSearchParams(location.search).has('remix')) {
-    fetchPublicTrack(shared.id)
-      .then((pub) => (pub?.track?.state ? { ...normalizeSong({ ...pub.track, artist: pub.artist?.name || pub.track.artist }), trackId: pub.track.id } : load))
+    fetchReleaseTrack(shared.id)
+      .then((t) => t?.state && { ...normalizeSong(t), trackId: t.id })
       .then((song) => (song ? remixSong(song, false) : toast('Could not open that song')), () => toast('Could not open that song'));
     return;
   }
+  const load = shared.code ? decodeSong(shared.code)
+    : fetch(`/api/tracks?id=${encodeURIComponent(shared.id)}`).then((r) => (r.ok ? r.json().then((j) => j.track) : Promise.reject()))
+      .catch(() => fetchReleaseTrack(shared.id)).then((t) => t?.state && { ...normalizeSong(t), trackId: t.id, remixes: t.remixes || 0, children: t.children || [] }).catch(() => null);
   openLanding(load, 'shared', shared.ref);
 });
 else if (new URLSearchParams(location.search).has('drop')) setTimeout(() => openDropLink(new URLSearchParams(location.search)));
