@@ -159,7 +159,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     e.vocal(4.97, 2, 0, 4.97);
     assert.equal(starts.length, count + 1, 'small room clock updates keep the existing source');
     e.vocal(7.05, 3, 0, 7.05);
-    assert.equal(starts.length, count + 2, 'a moved room grid re-anchors the running stem');
+    assert.equal(starts.length, count + 1, 'a routine grid correction does not retrigger a continuous stem');
+    c.currentTime = 7.1;
+    e.discardQueuedNotes(c.currentTime);
+    e.vocal(7.1, 3, 0, 7.05);
+    assert.equal(starts.length, count + 2, 'a cleared clock jump starts a new stem on the corrected grid');
+    assert.ok(Math.abs(starts.at(-1)[1] - 5.805) < 1e-9);
     e.vocal(3, 20, 5);
     assert.equal(e.vocalNow, null, 'an exhausted stem stays silent');
     e.vocalOf = () => null;
