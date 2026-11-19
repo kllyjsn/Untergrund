@@ -151,6 +151,7 @@ const SOUL_STRIP = { ...BAND_STRIP, stab: { eq: [[140, -2], [250, -7, 0.9], [260
 // side gain above 300 Hz. Set from the measured octave balance against js/audio-quality.js TARGET_CURVES: the band
 // genres came out 6-13 dB heavy at 250 Hz and 7-12 dB short of 2-8 kHz, with an L/R correlation of 0.76-0.89.
 export const MASTER_TONE = {
+  hardtechno: [0, -1, 3.75, -0.5, 0.12],
   pop: [-1.5, -9, 4.5, 1.5, 0.6], rnb: [0, -7, 6.5, 2.5, 0.6], rock: [-4, -5, 4.5, 3, 0.6],
   folk: [3, -3, 0.5, 4, 0.5], country: [2, -3, 2.5, 4, 0.6],
 };
@@ -229,6 +230,7 @@ function metallicBuf(mul, sr) {
 }
 
 export class Engine {
+  get hardTechno() { return this.state.artist?.style === 'hardtechno'; }
   constructor(ctx, state, { realtime = true, vocal = null, trackQueuedNotes = false } = {}) {
     this.ctx = ctx;
     this.state = state;
@@ -458,12 +460,22 @@ export class Engine {
     // Per-genre (and per-masterwork) make-up gain into the limiter so every song lands on its loudness target (js/loudness.js).
     const piece = this.state.patterns?.find((p) => p.score?.piece)?.score.piece;
     this.setTo(this.limIn.gain, 0.5 * makeupGain(this.state.artist?.style, piece), true);
+    this.setTo(this.glue.threshold, this.hardTechno ? -8 : -14, true);
+    this.setTo(this.glue.ratio, this.hardTechno ? 1.3 : 2.5, true);
+    this.setTo(this.glue.attack, this.hardTechno ? 0.035 : 0.015, true);
+    this.setTo(this.limiter.threshold, this.hardTechno ? -3 : -6, true);
+    this.setTo(this.limiter.knee, this.hardTechno ? 1 : 3, true);
+    this.setTo(this.limTrim.gain, (this.hardTechno ? 1 : LIM_TRIM) / CLIP_HEADROOM, true);
+    this.setTo(this.out.gain, this.hardTechno ? 0.98 : OUT_TRIM, true);
     this.applyTone();
     this.applyStrips();
   }
 
   // The genre's mastering EQ and stereo width; the width lifts only the side above 300 Hz, so the mono fold-down is unchanged.
   applyTone() {
+    this.tonePres.type = this.hardTechno ? 'peaking' : 'highshelf';
+    this.tonePres.frequency.value = this.hardTechno ? 3200 : 2400;
+    this.tonePres.Q.value = this.hardTechno ? 0.8 : 0.7;
     const [low, mud, pres, air, width] = MASTER_TONE[this.state.artist?.style] || [0, 0, 0, 0, 0];
     this.setTo(this.toneLow.gain, low, true); this.setTo(this.toneMud.gain, mud, true);
     this.setTo(this.tonePres.gain, pres, true); this.setTo(this.toneAir.gain, air, true);
@@ -896,6 +908,7 @@ export class Engine {
     const o = c.createOscillator();
     const g = this.gain(0);
     const sh = c.createWaveShaper(); sh.curve = driveCurve(p.drive * 0.6, 0.92);
+    if (this.hardTechno) sh.oversample = '4x';
     const start = f * (3 + p.punch * 9);
     o.frequency.setValueAtTime(start, t);
     o.frequency.exponentialRampToValueAtTime(f * 1.6, t + 0.006 + 0.014 * (1 - p.punch));
@@ -905,15 +918,18 @@ export class Engine {
     g.gain.linearRampToValueAtTime(v, t + 0.0012);
     g.gain.exponentialRampToValueAtTime(v * 0.62, t + dec * 0.32);
     g.gain.exponentialRampToValueAtTime(EPS, t + dec);
-    o.connect(g).connect(sh).connect(out);
+    o.connect(g).connect(sh);
+    if (this.hardTechno) sh.connect(this.filter('lowpass', 4800, 0.6)).connect(out);
+    else sh.connect(out);
     this.startSource(o, t); o.stop(t + dec + 0.08);
     this.retire(o, sh);
 
     if (p.click > 0.01) {
       const n = this.noiseSrc(t, 0.03);
-      const bp = this.filter('bandpass', 3200, 0.6);
+      const bp = this.filter('bandpass', this.hardTechno ? 2200 : 3200, 0.6);
       const cg = this.gain(0);
-      cg.gain.setValueAtTime(p.click * v * 2.4, t);
+      cg.gain.setValueAtTime(this.hardTechno ? EPS : p.click * v * 2.4, t);
+      if (this.hardTechno) cg.gain.linearRampToValueAtTime(p.click * v * 1.6, t + 0.002);
       cg.gain.exponentialRampToValueAtTime(EPS, t + 0.014);
       n.connect(bp).connect(cg).connect(out);
     }
@@ -933,10 +949,12 @@ export class Engine {
     const g = this.gain(0), k = 3.4;
     g.gain.setValueAtTime(EPS * k, t);
     for (let i = 0; i < offs.length - 1; i++) {
-      g.gain.setValueAtTime(v * k, t + offs[i]);
+      if (!this.hardTechno) g.gain.setValueAtTime(v * k, t + offs[i]);
+      if (this.hardTechno) g.gain.linearRampToValueAtTime(v * k, t + offs[i] + 0.002);
       g.gain.exponentialRampToValueAtTime(v * 0.08 * k, t + offs[i] + 0.0095 * sp);
     }
-    g.gain.setValueAtTime(v * k, t + last);
+    if (!this.hardTechno) g.gain.setValueAtTime(v * k, t + last);
+    if (this.hardTechno) g.gain.linearRampToValueAtTime(v * k, t + last + 0.002);
     g.gain.exponentialRampToValueAtTime(EPS * k, t + last + p.decay);
     n.connect(bp).connect(hp).connect(g).connect(out);
     this.retire(n, g);
@@ -1064,7 +1082,9 @@ export class Engine {
     n.connect(this.gain((0.55 + (1 - soft) * 0.35) / ring)).connect(bp);
     const env = this.gain(0);
     this.adEnv(env.gain, t, v * 3.4, 0.0008, dur, ring);
-    bp.connect(hp).connect(env);
+    bp.connect(hp);
+    if (this.hardTechno) hp.connect(this.filter('lowpass', 10000, 0.6)).connect(env);
+    else hp.connect(env);
     for (const o of oscs) o.stop(t + dur + 0.05);
     if (open) {
       const choke = this.gain(1);
@@ -1178,8 +1198,8 @@ export class Engine {
     env.connect(lp.detune);
     const peak = (v * 0.55) / Math.sqrt(iv.length);
     amp.gain.setValueAtTime(EPS, t);
-    amp.gain.linearRampToValueAtTime(peak, t + 0.003);
-    amp.gain.setTargetAtTime(0, t + 0.012, Math.max(0.02, p.decay * 0.5));
+    amp.gain.linearRampToValueAtTime(peak, t + (this.hardTechno ? 0.018 : 0.003));
+    amp.gain.setTargetAtTime(0, t + (this.hardTechno ? 0.04 : 0.012), Math.max(0.02, p.decay * 0.5));
     const end = t + p.decay * 4 + 0.2, pans = this.sidePans([-0.55, 0.55], lp);
     for (const n of iv) {
       for (const side of [-1, 1]) {
@@ -1784,7 +1804,8 @@ export class Engine {
       if (R.grip) this.leadOver(m, t, ring, R);
       return this.recordedNote(set, t, g, m, ring, dest, 0, kind, v / 1.3);
     }
-    const f = midiHz(60 + k + oct * 12 + n), L = leadPreset(voice, pocketOf(this.state.master)?.name);
+    const f = midiHz(60 + k + oct * 12 + n), preset = leadPreset(voice, pocketOf(this.state.master)?.name);
+    const L = this.hardTechno ? { ...preset, cut: 380, env: 500, spread: 10, atk: 0.18, sus: 0.45, rel: 0.6, level: 0.12, bite: 0, air: 0.2 } : preset;
     const hdb = this.soulBand() ? 0 : HOOK_TRIM_DB[voice] || 0;
     const out = this.trimOut(`hook-${voice}`, hdb, this.hookBus || this.ch.stab.input, voice === 'softmallet' ? 4 : HOOK_LOW_DB);
     const len = Math.max(0.06, dur * 0.92), end = t + len + 0.6, vn = Math.min(1, v / 1.3);
@@ -2029,7 +2050,10 @@ export class Engine {
       o.connect(g).connect(type === 'sine' ? amp : lp);
       this.startSource(o, t); o.stop(end);
     }
-    lp.connect(sh).connect(amp).connect(this.ch.acid.input);
+    lp.connect(sh);
+    if (this.hardTechno) { sh.oversample = '4x'; sh.connect(this.filter('lowpass', 2400, 0.6)).connect(amp); }
+    else sh.connect(amp);
+    amp.connect(this.ch.acid.input);
     this.mono = { amp, f, end };
   }
 
@@ -2108,8 +2132,53 @@ export class Engine {
   acidRelease(t) { this.acidNodes.vca.gain.setTargetAtTime(0, t, 0.008); this.subVoice?.amp.gain.setTargetAtTime(0, t, 0.01); if (this.mono) { this.mono.amp.gain.setTargetAtTime(0, t, 0.01); this.mono = null; } }
 
   // ---------- arrangement FX ----------
+  tonalSweep(t, dur, amt, down = false) {
+    const c = this.ctx, lp = this.filter('lowpass', down ? 2600 : 350, 0.9), g = this.gain(0);
+    lp.frequency.setValueAtTime(down ? 2600 : 350, t);
+    lp.frequency.exponentialRampToValueAtTime(down ? 180 : 3200, t + dur);
+    g.gain.setValueAtTime(EPS, t);
+    g.gain.linearRampToValueAtTime(0.045 * amt, t + dur * (down ? 0.08 : 0.75));
+    g.gain.linearRampToValueAtTime(EPS, t + dur);
+    let s;
+    for (const detune of [-8, 8]) {
+      const o = c.createOscillator(); o.type = 'sawtooth'; o.detune.value = detune;
+      o.frequency.setValueAtTime(down ? 140 : 45, t);
+      o.frequency.exponentialRampToValueAtTime(down ? 35 : 180, t + dur);
+      o.connect(lp); this.startSource(o, t); o.stop(t + dur + 0.1); s = o;
+    }
+    lp.connect(g); g.connect(this.mix); g.connect(this.revIn);
+    return { s, g };
+  }
+
+  hardSection(t, cur, pos, len, next) {
+    if (!this.hardTechno) return;
+    const dur = this.stepDur * 16;
+    const profile = (scene, at = 1) => {
+      const build = scene === 5, brk = scene === 4 || build;
+      const lift = build ? at : 0;
+      return { kick: brk ? 0.6 + 0.4 * lift : 1, acid: brk ? 0.6 + 0.4 * lift : 1,
+        ch: brk ? 0.8 + 0.2 * lift : 1, oh: brk ? 0.8 + 0.2 * lift : 1,
+        perc: brk ? 0.45 + 0.55 * lift : 1, clap: brk ? 0.4 + 0.6 * lift : 1,
+        snare: brk ? 0.4 + 0.6 * lift : 1, ride: brk ? 0.65 + 0.35 * lift : 1,
+        stab: 1, vox: 1, db: brk ? -0.75 * (1 - lift) : scene === 0 || scene === 1 ? -3 : 0 };
+    };
+    const target = pos === len - 1 && next !== cur && next != null ? profile(next, 0) : profile(cur, (pos + 1) / len);
+    const prev = this.hardLevels || profile(cur, 0);
+    for (const id of TRACK_IDS) {
+      const p = this.ch[id].level.gain, level = this.state.params[id].level;
+      p.setValueAtTime(level * (prev[id] ?? 1), t);
+      p.linearRampToValueAtTime(level * (target[id] ?? 1), t + dur);
+    }
+    this.secGain.gain.setValueAtTime(10 ** (prev.db / 20), t);
+    this.secGain.gain.linearRampToValueAtTime(10 ** (target.db / 20), t + dur);
+    this.hardLevels = target;
+    if (cur === 5 && pos === 0) this.tonalSweep(t, dur * len, 0.8);
+    if (cur === 4 && pos === 0) this.tonalSweep(t, dur * 2, 0.4, true);
+  }
+
   // One-bar noise sweep into a drop, then a sub boom and crash on its downbeat
   sweep(t, dur, amt) {
+    if (this.hardTechno) return this.tonalSweep(t, dur, amt);
     const s = this.noiseSrc(t, dur + 0.05), bp = this.filter('bandpass', 500, 2), g = this.gain(0);
     bp.frequency.setValueAtTime(500, t); bp.frequency.exponentialRampToValueAtTime(8000, t + dur);
     g.gain.setValueAtTime(EPS, t); g.gain.exponentialRampToValueAtTime(0.32 * amt, t + dur * 0.97); g.gain.linearRampToValueAtTime(0, t + dur);
@@ -2118,13 +2187,17 @@ export class Engine {
   }
 
   impact(t, amt) {
+    if (this.hardTechno) { this.tonalSweep(t, 16 * this.stepDur, amt * 0.45, true); return; }
     const o = this.ctx.createOscillator(), g = this.gain(0);
     o.frequency.setValueAtTime(110, t); o.frequency.exponentialRampToValueAtTime(38, t + 0.5);
     this.adEnv(g.gain, t, 0.5 * amt, 0.002, 0.9);
     o.connect(g).connect(this.mix); this.startSource(o, t); o.stop(t + 1.2);
     const n = this.noiseSrc(t, 1.6), hp = this.filter('highpass', 3000, 0.5), ng = this.gain(0);
     this.adEnv(ng.gain, t, 0.16 * amt, 0.001, 1.4);
-    n.connect(hp).connect(ng); ng.connect(this.mix); ng.connect(this.revIn);
+    n.connect(hp);
+    if (this.hardTechno) hp.connect(this.filter('lowpass', 7500, 0.6)).connect(this.gain(0.55)).connect(ng);
+    else hp.connect(ng);
+    ng.connect(this.mix); ng.connect(this.revIn);
   }
 
   sectionGain(t, db, ramp = 0) {
@@ -2133,12 +2206,32 @@ export class Engine {
     if (ramp) { g.setValueAtTime(10 ** (ramp[0] / 20), t); g.linearRampToValueAtTime(v, t + ramp[1]); } else g.setTargetAtTime(v, t, 0.012);
   }
 
+  hardFilter(t, targets) {
+    const f = this.arrLP.frequency, points = this.hardFilterRamp || [[f.value, this.ctx.currentTime]];
+    let [value, start] = points[0];
+    for (const [next, end] of points.slice(1)) {
+      if (t < end) { value *= (next / value) ** Math.max(0, (t - start) / (end - start)); break; }
+      value = next; start = end;
+    }
+    if (f.cancelAndHoldAtTime) f.cancelAndHoldAtTime(t);
+    else { f.cancelScheduledValues(t); f.exponentialRampToValueAtTime(value, t); }
+    for (const [v, end] of targets) f.exponentialRampToValueAtTime(v, end);
+    const past = points.filter((p) => p[1] < t);
+    let first = 0;
+    while (first + 1 < past.length && past[first + 1][1] <= this.ctx.currentTime) first++;
+    this.hardFilterRamp = [...past.slice(first), [value, t], ...targets];
+  }
+
   // Breakdowns start dark and open back up over the whole section
   breakSweep(t, dur, smooth) {
     const f = this.arrLP.frequency;
-    f.cancelScheduledValues(t);
-    // A smooth style glides into the dark over a beat instead of cutting to it.
-    if (smooth) { f.setValueAtTime(f.value, t); f.setTargetAtTime(900, t, 0.12); f.setTargetAtTime(18000, t + 0.6, dur / 3); } else { f.setValueAtTime(700, t); f.exponentialRampToValueAtTime(18000, t + dur); }
+    if (this.hardTechno) {
+      this.hardFilter(t, [[10000, t + Math.min(dur * 0.25, 16 * this.stepDur)], [18000, t + dur]]);
+    } else {
+      f.cancelScheduledValues(t);
+      // A smooth style glides into the dark over a beat instead of cutting to it.
+      if (smooth) { f.setValueAtTime(f.value, t); f.setTargetAtTime(900, t, 0.12); f.setTargetAtTime(18000, t + 0.6, dur / 3); } else { f.setValueAtTime(700, t); f.exponentialRampToValueAtTime(18000, t + dur); }
+    }
     this.arrClosed = true;
   }
 
@@ -2152,7 +2245,8 @@ export class Engine {
   breakOpen(t, smooth) {
     if (!this.arrClosed) return;
     const f = this.arrLP.frequency;
-    f.cancelScheduledValues(t); f.setTargetAtTime(21000, t, smooth ? 0.09 : 0.02);
+    if (this.hardTechno) this.hardFilter(t, [[21000, t + 16 * this.stepDur]]);
+    else { f.cancelScheduledValues(t); f.setTargetAtTime(21000, t, smooth ? 0.09 : 0.02); }
     this.arrClosed = false;
   }
 
@@ -2164,6 +2258,7 @@ export class Engine {
     const now = this.ctx.currentTime;
     // Audible within a beat, peaks after 2 bars
     const dur = this.stepDur * 32;
+    if (this.hardTechno) { this.riser = this.tonalSweep(now, dur, 1); return; }
     const s = this.ctx.createBufferSource(); s.buffer = this.noise; s.loop = true;
     const bp = this.filter('bandpass', 400, 2.5);
     const g = this.gain(0);
@@ -2171,7 +2266,7 @@ export class Engine {
     bp.frequency.exponentialRampToValueAtTime(9000, now + dur);
     g.gain.setValueAtTime(0, now);
     g.gain.linearRampToValueAtTime(0.12, now + 0.05);
-    g.gain.linearRampToValueAtTime(0.55, now + dur);
+    g.gain.linearRampToValueAtTime(this.hardTechno ? 0.25 : 0.55, now + dur);
     s.connect(bp).connect(g);
     g.connect(this.mix); g.connect(this.revIn);
     s.start(now);
@@ -2420,6 +2515,10 @@ export class Sequencer {
   // Verses sit under the chorus and a pre-chorus swells up into it; bars without a section role
   // (intro, fills, outro) hold the level. Songs without sections stay at unity.
   sectionLevel(t) {
+    if (this.s.artist?.style === 'hardtechno') {
+      this.e.hardSection?.(t, this.cur, this.runPos, this.runLen, this.chainArr[this.chainPos]);
+      return;
+    }
     const pats = this.s.patterns, sec = pats[this.cur]?.sec;
     if (!sec) return this.level(t, pats.some((p) => p.sec) ? this.secDb ?? 0 : 0);
     const db = { ...SECTION_DB, ...STYLE_SECTION_DB[this.s.artist?.style] };
@@ -2460,8 +2559,15 @@ export class Sequencer {
     const arr = s.master.arr || 0, i16 = abs % 16;
     const sung = pat.hook?.m && !pat.hook.h ? this.sungBar(bar, n ? pos : bar) : null;
     const hookStep = sung ? this.songBars && !sung.hook.m.c && sung.notes.some((o) => o.at === i16 && i16 % 8) : pat.hook && pat.hm ? pat.hook.s[abs % 32] : 0;
+    const hard = s.artist?.style === 'hardtechno';
+    if (hard && this.cur === 5 && this.runLen > 0) {
+      const drum = (s.artist.seed || 0) % 2 ? 'clap' : 'snare';
+      const progress = (this.runPos + i16 / 16) / this.runLen;
+      const every = progress > 0.8 ? 1 : progress > 0.5 ? 2 : 4;
+      if (i16 % every === 0 && !s.mutes[drum]) e.trigger(drum, tt, 0.1 + 0.35 * progress);
+    }
     this.smooth = SMOOTH.has(s.artist?.style);
-    if (this.dropNext && this.smooth) { if (i16 === 0) e.dropDip(t, 16 * sd); } else if (this.dropNext) {
+    if (this.dropNext && this.smooth) { if (i16 === 0) e.dropDip(t, 16 * sd); } else if (this.dropNext && !hard) {
       if (i16 === 0) e.sweep(t, 16 * sd, arr);
       if (i16 >= 8 && !s.mutes.snare) {
         const rv = (0.25 + (0.6 * (i16 - 8)) / 7) * arr;
@@ -2527,7 +2633,7 @@ export class Sequencer {
       // Accompaniment listens to the lead. Do not stack a chord stab on top of
       // the hook's important notes; the gap makes the motif read as intentional.
       if (id === 'stab' && hookStep) continue;
-      if (this.dropNext && id === 'kick' && i16 >= (this.smooth ? 15 : arr >= 0.75 ? 12 : 14)) continue;
+      if (!hard && this.dropNext && id === 'kick' && i16 >= (this.smooth ? 15 : arr >= 0.75 ? 12 : 14)) continue;
       if (this.dropNext && id === 'snare' && arr > 0 && i16 >= 8 && !this.smooth) continue;
       let v = pat.steps[id][i];
       if (vary) {
@@ -2632,6 +2738,7 @@ export class Sequencer {
   // Parts that listen to the lead. In grooves and peaks the bass answers the hook's rests with an off-beat octave,
   // or a walk into the next chord; breakdowns get a quiet guide-tone line (3rds and 7ths) under the B-phrase.
   interplay(pat, hk, abs, bar, t, sd, busy, anySolo, leadStarts) {
+    if (this.s.artist?.style === 'hardtechno') return;
     const s = this.s, e = this.e, i16 = abs % 16, len = pat.len.acid || 16, a = pat.steps.acid;
     if ((this.cur === 2 || this.cur === 6) && (i16 === 6 || i16 === 14) && !busy && !a[abs % len]?.on &&
         !s.mutes.acid && (!anySolo || s.solos.acid) && a.some((x) => x?.on) && hash(bar * 2 + (i16 > 8), 96) < 0.6) {

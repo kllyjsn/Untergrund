@@ -136,5 +136,7 @@ export async function builderWindow(style, seed = WINDOW.seed, bars = 4) {
     const ch = [buf.getChannelData(0), buf.getChannelData(1)];
     return { lufs: loudness(ch, buf.sampleRate).integrated, tp: 20 * Math.log10(truePeak(ch)) };
   };
-  return { style, seed, gen: await one(song(style, seed)), builder: await one(builderSong(style, seed)) };
+  const gen = song(style, seed), builder = builderSong(style, seed);
+  if (style === 'hardtechno') gen.bpm = builder.bpm;
+  return { style, seed, gen: await one(gen), builder: await one(builder) };
 }

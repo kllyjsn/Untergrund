@@ -31,10 +31,11 @@
    "window": -9.67
   },
   "hardtechno": {
-   "lufs": -10.07,
-   "spread": 0.03,
-   "tp": -4.18,
-   "window": -9.31
+   "lufs": -13.30,
+   "spread": 0.41,
+   "tp": -1.32,
+   "window": -10.17,
+   "seeds": [11, 42, 1234, 777]
   },
   "deephouse": {
    "lufs": -9.8,
