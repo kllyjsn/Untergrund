@@ -73,7 +73,7 @@ const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
   assert.ok(20 * Math.log10(Math.max(...levels) / Math.min(...levels)) > 0.5,
     'the strike changes playback level as well as tone');
   assert.ok(Math.max(...levels) < 0.85 * 2.5 * 0.9 ** 1.4,
-    'shaped accents never boost the unshaped level');
+    'shaped accents never boost the unshaped attack');
   seen.length = 0;
   for (let t = 20; t < 28; t++) {
     hit('kick', t);
@@ -110,6 +110,18 @@ const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
   assert.ok(light.fx.peaks.at(-1)[2] < -2 && hard.fx.peaks.at(-1)[2] > 2,
     'lighter strokes are darker and harder strokes add crack');
   assert.deepEqual(shape(1, 0.15, 0.65), live, 'the full recorded kit is untouched');
+  assert.equal(backbeat.fx.strokeBody, undefined, 'unshaped hits have no body envelope');
+  const ctx = new FakeContext(2, 48000, 48000);
+  const player = { ctx, gain: Engine.prototype.gain, startSource: Engine.prototype.startSource };
+  const sample = new AudioBuffer(1, 12000, 48000);
+  const envelope = ({ dur, fx }) => Engine.prototype.playBuf.call(
+    player, sample, 1, 0.7, ctx.destination, 1, dur, { strokeBody: fx.strokeBody },
+  ).g.gain;
+  const quiet = envelope(light), full = envelope(hard), clipped = envelope(shape(KIT_BACKBEAT, 0.08, 0.65));
+  assert.equal(full.at(1.04), quiet.at(1.04), 'the body envelope starts after the attack');
+  assert.ok(full.at(1.072) > 0.7 && quiet.at(1.072) < 0.7, 'the body follows the strength of the strike');
+  assert.equal(full.at(1.12), quiet.at(1.12), 'both strokes return to the same damping level');
+  assert.equal(clipped.at(1.072), 0.7, 'short user-selected decays skip the body envelope');
 }
 const song = new Map();
 assert.equal(setsReady(['gtr']), false);
