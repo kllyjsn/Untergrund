@@ -523,13 +523,13 @@ export class Engine {
     if (!mode && this.smoothOn) this.smoothChords(this.smoothOn, at);
   }
 
-  // A smooth style shelves its chords by db: a cut below 400 Hz under the bass; when it drops out, wetter sends and a 2.5 kHz dip under the raised voicing.
+  // A smooth style shelves its chords by db: a cut below 400 Hz under the bass, a soft top above 1.8 kHz; when the bass drops out, wetter sends and a 2.5 kHz dip under the raised voicing.
   smoothChords(db, at = 0) {
     this.smoothOn = db;
     if (this.stripMode) return;
-    const [shelf, , bell] = this.ch.stab.strip, t = Math.max(at, this.ctx.currentTime);
+    const [shelf, , bell, top] = this.ch.stab.strip, t = Math.max(at, this.ctx.currentTime);
     const { rev, dly, level } = this.ch.stab, ps = this.state.params.stab, up = db > 0 ? 10 ** (db / 20) : 1, wet = db > 0 ? 1.6 : 1;
-    for (const [prm, v] of [[shelf.frequency, db < 0 ? 400 : 120], [shelf.gain, Math.min(db, 0)], [bell.frequency, 2500], [bell.Q, 1], [bell.gain, db > 0 ? -9 : 0], [level.gain, ps.level * up], [rev.gain, ps.rev * wet], [dly.gain, ps.dly * wet]]) {
+    for (const [prm, v] of [[shelf.frequency, db < 0 ? 400 : 120], [shelf.gain, Math.min(db, 0)], [bell.frequency, 2500], [bell.Q, 1], [bell.gain, db > 0 ? -9 : 0], [top.frequency, db ? 1800 : 9000], [top.gain, db ? -12 : 0], [level.gain, ps.level * up], [rev.gain, ps.rev * wet], [dly.gain, ps.dly * wet]]) {
       prm.cancelScheduledValues(t);
       prm.setTargetAtTime(v, t, 0.12);
     }
