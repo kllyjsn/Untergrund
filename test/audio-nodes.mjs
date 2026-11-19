@@ -152,6 +152,14 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const count = starts.length;
     e.vocal(2.975, 2);
     assert.equal(starts.length, count, 'the next boundary keeps the resumed source playing');
+    c.currentTime = 3.5;
+    e.vocal(3.49, 1, 4, 3.45);
+    assert.ok(Math.abs(starts.at(-1)[0] - 3.505) < 1e-9);
+    assert.ok(Math.abs(starts.at(-1)[1] - 2.305) < 1e-9, 'a late room stem starts at the current grid phase');
+    e.vocal(4.97, 2, 0, 4.97);
+    assert.equal(starts.length, count + 1, 'small room clock updates keep the existing source');
+    e.vocal(7.05, 3, 0, 7.05);
+    assert.equal(starts.length, count + 2, 'a moved room grid re-anchors the running stem');
     e.vocal(3, 20, 5);
     assert.equal(e.vocalNow, null, 'an exhausted stem stays silent');
     e.vocalOf = () => null;

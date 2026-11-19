@@ -191,7 +191,8 @@ function schedule(lead) {
     for (let i = 0; i < fix.skip; i++, abs++) { artistTick(abs - seq.origin); seq.advanceBar(abs - seq.origin, ctx.currentTime); }
     nextTime = fix.nextTime;
     const step = (abs - seq.origin) % 16;
-    if (fix.discard && step) engine.vocal(firstTime ?? nextTime, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, step);
+    if (fix.discard && step)
+      engine.vocal(firstTime ?? nextTime, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, step, roomPlayback ? nextTime : undefined);
   }
   // Landing redraws the whole UI for the new song, so schedule further ahead first to ride out that frame.
   while (nextTime < ctx.currentTime + (landed ? Math.max(ahead, 0.5) : ahead)) {
@@ -208,7 +209,7 @@ function schedule(lead) {
     }
     if (jamQueue.length && (abs - seq.origin) % 16 === 0) landJamParts((nextTime + clockOffset) * 1000 + base * 500, t);
     artistTick(abs - seq.origin);
-    const pat = seq.tick(abs, t);
+    const pat = seq.tick(abs, t, roomPlayback ? nextTime : undefined);
     uiQueue.push({ abs: abs - seq.origin, t, pat });
     // A score breathes (rubato): the transport clock follows the stretched step, not the metronome.
     const sd = engine.stepDur;

@@ -2231,26 +2231,31 @@ export class Engine {
     }
   }
 
-  // The sung vocal stem: bar `pos` of the song starts at t. It keeps playing across consecutive bars and restarts only when
-  // playback jumps (loop, seek, tempo change); sample 0 of the stem is the song's first downbeat, shifted by the trim.
-  vocal(t, pos, step = 0) {
+  // The stem keeps playing across bars unless playback jumps. For rooms, gridTime can
+  // precede t after wake: the skipped audio must advance the source offset, not move the stem.
+  vocal(t, pos, step = 0, gridTime) {
     const v = pos >= 0 ? this.vocalOf?.(this.state) : null, cur = this.vocalNow;
-    if (cur && v && cur.buf === v.buf && cur.next === pos && cur.sd === this.stepDur && cur.ms === v.ms) {
+    const phase = v ? (pos * 16 + step) * this.stepDur - v.ms / 1000 : 0;
+    const origin = (gridTime ?? t) - phase;
+    if (cur && v && cur.buf === v.buf && cur.next === pos && cur.sd === this.stepDur && cur.ms === v.ms &&
+        (gridTime == null || Math.abs(origin - cur.origin) <= 0.03)) {
       cur.next = pos + 1;
       this.vocalBus.gain.setTargetAtTime(v.gain, t, 0.02);
       return;
     }
     this.vocalStop(t);
-    const off = v ? (pos * 16 + step) * this.stepDur - v.ms / 1000 : 0;
-    if (!v || off >= v.buf.duration) return;
+    if (!v || phase >= v.buf.duration) return;
     this.vocalSends(v.fx);
     const src = this.ctx.createBufferSource(), g = this.ctx.createGain();
     src.buffer = processedStem(v.buf, v.fx, this.ctx);
+    if (gridTime != null) t = Math.max(t, this.ctx.currentTime + 0.005);
+    const off = gridTime == null ? phase : t - origin;
+    if (off >= v.buf.duration) return;
     if (off > 0.001) { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + 0.012); }
     src.connect(g).connect(this.vocalBus);
     this.vocalBus.gain.setValueAtTime(v.gain, t);
     if (off < 0) this.startSource(src, t - off); else this.startSource(src, t, off);
-    this.vocalNow = { src, g, buf: v.buf, next: pos + 1, sd: this.stepDur, ms: v.ms };
+    this.vocalNow = { src, g, buf: v.buf, next: pos + 1, sd: this.stepDur, ms: v.ms, origin };
     if (v.duck < 1) this.duckUnder(v.buf, this.bandDuck.gain, v.duck, t, t - off);
     if (v.lift < 1) this.duckUnder(v.buf, this.singTrim.gain, v.lift, t, t - off);
     // hookCarve: the exported hook stem's copy of the CHORDS channel (js/stems.js).
@@ -2429,13 +2434,13 @@ export class Sequencer {
     this.e.sectionGain(t, db, ramp);
   }
 
-  tick(abs, t) {
+  tick(abs, t, roomGridTime) {
     abs -= this.origin || 0;
     const s = this.s, e = this.e;
     this.advanceBar(abs, t);
     if (this.finished && this.songBars) return this.cur;
     const n = this.songBars || 0, pos = n ? (this.chainPos - 1) % n : -1, lf = this.liftFrom;
-    if (abs % 16 === 0) e.vocal(t, pos);
+    if (abs % 16 === 0) e.vocal(t, pos, 0, roomGridTime);
     const pat = patternAt(s.patterns[this.cur], pos);
     const bar = Math.floor(abs / 16), vary = s.master.vary || 0;
     e.harm = pat.prog?.length ? pat.prog[bar % pat.prog.length] : null;
