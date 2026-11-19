@@ -2318,7 +2318,7 @@ export class Engine {
     const decay = Math.max(0.05, len * 0.45), prev = this.mono;
     if (sliding && prev?.eight08 && prev.end > t) {
       // Keep oscillator phase and the envelope's current level through the slide.
-      const drill = this.state.artist?.style === 'drill' && f !== prev.f;
+      const drill = (this.replay808Style ?? this.state.artist?.style) === 'drill' && f !== prev.f;
       prev.eight08.forEach((x, i) => {
         const flick = drill && i === 1;
         // The delayed octave catches up to the unchanged sub: delay + time constant stays the same.

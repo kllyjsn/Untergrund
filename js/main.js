@@ -4,7 +4,7 @@ import { assign as assignExperiment } from './experiments.js';
 import { createListens, songFingerprint, promptHash, promptText } from './listen.js';
 import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue, VOICE_HIDDEN } from './params.js';
 import { Engine, Sequencer, parseChain } from './engine.js';
-import { defaultState, generate, mutate, arrangement, songChain, applySongPlan, applyOverrides, clone, save, load, sanitize, STYLES, MAJOR_STYLES, emptyPattern, emptyAcidStep, fitLyrics, refreshSong, withPlaybackStyle } from './state.js';
+import { defaultState, generate, mutate, arrangement, songChain, applySongPlan, applyOverrides, clone, save, load, sanitize, STYLES, MAJOR_STYLES, emptyPattern, emptyAcidStep, fitLyrics, refreshSong } from './state.js';
 import { renderBars, bufferToWav } from './render.js';
 import { exportButtons } from './export-ui.js';
 import { encodeWav, rng } from './dsp.js';
@@ -298,6 +298,7 @@ function landSong(t) {
   autoMajor = plan.autoMajor ?? false;
   for (const k of Object.keys(state)) if (!(k in plan.next)) delete state[k];
   Object.assign(state, plan.next);
+  engine.replay808Style = plan.replay808Style;
   transportOrigin = reanchor(transportOrigin, abs, fromBpm, state.bpm);
   const chain = state.chainOn ? parseChain(state.chain) : [];
   state.current = chain.length ? chain[0] : state.current;
@@ -338,13 +339,14 @@ function endTuning() {
   document.body.classList.remove('tuning');
 }
 
-function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room = startsAt !== null || roomPlayback, editRoom = roomEditor, replayStats = null } = {}) {
+function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room = startsAt !== null || roomPlayback, editRoom = roomEditor, replayStats = null, replay808Style = engine?.replay808Style } = {}) {
   const seeking = playing;
   clearPaused();
   roomResume = null;
   stopPreview();
   closePractice();
   ensureAudio();
+  engine.replay808Style = replay808Style;
   engine.prepareVocal();
   engine.editableHits.length = 0;
   const wallNow = Date.now(), audioNow = ctx.currentTime;
@@ -383,7 +385,7 @@ function stop(playbackOutcome = 'stop') {
   listens.end(listenPos(), { finished: songOver });
   clearPaused();
   endTuning();
-  if (engine) engine.recLock = null;
+  if (engine) { engine.recLock = null; engine.replay808Style = undefined; }
   clearTimeout(roomJoinTimer);
   roomJoinTimer = 0;
   playing = false;
@@ -853,34 +855,37 @@ function showJukebox() {
 
 // Saved Club sets replay from their timeline; `asGuest` (jukebox) keeps the listener's own project safe.
 function timelineHooks(asGuest, replayStats = null) {
+  // The timeline carries a genre but not the seed needed by other genre-specific processing.
+  let replay808Style;
   return {
     load: (s, st) => {
       if (asGuest && !guest) guest = { backup: clone(state), style };
       songOrigin = { src: asGuest ? 'jukebox' : 'room' };
-      if (STYLES[st]) style = st;
-      const next = sanitize(withPlaybackStyle({ ...s, artist: state.artist }, st));
+      if (STYLES[st]) replay808Style = style = st;
+      const next = sanitize({ ...s, artist: state.artist });
       if (!asGuest) return replaceState(next);
       stop(); autoMajor = false; state = next;
       if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
       build();
     },
     apply: (s, st) => {
-      if (STYLES[st]) style = st;
-      const next = sanitize(withPlaybackStyle({ ...clone(state), ...s }, st));
+      if (STYLES[st]) replay808Style = style = st;
+      const next = sanitize({ ...clone(state), ...s });
       // The DJ generated a new song: the replay hands off on a downbeat too, from the new song's bar 1.
       const newSong = next.chain !== state.chain && JSON.stringify(next.patterns[0]) !== JSON.stringify(state.patterns[0]);
       if (playing && seq && newSong && !pat().score && !next.patterns.some((q) => q.score)) {
-        return queueSong({ next, quiet: true, origin: { src: asGuest ? 'jukebox' : 'room' }, finish: () => { build(); if (!guest) persist(); } });
+        next.artist = state.artist;
+        return queueSong({ next, replay808Style, quiet: true, origin: { src: asGuest ? 'jukebox' : 'room' }, finish: () => { build(); if (!guest) persist(); } });
       }
       if (playing && next.bpm !== state.bpm) transportOrigin = Date.now() - ((Date.now() - transportOrigin) / (15000 / state.bpm)) * (15000 / next.bpm);
       const want = next.current;
       next.current = state.current;
       state = next;
-      if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
+      if (engine) { engine.state = state; seq.s = state; engine.replay808Style = replay808Style; engine.applyAll(); }
       if (seq && !state.chainOn && want !== seq.cur) seq.queued = want;
       build(); if (!guest) persist();
     },
-    play: (opts) => play({ ...opts, room: !asGuest, replayStats }), isPlaying: () => playing, onEnd: () => playing && stop('complete'),
+    play: (opts) => play({ ...opts, room: !asGuest, replayStats, replay808Style }), isPlaying: () => playing, onEnd: () => playing && stop('complete'),
   };
 }
 function replayToRoom(timeline, startsAt, item) {
@@ -1370,10 +1375,10 @@ async function startPreview(id, card) {
   try {
     let p = previewCache.get(id);
     if (!p) {
-      const snap = withPlaybackStyle(clone(state), id);
+      const snap = clone(state);
       const scale = id === 'euphoric' ? 'major' : 'minor';
-      const g = generate(id, (Math.random() * 1e9) | 0, scale);
-      Object.assign(snap, { patterns: [g.pattern], current: 0, chainOn: false, scale, mutes: {}, solos: {} });
+      const seed = (Math.random() * 1e9) | 0, g = generate(id, seed, scale);
+      Object.assign(snap, { artist: { style: id, seed }, patterns: [g.pattern], current: 0, chainOn: false, scale, mutes: {}, solos: {} });
       applyOverrides(snap, g, true);
       p = { buf: await renderBars(snap, 2, { tail: 1 }), loopEnd: 0.05 + (32 * 60) / snap.bpm / 4 };
       previewCache.set(id, p);
