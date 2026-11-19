@@ -24,6 +24,18 @@ warming.start(true, route);
 assert.equal(warming.horizon(.42, true, route), 4, 'a repeated join while band/vocal tuning preserves the first cold prime');
 warming.start(true, route);
 assert.equal(warming.horizon(.42, true, route), .42);
+for (const normal of [.42, 1.5]) {
+  const jam = createRoomMediaSync(() => 1000), jamSet = { ...item, state: { patterns: [{}] } };
+  jam.begin(jamSet, false, false, route);
+  jam.start(true, route);
+  assert.equal(jam.horizon(normal, true, route), normal, 'jam-capable rooms never prime before snapshot layers arrive');
+  jam.remember(jamSet);
+  assert.equal(jam.duplicate(jamSet, true, true, route), true, 'cold duplicate guard does not depend on priming');
+}
+const score = createRoomMediaSync();
+score.begin({ ...item, state: { patterns: [{ score: 'written' }] } }, false, false, route);
+score.start(true, route);
+assert.equal(score.horizon(.42, true, route), 4, 'non-jammable scores retain the one-time cold prime');
 sync.start(true, null);
 assert.equal(sync.horizon(.42, true, null), .42);
 sync.start(false, route);
@@ -59,7 +71,7 @@ assert.equal(sync.duplicate(item, true, true, route), false, 'identity is snapsh
 const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
 const schedule = main.slice(main.indexOf('function schedule(lead)'), main.indexOf('\n// Jam:'));
 const start = main.slice(main.indexOf('function start({'), main.indexOf('\nfunction stop('));
-function transport(mediaRoute, room = true) {
+function transport(mediaRoute, room = true, roomItem = item) {
   const hits = [], vocals = [];
   const noop = () => {};
   const s = { mediaRoute, roomMediaSync: createRoomMediaSync(), roomMediaTime, roomMediaLead,
@@ -79,7 +91,7 @@ function transport(mediaRoute, room = true) {
     timeline: { skip: () => 0 }, artistTick: noop,
   };
   const api = runInNewContext(`${schedule}\n${start}\n({start,schedule})`, s);
-  s.roomMediaSync.begin(item, false, false, mediaRoute);
+  s.roomMediaSync.begin(roomItem, false, false, mediaRoute);
   api.start({ startsAt: 1000100, room });
   return { s, api, hits, vocals };
 }
@@ -95,6 +107,11 @@ for (let i = 0; i < desktop.hits.length; i++) {
 }
 assert.equal(solo.hits[0].t, desktop.hits[0].t, 'non-room media playback has no lead');
 assert.equal(solo.hits[0].gridTime, undefined);
+const jamTransport = transport(route, true, { ...item, state: { patterns: [{}] } });
+assert.equal(jamTransport.hits.length, desktop.hits.length, 'jam-capable join queues only the normal 420ms, not four seconds');
+for (let i = 0; i < desktop.hits.length; i++)
+  assert.equal(jamTransport.hits[i].t, desktop.hits[i].t - ROOM_MEDIA_LEAD, 'jam rooms retain the route lead without priming');
+console.log('Room jam startup PASS: jam-capable joins keep normal horizons before snapshot layers; duplicate guard and score priming retained.');
 assert.equal(media.s.roomMediaSync.horizon(.42, true, route), .42);
 for (const t of [desktop, media]) {
   Object.assign(t.s, { transportOrigin: 999800, abs: 2, nextTime: 14, clockOffset: 0 });

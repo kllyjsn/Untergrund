@@ -1,3 +1,5 @@
+import { jammable } from './jam.js';
+
 export const ROOM_MEDIA_LEAD = 0.04;
 export const ROOM_MEDIA_STARTUP_HORIZON = 4;
 
@@ -11,17 +13,18 @@ export function roomMediaTime(time, room, mediaRoute) {
 }
 
 export function createRoomMediaSync(now = Date.now) {
-  let startup = false, pendingCold = false, joiningCold = false, joined = null, duplicateUntil = 0;
+  let startup = false, pendingCold = false, joiningCold = false, jamCapable = false, joined = null, duplicateUntil = 0;
   const identity = item => item?.broadcastId && Number.isFinite(item.startsAt)
     ? [item.broadcastId, item.version, item.startsAt, item.by] : null;
   return {
     begin(item, playing, room, mediaRoute) {
       const next = identity(item);
       pendingCold ||= Boolean(mediaRoute && next && !joined && (!playing || !room));
+      jamCapable = jammable(item);
     },
     start(room, mediaRoute) {
       joiningCold = Boolean(room && mediaRoute && pendingCold);
-      startup = joiningCold;
+      startup = joiningCold && !jamCapable;
       pendingCold = false;
     },
     horizon(normal, room, mediaRoute) {
