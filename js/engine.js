@@ -1927,6 +1927,8 @@ export class Engine {
     amp.gain.setValueAtTime(EPS, t);
     amp.gain.linearRampToValueAtTime(vel, t + 0.004);
     amp.gain.setTargetAtTime(0, t + 0.02, Math.max(0.05, len * 0.45));
+    // The longest decays can still be audible when the oscillators stop.
+    amp.gain.setTargetAtTime(0, end - 0.09, 0.009);
     // A quiet octave harmonic lets the 808 line read on small speakers without lifting the sub.
     const h2 = c.createOscillator(); h2.type = 'triangle';
     h2.frequency.setValueAtTime((sliding ? from : f * 1.9) * 2, t);

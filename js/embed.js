@@ -1,7 +1,7 @@
 // Compact iframe player for /embed.html?s=<code> or ?t=<id>. Plays the song live in the listener's browser.
 import { Engine, Sequencer, parseChain } from './engine.js';
 import { STYLES } from './state.js';
-import { fetchTrack } from './crate.js';
+import { fetchReleaseTrack } from './account.js';
 import { drawArtwork } from './artwork.js';
 import { readShareParams, decodeSong, normalizeSong, songLink, embedCode, creditLine } from './share-code.js';
 import { liveSets, loadSets } from './livekit.js';
@@ -72,7 +72,7 @@ $('copy').onclick = async () => {
 (async () => {
   try {
     song = params?.code ? await decodeSong(params.code)
-      : params?.id ? await fetchTrack(params.id).then((t) => t?.state && normalizeSong({ ...t, remixOf: t.remixOf }))
+      : params?.id ? normalizeSong(await fetchReleaseTrack(params.id))
       : null;
   } catch { song = null; }
   if (!song) { $('title').textContent = 'Song not found'; $('meta').textContent = 'Open UNTERGRUND to make your own.'; return; }
