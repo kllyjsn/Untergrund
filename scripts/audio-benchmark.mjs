@@ -12,6 +12,7 @@ import { cpus } from 'node:os';
 import { withChrome } from '../test/chrome.mjs';
 import { STYLES } from '../js/state.js';
 import { targetFor, LOUDNESS_TARGET } from '../js/loudness.js';
+import { PERCEPTUAL_METRICS } from '../js/perceptual-audio.js';
 
 export const SCHEMA = 'untergrund.audio-benchmark/1';
 export const SEEDS = { fast: [42], deep: [11, 42, 1234] };
@@ -135,17 +136,32 @@ export function evaluate(tier, results, baseline) {
       row.metrics[c.id] = m; row.verdict = worse(row.verdict, m.level);
     }
     for (const x of rs) row.seeds[x.seed] = detail(x);
+    row.perceptual = {
+      mix: summarizePerceptual(rs.map((x) => [x.seed, x.perceptual])),
+      parts: Object.fromEntries([...new Set(rs.flatMap((x) => x.stems.stems.map((s) => s.id)))].map((part) =>
+        [part, summarizePerceptual(rs.map((x) => [x.seed, x.stems.stems.find((s) => s.id === part)?.perceptual]))])),
+    };
     styles[id] = row;
   }
   return styles;
 }
 const STEM_LABEL = (at) => { const [seed, id] = String(at).split(':'); return `${id} stem (seed ${seed})`; };
 
+function summarizePerceptual(rows) {
+  return Object.fromEntries(Object.keys(PERCEPTUAL_METRICS).map((id) => {
+    const measured = rows.map(([seed, p]) => [seed, p?.[id]]).filter(([, v]) => Number.isFinite(v));
+    if (!measured.length) return [id, { n: 0, p50: null, worst: null, worstSeed: null }];
+    const [worstSeed, worst] = measured.reduce((a, b) => b[1] > a[1] ? b : a);
+    return [id, { n: measured.length, p50: r(pct(measured.map(([, v]) => v), 0.5)), worst, worstSeed }];
+  }));
+}
+
 // What a chart needs per seed, kept small: spectrum, stems, the arrangement curve and the ending envelope.
 function detail(x) {
   const m = x.mix, d = { bars: x.bars, secs: x.secs, bpm: x.bpm, chain: x.chain, windows: x.windows, octaves: m.spectrum.octaves, shares: m.spectrum.shares, centroidHz: m.spectrum.centroid,
     loudness: m.loudness, stereo: m.stereo, limiter: m.limiter, clipper: m.clipper ?? null, saturator: m.saturator ?? null, crest: m.crest ?? null, balance: m.balance ?? null, kickBass: x.stems.kickBass ?? null,
-    stems: x.stems.stems.map(({ id, notes, relLu, buriedShare, hits }) => ({ id, notes, relLu, buriedShare, hits })) };
+    perceptual: x.perceptual ?? null,
+    stems: x.stems.stems.map(({ id, notes, relLu, buriedShare, hits, perceptual }) => ({ id, notes, relLu, buriedShare, hits, perceptual: perceptual ?? null })) };
   if (m.arrangement) Object.assign(d, { barLufs: m.arrangement.barLufs, sections: m.arrangement.sections ?? [] });
   if (m.ending) d.ending = { t40: m.ending.t40, cliffDb: m.ending.cliffDb, deadAirSec: m.ending.deadAirSec, tailLu: m.ending.tailLu, envelopeDb: m.ending.envelope, envelopeStepSec: 0.05 };
   return d;
@@ -170,6 +186,7 @@ export function report(tier, seeds, results, baseline, run) {
     seeds, counts: { styles: list.length, songs: results.length, PASS: list.filter(([, s]) => s.verdict === 'PASS').length, WARN: list.filter(([, s]) => s.verdict === 'WARN').length, FAIL: list.filter(([, s]) => s.verdict === 'FAIL').length },
     baseline: baseline ? { file: `test/audio-baseline/${tier}.json`, commit: baseline.run?.commit ?? null } : null,
     checks: Object.fromEntries(checks.map(({ id, group, label, unit, bad, warn, fail, drift, repeat, why, applies }) => [id, { group, label, unit, worseWhen: bad, warn, fail, drift, repeat, appliesTo: applies ? Object.keys(STYLES).filter(applies) : 'all', why }])),
+    perceptual: { version: 1, gating: false, worseWhen: 'high', metrics: PERCEPTUAL_METRICS },
     global, reasons, closest, families, styles,
   };
 }
