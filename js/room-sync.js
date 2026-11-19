@@ -76,7 +76,8 @@ export function transportResync(target, nextTime, now, stepSec, jumped = false, 
     const duration = 2 * stepSec / (rate + endRate);
     return { skip: 0, nextTime: nextTime + duration - stepSec, discard: false, slew: true, rate, endRate };
   }
-  if (!jumped && Math.abs(target - nextTime) <= 0.03 && nextTime >= now) return null;
+  const error = Math.abs(target - nextTime);
+  if (!jumped && (error <= 0.03 || (room && error < stepSec)) && nextTime >= now) return null;
   const ready = now + 0.005;
   // Recover one step near the render deadline without moving the grid or
   // squeezing the gap to its following step below half a step.
@@ -87,7 +88,7 @@ export function transportResync(target, nextTime, now, stepSec, jumped = false, 
   return { skip, nextTime: target, discard: jumped, ...(target < ready && { firstTime: ready }) };
 }
 
-export function slewTransport(target, nextTime) {
+export function slewTransport(target, nextTime, limit = 0.03) {
   const error = target - nextTime;
-  return Math.abs(error) <= 0.03 ? nextTime + Math.max(-0.0015, Math.min(0.0015, error)) : nextTime;
+  return Math.abs(error) <= limit ? nextTime + Math.max(-0.0015, Math.min(0.0015, error)) : nextTime;
 }

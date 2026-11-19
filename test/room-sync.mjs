@@ -240,6 +240,9 @@ console.log('Room residual slew PASS: both signs, 40–240 BPM, smooth bounded r
   assert.equal(correction.discard, false, 'room corrections preserve every queued note');
   assert.equal(correction.skip, 6, 'skip forward on the new grid rather than rebuilding old steps');
   close(correction.nextTime, 11.5);
+  assert.equal(transportResync(11.46, 11.5, 10, 0.125, false, -64, true), null, 'a 40ms correction keeps a playable room/Jam downbeat');
+  assert.equal(transportResync(11.376, 11.5, 10, 0.125, false, -64, true), null, 'even a correction just below one step must slew rather than skip');
+  close(slewTransport(11.46, 11.5, 0.125), 11.4985);
   assert.deepEqual(transportResync(10.75, 11.5, 10, 0.0625), {skip:0, nextTime:10.75, discard:false}, 'solo tempo increases retain pre-room-correction behavior without rewinding');
   assert.deepEqual(transportResync(11.4, 11.5, 10, 0.125), {skip:0, nextTime:11.4, discard:false}, 'a sub-step correction keeps ordered queued notes');
 }

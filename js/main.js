@@ -217,7 +217,7 @@ function schedule(lead) {
     const horizon = ctx.currentTime + (landed ? Math.max(ahead, 0.5) : ahead);
     if (!(Math.min(nextTime, replayAt) < horizon)) break;
     const gridTarget = transportOrigin / 1000 + abs * base - clockOffset;
-    if (roomPlayback) nextTime = slewTransport(gridTarget, nextTime);
+    if (roomPlayback) nextTime = slewTransport(gridTarget, nextTime, base);
     const t = firstTime ?? nextTime;
     firstTime = undefined;
     // Leave a nearly coincident outgoing step to the incoming replay downbeat.
