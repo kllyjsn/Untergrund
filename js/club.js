@@ -527,7 +527,7 @@ export function clubActions({ isHost, live, canListen, queued, queueLength = 0 }
   return queued ? { primary: null, secondary: [queue] } : { primary: queue, secondary: [] };
 }
 
-export function openClub({ getState, getStyle, loadTrack, getTransport, startRoomBroadcast, unlockAudio, joinRoomSet: joinSet, replayToRoom, jam: jamHooks = null, toast, room: requestedRoom = '', intent = '', hue = null }) {
+export function openClub({ getState, getStyle, loadTrack, getTransport, getReleaseId = () => '', startRoomBroadcast, unlockAudio, joinRoomSet: joinSet, replayToRoom, jam: jamHooks = null, toast, room: requestedRoom = '', intent = '', hue = null }) {
   const joinRoomSet = (set) => { joinSet(set); bus?.follow(set); };
   let audioReady = false;
   const unlock = () => unlockAudio().then((ok) => (audioReady = ok));
@@ -684,9 +684,10 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     const transport = getTransport();
     const startsAt = transport.playing ? transport.startsAt : Date.now() + 1600;
     const track = nowPlaying();
+    const trackId = getReleaseId();
     const broadcastId = `${bus.clientId}:${Date.now()}:${++bus.localSetVersion}`;
     bus.initiatedSets.add(broadcastId);
-    bus.send('set', { ...track, state: clone(getState()), style: getStyle(), startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId, public: isRoomPublic(activeRoom) });
+    bus.send('set', { ...track, ...(trackId && { trackId }), state: clone(getState()), style: getStyle(), startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId, public: isRoomPublic(activeRoom) });
     bus.follow(bus.currentSet);
     startRoomBroadcast(startsAt);
     startLiveSet({
@@ -936,7 +937,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     const s = timeline.initial;
     bus.send('set', {
       title: item.title, artist: item.artist, bpm: s.bpm, key: `${KEYS[s.key]} ${SCALES[s.scale]?.name || 'MINOR'}`,
-      state: clone(s), style: timeline.style, startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId,
+      state: clone(s), style: timeline.style, startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId, public: isRoomPublic(activeRoom),
       replay: { ...(item.local ? { timeline } : { id: item.id }), title: item.title, dj: item.artist },
     });
     bus.follow(bus.currentSet);

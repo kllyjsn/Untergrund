@@ -71,7 +71,7 @@ function trackView(track, artist, { localOnly = false } = {}) {
   btn.onclick = () => {
     if (player.playing && current === ctl) { player.stop(); listens.end(heardPos); reset(); return; }
     current?.reset();
-    current = ctl; setBtn(true); player.play(track.state);
+    current = ctl; setBtn(true); player.play(track.state, localOnly ? '' : track.id);
     if (player.loading) btn.lastChild.textContent = 'Loading instruments…';
   };
   // Sharing from the release page mints its own ref, like the app's share sheet: one per page view, so every link
@@ -141,7 +141,7 @@ function trackRows(tracks, sub = line) {
       play.classList.remove('busy');
       if (!t.state) return toast('Couldn’t load that track');
       listens.end(heardPos); current?.reset();
-      current = ctl; player.play(t.state); play.classList.add('on'); play.setAttribute('aria-label', `Stop ${t.title}`);
+      current = ctl; player.play(t.state, t.id); play.classList.add('on'); play.setAttribute('aria-label', `Stop ${t.title}`);
     };
     const row = h('li', { class: 'pp-row' },
       h('a', { href: `/t/${t.id}` }, h('img', { src: `/api/page?og=${encodeURIComponent(t.id)}`, alt: '', loading: 'lazy' }),

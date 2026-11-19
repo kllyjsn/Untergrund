@@ -5,14 +5,17 @@ import { fetchReleaseTrack } from './account.js';
 import { drawArtwork } from './artwork.js';
 import { readShareParams, decodeSong, normalizeSong, songLink, embedCode, creditLine } from './share-code.js';
 import { liveSets, loadSets } from './livekit.js';
+import { createPlaybackAnalytics } from './playback-analytics.js';
+import { compose } from './classical.js';
 
 const $ = (id) => document.getElementById(id);
 const track = (name, props = {}) => { try { window.untergrundTrack?.(name, props); } catch {} };
 const params = readShareParams(location);
+const analytics = createPlaybackAnalytics();
 const pageLink = params ? songLink(location.origin, params) : location.origin;
 $('open').href = pageLink;
 
-let song = null, ctx = null, engine = null, seq = null, timer = 0, abs = 0, next = 0, playing = false, media = null;
+let song = null, ctx = null, engine = null, seq = null, timer = 0, abs = 0, next = 0, playing = false, loading = false, media = null, run = 0;
 
 function ensureAudio() {
   try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
@@ -35,8 +38,8 @@ function schedule() {
   while (next < ctx.currentTime + 0.12) {
     seq.tick(abs, next); next += engine.stepDur; abs++;
     if (seq.finished) {
-      const at = abs; seq.finished = false; clearInterval(timer);
-      setTimeout(() => playing && abs === at && stop(), Math.max(0, next - ctx.currentTime + 2.5) * 1000);
+      const current = run; seq.finished = false; clearInterval(timer);
+      setTimeout(() => playing && run === current && stop('complete'), Math.max(0, next - ctx.currentTime + 2.5) * 1000);
       break;
     }
   }
@@ -46,18 +49,30 @@ function schedule() {
 }
 
 async function play() {
-  ensureAudio();
-  const st = song.state;
-  await loadSets(liveSets(st)).catch(() => {});
-  const chain = st.chainOn ? parseChain(st.chain) : [];
-  abs = 0; seq.cur = chain.length ? chain[0] : st.current; seq.chainPos = 0; seq.queued = null; seq.finished = false;
-  next = ctx.currentTime + 0.08;
-  playing = true; timer = setInterval(schedule, 25); schedule();
-  document.body.classList.add('on'); $('play').setAttribute('aria-label', 'Stop');
-  track('embed_play', { style: song.style });
+  if (loading) return;
+  loading = true;
+  try {
+    ensureAudio();
+    const st = song.state;
+    await loadSets(liveSets(st)).catch(() => {});
+    const chain = st.chainOn ? parseChain(st.chain) : [];
+    abs = 0; seq.cur = chain.length ? chain[0] : st.current; seq.chainPos = 0; seq.queued = null; seq.finished = false;
+    next = ctx.currentTime + 0.08;
+    const score = st.patterns[seq.cur]?.score ? compose(st.patterns[seq.cur].score) : null;
+    const steps = score ? score.at.length : (chain.length || (params.id ? 8 : 0)) * 16;
+    const expectedSeconds = (score ? score.tempo.reduce((a, b) => a + b, 0) : steps) * 15 / st.bpm;
+    analytics.start({ surface: 'embed', ...(params.code ? { genre: song.style } : { trackId: params.id }) },
+      { ctx, at: next, from: steps ? 0 : null, expectedSeconds,
+        progress: () => steps ? (abs - Math.max(0, next - ctx.currentTime) / engine.stepDur) / steps : null });
+    run++;
+    playing = true; timer = setInterval(schedule, 25); schedule();
+    document.body.classList.add('on'); $('play').setAttribute('aria-label', 'Stop');
+    track('embed_play', { style: song.style });
+  } finally { loading = false; }
 }
 
-function stop() {
+function stop(outcome) {
+  analytics.end(outcome);
   playing = false; clearInterval(timer); engine?.panic();
   document.body.classList.remove('on'); $('play').setAttribute('aria-label', 'Play');
 }
