@@ -126,7 +126,7 @@ export const TRACKS = [
       p('accent', 'ACCENT', 0, 1, 0.65),
       p('drive', 'DRIVE', 0, 1, 0.5),
       p('edge', 'EDGE', 0, 1, 0),
-      p('voice', 'VOICE', 0, 5, 0, { step: 1, list: ['303', 'BASS', '808', 'REESE', 'LOG', 'E.BASS'] }),
+      p('voice', 'VOICE', 0, 9, 0, { step: 1, list: ['303', 'BASS', '808', 'REESE', 'LOG', 'E.BASS', 'FM', 'PULSE', 'WIDE REESE', 'PLUCK'] }),
     ],
     mix: { level: 0.55, dly: 0.12, rev: 0.05 },
   },
@@ -214,6 +214,6 @@ export function formatValue(q, v) {
 export const VOICE_HIDDEN = {
   perc: [[], ['metal'], ['metal'], ['bend', 'metal'], ['bend', 'noise', 'metal']],
   // EDGE only acts on the BASS voice and TINE only on KEYS.
-  acid: [[], ['wave', 'reso', 'envmod', 'accent'], ['wave', 'reso', 'envmod'], [], ['wave', 'reso', 'envmod'], ['wave', 'reso', 'envmod', 'accent']].map((h, i) => (i === 1 ? h : [...h, 'edge'])),
+  acid: [[], ['wave', 'reso', 'envmod', 'accent'], ['wave', 'reso', 'envmod'], [], ['wave', 'reso', 'envmod'], ['wave', 'reso', 'envmod', 'accent'], [], [], [], []].map((h, i) => (i === 1 ? h : [...h, 'edge'])),
   stab: [[], ['reso'], [], ['reso', 'env'], [], [], ['reso'], ...Array(6).fill(['reso', 'env', 'detune']), [], [], []].map((h, i) => (i === 1 ? h : [...h, 'tine'])),
 };

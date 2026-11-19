@@ -23,6 +23,14 @@ function songFor(style, seed = 7) {
 const same = (a, b) => a === b || (Array.isArray(a) && JSON.stringify(a) === JSON.stringify(b));
 const has = (edits, want) => want.every((w) => edits.some((e) => Object.entries(w).every(([k, v]) => same(e[k], v))));
 
+for (const [phrase, voice] of [['add FM bass', 6], ['add pulse bass', 7], ['add wide reese bass', 8], ['add pluck bass', 9]]) {
+  t(phrase, () => {
+    const { edits } = parse(phrase);
+    assert(has(edits, [{ id: 'bassVoice', value: voice }]));
+    assert(!edits.some(({ id }) => id === 'key' || id === 'scale'));
+  });
+}
+
 // 1. Phrase table: text -> edits it must contain.
 const PHRASES = [
   ['darker', [{ id: 'tone', amt: -1 }]],
@@ -84,6 +92,16 @@ for (const [phrase, value] of [['make it pop', 'pop'], ['an r&b slow jam', 'rnb'
 for (const [phrase, edit] of [['overdriven guitar', { id: 'voice', value: 11 }], ['acoustic guitar', { id: 'voice', value: 12 }], ['jazz guitar', { id: 'voice', value: 13 }], ['banjo', { id: 'voice', value: 14 }], ['twangy guitar', { id: 'voice', value: 15 }], ['cello', { id: 'voice', value: 16 }], ['clarinet', { id: 'voice', value: 17 }], ['electric bass', { id: 'bassVoice', value: 5 }]]) {
   t(`"${phrase}" picks its player`, () => assert.ok(has(parse(phrase, { style: 'rock' }).edits, [edit]), JSON.stringify(parse(phrase, { style: 'rock' }).edits)));
 }
+
+t('bass-only Drill 808 requests keep the current song', () => {
+  for (const text of ['make the bass sound like a Drill 808', 'switch the bass to UK Drill 808']) {
+    const { edits, unknown } = parse(text, { style: 'deephouse' });
+    assert.deepEqual(unknown, [], text);
+    assert.deepEqual(edits.map(({ id, value }) => ({ id, value })), [{ id: 'bassVoice', value: 2 }], text);
+  }
+  const { edits } = parse('Make it UK Drill 808s at 142 BPM', { style: 'deephouse' });
+  assert.ok(has(edits, [{ id: 'genre', value: 'drill' }, { id: 'bassVoice', value: 2 }, { id: 'bpm', value: 142 }]));
+});
 
 // Everyday phrasing: complaints, track-scoped words, dislikes, only/except. Each pair is [phrase, must have, must not have].
 const EVERYDAY = [

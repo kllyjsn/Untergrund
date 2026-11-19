@@ -20,6 +20,31 @@ for (const style of Object.keys(STYLES)) {
 }
 console.log('seeded hooks passed');
 
+// Separate players, including when the chord ensemble picks a recorded instrument.
+for (const [style, hook, bass] of [
+  ['hypnotic', 'softresonator', 7], ['industrial', 'metalstrike', 6], ['acid', 'acidlead', 0],
+  ['peak', 'ravestack', 8], ['electro', 'robotformant', 7], ['trance', null, 9], ['hardtechno', 'analog', 3], ['trap', null, 2],
+]) {
+  for (const seed of [11, 42, 73, 211, 997, 1234]) {
+    const g = generate(style, seed);
+    const s = defaultState();
+    s.patterns[0] = g.pattern;
+    s.params.acid.voice = g.params.acid.voice;
+    const saved = sanitize(JSON.parse(JSON.stringify(s)));
+    if (hook) assert.equal(saved.patterns[0].hook.v, hook, `${style}/${seed} hook round-trip`);
+    assert.equal(saved.params.acid.voice, bass ?? g.params.acid.voice, `${style}/${seed} bass round-trip`);
+  }
+}
+
+for (const [style, voice] of [['trap', 2], ['hardtechno', 3]]) {
+  for (const prior of [undefined, 'hypnotic', 'electro', 'peak']) {
+    const { params } = freshSong(style, 42, { base: prior && freshSong(prior, 42) });
+    assert.equal(params.acid.voice, voice, `${style} keeps its bass voice`);
+    assert.equal(params.acid.level, 0.55, `${style} does not inherit a different generated bass level`);
+    assert.equal(params.acid.accent, 0.4, `${style} keeps its bass accent`);
+  }
+}
+
 assert.deepEqual(Object.keys(MUSICIAN_PRINCIPLES), ['listen', 'respond', 'space', 'develop', 'risk', 'remember']);
 for (const style of ['hypnotic', 'deephouse', 'euphoric', 'afrobeats', 'trap']) {
   const hook = generate(style, 84).pattern.hook;
@@ -310,7 +335,10 @@ console.log('genre signatures passed');
       for (let seed = 1; seed <= 24; seed++) assert(generate(style, seed).pattern.steps.stab.some(Boolean), `${style} ensembles need audible chord steps`);
     }
     for (let seed = 1; seed <= 24; seed++) {
-      assert.equal(generate('trance', seed).params.acid.voice, 0, 'trance must keep its rolling 303');
+      const trance = generate('trance', seed);
+      assert.equal(trance.params.acid.voice, 9, 'trance uses the pluck bass');
+      assert(trance.params.acid.decay <= 0.05, 'trance pluck must leave space between the sixteenths');
+      assert(trance.pattern.steps.acid.every((step, i) => step.on === (i % 4 !== 0) && step.a === (i % 4 === 2)), 'trance keeps the rolling offbeat line');
       assert.notEqual(generate('electro', seed).params.acid.voice, 3, 'electro must not borrow the DnB Reese');
       assert.equal(generate('ambient', seed).params.acid.voice, 1, 'ambient bass must avoid an 808 pitch knock');
       const ukg = generate('ukg', seed);

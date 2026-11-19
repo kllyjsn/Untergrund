@@ -105,6 +105,70 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   player.discardQueuedNotes(ctx.currentTime);
   assert.deepEqual(events, [['ringing', 'start', 1], ['queued', 'start', 2, 0.4, 0.2], ['queued', 'stop', 1.5]]);
 
+  for (const [voice, wide] of [[8, true], [9, false]]) {
+    const ctx = fakeCtx(), state = defaultState();
+    Object.assign(state.params.acid, { voice, decay: wide ? 0.11 : 0.044 });
+    const e = new Engine(ctx, state);
+    const bank = e.buildHarmonicBass(wide), gain = bank.amp.gain, events = [];
+    e.gatedBasses.set(voice, bank);
+    const record = (kind) => (value, time) => events.push({ kind, value, time });
+    gain.setTargetAtTime = record('target');
+    gain.linearRampToValueAtTime = record('ramp');
+    gain.cancelScheduledValues = time => {
+      for (let i = events.length - 1; i >= 0; i--) if (events[i].time >= time) events.splice(i, 1);
+    };
+    const step = { n: 0, a: false };
+    e.acid(1, step, false, true, 0.1, 1.15);
+    assert.deepEqual(events.at(-1), { kind: wide ? 'target' : 'ramp', value: 0, time: wide ? 1.15 : 1.044 });
+    if (wide) {
+      assert.equal(bank.detunes.length, 2);
+      for (const [i, detune] of bank.detunes.entries()) {
+        detune.setValueAtTime = (value) => assert(value * (i ? 1 : -1) >= 10, 'Reese saws detune in opposite directions');
+      }
+    }
+    e.acid(1.15, step, true, false, 0.1);
+    ctx.currentTime = 1.1;
+    e.panic();
+    assert.deepEqual(events.at(-1), { kind: 'target', value: 0, time: 1.1 }, 'Stop discards queued bass envelopes');
+  }
+
+  {
+    const ctx = fakeCtx(), state = defaultState();
+    state.params.acid.voice = 7;
+    const e = new Engine(ctx, state);
+    const pulse = e.buildPulseBass(), gain = pulse.amp.gain;
+    e.gatedBasses.set(7, pulse);
+    let automation = [];
+    gain.setTargetAtTime = (value, time, tc) => automation.push({ value, time, tc });
+    gain.cancelScheduledValues = time => { automation = automation.filter(event => event.time < time); };
+    gain.setValueAtTime = () => assert.fail('a retrigger must not jump to zero');
+    const st = { n: 0, a: false };
+    e.acid(1, st, false, false, 0.12);
+    e.acid(1.12, st, false, true, 0.12);
+    assert.equal(automation.at(-1).value, 0, 'a slide at the end of a section still releases');
+    assert(automation.at(-1).time < 1.36);
+    e.acid(1.24, st, true, true, 0.12);
+    ctx.currentTime = 1.18;
+    e.panic();
+    assert.deepEqual(automation.at(-1), { value: 0, time: 1.18, tc: 0.008 }, 'Stop discards queued pulse targets');
+
+    state.chainOn = false;
+    state.swing = 0.6;
+    state.master.humanize = 0.4;
+    const pat = state.patterns[state.current];
+    pat.steps.acid[0] = { on: true, n: 0, a: false, s: true };
+    pat.steps.acid[1] = { on: true, n: 7, a: false, s: false };
+    const seq = new Sequencer(e, state), sd = e.stepDur;
+    automation = [];
+    seq.tick(0, 2);
+    const release = automation.at(-1);
+    assert.equal(release.value, 0, 'even a long slide has a fallback release');
+    seq.tick(1, 2 + sd);
+    const attack = automation.filter(({ value }) => value > 0).at(-2);
+    assert(release.time >= attack.time, 'a held pulse must not release before the swung next note');
+    assert(!automation.includes(release), 'the next pulse replaces the fallback release');
+  }
+
   {
     const ctx = fakeCtx(), state = defaultState();
     state.master.arr = state.master.humanize = state.master.variation = 0;

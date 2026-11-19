@@ -11,16 +11,16 @@ let live = null;
 
 export const liveSetRecording = () => !!live;
 
-export function startLiveSet({ getState, getStyle, isPlaying, isDJ, startsAt, dj, room, title, toast }) {
+export function startLiveSet({ getState, isPlaying, isDJ, startsAt, dj, room, title, toast }) {
   if (live || !recordingOn()) return;
   // Already playing: the set starts at the current bar, not when the transport first started.
-  const barMs = 240000 / (getState().bpm || 132), now = Date.now();
+  const state = getState(), barMs = 240000 / (state.bpm || 132), now = Date.now();
   if (now > startsAt) startsAt += Math.floor((now - startsAt) / barMs) * barMs;
-  const rec = createTimelineRecorder({ state: getState(), style: getStyle(), startsAt, dj, room, title });
+  const rec = createTimelineRecorder({ state, style: state.artist?.style || 'hypnotic', startsAt, dj, room, title });
   live = { rec, startsAt, toast };
   live.timer = setInterval(() => {
-    const now = Date.now();
-    rec.capture(getState(), getStyle(), now);
+    const now = Date.now(), next = getState();
+    rec.capture(next, next.artist?.style || 'hypnotic', now);
     if (now > startsAt + 2500 && (!isPlaying() || !isDJ())) endLiveSet();
   }, 500);
 }
