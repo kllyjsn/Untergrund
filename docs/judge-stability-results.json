@@ -45743,7 +45743,7 @@
   ],
   "humanAnchor": {
     "source": "Jason (corrected key): Trap pair halfway decent (soft anchor); Minimal, Drill and Hard Techno pairs terrible, not smooth, jarring, toy-like. Pair-level labels.",
-    "provenance": "Initial pack recipe not found in repository/history search. The 2026-11-19 metadata was later supplied (base b712b9c, head 5d64e97; drill 1663375815, trap 471454877, hardtechno 1840262996, minimal 527780081): Trap most put together; other three bad in both halves, no preference. Exact audio GET returned HTTP 401 and head commit was unavailable locally; optional reproduction skipped. These current seed-42/43 renders remain proxies, not the human-rated recordings.",
+    "provenance": "Initial pack recipe not found in repository/history search. The 2026-11-19 metadata was later supplied (base b712b9c, head 5d64e97): Trap most put together; other three bad in both halves, no preference. Exact audio GET returned HTTP 401 and head commit was unavailable locally; optional reproduction skipped. These current seed-42/43 renders remain proxies, not the human-rated recordings.",
     "threshold": 6
   },
   "marginSweep": [
