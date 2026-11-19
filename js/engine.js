@@ -2285,7 +2285,7 @@ export class Engine {
       const color = hash(this.step ?? 0, 141);
       const partials = this.filter('highpass', 2150, 0.65), drift = 1.63;
       partials.connect(lp);
-      osc('sine', f, 0.28, lp);
+      osc('sine', f, 0.42, lp);
       const ring = osc('sine', f * 8, 0.74, partials);
       ring.frequency.setValueAtTime(f * (8 - drift * (0.65 - 0.47 * color)), t);
       ring.frequency.exponentialRampToValueAtTime(f * (8 + drift * (0.43 + 0.36 * color)), t + Math.max(0.23, len));
