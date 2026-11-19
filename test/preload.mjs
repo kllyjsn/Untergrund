@@ -52,7 +52,7 @@ const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
     trimOut: (key, db, dest) => { if (key === 'hook-softmallet') throw fallback; return dest; },
     playBuf: (...args) => hits.push(args),
   };
-  const hit = (voice = 'harpplk', note = 12) => Engine.prototype.hook.call(e, 1, 0.5, note, 0.3, voice);
+  const hit = (voice = 'harpplk', note = 12, velocity = 0.5) => Engine.prototype.hook.call(e, 1, velocity, note, 0.3, voice);
   assert.throws(hit, (err) => err === fallback);
   await loadSets(liveSets(state));
   assert.deepEqual([...files].sort(), BAND.harp.map((n) => `harp_${n}.flac`).sort());
@@ -68,6 +68,9 @@ const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
   hit('harpplk', 30);
   assert.equal(hits[1][3], dest, 'successive notes reuse the same EQ');
   assert.ok(hits[1][2] < hits[0][2], 'the highest transposed notes get less make-up gain');
+  hit('harpplk', 12, 0.8);
+  hit('harpplk', 12, 1);
+  assert.equal(hits[2][2], hits[3][2], 'very hard plucks do not overload the harp stem');
   assert.ok(Math.abs(12 * Math.log2(rate) - 0.11) < 0.001, 'choose the nearest recorded pitch, not the file label');
   assert.equal(dur, 0.3 * 0.92);
   assert.equal(fx.offset, 0.002, 'trim just the lead-in before the pluck');

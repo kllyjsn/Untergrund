@@ -1929,8 +1929,8 @@ export class Engine {
       dip.connect(presence).connect(out);
       tones.set(out, dip);
     }
-    // The top strings speak louder when played above the recorded range.
-    const level = 2.85 * v * dbGain(1.35 - Math.min(3.3, Math.max(0, m - 81) * 0.42));
+    // Keep the closing accent in range, and trim strings pitched above the recording.
+    const level = 2.85 * Math.min(v, 0.8) * dbGain(1.35 - Math.min(3.3, Math.max(0, m - 81) * 0.42));
     return this.playBuf(best[1], t, level, tones.get(out), 2 ** ((m - center) / 12), Math.max(0.06, dur * 0.92), {
       lp: 3100 + 2300 * Math.min(1, v / 1.3), offset, fade: 0.007, release: 0.09, ringOut: true,
     });
