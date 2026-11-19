@@ -156,36 +156,36 @@ export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet'
 
 // Every genre has several plausible ensembles. The seed chooses a player,
 // register and articulation while the genre keeps its drum, harmony and room identity.
-const INSTRUMENTS = {
+export const INSTRUMENTS = {
   // voice, bass, octave, release, articulation
-  hypnotic: [[0, 0, 0, 0.25, 0.25], [6, 0, 0, 0.38, 0.7], [3, 0, 0, 0.3, 0.2], [5, 3, 0, 0.28, 0.8]],
-  industrial: [[6, 3, 0, 0.3, 0.75], [4, 3, 0, 0.35, 0.65], [0, 3, 0, 0.24, 0.55], [10, 3, 0, 0.65, 0.85]],
+  hypnotic: [[6, 0, 0, 0.25, 0.25], [3, 3, 0, 0.38, 0.7], [2, 0, 0, 0.9, 0.2], [0, 0, 0, 0.28, 0.8]],
+  industrial: [[6, 3, 0, 0.3, 0.75], [4, 3, 0, 0.35, 0.65], [0, 3, 0, 0.24, 0.55], [11, 3, 0, 0.65, 0.85]],
   acid: [[0, 0, 0, 0.35, 0.45], [5, 0, 1, 0.28, 0.8], [3, 0, 0, 0.4, 0.3], [6, 0, 0, 0.35, 0.75]],
   dub: [[0, 2, 0, 0.35, 0.55], [3, 1, 0, 0.5, 0.25], [5, 2, 0, 0.45, 0.7], [9, 1, 0, 0.4, 0.55]],
-  peak: [[4, 0, 0, 0.3, 0.65], [6, 3, 0, 0.3, 0.75], [0, 0, 0, 0.22, 0.6], [10, 3, 1, 0.8, 0.8]],
+  peak: [[4, 0, 0, 0.3, 0.65], [6, 3, 0, 0.3, 0.75], [0, 0, 0, 0.22, 0.6], [2, 3, 1, 0.8, 0.8]],
   hardtechno: [[0, 3, 0, 0.45, 0.22], [0, 3, 1, 0.6, 0.18], [2, 3, 0, 0.65, 0.2], [2, 3, 1, 0.8, 0.15]],
-  deephouse: [[7, 1, 0, 1.5, 0.25], [1, 1, 0, 0.9, 0.35], [8, 1, 0, 0.65, 0.75], [10, 1, 0, 1.4, 0.2]],
+  deephouse: [[1, 1, 0, 1.5, 0.25], [3, 1, 0, 0.9, 0.35], [1, 5, 0, 0.65, 0.75], [2, 1, 0, 1.4, 0.2]],
   // Minimal is a felt Rhodes, a recorded piano, a dark dub chord or a slow pad over a round, filtered bass:
   // no bells, plucks or guitar, which read as toys against its dry clicks.
   minimal: [[1, 1, 0, 0.6, 0.2], [7, 1, 0, 0.7, 0.3], [2, 1, 0, 0.6, 0.2], [2, 1, 1, 0.9, 0.15]],
-  ukg: [[3, 3, 0, 0.25, 0.45], [7, 1, 0, 0.75, 0.5], [5, 3, 1, 0.25, 0.85], [8, 2, 1, 0.4, 0.8]],
-  euphoric: [[7, 1, 0, 1.6, 0.25], [10, 1, 0, 1.8, 0.2], [2, 1, 0, 2.1, 0.15], [9, 0, 0, 0.65, 0.7]],
+  ukg: [[3, 3, 0, 0.25, 0.45], [5, 3, 0, 0.75, 0.5], [4, 2, 1, 0.25, 0.85], [1, 2, 1, 0.4, 0.8]],
+  euphoric: [[7, 1, 0, 1.6, 0.25], [10, 1, 0, 1.8, 0.2], [2, 1, 0, 2.1, 0.15], [4, 1, 0, 0.65, 0.7]],
   // Neo-soul is a Rhodes/piano/guitar band; strings pad the changes; the horn section honked.
   neosoul: [[7, 1, 0, 1.6, 0.2], [1, 1, 0, 1.4, 0.25], [13, 1, 0, 0.75, 0.7], [10, 1, 0, 1.4, 0.2]],
   boombap: [[9, 1, 0, 0.7, 0.6], [7, 1, 0, 1.2, 0.2], [8, 1, 0, 0.6, 0.75], [10, 1, 0, 1.1, 0.3]],
-  breaks: [[8, 0, 0, 0.6, 0.75], [5, 1, 1, 0.25, 0.85], [3, 0, 0, 0.55, 0.35], [7, 0, 1, 0.7, 0.5]],
+  breaks: [[8, 0, 0, 0.6, 0.75], [5, 1, 1, 0.25, 0.85], [3, 0, 0, 0.55, 0.35], [9, 1, 1, 0.7, 0.5]],
   electro: [[0, 0, 0, 0.25, 0.7], [6, 2, 0, 0.4, 0.75], [5, 2, 0, 0.2, 0.9], [4, 0, 0, 0.3, 0.65]],
-  dnb: [[10, 3, 0, 1.6, 0.25], [2, 3, 1, 1.8, 0.2], [7, 2, 1, 1.2, 0.45], [9, 3, 1, 0.55, 0.75]],
-  trance: [[5, 0, 0, 0.35, 0.85], [0, 0, 1, 0.14, 0.7], [7, 0, 1, 0.3, 0.35], [10, 0, 1, 1.2, 0.15]],
-  ambient: [[2, 1, 0, 2.4, 0.1], [10, 1, 1, 2.8, 0.15], [6, 1, 1, 2.2, 0.3], [7, 1, 1, 2.5, 0.15]],
+  dnb: [[10, 3, 0, 1.6, 0.25], [2, 3, 1, 1.8, 0.2], [1, 3, 1, 1.2, 0.45], [5, 3, 1, 0.55, 0.75]],
+  trance: [[5, 0, 0, 0.35, 0.85], [0, 0, 1, 0.14, 0.7], [2, 0, 1, 1.2, 0.35], [4, 0, 1, 1.2, 0.15]],
+  ambient: [[2, 1, 0, 2.4, 0.1], [10, 1, 1, 2.8, 0.15], [6, 1, 1, 2.2, 0.3], [1, 1, 1, 2.5, 0.15]],
   amapiano: [[7, 4, 0, 0.7, 0.35], [3, 4, 1, 0.55, 0.45], [8, 4, 0, 0.55, 0.8], [5, 4, 1, 0.25, 0.85]],
-  afrobeats: [[8, 2, 0, 0.55, 0.8], [9, 1, 0, 0.55, 0.65], [7, 1, 1, 0.7, 0.45], [3, 2, 0, 0.5, 0.5]],
-  reggaeton: [[8, 2, 0, 0.45, 0.8], [5, 2, 1, 0.22, 0.9], [9, 1, 0, 0.45, 0.7], [7, 2, 1, 0.55, 0.45]],
+  afrobeats: [[8, 2, 0, 0.55, 0.8], [9, 1, 0, 0.55, 0.65], [1, 2, 1, 0.7, 0.45], [5, 2, 0, 0.5, 0.5]],
+  reggaeton: [[8, 2, 0, 0.45, 0.8], [5, 2, 1, 0.22, 0.9], [9, 1, 0, 0.45, 0.7], [4, 2, 1, 0.55, 0.45]],
   bailefunk: [[4, 2, 0, 0.3, 0.75], [6, 2, 0, 0.25, 0.85], [8, 2, 0, 0.4, 0.8], [5, 3, 1, 0.2, 0.9]],
   trap: [[7, 2, 1, 0.75, 0.4], [6, 2, 0, 0.8, 0.7], [10, 2, 1, 1.5, 0.2], [8, 2, 1, 0.5, 0.8]],
   drill: [[10, 2, 1, 1.4, 0.2], [7, 2, 0, 0.9, 0.45], [9, 2, 0, 0.5, 0.75], [6, 2, 1, 0.65, 0.8]],
   jerseyclub: [[0, 2, 1, 0.2, 0.75], [4, 2, 0, 0.2, 0.7], [8, 2, 1, 0.4, 0.8], [6, 2, 1, 0.5, 0.85]],
-  hyperpop: [[8, 3, 1, 0.4, 0.85], [6, 2, 0, 0.3, 0.75], [10, 3, 1, 1.2, 0.2], [7, 2, 2, 0.65, 0.55]],
+  hyperpop: [[0, 3, 1, 0.4, 0.85], [6, 2, 0, 0.3, 0.75], [5, 2, 1, 1.2, 0.2], [11, 3, 2, 0.65, 0.55]],
   // The song genres are recorded bands: piano, guitars (clean, driven, acoustic, jazz archtop, banjo, Gretsch twang), electric or upright bass, live kit.
   pop: [[7, 5, 0, 1, 0.4], [7, 5, 1, 1.3, 0.3], [8, 5, 0, 0.8, 0.6], [1, 5, 1, 1.2, 0.35]],
   rnb: [[7, 5, 1, 1.6, 0.2], [1, 5, 1, 1.5, 0.25], [13, 5, 1, 0.8, 0.6], [1, 1, 1, 1.4, 0.25]],
@@ -735,6 +735,8 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   if (VARY[style]) master.vary = VARY[style];
   if (STYLE_POCKET[style]) { master.pocket = STYLE_POCKET[style]; master.humanize ??= POCKETS[master.pocket].hum; }
   if (['deephouse', 'ukg', 'euphoric'].includes(style)) master.kit ??= 2;
+  if (style === 'breaks') master.kit = 1;
+  if (style === 'dnb') master.kit = 3;
   const dm = defaultMaster();
   for (const k of Object.keys(dm)) if (k !== 'volume' && k !== 'dj') master[k] ??= dm[k];
   // Each scene has its own room. Urban and club-pop records are dry and in your face; only the
@@ -757,6 +759,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   params.stab.env = articulation;
   const ensembleLevel = [0.75, 0.78, 0.72, 0.78, 0.78, 0.8, 0.75, 0.9, 0.9, 0.9, 0.9, 0.85, 0.9, 0.9, 0.9, 0.9][stabVoice] ?? 0.9;
   params.stab.level = Math.max(params.stab.level ?? 0.42, ensembleLevel);
+  if (style === 'deephouse' && stabVoice === 3) params.stab.level = 0.48;
   const closeLevel = { 'jerseyclub:0': 0.52, 'jerseyclub:4': 0.55, 'hyperpop:6': 0.5 }[`${style}:${stabVoice}`];
   if (closeLevel) {
     params.stab.level = closeLevel;

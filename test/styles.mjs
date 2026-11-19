@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { generate, defaultState, applyOverrides, sanitize, arrangement, songChain } from '../js/state.js';
+import { generate, defaultState, applyOverrides, sanitize, arrangement, songChain, INSTRUMENTS } from '../js/state.js';
 
 for (const seed of [1, 7, 42, 1337]) {
   const g = generate('euphoric', seed, 'major');
@@ -91,6 +91,26 @@ console.log('live-kit settings do not leak into the next style passed');
   assert(all.size >= 6, 'genres use most stab instruments');
 }
 console.log('per-genre instrument palettes passed');
+{
+  const noPiano = ['deephouse', 'ukg', 'breaks', 'dnb', 'trance', 'ambient', 'afrobeats', 'reggaeton', 'hyperpop', 'industrial', 'peak', 'acid', 'hypnotic', 'electro', 'dub', 'jerseyclub', 'bailefunk'];
+  for (const style of noPiano) assert(INSTRUMENTS[style].every(([voice]) => voice !== 7), `${style} has no recorded piano`);
+  const palettes = Object.entries(INSTRUMENTS).map(([style, tuples]) => {
+    assert(tuples.length > 0, `${style} has an ensemble`);
+    return [style, new Set(tuples.map(([voice]) => voice))];
+  });
+  let worst = 0, total = 0, pairs = 0;
+  for (let i = 0; i < palettes.length; i++) for (let j = i + 1; j < palettes.length; j++) {
+    const [a, av] = palettes[i], [b, bv] = palettes[j];
+    const overlap = [...av].filter((voice) => bv.has(voice)).length / new Set([...av, ...bv]).size;
+    assert(overlap < 1, `${a}/${b} have identical chord-voice sets`);
+    assert(overlap <= 0.75, `${a}/${b} chord-voice Jaccard overlap ${overlap} exceeds 0.75`);
+    worst = Math.max(worst, overlap); total += overlap; pairs++;
+  }
+  for (const [style, kit] of [['breaks', 1], ['dnb', 3]]) for (const seed of [1, 7, 42, 1337]) {
+    assert.equal(generate(style, seed).master.kit, kit, `${style} uses its recorded drum kit`);
+  }
+  console.log(`electronic palettes: no piano; ${pairs} unique pairs; max Jaccard ${worst.toFixed(5)} <= 0.75; mean ${(total / pairs).toFixed(5)}`);
+}
 {
   const percs = new Set(Object.keys(STYLES).map((k) => generate(k, 3, 'minor').params.perc.voice));
   assert(percs.size >= 4, 'genres use several percussion instruments');
@@ -189,4 +209,3 @@ console.log('arrangement dynamics passed');
   assert([1, 2, 3, 4, 5, 6, 7, 8].some((seed) => gen('pop', seed).pattern.prog.map((h) => h.r).join() === '0,7,9,5'), 'pop has I-V-vi-IV');
   console.log('song genres (pop, r&b, rock, folk, country) passed');
 }
-
