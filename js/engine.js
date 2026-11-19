@@ -2,7 +2,7 @@ import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES, KIT_BACKBEAT } from './
 import { getSample } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
-import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
+import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND, HOOK_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel } from './groove.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ } from './lead.js';
@@ -22,11 +22,16 @@ const STAB_UNDER_VOICE = { n: 0.84, v: 0.78, b: 0.45 };
 // Lead voices balanced for a sung line, so the voice sits at the same level over the band whichever one sings it
 // (the reed is forward, the flute sits back). Songs with sections drop the verse by its section level, so
 // the verse is sung a little forward to stay on top of the band.
-const SUNG_VOICE = { reed: 0.6, flute: 1.3 };
+const SUNG_VOICE = { reed: 0.6, oboe: 0.6, flute: 1.3 };
 // The harp files are labeled an octave above the recorded strings. For the hook, map file IDs to measured pitch and trim the lead-in.
 const HARP_PLUCK = {
   47: [34.82, 0.026], 53: [40.91, 0.030], 60: [47.98, 0], 64: [51.94, 0.044], 71: [58.86, 0.028],
   77: [64.99, 0.006], 81: [68.91, 0], 84: [71.89, 0.002], 91: [78.95, 0.016],
+};
+// Wind takes: cents from the file's pitch, lead-in seconds to skip, gain trim in dB.
+const WIND_HOOK = {
+  oboe: { gain: 1.4, takes: { 58: [15, 0.048, 0], 62: [-4, 0.01, 0], 65: [-3, 0.01, 0], 70: [-3, 0.02, -2.3], 74: [1, 0, 1], 77: [3, 0.03, 0], 82: [6, 0, -1.5] } },
+  airflute: { gain: 1.15, takes: { 60: [1, 0.18, 3], 64: [-4, 0.11, 0], 69: [-18, 0.05, 0], 72: [-5, 0.01, 0], 76: [-5, 0.022, 0], 81: [-3, 0.022, -1.5], 84: [0, 0.043, 0] } },
 };
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
 const LIVE_REF = {
@@ -44,8 +49,8 @@ const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453;
 const EPS = 0.0001;
 const SAMPLE_FADE = 1;
 // Chord voices that sustain fill a breakdown on their own, so a smooth style only lifts the ones that decay.
-const HELD_CHORDS = new Set(['pad', 'organ', 'strings']);
-const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar'];
+const HELD_CHORDS = new Set(['pad', 'organ', 'strings', 'cello']);
+const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar', 'cello', 'clarinet'];
 const GRIPPED = new Set(['guitar', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar']);
 // Soft-knee, slightly asymmetric clipping: even harmonics like a pushed preamp tube.
 const AMP_CURVE = (() => { const n = 2048, c = new Float32Array(n); for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; c[i] = Math.tanh(x * 2.2 + 0.18) - Math.tanh(0.18); } return c; })();
@@ -171,6 +176,8 @@ const BAND_PLAY = {
   gtr: { gain: 4.4, len: 2.6, min: 0.6, softBelow: 0.75, strum: 0.006, shift: 0, lo: 40, hi: 74, lp: 2900, peak: [3600, 1.2, -6], soft: 1100, fade: 0.008, rel: 0.22, grip: true, even: 0.2 },
   horn: { gain: 2.2, len: 1.2, min: 0.25, strum: 0.003, shift: 12, lo: 53, hi: 81, lp: 4800, rel: 0.09 },
   str: { gain: 1.2, len: 2, min: 0.5, strum: 0, shift: 0, hold: true, lo: 55, hi: 79, lp: 4200, rel: 0.25 },
+  cello: { gain: 1.05, len: 0.7, max: 0.94, strum: 0, shift: 0, hold: true, lo: 51, hi: 75, lp: 2800, body: [420, 0.8, -3], fade: 0.02, rel: 0.17 },
+  cl: { gain: 1.15, len: 0.9, min: 0.32, max: 0.65, strum: 0, shift: 0, lo: 55, hi: 78, lp: 2650, body: [720, 0.9, -3], fade: 0.026, rel: 0.13 },
   // The hollow-body played through a cranked amp: power chords sustain, the cab rolls off the fizz.
   drive: { set: 'gtr', amp: true, gain: 3.2, len: 3.4, min: 0.18, strum: 0.004, shift: 0, lo: 40, hi: 64, lp: 5200, soft: 1800, fade: 0.008, rel: 0.12, grip: true, even: 0.15 },
   // Steel-string acoustic: a wider strum, bright top, long ring; the boxy low mids of the close mic dipped.
@@ -1597,14 +1604,16 @@ export class Engine {
     return m.get(key);
   }
 
-  // One shared EQ per destination for a player's body tone (instead of a filter on every string).
+  // Reuse a player's body EQ across notes without sharing it between instruments on the same strip.
   bodyFor(dest, [f, q, db]) {
     const all = (this.bodies ||= new Map());
-    if (!all.has(dest)) {
+    if (!all.has(dest)) all.set(dest, new Map());
+    const tones = all.get(dest), key = `${f}|${q}|${db}`;
+    if (!tones.has(key)) {
       const eq = this.filter('peaking', f, q);
-      eq.gain.value = db; eq.connect(dest); all.set(dest, eq);
+      eq.gain.value = db; eq.connect(dest); tones.set(key, eq);
     }
-    return all.get(dest);
+    return tones.get(key);
   }
 
   // A chorus pedal for clean funk and soul guitar: two slowly swept short delays spread left and right of the dry signal.
@@ -1822,6 +1831,8 @@ export class Engine {
   guitar(...a) { return this.recorded('gtr', 'pluck', ...a); }
   horns(...a) { return this.recorded('horn', 'brass', ...a); }
   strings(...a) { return this.recorded('str', 'pad', ...a); }
+  cello(...a) { return this.recorded('cello', 'pad', ...a); }
+  clarinet(...a) { return this.recorded('cl', 'keys', ...a); }
 
   brass(t, v, iv, root, p, out) {
     const c = this.ctx, gate = Math.max(0.08, p.decay * 0.8), end = t + gate + 0.4;
@@ -1965,12 +1976,30 @@ export class Engine {
     });
   }
 
+  windHook(set, t, v, m, dur, voice) {
+    const { gain, takes } = WIND_HOOK[voice];
+    const [pitch, buf] = set.reduce((best, take) => Math.abs(take[0] - m) < Math.abs(best[0] - m) ? take : best);
+    const [cents, offset, trim] = takes[pitch];
+    const out = this.trimOut(`hook-${voice}`, 1, this.hookBus || this.ch.stab.input, -4, 500);
+    return this.playBuf(buf, t, gain * Math.min(1, v) * dbGain(trim), this.bodyFor(out, [780, 1.2, -2.5]),
+      2 ** ((m - pitch - cents / 100) / 12), Math.max(0.06, dur * 0.92), {
+        lp: 2050 + 1400 * Math.min(1, v), offset, fade: 0.013, release: 0.055, ringOut: true,
+      });
+  }
+
   // Song hook: one lead note per call, snapped to the current chord on strong beats so it follows the changes.
   hook(t, v, n, dur, voice, oct = 0, strong = false, b = 1, up = false, expression = {}) {
     const c = this.ctx, p = this.state.params.stab, h = this.harm;
     v *= 1.3;
     n = hookSnap(n, h, p, strong, up);
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
+    const wind = Object.hasOwn(WIND_HOOK, voice);
+    if (wind) {
+      const name = HOOK_BAND[voice], set = this.rec(name);
+      if (set) return this.windHook(set, t, v, 60 + k + oct * 12 + n, dur, voice);
+      loadBand(name);
+      voice = 'reed';
+    }
     if (voice === 'harpplk') {
       const harp = this.rec('harp');
       if (harp) return this.harpHook(harp, t, v, 60 + k + oct * 12 + n, dur);
@@ -1985,8 +2014,8 @@ export class Engine {
     voice = { saw: 'analog', sq: 'pulse', flute: 'reed', bell: 'mallet', pluck: 'warm' }[voice] || voice;
     const warmth = expression.warmth ?? 0.5;
     // Genres on a recorded instrument let that player take the melody too; synth-pop leads stay synths.
-    const twang = pocketOf(this.state.master)?.walk && this.rec('gtr');
-    const band = twang ? 'gtr' : voice !== 'pulse' && STAB_BAND[Math.round(p.voice)], set = band && this.rec(band);
+    const twang = !wind && pocketOf(this.state.master)?.walk && this.rec('gtr');
+    const band = twang ? 'gtr' : !wind && voice !== 'pulse' && STAB_BAND[Math.round(p.voice)], set = band && this.rec(band);
     if (set) {
       const kind = twang ? 'twang' : Math.round(p.voice) === 11 ? 'lead' : band, R = BAND_PLAY[kind], ring = R.hold ? dur * 1.05 : Math.max(R.min * 0.6, dur * 1.5);
       let dest = this.hookBus || this.ch.stab.input;

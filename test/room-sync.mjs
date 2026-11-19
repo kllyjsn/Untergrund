@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { runInNewContext } from 'node:vm';
 import { createRoomClock, roomTransportPosition, shiftRoomSet, syncAudioClock, transportResync } from '../js/room-sync.js';
+import { freshSong, clone, sanitize, STYLES } from '../js/state.js';
+import { songFingerprint } from '../js/listen.js';
 
 const origin = 1_000_000;
 const close = (a, b) => assert(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
@@ -122,3 +126,66 @@ const rebasedOrigin = changeAt - currentStep * (15000 / newBpm);
 const before = (changeAt - oldOrigin) / (15000 / oldBpm);
 const after = (changeAt - rebasedOrigin) / (15000 / newBpm);
 close(before, after);
+
+const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+const joinSource = main.slice(main.indexOf('function joinRoomSet(item)'), main.indexOf('\nfunction startRoomBroadcast'));
+function roomJoin(change = () => {}, options = {}) {
+  const state = freshSong('hypnotic', 7, { length:'sketch', bpm:123 });
+  state.artist = {name:'Sync fixture', title:'Seed 7', style:'hypnotic', seed:7};
+  state.sing = {on:true, voice:'gwen', db:0, ms:0};
+  const item = {state:clone(state), startsAt:origin, style:'hypnotic', title:'New DJ'};
+  const calls = [];
+  const engine = {state, editableHits:[{}], vocalNow:{source:'continuous'}};
+  const seq = {s:state, origin:0, queued:null};
+  const sandbox = {state, engine, seq, playing:true, roomPlayback:true, roomEditor:true, artistLive:null, handoff:null, jamQueue:[],
+    transportOrigin:origin, style:'hypnotic', songOrigin:{}, STYLES, sanitize, clone, songFingerprint,
+    Date:{now:() => origin + 8000}, stopTimeline(){}, joinRoomReplay(){calls.push('replay');},
+    replaceState(){calls.push('replace');}, play(){calls.push('play');}, build(){}, persist(){}, syncNowPlaying(){}, toast(){},
+    setTimeout(){calls.push('timer');}, ...options};
+  change(item, sandbox);
+  const join = runInNewContext(`${joinSource}\njoinRoomSet`, sandbox);
+  join(item);
+  return {calls, sandbox, item, join};
+}
+{
+  const {calls, sandbox, item} = roomJoin((item, s) => {
+    item.state.artist.title = 'Same song, new DJ';
+    item.state.current = 1;
+    s.state.current = 2;
+    s.seq.origin = 64;
+    s.transportOrigin -= 64 * 15000 / s.state.bpm;
+    item.startsAt += .75;
+  });
+  assert.deepEqual(calls, [], 'same song and running origin do not stop or restart playback');
+  assert.equal(sandbox.state.artist.title, item.state.artist.title);
+  assert.equal(sandbox.state.current, 2, 'chain playback retains the current pattern');
+  assert.equal(sandbox.engine.state, sandbox.state);
+  assert.equal(sandbox.seq.s, sandbox.state);
+  assert.equal(sandbox.engine.vocalNow.source, 'continuous');
+  assert.equal(sandbox.roomEditor, false, 'the former DJ becomes a listener');
+  assert.equal(sandbox.engine.editableHits.length, 0);
+  sandbox.roomResume();
+  assert.deepEqual(calls, [], 'resuming the same active room does not rebuild its transport');
+}
+for (const change of [
+  (i) => { i.startsAt += 31; },
+  (i) => { i.state.bpm++; },
+  (i) => { i.state.patterns[0].steps.kick[0] = i.state.patterns[0].steps.kick[0] ? 0 : 1; },
+  (i) => { i.state.chain += 'B'; },
+  (i) => { i.state.params.kick.level = .01; },
+  (i) => { i.state.sing.on = false; },
+  (i) => { i.state.sing.voice = 'other'; },
+  (i) => { i.state.sing.ms = 100; },
+  (i) => { i.state.artist.seed++; },
+  (i) => { i.state.artist.style = i.style = 'hardtechno'; },
+  (i, s) => { s.playing = false; },
+  (i, s) => { s.roomPlayback = false; },
+  (i, s) => { s.artistLive = {}; },
+  (i, s) => { s.handoff = {}; },
+  (i, s) => { s.seq.queued = 1; },
+  (i, s) => { s.jamQueue.push({}); },
+  (i, s) => { i.state.chainOn = s.state.chainOn = false; i.state.current = 1; },
+]) assert.deepEqual(roomJoin(change).calls, ['replace', 'play'], 'changed music/origin or inactive transport takes the normal join path');
+assert.deepEqual(roomJoin(i => { delete i.state; }).calls, []);
+assert.deepEqual(roomJoin(i => { i.replay = {}; }).calls, ['replay']);
+console.log('Room continuity PASS: role-only rebroadcast retains vocal/scheduler; changed song, vocal, origin, queued edits, replay and stopped transport still join normally.');
