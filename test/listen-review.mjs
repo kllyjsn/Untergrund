@@ -23,6 +23,16 @@ assert.equal(compare((b) => { b.pcm.arcDb += 1.5; }).findings[1].status, 'better
 assert.equal(compare((b) => { b.songwriting.distinctSections -= 1; }).findings[2].status, 'worse');
 assert.equal(compare((b) => { b.mix.stereo.monoLossLu -= 0.5; }).findings[6].status, 'worse');
 assert.equal(compare((b) => { b.balance = null; b.pcm.gridErrorMs = null; }).findings[3].status, 'same');
+for (const missing of [null, undefined, NaN, Infinity]) {
+  for (const side of ['base', 'head']) {
+    const base = fixture(), head = fixture();
+    base.mix.loudness.deltaTarget = 3; head.mix.loudness.deltaTarget = 3;
+    (side === 'base' ? base : head).mix.loudness.deltaTarget = missing;
+    const finding = reviewTrack('missing-loudness', base, head).findings[5];
+    assert.equal(finding.status, 'same');
+    assert.match(finding.note, /not measured; no preference inferred/);
+  }
+}
 assert.equal(verdict([]), 'Ship');
 const judgment = (preference) => ({ preference, dimensions: DIMENSIONS.map((dimension) => ({ dimension, preference, note: 'Audible evidence' })) });
 assert.equal(orderAgreement(judgment('A'), judgment('B')), 'base');

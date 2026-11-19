@@ -2,6 +2,7 @@ export const REVIEW_IDS = ['hypnotic-techno', 'deep-house', 'neo-soul', 'boom-ba
 export const DIMENSIONS = ['Groove & timing', 'Arrangement & energy arc', 'Harmony/songwriting', 'Tonal balance vs genre target', 'Dynamics & punch', 'Loudness & headroom', 'Stereo image & mono compatibility'];
 export const THRESHOLDS = { timingMs: 5, arcDb: 1.5, songwriting: 1, balanceDb: 1.5, crestDb: 1.5, lra: 1.5, loudnessLu: 1, monoLu: 0.5, ceilingDb: -1 };
 const finite = Number.isFinite;
+const magnitude = (value) => finite(value) ? Math.abs(value) : null;
 const num = (v) => finite(v) ? v.toFixed(2) : 'unavailable';
 
 export function reviewTrack(id, base, head) {
@@ -21,7 +22,7 @@ export function reviewTrack(id, base, head) {
   if (finite(base.mix.loudness.lra) && finite(head.mix.loudness.lra) && head.mix.loudness.lra <= base.mix.loudness.lra - THRESHOLDS.lra) {
     dynamics.status = 'worse'; dynamics.severity = 'warning';
   }
-  compare(DIMENSIONS[5], Math.abs(base.mix.loudness.deltaTarget), Math.abs(head.mix.loudness.deltaTarget), THRESHOLDS.loudnessLu, false, `Distance from loudness target (LU); integrated ${num(base.mix.loudness.integrated)} → ${num(head.mix.loudness.integrated)} LUFS, true peak ${num(base.mix.peak.truePeakDb)} → ${num(head.mix.peak.truePeakDb)} dBTP, clip runs ${base.mix.peak.clipRuns} → ${head.mix.peak.clipRuns}`);
+  compare(DIMENSIONS[5], magnitude(base.mix.loudness.deltaTarget), magnitude(head.mix.loudness.deltaTarget), THRESHOLDS.loudnessLu, false, `Distance from loudness target (LU); integrated ${num(base.mix.loudness.integrated)} → ${num(head.mix.loudness.integrated)} LUFS, true peak ${num(base.mix.peak.truePeakDb)} → ${num(head.mix.peak.truePeakDb)} dBTP, clip runs ${base.mix.peak.clipRuns} → ${head.mix.peak.clipRuns}`);
   const safety = findings.at(-1);
   if (head.mix.peak.clipRuns > base.mix.peak.clipRuns || head.pcm.clips > base.pcm.clips || (head.mix.peak.truePeakDb > THRESHOLDS.ceilingDb && head.mix.peak.truePeakDb > base.mix.peak.truePeakDb + 0.05)) {
     safety.status = 'worse'; safety.severity = 'critical'; safety.note += ' Headroom safety regressed; pull the master back.';
