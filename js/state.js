@@ -379,7 +379,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.ride = range(STEPS, (i) => (i % 4 === 2 ? 1 : 0));
     Object.assign(params.ride, { decay: 0.5, tone: 7000, level: 0.22 });
     // A round bass with some edge for definition, barely resonant, the filter only opening a little on each note.
-    Object.assign(params.acid, { wave: 0.3, cutoff: 800, reso: 1.5, envmod: 0.3, decay: 0.12, drive: 0.1, accent: 0.1, level: 0.42 });
+    Object.assign(params.acid, { wave: 0.3, cutoff: 1400, reso: 1.5, envmod: 0.3, decay: 0.12, drive: 0.1, accent: 0.1, level: 0.42 });
     Object.assign(params.stab, { chord: pick(r, [1, 2, 3]), cutoff: 1900, reso: 0.4, decay: 0.45, env: 0.45, detune: 4, dly: 0.45, rev: 0.4 });
     master.duck = 0.3; master.revLevel = 0.35;
     swing = 0.04;
@@ -799,7 +799,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   }
   const hook = hookLine(r2, style, musicalScale);
   // Minimal keeps the techno hook's line but plays it on a warm filtered voice, not a square pulse.
-  if (hook && style === 'minimal') hook.v = 'warm';
+  if (hook && style === 'minimal') Object.assign(hook, { v: 'warm', o: -1 });
   if (hook) { P.hook = hook; P.hm = 2; }
   // One seeded idea per track, chosen from moves that fit any groove: an octave pop at the end of
   // the bass phrase, displaced percussion, or a chord that anticipates the beat. Sometimes restraint.
