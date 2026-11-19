@@ -1933,7 +1933,10 @@ export class Engine {
     tri.connect(lp); lp.connect(grit).connect(amp);
     sub.connect(subLevel).connect(amp);
     amp.connect(this.ch.acid.input);
-    for (const o of [tri, sub]) { this.startSource(o, t); o.stop(t + len + 0.3); }
+    const oscs = [tri, sub];
+    // An optional saw layer under the same filter gives the note upper harmonics the triangle lacks.
+    if (p.edge) { const saw = c.createOscillator(); saw.type = 'sawtooth'; saw.frequency.value = f; saw.connect(this.gain(p.edge)).connect(lp); oscs.push(saw); }
+    for (const o of oscs) { this.startSource(o, t); o.stop(t + len + 0.3); }
   }
 
   // Choke the previous mono voice; Reese and log drum reuse its pitch on slide steps.
