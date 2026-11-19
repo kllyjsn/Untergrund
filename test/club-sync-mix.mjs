@@ -45,6 +45,7 @@ export async function loadRealMixStem(s) {
   evidence.end = epoch();
   __clubAudio.stemWarm = { start: evidence.start, end: evidence.end };
   const processed = processedStem(buf, vocalFx(s), new OfflineAudioContext(1, 1, 48000));
+  globalThis.__clubExpectedStem = processed;
   const start = AudioBufferSourceNode.prototype.start;
   AudioBufferSourceNode.prototype.start = function (when = 0, offset = 0, ...rest) {
     if (this.buffer === processed) evidence.plays.push({ at: epoch(), when, offset });
@@ -87,7 +88,7 @@ export async function installMixStem(send, base, s) {
     globalThis.__clubMixStem = buf;
     globalThis.__clubMixReady = import('/js/vocal-chain.js').then(({processedStem}) => {
       const start = performance.timeOrigin + performance.now();
-      processedStem(buf, ${JSON.stringify(vocalFx(s))}, new OfflineAudioContext(1, 1, 48000));
+      globalThis.__clubExpectedStem = processedStem(buf, ${JSON.stringify(vocalFx(s))}, new OfflineAudioContext(1, 1, 48000));
       __clubAudio.stemWarm = {start, end:performance.timeOrigin + performance.now()};
     }).catch(e => __clubAudio.errors.push('Stem warm-up: ' + String(e)));
   })()` });
