@@ -497,6 +497,14 @@ export class Engine {
     }
   }
 
+  // A smooth style thins its chords below 420 Hz so they sit above the bass instead of on it.
+  smoothChords(on) {
+    this.smoothOn = on;
+    if (this.stripMode) return;
+    const shelf = this.ch.stab.strip[0];
+    shelf.frequency.value = on ? 420 : 120; shelf.gain.value = on ? -15 : 0;
+  }
+
   setParam(tid, id, v) { this.state.params[tid][id] = v; this.applyParam(tid, id); }
   setMaster(id, v) { this.state.master[id] = v; this.applyMaster(id); }
 
@@ -2441,6 +2449,7 @@ export class Sequencer {
     const sung = pat.hook?.m && !pat.hook.h ? this.sungBar(bar, n ? pos : bar) : null;
     const hookStep = sung ? this.songBars && !sung.hook.m.c && sung.notes.some((o) => o.at === i16 && i16 % 8) : pat.hook && pat.hm ? pat.hook.s[abs % 32] : 0;
     this.smooth = SMOOTH.has(s.artist?.style);
+    if (this.smooth !== !!e.smoothOn) e.smoothChords(this.smooth);
     if (this.dropNext && this.smooth) { if (i16 === 0) e.dropDip(t, 16 * sd); } else if (this.dropNext) {
       if (i16 === 0) e.sweep(t, 16 * sd, arr);
       if (i16 >= 8 && !s.mutes.snare) {
