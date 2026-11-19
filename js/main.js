@@ -326,7 +326,7 @@ function endTuning() {
   document.body.classList.remove('tuning');
 }
 
-function start({ step = 0, delay = 0.06, startsAt = null, room = startsAt !== null } = {}) {
+function start({ step = 0, delay = 0.06, startsAt = null, room = startsAt !== null || roomPlayback } = {}) {
   const seeking = playing;
   clearPaused();
   roomResume = null;
@@ -374,6 +374,7 @@ function stop() {
   clearTimeout(roomJoinTimer);
   roomJoinTimer = 0;
   playing = false;
+  roomPlayback = false;
   handoff = null;
   for (const q of jamQueue.splice(0)) applyPart(state, q.part, q.layer);
   guardPushOffer();
@@ -459,10 +460,11 @@ function pause(reason = 'remote') {
   const step = playing ? resumeStep({ next: abs, origin: seq.origin, ahead: nextTime - ctx.currentTime, stepSec: engine.stepDur, ended: songOver }) : 0;
   const live = artistLive && { ...artistLive, bar: -1 };
   const rejoin = roomResume;
+  const room = roomPlayback;
   listens.hold(listenPos());
   stop();
   paused = { step, reason, live, at: Date.now(), resume: rejoin || (() => {
-    play({ step });
+    play({ step, room });
     // Artist Live carries on with the same performer and seed.
     if (live && !artistLive && (playing || tuning)) { artistLive = live; state.chainOn = true; document.body.classList.add('artist-live'); build(); syncNowPlaying(); }
   }) };
