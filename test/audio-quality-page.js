@@ -121,9 +121,9 @@ async function stems(s, p, fromBar, toBar) {
   const onEngine = (e) => {
     r.onEngine(e);
     const trigger = e.trigger;
-    e.trigger = (id, t, v) => {
+    e.trigger = (id, t, ...args) => {
       if (id === 'kick') kicks.push(t);
-      return trigger.call(e, id, t, v);
+      return trigger.call(e, id, t, ...args);
     };
   };
   let buf;

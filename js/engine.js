@@ -451,9 +451,9 @@ export class Engine {
 
   // One sound per part for a whole song: while `recLock` is set (main.js sets it per song), a recording is used from
   // the first note that needs it or not at all, so a slow download never swaps a synth stand-in for it mid-song.
-  rec(name) {
+  rec(name, lockOnUse = true) {
     const got = liveSet(name), lock = this.recLock;
-    if (!lock) return got;
+    if (!lock || (!lockOnUse && !lock.has(name))) return got;
     if (!lock.has(name)) lock.set(name, !!got);
     return lock.get(name) ? got : null;
   }
@@ -777,7 +777,7 @@ export class Engine {
     return byKey[key];
   }
 
-  trigger(id, t, v) {
+  trigger(id, t, v, underHarp = false) {
     const kitMode = Math.round(this.state.master.kit || 0);
     if (kitMode === KIT_BACKBEAT && id === 'kick') this.backbeatKickAt = t;
     if (kitMode === KIT_BACKBEAT && id === 'snare') {
@@ -811,7 +811,7 @@ export class Engine {
       case 'oh': return this.hat(t, v, true);
       case 'ride': return this.ride(t, v);
       case 'perc': return this.perc(t, v);
-      case 'stab': return this.stab(t, v);
+      case 'stab': return this.stab(t, v, underHarp);
     }
   }
 
@@ -1327,7 +1327,7 @@ export class Engine {
     this.startSource(lfo, t); lfo.stop(end);
   }
 
-  stab(t, v) {
+  stab(t, v, underHarp = false) {
     const c = this.ctx, p = this.state.params.stab;
     const h = this.harm;
     const { root, notes, home } = stabNotes(this.state, h);
@@ -1336,7 +1336,13 @@ export class Engine {
     const vi = (GRIPPED.has(STAB_VOICES[vo]) ? notes : voiced).map((m) => m - root);
     const iv = this.wide && !GRIPPED.has(STAB_VOICES[vo]) && vi.length > 2 ? [...vi, Math.max(...vi) + 12] : vi, out = this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]);
     // A lifted breakdown plays decaying chords an octave up, filling it above the bass range it no longer shares.
-    if (vo > 0) return this[STAB_VOICES[vo]](t, v, this.smoothOn > 0 ? iv.map((m) => m + 12) : iv, root, p, out);
+    if (vo > 0) {
+      const pitches = this.smoothOn > 0 ? iv.map((m) => m + 12) : iv;
+      if (STAB_VOICES[vo] === 'bells' && underHarp && this.rec('harp', false)) {
+        return this.bells(t, v, pitches, root, { ...p, decay: p.decay * 0.57 }, this.harpBacking(out));
+      }
+      return this[STAB_VOICES[vo]](t, v, pitches, root, p, out);
+    }
     const lp = this.filter('lowpass', p.cutoff, p.reso);
     const amp = this.gain(0);
     const env = c.createConstantSource();
@@ -1360,6 +1366,17 @@ export class Engine {
     lp.connect(amp).connect(out);
     this.startSource(env, t); env.stop(end);
     this.retire(env, amp);
+  }
+
+  harpBacking(out) {
+    const tones = (this.harpBackingTones ||= new WeakMap());
+    if (!tones.has(out)) {
+      const space = this.filter('peaking', 1450, 0.42); space.gain.value = -4.5;
+      const shimmer = this.filter('highshelf', 1550); shimmer.gain.value = -2;
+      space.connect(shimmer).connect(out);
+      tones.set(out, space);
+    }
+    return tones.get(out);
   }
 
   // Slow-swelling ensemble: three detuned saws per note, filter opens with ENV, DECAY sets release.
@@ -2954,7 +2971,8 @@ export class Sequencer {
     if (id === 'vox') return { method: 'vox', args: [ht, vel, i], time: ht };
     if (band && id === 'snare' && (this.cur === 3 ? i16 >= 12 : i16 >= fillAt))
       return { method: 'tom', args: [ht, vel, i16 < 14], time: ht };
-    return { method: 'trigger', args: [id, ht, vel], time: ht };
+    const underHarp = id === 'stab' && n && pat.hook?.v === 'harpplk' && (sung ? sung.any : pat.hm);
+    return { method: 'trigger', args: underHarp ? [id, ht, vel, true] : [id, ht, vel], time: ht };
   }
 
   // With arrangement dynamics on (arr > 0), styles without humanized variation (vary 0, the techno family) develop their long runs by arrangement instead:

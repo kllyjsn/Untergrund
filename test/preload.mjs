@@ -43,6 +43,7 @@ const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
   const state = defaultState(), fallback = new Error('synth fallback'), hits = [];
   const ctx = new FakeContext(2, 4096, 48000);
   state.key = 0;
+  state.params.stab.voice = 6;
   state.patterns.at(-1).hook = { v: 'harpplk' };
   assert.deepEqual(liveSets(state), ['harp'], 'load a hook from any part of a saved song');
   const e = {
@@ -50,15 +51,19 @@ const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
     ctx, filter: Engine.prototype.filter,
     ch: { stab: { input: ctx.createGain() } }, soulBand: () => false,
     trimOut: (key, db, dest) => { if (key === 'hook-softmallet') throw fallback; return dest; },
-    playBuf: (...args) => hits.push(args),
+    playBuf: (...args) => hits.push(args), bells: () => {},
   };
   const hit = (voice = 'harpplk', note = 12, velocity = 0.5) => Engine.prototype.hook.call(e, 1, velocity, note, 0.3, voice);
+  const lateHarp = e.recLock;
+  Engine.prototype.stab.call(e, 0.5, 0.8, true);
+  assert.equal(lateHarp.has('harp'), false, 'a backing chord does not choose the hook timbre');
+  e.recLock = new Map();
   assert.throws(hit, (err) => err === fallback);
   await loadSets(liveSets(state));
   assert.deepEqual([...files].sort(), BAND.harp.map((n) => `harp_${n}.flac`).sort());
   assert.throws(hit, (err) => err === fallback, 'a late download does not change the hook during playback');
   assert.throws(() => hit('softmallet'), (err) => err === fallback, 'saved mallets do not switch to the harp');
-  e.recLock = new Map();
+  e.recLock = lateHarp;
   hit();
   assert.equal(hits.length, 1);
   const [, t, , dest, rate, dur, fx] = hits[0];
@@ -75,6 +80,39 @@ const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
   assert.equal(dur, 0.3 * 0.92);
   assert.equal(fx.offset, 0.002, 'trim just the lead-in before the pluck');
   files.clear();
+}
+{
+  const state = defaultState(), ctx = new FakeContext(2, 4096, 48000), out = ctx.createGain(), hits = [];
+  state.params.stab.voice = 6;
+  const e = {
+    state, ctx, rec: Engine.prototype.rec, recLock: new Map([['harp', false]]),
+    stab: Engine.prototype.stab, harpBacking: Engine.prototype.harpBacking, filter: Engine.prototype.filter,
+    ch: { stab: { input: out } }, trimOut: (key, db, dest) => dest,
+    soulBand: () => false, bells: (...args) => hits.push(args),
+  };
+  const hit = (underHarp) => Engine.prototype.trigger.call(e, 'stab', 1, 0.8, underHarp);
+  hit(true);
+  e.recLock = new Map();
+  hit(false);
+  hit(true);
+  hit(true);
+  for (const [, , , , p, dest] of hits.slice(0, 2)) {
+    assert.equal(p, state.params.stab, 'fallback and unaccompanied bells keep their original ring');
+    assert.equal(dest, out);
+  }
+  const [, , pitches, root, p, dest] = hits[2];
+  assert.deepEqual([pitches, root], hits[1].slice(2, 4), 'the backing uses the same chord voicing');
+  assert.ok(p.decay < state.params.stab.decay, 'the recorded harp gets a shorter bell tail');
+  assert.equal(dest, hits[3][5], 'backing chords reuse the presence cut');
+  assert.equal(out.inputs[0].inputs[0], dest);
+}
+{
+  const { pattern } = generate('drill', 8);
+  const i = pattern.steps.stab.findIndex(Boolean);
+  const hit = (pat) => Sequencer.prototype.gridHit.call({ s: { artist: { style: 'minimal' } } }, 'stab', pat,
+    { abs: i, tt: 1, bar: 0, i16: i, rp: -1, n: 16, hum: 0 });
+  assert.equal(hit(pattern).args[3], true, 'replayed harp arrangements do not depend on listener artist metadata');
+  assert.equal(hit({ ...pattern, hook: { ...pattern.hook, v: 'softmallet' } }).args.length, 3, 'saved synth hooks keep their bell backing');
 }
 {
   const state = st(KIT_BACKBEAT, 1), seen = [];
