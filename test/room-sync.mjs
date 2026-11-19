@@ -4,6 +4,7 @@ import { runInNewContext } from 'node:vm';
 import { createRoomClock, roomTransportPosition, shiftRoomSet, syncAudioClock, transportResync } from '../js/room-sync.js';
 import { freshSong, clone, sanitize, STYLES } from '../js/state.js';
 import { songFingerprint } from '../js/listen.js';
+import { createRoomMediaSync, roomMediaLead } from '../js/room-media-sync.js';
 
 const origin = 1_000_000;
 const close = (a, b) => assert(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
@@ -160,7 +161,7 @@ function roomJoin(change = () => {}, options = {}) {
   const calls = [], analytics = [], timers = [], starts = [];
   const engine = {state, editableHits:[{}], vocalNow:{source:'continuous'}, stepDur:.125};
   const seq = {s:state, origin:0, queued:null};
-  const sandbox = {state, engine, seq, playing:true, roomPlayback:true, roomEditor:true, artistLive:null, handoff:null, jamQueue:[],
+  const sandbox = {state, engine, seq, playing:true, roomPlayback:true, roomEditor:true, artistLive:null, handoff:null, jamQueue:[], mediaRoute:null,
     transportOrigin:origin, style:'hypnotic', songOrigin:{}, STYLES, sanitize, clone, songFingerprint,
     roomStatsItem:null, playbackSources:new WeakMap(), playbackStats:{end:(outcome) => analytics.push(outcome)},
     ctx:{currentTime:8}, abs:65, nextTime:8.125, recordPlayback:(source) => analytics.push(source),
@@ -229,3 +230,29 @@ for (const change of [
 assert.deepEqual(roomJoin(i => { delete i.state; }).calls, []);
 assert.deepEqual(roomJoin(i => { i.replay = {}; }).calls, ['replay']);
 console.log('Room continuity PASS: role-only rebroadcast retains vocal/scheduler; changed song, vocal, origin, queued edits, replay and stopped transport still join normally.');
+{
+  let builds = 0;
+  const { item, join, sandbox, calls } = roomJoin(i => Object.assign(i, { broadcastId: 'a:1', version: 1, by: 'a' }), {
+    mediaRoute: {}, roomMediaSync: createRoomMediaSync(), roomMediaLead, build: () => builds++,
+  });
+  assert.equal(builds, 1);
+  join({ ...item });
+  assert.equal(builds, 1, 'an already-playing media-route set is a complete no-op');
+  assert.equal(sandbox.roomStatsItem, item);
+  join({ ...item, by: 'b' });
+  assert.equal(builds, 2, 'role-only DJ handoff still reaches continuity handling');
+  const update = clone(item);
+  update.broadcastId = 'a:2'; update.version++;
+  update.state.patterns[0].steps.kick[0] = update.state.patterns[0].steps.kick[0] ? 0 : 1;
+  join(update);
+  assert.deepEqual(calls, ['replace', 'play'], 'UPDATE ROOM still applies changed music');
+}
+console.log('Room media joins PASS: duplicate ignored; DJ handoff and UPDATE ROOM still apply.');
+for (const mediaRoute of [null, {}]) {
+  let delay;
+  roomJoin(i => { i.startsAt += 9000; }, {
+    mediaRoute, roomMediaSync: createRoomMediaSync(), roomMediaLead,
+    setTimeout: (fn, wait) => { delay = wait; },
+  });
+  assert.equal(delay, mediaRoute ? 920 : 960, 'future listener starts wake early only on the media route');
+}

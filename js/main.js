@@ -24,6 +24,7 @@ import { dropCard, pushOffer, guardPushOffer } from './drop.js';
 import { initPush, onPushChange, recordDropPlay, shouldOffer } from './push.js';
 import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
 import { roomTransportPosition, syncAudioClock, transportResync } from './room-sync.js';
+import { createRoomMediaSync, roomMediaLead, roomMediaTime } from './room-media-sync.js';
 import { concertPanel, concertBar, preloadScore, scoreReady, loadPiano } from './concert.js';
 import { liveSets, loadSets, setsReady } from './livekit.js';
 import { closePractice } from './practice-ui.js';
@@ -115,6 +116,7 @@ function persist() { if (guest) return; clearTimeout(saveTimer); saveTimer = set
 // it uses the same media channel as music and video playback.
 let mediaUnlock = null;
 let mediaRoute = null;
+const roomMediaSync = createRoomMediaSync();
 let mediaIdle = 0;
 // Hidden or locked, timers can be throttled to about once a second.
 const BG_LEAD = 1.5;
@@ -177,18 +179,18 @@ function ensureAudio() {
 let songOver = false;
 function schedule(lead) {
   if (!playing || (songOver && !queuedRoomReplay)) return;
-  const ahead = typeof lead === 'number' ? lead : document.hidden ? BG_LEAD : roomPlayback ? ROOM_LEAD : 0.12;
+  const ahead = roomMediaSync.horizon(typeof lead === 'number' ? lead : document.hidden ? BG_LEAD : roomPlayback ? ROOM_LEAD : 0.12, roomPlayback, mediaRoute);
   const now = ctx.currentTime;
   if (roomEditor) engine.pruneEditableHits(now);
   const clock = syncAudioClock(clockOffset, Date.now() / 1000 - now);
   clockOffset = clock.offset;
-  const replayAt = queuedRoomReplay ? queuedRoomReplay.startsAt / 1000 - clockOffset : Infinity;
+  const replayAt = queuedRoomReplay ? roomMediaTime(queuedRoomReplay.startsAt / 1000 - clockOffset, roomPlayback, mediaRoute) : Infinity;
   if (songOver) {
     if (replayAt < now + ahead) switchRoomReplay(replayAt);
     return;
   }
   let base = 60 / state.bpm / 4, landed = null;
-  const target = transportOrigin / 1000 + abs * base - clockOffset;
+  const target = roomMediaTime(transportOrigin / 1000 + abs * base - clockOffset, roomPlayback, mediaRoute);
   const fix = transportResync(target, nextTime, now, base, clock.jumped, seq.origin - abs);
   let firstTime = fix?.firstTime;
   if (fix) {
@@ -368,7 +370,7 @@ function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room 
   abs = Math.max(0, Math.floor(step));
   if (handoff) { handoff = null; engine.handoffCancel(); }
   const wait = stepWall === null ? Math.max(0.01, delay) : (stepWall - wallNow) / 1000;
-  nextTime = switchAt ?? audioNow + wait;
+  nextTime = switchAt ?? roomMediaTime(audioNow + wait, room, mediaRoute);
   seq.startAt(abs, Math.max(audioNow, nextTime));
   state.current = seq.cur;
   songOver = false;
@@ -378,6 +380,7 @@ function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room 
   roomPlayback = room;
   roomEditor = room && editRoom;
   roomFirstNote = room && (startsAt > wallNow || stepWall > wallNow || switchAt !== null) ? nextTime : null;
+  roomMediaSync.start(room, mediaRoute);
   playing = true;
   if (replayStats || !trackingReplay) recordPlayback(replayStats || (!editRoom && playbackSources.get(state)), nextTime, abs);
   if (pat().score) preloadScore(pat().score);
@@ -975,6 +978,7 @@ async function joinRoomReplay(item) {
 }
 
 function joinRoomSet(item) {
+  if (mediaRoute && roomMediaSync.duplicate(item, playing, roomPlayback, mediaRoute)) return;
   queuedRoomReplay = roomReplayLoad = null;
   const sameSet = roomStatsItem === item;
   roomStatsItem = item;
@@ -1005,6 +1009,7 @@ function joinRoomSet(item) {
   const sync = () => {
     if (!continuous) play({ startsAt });
     else if (!sameSet) recordPlayback(playbackSources.get(state), ctx.currentTime, abs - Math.max(0, nextTime - ctx.currentTime) / engine.stepDur);
+    if (mediaRoute) roomMediaSync.remember(item);
     roomResume = () => joinRoomSet(item);
     syncNowPlaying();
     toast(`Synced to “${item.title || 'Live Machine Set'}”`);
@@ -1012,7 +1017,7 @@ function joinRoomSet(item) {
   const wait = startsAt - Date.now();
   // Prepare the graph with the same lookahead as room playback, not on the downbeat's deadline.
   const leadMs = continuous ? 40 : ROOM_LEAD * 1000;
-  if (wait > Math.max(50, leadMs)) roomJoinTimer = setTimeout(sync, wait - leadMs);
+  if (wait > Math.max(50, leadMs)) roomJoinTimer = setTimeout(sync, mediaRoute ? Math.max(0, wait - leadMs - roomMediaLead(true, mediaRoute) * 1000) : wait - leadMs);
   else sync();
 }
 
@@ -1032,7 +1037,7 @@ function startRoomBroadcast(startsAt) {
     return;
   }
   clearTimeout(roomJoinTimer);
-  roomJoinTimer = setTimeout(() => play({ startsAt, editRoom: true }), Math.max(0, startsAt - Date.now() - ROOM_LEAD * 1000));
+  roomJoinTimer = setTimeout(() => play({ startsAt, editRoom: true }), Math.max(0, startsAt - Date.now() - (mediaRoute ? ROOM_LEAD * 1000 + roomMediaLead(true, mediaRoute) * 1000 : ROOM_LEAD * 1000)));
 }
 
 function showClub({ room = '', intent = '' } = {}) {
