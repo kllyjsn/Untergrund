@@ -338,10 +338,10 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.perc = pad16(euclid(5, 16, Math.floor(r() * 16)));
     S.stab = pad16(pick(r, [[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1], [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]]));
     S.acid = range(STEPS, (i) => (i % 4 === 2 || i % 4 === 3 ? { on: true, n: 0, a: i % 4 === 2, s: false } : emptyAcidStep()));
-    Object.assign(params.kick, { tune: 52, decay: 0.38, drive: 1, punch: 0.9, click: 0.7, rumble: 0.85 });
+    Object.assign(params.kick, { tune: 52, decay: 0.38, drive: 1, punch: 0.9, click: 0.7, rumble: 0.68 });
     Object.assign(params.perc, { tune: 420, metal: 0.9, noise: 0.6, bend: 0.8 });
     Object.assign(params.acid, { wave: 0.9, cutoff: 300, reso: 10, envmod: 0.5, decay: 0.12, drive: 1 });
-    master.duck = 0.7; master.drive = 0.8;
+    master.duck = 0.7; master.drive = 0.48;
   } else if (style === 'deephouse') {
     S.ch = range(STEPS, (i) => (i % 4 === 2 ? 1 : 0));
     // A hand shaker playing every 16th; the HOUSE pocket decides which ones it leans on
