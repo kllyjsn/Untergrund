@@ -416,7 +416,7 @@ function recordPlayback(source, at, step) {
   if (!source) return;
   const { surface, trackId, genre, replay } = source;
   const score = !replay && pat()?.score ? compose(pat().score) : null;
-  const steps = score ? score.at.length : state.chainOn ? parseChain(state.chain).length * 16 : trackId ? 8 * 16 : 0;
+  const steps = score ? score.at.length : state.chainOn ? parseChain(state.chain).length * 16 : 0;
   const expectedSeconds = replay ? replay.duration / 1000 : (score ? score.tempo.reduce((a, b) => a + b, 0) : steps) * 15 / state.bpm;
   const from = replay ? (Date.now() - replay.startsAt) / replay.duration : steps ? (step - seq.origin) / steps : null;
   const progress = () => replay ? (Date.now() - replay.startsAt) / replay.duration : steps

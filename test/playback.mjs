@@ -115,15 +115,22 @@ async function scenario(label, kv) {
     player.end();
     assert.equal(sent.length, beforePrivacyChange, 'privacy changes suppress even the final checkpoint');
 
+    const beforeLoop = sent.length;
+    player.start({ surface: 'embed', trackId: track.id }, { ctx, at: 90, from: null, progress: () => null });
+    time(91); time(120); time(180);
+    player.end();
+    assert.deepEqual(sent.slice(beforeLoop).map((s) => s.outcome), ['playing', 'playing', 'playing', 'stop']);
+    assert(sent.slice(beforeLoop).every((s) => s.progress === null), 'an open-ended loop has no finish line');
+
     // Page exit flushes a final snapshot, and opted-out browsers don't send even on exit.
-    player.start({ surface: 'embed', genre: 'acid' }, { ...clock, at: 70 });
-    time(72); handlers.get('pagehide')();
+    player.start({ surface: 'embed', genre: 'acid' }, { ...clock, at: 181 });
+    time(182); handlers.get('pagehide')();
     assert.equal(sent.at(-1).outcome, 'stop');
     assert.notEqual(sent.at(-1).playId, start.playId);
     const sentBefore = sent.length;
     win.navigator.globalPrivacyControl = true;
     player.start({ surface: 'embed', genre: 'acid' }, clock);
-    time(100); handlers.get('pagehide')();
+    time(200); handlers.get('pagehide')();
     assert.equal(sent.length, sentBefore);
 
     const { body } = await report({ days: '7' });

@@ -59,7 +59,7 @@ async function play() {
     abs = 0; seq.cur = chain.length ? chain[0] : st.current; seq.chainPos = 0; seq.queued = null; seq.finished = false;
     next = ctx.currentTime + 0.08;
     const score = st.patterns[seq.cur]?.score ? compose(st.patterns[seq.cur].score) : null;
-    const steps = score ? score.at.length : (chain.length || (params.id ? 8 : 0)) * 16;
+    const steps = score ? score.at.length : chain.length * 16;
     const expectedSeconds = (score ? score.tempo.reduce((a, b) => a + b, 0) : steps) * 15 / st.bpm;
     analytics.start({ surface: 'embed', ...(params.code ? { genre: song.style } : { trackId: params.id }) },
       { ctx, at: next, from: steps ? 0 : null, expectedSeconds,
