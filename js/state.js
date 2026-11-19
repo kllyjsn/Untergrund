@@ -555,7 +555,10 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.ch = pad16([2, 0, 0, 1, 0, 0, 1, 0, 2, 0, 0, 1, 0, 0, 1]);
     S.perc = pad16([0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]);
     S.stab = pad16([1]);
-    S.acid = range(STEPS, (i) => ([0, 3, 6, 10, 12].includes(i) ? { on: true, n: pick(r, [0, 0, musicalScale[2], 12, musicalScale[4] - 12]), a: i === 0, s: i === 6 || i === 12 } : emptyAcidStep()));
+    S.acid = range(STEPS, (i) => ([0, 3, 6, 11, 12].includes(i) ? { on: true, n: pick(r, [0, 0, musicalScale[2], 12, musicalScale[4] - 12]), a: i === 0, s: i === 11 } : emptyAcidStep()));
+    // The pickup has to touch its destination, and octave doubles fold to the same 808 pitch.
+    const pitchClass = (n) => (n + 12) % 12;
+    if (pitchClass(S.acid[11].n) === pitchClass(S.acid[12].n)) S.acid[11].n = pitchClass(S.acid[12].n) ? 0 : 7;
     Object.assign(params.kick, { tune: 50, decay: 0.28, drive: 0.35, punch: 0.75, click: 0.45, rumble: 0 });
     Object.assign(params.snare, { tune: 230, snappy: 0.85, decay: 0.16 });
     Object.assign(params.perc, { tune: 800, decay: 0.05, metal: 0.6 });
