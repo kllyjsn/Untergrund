@@ -23,7 +23,7 @@ console.log('seeded hooks passed');
 // Separate players, including when the chord ensemble picks a recorded instrument.
 for (const [style, hook, bass] of [
   ['hypnotic', 'softresonator', 7], ['industrial', 'metalstrike', 6], ['acid', 'acidlead', 0],
-  ['peak', 'ravestack', null], ['electro', 'robotformant', 7], ['hardtechno', 'analog', 3], ['trap', null, 2],
+  ['peak', 'ravestack', 8], ['electro', 'robotformant', 7], ['trance', null, 9], ['hardtechno', 'analog', 3], ['trap', null, 2],
 ]) {
   for (const seed of [11, 42, 73, 211, 997, 1234]) {
     const g = generate(style, seed);
@@ -335,7 +335,10 @@ console.log('genre signatures passed');
       for (let seed = 1; seed <= 24; seed++) assert(generate(style, seed).pattern.steps.stab.some(Boolean), `${style} ensembles need audible chord steps`);
     }
     for (let seed = 1; seed <= 24; seed++) {
-      assert.equal(generate('trance', seed).params.acid.voice, 0, 'trance must keep its rolling 303');
+      const trance = generate('trance', seed);
+      assert.equal(trance.params.acid.voice, 9, 'trance uses the pluck bass');
+      assert(trance.params.acid.decay <= 0.05, 'trance pluck must leave space between the sixteenths');
+      assert(trance.pattern.steps.acid.every((step, i) => step.on === (i % 4 !== 0) && step.a === (i % 4 === 2)), 'trance keeps the rolling offbeat line');
       assert.notEqual(generate('electro', seed).params.acid.voice, 3, 'electro must not borrow the DnB Reese');
       assert.equal(generate('ambient', seed).params.acid.voice, 1, 'ambient bass must avoid an 808 pitch knock');
       const ukg = generate('ukg', seed);

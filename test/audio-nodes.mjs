@@ -105,11 +105,39 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   player.discardQueuedNotes(ctx.currentTime);
   assert.deepEqual(events, [['ringing', 'start', 1], ['queued', 'start', 2, 0.4, 0.2], ['queued', 'stop', 1.5]]);
 
+  for (const [voice, wide] of [[8, true], [9, false]]) {
+    const ctx = fakeCtx(), state = defaultState();
+    Object.assign(state.params.acid, { voice, decay: wide ? 0.11 : 0.044 });
+    const e = new Engine(ctx, state);
+    const bank = e.buildHarmonicBass(wide), gain = bank.amp.gain, events = [];
+    e.gatedBasses.set(voice, bank);
+    const record = (kind) => (value, time) => events.push({ kind, value, time });
+    gain.setTargetAtTime = record('target');
+    gain.linearRampToValueAtTime = record('ramp');
+    gain.cancelScheduledValues = time => {
+      for (let i = events.length - 1; i >= 0; i--) if (events[i].time >= time) events.splice(i, 1);
+    };
+    const step = { n: 0, a: false };
+    e.acid(1, step, false, true, 0.1, 1.15);
+    assert.deepEqual(events.at(-1), { kind: wide ? 'target' : 'ramp', value: 0, time: wide ? 1.15 : 1.044 });
+    if (wide) {
+      assert.equal(bank.detunes.length, 2);
+      for (const [i, detune] of bank.detunes.entries()) {
+        detune.setValueAtTime = (value) => assert(value * (i ? 1 : -1) >= 10, 'Reese saws detune in opposite directions');
+      }
+    }
+    e.acid(1.15, step, true, false, 0.1);
+    ctx.currentTime = 1.1;
+    e.panic();
+    assert.deepEqual(events.at(-1), { kind: 'target', value: 0, time: 1.1 }, 'Stop discards queued bass envelopes');
+  }
+
   {
     const ctx = fakeCtx(), state = defaultState();
     state.params.acid.voice = 7;
     const e = new Engine(ctx, state);
-    const pulse = e.pulseVoice = e.buildPulseBass(), gain = pulse.amp.gain;
+    const pulse = e.buildPulseBass(), gain = pulse.amp.gain;
+    e.gatedBasses.set(7, pulse);
     let automation = [];
     gain.setTargetAtTime = (value, time, tc) => automation.push({ value, time, tc });
     gain.cancelScheduledValues = time => { automation = automation.filter(event => event.time < time); };

@@ -73,6 +73,7 @@ const PHRASES = [
   [/electric\s+piano|e[\s-]piano|fender\s+rhodes|wurlitzer|wurli/g, ' rhodes '], [/log[\s-]?drums?/g, ' logdrum '],
   [/acid\s+bass|\b303\b/g, ' acidbass '], [/(?:double|upright|live|bass)\s+(?:bass|guitar)/g, ' livebass '],
   [/\bfm[\s-]+bass\b/g, ' fmbass '], [/\bpulse[\s-]+bass\b/g, ' pulsebass '],
+  [/\bwide[\s-]+reese(?:[\s-]+bass)?\b/g, ' widereese '], [/\bpluck[\s-]+bass\b/g, ' pluckbass '],
   [/\b808s?\b/g, ' eightoheight '],
   [/open[\s-]hi[\s-]?hats?|open[\s-]hats?/g, ' openhat '], [/(?:closed[\s-])?hi[\s-]?hats?/g, ' hats '], [/bass[\s-]?drums?/g, ' kick '],
   [/robert\s+glasper/g, ' glasper '], [/j\.?\s*dilla/g, ' dilla '],
@@ -214,6 +215,8 @@ add(bassVoice(4), 'logdrum');
 add(bassVoice(5), 'electricbass', 'bassguitar');
 add(bassVoice(6), 'fmbass');
 add(bassVoice(7), 'pulsebass');
+add(bassVoice(8), 'widereese');
+add(bassVoice(9), 'pluckbass');
 const kit = (v) => ({ k: 'kit', v });
 add(kit(1), 'livekit'); add(kit(0), 'machinekit');
 for (const id of Object.keys(SCALES)) W[id] = { k: 'scale', v: id };
@@ -310,7 +313,7 @@ add(complaint('cluttered'), 'cluttered', 'messy', 'crowded', 'chaotic', 'clutter
 add(complaint('dull'), 'dull');
 
 const VOICE_NAMES = ['synth', 'Rhodes keys', 'pads', 'organ', 'brass', 'plucks', 'bells', 'piano', 'guitar', 'horns', 'strings', 'overdriven guitar', 'acoustic guitar', 'jazz guitar', 'banjo', 'twangy guitar', 'cello', 'clarinet'];
-const BASS_NAMES = ['303 acid bass', 'bass guitar', '808 bass', 'reese bass', 'log drum', 'electric bass', 'FM bass', 'pulse bass'];
+const BASS_NAMES = ['303 acid bass', 'bass guitar', '808 bass', 'reese bass', 'log drum', 'electric bass', 'FM bass', 'pulse bass', 'wide Reese bass', 'pluck bass'];
 const TRACK_WORD = { drums: 'drums', melody: 'melody', kick: 'kick', clap: 'claps', snare: 'snare', ch: 'hats', oh: 'open hats', ride: 'ride', perc: 'percussion', acid: 'bass', stab: 'chords', vox: 'vocals' };
 
 // Bundles: moods, scenes and artists expand into the same primitive edits (a = signed amount).

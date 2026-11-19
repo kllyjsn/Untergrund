@@ -163,7 +163,7 @@ const INSTRUMENTS = {
   industrial: [[6, 6, 0, 0.3, 0.75], [4, 6, 0, 0.35, 0.65], [0, 6, 0, 0.24, 0.55], [10, 6, 0, 0.65, 0.85]],
   acid: [[0, 0, 0, 0.35, 0.45], [5, 0, 1, 0.28, 0.8], [3, 0, 0, 0.4, 0.3], [6, 0, 0, 0.35, 0.75]],
   dub: [[0, 2, 0, 0.35, 0.55], [3, 1, 0, 0.5, 0.25], [5, 2, 0, 0.45, 0.7], [9, 1, 0, 0.4, 0.55]],
-  peak: [[4, 0, 0, 0.3, 0.65], [6, 3, 0, 0.3, 0.75], [0, 0, 0, 0.22, 0.6], [10, 3, 1, 0.8, 0.8]],
+  peak: [[4, 8, 0, 0.3, 0.65], [6, 8, 0, 0.3, 0.75], [0, 8, 0, 0.22, 0.6], [10, 8, 1, 0.8, 0.8]],
   hardtechno: [[0, 3, 0, 0.45, 0.22], [0, 3, 1, 0.6, 0.18], [2, 3, 0, 0.65, 0.2], [2, 3, 1, 0.8, 0.15]],
   deephouse: [[7, 1, 0, 1.5, 0.25], [1, 1, 0, 0.9, 0.35], [8, 1, 0, 0.65, 0.75], [10, 1, 0, 1.4, 0.2]],
   // Minimal is a felt Rhodes, a recorded piano, a dark dub chord or a slow pad over a round, filtered bass:
@@ -177,7 +177,7 @@ const INSTRUMENTS = {
   breaks: [[8, 0, 0, 0.6, 0.75], [5, 1, 1, 0.25, 0.85], [3, 0, 0, 0.55, 0.35], [7, 0, 1, 0.7, 0.5]],
   electro: [[0, 7, 0, 0.25, 0.7], [6, 7, 0, 0.4, 0.75], [5, 7, 0, 0.2, 0.9], [4, 7, 0, 0.3, 0.65]],
   dnb: [[10, 3, 0, 1.6, 0.25], [2, 3, 1, 1.8, 0.2], [7, 2, 1, 1.2, 0.45], [9, 3, 1, 0.55, 0.75]],
-  trance: [[5, 0, 0, 0.35, 0.85], [0, 0, 1, 0.14, 0.7], [7, 0, 1, 0.3, 0.35], [10, 0, 1, 1.2, 0.15]],
+  trance: [[5, 9, 0, 0.35, 0.85], [0, 9, 1, 0.14, 0.7], [7, 9, 1, 0.3, 0.35], [10, 9, 1, 1.2, 0.15]],
   ambient: [[2, 1, 0, 2.4, 0.1], [10, 1, 1, 2.8, 0.15], [6, 1, 1, 2.2, 0.3], [7, 1, 1, 2.5, 0.15]],
   amapiano: [[7, 4, 0, 0.7, 0.35], [3, 4, 1, 0.55, 0.45], [8, 4, 0, 0.55, 0.8], [5, 4, 1, 0.25, 0.85]],
   afrobeats: [[8, 2, 0, 0.55, 0.8], [9, 1, 0, 0.55, 0.65], [7, 1, 1, 0.7, 0.45], [3, 2, 0, 0.5, 0.5]],
@@ -320,7 +320,7 @@ function generatePattern(style, seed, scaleName, starter) {
     S.stab = pad16(pick(r, [[0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1], [1, 0, 0, 0, 0, 0, 0, 1]]));
     S.acid = acidLine(r, { density: 0.8, scale: [0, 0, ...musicalScale], accent: 0.4, slide: 0.15, jump: 0.3 });
     Object.assign(params.kick, { tune: 50, decay: 0.42, drive: 0.75, punch: 0.75, rumble: 0.4, click: 0.45 });
-    Object.assign(params.acid, { wave: 0.56, cutoff: 505, reso: 4.6, envmod: 0.46, decay: 0.095, accent: 0.4, drive: 0.44 });
+    Object.assign(params.acid, { wave: 0.72, cutoff: 660, reso: 1.5, envmod: 0.24, decay: 0.11, accent: 0.4, drive: 0.22 });
     master.duck = 0.5; master.drive = 0.45;
   } else if (style === 'euphoric') {
     const twoStep = r() < 0.5;
@@ -483,7 +483,7 @@ function generatePattern(style, seed, scaleName, starter) {
     S.stab = range(STEPS, (i) => (i % 2 === 0 ? (i % 4 === 0 ? 2 : 1) : 0));
     Object.assign(params.kick, { tune: 49, decay: 0.45, drive: 0.4, punch: 0.65 });
     Object.assign(params.stab, { chord: pick(r, [0, 4, 7]), octave: 1, cutoff: 3200, reso: 6, decay: 0.12, env: 0.4, detune: 34, rev: 0.45, dly: 0.35 });
-    Object.assign(params.acid, { wave: 0.16, tune: 12, cutoff: 410, reso: 6.4, envmod: 0.42, decay: 0.055, drive: 0.16 });
+    Object.assign(params.acid, { wave: 0.35, cutoff: 160, reso: 2, envmod: 0.66, decay: 0.044, accent: 0.4, drive: 0.08 });
     master.duck = 0.75; master.revLevel = 0.75; master.dlyTime = 2; master.dlyFb = 0.45;
   } else if (style === 'ambient') {
     S.kick = range(STEPS, () => 0);

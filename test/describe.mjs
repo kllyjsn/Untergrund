@@ -23,7 +23,7 @@ function songFor(style, seed = 7) {
 const same = (a, b) => a === b || (Array.isArray(a) && JSON.stringify(a) === JSON.stringify(b));
 const has = (edits, want) => want.every((w) => edits.some((e) => Object.entries(w).every(([k, v]) => same(e[k], v))));
 
-for (const [phrase, voice] of [['add FM bass', 6], ['add pulse bass', 7]]) {
+for (const [phrase, voice] of [['add FM bass', 6], ['add pulse bass', 7], ['add wide reese bass', 8], ['add pluck bass', 9]]) {
   t(phrase, () => {
     const { edits } = parse(phrase);
     assert(has(edits, [{ id: 'bassVoice', value: voice }]));
