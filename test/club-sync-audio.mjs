@@ -11,7 +11,12 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
     localStorage.setItem('untergrund.v1', JSON.stringify(fixture));
     localStorage.setItem('untergrund.made', '1');
   }
-  const tap = globalThis.__clubAudio = { samples: [], anchors: [], errors: [], routes: [], requests: [], lifecycle: [], sources: [], playbackStats: [] };
+  const tap = globalThis.__clubAudio = { samples: [], anchors: [], anchorPolls: [], errors: [], routes: [], requests: [], lifecycle: [], sources: [], playbackStats: [] };
+  tap.longTasks = [];
+  new PerformanceObserver(list => {
+    for (const e of list.getEntries()) tap.longTasks.push({ at: performance.timeOrigin + e.startTime, duration: e.duration });
+  }).observe({ type: 'longtask', buffered: true });
+  if (mix) globalThis.__clubPCM = { mix: [], vocal: [] };
   if (mix) tap.channels = { kick: { samples: [] }, vocal: { samples: [] } };
   const epoch = () => performance.timeOrigin + performance.now();
   const contexts = [];
@@ -64,14 +69,23 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
       tap.lifecycle.push({ name, at: epoch(), visibility: document.visibilityState, clocks: contexts.map(clock) });
     });
   const connect = AudioNode.prototype.connect;
+  if (mix) globalThis.__clubNativeConnect = connect;
   const taps = new WeakMap();
   const code = `class Tap extends AudioWorkletProcessor {
-    constructor(options) { super(); this.isolated = !!options.processorOptions?.isolated; this.low = 0; this.vi = 0; this.vq = 0; this.rows = []; }
+    constructor(options) { super(); this.isolated = !!options.processorOptions?.isolated; this.capture = !!options.processorOptions?.capture; this.pcm = new Float32Array(8192); this.used = 0; this.low = 0; this.vi = 0; this.vq = 0; this.rows = []; }
     process(inputs, outputs) {
       const input = inputs[0], output = outputs[0];
       for (let c = 0; c < output.length; c++) output[c].set(input[c] || input[0] || new Float32Array(128));
       let energy = 0, band = 0, vocal = 0;
       const x = input[0];
+      if (this.capture) {
+        if (!this.used) this.frame = currentFrame;
+        this.pcm.set(x || new Float32Array(128), this.used); this.used += 128;
+        if (this.used === this.pcm.length) {
+          this.port.postMessage({pcm:this.pcm, frame:this.frame, sampleRate}, [this.pcm.buffer]);
+          this.pcm = new Float32Array(8192); this.used = 0;
+        }
+      }
       if (x) for (let i = 0; i < x.length; i++) {
         this.low += (1 - Math.exp(-2 * Math.PI * 180 / sampleRate)) * (x[i] - this.low);
         energy += this.isolated ? x[i] * x[i] : this.low * this.low;
@@ -99,9 +113,9 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
     channel.edge = { name, source:source.constructor.name, at:epoch(), line:graph[name] };
     if (name === 'kick') kickNodes.add(source);
     entry.ready.then(() => {
-      const node = new AudioWorkletNode(ctx, 'club-tap', { outputChannelCount:[2], processorOptions:{isolated:true} });
+      const node = new AudioWorkletNode(ctx, 'club-tap', { outputChannelCount:[2], processorOptions:{isolated:true, capture:name === 'vocal'} });
       const mute = ctx.createGain(); mute.gain.value = 0;
-      node.port.onmessage = ({data}) => channel.samples.push(...data);
+      node.port.onmessage = ({data}) => data.pcm ? __clubPCM[name].push(data) : channel.samples.push(...data);
       connect.call(source, node); connect.call(node, mute); connect.call(mute, ctx.destination);
       channel.ready = true;
     }).catch(e => tap.errors.push(String(e)));
@@ -132,12 +146,13 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
       const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
       entry.ready = ctx.audioWorklet.addModule(url).then(() => {
         URL.revokeObjectURL(url);
-        const node = new AudioWorkletNode(ctx, 'club-tap', { outputChannelCount: [2] });
-        node.port.onmessage = ({ data }) => tap.samples.push(...data);
+        const node = new AudioWorkletNode(ctx, 'club-tap', { outputChannelCount: [2], processorOptions:{capture:mix} });
+        node.port.onmessage = ({ data }) => data.pcm ? __clubPCM.mix.push(data) : tap.samples.push(...data);
         connect.call(gain, node); connect.call(node, dest);
         entry.node = node;
       }).catch(e => tap.errors.push(String(e)));
       setInterval(() => {
+        tap.anchorPolls.push({ at: epoch(), contextTime: ctx.currentTime, state: ctx.state, visibility: document.visibilityState });
         samplePlayback(ctx);
         const t = ctx.getOutputTimestamp();
         if (t.contextTime > 0 && t.performanceTime > 0)

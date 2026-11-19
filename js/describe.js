@@ -74,6 +74,7 @@ const PHRASES = [
   [/acid\s+bass|\b303\b/g, ' acidbass '], [/(?:double|upright|live|bass)\s+(?:bass|guitar)/g, ' livebass '],
   [/\bfm[\s-]+bass\b/g, ' fmbass '], [/\bpulse[\s-]+bass\b/g, ' pulsebass '],
   [/\bwide[\s-]+reese(?:[\s-]+bass)?\b/g, ' widereese '], [/\bpluck[\s-]+bass\b/g, ' pluckbass '],
+  [/\b(bass(?:\s+voice)?\s+(?:to|sound\s+like))\s+(?:an?\s+)?(?:uk[\s-]+)?drill[\s-]+808s?\b/g, '$1 eightoheight '],
   [/\b808s?\b/g, ' eightoheight '],
   [/open[\s-]hi[\s-]?hats?|open[\s-]hats?/g, ' openhat '], [/(?:closed[\s-])?hi[\s-]?hats?/g, ' hats '], [/bass[\s-]?drums?/g, ' kick '],
   [/robert\s+glasper/g, ' glasper '], [/j\.?\s*dilla/g, ' dilla '],

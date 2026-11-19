@@ -1,6 +1,93 @@
 import assert from 'node:assert/strict';
-import { mixFixture, mixBoundaries, mixGraphEdges, channelEnvelope, analyzeMix, matchEvents, realignment, phraseOnsets, boundaryMetric, mixFailures, underrunEvidence, kickAttribution } from './club-sync-mix.mjs';
+import { mixFixture, realMixFixture, popHandoffTargetAt, mixBoundaries, mixGraphEdges, channelEnvelope, analyzeMix, matchEvents, realignment, phraseOnsets, boundaryMetric, mixFailures, underrunEvidence, kickAttribution } from './club-sync-mix.mjs';
+import { singRequest } from '../js/sing.js';
+import { sanitize } from '../js/state.js';
 import { postResumeEnvelope, onsets } from './club-sync-audio.mjs';
+import { gridKicks, vocalMetrics, sustainedRecovery, vocalFindings, windowOffset, clipRange, floatWav, levelMatchClips } from './club-sync-vocals.mjs';
+
+const bin = 4, expectedVoice = new Float64Array(8000);
+assert.deepEqual(clipRange(10000, 40000), {from:6000,to:40000});
+assert.ok(clipRange(10000, 40000).to >= 10000 + 28000);
+assert.throws(() => clipRange(10000, 10000), RangeError);
+assert.throws(() => clipRange(10000, NaN), RangeError);
+for (let p = 0; p < 9; p++) {
+  for (let t = 0; t < 1000; t += bin) {
+    const at = 1000 + p * 3000 + t;
+    expectedVoice[at / bin] = .2 + .08 * Math.sin(t * (.009 + p * .007)) + .07 * Math.sin(t * (.019 + p * .011));
+  }
+}
+const kickOffsets = Array.from({length:64}, (_, i) => ({at:i * 500, offsetMs:12}));
+const measureVoice = rendered => vocalMetrics({expected:expectedVoice, rendered, kickOffsets, from:0, to:30000, marker:6000, baselineMs:-12});
+const cleanVoice = measureVoice(expectedVoice);
+assert.equal(cleanVoice.vocalVsKick.medianMs, -12);
+assert.equal(cleanVoice.gaps.count, 0);
+assert.equal(cleanVoice.phrases.missing, 0);
+assert.equal(cleanVoice.phrases.doubled, 0);
+assert.equal(cleanVoice.absoluteGridRecoveryMs, 5000);
+assert.ok(cleanVoice.recoveryMs >= 700 && cleanVoice.recoveryMs < 2000);
+const recoveryWindows = Array.from({length:8}, (_, i) => ({start:i * 100, end:i * 100 + 500, activeMs:500, vocalVsKickMs:-20}));
+assert.equal(sustainedRecovery(recoveryWindows, [], -20, 0), 700);
+assert.equal(sustainedRecovery(recoveryWindows, [], null, 0), null);
+assert.equal(sustainedRecovery(recoveryWindows.map(w => ({...w,vocalVsKickMs:20})), [], -20, 0), null);
+assert.equal(sustainedRecovery(recoveryWindows, [{startMs:200,durationMs:40}], -20, 0), 1000);
+assert.equal(sustainedRecovery(recoveryWindows.map(w => ({...w,vocalVsKickMs:null})), [], -20, 0), null);
+assert.deepEqual(vocalFindings([{after:cleanVoice}]), []);
+const offsetVoice = new Float64Array(expectedVoice.length);
+offsetVoice.set(expectedVoice.subarray(0, -10), 10);
+assert.equal(measureVoice(offsetVoice).vocalGrid.medianMs, 40);
+assert.equal(measureVoice(offsetVoice).vocalVsKick.medianMs, 28);
+assert.equal(measureVoice(offsetVoice).recoveryMs, null);
+assert.ok(vocalFindings([{after:measureVoice(offsetVoice)}]).includes('host vocal offset'));
+assert.ok(vocalFindings([{after:measureVoice(offsetVoice)}]).includes('host vocal recovery unproven'));
+const gapVoice = expectedVoice.slice(); gapVoice.fill(0, 1240 / bin, 1440 / bin);
+assert.ok(measureVoice(gapVoice).gaps.intervals.some(g => g.durationMs === 200 && g.startMs === -4760));
+const missingVoice = expectedVoice.slice(); missingVoice.fill(0, 4000 / bin, 5000 / bin);
+assert.equal(measureVoice(missingVoice).phrases.missing, 1);
+const displacedVoice = expectedVoice.slice(); displacedVoice.fill(0, 4000 / bin, 5000 / bin);
+displacedVoice.set(expectedVoice.subarray(4000 / bin, 5000 / bin), 4400 / bin);
+assert.ok(measureVoice(displacedVoice).phrases.events.some(p => p.start === 4000 && p.status === 'displaced'));
+const doubledVoice = expectedVoice.slice(); doubledVoice.set(expectedVoice.subarray(4000 / bin, 5000 / bin), 5400 / bin);
+assert.ok(measureVoice(doubledVoice).phrases.events.some(p => p.start === 4000 && p.status === 'doubled'));
+assert.ok(measureVoice(doubledVoice).phrases.replays.length);
+assert.equal(vocalMetrics({expected:[], rendered:[], to:1000}).measured, false);
+assert.equal(vocalMetrics({expected:new Float64Array(1000), rendered:expectedVoice, to:1000}).measured, false);
+assert.equal(measureVoice(new Float64Array(expectedVoice.length)).measured, false);
+assert.ok(vocalFindings([{after:measureVoice(new Float64Array(expectedVoice.length))}]).includes('host vocal grid unmeasured'));
+const periodicVoice = Float64Array.from({length:3000}, (_, i) => .2 + .1 * Math.sin(i * bin * Math.PI / 100));
+assert.equal(windowOffset(periodicVoice, periodicVoice, 500, 500).ambiguous, true);
+assert.equal(windowOffset(periodicVoice, periodicVoice, 500, 500, 500, bin, 0).lagMs, 0);
+const periodicMetrics = vocalMetrics({expected:periodicVoice, rendered:periodicVoice, from:2000, to:9000, marker:2000});
+assert.equal(periodicMetrics.phrases.replays.length, 0);
+const repeatedPhrases = new Float64Array(8000), repeatedRender = new Float64Array(8000);
+for (let p = 0; p < 9; p++) for (let t = 0; t < 1000; t += bin) {
+  const i = (1000 + p * 3000 + t) / bin;
+  repeatedPhrases[i] = .2 + .08 * Math.sin(t * .035 + p * .17);
+  repeatedRender[i + 7] = repeatedPhrases[i];
+}
+const repeatedMetrics = vocalMetrics({expected:repeatedPhrases, rendered:repeatedRender, from:0, to:30000, marker:0});
+assert.equal(repeatedMetrics.phrases.doubled, 0);
+assert.equal(repeatedMetrics.phrases.missing, 0);
+const clipAudio = {expected:Float32Array.from([.2, -.2, .2, -.2]), listener:Float32Array.from([.4, -.4, .4, -.4]), host:Float32Array.from([.1, -.1, .1, -.1])};
+const matching = levelMatchClips(clipAudio, 200);
+assert.ok(Math.abs(matching.stats.listener.gain - .25) < 1e-6);
+assert.ok(Math.abs(clipAudio.expected[0] - clipAudio.listener[0]) < 1e-6);
+const wav = floatWav(clipAudio.expected, 24000);
+assert.equal(wav.toString('ascii', 0, 4), 'RIFF'); assert.equal(wav.readUInt16LE(20), 3);
+assert.equal(wav.readUInt32LE(40), 16);
+assert.equal(levelMatchClips({expected:new Float32Array(4), listener:new Float32Array(4)}, 200).activeSamples, 0);
+console.log('Vocal ground truth PASS: signed/grid/kick-relative offsets; 200ms gap; missing/displaced/doubled phrases; earlier-content replay; sustained recovery; silence/empty; level matching and float WAV.');
+
+const real = realMixFixture();
+assert.deepEqual(real, realMixFixture());
+assert.ok(singRequest(real, 'opus')?.score.notes.length);
+assert.deepEqual(singRequest(sanitize(real), 'opus'), singRequest(real, 'opus'));
+assert.equal(real.bpm, 123);
+assert.equal(mixBoundaries(real, 0).find(b => b.section === 'DROP').bar, 8);
+const popOrigin = 100000, passTarget = popHandoffTargetAt(popOrigin, real.bpm);
+const popKickGrid = gridKicks(real).map(t => t + popOrigin);
+const kicksAfterPass = marker => popKickGrid.filter(t => t >= marker).slice(0, 3);
+assert.deepEqual(kicksAfterPass(passTarget - 100), kicksAfterPass(passTarget + 100));
+assert.ok(kicksAfterPass(passTarget - 100)[2] - (passTarget - 100) < 3 * 60000 / real.bpm);
 
 const s = mixFixture();
 assert.deepEqual(s, mixFixture());
@@ -65,6 +152,13 @@ assert.deepEqual(phraseOnsets(phrases, .25), [0, 2000, 4000, 6000]);
 assert.equal(matchEvents(phraseOnsets(phrases, .25), phraseOnsets(phrases.filter(([t]) => t < 4000 || t >= 5500), .25), 0, 7000).missing, 1);
 assert.ok(mixFailures({phases:{after:{kicks:silent, vocal:{lagMs:null, returnMs:null}}},
   boundaries:[], timeToRealignMs:null, budgetMs:1500, stemInjected:[[], []]}).length >= 3);
+const realEvidence = { resolved:true, plays:[{when:1}], apiResponses:[{status:200, type:'audio/ogg'}] };
+const realMix = {phases:{after:{kicks:{matched:1, median:0, p95:0, missing:0}, vocal:{lagMs:0, returnMs:0, missing:0, extra:0}}},
+  boundaries:[], timeToRealignMs:1000, budgetMs:1500, realStems:[realEvidence, realEvidence]};
+assert.deepEqual(mixFailures(realMix, true), []);
+for (const realStems of [[], [realEvidence, null], [realEvidence, {...realEvidence, plays:[]}],
+  [realEvidence, {...realEvidence, resolved:false}], [realEvidence, {...realEvidence, apiResponses:[{status:502}]}]])
+  assert.ok(mixFailures({...realMix, realStems}, true).includes('real stem not loaded/played through API'));
 const synthetic = (shift = 0, vocalShift = 0) => {
   const rows = fn => Array.from({length:20000}, (_, i) => [i * .002 + shift / 1000, fn(i * 2)]);
   return {errors:[], anchors:[[0, 0]], samples:rows(t => Math.sin(t / 113) ** 2), stemWarm:{start:-2, end:-1}, sources:[],
