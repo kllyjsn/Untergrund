@@ -62,7 +62,7 @@ const listeners = Array.from({ length: 100 }, (_, i) => ({
   results: ['ab', 'ac', 'bc'].flatMap(([a, b]) => Array.from({ length: 10 }, () => {
     const win = random() < truth[a] / (truth[a] + truth[b]);
     return { identity: { left: a, right: b }, trial: { kind: 'main' }, ratings: { left: Object.fromEntries(DIMENSIONS.map((d) => [d, win ? 5 : 1])), right: Object.fromEntries(DIMENSIONS.map((d) => [d, win ? 1 : 5])) }, release: win ? 'left' : 'right' };
-  })),
+  })).concat(result('catch')),
 }));
 const aggregate = aggregateRatings(listeners, manifest, { bootstrap: 150 });
 const strengths = aggregate.dimensions.overall;
@@ -73,5 +73,9 @@ assert.equal(aggregateRatings(listeners.slice(0, 4), manifest).status, 'insuffic
 assert.equal(aggregateRatings([], manifest).status, 'insufficient');
 const flagged = { listenerId: 'bad', benchmarkId: manifest.id, results: [result('catch', false, 'b')] };
 assert.equal(aggregateRatings([flagged], manifest).includedRaters, 0);
+const empty = Array.from({ length: 6 }, (_, i) => ({ listenerId: `empty-${i}`, benchmarkId: manifest.id, results: [] }));
+assert.equal(aggregateRatings(empty, manifest).status, 'insufficient', 'empty exports do not satisfy the rater minimum');
+const noCatch = Array.from({ length: 6 }, (_, i) => ({ listenerId: `nocatch-${i}`, benchmarkId: manifest.id, results: [result('main')] }));
+assert.equal(aggregateRatings(noCatch, manifest).unflaggedRaters, 0, 'raters without a catch trial do not count');
 assert.throws(() => aggregateRatings([{ results: [] }]), /listenerId/);
 console.log('listening lab metrics passed');

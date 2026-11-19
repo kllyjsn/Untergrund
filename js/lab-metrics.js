@@ -93,7 +93,9 @@ export function aggregateRatings(exports, manifest = {}, { bootstrap = 200, seed
   }
   const raters = [...grouped.values()].map((ex) => ({ listenerId: ex.listenerId, quality: raterQuality(ex.results) }));
   const eligible = [...grouped.values()].filter((ex) => !excludeFlagged || !raters.find((r) => r.listenerId === ex.listenerId).quality.flagged);
-  const unflagged = raters.filter((r) => !r.quality.flagged).length;
+  // The gate counts only raters who answered a catch and rated real pairs: an empty or partial export proves nothing.
+  const qualified = (ex) => { const q = raters.find((r) => r.listenerId === ex.listenerId).quality; return !q.flagged && q.catches > 0 && ex.results.some((r) => r.trial?.kind !== 'catch'); };
+  const unflagged = [...grouped.values()].filter(qualified).length;
   const rows = (listeners, dimension) => listeners.flatMap((ex) => ex.results.filter((r) => r.trial?.kind !== 'catch').map((r) => ({
     a: r.identity.left, b: r.identity.right,
     outcome: dimension === 'overall' ? (r.release === 'left' ? 1 : r.release === 'right' ? 0 : 0.5) : (Math.sign(r.ratings.left[dimension] - r.ratings.right[dimension]) + 1) / 2,
