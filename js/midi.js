@@ -59,7 +59,8 @@ export class Recorder {
   trigger(id, t, v) {
     if (id === 'stab') {
       // The export plays the engine's own voicing (voice leading, chorus doubling, smooth lift and fold), so its notes match the render.
-      const p = this.state.params.stab, { root, vo, iv } = stabPitches(this), name = STAB_VOICES[vo];
+      // A smooth style also writes a recorded voice's sounding register; other styles keep the played notes, whatever the palette.
+      const p = this.state.params.stab, { root, vo, iv } = stabPitches(this), name = this.smoothOn ? STAB_VOICES[vo] : null;
       const len = Math.max(this.stepDur * 2, (p.decay || 0.3) * 1.5);
       for (const m of new Set(iv.map((n) => soundingPitch(name, root + n)))) this.add('stab', t, m, len, v);
     } else if (GM_DRUMS[id]) this.add(id, t, GM_DRUMS[id], this.stepDur, v);
