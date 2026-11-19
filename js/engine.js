@@ -1786,7 +1786,7 @@ export class Engine {
     }
     const f = midiHz(60 + k + oct * 12 + n), L = leadPreset(voice, pocketOf(this.state.master)?.name);
     const hdb = this.soulBand() ? 0 : HOOK_TRIM_DB[voice] || 0;
-    const out = this.trimOut(`hook-${voice}`, hdb, this.hookBus || this.ch.stab.input, HOOK_LOW_DB);
+    const out = this.trimOut(`hook-${voice}`, hdb, this.hookBus || this.ch.stab.input, voice === 'softmallet' ? 4 : HOOK_LOW_DB);
     const len = Math.max(0.06, dur * 0.92), end = t + len + 0.6, vn = Math.min(1, v / 1.3);
     // Played legato into a close note, the lead slides there instead of re-striking.
     const prev = this.lastLead, semis = prev ? Math.abs(12 * Math.log2(f / prev.f)) : 0;
@@ -1871,6 +1871,24 @@ export class Engine {
       amp.gain.linearRampToValueAtTime(0.36 * v, t + 0.03);
       amp.gain.setTargetAtTime(0.3 * v, t + 0.05, 0.2);
       amp.gain.setTargetAtTime(0, t + len, 0.07);
+    } else if (voice === 'softmallet') {
+      const attack = 0.01 + 0.009 * (1 - vn);
+      const body = Math.min(0.34, 0.15 + len * 0.24);
+      const head = this.filter('lowpass', 2100 + 500 * b, 0.5);
+      head.connect(amp);
+      const car = osc('sine', f, 0, 1, head);
+      const mod = c.createOscillator(), strike = this.gain(0);
+      mod.frequency.value = f * 2.5;
+      mod.connect(strike).connect(car.frequency); oscs.push(mod);
+      strike.gain.setValueAtTime(f * (0.15 + 0.15 * vn) * b, t);
+      strike.gain.setTargetAtTime(0, t + attack, 0.024);
+      const overtone = this.gain(0.32 + 0.11 * vn);
+      osc('sine', f * 2, 1.5, 1, overtone); overtone.connect(amp);
+      overtone.gain.setTargetAtTime(0.12, t + attack, body * 0.64);
+      amp.gain.setValueAtTime(EPS, t);
+      amp.gain.linearRampToValueAtTime(0.335 * v, t + attack);
+      amp.gain.setTargetAtTime(0, t + attack, body);
+      amp.gain.setTargetAtTime(0, t + len, 0.09);
     } else if (voice === 'mallet') {
       const ring = Math.max(0.35, Math.min(1.4, len * 1.2));
       const blp = this.filter('lowpass', 1900 + 1300 * b, 0.5); blp.connect(amp);
