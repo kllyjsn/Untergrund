@@ -220,14 +220,35 @@ async function scenario(base, spec, network, run) {
       song.patterns[0].steps.kick.fill(0);
       song.patterns[0].steps.kick[0] = 1;
     }
-    const host = await client(network.base('host'), spec.hostSkew, song, 0, spec.mix, spec.expiredMix); clients.push(host);
-    await host.nav('/');
-    await host.clickElement(`[...document.querySelectorAll('.tab-club, .club-btn')].find(e => e.getBoundingClientRect().width && e.getBoundingClientRect().height)`, 'visible Club navigation');
+    const prejoin = spec.mix && !options.net && !spec.expiredMix && !!(spec.offlineMs || spec.freezeMs);
+    const limitPaint = spec.expiredMix || prejoin;
+    let room = prejoin ? `sync-${randomBytes(6).toString('hex')}` : null;
+    const snapshot = async () => {
+      const response = await fetch(`${base}/api/rooms/${room}`);
+      assert.ok(response.ok, `Room snapshot HTTP ${response.status}`);
+      const r = await response.json();
+      return { at: Date.now(), members: r.members.map(m => m.id), hostId: r.hostId, queue: r.queue,
+        set: { by: r.currentSet?.by, broadcastId: r.currentSet?.broadcastId, replay: !!r.currentSet?.replay },
+        memberSeen: r.members.map(m => ({ id: m.id, seen: m.seen })), startsAt: r.currentSet?.startsAt };
+    };
+    const host = await client(network.base('host'), spec.hostSkew, song, 0, spec.mix, limitPaint); clients.push(host);
+    await host.nav(prejoin ? `/?room=${room}` : '/');
+    if (prejoin) await until(async () => (await snapshot()).members.length === 1, 'host in room');
+    else await host.clickElement(`[...document.querySelectorAll('.tab-club, .club-btn')].find(e => e.getBoundingClientRect().width && e.getBoundingClientRect().height)`, 'visible Club navigation');
     let listener;
-    if (!spec.cold) { listener = await client(network.base('listener'), spec.listenerSkew, null, spec.displacementMs, spec.mix, spec.expiredMix); clients.push(listener); await listener.nav('/'); }
+    if (!spec.cold) {
+      listener = await client(network.base('listener'), spec.listenerSkew, null, spec.displacementMs, spec.mix, limitPaint);
+      clients.push(listener);
+      await listener.nav(prejoin ? `/?room=${room}` : '/');
+    }
+    if (prejoin) {
+      // These scenarios exercise an already-listening room, not invite navigation.
+      await until(async () => (await snapshot()).members.length === 2 &&
+        (await listener.run('__clubAudio.samples.length > 0')), 'listener in room with active audio capture');
+    }
     const action = await until(() => host.run(`document.querySelector('.lobby-cta')?.textContent === 'GO LIVE' ? '.lobby-cta' : document.querySelector('.club-primary')?.textContent === 'GO LIVE' ? '.club-primary' : null`), 'GO LIVE');
     await host.click(action);
-    const room = await until(() => host.run('new URL(location.href).searchParams.get("room")'), 'Host room invite');
+    room ??= await until(() => host.run('new URL(location.href).searchParams.get("room")'), 'Host room invite');
     const broadcast = Date.now();
     if (spec.joinDelay) await pause(spec.joinDelay);
     if (!listener) { listener = await client(network.base('listener'), spec.listenerSkew); clients.push(listener); }
@@ -237,25 +258,17 @@ async function scenario(base, spec, network, run) {
       contention.push(spawn(process.execPath, ['-e', `const fs=require('node:fs');const fd=fs.openSync(process.argv[1],'w');const b=Buffer.alloc(1048576,1),end=Date.now()+12000;let n=0;while(Date.now()<end){fs.writeSync(fd,b,0,b.length,(n++%16)*b.length);fs.fsyncSync(fd)}fs.closeSync(fd)`, contentionFile], { stdio: 'ignore' }));
     }
     const navigation = Date.now();
-    await listener.nav(`/?room=${encodeURIComponent(room)}`);
+    if (!prejoin) await listener.nav(`/?room=${encodeURIComponent(room)}`);
     // Chrome's autoplay grant may already unlock and join on invite entry.
     const joined = await until(() => listener.run(`(() => {
       const b = document.querySelector('.club-primary');
       return b?.textContent === 'LISTEN LIVE' ? 'listen' : (__clubAudio.samples.some(r => r[1] > .001) ? 'automatic' : null);
     })()`), 'listener audio or LISTEN LIVE');
     if (joined === 'listen') await listener.click('.club-primary');
-    if (spec.expiredMix) {
+    if (limitPaint) {
       // The real UI actions are done; skip painting while the audio and network run.
       await Promise.all(clients.map(c => c.run("document.body.style.contentVisibility = 'hidden'")));
     }
-    const snapshot = async () => {
-      const response = await fetch(`${base}/api/rooms/${room}`);
-      assert.ok(response.ok, `Room snapshot HTTP ${response.status}`);
-      const r = await response.json();
-      return { at: Date.now(), members: r.members.map(m => m.id), hostId: r.hostId, queue: r.queue,
-        set: { by: r.currentSet?.by, broadcastId: r.currentSet?.broadcastId, replay: !!r.currentSet?.replay },
-        memberSeen: r.members.map(m => ({ id: m.id, seen: m.seen })), startsAt: r.currentSet?.startsAt };
-    };
     const initial = await snapshot(); events.initial = initial;
     events.cdpProbeMs = clients.map(c => c.cdpProbe);
     if (spec.djLatency)
@@ -390,7 +403,7 @@ async function scenario(base, spec, network, run) {
     if (spec.mix) {
       const mix = analyzeMix(raw, song, events, initial.startsAt, {
         resume: !!spec.freezeMs,
-        checkFirstDownbeat: !options.net && !spec.expiredMix && !!(spec.offlineMs || spec.freezeMs),
+        checkFirstDownbeat: prejoin,
       });
       const failures = mixFailures(mix, realVocal);
       const reference = await host.run(`(${referenceEnvelope})(${JSON.stringify(song)}, ${10 ** (vocalDb(song) / 20)})`);
