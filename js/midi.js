@@ -57,7 +57,9 @@ export class Recorder {
   acidRelease(t) { if (this.bass) { this.bass.dur = Math.max(0.01, Math.min(this.bass.dur, t - this.bass.t)); this.bass = null; } }
   trigger(id, t, v) {
     if (id === 'stab') {
-      const p = this.state.params.stab, root = 48 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot();
+      // A lifted smooth breakdown raises voiced chords an octave in the engine; the export follows it.
+      const p = this.state.params.stab, up = this.smoothOn > 0 && Math.round(p.voice) > 0 ? 12 : 0;
+      const root = 48 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + up;
       const len = Math.max(this.stepDur * 2, (p.decay || 0.3) * 1.5);
       for (const n of this.chord()) this.add('stab', t, root + n, len, v);
     } else if (GM_DRUMS[id]) this.add(id, t, GM_DRUMS[id], this.stepDur, v);

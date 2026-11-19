@@ -38,6 +38,8 @@ const LIVE_REF = {
   acid: { cutoff: 320, drive: 0.3 },
 };
 const BACKBEAT_TOUCH = [0.42, 0.03, -0.42, -0.03];
+const BACKBEAT_TAKE_TRIM = { 23: -1.15, 24: 0.2, 33: 0.25, 34: 0.3 };
+const BACKBEAT_ATTACK_TRIM = [0, -0.25, 0.45, -0.05];
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
 const EPS = 0.0001;
 const SAMPLE_FADE = 1;
@@ -897,6 +899,11 @@ export class Engine {
       g.gain.setValueAtTime(pk, t);
       g.gain.linearRampToValueAtTime(level, t + 0.04);
     }
+    if (fx.strokeBody && dur >= 0.13) {
+      g.gain.setValueAtTime(level, t + 0.05);
+      g.gain.linearRampToValueAtTime(level * dbGain(fx.strokeBody), t + 0.072);
+      g.gain.linearRampToValueAtTime(level, t + 0.118);
+    }
     node.connect(g).connect(out);
     // A held lead note: vibrato that the player leans into after the pick attack.
     if (fx.vib && dur > 0.2) {
@@ -940,7 +947,11 @@ export class Engine {
     const fx = { shelves, peaks, drive, punch };
     if (id === 'snare' && Math.round(this.state.master.kit) === KIT_BACKBEAT) {
       peaks.push([650, 1.1, -8], [630, 3.5, -4], [1800, 0.8, 5.5]);
-      if (touch != null) peaks.push([1370, 0.75, 4.4 * touch], [3600, 1, 3.9 * touch]);
+      if (touch != null) {
+        peaks.push([1370, 0.75, 4.4 * touch], [3600, 1, 3.9 * touch]);
+        // Put more motion in the body of the stroke without swinging the initial attack.
+        fx.strokeBody = 8.3 * touch;
+      }
       // Dampen the head before the hat roll; DECAY still controls when the fade starts.
       fx.release = 0.03;
       return { rate, dur: Math.min(dur || full, p.decay * 1.05), fx };
@@ -979,7 +990,7 @@ export class Engine {
     if (id === 'snare') {
       // Center hits only: a rimshot dropped onto random loud backbeats clanks like a cross-stick.
       const pair = v > 0.85 ? [34, 33] : v > 0.65 ? [24, 23] : v > 0.45 ? [14, 13] : v > 0.25 ? [6, 5] : [2, 5];
-      let layer = pair[take(`snare${pair[0]}`, 2) - 1], rate = drift, touch;
+      let layer = pair[take(`snare${pair[0]}`, 2) - 1], rate = drift, touch, gain = 1;
       if (Math.round(this.state.master.kit) === KIT_BACKBEAT) {
         const awayFromKick = Math.abs(t - (this.backbeatKickAt ?? -Infinity)) >= 0.04;
         if (v > 0.85) {
@@ -992,10 +1003,12 @@ export class Engine {
         if (awayFromKick && v > 0.6) {
           // Move between strong and soft strokes through a neutral bar in either direction.
           const bar = this.step == null ? all - 1 : Math.floor(this.step / 16);
-          touch = BACKBEAT_TOUCH[bar & 3] + 0.14 * (2 * hash(all, 47) - 1);
+          const phase = bar & 3;
+          touch = BACKBEAT_TOUCH[phase] + 0.14 * (2 * hash(all, 47) - 1);
+          // Balance the recorded takes first so round-robin changes don't dominate the phrase.
+          gain = dbGain(0.65 * touch - 1.15 + BACKBEAT_ATTACK_TRIM[phase] + (BACKBEAT_TAKE_TRIM[layer] ?? 0));
         }
       }
-      const gain = touch == null ? 1 : dbGain(0.8 * touch - 0.85);
       this.liveHit(kit, `snare_v${layer}`, 'snare', t, 0.85 * lift * v ** 1.4 * gain, rate, undefined, touch);
       return true;
     }
