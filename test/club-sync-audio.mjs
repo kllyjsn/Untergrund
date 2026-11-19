@@ -1,6 +1,6 @@
 // Runs before app modules. Only the destination edge is replaced: the worklet
 // passes the original samples through unchanged and reports a low-pass envelope.
-export function installAudioTap(skew, fixture, displacementMs = 0, mix = false) {
+export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, graph = null) {
   const RealDate = Date;
   globalThis.Date = new Proxy(RealDate, {
     apply: () => new RealDate(RealDate.now() + skew).toString(),
@@ -12,6 +12,7 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false) 
     localStorage.setItem('untergrund.made', '1');
   }
   const tap = globalThis.__clubAudio = { samples: [], anchors: [], errors: [], routes: [], requests: [], lifecycle: [], sources: [] };
+  if (mix) tap.channels = { kick: { samples: [] }, vocal: { samples: [] } };
   const epoch = () => performance.timeOrigin + performance.now();
   const contexts = [];
   tap.markResume = () => {
@@ -48,7 +49,7 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false) 
   const connect = AudioNode.prototype.connect;
   const taps = new WeakMap();
   const code = `class Tap extends AudioWorkletProcessor {
-    constructor() { super(); this.low = 0; this.vi = 0; this.vq = 0; this.rows = []; }
+    constructor(options) { super(); this.isolated = !!options.processorOptions?.isolated; this.low = 0; this.vi = 0; this.vq = 0; this.rows = []; }
     process(inputs, outputs) {
       const input = inputs[0], output = outputs[0];
       for (let c = 0; c < output.length; c++) output[c].set(input[c] || input[0] || new Float32Array(128));
@@ -56,8 +57,8 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false) 
       const x = input[0];
       if (x) for (let i = 0; i < x.length; i++) {
         this.low += (1 - Math.exp(-2 * Math.PI * 180 / sampleRate)) * (x[i] - this.low);
-        energy += this.low * this.low;
-        if (${mix}) {
+        energy += this.isolated ? x[i] * x[i] : this.low * this.low;
+        if (${mix} && !this.isolated) {
           const phase = 2 * Math.PI * 10500 * (currentFrame + i) / sampleRate;
           this.vi += .002 * (x[i] * Math.cos(phase) - this.vi);
           this.vq += .002 * (x[i] * Math.sin(phase) - this.vq);
@@ -70,7 +71,29 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false) 
       return true;
     }
   }; registerProcessor('club-tap', Tap);`;
+  const captured = new WeakSet();
+  const captureChannel = (source, name) => {
+    if (captured.has(source)) return;
+    captured.add(source);
+    const ctx = source.context, entry = taps.get(ctx);
+    if (!entry) { tap.errors.push('Channel connected before destination tap: ' + name); return; }
+    const channel = tap.channels[name];
+    if (channel.edge) { tap.errors.push('Duplicate channel edge: ' + name); return; }
+    channel.edge = { name, source:source.constructor.name, at:epoch(), line:graph[name] };
+    entry.ready.then(() => {
+      const node = new AudioWorkletNode(ctx, 'club-tap', { outputChannelCount:[2], processorOptions:{isolated:true} });
+      const mute = ctx.createGain(); mute.gain.value = 0;
+      node.port.onmessage = ({data}) => channel.samples.push(...data);
+      connect.call(source, node); connect.call(node, mute); connect.call(mute, ctx.destination);
+      channel.ready = true;
+    }).catch(e => tap.errors.push(String(e)));
+  };
   AudioNode.prototype.connect = function (dest, ...args) {
+    if (graph && this instanceof GainNode && dest instanceof GainNode) {
+      const stack = new Error().stack || '';
+      if (stack.includes('/js/engine.js:' + graph.kick + ':') && dest.gain.value === 0) captureChannel(this, 'kick');
+      if (stack.includes('/js/engine.js:' + graph.vocal + ':') && this.gain.value === 0) captureChannel(this, 'vocal');
+    }
     // MediaRecorder also uses MediaStreamDestination; that is not an output.
     if (dest !== this.context.destination) return connect.call(this, dest, ...args);
     const ctx = this.context;

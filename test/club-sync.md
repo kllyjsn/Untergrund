@@ -275,22 +275,47 @@ synthetic stem, with two-bar phrases lasting 1.85 bars and a changing 5–8Hz AM
 signature. Wake lands inside a phrase for both durations. `sing.on` is true;
 the real Engine.vocal, processing, ducking, FX and resume-offset path play it.
 JSON records cache injections; a missing injection fails assertions.
+The init script also prewarms `processedStem`, as real `singSong` does before
+caching a decoded stem. Skipping that prewarm would run a full-song vocal
+processing pass synchronously on the first scheduled downbeat and can make
+the synthetic vocal start late. JSON records prewarm start/end; assertions
+require completion before either client's first oscillator start call.
 
-The unchanged destination tap additionally reports broad non-low-band RMS and
-a narrow 10.5kHz quadrature envelope (about 8Hz demodulation bandwidth).
-It uses each client's own PCM resume boundary: the host is marked just before
-activation and the listener on its resume event, and pre-boundary PCM is
-excluded from every AFTER channel, including section correlation. Low-band
-host onsets are gated to the generated kick score (65ms around the median
-host score/output offset) to reject bass attacks. Each host onset's smoothed 180ms
-demeaned low-band envelope is then matched to listener audio over ±100ms
-(the detector's existing .2 exponential smoothing removes bass-cycle ripple;
-4ms increments, correlation ≥0.8, at least 4% of host variance). This avoids
-the full mix's bass and ducking moving the listener's global flux threshold.
-Extra listener score-gated onsets unmatched within 100ms are counted too.
-This is not source separation: coincident bass can still bias a kick onset,
-and similar adjacent bass transients can confuse templates. Host-gating cannot
-prove every score kick rendered. The dry fixture remains the completeness control.
+The full-mix destination tap remains the section-boundary measurement. Kick
+and vocal timing instead use parallel rendered-PCM taps on `ch.kick.level`
+(post-strip/channel level, before pan/FX sends) and `vocalBus` (including its
+gain automation, before vocalOut/FX returns and the shared master chain).
+The init script wraps AudioNode.connect and identifies the construction edges
+by their unique Engine source lines and GainNode values: the kick level's
+connection to its initially-zero rumble send, and the initially-zero vocalBus
+connection to vocalOut. Line numbers are resolved from the current source,
+not hard-coded. Missing/duplicate edges fail; the JSON records both edges.
+The normal connections remain untouched. Each parallel worklet passes the
+samples through to its own zero-gain destination branch, so it is pulled by
+the same audio graph without changing the song or adding audible output.
+
+Each isolated tap reports full-range RMS; no spectral separation, score gating
+or host-template acceptance threshold is needed. The existing smoothed flux
+detector finds isolated kick onsets, matched one-to-one within ±150ms with
+missing/extra counts. A 150ms window-edge guard prevents onset counterparts
+falling just outside the BEFORE capture window from being counted as absent.
+There is no lag calibration or subtraction: true client clock/transport
+offsets remain in both isolated channels. BEFORE assertions require kick
+median ≤25ms/p95 ≤50ms/no missing or extra and vocal |lag| ≤10ms. If initial
+room synchronization itself exceeds those limits, a correct detector cannot
+make that baseline pass without hiding the offset.
+`vocal.relativeToKickMs` additionally reports vocal lag minus the same
+window's signed kick median, to distinguish a vocal-only shift from a common
+client offset. It is diagnostic only: it does not replace or relax either
+raw BEFORE or AFTER threshold. Unlike kicks-only fixture validation, the mix
+does not claim host score completeness (`hostFixture.measured` is false).
+
+All taps use the context's getOutputTimestamp clock mapping and each client's
+own PCM resume boundary: the host is marked just before activation and the
+listener on its resume event. Pre-boundary PCM is excluded from every AFTER
+channel, including section correlation. Isolated taps measure rendered
+source-channel timing, not the final audible onset after downstream master
+processing/FX tails; the destination capture still contains the full mix.
 
 JSON `mix.phases.before/after` contains kicks (signed median/p95, absolute
 median/p95, missing/extra and timestamped pairs) and vocal phrase matching,
@@ -310,7 +335,7 @@ within ±50ms with no missing/extra phrase onsets. Every post-wake boundary
 must have |delta| ≤50ms and the correct following section. Threshold failures
 are reported without loosening them. Run the synthetic analysis tests with
 `node test/club-sync-mix-detector.mjs` (known signed offsets, missing phrase,
-wrong section, empty capture).
+wrong section, isolated channel selection, missing graph taps, empty capture).
 
 The separate advisory GitHub Actions `club-sync` job runs the complete harness
 with --assert on PRs, main pushes and manual dispatch. It uses Node 22 and the

@@ -11,7 +11,7 @@ import { defaultState, emptyPattern } from '../js/state.js';
 import { installAudioTap, envelope, postResumeEnvelope, onsets, resolvedCompare, fixtureMissing, BPM, KICK_STEPS, PERIOD_MS } from './club-sync-audio.mjs';
 import { transitionAudio } from './club-sync-transition.mjs';
 import { installDiagnostics, diagnose } from './club-sync-diagnostics.mjs';
-import { mixFixture, mixBoundaries, installMixStem, analyzeMix, mixFailures } from './club-sync-mix.mjs';
+import { mixFixture, mixBoundaries, mixGraphEdges, installMixStem, analyzeMix, mixFailures } from './club-sync-mix.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const out = resolve(root, 'test/out');
@@ -92,7 +92,8 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = 
     await send('Network.enable');
     await send('Network.setCacheDisabled', { cacheDisabled: true });
     if (options.diagnostics) await installDiagnostics(send, base);
-    await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${installAudioTap})(${skew}, ${JSON.stringify(fixture)}, ${displacementMs}, ${mix})` });
+    const graph = mix ? await mixGraphEdges() : null;
+    await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${installAudioTap})(${skew}, ${JSON.stringify(fixture)}, ${displacementMs}, ${mix}, ${JSON.stringify(graph)})` });
     if (mix) await installMixStem(send, base, mixFixture());
     const nav = async path => { await send('Page.navigate', { url: base + path }); await until(() => run('!!document.querySelector(".club-btn, .club-modal, .club-head")'), 'app ready'); };
     const clickElement = async (expression, label) => {
@@ -226,11 +227,11 @@ async function scenario(base, spec) {
       const failures = mixFailures(mix);
       console.log(`${spec.name}: frozen ${events.interruptAt} → wake ${events.recoverAt}; realign=${mix.timeToRealignMs}ms / budget=${mix.budgetMs}ms`);
       for (const [name, p] of Object.entries(mix.phases)) console.log(`  ${name}: ${JSON.stringify({
-        kicks:{...p.kicks, pairs:undefined, evidence:undefined}, vocal:{...p.vocal, pairs:undefined}})}`);
+        kicks:{...p.kicks, pairs:undefined, hostOnsets:undefined, listenerOnsets:undefined}, vocal:{...p.vocal, pairs:undefined}})}`);
       for (const b of mix.boundaries) console.log(`  boundary: ${JSON.stringify(b)}`);
       console.log(`  mix thresholds: ${failures.length ? 'FAIL: ' + failures.join(', ') : 'PASS'}`);
       return { name:spec.name, spec, mix, events, failures, raw:{captures:raw},
-        ...mix.phases.after.kicks, hostFixture:{missing:0}, phases:{after:mix.phases.after.kicks} };
+        ...mix.phases.after.kicks, hostFixture:{missing:null, measured:false}, phases:{after:mix.phases.after.kicks} };
     }
     const [he, le] = raw.map(r => envelope(r)), [ho, lo] = [he, le].map(e => onsets(e, BPM));
     assert.ok(ho.length > 10 && lo.length > 10, 'Enough detected rendered kicks');
@@ -312,7 +313,7 @@ try {
   await until(async () => { try { return (await fetch(base)).ok; } catch { return false; } }, 'server');
   console.log('Club sync: isolated Chrome processes; memory rooms; dry irregular ABCD kicks or seed-7 full-mix hypnotic sketch / 123 BPM.');
   console.log('PCM destination tap → 180Hz low-pass RMS; getOutputTimestamp + true performance.timeOrigin.');
-  console.log('Dry: signed lag resolved across ±3900ms; 7s baseline + interruption + 12s recovery. Mix: score-gated host templates, drop−400ms freeze + 20s recovery; PCM resume boundaries for wakes.');
+  console.log('Dry: signed lag resolved across ±3900ms; 7s baseline + interruption + 12s recovery. Mix: isolated rendered kick/vocal graph taps, drop−400ms freeze + 20s recovery; PCM resume boundaries for wakes.');
   for (const spec of SCENARIOS.filter(s => !selected || s.name === selected)) {
     for (let run = 1; run <= +options.repeat; run++) {
       console.log(`Running ${spec.name}${+options.repeat > 1 ? ` (${run}/${options.repeat})` : ''}…`);
