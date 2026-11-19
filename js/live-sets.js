@@ -44,7 +44,7 @@ export function playTimeline(timeline, startsAt, { load, apply, play, isPlaying,
   load(at.state, at.style);
   const { steps, bpm } = stepAt(timeline, t);
   const wait = Math.max(0, startsAt - now), step = wait ? 0 : Math.floor(steps) + 1;
-  play({ step, delay: wait ? wait / 1000 : ((step - steps) * 15) / bpm });
+  play({ step, stepWall: wait ? startsAt : now + ((step - steps) * 15000) / bpm });
   const rep = createReplayer(timeline, { startsAt, apply, onEnd: () => { stopTimeline(); onEnd?.(); } });
   rep.tick(now);
   replayTimer = setInterval(() => (isPlaying() ? rep.tick(Date.now()) : stopTimeline()), 200);

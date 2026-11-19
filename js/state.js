@@ -1,6 +1,6 @@
 import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, CHORDS, defaultParams, defaultMaster } from './params.js';
 import { rng } from './dsp.js';
-import { planSections, formChain, parseForm, developSong, developFinalDrop, LENGTHS } from './longform.js';
+import { planSections, formChain, parseForm, sectionSpans, developSong, developFinalDrop, LENGTHS } from './longform.js';
 import { FORMS, SECTIONS } from './classical.js';
 import { MODELS } from './composer-models.js';
 import { POCKETS, STYLE_POCKET } from './groove.js';
@@ -10,7 +10,7 @@ import { withMelody, writeMelody, melodySteps, MELODY_BARS, SING_PROFILES } from
 import { stepDeg } from './motif.js';
 import { cleanLyrics } from './lyrics.js';
 import { SING_VOICES } from './sing-score.js';
-import { cleanTakes } from './scope.js';
+import { cleanTakes, patternAt, setTake } from './scope.js';
 import { trackTitle } from './crate.js';
 
 export const STYLES = {
@@ -152,7 +152,7 @@ const HOOK_STYLE = {
   pop: 'song', rnb: 'soulful', rock: 'riff', folk: 'roots', country: 'twang',
 };
 // 'chop' sings the hook with the user's own recorded voice (js/voice.js); a song without one plays 'vocal'.
-export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell', 'chop'];
+export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell', 'chop', 'softmallet'];
 
 // Every genre has several plausible ensembles. The seed chooses a player,
 // register and articulation while the genre keeps its drum, harmony and room identity.
@@ -163,7 +163,7 @@ const INSTRUMENTS = {
   acid: [[0, 0, 0, 0.35, 0.45], [5, 0, 1, 0.28, 0.8], [3, 0, 0, 0.4, 0.3], [6, 0, 0, 0.35, 0.75]],
   dub: [[0, 2, 0, 0.35, 0.55], [3, 1, 0, 0.5, 0.25], [5, 2, 0, 0.45, 0.7], [9, 1, 0, 0.4, 0.55]],
   peak: [[4, 0, 0, 0.3, 0.65], [6, 3, 0, 0.3, 0.75], [0, 0, 0, 0.22, 0.6], [10, 3, 1, 0.8, 0.8]],
-  hardtechno: [[0, 3, 0, 0.2, 0.65], [4, 3, 0, 0.3, 0.7], [6, 0, 0, 0.25, 0.8], [5, 3, 0, 0.22, 0.9]],
+  hardtechno: [[0, 3, 0, 0.45, 0.22], [0, 3, 1, 0.6, 0.18], [2, 3, 0, 0.65, 0.2], [2, 3, 1, 0.8, 0.15]],
   deephouse: [[7, 1, 0, 1.5, 0.25], [1, 1, 0, 0.9, 0.35], [8, 1, 0, 0.65, 0.75], [10, 1, 0, 1.4, 0.2]],
   // Minimal is a felt Rhodes, a recorded piano, a dark dub chord or a slow pad over a round, filtered bass:
   // no bells, plucks or guitar, which read as toys against its dry clicks.
@@ -340,10 +340,14 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.perc = pad16(euclid(5, 16, Math.floor(r() * 16)));
     S.stab = pad16(pick(r, [[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1], [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]]));
     S.acid = range(STEPS, (i) => (i % 4 === 2 || i % 4 === 3 ? { on: true, n: 0, a: i % 4 === 2, s: false } : emptyAcidStep()));
-    Object.assign(params.kick, { tune: 52, decay: 0.38, drive: 1, punch: 0.9, click: 0.7, rumble: 0.68 });
-    Object.assign(params.perc, { tune: 420, metal: 0.9, noise: 0.6, bend: 0.8 });
-    Object.assign(params.acid, { wave: 0.9, cutoff: 300, reso: 10, envmod: 0.5, decay: 0.12, drive: 1 });
-    master.duck = 0.7; master.drive = 0.48;
+    Object.assign(params.kick, { tune: 47, decay: 0.42, drive: 0.9, punch: 0.8, click: 0.3, rumble: 0.68 });
+    Object.assign(params.perc, { tune: 230, metal: 0.35, noise: 0.25, bend: 0.35, level: 0.3 });
+    Object.assign(params.acid, { wave: 0.55, cutoff: 240, reso: 2.5, envmod: 0.25, decay: 0.18, drive: 0.75 });
+    Object.assign(params.stab, { cutoff: 850, reso: 0.8, detune: 9, rev: 0.22, dly: 0.12 });
+    Object.assign(params.clap, { tone: 950, decay: 0.2, level: 0.45 });
+    Object.assign(params.ch, { tune: 1, decay: 0.055, level: 0.4 });
+    Object.assign(params.oh, { tune: 1, decay: 0.26, level: 0.34 });
+    master.duck = 0.7; master.drive = 0.08;
   } else if (style === 'deephouse') {
     S.ch = range(STEPS, (i) => (i % 4 === 2 ? 1 : 0));
     // A hand shaker playing every 16th; the HOUSE pocket decides which ones it leans on
@@ -568,7 +572,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     const pitchClass = (n) => (n + 12) % 12;
     if (pitchClass(S.acid[11].n) === pitchClass(S.acid[12].n)) S.acid[11].n = pitchClass(S.acid[12].n) ? 0 : 7;
     Object.assign(params.kick, { tune: 50, decay: 0.17, drive: 0.35, punch: 0.75, click: 0.45, rumble: 0 });
-    Object.assign(params.snare, { tune: 230, snappy: 0.85, decay: 0.16 });
+    Object.assign(params.snare, { tune: 230, snappy: 0.85, decay: 0.16, level: 0.66 });
     Object.assign(params.perc, { tune: 800, decay: 0.05, metal: 0.6 });
     Object.assign(params.stab, { chord: pick(r, [0, 8]), cutoff: 1400, decay: 2, env: 0.3, rev: 0.6 });
     Object.assign(params.acid, { tune: 0, cutoff: 350, decay: 1, drive: 0.2, level: 0.45 });
@@ -777,7 +781,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   params.perc.voice = PERC[style] ?? 0;
   const DUST = { boombap: 0.45, dub: 0.3, ambient: 0.2, deephouse: 0.12, minimal: 0.1 };
   master.dust = DUST[style] ?? 0;
-  master.arr = { neosoul: 0, boombap: 0, ambient: 0 }[style] ?? (GROOVE.has(style) ? 0.5 : 1);
+  master.arr = { neosoul: 0, boombap: 0, drill: 0, ambient: 0 }[style] ?? (GROOVE.has(style) ? 0.5 : 1);
   // Per-seed identity on its own RNG so the genre grammar above stays stable.
   const r2 = rng(Math.imul((seed | 0) ^ 0x5bd1e995, 0x9e3779b1) ^ 0x2545f491);
   for (let k = 0; k < 4; k++) r2();
@@ -787,7 +791,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   if (['deephouse', 'ukg', 'afrobeats', 'amapiano', 'euphoric'].includes(style)) {
     for (let g = 0, n = 1 + Math.floor(r2() * 3); g < n; g++) { const i = 1 + 2 * Math.floor(r2() * 8); if (!S.ch[i]) S.ch[i] = 1; }
   }
-  if (params.stab.cutoff) params.stab.cutoff = Math.round(params.stab.cutoff * (0.75 + r2() * 0.6));
+  if (params.stab.cutoff && style !== 'hardtechno') params.stab.cutoff = Math.round(params.stab.cutoff * (0.75 + r2() * 0.6));
   if (params.stab.decay) params.stab.decay = +(params.stab.decay * (0.8 + r2() * 0.4)).toFixed(3);
   // Minimal's chords stay soft whatever the ensemble picked: a long decay, a gentle touch and a dark, unresonant filter.
   if (style === 'minimal') Object.assign(params.stab, { decay: Math.max(params.stab.decay, 0.45), env: Math.min(params.stab.env, 0.08), cutoff: Math.min(params.stab.cutoff, 1300), reso: 0.4, tine: 0.15 });
@@ -798,6 +802,13 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     params.acid.level = style === 'trance' ? 0.72 : Math.max(params.acid.level ?? 0.55, 0.98);
   }
   const hook = hookLine(r2, style, musicalScale);
+  if (hook && style === 'hardtechno') {
+    hook.v = 'analog';
+    hook.o = -1; hook.h = 1;
+    hook.up = 0; hook.x.risk = 0.1;
+    const vel = 0.22 + r2() * 0.08;
+    hook.s = range(32, (i) => i === 0 ? [0, 12, vel] : i === 16 ? [7, 12, vel * 0.9] : 0);
+  }
   // Minimal keeps the techno hook's line but plays it on a warm filtered voice, not a square pulse.
   if (hook && style === 'minimal') hook.v = 'warm';
   if (hook) { P.hook = hook; P.hm = 2; }
@@ -815,9 +826,11 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   }
   // Groove and pop genres sing: the hook becomes a vocal-length melody over the changes (js/melody.js).
   // In Drill's synth-bell ensemble, the mallet plays lighter behind the 808.
-  const gainScale = style === 'drill' && stabVoice === 6 && hook?.v === 'mallet' ? 0.72 : 1;
+  const softMallet = style === 'drill' && stabVoice === 6 && hook?.v === 'mallet';
+  const gainScale = softMallet ? 0.72 : 1;
   const sung = withMelody(P.hook, rng(Math.imul((seed | 0) ^ 0x68e31da4, 0x3c6ef372) ^ 0x1b873593), style, musicalScale, { prog: P.prog, alt: P.alt, chord: params.stab.chord | 0, gainScale });
   if (sung) { P.hook = sung; P.hm = 2; }
+  if (softMallet) P.hook.v = 'softmallet';
   if (LIFT.has(style) && P.prog) P.lift = 2;
   if (style === 'trap' && stabVoice === 7 && sung?.v === 'mallet' && sung.m) {
     for (const part of ['n', 'v', 'b']) for (const note of sung.m[part]) note[3] *= 0.78;
@@ -1117,18 +1130,86 @@ export function songPlan(style, seed, length = 'song', bpm = midBpm(style)) {
     const sections = planSections(IDIOM[style] || 'pop', bpm, length, rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)));
     return { chain: formChain(sections), sections };
   }
+  if (style === 'hardtechno' && length !== 'sketch') {
+    const r = rng(Math.imul(seed ^ 0x45d9f3b, 0x27d4eb2d));
+    const runs = [['A', 8], ['B', 8], ['C', pick(r, [16, 24])], ['E', pick(r, [4, 8, 12])], ['F', pick(r, [4, 8])], ['G', 16], ['E', pick(r, [8, 12])], ['F', 8]];
+    const used = runs.reduce((n, [, len]) => n + len, 0);
+    runs.push(['G', 112 - used], ['B', 8], ['A', 8]);
+    return { chain: runs.map(([id, len]) => id.repeat(len)).join(''), sections: null };
+  }
   const kind = style === 'ambient' ? 'ambient' : 'techno';
   if (length === 'sketch') return { chain: CLUB_SKETCH[kind], sections: null };
   if (kind === 'ambient') return { chain: pick(rng(seed + 9), AMBIENT_FULL), sections: null };
   return { chain: (112 * 240) / bpm < LENGTHS.song.lo ? TECHNO_LONG : pick(rng(seed + 9), SONG_FORMS.techno), sections: null };
 }
 export const songChain = (style, seed, length = 'song') => songPlan(style, seed, length).chain;
+
+// Drill answers its lower verse hook with syncopated chords and carries the pocket through the fill.
+function drillVerses(pats, { chain, sections }, keep) {
+  const verse = pats[2], fill = pats[3], chorus = pats[6];
+  const edit = (base, rows) => ({ ...base, steps: { ...base.steps,
+    ...Object.fromEntries(Object.entries(rows).filter(([id]) => !keep.includes(id))) } });
+  verse.steps = edit(verse, {
+    kick: pad16([2, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
+    ch: pad16([1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1]),
+    stab: pad16([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    perc: pad16([0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1]),
+  }).steps;
+  const spans = sectionSpans(sections);
+  let verses = 0;
+  for (const { k, at, bars } of spans) {
+    if (k !== 'v' || ++verses === 1 || bars < 16 || keep.includes('kick')) continue;
+    const response = pad16([2, 0, 0, 0, 0, 0, 0, 1]);
+    response[verses % 2 ? 13 : 11] = 1;
+    for (let bar = at; bar < at + (bars >> 1) && chain[bar] === 'C'; bar++) {
+      setTake(verse, bar, edit(patternAt(verse, bar), { kick: [...response] }));
+    }
+  }
+  for (let i = 1; i < spans.length; i++) {
+    const { k, at } = spans[i], bar = at - 1;
+    if (k !== 'c' || spans[i - 1].k !== 'v' || chain[bar] !== 'D' || chain[at] !== 'G') continue;
+    const steps = clone(verse.steps);
+    steps.perc[15] = 1;
+    const acid = steps.acid.map((note, step) => step === 11 || step === 12 ? emptyAcidStep() :
+      step === 14 ? { ...emptyAcidStep(), on: true, v: 0.71 } :
+      step === 15 ? { ...emptyAcidStep(), on: true } : note);
+    const base = patternAt(fill, bar);
+    setTake(fill, bar, edit(base, {
+      ...steps, acid,
+      kick: pad16([2, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1]),
+      ch: pad16([1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1]),
+      stab: pad16([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+      snare: pad16([0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 1, 1]),
+    }));
+    // Let the 808 land on the one, then answer it with the kick instead of stacking their attacks.
+    const landing = patternAt(chorus, at);
+    const kick = [...landing.steps.kick];
+    if (!keep.includes('kick') && landing.steps.acid[0].on && kick[0] && !kick[1]) {
+      [kick[0], kick[1]] = [kick[1], kick[0]];
+      setTake(chorus, at, edit(landing, { kick }));
+    }
+  }
+}
+
 // The form written into a fresh arrangement: chain plus the takes that develop each repeat.
 export function applySongPlan(s, style, seed, length = 'song') {
   const plan = songPlan(style, seed, length, s.bpm || midBpm(style));
   s.chain = plan.chain;
   const keep = Object.keys(s.locks || {}).filter((t) => s.locks[t]);
   developSong(s.patterns, plan.sections, { keep });
+  if (style === 'hardtechno') {
+    for (const i of [4, 5]) for (const id of TRACK_IDS) if (!keep.includes(id)) s.patterns[i].steps[id] = clone(s.patterns[6].steps[id]);
+    for (const run of plan.chain.matchAll(/([A-H])\1*/g)) {
+      const p = s.patterns['ABCDEFGH'.indexOf(run[1])];
+      const id = ['perc', 'ch', 'oh'].find((t) => !keep.includes(t) && p.steps[t].some(Boolean));
+      if (!id) continue;
+      for (let at = run.index + 16; at < run.index + run[0].length; at += 16) {
+        const level = 0.82 + (((seed >>> 0) + at) % 3) * 0.06;
+        (p.at ??= []).push({ b: [at, Math.min(at + 15, run.index + run[0].length - 1)], steps: { [id]: p.steps[id].map((v) => v * level) } });
+      }
+    }
+  }
+  if (style === 'drill' && plan.sections) drillVerses(s.patterns, plan, keep);
   if (plan.chain === TECHNO_LONG) developFinalDrop(s.patterns, plan.chain, { keep });
   return plan;
 }
@@ -1262,13 +1343,14 @@ export function sanitize(s) {
   out.orchMute = Object.fromEntries(SECTIONS.map((k) => [k, !!s.orchMute?.[k]]));
   const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, Number.isFinite(+v) ? +v : lo));
   const cleanTrack = (id, arr) => pad16(arr).map((v, j) => {
-    if (id !== 'acid') return v === 2 ? 2 : v ? 1 : 0;
+    if (id !== 'acid') return s.artist?.style === 'hardtechno' ? cl(v, 0, 2) : v === 2 ? 2 : v ? 1 : 0;
     const step = arr[j] || {};
     return {
       on: !!step.on,
       n: Math.max(-24, Math.min(24, Number.isFinite(+step.n) ? Math.round(+step.n) : 0)),
       a: !!step.a,
       s: !!step.s,
+      ...(step.on && Number.isFinite(step.v) && step.v > 0 && step.v < 1 ? { v: step.v } : {}),
     };
   });
   const cleanNotes = (a) => (Array.isArray(a) ? a : []).filter(Array.isArray).slice(0, 96).map((x) => [Math.round(cl(x[0], -8, MELODY_BARS * 16 - 1)), Math.round(cl(x[1], 1, 16)), Math.round(cl(x[2], -24, 36)), cl(x[3], 0, 1), Math.round(cl(x[4], 0, 7)), Math.round(cl(x[5], 0, 95))]);

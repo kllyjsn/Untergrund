@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { generate, defaultState, clone, sanitize } from '../js/state.js';
 import { createTimelineRecorder, stateAt, trimTimeline, createReplayer, normalizeTimeline, diffOps, applyOps, stepAt, compactTimeline, liveView, MAX_TIMELINE_BYTES } from '../js/set-timeline.js';
+import { playTimeline, stopTimeline } from '../js/live-sets.js';
 
 // Deterministic "DJ": a seeded run of knob turns, mutes, pattern switches, tempo and genre changes.
 function rng(seed) { let x = seed >>> 0; return () => ((x = (x * 1664525 + 1013904223) >>> 0) / 2 ** 32); }
@@ -68,6 +69,28 @@ for (const t of [0, 30e3, 90e3, 120e3]) assert.deepEqual(stateAt(cut, t).state, 
 // tempo integration: 120 BPM for 10 s (80 steps) then 150 BPM for 2 s (20 steps)
 const tempo = { initial: { bpm: 120 }, events: [{ t: 10000, ops: [[['bpm'], 150]] }], duration: 20000 };
 assert.equal(stepAt(tempo, 12000).steps, 100);
+
+{
+  const realNow = Date.now, startsAt = 50000;
+  try {
+    for (const [joinAt, expected] of [
+      [startsAt - 300, { step: 0, stepWall: startsAt }],
+      [startsAt + 12000, { step: 101, stepWall: startsAt + 12100 }],
+    ]) {
+      let wall = joinAt, played;
+      Date.now = () => wall;
+      playTimeline(tempo, startsAt, {
+        load: () => { wall += 60; },
+        play: (opts) => { played = opts; },
+      });
+      assert.deepEqual(played, expected, 'rendering the loaded state does not move the first replay step');
+      stopTimeline();
+    }
+  } finally {
+    Date.now = realNow;
+    stopTimeline();
+  }
+}
 assert.equal(stepAt(tempo, 12000).bpm, 150);
 
 // untrusted input: survives normalize unchanged, drops prototype pollution and foreign keys
