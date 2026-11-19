@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { freshSong } from '../js/state.js';
+import { freshSong, defaultState } from '../js/state.js';
+import { localSpec, songState } from '../js/song-spec.js';
+import { rulePlan, planLyrics } from '../js/song-plan.js';
 import { vocalFx } from '../js/sing.js';
 import { envelope, postResumeEnvelope, onsets, correlate } from './club-sync-audio.mjs';
 
@@ -11,6 +13,43 @@ export function mixFixture() {
   s.solos = {}; s.mutes = {};
   s.sing = { on: true, voice: 'gwen', db: 0, ms: 0 };
   return s;
+}
+
+export function realMixFixture() {
+  const prompt = 'upbeat pop song about summer nights, female vocal';
+  const s = songState(localSpec(prompt, {}), 7, defaultState()).state;
+  s.lyrics = planLyrics(rulePlan(prompt, '[Verse]\nStreetlights hum along the avenue\nI keep the window open just for you\n[Chorus]\nStay with me tonight\nHold on till the morning light'), prompt);
+  s.bpm = 123; s.swing = 0;
+  s.chain = 'CCCCBBBBGGGGGGGHEEEDGGGGGGGHAAAA';
+  s.fresh = 0; s.solos = {}; s.mutes = {};
+  s.sing = { on: true, voice: 'gwen', db: 0, ms: 0 };
+  return s;
+}
+
+export async function loadRealMixStem(s) {
+  const { singSong, hasStem, vocalFx } = await import('/js/sing.js');
+  const { processedStem } = await import('/js/vocal-chain.js');
+  const epoch = () => performance.timeOrigin + performance.now();
+  const evidence = __clubAudio.realStem = { start: epoch(), apiResponses: [], plays: [] };
+  const original = globalThis.fetch;
+  globalThis.fetch = async (...args) => {
+    const response = await original(...args);
+    if (String(args[0]).includes('/api/sing') && args[1]?.method === 'POST')
+      evidence.apiResponses.push({ status: response.status, type: response.headers.get('content-type') });
+    return response;
+  };
+  let buf;
+  try { buf = await singSong(s); } finally { globalThis.fetch = original; }
+  evidence.resolved = hasStem(s);
+  evidence.duration = buf.duration; evidence.sampleRate = buf.sampleRate;
+  evidence.end = epoch();
+  __clubAudio.stemWarm = { start: evidence.start, end: evidence.end };
+  const processed = processedStem(buf, vocalFx(s), new OfflineAudioContext(1, 1, 48000));
+  const start = AudioBufferSourceNode.prototype.start;
+  AudioBufferSourceNode.prototype.start = function (when = 0, offset = 0, ...rest) {
+    if (this.buffer === processed) evidence.plays.push({ at: epoch(), when, offset });
+    return start.call(this, when, offset, ...rest);
+  };
 }
 
 export function mixBoundaries(s, origin) {
@@ -209,17 +248,20 @@ export function analyzeMix(raw, s, events, origin, { resume = true } = {}) {
   }
   return { phases, boundaries, timeToRealignMs, budgetMs, baselineFailures,
     stemWarm:raw.map(r => r.stemWarm),
+    realStems:raw.map(r => r.realStem),
     graphEdges:raw.map(r => Object.fromEntries(Object.entries(r.channels).map(([name, c]) => [name, c.edge]))),
     stemInjected:raw.map(r => r.stemInjected || []) };
 }
 
-export function mixFailures(mix) {
+export function mixFailures(mix, real = false) {
   const { kicks:k, vocal:v } = mix.phases.after, failures = [...(mix.baselineFailures || [])];
   if (!k.matched || k.median === null || k.median > 25 || k.p95 > 50 || k.missing) failures.push('kicks AFTER');
   if (mix.timeToRealignMs === null || mix.timeToRealignMs > mix.budgetMs) failures.push('kick realignment budget');
   for (const b of mix.boundaries.filter(b => !b.duringFreeze))
     if (b.deltaMs === null || Math.abs(b.deltaMs) > 50 || !b.correctSection) failures.push(`boundary ${b.bar}`);
   if (v.lagMs === null || Math.abs(v.lagMs) > 50 || v.returnMs === null || v.returnMs > mix.budgetMs || v.missing || v.extra) failures.push('vocal AFTER');
-  if (!mix.stemInjected.every(a => a.length)) failures.push('stem cache injection');
+  if (real) {
+    if (mix.realStems?.length !== 2 || !mix.realStems.every(s => s?.resolved && s.plays.length && s.apiResponses.some(r => r.status === 200 && r.type?.startsWith('audio/')))) failures.push('real stem not loaded/played through API');
+  } else if (!mix.stemInjected.every(a => a.length)) failures.push('stem cache injection');
   return failures;
 }

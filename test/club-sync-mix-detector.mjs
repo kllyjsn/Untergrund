@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
-import { mixFixture, mixBoundaries, mixGraphEdges, channelEnvelope, analyzeMix, matchEvents, realignment, phraseOnsets, boundaryMetric, mixFailures, underrunEvidence, kickAttribution } from './club-sync-mix.mjs';
+import { mixFixture, realMixFixture, mixBoundaries, mixGraphEdges, channelEnvelope, analyzeMix, matchEvents, realignment, phraseOnsets, boundaryMetric, mixFailures, underrunEvidence, kickAttribution } from './club-sync-mix.mjs';
+import { singRequest } from '../js/sing.js';
+import { sanitize } from '../js/state.js';
 import { postResumeEnvelope, onsets } from './club-sync-audio.mjs';
+
+const real = realMixFixture();
+assert.deepEqual(real, realMixFixture());
+assert.ok(singRequest(real, 'opus')?.score.notes.length);
+assert.deepEqual(singRequest(sanitize(real), 'opus'), singRequest(real, 'opus'));
+assert.equal(real.bpm, 123);
+assert.equal(mixBoundaries(real, 0).find(b => b.section === 'DROP').bar, 8);
 
 const s = mixFixture();
 assert.deepEqual(s, mixFixture());
@@ -65,6 +74,13 @@ assert.deepEqual(phraseOnsets(phrases, .25), [0, 2000, 4000, 6000]);
 assert.equal(matchEvents(phraseOnsets(phrases, .25), phraseOnsets(phrases.filter(([t]) => t < 4000 || t >= 5500), .25), 0, 7000).missing, 1);
 assert.ok(mixFailures({phases:{after:{kicks:silent, vocal:{lagMs:null, returnMs:null}}},
   boundaries:[], timeToRealignMs:null, budgetMs:1500, stemInjected:[[], []]}).length >= 3);
+const realEvidence = { resolved:true, plays:[{when:1}], apiResponses:[{status:200, type:'audio/ogg'}] };
+const realMix = {phases:{after:{kicks:{matched:1, median:0, p95:0, missing:0}, vocal:{lagMs:0, returnMs:0, missing:0, extra:0}}},
+  boundaries:[], timeToRealignMs:1000, budgetMs:1500, realStems:[realEvidence, realEvidence]};
+assert.deepEqual(mixFailures(realMix, true), []);
+for (const realStems of [[], [realEvidence, null], [realEvidence, {...realEvidence, plays:[]}],
+  [realEvidence, {...realEvidence, resolved:false}], [realEvidence, {...realEvidence, apiResponses:[{status:502}]}]])
+  assert.ok(mixFailures({...realMix, realStems}, true).includes('real stem not loaded/played through API'));
 const synthetic = (shift = 0, vocalShift = 0) => {
   const rows = fn => Array.from({length:20000}, (_, i) => [i * .002 + shift / 1000, fn(i * 2)]);
   return {errors:[], anchors:[[0, 0]], samples:rows(t => Math.sin(t / 113) ** 2), stemWarm:{start:-2, end:-1}, sources:[],

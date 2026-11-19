@@ -1,5 +1,29 @@
 # Club rendered-audio sync harness
 
+## Real neural vocals (local CPU)
+
+`npm run test:club-sync -- --vocal real --scenario short-wake-mix --diagnostics`
+uses a fixed seed-7 lyric-bearing pop fixture. The default remains synthetic.
+Install `singer/requirements.txt` in a venv first; set `SINGER_PYTHON` to its Python
+executable (default `~/singer-investigation-venv/bin/python`). The harness starts
+`singer/singer.py serve --backend litert`, using the normal authenticated
+submit/result protocol and local `server.mjs` proxy. Weights download on first use.
+Allow up to 15 minutes for startup and another 15 minutes for the one prewarm render.
+
+Before Chrome starts, the harness prewarms `/api/sing` with the exact Opus request
+the browser will send. The server's memory cache is shared across clients and
+repeats. Each new page pauses only the main app module request while the real
+browser `singSong()` fetches, decodes and processes the cached API audio. No stem
+cache injection runs in real mode. Results require successful API audio responses,
+resolved `singSong()`, and starts of the processed vocal AudioBuffer on both clients.
+
+Alongside the output JSON, `*-stem.ogg` preserves the API response and `*-stem.wav`
+is its decoded PCM16 copy. `vocalGroundTruth` records the request, hash, BPM and
+sample-zero placement at bar 0 (zero timing trim); each result's `vocalTimeline`
+records the corresponding room epoch. `realStems` records per-page load/playback
+evidence. Existing synthetic-oriented analysis/thresholds are unchanged: these
+metrics are not yet a score-referenced neural phrase/gap detector.
+
 Run `npm run test:club-sync` with Node 22 and Chrome installed (`CHROME_PATH`
 overrides discovery). Add `-- --assert` for exit-status thresholds, or
 `-- --scenario late-join` (also `listener-skew`, `host-skew`, `cold-invite`,

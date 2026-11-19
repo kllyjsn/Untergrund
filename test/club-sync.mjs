@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { availableParallelism } from 'node:os';
+import { randomBytes, createHash } from 'node:crypto';
 import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { resolve, join } from 'node:path';
@@ -13,7 +14,8 @@ import { installAudioTap, envelope, postResumeEnvelope, onsets, resolvedCompare,
 import { transitionAudio } from './club-sync-transition.mjs';
 import { measureDJEdits } from './club-dj-edit.mjs';
 import { installDiagnostics, diagnose } from './club-sync-diagnostics.mjs';
-import { mixFixture, mixBoundaries, mixGraphEdges, installMixStem, analyzeMix, mixFailures } from './club-sync-mix.mjs';
+import { mixFixture, realMixFixture, loadRealMixStem, mixBoundaries, mixGraphEdges, installMixStem, analyzeMix, mixFailures } from './club-sync-mix.mjs';
+import { singRequest } from '../js/sing.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const out = resolve(root, 'test/out');
@@ -40,14 +42,17 @@ const SCENARIOS = [
   { name: 'replay', replay: true },
 ];
 const args = process.argv.slice(2);
-const options = { repeat: 1, output: 'club-sync.json' };
+const options = { repeat: 1, output: 'club-sync.json', vocal: 'synthetic' };
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
   if (['--assert', '--diagnostics', '--mute-audio', '--no-audio-device', '--startup-contention'].includes(arg)) options[arg.slice(2)] = true;
-  else if (['--scenario', '--repeat', '--output', '--cpu-throttle'].includes(arg) && args[i + 1]) options[arg.slice(2)] = args[++i];
+  else if (['--scenario', '--repeat', '--output', '--cpu-throttle', '--vocal'].includes(arg) && args[i + 1]) options[arg.slice(2)] = args[++i];
   else throw new Error(`Unknown/missing argument: ${arg}`);
 }
 const selected = options.scenario;
+assert.ok(['synthetic', 'real'].includes(options.vocal), '--vocal must be synthetic or real');
+const realVocal = options.vocal === 'real';
+const mixSong = () => realVocal ? realMixFixture() : mixFixture();
 assert.ok(!selected || SCENARIOS.some(s => s.name === selected), 'Unknown scenario');
 assert.ok(/^\d+$/.test(String(options.repeat)) && +options.repeat >= 1 && +options.repeat <= 20, '--repeat must be 1..20');
 assert.match(options.output, /^[a-z0-9-]+\.json$/, '--output must be a JSON filename under test/out');
@@ -111,8 +116,29 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = 
     }
     const graph = mix ? await mixGraphEdges() : null;
     await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${installAudioTap})(${skew}, ${JSON.stringify(fixture)}, ${displacementMs}, ${mix}, ${JSON.stringify(graph)})` });
-    if (mix) await installMixStem(send, base, mixFixture());
-    const nav = async path => { await send('Page.navigate', { url: base + path }); await until(() => run('!!document.querySelector(".club-btn, .club-modal, .club-head")'), 'app ready'); };
+    if (mix && !realVocal) await installMixStem(send, base, mixFixture());
+    if (mix && realVocal) {
+      await send('Network.setBypassServiceWorker', { bypass: true });
+      const receive = ws.onmessage;
+      ws.onmessage = async e => {
+        receive(e);
+        const m = JSON.parse(e.data);
+        if (m.method !== 'Fetch.requestPaused') return;
+        try {
+          await run(`(${loadRealMixStem})(${JSON.stringify(mixSong())})`);
+          await send('Fetch.continueRequest', { requestId: m.params.requestId });
+        } catch (err) {
+          await send('Runtime.evaluate', { expression: `__clubAudio.errors.push(${JSON.stringify('Real stem: ')} + ${JSON.stringify(String(err))})` });
+          await send('Fetch.failRequest', { requestId: m.params.requestId, errorReason: 'Failed' });
+        }
+      };
+      await send('Fetch.enable', { patterns: [{ urlPattern: `${base}/js/main.js`, requestStage: 'Request' }] });
+    }
+    const nav = async path => {
+      await send('Page.navigate', { url: base + path });
+      await until(() => run('!!document.querySelector(".club-btn, .club-modal, .club-head")'), 'app ready');
+      if (mix && realVocal) assert.ok(await run('!!__clubAudio.realStem?.resolved'), 'Real stem loaded before app navigation completes');
+    };
     const clickElement = async (expression, label) => {
       const point = await until(() => run(`(() => { const e = ${expression}; if (!e) return null; e.scrollIntoView({block:'center'}); const r = e.getBoundingClientRect(); return r.width && r.height && !e.disabled ? {x:r.x+r.width/2,y:r.y+r.height/2} : null; })()`), label);
       const at = Date.now();
@@ -147,7 +173,7 @@ async function scenario(base, spec) {
   const contention = [];
   const contentionFile = join(out, 'club-sync-contention.bin');
   try {
-    const song = spec.mix ? mixFixture() : fixture();
+    const song = spec.mix ? mixSong() : fixture();
     if (spec.djLatency) {
       song.chainOn = false;
       song.patterns[0].len.kick = 4;
@@ -288,7 +314,11 @@ async function scenario(base, spec) {
     }));
     if (spec.mix) {
       const mix = analyzeMix(raw, song, events, initial.startsAt, { resume: !!spec.freezeMs });
-      const failures = mixFailures(mix);
+      const failures = mixFailures(mix, realVocal);
+      if (realVocal) {
+        console.log(`  real stems: ${JSON.stringify(mix.realStems)}`);
+        assert.ok(!failures.includes('real stem not loaded/played through API'), 'Every client loaded and played singSong API audio');
+      }
       const diagnostics = options.diagnostics ? diagnose(raw, initial.startsAt) : null;
       if (diagnostics) assert.ok(diagnostics.every(d => d.roomClock?.best && d.starts.length && d.schedulerSamples >= 5), 'Diagnostic breakpoints captured both app paths');
       console.log(`${spec.name}: ${spec.offlineMs ? `offline ${spec.offlineMs}ms` : spec.handoff ? 'PASS DECK → new DJ UPDATE ROOM' : 'frozen → wake'}; realign=${mix.timeToRealignMs}ms / budget=${mix.budgetMs}ms`);
@@ -308,6 +338,8 @@ async function scenario(base, spec) {
       if (diagnostics) console.log(`  diagnostics: ${JSON.stringify(diagnostics)}`);
       console.log(`  mix thresholds: ${failures.length ? 'FAIL: ' + failures.join(', ') : 'PASS'}`);
       return { name:spec.name, spec, mix, events, failures, diagnostics, raw:{captures:raw},
+        ...(realVocal ? { vocalTimeline: { sampleZeroEpochMs: initial.startsAt, sampleZeroGridSeconds: 0, bpm: song.bpm,
+          updatedSetSampleZeroEpochMs: events.newSet?.startsAt ?? null } } : {}),
         ...mix.phases.after.kicks, hostFixture:{missing:null, measured:false}, phases:{after:mix.phases.after.kicks} };
     }
     const [he, le] = raw.map(r => envelope(r)), [ho, lo] = [he, le].map(e => onsets(e, BPM));
@@ -405,13 +437,52 @@ await mkdir(out, { recursive: true });
 const port = await freePort(), base = `http://localhost:${port}`;
 const env = { ...process.env, SC_MOCK: '1', PORT: String(port), DATA_FILE: join(out, 'club-sync-kv.json') };
 for (const k of Object.keys(env)) if (/REDIS|KV_REST|ROOMS_API_URL/.test(k)) delete env[k];
+const python = process.env.SINGER_PYTHON || join(process.env.HOME, 'singer-investigation-venv/bin/python');
+let singer = null, singerLog = '', vocalGroundTruth = null;
+if (realVocal) {
+  env.SINGER_URL = `http://127.0.0.1:${await freePort()}`;
+  env.SINGER_SECRET = randomBytes(24).toString('hex');
+}
 const server = spawn(process.execPath, ['server.mjs'], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
 let serverLog = ''; server.stdout.on('data', d => serverLog += d); server.stderr.on('data', d => serverLog += d);
 const results = [];
 let error = null;
 try {
+  if (realVocal) {
+    singer = spawn(python, ['singer/singer.py', 'serve', '--port', new URL(env.SINGER_URL).port, '--backend', 'litert', '--threads', '4'],
+      { cwd: root, env: { ...process.env, SINGER_SECRET: env.SINGER_SECRET, SCYLLASBAND_NO_BOOTSTRAP: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    singer.on('error', err => { singerLog += String(err); });
+    singer.stdout.on('data', d => singerLog += d); singer.stderr.on('data', d => singerLog += d);
+    await until(async () => {
+      if (singer.exitCode !== null || singerLog.includes('ENOENT')) throw new Error(`Singer startup failed: ${singerLog}`);
+      try { return (await fetch(`${env.SINGER_URL}/health`)).ok; } catch { return false; }
+    }, 'CPU singer health', 15 * 60e3);
+  }
   await until(async () => { try { return (await fetch(base)).ok; } catch { return false; } }, 'server');
-  console.log('Club sync: isolated Chrome processes; memory rooms; dry irregular ABCD kicks or seed-7 full-mix hypnotic sketch / 123 BPM.');
+  if (realVocal) {
+    const request = singRequest(mixSong(), 'opus');
+    assert.ok(request, 'Real fixture has a singable score');
+    const post = body => fetch(`${base}/api/sing`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    let response = await post(request), hash;
+    const deadline = Date.now() + 15 * 60e3;
+    while (response.status === 202) {
+      const job = await response.json(); hash = job.hash;
+      assert.ok(Date.now() < deadline, 'Singer prewarm timed out');
+      await pause(1000); response = await post({ job: job.job, hash });
+    }
+    assert.ok(response.ok && response.headers.get('content-type')?.startsWith('audio/'), `Singer prewarm HTTP ${response.status}`);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    const stem = options.output.replace(/\.json$/, '-stem');
+    await writeFile(join(out, `${stem}.ogg`), bytes);
+    const convert = spawn(python, ['-c', 'import soundfile as s,sys; x,r=s.read(sys.argv[1]); s.write(sys.argv[2],x,r,subtype="PCM_16")', join(out, `${stem}.ogg`), join(out, `${stem}.wav`)], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let conversionLog = ''; convert.stderr.on('data', d => conversionLog += d);
+    await new Promise((resolve, reject) => { convert.on('error', reject); convert.on('exit', code => code === 0 ? resolve() : reject(new Error(conversionLog))); });
+    vocalGroundTruth = { request, hash, encodedSha256: createHash('sha256').update(bytes).digest('hex'),
+      wav: `${stem}.wav`, encoded: `${stem}.ogg`, wavSource: 'decoded API Opus response, PCM_16',
+      bpm: request.score.bpm, sampleZeroBar: 0, sampleZeroGridSeconds: 0, timingTrimMs: 0 };
+    console.log(`Real singer prewarmed once: ${JSON.stringify({ hash, wav: vocalGroundTruth.wav, bpm: request.score.bpm })}`);
+  }
+  console.log(`Club sync: isolated Chrome processes; memory rooms; dry irregular ABCD kicks or seed-7 full-mix ${realVocal ? 'neural pop' : 'hypnotic sketch'} / 123 BPM.`);
   console.log('PCM destination tap → 180Hz low-pass RMS; getOutputTimestamp + true performance.timeOrigin.');
   console.log('Dry: signed lag resolved across ±3900ms; 7s baseline + interruption + 12s recovery. Mix: isolated rendered kick/vocal graph taps, drop−400ms freeze + 20s recovery; PCM resume boundaries for wakes.');
   for (const spec of SCENARIOS.filter(s => !selected || s.name === selected)) {
@@ -440,8 +511,9 @@ try {
   if (options.assert && failures.length) process.exitCode = 1;
 } catch (e) { error = String(e.stack || e); console.error(e); process.exitCode = 1; }
 finally {
-  await writeFile(join(out, options.output), JSON.stringify({ generatedAt: new Date().toISOString(), options, error, results, serverLog }, null, 2));
+  await writeFile(join(out, options.output), JSON.stringify({ generatedAt: new Date().toISOString(), options, error, results, serverLog, singerLog, vocalGroundTruth }, null, 2));
   console.log(`JSON: test/out/${options.output}`);
   await terminate(server);
+  await terminate(singer);
   await rm(join(out, 'club-sync-kv.json'), { force: true });
 }
