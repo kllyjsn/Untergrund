@@ -166,6 +166,25 @@ assert.deepEqual(roomTransportPosition(origin + 1600, 120, origin), { step: 0, d
 console.log('Room join latency PASS: first estimate starts playback while bounded warm calibration runs; fast, empty, failed and closed-room probes are safe.');
 console.log('Room clock calibration PASS: bounded recent minimum, adaptive probes, same-broadcast host/listener re-anchor and per-step slew.');
 
+{
+  const source = await readFile(new URL('../js/club.js', import.meta.url), 'utf8');
+  const handler = source.slice(source.indexOf('bus.onClock = '), source.indexOf('\n    bus.onPlaybackUnavailable'));
+  const calls = [], pending = {broadcastId:'live', startsAt:origin + 200, state:{bpm:123}};
+  const sandbox = {bus:{}, clockBus:{jamFollow:'live'}, pendingSet:pending,
+    getTransport:() => ({playing:false}), reanchorRoomSet:(...args) => calls.push(args)};
+  runInNewContext(handler, sandbox);
+  sandbox.bus.onClock({broadcastId:'live', startsAt:origin + 20, previousStartsAt:origin + 200});
+  assert.equal(sandbox.pendingSet.startsAt, origin + 20, 'calibration updates the set Listen Live will prefer before unlock');
+  assert.equal(sandbox.pendingSet.state, pending.state);
+  assert.equal(calls.length, 0, 'a pending join does not start or reanchor audio');
+  sandbox.bus.onClock({broadcastId:'other', startsAt:origin - 100});
+  assert.equal(sandbox.pendingSet.startsAt, origin + 20);
+  sandbox.pendingSet = null;
+  sandbox.getTransport = () => ({playing:true});
+  sandbox.bus.onClock({broadcastId:'live', startsAt:origin, previousStartsAt:origin + 20});
+  assert.deepEqual(calls, [[origin, origin + 20]], 'playing rooms receive the clock delta');
+}
+
 let pos = roomTransportPosition(origin, 120, origin + 1500);
 assert.equal(pos.step, 13);
 close(pos.delay, 0.125);

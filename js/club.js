@@ -658,6 +658,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, getRelea
     bus = new RoomBus(activeRoom, avatar, onUpdate, onEvent, apiBase);
     const clockBus = bus;
     bus.onClock = ({ broadcastId, startsAt, previousStartsAt }) => {
+      if (pendingSet?.broadcastId === broadcastId) pendingSet = { ...pendingSet, startsAt };
       if (clockBus.jamFollow === broadcastId && getTransport().playing) reanchorRoomSet?.(startsAt, previousStartsAt);
     };
     bus.onPlaybackUnavailable = onPlaybackUnavailable;
