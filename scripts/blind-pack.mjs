@@ -56,9 +56,8 @@ function ff(args) {
   return p.stderr;
 }
 function measure(file, trim = '') {
-  const out = ff(['-i', file, '-af', `${trim}ebur128=peak=true`, '-f', 'null', '-']);
-  const summary = out.slice(out.lastIndexOf('Summary:'));
-  const integrated = Number(/I:\s*(-?[\d.]+) LUFS/.exec(summary)?.[1]);
+  const out = ff(['-i', file, '-af', `${trim}loudnorm=I=-16:TP=-1.5:LRA=20:print_format=json`, '-f', 'null', '-']);
+  const integrated = Number(JSON.parse(out.slice(out.lastIndexOf('{'), out.lastIndexOf('}') + 1)).input_i);
   if (!Number.isFinite(integrated)) throw new Error(`Cannot measure loudness: ${file}`);
   return integrated;
 }
@@ -145,14 +144,14 @@ export async function main(argv = process.argv.slice(2)) {
       ff(['-i', mp3, '-c:a', 'pcm_f32le', decoded]);
       p.lufs = { first: measure(decoded, `atrim=end=${firstSeconds},asetpts=PTS-STARTPTS,`), second: measure(decoded, `atrim=start=${firstSeconds + 1.56},asetpts=PTS-STARTPTS,`) };
       p.silence = { startSeconds: firstSeconds, endSeconds: firstSeconds + 1.56 };
-      console.log(`Pair-${p.pair} decoded MP3: ${p.lufs.first.toFixed(1)} / ${p.lufs.second.toFixed(1)} LUFS; difference ${Math.abs(p.lufs.first - p.lufs.second).toFixed(2)} LU`);
+      console.log(`Pair-${p.pair} decoded MP3: ${p.lufs.first} / ${p.lufs.second} LUFS; difference ${Math.abs(p.lufs.first - p.lufs.second).toFixed(2)} LU`);
       if (Math.abs(p.lufs.first - p.lufs.second) > 0.100001) throw new Error(`Decoded MP3 loudness mismatch: pair ${p.pair}`);
     }
     writeFileSync(join(pack, 'README.md'), '# Untergrund blind listening\n\nEach MP3 contains two versions of the same generated passage, separated by a short silence. The first/second order was randomized independently. The two excerpts in each pair are matched to within 0.1 LU.\n\nListen at the same playback volume. Rate each pair as a whole from **1 (poor) to 5 (excellent)**, then choose **first**, **second**, or **tie** for release. Judge whether the kick, bass and lead are easy to distinguish without losing the groove or character. If the difference does not matter to you, choose tie. Add a free-form explanation in Why.\n\n| Pair | Pair rating (1–5) | First / second / tie | Why |\n| --- | --- | --- | --- |\n' + pairs.map((p) => `| ${p.pair} | | | |`).join('\n') + '\n\nThese are before/after mixes, not a competitive comparison. This pack does not contain the answer key or automated preferences.\n');
     const zip = join(out, `blind-rating-pack-${date}.zip`);
     rmSync(zip, { force: true });
     execFileSync('zip', ['-q', '-r', zip, 'blind-pilot'], { cwd: out });
-    const key = { schema: 'untergrund.blind-pack/1', date, generatedAt: new Date().toISOString(), seed, commit: head, base, sinceTime, mergedPRs, pairs, format: { codec: 'mp3', sampleRate: 48000, channels: 2, bitrate: 192000, silenceSeconds: 1.56, excerpt: 'peak', bars: 8, targetLUFS: -16, targetTruePeakDBTP: -1.5, measurement: 'ffmpeg ebur128 on decoded MP3 halves, excluding the inserted silence', normalization: 'two-pass loudnorm then downward pair gain matching' } };
+    const key = { schema: 'untergrund.blind-pack/1', date, generatedAt: new Date().toISOString(), seed, commit: head, base, sinceTime, mergedPRs, pairs, format: { codec: 'mp3', sampleRate: 48000, channels: 2, bitrate: 192000, silenceSeconds: 1.56, excerpt: 'peak', bars: 8, targetLUFS: -16, targetTruePeakDBTP: -1.5, measurement: 'ffmpeg loudnorm JSON input_i on decoded MP3 halves, excluding the inserted silence', normalization: 'two-pass loudnorm then downward pair gain matching' } };
     mkdirSync(keyDir, { recursive: true });
     writeFileSync(join(keyDir, `${date}.json`), JSON.stringify(key, null, 2) + '\n');
     console.log(`Pack: ${pack}\nZip: ${zip}\nKey: ${join(keyDir, `${date}.json`)}\nBase: ${base}\nHead: ${head}`);
