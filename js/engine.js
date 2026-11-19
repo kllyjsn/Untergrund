@@ -1606,7 +1606,7 @@ export class Engine {
       for (let k = 1; k <= n; k++) {
         const h = k * f;
         if (h < 1900 || h > 3400) continue;
-        const mates = fs.filter((g, j) => j !== i && Array.from({ length: 24 }, (_, q) => (q + 1) * g).some((x) => near(h, x))).length;
+        const mates = fs.filter((g, j) => j !== i && Array.from({ length: Math.ceil(3500 / g) }, (_, q) => (q + 1) * g).some((x) => near(h, x))).length;
         if (mates) cut.push(`${k}:${mates >= 2 ? 0.1 : 0.3}`);
       }
       const key = `${notes[i]}|${cut.join(',')}`;
