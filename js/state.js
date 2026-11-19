@@ -165,7 +165,9 @@ const INSTRUMENTS = {
   peak: [[4, 0, 0, 0.3, 0.65], [6, 3, 0, 0.3, 0.75], [0, 0, 0, 0.22, 0.6], [10, 3, 1, 0.8, 0.8]],
   hardtechno: [[0, 3, 0, 0.2, 0.65], [4, 3, 0, 0.3, 0.7], [6, 0, 0, 0.25, 0.8], [5, 3, 0, 0.22, 0.9]],
   deephouse: [[7, 1, 0, 1.5, 0.25], [1, 1, 0, 0.9, 0.35], [8, 1, 0, 0.65, 0.75], [10, 1, 0, 1.4, 0.2]],
-  minimal: [[6, 2, 0, 0.12, 0.65], [5, 1, 0, 0.1, 0.8], [3, 2, 0, 0.15, 0.25], [8, 1, 0, 0.15, 0.7]],
+  // Minimal is a felt Rhodes, a recorded piano, a dark dub chord or a slow pad over a round, filtered bass:
+  // no bells, plucks or guitar, which read as toys against its dry clicks.
+  minimal: [[1, 1, 1, 0.6, 0.2], [7, 1, 0, 0.7, 0.3], [0, 1, 1, 0.35, 0.3], [2, 1, 1, 0.9, 0.15]],
   ukg: [[3, 3, 0, 0.25, 0.45], [7, 1, 0, 0.75, 0.5], [5, 3, 1, 0.25, 0.85], [8, 2, 1, 0.4, 0.8]],
   euphoric: [[7, 1, 0, 1.6, 0.25], [10, 1, 0, 1.8, 0.2], [2, 1, 0, 2.1, 0.15], [9, 0, 0, 0.65, 0.7]],
   // Neo-soul is a Rhodes/piano/guitar band; strings pad the changes; the horn section honked.
@@ -361,20 +363,26 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   } else if (style === 'minimal') {
     S.kick = range(STEPS, (i) => (i % 4 === 0 ? 1 : 0));
     S.ch = range(STEPS, (i) => (i % 4 === 2 ? 1 : 0));
+    // A soft shaker on a Euclidean loop that drifts against the bar, not a clicking sine clave.
     S.perc = pad16(euclid(pick(r, [5, 7]), 16, Math.floor(r() * 16)));
     P.len.perc = pick(r, [11, 13, 15]);
     S.snare = pad16([0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
     S.clap[12] = 1;
-    S.acid = range(STEPS, (i) => ([2, 11].includes(i) ? { on: true, n: i === 11 ? musicalScale[3] : 0, a: false, s: false } : emptyAcidStep()));
+    S.acid = range(STEPS, (i) => ([2, 10].includes(i) ? { on: true, n: i === 10 ? musicalScale[3] : 0, a: false, s: false } : emptyAcidStep()));
     S.stab = pad16([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
     P.len.stab = 13;
-    Object.assign(params.kick, { tune: 54, decay: 0.28, drive: 0.1, rumble: 0, punch: 0.7, click: 0.55, level: 0.78 });
-    Object.assign(params.perc, { tune: 700 + r() * 150, decay: 0.05, metal: 0.2, noise: 0.1, bend: 0.1 });
-    Object.assign(params.snare, { tune: 300, snappy: 0.2, decay: 0.06 });
-    Object.assign(params.acid, { wave: 0.6, cutoff: 420, reso: 6, envmod: 0.3, decay: 0.09, drive: 0.1 });
-    Object.assign(params.stab, { chord: 6, cutoff: 2500, decay: 0.08, env: 0.6, dly: 0.5 });
-    master.duck = 0.3; master.revLevel = 0.3;
-    swing = 0.1;
+    Object.assign(params.kick, { tune: 58, decay: 0.24, drive: 0.05, rumble: 0, punch: 0.6, click: 0.35, level: 0.78 });
+    Object.assign(params.perc, { tune: 300, decay: 0.08, noise: 0.35, level: 0.42 });
+    Object.assign(params.snare, { tune: 240, snappy: 0.15, decay: 0.08, level: 0.5 });
+    Object.assign(params.ch, { decay: 0.07, tone: 8000, level: 0.5 });
+    // A soft ride on the off-beats in the full groove gives the top end air without a bright lead.
+    S.ride = range(STEPS, (i) => (i % 4 === 2 ? 1 : 0));
+    Object.assign(params.ride, { decay: 0.5, tone: 7000, level: 0.22 });
+    // A round bass with some edge for definition, barely resonant, the filter only opening a little on each note.
+    Object.assign(params.acid, { wave: 0.3, cutoff: 600, reso: 1.5, envmod: 0.2, decay: 0.12, drive: 0.1, accent: 0.1, level: 0.42 });
+    Object.assign(params.stab, { chord: pick(r, [1, 2, 3]), cutoff: 1900, reso: 0.4, decay: 0.45, env: 0.45, detune: 4, dly: 0.45, rev: 0.4 });
+    master.duck = 0.3; master.revLevel = 0.35;
+    swing = 0.04;
   } else if (style === 'ukg') {
     S.kick = pad16([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1]);
     S.snare = pad16([0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]);
@@ -747,8 +755,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     params.stab.level = closeLevel;
     params.stab.cutoff = Math.min(params.stab.cutoff ?? 2400, style === 'hyperpop' ? 2200 : 1800);
   }
-  // The recorded guitar needs more headroom than Minimal's synth stabs.
-  if (style === 'minimal') params.stab.level *= stabVoice === 8 ? 0.56 : 0.82;
+  if (style === 'minimal') params.stab.level *= 0.7;
   // Pop's keys carry the song alone where the piano would; they sit up with the band instead of under it.
   if (style === 'pop' && stabVoice === 1) params.stab.level = 1.1;
   // Folk and country are a band around the guitar, not a guitar over a click: it sits with the bass and kit.
@@ -766,7 +773,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   }
   params.acid.voice = bassVoice;
   for (const t of ['acid', 'stab']) params[t].voice ??= 0;
-  const PERC = { dnb: 3, deephouse: 3, ukg: 3, boombap: 3, neosoul: 3, breaks: 2, minimal: 4, dub: 4, euphoric: 3, ambient: 2, amapiano: 3, afrobeats: 1, reggaeton: 2, bailefunk: 1 };
+  const PERC = { dnb: 3, deephouse: 3, ukg: 3, boombap: 3, neosoul: 3, breaks: 2, minimal: 3, dub: 4, euphoric: 3, ambient: 2, amapiano: 3, afrobeats: 1, reggaeton: 2, bailefunk: 1 };
   params.perc.voice = PERC[style] ?? 0;
   const DUST = { boombap: 0.45, dub: 0.3, ambient: 0.2, deephouse: 0.12, minimal: 0.1 };
   master.dust = DUST[style] ?? 0;
@@ -789,6 +796,8 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     params.acid.level = style === 'trance' ? 0.72 : Math.max(params.acid.level ?? 0.55, 0.98);
   }
   const hook = hookLine(r2, style, musicalScale);
+  // Minimal keeps the techno hook's line but plays it on a warm filtered voice, not a square pulse.
+  if (hook && style === 'minimal') hook.v = 'warm';
   if (hook) { P.hook = hook; P.hm = 2; }
   // One seeded idea per track, chosen from moves that fit any groove: an octave pop at the end of
   // the bass phrase, displaced percussion, or a chord that anticipates the beat. Sometimes restraint.
@@ -822,6 +831,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   if (MAJOR_STYLES.has(style) || style === 'rock') P.band = true;
   if (style === 'pop' || style === 'rock') P.lite = true;
   if (style === 'country') P.lite = 'country';
+  if (style === 'minimal') P.smooth = true;
   return { pattern: P, params, master, bpm, key, swing: swing ?? 0.06 };
 }
 
@@ -943,7 +953,8 @@ export function arrangement(full, seed, half = false) {
   const without = (...ids) => all.filter((x) => !ids.includes(x));
   const fill = clone(full);
   delete fill.alt;
-  fill.steps.snare = pad16([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2]);
+  // A smooth style turns its phrase over with a ghost note and a dropped kick, not a snare roll.
+  if (full.smooth) { fill.steps.kick[12] = 0; fill.steps.snare[15] = 1; fill.steps.oh[14] = 1; } else fill.steps.snare = pad16([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2]);
   // One chord per half bar, left to ring, so the intro has the band's sound and still leaves the verse room to grow.
   const ringIntro = (p) => { p.steps.stab = p.steps.stab.map((v, i, row) => (v && !row.slice(i < 8 ? 0 : 8, i).some(Boolean) ? 1 : 0)); return p; };
   const scenes = [
@@ -956,9 +967,9 @@ export function arrangement(full, seed, half = false) {
     strip(full, ['ride', 'perc', 'stab', 'ch']),
     strip(full, ['ride', 'perc', 'stab', 'acid', 'oh']),
     clone(full),
-    half ? halfTime(full) : mutate(full, seed + 2),
+    half && !full.smooth ? halfTime(full) : mutate(full, seed + 2),
   ];
-  for (const p of scenes) { delete p.alt; delete p.pedal; delete p.sections; delete p.band; delete p.lite; }
+  for (const p of scenes) { delete p.alt; delete p.pedal; delete p.sections; delete p.band; delete p.lite; delete p.smooth; }
   if (full.pedal) for (const i of [6, 7]) scenes[i].prog = clone(full.pedal);
   // Hook: absent in the intro, teased (call only) in the verse and deep breakdown, full in the fill, breakdown and peaks.
   [0, 0, 1, 2, 2, 1, 2, 2].forEach((m, i) => { if (full.hook) scenes[i].hm = m; else delete scenes[i].hm; });
