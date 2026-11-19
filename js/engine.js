@@ -2426,19 +2426,19 @@ export class Engine {
   // On wake, gridTime can precede t: advance the source offset instead of moving the stem.
   vocal(t, pos, step = 0, gridTime) {
     const v = pos >= 0 ? this.vocalOf?.(this.state) : null, cur = this.vocalNow;
-    if (cur && v && cur.buf === v.buf && cur.next === pos && cur.sd === this.stepDur && cur.ms === v.ms) {
+    const phase = v ? (pos * 16 + step) * this.stepDur - v.ms / 1000 : 0;
+    const origin = (gridTime ?? t) - phase;
+    if (cur && v && cur.buf === v.buf && cur.next === pos && cur.sd === this.stepDur && cur.ms === v.ms && Math.abs(origin - cur.origin) <= 0.03) {
       cur.next = pos + 1;
       this.vocalBus.gain.setTargetAtTime(v.gain, t, 0.02);
       return;
     }
     this.vocalStop(t);
     if (!v) return;
-    const phase = (pos * 16 + step) * this.stepDur - v.ms / 1000;
     if (phase >= v.buf.duration) return;
     this.vocalSends(v.fx);
     const src = this.ctx.createBufferSource(), g = this.ctx.createGain();
     src.buffer = processedStem(v.buf, v.fx, this.ctx);
-    const origin = (gridTime ?? t) - phase;
     if (gridTime != null) t = Math.max(t, this.ctx.currentTime + 0.005);
     const off = gridTime == null ? phase : t - origin;
     if (off >= v.buf.duration) return;
@@ -2446,7 +2446,7 @@ export class Engine {
     src.connect(g).connect(this.vocalBus);
     this.vocalBus.gain.setValueAtTime(v.gain, t);
     if (off < 0) this.startSource(src, t - off); else this.startSource(src, t, off);
-    this.vocalNow = { src, g, buf: v.buf, next: pos + 1, sd: this.stepDur, ms: v.ms };
+    this.vocalNow = { src, g, buf: v.buf, next: pos + 1, sd: this.stepDur, ms: v.ms, origin };
     if (v.duck < 1) this.duckUnder(v.buf, this.bandDuck.gain, v.duck, t, t - off);
     if (v.lift < 1) this.duckUnder(v.buf, this.singTrim.gain, v.lift, t, t - off);
     // hookCarve: the exported hook stem's copy of the CHORDS channel (js/stems.js).

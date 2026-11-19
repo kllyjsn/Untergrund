@@ -228,17 +228,45 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     e.vocal(4.97, 2, 0, 4.97);
     assert.equal(starts.length, count + 1, 'small room clock updates keep the existing source');
     e.vocal(7.05, 3, 0, 7.05);
-    assert.equal(starts.length, count + 1, 'a routine grid correction does not retrigger a continuous stem');
+    assert.equal(starts.length, count + 2, 'a corrected grid re-anchors the continuous stem');
+    assert.ok(Math.abs(starts.at(-1)[1] - 5.75) < 1e-9);
+    assert.ok(Math.abs(e.vocalNow.origin - 1.3) < 1e-9);
     c.currentTime = 7.1;
     e.discardQueuedNotes(c.currentTime);
     e.vocal(7.1, 3, 0, 7.05);
-    assert.equal(starts.length, count + 2, 'a cleared clock jump starts a new stem on the corrected grid');
+    assert.equal(starts.length, count + 3, 'a cleared clock jump starts a new stem on the corrected grid');
     assert.ok(Math.abs(starts.at(-1)[1] - 5.805) < 1e-9);
     e.vocal(3, 20, 5);
     assert.equal(e.vocalNow, null, 'an exhausted stem stays silent');
     e.vocalOf = () => null;
     e.vocal(4, 1, 5);
     assert.equal(e.vocalNow, null, 'songs without a stem do not start a source');
+  }
+
+  {
+    const c = fakeCtx(), s = defaultState();
+    s.bpm = 120;
+    const buf = new FakeBuffer({ length: 48000 * 20, sampleRate: 48000 }), starts = [];
+    c.createBufferSource = () => ({ connect: dst => dst, start: (...args) => starts.push(args), stop() {} });
+    const e = new Engine(c, s, { vocal: () => ({ buf, gain: 1, duck: 1, lift: 1, ms: 250 }) });
+    for (const room of [false, true]) {
+      e.vocalStop();
+      const play = (t, pos) => e.vocal(t, pos, 0, room ? t : undefined);
+      play(1, 0);
+      const first = e.vocalNow.src, count = starts.length;
+      play(3.02, 1);
+      assert.equal(e.vocalNow.src, first, 'sub-threshold jitter keeps the source');
+      play(5.04, 2);
+      assert.notEqual(e.vocalNow.src, first, 'cumulative grid drift is measured against the playing source');
+      assert.equal(starts.length, count + 1);
+      assert.ok(Math.abs(starts.at(-1)[1] - 3.75) < 1e-9);
+      play(7.02, 3);
+      assert.equal(starts.length, count + 1, 'small changes relative to the new origin remain continuous');
+      play(8.96, 4);
+      assert.equal(starts.length, count + 2, 'backward grid corrections also re-anchor');
+      assert.ok(Math.abs(starts.at(-1)[1] - 7.75) < 1e-9);
+    }
+    console.log('Vocal grid drift PASS: solo and room sources follow cumulative forward/backward corrections; small jitter stays continuous.');
   }
 
   {
