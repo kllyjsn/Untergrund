@@ -11,7 +11,7 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
     localStorage.setItem('untergrund.v1', JSON.stringify(fixture));
     localStorage.setItem('untergrund.made', '1');
   }
-  const tap = globalThis.__clubAudio = { samples: [], anchors: [], errors: [], routes: [], requests: [], lifecycle: [], sources: [], playbackStats: [] };
+  const tap = globalThis.__clubAudio = { samples: [], anchors: [], anchorPolls: [], errors: [], routes: [], requests: [], lifecycle: [], sources: [], playbackStats: [] };
   tap.longTasks = [];
   new PerformanceObserver(list => {
     for (const e of list.getEntries()) tap.longTasks.push({ at: performance.timeOrigin + e.startTime, duration: e.duration });
@@ -142,6 +142,7 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
         entry.node = node;
       }).catch(e => tap.errors.push(String(e)));
       setInterval(() => {
+        tap.anchorPolls.push({ at: epoch(), contextTime: ctx.currentTime, state: ctx.state, visibility: document.visibilityState });
         samplePlayback(ctx);
         const t = ctx.getOutputTimestamp();
         if (t.contextTime > 0 && t.performanceTime > 0)
