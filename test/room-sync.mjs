@@ -140,7 +140,7 @@ for (const [action, currentTime, playing, expected] of [
   const calls = [], noop = () => {};
   const sandbox = {
     playing, roomFirstNote: playing ? 2 : null, roomPlayback: true, roomEditor: false, roomJoinTimer: 1, roomResume: noop, mediaRoute: null,
-    ctx: {currentTime}, engine: {editableHits: [], discardQueuedNotes: t => calls.push(`discard@${t}`), panic: () => calls.push('panic')},
+    ctx: {currentTime}, engine: {editableHits: [], discardQueuedNotes: t => calls.push(`discard@${t}`), panic: () => calls.push('panic'), cancelJamParams: noop},
     playbackStats: {end: noop}, trackingReplay: false, listens: {end: noop}, listenPos: noop, songOver: false,
     clearPaused: noop, endTuning: noop, clearTimeout: () => calls.push('timer'), handoff: null,
     jamQueue: [], guardPushOffer: noop, playStopped: noop, timer: null, midiClockStop: noop,

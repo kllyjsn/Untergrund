@@ -511,7 +511,9 @@ export class Engine {
   setTo(param, v, immediate) {
     // this.at: a song handoff schedules the whole mix change onto its downbeat
     if (this.jamAt != null) {
-      param.cancelScheduledValues(this.jamAt);
+      // Hold whatever automation is running (a section fade) up to the boundary so the outgoing bar plays out.
+      if (param.cancelAndHoldAtTime) param.cancelAndHoldAtTime(this.jamAt);
+      else param.cancelScheduledValues(this.jamAt + 1 / this.ctx.sampleRate);
       param.setValueAtTime(v, this.jamAt);
       this.jamParams.add(param);
     } else if (this.at) param.setTargetAtTime(v, this.at, 0.004);
@@ -519,10 +521,16 @@ export class Engine {
     else param.setTargetAtTime(v, this.ctx.currentTime, 0.015);
   }
 
+  // The first sample frame at or after t, so fades and Jam edits on one boundary share an exact time.
+  gridTime(t) {
+    const rate = this.ctx.sampleRate;
+    return Math.ceil(t * rate - 1e-6) / rate;
+  }
+
   scheduleJamParams(params, at) {
     const state = this.state, previous = this.jamAt;
     this.jamParams ||= new Set();
-    this.jamAt = Math.round(Math.max(this.ctx.currentTime + 1 / this.ctx.sampleRate, at) * this.ctx.sampleRate) / this.ctx.sampleRate;
+    this.jamAt = this.gridTime(Math.max(this.ctx.currentTime + 1 / this.ctx.sampleRate, at));
     this.state = { ...state, params: { ...state.params, ...params } };
     try {
       this.schedulingJam = true;
@@ -548,6 +556,10 @@ export class Engine {
     a.pre.connect(shaper).connect(gain).connect(a.tame);
     this.jamDrives.push({ at, shaper, gain });
     const current = this.jamDrives.filter(p => p.at <= now).at(-1);
+    for (const p of this.jamDrives.filter(p => p.at < current.at)) {
+      a.pre.disconnect(p.shaper); p.shaper.disconnect(); p.gain.disconnect();
+    }
+    this.jamDrives = this.jamDrives.filter(p => p.at >= current.at);
     for (const p of this.jamDrives) {
       p.gain.gain.cancelScheduledValues(now);
       p.gain.gain.setValueAtTime(p === current ? 1 : 0, now + 1 / c.sampleRate);
@@ -655,7 +667,16 @@ export class Engine {
     }
     const v = this.state.params[tid][id];
     const ch = this.ch[tid];
-    if (id === 'level') return this.setTo(ch.level.gain, v * (tid === 'stab' && this.smoothOn > 0 ? 10 ** (this.smoothOn / 20) : 1), immediate);
+    if (id === 'level') {
+      const gain = v * (tid === 'stab' && this.smoothOn > 0 ? 10 ** (this.smoothOn / 20) : 1), fade = this.hardFade;
+      if (this.jamAt == null || !this.hardTechno || this.hardFadeAt == null) return this.setTo(ch.level.gain, gain, immediate);
+      // A Jam level edit rides Hard Techno's section fade at its boundary, wherever a clock re-anchor put that boundary.
+      const from = fade.from[tid] ?? 1, to = fade.to[tid] ?? 1;
+      const k = Math.min(1, Math.max(0, (this.jamAt - fade.t) / (this.hardFadeAt - fade.t)));
+      this.setTo(ch.level.gain, gain * (from + (to - from) * k), immediate);
+      if (k < 1) ch.level.gain.linearRampToValueAtTime(gain * to, this.hardFadeAt);
+      return;
+    }
     if (id === 'pan') return this.setTo(ch.pan.pan, v, immediate);
     if (id === 'rev') return this.setTo(ch.rev.gain, v * (tid === 'stab' && this.smoothOn > 0 ? 1.6 : 1), immediate);
     if (id === 'dly') return this.setTo(ch.dly.gain, v * (tid === 'stab' && this.smoothOn > 0 ? 1.6 : 1), immediate);
@@ -3091,10 +3112,12 @@ export class Engine {
     };
     const target = pos === len - 1 && next !== cur && next != null ? profile(next, 0) : profile(cur, (pos + 1) / len);
     const prev = this.hardLevels || profile(cur, 0);
+    this.hardFadeAt = this.gridTime(t + dur);
+    this.hardFade = {t, from: prev, to: target};
     for (const id of TRACK_IDS) {
       const p = this.ch[id].level.gain, level = this.state.params[id].level;
       if (!this.hardLevels) p.setValueAtTime(level * (prev[id] ?? 1), t);
-      p.linearRampToValueAtTime(level * (target[id] ?? 1), t + dur);
+      p.linearRampToValueAtTime(level * (target[id] ?? 1), this.hardFadeAt);
     }
     if (!this.hardLevels) {
       this.secGain.gain.setValueAtTime(10 ** (prev.db / 20), t);
@@ -3239,10 +3262,11 @@ export class Engine {
 
   // Called while scheduling the switch step: every param of the new song lands on t1, not now.
   handoffIn(t1) {
+    this.hardFadeAt = null;
     if (this.jamParams?.size || this.jamDrives) this.scheduleJamParams(this.state.params, t1);
     const h = this.handoff;
     this.handoff = null;
-    this.at = Math.max(this.ctx.currentTime, t1);
+    this.at = this.gridTime(Math.max(this.ctx.currentTime, t1));
     try { this.applyAll(); this.applyDelayTime(); } finally { this.at = 0; }
     this.acidRelease(t1);
     this.breakOpen(t1);

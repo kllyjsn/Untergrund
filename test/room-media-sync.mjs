@@ -246,7 +246,7 @@ for (const mediaRoute of [null, route]) for (const kind of ['snapshot', 'late', 
 console.log('Room jam refill PASS: snapshot and live/late layers replace stale primed notes at a safe prefix/bar, preserve the original horizon and stop tracking; desktop and beyond-prime queues unchanged.');
 for (const kind of ['normal', 'empty', 'error']) {
   const state = { params: { kick: { level: .9 }, bass: { level: .8 } } }, calls = [];
-  const engine = { state, ctx: { currentTime: 10, sampleRate: 48000 }, applyParam(track, key) {
+  const engine = { state, ctx: { currentTime: 10, sampleRate: 48000 }, gridTime: Engine.prototype.gridTime, applyParam(track, key) {
     if (kind === 'error') throw Error('control failure');
     calls.push([track, key, this.state.params[track][key], this.jamAt]);
   } };
