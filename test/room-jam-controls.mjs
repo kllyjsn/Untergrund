@@ -141,6 +141,27 @@ async function renderDrive(drive, edit = '') {
   });
 }
 
+async function renderBoundaryAutomation() {
+  const { Engine } = await import('/js/engine.js');
+  const { defaultState } = await import('/js/state.js');
+  const state = defaultState(), rate = 48000, ctx = new OfflineAudioContext(1, 3 * rate, rate);
+  const engine = new Engine(ctx, state, {realtime: false});
+  engine.out.disconnect(ctx.destination);
+  const dc = ctx.createConstantSource(), gain = engine.ch.kick.level.gain;
+  dc.connect(engine.ch.kick.level).connect(ctx.destination); dc.start();
+  gain.setValueAtTime(1, 0); gain.linearRampToValueAtTime(.5, 2.1);
+  const paths = [];
+  const edits = [1, 1.2, 1.4, 1.7].map(t => ctx.suspend(t).then(async () => {
+    state.params.acid.drive = .2 + t / 10;
+    engine.scheduleJamParams({acid: {drive: state.params.acid.drive}}, t + .1);
+    paths.push(engine.jamDrives.length);
+    if (t === 1.7) { state.params.kick.level = .9; engine.scheduleJamParams({kick: {level: .9}}, 2.1); }
+    await ctx.resume();
+  }));
+  const [buffer] = await Promise.all([ctx.startRendering(), ...edits]), y = buffer.getChannelData(0);
+  return {paths, gain: [.5, 1.05, 1.95, 2.09, 2.5].map(t => y[Math.round(t * rate)])};
+}
+
 const result = await withChrome(async run => {
   const out = {};
   for (const route of [true, false]) out[route ? 'primed' : 'desktop'] = {
@@ -149,6 +170,7 @@ const result = await withChrome(async run => {
   };
   for (const action of ['seek', 'stop', 'stall', 'multi', 'replace', 'handoff']) out[action] = await run('(' + render.toString() + `)(true,true,${JSON.stringify(action)})`);
   out['desktop-replace'] = await run('(' + render.toString() + ')(true,false,"replace",1.9)');
+  out.boundary = await run('(' + renderBoundaryAutomation.toString() + ')()');
   out.drive = {};
   for (const drive of [.2, .8, .3, .5]) out.drive[drive] = await run('(' + renderDrive.toString() + `)(${drive})`);
   for (const edit of ['edit', 'cancel', 'live']) out.drive[edit] = await run('(' + renderDrive.toString() + `)(.2,${JSON.stringify(edit)})`);
@@ -193,6 +215,9 @@ if (result) {
     assert(Math.abs(result.drive.edit[i] - result.drive[drive][i]) < .01, 'acid drive switches native paths at each boundary');
     assert(Math.abs(result.drive.cancel[i] - result.drive[.3][i]) < .01, 'cancel restores the latest drive and removes future switches');
   }
+  const {gain, paths} = result.boundary, ramp = t => 1 - .5 * t / 2.1;
+  for (const [i, t] of [.5, 1.05, 1.95, 2.09].entries()) assert(Math.abs(gain[i] - ramp(t)) < .01, 'a fade ending on the jam boundary plays out');
+  assert(Math.abs(gain[4] - .9) < .01);
   console.log('Room jam FX PASS: acid waveshaper and post-gain switch at both audio-clock boundaries; cancel restores one current path.');
   assert(Math.abs(result.drive.live[3] - result.drive[.2][3]) < .01, 'the pre-knob acid retains its original timbre');
   for (const i of [0,1,2]) assert(Math.abs(result.drive.live[i] - result.drive[.5][i]) < .01,
