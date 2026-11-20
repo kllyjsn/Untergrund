@@ -9,6 +9,7 @@ import { makeIR } from '../js/dsp.js';
 import { TECHNO_HOOK_SPACE } from '../js/lead.js';
 import { VOCAL_FX } from '../js/sing.js';
 import { transportResync } from '../js/room-sync.js';
+import { applyPart, extractPart, normalizeLayer } from '../js/jam.js';
 
 const BASELINE = new URL('./audio-nodes-baseline.json', import.meta.url);
 const SLACK = 1.15, FLOOR = 12;
@@ -48,6 +49,33 @@ globalThis.fetch = async (url) => {
 };
 
 const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCrossfade } = await import('../js/engine.js');
+{
+  const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+  const source = main.slice(main.indexOf('function landJamPart(part,'), main.indexOf('\n// GENERATE while'));
+  for (const drive of [0, .2]) {
+    const state = defaultState(), ctx = fakeCtx(), noop = () => {};
+    state.params.acid.drive = drive;
+    const engine = new Engine(ctx, state, {realtime:false});
+    const env = {state, engine, ctx, applyPart, playing:true, roomPlayback:true, mediaRoute:null,
+      setTimeout:noop, requestAnimationFrame:noop, cancelAnimationFrame:noop, jamRedraw:0};
+    const land = new Function('env', 'with(env){' + source + '; return landJamPart;}')(env);
+    const edit = (value, at) => {
+      const layer = normalizeLayer('bass', extractPart(state, 'bass'));
+      layer.params.acid.drive = value;
+      land('bass', layer, at);
+      assert.equal(layer.params.acid.drive, value, 'scheduling cannot mutate the shared Jam layer');
+    };
+    const initial = counts.n;
+    for (let i = 0; i < 24; i++) edit(drive, 1 + i);
+    assert.equal(counts.n, initial, 'unchanged drive across 24 timed desktop bass edits creates no AudioNodes');
+    edit(.8, 25);
+    assert(counts.n > initial, 'a changed drive still schedules its native oversampled path');
+    const changed = counts.n;
+    for (let i = 0; i < 24; i++) edit(.8, 26 + i);
+    assert.equal(counts.n, changed, 'repeated edits retain the one pending changed-drive path');
+  }
+  console.log('Room Jam drive nodes PASS: unchanged and zero drive keep native node counts flat across 24 edits before/after a real drive change.');
+}
 const { loadLiveKit, loadBand, BAND } = await import('../js/livekit.js');
 const { loadPiece } = await import('../js/repertoire.js');
 await loadLiveKit();
