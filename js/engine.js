@@ -520,10 +520,16 @@ export class Engine {
     else param.setTargetAtTime(v, this.ctx.currentTime, 0.015);
   }
 
+  // The first sample frame at or after t, so fades and Jam edits on one boundary share an exact time.
+  gridTime(t) {
+    const rate = this.ctx.sampleRate;
+    return Math.ceil(t * rate - 1e-6) / rate;
+  }
+
   scheduleJamParams(params, at) {
     const state = this.state, previous = this.jamAt;
     this.jamParams ||= new Set();
-    this.jamAt = Math.round(Math.max(this.ctx.currentTime + 1 / this.ctx.sampleRate, at) * this.ctx.sampleRate) / this.ctx.sampleRate;
+    this.jamAt = this.gridTime(Math.max(this.ctx.currentTime + 1 / this.ctx.sampleRate, at));
     this.state = { ...state, params: { ...state.params, ...params } };
     try {
       this.schedulingJam = true;
@@ -3073,7 +3079,7 @@ export class Engine {
     for (const id of TRACK_IDS) {
       const p = this.ch[id].level.gain, level = this.state.params[id].level;
       if (!this.hardLevels) p.setValueAtTime(level * (prev[id] ?? 1), t);
-      p.linearRampToValueAtTime(level * (target[id] ?? 1), t + dur);
+      p.linearRampToValueAtTime(level * (target[id] ?? 1), this.gridTime(t + dur));
     }
     if (!this.hardLevels) {
       this.secGain.gain.setValueAtTime(10 ** (prev.db / 20), t);

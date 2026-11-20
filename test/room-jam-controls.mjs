@@ -149,13 +149,13 @@ async function renderBoundaryAutomation() {
   engine.out.disconnect(ctx.destination);
   const dc = ctx.createConstantSource(), gain = engine.ch.kick.level.gain;
   dc.connect(engine.ch.kick.level).connect(ctx.destination); dc.start();
-  gain.setValueAtTime(1, 0); gain.linearRampToValueAtTime(.5, 2.1);
+  gain.setValueAtTime(1, 0); gain.linearRampToValueAtTime(.5, engine.gridTime(2.1 + .4 / rate + 1e-13));
   const paths = [];
   const edits = [1, 1.2, 1.4, 1.7].map(t => ctx.suspend(t).then(async () => {
     state.params.acid.drive = .2 + t / 10;
     engine.scheduleJamParams({acid: {drive: state.params.acid.drive}}, t + .1);
     paths.push(engine.jamDrives.length);
-    if (t === 1.7) { state.params.kick.level = .9; engine.scheduleJamParams({kick: {level: .9}}, 2.1); }
+    if (t === 1.7) { state.params.kick.level = .9; engine.scheduleJamParams({kick: {level: .9}}, 2.1 + .4 / rate); gain.linearRampToValueAtTime(.9, 2.6); }
     await ctx.resume();
   }));
   const [buffer] = await Promise.all([ctx.startRendering(), ...edits]), y = buffer.getChannelData(0);
