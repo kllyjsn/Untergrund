@@ -8,6 +8,7 @@ import { STYLES, defaultState, generate, applyOverrides, arrangement, songChain 
 import { makeIR } from '../js/dsp.js';
 import { TECHNO_HOOK_SPACE } from '../js/lead.js';
 import { VOCAL_FX } from '../js/sing.js';
+import { transportResync } from '../js/room-sync.js';
 
 const BASELINE = new URL('./audio-nodes-baseline.json', import.meta.url);
 const SLACK = 1.15, FLOOR = 12;
@@ -387,6 +388,91 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       assert.ok(Math.abs(starts.at(-1)[1] - 7.75) < 1e-9);
     }
     console.log('Vocal grid drift PASS: solo and room sources follow cumulative forward/backward corrections; small jitter stays continuous.');
+  }
+
+  {
+    for (const residual of [-0.029, 0.029]) {
+      const c = fakeCtx(), s = defaultState(), rates = [], starts = [];
+      s.bpm = 120;
+      const buf = new FakeBuffer({ length: 48000 * 20, sampleRate: 48000 });
+      c.createBufferSource = () => ({ connect: dst => dst, start: (...a) => starts.push(a), stop() {},
+        playbackRate: {
+          setValueAtTime: (rate, at) => rates.push({ rate, at, ramp: false }),
+          linearRampToValueAtTime: (rate, at) => rates.push({ rate, at, ramp: true }),
+        } });
+      const e = new Engine(c, s, { vocal: () => ({ buf, gain: 1, duck: 1, lift: 1, ms: 0 }) });
+      const sd = e.stepDur;
+      let nextTime = 10 + residual, rate = 1;
+      e.vocal(nextTime, 0, 0, nextTime);
+      const source = e.vocalNow.src;
+      for (let step = 1; step <= 64; step++) {
+        nextTime += sd;
+        const fix = transportResync(10 + step * sd, nextTime, nextTime - sd - .01, sd, false, -Infinity, rate);
+        if (fix) {
+          e.slewVocal(fix.nextTime - nextTime, nextTime - sd, sd, fix.rate, fix.endRate);
+          rate = fix.endRate;
+          nextTime = fix.nextTime;
+        }
+        if (step % 16 === 0) e.vocal(nextTime, step / 16, 0, nextTime);
+        assert.equal(e.vocalNow.src, source, 'slewing across consecutive bars keeps the continuous stem');
+        assert.ok(Math.abs(e.vocalNow.origin - (nextTime - step * sd)) < 1e-9);
+      }
+      let origin = 10 + residual, previousAt = origin, previousRate = 1;
+      for (const event of rates) {
+        assert.ok(Math.abs(event.rate - 1) <= .008 + 1e-12, 'vocal tempo adjustment stays within 0.8 percent');
+        assert.ok(event.at >= previousAt, 'automation is appended in time order');
+        assert.ok(Math.abs(event.rate - previousRate) <= sd * .016 + 1e-12, 'adjacent rates change smoothly');
+        origin += (1 - (event.ramp ? (previousRate + event.rate) / 2 : previousRate)) * (event.at - previousAt);
+        previousAt = event.at; previousRate = event.rate;
+      }
+      assert.equal(rates.filter(e => !e.ramp).length, 1, 'only the initial unity anchor is a set event');
+      assert.equal(rates[0].rate, 1);
+      assert.equal(rates.at(-1).rate, 1, 'the final ramp returns to unity');
+      assert.ok(rates.slice(1, -1).every(e => e.rate !== 1), 'no unity reset in the middle of the slew');
+      assert.ok(Math.abs(origin - e.vocalNow.origin) < 1e-9, 'integrated source playback follows the corrected grid');
+      assert.equal(starts.length, 1);
+      assert.ok(Math.abs(origin - 10) <= .002 + 1e-9);
+      const count = rates.length;
+      e.slewVocal(.001, e.vocalNow.at - .01, sd, 1, .998);
+      c.currentTime = 30;
+      e.slewVocal(.001, 29.9, sd, 1, .998);
+      assert.equal(rates.length, count, 'do not change pre-start or already-rendered vocal intervals');
+      e.vocalStop();
+      e.slewVocal(.001, 31, sd, 1, .998);
+      assert.equal(rates.length, count, 'silent songs need no vocal correction');
+    }
+    console.log('Vocal slew PASS: both signs, smooth appended ramps, no mid-slew unity reset, integrated phase follows grid, continuous bars, render/start guards and silence.');
+  }
+
+  {
+    for (const sign of [-1, 1]) {
+      const c = fakeCtx(), s = defaultState(), events = [];
+      s.bpm = 120;
+      const buf = new FakeBuffer({ length: 48000 * 20, sampleRate: 48000 });
+      c.createBufferSource = () => ({ connect: dst => dst, start() {}, stop() {}, playbackRate: {
+        setValueAtTime: (rate, at) => events.push({ rate, at }),
+        linearRampToValueAtTime: (rate, at) => events.push({ rate, at }),
+      } });
+      const e = new Engine(c, s, { vocal: () => ({ buf, gain: 1, duck: 1, lift: 1, ms: 0 }) });
+      e.vocal(1, 0, 0, 1);
+      const sd = e.stepDur, rate1 = 1 + sign * .002, rate2 = 1 + sign * .004;
+      e.slewVocal(2 * sd / (1 + rate1) - sd, 1, sd, 1, rate1);
+      const end1 = events.at(-1).at, from2 = end1 - Number.EPSILON;
+      assert.ok(from2 < end1, 'the next interval begins one ulp before the previous reset');
+      e.slewVocal(2 * sd / (rate1 + rate2) - sd, from2, sd, rate1, rate2);
+      const end2 = events.at(-1).at;
+      assert.equal(events.length, 3, 'one anchor and two ramps; no intermediate reset');
+      assert.ok(events[1].at < events[2].at, 'ulp-early starts cannot insert an out-of-order event');
+      const midpoint = (end1 + end2) / 2;
+      const effectiveRate = events[1].rate + (events[2].rate - events[1].rate) * (midpoint - end1) / (end2 - end1);
+      assert.ok(Math.abs(effectiveRate - (rate1 + rate2) / 2) < 1e-12, 'the second interval continues the smooth ramp');
+      let phase = 0;
+      for (let i = 1; i < events.length; i++) {
+        phase += (events[i - 1].rate + events[i].rate) / 2 * (events[i].at - events[i - 1].at);
+      }
+      assert.ok(Math.abs(phase - (end2 - e.vocalNow.origin)) < 1e-12, 'effective vocal phase matches both grid corrections');
+    }
+    console.log('Vocal slew ordering PASS: one-ulp early boundaries append increasing ramps, preserving the effective rate and integrated phase for both signs.');
   }
 
   {

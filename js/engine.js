@@ -3312,6 +3312,23 @@ export class Engine {
     singingEnvelope(v.buf);
   }
 
+  // Integrate the same future rate ramp as the grid without interrupting the stem.
+  slewVocal(delta, from, duration, rate, endRate) {
+    const cur = this.vocalNow;
+    if (!cur || from + 1e-9 < cur.at || from < this.ctx.currentTime + 0.005) return;
+    const end = from + duration + delta;
+    if (end <= (cur.slewEnd ?? -Infinity)) return;
+    const param = cur.src.playbackRate;
+    if (cur.slewEnd === undefined || cur.slewRate === 1)
+      param.setValueAtTime(rate, Math.max(from, cur.slewEnd ?? from));
+    else if (from > cur.slewEnd + 1e-9)
+      param.linearRampToValueAtTime(rate, from);
+    param.linearRampToValueAtTime(endRate, end);
+    cur.slewEnd = end;
+    cur.slewRate = endRate;
+    cur.origin += delta;
+  }
+
   // Keep a continuous stem across bars; discarding the queue on a clock jump stops it.
   // On wake, gridTime can precede t: advance the source offset instead of moving the stem.
   vocal(t, pos, step = 0, gridTime) {
@@ -3336,7 +3353,7 @@ export class Engine {
     src.connect(g).connect(this.vocalBus);
     this.vocalBus.gain.setValueAtTime(v.gain, t);
     if (off < 0) this.startSource(src, t - off); else this.startSource(src, t, off);
-    this.vocalNow = { src, g, buf: v.buf, next: pos + 1, sd: this.stepDur, ms: v.ms, origin };
+    this.vocalNow = { src, g, buf: v.buf, next: pos + 1, sd: this.stepDur, ms: v.ms, origin, at: t - Math.min(0, off) };
     if (v.duck < 1) this.duckUnder(v.buf, this.bandDuck.gain, v.duck, t, t - off);
     if (v.lift < 1) this.duckUnder(v.buf, this.singTrim.gain, v.lift, t, t - off);
     // hookCarve: the exported hook stem's copy of the CHORDS channel (js/stems.js).

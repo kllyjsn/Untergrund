@@ -84,7 +84,7 @@ function transport(mediaRoute, room = true, roomItem = item) {
     roomJoinTimer: 0, handoff: null, jamQueue: [], trackingReplay: false, playbackSources: new WeakMap(), state: { bpm: 120, current: 0 },
     ctx: { currentTime: 10 }, Date: { now: () => 1000000 }, nextTime: 0, abs: 0,
     transportOrigin: 0, clockOffset: null, uiQueue: [],
-    engine: { stepDur: .125, prepareVocal: noop, editableHits: [], discardQueuedNotes: noop, cancelJamParams: noop,
+    engine: { stepDur: .125, prepareVocal: noop, slewVocal: noop, editableHits: [], discardQueuedNotes: noop, cancelJamParams: noop,
       vocal: (t, bar, step, gridTime) => vocals.push({ t, gridTime }) },
     seq: { origin: 0, cur: 0, chainPos: 1, songBars: 4, startAt: noop,
       tick: (abs, t, gridTime) => { hits.push({ abs, t, gridTime }); return 0; } },
@@ -271,4 +271,30 @@ for (const mediaRoute of [null, route]) {
   assert.equal(delay, mediaRoute ? 540 : 580, 'future DJ starts retain main\'s lookahead plus route lead');
 }
 console.log('Room media sync PASS: desktop bit identity, 40ms route-only lead, one cold-only 4s queue, bounded initial duplicate window, wake/reconnect never re-prime.');
+for (const duration of [.1, .125, .15]) {
+  const { s, api, hits } = transport(null), slews = [];
+  s.engine.slewVocal = (...args) => slews.push(args);
+  s.engine.stepDur = duration;
+  s.nextTime += .025;
+  const queued = hits.map(h => h.t), pending = s.nextTime;
+  for (let i = 0; i < 10; i++) api.schedule();
+  assert.equal(s.nextTime, pending, 'scheduler polls alone do not accumulate slew');
+  assert.equal(slews.length, 0);
+  s.ctx.currentTime += .1;
+  s.Date.now = () => 1000100;
+  api.schedule();
+  const endRate = 1 + duration * .016, delta = 2 * duration / (1 + endRate) - duration;
+  assert.equal(slews.length, 1, 'one correction for one newly scheduled step');
+  assert.ok(Math.abs(hits.at(-1).t - (pending + delta)) < 1e-9);
+  assert.deepEqual(hits.slice(0, queued.length).map(h => h.t), queued, 'queued notes are unchanged');
+  assert.ok(Math.abs(slews[0][0] - delta) < 1e-9);
+  assert.ok(Math.abs(slews[0][1] - (pending - duration)) < 1e-9);
+  assert.equal(slews[0][2], duration, 'vocal follows the actual step duration, including score rubato');
+  assert.equal(slews[0][3], 1);
+  assert.ok(Math.abs(slews[0][4] - endRate) < 1e-9);
+  assert.equal(s.engine.roomSlewRate, slews[0][4], 'grid rate persists even without a vocal stem');
+  for (let i = 0; i < 10; i++) api.schedule();
+  assert.equal(slews.length, 1);
+}
+console.log('Room step slew PASS: one correction per unscheduled step, no poll-driven acceleration, queued notes unchanged, vocal interval follows.');
 await import('./room-jam-controls.mjs');

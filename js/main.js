@@ -196,6 +196,7 @@ function schedule(lead) {
   if (fix) {
     if (fix.discard) {
       engine.discardQueuedNotes(now);
+      engine.roomSlewRate = 1;
       uiQueue.length = 0;
       seq.acidPrevSlide = false;
       if (handoff) { engine.handoffCancel(); handoff.out = false; }
@@ -214,6 +215,16 @@ function schedule(lead) {
   while (true) {
     const horizon = ctx.currentTime + (landed ? Math.max(ahead, 0.5) : ahead);
     if (!(Math.min(nextTime, replayAt) < horizon)) break;
+    if (roomPlayback) {
+      const target = roomMediaTime(transportOrigin / 1000 + abs * base - clockOffset, roomPlayback, mediaRoute);
+      const duration = engine.stepDur;
+      const slew = transportResync(target, nextTime, ctx.currentTime, duration, false, seq.origin - abs, engine.roomSlewRate ?? 1);
+      if (slew?.slew) {
+        engine.slewVocal(slew.nextTime - nextTime, nextTime - duration, duration, slew.rate, slew.endRate);
+        engine.roomSlewRate = slew.endRate;
+        nextTime = slew.nextTime;
+      }
+    }
     const t = firstTime ?? nextTime;
     firstTime = undefined;
     // Leave a nearly coincident outgoing step to the incoming replay downbeat.
@@ -407,6 +418,7 @@ function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room 
   ensureAudio();
   engine.replay808Style = replay808Style;
   engine.prepareVocal();
+  engine.roomSlewRate = 1;
   engine.editableHits.length = 0;
   const wallNow = Date.now(), audioNow = ctx.currentTime;
   if (startsAt !== null) ({ step, delay } = roomTransportPosition(startsAt, state.bpm, wallNow));

@@ -68,6 +68,32 @@ assert.deepEqual(transportResync(10.2, 10, 9.9, 0.125), { skip: 0, nextTime: 10.
 assert.deepEqual(transportResync(9.5, 10, 9.9, 0.125), { skip: 4, nextTime: 10, discard: false });
 assert.deepEqual(transportResync(9.0, 9.0, 9.6, 0.125), { skip: 5, nextTime: 9.625, discard: false });
 
+for (const bpm of [40, 80, 123, 180, 240]) for (const residual of [-0.030, -0.028, 0.028, 0.030]) {
+  const stepSec = 15 / bpm;
+  let target = 10, nextTime = target + residual, steps = 0, rate = 1;
+  while (Math.abs(nextTime - target) > 0.002 + 1e-9 || rate !== 1) {
+    const fix = transportResync(target, nextTime, nextTime - stepSec - 0.01, stepSec, false, -Infinity, rate);
+    assert.equal(fix.slew, true);
+    assert.equal(fix.skip, 0);
+    assert.equal(fix.discard, false);
+    assert.ok(Math.abs(fix.nextTime - nextTime) / stepSec < 0.01);
+    assert.equal(fix.rate, rate);
+    assert.ok(Math.abs(fix.endRate - rate) <= stepSec * .016 + 1e-12, 'rate ramps smoothly at a bounded slope');
+    assert.ok(Math.abs(fix.endRate - 1) <= .008 + 1e-12);
+    assert.ok((fix.endRate - 1) * residual >= 0, 'no rate reversal or overshoot oscillation');
+    close((stepSec + fix.nextTime - nextTime) * (rate + fix.endRate) / 2, stepSec);
+    rate = fix.endRate;
+    nextTime = fix.nextTime + stepSec;
+    target += stepSec;
+    steps++;
+    assert.ok(steps * stepSec < 5, 'small room residuals converge within five seconds');
+  }
+}
+assert.equal(transportResync(10.001, 10, 9, .125, false, -Infinity, 1), null);
+assert.equal(transportResync(10.02, 10, 9.9, .125, false, -Infinity, 1), null, 'do not slew an interval already rendering');
+assert.deepEqual(transportResync(10.2, 10, 9.9, .125, false, -Infinity, 1), { skip: 0, nextTime: 10.2, discard: false });
+console.log('Room residual slew PASS: both signs, 40–240 BPM, smooth bounded rates, phase-locked steps, unity within <5s, floor and render guard.');
+
 {
   const before = syncAudioClock(null, 1000);
   assert.deepEqual(before, { offset: 1000, jumped: false });
