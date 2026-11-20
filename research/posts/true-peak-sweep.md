@@ -17,6 +17,8 @@ Two songs on main already cross the ceiling.
 
 The gate records both as known breaches. They may not get louder, and once one is fixed the gate insists it is taken off the list, so the list can only shrink. Any other song that crosses the ceiling fails the build.
 
+**Update since the snapshot.** The festival TRAP ensembles ([#298](https://github.com/kllyjsn/Untergrund/pull/298)) merged into main while this post was being written. They reorder TRAP's ensembles, so seed 20 now renders a different song. Rendering TRAP again on the new main, at 7 seeds that cover all 6 ensembles plus seed 20, gave a worst peak of −1.12 dBTP, and seed 20 now measures −1.22 dBTP. TRAP is back under the ceiling and off the known list. EUPHORIC seed 11 is unchanged at −0.97 dBTP and is now the only known breach.
+
 {{chart sweep}}
 
 ## Most songs live just under the ceiling

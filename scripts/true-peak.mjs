@@ -28,8 +28,15 @@ export function sweepSeeds(style, base = SWEEP_SEEDS) {
   return seeds;
 }
 
-export function jobs(styles, seeds) {
-  return styles.flatMap((style) => (seeds || sweepSeeds(style)).map((seed) => [style, seed]));
+export const knownSongs = () => JSON.parse(readFileSync(KNOWN_FILE, 'utf8')).songs || {};
+
+// The sweep always re-renders every known breach, so a stale entry is caught even after its seed leaves the sweep.
+export function jobs(styles, seeds, known = knownSongs()) {
+  return styles.flatMap((style) => {
+    const list = seeds || sweepSeeds(style);
+    if (!seeds) for (const id of Object.keys(known)) { const [st, sd] = id.split('/'); if (st === style && !list.includes(+sd)) list.push(+sd); }
+    return list.map((seed) => [style, seed]);
+  });
 }
 
 // Deterministic split for CI: job k of n takes every n-th song after sorting the sweep (spreads long styles).

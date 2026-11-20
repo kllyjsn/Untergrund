@@ -31,7 +31,7 @@ assert(/remove it/.test(verdict([row('trap', 20, -1.4)], known).fixed[0]), 'a fi
 const listed = JSON.parse(readFileSync(KNOWN_FILE, 'utf8')).songs;
 for (const [id, k] of Object.entries(listed)) {
   const [style, seed] = id.split('/');
-  assert(STYLES[style] && sweepSeeds(style).includes(+seed), `${id} is a swept song`);
+  assert(STYLES[style] && all.some(([st, sd]) => st === style && sd === +seed), `${id} is rendered by the sweep`);
   assert(k.tp > -1 && k.why, `${id} records its measured peak and why it is known`);
 }
 console.log(`true-peak gate: ${all.length} songs across ${Object.keys(STYLES).length} styles, ${Object.keys(listed).length} known breaches`);
