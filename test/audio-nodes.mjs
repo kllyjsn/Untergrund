@@ -53,6 +53,49 @@ globalThis.fetch = async (url) => {
 
 const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCrossfade, vocalFadePowerRatio, vocalFadeBandPowerRatios } = await import('../js/engine.js');
 {
+  const s = defaultState(); s.artist = { style: 'trap' }; s.params.stab.voice = 7;
+  const ctx = fakeCtx(), e = new Engine(ctx, s, { realtime: false }), connections = [];
+  e.out.disconnect = () => { throw new DOMException('Destination already removed by media routing', 'InvalidAccessError'); };
+  e.out.connect = dst => { connections.push(dst); return dst; };
+  assert.doesNotThrow(() => e.setParam('stab', 'voice', 0));
+  assert.doesNotThrow(() => e.applyAll());
+  assert.deepEqual(connections, [], 'switching preserves the existing iOS output route');
+  assert.doesNotThrow(() => e.setParam('stab', 'voice', 7));
+  console.log('Festival voice switch preserves an already-routed iOS output without InvalidAccessError');
+}
+{
+  for (const voice of [0, 2, 7]) {
+    const s = defaultState(); s.artist = { style: 'trap' }; s.params.stab.voice = voice;
+    const ctx = fakeCtx(), edges = [];
+    ctx.createGain = () => {
+      const n = node(ctx, 'Gain');
+      n.connect = dst => { edges.push([n, dst]); return dst; };
+      return n;
+    };
+    const e = new Engine(ctx, s, { realtime: false });
+    assert(edges.some(([a,b]) => a === e.singTrim && b === e.festivalGate));
+    assert(edges.some(([a,b]) => a === e.festivalGate && b === e.out));
+    assert(!edges.some(([a,b]) => a === e.out && b === e.festivalGate));
+    const media = node(ctx, 'MediaStreamDestination'), recording = node(ctx, 'Recording');
+    e.out.connect(media); e.out.connect(recording);
+    const before = edges.length;
+    e.setParam('stab', 'voice', voice === 7 ? 2 : 7);
+    assert.equal(edges.length, before, 'voice edits never rewire the public output');
+    assert(edges.some(([a,b]) => a === e.out && b === media));
+    assert(edges.some(([a,b]) => a === e.out && b === recording));
+  }
+  console.log('Festival attenuation is upstream of public out for desktop, iOS media routing and recording');
+}
+{
+  const s = defaultState(); s.artist = { style: 'trap' }; s.params.stab.voice = 2;
+  const ctx = fakeCtx(), e = new Engine(ctx, s, { realtime: false }), calls = [];
+  e.festivalGate.gain.cancelScheduledValues = t => calls.push(['cancel', t]);
+  e.festivalGate.gain.setTargetAtTime = v => calls.push(['target', v]);
+  e.setMaster('arr', 0);
+  assert.deepEqual(calls, [['cancel', 0], ['target', 1]], 'turning DROPS off cancels a pending gap and restores the output');
+  console.log('Festival DROPS off clears pending gap attenuation');
+}
+{
   for (const [listener, recorded] of [['hypnotic', 'euphoric'], ['euphoric', 'hypnotic']]) {
     const s = defaultState(); s.artist = { style: listener };
     const e = new Engine(fakeCtx(), s, { realtime: false });
@@ -143,6 +186,15 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
   s.artist = { style: 'euphoric' }; e.at = 8; e.applyAll();
   assert.deepEqual(events.post.slice(-2), [['cancelScheduledValues', 8], ['setTargetAtTime', 1, 8, 0.004]], 'handoff clears post-clipper sections at its downbeat');
   console.log('Euphoric sections lift before the clipper and clear on genre switches');
+}
+{
+  const s = defaultState(); s.artist = { style: 'trap' }; s.params.stab.voice = 2;
+  const e = new Engine(fakeCtx(), s, { realtime: false });
+  for (const tone of [true, false]) {
+    const { s: source } = e.sweep(1, 2, .3, { tone, low: 400, high: 5000, curve: 1.2 });
+    assert.equal(tone ? source.type : source.kind, tone ? 'triangle' : 'BufferSource');
+  }
+  console.log('Festival build sweeps support filtered noise and rising triangle profiles');
 }
 {
   const stacks = {};
