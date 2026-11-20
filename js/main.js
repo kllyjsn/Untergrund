@@ -216,9 +216,10 @@ function schedule(lead) {
     if (!(Math.min(nextTime, replayAt) < horizon)) break;
     if (roomPlayback) {
       const target = roomMediaTime(transportOrigin / 1000 + abs * base - clockOffset, roomPlayback, mediaRoute);
-      const slew = transportResync(target, nextTime, ctx.currentTime, base, false, seq.origin - abs, true);
+      const duration = engine.stepDur;
+      const slew = transportResync(target, nextTime, ctx.currentTime, duration, false, seq.origin - abs, true);
       if (slew?.slew) {
-        engine.slewVocal(slew.nextTime - nextTime, nextTime - base, base);
+        engine.slewVocal(slew.nextTime - nextTime, nextTime - duration, duration);
         nextTime = slew.nextTime;
       }
     }
