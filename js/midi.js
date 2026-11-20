@@ -52,16 +52,18 @@ export class Recorder {
   chord() { const p = this.state.params.stab, h = this.harm; return CHORDS[h ? h.c : Math.round(p.chord)].iv; }
   dust() {} vocal() {} sweep() {} impact() {} breakSweep() {} dropDip() {}
   smoothChords(db) { this.smoothOn = db; } breakOpen() {} sectionGain() {} quietGrip() {}
+  dubSection(t, active) { this.dubBreakdown = active; }
   bandLayer(...a) { return Engine.prototype.bandLayer.apply(this, a); }
   crash(t, v) { this.add('oh', t, 49, this.stepDur * 4, v); }
   tom(t, v, high) { this.add('snare', t, high ? 48 : 45, this.stepDur, v); }
   acidRelease(t) { if (this.bass) { this.bass.dur = Math.max(0.01, Math.min(this.bass.dur, t - this.bass.t)); this.bass = null; } }
   trigger(id, t, v) {
     if (id === 'stab') {
-      // A smooth style exports the engine's own voicing (voice leading, chorus doubling, lift and fold) in each voice's
-      // sounding register, so its notes match the render. Other styles keep the plain chord their sung parts are written against.
+      // Dub and smooth styles export the engine's own voicing (voice leading, chorus doubling, lift and fold).
+      // Other styles keep the plain chord their sung parts are written against.
       const p = this.state.params.stab, len = Math.max(this.stepDur * 2, (p.decay || 0.3) * 1.5), { root, vo, iv } = stabPitches(this);
-      if (this.smoothOn) for (const m of new Set(iv.map((n) => soundingPitch(STAB_VOICES[vo], root + n)))) this.add('stab', t, m, len, v);
+      if (this.state.artist?.style === 'dub') for (const n of iv) this.add('stab', t, this.dubRegister(iv, root) + n, len, v);
+      else if (this.smoothOn) for (const m of new Set(iv.map((n) => soundingPitch(STAB_VOICES[vo], root + n)))) this.add('stab', t, m, len, v);
       else for (const n of this.chord()) this.add('stab', t, 48 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + n, len, v);
     } else if (GM_DRUMS[id]) this.add(id, t, GM_DRUMS[id], this.stepDur, v);
   }
@@ -85,6 +87,7 @@ export class Recorder {
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
     let pitch = 60 + k + oct * 12 + n;
     const style = this.state.artist?.style, vo = Math.round(this.state.params.stab.voice);
+    if (style === 'dub') pitch = this.dubRegister([0], pitch);
     if (((style === 'breaks' && vo === 1) || (style === 'reggaeton' && vo === 3)) && (voice === 'vocal' || voice === 'reed')) {
       while (pitch > 79) pitch -= 12;
       while (pitch < 48) pitch += 12;
@@ -102,6 +105,7 @@ export class Recorder {
 }
 Recorder.prototype.harmRoot = Engine.prototype.harmRoot;
 Recorder.prototype.bassMidi = Engine.prototype.bassMidi;
+Recorder.prototype.dubRegister = Engine.prototype.dubRegister;
 
 // Plays the full arrangement (or score) into note lists, plus the timeline needed to place them in ticks.
 export function capture(state, loopBars = 16) {

@@ -101,6 +101,89 @@ const rmsDb = (d, a, b) => { let e = 0; for (let i = a; i < b; i++) e += d[i] * 
 }
 
 {
+  const s = freshSong('dub', 42), e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
+  s.artist = { style: 'dub', seed: 42 };
+  for (const voice of [0, 2, 3, 5]) {
+    s.params.stab.voice = voice;
+    e.dubSection(0, false);
+    assert.equal(e.dubRegister([0, 3, 7, 10], 48), 48, 'other sections retain the original chord register');
+    e.dubSection(0, true);
+    assert.equal(e.dubRegister([0, 3, 7, 10], 48), voice === 3 ? 48 : voice === 5 ? 72 : 60, 'breakdown voicings lift above the low-mid wash');
+    assert.equal(e.dubRegister([0], 48), voice === 2 || voice === 3 ? 48 : voice === 5 ? 72 : 60, 'the rounder pad and organ hooks retain their register');
+    assert.equal(e.dubRegister([0], 76), 76, 'already high hooks are not shifted out of the oscillator range');
+    assert.equal(e.dubRegister([], 48), 48, 'empty voicings need no register correction');
+  }
+  s.params.stab.voice = 99;
+  assert.equal(e.dubRegister([0], 48), 48, 'unknown palettes keep their original register');
+  s.params.stab.voice = 0;
+  e.dubSection(0, false); e.dubEchoOut(0);
+  e.dubSection(0.1, true);
+  assert.equal(e.dubEcho.mid.gain.at(0.6), -4, 'breakdowns clear the echo return without changing feedback');
+  assert.equal(e.dubEcho.fb.gain.at(0.6), s.master.dlyFb, 'the echo feedback remains unchanged');
+  e.dubSection(0.7, false);
+  assert.equal(e.dubEcho.mid.gain.at(0.7), 0, 'the echo EQ restores at the boundary, not after a release');
+  assert.equal(e.dubEcho.mid.gain.at(1.2), 0, 'the echo contour returns to neutral after the breakdown');
+  s.params.stab.voice = 3; e.dubSection(1.3, true);
+  assert.equal(e.dubBreakCut, 0, 'the already balanced organ breakdown is left untouched');
+  s.params.stab.voice = 5; e.dubSection(1.4, true);
+  assert(Math.abs(e.mix.gain.at(2) - 10 ** (2.2 / 20)) < 1e-9, 'the muted keys recover breakdown level before the limiter');
+  e.dubSection(2.1, false);
+  assert.equal(e.mix.gain.at(2.1), 1, 'breakdown gain restores exactly at the boundary');
+  s.params.stab.voice = 0; e.dubSection(2.2, true); e.dubPad(2.2, 0.5, [0], 48);
+  const hp = e.dubPadFilters.at(-1).hp;
+  assert.equal(hp.frequency.at(2.2), 650);
+  e.dubSection(2.3, false);
+  assert.equal(hp.frequency.at(2.3), 420, 'already ringing pads restore their highpass at the boundary');
+  s.chainOn = true; s.chain = 'A'.repeat(48) + 'E'.repeat(8) + 'F'.repeat(8); s.ending = false;
+  const q = new Sequencer(e, s);
+  q.startAt(0, 0.05); q.tick(0, 0.05);
+  assert.equal(e.dubBreakdown, false, 'the opening is unchanged');
+  q.chainPos = 48; q.tick(48 * 16, 3.05);
+  assert.equal(e.dubBreakdown, true, 'the arrangement selects the breakdown palette');
+  q.chainPos = 56; q.tick(56 * 16, 5.05);
+  assert.equal(e.dubBreakdown, false, 'the next section restores the original palette');
+  s.params.stab.voice = 5; q.chainPos = 48; q.tick(48 * 16, 7.05);
+  s.artist = { style: 'trap' }; q.chainPos = 56; q.tick(56 * 16, 9.05);
+  assert.equal(e.dubBreakdown, false, 'switching genres clears the Dub treatment');
+  assert.equal(e.mix.gain.at(9.05), 1, 'a reused engine cannot carry Dub gain into another genre');
+}
+
+{
+  for (const voice of [0, 2, 3, 5, 99]) for (const key of [0, 11]) {
+    const s = freshSong('dub', 42);
+    s.artist = { style: 'dub', seed: 42 }; s.params.stab.voice = voice; s.key = key;
+    const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false }), rec = new Recorder(s);
+    const start = e.startSource, played = [];
+    e.dubPad = () => {};
+    e.startSource = function (source, ...args) {
+      if (source.frequency) played.push(Math.round(69 + 12 * Math.log2(source.frequency.value / 440)));
+      return start.call(this, source, ...args);
+    };
+    for (const active of [false, true, false]) {
+      e.dubSection(0.1, active); rec.dubSection(0.1, active);
+      e.harm = rec.harm = { r: active ? 5 : 0, c: Math.round(s.params.stab.chord) };
+      played.length = 0;
+      e.stab(0.1, 0.7); rec.trigger('stab', 0.1, 0.7);
+      assert.deepEqual(rec.notes.stab.splice(0).map((n) => n.m), [...new Set(played)], `Dub/${voice}/${key}/${active} MIDI chord matches oscillator pitches`);
+      for (const n of [-24, 0, 20, 48]) for (const [strong, up] of [[false, false], [true, false], [false, true]]) {
+        played.length = 0;
+        e.hook(0.1, 0.7, n, 0.2, 'analog', 0, strong, 1, up);
+        rec.hook(0.1, 0.7, n, 0.2, 'analog', 0, strong, 1, up);
+        assert.deepEqual(rec.notes.hook.splice(0).map((n) => n.m), [...new Set(played)], `Dub/${voice}/${key}/${active}/${n}/${strong}/${up} MIDI hook matches oscillator pitches`);
+      }
+    }
+  }
+  const s = freshSong('dub', 42); s.artist = { style: 'dub', seed: 42 }; s.chainOn = true; s.chain = 'A'.repeat(48) + 'E'.repeat(8) + 'F'.repeat(8); s.ending = false;
+  const rec = new Recorder(s), q = new Sequencer(rec, s);
+  q.startAt(0, 0.05); q.tick(0, 0.05);
+  assert.equal(rec.dubBreakdown, false, 'MIDI leaves the opening unchanged');
+  q.chainPos = 48; q.tick(48 * 16, 0.05);
+  assert.equal(rec.dubBreakdown, true, 'MIDI tracks the breakdown register');
+  q.chainPos = 56; q.tick(56 * 16, 2.05);
+  assert.equal(rec.dubBreakdown, false, 'MIDI restores the original register after the breakdown');
+}
+
+{
   const padSend = async (rev = 0.24, edit) => {
     const s = freshSong('dub', 42), ctx = new OfflineAudioContext(1, SR * 3, SR);
     s.artist = { style: 'dub', seed: 42 };

@@ -2008,13 +2008,15 @@ export class Engine {
       tape.curve = Float32Array.from({ length: 2049 }, (_, i) => Math.tanh(i / 1024 - 1));
       input.connect(delay).connect(hp).connect(lp).connect(tape).connect(spring).connect(spring2);
       spring2.connect(fb).connect(delay);
-      const wet = this.gain(this.state.master.dlyLevel), pan = this.ctx.createStereoPanner(); pan.pan.value = -0.3;
-      spring2.connect(wet).connect(pan).connect(this.duck);
+      const wet = this.gain(this.state.master.dlyLevel), mid = this.filter('peaking', 300, 0.7);
+      const pan = this.ctx.createStereoPanner(); pan.pan.value = -0.3;
+      mid.gain.value = this.dubBreakCut || 0;
+      spring2.connect(wet).connect(mid).connect(pan).connect(this.duck);
       const spread = this.ctx.createDelay(0.025), right = this.ctx.createStereoPanner();
       spread.delayTime.value = 0.013; right.pan.value = 0.65;
-      wet.connect(spread).connect(right).connect(this.duck);
-      wet.connect(this.gain(0.18)).connect(this.revIn);
-      this.dubEcho = { input, delay, fb, lp, tape, wet };
+      mid.connect(spread).connect(right).connect(this.duck);
+      mid.connect(this.gain(0.18)).connect(this.revIn);
+      this.dubEcho = { input, delay, fb, lp, tape, wet, mid };
     }
     const { delay, fb, input } = this.dubEcho;
     delay.delayTime.setValueAtTime(Math.min(3.9, DELAY_TIMES[Math.round(this.state.master.dlyTime)].steps * this.stepDur), t);
@@ -2022,7 +2024,41 @@ export class Engine {
     return input;
   }
 
+  dubSection(t, active) {
+    const changed = this.dubBreakdown !== active;
+    this.dubBreakdown = active;
+    const voice = Math.round(this.state.params.stab.voice), boost = active && voice === 5 ? 10 ** (2.2 / 20) : 1;
+    if (boost !== this.dubBreakBoost) {
+      this.dubBreakBoost = boost;
+      this.mix.gain.cancelScheduledValues(t);
+      if (active) this.mix.gain.setTargetAtTime(boost, t, 0.02);
+      else this.mix.gain.setValueAtTime(1, t);
+    }
+    if (changed) for (const { hp, end } of this.dubPadFilters || []) {
+      if (end > t) hp.frequency.setValueAtTime(active && voice === 0 ? 650 : 420, t);
+    }
+    const cut = active && Math.round(this.state.params.stab.voice) !== 3 ? -4 : 0;
+    if (cut === this.dubBreakCut) return;
+    this.dubBreakCut = cut;
+    const gain = this.dubEcho?.mid.gain;
+    if (gain) {
+      gain.cancelScheduledValues(t);
+      if (active) {
+        gain.setTargetAtTime(cut, t, 0.06);
+        gain.setValueAtTime(cut, t + 0.4);
+      } else gain.setValueAtTime(0, t);
+    }
+  }
+
+  dubRegister(iv, root) {
+    const voice = Math.round(this.state.params.stab.voice);
+    if (!this.dubBreakdown || !iv.length || ![0, 2, 5].includes(voice) || (voice === 2 && iv.length === 1)) return root;
+    const low = root + Math.min(...iv);
+    return root + (voice === 5 ? Math.max(0, 12 * Math.ceil((70 - low) / 12)) : low < 72 ? 12 : 0);
+  }
+
   dubChord(t, v, iv, root, p, out) {
+    root = this.dubRegister(iv, root);
     const color = [0, 2, 3, 5].indexOf(Math.round(p.voice)), dec = Math.max(0.07, Math.min(0.22, p.decay * 0.52));
     const end = t + dec * 7 + 0.1, amp = this.gain(0), hp = this.filter('highpass', 210, 0.5);
     const cutoff = Math.min(1500, 510 + p.cutoff * 0.35 + 140 * Math.sin(t * 0.29));
@@ -2087,8 +2123,11 @@ export class Engine {
     if (!iv.length) return;
     if (this.dubPadAt != null && t - this.dubPadAt < this.stepDur * 48) return;
     this.dubPadAt = t;
+    root += Math.min(12, this.dubRegister(iv, root) - root);
     const hold = this.stepDur * 24, end = t + hold + 5, amp = this.gain(0);
-    const hp = this.filter('highpass', 420, 0.5), lp = this.filter('lowpass', 850, 0.5);
+    const hp = this.filter('highpass', this.dubBreakdown && Math.round(this.state.params.stab.voice) === 0 ? 650 : 420, 0.5), lp = this.filter('lowpass', 850, 0.5);
+    this.dubPadFilters = (this.dubPadFilters || []).filter((p) => p.end > t);
+    this.dubPadFilters.push({ hp, end });
     lp.frequency.setValueAtTime(650, t); lp.frequency.linearRampToValueAtTime(1100, t + hold); lp.frequency.linearRampToValueAtTime(600, end);
     amp.gain.setValueAtTime(0, t); amp.gain.linearRampToValueAtTime(this.dubPadLevel(iv, root, t) * v / Math.sqrt(iv.length), t + 1.4);
     amp.gain.setTargetAtTime(0, t + hold, 1); amp.gain.setValueAtTime(0, end);
@@ -4222,6 +4261,7 @@ export class Sequencer {
     this.advanceBar(abs, t);
     if (this.finished && this.songBars) return this.cur;
     const n = this.songBars || 0, pos = n ? (this.chainPos - 1) % n : -1, lf = this.liftFrom;
+    if (s.artist?.style === 'dub' || e.dubBreakdown === true) e.dubSection?.(t, s.artist?.style === 'dub' && s.chainOn && pos >= 48 && pos < 56 && (this.cur === 4 || this.cur === 5));
     if (abs % 16 === 0) e.vocal(t, pos, 0, roomGridTime, false, vocalSettling);
     const pat = patternAt(s.patterns[this.cur], pos);
     const bar = Math.floor(abs / 16), vary = s.master.vary || 0;
