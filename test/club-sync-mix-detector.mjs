@@ -5,6 +5,7 @@ import { sanitize } from '../js/state.js';
 import { postResumeEnvelope, onsets } from './club-sync-audio.mjs';
 import { gridKicks, vocalMetrics, sustainedRecovery, vocalFindings, windowOffset, clipRange, floatWav, levelMatchClips } from './club-sync-vocals.mjs';
 import { stepFixture, correctionGrid, forcedStepEvidence } from './club-sync-steps.mjs';
+import { outputOnsets } from './club-sync-output.mjs';
 
 const bin = 4, expectedVoice = new Float64Array(8000);
 assert.equal(vocalSourceEvidence({vocalStarts:[{}]}).allowed, 1);
@@ -434,3 +435,18 @@ const resetStats = {playbackStats:[{at:0, underrunEvents:2, underrunDuration:.2}
 assert.equal(underrunEvidence(resetStats, 0, 100).countDelta, null);
 assert.deepEqual(underrunEvidence(resetStats, 0, 100).intervals, []);
 console.log('Kick attribution PASS: overlapping cached-counter interval; tagged native start/submit; unmatched/displaced kicks; no overlap; absent/invalid/reset stats; empty starts; unchanged kick metrics.');
+
+const pcm = Buffer.alloc(48000 * 8);
+assert.deepEqual(outputOnsets(pcm, 123, 'host-first'), [[], []]);
+for (const [channel, start] of [[0, 12000], [2, 12000 + 3072]]) {
+  for (let i = 0; i < 2400; i++) {
+    const sample = Math.round(Math.sin(i * 2 * Math.PI * 65 / 48000) * 20000 * (1 - i / 2400));
+    pcm.writeInt16LE(sample, (start + i) * 8 + channel * 2);
+  }
+}
+const [front, rear] = outputOnsets(pcm, 123, 'host-first');
+assert.equal(front.length, 1);
+assert.equal(rear.length, 1);
+assert.equal(rear[0] - front[0], 64);
+assert.deepEqual(outputOnsets(pcm, 123, 'listener-first'), [rear, front]);
+console.log('Club output monitor metrics PASS: silence, known +64ms PCM displacement, swapped channel assignment.');

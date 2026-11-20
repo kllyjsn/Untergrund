@@ -5,6 +5,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      club_output_capture:
+        description: Run the shared-clock Club output experiment
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -16,7 +21,7 @@ permissions:
 jobs:
   club-sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: ${{ inputs.club_output_capture && 25 || 15 }}
     continue-on-error: true
     env:
       CHROME_PATH: /usr/bin/google-chrome
@@ -27,13 +32,41 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run test:club-sync -- --assert
+      - if: ${{ !inputs.club_output_capture }}
+        run: npm run test:club-sync -- --assert
+      - if: inputs.club_output_capture
+        name: Interleave native-output controls and shared-clock captures
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pulseaudio pulseaudio-utils
+          for n in {1..5}; do
+            order=host-first
+            modes=(native captured)
+            if (( n % 2 == 0 )); then
+              order=listener-first
+              modes=(captured native)
+            fi
+            for scenario in cold-invite-first-downbeat short-wake-mix; do
+              flags=()
+              if [[ "$scenario" == short-wake-mix ]]; then flags+=(--whole-step-test --diagnostics); fi
+              for mode in "${modes[@]}"; do
+                capture=()
+                if [[ "$mode" == captured ]]; then capture=(--output-capture "$order"); fi
+                npm run test:club-sync -- --assert --scenario "$scenario" "${flags[@]}" --output "$scenario-$n-$mode.json" "${capture[@]}" || failed=1
+              done
+            done
+          done
+          exit "${failed:-0}"
       - name: Upload rendered-audio sync evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: club-rendered-audio-sync
-          path: test/out/club-sync.json
+          path: |
+            test/out/club-sync.json
+            test/out/*-native.json
+            test/out/*-captured.json
+            test/out/*-output.wav
           if-no-files-found: warn
 
   test:
