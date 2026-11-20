@@ -855,8 +855,12 @@ export class Engine {
     const voice = Math.round(this.state.params.stab.voice), festival = this.state.artist?.style === 'trap' && (voice === 0 || voice === 2);
     if (festival && !this.festivalGate) {
       this.festivalGate = this.gain(1);
-      this.out.disconnect(this.ctx.destination);
-      this.out.connect(this.festivalGate).connect(this.ctx.destination);
+      try {
+        this.out.disconnect(this.ctx.destination);
+        this.out.connect(this.festivalGate).connect(this.ctx.destination);
+      } catch (err) {
+        if (err.name !== 'InvalidAccessError') throw err;
+      }
     } else if (!festival && this.festivalGate) {
       this.festivalGate.gain.cancelScheduledValues(this.ctx.currentTime);
       this.festivalGate.gain.setValueAtTime(1, this.ctx.currentTime);

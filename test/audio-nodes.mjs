@@ -53,6 +53,17 @@ globalThis.fetch = async (url) => {
 
 const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCrossfade, vocalFadePowerRatio, vocalFadeBandPowerRatios } = await import('../js/engine.js');
 {
+  const s = defaultState(); s.artist = { style: 'trap' }; s.params.stab.voice = 7;
+  const ctx = fakeCtx(), e = new Engine(ctx, s, { realtime: false }), connections = [];
+  e.out.disconnect = () => { throw new DOMException('Destination already removed by media routing', 'InvalidAccessError'); };
+  e.out.connect = dst => { connections.push(dst); return dst; };
+  assert.doesNotThrow(() => e.setParam('stab', 'voice', 0));
+  assert.doesNotThrow(() => e.applyAll());
+  assert.deepEqual(connections, [], 'switching preserves the existing iOS output route');
+  assert.doesNotThrow(() => e.setParam('stab', 'voice', 7));
+  console.log('Festival voice switch preserves an already-routed iOS output without InvalidAccessError');
+}
+{
   for (const [listener, recorded] of [['hypnotic', 'euphoric'], ['euphoric', 'hypnotic']]) {
     const s = defaultState(); s.artist = { style: listener };
     const e = new Engine(fakeCtx(), s, { realtime: false });
