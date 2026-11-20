@@ -120,15 +120,16 @@ function roomSlewProfile(error, stepSec, rate) {
   const low = Math.min(rate, Math.max(0.992, 1 / (1 + 0.0015 / stepSec)));
   const high = Math.max(rate, Math.min(1.008, 1 / (1 - 0.0015 / stepSec)));
   const capacity = Math.min(1 - low, high - 1);
+  const coastSteps = Math.max(2, Math.ceil(0.5 / stepSec));
   let steps = Math.max(2, Math.ceil((3.5 + Math.abs(error) * 2.5 / 0.03) * .008 / capacity / stepSec));
-  for (;;) {
+  for (let attempt = 0; attempt < 64; attempt++, steps++) {
     const shape = [], coast = [];
     let lo = -Infinity, hi = Infinity;
     for (let i = 1; i < steps; i++) {
       const u = i / steps;
       // Zero endpoint slopes, a rounded peak, and mean velocity 5/8.
       const pulse = 1 - Math.cos(Math.PI * u) ** 4;
-      const base = (rate - 1) * (1 + Math.cos(Math.PI * u)) / 2;
+      const base = (rate - 1) * (1 + Math.cos(Math.PI * Math.min(i / coastSteps, 1))) / 2;
       shape[i] = pulse; coast[i] = base;
       lo = Math.max(lo, (low - 1 - base) / pulse);
       hi = Math.min(hi, (high - 1 - base) / pulse);
@@ -145,8 +146,10 @@ function roomSlewProfile(error, stepSec, rate) {
       }
       return {rates:rates((lo + hi) / 2), index:0, stepSec, error};
     }
-    steps++;
   }
+  return {rates:Array.from({length:coastSteps + 1}, (_, i) =>
+    i === 0 ? rate : i === coastSteps ? 1 : 1 + (rate - 1) * (1 + Math.cos(Math.PI * i / coastSteps)) / 2),
+    index:0, stepSec, error};
 }
 
 export function slewTransport(target, nextTime, limit = 0.03) {

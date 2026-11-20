@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import { runInNewContext } from 'node:vm';
 import { createRoomClock, roomTransportPosition, shiftRoomSet, syncAudioClock, transportResync, calibrateRoomClock, slewTransport, roomTransportCorrection } from '../js/room-sync.js';
 import { freshSong, clone, sanitize, STYLES } from '../js/state.js';
@@ -311,6 +312,57 @@ for (const residual of [-.030, .030]) {
   assert.equal(starts, 1, 'sub-microsecond grid quantization is not a new clock correction');
 }
 console.log('Room S-curve clock precision PASS: real epoch arithmetic preserves profile progress and closes +/-30ms in about six seconds.');
+
+{
+  const imports = `import assert from 'node:assert/strict'; import {transportResync} from ${JSON.stringify(new URL('../js/room-sync.js', import.meta.url).href)};`;
+  const repro = spawnSync(process.execPath, ['--input-type=module', '-e', `${imports}
+    const fix = transportResync(10.005, 10, 0, .7, false, -Infinity, 1.005, true);
+    assert.ok(fix?.slew);
+    assert.ok(fix.profile.rates.some(rate => rate < 1), 'the profile can cross unity');
+    console.log('Room profile hang regression PASS: 0.7s step, 1.005 start rate, +5ms residual; returns and crosses unity.');
+  `], {encoding:'utf8', timeout:2000});
+  assert.equal(repro.error, undefined, `profile call exceeded timeout: ${repro.error}`);
+  assert.equal(repro.status, 0, repro.stderr);
+  process.stdout.write(repro.stdout);
+  const sweep = spawnSync(process.execPath, ['--input-type=module', '-e', `${imports}
+    let count = 0, seed = 0x293;
+    const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32);
+    function converge(startRate, error, duration, rubato = false) {
+      let target = 10 + error, next = 10, rate = startRate, profile = null;
+      for (let step = 0; step < 512; step++) {
+        if (Math.abs(target - next) < 1e-9 && rate === 1) { count++; return; }
+        const sd = rubato && step < 12 ? duration * (.5 + random()) : duration;
+        const fix = transportResync(target, next, 0, sd, false, -Infinity, rate, true, profile);
+        assert.ok(fix && Number.isFinite(fix.nextTime));
+        if (fix.slew) {
+          assert.equal(fix.rate, rate);
+          assert.ok(Math.abs(fix.endRate - 1) <= .008 + 1e-12);
+          assert.ok(Math.abs((sd + fix.nextTime - next) * (rate + fix.endRate) / 2 - sd) < 1e-9);
+          assert.ok(!fix.profile || fix.profile.rates.length < 1024);
+          rate = fix.endRate; profile = fix.profile;
+        } else profile = null;
+        next = fix.nextTime + sd; target += sd;
+      }
+      assert.fail(JSON.stringify({startRate, error, duration, rubato, rate, residual:target - next}));
+    }
+    for (const bpm of [40, 123, 240]) for (const scale of [1, 2])
+      for (const rate of [.992, .995, 1, 1.005, 1.008])
+        for (const error of [-.049, -.028, -.005, 0, .005, .028, .049]) converge(rate, error, 15 / bpm * scale);
+    for (let i = 0; i < 1000; i++) converge(.992 + random() * .016, (random() * 2 - 1) * .049,
+      15 / (40 + random() * 200) * (.5 + random() * 1.5), i % 2 === 0);
+    for (const rate of [.992, 1.008]) {
+      const fallback = transportResync(100.005, 100, 0, 30, false, -Infinity, rate, true);
+      assert.ok(fallback?.slew);
+      assert.ok(Math.abs(fallback.endRate - 1) < Math.abs(rate - 1), 'an exhausted search eases toward unity');
+      assert.equal(fallback.profile.rates.length, 3);
+      assert.equal(fallback.profile.rates.at(-1), 1);
+    }
+    console.log('Room profile sweep PASS: ' + count + ' cases, both residual signs, full rate cap, 40–240 BPM/rubato, bounded fallback and eventual exact alignment/unity.');
+  `], {encoding:'utf8', timeout:30000});
+  assert.equal(sweep.error, undefined, `profile sweep exceeded timeout: ${sweep.error}`);
+  assert.equal(sweep.status, 0, sweep.stderr);
+  process.stdout.write(sweep.stdout);
+}
 
 {
   const correction = transportResync(10.75, 11.5, 10, 0.125, false, -4, true);
