@@ -298,12 +298,17 @@ function landJamParts(stepWallMs, t) {
 // t: the audio time the part first sounds; the Club flashes it then.
 function landJamPart(part, layer, t = null) {
   const primed = playing && roomPlayback && mediaRoute && roomMediaSync.active(ctx.currentTime);
+  // Only the values this edit changes reach the audio clock; a pan-only edit never rewrites level.
+  const changed = {};
+  for (const [id, values] of Object.entries(layer.params || {}))
+    for (const [key, v] of Object.entries(values))
+      if (JSON.stringify(v) !== JSON.stringify(state.params[id]?.[key])) (changed[id] ||= {})[key] = v;
   applyPart(state, part, layer);
   const wait = t == null ? 0 : Math.max(0, (t - ctx.currentTime) * 1000);
   setTimeout(() => window.dispatchEvent(new CustomEvent('untergrund:jam', { detail: { part } })), wait);
   if (t == null) refreshJamPrime();
   if (engine) {
-    if (primed || t != null) engine.scheduleJamParams(layer.params || {}, t ?? nextTime);
+    if (primed || t != null) engine.scheduleJamParams(changed, t ?? nextTime);
     else engine.applyAll();
   }
   cancelAnimationFrame(jamRedraw);
