@@ -456,7 +456,7 @@ console.log('Room frontier PASS: large corrections drain then adopt, future-at-a
 console.log('Room skipped boundaries PASS: sub-step Jam downbeat retained; skipped Jam, breakdown and mix automation land at grid time; late Jam catches the first playable step.');
 {
   const reanchorSource = main.slice(main.indexOf('function reanchorRoomSet('), main.indexOf('\nfunction stopRoomStats'));
-  const sandbox = {playing:true, roomPlayback:true, state:{bpm:newBpm}, seq:{origin:64}, transportOrigin:rebasedOrigin, vocalGridDirty:false};
+  const sandbox = {playing:true, roomPlayback:true, state:{bpm:newBpm}, seq:{origin:64}, transportOrigin:rebasedOrigin, vocalGridDirty:false, queuedRoomReplay:null};
   const reanchor = runInNewContext(`${reanchorSource}\nreanchorRoomSet`, sandbox);
   reanchor(oldOrigin + 5, oldOrigin);
   close(sandbox.transportOrigin, rebasedOrigin + 5);
@@ -465,6 +465,21 @@ console.log('Room skipped boundaries PASS: sub-step Jam downbeat retained; skipp
   close(sandbox.transportOrigin, rebasedOrigin + 8);
   reanchor(oldOrigin + 8, oldOrigin + 8);
   close(sandbox.transportOrigin, rebasedOrigin + 8);
+  sandbox.vocalGridDirty = false;
+  sandbox.queuedRoomReplay = {startsAt:oldOrigin + 20000};
+  reanchor(oldOrigin + 20120, oldOrigin + 20000);
+  close(sandbox.transportOrigin, rebasedOrigin + 8, 'queued replay calibration leaves outgoing origin alone');
+  assert.equal(sandbox.vocalGridDirty, false);
+  assert.equal(sandbox.queuedRoomReplay.startsAt, oldOrigin + 20120);
+  reanchor(NaN, oldOrigin + 20120);
+  assert.equal(sandbox.queuedRoomReplay.startsAt, oldOrigin + 20120, 'invalid origins cannot move the queue');
+  const replaySource = main.slice(main.indexOf('function switchRoomReplay('), main.indexOf('\nfunction startRoomReplay('));
+  const switches = [];
+  sandbox.ctx = {currentTime:1};
+  sandbox.startRoomReplay = (replay, at) => switches.push({startsAt:replay.startsAt, at});
+  runInNewContext(`${replaySource}\nswitchRoomReplay(${(origin + 20120) / 1000})`, sandbox);
+  assert.equal(switches[0].startsAt, oldOrigin + 20120);
+  assert.equal(switches[0].at, (oldOrigin + 20120) / 1000, 'the switch uses the corrected queued timestamp');
   sandbox.playing = false;
   reanchor(oldOrigin + 100, oldOrigin + 8);
   close(sandbox.transportOrigin, rebasedOrigin + 8);

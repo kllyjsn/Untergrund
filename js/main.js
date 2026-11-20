@@ -1111,6 +1111,7 @@ function joinRoomSet(item, { initial = false } = {}) {
 
 function reanchorRoomSet(startsAt, previousStartsAt) {
   if (!playing || !roomPlayback || !Number.isFinite(startsAt)) return;
+  if (queuedRoomReplay) { queuedRoomReplay.startsAt = startsAt; return; }
   const origin = Number.isFinite(previousStartsAt) ? transportOrigin + startsAt - previousStartsAt
     : startsAt - (seq?.origin || 0) * (15000 / state.bpm);
   if (Math.abs(origin - transportOrigin) > 0.5) vocalGridDirty = true;
