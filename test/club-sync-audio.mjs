@@ -79,7 +79,7 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
       const reason = tap.vocalStarts.length === 0 ? 'join' : typeof next === 'string' ? next : next?.reason;
       const incoming = [...(edges.get(this) || [])].find(node => node.gain);
       const forced = next?.reason === 'forced' ? {correctionId:next.correctionId, errorMs:next.errorMs,
-        step:next.step, stepDur:next.stepDur, vocalMs:next.vocalMs, gridTime:next.gridTime,
+        step:next.step, stepDur:next.stepDur, vocalMs:next.vocalMs, gridTime:next.gridTime, rubatoFrom:next.rubatoFrom,
         fadeOut:tap.paramCurves.get(next.fadeParam), fadeIn:tap.paramCurves.get(incoming?.gain)} : null;
       delete tap.nextVocalStart;
       tap.vocalStarts.push({at:epoch(), when, offset, duration:this.buffer?.duration, clock:clock(this.context),

@@ -196,11 +196,17 @@ export function channelEnvelope(capture, name, after = false) {
 export function forcedVocalEvidence(start, corrections) {
   const f = start?.forced;
   if (start?.reason !== 'forced' || !f || !Number.isInteger(f.correctionId) || f.correctionId < 1 ||
-      !Number.isInteger(f.step) || f.step % 16 || !Number.isFinite(f.stepDur) || !(f.stepDur > 0) || !Number.isFinite(f.errorMs) || !(Math.abs(f.errorMs) > 60) ||
+      !Number.isInteger(f.step) || f.step % 16 || !Number.isFinite(f.stepDur) || !(f.stepDur > 0) ||
       !Number.isFinite(f.vocalMs) || !Number.isFinite(f.gridTime) || !Number.isFinite(start.offset) ||
       Math.abs(start.when - f.gridTime) > .002 || Math.abs(start.offset - (f.step * f.stepDur - f.vocalMs / 1000)) > .002) return false;
+  const from = f.rubatoFrom ?? null;
+  if (from !== null && (!Number.isInteger(from) || from < 0 || from > f.step)) return false;
+  const threshold = from === null ? 60 : f.step - from >= 32 ? 30 : 100 + 1e-6;
+  const exceedsThreshold = ms => Number.isFinite(ms) && Math.abs(ms) > threshold;
+  if (!exceedsThreshold(f.errorMs)) return false;
   if (!corrections.some(c => c.correctionId === f.correctionId && c.forced &&
-      Math.abs(c.appliedErrorMs ?? c.errorMs) > 60 && Math.abs(c.appliedTime - start.when) < .002)) return false;
+      (c.rubatoFrom ?? null) === from && exceedsThreshold(c.appliedErrorMs ?? c.errorMs) &&
+      Math.abs(c.appliedTime - start.when) < .002)) return false;
   const a = f.fadeOut, b = f.fadeIn;
   if (!a || !b || !Array.isArray(a.values) || !Array.isArray(b.values) || a.values.length < 3 ||
       a.values.length !== b.values.length || !Number.isFinite(a.duration) || !Number.isFinite(b.duration) ||

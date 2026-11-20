@@ -839,7 +839,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const original = e.vocalNow;
     for (let index = 17; index < 40; index++) {
       e.stepScale = index % 16 ? 1.01 : 1;
-      const time = 1.12 + index * .125;
+      const time = 1.08 + index * .125;
       c.currentTime = time - .1;
       assert.equal(e.vocal(time, index >> 4, index % 16, time, true), false);
       assert.equal(e.vocalNow, original, 'waiting for a rubato gap never splices a sustained phrase');
@@ -847,13 +847,37 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     }
     assert.equal(sources.length, 1);
     assert.deepEqual(sources[0].stops, []);
-    const time = 1.12 + 40 * .125;
+    const time = 1.08 + 40 * .125;
     c.currentTime = time - .1;
     assert.equal(e.vocal(time, 2, 8, time, true), true);
     assert.equal(sources.length, 2);
     assert.equal(e.vocalCorrection.forced, false);
     const [[at, offset]] = sources[1].starts;
     assert.ok(offset >= 7 && at - 1 + .06 <= 7.5, 'both voices are quiet at the first reachable gap');
+  }
+  for (const {error, deadline, recovered} of [
+    {error:.12, deadline:32},
+    {error:.08, deadline:64},
+    {error:.08, deadline:80, recovered:44},
+  ]) {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 12, sampleRate:48000});
+    buf.getChannelData(0).fill(.1);
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.variableScoreTempo = true;
+    e.vocal(1, 0, 0, 1);
+    const original = e.vocalNow;
+    for (let index = 17; index <= deadline; index++) {
+      const time = 1 + (index === recovered ? 0 : error) + index * .125;
+      c.currentTime = time - .1;
+      assert.equal(e.vocal(time, index >> 4, index % 16, time, true), index === recovered || index === deadline);
+      assert.equal(e.vocalNow === original, index < deadline);
+      if (index === recovered) assert.equal(e.vocalNow.gapCorrection, null, 'settling within tolerance clears the wait deadline');
+    }
+    assert.equal(e.vocalCorrection.forced, true);
+    assert.equal(e.vocalCorrection.forceStep, deadline);
+    assert.equal(e.vocalCorrection.at, 1 + error + deadline * .125);
+    assert.equal(e.vocalCorrection.crossfadeSeconds, .03);
   }
   {
     const c = fakeCtx(), s = defaultState(); s.bpm = 120;

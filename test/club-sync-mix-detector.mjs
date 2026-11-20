@@ -47,12 +47,23 @@ console.log('Vocal source evidence PASS: explicit join/wake exemptions, mid-phra
     assert.equal(invalid.midPhraseRestarts, 1, 'a forced label alone cannot exempt a sung-region start');
     assert.equal(invalid.invalidForcedReanchors, 1);
   }
+  const rubato = (from, errorMs) => {
+    const s = structuredClone(start);
+    Object.assign(s.forced, {rubatoFrom:from, errorMs});
+    return forcedVocalEvidence(s, [{...correction, rubatoFrom:from, errorMs}]);
+  };
+  assert.equal(rubato(16, 34), true, 'a rubato correction can time out after two full bars');
+  assert.equal(rubato(17, 34), false, 'the force must wait for the next downbeat after two full bars');
+  assert.equal(rubato(16, 30), false, 'a settled correction cannot time out');
+  assert.equal(rubato(47, -101), true, 'large rubato errors can correct before the timeout');
+  assert.equal(rubato(47, -100), false);
+  assert.equal(rubato(null, 34), false, 'the constant-tempo gate is unchanged');
   assert.equal(forcedVocalEvidence(null, []), false);
   assert.equal(forcedVocalEvidence(start, []), false);
   assert.equal(vocalSourceEvidence({}).forcedReanchors, null);
   assert.equal(vocalSourceEvidence({vocalStarts:[]}).forcedReanchors, 0);
 }
-console.log('Forced vocal evidence PASS: actual equal-power20–40ms curves, downbeat and applied >60ms correction required; hard starts, malformed curves, wrong phase and duplicate correction fail.');
+console.log('Forced vocal evidence PASS: equal-power fade and downbeat required; normal >60ms and rubato error/timeout triggers verified separately.');
 {
   const song = stepFixture(mixFixture()), force = {at:109500, step:68, base:60 / 123 / 4, nextTime:10, deltaMs:-2 * 60000 / 123 / 4,
     clock:{outputContextTime:0, outputEpochMs:100000}};

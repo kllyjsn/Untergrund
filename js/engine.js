@@ -3391,7 +3391,12 @@ export class Engine {
       const newCorrection = () => ({id:this.vocalCorrectionSerial = (this.vocalCorrectionSerial || 0) + 1, forceFrom:null, forceStep:null});
       // A pending rubato gap must not interrupt the transport's own slew.
       alignment = rubato ? cur.gapCorrection ||= newCorrection() : cur.correction ||= newCorrection();
-      if (!rubato && Math.abs(errorMs) > 60 + 1e-6) {
+      if (rubato) {
+        alignment.forceFrom ??= index;
+        const downbeat = Math.ceil(index / 16) * 16;
+        const waitDeadline = Math.ceil((alignment.forceFrom + 32) / 16) * 16;
+        alignment.forceStep = Math.abs(errorMs) > 100 + 1e-6 ? downbeat : Math.max(downbeat, waitDeadline);
+      } else if (Math.abs(errorMs) > 60 + 1e-6) {
         if (alignment.forceFrom === null) {
           alignment.forceFrom = index;
           alignment.forceStep = vocalReanchorStep(index);
@@ -3406,7 +3411,7 @@ export class Engine {
       const earliest = Math.max(phase, this.ctx.currentTime + 0.02 - origin,
         ...voices.map(voice => (voice.slewEnd ?? -Infinity) - origin));
       // On a moving grid a distant gap would be scheduled against stale phase.
-      const lastStep = rubato ? index + 16 : (alignment.forceFrom ?? index) + 32;
+      const lastStep = rubato ? Math.min(index + 16, alignment.forceStep) : (alignment.forceFrom ?? index) + 32;
       const latest = lastStep * sd - v.ms / 1000;
       const quiet = (at, source = buffer) => {
         const audio = source.getChannelData(0), window = Math.ceil(source.sampleRate * 0.06);
@@ -3437,7 +3442,7 @@ export class Engine {
       }
       const gap = !!silence;
       if (gap) t = rubato ? origin + gapStart : t + (gapStart - phase);
-      forced = !rubato && !gap && alignment.forceStep === index;
+      forced = !gap && alignment.forceStep === index;
       if (forced && (t < this.ctx.currentTime + 0.02 || phase < 0 || phase >= v.buf.duration)) {
         alignment.forceStep += 16;
         forced = false;
