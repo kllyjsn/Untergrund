@@ -294,10 +294,12 @@ function schedule(lead) {
     const vocalNext = voice ? voice.origin + phase : nextTime;
     const vocalFrom = voice ? Math.max(vocalNext - vocalStep, voice.slewEnd ?? voice.at, ctx.currentTime + 0.005) : nextTime;
     const vocalGap = voice?.slewEnd == null ? 0 : Math.max(0, vocalFrom - voice.slewEnd);
-    const vocalError = gridTarget - vocalNext - (1 - (voice?.slewRate ?? 1)) * vocalGap;
-    if (roomPlayback && voice && engine.stepDur !== vocalStep && Math.abs(vocalError) > 0.000001) vocalGridDirty = true;
-    const vocalSlewing = roomPlayback && voice && !voice.correction && voice.sd === vocalStep && pos >= 0 &&
-      Math.abs(vocalError) <= 0.05;
+    const vocalRubato = engine.vocalRubato;
+    const gridSlewing = (engine.roomSlewRate ?? 1) !== 1;
+    const vocalError = (vocalRubato && gridSlewing ? nextTime : gridTarget) - vocalNext - (1 - (voice?.slewRate ?? 1)) * vocalGap;
+    if (roomPlayback && voice && vocalRubato && Math.abs(vocalError) > 0.000001) vocalGridDirty = true;
+    const vocalSlewing = roomPlayback && voice && !voice.correction && !(vocalRubato && voice.gapCorrection) && voice.sd === vocalStep && pos >= 0 &&
+      Math.abs(vocalError) <= (vocalRubato ? 0.03 : 0.05);
     if (vocalSlewing) {
       const end = vocalFrom + vocalStep;
       const slew = transportResync(end + vocalError, end, ctx.currentTime, vocalStep, false, -Infinity, voice.slewRate ?? 1, true, voice.slewProfile);
@@ -305,8 +307,9 @@ function schedule(lead) {
       if ((voice.slewRate ?? 1) === 1 && Math.abs(gridTarget - voice.origin - phase) < 1e-9 &&
           (engine.roomSlewRate ?? 1) === 1 && Math.abs(gridTarget - nextTime) < 1e-9) vocalGridDirty = false;
     }
-    if (roomPlayback && vocalGridDirty && !vocalSlewing && (engine.roomSlewRate ?? 1) === 1 && (Math.abs(gridTarget - nextTime) < 0.002 || engine.vocalNow?.correction?.forceStep != null)) {
-      engine.cancelVocalSlew?.();
+    const canReanchor = !gridSlewing && (Math.abs(gridTarget - nextTime) < 0.002 || voice?.correction?.forceStep != null);
+    if (roomPlayback && vocalGridDirty && !vocalSlewing && (canReanchor || (vocalRubato && voice?.sd === vocalStep && pos >= 0))) {
+      if (!vocalRubato || canReanchor) engine.cancelVocalSlew?.();
       const aligned = engine.vocal(t, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, (abs - seq.origin) % 16, nextTime, true);
       vocalGridDirty = aligned === false;
     }

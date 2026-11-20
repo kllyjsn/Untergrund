@@ -793,33 +793,67 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       e.duckUnder = () => ducks++;
       e.vocal(1, 0, 0, 1);
       const before = {sends, ducks};
-      for (let index = 17; index <= 48; index++) {
+      const forceStep = 48;
+      for (let index = 17; index <= forceStep; index++) {
         const time = 1.12 + index * .125;
         c.currentTime = time - .1;
-        assert.equal(e.vocal(time, index >> 4, index % 16, time, true), index === 48);
-        assert.equal(sources.length, index === 48 ? 2 : 1, 'a forced source is not queued before its downbeat');
+        assert.equal(e.vocal(time, index >> 4, index % 16, time, true), index === forceStep);
+        assert.equal(sources.length, index === forceStep ? 2 : 1, 'a forced source is not queued before its downbeat');
       }
       assert.deepEqual({sends, ducks}, before, 'a forced alignment cannot reset sends, ducking or carving');
       assert.equal(e.vocalCorrection.forced, true);
-      assert.equal(e.vocalCorrection.forceStep, 48);
+      assert.equal(e.vocalCorrection.forceStep, forceStep);
       assert.equal(e.vocalCorrection.crossfadeSeconds, .03);
-      assert.ok(Math.abs(sources[1].starts[0][0] - 7.12) < 1e-9);
-      assert.equal(sources[1].starts[0][1], 6);
+      const fadeAt = 1.12 + forceStep * .125;
+      assert.ok(Math.abs(sources[1].starts[0][0] - fadeAt) < 1e-9);
+      assert.equal(sources[1].starts[0][1], forceStep * .125);
       const curves = gains.flatMap(g => g.gain.curves);
       assert.equal(curves.length, 2);
-      assert.ok(curves.every(curve => Math.abs(curve.at - 7.12) < 1e-9 && curve.duration === .03));
+      assert.ok(curves.every(curve => Math.abs(curve.at - fadeAt) < 1e-9 && curve.duration === .03));
       assert.deepEqual(curves[0].values, Array.from(outgoing));
       assert.deepEqual(curves[1].values, Array.from(incoming));
-      e.vocal(7.245, 3, 1, 7.245, true);
-      e.vocal(7.37, 3, 2, 7.37, true);
+      e.vocal(fadeAt + .125, forceStep >> 4, 1, fadeAt + .125, true);
+      e.vocal(fadeAt + .25, forceStep >> 4, 2, fadeAt + .25, true);
       assert.equal(sources.length, 2, 'the same correction cannot force a second source');
       const gain = e.vocalNow.g.gain;
-      c.currentTime = 7.12 + (during ? .015 : -.01);
+      c.currentTime = fadeAt + (during ? .015 : -.01);
       e.panic();
       assert.equal(e.vocalNow, null);
       assert.ok(sources.every(source => source.stops.at(-1) <= c.currentTime + .060001), 'Stop cancels both the audible and replacement voices before or during a forced fade');
       assert.deepEqual(gain.holds, [c.currentTime], 'an active fade curve is held before Stop automates its gain');
     }
+  }
+  {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 12, sampleRate:48000}), sources = [];
+    const audio = buf.getChannelData(0);
+    audio.fill(.1);
+    audio.fill(0, 48000 * 7, 48000 * 7.5);
+    c.createBufferSource = () => {
+      const source = {connect:dst => dst, starts:[], stops:[], start(...args){this.starts.push(args);}, stop(at){this.stops.push(at);}};
+      sources.push(source); return source;
+    };
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.variableScoreTempo = true;
+    e.vocal(1, 0, 0, 1);
+    const original = e.vocalNow;
+    for (let index = 17; index < 40; index++) {
+      e.stepScale = index % 16 ? 1.01 : 1;
+      const time = 1.12 + index * .125;
+      c.currentTime = time - .1;
+      assert.equal(e.vocal(time, index >> 4, index % 16, time, true), false);
+      assert.equal(e.vocalNow, original, 'waiting for a rubato gap never splices a sustained phrase');
+      assert.equal(e.vocalNow.correction, undefined, 'even nominal steps in a variable-tempo score cannot arm a forced splice');
+    }
+    assert.equal(sources.length, 1);
+    assert.deepEqual(sources[0].stops, []);
+    const time = 1.12 + 40 * .125;
+    c.currentTime = time - .1;
+    assert.equal(e.vocal(time, 2, 8, time, true), true);
+    assert.equal(sources.length, 2);
+    assert.equal(e.vocalCorrection.forced, false);
+    const [[at, offset]] = sources[1].starts;
+    assert.ok(offset >= 7 && at - 1 + .06 <= 7.5, 'both voices are quiet at the first reachable gap');
   }
   {
     const c = fakeCtx(), s = defaultState(); s.bpm = 120;
