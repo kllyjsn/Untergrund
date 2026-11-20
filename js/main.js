@@ -303,7 +303,7 @@ function landJamPart(part, layer, t = null) {
   setTimeout(() => window.dispatchEvent(new CustomEvent('untergrund:jam', { detail: { part } })), wait);
   if (t == null) refreshJamPrime();
   if (engine) {
-    if (primed) engine.scheduleJamParams(layer.params || {}, t ?? nextTime);
+    if (primed || t != null) engine.scheduleJamParams(layer.params || {}, t ?? nextTime);
     else engine.applyAll();
   }
   cancelAnimationFrame(jamRedraw);
@@ -450,9 +450,9 @@ function cancelRoomStart() {
 }
 
 function cancelRoomPrime() {
-  if (!mediaRoute || !roomPlayback) return;
+  if (!roomPlayback) return;
   const now = ctx.currentTime;
-  if (roomMediaSync.cancel(now)) engine.discardQueuedNotes(now);
+  if (mediaRoute && roomMediaSync.cancel(now)) engine.discardQueuedNotes(now);
   engine.cancelJamParams();
 }
 

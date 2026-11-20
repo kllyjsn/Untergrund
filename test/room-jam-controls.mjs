@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { withChrome } from './chrome.mjs';
 
-async function render(withEdit, route = true, action = '') {
+async function render(withEdit, route = true, action = '', actionAt = .9) {
   const { Engine, Sequencer } = await import('/js/engine.js');
   const { defaultState } = await import('/js/state.js');
   const { applyPart, extractPart, normalizeLayer } = await import('/js/jam.js');
@@ -48,7 +48,9 @@ async function render(withEdit, route = true, action = '') {
     playStarted: noop, renderHome: noop, style: 'test',
     setTimeout: noop,
   };
-  const land = [], revEvents = [];
+  const land = [], revEvents = [], jamAt = [];
+  const scheduleJamParams = engine.scheduleJamParams.bind(engine);
+  engine.scheduleJamParams = (params, at) => { jamAt.push(at); return scheduleJamParams(params, at); };
   const setTo = engine.setTo.bind(engine);
   engine.setTo = (param, value, immediate) => {
     if (param === engine.ch.kick.rev.gain) revEvents.push({at: ctx.currentTime, when: engine.jamAt ?? ctx.currentTime, value});
@@ -83,7 +85,7 @@ async function render(withEdit, route = true, action = '') {
         else api.start({startsAt: 1000100, room: true});
       }
       if (action === 'stop' && Math.abs(t - 1) < 1e-9) api.start({startsAt: 1000100, room: true});
-      if (['replace', 'handoff'].includes(action) && Math.abs(t - .9) < 1e-9) {
+      if (['replace', 'handoff'].includes(action) && Math.abs(t - actionAt) < 1e-9) {
         if (action === 'replace') api.cancelRoomPrime();
         state.params.kick.level = .7;
         if (action === 'replace') { engine.applyAll(); api.start({startsAt: 1000100, room: true}); }
@@ -102,7 +104,10 @@ async function render(withEdit, route = true, action = '') {
     for (let i=a; i<b; i++) s += y[i] * y[i];
     return 20 * Math.log10(Math.max(1e-8, Math.sqrt(s/(b-a))));
   };
-  return {initialQueueUntil, land, rmsDb: [.06,.56,1.06,1.56,2.06,2.56,3.06].map(rms), revEvents};
+  // Desktop plays the room grid (0.1 s + bars); the media route leads it to land at 0.06 s.
+  const grid = route ? 0 : .04;
+  return {initialQueueUntil, land, jamAt, rmsDb: [.06,.56,1.06,1.56,2.06,2.56,3.06].map(t => rms(t + grid)),
+    tailDb: [1.64,1.72,1.80,1.88,1.98].map(t => rms(t + grid)), revEvents};
 }
 
 async function renderDrive(drive, edit = '') {
@@ -143,6 +148,7 @@ const result = await withChrome(async run => {
     edited: await run('(' + render.toString() + `)(true,${route})`),
   };
   for (const action of ['seek', 'stop', 'stall', 'multi', 'replace', 'handoff']) out[action] = await run('(' + render.toString() + `)(true,true,${JSON.stringify(action)})`);
+  out['desktop-replace'] = await run('(' + render.toString() + ')(true,false,"replace",1.9)');
   out.drive = {};
   for (const drive of [.2, .8, .3, .5]) out.drive[drive] = await run('(' + renderDrive.toString() + `)(${drive})`);
   for (const edit of ['edit', 'cancel', 'live']) out.drive[edit] = await run('(' + renderDrive.toString() + `)(.2,${JSON.stringify(edit)})`);
@@ -157,10 +163,14 @@ if (result) {
     }
     assert(edited.rmsDb[4] < -100, 'the boundary kick is silent even with all timers blocked');
     assert(edited.rmsDb[5] < -100, 'the following kick stays silent');
+    for (const [i, db] of control.tailDb.entries())
+      assert(Math.abs(edited.tailDb[i] - db) < 1, 'the previous bar rings out until the boundary');
   }
   assert.equal(result.primed.control.initialQueueUntil, result.primed.edited.initialQueueUntil);
   assert(result.primed.edited.land.every(e => e.at < 1.85), 'native changes are submitted ahead of the boundary');
-  assert(result.desktop.edited.land.every(e => e.at < 2.06), 'desktop keeps its existing cutoff application');
+  assert(result.desktop.edited.land.every(e => e.at < 2.06), 'desktop controls are submitted ahead of the boundary');
+  assert(Math.abs(result.primed.edited.jamAt[0] - 2.06) < 1e-6 && Math.abs(result.desktop.edited.jamAt[0] - 2.1) < 1e-6,
+    'each route schedules the edit on its own bar boundary');
   for (const action of ['seek', 'stop']) {
     const r = result[action];
     assert(r.rmsDb[1] > -30, 'the kick before cancellation remains intact');
@@ -192,5 +202,7 @@ if (result) {
   for (const action of ['replace', 'handoff']) for (const i of [3,4,5,6])
     assert(Math.abs(result[action].rmsDb[i] - result.primed.control.rmsDb[i] - 20 * Math.log10(.7 / .9)) < .01,
       'old jam automation cannot override a replacement or handoff mix');
-  console.log('Room jam controls PASS: real Engine retains 0.56/1.06/1.56s kicks, applies the level edit at 2.06s, and preserves the desktop cutoff.');
+  for (const i of [3,5,6]) assert(Math.abs(result['desktop-replace'].rmsDb[i] - result.desktop.control.rmsDb[i] - (i > 3 ? 20 * Math.log10(.7 / .9) : 0)) < .01,
+    'a desktop replacement between submission and the boundary cancels the pending jam automation');
+  console.log('Room jam controls PASS: real Engine retains 0.56/1.06/1.56s kicks, applies the level edit on the bar boundary (2.06s media route, 2.1s desktop), and lets the 1.56s bar ring out to the boundary.');
 } else console.log('Room jam controls SKIP: Chrome not installed');
