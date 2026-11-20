@@ -64,6 +64,29 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
   console.log('Festival voice switch preserves an already-routed iOS output without InvalidAccessError');
 }
 {
+  for (const voice of [0, 2, 7]) {
+    const s = defaultState(); s.artist = { style: 'trap' }; s.params.stab.voice = voice;
+    const ctx = fakeCtx(), edges = [];
+    ctx.createGain = () => {
+      const n = node(ctx, 'Gain');
+      n.connect = dst => { edges.push([n, dst]); return dst; };
+      return n;
+    };
+    const e = new Engine(ctx, s, { realtime: false });
+    assert(edges.some(([a,b]) => a === e.singTrim && b === e.festivalGate));
+    assert(edges.some(([a,b]) => a === e.festivalGate && b === e.out));
+    assert(!edges.some(([a,b]) => a === e.out && b === e.festivalGate));
+    const media = node(ctx, 'MediaStreamDestination'), recording = node(ctx, 'Recording');
+    e.out.connect(media); e.out.connect(recording);
+    const before = edges.length;
+    e.setParam('stab', 'voice', voice === 7 ? 2 : 7);
+    assert.equal(edges.length, before, 'voice edits never rewire the public output');
+    assert(edges.some(([a,b]) => a === e.out && b === media));
+    assert(edges.some(([a,b]) => a === e.out && b === recording));
+  }
+  console.log('Festival attenuation is upstream of public out for desktop, iOS media routing and recording');
+}
+{
   for (const [listener, recorded] of [['hypnotic', 'euphoric'], ['euphoric', 'hypnotic']]) {
     const s = defaultState(); s.artist = { style: listener };
     const e = new Engine(fakeCtx(), s, { realtime: false });

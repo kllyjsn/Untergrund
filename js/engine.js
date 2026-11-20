@@ -577,15 +577,13 @@ export class Engine {
     this.bandDuck = this.gain(1);
     // ...and the limiter, which then works less, would still let it add about a dB: singTrim takes that back after it.
     this.singTrim = this.gain(1);
+    this.festivalGate = this.gain(1);
     this.preMaster = this.gain(1);
     this.mix.connect(this.bandDuck).connect(this.preMaster);
     this.preMaster.connect(this.djHP).connect(this.djLP).connect(this.arrLP).connect(this.toneLow).connect(this.toneMud).connect(this.tonePres).connect(this.toneAir).connect(this.widthIn);
     this.widthOut.connect(this.glue).connect(this.satIn).connect(this.sat)
-      .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.secPreGain).connect(this.clip).connect(this.secGain).connect(this.singTrim).connect(this.out);
-    if (festivalTrap(this.state.artist?.style, this.state.params.stab.voice)) {
-      this.festivalGate = this.gain(1);
-      this.out.connect(this.festivalGate).connect(c.destination);
-    } else this.out.connect(c.destination);
+      .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.secPreGain).connect(this.clip).connect(this.secGain).connect(this.singTrim).connect(this.festivalGate).connect(this.out);
+    this.out.connect(c.destination);
     // The neural singer's stem (vocal(), js/sing.js): past the band's duck, into the master chain.
     this.vocalBus = this.gain(0);
     this.vocalOut = this.gain(1);
@@ -853,15 +851,7 @@ export class Engine {
 
   applyOutputTrim(immediate = false) {
     const voice = Math.round(this.state.params.stab.voice), festival = this.state.artist?.style === 'trap' && (voice === 0 || voice === 2);
-    if (festival && !this.festivalGate) {
-      this.festivalGate = this.gain(1);
-      try {
-        this.out.disconnect(this.ctx.destination);
-        this.out.connect(this.festivalGate).connect(this.ctx.destination);
-      } catch (err) {
-        if (err.name !== 'InvalidAccessError') throw err;
-      }
-    } else if (!festival && this.festivalGate) {
+    if (!festival && this.festivalGate) {
       this.festivalGate.gain.cancelScheduledValues(this.ctx.currentTime);
       this.festivalGate.gain.setValueAtTime(1, this.ctx.currentTime);
     }
