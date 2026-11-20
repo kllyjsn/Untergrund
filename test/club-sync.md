@@ -698,3 +698,36 @@ is ambiguous or incomplete. This measures output reaching the Linux sink, not
 speaker or DAC latency. A run that changes the Chrome timestamp miss by
 switching to PulseAudio does not settle the original miss.
 The harness remains outside npm test.
+
+#### Post-#293 interleaved results
+
+Five native/captured pairs per scenario ran locally and in the
+[hosted retry](https://github.com/kllyjsn/Untergrund/actions/runs/44752916561)
+on the PR #293 baseline (`8d7843b`). The hosted job still reported a cold
+first-downbeat failure and a separate wake pre-adoption threshold failure; it
+uploaded all 20 run JSON files and ten monitor WAVs. Thresholds were unchanged.
+All deltas below are listener minus host.
+
+- **Cold invite:** The original −61.8ms miss with a −56.6ms timestamp
+  mapping shift was not reproduced with a usable capture. One hosted native
+  run reached −82.6ms, with a similar offset on subsequent kicks, but had no
+  monitor by design. Its adjacent captured run measured −41.1ms in Chrome and
+  −37.3ms by monitor onsets; a short attack-only waveform check gave −33.0ms.
+  The offset in that captured run was real at the sink, but it does not
+  establish the cause of the native miss or of the original mapping shift.
+  Two hosted captures had no usable first kick, and a third gave an ambiguous
+  match. The clean hosted first-kick match was +2.1ms in Chrome and +4.5ms at
+  the sink; the five regular local captures ranged from −9.0 to +8.5ms at the
+  sink.
+- **243ms control:** Across 30 matched hosted kicks 16–19s after adoption,
+  the monitor deltas were −21.2 to +2.0ms and differed from Chrome by at
+  most 9.4ms. The largest hosted Chrome mapping movement was 12.3ms in
+  magnitude relative to the 10–15.5s post-adoption median. One local native
+  run moved by as much as 35.0ms, with no monitor in that run; the local
+  captured runs moved by at most 8.6ms. The original 53.6ms movement did not
+  recur.
+
+The new runs show no repeatable physical output delay of the reported size,
+and they do not prove the original excursions were timestamp-only. No product
+change was made. To settle either excursion, reproduce its Chrome mapping
+movement in the same trial as a confidently matched sink recording.
