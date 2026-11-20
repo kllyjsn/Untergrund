@@ -246,51 +246,135 @@ export function vocalCrossfade(incoming) {
   return Float32Array.from({length:65}, (_, i) => incoming ? Math.sin(i / 64 * Math.PI / 2) : Math.cos(i / 64 * Math.PI / 2));
 }
 
-export const RUBATO_SPLICE_MAX_ADVANCE = 0.09;
+export const RUBATO_SPLICE_MAX_ADVANCE = 0.35;
+const RUBATO_PITCH_MATCH_ADVANCE = 0.09;
+const VOCAL_FADE_SECONDS = 0.03;
+const VOCAL_FADE_PITCH_PROBES = [5, 15, 25];
+const VOCAL_FADE_MIN_POWER_RATIO = 10 ** (-2 / 10);
+const VOCAL_FADE_PHASE_TOLERANCE_RATIO = 10 ** (-0.25 / 10);
+const VOCAL_FADE_MIN_PITCH_IMPROVEMENT = 10;
+const RUBATO_EARLY_DRIFT_MS = 90;
+const RUBATO_EARLY_MAX_PITCH_CENTS = 50;
+const RUBATO_EARLY_MAX_CENTS_PER_10_MS = 40;
 
-function vocalPitchAt(buffer, phase) {
+function vocalPitchAt(buffer, phase, samples) {
   const sr = buffer.sampleRate, stride = Math.max(1, Math.round(sr / 12000)), rate = sr / stride;
-  const n = Math.round(rate * (2048 / 48000)), center = Math.round(phase * sr), first = center - Math.floor(n / 2) * stride;
+  const n = Math.round(rate * (samples / 48000)), center = Math.round(phase * sr), first = center - Math.floor(n / 2) * stride;
   const audio = buffer.getChannelData(0);
   if (first < 0 || first + n * stride > audio.length) return NaN;
   const frame = Float32Array.from({length:n}, (_, i) => audio[first + i * stride]);
   if (frame.reduce((e, x) => e + x * x, 0) / n < 0.0001) return NaN;
-  const last = Math.floor(rate / 80), normalized = new Float64Array(last + 1);
-  let total = 0;
+  const last = Math.floor(rate / 80), firstLag = Math.ceil(rate / 1170);
+  let total = 0, a = Infinity, b = Infinity;
   for (let lag = 1; lag <= last; lag++) {
     let diff = 0;
     for (let i = 0; i < n - lag; i++) diff += (frame[i] - frame[i + lag]) ** 2;
     diff /= n - lag;
     total += diff;
-    normalized[lag] = diff * lag / Math.max(total, 1e-12);
-  }
-  if (total < 1e-12) return NaN;
-  for (let lag = Math.ceil(rate / 1170); lag < last; lag++) {
-    const a = normalized[lag - 1], b = normalized[lag], c = normalized[lag + 1];
-    if (b < 0.15 && b <= a && b < c) return rate / (lag + 0.5 * (a - c) / (a - 2 * b + c));
+    const c = diff * lag / Math.max(total, 1e-12);
+    if (lag > firstLag && total >= 1e-12 && b < 0.15 && b <= a && b < c)
+      return rate / (lag - 1 + 0.5 * (a - c) / (a - 2 * b + c));
+    a = b;
+    b = c;
   }
   return NaN;
 }
 
-function rubatoSpliceTime(buffer, voice, origin, downbeat, earliest) {
-  const rate = voice.slewRate ?? 1, outgoing = voice.src.buffer;
-  const first = Math.max(earliest, downbeat - RUBATO_SPLICE_MAX_ADVANCE, origin, voice.startAt);
-  const differences = new Map();
-  const cents = ms => {
-    if (!differences.has(ms)) {
-      const when = downbeat + ms / 1000;
-      const phase = when - voice.origin + (rate - 1) * (when - (voice.slewEnd ?? when));
-      const from = vocalPitchAt(outgoing, phase) * rate, to = vocalPitchAt(buffer, when - origin);
-      differences.set(ms, Math.abs(1200 * Math.log2(to / from)));
-    }
-    return differences.get(ms);
+function vocalFadePowerRatio(outgoing, buffer, from, to, rate) {
+  const a = outgoing.getChannelData(0), b = buffer.getChannelData(0);
+  const sample = (audio, x) => {
+    const i = Math.floor(x), first = audio[i] ?? 0;
+    return first + (x - i) * ((audio[i + 1] ?? 0) - first);
   };
-  if (first >= downbeat || !(cents(15) > 100)) return downbeat;
-  // If the downbeat splits two pitches, find the closest earlier fade on the same note.
-  for (let ms = 5; downbeat - ms / 1000 >= first - 1e-9; ms += 5) {
-    if ([5, 15, 25].every(center => cents(center - ms) <= 70)) return downbeat - ms / 1000;
+  // A pitch match can still cancel in phase. Compare 5 ms windows to the separate-source power.
+  const frames = 60;
+  let ratio = 1;
+  for (let window = 0; window < 6; window++) {
+    let mixed = 0, separate = 0;
+    for (let i = 0; i < frames; i++) {
+      const f = (window + (i + .5) / frames) / 6, t = f * VOCAL_FADE_SECONDS;
+      const x = sample(a, (from + t * rate) * outgoing.sampleRate) * Math.cos(f * Math.PI / 2);
+      const y = sample(b, (to + t) * buffer.sampleRate) * Math.sin(f * Math.PI / 2);
+      mixed += (x + y) ** 2;
+      separate += x * x + y * y;
+    }
+    if (separate > 0) ratio = Math.min(ratio, mixed / separate);
   }
-  return downbeat;
+  return ratio;
+}
+
+function rubatoSpliceTime(buffer, voice, origin, downbeat, ready, previousGrid, retiringUntil, requirePitchMatch = false) {
+  const rate = voice.slewRate ?? 1, outgoing = voice.src.buffer;
+  const first = Math.max(ready, retiringUntil, downbeat - RUBATO_SPLICE_MAX_ADVANCE, origin, voice.startAt);
+  if (first > downbeat || (first === downbeat && !requirePitchMatch)) return requirePitchMatch ? null : downbeat;
+  const outgoingPhase = when => when - voice.origin + (rate - 1) * (when - (voice.slewEnd ?? when));
+  const short = new Map(), long = new Map();
+  const pitches = (ms, wide) => {
+    const frames = wide ? long : short;
+    if (!frames.has(ms)) {
+      const when = downbeat + ms / 1000;
+      const samples = wide ? 4096 : 2048;
+      const from = vocalPitchAt(outgoing, outgoingPhase(when), samples) * rate;
+      const to = vocalPitchAt(buffer, when - origin, samples);
+      frames.set(ms, [from, to]);
+    }
+    return frames.get(ms);
+  };
+  const cents = (a, b) => Math.abs(1200 * Math.log2(a / b));
+  const separation = (ms, wide) => {
+    const [from, to] = pitches(ms, wide);
+    return cents(to, from);
+  };
+  // Keep the existing placement unless the wider search finds a clear improvement.
+  let baseline = 0;
+  const legacyFirst = Math.max(ready, previousGrid, downbeat - RUBATO_PITCH_MATCH_ADVANCE);
+  if (!requirePitchMatch && retiringUntil <= legacyFirst && separation(15, false) > 100) {
+    for (let ms = 5; downbeat - ms / 1000 >= Math.max(first, legacyFirst) - 1e-9; ms += 5) {
+      if (VOCAL_FADE_PITCH_PROBES.every(center => separation(center - ms, false) <= 70)) {
+        baseline = ms;
+        break;
+      }
+    }
+  }
+  const worst = (ms, wide) => Math.max(...VOCAL_FADE_PITCH_PROBES.map(center => separation(center - ms, wide)));
+  const baselinePitch = requirePitchMatch ? Infinity : Math.max(worst(baseline, false), worst(baseline, true));
+  if (!requirePitchMatch && (!Number.isFinite(baselinePitch) || baselinePitch <= VOCAL_FADE_MIN_PITCH_IMPROVEMENT))
+    return downbeat - baseline / 1000;
+  const powerAt = ms => {
+    const when = downbeat - ms / 1000;
+    return vocalFadePowerRatio(outgoing, buffer, outgoingPhase(when), when - origin, rate);
+  };
+  const minPower = requirePitchMatch ? VOCAL_FADE_MIN_POWER_RATIO :
+    Math.max(VOCAL_FADE_MIN_POWER_RATIO, powerAt(baseline) * VOCAL_FADE_PHASE_TOLERANCE_RATIO);
+  const stable = ms => {
+    let before = pitches(-25 - ms, false);
+    if (!before.every(Number.isFinite)) return false;
+    for (let offset = -15; offset <= 55; offset += 10) {
+      const after = pitches(offset - ms, false);
+      if (after.some((hz, i) => !Number.isFinite(hz) ||
+          cents(hz, before[i]) > RUBATO_EARLY_MAX_CENTS_PER_10_MS)) return false;
+      before = after;
+    }
+    return true;
+  };
+  let best = requirePitchMatch ? null : baseline;
+  let bestPitch = requirePitchMatch ? RUBATO_EARLY_MAX_PITCH_CENTS : baselinePitch - VOCAL_FADE_MIN_PITCH_IMPROVEMENT;
+  for (let ms = 0; downbeat - ms / 1000 >= first - 1e-9; ms += 5) {
+    const shortPitch = worst(ms, false);
+    if (!(shortPitch < bestPitch)) continue;
+    const pitch = Math.max(shortPitch, worst(ms, true));
+    if (pitch < bestPitch && powerAt(ms) >= minPower && (!requirePitchMatch || stable(ms))) {
+      best = ms;
+      bestPitch = pitch;
+    }
+  }
+  return best === null ? null : downbeat - best / 1000;
+}
+
+function hasUpcomingVocalGap(buffer, phase, span, rate = 1) {
+  singingEnvelope(buffer);
+  const end = phase + span * rate;
+  return phraseGaps.get(buffer).some(g => g.from < end && g.to - Math.max(g.from, phase) >= 0.08 * rate);
 }
 
 export function singingEnvelope(buf) {
@@ -3524,14 +3608,30 @@ export class Engine {
         forced = false;
       }
       let spliceAdvance = 0;
-      if (rubato && forced && previousGrid != null && t >= ready &&
-          voices.every(voice => voice === cur || voice.until <= Math.max(previousGrid, ready, t - RUBATO_SPLICE_MAX_ADVANCE))) {
-        const spliceAt = rubatoSpliceTime(buffer, cur, origin, t, Math.max(previousGrid, ready));
-        spliceAdvance = t - spliceAt;
-        t = spliceAt;
+      if (rubato && !gap && previousGrid != null && t >= ready) {
+        let tryEarly = false;
+        if (!forced && index % 4 === 0 && alignment.forceStep > Math.ceil(index / 16) * 16 &&
+            phase >= 0 && phase < buffer.duration && Math.abs(errorMs) > RUBATO_EARLY_DRIFT_MS) {
+          const span = gapSpan?.(16), bar = Number.isFinite(span) ? span : 16 * sd;
+          const rate = cur.slewRate ?? 1;
+          const outgoingPhase = t - cur.origin + (rate - 1) * (t - (cur.slewEnd ?? t));
+          // Keep waiting if either playhead can reach a phrase gap before the next downbeat.
+          tryEarly = !hasUpcomingVocalGap(buffer, phase, bar) &&
+            !hasUpcomingVocalGap(cur.src.buffer, outgoingPhase, bar, rate);
+        }
+        if (forced || tryEarly) {
+          const retiringUntil = Math.max(...voices.filter(voice => voice !== cur).map(voice => voice.until));
+          const spliceAt = rubatoSpliceTime(buffer, cur, origin, t, ready, previousGrid, retiringUntil, tryEarly);
+          if (spliceAt !== null && spliceAt >= this.ctx.currentTime + 0.02) {
+            forced = true;
+            alignment.forceStep = index;
+            spliceAdvance = t - spliceAt;
+            t = spliceAt;
+          }
+        }
       }
       this.vocalCorrection = { at:t, origin, previousOrigin:cur.origin, errorMs:(origin - cur.origin) * 1000, gap, nextOnset:silence?.onset,
-        correctionId:alignment.id, forced, forceStep:alignment.forceStep, spliceAdvance, crossfadeSeconds:forced ? 0.03 : null };
+        correctionId:alignment.id, forced, forceStep:alignment.forceStep, spliceAdvance, crossfadeSeconds:forced ? VOCAL_FADE_SECONDS : null };
       if (!gap && !forced) {
         cur.next = pos + 1;
         this.vocalBus.gain.setTargetAtTime(v.gain, t, 0.02);
@@ -3541,7 +3641,7 @@ export class Engine {
     if (forced) {
       crossfade = this.ctx.createGain();
       crossfade.connect(this.vocalBus);
-      crossfade.gain.setValueCurveAtTime(vocalCrossfade(false), t, 0.03);
+      crossfade.gain.setValueCurveAtTime(vocalCrossfade(false), t, VOCAL_FADE_SECONDS);
       const voices = [...(this.vocalRetiring || []), cur].filter(voice =>
         (voice.until ?? Infinity) > this.ctx.currentTime && voice.origin + voice.src.buffer.duration > this.ctx.currentTime);
       for (const output of new Set(voices.map(voice => voice.output || voice.g))) {
@@ -3550,7 +3650,7 @@ export class Engine {
       }
       let remaining = voices.length;
       this.vocalRetiring = voices.map(voice => {
-        const until = Math.min(voice.until ?? Infinity, voice.startAt >= t ? t : t + 0.03);
+        const until = Math.min(voice.until ?? Infinity, voice.startAt >= t ? t : t + VOCAL_FADE_SECONDS);
         voice.src.stop(until);
         voice.src.addEventListener?.('ended', () => { if (!--remaining) crossfade.disconnect(); }, {once:true});
         return {...voice, output:crossfade, stopAt:t, until};
@@ -3567,7 +3667,7 @@ export class Engine {
     if (off >= v.buf.duration) return;
     if (forced) {
       g.gain.setValueAtTime(0, this.ctx.currentTime);
-      g.gain.setValueCurveAtTime(vocalCrossfade(true), t, 0.03);
+      g.gain.setValueCurveAtTime(vocalCrossfade(true), t, VOCAL_FADE_SECONDS);
     } else if (off > 0.001) { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + 0.012); }
     src.connect(g).connect(this.vocalBus);
     if (!forced) this.vocalBus.gain.setValueAtTime(v.gain, t);

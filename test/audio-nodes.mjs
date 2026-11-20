@@ -878,7 +878,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (beforeDownbeat) assert.ok(Math.abs(at - (penultimate + .130)) < 1e-9, 'slowed grid admits the gap before the actual downbeat');
     else assert.equal(at, downbeat, 'faster grid forbids queuing a gap past the actual downbeat');
   }
-  for (const lookahead of [.2, .02]) {
+  for (const lookahead of [.11, .02]) {
     const c = fakeCtx(), s = defaultState(); s.bpm = 120;
     const buf = new FakeBuffer({length:48000 * 10, sampleRate:48000}), starts = [];
     const audio = buf.getChannelData(0), boundary = 8.08;
@@ -898,10 +898,43 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     }
     const [[at, offset]] = starts.slice(1);
     if (lookahead > .02) {
-      assert.ok(at < downbeat - .05 && at >= downbeat - .09 - 1e-9, 'a pitch clash moves the fade earlier within the bound');
+      assert.ok(at < downbeat - .05 && at >= downbeat - .09 - 1e-9, 'a pitch clash moves the fade earlier within the available lookahead');
       assert.ok(at + .03 - 1 < boundary, 'the shifted crossfade completes before the outgoing note changes');
     } else assert.equal(at, downbeat, 'insufficient lookahead keeps the deadline fade');
     assert.ok(Math.abs(offset + downbeat - at - 8) < 1e-9, 'the incoming source is still aligned at the downbeat');
+  }
+  for (const {lookahead, delay, bend, cancels} of [
+    {lookahead:.39, delay:.04, bend:true},
+    {lookahead:.08, delay:.04, bend:true},
+    {lookahead:.39, delay:.04, bend:false},
+    {lookahead:.39, delay:.035, bend:true, cancels:true},
+  ]) {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 10, sampleRate:48000}), starts = [];
+    const audio = buf.getChannelData(0), transition = 7.85, glide = .35;
+    for (let i = 0; i < audio.length; i++) {
+      const t = i / 48000, progress = Math.min(glide, Math.max(0, t - transition));
+      const cycles = 300 * t + (bend ? 34 * progress ** 2 / glide + 68 * Math.max(0, t - transition - glide) : 0);
+      audio[i] = .1 * Math.sin(2 * Math.PI * cycles);
+    }
+    c.createBufferSource = () => ({connect:dst => dst, start:(...args) => starts.push(args), stop(){}});
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.variableScoreTempo = true;
+    e.vocal(1, 0, 0, 1);
+    const downbeat = 1 + delay + 64 * .125;
+    for (let index = 1; index <= 64; index++) {
+      const time = 1 + (index < 17 ? 0 : delay) + index * .125;
+      c.currentTime = time - lookahead;
+      assert.equal(e.vocal(time, index >> 4, index % 16, time, true), index < 17 || index === 64);
+    }
+    const [[at, offset]] = starts.slice(1);
+    if (!bend) assert.equal(at, downbeat, 'a well-matched fade keeps its placement');
+    else if (cancels) assert.ok(at + .03 >= 1 + transition, 'a closer pitch match is rejected if it cancels in phase');
+    else if (lookahead === .39) {
+      assert.ok(at < downbeat - .125, 'a better pitch match can be before the preceding step');
+      assert.ok(at + .03 < 1 + transition, 'the fade uses the matching pitch before the bend');
+    } else assert.ok(at >= c.currentTime + .02 - 1e-9, 'the search does not advance past available lookahead');
+    assert.ok(Math.abs(offset + downbeat - at - 8) < 1e-9, 'the pitch-matched fade preserves grid phase');
   }
   {
     const s = defaultState(); s.bpm = 120; s.chain = 'AAB'; s.chainOn = true;
@@ -944,6 +977,46 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     assert.equal(e.vocalCorrection.forceStep, deadline);
     assert.equal(e.vocalCorrection.at, 1 + error + deadline * .125);
     assert.equal(e.vocalCorrection.crossfadeSeconds, .03);
+  }
+  for (const {delay = .096, hz = 250, gap = false, clash = false, unvoiced = false,
+    lookahead = .3, firstStrong = 31, earlyStep = null, lastStep = 32, deadline = 64} of [
+    {earlyStep:32},
+    {firstStrong:27, earlyStep:28},
+    {firstStrong:27, delay:.104, lastStep:31, deadline:32},
+    {delay:.08},
+    {gap:true},
+    {clash:true, lookahead:.02},
+    {unvoiced:true, lookahead:.021},
+    {hz:24.5 / .096},
+  ]) {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 12, sampleRate:48000});
+    const pcm = buf.getChannelData(0), change = 4.06;
+    for (let i = 0; i < pcm.length; i++) {
+      const time = i / 48000;
+      const cycles = time * hz + (clash ? 100 * Math.max(0, time - change) : 0);
+      const quiet = gap && time >= 4.3 && time < 4.8 || unvoiced && time >= 3.952 && time < 3.998;
+      pcm[i] = quiet ? 0 : .1 * Math.sin(2 * Math.PI * cycles);
+    }
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.variableScoreTempo = true;
+    e.vocal(1, 0, 0, 1);
+    const original = e.vocalNow;
+    for (let index = 17; index <= (earlyStep ?? lastStep); index++) {
+      const time = 1 + (index < firstStrong ? .08 : delay) + index * .125;
+      c.currentTime = time - lookahead;
+      assert.equal(e.vocal(time, index >> 4, index % 16, time, true), index === earlyStep,
+        'only a large, gapless drift with a stable pitch and phase match can force early');
+    }
+    if (earlyStep !== null) {
+      assert.notEqual(e.vocalNow, original);
+      assert.equal(e.vocalCorrection.forced, true);
+      assert.equal(e.vocalCorrection.forceStep, earlyStep);
+      assert.equal(e.vocalNow.origin, 1 + delay);
+    } else {
+      assert.equal(e.vocalNow, original);
+      assert.equal(e.vocalNow.gapCorrection.forceStep, deadline, 'rejecting an early fade keeps the original deadline');
+    }
   }
   {
     const c = fakeCtx(), s = defaultState(); s.bpm = 120;
