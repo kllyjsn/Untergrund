@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict';
-import { baseSelection, detectStyles, hash, random, shuffle, main, seedOverrides, parseMergedPR, excerptWithFrom, checkBarWindow } from '../scripts/blind-pack.mjs';
+import { baseSelection, detectStyles, hash, random, shuffle, main, seedOverrides, parseMergedPR, excerptWithFrom, checkBarWindow, selectStyles, edgeFadeFilter } from '../scripts/blind-pack.mjs';
 
 assert.deepEqual(seedOverrides(), {});
 assert.deepEqual(seedOverrides('afrobeats:0,hyperpop:4294967295'), { afrobeats: 0, hyperpop: 4294967295 });
 for (const value of ['unknown:1', 'dnb:', 'dnb:1.5', 'dnb:-1', 'dnb:4294967296', 'dnb:NaN', 'dnb:1:2', 'dnb:1,dnb:2']) assert.throws(() => seedOverrides(value), /Invalid genre seed/);
 
 const input = ['minimal', 'drill', 'hardtechno', 'trap'];
+assert.deepEqual(selectStyles(['acid', 'pop', 'minimal'], ['pop', 'hypnotic'], 6), { selected: [...input, 'pop', 'hypnotic'], dropped: ['acid'] });
+assert.deepEqual(selectStyles([]), { selected: input, dropped: [] });
+assert.deepEqual(selectStyles(['acid'], [], 4), { selected: input, dropped: ['acid'] });
+for (const max of [0, 3, 4.5, NaN]) assert.throws(() => selectStyles([], [], max), /max-pairs/);
+assert.throws(() => selectStyles(['unknown']), /Unknown genre/);
+assert.equal(edgeFadeFilter(), 'afade=t=in:d=0.01,areverse,afade=t=in:d=0.01,areverse');
+for (const duration of [0, -1, NaN, Infinity]) assert.throws(() => edgeFadeFilter(duration), /Fade duration/);
 assert.deepEqual(checkBarWindow([63, 71]), [63, 71]);
 assert.deepEqual(checkBarWindow([63, 71], [63, 71]), [63, 71]);
 assert.throws(() => checkBarWindow([32, 40], [63, 71]), /window mismatch/);

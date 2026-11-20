@@ -88,6 +88,16 @@ export function seedOverrides(text = '') {
   }
   return out;
 }
+export function selectStyles(detected, priority = [], maxPairs = Infinity) {
+  if (maxPairs !== Infinity && (!Number.isInteger(maxPairs) || maxPairs < 4)) throw new Error('max-pairs must be an integer of at least 4');
+  const candidates = [...new Set(['minimal', 'drill', 'hardtechno', 'trap', ...priority, ...detected])];
+  for (const style of candidates) if (!Object.hasOwn(STYLES, style)) throw new Error(`Unknown genre: ${style}`);
+  return { selected: candidates.slice(0, maxPairs), dropped: candidates.slice(maxPairs) };
+}
+export function edgeFadeFilter(seconds = 0.01) {
+  if (!Number.isFinite(seconds) || seconds <= 0) throw new Error('Fade duration must be positive');
+  return `afade=t=in:d=${seconds},areverse,afade=t=in:d=${seconds},areverse`;
+}
 function ff(args) {
   const p = spawnSync('ffmpeg', ['-hide_banner', '-nostats', '-y', ...args], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
   if (p.status !== 0) throw new Error(p.error?.message || p.stderr);
@@ -99,17 +109,21 @@ function measure(file, trim = '') {
   if (!Number.isFinite(integrated)) throw new Error(`Cannot measure loudness: ${file}`);
   return integrated;
 }
-function normalize(input, output) {
+export function normalize(input, output) {
+  const faded = output + '.faded.wav';
+  ff(['-i', input, '-af', edgeFadeFilter(), '-ar', '48000', '-ac', '2', '-c:a', 'pcm_f32le', faded]);
+  try {
   const filter = 'loudnorm=I=-16:TP=-1.5:LRA=20';
-  const log = ff(['-i', input, '-af', `${filter}:print_format=json`, '-f', 'null', '-']);
+  const log = ff(['-i', faded, '-af', `${filter}:print_format=json`, '-f', 'null', '-']);
   const m = JSON.parse(log.slice(log.lastIndexOf('{'), log.lastIndexOf('}') + 1));
   for (const key of ['input_i', 'input_tp', 'input_lra', 'input_thresh', 'target_offset']) if (!Number.isFinite(Number(m[key]))) throw new Error(`Silent or invalid excerpt: ${input}`);
-  ff(['-i', input, '-af', `${filter}:measured_I=${m.input_i}:measured_TP=${m.input_tp}:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}:offset=${m.target_offset}:linear=true`, '-ar', '48000', '-ac', '2', '-c:a', 'pcm_f32le', output]);
+  ff(['-i', faded, '-af', `${filter}:measured_I=${m.input_i}:measured_TP=${m.input_tp}:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}:offset=${m.target_offset}:linear=true`, '-ar', '48000', '-ac', '2', '-c:a', 'pcm_f32le', output]);
+  } finally { rmSync(faded, { force: true }); }
 }
 export async function main(argv = process.argv.slice(2)) {
   const options = {};
   for (let i = 0; i < argv.length; i += 2) {
-    if (!/^--(date|seed|seeds|head|base|since|genres|key-dir)$/.test(argv[i]) || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Invalid option: ${argv[i]}`);
+    if (!/^--(date|seed|seeds|head|base|since|genres|max-pairs|key-dir)$/.test(argv[i]) || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Invalid option: ${argv[i]}`);
     options[argv[i].slice(2)] = argv[i + 1];
   }
   const date = options.date || new Date().toISOString().slice(0, 10);
@@ -134,7 +148,10 @@ export async function main(argv = process.argv.slice(2)) {
     if (!id) throw new Error(`Unknown genre: ${s}`);
     return id;
   });
-  const rng = random(seed), styles = shuffle([...new Set(['minimal', 'drill', 'hardtechno', 'trap', ...mergedPRs.flatMap((p) => p.styles), ...extra])], rng);
+  const selection = selectStyles(mergedPRs.flatMap((p) => p.styles), extra, options['max-pairs'] === undefined ? Infinity : Number(options['max-pairs']));
+  console.log(`Merged PRs: ${mergedPRs.map((p) => '#' + p.number).join(', ')}`);
+  console.log(`Selected styles: ${selection.selected.join(', ')}; dropped: ${selection.dropped.join(', ') || 'none'}`);
+  const rng = random(seed), styles = shuffle(selection.selected, rng);
   const pairs = styles.map((style, i) => { const first = rng() < 0.5 ? 'original' : 'revised'; return { pair: String(i + 1).padStart(2, '0'), genre: STYLES[style].name, style, renderSeed: seeds[style] ?? (hash(`${seed}:${style}`) || 1), bars: 8, first, second: first === 'original' ? 'revised' : 'original' }; });
   mkdirSync(out, { recursive: true });
   const temp = mkdtempSync(join(tmpdir(), 'ug-blind-')), worktrees = [];
@@ -191,7 +208,7 @@ export async function main(argv = process.argv.slice(2)) {
     const zip = join(out, `blind-rating-pack-${date}.zip`);
     rmSync(zip, { force: true });
     execFileSync('zip', ['-q', '-r', zip, 'blind-pilot'], { cwd: out });
-    const key = { schema: 'untergrund.blind-pack/1', date, generatedAt: new Date().toISOString(), seed, commit: head, base, sinceTime, mergedPRs, pairs, format: { codec: 'mp3', sampleRate: 48000, channels: 2, bitrate: 192000, silenceSeconds: 1.56, excerpt: 'peak', bars: 8, targetLUFS: -16, targetTruePeakDBTP: -1.5, measurement: 'ffmpeg loudnorm JSON input_i on decoded MP3 halves, excluding the inserted silence', normalization: 'two-pass loudnorm then downward pair gain matching' } };
+    const key = { schema: 'untergrund.blind-pack/1', date, generatedAt: new Date().toISOString(), seed, commit: head, base, sinceTime, mergedPRs, droppedStyles: selection.dropped, pairs, format: { codec: 'mp3', sampleRate: 48000, channels: 2, bitrate: 192000, silenceSeconds: 1.56, edgeFadeSeconds: 0.01, excerpt: 'peak', bars: 8, targetLUFS: -16, targetTruePeakDBTP: -1.5, measurement: 'ffmpeg loudnorm JSON input_i on decoded MP3 halves, excluding the inserted silence', normalization: 'two-pass loudnorm then downward pair gain matching' } };
     mkdirSync(keyDir, { recursive: true });
     writeFileSync(join(keyDir, `${date}.json`), JSON.stringify(key, null, 2) + '\n');
     console.log(`Pack: ${pack}\nZip: ${zip}\nKey: ${join(keyDir, `${date}.json`)}\nBase: ${base}\nHead: ${head}`);
