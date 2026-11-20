@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { withChrome } from './chrome.mjs';
 
-async function render(withEdit, route = true, action = '', actionAt = .9) {
+async function render(withEdit, route = true, action = '', actionAt = .9, mute = false, wallStep = 0) {
   const { Engine, Sequencer } = await import('/js/engine.js');
   const { defaultState } = await import('/js/state.js');
   const { applyPart, extractPart, normalizeLayer } = await import('/js/jam.js');
@@ -23,10 +23,10 @@ async function render(withEdit, route = true, action = '', actionAt = .9) {
   state.patterns.forEach(p => { p.len.kick = 16; });
   for (const part of Object.keys(state.params)) state.mutes[part] = part !== 'kick';
   const rawLayer = extractPart(state, 'drums');
-  rawLayer.params.kick.level = 0;
-  rawLayer.params.kick.rev = .6;
+  if (mute) rawLayer.mutes = {...rawLayer.mutes, kick: true};
+  else { rawLayer.params.kick.level = 0; rawLayer.params.kick.rev = .6; }
   const layer = normalizeLayer('drums', rawLayer);
-  if (layer.params.kick.level !== 0) throw new Error('Layer must pass the server normalizer at zero kick level');
+  if (mute ? !layer.mutes.kick : layer.params.kick.level !== 0) throw new Error('Layer must pass the server normalizer at zero kick level');
 
   const engine = new Engine(ctx, state, {realtime: false, trackQueuedNotes: true});
   engine.out.disconnect(ctx.destination);
@@ -37,7 +37,7 @@ async function render(withEdit, route = true, action = '', actionAt = .9) {
   const roomMediaSync = media.createRoomMediaSync();
   const env = {
     ...sync, ...media, seq, engine, ctx, state, applyPart, roomMediaSync, mediaRoute,
-    document: {hidden: false, body: {classList: {add: noop}}, querySelectorAll: () => []}, Date: {now: () => 1000000 + 1000 * ctx.currentTime},
+    document: {hidden: false, body: {classList: {add: noop}}, querySelectorAll: () => []}, Date: {now: () => 1000000 + 1000 * (ctx.currentTime + (ctx.currentTime >= .8 ? wallStep : 0))},
     playing: true, roomPlayback: true, songOver: false, queuedRoomReplay: null, roomEditor: false, roomFirstNote: null, clockOffset: 1000,
     abs: 0, nextTime: .06, transportOrigin: 1000100, uiQueue: [], handoff: null,
     timeline: {skip: () => 0}, artistTick: noop, midiClockStep: noop, BG_LEAD: 1.5, ROOM_LEAD: .42,
@@ -106,7 +106,12 @@ async function render(withEdit, route = true, action = '', actionAt = .9) {
   };
   // Desktop plays the room grid (0.1 s + bars); the media route leads it to land at 0.06 s.
   const grid = route ? 0 : .04;
-  return {initialQueueUntil, land, jamAt, rmsDb: [.06,.56,1.06,1.56,2.06,2.56,3.06].map(t => rms(t + grid)),
+  const window = (a, b) => {
+    let s = 0;
+    for (let i = Math.round(a * rate); i < Math.round(b * rate); i++) s += y[i] * y[i];
+    return 20 * Math.log10(Math.max(1e-8, Math.sqrt(s / ((b - a) * rate))));
+  };
+  return {initialQueueUntil, land, jamAt, pre: window(.3, 1.88), post: window(2.35, 3.9), rmsDb: [.06,.56,1.06,1.56,2.06,2.56,3.06].map(t => rms(t + grid)),
     tailDb: [1.64,1.72,1.80,1.88,1.98].map(t => rms(t + grid)), revEvents};
 }
 
@@ -211,6 +216,11 @@ const result = await withChrome(async run => {
     edited: await run('(' + render.toString() + `)(true,${route})`),
   };
   for (const action of ['seek', 'stop', 'stall', 'multi', 'replace', 'handoff']) out[action] = await run('(' + render.toString() + `)(true,true,${JSON.stringify(action)})`);
+  // A mute edit against wall-clock re-anchors in both directions, on the production scheduler.
+  out.muteShift = [];
+  for (const step of [-.1, -.06, 0, .06, .1]) out.muteShift.push({step,
+    control: await run('(' + render.toString() + `)(false,false,"",.9,false,${step})`),
+    muted: await run('(' + render.toString() + `)(true,false,"",.9,true,${step})`)});
   out['desktop-replace'] = await run('(' + render.toString() + ')(true,false,"replace",1.9)');
   out.boundary = await run('(' + renderBoundaryAutomation.toString() + ')()');
   out.handoffFade = await run('(' + renderHandoffFade.toString() + ')()');
@@ -273,6 +283,10 @@ if (result) {
   for (const [i, t] of [.5, 1.05, 1.95, 2.09].entries()) assert(Math.abs(gain[i] - ramp(t)) < .01, 'a fade ending on the jam boundary plays out');
   assert(Math.abs(gain[4] - .9) < .01);
   assert(Math.max(...paths) <= 2, 'superseded acid drive paths are released');
+  for (const {step, control, muted} of result.muteShift) {
+    assert(Math.abs(muted.pre - control.pre) < .05, `a mute edit keeps the previous bar intact (re-anchor ${step})`);
+    assert(control.post > -40 && muted.post < control.post - 40, `a mute edit silences the kick after the boundary (re-anchor ${step})`);
+  }
   const db = (x, y) => Math.abs(20 * Math.log10(x / y));
   const close = (x, y) => Math.abs(x - y) < 1e-4 || db(x, y) < .05;
   const same = (x, y) => x.every((c, ch) => c.every((v, i) => close(v, y[ch][i])));
