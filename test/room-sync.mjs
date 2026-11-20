@@ -337,7 +337,9 @@ for (const rate of [-0.005, 0.005]) {
     const next = syncAudioClock(clock.offset, measured, {at, contextTime:at * (1 - rate), state:clock.state});
     if (next.offset !== clock.offset) {
       adopted++;
-      assert.equal(next.offset, measured, 'a persistent moving estimate adopts the latest value');
+      const values = [...clock.state.pending.values, measured].sort((a, b) => a - b);
+      const middle = Math.floor(values.length / 2);
+      close(next.offset, values.length % 2 ? values[middle] : (values[middle - 1] + values[middle]) / 2);
     }
     assert.equal(next.jumped, false, 'ordinary continuous drift is not a frozen wake');
     residual = Math.max(residual, Math.abs(next.offset - measured));
@@ -359,9 +361,36 @@ for (const rate of [-0.005, 0.005]) {
   sample(3.99, 1000.070);
   assert.equal(clock.offset, 1000, 'a new deviation starts a fresh2s persistence window');
   sample(4, 1000.080);
-  close(clock.offset, 1000.080);
+  close(clock.offset, 1000.070);
   assert.equal(clock.state.pending, null);
 }
+for (const sign of [-1, 1]) {
+  let clock = syncAudioClock(null, 1000, {at:0, contextTime:0, state:null});
+  const sample = (at, measured) => clock = syncAudioClock(clock.offset, measured, {at, contextTime:at, state:clock.state});
+  for (let i = 1; i <= 200; i++) {
+    sample(i / 50, 1000 + (i === 100 ? sign * .130 : 0));
+    assert.equal(clock.offset, 1000, 'one outlier in otherwise accepted samples cannot move the grid');
+    assert.equal(roomTransportCorrection(10 + 1000 - clock.offset, 10, 9.5, .125), null,
+      'a single clock outlier cannot start a drain or skip a sixteenth');
+  }
+  for (const outlier of [1, 51, 101]) {
+    clock = syncAudioClock(null, 1000, {at:0, contextTime:0, state:null});
+    for (let i = 1; i <= 101; i++) {
+      sample(1 + (i - 1) / 50, 1000 + sign * (i === outlier ? .130 : .012));
+      if (i < 101) assert.equal(clock.offset, 1000, 'the robust window still waits two seconds');
+    }
+    close(clock.offset, 1000 + sign * .012);
+    assert.equal(roomTransportCorrection(10 + 1000 - clock.offset, 10, 9.5, .125), null,
+      'an outlier at window start, middle or exact expiry cannot turn a small correction into a skip');
+  }
+  clock = syncAudioClock(null, 1000, {at:0, contextTime:0, state:null});
+  sample(1, 1000 + sign * .012);
+  sample(3, 1000 + sign * .130);
+  assert.equal(clock.offset, 1000, 'two conflicting sparse samples cannot establish a robust correction');
+  sample(3.02, 1000 + sign * .012);
+  close(clock.offset, 1000 + sign * .012);
+}
+console.log('Room clock robust window PASS: isolated outliers never correct or skip; first/middle/expiry outliers cannot determine adoption; sparse pairs wait for a median.');
 console.log('Room clock drift persistence PASS: moving5ms/s estimates re-adopt over50s with residual below20ms; returning within8ms cancels transient corrections.');
 console.log('Room clock persistence PASS: immediate first estimate/wake, transient and large glitches held, stable80ms offset adopted only after2s; solo arithmetic unchanged.');
 

@@ -66,9 +66,12 @@ export function syncAudioClock(previous, measured, sample = null) {
     const state = {at:sample.at, contextTime:sample.contextTime, pending:null};
     if (previous === null || wake) return {offset:measured, jumped:!!wake, state};
     if (Math.abs(measured - previous) <= 0.008) return {offset:previous, jumped:false, state};
-    state.pending = {since:prior?.pending?.since ?? sample.at, offset:measured};
-    if (sample.at - state.pending.since < 2) return {offset:previous, jumped:false, state};
-    return {offset:state.pending.offset, jumped:false, state:{...state, pending:null}};
+    const values = [...(prior?.pending?.values ?? []), measured];
+    state.pending = {since:prior?.pending?.since ?? sample.at, values};
+    if (sample.at - state.pending.since < 2 || values.length < 3) return {offset:previous, jumped:false, state};
+    const sorted = values.slice().sort((a, b) => a - b), middle = Math.floor(sorted.length / 2);
+    const offset = sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+    return {offset:Math.abs(offset - previous) > 0.008 ? offset : previous, jumped:false, state:{...state, pending:null}};
   }
   const offset = previous === null || jumped ? measured : previous + (measured - previous) * 0.05;
   return { offset, jumped };
