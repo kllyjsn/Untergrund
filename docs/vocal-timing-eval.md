@@ -27,6 +27,11 @@ transport resync is mirrored. Each `--base` / `--head` ref renders from a detach
 worktree under `test/out/vocal-timing/`, so any two commits compare on identical input. Nine cases (3 stems × 3
 residuals) render in about 4 s.
 
+When comparing fade dips, the scheduler's causal Butterworth meter is an estimate, not a cap on rendered audio.
+In the [gapless over-100-ms comparison](https://github.com/kllyjsn/Untergrund/pull/311#issuecomment-7048001339),
+it read about 0.2 dB low in the 2–8 kHz band: 1.49 dB on the modeled waveforms versus 1.71 dB with the same meter
+on the native Chromium render. Use the rendered PCM to verify dips near the limit; this is not a fixed offset.
+
 ## What it scores (`test/vocal-timing-metrics.mjs`)
 
 - **Time over 50 ms**: the vocal's lateness against the scheduled grid, sampled every 1 ms from T0+50 ms to T0+21.7 s

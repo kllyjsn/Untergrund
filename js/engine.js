@@ -8,7 +8,7 @@ import { pocketOf, pocketLate, pocketVel } from './groove.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ, TECHNO_HOOK_SPACE } from './lead.js';
 import { lowEnd } from './lowend.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
-import { processedStem } from './vocal-chain.js';
+import { biquad, filter as filterVocal, processedStem } from './vocal-chain.js';
 import { makeupGain } from './loudness.js';
 import { harmRoot, chordIv, stabNotes, hookSnap, voiceLead } from './harmony.js';
 import { develop, motifPlan, stepDeg } from './motif.js';
@@ -251,6 +251,13 @@ const RUBATO_PITCH_MATCH_ADVANCE = 0.09;
 const VOCAL_FADE_SECONDS = 0.03;
 const VOCAL_FADE_PITCH_PROBES = [5, 15, 25];
 const VOCAL_FADE_MIN_POWER_RATIO = 10 ** (-1.5 / 10);
+const VOCAL_FADE_BAND_RATE = 48000, VOCAL_FADE_MIN_BAND_SHARE = .01;
+const vocalFadeFilter = (type, hz) => [0.5411961, 1.3065630].map(q => biquad(type, hz, q, 0, VOCAL_FADE_BAND_RATE));
+const vocalFadeBands = {
+  low: vocalFadeFilter('lowpass', 500),
+  mid: [...vocalFadeFilter('highpass', 500), ...vocalFadeFilter('lowpass', 2000)],
+  presence: [...vocalFadeFilter('highpass', 2000), ...vocalFadeFilter('lowpass', 8000)],
+};
 const VOCAL_FADE_PHASE_TOLERANCE_RATIO = 10 ** (-0.25 / 10);
 const VOCAL_FADE_MIN_PITCH_IMPROVEMENT = 10;
 const RUBATO_EARLY_DRIFT_MS = 90;
@@ -280,20 +287,21 @@ function vocalPitchAt(buffer, phase, samples) {
   return NaN;
 }
 
+function vocalFadeSample(audio, x) {
+  const i = Math.floor(x), first = audio[i] ?? 0;
+  return first + (x - i) * ((audio[i + 1] ?? 0) - first);
+}
+
 export function vocalFadePowerRatio(outgoing, buffer, from, to, rate) {
   const a = outgoing.getChannelData(0), b = buffer.getChannelData(0);
-  const sample = (audio, x) => {
-    const i = Math.floor(x), first = audio[i] ?? 0;
-    return first + (x - i) * ((audio[i + 1] ?? 0) - first);
-  };
   // Slide a 5 ms window by one sample at 12 kHz so dips between fixed windows are not missed.
   const window = 60, frames = 6 * window;
   const blendedSuffix = new Float64Array(window), separateSuffix = new Float64Array(window);
   let ratio = 1, blendedPrefix = 0, separatePrefix = 0;
   for (let i = 0; i < frames; i++) {
     const f = (i + .5) / frames, t = f * VOCAL_FADE_SECONDS;
-    const x = sample(a, (from + t * rate) * outgoing.sampleRate) * Math.cos(f * Math.PI / 2);
-    const y = sample(b, (to + t) * buffer.sampleRate) * Math.sin(f * Math.PI / 2);
+    const x = vocalFadeSample(a, (from + t * rate) * outgoing.sampleRate) * Math.cos(f * Math.PI / 2);
+    const y = vocalFadeSample(b, (to + t) * buffer.sampleRate) * Math.sin(f * Math.PI / 2);
     const slot = i % window;
     const blended = (x + y) ** 2, separate = x * x + y * y;
     blendedPrefix += blended;
@@ -317,11 +325,51 @@ export function vocalFadePowerRatio(outgoing, buffer, from, to, rate) {
   return ratio;
 }
 
+export function vocalFadeBandPowerRatios(outgoing, buffer, from, to, rate) {
+  const sr = VOCAL_FADE_BAND_RATE, window = sr * .005, frames = 6 * window, warmup = 3 * window;
+  const a = outgoing.getChannelData(0), b = buffer.getChannelData(0);
+  const x = new Float32Array(warmup + frames), y = new Float32Array(x.length);
+  const full = new Float64Array(frames + 1);
+  // Warm up with the actual outgoing signal, then filter each gain-weighted side independently.
+  for (let i = -warmup; i < frames; i++) {
+    const t = (i + .5) / sr, fade = Math.max(t, 0) / VOCAL_FADE_SECONDS * Math.PI / 2;
+    const left = x[i + warmup] = vocalFadeSample(a, (from + t * rate) * outgoing.sampleRate) * Math.cos(fade);
+    if (i < 0) continue;
+    const right = y[i + warmup] = vocalFadeSample(b, (to + t) * buffer.sampleRate) * Math.sin(fade);
+    full[i + 1] = full[i] + left ** 2 + right ** 2;
+  }
+  const blended = new Float64Array(frames + 1), separate = new Float64Array(frames + 1);
+  const left = new Float32Array(x.length), right = new Float32Array(y.length);
+  return Object.fromEntries(Object.entries(vocalFadeBands).map(([band, sections]) => {
+    left.set(x); right.set(y);
+    for (const section of sections) {
+      filterVocal(left, section, left);
+      filterVocal(right, section, right);
+    }
+    let ratio = 1;
+    for (let i = 1; i <= frames; i++) {
+      const l = left[warmup + i - 1], r = right[warmup + i - 1];
+      blended[i] = blended[i - 1] + (l + r) ** 2;
+      separate[i] = separate[i - 1] + l * l + r * r;
+      if (i < window) continue;
+      const start = i - window, power = separate[i] - separate[start];
+      const total = full[i] - full[start];
+      // Ignore nearly silent windows and bands with negligible local energy.
+      if (total > full[frames] * 1e-6 && power >= total * VOCAL_FADE_MIN_BAND_SHARE)
+        ratio = Math.min(ratio, (blended[i] - blended[start]) / power);
+    }
+    return [band, ratio];
+  }));
+}
+
+const vocalPhaseAfterSlew = (voice, when) =>
+  when - voice.origin + ((voice.slewRate ?? 1) - 1) * (when - (voice.slewEnd ?? when));
+
 function rubatoSpliceTime(buffer, voice, origin, downbeat, ready, previousGrid, retiringUntil, requirePitchMatch = false) {
   const rate = voice.slewRate ?? 1, outgoing = voice.src.buffer;
   const first = Math.max(ready, retiringUntil, downbeat - RUBATO_SPLICE_MAX_ADVANCE, origin, voice.startAt);
   if (first > downbeat || (first === downbeat && !requirePitchMatch)) return requirePitchMatch ? null : downbeat;
-  const outgoingPhase = when => when - voice.origin + (rate - 1) * (when - (voice.slewEnd ?? when));
+  const outgoingPhase = when => vocalPhaseAfterSlew(voice, when);
   const short = new Map(), long = new Map();
   const pitches = (ms, wide) => {
     const frames = wide ? long : short;
@@ -358,6 +406,11 @@ function rubatoSpliceTime(buffer, voice, origin, downbeat, ready, previousGrid, 
     const when = downbeat - ms / 1000;
     return vocalFadePowerRatio(outgoing, buffer, outgoingPhase(when), when - origin, rate);
   };
+  const bandSafe = ms => {
+    const when = downbeat - ms / 1000;
+    return Object.values(vocalFadeBandPowerRatios(outgoing, buffer, outgoingPhase(when), when - origin, rate))
+      .every(ratio => ratio >= VOCAL_FADE_MIN_POWER_RATIO);
+  };
   const minPower = requirePitchMatch ? VOCAL_FADE_MIN_POWER_RATIO :
     Math.max(VOCAL_FADE_MIN_POWER_RATIO, powerAt(baseline) * VOCAL_FADE_PHASE_TOLERANCE_RATIO);
   const stable = ms => {
@@ -377,7 +430,7 @@ function rubatoSpliceTime(buffer, voice, origin, downbeat, ready, previousGrid, 
     const shortPitch = worst(ms, false);
     if (!(shortPitch < bestPitch)) continue;
     const pitch = Math.max(shortPitch, worst(ms, true));
-    if (pitch < bestPitch && powerAt(ms) >= minPower && (!requirePitchMatch || stable(ms))) {
+    if (pitch < bestPitch && powerAt(ms) >= minPower && (!requirePitchMatch || stable(ms)) && bandSafe(ms)) {
       best = ms;
       bestPitch = pitch;
     }
@@ -3668,7 +3721,7 @@ export class Engine {
       this.vocalBus.gain.setTargetAtTime(v.gain, t, 0.02);
       return true;
     }
-    let forced = false, crossfade = null, alignment = null;
+    let forced = false, crossfade = null, alignment = null, fallbackFadeGuard;
     if (continuous && reanchor) {
       const errorMs = (origin - cur.origin) * 1000;
       const index = pos * 16 + step, rubato = this.vocalRubato;
@@ -3760,6 +3813,8 @@ export class Engine {
         alignment.forceStep += 16;
         forced = false;
       }
+      const mandatoryRubato = rubato && forced;
+      const retiringUntil = rubato && !gap ? Math.max(...(this.vocalRetiring || []).map(voice => voice.until)) : -Infinity;
       let spliceAdvance = 0;
       if (rubato && !gap && previousGrid != null && t >= ready) {
         let tryEarly = false;
@@ -3773,7 +3828,6 @@ export class Engine {
             !hasUpcomingVocalGap(cur.src.buffer, outgoingPhase, bar, rate);
         }
         if (forced || tryEarly) {
-          const retiringUntil = Math.max(...voices.filter(voice => voice !== cur).map(voice => voice.until));
           const spliceAt = rubatoSpliceTime(buffer, cur, origin, t, ready, previousGrid, retiringUntil, tryEarly);
           if (spliceAt !== null && spliceAt >= this.ctx.currentTime + 0.02) {
             forced = true;
@@ -3783,8 +3837,19 @@ export class Engine {
           }
         }
       }
+      if (mandatoryRubato) {
+        if (t < cur.startAt || t < (cur.slewEnd ?? -Infinity) || t < retiringUntil) fallbackFadeGuard = {unmeasured:true};
+        else {
+          const outgoing = cur.src.buffer, from = vocalPhaseAfterSlew(cur, t), to = gridTime == null ? phase : t - origin;
+          const rate = cur.slewRate ?? 1, broadband = vocalFadePowerRatio(outgoing, buffer, from, to, rate);
+          const ratios = {broadband, ...vocalFadeBandPowerRatios(outgoing, buffer, from, to, rate)};
+          if (Object.values(ratios).some(ratio => ratio < VOCAL_FADE_MIN_POWER_RATIO))
+            fallbackFadeGuard = {dipDb:Object.fromEntries(Object.entries(ratios).map(([band, ratio]) => [band, -10 * Math.log10(Math.max(ratio, 1e-12))]))};
+        }
+      }
       this.vocalCorrection = { at:t, origin, previousOrigin:cur.origin, errorMs:(origin - cur.origin) * 1000, gap, nextOnset:silence?.onset,
-        correctionId:alignment.id, forced, forceStep:alignment.forceStep, spliceAdvance, crossfadeSeconds:forced ? VOCAL_FADE_SECONDS : null };
+        correctionId:alignment.id, forced, forceStep:alignment.forceStep, spliceAdvance, crossfadeSeconds:forced ? VOCAL_FADE_SECONDS : null,
+        fallbackFadeGuard };
       if (!gap && !forced) {
         cur.next = pos + 1;
         this.vocalBus.gain.setTargetAtTime(v.gain, t, 0.02);
@@ -3825,6 +3890,7 @@ export class Engine {
     src.connect(g).connect(this.vocalBus);
     if (!forced) this.vocalBus.gain.setValueAtTime(v.gain, t);
     if (off < 0) this.startSource(src, t - off); else this.startSource(src, t, off);
+    if (fallbackFadeGuard) this.lastVocalFallbackFadeGuard = {at:t, step:pos * 16 + step, ...fallbackFadeGuard};
     this.vocalNow = { src, g, buf: v.buf, next: pos + 1, sd, ms: v.ms, origin, at: t - Math.min(0, off), startAt:off < 0 ? t - off : t };
     if (forced) return true;
     if (v.duck < 1) this.duckUnder(v.buf, this.bandDuck.gain, v.duck, t, t - off);

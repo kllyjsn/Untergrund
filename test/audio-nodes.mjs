@@ -51,7 +51,7 @@ globalThis.fetch = async (url) => {
   catch { return { ok: false, status: 404 }; }
 };
 
-const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCrossfade, vocalFadePowerRatio } = await import('../js/engine.js');
+const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCrossfade, vocalFadePowerRatio, vocalFadeBandPowerRatios } = await import('../js/engine.js');
 {
   for (const [listener, recorded] of [['hypnotic', 'euphoric'], ['euphoric', 'hypnotic']]) {
     const s = defaultState(); s.artist = { style: listener };
@@ -1063,6 +1063,42 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     incoming.getChannelData(0).fill(0).fill(0.17, 0, 240);
     assert.equal(vocalFadePowerRatio(outgoing, incoming, 0, 0, 1), 1,
       'silent windows after an in-phase fade do not register a dip');
+  }
+  {
+    const outgoing = new FakeBuffer({length:2400}), incoming = new FakeBuffer({length:2400});
+    const a = outgoing.getChannelData(0), b = incoming.getChannelData(0);
+    for (let i = 0; i < a.length; i++) {
+      const t = i / 48000, mid = .30 * Math.sin(2 * Math.PI * 1000 * t);
+      const low = .015 * Math.sin(2 * Math.PI * 250 * t), high = .12 * Math.sin(2 * Math.PI * 4250 * t);
+      a[i] = mid + low + high; b[i] = mid - low - high;
+    }
+    assert.equal(vocalFadePowerRatio(outgoing, incoming, .02, .02, 1), 1, 'an in-phase midrange can hide band cancellation');
+    const bands = vocalFadeBandPowerRatios(outgoing, incoming, .02, .02, 1);
+    assert.ok(bands.presence < .5, 'the presence band detects a dip hidden by broadband power');
+    assert.equal(bands.low, 1, 'cancellation in a band below 1% of local power does not count');
+    assert.equal(bands.mid, 1);
+  }
+  {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 8});
+    const audio = buf.getChannelData(0), delay = .102, deadline = 32;
+    for (let i = 0; i < audio.length; i++) {
+      const t = i / 48000;
+      audio[i] = .30 * Math.sin(2 * Math.PI * 1000 * t) + .12 * Math.sin(2 * Math.PI * 4250 * t);
+    }
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.variableScoreTempo = true;
+    e.vocal(1, 0, 0, 1);
+    for (let index = 17; index <= deadline; index++) {
+      const time = 1 + delay + index * .125;
+      c.currentTime = time - .020001;
+      assert.equal(e.vocal(time, index >> 4, index % 16, time, true), index === deadline);
+    }
+    const {at, fallbackFadeGuard} = e.vocalCorrection;
+    assert.equal(at, 1 + delay + deadline * .125, 'a failed band guard does not delay a mandatory fade');
+    assert.ok(fallbackFadeGuard.dipDb.presence > 1.5);
+    assert.ok(fallbackFadeGuard.dipDb.broadband < 1.5);
+    assert.deepEqual(e.lastVocalFallbackFadeGuard, {at, step:deadline, ...fallbackFadeGuard});
   }
   for (const {lookahead, delay, bend, cancels} of [
     {lookahead:.39, delay:.04, bend:true},
