@@ -96,7 +96,7 @@ export function selectStyles(detected, priority = [], maxPairs = Infinity) {
 }
 export function edgeFadeFilter(seconds = 0.01) {
   if (!Number.isFinite(seconds) || seconds <= 0) throw new Error('Fade duration must be positive');
-  return `afade=t=in:d=${seconds},areverse,afade=t=in:d=${seconds},areverse`;
+  return `afade=t=in:d=${seconds},areverse,asetpts=N/SR/TB,afade=t=in:d=${seconds},areverse,asetpts=N/SR/TB`;
 }
 function ff(args) {
   const p = spawnSync('ffmpeg', ['-hide_banner', '-nostats', '-y', ...args], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
