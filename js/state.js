@@ -323,7 +323,6 @@ function generatePattern(style, seed, scaleName, starter) {
     Object.assign(params.acid, { wave: 0.72, cutoff: 1060, reso: 1.5, envmod: 0.24, decay: 0.11, accent: 0.4, drive: 0.22 });
     master.duck = 0.5; master.drive = 0.45;
   } else if (style === 'euphoric') {
-    params.ch.level = defaultParams().ch.level * 10 ** (-1 / 20);
     const twoStep = r() < 0.5;
     S.kick = twoStep ? pad16([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]) : S.kick;
     S.clap = pad16([0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]);

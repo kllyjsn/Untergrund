@@ -851,7 +851,8 @@ export class Engine {
     const ch = this.ch[tid];
     if (tid === 'stab' && id === 'voice') return this.applyOutputTrim(immediate);
     if (id === 'level') {
-      const gain = v * (tid === 'stab' && this.smoothOn > 0 ? 10 ** (this.smoothOn / 20) : 1), fade = this.hardFade;
+      const trim = tid === 'ch' && this.state.artist?.style === 'euphoric' ? 10 ** (-1 / 20) : 1;
+      const gain = v * trim * (tid === 'stab' && this.smoothOn > 0 ? 10 ** (this.smoothOn / 20) : 1), fade = this.hardFade;
       if (tid === 'stab' && this.dubPadBus) this.setTo(this.dubPadBus.gain, this.state.artist?.style === 'dub' ? gain : 0, immediate);
       if (this.jamAt == null || !this.hardTechno || this.hardFadeAt == null) return this.setTo(ch.level.gain, gain, immediate);
       // A Jam level edit rides Hard Techno's section fade at its boundary, wherever a clock re-anchor put that boundary.

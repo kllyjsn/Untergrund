@@ -30,9 +30,14 @@ for (const [seed, hash] of [
   [42, '771361b753feef593e0d04f7dff2eb671ce89775436b9e55276423f8087d8997'],
 ]) {
   const g = generate('euphoric', seed, 'major');
-  assert.equal(g.params.ch.level, defaultState().params.ch.level * 10 ** (-1 / 20));
-  delete g.params.ch.level;
   assert.equal(createHash('sha256').update(JSON.stringify(g)).digest('hex'), hash, 'Euphoric keeps its arrangement, chorus lift and other mix settings');
+}
+for (const style of ['hypnotic', 'drill', 'minimal']) {
+  const switched = defaultState(), fresh = defaultState();
+  applyOverrides(switched, generate('euphoric', 11, 'major'), true);
+  applyOverrides(switched, generate(style, 42, 'minor'), true);
+  applyOverrides(fresh, generate(style, 42, 'minor'), true);
+  assert.equal(switched.params.ch.level, fresh.params.ch.level, `${style} hats do not inherit Euphoric's trim`);
 }
 for (const [style, hash] of [
   ['hypnotic', 'c24a1973964e8d5cd7b3fac95059a4187b2b4220767f76e27c9164688682345e'],

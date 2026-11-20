@@ -53,6 +53,21 @@ globalThis.fetch = async (url) => {
 
 const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCrossfade, vocalFadePowerRatio } = await import('../js/engine.js');
 {
+  const s = defaultState();
+  applyOverrides(s, generate('euphoric', 11, 'major'), true);
+  s.artist = { style: 'euphoric' };
+  const e = new Engine(fakeCtx(), s, { realtime: false }), level = s.params.ch.level;
+  assert.equal(e.ch.ch.level.gain.value, level * 10 ** (-1 / 20));
+  assert.equal(s.params.ch.level, level, 'Euphoric headroom does not modify the saved mixer level');
+  for (const style of ['hypnotic', 'drill', 'minimal', undefined]) {
+    if (style) applyOverrides(s, generate(style, 42, 'minor'), true);
+    s.artist = { style };
+    e.applyAll();
+    assert.equal(e.ch.ch.level.gain.value, s.params.ch.level, `${style} restores untrimmed hats on the same engine`);
+  }
+  console.log('Euphoric hat trim is engine-scoped and clears on genre switches');
+}
+{
   const stacks = {};
   for (const style of ['trap', 'trance']) {
     const s = defaultState();
