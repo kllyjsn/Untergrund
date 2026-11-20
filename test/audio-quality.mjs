@@ -9,6 +9,27 @@ import { withChrome } from './chrome.mjs';
 // Include the approach to a breakdown and the return to the drop: a late
 // cancel-and-hold/ramp changes the filter *before* the breakdown's downbeat.
 const exportNull = await withChrome((run) => run(`(async () => {
+  const { withStableAudioSums } = await import('/test/stable-audio-sums.js');
+  const original = AudioNode.prototype.connect;
+  try { await withStableAudioSums(() => { throw Error('expected'); }); }
+  catch (e) { if (e.message !== 'expected') throw e; }
+  if (AudioNode.prototype.connect !== original) throw Error('Failed to restore connect after error');
+  for (const values of [[], [1e8, -1e8, 1]]) {
+    const samples = [];
+    for (let i = 0; i < 10; i++) samples.push(await withStableAudioSums(async () => {
+      const ctx = new OfflineAudioContext(1, 128, 48000);
+      for (const value of values) {
+        const source = ctx.createConstantSource(); source.offset.value = value;
+        source.connect(ctx.destination); source.connect(ctx.destination); source.start();
+      }
+      const removed = ctx.createConstantSource(); removed.offset.value = 123;
+      removed.connect(ctx.destination); removed.disconnect(ctx.destination); removed.start();
+      return (await ctx.startRendering()).getChannelData(0)[0];
+    }));
+    if (samples.some(v => v !== 0)) throw Error('Unstable binary sums or disconnect: ' + samples);
+  }
+  if (AudioNode.prototype.connect !== original) throw Error('Failed to restore connect after render');
+  return withStableAudioSums(async () => {
   const { song } = await import('/test/audio-quality-page.js');
   const { renderBars } = await import('/js/render.js');
   const s = song('hardtechno', 42);
@@ -37,11 +58,11 @@ const exportNull = await withChrome((run) => run(`(async () => {
     }
   }
   return { peak, rms, suspends };
+  });
 })()`));
 if (exportNull) {
   assert(exportNull.suspends > 0, 'Hard Techno export scheduled hits in batches');
-  // Chromium's identical-render noise floor is not bit-exact. Bound the
-  // residual per 100 ms as well as at the worst sample, not just song RMS.
+  // Bound the residual per 100 ms as well as at the worst sample, not just song RMS.
   assert(exportNull.peak < 0.001 && exportNull.rms < 0.0002, `Hard Techno export render null: ${JSON.stringify(exportNull)}`);
 }
 
