@@ -69,6 +69,7 @@ const EPS = 0.0001;
 const SAMPLE_FADE = 1;
 // The master compressors and oversamplers can still hold an attack whose source has started.
 const WAKE_FLUSH = 0.024;
+const WAKE_FADE = 0.002;
 // Chord voices that sustain fill a breakdown on their own, so a smooth style only lifts the ones that decay.
 const HELD_CHORDS = new Set(['pad', 'organ', 'strings', 'cello']);
 export const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar', 'cello', 'clarinet'];
@@ -1083,10 +1084,13 @@ export class Engine {
     if (wakeAt !== null && this.queuedNotes.some(note => note.t >= cutoff && note.t < now)) {
       const gain = this.wakeGain.gain;
       const openAt = Math.max(now + WAKE_FLUSH, wakeAt);
-      gain.cancelScheduledValues(now);
-      gain.setValueAtTime(0, now);
+      const level = gain.value;
+      if (gain.cancelAndHoldAtTime) gain.cancelAndHoldAtTime(now);
+      else gain.cancelScheduledValues(now);
+      gain.setValueAtTime(level, now);
+      gain.linearRampToValueAtTime(0, now + WAKE_FADE);
       gain.setValueAtTime(0, openAt);
-      gain.linearRampToValueAtTime(1, openAt + 0.002);
+      gain.linearRampToValueAtTime(1, openAt + WAKE_FADE);
     }
     // stop() before a source's scheduled start prevents it from sounding.
     for (const { src, t } of this.queuedNotes) if (t >= cutoff) src.stop(now);
