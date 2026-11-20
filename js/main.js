@@ -2435,10 +2435,10 @@ function voiceChips(q, id, voice, color) {
 }
 
 function samplePanel() {
-  const name = h('b', {}, getSample().name);
+  const name = h('b', {}, getSample(state).name);
   const info = h('small', {}, '');
   const show = (s) => { name.textContent = s.name; info.textContent = `${s.slices.length} slices · ${s.buffer.duration.toFixed(1)}s · stays on this device`; };
-  show(getSample());
+  show(getSample(state));
   const off = onSample((s) => (document.body.contains(name) ? show(s) : off()));
   let rec = null;
   const reset = () => { rec = null; recBtn.textContent = 'RECORD'; recBtn.classList.remove('live'); };
@@ -2460,7 +2460,7 @@ function samplePanel() {
   return h('div', { class: 'sampler' },
     h('div', { class: 'glabel' }, 'SOURCE'), name, info, recBtn, load,
     h('label', {}, rights, 'I recorded it or own the rights'),
-    h('button', { class: 'btn ghost', onclick: () => useSynthVox() }, 'SYNTH VOX'), file);
+    h('button', { class: 'btn ghost', onclick: () => { getSample(state); useSynthVox(); } }, 'SYNTH VOX'), file);
 }
 
 function buildRoll() {
@@ -2553,7 +2553,7 @@ function buildMaster() {
       hold('THROW', 'T', 'Throw everything into delay + reverb', () => engine.setThrow(true), () => engine.setThrow(false)),
       hold('RISER', 'Y', 'Noise riser that builds over 4 bars', () => engine.riserStart(), () => engine.riserStop())),
     midiStrip(),
-    h('div', { class: 'foot' }, `${getSample().source === 'synth' ? 'synths + recorded CC0 instruments' : 'synth + your own samples'} · 48k/24-bit export`));
+    h('div', { class: 'foot' }, `${getSample(state).source === 'synth' ? 'synths + recorded CC0 instruments' : 'synth + your own samples'} · 48k/24-bit export`));
 }
 
 function drawViz() {
