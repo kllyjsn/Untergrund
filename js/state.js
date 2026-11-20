@@ -1042,7 +1042,7 @@ export function arrangement(full, seed, half = false) {
 
 function funkPhrases(patterns, chain, keep = []) {
   for (const p of patterns) for (const take of p.at || []) {
-    for (const id of ['perc', 'vox']) if (!keep.includes(id) && take.steps) delete take.steps[id];
+    for (const id of ['perc', 'vox']) if (take.steps) delete take.steps[id];
   }
   for (let bar = 0; bar < chain.length; bar++) {
     const p = patterns['ABCDEFGH'.indexOf(chain[bar])], eff = clone(patternAt(p, bar));
