@@ -53,6 +53,98 @@ globalThis.fetch = async (url) => {
 
 const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCrossfade, vocalFadePowerRatio, vocalFadeBandPowerRatios } = await import('../js/engine.js');
 {
+  for (const [listener, recorded] of [['hypnotic', 'euphoric'], ['euphoric', 'hypnotic']]) {
+    const s = defaultState(); s.artist = { style: listener };
+    const e = new Engine(fakeCtx(), s, { realtime: false });
+    e.replay808Style = recorded;
+    e.applyAll();
+    assert.equal(e.ch.ch.level.gain.value, s.params.ch.level * (recorded === 'euphoric' ? 10 ** (-1 / 20) : 1));
+    const events = [];
+    e.secPreGain.gain.setTargetAtTime = () => events.push('pre');
+    e.secGain.gain.setTargetAtTime = () => events.push('post');
+    e.sectionGain(1, 0.45);
+    assert.deepEqual(events, [recorded === 'euphoric' ? 'pre' : 'post']);
+    assert.equal(s.artist.style, listener, 'replay does not modify the listener project');
+    e.replay808Style = undefined; e.applyAll();
+    assert.equal(e.ch.ch.level.gain.value, s.params.ch.level * (listener === 'euphoric' ? 10 ** (-1 / 20) : 1));
+  }
+  const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+  const start = main.slice(main.indexOf('function start('), main.indexOf('  engine.prepareVocal();'));
+  const setup = start.slice(start.lastIndexOf('  engine.replay808Style ='));
+  for (const switchAt of [null, 2]) {
+    const engine = { applyAll() { this.applied = this.replay808Style; } };
+    runInNewContext(setup, { engine, replay808Style: 'euphoric', switchAt });
+    assert.equal(engine.applied, switchAt === null ? 'euphoric' : undefined, 'replay start applies the recorded mix, while scheduled starts keep their handoff automation');
+  }
+  console.log('Club replay Euphoric mix follows recorded genre, not listener genre');
+}
+{
+  for (const [from, to] of [['euphoric', 'hypnotic'], ['hypnotic', 'euphoric']]) {
+    for (const scheduled of [false, true]) for (const replay of [false, true]) {
+      const s = defaultState(); s.artist = { style: replay ? 'minimal' : from };
+      const e = new Engine(fakeCtx(), s, { realtime: false });
+      if (replay) { e.replay808Style = from; e.applyAll(); }
+      const q = new Sequencer(e, s), events = [];
+      for (const [stage, gain] of [['pre', e.secPreGain.gain], ['post', e.secGain.gain]])
+        gain.setTargetAtTime = (value, t) => events.push({ stage, value, t });
+      q.level(1, 0.45);
+      if (replay) e.replay808Style = to; else s.artist.style = to;
+      if (scheduled) e.handoffIn(2.375); else e.applyAll();
+      events.length = 0;
+      q.level(2.375, 0.45);
+      assert.deepEqual(events, [{ stage: to === 'euphoric' ? 'pre' : 'post', value: 10 ** (0.45 / 20), t: 2.375 }],
+        `${from} to ${to}, scheduled=${scheduled}, replay=${replay}: same chorus boost reaches the incoming stage`);
+      q.level(3, 0.45);
+      assert.equal(events.length, 1, 'unchanged stage and level do not reschedule');
+    }
+  }
+  console.log('Identical chorus boosts survive both directions of immediate and scheduled Euphoric handoffs');
+}
+{
+  const s = defaultState();
+  applyOverrides(s, generate('euphoric', 11, 'major'), true);
+  s.artist = { style: 'euphoric' };
+  const e = new Engine(fakeCtx(), s, { realtime: false }), level = s.params.ch.level;
+  assert.equal(e.ch.ch.level.gain.value, level * 10 ** (-1 / 20));
+  assert.equal(s.params.ch.level, level, 'Euphoric headroom does not modify the saved mixer level');
+  for (const style of ['hypnotic', 'drill', 'minimal', undefined]) {
+    if (style) applyOverrides(s, generate(style, 42, 'minor'), true);
+    s.artist = { style };
+    e.applyAll();
+    assert.equal(e.ch.ch.level.gain.value, s.params.ch.level, `${style} restores untrimmed hats on the same engine`);
+  }
+  console.log('Euphoric hat trim is engine-scoped and clears on genre switches');
+}
+{
+  const s = defaultState();
+  s.artist = { style: 'euphoric' };
+  const e = new Engine(fakeCtx(), s, { realtime: false }), events = { pre: [], post: [] };
+  for (const [name, gain] of [['pre', e.secPreGain.gain], ['post', e.secGain.gain]]) {
+    for (const method of ['cancelScheduledValues', 'setValueAtTime', 'setTargetAtTime', 'linearRampToValueAtTime'])
+      gain[method] = (...args) => events[name].push([method, ...args]);
+  }
+  e.sectionGain(1, 0.45);
+  assert.deepEqual(events.pre, [['cancelScheduledValues', 1], ['setTargetAtTime', 10 ** (0.45 / 20), 1, 0.012]]);
+  assert.deepEqual(events.post, []);
+  events.pre.length = 0;
+  e.sectionGain(2, 0.45, [-1, 2, 0.5]);
+  assert.deepEqual(events.pre, [['cancelScheduledValues', 2], ['setValueAtTime', 10 ** (-1 / 20), 2],
+    ['setValueAtTime', 10 ** (-1 / 20), 2.5], ['linearRampToValueAtTime', 10 ** (0.45 / 20), 4.5]]);
+  for (const style of ['hypnotic', 'drill', 'minimal', 'hardtechno', undefined]) {
+    e.secPreGain.gain.value = 0.5;
+    s.artist = { style: 'euphoric' }; e.applyAll();
+    s.artist = { style }; e.applyAll();
+    assert.equal(e.secPreGain.gain.value, 1, `${style} clears Euphoric section gain`);
+    events.pre.length = events.post.length = 0;
+    e.sectionGain(5, 0);
+    assert.deepEqual(events.pre, []);
+    assert.deepEqual(events.post, [['cancelScheduledValues', 5], ['setTargetAtTime', 1, 5, 0.012]]);
+  }
+  s.artist = { style: 'euphoric' }; e.at = 8; e.applyAll();
+  assert.deepEqual(events.post.slice(-2), [['cancelScheduledValues', 8], ['setTargetAtTime', 1, 8, 0.004]], 'handoff clears post-clipper sections at its downbeat');
+  console.log('Euphoric sections lift before the clipper and clear on genre switches');
+}
+{
   const stacks = {};
   for (const style of ['trap', 'trance']) {
     const s = defaultState();
@@ -93,22 +185,38 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
     const setTo = e.setTo;
     e.setTo = function (p, v, ...rest) { if (p === this.out.gain) { output = v; outputImmediate = rest[0]; } return setTo.call(this, p, v, ...rest); };
     e.applyAll();
-    assert.equal(output, 0.78 * (trimmed ? 10 ** (-0.5 / 20) : 1), `${style}/${voice} master trim is festival-SAW-only`);
+    assert.equal(output, 0.78 * 10 ** ((trimmed ? -0.8 : style === 'trap' && voice === 2 ? -0.3 : 0) / 20), `${style}/${voice} master trim is festival-only`);
     const filters = [], filter = e.filter;
     e.filter = function (type, hz, ...rest) { filters.push([type, hz]); return filter.call(this, type, hz, ...rest); };
     e.pad(0.05, 0.8, [0], 60, s.params.stab, ctx.destination);
     assert.deepEqual(filters.filter(([type]) => type === 'highpass'), style === 'trap' ? [['highpass', 180]] : []);
     for (const nextVoice of [2, 0, 7, 0]) {
       e.setParam('stab', 'voice', nextVoice);
-      assert.equal(output, 0.78 * (style === 'trap' && nextVoice === 0 ? 10 ** (-0.5 / 20) : 1), `${style} voice edits refresh output trim`);
+      assert.equal(output, 0.78 * 10 ** ((style === 'trap' ? nextVoice === 0 ? -0.8 : nextVoice === 2 ? -0.3 : 0 : 0) / 20), `${style} voice edits refresh output trim`);
       assert.equal(outputImmediate, false, 'live edits retain parameter smoothing');
     }
     e.state.params.stab.voice = 2;
     e.applyParam('stab', 'voice', true);
-    assert.equal(output, 0.78, 'direct voice edits restore the untrimmed output');
+    assert.equal(output, 0.78 * 10 ** ((style === 'trap' ? -0.3 : 0) / 20), 'direct voice edits refresh PAD headroom');
     assert.equal(outputImmediate, true, 'immediate voice edits retain their timing');
   }
   console.log('Trap festival-only output trim and PAD highpass passed');
+}
+{
+  for (const [style, voice] of [['trap', 0], ['trap', 2], ['trap', 7], ['trance', 0], [undefined, 2]]) {
+    const s = defaultState(), ctx = fakeCtx();
+    if (style) s.artist = { style };
+    s.params.stab.voice = voice;
+    const e = new Engine(ctx, s, { realtime: false }), trims = [];
+    e.rec = () => null;
+    e.trimOut = (...args) => { trims.push(args); return ctx.destination; };
+    e.hook(.05, .8, 0, .5, 'ravestack');
+    const festival = style === 'trap' && voice === 2;
+    assert.equal(trims[0][0], `hook-ravestack:${13 + (festival ? 3 : 0)}`, 'hook trim cache key follows its gain');
+    assert.equal(trims[0][1], 13 + (festival ? 3 : 0));
+    assert.equal(trims[0][3], 2 + (festival ? 3 : 0), 'PAD-only hook lift preserves the existing shelf shape');
+  }
+  console.log('Trap festival PAD-only flat hook lift passed');
 }
 {
   const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');

@@ -183,6 +183,7 @@ const SOUL_STRIP = { ...BAND_STRIP, stab: { eq: [[140, -2], [250, -7, 0.9], [260
 // genres came out 6-13 dB heavy at 250 Hz and 7-12 dB short of 2-8 kHz, with an L/R correlation of 0.76-0.89.
 export const MASTER_TONE = {
   hardtechno: [0, -1, 3.75, -0.5, 0.12],
+  dub: [0, -2, 0, 0, 0],
   pop: [-1.5, -9, 4.5, 1.5, 0.6], rnb: [0, -7, 6.5, 2.5, 0.6], rock: [-4, -5, 4.5, 3, 0.6],
   folk: [3, -3, 0.5, 4, 0.5], country: [2, -3, 2.5, 4, 0.6],
 };
@@ -501,6 +502,7 @@ function metallicBuf(mul, sr) {
 }
 
 export class Engine {
+  get playbackStyle() { return this.replay808Style ?? this.state.artist?.style; }
   get hardTechno() { return this.state.artist?.style === 'hardtechno'; }
   constructor(ctx, state, { realtime = true, vocal = null, trackQueuedNotes = false } = {}) {
     this.ctx = ctx;
@@ -563,9 +565,10 @@ export class Engine {
     this.limIn = this.gain(0.5);
     this.limiter = this.comp(-6, 12, 3, 0.002, 0.12);
     this.limTrim = this.gain(LIM_TRIM / CLIP_HEADROOM);
+    this.secPreGain = this.gain(1);
     this.clip = c.createWaveShaper(); this.clip.curve = clipCurve(CLIP_HEADROOM); this.clip.oversample = '4x';
     this.out = this.gain(OUT_TRIM);
-    // Song sections (Sequencer.sectionLevel) after the clipper, so the limiter and clipper see the same signal.
+    // Euphoric sections lift into the clipper; other genres keep their post-clipper contrast.
     this.secGain = this.gain(1);
     // While the neural singer sings, the band dips under it (bandDuck) so the sung mix stays on the loudness target.
     this.bandDuck = this.gain(1);
@@ -575,7 +578,7 @@ export class Engine {
     this.mix.connect(this.bandDuck).connect(this.preMaster);
     this.preMaster.connect(this.djHP).connect(this.djLP).connect(this.arrLP).connect(this.toneLow).connect(this.toneMud).connect(this.tonePres).connect(this.toneAir).connect(this.widthIn);
     this.widthOut.connect(this.glue).connect(this.satIn).connect(this.sat)
-      .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.clip).connect(this.secGain).connect(this.singTrim).connect(this.out);
+      .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.secPreGain).connect(this.clip).connect(this.secGain).connect(this.singTrim).connect(this.out);
     this.out.connect(c.destination);
     // The neural singer's stem (vocal(), js/sing.js): past the band's duck, into the master chain.
     this.vocalBus = this.gain(0);
@@ -819,6 +822,13 @@ export class Engine {
   }
 
   applyAll() {
+    const beforeClip = this.playbackStyle === 'euphoric';
+    if (this.sectionBeforeClip !== beforeClip) {
+      const inactive = (beforeClip ? this.secGain : this.secPreGain).gain;
+      inactive.cancelScheduledValues(this.at || this.ctx.currentTime);
+      this.setTo(inactive, 1, true);
+      this.sectionBeforeClip = beforeClip;
+    }
     for (const id of TRACK_IDS) for (const k of Object.keys(this.state.params[id])) this.applyParam(id, k, true);
     for (const k of Object.keys(this.state.master)) this.applyMaster(k, true);
     // Per-genre (and per-masterwork) make-up gain into the limiter so every song lands on its loudness target (js/loudness.js).
@@ -836,8 +846,8 @@ export class Engine {
   }
 
   applyOutputTrim(immediate = false) {
-    const festivalSaw = this.state.artist?.style === 'trap' && Math.round(this.state.params.stab.voice) === 0;
-    this.setTo(this.out.gain, this.hardTechno ? 0.98 : OUT_TRIM * (festivalSaw ? 10 ** (-0.5 / 20) : 1), immediate);
+    const voice = Math.round(this.state.params.stab.voice), festival = this.state.artist?.style === 'trap' && (voice === 0 || voice === 2);
+    this.setTo(this.out.gain, this.hardTechno ? 0.98 : OUT_TRIM * dbGain(festival ? (voice === 0 ? -0.8 : -0.3) : 0), immediate);
   }
 
   // The genre's mastering EQ and stereo width; the width lifts only the side above 300 Hz, so the mono fold-down is unchanged.
@@ -904,7 +914,8 @@ export class Engine {
     const ch = this.ch[tid];
     if (tid === 'stab' && id === 'voice') return this.applyOutputTrim(immediate);
     if (id === 'level') {
-      const gain = v * (tid === 'stab' && this.smoothOn > 0 ? 10 ** (this.smoothOn / 20) : 1), fade = this.hardFade;
+      const trim = tid === 'ch' && this.playbackStyle === 'euphoric' ? 10 ** (-1 / 20) : 1;
+      const gain = v * trim * (tid === 'stab' && this.smoothOn > 0 ? 10 ** (this.smoothOn / 20) : 1), fade = this.hardFade;
       if (tid === 'stab' && this.dubPadBus) this.setTo(this.dubPadBus.gain, this.state.artist?.style === 'dub' ? gain : 0, immediate);
       if (this.jamAt == null || !this.hardTechno || this.hardFadeAt == null) return this.setTo(ch.level.gain, gain, immediate);
       // A Jam level edit rides Hard Techno's section fade at its boundary, wherever a clock re-anchor put that boundary.
@@ -1257,7 +1268,7 @@ export class Engine {
     src.connect(hp).connect(lp).connect(g).connect(out);
   }
   clave(t, v, p, out) {
-    const c = this.ctx, f = 1800 * Math.sqrt(p.tune / 240), dec = Math.max(0.02, p.decay * 0.25);
+    const c = this.ctx, f = 1800 * Math.sqrt(p.tune / 240) * (this.state.artist?.style === 'dub' ? 0.5 : 1), dec = Math.max(0.02, p.decay * 0.25);
     for (const [m, l] of [[1, 0.8], [1.48, 0.25]]) {
       const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = f * m;
       const g = this.gain(0); this.adEnv(g.gain, t, v * l, 0.0005, dec);
@@ -2035,19 +2046,44 @@ export class Engine {
     return this.dubPadBus;
   }
 
+  dubPadLevel(iv, root, t) {
+    const p = this.state.params.stab, color = [0, 2, 3, 5].indexOf(Math.round(p.voice));
+    const response = (f, hz, q, high = false) => {
+      const r2 = (f / hz) ** 2;
+      return (high ? r2 * r2 : 1) / ((1 - r2) ** 2 + r2 / (q * q));
+    };
+    const cutoff = Math.min(1500, 510 + p.cutoff * 0.35 + 140 * Math.sin(t * 0.29)) * 0.65 + (380 + color * 45) * 0.35;
+    let chord = 0, pad = 0;
+    for (const n of iv) {
+      const f = midiHz(root + n);
+      for (let h = 1; h <= 11; h++) {
+        const hz = f * h;
+        if (h < 5) {
+          const partial = (h === 1 ? 1 : h === 2 ? [0.32, 0.2, 0.4, 0.25][color] ?? 0.3 : h === 3 ? 0.1 : 0.04) * Math.max(0, Math.min(1, (1700 - hz) / 500));
+          chord += partial ** 2 * response(hz, 210, 0.5, true) * response(hz, cutoff, 0.55) * response(hz, 1800, 0.5);
+        }
+        if (h % 2) pad += (8 / (Math.PI * Math.PI * h * h)) ** 2 * response(hz, 420, 0.5, true) * response(hz, 850, 0.5);
+      }
+    }
+    const density = this.stabPat ? this.stabPat.filter(Boolean).length / ((this.stabLen || 16) * this.stepDur) : 1;
+    const register = iv.reduce((sum, n) => sum + midiHz(root + n), 0) / iv.length;
+    return Math.max(0.035, Math.min(0.3, 0.062 * Math.sqrt(chord / Math.max(pad, 1e-8)) * Math.sqrt(Math.max(0.5, Math.min(4, density))) * Math.sqrt(330 / Math.max(110, register))));
+  }
+
   dubPad(t, v, iv, root) {
+    if (!iv.length) return;
     if (this.dubPadAt != null && t - this.dubPadAt < this.stepDur * 48) return;
     this.dubPadAt = t;
     const hold = this.stepDur * 24, end = t + hold + 5, amp = this.gain(0);
-    const hp = this.filter('highpass', 240, 0.5), lp = this.filter('lowpass', 850, 0.5);
+    const hp = this.filter('highpass', 420, 0.5), lp = this.filter('lowpass', 850, 0.5);
     lp.frequency.setValueAtTime(650, t); lp.frequency.linearRampToValueAtTime(1100, t + hold); lp.frequency.linearRampToValueAtTime(600, end);
-    amp.gain.setValueAtTime(0, t); amp.gain.linearRampToValueAtTime(0.035 * v / Math.sqrt(iv.length), t + 1.4);
+    amp.gain.setValueAtTime(0, t); amp.gain.linearRampToValueAtTime(this.dubPadLevel(iv, root, t) * v / Math.sqrt(iv.length), t + 1.4);
     amp.gain.setTargetAtTime(0, t + hold, 1); amp.gain.setValueAtTime(0, end);
     hp.connect(lp).connect(amp).connect(this.dubPadOut());
     const pans = this.sidePans([-0.85, 0.85], hp);
     iv.forEach(n => {
       for (const side of [-1, 1]) {
-        const o = this.ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = midiHz(root + n - 12);
+        const o = this.ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = midiHz(root + n);
         o.detune.setValueAtTime(side * 5, t); o.detune.linearRampToValueAtTime(-side * 3, end);
         o.connect(pans[side < 0 ? 0 : 1]); this.startSource(o, t); o.stop(end);
       }
@@ -2863,7 +2899,8 @@ export class Engine {
     const f = midiHz(60 + k + oct * 12 + n), preset = leadPreset(voice, pocketOf(this.state.master)?.name);
     const L = this.hardTechno ? { ...preset, cut: 380, env: 500, spread: 10, atk: 0.18, sus: 0.45, rel: 0.6, level: 0.12, bite: 0, air: 0.2 } : preset;
     const hdb = this.soulBand() ? 0 : HOOK_TRIM_DB[voice] || 0;
-    const out = this.trimOut(`hook-${voice}`, hdb, synth ? this.technoHookOut(voice) : this.hookBus || this.ch.stab.input, voice === 'softmallet' ? 4 : HOOK_LOW_DB);
+    const festival = this.state.artist?.style === 'trap' && [0, 2].includes(Math.round(p.voice)), lift = festival && Math.round(p.voice) === 2 ? 3 : 0;
+    const out = this.trimOut(`hook-${voice}:${hdb + lift}`, hdb + lift, synth ? this.technoHookOut(voice) : this.hookBus || this.ch.stab.input, (voice === 'softmallet' ? 4 : HOOK_LOW_DB) + lift);
     if (this.hardTechno) this.hardPalette(t, v / 1.3 * L.level, [f * 2], Math.max(0.2, dur), out, 'air');
     if (this.hardTechno) return this.hardLead(t, v * L.level, f, dur, out);
     const len = Math.max(0.06, dur * 0.92), end = t + len + 0.6, vn = Math.min(1, v / 1.3);
@@ -3518,7 +3555,7 @@ export class Engine {
   }
 
   sectionGain(t, db, ramp = 0) {
-    const g = this.secGain.gain, v = 10 ** (db / 20);
+    const g = (this.playbackStyle === 'euphoric' ? this.secPreGain : this.secGain).gain, v = 10 ** (db / 20);
     g.cancelScheduledValues(t);
     if (ramp) {
       const [from, dur, hold = 0] = ramp, start = 10 ** (from / 20);
@@ -4131,8 +4168,10 @@ export class Sequencer {
   }
 
   level(t, db, ramp) {
-    if (db === this.secDb && !ramp) return;
+    const beforeClip = this.e.playbackStyle === 'euphoric';
+    if (db === this.secDb && !ramp && beforeClip === this.secBeforeClip) return;
     this.secDb = db;
+    this.secBeforeClip = beforeClip;
     this.e.sectionGain(t, db, ramp);
   }
 

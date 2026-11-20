@@ -22,8 +22,11 @@ export const KNOWN_FILE = join(ROOT, 'test/true-peak-known.json');
 // js/state.js generatePattern(): the ensemble is the first draw of its own seeded RNG.
 export const ensembleOf = (style, seed) => Math.floor(rng(Math.imul((seed | 0) ^ 0x6d2b79f5, 0x85ebca6b))() * INSTRUMENTS[style].length);
 
+// Seeds once over the ceiling and since fixed, kept in the sweep so they cannot regress unseen.
+export const PINNED_SEEDS = { euphoric: [2] };
+
 export function sweepSeeds(style, base = SWEEP_SEEDS) {
-  const n = INSTRUMENTS[style]?.length || 0, seeds = [...base], have = new Set(seeds.map((s) => n && ensembleOf(style, s)));
+  const n = INSTRUMENTS[style]?.length || 0, seeds = [...base, ...(PINNED_SEEDS[style] || []).filter((s) => !base.includes(s))], have = new Set(seeds.map((s) => n && ensembleOf(style, s)));
   for (let s = 1; have.size < n && s < 10000; s++) if (!have.has(ensembleOf(style, s))) { have.add(ensembleOf(style, s)); seeds.push(s); }
   return seeds;
 }

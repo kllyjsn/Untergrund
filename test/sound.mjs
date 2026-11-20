@@ -60,6 +60,7 @@ const rmsDb = (d, a, b) => { let e = 0; for (let i = a; i < b; i++) e += d[i] * 
       e[name] = function (...a) { hits[name] = (hits[name] || 0) + 1; return f.apply(this, a); };
     }
     voices.add(s.params.stab.voice);
+    assert.equal(s.params.perc.level, 0.45, 'Dub restores the normal clave mixer level');
     assert([1, 2].includes(s.params.stab.chord), 'dub uses minor sevenths or ninths');
     e.stab(0.05, 0.7);
     e.hook(0.15, 0.4, 0, 0.2, 'reed');
@@ -67,6 +68,10 @@ const rmsDb = (d, a, b) => { let e = 0; for (let i = a; i < b; i++) e += d[i] * 
     assert.deepEqual(hits, { dubPad: 1, dubChord: 2, dubSub: 1 }, 'all ensembles and hooks use dedicated Dub voices, never a shared bass or 808');
     assert.equal(e.dubEcho.delay.delayTime.at(0.2), e.stepDur * 3, 'dotted eighth echo follows tempo');
     assert.equal(e.dubEcho.lp.frequency.value, 1450, 'every feedback pass loses highs');
+    for (const root of [36, 48, 60, 72]) {
+      const level = e.dubPadLevel([0, 3, 7, 10], root, 0);
+      assert(Number.isFinite(level) && level >= 0.035 && level <= 0.3, 'pad register compensation is bounded');
+    }
     assert.equal(e.ch.stab.dly.gain.value, 0, 'Dub bypasses the bright shared delay');
     s.master.dlyLevel = 0.2; e.applyMaster('dlyLevel', true);
     assert.equal(e.dubEcho.wet.gain.value, 0.2, 'the master delay control also sets the Dub return');
@@ -82,6 +87,8 @@ const rmsDb = (d, a, b) => { let e = 0; for (let i = a; i < b; i++) e += d[i] * 
   const empty = freshSong('dub', 42), ctx = new OfflineAudioContext(1, 256, SR);
   empty.artist = { style: 'dub', seed: 42 };
   const e = new Engine(ctx, empty, { realtime: false });
+  e.dubPad(0, 1, [], 48);
+  assert.equal(e.dubPadAt, undefined, 'an empty voicing schedules no pad');
   assert((await ctx.startRendering(e.mix)).getChannelData(0).every((v) => v === 0), 'an unscheduled pad bed is silent');
   for (const style of ['trap', 'minimal', 'hardtechno', 'deephouse', 'drill', 'bailefunk']) {
     const s = freshSong(style, 42); s.artist = { style, seed: 42 };
