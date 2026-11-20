@@ -561,6 +561,31 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   console.log('Room large vocal correction PASS: one quiet-gap reanchor within a bar, or one immediate no-gap correction; repeated aligned updates stay continuous.');
 
   {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 12, sampleRate:48000}), sources = [];
+    buf.getChannelData(0).fill(0.1);
+    buf.getChannelData(0).fill(0, 48000 * 3, 48000 * 3.5);
+    c.createBufferSource = () => {
+      const source = {connect:dst => dst, start(){}, stops:[], stop(t){this.stops.push(t);}};
+      sources.push(source); return source;
+    };
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.vocal(1, 0, 0, 1);
+    c.currentTime = 3.08;
+    e.vocal(3.08, 1, 0, 3.08, true, false, 2);
+    assert.equal(sources.length, 2);
+    assert.ok(sources[0].stops.at(-1) > 4, 'the old source is still audible before the chosen gap');
+    c.currentTime = 3.2;
+    e.panic();
+    assert.ok(sources.every(source => Math.abs(source.stops.at(-1) - 3.26) < 1e-9), 'Stop cancels both the audible retiring source and its future replacement');
+    assert.equal(e.vocalNow, null);
+    c.currentTime = 3.4;
+    e.panic();
+    assert.equal(e.vocalRetiring.length, 0, 'expired sources are pruned and repeated Stop stays silent');
+  }
+  console.log('Pending vocal Stop PASS: audible old source and future quiet-gap replacement both stop immediately; expired voices are pruned.');
+
+  {
     const curveStart = 2.153393336377362, wake = 15.461587301587302;
     const curveParam = () => ({
       value: 1, curve: { start: curveStart, duration: 76.06 }, targets: [],

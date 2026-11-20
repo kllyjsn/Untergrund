@@ -3433,8 +3433,10 @@ export class Engine {
   }
 
   vocalStop(t = this.ctx.currentTime) {
-    const cur = this.vocalNow;
-    if (!cur) return;
+    const cur = this.vocalNow, retiring = (this.vocalRetiring || []).filter(v => v.until > this.ctx.currentTime);
+    const voices = [...retiring.filter(v => v.stopAt > t), ...(cur ? [cur] : [])];
+    this.vocalRetiring = retiring.filter(v => v.stopAt <= t);
+    if (!voices.length) return;
     this.vocalNow = null;
     const carves = [this.ch.stab?.carve?.gain, this.hookCarve?.gain].filter(Boolean);
     for (const p of [this.bandDuck.gain, this.singTrim.gain, ...carves]) {
@@ -3442,9 +3444,12 @@ export class Engine {
       // A held curve's rounded endpoint can extend just past t.
       p.setTargetAtTime(carves.includes(p) ? 0 : 1, t + 1 / this.ctx.sampleRate, 0.08);
     }
-    cur.g.gain.cancelScheduledValues(t);
-    cur.g.gain.setTargetAtTime(0, t, 0.008);
-    try { cur.src.stop(t + 0.06); } catch { /* not started */ }
+    for (const voice of voices) {
+      voice.g.gain.cancelScheduledValues(t);
+      voice.g.gain.setTargetAtTime(0, t, 0.008);
+      try { voice.src.stop(t + 0.06); } catch { /* not started */ }
+      this.vocalRetiring.push({...voice, stopAt:t, until:t + 0.06});
+    }
   }
 
   panic() {
