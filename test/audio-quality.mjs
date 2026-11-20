@@ -228,7 +228,7 @@ const drill = await withChrome(async (run) => {
   const wake = await run(`(async () => {
     const { defaultState } = await import('/js/state.js');
     const { Engine } = await import('/js/engine.js');
-    async function render(style, rate, stale, recoveryDelay) {
+    async function render(style, rate, stale, recoveryDelay, deviceLead) {
       const ctx = new OfflineAudioContext(1, rate, rate), state = defaultState();
       state.artist = { style };
       Object.assign(state.master, { revLevel: 0, dlyLevel: 0, room: 0 });
@@ -236,14 +236,14 @@ const drill = await withChrome(async (run) => {
       const e = new Engine(ctx, state, { realtime: false, trackQueuedNotes: true });
       const at = 128 * 70 / rate;
       if (stale) {
-        e.kick(at - 0.0125, 0.9);
+        e.kick(at - (deviceLead ? 0.032 : 0.0125), 0.9);
         e.kick(at + 0.22, 0.9);
       }
       const suspended = ctx.suspend(at);
       const rendered = ctx.startRendering();
       await suspended;
       const now = ctx.currentTime;
-      e.discardQueuedNotes(now, now + recoveryDelay);
+      e.discardQueuedNotes(now, now + recoveryDelay, now - deviceLead);
       e.kick(now + recoveryDelay, 0.9);
       await ctx.resume();
       const pcm = (await rendered).getChannelData(0);
@@ -257,9 +257,9 @@ const drill = await withChrome(async (run) => {
         corrected: rms(recoveryDelay + 0.02, recoveryDelay + 0.06), queued: rms(0.32, 0.37)};
     }
     const results = [];
-    for (const [style, rate] of [['minimal', 44100], ['hardtechno', 48000]]) for (const delay of [0.005, 0.185]) {
-      const recovered = await render(style, rate, true, delay), clean = await render(style, rate, false, delay);
-      results.push({label: style + ' +' + delay + 's', recovered, clean});
+    for (const [style, rate] of [['minimal', 44100], ['hardtechno', 48000]]) for (const [delay, deviceLead] of [[0.005, 0], [0.185, 0], [0.185, 0.055]]) {
+      const recovered = await render(style, rate, true, delay, deviceLead), clean = await render(style, rate, false, delay, deviceLead);
+      results.push({label: style + ' +' + delay + 's with device lead ' + deviceLead + 's', recovered, clean});
     }
     return results;
   })()`);

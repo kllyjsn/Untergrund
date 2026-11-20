@@ -187,6 +187,7 @@ function schedule(lead) {
   const firstEstimate = roomPlayback && roomAudioClock === null && !engine.vocalNow &&
     !engine.queuedNotes?.some(note => note.t >= now);
   if (roomEditor) engine.pruneEditableHits(now);
+  const frozenOutputTime = roomAudioClock?.frozenOutputTime;
   const clock = syncAudioClock(clockOffset, Date.now() / 1000 - now,
     roomPlayback ? {at:performance.now() / 1000, contextTime:now, state:roomAudioClock} : null);
   clockOffset = clock.offset;
@@ -218,7 +219,7 @@ function schedule(lead) {
   let firstTime = playableFirst ? nextTime : fix?.firstTime;
   if (fix) {
     if (fix.discard) {
-      engine.discardQueuedNotes(now, roomPlayback ? firstTime ?? fix.nextTime : null);
+      engine.discardQueuedNotes(now, roomPlayback ? firstTime ?? fix.nextTime : null, frozenOutputTime);
       engine.roomSlewRate = 1;
       engine.roomSlewProfile = null;
       uiQueue.length = 0;
@@ -2834,6 +2835,9 @@ document.addEventListener('visibilitychange', () => {
   if (!guest) save(state);
   // Going to the lock screen or another app: queue extra audio before timers slow down.
   if (playing && document.hidden) schedule(BG_LEAD);
+});
+document.addEventListener('freeze', () => {
+  if (playing && roomPlayback && roomAudioClock) roomAudioClock.frozenOutputTime = engine.audibleTime(ctx.currentTime);
 });
 document.addEventListener('resume', () => { if (ctx?.state === 'running') schedule(); });
 

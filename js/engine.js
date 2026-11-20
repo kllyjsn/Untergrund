@@ -1006,13 +1006,19 @@ export class Engine {
   }
 
   // ---------- helpers ----------
+  audibleTime(now) {
+    const t = this.ctx.getOutputTimestamp?.()?.contextTime;
+    return t > 0 && t <= now ? t : now - ((this.ctx.baseLatency || 0) + (this.ctx.outputLatency || 0));
+  }
+
   startSource(src, t, ...args) {
     src.start(t, ...args);
     if (!this.queuedNotes) return;
     const now = this.ctx.currentTime;
     if (t <= now) return;
     if (now - this.queuedNotesPrunedAt > 0.25) {
-      this.queuedNotes = this.queuedNotes.filter(note => note.t >= now - WAKE_FLUSH);
+      const cutoff = this.audibleTime(now) - WAKE_FLUSH;
+      this.queuedNotes = this.queuedNotes.filter(note => note.t >= cutoff);
       this.queuedNotesPrunedAt = now;
     }
     const note = { src, t };
@@ -1071,9 +1077,9 @@ export class Engine {
     }
   }
 
-  discardQueuedNotes(now, wakeAt = null) {
+  discardQueuedNotes(now, wakeAt = null, frozenOutputTime = null) {
     this.vocalStop(now);
-    const cutoff = wakeAt === null ? now : now - WAKE_FLUSH;
+    const cutoff = wakeAt === null ? now : (frozenOutputTime ?? this.audibleTime(now)) - WAKE_FLUSH;
     if (wakeAt !== null && this.queuedNotes.some(note => note.t >= cutoff && note.t < now)) {
       const gain = this.wakeGain.gain;
       const openAt = Math.max(now + WAKE_FLUSH, wakeAt);
