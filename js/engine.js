@@ -2921,6 +2921,7 @@ export class Engine {
             node.gain.setTargetAtTime(0, st.until - 0.018, 0.003);
             node.gain.setValueAtTime(0, st.until);
           }
+          gate.gain.setValueAtTime(1, st.targetAt);
         }
         return result;
       } finally { this.ch.acid.input = input; }

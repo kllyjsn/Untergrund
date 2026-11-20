@@ -42,6 +42,14 @@ import { STAB_BAND } from '../js/livekit.js';
   fake.acidVoice = () => { throw new Error('voice failed'); };
   assert.throws(() => Engine.prototype.acid.call(fake, 1, { until: 1.1 }, false, false, 0.17), /voice failed/);
   assert.equal(fake.ch.acid.input, input);
+  const amp = { gain: { cancelScheduledValues() {}, setTargetAtTime() {}, setValueAtTime() {} } };
+  fake.acidNodes = { vca: amp }; fake.gatedBasses = new Map([[7, { amp }]]);
+  fake.acidVoice = () => 7;
+  for (const voice of [0, 7]) {
+    s.params.acid.voice = voice;
+    Engine.prototype.acid.call(fake, 1, { until: 1.1, targetAt: 1.108 }, false, false, 0.17);
+    assert.deepEqual(automation.at(-1), ['set', 1, 1.108]);
+  }
   console.log('phrase pickups and eighth-note lick cells passed');
 }
 
