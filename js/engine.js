@@ -511,8 +511,9 @@ export class Engine {
   setTo(param, v, immediate) {
     // this.at: a song handoff schedules the whole mix change onto its downbeat
     if (this.jamAt != null) {
-      // Keep automation ending on the boundary (a section fade) so the outgoing bar plays out.
-      param.cancelScheduledValues(this.jamAt + 1 / this.ctx.sampleRate);
+      // Hold whatever automation is running (a section fade) up to the boundary so the outgoing bar plays out.
+      if (param.cancelAndHoldAtTime) param.cancelAndHoldAtTime(this.jamAt);
+      else param.cancelScheduledValues(this.jamAt + 1 / this.ctx.sampleRate);
       param.setValueAtTime(v, this.jamAt);
       this.jamParams.add(param);
     } else if (this.at) param.setTargetAtTime(v, this.at, 0.004);

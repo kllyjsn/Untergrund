@@ -167,7 +167,7 @@ async function renderBoundaryAutomation() {
   return {paths, gain: [.5, 1.05, 1.95, 2.09, 2.5].map(t => y[Math.round(t * rate)])};
 }
 
-async function renderHardPan(edit, style = 'hardtechno', shift = 0) {
+async function renderHardPan(edit, style = 'hardtechno', shift = 0, fade = 'flat') {
   const { Engine } = await import('/js/engine.js');
   const { defaultState } = await import('/js/state.js');
   const state = defaultState(), rate = 48000, ctx = new OfflineAudioContext(3, 3 * rate, rate);
@@ -177,7 +177,9 @@ async function renderHardPan(edit, style = 'hardtechno', shift = 0) {
   const merge = ctx.createChannelMerger(3), dc = ctx.createConstantSource();
   merge.connect(ctx.destination); dc.start();
   ['level', 'rev', 'dly'].forEach((id, i) => dc.connect(engine.ch.kick[id]).connect(merge, 0, i));
-  engine.hardSection(.1, 4, 0, 4, 4);
+  // Kick section multiplier through the outgoing bar: flat 0.7, rising 0.7 to 1, falling 1 to 0.7.
+  const [first, second] = {flat: [[4, 0, 4, 4], [4, 1, 4, 4]], rising: [[4, 3, 4, 6], [6, 0, 4, 6]], falling: [[6, 3, 4, 4], [4, 0, 4, 4]]}[fade];
+  engine.hardSection(.1, ...first);
   const done = ctx.suspend(1.7).then(async () => {
     state.artist = {...state.artist, style};
     if (edit) {
@@ -185,11 +187,11 @@ async function renderHardPan(edit, style = 'hardtechno', shift = 0) {
       for (const [id, values] of Object.entries(params)) Object.assign(state.params[id], values);
       engine.scheduleJamParams(params, at);
     }
-    engine.hardSection(at, 4, 1, 4, 4);
+    engine.hardSection(at, ...second);
     await ctx.resume();
   });
   const [buffer] = await Promise.all([ctx.startRendering(), done]);
-  return [0, 1, 2].map(c => [1.9, at - .01, at + .01, at + .3, 2.9].map(t => buffer.getChannelData(c)[Math.round(t * rate)]));
+  return [0, 1, 2].map(c => [1.5, 1.7, 1.9, at - .01, at + .01, at + .3, 2.9].map(t => buffer.getChannelData(c)[Math.round(t * rate)]));
 }
 
 async function renderHandoffFade() {
@@ -230,9 +232,10 @@ const result = await withChrome(async run => {
   // A clock re-anchor moves the boundary past the queued section fade.
   // Clock re-anchors move the boundary before and after the queued section fade end.
   out.hardPanShift = [];
-  for (const shift of [-.1, -.06, -.02, 0, .02, .06, .1]) {
-    const edits = {pan: '{kick: {pan: .3}}', level: '{kick: {level: .81}}', rev: '{kick: {rev: .3}}', dly: '{kick: {dly: .3}}'}, r = {shift, control: await hardPan(`false,"hardtechno",${shift}`)};
-    for (const [k, e] of Object.entries(edits)) r[k] = await hardPan(`${e},"hardtechno",${shift}`);
+  const edits = {pan: '{kick: {pan: .3}}', mute: '{kick: {level: 0}}', down: '{kick: {level: .81}}', up: '{kick: {level: 1}}', rev: '{kick: {rev: .3}}', dly: '{kick: {dly: .3}}'};
+  for (const fade of ['flat', 'rising', 'falling']) for (const shift of [-.1, -.06, -.02, 0, .02, .06, .1]) {
+    const r = {fade, shift, control: await hardPan(`false,"hardtechno",${shift},"${fade}"`)};
+    for (const [k, e] of Object.entries(edits)) r[k] = await hardPan(`${e},"hardtechno",${shift},"${fade}"`);
     out.hardPanShift.push(r);
   }
   out.drive = {};
@@ -291,15 +294,20 @@ if (result) {
   const close = (x, y) => Math.abs(x - y) < 1e-4 || db(x, y) < .05;
   const same = (x, y) => x.every((c, ch) => c.every((v, i) => close(v, y[ch][i])));
   assert(same(result.hardPan.edited, result.hardPan.control), 'a pan-only edit keeps the Hard Techno section level');
-  assert(Math.abs(result.hardPanSwitch[0][2] - .9) < .01, 'a set that leaves Hard Techno drops its section levels');
-  for (const {shift, control, pan, level, rev, dly} of result.hardPanShift) {
-    assert(same(pan, control), `pan-only edit keeps every mix level (re-anchor ${shift})`);
-    assert([0, 1].every(i => db(level[0][i], control[0][i]) < .05) && [2, 3, 4].every(i => Math.abs(db(level[0][i], control[0][i]) - db(.81, .9)) < .05)
-      && same(level.slice(1), control.slice(1)), `kick level cut lands on the boundary inside the section fade (re-anchor ${shift})`);
-    for (const [ch, send] of [[1, rev], [2, dly]])
-      assert([0, 1].every(i => close(send[ch][i], control[ch][i])) && send[ch][2] > .3 && [3, 4].every(i => Math.abs(send[ch][i] - send[ch][2]) < 1e-4)
-        && same([send[0]], [control[0]]), `send edit lands on the boundary without touching level (re-anchor ${shift})`);
+  assert(Math.abs(result.hardPanSwitch[0][4] - .9) < .01, 'a set that leaves Hard Techno drops its section levels');
+  const pre = [0, 1, 2, 3], post = [4, 5, 6];
+  for (const {fade, shift, control, ...edit} of result.hardPanShift) {
+    const where = `(${fade} section, re-anchor ${shift})`;
+    const before = x => x.every((c, ch) => pre.every(i => close(c[i], control[ch][i])));
+    assert(same(edit.pan, control), `pan-only edit keeps every mix level ${where}`);
+    for (const [k, v] of [['mute', 0], ['down', .81], ['up', 1]])
+      assert(before(edit[k]) && post.every(i => v ? close(edit[k][0][i], control[0][i] * v / .9) : edit[k][0][i] < 1e-4)
+        && same(edit[k].slice(1), control.slice(1)), `kick ${k} plays the outgoing bar out and lands on the boundary ${where}`);
+    for (const [ch, k] of [[1, 'rev'], [2, 'dly']])
+      assert(before(edit[k]) && post.every(i => edit[k][ch][i] > .3) && same([edit[k][0]], [control[0]]),
+        `${k} send plays the outgoing bar out and lands on the boundary ${where}`);
   }
+
   assert(Math.abs(result.handoffFade[0] - (.9 - .6 * .25 / .45)) < .01 && Math.abs(result.handoffFade[1] - .8) < .01, 'a handoff on a fade end takes the incoming level');
   console.log('Room jam FX PASS: acid waveshaper and post-gain switch at both audio-clock boundaries; cancel restores one current path.');
   assert(Math.abs(result.drive.live[3] - result.drive[.2][3]) < .01, 'the pre-knob acid retains its original timbre');
