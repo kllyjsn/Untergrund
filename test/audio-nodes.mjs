@@ -96,7 +96,7 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
     const filters = [], filter = e.filter;
     e.filter = function (type, hz, ...rest) { filters.push([type, hz]); return filter.call(this, type, hz, ...rest); };
     e.pad(0.05, 0.8, [0], 60, s.params.stab, ctx.destination);
-    assert.deepEqual(filters.filter(([type]) => type === 'highpass'), style === 'trap' ? [['highpass', voice === 2 ? 300 : 180]] : []);
+    assert.deepEqual(filters.filter(([type]) => type === 'highpass'), style === 'trap' ? [['highpass', 180]] : []);
   }
   console.log('Trap festival-only output trim and PAD highpass passed');
 }

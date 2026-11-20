@@ -1797,7 +1797,7 @@ export class Engine {
       const air = this.noiseSrc(t, end - t); air.loop = true;
       air.connect(hp).connect(airTop).connect(this.gain(0.05)).connect(amp);
     } else lp.connect(amp);
-    if (this.state.artist?.style === 'trap') amp.connect(this.filter('highpass', festival ? 300 : 180, 0.5)).connect(out);
+    if (this.state.artist?.style === 'trap') amp.connect(this.filter('highpass', 180, 0.5)).connect(out);
     else amp.connect(out);
   }
 
