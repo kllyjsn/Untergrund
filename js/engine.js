@@ -2716,7 +2716,7 @@ export class Engine {
     const f = midiHz(60 + k + oct * 12 + n), preset = leadPreset(voice, pocketOf(this.state.master)?.name);
     const L = this.hardTechno ? { ...preset, cut: 380, env: 500, spread: 10, atk: 0.18, sus: 0.45, rel: 0.6, level: 0.12, bite: 0, air: 0.2 } : preset;
     const hdb = this.soulBand() ? 0 : HOOK_TRIM_DB[voice] || 0;
-    const festival = this.state.artist?.style === 'trap' && [0, 2].includes(Math.round(p.voice)), lift = festival ? 3 : 0;
+    const festival = this.state.artist?.style === 'trap' && [0, 2].includes(Math.round(p.voice)), lift = festival && Math.round(p.voice) === 2 ? 3 : 0;
     const out = this.trimOut(`hook-${voice}:${hdb + lift}`, hdb + lift, synth ? this.technoHookOut(voice) : this.hookBus || this.ch.stab.input, (voice === 'softmallet' ? 4 : HOOK_LOW_DB) + lift);
     if (this.hardTechno) this.hardPalette(t, v / 1.3 * L.level, [f * 2], Math.max(0.2, dur), out, 'air');
     if (this.hardTechno) return this.hardLead(t, v * L.level, f, dur, out);

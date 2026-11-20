@@ -119,12 +119,12 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
     e.rec = () => null;
     e.trimOut = (...args) => { trims.push(args); return ctx.destination; };
     e.hook(.05, .8, 0, .5, 'ravestack');
-    const festival = style === 'trap' && (voice === 0 || voice === 2);
+    const festival = style === 'trap' && voice === 2;
     assert.equal(trims[0][0], `hook-ravestack:${13 + (festival ? 3 : 0)}`, 'hook trim cache key follows its gain');
     assert.equal(trims[0][1], 13 + (festival ? 3 : 0));
-    assert.equal(trims[0][3], 2 + (festival ? 3 : 0), 'hook lift preserves the existing shelf shape');
+    assert.equal(trims[0][3], 2 + (festival ? 3 : 0), 'PAD-only hook lift preserves the existing shelf shape');
   }
-  console.log('Trap festival-only flat hook lift passed');
+  console.log('Trap festival PAD-only flat hook lift passed');
 }
 {
   const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
