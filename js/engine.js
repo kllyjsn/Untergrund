@@ -3883,7 +3883,7 @@ export class Sequencer {
   bassPickup(pat, next, bar, t, tt, sd, pk) {
     const s = this.s, e = this.e, vary = s.master.vary || 0;
     const period = 4 * Math.max(1, Math.ceil(0.25 / vary));
-    if (!vary || bar % period !== period - 1 || (next.len.acid || 16) !== 16) return null;
+    if (!vary || Math.round(s.params.acid.voice) === 4 || bar % period !== period - 1 || (next.len.acid || 16) !== 16) return null;
     const h = next.prog?.[(bar + 1) % next.prog.length], targetStep = next.steps.acid[0];
     if (!h || h.r === e.harm?.r || !targetStep?.on || targetStep.ap) return null;
     const high = Math.round(s.params.acid.voice) === 2 ? 38 : 43;

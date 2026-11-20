@@ -70,6 +70,21 @@ for (const existing of [false, true]) {
 }
 console.log('log-drum pickup sub routing passed');
 
+{
+  const s = freshSong('deephouse', 42);
+  s.artist = { style: 'deephouse', seed: 42 }; s.params.acid.voice = 4;
+  const rec = new Recorder(s), seq = new Sequencer(rec, s), notes = [], acid = rec.acid;
+  rec.acid = function (t, st, ...args) {
+    notes.push({ step: this.step, pickup: st.until != null, pitch: 48 + s.key + st.n + Math.round(s.params.acid.tune) + this.harmRoot() });
+    return acid.call(this, t, st, ...args);
+  };
+  for (let i = 0; i <= 320; i++) { rec.step = i; seq.tick(i, 0.05 + i * rec.stepDur); }
+  assert(notes.some((n) => n.step === 320));
+  assert(notes.every((n) => !n.pickup));
+  assert(!notes.some((n) => n.step === 319 && n.pickup));
+  console.log('deephouse/42 log-drum pickup exclusion passed');
+}
+
 // Every club/pop style gets its own seeded hook; NEO-SOUL and BOOM BAP sing one over their Rhodes licks.
 for (const style of Object.keys(STYLES)) {
   const a = generate(style, 11, 'minor'), b = generate(style, 22, 'minor');
