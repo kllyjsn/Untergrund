@@ -48,8 +48,14 @@ export function syncAudioClock(previous, measured) {
 }
 
 // Re-anchor the audio schedule to the shared transport when it drifts or stalls.
-export function transportResync(target, nextTime, now, stepSec, jumped = false, minSkip = -Infinity) {
-  if (!jumped && Math.abs(target - nextTime) <= 0.03 && nextTime >= now) return null;
+export function transportResync(target, nextTime, now, stepSec, jumped = false, minSkip = -Infinity, slew = false) {
+  if (!jumped && Math.abs(target - nextTime) <= 0.03 && nextTime >= now) {
+    const error = target - nextTime;
+    if (!slew || Math.abs(error) <= 0.002 || nextTime - stepSec < now + 0.005) return null;
+    // Called once per unscheduled step: 0.8% closes 28 ms in about 3.5 seconds.
+    const limit = stepSec * 0.008;
+    return { skip: 0, nextTime: nextTime + Math.max(-limit, Math.min(limit, error)), discard: false, slew: true };
+  }
   const ready = now + 0.005;
   // Recover one step near the render deadline without moving the grid or
   // squeezing the gap to its following step below half a step.

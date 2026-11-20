@@ -68,6 +68,27 @@ assert.deepEqual(transportResync(10.2, 10, 9.9, 0.125), { skip: 0, nextTime: 10.
 assert.deepEqual(transportResync(9.5, 10, 9.9, 0.125), { skip: 4, nextTime: 10, discard: false });
 assert.deepEqual(transportResync(9.0, 9.0, 9.6, 0.125), { skip: 5, nextTime: 9.625, discard: false });
 
+for (const bpm of [40, 80, 123, 180, 240]) for (const residual of [-0.029, 0.029]) {
+  const stepSec = 15 / bpm;
+  let target = 10, nextTime = target + residual, steps = 0;
+  while (Math.abs(nextTime - target) > 0.002 + 1e-9) {
+    const fix = transportResync(target, nextTime, nextTime - stepSec - 0.01, stepSec, false, -Infinity, true);
+    assert.equal(fix.slew, true);
+    assert.equal(fix.skip, 0);
+    assert.equal(fix.discard, false);
+    assert.ok(Math.abs(fix.nextTime - nextTime) / stepSec < 0.01);
+    assert.ok(Math.abs(fix.nextTime - target) < Math.abs(nextTime - target));
+    nextTime = fix.nextTime + stepSec;
+    target += stepSec;
+    steps++;
+    assert.ok(steps * stepSec < 5, 'small room residuals converge within five seconds');
+  }
+}
+assert.equal(transportResync(10.001, 10, 9, .125, false, -Infinity, true), null);
+assert.equal(transportResync(10.02, 10, 9.9, .125, false, -Infinity, true), null, 'do not slew an interval already rendering');
+assert.deepEqual(transportResync(10.2, 10, 9.9, .125, false, -Infinity, true), { skip: 0, nextTime: 10.2, discard: false });
+console.log('Room residual slew PASS: both signs, 40–240 BPM, <1% step adjustment, convergence <5s, jitter floor and render guard.');
+
 {
   const before = syncAudioClock(null, 1000);
   assert.deepEqual(before, { offset: 1000, jumped: false });

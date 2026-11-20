@@ -8,6 +8,7 @@ import { STYLES, defaultState, generate, applyOverrides, arrangement, songChain 
 import { makeIR } from '../js/dsp.js';
 import { TECHNO_HOOK_SPACE } from '../js/lead.js';
 import { VOCAL_FX } from '../js/sing.js';
+import { transportResync } from '../js/room-sync.js';
 
 const BASELINE = new URL('./audio-nodes-baseline.json', import.meta.url);
 const SLACK = 1.15, FLOOR = 12;
@@ -387,6 +388,52 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       assert.ok(Math.abs(starts.at(-1)[1] - 7.75) < 1e-9);
     }
     console.log('Vocal grid drift PASS: solo and room sources follow cumulative forward/backward corrections; small jitter stays continuous.');
+  }
+
+  {
+    for (const residual of [-0.029, 0.029]) {
+      const c = fakeCtx(), s = defaultState(), rates = [], starts = [];
+      s.bpm = 120;
+      const buf = new FakeBuffer({ length: 48000 * 20, sampleRate: 48000 });
+      c.createBufferSource = () => ({ connect: dst => dst, start: (...a) => starts.push(a), stop() {},
+        playbackRate: { setValueAtTime: (rate, at) => rates.push({ rate, at }) } });
+      const e = new Engine(c, s, { vocal: () => ({ buf, gain: 1, duck: 1, lift: 1, ms: 0 }) });
+      const sd = e.stepDur;
+      let nextTime = 10 + residual;
+      e.vocal(nextTime, 0, 0, nextTime);
+      const source = e.vocalNow.src;
+      for (let step = 1; step <= 64; step++) {
+        nextTime += sd;
+        const fix = transportResync(10 + step * sd, nextTime, nextTime - sd - .01, sd, false, -Infinity, true);
+        if (fix) {
+          e.slewVocal(fix.nextTime - nextTime, nextTime - sd, sd);
+          nextTime = fix.nextTime;
+        }
+        if (step % 16 === 0) e.vocal(nextTime, step / 16, 0, nextTime);
+        assert.equal(e.vocalNow.src, source, 'slewing across consecutive bars keeps the continuous stem');
+        assert.ok(Math.abs(e.vocalNow.origin - (nextTime - step * sd)) < 1e-9);
+      }
+      let origin = 10 + residual;
+      for (let i = 0; i < rates.length; i += 2) {
+        const { rate, at } = rates[i], end = rates[i + 1];
+        assert.ok(Math.abs(rate - 1) < .01, 'vocal tempo adjustment stays below one percent');
+        assert.equal(end.rate, 1, 'each correction returns to unity rate');
+        assert.ok(at >= 10 + residual, 'only future, already-started source intervals change');
+        origin += (1 - rate) * (end.at - at);
+      }
+      assert.ok(Math.abs(origin - e.vocalNow.origin) < 1e-9, 'integrated source playback follows the corrected grid');
+      assert.equal(starts.length, 1);
+      assert.ok(Math.abs(origin - 10) <= .002 + 1e-9);
+      const count = rates.length;
+      e.slewVocal(.001, e.vocalNow.at - .01, sd);
+      c.currentTime = 30;
+      e.slewVocal(.001, 29.9, sd);
+      assert.equal(rates.length, count, 'do not change pre-start or already-rendered vocal intervals');
+      e.vocalStop();
+      e.slewVocal(.001, 31, sd);
+      assert.equal(rates.length, count, 'silent songs need no vocal correction');
+    }
+    console.log('Vocal slew PASS: both signs, continuous across bars, integrated phase follows grid, <1% rate, render/start guards and silence.');
   }
 
   {

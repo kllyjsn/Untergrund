@@ -3312,6 +3312,16 @@ export class Engine {
     singingEnvelope(v.buf);
   }
 
+  // Stretch the same future interval as the grid, then return the stem to unity rate.
+  slewVocal(delta, from, duration) {
+    const cur = this.vocalNow;
+    if (!cur || from + 1e-9 < cur.at || from < this.ctx.currentTime + 0.005) return;
+    const end = from + duration + delta;
+    cur.src.playbackRate.setValueAtTime(duration / (duration + delta), from);
+    cur.src.playbackRate.setValueAtTime(1, end);
+    cur.origin += delta;
+  }
+
   // Keep a continuous stem across bars; discarding the queue on a clock jump stops it.
   // On wake, gridTime can precede t: advance the source offset instead of moving the stem.
   vocal(t, pos, step = 0, gridTime) {
@@ -3336,7 +3346,7 @@ export class Engine {
     src.connect(g).connect(this.vocalBus);
     this.vocalBus.gain.setValueAtTime(v.gain, t);
     if (off < 0) this.startSource(src, t - off); else this.startSource(src, t, off);
-    this.vocalNow = { src, g, buf: v.buf, next: pos + 1, sd: this.stepDur, ms: v.ms, origin };
+    this.vocalNow = { src, g, buf: v.buf, next: pos + 1, sd: this.stepDur, ms: v.ms, origin, at: t - Math.min(0, off) };
     if (v.duck < 1) this.duckUnder(v.buf, this.bandDuck.gain, v.duck, t, t - off);
     if (v.lift < 1) this.duckUnder(v.buf, this.singTrim.gain, v.lift, t, t - off);
     // hookCarve: the exported hook stem's copy of the CHORDS channel (js/stems.js).
