@@ -235,12 +235,19 @@ export function stabPitches(e) {
 // The singing envelope of a vocal stem, ENV_RATE frames a second: 1 while it sings (from 40 ms before a phrase to 200 ms
 // after it), 0 in its rests, smoothed (40 ms attack, 250 ms release). Engine.duckUnder() dips the band by it.
 export const ENV_RATE = 50;
-const envelopes = new WeakMap();
+const envelopes = new WeakMap(), phraseGaps = new WeakMap();
 export function singingEnvelope(buf) {
   let env = envelopes.get(buf);
   if (env) return env;
   const d = buf.getChannelData(0), w = Math.round(buf.sampleRate / ENV_RATE), n = Math.ceil(d.length / w), rms = new Float32Array(n);
   for (let k = 0; k < n; k++) { let e = 0; const end = Math.min(d.length, (k + 1) * w); for (let j = k * w; j < end; j++) e += d[j] * d[j]; rms[k] = Math.sqrt(e / w); }
+  const gaps = [];
+  let from = null;
+  for (let k = 0; k < n; k++) {
+    if (rms[k] < 0.01) from ??= k;
+    else if (from !== null) { gaps.push({from:from / ENV_RATE, to:k / ENV_RATE}); from = null; }
+  }
+  phraseGaps.set(buf, gaps);
   const floor = Math.max(1e-4, rms.reduce((a, x) => Math.max(a, x), 0) * 0.03), on = new Uint8Array(n);
   for (let k = 0; k < n; k++) if (rms[k] > floor) for (let j = Math.max(0, k - 2); j <= Math.min(n - 1, k + 10); j++) on[j] = 1;
   env = new Float32Array(n);
@@ -3308,8 +3315,9 @@ export class Engine {
     const v = this.vocalOf?.(state);
     if (!v) return;
     this.vocalSends(v.fx, true);
-    processedStem(v.buf, v.fx, this.ctx);
+    const buffer = processedStem(v.buf, v.fx, this.ctx);
     singingEnvelope(v.buf);
+    if (buffer !== v.buf) singingEnvelope(buffer);
   }
 
   // Integrate the same future rate ramp as the grid without interrupting the stem.
@@ -3331,7 +3339,7 @@ export class Engine {
 
   // Keep a continuous stem across bars; discarding the queue on a clock jump stops it.
   // On wake, gridTime can precede t: advance the source offset instead of moving the stem.
-  vocal(t, pos, step = 0, gridTime, reanchor = false, settling = false, correctionWithin = 0) {
+  vocal(t, pos, step = 0, gridTime, reanchor = false, settling = false) {
     const v = pos >= 0 ? this.vocalOf?.(this.state) : null, cur = this.vocalNow;
     const phase = v ? (pos * 16 + step) * this.stepDur - v.ms / 1000 : 0;
     const origin = (gridTime ?? t) - phase;
@@ -3343,23 +3351,25 @@ export class Engine {
     }
     if (continuous && reanchor) {
       const errorMs = (origin - cur.origin) * 1000;
-      const audio = v.buf.getChannelData(0), window = Math.ceil(v.buf.sampleRate * 0.06), actual = t - cur.origin;
-      const quiet = at => {
-        const first = Math.floor(at * v.buf.sampleRate);
+      const buffer = processedStem(v.buf, v.fx, this.ctx), actual = t - cur.origin, shift = actual - phase;
+      singingEnvelope(buffer);
+      const earliest = Math.max(phase, this.ctx.currentTime + 0.02 - origin);
+      const quiet = (at, source = buffer) => {
+        const audio = source.getChannelData(0), window = Math.ceil(source.sampleRate * 0.06);
+        const first = Math.floor(at * source.sampleRate);
         if (first < 0 || first + window > audio.length) return false;
         let energy = 0;
         for (let i = first; i < first + window; i++) energy += audio[i] * audio[i];
         return energy / window < 0.0001;
       };
-      let gap = quiet(phase) && quiet(actual);
-      if (!gap && correctionWithin > 0) {
-        for (let wait = 0.02; wait <= correctionWithin; wait += 0.02) {
-          if (quiet(phase + wait) && quiet(actual + wait)) { t += wait; gap = true; break; }
-        }
-      }
-      const forced = !gap && correctionWithin > 0;
-      this.vocalCorrection = { at:t, origin, previousOrigin:cur.origin, errorMs, gap, forced };
-      if (!gap && !forced) {
+      const silence = phraseGaps.get(buffer).find(g => {
+        const start = g.to - 0.08 - Math.max(0, shift);
+        return start >= earliest && start >= g.from && quiet(start) && quiet(start + shift, cur.src.buffer);
+      });
+      const gap = !!silence;
+      if (gap) t += silence.to - 0.08 - Math.max(0, shift) - phase;
+      this.vocalCorrection = { at:t, origin, previousOrigin:cur.origin, errorMs, gap, nextOnset:silence?.to };
+      if (!gap) {
         cur.next = pos + 1;
         this.vocalBus.gain.setTargetAtTime(v.gain, t, 0.02);
         return false;

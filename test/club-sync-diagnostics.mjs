@@ -29,9 +29,14 @@ export async function installDiagnostics(send, base, {vocalSlew = false, vocalRe
   await at('main.js', 'const target = transportOrigin', `const a = __clubAudio.scheduler ||= [];
     ${vocalSlew ? `if (!__clubAudio.forcedVocalSlew && abs >= 32 && abs % 16 >= 13) {
       transportOrigin += 20; __clubAudio.forcedVocalSlew = {at:performance.timeOrigin + performance.now(), step:abs, deltaMs:20}; }` : ''}
-    ${vocalRestart ? `if (!__clubAudio.vocalRestartInjected && __clubAudio.forcedVocalSlew && abs >= __clubAudio.forcedVocalSlew.step + 16 && abs % 16 === 8 && engine.vocalNow) {
-      engine.vocalStop(nextTime); engine.vocal(nextTime, (seq.chainPos - 1) % seq.songBars, (abs - seq.origin) % 16, nextTime, true);
-      __clubAudio.vocalRestartInjected = {at:performance.timeOrigin + performance.now(), step:abs, time:nextTime}; }` : ''}
+    ${vocalRestart ? `if (!__clubAudio.vocalRestartInjected && __clubAudio.forcedVocalSlew && abs >= __clubAudio.forcedVocalSlew.step + 16 && engine.vocalNow) {
+      const v = engine.vocalOf(engine.state), phase = ((seq.chainPos - 1) % seq.songBars * 16 + (abs - seq.origin) % 16) * engine.stepDur - v.ms / 1000;
+      const data = v.buf.getChannelData(0), first = Math.max(0, Math.floor(phase * v.buf.sampleRate)), count = Math.ceil(.06 * v.buf.sampleRate);
+      let energy = 0; for (let i = first; i < Math.min(data.length, first + count); i++) energy += data[i] * data[i];
+      if (energy / count > .0004) {
+        engine.vocalStop(nextTime); engine.vocal(nextTime, (seq.chainPos - 1) % seq.songBars, (abs - seq.origin) % 16, nextTime, true);
+        __clubAudio.vocalRestartInjected = {at:performance.timeOrigin + performance.now(), step:abs, time:nextTime}; }
+    }` : ''}
     ${wholeStep ? `if (!__clubAudio.forcedWholeStep && abs >= 64 && abs % 16 === 4 && nextTime > ctx.currentTime + 0.255) {
       const o = ctx.getOutputTimestamp();
       __clubAudio.forcedWholeStep = {at:performance.timeOrigin + performance.now(), step:abs, nextTime, base,
@@ -56,7 +61,8 @@ export async function installDiagnostics(send, base, {vocalSlew = false, vocalRe
     const ids = globalThis.__clubVocalCorrectionIds ||= new WeakMap();
     if (!ids.has(cur.src)) { const id = a.length; ids.set(cur.src, id);
       a.push({id, at:performance.timeOrigin + performance.now(), time:t, origin, previousOrigin:cur.origin, errorMs, gap}); }
-    if (gap || forced) Object.assign(a[ids.get(cur.src)], {gap, forced, appliedTime:t, appliedErrorMs:errorMs});`, false);
+    if (gap) Object.assign(a[ids.get(cur.src)], {gap, appliedAt:performance.timeOrigin + performance.now(), appliedTime:t, appliedErrorMs:errorMs});`, false);
+  await at('main.js', 'if (fix.discard) {', `if (fix.discard) __clubAudio.nextVocalStart = 'wake'`);
 }
 
 const median = values => {

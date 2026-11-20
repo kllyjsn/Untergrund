@@ -523,6 +523,8 @@ async function scenario(base, spec, network, run) {
       if (spec.freezeMs) {
         for (const [i, counts] of vocalStarts.entries()) {
           if (!counts.count || counts.count > counts.allowed) failures.push(`client ${i} vocal source starts`);
+          if (counts.midPhraseRestarts !== 0) failures.push(`client ${i} mid-phrase vocal restarts`);
+          if (counts.unclassifiedStarts !== 0) failures.push(`client ${i} vocal start classification`);
         }
         if (options['vocal-slew-test']) assert.ok(raw.every(c => c.forcedVocalSlew), 'Both clients exercised a controlled cross-bar grid slew');
         if (options['vocal-reanchor-control']) assert.ok(raw.every(c => c.vocalRestartInjected), 'Both clients exercised a real nonzero-offset vocal restart');

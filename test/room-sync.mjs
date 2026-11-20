@@ -307,6 +307,30 @@ console.log('Room residual slew PASS: both signs, 40–240 BPM, smooth bounded r
 
 console.log('room transport alignment passed');
 
+{
+  let clock = {offset:null, state:null};
+  const sample = (at, contextTime, measured) => clock = syncAudioClock(clock.offset, measured, {at, contextTime, state:clock.state});
+  sample(0, 0, 1000);
+  assert.equal(clock.offset, 1000, 'the first usable join estimate applies immediately');
+  for (let i = 1; i <= 40; i++) sample(i * .02, i * .02, 1000.08);
+  assert.equal(clock.offset, 1000, 'a sub-second renderer stall cannot move the room grid');
+  sample(1, 1, 1000);
+  assert.equal(clock.state.pending, null, 'a transient estimate is discarded');
+  for (let i = 0; i < 100; i++) sample(2 + i * .02, 2 + i * .02, 1000.08);
+  assert.equal(clock.offset, 1000);
+  sample(4, 4, 1000.08);
+  close(clock.offset, 1000.08);
+  assert.equal(clock.jumped, false, 'a lasting offset uses ordinary room correction, not wake cancellation');
+  sample(4.02, 4.02, 1002);
+  assert.equal(clock.offset, 1000.08, 'even a large one-frame glitch waits for persistence');
+  assert.equal(clock.jumped, false);
+  sample(4.04, 4.04, 1000.08);
+  sample(6.04, 4.04, 1002.08);
+  assert.equal(clock.jumped, true, 'a real frozen-page interval retains immediate wake recovery');
+  close(clock.offset, 1002.08);
+}
+console.log('Room clock persistence PASS: immediate first estimate/wake, transient and large glitches held, stable80ms offset adopted only after2s; solo arithmetic unchanged.');
+
 const oldOrigin = origin;
 const oldBpm = 120;
 const newBpm = 150;
@@ -354,7 +378,8 @@ for (const [action, currentTime, playing, expected] of [
     document:{hidden:false}, ctx:{currentTime:10}, Date:{now:() => sandbox.ctx.currentTime * 1000},
     state:{bpm:120, part:'old'}, clockOffset:0, transportOrigin:2250, abs:68, nextTime:11.5,
     syncAudioClock, transportResync, slewTransport, roomTransportCorrection, roomDrainUntil:null, vocalCorrectionWindow:0,
-    queuedRoomReplay:null, handoff:null, jamQueue:[], vocalGridDirty:false,
+    queuedRoomReplay:null, handoff:null, jamQueue:[], vocalGridDirty:false, roomAudioClock:null,
+    performance:{now:() => sandbox.ctx.currentTime * 1000},
     engine:{stepDur:0.125, applyAll(){}, discardQueuedNotes:t => cancelled.push(t), vocal(){}},
     seq:{origin:0, chainPos:5, songBars:8, advanceBar(){}, rewind:step => rewinds.push(step),
       tick:(step, time) => { notes.push({step, time, part:sandbox.state.part}); return {}; }},
@@ -391,7 +416,7 @@ for (const [action, currentTime, playing, expected] of [
   drain(0.5);
   assert.deepEqual(musicNotes.map(n => n.step), [70, 71, 72, 73], 'after draining only already-past steps68/69 skip; every remaining future step renders');
   assert.ok(musicNotes.every((n, i) => n.time >= (i ? musicNotes[i - 1].time : 11.5)), 'adoption never reorders old or new audio');
-  assert.equal(music.vocalCorrectionWindow, 0, 'the large correction consumes its one bounded vocal alignment');
+  assert.equal(music.vocalGridDirty, false, 'an aligned vocal consumes the dirty-grid check');
   const relocations = [], forward = {...music, abs:68, nextTime:11.5, transportOrigin:3250, roomDrainUntil:null,
     seq:{...music.seq, tick:() => ({})}, midiClockStart:(ctx, step, time) => relocations.push({step, time})};
   runInNewContext(`${schedulerSource}\nschedule(0.5)`, forward);
@@ -429,7 +454,7 @@ console.log('Room frontier PASS: large corrections drain then adopt, future-at-a
       document:{hidden:false}, ctx:{currentTime:now}, Date:{now:() => now * 1000},
       state, engine, seq, abs:step, nextTime, transportOrigin:gridOrigin, clockOffset,
       syncAudioClock, transportResync, slewTransport, roomTransportCorrection, roomDrainUntil:null, vocalCorrectionWindow:0,
-      queuedRoomReplay:null, handoff:null, vocalGridDirty:false, uiQueue:[],
+      queuedRoomReplay:null, handoff:null, vocalGridDirty:false, uiQueue:[], roomAudioClock:null, performance:{now:() => now * 1000},
       jamQueue:[{part:'kick', layer:{id:'new'}, wall}], jamRedraw:0,
       timeline:{skip:() => 0}, artistTick(){}, midiClockStep(){}, midiClockStart(){},
       applyPart:(s, part, layer) => { s.part = layer.id; }, setTimeout(){}, cancelAnimationFrame(){}, requestAnimationFrame:() => 0};

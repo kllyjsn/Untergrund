@@ -590,21 +590,39 @@ Wake mix assertions also require zero extra vocal onsets and native vocal-stem
 source starts no greater than join + wake + one per recorded correction exceeding
 30ms and actually applied. An unapplied pending correction cannot
 authorize an extra source. JSON also reports non-zero-offset starts separately.
+Outside the initial join and explicitly tagged wake, every native start must have
+a silent start point: 60ms RMS of the actual processed source buffer below0.01.
+JSON reports `midPhraseRestarts`, `gapRealigns`, and `unclassifiedStarts`; any
+mid-phrase or unclassified start fails, even with correction credit. Gap realigns
+count scheduled silent pre-roll starts separately, not extra sung onsets.
 The graph-filtered `AudioBufferSourceNode.start` tap excludes drum buffers
 and offline preparation. JSON `vocalStarts` and `diagnostics[].vocalCorrections`
-show the measured counts and allowance; absent telemetry cannot pass. During a
-slew room bar checks hold their existing source. Ordinary converged corrections
-over30ms wait for a quiet phrase gap. Corrections over50ms instead stop queuing
+show the measured counts and allowance; absent telemetry cannot pass. Room bar
+checks always hold their existing source. Converged corrections over30ms wait
+for the next phrase gap, with both old and corrected phases silent. The new
+source starts in silent pre-roll before the next phrase onset; the old source
+finishes its fade in silence. There is no maximum wait and no forced mid-phrase
+fallback: without a gap, the vocal drifts until one exists. Grid corrections
+over50ms stop queuing
 until the existing lookahead drains, adopt the corrected grid, and send MIDI SPP.
-One vocal reanchor is allowed: use a 60ms quiet PCM window within the next bar
-if available, otherwise correct immediately. Playback rate and pitch never change.
+Playback rate and pitch never change.
+
+Room audio-to-wall clock offset estimates must persist in an8ms band for2s
+before changing the grid; differences within5ms of the current anchor are held.
+The first usable join estimate applies immediately. A true frozen-page wake
+(a callback gap with at least150ms less audio-clock progress) also keeps immediate
+recovery. A large single-frame estimate without that callback gap is filtered,
+not treated as a wake. Solo arithmetic is unchanged. Explicit transport-origin
+changes, including the forced243ms control, are not clock estimates and still
+use the existing drain/adopt path without the persistence delay.
 
 `--vocal-slew-test` is an opt-in wake-mix control. A test-only conditional
 breakpoint applies one 20ms transport-origin correction near a bar end on each
 client, recording `forcedVocalSlew`; normal runs do not change the origin.
 Add `--vocal-reanchor-control` for a negative control: the test-only breakpoint
-stops and restarts each actual stem at a nonzero offset without correction
-credit. The native-start assertion must fail.
+waits for a sung source region, then stops and restarts each actual stem at a
+nonzero offset without correction credit. Both the mid-phrase and native-count
+assertions must fail.
 
 `--whole-step-test` is another opt-in wake-mix control. It uses a deterministic
 kick/closed-hat pattern and moves both grids earlier by two steps while those

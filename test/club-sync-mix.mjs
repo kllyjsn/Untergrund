@@ -196,8 +196,17 @@ export function channelEnvelope(capture, name, after = false) {
 export function vocalSourceEvidence(capture, wakes = 0) {
   const corrections = (capture.vocalCorrections || []).filter(c => Math.abs(c.errorMs) > 30);
   const expected = 1 + wakes;
+  let remainingWakes = wakes;
+  const steady = Array.isArray(capture.vocalStarts) ? capture.vocalStarts.filter((s, i) => {
+    if (i === 0) return false;
+    if (s.reason === 'wake' && remainingWakes > 0) { remainingWakes--; return false; }
+    return true;
+  }) : null;
   return {count:Array.isArray(capture.vocalStarts) ? capture.vocalStarts.length : null,
     nonZeroOffsets:Array.isArray(capture.vocalStarts) ? capture.vocalStarts.filter(s => s.offset > 0).length : null,
+    midPhraseRestarts:steady ? steady.filter(s => s.startSinging === true).length : null,
+    gapRealigns:steady ? steady.filter(s => s.startSinging === false).length : null,
+    unclassifiedStarts:steady ? steady.filter(s => typeof s.startSinging !== 'boolean').length : null,
     expected, corrections, allowed:expected + corrections.filter(c => c.appliedTime != null).length};
 }
 

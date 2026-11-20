@@ -509,6 +509,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   {
     const c = fakeCtx(), s = defaultState(); s.bpm = 120;
     const buf = new FakeBuffer({length:48000 * 70, sampleRate:48000}), starts = [];
+    buf.getChannelData(0).fill(0.1);
+    for (let at = 3; at < 69; at += 4) buf.getChannelData(0).fill(0, 48000 * at, 48000 * (at + .6));
     c.createBufferSource = () => ({connect:dst => dst, start:(...args) => starts.push(args), stop(){}});
     const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
     let shift = 0, target = 0, dirty = false;
@@ -534,31 +536,45 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const first = e.vocalNow.src;
     assert.equal(e.vocal(3.08, 1, 0, 3.08, true), false);
     assert.equal(e.vocalNow.src, first, 'a large correction cannot restart a phrase with no gap');
+    for (let pos = 2; pos < 20; pos++) {
+      c.currentTime = 1 + pos * 2;
+      assert.equal(e.vocal(1.08 + pos * 2, pos, 0, 1.08 + pos * 2, true), false);
+      assert.equal(e.vocalNow.src, first, 'a sustained phrase drifts for as long as no gap exists');
+    }
     e.vocal(42, 0, 0, 42, false, true);
     assert.notEqual(e.vocalNow.src, first, 'holding a correction cannot suppress the next natural song cycle');
     console.log('Room vocal continuity PASS: 40s, three slews across bar lines, zero ordinary restarts and one large-gap reanchor; no-gap phrase remains continuous.');
   }
 
-  for (const gap of [true, false]) {
+  for (const gapAt of [null, 3, 7]) {
+    const gap = gapAt !== null;
     const c = fakeCtx(), s = defaultState(); s.bpm = 120;
     const buf = new FakeBuffer({length:48000 * 12, sampleRate:48000}), starts = [];
     buf.getChannelData(0).fill(0.1);
-    if (gap) buf.getChannelData(0).fill(0, 48000 * 3, 48000 * 3.5);
+    if (gap) buf.getChannelData(0).fill(0, 48000 * gapAt, 48000 * (gapAt + .5));
     c.createBufferSource = () => ({connect:dst => dst, start:(...args) => starts.push(args), stop(){}});
     const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
     e.vocal(1, 0, 0, 1);
     const old = e.vocalNow.src;
-    assert.equal(e.vocal(3.08, 1, 0, 3.08, true, false, 2), true);
-    assert.notEqual(e.vocalNow.src, old);
-    assert.equal(starts.length, 2);
+    if (gapAt === 3) {
+      const original = old.buffer;
+      old.buffer = new FakeBuffer({length:48000 * 12, sampleRate:48000});
+      old.buffer.getChannelData(0).fill(.1);
+      assert.equal(e.vocal(3.08, 1, 0, 3.08, true), false, 'the audible old processed source must also be silent, not only the replacement');
+      old.buffer = original;
+    }
+    assert.equal(e.vocal(3.08, 1, 0, 3.08, true), gap);
+    assert.equal(e.vocalNow.src === old, !gap);
+    assert.equal(starts.length, gap ? 2 : 1);
     assert.equal(e.vocalCorrection.gap, gap);
-    assert.equal(e.vocalCorrection.forced, !gap);
-    if (gap) assert.ok(starts[1][0] > 3.08 && starts[1][0] <= 5.08, 'a known quiet gap within one bar wins over an immediate cut');
-    else assert.ok(Math.abs(starts[1][0] - 3.08) < 1e-9);
-    e.vocal(3.08, 1, 0, 3.08, true, false, 2);
-    assert.equal(starts.length, 2, 'the adopted large correction cannot restart twice');
+    if (gap) {
+      assert.ok(Math.abs(starts[1][0] - (gapAt + 1.42)) < 1e-9, 'a future phrase gap is used even beyond one bar');
+      assert.ok(Math.abs(starts[1][1] - (gapAt + .34)) < 1e-9, 'replacement starts in silent pre-roll before the next phrase, never mid-word');
+    }
+    e.vocal(3.08, 1, 0, 3.08, true);
+    assert.equal(starts.length, gap ? 2 : 1, 'no-gap corrections drift; aligned gap updates cannot restart twice');
   }
-  console.log('Room large vocal correction PASS: one quiet-gap reanchor within a bar, or one immediate no-gap correction; repeated aligned updates stay continuous.');
+  console.log('Room large vocal correction PASS: only silent pre-roll before a phrase onset; no-gap corrections drift without any forced restart.');
 
   {
     const c = fakeCtx(), s = defaultState(); s.bpm = 120;

@@ -55,10 +55,24 @@ export function roomTransportPosition(startsAt, bpm, now = Date.now()) {
   return { step, delay: (origin + step * stepMs - now) / 1000 };
 }
 
-export function syncAudioClock(previous, measured) {
+export function syncAudioClock(previous, measured, sample = null) {
   // A frozen audio clock can fall seconds behind wall time. Don't sweep the
   // playhead through that gap; only smooth ordinary timing jitter.
   const jumped = previous !== null && Math.abs(measured - previous) > 0.15;
+  if (sample) {
+    const prior = sample.state;
+    const wake = jumped && prior && sample.at - prior.at > 0.15 &&
+      sample.at - prior.at - (sample.contextTime - prior.contextTime) > 0.15;
+    const state = {at:sample.at, contextTime:sample.contextTime, pending:null};
+    if (previous === null || wake) return {offset:measured, jumped:!!wake, state};
+    if (Math.abs(measured - previous) <= 0.005) return {offset:previous, jumped:false, state};
+    const pending = prior?.pending;
+    state.pending = pending && Math.abs(measured - pending.offset) <= 0.008
+      ? {since:pending.since, offset:pending.offset + (measured - pending.offset) * 0.05}
+      : {since:sample.at, offset:measured};
+    if (sample.at - state.pending.since < 2) return {offset:previous, jumped:false, state};
+    return {offset:state.pending.offset, jumped:false, state:{...state, pending:null}};
+  }
   const offset = previous === null || jumped ? measured : previous + (measured - previous) * 0.05;
   return { offset, jumped };
 }

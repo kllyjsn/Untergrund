@@ -62,7 +62,17 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
   };
   const startBuffer = AudioBufferSourceNode.prototype.start;
   AudioBufferSourceNode.prototype.start = function (when = 0, offset = 0, ...args) {
-    if (mix && reachesVocal(this)) tap.vocalStarts.push({at:epoch(), when, offset, duration:this.buffer?.duration, clock:clock(this.context)});
+    if (mix && reachesVocal(this)) {
+      const data = this.buffer?.getChannelData(0), first = Math.floor(offset * (this.buffer?.sampleRate || 0));
+      const count = Math.min(Math.ceil((this.buffer?.sampleRate || 0) * .06), (data?.length || 0) - first);
+      let energy = 0;
+      for (let i = first; i < first + count; i++) energy += data[i] * data[i];
+      const startRms = count > 0 ? Math.sqrt(energy / count) : null;
+      const reason = tap.vocalStarts.length === 0 ? 'join' : tap.nextVocalStart;
+      delete tap.nextVocalStart;
+      tap.vocalStarts.push({at:epoch(), when, offset, duration:this.buffer?.duration, clock:clock(this.context),
+        reason, startRms, startSinging:startRms === null ? null : startRms > .01});
+    }
     return startBuffer.call(this, when, offset, ...args);
   };
   const fetchOriginal = globalThis.fetch;

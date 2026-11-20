@@ -8,13 +8,18 @@ import { stepFixture, correctionGrid, forcedStepEvidence } from './club-sync-ste
 
 const bin = 4, expectedVoice = new Float64Array(8000);
 assert.equal(vocalSourceEvidence({vocalStarts:[{}]}).allowed, 1);
-assert.deepEqual(vocalSourceEvidence({vocalStarts:[{}, {}]}, 1), {count:2, nonZeroOffsets:0, expected:2, corrections:[], allowed:2});
+assert.deepEqual(vocalSourceEvidence({vocalStarts:[{}, {reason:'wake'}]}, 1), {count:2, nonZeroOffsets:0, midPhraseRestarts:0, gapRealigns:0, unclassifiedStarts:0, expected:2, corrections:[], allowed:2});
 assert.equal(vocalSourceEvidence({vocalStarts:[{}, {}, {}], vocalCorrections:[{errorMs:20}, {errorMs:-40, appliedTime:1}]}, 1).allowed, 3);
 assert.equal(vocalSourceEvidence({vocalStarts:[{}, {}, {}], vocalCorrections:[{errorMs:-40, gap:false}]}, 1).allowed, 2, 'an unapplied correction cannot authorize a restart');
 assert.equal(vocalSourceEvidence({vocalStarts:[{offset:0}, {offset:2}]}).nonZeroOffsets, 1);
 assert.equal(vocalSourceEvidence({vocalStarts:[]}).count, 0);
 assert.equal(vocalSourceEvidence({}).count, null);
-console.log('Vocal source evidence PASS: join/wake bounds, only >30ms correction credit, empty and missing telemetry remain distinct.');
+assert.equal(vocalSourceEvidence({vocalStarts:{}}).midPhraseRestarts, null);
+assert.equal(vocalSourceEvidence({vocalStarts:[{}, {startSinging:true}]}).midPhraseRestarts, 1);
+assert.equal(vocalSourceEvidence({vocalStarts:[{}, {startSinging:false}]}).gapRealigns, 1);
+assert.equal(vocalSourceEvidence({vocalStarts:[{}, {}]}).unclassifiedStarts, 1);
+assert.equal(vocalSourceEvidence({vocalStarts:[{}, {reason:'wake', startSinging:true}, {reason:'wake', startSinging:true}]}, 1).midPhraseRestarts, 1, 'only one explicitly observed wake start is exempt');
+console.log('Vocal source evidence PASS: explicit join/wake exemptions, mid-phrase versus silent-gap starts, only applied >30ms credit, empty and missing telemetry remain distinct.');
 {
   const song = stepFixture(mixFixture()), force = {at:109500, step:68, base:60 / 123 / 4, nextTime:10, deltaMs:-2 * 60000 / 123 / 4,
     clock:{outputContextTime:0, outputEpochMs:100000}};

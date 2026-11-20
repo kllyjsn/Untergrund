@@ -56,8 +56,9 @@ addEventListener('pointerup', (e) => { if (e.pointerType !== 'mouse' || !e.butto
 addEventListener('blur', () => { for (const k of [...heldPads.keys()]) ui.perf?.[k]?.up(); });
 let playing = false, abs = 0, nextTime = 0, lastPlayedPat = null;
 let transportOrigin = 0, roomJoinTimer = 0, clockOffset = null;
+let roomAudioClock = null;
 let vocalGridDirty = false;
-let roomDrainUntil = null, vocalCorrectionWindow = 0;
+let roomDrainUntil = null;
 let roomPlayback = false;
 let roomEditor = false;
 let roomFirstNote = null;
@@ -184,8 +185,10 @@ function schedule(lead) {
   const ahead = roomMediaSync.horizon(typeof lead === 'number' ? lead : document.hidden ? BG_LEAD : roomPlayback ? ROOM_LEAD : 0.12, roomPlayback, mediaRoute, roomPlayback && mediaRoute ? ctx.currentTime : 0);
   const now = ctx.currentTime;
   if (roomEditor) engine.pruneEditableHits(now);
-  const clock = syncAudioClock(clockOffset, Date.now() / 1000 - now);
+  const clock = syncAudioClock(clockOffset, Date.now() / 1000 - now,
+    roomPlayback ? {at:performance.now() / 1000, contextTime:now, state:roomAudioClock} : null);
   clockOffset = clock.offset;
+  roomAudioClock = clock.state ?? null;
   const replayAt = queuedRoomReplay ? roomMediaTime(queuedRoomReplay.startsAt / 1000 - clockOffset, roomPlayback, mediaRoute) : Infinity;
   if (songOver) {
     if (replayAt < now + ahead) switchRoomReplay(replayAt);
@@ -194,7 +197,7 @@ function schedule(lead) {
   let base = 60 / state.bpm / 4, landed = null;
   const target = roomMediaTime(transportOrigin / 1000 + abs * base - clockOffset, roomPlayback, mediaRoute);
   if (roomPlayback && Math.abs(target - nextTime) > 0.000001) vocalGridDirty = true;
-  if (clock.jumped) { roomDrainUntil = null; vocalCorrectionWindow = 0; }
+  if (clock.jumped) roomDrainUntil = null;
   const correction = roomPlayback && !clock.jumped ? roomTransportCorrection(target, nextTime, now, base, roomDrainUntil) : null;
   if (correction?.drainUntil !== undefined) {
     roomDrainUntil = correction.drainUntil;
@@ -227,7 +230,6 @@ function schedule(lead) {
       landJamParts((fix.nextTime + clockOffset) * 1000, fix.nextTime);
     nextTime = fix.nextTime;
     if (fix.adopted) {
-      vocalCorrectionWindow = 16 * base;
       midiClockStart(ctx, abs, nextTime);
     } else if (roomPlayback && fix.skip > 0) midiClockStart(ctx, abs, nextTime);
     const step = (abs - seq.origin) % 16;
@@ -260,11 +262,10 @@ function schedule(lead) {
       landJamParts((gridTime + clockOffset) * 1000 + base * 500, t);
     }
     artistTick(abs - seq.origin);
-    const pat = seq.tick(abs, t, roomPlayback ? nextTime : undefined, roomEditor, roomPlayback && vocalGridDirty);
+    const pat = seq.tick(abs, t, roomPlayback ? nextTime : undefined, roomEditor, roomPlayback);
     if (roomPlayback && vocalGridDirty && Math.abs(gridTarget - nextTime) < 0.002) {
-      const aligned = engine.vocal(t, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, (abs - seq.origin) % 16, nextTime, true, false, vocalCorrectionWindow);
+      const aligned = engine.vocal(t, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, (abs - seq.origin) % 16, nextTime, true);
       vocalGridDirty = aligned === false;
-      if (!vocalGridDirty) vocalCorrectionWindow = 0;
     }
     uiQueue.push({ abs: abs - seq.origin, t, pat });
     // A score breathes (rubato): the transport clock follows the stretched step, not the metronome.
@@ -451,8 +452,9 @@ function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room 
   state.current = seq.cur;
   songOver = false;
   if (switchAt === null) clockOffset = null;
+  roomAudioClock = null;
   vocalGridDirty = false;
-  roomDrainUntil = null; vocalCorrectionWindow = 0;
+  roomDrainUntil = null;
   transportOrigin = startsAt ?? ((stepWall ?? wallNow + wait * 1000) - abs * (15000 / state.bpm));
   if (!seeking) engine.recLock = new Map();
   roomPlayback = room;
