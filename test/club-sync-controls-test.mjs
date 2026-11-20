@@ -25,7 +25,7 @@ await terminate(null);
 for (const [exitCode, signalCode] of [[null, null], [0, null], [null, 'SIGKILL']]) {
   let onExit, kills = 0, closed = 0;
   await terminate({
-    exitCode, signalCode,
+    pid: 123, exitCode, signalCode,
     once: (event, callback) => { assert.equal(event, 'exit'); onExit = callback; },
     kill: signal => { assert.equal(signal, 'SIGKILL'); kills++; onExit(); },
     stdout: { destroy: () => closed++ }, stderr: { destroy: () => closed++ },
@@ -34,6 +34,7 @@ for (const [exitCode, signalCode] of [[null, null], [0, null], [null, 'SIGKILL']
   assert.equal(closed, 2);
 }
 await terminate({ exitCode: 0, signalCode: null });
+await terminate({ exitCode: null, signalCode: null });
 console.log('Club sync Chrome discovery and child-pipe cleanup passed');
 
 const controlStart = source.indexOf('function visibleControl(');
@@ -69,7 +70,7 @@ const launch = source.slice(source.indexOf('  const proc = spawn(chrome,'), sour
 for (const platform of ['darwin', 'linux']) {
   let args;
   runInNewContext(launch, {
-    chrome: '/chrome', profile: '/profile', options: {}, fixture: null,
+    chrome: '/chrome', profile: '/profile', options: {}, fixture: null, audioEnv: undefined,
     process: { platform, env: {} }, spawn: (_chrome, flags) => { args = flags; },
   });
   assert.equal(args.includes('--window-size=1280,900'), platform === 'darwin');
