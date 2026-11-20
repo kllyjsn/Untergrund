@@ -19,6 +19,7 @@ import { singRequest, vocalDb } from '../js/sing.js';
 import { analyzeVocalGrid, vocalFindings, referenceEnvelope, clipRange, extractPCM, floatWav, levelMatchClips } from './club-sync-vocals.mjs';
 import { parseNetwork, networkController, clockSpread } from './club-sync-network.mjs';
 import { stepFixture, forcedStepEvidence } from './club-sync-steps.mjs';
+import { startOutputCapture } from './club-sync-output.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const out = resolve(root, 'test/out');
@@ -51,7 +52,7 @@ const options = { repeat: 1, output: 'club-sync.json', vocal: 'synthetic', 'net-
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
   if (['--assert', '--diagnostics', '--mute-audio', '--no-audio-device', '--startup-contention', '--clips', '--handoff-drop-kicks', '--vocal-slew-test', '--vocal-reanchor-control', '--whole-step-test', '--drop-step-control', '--vocal-force-repeat-control'].includes(arg)) options[arg.slice(2)] = true;
-  else if (['--scenario', '--repeat', '--output', '--cpu-throttle', '--vocal', '--net', '--net-target', '--net-label'].includes(arg) && args[i + 1]) options[arg.slice(2)] = args[++i];
+  else if (['--scenario', '--repeat', '--output', '--output-capture', '--cpu-throttle', '--vocal', '--net', '--net-target', '--net-label'].includes(arg) && args[i + 1]) options[arg.slice(2)] = args[++i];
   else throw new Error(`Unknown/missing argument: ${arg}`);
 }
 const selected = options.scenario;
@@ -69,6 +70,10 @@ const mixSong = () => {
 };
 const selectedScenarios = selected?.split(',');
 assert.ok(!selectedScenarios || selectedScenarios.every(name => SCENARIOS.some(s => s.name === name)), 'Unknown scenario');
+assert.ok(!options['output-capture'] || (process.platform === 'linux' &&
+  ['host-first', 'listener-first'].includes(options['output-capture']) &&
+  selectedScenarios?.every(name => SCENARIOS.find(s => s.name === name).coldDownbeat || options['whole-step-test']) &&
+  !options['mute-audio'] && !options['no-audio-device']), 'Output capture requires Linux, host-first or listener-first routing, and a cold-downbeat or whole-step scenario with audio enabled');
 assert.ok(/^\d+$/.test(String(options.repeat)) && +options.repeat >= 1 && +options.repeat <= 20, '--repeat must be 1..20');
 assert.match(options.output, /^[a-z0-9-]+\.json$/, '--output must be a JSON filename under test/out');
 assert.ok(options['cpu-throttle'] === undefined || (Number.isFinite(+options['cpu-throttle']) && +options['cpu-throttle'] >= 1 && +options['cpu-throttle'] <= 20), '--cpu-throttle must be 1..20');
@@ -76,6 +81,7 @@ const networkProfile = parseNetwork(options.net);
 assert.ok(['listener', 'both'].includes(options['net-target']), '--net-target must be listener or both');
 assert.match(options['net-label'], /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/, 'Invalid --net-label');
 const activeClients = new Set();
+let activeOutput;
 const pause = ms => new Promise(r => setTimeout(r, ms));
 async function until(fn, label, timeout = options.net ? 180000 : 25000) {
   const end = Date.now() + timeout;
@@ -88,7 +94,7 @@ async function freePort() {
 }
 async function terminate(p) {
   if (!p) return;
-  if (p.exitCode === null && p.signalCode === null) {
+  if (p.pid && p.exitCode === null && p.signalCode === null) {
     const done = new Promise(r => p.once('exit', r)); p.kill('SIGKILL'); await done;
   }
   p.stdout?.destroy(); p.stderr?.destroy();
@@ -101,13 +107,14 @@ function visibleControl(selectors, label) {
   }
   return null;
 }
-async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = false, { limitPaint = false, hideStage = false } = {}) {
+async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = false, { limitPaint = false, hideStage = false, audioEnv } = {}) {
   const chrome = findChrome(); if (!chrome) throw new Error('Chrome required');
   const profile = await mkdtemp(join(out, 'chrome-'));
   const proc = spawn(chrome, ['--headless=new', '--no-sandbox', '--no-first-run', ...(process.platform === 'darwin' ? ['--window-size=1280,900'] : []), '--disable-background-timer-throttling',
     '--disable-renderer-backgrounding', ...(options['mute-audio'] ? ['--mute-audio'] : []), '--autoplay-policy=no-user-gesture-required', '--remote-debugging-port=0',
     `--user-data-dir=${profile}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'],
-    env: !fixture && options['no-audio-device'] ? { ...process.env, PULSE_SERVER: 'unix:/nonexistent/untergrund-pulse', ALSA_CONFIG_PATH: '/dev/null' } : process.env });
+    env: !fixture && options['no-audio-device'] ? { ...process.env, PULSE_SERVER: 'unix:/nonexistent/untergrund-pulse', ALSA_CONFIG_PATH: '/dev/null' } :
+      audioEnv ? { ...process.env, ...audioEnv } : process.env });
   let stderr = ''; proc.stderr.on('data', d => stderr += d);
   let ws;
   const close = async () => {
@@ -261,6 +268,7 @@ async function scenario(base, spec, network, run) {
   const contentionFile = join(out, 'club-sync-contention.bin');
   let events = {};
   try {
+    if (options['output-capture']) activeOutput = await startOutputCapture(out, options['output-capture'], until, terminate);
     const song = spec.mix ? mixSong() : fixture();
     if (spec.replay && !spec.cold) {
       // The outgoing fixture promises one kick per beat; the replay uses the irregular grid.
@@ -285,13 +293,15 @@ async function scenario(base, spec, network, run) {
         set: { by: r.currentSet?.by, broadcastId: r.currentSet?.broadcastId, replay: !!r.currentSet?.replay },
         memberSeen: r.members.map(m => ({ id: m.id, seen: m.seen })), startsAt: r.currentSet?.startsAt };
     };
-    const host = await client(network.base('host'), spec.hostSkew, song, 0, spec.mix, rendering); clients.push(host);
+    const host = await client(network.base('host'), spec.hostSkew, song, 0, spec.mix,
+      { ...rendering, audioEnv: activeOutput?.chromeEnv('host') }); clients.push(host);
     await host.nav(room ? `/?room=${room}` : '/');
     if (room) await until(async () => (await snapshot()).members.length === 1, 'host in room');
     else await host.clickElement(`[...document.querySelectorAll('.tab-club, .club-btn')].find(e => e.getBoundingClientRect().width && e.getBoundingClientRect().height)`, 'visible Club navigation');
     let listener;
     if (!spec.cold || spec.coldDownbeat) {
-      listener = await client(network.base('listener'), spec.listenerSkew, null, spec.displacementMs, spec.mix, rendering);
+      listener = await client(network.base('listener'), spec.listenerSkew, null, spec.displacementMs, spec.mix,
+        { ...rendering, audioEnv: activeOutput?.chromeEnv('listener') });
       clients.push(listener);
       if (!spec.cold) await listener.nav(prejoin ? `/?room=${room}` : '/');
     }
@@ -490,6 +500,12 @@ async function scenario(base, spec, network, run) {
       if (spec.expiredMix) assert.ok(events.after.members.includes(listenerId), 'The expired listener rejoined');
     } else await pause(22000);
     const raw = await Promise.all(clients.map(c => c.run('({...__clubAudio, clockSkew: Date.now() - (performance.timeOrigin + performance.now())})')));
+    let independentOutput;
+    if (activeOutput) {
+      const wav = `${options.output.slice(0, -5)}-${spec.name}-${run}-output.wav`;
+      independentOutput = { wav, ...await activeOutput.finish(join(out, wav), raw, initial.startsAt, song.bpm) };
+      console.log(`  PulseAudio: first candidate Δ=${independentOutput.first.deltaMs}ms, ${independentOutput.pairs.length} mapped/captured pairs; WAV: ${wav}`);
+    }
     if (options['handoff-drop-kicks']) {
       events.injectedKickDrop = raw[1].injectedKickDrop;
       assert.ok(events.injectedKickDrop?.dropped.length >= 2, 'handoff regression dropped multiple actual listener kicks');
@@ -506,7 +522,7 @@ async function scenario(base, spec, network, run) {
       const firstDownbeat = firstMixDownbeat(hostOnsets, listenerOnsets, initial.startsAt, song.bpm);
       const failures = missedFirstMixDownbeat(firstDownbeat) ? ['first downbeat'] : [];
       console.log(`  ${spec.name}: ${JSON.stringify({ ...firstDownbeat, navigationLeadMs: initial.startsAt - navigation, failures })}`);
-      return { name: spec.name, spec, events, firstDownbeat, failures, raw: { captures: raw, hostOnsets, listenerOnsets } };
+      return { name: spec.name, spec, events, firstDownbeat, independentOutput, failures, raw: { captures: raw, hostOnsets, listenerOnsets } };
     }
     if (spec.mix) {
       const mix = analyzeMix(raw, song, events, initial.startsAt, {
@@ -573,7 +589,7 @@ async function scenario(base, spec, network, run) {
         vocalVsKickMs:mix.phases.after.vocal.relativeToKickMs, boundaries:mix.boundaries.map(b => ({bar:b.bar, correctSection:b.correctSection, deltaMs:b.deltaMs})), failures })}`);
       if (diagnostics) console.log(`  diagnostics: ${JSON.stringify(diagnostics)}`);
       console.log(`  mix thresholds: ${failures.length ? 'FAIL: ' + failures.join(', ') : 'PASS'}`);
-      return { name:spec.name, spec, mix, events, failures, diagnostics, vocalStarts, stepEvidence, raw:{captures:raw},
+      return { name:spec.name, spec, mix, events, failures, diagnostics, vocalStarts, stepEvidence, independentOutput, raw:{captures:raw},
         vocalGrid, vocalFindings: findings, clips, gridReference: { sampleZeroEpochMs: initial.startsAt, bpm: song.bpm,
           processedStem: true, envelope: reference, updatedSetSampleZeroEpochMs: events.newSet?.startsAt ?? null },
         ...(realVocal ? { vocalTimeline: { sampleZeroEpochMs: initial.startsAt, sampleZeroGridSeconds: 0, bpm: song.bpm,
@@ -672,6 +688,8 @@ async function scenario(base, spec, network, run) {
     return { name:spec.name, spec, events, error:String(error.stack || error), raw:{captures} };
   } finally {
     await Promise.all([...clients.map(c => c.close()), ...contention.map(terminate)]);
+    await activeOutput?.close();
+    activeOutput = undefined;
     if (options['startup-contention']) await rm(contentionFile, { force: true });
   }
 }
@@ -718,6 +736,7 @@ const stop = async signal => {
   stopping = true;
   try { await network?.close(); } finally {
     await Promise.all([...activeClients].map(close => close()));
+    await activeOutput?.close();
     await terminate(server);
     await terminate(singer); process.exit(signal === 'SIGINT' ? 130 : 143);
   }

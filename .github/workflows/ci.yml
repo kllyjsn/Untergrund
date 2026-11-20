@@ -5,6 +5,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      club_output_capture:
+        description: Run the shared-clock Club output experiment
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -27,13 +32,33 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run test:club-sync -- --assert
+      - if: ${{ !inputs.club_output_capture }}
+        run: npm run test:club-sync -- --assert
+      - if: inputs.club_output_capture
+        name: Interleave native-output controls and shared-clock captures
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pulseaudio pulseaudio-utils
+          for order in host-first listener-first host-first; do
+            for scenario in cold-invite-first-downbeat background-wake-mix; do
+              flags=()
+              if [[ "$scenario" == background-wake-mix ]]; then flags+=(--whole-step-test); fi
+              n=$(( ${n:-0} + 1 ))
+              npm run test:club-sync -- --assert --scenario "$scenario" "${flags[@]}" --output "$scenario-$n-native.json" || failed=1
+              npm run test:club-sync -- --assert --scenario "$scenario" "${flags[@]}" --output "$scenario-$n-captured.json" --output-capture "$order" || failed=1
+            done
+          done
+          exit "${failed:-0}"
       - name: Upload rendered-audio sync evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: club-rendered-audio-sync
-          path: test/out/club-sync.json
+          path: |
+            test/out/club-sync.json
+            test/out/*-native.json
+            test/out/*-captured.json
+            test/out/*-output.wav
           if-no-files-found: warn
 
   test:
