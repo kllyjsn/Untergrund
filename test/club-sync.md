@@ -681,7 +681,7 @@ npm run test:club-sync -- --scenario cold-invite-first-downbeat --output cold-ca
 ```
 
 Repeat with `listener-first` to reverse channel assignments, and with
-`--scenario background-wake-mix --whole-step-test` for the 243ms control.
+`--scenario short-wake-mix --whole-step-test --diagnostics` for the 243ms control.
 The CI workflow's manual `club_output_capture` input runs both interleaved
 experiments on Ubuntu and uploads the JSON and PCM evidence. It does not change
 the normal harness or its thresholds.

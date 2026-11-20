@@ -39,13 +39,21 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y pulseaudio pulseaudio-utils
-          for order in host-first listener-first host-first; do
-            for scenario in cold-invite-first-downbeat background-wake-mix; do
+          for n in {1..5}; do
+            order=host-first
+            modes=(native captured)
+            if (( n % 2 == 0 )); then
+              order=listener-first
+              modes=(captured native)
+            fi
+            for scenario in cold-invite-first-downbeat short-wake-mix; do
               flags=()
-              if [[ "$scenario" == background-wake-mix ]]; then flags+=(--whole-step-test); fi
-              n=$(( ${n:-0} + 1 ))
-              npm run test:club-sync -- --assert --scenario "$scenario" "${flags[@]}" --output "$scenario-$n-native.json" || failed=1
-              npm run test:club-sync -- --assert --scenario "$scenario" "${flags[@]}" --output "$scenario-$n-captured.json" --output-capture "$order" || failed=1
+              if [[ "$scenario" == short-wake-mix ]]; then flags+=(--whole-step-test --diagnostics); fi
+              for mode in "${modes[@]}"; do
+                capture=()
+                if [[ "$mode" == captured ]]; then capture=(--output-capture "$order"); fi
+                npm run test:club-sync -- --assert --scenario "$scenario" "${flags[@]}" --output "$scenario-$n-$mode.json" "${capture[@]}" || failed=1
+              done
             done
           done
           exit "${failed:-0}"
