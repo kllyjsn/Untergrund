@@ -353,8 +353,14 @@ console.log('Room S-curve clock precision PASS: real epoch arithmetic preserves 
     for (const rate of [.992, 1.008]) {
       const fallback = transportResync(100.005, 100, 0, 30, false, -Infinity, rate, true);
       assert.ok(fallback?.slew);
-      assert.ok(Math.abs(fallback.endRate - 1) < Math.abs(rate - 1), 'an exhausted search eases toward unity');
-      assert.equal(fallback.profile.rates.length, 3);
+      assert.equal(fallback.endRate, rate, 'a constant inherited rate starts with zero slope');
+      assert.ok(Math.abs(fallback.profile.rates[2] - 1) < Math.abs(rate - 1), 'an exhausted search eases toward unity');
+      const limit = Math.max(...[-.03, .03].flatMap(error => {
+        const rates = transportResync(error, 0, -100, 30, false, -Infinity, 1, true).profile.rates;
+        return rates.slice(1).map((value, i) => Math.abs(1200 * Math.log2(value / rates[i])));
+      }));
+      assert.ok(fallback.profile.rates.slice(2).every((value, i) =>
+        Math.abs(1200 * Math.log2(value / fallback.profile.rates[i + 1])) <= limit + 1e-10));
       assert.equal(fallback.profile.rates.at(-1), 1);
     }
     console.log('Room profile sweep PASS: ' + count + ' cases, both residual signs, full rate cap, 40–240 BPM/rubato, bounded fallback and eventual exact alignment/unity.');
@@ -362,6 +368,11 @@ console.log('Room S-curve clock precision PASS: real epoch arithmetic preserves 
   assert.equal(sweep.error, undefined, `profile sweep exceeded timeout: ${sweep.error}`);
   assert.equal(sweep.status, 0, sweep.stderr);
   process.stdout.write(sweep.stdout);
+  const retarget = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `await import(${JSON.stringify(new URL('./room-slew-retarget.mjs', import.meta.url).href)});`], {encoding:'utf8', timeout:30000});
+  assert.equal(retarget.error, undefined, `retarget sweep exceeded timeout: ${retarget.error}`);
+  assert.equal(retarget.status, 0, retarget.stderr);
+  process.stdout.write(retarget.stdout);
 }
 
 {

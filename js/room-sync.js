@@ -108,7 +108,7 @@ function roomSlew(target, nextTime, now, stepSec, rate, profile) {
   const error = target - nextTime;
   if ((Math.abs(error) < 1e-10 && rate === 1) || nextTime - stepSec < now + 0.005) return null;
   if (!profile || profile.stepSec !== stepSec || Math.abs(profile.error - error) > 1e-6 ||
-      profile.rates[profile.index] !== rate) profile = roomSlewProfile(error, stepSec, rate);
+      profile.rates[profile.index] !== rate) profile = roomSlewProfile(error, stepSec, rate, profile);
   const index = profile.index + 1, endRate = profile.rates[index];
   let next = nextTime + 2 * stepSec / (rate + endRate) - stepSec;
   if (endRate === 1 && Math.abs(target - next) < 1e-10) next = target;
@@ -116,7 +116,8 @@ function roomSlew(target, nextTime, now, stepSec, rate, profile) {
     profile:index < profile.rates.length - 1 ? {...profile, index, error:target - next} : null};
 }
 
-function roomSlewProfile(error, stepSec, rate) {
+function roomSlewProfile(error, stepSec, rate, previous = null) {
+  if (rate !== 1) return roomSlewRetarget(error, stepSec, rate, previous);
   const low = Math.min(rate, Math.max(0.992, 1 / (1 + 0.0015 / stepSec)));
   const high = Math.max(rate, Math.min(1.008, 1 / (1 - 0.0015 / stepSec)));
   const capacity = Math.min(1 - low, high - 1);
@@ -150,6 +151,57 @@ function roomSlewProfile(error, stepSec, rate) {
   return {rates:Array.from({length:coastSteps + 1}, (_, i) =>
     i === 0 ? rate : i === coastSteps ? 1 : 1 + (rate - 1) * (1 + Math.cos(Math.PI * i / coastSteps)) / 2),
     index:0, stepSec, error};
+}
+
+const roomSlewLimits = new Map();
+const roomSlewChange = rates => Math.max(...rates.slice(1).map((rate, i) => Math.abs(1200 * Math.log2(rate / rates[i]))));
+const roomSlewPhase = (rates, stepSec) => rates.slice(1).reduce((sum, rate, i) => sum + 2 * stepSec / (rates[i] + rate) - stepSec, 0);
+
+function roomSlewRetarget(error, stepSec, rate, previous) {
+  let limit = roomSlewLimits.get(stepSec);
+  if (limit === undefined) {
+    limit = Math.max(...[-.030, .030].map(error => roomSlewChange(roomSlewProfile(error, stepSec, 1).rates)));
+    if (roomSlewLimits.size === 32) roomSlewLimits.delete(roomSlewLimits.keys().next().value);
+    roomSlewLimits.set(stepSec, limit);
+  }
+  const prior = previous?.rates[previous.index - 1];
+  const slope = prior !== undefined && previous.rates[previous.index] === rate
+    ? (rate - prior) * (rate + prior) / (2 * previous.stepSec) : 0;
+  const endRate = Math.max(.992, Math.min(1.008, Math.sqrt(rate * rate + 2 * stepSec * slope)));
+  const cents = 1200 * Math.log2(endRate), coastSteps = Math.max(2, Math.ceil(Math.PI * Math.abs(cents) / (2 * limit)));
+  const low = Math.min(rate, endRate, Math.max(.992, 1 / (1 + .0015 / stepSec)));
+  const high = Math.max(rate, endRate, Math.min(1.008, 1 / (1 - .0015 / stepSec)));
+  const ratio = 2 ** (limit / 1200);
+  let steps = Math.max(coastSteps * 2, Math.ceil((3.5 + Math.abs(error) * 2.5 / .03) / stepSec));
+  for (let attempt = 0; attempt < 64 && steps <= 4096; attempt++, steps = Math.ceil(steps * 1.12)) {
+    const base = [endRate], shape = [0];
+    let lo = -Infinity, hi = Infinity;
+    const bound = (coefficient, value) => {
+      if (coefficient > 0) hi = Math.min(hi, value / coefficient);
+      else if (coefficient < 0) lo = Math.max(lo, value / coefficient);
+    };
+    for (let i = 1; i <= steps; i++) {
+      base[i] = i >= coastSteps * 1.5 ? 1 : 2 ** (cents * (1 + Math.cos(Math.PI * i / (coastSteps * 1.5))) / 2400);
+      shape[i] = i === steps ? 0 : 1 - Math.cos(Math.PI * i / steps) ** 4;
+      bound(shape[i], high - base[i]);
+      bound(-shape[i], base[i] - low);
+      bound(shape[i] - ratio * shape[i - 1], ratio * base[i - 1] - base[i]);
+      bound(shape[i - 1] / ratio - shape[i], base[i] - base[i - 1] / ratio);
+    }
+    const rates = amplitude => [rate, ...base.map((value, i) => value + amplitude * shape[i])];
+    if (lo <= hi && roomSlewPhase(rates(lo), stepSec) >= error && roomSlewPhase(rates(hi), stepSec) <= error) {
+      for (let i = 0; i < 48; i++) {
+        const middle = (lo + hi) / 2;
+        if (roomSlewPhase(rates(middle), stepSec) > error) lo = middle;
+        else hi = middle;
+      }
+      return {rates:rates((lo + hi) / 2), index:0, stepSec, error};
+    }
+  }
+  const rates = [rate, endRate];
+  for (let i = 1; i <= coastSteps; i++)
+    rates.push(i === coastSteps ? 1 : 2 ** (cents * (1 + Math.cos(Math.PI * i / coastSteps)) / 2400));
+  return {rates, index:0, stepSec, error};
 }
 
 export function slewTransport(target, nextTime, limit = 0.03) {
