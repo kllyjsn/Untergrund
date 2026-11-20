@@ -629,10 +629,14 @@ export class Engine {
     this.setTo(this.limiter.threshold, this.hardTechno ? -3 : -6, true);
     this.setTo(this.limiter.knee, this.hardTechno ? 1 : 3, true);
     this.setTo(this.limTrim.gain, (this.hardTechno ? 1 : LIM_TRIM) / CLIP_HEADROOM, true);
-    const festivalSaw = this.state.artist?.style === 'trap' && Math.round(this.state.params.stab.voice) === 0;
-    this.setTo(this.out.gain, this.hardTechno ? 0.98 : OUT_TRIM * (festivalSaw ? 10 ** (-0.5 / 20) : 1), true);
+    this.applyOutputTrim(true);
     this.applyTone();
     this.applyStrips();
+  }
+
+  applyOutputTrim(immediate = false) {
+    const festivalSaw = this.state.artist?.style === 'trap' && Math.round(this.state.params.stab.voice) === 0;
+    this.setTo(this.out.gain, this.hardTechno ? 0.98 : OUT_TRIM * (festivalSaw ? 10 ** (-0.5 / 20) : 1), immediate);
   }
 
   // The genre's mastering EQ and stereo width; the width lifts only the side above 300 Hz, so the mono fold-down is unchanged.
@@ -697,6 +701,7 @@ export class Engine {
     }
     const v = this.state.params[tid][id];
     const ch = this.ch[tid];
+    if (tid === 'stab' && id === 'voice') return this.applyOutputTrim(immediate);
     if (id === 'level') {
       const gain = v * (tid === 'stab' && this.smoothOn > 0 ? 10 ** (this.smoothOn / 20) : 1), fade = this.hardFade;
       if (this.jamAt == null || !this.hardTechno || this.hardFadeAt == null) return this.setTo(ch.level.gain, gain, immediate);

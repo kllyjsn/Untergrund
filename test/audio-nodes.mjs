@@ -88,15 +88,24 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
     if (style) s.artist = { style };
     s.params.stab.voice = voice;
     const ctx = fakeCtx(), e = new Engine(ctx, s, { realtime: false });
-    let output;
+    let output, outputImmediate;
     const setTo = e.setTo;
-    e.setTo = function (p, v, ...rest) { if (p === this.out.gain) output = v; return setTo.call(this, p, v, ...rest); };
+    e.setTo = function (p, v, ...rest) { if (p === this.out.gain) { output = v; outputImmediate = rest[0]; } return setTo.call(this, p, v, ...rest); };
     e.applyAll();
     assert.equal(output, 0.78 * (trimmed ? 10 ** (-0.5 / 20) : 1), `${style}/${voice} master trim is festival-SAW-only`);
     const filters = [], filter = e.filter;
     e.filter = function (type, hz, ...rest) { filters.push([type, hz]); return filter.call(this, type, hz, ...rest); };
     e.pad(0.05, 0.8, [0], 60, s.params.stab, ctx.destination);
     assert.deepEqual(filters.filter(([type]) => type === 'highpass'), style === 'trap' ? [['highpass', 180]] : []);
+    for (const nextVoice of [2, 0, 7, 0]) {
+      e.setParam('stab', 'voice', nextVoice);
+      assert.equal(output, 0.78 * (style === 'trap' && nextVoice === 0 ? 10 ** (-0.5 / 20) : 1), `${style} voice edits refresh output trim`);
+      assert.equal(outputImmediate, false, 'live edits retain parameter smoothing');
+    }
+    e.state.params.stab.voice = 2;
+    e.applyParam('stab', 'voice', true);
+    assert.equal(output, 0.78, 'direct voice edits restore the untrimmed output');
+    assert.equal(outputImmediate, true, 'immediate voice edits retain their timing');
   }
   console.log('Trap festival-only output trim and PAD highpass passed');
 }
