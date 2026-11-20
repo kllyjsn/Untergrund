@@ -207,6 +207,7 @@ function schedule(lead) {
     if (roomDrainUntil === null) {
       engine.cancelVocalSlew?.();
       engine.roomSlewRate = 1;
+      engine.roomSlewProfile = null;
     }
     roomDrainUntil = correction.drainUntil;
     if (replayAt <= roomDrainUntil + 0.03 && replayAt < now + ahead) switchRoomReplay(replayAt);
@@ -219,6 +220,7 @@ function schedule(lead) {
     if (fix.discard) {
       engine.discardQueuedNotes(now);
       engine.roomSlewRate = 1;
+      engine.roomSlewProfile = null;
       uiQueue.length = 0;
       seq.acidPrevSlide = false;
       if (handoff) { engine.handoffCancel(); handoff.out = false; }
@@ -254,12 +256,13 @@ function schedule(lead) {
         nextTime = slewTransport(gridTarget, nextTime, 0.05);
       } else {
         const duration = engine.stepDur;
-        const slew = transportResync(gridTarget, nextTime, ctx.currentTime, duration, false, seq.origin - abs, engine.roomSlewRate ?? 1, true);
+        const slew = transportResync(gridTarget, nextTime, ctx.currentTime, duration, false, seq.origin - abs, engine.roomSlewRate ?? 1, true, engine.roomSlewProfile);
         if (slew?.slew) {
           const shifted = slewTransport(slew.nextTime, nextTime, 0.05);
           if (!engine.vocalNow)
             engine.slewVocal?.(shifted - nextTime, nextTime - duration, duration, slew.rate, slew.endRate);
           engine.roomSlewRate = slew.endRate;
+          engine.roomSlewProfile = slew.profile;
           nextTime = shifted;
         }
       }
@@ -295,8 +298,8 @@ function schedule(lead) {
       Math.abs(vocalError) <= 0.05;
     if (vocalSlewing) {
       const end = vocalFrom + engine.stepDur;
-      const slew = transportResync(end + vocalError, end, ctx.currentTime, engine.stepDur, false, -Infinity, voice.slewRate ?? 1, true);
-      if (slew?.slew) engine.slewVocal(slew.nextTime - end, vocalFrom, engine.stepDur, slew.rate, slew.endRate);
+      const slew = transportResync(end + vocalError, end, ctx.currentTime, engine.stepDur, false, -Infinity, voice.slewRate ?? 1, true, voice.slewProfile);
+      if (slew?.slew) engine.slewVocal(slew.nextTime - end, vocalFrom, engine.stepDur, slew.rate, slew.endRate, slew.profile);
       if ((voice.slewRate ?? 1) === 1 && Math.abs(gridTarget - voice.origin - phase) < 1e-9 &&
           (engine.roomSlewRate ?? 1) === 1 && Math.abs(gridTarget - nextTime) < 1e-9) vocalGridDirty = false;
     }
@@ -479,6 +482,7 @@ function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room 
   engine.replay808Style = replay808Style;
   engine.prepareVocal();
   engine.roomSlewRate = 1;
+  engine.roomSlewProfile = null;
   engine.editableHits.length = 0;
   const wallNow = Date.now(), audioNow = ctx.currentTime;
   if (startsAt !== null) ({ step, delay } = roomTransportPosition(startsAt, state.bpm, wallNow));

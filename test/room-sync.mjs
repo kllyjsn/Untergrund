@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import { runInNewContext } from 'node:vm';
 import { createRoomClock, roomTransportPosition, shiftRoomSet, syncAudioClock, transportResync, calibrateRoomClock, slewTransport, roomTransportCorrection } from '../js/room-sync.js';
 import { freshSong, clone, sanitize, STYLES } from '../js/state.js';
@@ -246,6 +247,133 @@ assert.equal(transportResync(10.001, 10, 9, .125, false, -Infinity, 1), null);
 assert.equal(transportResync(10.02, 10, 9.9, .125, false, -Infinity, 1), null, 'do not slew an interval already rendering');
 assert.deepEqual(transportResync(10.2, 10, 9.9, .125, false, -Infinity, 1), { skip: 0, nextTime: 10.2, discard: false });
 console.log('Room residual slew PASS: both signs, 40–240 BPM, smooth bounded rates, phase-locked steps, unity within <5s, floor and render guard.');
+
+for (const bpm of [40, 80, 123, 180, 240]) for (const sign of [-1, 1]) {
+  let previousPeak = 0;
+  for (const residual of [.001, .005, .014, .028, .030, .049]) {
+    const sd = 15 / bpm;
+    let target = 10, next = target + sign * residual, rate = 1, profile = null, peak = 0, steps = 0;
+    const endpoints = [1];
+    while (Math.abs(target - next) > 1e-10 || rate !== 1) {
+      const fix = transportResync(target, next, next - sd - .01, sd, false, -Infinity, rate, true, profile);
+      assert.ok(fix?.slew);
+      assert.equal(fix.rate, rate);
+      assert.ok(Math.abs(fix.endRate - 1) <= .008 + 1e-12);
+      assert.ok(Math.abs(fix.nextTime - next) <= .0015 + 1e-12);
+      close((sd + fix.nextTime - next) * (rate + fix.endRate) / 2, sd);
+      assert.ok((fix.endRate - 1) * sign >= 0, 'a stable target never reverses pitch');
+      if (bpm === 123 && steps === 0)
+        assert.ok(Math.abs(1200 * Math.log2(fix.endRate)) <= 1, 'first sixteenth leaves unity gently');
+      profile = fix.profile; rate = fix.endRate; next = fix.nextTime + sd; target += sd; steps++;
+      peak = Math.max(peak, Math.abs(rate - 1)); endpoints.push(rate);
+      assert.ok(steps * sd < 30, 'exact alignment and unity complete in finite time');
+    }
+    if (residual <= .030) assert.ok(peak > previousPeak, 'peak deviation grows with residual');
+    previousPeak = peak;
+    assert.equal(profile, null);
+    assert.ok(Math.abs(next - target) < 1e-10, 'exact alignment includes residuals below 2ms');
+    const velocities = endpoints.map(r => Math.abs(r - 1));
+    assert.ok(velocities.slice(1, -1).every(v => v > 0), 'no mid-slew unity reset');
+    assert.ok(Math.max(...velocities) < .008, 'no plateau at the rate cap');
+    if (bpm === 123 && residual === .030) {
+      assert.ok(steps * sd <= 6.25, '30ms closes in about six seconds at 123 BPM');
+      console.log(`Room S-curve ${sign * 30}ms: unity/exact alignment ${(steps * sd).toFixed(6)}s.`);
+    }
+  }
+}
+{
+  const sd = 15 / 123;
+  const first = transportResync(10, 10.028, 9, sd, false, -Infinity, 1, true);
+  const saved = JSON.stringify(first.profile);
+  assert.equal(transportResync(10, 10.028, 10, sd, false, -Infinity, 1, true), null, 'render guard does not start a profile');
+  const changed = transportResync(10 + sd + .003, first.nextTime + sd, 9, sd, false, -Infinity, first.endRate, true, first.profile);
+  assert.equal(changed.rate, first.endRate, 'a moving target replans from the actual carried rate');
+  const rubato = transportResync(10 + .15, first.nextTime + .15, 9, .15, false, -Infinity, first.endRate, true, first.profile);
+  close((.15 + rubato.nextTime - first.nextTime - .15) * (rubato.rate + rubato.endRate) / 2, .15);
+  assert.equal(JSON.stringify(first.profile), saved, 'planning never mutates an unaccepted profile');
+  assert.equal(transportResync(10, 10, 9, sd, false, -Infinity, 1, true), null);
+}
+console.log('Room S-curve PASS: monotonic residual-scaled peaks, both signs, 40–240 BPM, gentle onset, exact phase/unity, cap, guards, retargeting and rubato.');
+
+for (const residual of [-.030, .030]) {
+  const sd = 15 / 123, origin = 1795171688926 / 1000, offset = 1795171682.8419116;
+  let next = origin - offset + residual, rate = 1, profile = null, starts = 0, aligned = false;
+  for (let step = 0; step < 52; step++) {
+    const target = origin + step * sd - offset;
+    const fix = transportResync(target, next, 0, sd, false, -Infinity, rate, true, profile);
+    if (fix?.slew) {
+      if (fix.profile?.index === 1) starts++;
+      rate = fix.endRate; profile = fix.profile; next = fix.nextTime;
+    }
+    if (rate === 1 && Math.abs(next - target) < 1e-6) { aligned = true; break; }
+    next += sd;
+  }
+  assert.ok(aligned, 'epoch subtraction rounding must not continually restart the easing profile');
+  assert.equal(starts, 1, 'sub-microsecond grid quantization is not a new clock correction');
+}
+console.log('Room S-curve clock precision PASS: real epoch arithmetic preserves profile progress and closes +/-30ms in about six seconds.');
+
+{
+  const imports = `import assert from 'node:assert/strict'; import {transportResync} from ${JSON.stringify(new URL('../js/room-sync.js', import.meta.url).href)};`;
+  const repro = spawnSync(process.execPath, ['--input-type=module', '-e', `${imports}
+    const fix = transportResync(10.005, 10, 0, .7, false, -Infinity, 1.005, true);
+    assert.ok(fix?.slew);
+    assert.ok(fix.profile.rates.some(rate => rate < 1), 'the profile can cross unity');
+    console.log('Room profile hang regression PASS: 0.7s step, 1.005 start rate, +5ms residual; returns and crosses unity.');
+  `], {encoding:'utf8', timeout:2000});
+  assert.equal(repro.error, undefined, `profile call exceeded timeout: ${repro.error}`);
+  assert.equal(repro.status, 0, repro.stderr);
+  process.stdout.write(repro.stdout);
+  const sweep = spawnSync(process.execPath, ['--input-type=module', '-e', `${imports}
+    let count = 0, seed = 0x293;
+    const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32);
+    function converge(startRate, error, duration, rubato = false) {
+      let target = 10 + error, next = 10, rate = startRate, profile = null;
+      for (let step = 0; step < 512; step++) {
+        if (Math.abs(target - next) < 1e-9 && rate === 1) { count++; return; }
+        const sd = rubato && step < 12 ? duration * (.5 + random()) : duration;
+        const fix = transportResync(target, next, 0, sd, false, -Infinity, rate, true, profile);
+        assert.ok(fix && Number.isFinite(fix.nextTime));
+        if (fix.slew) {
+          assert.equal(fix.rate, rate);
+          assert.ok(Math.abs(fix.endRate - 1) <= .008 + 1e-12);
+          assert.ok(Math.abs((sd + fix.nextTime - next) * (rate + fix.endRate) / 2 - sd) < 1e-9);
+          assert.ok(!fix.profile || fix.profile.rates.length < 1024);
+          rate = fix.endRate; profile = fix.profile;
+        } else profile = null;
+        next = fix.nextTime + sd; target += sd;
+      }
+      assert.fail(JSON.stringify({startRate, error, duration, rubato, rate, residual:target - next}));
+    }
+    for (const bpm of [40, 123, 240]) for (const scale of [1, 2])
+      for (const rate of [.992, .995, 1, 1.005, 1.008])
+        for (const error of [-.049, -.028, -.005, 0, .005, .028, .049]) converge(rate, error, 15 / bpm * scale);
+    for (let i = 0; i < 1000; i++) converge(.992 + random() * .016, (random() * 2 - 1) * .049,
+      15 / (40 + random() * 200) * (.5 + random() * 1.5), i % 2 === 0);
+    for (const rate of [.992, 1.008]) {
+      const fallback = transportResync(100.005, 100, 0, 30, false, -Infinity, rate, true);
+      assert.ok(fallback?.slew);
+      assert.equal(fallback.endRate, rate, 'a constant inherited rate starts with zero slope');
+      assert.ok(Math.abs(fallback.profile.rates[2] - 1) < Math.abs(rate - 1), 'an exhausted search eases toward unity');
+      const limit = Math.max(...[-.03, .03].flatMap(error => {
+        const rates = transportResync(error, 0, -100, 30, false, -Infinity, 1, true).profile.rates;
+        return rates.slice(1).map((value, i) => Math.abs(1200 * Math.log2(value / rates[i])));
+      }));
+      assert.ok(fallback.profile.rates.slice(2).every((value, i) =>
+        Math.abs(1200 * Math.log2(value / fallback.profile.rates[i + 1])) <= limit + 1e-10));
+      assert.equal(fallback.profile.rates.at(-1), 1);
+    }
+    console.log('Room profile sweep PASS: ' + count + ' cases, both residual signs, full rate cap, 40–240 BPM/rubato, bounded fallback and eventual exact alignment/unity.');
+  `], {encoding:'utf8', timeout:30000});
+  assert.equal(sweep.error, undefined, `profile sweep exceeded timeout: ${sweep.error}`);
+  assert.equal(sweep.status, 0, sweep.stderr);
+  process.stdout.write(sweep.stdout);
+  const retarget = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `await import(${JSON.stringify(new URL('./room-slew-retarget.mjs', import.meta.url).href)});`], {encoding:'utf8', timeout:30000});
+  assert.equal(retarget.error, undefined, `retarget sweep exceeded timeout: ${retarget.error}`);
+  assert.equal(retarget.status, 0, retarget.stderr);
+  process.stdout.write(retarget.stdout);
+}
 
 {
   const correction = transportResync(10.75, 11.5, 10, 0.125, false, -4, true);

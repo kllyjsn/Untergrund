@@ -537,6 +537,61 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
 
   {
+    for (const residual of [-.028, .005, .014, .028]) {
+      const c = fakeCtx(), s = defaultState(), events = [];
+      s.bpm = 123;
+      const buf = new FakeBuffer({length:48000 * 20, sampleRate:48000});
+      c.createBufferSource = () => ({connect:dst => dst, start() {}, stop() {}, playbackRate: {
+        setValueAtTime:(rate, at) => events.push({rate, at, ramp:false}),
+        linearRampToValueAtTime:(rate, at) => events.push({rate, at, ramp:true}),
+      }});
+      const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+      const start = 10 + residual, sd = e.stepDur;
+      e.vocal(start, 0, 0, start);
+      const voice = e.vocalNow;
+      const declined = transportResync(10 + sd / 2, start + sd / 2, 0, sd, false, -Infinity, 1, true);
+      assert.equal(e.slewVocal(declined.nextTime - start - sd / 2, start - sd / 2, sd, 1, declined.endRate, declined.profile), false);
+      assert.equal(voice.slewRate, undefined, 'a pre-start decline never advances the actual rate');
+      assert.equal(voice.slewProfile, undefined, 'a pre-start decline never advances the profile');
+      assert.equal(voice.origin, start);
+      assert.equal(events.length, 0);
+      let next = start + sd, target = 10 + sd, count = 0;
+      while (Math.abs(target - next) > 1e-10 || (voice.slewRate ?? 1) !== 1) {
+        const fix = transportResync(target, next, 0, sd, false, -Infinity, voice.slewRate ?? 1, true, voice.slewProfile);
+        assert.equal(e.slewVocal(fix.nextTime - next, next - sd, sd, fix.rate, fix.endRate, fix.profile), true);
+        if (count === 0) {
+          assert.equal(events[0].rate, 1, 'the first accepted anchor equals the rate actually in effect');
+          assert.ok(Math.abs(1200 * Math.log2(events[1].rate)) <= 1, 'the first accepted sixteenth eases away from unity');
+          const saved = {rate:voice.slewRate, profile:voice.slewProfile, origin:voice.origin, end:voice.slewEnd, count:events.length};
+          assert.equal(e.slewVocal(0, next - sd, sd, 1, 1), false, 'a stale caller cannot anchor a different rate');
+          c.currentTime = next;
+          assert.equal(e.slewVocal(0, next - sd, sd, voice.slewRate, 1), false, 'render-deadline calls decline');
+          c.currentTime = 0;
+          assert.equal(e.slewVocal(0, next - sd, sd, voice.slewRate, 1), false, 'already appended intervals decline');
+          assert.deepEqual({rate:voice.slewRate, profile:voice.slewProfile, origin:voice.origin, end:voice.slewEnd, count:events.length}, saved);
+        }
+        next = fix.nextTime + sd; target += sd;
+        assert.equal(e.vocalNow, voice, 'the source stays continuous');
+        assert.ok(++count < 100);
+      }
+      let phase = 0, at = start, rate = 1;
+      for (const event of events) {
+        assert.ok(event.at >= at);
+        phase += (event.at - at) * (event.ramp ? (rate + event.rate) / 2 : rate);
+        at = event.at; rate = event.rate;
+      }
+      assert.equal(events.filter(e => !e.ramp).length, 1);
+      assert.equal(events.at(-1).rate, 1);
+      assert.equal(voice.slewProfile, null);
+      assert.ok(Math.abs(at - phase - voice.origin) < 1e-9, 'the appended S-curve integrates to the tracked vocal phase');
+      assert.ok(Math.abs(voice.origin - 10) < 1e-9, 'the vocal reaches exact alignment, not just the old floor');
+      e.vocalStop();
+      assert.equal(e.slewVocal(0, 20, sd, 1, 1), false, 'silent sources explicitly decline');
+    }
+    console.log('Vocal S-curve PASS: accepted/declined state is atomic, actual-rate anchors, <=1 cent onset, right-after-start -28ms, both signs and exact integrated phase.');
+  }
+
+  {
     const c = fakeCtx(), s = defaultState(); s.bpm = 120;
     const buf = new FakeBuffer({length:48000 * 70, sampleRate:48000}), starts = [];
     buf.getChannelData(0).fill(0.1);

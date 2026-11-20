@@ -3331,14 +3331,15 @@ export class Engine {
   }
 
   // Integrate the same future rate ramp as the grid without interrupting the stem.
-  slewVocal(delta, from, duration, rate, endRate) {
+  slewVocal(delta, from, duration, rate, endRate, profile = null) {
     const cur = this.vocalNow;
-    if (!cur || from + 1e-9 < cur.at || from < this.ctx.currentTime + 0.005) return;
+    if (!cur || from + 1e-9 < cur.at || from < this.ctx.currentTime + 0.005 ||
+        Math.abs(rate - (cur.slewRate ?? 1)) > 1e-12) return false;
     const end = from + duration + delta;
-    if (end <= (cur.slewEnd ?? -Infinity)) return;
+    if (end <= (cur.slewEnd ?? -Infinity) || from + 1e-9 < (cur.slewEnd ?? -Infinity)) return false;
     const param = cur.src.playbackRate;
     if (cur.slewEnd === undefined || cur.slewRate === 1)
-      param.setValueAtTime(rate, Math.max(from, cur.slewEnd ?? from));
+      param.setValueAtTime(cur.slewRate ?? 1, Math.max(from, cur.slewEnd ?? from));
     else if (from > cur.slewEnd + 1e-9)
       param.linearRampToValueAtTime(rate, from);
     param.linearRampToValueAtTime(endRate, end);
@@ -3346,7 +3347,9 @@ export class Engine {
       cur.origin += (1 - cur.slewRate) * (from - cur.slewEnd);
     cur.slewEnd = end;
     cur.slewRate = endRate;
+    cur.slewProfile = profile;
     cur.origin += delta;
+    return true;
   }
 
   cancelVocalSlew() {
@@ -3359,6 +3362,7 @@ export class Engine {
     param.setValueAtTime(1, end + 1 / this.ctx.sampleRate);
     cur.slewEnd = end + 1 / this.ctx.sampleRate;
     cur.slewRate = 1;
+    cur.slewProfile = null;
   }
 
   // Keep a continuous stem across bars; discarding the queue on a clock jump stops it.
