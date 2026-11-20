@@ -4084,12 +4084,12 @@ export class Sequencer {
       const peak = (x) => x === 2 || x === 6, brk = (x) => x === 4 || x === 5, fill = this.cur === 3 || this.cur === 7;
       if (arr) {
         this.dropNext = peak(chain[(p + 1) % n]) && !peak(this.cur) && !(fill && peak(prev));
-        if (arr >= 0.75 && brk(this.cur) && !brk(prev)) {
+        if (!this.breakFilterPlanned && arr >= 0.75 && brk(this.cur) && !brk(prev)) {
           let k = 0; while (k < n && brk(chain[(p + k) % n])) k++;
           this.e.breakSweep(t, k * 16 * this.e.stepDur, SMOOTH.has(this.s.artist?.style));
         }
       }
-      if (!arr || !brk(this.cur)) this.e.breakOpen(t, SMOOTH.has(this.s.artist?.style));
+      if (!this.breakFilterPlanned && (!arr || !brk(this.cur))) this.e.breakOpen(t, SMOOTH.has(this.s.artist?.style));
       this.sectionLevel(t, p, offset);
       return;
     }

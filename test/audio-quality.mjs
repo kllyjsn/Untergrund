@@ -6,6 +6,45 @@ import { clipCurve, satCurve } from '../js/dsp.js';
 import { baselineOf, compare, report } from '../scripts/audio-benchmark.mjs';
 import { withChrome } from './chrome.mjs';
 
+// Include the approach to a breakdown and the return to the drop: a late
+// cancel-and-hold/ramp changes the filter *before* the breakdown's downbeat.
+const exportNull = await withChrome((run) => run(`(async () => {
+  const { song } = await import('/test/audio-quality-page.js');
+  const { renderBars } = await import('/js/render.js');
+  const s = song('hardtechno', 42);
+  s.chain = 'CCCEEFFGGGGGGGGG';
+  const opts = { startBar: 1 };
+  const full = await renderBars(s, 8, { ...opts, onScheduled() {} });
+  const proto = OfflineAudioContext.prototype, suspend = proto.suspend;
+  let suspends = 0, batched;
+  proto.suspend = function (at) { suspends++; return suspend.call(this, at); };
+  try { batched = await renderBars(s, 8, opts); }
+  finally { proto.suspend = suspend; }
+  if (full.length !== batched.length || full.numberOfChannels !== batched.numberOfChannels) throw Error('Render shape changed');
+  let peak = 0, rms = 0;
+  for (let c = 0; c < full.numberOfChannels; c++) {
+    const a = full.getChannelData(c), b = batched.getChannelData(c);
+    const window = full.sampleRate / 10;
+    for (let i = 0; i < a.length; i += window) {
+      const end = Math.min(a.length, i + window);
+      let energy = 0;
+      for (let k = i; k < end; k++) {
+        const error = a[k] - b[k];
+        peak = Math.max(peak, Math.abs(error));
+        energy += error ** 2;
+      }
+      rms = Math.max(rms, Math.sqrt(energy / (end - i)));
+    }
+  }
+  return { peak, rms, suspends };
+})()`));
+if (exportNull) {
+  assert(exportNull.suspends > 0, 'Hard Techno export scheduled hits in batches');
+  // Chromium's identical-render noise floor is not bit-exact. Bound the
+  // residual per 100 ms as well as at the worst sample, not just song RMS.
+  assert(exportNull.peak < 0.001 && exportNull.rms < 0.0002, `Hard Techno export render null: ${JSON.stringify(exportNull)}`);
+}
+
 {
   const result = {
     style: 'minimal', seed: 42,
