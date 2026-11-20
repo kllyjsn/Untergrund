@@ -629,7 +629,8 @@ export class Engine {
     this.setTo(this.limiter.threshold, this.hardTechno ? -3 : -6, true);
     this.setTo(this.limiter.knee, this.hardTechno ? 1 : 3, true);
     this.setTo(this.limTrim.gain, (this.hardTechno ? 1 : LIM_TRIM) / CLIP_HEADROOM, true);
-    this.setTo(this.out.gain, this.hardTechno ? 0.98 : OUT_TRIM, true);
+    const festivalSaw = this.state.artist?.style === 'trap' && Math.round(this.state.params.stab.voice) === 0;
+    this.setTo(this.out.gain, this.hardTechno ? 0.98 : OUT_TRIM * (festivalSaw ? 10 ** (-0.5 / 20) : 1), true);
     this.applyTone();
     this.applyStrips();
   }
@@ -1796,7 +1797,7 @@ export class Engine {
       const air = this.noiseSrc(t, end - t); air.loop = true;
       air.connect(hp).connect(airTop).connect(this.gain(0.05)).connect(amp);
     } else lp.connect(amp);
-    if (this.state.artist?.style === 'trap') amp.connect(this.filter('highpass', 180, 0.5)).connect(out);
+    if (this.state.artist?.style === 'trap') amp.connect(this.filter('highpass', festival ? 300 : 180, 0.5)).connect(out);
     else amp.connect(out);
   }
 

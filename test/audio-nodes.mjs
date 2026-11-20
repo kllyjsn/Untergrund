@@ -83,6 +83,24 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
   console.log('Trap PAD-only decorrelated unison motion passed');
 }
 {
+  for (const [style, voice, trimmed] of [['trap', 0, true], ['trap', 2, false], ['trap', 7, false], ['trance', 0, false], [undefined, 0, false]]) {
+    const s = defaultState();
+    if (style) s.artist = { style };
+    s.params.stab.voice = voice;
+    const ctx = fakeCtx(), e = new Engine(ctx, s, { realtime: false });
+    let output;
+    const setTo = e.setTo;
+    e.setTo = function (p, v, ...rest) { if (p === this.out.gain) output = v; return setTo.call(this, p, v, ...rest); };
+    e.applyAll();
+    assert.equal(output, 0.78 * (trimmed ? 10 ** (-0.5 / 20) : 1), `${style}/${voice} master trim is festival-SAW-only`);
+    const filters = [], filter = e.filter;
+    e.filter = function (type, hz, ...rest) { filters.push([type, hz]); return filter.call(this, type, hz, ...rest); };
+    e.pad(0.05, 0.8, [0], 60, s.params.stab, ctx.destination);
+    assert.deepEqual(filters.filter(([type]) => type === 'highpass'), style === 'trap' ? [['highpass', voice === 2 ? 300 : 180]] : []);
+  }
+  console.log('Trap festival-only output trim and PAD highpass passed');
+}
+{
   const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
   const source = main.slice(main.indexOf('function landJamPart(part,'), main.indexOf('\n// GENERATE while'));
   for (const drive of [0, .2]) {
