@@ -1,4 +1,8 @@
 {
   "note": "Known whole-song true-peak breaches on main (scripts/true-peak.mjs). An entry may not get louder than recorded + 0.1 dB, and must be removed once its song is back under -1 dBTP.",
-  "songs": {}
+  "songs": {
+    "minimal/41654": {"tp": -0.94, "why": "Section-A peak at bar 107; found by the first wide sweep (night 20777)"},
+    "minimal/41655": {"tp": -0.94, "why": "Section-A peak at bar 107; found by the first wide sweep (night 20777)"},
+    "pop/41655": {"tp": -0.99, "why": "Section-A peak at bar 99; found by the first wide sweep (night 20777)"}
+  }
 }
