@@ -12,7 +12,7 @@ export function findChrome() {
   const cands = [process.env.CHROME_PATH];
   const devin = '/opt/.devin/chrome/chrome';
   if (existsSync(devin)) for (const d of readdirSync(devin)) cands.push(join(devin, d, 'chrome-linux64/chrome'));
-  cands.push('/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser');
+  cands.push('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser');
   for (const c of cands) if (c && existsSync(c)) return c;
   try { return execFileSync('which', ['google-chrome'], { encoding: 'utf8' }).trim() || null; } catch { return null; }
 }

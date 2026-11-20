@@ -78,13 +78,24 @@ async function freePort() {
   const p = s.address().port; await new Promise(r => s.close(r)); return p;
 }
 async function terminate(p) {
-  if (!p || p.exitCode !== null) return;
-  const done = new Promise(r => p.once('exit', r)); p.kill('SIGKILL'); await done;
+  if (!p) return;
+  if (p.exitCode === null && p.signalCode === null) {
+    const done = new Promise(r => p.once('exit', r)); p.kill('SIGKILL'); await done;
+  }
+  p.stdout?.destroy(); p.stderr?.destroy();
+}
+function visibleControl(selectors, label) {
+  for (const selector of selectors) for (const el of document.querySelectorAll(selector)) {
+    const rect = el.getBoundingClientRect(), visibility = getComputedStyle(el).visibility;
+    if (rect.width && rect.height && visibility !== 'hidden' && visibility !== 'collapse' && !el.disabled
+      && (label === undefined || el.textContent.trim() === label)) return el;
+  }
+  return null;
 }
 async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = false, { limitPaint = false, hideStage = false } = {}) {
   const chrome = findChrome(); if (!chrome) throw new Error('Chrome required');
   const profile = await mkdtemp(join(out, 'chrome-'));
-  const proc = spawn(chrome, ['--headless=new', '--no-sandbox', '--no-first-run', '--disable-background-timer-throttling',
+  const proc = spawn(chrome, ['--headless=new', '--no-sandbox', '--no-first-run', ...(process.platform === 'darwin' ? ['--window-size=1280,900'] : []), '--disable-background-timer-throttling',
     '--disable-renderer-backgrounding', ...(options['mute-audio'] ? ['--mute-audio'] : []), '--autoplay-policy=no-user-gesture-required', '--remote-debugging-port=0',
     `--user-data-dir=${profile}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'],
     env: !fixture && options['no-audio-device'] ? { ...process.env, PULSE_SERVER: 'unix:/nonexistent/untergrund-pulse', ALSA_CONFIG_PATH: '/dev/null' } : process.env });
@@ -158,6 +169,7 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = 
       const start = performance.now(); await run('1+1'); cdpProbe.push(performance.now() - start);
     }
     console.log(`CDP control RTT (unfiltered): ${JSON.stringify(cdpProbe)}ms`);
+    console.log(`Chrome viewport: ${await run('JSON.stringify({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})')}`);
     if (options.diagnostics) {
       await installDiagnostics(send, base);
       await send('Profiler.enable');
@@ -196,8 +208,8 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = 
       await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
       return at;
     };
-    const click = selector => clickElement(`document.querySelector(${JSON.stringify(selector)})`, selector);
-    const clickText = label => clickElement(`[...document.querySelectorAll('.club-shell button')].find(b => b.textContent.trim() === ${JSON.stringify(label)})`, label);
+    const click = selector => clickElement(`(${visibleControl})([${JSON.stringify(selector)}])`, selector);
+    const clickText = label => clickElement(`(${visibleControl})(['.club-shell button'], ${JSON.stringify(label)})`, label);
     return { run, nav, click, clickText, clickElement, close, send, cdpProbe,
       audioErrors: () => stderr.split('\n').filter(l => /alsa|pulse|audio.*(?:error|fail)|(?:error|fail).*audio/i.test(l)) };
   } catch (e) { await close(); throw e; }
@@ -286,8 +298,7 @@ async function scenario(base, spec, network, run) {
       }, 'replay published before opening invite');
       assert.deepEqual(replay.members, [replay.hostId], 'The cold listener has not joined the replay room yet');
     } else {
-      const action = await until(() => host.run(`document.querySelector('.lobby-cta')?.textContent === 'GO LIVE' ? '.lobby-cta' : document.querySelector('.club-primary')?.textContent === 'GO LIVE' ? '.club-primary' : null`), 'GO LIVE');
-      await host.click(action);
+      await host.clickElement(`(${visibleControl})(['.lobby-cta', '.club-primary'], 'GO LIVE')`, 'GO LIVE');
     }
     room ??= await until(() => host.run('new URL(location.href).searchParams.get("room")'), 'Host room invite');
     const broadcast = Date.now();
@@ -302,10 +313,10 @@ async function scenario(base, spec, network, run) {
     if (!prejoin) await listener.nav(`/?room=${encodeURIComponent(room)}`);
     // Chrome's autoplay grant may already unlock and join on invite entry.
     const joined = await until(() => listener.run(`(() => {
-      const b = document.querySelector('.club-primary');
-      return b?.textContent === 'LISTEN LIVE' ? 'listen' : (__clubAudio.samples.some(r => r[1] > .001) ? 'automatic' : null);
+      const b = (${visibleControl})(['.club-primary'], 'LISTEN LIVE');
+      return b ? 'listen' : (__clubAudio.samples.some(r => r[1] > .001) ? 'automatic' : null);
     })()`), 'listener audio or LISTEN LIVE');
-    if (joined === 'listen') await listener.click('.club-primary');
+    if (joined === 'listen') await listener.clickElement(`(${visibleControl})(['.club-primary'], 'LISTEN LIVE')`, 'LISTEN LIVE');
     if (!handoffMix && rendering.limitPaint) {
       // The real UI actions are done; skip painting while the audio and network run.
       await skipPaint();

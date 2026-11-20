@@ -137,13 +137,15 @@ Network helper tests: `node test/club-sync-network-test.mjs`.
 Plot tests: `python3 test/club-sync-plot-test.py`.
 
 Run `npm run test:club-sync` with Node 22 and Chrome installed (`CHROME_PATH`
-overrides discovery). Add `-- --assert` for exit-status thresholds, or
+overrides discovery). Linux installations and the standard macOS Google Chrome
+application path are discovered automatically. Add `-- --assert` for exit-status thresholds, or
 `-- --scenario late-join` (also `listener-skew`, `host-skew`, `cold-invite`,
 `injected-offset`, `reconnect`, `reconnect-expired`, `foreground-stall`,
 `background-wake`, `downbeat-wake`, `short-wake`, `dj-handoff`, `replay`,
 `reconnect-mix`, `reconnect-expired-mix`, `dj-handoff-mix`).
 Detector tests: `node test/club-sync-detector.mjs`.
 Transition/diagnostic metric tests: `node test/club-sync-metrics.mjs`.
+Chrome discovery/child-cleanup tests: `node test/club-sync-controls-test.mjs`.
 
 Each client owns an OS Chrome process/profile, not just a tab. The server has
 Redis/remote room environment variables removed and uses the in-memory rooms
@@ -160,7 +162,7 @@ The pass-through AudioWorklet replaces only connections to the real destination,
 before the app loads. Its sample-frame positions map to true epoch milliseconds
 using nearby `getOutputTimestamp()` anchors and unmodified `performance.timeOrigin`.
 This measures browser-rendered audio, **not acoustic speaker/device latency**.
-The Linux desktop app uses AudioContext.destination; the iOS-only media-element
+The desktop app uses AudioContext.destination; the iOS-only media-element
 route is explicitly rejected, not silently measured at its recording input.
 MediaRecorder's parallel MediaStreamDestination is not the rendered output.
 
