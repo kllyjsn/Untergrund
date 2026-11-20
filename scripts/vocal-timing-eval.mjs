@@ -92,6 +92,8 @@ const harness = (cfg) => `(async () => {
       const engine = Object.create(Engine.prototype);
       Object.assign(engine, {ctx, state:{bpm:cfg.bpm}, vocalBus:bus, ch:{}, bandDuck:c.createGain(), singTrim:c.createGain(),
         vocalOf:() => ({buf, gain:1, ms:0, duck:1, lift:1, fx:null}), vocalSends:() => {}, stepScale:1});
+      // Sequencer.scoreStep keeps this set for the whole score whenever any step is stretched, even on unstretched steps.
+      engine.variableScoreTempo = map.some(scale => scale !== 1);
       const seq = {origin:0, songBars:128, chainPos:1, gridSpan:(at, n) => {let d=engine.stepDur;for(let k=1;k<n;k++)d+=(map[at+k]??1)*sd;return d;}};
       const timeline = {skip:() => false};
       let nextTime = T0 - r, target = T0, vocalGridDirty = false;

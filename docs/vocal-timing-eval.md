@@ -22,7 +22,8 @@ Max, for the stems.
 Music's PR 297 review harness, made repeatable: Chromium `OfflineAudioContext`, 48 kHz, 123 BPM,
 `rubatoMap(2048, 16, [], 1)`, an established transport with residual 0, +28 and −28 ms, dry vocal only. The production
 post-tick vocal block is cut out of `js/main.js` and run against the real `Engine` methods (quiet-gap search, forced
-crossfade, slews); the pre-tick transport resync is mirrored. Each `--base` / `--head` ref renders from a detached git
+crossfade, slews), with `variableScoreTempo` set as `Sequencer.scoreStep` sets it for a stretched score; the pre-tick
+transport resync is mirrored. Each `--base` / `--head` ref renders from a detached git
 worktree under `test/out/vocal-timing/`, so any two commits compare on identical input. Nine cases (3 stems × 3
 residuals) render in about 4 s.
 
@@ -50,11 +51,10 @@ a semitone, or peak drift rises; otherwise **pass**. `--assert` exits 1 on hold.
 | PR (base → head) | Music's verdict | Eval |
 |---|---|---|
 | 297 first head (01b34f5 → b3d6b2c) | Hold: 4 Euphoric voiced cuts | hold: 4 Euphoric voiced cuts, one at 154 c |
-| 297 merged head (01b34f5 → 5fe8024) | Ship (stress loop not yet in the kit) | hold: stress −28 ms time over 50 ms 9.1 → 13.9 s |
-| 301 (46311e0 → 07c8726) | Ship with notes: fade −48/−68 c | notes: one stress voiced cut, −49/−69 c |
-| 302 (cd8f1db → fff5dca) | Hold: fades +68/+91 c, +97/+78 c | hold: stress fade 68 → 98 c |
+| 297 merged head (01b34f5 → 5fe8024) | Ship (stress loop not yet in the kit) | hold: stress −28 ms time over 50 ms 9.1 → 15.8 s |
+| 301 (46311e0 → 07c8726) | Ship with notes: fade −48/−68 c | notes: stress −28 ms fades −12/−4 c and −49/−68 c |
+| 302 (cd8f1db → fff5dca) | Hold: fades +68/+91 c, +97/+78 c | hold: stress −28 ms fades +68/+91 c and +97/+78 c |
 
-The eval reproduces Music's pitch numbers on the same cuts to within about 1 c (PR 301b's corrected −217/−164 c at
-21.357 s measures −218/−164 c here). Stress-loop residual labels do not always line up with Music's runs, and absolute
-time over 50 ms differs by up to 0.2 s, so compare a base and head from this eval rather than against Music's tables.
-It ranks timing defects; it does not replace Music's listen.
+It reproduces Music's stress −28 ms tables: time over 50 ms 15.79 s (46311e0), 11.15 s (07c8726) and 10.83 s
+(fff5dca), the same fade times, and fade pitch within about 1 c (PR 301b's corrected −217/−164 c at 21.357 s measures
+−218/−164 c here). It ranks timing defects; it does not replace Music's listen.
