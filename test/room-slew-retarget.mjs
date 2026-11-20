@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { transportResync } from '../js/room-sync.js';
+import { rubatoMap } from '../js/perform.js';
 
 const cents = rate => 1200 * Math.log2(rate);
 const change = rates => Math.max(...rates.slice(1).map((rate, i) => Math.abs(cents(rate / rates[i]))));
@@ -42,7 +43,9 @@ function run(d, startRate, error, previous = null, rubato = false) {
       if (fix.profile?.index === 1 && rate !== 1) {
         assert.ok(change(fix.profile.rates.slice(1)) <= limit(sd) + 1e-9, JSON.stringify(input));
         const prior = profile?.rates[profile.index - 1];
-        if (prior !== undefined && profile.rates[profile.index] === rate) {
+        if (fix.profile.variable) {
+          assert.ok(change(fix.profile.rates) <= limit(sd) + 1e-9, JSON.stringify(input));
+        } else if (prior !== undefined && profile.rates[profile.index] === rate) {
           const before = (rate - prior) * (rate + prior) / (2 * profile.stepSec);
           const after = (fix.endRate - rate) / duration;
           assert.ok(Math.abs(after - before) < 1e-10, JSON.stringify({...input, before, after}));
@@ -72,6 +75,33 @@ for (let i = 0; i < 300; i++) {
   const index = 1 + Math.floor(random() * (fresh.rates.length - 2));
   run(d, fresh.rates[index], (random() < .5 ? -1 : 1) * (.001 + random() * .029), {...fresh, index});
 }
+const rubatoResults = [];
+for (const bpm of [40, 80, 123, 240]) for (const depth of [.25, 1, 2]) for (const residual of [-.028, .028]) {
+  const tempo = rubatoMap(2048, 16, [], depth);
+  let next = 100, target = next - residual, rate = 1, profile = null, wall = 0, variableSteps = 0;
+  for (let step = 0; step < 2048; step++) {
+    const error = next - target;
+    if (Math.abs(error) < 1e-9 && rate === 1) {
+      assert.ok(variableSteps > 0);
+      rubatoResults.push({bpm, depth, residualMs:residual * 1000, seconds:wall, steps:step, variableSteps});
+      break;
+    }
+    const sd = 15 / bpm * tempo[step];
+    const fix = transportResync(target, next, 0, sd, false, -Infinity, rate, true, profile);
+    assert.ok(fix?.slew, JSON.stringify({bpm, depth, step, error, rate}));
+    assert.ok((fix.nextTime - target) * residual >= -1e-11, 'continuous rubato never crosses the target');
+    assert.ok(Math.abs(fix.nextTime - target) <= Math.abs(error) + 1e-10, 'continuous rubato keeps closing');
+    assert.ok(Math.abs(cents(fix.endRate / rate)) <= limit(sd) + 1e-9);
+    assert.ok(Math.abs((sd + fix.nextTime - next) * (rate + fix.endRate) / 2 - sd) < 1e-10);
+    if (fix.profile?.variable) variableSteps++;
+    wall += sd + fix.nextTime - next;
+    rate = fix.endRate; profile = fix.profile; next = fix.nextTime + sd; target += sd;
+    assert.ok(step < 2047, JSON.stringify({bpm, depth, rate, error}));
+  }
+}
+console.log(`Room continuous rubato PASS: ${rubatoResults.length} real rubatoMap cases, both signs, 40–240 BPM, no reversal or hard adoption, bounded rates and exact unity/alignment.`);
+if (process.env.CLUB_RUBATO_EVIDENCE)
+  writeFileSync(process.env.CLUB_RUBATO_EVIDENCE, JSON.stringify(rubatoResults, null, 2));
 const regions = {};
 for (const r of interruptions) {
   const key = `${r.stepSec >= .375 ? 'slow/rubato' : 'normal/fast'} ${Math.abs(r.startRate - 1) >= .006 ? 'near-cap' : 'partial-rate'} ${(r.startRate - 1) * r.errorMs > 0 ? 'wrong-way' : 'right-way'}`;

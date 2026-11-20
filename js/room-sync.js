@@ -107,8 +107,9 @@ export function transportResync(target, nextTime, now, stepSec, jumped = false, 
 function roomSlew(target, nextTime, now, stepSec, rate, profile) {
   const error = target - nextTime;
   if ((Math.abs(error) < 1e-10 && rate === 1) || nextTime - stepSec < now + 0.005) return null;
-  if (!profile || profile.stepSec !== stepSec || Math.abs(profile.error - error) > 1e-6 ||
+  if (!profile || Math.abs(profile.error - error) > 1e-6 ||
       profile.rates[profile.index] !== rate) profile = roomSlewProfile(error, stepSec, rate, profile);
+  else if (profile.stepSec !== stepSec) profile = roomSlewVariableProfile(error, stepSec, rate);
   const index = profile.index + 1, endRate = profile.rates[index];
   let next = nextTime + 2 * stepSec / (rate + endRate) - stepSec;
   if (endRate === 1 && Math.abs(target - next) < 1e-10) next = target;
@@ -157,13 +158,43 @@ const roomSlewLimits = new Map();
 const roomSlewChange = rates => Math.max(...rates.slice(1).map((rate, i) => Math.abs(1200 * Math.log2(rate / rates[i]))));
 const roomSlewPhase = (rates, stepSec) => rates.slice(1).reduce((sum, rate, i) => sum + 2 * stepSec / (rates[i] + rate) - stepSec, 0);
 
-function roomSlewRetarget(error, stepSec, rate, previous) {
+function roomSlewLimit(stepSec) {
   let limit = roomSlewLimits.get(stepSec);
   if (limit === undefined) {
     limit = Math.max(...[-.030, .030].map(error => roomSlewChange(roomSlewProfile(error, stepSec, 1).rates)));
     if (roomSlewLimits.size === 32) roomSlewLimits.delete(roomSlewLimits.keys().next().value);
     roomSlewLimits.set(stepSec, limit);
   }
+  return limit;
+}
+
+function roomSlewVariableProfile(error, stepSec, rate) {
+  const ratio = 2 ** (roomSlewLimit(stepSec) / 1200), rates = [rate];
+  let remaining = error;
+  for (let i = 0; i < 4096; i++) {
+    if (Math.abs(remaining) < 1e-11 && Math.abs(rate - 1) < 1e-11) {
+      rates.push(1);
+      break;
+    }
+    const velocity = 1 - rate;
+    const omega = Math.min(1 / stepSec, Math.sqrt(.75 * (ratio - 1) / (stepSec * Math.max(Math.abs(remaining), 1e-12))));
+    let endRate = rate;
+    for (let j = 0; j < 8; j++) {
+      const wall = 2 * stepSec / (rate + endRate), z = omega * wall / 2;
+      endRate = 1 - ((1 - 2 * z - z * z) * velocity + omega * omega * wall * remaining) / (1 + z) ** 2;
+    }
+    const low = Math.min(rate, Math.max(.992, 1 / (1 + .0015 / stepSec)));
+    const high = Math.max(rate, Math.min(1.008, 1 / (1 - .0015 / stepSec)));
+    endRate = Math.max(low, rate / ratio, Math.min(high, rate * ratio, endRate));
+    remaining -= 2 * stepSec / (rate + endRate) - stepSec;
+    rates.push(endRate);
+    rate = endRate;
+  }
+  return {rates, index:0, stepSec, error, variable:true};
+}
+
+function roomSlewRetarget(error, stepSec, rate, previous) {
+  const limit = roomSlewLimit(stepSec);
   const prior = previous?.rates[previous.index - 1];
   const slope = prior !== undefined && previous.rates[previous.index] === rate
     ? (rate - prior) * (rate + prior) / (2 * previous.stepSec) : 0;
