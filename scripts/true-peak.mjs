@@ -73,7 +73,9 @@ async function main() {
   const [k, n] = (arg('shard', '1/1')).split('/').map(Number), list = shard(all, k, n);
   if (wide) console.log(`wide sweep: night ${night}, ${wide} seeds per style (${wideSeeds(wide, night)[0]}…${wideSeeds(wide, night).at(-1)}); reproduce with --wide ${wide} --night ${night}`);
   const pages = +arg('pages', Math.max(1, Math.min(8, cpus().length))), t0 = Date.now(), quiet = flag('quiet');
-  const rows = await withChrome(async (runs) => {
+  // CI runners occasionally fail to launch headless Chrome; a launch failure renders nothing, so it is safe to retry.
+  const launch = async (f, o, tries = 3) => { try { return await withChrome(f, o); } catch (e) { if (tries > 1 && /Chrome did not start/.test(e.message)) { console.log('true peak: Chrome did not start, retrying'); return launch(f, o, tries - 1); } throw e; } };
+  const rows = await launch(async (runs) => {
     const out = [];
     let next = 0;
     await Promise.all((Array.isArray(runs) ? runs : [runs]).map(async (run) => {
