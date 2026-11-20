@@ -372,7 +372,7 @@ for (const seed of [7, 211, 503]) {
 console.log('genre signatures passed');
 
 // A genre is a musical grammar, not one fixed preset. Different seeds should
-// recruit different players and registers without borrowing another genre's drums or harmony.
+// recruit different players, registers or articulations without borrowing another genre's drums or harmony.
   {
     for (const style of Object.keys(STYLES)) {
       if (STYLES[style].family === 'CLASSICAL') continue;
@@ -383,6 +383,7 @@ console.log('genre signatures passed');
           g.params.stab.voice,
           g.params.acid.voice,
           g.params.stab.octave,
+          ...(style === 'bailefunk' ? [g.params.stab.decay] : []),
         ].join('/'));
       }
       assert(ensembles.size >= 4, `${style} needs several seeded ensembles`);
