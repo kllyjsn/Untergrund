@@ -79,13 +79,15 @@ async function compactTruePeak(rep) {
   const { STYLES } = await import('../js/state.js'), styles = {};
   for (const x of rep.rows) {
     const s = (styles[x.style] ??= { name: STYLES[x.style]?.name || x.style, family: STYLES[x.style]?.family || null, worst: -Infinity, worstSeed: null, seeds: {} });
-    s.seeds[x.seed] = { tp: r(x.tp), bar: x.bar, bars: x.bars, secs: x.secs, section: x.section };
-    if (x.tp > s.worst) { s.worst = r(x.tp); s.worstSeed = x.seed; }
+    s.seeds[x.seed] = { tp: r(x.tp, 3), over: x.tp > rep.ceiling, bar: x.bar, bars: x.bars, secs: x.secs, section: x.section };
+    if (x.tp > s.worst) { s.worst = x.tp; s.worstSeed = x.seed; }
+    s.over ||= x.tp > rep.ceiling;
   }
+  for (const s of Object.values(styles)) s.worst = r(s.worst, 3);
   const tps = rep.rows.map((x) => x.tp).sort((a, b) => a - b), top = rep.rows.reduce((a, b) => (b.tp > a.tp ? b : a));
   return { ceiling: rep.ceiling, songs: rep.rows.length, genres: Object.keys(styles).length, wallSec: rep.wallSec, pages: rep.pages,
     over: rep.rows.filter((x) => x.tp > rep.ceiling).length, within: rep.rows.filter((x) => x.tp > rep.ceiling - 0.5 && x.tp <= rep.ceiling).length,
-    median: r(tps[tps.length >> 1]), worst: { style: top.style, name: styles[top.style].name, seed: top.seed, tp: r(top.tp), bar: top.bar + 1, at: top.at }, styles };
+    median: r(tps[tps.length >> 1]), worst: { style: top.style, name: styles[top.style].name, seed: top.seed, tp: r(top.tp, 3), bar: top.bar + 1, at: top.at }, styles };
 }
 
 function runNode(args) { execFileSync(process.execPath, args, { cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'] }); }
@@ -313,7 +315,7 @@ function truePeakChart(d) {
 function sweepChart(d) {
   const t = d.truePeak, ids = Object.keys(t.styles).sort((a, b) => FAMILY_ORDER.indexOf(t.styles[a].family) - FAMILY_ORDER.indexOf(t.styles[b].family)), near = t.ceiling - 0.5;
   const lo = Math.floor(Math.min(...ids.flatMap((id) => Object.values(t.styles[id].seeds).map((x) => x.tp)))), hi = 0;
-  const lvl = (v) => (v > t.ceiling ? 'FAIL' : v > near ? 'WARN' : 'PASS');
+  const lvl = (x) => (x.over ? 'FAIL' : x.tp > near ? 'WARN' : 'PASS');
   const draw = (W) => {
     const narrow = W < 500, lw = narrow ? 92 : 150, rw = narrow ? 40 : 56, x0 = lw, x1 = W - rw, rh = 17, top = 26, H = top + ids.length * rh + 26;
     const X = (v) => x0 + ((Math.min(hi, v) - lo) / (hi - lo)) * (x1 - x0);
@@ -323,10 +325,10 @@ function sweepChart(d) {
     ids.forEach((id, i) => {
       const s = t.styles[id], y = top + i * rh + rh / 2;
       body += text(0, y + 4, s.name, 'lab') + line(x0, y, x1, y, 'grid faint');
-      for (const x of Object.values(s.seeds)) body += `<circle cx="${r(X(x.tp), 1)}" cy="${y}" r="3.6" class="dot lv-${lvl(x.tp)}"/>`;
+      for (const x of Object.values(s.seeds)) body += `<circle cx="${r(X(x.tp), 1)}" cy="${y}" r="3.6" class="dot lv-${lvl(x)}"/>`;
       body += text(W, y + 4, num(s.worst, 2), `val${s.worst > near ? ' hot' : ''}`, 'end');
     });
-    const over = ids.filter((id) => t.styles[id].worst > t.ceiling);
+    const over = ids.filter((id) => t.styles[id].over);
     return svg(W, H, 'Whole-song true peak by genre and seed',
       `${t.songs} songs across ${t.genres} genres. Dots are seeds; the dashed line is the −1 dBTP ceiling and the light band the half decibel under it. ${over.length ? `Over the ceiling: ${over.map((id) => `${t.styles[id].name} ${num(t.styles[id].worst, 2)} dBTP at seed ${t.styles[id].worstSeed}`).join('; ')}` : 'No song crosses the ceiling'}.`, body);
   };
