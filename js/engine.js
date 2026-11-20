@@ -280,27 +280,28 @@ function vocalPitchAt(buffer, phase, samples) {
   return NaN;
 }
 
-function vocalFadePowerRatio(outgoing, buffer, from, to, rate) {
+export function vocalFadePowerRatio(outgoing, buffer, from, to, rate) {
   const a = outgoing.getChannelData(0), b = buffer.getChannelData(0);
   const sample = (audio, x) => {
     const i = Math.floor(x), first = audio[i] ?? 0;
     return first + (x - i) * ((audio[i + 1] ?? 0) - first);
   };
-  // A pitch match can still cancel in phase. Compare 5 ms windows to the separate-source power.
-  const frames = 60;
-  let ratio = 1;
-  for (let window = 0; window < 6; window++) {
-    let mixed = 0, separate = 0;
-    for (let i = 0; i < frames; i++) {
-      const f = (window + (i + .5) / frames) / 6, t = f * VOCAL_FADE_SECONDS;
-      const x = sample(a, (from + t * rate) * outgoing.sampleRate) * Math.cos(f * Math.PI / 2);
-      const y = sample(b, (to + t) * buffer.sampleRate) * Math.sin(f * Math.PI / 2);
-      mixed += (x + y) ** 2;
-      separate += x * x + y * y;
-    }
-    if (separate > 0) ratio = Math.min(ratio, mixed / separate);
+  // Slide a 5 ms window by one sample at 12 kHz so dips between fixed windows are not missed.
+  const window = 60, frames = 6 * window;
+  const blendedPower = new Float64Array(window), separatePower = new Float64Array(window);
+  let ratio = 1, blended = 0, separate = 0;
+  for (let i = 0; i < frames; i++) {
+    const f = (i + .5) / frames, t = f * VOCAL_FADE_SECONDS;
+    const x = sample(a, (from + t * rate) * outgoing.sampleRate) * Math.cos(f * Math.PI / 2);
+    const y = sample(b, (to + t) * buffer.sampleRate) * Math.sin(f * Math.PI / 2);
+    const slot = i % window;
+    blended -= blendedPower[slot];
+    separate -= separatePower[slot];
+    blended += blendedPower[slot] = (x + y) ** 2;
+    separate += separatePower[slot] = x * x + y * y;
+    if (i >= window - 1 && separate > 0) ratio = Math.min(ratio, blended / separate);
   }
-  return ratio;
+  return Math.max(0, ratio);
 }
 
 function rubatoSpliceTime(buffer, voice, origin, downbeat, ready, previousGrid, retiringUntil, requirePitchMatch = false) {
