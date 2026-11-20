@@ -5,14 +5,28 @@ import { rng } from './dsp.js';
 const DB = 'untergrund.samples', STORE = 'samples', KEY = 'current', MAX_SEC = 20;
 let current = null, songSeed = 0;
 const listeners = new Set();
+const synths = new Map();
 
 export const onSample = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
 export const voxSeed = (state) => Number.isFinite(state?.artist?.seed) ? state.artist.seed : 0;
 export const getSample = (state) => {
   if (state !== undefined) songSeed = voxSeed(state);
-  if (!current || (current.source === 'synth' && current.seed !== songSeed)) current = synthSample(songSeed);
+  if (!current || (current.source === 'synth' && current.seed !== songSeed)) current = cachedSynth(songSeed);
   return current;
 };
+export const prepareSample = (state) => current && current.source !== 'synth' ? current : cachedSynth(voxSeed(state));
+
+function cachedSynth(seed) {
+  const sample = synths.get(seed) || synthSample(seed);
+  synths.delete(seed);
+  synths.set(seed, sample);
+  if (synths.size > 8) {
+    for (const key of synths.keys()) {
+      if (key !== 0 && key !== seed && key !== current?.seed) { synths.delete(key); break; }
+    }
+  }
+  return sample;
+}
 
 function makeBuffer(channels, sampleRate) {
   const buffer = new AudioBuffer({ length: channels[0].length, numberOfChannels: channels.length, sampleRate });
@@ -107,7 +121,7 @@ export async function setFromArrayBuffer(arrayBuffer, name, source) {
 }
 
 export const loadAudioFile = async (file) => setFromArrayBuffer(await file.arrayBuffer(), file.name.replace(/\.[^.]+$/, ''), 'file');
-export const useSynthVox = () => setSample(synthSample().buffer, 'SYNTH VOX', 'synth');
+export const useSynthVox = () => setSample(cachedSynth(songSeed).buffer, 'SYNTH VOX', 'synth');
 
 // Mic capture shared by VOX, hum-to-hook and the voice instrument. Resolves with the decoded take
 // (mono/stereo Float32Arrays) without touching the VOX sample; `stream` is exposed for level meters.

@@ -22,7 +22,7 @@ import { createMiniPlayer } from './mini-player.js';
 import { openLibrary } from './library.js';
 import { dropCard, pushOffer, guardPushOffer } from './drop.js';
 import { initPush, onPushChange, recordDropPlay, shouldOffer } from './push.js';
-import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
+import { getSample, prepareSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
 import { roomTransportPosition, syncAudioClock, transportResync } from './room-sync.js';
 import { createRoomMediaSync, roomMediaLead, roomMediaTime } from './room-media-sync.js';
 import { concertPanel, concertBar, preloadScore, scoreReady, loadPiano } from './concert.js';
@@ -314,6 +314,7 @@ function landJamPart(part, layer, t = null) {
 // Pressing again replaces the waiting song; the switch moment and transition stay put.
 // A song on recordings not yet downloaded waits (the old one keeps playing) until they're in, up to 8 s.
 function queueSong(plan) {
+  prepareSample(plan.replay808Style ? null : plan.next);
   engine?.prepareVocal(plan.next);
   if (!handoff) handoff = { since: performance.now() };
   const h = handoff;
@@ -2733,6 +2734,7 @@ document.addEventListener('visibilitychange', () => {
 });
 document.addEventListener('resume', () => { if (ctx?.state === 'running') schedule(); });
 
+prepareSample(null);
 build();
 // Once the page is idle, warm the recordings the selected style and the saved song will play.
 (window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(() => {
