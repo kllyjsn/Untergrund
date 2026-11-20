@@ -508,6 +508,7 @@ function metallicBuf(mul, sr) {
 
 export class Engine {
   get playbackStyle() { return this.replay808Style ?? this.state.artist?.style; }
+  get playbackSeed() { return this.replaySeed ?? this.state.artist?.seed; }
   get hardTechno() { return this.state.artist?.style === 'hardtechno'; }
   constructor(ctx, state, { realtime = true, vocal = null, trackQueuedNotes = false } = {}) {
     this.ctx = ctx;
@@ -4253,10 +4254,11 @@ export class Sequencer {
     if (abs % 16 !== 0) return;
     const chain = this.s.chainOn ? parseChain(this.s.chain) : [];
     const style = this.e.playbackStyle ?? this.s.artist?.style;
-    const buildKey = `${this.s.chainOn}:${this.s.chain}:${style}:${this.s.params.stab.voice}:${this.s.artist?.seed}`;
+    const seed = this.e.playbackSeed ?? this.s.artist?.seed;
+    const buildKey = `${this.s.chainOn}:${this.s.chain}:${style}:${this.s.params.stab.voice}:${seed}`;
     if (this.festivalKey !== buildKey) {
       this.festivalKey = buildKey;
-      this.festivalPlan = this.s.chainOn ? festivalBuilds(chain.map((i) => 'ABCDEFGH'[i]).join(''), style, this.s.params.stab.voice, this.s.artist?.seed) : [];
+      this.festivalPlan = this.s.chainOn ? festivalBuilds(chain.map((i) => 'ABCDEFGH'[i]).join(''), style, this.s.params.stab.voice, seed) : [];
     }
     const arr = this.s.master.arr || 0;
     this.dropNow = !!this.dropNext; this.dropNext = false;
