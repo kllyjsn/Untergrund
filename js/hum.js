@@ -44,7 +44,7 @@ export function yin(x, at, W, sr, fmin = 70, fmax = 1000, threshold = 0.15) {
 }
 
 // Frame-by-frame pitch + loudness, 10 ms hops. Frames below the noise gate are unvoiced (midi = null).
-export function pitchTrack(data, sampleRate, { hop = 0.01, win = 0.032, fmin = 70, fmax = 1000, rmsGate } = {}) {
+export function pitchTrack(data, sampleRate, { hop = 0.01, win = 0.032, fmin = 70, fmax = 1000 } = {}) {
   const { x, sr } = decimate(data, sampleRate);
   const H = Math.max(1, Math.round(hop * sr)), W = Math.round(win * sr), tMax = Math.ceil(sr / fmin) + 2;
   const frames = [];
@@ -55,7 +55,7 @@ export function pitchTrack(data, sampleRate, { hop = 0.01, win = 0.032, fmin = 7
   }
   const rmsSorted = frames.map((f) => f.rms).sort((a, b) => a - b);
   const floor = rmsSorted[Math.floor(rmsSorted.length * 0.1)] || 0, peak = rmsSorted[rmsSorted.length - 1] || 0;
-  const gate = rmsGate ?? Math.max(1e-4, floor * 4, peak * 0.08);
+  const gate = Math.max(1e-4, floor * 4, peak * 0.08);
   for (const f of frames) {
     if (f.rms < gate) continue;
     const { f0, conf } = yin(x, f.at, W, sr, fmin, fmax);

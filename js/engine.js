@@ -1,7 +1,7 @@
 import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES, KIT_BACKBEAT } from './params.js';
 import { getSample } from './sampler.js';
 import { getChops } from './voice.js';
-import { pickChop, pitchTrack, segmentNotes } from './hum.js';
+import { pickChop } from './hum.js';
 import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND, HOOK_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel } from './groove.js';
@@ -250,53 +250,34 @@ export const RUBATO_SPLICE_MAX_ADVANCE = 0.35;
 const RUBATO_PITCH_MATCH_ADVANCE = 0.09;
 const VOCAL_FADE_SECONDS = 0.03;
 const VOCAL_FADE_PITCH_PROBES = [5, 15, 25];
+const VOCAL_FADE_MIN_POWER_RATIO = 10 ** (-2 / 10);
+const VOCAL_FADE_PHASE_TOLERANCE_RATIO = 10 ** (-0.25 / 10);
+const VOCAL_FADE_MIN_PITCH_IMPROVEMENT = 10;
 
-function vocalPitchAt(buffer, phase) {
+function vocalPitchAt(buffer, phase, samples) {
   const sr = buffer.sampleRate, stride = Math.max(1, Math.round(sr / 12000)), rate = sr / stride;
-  const n = Math.round(rate * (2048 / 48000)), center = Math.round(phase * sr), first = center - Math.floor(n / 2) * stride;
+  const n = Math.round(rate * (samples / 48000)), center = Math.round(phase * sr), first = center - Math.floor(n / 2) * stride;
   const audio = buffer.getChannelData(0);
   if (first < 0 || first + n * stride > audio.length) return NaN;
   const frame = Float32Array.from({length:n}, (_, i) => audio[first + i * stride]);
   if (frame.reduce((e, x) => e + x * x, 0) / n < 0.0001) return NaN;
-  const last = Math.floor(rate / 80), normalized = new Float64Array(last + 1);
-  let total = 0;
+  const last = Math.floor(rate / 80), firstLag = Math.ceil(rate / 1170);
+  let total = 0, a = Infinity, b = Infinity;
   for (let lag = 1; lag <= last; lag++) {
     let diff = 0;
     for (let i = 0; i < n - lag; i++) diff += (frame[i] - frame[i + lag]) ** 2;
     diff /= n - lag;
     total += diff;
-    normalized[lag] = diff * lag / Math.max(total, 1e-12);
-  }
-  if (total < 1e-12) return NaN;
-  for (let lag = Math.ceil(rate / 1170); lag < last; lag++) {
-    const a = normalized[lag - 1], b = normalized[lag], c = normalized[lag + 1];
-    if (b < 0.15 && b <= a && b < c) return rate / (lag + 0.5 * (a - c) / (a - 2 * b + c));
+    const c = diff * lag / Math.max(total, 1e-12);
+    if (lag > firstLag && total >= 1e-12 && b < 0.15 && b <= a && b < c)
+      return rate / (lag - 1 + 0.5 * (a - c) / (a - 2 * b + c));
+    a = b;
+    b = c;
   }
   return NaN;
 }
 
-function vocalNoteOnsets(buffer, phase, lookback) {
-  const sr = buffer.sampleRate, audio = buffer.getChannelData(0);
-  // Context distinguishes a note change from the first voiced frame of the crop.
-  const start = Math.max(0, Math.round(Math.floor((phase - lookback - .19) * 50) / 50 * sr));
-  const end = Math.ceil((phase + .24) * sr);
-  const track = pitchTrack(audio.subarray(start, end), sr, {rmsGate:.01});
-  const onsets = segmentNotes(track, {split:1, hold:4, minDur:.12}).slice(1).map(note => start / sr + note.start);
-  // A repeated note can have a clear attack without changing pitch.
-  const hop = Math.round(sr * .02), half = Math.floor(hop / 2);
-  let previous = 0;
-  const last = Math.min(end, audio.length) - (hop - half);
-  for (let i = start + hop; i <= last; i += hop) {
-    let power = 0;
-    for (let j = i - half; j < i - half + hop; j++) power += audio[j] ** 2;
-    power /= hop;
-    if (i > start + hop && power > 0.0001 && power > 4 * previous) onsets.push(i / sr);
-    previous = power;
-  }
-  return onsets;
-}
-
-function vocalFadeHasDip(outgoing, buffer, from, to, rate) {
+function vocalFadePowerRatio(outgoing, buffer, from, to, rate) {
   const a = outgoing.getChannelData(0), b = buffer.getChannelData(0);
   const sample = (audio, x) => {
     const i = Math.floor(x), first = audio[i] ?? 0;
@@ -304,6 +285,7 @@ function vocalFadeHasDip(outgoing, buffer, from, to, rate) {
   };
   // A pitch match can still cancel in phase. Compare 5 ms windows to the separate-source power.
   const frames = 60;
+  let ratio = 1;
   for (let window = 0; window < 6; window++) {
     let mixed = 0, separate = 0;
     for (let i = 0; i < frames; i++) {
@@ -313,46 +295,58 @@ function vocalFadeHasDip(outgoing, buffer, from, to, rate) {
       mixed += (x + y) ** 2;
       separate += x * x + y * y;
     }
-    if (mixed < separate * 0.63) return true;
+    if (separate > 0) ratio = Math.min(ratio, mixed / separate);
   }
-  return false;
+  return ratio;
 }
 
-function rubatoSpliceTime(buffer, voice, origin, downbeat, earliest, previousGrid) {
+function rubatoSpliceTime(buffer, voice, origin, downbeat, ready, previousGrid, retiringUntil) {
   const rate = voice.slewRate ?? 1, outgoing = voice.src.buffer;
-  const first = Math.max(earliest, downbeat - RUBATO_SPLICE_MAX_ADVANCE, origin, voice.startAt);
+  const first = Math.max(ready, retiringUntil, downbeat - RUBATO_SPLICE_MAX_ADVANCE, origin, voice.startAt);
   if (first >= downbeat) return downbeat;
   const outgoingPhase = when => when - voice.origin + (rate - 1) * (when - (voice.slewEnd ?? when));
-  const differences = new Map();
-  const cents = ms => {
+  const short = new Map(), long = new Map();
+  const cents = (ms, wide = false) => {
+    const differences = wide ? long : short;
     if (!differences.has(ms)) {
       const when = downbeat + ms / 1000;
-      const from = vocalPitchAt(outgoing, outgoingPhase(when)) * rate, to = vocalPitchAt(buffer, when - origin);
+      const samples = wide ? 4096 : 2048;
+      const from = vocalPitchAt(outgoing, outgoingPhase(when), samples) * rate;
+      const to = vocalPitchAt(buffer, when - origin, samples);
       differences.set(ms, Math.abs(1200 * Math.log2(to / from)));
     }
     return differences.get(ms);
   };
-  const atDownbeat = cents(15);
-  if (!Number.isFinite(atDownbeat)) return downbeat;
-  const from = outgoingPhase(downbeat);
-  const to = downbeat - origin, lookback = downbeat - first;
-  // The downbeat is the deadline, so only consider onsets close enough to queue before it.
-  const onsetTimes = [
-    ...vocalNoteOnsets(buffer, to, lookback).map(note => note - to),
-    ...vocalNoteOnsets(outgoing, from, lookback * rate).map(note => (note - from) / rate),
-  ].map(midpoint => (midpoint - VOCAL_FADE_SECONDS / 2) * 1000).sort((a, b) => b - a);
-  for (const start of onsetTimes) {
-    const when = downbeat + start / 1000;
-    if (when <= downbeat && when >= first &&
-        VOCAL_FADE_PITCH_PROBES.every(center => cents(start + center) <= 100) &&
-        !vocalFadeHasDip(outgoing, buffer, outgoingPhase(when), when - origin, rate)) return when;
+  // Keep the existing placement unless the wider search finds a clear improvement.
+  let baseline = 0;
+  const legacyFirst = Math.max(ready, previousGrid, downbeat - RUBATO_PITCH_MATCH_ADVANCE);
+  if (retiringUntil <= legacyFirst && cents(15) > 100) {
+    for (let ms = 5; downbeat - ms / 1000 >= Math.max(first, legacyFirst) - 1e-9; ms += 5) {
+      if (VOCAL_FADE_PITCH_PROBES.every(center => cents(center - ms) <= 70)) {
+        baseline = ms;
+        break;
+      }
+    }
   }
-  if (atDownbeat <= 100) return downbeat;
-  const pitchMatchFirst = Math.max(first, previousGrid, downbeat - RUBATO_PITCH_MATCH_ADVANCE);
-  for (let ms = 5; downbeat - ms / 1000 >= pitchMatchFirst - 1e-9; ms += 5) {
-    if (VOCAL_FADE_PITCH_PROBES.every(center => cents(center - ms) <= 70)) return downbeat - ms / 1000;
+  const worst = (ms, wide) => Math.max(...VOCAL_FADE_PITCH_PROBES.map(center => cents(center - ms, wide)));
+  const baselinePitch = Math.max(worst(baseline, false), worst(baseline, true));
+  if (!Number.isFinite(baselinePitch) || baselinePitch <= VOCAL_FADE_MIN_PITCH_IMPROVEMENT) return downbeat - baseline / 1000;
+  const powerAt = ms => {
+    const when = downbeat - ms / 1000;
+    return vocalFadePowerRatio(outgoing, buffer, outgoingPhase(when), when - origin, rate);
+  };
+  const minPower = Math.max(VOCAL_FADE_MIN_POWER_RATIO, powerAt(baseline) * VOCAL_FADE_PHASE_TOLERANCE_RATIO);
+  let best = baseline, bestPitch = baselinePitch - VOCAL_FADE_MIN_PITCH_IMPROVEMENT;
+  for (let ms = 0; downbeat - ms / 1000 >= first - 1e-9; ms += 5) {
+    const shortPitch = worst(ms, false);
+    if (!(shortPitch < bestPitch)) continue;
+    const pitch = Math.max(shortPitch, worst(ms, true));
+    if (pitch < bestPitch && powerAt(ms) >= minPower) {
+      best = ms;
+      bestPitch = pitch;
+    }
   }
-  return downbeat;
+  return downbeat - best / 1000;
 }
 
 export function singingEnvelope(buf) {
@@ -3587,8 +3581,8 @@ export class Engine {
       }
       let spliceAdvance = 0;
       if (rubato && forced && previousGrid != null && t >= ready) {
-        const earliest = Math.max(ready, ...voices.filter(voice => voice !== cur).map(voice => voice.until));
-        const spliceAt = rubatoSpliceTime(buffer, cur, origin, t, earliest, previousGrid);
+        const retiringUntil = Math.max(...voices.filter(voice => voice !== cur).map(voice => voice.until));
+        const spliceAt = rubatoSpliceTime(buffer, cur, origin, t, ready, previousGrid, retiringUntil);
         if (spliceAt >= this.ctx.currentTime + 0.02) {
           spliceAdvance = t - spliceAt;
           t = spliceAt;
