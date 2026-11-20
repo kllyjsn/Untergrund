@@ -250,7 +250,7 @@ function schedule(lead) {
     if (!(Math.min(nextTime, replayAt) < horizon)) break;
     const gridTarget = roomMediaTime(transportOrigin / 1000 + abs * base - clockOffset, roomPlayback, mediaRoute);
     if (roomPlayback && !(playableFirst && firstTime !== undefined)) {
-      if (engine.vocalNow?.correction) {
+      if (engine.vocalNow?.correction || (Math.abs(gridTarget - nextTime) > 0.03 && (engine.roomSlewRate ?? 1) === 1)) {
         nextTime = slewTransport(gridTarget, nextTime, 0.05);
       } else {
         const duration = engine.stepDur;
