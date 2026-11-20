@@ -24,7 +24,8 @@ export function festivalBuilds(chain, style, voice, seed = 0) {
   return builds;
 }
 
-export function festivalBuildStep(builds, bar, step) {
+export function festivalBuildStep(builds, bar, step, amount = 1) {
+  if (!(amount > 0)) return null;
   const build = builds.find((b) => bar >= b.from && bar <= b.drop);
   if (!build) return null;
   if (bar === build.drop) return step === 0 ? { drop: true } : null;
@@ -35,8 +36,8 @@ export function festivalBuildStep(builds, bar, step) {
   const offsets = build.shape === 'triplet' ? (last ? (step % 2 ? [1 / 3] : [0, 2 / 3]) : (step % 4 === 0 ? [0] : step % 4 === 1 ? [1 / 3] : step % 4 === 2 ? [2 / 3] : [])) :
     build.shape === 'burst' && step % 8 >= 6 ? [] : Array.from({ length: Math.ceil(divisions) }, (_, i) => i / divisions);
   const rolls = gap || build.roll === 'none' || (build.roll === 'late' && elapsed < total / 2) || (build.shape === 'straight' && divisions === 0.5 && step % 2) ? [] :
-    offsets.map(offset => ({ offset, velocity: 0.18 + 0.44 * ((elapsed + offset) / duration) ** build.rollCurve }));
+    offsets.map(offset => ({ offset, velocity: (0.18 + 0.44 * ((elapsed + offset) / duration) ** build.rollCurve) * amount }));
   return { start: elapsed === 0, sweepStart: elapsed === total - build.sweepBars * 16, sweep: build.sweep,
-    strength: build.strength, durationSteps: build.sweepBars * 16, gapSteps: build.gapSteps, lowOff: last, gap, gapStart: elapsed === duration,
-    thin: step % (last ? 8 : 4) !== 0, rolls };
+    strength: build.strength * amount, durationSteps: build.sweepBars * 16, gapSteps: build.gapSteps, lowOff: last && amount >= 0.75, gap, gapStart: elapsed === duration,
+    thin: amount >= 0.75 && step % (last ? 8 : 4) !== 0, rolls };
 }

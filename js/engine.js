@@ -958,6 +958,10 @@ export class Engine {
   applyMaster(id, immediate = false) {
     const m = this.state.master;
     const v = m[id];
+    if (id === 'arr' && !v && this.festivalGate && festivalTrap(this.state.artist?.style, this.state.params.stab.voice)) {
+      this.festivalGate.gain.cancelScheduledValues(this.ctx.currentTime);
+      this.setTo(this.festivalGate.gain, 1, immediate);
+    }
     if (id === 'pocket' || id === 'kit') this.applyStrips();
     if (id === 'dj') {
       const { hp, lp, q } = djFilter(v);
@@ -3539,13 +3543,13 @@ export class Engine {
     if (cur === 4 && pos === 0) this.tonalSweep(t, dur * 2, 0.4, true);
   }
 
-  festivalGap(t, dur) {
-    if (!festivalTrap(this.state.artist?.style, this.state.params.stab.voice)) return;
+  festivalGap(t, dur, amount = 1) {
+    if (!(amount > 0) || !festivalTrap(this.state.artist?.style, this.state.params.stab.voice)) return;
     const g = this.festivalGate?.gain;
     if (!g) return;
     g.setValueAtTime(1, t);
-    g.exponentialRampToValueAtTime(0.16, t + Math.min(0.06, dur * 0.25));
-    g.exponentialRampToValueAtTime(0.0003, t + dur - 0.004);
+    g.exponentialRampToValueAtTime(0.16 ** amount, t + Math.min(0.06, dur * 0.25));
+    g.exponentialRampToValueAtTime(0.0003 ** amount, t + dur - 0.004);
     g.linearRampToValueAtTime(1, t + dur);
   }
 
@@ -4161,8 +4165,8 @@ export class Sequencer {
       }
       if (!this.breakFilterPlanned && (!arr || !brk(this.cur))) this.e.breakOpen(t, SMOOTH.has(this.s.artist?.style));
       if (this.festivalPlan.length) {
-        this.dropNow = this.festivalPlan.some((b) => b.drop === p);
-        this.dropNext = this.festivalPlan.some((b) => b.drop === p + 1);
+        this.dropNow = !!arr && this.festivalPlan.some((b) => b.drop === p);
+        this.dropNext = !!arr && this.festivalPlan.some((b) => b.drop === p + 1);
       }
       this.sectionLevel(t, p, offset);
       return;
@@ -4237,10 +4241,12 @@ export class Sequencer {
     if ((s.master.dust || 0) > 0.01) e.dust(t, sd, abs);
     const arr = s.master.arr || 0, i16 = abs % 16;
     const festival = this.festivalPlan?.length > 0;
-    const build = festival ? festivalBuildStep(this.festivalPlan, pos, i16) : null;
+    const buildAmount = arr * 2;
+    if (festival && !arr) this.dropNow = this.dropNext = false;
+    const build = festival ? festivalBuildStep(this.festivalPlan, pos, i16, buildAmount) : null;
     if (build?.sweepStart) e.sweep(t, build.durationSteps * sd, build.strength, build.sweep);
     if (build?.lowOff && i16 === 0) e.acidRelease(t);
-    if (build?.gapStart) e.festivalGap?.(t, build.gapSteps * sd);
+    if (build?.gapStart) e.festivalGap?.(t, build.gapSteps * sd, buildAmount);
     if (build?.gap) return this.cur;
     if (build && !build.drop && !s.mutes.snare && (!TRACK_IDS.some((id) => s.solos[id]) || s.solos.snare)) {
       for (const hit of build.rolls) e.trigger('snare', t + hit.offset * sd, hit.velocity);
@@ -4299,9 +4305,9 @@ export class Sequencer {
       const on = !s.mutes[id] && (!anySolo || s.solos[id]);
       if (build?.lowOff && (id === 'kick' || id === 'acid')) continue;
       if (build && !build.drop && (id === 'snare' || (['ch', 'oh', 'ride'].includes(id) && build.thin))) continue;
-      if (build?.drop && on && id === 'kick') { e.trigger('kick', t, 1); kickAt = t; continue; }
+      if (build?.drop && on && id === 'kick') { e.trigger('kick', t, buildAmount); kickAt = t; continue; }
       if (build?.drop && on && id === 'acid') {
-        e.noteVel = 1;
+        e.noteVel = buildAmount;
         e.acid(t, { ...(pat.steps.acid.find((st) => st.on) || { n: 0 }), on: true, s: false, a: true }, false, false, sd);
         this.acidPrevSlide = false; this.acidMuted = false;
         continue;

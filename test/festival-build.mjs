@@ -61,6 +61,25 @@ assert.deepEqual(festivalBuildStep(short, 4, 0), { drop: true });
 assert.equal(festivalBuildStep(short, 4, 1), null);
 assert.deepEqual(festivalBuilds('AAAAAAADGGGGGGGH', 'trap', 2, 123), festivalBuilds('AAAAAAADGGGGGGGH', 'trap', 2, 123));
 const variants = [8, 1234, 3, 20].map(seed => songPlan('trap', seed).builds);
+for (const seed of [8, 1234]) {
+  const s = buildSong('trap', seed); s.artist = { style: 'trap', seed }; s.master.arr = 0;
+  const { log, seq } = playSong(s);
+  assert(!log.some(x => x.k === 'festivalGap' || x.k === 'sweep'), 'DROPS off schedules no festival automation');
+  for (const b of seq.festivalPlan) {
+    assert.equal(festivalBuildStep([b], b.from, 0, 0), null);
+    assert.equal(festivalBuildStep([b], b.drop, 0, 0), null);
+    assert(!log.some(x => x.step === b.drop * 16 && x.k === 'impact'), 'DROPS off has no festival impact');
+    const full = festivalBuildStep([b], b.from, 0), half = festivalBuildStep([b], b.from, 0, .5);
+    assert.equal(half.strength, full.strength * .5);
+    assert.deepEqual(half.rolls, full.rolls.map(hit => ({ ...hit, velocity: hit.velocity * .5 })));
+  }
+  s.master.arr = .25;
+  const quarter = playSong(s).log.filter(x => x.k === 'sweep');
+  s.master.arr = .5;
+  const normal = playSong(s).log.filter(x => x.k === 'sweep');
+  assert.equal(quarter.length, normal.length);
+  for (let i = 0; i < normal.length; i++) assert.equal(quarter[i].a[2], normal[i].a[2] * .5, 'DROPS scales from the existing Trap default of .5');
+}
 for (const builds of variants) {
   assert.equal(builds[0].roll, 'full');
   assert(builds[0].sweepBars >= Math.max(...builds.slice(1).map(b => b.sweepBars)));
@@ -79,4 +98,10 @@ for (const [style, voice, active] of [['trap', 0, true], ['trap', 2, true], ['tr
   assert.deepEqual(values, active ? [1, .16, .0003, 1] : [], 'tail decays without a zero floor only inside the festival gate');
   assert.deepEqual(times, active ? [1.06, 1.396] : [], '60 ms entry and continuing exponential tail');
 }
+for (const amount of [0, .5, 1]) {
+  const ramps = [], gain = { setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime: v => ramps.push(v) };
+  Engine.prototype.festivalGap.call({ state: { artist: { style: 'trap' }, params: { stab: { voice: 2 } } }, festivalGate: { gain } }, 1, .4, amount);
+  assert.deepEqual(ramps, amount ? [.16 ** amount, .0003 ** amount] : [], 'DROPS scales gap depth');
+}
+console.log('Festival DROPS control passed: zero suppresses builds and impacts, fractional amounts scale rolls/sweeps/gaps');
 console.log('Festival Trap builds passed: gates, seeded per-drop variants, variable gaps with nonzero tails, roll/riser shapes and drop downbeats');

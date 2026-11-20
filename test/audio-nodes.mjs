@@ -87,6 +87,15 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
   console.log('Festival attenuation is upstream of public out for desktop, iOS media routing and recording');
 }
 {
+  const s = defaultState(); s.artist = { style: 'trap' }; s.params.stab.voice = 2;
+  const ctx = fakeCtx(), e = new Engine(ctx, s, { realtime: false }), calls = [];
+  e.festivalGate.gain.cancelScheduledValues = t => calls.push(['cancel', t]);
+  e.festivalGate.gain.setTargetAtTime = v => calls.push(['target', v]);
+  e.setMaster('arr', 0);
+  assert.deepEqual(calls, [['cancel', 0], ['target', 1]], 'turning DROPS off cancels a pending gap and restores the output');
+  console.log('Festival DROPS off clears pending gap attenuation');
+}
+{
   for (const [listener, recorded] of [['hypnotic', 'euphoric'], ['euphoric', 'hypnotic']]) {
     const s = defaultState(); s.artist = { style: listener };
     const e = new Engine(fakeCtx(), s, { realtime: false });
