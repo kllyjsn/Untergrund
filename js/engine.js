@@ -4236,7 +4236,7 @@ export class Sequencer {
     const build = festival ? festivalBuildStep(this.festivalPlan, pos, i16) : null;
     if (build?.start) e.sweep(t, build.durationSteps * sd, build.strength);
     if (build?.lowOff && i16 === 0) e.acidRelease(t);
-    if (build?.gapStart) e.festivalGap(t, 4 * sd);
+    if (build?.gapStart) e.festivalGap?.(t, 4 * sd);
     if (build?.gap) return this.cur;
     if (build && !build.drop && !s.mutes.snare && (!TRACK_IDS.some((id) => s.solos[id]) || s.solos.snare)) {
       for (const hit of build.rolls) e.trigger('snare', t + hit.offset * sd, hit.velocity);

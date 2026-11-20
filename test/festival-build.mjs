@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { festivalBuilds, festivalBuildStep } from '../js/festival-build.js';
 import { songPlan, generate, STYLES } from '../js/state.js';
 import { buildSong, playSong } from '../scripts/composition.mjs';
+import { capture } from '../js/midi.js';
 
 for (const seed of [8, 1234, 3, 20, 4, 42, 211, 11]) {
   const voice = generate('trap', seed).params.stab.voice;
@@ -11,6 +12,7 @@ for (const seed of [8, 1234, 3, 20, 4, 42, 211, 11]) {
   assert.equal(builds.length > 0, [0, 2].includes(voice), `planning gate seed ${seed}`);
   const s = buildSong('trap', seed);
   s.artist = { style: 'trap', seed };
+  assert.doesNotThrow(() => capture(s), 'note-only recorder supports festival automation');
   const { log, seq } = playSong(s);
   assert.deepEqual(seq.festivalPlan, builds);
   assert.equal(log.filter(x => x.k === 'festivalGap').length, builds.length, 'one gap per drop');
