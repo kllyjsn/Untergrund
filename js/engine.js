@@ -549,6 +549,10 @@ export class Engine {
     a.pre.connect(shaper).connect(gain).connect(a.tame);
     this.jamDrives.push({ at, shaper, gain });
     const current = this.jamDrives.filter(p => p.at <= now).at(-1);
+    for (const p of this.jamDrives.filter(p => p.at < current.at)) {
+      a.pre.disconnect(p.shaper); p.shaper.disconnect(); p.gain.disconnect();
+    }
+    this.jamDrives = this.jamDrives.filter(p => p.at >= current.at);
     for (const p of this.jamDrives) {
       p.gain.gain.cancelScheduledValues(now);
       p.gain.gain.setValueAtTime(p === current ? 1 : 0, now + 1 / c.sampleRate);

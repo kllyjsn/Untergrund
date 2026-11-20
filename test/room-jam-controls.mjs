@@ -218,6 +218,7 @@ if (result) {
   const {gain, paths} = result.boundary, ramp = t => 1 - .5 * t / 2.1;
   for (const [i, t] of [.5, 1.05, 1.95, 2.09].entries()) assert(Math.abs(gain[i] - ramp(t)) < .01, 'a fade ending on the jam boundary plays out');
   assert(Math.abs(gain[4] - .9) < .01);
+  assert(Math.max(...paths) <= 2, 'superseded acid drive paths are released');
   console.log('Room jam FX PASS: acid waveshaper and post-gain switch at both audio-clock boundaries; cancel restores one current path.');
   assert(Math.abs(result.drive.live[3] - result.drive[.2][3]) < .01, 'the pre-knob acid retains its original timbre');
   for (const i of [0,1,2]) assert(Math.abs(result.drive.live[i] - result.drive[.5][i]) < .01,
