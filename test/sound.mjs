@@ -10,6 +10,7 @@ const { Recorder } = await import('../js/midi.js');
 const { loadBand, loadSets, liveSets, STAB_BAND, SOFT_LAYER } = await import('../js/livekit.js');
 const { spectralBands, kWeight, lufs } = await import('../js/lab-metrics.js');
 const { lowEnd } = await import('../js/lowend.js');
+const { getSample } = await import('../js/sampler.js');
 await import('./sampler.mjs');
 
 // 48 kHz like a real device: at 32 kHz bright resonant filters sit near Nyquist, where the shim blows up.
@@ -120,6 +121,21 @@ const rows = [];
   }
   assert.equal(INSTRUMENTS.bailefunk.length, 4);
   assert(INSTRUMENTS.bailefunk.every(([voice, bass]) => voice === 4 && bass === 2));
+  const handAt = async (history) => {
+    const s = freshSong('bailefunk', 211), ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
+    const out = e.ch.perc.input;
+    e.ch.perc.input = e.gain(0);
+    for (let i = 0; i < history; i++) { e.step = i; e.perc(0.01, 0.7); }
+    e.ch.perc.input = out; e.step = 22; e.perc(0.1, 0.7);
+    return (await ctx.startRendering(e.mix)).getChannelData(0);
+  };
+  assert.deepEqual(await handAt(0), await handAt(3), 'same musical hand hit is independent of playback history');
+  {
+    const s = freshSong('bailefunk', 211), ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
+    e.replay808Style = 'bailefunk';
+    e.funkVox(0.05, 0.7, 2);
+    assert.equal(getSample().seed, 0, 'saved timelines do not borrow the listener vocal seed');
+  }
   for (const solo of [false, true]) {
     const s = defaultState(); applyOverrides(s, generate('bailefunk', 211));
     if (solo) s.solos.stab = true;

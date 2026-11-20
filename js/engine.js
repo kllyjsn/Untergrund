@@ -1317,7 +1317,8 @@ export class Engine {
       noise.connect(bp).connect(this.filter('lowpass', 5500, 0.6)).connect(amp).connect(out);
       return;
     }
-    const kick = id === 'kick', high = !kick && ((this.funkHandHits = (this.funkHandHits || 0) + 1) % 2 === 0);
+    const kick = id === 'kick', step = this.step ?? Math.round(t / this.stepDur);
+    const high = !kick && step % 2 === 0;
     const f = kick ? p.tune : p.tune * (high ? 1.25 : 0.82), len = kick ? 0.22 + p.decay * 0.65 : 0.22;
     const amp = this.gain(0), sh = this.ctx.createWaveShaper();
     sh.curve = driveCurve(kick ? 0.38 : 0.12); sh.oversample = '2x';
@@ -1353,7 +1354,7 @@ export class Engine {
 
   funkVox(t, v, step) {
     if (!(v > 0) || ![t, v, step].every(Number.isFinite)) return;
-    const { buffer, slices } = getSample(this.state), p = this.state.params.vox;
+    const { buffer, slices } = getSample(this.replay808Style ? null : this.state), p = this.state.params.vox;
     const notes = SCALES[this.state.scale]?.notes || SCALES.minor.notes;
     const degree = notes[Math.floor(hash(step, 84) * notes.length)];
     const rate = 2 ** ((Math.round(p.pitch) + degree - 12) / 12);
