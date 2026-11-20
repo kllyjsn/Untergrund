@@ -68,6 +68,35 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
   console.log('Euphoric hat trim is engine-scoped and clears on genre switches');
 }
 {
+  const s = defaultState();
+  s.artist = { style: 'euphoric' };
+  const e = new Engine(fakeCtx(), s, { realtime: false }), events = { pre: [], post: [] };
+  for (const [name, gain] of [['pre', e.secPreGain.gain], ['post', e.secGain.gain]]) {
+    for (const method of ['cancelScheduledValues', 'setValueAtTime', 'setTargetAtTime', 'linearRampToValueAtTime'])
+      gain[method] = (...args) => events[name].push([method, ...args]);
+  }
+  e.sectionGain(1, 0.45);
+  assert.deepEqual(events.pre, [['cancelScheduledValues', 1], ['setTargetAtTime', 10 ** (0.45 / 20), 1, 0.012]]);
+  assert.deepEqual(events.post, []);
+  events.pre.length = 0;
+  e.sectionGain(2, 0.45, [-1, 2, 0.5]);
+  assert.deepEqual(events.pre, [['cancelScheduledValues', 2], ['setValueAtTime', 10 ** (-1 / 20), 2],
+    ['setValueAtTime', 10 ** (-1 / 20), 2.5], ['linearRampToValueAtTime', 10 ** (0.45 / 20), 4.5]]);
+  for (const style of ['hypnotic', 'drill', 'minimal', 'hardtechno', undefined]) {
+    e.secPreGain.gain.value = 0.5;
+    s.artist = { style: 'euphoric' }; e.applyAll();
+    s.artist = { style }; e.applyAll();
+    assert.equal(e.secPreGain.gain.value, 1, `${style} clears Euphoric section gain`);
+    events.pre.length = events.post.length = 0;
+    e.sectionGain(5, 0);
+    assert.deepEqual(events.pre, []);
+    assert.deepEqual(events.post, [['cancelScheduledValues', 5], ['setTargetAtTime', 1, 5, 0.012]]);
+  }
+  s.artist = { style: 'euphoric' }; e.at = 8; e.applyAll();
+  assert.deepEqual(events.post.slice(-2), [['cancelScheduledValues', 8], ['setTargetAtTime', 1, 8, 0.004]], 'handoff clears post-clipper sections at its downbeat');
+  console.log('Euphoric sections lift before the clipper and clear on genre switches');
+}
+{
   const stacks = {};
   for (const style of ['trap', 'trance']) {
     const s = defaultState();

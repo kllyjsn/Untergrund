@@ -510,9 +510,10 @@ export class Engine {
     this.limIn = this.gain(0.5);
     this.limiter = this.comp(-6, 12, 3, 0.002, 0.12);
     this.limTrim = this.gain(LIM_TRIM / CLIP_HEADROOM);
+    this.secPreGain = this.gain(1);
     this.clip = c.createWaveShaper(); this.clip.curve = clipCurve(CLIP_HEADROOM); this.clip.oversample = '4x';
     this.out = this.gain(OUT_TRIM);
-    // Song sections (Sequencer.sectionLevel) after the clipper, so the limiter and clipper see the same signal.
+    // Euphoric sections lift into the clipper; other genres keep their post-clipper contrast.
     this.secGain = this.gain(1);
     // While the neural singer sings, the band dips under it (bandDuck) so the sung mix stays on the loudness target.
     this.bandDuck = this.gain(1);
@@ -522,7 +523,7 @@ export class Engine {
     this.mix.connect(this.bandDuck).connect(this.preMaster);
     this.preMaster.connect(this.djHP).connect(this.djLP).connect(this.arrLP).connect(this.toneLow).connect(this.toneMud).connect(this.tonePres).connect(this.toneAir).connect(this.widthIn);
     this.widthOut.connect(this.glue).connect(this.satIn).connect(this.sat)
-      .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.clip).connect(this.secGain).connect(this.singTrim).connect(this.out);
+      .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.secPreGain).connect(this.clip).connect(this.secGain).connect(this.singTrim).connect(this.out);
     this.out.connect(c.destination);
     // The neural singer's stem (vocal(), js/sing.js): past the band's duck, into the master chain.
     this.vocalBus = this.gain(0);
@@ -766,6 +767,13 @@ export class Engine {
   }
 
   applyAll() {
+    const beforeClip = this.state.artist?.style === 'euphoric';
+    if (this.sectionBeforeClip !== beforeClip) {
+      const inactive = (beforeClip ? this.secGain : this.secPreGain).gain;
+      inactive.cancelScheduledValues(this.at || this.ctx.currentTime);
+      this.setTo(inactive, 1, true);
+      this.sectionBeforeClip = beforeClip;
+    }
     for (const id of TRACK_IDS) for (const k of Object.keys(this.state.params[id])) this.applyParam(id, k, true);
     for (const k of Object.keys(this.state.master)) this.applyMaster(k, true);
     // Per-genre (and per-masterwork) make-up gain into the limiter so every song lands on its loudness target (js/loudness.js).
@@ -3466,7 +3474,7 @@ export class Engine {
   }
 
   sectionGain(t, db, ramp = 0) {
-    const g = this.secGain.gain, v = 10 ** (db / 20);
+    const g = (this.state?.artist?.style === 'euphoric' ? this.secPreGain : this.secGain).gain, v = 10 ** (db / 20);
     g.cancelScheduledValues(t);
     if (ramp) {
       const [from, dur, hold = 0] = ramp, start = 10 ** (from / 20);
