@@ -53,6 +53,32 @@ globalThis.fetch = async (url) => {
 
 const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCrossfade, vocalFadePowerRatio } = await import('../js/engine.js');
 {
+  for (const [listener, recorded] of [['hypnotic', 'euphoric'], ['euphoric', 'hypnotic']]) {
+    const s = defaultState(); s.artist = { style: listener };
+    const e = new Engine(fakeCtx(), s, { realtime: false });
+    e.replay808Style = recorded;
+    e.applyAll();
+    assert.equal(e.ch.ch.level.gain.value, s.params.ch.level * (recorded === 'euphoric' ? 10 ** (-1 / 20) : 1));
+    const events = [];
+    e.secPreGain.gain.setTargetAtTime = () => events.push('pre');
+    e.secGain.gain.setTargetAtTime = () => events.push('post');
+    e.sectionGain(1, 0.45);
+    assert.deepEqual(events, [recorded === 'euphoric' ? 'pre' : 'post']);
+    assert.equal(s.artist.style, listener, 'replay does not modify the listener project');
+    e.replay808Style = undefined; e.applyAll();
+    assert.equal(e.ch.ch.level.gain.value, s.params.ch.level * (listener === 'euphoric' ? 10 ** (-1 / 20) : 1));
+  }
+  const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+  const start = main.slice(main.indexOf('function start('), main.indexOf('  engine.prepareVocal();'));
+  const setup = start.slice(start.lastIndexOf('  engine.replay808Style ='));
+  for (const switchAt of [null, 2]) {
+    const engine = { applyAll() { this.applied = this.replay808Style; } };
+    runInNewContext(setup, { engine, replay808Style: 'euphoric', switchAt });
+    assert.equal(engine.applied, switchAt === null ? 'euphoric' : undefined, 'replay start applies the recorded mix, while scheduled starts keep their handoff automation');
+  }
+  console.log('Club replay Euphoric mix follows recorded genre, not listener genre');
+}
+{
   const s = defaultState();
   applyOverrides(s, generate('euphoric', 11, 'major'), true);
   s.artist = { style: 'euphoric' };

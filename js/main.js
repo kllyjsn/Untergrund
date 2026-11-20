@@ -487,6 +487,7 @@ function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room 
   closePractice();
   ensureAudio();
   engine.replay808Style = replay808Style;
+  if (switchAt === null && replay808Style != null) engine.applyAll();
   engine.prepareVocal();
   engine.roomSlewRate = 1;
   engine.roomSlewProfile = null;

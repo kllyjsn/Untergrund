@@ -448,6 +448,7 @@ function metallicBuf(mul, sr) {
 }
 
 export class Engine {
+  get playbackStyle() { return this.replay808Style ?? this.state.artist?.style; }
   get hardTechno() { return this.state.artist?.style === 'hardtechno'; }
   constructor(ctx, state, { realtime = true, vocal = null, trackQueuedNotes = false } = {}) {
     this.ctx = ctx;
@@ -767,7 +768,7 @@ export class Engine {
   }
 
   applyAll() {
-    const beforeClip = this.state.artist?.style === 'euphoric';
+    const beforeClip = this.playbackStyle === 'euphoric';
     if (this.sectionBeforeClip !== beforeClip) {
       const inactive = (beforeClip ? this.secGain : this.secPreGain).gain;
       inactive.cancelScheduledValues(this.at || this.ctx.currentTime);
@@ -859,7 +860,7 @@ export class Engine {
     const ch = this.ch[tid];
     if (tid === 'stab' && id === 'voice') return this.applyOutputTrim(immediate);
     if (id === 'level') {
-      const trim = tid === 'ch' && this.state.artist?.style === 'euphoric' ? 10 ** (-1 / 20) : 1;
+      const trim = tid === 'ch' && this.playbackStyle === 'euphoric' ? 10 ** (-1 / 20) : 1;
       const gain = v * trim * (tid === 'stab' && this.smoothOn > 0 ? 10 ** (this.smoothOn / 20) : 1), fade = this.hardFade;
       if (tid === 'stab' && this.dubPadBus) this.setTo(this.dubPadBus.gain, this.state.artist?.style === 'dub' ? gain : 0, immediate);
       if (this.jamAt == null || !this.hardTechno || this.hardFadeAt == null) return this.setTo(ch.level.gain, gain, immediate);
@@ -3474,7 +3475,7 @@ export class Engine {
   }
 
   sectionGain(t, db, ramp = 0) {
-    const g = (this.state?.artist?.style === 'euphoric' ? this.secPreGain : this.secGain).gain, v = 10 ** (db / 20);
+    const g = (this.playbackStyle === 'euphoric' ? this.secPreGain : this.secGain).gain, v = 10 ** (db / 20);
     g.cancelScheduledValues(t);
     if (ramp) {
       const [from, dur, hold = 0] = ramp, start = 10 ** (from / 20);
