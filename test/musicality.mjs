@@ -1,10 +1,49 @@
 import assert from 'node:assert/strict';
 import { generate, arrangement, applySongPlan, sanitize, defaultState, freshSong, STYLES, MAJOR_STYLES, MUSICIAN_PRINCIPLES } from '../js/state.js';
 import { SCALES, KIT_BACKBEAT } from '../js/params.js';
-import { Sequencer } from '../js/engine.js';
+import { Engine, Sequencer } from '../js/engine.js';
 import { capture, Recorder } from '../js/midi.js';
 import { patternAt } from '../js/scope.js';
 import { STAB_BAND } from '../js/livekit.js';
+
+{
+  const s = freshSong('neosoul', 42);
+  s.artist = { seed: 42 };
+  s.key = 0; s.scale = 'minor'; s.master.vary = 0.4; s.params.acid.voice = 1; s.params.acid.tune = 0;
+  const rec = new Recorder(s), seq = new Sequencer(rec, s);
+  rec.harm = { r: 5, c: 0 };
+  const pat = { len: { acid: 16 }, steps: { acid: [{ on: true, n: 0 }] }, prog: [{ r: 0, c: 0 }] };
+  const pickup = seq.bassPickup(pat, pat, 3, 1, 1.05, 0.17, null);
+  assert(pickup);
+  const pitch = rec.bassMidi(pickup.st);
+  assert(SCALES.minor.notes.includes(pitch % 12));
+  assert(Math.abs(pitch - pickup.st.target) <= 2);
+  assert(pickup.st.until < pickup.st.targetAt);
+  assert.equal(seq.bassPickup(pat, pat, 2, 1, 1.05, 0.17, null), null);
+  assert.equal(seq.bassPickup(pat, pat, 3, 1, 1.16, 0.17, null), null);
+  assert.equal(seq.bassPickup(pat, { ...pat, steps: { acid: [] } }, 3, 1, 1.05, 0.17, null), null);
+  assert.equal(seq.bassPickup(pat, { ...pat, prog: [{ r: 5, c: 0 }] }, 3, 1, 1.05, 0.17, null), null);
+  s.master.vary = 0;
+  assert.equal(seq.bassPickup(pat, pat, 3, 1, 1.05, 0.17, null), null);
+  for (const seed of [11, 42, 3273615850]) {
+    s.artist.seed = seed;
+    const cell = Array.from({ length: 16 }, (_, i) => seq.lickCell(i, 0.4));
+    for (let bar = 1; bar < 16; bar += 2) for (let i = 0; i < 16; i++) {
+      assert.deepEqual(seq.lickCell(i, 0.4), cell[i]);
+      if (i % 2) assert.equal(cell[i], null);
+      assert.equal(seq.lickCell(i, 0), null);
+    }
+  }
+  const input = {}, automation = [], gate = { connect() {}, gain: { setValueAtTime: (...a) => automation.push(['set', ...a]), linearRampToValueAtTime: (...a) => automation.push(['ramp', ...a]) } };
+  const fake = { ch: { acid: { input } }, state: s, gain: () => gate, acidVoice() { assert.equal(this.ch.acid.input, gate); return 7; } };
+  assert.equal(Engine.prototype.acid.call(fake, 1, { until: 1.1 }, false, false, 0.17), 7);
+  assert.equal(fake.ch.acid.input, input);
+  assert.deepEqual(automation.at(-1), ['ramp', 0, 1.1]);
+  fake.acidVoice = () => { throw new Error('voice failed'); };
+  assert.throws(() => Engine.prototype.acid.call(fake, 1, { until: 1.1 }, false, false, 0.17), /voice failed/);
+  assert.equal(fake.ch.acid.input, input);
+  console.log('phrase pickups and eighth-note lick cells passed');
+}
 
 // Every club/pop style gets its own seeded hook; NEO-SOUL and BOOM BAP sing one over their Rhodes licks.
 for (const style of Object.keys(STYLES)) {

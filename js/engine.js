@@ -2906,6 +2906,29 @@ export class Engine {
   }
 
   acid(t, st, sliding, holdNext, sd, slideUntil, kickAt) {
+    if (st.until != null) {
+      const input = this.ch.acid.input, gate = this.gain(1), vo = Math.round(this.state.params.acid.voice);
+      gate.connect(input);
+      gate.gain.setValueAtTime(1, Math.max(t, st.until - 0.008));
+      gate.gain.linearRampToValueAtTime(0, st.until);
+      this.ch.acid.input = gate;
+      try {
+        const result = this.acidVoice(t, st, false, false, sd, slideUntil, kickAt);
+        if (vo === 0 || vo >= 7) {
+          const amp = vo === 0 ? this.acidNodes.vca : this.gatedBasses.get(vo)?.amp;
+          for (const node of [amp, this.subVoice?.amp]) if (node) {
+            node.gain.cancelScheduledValues(st.until - 0.018);
+            node.gain.setTargetAtTime(0, st.until - 0.018, 0.003);
+            node.gain.setValueAtTime(0, st.until);
+          }
+        }
+        return result;
+      } finally { this.ch.acid.input = input; }
+    }
+    return this.acidVoice(t, st, sliding, holdNext, sd, slideUntil, kickAt);
+  }
+
+  acidVoice(t, st, sliding, holdNext, sd, slideUntil, kickAt) {
     const a = this.acidNodes, p = this.state.params.acid;
     const vo = Math.round(p.voice);
     for (const [voice, { amp: { gain } }] of this.gatedBasses) if (vo !== voice) {
@@ -3528,11 +3551,11 @@ export class Sequencer {
           this.acidPrevSlide = false; this.walked = bar;
           continue;
         }
-        const nextH = vary && i === len - 1 && pat.prog?.length > 1 && this.walked !== bar ? pat.prog[(bar + 1) % pat.prog.length] : null;
-        if (nextH && nextH.r !== e.harm?.r && hash(bar, 91) < vary) {
-          const cur = e.harm; e.harm = nextH;
-          e.acid(tt + (s.master.humanize || 0) * 0.016, { on: true, n: hash(bar, 92) < 0.5 ? -1 : 1, a: false, s: false, ap: true }, false, false, sd);
-          e.harm = cur; this.acidPrevSlide = false;
+        const pickup = vary && i16 === 15 && len === 16 && this.walked !== bar ? this.bassPickup(pat, nx || pat, bar, t, tt, sd, pk) : null;
+        if (pickup) {
+          e.noteVel *= 0.55;
+          e.acid(pickup.t, pickup.st, false, false, sd);
+          this.acidPrevSlide = false;
         } else {
           const feel = s.master.humanize || 0;
           const bassLean = feel * (i % 4 ? 0.032 : 0.009);
@@ -3584,9 +3607,9 @@ export class Sequencer {
     const leadOn = !s.mutes.stab && (!anySolo || s.solos.stab), busy = sung ? this.songBars && leadOn && sung.busy[i16] : this.songBars && hk && hm && leadOn && hookBusy(hk, abs % 32, hm);
     const sp = pat.steps.stab;
     // Licks fill the lead's rests instead of talking over it.
-    if (vary && leadOn && !busy && !(this.songBars && ((hk && hm) || sung?.any) && i16 === 15) && bar % 2 === 1 && !sp[abs % (pat.len.stab || 16)] && hash(abs, 77) < vary * 0.28) {
-      const k = Math.floor(hash(abs, 78) * 6) + (bar % 4 === 3 ? 2 : 0);
-      e.lick(tt + (s.master.humanize || 0) * 0.02, 0.35 + hash(abs, 79) * 0.3, k);
+    const lick = this.lickCell(i16, vary);
+    if (lick && leadOn && !busy && !(this.songBars && ((hk && hm) || sung?.any) && i16 === 15) && bar % 8 === 7 && !sp[abs % (pat.len.stab || 16)]) {
+      e.lick(tt, lick.v, lick.k);
     }
     if (this.songBars && hk && hm && leadOn) this.interplay(pat, hk, abs, bar, tt, sd, busy, anySolo, !!hk.s[abs % 32]);
     if (this.songBars && sung?.part && leadOn) this.interplay(pat, pat.hook, abs, bar, tt, sd, busy, anySolo, sung.notes.some((o) => o.at === i16));
@@ -3848,6 +3871,29 @@ export class Sequencer {
       const lean = (hash(at * 3 + m, 33) - 0.5) * (0.006 + hum * 0.014);
       this.e.orch(part, Math.max(t - 0.03, t + (at - Math.floor(at)) * sd + lean + off), m + k, d * sd, v);
     }
+  }
+
+  lickCell(i16, vary) {
+    const cell = (this.s.artist?.seed || 0) + i16;
+    return i16 % 2 === 0 && hash(cell, 77) < vary * 0.28 ? { k: Math.floor(hash(cell, 78) * 6), v: 0.35 + hash(cell, 79) * 0.3 } : null;
+  }
+
+  bassPickup(pat, next, bar, t, tt, sd, pk) {
+    const s = this.s, e = this.e, vary = s.master.vary || 0;
+    const period = 4 * Math.max(1, Math.ceil(0.25 / vary));
+    if (!vary || bar % period !== period - 1 || (next.len.acid || 16) !== 16) return null;
+    const h = next.prog?.[(bar + 1) % next.prog.length], targetStep = next.steps.acid[0];
+    if (!h || h.r === e.harm?.r || !targetStep?.on || targetStep.ap) return null;
+    const high = Math.round(s.params.acid.voice) === 2 ? 38 : 43;
+    const target = Engine.prototype.bassMidi.call({ state: s, harm: h, harmRoot: () => harmRoot(h) }, targetStep, 36, high);
+    const scale = SCALES[s.scale]?.notes || SCALES.minor.notes;
+    const pitch = [target - 1, target + 1, target - 2, target + 2].find((m) => m >= high - 11 && m <= high && scale.includes(((m - s.key) % 12 + 12) % 12));
+    if (pitch == null) return null;
+    const at = tt + pocketLate(pk, 'acid', 15), targetAt = t + sd + (s.master.humanize || 0) * 0.009 + pocketLate(pk, 'acid', 0);
+    const until = targetAt - 0.008;
+    if (until - at < 0.035) return null;
+    const n = pitch - 36 - s.key - Math.round(s.params.acid.tune) - harmRoot(e.harm);
+    return { t: at, st: { on: true, n, a: false, s: false, ap: true, until, target, targetAt } };
   }
 
   acidStep(pat, i, len, t, sd, slideUntil, kickAt) {

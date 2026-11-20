@@ -94,7 +94,7 @@ export class Recorder {
   acid(t, st, sliding, holdNext, sd) {
     const p = this.state.params.acid, vo = Math.round(p.voice);
     this.acidRelease(t);
-    const len = holdNext ? sd * 2 : vo === 0 ? sd * 0.55 : st.ap ? sd * 0.9 : sd * (0.9 + p.decay * 2);
+    const len = st.until != null ? st.until - t : holdNext ? sd * 2 : vo === 0 ? sd * 0.55 : st.ap ? sd * 0.9 : sd * (0.9 + p.decay * 2);
     this.add('acid', t, this.bassMidi(st), len, (st.a ? 1 : 0.82) * (this.noteVel ?? 1));
     this.bass = this.notes.acid.at(-1);
   }
