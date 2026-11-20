@@ -25,6 +25,27 @@ for (let seed = 0; seed < 100; seed++) {
 }
 console.log('Trap festival ensembles and rap seed stability passed');
 
+for (const [seed, hash] of [
+  [11, '5ae33f32e51da84357a832272265d544ace05c49720aa9a26ff39d40275cb3d2'],
+  [42, '771361b753feef593e0d04f7dff2eb671ce89775436b9e55276423f8087d8997'],
+]) {
+  const g = generate('euphoric', seed, 'major');
+  assert.equal(createHash('sha256').update(JSON.stringify(g)).digest('hex'), hash, 'Euphoric keeps its arrangement, chorus lift and other mix settings');
+}
+for (const style of ['hypnotic', 'drill', 'minimal']) {
+  const switched = defaultState(), fresh = defaultState();
+  applyOverrides(switched, generate('euphoric', 11, 'major'), true);
+  applyOverrides(switched, generate(style, 42, 'minor'), true);
+  applyOverrides(fresh, generate(style, 42, 'minor'), true);
+  assert.equal(switched.params.ch.level, fresh.params.ch.level, `${style} hats do not inherit Euphoric's trim`);
+}
+for (const [style, hash] of [
+  ['hypnotic', 'c24a1973964e8d5cd7b3fac95059a4187b2b4220767f76e27c9164688682345e'],
+  ['drill', 'a88981d0192e00790e0dfc83b1003926a2c2bd988012a89e4adb23c79483c049'],
+  ['minimal', '243099fb6edde28e9f73d3f5a623f1b5d11194cf09e066bbea36127418a8476a'],
+]) assert.equal(createHash('sha256').update(JSON.stringify(generate(style, 42, 'minor'))).digest('hex'), hash, `${style} mix is unchanged`);
+console.log('Euphoric hat headroom and other genre stability passed');
+
 for (const seed of [1, 7, 42, 1337]) {
   const g = generate('euphoric', seed, 'major');
   assert(g.bpm >= 126 && g.bpm <= 134);
