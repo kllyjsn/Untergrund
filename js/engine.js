@@ -510,9 +510,70 @@ export class Engine {
   // ---------- params ----------
   setTo(param, v, immediate) {
     // this.at: a song handoff schedules the whole mix change onto its downbeat
-    if (this.at) param.setTargetAtTime(v, this.at, 0.004);
+    if (this.jamAt != null) {
+      param.cancelScheduledValues(this.jamAt);
+      param.setValueAtTime(v, this.jamAt);
+      this.jamParams.add(param);
+    } else if (this.at) param.setTargetAtTime(v, this.at, 0.004);
     else if (immediate) param.value = v;
     else param.setTargetAtTime(v, this.ctx.currentTime, 0.015);
+  }
+
+  scheduleJamParams(params, at) {
+    const state = this.state, previous = this.jamAt;
+    this.jamParams ||= new Set();
+    this.jamAt = Math.round(Math.max(this.ctx.currentTime + 1 / this.ctx.sampleRate, at) * this.ctx.sampleRate) / this.ctx.sampleRate;
+    this.state = { ...state, params: { ...state.params, ...params } };
+    try {
+      this.schedulingJam = true;
+      for (const [track, values] of Object.entries(params))
+        for (const key of Object.keys(values)) this.applyParam(track, key, true);
+    } finally { this.state = state; this.jamAt = previous; this.schedulingJam = false; }
+  }
+
+  scheduleJamDrive(v) {
+    const a = this.acidNodes, c = this.ctx, now = c.currentTime, at = this.jamAt;
+    if (!this.jamDrives) {
+      const gain = c.createGain();
+      a.pre.disconnect(a.shaper); a.shaper.disconnect(a.tame);
+      a.pre.connect(a.shaper).connect(gain).connect(a.tame);
+      this.jamDrives = [{ at: -Infinity, shaper: a.shaper, gain }];
+    }
+    for (const p of this.jamDrives.filter(p => p.at >= at)) {
+      a.pre.disconnect(p.shaper); p.shaper.disconnect(); p.gain.disconnect();
+    }
+    this.jamDrives = this.jamDrives.filter(p => p.at < at);
+    const shaper = c.createWaveShaper(), gain = c.createGain();
+    shaper.oversample = '4x'; shaper.curve = driveCurve(v * .75); gain.gain.value = 0;
+    a.pre.connect(shaper).connect(gain).connect(a.tame);
+    this.jamDrives.push({ at, shaper, gain });
+    const current = this.jamDrives.filter(p => p.at <= now).at(-1);
+    for (const p of this.jamDrives) {
+      p.gain.gain.cancelScheduledValues(now);
+      p.gain.gain.setValueAtTime(p === current ? 1 : 0, now + 1 / c.sampleRate);
+    }
+    let previous = current;
+    for (const p of this.jamDrives.filter(p => p.at > now)) {
+      previous.gain.gain.setValueAtTime(0, p.at);
+      p.gain.gain.setValueAtTime(1, p.at);
+      previous = p;
+    }
+    a.shaper = shaper;
+  }
+
+  cancelJamParams() {
+    if (!this.jamParams?.size && !this.jamDrives) return;
+    const now = this.ctx.currentTime, a = this.acidNodes;
+    for (const param of this.jamParams) param.cancelScheduledValues(now);
+    if (this.jamDrives) {
+      for (const p of this.jamDrives) {
+        a.pre.disconnect(p.shaper); p.shaper.disconnect(); p.gain.disconnect();
+      }
+      a.pre.connect(a.shaper).connect(a.tame);
+      this.jamDrives = null;
+    }
+    this.jamParams.clear();
+    this.applyAll();
   }
 
   applyAll() {
@@ -605,7 +666,12 @@ export class Engine {
       if (id === 'cutoff') { this.setTo(a.f1.frequency, v, immediate); this.setTo(a.f2.frequency, v, immediate); }
       if (id === 'reso') { this.setTo(a.f2.Q, v, immediate); this.setTo(a.f1.Q, v * 0.12, immediate); }
       if (id === 'drive') {
-        a.shaper.curve = driveCurve(v * 0.75);
+        if (this.schedulingJam) this.scheduleJamDrive(v);
+        else if (!immediate && !this.at && this.jamDrives) {
+          for (const p of this.jamDrives) p.shaper.curve = driveCurve(v * .75);
+          a.post.gain.cancelScheduledValues(this.ctx.currentTime);
+        }
+        else a.shaper.curve = driveCurve(v * 0.75);
         this.setTo(a.post.gain, 1.05 / (1 + v * 1.1), immediate);
       }
     }
@@ -3147,6 +3213,7 @@ export class Engine {
 
   // Called while scheduling the switch step: every param of the new song lands on t1, not now.
   handoffIn(t1) {
+    if (this.jamParams?.size || this.jamDrives) this.scheduleJamParams(this.state.params, t1);
     const h = this.handoff;
     this.handoff = null;
     this.at = Math.max(this.ctx.currentTime, t1);

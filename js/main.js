@@ -24,6 +24,7 @@ import { dropCard, pushOffer, guardPushOffer } from './drop.js';
 import { initPush, onPushChange, recordDropPlay, shouldOffer } from './push.js';
 import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
 import { roomTransportPosition, syncAudioClock, transportResync } from './room-sync.js';
+import { createRoomMediaSync, roomMediaLead, roomMediaTime } from './room-media-sync.js';
 import { concertPanel, concertBar, preloadScore, scoreReady, loadPiano } from './concert.js';
 import { liveSets, loadSets, setsReady } from './livekit.js';
 import { closePractice } from './practice-ui.js';
@@ -115,6 +116,7 @@ function persist() { if (guest) return; clearTimeout(saveTimer); saveTimer = set
 // it uses the same media channel as music and video playback.
 let mediaUnlock = null;
 let mediaRoute = null;
+const roomMediaSync = createRoomMediaSync();
 let mediaIdle = 0;
 // Hidden or locked, timers can be throttled to about once a second.
 const BG_LEAD = 1.5;
@@ -177,18 +179,18 @@ function ensureAudio() {
 let songOver = false;
 function schedule(lead) {
   if (!playing || (songOver && !queuedRoomReplay)) return;
-  const ahead = typeof lead === 'number' ? lead : document.hidden ? BG_LEAD : roomPlayback ? ROOM_LEAD : 0.12;
+  const ahead = roomMediaSync.horizon(typeof lead === 'number' ? lead : document.hidden ? BG_LEAD : roomPlayback ? ROOM_LEAD : 0.12, roomPlayback, mediaRoute, roomPlayback && mediaRoute ? ctx.currentTime : 0);
   const now = ctx.currentTime;
   if (roomEditor) engine.pruneEditableHits(now);
   const clock = syncAudioClock(clockOffset, Date.now() / 1000 - now);
   clockOffset = clock.offset;
-  const replayAt = queuedRoomReplay ? queuedRoomReplay.startsAt / 1000 - clockOffset : Infinity;
+  const replayAt = queuedRoomReplay ? roomMediaTime(queuedRoomReplay.startsAt / 1000 - clockOffset, roomPlayback, mediaRoute) : Infinity;
   if (songOver) {
     if (replayAt < now + ahead) switchRoomReplay(replayAt);
     return;
   }
   let base = 60 / state.bpm / 4, landed = null;
-  const target = transportOrigin / 1000 + abs * base - clockOffset;
+  const target = roomMediaTime(transportOrigin / 1000 + abs * base - clockOffset, roomPlayback, mediaRoute);
   const fix = transportResync(target, nextTime, now, base, clock.jumped, seq.origin - abs);
   let firstTime = fix?.firstTime;
   if (fix) {
@@ -227,7 +229,10 @@ function schedule(lead) {
       abs += skip * 16; seq.chainPos += skip; transportOrigin -= skip * 16 * base * 1000;
       if (handoff?.step != null) { handoff.step += skip * 16; handoff.from += skip * 16; }
     }
-    if (jamQueue.length && (abs - seq.origin) % 16 === 0) landJamParts((nextTime + clockOffset) * 1000 + base * 500, t);
+    if (jamQueue.length && ((abs - seq.origin) % 16 === 0 || (roomPlayback && mediaRoute && roomMediaSync.active(now)))) {
+      const gridTime = roomPlayback && mediaRoute ? nextTime + roomMediaLead(roomPlayback, mediaRoute) : nextTime;
+      landJamParts((gridTime + clockOffset) * 1000 + base * 500, t);
+    }
     artistTick(abs - seq.origin);
     const pat = seq.tick(abs, t, roomPlayback ? nextTime : undefined, roomEditor);
     uiQueue.push({ abs: abs - seq.origin, t, pat });
@@ -245,16 +250,44 @@ function schedule(lead) {
     }
   }
   // The audio is queued; now redraw for the new song (it sounds ~0.1 s from now).
+  if (mediaRoute && roomPlayback) roomMediaSync.queued(nextTime, engine.queuedNotes);
   landed?.();
 }
 
 // Jam: another player's part lands on the room downbeat it was sent for (wall-clock ms), the same bar for everyone.
 // Old changes (catching up on join) or a stopped transport apply at once.
-let jamQueue = [], jamRedraw = 0;
+let jamQueue = [], jamRedraw = 0, jamReschedule = false;
+function refreshJamPrime(wall = null) {
+  if (!playing || !roomPlayback || !mediaRoute || !roomMediaSync.active(ctx.currentTime)) return;
+  const safe = Math.max(ctx.currentTime + ROOM_LEAD, wall == null ? 0 : roomMediaTime(wall / 1000 - clockOffset, true, mediaRoute));
+  const steps = Math.floor((nextTime - safe) / engine.stepDur + 1e-7);
+  if (steps <= 0) return;
+  nextTime -= steps * engine.stepDur;
+  abs -= steps;
+  const retained = engine.queuedNotes.filter(note => note.t < nextTime - 1e-6);
+  engine.discardQueuedNotes(nextTime - 1e-6);
+  engine.queuedNotes.push(...retained);
+  uiQueue.splice(0, uiQueue.length, ...uiQueue.filter(q => q.t < nextTime - 1e-6));
+  seq.rewind(abs, nextTime);
+  seq.acidPrevSlide = false;
+  seq.finished = songOver = false;
+  if (handoff) { engine.handoffCancel(); handoff.out = false; }
+  roomMediaSync.refill();
+  if (jamReschedule) return;
+  jamReschedule = true;
+  queueMicrotask(() => {
+    jamReschedule = false;
+    if (!playing || !roomPlayback || !mediaRoute) return;
+    const step = (abs - seq.origin) % 16;
+    if (step) engine.vocal(nextTime, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, step, nextTime);
+    schedule();
+  });
+}
 function queueJamPart(part, layer, wall) {
   jamQueue = jamQueue.filter((q) => q.part !== part);
   if (!playing || wall < Date.now() - 2000) return landJamPart(part, layer);
   jamQueue.push({ part, layer, wall });
+  refreshJamPrime(wall);
 }
 function landJamParts(stepWallMs, t) {
   const due = jamQueue.filter((q) => q.wall <= stepWallMs);
@@ -264,10 +297,15 @@ function landJamParts(stepWallMs, t) {
 }
 // t: the audio time the part first sounds; the Club flashes it then.
 function landJamPart(part, layer, t = null) {
+  const primed = playing && roomPlayback && mediaRoute && roomMediaSync.active(ctx.currentTime);
   applyPart(state, part, layer);
   const wait = t == null ? 0 : Math.max(0, (t - ctx.currentTime) * 1000);
   setTimeout(() => window.dispatchEvent(new CustomEvent('untergrund:jam', { detail: { part } })), wait);
-  if (engine) engine.applyAll();
+  if (t == null) refreshJamPrime();
+  if (engine) {
+    if (primed) engine.scheduleJamParams(layer.params || {}, t ?? nextTime);
+    else engine.applyAll();
+  }
   cancelAnimationFrame(jamRedraw);
   jamRedraw = requestAnimationFrame(() => { build(); persist(); });
 }
@@ -354,6 +392,8 @@ function endTuning() {
 
 function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room = startsAt !== null || roomPlayback, editRoom = roomEditor, replayStats = null, replay808Style = engine?.replay808Style, switchAt = null } = {}) {
   const seeking = playing && switchAt === null;
+  if (switchAt === null) cancelRoomPrime();
+  else if (mediaRoute && roomPlayback) roomMediaSync.cancel(switchAt);
   clearPaused();
   roomResume = null;
   stopPreview();
@@ -368,7 +408,7 @@ function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room 
   abs = Math.max(0, Math.floor(step));
   if (handoff) { handoff = null; engine.handoffCancel(); }
   const wait = stepWall === null ? Math.max(0.01, delay) : (stepWall - wallNow) / 1000;
-  nextTime = switchAt ?? audioNow + wait;
+  nextTime = switchAt ?? roomMediaTime(audioNow + wait, room, mediaRoute);
   seq.startAt(abs, Math.max(audioNow, nextTime));
   state.current = seq.cur;
   songOver = false;
@@ -378,6 +418,7 @@ function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room 
   roomPlayback = room;
   roomEditor = room && editRoom;
   roomFirstNote = room && (startsAt > wallNow || stepWall > wallNow || switchAt !== null) ? nextTime : null;
+  roomMediaSync.start(room, mediaRoute);
   playing = true;
   if (replayStats || !trackingReplay) recordPlayback(replayStats || (!editRoom && playbackSources.get(state)), nextTime, abs);
   if (pat().score) preloadScore(pat().score);
@@ -408,10 +449,18 @@ function cancelRoomStart() {
   }
 }
 
+function cancelRoomPrime() {
+  if (!mediaRoute || !roomPlayback) return;
+  const now = ctx.currentTime;
+  if (roomMediaSync.cancel(now)) engine.discardQueuedNotes(now);
+  engine.cancelJamParams();
+}
+
 function stop(playbackOutcome = 'stop') {
   const replay = playbackOutcome === 'complete' ? queuedRoomReplay : null;
   queuedRoomReplay = roomReplayLoad = null;
-  if (roomStartPending()) engine.discardQueuedNotes(ctx.currentTime);
+  if (roomStartPending() && !(mediaRoute && roomPlayback && roomMediaSync.active(ctx.currentTime))) engine.discardQueuedNotes(ctx.currentTime);
+  cancelRoomPrime();
   playbackStats.end(playbackOutcome);
   trackingReplay = false;
   listens.end(listenPos(), { finished: songOver });
@@ -974,13 +1023,15 @@ async function joinRoomReplay(item) {
   trackEvent('set_replay', { kind: 'room_listener' });
 }
 
-function joinRoomSet(item) {
+function joinRoomSet(item, { initial = false } = {}) {
+  if (mediaRoute && initial && roomMediaSync.duplicate(item, playing, roomPlayback, mediaRoute)) return;
   queuedRoomReplay = roomReplayLoad = null;
   const sameSet = roomStatsItem === item;
   roomStatsItem = item;
   if (item?.replay) return joinRoomReplay(item);
   stopTimeline();
   if (!item?.state) return;
+  if (mediaRoute) roomMediaSync.begin(item, playing, roomPlayback, mediaRoute);
   const nextStyle = STYLES[item.style] ? item.style : STYLES[item.state.artist?.style] ? item.state.artist.style : style;
   const roomState = sanitize(clone(item.state));
   songOrigin = { src: 'room' };
@@ -1005,6 +1056,7 @@ function joinRoomSet(item) {
   const sync = () => {
     if (!continuous) play({ startsAt });
     else if (!sameSet) recordPlayback(playbackSources.get(state), ctx.currentTime, abs - Math.max(0, nextTime - ctx.currentTime) / engine.stepDur);
+    if (mediaRoute) roomMediaSync.remember(item);
     roomResume = () => joinRoomSet(item);
     syncNowPlaying();
     toast(`Synced to “${item.title || 'Live Machine Set'}”`);
@@ -1012,7 +1064,7 @@ function joinRoomSet(item) {
   const wait = startsAt - Date.now();
   // Prepare the graph with the same lookahead as room playback, not on the downbeat's deadline.
   const leadMs = continuous ? 40 : ROOM_LEAD * 1000;
-  if (wait > Math.max(50, leadMs)) roomJoinTimer = setTimeout(sync, wait - leadMs);
+  if (wait > Math.max(50, leadMs)) roomJoinTimer = setTimeout(sync, mediaRoute ? Math.max(0, wait - leadMs - roomMediaLead(true, mediaRoute) * 1000) : wait - leadMs);
   else sync();
 }
 
@@ -1032,7 +1084,7 @@ function startRoomBroadcast(startsAt) {
     return;
   }
   clearTimeout(roomJoinTimer);
-  roomJoinTimer = setTimeout(() => play({ startsAt, editRoom: true }), Math.max(0, startsAt - Date.now() - ROOM_LEAD * 1000));
+  roomJoinTimer = setTimeout(() => play({ startsAt, editRoom: true }), Math.max(0, startsAt - Date.now() - (mediaRoute ? ROOM_LEAD * 1000 + roomMediaLead(true, mediaRoute) * 1000 : ROOM_LEAD * 1000)));
 }
 
 function showClub({ room = '', intent = '' } = {}) {
