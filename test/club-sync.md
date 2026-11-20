@@ -34,8 +34,9 @@ original synthetic stem. `synthetic` retains the hypnotic fixture. Use a comma
 list of `--scenario` names and `--repeat 3` for sequential trials in one process.
 For `dj-handoff-mix`, both pop modes queue before PASS DECK and pass at the
 same score position (13⅜ beats from the initial room origin, within 100ms).
-Otherwise navigation and queue timing can move PASS across a kick into the
-sparse build: even uninterrupted audio then takes over three beats to produce
+Synthetic mode passes at 13½ beats, mid-beat between kicks, with the same
+100ms click guard. Otherwise navigation and queue timing can move PASS across
+a kick into the sparse build: even uninterrupted audio then takes over three beats to produce
 three post-pass kicks. JSON records the target as `events.passTargetAt` and
 still measures recovery from the actual click.
 Add `--clips` to always save clips; otherwise existing threshold failures or new
@@ -49,7 +50,10 @@ placed at bar 0 (updated broadcast origins are honored on handoff). The referenc
 envelope is saved in each result. Rendered RMS is binned at 4 ms; two-second
 windows hop one second, searching ±500 ms with mean-centered/cosine correlation.
 Competing periodic peaks are unresolved unless a silence transition or prior
-unambiguous window anchors their lag; ambiguous windows report null. Replay
+unambiguous window anchors their lag; ambiguous windows report null.
+An unanchored peak over 200ms from the window's kick offset is also ambiguous
+if a valid correlation exists within 100ms of that offset; a distant vocal
+offset remains measurable when no such kick-local alternative exists. Replay
 matching first compensates ±100 ms local timing drift and requires a unique
 earlier-content match sustained across at least two overlapping windows.
 Positive offsets mean late. `vocalVsKick` subtracts that client's median rendered

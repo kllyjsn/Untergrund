@@ -28,6 +28,7 @@ export function realMixFixture() {
 }
 
 export const popHandoffTargetAt = (origin, bpm) => origin + 13.375 * 60000 / bpm;
+export const syntheticHandoffTargetAt = (origin, bpm) => origin + 13.5 * 60000 / bpm;
 
 export async function loadRealMixStem(s) {
   const { singSong, hasStem, vocalFx } = await import('/js/sing.js');

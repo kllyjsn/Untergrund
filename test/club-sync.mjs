@@ -14,7 +14,7 @@ import { installAudioTap, envelope, postResumeEnvelope, onsets, resolvedCompare,
 import { transitionAudio } from './club-sync-transition.mjs';
 import { measureDJEdits } from './club-dj-edit.mjs';
 import { installDiagnostics, diagnose } from './club-sync-diagnostics.mjs';
-import { mixFixture, realMixFixture, popHandoffTargetAt, loadRealMixStem, mixBoundaries, mixGraphEdges, installMixStem, analyzeMix, mixFailures, channelEnvelope, firstMixDownbeat, missedFirstMixDownbeat } from './club-sync-mix.mjs';
+import { mixFixture, realMixFixture, popHandoffTargetAt, syntheticHandoffTargetAt, loadRealMixStem, mixBoundaries, mixGraphEdges, installMixStem, analyzeMix, mixFailures, channelEnvelope, firstMixDownbeat, missedFirstMixDownbeat } from './club-sync-mix.mjs';
 import { singRequest, vocalDb } from '../js/sing.js';
 import { analyzeVocalGrid, vocalFindings, referenceEnvelope, clipRange, extractPCM, floatWav, levelMatchClips } from './club-sync-vocals.mjs';
 import { parseNetwork, networkController, clockSpread } from './club-sync-network.mjs';
@@ -346,23 +346,24 @@ async function scenario(base, spec, network, run) {
       assert.ok(initial.startsAt > navigation, 'Cold invite navigation must start before the published downbeat');
       await pause(Math.max(0, initial.startsAt + 2000 - Date.now()));
     } else if (spec.handoff || spec.replay) {
-      const popHandoff = spec.handoff && spec.mix && options.vocal !== 'synthetic';
-      if (popHandoff) {
-        events.passTargetAt = popHandoffTargetAt(initial.startsAt, song.bpm);
+      const timedHandoff = spec.handoff && spec.mix;
+      if (timedHandoff) {
+        const targetAt = options.vocal === 'synthetic' ? syntheticHandoffTargetAt : popHandoffTargetAt;
+        events.passTargetAt = targetAt(initial.startsAt, song.bpm);
         await pause(Math.max(0, events.passTargetAt - Date.now() - 2000));
       } else await pause(7000);
       events.before = await snapshot();
       if (spec.handoff) {
         await listener.clickText('JOIN DJ QUEUE');
         await until(async () => (await snapshot()).queue?.includes(listenerId), 'listener queued on room server');
-        if (popHandoff) {
+        if (timedHandoff) {
           await until(() => host.run(`[...document.querySelectorAll('.club-secondary')].some(b => b.textContent === 'PASS DECK')`),
             'host sees queued listener', Math.max(0, events.passTargetAt - Date.now()));
-          assert.ok(Date.now() < events.passTargetAt, 'DJ queue ready before the pop handoff target');
+          assert.ok(Date.now() < events.passTargetAt, 'DJ queue ready before the handoff target');
           await pause(events.passTargetAt - Date.now());
         }
         events.actionAt = await host.clickText('PASS DECK');
-        if (popHandoff) assert.ok(Math.abs(events.actionAt - events.passTargetAt) <= 100, 'PASS DECK within 100ms of the pop handoff target');
+        if (timedHandoff) assert.ok(Math.abs(events.actionAt - events.passTargetAt) <= 100, 'PASS DECK within 100ms of the handoff target');
         if (spec.mix) events.interruptAt = events.recoverAt = events.actionAt;
         if (options['handoff-drop-kicks']) events.injectedKickDrop = await listener.run(`(async () => {
           const {Engine} = await import('/js/engine.js');
