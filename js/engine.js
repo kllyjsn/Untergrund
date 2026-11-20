@@ -3383,12 +3383,12 @@ export class Engine {
     let forced = false, crossfade = null, alignment = null;
     if (continuous && reanchor) {
       const errorMs = (origin - cur.origin) * 1000;
-      const index = pos * 16 + step;
+      const index = pos * 16 + step, rubato = this.stepDur !== sd;
       alignment = cur.correction ||= {id:this.vocalCorrectionSerial = (this.vocalCorrectionSerial || 0) + 1, forceFrom:null, forceStep:null};
       if (Math.abs(errorMs) > 60 + 1e-6) {
         if (alignment.forceFrom === null) {
           alignment.forceFrom = index;
-          alignment.forceStep = vocalReanchorStep(index);
+          alignment.forceStep = rubato ? (Math.floor(index / 16) + 1) * 16 : vocalReanchorStep(index);
         }
         if (index > alignment.forceStep) alignment.forceStep = Math.ceil(index / 16) * 16;
       } else {
@@ -3399,7 +3399,9 @@ export class Engine {
       singingEnvelope(buffer);
       const earliest = Math.max(phase, this.ctx.currentTime + 0.02 - origin,
         ...voices.map(voice => (voice.slewEnd ?? -Infinity) - origin));
-      const latest = ((alignment.forceFrom ?? index) + 32) * sd - v.ms / 1000;
+      // On a moving grid a distant gap would be scheduled against stale phase.
+      const lastStep = rubato ? Math.min(index + 4, alignment.forceStep ?? Infinity) : (alignment.forceFrom ?? index) + 32;
+      const latest = lastStep * sd - v.ms / 1000;
       const quiet = (at, source = buffer) => {
         const audio = source.getChannelData(0), window = Math.ceil(source.sampleRate * 0.06);
         const first = Math.floor(at * source.sampleRate);
@@ -3408,15 +3410,20 @@ export class Engine {
         for (let i = first; i < first + window; i++) energy += audio[i] * audio[i];
         return energy / window < 0.0001;
       };
-      const silence = phraseGaps.get(buffer).find(g => {
-        const start = g.to - 0.08 - Math.max(0, shift);
+      let silence, gapStart;
+      for (const g of phraseGaps.get(buffer)) {
+        const last = g.to - 0.08 - Math.max(0, shift);
+        const start = rubato ? Math.max(earliest, g.from - Math.min(0, shift)) : last;
+        if (start < earliest || start > Math.min(last, latest) || start < g.from || !quiet(start)) continue;
         const when = origin + start;
         const audible = voices.filter(voice => voice.startAt <= when && (voice.until ?? Infinity) > when);
-        return start >= earliest && start <= latest && start >= g.from && quiet(start) &&
-          audible.every(voice => quiet(when - voice.origin, voice.src.buffer));
-      });
+        if (!audible.every(voice => quiet(when - voice.origin, voice.src.buffer))) continue;
+        silence = g;
+        gapStart = start;
+        break;
+      }
       const gap = !!silence;
-      if (gap) t += silence.to - 0.08 - Math.max(0, shift) - phase;
+      if (gap) t += gapStart - phase;
       forced = !gap && alignment.forceStep === index;
       if (forced && (t < this.ctx.currentTime + 0.02 || phase < 0 || phase >= v.buf.duration)) {
         alignment.forceStep += 16;

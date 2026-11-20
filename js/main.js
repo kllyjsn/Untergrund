@@ -295,9 +295,10 @@ function schedule(lead) {
     const vocalFrom = voice ? Math.max(vocalNext - vocalStep, voice.slewEnd ?? voice.at, ctx.currentTime + 0.005) : nextTime;
     const vocalGap = voice?.slewEnd == null ? 0 : Math.max(0, vocalFrom - voice.slewEnd);
     const vocalError = gridTarget - vocalNext - (1 - (voice?.slewRate ?? 1)) * vocalGap;
-    if (roomPlayback && voice && engine.stepDur !== vocalStep && Math.abs(vocalError) > 0.000001) vocalGridDirty = true;
+    const vocalRubato = engine.stepDur !== vocalStep;
+    if (roomPlayback && voice && vocalRubato && Math.abs(vocalError) > 0.000001) vocalGridDirty = true;
     const vocalSlewing = roomPlayback && voice && !voice.correction && voice.sd === vocalStep && pos >= 0 &&
-      Math.abs(vocalError) <= 0.05;
+      Math.abs(vocalError) <= (vocalRubato ? 0.03 : 0.05);
     if (vocalSlewing) {
       const end = vocalFrom + vocalStep;
       const slew = transportResync(end + vocalError, end, ctx.currentTime, vocalStep, false, -Infinity, voice.slewRate ?? 1, true, voice.slewProfile);

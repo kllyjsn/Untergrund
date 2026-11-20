@@ -772,7 +772,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     for (let i = 0; i < incoming.length; i++) assert.ok(Math.abs(incoming[i] ** 2 + outgoing[i] ** 2 - 1) < 1e-6);
     assert.equal(incoming[0], 0); assert.equal(incoming.at(-1), 1);
     assert.equal(outgoing[0], 1); assert.ok(outgoing.at(-1) < 1e-6);
-    for (const during of [false, true]) {
+    for (const [during, rubato] of [[false, false], [true, false], [false, true]]) {
       const c = fakeCtx(), s = defaultState(); s.bpm = 120;
       const sources = [], gains = [];
       c.createGain = () => {
@@ -788,33 +788,36 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       };
       const buf = new FakeBuffer({length:48000 * 20, sampleRate:48000}); buf.getChannelData(0).fill(.1);
       const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:.5, lift:.5, ms:0})});
+      e.stepScale = rubato ? 1.01 : 1;
       let sends = 0, ducks = 0;
       e.vocalSends = () => sends++;
       e.duckUnder = () => ducks++;
       e.vocal(1, 0, 0, 1);
       const before = {sends, ducks};
-      for (let index = 17; index <= 48; index++) {
+      const forceStep = rubato ? 32 : 48;
+      for (let index = 17; index <= forceStep; index++) {
         const time = 1.12 + index * .125;
         c.currentTime = time - .1;
-        assert.equal(e.vocal(time, index >> 4, index % 16, time, true), index === 48);
-        assert.equal(sources.length, index === 48 ? 2 : 1, 'a forced source is not queued before its downbeat');
+        assert.equal(e.vocal(time, index >> 4, index % 16, time, true), index === forceStep);
+        assert.equal(sources.length, index === forceStep ? 2 : 1, 'a forced source is not queued before its downbeat');
       }
       assert.deepEqual({sends, ducks}, before, 'a forced alignment cannot reset sends, ducking or carving');
       assert.equal(e.vocalCorrection.forced, true);
-      assert.equal(e.vocalCorrection.forceStep, 48);
+      assert.equal(e.vocalCorrection.forceStep, forceStep);
       assert.equal(e.vocalCorrection.crossfadeSeconds, .03);
-      assert.ok(Math.abs(sources[1].starts[0][0] - 7.12) < 1e-9);
-      assert.equal(sources[1].starts[0][1], 6);
+      const fadeAt = 1.12 + forceStep * .125;
+      assert.ok(Math.abs(sources[1].starts[0][0] - fadeAt) < 1e-9);
+      assert.equal(sources[1].starts[0][1], forceStep * .125);
       const curves = gains.flatMap(g => g.gain.curves);
       assert.equal(curves.length, 2);
-      assert.ok(curves.every(curve => Math.abs(curve.at - 7.12) < 1e-9 && curve.duration === .03));
+      assert.ok(curves.every(curve => Math.abs(curve.at - fadeAt) < 1e-9 && curve.duration === .03));
       assert.deepEqual(curves[0].values, Array.from(outgoing));
       assert.deepEqual(curves[1].values, Array.from(incoming));
-      e.vocal(7.245, 3, 1, 7.245, true);
-      e.vocal(7.37, 3, 2, 7.37, true);
+      e.vocal(fadeAt + .125, forceStep >> 4, 1, fadeAt + .125, true);
+      e.vocal(fadeAt + .25, forceStep >> 4, 2, fadeAt + .25, true);
       assert.equal(sources.length, 2, 'the same correction cannot force a second source');
       const gain = e.vocalNow.g.gain;
-      c.currentTime = 7.12 + (during ? .015 : -.01);
+      c.currentTime = fadeAt + (during ? .015 : -.01);
       e.panic();
       assert.equal(e.vocalNow, null);
       assert.ok(sources.every(source => source.stops.at(-1) <= c.currentTime + .060001), 'Stop cancels both the audible and replacement voices before or during a forced fade');
