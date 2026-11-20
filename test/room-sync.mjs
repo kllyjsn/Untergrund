@@ -397,7 +397,7 @@ for (const [action, currentTime, playing, expected] of [
   runInNewContext(`${schedulerSource}\nschedule(0.5)`, forward);
   assert.deepEqual(relocations, [{step:68, time:11.75}], 'adoption sends SPP even when no logical steps were skipped');
   const replayNotes = [], switches = [];
-  const replay = {...music, abs:68, nextTime:10.25, transportOrigin:1500, roomDrainUntil:null,
+  const replay = {...music, ROOM_LEAD:0.42, abs:68, nextTime:10.25, transportOrigin:1500, roomDrainUntil:null,
     ctx:{currentTime:10}, Date:{now:() => replay.ctx.currentTime * 1000}, jamQueue:[], uiQueue:[],
     queuedRoomReplay:{startsAt:10375}, switchRoomReplay:at => switches.push(at),
     seq:{...music.seq, tick:(step, time) => {replayNotes.push({step, time}); return {};}}};
