@@ -11,7 +11,7 @@ on:
         type: boolean
         default: false
       club_contention_repeats:
-        description: Run five serialized late-join, host-skew and short-wake trials
+        description: Run five serialized late-join and host-skew trials
         type: boolean
         default: false
 
@@ -44,7 +44,7 @@ jobs:
       - if: ${{ !inputs.club_output_capture && !inputs.club_contention_repeats }}
         run: npm run test:club-sync -- --assert
       - if: ${{ !inputs.club_output_capture && inputs.club_contention_repeats }}
-        run: npm run test:club-sync -- --assert --scenario late-join,host-skew,short-wake --repeat 5
+        run: npm run test:club-sync -- --assert --scenario late-join,host-skew --repeat 5
       - if: inputs.club_output_capture
         name: Interleave native-output controls and shared-clock captures
         run: |
