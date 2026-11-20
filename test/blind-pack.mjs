@@ -1,11 +1,40 @@
 import assert from 'node:assert/strict';
-import { baseSelection, detectStyles, hash, random, shuffle, main, seedOverrides, parseMergedPR, excerptWithFrom, checkBarWindow } from '../scripts/blind-pack.mjs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { baseSelection, detectStyles, hash, random, shuffle, main, seedOverrides, parseMergedPR, excerptWithFrom, checkBarWindow, selectStyles, edgeFadeFilter } from '../scripts/blind-pack.mjs';
 
 assert.deepEqual(seedOverrides(), {});
 assert.deepEqual(seedOverrides('afrobeats:0,hyperpop:4294967295'), { afrobeats: 0, hyperpop: 4294967295 });
 for (const value of ['unknown:1', 'dnb:', 'dnb:1.5', 'dnb:-1', 'dnb:4294967296', 'dnb:NaN', 'dnb:1:2', 'dnb:1,dnb:2']) assert.throws(() => seedOverrides(value), /Invalid genre seed/);
 
 const input = ['minimal', 'drill', 'hardtechno', 'trap'];
+assert.deepEqual(selectStyles(['acid', 'pop', 'minimal'], ['pop', 'hypnotic'], 6), { selected: [...input, 'pop', 'hypnotic'], dropped: ['acid'] });
+assert.deepEqual(selectStyles([]), { selected: input, dropped: [] });
+assert.deepEqual(selectStyles(['acid'], [], 4), { selected: input, dropped: ['acid'] });
+for (const max of [0, 3, 4.5, NaN]) assert.throws(() => selectStyles([], [], max), /max-pairs/);
+assert.throws(() => selectStyles(['unknown']), /Unknown genre/);
+assert.equal(edgeFadeFilter(), 'afade=t=in:d=0.01,areverse,asetpts=N/SR/TB,afade=t=in:d=0.01,areverse,asetpts=N/SR/TB');
+for (const duration of [0, -1, NaN, Infinity]) assert.throws(() => edgeFadeFilter(duration), /Fade duration/);
+const fadeDir = mkdtempSync(join(tmpdir(), 'blind-pack-fade-'));
+try {
+  for (const frames of [4200, 4800]) {
+    const wav = join(fadeDir, 'constant.wav');
+    execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `aevalsrc=0.5:s=48000:d=${frames / 48000}`, '-ac', '2', '-c:a', 'pcm_s16le', wav]);
+    const decode = (filter) => execFileSync('ffmpeg', ['-v', 'error', '-i', wav, ...(filter ? ['-af', filter] : []), '-f', 'f32le', 'pipe:1']);
+    const raw = decode(), faded = decode(edgeFadeFilter());
+    assert.equal(faded.length, raw.length, 'fades preserve sample count');
+    for (let n = 0; n < frames; n++) {
+      const expected = Math.min(1, n / 480, (frames - 1 - n) / 480);
+      for (let ch = 0; ch < 2; ch++) {
+        const at = (n * 2 + ch) * 4;
+        const gain = faded.readFloatLE(at) / raw.readFloatLE(at);
+        assert.ok(Math.abs(gain - expected) < 0.004, `fade gain at frame ${n}/${frames}: ${gain} vs ${expected}`);
+      }
+    }
+  }
+} finally { rmSync(fadeDir, { recursive: true, force: true }); }
 assert.deepEqual(checkBarWindow([63, 71]), [63, 71]);
 assert.deepEqual(checkBarWindow([63, 71], [63, 71]), [63, 71]);
 assert.throws(() => checkBarWindow([32, 40], [63, 71]), /window mismatch/);

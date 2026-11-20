@@ -1,5 +1,10 @@
 # Daily blind rating pack
 
+Use `--max-pairs 6` to retain the four core genres and cap additional styles.
+Styles supplied with `--genres pop,hypnotic` take priority over detected additions.
+The key records dropped styles. Every half receives 10 ms fade-in and fade-out
+before two-pass normalization and decoded-MP3 loudness verification.
+
 Run `npm run blind-pack -- --date YYYY-MM-DD --key-dir /private/path/blind-packs`.
 Requires Node 22+, Chrome, ffmpeg (libmp3lame), zip, and access to origin. The script fetches
 main, renders both revisions in disposable worktrees, and removes those worktrees even on failure.
