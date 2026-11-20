@@ -19,6 +19,7 @@ const DUCKED = new Set(['acid', 'stab', 'vox']);
 const dampedChord = (e) => (e.state.artist?.style === 'breaks' && Math.round(e.state.params.stab.voice) === 1)
   || (e.state.artist?.style === 'reggaeton' && Math.round(e.state.params.stab.voice) === 3);
 const BASS_COLOR = {
+  bailefunk: { name: 'funk808', knock: 1.35, settle: 0.022, wave: 'sine', ratio: 2, harmonic: 0.32, tail: 0.12, decay: 0.09, round: 'sine', pick: 0.15, gain: 1.05 },
   reggaeton: { name: 'dembow', knock: 1.12, settle: 0.045, wave: 'sine', ratio: 4, harmonic: 0.55, tail: 0.35, decay: 0.12, round: 'sine', pick: 0.6 },
   afrobeats: { name: 'finger', knock: 1, settle: 0.018, wave: 'triangle', ratio: 3, harmonic: 0.8, tail: 0.25, decay: 0.07, round: 'triangle', pick: 1, gain: 0.85 },
   jerseyclub: { name: 'bounce', knock: 2.6, settle: 0.012, wave: 'sawtooth', ratio: 2, harmonic: 0.35, tail: 0.015, decay: 0.025, round: 'triangle', pick: 0.5, gain: 1.6, duckScale: 0.65, recoveryScale: 0.6 },
@@ -1302,7 +1303,75 @@ export class Engine {
     this.startSource(sub, t); sub.stop(t + len + 0.3);
   }
 
+  funkDrum(id, t, v) {
+    if (!(v > 0) || ![t, v].every(Number.isFinite)) return;
+    const out = this.ch[id].input, p = this.state.params[id];
+    if (id === 'clap') {
+      const noise = this.noiseSrc(t, 0.12), bp = this.filter('bandpass', p.tone * 1.35, 0.75);
+      const amp = this.gain(0);
+      for (const offset of [0, 0.009, 0.018]) {
+        amp.gain.setValueAtTime(0, t + offset);
+        amp.gain.linearRampToValueAtTime(v * 2.1, t + offset + 0.002);
+        amp.gain.exponentialRampToValueAtTime(EPS, t + offset + (offset === 0.018 ? 0.075 : 0.008));
+      }
+      noise.connect(bp).connect(this.filter('lowpass', 5500, 0.6)).connect(amp).connect(out);
+      return;
+    }
+    const kick = id === 'kick', high = !kick && ((this.funkHandHits = (this.funkHandHits || 0) + 1) % 2 === 0);
+    const f = kick ? p.tune : p.tune * (high ? 1.25 : 0.82), len = kick ? 0.22 + p.decay * 0.65 : 0.22;
+    const amp = this.gain(0), sh = this.ctx.createWaveShaper();
+    sh.curve = driveCurve(kick ? 0.38 : 0.12); sh.oversample = '2x';
+    amp.gain.setValueAtTime(0, t);
+    amp.gain.linearRampToValueAtTime(v * (kick ? 1.45 : 0.85), t + 0.003);
+    amp.gain.exponentialRampToValueAtTime(EPS, t + len);
+    sh.connect(this.filter('lowpass', kick ? 650 : 2400, 0.6)).connect(amp).connect(out);
+    for (const [ratio, level] of kick ? [[1, 1]] : [[1, 1], [1.58, 0.3], [2.13, 0.12]]) {
+      const osc = this.ctx.createOscillator();
+      osc.frequency.setValueAtTime(f * ratio * (kick ? 2.8 : 1.8), t);
+      osc.frequency.exponentialRampToValueAtTime(f * ratio, t + (kick ? 0.032 : 0.018));
+      osc.connect(this.gain(level)).connect(sh);
+      this.startSource(osc, t); osc.stop(t + len + 0.03);
+    }
+    const skin = this.noiseSrc(t, 0.045), slap = this.gain(0);
+    this.adEnv(slap.gain, t, v * (kick ? 0.09 : 0.6), 0.002, kick ? 0.008 : 0.025);
+    skin.connect(this.filter('bandpass', kick ? 1100 : high ? 2100 : 1500, 0.8)).connect(slap).connect(out);
+  }
+
+  funkStab(t, v, iv, root, dur, out) {
+    if (!(v > 0) || ![t, v, root, dur].every(Number.isFinite) || !iv.length) return;
+    const len = Math.max(0.08, Math.min(0.32, dur)), lp = this.filter('lowpass', 1600, 0.65), amp = this.gain(0);
+    lp.frequency.setValueAtTime(2100, t); lp.frequency.exponentialRampToValueAtTime(650, t + len);
+    amp.gain.setValueAtTime(0, t); amp.gain.linearRampToValueAtTime(v * 0.38 / Math.sqrt(iv.length), t + 0.008);
+    amp.gain.exponentialRampToValueAtTime(EPS, t + len + 0.09);
+    lp.connect(amp).connect(out);
+    for (const note of iv) for (const cents of [-5, 5]) {
+      const osc = this.ctx.createOscillator(); osc.type = 'sawtooth';
+      osc.frequency.value = midiHz(root + note); osc.detune.value = cents;
+      osc.connect(lp); this.startSource(osc, t); osc.stop(t + len + 0.12);
+    }
+  }
+
+  funkVox(t, v, step) {
+    if (!(v > 0) || ![t, v, step].every(Number.isFinite)) return;
+    const { buffer, slices } = getSample(this.state), p = this.state.params.vox;
+    const notes = SCALES[this.state.scale]?.notes || SCALES.minor.notes;
+    const degree = notes[Math.floor(hash(step, 84) * notes.length)];
+    const rate = 2 ** ((Math.round(p.pitch) + degree - 12) / 12);
+    const idx = Math.floor(hash(step, 85) * slices.length), from = slices[idx];
+    const len = Math.max(0.03, Math.min(0.14, p.length * this.stepDur, ((slices[idx + 1] ?? buffer.duration) - from) / rate));
+    for (let i = 0; i < (hash(step, 86) < 0.28 ? 2 : 1); i++) {
+      const at = t + i * this.stepDur * 0.5, src = this.ctx.createBufferSource(), amp = this.gain(0);
+      src.buffer = buffer; src.playbackRate.value = rate;
+      amp.gain.setValueAtTime(0, at); amp.gain.linearRampToValueAtTime(v * (i ? 0.75 : 1.2), at + 0.004);
+      amp.gain.setValueAtTime(v * (i ? 0.75 : 1.2), at + Math.max(0.005, len - 0.018));
+      amp.gain.linearRampToValueAtTime(0, at + len);
+      src.connect(this.filter('bandpass', 1000 + degree * 35, 0.65)).connect(this.filter('lowpass', 3800, 0.6)).connect(amp).connect(this.ch.vox.input);
+      this.startSource(src, at, from, len + 0.02);
+    }
+  }
+
   kick(t, v) {
+    if (this.state.artist?.style === 'bailefunk') return this.funkDrum('kick', t, v);
     const c = this.ctx, p = this.state.params.kick, out = this.ch.kick.input;
     const f = p.tune, dec = p.decay;
     const o = c.createOscillator();
@@ -1337,6 +1406,7 @@ export class Engine {
   }
 
   clap(t, v) {
+    if (this.state.artist?.style === 'bailefunk') return this.funkDrum('clap', t, v);
     const p = this.state.params.clap, out = this.ch.clap.input;
     const sp = (0.6 + p.spread * 0.9) * (0.88 + hash(t * 997, 5) * 0.24);
     const offs = [0, 0.0105 * sp * (0.9 + hash(t * 991, 6) * 0.2), 0.021 * sp, 0.031 * sp * (0.94 + hash(t * 983, 7) * 0.12)];
@@ -1523,6 +1593,7 @@ export class Engine {
   }
 
   perc(t, v) {
+    if (this.state.artist?.style === 'bailefunk') return this.funkDrum('perc', t, v);
     const c = this.ctx, p = this.state.params.perc, out = this.ch.perc.input;
     if (this.hardTechno) this.hardPalette(t, v, [p.tune * 2], p.decay, out, 'metal');
     const vo = Math.round(p.voice || 0);
@@ -1722,6 +1793,7 @@ export class Engine {
   stab(t, v, underHarp = false) {
     const c = this.ctx, p = this.state.params.stab;
     const { root, vo, iv } = stabPitches(this);
+    if (this.state.artist?.style === 'bailefunk') return this.funkStab(t, v, iv, root, p.decay, this.ch.stab.input);
     const trimmed = this.chordTone(vo, this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]));
     const layers = this.hardTechno ? this.hardStabOut(trimmed) : null, out = layers ? layers.core : trimmed;
     if (layers) this.hardPalette(t, v, iv.map(n => midiHz(root + n)), Math.max(0.12, p.decay), layers.rave, 'rave');
@@ -2339,6 +2411,7 @@ export class Engine {
   }
 
   vox(t, v, step) {
+    if (this.state.artist?.style === 'bailefunk') return this.funkVox(t, v, step);
     // Saved set timelines omit song metadata, so never borrow the listener's project seed.
     const c = this.ctx, p = this.state.params.vox, sample = getSample(this.replay808Style ? null : this.state);
     const { buffer, slices } = sample;
@@ -2367,6 +2440,7 @@ export class Engine {
     const p = this.state.params.stab, h = this.harm;
     const iv = CHORDS[h ? h.c : Math.round(p.chord)].iv;
     const n = iv[k % iv.length] + 12 * Math.floor(k / iv.length);
+    if (this.state.artist?.style === 'bailefunk') return this.funkStab(t, v, [n], 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot(), p.decay, this.ch.stab.input);
     if (this.hardTechno) return this.hardLead(t, v * 0.12, midiHz(60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + n), Math.max(0.12, p.decay), this.ch.stab.input);
     const vo = Math.round(p.voice), lead = vo > 1 ? STAB_VOICES[vo] : 'keys';
     const style = this.state.artist?.style;
@@ -2548,6 +2622,7 @@ export class Engine {
     v *= 1.3;
     n = hookSnap(n, h, p, strong, up);
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
+    if (this.state.artist?.style === 'bailefunk') return this.funkStab(t, v * 0.7, [n], 60 + k + oct * 12, dur, this.hookBus || this.ch.stab.input);
     if (dampedChord(this) && (voice === 'vocal' || voice === 'reed')) {
       const name = Math.round(p.voice) === 1 ? 'keys' : 'organ';
       const out = this.trimOut(`hook-${name}`, 4, this.hookBus || this.ch.stab.input, -4, 500);

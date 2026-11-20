@@ -108,6 +108,43 @@ const CLUB = { peak: 503, deephouse: 211, dnb: 211, trap: 211, amapiano: 211, re
 // leads and chords must not buy their level with low-mid mud.
 const MUD_MAIN = { peak: 0.061, deephouse: 0.032, dnb: 0.042, trap: 0.059, amapiano: 0.232, reggaeton: 0.042 };
 const rows = [];
+// TRACK_IDS only: hook/chord are routed to stab by render(), never used as solo IDs.
+{
+  const full = await render('bailefunk', 211);
+  for (const stem of ['kick', 'clap', 'perc', 'vox', 'acid', 'hook']) {
+    const solo = await render('bailefunk', 211, { stem });
+    const muted = await render('bailefunk', 211, { mute: ['hook', 'chord'].includes(stem) ? 'stab' : stem });
+    assert(hitDb(solo.data) > -65, `bailefunk ${stem} reaches its stem`);
+    assert(full.data.some((x, i) => Math.abs(x - muted.data[i]) > 1e-5), `bailefunk ${stem} reaches the mix`);
+    assert(solo.data.every(Number.isFinite), `bailefunk ${stem} is finite`);
+  }
+  assert.equal(INSTRUMENTS.bailefunk.length, 4);
+  assert(INSTRUMENTS.bailefunk.every(([voice, bass]) => voice === 4 && bass === 2));
+  for (const solo of [false, true]) {
+    const s = defaultState(); applyOverrides(s, generate('bailefunk', 211));
+    if (solo) s.solos.stab = true;
+    const ctx = new OfflineAudioContext(1, 2 * SR, SR), e = new Engine(ctx, s, { realtime: false });
+    e.stab(0.05, 0.8);
+    e.hook(0.05, 0.8, 0, 1, 'reed', 0, true);
+    const d = (await ctx.startRendering(e.mix)).getChannelData(0);
+    assert(hitDb(d) > -65, 'Volt chord and last-downbeat hook reach stem and mix');
+    assert(d.every(x => Number.isFinite(x) && Math.abs(x) < 0.95), 'last downbeat retains headroom');
+    const dryCtx = new OfflineAudioContext(1, 2 * SR, SR), dry = new Engine(dryCtx, s, { realtime: false });
+    dry.funkStab(0.05, 1, [0], 60, 1, dryCtx.destination);
+    const tail = (await dryCtx.startRendering()).getChannelData(0);
+    assert(rmsDb(tail, SR, 2 * SR) < -85, 'dry Volt hit releases without a ringing tail');
+  }
+  for (const invalid of [0, -1, NaN]) {
+    const s = defaultState(), ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
+    for (const id of ['kick', 'clap', 'perc']) e.funkDrum(id, 0.05, invalid);
+    e.funkStab(0.05, invalid, [0], 60, 0.2, ctx.destination);
+    e.funkStab(0.05, 1, [], 60, 0.2, ctx.destination);
+    e.funkVox(0.05, invalid, 0);
+    const d = (await ctx.startRendering()).getChannelData(0);
+    assert(d.every(x => x === 0), 'empty and invalid funk hits stay silent');
+  }
+  console.log('bailefunk: drums, bass, MC and Volt voices reach stems and mix; downbeat headroom and release pass; empty/invalid hits silent');
+}
 for (const [style, seed] of Object.entries(CLUB)) {
   const full = await render(style, seed), noBass = await render(style, seed, { mute: 'acid' });
   const bass = await render(style, seed, { stem: 'acid' }), kick = await render(style, seed, { stem: 'kick' });
