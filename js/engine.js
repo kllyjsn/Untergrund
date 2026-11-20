@@ -1097,15 +1097,17 @@ export class Engine {
 
   duckAt(t, v) {
     const depth = this.state.master.duck * Math.min(1, v * 1.25) * 0.9;
+    const funk = this.playbackStyle === 'bailefunk';
     // Pump recovers over roughly one beat so offbeat basslines and pads audibly breathe
-    const parts = [[this.duck.gain, depth, this.stepDur * 1.5, 0.0025, 0.03],
+    const parts = funk ? [] : [[this.duck.gain, depth, this.stepDur * 1.5, 0.0025, 0.03],
       [this.rumbleDuck.gain, 0.98, this.stepDur * 0.47, 0.0025, 0.03]];
     // Club low end: the kick owns the first few ms, then the bass comes straight back.
     const L = lowEnd(this.state.master), sc = this.ch.acid.sc?.gain;
     const color = this.bassColor();
-    if (L && sc) parts.push([sc, L.dip * (color?.duckScale ?? 1) * Math.min(1, v * 1.2), L.rel * (color?.recoveryScale ?? 1), 0.002, 0.012]);
+    if (funk && sc) parts.push([sc, 1 - 10 ** (-1.5 / 20), 0.02, 0.002, 0.07]);
+    else if (L && sc) parts.push([sc, L.dip * (color?.duckScale ?? 1) * Math.min(1, v * 1.2), L.rel * (color?.recoveryScale ?? 1), 0.002, 0.012]);
     // Keep the wind lead out of the glue compressor's way during a kick's attack.
-    if (this.windDuck) parts.push([this.windDuck.gain, 0.62 * Math.min(1, v * 1.2), 0.045, 0.003, 0.035]);
+    if (this.windDuck && !funk) parts.push([this.windDuck.gain, 0.62 * Math.min(1, v * 1.2), 0.045, 0.003, 0.035]);
     const duck = { t, parts };
     if (this.queuedNotes) {
       this.ducks = this.ducks.filter(d => d.t + 0.03 >= this.ctx.currentTime);
@@ -1498,6 +1500,7 @@ export class Engine {
       return;
     }
     const kick = id === 'kick', step = this.step ?? Math.round(t / this.stepDur);
+    if (kick) this.duckAt(t, v);
     const high = !kick && funkHand(step) === 2;
     const f = kick ? p.tune : p.tune * (high ? 1.25 : 0.82), len = kick ? 0.22 + p.decay * 0.65 : 0.22;
     const amp = this.gain(0), sh = this.ctx.createWaveShaper();

@@ -208,6 +208,16 @@ const rows = [];
   assert.equal(INSTRUMENTS.bailefunk.length, 4);
   assert(INSTRUMENTS.bailefunk.every(([voice, bass]) => voice === 4 && bass === 2));
   assert.equal(full.engine.bassColor().name, 'funk808');
+  {
+    const s = freshSong('bailefunk', 211); s.artist = { style: 'bailefunk', seed: 211 };
+    const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false }), ducks = [];
+    e.scheduleDuck = d => ducks.push(d);
+    e.kick(0.05, 0.8);
+    assert.equal(ducks.length, 1, 'the funk kick schedules its bass duck');
+    assert.deepEqual(ducks[0].parts, [[e.ch.acid.sc.gain, 1 - 10 ** (-1.5 / 20), 0.02, 0.002, 0.07]], 'only bass dips 1.5 dB for 70 ms');
+    e.kick(0.2, 0);
+    assert.equal(ducks.length, 1, 'an empty kick does not duck');
+  }
   const handAt = async (history) => {
     const s = freshSong('bailefunk', 211), ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
     s.artist = { style: 'bailefunk', seed: 211 };
