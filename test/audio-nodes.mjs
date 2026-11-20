@@ -145,6 +145,15 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
   console.log('Euphoric sections lift before the clipper and clear on genre switches');
 }
 {
+  const s = defaultState(); s.artist = { style: 'trap' }; s.params.stab.voice = 2;
+  const e = new Engine(fakeCtx(), s, { realtime: false });
+  for (const tone of [true, false]) {
+    const { s: source } = e.sweep(1, 2, .3, { tone, low: 400, high: 5000, curve: 1.2 });
+    assert.equal(tone ? source.type : source.kind, tone ? 'triangle' : 'BufferSource');
+  }
+  console.log('Festival build sweeps support filtered noise and rising triangle profiles');
+}
+{
   const stacks = {};
   for (const style of ['trap', 'trance']) {
     const s = defaultState();

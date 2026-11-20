@@ -3550,16 +3550,26 @@ export class Engine {
     const g = this.festivalGate?.gain;
     if (!g) return;
     g.setValueAtTime(1, t);
-    g.linearRampToValueAtTime(0, t + 0.008);
-    g.setValueAtTime(0, t + dur - 0.004);
+    g.linearRampToValueAtTime(0.05, t + 0.008);
+    g.setValueAtTime(0.05, t + dur - 0.004);
     g.linearRampToValueAtTime(1, t + dur);
   }
 
-  sweep(t, dur, amt) {
+  sweep(t, dur, amt, profile) {
     if (this.hardTechno) return this.tonalSweep(t, dur, amt);
-    const s = this.noiseSrc(t, dur + 0.05), bp = this.filter('bandpass', 500, 2), g = this.gain(0);
-    bp.frequency.setValueAtTime(500, t); bp.frequency.exponentialRampToValueAtTime(8000, t + dur);
-    g.gain.setValueAtTime(EPS, t); g.gain.exponentialRampToValueAtTime(0.32 * amt, t + dur * 0.97); g.gain.linearRampToValueAtTime(0, t + dur);
+    const s = profile?.tone ? this.ctx.createOscillator() : this.noiseSrc(t, dur + 0.05);
+    const bp = this.filter('bandpass', profile?.low || 500, profile ? 0.7 : 2), g = this.gain(0);
+    if (profile?.tone) {
+      s.type = 'triangle'; s.frequency.setValueAtTime(profile.low, t);
+      s.frequency.exponentialRampToValueAtTime(profile.high, t + dur);
+      this.startSource(s, t); s.stop(t + dur + 0.05);
+    }
+    bp.frequency.setValueAtTime(profile?.low || 500, t); bp.frequency.exponentialRampToValueAtTime(profile?.high || 8000, t + dur);
+    g.gain.setValueAtTime(EPS, t);
+    if (profile) {
+      for (let i = 1; i <= 16; i++) g.gain.linearRampToValueAtTime((profile.tone ? 0.12 : 0.32) * amt * (i / 16) ** profile.curve, t + dur * 0.97 * i / 16);
+    } else g.gain.exponentialRampToValueAtTime(0.32 * amt, t + dur * 0.97);
+    g.gain.linearRampToValueAtTime(0, t + dur);
     s.connect(bp).connect(g); g.connect(this.mix); g.connect(this.revIn);
     return { s, g };
   }
@@ -4234,9 +4244,9 @@ export class Sequencer {
     const arr = s.master.arr || 0, i16 = abs % 16;
     const festival = this.festivalPlan?.length > 0;
     const build = festival ? festivalBuildStep(this.festivalPlan, pos, i16) : null;
-    if (build?.start) e.sweep(t, build.durationSteps * sd, build.strength);
+    if (build?.sweepStart) e.sweep(t, build.durationSteps * sd, build.strength, build.sweep);
     if (build?.lowOff && i16 === 0) e.acidRelease(t);
-    if (build?.gapStart) e.festivalGap?.(t, 4 * sd);
+    if (build?.gapStart) e.festivalGap?.(t, build.gapSteps * sd);
     if (build?.gap) return this.cur;
     if (build && !build.drop && !s.mutes.snare && (!TRACK_IDS.some((id) => s.solos[id]) || s.solos.snare)) {
       for (const hit of build.rolls) e.trigger('snare', t + hit.offset * sd, hit.velocity);

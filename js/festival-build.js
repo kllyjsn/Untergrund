@@ -12,8 +12,13 @@ export function festivalBuilds(chain, style, voice, seed = 0) {
     if (chain[start] === 'D' && start) start--;
     const kind = chain[start];
     while (start > 0 && chain[start - 1] === kind) start--;
-    const bars = Math.min(drop - start, drop - start < 8 ? 2 : 4);
-    builds.push({ from: drop - bars, drop, bars, strength: 0.3 + 0.05 * r() });
+    const limit = Math.min(drop - start, drop - start < 8 ? 2 : 4);
+    const first = builds.length === 0, bars = first ? limit : Math.min(limit, 2 + Math.floor(3 * r()));
+    const roll = first ? 'full' : ['full', 'late', 'none'][Math.floor(3 * r())];
+    builds.push({ from: drop - bars, drop, bars, strength: 0.24 + 0.1 * r(), roll,
+      rollCurve: 0.7 + 1.8 * r(), gapSteps: [2, 4, 8][Math.floor(3 * r())],
+      sweepBars: first ? bars : 1 + Math.floor(bars * r()),
+      sweep: { tone: r() < 0.5, low: 300 + 500 * r(), high: 2600 + 4400 * r(), curve: 0.6 + 2 * r() } });
   }
   return builds;
 }
@@ -23,11 +28,12 @@ export function festivalBuildStep(builds, bar, step) {
   if (!build) return null;
   if (bar === build.drop) return step === 0 ? { drop: true } : null;
   const elapsed = (bar - build.from) * 16 + step, total = build.bars * 16;
-  const progress = elapsed / (total - 4), last = bar === build.drop - 1;
-  const gap = last && step >= 12;
+  const duration = total - build.gapSteps, progress = elapsed / duration, last = bar === build.drop - 1;
+  const gap = elapsed >= duration;
   const divisions = last ? 2 : progress < 0.5 ? 0.5 : 1;
-  const rolls = gap || (divisions === 0.5 && step % 2) ? [] :
-    Array.from({ length: Math.ceil(divisions) }, (_, i) => ({ offset: i / divisions, velocity: 0.22 + 0.42 * ((elapsed + i / divisions) / (total - 4)) }));
-  return { start: elapsed === 0, strength: build.strength, durationSteps: total - 4, lowOff: last, gap, gapStart: last && step === 12,
+  const rolls = gap || build.roll === 'none' || (build.roll === 'late' && elapsed < total / 2) || (divisions === 0.5 && step % 2) ? [] :
+    Array.from({ length: Math.ceil(divisions) }, (_, i) => ({ offset: i / divisions, velocity: 0.18 + 0.44 * ((elapsed + i / divisions) / duration) ** build.rollCurve }));
+  return { start: elapsed === 0, sweepStart: elapsed === total - build.sweepBars * 16, sweep: build.sweep,
+    strength: build.strength, durationSteps: build.sweepBars * 16, gapSteps: build.gapSteps, lowOff: last, gap, gapStart: elapsed === duration,
     thin: step % (last ? 8 : 4) !== 0, rolls };
 }
