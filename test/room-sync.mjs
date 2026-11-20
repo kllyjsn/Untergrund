@@ -399,6 +399,17 @@ for (const [action, currentTime, playing, expected] of [
   runInNewContext(`${schedulerSource}\nschedule()`, initial);
   close(initialNotes[0].time, 10.1);
   assert.equal(initial.transportOrigin, 10100, 'the first unqueued room estimate snaps its audio deadline, never the shared broadcast origin');
+  for (const origin of [9999, 9960, 9920]) {
+    const notes = [], padded = {...initial, abs:0, nextTime:10.01, transportOrigin:origin, uiQueue:[],
+      roomAudioClock:null, roomDrainUntil:null, vocalGridDirty:false,
+      seq:{...initial.seq, tick:(step, time) => { notes.push({step, time}); return {}; }}};
+    runInNewContext(`${schedulerSource}\nschedule()`, padded);
+    assert.equal(notes[0].step, 0, 'crossing the first grid deadline cannot skip the still-playable padded step');
+    close(notes[0].time, 10.01);
+    assert(notes.every((n, i) => n.step === i && n.time >= 10.01 && (!i || n.time > notes[i-1].time)),
+      'a padded room start renders each step once in order before later corrections');
+    assert.equal(padded.transportOrigin, origin, 'the startup pad never changes the shared origin');
+  }
   const f = runInNewContext(`${schedulerSource}\n${jamSource}\n({schedule, landJamPart})`, sandbox);
   f.landJamPart('kick', {id:'new'}, 11);
   f.schedule();

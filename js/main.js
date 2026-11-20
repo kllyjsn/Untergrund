@@ -198,18 +198,19 @@ function schedule(lead) {
   }
   let base = 60 / state.bpm / 4, landed = null;
   const target = roomMediaTime(transportOrigin / 1000 + abs * base - clockOffset, roomPlayback, mediaRoute);
-  if (firstEstimate && Math.abs(target - nextTime) > 0.000001) nextTime = target;
+  const playableFirst = firstEstimate && target < now && nextTime >= now;
+  if (firstEstimate && !playableFirst && Math.abs(target - nextTime) > 0.000001) nextTime = target;
   if (roomPlayback && Math.abs(target - nextTime) > 0.000001) vocalGridDirty = true;
   if (clock.jumped) roomDrainUntil = null;
-  const correction = roomPlayback && !clock.jumped ? roomTransportCorrection(target, nextTime, now, base, roomDrainUntil) : null;
+  const correction = roomPlayback && !clock.jumped && !playableFirst ? roomTransportCorrection(target, nextTime, now, base, roomDrainUntil) : null;
   if (correction?.drainUntil !== undefined) {
     roomDrainUntil = correction.drainUntil;
     if (replayAt <= roomDrainUntil + 0.03 && replayAt < now + ahead) switchRoomReplay(replayAt);
     return;
   }
   roomDrainUntil = null;
-  const fix = correction ?? transportResync(target, nextTime, now, base, clock.jumped, seq.origin - abs, roomPlayback);
-  let firstTime = fix?.firstTime;
+  const fix = playableFirst ? null : correction ?? transportResync(target, nextTime, now, base, clock.jumped, seq.origin - abs, roomPlayback);
+  let firstTime = playableFirst ? nextTime : fix?.firstTime;
   if (fix) {
     if (fix.discard) {
       engine.discardQueuedNotes(now);
@@ -244,7 +245,7 @@ function schedule(lead) {
     const horizon = ctx.currentTime + (landed ? Math.max(ahead, 0.5) : ahead);
     if (!(Math.min(nextTime, replayAt) < horizon)) break;
     const gridTarget = roomMediaTime(transportOrigin / 1000 + abs * base - clockOffset, roomPlayback, mediaRoute);
-    if (roomPlayback && Math.abs(gridTarget - nextTime) > 0.000001) nextTime = slewTransport(gridTarget, nextTime, 0.05);
+    if (roomPlayback && !(playableFirst && firstTime !== undefined) && Math.abs(gridTarget - nextTime) > 0.000001) nextTime = slewTransport(gridTarget, nextTime, 0.05);
     const t = firstTime ?? nextTime;
     firstTime = undefined;
     // Leave a nearly coincident outgoing step to the incoming replay downbeat.
