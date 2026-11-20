@@ -2906,6 +2906,7 @@ export class Engine {
   }
 
   acid(t, st, sliding, holdNext, sd, slideUntil, kickAt) {
+    if (st.until != null && Math.round(this.state.params.acid.voice) === 4) return;
     if (st.until != null) {
       const input = this.ch.acid.input, gate = this.gain(1), vo = Math.round(this.state.params.acid.voice);
       gate.connect(input);

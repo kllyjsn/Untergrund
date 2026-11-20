@@ -53,6 +53,23 @@ import { STAB_BAND } from '../js/livekit.js';
   console.log('phrase pickups and eighth-note lick cells passed');
 }
 
+for (const existing of [false, true]) {
+  const input = {}, sub = { amp: { out: input } };
+  let calls = 0;
+  const fake = {
+    state: { params: { acid: { voice: 4 } } }, ch: { acid: { input } }, subVoice: existing ? sub : undefined,
+    gain() { assert.fail('log-drum pickups must not create a persistent sub route'); },
+    acidVoice() { calls++; assert.equal(this.ch.acid.input, input); },
+  };
+  Engine.prototype.acid.call(fake, 1, { until: 1.1, targetAt: 1.108 }, false, false, 0.17);
+  assert.equal(calls, 0);
+  assert.equal(fake.subVoice, existing ? sub : undefined);
+  assert.equal(fake.ch.acid.input, input);
+  Engine.prototype.acid.call(fake, 1.108, { on: true, n: 0 }, false, false, 0.17);
+  assert.equal(calls, 1);
+}
+console.log('log-drum pickup sub routing passed');
+
 // Every club/pop style gets its own seeded hook; NEO-SOUL and BOOM BAP sing one over their Rhodes licks.
 for (const style of Object.keys(STYLES)) {
   const a = generate(style, 11, 'minor'), b = generate(style, 22, 'minor');
