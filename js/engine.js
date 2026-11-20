@@ -666,7 +666,9 @@ export class Engine {
     }
     const v = this.state.params[tid][id];
     const ch = this.ch[tid];
-    if (id === 'level') return this.setTo(ch.level.gain, v * (tid === 'stab' && this.smoothOn > 0 ? 10 ** (this.smoothOn / 20) : 1), immediate);
+    // A Jam edit lands on a bar line that Hard Techno's section fade has already reached, so it keeps that multiplier.
+    const section = this.jamAt != null && this.hardLevels ? this.hardLevels[tid] ?? 1 : 1;
+    if (id === 'level') return this.setTo(ch.level.gain, v * section * (tid === 'stab' && this.smoothOn > 0 ? 10 ** (this.smoothOn / 20) : 1), immediate);
     if (id === 'pan') return this.setTo(ch.pan.pan, v, immediate);
     if (id === 'rev') return this.setTo(ch.rev.gain, v * (tid === 'stab' && this.smoothOn > 0 ? 1.6 : 1), immediate);
     if (id === 'dly') return this.setTo(ch.dly.gain, v * (tid === 'stab' && this.smoothOn > 0 ? 1.6 : 1), immediate);
