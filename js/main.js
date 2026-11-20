@@ -198,7 +198,7 @@ function schedule(lead) {
   const correction = roomPlayback && !clock.jumped ? roomTransportCorrection(target, nextTime, now, base, roomDrainUntil) : null;
   if (correction?.drainUntil !== undefined) {
     roomDrainUntil = correction.drainUntil;
-    if (replayAt < now + ahead) switchRoomReplay(replayAt);
+    if (replayAt <= roomDrainUntil + 0.03 && replayAt < now + ahead) switchRoomReplay(replayAt);
     return;
   }
   roomDrainUntil = null;

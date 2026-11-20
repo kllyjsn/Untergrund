@@ -396,6 +396,17 @@ for (const [action, currentTime, playing, expected] of [
     seq:{...music.seq, tick:() => ({})}, midiClockStart:(ctx, step, time) => relocations.push({step, time})};
   runInNewContext(`${schedulerSource}\nschedule(0.5)`, forward);
   assert.deepEqual(relocations, [{step:68, time:11.75}], 'adoption sends SPP even when no logical steps were skipped');
+  const replayNotes = [], switches = [];
+  const replay = {...music, abs:68, nextTime:10.25, transportOrigin:1500, roomDrainUntil:null,
+    ctx:{currentTime:10}, Date:{now:() => replay.ctx.currentTime * 1000}, jamQueue:[], uiQueue:[],
+    queuedRoomReplay:{startsAt:10375}, switchRoomReplay:at => switches.push(at),
+    seq:{...music.seq, tick:(step, time) => {replayNotes.push({step, time}); return {};}}};
+  const replaySchedule = runInNewContext(`${schedulerSource}\nschedule(); schedule`, replay);
+  assert.deepEqual(switches, [], 'a replay entering lookahead cannot bypass unscheduled outgoing steps while the frontier drains');
+  replay.ctx.currentTime = 10.25;
+  replaySchedule();
+  assert.deepEqual(replayNotes, [{step:70, time:10.25}], 'the playable outgoing step before the replay downbeat still sounds');
+  assert.deepEqual(switches, [10.375], 'switch only after all outgoing steps before the replay are queued');
   assert.equal(transportResync(11.25, 11.5, 11.2, 0.125, false, -Infinity, true), null);
   const partial = transportResync(11.125, 11.5, 11.2, 0.125, false, -Infinity, true);
   assert.equal(partial.skip, 1, 'only the corrected step already before now can be skipped');
