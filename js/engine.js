@@ -666,9 +666,16 @@ export class Engine {
     }
     const v = this.state.params[tid][id];
     const ch = this.ch[tid];
-    // A Jam edit lands on a bar line that Hard Techno's section fade has already reached, so it keeps that multiplier.
-    const section = this.jamAt != null && this.hardTechno && this.hardFadeAt != null && this.jamAt >= this.hardFadeAt ? this.hardLevels[tid] ?? 1 : 1;
-    if (id === 'level') return this.setTo(ch.level.gain, v * section * (tid === 'stab' && this.smoothOn > 0 ? 10 ** (this.smoothOn / 20) : 1), immediate);
+    if (id === 'level') {
+      const gain = v * (tid === 'stab' && this.smoothOn > 0 ? 10 ** (this.smoothOn / 20) : 1), fade = this.hardFade;
+      if (this.jamAt == null || !this.hardTechno || this.hardFadeAt == null) return this.setTo(ch.level.gain, gain, immediate);
+      // A Jam level edit rides Hard Techno's section fade at its boundary, wherever a clock re-anchor put that boundary.
+      const from = fade.from[tid] ?? 1, to = fade.to[tid] ?? 1;
+      const k = Math.min(1, Math.max(0, (this.jamAt - fade.t) / (this.hardFadeAt - fade.t)));
+      this.setTo(ch.level.gain, gain * (from + (to - from) * k), immediate);
+      if (k < 1) ch.level.gain.linearRampToValueAtTime(gain * to, this.hardFadeAt);
+      return;
+    }
     if (id === 'pan') return this.setTo(ch.pan.pan, v, immediate);
     if (id === 'rev') return this.setTo(ch.rev.gain, v * (tid === 'stab' && this.smoothOn > 0 ? 1.6 : 1), immediate);
     if (id === 'dly') return this.setTo(ch.dly.gain, v * (tid === 'stab' && this.smoothOn > 0 ? 1.6 : 1), immediate);
@@ -3079,6 +3086,7 @@ export class Engine {
     const target = pos === len - 1 && next !== cur && next != null ? profile(next, 0) : profile(cur, (pos + 1) / len);
     const prev = this.hardLevels || profile(cur, 0);
     this.hardFadeAt = this.gridTime(t + dur);
+    this.hardFade = {t, from: prev, to: target};
     for (const id of TRACK_IDS) {
       const p = this.ch[id].level.gain, level = this.state.params[id].level;
       if (!this.hardLevels) p.setValueAtTime(level * (prev[id] ?? 1), t);
