@@ -93,6 +93,28 @@ const rmsDb = (d, a, b) => { let e = 0; for (let i = a; i < b; i++) e += d[i] * 
   }
 }
 
+{
+  const padSend = async (rev = 0.24, edit) => {
+    const s = freshSong('dub', 42), ctx = new OfflineAudioContext(1, SR * 3, SR);
+    s.artist = { style: 'dub', seed: 42 };
+    Object.assign(s.params.stab, { level: 0.6, rev });
+    const e = new Engine(ctx, s, { realtime: false });
+    e.dubPad(0, 0.7, [0, 3, 7, 10], 48);
+    if (edit) { e.at = 2; e.setParam('stab', ...edit); }
+    return (await ctx.startRendering(e.revIn)).getChannelData(0);
+  };
+  const normal = await padSend();
+  assert(rmsDb(normal, SR, SR * 1.8) > -90, 'the default pad reverb send is audible');
+  assert((await padSend(0)).every(v => v === 0), 'zero chord reverb means no pad enters reverb');
+  for (const id of ['rev', 'level']) {
+    const muted = await padSend(0.24, [id, 0]);
+    assert.equal(rmsDb(muted, SR, SR * 1.8), rmsDb(normal, SR, SR * 1.8), `future ${id} edits leave the earlier pad send intact`);
+    assert(rmsDb(muted, SR * 2.25, SR * 2.75) < -120, `live chord ${id} zero silences the already-playing pad send`);
+  }
+  const half = await padSend(0.24, ['level', 0.3]);
+  assert(Math.abs(rmsDb(half, SR * 2.25, SR * 2.75) - rmsDb(normal, SR * 2.25, SR * 2.75) + 6.0206) < 0.001, 'live chord level scales the sustained pad reverb send');
+}
+
 // The dry renderer retains short, in-line modulation delays, including fractional samples across blocks.
 {
   const ctx = new OfflineAudioContext(1, 256, SR), delay = ctx.createDelay(0.002);

@@ -1974,7 +1974,11 @@ export class Engine {
   }
 
   dubPadOut() {
-    if (!this.dubPadBus) { this.dubPadBus = this.gain(this.state.params.stab.level); this.dubPadBus.connect(this.duck); }
+    if (!this.dubPadBus) {
+      this.dubPadBus = this.gain(this.state.params.stab.level);
+      this.dubPadBus.connect(this.duck);
+      this.dubPadBus.connect(this.gain(0.75)).connect(this.ch.stab.rev);
+    }
     return this.dubPadBus;
   }
 
@@ -1987,7 +1991,6 @@ export class Engine {
     amp.gain.setValueAtTime(0, t); amp.gain.linearRampToValueAtTime(0.035 * v / Math.sqrt(iv.length), t + 1.4);
     amp.gain.setTargetAtTime(0, t + hold, 1); amp.gain.setValueAtTime(0, end);
     hp.connect(lp).connect(amp).connect(this.dubPadOut());
-    amp.connect(this.gain(0.18 * this.ch.stab.level.gain.value)).connect(this.revIn);
     const pans = this.sidePans([-0.85, 0.85], hp);
     iv.forEach(n => {
       for (const side of [-1, 1]) {
