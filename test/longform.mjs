@@ -2,6 +2,7 @@
 // half), keeps its genre's section roles, repeats with development, and never pads time with copied loops.
 // Principles and research basis: docs/long-form.md.
 import assert from 'node:assert/strict';
+import './festival-build.mjs';
 import { STYLES, SONG_STYLES, songPlan, sanitize } from '../js/state.js';
 import { realize, validateSpec, localSpec } from '../js/song-spec.js';
 import { planSections, formChain, formSeconds, developSong, developFinalDrop, LENGTHS, MAX_SONG_BARS } from '../js/longform.js';

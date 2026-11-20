@@ -12,6 +12,7 @@ import { cleanLyrics } from './lyrics.js';
 import { SING_VOICES } from './sing-score.js';
 import { cleanTakes, patternAt, setTake } from './scope.js';
 import { trackTitle } from './crate.js';
+import { festivalBuilds } from './festival-build.js';
 
 export const STYLES = {
   hypnotic: { name: 'HYPNOTIC', bpm: [130, 134], family: 'TECHNO', tag: 'deep · rolling' },
@@ -1171,7 +1172,13 @@ export function songPlan(style, seed, length = 'song', bpm = midBpm(style)) {
   if (FORMS[style] || style === 'repertoire') return { chain: 'A', sections: null };
   if (SONG.has(style)) {
     const sections = planSections(IDIOM[style] || 'pop', bpm, length, rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)));
-    return { chain: formChain(sections), sections };
+    const chain = formChain(sections);
+    if (style === 'trap') {
+      const voice = pick(rng(Math.imul((seed | 0) ^ 0x6d2b79f5, 0x85ebca6b)), INSTRUMENTS.trap)[0];
+      const builds = festivalBuilds(chain, style, voice, seed);
+      if (builds.length) return { chain, sections, builds };
+    }
+    return { chain, sections };
   }
   if (style === 'hardtechno' && length !== 'sketch') {
     const r = rng(Math.imul(seed ^ 0x45d9f3b, 0x27d4eb2d));
