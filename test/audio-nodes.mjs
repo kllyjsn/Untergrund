@@ -979,9 +979,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     assert.equal(e.vocalCorrection.crossfadeSeconds, .03);
   }
   for (const {delay = .096, hz = 250, gap = false, clash = false, unvoiced = false,
-    lookahead = .3, firstStrong = 31, earlyStep = null} of [
+    lookahead = .3, firstStrong = 31, earlyStep = null, lastStep = 32, deadline = 64} of [
     {earlyStep:32},
     {firstStrong:27, earlyStep:28},
+    {firstStrong:27, delay:.104, lastStep:31, deadline:32},
     {delay:.08},
     {gap:true},
     {clash:true, lookahead:.02},
@@ -1001,7 +1002,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     e.variableScoreTempo = true;
     e.vocal(1, 0, 0, 1);
     const original = e.vocalNow;
-    for (let index = 17; index <= (earlyStep ?? 32); index++) {
+    for (let index = 17; index <= (earlyStep ?? lastStep); index++) {
       const time = 1 + (index < firstStrong ? .08 : delay) + index * .125;
       c.currentTime = time - lookahead;
       assert.equal(e.vocal(time, index >> 4, index % 16, time, true), index === earlyStep,
@@ -1014,7 +1015,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       assert.equal(e.vocalNow.origin, 1 + delay);
     } else {
       assert.equal(e.vocalNow, original);
-      assert.equal(e.vocalNow.gapCorrection.forceStep, 64, 'rejecting an early fade keeps the original deadline');
+      assert.equal(e.vocalNow.gapCorrection.forceStep, deadline, 'rejecting an early fade keeps the original deadline');
     }
   }
   {

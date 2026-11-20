@@ -3610,7 +3610,7 @@ export class Engine {
       let spliceAdvance = 0;
       if (rubato && !gap && previousGrid != null && t >= ready) {
         let tryEarly = false;
-        if (!forced && index % 4 === 0 && alignment.forceStep > index &&
+        if (!forced && index % 4 === 0 && alignment.forceStep > Math.ceil(index / 16) * 16 &&
             phase >= 0 && phase < buffer.duration && Math.abs(errorMs) > RUBATO_EARLY_DRIFT_MS) {
           const span = gapSpan?.(16), bar = Number.isFinite(span) ? span : 16 * sd;
           const rate = cur.slewRate ?? 1;
