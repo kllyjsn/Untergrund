@@ -1,11 +1,87 @@
 import assert from 'node:assert/strict';
-import { mixFixture, realMixFixture, popHandoffTargetAt, syntheticHandoffTargetAt, mixBoundaries, mixGraphEdges, channelEnvelope, analyzeMix, matchEvents, realignment, beatRealignment, phraseOnsets, boundaryMetric, mixFailures, underrunEvidence, kickAttribution } from './club-sync-mix.mjs';
+import { mixFixture, realMixFixture, popHandoffTargetAt, syntheticHandoffTargetAt, mixBoundaries, mixGraphEdges, channelEnvelope, analyzeMix, matchEvents, realignment, beatRealignment, realignmentEvidence, phraseOnsets, boundaryMetric, mixFailures, underrunEvidence, kickAttribution, vocalSourceEvidence, forcedVocalEvidence } from './club-sync-mix.mjs';
 import { singRequest } from '../js/sing.js';
 import { sanitize } from '../js/state.js';
 import { postResumeEnvelope, onsets } from './club-sync-audio.mjs';
 import { gridKicks, vocalMetrics, sustainedRecovery, vocalFindings, windowOffset, clipRange, floatWav, levelMatchClips } from './club-sync-vocals.mjs';
+import { stepFixture, correctionGrid, forcedStepEvidence } from './club-sync-steps.mjs';
 
 const bin = 4, expectedVoice = new Float64Array(8000);
+assert.equal(vocalSourceEvidence({vocalStarts:[{}]}).allowed, 1);
+assert.deepEqual(vocalSourceEvidence({vocalStarts:[{}, {reason:'wake'}]}, 1), {count:2, nonZeroOffsets:0, midPhraseRestarts:0, forcedReanchors:0, invalidForcedReanchors:0, duplicateForcedReanchors:0, gapRealigns:0, unclassifiedStarts:0, expected:2, corrections:[], allowed:2});
+assert.equal(vocalSourceEvidence({vocalStarts:[{}, {}, {}], vocalCorrections:[{errorMs:20}, {errorMs:-40, appliedTime:1}]}, 1).allowed, 3);
+assert.equal(vocalSourceEvidence({vocalStarts:[{}, {}, {}], vocalCorrections:[{errorMs:-40, gap:false}]}, 1).allowed, 2, 'an unapplied correction cannot authorize a restart');
+assert.equal(vocalSourceEvidence({vocalStarts:[{offset:0}, {offset:2}]}).nonZeroOffsets, 1);
+assert.equal(vocalSourceEvidence({vocalStarts:[]}).count, 0);
+assert.equal(vocalSourceEvidence({}).count, null);
+assert.equal(vocalSourceEvidence({vocalStarts:{}}).midPhraseRestarts, null);
+assert.equal(vocalSourceEvidence({vocalStarts:[{}, {startSinging:true}]}).midPhraseRestarts, 1);
+assert.equal(vocalSourceEvidence({vocalStarts:[{}, {startSinging:false}]}).gapRealigns, 1);
+assert.equal(vocalSourceEvidence({vocalStarts:[{}, {}]}).unclassifiedStarts, 1);
+assert.equal(vocalSourceEvidence({vocalStarts:[{}, {reason:'wake', startSinging:true}, {reason:'wake', startSinging:true}]}, 1).midPhraseRestarts, 1, 'only one explicitly observed wake start is exempt');
+console.log('Vocal source evidence PASS: explicit join/wake exemptions, mid-phrase versus silent-gap starts, only applied >30ms credit, empty and missing telemetry remain distinct.');
+{
+  const start = {reason:'forced', when:10, offset:6, startSinging:true, forced:{correctionId:1, errorMs:120,
+    step:48, stepDur:.125, vocalMs:0, gridTime:10,
+    fadeOut:{when:10, duration:.03, values:[1, Math.SQRT1_2, 0]},
+    fadeIn:{when:10, duration:.03, values:[0, Math.SQRT1_2, 1]}}};
+  const correction = {correctionId:1, errorMs:120, forced:true, appliedTime:10};
+  assert.equal(forcedVocalEvidence(start, [correction]), true);
+  const evidence = vocalSourceEvidence({vocalStarts:[{}, start], vocalCorrections:[correction]});
+  assert.equal(evidence.midPhraseRestarts, 0);
+  assert.equal(evidence.forcedReanchors, 1);
+  assert.equal(evidence.invalidForcedReanchors, 0);
+  assert.equal(evidence.allowed, 2);
+  const duplicate = vocalSourceEvidence({vocalStarts:[{}, start, start], vocalCorrections:[correction, correction]});
+  assert.equal(duplicate.forcedReanchors, 2);
+  assert.equal(duplicate.duplicateForcedReanchors, 1);
+  assert.equal(duplicate.allowed, 2, 'the same correction cannot earn a second forced-start allowance');
+  for (const mutate of [s => s.forced.fadeIn.duration = .05, s => delete s.forced.fadeOut,
+    s => s.forced.fadeOut.values = [1,1,1], s => s.forced.fadeIn.values = [0,0,1],
+    s => s.forced.step++, s => s.offset += .1, s => s.forced.gridTime += .1,
+    s => s.forced.errorMs = 60, s => s.forced.correctionId = 2]) {
+    const bad = structuredClone(start); mutate(bad);
+    assert.equal(forcedVocalEvidence(bad, [correction]), false);
+    const invalid = vocalSourceEvidence({vocalStarts:[{}, bad], vocalCorrections:[correction]});
+    assert.equal(invalid.midPhraseRestarts, 1, 'a forced label alone cannot exempt a sung-region start');
+    assert.equal(invalid.invalidForcedReanchors, 1);
+  }
+  assert.equal(forcedVocalEvidence(null, []), false);
+  assert.equal(forcedVocalEvidence(start, []), false);
+  assert.equal(vocalSourceEvidence({}).forcedReanchors, null);
+  assert.equal(vocalSourceEvidence({vocalStarts:[]}).forcedReanchors, 0);
+}
+console.log('Forced vocal evidence PASS: actual equal-power20–40ms curves, downbeat and applied >60ms correction required; hard starts, malformed curves, wrong phase and duplicate correction fail.');
+{
+  const song = stepFixture(mixFixture()), force = {at:109500, step:68, base:60 / 123 / 4, nextTime:10, deltaMs:-2 * 60000 / 123 / 4,
+    clock:{outputContextTime:0, outputEpochMs:100000}};
+  const adoption = {at:110000, contextTime:10};
+  const capture = drop => ({forcedWholeStep:force, gridAdoptions:[adoption], errors:[], anchors:[[0,100000]], channels:Object.fromEntries([['kick', 'kick'], ['hat', 'ch']].map(([name, part]) => {
+    const grid = correctionGrid(song, force, part, adoption), hits = [...grid.before, ...grid.after.filter(n => n.step !== drop)].map(n => n.at + 12);
+    const from = grid.before[0].at - 200, to = grid.to + 200;
+    const samples = Array.from({length:Math.ceil((to - from) / 4)}, (_, i) => {
+      const at = from + i * 4;
+      return [(at - 100000) / 1000, Math.max(0, ...hits.map(t => at >= t && at < t + 60 ? Math.exp(-(at - t) / 18) : 0))];
+    });
+    return [name, {edge:{}, ready:true, samples}];
+  }))});
+  const clean = forcedStepEvidence(capture(), song);
+  assert.deepEqual(clean.failures, []);
+  assert.ok(clean.channels.kick.expected >= 4 && clean.channels.hat.expected >= 6);
+  assert.ok(clean.adoptionMs < clean.budgetMs && clean.firstAlignedMs < clean.budgetMs);
+  const dropped = forcedStepEvidence(capture(76), song);
+  assert.ok(dropped.channels.kick.missing > 0 && dropped.channels.hat.missing > 0, 'a real shared kick/hat step cannot disappear into host/listener agreement');
+  const empty = capture(); empty.channels.kick.samples = []; empty.channels.hat.samples = [];
+  assert.ok(forcedStepEvidence(empty, song).failures.length >= 2);
+  assert.ok(forcedStepEvidence({}, song).failures.length > 0);
+  const noAdoption = capture(); delete noAdoption.gridAdoptions;
+  assert.deepEqual(forcedStepEvidence(noAdoption, song).failures, ['grid adoption marker']);
+  const missing = capture(); delete missing.channels.hat;
+  assert.ok(forcedStepEvidence(missing, song).failures.includes('hat capture'));
+  const delayed = capture(); delayed.gridAdoptions = [{...adoption, at:adoption.at + 2000}];
+  assert.ok(forcedStepEvidence(delayed, song).failures.includes('grid adoption budget'));
+  console.log('Whole-step grid PASS: future-at-adoption kick/hat expectations, drain/adoption and first-alignment budgets, real missing step, empty capture and missing telemetry.');
+}
 assert.deepEqual(clipRange(10000, 40000), {from:6000,to:40000});
 assert.ok(clipRange(10000, 40000).to >= 10000 + 28000);
 assert.throws(() => clipRange(10000, 10000), RangeError);
@@ -168,6 +244,29 @@ assert.equal(unexpected.timeToRealignMs, 2000);
 assert.equal(beatRealignment({...silent, hostOnsets:hs}, 900, {bpm:120, origin:0, expectedKicks:[]}).timeToRealignMs, null);
 assert.throws(() => beatRealignment(silent, 0, {bpm:0, origin:0, expectedKicks:[]}), /Finite recovery grid/);
 console.log(`Beat recovery PASS: sparse zero-offset ${sparse.attackConfirmationMs.toFixed(1)}→${sparse.timeToRealignMs.toFixed(1)}ms / ${budget.toFixed(1)}ms; misalignment, 2s origin delay, dropped kicks, missing kick after rest and silence still fail.`);
+const emptyRecovery = realignmentEvidence({...silent, hostOnsets:hs}, 900);
+assert.deepEqual(emptyRecovery, {firstAlignedMs:null, confirmationMs:null, confirmationSpanMs:null, confirmingPairs:[], hostGapsMs:[]});
+const alignedRecovery = realignmentEvidence({...matchEvents(hs, hs.map(t => t + 24), 900, 2600), hostOnsets:hs}, 900);
+assert.equal(alignedRecovery.firstAlignedMs, 124);
+assert.equal(alignedRecovery.confirmationMs, 1124);
+assert.equal(alignedRecovery.confirmationSpanMs, 1000);
+assert.deepEqual(alignedRecovery.hostGapsMs, [500, 500]);
+const driftHost = [1000, 1500, 2000, 2500, 3000];
+const correctedRecovery = realignmentEvidence({...matchEvents(driftHost, [1080, 1580, 2020, 2520, 3020], 900, 3100), hostOnsets:driftHost}, 900);
+assert.equal(correctedRecovery.firstAlignedMs, 1120);
+assert.equal(correctedRecovery.confirmationMs, 2120);
+assert.deepEqual(correctedRecovery.confirmingPairs.map(p => p.deltaMs), [20, 20, 20]);
+const unalignedRecovery = realignmentEvidence({...matchEvents(hs, hs.map(t => t + 80), 900, 2600), hostOnsets:hs}, 900);
+assert.equal(unalignedRecovery.firstAlignedMs, null);
+assert.equal(unalignedRecovery.confirmationMs, null);
+assert.deepEqual(unalignedRecovery.confirmingPairs, []);
+const sparseRecovery = realignmentEvidence({...matchEvents(fixtureKicks, fixtureKicks, passAt, passAt + 2500), hostOnsets:fixtureKicks}, passAt);
+assert.deepEqual(fixtureKicks.filter(t => t >= passAt).slice(0, 3).map(t => Math.round(t * s.bpm / 60000)), [30, 32, 33]);
+assert.ok(sparseRecovery.firstAlignedMs < 350);
+assert.ok(sparseRecovery.confirmationMs > 3 * 60000 / s.bpm, 'the fixture rest alone exceeds the unchanged recovery budget even with perfect alignment');
+assert.ok(sparseRecovery.hostGapsMs[0] > 1.9 * 60000 / s.bpm);
+assert.ok(sparseRecovery.confirmingPairs.every(p => p.deltaMs === 0));
+console.log('Club recovery evidence PASS: first alignment, three-kick confirmation, corrected/unaligned/empty input and the synthetic fixture rest remain distinct.');
 assert.equal(matchEvents([], [], 0, 10000).median, null);
 assert.deepEqual(phraseOnsets([], .2), []);
 const signal = (shift = 0, wrong = false) => Array.from({length:6000}, (_, i) => {
@@ -226,6 +325,9 @@ const synthetic = (shift = 0, vocalShift = 0) => {
 };
 for (const shift of [-24, 0, 24]) {
   const mix = analyzeMix([synthetic(), synthetic(shift)], s, {interruptAt:15000, recoverAt:15800}, 0);
+  assert.equal(mix.timeToRealignMs, realignment(mix.phases.after.kicks, 15800));
+  assert.equal(mix.recoveryEvidence.attackConfirmationMs, realignment(mix.phases.after.kicks, 15800));
+  assert.equal(mix.recoveryEvidence.timeToRealignMs, mix.timeToRealignMs);
   for (const phase of Object.values(mix.phases)) {
     assert.equal(phase.kicks.median, Math.abs(shift));
     assert.equal(phase.kicks.missing, 0); assert.equal(phase.kicks.extra, 0);

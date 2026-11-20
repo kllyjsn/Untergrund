@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
-import { createRoomClock, roomTransportPosition, shiftRoomSet, syncAudioClock, transportResync } from '../js/room-sync.js';
+import { createRoomClock, roomTransportPosition, shiftRoomSet, syncAudioClock, transportResync, calibrateRoomClock, slewTransport, roomTransportCorrection } from '../js/room-sync.js';
 import { freshSong, clone, sanitize, STYLES } from '../js/state.js';
 import { songFingerprint } from '../js/listen.js';
-import { createRoomMediaSync, roomMediaLead } from '../js/room-media-sync.js';
+import { createRoomMediaSync, roomMediaLead, roomMediaTime } from '../js/room-media-sync.js';
+import { createClockSender } from '../js/midi-core.js';
+import { Sequencer } from '../js/engine.js';
+import { Recorder } from '../js/midi.js';
 
 const origin = 1_000_000;
 const close = (a, b) => assert(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
@@ -44,6 +47,156 @@ const close = (a, b) => assert(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
 }
 
 assert.deepEqual(roomTransportPosition(origin + 1600, 120, origin), { step: 0, delay: 1.6 });
+
+{
+  const clock = createRoomClock({wall:() => origin, monotonic:() => 0});
+  const observe = (from, latency, offset) => clock.observe([origin + from + latency / 2 + offset, origin + from + latency / 2 + offset], from, from + latency);
+  observe(0, 4, 0);
+  observe(20000, 20, 100);
+  observe(31000, 100, 500);
+  assert.equal(clock.shift(), 0, 'ageing past 30s cannot replace a fast sample with an outlier');
+  observe(61000, 200, 999);
+  assert.equal(clock.shift(), 100, 'expiration selects the fastest remaining sample, not the newest outlier');
+  for (let i = 1; i <= 16; i++) observe(62000 + i * 100, 30, i);
+  assert.equal(clock.shift(), 1, 'the window retains at most sixteen observations');
+  clock.observe([NaN, origin], 1, 2);
+  assert.equal(clock.shift(), 1, 'invalid samples cannot corrupt the window');
+}
+
+{
+  let now = 0;
+  const calls = [];
+  const initial = {snapshot:{sessionToken:'cold'}, latency:330};
+  const result = await calibrateRoomClock(initial, async (token, timeout) => {
+    calls.push({token, timeout});
+    const latency = [320, 290, 18][calls.length - 1];
+    assert(timeout >= latency, 'warm probes use latency-scaled rather than 250ms timeouts');
+    now += latency;
+    return {snapshot:{sessionToken:`warm${calls.length}`}, latency};
+  }, () => now);
+  assert.equal(result.sessionToken, 'warm3');
+  assert.equal(calls.length, 3, 'a fast sample stops calibration early');
+  assert.equal(calls[1].token, 'warm1');
+  assert(now <= 1500);
+  assert.equal(await calibrateRoomClock({...initial, latency:2}, () => assert.fail('fast joins do not need extra probes')), initial.snapshot);
+  now = 0;
+  assert.equal(await calibrateRoomClock(initial, async (_, timeout) => {
+    now += timeout;
+    throw new Error('timeout');
+  }, () => now), initial.snapshot, 'failed probes preserve the initial snapshot');
+  assert(now <= 1500, 'calibration has a bounded total deadline');
+  let empty = 0;
+  assert.equal(await calibrateRoomClock(initial, async () => { empty++; return null; }, () => 0), initial.snapshot);
+  assert.equal(empty, 4, 'empty responses cannot cause unlimited probes');
+}
+
+{
+  close(slewTransport(10.02, 10), 10.0015);
+  close(slewTransport(9.98, 10), 9.9985);
+  assert.equal(slewTransport(10, 10), 10);
+  assert.equal(slewTransport(10.2, 10), 10, 'large corrections remain transportResync work');
+  let at = 10;
+  for (let i = 0; i < 20; i++) at = slewTransport(10.02, at);
+  close(at, 10.02);
+  assert.equal(roomTransportCorrection(9.951, 10, 9.5, 0.125), null, 'ordinary errors retain the bounded slew');
+  assert.deepEqual(roomTransportCorrection(11.25, 11.5, 11.2, 0.125), {drainUntil:11.5});
+  assert.deepEqual(roomTransportCorrection(11.26, 11.5, 11.49, 0.125, 11.5), {drainUntil:11.5}, 'clock updates do not extend the stopped queue');
+  const adopted = roomTransportCorrection(11.25, 11.5, 11.5, 0.125, 11.5);
+  assert.equal(adopted.skip, 2);
+  close(adopted.nextTime, 11.5);
+  assert.equal(adopted.adopted, true);
+  const forward = roomTransportCorrection(11.75, 11.5, 11.5, 0.125, 11.5);
+  assert.equal(forward.skip, 0);
+  close(forward.nextTime, 11.75);
+}
+
+{
+  const source = await readFile(new URL('../js/club.js', import.meta.url), 'utf8');
+  const body = source.slice(source.indexOf('export class RoomBus'), source.indexOf('\nlet parkedBus')).replace('export class', 'class');
+  const RoomBus = runInNewContext(`${body}\nRoomBus`, {shiftRoomSet, normalizeMember:x => x,
+    sessionStorage:{setItem(){}}, Date});
+  for (const clientId of ['host', 'listener']) {
+    let shift = -200;
+    const corrections = [], events = [];
+    const set = {broadcastId:'live', startsAt:origin, version:1};
+    const bus = Object.assign(Object.create(RoomBus.prototype), {clientId, user:{}, members:new Map(), seq:0,
+      roomClock:{shift:() => shift}, currentSet:{...set, startsAt:origin + 200}, currentSetKey:'server:1',
+      serverOrigin:{broadcastId:'live', startsAt:origin}, hostId:'host', appliedBroadcasts:new Set(['live']),
+      initiatedSets:new Set(), onClock:value => corrections.push(value), onEvent:value => events.push(value), emit(){}});
+    bus.applySnapshot({currentSet:set, hostId:'host'});
+    assert.equal(corrections.length, 0);
+    shift = -20;
+    bus.applySnapshot({currentSet:set, hostId:'host'});
+    assert.equal(bus.currentSet.startsAt, origin + 20);
+    assert.equal(corrections.length, 1, `${clientId} is notified despite same-version dedupe`);
+    assert.equal(corrections[0].previousStartsAt, origin + 200, 'clock notifications carry a delta independent of live tempo edits');
+    assert.equal(events.length, 0, 'clock correction does not rebroadcast or replay the set');
+    shift = 0;
+    bus.applySnapshot({hostId:'host'});
+    assert.equal(bus.currentSet.startsAt, origin, 'omitted known-set bodies still allow re-anchoring');
+    assert.equal(corrections.length, 2);
+    shift = 1;
+    bus.applySnapshot({hostId:'host'});
+    assert.equal(corrections.length, 2, 'sub-threshold jitter is ignored');
+    bus.serverOrigin.broadcastId = 'old';
+    shift = 100;
+    bus.applySnapshot({hostId:'host'});
+    assert.equal(corrections.length, 2, 'another broadcast cannot move the current grid');
+  }
+}
+{
+  const source = await readFile(new URL('../js/club.js', import.meta.url), 'utf8');
+  const body = source.slice(source.indexOf('export class RoomBus'), source.indexOf('\nlet parkedBus')).replace('export class', 'class');
+  for (const mode of ['warm', 'error', 'closed', 'empty', 'fast']) {
+    let requests = 0, release;
+    const snapshots = [], latencies = [];
+    const reply = name => ({ok:true, json:async () => ({name, clock:[], sessionToken:name})});
+    const RoomBus = runInNewContext(`${body}\nRoomBus`, {Date, AbortController, setTimeout, clearTimeout,
+      calibrateRoomClock, performance:{now:() => 0}, fetch:async () => {
+        requests++;
+        if (requests === 1) return mode === 'empty' ? {ok:false} : reply('initial');
+        if (requests === 2) return new Promise((resolve, reject) => { release = () => mode === 'error' ? reject(new Error('offline')) : resolve(reply('warm')); });
+        throw new Error('offline');
+      }});
+    const bus = Object.assign(Object.create(RoomBus.prototype), {clientId:'listener', user:{}, token:'', apiBase:'/remote',
+      endpoint:path => path, known:() => ({}), receive(){}, applySnapshot:s => snapshots.push(s.name),
+      roomClock:{observe:() => { const latency = mode === 'fast' || latencies.length ? 5 : 330; latencies.push(latency); return latency; }}});
+    await bus.heartbeat(true);
+    assert.deepEqual(snapshots, mode === 'empty' ? [] : ['initial'], `${mode}: ready adopts the first estimate without waiting for warm calibration`);
+    if (mode === 'fast' || mode === 'empty') {
+      assert.equal(requests, 1, `${mode}: no unnecessary calibration traffic`);
+    } else {
+      assert.equal(requests, 2, 'warm calibration can remain in flight while playback starts');
+      if (mode === 'closed') bus.closed = true;
+      release();
+    }
+    await bus.calibration;
+    assert.deepEqual(snapshots, mode === 'warm' ? ['initial', 'warm'] : mode === 'empty' ? [] : ['initial'],
+      `${mode}: later samples update the playing origin, but failures or a closed room cannot replace it`);
+    if (mode === 'warm') assert.deepEqual(latencies, [330, 5]);
+  }
+}
+console.log('Room join latency PASS: first estimate starts playback while bounded warm calibration runs; fast, empty, failed and closed-room probes are safe.');
+console.log('Room clock calibration PASS: bounded recent minimum, adaptive probes, same-broadcast host/listener re-anchor and per-step slew.');
+
+{
+  const source = await readFile(new URL('../js/club.js', import.meta.url), 'utf8');
+  const handler = source.slice(source.indexOf('bus.onClock = '), source.indexOf('\n    bus.onPlaybackUnavailable'));
+  const calls = [], pending = {broadcastId:'live', startsAt:origin + 200, state:{bpm:123}};
+  const sandbox = {bus:{}, clockBus:{jamFollow:'live'}, pendingSet:pending,
+    getTransport:() => ({playing:false}), reanchorRoomSet:(...args) => calls.push(args)};
+  runInNewContext(handler, sandbox);
+  sandbox.bus.onClock({broadcastId:'live', startsAt:origin + 20, previousStartsAt:origin + 200});
+  assert.equal(sandbox.pendingSet.startsAt, origin + 20, 'calibration updates the set Listen Live will prefer before unlock');
+  assert.equal(sandbox.pendingSet.state, pending.state);
+  assert.equal(calls.length, 0, 'a pending join does not start or reanchor audio');
+  sandbox.bus.onClock({broadcastId:'other', startsAt:origin - 100});
+  assert.equal(sandbox.pendingSet.startsAt, origin + 20);
+  sandbox.pendingSet = null;
+  sandbox.getTransport = () => ({playing:true});
+  sandbox.bus.onClock({broadcastId:'live', startsAt:origin, previousStartsAt:origin + 20});
+  assert.deepEqual(calls, [[origin, origin + 20]], 'playing rooms receive the clock delta');
+}
 
 let pos = roomTransportPosition(origin, 120, origin + 1500);
 assert.equal(pos.step, 13);
@@ -95,6 +248,16 @@ assert.deepEqual(transportResync(10.2, 10, 9.9, .125, false, -Infinity, 1), { sk
 console.log('Room residual slew PASS: both signs, 40–240 BPM, smooth bounded rates, phase-locked steps, unity within <5s, floor and render guard.');
 
 {
+  const correction = transportResync(10.75, 11.5, 10, 0.125, false, -4, true);
+  assert.equal(correction, null, 'raw resync cannot skip future room positions; large errors use the drain/adopt path');
+  assert.equal(transportResync(11.46, 11.5, 10, 0.125, false, -64, true), null, 'a 40ms correction keeps a playable room/Jam downbeat');
+  assert.equal(transportResync(11.376, 11.5, 10, 0.125, false, -64, true), null, 'a sub-step correction cannot bypass the drained-frontier requirement');
+  close(slewTransport(11.46, 11.5, 0.125), 11.4985);
+  assert.deepEqual(transportResync(10.75, 11.5, 10, 0.0625), {skip:0, nextTime:10.75, discard:false}, 'solo tempo increases retain pre-room-correction behavior without rewinding');
+  assert.deepEqual(transportResync(11.4, 11.5, 10, 0.125), {skip:0, nextTime:11.4, discard:false}, 'a sub-step correction keeps ordered queued notes');
+}
+
+{
   const before = syncAudioClock(null, 1000);
   assert.deepEqual(before, { offset: 1000, jumped: false });
   const jitter = syncAudioClock(before.offset, 1000.02);
@@ -144,6 +307,93 @@ console.log('Room residual slew PASS: both signs, 40–240 BPM, smooth bounded r
 
 console.log('room transport alignment passed');
 
+{
+  let clock = {offset:null, state:null};
+  const sample = (at, contextTime, measured) => clock = syncAudioClock(clock.offset, measured, {at, contextTime, state:clock.state});
+  sample(0, 0, 1000);
+  assert.equal(clock.offset, 1000, 'the first usable join estimate applies immediately');
+  for (let i = 1; i <= 40; i++) sample(i * .02, i * .02, 1000.08);
+  assert.equal(clock.offset, 1000, 'a sub-second renderer stall cannot move the room grid');
+  sample(1, 1, 1000);
+  assert.equal(clock.state.pending, null, 'a transient estimate is discarded');
+  for (let i = 0; i < 100; i++) sample(2 + i * .02, 2 + i * .02, 1000.08);
+  assert.equal(clock.offset, 1000);
+  sample(4, 4, 1000.08);
+  close(clock.offset, 1000.08);
+  assert.equal(clock.jumped, false, 'a lasting offset uses ordinary room correction, not wake cancellation');
+  sample(4.02, 4.02, 1002);
+  assert.equal(clock.offset, 1000.08, 'even a large one-frame glitch waits for persistence');
+  assert.equal(clock.jumped, false);
+  sample(4.04, 4.04, 1000.08);
+  sample(6.04, 4.04, 1002.08);
+  assert.equal(clock.jumped, true, 'a real frozen-page interval retains immediate wake recovery');
+  close(clock.offset, 1002.08);
+}
+for (const rate of [-0.005, 0.005]) {
+  let clock = syncAudioClock(null, 1000, {at:0, contextTime:0, state:null});
+  let adopted = 0, residual = 0;
+  for (let i = 1; i <= 100; i++) {
+    const at = i / 2, measured = 1000 + rate * at;
+    const next = syncAudioClock(clock.offset, measured, {at, contextTime:at * (1 - rate), state:clock.state});
+    if (next.offset !== clock.offset) {
+      adopted++;
+      const values = [...clock.state.pending.values, measured].sort((a, b) => a - b);
+      const middle = Math.floor(values.length / 2);
+      close(next.offset, values.length % 2 ? values[middle] : (values[middle - 1] + values[middle]) / 2);
+    }
+    assert.equal(next.jumped, false, 'ordinary continuous drift is not a frozen wake');
+    residual = Math.max(residual, Math.abs(next.offset - measured));
+    clock = next;
+  }
+  assert(adopted >= 10, `a5ms/s drift over50s repeatedly adopts despite the estimate continuing to move (${adopted} adoptions)`);
+  assert(residual < .02, 'persistent drift stays within20ms of the latest mapping');
+  console.log(`Room clock drift ${rate * 1000}ms/s PASS: ${adopted} adoptions over50s, maximum residual${(residual * 1000).toFixed(3)}ms.`);
+}
+
+{
+  let clock = syncAudioClock(null, 1000, {at:0, contextTime:0, state:null});
+  const sample = (at, measured) => clock = syncAudioClock(clock.offset, measured, {at, contextTime:at, state:clock.state});
+  sample(.1, 1000.020);
+  sample(1.5, 1000.007);
+  assert.equal(clock.offset, 1000);
+  assert.equal(clock.state.pending, null, 'returning within8ms discards a transient before2s');
+  sample(2, 1000.060);
+  sample(3.99, 1000.070);
+  assert.equal(clock.offset, 1000, 'a new deviation starts a fresh2s persistence window');
+  sample(4, 1000.080);
+  close(clock.offset, 1000.070);
+  assert.equal(clock.state.pending, null);
+}
+for (const sign of [-1, 1]) {
+  let clock = syncAudioClock(null, 1000, {at:0, contextTime:0, state:null});
+  const sample = (at, measured) => clock = syncAudioClock(clock.offset, measured, {at, contextTime:at, state:clock.state});
+  for (let i = 1; i <= 200; i++) {
+    sample(i / 50, 1000 + (i === 100 ? sign * .130 : 0));
+    assert.equal(clock.offset, 1000, 'one outlier in otherwise accepted samples cannot move the grid');
+    assert.equal(roomTransportCorrection(10 + 1000 - clock.offset, 10, 9.5, .125), null,
+      'a single clock outlier cannot start a drain or skip a sixteenth');
+  }
+  for (const outlier of [1, 51, 101]) {
+    clock = syncAudioClock(null, 1000, {at:0, contextTime:0, state:null});
+    for (let i = 1; i <= 101; i++) {
+      sample(1 + (i - 1) / 50, 1000 + sign * (i === outlier ? .130 : .012));
+      if (i < 101) assert.equal(clock.offset, 1000, 'the robust window still waits two seconds');
+    }
+    close(clock.offset, 1000 + sign * .012);
+    assert.equal(roomTransportCorrection(10 + 1000 - clock.offset, 10, 9.5, .125), null,
+      'an outlier at window start, middle or exact expiry cannot turn a small correction into a skip');
+  }
+  clock = syncAudioClock(null, 1000, {at:0, contextTime:0, state:null});
+  sample(1, 1000 + sign * .012);
+  sample(3, 1000 + sign * .130);
+  assert.equal(clock.offset, 1000, 'two conflicting sparse samples cannot establish a robust correction');
+  sample(3.02, 1000 + sign * .012);
+  close(clock.offset, 1000 + sign * .012);
+}
+console.log('Room clock robust window PASS: isolated outliers never correct or skip; first/middle/expiry outliers cannot determine adoption; sparse pairs wait for a median.');
+console.log('Room clock drift persistence PASS: moving5ms/s estimates re-adopt over50s with residual below20ms; returning within8ms cancels transient corrections.');
+console.log('Room clock persistence PASS: immediate first estimate/wake, transient and large glitches held, stable80ms offset adopted only after2s; solo arithmetic unchanged.');
+
 const oldOrigin = origin;
 const oldBpm = 120;
 const newBpm = 150;
@@ -178,6 +428,193 @@ for (const [action, currentTime, playing, expected] of [
   assert.deepEqual(calls, expected, `${action} at audio time ${currentTime} (playing: ${playing})`);
   assert.equal(sandbox.playing, playing && !expected.length);
 }
+{
+  const notes = [], rewinds = [], cancelled = [], sent = [], positions = [];
+  const clock = createClockSender((bytes, time) => {
+    if (bytes[0] === 0xf8) sent.push(time);
+    if (bytes[0] === 0xf2) positions.push({step:bytes[1] + (bytes[2] << 7), time});
+  });
+  clock.start(64, 11000);
+  for (let step = 64; step < 68; step++) clock.step(step, 11000 + (step - 64) * 125, 125);
+  const oldTickCount = sent.length, oldLastTick = sent.at(-1);
+  const sandbox = {playing:true, songOver:false, roomPlayback:true, roomEditor:false, ROOM_LEAD:0.25, BG_LEAD:1,
+    mediaRoute:null, roomMediaSync:createRoomMediaSync(), roomMediaLead, roomMediaTime,
+    document:{hidden:false}, ctx:{currentTime:10}, Date:{now:() => sandbox.ctx.currentTime * 1000},
+    state:{bpm:120, part:'old'}, clockOffset:0, transportOrigin:2250, abs:68, nextTime:11.5,
+    syncAudioClock, transportResync, slewTransport, roomTransportCorrection, roomDrainUntil:null, vocalCorrectionWindow:0,
+    queuedRoomReplay:null, handoff:null, jamQueue:[], vocalGridDirty:false, roomAudioClock:{at:10, contextTime:10, pending:null},
+    performance:{now:() => sandbox.ctx.currentTime * 1000},
+    engine:{stepDur:0.125, applyAll(){}, scheduleJamParams(){}, discardQueuedNotes:t => cancelled.push(t), vocal(){}},
+    seq:{origin:0, chainPos:5, songBars:8, advanceBar(){}, rewind:step => rewinds.push(step),
+      tick:(step, time) => { notes.push({step, time, part:sandbox.state.part}); return {}; }},
+    uiQueue:[], timeline:{skip:() => 0}, artistTick(){}, landJamParts(){},
+    midiClockStart:(ctx, step, time) => clock.start(step, time * 1000),
+    midiClockStep:(ctx, step, time, duration) => clock.step(step, time * 1000, duration * 1000),
+    applyPart:(state, part, layer) => { state.part = layer.id; }, setTimeout(){}, cancelAnimationFrame(){},
+    requestAnimationFrame:() => 0, jamRedraw:0};
+  const schedulerSource = main.slice(main.indexOf('function schedule(lead)'), main.indexOf('\n// Jam:'));
+  const jamSource = main.slice(main.indexOf('function landJamPart(part,'), main.indexOf('\n// GENERATE while'));
+  const initialNotes = [], initial = {...sandbox, abs:0, nextTime:10.06, transportOrigin:10100,
+    roomAudioClock:null, roomDrainUntil:null, vocalGridDirty:false, uiQueue:[],
+    engine:{...sandbox.engine, vocalNow:null, queuedNotes:[]},
+    seq:{...sandbox.seq, tick:(step, time) => { initialNotes.push({step, time}); return {}; }},
+    midiClockStart(){}, midiClockStep(){}};
+  runInNewContext(`${schedulerSource}\nschedule()`, initial);
+  close(initialNotes[0].time, 10.1);
+  assert.equal(initial.transportOrigin, 10100, 'the first unqueued room estimate snaps its audio deadline, never the shared broadcast origin');
+  for (const origin of [9999, 9960, 9920]) {
+    const notes = [], padded = {...initial, abs:0, nextTime:10.01, transportOrigin:origin, uiQueue:[],
+      roomAudioClock:null, roomDrainUntil:null, vocalGridDirty:false,
+      seq:{...initial.seq, tick:(step, time) => { notes.push({step, time}); return {}; }}};
+    runInNewContext(`${schedulerSource}\nschedule()`, padded);
+    assert.equal(notes[0].step, 0, 'crossing the first grid deadline cannot skip the still-playable padded step');
+    close(notes[0].time, 10.01);
+    assert(notes.every((n, i) => n.step === i && n.time >= 10.01 && (!i || n.time > notes[i-1].time)),
+      'a padded room start renders each step once in order before later corrections');
+    assert.equal(padded.transportOrigin, origin, 'the startup pad never changes the shared origin');
+  }
+  const f = runInNewContext(`${schedulerSource}\n${jamSource}\n({schedule, landJamPart})`, sandbox);
+  f.landJamPart('kick', {id:'new'}, 11);
+  f.schedule();
+  assert.equal(sandbox.abs, 68, 'still-future room steps wait at the queued frontier rather than being dropped');
+  assert.equal(notes.length, 0, 'do not rebuild any audio ahead of the queued frontier');
+  assert.equal(cancelled.length, 0);
+  assert.equal(rewinds.length, 0);
+  sandbox.ctx.currentTime = 11.5;
+  f.schedule();
+  assert.ok(notes.length > 0);
+  assert.ok(notes.every(n => n.part === 'new' && n.time >= 11 && n.step >= 68), 'a part applied for a queued Jam downbeat cannot sound before it');
+  assert.equal(sent.length, oldTickCount + notes.length * 6, 'every new step sends its six MIDI ticks, with none suppressed by rewind');
+  assert.ok(sent[oldTickCount] > oldLastTick);
+  assert.ok(sent.every((time, i) => !i || time > sent[i - 1]), 'old and new MIDI clock queues stay strictly monotonic without overlap');
+  assert.equal(positions.at(-1).step, notes[0].step);
+  assert.ok(positions.at(-1).time > oldLastTick, 'relocation follows the drained MIDI queue');
+  const musicNotes = [];
+  const music = {...sandbox, abs:68, nextTime:11.5, transportOrigin:2750, clockOffset:0, roomDrainUntil:null,
+    ctx:{currentTime:11.2}, Date:{now:() => music.ctx.currentTime * 1000}, uiQueue:[], midiClockStep(){}, midiClockStart(){},
+    seq:{...sandbox.seq, tick:(step, time) => { musicNotes.push({step, time}); return {}; }}};
+  const drain = runInNewContext(`${schedulerSource}\nschedule(0.5); schedule`, music);
+  assert.equal(musicNotes.length, 0, 'a large correction stops queuing until the old frontier drains');
+  music.ctx.currentTime = 11.5;
+  drain(0.5);
+  assert.deepEqual(musicNotes.map(n => n.step), [70, 71, 72, 73], 'after draining only already-past steps68/69 skip; every remaining future step renders');
+  assert.ok(musicNotes.every((n, i) => n.time >= (i ? musicNotes[i - 1].time : 11.5)), 'adoption never reorders old or new audio');
+  assert.equal(music.vocalGridDirty, false, 'an aligned vocal consumes the dirty-grid check');
+  const relocations = [], forward = {...music, abs:68, nextTime:11.5, transportOrigin:3250, roomDrainUntil:null,
+    seq:{...music.seq, tick:() => ({})}, midiClockStart:(ctx, step, time) => relocations.push({step, time})};
+  runInNewContext(`${schedulerSource}\nschedule(0.5)`, forward);
+  assert.deepEqual(relocations, [{step:68, time:11.75}], 'adoption sends SPP even when no logical steps were skipped');
+  const replayNotes = [], switches = [];
+  const replay = {...music, ROOM_LEAD:0.42, abs:68, nextTime:10.25, transportOrigin:1500, roomDrainUntil:null,
+    ctx:{currentTime:10}, Date:{now:() => replay.ctx.currentTime * 1000}, jamQueue:[], uiQueue:[],
+    queuedRoomReplay:{startsAt:10375}, switchRoomReplay:at => switches.push(at),
+    seq:{...music.seq, tick:(step, time) => {replayNotes.push({step, time}); return {};}}};
+  const replaySchedule = runInNewContext(`${schedulerSource}\nschedule(); schedule`, replay);
+  assert.deepEqual(switches, [], 'a replay entering lookahead cannot bypass unscheduled outgoing steps while the frontier drains');
+  replay.ctx.currentTime = 10.25;
+  replaySchedule();
+  assert.deepEqual(replayNotes, [{step:70, time:10.25}], 'the playable outgoing step before the replay downbeat still sounds');
+  assert.deepEqual(switches, [10.375], 'switch only after all outgoing steps before the replay are queued');
+  assert.equal(transportResync(11.25, 11.5, 11.2, 0.125, false, -Infinity, true), null);
+  const partial = transportResync(11.125, 11.5, 11.2, 0.125, false, -Infinity, true);
+  assert.equal(partial.skip, 1, 'only the corrected step already before now can be skipped');
+  close(partial.nextTime, 11.5);
+}
+console.log('Room frontier PASS: large corrections drain then adopt, future-at-adoption steps render, no reorder/rebuild, solo no-repeat, explicit SPP and monotonic MIDI.');
+{
+  const runBoundary = ({step=63, nextTime=10.5, gridOrigin=2325, now=10, wall=10325, clockOffset=0, lead, pendingForce=false, mediaRoute=null} = {}) => {
+    const notes = [], effects = [], vocals = [], state = freshSong('hypnotic', 7, {length:'sketch', bpm:120});
+    state.bpm = 120; state.chainOn = true; state.chain = 'CCCCEEEECCCC'; state.master.arr = 1; state.part = 'old';
+    const engine = new Recorder(state), seq = new Sequencer(engine, state);
+    seq.chainPos = 4; seq.cur = 2;
+    engine.at = 0;
+    engine.applyAll = () => effects.push({kind:'mix', time:engine.at});
+    engine.scheduleJamParams = (params, time) => effects.push({kind:'mix', time});
+    engine.breakSweep = time => effects.push({kind:'break', time});
+    engine.discardQueuedNotes = () => assert.fail('a room correction must preserve the queued notes');
+    engine.vocal = (...args) => vocals.push(args);
+    if (pendingForce) engine.vocalNow = {correction:{forceStep:64}};
+    const tick = seq.tick.bind(seq);
+    seq.tick = (abs, time, ...args) => { notes.push({abs, time, part:state.part}); return tick(abs, time, ...args); };
+    const sandbox = {playing:true, songOver:false, roomPlayback:true, roomEditor:false, ROOM_LEAD:0.25, BG_LEAD:1,
+      mediaRoute, roomMediaSync:createRoomMediaSync(), roomMediaLead, roomMediaTime,
+      document:{hidden:false}, ctx:{currentTime:now}, Date:{now:() => now * 1000},
+      state, engine, seq, abs:step, nextTime, transportOrigin:gridOrigin, clockOffset,
+      syncAudioClock, transportResync, slewTransport, roomTransportCorrection, roomDrainUntil:null, vocalCorrectionWindow:0,
+      queuedRoomReplay:null, handoff:null, vocalGridDirty:false, uiQueue:[], roomAudioClock:{at:now, contextTime:now, pending:null}, performance:{now:() => now * 1000},
+      jamQueue:[{part:'kick', layer:{id:'new'}, wall}], jamRedraw:0,
+      timeline:{skip:() => 0}, artistTick(){}, midiClockStep(){}, midiClockStart(){},
+      applyPart:(s, part, layer) => { s.part = layer.id; }, setTimeout(){}, cancelAnimationFrame(){}, requestAnimationFrame:() => 0};
+    const scheduler = main.slice(main.indexOf('function schedule(lead)'), main.indexOf('\n// Jam:'));
+    const jam = main.slice(main.indexOf('function landJamParts('), main.indexOf('\n// GENERATE while'));
+    runInNewContext(`${scheduler}\n${jam}\nschedule(${lead})`, sandbox);
+    return {sandbox, notes, effects, vocals};
+  };
+  const small = runBoundary({step:64, nextTime:11.5, gridOrigin:3460, now:11.3, wall:11460});
+  assert.equal(small.notes[0]?.abs, 64, 'a small calibration never skips the playable Jam downbeat');
+  assert.equal(small.notes[0].part, 'new');
+  close(small.notes[0].time, 11.4985);
+  const future = runBoundary({now:10.1, lead:0.5});
+  assert.equal(future.notes.length, 0, 'large corrections leave future queued notes alone while draining');
+  const skipped = runBoundary({now:10.5});
+  assert.equal(skipped.sandbox.abs, 68);
+  assert.equal(skipped.sandbox.state.part, 'new', 'a skipped Jam boundary lands rather than waiting another bar');
+  assert.equal(skipped.sandbox.jamQueue.length, 0);
+  assert.equal(skipped.sandbox.seq.cur, 4, 'a skipped breakdown advances the actual section');
+  assert.deepEqual(skipped.notes.map(n => n.abs), [66, 67], 'only past steps are skipped; existing queued notes are not rebuilt');
+  close(skipped.effects.find(e => e.kind === 'break').time, 10.5);
+  close(skipped.effects.find(e => e.kind === 'mix').time, 10.5);
+  const boundary = runBoundary({now:10.6, nextTime:10.6, gridOrigin:2825});
+  const downbeat = boundary.notes.find(n => n.abs === 64);
+  close(boundary.effects.find(e => e.kind === 'break').time, downbeat.time);
+  close(boundary.effects.find(e => e.kind === 'mix').time, downbeat.time);
+  assert.ok(boundary.effects.every(e => e.time > 10.6), 'future section and mix automation still land at their rendered grid time, not scheduler-now');
+  assert.equal(skipped.sandbox.engine.at, 0, 'temporary scheduled mix time is restored');
+  const late = runBoundary({now:10.5, wall:10550});
+  assert.equal(late.sandbox.state.part, 'new', 'a Jam due between skipped and playable steps lands on the first playable grid time');
+  close(late.effects.find(e => e.kind === 'mix').time, 10.575);
+  const mediaLate = runBoundary({now:10.5, wall:10550, mediaRoute:{}});
+  assert.equal(mediaLate.notes[0].part, 'new', 'media-route compensation cannot defer a due Jam beyond the first playable corrected step');
+  close(mediaLate.effects.find(e => e.kind === 'mix').time, 10.535);
+  const clockOnly = runBoundary({step:64, nextTime:11.5, gridOrigin:3500, clockOffset:-0.02});
+  assert.equal(clockOnly.sandbox.vocalGridDirty, true, 'clock-offset-only slews request the same deferred vocal alignment');
+  for (const pendingForce of [false, true]) {
+    const moving = runBoundary({step:64, nextTime:11.5, gridOrigin:3500, clockOffset:-.02, now:11.3, pendingForce});
+    assert.equal(moving.vocals.some(args => args[4] === true), pendingForce,
+      'ordinary slews hold vocal checks, but a pending large-correction deadline cannot miss its downbeat during a later small slew');
+  }
+}
+console.log('Room skipped boundaries PASS: sub-step Jam downbeat retained; skipped Jam, breakdown and mix automation land at grid time; late Jam catches the first playable step.');
+{
+  const reanchorSource = main.slice(main.indexOf('function reanchorRoomSet('), main.indexOf('\nfunction stopRoomStats'));
+  const sandbox = {playing:true, roomPlayback:true, state:{bpm:newBpm}, seq:{origin:64}, transportOrigin:rebasedOrigin, vocalGridDirty:false, queuedRoomReplay:null};
+  const reanchor = runInNewContext(`${reanchorSource}\nreanchorRoomSet`, sandbox);
+  reanchor(oldOrigin + 5, oldOrigin);
+  close(sandbox.transportOrigin, rebasedOrigin + 5);
+  assert.equal(sandbox.vocalGridDirty, true);
+  reanchor(oldOrigin + 8, oldOrigin + 5);
+  close(sandbox.transportOrigin, rebasedOrigin + 8);
+  reanchor(oldOrigin + 8, oldOrigin + 8);
+  close(sandbox.transportOrigin, rebasedOrigin + 8);
+  sandbox.vocalGridDirty = false;
+  sandbox.queuedRoomReplay = {startsAt:oldOrigin + 20000};
+  reanchor(oldOrigin + 20120, oldOrigin + 20000);
+  close(sandbox.transportOrigin, rebasedOrigin + 8, 'queued replay calibration leaves outgoing origin alone');
+  assert.equal(sandbox.vocalGridDirty, false);
+  assert.equal(sandbox.queuedRoomReplay.startsAt, oldOrigin + 20120);
+  reanchor(NaN, oldOrigin + 20120);
+  assert.equal(sandbox.queuedRoomReplay.startsAt, oldOrigin + 20120, 'invalid origins cannot move the queue');
+  const replaySource = main.slice(main.indexOf('function switchRoomReplay('), main.indexOf('\nfunction startRoomReplay('));
+  const switches = [];
+  sandbox.ctx = {currentTime:1};
+  sandbox.startRoomReplay = (replay, at) => switches.push({startsAt:replay.startsAt, at});
+  runInNewContext(`${replaySource}\nswitchRoomReplay(${(origin + 20120) / 1000})`, sandbox);
+  assert.equal(switches[0].startsAt, oldOrigin + 20120);
+  assert.equal(switches[0].at, (oldOrigin + 20120) / 1000, 'the switch uses the corrected queued timestamp');
+  sandbox.playing = false;
+  reanchor(oldOrigin + 100, oldOrigin + 8);
+  close(sandbox.transportOrigin, rebasedOrigin + 8);
+}
 const joinSource = main.slice(main.indexOf('function joinRoomSet('), main.indexOf('\nfunction startRoomBroadcast'));
 function roomJoin(change = () => {}, options = {}) {
   const state = freshSong('hypnotic', 7, { length:'sketch', bpm:123 });
@@ -188,7 +625,7 @@ function roomJoin(change = () => {}, options = {}) {
   const engine = {state, editableHits:[{}], vocalNow:{source:'continuous'}, stepDur:.125};
   const seq = {s:state, origin:0, queued:null};
   const sandbox = {state, engine, seq, playing:true, roomPlayback:true, roomEditor:true, artistLive:null, handoff:null, jamQueue:[], mediaRoute:null,
-    transportOrigin:origin, style:'hypnotic', songOrigin:{}, STYLES, sanitize, clone, songFingerprint,
+    transportOrigin:origin, vocalGridDirty:false, style:'hypnotic', songOrigin:{}, STYLES, sanitize, clone, songFingerprint,
     roomStatsItem:null, playbackSources:new WeakMap(), playbackStats:{end:(outcome) => analytics.push(outcome)},
     ctx:{currentTime:8}, abs:65, nextTime:8.125, recordPlayback:(source) => analytics.push(source),
     Date:{now:() => origin + 8000}, ROOM_LEAD:.42, roomJoinTimer:0, stopTimeline(){}, joinRoomReplay(){calls.push('replay');},
@@ -253,6 +690,18 @@ for (const change of [
   (i, s) => { s.jamQueue.push({}); },
   (i, s) => { i.state.chainOn = s.state.chainOn = false; i.state.current = 1; },
 ]) assert.deepEqual(roomJoin(change).calls, ['replace', 'play'], 'changed music/origin or inactive transport takes the normal join path');
+{
+  const {calls, sandbox, analytics} = roomJoin((item, s) => {
+    item.broadcastId = 'live';
+    s.roomStatsItem = {broadcastId:'live'};
+    item.startsAt += 235;
+  });
+  assert.deepEqual(calls, [], 'a large same-broadcast correction never restarts playback');
+  assert.equal(sandbox.transportOrigin, origin + 235);
+  assert.equal(sandbox.vocalGridDirty, true, 'the continuous vocal must follow the corrected grid');
+  assert.equal(sandbox.engine.vocalNow.source, 'continuous');
+  assert.deepEqual(analytics, [], 'clock corrections keep the active play');
+}
 assert.deepEqual(roomJoin(i => { delete i.state; }).calls, []);
 assert.deepEqual(roomJoin(i => { i.replay = {}; }).calls, ['replay']);
 console.log('Room continuity PASS: role-only rebroadcast retains vocal/scheduler; changed song, vocal, origin, queued edits, replay and stopped transport still join normally.');

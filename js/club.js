@@ -10,7 +10,7 @@ import { PARTS, PART_IDS, extractPart, jamKey, jamStep, stepWall, jammable, part
 import { fetchLiveRooms, liveDirectory, roomCard, goLiveTile, isRoomPublic, setRoomPublic, myRoom, setMyRoom, roomInviteUrl } from './live-rooms.js';
 import { SHAPES, COLORS, GEAR, FALLBACK_NAME, generateName, randomLook, migrateAvatar, chatGroups } from './club-identity.js';
 import { createStage, stageScene } from './club-stage.js';
-import { createRoomClock, shiftRoomSet } from './room-sync.js';
+import { createRoomClock, shiftRoomSet, calibrateRoomClock } from './room-sync.js';
 
 const AVATAR_KEY = 'untergrund.avatar.v1';
 const ROOM_KEY = 'untergrund.room.v1';
@@ -349,17 +349,14 @@ export class RoomBus {
     };
     try {
       const initial = await sample(this.token, 5000);
-      if (!initial) return;
-      let { snapshot } = initial;
-      // A cold connection can bias the clock used for the entire set. Sample
-      // once more before adopting the set or publishing our own.
-      if (calibrate && initial.latency > 20) {
-        try {
-          const warm = await sample(snapshot.sessionToken || this.token, 250);
-          if (warm) snapshot = warm.snapshot;
-        } catch {}
-      }
-      this.applySnapshot(snapshot);
+      if (!initial || this.closed) return;
+      this.applySnapshot(initial.snapshot);
+      if (calibrate) this.calibration = calibrateRoomClock(initial, async (token, timeout) => {
+        if (this.closed) return null;
+        const warm = await sample(token || this.token, timeout);
+        if (warm && !this.closed) this.applySnapshot(warm.snapshot);
+        return warm;
+      }).catch(() => {});
     } catch {}
   }
 
@@ -422,6 +419,14 @@ export class RoomBus {
       if (broadcastId && broadcastId === this.currentSet?.broadcastId) set = { ...set, startsAt: this.currentSet.startsAt };
       this.applySet(set, snapshot.hostId, true);
       if (this.currentSet === set) this.serverOrigin = { broadcastId, startsAt };
+    }
+    if (this.serverOrigin?.broadcastId && this.serverOrigin.broadcastId === this.currentSet?.broadcastId) {
+      const startsAt = this.serverOrigin.startsAt - shift;
+      if (Number.isFinite(startsAt) && Math.abs(startsAt - this.currentSet.startsAt) > 3) {
+        const previousStartsAt = this.currentSet.startsAt;
+        this.currentSet = { ...this.currentSet, startsAt };
+        this.onClock?.({ broadcastId:this.currentSet.broadcastId, startsAt, previousStartsAt });
+      }
     }
     if (snapshot.jam) {
       this.jam = snapshot.jam;
@@ -535,7 +540,7 @@ export function clubActions({ isHost, live, canListen, queued, queueLength = 0 }
   return queued ? { primary: null, secondary: [queue] } : { primary: queue, secondary: [] };
 }
 
-export function openClub({ getState, getStyle, loadTrack, getTransport, getReleaseId = () => '', startRoomBroadcast, unlockAudio, joinRoomSet: joinSet, onLeaveRoom, onPlaybackUnavailable, replayToRoom, jam: jamHooks = null, toast, room: requestedRoom = '', intent = '', hue = null }) {
+export function openClub({ getState, getStyle, loadTrack, getTransport, getReleaseId = () => '', startRoomBroadcast, unlockAudio, joinRoomSet: joinSet, reanchorRoomSet, onLeaveRoom, onPlaybackUnavailable, replayToRoom, jam: jamHooks = null, toast, room: requestedRoom = '', intent = '', hue = null }) {
   const joinRoomSet = (set, options) => { joinSet(set, options); bus?.follow(set); };
   let audioReady = false;
   const unlock = () => unlockAudio().then((ok) => (audioReady = ok));
@@ -651,6 +656,11 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, getRelea
     parkedBus = null;
     leaveRoom();
     bus = new RoomBus(activeRoom, avatar, onUpdate, onEvent, apiBase);
+    const clockBus = bus;
+    bus.onClock = ({ broadcastId, startsAt, previousStartsAt }) => {
+      if (pendingSet?.broadcastId === broadcastId) pendingSet = { ...pendingSet, startsAt };
+      if (clockBus.jamFollow === broadcastId && getTransport().playing) reanchorRoomSet?.(startsAt, previousStartsAt);
+    };
     bus.onPlaybackUnavailable = onPlaybackUnavailable;
     if (jamHooks) bus.jamHooks = { ...jamHooks, getState, isPlaying: () => getTransport().playing };
     if (goLive) {

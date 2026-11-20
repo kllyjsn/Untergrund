@@ -163,6 +163,20 @@ export function beatRealignment(stats, wake, { bpm, origin, expectedKicks }) {
     attackConfirmationMs:realignment(stats, wake) };
 }
 
+export function realignmentEvidence(stats, wake) {
+  const confirmationMs = realignment(stats, wake);
+  const first = stats.pairs.find(p => Math.abs(p.delta) <= 50);
+  const end = confirmationMs === null ? -1 : stats.pairs.findIndex(p => p.listener - wake === confirmationMs);
+  const pairs = end < 2 ? [] : stats.pairs.slice(end - 2, end + 1);
+  return {
+    firstAlignedMs: first ? first.listener - wake : null,
+    confirmationMs,
+    confirmationSpanMs: pairs.length ? pairs.at(-1).listener - pairs[0].listener : null,
+    confirmingPairs: pairs.map(p => ({hostMs:p.host - wake, listenerMs:p.listener - wake, deltaMs:p.delta})),
+    hostGapsMs: pairs.slice(1).map((p, i) => p.host - pairs[i].host),
+  };
+}
+
 export function phraseOnsets(rows, threshold) {
   const out = []; let active = false, last = -Infinity;
   for (const [t, e] of rows) {
@@ -177,6 +191,49 @@ export function channelEnvelope(capture, name, after = false) {
   assert.ok(channel?.ready && channel.edge, `Missing rendered ${name} graph tap`);
   const data = {...capture, samples:channel.samples};
   return after ? postResumeEnvelope(data) : envelope(data);
+}
+
+export function forcedVocalEvidence(start, corrections) {
+  const f = start?.forced;
+  if (start?.reason !== 'forced' || !f || !Number.isInteger(f.correctionId) || f.correctionId < 1 ||
+      !Number.isInteger(f.step) || f.step % 16 || !Number.isFinite(f.stepDur) || !(f.stepDur > 0) || !Number.isFinite(f.errorMs) || !(Math.abs(f.errorMs) > 60) ||
+      !Number.isFinite(f.vocalMs) || !Number.isFinite(f.gridTime) || !Number.isFinite(start.offset) ||
+      Math.abs(start.when - f.gridTime) > .002 || Math.abs(start.offset - (f.step * f.stepDur - f.vocalMs / 1000)) > .002) return false;
+  if (!corrections.some(c => c.correctionId === f.correctionId && c.forced &&
+      Math.abs(c.appliedErrorMs ?? c.errorMs) > 60 && Math.abs(c.appliedTime - start.when) < .002)) return false;
+  const a = f.fadeOut, b = f.fadeIn;
+  if (!a || !b || !Array.isArray(a.values) || !Array.isArray(b.values) || a.values.length < 3 ||
+      a.values.length !== b.values.length || !Number.isFinite(a.duration) || !Number.isFinite(b.duration) ||
+      a.duration < .02 || a.duration > .04 || Math.abs(a.duration - b.duration) > .00001 ||
+      !Number.isFinite(a.when) || !Number.isFinite(b.when) ||
+      Math.abs(a.when - start.when) > .002 || Math.abs(b.when - start.when) > .002) return false;
+  if (Math.abs(a.values[0] - 1) > .0001 || Math.abs(a.values.at(-1)) > .0001 ||
+      Math.abs(b.values[0]) > .0001 || Math.abs(b.values.at(-1) - 1) > .0001) return false;
+  return a.values.every((v, i) => Number.isFinite(v) && Number.isFinite(b.values[i]) &&
+    v >= 0 && v <= 1 && b.values[i] >= 0 && b.values[i] <= 1 && Math.abs(v * v + b.values[i] ** 2 - 1) < .001);
+}
+
+export function vocalSourceEvidence(capture, wakes = 0) {
+  const corrections = (Array.isArray(capture.vocalCorrections) ? capture.vocalCorrections : []).filter(c => Math.abs(c.errorMs) > 30);
+  const expected = 1 + wakes;
+  let remainingWakes = wakes;
+  const steady = Array.isArray(capture.vocalStarts) ? capture.vocalStarts.filter((s, i) => {
+    if (i === 0) return false;
+    if (s?.reason === 'wake' && remainingWakes > 0) { remainingWakes--; return false; }
+    return true;
+  }) : null;
+  const forced = steady?.filter(s => forcedVocalEvidence(s, corrections));
+  const ordinary = steady?.filter(s => !forced.includes(s));
+  const forcedIds = new Set(forced?.map(s => s.forced.correctionId));
+  return {count:Array.isArray(capture.vocalStarts) ? capture.vocalStarts.length : null,
+    nonZeroOffsets:Array.isArray(capture.vocalStarts) ? capture.vocalStarts.filter(s => s?.offset > 0).length : null,
+    midPhraseRestarts:ordinary ? ordinary.filter(s => s?.startSinging === true).length : null,
+    forcedReanchors:forced ? forced.length : null,
+    invalidForcedReanchors:steady ? steady.filter(s => s?.reason === 'forced' && !forced.includes(s)).length : null,
+    duplicateForcedReanchors:forced ? forced.length - forcedIds.size : null,
+    gapRealigns:ordinary ? ordinary.filter(s => s?.startSinging === false).length : null,
+    unclassifiedStarts:steady ? steady.filter(s => typeof s?.startSinging !== 'boolean').length : null,
+    expected, corrections, allowed:expected + corrections.filter(c => !c.forced && c.appliedTime != null).length + forcedIds.size};
 }
 
 export function boundaryMetric(host, listener, boundary) {

@@ -11,21 +11,27 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
     localStorage.setItem('untergrund.v1', JSON.stringify(fixture));
     localStorage.setItem('untergrund.made', '1');
   }
-  const tap = globalThis.__clubAudio = { samples: [], anchors: [], anchorPolls: [], errors: [], routes: [], requests: [], lifecycle: [], sources: [], playbackStats: [] };
+  const tap = globalThis.__clubAudio = { samples: [], anchors: [], anchorPolls: [], errors: [], routes: [], requests: [], lifecycle: [], sources: [], playbackStats: [], vocalStarts: [] };
   tap.longTasks = [];
   new PerformanceObserver(list => {
     for (const e of list.getEntries()) tap.longTasks.push({ at: performance.timeOrigin + e.startTime, duration: e.duration });
   }).observe({ type: 'longtask', buffered: true });
   if (mix) globalThis.__clubPCM = { mix: [], vocal: [] };
-  if (mix) tap.channels = { kick: { samples: [] }, vocal: { samples: [] } };
+  if (mix) tap.channels = { kick: { samples: [] }, vocal: { samples: [] }, hat: { samples: [] } };
   const epoch = () => performance.timeOrigin + performance.now();
   const contexts = [];
-  const edges = new WeakMap(), kickNodes = new WeakSet();
+  const edges = new WeakMap(), kickNodes = new WeakSet(), vocalNodes = new WeakSet();
   const reachesKick = (node, seen = new Set()) => {
     if (kickNodes.has(node)) return true;
     if (seen.has(node)) return false;
     seen.add(node);
     return [...(edges.get(node) || [])].some(dest => reachesKick(dest, seen));
+  };
+  const reachesVocal = (node, seen = new Set()) => {
+    if (vocalNodes.has(node)) return true;
+    if (seen.has(node)) return false;
+    seen.add(node);
+    return [...(edges.get(node) || [])].some(dest => reachesVocal(dest, seen));
   };
   const samplePlayback = ctx => {
     try {
@@ -53,6 +59,33 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
     tap.sources.push({ at: epoch(), when, clock: clock(this.context), frequency: this.frequency.value,
       ...(kick ? { tag: 'kick' } : {}) });
     return startOscillator.call(this, when);
+  };
+  const startBuffer = AudioBufferSourceNode.prototype.start;
+  tap.paramCurves = new WeakMap();
+  const setCurve = AudioParam.prototype.setValueCurveAtTime;
+  AudioParam.prototype.setValueCurveAtTime = function (values, when, duration) {
+    const result = setCurve.call(this, values, when, duration);
+    tap.paramCurves.set(this, {when, duration, values:Array.from(values)});
+    return result;
+  };
+  AudioBufferSourceNode.prototype.start = function (when = 0, offset = 0, ...args) {
+    if (mix && reachesVocal(this)) {
+      const data = this.buffer?.getChannelData(0), first = Math.floor(offset * (this.buffer?.sampleRate || 0));
+      const count = Math.min(Math.ceil((this.buffer?.sampleRate || 0) * .06), (data?.length || 0) - first);
+      let energy = 0;
+      for (let i = first; i < first + count; i++) energy += data[i] * data[i];
+      const startRms = count > 0 ? Math.sqrt(energy / count) : null;
+      const next = tap.nextVocalStart;
+      const reason = tap.vocalStarts.length === 0 ? 'join' : typeof next === 'string' ? next : next?.reason;
+      const incoming = [...(edges.get(this) || [])].find(node => node.gain);
+      const forced = next?.reason === 'forced' ? {correctionId:next.correctionId, errorMs:next.errorMs,
+        step:next.step, stepDur:next.stepDur, vocalMs:next.vocalMs, gridTime:next.gridTime,
+        fadeOut:tap.paramCurves.get(next.fadeParam), fadeIn:tap.paramCurves.get(incoming?.gain)} : null;
+      delete tap.nextVocalStart;
+      tap.vocalStarts.push({at:epoch(), when, offset, duration:this.buffer?.duration, clock:clock(this.context),
+        reason, forced, startRms, startSinging:startRms === null ? null : startRms > .01});
+    }
+    return startBuffer.call(this, when, offset, ...args);
   };
   const fetchOriginal = globalThis.fetch;
   globalThis.fetch = async (...args) => {
@@ -117,6 +150,7 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
     if (channel.edge) { tap.errors.push('Duplicate channel edge: ' + name); return; }
     channel.edge = { name, source:source.constructor.name, at:epoch(), line:graph[name] };
     if (name === 'kick') kickNodes.add(source);
+    if (name === 'vocal') vocalNodes.add(source);
     entry.ready.then(() => {
       const node = new AudioWorkletNode(ctx, 'club-tap', { outputChannelCount:[2], processorOptions:{isolated:true, capture:name === 'vocal'} });
       const mute = ctx.createGain(); mute.gain.value = 0;
@@ -125,6 +159,7 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
       channel.ready = true;
     }).catch(e => tap.errors.push(String(e)));
   };
+  if (mix) globalThis.__clubCaptureChannel = captureChannel;
   AudioNode.prototype.connect = function (dest, ...args) {
     if (graph) {
       if (!edges.has(this)) edges.set(this, new Set());

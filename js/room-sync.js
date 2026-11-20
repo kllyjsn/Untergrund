@@ -1,5 +1,6 @@
 export function createRoomClock({ wall = () => Date.now(), monotonic = () => performance.now() } = {}) {
   let best;
+  let samples = [];
   return {
     observe(clock, from, to) {
       if (!Array.isArray(clock)) return;
@@ -7,15 +8,30 @@ export function createRoomClock({ wall = () => Date.now(), monotonic = () => per
       if (![received, sent, from, to].every(Number.isFinite) || sent < received || to < from) return;
       // Subtract time spent on the server; keep the lowest-latency observation from recent heartbeats.
       const latency = Math.max(0, to - from - (sent - received));
-      if (!best || (to >= best.at && (to - best.at >= 30000 || latency < best.latency))) {
-        best = { offset: (received - from + sent - to) / 2, at: to, latency };
-      }
+      const latest = Math.max(to, samples.at(-1)?.at ?? to);
+      samples.push({ offset: (received - from + sent - to) / 2, at: to, latency });
+      samples = samples.filter(s => latest - s.at <= 60000).sort((a, b) => a.at - b.at).slice(-16);
+      best = samples.reduce((a, b) => a.latency <= b.latency ? a : b);
       return latency;
     },
     shift() {
       return best ? monotonic() + best.offset - wall() : 0;
     },
   };
+}
+
+export async function calibrateRoomClock(initial, sample, monotonic = () => performance.now()) {
+  let latest = initial;
+  const deadline = monotonic() + 1500;
+  for (let i = 0; i < 4 && latest.latency > 20; i++) {
+    const remaining = deadline - monotonic();
+    if (remaining < 50) break;
+    try {
+      const warm = await sample(latest.snapshot.sessionToken, Math.min(remaining, Math.max(250, latest.latency * 2 + 50)));
+      if (warm) latest = warm;
+    } catch {}
+  }
+  return latest.snapshot;
 }
 
 export function shiftRoomSet(set, by) {
@@ -39,18 +55,34 @@ export function roomTransportPosition(startsAt, bpm, now = Date.now()) {
   return { step, delay: (origin + step * stepMs - now) / 1000 };
 }
 
-export function syncAudioClock(previous, measured) {
+export function syncAudioClock(previous, measured, sample = null) {
   // A frozen audio clock can fall seconds behind wall time. Don't sweep the
   // playhead through that gap; only smooth ordinary timing jitter.
   const jumped = previous !== null && Math.abs(measured - previous) > 0.15;
+  if (sample) {
+    const prior = sample.state;
+    const wake = jumped && prior && sample.at - prior.at > 0.15 &&
+      sample.at - prior.at - (sample.contextTime - prior.contextTime) > 0.15;
+    const state = {at:sample.at, contextTime:sample.contextTime, pending:null};
+    if (previous === null || wake) return {offset:measured, jumped:!!wake, state};
+    if (Math.abs(measured - previous) <= 0.008) return {offset:previous, jumped:false, state};
+    const values = [...(prior?.pending?.values ?? []), measured];
+    state.pending = {since:prior?.pending?.since ?? sample.at, values};
+    if (sample.at - state.pending.since < 2 || values.length < 3) return {offset:previous, jumped:false, state};
+    const sorted = values.slice().sort((a, b) => a - b), middle = Math.floor(sorted.length / 2);
+    const offset = sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+    return {offset:Math.abs(offset - previous) > 0.008 ? offset : previous, jumped:false, state:{...state, pending:null}};
+  }
   const offset = previous === null || jumped ? measured : previous + (measured - previous) * 0.05;
   return { offset, jumped };
 }
 
 // Re-anchor the audio schedule to the shared transport when it drifts or stalls.
-export function transportResync(target, nextTime, now, stepSec, jumped = false, minSkip = -Infinity, rate = null) {
-  if (!jumped && Math.abs(target - nextTime) <= 0.03 && nextTime >= now) {
+export function transportResync(target, nextTime, now, stepSec, jumped = false, minSkip = -Infinity, roomOrRate = false, exact = false) {
+  const room = roomOrRate === true, rate = typeof roomOrRate === 'number' ? roomOrRate : null;
+  if (rate !== null && !jumped && Math.abs(target - nextTime) <= (exact ? 0.05 : 0.03) && nextTime >= now) {
     const error = target - nextTime;
+    if (exact) return roomSlew(target, nextTime, now, stepSec, rate);
     if (rate === null || (Math.abs(error) <= 0.002 && rate === 1) || nextTime - stepSec < now + 0.005) return null;
     const desired = Math.abs(error) <= 0.002 ? 1 : 1 - Math.max(-0.008, Math.min(0.008, error * 2.5));
     const limit = stepSec * 0.016;
@@ -59,12 +91,63 @@ export function transportResync(target, nextTime, now, stepSec, jumped = false, 
     const duration = 2 * stepSec / (rate + endRate);
     return { skip: 0, nextTime: nextTime + duration - stepSec, discard: false, slew: true, rate, endRate };
   }
+  const error = Math.abs(target - nextTime);
+  if (!jumped && (error <= 0.03 || (room && (error <= 0.05 || error < stepSec || (target >= now && target <= nextTime)))) && nextTime >= now) return null;
   const ready = now + 0.005;
   // Recover one step near the render deadline without moving the grid or
   // squeezing the gap to its following step below half a step.
-  const earliest = jumped ? ready - Math.min(0.055, stepSec / 2) : ready;
+  const earliest = jumped ? ready - Math.min(0.055, stepSec / 2) : room ? now : ready;
   let skip = jumped ? Math.max(minSkip, Math.ceil((earliest - target) / stepSec)) : 0;
   target += skip * stepSec;
   while (target < earliest) { target += stepSec; skip++; }
+  if (room && !jumped) target = Math.max(target, nextTime);
   return { skip, nextTime: target, discard: jumped, ...(target < ready && { firstTime: ready }) };
+}
+
+function roomSlew(target, nextTime, now, stepSec, rate) {
+  const error = target - nextTime;
+  if ((Math.abs(error) < 1e-10 && rate === 1) || nextTime - stepSec < now + 0.005) return null;
+  const limit = stepSec * 0.016;
+  const delta = (from, to) => 2 * stepSec / (from + to) - stepSec;
+  const stop = from => {
+    let phase = 0;
+    while (from !== 1) {
+      const to = Math.abs(from - 1) <= limit ? 1 : from + Math.sign(1 - from) * limit;
+      phase += delta(from, to);
+      from = to;
+    }
+    return phase;
+  };
+  const low = Math.max(1 / (1 + 0.0015 / stepSec), 0.992, rate - limit);
+  const high = Math.min(1 / (1 - 0.0015 / stepSec), 1.008, rate + limit);
+  const desired = 1 - Math.max(-0.008, Math.min(0.008, error * 2.5));
+  let endRate = Math.max(low, Math.min(high, desired));
+  if (delta(rate, low) + stop(low) >= error && delta(rate, high) + stop(high) <= error) {
+    let lo = low, hi = high;
+    for (let i = 0; i < 40; i++) {
+      const middle = (lo + hi) / 2;
+      if (delta(rate, middle) + stop(middle) > error) lo = middle;
+      else hi = middle;
+    }
+    endRate = (lo + hi) / 2;
+  }
+  if (Math.abs(endRate - 1) < 1e-10) endRate = 1;
+  let next = nextTime + delta(rate, endRate);
+  if (endRate === 1 && Math.abs(target - next) < 1e-10) next = target;
+  return {skip:0, nextTime:next, discard:false, slew:true, rate, endRate};
+}
+
+export function slewTransport(target, nextTime, limit = 0.03) {
+  const error = target - nextTime;
+  return Math.abs(error) <= limit ? nextTime + Math.max(-0.0015, Math.min(0.0015, error)) : nextTime;
+}
+
+export function roomTransportCorrection(target, nextTime, now, stepSec, drainUntil = null) {
+  if (drainUntil === null) {
+    if (Math.abs(target - nextTime) <= 0.05) return null;
+    drainUntil = nextTime;
+  }
+  if (now < drainUntil) return {drainUntil};
+  const skip = Math.max(0, Math.ceil((now - target) / stepSec));
+  return {skip, nextTime:target + skip * stepSec, discard:false, adopted:true};
 }

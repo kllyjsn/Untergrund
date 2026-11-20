@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { createRoomMediaSync, roomMediaLead, roomMediaTime, ROOM_MEDIA_LEAD } from '../js/room-media-sync.js';
-import { roomTransportPosition, syncAudioClock, transportResync } from '../js/room-sync.js';
+import { roomTransportPosition, syncAudioClock, transportResync, slewTransport, roomTransportCorrection } from '../js/room-sync.js';
 import { Engine } from '../js/engine.js';
 
 const route = {};
@@ -80,6 +80,8 @@ function transport(mediaRoute, room = true, roomItem = item) {
   const noop = () => {};
   const s = { mediaRoute, roomMediaSync: createRoomMediaSync(), roomMediaTime, roomMediaLead,
     roomTransportPosition, syncAudioClock, transportResync, BG_LEAD: 1.5, ROOM_LEAD: .42,
+    slewTransport, roomTransportCorrection, roomDrainUntil: null, roomAudioClock: null, vocalGridDirty: false,
+    performance: { now: () => s.ctx.currentTime * 1000 },
     playing: true, songOver: false, queuedRoomReplay: null, roomPlayback: room, roomEditor: false, roomResume: null, roomFirstNote: null,
     roomJoinTimer: 0, handoff: null, jamQueue: [], trackingReplay: false, playbackSources: new WeakMap(), state: { bpm: 120, current: 0 },
     ctx: { currentTime: 10 }, Date: { now: () => 1000000 }, nextTime: 0, abs: 0,
@@ -136,7 +138,8 @@ for (let i = 0; i < desktop.hits.length; i++)
 console.log('Room jam startup PASS: jam-capable joins retain the one-time 4s prime and route lead.');
 assert.equal(media.s.roomMediaSync.horizon(.42, true, route), .42);
 for (const t of [desktop, media]) {
-  Object.assign(t.s, { transportOrigin: 999800, abs: 2, nextTime: 14, clockOffset: 0 });
+  Object.assign(t.s, { transportOrigin: 999800, abs: 2, nextTime: 14, clockOffset: 988,
+    roomAudioClock: { at: 8, contextTime: 10, pending: null } });
   t.api.schedule();
 }
 assert.equal(media.vocals[0].gridTime, desktop.vocals[0].gridTime - ROOM_MEDIA_LEAD, 'resync vocal grid advances too');
@@ -200,7 +203,7 @@ for (const action of ['stop', 'replaceState', 'start']) for (const mode of ['pri
 }
 console.log('Room prime cancellation PASS: real Engine queue discard prevents future starts on stop, set replacement and restart, including jam rooms; desktop and expired-prime paths unchanged.');
 const jamSource = main.slice(main.indexOf('function refreshJamPrime('), main.indexOf('\n// GENERATE while'));
-for (const mediaRoute of [null, route]) for (const kind of ['snapshot', 'late', 'future', 'beyond', 'expired']) {
+for (const mediaRoute of [null, route]) for (const kind of ['snapshot', 'late', 'future', 'beyond', 'expired', 'draining']) {
   const { s, hits, vocals } = transport(mediaRoute, true, { ...item, state: { patterns: [{}] } });
   const noop = () => {}, tasks = [], sources = hits.map(h => ({ ...h, layer: 'old', stopped: Infinity }));
   const makeSource = note => { note.src = { stop: t => { note.stopped = t; } }; return note; };
@@ -222,12 +225,14 @@ for (const mediaRoute of [null, route]) for (const kind of ['snapshot', 'late', 
   s.landJamParts = jam.landJamParts;
   s.ctx.currentTime = kind === 'expired' ? end + 1 : 10.1;
   s.Date.now = () => (s.ctx.currentTime + 990) * 1000;
-  if (kind === 'snapshot' || kind === 'expired') { jam.landJamPart('kick', 'new'); jam.landJamPart('bass', 'new'); }
+  if (kind === 'draining') s.roomDrainUntil = end;
+  if (kind === 'snapshot' || kind === 'expired' || kind === 'draining') { jam.landJamPart('kick', 'new'); jam.landJamPart('bass', 'new'); }
   else jam.queueJamPart('kick', 'new', kind === 'late' ? 1000000 : kind === 'future' ? 1002100 : 1010000);
   const boundary = s.nextTime, replaced = mediaRoute && kind !== 'beyond' && kind !== 'expired';
   assert.equal(tasks.length, replaced ? 1 : 0, 'snapshot layers coalesce before the next redraw; desktop/far-future edits do not requeue');
   for (const task of tasks) task();
   if (replaced) {
+    assert.equal(s.roomDrainUntil, null, 'replacing a primed queue clears its obsolete clock-correction frontier');
     assert(boundary >= 10.1 + .42 - 1e-6, 'preserve the safe 420ms queue');
     if (kind === 'future') assert(Math.abs(boundary - (12.1 - ROOM_MEDIA_LEAD)) < 1e-6, 'future change keeps its bar');
     else assert.equal(vocals.at(-1).gridTime, boundary, 'partial-bar vocal restarts on the compensated grid');

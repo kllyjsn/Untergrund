@@ -39,6 +39,7 @@ async function render(withEdit, route = true, action = '', actionAt = .9, mute =
     ...sync, ...media, seq, engine, ctx, state, applyPart, roomMediaSync, mediaRoute,
     document: {hidden: false, body: {classList: {add: noop}}, querySelectorAll: () => []}, Date: {now: () => 1000000 + 1000 * (ctx.currentTime + (ctx.currentTime >= .8 ? wallStep : 0))},
     playing: true, roomPlayback: true, songOver: false, queuedRoomReplay: null, roomEditor: false, roomFirstNote: null, clockOffset: 1000,
+    roomAudioClock: null, roomDrainUntil: null, vocalGridDirty: false,
     abs: 0, nextTime: .06, transportOrigin: 1000100, uiQueue: [], handoff: null,
     timeline: {skip: () => 0}, artistTick: noop, midiClockStep: noop, BG_LEAD: 1.5, ROOM_LEAD: .42,
     requestAnimationFrame: noop, cancelAnimationFrame: noop,
@@ -69,6 +70,7 @@ async function render(withEdit, route = true, action = '', actionAt = .9, mute =
   roomMediaSync.start(true, mediaRoute);
   api.schedule();
   const initialQueueUntil = env.nextTime;
+  const barTime = media.roomMediaTime(env.transportOrigin / 1000 + 16 * engine.stepDur - env.clockOffset, true, mediaRoute);
   const ticks = [];
   for (const t of [...Array.from({length: 66}, (_, i) => (i + 3) * .05), 2.06].sort((a,b) => a-b)) {
     if (['stall', 'multi'].includes(action) && t > 1.85 && t < 2.70) continue;
@@ -111,8 +113,9 @@ async function render(withEdit, route = true, action = '', actionAt = .9, mute =
     for (let i = Math.round(a * rate); i < Math.round(b * rate); i++) s += y[i] * y[i];
     return 20 * Math.log10(Math.max(1e-8, Math.sqrt(s / ((b - a) * rate))));
   };
-  return {initialQueueUntil, land, jamAt, pre: window(.3, 1.88), post: window(2.35, 3.9), rmsDb: [.06,.56,1.06,1.56,2.06,2.56,3.06].map(t => rms(t + grid)),
-    tailDb: [1.64,1.72,1.80,1.88,1.98].map(t => rms(t + grid)), revEvents};
+  return {initialQueueUntil, land, jamAt, pre: window(.3, 1.88), post: window(2.35, 3.9), rmsDb: [.06,.56,1.06,1.56,2.06,2.56,3.06].map((t, i) => rms(!route && i === 4 ? barTime : t + grid)),
+    tailDb: [1.64,1.72,1.80,1.88,1.98].map(t => rms(t + grid)), revEvents,
+     ...(!route ? {barTime, beforeBoundaryDb:rms(barTime - .075)} : {})};
 }
 
 async function renderDrive(drive, edit = '') {
@@ -259,6 +262,8 @@ if (result) {
       assert(Math.abs(edited.tailDb[i] - db) < 1, 'the previous bar rings out until the boundary');
   }
   assert.equal(result.primed.control.initialQueueUntil, result.primed.edited.initialQueueUntil);
+  assert(result.desktop.control.beforeBoundaryDb > -60, 'the preceding desktop bar has audible audio at the computed boundary');
+  assert(result.desktop.edited.beforeBoundaryDb > -60, 'the desktop Jam mute cannot silence the preceding bar early');
   assert(result.primed.edited.land.every(e => e.at < 1.85), 'native changes are submitted ahead of the boundary');
   assert(result.desktop.edited.land.every(e => e.at < 2.06), 'desktop controls are submitted ahead of the boundary');
   assert(Math.abs(result.primed.edited.jamAt[0] - 2.06) < 1e-6 && Math.abs(result.desktop.edited.jamAt[0] - 2.1) < 1e-6,

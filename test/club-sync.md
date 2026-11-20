@@ -586,6 +586,84 @@ files or the host. JSON `events.injectedKickDrop` records each suppressed native
 call, and the harness requires at least two. Both missing-kick and recovery
 assertions must fail; use distinct output and network labels for this control.
 
+Mix assertions also require zero extra vocal onsets and native vocal-stem
+source starts no greater than join + wake + one per recorded correction exceeding
+30ms and actually applied. An unapplied pending correction cannot
+authorize an extra source. JSON also reports non-zero-offset starts separately.
+Outside the initial join and explicitly tagged wake, a native start must have
+a silent start point (60ms RMS of the actual processed buffer below0.01), or
+qualify as a forced crossfaded alignment. JSON reports `midPhraseRestarts`,
+`forcedReanchors`, `gapRealigns`, and `unclassifiedStarts`; any unqualified
+mid-phrase or unclassified start fails, even with correction credit. Gap realigns
+count scheduled silent pre-roll starts separately, not extra sung onsets.
+The graph-filtered `AudioBufferSourceNode.start` tap excludes drum buffers
+and offline preparation. JSON `vocalStarts` and `diagnostics[].vocalCorrections`
+show the measured counts and allowance; absent telemetry cannot pass. Room bar
+checks always hold their existing source. Converged corrections over30ms wait
+for the next phrase gap, with both old and corrected phases silent. The new
+source starts in silent pre-roll before the next phrase onset; the old source
+finishes its fade in silence. A residual above60ms with no qualifying gap within
+two bars may use exactly one forced alignment for that correction. It lands on
+a4/8-bar downbeat inside the two-bar window when available, otherwise the last
+downbeat in that window. A qualifying gap wins; forced starts are queued lazily
+at the selected downbeat so a gap or Stop can cancel the pending plan. Smaller
+residuals still drift until a gap. The forced handover multiplies the old mix by
+a30ms cosine curve and the new source by its complementary sine curve, without
+resetting ducking, carving or sends. Stop cancels both voices before or during
+the fade. The native tap records actual AudioParam curves; an exemption requires
+equal-power20–40ms curves, correct downbeat source phase, an applied correction
+above60ms and a unique correction ID. Invalid curves or a second forced start
+for the same correction fail. Grid corrections
+over50ms stop queuing
+until the existing lookahead drains, adopt the corrected grid, and send MIDI SPP.
+Playback rate and pitch never change.
+
+Room audio-to-wall clock offset estimates must persist in an8ms band for2s
+before changing the grid; differences within5ms of the current anchor are held.
+The first usable join estimate applies immediately. A true frozen-page wake
+(a callback gap with at least150ms less audio-clock progress) also keeps immediate
+recovery. A large single-frame estimate without that callback gap is filtered,
+not treated as a wake. Solo arithmetic is unchanged. Explicit transport-origin
+changes, including the forced243ms control, are not clock estimates and still
+use the existing drain/adopt path without the persistence delay.
+
+`--vocal-slew-test` is an opt-in wake-mix control. A test-only conditional
+breakpoint applies one 20ms transport-origin correction near a bar end on each
+client, recording `forcedVocalSlew`; normal runs do not change the origin.
+Add `--vocal-reanchor-control` for a negative control: the test-only breakpoint
+waits for a sung source region, then stops and restarts each actual stem at a
+nonzero offset without correction credit. Both the mid-phrase and native-count
+assertions must fail.
+
+Add `--vocal-force-repeat-control` to `--whole-step-test` to physically execute
+a second equal-power alignment for the same correction on the next downbeat.
+Both clients must execute it; the duplicate-correction and native-count checks
+must fail even if kick/vocal timing otherwise agrees.
+
+`--whole-step-test` is another opt-in wake-mix control. It uses a deterministic
+kick/closed-hat pattern and moves both grids earlier by two steps while those
+steps are still in the future. `stepEvidence` compares isolated rendered host
+kick and closed-hat attacks with independent Recorder/Sequencer fixture hits
+for the bar beginning at the first corrected step at or after adoption. Steps
+that became past while the old queue drained land Jam/section state but need
+not sound. Expected times come from the corrected fixture grid; the preceding
+bar calibrates fixed instrument
+attack latency within the existing 50ms limit. Missing, extra or >50ms displaced
+attacks fail `--assert`, as do absent taps/markers. Add `--drop-step-control`
+to suppress an actual future kick/hat sequencer step on both clients: this
+must fail even when the host/listener kick comparison still agrees. Normal
+comparison runs retain the original fixture and do not force corrections.
+
+Room lookahead remains420ms (background1.5s) for stall protection. The forced
+control requires adoption and first rendered kick alignment each within the
+unchanged three-beat1463ms budget; it separately requires every future-at-adoption
+kick/hat attack. Three-slot confirmation from injection is not this control's
+metric: a243ms backwards correction can make the first corrected kick occur
+~770ms after injection because the old420ms queue must drain; adding two488ms
+beat slots predicts~1746ms confirmation even after immediate correct adoption.
+All real scenarios retain their existing expected-beat recovery metric and
+unchanged thresholds.
+
 The separate advisory GitHub Actions `club-sync` job runs the complete harness
 with --assert on PRs, main pushes and manual dispatch. It uses Node 22 and the
 Ubuntu runner's Chrome, and uploads JSON with `if: always()`. Known threshold

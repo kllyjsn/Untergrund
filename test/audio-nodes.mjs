@@ -4,11 +4,14 @@
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { runInNewContext } from 'node:vm';
 import { STYLES, defaultState, generate, applyOverrides, arrangement, songChain } from '../js/state.js';
 import { makeIR } from '../js/dsp.js';
 import { TECHNO_HOOK_SPACE } from '../js/lead.js';
 import { VOCAL_FX } from '../js/sing.js';
-import { transportResync } from '../js/room-sync.js';
+import { syncAudioClock, transportResync, slewTransport, roomTransportCorrection } from '../js/room-sync.js';
+import { createRoomMediaSync, roomMediaLead, roomMediaTime } from '../js/room-media-sync.js';
+import { applyPart, extractPart, normalizeLayer } from '../js/jam.js';
 
 const BASELINE = new URL('./audio-nodes-baseline.json', import.meta.url);
 const SLACK = 1.15, FLOOR = 12;
@@ -47,7 +50,34 @@ globalThis.fetch = async (url) => {
   catch { return { ok: false, status: 404 }; }
 };
 
-const { Engine, Sequencer, parseChain, scoreKinds } = await import('../js/engine.js');
+const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCrossfade } = await import('../js/engine.js');
+{
+  const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+  const source = main.slice(main.indexOf('function landJamPart(part,'), main.indexOf('\n// GENERATE while'));
+  for (const drive of [0, .2]) {
+    const state = defaultState(), ctx = fakeCtx(), noop = () => {};
+    state.params.acid.drive = drive;
+    const engine = new Engine(ctx, state, {realtime:false});
+    const env = {state, engine, ctx, applyPart, playing:true, roomPlayback:true, mediaRoute:null,
+      setTimeout:noop, requestAnimationFrame:noop, cancelAnimationFrame:noop, jamRedraw:0};
+    const land = new Function('env', 'with(env){' + source + '; return landJamPart;}')(env);
+    const edit = (value, at) => {
+      const layer = normalizeLayer('bass', extractPart(state, 'bass'));
+      layer.params.acid.drive = value;
+      land('bass', layer, at);
+      assert.equal(layer.params.acid.drive, value, 'scheduling cannot mutate the shared Jam layer');
+    };
+    const initial = counts.n;
+    for (let i = 0; i < 24; i++) edit(drive, 1 + i);
+    assert.equal(counts.n, initial, 'unchanged drive across 24 timed desktop bass edits creates no AudioNodes');
+    edit(.8, 25);
+    assert(counts.n > initial, 'a changed drive still schedules its native oversampled path');
+    const changed = counts.n;
+    for (let i = 0; i < 24; i++) edit(.8, 26 + i);
+    assert.equal(counts.n, changed, 'repeated edits retain the one pending changed-drive path');
+  }
+  console.log('Room Jam drive nodes PASS: unchanged and zero drive keep native node counts flat across 24 edits before/after a real drive change.');
+}
 const { loadLiveKit, loadBand, BAND } = await import('../js/livekit.js');
 const { loadPiece } = await import('../js/repertoire.js');
 await loadLiveKit();
@@ -387,6 +417,37 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       assert.equal(starts.length, count + 2, 'backward grid corrections also re-anchor');
       assert.ok(Math.abs(starts.at(-1)[1] - 7.75) < 1e-9);
     }
+    e.vocalStop();
+    e.vocal(1, 0, 0, 1);
+    const before = e.vocalNow.src;
+    e.vocal(3.02, 1, 0, 3.02, true);
+    assert.equal(e.vocalNow.src, before, 'a converged sub-30ms room correction keeps the source');
+    assert.ok(Math.abs(e.vocalNow.origin - 1.25) < 1e-9);
+    const aligned = e.vocalNow.src;
+    e.vocal(5.02, 2, 0, 5.02);
+    assert.equal(e.vocalNow.src, aligned, 'the aligned stem stays continuous on the new grid');
+    e.vocalStop();
+    e.vocal(1, 0, 0, 1, true);
+    const stable = e.vocalNow.src;
+    e.vocal(3.002, 1, 0, 3.002, true);
+    assert.equal(e.vocalNow.src, stable, 'room grid correction preserves sub-3ms jitter');
+    e.vocal(5.008, 2, 0, 5.008, true);
+    const corrected = e.vocalNow.src;
+    assert.equal(corrected, stable, 'ordinary slews retain the original 30ms vocal tolerance');
+    assert.ok(Math.abs(e.vocalNow.origin - 1.25) < 1e-9);
+    e.vocal(5.008, 2, 0, 5.008, true);
+    assert.equal(e.vocalNow.src, corrected, 'an explicit correction after a bar tick does not restart an aligned stem twice');
+    e.vocal(7.006, 3, 0, 7.006, true);
+    assert.equal(e.vocalNow.src, corrected, 'the corrected source stays continuous through small room jitter');
+    const roomEngine = new Engine(fakeCtx(), defaultState(), {realtime:false}), calls = [];
+    roomEngine.vocal = (...args) => calls.push(args);
+    const roomSeq = new Sequencer(roomEngine, roomEngine.state);
+    roomSeq.tick(0, 1, 1);
+    roomSeq.tick(16, 3);
+    assert.deepEqual(calls.map(args => args[4]), [false, false], 'bar ticks retain the original tolerance in rooms and solo');
+    roomSeq.tick(32, 5, 5, false, true);
+    assert.equal(calls.at(-1)[5], true, 'room bars hold their phase check during a slew');
+    console.log('Room vocal slew PASS: room bars retain 30ms tolerance and hold phase rechecks during a slew; solo stays unchanged.');
     console.log('Vocal grid drift PASS: solo and room sources follow cumulative forward/backward corrections; small jitter stays continuous.');
   }
 
@@ -473,6 +534,344 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       assert.ok(Math.abs(phase - (end2 - e.vocalNow.origin)) < 1e-12, 'effective vocal phase matches both grid corrections');
     }
     console.log('Vocal slew ordering PASS: one-ulp early boundaries append increasing ramps, preserving the effective rate and integrated phase for both signs.');
+  }
+
+  {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 70, sampleRate:48000}), starts = [];
+    buf.getChannelData(0).fill(0.1);
+    for (let at = 3; at < 69; at += 4) buf.getChannelData(0).fill(0, 48000 * at, 48000 * (at + .6));
+    c.createBufferSource = () => ({connect:dst => dst, start:(...args) => starts.push(args), stop(){}});
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    let shift = 0, target = 0, dirty = false;
+    const counts = [];
+    for (let step = 0; step < 320; step++) {
+      if (step === 14) { target = 0.02; dirty = true; }
+      if (step === 94) { counts.push(starts.length); target = 0.08; dirty = true; }
+      if (step === 190) { counts.push(starts.length); target = 0.07; dirty = true; }
+      shift += Math.max(-0.0015, Math.min(0.0015, target - shift));
+      const time = 1 + step * 0.125 + shift, pos = Math.floor(step / 16);
+      c.currentTime = time - 0.01;
+      if (step % 16 === 0) e.vocal(time, pos, 0, time, false, dirty);
+      if (dirty && Math.abs(target - shift) < 0.002) dirty = e.vocal(time, pos, step % 16, time, true) === false;
+    }
+    assert.deepEqual(counts, [1, 2]);
+    assert.equal(starts.length, 2, '40s playback has no restart for ordinary slews and only one for the large correction');
+    assert.ok(Math.abs(e.vocalNow.origin - 1.08) < 0.002);
+    e.vocalStop();
+    buf.getChannelData(0).fill(0.1);
+    const sung = new FakeBuffer({length:48000 * 70, sampleRate:48000}); sung.getChannelData(0).fill(0.1);
+    e.vocalOf = () => ({buf:sung, gain:1, duck:1, lift:1, ms:0});
+    c.currentTime = 0; e.vocal(1, 0, 0, 1);
+    const first = e.vocalNow.src;
+    assert.equal(e.vocal(3.04, 1, 0, 3.04, true), false);
+    assert.equal(e.vocalNow.src, first, 'a large correction cannot restart a phrase with no gap');
+    for (let pos = 2; pos < 20; pos++) {
+      c.currentTime = 1 + pos * 2;
+      assert.equal(e.vocal(1.04 + pos * 2, pos, 0, 1.04 + pos * 2, true), false);
+      assert.equal(e.vocalNow.src, first, 'a residual below60ms drifts for as long as no gap exists');
+    }
+    e.vocal(42, 0, 0, 42, false, true);
+    assert.notEqual(e.vocalNow.src, first, 'holding a correction cannot suppress the next natural song cycle');
+    console.log('Room vocal continuity PASS: 40s, three slews across bar lines, zero ordinary restarts and one large-gap reanchor; no-gap phrase remains continuous.');
+  }
+
+  for (const gapAt of [null, 3, 7]) {
+    const gap = gapAt !== null, delta = gapAt === 7 ? .04 : .08;
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 12, sampleRate:48000}), starts = [];
+    buf.getChannelData(0).fill(0.1);
+    if (gap) buf.getChannelData(0).fill(0, 48000 * gapAt, 48000 * (gapAt + .5));
+    c.createBufferSource = () => ({connect:dst => dst, start:(...args) => starts.push(args), stop(){}});
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.vocal(1, 0, 0, 1);
+    const old = e.vocalNow.src;
+    if (gapAt === 3) {
+      const original = old.buffer;
+      old.buffer = new FakeBuffer({length:48000 * 12, sampleRate:48000});
+      old.buffer.getChannelData(0).fill(.1);
+      assert.equal(e.vocal(3.08, 1, 0, 3.08, true), false, 'the audible old processed source must also be silent, not only the replacement');
+      old.buffer = original;
+    }
+    if (gapAt === 7) {
+      assert.equal(e.vocal(3 + delta, 1, 0, 3 + delta, true), false, 'a distant quiet gap is queued only when it enters the two-bar horizon');
+      assert.equal(starts.length, 1);
+    }
+    const pos = gapAt === 7 ? 2 : 1, time = 1 + pos * 2 + delta;
+    assert.equal(e.vocal(time, pos, 0, time, true), gap);
+    assert.equal(e.vocalNow.src === old, !gap);
+    assert.equal(starts.length, gap ? 2 : 1);
+    assert.equal(e.vocalCorrection.gap, gap);
+    if (gap) {
+      assert.ok(Math.abs(starts[1][0] - (gapAt + 1.42)) < 1e-9, 'a future phrase gap is used even beyond one bar');
+      assert.ok(Math.abs(starts[1][1] - (gapAt + .42 - delta)) < 1e-9, 'replacement starts in silent pre-roll before the next phrase, never mid-word');
+    }
+    e.vocal(time, pos, 0, time, true);
+    assert.equal(starts.length, gap ? 2 : 1, 'no-gap corrections drift; aligned gap updates cannot restart twice');
+  }
+  console.log('Room large vocal correction PASS: silent pre-roll before a phrase onset; smaller no-gap corrections remain continuous while larger corrections wait for a bounded downbeat.');
+
+  {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 12, sampleRate:48000}), sources = [];
+    buf.getChannelData(0).fill(0.1);
+    buf.getChannelData(0).fill(0, 48000 * 3, 48000 * 3.5);
+    c.createBufferSource = () => {
+      const source = {connect:dst => dst, start(){}, stops:[], stop(t){this.stops.push(t);}};
+      sources.push(source); return source;
+    };
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.vocal(1, 0, 0, 1);
+    c.currentTime = 3.08;
+    e.vocal(3.08, 1, 0, 3.08, true, false, 2);
+    assert.equal(sources.length, 2);
+    assert.ok(sources[0].stops.at(-1) > 4, 'the old source is still audible before the chosen gap');
+    c.currentTime = 3.2;
+    e.panic();
+    assert.ok(sources.every(source => Math.abs(source.stops.at(-1) - 3.26) < 1e-9), 'Stop cancels both the audible retiring source and its future replacement');
+    assert.equal(e.vocalNow, null);
+    c.currentTime = 3.4;
+    e.panic();
+    assert.equal(e.vocalRetiring.length, 0, 'expired sources are pruned and repeated Stop stays silent');
+  }
+  console.log('Pending vocal Stop PASS: audible old source and future quiet-gap replacement both stop immediately; expired voices are pruned.');
+
+  for (const [origin, allowed] of [[.5, false], [.6, true]]) {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 12, sampleRate:48000}), sources = [];
+    buf.getChannelData(0).fill(.1);
+    buf.getChannelData(0).fill(0, 48000 * 3, 48000 * 3.5);
+    c.createBufferSource = () => {
+      const source = {connect:dst => dst, starts:[], stops:[], start(...args){this.starts.push(args);}, stop(t){this.stops.push(t);}};
+      sources.push(source); return source;
+    };
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.vocal(1, 0, 0, 1);
+    c.currentTime = 2.5;
+    assert.equal(e.vocal(2.8, 1, 0, 2.8, true), true);
+    const pending = e.vocalNow;
+    assert.ok(Math.abs(sources[1].starts[0][0] - 4.22) < 1e-9);
+    c.currentTime = 2.6;
+    const t = origin + 2.25;
+    assert.equal(e.vocal(t, 1, 2, t, true), allowed, 'a pending replacement is not the audible voice at an earlier handover');
+    if (!allowed) {
+      assert.equal(e.vocalNow, pending);
+      assert.equal(sources.length, 2);
+      assert.ok(Math.abs(sources[0].stops.at(-1) - 4.28) < 1e-9, 'the audible phrase must not fade at3.92 while it sings until4.0');
+    } else {
+      assert.equal(sources.length, 3);
+      assert.ok(Math.abs(sources[2].starts[0][0] - 4.02) < 1e-9);
+      assert.ok(Math.abs(sources[2].starts[0][1] - 3.42) < 1e-9, 'the replacement starts inside the actual gap');
+      assert.ok(sources[0].stops.at(-1) > 4, 'the old phrase completes before its newly scheduled fade');
+      assert.ok(sources[1].stops.at(-1) < sources[1].starts[0][0], 'the superseded pending voice is cancelled before it can sound');
+      c.currentTime = 2.7;
+      e.panic();
+      assert.ok(sources.every(source => Math.abs(source.stops.at(-1) - 2.76) < 1e-9), 'Stop still cancels the audible voice and both future replacements');
+    }
+  }
+  console.log('Pending vocal retime PASS: earlier handovers validate the audible retiring voice, reject sung regions, preserve silent replacements and cancel all pending sources.');
+
+  {
+    for (const [step, expected] of [[0,32], [17,48], [33,64], [97,128], [128,160]]) {
+      assert.equal(vocalReanchorStep(step), expected);
+      assert.equal(expected % 16, 0);
+      assert.ok(expected > step && expected <= step + 32);
+    }
+    const incoming = vocalCrossfade(true), outgoing = vocalCrossfade(false);
+    for (let i = 0; i < incoming.length; i++) assert.ok(Math.abs(incoming[i] ** 2 + outgoing[i] ** 2 - 1) < 1e-6);
+    assert.equal(incoming[0], 0); assert.equal(incoming.at(-1), 1);
+    assert.equal(outgoing[0], 1); assert.ok(outgoing.at(-1) < 1e-6);
+    for (const during of [false, true]) {
+      const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+      const sources = [], gains = [];
+      c.createGain = () => {
+        const g = node(c, 'Gain'), p = param();
+        p.curves = []; p.holds = [];
+        p.setValueCurveAtTime = (values, at, duration) => p.curves.push({values:Array.from(values), at, duration});
+        p.cancelAndHoldAtTime = at => p.holds.push(at);
+        g.gain = p; gains.push(g); return g;
+      };
+      c.createBufferSource = () => {
+        const source = {connect:dst => dst, starts:[], stops:[], start(...args){this.starts.push(args);}, stop(at){this.stops.push(at);}};
+        sources.push(source); return source;
+      };
+      const buf = new FakeBuffer({length:48000 * 20, sampleRate:48000}); buf.getChannelData(0).fill(.1);
+      const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:.5, lift:.5, ms:0})});
+      let sends = 0, ducks = 0;
+      e.vocalSends = () => sends++;
+      e.duckUnder = () => ducks++;
+      e.vocal(1, 0, 0, 1);
+      const before = {sends, ducks};
+      for (let index = 17; index <= 48; index++) {
+        const time = 1.12 + index * .125;
+        c.currentTime = time - .1;
+        assert.equal(e.vocal(time, index >> 4, index % 16, time, true), index === 48);
+        assert.equal(sources.length, index === 48 ? 2 : 1, 'a forced source is not queued before its downbeat');
+      }
+      assert.deepEqual({sends, ducks}, before, 'a forced alignment cannot reset sends, ducking or carving');
+      assert.equal(e.vocalCorrection.forced, true);
+      assert.equal(e.vocalCorrection.forceStep, 48);
+      assert.equal(e.vocalCorrection.crossfadeSeconds, .03);
+      assert.ok(Math.abs(sources[1].starts[0][0] - 7.12) < 1e-9);
+      assert.equal(sources[1].starts[0][1], 6);
+      const curves = gains.flatMap(g => g.gain.curves);
+      assert.equal(curves.length, 2);
+      assert.ok(curves.every(curve => Math.abs(curve.at - 7.12) < 1e-9 && curve.duration === .03));
+      assert.deepEqual(curves[0].values, Array.from(outgoing));
+      assert.deepEqual(curves[1].values, Array.from(incoming));
+      e.vocal(7.245, 3, 1, 7.245, true);
+      e.vocal(7.37, 3, 2, 7.37, true);
+      assert.equal(sources.length, 2, 'the same correction cannot force a second source');
+      const gain = e.vocalNow.g.gain;
+      c.currentTime = 7.12 + (during ? .015 : -.01);
+      e.panic();
+      assert.equal(e.vocalNow, null);
+      assert.ok(sources.every(source => source.stops.at(-1) <= c.currentTime + .060001), 'Stop cancels both the audible and replacement voices before or during a forced fade');
+      assert.deepEqual(gain.holds, [c.currentTime], 'an active fade curve is held before Stop automates its gain');
+    }
+  }
+  {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 12, sampleRate:48000}), full = new FakeBuffer({length:48000 * 12, sampleRate:48000}), starts = [];
+    buf.getChannelData(0).fill(.1); full.getChannelData(0).fill(.1);
+    buf.getChannelData(0).fill(0, 48000 * 3, 48000 * 3.5);
+    c.createBufferSource = () => ({connect:dst => dst, start:(...args) => starts.push(args), stop(){}});
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.vocal(1, 0, 0, 1);
+    e.vocalNow.src.buffer = full;
+    c.currentTime = 2.8;
+    assert.equal(e.vocal(3.08, 1, 0, 3.08, true), false);
+    assert.equal(e.vocalNow.correction.forceStep, 48);
+    e.vocalNow.src.buffer = buf;
+    c.currentTime = 2.9;
+    assert.equal(e.vocal(3.205, 1, 1, 3.205, true), true);
+    assert.equal(e.vocalCorrection.gap, true);
+    assert.equal(e.vocalCorrection.forced, false);
+    for (let index = 18; index <= 48; index++) {
+      const time = 1.08 + index * .125;
+      c.currentTime = time - .1;
+      e.vocal(time, index >> 4, index % 16, time, true);
+    }
+    assert.equal(starts.length, 2, 'a qualifying silent gap cancels the pending forced alignment');
+  }
+  console.log('Room forced vocal alignment PASS: preferred downbeat within two bars, lazy30ms equal-power crossfade, no duck/send reset, once per correction, gap-first cancellation and Stop before/during the fade.');
+
+  {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 20, sampleRate:48000}); buf.getChannelData(0).fill(.1);
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.vocal(1, 0, 0, 1);
+    c.currentTime = 3.145;
+    assert.equal(e.vocal(3.245, 1, 1, 3.245, true), false);
+    assert.equal(e.vocalNow.correction.forceStep, 48);
+    c.currentTime = 3.17;
+    assert.equal(e.vocal(3.27, 1, 2, 3.27, true), true);
+    assert.equal(e.vocalNow.correction, null, 'a residual that converges within tolerance cancels the pending force');
+    c.currentTime = 5.145;
+    assert.equal(e.vocal(5.245, 2, 1, 5.245, true), false);
+    assert.equal(e.vocalNow.correction.forceFrom, 33);
+    assert.equal(e.vocalNow.correction.forceStep, 64, 'a new correction gets a fresh two-bar window');
+  }
+
+  {
+    const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+    const source = main.slice(main.indexOf('function schedule(lead)'), main.indexOf('\n// Jam:'));
+    for (const [name, sign, drift, initial = 0] of [
+      ['stable40', 1, false], ['stable40', -1, false], ['drift5', 1, true], ['drift5', -1, true],
+      ['voice40', 1, false, .04], ['voice40', -1, false, .04],
+    ]) for (const bpm of drift ? [123, 240] : [40, 123, 240]) {
+      const c = fakeCtx(), state = defaultState(), starts = [], rates = [], hits = [], relocations = [];
+      state.bpm = bpm;
+      const buf = new FakeBuffer({length:48000 * 80, sampleRate:48000});
+      buf.getChannelData(0).fill(.1);
+      c.createBufferSource = () => ({connect:dst => dst, start:(...args) => starts.push(args), stop(){},
+        playbackRate:{
+          setValueAtTime:(rate, at) => rates.push({rate, at, ramp:false}),
+          linearRampToValueAtTime:(rate, at) => rates.push({rate, at, ramp:true}),
+          cancelScheduledValues(){},
+        }});
+      const engine = new Engine(c, state, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+      const sd = engine.stepDur, noop = () => {};
+      c.currentTime = 9.5;
+      const initialOrigin = 10 + sign * initial;
+      engine.vocal(initialOrigin, 0, 0, initialOrigin);
+      engine.roomSlewRate = 1;
+      const original = engine.vocalNow.src;
+      let elapsed = 0;
+      const offset = () => name === 'voice40' ? 0 : sign * (drift ? .005 * Math.min(50, Math.floor(Math.max(0, elapsed - 2) * 2 + 1e-8) / 2) : elapsed >= 2 ? .04 : 0);
+      const s = {playing:true, songOver:false, roomPlayback:true, roomEditor:false, ROOM_LEAD:.42, BG_LEAD:1.5,
+        mediaRoute:null, roomMediaSync:createRoomMediaSync(), roomMediaLead, roomMediaTime,
+        document:{hidden:false}, ctx:c, Date:{now:() => (c.currentTime + 1000 + offset()) * 1000},
+        performance:{now:() => c.currentTime * 1000}, state, engine, clockOffset:1000,
+        roomAudioClock:{at:9.5, contextTime:9.5, pending:null}, roomDrainUntil:null, vocalGridDirty:false,
+        transportOrigin:1010000, abs:0, nextTime:10, queuedRoomReplay:null, handoff:null, jamQueue:[], uiQueue:[],
+        syncAudioClock, transportResync, slewTransport, roomTransportCorrection,
+        seq:{origin:0, chainPos:1, songBars:256, advanceBar:noop, rewind:noop,
+          tick:(step, time) => {
+            hits.push({step, time}); s.seq.chainPos = Math.floor(step / 16) + 1;
+            if (step % 16 === 0) engine.vocal(time, Math.floor(step / 16), 0, time, false, true);
+            return {};
+          }},
+        timeline:{skip:() => 0}, artistTick:noop, landJamParts:noop,
+        midiClockStart:() => relocations.push(s.abs), midiClockStep:noop};
+      const schedule = runInNewContext(source+'\nschedule', s);
+      let previousDrum = 0, previousVocal = 0;
+      for (let tick = 0; tick <= 3500; tick++) {
+        elapsed = tick / 50; c.currentTime = 9.5 + elapsed;
+        schedule();
+        const drum = 10 + s.abs * sd - s.nextTime, vocal = initialOrigin - engine.vocalNow.origin;
+        assert.ok(sign * (drum - previousDrum) >= -1e-9, 'drum correction has no reversal or oscillation');
+        assert.ok(sign * (vocal - previousVocal) >= -1e-9, 'vocal correction has no reversal or oscillation');
+        assert.ok(sign * drum <= sign * offset() + 1e-9, 'drums never overshoot the true offset');
+        assert.ok(sign * vocal <= sign * offset() + initial + 1e-9, 'vocal never overshoots the true offset');
+        assert.equal(engine.vocalNow.src, original, 'small accepted corrections keep the sung source through every bar');
+        previousDrum = drum; previousVocal = vocal;
+      }
+      const expected = name === 'voice40' ? 0 : sign * (drift ? .25 : .04), expectedVocal = expected + sign * initial;
+      assert.ok(Math.abs(s.clockOffset - 1000 - expected) < 1e-9, 'the median mapping converges to the final true estimate');
+      assert.ok(Math.abs(previousDrum - expected) < 1e-8, 'total drum correction equals the true offset once, not twice');
+      assert.ok(Math.abs(previousVocal - expectedVocal) < 1e-8, 'total vocal correction equals its true offset once');
+      assert.equal(engine.roomSlewRate, 1);
+      assert.equal(relocations.length, 0, 'sub-step corrections never drain, adopt or skip a sixteenth');
+      assert.ok(hits.every((h, i) => h.step === i && (!i || h.time > hits[i-1].time)));
+      assert.ok(hits.every((h, i) => !i || Math.abs(h.time - hits[i-1].time - sd) <= .0015 + 1e-9),
+        'drum intervals stay within the1.5ms/step slew bound');
+      let nativeOrigin = initialOrigin, at = initialOrigin, rate = 1;
+      for (const event of rates) {
+        assert.ok(event.at >= at, 'native vocal automation remains ordered');
+        nativeOrigin += (1 - (event.ramp ? (rate + event.rate) / 2 : rate)) * (event.at - at);
+        at = event.at; rate = event.rate;
+      }
+      assert.ok(Math.abs(initialOrigin - nativeOrigin - expectedVocal) < 1e-8, 'independently integrated native playbackRate equals the true correction');
+      assert.equal(starts.length, 1, 'zero mid-phrase restarts, gap realigns or forced operations for convergent small corrections');
+      assert.equal(rate, 1);
+      console.log(`Room integrated ${name} ${sign > 0 ? '+' : '-'} ${bpm}BPM PASS: drum=${(expected * 1000).toFixed(1)}ms vocal/native=${(expectedVocal * 1000).toFixed(1)}ms, no overshoot/oscillation/skip/restart, unity rate.`);
+    }
+  }
+
+  {
+    const c = fakeCtx(), s = defaultState(), events = [];
+    s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 20, sampleRate:48000});
+    c.createBufferSource = () => ({connect:dst => dst, start(){}, stop(){}, playbackRate:{
+      setValueAtTime:(rate, at) => events.push({rate, at}),
+      linearRampToValueAtTime:(rate, at) => events.push({rate, at}),
+      cancelScheduledValues:at => events.push({cancel:at}),
+    }});
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.vocal(1, 0, 0, 1);
+    const duration = e.stepDur, delta = 2 * duration / 1.998 - duration;
+    e.slewVocal(delta, 1, duration, 1, .998);
+    const origin = e.vocalNow.origin, end = e.vocalNow.slewEnd;
+    e.cancelVocalSlew();
+    assert.equal(events.at(-1).rate, 1);
+    assert.ok(events.at(-1).at > end, 'large-mode handoff preserves the already queued ramp');
+    assert.ok(Math.abs(e.vocalNow.origin - origin - .002 / c.sampleRate) < 1e-9);
+    const count = events.length;
+    e.cancelVocalSlew();
+    assert.equal(events.length, count, 'a drain cancels a vocal slew once, not once per poll');
+    assert.equal(e.vocalNow.slewRate, 1);
+    console.log('Room slew handoff PASS: large-mode drain retires the queued rate once at unity without counting its phase twice.');
   }
 
   {

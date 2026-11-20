@@ -23,7 +23,7 @@ import { openLibrary } from './library.js';
 import { dropCard, pushOffer, guardPushOffer } from './drop.js';
 import { initPush, onPushChange, recordDropPlay, shouldOffer } from './push.js';
 import { getSample, prepareSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
-import { roomTransportPosition, syncAudioClock, transportResync } from './room-sync.js';
+import { roomTransportPosition, syncAudioClock, transportResync, slewTransport, roomTransportCorrection } from './room-sync.js';
 import { createRoomMediaSync, roomMediaLead, roomMediaTime } from './room-media-sync.js';
 import { concertPanel, concertBar, preloadScore, scoreReady, loadPiano } from './concert.js';
 import { liveSets, loadSets, setsReady } from './livekit.js';
@@ -56,6 +56,9 @@ addEventListener('pointerup', (e) => { if (e.pointerType !== 'mouse' || !e.butto
 addEventListener('blur', () => { for (const k of [...heldPads.keys()]) ui.perf?.[k]?.up(); });
 let playing = false, abs = 0, nextTime = 0, lastPlayedPat = null;
 let transportOrigin = 0, roomJoinTimer = 0, clockOffset = null;
+let roomAudioClock = null;
+let vocalGridDirty = false;
+let roomDrainUntil = null;
 let roomPlayback = false;
 let roomEditor = false;
 let roomFirstNote = null;
@@ -181,9 +184,13 @@ function schedule(lead) {
   if (!playing || (songOver && !queuedRoomReplay)) return;
   const ahead = roomMediaSync.horizon(typeof lead === 'number' ? lead : document.hidden ? BG_LEAD : roomPlayback ? ROOM_LEAD : 0.12, roomPlayback, mediaRoute, roomPlayback && mediaRoute ? ctx.currentTime : 0);
   const now = ctx.currentTime;
+  const firstEstimate = roomPlayback && roomAudioClock === null && !engine.vocalNow &&
+    !engine.queuedNotes?.some(note => note.t >= now);
   if (roomEditor) engine.pruneEditableHits(now);
-  const clock = syncAudioClock(clockOffset, Date.now() / 1000 - now);
+  const clock = syncAudioClock(clockOffset, Date.now() / 1000 - now,
+    roomPlayback ? {at:performance.now() / 1000, contextTime:now, state:roomAudioClock} : null);
   clockOffset = clock.offset;
+  roomAudioClock = clock.state ?? null;
   const replayAt = queuedRoomReplay ? roomMediaTime(queuedRoomReplay.startsAt / 1000 - clockOffset, roomPlayback, mediaRoute) : Infinity;
   if (songOver) {
     if (replayAt < now + ahead) switchRoomReplay(replayAt);
@@ -191,8 +198,23 @@ function schedule(lead) {
   }
   let base = 60 / state.bpm / 4, landed = null;
   const target = roomMediaTime(transportOrigin / 1000 + abs * base - clockOffset, roomPlayback, mediaRoute);
-  const fix = transportResync(target, nextTime, now, base, clock.jumped, seq.origin - abs);
-  let firstTime = fix?.firstTime;
+  const playableFirst = firstEstimate && target < now && nextTime >= now;
+  if (firstEstimate && !playableFirst && Math.abs(target - nextTime) > 0.000001) nextTime = target;
+  if (roomPlayback && Math.abs(target - nextTime) > 0.000001) vocalGridDirty = true;
+  if (clock.jumped) roomDrainUntil = null;
+  const correction = roomPlayback && !clock.jumped && !playableFirst ? roomTransportCorrection(target, nextTime, now, base, roomDrainUntil) : null;
+  if (correction?.drainUntil !== undefined) {
+    if (roomDrainUntil === null) {
+      engine.cancelVocalSlew?.();
+      engine.roomSlewRate = 1;
+    }
+    roomDrainUntil = correction.drainUntil;
+    if (replayAt <= roomDrainUntil + 0.03 && replayAt < now + ahead) switchRoomReplay(replayAt);
+    return;
+  }
+  roomDrainUntil = null;
+  const fix = playableFirst ? null : correction ?? transportResync(target, nextTime, now, base, clock.jumped, seq.origin - abs, roomPlayback);
+  let firstTime = playableFirst ? nextTime : fix?.firstTime;
   if (fix) {
     if (fix.discard) {
       engine.discardQueuedNotes(now);
@@ -205,8 +227,19 @@ function schedule(lead) {
       abs += fix.skip;
       seq.rewind(abs, now);
     }
-    for (let i = 0; i < fix.skip; i++, abs++) { artistTick(abs - seq.origin); seq.advanceBar(abs - seq.origin, ctx.currentTime); }
+    for (let i = 0; i < fix.skip; i++, abs++) {
+      const gridTime = target + i * base, t = roomPlayback ? Math.max(now, gridTime) : now;
+      if (roomPlayback && jamQueue.length && (abs - seq.origin) % 16 === 0)
+        landJamParts((gridTime + roomMediaLead(roomPlayback, mediaRoute) + clockOffset) * 1000 + base * 500, t);
+      artistTick(abs - seq.origin);
+      seq.advanceBar(abs - seq.origin, t);
+    }
+    if (roomPlayback && fix.skip > 0 && jamQueue.length)
+      landJamParts((fix.nextTime + roomMediaLead(roomPlayback, mediaRoute) + clockOffset) * 1000, fix.nextTime);
     nextTime = fix.nextTime;
+    if (fix.adopted) {
+      midiClockStart(ctx, abs, nextTime);
+    } else if (roomPlayback && fix.skip > 0) midiClockStart(ctx, abs, nextTime);
     const step = (abs - seq.origin) % 16;
     if (fix.discard && step)
       engine.vocal(firstTime ?? nextTime, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, step, roomPlayback ? nextTime : undefined);
@@ -215,14 +248,20 @@ function schedule(lead) {
   while (true) {
     const horizon = ctx.currentTime + (landed ? Math.max(ahead, 0.5) : ahead);
     if (!(Math.min(nextTime, replayAt) < horizon)) break;
-    if (roomPlayback) {
-      const target = roomMediaTime(transportOrigin / 1000 + abs * base - clockOffset, roomPlayback, mediaRoute);
-      const duration = engine.stepDur;
-      const slew = transportResync(target, nextTime, ctx.currentTime, duration, false, seq.origin - abs, engine.roomSlewRate ?? 1);
-      if (slew?.slew) {
-        engine.slewVocal(slew.nextTime - nextTime, nextTime - duration, duration, slew.rate, slew.endRate);
-        engine.roomSlewRate = slew.endRate;
-        nextTime = slew.nextTime;
+    const gridTarget = roomMediaTime(transportOrigin / 1000 + abs * base - clockOffset, roomPlayback, mediaRoute);
+    if (roomPlayback && !(playableFirst && firstTime !== undefined)) {
+      if (engine.vocalNow?.correction || (Math.abs(gridTarget - nextTime) > 0.03 && (engine.roomSlewRate ?? 1) === 1)) {
+        nextTime = slewTransport(gridTarget, nextTime, 0.05);
+      } else {
+        const duration = engine.stepDur;
+        const slew = transportResync(gridTarget, nextTime, ctx.currentTime, duration, false, seq.origin - abs, engine.roomSlewRate ?? 1, true);
+        if (slew?.slew) {
+          const shifted = slewTransport(slew.nextTime, nextTime, 0.05);
+          if (!engine.vocalNow)
+            engine.slewVocal?.(shifted - nextTime, nextTime - duration, duration, slew.rate, slew.endRate);
+          engine.roomSlewRate = slew.endRate;
+          nextTime = shifted;
+        }
       }
     }
     const t = firstTime ?? nextTime;
@@ -245,7 +284,27 @@ function schedule(lead) {
       landJamParts((gridTime + clockOffset) * 1000 + base * 500, t);
     }
     artistTick(abs - seq.origin);
-    const pat = seq.tick(abs, t, roomPlayback ? nextTime : undefined, roomEditor);
+    const pat = seq.tick(abs, t, roomPlayback ? nextTime : undefined, roomEditor, roomPlayback);
+    const voice = engine.vocalNow, pos = seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1;
+    const phase = voice ? (pos * 16 + (abs - seq.origin) % 16) * engine.stepDur - voice.ms / 1000 : 0;
+    const vocalNext = voice ? voice.origin + phase : nextTime;
+    const vocalFrom = voice ? Math.max(vocalNext - engine.stepDur, voice.slewEnd ?? voice.at, ctx.currentTime + 0.005) : nextTime;
+    const vocalGap = voice?.slewEnd == null ? 0 : Math.max(0, vocalFrom - voice.slewEnd);
+    const vocalError = gridTarget - vocalNext - (1 - (voice?.slewRate ?? 1)) * vocalGap;
+    const vocalSlewing = roomPlayback && voice && !voice.correction && voice.sd === engine.stepDur && pos >= 0 &&
+      Math.abs(vocalError) <= 0.05;
+    if (vocalSlewing) {
+      const end = vocalFrom + engine.stepDur;
+      const slew = transportResync(end + vocalError, end, ctx.currentTime, engine.stepDur, false, -Infinity, voice.slewRate ?? 1, true);
+      if (slew?.slew) engine.slewVocal(slew.nextTime - end, vocalFrom, engine.stepDur, slew.rate, slew.endRate);
+      if ((voice.slewRate ?? 1) === 1 && Math.abs(gridTarget - voice.origin - phase) < 1e-9 &&
+          (engine.roomSlewRate ?? 1) === 1 && Math.abs(gridTarget - nextTime) < 1e-9) vocalGridDirty = false;
+    }
+    if (roomPlayback && vocalGridDirty && !vocalSlewing && (engine.roomSlewRate ?? 1) === 1 && (Math.abs(gridTarget - nextTime) < 0.002 || engine.vocalNow?.correction?.forceStep != null)) {
+      engine.cancelVocalSlew?.();
+      const aligned = engine.vocal(t, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, (abs - seq.origin) % 16, nextTime, true);
+      vocalGridDirty = aligned === false;
+    }
     uiQueue.push({ abs: abs - seq.origin, t, pat });
     // A score breathes (rubato): the transport clock follows the stretched step, not the metronome.
     const sd = engine.stepDur;
@@ -275,6 +334,7 @@ function refreshJamPrime(wall = null) {
   if (steps <= 0) return;
   nextTime -= steps * engine.stepDur;
   abs -= steps;
+  roomDrainUntil = null;
   const retained = engine.queuedNotes.filter(note => note.t < nextTime - 1e-6);
   engine.discardQueuedNotes(nextTime - 1e-6);
   engine.queuedNotes.push(...retained);
@@ -431,6 +491,9 @@ function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room 
   state.current = seq.cur;
   songOver = false;
   if (switchAt === null) clockOffset = null;
+  roomAudioClock = null;
+  vocalGridDirty = false;
+  roomDrainUntil = null;
   transportOrigin = startsAt ?? ((stepWall ?? wallNow + wait * 1000) - abs * (15000 / state.bpm));
   if (!seeking) engine.recLock = new Map();
   roomPlayback = room;
@@ -1044,7 +1107,7 @@ async function joinRoomReplay(item) {
 function joinRoomSet(item, { initial = false } = {}) {
   if (mediaRoute && initial && roomMediaSync.duplicate(item, playing, roomPlayback, mediaRoute)) return;
   queuedRoomReplay = roomReplayLoad = null;
-  const sameSet = roomStatsItem === item;
+  const sameSet = roomStatsItem === item || !!(item?.broadcastId && item.broadcastId === roomStatsItem?.broadcastId);
   roomStatsItem = item;
   if (item?.replay) return joinRoomReplay(item);
   stopTimeline();
@@ -1056,13 +1119,14 @@ function joinRoomSet(item, { initial = false } = {}) {
   const startsAt = Number.isFinite(+item.startsAt) ? +item.startsAt : Date.now();
   const localState = sanitize(state);
   const continuous = playing && roomPlayback && !artistLive && !handoff && !jamQueue.length && seq.queued === null &&
-    Math.abs(startsAt - (transportOrigin + seq.origin * (15000 / state.bpm))) <= 30 &&
+    (sameSet || Math.abs(startsAt - (transportOrigin + seq.origin * (15000 / state.bpm))) <= 30) &&
     nextStyle === style && roomState.artist?.style === localState.artist?.style && roomState.artist?.seed === localState.artist?.seed &&
     songFingerprint(roomState) === songFingerprint(localState) && JSON.stringify(roomState.sing) === JSON.stringify(localState.sing) &&
     (state.chainOn || roomState.current === state.current);
   if (!continuous || !sameSet) playbackStats.end('skip');
   style = nextStyle;
   if (continuous) {
+    reanchorRoomSet(startsAt);
     roomState.current = state.current;
     state = roomState;
     engine.state = seq.s = state;
@@ -1084,6 +1148,15 @@ function joinRoomSet(item, { initial = false } = {}) {
   const leadMs = continuous ? 40 : ROOM_LEAD * 1000;
   if (wait > Math.max(50, leadMs)) roomJoinTimer = setTimeout(sync, mediaRoute ? Math.max(0, wait - leadMs - roomMediaLead(true, mediaRoute) * 1000) : wait - leadMs);
   else sync();
+}
+
+function reanchorRoomSet(startsAt, previousStartsAt) {
+  if (!playing || !roomPlayback || !Number.isFinite(startsAt)) return;
+  if (queuedRoomReplay) { queuedRoomReplay.startsAt = startsAt; return; }
+  const origin = Number.isFinite(previousStartsAt) ? transportOrigin + startsAt - previousStartsAt
+    : startsAt - (seq?.origin || 0) * (15000 / state.bpm);
+  if (Math.abs(origin - transportOrigin) > 0.5) vocalGridDirty = true;
+  transportOrigin = origin;
 }
 
 function stopRoomStats(item) {
@@ -1133,6 +1206,7 @@ function showClub({ room = '', intent = '' } = {}) {
       return ctx.state === 'running';
     },
     joinRoomSet,
+    reanchorRoomSet,
     replayToRoom,
     jam: {
       queuePart: queueJamPart,

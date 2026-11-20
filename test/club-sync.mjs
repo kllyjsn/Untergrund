@@ -14,10 +14,11 @@ import { installAudioTap, envelope, postResumeEnvelope, onsets, resolvedCompare,
 import { transitionAudio } from './club-sync-transition.mjs';
 import { measureDJEdits } from './club-dj-edit.mjs';
 import { installDiagnostics, diagnose } from './club-sync-diagnostics.mjs';
-import { mixFixture, realMixFixture, popHandoffTargetAt, syntheticHandoffTargetAt, loadRealMixStem, mixBoundaries, mixGraphEdges, installMixStem, analyzeMix, mixFailures, channelEnvelope, firstMixDownbeat, missedFirstMixDownbeat } from './club-sync-mix.mjs';
+import { mixFixture, realMixFixture, popHandoffTargetAt, syntheticHandoffTargetAt, loadRealMixStem, mixBoundaries, mixGraphEdges, installMixStem, analyzeMix, mixFailures, channelEnvelope, firstMixDownbeat, missedFirstMixDownbeat, vocalSourceEvidence } from './club-sync-mix.mjs';
 import { singRequest, vocalDb } from '../js/sing.js';
 import { analyzeVocalGrid, vocalFindings, referenceEnvelope, clipRange, extractPCM, floatWav, levelMatchClips } from './club-sync-vocals.mjs';
 import { parseNetwork, networkController, clockSpread } from './club-sync-network.mjs';
+import { stepFixture, forcedStepEvidence } from './club-sync-steps.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const out = resolve(root, 'test/out');
@@ -49,15 +50,23 @@ const args = process.argv.slice(2);
 const options = { repeat: 1, output: 'club-sync.json', vocal: 'synthetic', 'net-target':'listener', 'net-label':'default' };
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
-  if (['--assert', '--diagnostics', '--mute-audio', '--no-audio-device', '--startup-contention', '--clips', '--handoff-drop-kicks'].includes(arg)) options[arg.slice(2)] = true;
+  if (['--assert', '--diagnostics', '--mute-audio', '--no-audio-device', '--startup-contention', '--clips', '--handoff-drop-kicks', '--vocal-slew-test', '--vocal-reanchor-control', '--whole-step-test', '--drop-step-control', '--vocal-force-repeat-control'].includes(arg)) options[arg.slice(2)] = true;
   else if (['--scenario', '--repeat', '--output', '--cpu-throttle', '--vocal', '--net', '--net-target', '--net-label'].includes(arg) && args[i + 1]) options[arg.slice(2)] = args[++i];
   else throw new Error(`Unknown/missing argument: ${arg}`);
 }
 const selected = options.scenario;
 assert.ok(!options['handoff-drop-kicks'] || selected === 'dj-handoff-mix', '--handoff-drop-kicks requires --scenario dj-handoff-mix');
+assert.ok(!options['vocal-slew-test'] || ['short-wake-mix', 'background-wake-mix'].includes(selected), '--vocal-slew-test requires one wake mix scenario');
+assert.ok(!options['vocal-reanchor-control'] || options['vocal-slew-test'], '--vocal-reanchor-control requires --vocal-slew-test');
+assert.ok(!options['vocal-force-repeat-control'] || options['whole-step-test'], '--vocal-force-repeat-control requires --whole-step-test');
+assert.ok(!options['whole-step-test'] || ['short-wake-mix', 'background-wake-mix'].includes(selected), '--whole-step-test requires one wake mix scenario');
+assert.ok(!options['drop-step-control'] || options['whole-step-test'], '--drop-step-control requires --whole-step-test');
 assert.ok(['synthetic', 'synthetic-pop', 'real'].includes(options.vocal), '--vocal must be synthetic, synthetic-pop or real');
 const realVocal = options.vocal === 'real';
-const mixSong = () => options.vocal === 'synthetic' ? mixFixture() : realMixFixture();
+const mixSong = () => {
+  const song = options.vocal === 'synthetic' ? mixFixture() : realMixFixture();
+  return options['whole-step-test'] ? stepFixture(song) : song;
+};
 const selectedScenarios = selected?.split(',');
 assert.ok(!selectedScenarios || selectedScenarios.every(name => SCENARIOS.some(s => s.name === name)), 'Unknown scenario');
 assert.ok(/^\d+$/.test(String(options.repeat)) && +options.repeat >= 1 && +options.repeat <= 20, '--repeat must be 1..20');
@@ -170,8 +179,10 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = 
     }
     console.log(`CDP control RTT (unfiltered): ${JSON.stringify(cdpProbe)}ms`);
     console.log(`Chrome viewport: ${await run('JSON.stringify({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})')}`);
+    if (options.diagnostics || mix) await installDiagnostics(send, base, {vocalSlew:!!options['vocal-slew-test'],
+      vocalRestart:!!options['vocal-reanchor-control'], wholeStep:!!options['whole-step-test'], dropStep:!!options['drop-step-control'],
+      forceRepeat:!!options['vocal-force-repeat-control']});
     if (options.diagnostics) {
-      await installDiagnostics(send, base);
       await send('Profiler.enable');
       await send('Profiler.start');
       await send('Performance.enable');
@@ -503,6 +514,30 @@ async function scenario(base, spec, network, run) {
         checkFirstDownbeat: prejoin,
       });
       const failures = mixFailures(mix, realVocal);
+      const vocalStarts = raw.map((c, i) => vocalSourceEvidence(c, i === 1 && spec.freezeMs ? 1 : 0));
+      const stepEvidence = options['whole-step-test'] ? forcedStepEvidence(raw[0], song) : null;
+      if (stepEvidence) {
+        failures.push(...stepEvidence.failures);
+        assert.ok(raw.every(c => c.forcedWholeStep), 'Both clients exercised a whole-step correction');
+        if (options['drop-step-control']) assert.ok(raw.every(c => c.droppedStep), 'Real sequencer steps were suppressed');
+        console.log(`  whole-step evidence: ${JSON.stringify(stepEvidence)}`);
+      }
+      for (const [i, counts] of vocalStarts.entries()) {
+        if (!counts.count || counts.count > counts.allowed) failures.push(`client ${i} vocal source starts`);
+        if (counts.midPhraseRestarts !== 0) failures.push(`client ${i} mid-phrase vocal restarts`);
+        if (counts.unclassifiedStarts !== 0) failures.push(`client ${i} vocal start classification`);
+        if (counts.invalidForcedReanchors !== 0) failures.push(`client ${i} invalid forced vocal alignment`);
+        if (counts.duplicateForcedReanchors !== 0) failures.push(`client ${i} repeated forced vocal alignment`);
+      }
+      if (spec.freezeMs) {
+        if (options['vocal-slew-test']) assert.ok(raw.every(c => c.forcedVocalSlew), 'Both clients exercised a controlled cross-bar grid slew');
+        if (options['vocal-reanchor-control']) assert.ok(raw.every(c => c.vocalRestartInjected), 'Both clients exercised a real nonzero-offset vocal restart');
+        if (options['vocal-force-repeat-control']) {
+          console.log(`  forced repeat evidence: ${JSON.stringify(raw.map(c => ({repeat:c.vocalForceRepeatInjected, starts:c.vocalStarts, corrections:c.vocalCorrections, errors:c.errors})))}`);
+          assert.ok(raw.every(c => c.vocalForceRepeatInjected?.applied === true && c.vocalStarts?.filter(s => s.reason === 'forced').length >= 2), 'Both clients exercised a second crossfaded alignment for the same correction');
+        }
+      }
+      console.log(`  vocal starts: ${JSON.stringify(vocalStarts)}`);
       const reference = await host.run(`(${referenceEnvelope})(${JSON.stringify(song)}, ${10 ** (vocalDb(song) / 20)})`);
       const vocalGrid = analyzeVocalGrid(raw, song, reference, events, initial.startsAt, !!spec.freezeMs);
       const findings = vocalFindings(vocalGrid);
@@ -538,7 +573,7 @@ async function scenario(base, spec, network, run) {
         vocalVsKickMs:mix.phases.after.vocal.relativeToKickMs, boundaries:mix.boundaries.map(b => ({bar:b.bar, correctSection:b.correctSection, deltaMs:b.deltaMs})), failures })}`);
       if (diagnostics) console.log(`  diagnostics: ${JSON.stringify(diagnostics)}`);
       console.log(`  mix thresholds: ${failures.length ? 'FAIL: ' + failures.join(', ') : 'PASS'}`);
-      return { name:spec.name, spec, mix, events, failures, diagnostics, raw:{captures:raw},
+      return { name:spec.name, spec, mix, events, failures, diagnostics, vocalStarts, stepEvidence, raw:{captures:raw},
         vocalGrid, vocalFindings: findings, clips, gridReference: { sampleZeroEpochMs: initial.startsAt, bpm: song.bpm,
           processedStem: true, envelope: reference, updatedSetSampleZeroEpochMs: events.newSet?.startsAt ?? null },
         ...(realVocal ? { vocalTimeline: { sampleZeroEpochMs: initial.startsAt, sampleZeroGridSeconds: 0, bpm: song.bpm,
