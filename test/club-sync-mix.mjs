@@ -202,7 +202,7 @@ export function forcedVocalEvidence(start, corrections) {
   const from = f.rubatoFrom ?? null;
   if (from !== null && (!Number.isInteger(from) || from < 0 || from > f.step)) return false;
   const advance = f.spliceAdvance ?? 0;
-  if (!Number.isFinite(advance) || advance < 0 || advance > (from === null ? 0 : .09 + 1e-9) ||
+  if (!Number.isFinite(advance) || advance < 0 || advance > (from === null ? 0 : .35 + 1e-9) ||
       Math.abs(start.when - (f.gridTime - advance)) > .002 ||
       Math.abs(start.offset - (f.step * f.stepDur - f.vocalMs / 1000 - advance)) > .002) return false;
   const threshold = from === null ? 60 : f.step - from >= 32 ? 30 : 100 + 1e-6;
