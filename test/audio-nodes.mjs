@@ -837,7 +837,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     e.variableScoreTempo = true;
     e.vocal(1, 0, 0, 1);
     const original = e.vocalNow;
-    for (let index = 17; index < 40; index++) {
+    for (let index = 17; index < 56; index++) {
       e.stepScale = index % 16 ? 1.01 : 1;
       const time = 1.08 + index * .125;
       c.currentTime = time - .1;
@@ -847,13 +847,54 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     }
     assert.equal(sources.length, 1);
     assert.deepEqual(sources[0].stops, []);
-    const time = 1.08 + 40 * .125;
+    const time = 1.08 + 56 * .125;
     c.currentTime = time - .1;
-    assert.equal(e.vocal(time, 2, 8, time, true), true);
+    assert.equal(e.vocal(time, 3, 8, time, true), true);
     assert.equal(sources.length, 2);
     assert.equal(e.vocalCorrection.forced, false);
     const [[at, offset]] = sources[1].starts;
     assert.ok(offset >= 7 && at - 1 + .06 <= 7.5, 'both voices are quiet at the first reachable gap');
+  }
+  for (const {duration, gapAt, beforeDownbeat} of [
+    {duration:.105, gapAt:7.98, beforeDownbeat:false},
+    {duration:.140, gapAt:8, beforeDownbeat:true},
+  ]) {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 12, sampleRate:48000}), data = buf.getChannelData(0);
+    data.fill(.1); data.fill(0, Math.round(gapAt * 48000), 48000 * 8.5);
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:5})});
+    e.variableScoreTempo = true;
+    e.vocal(1, 0, 0, 1);
+    const penultimate = 1.08 + 63 * .125;
+    for (let index = 17; index <= 64; index++) {
+      const time = index === 64 ? penultimate + duration : 1.08 + index * .125;
+      c.currentTime = time - .2;
+      assert.equal(e.vocal(time, index >> 4, index % 16, time, true), index === 64);
+    }
+    const {at, gap, forced} = e.vocalCorrection;
+    assert.equal(gap, true);
+    assert.equal(forced, false);
+    const downbeat = penultimate + duration;
+    if (beforeDownbeat) assert.ok(Math.abs(at - (penultimate + .130)) < 1e-9, 'slowed grid admits the gap before the actual downbeat');
+    else assert.equal(at, downbeat, 'faster grid forbids queuing a gap past the actual downbeat');
+  }
+  {
+    const s = defaultState(); s.bpm = 120; s.chain = 'AAB'; s.chainOn = true;
+    s.patterns[0].score = {form:'nocturne', seed:7};
+    const e = new Engine(fakeCtx(), s, {realtime:false});
+    const seq = new Sequencer(e, s), count = 19;
+    seq.origin = 32;
+    for (let step = 0; step < 15; step++) seq.tick(seq.origin + step, 1);
+    const first = seq.origin + 15;
+    seq.tick(first, 1);
+    const projected = seq.gridSpan(first, count);
+    assert.equal(seq.gridSpan(first, count, bar => bar === 2 ? 1 : 0), 0, 'preview skips defer to the scheduled grid');
+    let scheduled = e.stepDur;
+    for (let offset = 1; offset < count; offset++) {
+      seq.tick(first + offset, 1);
+      scheduled += e.stepDur;
+    }
+    assert.equal(projected, scheduled, 'preview uses actual score durations across a change to constant tempo');
   }
   for (const {error, deadline, recovered} of [
     {error:.12, deadline:32},

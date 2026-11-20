@@ -3369,11 +3369,11 @@ export class Engine {
 
   // Keep a continuous stem across bars; discarding the queue on a clock jump stops it.
   // On wake, gridTime can precede t: advance the source offset instead of moving the stem.
-  vocal(t, pos, step = 0, gridTime, reanchor = false, settling = false) {
+  vocal(t, pos, step = 0, gridTime, reanchor = false, settling = false, gapSpan) {
     const v = pos >= 0 ? this.vocalOf?.(this.state) : null, cur = this.vocalNow;
     const sd = this.vocalStepDur;
     const phase = v ? (pos * 16 + step) * sd - v.ms / 1000 : 0;
-    const origin = (gridTime ?? t) - phase;
+    let origin = (gridTime ?? t) - phase;
     const continuous = cur && v && cur.buf === v.buf && (cur.next === pos || (reanchor && cur.next === pos + 1) || (settling && pos >= cur.next - 1)) && cur.sd === sd && cur.ms === v.ms;
     if (continuous && (settling || Math.abs(origin - cur.origin) <= 0.03)) {
       if (reanchor && !settling) {
@@ -3405,14 +3405,10 @@ export class Engine {
       } else {
         alignment.forceFrom = alignment.forceStep = null;
       }
-      const buffer = processedStem(v.buf, v.fx, this.ctx), actual = t - cur.origin, shift = actual - phase;
+      const buffer = processedStem(v.buf, v.fx, this.ctx);
       const voices = [...(this.vocalRetiring || []), cur];
       singingEnvelope(buffer);
-      const earliest = Math.max(phase, this.ctx.currentTime + 0.02 - origin,
-        ...voices.map(voice => (voice.slewEnd ?? -Infinity) - origin));
-      // On a moving grid a distant gap would be scheduled against stale phase.
-      const lastStep = rubato ? Math.min(index + 16, alignment.forceStep) : (alignment.forceFrom ?? index) + 32;
-      const latest = lastStep * sd - v.ms / 1000;
+      const ready = Math.max(this.ctx.currentTime + 0.02, ...voices.map(voice => voice.slewEnd ?? -Infinity));
       const quiet = (at, source = buffer) => {
         const audio = source.getChannelData(0), window = Math.ceil(source.sampleRate * 0.06);
         const first = Math.floor(at * source.sampleRate);
@@ -3428,26 +3424,58 @@ export class Engine {
         singingEnvelope(source);
         return phraseGaps.get(source).some(g => g.from <= phase && phase + 0.06 * rate <= g.to);
       };
-      let silence, gapStart;
-      for (const g of phraseGaps.get(buffer)) {
-        const last = g.to - 0.08 - Math.max(0, shift);
-        const start = rubato ? Math.max(earliest, g.from - Math.min(0, shift)) : last;
-        if (start < earliest || start > Math.min(last, latest) || start < g.from || !quiet(start)) continue;
-        const when = origin + start;
-        const audible = voices.filter(voice => voice.startAt <= when && (voice.until ?? Infinity) > when);
-        if (!audible.every(voice => rubato ? quietDuringFade(voice, when) : quiet(when - voice.origin, voice.src.buffer))) continue;
-        silence = g;
-        gapStart = start;
-        break;
+      const findGap = (anchor, first, last, shift) => {
+        for (const g of phraseGaps.get(buffer)) {
+          const end = g.to - 0.08 - Math.max(0, shift);
+          const start = rubato ? Math.max(first, g.from - Math.min(0, shift)) : end;
+          if (start < first || start > Math.min(end, last) || start < g.from || !quiet(start)) continue;
+          const when = anchor + start;
+          const audible = voices.filter(voice => voice.startAt <= when && (voice.until ?? Infinity) > when);
+          if (audible.every(voice => rubato ? quietDuringFade(voice, when) : quiet(when - voice.origin, voice.src.buffer)))
+            return {start, onset:g.to};
+        }
+      };
+      let silence;
+      if (rubato) {
+        const grid = gridTime ?? t, prev = alignment.grid;
+        const consecutive = prev?.index === index - 1 && prev.grid < grid;
+        const plan = consecutive ? alignment.gapPlan : null;
+        alignment.grid = {index, grid, origin};
+        alignment.gapPlan = null;
+        // Keep the early gap's phase, but don't commit audio until the scheduler reaches its time.
+        if (plan && plan.when <= grid) {
+          silence = findGap(plan.origin, Math.max(plan.when, ready) - plan.origin, grid - plan.origin, plan.origin - cur.origin);
+          if (silence) origin = plan.origin;
+        }
+        if (!silence && consecutive && (!plan || plan.when <= grid || alignment.forceStep === index)) {
+          silence = findGap(prev.origin, Math.max(prev.grid, ready) - prev.origin, grid - prev.origin, prev.origin - cur.origin);
+          if (silence) origin = prev.origin;
+        }
+        if (!silence && (!plan || plan.when <= grid || alignment.forceStep === index))
+          silence = findGap(origin, Math.max(phase, ready - origin), phase, origin - cur.origin);
+        if (!silence && plan?.when > grid) alignment.gapPlan = plan;
+        else if (!silence && alignment.forceStep > index) {
+          const future = findGap(origin, Math.max(phase, ready - origin), phase + 16 * sd, origin - cur.origin);
+          if (future) {
+            const when = origin + future.start;
+            // Queue early only if the gap is safely before the scheduler's earliest deadline.
+            if (when - grid < (gapSpan?.(alignment.forceStep - index) ?? 0)) silence = future;
+            else alignment.gapPlan = {origin, when};
+          }
+        }
+        if (silence) t = origin + silence.start;
+      } else {
+        const latest = ((alignment.forceFrom ?? index) + 32) * sd - v.ms / 1000;
+        silence = findGap(origin, Math.max(phase, ready - origin), latest, t - cur.origin - phase);
+        if (silence) t += silence.start - phase;
       }
       const gap = !!silence;
-      if (gap) t = rubato ? origin + gapStart : t + (gapStart - phase);
       forced = !gap && alignment.forceStep === index;
       if (forced && (t < this.ctx.currentTime + 0.02 || phase < 0 || phase >= v.buf.duration)) {
         alignment.forceStep += 16;
         forced = false;
       }
-      this.vocalCorrection = { at:t, origin, previousOrigin:cur.origin, errorMs, gap, nextOnset:silence?.to,
+      this.vocalCorrection = { at:t, origin, previousOrigin:cur.origin, errorMs:(origin - cur.origin) * 1000, gap, nextOnset:silence?.onset,
         correctionId:alignment.id, forced, forceStep:alignment.forceStep, crossfadeSeconds:forced ? 0.03 : null };
       if (!gap && !forced) {
         cur.next = pos + 1;
@@ -3644,6 +3672,26 @@ export class Sequencer {
     const step = abs - this.origin, bar = Math.floor(step / 16);
     this.chainPos = bar;
     if (step % 16 !== 0) this.advanceBar(bar * 16, t, step % 16);
+  }
+
+  // The same score durations as tick(), without advancing the sequencer or queueing audio.
+  gridSpan(abs, steps, skip) {
+    const first = abs - this.origin, stepInBar = first % 16, firstBar = this.chainPos - 1;
+    const n = this.songBars, nominal = this.e.vocalStepDur;
+    let duration = 0, tempo;
+    for (let offset = 0; offset < steps; offset++) {
+      const step = first + offset;
+      if (!offset || step % 16 === 0) {
+        const bar = firstBar + Math.floor((stepInBar + offset) / 16);
+        if (offset && skip?.(bar)) return 0;
+        const pos = n ? bar % n : -1;
+        const pat = patternAt(this.s.patterns[pos >= 0 ? this.chainArr[pos] : this.cur], pos);
+        tempo = pat?.score ? compose(pat.score).tempo : null;
+      }
+      duration += offset === 0 ? this.e.stepDur : (tempo?.[step % tempo.length] || 1) * nominal;
+    }
+    if (skip?.(firstBar + Math.floor((stepInBar + steps) / 16))) return 0;
+    return duration;
   }
 
   // Song form: C and G are drops, E and F breakdowns, D and H one-bar fills/switches
