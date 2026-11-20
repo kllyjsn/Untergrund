@@ -79,6 +79,28 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
   console.log('Club replay Euphoric mix follows recorded genre, not listener genre');
 }
 {
+  for (const [from, to] of [['euphoric', 'hypnotic'], ['hypnotic', 'euphoric']]) {
+    for (const scheduled of [false, true]) for (const replay of [false, true]) {
+      const s = defaultState(); s.artist = { style: replay ? 'minimal' : from };
+      const e = new Engine(fakeCtx(), s, { realtime: false });
+      if (replay) { e.replay808Style = from; e.applyAll(); }
+      const q = new Sequencer(e, s), events = [];
+      for (const [stage, gain] of [['pre', e.secPreGain.gain], ['post', e.secGain.gain]])
+        gain.setTargetAtTime = (value, t) => events.push({ stage, value, t });
+      q.level(1, 0.45);
+      if (replay) e.replay808Style = to; else s.artist.style = to;
+      if (scheduled) e.handoffIn(2.375); else e.applyAll();
+      events.length = 0;
+      q.level(2.375, 0.45);
+      assert.deepEqual(events, [{ stage: to === 'euphoric' ? 'pre' : 'post', value: 10 ** (0.45 / 20), t: 2.375 }],
+        `${from} to ${to}, scheduled=${scheduled}, replay=${replay}: same chorus boost reaches the incoming stage`);
+      q.level(3, 0.45);
+      assert.equal(events.length, 1, 'unchanged stage and level do not reschedule');
+    }
+  }
+  console.log('Identical chorus boosts survive both directions of immediate and scheduled Euphoric handoffs');
+}
+{
   const s = defaultState();
   applyOverrides(s, generate('euphoric', 11, 'major'), true);
   s.artist = { style: 'euphoric' };

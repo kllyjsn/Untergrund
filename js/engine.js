@@ -4075,8 +4075,10 @@ export class Sequencer {
   }
 
   level(t, db, ramp) {
-    if (db === this.secDb && !ramp) return;
+    const beforeClip = this.e.playbackStyle === 'euphoric';
+    if (db === this.secDb && !ramp && beforeClip === this.secBeforeClip) return;
     this.secDb = db;
+    this.secBeforeClip = beforeClip;
     this.e.sectionGain(t, db, ramp);
   }
 
