@@ -52,9 +52,10 @@ a semitone, or peak drift rises; otherwise **pass**. `--assert` exits 1 on hold.
 |---|---|---|
 | 297 first head (01b34f5 → b3d6b2c) | Hold: 4 Euphoric voiced cuts | hold: 4 Euphoric voiced cuts, one at 154 c |
 | 297 merged head (01b34f5 → 5fe8024) | Ship (stress loop not yet in the kit) | hold: stress −28 ms time over 50 ms 9.1 → 15.8 s |
+| 302 revised head (cd8f1db → 19d6254) | not yet reviewed | pass: stress fades −14/−10 c and +2/−3 c |
 | 301 (46311e0 → 07c8726) | Ship with notes: fade −48/−68 c | notes: stress −28 ms fades −12/−4 c and −49/−68 c |
 | 302 (cd8f1db → fff5dca) | Hold: fades +68/+91 c, +97/+78 c | hold: stress −28 ms fades +68/+91 c and +97/+78 c |
 
 It reproduces Music's stress −28 ms tables: time over 50 ms 15.79 s (46311e0), 11.15 s (07c8726) and 10.83 s
-(fff5dca), the same fade times, and fade pitch within about 1 c (PR 301b's corrected −217/−164 c at 21.357 s measures
+(fff5dca), matching Club Rooms' 11.04 s on 19d6254, the same fade times, and fade pitch within about 1 c (PR 301b's corrected −217/−164 c at 21.357 s measures
 −218/−164 c here). It ranks timing defects; it does not replace Music's listen.
