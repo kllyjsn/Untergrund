@@ -325,7 +325,8 @@ for (const style of ['neosoul', 'boombap']) {
     assert.equal(played.length, 2);
     if (style === 'neosoul') {
       assert.equal(calls.sampledBass, undefined, 'electric bass does not fall back to the shared upright');
-      assert(played.every(p => p.len >= 0.575 && p.fx.lpTo === 180 && p.fx.lpStages === 2 && p.fx.fade === 0.006), 'legato thumb-rounded electric bass');
+      assert(played.every(p => p.len >= 0.575 && p.fx.lp === 1100 && p.fx.lpTo === 180 && p.fx.lpStages === 2 && p.fx.fade === 0.006), 'legato thumb-rounded electric bass');
+      for (const p of played) assert.deepEqual(p.fx.peaks, [[750, 0.7, 15]], 'broad string definition without opening the upper low-pass');
     } else assert(played.every(p => p.len <= 0.24 && p.fx.lp === 900 && p.fx.release === 0.025), 'short damped upright chops');
     const pcm = (await ctx.startRendering()).getChannelData(0);
     assert(pcm.every(Number.isFinite) && pcm.some(v => Math.abs(v) > 0.001), `${style} finite audible PCM`);

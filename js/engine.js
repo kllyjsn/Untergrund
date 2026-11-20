@@ -2002,7 +2002,7 @@ export class Engine {
     // A harder pluck is brighter: the finger digs in and the string's upper partials speak.
     if (this.stripMode) { const vel = Math.min(1.2, (this.noteVel ?? 1) * (st.a ? 1.15 : 1)); fx.lp = 1400 + 3600 * vel * vel; }
     const soul = this.state.artist?.style === 'neosoul';
-    if (soul) Object.assign(fx, { lp: 1100, lpTo: 180, lpStages: 2, fade: 0.006, release: 0.06 });
+    if (soul) Object.assign(fx, { lp: 1100, lpTo: 180, lpStages: 2, peaks: [[750, 0.7, 15]], fade: 0.006, release: 0.06 });
     this.playBuf(buf, t, 1.1 * (st.a ? 1.15 : 1) * (this.noteVel ?? 1) * (soul ? 0.85 : 1), this.ch.acid.input, Math.pow(2, (m - c) / 12) * (1 + (hash(t * 1000, 5) - 0.5) * 0.002), len, fx);
     if (soul) {
       const sub = this.ctx.createOscillator(), g = this.gain(0), v = 0.035 * (st.a ? 1.15 : 1) * (this.noteVel ?? 1);
