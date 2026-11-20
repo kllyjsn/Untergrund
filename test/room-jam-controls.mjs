@@ -167,7 +167,7 @@ async function renderBoundaryAutomation() {
   return {paths, gain: [.5, 1.05, 1.95, 2.09, 2.5].map(t => y[Math.round(t * rate)])};
 }
 
-async function renderHardPan(edit, style = 'hardtechno', shift = 0, fade = 'flat') {
+async function renderHardPan(edit, style = 'hardtechno', shift = 0, fade = 'flat', hold = true) {
   const { Engine } = await import('/js/engine.js');
   const { defaultState } = await import('/js/state.js');
   const state = defaultState(), rate = 48000, ctx = new OfflineAudioContext(3, 3 * rate, rate);
@@ -190,7 +190,10 @@ async function renderHardPan(edit, style = 'hardtechno', shift = 0, fade = 'flat
     engine.hardSection(at, ...second);
     await ctx.resume();
   });
-  const [buffer] = await Promise.all([ctx.startRendering(), done]);
+  // Firefox has no cancelAndHoldAtTime.
+  const cancelAndHold = AudioParam.prototype.cancelAndHoldAtTime;
+  if (!hold) AudioParam.prototype.cancelAndHoldAtTime = undefined;
+  const [buffer] = await Promise.all([ctx.startRendering(), done]).finally(() => { AudioParam.prototype.cancelAndHoldAtTime = cancelAndHold; });
   return [0, 1, 2].map(c => [1.5, 1.7, 1.9, at - .01, at + .01, at + .3, 2.9].map(t => buffer.getChannelData(c)[Math.round(t * rate)]));
 }
 
@@ -233,9 +236,9 @@ const result = await withChrome(async run => {
   // Clock re-anchors move the boundary before and after the queued section fade end.
   out.hardPanShift = [];
   const edits = {pan: '{kick: {pan: .3}}', mute: '{kick: {level: 0}}', down: '{kick: {level: .81}}', up: '{kick: {level: 1}}', rev: '{kick: {rev: .3}}', dly: '{kick: {dly: .3}}'};
-  for (const fade of ['flat', 'rising', 'falling']) for (const shift of [-.1, -.06, -.02, 0, .02, .06, .1]) {
-    const r = {fade, shift, control: await hardPan(`false,"hardtechno",${shift},"${fade}"`)};
-    for (const [k, e] of Object.entries(edits)) r[k] = await hardPan(`${e},"hardtechno",${shift},"${fade}"`);
+  for (const hold of [true, false]) for (const fade of ['flat', 'rising', 'falling']) for (const shift of [-.1, -.06, -.02, 0, .02, .06, .1]) {
+    const r = {fade: hold ? fade : `${fade} without cancelAndHold`, shift, control: await hardPan(`false,"hardtechno",${shift},"${fade}"`)};
+    for (const [k, e] of Object.entries(edits)) r[k] = await hardPan(`${e},"hardtechno",${shift},"${fade}",${hold}`);
     out.hardPanShift.push(r);
   }
   out.drive = {};

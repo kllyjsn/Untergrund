@@ -513,12 +513,24 @@ export class Engine {
     if (this.jamAt != null) {
       // Hold whatever automation is running (a section fade) up to the boundary so the outgoing bar plays out.
       if (param.cancelAndHoldAtTime) param.cancelAndHoldAtTime(this.jamAt);
-      else param.cancelScheduledValues(this.jamAt + 1 / this.ctx.sampleRate);
+      else {
+        const held = this.sectionLevelAt(param, this.jamAt);
+        param.cancelScheduledValues(this.jamAt + 1 / this.ctx.sampleRate);
+        if (held != null) param.linearRampToValueAtTime(held, this.jamAt);
+      }
       param.setValueAtTime(v, this.jamAt);
       this.jamParams.add(param);
     } else if (this.at) param.setTargetAtTime(v, this.at, 0.004);
     else if (immediate) param.value = v;
     else param.setTargetAtTime(v, this.ctx.currentTime, 0.015);
+  }
+
+  // Where a running Hard Techno section fade has a track level at t, for browsers without cancelAndHoldAtTime.
+  sectionLevelAt(param, t) {
+    const fade = this.hardFade, id = fade && TRACK_IDS.find(k => this.ch[k].level.gain === param);
+    if (!id || t <= fade.t || t >= this.hardFadeAt) return null;
+    const from = fade.from[id] ?? 1, to = fade.to[id] ?? 1;
+    return fade.levels[id] * (from + (to - from) * (t - fade.t) / (this.hardFadeAt - fade.t));
   }
 
   // The first sample frame at or after t, so fades and Jam edits on one boundary share an exact time.
@@ -3113,7 +3125,7 @@ export class Engine {
     const target = pos === len - 1 && next !== cur && next != null ? profile(next, 0) : profile(cur, (pos + 1) / len);
     const prev = this.hardLevels || profile(cur, 0);
     this.hardFadeAt = this.gridTime(t + dur);
-    this.hardFade = {t, from: prev, to: target};
+    this.hardFade = {t, from: prev, to: target, levels: Object.fromEntries(TRACK_IDS.map(id => [id, this.state.params[id].level]))};
     for (const id of TRACK_IDS) {
       const p = this.ch[id].level.gain, level = this.state.params[id].level;
       if (!this.hardLevels) p.setValueAtTime(level * (prev[id] ?? 1), t);
