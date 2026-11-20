@@ -471,6 +471,8 @@ const LIM_TRIM = 1.4;
 const CLIP_HEADROOM = 2;
 // The clipper tops out at 0.98; this trim keeps the master output (true peak, 4x oversampled) under -1 dBTP.
 const OUT_TRIM = 0.78;
+// Post-clipper headroom for Trap's saw, pad, and bells ensembles; leave their transients intact.
+const TRAP_OUTPUT_DB = { 0: -0.8, 2: -0.3, 6: -0.3 };
 
 // Six band-limited squares (808 cymbal cluster) summed once into a seamless 0.5 s loop.
 // Each square is read from a one-period wavetable; a small LRU bounds memory as tunings change.
@@ -846,8 +848,9 @@ export class Engine {
   }
 
   applyOutputTrim(immediate = false) {
-    const voice = Math.round(this.state.params.stab.voice), festival = this.state.artist?.style === 'trap' && (voice === 0 || voice === 2);
-    this.setTo(this.out.gain, this.hardTechno ? 0.98 : OUT_TRIM * dbGain(festival ? (voice === 0 ? -0.8 : -0.3) : 0), immediate);
+    const voice = Math.round(this.state.params.stab.voice);
+    const trim = this.state.artist?.style === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : 0;
+    this.setTo(this.out.gain, this.hardTechno ? 0.98 : OUT_TRIM * dbGain(trim), immediate);
   }
 
   // The genre's mastering EQ and stereo width; the width lifts only the side above 300 Hz, so the mono fold-down is unchanged.

@@ -1,7 +1,7 @@
 // True-peak seed sweep: renders whole generated songs of every style through the real offline engine in headless
 // Chrome (test/true-peak-page.js) and fails when any of them peaks above the -1 dBTP ceiling (js/loudness.js).
-// Seeds per style: SWEEP_SEEDS plus the smallest seeds that reach every ensemble in INSTRUMENTS[style], so a new or
-// retuned ensemble is always rendered. Songs listed in test/true-peak-known.json are known breaches: they may not
+// Seeds per style: SWEEP_SEEDS, past regressions, and the smallest seeds that reach every ensemble in
+// INSTRUMENTS[style]. Songs listed in test/true-peak-known.json are known breaches: they may not
 // get louder, and an entry that no longer breaches must be removed, so the list only shrinks.
 //   node scripts/true-peak.mjs [--assert] [--shard 1/4] [--styles a,b] [--seeds 1,2] [--pages N] [--json out.json]
 import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
@@ -15,6 +15,8 @@ import { LOUDNESS_TARGET } from '../js/loudness.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const SWEEP_SEEDS = [11, 42, 1234];
+// Seeds that once peaked over the ceiling, kept in the sweep after their fix so they cannot regress unseen.
+export const REGRESSION_SEEDS = { trap: [211], euphoric: [2, 11] };
 // Repeat renders match to 0.001 dB; a known breach fails once it is this much louder than recorded.
 export const WORSE_DB = 0.1;
 export const KNOWN_FILE = join(ROOT, 'test/true-peak-known.json');
@@ -22,11 +24,9 @@ export const KNOWN_FILE = join(ROOT, 'test/true-peak-known.json');
 // js/state.js generatePattern(): the ensemble is the first draw of its own seeded RNG.
 export const ensembleOf = (style, seed) => Math.floor(rng(Math.imul((seed | 0) ^ 0x6d2b79f5, 0x85ebca6b))() * INSTRUMENTS[style].length);
 
-// Seeds once over the ceiling and since fixed, kept in the sweep so they cannot regress unseen.
-export const PINNED_SEEDS = { euphoric: [2] };
-
 export function sweepSeeds(style, base = SWEEP_SEEDS) {
-  const n = INSTRUMENTS[style]?.length || 0, seeds = [...base, ...(PINNED_SEEDS[style] || []).filter((s) => !base.includes(s))], have = new Set(seeds.map((s) => n && ensembleOf(style, s)));
+  const n = INSTRUMENTS[style]?.length || 0, seeds = [...new Set([...base, ...(REGRESSION_SEEDS[style] || [])])];
+  const have = new Set(seeds.map((s) => n && ensembleOf(style, s)));
   for (let s = 1; have.size < n && s < 10000; s++) if (!have.has(ensembleOf(style, s))) { have.add(ensembleOf(style, s)); seeds.push(s); }
   return seeds;
 }

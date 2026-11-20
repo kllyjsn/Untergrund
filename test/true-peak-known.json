@@ -1,6 +1,4 @@
 {
   "note": "Known whole-song true-peak breaches on main (scripts/true-peak.mjs). An entry may not get louder than recorded + 0.1 dB, and must be removed once its song is back under -1 dBTP.",
-  "songs": {
-    "trap/211": {"tp": -0.94, "why": "Rap ensemble 2, section-G peak at bar 59; measured by Music, outside the seed sweep"}
-  }
+  "songs": {}
 }
