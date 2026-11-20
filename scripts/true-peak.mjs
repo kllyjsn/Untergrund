@@ -15,7 +15,7 @@ import { LOUDNESS_TARGET } from '../js/loudness.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const SWEEP_SEEDS = [11, 42, 1234];
-// Measured repeat-render spread is ~0.01 dB; a known breach fails once it is this much louder than recorded.
+// Repeat renders match to 0.001 dB; a known breach fails once it is this much louder than recorded.
 export const WORSE_DB = 0.1;
 export const KNOWN_FILE = join(ROOT, 'test/true-peak-known.json');
 
