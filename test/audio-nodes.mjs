@@ -878,6 +878,31 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (beforeDownbeat) assert.ok(Math.abs(at - (penultimate + .130)) < 1e-9, 'slowed grid admits the gap before the actual downbeat');
     else assert.equal(at, downbeat, 'faster grid forbids queuing a gap past the actual downbeat');
   }
+  for (const lookahead of [.2, .02]) {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 10, sampleRate:48000}), starts = [];
+    const audio = buf.getChannelData(0), boundary = 8.08;
+    for (let i = 0; i < audio.length; i++) {
+      const t = i / 48000;
+      audio[i] = .1 * Math.sin(2 * Math.PI * (280 * Math.min(t, boundary) + 335 * Math.max(0, t - boundary)));
+    }
+    c.createBufferSource = () => ({connect:dst => dst, start:(...args) => starts.push(args), stop(){}});
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.variableScoreTempo = true;
+    e.vocal(1, 0, 0, 1);
+    const downbeat = 1.12 + 64 * .125;
+    for (let index = 1; index <= 64; index++) {
+      const time = 1 + (index < 49 ? 0 : .12) + index * .125;
+      c.currentTime = time - lookahead;
+      assert.equal(e.vocal(time, index >> 4, index % 16, time, true), index < 49 || index === 64);
+    }
+    const [[at, offset]] = starts.slice(1);
+    if (lookahead > .02) {
+      assert.ok(at < downbeat - .05 && at >= downbeat - .09 - 1e-9, 'a pitch clash moves the fade earlier within the bound');
+      assert.ok(at + .03 - 1 < boundary, 'the shifted crossfade completes before the outgoing note changes');
+    } else assert.equal(at, downbeat, 'insufficient lookahead keeps the deadline fade');
+    assert.ok(Math.abs(offset + downbeat - at - 8) < 1e-9, 'the incoming source is still aligned at the downbeat');
+  }
   {
     const s = defaultState(); s.bpm = 120; s.chain = 'AAB'; s.chainOn = true;
     s.patterns[0].score = {form:'nocturne', seed:7};

@@ -246,6 +246,53 @@ export function vocalCrossfade(incoming) {
   return Float32Array.from({length:65}, (_, i) => incoming ? Math.sin(i / 64 * Math.PI / 2) : Math.cos(i / 64 * Math.PI / 2));
 }
 
+export const RUBATO_SPLICE_MAX_ADVANCE = 0.09;
+
+function vocalPitchAt(buffer, phase) {
+  const sr = buffer.sampleRate, stride = Math.max(1, Math.round(sr / 12000)), rate = sr / stride;
+  const n = Math.round(rate * (2048 / 48000)), center = Math.round(phase * sr), first = center - Math.floor(n / 2) * stride;
+  const audio = buffer.getChannelData(0);
+  if (first < 0 || first + n * stride > audio.length) return NaN;
+  const frame = Float32Array.from({length:n}, (_, i) => audio[first + i * stride]);
+  if (frame.reduce((e, x) => e + x * x, 0) / n < 0.0001) return NaN;
+  const last = Math.floor(rate / 80), normalized = new Float64Array(last + 1);
+  let total = 0;
+  for (let lag = 1; lag <= last; lag++) {
+    let diff = 0;
+    for (let i = 0; i < n - lag; i++) diff += (frame[i] - frame[i + lag]) ** 2;
+    diff /= n - lag;
+    total += diff;
+    normalized[lag] = diff * lag / Math.max(total, 1e-12);
+  }
+  if (total < 1e-12) return NaN;
+  for (let lag = Math.ceil(rate / 1170); lag < last; lag++) {
+    const a = normalized[lag - 1], b = normalized[lag], c = normalized[lag + 1];
+    if (b < 0.15 && b <= a && b < c) return rate / (lag + 0.5 * (a - c) / (a - 2 * b + c));
+  }
+  return NaN;
+}
+
+function rubatoSpliceTime(buffer, voice, origin, downbeat, earliest) {
+  const rate = voice.slewRate ?? 1, outgoing = voice.src.buffer;
+  const first = Math.max(earliest, downbeat - RUBATO_SPLICE_MAX_ADVANCE, origin, voice.startAt);
+  const differences = new Map();
+  const cents = ms => {
+    if (!differences.has(ms)) {
+      const when = downbeat + ms / 1000;
+      const phase = when - voice.origin + (rate - 1) * (when - (voice.slewEnd ?? when));
+      const from = vocalPitchAt(outgoing, phase) * rate, to = vocalPitchAt(buffer, when - origin);
+      differences.set(ms, Math.abs(1200 * Math.log2(to / from)));
+    }
+    return differences.get(ms);
+  };
+  if (first >= downbeat || !(cents(15) > 100)) return downbeat;
+  // If the downbeat splits two pitches, find the closest earlier fade on the same note.
+  for (let ms = 5; downbeat - ms / 1000 >= first - 1e-9; ms += 5) {
+    if ([5, 15, 25].every(center => cents(center - ms) <= 70)) return downbeat - ms / 1000;
+  }
+  return downbeat;
+}
+
 export function singingEnvelope(buf) {
   let env = envelopes.get(buf);
   if (env) return env;
@@ -3435,10 +3482,11 @@ export class Engine {
             return {start, onset:g.to};
         }
       };
-      let silence;
+      let silence, previousGrid;
       if (rubato) {
         const grid = gridTime ?? t, prev = alignment.grid;
         const consecutive = prev?.index === index - 1 && prev.grid < grid;
+        if (consecutive) previousGrid = prev.grid;
         const plan = consecutive ? alignment.gapPlan : null;
         alignment.grid = {index, grid, origin};
         alignment.gapPlan = null;
@@ -3475,8 +3523,15 @@ export class Engine {
         alignment.forceStep += 16;
         forced = false;
       }
+      let spliceAdvance = 0;
+      if (rubato && forced && previousGrid != null && t >= ready &&
+          voices.every(voice => voice === cur || voice.until <= Math.max(previousGrid, ready, t - RUBATO_SPLICE_MAX_ADVANCE))) {
+        const spliceAt = rubatoSpliceTime(buffer, cur, origin, t, Math.max(previousGrid, ready));
+        spliceAdvance = t - spliceAt;
+        t = spliceAt;
+      }
       this.vocalCorrection = { at:t, origin, previousOrigin:cur.origin, errorMs:(origin - cur.origin) * 1000, gap, nextOnset:silence?.onset,
-        correctionId:alignment.id, forced, forceStep:alignment.forceStep, crossfadeSeconds:forced ? 0.03 : null };
+        correctionId:alignment.id, forced, forceStep:alignment.forceStep, spliceAdvance, crossfadeSeconds:forced ? 0.03 : null };
       if (!gap && !forced) {
         cur.next = pos + 1;
         this.vocalBus.gain.setTargetAtTime(v.gain, t, 0.02);

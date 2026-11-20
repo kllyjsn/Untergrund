@@ -84,7 +84,7 @@ export async function installDiagnostics(send, base, {vocalSlew = false, vocalRe
       appliedOrigin:origin, appliedPreviousOrigin:cur.origin, rubatoFrom});
     if (forced) __clubAudio.nextVocalStart = {reason:'forced', correctionId:alignment.id,
       errorMs:this.vocalCorrection.errorMs, step:pos*16+step, stepDur:this.vocalStepDur ?? this.stepDur, vocalMs:v.ms,
-      gridTime, rubatoFrom, fadeParam:crossfade.gain};
+      gridTime, rubatoFrom, spliceAdvance:this.vocalCorrection.spliceAdvance, fadeParam:crossfade.gain};
   }`, false);
   await at('main.js', 'if (fix.discard) {', `if (fix.discard) __clubAudio.nextVocalStart = 'wake'`);
 }

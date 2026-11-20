@@ -58,6 +58,14 @@ console.log('Vocal source evidence PASS: explicit join/wake exemptions, mid-phra
   assert.equal(rubato(47, -101), true, 'large rubato errors can correct before the timeout');
   assert.equal(rubato(47, -100), false);
   assert.equal(rubato(null, 34), false, 'the constant-tempo gate is unchanged');
+  const snapped = structuredClone(start);
+  Object.assign(snapped.forced, {rubatoFrom:16, spliceAdvance:.065});
+  snapped.offset -= .065; snapped.when -= .065;
+  for (const fade of [snapped.forced.fadeIn, snapped.forced.fadeOut]) fade.when -= .065;
+  const applied = [{...correction, rubatoFrom:16, appliedTime:snapped.when}];
+  assert.equal(forcedVocalEvidence(snapped, applied), true, 'early splice must keep the downbeat source phase');
+  assert.equal(forcedVocalEvidence({...snapped, offset:start.offset}, applied), false, 'early splice cannot advance the incoming note');
+  assert.equal(forcedVocalEvidence({...snapped, forced:{...snapped.forced, spliceAdvance:.1}}, applied), false);
   assert.equal(forcedVocalEvidence(null, []), false);
   assert.equal(forcedVocalEvidence(start, []), false);
   assert.equal(vocalSourceEvidence({}).forcedReanchors, null);
