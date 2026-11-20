@@ -225,6 +225,51 @@ for (const pcm of [tone(800, 0.04), tone(800, 2, 1e-6), new Float32Array(sec(2))
 console.log('audio quality metrics: synthetic checks passed');
 
 const drill = await withChrome(async (run) => {
+  const wake = await run(`(async () => {
+    const { defaultState } = await import('/js/state.js');
+    const { Engine } = await import('/js/engine.js');
+    async function render(style, rate, stale, recoveryDelay) {
+      const ctx = new OfflineAudioContext(1, rate, rate), state = defaultState();
+      state.artist = { style };
+      Object.assign(state.master, { revLevel: 0, dlyLevel: 0, room: 0 });
+      Object.assign(state.params.kick, { decay: 0.1, rumble: 0, rev: 0, dly: 0 });
+      const e = new Engine(ctx, state, { realtime: false, trackQueuedNotes: true });
+      const at = 128 * 70 / rate;
+      if (stale) {
+        e.kick(at - 0.0125, 0.9);
+        e.kick(at + 0.22, 0.9);
+      }
+      const suspended = ctx.suspend(at);
+      const rendered = ctx.startRendering();
+      await suspended;
+      const now = ctx.currentTime;
+      e.discardQueuedNotes(now, now + recoveryDelay);
+      e.kick(now + recoveryDelay, 0.9);
+      await ctx.resume();
+      const pcm = (await rendered).getChannelData(0);
+      const rms = (from, to) => {
+        let energy = 0;
+        const start = Math.round((now + from) * rate), end = Math.round((now + to) * rate);
+        for (let i = start; i < end; i++) energy += pcm[i] ** 2;
+        return Math.sqrt(energy / (end - start));
+      };
+      return {stale: rms(0, recoveryDelay === 0.005 ? 0.024 : recoveryDelay),
+        corrected: rms(recoveryDelay + 0.02, recoveryDelay + 0.06), queued: rms(0.32, 0.37)};
+    }
+    const results = [];
+    for (const [style, rate] of [['minimal', 44100], ['hardtechno', 48000]]) for (const delay of [0.005, 0.185]) {
+      const recovered = await render(style, rate, true, delay), clean = await render(style, rate, false, delay);
+      results.push({label: style + ' +' + delay + 's', recovered, clean});
+    }
+    return results;
+  })()`);
+  for (const {label, recovered, clean} of wake) {
+    near(recovered.stale, clean.stale, 0.005, `${label}: wake must not output the buffered stale kick`);
+    near(recovered.queued, clean.queued, 1e-4, `${label}: wake must cancel the future stale kick`);
+    assert(clean.corrected > 0.02, `${label}: the corrected kick is audible`);
+    near(recovered.corrected / clean.corrected, 1, 0.05, `${label}: the corrected kick survives even at the earliest recovery deadline`);
+  }
+  console.log('Native Club wake: buffered and queued stale kicks silent, corrected kick intact');
   const switches = await run(`(async () => {
     const { freshSong } = await import('/js/state.js');
     const { Engine, MASTER_TONE } = await import('/js/engine.js');

@@ -218,7 +218,7 @@ function schedule(lead) {
   let firstTime = playableFirst ? nextTime : fix?.firstTime;
   if (fix) {
     if (fix.discard) {
-      engine.discardQueuedNotes(now);
+      engine.discardQueuedNotes(now, roomPlayback ? firstTime ?? fix.nextTime : null);
       engine.roomSlewRate = 1;
       engine.roomSlewProfile = null;
       uiQueue.length = 0;
