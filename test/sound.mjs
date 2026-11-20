@@ -7,7 +7,7 @@ installGlobals();
 const { defaultState, generate, applyOverrides, arrangement, freshSong, INSTRUMENTS } = await import('../js/state.js');
 const { Engine, Sequencer } = await import('../js/engine.js');
 const { Recorder } = await import('../js/midi.js');
-const { loadBand, STAB_BAND, SOFT_LAYER } = await import('../js/livekit.js');
+const { loadBand, loadSets, liveSets, STAB_BAND, SOFT_LAYER } = await import('../js/livekit.js');
 const { spectralBands, kWeight, lufs } = await import('../js/lab-metrics.js');
 const { lowEnd } = await import('../js/lowend.js');
 
@@ -301,5 +301,57 @@ for (const style of ['jerseyclub', 'trap', 'reggaeton', 'afrobeats', 'drill', 'm
   } else assert.equal(bass, undefined, `${style} retains no extra bass sidechain`);
 }
 console.log('Jersey bass: faster, shallower bass-only duck; shared pump and other genre ducks unchanged');
+for (const style of ['neosoul', 'boombap']) {
+  const seen = new Set();
+  for (const seed of [11, 42, 1234, 20]) {
+    const s = freshSong(style, seed);
+    s.artist = { style, seed };
+    await loadSets(liveSets(s));
+    seen.add(s.params.stab.voice);
+    assert.equal(s.params.acid.voice, style === 'neosoul' ? 5 : 1);
+    const ctx = new OfflineAudioContext(2, SR, SR), e = new Engine(ctx, s, { realtime: false }), calls = {}, played = [];
+    e.ch.acid.input = ctx.destination;
+    for (const name of ['ebass', 'sampledBass']) {
+      const f = e[name];
+      e[name] = function (...a) { calls[name] = (calls[name] || 0) + 1; return f.apply(this, a); };
+    }
+    const play = e.playBuf;
+    e.playBuf = function (...a) { if (a[3] === this.ch.acid.input) played.push({ len: a[5], fx: a[6] }); return play.apply(this, a); };
+    for (const [t, n] of [[0.05, 0], [0.4, 2]]) {
+      e.acidGap = 4;
+      e.acid(t, { on: true, n, a: true, s: false }, false, false, 0.15);
+    }
+    assert.equal(calls[style === 'neosoul' ? 'ebass' : 'sampledBass'], 2, `${style}/${s.params.stab.voice} recorded bass dispatch`);
+    assert.equal(played.length, 2);
+    if (style === 'neosoul') {
+      assert.equal(calls.sampledBass, undefined, 'electric bass does not fall back to the shared upright');
+      assert(played.every(p => p.len >= 0.575 && p.fx.lpTo === 180 && p.fx.lpStages === 2 && p.fx.fade === 0.006), 'legato thumb-rounded electric bass');
+    } else assert(played.every(p => p.len <= 0.24 && p.fx.lp === 900 && p.fx.release === 0.025), 'short damped upright chops');
+    const pcm = (await ctx.startRendering()).getChannelData(0);
+    assert(pcm.every(Number.isFinite) && pcm.some(v => Math.abs(v) > 0.001), `${style} finite audible PCM`);
+  }
+  assert.equal(seen.size, INSTRUMENTS[style].length, `${style} covers every ensemble`);
+}
+console.log('soul bass: every Neo Soul tuple dispatches legato recorded electric; every Boom Bap tuple dispatches damped upright chops');
+for (const style of ['reggaeton', 'afrobeats', 'jerseyclub', 'trap', 'drill', 'minimal', 'hardtechno', 'rnb', undefined]) {
+  const s = defaultState();
+  if (style) s.artist = { style };
+  const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false }), played = [];
+  e.playBuf = (...a) => played.push({ len: a[5], fx: a[6] });
+  e.sampledBass(e.rec('kit'), 0.05, 36, 0.5, false);
+  assert.equal(played[0].len, 0.5, `${style} keeps the upright's original note length`);
+  assert.equal(played[0].fx.lp, undefined, `${style} bypasses the upright chop`);
+  e.ebass(0.05, { on: true, n: 0, a: false }, 0.15, false);
+  assert.equal(played[1].fx.lpTo, undefined, `${style} bypasses the Neo Soul damping sweep`);
+  assert.equal(played[1].fx.release, 0.05, `${style} preserves the electric bass release`);
+}
+{
+  const s = freshSong('neosoul', 42), e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
+  e.rec = () => null;
+  let fallback = 0;
+  e.bass = () => { fallback++; };
+  e.ebass(0.05, { on: true, n: 0, a: false }, 0.15, false);
+  assert.equal(fallback, 1, 'unavailable electric recording retains the audible synth fallback');
+}
 console.log('bass colors: all ensembles, attack/slide playback, finite PCM, matched-note identities and protected/missing-style bypass passed');
 console.log('sound ok');

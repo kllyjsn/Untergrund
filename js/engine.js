@@ -967,10 +967,11 @@ export class Engine {
       const f = this.ctx.createBiquadFilter(); f.type = 'peaking'; f.frequency.value = freq; f.Q.value = q; f.gain.value = db;
       node = node.connect(f);
     }
-    if (fx.lp) {
+    for (let i = 0; fx.lp && i < (fx.lpStages || 1); i++) {
       const lp = this.filter('lowpass', fx.lp, 0.5);
       // The first 30 ms of a picked string is bright zing and pick noise; a thumb rounds it off.
-      if (fx.lpFrom && fx.lpFrom < fx.lp) { lp.frequency.setValueAtTime(fx.lpFrom, t); lp.frequency.exponentialRampToValueAtTime(fx.lp, t + 0.09); }
+      if (fx.lpTo && fx.lpTo < fx.lp) { lp.frequency.setValueAtTime(fx.lp, t); lp.frequency.exponentialRampToValueAtTime(fx.lpTo, t + 0.05); }
+      else if (fx.lpFrom && fx.lpFrom < fx.lp) { lp.frequency.setValueAtTime(fx.lpFrom, t); lp.frequency.exponentialRampToValueAtTime(fx.lp, t + 0.09); }
       node = node.connect(lp);
     }
     if (fx.punch && Math.abs(fx.punch) > 0.02) {
@@ -1123,7 +1124,9 @@ export class Engine {
     for (const [n, c] of BASS_NOTES) if (Math.abs(c - m) < Math.abs(center - m)) [name, center] = [n, c];
     const out = this.ch.acid.input, p = this.state.params.acid, ref = LIVE_REF.acid;
     const fx = { shelves: [[700, Math.max(-24, Math.min(12, 8 * Math.log2(p.cutoff / ref.cutoff)))]], drive: Math.max(0, p.drive - ref.drive) * 1.4 };
-    this.playBuf(kit[`bass_${name}_${hash(t * 1000, 3) > 0.5 ? 'a' : 'b'}`], t, (accent ? 1.2 : 1) * (this.noteVel ?? 1), out, Math.pow(2, (m - center) / 12), len, fx);
+    const chop = this.state.artist?.style === 'boombap';
+    if (chop) { len = Math.min(len, 0.16 + p.decay * 0.16); Object.assign(fx, { lp: 900, fade: 0.003, attackGain: 1.12, release: 0.025 }); }
+    this.playBuf(kit[`bass_${name}_${hash(t * 1000, 3) > 0.5 ? 'a' : 'b'}`], t, (accent ? 1.2 : 1) * (this.noteVel ?? 1) * (chop ? 1.2 : 1), out, Math.pow(2, (m - center) / 12), len, fx);
     const sub = this.ctx.createOscillator(); sub.frequency.value = midiHz(m);
     const sg = this.gain(0);
     sg.gain.setValueAtTime(EPS, t);
@@ -1998,7 +2001,19 @@ export class Engine {
     const ref = LIVE_REF.acid, fx = { shelves: [[900, Math.max(-24, Math.min(10, 8 * Math.log2(p.cutoff / ref.cutoff)))]], drive: Math.max(0, p.drive - ref.drive) * 1.4, release: 0.05 };
     // A harder pluck is brighter: the finger digs in and the string's upper partials speak.
     if (this.stripMode) { const vel = Math.min(1.2, (this.noteVel ?? 1) * (st.a ? 1.15 : 1)); fx.lp = 1400 + 3600 * vel * vel; }
-    this.playBuf(buf, t, 1.1 * (st.a ? 1.15 : 1) * (this.noteVel ?? 1), this.ch.acid.input, Math.pow(2, (m - c) / 12) * (1 + (hash(t * 1000, 5) - 0.5) * 0.002), len, fx);
+    const soul = this.state.artist?.style === 'neosoul';
+    if (soul) Object.assign(fx, { lp: 1100, lpTo: 180, lpStages: 2, fade: 0.006, release: 0.06 });
+    this.playBuf(buf, t, 1.1 * (st.a ? 1.15 : 1) * (this.noteVel ?? 1) * (soul ? 0.85 : 1), this.ch.acid.input, Math.pow(2, (m - c) / 12) * (1 + (hash(t * 1000, 5) - 0.5) * 0.002), len, fx);
+    if (soul) {
+      const sub = this.ctx.createOscillator(), g = this.gain(0), v = 0.035 * (st.a ? 1.15 : 1) * (this.noteVel ?? 1);
+      sub.frequency.value = midiHz(this.bassMidi(st, 36, 38));
+      g.gain.setValueAtTime(EPS, t);
+      g.gain.linearRampToValueAtTime(v, t + 0.01);
+      g.gain.setTargetAtTime(v * 0.55, t + 0.04, 0.12);
+      g.gain.setTargetAtTime(0, t + len, 0.04);
+      sub.connect(g).connect(this.ch.acid.input);
+      this.startSource(sub, t); sub.stop(t + len + 0.4);
+    }
   }
 
   // Crash and toms of the recorded kit, for the band pockets. Without the samples the open hat and snare stand in.
