@@ -3312,13 +3312,20 @@ export class Engine {
     singingEnvelope(v.buf);
   }
 
-  // Stretch the same future interval as the grid, then return the stem to unity rate.
-  slewVocal(delta, from, duration) {
+  // Integrate the same future rate ramp as the grid without interrupting the stem.
+  slewVocal(delta, from, duration, rate, endRate) {
     const cur = this.vocalNow;
     if (!cur || from + 1e-9 < cur.at || from < this.ctx.currentTime + 0.005) return;
     const end = from + duration + delta;
-    cur.src.playbackRate.setValueAtTime(duration / (duration + delta), from);
-    cur.src.playbackRate.setValueAtTime(1, end);
+    if (end <= (cur.slewEnd ?? -Infinity)) return;
+    const param = cur.src.playbackRate;
+    if (cur.slewEnd === undefined || cur.slewRate === 1)
+      param.setValueAtTime(rate, Math.max(from, cur.slewEnd ?? from));
+    else if (from > cur.slewEnd + 1e-9)
+      param.linearRampToValueAtTime(rate, from);
+    param.linearRampToValueAtTime(endRate, end);
+    cur.slewEnd = end;
+    cur.slewRate = endRate;
     cur.origin += delta;
   }
 
