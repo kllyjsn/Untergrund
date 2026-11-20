@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { transportResync } from '../js/room-sync.js';
 import { rubatoMap } from '../js/perform.js';
@@ -7,11 +6,18 @@ import { rubatoMap } from '../js/perform.js';
 const cents = rate => 1200 * Math.log2(rate);
 const change = rates => Math.max(...rates.slice(1).map((rate, i) => Math.abs(cents(rate / rates[i]))));
 const fixture = JSON.parse(readFileSync(new URL('./room-slew-fresh.json', import.meta.url)));
-for (const [d, error, hash] of fixture.cases) {
+// Near unity, allow a few last-bit differences from runtime math implementations.
+const freshRateTolerance = 4 * Number.EPSILON;
+for (const [d, error, expected] of fixture.cases) {
   const fix = transportResync(100 + error, 100, 0, d, false, -Infinity, 1, true);
-  assert.equal(createHash('sha256').update(JSON.stringify(fix.profile.rates)).digest('hex'), hash);
+  const rates = fix.profile.rates;
+  assert.equal(rates.length, expected.length, `fresh profile length at stepSec=${d}, error=${error}`);
+  for (let i = 0; i < rates.length; i++) {
+    assert.ok(Math.abs(rates[i] - expected[i]) <= freshRateTolerance,
+      `fresh profile stepSec=${d}, error=${error}, rate[${i}]: expected ${expected[i]}, got ${rates[i]}`);
+  }
 }
-console.log(`Room fresh identity PASS: ${fixture.cases.length} byte-identical profiles from ${fixture.source.slice(0, 7)}, both signs, 40–240 BPM and rubato.`);
+console.log(`Room fresh profile PASS: ${fixture.cases.length} profiles match ${fixture.source.slice(0, 7)} within floating-point tolerance, both signs, 40–240 BPM and rubato.`);
 
 const limits = new Map(), interruptions = [], times = [];
 let count = 0, seed = 0x293271, inherited = 0;
