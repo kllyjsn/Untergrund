@@ -60,8 +60,7 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
     const ctx = fakeCtx(), e = new Engine(ctx, s, { realtime: false }), oscs = [];
     ctx.createOscillator = () => { const o = node(ctx, 'Oscillator'); oscs.push(o); return o; };
     e.stab(0.05, 0.8);
-    stacks[style] = oscs;
-    assert(oscs.every((o) => o.type === 'sawtooth'));
+    stacks[style] = oscs.filter((o) => o.type === 'sawtooth');
   }
   assert.equal(stacks.trap.length, stacks.trance.length * 1.5, 'only Trap SAW gains a third oscillator per note');
   assert.deepEqual([...new Set(stacks.trap.map((o) => o.detune.value))], [-16, 0, 16]);

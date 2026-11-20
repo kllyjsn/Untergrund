@@ -1673,7 +1673,8 @@ export class Engine {
   stab(t, v, underHarp = false) {
     const c = this.ctx, p = this.state.params.stab;
     const { root, vo, iv } = stabPitches(this);
-    const trimmed = this.chordTone(vo, this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]));
+    let trimmed = this.chordTone(vo, this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]));
+    if (this.state.artist?.style === 'trap' && (vo === 0 || vo === 2)) trimmed = this.technoHookOut('ravestack', trimmed);
     const layers = this.hardTechno ? this.hardStabOut(trimmed) : null, out = layers ? layers.core : trimmed;
     if (layers) this.hardPalette(t, v, iv.map(n => midiHz(root + n)), Math.max(0.12, p.decay), layers.rave, 'rave');
     // A lifted breakdown plays decaying chords an octave up, filling it above the bass range it no longer shares.
@@ -2457,8 +2458,8 @@ export class Engine {
     this.retire(oscs.at(-1), amp);
   }
 
-  technoHookOut(voice) {
-    const dest = this.hookBus || this.ch.stab.input, space = TECHNO_HOOK_SPACE[voice];
+  technoHookOut(voice, dest = this.hookBus || this.ch.stab.input) {
+    const space = TECHNO_HOOK_SPACE[voice];
     const tones = (this.technoHookTones ||= new WeakMap());
     if (!tones.has(dest)) tones.set(dest, new Map());
     const paths = tones.get(dest);
