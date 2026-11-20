@@ -3,7 +3,7 @@
 // Seeds per style: SWEEP_SEEDS, past regressions, and the smallest seeds that reach every ensemble in
 // INSTRUMENTS[style]. Songs listed in test/true-peak-known.json are known breaches: they may not
 // get louder, and an entry that no longer breaches must be removed, so the list only shrinks.
-//   node scripts/true-peak.mjs [--assert] [--shard 1/4] [--styles a,b] [--seeds 1,2] [--pages N] [--json out.json]
+//   node scripts/true-peak.mjs [--assert] [--shard 1/4] [--styles a,b] [--seeds 1,2] [--wide N [--night D]] [--pages N] [--json out.json]
 import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,6 +42,11 @@ export function jobs(styles, seeds, known = knownSongs()) {
   });
 }
 
+// Nightly wide sweep: n fresh seeds per style each night, rotating through seeds 100+ so every night renders new songs.
+// The same night index always gives the same seeds, so a nightly breach reproduces with --wide n --night d.
+export const nightOf = (ms = Date.now()) => Math.floor(ms / 86400000);
+export const wideSeeds = (n, night = nightOf()) => Array.from({ length: n }, (_, i) => 100 + ((night * n + i) % 1e6));
+
 // Deterministic split for CI: job k of n takes every n-th song after sorting the sweep (spreads long styles).
 export const shard = (list, k, n) => list.filter((_, i) => i % n === k - 1);
 
@@ -63,7 +68,10 @@ const flag = (k) => process.argv.includes(`--${k}`);
 
 async function main() {
   const styles = arg('styles') ? arg('styles').split(',') : Object.keys(STYLES), seeds = arg('seeds') ? arg('seeds').split(',').map(Number) : null;
-  const [k, n] = (arg('shard', '1/1')).split('/').map(Number), all = jobs(styles, seeds), list = shard(all, k, n);
+  const wide = +arg('wide', 0), night = +arg('night', nightOf());
+  const all = wide ? styles.flatMap((style) => wideSeeds(wide, night).map((seed) => [style, seed])) : jobs(styles, seeds);
+  const [k, n] = (arg('shard', '1/1')).split('/').map(Number), list = shard(all, k, n);
+  if (wide) console.log(`wide sweep: night ${night}, ${wide} seeds per style (${wideSeeds(wide, night)[0]}…${wideSeeds(wide, night).at(-1)}); reproduce with --wide ${wide} --night ${night}`);
   const pages = +arg('pages', Math.max(1, Math.min(8, cpus().length))), t0 = Date.now(), quiet = flag('quiet');
   const rows = await withChrome(async (runs) => {
     const out = [];
