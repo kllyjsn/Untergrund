@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 // False conditional breakpoints observe module locals without changing app sources or pausing.
-export async function installDiagnostics(send, base, {vocalSlew = false, vocalRestart = false, wholeStep = false, dropStep = false} = {}) {
+export async function installDiagnostics(send, base, {vocalSlew = false, vocalRestart = false, wholeStep = false, dropStep = false, forceRepeat = false} = {}) {
   await send('Debugger.enable');
   const at = async (file, marker, body, required = true) => {
     const source = await readFile(new URL(`../js/${file}`, import.meta.url), 'utf8');
@@ -27,6 +27,13 @@ export async function installDiagnostics(send, base, {vocalSlew = false, vocalRe
     step:typeof abs === 'undefined' ? undefined : abs, ${['delay', 'nextTime', 'transportOrigin'].map(optional).join(', ')},
     contextTime:typeof ctx === 'undefined' ? undefined : ctx.currentTime})`);
   await at('main.js', 'const target = transportOrigin', `const a = __clubAudio.scheduler ||= [];
+    ${forceRepeat ? `const first = __clubAudio.vocalStarts?.find(s => s.forced)?.forced, index = abs - seq.origin;
+    if (first && !__clubAudio.vocalForceRepeatInjected && index > first.step && index %16 ===0 && engine.vocalNow && nextTime > ctx.currentTime +.025) {
+      engine.vocalNow.origin -= .12;
+      engine.vocalNow.correction = {id:first.correctionId, forceFrom:index-32, forceStep:index};
+      engine.vocal(nextTime, Math.floor(index/16)%seq.songBars, 0, nextTime, true);
+      __clubAudio.vocalForceRepeatInjected = {at:performance.timeOrigin+performance.now(), step:index, correctionId:first.correctionId};
+    }` : ''}
     ${vocalSlew ? `if (!__clubAudio.forcedVocalSlew && abs >= 32 && abs % 16 >= 13) {
       transportOrigin += 20; __clubAudio.forcedVocalSlew = {at:performance.timeOrigin + performance.now(), step:abs, deltaMs:20}; }` : ''}
     ${vocalRestart ? `if (!__clubAudio.vocalRestartInjected && __clubAudio.forcedVocalSlew && abs >= __clubAudio.forcedVocalSlew.step + 16 && engine.vocalNow) {
@@ -61,7 +68,18 @@ export async function installDiagnostics(send, base, {vocalSlew = false, vocalRe
     const ids = globalThis.__clubVocalCorrectionIds ||= new WeakMap();
     if (!ids.has(cur.src)) { const id = a.length; ids.set(cur.src, id);
       a.push({id, at:performance.timeOrigin + performance.now(), time:t, origin, previousOrigin:cur.origin, errorMs, gap}); }
-    if (gap) Object.assign(a[ids.get(cur.src)], {gap, appliedAt:performance.timeOrigin + performance.now(), appliedTime:t, appliedErrorMs:errorMs});`, false);
+    Object.assign(a[ids.get(cur.src)], {correctionId:typeof alignment === 'undefined' ? undefined : alignment.id,
+      forced:typeof forced === 'undefined' ? false : forced, gap});
+    if (typeof alignment === 'undefined' && gap) Object.assign(a[ids.get(cur.src)], {gap, appliedAt:performance.timeOrigin + performance.now(), appliedTime:t, appliedErrorMs:errorMs});`, false);
+  await at('engine.js', 'if (off < 0) this.startSource', `if (typeof alignment !== 'undefined' && alignment) {
+    const ids = globalThis.__clubVocalCorrectionIds, record = __clubAudio.vocalCorrections?.[ids?.get(cur.src)];
+    if (record) Object.assign(record, {gap:this.vocalCorrection.gap, forced, correctionId:alignment.id,
+      appliedAt:performance.timeOrigin + performance.now(), appliedTime:t, appliedErrorMs:this.vocalCorrection.errorMs,
+      appliedOrigin:origin, appliedPreviousOrigin:cur.origin});
+    if (forced) __clubAudio.nextVocalStart = {reason:'forced', correctionId:alignment.id,
+      errorMs:this.vocalCorrection.errorMs, step:pos*16+step, stepDur:this.stepDur, vocalMs:v.ms,
+      gridTime, fadeParam:crossfade.gain};
+  }`, false);
   await at('main.js', 'if (fix.discard) {', `if (fix.discard) __clubAudio.nextVocalStart = 'wake'`);
 }
 
@@ -76,6 +94,7 @@ export function diagnose(captures, serverOrigin) {
     const mapped = r => r.at - r.monotonic + r.output.performanceTime + (r.nextTime - r.output.contextTime) * 1000;
     return { vocalCorrections:c.vocalCorrections || [], vocalStarts:c.vocalStarts || [], forcedVocalSlew:c.forcedVocalSlew ?? null,
       forcedWholeStep:c.forcedWholeStep ?? null, droppedStep:c.droppedStep ?? null, vocalRestartInjected:c.vocalRestartInjected ?? null,
+      vocalForceRepeatInjected:c.vocalForceRepeatInjected ?? null,
       gridAdoptions:c.gridAdoptions || [],
       roomClock: c.roomClocks?.at(-1) ?? null,
       joinRoomClock: c.roomClocks?.filter(r => r.at <= c.starts?.[0]?.at).at(-1) ?? null,

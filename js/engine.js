@@ -236,6 +236,16 @@ export function stabPitches(e) {
 // after it), 0 in its rests, smoothed (40 ms attack, 250 ms release). Engine.duckUnder() dips the band by it.
 export const ENV_RATE = 50;
 const envelopes = new WeakMap(), phraseGaps = new WeakMap();
+export function vocalReanchorStep(step) {
+  const last = Math.floor((step + 32) / 16) * 16;
+  const phrase = Math.ceil((step + 1) / 64) * 64;
+  return phrase <= step + 32 ? phrase : last;
+}
+
+export function vocalCrossfade(incoming) {
+  return Float32Array.from({length:65}, (_, i) => incoming ? Math.sin(i / 64 * Math.PI / 2) : Math.cos(i / 64 * Math.PI / 2));
+}
+
 export function singingEnvelope(buf) {
   let env = envelopes.get(buf);
   if (env) return env;
@@ -3345,16 +3355,30 @@ export class Engine {
     const origin = (gridTime ?? t) - phase;
     const continuous = cur && v && cur.buf === v.buf && (cur.next === pos || (reanchor && cur.next === pos + 1) || (settling && pos >= cur.next - 1)) && cur.sd === this.stepDur && cur.ms === v.ms;
     if (continuous && (settling || Math.abs(origin - cur.origin) <= 0.03)) {
+      if (reanchor && !settling) cur.correction = null;
       cur.next = pos + 1;
       this.vocalBus.gain.setTargetAtTime(v.gain, t, 0.02);
       return true;
     }
+    let forced = false, crossfade = null, alignment = null;
     if (continuous && reanchor) {
       const errorMs = (origin - cur.origin) * 1000;
+      const index = pos * 16 + step;
+      alignment = cur.correction ||= {id:this.vocalCorrectionSerial = (this.vocalCorrectionSerial || 0) + 1, forceFrom:null, forceStep:null};
+      if (Math.abs(errorMs) > 60 + 1e-6) {
+        if (alignment.forceFrom === null) {
+          alignment.forceFrom = index;
+          alignment.forceStep = vocalReanchorStep(index);
+        }
+        if (index > alignment.forceStep) alignment.forceStep = Math.ceil(index / 16) * 16;
+      } else {
+        alignment.forceFrom = alignment.forceStep = null;
+      }
       const buffer = processedStem(v.buf, v.fx, this.ctx), actual = t - cur.origin, shift = actual - phase;
       const voices = [...(this.vocalRetiring || []), cur];
       singingEnvelope(buffer);
       const earliest = Math.max(phase, this.ctx.currentTime + 0.02 - origin);
+      const latest = ((alignment.forceFrom ?? index) + 32) * this.stepDur - v.ms / 1000;
       const quiet = (at, source = buffer) => {
         const audio = source.getChannelData(0), window = Math.ceil(source.sampleRate * 0.06);
         const first = Math.floor(at * source.sampleRate);
@@ -3367,32 +3391,60 @@ export class Engine {
         const start = g.to - 0.08 - Math.max(0, shift);
         const when = origin + start;
         const audible = voices.filter(voice => voice.startAt <= when && (voice.until ?? Infinity) > when);
-        return start >= earliest && start >= g.from && quiet(start) &&
+        return start >= earliest && start <= latest && start >= g.from && quiet(start) &&
           audible.every(voice => quiet(when - voice.origin, voice.src.buffer));
       });
       const gap = !!silence;
       if (gap) t += silence.to - 0.08 - Math.max(0, shift) - phase;
-      this.vocalCorrection = { at:t, origin, previousOrigin:cur.origin, errorMs, gap, nextOnset:silence?.to };
-      if (!gap) {
+      forced = !gap && alignment.forceStep === index;
+      if (forced && (t < this.ctx.currentTime + 0.02 || phase < 0 || phase >= v.buf.duration)) {
+        alignment.forceStep += 16;
+        forced = false;
+      }
+      this.vocalCorrection = { at:t, origin, previousOrigin:cur.origin, errorMs, gap, nextOnset:silence?.to,
+        correctionId:alignment.id, forced, forceStep:alignment.forceStep, crossfadeSeconds:forced ? 0.03 : null };
+      if (!gap && !forced) {
         cur.next = pos + 1;
         this.vocalBus.gain.setTargetAtTime(v.gain, t, 0.02);
         return false;
       }
     }
-    this.vocalStop(t);
+    if (forced) {
+      crossfade = this.ctx.createGain();
+      crossfade.connect(this.vocalBus);
+      crossfade.gain.setValueCurveAtTime(vocalCrossfade(false), t, 0.03);
+      const voices = [...(this.vocalRetiring || []), cur].filter(voice =>
+        (voice.until ?? Infinity) > this.ctx.currentTime && voice.origin + voice.src.buffer.duration > this.ctx.currentTime);
+      for (const output of new Set(voices.map(voice => voice.output || voice.g))) {
+        output.disconnect(this.vocalBus);
+        output.connect(crossfade);
+      }
+      let remaining = voices.length;
+      this.vocalRetiring = voices.map(voice => {
+        const until = Math.min(voice.until ?? Infinity, voice.startAt >= t ? t : t + 0.03);
+        voice.src.stop(until);
+        voice.src.addEventListener?.('ended', () => { if (!--remaining) crossfade.disconnect(); }, {once:true});
+        return {...voice, output:crossfade, stopAt:t, until};
+      });
+      this.vocalNow = null;
+    } else this.vocalStop(t);
     if (!v) return;
     if (phase >= v.buf.duration) return;
-    this.vocalSends(v.fx);
+    if (!forced) this.vocalSends(v.fx);
     const src = this.ctx.createBufferSource(), g = this.ctx.createGain();
     src.buffer = processedStem(v.buf, v.fx, this.ctx);
     if (gridTime != null) t = Math.max(t, this.ctx.currentTime + 0.005);
     const off = gridTime == null ? phase : t - origin;
     if (off >= v.buf.duration) return;
-    if (off > 0.001) { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + 0.012); }
+    if (forced) {
+      g.gain.setValueAtTime(0, this.ctx.currentTime);
+      g.gain.setValueCurveAtTime(vocalCrossfade(true), t, 0.03);
+    } else if (off > 0.001) { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + 0.012); }
     src.connect(g).connect(this.vocalBus);
-    this.vocalBus.gain.setValueAtTime(v.gain, t);
+    if (!forced) this.vocalBus.gain.setValueAtTime(v.gain, t);
     if (off < 0) this.startSource(src, t - off); else this.startSource(src, t, off);
     this.vocalNow = { src, g, buf: v.buf, next: pos + 1, sd: this.stepDur, ms: v.ms, origin, at: t - Math.min(0, off), startAt:off < 0 ? t - off : t };
+    if (forced) return true;
     if (v.duck < 1) this.duckUnder(v.buf, this.bandDuck.gain, v.duck, t, t - off);
     if (v.lift < 1) this.duckUnder(v.buf, this.singTrim.gain, v.lift, t, t - off);
     // hookCarve: the exported hook stem's copy of the CHORDS channel (js/stems.js).
@@ -3459,8 +3511,8 @@ export class Engine {
       p.setTargetAtTime(carves.includes(p) ? 0 : 1, t + 1 / this.ctx.sampleRate, 0.08);
     }
     for (const voice of voices) {
-      voice.g.gain.cancelScheduledValues(t);
-      voice.g.gain.setTargetAtTime(0, t, 0.008);
+      if (voice.g.gain.cancelAndHoldAtTime) voice.g.gain.cancelAndHoldAtTime(t); else voice.g.gain.cancelScheduledValues(t);
+      voice.g.gain.setTargetAtTime(0, t + 1 / this.ctx.sampleRate, 0.008);
       try { voice.src.stop(t + 0.06); } catch { /* not started */ }
       this.vocalRetiring.push({...voice, stopAt:t, until:t + 0.06});
     }

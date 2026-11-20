@@ -439,8 +439,8 @@ for (const [action, currentTime, playing, expected] of [
 }
 console.log('Room frontier PASS: large corrections drain then adopt, future-at-adoption steps render, no reorder/rebuild, solo no-repeat, explicit SPP and monotonic MIDI.');
 {
-  const runBoundary = ({step=63, nextTime=10.5, gridOrigin=2325, now=10, wall=10325, clockOffset=0, lead} = {}) => {
-    const notes = [], effects = [], state = freshSong('hypnotic', 7, {length:'sketch', bpm:120});
+  const runBoundary = ({step=63, nextTime=10.5, gridOrigin=2325, now=10, wall=10325, clockOffset=0, lead, pendingForce=false} = {}) => {
+    const notes = [], effects = [], vocals = [], state = freshSong('hypnotic', 7, {length:'sketch', bpm:120});
     state.bpm = 120; state.chainOn = true; state.chain = 'CCCCEEEECCCC'; state.master.arr = 1; state.part = 'old';
     const engine = new Recorder(state), seq = new Sequencer(engine, state);
     seq.chainPos = 4; seq.cur = 2;
@@ -448,6 +448,8 @@ console.log('Room frontier PASS: large corrections drain then adopt, future-at-a
     engine.applyAll = () => effects.push({kind:'mix', time:engine.at});
     engine.breakSweep = time => effects.push({kind:'break', time});
     engine.discardQueuedNotes = () => assert.fail('a room correction must preserve the queued notes');
+    engine.vocal = (...args) => vocals.push(args);
+    if (pendingForce) engine.vocalNow = {correction:{forceStep:64}};
     const tick = seq.tick.bind(seq);
     seq.tick = (abs, time, ...args) => { notes.push({abs, time, part:state.part}); return tick(abs, time, ...args); };
     const sandbox = {playing:true, songOver:false, roomPlayback:true, roomEditor:false, ROOM_LEAD:0.25, BG_LEAD:1,
@@ -461,7 +463,7 @@ console.log('Room frontier PASS: large corrections drain then adopt, future-at-a
     const scheduler = main.slice(main.indexOf('function schedule(lead)'), main.indexOf('\n// Jam:'));
     const jam = main.slice(main.indexOf('function landJamParts('), main.indexOf('\n// GENERATE while'));
     runInNewContext(`${scheduler}\n${jam}\nschedule(${lead})`, sandbox);
-    return {sandbox, notes, effects};
+    return {sandbox, notes, effects, vocals};
   };
   const small = runBoundary({step:64, nextTime:11.5, gridOrigin:3460, now:11.3, wall:11460});
   assert.equal(small.notes[0]?.abs, 64, 'a small calibration never skips the playable Jam downbeat');
@@ -488,6 +490,11 @@ console.log('Room frontier PASS: large corrections drain then adopt, future-at-a
   close(late.effects.find(e => e.kind === 'mix').time, 10.575);
   const clockOnly = runBoundary({step:64, nextTime:11.5, gridOrigin:3500, clockOffset:-0.02});
   assert.equal(clockOnly.sandbox.vocalGridDirty, true, 'clock-offset-only slews request the same deferred vocal alignment');
+  for (const pendingForce of [false, true]) {
+    const moving = runBoundary({step:64, nextTime:11.5, gridOrigin:3500, clockOffset:-.02, now:11.3, pendingForce});
+    assert.equal(moving.vocals.some(args => args[4] === true), pendingForce,
+      'ordinary slews hold vocal checks, but a pending large-correction deadline cannot miss its downbeat during a later small slew');
+  }
 }
 console.log('Room skipped boundaries PASS: sub-step Jam downbeat retained; skipped Jam, breakdown and mix automation land at grid time; late Jam catches the first playable step.');
 {

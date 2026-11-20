@@ -50,7 +50,7 @@ const args = process.argv.slice(2);
 const options = { repeat: 1, output: 'club-sync.json', vocal: 'synthetic', 'net-target':'listener', 'net-label':'default' };
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
-  if (['--assert', '--diagnostics', '--mute-audio', '--no-audio-device', '--startup-contention', '--clips', '--handoff-drop-kicks', '--vocal-slew-test', '--vocal-reanchor-control', '--whole-step-test', '--drop-step-control'].includes(arg)) options[arg.slice(2)] = true;
+  if (['--assert', '--diagnostics', '--mute-audio', '--no-audio-device', '--startup-contention', '--clips', '--handoff-drop-kicks', '--vocal-slew-test', '--vocal-reanchor-control', '--whole-step-test', '--drop-step-control', '--vocal-force-repeat-control'].includes(arg)) options[arg.slice(2)] = true;
   else if (['--scenario', '--repeat', '--output', '--cpu-throttle', '--vocal', '--net', '--net-target', '--net-label'].includes(arg) && args[i + 1]) options[arg.slice(2)] = args[++i];
   else throw new Error(`Unknown/missing argument: ${arg}`);
 }
@@ -58,6 +58,7 @@ const selected = options.scenario;
 assert.ok(!options['handoff-drop-kicks'] || selected === 'dj-handoff-mix', '--handoff-drop-kicks requires --scenario dj-handoff-mix');
 assert.ok(!options['vocal-slew-test'] || ['short-wake-mix', 'background-wake-mix'].includes(selected), '--vocal-slew-test requires one wake mix scenario');
 assert.ok(!options['vocal-reanchor-control'] || options['vocal-slew-test'], '--vocal-reanchor-control requires --vocal-slew-test');
+assert.ok(!options['vocal-force-repeat-control'] || options['whole-step-test'], '--vocal-force-repeat-control requires --whole-step-test');
 assert.ok(!options['whole-step-test'] || ['short-wake-mix', 'background-wake-mix'].includes(selected), '--whole-step-test requires one wake mix scenario');
 assert.ok(!options['drop-step-control'] || options['whole-step-test'], '--drop-step-control requires --whole-step-test');
 assert.ok(['synthetic', 'synthetic-pop', 'real'].includes(options.vocal), '--vocal must be synthetic, synthetic-pop or real');
@@ -179,7 +180,8 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = 
     console.log(`CDP control RTT (unfiltered): ${JSON.stringify(cdpProbe)}ms`);
     console.log(`Chrome viewport: ${await run('JSON.stringify({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})')}`);
     if (options.diagnostics || mix) await installDiagnostics(send, base, {vocalSlew:!!options['vocal-slew-test'],
-      vocalRestart:!!options['vocal-reanchor-control'], wholeStep:!!options['whole-step-test'], dropStep:!!options['drop-step-control']});
+      vocalRestart:!!options['vocal-reanchor-control'], wholeStep:!!options['whole-step-test'], dropStep:!!options['drop-step-control'],
+      forceRepeat:!!options['vocal-force-repeat-control']});
     if (options.diagnostics) {
       await send('Profiler.enable');
       await send('Profiler.start');
@@ -520,14 +522,17 @@ async function scenario(base, spec, network, run) {
         if (options['drop-step-control']) assert.ok(raw.every(c => c.droppedStep), 'Real sequencer steps were suppressed');
         console.log(`  whole-step evidence: ${JSON.stringify(stepEvidence)}`);
       }
+      for (const [i, counts] of vocalStarts.entries()) {
+        if (!counts.count || counts.count > counts.allowed) failures.push(`client ${i} vocal source starts`);
+        if (counts.midPhraseRestarts !== 0) failures.push(`client ${i} mid-phrase vocal restarts`);
+        if (counts.unclassifiedStarts !== 0) failures.push(`client ${i} vocal start classification`);
+        if (counts.invalidForcedReanchors !== 0) failures.push(`client ${i} invalid forced vocal alignment`);
+        if (counts.duplicateForcedReanchors !== 0) failures.push(`client ${i} repeated forced vocal alignment`);
+      }
       if (spec.freezeMs) {
-        for (const [i, counts] of vocalStarts.entries()) {
-          if (!counts.count || counts.count > counts.allowed) failures.push(`client ${i} vocal source starts`);
-          if (counts.midPhraseRestarts !== 0) failures.push(`client ${i} mid-phrase vocal restarts`);
-          if (counts.unclassifiedStarts !== 0) failures.push(`client ${i} vocal start classification`);
-        }
         if (options['vocal-slew-test']) assert.ok(raw.every(c => c.forcedVocalSlew), 'Both clients exercised a controlled cross-bar grid slew');
         if (options['vocal-reanchor-control']) assert.ok(raw.every(c => c.vocalRestartInjected), 'Both clients exercised a real nonzero-offset vocal restart');
+        if (options['vocal-force-repeat-control']) assert.ok(raw.every(c => c.vocalForceRepeatInjected && c.vocalStarts?.filter(s => s.reason === 'forced').length >= 2), 'Both clients exercised a second crossfaded alignment for the same correction');
       }
       console.log(`  vocal starts: ${JSON.stringify(vocalStarts)}`);
       const reference = await host.run(`(${referenceEnvelope})(${JSON.stringify(song)}, ${10 ** (vocalDb(song) / 20)})`);

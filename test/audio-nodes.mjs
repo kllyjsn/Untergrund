@@ -47,7 +47,7 @@ globalThis.fetch = async (url) => {
   catch { return { ok: false, status: 404 }; }
 };
 
-const { Engine, Sequencer, parseChain, scoreKinds } = await import('../js/engine.js');
+const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCrossfade } = await import('../js/engine.js');
 const { loadLiveKit, loadBand, BAND } = await import('../js/livekit.js');
 const { loadPiece } = await import('../js/repertoire.js');
 await loadLiveKit();
@@ -534,12 +534,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     e.vocalOf = () => ({buf:sung, gain:1, duck:1, lift:1, ms:0});
     c.currentTime = 0; e.vocal(1, 0, 0, 1);
     const first = e.vocalNow.src;
-    assert.equal(e.vocal(3.08, 1, 0, 3.08, true), false);
+    assert.equal(e.vocal(3.04, 1, 0, 3.04, true), false);
     assert.equal(e.vocalNow.src, first, 'a large correction cannot restart a phrase with no gap');
     for (let pos = 2; pos < 20; pos++) {
       c.currentTime = 1 + pos * 2;
-      assert.equal(e.vocal(1.08 + pos * 2, pos, 0, 1.08 + pos * 2, true), false);
-      assert.equal(e.vocalNow.src, first, 'a sustained phrase drifts for as long as no gap exists');
+      assert.equal(e.vocal(1.04 + pos * 2, pos, 0, 1.04 + pos * 2, true), false);
+      assert.equal(e.vocalNow.src, first, 'a residual below60ms drifts for as long as no gap exists');
     }
     e.vocal(42, 0, 0, 42, false, true);
     assert.notEqual(e.vocalNow.src, first, 'holding a correction cannot suppress the next natural song cycle');
@@ -547,7 +547,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
 
   for (const gapAt of [null, 3, 7]) {
-    const gap = gapAt !== null;
+    const gap = gapAt !== null, delta = gapAt === 7 ? .04 : .08;
     const c = fakeCtx(), s = defaultState(); s.bpm = 120;
     const buf = new FakeBuffer({length:48000 * 12, sampleRate:48000}), starts = [];
     buf.getChannelData(0).fill(0.1);
@@ -563,18 +563,23 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       assert.equal(e.vocal(3.08, 1, 0, 3.08, true), false, 'the audible old processed source must also be silent, not only the replacement');
       old.buffer = original;
     }
-    assert.equal(e.vocal(3.08, 1, 0, 3.08, true), gap);
+    if (gapAt === 7) {
+      assert.equal(e.vocal(3 + delta, 1, 0, 3 + delta, true), false, 'a distant quiet gap is queued only when it enters the two-bar horizon');
+      assert.equal(starts.length, 1);
+    }
+    const pos = gapAt === 7 ? 2 : 1, time = 1 + pos * 2 + delta;
+    assert.equal(e.vocal(time, pos, 0, time, true), gap);
     assert.equal(e.vocalNow.src === old, !gap);
     assert.equal(starts.length, gap ? 2 : 1);
     assert.equal(e.vocalCorrection.gap, gap);
     if (gap) {
       assert.ok(Math.abs(starts[1][0] - (gapAt + 1.42)) < 1e-9, 'a future phrase gap is used even beyond one bar');
-      assert.ok(Math.abs(starts[1][1] - (gapAt + .34)) < 1e-9, 'replacement starts in silent pre-roll before the next phrase, never mid-word');
+      assert.ok(Math.abs(starts[1][1] - (gapAt + .42 - delta)) < 1e-9, 'replacement starts in silent pre-roll before the next phrase, never mid-word');
     }
-    e.vocal(3.08, 1, 0, 3.08, true);
+    e.vocal(time, pos, 0, time, true);
     assert.equal(starts.length, gap ? 2 : 1, 'no-gap corrections drift; aligned gap updates cannot restart twice');
   }
-  console.log('Room large vocal correction PASS: only silent pre-roll before a phrase onset; no-gap corrections drift without any forced restart.');
+  console.log('Room large vocal correction PASS: silent pre-roll before a phrase onset; smaller no-gap corrections remain continuous while larger corrections wait for a bounded downbeat.');
 
   {
     const c = fakeCtx(), s = defaultState(); s.bpm = 120;
@@ -635,6 +640,108 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     }
   }
   console.log('Pending vocal retime PASS: earlier handovers validate the audible retiring voice, reject sung regions, preserve silent replacements and cancel all pending sources.');
+
+  {
+    for (const [step, expected] of [[0,32], [17,48], [33,64], [97,128], [128,160]]) {
+      assert.equal(vocalReanchorStep(step), expected);
+      assert.equal(expected % 16, 0);
+      assert.ok(expected > step && expected <= step + 32);
+    }
+    const incoming = vocalCrossfade(true), outgoing = vocalCrossfade(false);
+    for (let i = 0; i < incoming.length; i++) assert.ok(Math.abs(incoming[i] ** 2 + outgoing[i] ** 2 - 1) < 1e-6);
+    assert.equal(incoming[0], 0); assert.equal(incoming.at(-1), 1);
+    assert.equal(outgoing[0], 1); assert.ok(outgoing.at(-1) < 1e-6);
+    for (const during of [false, true]) {
+      const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+      const sources = [], gains = [];
+      c.createGain = () => {
+        const g = node(c, 'Gain'), p = param();
+        p.curves = []; p.holds = [];
+        p.setValueCurveAtTime = (values, at, duration) => p.curves.push({values:Array.from(values), at, duration});
+        p.cancelAndHoldAtTime = at => p.holds.push(at);
+        g.gain = p; gains.push(g); return g;
+      };
+      c.createBufferSource = () => {
+        const source = {connect:dst => dst, starts:[], stops:[], start(...args){this.starts.push(args);}, stop(at){this.stops.push(at);}};
+        sources.push(source); return source;
+      };
+      const buf = new FakeBuffer({length:48000 * 20, sampleRate:48000}); buf.getChannelData(0).fill(.1);
+      const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:.5, lift:.5, ms:0})});
+      let sends = 0, ducks = 0;
+      e.vocalSends = () => sends++;
+      e.duckUnder = () => ducks++;
+      e.vocal(1, 0, 0, 1);
+      const before = {sends, ducks};
+      for (let index = 17; index <= 48; index++) {
+        const time = 1.12 + index * .125;
+        c.currentTime = time - .1;
+        assert.equal(e.vocal(time, index >> 4, index % 16, time, true), index === 48);
+        assert.equal(sources.length, index === 48 ? 2 : 1, 'a forced source is not queued before its downbeat');
+      }
+      assert.deepEqual({sends, ducks}, before, 'a forced alignment cannot reset sends, ducking or carving');
+      assert.equal(e.vocalCorrection.forced, true);
+      assert.equal(e.vocalCorrection.forceStep, 48);
+      assert.equal(e.vocalCorrection.crossfadeSeconds, .03);
+      assert.ok(Math.abs(sources[1].starts[0][0] - 7.12) < 1e-9);
+      assert.equal(sources[1].starts[0][1], 6);
+      const curves = gains.flatMap(g => g.gain.curves);
+      assert.equal(curves.length, 2);
+      assert.ok(curves.every(curve => Math.abs(curve.at - 7.12) < 1e-9 && curve.duration === .03));
+      assert.deepEqual(curves[0].values, Array.from(outgoing));
+      assert.deepEqual(curves[1].values, Array.from(incoming));
+      e.vocal(7.245, 3, 1, 7.245, true);
+      e.vocal(7.37, 3, 2, 7.37, true);
+      assert.equal(sources.length, 2, 'the same correction cannot force a second source');
+      const gain = e.vocalNow.g.gain;
+      c.currentTime = 7.12 + (during ? .015 : -.01);
+      e.panic();
+      assert.equal(e.vocalNow, null);
+      assert.ok(sources.every(source => source.stops.at(-1) <= c.currentTime + .060001), 'Stop cancels both the audible and replacement voices before or during a forced fade');
+      assert.deepEqual(gain.holds, [c.currentTime], 'an active fade curve is held before Stop automates its gain');
+    }
+  }
+  {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 12, sampleRate:48000}), full = new FakeBuffer({length:48000 * 12, sampleRate:48000}), starts = [];
+    buf.getChannelData(0).fill(.1); full.getChannelData(0).fill(.1);
+    buf.getChannelData(0).fill(0, 48000 * 3, 48000 * 3.5);
+    c.createBufferSource = () => ({connect:dst => dst, start:(...args) => starts.push(args), stop(){}});
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.vocal(1, 0, 0, 1);
+    e.vocalNow.src.buffer = full;
+    c.currentTime = 2.8;
+    assert.equal(e.vocal(3.08, 1, 0, 3.08, true), false);
+    assert.equal(e.vocalNow.correction.forceStep, 48);
+    e.vocalNow.src.buffer = buf;
+    c.currentTime = 2.9;
+    assert.equal(e.vocal(3.205, 1, 1, 3.205, true), true);
+    assert.equal(e.vocalCorrection.gap, true);
+    assert.equal(e.vocalCorrection.forced, false);
+    for (let index = 18; index <= 48; index++) {
+      const time = 1.08 + index * .125;
+      c.currentTime = time - .1;
+      e.vocal(time, index >> 4, index % 16, time, true);
+    }
+    assert.equal(starts.length, 2, 'a qualifying silent gap cancels the pending forced alignment');
+  }
+  console.log('Room forced vocal alignment PASS: preferred downbeat within two bars, lazy30ms equal-power crossfade, no duck/send reset, once per correction, gap-first cancellation and Stop before/during the fade.');
+
+  {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 20, sampleRate:48000}); buf.getChannelData(0).fill(.1);
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.vocal(1, 0, 0, 1);
+    c.currentTime = 3.145;
+    assert.equal(e.vocal(3.245, 1, 1, 3.245, true), false);
+    assert.equal(e.vocalNow.correction.forceStep, 48);
+    c.currentTime = 3.17;
+    assert.equal(e.vocal(3.27, 1, 2, 3.27, true), true);
+    assert.equal(e.vocalNow.correction, null, 'a residual that converges within tolerance cancels the pending force');
+    c.currentTime = 5.145;
+    assert.equal(e.vocal(5.245, 2, 1, 5.245, true), false);
+    assert.equal(e.vocalNow.correction.forceFrom, 33);
+    assert.equal(e.vocalNow.correction.forceStep, 64, 'a new correction gets a fresh two-bar window');
+  }
 
   {
     const curveStart = 2.153393336377362, wake = 15.461587301587302;

@@ -263,7 +263,7 @@ function schedule(lead) {
     }
     artistTick(abs - seq.origin);
     const pat = seq.tick(abs, t, roomPlayback ? nextTime : undefined, roomEditor, roomPlayback);
-    if (roomPlayback && vocalGridDirty && Math.abs(gridTarget - nextTime) < 0.002) {
+    if (roomPlayback && vocalGridDirty && (Math.abs(gridTarget - nextTime) < 0.002 || engine.vocalNow?.correction?.forceStep != null)) {
       const aligned = engine.vocal(t, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, (abs - seq.origin) % 16, nextTime, true);
       vocalGridDirty = aligned === false;
     }

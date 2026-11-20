@@ -61,6 +61,13 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
     return startOscillator.call(this, when);
   };
   const startBuffer = AudioBufferSourceNode.prototype.start;
+  tap.paramCurves = new WeakMap();
+  const setCurve = AudioParam.prototype.setValueCurveAtTime;
+  AudioParam.prototype.setValueCurveAtTime = function (values, when, duration) {
+    const result = setCurve.call(this, values, when, duration);
+    tap.paramCurves.set(this, {when, duration, values:Array.from(values)});
+    return result;
+  };
   AudioBufferSourceNode.prototype.start = function (when = 0, offset = 0, ...args) {
     if (mix && reachesVocal(this)) {
       const data = this.buffer?.getChannelData(0), first = Math.floor(offset * (this.buffer?.sampleRate || 0));
@@ -68,10 +75,15 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
       let energy = 0;
       for (let i = first; i < first + count; i++) energy += data[i] * data[i];
       const startRms = count > 0 ? Math.sqrt(energy / count) : null;
-      const reason = tap.vocalStarts.length === 0 ? 'join' : tap.nextVocalStart;
+      const next = tap.nextVocalStart;
+      const reason = tap.vocalStarts.length === 0 ? 'join' : typeof next === 'string' ? next : next?.reason;
+      const incoming = [...(edges.get(this) || [])].find(node => node.gain);
+      const forced = next?.reason === 'forced' ? {correctionId:next.correctionId, errorMs:next.errorMs,
+        step:next.step, stepDur:next.stepDur, vocalMs:next.vocalMs, gridTime:next.gridTime,
+        fadeOut:tap.paramCurves.get(next.fadeParam), fadeIn:tap.paramCurves.get(incoming?.gain)} : null;
       delete tap.nextVocalStart;
       tap.vocalStarts.push({at:epoch(), when, offset, duration:this.buffer?.duration, clock:clock(this.context),
-        reason, startRms, startSinging:startRms === null ? null : startRms > .01});
+        reason, forced, startRms, startSinging:startRms === null ? null : startRms > .01});
     }
     return startBuffer.call(this, when, offset, ...args);
   };

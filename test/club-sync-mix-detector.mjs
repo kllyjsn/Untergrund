@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mixFixture, realMixFixture, popHandoffTargetAt, syntheticHandoffTargetAt, mixBoundaries, mixGraphEdges, channelEnvelope, analyzeMix, matchEvents, realignment, beatRealignment, realignmentEvidence, phraseOnsets, boundaryMetric, mixFailures, underrunEvidence, kickAttribution, vocalSourceEvidence } from './club-sync-mix.mjs';
+import { mixFixture, realMixFixture, popHandoffTargetAt, syntheticHandoffTargetAt, mixBoundaries, mixGraphEdges, channelEnvelope, analyzeMix, matchEvents, realignment, beatRealignment, realignmentEvidence, phraseOnsets, boundaryMetric, mixFailures, underrunEvidence, kickAttribution, vocalSourceEvidence, forcedVocalEvidence } from './club-sync-mix.mjs';
 import { singRequest } from '../js/sing.js';
 import { sanitize } from '../js/state.js';
 import { postResumeEnvelope, onsets } from './club-sync-audio.mjs';
@@ -8,7 +8,7 @@ import { stepFixture, correctionGrid, forcedStepEvidence } from './club-sync-ste
 
 const bin = 4, expectedVoice = new Float64Array(8000);
 assert.equal(vocalSourceEvidence({vocalStarts:[{}]}).allowed, 1);
-assert.deepEqual(vocalSourceEvidence({vocalStarts:[{}, {reason:'wake'}]}, 1), {count:2, nonZeroOffsets:0, midPhraseRestarts:0, gapRealigns:0, unclassifiedStarts:0, expected:2, corrections:[], allowed:2});
+assert.deepEqual(vocalSourceEvidence({vocalStarts:[{}, {reason:'wake'}]}, 1), {count:2, nonZeroOffsets:0, midPhraseRestarts:0, forcedReanchors:0, invalidForcedReanchors:0, duplicateForcedReanchors:0, gapRealigns:0, unclassifiedStarts:0, expected:2, corrections:[], allowed:2});
 assert.equal(vocalSourceEvidence({vocalStarts:[{}, {}, {}], vocalCorrections:[{errorMs:20}, {errorMs:-40, appliedTime:1}]}, 1).allowed, 3);
 assert.equal(vocalSourceEvidence({vocalStarts:[{}, {}, {}], vocalCorrections:[{errorMs:-40, gap:false}]}, 1).allowed, 2, 'an unapplied correction cannot authorize a restart');
 assert.equal(vocalSourceEvidence({vocalStarts:[{offset:0}, {offset:2}]}).nonZeroOffsets, 1);
@@ -20,6 +20,38 @@ assert.equal(vocalSourceEvidence({vocalStarts:[{}, {startSinging:false}]}).gapRe
 assert.equal(vocalSourceEvidence({vocalStarts:[{}, {}]}).unclassifiedStarts, 1);
 assert.equal(vocalSourceEvidence({vocalStarts:[{}, {reason:'wake', startSinging:true}, {reason:'wake', startSinging:true}]}, 1).midPhraseRestarts, 1, 'only one explicitly observed wake start is exempt');
 console.log('Vocal source evidence PASS: explicit join/wake exemptions, mid-phrase versus silent-gap starts, only applied >30ms credit, empty and missing telemetry remain distinct.');
+{
+  const start = {reason:'forced', when:10, offset:6, startSinging:true, forced:{correctionId:1, errorMs:120,
+    step:48, stepDur:.125, vocalMs:0, gridTime:10,
+    fadeOut:{when:10, duration:.03, values:[1, Math.SQRT1_2, 0]},
+    fadeIn:{when:10, duration:.03, values:[0, Math.SQRT1_2, 1]}}};
+  const correction = {correctionId:1, errorMs:120, forced:true, appliedTime:10};
+  assert.equal(forcedVocalEvidence(start, [correction]), true);
+  const evidence = vocalSourceEvidence({vocalStarts:[{}, start], vocalCorrections:[correction]});
+  assert.equal(evidence.midPhraseRestarts, 0);
+  assert.equal(evidence.forcedReanchors, 1);
+  assert.equal(evidence.invalidForcedReanchors, 0);
+  assert.equal(evidence.allowed, 2);
+  const duplicate = vocalSourceEvidence({vocalStarts:[{}, start, start], vocalCorrections:[correction, correction]});
+  assert.equal(duplicate.forcedReanchors, 2);
+  assert.equal(duplicate.duplicateForcedReanchors, 1);
+  assert.equal(duplicate.allowed, 2, 'the same correction cannot earn a second forced-start allowance');
+  for (const mutate of [s => s.forced.fadeIn.duration = .05, s => delete s.forced.fadeOut,
+    s => s.forced.fadeOut.values = [1,1,1], s => s.forced.fadeIn.values = [0,0,1],
+    s => s.forced.step++, s => s.offset += .1, s => s.forced.gridTime += .1,
+    s => s.forced.errorMs = 60, s => s.forced.correctionId = 2]) {
+    const bad = structuredClone(start); mutate(bad);
+    assert.equal(forcedVocalEvidence(bad, [correction]), false);
+    const invalid = vocalSourceEvidence({vocalStarts:[{}, bad], vocalCorrections:[correction]});
+    assert.equal(invalid.midPhraseRestarts, 1, 'a forced label alone cannot exempt a sung-region start');
+    assert.equal(invalid.invalidForcedReanchors, 1);
+  }
+  assert.equal(forcedVocalEvidence(null, []), false);
+  assert.equal(forcedVocalEvidence(start, []), false);
+  assert.equal(vocalSourceEvidence({}).forcedReanchors, null);
+  assert.equal(vocalSourceEvidence({vocalStarts:[]}).forcedReanchors, 0);
+}
+console.log('Forced vocal evidence PASS: actual equal-power20–40ms curves, downbeat and applied >60ms correction required; hard starts, malformed curves, wrong phase and duplicate correction fail.');
 {
   const song = stepFixture(mixFixture()), force = {at:109500, step:68, base:60 / 123 / 4, nextTime:10, deltaMs:-2 * 60000 / 123 / 4,
     clock:{outputContextTime:0, outputEpochMs:100000}};
