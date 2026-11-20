@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { STYLES, INSTRUMENTS } from '../js/state.js';
-import { sweepSeeds, ensembleOf, jobs, shard, verdict, SWEEP_SEEDS, WORSE_DB, KNOWN_FILE } from '../scripts/true-peak.mjs';
+import { sweepSeeds, ensembleOf, jobs, shard, verdict, SWEEP_SEEDS, REGRESSION_SEEDS, WORSE_DB, KNOWN_FILE } from '../scripts/true-peak.mjs';
 
 assert(readFileSync(new URL('../js/state.js', import.meta.url), 'utf8').includes('rng(Math.imul((seed | 0) ^ 0x6d2b79f5, 0x85ebca6b))'),
   'ensembleOf() mirrors the instrument RNG in js/state.js generatePattern(): update both together');
@@ -13,6 +13,7 @@ for (const style of Object.keys(STYLES)) {
   if (INSTRUMENTS[style]) assert.equal(new Set(seeds.map((s) => ensembleOf(style, s))).size, INSTRUMENTS[style].length, `${style} renders every ensemble`);
 }
 const all = jobs(Object.keys(STYLES));
+for (const [style, seeds] of Object.entries(REGRESSION_SEEDS)) for (const seed of seeds) assert(STYLES[style] && sweepSeeds(style).includes(seed), `regression seed ${style}/${seed} is swept`);
 assert.equal(new Set(all.map((j) => j[0])).size, Object.keys(STYLES).length, 'every style is in the sweep');
 assert.deepEqual(jobs(['trap'], null, {}).filter(([, seed]) => seed === 211), [['trap', 211]], 'Trap seed 211 stays in the sweep without an exemption');
 for (const n of [1, 4, 6]) {

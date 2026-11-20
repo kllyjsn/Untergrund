@@ -19,6 +19,8 @@ The gate records both as known breaches. They may not get louder, and once one i
 
 **Update since the snapshot.** The festival TRAP ensembles ([#298](https://github.com/kllyjsn/Untergrund/pull/298)) merged into main while this post was being written. They reorder TRAP's ensembles, so seed 20 now renders a different song. Rendering TRAP again on the new main, at 7 seeds that cover all 6 ensembles plus seed 20, gave a worst peak of −1.12 dBTP, and seed 20 now measures −1.22 dBTP. TRAP is back under the ceiling and off the known list. EUPHORIC seed 11 is unchanged at −0.97 dBTP and is now the only known breach.
 
+**Update: a breach outside the sweep.** Music then measured rap TRAP seed 211 at −0.94 dBTP on main, and the gate renders it at the same −0.94 dBTP, peaking at bar 59 in its G section. Seed 211 picks the same ensemble as seed 11, which the sweep already renders at −1.15 dBTP, so covering every ensemble does not cover every hot song. The Trap fix in [#322](https://github.com/kllyjsn/Untergrund/pull/322) brought seed 211 down to −1.24 dBTP. Music also found EUPHORIC seed 2 at −0.88 dBTP. After the Euphoric fix in [#316](https://github.com/kllyjsn/Untergrund/pull/316) it measures −1.32 dBTP, and EUPHORIC seed 11 is under the ceiling too. TRAP seed 211 and EUPHORIC seeds 2 and 11 are now regression seeds: the sweep renders them on every change, so none of them can creep back over unseen. The known-breach list is empty.
+
 {{chart sweep}}
 
 ## Most songs live just under the ceiling
