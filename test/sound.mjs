@@ -35,6 +35,13 @@ async function render(style, seed, { stem = 'full', bars = 4, voice = null, mute
   if (mute) s.mutes[mute] = true;
   const len = Math.ceil((0.05 + (bars * 16 * 60) / s.bpm / 4 + 0.5) * SR);
   const ctx = new OfflineAudioContext(1, len, SR), e = new Engine(ctx, s, { realtime: false }), q = new Sequencer(e, s);
+  if (style === 'bailefunk') {
+    e.funkCalls = new Set();
+    for (const method of ['funkDrum', 'funkVox', 'funkStab']) {
+      const original = e[method];
+      e[method] = function (...args) { this.funkCalls.add(method === 'funkDrum' ? args[0] : method); return original.apply(this, args); };
+    }
+  }
   for (let i = 0, t = 0.05; i < bars * 16; i++) { q.tick(i, t); t += e.stepDur; }
   const data = (await ctx.startRendering(e.mix)).getChannelData(0);
   Object.assign(P, orig);
@@ -190,6 +197,7 @@ const rows = [];
 // TRACK_IDS only: hook/chord are routed to stab by render(), never used as solo IDs.
 {
   const full = await render('bailefunk', 211);
+  assert.deepEqual([...full.engine.funkCalls].sort(), ['kick', 'clap', 'perc', 'funkVox', 'funkStab'].sort(), 'generated renders enter every funk branch');
   for (const stem of ['kick', 'clap', 'perc', 'vox', 'acid', 'hook']) {
     const solo = await render('bailefunk', 211, { stem });
     const muted = await render('bailefunk', 211, { mute: ['hook', 'chord'].includes(stem) ? 'stab' : stem });

@@ -1,6 +1,29 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { generate, defaultState, applyOverrides, sanitize, arrangement, songChain, INSTRUMENTS } from '../js/state.js';
+import { patternAt } from '../js/scope.js';
+import { FUNK_HANDS, FUNK_VOX, funkHandBar } from '../js/baile.js';
+import { createTimelineRecorder, normalizeTimeline, stateAt } from '../js/set-timeline.js';
+
+for (const seed of [1, 3, 5, 42]) {
+  const g = generate('bailefunk', seed), s = defaultState();
+  s.patterns = arrangement(g.pattern, seed, true); applyOverrides(s, g);
+  s.chainOn = true; s.chain = songChain('bailefunk', seed); s.artist = { style: 'bailefunk', seed };
+  const rec = createTimelineRecorder({ state: s, style: 'bailefunk', startsAt: 0 });
+  const replay = stateAt(normalizeTimeline(JSON.parse(JSON.stringify(rec.finish(1000)))), 0).state;
+  const loaded = sanitize(JSON.parse(JSON.stringify(s)));
+  for (let bar = 0; bar < s.chain.length; bar++) {
+    const scene = 'ABCDEFGH'.indexOf(s.chain[bar]), p = patternAt(s.patterns[scene], bar);
+    assert.deepEqual(p.steps.perc, FUNK_HANDS[funkHandBar(bar)], 'written hands answer over two bars and turn at phrase ends');
+    if (s.patterns[scene].steps.vox.some(Boolean)) assert.deepEqual(p.steps.vox, FUNK_VOX[bar % 2]);
+    for (const id of ['perc', 'vox']) {
+      assert(p.steps[id].every(v => [0, 1, 2].includes(v)));
+      assert.deepEqual(patternAt(loaded.patterns[scene], bar).steps[id], p.steps[id], 'save/load keeps the phrase');
+      assert.deepEqual(patternAt(replay.patterns[scene], bar).steps[id], p.steps[id], 'timeline keeps the phrase without artist metadata');
+    }
+  }
+}
+console.log('Baile two-bar hands/MC response, phrase-only turnaround and save/replay parity passed');
 
 assert.deepEqual(INSTRUMENTS.trap.slice(0, 4), [[10, 2, 1, 1.5, 0.2], [7, 2, 1, 0.75, 0.4], [6, 2, 0, 0.8, 0.7], [8, 2, 1, 0.5, 0.8]]);
 for (const [seed, voice] of [[42, 7], [211, 6], [11, 6]]) assert.equal(generate('trap', seed).params.stab.voice, voice);

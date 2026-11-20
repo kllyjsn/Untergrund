@@ -12,6 +12,7 @@ import { cleanLyrics } from './lyrics.js';
 import { SING_VOICES } from './sing-score.js';
 import { cleanTakes, patternAt, setTake } from './scope.js';
 import { trackTitle } from './crate.js';
+import { FUNK_HANDS, FUNK_VOX, funkHandBar } from './baile.js';
 
 export const STYLES = {
   hypnotic: { name: 'HYPNOTIC', bpm: [130, 134], family: 'TECHNO', tag: 'deep · rolling' },
@@ -547,8 +548,8 @@ function generatePattern(style, seed, scaleName, starter) {
     S.kick = pad16(pick(r, [[2, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], [2, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 1, 0, 0, 1]]));
     S.clap = pad16([0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1]);
     S.ch = range(STEPS, (i) => (i % 2 === 0 ? 1 : 0));
-    S.perc = pad16(euclid(7, 16, 0));
-    S.vox = pad16(pick(r, [[0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1], [1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1]]));
+    S.perc = [...FUNK_HANDS[0]];
+    S.vox = [...FUNK_VOX[0]];
     S.acid = range(STEPS, (i) => (i === 0 || i === 8 ? { on: true, n: 0, a: true, s: false } : emptyAcidStep()));
     Object.assign(params.kick, { tune: 46, decay: 0.7, drive: 0.6, punch: 0.8, click: 0.4, rumble: 0.3 });
     Object.assign(params.clap, { tone: 1400, decay: 0.2 });
@@ -885,6 +886,7 @@ function generatePattern(style, seed, scaleName, starter) {
     if (P.sections.chorus) { P.prog = P.sections.chorus; delete P.sections.chorus; }
   }
   if (MAJOR_STYLES.has(style) || style === 'rock') P.band = true;
+  if (style === 'bailefunk') { P.funk = true; S.perc = [...FUNK_HANDS[0]]; }
   if (style === 'pop' || style === 'rock') P.lite = true;
   if (style === 'country') P.lite = 'country';
   if (style === 'minimal') P.smooth = true;
@@ -1031,7 +1033,25 @@ export function arrangement(full, seed, half = false) {
   [0, 0, 1, 2, 2, 1, 2, 2].forEach((m, i) => { if (full.hook) scenes[i].hm = m; else delete scenes[i].hm; });
   if (full.alt) for (const i of [4, 5]) scenes[i].prog = clone(full.alt);
   if (full.sections) songScenes(scenes, full, full.sections);
+  if (full.funk) {
+    for (const p of scenes) delete p.funk;
+    funkPhrases(scenes, songChain('bailefunk', seed));
+  }
   return scenes;
+}
+
+function funkPhrases(patterns, chain, keep = []) {
+  for (const p of patterns) for (const take of p.at || []) {
+    for (const id of ['perc', 'vox']) if (!keep.includes(id) && take.steps) delete take.steps[id];
+  }
+  for (let bar = 0; bar < chain.length; bar++) {
+    const p = patterns['ABCDEFGH'.indexOf(chain[bar])], eff = clone(patternAt(p, bar));
+    for (const id of ['perc', 'vox']) {
+      if (keep.includes(id) || !p.steps[id].some(Boolean)) continue;
+      eff.steps[id] = [...(id === 'perc' ? FUNK_HANDS[funkHandBar(bar)] : FUNK_VOX[bar % 2])];
+    }
+    setTake(p, bar, eff);
+  }
 }
 
 // Songs (see SONG) write each section like a songwriter would: B becomes the pre-chorus, C the verse,
@@ -1259,6 +1279,7 @@ export function applySongPlan(s, style, seed, length = 'song') {
     }
   }
   if (style === 'drill' && plan.sections) drillVerses(s.patterns, plan, keep);
+  if (style === 'bailefunk') funkPhrases(s.patterns, plan.chain, keep);
   if (plan.chain === TECHNO_LONG) developFinalDrop(s.patterns, plan.chain, { keep });
   return plan;
 }
