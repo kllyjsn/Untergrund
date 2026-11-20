@@ -4329,7 +4329,7 @@ export class Sequencer {
     // A queued fill keeps its instrument when a single track is edited.
     const roller = rp >= 0 && i16 >= fillAt && pat.steps.snare.some(Boolean) ? 'snare' : 'clap';
     const grid = { abs, tt, bar, i16, vary, rp, pos, n, fillAt, roller, pk, band, sung, hum: s.master.humanize || 0, liveKit: Math.round(s.master.kit || 0) === 1 };
-    const hitContext = editable ? { cur: this.cur, runLen: this.runLen, smooth: this.smooth, build: this.build } : null;
+    const hitContext = editable ? { e, cur: this.cur, runLen: this.runLen, smooth: this.smooth, build: this.build } : null;
     let kickAt;
     for (const id of TRACK_IDS) {
       const on = !s.mutes[id] && (!anySolo || s.solos[id]);

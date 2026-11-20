@@ -396,6 +396,28 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
 
   {
+    for (const [style, replay, step] of [['bailefunk', null, 16], ['drill', 'bailefunk', 16], ['bailefunk', 'drill', 0]]) {
+      const state = defaultState();
+      state.artist = { style, seed: 1 };
+      state.chainOn = false; state.solos.vox = true;
+      state.master.arr = state.master.vary = 0;
+      const pat = state.patterns[state.current];
+      pat.steps.vox.fill(0); pat.steps.vox[0] = 1;
+      const e = new Engine(fakeCtx(), state), seq = new Sequencer(e, state), hits = [];
+      e.replay808Style = replay;
+      e.vox = (...args) => hits.push(args);
+      seq.tick(16, 1, 1, true);
+      assert.equal(hits.length, 1, 'an editable room VOX hit dispatches');
+      assert.equal(hits[0][2], step, 'the recorded palette chooses absolute or local vocal phase');
+      seq.tick(17, 1 + e.stepDur, undefined, true);
+      assert.equal(hits.length, 1, 'empty editable VOX steps stay silent');
+      state.mutes.vox = true;
+      assert.doesNotThrow(() => e.reviseHits('vox'), 'a queued VOX hit can be replanned after mute');
+    }
+    console.log('Editable room VOX dispatch: active/empty/replanned hits and both replay style directions passed.');
+  }
+
+  {
     for (const editable of [false, true]) for (const kickMuted of [false, true]) {
       const state = defaultState();
       state.artist = { style: 'drill' };
