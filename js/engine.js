@@ -280,25 +280,39 @@ function vocalPitchAt(buffer, phase, samples) {
   return NaN;
 }
 
-function vocalFadePowerRatio(outgoing, buffer, from, to, rate) {
+export function vocalFadePowerRatio(outgoing, buffer, from, to, rate) {
   const a = outgoing.getChannelData(0), b = buffer.getChannelData(0);
   const sample = (audio, x) => {
     const i = Math.floor(x), first = audio[i] ?? 0;
     return first + (x - i) * ((audio[i + 1] ?? 0) - first);
   };
-  // A pitch match can still cancel in phase. Compare 5 ms windows to the separate-source power.
-  const frames = 60;
-  let ratio = 1;
-  for (let window = 0; window < 6; window++) {
-    let mixed = 0, separate = 0;
-    for (let i = 0; i < frames; i++) {
-      const f = (window + (i + .5) / frames) / 6, t = f * VOCAL_FADE_SECONDS;
-      const x = sample(a, (from + t * rate) * outgoing.sampleRate) * Math.cos(f * Math.PI / 2);
-      const y = sample(b, (to + t) * buffer.sampleRate) * Math.sin(f * Math.PI / 2);
-      mixed += (x + y) ** 2;
-      separate += x * x + y * y;
+  // Slide a 5 ms window by one sample at 12 kHz so dips between fixed windows are not missed.
+  const window = 60, frames = 6 * window;
+  const blendedSuffix = new Float64Array(window), separateSuffix = new Float64Array(window);
+  let ratio = 1, blendedPrefix = 0, separatePrefix = 0;
+  for (let i = 0; i < frames; i++) {
+    const f = (i + .5) / frames, t = f * VOCAL_FADE_SECONDS;
+    const x = sample(a, (from + t * rate) * outgoing.sampleRate) * Math.cos(f * Math.PI / 2);
+    const y = sample(b, (to + t) * buffer.sampleRate) * Math.sin(f * Math.PI / 2);
+    const slot = i % window;
+    const blended = (x + y) ** 2, separate = x * x + y * y;
+    blendedPrefix += blended;
+    separatePrefix += separate;
+    const next = slot + 1;
+    if (i >= window - 1) {
+      const windowPower = separatePrefix + (separateSuffix[next] ?? 0);
+      if (windowPower > 0) ratio = Math.min(ratio, (blendedPrefix + (blendedSuffix[next] ?? 0)) / windowPower);
     }
-    if (separate > 0) ratio = Math.min(ratio, mixed / separate);
+    blendedSuffix[slot] = blended;
+    separateSuffix[slot] = separate;
+    if (next === window) {
+      // Sum the two sides of each overlapping window without subtracting away quiet samples.
+      for (let j = window - 2; j >= 0; j--) {
+        blendedSuffix[j] += blendedSuffix[j + 1];
+        separateSuffix[j] += separateSuffix[j + 1];
+      }
+      blendedPrefix = separatePrefix = 0;
+    }
   }
   return ratio;
 }

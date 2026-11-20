@@ -51,7 +51,7 @@ globalThis.fetch = async (url) => {
   catch { return { ok: false, status: 404 }; }
 };
 
-const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCrossfade } = await import('../js/engine.js');
+const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCrossfade, vocalFadePowerRatio } = await import('../js/engine.js');
 {
   const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
   const source = main.slice(main.indexOf('function landJamPart(part,'), main.indexOf('\n// GENERATE while'));
@@ -902,6 +902,17 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       assert.ok(at + .03 - 1 < boundary, 'the shifted crossfade completes before the outgoing note changes');
     } else assert.equal(at, downbeat, 'insufficient lookahead keeps the deadline fade');
     assert.ok(Math.abs(offset + downbeat - at - 8) < 1e-9, 'the incoming source is still aligned at the downbeat');
+  }
+  {
+    const outgoing = new FakeBuffer({length:1440}), incoming = new FakeBuffer({length:1440});
+    outgoing.getChannelData(0).fill(1);
+    incoming.getChannelData(0).fill(1).fill(-1, 624, 816);
+    assert.ok(vocalFadePowerRatio(outgoing, incoming, 0, 0, 1) < 0.5,
+      'a 4 ms dip straddling the fixed 15 ms boundary is detected in a sliding 5 ms window');
+    outgoing.getChannelData(0).fill(0).fill(0.31, 0, 240);
+    incoming.getChannelData(0).fill(0).fill(0.17, 0, 240);
+    assert.equal(vocalFadePowerRatio(outgoing, incoming, 0, 0, 1), 1,
+      'silent windows after an in-phase fade do not register a dip');
   }
   for (const {lookahead, delay, bend, cancels} of [
     {lookahead:.39, delay:.04, bend:true},
