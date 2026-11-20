@@ -1758,6 +1758,7 @@ export class Engine {
   // Slow-swelling ensemble: three detuned saws per note, filter opens with ENV, DECAY sets release.
   pad(t, v, iv, root, p, out) {
     const c = this.ctx, atk = 0.04 + p.env * 0.9, hold = Math.max(this.stepDur * 4, p.decay * 1.2), end = t + atk + hold + p.decay * 2 + 0.2;
+    const festival = this.state.artist?.style === 'trap' && Math.round(p.voice) === 2;
     const lp = this.filter('lowpass', p.cutoff * 0.5, Math.max(0.5, p.reso * 0.4));
     lp.frequency.setValueAtTime(p.cutoff * 0.4, t);
     lp.frequency.linearRampToValueAtTime(p.cutoff, t + atk);
@@ -1779,6 +1780,12 @@ export class Engine {
           o.detune.setTargetAtTime(side * (4 + p.detune) * 3, t + 0.008, 0.014);
         }
         if (drift) drift[side + 1].connect(o.detune);
+        if (festival) {
+          const motion = c.createOscillator(), depth = this.gain(8 + 4 * hash(root + n, side + 97));
+          motion.frequency.value = 0.37 + 0.41 * hash(root + n, side + 53);
+          motion.connect(depth).connect(o.detune);
+          this.startSource(motion, t); motion.stop(end);
+        }
         o.connect(pans[side + 1]); this.startSource(o, t); o.stop(end);
       });
     });

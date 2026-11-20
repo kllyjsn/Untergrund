@@ -68,6 +68,21 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
   console.log('Trap-only three-saw chord stack passed');
 }
 {
+  for (const [style, voice, moving] of [['trap', 2, true], ['trance', 2, false], ['trap', 0, false], [undefined, 2, false]]) {
+    const s = defaultState();
+    if (style) s.artist = { style };
+    Object.assign(s.params.stab, { voice, detune: 16 });
+    const ctx = fakeCtx(), e = new Engine(ctx, s, { realtime: false }), oscs = [];
+    ctx.createOscillator = () => { const o = node(ctx, 'Oscillator'); oscs.push(o); return o; };
+    e.pad(0.05, 0.8, [0], 60, s.params.stab, ctx.destination);
+    const motion = oscs.filter((o) => o.type !== 'sawtooth');
+    assert.equal(motion.length, moving ? 3 : 0, `${style}/${voice} PAD motion is festival-only`);
+    assert(motion.every((o) => o.frequency.value >= 0.37 && o.frequency.value <= 0.78));
+    assert.equal(new Set(motion.map((o) => o.frequency.value)).size, motion.length, 'each unison voice drifts independently');
+  }
+  console.log('Trap PAD-only decorrelated unison motion passed');
+}
+{
   const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
   const source = main.slice(main.indexOf('function landJamPart(part,'), main.indexOf('\n// GENERATE while'));
   for (const drive of [0, .2]) {
