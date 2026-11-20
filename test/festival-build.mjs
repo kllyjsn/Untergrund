@@ -4,6 +4,7 @@ import { songPlan, generate, STYLES } from '../js/state.js';
 import { buildSong, playSong } from '../scripts/composition.mjs';
 import { capture } from '../js/midi.js';
 import { Engine } from '../js/engine.js';
+import { createTimelineRecorder, stateAt } from '../js/set-timeline.js';
 
 for (const seed of [8, 1234, 3, 20, 4, 42, 211, 11]) {
   const voice = generate('trap', seed).params.stab.voice;
@@ -47,6 +48,28 @@ for (const seed of [8, 1234, 3, 20, 4, 42, 211, 11]) {
   }
 }
 assert.deepEqual(festivalBuilds('AAAADGGGGGGGH', 'trance', 0, 8), []);
+for (const voice of [0, 2]) {
+  const recorded = buildSong('bailefunk', 8);
+  recorded.params.stab.voice = voice;
+  const timeline = createTimelineRecorder({ state: recorded, style: 'bailefunk', startsAt: 0 }).finish(15000);
+  const at = stateAt(timeline, 0);
+  const s = { ...at.state, artist: { style: 'trap', seed: 8 } };
+  const replay = playSong(s, at.style);
+  const control = playSong({ ...s, artist: { style: at.style, seed: 8 } }, at.style);
+  assert.deepEqual(replay.seq.festivalPlan, [], 'recorded Baile Funk never plans a Trap build');
+  assert(!replay.log.some(x => x.k === 'festivalGap'), 'recorded Baile Funk has no festival gap');
+  const lowEnd = log => log.filter(x => x.k === 'acid' || x.k === 'trigger' && x.a[0] === 'kick');
+  assert.deepEqual(lowEnd(replay.log), lowEnd(control.log), 'listener style cannot withdraw recorded kicks or 808');
+  assert.equal(s.artist.style, 'trap', 'replay leaves the listener project metadata intact');
+}
+for (const seed of [8, 1234]) {
+  const s = buildSong('trap', seed);
+  s.artist = { style: 'bailefunk', seed };
+  const { log, seq } = playSong(s, 'trap');
+  assert(seq.festivalPlan.length > 0, 'recorded festival Trap still builds in a non-Trap project');
+  assert.equal(log.filter(x => x.k === 'festivalGap').length, seq.festivalPlan.length);
+}
+console.log('Saved-set festival gates follow recorded style: Baile Funk has no builds/gaps or extra kick/808 withdrawal; festival Trap still builds');
 for (const style of Object.keys(STYLES).filter(x => x !== 'trap')) {
   for (const voice of [0, 2, 7]) assert.deepEqual(festivalBuilds('AAAAAAADGGGGGGGH', style, voice, 8), []);
 }
@@ -94,13 +117,13 @@ assert(new Set(variants.map(bs => bs[0].shape)).size > 1, 'first roll recipes va
 assert(new Set(variants.map(bs => bs[0].gapSteps)).size > 1, 'first gaps vary by seed');
 for (const [style, voice, active] of [['trap', 0, true], ['trap', 2, true], ['trap', 7, false], ['trance', 0, false]]) {
   const values = [], times = [], gain = { setValueAtTime: v => values.push(v), linearRampToValueAtTime: v => values.push(v), exponentialRampToValueAtTime: (v,t) => { values.push(v); times.push(t); } };
-  Engine.prototype.festivalGap.call({ state: { artist: { style }, params: { stab: { voice } } }, festivalGate: { gain } }, 1, .4);
+  Engine.prototype.festivalGap.call({ playbackStyle: style, state: { params: { stab: { voice } } }, festivalGate: { gain } }, 1, .4);
   assert.deepEqual(values, active ? [1, .16, .0003, 1] : [], 'tail decays without a zero floor only inside the festival gate');
   assert.deepEqual(times, active ? [1.06, 1.396] : [], '60 ms entry and continuing exponential tail');
 }
 for (const amount of [0, .5, 1]) {
   const ramps = [], gain = { setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime: v => ramps.push(v) };
-  Engine.prototype.festivalGap.call({ state: { artist: { style: 'trap' }, params: { stab: { voice: 2 } } }, festivalGate: { gain } }, 1, .4, amount);
+  Engine.prototype.festivalGap.call({ playbackStyle: 'trap', state: { params: { stab: { voice: 2 } } }, festivalGate: { gain } }, 1, .4, amount);
   assert.deepEqual(ramps, amount ? [.16 ** amount, .0003 ** amount] : [], 'DROPS scales gap depth');
 }
 console.log('Festival DROPS control passed: zero suppresses builds and impacts, fractional amounts scale rolls/sweeps/gaps');

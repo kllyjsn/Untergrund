@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { STYLES, defaultState, generate, applyOverrides, arrangement, songChain } from '../js/state.js';
 import { makeIR } from '../js/dsp.js';
-import { TECHNO_HOOK_SPACE } from '../js/lead.js';
+import { TECHNO_HOOK_SPACE, HOOK_TRIM_DB } from '../js/lead.js';
 import { VOCAL_FX } from '../js/sing.js';
 import { syncAudioClock, transportResync, slewTransport, roomTransportCorrection } from '../js/room-sync.js';
 import { createRoomMediaSync, roomMediaLead, roomMediaTime } from '../js/room-media-sync.js';
@@ -120,6 +120,47 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
     assert.equal(engine.applied, switchAt === null ? 'euphoric' : undefined, 'replay start applies the recorded mix, while scheduled starts keep their handoff automation');
   }
   console.log('Club replay Euphoric mix follows recorded genre, not listener genre');
+}
+{
+  for (const [listener, recorded] of [['trap', 'bailefunk'], ['bailefunk', 'trap']]) {
+    for (const voice of [0, 2, 6]) {
+      const s = defaultState(); s.artist = { style: listener, seed: 8 }; s.params.stab.voice = voice;
+      const e = new Engine(fakeCtx(), s, { realtime: false });
+      e.replay808Style = recorded;
+      e.applyOutputTrim(true);
+      const db = recorded === 'trap' ? voice === 0 ? -.8 : -.3 : 0;
+      assert.equal(e.out.gain.value, .78 * 10 ** (db / 20), 'output trim follows the recorded style');
+      const trims = [], trimOut = e.trimOut;
+      e.trimOut = function (...args) { trims.push(args); return trimOut.apply(this, args); };
+      e.hook(.05, .8, 0, 1, 'analog');
+      assert.equal(trims.find(([key]) => key.startsWith('hook-'))[1],
+        (HOOK_TRIM_DB.analog || 0) + (recorded === 'trap' && voice === 2 ? 3 : 0), 'PAD-only hook lift follows recorded style');
+      const calls = [];
+      e.festivalGate.gain.setValueAtTime = value => calls.push(value);
+      e.festivalGate.gain.cancelScheduledValues = () => calls.push('cancel');
+      e.festivalGap(1, .4);
+      assert.equal(calls.length > 0, recorded === 'trap' && voice !== 6, 'only recorded festival Trap attenuates');
+      calls.length = 0;
+      s.master.arr = 0; e.applyMaster('arr', true);
+      assert.equal(calls.length > 0, recorded === 'trap' && voice !== 6, 'DROPS reset follows the recorded style');
+      e.replay808Style = recorded === 'trap' ? 'bailefunk' : 'trap';
+      e.applyOutputTrim(true);
+      assert.equal(calls.includes(1), recorded === 'trap' || voice === 6, 'leaving recorded festival Trap clears pending attenuation');
+    }
+  }
+  console.log('Saved-set festival attenuation, DROPS reset and output trims follow recorded style');
+}
+{
+  const s = defaultState(); s.artist = { style: 'trap', seed: 8 };
+  s.chainOn = true; s.chain = 'AAAAAAADGGGGGGGH'; s.params.stab.voice = 2;
+  const e = new Engine(fakeCtx(), s, { realtime: false }), seq = new Sequencer(e, s);
+  e.replay808Style = 'trap'; seq.advanceBar(0, 0);
+  assert(seq.festivalPlan.length > 0);
+  e.replay808Style = 'bailefunk'; seq.advanceBar(16, 2);
+  assert.deepEqual(seq.festivalPlan, [], 'recorded style changes invalidate the cached build plan');
+  e.replay808Style = 'trap'; seq.advanceBar(32, 4);
+  assert(seq.festivalPlan.length > 0, 'recorded Trap re-enables builds without changing the project');
+  console.log('Saved-set style changes invalidate festival build-plan cache');
 }
 {
   for (const [from, to] of [['euphoric', 'hypnotic'], ['hypnotic', 'euphoric']]) {

@@ -852,12 +852,12 @@ export class Engine {
   }
 
   applyOutputTrim(immediate = false) {
-    const voice = Math.round(this.state.params.stab.voice), festival = this.state.artist?.style === 'trap' && (voice === 0 || voice === 2);
+    const voice = Math.round(this.state.params.stab.voice), festival = this.playbackStyle === 'trap' && (voice === 0 || voice === 2);
     if (!festival && this.festivalGate) {
       this.festivalGate.gain.cancelScheduledValues(this.ctx.currentTime);
       this.festivalGate.gain.setValueAtTime(1, this.ctx.currentTime);
     }
-    const trim = this.state.artist?.style === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : 0;
+    const trim = this.playbackStyle === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : 0;
     this.setTo(this.out.gain, this.hardTechno ? 0.98 : OUT_TRIM * dbGain(trim), immediate);
   }
 
@@ -960,7 +960,7 @@ export class Engine {
   applyMaster(id, immediate = false) {
     const m = this.state.master;
     const v = m[id];
-    if (id === 'arr' && !v && this.festivalGate && festivalTrap(this.state.artist?.style, this.state.params.stab.voice)) {
+    if (id === 'arr' && !v && this.festivalGate && festivalTrap(this.playbackStyle, this.state.params.stab.voice)) {
       this.festivalGate.gain.cancelScheduledValues(this.ctx.currentTime);
       this.setTo(this.festivalGate.gain, 1, immediate);
     }
@@ -1997,7 +1997,7 @@ export class Engine {
       return this.dubChord(t, v, iv, root, p, this.ch.stab.input);
     }
     let trimmed = this.chordTone(vo, this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]));
-    if (this.state.artist?.style === 'trap' && (vo === 0 || vo === 2)) trimmed = this.technoHookOut('ravestack', trimmed);
+    if (this.playbackStyle === 'trap' && (vo === 0 || vo === 2)) trimmed = this.technoHookOut('ravestack', trimmed);
     const layers = this.hardTechno ? this.hardStabOut(trimmed) : null, out = layers ? layers.core : trimmed;
     if (layers) this.hardPalette(t, v, iv.map(n => midiHz(root + n)), Math.max(0.12, p.decay), layers.rave, 'rave');
     // A lifted breakdown plays decaying chords an octave up, filling it above the bass range it no longer shares.
@@ -2007,7 +2007,7 @@ export class Engine {
       }
       return this[STAB_VOICES[vo]](t, v, iv, root, p, out);
     }
-    const festival = this.state.artist?.style === 'trap';
+    const festival = this.playbackStyle === 'trap';
     const lp = this.filter('lowpass', p.cutoff, p.reso);
     const amp = this.gain(0);
     const env = c.createConstantSource();
@@ -2224,7 +2224,7 @@ export class Engine {
   // Slow-swelling ensemble: three detuned saws per note, filter opens with ENV, DECAY sets release.
   pad(t, v, iv, root, p, out) {
     const c = this.ctx, atk = 0.04 + p.env * 0.9, hold = Math.max(this.stepDur * 4, p.decay * 1.2), end = t + atk + hold + p.decay * 2 + 0.2;
-    const festival = this.state.artist?.style === 'trap' && Math.round(p.voice) === 2;
+    const festival = this.playbackStyle === 'trap' && Math.round(p.voice) === 2;
     const lp = this.filter('lowpass', p.cutoff * 0.5, Math.max(0.5, p.reso * 0.4));
     lp.frequency.setValueAtTime(p.cutoff * 0.4, t);
     lp.frequency.linearRampToValueAtTime(p.cutoff, t + atk);
@@ -2262,7 +2262,7 @@ export class Engine {
       const air = this.noiseSrc(t, end - t); air.loop = true;
       air.connect(hp).connect(airTop).connect(this.gain(0.05)).connect(amp);
     } else lp.connect(amp);
-    if (this.state.artist?.style === 'trap') amp.connect(this.filter('highpass', 180, 0.5)).connect(out);
+    if (this.playbackStyle === 'trap') amp.connect(this.filter('highpass', 180, 0.5)).connect(out);
     else amp.connect(out);
   }
 
@@ -3033,7 +3033,7 @@ export class Engine {
     const f = midiHz(60 + k + oct * 12 + n), preset = leadPreset(voice, pocketOf(this.state.master)?.name);
     const L = this.hardTechno ? { ...preset, cut: 380, env: 500, spread: 10, atk: 0.18, sus: 0.45, rel: 0.6, level: 0.12, bite: 0, air: 0.2 } : preset;
     const hdb = this.soulBand() ? 0 : HOOK_TRIM_DB[voice] || 0;
-    const festival = this.state.artist?.style === 'trap' && [0, 2].includes(Math.round(p.voice)), lift = festival && Math.round(p.voice) === 2 ? 3 : 0;
+    const festival = this.playbackStyle === 'trap' && [0, 2].includes(Math.round(p.voice)), lift = festival && Math.round(p.voice) === 2 ? 3 : 0;
     const out = this.trimOut(`hook-${voice}:${hdb + lift}`, hdb + lift, synth ? this.technoHookOut(voice) : this.hookBus || this.ch.stab.input, (voice === 'softmallet' ? 4 : HOOK_LOW_DB) + lift);
     if (this.hardTechno) this.hardPalette(t, v / 1.3 * L.level, [f * 2], Math.max(0.2, dur), out, 'air');
     if (this.hardTechno) return this.hardLead(t, v * L.level, f, dur, out);
@@ -3665,7 +3665,7 @@ export class Engine {
   }
 
   festivalGap(t, dur, amount = 1) {
-    if (!(amount > 0) || !festivalTrap(this.state.artist?.style, this.state.params.stab.voice)) return;
+    if (!(amount > 0) || !festivalTrap(this.playbackStyle, this.state.params.stab.voice)) return;
     const g = this.festivalGate?.gain;
     if (!g) return;
     g.setValueAtTime(1, t);
@@ -4252,10 +4252,11 @@ export class Sequencer {
   advanceBar(abs, t, offset = 0) {
     if (abs % 16 !== 0) return;
     const chain = this.s.chainOn ? parseChain(this.s.chain) : [];
-    const buildKey = `${this.s.chainOn}:${this.s.chain}:${this.s.artist?.style}:${this.s.params.stab.voice}:${this.s.artist?.seed}`;
+    const style = this.e.playbackStyle ?? this.s.artist?.style;
+    const buildKey = `${this.s.chainOn}:${this.s.chain}:${style}:${this.s.params.stab.voice}:${this.s.artist?.seed}`;
     if (this.festivalKey !== buildKey) {
       this.festivalKey = buildKey;
-      this.festivalPlan = this.s.chainOn ? festivalBuilds(chain.map((i) => 'ABCDEFGH'[i]).join(''), this.s.artist?.style, this.s.params.stab.voice, this.s.artist?.seed) : [];
+      this.festivalPlan = this.s.chainOn ? festivalBuilds(chain.map((i) => 'ABCDEFGH'[i]).join(''), style, this.s.params.stab.voice, this.s.artist?.seed) : [];
     }
     const arr = this.s.master.arr || 0;
     this.dropNow = !!this.dropNext; this.dropNext = false;
