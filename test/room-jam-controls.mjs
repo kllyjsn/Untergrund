@@ -162,7 +162,7 @@ async function renderBoundaryAutomation() {
   return {paths, gain: [.5, 1.05, 1.95, 2.09, 2.5].map(t => y[Math.round(t * rate)])};
 }
 
-async function renderHardPan(edit) {
+async function renderHardPan(edit, style = 'hardtechno') {
   const { Engine } = await import('/js/engine.js');
   const { defaultState } = await import('/js/state.js');
   const state = defaultState(), rate = 48000, ctx = new OfflineAudioContext(1, 3 * rate, rate);
@@ -173,6 +173,7 @@ async function renderHardPan(edit) {
   dc.connect(engine.ch.kick.level).connect(ctx.destination); dc.start();
   engine.hardSection(.1, 4, 0, 4, 4);
   const done = ctx.suspend(1.7).then(async () => {
+    state.artist = {...state.artist, style};
     if (edit) engine.scheduleJamParams({kick: {...state.params.kick, pan: .3}}, 2.1);
     engine.hardSection(2.1, 4, 1, 4, 4);
     await ctx.resume();
@@ -209,6 +210,7 @@ const result = await withChrome(async run => {
   out.boundary = await run('(' + renderBoundaryAutomation.toString() + ')()');
   out.handoffFade = await run('(' + renderHandoffFade.toString() + ')()');
   out.hardPan = {control: await run('(' + renderHardPan.toString() + ')(false)'), edited: await run('(' + renderHardPan.toString() + ')(true)')};
+  out.hardPanSwitch = await run('(' + renderHardPan.toString() + ')(true,"techno")');
   out.drive = {};
   for (const drive of [.2, .8, .3, .5]) out.drive[drive] = await run('(' + renderDrive.toString() + `)(${drive})`);
   for (const edit of ['edit', 'cancel', 'live']) out.drive[edit] = await run('(' + renderDrive.toString() + `)(.2,${JSON.stringify(edit)})`);
@@ -259,6 +261,7 @@ if (result) {
   assert(Math.max(...paths) <= 2, 'superseded acid drive paths are released');
   for (const [i, v] of result.hardPan.control.entries())
     assert(Math.abs(20 * Math.log10(result.hardPan.edited[i] / v)) < .05, 'a pan-only edit keeps the Hard Techno section level');
+  assert(Math.abs(result.hardPanSwitch[2] - .9) < .01, 'a set that leaves Hard Techno drops its section levels');
   assert(Math.abs(result.handoffFade[0] - (.9 - .6 * .25 / .45)) < .01 && Math.abs(result.handoffFade[1] - .8) < .01, 'a handoff on a fade end takes the incoming level');
   console.log('Room jam FX PASS: acid waveshaper and post-gain switch at both audio-clock boundaries; cancel restores one current path.');
   assert(Math.abs(result.drive.live[3] - result.drive[.2][3]) < .01, 'the pre-knob acid retains its original timbre');
