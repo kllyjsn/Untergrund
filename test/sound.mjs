@@ -121,15 +121,31 @@ const rmsDb = (d, a, b) => { let e = 0; for (let i = a; i < b; i++) e += d[i] * 
   assert.equal(e.dubEcho.mid.gain.at(0.6), -4, 'breakdowns clear the echo return without changing feedback');
   assert.equal(e.dubEcho.fb.gain.at(0.6), s.master.dlyFb, 'the echo feedback remains unchanged');
   e.dubSection(0.7, false);
+  assert.equal(e.dubEcho.mid.gain.at(0.7), 0, 'the echo EQ restores at the boundary, not after a release');
   assert.equal(e.dubEcho.mid.gain.at(1.2), 0, 'the echo contour returns to neutral after the breakdown');
   s.params.stab.voice = 3; e.dubSection(1.3, true);
   assert.equal(e.dubBreakCut, 0, 'the already balanced organ breakdown is left untouched');
-  s.chainOn = true; s.chain = 'EA'; s.ending = false;
+  s.params.stab.voice = 5; e.dubSection(1.4, true);
+  assert(Math.abs(e.mix.gain.at(2) - 10 ** (2.2 / 20)) < 1e-9, 'the muted keys recover breakdown level before the limiter');
+  e.dubSection(2.1, false);
+  assert.equal(e.mix.gain.at(2.1), 1, 'breakdown gain restores exactly at the boundary');
+  s.params.stab.voice = 0; e.dubSection(2.2, true); e.dubPad(2.2, 0.5, [0], 48);
+  const hp = e.dubPadFilters.at(-1).hp;
+  assert.equal(hp.frequency.at(2.2), 650);
+  e.dubSection(2.3, false);
+  assert.equal(hp.frequency.at(2.3), 420, 'already ringing pads restore their highpass at the boundary');
+  s.chainOn = true; s.chain = 'A'.repeat(48) + 'E'.repeat(8) + 'F'.repeat(8); s.ending = false;
   const q = new Sequencer(e, s);
   q.startAt(0, 0.05); q.tick(0, 0.05);
+  assert.equal(e.dubBreakdown, false, 'the opening is unchanged');
+  q.chainPos = 48; q.tick(48 * 16, 3.05);
   assert.equal(e.dubBreakdown, true, 'the arrangement selects the breakdown palette');
-  q.tick(16, 2.05);
+  q.chainPos = 56; q.tick(56 * 16, 5.05);
   assert.equal(e.dubBreakdown, false, 'the next section restores the original palette');
+  s.params.stab.voice = 5; q.chainPos = 48; q.tick(48 * 16, 7.05);
+  s.artist = { style: 'trap' }; q.chainPos = 56; q.tick(56 * 16, 9.05);
+  assert.equal(e.dubBreakdown, false, 'switching genres clears the Dub treatment');
+  assert.equal(e.mix.gain.at(9.05), 1, 'a reused engine cannot carry Dub gain into another genre');
 }
 
 {
@@ -157,11 +173,13 @@ const rmsDb = (d, a, b) => { let e = 0; for (let i = a; i < b; i++) e += d[i] * 
       }
     }
   }
-  const s = freshSong('dub', 42); s.artist = { style: 'dub', seed: 42 }; s.chainOn = true; s.chain = 'EA'; s.ending = false;
+  const s = freshSong('dub', 42); s.artist = { style: 'dub', seed: 42 }; s.chainOn = true; s.chain = 'A'.repeat(48) + 'E'.repeat(8) + 'F'.repeat(8); s.ending = false;
   const rec = new Recorder(s), q = new Sequencer(rec, s);
   q.startAt(0, 0.05); q.tick(0, 0.05);
+  assert.equal(rec.dubBreakdown, false, 'MIDI leaves the opening unchanged');
+  q.chainPos = 48; q.tick(48 * 16, 0.05);
   assert.equal(rec.dubBreakdown, true, 'MIDI tracks the breakdown register');
-  q.tick(16, 2.05);
+  q.chainPos = 56; q.tick(56 * 16, 2.05);
   assert.equal(rec.dubBreakdown, false, 'MIDI restores the original register after the breakdown');
 }
 

@@ -2002,15 +2002,28 @@ export class Engine {
   }
 
   dubSection(t, active) {
+    const changed = this.dubBreakdown !== active;
     this.dubBreakdown = active;
+    const voice = Math.round(this.state.params.stab.voice), boost = active && voice === 5 ? 10 ** (2.2 / 20) : 1;
+    if (boost !== this.dubBreakBoost) {
+      this.dubBreakBoost = boost;
+      this.mix.gain.cancelScheduledValues(t);
+      if (active) this.mix.gain.setTargetAtTime(boost, t, 0.02);
+      else this.mix.gain.setValueAtTime(1, t);
+    }
+    if (changed) for (const { hp, end } of this.dubPadFilters || []) {
+      if (end > t) hp.frequency.setValueAtTime(active && voice === 0 ? 650 : 420, t);
+    }
     const cut = active && Math.round(this.state.params.stab.voice) !== 3 ? -4 : 0;
     if (cut === this.dubBreakCut) return;
     this.dubBreakCut = cut;
     const gain = this.dubEcho?.mid.gain;
     if (gain) {
       gain.cancelScheduledValues(t);
-      gain.setTargetAtTime(cut, t, 0.06);
-      gain.setValueAtTime(cut, t + 0.4);
+      if (active) {
+        gain.setTargetAtTime(cut, t, 0.06);
+        gain.setValueAtTime(cut, t + 0.4);
+      } else gain.setValueAtTime(0, t);
     }
   }
 
@@ -2090,6 +2103,8 @@ export class Engine {
     root += Math.min(12, this.dubRegister(iv, root) - root);
     const hold = this.stepDur * 24, end = t + hold + 5, amp = this.gain(0);
     const hp = this.filter('highpass', this.dubBreakdown && Math.round(this.state.params.stab.voice) === 0 ? 650 : 420, 0.5), lp = this.filter('lowpass', 850, 0.5);
+    this.dubPadFilters = (this.dubPadFilters || []).filter((p) => p.end > t);
+    this.dubPadFilters.push({ hp, end });
     lp.frequency.setValueAtTime(650, t); lp.frequency.linearRampToValueAtTime(1100, t + hold); lp.frequency.linearRampToValueAtTime(600, end);
     amp.gain.setValueAtTime(0, t); amp.gain.linearRampToValueAtTime(this.dubPadLevel(iv, root, t) * v / Math.sqrt(iv.length), t + 1.4);
     amp.gain.setTargetAtTime(0, t + hold, 1); amp.gain.setValueAtTime(0, end);
@@ -4192,8 +4207,8 @@ export class Sequencer {
     const s = this.s, e = this.e;
     this.advanceBar(abs, t);
     if (this.finished && this.songBars) return this.cur;
-    if (s.artist?.style === 'dub') e.dubSection?.(t, s.chainOn && (this.cur === 4 || this.cur === 5));
     const n = this.songBars || 0, pos = n ? (this.chainPos - 1) % n : -1, lf = this.liftFrom;
+    if (s.artist?.style === 'dub' || e.dubBreakdown === true) e.dubSection?.(t, s.artist?.style === 'dub' && s.chainOn && pos >= 48 && pos < 56 && (this.cur === 4 || this.cur === 5));
     if (abs % 16 === 0) e.vocal(t, pos, 0, roomGridTime, false, vocalSettling);
     const pat = patternAt(s.patterns[this.cur], pos);
     const bar = Math.floor(abs / 16), vary = s.master.vary || 0;
