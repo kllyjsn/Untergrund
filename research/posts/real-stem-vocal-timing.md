@@ -39,6 +39,20 @@ Where Music measured the same case, the eval reproduces its numbers: 15.79, 11.1
 
 Music's note-boundary detector needs pitch steady within 40 cents on both sides of a change, so it misses short moving transitions, such as one at 21.44 to 21.46 s on the stress loop. PR 302 snapped fades toward that detector's boundaries and still clashed. The eval does not trust detected boundaries: it measures the pitch actually sounding on both sides of each fade, and how fast that pitch is moving within 40 ms. Of the three voiced cuts that remain on main, two sit inside moving pitch (over 40 cents per 10 ms); those are the two that clash most.
 
+## The rest of the mix, same commit
+
+The vocal timing eval measures one part. For context, here is where the rendered audio benchmark stood on this branch, which changes no sound.
+
+{{chart scoreboard}}
+
+{{chart truepeak}}
+
+{{chart loudness}}
+
+{{chart squash}}
+
+{{chart energy hypnotic,deephouse,trance,amapiano,trap}}
+
 ## Limits
 
 The gate is advisory and calibrated on four verdicts from one listener. It covers two singer seeds and one voice, a dry vocal with no band, and timing only. It ranks which vocal PRs need Music's ear first; it does not replace it.
