@@ -14,6 +14,7 @@ import { harmRoot, chordIv, stabNotes, hookSnap, voiceLead } from './harmony.js'
 import { develop, motifPlan, stepDeg } from './motif.js';
 import { MELODY_BARS, strongNote } from './melody.js';
 import { patternAt } from './scope.js';
+import { festivalTrap, festivalBuilds, festivalBuildStep } from './festival-build.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
 const dampedChord = (e) => (e.state.artist?.style === 'breaks' && Math.round(e.state.params.stab.voice) === 1)
@@ -576,11 +577,12 @@ export class Engine {
     this.bandDuck = this.gain(1);
     // ...and the limiter, which then works less, would still let it add about a dB: singTrim takes that back after it.
     this.singTrim = this.gain(1);
+    this.festivalGate = this.gain(1);
     this.preMaster = this.gain(1);
     this.mix.connect(this.bandDuck).connect(this.preMaster);
     this.preMaster.connect(this.djHP).connect(this.djLP).connect(this.arrLP).connect(this.toneLow).connect(this.toneMud).connect(this.tonePres).connect(this.toneAir).connect(this.widthIn);
     this.widthOut.connect(this.glue).connect(this.satIn).connect(this.sat)
-      .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.secPreGain).connect(this.clip).connect(this.secGain).connect(this.singTrim).connect(this.out);
+      .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.secPreGain).connect(this.clip).connect(this.secGain).connect(this.singTrim).connect(this.festivalGate).connect(this.out);
     this.out.connect(c.destination);
     // The neural singer's stem (vocal(), js/sing.js): past the band's duck, into the master chain.
     this.vocalBus = this.gain(0);
@@ -848,7 +850,11 @@ export class Engine {
   }
 
   applyOutputTrim(immediate = false) {
-    const voice = Math.round(this.state.params.stab.voice);
+    const voice = Math.round(this.state.params.stab.voice), festival = this.state.artist?.style === 'trap' && (voice === 0 || voice === 2);
+    if (!festival && this.festivalGate) {
+      this.festivalGate.gain.cancelScheduledValues(this.ctx.currentTime);
+      this.festivalGate.gain.setValueAtTime(1, this.ctx.currentTime);
+    }
     const trim = this.state.artist?.style === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : 0;
     this.setTo(this.out.gain, this.hardTechno ? 0.98 : OUT_TRIM * dbGain(trim), immediate);
   }
@@ -952,6 +958,10 @@ export class Engine {
   applyMaster(id, immediate = false) {
     const m = this.state.master;
     const v = m[id];
+    if (id === 'arr' && !v && this.festivalGate && festivalTrap(this.state.artist?.style, this.state.params.stab.voice)) {
+      this.festivalGate.gain.cancelScheduledValues(this.ctx.currentTime);
+      this.setTo(this.festivalGate.gain, 1, immediate);
+    }
     if (id === 'pocket' || id === 'kit') this.applyStrips();
     if (id === 'dj') {
       const { hp, lp, q } = djFilter(v);
@@ -3533,12 +3543,31 @@ export class Engine {
     if (cur === 4 && pos === 0) this.tonalSweep(t, dur * 2, 0.4, true);
   }
 
-  // One-bar noise sweep into a drop, then a sub boom and crash on its downbeat
-  sweep(t, dur, amt) {
+  festivalGap(t, dur, amount = 1) {
+    if (!(amount > 0) || !festivalTrap(this.state.artist?.style, this.state.params.stab.voice)) return;
+    const g = this.festivalGate?.gain;
+    if (!g) return;
+    g.setValueAtTime(1, t);
+    g.exponentialRampToValueAtTime(0.16 ** amount, t + Math.min(0.06, dur * 0.25));
+    g.exponentialRampToValueAtTime(0.0003 ** amount, t + dur - 0.004);
+    g.linearRampToValueAtTime(1, t + dur);
+  }
+
+  sweep(t, dur, amt, profile) {
     if (this.hardTechno) return this.tonalSweep(t, dur, amt);
-    const s = this.noiseSrc(t, dur + 0.05), bp = this.filter('bandpass', 500, 2), g = this.gain(0);
-    bp.frequency.setValueAtTime(500, t); bp.frequency.exponentialRampToValueAtTime(8000, t + dur);
-    g.gain.setValueAtTime(EPS, t); g.gain.exponentialRampToValueAtTime(0.32 * amt, t + dur * 0.97); g.gain.linearRampToValueAtTime(0, t + dur);
+    const s = profile?.tone ? this.ctx.createOscillator() : this.noiseSrc(t, dur + 0.05);
+    const bp = this.filter('bandpass', profile?.low || 500, profile ? 0.7 : 2), g = this.gain(0);
+    if (profile?.tone) {
+      s.type = 'triangle'; s.frequency.setValueAtTime(profile.low, t);
+      s.frequency.exponentialRampToValueAtTime(profile.high, t + dur);
+      this.startSource(s, t); s.stop(t + dur + 0.05);
+    }
+    bp.frequency.setValueAtTime(profile?.low || 500, t); bp.frequency.exponentialRampToValueAtTime(profile?.high || 8000, t + dur);
+    g.gain.setValueAtTime(EPS, t);
+    if (profile) {
+      for (let i = 1; i <= 16; i++) g.gain.linearRampToValueAtTime((profile.tone ? 0.12 : 0.32) * amt * (i / 16) ** profile.curve, t + dur * 0.97 * i / 16);
+    } else g.gain.exponentialRampToValueAtTime(0.32 * amt, t + dur * 0.97);
+    g.gain.linearRampToValueAtTime(0, t + dur);
     s.connect(bp).connect(g); g.connect(this.mix); g.connect(this.revIn);
     return { s, g };
   }
@@ -4102,6 +4131,11 @@ export class Sequencer {
   advanceBar(abs, t, offset = 0) {
     if (abs % 16 !== 0) return;
     const chain = this.s.chainOn ? parseChain(this.s.chain) : [];
+    const buildKey = `${this.s.chainOn}:${this.s.chain}:${this.s.artist?.style}:${this.s.params.stab.voice}:${this.s.artist?.seed}`;
+    if (this.festivalKey !== buildKey) {
+      this.festivalKey = buildKey;
+      this.festivalPlan = this.s.chainOn ? festivalBuilds(chain.map((i) => 'ABCDEFGH'[i]).join(''), this.s.artist?.style, this.s.params.stab.voice, this.s.artist?.seed) : [];
+    }
     const arr = this.s.master.arr || 0;
     this.dropNow = !!this.dropNext; this.dropNext = false;
     this.songBars = chain.length; this.chainArr = chain;
@@ -4130,6 +4164,10 @@ export class Sequencer {
         }
       }
       if (!this.breakFilterPlanned && (!arr || !brk(this.cur))) this.e.breakOpen(t, SMOOTH.has(this.s.artist?.style));
+      if (this.festivalPlan.length) {
+        this.dropNow = !!arr && this.festivalPlan.some((b) => b.drop === p);
+        this.dropNext = !!arr && this.festivalPlan.some((b) => b.drop === p + 1);
+      }
       this.sectionLevel(t, p, offset);
       return;
     }
@@ -4202,6 +4240,17 @@ export class Sequencer {
     const pk = pocketOf(s.master);
     if ((s.master.dust || 0) > 0.01) e.dust(t, sd, abs);
     const arr = s.master.arr || 0, i16 = abs % 16;
+    const festival = this.festivalPlan?.length > 0;
+    const buildAmount = arr * 2;
+    if (festival && !arr) this.dropNow = this.dropNext = false;
+    const build = festival ? festivalBuildStep(this.festivalPlan, pos, i16, buildAmount) : null;
+    if (build?.sweepStart) e.sweep(t, build.durationSteps * sd, build.strength, build.sweep);
+    if (build?.lowOff && i16 === 0) e.acidRelease(t);
+    if (build?.gapStart) e.festivalGap?.(t, build.gapSteps * sd, buildAmount);
+    if (build?.gap) return this.cur;
+    if (build && !build.drop && !s.mutes.snare && (!TRACK_IDS.some((id) => s.solos[id]) || s.solos.snare)) {
+      for (const hit of build.rolls) e.trigger('snare', t + hit.offset * sd, hit.velocity);
+    }
     const sung = pat.hook?.m && !pat.hook.h ? this.sungBar(bar, n ? pos : bar) : null;
     const hookStep = sung ? this.songBars && !sung.hook.m.c && sung.notes.some((o) => o.at === i16 && i16 % 8) : pat.hook && pat.hm ? pat.hook.s[abs % 32] : 0;
     const hard = s.artist?.style === 'hardtechno';
@@ -4224,7 +4273,7 @@ export class Sequencer {
       const soloed = Object.values(s.solos || {}).some(Boolean);
       if (sc > 0 && i16 === 0 && !s.mutes.stab && (!soloed || s.solos.stab)) e.trigger('stab', t, 0.45);
     }
-    if (this.dropNext && this.smooth) { if (i16 === 0) e.dropDip(t, 16 * sd); } else if (this.dropNext && !hard) {
+    if (!festival && this.dropNext && this.smooth) { if (i16 === 0) e.dropDip(t, 16 * sd); } else if (!festival && this.dropNext && !hard) {
       if (i16 === 0) e.sweep(t, 16 * sd, arr);
       if (i16 >= 8 && !s.mutes.snare) {
         const rv = (0.25 + (0.6 * (i16 - 8)) / 7) * arr;
@@ -4254,6 +4303,15 @@ export class Sequencer {
     let kickAt;
     for (const id of TRACK_IDS) {
       const on = !s.mutes[id] && (!anySolo || s.solos[id]);
+      if (build?.lowOff && (id === 'kick' || id === 'acid')) continue;
+      if (build && !build.drop && (id === 'snare' || (['ch', 'oh', 'ride'].includes(id) && build.thin))) continue;
+      if (build?.drop && on && id === 'kick') { e.trigger('kick', t, buildAmount); kickAt = t; continue; }
+      if (build?.drop && on && id === 'acid') {
+        e.noteVel = buildAmount;
+        e.acid(t, { ...(pat.steps.acid.find((st) => st.on) || { n: 0 }), on: true, s: false, a: true }, false, false, sd);
+        this.acidPrevSlide = false; this.acidMuted = false;
+        continue;
+      }
       const len = pat.len[id] || 16;
       const i = abs % len;
       if (id === 'acid') {
