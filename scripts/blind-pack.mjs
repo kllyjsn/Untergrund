@@ -66,6 +66,18 @@ export function baseSelection(options, previous, now = Date.now()) {
   }
   return { ref: null, sinceTime: new Date(now - 86400000).toISOString() };
 }
+export function excerptWithFrom(source) {
+  const signature = "{ kind = 'peak', bars = 8 } = {})";
+  const selection = "const [a, b, tail] = kind === 'ending' ?";
+  if (/export async function excerpt\([^\n]*\bfrom\s*=/.test(source)) return source;
+  if (!source.includes(signature) || !source.includes(selection)) throw new Error('Cannot add explicit excerpt window support to this revision');
+  return source.replace(signature, "{ kind = 'peak', bars = 8, from = null } = {})")
+    .replace(selection, "const [a, b, tail] = from != null ? [from, Math.min(p.bars, from + bars), 0.5] : kind === 'ending' ?");
+}
+export function checkBarWindow(actual, expected = actual) {
+  if (!Array.isArray(actual) || actual.length !== 2 || !actual.every(Number.isInteger) || actual[0] < 0 || actual[1] - actual[0] !== 8 || actual.some((n, i) => n !== expected[i])) throw new Error(`Excerpt bar window mismatch: ${JSON.stringify(actual)} vs ${JSON.stringify(expected)}`);
+  return [...actual];
+}
 export function seedOverrides(text = '') {
   const out = {};
   for (const pair of text.split(',').filter(Boolean)) {
@@ -127,9 +139,12 @@ export async function main(argv = process.argv.slice(2)) {
   mkdirSync(out, { recursive: true });
   const temp = mkdtempSync(join(tmpdir(), 'ug-blind-')), worktrees = [];
   try {
-    for (const [version, commit] of [['original', base], ['revised', head]]) {
+    for (const [version, commit] of [['revised', head], ['original', base]]) {
       const dir = join(temp, version);
       git('worktree', 'add', '--detach', dir, commit); worktrees.push(dir);
+      const excerptFile = join(dir, 'test/audio-quality-page.js');
+      const source = readFileSync(excerptFile, 'utf8'), compatible = excerptWithFrom(source);
+      if (source !== compatible) writeFileSync(excerptFile, compatible);
       if (!existsSync(join(dir, 'node_modules')) && existsSync(join(ROOT, 'node_modules'))) symlinkSync(join(ROOT, 'node_modules'), join(dir, 'node_modules'), 'dir');
       const { withChrome } = await import(pathToFileURL(join(dir, 'test/chrome.mjs')));
       const cwd = process.cwd();
@@ -140,7 +155,11 @@ export async function main(argv = process.argv.slice(2)) {
           if (!available) throw new Error(`${version} ${commit} lacks excerpt() in test/audio-quality-page.js`);
           for (const p of pairs) {
             console.log(`Rendering ${version} ${p.style} seed=${p.renderSeed}`);
-            const x = await run(`window.__q.excerpt(${JSON.stringify(p.style)}, ${p.renderSeed}, { kind: 'peak', bars: 8 })`);
+            const options = { kind: 'peak', bars: 8, ...(p.barWindow ? { from: p.barWindow[0] } : {}) };
+            const x = await run(`window.__q.excerpt(${JSON.stringify(p.style)}, ${p.renderSeed}, ${JSON.stringify(options)})`);
+            p.barWindow = checkBarWindow(x.bars, p.barWindow);
+            (p.windows ||= {})[version] = [...x.bars];
+            console.log(`${version} ${p.style} bars=${x.bars.join('–')}`);
             writeFileSync(join(temp, `${p.style}-${version}.wav`), Buffer.from(x.wav, 'base64'));
           }
           return true;

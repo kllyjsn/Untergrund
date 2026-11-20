@@ -1,11 +1,22 @@
 import assert from 'node:assert/strict';
-import { baseSelection, detectStyles, hash, random, shuffle, main, seedOverrides, parseMergedPR } from '../scripts/blind-pack.mjs';
+import { baseSelection, detectStyles, hash, random, shuffle, main, seedOverrides, parseMergedPR, excerptWithFrom, checkBarWindow } from '../scripts/blind-pack.mjs';
 
 assert.deepEqual(seedOverrides(), {});
 assert.deepEqual(seedOverrides('afrobeats:0,hyperpop:4294967295'), { afrobeats: 0, hyperpop: 4294967295 });
 for (const value of ['unknown:1', 'dnb:', 'dnb:1.5', 'dnb:-1', 'dnb:4294967296', 'dnb:NaN', 'dnb:1:2', 'dnb:1,dnb:2']) assert.throws(() => seedOverrides(value), /Invalid genre seed/);
 
 const input = ['minimal', 'drill', 'hardtechno', 'trap'];
+assert.deepEqual(checkBarWindow([63, 71]), [63, 71]);
+assert.deepEqual(checkBarWindow([63, 71], [63, 71]), [63, 71]);
+assert.throws(() => checkBarWindow([32, 40], [63, 71]), /window mismatch/);
+assert.throws(() => checkBarWindow([]), /window mismatch/);
+assert.throws(() => checkBarWindow([0, 7]), /window mismatch/);
+const legacyExcerpt = "export async function excerpt(style, seed, { kind = 'peak', bars = 8 } = {}) { const [a, b, tail] = kind === 'ending' ? ending : peak; }";
+const explicitExcerpt = excerptWithFrom(legacyExcerpt);
+assert(explicitExcerpt.includes('from = null'));
+assert(explicitExcerpt.includes('from + bars'));
+assert.equal(excerptWithFrom(explicitExcerpt), explicitExcerpt);
+assert.throws(() => excerptWithFrom(''), /Cannot add explicit/);
 assert.deepEqual(parseMergedPR('Merge pull request #241 from owner/minimal\n\nNotch Minimal chord harmonics\n'), { number: 241, title: 'Notch Minimal chord harmonics' });
 assert.deepEqual(parseMergedPR("Notch Minimal's chord harmonics (#241)\n\nSquash commit details"), { number: 241, title: "Notch Minimal's chord harmonics" });
 assert.equal(parseMergedPR(''), null);
