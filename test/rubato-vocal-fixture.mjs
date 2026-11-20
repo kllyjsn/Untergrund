@@ -53,7 +53,7 @@ export async function rubatoVocalFixture({style = 'ukg', residual = 0, rubato = 
     const before = engine.vocalNow, count = starts.length, correction = engine.vocalCorrection;
     const phase = (args[1] * 16 + (args[2] || 0)) * (engine.vocalStepDur ?? engine.stepDur);
     const errorMs = before ? 1000*((args[3]??args[0])-phase-before.origin) : null;
-    const pending = !!before?.correction;
+    const pending = !!(before?.correction || before?.gapCorrection);
     calls.push({step:args[1]*16+(args[2]||0),reanchor:!!args[4],pending,errorMs});
     if (args[4] && !pending) pendingEntry = {step:args[1]*16+(args[2]||0),errorMs};
     const result = vocal(...args);
@@ -66,6 +66,7 @@ export async function rubatoVocalFixture({style = 'ukg', residual = 0, rubato = 
     return result;
   };
   const tempo = rubato ? rubatoMap(2048,16,[],1) : Array(2048).fill(1);
+  engine.variableScoreTempo = rubato;
   const seq = {origin:0,cur:0,chainPos:1,songBars:12,finished:false,advanceBar(){},rewind(){},
     tick(abs,t,gridTime,editable,settling) {
       this.chainPos = Math.floor(abs / 16) + 1;

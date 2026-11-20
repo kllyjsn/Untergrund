@@ -324,6 +324,7 @@ export class Engine {
 
   get stepDur() { return (60 / this.state.bpm / 4) * (this.stepScale || 1); }
   get vocalStepDur() { return 60 / this.state.bpm / 4; }
+  get vocalRubato() { return this.variableScoreTempo || this.stepDur !== this.vocalStepDur; }
 
   // ---------- graph ----------
   gain(v = 1) { const g = this.ctx.createGain(); g.gain.value = v; return g; }
@@ -3375,7 +3376,10 @@ export class Engine {
     const origin = (gridTime ?? t) - phase;
     const continuous = cur && v && cur.buf === v.buf && (cur.next === pos || (reanchor && cur.next === pos + 1) || (settling && pos >= cur.next - 1)) && cur.sd === sd && cur.ms === v.ms;
     if (continuous && (settling || Math.abs(origin - cur.origin) <= 0.03)) {
-      if (reanchor && !settling) cur.correction = null;
+      if (reanchor && !settling) {
+        if (cur.gapCorrection) cur.gapCorrection = null;
+        cur.correction = null;
+      }
       cur.next = pos + 1;
       this.vocalBus.gain.setTargetAtTime(v.gain, t, 0.02);
       return true;
@@ -3383,12 +3387,14 @@ export class Engine {
     let forced = false, crossfade = null, alignment = null;
     if (continuous && reanchor) {
       const errorMs = (origin - cur.origin) * 1000;
-      const index = pos * 16 + step, rubato = this.stepDur !== sd;
-      alignment = cur.correction ||= {id:this.vocalCorrectionSerial = (this.vocalCorrectionSerial || 0) + 1, forceFrom:null, forceStep:null};
-      if (Math.abs(errorMs) > 60 + 1e-6) {
+      const index = pos * 16 + step, rubato = this.vocalRubato;
+      const newCorrection = () => ({id:this.vocalCorrectionSerial = (this.vocalCorrectionSerial || 0) + 1, forceFrom:null, forceStep:null});
+      // A pending rubato gap must not interrupt the transport's own slew.
+      alignment = rubato ? cur.gapCorrection ||= newCorrection() : cur.correction ||= newCorrection();
+      if (!rubato && Math.abs(errorMs) > 60 + 1e-6) {
         if (alignment.forceFrom === null) {
           alignment.forceFrom = index;
-          alignment.forceStep = rubato ? (Math.floor(index / 16) + 1) * 16 : vocalReanchorStep(index);
+          alignment.forceStep = vocalReanchorStep(index);
         }
         if (index > alignment.forceStep) alignment.forceStep = Math.ceil(index / 16) * 16;
       } else {
@@ -3400,7 +3406,7 @@ export class Engine {
       const earliest = Math.max(phase, this.ctx.currentTime + 0.02 - origin,
         ...voices.map(voice => (voice.slewEnd ?? -Infinity) - origin));
       // On a moving grid a distant gap would be scheduled against stale phase.
-      const lastStep = rubato ? Math.min(index + 4, alignment.forceStep ?? Infinity) : (alignment.forceFrom ?? index) + 32;
+      const lastStep = rubato ? index + 16 : (alignment.forceFrom ?? index) + 32;
       const latest = lastStep * sd - v.ms / 1000;
       const quiet = (at, source = buffer) => {
         const audio = source.getChannelData(0), window = Math.ceil(source.sampleRate * 0.06);
@@ -3410,6 +3416,13 @@ export class Engine {
         for (let i = first; i < first + window; i++) energy += audio[i] * audio[i];
         return energy / window < 0.0001;
       };
+      const quietDuringFade = (voice, when) => {
+        const rate = voice.slewRate ?? 1;
+        const phase = when - voice.origin + (rate - 1) * (when - (voice.slewEnd ?? when));
+        const source = voice.src.buffer;
+        singingEnvelope(source);
+        return phraseGaps.get(source).some(g => g.from <= phase && phase + 0.06 * rate <= g.to);
+      };
       let silence, gapStart;
       for (const g of phraseGaps.get(buffer)) {
         const last = g.to - 0.08 - Math.max(0, shift);
@@ -3417,14 +3430,14 @@ export class Engine {
         if (start < earliest || start > Math.min(last, latest) || start < g.from || !quiet(start)) continue;
         const when = origin + start;
         const audible = voices.filter(voice => voice.startAt <= when && (voice.until ?? Infinity) > when);
-        if (!audible.every(voice => quiet(when - voice.origin, voice.src.buffer))) continue;
+        if (!audible.every(voice => rubato ? quietDuringFade(voice, when) : quiet(when - voice.origin, voice.src.buffer))) continue;
         silence = g;
         gapStart = start;
         break;
       }
       const gap = !!silence;
-      if (gap) t += gapStart - phase;
-      forced = !gap && alignment.forceStep === index;
+      if (gap) t = rubato ? origin + gapStart : t + (gapStart - phase);
+      forced = !rubato && !gap && alignment.forceStep === index;
       if (forced && (t < this.ctx.currentTime + 0.02 || phase < 0 || phase >= v.buf.duration)) {
         alignment.forceStep += 16;
         forced = false;
@@ -3762,7 +3775,7 @@ export class Sequencer {
     }
     if (this.dropNow && i16 === 0 && !this.smooth) e.impact(t, arr);
     if (pat.score) this.scoreStep(pat.score, abs, t, sd);
-    else this.e.stepScale = 1;
+    else { e.stepScale = 1; e.variableScoreTempo = false; }
     const anySolo = TRACK_IDS.some((id) => s.solos[id]);
     const rp = arr && !vary && n && !pat.score && (this.runLen >= 8 || (hard && this.runLen >= 4)) ? this.runPos : -1;
     // A song verse running straight into the pre-chorus fills its own last bar (no D/H turnaround follows it).
@@ -4111,6 +4124,11 @@ export class Sequencer {
     this.scoreBar = Math.floor(pos / (sc.barLen || 16));
     // A generated song plays its score once: after the final chord's step the transport lets it ring and stops.
     if (this.s.ending && !sc.waiting && abs >= sc.at.length - 1) this.finished = true;
+    if (sc.tempo !== this.scoreTempo) {
+      this.scoreTempo = sc.tempo;
+      this.variableScoreTempo = sc.tempo.some(scale => scale !== 1);
+    }
+    this.e.variableScoreTempo = this.variableScoreTempo;
     this.e.stepScale = sc.tempo[pos];
     sd *= sc.tempo[pos];
     const hum = this.s.master.humanize ?? 0.4;

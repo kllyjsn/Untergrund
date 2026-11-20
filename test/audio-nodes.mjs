@@ -772,7 +772,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     for (let i = 0; i < incoming.length; i++) assert.ok(Math.abs(incoming[i] ** 2 + outgoing[i] ** 2 - 1) < 1e-6);
     assert.equal(incoming[0], 0); assert.equal(incoming.at(-1), 1);
     assert.equal(outgoing[0], 1); assert.ok(outgoing.at(-1) < 1e-6);
-    for (const [during, rubato] of [[false, false], [true, false], [false, true]]) {
+    for (const during of [false, true]) {
       const c = fakeCtx(), s = defaultState(); s.bpm = 120;
       const sources = [], gains = [];
       c.createGain = () => {
@@ -788,13 +788,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       };
       const buf = new FakeBuffer({length:48000 * 20, sampleRate:48000}); buf.getChannelData(0).fill(.1);
       const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:.5, lift:.5, ms:0})});
-      e.stepScale = rubato ? 1.01 : 1;
       let sends = 0, ducks = 0;
       e.vocalSends = () => sends++;
       e.duckUnder = () => ducks++;
       e.vocal(1, 0, 0, 1);
       const before = {sends, ducks};
-      const forceStep = rubato ? 32 : 48;
+      const forceStep = 48;
       for (let index = 17; index <= forceStep; index++) {
         const time = 1.12 + index * .125;
         c.currentTime = time - .1;
@@ -823,6 +822,38 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       assert.ok(sources.every(source => source.stops.at(-1) <= c.currentTime + .060001), 'Stop cancels both the audible and replacement voices before or during a forced fade');
       assert.deepEqual(gain.holds, [c.currentTime], 'an active fade curve is held before Stop automates its gain');
     }
+  }
+  {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 12, sampleRate:48000}), sources = [];
+    const audio = buf.getChannelData(0);
+    audio.fill(.1);
+    audio.fill(0, 48000 * 7, 48000 * 7.5);
+    c.createBufferSource = () => {
+      const source = {connect:dst => dst, starts:[], stops:[], start(...args){this.starts.push(args);}, stop(at){this.stops.push(at);}};
+      sources.push(source); return source;
+    };
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.variableScoreTempo = true;
+    e.vocal(1, 0, 0, 1);
+    const original = e.vocalNow;
+    for (let index = 17; index < 40; index++) {
+      e.stepScale = index % 16 ? 1.01 : 1;
+      const time = 1.12 + index * .125;
+      c.currentTime = time - .1;
+      assert.equal(e.vocal(time, index >> 4, index % 16, time, true), false);
+      assert.equal(e.vocalNow, original, 'waiting for a rubato gap never splices a sustained phrase');
+      assert.equal(e.vocalNow.correction, undefined, 'even nominal steps in a variable-tempo score cannot arm a forced splice');
+    }
+    assert.equal(sources.length, 1);
+    assert.deepEqual(sources[0].stops, []);
+    const time = 1.12 + 40 * .125;
+    c.currentTime = time - .1;
+    assert.equal(e.vocal(time, 2, 8, time, true), true);
+    assert.equal(sources.length, 2);
+    assert.equal(e.vocalCorrection.forced, false);
+    const [[at, offset]] = sources[1].starts;
+    assert.ok(offset >= 7 && at - 1 + .06 <= 7.5, 'both voices are quiet at the first reachable gap');
   }
   {
     const c = fakeCtx(), s = defaultState(); s.bpm = 120;

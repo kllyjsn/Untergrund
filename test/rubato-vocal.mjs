@@ -12,6 +12,7 @@ for (const r of result || []) {
   else assert.ok(Math.abs(r.measurements[1].vocalMinusKickMs) < 1e-6);
   assert.equal(r.durationOnlyRestarts, 0, 'rubato duration alone cannot replace the stem');
   assert.equal(r.restarts, r.hardReanchors.length, 'only the existing hard path can replace these sources');
+  assert.ok(r.hardReanchors.every(c => !c.forced), 'rubato only re-anchors inside verified quiet gaps');
   const requests = r.calls.filter(c => c.reanchor && !c.pending);
   assert.ok(requests.every(c => Math.abs(c.errorMs) > 30), 'rubato re-anchor requests wait for more than 30 ms of drift');
   assert.ok(requests.some(c => Math.abs(c.errorMs) < 50), 'rubato asks for a quiet gap before reaching the constant-tempo gate');
@@ -20,7 +21,6 @@ for (const r of result || []) {
   assert.ok(r.sourceStarts.some(s => s.events.some(e => e.name === 'linearRampToValueAtTime')), 'rubato reaches real appended playbackRate ramps');
   if (r.style === 'ukg') {
     assert.ok(r.maxVocalMinusKickMs < 50, 'earlier quiet gaps keep UKG under 50 ms throughout');
-    assert.ok(r.hardReanchors.every(c => !c.forced), 'quiet gaps avoid forced crossfades in UKG');
   } else {
     let over = 0;
     for (let i = 1; i < r.measurements.length; i++) {
