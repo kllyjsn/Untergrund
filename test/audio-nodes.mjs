@@ -53,6 +53,64 @@ globalThis.fetch = async (url) => {
 
 const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCrossfade, vocalFadePowerRatio } = await import('../js/engine.js');
 {
+  const stacks = {};
+  for (const style of ['trap', 'trance']) {
+    const s = defaultState();
+    s.artist = { style };
+    Object.assign(s.params.stab, { voice: 0, detune: 16 });
+    const ctx = fakeCtx(), e = new Engine(ctx, s, { realtime: false }), oscs = [];
+    ctx.createOscillator = () => { const o = node(ctx, 'Oscillator'); oscs.push(o); return o; };
+    e.stab(0.05, 0.8);
+    stacks[style] = oscs.filter((o) => o.type === 'sawtooth');
+  }
+  assert.equal(stacks.trap.length, stacks.trance.length * 1.5, 'only Trap SAW gains a third oscillator per note');
+  assert.deepEqual([...new Set(stacks.trap.map((o) => o.detune.value))], [-16, 0, 16]);
+  assert.deepEqual([...new Set(stacks.trance.map((o) => o.detune.value))], [-16, 16]);
+  console.log('Trap-only three-saw chord stack passed');
+}
+{
+  for (const [style, voice, moving] of [['trap', 2, true], ['trance', 2, false], ['trap', 0, false], [undefined, 2, false]]) {
+    const s = defaultState();
+    if (style) s.artist = { style };
+    Object.assign(s.params.stab, { voice, detune: 16 });
+    const ctx = fakeCtx(), e = new Engine(ctx, s, { realtime: false }), oscs = [];
+    ctx.createOscillator = () => { const o = node(ctx, 'Oscillator'); oscs.push(o); return o; };
+    e.pad(0.05, 0.8, [0], 60, s.params.stab, ctx.destination);
+    const motion = oscs.filter((o) => o.type !== 'sawtooth');
+    assert.equal(motion.length, moving ? 3 : 0, `${style}/${voice} PAD motion is festival-only`);
+    assert(motion.every((o) => o.frequency.value >= 0.37 && o.frequency.value <= 0.78));
+    assert.equal(new Set(motion.map((o) => o.frequency.value)).size, motion.length, 'each unison voice drifts independently');
+  }
+  console.log('Trap PAD-only decorrelated unison motion passed');
+}
+{
+  for (const [style, voice, trimmed] of [['trap', 0, true], ['trap', 2, false], ['trap', 7, false], ['trance', 0, false], [undefined, 0, false]]) {
+    const s = defaultState();
+    if (style) s.artist = { style };
+    s.params.stab.voice = voice;
+    const ctx = fakeCtx(), e = new Engine(ctx, s, { realtime: false });
+    let output, outputImmediate;
+    const setTo = e.setTo;
+    e.setTo = function (p, v, ...rest) { if (p === this.out.gain) { output = v; outputImmediate = rest[0]; } return setTo.call(this, p, v, ...rest); };
+    e.applyAll();
+    assert.equal(output, 0.78 * (trimmed ? 10 ** (-0.5 / 20) : 1), `${style}/${voice} master trim is festival-SAW-only`);
+    const filters = [], filter = e.filter;
+    e.filter = function (type, hz, ...rest) { filters.push([type, hz]); return filter.call(this, type, hz, ...rest); };
+    e.pad(0.05, 0.8, [0], 60, s.params.stab, ctx.destination);
+    assert.deepEqual(filters.filter(([type]) => type === 'highpass'), style === 'trap' ? [['highpass', 180]] : []);
+    for (const nextVoice of [2, 0, 7, 0]) {
+      e.setParam('stab', 'voice', nextVoice);
+      assert.equal(output, 0.78 * (style === 'trap' && nextVoice === 0 ? 10 ** (-0.5 / 20) : 1), `${style} voice edits refresh output trim`);
+      assert.equal(outputImmediate, false, 'live edits retain parameter smoothing');
+    }
+    e.state.params.stab.voice = 2;
+    e.applyParam('stab', 'voice', true);
+    assert.equal(output, 0.78, 'direct voice edits restore the untrimmed output');
+    assert.equal(outputImmediate, true, 'immediate voice edits retain their timing');
+  }
+  console.log('Trap festival-only output trim and PAD highpass passed');
+}
+{
   const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
   const source = main.slice(main.indexOf('function landJamPart(part,'), main.indexOf('\n// GENERATE while'));
   for (const drive of [0, .2]) {

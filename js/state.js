@@ -183,7 +183,7 @@ export const INSTRUMENTS = {
   afrobeats: [[8, 2, 0, 0.55, 0.8], [9, 1, 0, 0.55, 0.65], [1, 2, 1, 0.7, 0.45], [5, 2, 0, 0.5, 0.5]],
   reggaeton: [[8, 2, 0, 0.45, 0.8], [5, 2, 1, 0.22, 0.9], [9, 1, 0, 0.45, 0.7], [3, 2, 1, 0.55, 0.45]],
   bailefunk: [[4, 2, 0, 0.3, 0.75], [6, 2, 0, 0.25, 0.85], [8, 2, 0, 0.4, 0.8], [5, 3, 1, 0.2, 0.9]],
-  trap: [[7, 2, 1, 0.75, 0.4], [6, 2, 0, 0.8, 0.7], [10, 2, 1, 1.5, 0.2], [8, 2, 1, 0.5, 0.8]],
+  trap: [[10, 2, 1, 1.5, 0.2], [7, 2, 1, 0.75, 0.4], [6, 2, 0, 0.8, 0.7], [8, 2, 1, 0.5, 0.8], [0, 2, 1, 0.48, 0.12], [2, 2, 0, 1.8, 0.4]],
   drill: [[16, 2, 1, 1.4, 0.2], [16, 2, 0, 0.9, 0.45], [17, 2, 0, 0.5, 0.75], [6, 2, 1, 0.65, 0.8]],
   jerseyclub: [[0, 2, 1, 0.2, 0.75], [4, 2, 0, 0.2, 0.7], [8, 2, 1, 0.4, 0.8], [6, 2, 1, 0.5, 0.85]],
   hyperpop: [[0, 3, 1, 0.4, 0.85], [6, 2, 0, 0.3, 0.75], [5, 2, 1, 1.2, 0.2], [11, 3, 2, 0.65, 0.55]],
@@ -821,6 +821,11 @@ function generatePattern(style, seed, scaleName, starter) {
     'ukg:5': { cutoff: 400, env: 0.2 },
   }[`${style}:${stabVoice}`];
   if (color) Object.assign(params.stab, { octave: 0, reso: 0.7, level: 1 }, color);
+  const festivalTrap = style === 'trap' && (stabVoice === 0 || stabVoice === 2);
+  if (festivalTrap) {
+    Object.assign(params.stab, { cutoff: stabVoice === 0 ? 3000 : 2700, reso: 0.5, detune: 16, rev: 0.38, dly: 0.18, level: stabVoice === 0 ? 0.65 : 0.6 });
+    master.duck = 0.65;
+  }
   if (style === 'breaks' && stabVoice === 1) {
     params.acid.level = 0.18;
     params.kick.level = 0.55;
@@ -832,6 +837,7 @@ function generatePattern(style, seed, scaleName, starter) {
     params.acid.level = style === 'trance' ? 0.72 : Math.max(params.acid.level ?? 0.55, 0.98);
   }
   const hook = hookLine(r2, style, musicalScale);
+  if (festivalTrap && hook) hook.v = 'ravestack';
   if (hook && !starter && TECHNO_HOOK[style]) hook.v = TECHNO_HOOK[style];
   if (hook && style === 'hardtechno') {
     hook.v = 'analog';

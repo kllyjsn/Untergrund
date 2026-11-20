@@ -776,9 +776,14 @@ export class Engine {
     this.setTo(this.limiter.threshold, this.hardTechno ? -3 : -6, true);
     this.setTo(this.limiter.knee, this.hardTechno ? 1 : 3, true);
     this.setTo(this.limTrim.gain, (this.hardTechno ? 1 : LIM_TRIM) / CLIP_HEADROOM, true);
-    this.setTo(this.out.gain, this.hardTechno ? 0.98 : OUT_TRIM, true);
+    this.applyOutputTrim(true);
     this.applyTone();
     this.applyStrips();
+  }
+
+  applyOutputTrim(immediate = false) {
+    const festivalSaw = this.state.artist?.style === 'trap' && Math.round(this.state.params.stab.voice) === 0;
+    this.setTo(this.out.gain, this.hardTechno ? 0.98 : OUT_TRIM * (festivalSaw ? 10 ** (-0.5 / 20) : 1), immediate);
   }
 
   // The genre's mastering EQ and stereo width; the width lifts only the side above 300 Hz, so the mono fold-down is unchanged.
@@ -843,6 +848,7 @@ export class Engine {
     }
     const v = this.state.params[tid][id];
     const ch = this.ch[tid];
+    if (tid === 'stab' && id === 'voice') return this.applyOutputTrim(immediate);
     if (id === 'level') {
       const gain = v * (tid === 'stab' && this.smoothOn > 0 ? 10 ** (this.smoothOn / 20) : 1), fade = this.hardFade;
       if (this.jamAt == null || !this.hardTechno || this.hardFadeAt == null) return this.setTo(ch.level.gain, gain, immediate);
@@ -1820,7 +1826,8 @@ export class Engine {
   stab(t, v, underHarp = false) {
     const c = this.ctx, p = this.state.params.stab;
     const { root, vo, iv } = stabPitches(this);
-    const trimmed = this.chordTone(vo, this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]));
+    let trimmed = this.chordTone(vo, this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]));
+    if (this.state.artist?.style === 'trap' && (vo === 0 || vo === 2)) trimmed = this.technoHookOut('ravestack', trimmed);
     const layers = this.hardTechno ? this.hardStabOut(trimmed) : null, out = layers ? layers.core : trimmed;
     if (layers) this.hardPalette(t, v, iv.map(n => midiHz(root + n)), Math.max(0.12, p.decay), layers.rave, 'rave');
     // A lifted breakdown plays decaying chords an octave up, filling it above the bass range it no longer shares.
@@ -1830,19 +1837,20 @@ export class Engine {
       }
       return this[STAB_VOICES[vo]](t, v, iv, root, p, out);
     }
+    const festival = this.state.artist?.style === 'trap';
     const lp = this.filter('lowpass', p.cutoff, p.reso);
     const amp = this.gain(0);
     const env = c.createConstantSource();
     env.offset.setValueAtTime(p.env * 3600 * v, t);
     env.offset.setTargetAtTime(0, t + 0.004, Math.max(0.01, p.decay * 0.35));
     env.connect(lp.detune);
-    const peak = (v * 0.55) / Math.sqrt(iv.length);
+    const peak = (v * (festival ? 0.36 : 0.55)) / Math.sqrt(iv.length);
     amp.gain.setValueAtTime(EPS, t);
     amp.gain.linearRampToValueAtTime(peak, t + (this.hardTechno ? 0.018 : 0.003));
     amp.gain.setTargetAtTime(0, t + (this.hardTechno ? 0.04 : 0.012), Math.max(0.02, p.decay * 0.5));
-    const end = t + p.decay * 4 + 0.2, pans = this.sidePans(this.hardTechno ? [-0.85, 0.85] : [-0.55, 0.55], lp);
+    const end = t + p.decay * 4 + 0.2, pans = this.sidePans(festival ? [-0.8, 0, 0.8] : this.hardTechno ? [-0.85, 0.85] : [-0.55, 0.55], lp);
     for (const n of iv) {
-      for (const side of [-1, 1]) {
+      for (const side of festival ? [-1, 0, 1] : [-1, 1]) {
         const o = c.createOscillator(); o.type = 'sawtooth';
         o.frequency.value = midiHz(root + n);
         o.detune.value = side * p.detune;
@@ -1850,11 +1858,12 @@ export class Engine {
           o.detune.setValueAtTime(240 + side * p.detune * 3.5, t);
           o.detune.setTargetAtTime(side * p.detune * 3.5, t + 0.008, 0.014);
         }
-        o.connect(pans[side < 0 ? 0 : 1]);
+        o.connect(pans[festival ? side + 1 : side < 0 ? 0 : 1]);
         this.startSource(o, t); o.stop(end);
       }
     }
-    lp.connect(amp).connect(out);
+    if (festival) lp.connect(this.filter('highpass', 180, 0.5)).connect(amp).connect(out);
+    else lp.connect(amp).connect(out);
     this.startSource(env, t); env.stop(end);
     this.retire(env, amp);
   }
@@ -1902,6 +1911,7 @@ export class Engine {
   // Slow-swelling ensemble: three detuned saws per note, filter opens with ENV, DECAY sets release.
   pad(t, v, iv, root, p, out) {
     const c = this.ctx, atk = 0.04 + p.env * 0.9, hold = Math.max(this.stepDur * 4, p.decay * 1.2), end = t + atk + hold + p.decay * 2 + 0.2;
+    const festival = this.state.artist?.style === 'trap' && Math.round(p.voice) === 2;
     const lp = this.filter('lowpass', p.cutoff * 0.5, Math.max(0.5, p.reso * 0.4));
     lp.frequency.setValueAtTime(p.cutoff * 0.4, t);
     lp.frequency.linearRampToValueAtTime(p.cutoff, t + atk);
@@ -1923,6 +1933,12 @@ export class Engine {
           o.detune.setTargetAtTime(side * (4 + p.detune) * 3, t + 0.008, 0.014);
         }
         if (drift) drift[side + 1].connect(o.detune);
+        if (festival) {
+          const motion = c.createOscillator(), depth = this.gain(8 + 4 * hash(root + n, side + 97));
+          motion.frequency.value = 0.37 + 0.41 * hash(root + n, side + 53);
+          motion.connect(depth).connect(o.detune);
+          this.startSource(motion, t); motion.stop(end);
+        }
         o.connect(pans[side + 1]); this.startSource(o, t); o.stop(end);
       });
     });
@@ -1933,7 +1949,8 @@ export class Engine {
       const air = this.noiseSrc(t, end - t); air.loop = true;
       air.connect(hp).connect(airTop).connect(this.gain(0.05)).connect(amp);
     } else lp.connect(amp);
-    amp.connect(out);
+    if (this.state.artist?.style === 'trap') amp.connect(this.filter('highpass', 180, 0.5)).connect(out);
+    else amp.connect(out);
   }
 
   // Drawbar organ with key click and a rotary-style vibrato; DETUNE sets rotor depth.
@@ -2601,8 +2618,8 @@ export class Engine {
     this.retire(oscs.at(-1), amp);
   }
 
-  technoHookOut(voice) {
-    const dest = this.hookBus || this.ch.stab.input, space = TECHNO_HOOK_SPACE[voice];
+  technoHookOut(voice, dest = this.hookBus || this.ch.stab.input) {
+    const space = TECHNO_HOOK_SPACE[voice];
     const tones = (this.technoHookTones ||= new WeakMap());
     if (!tones.has(dest)) tones.set(dest, new Map());
     const paths = tones.get(dest);
