@@ -4,7 +4,7 @@ import { runInNewContext } from 'node:vm';
 import { createRoomClock, roomTransportPosition, shiftRoomSet, syncAudioClock, transportResync, calibrateRoomClock, slewTransport, roomTransportCorrection } from '../js/room-sync.js';
 import { freshSong, clone, sanitize, STYLES } from '../js/state.js';
 import { songFingerprint } from '../js/listen.js';
-import { createRoomMediaSync, roomMediaLead } from '../js/room-media-sync.js';
+import { createRoomMediaSync, roomMediaLead, roomMediaTime } from '../js/room-media-sync.js';
 import { createClockSender } from '../js/midi-core.js';
 import { Sequencer } from '../js/engine.js';
 import { Recorder } from '../js/midi.js';
@@ -375,12 +375,13 @@ for (const [action, currentTime, playing, expected] of [
   for (let step = 64; step < 68; step++) clock.step(step, 11000 + (step - 64) * 125, 125);
   const oldTickCount = sent.length, oldLastTick = sent.at(-1);
   const sandbox = {playing:true, songOver:false, roomPlayback:true, roomEditor:false, ROOM_LEAD:0.25, BG_LEAD:1,
+    mediaRoute:null, roomMediaSync:createRoomMediaSync(), roomMediaLead, roomMediaTime,
     document:{hidden:false}, ctx:{currentTime:10}, Date:{now:() => sandbox.ctx.currentTime * 1000},
     state:{bpm:120, part:'old'}, clockOffset:0, transportOrigin:2250, abs:68, nextTime:11.5,
     syncAudioClock, transportResync, slewTransport, roomTransportCorrection, roomDrainUntil:null, vocalCorrectionWindow:0,
-    queuedRoomReplay:null, handoff:null, jamQueue:[], vocalGridDirty:false, roomAudioClock:null,
+    queuedRoomReplay:null, handoff:null, jamQueue:[], vocalGridDirty:false, roomAudioClock:{at:10, contextTime:10, pending:null},
     performance:{now:() => sandbox.ctx.currentTime * 1000},
-    engine:{stepDur:0.125, applyAll(){}, discardQueuedNotes:t => cancelled.push(t), vocal(){}},
+    engine:{stepDur:0.125, applyAll(){}, scheduleJamParams(){}, discardQueuedNotes:t => cancelled.push(t), vocal(){}},
     seq:{origin:0, chainPos:5, songBars:8, advanceBar(){}, rewind:step => rewinds.push(step),
       tick:(step, time) => { notes.push({step, time, part:sandbox.state.part}); return {}; }},
     uiQueue:[], timeline:{skip:() => 0}, artistTick(){}, landJamParts(){},
@@ -390,6 +391,14 @@ for (const [action, currentTime, playing, expected] of [
     requestAnimationFrame:() => 0, jamRedraw:0};
   const schedulerSource = main.slice(main.indexOf('function schedule(lead)'), main.indexOf('\n// Jam:'));
   const jamSource = main.slice(main.indexOf('function landJamPart(part,'), main.indexOf('\n// GENERATE while'));
+  const initialNotes = [], initial = {...sandbox, abs:0, nextTime:10.06, transportOrigin:10100,
+    roomAudioClock:null, roomDrainUntil:null, vocalGridDirty:false, uiQueue:[],
+    engine:{...sandbox.engine, vocalNow:null, queuedNotes:[]},
+    seq:{...sandbox.seq, tick:(step, time) => { initialNotes.push({step, time}); return {}; }},
+    midiClockStart(){}, midiClockStep(){}};
+  runInNewContext(`${schedulerSource}\nschedule()`, initial);
+  close(initialNotes[0].time, 10.1);
+  assert.equal(initial.transportOrigin, 10100, 'the first unqueued room estimate snaps its audio deadline, never the shared broadcast origin');
   const f = runInNewContext(`${schedulerSource}\n${jamSource}\n({schedule, landJamPart})`, sandbox);
   f.landJamPart('kick', {id:'new'}, 11);
   f.schedule();
@@ -439,13 +448,14 @@ for (const [action, currentTime, playing, expected] of [
 }
 console.log('Room frontier PASS: large corrections drain then adopt, future-at-adoption steps render, no reorder/rebuild, solo no-repeat, explicit SPP and monotonic MIDI.');
 {
-  const runBoundary = ({step=63, nextTime=10.5, gridOrigin=2325, now=10, wall=10325, clockOffset=0, lead, pendingForce=false} = {}) => {
+  const runBoundary = ({step=63, nextTime=10.5, gridOrigin=2325, now=10, wall=10325, clockOffset=0, lead, pendingForce=false, mediaRoute=null} = {}) => {
     const notes = [], effects = [], vocals = [], state = freshSong('hypnotic', 7, {length:'sketch', bpm:120});
     state.bpm = 120; state.chainOn = true; state.chain = 'CCCCEEEECCCC'; state.master.arr = 1; state.part = 'old';
     const engine = new Recorder(state), seq = new Sequencer(engine, state);
     seq.chainPos = 4; seq.cur = 2;
     engine.at = 0;
     engine.applyAll = () => effects.push({kind:'mix', time:engine.at});
+    engine.scheduleJamParams = (params, time) => effects.push({kind:'mix', time});
     engine.breakSweep = time => effects.push({kind:'break', time});
     engine.discardQueuedNotes = () => assert.fail('a room correction must preserve the queued notes');
     engine.vocal = (...args) => vocals.push(args);
@@ -453,10 +463,11 @@ console.log('Room frontier PASS: large corrections drain then adopt, future-at-a
     const tick = seq.tick.bind(seq);
     seq.tick = (abs, time, ...args) => { notes.push({abs, time, part:state.part}); return tick(abs, time, ...args); };
     const sandbox = {playing:true, songOver:false, roomPlayback:true, roomEditor:false, ROOM_LEAD:0.25, BG_LEAD:1,
+      mediaRoute, roomMediaSync:createRoomMediaSync(), roomMediaLead, roomMediaTime,
       document:{hidden:false}, ctx:{currentTime:now}, Date:{now:() => now * 1000},
       state, engine, seq, abs:step, nextTime, transportOrigin:gridOrigin, clockOffset,
       syncAudioClock, transportResync, slewTransport, roomTransportCorrection, roomDrainUntil:null, vocalCorrectionWindow:0,
-      queuedRoomReplay:null, handoff:null, vocalGridDirty:false, uiQueue:[], roomAudioClock:null, performance:{now:() => now * 1000},
+      queuedRoomReplay:null, handoff:null, vocalGridDirty:false, uiQueue:[], roomAudioClock:{at:now, contextTime:now, pending:null}, performance:{now:() => now * 1000},
       jamQueue:[{part:'kick', layer:{id:'new'}, wall}], jamRedraw:0,
       timeline:{skip:() => 0}, artistTick(){}, midiClockStep(){}, midiClockStart(){},
       applyPart:(s, part, layer) => { s.part = layer.id; }, setTimeout(){}, cancelAnimationFrame(){}, requestAnimationFrame:() => 0};
@@ -488,6 +499,9 @@ console.log('Room frontier PASS: large corrections drain then adopt, future-at-a
   const late = runBoundary({now:10.5, wall:10550});
   assert.equal(late.sandbox.state.part, 'new', 'a Jam due between skipped and playable steps lands on the first playable grid time');
   close(late.effects.find(e => e.kind === 'mix').time, 10.575);
+  const mediaLate = runBoundary({now:10.5, wall:10550, mediaRoute:{}});
+  assert.equal(mediaLate.notes[0].part, 'new', 'media-route compensation cannot defer a due Jam beyond the first playable corrected step');
+  close(mediaLate.effects.find(e => e.kind === 'mix').time, 10.535);
   const clockOnly = runBoundary({step:64, nextTime:11.5, gridOrigin:3500, clockOffset:-0.02});
   assert.equal(clockOnly.sandbox.vocalGridDirty, true, 'clock-offset-only slews request the same deferred vocal alignment');
   for (const pendingForce of [false, true]) {

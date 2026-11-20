@@ -184,6 +184,8 @@ function schedule(lead) {
   if (!playing || (songOver && !queuedRoomReplay)) return;
   const ahead = roomMediaSync.horizon(typeof lead === 'number' ? lead : document.hidden ? BG_LEAD : roomPlayback ? ROOM_LEAD : 0.12, roomPlayback, mediaRoute, roomPlayback && mediaRoute ? ctx.currentTime : 0);
   const now = ctx.currentTime;
+  const firstEstimate = roomPlayback && roomAudioClock === null && !engine.vocalNow &&
+    !engine.queuedNotes?.some(note => note.t >= now);
   if (roomEditor) engine.pruneEditableHits(now);
   const clock = syncAudioClock(clockOffset, Date.now() / 1000 - now,
     roomPlayback ? {at:performance.now() / 1000, contextTime:now, state:roomAudioClock} : null);
@@ -196,6 +198,7 @@ function schedule(lead) {
   }
   let base = 60 / state.bpm / 4, landed = null;
   const target = roomMediaTime(transportOrigin / 1000 + abs * base - clockOffset, roomPlayback, mediaRoute);
+  if (firstEstimate && Math.abs(target - nextTime) > 0.000001) nextTime = target;
   if (roomPlayback && Math.abs(target - nextTime) > 0.000001) vocalGridDirty = true;
   if (clock.jumped) roomDrainUntil = null;
   const correction = roomPlayback && !clock.jumped ? roomTransportCorrection(target, nextTime, now, base, roomDrainUntil) : null;
@@ -222,12 +225,12 @@ function schedule(lead) {
     for (let i = 0; i < fix.skip; i++, abs++) {
       const gridTime = target + i * base, t = roomPlayback ? Math.max(now, gridTime) : now;
       if (roomPlayback && jamQueue.length && (abs - seq.origin) % 16 === 0)
-        landJamParts((gridTime + clockOffset) * 1000 + base * 500, t);
+        landJamParts((gridTime + roomMediaLead(roomPlayback, mediaRoute) + clockOffset) * 1000 + base * 500, t);
       artistTick(abs - seq.origin);
       seq.advanceBar(abs - seq.origin, t);
     }
     if (roomPlayback && fix.skip > 0 && jamQueue.length)
-      landJamParts((fix.nextTime + clockOffset) * 1000, fix.nextTime);
+      landJamParts((fix.nextTime + roomMediaLead(roomPlayback, mediaRoute) + clockOffset) * 1000, fix.nextTime);
     nextTime = fix.nextTime;
     if (fix.adopted) {
       midiClockStart(ctx, abs, nextTime);
@@ -240,8 +243,8 @@ function schedule(lead) {
   while (true) {
     const horizon = ctx.currentTime + (landed ? Math.max(ahead, 0.5) : ahead);
     if (!(Math.min(nextTime, replayAt) < horizon)) break;
-    const gridTarget = transportOrigin / 1000 + abs * base - clockOffset;
-    if (roomPlayback) nextTime = slewTransport(gridTarget, nextTime, 0.05);
+    const gridTarget = roomMediaTime(transportOrigin / 1000 + abs * base - clockOffset, roomPlayback, mediaRoute);
+    if (roomPlayback && Math.abs(gridTarget - nextTime) > 0.000001) nextTime = slewTransport(gridTarget, nextTime, 0.05);
     const t = firstTime ?? nextTime;
     firstTime = undefined;
     // Leave a nearly coincident outgoing step to the incoming replay downbeat.
@@ -296,6 +299,7 @@ function refreshJamPrime(wall = null) {
   if (steps <= 0) return;
   nextTime -= steps * engine.stepDur;
   abs -= steps;
+  roomDrainUntil = null;
   const retained = engine.queuedNotes.filter(note => note.t < nextTime - 1e-6);
   engine.discardQueuedNotes(nextTime - 1e-6);
   engine.queuedNotes.push(...retained);

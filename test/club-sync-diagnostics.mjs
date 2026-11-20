@@ -26,7 +26,9 @@ export async function installDiagnostics(send, base, {vocalSlew = false, vocalRe
   await at('main.js', 'if (!seeking) engine.recLock', `(__clubAudio.starts ||= []).push({at:performance.timeOrigin + performance.now(),
     step:typeof abs === 'undefined' ? undefined : abs, ${['delay', 'nextTime', 'transportOrigin'].map(optional).join(', ')},
     contextTime:typeof ctx === 'undefined' ? undefined : ctx.currentTime})`);
-  await at('main.js', 'const target = transportOrigin', `const a = __clubAudio.scheduler ||= [];
+  const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+  const targetMarker = main.includes('const target = roomMediaTime(') ? 'const target = roomMediaTime(' : 'const target = transportOrigin';
+  await at('main.js', targetMarker, `const a = __clubAudio.scheduler ||= [];
     ${forceRepeat ? `const first = __clubAudio.vocalStarts?.find(s => s.forced)?.forced, index = abs - seq.origin;
     if (first && !__clubAudio.vocalForceRepeatInjected && index > first.step && index %16 ===0 && engine.vocalNow && nextTime > ctx.currentTime +.025) {
       const time = nextTime, pos = Math.floor(index/16)%seq.songBars;
