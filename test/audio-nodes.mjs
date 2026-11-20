@@ -52,6 +52,23 @@ globalThis.fetch = async (url) => {
 
 const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCrossfade } = await import('../js/engine.js');
 {
+  const stacks = {};
+  for (const style of ['trap', 'trance']) {
+    const s = defaultState();
+    s.artist = { style };
+    Object.assign(s.params.stab, { voice: 0, detune: 16 });
+    const ctx = fakeCtx(), e = new Engine(ctx, s, { realtime: false }), oscs = [];
+    ctx.createOscillator = () => { const o = node(ctx, 'Oscillator'); oscs.push(o); return o; };
+    e.stab(0.05, 0.8);
+    stacks[style] = oscs;
+    assert(oscs.every((o) => o.type === 'sawtooth'));
+  }
+  assert.equal(stacks.trap.length, stacks.trance.length * 1.5, 'only Trap SAW gains a third oscillator per note');
+  assert.deepEqual([...new Set(stacks.trap.map((o) => o.detune.value))], [-16, 0, 16]);
+  assert.deepEqual([...new Set(stacks.trance.map((o) => o.detune.value))], [-16, 16]);
+  console.log('Trap-only three-saw chord stack passed');
+}
+{
   const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
   const source = main.slice(main.indexOf('function landJamPart(part,'), main.indexOf('\n// GENERATE while'));
   for (const drive of [0, .2]) {

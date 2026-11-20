@@ -1683,19 +1683,20 @@ export class Engine {
       }
       return this[STAB_VOICES[vo]](t, v, iv, root, p, out);
     }
+    const festival = this.state.artist?.style === 'trap';
     const lp = this.filter('lowpass', p.cutoff, p.reso);
     const amp = this.gain(0);
     const env = c.createConstantSource();
     env.offset.setValueAtTime(p.env * 3600 * v, t);
     env.offset.setTargetAtTime(0, t + 0.004, Math.max(0.01, p.decay * 0.35));
     env.connect(lp.detune);
-    const peak = (v * 0.55) / Math.sqrt(iv.length);
+    const peak = (v * (festival ? 0.36 : 0.55)) / Math.sqrt(iv.length);
     amp.gain.setValueAtTime(EPS, t);
     amp.gain.linearRampToValueAtTime(peak, t + (this.hardTechno ? 0.018 : 0.003));
     amp.gain.setTargetAtTime(0, t + (this.hardTechno ? 0.04 : 0.012), Math.max(0.02, p.decay * 0.5));
-    const end = t + p.decay * 4 + 0.2, pans = this.sidePans(this.hardTechno ? [-0.85, 0.85] : [-0.55, 0.55], lp);
+    const end = t + p.decay * 4 + 0.2, pans = this.sidePans(festival ? [-0.8, 0, 0.8] : this.hardTechno ? [-0.85, 0.85] : [-0.55, 0.55], lp);
     for (const n of iv) {
-      for (const side of [-1, 1]) {
+      for (const side of festival ? [-1, 0, 1] : [-1, 1]) {
         const o = c.createOscillator(); o.type = 'sawtooth';
         o.frequency.value = midiHz(root + n);
         o.detune.value = side * p.detune;
@@ -1703,11 +1704,12 @@ export class Engine {
           o.detune.setValueAtTime(240 + side * p.detune * 3.5, t);
           o.detune.setTargetAtTime(side * p.detune * 3.5, t + 0.008, 0.014);
         }
-        o.connect(pans[side < 0 ? 0 : 1]);
+        o.connect(pans[festival ? side + 1 : side < 0 ? 0 : 1]);
         this.startSource(o, t); o.stop(end);
       }
     }
-    lp.connect(amp).connect(out);
+    if (festival) lp.connect(this.filter('highpass', 180, 0.5)).connect(amp).connect(out);
+    else lp.connect(amp).connect(out);
     this.startSource(env, t); env.stop(end);
     this.retire(env, amp);
   }
@@ -1786,7 +1788,8 @@ export class Engine {
       const air = this.noiseSrc(t, end - t); air.loop = true;
       air.connect(hp).connect(airTop).connect(this.gain(0.05)).connect(amp);
     } else lp.connect(amp);
-    amp.connect(out);
+    if (this.state.artist?.style === 'trap') amp.connect(this.filter('highpass', 180, 0.5)).connect(out);
+    else amp.connect(out);
   }
 
   // Drawbar organ with key click and a rotary-style vibrato; DETUNE sets rotor depth.
