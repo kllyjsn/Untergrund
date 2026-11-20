@@ -81,7 +81,7 @@ export async function installDiagnostics(send, base, {vocalSlew = false, vocalRe
     const rubatoFrom = this.vocalRubato ? alignment.forceFrom : null;
     if (record) Object.assign(record, {gap:this.vocalCorrection.gap, forced, correctionId:alignment.id,
       appliedAt:performance.timeOrigin + performance.now(), appliedTime:t, appliedErrorMs:this.vocalCorrection.errorMs,
-      appliedOrigin:origin, appliedPreviousOrigin:cur.origin, rubatoFrom});
+      appliedOrigin:origin, appliedPreviousOrigin:cur.origin, rubatoFrom, fallbackFadeGuard:this.vocalCorrection.fallbackFadeGuard});
     if (forced) __clubAudio.nextVocalStart = {reason:'forced', correctionId:alignment.id,
       errorMs:this.vocalCorrection.errorMs, step:pos*16+step, stepDur:this.vocalStepDur ?? this.stepDur, vocalMs:v.ms,
       gridTime, rubatoFrom, spliceAdvance:this.vocalCorrection.spliceAdvance, fadeParam:crossfade.gain};

@@ -51,7 +51,65 @@ globalThis.fetch = async (url) => {
   catch { return { ok: false, status: 404 }; }
 };
 
-const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCrossfade } = await import('../js/engine.js');
+const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCrossfade, vocalFadePowerRatio, vocalFadeBandPowerRatios } = await import('../js/engine.js');
+{
+  const stacks = {};
+  for (const style of ['trap', 'trance']) {
+    const s = defaultState();
+    s.artist = { style };
+    Object.assign(s.params.stab, { voice: 0, detune: 16 });
+    const ctx = fakeCtx(), e = new Engine(ctx, s, { realtime: false }), oscs = [];
+    ctx.createOscillator = () => { const o = node(ctx, 'Oscillator'); oscs.push(o); return o; };
+    e.stab(0.05, 0.8);
+    stacks[style] = oscs.filter((o) => o.type === 'sawtooth');
+  }
+  assert.equal(stacks.trap.length, stacks.trance.length * 1.5, 'only Trap SAW gains a third oscillator per note');
+  assert.deepEqual([...new Set(stacks.trap.map((o) => o.detune.value))], [-16, 0, 16]);
+  assert.deepEqual([...new Set(stacks.trance.map((o) => o.detune.value))], [-16, 16]);
+  console.log('Trap-only three-saw chord stack passed');
+}
+{
+  for (const [style, voice, moving] of [['trap', 2, true], ['trance', 2, false], ['trap', 0, false], [undefined, 2, false]]) {
+    const s = defaultState();
+    if (style) s.artist = { style };
+    Object.assign(s.params.stab, { voice, detune: 16 });
+    const ctx = fakeCtx(), e = new Engine(ctx, s, { realtime: false }), oscs = [];
+    ctx.createOscillator = () => { const o = node(ctx, 'Oscillator'); oscs.push(o); return o; };
+    e.pad(0.05, 0.8, [0], 60, s.params.stab, ctx.destination);
+    const motion = oscs.filter((o) => o.type !== 'sawtooth');
+    assert.equal(motion.length, moving ? 3 : 0, `${style}/${voice} PAD motion is festival-only`);
+    assert(motion.every((o) => o.frequency.value >= 0.37 && o.frequency.value <= 0.78));
+    assert.equal(new Set(motion.map((o) => o.frequency.value)).size, motion.length, 'each unison voice drifts independently');
+  }
+  console.log('Trap PAD-only decorrelated unison motion passed');
+}
+{
+  for (const [style, voice, trimmed] of [['trap', 0, true], ['trap', 2, false], ['trap', 7, false], ['trance', 0, false], [undefined, 0, false]]) {
+    const s = defaultState();
+    if (style) s.artist = { style };
+    s.params.stab.voice = voice;
+    const ctx = fakeCtx(), e = new Engine(ctx, s, { realtime: false });
+    let output, outputImmediate;
+    const setTo = e.setTo;
+    e.setTo = function (p, v, ...rest) { if (p === this.out.gain) { output = v; outputImmediate = rest[0]; } return setTo.call(this, p, v, ...rest); };
+    e.applyAll();
+    assert.equal(output, 0.78 * (trimmed ? 10 ** (-0.5 / 20) : 1), `${style}/${voice} master trim is festival-SAW-only`);
+    const filters = [], filter = e.filter;
+    e.filter = function (type, hz, ...rest) { filters.push([type, hz]); return filter.call(this, type, hz, ...rest); };
+    e.pad(0.05, 0.8, [0], 60, s.params.stab, ctx.destination);
+    assert.deepEqual(filters.filter(([type]) => type === 'highpass'), style === 'trap' ? [['highpass', 180]] : []);
+    for (const nextVoice of [2, 0, 7, 0]) {
+      e.setParam('stab', 'voice', nextVoice);
+      assert.equal(output, 0.78 * (style === 'trap' && nextVoice === 0 ? 10 ** (-0.5 / 20) : 1), `${style} voice edits refresh output trim`);
+      assert.equal(outputImmediate, false, 'live edits retain parameter smoothing');
+    }
+    e.state.params.stab.voice = 2;
+    e.applyParam('stab', 'voice', true);
+    assert.equal(output, 0.78, 'direct voice edits restore the untrimmed output');
+    assert.equal(outputImmediate, true, 'immediate voice edits retain their timing');
+  }
+  console.log('Trap festival-only output trim and PAD highpass passed');
+}
 {
   const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
   const source = main.slice(main.indexOf('function landJamPart(part,'), main.indexOf('\n// GENERATE while'));
@@ -902,6 +960,53 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       assert.ok(at + .03 - 1 < boundary, 'the shifted crossfade completes before the outgoing note changes');
     } else assert.equal(at, downbeat, 'insufficient lookahead keeps the deadline fade');
     assert.ok(Math.abs(offset + downbeat - at - 8) < 1e-9, 'the incoming source is still aligned at the downbeat');
+  }
+  {
+    const outgoing = new FakeBuffer({length:1440}), incoming = new FakeBuffer({length:1440});
+    outgoing.getChannelData(0).fill(1);
+    incoming.getChannelData(0).fill(1).fill(-1, 624, 816);
+    assert.ok(vocalFadePowerRatio(outgoing, incoming, 0, 0, 1) < 0.5,
+      'a 4 ms dip straddling the fixed 15 ms boundary is detected in a sliding 5 ms window');
+    outgoing.getChannelData(0).fill(0).fill(0.31, 0, 240);
+    incoming.getChannelData(0).fill(0).fill(0.17, 0, 240);
+    assert.equal(vocalFadePowerRatio(outgoing, incoming, 0, 0, 1), 1,
+      'silent windows after an in-phase fade do not register a dip');
+  }
+  {
+    const outgoing = new FakeBuffer({length:2400}), incoming = new FakeBuffer({length:2400});
+    const a = outgoing.getChannelData(0), b = incoming.getChannelData(0);
+    for (let i = 0; i < a.length; i++) {
+      const t = i / 48000, mid = .30 * Math.sin(2 * Math.PI * 1000 * t);
+      const low = .015 * Math.sin(2 * Math.PI * 250 * t), high = .12 * Math.sin(2 * Math.PI * 4250 * t);
+      a[i] = mid + low + high; b[i] = mid - low - high;
+    }
+    assert.equal(vocalFadePowerRatio(outgoing, incoming, .02, .02, 1), 1, 'an in-phase midrange can hide band cancellation');
+    const bands = vocalFadeBandPowerRatios(outgoing, incoming, .02, .02, 1);
+    assert.ok(bands.presence < .5, 'the presence band detects a dip hidden by broadband power');
+    assert.equal(bands.low, 1, 'cancellation in a band below 1% of local power does not count');
+    assert.equal(bands.mid, 1);
+  }
+  {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 8});
+    const audio = buf.getChannelData(0), delay = .102, deadline = 32;
+    for (let i = 0; i < audio.length; i++) {
+      const t = i / 48000;
+      audio[i] = .30 * Math.sin(2 * Math.PI * 1000 * t) + .12 * Math.sin(2 * Math.PI * 4250 * t);
+    }
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.variableScoreTempo = true;
+    e.vocal(1, 0, 0, 1);
+    for (let index = 17; index <= deadline; index++) {
+      const time = 1 + delay + index * .125;
+      c.currentTime = time - .020001;
+      assert.equal(e.vocal(time, index >> 4, index % 16, time, true), index === deadline);
+    }
+    const {at, fallbackFadeGuard} = e.vocalCorrection;
+    assert.equal(at, 1 + delay + deadline * .125, 'a failed band guard does not delay a mandatory fade');
+    assert.ok(fallbackFadeGuard.dipDb.presence > 1.5);
+    assert.ok(fallbackFadeGuard.dipDb.broadband < 1.5);
+    assert.deepEqual(e.lastVocalFallbackFadeGuard, {at, step:deadline, ...fallbackFadeGuard});
   }
   for (const {lookahead, delay, bend, cancels} of [
     {lookahead:.39, delay:.04, bend:true},

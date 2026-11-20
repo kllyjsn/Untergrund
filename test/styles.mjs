@@ -1,5 +1,29 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { generate, defaultState, applyOverrides, sanitize, arrangement, songChain, INSTRUMENTS } from '../js/state.js';
+
+assert.deepEqual(INSTRUMENTS.trap.slice(0, 4), [[10, 2, 1, 1.5, 0.2], [7, 2, 1, 0.75, 0.4], [6, 2, 0, 0.8, 0.7], [8, 2, 1, 0.5, 0.8]]);
+for (const [seed, voice] of [[42, 7], [211, 6], [11, 6]]) assert.equal(generate('trap', seed).params.stab.voice, voice);
+assert.equal(createHash('sha256').update(JSON.stringify(generate('trap', 42))).digest('hex'), 'a66b0b02736558266403de46416abeee99cda602c3dbdab89fa59f07a12d906b', 'Trap 42 keeps its entire rap generation, including hook RNG');
+for (const [seed, voice] of [[8, 0], [1234, 2]]) {
+  const g = generate('trap', seed);
+  assert.equal(g.params.stab.voice, voice);
+  assert.equal(g.params.acid.voice, 2);
+  assert.equal(g.pattern.hook.v, 'ravestack');
+  assert(g.params.stab.cutoff >= 2500 && g.params.stab.cutoff <= 4000);
+  assert(g.params.stab.reso <= 0.7);
+  assert(g.params.stab.detune >= 12 && g.params.stab.detune <= 20);
+  assert(g.params.stab.rev > 0.2 && g.params.stab.dly <= 0.2);
+  assert(g.master.duck >= 0.6);
+}
+for (let seed = 0; seed < 100; seed++) {
+  const g = generate('trap', seed);
+  if (![0, 2].includes(g.params.stab.voice)) {
+    assert(['mallet', 'reed'].includes(g.pattern.hook.v));
+    assert.equal(g.master.duck, 0.2);
+  }
+}
+console.log('Trap festival ensembles and rap seed stability passed');
 
 for (const seed of [1, 7, 42, 1337]) {
   const g = generate('euphoric', seed, 'major');
