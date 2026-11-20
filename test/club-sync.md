@@ -555,13 +555,30 @@ or similar sections can be ambiguous, and normal random instrument detail
 can lower correlation. Raw envelopes remain in JSON for inspection.
 
 `--assert` requires AFTER kick median absolute delta ≤25ms, p95 ≤50ms,
-no missing kicks; wake→third consecutive matched kick within ±50ms and
+no missing kicks; wake→three confirmed beat slots within ±50ms and
 vocal energy return both within three beats (1463ms). Vocal lag must be
 within ±50ms with no missing/extra phrase onsets. Every post-wake boundary
 must have |delta| ≤50ms and the correct following section. Threshold failures
 are reported without loosening them. Run the synthetic analysis tests with
 `node test/club-sync-mix-detector.mjs` (known signed offsets, missing phrase,
 wrong section, isolated channel selection, missing graph taps, empty capture).
+
+Recovery uses three consecutive beat slots, beginning with an aligned host kick.
+Every host attack in a slot must have a listener match within the unchanged ±50ms.
+A rest can extend an existing streak only when both the generated fixture grid
+and the rendered host have no kick in that slot. A host-played kick missing on
+the listener always resets the streak, even in a fixture-rest slot; a missing
+host kick on a planned attack is not credited as a rest. Slots are aligned to
+the rendered host using the median fixture-to-host timing difference, so output
+latency is not mistaken for a different beat. `mix.recoveryEvidence` records the
+slot statuses and retains `attackConfirmationMs` for the old three-attack rule.
+
+For a negative rendered control, add `--handoff-drop-kicks` with
+`--scenario dj-handoff-mix`: an opt-in browser-only Engine wrapper suppresses
+listener kick generation for 2200ms after PASS DECK. It does not edit application
+files or the host. JSON `events.injectedKickDrop` records each suppressed native
+call, and the harness requires at least two. Both missing-kick and recovery
+assertions must fail; use distinct output and network labels for this control.
 
 The separate advisory GitHub Actions `club-sync` job runs the complete harness
 with --assert on PRs, main pushes and manual dispatch. It uses Node 22 and the

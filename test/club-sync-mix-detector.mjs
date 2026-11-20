@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mixFixture, realMixFixture, popHandoffTargetAt, mixBoundaries, mixGraphEdges, channelEnvelope, analyzeMix, matchEvents, realignment, phraseOnsets, boundaryMetric, mixFailures, underrunEvidence, kickAttribution } from './club-sync-mix.mjs';
+import { mixFixture, realMixFixture, popHandoffTargetAt, mixBoundaries, mixGraphEdges, channelEnvelope, analyzeMix, matchEvents, realignment, beatRealignment, phraseOnsets, boundaryMetric, mixFailures, underrunEvidence, kickAttribution } from './club-sync-mix.mjs';
 import { singRequest } from '../js/sing.js';
 import { sanitize } from '../js/state.js';
 import { postResumeEnvelope, onsets } from './club-sync-audio.mjs';
@@ -111,6 +111,35 @@ assert.equal(realignment({...missing, hostOnsets:hs}, 900), null);
 const silent = matchEvents(hs, [], 900, 2600);
 assert.equal(silent.missing, 4); assert.equal(silent.median, null);
 assert.equal(silent.max, null);
+const fixtureKicks = gridKicks(s), passAt = 14350, budget = 3 * 60000 / s.bpm;
+const recovery = listener => beatRealignment({...matchEvents(fixtureKicks, listener, passAt, passAt + 6000, 150), hostOnsets:fixtureKicks}, passAt,
+  {bpm:s.bpm, origin:0, expectedKicks:fixtureKicks});
+const sparse = recovery(fixtureKicks);
+assert.ok(sparse.attackConfirmationMs > budget);
+assert.ok(sparse.timeToRealignMs <= budget);
+assert.deepEqual(sparse.beats.map(b => b.status), ['aligned', 'planned-rest', 'aligned']);
+assert.equal(recovery(fixtureKicks.map(t => t + 100)).timeToRealignMs, null);
+const dropped = recovery(fixtureKicks.filter(t => t < passAt || t >= passAt + 2200));
+assert.ok(dropped.timeToRealignMs > budget);
+assert.ok(dropped.beats.some(b => b.status === 'missing-listener' && b.streak === 0));
+const transient = recovery(fixtureKicks.map(t => t >= passAt && t < passAt + 2000 ? t + 100 : t));
+assert.ok(transient.timeToRealignMs > budget);
+const missingAfterRest = recovery(fixtureKicks.filter(t => Math.round(t * s.bpm / 60000) !== 32));
+assert.ok(missingAfterRest.timeToRealignMs > budget);
+assert.equal(missingAfterRest.beats.find(b => b.index === 32).streak, 0);
+assert.equal(recovery([]).timeToRealignMs, null);
+const noHost = beatRealignment({hostOnsets:[], pairs:[], to:2000}, 0, {bpm:120, origin:0, expectedKicks:[0, 500, 1000]});
+assert.equal(noHost.timeToRealignMs, null);
+assert.ok(noHost.beats.slice(0, 3).every(b => b.status === 'missing-host'));
+const unexpectedHost = [0, 500, 1000, 1500, 2000];
+const unexpected = beatRealignment({...matchEvents(unexpectedHost, [0, 1000, 1500, 2000], 0, 2500), hostOnsets:unexpectedHost}, 0,
+  {bpm:120, origin:0, expectedKicks:[0, 1000, 1500, 2000]});
+assert.equal(unexpected.beats[1].status, 'missing-listener');
+assert.equal(unexpected.beats[1].streak, 0);
+assert.equal(unexpected.timeToRealignMs, 2000);
+assert.equal(beatRealignment({...silent, hostOnsets:hs}, 900, {bpm:120, origin:0, expectedKicks:[]}).timeToRealignMs, null);
+assert.throws(() => beatRealignment(silent, 0, {bpm:0, origin:0, expectedKicks:[]}), /Finite recovery grid/);
+console.log(`Beat recovery PASS: sparse zero-offset ${sparse.attackConfirmationMs.toFixed(1)}→${sparse.timeToRealignMs.toFixed(1)}ms / ${budget.toFixed(1)}ms; misalignment, 2s origin delay, dropped kicks, missing kick after rest and silence still fail.`);
 assert.equal(matchEvents([], [], 0, 10000).median, null);
 assert.deepEqual(phraseOnsets([], .2), []);
 const signal = (shift = 0, wrong = false) => Array.from({length:6000}, (_, i) => {
