@@ -1,7 +1,7 @@
 import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES, KIT_BACKBEAT } from './params.js';
 import { getSample } from './sampler.js';
 import { getChops } from './voice.js';
-import { pickChop } from './hum.js';
+import { pickChop, pitchTrack, segmentNotes } from './hum.js';
 import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND, HOOK_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel } from './groove.js';
@@ -246,7 +246,10 @@ export function vocalCrossfade(incoming) {
   return Float32Array.from({length:65}, (_, i) => incoming ? Math.sin(i / 64 * Math.PI / 2) : Math.cos(i / 64 * Math.PI / 2));
 }
 
-export const RUBATO_SPLICE_MAX_ADVANCE = 0.09;
+export const RUBATO_SPLICE_MAX_ADVANCE = 0.35;
+const RUBATO_PITCH_MATCH_ADVANCE = 0.09;
+const VOCAL_FADE_SECONDS = 0.03;
+const VOCAL_FADE_PITCH_PROBES = [5, 15, 25];
 
 function vocalPitchAt(buffer, phase) {
   const sr = buffer.sampleRate, stride = Math.max(1, Math.round(sr / 12000)), rate = sr / stride;
@@ -272,23 +275,82 @@ function vocalPitchAt(buffer, phase) {
   return NaN;
 }
 
-function rubatoSpliceTime(buffer, voice, origin, downbeat, earliest) {
+function vocalNoteOnsets(buffer, phase, lookback) {
+  const sr = buffer.sampleRate, audio = buffer.getChannelData(0);
+  // Context distinguishes a note change from the first voiced frame of the crop.
+  const start = Math.max(0, Math.round(Math.floor((phase - lookback - .19) * 50) / 50 * sr));
+  const end = Math.ceil((phase + .24) * sr);
+  const track = pitchTrack(audio.subarray(start, end), sr, {rmsGate:.01});
+  const onsets = segmentNotes(track, {split:1, hold:4, minDur:.12}).slice(1).map(note => start / sr + note.start);
+  // A repeated note can have a clear attack without changing pitch.
+  const hop = Math.round(sr * .02), half = Math.floor(hop / 2);
+  let previous = 0;
+  const last = Math.min(end, audio.length) - (hop - half);
+  for (let i = start + hop; i <= last; i += hop) {
+    let power = 0;
+    for (let j = i - half; j < i - half + hop; j++) power += audio[j] ** 2;
+    power /= hop;
+    if (i > start + hop && power > 0.0001 && power > 4 * previous) onsets.push(i / sr);
+    previous = power;
+  }
+  return onsets;
+}
+
+function vocalFadeHasDip(outgoing, buffer, from, to, rate) {
+  const a = outgoing.getChannelData(0), b = buffer.getChannelData(0);
+  const sample = (audio, x) => {
+    const i = Math.floor(x), first = audio[i] ?? 0;
+    return first + (x - i) * ((audio[i + 1] ?? 0) - first);
+  };
+  // A pitch match can still cancel in phase. Compare 5 ms windows to the separate-source power.
+  const frames = 60;
+  for (let window = 0; window < 6; window++) {
+    let mixed = 0, separate = 0;
+    for (let i = 0; i < frames; i++) {
+      const f = (window + (i + .5) / frames) / 6, t = f * VOCAL_FADE_SECONDS;
+      const x = sample(a, (from + t * rate) * outgoing.sampleRate) * Math.cos(f * Math.PI / 2);
+      const y = sample(b, (to + t) * buffer.sampleRate) * Math.sin(f * Math.PI / 2);
+      mixed += (x + y) ** 2;
+      separate += x * x + y * y;
+    }
+    if (mixed < separate * 0.63) return true;
+  }
+  return false;
+}
+
+function rubatoSpliceTime(buffer, voice, origin, downbeat, earliest, previousGrid) {
   const rate = voice.slewRate ?? 1, outgoing = voice.src.buffer;
   const first = Math.max(earliest, downbeat - RUBATO_SPLICE_MAX_ADVANCE, origin, voice.startAt);
+  if (first >= downbeat) return downbeat;
+  const outgoingPhase = when => when - voice.origin + (rate - 1) * (when - (voice.slewEnd ?? when));
   const differences = new Map();
   const cents = ms => {
     if (!differences.has(ms)) {
       const when = downbeat + ms / 1000;
-      const phase = when - voice.origin + (rate - 1) * (when - (voice.slewEnd ?? when));
-      const from = vocalPitchAt(outgoing, phase) * rate, to = vocalPitchAt(buffer, when - origin);
+      const from = vocalPitchAt(outgoing, outgoingPhase(when)) * rate, to = vocalPitchAt(buffer, when - origin);
       differences.set(ms, Math.abs(1200 * Math.log2(to / from)));
     }
     return differences.get(ms);
   };
-  if (first >= downbeat || !(cents(15) > 100)) return downbeat;
-  // If the downbeat splits two pitches, find the closest earlier fade on the same note.
-  for (let ms = 5; downbeat - ms / 1000 >= first - 1e-9; ms += 5) {
-    if ([5, 15, 25].every(center => cents(center - ms) <= 70)) return downbeat - ms / 1000;
+  const atDownbeat = cents(15);
+  if (!Number.isFinite(atDownbeat)) return downbeat;
+  const from = outgoingPhase(downbeat);
+  const to = downbeat - origin, lookback = downbeat - first;
+  // The downbeat is the deadline, so only consider onsets close enough to queue before it.
+  const onsetTimes = [
+    ...vocalNoteOnsets(buffer, to, lookback).map(note => note - to),
+    ...vocalNoteOnsets(outgoing, from, lookback * rate).map(note => (note - from) / rate),
+  ].map(midpoint => (midpoint - VOCAL_FADE_SECONDS / 2) * 1000).sort((a, b) => b - a);
+  for (const start of onsetTimes) {
+    const when = downbeat + start / 1000;
+    if (when <= downbeat && when >= first &&
+        VOCAL_FADE_PITCH_PROBES.every(center => cents(start + center) <= 100) &&
+        !vocalFadeHasDip(outgoing, buffer, outgoingPhase(when), when - origin, rate)) return when;
+  }
+  if (atDownbeat <= 100) return downbeat;
+  const pitchMatchFirst = Math.max(first, previousGrid, downbeat - RUBATO_PITCH_MATCH_ADVANCE);
+  for (let ms = 5; downbeat - ms / 1000 >= pitchMatchFirst - 1e-9; ms += 5) {
+    if (VOCAL_FADE_PITCH_PROBES.every(center => cents(center - ms) <= 70)) return downbeat - ms / 1000;
   }
   return downbeat;
 }
@@ -3524,14 +3586,16 @@ export class Engine {
         forced = false;
       }
       let spliceAdvance = 0;
-      if (rubato && forced && previousGrid != null && t >= ready &&
-          voices.every(voice => voice === cur || voice.until <= Math.max(previousGrid, ready, t - RUBATO_SPLICE_MAX_ADVANCE))) {
-        const spliceAt = rubatoSpliceTime(buffer, cur, origin, t, Math.max(previousGrid, ready));
-        spliceAdvance = t - spliceAt;
-        t = spliceAt;
+      if (rubato && forced && previousGrid != null && t >= ready) {
+        const earliest = Math.max(ready, ...voices.filter(voice => voice !== cur).map(voice => voice.until));
+        const spliceAt = rubatoSpliceTime(buffer, cur, origin, t, earliest, previousGrid);
+        if (spliceAt >= this.ctx.currentTime + 0.02) {
+          spliceAdvance = t - spliceAt;
+          t = spliceAt;
+        }
       }
       this.vocalCorrection = { at:t, origin, previousOrigin:cur.origin, errorMs:(origin - cur.origin) * 1000, gap, nextOnset:silence?.onset,
-        correctionId:alignment.id, forced, forceStep:alignment.forceStep, spliceAdvance, crossfadeSeconds:forced ? 0.03 : null };
+        correctionId:alignment.id, forced, forceStep:alignment.forceStep, spliceAdvance, crossfadeSeconds:forced ? VOCAL_FADE_SECONDS : null };
       if (!gap && !forced) {
         cur.next = pos + 1;
         this.vocalBus.gain.setTargetAtTime(v.gain, t, 0.02);
@@ -3541,7 +3605,7 @@ export class Engine {
     if (forced) {
       crossfade = this.ctx.createGain();
       crossfade.connect(this.vocalBus);
-      crossfade.gain.setValueCurveAtTime(vocalCrossfade(false), t, 0.03);
+      crossfade.gain.setValueCurveAtTime(vocalCrossfade(false), t, VOCAL_FADE_SECONDS);
       const voices = [...(this.vocalRetiring || []), cur].filter(voice =>
         (voice.until ?? Infinity) > this.ctx.currentTime && voice.origin + voice.src.buffer.duration > this.ctx.currentTime);
       for (const output of new Set(voices.map(voice => voice.output || voice.g))) {
@@ -3550,7 +3614,7 @@ export class Engine {
       }
       let remaining = voices.length;
       this.vocalRetiring = voices.map(voice => {
-        const until = Math.min(voice.until ?? Infinity, voice.startAt >= t ? t : t + 0.03);
+        const until = Math.min(voice.until ?? Infinity, voice.startAt >= t ? t : t + VOCAL_FADE_SECONDS);
         voice.src.stop(until);
         voice.src.addEventListener?.('ended', () => { if (!--remaining) crossfade.disconnect(); }, {once:true});
         return {...voice, output:crossfade, stopAt:t, until};
@@ -3567,7 +3631,7 @@ export class Engine {
     if (off >= v.buf.duration) return;
     if (forced) {
       g.gain.setValueAtTime(0, this.ctx.currentTime);
-      g.gain.setValueCurveAtTime(vocalCrossfade(true), t, 0.03);
+      g.gain.setValueCurveAtTime(vocalCrossfade(true), t, VOCAL_FADE_SECONDS);
     } else if (off > 0.001) { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + 0.012); }
     src.connect(g).connect(this.vocalBus);
     if (!forced) this.vocalBus.gain.setValueAtTime(v.gain, t);

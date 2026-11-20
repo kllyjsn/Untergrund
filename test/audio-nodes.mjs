@@ -903,6 +903,38 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     } else assert.equal(at, downbeat, 'insufficient lookahead keeps the deadline fade');
     assert.ok(Math.abs(offset + downbeat - at - 8) < 1e-9, 'the incoming source is still aligned at the downbeat');
   }
+  for (const {lookahead, delay, snap, reason, repeated} of [
+    {lookahead:.39, delay:.04, snap:true},
+    {lookahead:.13, delay:.04, snap:false, reason:'outside the lookahead'},
+    {lookahead:.39, delay:.04, snap:true, repeated:true},
+    {lookahead:.39, delay:.0375, snap:false, reason:'destructive interference', repeated:true},
+  ]) {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 10, sampleRate:48000}), starts = [];
+    const audio = buf.getChannelData(0), transition = 7.75, glide = .09;
+    for (let i = 0; i < audio.length; i++) {
+      const t = i / 48000, progress = Math.min(glide, Math.max(0, t - transition));
+      const cycles = 280 * t + (repeated ? 0 : 16 * progress ** 2 / glide + 32 * Math.max(0, t - transition - glide));
+      audio[i] = (repeated && t < transition ? .025 : .1) * Math.sin(2 * Math.PI * cycles);
+    }
+    c.createBufferSource = () => ({connect:dst => dst, start:(...args) => starts.push(args), stop(){}});
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.variableScoreTempo = true;
+    e.vocal(1, 0, 0, 1);
+    const downbeat = 1 + delay + 64 * .125;
+    for (let index = 1; index <= 64; index++) {
+      const time = 1 + (index < 17 ? 0 : delay) + index * .125;
+      c.currentTime = time - lookahead;
+      assert.equal(e.vocal(time, index >> 4, index % 16, time, true), index < 17 || index === 64);
+    }
+    const [[at, offset]] = starts.slice(1);
+    if (snap) {
+      assert.ok(at < downbeat - .125, 'snap can reach a note boundary before the preceding step');
+      assert.ok(at + .015 > 1 + transition - .02 && at + .015 < 1 + delay + transition + glide,
+        'the fade midpoint is in the note transition');
+    } else assert.equal(at, downbeat, `note-boundary snap rejects ${reason}`);
+    assert.ok(Math.abs(offset + downbeat - at - 8) < 1e-9, 'the note-boundary fade preserves grid phase');
+  }
   {
     const s = defaultState(); s.bpm = 120; s.chain = 'AAB'; s.chainOn = true;
     s.patterns[0].score = {form:'nocturne', seed:7};
