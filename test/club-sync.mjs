@@ -532,7 +532,10 @@ async function scenario(base, spec, network, run) {
       if (spec.freezeMs) {
         if (options['vocal-slew-test']) assert.ok(raw.every(c => c.forcedVocalSlew), 'Both clients exercised a controlled cross-bar grid slew');
         if (options['vocal-reanchor-control']) assert.ok(raw.every(c => c.vocalRestartInjected), 'Both clients exercised a real nonzero-offset vocal restart');
-        if (options['vocal-force-repeat-control']) assert.ok(raw.every(c => c.vocalForceRepeatInjected && c.vocalStarts?.filter(s => s.reason === 'forced').length >= 2), 'Both clients exercised a second crossfaded alignment for the same correction');
+        if (options['vocal-force-repeat-control']) {
+          console.log(`  forced repeat evidence: ${JSON.stringify(raw.map(c => ({repeat:c.vocalForceRepeatInjected, starts:c.vocalStarts, corrections:c.vocalCorrections, errors:c.errors})))}`);
+          assert.ok(raw.every(c => c.vocalForceRepeatInjected?.applied === true && c.vocalStarts?.filter(s => s.reason === 'forced').length >= 2), 'Both clients exercised a second crossfaded alignment for the same correction');
+        }
       }
       console.log(`  vocal starts: ${JSON.stringify(vocalStarts)}`);
       const reference = await host.run(`(${referenceEnvelope})(${JSON.stringify(song)}, ${10 ** (vocalDb(song) / 20)})`);

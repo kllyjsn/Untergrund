@@ -29,10 +29,13 @@ export async function installDiagnostics(send, base, {vocalSlew = false, vocalRe
   await at('main.js', 'const target = transportOrigin', `const a = __clubAudio.scheduler ||= [];
     ${forceRepeat ? `const first = __clubAudio.vocalStarts?.find(s => s.forced)?.forced, index = abs - seq.origin;
     if (first && !__clubAudio.vocalForceRepeatInjected && index > first.step && index %16 ===0 && engine.vocalNow && nextTime > ctx.currentTime +.025) {
-      engine.vocalNow.origin -= .12;
-      engine.vocalNow.correction = {id:first.correctionId, forceFrom:index-32, forceStep:index};
-      engine.vocal(nextTime, Math.floor(index/16)%seq.songBars, 0, nextTime, true);
-      __clubAudio.vocalForceRepeatInjected = {at:performance.timeOrigin+performance.now(), step:index, correctionId:first.correctionId};
+      const time = nextTime, pos = Math.floor(index/16)%seq.songBars;
+      const repeat = __clubAudio.vocalForceRepeatInjected = {at:performance.timeOrigin+performance.now(), step:index, correctionId:first.correctionId};
+      queueMicrotask(() => {
+        engine.vocalNow.origin -= .12;
+        engine.vocalNow.correction = {id:first.correctionId, forceFrom:index-32, forceStep:index};
+        repeat.applied = engine.vocal(time, pos, 0, time, true);
+      });
     }` : ''}
     ${vocalSlew ? `if (!__clubAudio.forcedVocalSlew && abs >= 32 && abs % 16 >= 13) {
       transportOrigin += 20; __clubAudio.forcedVocalSlew = {at:performance.timeOrigin + performance.now(), step:abs, deltaMs:20}; }` : ''}

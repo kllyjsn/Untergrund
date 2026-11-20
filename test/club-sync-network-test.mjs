@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { parseNetwork, netemArgs, portFilters, clockSpread, networkController, probe } from './club-sync-network.mjs';
+import { installDiagnostics } from './club-sync-diagnostics.mjs';
 
 assert.deepEqual(parseNetwork(), {});
 assert.deepEqual(netemArgs(parseNetwork('delay=150,jitter=50,loss=3,rate=1mbit,reorder=2')),
@@ -92,3 +93,35 @@ assert.equal(written.size, 35, 'all earlier JSON clip references still address t
 await assert.rejects(() => save(clipOptions, profile)([], {}, 'reconnect-mix', 1, {recoverAt:0}, 0, 1000));
 await assert.rejects(() => save(clipOptions, profile, async () => { throw new Error('disk full'); })(clients, {}, 'reconnect-mix', 1, {recoverAt:0}, 0, 1000), /disk full/);
 console.log('Club clip paths PASS: labels, profiles, targets, repeats, outputs and vocal modes preserve earlier WAVs; canonical profile order, empty captures and write errors covered.');
+{
+  const hooks = [];
+  await installDiagnostics(async (method, args) => { if (method === 'Debugger.setBreakpointByUrl') hooks.push(args); },
+    'http://localhost:1', {forceRepeat:true});
+  const hook = hooks.find(h => h.condition?.includes('vocalForceRepeatInjected'));
+  assert.ok(hook);
+  const tasks = [], calls = [];
+  const sandbox = {__clubAudio:{vocalStarts:[{forced:{step:96, correctionId:7}}]},
+    abs:112, seq:{origin:0, songBars:32}, nextTime:10, base:.125, clockOffset:0, transportOrigin:1000,
+    ctx:{currentTime:9, getOutputTimestamp:() => ({contextTime:9, performanceTime:0})},
+    performance:{timeOrigin:0, now:() => 0}, queueMicrotask:task => tasks.push(task),
+    engine:{vocalNow:{origin:1}, vocal:(...args) => {calls.push(args); return true;}}};
+  assert.equal(runInNewContext(hook.condition, sandbox), false);
+  assert.equal(calls.length, 0, 'the engine must not run inside a debugger condition that suppresses nested probes');
+  assert.equal(tasks.length, 1);
+  sandbox.nextTime = 11; sandbox.abs = 120;
+  tasks.shift()();
+  assert.deepEqual(Array.from(calls[0]), [10,7,0,10,true], 'the microtask retains its downbeat despite scheduler progress');
+  assert.equal(sandbox.engine.vocalNow.correction.id, 7);
+  assert.equal(sandbox.engine.vocalNow.correction.forceStep, 112);
+  assert.equal(sandbox.__clubAudio.vocalForceRepeatInjected.applied, true);
+  runInNewContext(hook.condition, sandbox);
+  assert.equal(tasks.length, 0, 'the control queues only once');
+  for (const first of [null, {step:96,correctionId:7}]) {
+    sandbox.__clubAudio = {vocalStarts:first ? [{forced:first}] : []};
+    sandbox.engine.vocalNow = null;
+    runInNewContext(hook.condition, sandbox);
+    assert.equal(tasks.length, 0, 'empty sources or a stopped voice never queue a repeat');
+  }
+  assert.equal(sandbox.__clubAudio.probeErrors, undefined);
+}
+console.log('Club forced-repeat injection PASS: native call deferred outside debugger condition; captured downbeat/ID, once-only, empty and stopped voice guards.');
