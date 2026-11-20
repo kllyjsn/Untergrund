@@ -731,3 +731,32 @@ The new runs show no repeatable physical output delay of the reported size,
 and they do not prove the original excursions were timestamp-only. No product
 change was made. To settle either excursion, reproduce its Chrome mapping
 movement in the same trial as a confidently matched sink recording.
+
+#### Hosted results on main `2a6aaf4`
+
+Five interleaved native/captured pairs per scenario ran in the
+[hosted run](https://github.com/kllyjsn/Untergrund/actions/runs/44795678829)
+with the thresholds unchanged. All 20 runs passed. All deltas below are
+listener minus host. Sink pairs whose Chrome and monitor readings differ by
+50ms or more are treated as wrong-onset matches.
+
+- **Cold invite:** The −60ms miss did not recur. Chrome first-downbeat
+  deltas ran from −21.4 to +11.9ms across all ten runs. The sink first-kick
+  deltas were +16.0, −2.7, +5.3 and −10.7ms; one capture had no usable first
+  kick.
+- **Post-adoption mapping move:** It recurred in Chrome's mapping only. In
+  `short-wake-mix` captured run 5, Chrome's kick delta swung from −32.5 to
+  +40.3ms between 8 and 13s after adoption. Over the same kicks the monitor
+  stayed between −24.0 and −10.7ms, so Chrome read up to 59ms off a flat
+  sink. In the 16–19s window, moves against the 10–15.5s median were −27.7ms
+  in that run and at most 14.4ms in the other nine. Matched sink deltas ran
+  from −24.0 to +2.7ms.
+
+This trial pairs a Chrome mapping movement of the original size with a
+confidently matched sink recording. It shows that the move can be a
+`getOutputTimestamp` artifact with no physical output shift. Club playback
+does not read `getOutputTimestamp`. Room scheduling maps wall time to
+`ctx.currentTime` (`js/main.js`). Only the opt-in MIDI clock output
+(`js/midi-studio.js` `syncTimebase`) reads it. No product change was made. The
+harness's timestamp-mapped deltas in this window are measurement noise, not
+playback drift.
