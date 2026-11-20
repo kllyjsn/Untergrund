@@ -78,12 +78,13 @@ export async function installDiagnostics(send, base, {vocalSlew = false, vocalRe
     if (typeof alignment === 'undefined' && gap) Object.assign(a[ids.get(cur.src)], {gap, appliedAt:performance.timeOrigin + performance.now(), appliedTime:t, appliedErrorMs:errorMs});`, false);
   await at('engine.js', 'if (off < 0) this.startSource', `if (typeof alignment !== 'undefined' && alignment) {
     const ids = globalThis.__clubVocalCorrectionIds, record = __clubAudio.vocalCorrections?.[ids?.get(cur.src)];
+    const rubatoFrom = this.vocalRubato ? alignment.forceFrom : null;
     if (record) Object.assign(record, {gap:this.vocalCorrection.gap, forced, correctionId:alignment.id,
       appliedAt:performance.timeOrigin + performance.now(), appliedTime:t, appliedErrorMs:this.vocalCorrection.errorMs,
-      appliedOrigin:origin, appliedPreviousOrigin:cur.origin});
+      appliedOrigin:origin, appliedPreviousOrigin:cur.origin, rubatoFrom});
     if (forced) __clubAudio.nextVocalStart = {reason:'forced', correctionId:alignment.id,
-      errorMs:this.vocalCorrection.errorMs, step:pos*16+step, stepDur:this.stepDur, vocalMs:v.ms,
-      gridTime, fadeParam:crossfade.gain};
+      errorMs:this.vocalCorrection.errorMs, step:pos*16+step, stepDur:this.vocalStepDur ?? this.stepDur, vocalMs:v.ms,
+      gridTime, rubatoFrom, spliceAdvance:this.vocalCorrection.spliceAdvance, fadeParam:crossfade.gain};
   }`, false);
   await at('main.js', 'if (fix.discard) {', `if (fix.discard) __clubAudio.nextVocalStart = 'wake'`);
 }

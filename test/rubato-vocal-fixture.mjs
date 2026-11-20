@@ -68,6 +68,7 @@ export async function rubatoVocalFixture({style = 'ukg', residual = 0, rubato = 
   const tempo = rubato ? rubatoMap(2048,16,[],1) : Array(2048).fill(1);
   engine.variableScoreTempo = rubato;
   const seq = {origin:0,cur:0,chainPos:1,songBars:12,finished:false,advanceBar(){},rewind(){},
+    gridSpan(abs, steps) { return tempo.slice(abs, abs + steps).reduce((sum, scale) => sum + scale * nominal, 0); },
     tick(abs,t,gridTime,editable,settling) {
       this.chainPos = Math.floor(abs / 16) + 1;
       if (abs % 16 === 0) {

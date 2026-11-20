@@ -310,7 +310,9 @@ function schedule(lead) {
     const canReanchor = !gridSlewing && (Math.abs(gridTarget - nextTime) < 0.002 || voice?.correction?.forceStep != null);
     if (roomPlayback && vocalGridDirty && !vocalSlewing && (canReanchor || (vocalRubato && voice?.sd === vocalStep && pos >= 0))) {
       if (!vocalRubato || canReanchor) engine.cancelVocalSlew?.();
-      const aligned = engine.vocal(t, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, (abs - seq.origin) % 16, nextTime, true);
+      // The transport can advance the score grid by up to 1.5 ms per step.
+      const gapSpan = vocalRubato ? steps => seq.gridSpan?.(abs, steps, bar => timeline.skip(bar)) - steps * 0.0015 : undefined;
+      const aligned = engine.vocal(t, pos, (abs - seq.origin) % 16, nextTime, true, false, gapSpan);
       vocalGridDirty = aligned === false;
     }
     uiQueue.push({ abs: abs - seq.origin, t, pat });
