@@ -53,6 +53,49 @@ globalThis.fetch = async (url) => {
 
 const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCrossfade, vocalFadePowerRatio, vocalFadeBandPowerRatios } = await import('../js/engine.js');
 {
+  const s = defaultState(); s.artist = { style: 'trap' }; s.params.stab.voice = 7;
+  const ctx = fakeCtx(), e = new Engine(ctx, s, { realtime: false }), connections = [];
+  e.out.disconnect = () => { throw new DOMException('Destination already removed by media routing', 'InvalidAccessError'); };
+  e.out.connect = dst => { connections.push(dst); return dst; };
+  assert.doesNotThrow(() => e.setParam('stab', 'voice', 0));
+  assert.doesNotThrow(() => e.applyAll());
+  assert.deepEqual(connections, [], 'switching preserves the existing iOS output route');
+  assert.doesNotThrow(() => e.setParam('stab', 'voice', 7));
+  console.log('Festival voice switch preserves an already-routed iOS output without InvalidAccessError');
+}
+{
+  for (const voice of [0, 2, 7]) {
+    const s = defaultState(); s.artist = { style: 'trap' }; s.params.stab.voice = voice;
+    const ctx = fakeCtx(), edges = [];
+    ctx.createGain = () => {
+      const n = node(ctx, 'Gain');
+      n.connect = dst => { edges.push([n, dst]); return dst; };
+      return n;
+    };
+    const e = new Engine(ctx, s, { realtime: false });
+    assert(edges.some(([a,b]) => a === e.singTrim && b === e.festivalGate));
+    assert(edges.some(([a,b]) => a === e.festivalGate && b === e.out));
+    assert(!edges.some(([a,b]) => a === e.out && b === e.festivalGate));
+    const media = node(ctx, 'MediaStreamDestination'), recording = node(ctx, 'Recording');
+    e.out.connect(media); e.out.connect(recording);
+    const before = edges.length;
+    e.setParam('stab', 'voice', voice === 7 ? 2 : 7);
+    assert.equal(edges.length, before, 'voice edits never rewire the public output');
+    assert(edges.some(([a,b]) => a === e.out && b === media));
+    assert(edges.some(([a,b]) => a === e.out && b === recording));
+  }
+  console.log('Festival attenuation is upstream of public out for desktop, iOS media routing and recording');
+}
+{
+  const s = defaultState(); s.artist = { style: 'trap' }; s.params.stab.voice = 2;
+  const ctx = fakeCtx(), e = new Engine(ctx, s, { realtime: false }), calls = [];
+  e.festivalGate.gain.cancelScheduledValues = t => calls.push(['cancel', t]);
+  e.festivalGate.gain.setTargetAtTime = v => calls.push(['target', v]);
+  e.setMaster('arr', 0);
+  assert.deepEqual(calls, [['cancel', 0], ['target', 1]], 'turning DROPS off cancels a pending gap and restores the output');
+  console.log('Festival DROPS off clears pending gap attenuation');
+}
+{
   for (const [listener, recorded] of [['hypnotic', 'euphoric'], ['euphoric', 'hypnotic']]) {
     const s = defaultState(); s.artist = { style: listener };
     const e = new Engine(fakeCtx(), s, { realtime: false });
@@ -145,6 +188,15 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
   console.log('Euphoric sections lift before the clipper and clear on genre switches');
 }
 {
+  const s = defaultState(); s.artist = { style: 'trap' }; s.params.stab.voice = 2;
+  const e = new Engine(fakeCtx(), s, { realtime: false });
+  for (const tone of [true, false]) {
+    const { s: source } = e.sweep(1, 2, .3, { tone, low: 400, high: 5000, curve: 1.2 });
+    assert.equal(tone ? source.type : source.kind, tone ? 'triangle' : 'BufferSource');
+  }
+  console.log('Festival build sweeps support filtered noise and rising triangle profiles');
+}
+{
   const stacks = {};
   for (const style of ['trap', 'trance']) {
     const s = defaultState();
@@ -176,7 +228,9 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
   console.log('Trap PAD-only decorrelated unison motion passed');
 }
 {
-  for (const [style, voice, trimmed] of [['trap', 0, true], ['trap', 2, false], ['trap', 7, false], ['trance', 0, false], [undefined, 0, false]]) {
+  const trimCases = [[0, -0.8], [2, -0.3], [6, -0.3], [7, 0]];
+  const outputGain = (db) => 0.78 * 10 ** (db / 20);
+  for (const [style, voice, db] of [...trimCases.map(([v, d]) => ['trap', v, d]), ['trance', 0, 0], ['drill', 6, 0], [undefined, 0, 0]]) {
     const s = defaultState();
     if (style) s.artist = { style };
     s.params.stab.voice = voice;
@@ -185,22 +239,22 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
     const setTo = e.setTo;
     e.setTo = function (p, v, ...rest) { if (p === this.out.gain) { output = v; outputImmediate = rest[0]; } return setTo.call(this, p, v, ...rest); };
     e.applyAll();
-    assert.equal(output, 0.78 * 10 ** ((trimmed ? -0.8 : style === 'trap' && voice === 2 ? -0.3 : 0) / 20), `${style}/${voice} master trim is festival-only`);
+    assert.equal(output, outputGain(db), `${style}/${voice} master trim`);
     const filters = [], filter = e.filter;
     e.filter = function (type, hz, ...rest) { filters.push([type, hz]); return filter.call(this, type, hz, ...rest); };
     e.pad(0.05, 0.8, [0], 60, s.params.stab, ctx.destination);
     assert.deepEqual(filters.filter(([type]) => type === 'highpass'), style === 'trap' ? [['highpass', 180]] : []);
-    for (const nextVoice of [2, 0, 7, 0]) {
+    for (const [nextVoice, editDb] of trimCases) {
       e.setParam('stab', 'voice', nextVoice);
-      assert.equal(output, 0.78 * 10 ** ((style === 'trap' ? nextVoice === 0 ? -0.8 : nextVoice === 2 ? -0.3 : 0 : 0) / 20), `${style} voice edits refresh output trim`);
+      assert.equal(output, outputGain(style === 'trap' ? editDb : 0), `${style} voice edits refresh output trim`);
       assert.equal(outputImmediate, false, 'live edits retain parameter smoothing');
     }
-    e.state.params.stab.voice = 2;
+    e.state.params.stab.voice = 6;
     e.applyParam('stab', 'voice', true);
-    assert.equal(output, 0.78 * 10 ** ((style === 'trap' ? -0.3 : 0) / 20), 'direct voice edits refresh PAD headroom');
+    assert.equal(output, outputGain(style === 'trap' ? -0.3 : 0), 'direct voice edits refresh bells headroom');
     assert.equal(outputImmediate, true, 'immediate voice edits retain their timing');
   }
-  console.log('Trap festival-only output trim and PAD highpass passed');
+  console.log('Trap ensemble output trims and PAD highpass passed');
 }
 {
   for (const [style, voice] of [['trap', 0], ['trap', 2], ['trap', 7], ['trance', 0], [undefined, 2]]) {
