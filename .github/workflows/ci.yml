@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, 'devin/*-independent-output-capture']
+    branches: [main]
   workflow_dispatch:
     inputs:
       club_output_capture:
@@ -21,7 +21,7 @@ permissions:
 jobs:
   club-sync:
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ (inputs.club_output_capture || (github.event_name == 'push' && github.ref_name != 'main')) && 25 || 15 }}
+    timeout-minutes: ${{ inputs.club_output_capture && 25 || 15 }}
     continue-on-error: true
     env:
       CHROME_PATH: /usr/bin/google-chrome
@@ -32,9 +32,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - if: ${{ !inputs.club_output_capture && !(github.event_name == 'push' && github.ref_name != 'main') }}
+      - if: ${{ !inputs.club_output_capture }}
         run: npm run test:club-sync -- --assert
-      - if: inputs.club_output_capture || (github.event_name == 'push' && github.ref_name != 'main')
+      - if: inputs.club_output_capture
         name: Interleave native-output controls and shared-clock captures
         run: |
           sudo apt-get update
@@ -70,7 +70,6 @@ jobs:
           if-no-files-found: warn
 
   test:
-    if: github.event_name != 'push' || github.ref_name == 'main'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -116,7 +115,6 @@ jobs:
         run: scripts/smoke.sh
 
   ios:
-    if: github.event_name != 'push' || github.ref_name == 'main'
     runs-on: macos-15
     timeout-minutes: 20
     steps:
