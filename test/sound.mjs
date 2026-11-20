@@ -10,6 +10,7 @@ const { Recorder } = await import('../js/midi.js');
 const { loadBand, loadSets, liveSets, STAB_BAND, SOFT_LAYER } = await import('../js/livekit.js');
 const { spectralBands, kWeight, lufs } = await import('../js/lab-metrics.js');
 const { lowEnd } = await import('../js/lowend.js');
+await import('./sampler.mjs');
 
 // 48 kHz like a real device: at 32 kHz bright resonant filters sit near Nyquist, where the shim blows up.
 const SR = 48000, P = Engine.prototype, orig = {};

@@ -2240,7 +2240,8 @@ export class Engine {
   }
 
   vox(t, v, step) {
-    const c = this.ctx, p = this.state.params.vox, sample = getSample();
+    // Saved set timelines omit song metadata, so never borrow the listener's project seed.
+    const c = this.ctx, p = this.state.params.vox, sample = getSample(this.replay808Style ? null : this.state);
     const { buffer, slices } = sample;
     const jump = hash(step, 1) < p.scatter ? Math.floor(hash(step, 2) * slices.length) : 0;
     const idx = (Math.round(p.slice) + jump) % slices.length;

@@ -1,11 +1,32 @@
 // User-owned audio for the VOX track: mic recordings, local files, or the built-in synth choir.
 // Audio never leaves the device and is never fetched from the internet.
+import { rng } from './dsp.js';
+
 const DB = 'untergrund.samples', STORE = 'samples', KEY = 'current', MAX_SEC = 20;
-let current = null;
+let current = null, songSeed = 0;
 const listeners = new Set();
+const synths = new Map();
 
 export const onSample = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
-export const getSample = () => current || (current = synthSample());
+export const voxSeed = (state) => Number.isFinite(state?.artist?.seed) ? state.artist.seed : 0;
+export const getSample = (state) => {
+  if (state !== undefined) songSeed = voxSeed(state);
+  if (!current || (current.source === 'synth' && current.seed !== songSeed)) current = cachedSynth(songSeed);
+  return current;
+};
+export const prepareSample = (state) => current && current.source !== 'synth' ? current : cachedSynth(voxSeed(state));
+
+function cachedSynth(seed) {
+  const sample = synths.get(seed) || synthSample(seed);
+  synths.delete(seed);
+  synths.set(seed, sample);
+  if (synths.size > 8) {
+    for (const key of synths.keys()) {
+      if (key !== 0 && key !== seed && key !== current?.seed) { synths.delete(key); break; }
+    }
+  }
+  return sample;
+}
 
 function makeBuffer(channels, sampleRate) {
   const buffer = new AudioBuffer({ length: channels[0].length, numberOfChannels: channels.length, sampleRate });
@@ -25,7 +46,8 @@ function bandpass(input, sr, fc, bw, gain, out) {
   }
 }
 
-export function synthVoxChannels(sr = 48000) {
+export function synthVoxChannels(sr = 48000, seed = 0) {
+  const random = rng((seed | 0) ^ 0x564f5801);
   const vowels = [[730, 1090, 2440], [570, 840, 2410], [300, 870, 2240], [270, 2290, 3010], [530, 1840, 2480], [660, 1720, 2410], [440, 1020, 2240], [490, 1350, 1690]];
   const notes = [0, 3, 7, 10, 12, 7, 5, 3];
   const seg = Math.floor(0.42 * sr), len = Math.floor(seg * 0.92);
@@ -37,7 +59,7 @@ export function synthVoxChannels(sr = 48000) {
     for (let i = 0; i < len; i++) {
       ph += f0 * (1 + 0.006 * Math.sin(2 * Math.PI * 5.2 * i / sr)) / sr;
       ph -= Math.floor(ph);
-      src[i] = 2 * ph - 1 + (Math.random() * 2 - 1) * 0.04;
+      src[i] = 2 * ph - 1 + (random() * 2 - 1) * 0.04;
     }
     const voiced = new Float32Array(len);
     formants.forEach((fc, j) => bandpass(src, sr, fc, [80, 90, 120][j], [1, 0.55, 0.3][j], voiced));
@@ -73,14 +95,15 @@ export function detectSlices(data, sr, duration, count = 8) {
   return picks.map((i) => (Math.max(0, i - 1) * hop) / sr).sort((a, b) => a - b);
 }
 
-function synthSample() {
-  const channels = synthVoxChannels();
+function synthSample(seed = songSeed) {
+  const channels = synthVoxChannels(48000, seed);
   const buffer = makeBuffer(channels, 48000);
-  return { buffer, name: 'SYNTH VOX', source: 'synth', slices: detectSlices(channels[0], 48000, buffer.duration) };
+  return { buffer, name: 'SYNTH VOX', source: 'synth', seed, slices: detectSlices(channels[0], 48000, buffer.duration) };
 }
 
 function setSample(buffer, name, source, store = true) {
   current = { buffer, name, source, slices: detectSlices(buffer.getChannelData(0), buffer.sampleRate, buffer.duration) };
+  if (source === 'synth') current.seed = songSeed;
   if (store) persist(source === 'synth' ? null : {
     name, source, sampleRate: buffer.sampleRate,
     channels: Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i).slice()),
@@ -98,7 +121,7 @@ export async function setFromArrayBuffer(arrayBuffer, name, source) {
 }
 
 export const loadAudioFile = async (file) => setFromArrayBuffer(await file.arrayBuffer(), file.name.replace(/\.[^.]+$/, ''), 'file');
-export const useSynthVox = () => setSample(synthSample().buffer, 'SYNTH VOX', 'synth');
+export const useSynthVox = () => setSample(cachedSynth(songSeed).buffer, 'SYNTH VOX', 'synth');
 
 // Mic capture shared by VOX, hum-to-hook and the voice instrument. Resolves with the decoded take
 // (mono/stereo Float32Arrays) without touching the VOX sample; `stream` is exposed for level meters.

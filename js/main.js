@@ -22,7 +22,7 @@ import { createMiniPlayer } from './mini-player.js';
 import { openLibrary } from './library.js';
 import { dropCard, pushOffer, guardPushOffer } from './drop.js';
 import { initPush, onPushChange, recordDropPlay, shouldOffer } from './push.js';
-import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
+import { getSample, prepareSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
 import { roomTransportPosition, syncAudioClock, transportResync } from './room-sync.js';
 import { createRoomMediaSync, roomMediaLead, roomMediaTime } from './room-media-sync.js';
 import { concertPanel, concertBar, preloadScore, scoreReady, loadPiano } from './concert.js';
@@ -314,6 +314,7 @@ function landJamPart(part, layer, t = null) {
 // Pressing again replaces the waiting song; the switch moment and transition stay put.
 // A song on recordings not yet downloaded waits (the old one keeps playing) until they're in, up to 8 s.
 function queueSong(plan) {
+  prepareSample(plan.replay808Style ? null : plan.next);
   engine?.prepareVocal(plan.next);
   if (!handoff) handoff = { since: performance.now() };
   const h = handoff;
@@ -2435,10 +2436,10 @@ function voiceChips(q, id, voice, color) {
 }
 
 function samplePanel() {
-  const name = h('b', {}, getSample().name);
+  const name = h('b', {}, getSample(state).name);
   const info = h('small', {}, '');
   const show = (s) => { name.textContent = s.name; info.textContent = `${s.slices.length} slices · ${s.buffer.duration.toFixed(1)}s · stays on this device`; };
-  show(getSample());
+  show(getSample(state));
   const off = onSample((s) => (document.body.contains(name) ? show(s) : off()));
   let rec = null;
   const reset = () => { rec = null; recBtn.textContent = 'RECORD'; recBtn.classList.remove('live'); };
@@ -2460,7 +2461,7 @@ function samplePanel() {
   return h('div', { class: 'sampler' },
     h('div', { class: 'glabel' }, 'SOURCE'), name, info, recBtn, load,
     h('label', {}, rights, 'I recorded it or own the rights'),
-    h('button', { class: 'btn ghost', onclick: () => useSynthVox() }, 'SYNTH VOX'), file);
+    h('button', { class: 'btn ghost', onclick: () => { getSample(state); useSynthVox(); } }, 'SYNTH VOX'), file);
 }
 
 function buildRoll() {
@@ -2553,7 +2554,7 @@ function buildMaster() {
       hold('THROW', 'T', 'Throw everything into delay + reverb', () => engine.setThrow(true), () => engine.setThrow(false)),
       hold('RISER', 'Y', 'Noise riser that builds over 4 bars', () => engine.riserStart(), () => engine.riserStop())),
     midiStrip(),
-    h('div', { class: 'foot' }, `${getSample().source === 'synth' ? 'synths + recorded CC0 instruments' : 'synth + your own samples'} · 48k/24-bit export`));
+    h('div', { class: 'foot' }, `${getSample(state).source === 'synth' ? 'synths + recorded CC0 instruments' : 'synth + your own samples'} · 48k/24-bit export`));
 }
 
 function drawViz() {
@@ -2733,6 +2734,7 @@ document.addEventListener('visibilitychange', () => {
 });
 document.addEventListener('resume', () => { if (ctx?.state === 'running') schedule(); });
 
+prepareSample(null);
 build();
 // Once the page is idle, warm the recordings the selected style and the saved song will play.
 (window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(() => {
