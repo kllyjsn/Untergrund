@@ -21,7 +21,7 @@ permissions:
 jobs:
   club-sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: ${{ (inputs.club_output_capture || (github.event_name == 'push' && github.ref_name != 'main')) && 25 || 15 }}
     continue-on-error: true
     env:
       CHROME_PATH: /usr/bin/google-chrome
@@ -38,7 +38,7 @@ jobs:
         name: Interleave native-output controls and shared-clock captures
         run: |
           sudo apt-get update
-          sudo apt-get install -y pulseaudio pulseaudio-utils
+          sudo apt-get install -y --no-install-recommends pulseaudio pulseaudio-utils
           for n in {1..5}; do
             order=host-first
             modes=(native captured)
