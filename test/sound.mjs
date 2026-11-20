@@ -46,6 +46,53 @@ function hitDb(d) {
 }
 const rmsDb = (d, a, b) => { let e = 0; for (let i = a; i < b; i++) e += d[i] * d[i]; return 10 * Math.log10(e / Math.max(1, b - a) + 1e-20); };
 
+{
+  const old = [[0, 2, 0, 0.35, 0.55], [3, 1, 0, 0.5, 0.25], [5, 2, 0, 0.45, 0.7], [9, 1, 0, 0.4, 0.55]];
+  INSTRUMENTS.dub.forEach((tuple, i) => assert.notDeepEqual(tuple, old[i], `dub ensemble ${i} changes`));
+  const voices = new Set();
+  for (const seed of [11, 42, 1234, 20]) {
+    const s = freshSong('dub', seed), ctx = new OfflineAudioContext(1, SR, SR);
+    s.artist = { style: 'dub', seed };
+    const e = new Engine(ctx, s, { realtime: false });
+    const hits = {};
+    for (const name of ['dubChord', 'dubPad', 'dubSub', 'pad', 'organ', 'pluck', 'horns', 'bass', 'eight08']) {
+      const f = e[name];
+      e[name] = function (...a) { hits[name] = (hits[name] || 0) + 1; return f.apply(this, a); };
+    }
+    voices.add(s.params.stab.voice);
+    assert([1, 2].includes(s.params.stab.chord), 'dub uses minor sevenths or ninths');
+    e.stab(0.05, 0.7);
+    e.hook(0.15, 0.4, 0, 0.2, 'reed');
+    e.acidVoice(0.05, { n: 0, a: false }, false, false, e.stepDur);
+    assert.deepEqual(hits, { dubPad: 1, dubChord: 2, dubSub: 1 }, 'all ensembles and hooks use dedicated Dub voices, never a shared bass or 808');
+    assert.equal(e.dubEcho.delay.delayTime.at(0.2), e.stepDur * 3, 'dotted eighth echo follows tempo');
+    assert.equal(e.dubEcho.lp.frequency.value, 1450, 'every feedback pass loses highs');
+    assert.equal(e.ch.stab.dly.gain.value, 0, 'Dub bypasses the bright shared delay');
+    s.master.dlyLevel = 0.2; e.applyMaster('dlyLevel', true);
+    assert.equal(e.dubEcho.wet.gain.value, 0.2, 'the master delay control also sets the Dub return');
+    assert(e.dubEcho.tape.curve.every((v) => Math.abs(v) < 1), 'tape saturation is bounded');
+    s.master.dlyFb = 2; e.dubEchoOut(0.3);
+    assert.equal(e.dubEcho.fb.gain.at(0.31), 0.58, 'excess feedback cannot self-oscillate');
+    s.master.dlyFb = -1; e.dubEchoOut(0.4);
+    assert.equal(e.dubEcho.fb.gain.at(0.41), 0, 'negative feedback is clamped');
+    const d = (await ctx.startRendering(e.mix)).getChannelData(0);
+    assert(d.every(Number.isFinite) && hitDb(d) > -60, 'Dub voices render finite audible PCM');
+  }
+  assert.equal(voices.size, INSTRUMENTS.dub.length, 'every ensemble is exercised');
+  const empty = freshSong('dub', 42), ctx = new OfflineAudioContext(1, 256, SR);
+  empty.artist = { style: 'dub', seed: 42 };
+  const e = new Engine(ctx, empty, { realtime: false });
+  assert((await ctx.startRendering(e.mix)).getChannelData(0).every((v) => v === 0), 'an unscheduled pad bed is silent');
+  for (const style of ['trap', 'minimal', 'hardtechno', 'deephouse', 'drill', 'bailefunk']) {
+    const s = freshSong(style, 42); s.artist = { style, seed: 42 };
+    const e = new Engine(new OfflineAudioContext(1, 256, SR), s, { realtime: false });
+    const unexpected = () => assert.fail(`${style} must never enter Dub dispatch`);
+    e.dubChord = e.dubSub = e.dubPad = unexpected;
+    assert.equal(e.dubPadBus, undefined, `${style} allocates no Dub pad bus`);
+    e.stab(0.05, 0.7); e.hook(0.05, 0.4, 0, 0.2, 'reed'); e.acidVoice(0.05, { n: 0 }, false, false, e.stepDur);
+  }
+}
+
 // The dry renderer retains short, in-line modulation delays, including fractional samples across blocks.
 {
   const ctx = new OfflineAudioContext(1, 256, SR), delay = ctx.createDelay(0.002);
