@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { join } from 'node:path';
-import { findChrome, findVisibleControl } from './chrome.mjs';
+import { findChrome } from './chrome.mjs';
 
 const mac = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const linux = '/usr/bin/google-chrome';
@@ -16,24 +17,21 @@ assert.equal(discover([mac], '/missing/chrome'), mac);
 assert.equal(discover([linux]), linux);
 assert.equal(discover([]), null);
 
-const control = (textContent = '', options = {}) => ({
-  textContent, disabled: false, visibility: 'visible',
-  getBoundingClientRect: () => ({ width: 100, height: 40 }), ...options,
-});
-const tab = control(), legacy = control();
-const hidden = control('', { getBoundingClientRect: () => ({ width: 0, height: 0 }) });
-const select = (elements, selectors = ['.tab-club', '.club-btn'], label) => runInNewContext(
-  `(${findVisibleControl})(${JSON.stringify(selectors)}, ${JSON.stringify(label)})`, {
-    document: { querySelectorAll: selector => elements[selector] || [] },
-    getComputedStyle: el => ({ visibility: el.visibility }),
+const source = readFileSync(new URL('./club-sync.mjs', import.meta.url), 'utf8');
+const start = source.indexOf('async function terminate(p) {');
+assert.ok(start >= 0);
+const terminate = runInNewContext(`(${source.slice(start, source.indexOf('\nasync function client(', start))})`);
+await terminate(null);
+for (const [exitCode, signalCode] of [[null, null], [0, null], [null, 'SIGKILL']]) {
+  let onExit, kills = 0, closed = 0;
+  await terminate({
+    exitCode, signalCode,
+    once: (event, callback) => { assert.equal(event, 'exit'); onExit = callback; },
+    kill: signal => { assert.equal(signal, 'SIGKILL'); kills++; onExit(); },
+    stdout: { destroy: () => closed++ }, stderr: { destroy: () => closed++ },
   });
-assert.equal(select({ '.tab-club': [tab], '.club-btn': [legacy] }), tab);
-assert.equal(select({ '.tab-club': [hidden], '.club-btn': [legacy] }), legacy);
-assert.equal(select({ '.tab-club': [hidden], '.club-btn': [hidden] }), null);
-assert.equal(select({ '.tab-club': [control('', { visibility: 'hidden' })], '.club-btn': [legacy] }), legacy);
-assert.equal(select({ '.tab-club': [control('', { disabled: true })], '.club-btn': [legacy] }), legacy);
-assert.equal(select({}), null);
-const pass = control(' PASS DECK ');
-assert.equal(select({ button: [control('PASS DECK', { disabled: true }), control('PASS DECK', { getBoundingClientRect: () => ({ width: 0, height: 0 }) }), pass] }, ['button'], 'PASS DECK'), pass);
-assert.equal(select({ button: [pass] }, ['button'], 'UPDATE ROOM'), null);
-console.log('Club sync Chrome discovery and visible controls passed');
+  assert.equal(kills, exitCode === null && signalCode === null ? 1 : 0);
+  assert.equal(closed, 2);
+}
+await terminate({ exitCode: 0, signalCode: null });
+console.log('Club sync Chrome discovery and child-pipe cleanup passed');

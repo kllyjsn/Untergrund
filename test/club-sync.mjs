@@ -78,8 +78,11 @@ async function freePort() {
   const p = s.address().port; await new Promise(r => s.close(r)); return p;
 }
 async function terminate(p) {
-  if (!p || p.exitCode !== null) return;
-  const done = new Promise(r => p.once('exit', r)); p.kill('SIGKILL'); await done;
+  if (!p) return;
+  if (p.exitCode === null && p.signalCode === null) {
+    const done = new Promise(r => p.once('exit', r)); p.kill('SIGKILL'); await done;
+  }
+  p.stdout?.destroy(); p.stderr?.destroy();
 }
 async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = false, { limitPaint = false, hideStage = false } = {}) {
   const chrome = findChrome(); if (!chrome) throw new Error('Chrome required');
