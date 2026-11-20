@@ -219,16 +219,34 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = 
       await until(() => run('!!document.querySelector(".club-btn, .club-modal, .club-head")'), 'app ready');
       if (mix && realVocal) assert.ok(await run('!!__clubAudio.realStem?.resolved'), 'Real stem loaded before app navigation completes');
     };
-    const clickElement = async (expression, label) => {
-      const point = await until(() => run(`(() => { const e = ${expression}; if (!e) return null; e.scrollIntoView({block:'center'}); const r = e.getBoundingClientRect(); return r.width && r.height && !e.disabled ? {x:r.x+r.width/2,y:r.y+r.height/2} : null; })()`), label);
+    const locateClick = async (expression, label, timing) => {
+      if (timing) timing.lookupStartAt = Date.now();
+      const point = await until(() => run(`(() => { ${timing ? 'const lookup = __clubAudio.passDeckLookup = { startAt: performance.timeOrigin + performance.now() };' : ''} const e = ${expression}; if (!e) return null; e.scrollIntoView({block:'center'}); const r = e.getBoundingClientRect(); const point = r.width && r.height && !e.disabled ? {x:r.x+r.width/2,y:r.y+r.height/2} : null; ${timing ? 'lookup.endAt = performance.timeOrigin + performance.now();' : ''} return point; })()`), label);
+      if (timing) timing.lookupCompleteAt = Date.now();
+      return point;
+    };
+    const clickPoint = async (point, timing) => {
       const at = Date.now();
-      await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
-      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
+      if (timing) timing.pressDispatchAt = at;
+      const pressed = send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
+      if (timing) {
+        timing.releaseDispatchAt = Date.now();
+        const released = send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
+        await Promise.all([pressed.then(() => { timing.pressAckAt = Date.now(); }), released.then(() => { timing.releaseAckAt = Date.now(); })]);
+      } else {
+        await pressed;
+        await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
+      }
       return at;
     };
+    const clickElement = async (expression, label, timing) => clickPoint(await locateClick(expression, label, timing), timing);
     const click = selector => clickElement(`(${visibleControl})([${JSON.stringify(selector)}])`, selector);
-    const clickText = label => clickElement(`(${visibleControl})(['.club-shell button'], ${JSON.stringify(label)})`, label);
-    return { run, nav, click, clickText, clickElement, close, send, cdpProbe,
+    const clickText = (label, timing) => clickElement(`(${visibleControl})(['.club-shell button'], ${JSON.stringify(label)})`, label, timing);
+    const prepareClickText = async (label, timing) => {
+      const point = await locateClick(`(${visibleControl})(['.club-shell button'], ${JSON.stringify(label)})`, label, timing);
+      return () => clickPoint(point, timing);
+    };
+    return { run, nav, click, clickText, prepareClickText, clickElement, close, send, cdpProbe,
       audioErrors: () => stderr.split('\n').filter(l => /alsa|pulse|audio.*(?:error|fail)|(?:error|fail).*audio/i.test(l)) };
   } catch (e) { await close(); throw e; }
 }
@@ -377,14 +395,25 @@ async function scenario(base, spec, network, run) {
       if (spec.handoff) {
         await listener.clickText('JOIN DJ QUEUE');
         await until(async () => (await snapshot()).queue?.includes(listenerId), 'listener queued on room server');
+        let passDeckClick = () => host.clickText('PASS DECK');
         if (timedHandoff) {
           await until(() => host.run(`[...document.querySelectorAll('.club-secondary')].some(b => b.textContent === 'PASS DECK')`),
             'host sees queued listener', Math.max(0, events.passTargetAt - Date.now()));
+          await host.run(`__clubAudio.passDeckBrowserEvents = []; for (const type of ['mousedown', 'mouseup', 'click']) document.addEventListener(type, e => { if (e.target.closest('button')?.textContent.trim() !== 'PASS DECK') return; const at = performance.timeOrigin + performance.now(); __clubAudio.passDeckBrowserEvents.push({type, at, trusted:e.isTrusted}); if (type === 'click') __clubAudio.passDeckBrowserClickAt = at; }, {capture:true}); true`);
+          events.passDeckTiming = { targetAt: events.passTargetAt };
+          passDeckClick = await host.prepareClickText('PASS DECK', events.passDeckTiming);
           assert.ok(Date.now() < events.passTargetAt, 'DJ queue ready before the handoff target');
+          events.passDeckTiming.timerArmedAt = Date.now();
           await pause(events.passTargetAt - Date.now());
+          events.passDeckTiming.timerWakeAt = Date.now();
         }
-        events.actionAt = await host.clickText('PASS DECK');
+        events.actionAt = await passDeckClick();
         if (timedHandoff) assert.ok(Math.abs(events.actionAt - events.passTargetAt) <= 100, 'PASS DECK within 100ms of the handoff target');
+        if (timedHandoff) {
+          events.passDeckTiming.browserClickAt = await host.run('__clubAudio.passDeckBrowserClickAt ?? null');
+          assert.ok(Number.isFinite(events.passDeckTiming.browserClickAt) && Math.abs(events.passDeckTiming.browserClickAt - events.passTargetAt) <= 100,
+            'PASS DECK browser click within 100ms of the handoff target');
+        }
         if (spec.mix) events.interruptAt = events.recoverAt = events.actionAt;
         if (options['handoff-drop-kicks']) events.injectedKickDrop = await listener.run(`(async () => {
           const {Engine} = await import('/js/engine.js');
