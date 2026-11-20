@@ -14,6 +14,7 @@ for (const style of Object.keys(STYLES)) {
 }
 const all = jobs(Object.keys(STYLES));
 assert.equal(new Set(all.map((j) => j[0])).size, Object.keys(STYLES).length, 'every style is in the sweep');
+assert.deepEqual(jobs(['trap'], null, {}).filter(([, seed]) => seed === 211), [['trap', 211]], 'Trap seed 211 stays in the sweep without an exemption');
 for (const n of [1, 4, 6]) {
   const parts = Array.from({ length: n }, (_, i) => shard(all, i + 1, n));
   assert.deepEqual(parts.flat().map(String).sort(), all.map(String).sort(), `${n} shards cover the sweep exactly once`);

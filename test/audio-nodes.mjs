@@ -176,7 +176,9 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
   console.log('Trap PAD-only decorrelated unison motion passed');
 }
 {
-  for (const [style, voice, trimmed] of [['trap', 0, true], ['trap', 2, false], ['trap', 7, false], ['trance', 0, false], [undefined, 0, false]]) {
+  const trimCases = [[0, -0.8], [2, -0.3], [6, -0.3], [7, 0]];
+  const outputGain = (db) => 0.78 * 10 ** (db / 20);
+  for (const [style, voice, db] of [...trimCases.map(([v, d]) => ['trap', v, d]), ['trance', 0, 0], ['drill', 6, 0], [undefined, 0, 0]]) {
     const s = defaultState();
     if (style) s.artist = { style };
     s.params.stab.voice = voice;
@@ -185,22 +187,22 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
     const setTo = e.setTo;
     e.setTo = function (p, v, ...rest) { if (p === this.out.gain) { output = v; outputImmediate = rest[0]; } return setTo.call(this, p, v, ...rest); };
     e.applyAll();
-    assert.equal(output, 0.78 * 10 ** ((trimmed ? -0.8 : style === 'trap' && voice === 2 ? -0.3 : 0) / 20), `${style}/${voice} master trim is festival-only`);
+    assert.equal(output, outputGain(db), `${style}/${voice} master trim`);
     const filters = [], filter = e.filter;
     e.filter = function (type, hz, ...rest) { filters.push([type, hz]); return filter.call(this, type, hz, ...rest); };
     e.pad(0.05, 0.8, [0], 60, s.params.stab, ctx.destination);
     assert.deepEqual(filters.filter(([type]) => type === 'highpass'), style === 'trap' ? [['highpass', 180]] : []);
-    for (const nextVoice of [2, 0, 7, 0]) {
+    for (const [nextVoice, editDb] of trimCases) {
       e.setParam('stab', 'voice', nextVoice);
-      assert.equal(output, 0.78 * 10 ** ((style === 'trap' ? nextVoice === 0 ? -0.8 : nextVoice === 2 ? -0.3 : 0 : 0) / 20), `${style} voice edits refresh output trim`);
+      assert.equal(output, outputGain(style === 'trap' ? editDb : 0), `${style} voice edits refresh output trim`);
       assert.equal(outputImmediate, false, 'live edits retain parameter smoothing');
     }
-    e.state.params.stab.voice = 2;
+    e.state.params.stab.voice = 6;
     e.applyParam('stab', 'voice', true);
-    assert.equal(output, 0.78 * 10 ** ((style === 'trap' ? -0.3 : 0) / 20), 'direct voice edits refresh PAD headroom');
+    assert.equal(output, outputGain(style === 'trap' ? -0.3 : 0), 'direct voice edits refresh bells headroom');
     assert.equal(outputImmediate, true, 'immediate voice edits retain their timing');
   }
-  console.log('Trap festival-only output trim and PAD highpass passed');
+  console.log('Trap ensemble output trims and PAD highpass passed');
 }
 {
   for (const [style, voice] of [['trap', 0], ['trap', 2], ['trap', 7], ['trance', 0], [undefined, 2]]) {
