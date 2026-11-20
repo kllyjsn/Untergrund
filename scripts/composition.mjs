@@ -95,9 +95,9 @@ export function songwriting(m, sections) {
 }
 
 // Every musical event of one pass through the song, with the harmony it was played over.
-export function playSong(s) {
+export function playSong(s, replay808Style) {
   const log = [];
-  const e = new Proxy({ stepDur: 0.125, harm: null }, {
+  const e = new Proxy({ stepDur: 0.125, harm: null, get playbackStyle() { return replay808Style ?? s.artist?.style; } }, {
     get(o, k) { return k in o ? o[k] : (...a) => { log.push({ k, a, harm: o.harm, step: o.step }); }; },
     set(o, k, v) { o[k] = v; return true; },
   });
