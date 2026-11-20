@@ -75,7 +75,7 @@ assert.equal(sync.duplicate(item, true, true, route), false, 'identity is snapsh
 const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
 const schedule = main.slice(main.indexOf('function schedule(lead)'), main.indexOf('\n// Jam:'));
 const start = main.slice(main.indexOf('function start({'), main.indexOf('\nfunction stop('));
-function transport(mediaRoute, room = true, roomItem = item) {
+function transport(mediaRoute, room = true, roomItem = item, bpm = 120) {
   const hits = [], vocals = [];
   const noop = () => {};
   const s = { mediaRoute, roomMediaSync: createRoomMediaSync(), roomMediaTime, roomMediaLead,
@@ -83,10 +83,10 @@ function transport(mediaRoute, room = true, roomItem = item) {
     slewTransport, roomTransportCorrection, roomDrainUntil: null, roomAudioClock: null, vocalGridDirty: false,
     performance: { now: () => s.ctx.currentTime * 1000 },
     playing: true, songOver: false, queuedRoomReplay: null, roomPlayback: room, roomEditor: false, roomResume: null, roomFirstNote: null,
-    roomJoinTimer: 0, handoff: null, jamQueue: [], trackingReplay: false, playbackSources: new WeakMap(), state: { bpm: 120, current: 0 },
+    roomJoinTimer: 0, handoff: null, jamQueue: [], trackingReplay: false, playbackSources: new WeakMap(), state: { bpm, current: 0 },
     ctx: { currentTime: 10 }, Date: { now: () => 1000000 }, nextTime: 0, abs: 0,
     transportOrigin: 0, clockOffset: null, uiQueue: [],
-    engine: { stepDur: .125, prepareVocal: noop, slewVocal: noop, editableHits: [], discardQueuedNotes: noop, cancelJamParams: noop,
+    engine: { stepDur: 15 / bpm, get vocalStepDur() { return 60 / s.state.bpm / 4; }, prepareVocal: noop, slewVocal: noop, editableHits: [], discardQueuedNotes: noop, cancelJamParams: noop,
       vocal: (t, bar, step, gridTime) => vocals.push({ t, gridTime }) },
     seq: { origin: 0, cur: 0, chainPos: 1, songBars: 4, startAt: noop,
       tick: (abs, t, gridTime) => { hits.push({ abs, t, gridTime }); return 0; } },
@@ -277,7 +277,7 @@ for (const mediaRoute of [null, route]) {
 }
 console.log('Room media sync PASS: desktop bit identity, 40ms route-only lead, one cold-only 4s queue, bounded initial duplicate window, wake/reconnect never re-prime.');
 for (const duration of [.1, .125, .15]) {
-  const { s, api, hits } = transport(null), slews = [];
+  const { s, api, hits } = transport(null, true, item, 15 / duration), slews = [];
   s.engine.slewVocal = (...args) => slews.push(args);
   s.engine.stepDur = duration;
   s.nextTime += .025;
@@ -285,8 +285,8 @@ for (const duration of [.1, .125, .15]) {
   for (let i = 0; i < 10; i++) api.schedule();
   assert.equal(s.nextTime, pending, 'scheduler polls alone do not accumulate slew');
   assert.equal(slews.length, 0);
-  s.ctx.currentTime += .1;
-  s.Date.now = () => 1000100;
+  s.ctx.currentTime += duration + .01;
+  s.Date.now = () => 1000000 + (duration + .01) * 1000;
   api.schedule();
   const expected = transportResync(pending - .025, pending, s.ctx.currentTime, duration, false, -Infinity, 1, true);
   const endRate = expected.endRate, delta = 2 * duration / (1 + endRate) - duration;
@@ -295,7 +295,7 @@ for (const duration of [.1, .125, .15]) {
   assert.deepEqual(hits.slice(0, queued.length).map(h => h.t), queued, 'queued notes are unchanged');
   assert.ok(Math.abs(slews[0][0] - delta) < 1e-9);
   assert.ok(Math.abs(slews[0][1] - (pending - duration)) < 1e-9);
-  assert.equal(slews[0][2], duration, 'vocal follows the actual step duration, including score rubato');
+  assert.equal(slews[0][2], duration, 'vocal consumes one nominal source step at this tempo');
   assert.equal(slews[0][3], 1);
   assert.ok(Math.abs(slews[0][4] - endRate) < 1e-9);
   assert.equal(s.engine.roomSlewRate, slews[0][4], 'grid rate persists even without a vocal stem');
@@ -305,3 +305,4 @@ for (const duration of [.1, .125, .15]) {
 }
 console.log('Room step slew PASS: one correction per unscheduled step, no poll-driven acceleration, queued notes unchanged, vocal interval follows.');
 await import('./room-jam-controls.mjs');
+await import('./rubato-vocal.mjs');

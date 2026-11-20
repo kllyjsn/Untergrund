@@ -12,6 +12,7 @@ import { VOCAL_FX } from '../js/sing.js';
 import { syncAudioClock, transportResync, slewTransport, roomTransportCorrection } from '../js/room-sync.js';
 import { createRoomMediaSync, roomMediaLead, roomMediaTime } from '../js/room-media-sync.js';
 import { applyPart, extractPart, normalizeLayer } from '../js/jam.js';
+import { rubatoMap } from '../js/perform.js';
 
 const BASELINE = new URL('./audio-nodes-baseline.json', import.meta.url);
 const SLACK = 1.15, FLOOR = 12;
@@ -449,6 +450,41 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     assert.equal(calls.at(-1)[5], true, 'room bars hold their phase check during a slew');
     console.log('Room vocal slew PASS: room bars retain 30ms tolerance and hold phase rechecks during a slew; solo stays unchanged.');
     console.log('Vocal grid drift PASS: solo and room sources follow cumulative forward/backward corrections; small jitter stays continuous.');
+  }
+
+  {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 123;
+    const buf = new FakeBuffer({length:48000 * 40, sampleRate:48000});
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    const nominal = e.vocalStepDur, tempo = rubatoMap(2048, 16, [], 1);
+    let at = 1, starts = 0, source;
+    for (let step = 0; step < 192; step++) {
+      if (step % 16 === 0) {
+        e.vocal(at, step / 16, 0, at, false, true);
+        if (e.vocalNow.src !== source) starts++;
+        source = e.vocalNow.src;
+        assert.equal(e.vocalNow.sd, nominal, 'stem phase uses its nominal tempo, not the latest rubato duration');
+        assert.equal(e.vocalNow.origin, 1, 'duration-only changes never replace or re-offset a settling stem');
+      }
+      e.stepScale = tempo[step];
+      assert.equal(e.vocalStepDur, nominal);
+      at += e.stepDur;
+    }
+    assert.equal(starts, 1, 'twelve real-rubato bars have no duration-only source restart');
+    e.vocalStop(at);
+    assert.equal(e.vocalNow, null, 'a genuine stop/discard still clears the stem');
+    e.vocal(at, 12, 0, at);
+    assert.notEqual(e.vocalNow.src, source, 'a discarded source is replaced');
+    assert.ok(Math.abs(e.vocalNow.origin - (at - 192 * nominal)) < 1e-12, 'restarts use nominal source phase against the cumulative score grid');
+    const resumed = e.vocalNow.src;
+    s.bpm = 124;
+    e.vocal(at + 16 * nominal, 13, 0, at + 16 * nominal, false, true);
+    assert.notEqual(e.vocalNow.src, resumed, 'a real nominal-tempo change still restarts');
+    e.vocalStop();
+    e.vocalOf = () => null;
+    e.vocal(at, 14, 0, at);
+    assert.equal(e.vocalNow, null, 'an absent vocal never creates a source');
+    console.log('Rubato vocal continuity PASS: real rubatoMap, 12 bars, zero duration-only restarts, nominal source phase, stop/tempo changes and absent vocal preserved.');
   }
 
   {
