@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mixFixture, realMixFixture, popHandoffTargetAt, mixBoundaries, mixGraphEdges, channelEnvelope, analyzeMix, matchEvents, realignment, beatRealignment, phraseOnsets, boundaryMetric, mixFailures, underrunEvidence, kickAttribution } from './club-sync-mix.mjs';
+import { mixFixture, realMixFixture, popHandoffTargetAt, syntheticHandoffTargetAt, mixBoundaries, mixGraphEdges, channelEnvelope, analyzeMix, matchEvents, realignment, beatRealignment, phraseOnsets, boundaryMetric, mixFailures, underrunEvidence, kickAttribution } from './club-sync-mix.mjs';
 import { singRequest } from '../js/sing.js';
 import { sanitize } from '../js/state.js';
 import { postResumeEnvelope, onsets } from './club-sync-audio.mjs';
@@ -39,6 +39,24 @@ assert.equal(measureVoice(offsetVoice).vocalVsKick.medianMs, 28);
 assert.equal(measureVoice(offsetVoice).recoveryMs, null);
 assert.ok(vocalFindings([{after:measureVoice(offsetVoice)}]).includes('host vocal offset'));
 assert.ok(vocalFindings([{after:measureVoice(offsetVoice)}]).includes('host vocal recovery unproven'));
+const largeOffsetVoice = new Float64Array(expectedVoice.length);
+largeOffsetVoice.set(expectedVoice.subarray(0, -100), 100);
+assert.equal(measureVoice(largeOffsetVoice).vocalGrid.medianMs, 400);
+assert.equal(measureVoice(largeOffsetVoice).vocalVsKick.medianMs, 388);
+assert.ok(vocalFindings([{after:measureVoice(largeOffsetVoice)}]).includes('host vocal offset'));
+let voiceSeed = 7;
+const aliasExpected = Float64Array.from({length:1000}, () => {
+  voiceSeed = (Math.imul(voiceSeed, 1664525) + 1013904223) >>> 0;
+  return .1 + .2 * voiceSeed / 2 ** 32;
+});
+const aliasRendered = Float64Array.from(aliasExpected, (v, i) => .7 * (aliasExpected[i + 109] ?? 0) + .3 * v);
+const aliasHit = windowOffset(aliasExpected, aliasRendered, 125, 500);
+assert.equal(aliasHit.lagMs, -436);
+assert.equal(aliasHit.ambiguous, false);
+assert.equal(windowOffset(aliasExpected, aliasRendered, 125, 500, 500, bin, null, 0).ambiguous, true);
+const aliasMetrics = vocalMetrics({expected:aliasExpected, rendered:aliasRendered, kickOffsets:[{at:1000,offsetMs:0}], from:500, to:2500, marker:0});
+assert.equal(aliasMetrics.windows[0].ambiguous, true);
+assert.equal(aliasMetrics.vocalVsKick.p95AbsMs, null);
 const gapVoice = expectedVoice.slice(); gapVoice.fill(0, 1240 / bin, 1440 / bin);
 assert.ok(measureVoice(gapVoice).gaps.intervals.some(g => g.durationMs === 200 && g.startMs === -4760));
 const missingVoice = expectedVoice.slice(); missingVoice.fill(0, 4000 / bin, 5000 / bin);
@@ -91,6 +109,16 @@ assert.ok(kicksAfterPass(passTarget - 100)[2] - (passTarget - 100) < 3 * 60000 /
 
 const s = mixFixture();
 assert.deepEqual(s, mixFixture());
+const syntheticTarget = syntheticHandoffTargetAt(popOrigin, s.bpm);
+const syntheticKickGrid = gridKicks(s).map(t => t + popOrigin);
+assert.ok(Math.abs((syntheticTarget - popOrigin) / (60000 / s.bpm) - 13.5) < 1e-9);
+assert.ok(syntheticKickGrid.every(t => Math.abs(t - syntheticTarget) > 200));
+for (const drift of [-100, 0, 100]) {
+  const marker = syntheticTarget + drift;
+  const next = syntheticKickGrid.filter(t => t >= marker).slice(0, 3);
+  assert.equal(next.length, 3);
+  assert.ok(next[2] + 50 - marker < 3 * 60000 / s.bpm);
+}
 assert.equal(s.chain, 'AAAABBBBCCCCCCCDGGGGGGGHEEEDGGGGGGGHAAAA');
 assert.deepEqual(s.solos, {});
 const boundaries = mixBoundaries(s, 100000);

@@ -30,7 +30,7 @@ function similarity(a, b, start, candidate, length) {
   return { score: (cosine + pearson) / 2, ratio: Math.sqrt(bb / aa) };
 }
 
-export function windowOffset(expected, rendered, start, length, search = 500, bin = BIN_MS, preferred = null) {
+export function windowOffset(expected, rendered, start, length, search = 500, bin = BIN_MS, preferred = null, kickMs = null) {
   let best = null;
   const hits = [];
   for (let d = -Math.floor(search / bin); d <= Math.floor(search / bin); d++) {
@@ -46,7 +46,9 @@ export function windowOffset(expected, rendered, start, length, search = 500, bi
     if (local) return { ...local, ambiguous: false, anchored: true };
   }
   const peaks = hits.filter((h, i) => h.score >= best.score - .025 && h.score >= (hits[i - 1]?.score ?? -Infinity) && h.score >= (hits[i + 1]?.score ?? -Infinity));
-  return { ...best, ambiguous: peaks.some(h => Math.abs(h.lagMs - best.lagMs) > 80), anchored: false };
+  const kickAlternative = kickMs !== null && Math.abs(best.lagMs - kickMs) > 200 &&
+    hits.some(h => Math.abs(h.lagMs - kickMs) <= 100 && h.score >= .65);
+  return { ...best, ambiguous: kickAlternative || peaks.some(h => Math.abs(h.lagMs - best.lagMs) > 80), anchored: false };
 }
 
 export function activeIntervals(values, threshold, bin = BIN_MS, minMs = 40, bridgeMs = 0) {
@@ -157,9 +159,10 @@ export function vocalMetrics({ expected, rendered, kickOffsets = [], from = 0, t
       return closest === undefined ? [] : [closest - t];
     });
     const preferred = q(anchors, .5) ?? previous;
-    const hit = activeMs >= 100 ? windowOffset(expected, rendered, start, length, 500, bin, preferred) : null;
     const offsets = kickOffsets.filter(k => k.at >= at && k.at < at + 2000).map(k => k.offsetMs);
-    const kickMs = q(offsets, .5), offsetMs = hit && hit.score >= .65 && !hit.ambiguous ? hit.lagMs : null;
+    const kickMs = q(offsets, .5);
+    const hit = activeMs >= 100 ? windowOffset(expected, rendered, start, length, 500, bin, preferred, kickMs) : null;
+    const offsetMs = hit && hit.score >= .65 && !hit.ambiguous ? hit.lagMs : null;
     if (offsetMs !== null) previous = offsetMs;
     else if (activeMs >= 100) previous = null;
     windows.push({ start: at, end: at + 2000, activeMs, offsetMs, score: hit?.score ?? null, ambiguous: hit?.ambiguous ?? false, anchored: hit?.anchored ?? false, kickMs,
@@ -182,8 +185,8 @@ export function vocalMetrics({ expected, rendered, kickOffsets = [], from = 0, t
     const activeMs = expected.subarray(start, start + length).filter(v => v > activeThreshold).length * bin;
     const anchor = windows.filter(w => w.offsetMs !== null && w.start <= at + 250 && w.end >= at + 250)
       .sort((a, b) => Math.abs(a.start + 1000 - at - 250) - Math.abs(b.start + 1000 - at - 250))[0];
-    const hit = activeMs >= 250 ? windowOffset(expected, rendered, start, length, 500, bin, anchor?.offsetMs ?? null) : null;
     const kickMs = q(kickOffsets.filter(k => k.at >= at && k.at < at + 500).map(k => k.offsetMs), .5);
+    const hit = activeMs >= 250 ? windowOffset(expected, rendered, start, length, 500, bin, anchor?.offsetMs ?? null, kickMs) : null;
     const offsetMs = hit && hit.score >= .65 && !hit.ambiguous ? hit.lagMs : null;
     recoveryWindows.push({ start: at, end: at + 500, activeMs, offsetMs, kickMs,
       vocalVsKickMs: offsetMs !== null && kickMs !== null ? offsetMs - kickMs : null });
