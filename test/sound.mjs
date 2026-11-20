@@ -11,6 +11,7 @@ const { loadBand, loadSets, liveSets, STAB_BAND, SOFT_LAYER } = await import('..
 const { spectralBands, kWeight, lufs } = await import('../js/lab-metrics.js');
 const { lowEnd } = await import('../js/lowend.js');
 const { getSample } = await import('../js/sampler.js');
+const { createTimelineRecorder, stateAt } = await import('../js/set-timeline.js');
 await import('./sampler.mjs');
 
 // 48 kHz like a real device: at 32 kHz bright resonant filters sit near Nyquist, where the shim blows up.
@@ -20,6 +21,7 @@ for (const k of ['stab', 'lick', 'hook', 'kick']) orig[k] = Object.getOwnPropert
 async function render(style, seed, { stem = 'full', bars = 4, voice = null, mute = null } = {}) {
   const s = defaultState(), g = generate(style, seed);
   applyOverrides(s, g); s.patterns = arrangement(g.pattern, seed); s.current = 6;
+  if (style === 'bailefunk') s.artist = { style, seed };
   if (voice != null) s.params.stab.voice = voice;
   const band = STAB_BAND[Math.round(s.params.stab.voice)];
   if (band) { await loadBand(band); if (SOFT_LAYER[band]) await loadBand(SOFT_LAYER[band]); }
@@ -121,8 +123,10 @@ const rows = [];
   }
   assert.equal(INSTRUMENTS.bailefunk.length, 4);
   assert(INSTRUMENTS.bailefunk.every(([voice, bass]) => voice === 4 && bass === 2));
+  assert.equal(full.engine.bassColor().name, 'funk808');
   const handAt = async (history) => {
     const s = freshSong('bailefunk', 211), ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
+    s.artist = { style: 'bailefunk', seed: 211 };
     const out = e.ch.perc.input;
     e.ch.perc.input = e.gain(0);
     for (let i = 0; i < history; i++) { e.step = i; e.perc(0.01, 0.7); }
@@ -130,14 +134,29 @@ const rows = [];
     return (await ctx.startRendering(e.mix)).getChannelData(0);
   };
   assert.deepEqual(await handAt(0), await handAt(3), 'same musical hand hit is independent of playback history');
-  {
-    const s = freshSong('bailefunk', 211), ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
-    e.replay808Style = 'bailefunk';
-    e.funkVox(0.05, 0.7, 2);
+  for (const [recorded, listener] of [['bailefunk', 'drill'], ['drill', 'bailefunk']]) {
+    const source = freshSong(recorded, 211);
+    source.artist = { style: recorded, seed: 211 };
+    const rec = createTimelineRecorder({ state: source, style: recorded, startsAt: 0 });
+    const saved = stateAt(rec.finish(1000), 0);
+    const s = { ...defaultState(), ...saved.state, artist: { style: listener, seed: 99 } };
+    const ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
+    e.replay808Style = saved.style;
+    const calls = [];
+    for (const method of ['funkDrum', 'funkVox', 'funkStab']) {
+      const original = e[method];
+      e[method] = function (...args) { calls.push(method === 'funkDrum' ? args[0] : method); return original.apply(this, args); };
+    }
+    e.kick(0.05, 0.7); e.clap(0.05, 0.7); e.perc(0.05, 0.7);
+    e.vox(0.05, 0.7, 2); e.stab(0.05, 0.7); e.lick(0.05, 0.7, 0);
+    e.hook(0.05, 0.7, 0, 0.2, 'reed', 0, true);
+    assert.deepEqual(calls, recorded === 'bailefunk' ? ['kick', 'clap', 'perc', 'funkVox', 'funkStab', 'funkStab', 'funkStab'] : [], `${recorded} replay ignores ${listener} listener palette`);
+    assert.equal(e.bassColor()?.name === 'funk808', recorded === 'bailefunk');
     assert.equal(getSample().seed, 0, 'saved timelines do not borrow the listener vocal seed');
   }
   for (const solo of [false, true]) {
     const s = defaultState(); applyOverrides(s, generate('bailefunk', 211));
+    s.artist = { style: 'bailefunk', seed: 211 };
     if (solo) s.solos.stab = true;
     const ctx = new OfflineAudioContext(1, 2 * SR, SR), e = new Engine(ctx, s, { realtime: false });
     e.stab(0.05, 0.8);
@@ -149,6 +168,25 @@ const rows = [];
     dry.funkStab(0.05, 1, [0], 60, 1, dryCtx.destination);
     const tail = (await dryCtx.startRendering()).getChannelData(0);
     assert(rmsDb(tail, SR, 2 * SR) < -85, 'dry Volt hit releases without a ringing tail');
+  }
+  {
+    const offsets = [], tones = [];
+    const s = freshSong('bailefunk', 211); s.artist = { style: 'bailefunk', seed: 211 };
+    const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
+    e.startSource = (src, t, offset) => { if (src.buffer) offsets.push(offset); };
+    const filter = e.filter;
+    e.filter = function (type, hz, q) { if (type === 'lowpass') tones.push(hz); return filter.call(this, type, hz, q); };
+    s.params.vox.slice = 0; s.params.vox.tone = 1500; e.vox(0.05, 0.7, 2);
+    const first = offsets[0]; offsets.length = 0;
+    s.params.vox.slice = 1; s.params.vox.tone = 4500; e.vox(0.2, 0.7, 2);
+    assert.notEqual(offsets[0], first, 'Slice offsets the funk phrase');
+    assert.deepEqual(tones, [1500, 4500], 'Tone controls the funk lowpass');
+    const clapTail = async decay => {
+      const ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
+      s.params.clap.decay = decay; e.ch.clap.input = ctx.destination; e.clap(0.05, 0.7);
+      return (await ctx.startRendering()).getChannelData(0);
+    };
+    assert(hitDb(await clapTail(0.5)) > hitDb(await clapTail(0.1)) + 1, 'Decay lengthens the funk clap');
   }
   for (const invalid of [0, -1, NaN]) {
     const s = defaultState(), ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });

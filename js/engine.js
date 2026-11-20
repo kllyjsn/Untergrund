@@ -1307,12 +1307,13 @@ export class Engine {
     if (!(v > 0) || ![t, v].every(Number.isFinite)) return;
     const out = this.ch[id].input, p = this.state.params[id];
     if (id === 'clap') {
-      const noise = this.noiseSrc(t, 0.12), bp = this.filter('bandpass', p.tone * 1.35, 0.75);
+      const tail = Math.max(0.025, p.decay * 0.375);
+      const noise = this.noiseSrc(t, tail + 0.04), bp = this.filter('bandpass', p.tone * 1.35, 0.75);
       const amp = this.gain(0);
       for (const offset of [0, 0.009, 0.018]) {
         amp.gain.setValueAtTime(0, t + offset);
         amp.gain.linearRampToValueAtTime(v * 2.1, t + offset + 0.002);
-        amp.gain.exponentialRampToValueAtTime(EPS, t + offset + (offset === 0.018 ? 0.075 : 0.008));
+        amp.gain.exponentialRampToValueAtTime(EPS, t + offset + (offset === 0.018 ? tail : 0.008));
       }
       noise.connect(bp).connect(this.filter('lowpass', 5500, 0.6)).connect(amp).connect(out);
       return;
@@ -1358,7 +1359,7 @@ export class Engine {
     const notes = SCALES[this.state.scale]?.notes || SCALES.minor.notes;
     const degree = notes[Math.floor(hash(step, 84) * notes.length)];
     const rate = 2 ** ((Math.round(p.pitch) + degree - 12) / 12);
-    const idx = Math.floor(hash(step, 85) * slices.length), from = slices[idx];
+    const idx = ((Math.round(p.slice) + Math.floor(hash(step, 85) * slices.length)) % slices.length + slices.length) % slices.length, from = slices[idx];
     const len = Math.max(0.03, Math.min(0.14, p.length * this.stepDur, ((slices[idx + 1] ?? buffer.duration) - from) / rate));
     for (let i = 0; i < (hash(step, 86) < 0.28 ? 2 : 1); i++) {
       const at = t + i * this.stepDur * 0.5, src = this.ctx.createBufferSource(), amp = this.gain(0);
@@ -1366,13 +1367,13 @@ export class Engine {
       amp.gain.setValueAtTime(0, at); amp.gain.linearRampToValueAtTime(v * (i ? 0.75 : 1.2), at + 0.004);
       amp.gain.setValueAtTime(v * (i ? 0.75 : 1.2), at + Math.max(0.005, len - 0.018));
       amp.gain.linearRampToValueAtTime(0, at + len);
-      src.connect(this.filter('bandpass', 1000 + degree * 35, 0.65)).connect(this.filter('lowpass', 3800, 0.6)).connect(amp).connect(this.ch.vox.input);
+      src.connect(this.filter('bandpass', 1000 + degree * 35, 0.65)).connect(this.filter('lowpass', p.tone, 0.6)).connect(amp).connect(this.ch.vox.input);
       this.startSource(src, at, from, len + 0.02);
     }
   }
 
   kick(t, v) {
-    if (this.state.artist?.style === 'bailefunk') return this.funkDrum('kick', t, v);
+    if (this.paletteStyle() === 'bailefunk') return this.funkDrum('kick', t, v);
     const c = this.ctx, p = this.state.params.kick, out = this.ch.kick.input;
     const f = p.tune, dec = p.decay;
     const o = c.createOscillator();
@@ -1407,7 +1408,7 @@ export class Engine {
   }
 
   clap(t, v) {
-    if (this.state.artist?.style === 'bailefunk') return this.funkDrum('clap', t, v);
+    if (this.paletteStyle() === 'bailefunk') return this.funkDrum('clap', t, v);
     const p = this.state.params.clap, out = this.ch.clap.input;
     const sp = (0.6 + p.spread * 0.9) * (0.88 + hash(t * 997, 5) * 0.24);
     const offs = [0, 0.0105 * sp * (0.9 + hash(t * 991, 6) * 0.2), 0.021 * sp, 0.031 * sp * (0.94 + hash(t * 983, 7) * 0.12)];
@@ -1594,7 +1595,7 @@ export class Engine {
   }
 
   perc(t, v) {
-    if (this.state.artist?.style === 'bailefunk') return this.funkDrum('perc', t, v);
+    if (this.paletteStyle() === 'bailefunk') return this.funkDrum('perc', t, v);
     const c = this.ctx, p = this.state.params.perc, out = this.ch.perc.input;
     if (this.hardTechno) this.hardPalette(t, v, [p.tune * 2], p.decay, out, 'metal');
     const vo = Math.round(p.voice || 0);
@@ -1794,7 +1795,7 @@ export class Engine {
   stab(t, v, underHarp = false) {
     const c = this.ctx, p = this.state.params.stab;
     const { root, vo, iv } = stabPitches(this);
-    if (this.state.artist?.style === 'bailefunk') return this.funkStab(t, v, iv, root, p.decay, this.ch.stab.input);
+    if (this.paletteStyle() === 'bailefunk') return this.funkStab(t, v, iv, root, p.decay, this.ch.stab.input);
     const trimmed = this.chordTone(vo, this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]));
     const layers = this.hardTechno ? this.hardStabOut(trimmed) : null, out = layers ? layers.core : trimmed;
     if (layers) this.hardPalette(t, v, iv.map(n => midiHz(root + n)), Math.max(0.12, p.decay), layers.rave, 'rave');
@@ -2412,7 +2413,7 @@ export class Engine {
   }
 
   vox(t, v, step) {
-    if (this.state.artist?.style === 'bailefunk') return this.funkVox(t, v, step);
+    if (this.paletteStyle() === 'bailefunk') return this.funkVox(t, v, step);
     // Saved set timelines omit song metadata, so never borrow the listener's project seed.
     const c = this.ctx, p = this.state.params.vox, sample = getSample(this.replay808Style ? null : this.state);
     const { buffer, slices } = sample;
@@ -2441,7 +2442,7 @@ export class Engine {
     const p = this.state.params.stab, h = this.harm;
     const iv = CHORDS[h ? h.c : Math.round(p.chord)].iv;
     const n = iv[k % iv.length] + 12 * Math.floor(k / iv.length);
-    if (this.state.artist?.style === 'bailefunk') return this.funkStab(t, v, [n], 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot(), p.decay, this.ch.stab.input);
+    if (this.paletteStyle() === 'bailefunk') return this.funkStab(t, v, [n], 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot(), p.decay, this.ch.stab.input);
     if (this.hardTechno) return this.hardLead(t, v * 0.12, midiHz(60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + n), Math.max(0.12, p.decay), this.ch.stab.input);
     const vo = Math.round(p.voice), lead = vo > 1 ? STAB_VOICES[vo] : 'keys';
     const style = this.state.artist?.style;
@@ -2623,7 +2624,7 @@ export class Engine {
     v *= 1.3;
     n = hookSnap(n, h, p, strong, up);
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
-    if (this.state.artist?.style === 'bailefunk') return this.funkStab(t, v * 0.7, [n], 60 + k + oct * 12, dur, this.hookBus || this.ch.stab.input);
+    if (this.paletteStyle() === 'bailefunk') return this.funkStab(t, v * 0.7, [n], 60 + k + oct * 12, dur, this.hookBus || this.ch.stab.input);
     if (dampedChord(this) && (voice === 'vocal' || voice === 'reed')) {
       const name = Math.round(p.voice) === 1 ? 'keys' : 'organ';
       const out = this.trimOut(`hook-${name}`, 4, this.hookBus || this.ch.stab.input, -4, 500);
@@ -2821,7 +2822,9 @@ export class Engine {
     return n;
   }
 
-  bassColor() { return BASS_COLOR[this.state.artist?.style]; }
+  paletteStyle() { return this.replay808Style ?? this.state.artist?.style; }
+
+  bassColor() { return BASS_COLOR[this.paletteStyle()]; }
 
   // Round finger-style bass: triangle + sine, short pluck through a gentle lowpass.
   bass(t, st, sd, holdNext) {
