@@ -288,20 +288,33 @@ export function vocalFadePowerRatio(outgoing, buffer, from, to, rate) {
   };
   // Slide a 5 ms window by one sample at 12 kHz so dips between fixed windows are not missed.
   const window = 60, frames = 6 * window;
-  const blendedPower = new Float64Array(window), separatePower = new Float64Array(window);
-  let ratio = 1, blended = 0, separate = 0;
+  const blendedSuffix = new Float64Array(window), separateSuffix = new Float64Array(window);
+  let ratio = 1, blendedPrefix = 0, separatePrefix = 0;
   for (let i = 0; i < frames; i++) {
     const f = (i + .5) / frames, t = f * VOCAL_FADE_SECONDS;
     const x = sample(a, (from + t * rate) * outgoing.sampleRate) * Math.cos(f * Math.PI / 2);
     const y = sample(b, (to + t) * buffer.sampleRate) * Math.sin(f * Math.PI / 2);
     const slot = i % window;
-    blended -= blendedPower[slot];
-    separate -= separatePower[slot];
-    blended += blendedPower[slot] = (x + y) ** 2;
-    separate += separatePower[slot] = x * x + y * y;
-    if (i >= window - 1 && separate > 0) ratio = Math.min(ratio, blended / separate);
+    const blended = (x + y) ** 2, separate = x * x + y * y;
+    blendedPrefix += blended;
+    separatePrefix += separate;
+    const next = slot + 1;
+    if (i >= window - 1) {
+      const windowPower = separatePrefix + (separateSuffix[next] ?? 0);
+      if (windowPower > 0) ratio = Math.min(ratio, (blendedPrefix + (blendedSuffix[next] ?? 0)) / windowPower);
+    }
+    blendedSuffix[slot] = blended;
+    separateSuffix[slot] = separate;
+    if (next === window) {
+      // Sum the two sides of each overlapping window without subtracting away quiet samples.
+      for (let j = window - 2; j >= 0; j--) {
+        blendedSuffix[j] += blendedSuffix[j + 1];
+        separateSuffix[j] += separateSuffix[j + 1];
+      }
+      blendedPrefix = separatePrefix = 0;
+    }
   }
-  return Math.max(0, ratio);
+  return ratio;
 }
 
 function rubatoSpliceTime(buffer, voice, origin, downbeat, ready, previousGrid, retiringUntil, requirePitchMatch = false) {
