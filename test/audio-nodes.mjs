@@ -978,6 +978,41 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     assert.equal(e.vocalCorrection.at, 1 + error + deadline * .125);
     assert.equal(e.vocalCorrection.crossfadeSeconds, .03);
   }
+  for (const {delay = .096, hz = 250, gap = false, clash = false, lookahead = .3, early = false} of [
+    {early:true},
+    {delay:.08},
+    {gap:true},
+    {clash:true, lookahead:.02},
+    {hz:24.5 / .096},
+  ]) {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 12, sampleRate:48000});
+    const pcm = buf.getChannelData(0), change = 4.06;
+    for (let i = 0; i < pcm.length; i++) {
+      const time = i / 48000;
+      const cycles = time * hz + (clash ? 100 * Math.max(0, time - change) : 0);
+      pcm[i] = gap && time >= 4.3 && time < 4.8 ? 0 : .1 * Math.sin(2 * Math.PI * cycles);
+    }
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.variableScoreTempo = true;
+    e.vocal(1, 0, 0, 1);
+    const original = e.vocalNow;
+    for (let index = 17; index <= 32; index++) {
+      const time = 1 + delay + index * .125;
+      c.currentTime = time - lookahead;
+      assert.equal(e.vocal(time, index >> 4, index % 16, time, true), index === 32 && early,
+        'only a large, gapless drift with a stable pitch and phase match can force early');
+    }
+    if (early) {
+      assert.notEqual(e.vocalNow, original);
+      assert.equal(e.vocalCorrection.forced, true);
+      assert.equal(e.vocalCorrection.forceStep, 32);
+      assert.equal(e.vocalNow.origin, 1 + delay);
+    } else {
+      assert.equal(e.vocalNow, original);
+      assert.equal(e.vocalNow.gapCorrection.forceStep, 64, 'rejecting an early fade keeps the original deadline');
+    }
+  }
   {
     const c = fakeCtx(), s = defaultState(); s.bpm = 120;
     const buf = new FakeBuffer({length:48000 * 12, sampleRate:48000}), full = new FakeBuffer({length:48000 * 12, sampleRate:48000}), starts = [];
