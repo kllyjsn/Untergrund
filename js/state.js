@@ -12,6 +12,7 @@ import { cleanLyrics } from './lyrics.js';
 import { SING_VOICES } from './sing-score.js';
 import { cleanTakes, patternAt, setTake } from './scope.js';
 import { trackTitle } from './crate.js';
+import { FUNK_HANDS, FUNK_VOX, funkHandBar } from './baile.js';
 import { festivalBuilds } from './festival-build.js';
 
 export const STYLES = {
@@ -183,7 +184,7 @@ export const INSTRUMENTS = {
   amapiano: [[7, 4, 0, 0.7, 0.35], [3, 4, 1, 0.55, 0.45], [8, 4, 0, 0.55, 0.8], [5, 4, 1, 0.25, 0.85]],
   afrobeats: [[8, 2, 0, 0.55, 0.8], [9, 1, 0, 0.55, 0.65], [1, 2, 1, 0.7, 0.45], [5, 2, 0, 0.5, 0.5]],
   reggaeton: [[8, 2, 0, 0.45, 0.8], [5, 2, 1, 0.22, 0.9], [9, 1, 0, 0.45, 0.7], [3, 2, 1, 0.55, 0.45]],
-  bailefunk: [[4, 2, 0, 0.3, 0.75], [6, 2, 0, 0.25, 0.85], [8, 2, 0, 0.4, 0.8], [5, 3, 1, 0.2, 0.9]],
+  bailefunk: [[4, 2, 0, 0.3, 0.75], [4, 2, 0, 0.25, 0.85], [4, 2, 0, 0.4, 0.8], [4, 2, 1, 0.2, 0.9]],
   trap: [[10, 2, 1, 1.5, 0.2], [7, 2, 1, 0.75, 0.4], [6, 2, 0, 0.8, 0.7], [8, 2, 1, 0.5, 0.8], [0, 2, 1, 0.48, 0.12], [2, 2, 0, 1.8, 0.4]],
   drill: [[16, 2, 1, 1.4, 0.2], [16, 2, 0, 0.9, 0.45], [17, 2, 0, 0.5, 0.75], [6, 2, 1, 0.65, 0.8]],
   jerseyclub: [[0, 2, 1, 0.2, 0.75], [4, 2, 0, 0.2, 0.7], [8, 2, 1, 0.4, 0.8], [6, 2, 1, 0.5, 0.85]],
@@ -548,8 +549,8 @@ function generatePattern(style, seed, scaleName, starter) {
     S.kick = pad16(pick(r, [[2, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], [2, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 1, 0, 0, 1]]));
     S.clap = pad16([0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1]);
     S.ch = range(STEPS, (i) => (i % 2 === 0 ? 1 : 0));
-    S.perc = pad16(euclid(7, 16, 0));
-    S.vox = pad16(pick(r, [[0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1], [1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1]]));
+    S.perc = [...FUNK_HANDS[0]];
+    S.vox = [...FUNK_VOX[0]];
     S.acid = range(STEPS, (i) => (i === 0 || i === 8 ? { on: true, n: 0, a: true, s: false } : emptyAcidStep()));
     Object.assign(params.kick, { tune: 46, decay: 0.7, drive: 0.6, punch: 0.8, click: 0.4, rumble: 0.3 });
     Object.assign(params.clap, { tone: 1400, decay: 0.2 });
@@ -886,6 +887,7 @@ function generatePattern(style, seed, scaleName, starter) {
     if (P.sections.chorus) { P.prog = P.sections.chorus; delete P.sections.chorus; }
   }
   if (MAJOR_STYLES.has(style) || style === 'rock') P.band = true;
+  if (style === 'bailefunk') { P.funk = true; S.perc = [...FUNK_HANDS[0]]; }
   if (style === 'pop' || style === 'rock') P.lite = true;
   if (style === 'country') P.lite = 'country';
   if (style === 'minimal') P.smooth = true;
@@ -1032,7 +1034,25 @@ export function arrangement(full, seed, half = false) {
   [0, 0, 1, 2, 2, 1, 2, 2].forEach((m, i) => { if (full.hook) scenes[i].hm = m; else delete scenes[i].hm; });
   if (full.alt) for (const i of [4, 5]) scenes[i].prog = clone(full.alt);
   if (full.sections) songScenes(scenes, full, full.sections);
+  if (full.funk) {
+    for (const p of scenes) delete p.funk;
+    funkPhrases(scenes, songChain('bailefunk', seed));
+  }
   return scenes;
+}
+
+function funkPhrases(patterns, chain, keep = []) {
+  for (const p of patterns) for (const take of p.at || []) {
+    for (const id of ['perc', 'vox']) if (take.steps) delete take.steps[id];
+  }
+  for (let bar = 0; bar < chain.length; bar++) {
+    const p = patterns['ABCDEFGH'.indexOf(chain[bar])], eff = clone(patternAt(p, bar));
+    for (const id of ['perc', 'vox']) {
+      if (keep.includes(id) || !p.steps[id].some(Boolean)) continue;
+      eff.steps[id] = [...(id === 'perc' ? FUNK_HANDS[funkHandBar(bar)] : FUNK_VOX[bar % 2])];
+    }
+    setTake(p, bar, eff);
+  }
 }
 
 // Songs (see SONG) write each section like a songwriter would: B becomes the pre-chorus, C the verse,
@@ -1266,6 +1286,7 @@ export function applySongPlan(s, style, seed, length = 'song') {
     }
   }
   if (style === 'drill' && plan.sections) drillVerses(s.patterns, plan, keep);
+  if (style === 'bailefunk') funkPhrases(s.patterns, plan.chain, keep);
   if (plan.chain === TECHNO_LONG) developFinalDrop(s.patterns, plan.chain, { keep });
   return plan;
 }
