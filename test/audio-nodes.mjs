@@ -93,22 +93,38 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
     const setTo = e.setTo;
     e.setTo = function (p, v, ...rest) { if (p === this.out.gain) { output = v; outputImmediate = rest[0]; } return setTo.call(this, p, v, ...rest); };
     e.applyAll();
-    assert.equal(output, 0.78 * (trimmed ? 10 ** (-0.5 / 20) : 1), `${style}/${voice} master trim is festival-SAW-only`);
+    assert.equal(output, 0.78 * 10 ** ((trimmed ? -0.8 : style === 'trap' && voice === 2 ? -0.3 : 0) / 20), `${style}/${voice} master trim is festival-only`);
     const filters = [], filter = e.filter;
     e.filter = function (type, hz, ...rest) { filters.push([type, hz]); return filter.call(this, type, hz, ...rest); };
     e.pad(0.05, 0.8, [0], 60, s.params.stab, ctx.destination);
     assert.deepEqual(filters.filter(([type]) => type === 'highpass'), style === 'trap' ? [['highpass', 180]] : []);
     for (const nextVoice of [2, 0, 7, 0]) {
       e.setParam('stab', 'voice', nextVoice);
-      assert.equal(output, 0.78 * (style === 'trap' && nextVoice === 0 ? 10 ** (-0.5 / 20) : 1), `${style} voice edits refresh output trim`);
+      assert.equal(output, 0.78 * 10 ** ((style === 'trap' ? nextVoice === 0 ? -0.8 : nextVoice === 2 ? -0.3 : 0 : 0) / 20), `${style} voice edits refresh output trim`);
       assert.equal(outputImmediate, false, 'live edits retain parameter smoothing');
     }
     e.state.params.stab.voice = 2;
     e.applyParam('stab', 'voice', true);
-    assert.equal(output, 0.78, 'direct voice edits restore the untrimmed output');
+    assert.equal(output, 0.78 * 10 ** ((style === 'trap' ? -0.3 : 0) / 20), 'direct voice edits refresh PAD headroom');
     assert.equal(outputImmediate, true, 'immediate voice edits retain their timing');
   }
   console.log('Trap festival-only output trim and PAD highpass passed');
+}
+{
+  for (const [style, voice] of [['trap', 0], ['trap', 2], ['trap', 7], ['trance', 0], [undefined, 2]]) {
+    const s = defaultState(), ctx = fakeCtx();
+    if (style) s.artist = { style };
+    s.params.stab.voice = voice;
+    const e = new Engine(ctx, s, { realtime: false }), trims = [];
+    e.rec = () => null;
+    e.trimOut = (...args) => { trims.push(args); return ctx.destination; };
+    e.hook(.05, .8, 0, .5, 'ravestack');
+    const festival = style === 'trap' && voice === 2;
+    assert.equal(trims[0][0], `hook-ravestack:${13 + (festival ? 3 : 0)}`, 'hook trim cache key follows its gain');
+    assert.equal(trims[0][1], 13 + (festival ? 3 : 0));
+    assert.equal(trims[0][3], 2 + (festival ? 3 : 0), 'PAD-only hook lift preserves the existing shelf shape');
+  }
+  console.log('Trap festival PAD-only flat hook lift passed');
 }
 {
   const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
