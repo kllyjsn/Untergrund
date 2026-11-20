@@ -133,6 +133,39 @@ const rmsDb = (d, a, b) => { let e = 0; for (let i = a; i < b; i++) e += d[i] * 
 }
 
 {
+  for (const voice of [0, 2, 3, 5, 99]) for (const key of [0, 11]) {
+    const s = freshSong('dub', 42);
+    s.artist = { style: 'dub', seed: 42 }; s.params.stab.voice = voice; s.key = key;
+    const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false }), rec = new Recorder(s);
+    const start = e.startSource, played = [];
+    e.dubPad = () => {};
+    e.startSource = function (source, ...args) {
+      if (source.frequency) played.push(Math.round(69 + 12 * Math.log2(source.frequency.value / 440)));
+      return start.call(this, source, ...args);
+    };
+    for (const active of [false, true, false]) {
+      e.dubSection(0.1, active); rec.dubSection(0.1, active);
+      e.harm = rec.harm = { r: active ? 5 : 0, c: Math.round(s.params.stab.chord) };
+      played.length = 0;
+      e.stab(0.1, 0.7); rec.trigger('stab', 0.1, 0.7);
+      assert.deepEqual(rec.notes.stab.splice(0).map((n) => n.m), [...new Set(played)], `Dub/${voice}/${key}/${active} MIDI chord matches oscillator pitches`);
+      for (const n of [-24, 0, 20, 48]) for (const [strong, up] of [[false, false], [true, false], [false, true]]) {
+        played.length = 0;
+        e.hook(0.1, 0.7, n, 0.2, 'analog', 0, strong, 1, up);
+        rec.hook(0.1, 0.7, n, 0.2, 'analog', 0, strong, 1, up);
+        assert.deepEqual(rec.notes.hook.splice(0).map((n) => n.m), [...new Set(played)], `Dub/${voice}/${key}/${active}/${n}/${strong}/${up} MIDI hook matches oscillator pitches`);
+      }
+    }
+  }
+  const s = freshSong('dub', 42); s.artist = { style: 'dub', seed: 42 }; s.chainOn = true; s.chain = 'EA'; s.ending = false;
+  const rec = new Recorder(s), q = new Sequencer(rec, s);
+  q.startAt(0, 0.05); q.tick(0, 0.05);
+  assert.equal(rec.dubBreakdown, true, 'MIDI tracks the breakdown register');
+  q.tick(16, 2.05);
+  assert.equal(rec.dubBreakdown, false, 'MIDI restores the original register after the breakdown');
+}
+
+{
   const padSend = async (rev = 0.24, edit) => {
     const s = freshSong('dub', 42), ctx = new OfflineAudioContext(1, SR * 3, SR);
     s.artist = { style: 'dub', seed: 42 };
