@@ -78,10 +78,11 @@ export function syncAudioClock(previous, measured, sample = null) {
 }
 
 // Re-anchor the audio schedule to the shared transport when it drifts or stalls.
-export function transportResync(target, nextTime, now, stepSec, jumped = false, minSkip = -Infinity, room = false, rate = null) {
-  if (typeof room === 'number') { rate = room; room = false; }
-  if (!room && rate !== null && !jumped && Math.abs(target - nextTime) <= 0.03 && nextTime >= now) {
+export function transportResync(target, nextTime, now, stepSec, jumped = false, minSkip = -Infinity, roomOrRate = false, exact = false) {
+  const room = roomOrRate === true, rate = typeof roomOrRate === 'number' ? roomOrRate : null;
+  if (rate !== null && !jumped && Math.abs(target - nextTime) <= (exact ? 0.05 : 0.03) && nextTime >= now) {
     const error = target - nextTime;
+    if (exact) return roomSlew(target, nextTime, now, stepSec, rate);
     if (rate === null || (Math.abs(error) <= 0.002 && rate === 1) || nextTime - stepSec < now + 0.005) return null;
     const desired = Math.abs(error) <= 0.002 ? 1 : 1 - Math.max(-0.008, Math.min(0.008, error * 2.5));
     const limit = stepSec * 0.016;
@@ -101,6 +102,39 @@ export function transportResync(target, nextTime, now, stepSec, jumped = false, 
   while (target < earliest) { target += stepSec; skip++; }
   if (room && !jumped) target = Math.max(target, nextTime);
   return { skip, nextTime: target, discard: jumped, ...(target < ready && { firstTime: ready }) };
+}
+
+function roomSlew(target, nextTime, now, stepSec, rate) {
+  const error = target - nextTime;
+  if ((Math.abs(error) < 1e-10 && rate === 1) || nextTime - stepSec < now + 0.005) return null;
+  const limit = stepSec * 0.016;
+  const delta = (from, to) => 2 * stepSec / (from + to) - stepSec;
+  const stop = from => {
+    let phase = 0;
+    while (from !== 1) {
+      const to = Math.abs(from - 1) <= limit ? 1 : from + Math.sign(1 - from) * limit;
+      phase += delta(from, to);
+      from = to;
+    }
+    return phase;
+  };
+  const low = Math.max(1 / (1 + 0.0015 / stepSec), 0.992, rate - limit);
+  const high = Math.min(1 / (1 - 0.0015 / stepSec), 1.008, rate + limit);
+  const desired = 1 - Math.max(-0.008, Math.min(0.008, error * 2.5));
+  let endRate = Math.max(low, Math.min(high, desired));
+  if (delta(rate, low) + stop(low) >= error && delta(rate, high) + stop(high) <= error) {
+    let lo = low, hi = high;
+    for (let i = 0; i < 40; i++) {
+      const middle = (lo + hi) / 2;
+      if (delta(rate, middle) + stop(middle) > error) lo = middle;
+      else hi = middle;
+    }
+    endRate = (lo + hi) / 2;
+  }
+  if (Math.abs(endRate - 1) < 1e-10) endRate = 1;
+  let next = nextTime + delta(rate, endRate);
+  if (endRate === 1 && Math.abs(target - next) < 1e-10) next = target;
+  return {skip:0, nextTime:next, discard:false, slew:true, rate, endRate};
 }
 
 export function slewTransport(target, nextTime, limit = 0.03) {

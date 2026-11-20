@@ -204,6 +204,10 @@ function schedule(lead) {
   if (clock.jumped) roomDrainUntil = null;
   const correction = roomPlayback && !clock.jumped && !playableFirst ? roomTransportCorrection(target, nextTime, now, base, roomDrainUntil) : null;
   if (correction?.drainUntil !== undefined) {
+    if (roomDrainUntil === null) {
+      engine.cancelVocalSlew?.();
+      engine.roomSlewRate = 1;
+    }
     roomDrainUntil = correction.drainUntil;
     if (replayAt <= roomDrainUntil + 0.03 && replayAt < now + ahead) switchRoomReplay(replayAt);
     return;
@@ -245,7 +249,21 @@ function schedule(lead) {
     const horizon = ctx.currentTime + (landed ? Math.max(ahead, 0.5) : ahead);
     if (!(Math.min(nextTime, replayAt) < horizon)) break;
     const gridTarget = roomMediaTime(transportOrigin / 1000 + abs * base - clockOffset, roomPlayback, mediaRoute);
-    if (roomPlayback && !(playableFirst && firstTime !== undefined) && Math.abs(gridTarget - nextTime) > 0.000001) nextTime = slewTransport(gridTarget, nextTime, 0.05);
+    if (roomPlayback && !(playableFirst && firstTime !== undefined)) {
+      if (engine.vocalNow?.correction) {
+        nextTime = slewTransport(gridTarget, nextTime, 0.05);
+      } else {
+        const duration = engine.stepDur;
+        const slew = transportResync(gridTarget, nextTime, ctx.currentTime, duration, false, seq.origin - abs, engine.roomSlewRate ?? 1, true);
+        if (slew?.slew) {
+          const shifted = slewTransport(slew.nextTime, nextTime, 0.05);
+          if (!engine.vocalNow)
+            engine.slewVocal?.(shifted - nextTime, nextTime - duration, duration, slew.rate, slew.endRate);
+          engine.roomSlewRate = slew.endRate;
+          nextTime = shifted;
+        }
+      }
+    }
     const t = firstTime ?? nextTime;
     firstTime = undefined;
     // Leave a nearly coincident outgoing step to the incoming replay downbeat.
@@ -267,7 +285,23 @@ function schedule(lead) {
     }
     artistTick(abs - seq.origin);
     const pat = seq.tick(abs, t, roomPlayback ? nextTime : undefined, roomEditor, roomPlayback);
-    if (roomPlayback && vocalGridDirty && (Math.abs(gridTarget - nextTime) < 0.002 || engine.vocalNow?.correction?.forceStep != null)) {
+    const voice = engine.vocalNow, pos = seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1;
+    const phase = voice ? (pos * 16 + (abs - seq.origin) % 16) * engine.stepDur - voice.ms / 1000 : 0;
+    const vocalNext = voice ? voice.origin + phase : nextTime;
+    const vocalFrom = voice ? Math.max(vocalNext - engine.stepDur, voice.slewEnd ?? voice.at, ctx.currentTime + 0.005) : nextTime;
+    const vocalGap = voice?.slewEnd == null ? 0 : Math.max(0, vocalFrom - voice.slewEnd);
+    const vocalError = gridTarget - vocalNext - (1 - (voice?.slewRate ?? 1)) * vocalGap;
+    const vocalSlewing = roomPlayback && voice && !voice.correction && voice.sd === engine.stepDur && pos >= 0 &&
+      Math.abs(vocalError) <= 0.05;
+    if (vocalSlewing) {
+      const end = vocalFrom + engine.stepDur;
+      const slew = transportResync(end + vocalError, end, ctx.currentTime, engine.stepDur, false, -Infinity, voice.slewRate ?? 1, true);
+      if (slew?.slew) engine.slewVocal(slew.nextTime - end, vocalFrom, engine.stepDur, slew.rate, slew.endRate);
+      if ((voice.slewRate ?? 1) === 1 && Math.abs(gridTarget - voice.origin - phase) < 1e-9 &&
+          (engine.roomSlewRate ?? 1) === 1 && Math.abs(gridTarget - nextTime) < 1e-9) vocalGridDirty = false;
+    }
+    if (roomPlayback && vocalGridDirty && !vocalSlewing && (engine.roomSlewRate ?? 1) === 1 && (Math.abs(gridTarget - nextTime) < 0.002 || engine.vocalNow?.correction?.forceStep != null)) {
+      engine.cancelVocalSlew?.();
       const aligned = engine.vocal(t, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, (abs - seq.origin) % 16, nextTime, true);
       vocalGridDirty = aligned === false;
     }

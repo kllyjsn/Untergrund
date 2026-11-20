@@ -3342,9 +3342,23 @@ export class Engine {
     else if (from > cur.slewEnd + 1e-9)
       param.linearRampToValueAtTime(rate, from);
     param.linearRampToValueAtTime(endRate, end);
+    if (cur.slewEnd !== undefined && from > cur.slewEnd + 1e-9)
+      cur.origin += (1 - cur.slewRate) * (from - cur.slewEnd);
     cur.slewEnd = end;
     cur.slewRate = endRate;
     cur.origin += delta;
+  }
+
+  cancelVocalSlew() {
+    const cur = this.vocalNow;
+    if (!cur || cur.slewEnd === undefined || cur.slewRate === 1) return;
+    const end = Math.max(this.ctx.currentTime, cur.slewEnd);
+    cur.origin += (1 - cur.slewRate) * (end - cur.slewEnd + 1 / this.ctx.sampleRate);
+    const param = cur.src.playbackRate;
+    param.cancelScheduledValues(end + 1 / this.ctx.sampleRate);
+    param.setValueAtTime(1, end + 1 / this.ctx.sampleRate);
+    cur.slewEnd = end + 1 / this.ctx.sampleRate;
+    cur.slewRate = 1;
   }
 
   // Keep a continuous stem across bars; discarding the queue on a clock jump stops it.
@@ -3377,7 +3391,8 @@ export class Engine {
       const buffer = processedStem(v.buf, v.fx, this.ctx), actual = t - cur.origin, shift = actual - phase;
       const voices = [...(this.vocalRetiring || []), cur];
       singingEnvelope(buffer);
-      const earliest = Math.max(phase, this.ctx.currentTime + 0.02 - origin);
+      const earliest = Math.max(phase, this.ctx.currentTime + 0.02 - origin,
+        ...voices.map(voice => (voice.slewEnd ?? -Infinity) - origin));
       const latest = ((alignment.forceFrom ?? index) + 32) * this.stepDur - v.ms / 1000;
       const quiet = (at, source = buffer) => {
         const audio = source.getChannelData(0), window = Math.ceil(source.sampleRate * 0.06);

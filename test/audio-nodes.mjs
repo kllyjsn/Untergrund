@@ -4,11 +4,13 @@
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { runInNewContext } from 'node:vm';
 import { STYLES, defaultState, generate, applyOverrides, arrangement, songChain } from '../js/state.js';
 import { makeIR } from '../js/dsp.js';
 import { TECHNO_HOOK_SPACE } from '../js/lead.js';
 import { VOCAL_FX } from '../js/sing.js';
-import { transportResync } from '../js/room-sync.js';
+import { syncAudioClock, transportResync, slewTransport, roomTransportCorrection } from '../js/room-sync.js';
+import { createRoomMediaSync, roomMediaLead, roomMediaTime } from '../js/room-media-sync.js';
 import { applyPart, extractPart, normalizeLayer } from '../js/jam.js';
 
 const BASELINE = new URL('./audio-nodes-baseline.json', import.meta.url);
@@ -769,6 +771,107 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     assert.equal(e.vocal(5.245, 2, 1, 5.245, true), false);
     assert.equal(e.vocalNow.correction.forceFrom, 33);
     assert.equal(e.vocalNow.correction.forceStep, 64, 'a new correction gets a fresh two-bar window');
+  }
+
+  {
+    const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+    const source = main.slice(main.indexOf('function schedule(lead)'), main.indexOf('\n// Jam:'));
+    for (const [name, sign, drift, initial = 0] of [
+      ['stable40', 1, false], ['stable40', -1, false], ['drift5', 1, true], ['drift5', -1, true],
+      ['voice40', 1, false, .04], ['voice40', -1, false, .04],
+    ]) for (const bpm of drift ? [123, 240] : [40, 123, 240]) {
+      const c = fakeCtx(), state = defaultState(), starts = [], rates = [], hits = [], relocations = [];
+      state.bpm = bpm;
+      const buf = new FakeBuffer({length:48000 * 80, sampleRate:48000});
+      buf.getChannelData(0).fill(.1);
+      c.createBufferSource = () => ({connect:dst => dst, start:(...args) => starts.push(args), stop(){},
+        playbackRate:{
+          setValueAtTime:(rate, at) => rates.push({rate, at, ramp:false}),
+          linearRampToValueAtTime:(rate, at) => rates.push({rate, at, ramp:true}),
+          cancelScheduledValues(){},
+        }});
+      const engine = new Engine(c, state, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+      const sd = engine.stepDur, noop = () => {};
+      c.currentTime = 9.5;
+      const initialOrigin = 10 + sign * initial;
+      engine.vocal(initialOrigin, 0, 0, initialOrigin);
+      engine.roomSlewRate = 1;
+      const original = engine.vocalNow.src;
+      let elapsed = 0;
+      const offset = () => name === 'voice40' ? 0 : sign * (drift ? .005 * Math.min(50, Math.floor(Math.max(0, elapsed - 2) * 2 + 1e-8) / 2) : elapsed >= 2 ? .04 : 0);
+      const s = {playing:true, songOver:false, roomPlayback:true, roomEditor:false, ROOM_LEAD:.42, BG_LEAD:1.5,
+        mediaRoute:null, roomMediaSync:createRoomMediaSync(), roomMediaLead, roomMediaTime,
+        document:{hidden:false}, ctx:c, Date:{now:() => (c.currentTime + 1000 + offset()) * 1000},
+        performance:{now:() => c.currentTime * 1000}, state, engine, clockOffset:1000,
+        roomAudioClock:{at:9.5, contextTime:9.5, pending:null}, roomDrainUntil:null, vocalGridDirty:false,
+        transportOrigin:1010000, abs:0, nextTime:10, queuedRoomReplay:null, handoff:null, jamQueue:[], uiQueue:[],
+        syncAudioClock, transportResync, slewTransport, roomTransportCorrection,
+        seq:{origin:0, chainPos:1, songBars:256, advanceBar:noop, rewind:noop,
+          tick:(step, time) => {
+            hits.push({step, time}); s.seq.chainPos = Math.floor(step / 16) + 1;
+            if (step % 16 === 0) engine.vocal(time, Math.floor(step / 16), 0, time, false, true);
+            return {};
+          }},
+        timeline:{skip:() => 0}, artistTick:noop, landJamParts:noop,
+        midiClockStart:() => relocations.push(s.abs), midiClockStep:noop};
+      const schedule = runInNewContext(source+'\nschedule', s);
+      let previousDrum = 0, previousVocal = 0;
+      for (let tick = 0; tick <= 3500; tick++) {
+        elapsed = tick / 50; c.currentTime = 9.5 + elapsed;
+        schedule();
+        const drum = 10 + s.abs * sd - s.nextTime, vocal = initialOrigin - engine.vocalNow.origin;
+        assert.ok(sign * (drum - previousDrum) >= -1e-9, 'drum correction has no reversal or oscillation');
+        assert.ok(sign * (vocal - previousVocal) >= -1e-9, 'vocal correction has no reversal or oscillation');
+        assert.ok(sign * drum <= sign * offset() + 1e-9, 'drums never overshoot the true offset');
+        assert.ok(sign * vocal <= sign * offset() + initial + 1e-9, 'vocal never overshoots the true offset');
+        assert.equal(engine.vocalNow.src, original, 'small accepted corrections keep the sung source through every bar');
+        previousDrum = drum; previousVocal = vocal;
+      }
+      const expected = name === 'voice40' ? 0 : sign * (drift ? .25 : .04), expectedVocal = expected + sign * initial;
+      assert.ok(Math.abs(s.clockOffset - 1000 - expected) < 1e-9, 'the median mapping converges to the final true estimate');
+      assert.ok(Math.abs(previousDrum - expected) < 1e-8, 'total drum correction equals the true offset once, not twice');
+      assert.ok(Math.abs(previousVocal - expectedVocal) < 1e-8, 'total vocal correction equals its true offset once');
+      assert.equal(engine.roomSlewRate, 1);
+      assert.equal(relocations.length, 0, 'sub-step corrections never drain, adopt or skip a sixteenth');
+      assert.ok(hits.every((h, i) => h.step === i && (!i || h.time > hits[i-1].time)));
+      assert.ok(hits.every((h, i) => !i || Math.abs(h.time - hits[i-1].time - sd) <= .0015 + 1e-9),
+        'drum intervals stay within the1.5ms/step slew bound');
+      let nativeOrigin = initialOrigin, at = initialOrigin, rate = 1;
+      for (const event of rates) {
+        assert.ok(event.at >= at, 'native vocal automation remains ordered');
+        nativeOrigin += (1 - (event.ramp ? (rate + event.rate) / 2 : rate)) * (event.at - at);
+        at = event.at; rate = event.rate;
+      }
+      assert.ok(Math.abs(initialOrigin - nativeOrigin - expectedVocal) < 1e-8, 'independently integrated native playbackRate equals the true correction');
+      assert.equal(starts.length, 1, 'zero mid-phrase restarts, gap realigns or forced operations for convergent small corrections');
+      assert.equal(rate, 1);
+      console.log(`Room integrated ${name} ${sign > 0 ? '+' : '-'} ${bpm}BPM PASS: drum=${(expected * 1000).toFixed(1)}ms vocal/native=${(expectedVocal * 1000).toFixed(1)}ms, no overshoot/oscillation/skip/restart, unity rate.`);
+    }
+  }
+
+  {
+    const c = fakeCtx(), s = defaultState(), events = [];
+    s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 20, sampleRate:48000});
+    c.createBufferSource = () => ({connect:dst => dst, start(){}, stop(){}, playbackRate:{
+      setValueAtTime:(rate, at) => events.push({rate, at}),
+      linearRampToValueAtTime:(rate, at) => events.push({rate, at}),
+      cancelScheduledValues:at => events.push({cancel:at}),
+    }});
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.vocal(1, 0, 0, 1);
+    const duration = e.stepDur, delta = 2 * duration / 1.998 - duration;
+    e.slewVocal(delta, 1, duration, 1, .998);
+    const origin = e.vocalNow.origin, end = e.vocalNow.slewEnd;
+    e.cancelVocalSlew();
+    assert.equal(events.at(-1).rate, 1);
+    assert.ok(events.at(-1).at > end, 'large-mode handoff preserves the already queued ramp');
+    assert.ok(Math.abs(e.vocalNow.origin - origin - .002 / c.sampleRate) < 1e-9);
+    const count = events.length;
+    e.cancelVocalSlew();
+    assert.equal(events.length, count, 'a drain cancels a vocal slew once, not once per poll');
+    assert.equal(e.vocalNow.slewRate, 1);
+    console.log('Room slew handoff PASS: large-mode drain retires the queued rate once at unity without counting its phase twice.');
   }
 
   {
