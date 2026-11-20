@@ -183,6 +183,7 @@ const SOUL_STRIP = { ...BAND_STRIP, stab: { eq: [[140, -2], [250, -7, 0.9], [260
 // genres came out 6-13 dB heavy at 250 Hz and 7-12 dB short of 2-8 kHz, with an L/R correlation of 0.76-0.89.
 export const MASTER_TONE = {
   hardtechno: [0, -1, 3.75, -0.5, 0.12],
+  dub: [0, -2, 0, 0, 0],
   pop: [-1.5, -9, 4.5, 1.5, 0.6], rnb: [0, -7, 6.5, 2.5, 0.6], rock: [-4, -5, 4.5, 3, 0.6],
   folk: [3, -3, 0.5, 4, 0.5], country: [2, -3, 2.5, 4, 0.6],
 };
@@ -1204,7 +1205,7 @@ export class Engine {
     src.connect(hp).connect(lp).connect(g).connect(out);
   }
   clave(t, v, p, out) {
-    const c = this.ctx, f = 1800 * Math.sqrt(p.tune / 240), dec = Math.max(0.02, p.decay * 0.25);
+    const c = this.ctx, f = 1800 * Math.sqrt(p.tune / 240) * (this.state.artist?.style === 'dub' ? 0.5 : 1), dec = Math.max(0.02, p.decay * 0.25);
     for (const [m, l] of [[1, 0.8], [1.48, 0.25]]) {
       const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = f * m;
       const g = this.gain(0); this.adEnv(g.gain, t, v * l, 0.0005, dec);
@@ -1982,19 +1983,44 @@ export class Engine {
     return this.dubPadBus;
   }
 
+  dubPadLevel(iv, root, t) {
+    const p = this.state.params.stab, color = [0, 2, 3, 5].indexOf(Math.round(p.voice));
+    const response = (f, hz, q, high = false) => {
+      const r2 = (f / hz) ** 2;
+      return (high ? r2 * r2 : 1) / ((1 - r2) ** 2 + r2 / (q * q));
+    };
+    const cutoff = Math.min(1500, 510 + p.cutoff * 0.35 + 140 * Math.sin(t * 0.29)) * 0.65 + (380 + color * 45) * 0.35;
+    let chord = 0, pad = 0;
+    for (const n of iv) {
+      const f = midiHz(root + n);
+      for (let h = 1; h <= 11; h++) {
+        const hz = f * h;
+        if (h < 5) {
+          const partial = (h === 1 ? 1 : h === 2 ? [0.32, 0.2, 0.4, 0.25][color] ?? 0.3 : h === 3 ? 0.1 : 0.04) * Math.max(0, Math.min(1, (1700 - hz) / 500));
+          chord += partial ** 2 * response(hz, 210, 0.5, true) * response(hz, cutoff, 0.55) * response(hz, 1800, 0.5);
+        }
+        if (h % 2) pad += (8 / (Math.PI * Math.PI * h * h)) ** 2 * response(hz, 420, 0.5, true) * response(hz, 850, 0.5);
+      }
+    }
+    const density = this.stabPat ? this.stabPat.filter(Boolean).length / ((this.stabLen || 16) * this.stepDur) : 1;
+    const register = iv.reduce((sum, n) => sum + midiHz(root + n), 0) / iv.length;
+    return Math.max(0.035, Math.min(0.3, 0.062 * Math.sqrt(chord / Math.max(pad, 1e-8)) * Math.sqrt(Math.max(0.5, Math.min(4, density))) * Math.sqrt(330 / Math.max(110, register))));
+  }
+
   dubPad(t, v, iv, root) {
+    if (!iv.length) return;
     if (this.dubPadAt != null && t - this.dubPadAt < this.stepDur * 48) return;
     this.dubPadAt = t;
     const hold = this.stepDur * 24, end = t + hold + 5, amp = this.gain(0);
-    const hp = this.filter('highpass', 240, 0.5), lp = this.filter('lowpass', 850, 0.5);
+    const hp = this.filter('highpass', 420, 0.5), lp = this.filter('lowpass', 850, 0.5);
     lp.frequency.setValueAtTime(650, t); lp.frequency.linearRampToValueAtTime(1100, t + hold); lp.frequency.linearRampToValueAtTime(600, end);
-    amp.gain.setValueAtTime(0, t); amp.gain.linearRampToValueAtTime(0.035 * v / Math.sqrt(iv.length), t + 1.4);
+    amp.gain.setValueAtTime(0, t); amp.gain.linearRampToValueAtTime(this.dubPadLevel(iv, root, t) * v / Math.sqrt(iv.length), t + 1.4);
     amp.gain.setTargetAtTime(0, t + hold, 1); amp.gain.setValueAtTime(0, end);
     hp.connect(lp).connect(amp).connect(this.dubPadOut());
     const pans = this.sidePans([-0.85, 0.85], hp);
     iv.forEach(n => {
       for (const side of [-1, 1]) {
-        const o = this.ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = midiHz(root + n - 12);
+        const o = this.ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = midiHz(root + n);
         o.detune.setValueAtTime(side * 5, t); o.detune.linearRampToValueAtTime(-side * 3, end);
         o.connect(pans[side < 0 ? 0 : 1]); this.startSource(o, t); o.stop(end);
       }

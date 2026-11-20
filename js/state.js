@@ -799,7 +799,6 @@ function generatePattern(style, seed, scaleName, starter) {
   for (const t of ['acid', 'stab']) params[t].voice ??= 0;
   const PERC = { dnb: 3, deephouse: 3, ukg: 3, boombap: 3, neosoul: 3, breaks: 2, minimal: 3, dub: 4, euphoric: 3, ambient: 2, amapiano: 3, afrobeats: 1, reggaeton: 2, bailefunk: 1 };
   params.perc.voice = PERC[style] ?? 0;
-  if (style === 'dub') params.perc.level = 0.28;
   const DUST = { boombap: 0.45, dub: 0.3, ambient: 0.2, deephouse: 0.12, minimal: 0.1 };
   master.dust = DUST[style] ?? 0;
   master.arr = { neosoul: 0, boombap: 0, drill: 0, ambient: 0 }[style] ?? (GROOVE.has(style) ? 0.5 : 1);
