@@ -78,11 +78,11 @@ export function syncAudioClock(previous, measured, sample = null) {
 }
 
 // Re-anchor the audio schedule to the shared transport when it drifts or stalls.
-export function transportResync(target, nextTime, now, stepSec, jumped = false, minSkip = -Infinity, roomOrRate = false, exact = false) {
+export function transportResync(target, nextTime, now, stepSec, jumped = false, minSkip = -Infinity, roomOrRate = false, exact = false, profile = null) {
   const room = roomOrRate === true, rate = typeof roomOrRate === 'number' ? roomOrRate : null;
   if (rate !== null && !jumped && Math.abs(target - nextTime) <= (exact ? 0.05 : 0.03) && nextTime >= now) {
     const error = target - nextTime;
-    if (exact) return roomSlew(target, nextTime, now, stepSec, rate);
+    if (exact) return roomSlew(target, nextTime, now, stepSec, rate, profile);
     if (rate === null || (Math.abs(error) <= 0.002 && rate === 1) || nextTime - stepSec < now + 0.005) return null;
     const desired = Math.abs(error) <= 0.002 ? 1 : 1 - Math.max(-0.008, Math.min(0.008, error * 2.5));
     const limit = stepSec * 0.016;
@@ -104,37 +104,49 @@ export function transportResync(target, nextTime, now, stepSec, jumped = false, 
   return { skip, nextTime: target, discard: jumped, ...(target < ready && { firstTime: ready }) };
 }
 
-function roomSlew(target, nextTime, now, stepSec, rate) {
+function roomSlew(target, nextTime, now, stepSec, rate, profile) {
   const error = target - nextTime;
   if ((Math.abs(error) < 1e-10 && rate === 1) || nextTime - stepSec < now + 0.005) return null;
-  const limit = stepSec * 0.016;
-  const delta = (from, to) => 2 * stepSec / (from + to) - stepSec;
-  const stop = from => {
-    let phase = 0;
-    while (from !== 1) {
-      const to = Math.abs(from - 1) <= limit ? 1 : from + Math.sign(1 - from) * limit;
-      phase += delta(from, to);
-      from = to;
-    }
-    return phase;
-  };
-  const low = Math.max(1 / (1 + 0.0015 / stepSec), 0.992, rate - limit);
-  const high = Math.min(1 / (1 - 0.0015 / stepSec), 1.008, rate + limit);
-  const desired = 1 - Math.max(-0.008, Math.min(0.008, error * 2.5));
-  let endRate = Math.max(low, Math.min(high, desired));
-  if (delta(rate, low) + stop(low) >= error && delta(rate, high) + stop(high) <= error) {
-    let lo = low, hi = high;
-    for (let i = 0; i < 40; i++) {
-      const middle = (lo + hi) / 2;
-      if (delta(rate, middle) + stop(middle) > error) lo = middle;
-      else hi = middle;
-    }
-    endRate = (lo + hi) / 2;
-  }
-  if (Math.abs(endRate - 1) < 1e-10) endRate = 1;
-  let next = nextTime + delta(rate, endRate);
+  if (!profile || profile.stepSec !== stepSec || Math.abs(profile.error - error) > 1e-6 ||
+      profile.rates[profile.index] !== rate) profile = roomSlewProfile(error, stepSec, rate);
+  const index = profile.index + 1, endRate = profile.rates[index];
+  let next = nextTime + 2 * stepSec / (rate + endRate) - stepSec;
   if (endRate === 1 && Math.abs(target - next) < 1e-10) next = target;
-  return {skip:0, nextTime:next, discard:false, slew:true, rate, endRate};
+  return {skip:0, nextTime:next, discard:false, slew:true, rate, endRate,
+    profile:index < profile.rates.length - 1 ? {...profile, index, error:target - next} : null};
+}
+
+function roomSlewProfile(error, stepSec, rate) {
+  const low = Math.min(rate, Math.max(0.992, 1 / (1 + 0.0015 / stepSec)));
+  const high = Math.max(rate, Math.min(1.008, 1 / (1 - 0.0015 / stepSec)));
+  const capacity = Math.min(1 - low, high - 1);
+  let steps = Math.max(2, Math.ceil((3.5 + Math.abs(error) * 2.5 / 0.03) * .008 / capacity / stepSec));
+  for (;;) {
+    const shape = [], coast = [];
+    let lo = -Infinity, hi = Infinity;
+    for (let i = 1; i < steps; i++) {
+      const u = i / steps;
+      // Zero endpoint slopes, a rounded peak, and mean velocity 5/8.
+      const pulse = 1 - Math.cos(Math.PI * u) ** 4;
+      const base = (rate - 1) * (1 + Math.cos(Math.PI * u)) / 2;
+      shape[i] = pulse; coast[i] = base;
+      lo = Math.max(lo, (low - 1 - base) / pulse);
+      hi = Math.min(hi, (high - 1 - base) / pulse);
+    }
+    const rates = amplitude => Array.from({length:steps + 1}, (_, i) =>
+      i === 0 ? rate : i === steps ? 1 : 1 + coast[i] + amplitude * shape[i]);
+    const phase = values => values.slice(1).reduce((sum, value, i) =>
+      sum + 2 * stepSec / (values[i] + value) - stepSec, 0);
+    if (phase(rates(lo)) >= error && phase(rates(hi)) <= error) {
+      for (let i = 0; i < 48; i++) {
+        const middle = (lo + hi) / 2;
+        if (phase(rates(middle)) > error) lo = middle;
+        else hi = middle;
+      }
+      return {rates:rates((lo + hi) / 2), index:0, stepSec, error};
+    }
+    steps++;
+  }
 }
 
 export function slewTransport(target, nextTime, limit = 0.03) {

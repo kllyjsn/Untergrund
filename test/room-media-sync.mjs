@@ -288,7 +288,8 @@ for (const duration of [.1, .125, .15]) {
   s.ctx.currentTime += .1;
   s.Date.now = () => 1000100;
   api.schedule();
-  const endRate = 1 + duration * .016, delta = 2 * duration / (1 + endRate) - duration;
+  const expected = transportResync(pending - .025, pending, s.ctx.currentTime, duration, false, -Infinity, 1, true);
+  const endRate = expected.endRate, delta = 2 * duration / (1 + endRate) - duration;
   assert.equal(slews.length, 1, 'one correction for one newly scheduled step');
   assert.ok(Math.abs(hits.at(-1).t - (pending + delta)) < 1e-9);
   assert.deepEqual(hits.slice(0, queued.length).map(h => h.t), queued, 'queued notes are unchanged');
@@ -298,6 +299,7 @@ for (const duration of [.1, .125, .15]) {
   assert.equal(slews[0][3], 1);
   assert.ok(Math.abs(slews[0][4] - endRate) < 1e-9);
   assert.equal(s.engine.roomSlewRate, slews[0][4], 'grid rate persists even without a vocal stem');
+  assert.ok(s.engine.roomSlewProfile, 'the grid carries its own smooth profile independently of the vocal');
   for (let i = 0; i < 10; i++) api.schedule();
   assert.equal(slews.length, 1);
 }

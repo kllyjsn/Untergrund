@@ -247,6 +247,71 @@ assert.equal(transportResync(10.02, 10, 9.9, .125, false, -Infinity, 1), null, '
 assert.deepEqual(transportResync(10.2, 10, 9.9, .125, false, -Infinity, 1), { skip: 0, nextTime: 10.2, discard: false });
 console.log('Room residual slew PASS: both signs, 40–240 BPM, smooth bounded rates, phase-locked steps, unity within <5s, floor and render guard.');
 
+for (const bpm of [40, 80, 123, 180, 240]) for (const sign of [-1, 1]) {
+  let previousPeak = 0;
+  for (const residual of [.001, .005, .014, .028, .030, .049]) {
+    const sd = 15 / bpm;
+    let target = 10, next = target + sign * residual, rate = 1, profile = null, peak = 0, steps = 0;
+    const endpoints = [1];
+    while (Math.abs(target - next) > 1e-10 || rate !== 1) {
+      const fix = transportResync(target, next, next - sd - .01, sd, false, -Infinity, rate, true, profile);
+      assert.ok(fix?.slew);
+      assert.equal(fix.rate, rate);
+      assert.ok(Math.abs(fix.endRate - 1) <= .008 + 1e-12);
+      assert.ok(Math.abs(fix.nextTime - next) <= .0015 + 1e-12);
+      close((sd + fix.nextTime - next) * (rate + fix.endRate) / 2, sd);
+      assert.ok((fix.endRate - 1) * sign >= 0, 'a stable target never reverses pitch');
+      if (bpm === 123 && steps === 0)
+        assert.ok(Math.abs(1200 * Math.log2(fix.endRate)) <= 1, 'first sixteenth leaves unity gently');
+      profile = fix.profile; rate = fix.endRate; next = fix.nextTime + sd; target += sd; steps++;
+      peak = Math.max(peak, Math.abs(rate - 1)); endpoints.push(rate);
+      assert.ok(steps * sd < 30, 'exact alignment and unity complete in finite time');
+    }
+    if (residual <= .030) assert.ok(peak > previousPeak, 'peak deviation grows with residual');
+    previousPeak = peak;
+    assert.equal(profile, null);
+    assert.ok(Math.abs(next - target) < 1e-10, 'exact alignment includes residuals below 2ms');
+    const velocities = endpoints.map(r => Math.abs(r - 1));
+    assert.ok(velocities.slice(1, -1).every(v => v > 0), 'no mid-slew unity reset');
+    assert.ok(Math.max(...velocities) < .008, 'no plateau at the rate cap');
+    if (bpm === 123 && residual === .030) {
+      assert.ok(steps * sd <= 6.25, '30ms closes in about six seconds at 123 BPM');
+      console.log(`Room S-curve ${sign * 30}ms: unity/exact alignment ${(steps * sd).toFixed(6)}s.`);
+    }
+  }
+}
+{
+  const sd = 15 / 123;
+  const first = transportResync(10, 10.028, 9, sd, false, -Infinity, 1, true);
+  const saved = JSON.stringify(first.profile);
+  assert.equal(transportResync(10, 10.028, 10, sd, false, -Infinity, 1, true), null, 'render guard does not start a profile');
+  const changed = transportResync(10 + sd + .003, first.nextTime + sd, 9, sd, false, -Infinity, first.endRate, true, first.profile);
+  assert.equal(changed.rate, first.endRate, 'a moving target replans from the actual carried rate');
+  const rubato = transportResync(10 + .15, first.nextTime + .15, 9, .15, false, -Infinity, first.endRate, true, first.profile);
+  close((.15 + rubato.nextTime - first.nextTime - .15) * (rubato.rate + rubato.endRate) / 2, .15);
+  assert.equal(JSON.stringify(first.profile), saved, 'planning never mutates an unaccepted profile');
+  assert.equal(transportResync(10, 10, 9, sd, false, -Infinity, 1, true), null);
+}
+console.log('Room S-curve PASS: monotonic residual-scaled peaks, both signs, 40–240 BPM, gentle onset, exact phase/unity, cap, guards, retargeting and rubato.');
+
+for (const residual of [-.030, .030]) {
+  const sd = 15 / 123, origin = 1795171688926 / 1000, offset = 1795171682.8419116;
+  let next = origin - offset + residual, rate = 1, profile = null, starts = 0, aligned = false;
+  for (let step = 0; step < 52; step++) {
+    const target = origin + step * sd - offset;
+    const fix = transportResync(target, next, 0, sd, false, -Infinity, rate, true, profile);
+    if (fix?.slew) {
+      if (fix.profile?.index === 1) starts++;
+      rate = fix.endRate; profile = fix.profile; next = fix.nextTime;
+    }
+    if (rate === 1 && Math.abs(next - target) < 1e-6) { aligned = true; break; }
+    next += sd;
+  }
+  assert.ok(aligned, 'epoch subtraction rounding must not continually restart the easing profile');
+  assert.equal(starts, 1, 'sub-microsecond grid quantization is not a new clock correction');
+}
+console.log('Room S-curve clock precision PASS: real epoch arithmetic preserves profile progress and closes +/-30ms in about six seconds.');
+
 {
   const correction = transportResync(10.75, 11.5, 10, 0.125, false, -4, true);
   assert.equal(correction, null, 'raw resync cannot skip future room positions; large errors use the drain/adopt path');
