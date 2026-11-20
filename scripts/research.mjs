@@ -74,9 +74,25 @@ function history() {
   return { loudness, composition, audio };
 }
 
+// scripts/true-peak.mjs report: every song's 4x true peak and the bar it peaks in, per genre.
+async function compactTruePeak(rep) {
+  const { STYLES } = await import('../js/state.js'), styles = {};
+  for (const x of rep.rows) {
+    const s = (styles[x.style] ??= { name: STYLES[x.style]?.name || x.style, family: STYLES[x.style]?.family || null, worst: -Infinity, worstSeed: null, seeds: {} });
+    s.seeds[x.seed] = { tp: r(x.tp, 3), over: x.tp > rep.ceiling, bar: x.bar, bars: x.bars, secs: x.secs, section: x.section };
+    if (x.tp > s.worst) { s.worst = x.tp; s.worstSeed = x.seed; }
+    s.over ||= x.tp > rep.ceiling;
+  }
+  for (const s of Object.values(styles)) s.worst = r(s.worst, 3);
+  const tps = rep.rows.map((x) => x.tp).sort((a, b) => a - b), top = rep.rows.reduce((a, b) => (b.tp > a.tp ? b : a));
+  return { ceiling: rep.ceiling, songs: rep.rows.length, genres: Object.keys(styles).length, wallSec: rep.wallSec, pages: rep.pages,
+    over: rep.rows.filter((x) => x.tp > rep.ceiling).length, within: rep.rows.filter((x) => x.tp > rep.ceiling - 0.5 && x.tp <= rep.ceiling).length,
+    median: r(tps[tps.length >> 1]), worst: { style: top.style, name: styles[top.style].name, seed: top.seed, tp: r(top.tp, 3), bar: top.bar + 1, at: top.at }, styles };
+}
+
 function runNode(args) { execFileSync(process.execPath, args, { cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'] }); }
 
-export async function takeSnapshot(slug, { run = false, deepFile, fastFile } = {}) {
+export async function takeSnapshot(slug, { run = false, deepFile, fastFile, truePeakFile } = {}) {
   const out = (f) => (f === 'audio-benchmark-deep.json' && deepFile) || (f === 'audio-benchmark-fast.json' && fastFile) || join(ROOT, 'test/out', f);
   if (run) {
     runNode(['scripts/audio-benchmark.mjs', '--tier', 'deep', '--quiet', '--json', out('audio-benchmark-deep.json')]);
@@ -126,6 +142,7 @@ export async function takeSnapshot(slug, { run = false, deepFile, fastFile } = {
     },
     history: history(),
   };
+  if (truePeakFile) data.truePeak = await compactTruePeak(readJson(truePeakFile));
   mkdirSync(DATA, { recursive: true });
   writeFileSync(join(DATA, `${slug}.json`), JSON.stringify(data) + '\n');
   return data;
@@ -293,6 +310,51 @@ function truePeakChart(d) {
   };
   return figure({ title: 'True peaks.', caption: `Every rendered song's 4×-oversampled peak. The master limiter is set to −1 dBTP; nothing should cross ${num(c.warn)}. Highest: ${esc(deep.styles[top.id].name)} at ${num(top.v, 2)} dBTP.`,
     draw, data: table(['Bin (dBTP)', 'Songs'], bins.filter((b) => b.n).map((b) => [`${num(b.from, 2)} to ${num(b.to, 2)}`, b.n])) });
+}
+
+function sweepChart(d) {
+  const t = d.truePeak, ids = Object.keys(t.styles).sort((a, b) => FAMILY_ORDER.indexOf(t.styles[a].family) - FAMILY_ORDER.indexOf(t.styles[b].family)), near = t.ceiling - 0.5;
+  const lo = Math.floor(Math.min(...ids.flatMap((id) => Object.values(t.styles[id].seeds).map((x) => x.tp)))), hi = 0;
+  const lvl = (x) => (x.over ? 'FAIL' : x.tp > near ? 'WARN' : 'PASS');
+  const draw = (W) => {
+    const narrow = W < 500, lw = narrow ? 92 : 150, rw = narrow ? 40 : 56, x0 = lw, x1 = W - rw, rh = 17, top = 26, H = top + ids.length * rh + 26;
+    const X = (v) => x0 + ((Math.min(hi, v) - lo) / (hi - lo)) * (x1 - x0);
+    let body = rect(X(near), top - 4, X(t.ceiling) - X(near), H - top - 18, 'band-warn') + rect(X(t.ceiling), top - 4, X(hi) - X(t.ceiling), H - top - 18, 'band-fail');
+    for (let v = lo; v <= hi; v++) { body += line(X(v), top - 4, X(v), H - 22, 'grid'); if (!narrow || v % 2 === 0) body += text(X(v), H - 8, num(v, 0), 'ax', 'middle'); }
+    body += line(X(t.ceiling), top - 8, X(t.ceiling), H - 22, 'ceiling') + text(X(t.ceiling) - 4, 14, 'ceiling −1 dBTP', 'ax', 'end');
+    ids.forEach((id, i) => {
+      const s = t.styles[id], y = top + i * rh + rh / 2;
+      body += text(0, y + 4, s.name, 'lab') + line(x0, y, x1, y, 'grid faint');
+      for (const x of Object.values(s.seeds)) body += `<circle cx="${r(X(x.tp), 1)}" cy="${y}" r="3.6" class="dot lv-${lvl(x)}"/>`;
+      body += text(W, y + 4, num(s.worst, 2), `val${s.worst > near ? ' hot' : ''}`, 'end');
+    });
+    const over = ids.filter((id) => t.styles[id].over);
+    return svg(W, H, 'Whole-song true peak by genre and seed',
+      `${t.songs} songs across ${t.genres} genres. Dots are seeds; the dashed line is the −1 dBTP ceiling and the light band the half decibel under it. ${over.length ? `Over the ceiling: ${over.map((id) => `${t.styles[id].name} ${num(t.styles[id].worst, 2)} dBTP at seed ${t.styles[id].worstSeed}`).join('; ')}` : 'No song crosses the ceiling'}.`, body);
+  };
+  const seeds = [...new Set(ids.flatMap((id) => Object.keys(t.styles[id].seeds)))].sort((a, b) => a - b);
+  const rows = ids.map((id) => [t.styles[id].name, ...seeds.map((sd) => (t.styles[id].seeds[sd] ? num(t.styles[id].seeds[sd].tp, 2) : '–')), num(t.styles[id].worst, 2)]);
+  return figure({ title: 'True peak, every genre, every seed.', caption: `Each dot is one whole song's 4×-oversampled peak. Over the dashed −1 dBTP line fails the gate; the light band is the last half decibel under it.`,
+    draw, data: table(['Genre', ...seeds.map((sd) => `Seed ${sd}`), 'Worst'], rows) });
+}
+
+function peakWhereChart(d) {
+  const t = d.truePeak, all = Object.values(t.styles).flatMap((s) => Object.values(s.seeds).map((x) => ({ ...x, pos: x.bar / Math.max(1, x.bars) })));
+  const bins = Array.from({ length: 10 }, (_, i) => ({ from: i * 10, to: i * 10 + 10, n: all.filter((x) => Math.min(9, Math.floor(x.pos * 10)) === i).length, hot: all.filter((x) => Math.min(9, Math.floor(x.pos * 10)) === i && x.tp > t.ceiling - 0.5).length }));
+  const max = Math.max(...bins.map((b) => b.n));
+  const draw = (W) => {
+    const x0 = 8, x1 = W - 8, y0 = 20, y1 = 160, H = 190, bw = (x1 - x0) / bins.length;
+    let body = '';
+    bins.forEach((b, i) => {
+      const h = (b.n / max) * (y1 - y0), hh = (b.hot / max) * (y1 - y0);
+      body += rect(x0 + i * bw + 2, y1 - h, bw - 4, h, 'bar lv-PASS') + (b.hot ? rect(x0 + i * bw + 2, y1 - hh, bw - 4, hh, 'bar lv-WARN') : '') + text(x0 + i * bw + bw / 2, y1 + 16, `${b.from}%`, 'ax', 'middle');
+    });
+    body += line(x0, y1, x1, y1, 'axis0') + text(x1, y1 + 28, 'where in the song', 'ax', 'end');
+    const top = bins.reduce((a, b) => (b.n > a.n ? b : a));
+    return svg(W, H, 'Where in the song the peak lands', `${all.length} songs, grouped by the share of the song elapsed at their loudest bar. Most peak between ${top.from}% and ${top.to}%. The highlighted part of each bar is songs within half a decibel of the ceiling.`, body);
+  };
+  return figure({ title: 'Where the peak lands.', caption: 'Each song counted once, at the bar of its true peak, as a share of the song\'s length. Highlighted: songs within 0.5 dB of the ceiling.',
+    draw, data: table(['Part of the song', 'Songs', 'Within 0.5 dB of the ceiling'], bins.map((b) => [`${b.from}–${b.to}%`, b.n, b.hot])) });
 }
 
 function panel({ W = 340, H = 128, title, sub, body: inner, desc }) {
@@ -530,7 +592,7 @@ function kpis(d) {
 const CHARTS = {
   scoreboard, loudness: loudnessChart, truepeak: truePeakChart, energy: energyChart,
   endings: endingsChart, composition: compositionChart, songwriting: songwritingChart,
-  identity: identityChart, trend: trendChart, squash: squashChart,
+  identity: identityChart, trend: trendChart, squash: squashChart, sweep: sweepChart, peakwhere: peakWhereChart,
 };
 
 // ---------------- posts ----------------
@@ -771,7 +833,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const files = writeSite(resolve(slug && !slug.startsWith('--') ? slug : join(ROOT, 'dist')));
     console.log(`research: ${files.size} files`);
   } else if ((cmd === 'snapshot' || cmd === 'new') && /^[a-z0-9-]+$/.test(slug || '')) {
-    const data = await takeSnapshot(slug, { run: flag('run'), deepFile: arg('deep') && resolve(arg('deep')), fastFile: arg('fast') && resolve(arg('fast')) });
+    const data = await takeSnapshot(slug, { run: flag('run'), deepFile: arg('deep') && resolve(arg('deep')), fastFile: arg('fast') && resolve(arg('fast')), truePeakFile: arg('true-peak') && resolve(arg('true-peak')) });
     console.log(`wrote research/data/${slug}.json (deep ${data.audio.deep.verdict}: ${data.audio.deep.counts.PASS}/${data.audio.deep.counts.WARN}/${data.audio.deep.counts.FAIL}, commit ${data.commit})`);
     const post = join(POSTS, `${slug}.md`);
     if (cmd === 'new' && !existsSync(post)) {
@@ -780,7 +842,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       console.log(`wrote research/posts/${slug}.md: edit the prose, then npm run build`);
     }
   } else {
-    console.log('usage: node scripts/research.mjs new <slug> --title "..." [--run] [--deep report.json] [--fast report.json] | snapshot <slug> [same flags] | build [outDir]');
+    console.log('usage: node scripts/research.mjs new <slug> --title "..." [--run] [--deep report.json] [--fast report.json] [--true-peak report.json] | snapshot <slug> [same flags] | build [outDir]');
     process.exit(1);
   }
 }
