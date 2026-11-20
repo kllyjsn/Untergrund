@@ -14,10 +14,11 @@ export function festivalBuilds(chain, style, voice, seed = 0) {
     while (start > 0 && chain[start - 1] === kind) start--;
     const limit = Math.min(drop - start, drop - start < 8 ? 2 : 4);
     const first = builds.length === 0, bars = first ? limit : Math.min(limit, 2 + Math.floor(3 * r()));
-    const roll = first ? 'full' : ['full', 'late', 'none'][Math.floor(3 * r())];
-    builds.push({ from: drop - bars, drop, bars, strength: 0.24 + 0.1 * r(), roll,
+    const shape = ['straight', 'triplet', 'burst'][Math.floor(3 * r())];
+    const roll = first ? 'full' : ['late', 'late', 'none'][Math.floor(3 * r())];
+    builds.push({ from: drop - bars, drop, bars, strength: (first ? 0.3 : 0.22) + 0.04 * r(), roll, shape,
       rollCurve: 0.7 + 1.8 * r(), gapSteps: [2, 4, 8][Math.floor(3 * r())],
-      sweepBars: first ? bars : 1 + Math.floor(bars * r()),
+      sweepBars: first ? Math.max(1, bars - Math.floor(2 * r())) : 1 + Math.floor(Math.min(bars, builds[0].sweepBars) * r()),
       sweep: { tone: r() < 0.5, low: 300 + 500 * r(), high: 2600 + 4400 * r(), curve: 0.6 + 2 * r() } });
   }
   return builds;
@@ -31,8 +32,10 @@ export function festivalBuildStep(builds, bar, step) {
   const duration = total - build.gapSteps, progress = elapsed / duration, last = bar === build.drop - 1;
   const gap = elapsed >= duration;
   const divisions = last ? 2 : progress < 0.5 ? 0.5 : 1;
-  const rolls = gap || build.roll === 'none' || (build.roll === 'late' && elapsed < total / 2) || (divisions === 0.5 && step % 2) ? [] :
-    Array.from({ length: Math.ceil(divisions) }, (_, i) => ({ offset: i / divisions, velocity: 0.18 + 0.44 * ((elapsed + i / divisions) / duration) ** build.rollCurve }));
+  const offsets = build.shape === 'triplet' ? (last ? (step % 2 ? [1 / 3] : [0, 2 / 3]) : (step % 4 === 0 ? [0] : step % 4 === 1 ? [1 / 3] : step % 4 === 2 ? [2 / 3] : [])) :
+    build.shape === 'burst' && step % 8 >= 6 ? [] : Array.from({ length: Math.ceil(divisions) }, (_, i) => i / divisions);
+  const rolls = gap || build.roll === 'none' || (build.roll === 'late' && elapsed < total / 2) || (build.shape === 'straight' && divisions === 0.5 && step % 2) ? [] :
+    offsets.map(offset => ({ offset, velocity: 0.18 + 0.44 * ((elapsed + offset) / duration) ** build.rollCurve }));
   return { start: elapsed === 0, sweepStart: elapsed === total - build.sweepBars * 16, sweep: build.sweep,
     strength: build.strength, durationSteps: build.sweepBars * 16, gapSteps: build.gapSteps, lowOff: last, gap, gapStart: elapsed === duration,
     thin: step % (last ? 8 : 4) !== 0, rolls };

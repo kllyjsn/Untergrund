@@ -3550,8 +3550,8 @@ export class Engine {
     const g = this.festivalGate?.gain;
     if (!g) return;
     g.setValueAtTime(1, t);
-    g.linearRampToValueAtTime(0.05, t + 0.008);
-    g.setValueAtTime(0.05, t + dur - 0.004);
+    g.exponentialRampToValueAtTime(0.16, t + Math.min(0.06, dur * 0.25));
+    g.exponentialRampToValueAtTime(0.0003, t + dur - 0.004);
     g.linearRampToValueAtTime(1, t + dur);
   }
 
