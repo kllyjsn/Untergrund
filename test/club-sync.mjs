@@ -301,7 +301,7 @@ async function scenario(base, spec, network, run) {
     const handoffMix = spec.handoff && spec.mix;
     const prejoin = spec.mix && !options.net && !spec.expiredMix && !!(spec.offlineMs || spec.freezeMs || handoffMix);
     const skipPaint = () => Promise.all(clients.map(c => c.run("document.body.style.contentVisibility = 'hidden'")));
-    const rendering = { limitPaint: spec.expiredMix || prejoin || handoffMix, hideStage: handoffMix };
+    const rendering = { limitPaint: !spec.mix || spec.expiredMix || prejoin || handoffMix, hideStage: !spec.mix || handoffMix };
     let room = prejoin || spec.coldDownbeat ? `sync-${randomBytes(6).toString('hex')}` : null;
     const snapshot = async () => {
       const response = await fetch(`${base}/api/rooms/${room}`);
@@ -356,7 +356,7 @@ async function scenario(base, spec, network, run) {
       return b ? 'listen' : (__clubAudio.samples.some(r => r[1] > .001) ? 'automatic' : null);
     })()`), 'listener audio or LISTEN LIVE');
     if (joined === 'listen') await listener.clickElement(`(${visibleControl})(['.club-primary'], 'LISTEN LIVE')`, 'LISTEN LIVE');
-    if (!handoffMix && rendering.limitPaint) {
+    if (spec.mix && !handoffMix && rendering.limitPaint) {
       // The real UI actions are done; skip painting while the audio and network run.
       await skipPaint();
     }

@@ -53,11 +53,23 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
     return { contextTime: ctx.currentTime, outputContextTime: t.contextTime,
       outputEpochMs: performance.timeOrigin + t.performanceTime, state: ctx.state };
   };
+  const sourceRecords = new WeakMap();
+  for (const Type of [OscillatorNode, AudioBufferSourceNode]) {
+    const stop = Type.prototype.stop;
+    Type.prototype.stop = function (when = 0) {
+      const result = stop.call(this, when);
+      const record = sourceRecords.get(this);
+      if (record) (record.stops ??= []).push({ at: epoch(), when, contextTime: this.context.currentTime });
+      return result;
+    };
+  }
   const startOscillator = OscillatorNode.prototype.start;
   OscillatorNode.prototype.start = function (when = 0) {
     const kick = graph && reachesKick(this);
-    tap.sources.push({ at: epoch(), when, clock: clock(this.context), frequency: this.frequency.value,
-      ...(kick ? { tag: 'kick' } : {}) });
+    const record = { at: epoch(), when, clock: clock(this.context), frequency: this.frequency.value,
+      ...(kick ? { tag: 'kick' } : {}) };
+    tap.sources.push(record);
+    sourceRecords.set(this, record);
     return startOscillator.call(this, when);
   };
   const startBuffer = AudioBufferSourceNode.prototype.start;
@@ -83,8 +95,10 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
         spliceAdvance:next.spliceAdvance,
         fadeOut:tap.paramCurves.get(next.fadeParam), fadeIn:tap.paramCurves.get(incoming?.gain)} : null;
       delete tap.nextVocalStart;
-      tap.vocalStarts.push({at:epoch(), when, offset, duration:this.buffer?.duration, clock:clock(this.context),
-        reason, forced, startRms, startSinging:startRms === null ? null : startRms > .01});
+      const record = {at:epoch(), when, offset, duration:this.buffer?.duration, clock:clock(this.context),
+        reason, forced, startRms, startSinging:startRms === null ? null : startRms > .01};
+      tap.vocalStarts.push(record);
+      sourceRecords.set(this, record);
     }
     return startBuffer.call(this, when, offset, ...args);
   };
