@@ -162,6 +162,23 @@ async function renderBoundaryAutomation() {
   return {paths, gain: [.5, 1.05, 1.95, 2.09, 2.5].map(t => y[Math.round(t * rate)])};
 }
 
+async function renderHandoffFade() {
+  const { Engine } = await import('/js/engine.js');
+  const { defaultState } = await import('/js/state.js');
+  const state = defaultState(), rate = 48000, ctx = new OfflineAudioContext(1, 4 * rate, rate);
+  const engine = new Engine(ctx, state, {realtime: false}), t1 = 3 + .4 / rate;
+  engine.out.disconnect(ctx.destination);
+  const dc = ctx.createConstantSource(), gain = engine.ch.kick.level.gain;
+  dc.connect(engine.ch.kick.level).connect(ctx.destination); dc.start();
+  const done = ctx.suspend(2.5).then(async () => {
+    gain.setValueAtTime(.9, 2.55); gain.linearRampToValueAtTime(.3, engine.gridTime(t1));
+    state.params.kick.level = .8; engine.handoffIn(t1);
+    await ctx.resume();
+  });
+  const [buffer] = await Promise.all([ctx.startRendering(), done]), y = buffer.getChannelData(0);
+  return [2.8, 3.5].map(t => y[Math.round(t * rate)]);
+}
+
 const result = await withChrome(async run => {
   const out = {};
   for (const route of [true, false]) out[route ? 'primed' : 'desktop'] = {
@@ -171,6 +188,7 @@ const result = await withChrome(async run => {
   for (const action of ['seek', 'stop', 'stall', 'multi', 'replace', 'handoff']) out[action] = await run('(' + render.toString() + `)(true,true,${JSON.stringify(action)})`);
   out['desktop-replace'] = await run('(' + render.toString() + ')(true,false,"replace",1.9)');
   out.boundary = await run('(' + renderBoundaryAutomation.toString() + ')()');
+  out.handoffFade = await run('(' + renderHandoffFade.toString() + ')()');
   out.drive = {};
   for (const drive of [.2, .8, .3, .5]) out.drive[drive] = await run('(' + renderDrive.toString() + `)(${drive})`);
   for (const edit of ['edit', 'cancel', 'live']) out.drive[edit] = await run('(' + renderDrive.toString() + `)(.2,${JSON.stringify(edit)})`);
@@ -219,6 +237,7 @@ if (result) {
   for (const [i, t] of [.5, 1.05, 1.95, 2.09].entries()) assert(Math.abs(gain[i] - ramp(t)) < .01, 'a fade ending on the jam boundary plays out');
   assert(Math.abs(gain[4] - .9) < .01);
   assert(Math.max(...paths) <= 2, 'superseded acid drive paths are released');
+  assert(Math.abs(result.handoffFade[0] - (.9 - .6 * .25 / .45)) < .01 && Math.abs(result.handoffFade[1] - .8) < .01, 'a handoff on a fade end takes the incoming level');
   console.log('Room jam FX PASS: acid waveshaper and post-gain switch at both audio-clock boundaries; cancel restores one current path.');
   assert(Math.abs(result.drive.live[3] - result.drive[.2][3]) < .01, 'the pre-knob acid retains its original timbre');
   for (const i of [0,1,2]) assert(Math.abs(result.drive.live[i] - result.drive[.5][i]) < .01,

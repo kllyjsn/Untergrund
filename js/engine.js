@@ -3227,7 +3227,7 @@ export class Engine {
     if (this.jamParams?.size || this.jamDrives) this.scheduleJamParams(this.state.params, t1);
     const h = this.handoff;
     this.handoff = null;
-    this.at = Math.max(this.ctx.currentTime, t1);
+    this.at = this.gridTime(Math.max(this.ctx.currentTime, t1));
     try { this.applyAll(); this.applyDelayTime(); } finally { this.at = 0; }
     this.acidRelease(t1);
     this.breakOpen(t1);
