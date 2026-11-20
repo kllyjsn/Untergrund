@@ -463,6 +463,7 @@ export class Engine {
     this.buildMaster();
     this.buildFx();
     this.buildChannels();
+    if (state.artist?.style === 'dub') this.dubPadOut();
     this.buildAcid();
     this.applyAll();
   }
@@ -851,6 +852,7 @@ export class Engine {
     if (tid === 'stab' && id === 'voice') return this.applyOutputTrim(immediate);
     if (id === 'level') {
       const gain = v * (tid === 'stab' && this.smoothOn > 0 ? 10 ** (this.smoothOn / 20) : 1), fade = this.hardFade;
+      if (tid === 'stab' && this.dubPadBus) this.setTo(this.dubPadBus.gain, this.state.artist?.style === 'dub' ? gain : 0, immediate);
       if (this.jamAt == null || !this.hardTechno || this.hardFadeAt == null) return this.setTo(ch.level.gain, gain, immediate);
       // A Jam level edit rides Hard Techno's section fade at its boundary, wherever a clock re-anchor put that boundary.
       const from = fade.from[tid] ?? 1, to = fade.to[tid] ?? 1;
@@ -861,7 +863,7 @@ export class Engine {
     }
     if (id === 'pan') return this.setTo(ch.pan.pan, v, immediate);
     if (id === 'rev') return this.setTo(ch.rev.gain, v * (tid === 'stab' && this.smoothOn > 0 ? 1.6 : 1), immediate);
-    if (id === 'dly') return this.setTo(ch.dly.gain, v * (tid === 'stab' && this.smoothOn > 0 ? 1.6 : 1), immediate);
+    if (id === 'dly') return this.setTo(ch.dly.gain, v * (tid === 'stab' && this.state.artist?.style === 'dub' ? 0 : tid === 'stab' && this.smoothOn > 0 ? 1.6 : 1), immediate);
     if (tid === 'kick' && id === 'rumble') return this.setTo(ch.rumble.gain, v * v, immediate);
     if (tid === 'acid') {
       const a = this.acidNodes;
@@ -896,14 +898,20 @@ export class Engine {
     else if (id === 'warmth') this.setTo(this.warm.frequency, 20000 * Math.pow(0.22, v || 0), immediate);
     else if (id === 'revLevel') this.setTo(this.revOut.gain, v, immediate);
     else if (id === 'revTone') this.setTo(this.revLP.frequency, v, immediate);
-    else if (id === 'dlyFb') this.setTo(this.fb.gain, v, immediate);
-    else if (id === 'dlyLevel') this.setTo(this.dlyOut.gain, v, immediate);
+    else if (id === 'dlyFb') {
+      this.setTo(this.fb.gain, v, immediate);
+      if (this.dubEcho) this.setTo(this.dubEcho.fb.gain, Math.max(0, Math.min(0.58, v)), immediate);
+    } else if (id === 'dlyLevel') {
+      this.setTo(this.dlyOut.gain, v, immediate);
+      if (this.dubEcho) this.setTo(this.dubEcho.wet.gain, this.state.artist?.style === 'dub' ? v : 0, immediate);
+    }
     else if (id === 'dlyTime') this.applyDelayTime(immediate);
   }
 
   applyDelayTime(immediate = false) {
     const steps = DELAY_TIMES[Math.round(this.state.master.dlyTime)].steps;
     const t = Math.min(3.9, steps * this.stepDur);
+    if (this.dubEcho) this.setTo(this.dubEcho.delay.delayTime, t, immediate);
     if (immediate) { this.dL.delayTime.value = t; this.dR.delayTime.value = t; }
     else {
       const now = Math.max(this.ctx.currentTime, this.at || 0);
@@ -1207,7 +1215,9 @@ export class Engine {
     // Vinyl/tape bed: faint hiss plus sparse crackle, scheduled per step so it stops with transport.
     const d = this.state.master.dust || 0;
     // The hiss filter is linear and fixed, so every step's noise slice shares one band-pass and level.
-    if (!this.hiss) { const g = this.gain(d * 0.018); this.hiss = { bp: this.filter('bandpass', 5200, 0.4), g, d }; this.hiss.bp.connect(g).connect(this.mix); }
+    const dub = this.state.artist?.style === 'dub';
+    if (!this.hiss) { const g = this.gain(d * 0.018); this.hiss = { bp: this.filter('bandpass', dub ? 3500 : 5200, dub ? 0.35 : 0.4), g, d, dub }; this.hiss.bp.connect(g).connect(this.mix); }
+    if (this.hiss.dub !== dub) { this.hiss.bp.frequency.setValueAtTime(dub ? 3500 : 5200, t); this.hiss.bp.Q.setValueAtTime(dub ? 0.35 : 0.4, t); this.hiss.dub = dub; }
     if (this.hiss.d !== d) { this.hiss.g.gain.setValueAtTime(d * 0.018, t); this.hiss.d = d; }
     this.noiseSrc(t, sd).connect(this.hiss.bp);
     for (let k = 0; k < 3; k++) {
@@ -1826,6 +1836,10 @@ export class Engine {
   stab(t, v, underHarp = false) {
     const c = this.ctx, p = this.state.params.stab;
     const { root, vo, iv } = stabPitches(this);
+    if (this.state.artist?.style === 'dub') {
+      this.dubPad(t, v, iv, root);
+      return this.dubChord(t, v, iv, root, p, this.ch.stab.input);
+    }
     let trimmed = this.chordTone(vo, this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]));
     if (this.state.artist?.style === 'trap' && (vo === 0 || vo === 2)) trimmed = this.technoHookOut('ravestack', trimmed);
     const layers = this.hardTechno ? this.hardStabOut(trimmed) : null, out = layers ? layers.core : trimmed;
@@ -1905,6 +1919,85 @@ export class Engine {
         this._saws.cache.set(key, this.ctx.createPeriodicWave(re, im, { disableNormalization: true }));
       }
       return this._saws.cache.get(key);
+    });
+  }
+
+  dubEchoOut(t) {
+    if (!this.dubEcho) {
+      const input = this.gain(1), delay = this.ctx.createDelay(4), fb = this.gain(0.52);
+      const hp = this.filter('highpass', 240, 0.5), lp = this.filter('lowpass', 1450, 0.5);
+      const spring = this.filter('allpass', 730, 0.5), spring2 = this.filter('allpass', 1750, 0.5);
+      const tape = this.ctx.createWaveShaper();
+      tape.curve = Float32Array.from({ length: 2049 }, (_, i) => Math.tanh(i / 1024 - 1));
+      input.connect(delay).connect(hp).connect(lp).connect(tape).connect(spring).connect(spring2);
+      spring2.connect(fb).connect(delay);
+      const wet = this.gain(this.state.master.dlyLevel), pan = this.ctx.createStereoPanner(); pan.pan.value = -0.3;
+      spring2.connect(wet).connect(pan).connect(this.duck);
+      const spread = this.ctx.createDelay(0.025), right = this.ctx.createStereoPanner();
+      spread.delayTime.value = 0.013; right.pan.value = 0.65;
+      wet.connect(spread).connect(right).connect(this.duck);
+      wet.connect(this.gain(0.18)).connect(this.revIn);
+      this.dubEcho = { input, delay, fb, lp, tape, wet };
+    }
+    const { delay, fb, input } = this.dubEcho;
+    delay.delayTime.setValueAtTime(Math.min(3.9, DELAY_TIMES[Math.round(this.state.master.dlyTime)].steps * this.stepDur), t);
+    fb.gain.setValueAtTime(Math.max(0, Math.min(0.58, this.state.master.dlyFb)), t);
+    return input;
+  }
+
+  dubChord(t, v, iv, root, p, out) {
+    const color = [0, 2, 3, 5].indexOf(Math.round(p.voice)), dec = Math.max(0.07, Math.min(0.22, p.decay * 0.52));
+    const end = t + dec * 7 + 0.1, amp = this.gain(0), hp = this.filter('highpass', 210, 0.5);
+    const cutoff = Math.min(1500, 510 + p.cutoff * 0.35 + 140 * Math.sin(t * 0.29));
+    const lp = this.filter('lowpass', cutoff, 0.55), lp2 = this.filter('lowpass', 1800, 0.5);
+    lp.frequency.setValueAtTime(cutoff, t);
+    lp.frequency.setTargetAtTime(380 + color * 45, t + 0.035, dec);
+    amp.gain.setValueAtTime(0, t);
+    amp.gain.linearRampToValueAtTime(v * 0.65 / Math.sqrt(iv.length), t + 0.016);
+    amp.gain.setTargetAtTime(0, t + 0.04, dec);
+    amp.gain.setValueAtTime(0, end);
+    hp.connect(lp).connect(lp2).connect(amp).connect(out);
+    amp.connect(this.gain(p.dly * 1.55 * this.ch.stab.level.gain.value)).connect(this.dubEchoOut(t));
+    this.noiseSrc(t, end - t).connect(this.gain(0.007)).connect(hp);
+    const pans = this.sidePans([-0.35, 0.35], hp);
+    iv.forEach((n, k) => {
+      const f = midiHz(root + n), real = new Float32Array(5), imag = new Float32Array(5);
+      for (let h = 1; h < imag.length; h++) imag[h] = (h === 1 ? 1 : h === 2 ? [0.32, 0.2, 0.4, 0.25][color] ?? 0.3 : h === 3 ? 0.1 : 0.04) * Math.max(0, Math.min(1, (1700 - f * h) / 500));
+      const wave = this.ctx.createPeriodicWave(real, imag, { disableNormalization: true });
+      for (const side of [-1, 1]) {
+        const o = this.ctx.createOscillator(); o.setPeriodicWave(wave);
+        o.frequency.value = f; o.detune.value = side * (3 + Math.min(5, p.detune * 0.35));
+        o.connect(this.gain(0.5)).connect(pans[side < 0 ? 0 : 1]);
+        this.startSource(o, t + k * 0.0008); o.stop(end);
+      }
+    });
+  }
+
+  dubPadOut() {
+    if (!this.dubPadBus) {
+      this.dubPadBus = this.gain(this.state.params.stab.level);
+      this.dubPadBus.connect(this.duck);
+      this.dubPadBus.connect(this.gain(0.75)).connect(this.ch.stab.rev);
+    }
+    return this.dubPadBus;
+  }
+
+  dubPad(t, v, iv, root) {
+    if (this.dubPadAt != null && t - this.dubPadAt < this.stepDur * 48) return;
+    this.dubPadAt = t;
+    const hold = this.stepDur * 24, end = t + hold + 5, amp = this.gain(0);
+    const hp = this.filter('highpass', 240, 0.5), lp = this.filter('lowpass', 850, 0.5);
+    lp.frequency.setValueAtTime(650, t); lp.frequency.linearRampToValueAtTime(1100, t + hold); lp.frequency.linearRampToValueAtTime(600, end);
+    amp.gain.setValueAtTime(0, t); amp.gain.linearRampToValueAtTime(0.035 * v / Math.sqrt(iv.length), t + 1.4);
+    amp.gain.setTargetAtTime(0, t + hold, 1); amp.gain.setValueAtTime(0, end);
+    hp.connect(lp).connect(amp).connect(this.dubPadOut());
+    const pans = this.sidePans([-0.85, 0.85], hp);
+    iv.forEach(n => {
+      for (const side of [-1, 1]) {
+        const o = this.ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = midiHz(root + n - 12);
+        o.detune.setValueAtTime(side * 5, t); o.detune.linearRampToValueAtTime(-side * 3, end);
+        o.connect(pans[side < 0 ? 0 : 1]); this.startSource(o, t); o.stop(end);
+      }
     });
   }
 
@@ -2663,6 +2756,7 @@ export class Engine {
     v *= 1.3;
     n = hookSnap(n, h, p, strong, up);
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
+    if (this.state.artist?.style === 'dub') return this.dubChord(t, v * 0.38, [0], 60 + k + oct * 12 + n, { ...p, decay: Math.min(0.3, dur) }, this.hookBus || this.ch.stab.input);
     if (dampedChord(this) && (voice === 'vocal' || voice === 'reed')) {
       const name = Math.round(p.voice) === 1 ? 'keys' : 'organ';
       const out = this.trimOut(`hook-${name}`, 4, this.hookBus || this.ch.stab.input, -4, 500);
@@ -3213,6 +3307,10 @@ export class Engine {
 
   acidVoice(t, st, sliding, holdNext, sd, slideUntil, kickAt) {
     const a = this.acidNodes, p = this.state.params.acid;
+    if (this.state.artist?.style === 'dub') {
+      a.vca.gain.setTargetAtTime(0, t, 0.005);
+      return this.dubSub(t, st, sd, holdNext);
+    }
     const vo = Math.round(p.voice);
     for (const [voice, { amp: { gain } }] of this.gatedBasses) if (vo !== voice) {
       gain.cancelScheduledValues(t); gain.setTargetAtTime(0, t, 0.005);
@@ -3238,6 +3336,20 @@ export class Engine {
       a.env.offset.setTargetAtTime(0, t + 0.01, p.decay / 3);
     }
     if (!holdNext) a.vca.gain.setTargetAtTime(0, t + sd * 0.55, 0.006);
+  }
+
+  dubSub(t, st, sd, holdNext) {
+    const f = midiHz(this.bassMidi(st, 36, 38)), len = holdNext ? sd * 1.9 : sd * 1.15;
+    const amp = this.gain(0), lp = this.filter('lowpass', 180, 0.5), hp = this.filter('highpass', 27, 0.5);
+    const vel = (st.a ? 1 : 0.85) * (this.noteVel ?? 1);
+    amp.gain.setValueAtTime(0, t); amp.gain.linearRampToValueAtTime(vel * 1.3, t + 0.012);
+    amp.gain.setTargetAtTime(vel * 0.65, t + 0.04, 0.12); amp.gain.setTargetAtTime(0, t + len, 0.055);
+    const end = t + len + 0.5; amp.gain.setValueAtTime(0, end);
+    lp.connect(hp).connect(amp).connect(this.ch.acid.input);
+    for (const [ratio, gain] of [[1, 1], [2, 0.08], [3, 0.025]]) {
+      const o = this.ctx.createOscillator(); o.frequency.value = f * ratio;
+      o.connect(this.gain(gain)).connect(lp); this.startSource(o, t); o.stop(end);
+    }
   }
 
   acidRelease(t) {
