@@ -601,6 +601,41 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
   console.log('Pending vocal Stop PASS: audible old source and future quiet-gap replacement both stop immediately; expired voices are pruned.');
 
+  for (const [origin, allowed] of [[.5, false], [.6, true]]) {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 12, sampleRate:48000}), sources = [];
+    buf.getChannelData(0).fill(.1);
+    buf.getChannelData(0).fill(0, 48000 * 3, 48000 * 3.5);
+    c.createBufferSource = () => {
+      const source = {connect:dst => dst, starts:[], stops:[], start(...args){this.starts.push(args);}, stop(t){this.stops.push(t);}};
+      sources.push(source); return source;
+    };
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.vocal(1, 0, 0, 1);
+    c.currentTime = 2.5;
+    assert.equal(e.vocal(2.8, 1, 0, 2.8, true), true);
+    const pending = e.vocalNow;
+    assert.ok(Math.abs(sources[1].starts[0][0] - 4.22) < 1e-9);
+    c.currentTime = 2.6;
+    const t = origin + 2.25;
+    assert.equal(e.vocal(t, 1, 2, t, true), allowed, 'a pending replacement is not the audible voice at an earlier handover');
+    if (!allowed) {
+      assert.equal(e.vocalNow, pending);
+      assert.equal(sources.length, 2);
+      assert.ok(Math.abs(sources[0].stops.at(-1) - 4.28) < 1e-9, 'the audible phrase must not fade at3.92 while it sings until4.0');
+    } else {
+      assert.equal(sources.length, 3);
+      assert.ok(Math.abs(sources[2].starts[0][0] - 4.02) < 1e-9);
+      assert.ok(Math.abs(sources[2].starts[0][1] - 3.42) < 1e-9, 'the replacement starts inside the actual gap');
+      assert.ok(sources[0].stops.at(-1) > 4, 'the old phrase completes before its newly scheduled fade');
+      assert.ok(sources[1].stops.at(-1) < sources[1].starts[0][0], 'the superseded pending voice is cancelled before it can sound');
+      c.currentTime = 2.7;
+      e.panic();
+      assert.ok(sources.every(source => Math.abs(source.stops.at(-1) - 2.76) < 1e-9), 'Stop still cancels the audible voice and both future replacements');
+    }
+  }
+  console.log('Pending vocal retime PASS: earlier handovers validate the audible retiring voice, reject sung regions, preserve silent replacements and cancel all pending sources.');
+
   {
     const curveStart = 2.153393336377362, wake = 15.461587301587302;
     const curveParam = () => ({

@@ -3352,6 +3352,7 @@ export class Engine {
     if (continuous && reanchor) {
       const errorMs = (origin - cur.origin) * 1000;
       const buffer = processedStem(v.buf, v.fx, this.ctx), actual = t - cur.origin, shift = actual - phase;
+      const voices = [...(this.vocalRetiring || []), cur];
       singingEnvelope(buffer);
       const earliest = Math.max(phase, this.ctx.currentTime + 0.02 - origin);
       const quiet = (at, source = buffer) => {
@@ -3364,7 +3365,10 @@ export class Engine {
       };
       const silence = phraseGaps.get(buffer).find(g => {
         const start = g.to - 0.08 - Math.max(0, shift);
-        return start >= earliest && start >= g.from && quiet(start) && quiet(start + shift, cur.src.buffer);
+        const when = origin + start;
+        const audible = voices.filter(voice => voice.startAt <= when && (voice.until ?? Infinity) > when);
+        return start >= earliest && start >= g.from && quiet(start) &&
+          audible.every(voice => quiet(when - voice.origin, voice.src.buffer));
       });
       const gap = !!silence;
       if (gap) t += silence.to - 0.08 - Math.max(0, shift) - phase;
@@ -3388,7 +3392,7 @@ export class Engine {
     src.connect(g).connect(this.vocalBus);
     this.vocalBus.gain.setValueAtTime(v.gain, t);
     if (off < 0) this.startSource(src, t - off); else this.startSource(src, t, off);
-    this.vocalNow = { src, g, buf: v.buf, next: pos + 1, sd: this.stepDur, ms: v.ms, origin, at: t - Math.min(0, off) };
+    this.vocalNow = { src, g, buf: v.buf, next: pos + 1, sd: this.stepDur, ms: v.ms, origin, at: t - Math.min(0, off), startAt:off < 0 ? t - off : t };
     if (v.duck < 1) this.duckUnder(v.buf, this.bandDuck.gain, v.duck, t, t - off);
     if (v.lift < 1) this.duckUnder(v.buf, this.singTrim.gain, v.lift, t, t - off);
     // hookCarve: the exported hook stem's copy of the CHORDS channel (js/stems.js).
