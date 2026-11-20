@@ -101,6 +101,38 @@ const rmsDb = (d, a, b) => { let e = 0; for (let i = a; i < b; i++) e += d[i] * 
 }
 
 {
+  const s = freshSong('dub', 42), e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
+  s.artist = { style: 'dub', seed: 42 };
+  for (const voice of [0, 2, 3, 5]) {
+    s.params.stab.voice = voice;
+    e.dubSection(0, false);
+    assert.equal(e.dubRegister([0, 3, 7, 10], 48), 48, 'other sections retain the original chord register');
+    e.dubSection(0, true);
+    assert.equal(e.dubRegister([0, 3, 7, 10], 48), voice === 3 ? 48 : voice === 5 ? 72 : 60, 'breakdown voicings lift above the low-mid wash');
+    assert.equal(e.dubRegister([0], 48), voice === 2 || voice === 3 ? 48 : voice === 5 ? 72 : 60, 'the rounder pad and organ hooks retain their register');
+    assert.equal(e.dubRegister([0], 76), 76, 'already high hooks are not shifted out of the oscillator range');
+    assert.equal(e.dubRegister([], 48), 48, 'empty voicings need no register correction');
+  }
+  s.params.stab.voice = 99;
+  assert.equal(e.dubRegister([0], 48), 48, 'unknown palettes keep their original register');
+  s.params.stab.voice = 0;
+  e.dubSection(0, false); e.dubEchoOut(0);
+  e.dubSection(0.1, true);
+  assert.equal(e.dubEcho.mid.gain.at(0.6), -4, 'breakdowns clear the echo return without changing feedback');
+  assert.equal(e.dubEcho.fb.gain.at(0.6), s.master.dlyFb, 'the echo feedback remains unchanged');
+  e.dubSection(0.7, false);
+  assert.equal(e.dubEcho.mid.gain.at(1.2), 0, 'the echo contour returns to neutral after the breakdown');
+  s.params.stab.voice = 3; e.dubSection(1.3, true);
+  assert.equal(e.dubBreakCut, 0, 'the already balanced organ breakdown is left untouched');
+  s.chainOn = true; s.chain = 'EA'; s.ending = false;
+  const q = new Sequencer(e, s);
+  q.startAt(0, 0.05); q.tick(0, 0.05);
+  assert.equal(e.dubBreakdown, true, 'the arrangement selects the breakdown palette');
+  q.tick(16, 2.05);
+  assert.equal(e.dubBreakdown, false, 'the next section restores the original palette');
+}
+
+{
   const padSend = async (rev = 0.24, edit) => {
     const s = freshSong('dub', 42), ctx = new OfflineAudioContext(1, SR * 3, SR);
     s.artist = { style: 'dub', seed: 42 };
