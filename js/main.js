@@ -229,7 +229,7 @@ function schedule(lead) {
     if (fix.adopted) {
       vocalCorrectionWindow = 16 * base;
       midiClockStart(ctx, abs, nextTime);
-    }
+    } else if (roomPlayback && fix.skip > 0) midiClockStart(ctx, abs, nextTime);
     const step = (abs - seq.origin) % 16;
     if (fix.discard && step)
       engine.vocal(firstTime ?? nextTime, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, step, roomPlayback ? nextTime : undefined);

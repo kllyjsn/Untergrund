@@ -230,11 +230,6 @@ export function createClockSender(send, { nudgeMs = 0, clear } = {}) {
     },
     step(abs, perfMs, stepMs) {
       if (!running || abs < next) return;
-      if (abs > next) {
-        const p = clamp(abs, 0, 0x3fff);
-        out([0xf2, p & 0x7f, p >> 7], perfMs - 2);
-        out([0xfb], perfMs - 1);
-      }
       for (const t of stepTicks(perfMs, stepMs)) out([0xf8], t);
       next = abs + 1;
     },
