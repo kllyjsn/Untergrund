@@ -329,6 +329,40 @@ console.log('room transport alignment passed');
   assert.equal(clock.jumped, true, 'a real frozen-page interval retains immediate wake recovery');
   close(clock.offset, 1002.08);
 }
+for (const rate of [-0.005, 0.005]) {
+  let clock = syncAudioClock(null, 1000, {at:0, contextTime:0, state:null});
+  let adopted = 0, residual = 0;
+  for (let i = 1; i <= 100; i++) {
+    const at = i / 2, measured = 1000 + rate * at;
+    const next = syncAudioClock(clock.offset, measured, {at, contextTime:at * (1 - rate), state:clock.state});
+    if (next.offset !== clock.offset) {
+      adopted++;
+      assert.equal(next.offset, measured, 'a persistent moving estimate adopts the latest value');
+    }
+    assert.equal(next.jumped, false, 'ordinary continuous drift is not a frozen wake');
+    residual = Math.max(residual, Math.abs(next.offset - measured));
+    clock = next;
+  }
+  assert(adopted >= 10, `a5ms/s drift over50s repeatedly adopts despite the estimate continuing to move (${adopted} adoptions)`);
+  assert(residual < .02, 'persistent drift stays within20ms of the latest mapping');
+  console.log(`Room clock drift ${rate * 1000}ms/s PASS: ${adopted} adoptions over50s, maximum residual${(residual * 1000).toFixed(3)}ms.`);
+}
+
+{
+  let clock = syncAudioClock(null, 1000, {at:0, contextTime:0, state:null});
+  const sample = (at, measured) => clock = syncAudioClock(clock.offset, measured, {at, contextTime:at, state:clock.state});
+  sample(.1, 1000.020);
+  sample(1.5, 1000.007);
+  assert.equal(clock.offset, 1000);
+  assert.equal(clock.state.pending, null, 'returning within8ms discards a transient before2s');
+  sample(2, 1000.060);
+  sample(3.99, 1000.070);
+  assert.equal(clock.offset, 1000, 'a new deviation starts a fresh2s persistence window');
+  sample(4, 1000.080);
+  close(clock.offset, 1000.080);
+  assert.equal(clock.state.pending, null);
+}
+console.log('Room clock drift persistence PASS: moving5ms/s estimates re-adopt over50s with residual below20ms; returning within8ms cancels transient corrections.');
 console.log('Room clock persistence PASS: immediate first estimate/wake, transient and large glitches held, stable80ms offset adopted only after2s; solo arithmetic unchanged.');
 
 const oldOrigin = origin;
