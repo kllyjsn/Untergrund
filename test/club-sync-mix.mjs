@@ -197,7 +197,8 @@ export function vocalSourceEvidence(capture, wakes = 0) {
   const corrections = (capture.vocalCorrections || []).filter(c => Math.abs(c.errorMs) > 30);
   const expected = 1 + wakes;
   return {count:Array.isArray(capture.vocalStarts) ? capture.vocalStarts.length : null,
-    expected, corrections, allowed:expected + corrections.length};
+    nonZeroOffsets:Array.isArray(capture.vocalStarts) ? capture.vocalStarts.filter(s => s.offset > 0).length : null,
+    expected, corrections, allowed:expected + corrections.filter(c => c.appliedTime != null).length};
 }
 
 export function boundaryMetric(host, listener, boundary) {

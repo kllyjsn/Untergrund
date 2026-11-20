@@ -17,7 +17,7 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
     for (const e of list.getEntries()) tap.longTasks.push({ at: performance.timeOrigin + e.startTime, duration: e.duration });
   }).observe({ type: 'longtask', buffered: true });
   if (mix) globalThis.__clubPCM = { mix: [], vocal: [] };
-  if (mix) tap.channels = { kick: { samples: [] }, vocal: { samples: [] } };
+  if (mix) tap.channels = { kick: { samples: [] }, vocal: { samples: [] }, hat: { samples: [] } };
   const epoch = () => performance.timeOrigin + performance.now();
   const contexts = [];
   const edges = new WeakMap(), kickNodes = new WeakSet(), vocalNodes = new WeakSet();
@@ -137,6 +137,7 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
       channel.ready = true;
     }).catch(e => tap.errors.push(String(e)));
   };
+  if (mix) globalThis.__clubCaptureChannel = captureChannel;
   AudioNode.prototype.connect = function (dest, ...args) {
     if (graph) {
       if (!edges.has(this)) edges.set(this, new Set());

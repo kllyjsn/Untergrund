@@ -539,6 +539,27 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     console.log('Room vocal continuity PASS: 40s, three slews across bar lines, zero ordinary restarts and one large-gap reanchor; no-gap phrase remains continuous.');
   }
 
+  for (const gap of [true, false]) {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 12, sampleRate:48000}), starts = [];
+    buf.getChannelData(0).fill(0.1);
+    if (gap) buf.getChannelData(0).fill(0, 48000 * 3, 48000 * 3.5);
+    c.createBufferSource = () => ({connect:dst => dst, start:(...args) => starts.push(args), stop(){}});
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.vocal(1, 0, 0, 1);
+    const old = e.vocalNow.src;
+    assert.equal(e.vocal(3.08, 1, 0, 3.08, true, false, 2), true);
+    assert.notEqual(e.vocalNow.src, old);
+    assert.equal(starts.length, 2);
+    assert.equal(e.vocalCorrection.gap, gap);
+    assert.equal(e.vocalCorrection.forced, !gap);
+    if (gap) assert.ok(starts[1][0] > 3.08 && starts[1][0] <= 5.08, 'a known quiet gap within one bar wins over an immediate cut');
+    else assert.ok(Math.abs(starts[1][0] - 3.08) < 1e-9);
+    e.vocal(3.08, 1, 0, 3.08, true, false, 2);
+    assert.equal(starts.length, 2, 'the adopted large correction cannot restart twice');
+  }
+  console.log('Room large vocal correction PASS: one quiet-gap reanchor within a bar, or one immediate no-gap correction; repeated aligned updates stay continuous.');
+
   {
     const curveStart = 2.153393336377362, wake = 15.461587301587302;
     const curveParam = () => ({

@@ -77,18 +77,29 @@ export function transportResync(target, nextTime, now, stepSec, jumped = false, 
     return { skip: 0, nextTime: nextTime + duration - stepSec, discard: false, slew: true, rate, endRate };
   }
   const error = Math.abs(target - nextTime);
-  if (!jumped && (error <= 0.03 || (room && error < stepSec)) && nextTime >= now) return null;
+  if (!jumped && (error <= 0.03 || (room && (error <= 0.05 || error < stepSec || (target >= now && target <= nextTime)))) && nextTime >= now) return null;
   const ready = now + 0.005;
   // Recover one step near the render deadline without moving the grid or
   // squeezing the gap to its following step below half a step.
-  const earliest = jumped ? ready - Math.min(0.055, stepSec / 2) : room ? Math.max(ready, nextTime) : ready;
+  const earliest = jumped ? ready - Math.min(0.055, stepSec / 2) : room ? now : ready;
   let skip = jumped ? Math.max(minSkip, Math.ceil((earliest - target) / stepSec)) : 0;
   target += skip * stepSec;
   while (target < earliest) { target += stepSec; skip++; }
+  if (room && !jumped) target = Math.max(target, nextTime);
   return { skip, nextTime: target, discard: jumped, ...(target < ready && { firstTime: ready }) };
 }
 
 export function slewTransport(target, nextTime, limit = 0.03) {
   const error = target - nextTime;
   return Math.abs(error) <= limit ? nextTime + Math.max(-0.0015, Math.min(0.0015, error)) : nextTime;
+}
+
+export function roomTransportCorrection(target, nextTime, now, stepSec, drainUntil = null) {
+  if (drainUntil === null) {
+    if (Math.abs(target - nextTime) <= 0.05) return null;
+    drainUntil = nextTime;
+  }
+  if (now < drainUntil) return {drainUntil};
+  const skip = Math.max(0, Math.ceil((now - target) / stepSec));
+  return {skip, nextTime:target + skip * stepSec, discard:false, adopted:true};
 }

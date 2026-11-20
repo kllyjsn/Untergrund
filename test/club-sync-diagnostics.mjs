@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 // False conditional breakpoints observe module locals without changing app sources or pausing.
-export async function installDiagnostics(send, base, {vocalSlew = false} = {}) {
+export async function installDiagnostics(send, base, {vocalSlew = false, vocalRestart = false, wholeStep = false, dropStep = false} = {}) {
   await send('Debugger.enable');
   const at = async (file, marker, body, required = true) => {
     const source = await readFile(new URL(`../js/${file}`, import.meta.url), 'utf8');
@@ -29,16 +29,34 @@ export async function installDiagnostics(send, base, {vocalSlew = false} = {}) {
   await at('main.js', 'const target = transportOrigin', `const a = __clubAudio.scheduler ||= [];
     ${vocalSlew ? `if (!__clubAudio.forcedVocalSlew && abs >= 32 && abs % 16 >= 13) {
       transportOrigin += 20; __clubAudio.forcedVocalSlew = {at:performance.timeOrigin + performance.now(), step:abs, deltaMs:20}; }` : ''}
+    ${vocalRestart ? `if (!__clubAudio.vocalRestartInjected && __clubAudio.forcedVocalSlew && abs >= __clubAudio.forcedVocalSlew.step + 16 && abs % 16 === 8 && engine.vocalNow) {
+      engine.vocalStop(nextTime); engine.vocal(nextTime, (seq.chainPos - 1) % seq.songBars, (abs - seq.origin) % 16, nextTime, true);
+      __clubAudio.vocalRestartInjected = {at:performance.timeOrigin + performance.now(), step:abs, time:nextTime}; }` : ''}
+    ${wholeStep ? `if (!__clubAudio.forcedWholeStep && abs >= 64 && abs % 16 === 4 && nextTime > ctx.currentTime + 0.255) {
+      const o = ctx.getOutputTimestamp();
+      __clubAudio.forcedWholeStep = {at:performance.timeOrigin + performance.now(), step:abs, nextTime, base,
+        target:transportOrigin / 1000 + abs * base - clockOffset,
+        contextTime:ctx.currentTime, deltaMs:-2 * base * 1000,
+        clock:{outputContextTime:o.contextTime, outputEpochMs:performance.timeOrigin + o.performanceTime}};
+      transportOrigin -= 2 * base * 1000;
+      ${dropStep ? `const tick = seq.tick.bind(seq), step = abs;
+        seq.tick = (n, ...args) => { if (!__clubAudio.droppedStep && __clubAudio.gridAdoptions?.length && (n % 16 === 4 || n % 16 === 12)) {
+          __clubAudio.droppedStep = {step:n, time:args[0]}; return seq.cur; } return tick(n, ...args); };` : ''}
+    }` : ''}
     (__clubAudio.schedulerCalls ||= []).push(performance.timeOrigin + performance.now());
     if (typeof ctx !== 'undefined' && (!a.length || performance.now() - a.at(-1).monotonic >= 1000))
       a.push({at:performance.timeOrigin + performance.now(), monotonic:performance.now(),
         ${['abs', 'base', 'nextTime', 'transportOrigin', 'clockOffset'].map(optional).join(', ')},
         wallOffset:Date.now()/1000 - ctx.currentTime, contextTime:ctx.currentTime,
         baseLatency:ctx.baseLatency, outputLatency:ctx.outputLatency, output:ctx.getOutputTimestamp()})`);
+  await at('engine.js', 'this.ch[t.id] = ch;', `if (t.id === 'ch' && __clubAudio.channels?.hat) __clubCaptureChannel(ch.level, 'hat')`);
+  await at('main.js', 'if (fix.adopted) {', `if (fix.adopted) (__clubAudio.gridAdoptions ||= []).push({at:performance.timeOrigin + performance.now(),
+    contextTime:now, step:abs, nextTime, skipped:fix.skip})`, false);
   await at('engine.js', 'this.vocalCorrection = {', `const a = __clubAudio.vocalCorrections ||= [];
     const ids = globalThis.__clubVocalCorrectionIds ||= new WeakMap();
     if (!ids.has(cur.src)) { const id = a.length; ids.set(cur.src, id);
-      a.push({id, at:performance.timeOrigin + performance.now(), time:t, origin, previousOrigin:cur.origin, errorMs, gap}); }`, false);
+      a.push({id, at:performance.timeOrigin + performance.now(), time:t, origin, previousOrigin:cur.origin, errorMs, gap}); }
+    if (gap || forced) Object.assign(a[ids.get(cur.src)], {gap, forced, appliedTime:t, appliedErrorMs:errorMs});`, false);
 }
 
 const median = values => {
@@ -51,6 +69,8 @@ export function diagnose(captures, serverOrigin) {
     const sched = (c.scheduler || []).filter(r => r.output.contextTime > 0 && r.at > serverOrigin + 3000);
     const mapped = r => r.at - r.monotonic + r.output.performanceTime + (r.nextTime - r.output.contextTime) * 1000;
     return { vocalCorrections:c.vocalCorrections || [], vocalStarts:c.vocalStarts || [], forcedVocalSlew:c.forcedVocalSlew ?? null,
+      forcedWholeStep:c.forcedWholeStep ?? null, droppedStep:c.droppedStep ?? null, vocalRestartInjected:c.vocalRestartInjected ?? null,
+      gridAdoptions:c.gridAdoptions || [],
       roomClock: c.roomClocks?.at(-1) ?? null,
       joinRoomClock: c.roomClocks?.filter(r => r.at <= c.starts?.[0]?.at).at(-1) ?? null,
       starts: c.starts || [], schedulerSamples: sched.length,

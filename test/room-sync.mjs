@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
-import { createRoomClock, roomTransportPosition, shiftRoomSet, syncAudioClock, transportResync, calibrateRoomClock, slewTransport } from '../js/room-sync.js';
+import { createRoomClock, roomTransportPosition, shiftRoomSet, syncAudioClock, transportResync, calibrateRoomClock, slewTransport, roomTransportCorrection } from '../js/room-sync.js';
 import { freshSong, clone, sanitize, STYLES } from '../js/state.js';
 import { songFingerprint } from '../js/listen.js';
 import { createRoomMediaSync, roomMediaLead } from '../js/room-media-sync.js';
@@ -98,6 +98,16 @@ assert.deepEqual(roomTransportPosition(origin + 1600, 120, origin), { step: 0, d
   let at = 10;
   for (let i = 0; i < 20; i++) at = slewTransport(10.02, at);
   close(at, 10.02);
+  assert.equal(roomTransportCorrection(9.951, 10, 9.5, 0.125), null, 'ordinary errors retain the bounded slew');
+  assert.deepEqual(roomTransportCorrection(11.25, 11.5, 11.2, 0.125), {drainUntil:11.5});
+  assert.deepEqual(roomTransportCorrection(11.26, 11.5, 11.49, 0.125, 11.5), {drainUntil:11.5}, 'clock updates do not extend the stopped queue');
+  const adopted = roomTransportCorrection(11.25, 11.5, 11.5, 0.125, 11.5);
+  assert.equal(adopted.skip, 2);
+  close(adopted.nextTime, 11.5);
+  assert.equal(adopted.adopted, true);
+  const forward = roomTransportCorrection(11.75, 11.5, 11.5, 0.125, 11.5);
+  assert.equal(forward.skip, 0);
+  close(forward.nextTime, 11.75);
 }
 
 {
@@ -239,11 +249,9 @@ console.log('Room residual slew PASS: both signs, 40–240 BPM, smooth bounded r
 
 {
   const correction = transportResync(10.75, 11.5, 10, 0.125, false, -4, true);
-  assert.equal(correction.discard, false, 'room corrections preserve every queued note');
-  assert.equal(correction.skip, 6, 'skip forward on the new grid rather than rebuilding old steps');
-  close(correction.nextTime, 11.5);
+  assert.equal(correction, null, 'raw resync cannot skip future room positions; large errors use the drain/adopt path');
   assert.equal(transportResync(11.46, 11.5, 10, 0.125, false, -64, true), null, 'a 40ms correction keeps a playable room/Jam downbeat');
-  assert.equal(transportResync(11.376, 11.5, 10, 0.125, false, -64, true), null, 'even a correction just below one step must slew rather than skip');
+  assert.equal(transportResync(11.376, 11.5, 10, 0.125, false, -64, true), null, 'a sub-step correction cannot bypass the drained-frontier requirement');
   close(slewTransport(11.46, 11.5, 0.125), 11.4985);
   assert.deepEqual(transportResync(10.75, 11.5, 10, 0.0625), {skip:0, nextTime:10.75, discard:false}, 'solo tempo increases retain pre-room-correction behavior without rewinding');
   assert.deepEqual(transportResync(11.4, 11.5, 10, 0.125), {skip:0, nextTime:11.4, discard:false}, 'a sub-step correction keeps ordered queued notes');
@@ -334,19 +342,24 @@ for (const [action, currentTime, playing, expected] of [
   assert.equal(sandbox.playing, playing && !expected.length);
 }
 {
-  const notes = [], rewinds = [], cancelled = [], sent = [];
-  const clock = createClockSender((bytes, time) => { if (bytes[0] === 0xf8) sent.push(time); });
+  const notes = [], rewinds = [], cancelled = [], sent = [], positions = [];
+  const clock = createClockSender((bytes, time) => {
+    if (bytes[0] === 0xf8) sent.push(time);
+    if (bytes[0] === 0xf2) positions.push({step:bytes[1] + (bytes[2] << 7), time});
+  });
   clock.start(64, 11000);
   for (let step = 64; step < 68; step++) clock.step(step, 11000 + (step - 64) * 125, 125);
   const oldTickCount = sent.length, oldLastTick = sent.at(-1);
   const sandbox = {playing:true, songOver:false, roomPlayback:true, roomEditor:false, ROOM_LEAD:0.25, BG_LEAD:1,
     document:{hidden:false}, ctx:{currentTime:10}, Date:{now:() => sandbox.ctx.currentTime * 1000},
     state:{bpm:120, part:'old'}, clockOffset:0, transportOrigin:2250, abs:68, nextTime:11.5,
-    syncAudioClock, transportResync, slewTransport, handoff:null, jamQueue:[], vocalGridDirty:false,
+    syncAudioClock, transportResync, slewTransport, roomTransportCorrection, roomDrainUntil:null, vocalCorrectionWindow:0,
+    queuedRoomReplay:null, handoff:null, jamQueue:[], vocalGridDirty:false,
     engine:{stepDur:0.125, applyAll(){}, discardQueuedNotes:t => cancelled.push(t), vocal(){}},
     seq:{origin:0, chainPos:5, songBars:8, advanceBar(){}, rewind:step => rewinds.push(step),
       tick:(step, time) => { notes.push({step, time, part:sandbox.state.part}); return {}; }},
     uiQueue:[], timeline:{skip:() => 0}, artistTick(){}, landJamParts(){},
+    midiClockStart:(ctx, step, time) => clock.start(step, time * 1000),
     midiClockStep:(ctx, step, time, duration) => clock.step(step, time * 1000, duration * 1000),
     applyPart:(state, part, layer) => { state.part = layer.id; }, setTimeout(){}, cancelAnimationFrame(){},
     requestAnimationFrame:() => 0, jamRedraw:0};
@@ -355,21 +368,42 @@ for (const [action, currentTime, playing, expected] of [
   const f = runInNewContext(`${schedulerSource}\n${jamSource}\n({schedule, landJamPart})`, sandbox);
   f.landJamPart('kick', {id:'new'}, 11);
   f.schedule();
-  assert.equal(sandbox.abs, 74, 'a room correction skips forward without repeating already queued steps');
+  assert.equal(sandbox.abs, 68, 'still-future room steps wait at the queued frontier rather than being dropped');
   assert.equal(notes.length, 0, 'do not rebuild any audio ahead of the queued frontier');
   assert.equal(cancelled.length, 0);
   assert.equal(rewinds.length, 0);
-  sandbox.ctx.currentTime = 11.4;
+  sandbox.ctx.currentTime = 11.5;
   f.schedule();
   assert.ok(notes.length > 0);
   assert.ok(notes.every(n => n.part === 'new' && n.time >= 11 && n.step >= 68), 'a part applied for a queued Jam downbeat cannot sound before it');
   assert.equal(sent.length, oldTickCount + notes.length * 6, 'every new step sends its six MIDI ticks, with none suppressed by rewind');
   assert.ok(sent[oldTickCount] > oldLastTick);
   assert.ok(sent.every((time, i) => !i || time > sent[i - 1]), 'old and new MIDI clock queues stay strictly monotonic without overlap');
+  assert.equal(positions.at(-1).step, notes[0].step);
+  assert.ok(positions.at(-1).time > oldLastTick, 'relocation follows the drained MIDI queue');
+  const musicNotes = [];
+  const music = {...sandbox, abs:68, nextTime:11.5, transportOrigin:2750, clockOffset:0, roomDrainUntil:null,
+    ctx:{currentTime:11.2}, Date:{now:() => music.ctx.currentTime * 1000}, uiQueue:[], midiClockStep(){}, midiClockStart(){},
+    seq:{...sandbox.seq, tick:(step, time) => { musicNotes.push({step, time}); return {}; }}};
+  const drain = runInNewContext(`${schedulerSource}\nschedule(0.5); schedule`, music);
+  assert.equal(musicNotes.length, 0, 'a large correction stops queuing until the old frontier drains');
+  music.ctx.currentTime = 11.5;
+  drain(0.5);
+  assert.deepEqual(musicNotes.map(n => n.step), [70, 71, 72, 73], 'after draining only already-past steps68/69 skip; every remaining future step renders');
+  assert.ok(musicNotes.every((n, i) => n.time >= (i ? musicNotes[i - 1].time : 11.5)), 'adoption never reorders old or new audio');
+  assert.equal(music.vocalCorrectionWindow, 0, 'the large correction consumes its one bounded vocal alignment');
+  const relocations = [], forward = {...music, abs:68, nextTime:11.5, transportOrigin:3250, roomDrainUntil:null,
+    seq:{...music.seq, tick:() => ({})}, midiClockStart:(ctx, step, time) => relocations.push({step, time})};
+  runInNewContext(`${schedulerSource}\nschedule(0.5)`, forward);
+  assert.deepEqual(relocations, [{step:68, time:11.75}], 'adoption sends SPP even when no logical steps were skipped');
+  assert.equal(transportResync(11.25, 11.5, 11.2, 0.125, false, -Infinity, true), null);
+  const partial = transportResync(11.125, 11.5, 11.2, 0.125, false, -Infinity, true);
+  assert.equal(partial.skip, 1, 'only the corrected step already before now can be skipped');
+  close(partial.nextTime, 11.5);
 }
-console.log('Room frontier PASS: no reordered/rebuilt notes, solo tempo no-repeat, monotonic MIDI and no Jam part before its queued downbeat.');
+console.log('Room frontier PASS: large corrections drain then adopt, future-at-adoption steps render, no reorder/rebuild, solo no-repeat, explicit SPP and monotonic MIDI.');
 {
-  const runBoundary = ({step=63, nextTime=10.5, gridOrigin=2325, now=10, wall=10325, clockOffset=0} = {}) => {
+  const runBoundary = ({step=63, nextTime=10.5, gridOrigin=2325, now=10, wall=10325, clockOffset=0, lead} = {}) => {
     const notes = [], effects = [], state = freshSong('hypnotic', 7, {length:'sketch', bpm:120});
     state.bpm = 120; state.chainOn = true; state.chain = 'CCCCEEEECCCC'; state.master.arr = 1; state.part = 'old';
     const engine = new Recorder(state), seq = new Sequencer(engine, state);
@@ -383,30 +417,37 @@ console.log('Room frontier PASS: no reordered/rebuilt notes, solo tempo no-repea
     const sandbox = {playing:true, songOver:false, roomPlayback:true, roomEditor:false, ROOM_LEAD:0.25, BG_LEAD:1,
       document:{hidden:false}, ctx:{currentTime:now}, Date:{now:() => now * 1000},
       state, engine, seq, abs:step, nextTime, transportOrigin:gridOrigin, clockOffset,
-      syncAudioClock, transportResync, slewTransport, handoff:null, vocalGridDirty:false, uiQueue:[],
+      syncAudioClock, transportResync, slewTransport, roomTransportCorrection, roomDrainUntil:null, vocalCorrectionWindow:0,
+      queuedRoomReplay:null, handoff:null, vocalGridDirty:false, uiQueue:[],
       jamQueue:[{part:'kick', layer:{id:'new'}, wall}], jamRedraw:0,
-      timeline:{skip:() => 0}, artistTick(){}, midiClockStep(){},
+      timeline:{skip:() => 0}, artistTick(){}, midiClockStep(){}, midiClockStart(){},
       applyPart:(s, part, layer) => { s.part = layer.id; }, setTimeout(){}, cancelAnimationFrame(){}, requestAnimationFrame:() => 0};
     const scheduler = main.slice(main.indexOf('function schedule(lead)'), main.indexOf('\n// Jam:'));
     const jam = main.slice(main.indexOf('function landJamParts('), main.indexOf('\n// GENERATE while'));
-    runInNewContext(`${scheduler}\n${jam}\nschedule()`, sandbox);
+    runInNewContext(`${scheduler}\n${jam}\nschedule(${lead})`, sandbox);
     return {sandbox, notes, effects};
   };
   const small = runBoundary({step:64, nextTime:11.5, gridOrigin:3460, now:11.3, wall:11460});
   assert.equal(small.notes[0]?.abs, 64, 'a small calibration never skips the playable Jam downbeat');
   assert.equal(small.notes[0].part, 'new');
   close(small.notes[0].time, 11.4985);
-  const skipped = runBoundary();
-  assert.equal(skipped.sandbox.abs, 66);
+  const future = runBoundary({now:10.1, lead:0.5});
+  assert.equal(future.notes.length, 0, 'large corrections leave future queued notes alone while draining');
+  const skipped = runBoundary({now:10.5});
+  assert.equal(skipped.sandbox.abs, 68);
   assert.equal(skipped.sandbox.state.part, 'new', 'a skipped Jam boundary lands rather than waiting another bar');
   assert.equal(skipped.sandbox.jamQueue.length, 0);
   assert.equal(skipped.sandbox.seq.cur, 4, 'a skipped breakdown advances the actual section');
-  assert.equal(skipped.notes.length, 0, 'existing queued notes are not rebuilt');
-  close(skipped.effects.find(e => e.kind === 'break').time, 10.325);
-  close(skipped.effects.find(e => e.kind === 'mix').time, 10.325);
-  assert.ok(skipped.effects.every(e => e.time > 10), 'future section and mix automation do not fire at scheduler-now');
+  assert.deepEqual(skipped.notes.map(n => n.abs), [66, 67], 'only past steps are skipped; existing queued notes are not rebuilt');
+  close(skipped.effects.find(e => e.kind === 'break').time, 10.5);
+  close(skipped.effects.find(e => e.kind === 'mix').time, 10.5);
+  const boundary = runBoundary({now:10.6, nextTime:10.6, gridOrigin:2825});
+  const downbeat = boundary.notes.find(n => n.abs === 64);
+  close(boundary.effects.find(e => e.kind === 'break').time, downbeat.time);
+  close(boundary.effects.find(e => e.kind === 'mix').time, downbeat.time);
+  assert.ok(boundary.effects.every(e => e.time > 10.6), 'future section and mix automation still land at their rendered grid time, not scheduler-now');
   assert.equal(skipped.sandbox.engine.at, 0, 'temporary scheduled mix time is restored');
-  const late = runBoundary({wall:10500});
+  const late = runBoundary({now:10.5, wall:10550});
   assert.equal(late.sandbox.state.part, 'new', 'a Jam due between skipped and playable steps lands on the first playable grid time');
   close(late.effects.find(e => e.kind === 'mix').time, 10.575);
   const clockOnly = runBoundary({step:64, nextTime:11.5, gridOrigin:3500, clockOffset:-0.02});

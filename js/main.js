@@ -23,7 +23,7 @@ import { openLibrary } from './library.js';
 import { dropCard, pushOffer, guardPushOffer } from './drop.js';
 import { initPush, onPushChange, recordDropPlay, shouldOffer } from './push.js';
 import { getSample, prepareSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
-import { roomTransportPosition, syncAudioClock, transportResync, slewTransport } from './room-sync.js';
+import { roomTransportPosition, syncAudioClock, transportResync, slewTransport, roomTransportCorrection } from './room-sync.js';
 import { createRoomMediaSync, roomMediaLead, roomMediaTime } from './room-media-sync.js';
 import { concertPanel, concertBar, preloadScore, scoreReady, loadPiano } from './concert.js';
 import { liveSets, loadSets, setsReady } from './livekit.js';
@@ -57,6 +57,7 @@ addEventListener('blur', () => { for (const k of [...heldPads.keys()]) ui.perf?.
 let playing = false, abs = 0, nextTime = 0, lastPlayedPat = null;
 let transportOrigin = 0, roomJoinTimer = 0, clockOffset = null;
 let vocalGridDirty = false;
+let roomDrainUntil = null, vocalCorrectionWindow = 0;
 let roomPlayback = false;
 let roomEditor = false;
 let roomFirstNote = null;
@@ -193,7 +194,15 @@ function schedule(lead) {
   let base = 60 / state.bpm / 4, landed = null;
   const target = roomMediaTime(transportOrigin / 1000 + abs * base - clockOffset, roomPlayback, mediaRoute);
   if (roomPlayback && Math.abs(target - nextTime) > 0.000001) vocalGridDirty = true;
-  const fix = transportResync(target, nextTime, now, base, clock.jumped, seq.origin - abs, roomPlayback);
+  if (clock.jumped) { roomDrainUntil = null; vocalCorrectionWindow = 0; }
+  const correction = roomPlayback && !clock.jumped ? roomTransportCorrection(target, nextTime, now, base, roomDrainUntil) : null;
+  if (correction?.drainUntil !== undefined) {
+    roomDrainUntil = correction.drainUntil;
+    if (replayAt < now + ahead) switchRoomReplay(replayAt);
+    return;
+  }
+  roomDrainUntil = null;
+  const fix = correction ?? transportResync(target, nextTime, now, base, clock.jumped, seq.origin - abs, roomPlayback);
   let firstTime = fix?.firstTime;
   if (fix) {
     if (fix.discard) {
@@ -217,6 +226,10 @@ function schedule(lead) {
     if (roomPlayback && fix.skip > 0 && jamQueue.length)
       landJamParts((fix.nextTime + clockOffset) * 1000, fix.nextTime);
     nextTime = fix.nextTime;
+    if (fix.adopted) {
+      vocalCorrectionWindow = 16 * base;
+      midiClockStart(ctx, abs, nextTime);
+    }
     const step = (abs - seq.origin) % 16;
     if (fix.discard && step)
       engine.vocal(firstTime ?? nextTime, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, step, roomPlayback ? nextTime : undefined);
@@ -226,7 +239,7 @@ function schedule(lead) {
     const horizon = ctx.currentTime + (landed ? Math.max(ahead, 0.5) : ahead);
     if (!(Math.min(nextTime, replayAt) < horizon)) break;
     const gridTarget = transportOrigin / 1000 + abs * base - clockOffset;
-    if (roomPlayback) nextTime = slewTransport(gridTarget, nextTime, base);
+    if (roomPlayback) nextTime = slewTransport(gridTarget, nextTime, 0.05);
     const t = firstTime ?? nextTime;
     firstTime = undefined;
     // Leave a nearly coincident outgoing step to the incoming replay downbeat.
@@ -249,8 +262,9 @@ function schedule(lead) {
     artistTick(abs - seq.origin);
     const pat = seq.tick(abs, t, roomPlayback ? nextTime : undefined, roomEditor, roomPlayback && vocalGridDirty);
     if (roomPlayback && vocalGridDirty && Math.abs(gridTarget - nextTime) < 0.002) {
-      const aligned = engine.vocal(t, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, (abs - seq.origin) % 16, nextTime, true);
+      const aligned = engine.vocal(t, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, (abs - seq.origin) % 16, nextTime, true, false, vocalCorrectionWindow);
       vocalGridDirty = aligned === false;
+      if (!vocalGridDirty) vocalCorrectionWindow = 0;
     }
     uiQueue.push({ abs: abs - seq.origin, t, pat });
     // A score breathes (rubato): the transport clock follows the stretched step, not the metronome.
@@ -438,6 +452,7 @@ function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room 
   songOver = false;
   if (switchAt === null) clockOffset = null;
   vocalGridDirty = false;
+  roomDrainUntil = null; vocalCorrectionWindow = 0;
   transportOrigin = startsAt ?? ((stepWall ?? wallNow + wait * 1000) - abs * (15000 / state.bpm));
   if (!seeking) engine.recLock = new Map();
   roomPlayback = room;

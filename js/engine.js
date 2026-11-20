@@ -3331,7 +3331,7 @@ export class Engine {
 
   // Keep a continuous stem across bars; discarding the queue on a clock jump stops it.
   // On wake, gridTime can precede t: advance the source offset instead of moving the stem.
-  vocal(t, pos, step = 0, gridTime, reanchor = false, settling = false) {
+  vocal(t, pos, step = 0, gridTime, reanchor = false, settling = false, correctionWithin = 0) {
     const v = pos >= 0 ? this.vocalOf?.(this.state) : null, cur = this.vocalNow;
     const phase = v ? (pos * 16 + step) * this.stepDur - v.ms / 1000 : 0;
     const origin = (gridTime ?? t) - phase;
@@ -3343,12 +3343,23 @@ export class Engine {
     }
     if (continuous && reanchor) {
       const errorMs = (origin - cur.origin) * 1000;
-      const env = singingEnvelope(v.buf), actual = t - cur.origin;
-      const quiet = at => at >= 0 && at < v.buf.duration &&
-        Array.from(env.slice(Math.floor(at * ENV_RATE), Math.ceil((at + 0.06) * ENV_RATE))).every(x => x < 0.01);
-      const gap = quiet(phase) && quiet(actual);
-      this.vocalCorrection = { at:t, origin, previousOrigin:cur.origin, errorMs, gap };
-      if (!gap) {
+      const audio = v.buf.getChannelData(0), window = Math.ceil(v.buf.sampleRate * 0.06), actual = t - cur.origin;
+      const quiet = at => {
+        const first = Math.floor(at * v.buf.sampleRate);
+        if (first < 0 || first + window > audio.length) return false;
+        let energy = 0;
+        for (let i = first; i < first + window; i++) energy += audio[i] * audio[i];
+        return energy / window < 0.0001;
+      };
+      let gap = quiet(phase) && quiet(actual);
+      if (!gap && correctionWithin > 0) {
+        for (let wait = 0.02; wait <= correctionWithin; wait += 0.02) {
+          if (quiet(phase + wait) && quiet(actual + wait)) { t += wait; gap = true; break; }
+        }
+      }
+      const forced = !gap && correctionWithin > 0;
+      this.vocalCorrection = { at:t, origin, previousOrigin:cur.origin, errorMs, gap, forced };
+      if (!gap && !forced) {
         cur.next = pos + 1;
         this.vocalBus.gain.setTargetAtTime(v.gain, t, 0.02);
         return false;
