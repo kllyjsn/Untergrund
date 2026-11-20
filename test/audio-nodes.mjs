@@ -51,7 +51,173 @@ globalThis.fetch = async (url) => {
   catch { return { ok: false, status: 404 }; }
 };
 
-const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCrossfade } = await import('../js/engine.js');
+const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCrossfade, vocalFadePowerRatio, vocalFadeBandPowerRatios } = await import('../js/engine.js');
+{
+  for (const [listener, recorded] of [['hypnotic', 'euphoric'], ['euphoric', 'hypnotic']]) {
+    const s = defaultState(); s.artist = { style: listener };
+    const e = new Engine(fakeCtx(), s, { realtime: false });
+    e.replay808Style = recorded;
+    e.applyAll();
+    assert.equal(e.ch.ch.level.gain.value, s.params.ch.level * (recorded === 'euphoric' ? 10 ** (-1 / 20) : 1));
+    const events = [];
+    e.secPreGain.gain.setTargetAtTime = () => events.push('pre');
+    e.secGain.gain.setTargetAtTime = () => events.push('post');
+    e.sectionGain(1, 0.45);
+    assert.deepEqual(events, [recorded === 'euphoric' ? 'pre' : 'post']);
+    assert.equal(s.artist.style, listener, 'replay does not modify the listener project');
+    e.replay808Style = undefined; e.applyAll();
+    assert.equal(e.ch.ch.level.gain.value, s.params.ch.level * (listener === 'euphoric' ? 10 ** (-1 / 20) : 1));
+  }
+  const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+  const start = main.slice(main.indexOf('function start('), main.indexOf('  engine.prepareVocal();'));
+  const setup = start.slice(start.lastIndexOf('  engine.replay808Style ='));
+  for (const switchAt of [null, 2]) {
+    const engine = { applyAll() { this.applied = this.replay808Style; } };
+    runInNewContext(setup, { engine, replay808Style: 'euphoric', switchAt });
+    assert.equal(engine.applied, switchAt === null ? 'euphoric' : undefined, 'replay start applies the recorded mix, while scheduled starts keep their handoff automation');
+  }
+  console.log('Club replay Euphoric mix follows recorded genre, not listener genre');
+}
+{
+  for (const [from, to] of [['euphoric', 'hypnotic'], ['hypnotic', 'euphoric']]) {
+    for (const scheduled of [false, true]) for (const replay of [false, true]) {
+      const s = defaultState(); s.artist = { style: replay ? 'minimal' : from };
+      const e = new Engine(fakeCtx(), s, { realtime: false });
+      if (replay) { e.replay808Style = from; e.applyAll(); }
+      const q = new Sequencer(e, s), events = [];
+      for (const [stage, gain] of [['pre', e.secPreGain.gain], ['post', e.secGain.gain]])
+        gain.setTargetAtTime = (value, t) => events.push({ stage, value, t });
+      q.level(1, 0.45);
+      if (replay) e.replay808Style = to; else s.artist.style = to;
+      if (scheduled) e.handoffIn(2.375); else e.applyAll();
+      events.length = 0;
+      q.level(2.375, 0.45);
+      assert.deepEqual(events, [{ stage: to === 'euphoric' ? 'pre' : 'post', value: 10 ** (0.45 / 20), t: 2.375 }],
+        `${from} to ${to}, scheduled=${scheduled}, replay=${replay}: same chorus boost reaches the incoming stage`);
+      q.level(3, 0.45);
+      assert.equal(events.length, 1, 'unchanged stage and level do not reschedule');
+    }
+  }
+  console.log('Identical chorus boosts survive both directions of immediate and scheduled Euphoric handoffs');
+}
+{
+  const s = defaultState();
+  applyOverrides(s, generate('euphoric', 11, 'major'), true);
+  s.artist = { style: 'euphoric' };
+  const e = new Engine(fakeCtx(), s, { realtime: false }), level = s.params.ch.level;
+  assert.equal(e.ch.ch.level.gain.value, level * 10 ** (-1 / 20));
+  assert.equal(s.params.ch.level, level, 'Euphoric headroom does not modify the saved mixer level');
+  for (const style of ['hypnotic', 'drill', 'minimal', undefined]) {
+    if (style) applyOverrides(s, generate(style, 42, 'minor'), true);
+    s.artist = { style };
+    e.applyAll();
+    assert.equal(e.ch.ch.level.gain.value, s.params.ch.level, `${style} restores untrimmed hats on the same engine`);
+  }
+  console.log('Euphoric hat trim is engine-scoped and clears on genre switches');
+}
+{
+  const s = defaultState();
+  s.artist = { style: 'euphoric' };
+  const e = new Engine(fakeCtx(), s, { realtime: false }), events = { pre: [], post: [] };
+  for (const [name, gain] of [['pre', e.secPreGain.gain], ['post', e.secGain.gain]]) {
+    for (const method of ['cancelScheduledValues', 'setValueAtTime', 'setTargetAtTime', 'linearRampToValueAtTime'])
+      gain[method] = (...args) => events[name].push([method, ...args]);
+  }
+  e.sectionGain(1, 0.45);
+  assert.deepEqual(events.pre, [['cancelScheduledValues', 1], ['setTargetAtTime', 10 ** (0.45 / 20), 1, 0.012]]);
+  assert.deepEqual(events.post, []);
+  events.pre.length = 0;
+  e.sectionGain(2, 0.45, [-1, 2, 0.5]);
+  assert.deepEqual(events.pre, [['cancelScheduledValues', 2], ['setValueAtTime', 10 ** (-1 / 20), 2],
+    ['setValueAtTime', 10 ** (-1 / 20), 2.5], ['linearRampToValueAtTime', 10 ** (0.45 / 20), 4.5]]);
+  for (const style of ['hypnotic', 'drill', 'minimal', 'hardtechno', undefined]) {
+    e.secPreGain.gain.value = 0.5;
+    s.artist = { style: 'euphoric' }; e.applyAll();
+    s.artist = { style }; e.applyAll();
+    assert.equal(e.secPreGain.gain.value, 1, `${style} clears Euphoric section gain`);
+    events.pre.length = events.post.length = 0;
+    e.sectionGain(5, 0);
+    assert.deepEqual(events.pre, []);
+    assert.deepEqual(events.post, [['cancelScheduledValues', 5], ['setTargetAtTime', 1, 5, 0.012]]);
+  }
+  s.artist = { style: 'euphoric' }; e.at = 8; e.applyAll();
+  assert.deepEqual(events.post.slice(-2), [['cancelScheduledValues', 8], ['setTargetAtTime', 1, 8, 0.004]], 'handoff clears post-clipper sections at its downbeat');
+  console.log('Euphoric sections lift before the clipper and clear on genre switches');
+}
+{
+  const stacks = {};
+  for (const style of ['trap', 'trance']) {
+    const s = defaultState();
+    s.artist = { style };
+    Object.assign(s.params.stab, { voice: 0, detune: 16 });
+    const ctx = fakeCtx(), e = new Engine(ctx, s, { realtime: false }), oscs = [];
+    ctx.createOscillator = () => { const o = node(ctx, 'Oscillator'); oscs.push(o); return o; };
+    e.stab(0.05, 0.8);
+    stacks[style] = oscs.filter((o) => o.type === 'sawtooth');
+  }
+  assert.equal(stacks.trap.length, stacks.trance.length * 1.5, 'only Trap SAW gains a third oscillator per note');
+  assert.deepEqual([...new Set(stacks.trap.map((o) => o.detune.value))], [-16, 0, 16]);
+  assert.deepEqual([...new Set(stacks.trance.map((o) => o.detune.value))], [-16, 16]);
+  console.log('Trap-only three-saw chord stack passed');
+}
+{
+  for (const [style, voice, moving] of [['trap', 2, true], ['trance', 2, false], ['trap', 0, false], [undefined, 2, false]]) {
+    const s = defaultState();
+    if (style) s.artist = { style };
+    Object.assign(s.params.stab, { voice, detune: 16 });
+    const ctx = fakeCtx(), e = new Engine(ctx, s, { realtime: false }), oscs = [];
+    ctx.createOscillator = () => { const o = node(ctx, 'Oscillator'); oscs.push(o); return o; };
+    e.pad(0.05, 0.8, [0], 60, s.params.stab, ctx.destination);
+    const motion = oscs.filter((o) => o.type !== 'sawtooth');
+    assert.equal(motion.length, moving ? 3 : 0, `${style}/${voice} PAD motion is festival-only`);
+    assert(motion.every((o) => o.frequency.value >= 0.37 && o.frequency.value <= 0.78));
+    assert.equal(new Set(motion.map((o) => o.frequency.value)).size, motion.length, 'each unison voice drifts independently');
+  }
+  console.log('Trap PAD-only decorrelated unison motion passed');
+}
+{
+  for (const [style, voice, trimmed] of [['trap', 0, true], ['trap', 2, false], ['trap', 7, false], ['trance', 0, false], [undefined, 0, false]]) {
+    const s = defaultState();
+    if (style) s.artist = { style };
+    s.params.stab.voice = voice;
+    const ctx = fakeCtx(), e = new Engine(ctx, s, { realtime: false });
+    let output, outputImmediate;
+    const setTo = e.setTo;
+    e.setTo = function (p, v, ...rest) { if (p === this.out.gain) { output = v; outputImmediate = rest[0]; } return setTo.call(this, p, v, ...rest); };
+    e.applyAll();
+    assert.equal(output, 0.78 * 10 ** ((trimmed ? -0.8 : style === 'trap' && voice === 2 ? -0.3 : 0) / 20), `${style}/${voice} master trim is festival-only`);
+    const filters = [], filter = e.filter;
+    e.filter = function (type, hz, ...rest) { filters.push([type, hz]); return filter.call(this, type, hz, ...rest); };
+    e.pad(0.05, 0.8, [0], 60, s.params.stab, ctx.destination);
+    assert.deepEqual(filters.filter(([type]) => type === 'highpass'), style === 'trap' ? [['highpass', 180]] : []);
+    for (const nextVoice of [2, 0, 7, 0]) {
+      e.setParam('stab', 'voice', nextVoice);
+      assert.equal(output, 0.78 * 10 ** ((style === 'trap' ? nextVoice === 0 ? -0.8 : nextVoice === 2 ? -0.3 : 0 : 0) / 20), `${style} voice edits refresh output trim`);
+      assert.equal(outputImmediate, false, 'live edits retain parameter smoothing');
+    }
+    e.state.params.stab.voice = 2;
+    e.applyParam('stab', 'voice', true);
+    assert.equal(output, 0.78 * 10 ** ((style === 'trap' ? -0.3 : 0) / 20), 'direct voice edits refresh PAD headroom');
+    assert.equal(outputImmediate, true, 'immediate voice edits retain their timing');
+  }
+  console.log('Trap festival-only output trim and PAD highpass passed');
+}
+{
+  for (const [style, voice] of [['trap', 0], ['trap', 2], ['trap', 7], ['trance', 0], [undefined, 2]]) {
+    const s = defaultState(), ctx = fakeCtx();
+    if (style) s.artist = { style };
+    s.params.stab.voice = voice;
+    const e = new Engine(ctx, s, { realtime: false }), trims = [];
+    e.rec = () => null;
+    e.trimOut = (...args) => { trims.push(args); return ctx.destination; };
+    e.hook(.05, .8, 0, .5, 'ravestack');
+    const festival = style === 'trap' && voice === 2;
+    assert.equal(trims[0][0], `hook-ravestack:${13 + (festival ? 3 : 0)}`, 'hook trim cache key follows its gain');
+    assert.equal(trims[0][1], 13 + (festival ? 3 : 0));
+    assert.equal(trims[0][3], 2 + (festival ? 3 : 0), 'PAD-only hook lift preserves the existing shelf shape');
+  }
+  console.log('Trap festival PAD-only flat hook lift passed');
+}
 {
   const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
   const source = main.slice(main.indexOf('function landJamPart(part,'), main.indexOf('\n// GENERATE while'));
@@ -878,7 +1044,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (beforeDownbeat) assert.ok(Math.abs(at - (penultimate + .130)) < 1e-9, 'slowed grid admits the gap before the actual downbeat');
     else assert.equal(at, downbeat, 'faster grid forbids queuing a gap past the actual downbeat');
   }
-  for (const lookahead of [.2, .02]) {
+  for (const lookahead of [.11, .02]) {
     const c = fakeCtx(), s = defaultState(); s.bpm = 120;
     const buf = new FakeBuffer({length:48000 * 10, sampleRate:48000}), starts = [];
     const audio = buf.getChannelData(0), boundary = 8.08;
@@ -898,10 +1064,90 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     }
     const [[at, offset]] = starts.slice(1);
     if (lookahead > .02) {
-      assert.ok(at < downbeat - .05 && at >= downbeat - .09 - 1e-9, 'a pitch clash moves the fade earlier within the bound');
+      assert.ok(at < downbeat - .05 && at >= downbeat - .09 - 1e-9, 'a pitch clash moves the fade earlier within the available lookahead');
       assert.ok(at + .03 - 1 < boundary, 'the shifted crossfade completes before the outgoing note changes');
     } else assert.equal(at, downbeat, 'insufficient lookahead keeps the deadline fade');
     assert.ok(Math.abs(offset + downbeat - at - 8) < 1e-9, 'the incoming source is still aligned at the downbeat');
+  }
+  {
+    const outgoing = new FakeBuffer({length:1440}), incoming = new FakeBuffer({length:1440});
+    outgoing.getChannelData(0).fill(1);
+    incoming.getChannelData(0).fill(1).fill(-1, 624, 816);
+    assert.ok(vocalFadePowerRatio(outgoing, incoming, 0, 0, 1) < 0.5,
+      'a 4 ms dip straddling the fixed 15 ms boundary is detected in a sliding 5 ms window');
+    outgoing.getChannelData(0).fill(0).fill(0.31, 0, 240);
+    incoming.getChannelData(0).fill(0).fill(0.17, 0, 240);
+    assert.equal(vocalFadePowerRatio(outgoing, incoming, 0, 0, 1), 1,
+      'silent windows after an in-phase fade do not register a dip');
+  }
+  {
+    const outgoing = new FakeBuffer({length:2400}), incoming = new FakeBuffer({length:2400});
+    const a = outgoing.getChannelData(0), b = incoming.getChannelData(0);
+    for (let i = 0; i < a.length; i++) {
+      const t = i / 48000, mid = .30 * Math.sin(2 * Math.PI * 1000 * t);
+      const low = .015 * Math.sin(2 * Math.PI * 250 * t), high = .12 * Math.sin(2 * Math.PI * 4250 * t);
+      a[i] = mid + low + high; b[i] = mid - low - high;
+    }
+    assert.equal(vocalFadePowerRatio(outgoing, incoming, .02, .02, 1), 1, 'an in-phase midrange can hide band cancellation');
+    const bands = vocalFadeBandPowerRatios(outgoing, incoming, .02, .02, 1);
+    assert.ok(bands.presence < .5, 'the presence band detects a dip hidden by broadband power');
+    assert.equal(bands.low, 1, 'cancellation in a band below 1% of local power does not count');
+    assert.equal(bands.mid, 1);
+  }
+  {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 8});
+    const audio = buf.getChannelData(0), delay = .102, deadline = 32;
+    for (let i = 0; i < audio.length; i++) {
+      const t = i / 48000;
+      audio[i] = .30 * Math.sin(2 * Math.PI * 1000 * t) + .12 * Math.sin(2 * Math.PI * 4250 * t);
+    }
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.variableScoreTempo = true;
+    e.vocal(1, 0, 0, 1);
+    for (let index = 17; index <= deadline; index++) {
+      const time = 1 + delay + index * .125;
+      c.currentTime = time - .020001;
+      assert.equal(e.vocal(time, index >> 4, index % 16, time, true), index === deadline);
+    }
+    const {at, fallbackFadeGuard} = e.vocalCorrection;
+    assert.equal(at, 1 + delay + deadline * .125, 'a failed band guard does not delay a mandatory fade');
+    assert.ok(fallbackFadeGuard.dipDb.presence > 1.5);
+    assert.ok(fallbackFadeGuard.dipDb.broadband < 1.5);
+    assert.deepEqual(e.lastVocalFallbackFadeGuard, {at, step:deadline, ...fallbackFadeGuard});
+  }
+  for (const {lookahead, delay, bend, cancels} of [
+    {lookahead:.39, delay:.04, bend:true},
+    {lookahead:.08, delay:.04, bend:true},
+    {lookahead:.39, delay:.04, bend:false},
+    {lookahead:.39, delay:.035, bend:true, cancels:true},
+  ]) {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 10, sampleRate:48000}), starts = [];
+    const audio = buf.getChannelData(0), transition = 7.85, glide = .35;
+    for (let i = 0; i < audio.length; i++) {
+      const t = i / 48000, progress = Math.min(glide, Math.max(0, t - transition));
+      const cycles = 300 * t + (bend ? 34 * progress ** 2 / glide + 68 * Math.max(0, t - transition - glide) : 0);
+      audio[i] = .1 * Math.sin(2 * Math.PI * cycles);
+    }
+    c.createBufferSource = () => ({connect:dst => dst, start:(...args) => starts.push(args), stop(){}});
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.variableScoreTempo = true;
+    e.vocal(1, 0, 0, 1);
+    const downbeat = 1 + delay + 64 * .125;
+    for (let index = 1; index <= 64; index++) {
+      const time = 1 + (index < 17 ? 0 : delay) + index * .125;
+      c.currentTime = time - lookahead;
+      assert.equal(e.vocal(time, index >> 4, index % 16, time, true), index < 17 || index === 64);
+    }
+    const [[at, offset]] = starts.slice(1);
+    if (!bend) assert.equal(at, downbeat, 'a well-matched fade keeps its placement');
+    else if (cancels) assert.ok(at + .03 >= 1 + transition, 'a closer pitch match is rejected if it cancels in phase');
+    else if (lookahead === .39) {
+      assert.ok(at < downbeat - .125, 'a better pitch match can be before the preceding step');
+      assert.ok(at + .03 < 1 + transition, 'the fade uses the matching pitch before the bend');
+    } else assert.ok(at >= c.currentTime + .02 - 1e-9, 'the search does not advance past available lookahead');
+    assert.ok(Math.abs(offset + downbeat - at - 8) < 1e-9, 'the pitch-matched fade preserves grid phase');
   }
   {
     const s = defaultState(); s.bpm = 120; s.chain = 'AAB'; s.chainOn = true;
@@ -944,6 +1190,46 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     assert.equal(e.vocalCorrection.forceStep, deadline);
     assert.equal(e.vocalCorrection.at, 1 + error + deadline * .125);
     assert.equal(e.vocalCorrection.crossfadeSeconds, .03);
+  }
+  for (const {delay = .096, hz = 250, gap = false, clash = false, unvoiced = false,
+    lookahead = .3, firstStrong = 31, earlyStep = null, lastStep = 32, deadline = 64} of [
+    {earlyStep:32},
+    {firstStrong:27, earlyStep:28},
+    {firstStrong:27, delay:.104, lastStep:31, deadline:32},
+    {delay:.08},
+    {gap:true},
+    {clash:true, lookahead:.02},
+    {unvoiced:true, lookahead:.021},
+    {hz:24.5 / .096},
+  ]) {
+    const c = fakeCtx(), s = defaultState(); s.bpm = 120;
+    const buf = new FakeBuffer({length:48000 * 12, sampleRate:48000});
+    const pcm = buf.getChannelData(0), change = 4.06;
+    for (let i = 0; i < pcm.length; i++) {
+      const time = i / 48000;
+      const cycles = time * hz + (clash ? 100 * Math.max(0, time - change) : 0);
+      const quiet = gap && time >= 4.3 && time < 4.8 || unvoiced && time >= 3.952 && time < 3.998;
+      pcm[i] = quiet ? 0 : .1 * Math.sin(2 * Math.PI * cycles);
+    }
+    const e = new Engine(c, s, {vocal:() => ({buf, gain:1, duck:1, lift:1, ms:0})});
+    e.variableScoreTempo = true;
+    e.vocal(1, 0, 0, 1);
+    const original = e.vocalNow;
+    for (let index = 17; index <= (earlyStep ?? lastStep); index++) {
+      const time = 1 + (index < firstStrong ? .08 : delay) + index * .125;
+      c.currentTime = time - lookahead;
+      assert.equal(e.vocal(time, index >> 4, index % 16, time, true), index === earlyStep,
+        'only a large, gapless drift with a stable pitch and phase match can force early');
+    }
+    if (earlyStep !== null) {
+      assert.notEqual(e.vocalNow, original);
+      assert.equal(e.vocalCorrection.forced, true);
+      assert.equal(e.vocalCorrection.forceStep, earlyStep);
+      assert.equal(e.vocalNow.origin, 1 + delay);
+    } else {
+      assert.equal(e.vocalNow, original);
+      assert.equal(e.vocalNow.gapCorrection.forceStep, deadline, 'rejecting an early fade keeps the original deadline');
+    }
   }
   {
     const c = fakeCtx(), s = defaultState(); s.bpm = 120;

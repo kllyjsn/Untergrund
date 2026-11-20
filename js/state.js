@@ -162,7 +162,7 @@ export const INSTRUMENTS = {
   hypnotic: [[6, 0, 0, 0.25, 0.25], [3, 3, 0, 0.38, 0.7], [2, 0, 0, 0.9, 0.2], [0, 0, 0, 0.28, 0.8]],
   industrial: [[6, 6, 0, 0.3, 0.75], [4, 6, 0, 0.35, 0.65], [0, 6, 0, 0.24, 0.55], [11, 6, 0, 0.65, 0.85]],
   acid: [[0, 0, 0, 0.35, 0.45], [5, 0, 1, 0.28, 0.8], [3, 0, 0, 0.4, 0.3], [6, 0, 0, 0.35, 0.75]],
-  dub: [[0, 2, 0, 0.35, 0.55], [3, 1, 0, 0.5, 0.25], [5, 2, 0, 0.45, 0.7], [9, 1, 0, 0.4, 0.55]],
+  dub: [[0, 1, 0, 0.22, 0.18], [2, 1, 0, 0.3, 0.22], [3, 1, 0, 0.26, 0.2], [5, 1, 0, 0.2, 0.3]],
   peak: [[4, 8, 0, 0.3, 0.65], [6, 8, 0, 0.3, 0.75], [0, 8, 0, 0.22, 0.6], [2, 8, 1, 0.8, 0.8]],
   hardtechno: [[0, 3, 0, 0.45, 0.22], [0, 3, 1, 0.6, 0.18], [2, 3, 0, 0.65, 0.2], [2, 3, 1, 0.8, 0.15]],
   deephouse: [[1, 1, 0, 1.5, 0.25], [3, 1, 0, 0.9, 0.35], [1, 5, 0, 0.65, 0.75], [2, 1, 0, 1.4, 0.2]],
@@ -183,7 +183,7 @@ export const INSTRUMENTS = {
   afrobeats: [[8, 2, 0, 0.55, 0.8], [9, 1, 0, 0.55, 0.65], [1, 2, 1, 0.7, 0.45], [5, 2, 0, 0.5, 0.5]],
   reggaeton: [[8, 2, 0, 0.45, 0.8], [5, 2, 1, 0.22, 0.9], [9, 1, 0, 0.45, 0.7], [3, 2, 1, 0.55, 0.45]],
   bailefunk: [[4, 2, 0, 0.3, 0.75], [4, 2, 0, 0.25, 0.85], [4, 2, 0, 0.4, 0.8], [4, 2, 1, 0.2, 0.9]],
-  trap: [[7, 2, 1, 0.75, 0.4], [6, 2, 0, 0.8, 0.7], [10, 2, 1, 1.5, 0.2], [8, 2, 1, 0.5, 0.8]],
+  trap: [[10, 2, 1, 1.5, 0.2], [7, 2, 1, 0.75, 0.4], [6, 2, 0, 0.8, 0.7], [8, 2, 1, 0.5, 0.8], [0, 2, 1, 0.48, 0.12], [2, 2, 0, 1.8, 0.4]],
   drill: [[16, 2, 1, 1.4, 0.2], [16, 2, 0, 0.9, 0.45], [17, 2, 0, 0.5, 0.75], [6, 2, 1, 0.65, 0.8]],
   jerseyclub: [[0, 2, 1, 0.2, 0.75], [4, 2, 0, 0.2, 0.7], [8, 2, 1, 0.4, 0.8], [6, 2, 1, 0.5, 0.85]],
   hyperpop: [[0, 3, 1, 0.4, 0.85], [6, 2, 0, 0.3, 0.75], [5, 2, 1, 1.2, 0.2], [11, 3, 2, 0.65, 0.55]],
@@ -306,7 +306,7 @@ function generatePattern(style, seed, scaleName, starter) {
     S.stab = pad16(pick(r, [[0, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1], [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1]]));
     S.acid = range(STEPS, (i) => (i % 4 === 2 ? { on: true, n: 0, a: false, s: false } : emptyAcidStep()));
     Object.assign(params.kick, { tune: 47, decay: 0.6, drive: 0.15, rumble: 0.5, click: 0.15 });
-    Object.assign(params.stab, { chord: pick(r, [1, 2, 3]), cutoff: 900 + r() * 600, reso: 6, decay: 0.35, env: 0.5, detune: 10 });
+    Object.assign(params.stab, { chord: pick(r, [1, 2]), cutoff: 900 + r() * 600, reso: 0.6, decay: 0.24, env: 0.2, detune: 5 });
     Object.assign(params.acid, { wave: 0.4, cutoff: 140, reso: 4, envmod: 0.2, decay: 0.3, drive: 0.2, accent: 0.2 });
     master.duck = 0.65; master.dlyTime = 2; master.dlyFb = 0.62;
   } else if (style === 'peak') {
@@ -791,6 +791,11 @@ function generatePattern(style, seed, scaleName, starter) {
     params.stab.rev = Math.min(params.stab.rev ?? 0.3, 0.2);
   }
   params.acid.voice = style === 'hypnotic' && !starter ? 7 : bassVoice;
+  if (style === 'dub') {
+    Object.assign(params.stab, { level: 0.6, dly: 0.42, rev: 0.24 });
+    Object.assign(params.acid, { dly: 0, rev: 0 });
+    master.dlyFb = 0.52;
+  }
   for (const t of ['acid', 'stab']) params[t].voice ??= 0;
   const PERC = { dnb: 3, deephouse: 3, ukg: 3, boombap: 3, neosoul: 3, breaks: 2, minimal: 3, dub: 4, euphoric: 3, ambient: 2, amapiano: 3, afrobeats: 1, reggaeton: 2, bailefunk: 1 };
   params.perc.voice = PERC[style] ?? 0;
@@ -821,6 +826,11 @@ function generatePattern(style, seed, scaleName, starter) {
     'ukg:5': { cutoff: 400, env: 0.2 },
   }[`${style}:${stabVoice}`];
   if (color) Object.assign(params.stab, { octave: 0, reso: 0.7, level: 1 }, color);
+  const festivalTrap = style === 'trap' && (stabVoice === 0 || stabVoice === 2);
+  if (festivalTrap) {
+    Object.assign(params.stab, { cutoff: stabVoice === 0 ? 3000 : 2700, reso: 0.5, detune: 16, rev: 0.38, dly: 0.18, level: stabVoice === 0 ? 0.65 : 0.6 });
+    master.duck = 0.65;
+  }
   if (style === 'breaks' && stabVoice === 1) {
     params.acid.level = 0.18;
     params.kick.level = 0.55;
@@ -832,6 +842,7 @@ function generatePattern(style, seed, scaleName, starter) {
     params.acid.level = style === 'trance' ? 0.72 : Math.max(params.acid.level ?? 0.55, 0.98);
   }
   const hook = hookLine(r2, style, musicalScale);
+  if (festivalTrap && hook) hook.v = 'ravestack';
   if (hook && !starter && TECHNO_HOOK[style]) hook.v = TECHNO_HOOK[style];
   if (hook && style === 'hardtechno') {
     hook.v = 'analog';

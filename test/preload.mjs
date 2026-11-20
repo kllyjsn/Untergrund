@@ -63,7 +63,7 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
     windDuck: ctx.createGain(),
     windHook: Engine.prototype.windHook, bodyFor: Engine.prototype.bodyFor, filter: Engine.prototype.filter,
     soulBand: () => false,
-    trimOut: (key, db, dest) => { if (key === 'hook-reed') throw fallback; return dest; },
+    trimOut: (key, db, dest) => { if (key.startsWith('hook-reed:')) throw fallback; return dest; },
     playBuf: (...args) => hits.push(args),
   };
   e.windDuck.connect(out);
@@ -123,7 +123,7 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
     state, recLock: new Map(), rec: Engine.prototype.rec, harpHook: Engine.prototype.harpHook,
     ctx, filter: Engine.prototype.filter, chordTone: Engine.prototype.chordTone,
     ch: { stab: { input: ctx.createGain() } }, soulBand: () => false,
-    trimOut: (key, db, dest) => { if (key === 'hook-softmallet') throw fallback; return dest; },
+    trimOut: (key, db, dest) => { if (key.startsWith('hook-softmallet:')) throw fallback; return dest; },
     playBuf: (...args) => hits.push(args), bells: () => {},
   };
   const hit = (voice = 'harpplk', note = 12, velocity = 0.5) => Engine.prototype.hook.call(e, 1, velocity, note, 0.3, voice);

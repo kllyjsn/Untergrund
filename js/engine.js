@@ -8,7 +8,7 @@ import { pocketOf, pocketLate, pocketVel } from './groove.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ, TECHNO_HOOK_SPACE } from './lead.js';
 import { lowEnd } from './lowend.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
-import { processedStem } from './vocal-chain.js';
+import { biquad, filter as filterVocal, processedStem } from './vocal-chain.js';
 import { makeupGain } from './loudness.js';
 import { harmRoot, chordIv, stabNotes, hookSnap, voiceLead } from './harmony.js';
 import { develop, motifPlan, stepDeg } from './motif.js';
@@ -184,6 +184,7 @@ const SOUL_STRIP = { ...BAND_STRIP, stab: { eq: [[140, -2], [250, -7, 0.9], [260
 // genres came out 6-13 dB heavy at 250 Hz and 7-12 dB short of 2-8 kHz, with an L/R correlation of 0.76-0.89.
 export const MASTER_TONE = {
   hardtechno: [0, -1, 3.75, -0.5, 0.12],
+  dub: [0, -2, 0, 0, 0],
   pop: [-1.5, -9, 4.5, 1.5, 0.6], rnb: [0, -7, 6.5, 2.5, 0.6], rock: [-4, -5, 4.5, 3, 0.6],
   folk: [3, -3, 0.5, 4, 0.5], country: [2, -3, 2.5, 4, 0.6],
 };
@@ -247,51 +248,202 @@ export function vocalCrossfade(incoming) {
   return Float32Array.from({length:65}, (_, i) => incoming ? Math.sin(i / 64 * Math.PI / 2) : Math.cos(i / 64 * Math.PI / 2));
 }
 
-export const RUBATO_SPLICE_MAX_ADVANCE = 0.09;
+export const RUBATO_SPLICE_MAX_ADVANCE = 0.35;
+const RUBATO_PITCH_MATCH_ADVANCE = 0.09;
+const VOCAL_FADE_SECONDS = 0.03;
+const VOCAL_FADE_PITCH_PROBES = [5, 15, 25];
+const VOCAL_FADE_MIN_POWER_RATIO = 10 ** (-1.5 / 10);
+const VOCAL_FADE_BAND_RATE = 48000, VOCAL_FADE_MIN_BAND_SHARE = .01;
+const vocalFadeFilter = (type, hz) => [0.5411961, 1.3065630].map(q => biquad(type, hz, q, 0, VOCAL_FADE_BAND_RATE));
+const vocalFadeBands = {
+  low: vocalFadeFilter('lowpass', 500),
+  mid: [...vocalFadeFilter('highpass', 500), ...vocalFadeFilter('lowpass', 2000)],
+  presence: [...vocalFadeFilter('highpass', 2000), ...vocalFadeFilter('lowpass', 8000)],
+};
+const VOCAL_FADE_PHASE_TOLERANCE_RATIO = 10 ** (-0.25 / 10);
+const VOCAL_FADE_MIN_PITCH_IMPROVEMENT = 10;
+const RUBATO_EARLY_DRIFT_MS = 90;
+const RUBATO_EARLY_MAX_PITCH_CENTS = 50;
+const RUBATO_EARLY_MAX_CENTS_PER_10_MS = 40;
 
-function vocalPitchAt(buffer, phase) {
+function vocalPitchAt(buffer, phase, samples) {
   const sr = buffer.sampleRate, stride = Math.max(1, Math.round(sr / 12000)), rate = sr / stride;
-  const n = Math.round(rate * (2048 / 48000)), center = Math.round(phase * sr), first = center - Math.floor(n / 2) * stride;
+  const n = Math.round(rate * (samples / 48000)), center = Math.round(phase * sr), first = center - Math.floor(n / 2) * stride;
   const audio = buffer.getChannelData(0);
   if (first < 0 || first + n * stride > audio.length) return NaN;
   const frame = Float32Array.from({length:n}, (_, i) => audio[first + i * stride]);
   if (frame.reduce((e, x) => e + x * x, 0) / n < 0.0001) return NaN;
-  const last = Math.floor(rate / 80), normalized = new Float64Array(last + 1);
-  let total = 0;
+  const last = Math.floor(rate / 80), firstLag = Math.ceil(rate / 1170);
+  let total = 0, a = Infinity, b = Infinity;
   for (let lag = 1; lag <= last; lag++) {
     let diff = 0;
     for (let i = 0; i < n - lag; i++) diff += (frame[i] - frame[i + lag]) ** 2;
     diff /= n - lag;
     total += diff;
-    normalized[lag] = diff * lag / Math.max(total, 1e-12);
-  }
-  if (total < 1e-12) return NaN;
-  for (let lag = Math.ceil(rate / 1170); lag < last; lag++) {
-    const a = normalized[lag - 1], b = normalized[lag], c = normalized[lag + 1];
-    if (b < 0.15 && b <= a && b < c) return rate / (lag + 0.5 * (a - c) / (a - 2 * b + c));
+    const c = diff * lag / Math.max(total, 1e-12);
+    if (lag > firstLag && total >= 1e-12 && b < 0.15 && b <= a && b < c)
+      return rate / (lag - 1 + 0.5 * (a - c) / (a - 2 * b + c));
+    a = b;
+    b = c;
   }
   return NaN;
 }
 
-function rubatoSpliceTime(buffer, voice, origin, downbeat, earliest) {
-  const rate = voice.slewRate ?? 1, outgoing = voice.src.buffer;
-  const first = Math.max(earliest, downbeat - RUBATO_SPLICE_MAX_ADVANCE, origin, voice.startAt);
-  const differences = new Map();
-  const cents = ms => {
-    if (!differences.has(ms)) {
-      const when = downbeat + ms / 1000;
-      const phase = when - voice.origin + (rate - 1) * (when - (voice.slewEnd ?? when));
-      const from = vocalPitchAt(outgoing, phase) * rate, to = vocalPitchAt(buffer, when - origin);
-      differences.set(ms, Math.abs(1200 * Math.log2(to / from)));
+function vocalFadeSample(audio, x) {
+  const i = Math.floor(x), first = audio[i] ?? 0;
+  return first + (x - i) * ((audio[i + 1] ?? 0) - first);
+}
+
+export function vocalFadePowerRatio(outgoing, buffer, from, to, rate) {
+  const a = outgoing.getChannelData(0), b = buffer.getChannelData(0);
+  // Slide a 5 ms window by one sample at 12 kHz so dips between fixed windows are not missed.
+  const window = 60, frames = 6 * window;
+  const blendedSuffix = new Float64Array(window), separateSuffix = new Float64Array(window);
+  let ratio = 1, blendedPrefix = 0, separatePrefix = 0;
+  for (let i = 0; i < frames; i++) {
+    const f = (i + .5) / frames, t = f * VOCAL_FADE_SECONDS;
+    const x = vocalFadeSample(a, (from + t * rate) * outgoing.sampleRate) * Math.cos(f * Math.PI / 2);
+    const y = vocalFadeSample(b, (to + t) * buffer.sampleRate) * Math.sin(f * Math.PI / 2);
+    const slot = i % window;
+    const blended = (x + y) ** 2, separate = x * x + y * y;
+    blendedPrefix += blended;
+    separatePrefix += separate;
+    const next = slot + 1;
+    if (i >= window - 1) {
+      const windowPower = separatePrefix + (separateSuffix[next] ?? 0);
+      if (windowPower > 0) ratio = Math.min(ratio, (blendedPrefix + (blendedSuffix[next] ?? 0)) / windowPower);
     }
-    return differences.get(ms);
-  };
-  if (first >= downbeat || !(cents(15) > 100)) return downbeat;
-  // If the downbeat splits two pitches, find the closest earlier fade on the same note.
-  for (let ms = 5; downbeat - ms / 1000 >= first - 1e-9; ms += 5) {
-    if ([5, 15, 25].every(center => cents(center - ms) <= 70)) return downbeat - ms / 1000;
+    blendedSuffix[slot] = blended;
+    separateSuffix[slot] = separate;
+    if (next === window) {
+      // Sum the two sides of each overlapping window without subtracting away quiet samples.
+      for (let j = window - 2; j >= 0; j--) {
+        blendedSuffix[j] += blendedSuffix[j + 1];
+        separateSuffix[j] += separateSuffix[j + 1];
+      }
+      blendedPrefix = separatePrefix = 0;
+    }
   }
-  return downbeat;
+  return ratio;
+}
+
+export function vocalFadeBandPowerRatios(outgoing, buffer, from, to, rate) {
+  const sr = VOCAL_FADE_BAND_RATE, window = sr * .005, frames = 6 * window, warmup = 3 * window;
+  const a = outgoing.getChannelData(0), b = buffer.getChannelData(0);
+  const x = new Float32Array(warmup + frames), y = new Float32Array(x.length);
+  const full = new Float64Array(frames + 1);
+  // Warm up with the actual outgoing signal, then filter each gain-weighted side independently.
+  for (let i = -warmup; i < frames; i++) {
+    const t = (i + .5) / sr, fade = Math.max(t, 0) / VOCAL_FADE_SECONDS * Math.PI / 2;
+    const left = x[i + warmup] = vocalFadeSample(a, (from + t * rate) * outgoing.sampleRate) * Math.cos(fade);
+    if (i < 0) continue;
+    const right = y[i + warmup] = vocalFadeSample(b, (to + t) * buffer.sampleRate) * Math.sin(fade);
+    full[i + 1] = full[i] + left ** 2 + right ** 2;
+  }
+  const blended = new Float64Array(frames + 1), separate = new Float64Array(frames + 1);
+  const left = new Float32Array(x.length), right = new Float32Array(y.length);
+  return Object.fromEntries(Object.entries(vocalFadeBands).map(([band, sections]) => {
+    left.set(x); right.set(y);
+    for (const section of sections) {
+      filterVocal(left, section, left);
+      filterVocal(right, section, right);
+    }
+    let ratio = 1;
+    for (let i = 1; i <= frames; i++) {
+      const l = left[warmup + i - 1], r = right[warmup + i - 1];
+      blended[i] = blended[i - 1] + (l + r) ** 2;
+      separate[i] = separate[i - 1] + l * l + r * r;
+      if (i < window) continue;
+      const start = i - window, power = separate[i] - separate[start];
+      const total = full[i] - full[start];
+      // Ignore nearly silent windows and bands with negligible local energy.
+      if (total > full[frames] * 1e-6 && power >= total * VOCAL_FADE_MIN_BAND_SHARE)
+        ratio = Math.min(ratio, (blended[i] - blended[start]) / power);
+    }
+    return [band, ratio];
+  }));
+}
+
+const vocalPhaseAfterSlew = (voice, when) =>
+  when - voice.origin + ((voice.slewRate ?? 1) - 1) * (when - (voice.slewEnd ?? when));
+
+function rubatoSpliceTime(buffer, voice, origin, downbeat, ready, previousGrid, retiringUntil, requirePitchMatch = false) {
+  const rate = voice.slewRate ?? 1, outgoing = voice.src.buffer;
+  const first = Math.max(ready, retiringUntil, downbeat - RUBATO_SPLICE_MAX_ADVANCE, origin, voice.startAt);
+  if (first > downbeat || (first === downbeat && !requirePitchMatch)) return requirePitchMatch ? null : downbeat;
+  const outgoingPhase = when => vocalPhaseAfterSlew(voice, when);
+  const short = new Map(), long = new Map();
+  const pitches = (ms, wide) => {
+    const frames = wide ? long : short;
+    if (!frames.has(ms)) {
+      const when = downbeat + ms / 1000;
+      const samples = wide ? 4096 : 2048;
+      const from = vocalPitchAt(outgoing, outgoingPhase(when), samples) * rate;
+      const to = vocalPitchAt(buffer, when - origin, samples);
+      frames.set(ms, [from, to]);
+    }
+    return frames.get(ms);
+  };
+  const cents = (a, b) => Math.abs(1200 * Math.log2(a / b));
+  const separation = (ms, wide) => {
+    const [from, to] = pitches(ms, wide);
+    return cents(to, from);
+  };
+  // Keep the existing placement unless the wider search finds a clear improvement.
+  let baseline = 0;
+  const legacyFirst = Math.max(ready, previousGrid, downbeat - RUBATO_PITCH_MATCH_ADVANCE);
+  if (!requirePitchMatch && retiringUntil <= legacyFirst && separation(15, false) > 100) {
+    for (let ms = 5; downbeat - ms / 1000 >= Math.max(first, legacyFirst) - 1e-9; ms += 5) {
+      if (VOCAL_FADE_PITCH_PROBES.every(center => separation(center - ms, false) <= 70)) {
+        baseline = ms;
+        break;
+      }
+    }
+  }
+  const worst = (ms, wide) => Math.max(...VOCAL_FADE_PITCH_PROBES.map(center => separation(center - ms, wide)));
+  const baselinePitch = requirePitchMatch ? Infinity : Math.max(worst(baseline, false), worst(baseline, true));
+  if (!requirePitchMatch && (!Number.isFinite(baselinePitch) || baselinePitch <= VOCAL_FADE_MIN_PITCH_IMPROVEMENT))
+    return downbeat - baseline / 1000;
+  const powerAt = ms => {
+    const when = downbeat - ms / 1000;
+    return vocalFadePowerRatio(outgoing, buffer, outgoingPhase(when), when - origin, rate);
+  };
+  const bandSafe = ms => {
+    const when = downbeat - ms / 1000;
+    return Object.values(vocalFadeBandPowerRatios(outgoing, buffer, outgoingPhase(when), when - origin, rate))
+      .every(ratio => ratio >= VOCAL_FADE_MIN_POWER_RATIO);
+  };
+  const minPower = requirePitchMatch ? VOCAL_FADE_MIN_POWER_RATIO :
+    Math.max(VOCAL_FADE_MIN_POWER_RATIO, powerAt(baseline) * VOCAL_FADE_PHASE_TOLERANCE_RATIO);
+  const stable = ms => {
+    let before = pitches(-25 - ms, false);
+    if (!before.every(Number.isFinite)) return false;
+    for (let offset = -15; offset <= 55; offset += 10) {
+      const after = pitches(offset - ms, false);
+      if (after.some((hz, i) => !Number.isFinite(hz) ||
+          cents(hz, before[i]) > RUBATO_EARLY_MAX_CENTS_PER_10_MS)) return false;
+      before = after;
+    }
+    return true;
+  };
+  let best = requirePitchMatch ? null : baseline;
+  let bestPitch = requirePitchMatch ? RUBATO_EARLY_MAX_PITCH_CENTS : baselinePitch - VOCAL_FADE_MIN_PITCH_IMPROVEMENT;
+  for (let ms = 0; downbeat - ms / 1000 >= first - 1e-9; ms += 5) {
+    const shortPitch = worst(ms, false);
+    if (!(shortPitch < bestPitch)) continue;
+    const pitch = Math.max(shortPitch, worst(ms, true));
+    if (pitch < bestPitch && powerAt(ms) >= minPower && (!requirePitchMatch || stable(ms)) && bandSafe(ms)) {
+      best = ms;
+      bestPitch = pitch;
+    }
+  }
+  return best === null ? null : downbeat - best / 1000;
+}
+
+function hasUpcomingVocalGap(buffer, phase, span, rate = 1) {
+  singingEnvelope(buffer);
+  const end = phase + span * rate;
+  return phraseGaps.get(buffer).some(g => g.from < end && g.to - Math.max(g.from, phase) >= 0.08 * rate);
 }
 
 export function singingEnvelope(buf) {
@@ -351,6 +503,7 @@ function metallicBuf(mul, sr) {
 }
 
 export class Engine {
+  get playbackStyle() { return this.replay808Style ?? this.state.artist?.style; }
   get hardTechno() { return this.state.artist?.style === 'hardtechno'; }
   constructor(ctx, state, { realtime = true, vocal = null, trackQueuedNotes = false } = {}) {
     this.ctx = ctx;
@@ -366,6 +519,7 @@ export class Engine {
     this.buildMaster();
     this.buildFx();
     this.buildChannels();
+    if (state.artist?.style === 'dub') this.dubPadOut();
     this.buildAcid();
     this.applyAll();
   }
@@ -412,9 +566,10 @@ export class Engine {
     this.limIn = this.gain(0.5);
     this.limiter = this.comp(-6, 12, 3, 0.002, 0.12);
     this.limTrim = this.gain(LIM_TRIM / CLIP_HEADROOM);
+    this.secPreGain = this.gain(1);
     this.clip = c.createWaveShaper(); this.clip.curve = clipCurve(CLIP_HEADROOM); this.clip.oversample = '4x';
     this.out = this.gain(OUT_TRIM);
-    // Song sections (Sequencer.sectionLevel) after the clipper, so the limiter and clipper see the same signal.
+    // Euphoric sections lift into the clipper; other genres keep their post-clipper contrast.
     this.secGain = this.gain(1);
     // While the neural singer sings, the band dips under it (bandDuck) so the sung mix stays on the loudness target.
     this.bandDuck = this.gain(1);
@@ -424,7 +579,7 @@ export class Engine {
     this.mix.connect(this.bandDuck).connect(this.preMaster);
     this.preMaster.connect(this.djHP).connect(this.djLP).connect(this.arrLP).connect(this.toneLow).connect(this.toneMud).connect(this.tonePres).connect(this.toneAir).connect(this.widthIn);
     this.widthOut.connect(this.glue).connect(this.satIn).connect(this.sat)
-      .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.clip).connect(this.secGain).connect(this.singTrim).connect(this.out);
+      .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.secPreGain).connect(this.clip).connect(this.secGain).connect(this.singTrim).connect(this.out);
     this.out.connect(c.destination);
     // The neural singer's stem (vocal(), js/sing.js): past the band's duck, into the master chain.
     this.vocalBus = this.gain(0);
@@ -668,6 +823,13 @@ export class Engine {
   }
 
   applyAll() {
+    const beforeClip = this.playbackStyle === 'euphoric';
+    if (this.sectionBeforeClip !== beforeClip) {
+      const inactive = (beforeClip ? this.secGain : this.secPreGain).gain;
+      inactive.cancelScheduledValues(this.at || this.ctx.currentTime);
+      this.setTo(inactive, 1, true);
+      this.sectionBeforeClip = beforeClip;
+    }
     for (const id of TRACK_IDS) for (const k of Object.keys(this.state.params[id])) this.applyParam(id, k, true);
     for (const k of Object.keys(this.state.master)) this.applyMaster(k, true);
     // Per-genre (and per-masterwork) make-up gain into the limiter so every song lands on its loudness target (js/loudness.js).
@@ -679,9 +841,14 @@ export class Engine {
     this.setTo(this.limiter.threshold, this.hardTechno ? -3 : -6, true);
     this.setTo(this.limiter.knee, this.hardTechno ? 1 : 3, true);
     this.setTo(this.limTrim.gain, (this.hardTechno ? 1 : LIM_TRIM) / CLIP_HEADROOM, true);
-    this.setTo(this.out.gain, this.hardTechno ? 0.98 : OUT_TRIM, true);
+    this.applyOutputTrim(true);
     this.applyTone();
     this.applyStrips();
+  }
+
+  applyOutputTrim(immediate = false) {
+    const voice = Math.round(this.state.params.stab.voice), festival = this.state.artist?.style === 'trap' && (voice === 0 || voice === 2);
+    this.setTo(this.out.gain, this.hardTechno ? 0.98 : OUT_TRIM * dbGain(festival ? (voice === 0 ? -0.8 : -0.3) : 0), immediate);
   }
 
   // The genre's mastering EQ and stereo width; the width lifts only the side above 300 Hz, so the mono fold-down is unchanged.
@@ -746,8 +913,11 @@ export class Engine {
     }
     const v = this.state.params[tid][id];
     const ch = this.ch[tid];
+    if (tid === 'stab' && id === 'voice') return this.applyOutputTrim(immediate);
     if (id === 'level') {
-      const gain = v * (tid === 'stab' && this.smoothOn > 0 ? 10 ** (this.smoothOn / 20) : 1), fade = this.hardFade;
+      const trim = tid === 'ch' && this.playbackStyle === 'euphoric' ? 10 ** (-1 / 20) : 1;
+      const gain = v * trim * (tid === 'stab' && this.smoothOn > 0 ? 10 ** (this.smoothOn / 20) : 1), fade = this.hardFade;
+      if (tid === 'stab' && this.dubPadBus) this.setTo(this.dubPadBus.gain, this.state.artist?.style === 'dub' ? gain : 0, immediate);
       if (this.jamAt == null || !this.hardTechno || this.hardFadeAt == null) return this.setTo(ch.level.gain, gain, immediate);
       // A Jam level edit rides Hard Techno's section fade at its boundary, wherever a clock re-anchor put that boundary.
       const from = fade.from[tid] ?? 1, to = fade.to[tid] ?? 1;
@@ -758,7 +928,7 @@ export class Engine {
     }
     if (id === 'pan') return this.setTo(ch.pan.pan, v, immediate);
     if (id === 'rev') return this.setTo(ch.rev.gain, v * (tid === 'stab' && this.smoothOn > 0 ? 1.6 : 1), immediate);
-    if (id === 'dly') return this.setTo(ch.dly.gain, v * (tid === 'stab' && this.smoothOn > 0 ? 1.6 : 1), immediate);
+    if (id === 'dly') return this.setTo(ch.dly.gain, v * (tid === 'stab' && this.state.artist?.style === 'dub' ? 0 : tid === 'stab' && this.smoothOn > 0 ? 1.6 : 1), immediate);
     if (tid === 'kick' && id === 'rumble') return this.setTo(ch.rumble.gain, v * v, immediate);
     if (tid === 'acid') {
       const a = this.acidNodes;
@@ -793,14 +963,20 @@ export class Engine {
     else if (id === 'warmth') this.setTo(this.warm.frequency, 20000 * Math.pow(0.22, v || 0), immediate);
     else if (id === 'revLevel') this.setTo(this.revOut.gain, v, immediate);
     else if (id === 'revTone') this.setTo(this.revLP.frequency, v, immediate);
-    else if (id === 'dlyFb') this.setTo(this.fb.gain, v, immediate);
-    else if (id === 'dlyLevel') this.setTo(this.dlyOut.gain, v, immediate);
+    else if (id === 'dlyFb') {
+      this.setTo(this.fb.gain, v, immediate);
+      if (this.dubEcho) this.setTo(this.dubEcho.fb.gain, Math.max(0, Math.min(0.58, v)), immediate);
+    } else if (id === 'dlyLevel') {
+      this.setTo(this.dlyOut.gain, v, immediate);
+      if (this.dubEcho) this.setTo(this.dubEcho.wet.gain, this.state.artist?.style === 'dub' ? v : 0, immediate);
+    }
     else if (id === 'dlyTime') this.applyDelayTime(immediate);
   }
 
   applyDelayTime(immediate = false) {
     const steps = DELAY_TIMES[Math.round(this.state.master.dlyTime)].steps;
     const t = Math.min(3.9, steps * this.stepDur);
+    if (this.dubEcho) this.setTo(this.dubEcho.delay.delayTime, t, immediate);
     if (immediate) { this.dL.delayTime.value = t; this.dR.delayTime.value = t; }
     else {
       const now = Math.max(this.ctx.currentTime, this.at || 0);
@@ -1093,7 +1269,7 @@ export class Engine {
     src.connect(hp).connect(lp).connect(g).connect(out);
   }
   clave(t, v, p, out) {
-    const c = this.ctx, f = 1800 * Math.sqrt(p.tune / 240), dec = Math.max(0.02, p.decay * 0.25);
+    const c = this.ctx, f = 1800 * Math.sqrt(p.tune / 240) * (this.state.artist?.style === 'dub' ? 0.5 : 1), dec = Math.max(0.02, p.decay * 0.25);
     for (const [m, l] of [[1, 0.8], [1.48, 0.25]]) {
       const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = f * m;
       const g = this.gain(0); this.adEnv(g.gain, t, v * l, 0.0005, dec);
@@ -1104,7 +1280,9 @@ export class Engine {
     // Vinyl/tape bed: faint hiss plus sparse crackle, scheduled per step so it stops with transport.
     const d = this.state.master.dust || 0;
     // The hiss filter is linear and fixed, so every step's noise slice shares one band-pass and level.
-    if (!this.hiss) { const g = this.gain(d * 0.018); this.hiss = { bp: this.filter('bandpass', 5200, 0.4), g, d }; this.hiss.bp.connect(g).connect(this.mix); }
+    const dub = this.state.artist?.style === 'dub';
+    if (!this.hiss) { const g = this.gain(d * 0.018); this.hiss = { bp: this.filter('bandpass', dub ? 3500 : 5200, dub ? 0.35 : 0.4), g, d, dub }; this.hiss.bp.connect(g).connect(this.mix); }
+    if (this.hiss.dub !== dub) { this.hiss.bp.frequency.setValueAtTime(dub ? 3500 : 5200, t); this.hiss.bp.Q.setValueAtTime(dub ? 0.35 : 0.4, t); this.hiss.dub = dub; }
     if (this.hiss.d !== d) { this.hiss.g.gain.setValueAtTime(d * 0.018, t); this.hiss.d = d; }
     this.noiseSrc(t, sd).connect(this.hiss.bp);
     for (let k = 0; k < 3; k++) {
@@ -1796,7 +1974,12 @@ export class Engine {
     const c = this.ctx, p = this.state.params.stab;
     const { root, vo, iv } = stabPitches(this);
     if (this.paletteStyle() === 'bailefunk') return this.funkStab(t, v, iv, root, p.decay, this.ch.stab.input);
-    const trimmed = this.chordTone(vo, this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]));
+    if (this.state.artist?.style === 'dub') {
+      this.dubPad(t, v, iv, root);
+      return this.dubChord(t, v, iv, root, p, this.ch.stab.input);
+    }
+    let trimmed = this.chordTone(vo, this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]));
+    if (this.state.artist?.style === 'trap' && (vo === 0 || vo === 2)) trimmed = this.technoHookOut('ravestack', trimmed);
     const layers = this.hardTechno ? this.hardStabOut(trimmed) : null, out = layers ? layers.core : trimmed;
     if (layers) this.hardPalette(t, v, iv.map(n => midiHz(root + n)), Math.max(0.12, p.decay), layers.rave, 'rave');
     // A lifted breakdown plays decaying chords an octave up, filling it above the bass range it no longer shares.
@@ -1806,19 +1989,20 @@ export class Engine {
       }
       return this[STAB_VOICES[vo]](t, v, iv, root, p, out);
     }
+    const festival = this.state.artist?.style === 'trap';
     const lp = this.filter('lowpass', p.cutoff, p.reso);
     const amp = this.gain(0);
     const env = c.createConstantSource();
     env.offset.setValueAtTime(p.env * 3600 * v, t);
     env.offset.setTargetAtTime(0, t + 0.004, Math.max(0.01, p.decay * 0.35));
     env.connect(lp.detune);
-    const peak = (v * 0.55) / Math.sqrt(iv.length);
+    const peak = (v * (festival ? 0.36 : 0.55)) / Math.sqrt(iv.length);
     amp.gain.setValueAtTime(EPS, t);
     amp.gain.linearRampToValueAtTime(peak, t + (this.hardTechno ? 0.018 : 0.003));
     amp.gain.setTargetAtTime(0, t + (this.hardTechno ? 0.04 : 0.012), Math.max(0.02, p.decay * 0.5));
-    const end = t + p.decay * 4 + 0.2, pans = this.sidePans(this.hardTechno ? [-0.85, 0.85] : [-0.55, 0.55], lp);
+    const end = t + p.decay * 4 + 0.2, pans = this.sidePans(festival ? [-0.8, 0, 0.8] : this.hardTechno ? [-0.85, 0.85] : [-0.55, 0.55], lp);
     for (const n of iv) {
-      for (const side of [-1, 1]) {
+      for (const side of festival ? [-1, 0, 1] : [-1, 1]) {
         const o = c.createOscillator(); o.type = 'sawtooth';
         o.frequency.value = midiHz(root + n);
         o.detune.value = side * p.detune;
@@ -1826,11 +2010,12 @@ export class Engine {
           o.detune.setValueAtTime(240 + side * p.detune * 3.5, t);
           o.detune.setTargetAtTime(side * p.detune * 3.5, t + 0.008, 0.014);
         }
-        o.connect(pans[side < 0 ? 0 : 1]);
+        o.connect(pans[festival ? side + 1 : side < 0 ? 0 : 1]);
         this.startSource(o, t); o.stop(end);
       }
     }
-    lp.connect(amp).connect(out);
+    if (festival) lp.connect(this.filter('highpass', 180, 0.5)).connect(amp).connect(out);
+    else lp.connect(amp).connect(out);
     this.startSource(env, t); env.stop(end);
     this.retire(env, amp);
   }
@@ -1875,9 +2060,114 @@ export class Engine {
     });
   }
 
+  dubEchoOut(t) {
+    if (!this.dubEcho) {
+      const input = this.gain(1), delay = this.ctx.createDelay(4), fb = this.gain(0.52);
+      const hp = this.filter('highpass', 240, 0.5), lp = this.filter('lowpass', 1450, 0.5);
+      const spring = this.filter('allpass', 730, 0.5), spring2 = this.filter('allpass', 1750, 0.5);
+      const tape = this.ctx.createWaveShaper();
+      tape.curve = Float32Array.from({ length: 2049 }, (_, i) => Math.tanh(i / 1024 - 1));
+      input.connect(delay).connect(hp).connect(lp).connect(tape).connect(spring).connect(spring2);
+      spring2.connect(fb).connect(delay);
+      const wet = this.gain(this.state.master.dlyLevel), pan = this.ctx.createStereoPanner(); pan.pan.value = -0.3;
+      spring2.connect(wet).connect(pan).connect(this.duck);
+      const spread = this.ctx.createDelay(0.025), right = this.ctx.createStereoPanner();
+      spread.delayTime.value = 0.013; right.pan.value = 0.65;
+      wet.connect(spread).connect(right).connect(this.duck);
+      wet.connect(this.gain(0.18)).connect(this.revIn);
+      this.dubEcho = { input, delay, fb, lp, tape, wet };
+    }
+    const { delay, fb, input } = this.dubEcho;
+    delay.delayTime.setValueAtTime(Math.min(3.9, DELAY_TIMES[Math.round(this.state.master.dlyTime)].steps * this.stepDur), t);
+    fb.gain.setValueAtTime(Math.max(0, Math.min(0.58, this.state.master.dlyFb)), t);
+    return input;
+  }
+
+  dubChord(t, v, iv, root, p, out) {
+    const color = [0, 2, 3, 5].indexOf(Math.round(p.voice)), dec = Math.max(0.07, Math.min(0.22, p.decay * 0.52));
+    const end = t + dec * 7 + 0.1, amp = this.gain(0), hp = this.filter('highpass', 210, 0.5);
+    const cutoff = Math.min(1500, 510 + p.cutoff * 0.35 + 140 * Math.sin(t * 0.29));
+    const lp = this.filter('lowpass', cutoff, 0.55), lp2 = this.filter('lowpass', 1800, 0.5);
+    lp.frequency.setValueAtTime(cutoff, t);
+    lp.frequency.setTargetAtTime(380 + color * 45, t + 0.035, dec);
+    amp.gain.setValueAtTime(0, t);
+    amp.gain.linearRampToValueAtTime(v * 0.65 / Math.sqrt(iv.length), t + 0.016);
+    amp.gain.setTargetAtTime(0, t + 0.04, dec);
+    amp.gain.setValueAtTime(0, end);
+    hp.connect(lp).connect(lp2).connect(amp).connect(out);
+    amp.connect(this.gain(p.dly * 1.55 * this.ch.stab.level.gain.value)).connect(this.dubEchoOut(t));
+    this.noiseSrc(t, end - t).connect(this.gain(0.007)).connect(hp);
+    const pans = this.sidePans([-0.35, 0.35], hp);
+    iv.forEach((n, k) => {
+      const f = midiHz(root + n), real = new Float32Array(5), imag = new Float32Array(5);
+      for (let h = 1; h < imag.length; h++) imag[h] = (h === 1 ? 1 : h === 2 ? [0.32, 0.2, 0.4, 0.25][color] ?? 0.3 : h === 3 ? 0.1 : 0.04) * Math.max(0, Math.min(1, (1700 - f * h) / 500));
+      const wave = this.ctx.createPeriodicWave(real, imag, { disableNormalization: true });
+      for (const side of [-1, 1]) {
+        const o = this.ctx.createOscillator(); o.setPeriodicWave(wave);
+        o.frequency.value = f; o.detune.value = side * (3 + Math.min(5, p.detune * 0.35));
+        o.connect(this.gain(0.5)).connect(pans[side < 0 ? 0 : 1]);
+        this.startSource(o, t + k * 0.0008); o.stop(end);
+      }
+    });
+  }
+
+  dubPadOut() {
+    if (!this.dubPadBus) {
+      this.dubPadBus = this.gain(this.state.params.stab.level);
+      this.dubPadBus.connect(this.duck);
+      this.dubPadBus.connect(this.gain(0.75)).connect(this.ch.stab.rev);
+    }
+    return this.dubPadBus;
+  }
+
+  dubPadLevel(iv, root, t) {
+    const p = this.state.params.stab, color = [0, 2, 3, 5].indexOf(Math.round(p.voice));
+    const response = (f, hz, q, high = false) => {
+      const r2 = (f / hz) ** 2;
+      return (high ? r2 * r2 : 1) / ((1 - r2) ** 2 + r2 / (q * q));
+    };
+    const cutoff = Math.min(1500, 510 + p.cutoff * 0.35 + 140 * Math.sin(t * 0.29)) * 0.65 + (380 + color * 45) * 0.35;
+    let chord = 0, pad = 0;
+    for (const n of iv) {
+      const f = midiHz(root + n);
+      for (let h = 1; h <= 11; h++) {
+        const hz = f * h;
+        if (h < 5) {
+          const partial = (h === 1 ? 1 : h === 2 ? [0.32, 0.2, 0.4, 0.25][color] ?? 0.3 : h === 3 ? 0.1 : 0.04) * Math.max(0, Math.min(1, (1700 - hz) / 500));
+          chord += partial ** 2 * response(hz, 210, 0.5, true) * response(hz, cutoff, 0.55) * response(hz, 1800, 0.5);
+        }
+        if (h % 2) pad += (8 / (Math.PI * Math.PI * h * h)) ** 2 * response(hz, 420, 0.5, true) * response(hz, 850, 0.5);
+      }
+    }
+    const density = this.stabPat ? this.stabPat.filter(Boolean).length / ((this.stabLen || 16) * this.stepDur) : 1;
+    const register = iv.reduce((sum, n) => sum + midiHz(root + n), 0) / iv.length;
+    return Math.max(0.035, Math.min(0.3, 0.062 * Math.sqrt(chord / Math.max(pad, 1e-8)) * Math.sqrt(Math.max(0.5, Math.min(4, density))) * Math.sqrt(330 / Math.max(110, register))));
+  }
+
+  dubPad(t, v, iv, root) {
+    if (!iv.length) return;
+    if (this.dubPadAt != null && t - this.dubPadAt < this.stepDur * 48) return;
+    this.dubPadAt = t;
+    const hold = this.stepDur * 24, end = t + hold + 5, amp = this.gain(0);
+    const hp = this.filter('highpass', 420, 0.5), lp = this.filter('lowpass', 850, 0.5);
+    lp.frequency.setValueAtTime(650, t); lp.frequency.linearRampToValueAtTime(1100, t + hold); lp.frequency.linearRampToValueAtTime(600, end);
+    amp.gain.setValueAtTime(0, t); amp.gain.linearRampToValueAtTime(this.dubPadLevel(iv, root, t) * v / Math.sqrt(iv.length), t + 1.4);
+    amp.gain.setTargetAtTime(0, t + hold, 1); amp.gain.setValueAtTime(0, end);
+    hp.connect(lp).connect(amp).connect(this.dubPadOut());
+    const pans = this.sidePans([-0.85, 0.85], hp);
+    iv.forEach(n => {
+      for (const side of [-1, 1]) {
+        const o = this.ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = midiHz(root + n);
+        o.detune.setValueAtTime(side * 5, t); o.detune.linearRampToValueAtTime(-side * 3, end);
+        o.connect(pans[side < 0 ? 0 : 1]); this.startSource(o, t); o.stop(end);
+      }
+    });
+  }
+
   // Slow-swelling ensemble: three detuned saws per note, filter opens with ENV, DECAY sets release.
   pad(t, v, iv, root, p, out) {
     const c = this.ctx, atk = 0.04 + p.env * 0.9, hold = Math.max(this.stepDur * 4, p.decay * 1.2), end = t + atk + hold + p.decay * 2 + 0.2;
+    const festival = this.state.artist?.style === 'trap' && Math.round(p.voice) === 2;
     const lp = this.filter('lowpass', p.cutoff * 0.5, Math.max(0.5, p.reso * 0.4));
     lp.frequency.setValueAtTime(p.cutoff * 0.4, t);
     lp.frequency.linearRampToValueAtTime(p.cutoff, t + atk);
@@ -1899,6 +2189,12 @@ export class Engine {
           o.detune.setTargetAtTime(side * (4 + p.detune) * 3, t + 0.008, 0.014);
         }
         if (drift) drift[side + 1].connect(o.detune);
+        if (festival) {
+          const motion = c.createOscillator(), depth = this.gain(8 + 4 * hash(root + n, side + 97));
+          motion.frequency.value = 0.37 + 0.41 * hash(root + n, side + 53);
+          motion.connect(depth).connect(o.detune);
+          this.startSource(motion, t); motion.stop(end);
+        }
         o.connect(pans[side + 1]); this.startSource(o, t); o.stop(end);
       });
     });
@@ -1909,7 +2205,8 @@ export class Engine {
       const air = this.noiseSrc(t, end - t); air.loop = true;
       air.connect(hp).connect(airTop).connect(this.gain(0.05)).connect(amp);
     } else lp.connect(amp);
-    amp.connect(out);
+    if (this.state.artist?.style === 'trap') amp.connect(this.filter('highpass', 180, 0.5)).connect(out);
+    else amp.connect(out);
   }
 
   // Drawbar organ with key click and a rotary-style vibrato; DETUNE sets rotor depth.
@@ -2579,8 +2876,8 @@ export class Engine {
     this.retire(oscs.at(-1), amp);
   }
 
-  technoHookOut(voice) {
-    const dest = this.hookBus || this.ch.stab.input, space = TECHNO_HOOK_SPACE[voice];
+  technoHookOut(voice, dest = this.hookBus || this.ch.stab.input) {
+    const space = TECHNO_HOOK_SPACE[voice];
     const tones = (this.technoHookTones ||= new WeakMap());
     if (!tones.has(dest)) tones.set(dest, new Map());
     const paths = tones.get(dest);
@@ -2625,6 +2922,7 @@ export class Engine {
     n = hookSnap(n, h, p, strong, up);
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
     if (this.paletteStyle() === 'bailefunk') return this.funkStab(t, v * 0.7, [n], 60 + k + oct * 12, dur, this.hookBus || this.ch.stab.input);
+    if (this.state.artist?.style === 'dub') return this.dubChord(t, v * 0.38, [0], 60 + k + oct * 12 + n, { ...p, decay: Math.min(0.3, dur) }, this.hookBus || this.ch.stab.input);
     if (dampedChord(this) && (voice === 'vocal' || voice === 'reed')) {
       const name = Math.round(p.voice) === 1 ? 'keys' : 'organ';
       const out = this.trimOut(`hook-${name}`, 4, this.hookBus || this.ch.stab.input, -4, 500);
@@ -2678,7 +2976,8 @@ export class Engine {
     const f = midiHz(60 + k + oct * 12 + n), preset = leadPreset(voice, pocketOf(this.state.master)?.name);
     const L = this.hardTechno ? { ...preset, cut: 380, env: 500, spread: 10, atk: 0.18, sus: 0.45, rel: 0.6, level: 0.12, bite: 0, air: 0.2 } : preset;
     const hdb = this.soulBand() ? 0 : HOOK_TRIM_DB[voice] || 0;
-    const out = this.trimOut(`hook-${voice}`, hdb, synth ? this.technoHookOut(voice) : this.hookBus || this.ch.stab.input, voice === 'softmallet' ? 4 : HOOK_LOW_DB);
+    const festival = this.state.artist?.style === 'trap' && [0, 2].includes(Math.round(p.voice)), lift = festival && Math.round(p.voice) === 2 ? 3 : 0;
+    const out = this.trimOut(`hook-${voice}:${hdb + lift}`, hdb + lift, synth ? this.technoHookOut(voice) : this.hookBus || this.ch.stab.input, (voice === 'softmallet' ? 4 : HOOK_LOW_DB) + lift);
     if (this.hardTechno) this.hardPalette(t, v / 1.3 * L.level, [f * 2], Math.max(0.2, dur), out, 'air');
     if (this.hardTechno) return this.hardLead(t, v * L.level, f, dur, out);
     const len = Math.max(0.06, dur * 0.92), end = t + len + 0.6, vn = Math.min(1, v / 1.3);
@@ -3177,6 +3476,10 @@ export class Engine {
 
   acidVoice(t, st, sliding, holdNext, sd, slideUntil, kickAt) {
     const a = this.acidNodes, p = this.state.params.acid;
+    if (this.state.artist?.style === 'dub') {
+      a.vca.gain.setTargetAtTime(0, t, 0.005);
+      return this.dubSub(t, st, sd, holdNext);
+    }
     const vo = Math.round(p.voice);
     for (const [voice, { amp: { gain } }] of this.gatedBasses) if (vo !== voice) {
       gain.cancelScheduledValues(t); gain.setTargetAtTime(0, t, 0.005);
@@ -3202,6 +3505,20 @@ export class Engine {
       a.env.offset.setTargetAtTime(0, t + 0.01, p.decay / 3);
     }
     if (!holdNext) a.vca.gain.setTargetAtTime(0, t + sd * 0.55, 0.006);
+  }
+
+  dubSub(t, st, sd, holdNext) {
+    const f = midiHz(this.bassMidi(st, 36, 38)), len = holdNext ? sd * 1.9 : sd * 1.15;
+    const amp = this.gain(0), lp = this.filter('lowpass', 180, 0.5), hp = this.filter('highpass', 27, 0.5);
+    const vel = (st.a ? 1 : 0.85) * (this.noteVel ?? 1);
+    amp.gain.setValueAtTime(0, t); amp.gain.linearRampToValueAtTime(vel * 1.3, t + 0.012);
+    amp.gain.setTargetAtTime(vel * 0.65, t + 0.04, 0.12); amp.gain.setTargetAtTime(0, t + len, 0.055);
+    const end = t + len + 0.5; amp.gain.setValueAtTime(0, end);
+    lp.connect(hp).connect(amp).connect(this.ch.acid.input);
+    for (const [ratio, gain] of [[1, 1], [2, 0.08], [3, 0.025]]) {
+      const o = this.ctx.createOscillator(); o.frequency.value = f * ratio;
+      o.connect(this.gain(gain)).connect(lp); this.startSource(o, t); o.stop(end);
+    }
   }
 
   acidRelease(t) {
@@ -3317,7 +3634,7 @@ export class Engine {
   }
 
   sectionGain(t, db, ramp = 0) {
-    const g = this.secGain.gain, v = 10 ** (db / 20);
+    const g = (this.playbackStyle === 'euphoric' ? this.secPreGain : this.secGain).gain, v = 10 ** (db / 20);
     g.cancelScheduledValues(t);
     if (ramp) {
       const [from, dur, hold = 0] = ramp, start = 10 ** (from / 20);
@@ -3510,7 +3827,7 @@ export class Engine {
       this.vocalBus.gain.setTargetAtTime(v.gain, t, 0.02);
       return true;
     }
-    let forced = false, crossfade = null, alignment = null;
+    let forced = false, crossfade = null, alignment = null, fallbackFadeGuard;
     if (continuous && reanchor) {
       const errorMs = (origin - cur.origin) * 1000;
       const index = pos * 16 + step, rubato = this.vocalRubato;
@@ -3602,15 +3919,43 @@ export class Engine {
         alignment.forceStep += 16;
         forced = false;
       }
+      const mandatoryRubato = rubato && forced;
+      const retiringUntil = rubato && !gap ? Math.max(...(this.vocalRetiring || []).map(voice => voice.until)) : -Infinity;
       let spliceAdvance = 0;
-      if (rubato && forced && previousGrid != null && t >= ready &&
-          voices.every(voice => voice === cur || voice.until <= Math.max(previousGrid, ready, t - RUBATO_SPLICE_MAX_ADVANCE))) {
-        const spliceAt = rubatoSpliceTime(buffer, cur, origin, t, Math.max(previousGrid, ready));
-        spliceAdvance = t - spliceAt;
-        t = spliceAt;
+      if (rubato && !gap && previousGrid != null && t >= ready) {
+        let tryEarly = false;
+        if (!forced && index % 4 === 0 && alignment.forceStep > Math.ceil(index / 16) * 16 &&
+            phase >= 0 && phase < buffer.duration && Math.abs(errorMs) > RUBATO_EARLY_DRIFT_MS) {
+          const span = gapSpan?.(16), bar = Number.isFinite(span) ? span : 16 * sd;
+          const rate = cur.slewRate ?? 1;
+          const outgoingPhase = t - cur.origin + (rate - 1) * (t - (cur.slewEnd ?? t));
+          // Keep waiting if either playhead can reach a phrase gap before the next downbeat.
+          tryEarly = !hasUpcomingVocalGap(buffer, phase, bar) &&
+            !hasUpcomingVocalGap(cur.src.buffer, outgoingPhase, bar, rate);
+        }
+        if (forced || tryEarly) {
+          const spliceAt = rubatoSpliceTime(buffer, cur, origin, t, ready, previousGrid, retiringUntil, tryEarly);
+          if (spliceAt !== null && spliceAt >= this.ctx.currentTime + 0.02) {
+            forced = true;
+            alignment.forceStep = index;
+            spliceAdvance = t - spliceAt;
+            t = spliceAt;
+          }
+        }
+      }
+      if (mandatoryRubato) {
+        if (t < cur.startAt || t < (cur.slewEnd ?? -Infinity) || t < retiringUntil) fallbackFadeGuard = {unmeasured:true};
+        else {
+          const outgoing = cur.src.buffer, from = vocalPhaseAfterSlew(cur, t), to = gridTime == null ? phase : t - origin;
+          const rate = cur.slewRate ?? 1, broadband = vocalFadePowerRatio(outgoing, buffer, from, to, rate);
+          const ratios = {broadband, ...vocalFadeBandPowerRatios(outgoing, buffer, from, to, rate)};
+          if (Object.values(ratios).some(ratio => ratio < VOCAL_FADE_MIN_POWER_RATIO))
+            fallbackFadeGuard = {dipDb:Object.fromEntries(Object.entries(ratios).map(([band, ratio]) => [band, -10 * Math.log10(Math.max(ratio, 1e-12))]))};
+        }
       }
       this.vocalCorrection = { at:t, origin, previousOrigin:cur.origin, errorMs:(origin - cur.origin) * 1000, gap, nextOnset:silence?.onset,
-        correctionId:alignment.id, forced, forceStep:alignment.forceStep, spliceAdvance, crossfadeSeconds:forced ? 0.03 : null };
+        correctionId:alignment.id, forced, forceStep:alignment.forceStep, spliceAdvance, crossfadeSeconds:forced ? VOCAL_FADE_SECONDS : null,
+        fallbackFadeGuard };
       if (!gap && !forced) {
         cur.next = pos + 1;
         this.vocalBus.gain.setTargetAtTime(v.gain, t, 0.02);
@@ -3620,7 +3965,7 @@ export class Engine {
     if (forced) {
       crossfade = this.ctx.createGain();
       crossfade.connect(this.vocalBus);
-      crossfade.gain.setValueCurveAtTime(vocalCrossfade(false), t, 0.03);
+      crossfade.gain.setValueCurveAtTime(vocalCrossfade(false), t, VOCAL_FADE_SECONDS);
       const voices = [...(this.vocalRetiring || []), cur].filter(voice =>
         (voice.until ?? Infinity) > this.ctx.currentTime && voice.origin + voice.src.buffer.duration > this.ctx.currentTime);
       for (const output of new Set(voices.map(voice => voice.output || voice.g))) {
@@ -3629,7 +3974,7 @@ export class Engine {
       }
       let remaining = voices.length;
       this.vocalRetiring = voices.map(voice => {
-        const until = Math.min(voice.until ?? Infinity, voice.startAt >= t ? t : t + 0.03);
+        const until = Math.min(voice.until ?? Infinity, voice.startAt >= t ? t : t + VOCAL_FADE_SECONDS);
         voice.src.stop(until);
         voice.src.addEventListener?.('ended', () => { if (!--remaining) crossfade.disconnect(); }, {once:true});
         return {...voice, output:crossfade, stopAt:t, until};
@@ -3646,11 +3991,12 @@ export class Engine {
     if (off >= v.buf.duration) return;
     if (forced) {
       g.gain.setValueAtTime(0, this.ctx.currentTime);
-      g.gain.setValueCurveAtTime(vocalCrossfade(true), t, 0.03);
+      g.gain.setValueCurveAtTime(vocalCrossfade(true), t, VOCAL_FADE_SECONDS);
     } else if (off > 0.001) { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + 0.012); }
     src.connect(g).connect(this.vocalBus);
     if (!forced) this.vocalBus.gain.setValueAtTime(v.gain, t);
     if (off < 0) this.startSource(src, t - off); else this.startSource(src, t, off);
+    if (fallbackFadeGuard) this.lastVocalFallbackFadeGuard = {at:t, step:pos * 16 + step, ...fallbackFadeGuard};
     this.vocalNow = { src, g, buf: v.buf, next: pos + 1, sd, ms: v.ms, origin, at: t - Math.min(0, off), startAt:off < 0 ? t - off : t };
     if (forced) return true;
     if (v.duck < 1) this.duckUnder(v.buf, this.bandDuck.gain, v.duck, t, t - off);
@@ -3854,12 +4200,12 @@ export class Sequencer {
       const peak = (x) => x === 2 || x === 6, brk = (x) => x === 4 || x === 5, fill = this.cur === 3 || this.cur === 7;
       if (arr) {
         this.dropNext = peak(chain[(p + 1) % n]) && !peak(this.cur) && !(fill && peak(prev));
-        if (arr >= 0.75 && brk(this.cur) && !brk(prev)) {
+        if (!this.breakFilterPlanned && arr >= 0.75 && brk(this.cur) && !brk(prev)) {
           let k = 0; while (k < n && brk(chain[(p + k) % n])) k++;
           this.e.breakSweep(t, k * 16 * this.e.stepDur, SMOOTH.has(this.s.artist?.style));
         }
       }
-      if (!arr || !brk(this.cur)) this.e.breakOpen(t, SMOOTH.has(this.s.artist?.style));
+      if (!this.breakFilterPlanned && (!arr || !brk(this.cur))) this.e.breakOpen(t, SMOOTH.has(this.s.artist?.style));
       this.sectionLevel(t, p, offset);
       return;
     }
@@ -3901,8 +4247,10 @@ export class Sequencer {
   }
 
   level(t, db, ramp) {
-    if (db === this.secDb && !ramp) return;
+    const beforeClip = this.e.playbackStyle === 'euphoric';
+    if (db === this.secDb && !ramp && beforeClip === this.secBeforeClip) return;
     this.secDb = db;
+    this.secBeforeClip = beforeClip;
     this.e.sectionGain(t, db, ramp);
   }
 

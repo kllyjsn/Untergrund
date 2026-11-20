@@ -114,6 +114,33 @@ jobs:
       - name: Smoke test server.mjs (SC_MOCK=1)
         run: scripts/smoke.sh
 
+  true-peak:
+    name: true-peak (${{ matrix.shard }}/6)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    env:
+      CHROME_PATH: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Render every genre across the seed sweep; fail on any true peak over -1 dBTP
+        run: npm run test:true-peak -- --shard ${{ matrix.shard }}/6 --quiet
+      - name: Upload true-peak sweep
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: true-peak-${{ matrix.shard }}
+          path: test/out/true-peak-*.json
+          if-no-files-found: warn
+
   ios:
     runs-on: macos-15
     timeout-minutes: 20
