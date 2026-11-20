@@ -289,17 +289,19 @@ function schedule(lead) {
     artistTick(abs - seq.origin);
     const pat = seq.tick(abs, t, roomPlayback ? nextTime : undefined, roomEditor, roomPlayback);
     const voice = engine.vocalNow, pos = seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1;
-    const phase = voice ? (pos * 16 + (abs - seq.origin) % 16) * engine.stepDur - voice.ms / 1000 : 0;
+    const vocalStep = engine.vocalStepDur;
+    const phase = voice ? (pos * 16 + (abs - seq.origin) % 16) * vocalStep - voice.ms / 1000 : 0;
     const vocalNext = voice ? voice.origin + phase : nextTime;
-    const vocalFrom = voice ? Math.max(vocalNext - engine.stepDur, voice.slewEnd ?? voice.at, ctx.currentTime + 0.005) : nextTime;
+    const vocalFrom = voice ? Math.max(vocalNext - vocalStep, voice.slewEnd ?? voice.at, ctx.currentTime + 0.005) : nextTime;
     const vocalGap = voice?.slewEnd == null ? 0 : Math.max(0, vocalFrom - voice.slewEnd);
     const vocalError = gridTarget - vocalNext - (1 - (voice?.slewRate ?? 1)) * vocalGap;
-    const vocalSlewing = roomPlayback && voice && !voice.correction && voice.sd === engine.stepDur && pos >= 0 &&
+    if (roomPlayback && voice && engine.stepDur !== vocalStep && Math.abs(vocalError) > 0.000001) vocalGridDirty = true;
+    const vocalSlewing = roomPlayback && voice && !voice.correction && voice.sd === vocalStep && pos >= 0 &&
       Math.abs(vocalError) <= 0.05;
     if (vocalSlewing) {
-      const end = vocalFrom + engine.stepDur;
-      const slew = transportResync(end + vocalError, end, ctx.currentTime, engine.stepDur, false, -Infinity, voice.slewRate ?? 1, true, voice.slewProfile);
-      if (slew?.slew) engine.slewVocal(slew.nextTime - end, vocalFrom, engine.stepDur, slew.rate, slew.endRate, slew.profile);
+      const end = vocalFrom + vocalStep;
+      const slew = transportResync(end + vocalError, end, ctx.currentTime, vocalStep, false, -Infinity, voice.slewRate ?? 1, true, voice.slewProfile);
+      if (slew?.slew) engine.slewVocal(slew.nextTime - end, vocalFrom, vocalStep, slew.rate, slew.endRate, slew.profile);
       if ((voice.slewRate ?? 1) === 1 && Math.abs(gridTarget - voice.origin - phase) < 1e-9 &&
           (engine.roomSlewRate ?? 1) === 1 && Math.abs(gridTarget - nextTime) < 1e-9) vocalGridDirty = false;
     }

@@ -323,6 +323,7 @@ export class Engine {
   }
 
   get stepDur() { return (60 / this.state.bpm / 4) * (this.stepScale || 1); }
+  get vocalStepDur() { return 60 / this.state.bpm / 4; }
 
   // ---------- graph ----------
   gain(v = 1) { const g = this.ctx.createGain(); g.gain.value = v; return g; }
@@ -3369,9 +3370,10 @@ export class Engine {
   // On wake, gridTime can precede t: advance the source offset instead of moving the stem.
   vocal(t, pos, step = 0, gridTime, reanchor = false, settling = false) {
     const v = pos >= 0 ? this.vocalOf?.(this.state) : null, cur = this.vocalNow;
-    const phase = v ? (pos * 16 + step) * this.stepDur - v.ms / 1000 : 0;
+    const sd = this.vocalStepDur;
+    const phase = v ? (pos * 16 + step) * sd - v.ms / 1000 : 0;
     const origin = (gridTime ?? t) - phase;
-    const continuous = cur && v && cur.buf === v.buf && (cur.next === pos || (reanchor && cur.next === pos + 1) || (settling && pos >= cur.next - 1)) && cur.sd === this.stepDur && cur.ms === v.ms;
+    const continuous = cur && v && cur.buf === v.buf && (cur.next === pos || (reanchor && cur.next === pos + 1) || (settling && pos >= cur.next - 1)) && cur.sd === sd && cur.ms === v.ms;
     if (continuous && (settling || Math.abs(origin - cur.origin) <= 0.03)) {
       if (reanchor && !settling) cur.correction = null;
       cur.next = pos + 1;
@@ -3397,7 +3399,7 @@ export class Engine {
       singingEnvelope(buffer);
       const earliest = Math.max(phase, this.ctx.currentTime + 0.02 - origin,
         ...voices.map(voice => (voice.slewEnd ?? -Infinity) - origin));
-      const latest = ((alignment.forceFrom ?? index) + 32) * this.stepDur - v.ms / 1000;
+      const latest = ((alignment.forceFrom ?? index) + 32) * sd - v.ms / 1000;
       const quiet = (at, source = buffer) => {
         const audio = source.getChannelData(0), window = Math.ceil(source.sampleRate * 0.06);
         const first = Math.floor(at * source.sampleRate);
@@ -3462,7 +3464,7 @@ export class Engine {
     src.connect(g).connect(this.vocalBus);
     if (!forced) this.vocalBus.gain.setValueAtTime(v.gain, t);
     if (off < 0) this.startSource(src, t - off); else this.startSource(src, t, off);
-    this.vocalNow = { src, g, buf: v.buf, next: pos + 1, sd: this.stepDur, ms: v.ms, origin, at: t - Math.min(0, off), startAt:off < 0 ? t - off : t };
+    this.vocalNow = { src, g, buf: v.buf, next: pos + 1, sd, ms: v.ms, origin, at: t - Math.min(0, off), startAt:off < 0 ? t - off : t };
     if (forced) return true;
     if (v.duck < 1) this.duckUnder(v.buf, this.bandDuck.gain, v.duck, t, t - off);
     if (v.lift < 1) this.duckUnder(v.buf, this.singTrim.gain, v.lift, t, t - off);
