@@ -94,6 +94,17 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
     assert.equal(hits.at(-1)[0], last[0], 'the same grid position retains its take after a seek');
     assert.deepEqual(hits.at(-1).slice(2), last.slice(2), 'take and articulation do not depend on the playback clock');
   }
+  const ctx = new FakeContext(1, 48000, 48000);
+  const take = new AudioBuffer(1, 9600, 48000);
+  const engine = { ctx, step: 3, rec: () => [take, take], gain: Engine.prototype.gain,
+    startSource: Engine.prototype.startSource, filter: Engine.prototype.filter };
+  const envelope = (decay) => {
+    let env;
+    engine.playBuf = (...args) => { env = Engine.prototype.playBuf.call(engine, ...args).g.gain; };
+    Engine.prototype.recordedHands.call(engine, HAND_KIT.bailefunk, 0.1, 1, { tune: 220, decay }, ctx.destination);
+    return env;
+  };
+  assert(envelope(0.18).at(0.23) > envelope(0.04).at(0.23) * 3, 'decay opens the body of a short cuíca recording');
   files.clear();
 }
 {

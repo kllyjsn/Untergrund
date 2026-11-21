@@ -2032,7 +2032,7 @@ export class Engine {
     const take = takes[group + Math.floor(variation * count)];
     const rate = Math.max(0.65, Math.min(1.55, p.tune / ref)) * (0.985 + 0.03 * hash(step, 62));
     const dur = gate * Math.max(0.45, Math.min(2, p.decay / (kit === HAND_KIT.amapiano ? 0.09 : kit === HAND_KIT.afrobeats ? 0.2 : kit === HAND_KIT.reggaeton ? 0.15 : 0.18)));
-    this.playBuf(take, t, v * gain, out, rate, dur, { lp, fade: 0.001, release: 0.025, ringOut: true });
+    this.playBuf(take, t, v * gain, out, rate, dur, { lp, fade: 0.001, release: 0.025 });
     return true;
   }
 
