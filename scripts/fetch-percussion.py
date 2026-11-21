@@ -44,15 +44,15 @@ HITS = {
     'conga_open_2': (VSCO + 'Percussion/Conga-HitN_v2_rr2_Sum.wav', '4f52f6619fd12d1d0e1e942e67cdf77fcad06fef6de44eba8bab6df99ade4acd', .40, .055, 135),
     'cowbell_1': (SWIRLY + 'Samples/cowbell/cowbell_vl3_rr1.wav', '69a2a9c212807d354a56647fe7098e4768f63573022a70c2778a5d24ea5e114c', .34, .07, 220),
     'cowbell_2': (SWIRLY + 'Samples/cowbell/cowbell_vl3_rr2.wav', 'd3cf4b168ec9ca2b2fbb79b8c4336ea2bdeae3d1fa892fe0321f534ca163d9c2', .34, .07, 220),
-    'timbale_closed_1': (90524, 'FS90524', .34, .065, 225),
-    'timbale_closed_2': (90529, 'FS90529', .34, .065, 225),
-    'timbale_low_1': (90471, 'FS90471', .34, .065, 225),
-    'timbale_low_2': (90474, 'FS90474', .34, .065, 225),
-    'timbale_high_1': (90506, 'FS90506', .34, .065, 225),
-    'timbale_high_2': (90509, 'FS90509', .34, .065, 225),
+    'timbale_closed_1': (90524, '9ab4b09bf76caebf0584a92a6ea706dfa4db46bb5c42aa15022a9fe9cfd400a2', .34, .065, 225),
+    'timbale_closed_2': (90529, '084063bebfe7559024dda4502f9d68e4fa650460b125f3906c627e8a51cb38c8', .34, .065, 225),
+    'timbale_low_1': (90471, '5048c42392c72f1d44cc194f335d5c137bb1c0f5634ed1adaed7d6f3d8ff4c3b', .34, .065, 225),
+    'timbale_low_2': (90474, 'a2f5f93b790a76dd6a198af45bab0b45ee5a1ce7a80b982503ac6dde4946f94b', .34, .065, 225),
+    'timbale_high_1': (90506, '629b1df222b648765aaa2f49859a9ae3217349d21635e058073668cb818d0aca', .34, .065, 225),
+    'timbale_high_2': (90509, 'eed660738744cec07784c29eaea264e4ca692c330f94a23dfb9f803ca04250fd', .34, .065, 225),
 }
 # Two single strokes cut from reinsamba's acoustic performance: (start s, end s) windows of the source.
-CUICA = (21715, 'FS21715', 230, ((.55, .77), (1.415, 1.615)))
+CUICA = (21715, '2aca632b38d903f9430bb1cdb09a1bf5b1facc22f56168aaed76ec039100e6af', 230, ((.55, .77), (1.415, 1.615)))
 
 
 def original(src, sha, sources):
