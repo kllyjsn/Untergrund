@@ -374,6 +374,36 @@ await loadSets(['kit']);
 assert.equal(rec(later, 'kit'), null, 'each set is locked on its own');
 assert.ok(files.has('gtr_40.flac') && files.has(`${LIVE_FILES[0]}.flac`));
 assert.deepEqual(await loadSets([]), []);
+{
+  const ctx = new FakeContext(2, 4096, 48000), state = defaultState(), hits = [];
+  const stab = { input: ctx.createGain(), band: ctx.createGain() }, gtr = [[63, {}]];
+  const e = {
+    state, ctx, ch: { stab }, playbackStyle: 'reggaeton', rec: (name) => name === 'gtr' ? gtr : null,
+    recordedNote: Engine.prototype.recordedNote, recorded: Engine.prototype.recorded,
+    pedalFor: () => null, bodyFor: Engine.prototype.bodyFor, filter: Engine.prototype.filter,
+    playBuf: (...args) => { hits.push(args); }, pluck: (...args) => hits.push(args),
+  };
+  const chord = () => {
+    e.lastGrip = null; e.stroke = null;
+    Engine.prototype.guitar.call(e, 1, 0.7, [0, 3, 7], 56, state.params.stab, stab.input);
+  };
+  chord();
+  const voiced = hits.splice(0), cut = voiced[0][3];
+  assert.ok(voiced.length > 1 && voiced.every((hit) => hit[3] === cut), 'all chord strings share one EQ');
+  assert.equal(cut.type, 'peaking');
+  assert.ok(cut.frequency.value >= 2945 && cut.frequency.value <= 2980 && cut.gain.value < 0);
+  assert.ok(feeds(cut, stab.band), 'the EQ feeds the recorded-instrument bus instead of the synth strip');
+  e.playbackStyle = 'afrobeats';
+  chord();
+  const control = hits.splice(0);
+  assert.ok(control.every((hit) => hit[3] === stab.band), 'guitar chords outside Reggaeton keep the original routing');
+  const withoutRoute = ([buf, t, v, , rate, dur, fx]) => [buf, t, v, rate, dur, fx];
+  assert.deepEqual(voiced.map(withoutRoute), control.map(withoutRoute), 'the cut preserves the recorded voicing, timing and gains');
+  e.playbackStyle = 'reggaeton';
+  e.rec = () => null;
+  chord();
+  assert.equal(hits[0][5], stab.input, 'the synth fallback stays unfiltered');
+}
 console.log('live-kit preload + per-song lock passed');
 
 {
