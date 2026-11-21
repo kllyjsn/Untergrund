@@ -1157,4 +1157,27 @@ console.log('recorded jazz leads: trumpet, airflute and piano finite/audible/lev
   }
   assert.equal(calls.length, 6, 'each explicit bass selection schedules only its chosen instrument');
 }
+for (const listener of ['trap', 'dnb', undefined]) {
+  const s = freshSong('minimal', 42); s.artist = { style: listener, seed: 4 };
+  const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false }), calls = [];
+  e.replay808Style = 'minimal'; e.replaySeed = 42;
+  e.applyMaster('drive', 0, true);
+  assert.equal(e.sat.curve.length, 2, 'saved Minimal keeps its own undriven saturator, not the listener genre');
+  const q = new Sequencer(e, s); q.startAt(0, 0.05); q.tick(0, 0.05);
+  assert(e.smoothOn, 'saved Minimal enables SMOOTH with any listener genre or missing artist style');
+  e.recordedNote = e.bass = () => assert.fail('saved Minimal cannot inherit recorded hook/chords or shared bass');
+  for (const method of ['minimalHook', 'minimalBass', 'keys']) e[method] = () => calls.push(method);
+  e.hook(0.1, 0.5, 0, 0.2, 'warm');
+  e.acidVoice(0.1, { n: 0 }, false, false, e.stepDur);
+  s.params.stab.voice = 7; e.stab(0.1, 0.5);
+  assert.deepEqual(calls, ['minimalHook', 'minimalBass', 'keys'], 'saved Minimal retains all three instruments');
+}
+{
+  const s = freshSong('trap', 42); s.artist = { style: 'minimal' };
+  const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
+  e.replay808Style = 'trap'; e.applyMaster('drive', 0, true);
+  assert(e.sat.curve.length > 2, 'a Minimal listener does not replace a saved Trap saturator');
+  const q = new Sequencer(e, s); q.startAt(0, 0.05); q.tick(0, 0.05);
+  assert(!e.smoothOn, 'a Minimal listener does not enable SMOOTH on another genre');
+}
 console.log('sound ok');

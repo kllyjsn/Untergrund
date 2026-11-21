@@ -1089,7 +1089,7 @@ export class Engine {
       this.setTo(this.djHP.Q, q, immediate); this.setTo(this.djLP.Q, q, immediate);
     } else if (id === 'drive') {
       // A smooth style with no drive gets a straight line through the saturator's headroom: even its gentlest curve intermodulates held chords.
-      this.sat.curve = !v && SMOOTH.has(this.state.artist?.style) ? new Float32Array([-SAT_HEADROOM, SAT_HEADROOM]) : satCurve(v);
+      this.sat.curve = !v && SMOOTH.has(this.playbackStyle) ? new Float32Array([-SAT_HEADROOM, SAT_HEADROOM]) : satCurve(v);
     } else if (id === 'volume') this.setTo(this.master.gain, v, immediate);
     else if (id === 'room') this.setTo(this.roomOut.gain, (v || 0) * 0.9, immediate);
     else if (id === 'warmth') this.setTo(this.warm.frequency, 20000 * Math.pow(0.22, v || 0), immediate);
@@ -4916,10 +4916,10 @@ export class Sequencer {
         this.dropNext = peak(chain[(p + 1) % n]) && !peak(this.cur) && !(fill && peak(prev));
         if (!this.breakFilterPlanned && arr >= 0.75 && brk(this.cur) && !brk(prev)) {
           let k = 0; while (k < n && brk(chain[(p + k) % n])) k++;
-          this.e.breakSweep(t, k * 16 * this.e.stepDur, SMOOTH.has(this.s.artist?.style));
+          this.e.breakSweep(t, k * 16 * this.e.stepDur, SMOOTH.has(style));
         }
       }
-      if (!this.breakFilterPlanned && (!arr || !brk(this.cur))) this.e.breakOpen(t, SMOOTH.has(this.s.artist?.style));
+      if (!this.breakFilterPlanned && (!arr || !brk(this.cur))) this.e.breakOpen(t, SMOOTH.has(style));
       if (this.festivalPlan.length) {
         this.dropNow = !!arr && this.festivalPlan.some((b) => b.drop === p);
         this.dropNext = !!arr && this.festivalPlan.some((b) => b.drop === p + 1);
@@ -5027,7 +5027,7 @@ export class Sequencer {
         if (progress >= 2 / 3) e.trigger(drum, t + sd / 2, (0.1 + 0.25 * progress) * 0.85);
       }
     }
-    this.smooth = SMOOTH.has(s.artist?.style);
+    this.smooth = SMOOTH.has(e.playbackStyle ?? s.artist?.style);
     // The chords make room under the bass while it plays and fill the low mids back in when it drops out.
     const held = HELD_CHORDS.has(STAB_VOICES[s.params.stab.voice]);
     const sc = !this.smooth ? 0 : !s.mutes.acid && pat.steps.acid.some((st) => st?.on) ? (held ? -6 : -12) : held ? -2 : 0.5;
