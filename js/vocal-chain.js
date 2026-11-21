@@ -4,10 +4,13 @@
 // are sends in Engine (vocalFx). Settings per genre in VOCAL_FX (js/sing.js); docs/singer.md#vocal-chain.
 
 // RBJ biquad coefficients.
-function biquad(type, f, q, db, sr) {
+export function biquad(type, f, q, db, sr) {
   const w = (2 * Math.PI * f) / sr, cs = Math.cos(w), al = Math.sin(w) / (2 * q), A = 10 ** (db / 40);
   let b0, b1, b2, a0, a1, a2;
-  if (type === 'highpass') { b0 = (1 + cs) / 2; b1 = -(1 + cs); b2 = b0; a0 = 1 + al; a1 = -2 * cs; a2 = 1 - al; }
+  if (type === 'highpass' || type === 'lowpass') {
+    const sign = type === 'highpass' ? -1 : 1;
+    b0 = (1 - sign * cs) / 2; b1 = sign * 2 * b0; b2 = b0; a0 = 1 + al; a1 = -2 * cs; a2 = 1 - al;
+  }
   else if (type === 'highshelf') {
     const s = 2 * Math.sqrt(A) * al;
     b0 = A * (A + 1 + (A - 1) * cs + s); b1 = -2 * A * (A - 1 + (A + 1) * cs); b2 = A * (A + 1 + (A - 1) * cs - s);
@@ -16,8 +19,7 @@ function biquad(type, f, q, db, sr) {
   return [b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0];
 }
 
-export function filter(x, [b0, b1, b2, a1, a2]) {
-  const y = new Float32Array(x.length);
+export function filter(x, [b0, b1, b2, a1, a2], y = new Float32Array(x.length)) {
   let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
   for (let i = 0; i < x.length; i++) {
     const v = x[i], o = b0 * v + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;

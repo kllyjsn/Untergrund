@@ -208,12 +208,18 @@ export async function publicArtistPage(kv, handle) {
   return { artist: publicArtist(acct, followers, following), tracks };
 }
 
-export async function publicTrack(kv, crate, rawId) {
+export async function publishedTrack(kv, crate, rawId) {
   const id = clean(rawId, 40);
   if (!/^[a-z0-9-]{3,40}$/.test(id)) return null;
   let track = kv ? await getJson(kv, K.track(id)) : null;
   if (!track && crate) track = await crate.get(id);
-  if (!track?.state) return null;
+  return track?.state ? track : null;
+}
+
+export async function publicTrack(kv, crate, rawId) {
+  const track = await publishedTrack(kv, crate, rawId);
+  if (!track) return null;
+  const id = track.id;
   let artist = null;
   const ownerId = kv && await kv.cmd(['GET', K.owner(id)]);
   const owner = ownerId && await getJson(kv, K.acct(ownerId));

@@ -3,6 +3,7 @@
 // A take is { b: [from, to] } (0-based chain positions, inclusive) plus the parts it replaces: steps/len per
 // track, and optionally hm (melody on/off), prog (chords) and hook.
 import { TRACK_IDS, STEPS } from './params.js';
+import { identifyChainEntries } from './chain-entries.js';
 
 export const MAX_TAKES = 32;
 const LETTERS = 'ABCDEFGH';
@@ -72,9 +73,14 @@ function runMap(chain) {
   return out;
 }
 // After the chain changed (a section got longer, shorter or skipped), moves each take to the same bars of the same run.
-export function remapTakes(patterns, before, after) {
-  if (before === after || !patterns.some((p) => p.at)) return;
-  const was = runMap(before), now = runMap(after), where = new Map(now.map((k, i) => [k, i]));
+export function remapTakes(patterns, before, after, beforeEntries, afterEntries) {
+  if (!patterns.some((p) => p.at)) return;
+  const old = identifyChainEntries(before, beforeEntries), next = identifyChainEntries(after, afterEntries);
+  const tagged = old?.some(e => e.id != null) && next?.some(e => e.id != null);
+  if (before === after && !tagged) return;
+  const was = tagged ? old.map(e => `id:${e.p}:${e.id}`) : runMap(before);
+  const now = tagged ? next.map(e => `id:${e.p}:${e.id}`) : runMap(after), where = new Map(now.map((k, i) => [k, i]));
+  if (was.length === now.length && was.every((key, i) => key === now[i])) return;
   for (const p of patterns) {
     if (!p.at) continue;
     const bars = [];

@@ -68,15 +68,26 @@ export const POCKETS = [
     hat: bar([1, 0.45, 0.85, 0.5]), kick: [1, 0.9, 0.96, 0.9], back: [1, 0.97], bass: [1, 0.85, 0.95, 0.85],
     at: { snare: 2, ch: [0, 3, 1, 4], stab: [0, 3, 1, 4] },
   },
+  {
+    name: 'JAZZ', hum: 0.15, jitter: 1, ghost: 0.06, band: true,
+    hat: bar([0.85, 0.4, 0.55, 0.4]), kick: [0.4, 0.35, 0.4, 0.35], back: [0.3, 0.35], bass: [1, 0.9, 0.95, 0.85],
+    at: { snare: 3, stab: 2, acid: 0, ride: 0, ch: 0 },
+  },
 ];
+POCKETS.push({ name: 'BOSSA', hum: 0.08, jitter: 0.8, ghost: 0.05, band: true,
+  hat: bar([0.7, 0.4, 0.6, 0.4]), kick: [0.5, 0.25, 0.5, 0.25], back: [0.4, 0.4], bass: [1, 0.7, 0.95, 0.7],
+  at: { snare: 1, ch: 0, acid: 0, stab: 1 } });
 export const POCKET_NAMES = ['GRID', ...POCKETS.slice(1).map((p) => p.name)];
 const P = Object.fromEntries(POCKET_NAMES.map((n, i) => [n, i]));
 
 export const STYLE_POCKET = {
+  swing: P.JAZZ, modal: P.JAZZ,
+  bossa: P.BOSSA, jazzfunk: P.SOUL,
   hypnotic: P.MACHINE, industrial: P.MACHINE, acid: P.MACHINE, dub: P.MACHINE, peak: P.MACHINE, hardtechno: P.MACHINE, electro: P.MACHINE, trance: P.MACHINE, ambient: P.MACHINE,
   deephouse: P.HOUSE, minimal: P.HOUSE, euphoric: P.HOUSE,
   ukg: P.GARAGE, jerseyclub: P.GARAGE,
   neosoul: P.SOUL, boombap: P.SOUL,
+  lofihiphop: P.SOUL, gfunk: P.BREAKS, phonk: P.TRAP, electrohiphop: P.MACHINE,
   breaks: P.BREAKS, dnb: P.BREAKS,
   amapiano: P.AFRO, afrobeats: P.AFRO, reggaeton: P.AFRO, bailefunk: P.AFRO,
   trap: P.TRAP, drill: P.TRAP, hyperpop: P.TRAP,
@@ -84,6 +95,22 @@ export const STYLE_POCKET = {
 };
 
 export const pocketOf = (master) => POCKETS[Math.round(master?.pocket || 0)] || null;
+
+// Eighth swing stretches the first half-beat and compresses the second; inner sixteenths
+// bisect each half. Blend out legacy sixteenth swing so full triplets stay ordered.
+export function swingLate(state, step, sd) {
+  const legacy = step % 2 ? (state.swing || 0) * sd * 0.5 : 0;
+  const amount = state.master?.swing8 || 0;
+  if (!amount) return legacy;
+  const phase = ((step % 4) + 4) % 4;
+  const eighth = (phase <= 2 ? phase : 4 - phase) * sd / 3;
+  return legacy * (1 - amount) + eighth * amount;
+}
+
+export function swingDuration(state, step, steps, sd) {
+  const duration = steps * sd;
+  return state.master?.swing8 ? duration + swingLate(state, step + steps, sd) - swingLate(state, step, sd) : duration;
+}
 
 // Timing offset in seconds for one hit of `id` on 16th `i16`.
 export function pocketLate(pk, id, i16) {
