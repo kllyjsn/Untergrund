@@ -43,8 +43,8 @@ const GENRE_PALETTES = {
       3: { ...DEEP_CHORD, wave: 'sine', organ: 0.35, level: 1.65, attack: 0.005, fm: 0, release: 0.42, cutoff: 1900, presence: 'organ' },
       2: { ...DEEP_CHORD, level: 1.5, attack: 0.025, release: 0.6, fm: 0.28, cutoff: 1450, presence: 'pad' },
     },
-    hook: { ...DEEP_CHORD, level: 0.45, attack: 0.012, release: 0.18, cutoff: 4000, spread: 6, width: 0.55, fm: 0.35, presence: false, eq: [], airBand: 2.5, transpose: 24, range: [79, 91] },
-    bass: { type: 'round', wave: 'triangle', fm: 0.65, level: 1, sub: 0.72, body: 0.8, cutoff: 760, decay: 0.16, sustain: 0.55, length: 0.88, balance: true, lowBand: { cutoff: 120, trim: -6, duck: 6 } },
+    hook: { ...DEEP_CHORD, wave: 'sawtooth', harmonics: 7000, level: 0.36, attack: 0.012, release: 0.18, cutoff: 4000, spread: 6, width: 0.55, fm: 0.35, presence: false, eq: [], airBand: 2.5, breath: 0.08, breathDecay: 0.05, transpose: 24, range: [79, 91] },
+    bass: { type: 'round', wave: 'triangle', fm: 0.65, level: 1, sub: 0.72, body: 0.8, cutoff: 760, decay: 0.16, grit: 0.5, sustain: 0.55, length: 0.88, balance: true, lowBand: { cutoff: 120, trim: -6, duck: 6 } },
   },
   euphoric: {
     name: 'uplift',
@@ -2576,6 +2576,11 @@ export class Engine {
       shape.curve = Float32Array.from(wet, (y, i) => { const x = i / (wet.length - 1) * 2 - 1; return x + drive * (y - x); });
       lp.connect(shape).connect(amp);
     } else lp.connect(amp);
+    if (color.grit) {
+      const sat = c.createWaveShaper(), hp = this.filter('highpass', 280, 0.7), top = this.filter('lowpass', 1600, 0.7);
+      sat.curve = driveCurve(0.6);
+      lp.connect(sat).connect(hp).connect(top).connect(this.gain(color.grit)).connect(amp);
+    }
     amp.connect(this.pocketBassOut(color.lowBand));
     let depth;
     if (color.fm) {
