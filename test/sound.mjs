@@ -1047,6 +1047,33 @@ for (const [voice, chord, set] of [['tpt', 1, 'tpt'], ['airflute', 1, 'fl'], ['v
 }
 console.log('recorded jazz leads: trumpet, airflute and piano finite/audible/level-safe; trumpet envelope and missing-sample fallback passed');
 {
+  for (const [style, playbackStyle, voice, smooth, wet] of [
+    ['minimal', null, 7, -12, true], ['minimal', null, 7, 0.5, true],
+    ['minimal', null, 7, 0, false], ['minimal', null, 1, -12, false],
+    ['minimal', null, 2, -6, false], ['trap', 'minimal', 7, -12, true],
+    ['hypnotic', null, 7, -12, false], [undefined, null, 7, -12, false],
+  ]) {
+    const s = freshSong(style || 'hypnotic', 11);
+    s.artist = { style }; s.params.stab.voice = voice;
+    const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
+    if (playbackStyle) e.replay808Style = playbackStyle;
+    e.smoothChords(smooth);
+    let destination, calls = 0;
+    const trim = e.trimOut;
+    e.trimOut = function (key, db, out, ...args) {
+      if (key === `stab${voice}`) destination = out;
+      return trim.call(this, key, db, out, ...args);
+    };
+    e.keys = e.pad = e.piano = () => calls++;
+    e.stab(0.05, 0.5);
+    assert.equal(calls, 1, 'room routing preserves one chord renderer per trigger');
+    assert.equal(destination, wet ? e.ch.stab.band : e.ch.stab.input, `${style}/${playbackStyle}/${voice}/${smooth} restores only the smooth Minimal piano room`);
+    assert(e.ch.stab.band.inputs.length === 0, 'room routing does not add duplicate chord sources');
+    assert(e.ch.stab.input.inputs.includes(e.ch.stab.band), 'band input preserves the existing dry chord strip');
+    assert(e.bandIn.inputs.includes(e.ch.stab.band), 'band input retains the shared room send');
+  }
+}
+{
   for (const seed of [11, 20, 42, 73, 211, 997, 1234, 2026]) {
     const s = freshSong('minimal', seed); s.artist = { style: 'minimal', seed };
     const ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false }), q = new Sequencer(e, s);
