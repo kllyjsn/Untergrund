@@ -186,7 +186,7 @@ function schedule(lead) {
   if (!playing || (songOver && !queuedRoomReplay)) return;
   const ahead = roomMediaSync.horizon(typeof lead === 'number' ? lead : document.hidden ? BG_LEAD : roomPlayback ? ROOM_LEAD : 0.12, roomPlayback, mediaRoute, roomPlayback && mediaRoute ? ctx.currentTime : 0);
   const now = ctx.currentTime;
-  const firstEstimate = roomPlayback && roomAudioClock === null && !engine.vocalNow &&
+  const firstEstimate = roomPlayback && (roomAudioClock === null || abs === 0) && !engine.vocalNow &&
     !engine.queuedNotes?.some(note => note.t >= now);
   if (roomEditor) engine.pruneEditableHits(now);
   const frozenOutputTime = roomAudioClock?.frozenOutputTime;
