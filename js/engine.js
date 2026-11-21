@@ -1,6 +1,6 @@
 import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES, KIT_BACKBEAT, defaultParams } from './params.js';
 import { PALETTE_INSTRUMENTS, PALETTE_DEFAULTS, instrumentFor } from './palette-defaults.js';
-import { getSample, sungNote, SUNG_LEN, SUNG_VOWEL_COUNT } from './sampler.js';
+import { getSample, sungNote, SUNG_LEN, SUNG_LOW, SUNG_NOTES, SUNG_VOWEL_COUNT } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
 import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, STAB_BAND, HOOK_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
@@ -3308,7 +3308,7 @@ export class Engine {
     const p = this.state.params.vox, iv = chordIv(this.harm, this.state.params.stab);
     const tone = hash(step, 3) < p.melody ? iv[Math.floor(hash(step, 4) * iv.length)] : 0;
     const vowel = Math.round(p.slice) + (hash(step, 1) < p.scatter ? Math.floor(hash(step, 2) * SUNG_VOWEL_COUNT) : 0);
-    const home = 66 + Math.round(p.pitch), prev = this.voxPrev ?? home, target = this.state.key + this.harmRoot() + tone + Math.round(p.pitch);
+    const home = Math.min(SUNG_LOW + SUNG_NOTES - 8, Math.max(SUNG_LOW + 7, 66 + Math.round(p.pitch))), prev = this.voxPrev ?? home, target = this.state.key + this.harmRoot() + tone + Math.round(p.pitch);
     let midi = prev + ((target - prev) % 12 + 18) % 12 - 6;
     if (midi - home > 7) midi -= 12;
     else if (home - midi > 7) midi += 12;
@@ -4835,6 +4835,7 @@ export class Engine {
 
   panic() {
     const now = this.ctx.currentTime;
+    this.voxPrev = undefined;
     this.vocalStop(now);
     this.handoffCancel();
     this.breakOpen(now);
@@ -4896,6 +4897,7 @@ export class Sequencer {
   }
 
   startAt(abs, t) {
+    this.e.voxPrev = undefined;
     const chain = this.s.chainOn ? parseChain(this.s.chain) : [];
     const bar = Math.floor(abs / 16), offset = abs % 16;
     const pos = chain.length ? bar % chain.length : -1;
