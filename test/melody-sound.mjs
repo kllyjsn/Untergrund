@@ -6,6 +6,7 @@ import { Engine, paletteFor } from '../js/engine.js';
 import { jazzStyle } from '../js/jazz.js';
 import { freshSong } from '../js/state.js';
 import { patternAt } from '../js/scope.js';
+import { createHistory } from '../js/undo.js';
 
 const source = readFileSync(new URL('../js/hum-ui.js', import.meta.url), 'utf8');
 const state = { current: 0, patterns: [{ hook: { v: 'warm' } }, { hook: { v: 'airflute' } }, {}] };
@@ -19,7 +20,9 @@ const panel = runInNewContext((source.match(/^const melodyHooks = .+;$/m)?.[0] |
   windBanks, loadSets: (banks) => { loads.push(banks); return rejectLoad ? Promise.reject(new Error('offline')) : Promise.resolve(); },
   paletteFor, jazzStyle,
 });
-const api = { state: () => state, edit: (fn) => fn(state) };
+const history = createHistory();
+let edits = 0;
+const api = { state: () => state, edit: (fn) => { edits++; history.push(JSON.stringify(state)); fn(state); } };
 const nodes = (node) => typeof node === 'object' ? [node, ...node.children.flatMap(nodes)] : [];
 const button = (label) => nodes(panel(api)).find((n) => n.tag === 'button' && n.children.includes(label));
 assert(button('HARMON'), 'the appended Harmon voice must be selectable in Melody sound');
@@ -84,4 +87,31 @@ for (const [voice, label] of [['airflute', 'FLUTE'], ['oboe', 'OBOE'], ['harpplk
   assert.equal(p.hook.v, voice, 'reapplying a checked primary chip preserves its current recorded instrument');
   assert.equal(patternAt(p, 0).hook.v, voice);
 }
-console.log('melody sound: Harmon selection, state propagation, accessibility and missing-chop/empty handling passed');
+for (const [voice, label] of [['warm', 'SYNTH'], ['harmon', 'HARMON'], ['chop', 'MY VOICE'], ['airflute', 'FLUTE'], ['oboe', 'OBOE'], ['harpplk', 'HARP'], ['tpt', 'SYNTH']]) {
+  Object.assign(state, freshSong('pop', 42), { current: 6, artist: { style: 'pop' } });
+  for (const p of state.patterns) {
+    if (p.hook) p.hook.v = voice;
+    for (const take of p.at || []) if (take.hook) take.hook.v = voice;
+  }
+  const p = state.patterns[6];
+  p.at = [{ b: [0, 0], hook: structuredClone(p.hook) }, { b: [1, 1], hm: 0 }];
+  history.clear();
+  history.push('before');
+  history.undo(JSON.stringify(state));
+  const before = edits, loadsBefore = loads.length;
+  button(label).attrs.onclick();
+  assert.equal(history.canRedo, true, 'a no-op ' + label + ' reselect preserves redo');
+  assert.equal(history.depth, 0, 'a no-op reselect adds no undo step');
+  assert.equal(edits, before, 'identical base and take sounds skip api.edit');
+  if (voice === 'harmon') assert.equal(loads.length, loadsBefore + 1, 'a no-op Harmon reselect can still retry loading');
+  p.at[0].hook.v = voice === 'warm' ? 'airflute' : 'warm';
+  button(label).attrs.onclick();
+  assert.equal(edits, before + 1, 'a differing take still creates one edit');
+  assert.equal(history.canRedo, false, 'a real edit clears redo');
+  assert.equal(history.depth, 1);
+  assert.equal(patternAt(p, 0).hook.v, voice, 'checked sound still repairs a stale take');
+  button(label).attrs.onclick();
+  assert.equal(edits, before + 1, 'repeating the repaired sound creates no extra edit');
+  assert.equal(p.at[1].hook, undefined);
+}
+console.log('melody sound: Harmon selection, state propagation, accessibility, no-op history and missing-chop/empty handling passed');

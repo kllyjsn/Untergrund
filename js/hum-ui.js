@@ -331,7 +331,9 @@ export function openVoice(api) {
 export function melodyPanel(api) {
   const s = api.state(), hk = s.patterns[s.current]?.hook;
   const setVoice = (v) => {
-    api.edit((st) => melodyHooks(st.patterns).forEach((hook) => { hook.v = v; }), 'HOOK sound');
+    if (melodyHooks(api.state().patterns).some((hook) => hook.v !== v)) {
+      api.edit((st) => melodyHooks(st.patterns).forEach((hook) => { hook.v = v; }), 'HOOK sound');
+    }
     if (v === 'harmon') loadSets(windBanks(v)).catch(() => {});
   };
   const mine = hk?.v === 'chop';
