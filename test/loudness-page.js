@@ -1,7 +1,7 @@
 // Loaded inside headless Chrome by scripts/loudness.mjs and test/loudness.mjs: builds a generated song the way
 // GENERATE does, renders it with the real offline engine and meters the master output.
 import { defaultState, STYLES } from '/js/state.js';
-import { song } from '/test/audio-quality-page.js';
+import { song, plan, render } from '/test/audio-quality-page.js';
 import { renderBars } from '/js/render.js';
 import { songBars } from '/js/midi.js';
 import { loadPiece, PIECE } from '/js/repertoire.js';
@@ -10,6 +10,12 @@ import { kHops, loudnessRange } from '/js/audio-quality.js';
 import { localSpec, songState } from '/js/song-spec.js';
 
 export { song };
+
+export async function wholeSongLoudness(style, seed) {
+  const s = song(style, seed), buf = await render(s, 0, plan(s).bars);
+  const ch = [buf.getChannelData(0), buf.getChannelData(1)];
+  return { voice: s.params.stab.voice, lufs: loudness(ch, buf.sampleRate).integrated, tp: 20 * Math.log10(truePeak(ch)) };
+}
 
 // bars: render only that many bars (default the whole song) starting at startBar of the chain.
 // Taps the limiter's input and output next to the master output to measure its gain reduction.
