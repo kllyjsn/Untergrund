@@ -196,7 +196,7 @@ export function realize(raw, seed = 1, opts = {}) {
     if (s.role === 'outro' || done.has(slot)) continue;
     done.add(slot);
     const prog = progOf(s.chords, scale, sc);
-    const twins = s.role === 'breakdown' ? [4, 5] : s.role === 'drop' ? [6, 7] : [slot];
+    const twins = s.role === 'breakdown' ? [4, 5] : s.role === 'drop' ? [6, 7] : s.role === 'verse' && isJazz(style) ? [2, 3] : [slot];
     for (const i of twins) {
       if (prog) { pats[i].prog = clone(prog); progs[i] = prog; }
       voice(pats[i], s.instruments, full, s.energy, s.role, peak);
@@ -228,7 +228,7 @@ export function chainFor(sections, pats) {
     else if (s.role === 'outro') out += 'B'.repeat(n >> 1) + 'A'.repeat(n - (n >> 1));
     else if (s.role === 'verse') {
       const end = pats && !same(pats[2].prog, pats[3].prog) ? 'C' : 'D';
-      out += n >= 16 ? 'C'.repeat(7) + 'H' + 'C'.repeat(n - 9) + end : 'C'.repeat(n - 1) + end;
+      out += n >= 16 ? 'C'.repeat(7) + (pats?.[2]?.jazz ? 'D' : 'H') + 'C'.repeat(n - 9) + end : 'C'.repeat(n - 1) + end;
     }
     else if (s.role === 'drop') out += 'G'.repeat(n - 1) + (next?.role === 'drop' || next?.role === 'outro' || !next ? 'G' : 'H');
     else if (s.role === 'breakdown') {

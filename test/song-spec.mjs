@@ -10,6 +10,19 @@ import { patternAt } from '../js/scope.js';
 
 let n = 0;
 const t = (name, fn) => { try { fn(); n++; } catch (e) { console.error(`✗ ${name}`); throw e; } };
+t('jazz verse turnarounds retain the verse instrument exclusions', () => {
+  for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) for (const bars of [8, 16]) for (const instruments of [['kick', 'bass'], []]) {
+    const { state } = songState({ style, sections: [{ role: 'drop', bars: 16, energy: 0.9 },
+      { role: 'verse', bars, energy: 0.6, instruments }] }, 42);
+    for (const letter of state.chain.slice(16)) {
+      const p = state.patterns[letter.charCodeAt(0) - 65];
+      assert.equal(p.hm, 0, `${style} ${letter}: excluded lead stays out of the fill`);
+      for (const id of ['stab', 'snare', 'clap', 'ch', 'oh', 'ride', 'perc']) assert(!p.steps[id].some(Boolean), `${style} ${letter}: excluded ${id}`);
+      if (!instruments.length) assert(!p.steps.acid.some((s) => s.on));
+    }
+  }
+  assert(songState({ style: 'bossa', sections: [{ role: 'verse', bars: 16, energy: 0.6 }] }, 42).state.patterns[3].steps.stab.some(Boolean));
+});
 t('jazz specs retain requested sections, instruments, harmony, contour and texture', () => {
   for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
     const spec = validateSpec({ style, bpm: 130, scale: 'major', key: 2,
