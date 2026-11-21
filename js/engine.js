@@ -27,7 +27,7 @@ const BASS_COLOR = {
   afrobeats: { name: 'finger', knock: 1, settle: 0.018, wave: 'triangle', ratio: 3, harmonic: 0.8, tail: 0.25, decay: 0.07, round: 'triangle', pick: 1, gain: 0.85 },
   jerseyclub: { name: 'bounce', knock: 2.6, settle: 0.012, wave: 'sawtooth', ratio: 2, harmonic: 0.35, tail: 0.015, decay: 0.025, round: 'triangle', pick: 0.5, gain: 1.6, duckScale: 0.65, recoveryScale: 0.6 },
 };
-const LIQUID_CHORD = { wave: 'sawtooth', level: 0.4, attack: 0.065, release: 0.8, cutoff: 1700, spread: 6, fm: 0, width: 0 };
+const LIQUID_CHORD = { wave: 'sawtooth', level: 0.3, attack: 0.065, release: 0.8, cutoff: 1700, spread: 6, fm: 0, width: 0 };
 const EUPHORIC_CHORD = { wave: 'sawtooth', level: 0.54, attack: 0.025, release: 0.85, cutoff: 2300, spread: 11, fm: 0 };
 const DEEP_CHORD = { wave: 'triangle', level: 1.35, attack: 0.007, release: 0.45, cutoff: 1700, spread: 2, fm: 0.65, width: 0.25, presence: 'keys', eq: [[320, 0.8, -2], [950, 0.8, 3]] };
 const GENRE_PALETTES = {
@@ -56,21 +56,34 @@ const GENRE_PALETTES = {
   },
   dnb: {
     name: 'liquid',
+    bed: true,
     chords: {
       default: LIQUID_CHORD,
-      10: { ...LIQUID_CHORD, level: 0.42, attack: 0.09, release: 1.1, cutoff: 1450 },
-      2: { ...LIQUID_CHORD, level: 0.44, attack: 0.075, cutoff: 1900, spread: 9 },
-      1: { ...LIQUID_CHORD, wave: 'triangle', level: 1.2, attack: 0.006, release: 0.5, cutoff: 2400, fm: 0.7 },
-      5: { ...LIQUID_CHORD, wave: 'triangle', level: 0.65, attack: 0.012, release: 0.32, cutoff: 2100, fm: 0.45 },
+      10: { ...LIQUID_CHORD, attack: 0.09, release: 1.1, cutoff: 1450 },
+      2: { ...LIQUID_CHORD, level: 0.23, attack: 0.075, cutoff: 1900, spread: 9 },
+      1: { ...LIQUID_CHORD, wave: 'triangle', level: 0.35, attack: 0.006, release: 0.5, cutoff: 2400, fm: 0.7 },
+      5: { ...LIQUID_CHORD, wave: 'triangle', level: 0.42, attack: 0.012, release: 0.32, cutoff: 2100, fm: 0.45 },
     },
-    hook: { wave: 'triangle', level: 0.44, attack: 0.018, release: 0.16, cutoff: 2500, spread: 8, fm: 0.5, width: 0, air: 0.035 },
-    bass: { level: 1, sub: 0.9, body: 0.5, movement: 230, spread: 14 },
+    hook: { wave: 'triangle', level: 0.44, attack: 0.018, release: 0.16, cutoff: 4500, spread: 8, fm: 0.5, width: 0.7, breath: 0.18, transpose: 12, range: [72, 90] },
+    bass: { level: 1, sub: 0.9, body: 0.5, movement: 230, spread: 14, midCut: [325, 0.7, 3] },
   },
 };
 export const paletteFor = (state, style = state.artist?.style) => Object.hasOwn(GENRE_PALETTES, style) ? GENRE_PALETTES[style] : undefined;
 export const paletteColor = (state, style) => {
   const bank = paletteFor(state, style);
   return bank && (bank.chords[Math.round(state.params.stab.voice)] || bank.chords.default);
+};
+const paletteRegister = (pitch, color) => {
+  pitch += color.transpose || 0;
+  if (color.range) {
+    while (pitch < color.range[0]) pitch += 12;
+    while (pitch > color.range[1]) pitch -= 12;
+  }
+  return pitch;
+};
+export const paletteHookPitch = (state, pitch, voice, style) => {
+  const color = paletteFor(state, style)?.hook;
+  return !color || voice === 'chop' && getChops() ? pitch : paletteRegister(pitch, color);
 };
 // Chords sit under a sung line the way a mix rides the keys under a vocal: a little in the chorus, more in the verse
 // and most in the breakdown, so the drop still lands over it. Songs with sections already set the verse level.
@@ -2197,6 +2210,10 @@ export class Engine {
     amp.gain.setTargetAtTime(0, t + color.attack + hold, release);
     amp.gain.setValueAtTime(0, end);
     if (color.air) this.noiseSrc(t, end - t).connect(this.gain(color.air)).connect(hp);
+    if (color.breath) {
+      const air = this.filter('highpass', 2000, Math.SQRT1_2), top = this.filter('lowpass', 9000, Math.SQRT1_2);
+      this.noiseSrc(t, end - t).connect(air).connect(top).connect(this.gain(color.breath)).connect(amp);
+    }
     const width = color.width ?? 0.55, pans = this.sidePans([-width, width], hp);
     for (const n of iv) {
       const f = midiHz(root + n), wave = this.paletteWave(f, color);
@@ -2239,7 +2256,7 @@ export class Engine {
 
   paletteHook(t, v, f, dur, color, out) {
     const p = this.state.params.stab;
-    return this.paletteChord(t, v, [0], 69 + 12 * Math.log2(f / 440), { ...p, decay: color.release }, out, { ...color, hold: Math.max(0.04, dur * 0.72) });
+    return this.paletteChord(t, v, [0], paletteRegister(69 + 12 * Math.log2(f / 440), color), { ...p, decay: color.release }, out, { ...color, hold: Math.max(0.04, dur * 0.72) });
   }
 
   paletteBass(t, st, sd, holdNext, sliding, color) {
@@ -2259,7 +2276,16 @@ export class Engine {
     const vel = (st.a ? 0.95 : 0.8) * (this.noteVel ?? 1) * color.level;
     amp.gain.setValueAtTime(EPS, t); amp.gain.linearRampToValueAtTime(vel * 0.5, t + 0.008);
     amp.gain.setTargetAtTime(0, t + len, 0.04);
-    body.connect(lp).connect(drive).connect(amp); amp.connect(this.ch.acid.input);
+    const bodyOut = color.midCut ? this.filter('peaking', color.midCut[0], color.midCut[1]) : amp;
+    if (color.midCut) {
+      const cut = color.midCut[2] * Math.min(1, (this.noteVel ?? 1) * (st.a ? 1 : 0.85)) ** 2;
+      bodyOut.gain.setValueAtTime(0, t);
+      bodyOut.gain.linearRampToValueAtTime(-cut, t + 0.008);
+      bodyOut.gain.setTargetAtTime(0, t + len, 0.04);
+    }
+    body.connect(lp).connect(drive).connect(bodyOut);
+    if (bodyOut !== amp) bodyOut.connect(amp);
+    amp.connect(this.ch.acid.input);
     for (const [type, det, level] of [['sawtooth', -color.spread, color.body], ['sawtooth', color.spread, color.body], ['sine', 0, color.sub]]) {
       const o = c.createOscillator(); o.type = type; o.detune.value = det;
       o.frequency.setValueAtTime(type === 'sine' ? subF : from, t);
@@ -4767,7 +4793,7 @@ export class Sequencer {
       if (!on) { if (id === 'stab' && e.gripHeld?.length) e.quietGrip(tt); continue; }
       // Accompaniment listens to the lead. Do not stack a chord stab on top of
       // the hook's important notes; the gap makes the motif read as intentional.
-      if (id === 'stab' && hookStep) continue;
+      if (id === 'stab' && hookStep && !paletteFor(s, e.playbackStyle ?? s.artist?.style)?.bed) continue;
       const hit = this.gridHit(id, pat, grid);
       if (hit) e[hit.method](...hit.args);
       if (id === 'kick') kickAt = hit?.time;

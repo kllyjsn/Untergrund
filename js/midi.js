@@ -1,6 +1,6 @@
 // EXPORT MIDI: plays the song through the real Sequencer into a recorder instead of the audio engine,
 // so every pocket, swing and humanize offset and every velocity lands in the file as played.
-import { Engine, Sequencer, parseChain, stabPitches, soundingPitch, STAB_VOICES, paletteFor, paletteColor } from './engine.js';
+import { Engine, Sequencer, parseChain, stabPitches, soundingPitch, STAB_VOICES, paletteFor, paletteColor, paletteHookPitch } from './engine.js';
 import { CHORDS, KEYS, SCALES } from './params.js';
 import { compose } from './classical.js';
 import { PIECE } from './repertoire.js';
@@ -87,6 +87,7 @@ export class Recorder {
     }
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
     let pitch = 60 + k + oct * 12 + n;
+    pitch = paletteHookPitch(this.state, pitch, voice);
     const style = this.state.artist?.style, vo = Math.round(this.state.params.stab.voice);
     if (style === 'dub') pitch = this.dubRegister([0], pitch);
     if (((style === 'breaks' && vo === 1) || (style === 'reggaeton' && vo === 3)) && (voice === 'vocal' || voice === 'reed')) {
