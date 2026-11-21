@@ -2220,7 +2220,8 @@ export class Engine {
       this.dubPad(t, v, iv, root);
       return this.dubChord(t, v, iv, root, p, this.ch.stab.input);
     }
-    let trimmed = this.chordTone(vo, this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]));
+    const input = this.minimal && this.smoothOn && vo === 7 ? this.ch.stab.band : this.ch.stab.input;
+    let trimmed = this.chordTone(vo, this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, input, 0, STAB_SHELF_HZ[vo]));
     if (this.playbackStyle === 'phonk') trimmed = this.phonkMusicIn(trimmed);
     if (this.playbackStyle === 'trap' && (vo === 0 || vo === 2)) trimmed = this.technoHookOut('ravestack', trimmed);
     const layers = this.hardTechno ? this.hardStabOut(trimmed) : null, out = layers ? layers.core : trimmed;
