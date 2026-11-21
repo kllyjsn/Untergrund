@@ -3799,6 +3799,7 @@ export class Engine {
     if (this.minimalMono?.end > t) for (const node of this.minimalMono.amps) node.gain.setTargetAtTime(0, t, 0.004);
     this.minimalMono = { end: t + len + 0.2, amps: [amp, hit] };
     const click = this.noiseSrc(t, 0.012), tone = this.filter('bandpass', 650 + f * 2, -3.0103), touch = this.gain(0);
+    this.minimalMono.touch = touch;
     this.adEnv(touch.gain, t, vel * 0.045, 0.001, 0.005);
     click.connect(tone).connect(touch).connect(this.ch.acid.input);
     for (const o of [body, mod, sub]) { this.startSource(o, t); o.stop(t + len + 0.25); }
@@ -4156,8 +4157,22 @@ export class Engine {
   acidVoice(t, st, sliding, holdNext, sd, slideUntil, kickAt) {
     const a = this.acidNodes, p = this.state.params.acid;
     if (this.minimal && Math.round(p.voice) === 1) {
+      if (this.mono) {
+        this.mono.amp.gain.cancelScheduledValues(t);
+        this.mono.amp.gain.setTargetAtTime(0, t, 0.005);
+        this.mono = null;
+      }
+      for (const { amp: { gain } } of this.gatedBasses.values()) {
+        gain.cancelScheduledValues(t); gain.setTargetAtTime(0, t, 0.005);
+      }
       a.vca.gain.setTargetAtTime(0, t, 0.005);
       return this.minimalBass(t, st, sd, holdNext);
+    }
+    if (this.minimalMono) {
+      for (const node of [...this.minimalMono.amps, this.minimalMono.touch]) if (node) {
+        node.gain.cancelScheduledValues(t); node.gain.setTargetAtTime(0, t, 0.004);
+      }
+      this.minimalMono = null;
     }
     const palette = paletteFor(this.state, this.playbackStyle);
     if (palette) {

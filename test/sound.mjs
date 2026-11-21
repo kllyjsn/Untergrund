@@ -1232,4 +1232,25 @@ for (const listener of ['trap', 'dnb', undefined]) {
   s.params.acid.voice = 1; rec.acid(1, { n: 4 }, false, false, 0.1);
   assert.equal(rec.notes.acid.at(-1).m, 40, 'default Minimal bass retains its wider body register');
 }
+for (const [from, to, method] of [[2, 1, 'minimalBass'], [1, 2, 'eight08']]) {
+  const s = freshSong('minimal', 42); s.artist = { style: 'minimal' }; s.params.acid.decay = 1;
+  const ctx = new OfflineAudioContext(1, SR * 0.3, SR), e = new Engine(ctx, s, { realtime: false });
+  s.params.acid.voice = from; e.acidVoice(0.02, { n: 0 }, false, true, 0.1);
+  const nodes = from === 2 ? [e.mono.amp] : [...e.minimalMono.amps, e.minimalMono.touch], events = [];
+  for (const node of nodes) {
+    const p = node.gain, cancel = p.cancelScheduledValues.bind(p), target = p.setTargetAtTime.bind(p), calls = [];
+    p.cancelScheduledValues = (...a) => { calls.push(['cancel', ...a]); return cancel(...a); };
+    p.setTargetAtTime = (...a) => { calls.push(['target', ...a]); return target(...a); };
+    events.push(calls);
+  }
+  e[method] = () => {}; s.params.acid.voice = to;
+  e.acidVoice(0.03, { n: 0 }, false, true, 0.1);
+  for (const calls of events) {
+    assert.deepEqual(calls[0], ['cancel', 0.03], 'a bass switch cancels the outgoing future envelope before it can reopen');
+    assert.deepEqual(calls[1].slice(0, 3), ['target', 0, 0.03], 'a bass switch chokes every outgoing body, hit and click');
+  }
+  const pcm = (await ctx.startRendering(e.ch.acid.input)).getChannelData(0);
+  assert(rmsDb(pcm, Math.floor(SR * 0.02), Math.floor(SR * 0.03)) > -60, 'the outgoing voice really sounded');
+  assert(hitDb(pcm.slice(Math.floor(SR * 0.13), Math.floor(SR * 0.25))) < -80, `${from} to ${to} leaves no ringing voice under the next note`);
+}
 console.log('sound ok');
