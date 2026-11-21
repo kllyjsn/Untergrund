@@ -1,5 +1,6 @@
 import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, CHORDS, KIT_BACKBEAT, defaultParams, defaultMaster } from './params.js';
 import { rng } from './dsp.js';
+import { PALETTE_INSTRUMENTS, PALETTE_DEFAULTS, instrumentFor } from './palette-defaults.js';
 import { planSections, formChain, parseForm, sectionSpans, developSong, developFinalDrop, LENGTHS } from './longform.js';
 import { FORMS, SECTIONS } from './classical.js';
 import { MODELS } from './composer-models.js';
@@ -172,19 +173,19 @@ export const INSTRUMENTS = {
   dub: [[0, 1, 0, 0.22, 0.18], [2, 1, 0, 0.3, 0.22], [3, 1, 0, 0.26, 0.2], [5, 1, 0, 0.2, 0.3]],
   peak: [[4, 8, 0, 0.3, 0.65], [6, 8, 0, 0.3, 0.75], [0, 8, 0, 0.22, 0.6], [2, 8, 1, 0.8, 0.8]],
   hardtechno: [[0, 3, 0, 0.45, 0.22], [0, 3, 1, 0.6, 0.18], [2, 3, 0, 0.65, 0.2], [2, 3, 1, 0.8, 0.15]],
-  deephouse: [[1, 1, 0, 1.5, 0.25], [3, 1, 0, 0.9, 0.35], [1, 5, 0, 0.65, 0.75], [2, 1, 0, 1.4, 0.2]],
+  deephouse: PALETTE_INSTRUMENTS.deephouse,
   // Minimal is a felt Rhodes, a recorded piano, a dark dub chord or a slow pad over a round, filtered bass:
   // no bells, plucks or guitar, which read as toys against its dry clicks.
   minimal: [[1, 1, 0, 0.6, 0.2], [7, 1, 0, 0.7, 0.3], [2, 1, 0, 0.6, 0.2], [2, 1, 1, 0.9, 0.15]],
   ukg: [[3, 3, 0, 0.25, 0.45], [5, 3, 0, 0.75, 0.5], [4, 2, 1, 0.25, 0.85], [1, 2, 1, 0.4, 0.8]],
-  euphoric: [[7, 1, 0, 1.6, 0.25], [10, 1, 0, 1.8, 0.2], [2, 1, 0, 2.1, 0.15], [4, 1, 0, 0.65, 0.7]],
+  euphoric: PALETTE_INSTRUMENTS.euphoric,
   // Neo-soul is a Rhodes/piano/guitar band; strings pad the changes; the horn section honked.
   neosoul: [[7, 5, 0, 1.6, 0.2], [1, 5, 0, 1.4, 0.25], [13, 5, 0, 0.75, 0.7], [10, 5, 0, 1.4, 0.2]],
   boombap: [[9, 1, 0, 0.7, 0.6], [7, 1, 0, 1.2, 0.2], [8, 1, 0, 0.6, 0.75], [10, 1, 0, 1.1, 0.3]],
   ...Object.fromEntries(HIPHOP_STYLES.map((id) => [id, HIPHOP[id].ensembles])),
   breaks: [[8, 0, 0, 0.6, 0.75], [5, 1, 1, 0.25, 0.85], [3, 0, 0, 0.55, 0.35], [1, 1, 1, 0.7, 0.5]],
   electro: [[0, 7, 0, 0.25, 0.7], [6, 7, 0, 0.4, 0.75], [5, 7, 0, 0.2, 0.9], [4, 7, 0, 0.3, 0.65]],
-  dnb: [[10, 3, 0, 1.6, 0.25], [2, 3, 1, 1.8, 0.2], [1, 3, 1, 1.2, 0.45], [5, 3, 1, 0.55, 0.75]],
+  dnb: PALETTE_INSTRUMENTS.dnb,
   trance: [[5, 9, 0, 0.35, 0.85], [0, 9, 1, 0.14, 0.7], [2, 9, 1, 1.2, 0.35], [4, 9, 1, 1.2, 0.15]],
   ambient: [[2, 1, 0, 2.4, 0.1], [10, 1, 1, 2.8, 0.15], [6, 1, 1, 2.2, 0.3], [1, 1, 1, 2.5, 0.15]],
   amapiano: [[7, 4, 0, 0.7, 0.35], [3, 4, 1, 0.55, 0.45], [8, 4, 0, 0.55, 0.8], [5, 4, 1, 0.25, 0.85]],
@@ -350,9 +351,9 @@ function generatePattern(style, seed, scaleName, starter) {
     S.acid = range(STEPS, (i) => ([2, 6, 10, 14].includes(i) || (i === 11 && r() < 0.6)
       ? { on: true, n: i === 10 ? pick(r, [0, musicalScale[3], musicalScale[4]]) : 0, a: false, s: false } : emptyAcidStep()));
     Object.assign(params.kick, { tune: 50, decay: 0.5, drive: 0.2, rumble: 0.1, punch: 0.6, click: 0.3 });
-    Object.assign(params.stab, { chord: pick(r, [2, 4, 7, 9, 10]), octave: 0, cutoff: 2400 + r() * 1600, reso: 3, decay: 0.9 + r() * 0.6, env: 0.25, detune: 18, rev: 0.5, dly: 0.3 });
+    Object.assign(params.stab, { chord: pick(r, [2, 4, 7, 9, 10]), octave: 0, cutoff: 2400 + r() * 1600, reso: 3, decay: 0.9 + r() * 0.6, env: 0.25, detune: PALETTE_DEFAULTS.euphoric.detune, rev: 0.5, dly: 0.3 });
     Object.assign(params.vox, { slice: Math.floor(r() * 8), scatter: 0.4 + r() * 0.5, melody: 0.5 + r() * 0.4, length: pick(r, [0.5, 1, 1.5]), tone: 6500, rev: 0.35, dly: 0.28 });
-    Object.assign(params.acid, { wave: 0.1, cutoff: 220, reso: 2, envmod: 0.15, decay: 0.35, drive: 0.15, accent: 0.2 });
+    Object.assign(params.acid, { wave: 0.1, cutoff: 220, reso: 2, envmod: 0.15, decay: 0.35, drive: PALETTE_DEFAULTS.euphoric.drive, accent: 0.2 });
     master.duck = 0.8; master.revLevel = 0.8; master.dlyTime = 1; master.dlyFb = 0.38;
     swing = twoStep ? 0.28 : 0.14;
   } else if (style === 'hardtechno') {
@@ -383,9 +384,9 @@ function generatePattern(style, seed, scaleName, starter) {
     S.stab = pad16(pick(r, [[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1], [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1], [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]]));
     S.acid = range(STEPS, (i) => ([0, 3, 7, 10].includes(i) ? { on: true, n: i === 7 ? musicalScale[4] : i === 10 ? musicalScale[2] : 0, a: false, s: i === 3 } : emptyAcidStep()));
     Object.assign(params.kick, { tune: 48, decay: 0.55, drive: 0.15, rumble: 0.15, punch: 0.45, click: 0.2 });
-    Object.assign(params.stab, { voice: 1, chord: pick(r, [1, 2]), cutoff: 1300 + r() * 500, reso: 2, decay: 0.7, env: 0.3, detune: 8, rev: 0.4, dly: 0.25 });
+    Object.assign(params.stab, { voice: 1, chord: pick(r, [1, 2]), cutoff: 1300 + r() * 500, reso: 2, decay: 0.7, env: 0.3, detune: PALETTE_DEFAULTS.deephouse.detune, rev: 0.4, dly: 0.25 });
     master.humanize = 0.32; master.warmth = 0.4; master.room = 0.2;
-    Object.assign(params.acid, { wave: 0.05, cutoff: 260, reso: 2, envmod: 0.12, decay: 0.4, drive: 0.1, accent: 0.2 });
+    Object.assign(params.acid, { wave: 0.05, cutoff: 260, reso: 2, envmod: 0.12, decay: 0.4, drive: PALETTE_DEFAULTS.deephouse.drive, accent: 0.2 });
     Object.assign(params.ride, { tone: 4200, decay: 0.6 });
     master.duck = 0.6; master.revLevel = 0.6;
     swing = 0.3;
@@ -488,7 +489,7 @@ function generatePattern(style, seed, scaleName, starter) {
     S.stab = pad16([1]);
     Object.assign(params.kick, { tune: 55, decay: 0.3, drive: 0.4, punch: 0.85, rumble: 0, click: 0.6 });
     Object.assign(params.snare, { tune: 240, snappy: 0.9, decay: 0.18 });
-    Object.assign(params.acid, { wave: 0, tune: -12, cutoff: 160, reso: 1, envmod: 0.05, decay: 0.9, drive: 0.25 });
+    Object.assign(params.acid, { wave: 0, tune: -12, cutoff: 160, reso: 1, envmod: 0.05, decay: 0.9, drive: PALETTE_DEFAULTS.dnb.drive });
     Object.assign(params.stab, { chord: 1, cutoff: 1800, decay: 2.2, env: 0.1, rev: 0.6 });
     master.duck = 0.5; master.revLevel = 0.5;
   } else if (style === 'trance') {
@@ -775,8 +776,7 @@ function generatePattern(style, seed, scaleName, starter) {
     master.revLevel = ROOM[style];
     params.stab.rev = +((params.stab.rev ?? 0.3) * (0.4 + ROOM[style])).toFixed(3);
   }
-  const instrumentRng = rng(Math.imul((seed | 0) ^ 0x6d2b79f5, 0x85ebca6b));
-  const ensemble = pick(instrumentRng, INSTRUMENTS[style]);
+  const ensemble = instrumentFor(INSTRUMENTS[style], seed);
   const [stabVoice, bassVoice, octave, decay, articulation] = ensemble;
   params.stab.voice = stabVoice;
   params.stab.octave = octave;

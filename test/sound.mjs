@@ -6,12 +6,13 @@ import { OfflineAudioContext, installGlobals } from './offline-audio.mjs';
 installGlobals();
 const { defaultState, generate, applyOverrides, arrangement, freshSong, INSTRUMENTS } = await import('../js/state.js');
 const { Engine, Sequencer } = await import('../js/engine.js');
-const { Recorder } = await import('../js/midi.js');
+const { Recorder, capture } = await import('../js/midi.js');
 const { loadBand, loadSets, liveSets, STAB_BAND, SOFT_LAYER } = await import('../js/livekit.js');
 const { spectralBands, kWeight, lufs } = await import('../js/lab-metrics.js');
 const { lowEnd } = await import('../js/lowend.js');
 const { getSample } = await import('../js/sampler.js');
 const { createTimelineRecorder, stateAt } = await import('../js/set-timeline.js');
+const { setVoice, clearVoice } = await import('../js/voice.js');
 await import('./sampler.mjs');
 
 // 48 kHz like a real device: at 32 kHz bright resonant filters sit near Nyquist, where the shim blows up.
@@ -55,6 +56,377 @@ function hitDb(d) {
   return 10 * Math.log10(top.reduce((a, b) => a + b, 0) / top.length + 1e-20);
 }
 const rmsDb = (d, a, b) => { let e = 0; for (let i = a; i < b; i++) e += d[i] * d[i]; return 10 * Math.log10(e / Math.max(1, b - a) + 1e-20); };
+
+for (const style of ['dnb', 'euphoric', 'deephouse']) {
+  const s = freshSong(style, 42), ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
+  s.artist = { style, seed: 42 };
+  let synth = 0, recorded = 0;
+  e.paletteHook = () => synth++;
+  const voice = { buffer: ctx.createBuffer(1, SR / 2, SR), chops: [{ midi: 60, start: 0, end: 0.2 }] };
+  e.hookBus = ctx.createGain();
+  e.chopNote = (vc, t, v, midi, dur, expression, index, out) => {
+    assert.equal(vc, voice); assert.equal(out, e.hookBus); recorded++;
+  };
+  try {
+    clearVoice();
+    e.hook(0.05, 0.4, 0, 0.2, 'chop');
+    assert.equal(synth, 1, `${style} falls back to its palette without a recording`);
+    setVoice(voice, 'MY VOICE', false);
+    e.hook(0.05, 0.4, 0, 0.2, 'chop');
+    assert.equal(recorded, 1, `${style} MY VOICE takes precedence over its palette`);
+    assert.equal(synth, 1, `${style} does not double its recorded hook with a synth`);
+    e.hook(0.1, 0.4, 0, 0.2, 'analog');
+    assert.equal(synth, 2, `${style} analog still uses the palette with a recording loaded`);
+  } finally { clearVoice(); }
+}
+
+for (const style of ['dnb', 'euphoric', 'deephouse']) {
+  const sample = async (control = null, value = null, bass = false) => {
+    const s = freshSong(style, 42); s.artist = { style, seed: 42 }; s.params.stab.voice = 1;
+    if (control) s.params[bass ? 'acid' : 'stab'][control] = value;
+    const ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
+    e.ch[bass ? 'acid' : 'stab'].input.connect(ctx.destination);
+    if (bass) e.acidVoice(0.05, { n: 0, a: false }, false, false, e.stepDur);
+    else e.stab(0.05, 0.7);
+    return (await ctx.startRendering(ctx.destination)).getChannelData(0);
+  };
+  const chord = await sample();
+  for (const [control, value] of [['env', 0.95], ['detune', 37]]) {
+    const changed = await sample(control, value);
+    assert(changed.every(Number.isFinite), `${style} ${control} stays finite`);
+    assert(changed.some((x, i) => Math.abs(x - chord[i]) > 1e-5), `${style} KEYS ${control} changes audible PCM`);
+  }
+  if (style !== 'dnb') {
+    const bass = await sample(null, null, true);
+    for (const value of [0, 0.8]) {
+      const changed = await sample('drive', value, true);
+      assert(changed.every(Number.isFinite), `${style} DRIVE stays finite`);
+      assert(changed.some((x, i) => Math.abs(x - bass[i]) > 1e-5), `${style} DRIVE ${value} changes audible PCM`);
+    }
+  }
+  for (const seed of [11, 20, 42, 73, 211, 997, 1234, 2026]) {
+    const s = freshSong(style, seed); s.artist = { style, seed };
+    const e = new Engine(new OfflineAudioContext(1, 256, SR), s, { realtime: false }), ref = e.paletteReference();
+    for (const key of ['env', 'detune', 'tine']) assert.equal(ref.stab[key], s.params.stab[key], `${style}/${seed} neutral ${key}`);
+    assert.equal(ref.acid.drive, s.params.acid.drive, `${style}/${seed} neutral DRIVE`);
+  }
+}
+
+{
+  const { paletteFor, paletteColor } = await import('../js/engine.js');
+  const s = freshSong('deephouse', 20); s.artist = { style: 'deephouse', seed: 20 };
+  const ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
+  const color = paletteFor(s).bass, step = { n: 0, a: false }, len = e.stepDur * 1.7 * color.length;
+  const buffer = (level) => {
+    const b = ctx.createBuffer(1, SR / 2, SR), x = b.getChannelData(0);
+    for (let i = 0; i < x.length; i++) x[i] = level * Math.sin(i * 2 * Math.PI * 65 / SR);
+    return b;
+  };
+  let bank = [];
+  e.rec = () => bank;
+  assert.equal(e.pocketReferenceGain(step, len, color, 1), 1, 'missing legacy bass keeps its synth fallback');
+  bank = [[e.bassMidi(step), buffer(0.04)]];
+  const quiet = e.pocketReferenceGain(step, len, color, 1);
+  assert(quiet > 0 && quiet < 1, 'a quiet recorded bass caps the replacement');
+  assert.equal(e.pocketReferenceGain(step, len, color, 1), quiet, 'reference analysis is cached');
+  bank = [[e.bassMidi(step), buffer(0.8)]];
+  assert(e.pocketReferenceGain(step, len, color, 1) > quiet, 'the ceiling follows the actual recording energy');
+  bank = [[e.bassMidi(step), buffer(0)]];
+  assert.equal(e.pocketReferenceGain(step, len, color, 1), 0, 'silent legacy notes cannot become loud bass');
+  bank = [[e.bassMidi(step), null]];
+  assert.equal(e.pocketReferenceGain(step, len, color, 1), 1, 'unavailable reference buffers keep the fallback');
+  for (const style of ['euphoric', 'dnb']) {
+    assert.equal(e.pocketReferenceGain(step, len, paletteFor({ artist: { style } }).bass, 1), 1, `${style} has no Deep House ceiling`);
+  }
+  for (const [voice, method] of [[1, 'keys'], [2, 'pad'], [3, 'organ']]) {
+    s.params.stab.voice = voice;
+    let calls = 0;
+    e[method] = () => calls++;
+    e.paletteChord(0.05, 0.5, [], 48, s.params.stab, e.ch.stab.input, paletteColor(s));
+    assert.equal(calls, 0, 'an empty chord creates no presence lane');
+    e.stab(0.05, 0.5);
+    assert.equal(calls, 1, `Deep House ${method} has its own upper-band attack`);
+  }
+  assert.equal(paletteFor(s).hook.presence, false, 'the restrained Deep House lead does not inherit the chord attack');
+}
+
+for (const listener of ['dnb', 'euphoric', 'deephouse']) {
+  for (const recorded of ['trap', 'bailefunk']) {
+    const s = freshSong(recorded, 42); s.artist = { style: listener };
+    const e = new Engine(new OfflineAudioContext(1, 256, SR), s, { realtime: false });
+    e.replay808Style = recorded;
+    e.paletteChord = e.paletteHook = e.paletteBass = () => assert.fail(`${recorded} replay cannot inherit ${listener}'s palette`);
+    e.stab(0.05, 0.7); e.hook(0.05, 0.4, 0, 0.2, 'analog'); e.acidVoice(0.05, { n: 0 }, false, false, e.stepDur);
+  }
+}
+
+{
+  const { paletteFor, paletteHookPitch } = await import('../js/engine.js');
+  const s = freshSong('dnb', 42); s.artist = { style: 'dnb', seed: 42 };
+  const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false }), rec = new Recorder(s);
+  const start = e.startSource, played = [];
+  e.startSource = function (source, ...args) {
+    if (source.frequency) played.push(Math.round(69 + 12 * Math.log2(source.frequency.value / 440)));
+    return start.call(this, source, ...args);
+  };
+  for (const n of [-24, 0, 20, 48]) for (const [strong, up] of [[false, false], [true, false], [false, true]]) {
+    played.length = 0;
+    e.hook(0.05, 0.4, n, 0.2, 'analog', 0, strong, 1, up);
+    rec.hook(0.05, 0.4, n, 0.2, 'analog', 0, strong, 1, up);
+    assert.deepEqual(rec.notes.hook.splice(0).map(n => n.m), [...new Set(played)], 'airy hook MIDI follows its lifted oscillators');
+  }
+  assert.equal(paletteHookPitch(s, 60, 'analog'), 72);
+  assert.equal(paletteHookPitch(s, 96, 'analog'), 84, 'high notes fold below the presence band');
+  assert.equal(paletteHookPitch(s, 60, 'analog', 'trap'), 60, 'a foreign playback style does not lift the hook');
+  try {
+    clearVoice();
+    assert.equal(paletteHookPitch(s, 60, 'chop'), 72, 'missing MY VOICE uses the lifted palette fallback');
+    setVoice({ buffer: e.ctx.createBuffer(1, SR / 2, SR), chops: [{ midi: 60, start: 0, end: 0.2 }] }, 'MY VOICE', false);
+    assert.equal(paletteHookPitch(s, 60, 'chop'), 60, 'recorded MY VOICE does not inherit the synth register');
+  } finally { clearVoice(); }
+  for (const style of ['euphoric', 'unknown']) {
+    assert.equal(paletteHookPitch({ artist: { style } }, 60, 'analog'), 60, `${style} keeps its register`);
+  }
+  assert(paletteFor(s).hook.width > 0 && paletteFor(s).hook.breath > 0, 'the airy hook has stereo spread and high-frequency breath');
+  const bank = paletteFor(s), dense = capture(s).notes.stab.length;
+  try {
+    bank.bed = false;
+    assert(dense > capture(s).notes.stab.length * 2, 'the liquid bed can play beneath its independent hook');
+  } finally { bank.bed = true; }
+  for (const style of ['euphoric', 'deephouse']) assert(!paletteFor({ artist: { style } }).bed, `${style} retains its chord/hook spacing`);
+}
+{
+  const { paletteFor } = await import('../js/engine.js');
+  const s = freshSong('dnb', 42); s.artist = { style: 'dnb', seed: 42 };
+  const c = new OfflineAudioContext(1, SR, SR), e = new Engine(c, s, { realtime: false }), links = new Map(), oscillators = [], cuts = [], equalizers = [];
+  const trace = node => { const connect = node.connect; node.connect = function (dest, ...args) { links.set(node, dest); return connect.call(this, dest, ...args); }; return node; };
+  const oscillator = c.createOscillator, gain = e.gain, filter = e.filter;
+  c.createOscillator = function () { const o = trace(oscillator.call(this)); oscillators.push(o); return o; };
+  e.gain = function (...args) { return trace(gain.apply(this, args)); };
+  e.filter = function (...args) {
+    const node = trace(filter.apply(this, args));
+    if (args[0] === 'peaking') {
+      equalizers.push(node);
+      const ramp = node.gain.linearRampToValueAtTime;
+      node.gain.linearRampToValueAtTime = function (value, time) { cuts.push(value); return ramp.call(this, value, time); };
+    }
+    return node;
+  };
+  for (const velocity of [0.25, 1]) {
+    e.noteVel = velocity;
+    e.paletteBass(0.05, { n: 0, a: false }, e.stepDur, false, false, paletteFor(s).bass);
+    const sub = oscillators.filter(o => o.type === 'sine' && o.frequency.value > 10).at(-1), level = links.get(sub);
+    assert.equal(level.gain.value, 0.9, 'the clean sub retains its reference level');
+    assert.equal(links.get(level), links.get(equalizers.at(-1)), 'the mono sine bypasses the body EQ');
+  }
+  assert(cuts[0] < 0 && cuts[1] < cuts[0] * 10, 'the mid-band dip responds to actual note level');
+}
+{
+  const { paletteFor, paletteHookPitch, paletteColor } = await import('../js/engine.js');
+  const s = freshSong('deephouse', 20); s.artist = { style: 'deephouse', seed: 20 };
+  const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false, trackQueuedNotes: true }), rec = new Recorder(s), played = [];
+  const start = e.startSource;
+  e.startSource = function (source, ...args) {
+    if (source.frequency) played.push(Math.round(69 + 12 * Math.log2(source.frequency.value / 440)));
+    return start.call(this, source, ...args);
+  };
+  for (const n of [-24, 0, 24, 48]) {
+    played.length = 0;
+    e.hook(0.05, 0.4, n, 0.5, 'analog');
+    rec.hook(0.05, 0.4, n, 0.5, 'analog');
+    assert.deepEqual(rec.notes.hook.splice(0).map(n => n.m), [...new Set(played)], 'Deep House MIDI follows its independent upper register');
+    assert(played.every(n => n >= 79 && n <= 91));
+  }
+  assert.equal(paletteHookPitch(s, 60, 'analog'), 84);
+  try {
+    setVoice({ buffer: e.ctx.createBuffer(1, SR / 2, SR), chops: [{ midi: 60, start: 0, end: 0.2 }] }, 'MY VOICE', false);
+    assert.equal(paletteHookPitch(s, 60, 'chop'), 60, 'recorded Deep House hooks keep their recording register');
+  } finally { clearVoice(); }
+  for (const voice of [1, 3]) {
+    s.params.stab.voice = voice;
+    assert.deepEqual(paletteColor(s).eq[0], [320, 0.8, -5], 'Rhodes and organ share the extra 3dB low-mid trim');
+  }
+  assert(paletteFor(s).bass.balance, 'the adaptive bass cap remains enabled');
+  assert.deepEqual(paletteFor(s).bass.lowBand, { cutoff: 120, trim: -6, duck: 6 });
+  assert.equal(e.pocketBassOut(), e.ch.acid.input, 'other pocket basses keep their existing route');
+  const lowOut = e.pocketBassOut(paletteFor(s).bass.lowBand), ducks = [];
+  assert.notEqual(lowOut, e.ch.acid.input);
+  assert.equal(e.pocketBassOut(paletteFor(s).bass.lowBand), lowOut, 'notes share one low-band sidechain');
+  const target = e.pocketLow.duck.gain.setTargetAtTime;
+  e.pocketLow.duck.gain.setTargetAtTime = function (...args) { ducks.push(args); return target.apply(this, args); };
+  e.duckAt(0.1, 1);
+  assert(ducks.some(([gain, t]) => t === 0.1 && gain === -6), 'a kick ducks only the low band by 6dB');
+  e.discardQueuedNotes(0.2);
+  assert(ducks.some(([gain, t]) => gain === 0 && t === 0.2), 'discarding notes releases the low-band sidechain');
+}
+{
+  const { paletteFor } = await import('../js/engine.js');
+  const s = freshSong('dnb', 20); s.artist = { style: 'dnb', seed: 20 };
+  const e = new Engine(new OfflineAudioContext(1, SR * 2, SR), s, { realtime: false }), targets = [], peaks = [];
+  const gain = e.gain;
+  e.gain = function (...args) {
+    const g = gain.apply(this, args), target = g.gain.setTargetAtTime, ramp = g.gain.linearRampToValueAtTime;
+    g.gain.setTargetAtTime = function (...args) { targets.push(args); return target.apply(this, args); };
+    g.gain.linearRampToValueAtTime = function (...args) { peaks.push(args); return ramp.apply(this, args); };
+    return g;
+  };
+  e.paletteChord(0.05, 0.4, [], 72, s.params.stab, e.ch.stab.input, paletteFor(s).hook);
+  assert.equal(targets.length, 0, 'empty voicings do not schedule breath');
+  e.hook(0.05, 0.4, 0, 1, 'analog');
+  assert(targets.some(([value, time, decay]) => value === 0 && Math.abs(time - 0.068) < 1e-8 && decay === 0.06), 'breath fades after its attack rather than sustaining with the note');
+  assert(peaks.some(([value]) => value === 0.18), 'the initial airy attack is retained');
+  assert.deepEqual(paletteFor(s).hook.eq, [[1130, 0.7, 3]]);
+  for (const color of Object.values(paletteFor(s).chords)) assert.deepEqual(color.eq, [[1130, 0.7, 3]], 'every liquid chord variant has the same body boost');
+  const waves = [], create = e.ctx.createPeriodicWave;
+  e.ctx.createPeriodicWave = function (re, im, ...args) { waves.push(im); return create.call(this, re, im, ...args); };
+  for (const color of Object.values(paletteFor(s).chords)) {
+    assert(color.width >= 0.7 && color.spread >= 14, 'every liquid chord variant restores its stereo spread');
+    assert.equal(color.sideCutoff, 150, 'liquid chord width is confined above the low band');
+    e.paletteWave(220, color);
+    assert(waves.at(-1).some((x, i) => x !== 0 && i * 220 > 2000), 'liquid chord harmonics extend above 2kHz');
+  }
+  const before = waves.length;
+  e.paletteWave(220, paletteFor(s).hook);
+  assert.equal(waves.length, before + 1, 'hook and chord harmonic ceilings have separate caches');
+  assert(waves.at(-1).length <= 8, 'the hook keeps its approved harmonic ceiling');
+  const upperSources = [], startUpper = e.startSource;
+  e.startSource = function (o, ...args) { upperSources.push(o.frequency.value); return startUpper.call(this, o, ...args); };
+  e.keys = () => assert.fail('the liquid upper renderer never enters shared keys');
+  e.paletteUpperFM(0.1, 0.4, [], 60, s.params.stab, e.ch.stab.input, 0.4);
+  assert.deepEqual(upperSources, [], 'empty upper voicings create no oscillators');
+  e.paletteUpperFM(0.1, 0.4, [0], 60, s.params.stab, e.ch.stab.input, 0.4);
+  const upperRoot = 440 * 2 ** ((60 - 69) / 12);
+  assert.deepEqual(upperSources, [upperRoot, upperRoot, upperRoot * 14], 'the dedicated upper voice has its own FM carrier, body and strike');
+  e.startSource = startUpper;
+  let upper = 0;
+  e.paletteUpperFM = () => upper++;
+  const chord = paletteFor(s).chords.default, out = e.ch.stab.input;
+  e.paletteChord(0.1, 0.4, [], 60, s.params.stab, out, chord);
+  assert.equal(upper, 0, 'empty chords do not schedule an upper layer');
+  e.paletteChord(0.1, 0.4, [0, 3, 7], 60, s.params.stab, out, chord);
+  assert.equal(upper, 1, 'the liquid chord bed has its own upper layer');
+  e.hook(0.2, 0.4, 0, 0.5, 'analog');
+  assert.equal(upper, 1, 'the upper layer does not leak into the hook');
+  assert.equal(e.paletteUpperOut(out), e.paletteUpperOut(out), 'chords reuse their stereo upper-layer path');
+  const widthDest = e.gain(1);
+  assert.equal(e.paletteWidthOut(widthDest), widthDest, 'unconfigured palettes retain their existing width route');
+  const sideFilters = [], filter = e.filter;
+  e.filter = function (...args) { sideFilters.push(args); return filter.apply(this, args); };
+  const widthOut = e.paletteWidthOut(widthDest, 150);
+  e.filter = filter;
+  assert.deepEqual(sideFilters, [
+    ['highpass', 150, 20 * Math.log10(Math.SQRT1_2)],
+    ['highpass', 150, 20 * Math.log10(Math.SQRT1_2)],
+  ], 'side highpasses use Web Audio Q in dB, without a resonant boost above the crossover');
+  assert.notEqual(widthOut, widthDest);
+  assert.equal(e.paletteWidthOut(widthDest, 150), widthOut, 'liquid chords share their side-only highpass path');
+  assert.equal(e.paletteFxCutoff, 150, 'liquid chord reverb and echo returns share the low-side cutoff');
+  s.artist.style = 'euphoric'; e.applyPaletteWidth();
+  assert.equal(e.paletteFxCutoff, 0, 'switching away from liquid restores unfiltered FX return routes');
+  s.artist.style = 'dnb'; e.applyPaletteWidth();
+  assert.equal(e.paletteFxCutoff, 150, 'switching back restores low-side protection');
+}
+for (const recorded of ['dnb', 'euphoric', 'deephouse']) {
+  const s = freshSong(recorded, 42); s.artist = { style: 'trap' };
+  const e = new Engine(new OfflineAudioContext(1, 256, SR), s, { realtime: false }), calls = [];
+  e.replay808Style = recorded;
+  for (const name of ['paletteChord', 'paletteHook', 'paletteBass']) e[name] = () => calls.push(name);
+  e.stab(0.05, 0.7); e.hook(0.05, 0.4, 0, 0.2, 'analog'); e.acidVoice(0.05, { n: 0 }, false, false, e.stepDur);
+  assert.deepEqual(calls, ['paletteChord', 'paletteHook', 'paletteBass'], `${recorded} replay retains its palette with a Trap listener`);
+}
+
+for (const style of ['euphoric', 'deephouse']) {
+  const { paletteFor, paletteColor, paletteHookPitch, soundingPitch } = await import('../js/engine.js');
+  const voices = new Set();
+  for (const seed of [11, 20, 42, 73, 211, 997, 1234, 2026]) {
+    const s = freshSong(style, seed); s.artist = { style, seed };
+    const ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false }), rec = new Recorder(s);
+    voices.add(s.params.stab.voice);
+    let played, frequency, bass = 0;
+    const chord = e.paletteChord, hook = e.paletteHook, pocket = e.pocketBass;
+    e.paletteChord = function (t, v, iv, root, p, out, color) { played = iv.map(n => color.piano ? soundingPitch('piano', root + n) : root + n); return chord.call(this, t, v, iv, root, p, out, color); };
+    e.paletteHook = function (t, v, f, ...a) { frequency = f; return hook.call(this, t, v, f, ...a); };
+    e.pocketBass = function (...a) { bass++; return pocket.apply(this, a); };
+    e.stab(0.05, 0.7); rec.trigger('stab', 0.05, 0.7);
+    assert.deepEqual(rec.notes.stab.map(n => n.m), played, `${style} MIDI follows its voiced chords`);
+    e.recordedNote = () => assert.fail(`${style} hook cannot inherit a recorded chord player`);
+    for (const [strong, up] of [[false, false], [true, false], [false, true]]) {
+      e.hook(0.1, 0.4, 1, 0.2, 'analog', 0, strong, 1, up);
+      rec.hook(0.1, 0.4, 1, 0.2, 'analog', 0, strong, 1, up);
+      assert(Math.abs(paletteHookPitch(s, 69 + 12 * Math.log2(frequency / 440), 'analog') - rec.notes.hook.at(-1).m) < 1e-8, `${style} hook snap and register match MIDI`);
+    }
+    e.acidVoice(0.05, { n: 0, a: false }, false, false, e.stepDur);
+    assert.equal(bass, 1, `${style} has its own pocket bass`);
+    const d = (await ctx.startRendering(e.mix)).getChannelData(0);
+    assert(d.every(Number.isFinite) && hitDb(d) > -60, `${style} renders finite audible PCM`);
+  }
+  assert.equal(voices.size, new Set(INSTRUMENTS[style].map(p => p[0])).size, `${style} covers every chord voice`);
+  for (const voice of [-1, 99, NaN]) {
+    const s = freshSong(style, 42); s.artist = { style }; s.params.stab.voice = voice;
+    assert.equal(paletteColor(s), paletteFor(s).chords.default, `${style} unknown-palette fallback`);
+    const ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
+    e.stab(0.05, 0.7);
+    const d = (await ctx.startRendering(e.mix)).getChannelData(0);
+    assert(d.every(Number.isFinite) && hitDb(d) > -60, `${style} fallback renders safely and audibly`);
+  }
+  const s = freshSong(style, 42); s.artist = { style };
+  const ctx = new OfflineAudioContext(1, 256, SR), e = new Engine(ctx, s, { realtime: false });
+  e.paletteChord(0, 1, [], 48, s.params.stab, e.ch.stab.input, paletteColor(s));
+  assert((await ctx.startRendering(e.mix)).getChannelData(0).every(v => v === 0), `${style} empty voicing is silent`);
+}
+
+{
+  const { paletteFor, paletteColor } = await import('../js/engine.js');
+  assert.equal(paletteFor({ artist: { style: 'toString' } }), undefined, 'unknown styles cannot inherit a palette');
+  const voices = new Set();
+  for (const seed of [11, 20, 42, 73, 211, 997, 1234, 2026]) {
+    const s = freshSong('dnb', seed); s.artist = { style: 'dnb', seed };
+    const ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false }), rec = new Recorder(s), hits = {};
+    for (const name of ['paletteChord', 'paletteHook', 'paletteBass']) {
+      const f = e[name]; e[name] = function (...a) { hits[name] = (hits[name] || 0) + 1; return f.apply(this, a); };
+    }
+    for (const name of ['recordedNote', 'keys', 'pad', 'strings', 'reese']) e[name] = () => assert.fail(`liquid never enters ${name}`);
+    voices.add(s.params.stab.voice);
+    let played;
+    const chord = e.paletteChord;
+    e.paletteChord = function (t, v, iv, root, ...a) { played = iv.map(n => root + n); return chord.call(this, t, v, iv, root, ...a); };
+    e.stab(0.05, 0.7); rec.trigger('stab', 0.05, 0.7);
+    assert.deepEqual(rec.notes.stab.map(n => n.m), played, 'liquid MIDI keeps the actual chord voicing');
+    e.hook(0.1, 0.4, 0, 0.2, 'analog');
+    e.acidVoice(0.05, { n: 0, a: false }, false, false, e.stepDur);
+    assert.deepEqual(hits, { paletteChord: 2, paletteHook: 1, paletteBass: 1 });
+    assert.equal(paletteFor(s).name, 'liquid');
+    const d = (await ctx.startRendering(e.mix)).getChannelData(0);
+    assert(d.every(Number.isFinite) && hitDb(d) > -60, 'liquid renders finite audible PCM');
+    const fallback = paletteFor(s).chords.default;
+    s.params.stab.voice = 99;
+    assert.equal(paletteColor(s), fallback, 'unknown liquid palettes have a safe default');
+  }
+  assert.equal(voices.size, 4, 'all four liquid ensembles are covered');
+  const s = freshSong('dnb', 42); s.artist = { style: 'dnb' };
+  const ctx = new OfflineAudioContext(1, 256, SR), e = new Engine(ctx, s, { realtime: false });
+  const makeWave = ctx.createPeriodicWave.bind(ctx);
+  let fundamental;
+  ctx.createPeriodicWave = (re, im) => { fundamental = im[1]; return makeWave(re, im); };
+  e.paletteWave(2400, paletteFor(s).hook);
+  assert.equal(fundamental, 1, 'high-register palette notes retain their fundamental');
+  e.paletteChord(0, 1, [], 48, s.params.stab, e.ch.stab.input, paletteColor(s));
+  assert((await ctx.startRendering(e.mix)).getChannelData(0).every(v => v === 0), 'empty liquid voicing is silent');
+  for (const voice of [-1, 99, NaN]) {
+    const s = freshSong('dnb', 42); s.artist = { style: 'dnb' }; s.params.stab.voice = voice;
+    const ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
+    e.stab(0.05, 0.7);
+    const d = (await ctx.startRendering(e.mix)).getChannelData(0);
+    assert(d.every(Number.isFinite) && hitDb(d) > -60, 'unknown liquid palettes render safely and audibly');
+  }
+  for (const style of ['trap', 'jerseyclub', 'minimal', 'hardtechno', 'ambient', 'ukg']) {
+    const s = freshSong(style, 42); s.artist = { style };
+    assert.equal(paletteFor(s), undefined, `${style} has no liquid palette`);
+    const e = new Engine(new OfflineAudioContext(1, 256, SR), s, { realtime: false });
+    e.paletteChord = e.paletteHook = e.paletteBass = () => assert.fail(`${style} entered liquid dispatch`);
+    e.stab(0.05, 0.7); e.hook(0.05, 0.4, 0, 0.2, 'analog'); e.acidVoice(0.05, { n: 0 }, false, false, e.stepDur);
+  }
+}
 
 {
   const old = [[0, 2, 0, 0.35, 0.55], [3, 1, 0, 0.5, 0.25], [5, 2, 0, 0.45, 0.7], [9, 1, 0, 0.4, 0.55]];

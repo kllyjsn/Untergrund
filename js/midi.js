@@ -1,6 +1,6 @@
 // EXPORT MIDI: plays the song through the real Sequencer into a recorder instead of the audio engine,
 // so every pocket, swing and humanize offset and every velocity lands in the file as played.
-import { Engine, Sequencer, parseChain, stabPitches, soundingPitch, STAB_VOICES } from './engine.js';
+import { Engine, Sequencer, parseChain, stabPitches, soundingPitch, STAB_VOICES, paletteFor, paletteColor, paletteHookPitch } from './engine.js';
 import { CHORDS, KEYS, SCALES } from './params.js';
 import { compose } from './classical.js';
 import { PIECE } from './repertoire.js';
@@ -62,7 +62,8 @@ export class Recorder {
       // Dub and smooth styles export the engine's own voicing (voice leading, chorus doubling, lift and fold).
       // Other styles keep the plain chord their sung parts are written against.
       const p = this.state.params.stab, len = Math.max(this.stepDur * 2, (p.decay || 0.3) * 1.5), { root, vo, iv } = stabPitches(this);
-      if (this.state.artist?.style === 'dub') for (const n of iv) this.add('stab', t, this.dubRegister(iv, root) + n, len, v);
+      if (paletteFor(this.state)) for (const n of iv) this.add('stab', t, paletteColor(this.state).piano ? soundingPitch('piano', root + n) : root + n, len, v);
+      else if (this.state.artist?.style === 'dub') for (const n of iv) this.add('stab', t, this.dubRegister(iv, root) + n, len, v);
       else if (this.smoothOn) for (const m of new Set(iv.map((n) => soundingPitch(STAB_VOICES[vo], root + n)))) this.add('stab', t, m, len, v);
       else for (const n of this.chord()) this.add('stab', t, 48 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + n, len, v);
     } else if (GM_DRUMS[id]) this.add(id, t, GM_DRUMS[id], this.stepDur, v);
@@ -86,6 +87,7 @@ export class Recorder {
     }
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
     let pitch = 60 + k + oct * 12 + n;
+    pitch = paletteHookPitch(this.state, pitch, voice);
     const style = this.state.artist?.style, vo = Math.round(this.state.params.stab.voice);
     if (style === 'dub') pitch = this.dubRegister([0], pitch);
     if (((style === 'breaks' && vo === 1) || (style === 'reggaeton' && vo === 3)) && (voice === 'vocal' || voice === 'reed')) {
