@@ -1174,6 +1174,18 @@ console.log('recorded jazz leads: trumpet, airflute and piano finite/audible/lev
   }
   assert.equal(calls.length, 6, 'each explicit bass selection schedules only its chosen instrument');
 }
+for (const start of [0, 17]) {
+  const s = freshSong('minimal', 42); s.artist = { style: 'minimal', seed: 42 };
+  s.patterns[1] = freshSong('bossa', 12).patterns[0]; s.current = 1;
+  s.chainOn = true; s.chain = 'A'; s.ending = false;
+  const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
+  const expected = 0.78 * 10 ** (0.32 / 20);
+  assert(Math.abs(e.out.gain.at(0) - expected) > 0.1, 'construction uses the selected Bossa slot before transport chooses Minimal');
+  const q = new Sequencer(e, s); q.startAt(start, 0.05); s.current = q.cur;
+  q.tick(start, 0.05);
+  assert(e.minimal, 'the first playing pattern is Minimal');
+  assert(Math.abs(e.out.gain.at(0.05) - expected) < 1e-6, 'first tick applies the playing style trim, including mid-bar starts');
+}
 for (const listener of ['trap', 'dnb', undefined]) {
   const song = freshSong('minimal', 12); song.artist = { style: 'minimal', seed: 12 };
   const expected = capture(song).notes, saved = structuredClone(song);

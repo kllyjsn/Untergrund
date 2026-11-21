@@ -5003,9 +5003,9 @@ export class Sequencer {
     if (s.artist?.style === 'dub' || e.dubBreakdown === true) e.dubSection?.(t, s.artist?.style === 'dub' && s.chainOn && pos >= 48 && pos < 56 && (this.cur === 4 || this.cur === 5));
     if (abs % 16 === 0) e.vocal(t, pos, 0, roomGridTime, false, vocalSettling);
     const pat = patternAt(s.patterns[this.cur], pos);
-    const previousJazz = jazzStyle(s, e.playingPattern);
+    const firstTick = !e.playingPattern, previousJazz = jazzStyle(s, e.playingPattern);
     e.playingPattern = pat;
-    if (abs % 16 === 0 && previousJazz !== jazzStyle(s, pat)) e.applyOutputTrim?.(false, t);
+    if (firstTick || (abs % 16 === 0 && previousJazz !== jazzStyle(s, pat))) e.applyOutputTrim?.(false, t);
     const bar = Math.floor(abs / 16), vary = s.master.vary || 0;
     e.harm = pat.prog?.length ? pat.prog[bar % pat.prog.length] : null;
     e.step = abs;
