@@ -1,6 +1,6 @@
 import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES, KIT_BACKBEAT, defaultParams } from './params.js';
 import { PALETTE_INSTRUMENTS, PALETTE_DEFAULTS, instrumentFor } from './palette-defaults.js';
-import { getSample, synthSliceMidi } from './sampler.js';
+import { getSample, sungNote, SUNG_LEN, SUNG_VOWEL_COUNT } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
 import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, STAB_BAND, HOOK_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
@@ -3290,25 +3290,31 @@ export class Engine {
   vox(t, v, step) {
     if (this.playbackStyle === 'bailefunk') return this.funkVox(t, v, step);
     // Saved set timelines omit song metadata, so never borrow the listener's project seed.
-    const c = this.ctx, p = this.state.params.vox, sample = getSample(this.replay808Style ? null : this.state);
+    const c = this.ctx, p = this.state.params.vox, owner = this.replay808Style ? null : this.state, sample = getSample(owner);
+    if (this.playbackStyle === 'euphoric' && sample.source === 'synth') return this.sungVox(t, v, step, owner);
     const { buffer, slices } = sample;
     const jump = hash(step, 1) < p.scatter ? Math.floor(hash(step, 2) * slices.length) : 0;
     const idx = (Math.round(p.slice) + jump) % slices.length;
     const from = slices[idx], to = slices[idx + 1] ?? buffer.duration;
     const notes = SCALES[this.state.scale]?.notes || SCALES.minor.notes;
-    let rate;
-    if (this.playbackStyle === 'euphoric' && sample.source === 'synth') {
-      // Sing chord tones in the song's key: the synth slice's own note is known, so retune it onto the bar's chord.
-      const iv = chordIv(this.harm, this.state.params.stab), sliceMidi = synthSliceMidi(from);
-      const tone = hash(step, 3) < p.melody ? iv[Math.floor(hash(step, 4) * iv.length)] : 0;
-      const target = 60 + this.state.key + this.harmRoot() + tone + Math.round(p.pitch);
-      rate = 2 ** ((target - sliceMidi - 12 * Math.round((target - sliceMidi - 3) / 12)) / 12);
-    } else {
-      const degree = hash(step, 3) < p.melody ? notes[Math.floor(hash(step, 4) * notes.length)] : 0;
-      rate = 2 ** ((Math.round(p.pitch) + degree) / 12);
-    }
+    const degree = hash(step, 3) < p.melody ? notes[Math.floor(hash(step, 4) * notes.length)] : 0;
+    const rate = 2 ** ((Math.round(p.pitch) + degree) / 12);
     const dur = Math.max(0.03, Math.min((to - from) / rate, p.length * this.stepDur));
-    const src = c.createBufferSource();
+    this.voxChop(t, v, buffer, from, dur, rate);
+  }
+
+  // Euphoric chops: the sung voice already holds every vowel on every pitch, so a chop plays a chord
+  // tone of the bar in the song's key at its own pitch (playback rate 1, formants where a singer has them).
+  sungVox(t, v, step, owner) {
+    const p = this.state.params.vox, iv = chordIv(this.harm, this.state.params.stab);
+    const tone = hash(step, 3) < p.melody ? iv[Math.floor(hash(step, 4) * iv.length)] : 0;
+    const vowel = Math.round(p.slice) + (hash(step, 1) < p.scatter ? Math.floor(hash(step, 2) * SUNG_VOWEL_COUNT) : 0);
+    const buffer = sungNote(owner, vowel, 60 + this.state.key + this.harmRoot() + tone + Math.round(p.pitch));
+    this.voxChop(t, v, buffer, 0, Math.max(0.06, Math.min(SUNG_LEN, p.length * this.stepDur)), 1, 0.03);
+  }
+
+  voxChop(t, v, buffer, from, dur, rate, release = 0.015) {
+    const c = this.ctx, p = this.state.params.vox, src = c.createBufferSource();
     src.buffer = buffer;
     src.playbackRate.value = rate;
     const lp = c.createBiquadFilter();
@@ -3316,7 +3322,7 @@ export class Engine {
     const amp = this.gain(0);
     amp.gain.setValueAtTime(0, t);
     amp.gain.linearRampToValueAtTime(v, t + 0.004);
-    amp.gain.setValueAtTime(v, t + Math.max(0.005, dur - 0.015));
+    amp.gain.setValueAtTime(v, t + Math.max(0.005, dur - release));
     amp.gain.linearRampToValueAtTime(0, t + dur);
     src.connect(lp).connect(amp).connect(this.ch.vox.input);
     this.startSource(src, t, from, dur + 0.02);
