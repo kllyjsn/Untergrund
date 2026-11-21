@@ -1,6 +1,6 @@
 // Rendered-audio quality measurements for scripts/audio-benchmark.mjs: pure functions over PCM (no Web Audio),
 // so they run inside the render page and in Node tests. See docs/audio-benchmark.md for what each one means.
-import { kWeighting, loudness, truePeak } from './loudness.js';
+import { kWeighting, loudness, truePeak, LOUDNESS_TARGET } from './loudness.js';
 
 const db = (x) => 10 * Math.log10(Math.max(x, 1e-20));
 const r = (v, p = 2) => (Number.isFinite(v) ? +v.toFixed(p) : null);
@@ -273,7 +273,7 @@ export function crest(L, R, fs, times) {
 
 // Everything measured on the master output. opts: barTimes (s, bar starts plus the end of the last bar),
 // sections [{ label, from, to }] in bars, finalHit (s), target (LUFS), lim (4 tap channels), full (whole song).
-export function analyzeMix(L, R, fs, { barTimes = [], sections = [], finalHit = null, songEnd = null, target = -10, lim = null, clip = null, sat = null, makeupDb = null, crestTimes = null, barNotes = null, refLufs = null, start = 0.05 } = {}) {
+export function analyzeMix(L, R, fs, { barTimes = [], sections = [], finalHit = null, songEnd = null, target = LOUDNESS_TARGET.feed, lim = null, clip = null, sat = null, makeupDb = null, crestTimes = null, barNotes = null, refLufs = null, start = 0.05 } = {}) {
   const hops = kHops([L, R], fs), I = loudness([L, R], fs).integrated;
   let clipRuns = 0, run = 0, dc = 0, samplePeak = 0;
   for (const ch of [L, R]) for (let i = 0; i < ch.length; i++) {

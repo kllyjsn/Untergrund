@@ -76,14 +76,15 @@ const rows = await withChrome(async (runs) => {
 if (!rows) { console.log('loudness: no Chrome found'); process.exit(0); }
 
 const f = (v, d = 1) => (v >= 0 ? ' ' : '') + v.toFixed(d);
-console.log(`target ${LOUDNESS_TARGET.club} LUFS (club) / ${LOUDNESS_TARGET.quiet} (quiet) / ${LOUDNESS_TARGET.classical} (classical), ceiling ${LOUDNESS_TARGET.ceiling} dBTP · ${SEEDS.length} seeds · ${bars || 'full'} bars · ${((Date.now() - t0) / 1000).toFixed(0)} s`);
+console.log(`target ${LOUDNESS_TARGET.feed} LUFS (feed) / ${LOUDNESS_TARGET.quiet} (ambient, R&B, Lo-Fi Hip-Hop, acoustic jazz) / ${LOUDNESS_TARGET.classical} (classical), ceiling ${LOUDNESS_TARGET.ceiling} dBTP · ${SEEDS.length} seeds · ${bars || 'full'} bars · ${((Date.now() - t0) / 1000).toFixed(0)} s`);
 console.log('style        target  makeup   mean LUFS  spread  vs target  max dBTP  GR mean  GR 1%  GR 10ms jump (p99)');
 const table = [];
 for (const style of styles) {
   const rs = rows.filter((r) => r.style === style), l = rs.map((r) => r.lufs);
   const mean = l.reduce((a, v) => a + v, 0) / l.length, t = targetFor(style);
   const row = { style, target: t, makeup: MAKEUP_DB[style] || 0, mean, min: Math.min(...l), max: Math.max(...l), tp: Math.max(...rs.map((r) => r.tp)),
-    grMean: rs.reduce((a, r) => a + r.grMean, 0) / rs.length, grDeep: Math.min(...rs.map((r) => r.grDeep)), grJump: Math.max(...rs.map((r) => r.grJump)), seeds: rs.map((r) => [r.seed, +r.lufs.toFixed(2), +r.tp.toFixed(2)]) };
+    grMean: rs.reduce((a, r) => a + r.grMean, 0) / rs.length, grDeep: Math.min(...rs.map((r) => r.grDeep)), grJump: Math.max(...rs.map((r) => r.grJump)), seeds: rs.map((r) => [r.seed, +r.lufs.toFixed(2), +r.tp.toFixed(2)]),
+    measurements: rs.map(({ seed, lufs, tp, lra, grMean, grDeep }) => ({ seed, lufs, tp, lra, grMean, grDeep })) };
   table.push(row);
   console.log(`${style.padEnd(12)} ${f(t)}  ${f(row.makeup)}    ${f(mean, 2)}   ${(row.max - row.min).toFixed(2)}    ${f(mean - t, 2)}     ${f(row.tp, 2)}    ${f(row.grMean)}    ${f(row.grDeep)}    ${row.grJump.toFixed(2)}`);
 }
@@ -92,7 +93,7 @@ console.log(`worst |mean - target| ${Math.max(...dev).toFixed(2)} LU · worst tr
 if (write) {
   const file = baseFile;
   const prev = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : { styles: {} };
-  for (const r of table) prev.styles[r.style] = { lufs: +r.mean.toFixed(2), spread: +(r.max - r.min).toFixed(2), tp: +r.tp.toFixed(2), window: +windows[r.style].toFixed(2) };
+  for (const r of table) prev.styles[r.style] = { lufs: +r.mean.toFixed(2), spread: +(r.max - r.min).toFixed(2), tp: +r.tp.toFixed(2), window: +windows[r.style].toFixed(2), measurements: r.measurements };
   prev.seeds = SEEDS; prev.note = 'node scripts/loudness.mjs --write: full-song integrated LUFS (mean over seeds), max dBTP, and the fast-check window LUFS';
   writeFileSync(file, JSON.stringify(prev, null, 1) + '\n');
   console.log('wrote test/loudness-baseline.json');

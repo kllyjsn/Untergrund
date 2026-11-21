@@ -16,7 +16,7 @@ import { LOUDNESS_TARGET } from '../js/loudness.js';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const SWEEP_SEEDS = [11, 42, 1234];
 // Seeds that once peaked over the ceiling, kept in the sweep after their fix so they cannot regress unseen.
-export const REGRESSION_SEEDS = { trap: [211], euphoric: [2, 11] };
+export const REGRESSION_SEEDS = { trap: [211], euphoric: [2, 11], minimal: [41654, 41655], pop: [41655] };
 // Repeat renders match to 0.001 dB; a known breach fails once it is this much louder than recorded.
 export const WORSE_DB = 0.1;
 export const KNOWN_FILE = join(ROOT, 'test/true-peak-known.json');

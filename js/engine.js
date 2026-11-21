@@ -570,7 +570,7 @@ const CLIP_HEADROOM = 2;
 const OUT_TRIM = 0.78;
 // Post-clipper headroom for Trap's saw, pad, and bells ensembles; leave their transients intact.
 const TRAP_OUTPUT_DB = { 0: -0.8, 2: -0.3, 6: -0.3 };
-const HIPHOP_OUTPUT_DB = { gfunk: -0.8, phonk: -0.8, electrohiphop: -0.5 };
+const STYLE_OUTPUT_DB = { gfunk: -0.8, phonk: -0.8, electrohiphop: -0.5, euphoric: 0.7, neosoul: 0.6 };
 
 // Six band-limited squares (808 cymbal cluster) summed once into a seamless 0.5 s loop.
 // Each square is read from a one-period wavetable; a small LRU bounds memory as tunings change.
@@ -973,8 +973,8 @@ export class Engine {
       this.festivalGate.gain.setValueAtTime(1, this.ctx.currentTime);
     }
     const mix = JAZZ_MIX[jazzStyle(this.state, this.playingPattern)];
-    const trim = this.playbackStyle === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : jazzStyle(this.state, this.playingPattern) === 'bossa' ? voice === 7 ? mix.pianoOutput : voice === 8 ? mix.guitarOutput : mix.output : mix?.output ?? HIPHOP_OUTPUT_DB[this.playbackStyle] ?? 0;
-    const level = this.hardTechno ? 0.98 : OUT_TRIM * dbGain(trim);
+    const trim = this.playbackStyle === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : jazzStyle(this.state, this.playingPattern) === 'bossa' ? voice === 7 ? mix.pianoOutput : voice === 8 ? mix.guitarOutput : mix.output : mix?.output ?? STYLE_OUTPUT_DB[this.playbackStyle] ?? 0;
+    const level = this.hardTechno ? 0.89 : OUT_TRIM * dbGain(trim);
     if (Number.isFinite(time)) this.out.gain.setValueAtTime(level, time);
     else this.setTo(this.out.gain, level, immediate);
   }
