@@ -18,7 +18,7 @@ export const HIPHOP = {
   },
   gfunk: {
     name: 'G-FUNK', bpm: [92, 96], tag: 'gliding whistle · synth bass', color: '#ffa567',
-    ensembles: [[10, 1, 0, 0.3, 0.2], [1, 1, 0, 0.3, 0.2], [10, 7, 0, 0.3, 0.2], [2, 7, 0, 0.4, 0.16]],
+    ensembles: [[10, 1, 0, 0.7, 0.2], [1, 1, 0, 0.3, 0.2], [10, 7, 0, 0.7, 0.2], [2, 7, 0, 0.4, 0.16]],
     chords: [[[0, 1], [0, 1], [5, 1], [5, 1]], [[0, 1], [10, 10], [5, 1], [0, 1]], [[0, 1], [3, 7], [5, 1], [10, 10]]],
     kicks: [[0, 6, 8, 11], [0, 3, 8, 10], [0, 7, 10, 14]], clap: [4, 12], hats: [0, 2, 4, 6, 8, 10, 12, 14, 15], open: [10, 14],
     stabs: [[0, 8], [0, 10], [0, 6, 8]],
@@ -30,7 +30,7 @@ export const HIPHOP = {
       ch: { tone: 4400, decay: 0.052, level: 0.47, rev: 0.06 },
       oh: { tone: 4200, decay: 0.13, level: 0.25, rev: 0.06 },
       acid: { tune: -12, cutoff: 485, reso: 1.3, envmod: 0.36, decay: 0.2, drive: 0.25, accent: 0.3, level: 0.66, rev: 0, dly: 0 },
-      stab: { chord: 1, cutoff: 1100, reso: 0.7, detune: 7, level: 0.46, rev: 0.05, dly: 0 },
+      stab: { chord: 1, cutoff: 1100, reso: 0.7, detune: 7, level: 0.46, rev: 0.05, dly: 0, strEq: [[500, 0.7, 5], [2200, 1.2, -3], [3300, 0.8, -6]] },
     },
     master: { kit: 2, room: 0.14, warmth: 0.3, drive: 0.15, duck: 0.4, vary: 0.42, revLevel: 0.29, arr: 0, humanize: 0.25 },
     swing: 0.38,
