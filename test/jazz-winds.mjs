@@ -24,6 +24,28 @@ for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
   assert(windBanks(voice, style).every((bank) => liveSets(song).includes(bank)));
 }
 assert(!liveSets(freshSong('trap', 42)).some((n) => Object.hasOwn(WIND_BANKS, n)));
+for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
+  const song = freshSong(style, 42); song.chainOn = false; song.current = 6;
+  const collect = (from = 0) => {
+    const e = new Recorder(song), seq = new Sequencer(e, song), hits = [];
+    e.hook = (...args) => hits.push({ step: e.step, pitch: args[2] + (args[5] || 0) * 12, take: args[9]?.take });
+    if (from) seq.startAt(from, .05);
+    for (let i = from; i < 128; i++) seq.tick(i, .05 + i * e.stepDur);
+    return hits;
+  };
+  const hits = collect(), counts = new Map();
+  for (const hit of hits) {
+    const count = counts.get(hit.pitch) || 0;
+    if (hit.step >= 16) assert.equal(hit.take, count % 2, `pitch ${hit.pitch}, step ${hit.step}: RR must continue across bars`);
+    counts.set(hit.pitch, count + 1);
+  }
+  assert.deepEqual(collect(64), hits.filter((hit) => hit.step >= 64), 'seeking reconstructs the same written-note RR history');
+  song.patterns[6].hook = { h: 1, v: 'tpt', o: 0, s: Array(32).fill(0), x: {} };
+  song.patterns[6].hook.s[0] = [4, 1, .6]; song.patterns[6].hook.s[16] = [4, 1, .6];
+  const placed = collect();
+  assert.deepEqual(placed.map((hit) => hit.take), [0, 1, 0, 1, 0, 1, 0, 1], 'placed repeats continue across bars and phrase passes');
+  assert.deepEqual(collect(64), placed.filter((hit) => hit.step >= 64), 'placed-note seeks reconstruct the same RR history');
+}
 
 const probe = (voice = 'tpt', velocity = .5, duration = .8, take = 0, missing, style, midi = 73) => {
   const calls = [], eq = [];

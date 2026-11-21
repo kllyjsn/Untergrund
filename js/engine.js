@@ -4851,6 +4851,15 @@ function windTake(notes, index, pitchIndex, pass) {
   return pass % 2;
 }
 
+function jazzWindPitch(s, pat, pitch, placed = false) {
+  if (!placed && pat.jazz.style === 'jazzfunk' && pat.hook.v === 'tpt') {
+    const k = s.key > 6 ? s.key - 12 : s.key;
+    while (60 + k + pitch < 69) pitch += 12;
+    while (60 + k + pitch > 80) pitch -= 12;
+  }
+  return pitch;
+}
+
 // Is the hook sounding at (or about to play) step hi? A note started k steps ago still rings for its length.
 function hookBusy(hk, hi, hm) {
   const plays = (j) => hk.s[j] && (hm > 1 || j < 16);
@@ -5291,14 +5300,43 @@ export class Sequencer {
     return v ? (v === 2 ? 1 : v === 1 ? 0.78 : v) / base : 0;
   }
 
-  jazzExpression(hook, notes, index, pass, pitchIndex = 2) {
-    return Object.hasOwn(WIND_HOOK, hook.v) ? { ...hook.x, take: windTake(notes, index, pitchIndex, pass) } : hook.x;
+  jazzExpression(hook, notes, index, bar, pitchIndex = 2) {
+    if (!Object.hasOwn(WIND_HOOK, hook.v)) return hook.x;
+    const s = this.s, pat = this.e.playingPattern;
+    if (!pat?.jazz || !isJazz(pat.jazz.style)) return { ...hook.x, take: windTake(notes, index, pitchIndex, bar) };
+    const chain = s.chainOn ? parseChain(s.chain) : [];
+    const key = JSON.stringify([s.key, chain, s.chainEntries, s.ending, chain.length ? null : this.cur, s.patterns]);
+    let history = this.jazzWindHistory;
+    if (!history || history.key !== key || history.bar > bar) history = this.jazzWindHistory = { key, bar: 0, counts: new Map() };
+    const pitchKey = (p, pitch, placed) => `${p.hook.v}:${jazzWindPitch(s, p, pitch, placed) + (p.hook.o || 0) * 12}`;
+    for (; history.bar < bar; history.bar++) {
+      const b = history.bar, pos = chain.length ? b % chain.length : -1, slot = pos < 0 ? this.cur : chain[pos];
+      const p = patternAt(s.patterns[slot], pos);
+      if (!p?.jazz || !isJazz(p.jazz.style) || !p.hm || !p.hook || !Object.hasOwn(WIND_HOOK, p.hook.v)) continue;
+      let pitches;
+      if (p.hook.h) pitches = p.hook.s.slice((b % 2) * 16, (b % 2 + 1) * 16).filter(Boolean).map((n) => n[0]);
+      else {
+        const h = this.jazzHarmonyAt(p, b, pos);
+        const final = s.ending && chain.length && pos === chain.length - 1;
+        pitches = final ? [h.r + CHORDS[h.c].iv[1]] : jazzNotes(p.jazz.style, p.jazz.seed, b, h, slot === 2).map((n) => n[2]);
+      }
+      for (const pitch of pitches) {
+        const k = pitchKey(p, pitch, !!p.hook.h);
+        history.counts.set(k, (history.counts.get(k) || 0) + 1);
+      }
+    }
+    const target = pitchKey(pat, notes[index][pitchIndex], pitchIndex === 0);
+    let count = history.counts.get(target) || 0;
+    for (let i = pitchIndex === 0 ? index - index % 16 : 0; i < index; i++) {
+      if (notes[i] && pitchKey(pat, notes[i][pitchIndex], pitchIndex === 0) === target) count++;
+    }
+    return { ...hook.x, take: count % 2 };
   }
 
   jazzHook(pat, abs, t, sd) {
     if (!pat.hook.h) return false;
     const note = pat.hook.s[abs % 32];
-    if (note) this.e.hook(t, note[2], note[0], swingDuration(this.s, abs, note[1], sd), pat.hook.v, pat.hook.o, false, 0.8, false, this.jazzExpression(pat.hook, pat.hook.s, abs % 32, Math.floor(abs / 32), 0));
+    if (note) this.e.hook(t, note[2], note[0], swingDuration(this.s, abs, note[1], sd), pat.hook.v, pat.hook.o, false, 0.8, false, this.jazzExpression(pat.hook, pat.hook.s, abs % 32, Math.floor(abs / 16), 0));
     return true;
   }
 
@@ -5365,12 +5403,7 @@ export class Sequencer {
     if (enabled('stab') && pat.hook && pat.hm && !this.jazzHook(pat, abs, t, sd)) {
       const notes = final ? [[0, 6, e.harm.r + CHORDS[e.harm.c].iv[1], 0.7]] : jazzNotes('jazzfunk', pat.jazz.seed, bar, e.harm, this.cur === 2);
       for (const [index, [at, dur, pitch, v]] of notes.entries()) if (at === i) {
-        const k = s.key > 6 ? s.key - 12 : s.key;
-        let n = pitch;
-        if (pat.hook.v === 'tpt') {
-          while (60 + k + n < 69) n += 12;
-          while (60 + k + n > 80) n -= 12;
-        }
+        const n = jazzWindPitch(s, pat, pitch);
         e.hook(t, v, n, swingDuration(s, abs, dur, sd), pat.hook.v, pat.hook.o, i % 4 === 0, 0.7, false, this.jazzExpression(pat.hook, notes, index, bar));
       }
     }
