@@ -53,6 +53,9 @@ export const BAND = {
   jazz: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
   banjo: [40, 42, 45, 49, 51, 54, 57, 60, 63, 68, 71],
   gretsch: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
+  // Tonewheel organ (UK Garage stabs, Rock choruses) and the Roland SH-2 analog bass (UK Garage).
+  org: [43, 47, 48, 50, 52, 53, 55, 57, 59, 60, 62, 64, 65, 67, 69, 71, 72, 74, 76, 77, 79, 81, 83],
+  abass: [36, 39, 42, 45, 48, 51, 54, 57, 60],
 };
 // Measured pitch of a recording minus its name, in cents (python3 test/sampletune.py), for takes played a little off.
 const GTR_TUNE = { 40: -4, 42: -2, 45: -8, 48: -6, 51: 8, 54: 4, 57: 9, 60: 4, 63: 2, 66: 2, 72: -2 };
@@ -63,7 +66,7 @@ const JAZZ_TUNE = { 42: -7, 48: -10, 51: -3, 57: -3, 63: -3, 66: 4, 69: -3, 72: 
 const GRETSCH_TUNE = { 42: 19, 48: 6, 51: 5, 54: 5, 57: 10, 60: 7, 63: 6, 66: 4, 69: 2 };
 // The guitar banjo was tuned up a little under a quarter tone.
 const BANJO_TUNE = { 40: 41, 42: 41, 45: 48, 49: 39, 51: 43, 54: 34, 57: 13, 60: 30, 63: 41, 68: 23, 71: 10 };
-const BAND_TUNE = { nylon: { 40: -6.7, 45: 2.3, 48: -2.9, 52: -9.6, 55: 10.4, 59: -3.6, 64: -19.7, 67: -11.6, 69: -17 }, jazz: JAZZ_TUNE, jazzb: JAZZ_TUNE, gretsch: GRETSCH_TUNE, gretschb: GRETSCH_TUNE, banjo: BANJO_TUNE, gtr: GTR_TUNE, gtrsoft: GTR_TUNE, gtrb: GTR_TUNE, gtrsoftb: GTR_TUNE, gtrmute: MUTE_TUNE, gtrmuteb: MUTE_TUNE_B };
+const BAND_TUNE = { abass: { 36: -8.6, 39: -5.1, 42: -6.2, 45: -6.7, 48: -5.8, 51: -6.6, 54: -6.3, 57: -7.1, 60: -8 }, nylon: { 40: -6.7, 45: 2.3, 48: -2.9, 52: -9.6, 55: 10.4, 59: -3.6, 64: -19.7, 67: -11.6, 69: -17 }, jazz: JAZZ_TUNE, jazzb: JAZZ_TUNE, gretsch: GRETSCH_TUNE, gretschb: GRETSCH_TUNE, banjo: BANJO_TUNE, gtr: GTR_TUNE, gtrsoft: GTR_TUNE, gtrb: GTR_TUNE, gtrsoftb: GTR_TUNE, gtrmute: MUTE_TUNE, gtrmuteb: MUTE_TUNE_B };
 // Instruments recorded at two dynamics: the softly played layer loads with the instrument.
 export const SOFT_LAYER = { piano: 'pianosoft', gtr: 'gtrsoft' };
 // Alternate woodwind and guitar takes for repeated notes.
@@ -75,6 +78,9 @@ export const MUTE_LAYER = { gtr: 'gtrmute' };
 const EXTRA_TAKES = Object.fromEntries([...Object.entries(TAKES), ...Object.entries(MUTE_LAYER)].map(([k, alt]) => [alt, BAND[k] || BAND.gtr]));
 // STAB voice index -> recorded instrument.
 export const STAB_BAND = { 7: 'piano', 8: 'gtr', 9: 'horn', 10: 'str', 11: 'gtr', 12: 'agtr', 13: 'jazz', 14: 'banjo', 15: 'gretsch', 16: 'cello', 17: 'cl', 18: 'nylon' };
+// Styles whose ORGAN chords and REESE bass play those recordings instead of the synth voices.
+export const RECORDED_ORGAN = new Set(['ukg']);
+export const ANALOG_BASS = new Set(['ukg']);
 export const HOOK_BAND = { harpplk: 'harp', oboe: 'ob', airflute: 'fl', tpt: 'tpt' };
 Object.assign(BAND, EXTRA_TAKES);
 export const BAND_FILES = Object.entries(BAND).flatMap(([k, ns]) => ns.map((n) => `${k}_${n}`));
@@ -83,7 +89,7 @@ export const KIT_EXTRA = ['crash_v2', 'crash_v3', 'htom_v8', 'htom_v14', 'ltom_v
 
 const BASE = new URL('../samples/live/', import.meta.url);
 // Samples are served with immutable caching: bump SAMPLES_REV whenever a file under samples/live changes.
-const SAMPLES_REV = 5;
+const SAMPLES_REV = 6;
 const sampleUrl = (file) => new URL(`${file}.flac?v=${SAMPLES_REV}`, BASE);
 let buffers = null, loading = null, extra = null, extraLoading = null;
 let snare = null, snareLoading = null;
@@ -120,11 +126,11 @@ export const liveKit = () => buffers;
 export const BAND_LAYER = {
   pop: { pre: { parts: ['vc'], v: 0.5 }, chorus: { parts: ['vln1', 'vla', 'vc'], v: 0.55 }, bridge: { parts: ['vla', 'vc'], v: 0.5 } },
   rnb: { chorus: { parts: ['vln1', 'vla'], v: 0.45 }, bridge: { parts: ['vln1', 'vla', 'vc'], v: 0.45 } },
-  rock: { chorus: { parts: ['pno'], v: 0.64 }, bridge: { parts: ['vla', 'vc'], v: 0.5 } },
+  rock: { chorus: { parts: ['org'], v: 0.6 }, bridge: { parts: ['vla', 'vc'], v: 0.5 } },
   folk: { pre: { parts: ['vc'], v: 0.45 }, chorus: { parts: ['vc', 'vla'], v: 0.5 }, bridge: { parts: ['vln1', 'vla', 'vc'], v: 0.45 } },
   country: { pre: { parts: ['pno'], v: 0.62 }, chorus: { parts: ['pno', 'vla'], v: 0.62 }, bridge: { parts: ['vln1', 'vla'], v: 0.45 } },
 };
-const LAYER_SETS = { vc: ['cello'], vla: ['cello', 'str'], vln1: ['str'], pno: ['pianoext', 'piano', 'pianoextsoft', 'pianosoft'] };
+const LAYER_SETS = { vc: ['cello'], vla: ['cello', 'str'], vln1: ['str'], pno: ['pianoext', 'piano', 'pianoextsoft', 'pianosoft'], org: ['org'] };
 const layerSets = (style) => [...new Set(Object.values(BAND_LAYER[style] || {}).flatMap((x) => x.parts.flatMap((p) => LAYER_SETS[p])))];
 export function liveSets(st) {
   const mode = Math.round(st?.master?.kit || 0), fullKit = mode === 1 || mode === 2;
@@ -132,6 +138,8 @@ export function liveSets(st) {
   if (st?.patterns?.some((p) => p.jazz?.style === 'jazzfunk') || st?.pattern?.jazz?.style === 'jazzfunk') out.push('horn');
   if (fullKit && pocketOf(st.master)?.band) out.push('kitx');
   if (Math.round(st?.params?.acid?.voice || 0) === 5) out.push('ebass');
+  if (Math.round(st?.params?.acid?.voice || 0) === 3 && ANALOG_BASS.has(st?.artist?.style)) out.push('abass');
+  if (Math.round(st?.params?.stab?.voice || 0) === 3 && RECORDED_ORGAN.has(st?.artist?.style)) out.push('org');
   const name = STAB_BAND[Math.round(st?.params?.stab?.voice || 0)];
   if (name) out.push(name, ...(SOFT_LAYER[name] ? [SOFT_LAYER[name]] : []));
   for (const p of [st?.pattern, ...(st?.patterns || [])]) {

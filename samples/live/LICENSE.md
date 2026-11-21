@@ -6,7 +6,7 @@ the Virtuosity Drums and double-bass files are byte-identical, sha256 `a2010f343
 CC0 waives copyright and related rights, so the files can be redistributed in this app and used in commercial
 music without attribution. We credit the authors anyway.
 
-Processing applied to every file: summed to mono, resampled to 44.1 kHz 16-bit PCM, trimmed, 80 ms fade out.
+Processing applied to every file: summed to mono, resampled to 44.1 kHz 16-bit PCM, trimmed (organ 2.2 s, bass 2.4 s), 80 ms fade out.
 Stored as lossless FLAC (bit-identical PCM to the original 16-bit WAVs). Drum files mix the close mic with the overhead mic of the same hit.
 
 ## Virtuosity Drums (Versilian Studios / Karoryfer, drummer Austin McMahon)
@@ -144,7 +144,7 @@ recording's measured pitch (`python3 test/sampletune.py`) is corrected in `js/li
 
 Every file below is derived from a CC0 1.0 Universal source (license file checked in each repository at the
 commit listed). Files are named by the MIDI note they sound at. Processing: leading silence removed, summed to
-mono, resampled to 44.1 kHz 16-bit PCM, trimmed, 80 ms fade out, peak-normalised to -6 dBFS, stored as lossless FLAC.
+mono, resampled to 44.1 kHz 16-bit PCM, trimmed (organ 2.2 s, bass 2.4 s), 80 ms fade out, peak-normalised to -6 dBFS, stored as lossless FLAC.
 The piano files (`piano_*`, `pianosoft_*`, `pianoext_*`, `pianoextsoft_*`) instead keep each note's natural ring
 until it has decayed 48 dB below its loudest 50 ms (at most 9 s), then fade over the last 0.6 s
 (`scripts/fetch-orchestra.py --piano`).
@@ -181,6 +181,18 @@ principal pitch read from each drum's 1 : 1.5 : 2 partial series.
 | `harp_47.flac` … `harp_91.flac` (9) | VSCO-2-CE | `Strings/Harp/KSHarp_{B1,F2,C3,E3,B3,F4,A4,C5,G5}_mf.wav` |
 | `timp_42.flac`, `timp_47.flac`, `timp_50.flac`, `timp_52.flac`, `timp_55.flac` | VSCO-2-CE | `Percussion/Timpani/Timpani{1,2,3,4,5}_Hit_v3_rr1_Sum.wav` |
 | `timproll_47.flac`, `timproll_52.flac` | VSCO-2-CE | `Percussion/Timpani/Rolls/Timpani{2,4}_Roll_v3_rr1_Sum.wav` |
+
+## Tonewheel organ and analog synth bass (Freesound, CC0)
+
+Original uploads (never the lossy previews), fetched through the Freesound API by `scripts/fetch-freesound.py`,
+which lists every sound id. Each sound page states **CC0 1.0 Universal**. Processing as above: leading silence
+removed, mono, resampled to 44.1 kHz 16-bit, trimmed (organ 2.2 s, bass 2.4 s), 80 ms fade out, peak -6 dBFS, lossless FLAC. Measured pitch
+is within 5 cents of each organ note's name.
+
+| Files | Source | Samples used |
+| --- | --- | --- |
+| `org_43.flac` … `org_83.flac` (23), the ORGAN voice in UK GARAGE and the ROCK chorus organ | Freesound pack [18844 "tonewheel organ sound samples"](https://freesound.org/people/hammondman/packs/18844/) by hammondman (32 kHz 16-bit WAV), CC0 1.0 Universal | sounds 333747–333770 except 333757: one held note per white key, `g2.wav` … `b5.wav` (scientific pitch, `c4` = MIDI 60) |
+| `abass_36.flac` … `abass_60.flac` (9), the REESE bass voice in UK GARAGE | Freesound pack [17593 "Roland SH-2 - Filter Vel Bass"](https://freesound.org/people/modularsamples/packs/17593/) by modularsamples (44.1 kHz 24-bit WAV), CC0 1.0 Universal | sounds 310235, 310247, 310259, 310271, 310282, 310294, 310306, 310318, 310330: the brightest of each note's velocity takes, every third semitone `36C1` … `60C3` (named by MIDI number); measured 5–9 cents flat, corrected in `js/livekit.js` |
 
 ## Nylon guitar
 
