@@ -224,8 +224,8 @@ export function formatValue(q, v) {
 }
 
 export const VOICE_HIDDEN = {
-  perc: [[], ['metal'], ['metal'], ['bend', 'metal'], ['bend', 'noise', 'metal']],
+  perc: [[], ['metal'], ['metal'], ['bend', 'metal'], ...Array(5).fill(['bend', 'noise', 'metal'])],
   // EDGE only acts on the BASS voice and TINE only on KEYS.
   acid: [[], ['wave', 'reso', 'envmod', 'accent'], ['wave', 'reso', 'envmod'], [], ['wave', 'reso', 'envmod'], ['wave', 'reso', 'envmod', 'accent'], [], [], [], []].map((h, i) => (i === 1 ? h : [...h, 'edge'])),
-  stab: [[], ['reso'], [], ['reso', 'env'], [], [], ['reso'], ...Array(6).fill(['reso', 'env', 'detune']), [], [], []].map((h, i) => (i === 1 ? h : [...h, 'tine'])),
+  stab: [[], ['reso'], [], ['reso', 'env'], [], [], ['reso'], ...Array(6).fill(['reso', 'env', 'detune']), [], [], [], [], [], [], ['reso', 'detune']].map((h, i) => (i === 1 ? h : [...h, 'tine'])),
 };
