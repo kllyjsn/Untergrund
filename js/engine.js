@@ -1,6 +1,6 @@
 import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES, KIT_BACKBEAT, defaultParams } from './params.js';
 import { PALETTE_INSTRUMENTS, PALETTE_DEFAULTS, instrumentFor } from './palette-defaults.js';
-import { getSample, sungNote, SUNG_LEN, SUNG_VOWEL_COUNT } from './sampler.js';
+import { getSample, sungNote, SUNG_LEN, SUNG_LOW, SUNG_NOTES, SUNG_VOWEL_COUNT } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
 import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, STAB_BAND, HOOK_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
@@ -3336,11 +3336,17 @@ export class Engine {
     const p = this.state.params.vox, iv = chordIv(this.harm, this.state.params.stab);
     const tone = hash(step, 3) < p.melody ? iv[Math.floor(hash(step, 4) * iv.length)] : 0;
     const vowel = Math.round(p.slice) + (hash(step, 1) < p.scatter ? Math.floor(hash(step, 2) * SUNG_VOWEL_COUNT) : 0);
-    const buffer = sungNote(owner, vowel, 60 + this.state.key + this.harmRoot() + tone + Math.round(p.pitch));
-    this.voxChop(t, v, buffer, 0, Math.max(0.06, Math.min(SUNG_LEN, p.length * this.stepDur)), 1, 0.03);
+    const home = Math.min(SUNG_LOW + SUNG_NOTES - 8, Math.max(SUNG_LOW + 7, 66 + Math.round(p.pitch))), prev = this.voxPrev ?? home, target = this.state.key + this.harmRoot() + tone + Math.round(p.pitch);
+    let midi = prev + ((target - prev) % 12 + 18) % 12 - 6;
+    if (midi - home > 7) midi -= 12;
+    else if (home - midi > 7) midi += 12;
+    this.voxPrev = midi;
+    const dur = Math.max(0.06, Math.min(SUNG_LEN, p.length * this.stepDur)), release = Math.min(0.06, Math.max(0.03, dur * 0.4));
+    this.voxChop(t, v, sungNote(owner, vowel, midi), 0, dur, 1, release, { curve: true });
+    for (const side of [-1, 1]) this.voxChop(t + (side < 0 ? 0.009 : 0.014), v * 0.25, sungNote(owner, vowel, midi, side < 0 ? 1 : 2), 0, dur, 2 ** (side * 6 / 1200), release, { curve: true, pan: side * 0.45 });
   }
 
-  voxChop(t, v, buffer, from, dur, rate, release = 0.015) {
+  voxChop(t, v, buffer, from, dur, rate, release = 0.015, { curve = false, pan = 0 } = {}) {
     const c = this.ctx, p = this.state.params.vox, src = c.createBufferSource();
     src.buffer = buffer;
     src.playbackRate.value = rate;
@@ -3349,9 +3355,18 @@ export class Engine {
     const amp = this.gain(0);
     amp.gain.setValueAtTime(0, t);
     amp.gain.linearRampToValueAtTime(v, t + 0.004);
-    amp.gain.setValueAtTime(v, t + Math.max(0.005, dur - release));
-    amp.gain.linearRampToValueAtTime(0, t + dur);
-    src.connect(lp).connect(amp).connect(this.ch.vox.input);
+    if (curve) amp.gain.setValueCurveAtTime(Float32Array.from({ length: 32 }, (_, i) => v * Math.cos(Math.PI / 2 * i / 31)), t + dur - release, release);
+    else {
+      amp.gain.setValueAtTime(v, t + Math.max(0.005, dur - release));
+      amp.gain.linearRampToValueAtTime(0, t + dur);
+    }
+    let out = src.connect(lp).connect(amp);
+    if (pan) {
+      const panner = c.createStereoPanner();
+      panner.pan.value = pan;
+      out = out.connect(panner);
+    }
+    out.connect(this.ch.vox.input);
     this.startSource(src, t, from, dur + 0.02);
   }
 
@@ -4848,6 +4863,7 @@ export class Engine {
 
   panic() {
     const now = this.ctx.currentTime;
+    this.voxPrev = undefined;
     this.vocalStop(now);
     this.handoffCancel();
     this.breakOpen(now);
@@ -4909,6 +4925,7 @@ export class Sequencer {
   }
 
   startAt(abs, t) {
+    this.e.voxPrev = undefined;
     const chain = this.s.chainOn ? parseChain(this.s.chain) : [];
     const bar = Math.floor(abs / 16), offset = abs % 16;
     const pos = chain.length ? bar % chain.length : -1;
