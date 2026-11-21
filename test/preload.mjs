@@ -108,6 +108,24 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
   files.clear();
 }
 {
+  const ctx = new FakeContext(2, 4096, 48000), state = defaultState(), out = ctx.createGain(), hits = [];
+  state.key = 0;
+  state.artist = { style: 'amapiano' };
+  await loadSets(['marimba']);
+  const e = {
+    state, ctx, ch: { stab: { band: out } }, rec: Engine.prototype.rec,
+    recordedNote: Engine.prototype.recordedNote, bodyFor: Engine.prototype.bodyFor,
+    filter: Engine.prototype.filter, playBuf: (...args) => hits.push(args),
+  };
+  Engine.prototype.hook.call(e, 0.1, 0.7, 3, 0.3, 'marimba');
+  const [take, , , eq, rate] = hits[0], f4 = liveSet('marimba').find(([m]) => m === 65);
+  assert.equal(take, f4[1]);
+  assert.equal(rate, 2 ** (-2 / 12), 'the EQ does not change the pitch or take');
+  assert.equal(eq.type, 'peaking');
+  assert.ok(eq.frequency.value > 2800 && eq.frequency.value < 3100 && eq.gain.value < -10);
+  assert.ok(feeds(eq, out), 'the marimba hook notch feeds the band bus');
+}
+{
   const ctx = new FakeContext(2, 4096, 48000), state = defaultState(), out = ctx.createGain();
   const hits = [], fallback = new Error('synth fallback');
   state.key = 0;

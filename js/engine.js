@@ -2004,25 +2004,25 @@ export class Engine {
     const row = this.playingPattern?.steps?.perc, len = this.playingPattern?.len?.perc || 16;
     const cell = step % len;
     const hit = row?.slice(0, cell).filter(Boolean).length ?? beat;
-    // Each kit plays the written rhythm; only the articulation changes from hit to hit.
+    // The recorded articulations follow the written rhythm, with gains matched to the replaced hit peaks.
     let name, group = 0, ref, gain, gate, lp;
     if (kit === HAND_KIT.amapiano) {
       const open = row?.[cell] === 2;
-      [name, ref, gain, gate, lp] = open ? ['conga', 320, 0.49, 0.14, 5700] : ['shaker', 320, 0.31, 0.09, 10500];
+      [name, ref, gain, gate, lp] = open ? ['conga', 320, 1.13, 0.14, 5700] : ['shaker', 320, 0.95, 0.09, 10500];
       group = open ? 2 : 0;
     } else if (kit === HAND_KIT.afrobeats) {
       [name, ref, gain, gate, lp] = [
-        ['conga', 240, 0.72, 0.17, 6100], ['shaker', 240, 0.38, 0.12, 11400],
-        ['cowbell', 240, 0.55, 0.15, 6500], ['conga', 240, 0.62, 0.13, 5400],
-        ['shaker', 240, 0.40, 0.12, 11400],
+        ['conga', 240, 2.18, 0.17, 6100], ['shaker', 240, 1.78, 0.12, 11400],
+        ['cowbell', 240, 2.31, 0.15, 6500], ['conga', 240, 2.02, 0.13, 5400],
+        ['shaker', 240, 1.87, 0.12, 11400],
       ][hit % 5];
       group = hit % 5 === 0 ? 2 : 0;
     } else if (kit === HAND_KIT.reggaeton) {
-      [name, ref, gain, gate, lp] = hit % 3 === 1 ? ['conga', 260, 0.64, 0.15, 5200] : ['timbale', 260, 0.65, 0.15, 7400];
+      [name, ref, gain, gate, lp] = hit % 3 === 1 ? ['conga', 260, 1.63, 0.15, 5200] : ['timbale', 260, 1.73, 0.15, 7400];
       group = name === 'conga' ? 2 : hit % 3 === 0 ? 0 : bar % 2 ? 4 : 2;
     } else {
       const answer = funkHand(step) === 2;
-      [name, ref, gain, gate, lp] = answer ? ['cuica', 220, 0.72, 0.17, 6700] : ['timbale', 220, 0.70, 0.13, 6800];
+      [name, ref, gain, gate, lp] = answer ? ['cuica', 220, 2.08, 0.17, 6700] : ['timbale', 220, 2.03, 0.13, 6800];
       group = answer ? 0 : 2;
     }
     const takes = this.rec(name);
@@ -3673,7 +3673,8 @@ export class Engine {
     if (voice === 'marimba') {
       const set = this.rec('marimba');
       if (set) {
-        const out = this.hookBus || this.ch.stab.input;
+        // The F4 recording's upper partial lands near 3 kHz after transposing to the hook notes.
+        const out = this.bodyFor(this.hookBus || this.ch.stab.band, [2915, 2.5, -20]);
         return this.recordedNote(set, t, v * 1.55, 60 + k + oct * 12 + n, Math.max(0.11, dur * 1.2), out, 0, 'marimba', v);
       }
       loadBand('marimba');
