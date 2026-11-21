@@ -1162,6 +1162,8 @@ export class Engine {
     for (const src of this.continuousSources) src.stop(end);
     this.continuousSources.length = 0;
     const endSignal = this.ctx.createConstantSource();
+    endSignal.offset.value = 0;
+    endSignal.connect(this.tailGain);
     endSignal.onended = () => {
       this.tailGain.disconnect();
       this.out.disconnect();

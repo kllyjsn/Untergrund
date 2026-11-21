@@ -23,7 +23,7 @@ const close = (a, b) => assert(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
 
 {
   const events = [], stop = (t) => events.push(['stop', t]);
-  const endSignal = { start() {}, stop };
+  const endSignal = { offset:{value:1}, connect:node => events.push(['connect', node]), start() {}, stop };
   const gain = {
     setValueAtTime: (v, t) => events.push(['set', v, t]),
     linearRampToValueAtTime: (v, t) => events.push(['ramp', v, t]),
@@ -31,12 +31,16 @@ const close = (a, b) => assert(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
   const outgoing = { ctx:{currentTime:8, createConstantSource:() => endSignal}, continuousSources:[{stop}],
     tailGain:{gain, disconnect:() => events.push(['disconnect-tail'])}, out:{disconnect:() => events.push(['disconnect'])} };
   Engine.prototype.fadeRoomTail.call(outgoing, 8.1);
-  assert.deepEqual(events.map(e => e[0]), ['set', 'ramp', 'ramp', 'stop', 'stop']);
+  assert.deepEqual(events.map(e => e[0]), ['set', 'ramp', 'ramp', 'stop', 'connect', 'stop']);
   close(events[0][2], 8.108);
   close(events[1][1], events[0][1] * .24);
   close(events[1][2], 8.124);
   close(events[2][1], 0);
-  for (const event of events.slice(2)) close(event.at(-1), 8.144);
+  close(events[2][2], 8.144);
+  close(events[3][1], 8.144);
+  assert.equal(events[4][1], outgoing.tailGain, 'the render clock pulls the silent cleanup signal');
+  assert.equal(endSignal.offset.value, 0);
+  close(events[5][1], 8.144);
   endSignal.onended();
   assert.deepEqual(events.slice(-2), [['disconnect-tail'], ['disconnect']]);
 }
