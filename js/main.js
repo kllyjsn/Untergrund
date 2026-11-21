@@ -287,7 +287,8 @@ function schedule(lead) {
       landJamParts((gridTime + clockOffset) * 1000 + base * 500, t);
     }
     artistTick(abs - seq.origin);
-    const pat = seq.tick(abs, t, roomPlayback ? nextTime : undefined, roomEditor, roomPlayback);
+    const crackleUntil = queuedRoomSwitch?.track ? switchAt - 0.15 : Infinity;
+    const pat = seq.tick(abs, t, roomPlayback ? nextTime : undefined, roomEditor, roomPlayback, crackleUntil);
     const voice = engine.vocalNow, pos = seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1;
     const vocalStep = engine.vocalStepDur;
     const phase = voice ? (pos * 16 + (abs - seq.origin) % 16) * vocalStep - voice.ms / 1000 : 0;

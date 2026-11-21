@@ -1161,6 +1161,8 @@ export class Engine {
     gain.linearRampToValueAtTime(0, end);
     for (const src of this.continuousSources) src.stop(end);
     this.continuousSources.length = 0;
+    this.riser?.s.stop(end);
+    this.riser = null;
     const endSignal = this.ctx.createConstantSource();
     endSignal.offset.value = 0;
     endSignal.connect(this.tailGain);
@@ -1468,7 +1470,7 @@ export class Engine {
       o.connect(g).connect(out); this.startSource(o, t); o.stop(t + dec + 0.03);
     }
   }
-  dust(t, sd, abs) {
+  dust(t, sd, abs, crackleUntil = Infinity) {
     // Vinyl/tape bed: faint hiss plus sparse crackle, scheduled per step so it stops with transport.
     const d = this.state.master.dust || 0;
     // The hiss filter is linear and fixed, so every step's noise slice shares one band-pass and level.
@@ -1479,7 +1481,9 @@ export class Engine {
     this.noiseSrc(t, sd).connect(this.hiss.bp);
     for (let k = 0; k < 3; k++) {
       if (hash(abs, k + 70) > d * 0.55) continue;
-      const tt = t + hash(abs, k + 80) * sd, c = this.noiseSrc(tt, 0.003);
+      const tt = t + hash(abs, k + 80) * sd;
+      if (tt >= crackleUntil) continue;
+      const c = this.noiseSrc(tt, 0.003);
       const f = this.filter('highpass', 1500 + hash(abs, k + 90) * 4000, 0.7), g = this.gain(d * (0.05 + hash(abs, k + 60) * 0.18));
       c.connect(f).connect(g).connect(this.mix);
     }
@@ -5068,7 +5072,7 @@ export class Sequencer {
     this.e.sectionGain(t, db, ramp);
   }
 
-  tick(abs, t, roomGridTime, editable = false, vocalSettling = false) {
+  tick(abs, t, roomGridTime, editable = false, vocalSettling = false, crackleUntil = Infinity) {
     abs -= this.origin || 0;
     const s = this.s, e = this.e;
     this.advanceBar(abs, t);
@@ -5100,7 +5104,7 @@ export class Sequencer {
     if (nx && abs % 16 >= 12 && pat.prog?.length && nx.prog?.length) e.harm = nx.prog[(bar + 1) % nx.prog.length];
     if (kl && e.harm) e.harm = { r: e.harm.r + kl, c: e.harm.c };
     const pk = pocketOf(s.master);
-    if ((s.master.dust || 0) > 0.01) e.dust(t, sd, abs);
+    if ((s.master.dust || 0) > 0.01) e.dust(t, sd, abs, crackleUntil);
     const arr = s.master.arr || 0, i16 = abs % 16;
     const festival = this.festivalPlan?.length > 0;
     const buildAmount = arr * 2;

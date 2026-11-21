@@ -46,6 +46,22 @@ const close = (a, b) => assert(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
 }
 
 {
+  const step = 15 / 78, at = 8, sources = [];
+  const node = {connect: () => node};
+  const engine = {
+    state:{master:{dust:.34}}, mix:node,
+    gain:() => node, filter:() => node,
+    noiseSrc(t, duration) { sources.push([t, duration]); return node; },
+  };
+  Engine.prototype.dust.call(engine, at - step, step, 67);
+  assert.deepEqual(sources.map(([, duration]) => duration), [step, .003]);
+  assert.ok(sources[1][0] > at - .15 && sources[1][0] < at);
+  sources.length = 0;
+  Engine.prototype.dust.call(engine, at - step, step, 67, at - .15);
+  assert.deepEqual(sources, [[at - step, step]], 'only the crackle is omitted before a spin');
+}
+
+{
   let now = 100;
   const host = createRoomClock({ wall: () => origin + now - 1500, monotonic: () => now });
   const guest = createRoomClock({ wall: () => origin + now + 2000, monotonic: () => now });
@@ -881,8 +897,19 @@ function roomJoin(change = () => {}, options = {}) {
   slot.layer = {params:{kick:{level:.3}}};
   bus.syncJam();
   const outgoingEdits = sandbox.jamQueue.length, landed = [];
-  const outgoingEngine = sandbox.engine, fades = [];
-  outgoingEngine.fadeRoomTail = at => fades.push(at);
+  const outgoingEngine = sandbox.engine, riserStops = [];
+  const node = {gain:{setValueAtTime(){}, linearRampToValueAtTime(){}}, frequency:{setValueAtTime(){}, exponentialRampToValueAtTime(){}},
+    connect() { return this; }, disconnect() {}};
+  const riser = {...node, start(){}, stop:at => riserStops.push(at)};
+  Object.assign(outgoingEngine, {
+    ctx:{...sandbox.ctx, createBufferSource:() => riser,
+      createConstantSource:() => ({...node, offset:{}, start(){}, stop(){}})},
+    continuousSources:[], tailGain:node, out:node, gain:() => node, filter:() => node, mix:node, stepDur:15/78,
+    riserStart:Engine.prototype.riserStart, fadeRoomTail:Engine.prototype.fadeRoomTail,
+  });
+  outgoingEngine.riserStart();
+  assert.equal(riser.loop, true, 'the outgoing RISER is held across the spin');
+  const releaseRiser = () => Engine.prototype.riserStop.call(sandbox.engine);
   const adjustedStart = startsAt + 80;
   reanchorRoomSet(adjustedStart, startsAt);
   sandbox.landJamPart = (part, layer, at) => landed.push([sandbox.state.artist.seed, part, layer.params.kick.level, at]);
@@ -892,7 +919,10 @@ function roomJoin(change = () => {}, options = {}) {
     landJamParts(adjustedStart, 12.08);
   };
   switchRoomSet(12.08);
-  assert.deepEqual(fades, [12.08], 'only the outgoing engine is faded');
+  releaseRiser();
+  assert.equal(riserStops.length, 1, 'release targets the incoming deck; the outgoing deck must stop its own held riser');
+  close(riserStops[0], 12.124);
+  assert.equal(outgoingEngine.riser, null);
   assert.notEqual(sandbox.engine, outgoingEngine, 'the incoming engine starts on an independent output');
   bus.syncJam();
   assert.deepEqual(landed, [[11, 'drums', .3, 12.08]], 'accepted revisions survive the switch and land with the incoming song');
