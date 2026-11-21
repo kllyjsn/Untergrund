@@ -85,7 +85,8 @@ for (const pitch of [57, 60, 63, 67, 70, 74, 77, 81]) {
     assert.deepEqual(b[i].slice(1), a[i].slice(1));
   }
 }
-assert.deepEqual(jazzNotches('fl', 69, 0.953739).map(([f, q, db]) => [Math.round(f), q, db]), [[2518, 30, -12], [2945, 60, -9]]);
+assert.deepEqual(jazzNotches('fl', 69, 0.953739).map(([f, q, db]) => [Math.round(f), q, db]), [[2522, 40, -18], [2945, 60, -14]]);
+assert.deepEqual(jazzNotches('fl', 72, 0.946604).map(([f, q, db]) => [Math.round(f), q, db]), [[2483, 35, -33], [2983, 50, -16]]);
 assert.deepEqual(jazzNotches('piano', 66), []);
 assert.deepEqual(jazzNotches('jazz', 60), []);
 assert.deepEqual(jazzNotches('tpt', NaN), []);
