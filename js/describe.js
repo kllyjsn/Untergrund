@@ -1284,7 +1284,7 @@ export function applyEdits(state, edits, { seed = 1, style } = {}) {
             else next = run.slice(Math.min(run.length - 1, Math.max(1, Math.round(run.length * 0.5 * Math.abs(a)))));
             const before = c;
             c = c.slice(0, m.index) + next + c.slice(m.index + run.length);
-            if (chainEntries) chainEntries = editChainEntries(before, c, chainEntries);
+            if (chainEntries) chainEntries = editChainEntries(before, c, chainEntries, m.index + (a > 0 && end ? run.length : 0));
           }
           if (!c || c.length > 128) { skipped.push(`${e.src || e.sec} (song would be ${c ? 'too long' : 'empty'})`); continue; }
           const d = c.length - S.chain.length;

@@ -3,6 +3,7 @@
 // A take is { b: [from, to] } (0-based chain positions, inclusive) plus the parts it replaces: steps/len per
 // track, and optionally hm (melody on/off), prog (chords) and hook.
 import { TRACK_IDS, STEPS } from './params.js';
+import { identifyChainEntries } from './chain-entries.js';
 
 export const MAX_TAKES = 32;
 const LETTERS = 'ABCDEFGH';
@@ -71,29 +72,14 @@ function runMap(chain) {
   }
   return out;
 }
-function sectionMap(chain, entries) {
-  const out = runMap(chain), sections = {};
-  let runs = {};
-  let start = 0;
-  for (let i = 0; i < chain.length; i++) {
-    const sec = entries[i]?.sec;
-    if (!Number.isInteger(sec) || sec < 0 || sec >= 128) continue;
-    const sectionStart = i === 0 || entries[i - 1]?.sec !== sec;
-    if (sectionStart) { runs = {}; sections[sec] = (sections[sec] ?? -1) + 1; }
-    const letter = chain[i];
-    if (sectionStart || chain[i - 1] !== letter) { start = i; runs[letter] = (runs[letter] ?? -1) + 1; }
-    out[i] = `sec:${sec}:${sections[sec]}:${letter}:${runs[letter]}:${i - start}`;
-  }
-  return out;
-}
 // After the chain changed (a section got longer, shorter or skipped), moves each take to the same bars of the same run.
 export function remapTakes(patterns, before, after, beforeEntries, afterEntries) {
   if (!patterns.some((p) => p.at)) return;
-  const valid = (chain, entries) => Array.isArray(entries) && entries.length === chain.length && entries.every((e, i) => e?.p === chain.charCodeAt(i) - 65);
-  const tagged = valid(before, beforeEntries) && valid(after, afterEntries);
+  const old = identifyChainEntries(before, beforeEntries), next = identifyChainEntries(after, afterEntries);
+  const tagged = old?.some(e => e.id != null) && next?.some(e => e.id != null);
   if (before === after && !tagged) return;
-  const was = tagged ? sectionMap(before, beforeEntries) : runMap(before);
-  const now = tagged ? sectionMap(after, afterEntries) : runMap(after), where = new Map(now.map((k, i) => [k, i]));
+  const was = tagged ? old.map(e => `id:${e.p}:${e.id}`) : runMap(before);
+  const now = tagged ? next.map(e => `id:${e.p}:${e.id}`) : runMap(after), where = new Map(now.map((k, i) => [k, i]));
   if (was.length === now.length && was.every((key, i) => key === now[i])) return;
   for (const p of patterns) {
     if (!p.at) continue;

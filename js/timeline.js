@@ -1,5 +1,6 @@
 // Song timeline model: the chain string (one letter A–H per bar) as a list of sections.
 // Pure functions only, so the arrangement view, tests and saved/shared projects all agree.
+import { allocateChainIds, identifyChainEntries } from './chain-entries.js';
 export const LETTERS = 'ABCDEFGH';
 export const MAX_BARS = 128;
 export const COLORS = ['#6f9bff', '#3ad6c6', '#ff3b3b', '#ff9340', '#b892ff', '#e83cff', '#ff4d86', '#f2ff3a'];
@@ -10,16 +11,17 @@ const ROLES = {
 const QUIET = new Set([0, 1]);
 
 const clean = (chain) => String(chain || '').toUpperCase().replace(/[^A-H]/g, '').slice(0, MAX_BARS);
-const copy = (sections) => sections.map((s) => ({ p: s.p, bars: s.bars, ...(s.sec != null ? { sec: s.sec } : {}) }));
+const copy = (sections) => sections.map((s) => ({ p: s.p, bars: s.bars, ...(s.sec != null ? { sec: s.sec } : {}), ...(s.ids ? { ids: [...s.ids] } : {}) }));
+const newIds = (sections, count) => allocateChainIds(sections.flatMap(s => s.ids || []), count);
 
 // 'AABCCC' → [{p:0,bars:2},{p:1,bars:1},{p:2,bars:3}]
 export function toSections(chain, entries) {
-  const out = [];
-  for (const [i, ch] of [...clean(chain)].entries()) {
+  const out = [], text = clean(chain), identified = identifyChainEntries(text, entries);
+  for (const [i, ch] of [...text].entries()) {
     const p = ch.charCodeAt(0) - 65, last = out[out.length - 1];
-    const sec = entries?.[i]?.sec;
-    if (last && last.p === p && last.sec === sec) last.bars++;
-    else out.push({ p, bars: 1, ...(sec != null ? { sec } : {}) });
+    const { sec, id } = identified?.[i] || {};
+    if (last && last.p === p && last.sec === sec) { last.bars++; if (id != null) last.ids.push(id); }
+    else out.push({ p, bars: 1, ...(sec != null ? { sec } : {}), ...(id != null ? { ids: [id] } : {}) });
   }
   return out;
 }
@@ -29,7 +31,7 @@ export function toChain(sections) {
 }
 
 export function toChainEntries(sections) {
-  return sections.flatMap((s) => Array.from({ length: Math.max(1, s.bars | 0) }, () => ({ p: s.p, ...(s.sec != null ? { sec: s.sec } : {}) }))).slice(0, MAX_BARS);
+  return sections.flatMap((s) => Array.from({ length: Math.max(1, s.bars | 0) }, (_, i) => ({ p: s.p, ...(s.sec != null ? { sec: s.sec } : {}), ...(s.ids?.[i] != null ? { id: s.ids[i] } : {}) }))).slice(0, MAX_BARS);
 }
 
 export const totalBars = (sections) => sections.reduce((n, s) => n + s.bars, 0);
@@ -85,6 +87,7 @@ export function resize(sections, i, bars) {
   const out = copy(sections);
   if (!out[i]) return out;
   out[i].bars = Math.max(1, Math.min(room(sections, i), Math.round(bars) || 1));
+  if (out[i].ids) out[i].ids = [...out[i].ids.slice(0, out[i].bars), ...newIds(sections, Math.max(0, out[i].bars - sections[i].bars))];
   return out;
 }
 
@@ -92,7 +95,7 @@ export function duplicate(sections, i) {
   const out = copy(sections);
   if (!out[i]) return out;
   const bars = Math.min(out[i].bars, MAX_BARS - totalBars(out));
-  if (bars > 0) out.splice(i + 1, 0, { ...out[i], bars });
+  if (bars > 0) out.splice(i + 1, 0, { ...out[i], bars, ...(out[i].ids ? { ids: newIds(sections, bars) } : {}) });
   return out;
 }
 
@@ -111,7 +114,7 @@ export function setPattern(sections, i, p) {
 export function append(sections, p, bars = 4) {
   const out = copy(sections);
   const n = Math.min(bars, MAX_BARS - totalBars(out));
-  if (n > 0) out.push({ p, bars: n });
+  if (n > 0) out.push({ p, bars: n, ...(out.some(s => s.ids) ? { ids: newIds(sections, n) } : {}) });
   return out;
 }
 

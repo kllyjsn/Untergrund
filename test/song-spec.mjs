@@ -20,6 +20,8 @@ t('explicit chain section tags distinguish adjacent verses and survive in-sectio
   const sections = roles.map(([role, bars]) => ({ role, bars, chords: ['i', 'IV', 'bVII', 'V'] }));
   for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
     const { state } = songState({ style, sections }, 42);
+    assert.equal(new Set(state.chainEntries.map(e => e.id)).size, state.chain.length, 'chain construction assigns distinct stable bar identities');
+    assert(state.chainEntries.every(e => Number.isSafeInteger(e.id) && e.id >= 0));
     assert.equal(state.chain.slice(16, 24), 'EEEEFFFD');
     assert.equal(state.chain.slice(-6), 'BBBAAA');
     for (const saved of [false, true]) for (const resized of [false, true]) {

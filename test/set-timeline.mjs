@@ -31,7 +31,7 @@ const a = defaultState(), b = clone(a);
 {
   const state = defaultState();
   state.chain = 'CCCC';
-  state.chainEntries = [{ p: 2, sec: 0 }, { p: 2, sec: 0 }, { p: 2, sec: 1 }, { p: 2, sec: 1 }];
+  state.chainEntries = [{ p: 2, sec: 0, id: 0 }, { p: 2, sec: 0, id: 1 }, { p: 2, sec: 1, id: 2 }, { p: 2, sec: 1, id: 3 }];
   const before = clone(state.chainEntries);
   const rec = createTimelineRecorder({ state, style: 'modal', startsAt: 0 });
   state.chainEntries.reverse();

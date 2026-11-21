@@ -10,6 +10,7 @@ import { semiOf } from './motif.js';
 import { trackTitle } from './crate.js';
 import { rng } from './dsp.js';
 import { isJazz } from './jazz.js';
+import { identifyChainEntries } from './chain-entries.js';
 
 export const ROLES = ['intro', 'build', 'verse', 'breakdown', 'drop', 'outro'];
 export const PARTS = ['kick', 'drums', 'hats', 'perc', 'bass', 'chords', 'hook', 'vox'];
@@ -243,7 +244,7 @@ export function chainFor(sections, pats, tagged = false) {
     }
     for (let bar = start; bar < out.length; bar++) entries.push({ p: out.charCodeAt(bar) - 65, sec: i });
   });
-  return tagged ? entries.slice(0, MAX_BARS) : out.slice(0, MAX_BARS);
+  return tagged ? identifyChainEntries(out.slice(0, MAX_BARS), entries.slice(0, MAX_BARS)) : out.slice(0, MAX_BARS);
 }
 
 // A finished project state for a spec: what GENERATE would give, rewritten by the spec.

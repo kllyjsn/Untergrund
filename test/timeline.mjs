@@ -5,12 +5,12 @@ import {
   toSections, toChain, toChainEntries, totalBars, starts, locate, sectionNames, cleanLabels, move, resize, duplicate, remove,
   setPattern, append, dropIndex, loopSkip, MAX_BARS,
 } from '../js/timeline.js';
-import { cleanChainEntries, editChainEntries, setChain } from '../js/chain.js';
+import { cleanChainEntries, identifyChainEntries, editChainEntries, setChain } from '../js/chain.js';
 
 {
-  const entries = [{ p: 6, sec: 0 }, { p: 6, sec: 0 }, { p: 6, sec: 1 }, { p: 6, sec: 1 }];
+  const entries = [{ p: 6, sec: 0, id: 0 }, { p: 6, sec: 0, id: 1 }, { p: 6, sec: 1, id: 2 }, { p: 6, sec: 1, id: 3 }];
   const sections = toSections('GGGG', entries);
-  assert.deepEqual(sections, [{ p: 6, bars: 2, sec: 0 }, { p: 6, bars: 2, sec: 1 }], 'same-slot sections stay distinct');
+  assert.deepEqual(sections, [{ p: 6, bars: 2, sec: 0, ids: [0, 1] }, { p: 6, bars: 2, sec: 1, ids: [2, 3] }], 'same-slot sections stay distinct');
   assert.deepEqual(toChainEntries(sections), entries);
   const resized = resize(sections, 0, 3);
   assert.deepEqual(toChainEntries(resized).map(e => e.sec), [0, 0, 0, 1, 1]);
@@ -18,12 +18,19 @@ import { cleanChainEntries, editChainEntries, setChain } from '../js/chain.js';
   assert.deepEqual(toChainEntries(moved).map(e => e.sec), [1, 1, 0, 0]);
   assert.deepEqual(toChainEntries(setPattern(sections, 0, 2)).map(e => e.sec), [0, 0, 1, 1]);
   assert.deepEqual(toChainEntries(duplicate(sections, 0)).map(e => e.sec), [0, 0, 0, 0, 1, 1]);
+  const duplicated = toChainEntries(duplicate(sections, 0));
+  assert.equal(new Set(duplicated.map(e => e.id)).size, duplicated.length, 'duplicated bars receive distinct identities');
+  assert.deepEqual(toChainEntries(append(sections, 3, 2)).slice(-2).map(e => e.id), [4, 5], 'appended bars receive fresh identities');
   const st = { chain: 'GGGG', chainEntries: entries, patterns: [] };
   setChain(st, toChain(moved), toChainEntries(moved));
   assert.deepEqual(st.chainEntries.map(e => e.sec), [1, 1, 0, 0], 'an identical-letter chain can still move section identities');
   assert.deepEqual(editChainEntries('GGGG', 'GGGGG', entries, 2).map(e => e.sec), [0, 0, 0, 1, 1], 'text edits use the caret within identical runs');
+  assert.deepEqual(editChainEntries('GGGG', 'GGGGG', entries, 2).map(e => e.id), [0, 1, 4, 2, 3], 'text insertion preserves existing ids and allocates a new id');
+  assert.deepEqual(editChainEntries('GG', 'GGGG', entries.slice(0, 2), 0).map(e => e.id), [2, 3, 0, 1], 'prepending bars retains the original bar identities after the insertion');
   assert.deepEqual(editChainEntries('GGGG', 'GGG', entries, 1).map(e => e.sec), [0, 1, 1]);
   assert.deepEqual(cleanChainEntries('', []), []);
+  assert.deepEqual(identifyChainEntries('', []), []);
+  assert.equal(identifyChainEntries('G', null), null);
   assert.deepEqual(editChainEntries('GGGG', '', entries), []);
   assert.deepEqual(toChainEntries([]), []);
   assert.equal(cleanChainEntries('G', null), null);
@@ -38,6 +45,9 @@ import { cleanChainEntries, editChainEntries, setChain } from '../js/chain.js';
   setChain(st, '', []);
   assert.deepEqual(st.chainEntries, []);
   for (const sec of [-1, 128, NaN, Infinity, '1', null]) assert.deepEqual(cleanChainEntries('G', [{ p: 6, sec }]), [{ p: 6 }]);
+  for (const id of [-1, 0.5, NaN, Infinity, '1', null]) assert.deepEqual(cleanChainEntries('G', [{ p: 6, sec: 0, id }]), [{ p: 6, sec: 0 }]);
+  assert.deepEqual(identifyChainEntries('GG', [{ p: 6, sec: 0, id: 8 }, { p: 6, sec: 0, id: 8 }]), [{ p: 6, sec: 0, id: 8 }, { p: 6, sec: 0, id: 0 }], 'duplicate imported ids are repaired without aliasing bars');
+  assert.deepEqual(identifyChainEntries('GG', [{ p: 6 }, { p: 6 }]), [{ p: 6 }, { p: 6 }], 'untagged metadata keeps legacy behavior');
   assert.equal('chainEntries' in sanitize(defaultState()), false, 'untagged legacy/generated projects stay untagged');
   const project = defaultState();
   Object.assign(project, { chain: 'GGGG', chainEntries: entries });
@@ -75,6 +85,23 @@ import { cleanChainEntries, editChainEntries, setChain } from '../js/chain.js';
   setChain(fill, toChain(withLongerVerse), toChainEntries(withLongerVerse));
   assert.deepEqual(fill.patterns[3].at, [{ b: [3, 3], hm: 0 }], 'fill-slot takes follow their run within the same tagged section');
   assert.deepEqual(fill.patterns[2].at, [{ b: [4, 5], hm: 2 }], 'the following verse remains independently anchored');
+  const rearranged = move(toSections(fill.chain, fill.chainEntries), 1, 2);
+  const fillId = fill.chainEntries[3].id;
+  setChain(fill, toChain(rearranged), toChainEntries(rearranged));
+  assert.equal(fill.chainEntries[5].id, fillId, 'dragging the fill preserves its identity when its section tag reappears');
+  assert.deepEqual(fill.patterns[3].at, [{ b: [5, 5], hm: 0 }], 'fill edits survive moving past another tagged section');
+  const savedFill = sanitize(JSON.parse(JSON.stringify(fill)));
+  assert.deepEqual(savedFill.chainEntries, fill.chainEntries, 'stable identities survive save/load');
+  assert.deepEqual(savedFill.patterns[3].at, fill.patterns[3].at);
+  const multiple = { ...defaultState(), chain: 'CDCDCC', chainEntries: [0, 0, 0, 0, 1, 1].map((sec, i) => ({ p: 'CDCDCC'.charCodeAt(i) - 65, sec })) };
+  multiple.patterns[3].at = [{ b: [1, 1], hm: 0 }, { b: [3, 3], hm: 2 }];
+  const reversedFills = move(toSections(multiple.chain, multiple.chainEntries), 1, 4);
+  setChain(multiple, toChain(reversedFills), toChainEntries(reversedFills));
+  assert.deepEqual(multiple.patterns[3].at, [{ b: [2, 2], hm: 2 }, { b: [5, 5], hm: 0 }], 'two fills with the same section tag keep independent takes when their order reverses');
+  const replaced = { ...defaultState(), chain: 'CC', chainEntries: [{ p: 2, sec: 0, id: 0 }, { p: 2, sec: 0, id: 1 }] };
+  replaced.patterns[2].at = [{ b: [1, 1], hm: 0 }];
+  setChain(replaced, 'CD');
+  assert(!replaced.patterns[2].at, 'replacement bars do not inherit removed bar identities or takes');
 }
 
 // Chain ⇄ sections is lossless for every generated song form.
