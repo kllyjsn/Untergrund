@@ -32,6 +32,12 @@ export const BAND = {
   gtrsoft: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
   horn: [53, 58, 62, 65, 67, 70, 74, 77, 81, 84],
   str: [55, 57, 59, 62, 66, 69, 72, 76, 79, 83, 86],
+  juno: [48, 52, 56, 60, 64, 68, 72, 76, 80, 84],
+  jpad: [48, 52, 56, 60, 64, 68, 72, 76, 80, 84],
+  dpad: [48, 52, 56, 60, 64, 68, 72, 76, 80, 84],
+  jxstr: [48, 52, 56, 60, 64, 68, 72, 76, 80, 84],
+  jxbr: [48, 51, 54, 57, 60, 63, 66, 69, 72],
+  jbr: [48, 51, 54, 57, 60, 63, 66, 69, 72],
   // The CLASSICAL orchestra: loaded section by section, only when a score plays it.
   pianoext: [24, 28, 33, 36, 40, 43, 93, 96],
   pianoextsoft: [24, 28, 33, 36, 40, 43, 93, 96],
@@ -64,6 +70,14 @@ const GRETSCH_TUNE = { 42: 19, 48: 6, 51: 5, 54: 5, 57: 10, 60: 7, 63: 6, 66: 4,
 // The guitar banjo was tuned up a little under a quarter tone.
 const BANJO_TUNE = { 40: 41, 42: 41, 45: 48, 49: 39, 51: 43, 54: 34, 57: 13, 60: 30, 63: 41, 68: 23, 71: 10 };
 const BAND_TUNE = { nylon: { 40: -6.7, 45: 2.3, 48: -2.9, 52: -9.6, 55: 10.4, 59: -3.6, 64: -19.7, 67: -11.6, 69: -17 }, jazz: JAZZ_TUNE, jazzb: JAZZ_TUNE, gretsch: GRETSCH_TUNE, gretschb: GRETSCH_TUNE, banjo: BANJO_TUNE, gtr: GTR_TUNE, gtrsoft: GTR_TUNE, gtrb: GTR_TUNE, gtrsoftb: GTR_TUNE, gtrmute: MUTE_TUNE, gtrmuteb: MUTE_TUNE_B };
+Object.assign(BAND_TUNE, {
+  juno: { 48: 1.3, 52: 1.7, 56: 2.1, 60: 1.7, 64: 2.9, 68: 2.5, 72: 2.2, 76: 2.4, 80: 2.7, 84: 2 },
+  jpad: { 48: 7.5, 52: 4.8, 56: 4.4, 60: 4, 64: 2.8, 68: 3.3, 72: 3.6, 76: 4.9, 80: 4.7, 84: 4.1 },
+  dpad: { 48: -0.5, 52: -0.9, 56: 1.7, 60: 2, 64: 1.8, 68: 1.4, 72: 0.8, 76: -2, 80: 3, 84: 4.3 },
+  jxstr: { 48: -14.8, 52: -16.9, 56: -17.1, 60: -15.1, 64: -16, 68: -14.2, 72: -16.9, 76: -8.5, 80: -5.3, 84: -4.2 },
+  jxbr: { 48: -23.6, 51: -20.2, 54: -22.3, 57: -22.4, 60: -21.1, 63: -20.6, 66: -22.7, 69: -20.5, 72: -20.3 },
+  jbr: { 48: 20, 51: 34.1, 54: 24.3, 57: 21.9, 60: 18.8, 63: 31.1, 66: 24.3, 69: 21.3, 72: 19.7 },
+});
 // Instruments recorded at two dynamics: the softly played layer loads with the instrument.
 export const SOFT_LAYER = { piano: 'pianosoft', gtr: 'gtrsoft' };
 // Alternate woodwind and guitar takes for repeated notes.
@@ -83,7 +97,7 @@ export const KIT_EXTRA = ['crash_v2', 'crash_v3', 'htom_v8', 'htom_v14', 'ltom_v
 
 const BASE = new URL('../samples/live/', import.meta.url);
 // Samples are served with immutable caching: bump SAMPLES_REV whenever a file under samples/live changes.
-const SAMPLES_REV = 5;
+const SAMPLES_REV = 6;
 const sampleUrl = (file) => new URL(`${file}.flac?v=${SAMPLES_REV}`, BASE);
 let buffers = null, loading = null, extra = null, extraLoading = null;
 let snare = null, snareLoading = null;
