@@ -62,6 +62,13 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
   assert(Math.abs(20 * Math.log10(e.limTrim.gain.value / plain) + 2.5) < 1e-10);
   e.replay808Style = 'trap'; e.applyAll();
   assert.equal(e.limTrim.gain.value, plain);
+  e.replay808Style = 'jazzfunk'; e.applyAll();
+  assert(Math.abs(20 * Math.log10(e.limTrim.gain.value / plain) + 1.5) < 1e-10);
+  for (const style of ['swing', 'modal', 'bossa', undefined, 'unknown']) {
+    e.replay808Style = style; e.applyAll();
+    assert.equal(e.limTrim.gain.value, plain, `${style} keeps the shared clip drive`);
+  }
+  e.replay808Style = 'trap'; e.applyAll();
 
   const kit = { bass_bb1_a: 'a', bass_bb1_b: 'b' }, heard = new Set();
   const centers = BOOMBAP_BASS_CENTERS.bb1;
@@ -76,6 +83,21 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
   s.artist.style = 'neosoul'; chop = false;
   e.sampledBass(kit, 0.1, 34, 0.2, false);
   console.log('Boom Bap take tuning and Neo Soul pre-clip trim passed');
+}
+
+{
+  const s = defaultState(), g = generate('jazzfunk', 42);
+  s.patterns = arrangement(g.pattern, 42, g.bpm >= 115);
+  applyOverrides(s, g, true); s.artist = { style: 'jazzfunk' };
+  const e = new Engine(fakeCtx(), s, { realtime: false });
+  const limiterInput = e.limIn.gain.value, threshold = e.limiter.threshold.value, output = e.out.gain.value;
+  e.replay808Style = 'boombap'; e.applyAll();
+  assert.equal(e.limIn.gain.value, limiterInput, 'clip drive does not change limiter input');
+  assert.equal(e.limiter.threshold.value, threshold);
+  assert.equal(e.out.gain.value, output, 'level recovery is independent of pre-clip drive');
+  s.patterns[0].jazz.style = 'swing'; e.applyAll();
+  assert(Math.abs(20 * Math.log10(output / e.out.gain.value) - 1.4) < 1e-10, 'Jazz-Funk recovers level after the clipper');
+  console.log('Jazz-Funk clip-drive trim and post-clipper level recovery passed');
 }
 
 {

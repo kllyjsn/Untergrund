@@ -4,7 +4,7 @@ import { generateFunk, funkNotes, FUNK_PROGS } from './jazzfunk.js';
 
 export const isJazz = (style) => style === 'swing' || style === 'modal' || style === 'bossa' || style === 'jazzfunk';
 export const JAZZ_MIX = {
-  jazzfunk: { lead: 10, comp: 7.6, bass: 0.5, kick: -4.5, snare: 7.7, hat: 28, oh: 20, output: -2 },
+  jazzfunk: { lead: 10, comp: 7.6, bass: 0.5, kick: -4.5, snare: 7.7, hat: 28, oh: 20, output: -0.6 },
   bossa: { lead: 2, trumpetLead: 14.3, comp: 7, nylonComp: 1.5, guitarComp: 3.2, pianoComp: 4.5, bass: 1, guitarBass: 3.5, pianoBass: 4.5, hat: 24, rim: 12, output: -2, guitarOutput: -2.5, pianoOutput: -4.25 },
   swing: { lead: 6, comp: -1.5, bass: -4, ride: 15.5, hat: 16, output: -2 },
   modal: { lead: 8, comp: -2, bass: -2, ride: 17.5, hat: 16, output: -2 },

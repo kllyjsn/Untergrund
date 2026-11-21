@@ -948,7 +948,7 @@ export class Engine {
     this.setTo(this.glue.attack, this.hardTechno ? 0.035 : 0.015, true);
     this.setTo(this.limiter.threshold, this.hardTechno ? -3 : -6, true);
     this.setTo(this.limiter.knee, this.hardTechno ? 1 : 3, true);
-    const clipTrim = this.playbackStyle === 'neosoul' ? dbGain(-2.5) : 1;
+    const clipTrim = this.playbackStyle === 'neosoul' ? dbGain(-2.5) : this.playbackStyle === 'jazzfunk' ? dbGain(-1.5) : 1;
     this.setTo(this.limTrim.gain, clipTrim * (this.hardTechno ? 1 : LIM_TRIM) / CLIP_HEADROOM, true);
     this.applyOutputTrim(true);
     this.applyTone();
