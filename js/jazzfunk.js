@@ -1,4 +1,4 @@
-import { CHORDS, TRACK_IDS, defaultMaster, defaultParams } from './params.js';
+import { CHORDS, TRACK_IDS, defaultParams } from './params.js';
 import { rng } from './dsp.js';
 
 export const FUNK_PROGS = [
@@ -30,7 +30,7 @@ export function funkNotes(seed, bar, h, solo) {
 }
 
 export function generateFunk(seed, bpm, palette, pocket) {
-  const r = rng(seed), params = defaultParams(), master = defaultMaster();
+  const r = rng(seed), params = defaultParams(), master = {};
   const ensemble = palette[Math.floor(rng(Math.imul((seed | 0) ^ 0x6d2b79f5, 0x85ebca6b))() * palette.length)];
   const prog = FUNK_PROGS[Math.floor(r() * FUNK_PROGS.length)].map(([r, c]) => ({ r, c }));
   const steps = Object.fromEntries(TRACK_IDS.map((id) => [id, Array.from({ length: 16 }, (_, i) => id === 'acid' ? { on: funkBass(0, prog[0], 0).some(([at]) => at === i), n: 0, a: false, s: false } : 0)]));

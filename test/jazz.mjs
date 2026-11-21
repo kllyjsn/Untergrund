@@ -12,6 +12,12 @@ import { writeMelody } from '../js/melody.js';
 import { rng } from '../js/dsp.js';
 
 const pc = (n) => ((n % 12) + 12) % 12;
+for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
+  const state = freshSong(style, 42); state.master.volume = 0.37; state.master.dj = -0.42;
+  applyOverrides(state, generate(style, 11));
+  assert.equal(state.master.volume, 0.37, 'generating jazz preserves the master level');
+  assert.equal(state.master.dj, -0.42, 'generating jazz preserves the DJ filter');
+}
 for (const pitch of [57, 60, 63, 67, 70, 74, 77, 81]) {
   const a = jazzNotches('tpt', pitch), b = jazzNotches('tpt', pitch, 2 ** (-1 / 12));
   assert(a.length === 1 && a[0][1] >= 30 && a[0][2] < 0);

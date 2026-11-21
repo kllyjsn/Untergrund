@@ -1,4 +1,4 @@
-import { CHORDS, defaultParams, defaultMaster, TRACK_IDS } from './params.js';
+import { CHORDS, defaultParams, TRACK_IDS } from './params.js';
 import { rng } from './dsp.js';
 import { generateFunk, funkNotes, FUNK_PROGS } from './jazzfunk.js';
 
@@ -121,7 +121,7 @@ export function jazzMelody(style, seed, prog) {
 export function generateJazz(style, seed, bpm, palette, pocket) {
   if (style === 'jazzfunk') return generateFunk(seed, bpm, palette, pocket);
   if (style === 'bossa') return generateBossa(seed, bpm, palette, pocket);
-  const r = rng(seed), params = defaultParams(), master = defaultMaster();
+  const r = rng(seed), params = defaultParams(), master = {};
   const ensemble = palette[Math.floor(rng(Math.imul((seed | 0) ^ 0x6d2b79f5, 0x85ebca6b))() * palette.length)];
   const prog = JAZZ_PROGS[style][Math.floor(r() * JAZZ_PROGS[style].length)].map(([r, c]) => ({ r, c }));
   const steps = Object.fromEntries(TRACK_IDS.map((id) => [id, Array.from({ length: 16 }, (_, i) => id === 'acid' ? { on: i % 4 === 0, n: 0, a: false, s: false } : 0)]));
@@ -147,7 +147,7 @@ export function generateJazz(style, seed, bpm, palette, pocket) {
 }
 
 function generateBossa(seed, bpm, palette, pocket) {
-  const r = rng(seed), params = defaultParams(), master = defaultMaster();
+  const r = rng(seed), params = defaultParams(), master = {};
   const ensemble = palette[Math.floor(rng(Math.imul((seed | 0) ^ 0x6d2b79f5, 0x85ebca6b))() * palette.length)];
   const prog = JAZZ_PROGS.bossa[Math.floor(r() * JAZZ_PROGS.bossa.length)].map(([r, c]) => ({ r, c }));
   const steps = Object.fromEntries(TRACK_IDS.map((id) => [id, Array.from({ length: 16 }, (_, i) => id === 'acid' ? { on: [0, 6, 8, 14].includes(i), n: 0, a: false, s: false } : 0)]));
