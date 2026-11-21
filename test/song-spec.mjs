@@ -1,6 +1,7 @@
 // Prompt to song: spec validation, deterministic realization, the no-key fallback and the endpoint.
 import assert from 'node:assert/strict';
 import { validateSpec, parseChord, realize, songState, localSpec, isSongPrompt, chainFor, contourHook, SONG_SYSTEM } from '../js/song-spec.js';
+import { promptGenre, rulePlan } from '../js/song-plan.js';
 import { sanitize, STYLES } from '../js/state.js';
 import { handleDescribe } from '../api/_lib/describe-ai.js';
 import { memoryKv } from '../api/_lib/events.js';
@@ -20,6 +21,18 @@ t('named hip-hop genres keep their palettes in prompt-built songs', () => {
     const spec = localSpec(prompt, { seed: 42 });
     assert.equal(spec.style, style);
     assert(realize(spec, 42).patterns.some((p) => p.hook?.v === voice));
+  }
+});
+
+t('rule-backed song specs use the chosen genre before setting tempo and form', () => {
+  for (const tempo of ['', ' at 108 bpm']) {
+    const prompt = `a pop track featuring drum and bass percussion${tempo}`;
+    const opts = { style: 'deephouse', seed: 42, genre: promptGenre(prompt), bpm: rulePlan(prompt).bpm };
+    const spec = localSpec(prompt, opts);
+    const pop = localSpec(`a pop track${tempo}`, { seed: 42 });
+    assert.equal(spec.style, 'pop');
+    assert.equal(spec.bpm, pop.bpm);
+    assert.deepEqual(spec.sections, pop.sections);
   }
 });
 

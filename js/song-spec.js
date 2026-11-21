@@ -285,7 +285,7 @@ function titleFrom(text) {
   return words.length ? words.map((w) => (caps.has(w.toUpperCase()) ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1))).join(' ') : null;
 }
 
-export function localSpec(text, { style: current = 'deephouse', seed } = {}) {
+export function localSpec(text, { style: current = 'deephouse', seed, genre, bpm } = {}) {
   const raw = String(text || '').slice(0, 280), t = raw.toLowerCase();
   const { edits } = parse(raw, { style: current });
   // The first genre named wins ("deep house ... euphoric drop" is deep house with a euphoric drop).
@@ -294,7 +294,7 @@ export function localSpec(text, { style: current = 'deephouse', seed } = {}) {
   const named = genres.map((e) => ({ v: e.value, at: t.search(GENRE_AT[e.value] || new RegExp(STYLES[e.value].name.split(' ')[0].toLowerCase().replace(/[^a-z]/g, '').slice(0, 4))) }));
   if (firstWord) named.push({ v: firstWord[1], at: t.search(firstWord[0]) });
   named.sort((a, b) => (a.at < 0 ? 1e9 : a.at) - (b.at < 0 ? 1e9 : b.at));
-  const style = named[0]?.v || (SONG_STYLES.includes(current) ? current : genreOf(edits, current) || 'deephouse');
+  const style = SONG_STYLES.includes(genre) ? genre : named[0]?.v || (SONG_STYLES.includes(current) ? current : genreOf(edits, current) || 'deephouse');
   const mood = MOODS.find(([re]) => re.test(t))?.[1] || null;
   const M = mood && MOOD_CHORDS[mood];
   const [lo, hi] = STYLES[style].bpm;
@@ -302,7 +302,7 @@ export function localSpec(text, { style: current = 'deephouse', seed } = {}) {
   const scaleEdit = edits.find((e) => e.id === 'scale' && SCALES[e.value]);
   const keyEdit = edits.find((e) => e.id === 'key' && /\b(?:in|key\s+of)\s+[a-g](?:#|b|\s+sharp|\s+flat)?\b/.test(e.src || ''));
   const s0 = seed ?? hashStr(t);
-  const bpm0 = Math.round(clamp(bpmEdit?.value ?? (lo + hi) / 2 + tempo * 6, Math.max(60, lo - 20), Math.min(200, hi + 20), Math.round((lo + hi) / 2)));
+  const bpm0 = Math.round(clamp(bpm ?? bpmEdit?.value ?? (lo + hi) / 2 + tempo * 6, Math.max(60, lo - 20), Math.min(200, hi + 20), Math.round((lo + hi) / 2)));
   const sections = formSections(style, s0, SKETCH_WORDS.test(t) ? 'sketch' : 'song', bpm0);
   const find = (role) => sections.find((s) => s.role === role);
   // Structure words.
