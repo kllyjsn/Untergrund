@@ -104,11 +104,16 @@ export function baselineOverrides(text = '') {
   }
   return out;
 }
-export function planPairs(styles, seed, seeds, base, head, baselines = {}, nullControl = false) {
+export function planPairs(styles, seed, seeds, base, head, baselines = {}, nullControl = false, nullCandidates = Object.keys(STYLES)) {
   if (!styles.length) throw new Error('Cannot plan an empty pack');
   const rng = random(seed);
   const entries = styles.map((style) => ({ style, kind: 'comparison', baselineCommit: baselines[style] || base }));
-  if (nullControl) entries.push({ style: styles[Math.floor(rng() * styles.length)], kind: 'null', baselineCommit: head, nullCommit: head });
+  if (nullControl) {
+    const available = [...new Set(nullCandidates)].filter((style) => !styles.includes(style));
+    if (!available.length) throw new Error('Null control requires a style outside the real pairs');
+    for (const style of available) if (!Object.hasOwn(STYLES, style)) throw new Error(`Unknown null genre: ${style}`);
+    entries.push({ style: available[Math.floor(rng() * available.length)], kind: 'null', baselineCommit: head, nullCommit: head });
+  }
   return shuffle(entries, rng).map((p, i) => {
     const first = rng() < 0.5 ? 'original' : 'revised';
     return { ...p, pair: String(i + 1).padStart(2, '0'), genre: STYLES[p.style].name, renderSeed: seeds[p.style] ?? (hash(`${seed}:${p.style}`) || 1), bars: 8, first, second: first === 'original' ? 'revised' : 'original', commits: { original: p.baselineCommit, revised: head } };
@@ -165,7 +170,7 @@ export async function main(argv = process.argv.slice(2)) {
   const options = {};
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--null-control') { options['null-control'] = true; continue; }
-    if (!/^--(date|seed|seeds|head|base|since|genres|styles|baselines|min-difference|max-pairs|key-dir)$/.test(argv[i]) || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Invalid option: ${argv[i]}`);
+    if (!/^--(date|seed|seeds|head|base|since|genres|styles|baselines|null-style|min-difference|max-pairs|key-dir)$/.test(argv[i]) || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Invalid option: ${argv[i]}`);
     options[argv[i].slice(2)] = argv[++i];
   }
   const date = options.date || new Date().toISOString().slice(0, 10);
@@ -202,11 +207,12 @@ export async function main(argv = process.argv.slice(2)) {
   }
   console.log(`Merged PRs: ${mergedPRs.map((p) => '#' + p.number).join(', ')}`);
   console.log(`Selected styles: ${selection.selected.join(', ')}; dropped: ${selection.dropped.join(', ') || 'none'}`);
-  const pairs = planPairs(selection.selected, seed, seeds, base, head, baselines, options['null-control']);
+  if (options['null-style'] && !options['null-control']) throw new Error('null-style requires null-control');
+  const pairs = planPairs(selection.selected, seed, seeds, base, head, baselines, options['null-control'], options['null-style'] ? [options['null-style']] : mergedPRs.flatMap((p) => p.styles));
   mkdirSync(out, { recursive: true });
   const temp = mkdtempSync(join(tmpdir(), 'ug-blind-')), worktrees = [];
   try {
-    const renderGroups = [{ version: 'revised', commit: head, styles: selection.selected }, ...[...new Set(pairs.filter((p) => p.kind !== 'null').map((p) => p.baselineCommit))].map((commit) => ({ version: 'original', commit, styles: pairs.filter((p) => p.kind !== 'null' && p.baselineCommit === commit).map((p) => p.style) }))];
+    const renderGroups = [{ version: 'revised', commit: head, styles: pairs.map((p) => p.style) }, ...[...new Set(pairs.filter((p) => p.kind !== 'null').map((p) => p.baselineCommit))].map((commit) => ({ version: 'original', commit, styles: pairs.filter((p) => p.kind !== 'null' && p.baselineCommit === commit).map((p) => p.style) }))];
     for (const [groupIndex, { version, commit, styles }] of renderGroups.entries()) {
       const dir = join(temp, `revision-${groupIndex}`);
       git('worktree', 'add', '--detach', dir, commit); worktrees.push(dir);
@@ -222,7 +228,7 @@ export async function main(argv = process.argv.slice(2)) {
           const available = await run(`import('/test/audio-quality-page.js').then(m => { window.__q = m; return typeof m.excerpt === 'function'; })`);
           if (!available) throw new Error(`${version} ${commit} lacks excerpt() in test/audio-quality-page.js`);
           for (const style of styles) {
-            const p = pairs.find((p) => p.style === style && p.kind !== 'null');
+            const p = pairs.find((p) => p.style === style);
             console.log(`Rendering ${version} ${p.style} seed=${p.renderSeed}`);
             const options = { kind: 'peak', bars: 8, ...(p.barWindow ? { from: p.barWindow[0] } : {}) };
             const x = await run(`window.__q.excerpt(${JSON.stringify(p.style)}, ${p.renderSeed}, ${JSON.stringify(options)})`);
@@ -238,9 +244,7 @@ export async function main(argv = process.argv.slice(2)) {
     }
     for (const p of pairs) {
       if (p.kind === 'null') {
-        const source = pairs.find((q) => q.style === p.style && q.kind !== 'null');
-        p.barWindow = [...source.barWindow];
-        p.windows = { original: [...source.barWindow], revised: [...source.barWindow] };
+        p.windows = { original: [...p.barWindow], revised: [...p.barWindow] };
       } else if (minDifference !== null) {
         p.pcmDifference = compareFiles(join(temp, `${p.style}-original.wav`), join(temp, `${p.style}-revised.wav`), minDifference);
         console.log(`${p.style} PCM difference: ${JSON.stringify(p.pcmDifference)}`);

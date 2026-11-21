@@ -21,7 +21,15 @@ assert.equal(planned.length, 3);
 const control = planned.find((p) => p.kind === 'null');
 assert.equal(control.nullCommit, 'head');
 assert.deepEqual(control.commits, { original: 'head', revised: 'head' });
-assert.equal(control.renderSeed, planned.find((p) => p.style === control.style && p.kind !== 'null').renderSeed);
+assert(!planned.some((p) => p.kind !== 'null' && p.style === control.style));
+for (let seed = 0; seed < 100; seed++) {
+  const pairs = planPairs(['swing', 'deephouse'], seed, {}, 'base', 'head', {}, true, ['swing', 'modal', 'deephouse', 'phonk']);
+  assert(!pairs.some((p) => p.kind !== 'null' && p.style === pairs.find((p) => p.kind === 'null').style));
+}
+assert.equal(planPairs(['swing'], 42, { electrohiphop: 7 }, 'base', 'head', {}, true, ['electrohiphop']).find((p) => p.kind === 'null').renderSeed, 7);
+assert.throws(() => planPairs(['swing'], 42, {}, 'base', 'head', {}, true, []), /outside/);
+assert.throws(() => planPairs(['swing'], 42, {}, 'base', 'head', {}, true, ['swing']), /outside/);
+assert.throws(() => planPairs(['swing'], 42, {}, 'base', 'head', {}, true, ['unknown']), /Unknown null genre/);
 assert.equal(planned.find((p) => p.style === 'swing' && p.kind !== 'null').baselineCommit, 'intro');
 assert.equal(planned.find((p) => p.style === 'deephouse' && p.kind !== 'null').baselineCommit, 'base');
 assert.equal(planPairs(['swing'], 42, {}, 'base', 'head').length, 1);

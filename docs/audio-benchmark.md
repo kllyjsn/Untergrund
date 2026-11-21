@@ -3,8 +3,11 @@
 Use `--styles deephouse,phonk,bossa,jazzfunk,lofihiphop` for an exact list without
 forced core genres. `--baselines style:COMMIT,style:COMMIT` overrides the global
 base per style; both commits are recorded per pair. `--null-control` adds one
-seed-selected style using the same head render twice, then shuffles it among
+seed-selected detected style outside the real pairs using the same head render
+twice, then shuffles it among
 the real pairs. Its identity and commit appear only in the private key.
+Use `--null-style electrohiphop` with `--null-control` to choose that unused
+style explicitly. The command fails if no unused null style is available.
 `--max-pairs` caps real styles, before adding this optional control.
 `--min-difference 0.001` rejects real pairs with gain-matched relative PCM RMS
 difference at or below that threshold, measured on raw same-window renders.
