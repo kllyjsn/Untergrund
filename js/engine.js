@@ -974,7 +974,7 @@ export class Engine {
       this.festivalGate.gain.setValueAtTime(1, this.ctx.currentTime);
     }
     const mix = JAZZ_MIX[jazzStyle(this.state, this.playingPattern)];
-    const trim = this.minimal ? 0.12 : this.playbackStyle === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : jazzStyle(this.state, this.playingPattern) === 'bossa' ? voice === 7 ? mix.pianoOutput : voice === 8 ? mix.guitarOutput : mix.output : mix?.output ?? STYLE_OUTPUT_DB[this.playbackStyle] ?? 0;
+    const trim = this.minimal ? 0.32 : this.playbackStyle === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : jazzStyle(this.state, this.playingPattern) === 'bossa' ? voice === 7 ? mix.pianoOutput : voice === 8 ? mix.guitarOutput : mix.output : mix?.output ?? STYLE_OUTPUT_DB[this.playbackStyle] ?? 0;
     const level = this.hardTechno ? 0.89 : OUT_TRIM * dbGain(trim);
     if (Number.isFinite(time)) this.out.gain.setValueAtTime(level, time);
     else this.setTo(this.out.gain, level, immediate);
@@ -3762,17 +3762,23 @@ export class Engine {
 
   minimalHook(t, v, f, dur, out) {
     if (!(v > 0) || !(f > 0) || !(dur > 0) || ![t, v, f, dur].every(Number.isFinite)) return;
+    let input = this.minimalHooks?.get(out);
+    if (!input) {
+      input = this.gain(0.5);
+      input.connect(this.comp(0, 4, 3, 0.001, 0.05)).connect(this.gain(2)).connect(out);
+      (this.minimalHooks ||= new WeakMap()).set(out, input);
+    }
     const p = this.state.params.stab, env = Math.max(0, Math.min(1, p.env)), decay = Math.min(0.25, 0.07 + dur * 0.18);
     const hp = this.filter('highpass', 180, -3.0103), lp = this.filter('lowpass', Math.min(5000, p.cutoff * (0.8 + env)), -3.0103), amp = this.gain(0);
     const car = this.ctx.createOscillator(), mod = this.ctx.createOscillator(), depth = this.gain(0);
     car.type = 'triangle'; car.frequency.value = f; car.detune.value = p.detune * 0.6;
     mod.frequency.value = f * 1.5;
     mod.connect(depth).connect(car.frequency);
-    depth.gain.setValueAtTime(f * (0.12 + env * 0.6 + (p.tine ?? 0.15) * 0.2), t);
-    depth.gain.setTargetAtTime(0, t + 0.003, 0.02);
+    depth.gain.setValueAtTime(f * (0.06 + env * 0.3 + (p.tine ?? 0.15) * 0.1), t);
+    depth.gain.setTargetAtTime(0, t + 0.012, 0.03);
     const register = Math.log2(f / 440), level = Math.round(p.voice) === 7 ? 10.7 - register * 6 : 7.7 + register * 3.5;
-    this.adEnv(amp.gain, t, v * 1.2 * dbGain(Math.max(2, Math.min(20, level))), 0.003, decay);
-    car.connect(hp).connect(lp).connect(amp).connect(out);
+    this.adEnv(amp.gain, t, v * 0.65 * dbGain(Math.max(2, Math.min(20, level))), 0.012 + env * 0.012, decay * 4);
+    car.connect(hp).connect(lp).connect(amp).connect(input);
     for (const o of [car, mod]) { this.startSource(o, t); o.stop(t + decay * 7 + 0.05); }
   }
 

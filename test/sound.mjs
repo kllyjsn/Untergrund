@@ -1075,13 +1075,13 @@ console.log('recorded jazz leads: trumpet, airflute and piano finite/audible/lev
       assert.equal(hooks, 4, 'a recorded chop never also schedules a synth hook');
     } finally { clearVoice(); }
   }
-  const voice = async (kind, edit = {}) => {
+  const voice = async (kind, edit = {}, frequency = 330) => {
     const s = freshSong('minimal', 42); s.artist = { style: 'minimal', seed: 42 };
     Object.assign(s.params.stab, { env: 0.3, tine: 0.15, detune: 0, cutoff: 1800, reso: 0.4, decay: 0.5 }, kind === 'bass' ? {} : edit);
     if (kind === 'bass') Object.assign(s.params.acid, edit);
     const ctx = new OfflineAudioContext(1, SR * 2, SR), e = new Engine(ctx, s, { realtime: false });
     e.smoothChords(-9);
-    if (kind === 'hook') e.minimalHook(0.05, 0.7, 330, 0.5, e.mix);
+    if (kind === 'hook') e.minimalHook(0.05, 0.7, frequency, 0.5, e.mix);
     else if (kind === 'bass') e.minimalBass(0.05, { n: 0, a: true }, 0.15, false);
     else e.keys(0.05, 0.7, [0, 3, 7], 48, s.params.stab, e.mix);
     return (await ctx.startRendering(e.mix)).getChannelData(0);
@@ -1097,6 +1097,23 @@ console.log('recorded jazz leads: trumpet, airflute and piano finite/audible/lev
       assert(delta / low.length > 1e-9, `Minimal ${kind} ${control} reaches the audio, not just generated state`);
     }
   }
+  for (const instrument of [1, 7]) for (const frequency of [130, 330, 1047]) {
+    const pcm = await voice('hook', { voice: instrument }, frequency), start = Math.floor(SR * 0.05);
+    const early = rmsDb(pcm, start, start + Math.floor(SR * 0.006));
+    const body = rmsDb(pcm, start + Math.floor(SR * 0.012), start + Math.floor(SR * 0.032));
+    assert(early < body - 6, 'Minimal hook grows into its body rather than striking the master with an onset spike');
+  }
+  {
+    const s = freshSong('minimal', 11), e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
+    const stages = [], comp = e.comp;
+    e.comp = function (...args) { const node = comp.apply(this, args); stages.push(node); return node; };
+    e.minimalHook(0.05, 0.7, 220, 0.2, e.mix);
+    e.minimalHook(0.25, 0.7, 440, 0.2, e.mix);
+    assert.equal(stages.length, 1, 'Minimal hook notes share peak control before their common bus');
+    assert.equal(stages[0].threshold.value, 0);
+    assert.equal(stages[0].ratio.value, 4);
+    assert(stages[0].attack.value <= 0.002, 'hook peak control catches the onset');
+  }
   const compensated = (voice, f) => {
     const s = freshSong('minimal', 42); s.params.stab.voice = voice;
     const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false }), levels = [], adEnv = e.adEnv;
@@ -1111,7 +1128,7 @@ console.log('recorded jazz leads: trumpet, airflute and piano finite/audible/lev
   {
     const s = freshSong('minimal', 42); s.artist = { style: 'minimal', seed: 42 };
     const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
-    assert(Math.abs(20 * Math.log10(e.out.gain.value / 0.78) - 0.12) < 1e-5, 'Minimal has its own post-limiter loudness trim');
+    assert(Math.abs(20 * Math.log10(e.out.gain.value / 0.78) - 0.32) < 1e-5, 'Minimal has its own post-limiter loudness trim');
     const shelves = [], filter = e.filter;
     e.filter = function (...args) { const node = filter.apply(this, args); if (args[0] === 'lowshelf') shelves.push(node); return node; };
     e.minimalBass(0.05, { n: 0, a: true }, 0.15, false);
