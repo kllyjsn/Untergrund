@@ -399,7 +399,7 @@ function generatePattern(style, seed, scaleName, starter) {
     master.humanize = 0.32; master.warmth = 0.22; master.room = 0.2;
     Object.assign(params.acid, { wave: 0.05, cutoff: 260, reso: 2, envmod: 0.12, decay: 0.4, drive: PALETTE_DEFAULTS.deephouse.drive, accent: 0.2 });
     Object.assign(params.ride, { tone: 6000, decay: 0.6 });
-    Object.assign(params.ch, { tone: 8500, level: 0.56 });
+    Object.assign(params.ch, { tone: 8500 });
     Object.assign(params.oh, { tone: 8000 });
     master.duck = 0.6; master.revLevel = 0.6;
     swing = 0.3;
