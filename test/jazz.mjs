@@ -12,6 +12,21 @@ import { writeMelody } from '../js/melody.js';
 import { rng } from '../js/dsp.js';
 
 const pc = (n) => ((n % 12) + 12) % 12;
+for (const [style, id, at] of [['bossa', 'snare', 0], ['jazzfunk', 'kick', 0], ['jazzfunk', 'snare', 4]]) {
+  const s = freshSong(style, 42); s.chain = 'GG'; s.ending = false;
+  const capture = () => {
+    const e = new Recorder(s), seq = new Sequencer(e, s), notes = [];
+    e.trigger = (track, t, v) => { if (track === id) notes.push({ step: Math.round((t - 0.05) / e.stepDur), v }); };
+    for (let i = 0; i < 32; i++) seq.tick(i, 0.05 + i * e.stepDur);
+    return notes;
+  };
+  const before = capture(), row = s.patterns[6].steps[id], original = row[at];
+  row[at] = original === 2 ? 1 : 2;
+  const after = capture();
+  assert.deepEqual(after.map((n) => n.step), before.map((n) => n.step), 'velocity edits preserve the two-bar rhythm');
+  assert.equal(after[0].v > before[0].v, original !== 2, 'accent and deaccent change loudness');
+  if (id !== 'snare' || style === 'bossa') assert.notDeepEqual(after.filter((n) => n.step < 16).map((n) => n.step), after.filter((n) => n.step >= 16).map((n) => n.step - 16));
+}
 for (const style of ['bossa', 'jazzfunk']) for (const id of ['kick', 'snare', 'ch', 'oh', 'acid', 'stab']) {
   const s = freshSong(style, 42); s.chain = 'GG'; s.ending = false;
   const p = s.patterns[6];
