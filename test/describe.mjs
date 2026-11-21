@@ -262,6 +262,10 @@ t('genre switch goes through regenerate', () => {
   const s = songFor('hypnotic');
   assert.equal(genreOf(parse('make it house').edits, 'hypnotic'), 'deephouse');
   assert.equal(genreOf(parse('make it house').edits, 'deephouse'), null);
+  assert.equal(genreOf(parse('bossa nova').edits, 'jazzfunk'), 'bossa');
+  assert.equal(genreOf(parse('Kind of Blue').edits, 'swing'), 'modal');
+  assert.equal(genreOf(parse('bebop with trumpet').edits, 'neosoul'), 'swing');
+  assert.equal(genreOf(parse('make it jazz').edits, 'bossa'), null);
   const r = describe('make it house and darker', s, { style: 'hypnotic', regenerate: (g) => songFor(g, 9) });
   assert.equal(r.genre, 'deephouse');
   assert.ok(r.did[0].includes('DEEP') || r.did[0].toLowerCase().includes('house'), r.did[0]);
