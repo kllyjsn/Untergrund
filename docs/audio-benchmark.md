@@ -1,5 +1,15 @@
 # Daily blind rating pack
 
+Use `--styles deephouse,phonk,bossa,jazzfunk,lofihiphop` for an exact list without
+forced core genres. `--baselines style:COMMIT,style:COMMIT` overrides the global
+base per style; both commits are recorded per pair. `--null-control` adds one
+seed-selected style using the same head render twice, then shuffles it among
+the real pairs. Its identity and commit appear only in the private key.
+`--max-pairs` caps real styles, before adding this optional control.
+`--min-difference 0.001` rejects real pairs with gain-matched relative PCM RMS
+difference at or below that threshold, measured on raw same-window renders.
+Existing dated pack directories and keys are never overwritten.
+
 Use `--max-pairs 6` to retain the four core genres and cap additional styles.
 Styles supplied with `--genres pop,hypnotic` take priority over detected additions.
 The key records dropped styles. Every half receives 10 ms fade-in and fade-out
