@@ -46,6 +46,45 @@ function hitDb(d) {
 }
 const rmsDb = (d, a, b) => { let e = 0; for (let i = a; i < b; i++) e += d[i] * d[i]; return 10 * Math.log10(e / Math.max(1, b - a) + 1e-20); };
 
+for (const style of ['euphoric']) {
+  const { paletteFor, paletteColor, soundingPitch } = await import('../js/engine.js');
+  const voices = new Set();
+  for (const seed of [11, 20, 42, 73, 211, 997, 1234, 2026]) {
+    const s = freshSong(style, seed); s.artist = { style, seed };
+    const ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false }), rec = new Recorder(s);
+    voices.add(s.params.stab.voice);
+    let played, frequency, bass = 0;
+    const chord = e.paletteChord, hook = e.paletteHook, pocket = e.pocketBass;
+    e.paletteChord = function (t, v, iv, root, p, out, color) { played = iv.map(n => color.piano ? soundingPitch('piano', root + n) : root + n); return chord.call(this, t, v, iv, root, p, out, color); };
+    e.paletteHook = function (t, v, f, ...a) { frequency = f; return hook.call(this, t, v, f, ...a); };
+    e.pocketBass = function (...a) { bass++; return pocket.apply(this, a); };
+    e.stab(0.05, 0.7); rec.trigger('stab', 0.05, 0.7);
+    assert.deepEqual(rec.notes.stab.map(n => n.m), played, `${style} MIDI follows its voiced chords`);
+    e.recordedNote = () => assert.fail(`${style} hook cannot inherit a recorded chord player`);
+    for (const [strong, up] of [[false, false], [true, false], [false, true]]) {
+      e.hook(0.1, 0.4, 1, 0.2, 'analog', 0, strong, 1, up);
+      rec.hook(0.1, 0.4, 1, 0.2, 'analog', 0, strong, 1, up);
+      assert(Math.abs(69 + 12 * Math.log2(frequency / 440) - rec.notes.hook.at(-1).m) < 1e-8, `${style} hook snap matches MIDI`);
+    }
+    e.acidVoice(0.05, { n: 0, a: false }, false, false, e.stepDur);
+    assert.equal(bass, 1, `${style} has its own pocket bass`);
+    const d = (await ctx.startRendering(e.mix)).getChannelData(0);
+    assert(d.every(Number.isFinite) && hitDb(d) > -60, `${style} renders finite audible PCM`);
+  }
+  assert.equal(voices.size, new Set(INSTRUMENTS[style].map(p => p[0])).size, `${style} covers every chord voice`);
+  for (const voice of [-1, 99, NaN]) {
+    const s = freshSong(style, 42); s.artist = { style }; s.params.stab.voice = voice;
+    assert.equal(paletteColor(s), paletteFor(s).chords.default, `${style} unknown-palette fallback`);
+    const ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
+    e.stab(0.05, 0.7);
+    const d = (await ctx.startRendering(e.mix)).getChannelData(0);
+    assert(d.every(Number.isFinite) && hitDb(d) > -60, `${style} fallback renders safely and audibly`);
+  }
+  const s = freshSong(style, 42); s.artist = { style };
+  const ctx = new OfflineAudioContext(1, 256, SR), e = new Engine(ctx, s, { realtime: false });
+  e.paletteChord(0, 1, [], 48, s.params.stab, e.ch.stab.input, paletteColor(s));
+  assert((await ctx.startRendering(e.mix)).getChannelData(0).every(v => v === 0), `${style} empty voicing is silent`);
+}
 
 {
   const { paletteFor, paletteColor } = await import('../js/engine.js');

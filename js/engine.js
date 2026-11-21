@@ -25,7 +25,20 @@ const BASS_COLOR = {
   jerseyclub: { name: 'bounce', knock: 2.6, settle: 0.012, wave: 'sawtooth', ratio: 2, harmonic: 0.35, tail: 0.015, decay: 0.025, round: 'triangle', pick: 0.5, gain: 1.6, duckScale: 0.65, recoveryScale: 0.6 },
 };
 const LIQUID_CHORD = { wave: 'sawtooth', level: 0.4, attack: 0.065, release: 0.8, cutoff: 1700, spread: 6, fm: 0, width: 0 };
+const EUPHORIC_CHORD = { wave: 'sawtooth', level: 0.54, attack: 0.025, release: 0.85, cutoff: 2300, spread: 11, fm: 0 };
 const GENRE_PALETTES = {
+  euphoric: {
+    name: 'uplift',
+    chords: {
+      default: EUPHORIC_CHORD,
+      7: { ...EUPHORIC_CHORD, piano: true, level: 1, cutoff: 5800 },
+      10: { ...EUPHORIC_CHORD, level: 0.5, attack: 0.055, release: 1.2, cutoff: 1800, spread: 13 },
+      2: { ...EUPHORIC_CHORD, level: 1, attack: 0.05, release: 1.1 },
+      4: { ...EUPHORIC_CHORD, wave: 'triangle', level: 0.7, attack: 0.012, release: 0.6, fm: 0.4 },
+    },
+    hook: { wave: 'sawtooth', level: 0.65, attack: 0.014, release: 0.17, cutoff: 2600, spread: 16, width: 0.85, fm: 0 },
+    bass: { type: 'pluck', level: 1.1, sub: 0.72, body: 0.8, cutoff: 850, decay: 0.07, sustain: 0.32, length: 0.85 },
+  },
   dnb: {
     name: 'liquid',
     chords: {
