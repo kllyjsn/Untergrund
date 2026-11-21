@@ -45,9 +45,17 @@ for (const [voice, velocity, duration, take, bank] of [
   assert.equal(buf.bank, bank);
   assert(Math.abs((buf.midi + WIND_TUNING[bank][buf.midi] / 100) + 12 * Math.log2(rate) - 73) < 1e-9);
   assert.equal(fx.lp, undefined, 'jazz wind treatment is not a broad low-pass');
-  assert(fx.ringOut && fx.peaks.every(([, q, db]) => q >= 30 && db <= 0));
+  assert.equal(fx.ringOut, !bank.startsWith('jts'), 'only held recordings reserve a tail before their buffer runs out');
+  assert(fx.peaks.every(([, q, db]) => q >= 30 && db <= 0));
 }
 assert(!probe('tpt', .5, .8, 0, 'jtv2').result, 'an incomplete bank returns to existing recorded/synth fallback');
+{
+  const ctx = new OfflineAudioContext(2, 48000, 48000), fx = probe('tpt', .6, .2).calls[0][6];
+  const e = { ctx, gain(v) { const g = ctx.createGain(); g.gain.value = v; return g; }, startSource(s, t, offset) { s.start(t, offset); } };
+  const played = Engine.prototype.playBuf.call(e, ctx.createBuffer(1, 14400, 48000), 1, .4, ctx.destination, 2 ** (2 / 12), .184, fx);
+  const release = played.g.gain.events.find((x) => x.k === 'g' && x.v === 0);
+  assert(Math.abs(release.t - 1.184) < 1e-9, 'a tuned short recording must hold its written gate, not damp after 20 ms');
+}
 for (const duration of [.15, .5, .85, 1.2]) {
   const { result, calls, eq } = probe('airflute', .6, duration, 1, 'jflb', 'bossa');
   assert(result && calls.length === 1, 'Bossa can play a complete sustain bank while expressive takes load');

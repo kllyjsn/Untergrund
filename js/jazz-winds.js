@@ -32,7 +32,7 @@ export function recordedJazzWind(e, t, v, midi, duration, voice, strong, { take 
     peaks: bossa ? bossaFluteNotches(center, rate) : windNotches(bank, center, rate),
     fade: short ? .004 : flute ? .008 : .015,
     attackGain: strong ? 1.02 : .94,
-    release: short ? .07 : .055, ringOut: true,
+    release: short ? .07 : .055, ringOut: !short,
   });
   return true;
 }
