@@ -91,11 +91,11 @@ export const dbtp = (channels) => 20 * Math.log10(truePeak(channels));
 export const samplePeakDb = (channels) => { let p = 0; for (const x of channels) for (let i = 0; i < x.length; i++) p = Math.max(p, Math.abs(x[i])); return 20 * Math.log10(p); };
 
 // Whole-song feed target: -12 LUFS lets loud club genres back off their limiter/clipper instead of pushing
-// quieter bands into it. Ambient and R&B stay at -14; orchestra and solo piano keep their dynamics at -16
+// quieter bands into it. Ambient, R&B and Lo-Fi Hip-Hop stay at -14; orchestra and solo piano keep their dynamics at -16
 // (a nocturne's hammer peaks sit ~17 dB over its average, so louder would clip the piano).
 // Nothing may peak above -1 dBTP.
 export const LOUDNESS_TARGET = { feed: -12, quiet: -14, classical: -16, ceiling: -1 };
-const TIER = { ambient: 'quiet', rnb: 'quiet', symphony: 'classical', concerto: 'classical', nocturne: 'classical', repertoire: 'classical' };
+const TIER = { ambient: 'quiet', rnb: 'quiet', lofihiphop: 'quiet', symphony: 'classical', concerto: 'classical', nocturne: 'classical', repertoire: 'classical' };
 export const targetFor = (style) => LOUDNESS_TARGET[TIER[style] || 'feed'];
 
 // Per-style make-up gain (dB) applied in front of the master limiter, measured with scripts/loudness.mjs.
@@ -108,7 +108,7 @@ export const MAKEUP_DB = {
   ambient: 2.4, amapiano: 1.5, afrobeats: 0.8, reggaeton: 1.8, bailefunk: 2.5, trap: 1.4, drill: 3.3,
   jerseyclub: 1.5, hyperpop: 0.5, symphony: 6.5, concerto: 5.3, nocturne: 11.9, repertoire: 3.6,
   pop: 3.2, rnb: 4.4, rock: 2.8, folk: 3.9, country: 1.6,
-  lofihiphop: 4.6, gfunk: 4.8, phonk: 6.4, electrohiphop: 5.1,
+  lofihiphop: 4.6, gfunk: 3.4, phonk: 3.7, electrohiphop: 3.65,
 };
 // REPERTOIRE masterworks differ from one another by several LU: a per-score trim (dB) on top of the style's make-up
 // lands each on -16 LUFS. Measured on the whole score with node scripts/loudness.mjs --pieces.
