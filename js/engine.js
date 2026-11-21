@@ -8,6 +8,8 @@ import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel, swingLate, swingDuration } from './groove.js';
 import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes, jazzNotches, JAZZ_MIX, BOSSA_RIM, BOSSA_BATIDA, bossaBass } from './jazz.js';
 import { funkBass, FUNK_KICK, FUNK_SNARE, FUNK_COMP } from './jazzfunk.js';
+import { recordedJazzKeys } from './jazz-recordings.js';
+import { recordedJazzWind } from './jazz-winds.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ, TECHNO_HOOK_SPACE } from './lead.js';
 import { lowEnd } from './lowend.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
@@ -119,6 +121,7 @@ const WIND_HOOK = {
     second: { 60: [-36, 0.145, 3.8], 64: [-12, 0.105, 3], 69: [-2, 0.061, 0.8], 72: [2, 0.092, 3], 76: [0, 0.088, -0.5], 81: [0, 0.098, 0], 84: [0, 0.105, -3.2] },
   },
 };
+WIND_HOOK.harmon = WIND_HOOK.tpt;
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
 const LIVE_REF = {
   kick: { tune: 52, decay: 0.5, drive: 0.2, click: 0.15, punch: 0.55 },
@@ -2154,6 +2157,7 @@ export class Engine {
   jazzKeys(t, v, iv, root, p, out) {
     if (!iv.length) return;
     const style = jazzStyle(this.state, this.playingPattern);
+    if (recordedJazzKeys(this, t, v, iv, root, p, out, style === 'jazzfunk' ? dbGain(JAZZ_MIX.jazzfunk.comp) : 1)) return;
     const envDefault = style === 'jazzfunk' ? 0.12 : 0.45, detuneDefault = style === 'jazzfunk' ? 0.6 : 12;
     const env = Number.isFinite(p.env) ? Math.max(0, Math.min(1, p.env)) : envDefault;
     const detune = Number.isFinite(p.detune) ? Math.max(0, Math.min(40, p.detune)) : detuneDefault;
@@ -3061,7 +3065,7 @@ export class Engine {
       if (n % 2) [c, buf] = alt[i];
     }
     return this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
-      shelves: [[3000, tone]], peaks: [...(R?.peak ? [R.peak] : []), ...(jazzStyle(this.state, this.playingPattern) === 'bossa' && kind === 'jazz' ? jazzNotches(kind, c, Math.pow(2, (m - c) / 12)) : [])], lp: R ? R.lp * (F ? F[1] : 1) * (0.4 + 0.6 * hv) : 0, lpFrom: F ? F[0] : R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
+      shelves: [[3000, tone]], peaks: [...(R?.peak ? [R.peak] : []), ...(jazzStyle(this.state, this.playingPattern) === 'bossa' && (kind === 'jazz' || kind === 'nylon') ? jazzNotches(kind, c, Math.pow(2, (m - c) / 12)) : [])], lp: R ? R.lp * (F ? F[1] : 1) * (0.4 + 0.6 * hv) : 0, lpFrom: F ? F[0] : R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
     });
   }
   // A guitar amp for the DRIVE GTR: tightened lows into an asymmetric tube-style clipper, then a 4x12 cab
@@ -3375,6 +3379,9 @@ export class Engine {
   }
 
   windHook(set, t, v, m, dur, voice, strong, { harm, take = 0 }) {
+    const style = jazzStyle(this.state, this.playingPattern);
+    if ((style || voice === 'harmon') && recordedJazzWind(this, t, v, m, dur, voice, strong, { harm, take, style }, dbGain(style === 'bossa' && voice === 'tpt' ? JAZZ_MIX.bossa.trumpetLead : JAZZ_MIX[style]?.lead || 0))) return;
+    if (voice === 'harmon') voice = 'tpt';
     const { gain, presence, takes, second } = WIND_HOOK[voice];
     const alt = TAKES[HOOK_BAND[voice]] && this.rec(TAKES[HOOK_BAND[voice]]);
     // The longer primary take can sustain through holds after transposition.
@@ -5281,10 +5288,14 @@ export class Sequencer {
     return v ? (v === 2 ? 1 : v === 1 ? 0.78 : v) / base : 0;
   }
 
+  jazzExpression(hook, notes, index, pass, pitchIndex = 2) {
+    return Object.hasOwn(WIND_HOOK, hook.v) ? { ...hook.x, take: windTake(notes, index, pitchIndex, pass) } : hook.x;
+  }
+
   jazzHook(pat, abs, t, sd) {
     if (!pat.hook.h) return false;
     const note = pat.hook.s[abs % 32];
-    if (note) this.e.hook(t, note[2], note[0], swingDuration(this.s, abs, note[1], sd), pat.hook.v, pat.hook.o, false, 0.8, false, pat.hook.x);
+    if (note) this.e.hook(t, note[2], note[0], swingDuration(this.s, abs, note[1], sd), pat.hook.v, pat.hook.o, false, 0.8, false, this.jazzExpression(pat.hook, pat.hook.s, abs % 32, Math.floor(abs / 32), 0));
     return true;
   }
 
@@ -5319,7 +5330,7 @@ export class Sequencer {
     if (enabled('stab') && (final || pat.steps.stab[i] && (!solo || bar % 2 === 0 || i === 6))) e.trigger('stab', t, style === 'modal' ? 0.62 : solo ? 0.42 : 0.56);
     if (enabled('stab') && pat.hook && pat.hm && !this.jazzHook(pat, abs, t, sd)) {
       const notes = final ? [[0, 8, h.r + CHORDS[h.c].iv[1], 0.7]] : jazzNotes(style, seed, bar, h, solo);
-      for (const [at, dur, n, v] of notes) if (at === i) e.hook(t, v, n, swingDuration(s, abs, dur, sd), pat.hook.v, pat.hook.o, i % 8 === 0, 0.8, false, pat.hook.x);
+      for (const [index, [at, dur, n, v]] of notes.entries()) if (at === i) e.hook(t, v, n, swingDuration(s, abs, dur, sd), pat.hook.v, pat.hook.o, i % 8 === 0, 0.8, false, this.jazzExpression(pat.hook, notes, index, bar));
     }
     return this.cur;
   }
@@ -5350,14 +5361,14 @@ export class Sequencer {
     if (enabled('stab') && comp) e.trigger('stab', t, (this.cur === 2 ? 0.48 : 0.6) * comp);
     if (enabled('stab') && pat.hook && pat.hm && !this.jazzHook(pat, abs, t, sd)) {
       const notes = final ? [[0, 6, e.harm.r + CHORDS[e.harm.c].iv[1], 0.7]] : jazzNotes('jazzfunk', pat.jazz.seed, bar, e.harm, this.cur === 2);
-      for (const [at, dur, pitch, v] of notes) if (at === i) {
+      for (const [index, [at, dur, pitch, v]] of notes.entries()) if (at === i) {
         const k = s.key > 6 ? s.key - 12 : s.key;
         let n = pitch;
         if (pat.hook.v === 'tpt') {
           while (60 + k + n < 69) n += 12;
           while (60 + k + n > 80) n -= 12;
         }
-        e.hook(t, v, n, swingDuration(s, abs, dur, sd), pat.hook.v, pat.hook.o, i % 4 === 0, 0.7, false, pat.hook.x);
+        e.hook(t, v, n, swingDuration(s, abs, dur, sd), pat.hook.v, pat.hook.o, i % 4 === 0, 0.7, false, this.jazzExpression(pat.hook, notes, index, bar));
       }
     }
     return this.cur;
@@ -5389,7 +5400,7 @@ export class Sequencer {
     if (enabled('stab') && comp) e.trigger('stab', t, (i % 8 === 0 ? 0.5 : 0.43) * comp);
     if (enabled('stab') && pat.hook && pat.hm && !this.jazzHook(pat, abs, t, sd)) {
       const notes = final ? [[0, 8, h.r + CHORDS[h.c].iv[1], 0.6]] : jazzNotes('bossa', pat.jazz.seed, bar, h, this.cur === 2);
-      for (const [at, dur, n, v] of notes) if (at === i) e.hook(t, v, n, dur * sd, pat.hook.v, pat.hook.o, i % 8 === 0, 0.8, false, pat.hook.x);
+      for (const [index, [at, dur, n, v]] of notes.entries()) if (at === i) e.hook(t, v, n, dur * sd, pat.hook.v, pat.hook.o, i % 8 === 0, 0.8, false, this.jazzExpression(pat.hook, notes, index, bar));
     }
     return this.cur;
   }

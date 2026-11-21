@@ -1,0 +1,1664 @@
+{
+  "method": "Mono 48kHz; Welch16384 Hann; 101-bin median; two strongest 2-4kHz peaks over 14dB, above 1.1x the fundamental; runtime Q40 cuts scaled to playback rate. Context validated separately with lead-muted native renders.",
+  "samples": [
+    {
+      "file": "jtv1_53.flac",
+      "hz": 2080.08,
+      "prominence": 21.55,
+      "q": 40,
+      "gainDb": -11.6
+    },
+    {
+      "file": "jtv1_53.flac",
+      "hz": 2431.64,
+      "prominence": 21.16,
+      "q": 40,
+      "gainDb": -11.2
+    },
+    {
+      "file": "jtv2_53.flac",
+      "hz": 2088.87,
+      "prominence": 20.05,
+      "q": 40,
+      "gainDb": -10.1
+    },
+    {
+      "file": "jtv2_53.flac",
+      "hz": 2786.13,
+      "prominence": 16.37,
+      "q": 40,
+      "gainDb": -6.4
+    },
+    {
+      "file": "jts11_53.flac",
+      "hz": 2109.38,
+      "prominence": 21.55,
+      "q": 40,
+      "gainDb": -11.6
+    },
+    {
+      "file": "jts11_53.flac",
+      "hz": 2279.3,
+      "prominence": 15.47,
+      "q": 40,
+      "gainDb": -5.5
+    },
+    {
+      "file": "jts12_53.flac",
+      "hz": 3659.18,
+      "prominence": 15.52,
+      "q": 40,
+      "gainDb": -5.5
+    },
+    {
+      "file": "jts21_53.flac",
+      "hz": 2399.41,
+      "prominence": 14.98,
+      "q": 40,
+      "gainDb": -5.0
+    },
+    {
+      "file": "jts21_53.flac",
+      "hz": 3632.81,
+      "prominence": 14.06,
+      "q": 40,
+      "gainDb": -4.1
+    },
+    {
+      "file": "jts22_53.flac",
+      "hz": 3152.34,
+      "prominence": 14.45,
+      "q": 40,
+      "gainDb": -4.4
+    },
+    {
+      "file": "jts31_53.flac",
+      "hz": 2115.23,
+      "prominence": 19.75,
+      "q": 40,
+      "gainDb": -9.7
+    },
+    {
+      "file": "jts31_53.flac",
+      "hz": 2291.02,
+      "prominence": 19.52,
+      "q": 40,
+      "gainDb": -9.5
+    },
+    {
+      "file": "jts32_53.flac",
+      "hz": 2437.5,
+      "prominence": 14.6,
+      "q": 40,
+      "gainDb": -4.6
+    },
+    {
+      "file": "jts32_53.flac",
+      "hz": 3228.52,
+      "prominence": 15.69,
+      "q": 40,
+      "gainDb": -5.7
+    },
+    {
+      "file": "jtv1_57.flac",
+      "hz": 2194.34,
+      "prominence": 31.81,
+      "q": 40,
+      "gainDb": -21.8
+    },
+    {
+      "file": "jtv1_57.flac",
+      "hz": 2414.06,
+      "prominence": 26.1,
+      "q": 40,
+      "gainDb": -16.1
+    },
+    {
+      "file": "jts11_57.flac",
+      "hz": 2188.48,
+      "prominence": 15.13,
+      "q": 40,
+      "gainDb": -5.1
+    },
+    {
+      "file": "jts12_57.flac",
+      "hz": 2200.2,
+      "prominence": 34.59,
+      "q": 40,
+      "gainDb": -24.6
+    },
+    {
+      "file": "jts12_57.flac",
+      "hz": 2422.85,
+      "prominence": 31.3,
+      "q": 40,
+      "gainDb": -21.3
+    },
+    {
+      "file": "jts21_57.flac",
+      "hz": 2208.98,
+      "prominence": 32.64,
+      "q": 40,
+      "gainDb": -22.6
+    },
+    {
+      "file": "jts21_57.flac",
+      "hz": 2428.71,
+      "prominence": 29.65,
+      "q": 40,
+      "gainDb": -19.6
+    },
+    {
+      "file": "jts22_57.flac",
+      "hz": 2194.34,
+      "prominence": 36.39,
+      "q": 40,
+      "gainDb": -26.4
+    },
+    {
+      "file": "jts22_57.flac",
+      "hz": 2414.06,
+      "prominence": 29.77,
+      "q": 40,
+      "gainDb": -19.8
+    },
+    {
+      "file": "jts31_57.flac",
+      "hz": 2211.91,
+      "prominence": 23.57,
+      "q": 40,
+      "gainDb": -13.6
+    },
+    {
+      "file": "jts31_57.flac",
+      "hz": 2876.95,
+      "prominence": 19.01,
+      "q": 40,
+      "gainDb": -9.0
+    },
+    {
+      "file": "jts32_57.flac",
+      "hz": 2203.12,
+      "prominence": 27.88,
+      "q": 40,
+      "gainDb": -17.9
+    },
+    {
+      "file": "jts32_57.flac",
+      "hz": 2419.92,
+      "prominence": 23.03,
+      "q": 40,
+      "gainDb": -13.0
+    },
+    {
+      "file": "jtv1_60.flac",
+      "hz": 2080.08,
+      "prominence": 29.21,
+      "q": 40,
+      "gainDb": -19.2
+    },
+    {
+      "file": "jtv1_60.flac",
+      "hz": 2346.68,
+      "prominence": 31.48,
+      "q": 40,
+      "gainDb": -21.5
+    },
+    {
+      "file": "jtv2_60.flac",
+      "hz": 2091.8,
+      "prominence": 19.44,
+      "q": 40,
+      "gainDb": -9.4
+    },
+    {
+      "file": "jtv2_60.flac",
+      "hz": 2352.54,
+      "prominence": 22.67,
+      "q": 40,
+      "gainDb": -12.7
+    },
+    {
+      "file": "jts11_60.flac",
+      "hz": 2352.54,
+      "prominence": 30.21,
+      "q": 40,
+      "gainDb": -20.2
+    },
+    {
+      "file": "jts11_60.flac",
+      "hz": 2083.01,
+      "prominence": 24.99,
+      "q": 40,
+      "gainDb": -15.0
+    },
+    {
+      "file": "jts12_60.flac",
+      "hz": 2094.73,
+      "prominence": 21.96,
+      "q": 40,
+      "gainDb": -12.0
+    },
+    {
+      "file": "jts12_60.flac",
+      "hz": 2006.84,
+      "prominence": 15.13,
+      "q": 40,
+      "gainDb": -5.1
+    },
+    {
+      "file": "jts21_60.flac",
+      "hz": 2375.98,
+      "prominence": 33.69,
+      "q": 40,
+      "gainDb": -23.7
+    },
+    {
+      "file": "jts21_60.flac",
+      "hz": 2109.38,
+      "prominence": 27.59,
+      "q": 40,
+      "gainDb": -17.6
+    },
+    {
+      "file": "jts22_60.flac",
+      "hz": 2109.38,
+      "prominence": 33.85,
+      "q": 40,
+      "gainDb": -23.8
+    },
+    {
+      "file": "jts22_60.flac",
+      "hz": 2373.05,
+      "prominence": 32.25,
+      "q": 40,
+      "gainDb": -22.2
+    },
+    {
+      "file": "jts31_60.flac",
+      "hz": 2097.66,
+      "prominence": 31.43,
+      "q": 40,
+      "gainDb": -21.4
+    },
+    {
+      "file": "jts31_60.flac",
+      "hz": 2358.4,
+      "prominence": 26.82,
+      "q": 40,
+      "gainDb": -16.8
+    },
+    {
+      "file": "jts32_60.flac",
+      "hz": 2100.59,
+      "prominence": 29.93,
+      "q": 40,
+      "gainDb": -19.9
+    },
+    {
+      "file": "jts32_60.flac",
+      "hz": 2352.54,
+      "prominence": 32.22,
+      "q": 40,
+      "gainDb": -22.2
+    },
+    {
+      "file": "jtv1_63.flac",
+      "hz": 2173.83,
+      "prominence": 34.17,
+      "q": 40,
+      "gainDb": -24.2
+    },
+    {
+      "file": "jtv1_63.flac",
+      "hz": 2484.38,
+      "prominence": 28.47,
+      "q": 40,
+      "gainDb": -18.5
+    },
+    {
+      "file": "jtv2_63.flac",
+      "hz": 2179.69,
+      "prominence": 30.85,
+      "q": 40,
+      "gainDb": -20.8
+    },
+    {
+      "file": "jtv2_63.flac",
+      "hz": 2490.23,
+      "prominence": 32.86,
+      "q": 40,
+      "gainDb": -22.9
+    },
+    {
+      "file": "jts11_63.flac",
+      "hz": 2179.69,
+      "prominence": 20.52,
+      "q": 40,
+      "gainDb": -10.5
+    },
+    {
+      "file": "jts11_63.flac",
+      "hz": 2800.78,
+      "prominence": 22.68,
+      "q": 40,
+      "gainDb": -12.7
+    },
+    {
+      "file": "jts12_63.flac",
+      "hz": 2188.48,
+      "prominence": 23.19,
+      "q": 40,
+      "gainDb": -13.2
+    },
+    {
+      "file": "jts12_63.flac",
+      "hz": 2797.85,
+      "prominence": 27.24,
+      "q": 40,
+      "gainDb": -17.2
+    },
+    {
+      "file": "jts21_63.flac",
+      "hz": 2176.76,
+      "prominence": 37.65,
+      "q": 40,
+      "gainDb": -27.7
+    },
+    {
+      "file": "jts21_63.flac",
+      "hz": 2487.3,
+      "prominence": 31.43,
+      "q": 40,
+      "gainDb": -21.4
+    },
+    {
+      "file": "jts22_63.flac",
+      "hz": 2170.9,
+      "prominence": 43.03,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jts22_63.flac",
+      "hz": 2481.45,
+      "prominence": 39.77,
+      "q": 40,
+      "gainDb": -29.8
+    },
+    {
+      "file": "jts31_63.flac",
+      "hz": 3433.59,
+      "prominence": 34.2,
+      "q": 40,
+      "gainDb": -24.2
+    },
+    {
+      "file": "jts31_63.flac",
+      "hz": 2173.83,
+      "prominence": 29.24,
+      "q": 40,
+      "gainDb": -19.2
+    },
+    {
+      "file": "jts32_63.flac",
+      "hz": 2173.83,
+      "prominence": 36.97,
+      "q": 40,
+      "gainDb": -27.0
+    },
+    {
+      "file": "jts32_63.flac",
+      "hz": 2487.3,
+      "prominence": 36.86,
+      "q": 40,
+      "gainDb": -26.9
+    },
+    {
+      "file": "jtv1_65.flac",
+      "hz": 2091.8,
+      "prominence": 33.76,
+      "q": 40,
+      "gainDb": -23.8
+    },
+    {
+      "file": "jtv1_65.flac",
+      "hz": 2452.15,
+      "prominence": 34.02,
+      "q": 40,
+      "gainDb": -24.0
+    },
+    {
+      "file": "jtv2_65.flac",
+      "hz": 2106.45,
+      "prominence": 34.58,
+      "q": 40,
+      "gainDb": -24.6
+    },
+    {
+      "file": "jtv2_65.flac",
+      "hz": 3164.06,
+      "prominence": 29.26,
+      "q": 40,
+      "gainDb": -19.3
+    },
+    {
+      "file": "jts11_65.flac",
+      "hz": 2085.94,
+      "prominence": 24.16,
+      "q": 40,
+      "gainDb": -14.2
+    },
+    {
+      "file": "jts11_65.flac",
+      "hz": 2791.99,
+      "prominence": 24.23,
+      "q": 40,
+      "gainDb": -14.2
+    },
+    {
+      "file": "jts12_65.flac",
+      "hz": 2083.01,
+      "prominence": 28.14,
+      "q": 40,
+      "gainDb": -18.1
+    },
+    {
+      "file": "jts12_65.flac",
+      "hz": 2780.27,
+      "prominence": 28.68,
+      "q": 40,
+      "gainDb": -18.7
+    },
+    {
+      "file": "jts21_65.flac",
+      "hz": 2094.73,
+      "prominence": 20.92,
+      "q": 40,
+      "gainDb": -10.9
+    },
+    {
+      "file": "jts21_65.flac",
+      "hz": 2446.29,
+      "prominence": 25.85,
+      "q": 40,
+      "gainDb": -15.8
+    },
+    {
+      "file": "jts22_65.flac",
+      "hz": 2789.06,
+      "prominence": 32.32,
+      "q": 40,
+      "gainDb": -22.3
+    },
+    {
+      "file": "jts22_65.flac",
+      "hz": 2094.73,
+      "prominence": 27.7,
+      "q": 40,
+      "gainDb": -17.7
+    },
+    {
+      "file": "jts31_65.flac",
+      "hz": 2446.29,
+      "prominence": 31.8,
+      "q": 40,
+      "gainDb": -21.8
+    },
+    {
+      "file": "jts31_65.flac",
+      "hz": 2094.73,
+      "prominence": 31.2,
+      "q": 40,
+      "gainDb": -21.2
+    },
+    {
+      "file": "jts32_65.flac",
+      "hz": 2794.92,
+      "prominence": 36.79,
+      "q": 40,
+      "gainDb": -26.8
+    },
+    {
+      "file": "jts32_65.flac",
+      "hz": 2094.73,
+      "prominence": 26.62,
+      "q": 40,
+      "gainDb": -16.6
+    },
+    {
+      "file": "jtv1_67.flac",
+      "hz": 2346.68,
+      "prominence": 23.06,
+      "q": 40,
+      "gainDb": -13.1
+    },
+    {
+      "file": "jtv1_67.flac",
+      "hz": 2745.12,
+      "prominence": 17.68,
+      "q": 40,
+      "gainDb": -7.7
+    },
+    {
+      "file": "jtv2_67.flac",
+      "hz": 2346.68,
+      "prominence": 42.7,
+      "q": 40,
+      "gainDb": -32.7
+    },
+    {
+      "file": "jtv2_67.flac",
+      "hz": 3521.48,
+      "prominence": 39.48,
+      "q": 40,
+      "gainDb": -29.5
+    },
+    {
+      "file": "jts11_67.flac",
+      "hz": 2361.33,
+      "prominence": 35.94,
+      "q": 40,
+      "gainDb": -25.9
+    },
+    {
+      "file": "jts11_67.flac",
+      "hz": 2753.91,
+      "prominence": 35.26,
+      "q": 40,
+      "gainDb": -25.3
+    },
+    {
+      "file": "jts12_67.flac",
+      "hz": 2364.26,
+      "prominence": 30.55,
+      "q": 40,
+      "gainDb": -20.5
+    },
+    {
+      "file": "jts12_67.flac",
+      "hz": 2748.05,
+      "prominence": 24.84,
+      "q": 40,
+      "gainDb": -14.8
+    },
+    {
+      "file": "jts21_67.flac",
+      "hz": 2349.61,
+      "prominence": 36.29,
+      "q": 40,
+      "gainDb": -26.3
+    },
+    {
+      "file": "jts21_67.flac",
+      "hz": 2742.19,
+      "prominence": 33.04,
+      "q": 40,
+      "gainDb": -23.0
+    },
+    {
+      "file": "jts22_67.flac",
+      "hz": 2361.33,
+      "prominence": 37.65,
+      "q": 40,
+      "gainDb": -27.7
+    },
+    {
+      "file": "jts22_67.flac",
+      "hz": 3152.34,
+      "prominence": 36.99,
+      "q": 40,
+      "gainDb": -27.0
+    },
+    {
+      "file": "jts31_67.flac",
+      "hz": 2349.61,
+      "prominence": 30.51,
+      "q": 40,
+      "gainDb": -20.5
+    },
+    {
+      "file": "jts31_67.flac",
+      "hz": 2768.55,
+      "prominence": 32.22,
+      "q": 40,
+      "gainDb": -22.2
+    },
+    {
+      "file": "jts32_67.flac",
+      "hz": 2762.7,
+      "prominence": 38.29,
+      "q": 40,
+      "gainDb": -28.3
+    },
+    {
+      "file": "jts32_67.flac",
+      "hz": 3140.62,
+      "prominence": 33.93,
+      "q": 40,
+      "gainDb": -23.9
+    },
+    {
+      "file": "jtv1_70.flac",
+      "hz": 2332.03,
+      "prominence": 33.43,
+      "q": 40,
+      "gainDb": -23.4
+    },
+    {
+      "file": "jtv1_70.flac",
+      "hz": 2797.85,
+      "prominence": 26.43,
+      "q": 40,
+      "gainDb": -16.4
+    },
+    {
+      "file": "jtv2_70.flac",
+      "hz": 2794.92,
+      "prominence": 43.92,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jtv2_70.flac",
+      "hz": 3260.74,
+      "prominence": 40.77,
+      "q": 40,
+      "gainDb": -30.8
+    },
+    {
+      "file": "jts11_70.flac",
+      "hz": 2794.92,
+      "prominence": 42.76,
+      "q": 40,
+      "gainDb": -32.8
+    },
+    {
+      "file": "jts11_70.flac",
+      "hz": 2326.17,
+      "prominence": 40.48,
+      "q": 40,
+      "gainDb": -30.5
+    },
+    {
+      "file": "jts12_70.flac",
+      "hz": 2334.96,
+      "prominence": 34.05,
+      "q": 40,
+      "gainDb": -24.0
+    },
+    {
+      "file": "jts12_70.flac",
+      "hz": 2800.78,
+      "prominence": 35.67,
+      "q": 40,
+      "gainDb": -25.7
+    },
+    {
+      "file": "jts21_70.flac",
+      "hz": 2797.85,
+      "prominence": 35.07,
+      "q": 40,
+      "gainDb": -25.1
+    },
+    {
+      "file": "jts21_70.flac",
+      "hz": 2332.03,
+      "prominence": 30.29,
+      "q": 40,
+      "gainDb": -20.3
+    },
+    {
+      "file": "jts22_70.flac",
+      "hz": 2332.03,
+      "prominence": 33.81,
+      "q": 40,
+      "gainDb": -23.8
+    },
+    {
+      "file": "jts22_70.flac",
+      "hz": 3266.6,
+      "prominence": 33.47,
+      "q": 40,
+      "gainDb": -23.5
+    },
+    {
+      "file": "jts31_70.flac",
+      "hz": 3257.81,
+      "prominence": 41.75,
+      "q": 40,
+      "gainDb": -31.8
+    },
+    {
+      "file": "jts31_70.flac",
+      "hz": 2794.92,
+      "prominence": 43.6,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jts32_70.flac",
+      "hz": 3284.18,
+      "prominence": 34.66,
+      "q": 40,
+      "gainDb": -24.7
+    },
+    {
+      "file": "jts32_70.flac",
+      "hz": 3752.93,
+      "prominence": 30.14,
+      "q": 40,
+      "gainDb": -20.1
+    },
+    {
+      "file": "jtv1_74.flac",
+      "hz": 2355.47,
+      "prominence": 38.58,
+      "q": 40,
+      "gainDb": -28.6
+    },
+    {
+      "file": "jtv1_74.flac",
+      "hz": 2909.18,
+      "prominence": 27.63,
+      "q": 40,
+      "gainDb": -17.6
+    },
+    {
+      "file": "jtv2_74.flac",
+      "hz": 2929.69,
+      "prominence": 44.98,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jtv2_74.flac",
+      "hz": 2343.75,
+      "prominence": 41.19,
+      "q": 40,
+      "gainDb": -31.2
+    },
+    {
+      "file": "jts11_74.flac",
+      "hz": 2352.54,
+      "prominence": 37.1,
+      "q": 40,
+      "gainDb": -27.1
+    },
+    {
+      "file": "jts11_74.flac",
+      "hz": 3527.34,
+      "prominence": 37.33,
+      "q": 40,
+      "gainDb": -27.3
+    },
+    {
+      "file": "jts12_74.flac",
+      "hz": 2926.76,
+      "prominence": 34.07,
+      "q": 40,
+      "gainDb": -24.1
+    },
+    {
+      "file": "jts12_74.flac",
+      "hz": 2343.75,
+      "prominence": 28.63,
+      "q": 40,
+      "gainDb": -18.6
+    },
+    {
+      "file": "jts21_74.flac",
+      "hz": 2346.68,
+      "prominence": 48.49,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jts21_74.flac",
+      "hz": 3518.55,
+      "prominence": 42.74,
+      "q": 40,
+      "gainDb": -32.7
+    },
+    {
+      "file": "jts22_74.flac",
+      "hz": 2349.61,
+      "prominence": 45.89,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jts22_74.flac",
+      "hz": 2935.55,
+      "prominence": 38.62,
+      "q": 40,
+      "gainDb": -28.6
+    },
+    {
+      "file": "jts31_74.flac",
+      "hz": 2956.05,
+      "prominence": 35.16,
+      "q": 40,
+      "gainDb": -25.2
+    },
+    {
+      "file": "jts31_74.flac",
+      "hz": 2364.26,
+      "prominence": 41.66,
+      "q": 40,
+      "gainDb": -31.7
+    },
+    {
+      "file": "jts32_74.flac",
+      "hz": 2352.54,
+      "prominence": 37.92,
+      "q": 40,
+      "gainDb": -27.9
+    },
+    {
+      "file": "jts32_74.flac",
+      "hz": 3536.13,
+      "prominence": 40.74,
+      "q": 40,
+      "gainDb": -30.7
+    },
+    {
+      "file": "jtv1_77.flac",
+      "hz": 2085.94,
+      "prominence": 43.18,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jtv1_77.flac",
+      "hz": 2800.78,
+      "prominence": 34.01,
+      "q": 40,
+      "gainDb": -24.0
+    },
+    {
+      "file": "jtv2_77.flac",
+      "hz": 2094.73,
+      "prominence": 35.46,
+      "q": 40,
+      "gainDb": -25.5
+    },
+    {
+      "file": "jtv2_77.flac",
+      "hz": 2791.99,
+      "prominence": 37.69,
+      "q": 40,
+      "gainDb": -27.7
+    },
+    {
+      "file": "jts11_77.flac",
+      "hz": 2106.45,
+      "prominence": 41.33,
+      "q": 40,
+      "gainDb": -31.3
+    },
+    {
+      "file": "jts11_77.flac",
+      "hz": 2809.57,
+      "prominence": 39.96,
+      "q": 40,
+      "gainDb": -30.0
+    },
+    {
+      "file": "jts12_77.flac",
+      "hz": 2103.52,
+      "prominence": 40.97,
+      "q": 40,
+      "gainDb": -31.0
+    },
+    {
+      "file": "jts12_77.flac",
+      "hz": 2797.85,
+      "prominence": 37.0,
+      "q": 40,
+      "gainDb": -27.0
+    },
+    {
+      "file": "jts21_77.flac",
+      "hz": 2109.38,
+      "prominence": 41.35,
+      "q": 40,
+      "gainDb": -31.4
+    },
+    {
+      "file": "jts21_77.flac",
+      "hz": 2812.5,
+      "prominence": 39.15,
+      "q": 40,
+      "gainDb": -29.1
+    },
+    {
+      "file": "jts22_77.flac",
+      "hz": 2091.8,
+      "prominence": 35.8,
+      "q": 40,
+      "gainDb": -25.8
+    },
+    {
+      "file": "jts22_77.flac",
+      "hz": 2789.06,
+      "prominence": 40.18,
+      "q": 40,
+      "gainDb": -30.2
+    },
+    {
+      "file": "jts31_77.flac",
+      "hz": 2794.92,
+      "prominence": 34.96,
+      "q": 40,
+      "gainDb": -25.0
+    },
+    {
+      "file": "jts31_77.flac",
+      "hz": 2100.59,
+      "prominence": 33.08,
+      "q": 40,
+      "gainDb": -23.1
+    },
+    {
+      "file": "jts32_77.flac",
+      "hz": 2812.5,
+      "prominence": 35.49,
+      "q": 40,
+      "gainDb": -25.5
+    },
+    {
+      "file": "jts32_77.flac",
+      "hz": 3500.98,
+      "prominence": 35.5,
+      "q": 40,
+      "gainDb": -25.5
+    },
+    {
+      "file": "jtv1_81.flac",
+      "hz": 2642.58,
+      "prominence": 38.72,
+      "q": 40,
+      "gainDb": -28.7
+    },
+    {
+      "file": "jtv1_81.flac",
+      "hz": 3521.48,
+      "prominence": 43.56,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jtv2_81.flac",
+      "hz": 3521.48,
+      "prominence": 38.43,
+      "q": 40,
+      "gainDb": -28.4
+    },
+    {
+      "file": "jtv2_81.flac",
+      "hz": 2639.65,
+      "prominence": 35.2,
+      "q": 40,
+      "gainDb": -25.2
+    },
+    {
+      "file": "jts11_81.flac",
+      "hz": 2639.65,
+      "prominence": 41.29,
+      "q": 40,
+      "gainDb": -31.3
+    },
+    {
+      "file": "jts11_81.flac",
+      "hz": 3515.62,
+      "prominence": 42.72,
+      "q": 40,
+      "gainDb": -32.7
+    },
+    {
+      "file": "jts12_81.flac",
+      "hz": 3515.62,
+      "prominence": 42.73,
+      "q": 40,
+      "gainDb": -32.7
+    },
+    {
+      "file": "jts12_81.flac",
+      "hz": 2642.58,
+      "prominence": 36.59,
+      "q": 40,
+      "gainDb": -26.6
+    },
+    {
+      "file": "jts21_81.flac",
+      "hz": 2639.65,
+      "prominence": 42.05,
+      "q": 40,
+      "gainDb": -32.1
+    },
+    {
+      "file": "jts21_81.flac",
+      "hz": 3518.55,
+      "prominence": 31.07,
+      "q": 40,
+      "gainDb": -21.1
+    },
+    {
+      "file": "jts22_81.flac",
+      "hz": 2651.37,
+      "prominence": 38.09,
+      "q": 40,
+      "gainDb": -28.1
+    },
+    {
+      "file": "jts22_81.flac",
+      "hz": 3536.13,
+      "prominence": 37.82,
+      "q": 40,
+      "gainDb": -27.8
+    },
+    {
+      "file": "jts31_81.flac",
+      "hz": 2663.09,
+      "prominence": 42.59,
+      "q": 40,
+      "gainDb": -32.6
+    },
+    {
+      "file": "jts31_81.flac",
+      "hz": 3553.71,
+      "prominence": 35.3,
+      "q": 40,
+      "gainDb": -25.3
+    },
+    {
+      "file": "jts32_81.flac",
+      "hz": 3536.13,
+      "prominence": 43.4,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jts32_81.flac",
+      "hz": 2622.07,
+      "prominence": 36.5,
+      "q": 40,
+      "gainDb": -26.5
+    },
+    {
+      "file": "jtv1_84.flac",
+      "hz": 2091.8,
+      "prominence": 50.11,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jtv1_84.flac",
+      "hz": 3131.84,
+      "prominence": 34.8,
+      "q": 40,
+      "gainDb": -24.8
+    },
+    {
+      "file": "jtv2_84.flac",
+      "hz": 2085.94,
+      "prominence": 44.29,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jtv2_84.flac",
+      "hz": 3131.84,
+      "prominence": 25.93,
+      "q": 40,
+      "gainDb": -15.9
+    },
+    {
+      "file": "jts11_84.flac",
+      "hz": 2091.8,
+      "prominence": 48.93,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jts11_84.flac",
+      "hz": 3137.7,
+      "prominence": 46.26,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jts12_84.flac",
+      "hz": 3128.91,
+      "prominence": 47.0,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jts12_84.flac",
+      "hz": 2083.01,
+      "prominence": 39.85,
+      "q": 40,
+      "gainDb": -29.9
+    },
+    {
+      "file": "jts21_84.flac",
+      "hz": 2103.52,
+      "prominence": 37.02,
+      "q": 40,
+      "gainDb": -27.0
+    },
+    {
+      "file": "jts21_84.flac",
+      "hz": 3123.05,
+      "prominence": 31.57,
+      "q": 40,
+      "gainDb": -21.6
+    },
+    {
+      "file": "jts22_84.flac",
+      "hz": 2103.52,
+      "prominence": 41.55,
+      "q": 40,
+      "gainDb": -31.5
+    },
+    {
+      "file": "jts22_84.flac",
+      "hz": 3131.84,
+      "prominence": 33.35,
+      "q": 40,
+      "gainDb": -23.3
+    },
+    {
+      "file": "jts31_84.flac",
+      "hz": 2103.52,
+      "prominence": 32.85,
+      "q": 40,
+      "gainDb": -22.9
+    },
+    {
+      "file": "jts31_84.flac",
+      "hz": 3137.7,
+      "prominence": 30.14,
+      "q": 40,
+      "gainDb": -20.1
+    },
+    {
+      "file": "jts32_84.flac",
+      "hz": 2097.66,
+      "prominence": 30.92,
+      "q": 40,
+      "gainDb": -20.9
+    },
+    {
+      "file": "jts32_84.flac",
+      "hz": 3137.7,
+      "prominence": 34.03,
+      "q": 40,
+      "gainDb": -24.0
+    },
+    {
+      "file": "jhm1_58.flac",
+      "hz": 2554.69,
+      "prominence": 32.65,
+      "q": 40,
+      "gainDb": -22.6
+    },
+    {
+      "file": "jhm1_58.flac",
+      "hz": 2323.24,
+      "prominence": 35.12,
+      "q": 40,
+      "gainDb": -25.1
+    },
+    {
+      "file": "jhm3_58.flac",
+      "hz": 2560.55,
+      "prominence": 18.09,
+      "q": 40,
+      "gainDb": -8.1
+    },
+    {
+      "file": "jhm3_58.flac",
+      "hz": 3023.44,
+      "prominence": 20.45,
+      "q": 40,
+      "gainDb": -10.4
+    },
+    {
+      "file": "jhm1_60.flac",
+      "hz": 2601.56,
+      "prominence": 28.59,
+      "q": 40,
+      "gainDb": -18.6
+    },
+    {
+      "file": "jhm1_60.flac",
+      "hz": 2859.38,
+      "prominence": 29.44,
+      "q": 40,
+      "gainDb": -19.4
+    },
+    {
+      "file": "jhm3_60.flac",
+      "hz": 2874.02,
+      "prominence": 26.29,
+      "q": 40,
+      "gainDb": -16.3
+    },
+    {
+      "file": "jhm3_60.flac",
+      "hz": 2630.86,
+      "prominence": 22.64,
+      "q": 40,
+      "gainDb": -12.6
+    },
+    {
+      "file": "jhm1_63.flac",
+      "hz": 2487.3,
+      "prominence": 36.92,
+      "q": 40,
+      "gainDb": -26.9
+    },
+    {
+      "file": "jhm1_63.flac",
+      "hz": 2797.85,
+      "prominence": 33.16,
+      "q": 40,
+      "gainDb": -23.2
+    },
+    {
+      "file": "jhm3_63.flac",
+      "hz": 2800.78,
+      "prominence": 36.26,
+      "q": 40,
+      "gainDb": -26.3
+    },
+    {
+      "file": "jhm3_63.flac",
+      "hz": 2490.23,
+      "prominence": 35.34,
+      "q": 40,
+      "gainDb": -25.3
+    },
+    {
+      "file": "jhm1_68.flac",
+      "hz": 2493.16,
+      "prominence": 30.31,
+      "q": 40,
+      "gainDb": -20.3
+    },
+    {
+      "file": "jhm1_68.flac",
+      "hz": 2077.15,
+      "prominence": 31.77,
+      "q": 40,
+      "gainDb": -21.8
+    },
+    {
+      "file": "jhm3_68.flac",
+      "hz": 2490.23,
+      "prominence": 36.28,
+      "q": 40,
+      "gainDb": -26.3
+    },
+    {
+      "file": "jhm3_68.flac",
+      "hz": 2906.25,
+      "prominence": 34.52,
+      "q": 40,
+      "gainDb": -24.5
+    },
+    {
+      "file": "jhm1_70.flac",
+      "hz": 2332.03,
+      "prominence": 38.97,
+      "q": 40,
+      "gainDb": -29.0
+    },
+    {
+      "file": "jhm1_70.flac",
+      "hz": 2797.85,
+      "prominence": 40.57,
+      "q": 40,
+      "gainDb": -30.6
+    },
+    {
+      "file": "jhm3_70.flac",
+      "hz": 2797.85,
+      "prominence": 47.17,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jhm3_70.flac",
+      "hz": 2332.03,
+      "prominence": 45.15,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jhm1_74.flac",
+      "hz": 2346.68,
+      "prominence": 42.59,
+      "q": 40,
+      "gainDb": -32.6
+    },
+    {
+      "file": "jhm1_74.flac",
+      "hz": 2935.55,
+      "prominence": 42.0,
+      "q": 40,
+      "gainDb": -32.0
+    },
+    {
+      "file": "jhm3_74.flac",
+      "hz": 2352.54,
+      "prominence": 44.06,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jhm3_74.flac",
+      "hz": 2938.48,
+      "prominence": 41.74,
+      "q": 40,
+      "gainDb": -31.7
+    },
+    {
+      "file": "jhm1_77.flac",
+      "hz": 2791.99,
+      "prominence": 43.43,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jhm1_77.flac",
+      "hz": 2094.73,
+      "prominence": 45.73,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jhm3_77.flac",
+      "hz": 2794.92,
+      "prominence": 45.14,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jhm3_77.flac",
+      "hz": 2094.73,
+      "prominence": 47.4,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jhm1_81.flac",
+      "hz": 2642.58,
+      "prominence": 44.53,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jhm1_81.flac",
+      "hz": 3515.62,
+      "prominence": 42.16,
+      "q": 40,
+      "gainDb": -32.2
+    },
+    {
+      "file": "jhm3_81.flac",
+      "hz": 2642.58,
+      "prominence": 41.0,
+      "q": 40,
+      "gainDb": -31.0
+    },
+    {
+      "file": "jhm3_81.flac",
+      "hz": 3518.55,
+      "prominence": 37.25,
+      "q": 40,
+      "gainDb": -27.2
+    },
+    {
+      "file": "jfl_60.flac",
+      "hz": 2094.73,
+      "prominence": 31.92,
+      "q": 40,
+      "gainDb": -21.9
+    },
+    {
+      "file": "jfl_60.flac",
+      "hz": 2619.14,
+      "prominence": 25.36,
+      "q": 40,
+      "gainDb": -15.4
+    },
+    {
+      "file": "jflb_60.flac",
+      "hz": 2115.23,
+      "prominence": 30.04,
+      "q": 40,
+      "gainDb": -20.0
+    },
+    {
+      "file": "jflb_60.flac",
+      "hz": 2381.84,
+      "prominence": 24.64,
+      "q": 40,
+      "gainDb": -14.6
+    },
+    {
+      "file": "jfl_64.flac",
+      "hz": 2633.79,
+      "prominence": 29.36,
+      "q": 40,
+      "gainDb": -19.4
+    },
+    {
+      "file": "jfl_64.flac",
+      "hz": 2308.59,
+      "prominence": 31.03,
+      "q": 40,
+      "gainDb": -21.0
+    },
+    {
+      "file": "jflb_64.flac",
+      "hz": 2642.58,
+      "prominence": 20.54,
+      "q": 40,
+      "gainDb": -10.5
+    },
+    {
+      "file": "jflb_64.flac",
+      "hz": 2305.66,
+      "prominence": 22.17,
+      "q": 40,
+      "gainDb": -12.2
+    },
+    {
+      "file": "jfl_69.flac",
+      "hz": 2203.12,
+      "prominence": 36.26,
+      "q": 40,
+      "gainDb": -26.3
+    },
+    {
+      "file": "jfl_69.flac",
+      "hz": 2648.44,
+      "prominence": 32.09,
+      "q": 40,
+      "gainDb": -22.1
+    },
+    {
+      "file": "jflb_69.flac",
+      "hz": 2206.05,
+      "prominence": 26.4,
+      "q": 40,
+      "gainDb": -16.4
+    },
+    {
+      "file": "jflb_69.flac",
+      "hz": 2639.65,
+      "prominence": 18.88,
+      "q": 40,
+      "gainDb": -8.9
+    },
+    {
+      "file": "jfl_72.flac",
+      "hz": 2622.07,
+      "prominence": 43.27,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jfl_72.flac",
+      "hz": 2097.66,
+      "prominence": 35.22,
+      "q": 40,
+      "gainDb": -25.2
+    },
+    {
+      "file": "jflb_72.flac",
+      "hz": 2094.73,
+      "prominence": 32.41,
+      "q": 40,
+      "gainDb": -22.4
+    },
+    {
+      "file": "jflb_72.flac",
+      "hz": 2619.14,
+      "prominence": 32.91,
+      "q": 40,
+      "gainDb": -22.9
+    },
+    {
+      "file": "jfl_76.flac",
+      "hz": 2636.72,
+      "prominence": 33.65,
+      "q": 40,
+      "gainDb": -23.7
+    },
+    {
+      "file": "jfl_76.flac",
+      "hz": 3969.73,
+      "prominence": 28.29,
+      "q": 40,
+      "gainDb": -18.3
+    },
+    {
+      "file": "jflb_76.flac",
+      "hz": 2642.58,
+      "prominence": 28.24,
+      "q": 40,
+      "gainDb": -18.2
+    },
+    {
+      "file": "jflb_76.flac",
+      "hz": 3301.76,
+      "prominence": 27.05,
+      "q": 40,
+      "gainDb": -17.1
+    },
+    {
+      "file": "jfl_81.flac",
+      "hz": 2654.3,
+      "prominence": 36.9,
+      "q": 40,
+      "gainDb": -26.9
+    },
+    {
+      "file": "jfl_81.flac",
+      "hz": 3539.06,
+      "prominence": 30.07,
+      "q": 40,
+      "gainDb": -20.1
+    },
+    {
+      "file": "jflb_81.flac",
+      "hz": 2642.58,
+      "prominence": 33.01,
+      "q": 40,
+      "gainDb": -23.0
+    },
+    {
+      "file": "jflb_81.flac",
+      "hz": 3524.41,
+      "prominence": 31.51,
+      "q": 40,
+      "gainDb": -21.5
+    },
+    {
+      "file": "jfl_84.flac",
+      "hz": 2097.66,
+      "prominence": 39.66,
+      "q": 40,
+      "gainDb": -29.7
+    },
+    {
+      "file": "jfl_84.flac",
+      "hz": 3146.48,
+      "prominence": 40.29,
+      "q": 40,
+      "gainDb": -30.3
+    },
+    {
+      "file": "jflb_84.flac",
+      "hz": 2091.8,
+      "prominence": 46.71,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jflb_84.flac",
+      "hz": 3140.62,
+      "prominence": 40.1,
+      "q": 40,
+      "gainDb": -30.1
+    },
+    {
+      "file": "jfl_88.flac",
+      "hz": 2639.65,
+      "prominence": 42.07,
+      "q": 40,
+      "gainDb": -32.1
+    },
+    {
+      "file": "jfl_88.flac",
+      "hz": 3960.94,
+      "prominence": 40.04,
+      "q": 40,
+      "gainDb": -30.0
+    },
+    {
+      "file": "jflb_88.flac",
+      "hz": 2636.72,
+      "prominence": 45.37,
+      "q": 40,
+      "gainDb": -33
+    },
+    {
+      "file": "jflb_88.flac",
+      "hz": 3958.01,
+      "prominence": 41.63,
+      "q": 40,
+      "gainDb": -31.6
+    },
+    {
+      "file": "jfl_93.flac",
+      "hz": 3530.27,
+      "prominence": 29.04,
+      "q": 40,
+      "gainDb": -19.0
+    },
+    {
+      "file": "jflb_93.flac",
+      "hz": 3521.48,
+      "prominence": 39.9,
+      "q": 40,
+      "gainDb": -29.9
+    }
+  ]
+}

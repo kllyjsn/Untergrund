@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import './jazz-recordings.mjs';
 import { freshSong, sanitize } from '../js/state.js';
 import { Engine, Sequencer } from '../js/engine.js';
 import { Recorder } from '../js/midi.js';
