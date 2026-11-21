@@ -1025,6 +1025,9 @@ export class Engine {
   // A smooth style shelves its chords by db: a cut below 400 Hz under the bass, narrow dips at 2.5 and 2.95 kHz where chord harmonics ring, leaving the top open; when the bass drops out, wetter sends and a deeper dip.
   smoothChords(db, at = 0) {
     this.smoothOn = db;
+    const roomAt = Math.max(at, this.ctx.currentTime);
+    this.bandOut.gain.cancelScheduledValues(roomAt);
+    this.bandOut.gain.setTargetAtTime(0.45 * (this.minimal && db ? dbGain(3.5) : 1), roomAt, 0.12);
     if (this.stripMode) return;
     const [shelf, mid, bell] = this.ch.stab.strip, t = Math.max(at, this.ctx.currentTime);
     const { rev, dly, level } = this.ch.stab, ps = this.state.params.stab, up = db > 0 ? 10 ** (db / 20) : 1, wet = db > 0 ? 1.6 : 1;
@@ -2119,14 +2122,18 @@ export class Engine {
   // FM electric piano: sine carrier, 1:1 modulator for the bark, 14:1 burst for the tine.
   keys(t, v, iv, root, p, out) {
     if (jazzStyle(this.state, this.playingPattern)) return this.jazzKeys(t, v, iv, root, p, out);
+    const felt = this.minimal && !!this.smoothOn;
+    if (felt && (!iv.length || !Number.isFinite(root) || !Number.isFinite(v) || v <= 0 || iv.some(n => !Number.isFinite(n)))) return;
     const c = this.ctx, end = t + Math.max(0.6, p.decay * 3) + 0.3;
     const funk = jazzStyle(this.state, this.playingPattern) === 'jazzfunk';
     const level = this.minimal ? Math.round(p.voice) === 7 ? 2.52 : 1.18 : 1;
     const damped = this.state.artist?.style === 'breaks' && Math.round(p.voice) === 1;
     const lp = this.filter('lowpass', funk ? Math.min(2600, p.cutoff * 1.3) : Math.min(9000, p.cutoff * (this.minimal ? 1.8 : 2.5)), this.minimal ? -3.0103 + Math.max(0, Math.min(20, p.reso)) : 0.5);
+    if (felt) lp.frequency.value *= 0.75 + 0.5 * Math.max(0, Math.min(1, v));
     const trem = c.createStereoPanner();
     const lfo = c.createOscillator(); lfo.frequency.value = 4.8;
-    const depth = this.gain(0.35); lfo.connect(depth).connect(trem.pan);
+    const depth = this.gain(0.35); lfo.connect(depth);
+    if (!felt) depth.connect(trem.pan);
     // Soft ARTICULATION is a mellow, felt-damped Rhodes; hard playing brings out the bark and the tine.
     const bite = 0.4 + 1.2 * Math.max(0, Math.min(1, p.env ?? 0.5));
     iv.forEach((n, k) => {
@@ -2134,22 +2141,43 @@ export class Engine {
       // A smooth style's upper tines bark less, as a real Rhodes does, so high chords stay round instead of ringing.
       const reg = damped ? Math.min(1, 200 / f) ** 4 : funk ? Math.min(1, 330 / f) ** 1.5 : this.minimal ? Math.min(1, 523 / f) : 1;
       const car = c.createOscillator(); car.frequency.value = f; car.detune.value = (k % 2 ? 1 : -1) * p.detune * 0.15;
+      if (felt) car.detune.value += (hash(root + n, k + 91) - 0.5) * 1.6;
       const mod = c.createOscillator(); mod.frequency.value = f * (this.minimal ? 0.5 : 1);
+      if (felt) mod.detune.value = car.detune.value;
       const modAmt = this.gain(0); mod.connect(modAmt).connect(car.frequency);
-      modAmt.gain.setValueAtTime(f * (0.6 + vel * 1.6) * bite * reg, t);
+      modAmt.gain.setValueAtTime(f * (0.6 + vel * 1.6) * bite * reg * (felt ? 0.8 + 0.4 * Math.min(1, vel) : 1), t);
       modAmt.gain.setTargetAtTime(f * 0.15 * reg, t + 0.005, 0.12 + p.env * 0.3);
       const tine = c.createOscillator(); tine.frequency.value = f * 14;
       const tineAmt = this.gain(0); tine.connect(tineAmt).connect(car.frequency);
-      tineAmt.gain.setValueAtTime(damped || funk ? 0 : f * 2.5 * vel * bite * (p.tine ?? 1), t);
+      tineAmt.gain.setValueAtTime(damped || funk ? 0 : f * 2.5 * vel * bite * (p.tine ?? 1) * (felt ? 0.65 : 1), t);
       tineAmt.gain.setTargetAtTime(0, t + 0.002, 0.018);
       const amp = this.gain(0);
       amp.gain.setValueAtTime(EPS, t);
       amp.gain.linearRampToValueAtTime((0.42 * vel * level) / Math.sqrt(iv.length), t + 0.004);
       amp.gain.setTargetAtTime(0, t + 0.01, Math.max(0.15, p.decay * (this.minimal ? 0.65 : 0.9)));
-      car.connect(amp).connect(lp);
+      if (felt) {
+        const pan = c.createStereoPanner();
+        pan.pan.value = Math.max(-0.35, Math.min(0.35, (k - (iv.length - 1) / 2) * 0.16 + (hash(root + n, 92) - 0.5) * 0.06));
+        depth.connect(pan.pan);
+        car.connect(amp).connect(pan).connect(lp);
+        amp.gain.setTargetAtTime(0, t + Math.max(0.12, p.decay * 2.3), 0.06);
+        const bar = c.createOscillator(), ring = this.gain(0), peak = 0.42 * vel * level / Math.sqrt(iv.length);
+        bar.frequency.value = f * (2.01 + hash(root + n, 93) * 0.006);
+        bar.detune.value = car.detune.value;
+        ring.gain.setValueAtTime(0, t);
+        ring.gain.linearRampToValueAtTime(peak * 0.06 * Math.min(1, vel) * (p.tine ?? 1), t + 0.002);
+        ring.gain.setTargetAtTime(0, t + 0.004, 0.04 + 0.04 * p.env);
+        bar.connect(ring).connect(pan);
+        this.startSource(bar, t); bar.stop(end);
+        const hammer = this.noiseSrc(t, 0.04), thump = this.gain(0);
+        thump.gain.setValueAtTime(0, t);
+        thump.gain.linearRampToValueAtTime(peak * 0.035 * Math.min(1, vel), t + 0.002);
+        thump.gain.setTargetAtTime(0, t + 0.003, 0.007);
+        hammer.connect(this.filter('highpass', 140, 0.5)).connect(this.filter('lowpass', Math.min(1100, f * 2), 0.5)).connect(thump).connect(pan);
+      } else car.connect(amp).connect(lp);
       for (const o of [car, mod, tine]) { this.startSource(o, t); o.stop(end); }
     });
-    lp.connect(trem).connect(out);
+    if (felt) lp.connect(out); else lp.connect(trem).connect(out);
     this.startSource(lfo, t); lfo.stop(end);
   }
 

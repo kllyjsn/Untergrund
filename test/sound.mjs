@@ -1047,6 +1047,48 @@ for (const [voice, chord, set] of [['tpt', 1, 'tpt'], ['airflute', 1, 'fl'], ['v
 }
 console.log('recorded jazz leads: trumpet, airflute and piano finite/audible/level-safe; trumpet envelope and missing-sample fallback passed');
 {
+  for (const [style, replay, smooth, natural] of [
+    ['minimal', null, -12, true], ['minimal', null, 0.5, true],
+    ['minimal', null, 0, false], ['trap', 'minimal', -12, true],
+    ['hypnotic', null, -12, false], ['minimal', 'hypnotic', -12, false],
+  ]) {
+    const s = freshSong(style, 42); s.artist = { style };
+    const c = new OfflineAudioContext(1, SR, SR), e = new Engine(c, s, { realtime: false });
+    if (replay) e.replay808Style = replay;
+    e.smoothChords(smooth, 0.05);
+    assert(Math.abs(20 * Math.log10(e.bandOut.gain.at(2) / 0.45) - (natural ? 3.5 : 0)) < 0.001, 'only smooth effective Minimal raises its band-room send');
+    const oscillators = [], pans = [], links = new Map(); let hammers = 0;
+    const oscillator = c.createOscillator, panner = c.createStereoPanner, noise = e.noiseSrc;
+    c.createOscillator = function () {
+      const o = oscillator.call(this), connect = o.connect;
+      o.connect = function (dst) { links.set(o, dst); return connect.call(this, dst); };
+      oscillators.push(o); return o;
+    };
+    c.createStereoPanner = function () { const p = panner.call(this); pans.push(p); return p; };
+    e.noiseSrc = function (...args) { hammers++; return noise.apply(this, args); };
+    e.recorded = e.recordedNote = () => assert.fail('natural Minimal keys cannot use recorded piano');
+    e.keys(0.05, 0.7, [0, 3, 7], 48, s.params.stab, e.mix);
+    assert.equal(oscillators.length, natural ? 13 : 10, 'only Minimal adds an inharmonic bar per note');
+    assert.equal(hammers, natural ? 3 : 0, 'only Minimal has a filtered felt attack');
+    assert.equal(pans.length, natural ? 4 : 1, 'Minimal notes have independent pan positions');
+    if (natural) {
+      const f = 440 * 2 ** ((48 - 69) / 12), car = oscillators[1], bar = oscillators[4];
+      assert.equal(car.frequency.value, f, 'natural keys preserve their MIDI register');
+      assert(Math.abs(car.detune.value - ((s.params.stab.detune || 0) * -0.15)) < 0.81, 'per-note tuning remains subtle');
+      assert(bar.frequency.value / f >= 2.01 && bar.frequency.value / f <= 2.016, 'bar is slightly inharmonic');
+      assert(links.get(bar).gain.events.find(v => v.k === 'g').tc < links.get(car).gain.events.find(v => v.k === 'g').tc, 'bar decays before the body');
+      assert(links.get(car).gain.events.some(v => v.k === 'g' && v.tc === 0.06), 'body has a key-release tail');
+      assert(new Set(pans.slice(1).map(p => p.pan.value)).size === 3, 'each note occupies its own stereo seat');
+    }
+    e.smoothChords(0, 2.1);
+    assert(Math.abs(e.bandOut.gain.at(4) - 0.45) < 1e-6, 'leaving SMOOTH restores the shared room level');
+  }
+  const s = freshSong('minimal', 42); s.artist = { style: 'minimal' };
+  const c = new OfflineAudioContext(1, SR, SR), e = new Engine(c, s, { realtime: false }); e.smoothChords(-12);
+  e.startSource = () => assert.fail('empty, silent and invalid keys must not schedule sources');
+  for (const [v, iv, root] of [[0.5, [], 48], [0, [0], 48], [NaN, [0], 48], [0.5, [NaN], 48], [0.5, [0], Infinity]]) e.keys(0.05, v, iv, root, s.params.stab, e.mix);
+}
+{
   for (const [style, playbackStyle, voice, smooth, wet] of [
     ['minimal', null, 7, -12, true], ['minimal', null, 7, 0.5, true],
     ['minimal', null, 7, 0, false], ['minimal', null, 1, -12, false],
