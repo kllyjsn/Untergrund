@@ -9,6 +9,7 @@ import { CHORDS, TRACK_IDS } from '../js/params.js';
 import { parse } from '../js/describe.js';
 import { styleFor } from '../js/song-plan.js';
 import { liveSets } from '../js/livekit.js';
+import { TRUMPET_BANKS } from '../js/jazz-winds.js';
 import { stageScene } from '../js/club-stage.js';
 
 const pc = (n) => (n % 12 + 12) % 12;
@@ -64,7 +65,8 @@ for (const seed of [1, 2, 3, 11, 42, 77, 1234, 12345, 0x12345678]) {
   assert.equal(s.master.duck, 0); assert.equal(s.master.kit, 1);
   assert.equal(s.params.stab.voice, 1); assert.equal(s.params.acid.voice, 5);
   assert(s.params.stab.env <= 0.15 && s.params.stab.cutoff <= 1800);
-  for (const set of ['kit', 'ebass', 'tpt', 'horn']) assert(liveSets(s).includes(set), set);
+  for (const set of ['kit', 'ebass', 'horn', ...TRUMPET_BANKS]) assert(liveSets(s).includes(set), set);
+  assert(!liveSets(s).includes('tpt'), 'recorded trumpet banks do not preload an unused legacy fallback');
   assert.equal(stageScene('jazzfunk', s).kind, 'band');
   assert(s.chain.match(/^G+C+H+$/));
   assert(new Set(p.prog.map((h) => `${h.r}/${h.c}`)).size > 1, 'bridge leaves the vamp');
