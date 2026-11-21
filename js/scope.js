@@ -72,13 +72,17 @@ function runMap(chain) {
   return out;
 }
 function sectionMap(chain, entries) {
-  const out = runMap(chain), runs = {};
+  const out = runMap(chain), sections = {};
+  let runs = {};
   let start = 0;
   for (let i = 0; i < chain.length; i++) {
     const sec = entries[i]?.sec;
     if (!Number.isInteger(sec) || sec < 0 || sec >= 128) continue;
-    if (i === 0 || entries[i - 1]?.sec !== sec) { start = i; runs[sec] = (runs[sec] ?? -1) + 1; }
-    out[i] = `sec:${sec}:${runs[sec]}:${i - start}:${chain[i]}`;
+    const sectionStart = i === 0 || entries[i - 1]?.sec !== sec;
+    if (sectionStart) { runs = {}; sections[sec] = (sections[sec] ?? -1) + 1; }
+    const letter = chain[i];
+    if (sectionStart || chain[i - 1] !== letter) { start = i; runs[letter] = (runs[letter] ?? -1) + 1; }
+    out[i] = `sec:${sec}:${sections[sec]}:${letter}:${runs[letter]}:${i - start}`;
   }
   return out;
 }

@@ -68,6 +68,13 @@ import { cleanChainEntries, editChainEntries, setChain } from '../js/chain.js';
   legacy.patterns[2].at = [{ b: [2, 3], hm: 0 }];
   setChain(legacy, 'AAAACCGG');
   assert.deepEqual(legacy.patterns[2].at, [{ b: [4, 5], hm: 0 }], 'untagged chains retain letter-run remapping');
+  const fill = { ...defaultState(), chain: 'CCDCC', chainEntries: [{ p: 2, sec: 0 }, { p: 2, sec: 0 }, { p: 3, sec: 0 }, { p: 2, sec: 1 }, { p: 2, sec: 1 }] };
+  fill.patterns[3].at = [{ b: [2, 2], hm: 0 }];
+  fill.patterns[2].at = [{ b: [3, 4], hm: 2 }];
+  const withLongerVerse = resize(toSections(fill.chain, fill.chainEntries), 0, 3);
+  setChain(fill, toChain(withLongerVerse), toChainEntries(withLongerVerse));
+  assert.deepEqual(fill.patterns[3].at, [{ b: [3, 3], hm: 0 }], 'fill-slot takes follow their run within the same tagged section');
+  assert.deepEqual(fill.patterns[2].at, [{ b: [4, 5], hm: 2 }], 'the following verse remains independently anchored');
 }
 
 // Chain ⇄ sections is lossless for every generated song form.
