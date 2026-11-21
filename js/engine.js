@@ -972,7 +972,7 @@ export class Engine {
     }
     const mix = JAZZ_MIX[jazzStyle(this.state, this.playingPattern)];
     const trim = this.playbackStyle === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : jazzStyle(this.state, this.playingPattern) === 'bossa' ? voice === 7 ? mix.pianoOutput : voice === 8 ? mix.guitarOutput : mix.output : mix?.output ?? HIPHOP_OUTPUT_DB[this.playbackStyle] ?? 0;
-    const level = this.hardTechno ? 0.98 : OUT_TRIM * dbGain(trim);
+    const level = this.hardTechno ? 0.89 : OUT_TRIM * dbGain(trim);
     if (Number.isFinite(time)) this.out.gain.setValueAtTime(level, time);
     else this.setTo(this.out.gain, level, immediate);
   }
