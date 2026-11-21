@@ -49,7 +49,7 @@ export function parseKeyName(name = '') {
 export class Recorder {
   constructor(state) { this.state = state; this.notes = {}; this.harm = null; this.stepScale = 1; this.noteVel = 1; this.bass = null; }
   get playbackStyle() { return this.replay808Style ?? this.state.artist?.style; }
-  get minimal() { return this.playbackStyle === 'minimal'; }
+  get minimal() { return (jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle) === 'minimal'; }
   get stepDur() { return (60 / this.state.bpm / 4) * (this.stepScale || 1); }
   add(track, t, m, dur, v) { (this.notes[track] ||= []).push({ t, m, dur: Math.max(0.01, dur), v }); }
   chord() { const p = this.state.params.stab, h = this.harm; return CHORDS[h ? h.c : Math.round(p.chord)].iv; }

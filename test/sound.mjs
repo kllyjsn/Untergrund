@@ -1230,6 +1230,34 @@ for (const listener of ['trap', 'dnb', undefined]) {
   e.state.params.acid.voice = 1; e.acidVoice(0.1, { n: 0 }, false, false, e.stepDur);
 }
 {
+  const s = freshSong('minimal', 42), bossa = freshSong('bossa', 42);
+  await loadBand('fl');
+  s.artist = { style: 'minimal' }; s.patterns[6] = bossa.patterns[6];
+  s.current = 0; s.chain = 'G'; s.chainOn = true; s.ending = false;
+  const e = new Engine(new OfflineAudioContext(1, SR * 3, SR), s, { realtime: false }), rec = new Recorder(s), calls = [];
+  e.smoothChords(-12);
+  e.minimalHook = e.minimalBass = () => assert.fail('pasted Bossa cannot inherit the project Minimal synths');
+  e.bass = () => calls.push('bass'); e.windHook = () => calls.push('flute');
+  const q = new Sequencer(e, s); q.startAt(0, 0.05);
+  for (let i = 0; i < 16; i++) q.tick(i, 0.05 + i * e.stepDur);
+  assert.equal(s.current, 0, 'the playing Bossa slot is not the selected Minimal slot');
+  assert.equal(e.minimal, false, 'the active pattern overrides the owning project genre');
+  assert.equal(e.smoothOn, 0);
+  e.hook(2, 0.5, 0, 0.2, 'airflute');
+  assert(calls.includes('flute') && calls.includes('bass'), 'pasted Bossa reaches the flute and selected non-Minimal bass');
+  rec.playingPattern = e.playingPattern;
+  assert.equal(rec.minimal, false, 'MIDI uses the same playing-pattern precedence');
+  const own = structuredClone(s); own.artist.style = 'bossa';
+  const native = new Engine(new OfflineAudioContext(1, SR, SR), own, { realtime: false });
+  native.playingPattern = e.playingPattern;
+  native.applyOutputTrim(true); e.applyOutputTrim(true);
+  assert.equal(e.out.gain.value, native.out.gain.value, 'Bossa does not inherit Minimal output calibration');
+  e.playingPattern = rec.playingPattern = s.patterns[0]; s.current = 6;
+  assert(e.minimal && rec.minimal, 'a playing Minimal pattern does not inherit the selected Bossa slot');
+  e.playingPattern = rec.playingPattern = { jazz: { style: 'unknown' } };
+  assert(e.minimal && rec.minimal, 'unknown pattern metadata retains the song-style fallback');
+}
+{
   const s = freshSong('minimal', 42); s.artist = { style: 'minimal' }; s.key = 0;
   s.params.acid.voice = 2; s.params.acid.tune = 0;
   const e = new Engine(new OfflineAudioContext(1, SR * 2, SR), s, { realtime: false }), rec = new Recorder(s);

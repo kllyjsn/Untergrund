@@ -603,7 +603,7 @@ function metallicBuf(mul, sr) {
 
 export class Engine {
   get playbackStyle() { return this.replay808Style ?? this.state.artist?.style; }
-  get minimal() { return this.playbackStyle === 'minimal'; }
+  get minimal() { return (jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle) === 'minimal'; }
   get playbackSeed() { return this.replaySeed ?? this.state.artist?.seed; }
   get hardTechno() { return this.state.artist?.style === 'hardtechno'; }
   constructor(ctx, state, { realtime = true, vocal = null, trackQueuedNotes = false } = {}) {
@@ -974,7 +974,7 @@ export class Engine {
       this.festivalGate.gain.setValueAtTime(1, this.ctx.currentTime);
     }
     const mix = JAZZ_MIX[jazzStyle(this.state, this.playingPattern)];
-    const trim = this.playbackStyle === 'minimal' ? 0.12 : this.playbackStyle === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : jazzStyle(this.state, this.playingPattern) === 'bossa' ? voice === 7 ? mix.pianoOutput : voice === 8 ? mix.guitarOutput : mix.output : mix?.output ?? STYLE_OUTPUT_DB[this.playbackStyle] ?? 0;
+    const trim = this.minimal ? 0.12 : this.playbackStyle === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : jazzStyle(this.state, this.playingPattern) === 'bossa' ? voice === 7 ? mix.pianoOutput : voice === 8 ? mix.guitarOutput : mix.output : mix?.output ?? STYLE_OUTPUT_DB[this.playbackStyle] ?? 0;
     const level = this.hardTechno ? 0.89 : OUT_TRIM * dbGain(trim);
     if (Number.isFinite(time)) this.out.gain.setValueAtTime(level, time);
     else this.setTo(this.out.gain, level, immediate);
