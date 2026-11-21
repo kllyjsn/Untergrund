@@ -12,7 +12,7 @@ import { encodeWav, rng } from './dsp.js';
 import { knob, numBox, h, controlHooks } from './ui.js';
 import { createHistory, gesture } from './undo.js';
 import { openPublish } from './publish.js';
-import { createSetRecorder, openSetCutter, openSongPublish, openJukebox, fmtTime, loadReplay } from './sets.js';
+import { createSetRecorder, openSetCutter, openSongPublish, openJukebox, jukeboxPreviewSeconds, fmtTime, loadReplay } from './sets.js';
 import { loadArtistProfile, openArtistStudio } from './artist.js';
 import { openClub, loadAvatar, avatarNode, hostingRoom } from './club.js';
 import { liveNowRow, watchLiveRooms, liveDirectory, fetchLiveRooms } from './live-rooms.js';
@@ -326,7 +326,13 @@ function schedule(lead) {
     // A generated song has played its final bar: let it ring, then stop rather than loop back to the intro.
     if (seq.finished && !handoff) {
       songOver = true;
-      setTimeout(() => { if (playing && songOver) { const radio = radioPlays(); stop('complete'); if (radio) { trackEvent('radio', { kind: 'next' }); radioNext(); } } }, Math.max(0, nextTime - ctx.currentTime + 2.5) * 1000);
+      setTimeout(() => {
+        if (!playing || !songOver) return;
+        const finishJukebox = jukeboxNow?.finish, radio = radioPlays();
+        stop('complete');
+        if (finishJukebox) finishJukebox();
+        else if (radio) { trackEvent('radio', { kind: 'next' }); radioNext(); }
+      }, Math.max(0, nextTime - ctx.currentTime + 2.5) * 1000);
       break;
     }
   }
@@ -1036,8 +1042,7 @@ function showJukebox() {
         current = { ...normalizeSong({ ...item, state: saved.state, remixOf: saved.remixOf || item.remixOf }), trackId: item.local ? '' : item.trackId };
       }
       listen(current, item.kind === 'drop' ? 'drop' : 'jukebox');
-      const bars = state.chainOn ? parseChain(state.chain).length || 8 : 8;
-      return (Math.min(bars, 64) * 16 * 15) / state.bpm;
+      return jukeboxPreviewSeconds(state);
     },
   });
 }
