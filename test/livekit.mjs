@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { LIVE_FILES, BAND_FILES, KIT_EXTRA, HAND_FILES, BAND, TAKES, MUTE_LAYER, SOFT_LAYER, withTakes } from '../js/livekit.js';
 
 const dir = new URL('../samples/live/', import.meta.url);
@@ -7,7 +8,14 @@ const license = readFileSync(new URL('LICENSE.md', dir), 'utf8');
 const ALL = [...LIVE_FILES, ...BAND_FILES, ...KIT_EXTRA, ...HAND_FILES];
 for (const f of ALL) assert.ok(existsSync(new URL(`${f}.flac`, dir)), `missing ${f}.flac`);
 const files = readdirSync(dir).filter((f) => f !== 'LICENSE.md');
-assert.deepEqual(files.sort(), ALL.map((f) => `${f}.flac`).sort(), 'every bundled sample is a used, listed .flac');
+const staged909 = JSON.parse(readFileSync(new URL('../scripts/drum-machine-samples.json', import.meta.url), 'utf8'));
+assert.deepEqual(staged909.map((r) => r.file).sort(), ['bd', 'sd', 'cp', 'ch', 'oh', 'ride', 'rs', 'lt', 'mt', 'ht'].map((v) => `tr909_${v}.flac`).sort());
+for (const row of staged909) {
+  assert.ok(!ALL.includes(row.file.replace(/\.flac$/, '')), 'S10 assets are not wired into playback');
+  assert.ok(license.includes(`\`${row.file}\``), `${row.file} has a license entry`);
+  assert.equal(createHash('sha256').update(readFileSync(new URL(row.file, dir))).digest('hex'), row.sha256, `${row.file} matches provenance`);
+}
+assert.deepEqual(files.sort(), [...ALL.map((f) => `${f}.flac`), ...staged909.map((r) => r.file)].sort(), 'every bundled sample is listed for playback or staged in S10 provenance');
 const prefixes = new Set(files.map((f) => f.split('_')[0]));
 for (const p of prefixes) assert.ok(license.includes(`\`${p}_`), `${p}_* files have a license entry`);
 assert.ok(license.includes('CC0 1.0 Universal'));
