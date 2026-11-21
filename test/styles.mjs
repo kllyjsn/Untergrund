@@ -113,6 +113,32 @@ for (const style of Object.keys(STYLES)) {
   sigs.set(sig, style);
 }
 console.log(`${sigs.size} distinct genres passed`);
+for (const [style, hook, bass, snare, clap] of [
+  ['lofihiphop', 'tapekeys', [1], [4, 12], []],
+  ['gfunk', 'funkwhistle', [1, 7], [], [4, 12]],
+  ['phonk', 'phonkbell', [2], [4, 12], [12]],
+  ['electrohiphop', 'robotformant', [6, 7], [12], [4, 12]],
+]) {
+  for (const seed of [11, 42, 1234]) {
+    const g = generate(style, seed), s = defaultState();
+    assert.equal(g.pattern.hook.v, hook);
+    assert(g.pattern.hook.s.slice(0, 16).some(Boolean) && g.pattern.hook.s.slice(16).some(Boolean));
+    assert(bass.includes(g.params.acid.voice));
+    const hits = (track) => g.pattern.steps[track].flatMap((v, i) => v ? [i] : []);
+    assert.deepEqual(hits('snare'), snare);
+    assert.deepEqual(hits('clap'), clap);
+    assert(g.pattern.steps.ch.every((v, i) => !(v && g.pattern.steps.oh[i])), 'open hats replace closed hats');
+    applyOverrides(s, g);
+    s.patterns = arrangement(g.pattern, seed, false);
+    s.artist = { style, seed };
+    applySongPlan(s, style, seed);
+    const loaded = sanitize(JSON.parse(JSON.stringify(s)));
+    assert.equal(loaded.artist.style, style);
+    assert(loaded.patterns.some((p) => p.hook?.v === hook), 'the instrument survives save and reload');
+    assert(loaded.chain.includes('G'), 'arrangement includes a chorus');
+  }
+}
+console.log('Hip-hop pockets, instrument voices and save/reload passed');
 const soulGen = generate('neosoul', 5, 'dorian');
 assert.equal(soulGen.pattern.prog.length, 4);
 assert(soulGen.master.vary > 0.5);

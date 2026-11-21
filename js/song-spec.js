@@ -265,11 +265,13 @@ const MOOD_CHORDS = {
   tense: { verse: ['i', 'VI', 'i', 'VII'], drop: ['i', 'VII', 'VI', 'V'], breakdown: ['VI', 'Vsus4'], hook: [0, 0, 3, 2, 0, -2] },
 };
 const GENRE_WORDS = [
-  [/\blo-?fi\b|\bchillhop\b/, 'boombap'], [/\bhouse\b/, 'deephouse'], [/\btechno\b/, 'hypnotic'], [/\bgarage\b|\b2-?step\b/, 'ukg'], [/\bjungle\b|\bliquid\b/, 'dnb'],
+  [/\blo[\s-]?fi\b|\bchillhop\b/, 'lofihiphop'], [/\bhouse\b/, 'deephouse'], [/\btechno\b/, 'hypnotic'], [/\bgarage\b|\b2-?step\b/, 'ukg'], [/\bjungle\b|\bliquid\b/, 'dnb'],
   [/\bsynthwave\b|\boutrun\b|\bretrowave\b/, 'electro'], [/\bchill(?:out)?\b|\bdowntempo\b/, 'ambient'], [/\bedm\b|\bbig\s+room\b/, 'euphoric'],
 ];
 // Where a song genre is named when its words don't contain the style's display name.
 const GENRE_AT = {
+  lofihiphop: /\blo[\s-]?fi\b|\bchillhop\b/, gfunk: /\bg[\s-]?funk\b/,
+  electrohiphop: /\b(?:old[\s-]?school[\s-]+(?:electro|hip[\s-]?hop)|electro[\s-]+(?:hip[\s-]?hop|funk|rap))\b/,
   rnb: /\br\s*(?:&|and|n)\s*b\b|\bslow\s*jams?\b/, folk: /\bfolk|\bsinger|\bsongwriter|\bcampfire|\bballad/,
   rock: /\brock|\bpunk|\bgrunge|\bindie|\balternative/, country: /\bcountry|\bnashville|\bamericana|\bhonky|\bwestern|\bbluegrass/,
 };

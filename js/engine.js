@@ -25,6 +25,7 @@ const BASS_COLOR = {
   reggaeton: { name: 'dembow', knock: 1.12, settle: 0.045, wave: 'sine', ratio: 4, harmonic: 0.55, tail: 0.35, decay: 0.12, round: 'sine', pick: 0.6 },
   afrobeats: { name: 'finger', knock: 1, settle: 0.018, wave: 'triangle', ratio: 3, harmonic: 0.8, tail: 0.25, decay: 0.07, round: 'triangle', pick: 1, gain: 0.85 },
   jerseyclub: { name: 'bounce', knock: 2.6, settle: 0.012, wave: 'sawtooth', ratio: 2, harmonic: 0.35, tail: 0.015, decay: 0.025, round: 'triangle', pick: 0.5, gain: 1.6, duckScale: 0.65, recoveryScale: 0.6 },
+  phonk: { name: 'phonk', knock: 1.28, settle: 0.026, wave: 'sawtooth', ratio: 2, harmonic: 0.36, tail: 0.22, decay: 0.13, gain: 0.94 },
 };
 // Chords sit under a sung line the way a mix rides the keys under a vocal: a little in the chorus, more in the verse
 // and most in the breakdown, so the drop still lands over it. Songs with sections already set the verse level.
@@ -479,6 +480,7 @@ const CLIP_HEADROOM = 2;
 const OUT_TRIM = 0.78;
 // Post-clipper headroom for Trap's saw, pad, and bells ensembles; leave their transients intact.
 const TRAP_OUTPUT_DB = { 0: -0.8, 2: -0.3, 6: -0.3 };
+const HIPHOP_OUTPUT_DB = { gfunk: -0.8, phonk: -0.8, electrohiphop: -0.5 };
 
 // Six band-limited squares (808 cymbal cluster) summed once into a seamless 0.5 s loop.
 // Each square is read from a one-period wavetable; a small LRU bounds memory as tunings change.
@@ -865,7 +867,7 @@ export class Engine {
       this.festivalGate.gain.cancelScheduledValues(this.ctx.currentTime);
       this.festivalGate.gain.setValueAtTime(1, this.ctx.currentTime);
     }
-    const trim = this.playbackStyle === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : 0;
+    const trim = this.playbackStyle === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : HIPHOP_OUTPUT_DB[this.playbackStyle] ?? 0;
     this.setTo(this.out.gain, this.hardTechno ? 0.98 : OUT_TRIM * dbGain(trim), immediate);
   }
 
@@ -2998,12 +3000,39 @@ export class Engine {
     return paths.get(voice);
   }
 
+  phonkBell(t, v, f, dur, strong) {
+    const len = Math.min(0.19, dur * 1.1), end = t + len + 0.2;
+    const amp = this.gain(0), tone = this.filter('lowpass', Math.min(3200, 1450 + 2 * f), 0.55);
+    tone.connect(amp).connect(this.hookBus || this.ch.stab.input);
+    const strike = v * (strong ? 0.33 : 0.27);
+    amp.gain.setValueAtTime(0, t);
+    amp.gain.linearRampToValueAtTime(strike, t + 0.003);
+    amp.gain.setTargetAtTime(strike * 0.31, t + 0.003, 0.027);
+    amp.gain.setTargetAtTime(0, t + len, 0.032);
+    const partials = [['square', 1, 0.39], ['square', 1.49, 0.18], ['sine', 1, 0.48]];
+    const sources = partials.map(([type, ratio, level]) => {
+      const osc = this.ctx.createOscillator(), g = this.gain(level);
+      osc.type = type;
+      osc.frequency.value = f * ratio;
+      osc.connect(g).connect(tone);
+      this.startSource(osc, t);
+      osc.stop(end);
+      return osc;
+    });
+    this.retire(sources.at(-1), tone, amp);
+  }
+
   // Song hook: one lead note per call, snapped to the current chord on strong beats so it follows the changes.
   hook(t, v, n, dur, voice, oct = 0, strong = false, b = 1, up = false, expression = {}) {
     const c = this.ctx, p = this.state.params.stab, h = this.harm;
     v *= 1.3;
     n = hookSnap(n, h, p, strong, up);
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
+    if (voice === 'tapekeys') {
+      const out = this.hookBus || this.ch.stab.input;
+      return this.keys(t, v * 0.53, [n], 60 + k + oct * 12, { ...p, cutoff: 680, env: 0.08, tine: 0.08, decay: dur * 0.52 }, out);
+    }
+    if (voice === 'phonkbell') return this.phonkBell(t, v, midiHz(60 + k + oct * 12 + n), dur, strong);
     if (this.playbackStyle === 'bailefunk') return this.funkStab(t, v * 0.7, [n], 60 + k + oct * 12, dur, this.hookBus || this.ch.stab.input);
     if (this.state.artist?.style === 'dub') return this.dubChord(t, v * 0.38, [0], 60 + k + oct * 12 + n, { ...p, decay: Math.min(0.3, dur) }, this.hookBus || this.ch.stab.input);
     if (dampedChord(this) && (voice === 'vocal' || voice === 'reed')) {
@@ -3038,7 +3067,7 @@ export class Engine {
     // Genres on a recorded instrument let that player take the melody too; synth-pop leads stay synths.
     const synth = voice === 'ravestack' || voice === 'acidlead';
     const twang = !wind && !synth && pocketOf(this.state.master)?.walk && this.rec('gtr');
-    const band = twang ? 'gtr' : !wind && !synth && voice !== 'pulse' && STAB_BAND[Math.round(p.voice)], set = band && this.rec(band);
+    const band = twang ? 'gtr' : !wind && !synth && voice !== 'pulse' && voice !== 'funkwhistle' && STAB_BAND[Math.round(p.voice)], set = band && this.rec(band);
     if (set) {
       const kind = twang ? 'twang' : Math.round(p.voice) === 11 ? 'lead' : band, R = BAND_PLAY[kind], ring = R.hold ? dur * 1.05 : Math.max(R.min * 0.6, dur * 1.5);
       let dest = this.hookBus || this.ch.stab.input;

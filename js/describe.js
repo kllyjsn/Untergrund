@@ -63,7 +63,10 @@ const PHRASES = [
   [/(jazz|jazzy|funky|archtop|hollow[\s-]?body)\s+guitars?/g, ' $1 jazzguitar '], [/(twangy?|country|gretsch|rockabilly|chicken[\s-]picking)\s+guitars?/g, ' $1 twangguitar '], [/(?:distorted|overdriven|electric|crunchy|dirty)\s+guitars?/g, ' driveguitar '], [/(?:electric|fender)\s+bass|bass\s+guitar/g, ' electricbass '],
   [/drum\s+(?:roll|fill)s?/g, ' fills '], [/low[\s-]end/g, ' bass '], [/top[\s-]?line/g, ' melody '],
   [/drum\s*(?:and|&|n|'n'|n')\s*bass|\bd\s*(?:&|n)\s*b\b/g, ' dnb '],
-  [/hip[\s-]?hop/g, ' hiphop '], [/lo[\s-]?fi/g, ' lofi '], [/neo[\s-]?soul/g, ' neosoul '], [/boom[\s-]?bap/g, ' boombap '],
+  [/\blo[\s-]?fi[\s-]+(?:hip[\s-]?hop|beats?)\b|\bchillhop\b/g, ' lofihiphop '],
+  [/\bg[\s-]?funk\b/g, ' gfunk '], [/\b(?:drift|memphis)[\s-]+phonk\b/g, ' phonk '],
+  [/\b(?:old[\s-]?school[\s-]+(?:electro|hip[\s-]?hop)|electro[\s-]+(?:hip[\s-]?hop|funk|rap))\b/g, ' electrohiphop '],
+  [/\bhip[\s-]?hop\b/g, ' hiphop '], [/\blo[\s-]?fi\b/g, ' lofi '], [/neo[\s-]?soul/g, ' neosoul '], [/boom[\s-]?bap/g, ' boombap '],
   [/deep[\s-]house/g, ' deephouse '], [/uk[\s-]?garage/g, ' ukg '], [/\b(?:2|two)[\s-]?step\b/g, ' ukg '],
   [/peak[\s-]time/g, ' peak '], [/hard[\s-]techno/g, ' hardtechno '], [/dub[\s-]techno/g, ' dub '],
   [/minimal\s+(?:house|techno)/g, ' minimalgenre '], [/baile(?:[\s-]funk)?|funk\s+carioca/g, ' bailefunk '],
@@ -263,7 +266,6 @@ Object.assign(B2, {
   triphop: scene('boombap', (a) => [{ id: 'tone', amt: -a }, { id: 'dust', amt: 0.5 * a }, { id: 'tempo', amt: -0.5 * a }, { id: 'space', amt: 0.5 * a }]),
   techhouse: scene('deephouse', (a) => [{ id: 'punch', amt: a }, { id: 'density', amt: 0.5 * a }, { id: 'grit', amt: 0.3 * a }]),
   afrohouse: scene('deephouse', (a) => [{ id: 'level', target: 'perc', amt: a }, { id: 'swing', amt: 0.3 * a }]),
-  phonk: scene('trap', (a) => [a > 0 && { id: 'bassVoice', value: 2 }, { id: 'grit', amt: a }, { id: 'dust', amt: 0.5 * a }, { id: 'level', target: 'perc', amt: 0.5 * a }]),
   edm: scene('euphoric', (a) => [{ id: 'drops', amt: a }, { id: 'pump', amt: 0.5 * a }]),
   progressive: scene('trance', (a) => [{ id: 'variation', amt: -0.3 * a }]),
   psytrance: scene('trance', (a) => [{ id: 'tempo', amt: a }, { id: 'grit', amt: 0.5 * a }]),
@@ -289,7 +291,7 @@ const BW = {
   holiday: ['christmas', 'xmas', 'festive', 'holiday', 'holidays', 'wintry', 'winter', 'snow'], chiptune: ['chiptune', 'arcade'], nineties: ['nineties'],
   synthwave: ['synthwave'], disco: ['disco', 'nudisco'], metal: ['metal', 'heavymetal'],
   reggae: ['reggae', 'ska', 'rocksteady'], dubstep: ['dubstep', 'brostep', 'riddim'], triphop: ['triphop'], techhouse: ['techhouse'],
-  afrohouse: ['afrohouse'], phonk: ['phonk'], edm: ['edm'], progressive: ['progressive'], psytrance: ['psytrance', 'psy', 'goa'],
+  afrohouse: ['afrohouse'], edm: ['edm'], progressive: ['progressive'], psytrance: ['psytrance', 'psy', 'goa'],
   idm: ['idm', 'glitch', 'glitchy'], footwork: ['footwork', 'juke'], grime: ['grime'], gospel: ['gospel', 'church'], dancehall: ['dancehall'],
 };
 for (const id of Object.keys(ARTISTS)) BW[`artist${id}`] = [`artist${id}`];
