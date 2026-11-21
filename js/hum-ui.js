@@ -10,6 +10,8 @@ import { generate } from './state.js';
 import { track as trackEvent } from './analytics.js';
 import { loadSets } from './livekit.js';
 import { windBanks } from './jazz-winds.js';
+import { paletteFor } from './engine.js';
+import { jazzStyle } from './jazz.js';
 
 const MAX_SEC = 8;
 const kk = (key) => (key > 6 ? key - 12 : key);
@@ -332,6 +334,8 @@ export function melodyPanel(api) {
     if (v === 'harmon') loadSets(windBanks(v)).catch(() => {});
   };
   const mine = hk?.v === 'chop';
+  const style = s.artist?.style;
+  const harmon = style !== 'bailefunk' && style !== 'dub' && (jazzStyle(s) ?? style) !== 'minimal' && !paletteFor(s);
   const sound = { harpplk: 'HARP', oboe: 'OBOE', airflute: 'FLUTE' }[hk?.v] || 'SYNTH';
   return h('div', { class: 'melody-panel' },
     h('div', { class: 'glabel' }, 'MELODY'),
@@ -339,8 +343,8 @@ export function melodyPanel(api) {
     h('small', {}, mine ? (getChops() ? 'Sung with your voice' : 'Record your voice to hear it') : 'Hum your own and it plays here'),
     h('button', { class: 'btn accent', onclick: () => openHum(api, { from: 'studio' }) }, 'HUM A MELODY'),
     hk ? h('div', { class: 'voice-chips', role: 'radiogroup', 'aria-label': 'Melody sound' },
-      [[sound, 'warm'], ['HARMON', 'harmon'], ['MY VOICE', 'chop']].map(([name, voice]) => {
-        const on = voice === 'warm' ? !mine && hk.v !== 'harmon' : hk.v === voice;
+      [[sound, 'warm'], ...(harmon ? [['HARMON', 'harmon']] : []), ['MY VOICE', 'chop']].map(([name, voice]) => {
+        const on = voice === 'warm' ? !mine && (!harmon || hk.v !== 'harmon') : hk.v === voice;
         return h('button', {
           class: `vchip${on ? ' on' : ''}`, role: 'radio', 'aria-checked': String(on),
           onclick: () => { if (on) return; if (voice === 'chop' && !getChops()) return openVoice(api); setVoice(voice); },
