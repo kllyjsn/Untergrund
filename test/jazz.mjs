@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import './jazz-winds.mjs';
 import { freshSong, generate, sanitize, applyOverrides } from '../js/state.js';
 import { jazzBass, jazzHarmony, jazzNotes, jazzVoicing, jazzNotches, jazzStyle, JAZZ_PROGS, JAZZ_MIX } from '../js/jazz.js';
 import { CHORDS } from '../js/params.js';

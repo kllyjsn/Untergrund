@@ -136,6 +136,17 @@ recording's measured pitch (`python3 test/sampletune.py`) is corrected in `js/li
 | `ebass_52.flac` | `darkblack/reg/darkblack_e4_mf_rr1.wav` | 52 |
 | `ebass_55.flac` | `darkblack/reg/darkblack_g4_mf_rr1.wav` | 55 |
 
+## VSCO-2 CE expanded jazz winds
+
+- Source: https://github.com/sgossner/VSCO-2-CE @ `440300901dfe9275fd84e0b7763af1f8443ae62e`.
+- Recorded by Sam Gossner & Simon Dalzell; sample cutting by Elan Hickler/Soundemote. **CC0-1.0**, full text in [`../JAZZ-WINDS-LICENSE.txt`](../JAZZ-WINDS-LICENSE.txt).
+- `jtv1_*` / `jtv2_*`: sustain-vibrato trumpet, all 11 roots at two velocities.
+- `jts11_*`, `jts12_*`, `jts21_*`, `jts22_*`, `jts31_*`, `jts32_*`: staccato trumpet, 11 roots, three dynamics and two round robins.
+- `jhm1_*`, `jhm3_*`: Harmon-mute trumpet, eight roots and two source dynamics.
+- `jfl_*` / `jflb_*`: sustain-vibrato / expressive-vibrato flute, all ten roots.
+- Modified by Untergrund: mono 48 kHz / 24-bit FLAC; onset trim, maximum 3.2 s sustains or 1 s staccato, 80 ms edge fade, peak normalization and measured playback tuning. No denoising, synthesis or baked EQ.
+- Per-file original names, pinned URLs, SHA256 hashes, processing and tuning: [`../jazz-winds-provenance.json`](../jazz-winds-provenance.json). Narrow runtime EQ measurements: [`../jazz-winds-resonances.json`](../jazz-winds-resonances.json).
+
 ## Greg Sullivan Wurlitzer EP200 (jazz KEYS)
 
 - Source: https://github.com/sfzinstruments/GregSullivan.E-Pianos @ `8c3e581acda3594b553948ff0222d4f84a698376`
