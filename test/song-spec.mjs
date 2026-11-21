@@ -4,6 +4,8 @@ import { validateSpec, parseChord, realize, songState, localSpec, isSongPrompt, 
 import { promptGenre, rulePlan } from '../js/song-plan.js';
 import { sanitize, STYLES, generate } from '../js/state.js';
 import { jazzHarmony } from '../js/jazz.js';
+import { Sequencer } from '../js/engine.js';
+import { Recorder } from '../js/midi.js';
 import { handleDescribe } from '../api/_lib/describe-ai.js';
 import { memoryKv } from '../api/_lib/events.js';
 import { buildSong, scoreSong } from '../scripts/composition.mjs';
@@ -11,6 +13,26 @@ import { patternAt } from '../js/scope.js';
 
 let n = 0;
 const t = (name, fn) => { try { fn(); n++; } catch (e) { console.error(`✗ ${name}`); throw e; } };
+t('explicit jazz harmony restarts at section boundaries through fills and chain loops', () => {
+  for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
+    const sections = [{ role: 'intro', bars: 2 }, { role: 'verse', bars: 8, chords: ['i', 'IV', 'bVII', 'V'] },
+      { role: 'breakdown', bars: 2 }, { role: 'verse', bars: 6 }, { role: 'verse', bars: 2 }, { role: 'drop', bars: 2 }];
+    const { state } = songState({ style, sections }, 42);
+    for (const s of [state, sanitize(JSON.parse(JSON.stringify(state)))]) {
+      s.ending = false;
+      const e = new Recorder(s), seq = new Sequencer(e, s);
+      for (let bar = 0; bar < 44; bar++) {
+        seq.tick(bar * 16, 0.05 + bar * 16 * e.stepDur);
+        const at = bar % 22, start = at >= 18 ? 18 : at >= 12 ? 12 : at >= 2 && at < 10 ? 2 : -1;
+        if (start >= 0 && at < 20) assert.deepEqual(e.harm, s.patterns[2].prog[(at - start) % 4], `${style} bar ${bar}`);
+      }
+    }
+    for (const bad of [[], [0], [-1], ['2'], [NaN], [Infinity], Array(17).fill(2)]) {
+      const p = { prog: [{ r: 0, c: 1 }, { r: 5, c: 1 }], jazz: { style, progBars: 1, progSections: bad } };
+      assert.deepEqual(jazzHarmony(p, 1), p.prog[1]);
+    }
+  }
+});
 t('explicit jazz chord lists advance each bar and survive save/load', () => {
   for (const style of ['modal', 'jazzfunk']) {
     const { state } = songState({ style, sections: [{ role: 'verse', bars: 16, energy: 0.7, chords: ['i', 'IV', 'bVII', 'V'] }] }, 42);
