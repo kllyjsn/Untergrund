@@ -53,3 +53,32 @@ notes; it alternates repeated notes and subsequent bars without a seek-sensitive
 counter. Longer notes use the two
 recorded sustain dynamics. Flute keeps deterministic short-note expvib alternation.
 Incomplete loading retains the existing recorded lead/fallback, never an empty part.
+
+### Bossa flute body and named lines
+
+Bossa alone keeps the sustain (`jfl`) takes through short and held notes, the
+original nominal-root tie selection, and the original peaking stages
+(2950 Hz/Q0.8/+6.2 dB and 780 Hz/Q1.2/-2.5 dB). Other styles retain their
+expressive-take alternation and their recorded resonance maps.
+
+The Bossa sustain path uses the legacy `jazzNotches('fl', root)` source bands,
+scaled by the actual tuned playback rate, rather than cuts on its dominant
+natural partials. The A4 take's 2644 Hz/Q40 band is recalibrated from -18 to
+-3 dB; its 3088 Hz/Q60/-14 dB band and the other legacy source bands are retained.
+Omitting the 2644 Hz band leaves the seed77/2481 Hz guard at +10.55 dB;
+restoring its original depth loses 2.34 dB of seed42's 2–4 kHz body versus main.
+The shallow correction retains both the named-line and body targets.
+
+Validation distinguishes natural partials from the historical named defects:
+the broader all-peaks screen must stay within main +1.5 dB for seeds5/11/42/77;
+every historical fixed-bin line, including the legacy guards, stays below +10 dB
+using whole-eight-bar Welch16384 spectra and a local median35–175 Hz either side.
+Nylon retains its original 2335.327 Hz/9.12–9.32 s comp-muted acceptance window.
+Body measurements compare raw production-level 1.6–6.3 and 2–4 kHz power and
+2–4 kHz RMS peak/median on flute stems and full mixes for Bossa11/42.
+
+The importer now normalizes expressive takes against their first1.4 seconds,
+with a 0.98 full-file peak guard. Existing shared `jflb` files were not releveled,
+so non-Bossa playback stays unchanged. `--winds-legacy-levels` reproduces the
+shipped legacy-level files; `--winds` uses the corrected reference normalization
+for future imports and records that reference in provenance.

@@ -41,8 +41,22 @@ def tuning(x, midi, start=.12, seconds=.5):
     return round(float(np.average(offsets, weights=weights)), 2)
 
 
+def normalization_gain(x, reference_seconds=None):
+    if not len(x) or not np.isfinite(x).all():
+        raise ValueError('Expected nonempty finite audio')
+    if reference_seconds is not None and (not np.isfinite(reference_seconds) or reference_seconds <= 0):
+        raise ValueError('Expected a positive normalization reference')
+    peak = float(np.max(np.abs(x)))
+    if not peak:
+        return 1.0
+    reference = x if reference_seconds is None else x[:max(1, int(reference_seconds * SR))]
+    reference_peak = float(np.max(np.abs(reference)))
+    return min(.5 / max(reference_peak, 1e-9), .98 / peak)
+
+
 def import_sample(job):
-    bank, midi, base, original, limit = job
+    bank, midi, base, original, limit = job[:5]
+    reference_seconds = job[5] if len(job) > 5 else None
     data = fetch(base + original)
     pcm = subprocess.check_output(['ffmpeg', '-v', 'error', '-i', 'pipe:0', '-ac', '1', '-ar', str(SR), '-f', 'f32le', '-'], input=data)
     x = np.frombuffer(pcm, dtype='<f4').copy()
@@ -53,11 +67,14 @@ def import_sample(job):
     # Keep the recorded decay, fading only the final edge of the stored take.
     fade = min(int(.08 * SR), len(x) // 4)
     x[-fade:] *= np.linspace(1, 0, fade)
-    gain = .5 / max(float(np.max(np.abs(x))), 1e-9)
+    gain = normalization_gain(x, reference_seconds)
     x *= gain
     target = ROOT / 'samples' / 'live' / f'{bank}_{midi}.flac'
     subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'f32le', '-ar', str(SR), '-ac', '1', '-i', 'pipe:0', '-map_metadata', '-1', '-c:a', 'flac', '-sample_fmt', 's32', '-bits_per_raw_sample', '24', '-compression_level', '12', str(target)], input=x.astype('<f4').tobytes(), check=True)
-    return dict(bank=bank, midi=midi, source=original, sourceUrl=base + urllib.parse.quote(original), sourceSha256=hashlib.sha256(data).hexdigest(), importedFile=target.name, importedSha256=hashlib.sha256(target.read_bytes()).hexdigest(), measuredCents=cents, onsetTrimSeconds=onset / SR, gainDb=round(float(20 * np.log10(gain)), 3), duration=len(x) / SR, bytes=target.stat().st_size)
+    sample = dict(bank=bank, midi=midi, source=original, sourceUrl=base + urllib.parse.quote(original), sourceSha256=hashlib.sha256(data).hexdigest(), importedFile=target.name, importedSha256=hashlib.sha256(target.read_bytes()).hexdigest(), measuredCents=cents, onsetTrimSeconds=onset / SR, gainDb=round(float(20 * np.log10(gain)), 3), duration=len(x) / SR, bytes=target.stat().st_size)
+    if reference_seconds is not None:
+        sample['normalizationReferenceSeconds'] = reference_seconds
+    return sample
 
 
 def wurli():
@@ -81,7 +98,7 @@ def wurli():
     print(f'Wurlitzer: {len(samples)} recordings; {sum(s["bytes"] for s in samples)} bytes; four dynamics')
 
 
-def winds():
+def winds(legacy_levels=False):
     trumpet = ['F2', 'A2', 'C3', 'D#3', 'F3', 'G3', 'A#3', 'D4', 'F4', 'A4', 'C5']
     harmon = ['A#2', 'C3', 'D#3', 'G#3', 'A#3', 'D4', 'F4', 'A4']
     flute = ['C3', 'E3', 'A3', 'C4', 'E4', 'A4', 'C5', 'E5', 'A5', 'C6']
@@ -99,11 +116,13 @@ def winds():
             jobs.append((f'jhm{v}', midi(n), WIND, f'Brass/Trumpet/harmonM-sus/Sum_SHTrumpet_harmonM-sus_{n}_v{v}_rr1.wav', 3.2))
     for n in flute:
         for bank, articulation in [('jfl', 'susvib'), ('jflb', 'expvib')]:
-            jobs.append((bank, midi(n), WIND, f'Woodwinds/Flute/{articulation}/LDFlute_{articulation}_{n}_v1_1.wav', 3.2))
+            jobs.append((bank, midi(n), WIND, f'Woodwinds/Flute/{articulation}/LDFlute_{articulation}_{n}_v1_1.wav', 3.2, 1.4 if bank == 'jflb' and not legacy_levels else None))
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
         samples = list(pool.map(import_sample, jobs))
     (ROOT / 'samples' / 'JAZZ-WINDS-LICENSE.txt').write_bytes(fetch(WIND + 'LICENSE'))
     provenance = dict(collection='VSCO-2 CE jazz winds', source='https://github.com/sgossner/VSCO-2-CE', commit=WIND_COMMIT, license='CC0-1.0', licenseUrl=WIND + 'LICENSE', attribution='Recorded by Sam Gossner & Simon Dalzell; sample cutting by Elan Hickler/Soundemote.', processing=dict(sampleRate=SR, bits=24, channels=1, format='FLAC', onsetThresholdDb=-30.46, maxSustainSeconds=3.2, maxStaccatoSeconds=1, tailFadeSeconds=.08, peakDbfs=-6.02, denoising=False, synthesis=False, timbralEq=False, tuning='Weighted partials: staccato 35-195 ms, sustains 120-620 ms; offsets applied during playback'), samples=samples)
+    if not legacy_levels:
+        provenance['processing']['alternateNormalization'] = dict(referenceSeconds=1.4, referencePeakDbfs=-6.02, maxPeakDbfs=-.1755)
     (ROOT / 'samples' / 'jazz-winds-provenance.json').write_text(json.dumps(provenance, indent=2) + '\n')
     banks = {k: sorted(s['midi'] for s in samples if s['bank'] == k) for k in sorted(set(s['bank'] for s in samples))}
     tunes = {k: {s['midi']: s['measuredCents'] for s in samples if s['bank'] == k} for k in banks}
@@ -133,5 +152,7 @@ if __name__ == '__main__':
         wurli()
     elif sys.argv[1:] == ['--winds']:
         winds()
+    elif sys.argv[1:] == ['--winds-legacy-levels']:
+        winds(legacy_levels=True)
     else:
-        raise SystemExit('Usage: python3 scripts/fetch-jazz.py --wurli | --winds')
+        raise SystemExit('Usage: python3 scripts/fetch-jazz.py --wurli | --winds | --winds-legacy-levels')

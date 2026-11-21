@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { WIND_BANKS, WIND_TUNING, WIND_PEAKS } from '../js/jazz-wind-data.js';
-import { windBanks, windNotches, recordedJazzWind } from '../js/jazz-winds.js';
+import { windBanks, windNotches, bossaFluteNotches, recordedJazzWind } from '../js/jazz-winds.js';
+import { jazzNotches } from '../js/jazz.js';
 import { freshSong, sanitize, HOOK_VOICES } from '../js/state.js';
 import { liveSets } from '../js/livekit.js';
 import { Sequencer } from '../js/engine.js';
@@ -23,11 +24,11 @@ for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
 }
 assert(!liveSets(freshSong('trap', 42)).some((n) => Object.hasOwn(WIND_BANKS, n)));
 
-const probe = (voice = 'tpt', velocity = .5, duration = .8, take = 0, missing) => {
-  const calls = [];
-  const e = { rec: (bank) => bank === missing ? null : WIND_BANKS[bank].map((m) => [m + WIND_TUNING[bank][m] / 100, { bank, midi: m }]), trimOut: () => ({}), playBuf: (...args) => calls.push(args) };
-  const result = recordedJazzWind(e, 0, velocity * 1.3, 73, duration, voice, true, { take }, 2);
-  return { result, calls };
+const probe = (voice = 'tpt', velocity = .5, duration = .8, take = 0, missing, style, midi = 73) => {
+  const calls = [], eq = [];
+  const e = { rec: (bank) => bank === missing ? null : WIND_BANKS[bank].map((m) => [m + WIND_TUNING[bank][m] / 100, { bank, midi: m }]), trimOut: () => ({}), bodyFor: (out, shape) => { eq.push(shape); return out; }, playBuf: (...args) => calls.push(args) };
+  const result = recordedJazzWind(e, 0, velocity * 1.3, midi, duration, voice, true, { take, style }, 2);
+  return { result, calls, eq };
 };
 for (const [voice, velocity, duration, take, bank] of [
   ['tpt', .4, .8, 0, 'jtv1'], ['tpt', .9, .8, 0, 'jtv2'],
@@ -46,6 +47,28 @@ for (const [voice, velocity, duration, take, bank] of [
   assert(fx.ringOut && fx.peaks.every(([, q, db]) => q >= 30 && db <= 0));
 }
 assert(!probe('tpt', .5, .8, 0, 'jtv2').result, 'an incomplete bank returns to existing recorded/synth fallback');
+for (const duration of [.15, .5, .85, 1.2]) {
+  const { result, calls, eq } = probe('airflute', .6, duration, 1, 'jflb', 'bossa');
+  assert(result && calls.length === 1, 'Bossa can play a complete sustain bank while expressive takes load');
+  assert.equal(calls[0][0].bank, 'jfl', 'Bossa keeps the sustain performance through short and held notes');
+  assert.deepEqual(eq, [[2950, .8, 6.2], [780, 1.2, -2.5]], 'Bossa restores the original presence/body peaking stages');
+  assert.deepEqual(calls[0][6].peaks, jazzNotches('fl', calls[0][0].midi, calls[0][4]), 'Bossa retains only the legacy named-line corrections at the actual playback rate');
+}
+const bossaA = probe('airflute', .6, .5, 1, undefined, 'bossa', 68).calls[0];
+assert.equal(bossaA[0].midi, 69);
+assert.deepEqual(bossaA[6].peaks, [[2644 * bossaA[4], 40, -3], [3088 * bossaA[4], 60, -14]], 'the A4 sustain retains its recalibrated narrow lines without the deep body cut');
+assert.deepEqual(bossaFluteNotches(69, 2), [[5288, 40, -3], [6176, 60, -14]]);
+assert.deepEqual(bossaFluteNotches(64, 1.5), [[3954, 35, -16]]);
+assert.deepEqual(bossaFluteNotches(61), []);
+for (const rate of [NaN, Infinity, 0, -1]) assert.deepEqual(bossaFluteNotches(69, rate), []);
+assert(!probe('airflute', .6, .5, 1, 'jfl', 'bossa').result, 'Bossa retains the loading fallback when sustain recordings are missing');
+assert.equal(probe('airflute', .6, .5, 0, undefined, 'bossa', 62).calls[0][0].midi, 60, 'Bossa keeps the original lower root at nominal-pitch ties');
+for (const style of ['swing', 'modal', 'jazzfunk', undefined]) {
+  const { calls, eq } = probe('airflute', .6, .5, 1, undefined, style);
+  assert.equal(calls[0][0].bank, 'jflb', 'other styles keep their existing expressive alternation');
+  assert.deepEqual(eq, [], 'Bossa body stages never reach another style');
+}
+assert.deepEqual(probe('tpt', .6, .5, 1, undefined, 'bossa').eq, [], 'Bossa trumpet is untouched');
 assert(!recordedJazzWind({ rec() {} }, 0, .5, 70, .2, 'reed', false, {}, 1), 'unrelated voices do not allocate nodes');
 for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
   const song = freshSong(style, 42); song.chain = 'GGGGGGGG'; song.ending = false;

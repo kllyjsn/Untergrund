@@ -3367,7 +3367,7 @@ export class Engine {
 
   windHook(set, t, v, m, dur, voice, strong, { harm, take = 0 }) {
     const style = jazzStyle(this.state, this.playingPattern);
-    if ((style || voice === 'harmon') && recordedJazzWind(this, t, v, m, dur, voice, strong, { harm, take }, dbGain(style === 'bossa' && voice === 'tpt' ? JAZZ_MIX.bossa.trumpetLead : JAZZ_MIX[style]?.lead || 0))) return;
+    if ((style || voice === 'harmon') && recordedJazzWind(this, t, v, m, dur, voice, strong, { harm, take, style }, dbGain(style === 'bossa' && voice === 'tpt' ? JAZZ_MIX.bossa.trumpetLead : JAZZ_MIX[style]?.lead || 0))) return;
     if (voice === 'harmon') voice = 'tpt';
     const { gain, presence, takes, second } = WIND_HOOK[voice];
     const alt = TAKES[HOOK_BAND[voice]] && this.rec(TAKES[HOOK_BAND[voice]]);
