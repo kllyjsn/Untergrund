@@ -46,11 +46,15 @@ function bandpass(input, sr, fc, bw, gain, out) {
   }
 }
 
+// The synth voice sings one vowel per 0.42 s segment, each on a known MIDI note from A3.
+const SYNTH_NOTES = [0, 3, 7, 10, 12, 7, 5, 3], SYNTH_BASE = 57, SYNTH_SEG = 0.42;
+export const synthSliceMidi = (from) => SYNTH_BASE + SYNTH_NOTES[Math.max(0, Math.min(SYNTH_NOTES.length - 1, Math.floor((from + 0.05) / SYNTH_SEG)))];
+
 export function synthVoxChannels(sr = 48000, seed = 0) {
   const random = rng((seed | 0) ^ 0x564f5801);
   const vowels = [[730, 1090, 2440], [570, 840, 2410], [300, 870, 2240], [270, 2290, 3010], [530, 1840, 2480], [660, 1720, 2410], [440, 1020, 2240], [490, 1350, 1690]];
-  const notes = [0, 3, 7, 10, 12, 7, 5, 3];
-  const seg = Math.floor(0.42 * sr), len = Math.floor(seg * 0.92);
+  const notes = SYNTH_NOTES;
+  const seg = Math.floor(SYNTH_SEG * sr), len = Math.floor(seg * 0.92);
   const out = new Float32Array(seg * vowels.length);
   vowels.forEach((formants, k) => {
     const f0 = 220 * 2 ** (notes[k] / 12);

@@ -1046,4 +1046,321 @@ for (const [voice, chord, set] of [['tpt', 1, 'tpt'], ['airflute', 1, 'fl'], ['v
   }
 }
 console.log('recorded jazz leads: trumpet, airflute and piano finite/audible/level-safe; trumpet envelope and missing-sample fallback passed');
+{
+  for (const [style, playbackStyle, voice, smooth, wet] of [
+    ['minimal', null, 7, -12, true], ['minimal', null, 7, 0.5, true],
+    ['minimal', null, 7, 0, false], ['minimal', null, 1, -12, false],
+    ['minimal', null, 2, -6, false], ['trap', 'minimal', 7, -12, true],
+    ['hypnotic', null, 7, -12, false], [undefined, null, 7, -12, false],
+  ]) {
+    const s = freshSong(style || 'hypnotic', 11);
+    s.artist = { style }; s.params.stab.voice = voice;
+    const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
+    if (playbackStyle) e.replay808Style = playbackStyle;
+    e.smoothChords(smooth);
+    let destination, calls = 0;
+    const trim = e.trimOut;
+    e.trimOut = function (key, db, out, ...args) {
+      if (key === `stab${voice}`) destination = out;
+      return trim.call(this, key, db, out, ...args);
+    };
+    e.keys = e.pad = e.piano = () => calls++;
+    e.stab(0.05, 0.5);
+    assert.equal(calls, 1, 'room routing preserves one chord renderer per trigger');
+    assert.equal(destination, wet ? e.ch.stab.band : e.ch.stab.input, `${style}/${playbackStyle}/${voice}/${smooth} restores only the smooth Minimal piano room`);
+    assert(e.ch.stab.band.inputs.length === 0, 'room routing does not add duplicate chord sources');
+    assert(e.ch.stab.input.inputs.includes(e.ch.stab.band), 'band input preserves the existing dry chord strip');
+    assert(e.bandIn.inputs.includes(e.ch.stab.band), 'band input retains the shared room send');
+  }
+}
+{
+  for (const seed of [11, 20, 42, 73, 211, 997, 1234, 2026]) {
+    const s = freshSong('minimal', seed); s.artist = { style: 'minimal', seed };
+    const ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false }), q = new Sequencer(e, s);
+    q.startAt(0, 0.05); q.tick(0, 0.05);
+    assert(e.smoothOn, 'generated Minimal enables the runtime SMOOTH voice treatment');
+    assert.equal(e.smooth, undefined, 'Engine voices cannot use the sequencer-only flag');
+    let hooks = 0, basses = 0, keys = 0;
+    e.minimalHook = () => hooks++;
+    e.minimalBass = () => basses++;
+    e.bass = e.recordedNote = () => assert.fail('Minimal must not inherit shared bass or recorded hook/chord piano');
+    e.rec = () => ({ notes: [60], rate: 48000 });
+    for (const voice of ['warm', 'chop', 'reed', 'harp']) e.hook(0.1, 0.5, 0, 0.2, voice);
+    assert.equal(hooks, 4, 'every unrecorded hook selection uses the dedicated Minimal renderer');
+    e.acidVoice(0.1, { n: 0 }, false, false, e.stepDur);
+    assert.equal(basses, 1, 'the sequenced bass dispatch bypasses bass()');
+    e.keys = () => keys++;
+    for (const voice of [1, 7]) { s.params.stab.voice = voice; e.stab(0.1, 0.5); }
+    assert.equal(keys, 2, 'felt keys and nominal piano both reach the control-responsive synthesized keys');
+    const clip = ctx.createBuffer(1, SR, SR); clip.getChannelData(0).fill(0.1);
+    setVoice({ buffer: clip, chops: [{ midi: 60, start: 0, end: 0.2 }] }, 'MY VOICE', false);
+    try {
+      let recorded = 0;
+      e.chopNote = () => recorded++;
+      e.hook(0.1, 0.5, 0, 0.2, 'chop');
+      assert.equal(recorded, 1, 'MY VOICE takes precedence over the Minimal synth');
+      assert.equal(hooks, 4, 'a recorded chop never also schedules a synth hook');
+    } finally { clearVoice(); }
+  }
+  const voice = async (kind, edit = {}, frequency = 330) => {
+    const s = freshSong('minimal', 42); s.artist = { style: 'minimal', seed: 42 };
+    Object.assign(s.params.stab, { env: 0.3, tine: 0.15, detune: 0, cutoff: 1800, reso: 0.4, decay: 0.5 }, kind === 'bass' ? {} : edit);
+    if (kind === 'bass') Object.assign(s.params.acid, edit);
+    const ctx = new OfflineAudioContext(1, SR * 2, SR), e = new Engine(ctx, s, { realtime: false });
+    e.smoothChords(-9);
+    if (kind === 'hook') e.minimalHook(0.05, 0.7, frequency, 0.5, e.mix);
+    else if (kind === 'bass') e.minimalBass(0.05, { n: 0, a: true }, 0.15, false);
+    else e.keys(0.05, 0.7, [0, 3, 7], 48, s.params.stab, e.mix);
+    return (await ctx.startRendering(e.mix)).getChannelData(0);
+  };
+  for (const [kind, controls] of [['hook', ['env', 'detune', 'tine']], ['keys', ['env', 'detune', 'tine', 'reso', 'decay']], ['bass', ['drive', 'envmod', 'decay', 'accent', 'edge', 'cutoff']]]) {
+    const normal = await voice(kind);
+    assert(normal.every(Number.isFinite) && hitDb(normal) > -65, `Minimal ${kind} renders finite audible PCM`);
+    for (const control of controls) {
+      const low = await voice(kind, { [control]: control === 'cutoff' ? 200 : control === 'reso' ? 1 : 0 });
+      const high = await voice(kind, { [control]: control === 'cutoff' ? 4000 : ['detune', 'reso'].includes(control) ? 20 : 1 });
+      let delta = 0;
+      for (let i = 0; i < low.length; i++) delta += (low[i] - high[i]) ** 2;
+      assert(delta / low.length > 1e-9, `Minimal ${kind} ${control} reaches the audio, not just generated state`);
+    }
+  }
+  for (const instrument of [1, 7]) for (const frequency of [130, 330, 1047]) {
+    const pcm = await voice('hook', { voice: instrument }, frequency), start = Math.floor(SR * 0.05);
+    const early = rmsDb(pcm, start, start + Math.floor(SR * 0.006));
+    const body = rmsDb(pcm, start + Math.floor(SR * 0.012), start + Math.floor(SR * 0.032));
+    assert(early < body - 6, 'Minimal hook grows into its body rather than striking the master with an onset spike');
+  }
+  {
+    const s = freshSong('minimal', 11), e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
+    const stages = [], comp = e.comp;
+    e.comp = function (...args) { const node = comp.apply(this, args); stages.push(node); return node; };
+    e.minimalHook(0.05, 0.7, 220, 0.2, e.mix);
+    e.minimalHook(0.25, 0.7, 440, 0.2, e.mix);
+    assert.equal(stages.length, 1, 'Minimal hook notes share peak control before their common bus');
+    assert.equal(stages[0].threshold.value, 0);
+    assert.equal(stages[0].ratio.value, 4);
+    assert(stages[0].attack.value <= 0.002, 'hook peak control catches the onset');
+  }
+  const compensated = (voice, f) => {
+    const s = freshSong('minimal', 42); s.params.stab.voice = voice;
+    const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false }), levels = [], adEnv = e.adEnv;
+    e.smoothChords(-9);
+    e.adEnv = function (param, t, peak, ...args) { levels.push(peak); return adEnv.call(this, param, t, peak, ...args); };
+    e.minimalHook(0.05, 0.5, f, 0.2, e.mix);
+    return levels[0];
+  };
+  assert(compensated(1, 880) > compensated(1, 220), 'Minimal synth hook gain compensates the brighter reference register');
+  assert(compensated(7, 220) > compensated(7, 880), 'Minimal felt hook gain follows the recorded reference body without using its samples');
+  assert(compensated(1, 16000) <= 6 && compensated(7, 20) <= 6, 'Minimal hook make-up is bounded');
+  {
+    const s = freshSong('minimal', 42); s.artist = { style: 'minimal', seed: 42 };
+    const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
+    assert(Math.abs(20 * Math.log10(e.out.gain.value / 0.78) - 0.32) < 1e-5, 'Minimal has its own post-limiter loudness trim');
+    const shelves = [], filter = e.filter;
+    e.filter = function (...args) { const node = filter.apply(this, args); if (args[0] === 'lowshelf') shelves.push(node); return node; };
+    e.minimalBass(0.05, { n: 0, a: true }, 0.15, false);
+    assert.equal(shelves.length, 1, 'Minimal bass trims only its clean low-band branch');
+    assert.equal(shelves[0].frequency.value, 60);
+    assert.equal(shelves[0].gain.value, -1, 'the sub correction is a 1dB low shelf, not a wideband gain');
+  }
+  const s = freshSong('minimal', 42), ctx = new OfflineAudioContext(1, 256, SR), e = new Engine(ctx, s, { realtime: false });
+  e.smoothChords(-9);
+  e.keys(0, 0.7, [], 48, s.params.stab, e.mix);
+  e.minimalHook(0, 0, 330, 0.2, e.mix);
+  e.minimalHook(0, 0.7, NaN, 0.2, e.mix);
+  e.minimalBass(0, null, 0.1, false);
+  assert((await ctx.startRendering(e.mix)).getChannelData(0).every(v => v === 0), 'empty voicings and invalid or silent Minimal notes are silent');
+  for (const style of ['minimal', 'phonk', 'trap', 'unknown']) {
+    const s = freshSong('minimal', 42); s.artist = { style, seed: 42 };
+    const e = new Engine(new OfflineAudioContext(1, 256, SR), s, { realtime: false }), filters = [], filter = e.filter;
+    e.filter = function (...args) { filters.push(args); return filter.apply(this, args); };
+    if (style === 'minimal') e.smoothChords(-9);
+    e.hat(0, 0.7, false);
+    assert.equal(filters.some(([type, hz, q]) => type === 'lowpass' && hz === 7000 && q === -3.0103), style === 'minimal', 'only SMOOTH hats band-limit the metallic transient');
+    if (style !== 'minimal') {
+      let shared = 0;
+      e.minimalHook = e.minimalBass = () => assert.fail('non-Minimal and unknown palettes retain their fallback');
+      e.bass = () => shared++;
+      s.params.acid.voice = 1;
+      e.acidVoice(0.05, { n: 0 }, false, false, e.stepDur);
+      e.hook(0.05, 0.5, 0, 0.2, 'warm');
+      assert.equal(shared, 1);
+    }
+  }
+}
+
+{
+  const s = freshSong('minimal', 42); s.artist = { style: 'minimal', seed: 42 };
+  const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false }), calls = [];
+  e.smoothChords(-12);
+  for (const method of ['minimalBass', 'eight08', 'reese', 'ebass', 'pulseBass']) e[method] = () => calls.push(method);
+  for (const [voice, method] of [[1, 'minimalBass'], [2, 'eight08'], [3, 'reese'], [5, 'ebass'], [7, 'pulseBass'], [1, 'minimalBass']]) {
+    s.params.acid.voice = voice;
+    e.acidVoice(0.05, { n: 0 }, false, false, e.stepDur);
+    assert.equal(calls.at(-1), method, `Minimal bass selection ${voice} reaches ${method}`);
+  }
+  assert.equal(calls.length, 6, 'each explicit bass selection schedules only its chosen instrument');
+}
+for (const start of [0, 17]) {
+  const s = freshSong('minimal', 42); s.artist = { style: 'minimal', seed: 42 };
+  s.patterns[1] = freshSong('bossa', 12).patterns[0]; s.current = 1;
+  s.chainOn = true; s.chain = 'A'; s.ending = false;
+  const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
+  const expected = 0.78 * 10 ** (0.32 / 20);
+  assert(Math.abs(e.out.gain.at(0) - expected) > 0.1, 'construction uses the selected Bossa slot before transport chooses Minimal');
+  const q = new Sequencer(e, s); q.startAt(start, 0.05); s.current = q.cur;
+  q.tick(start, 0.05);
+  assert(e.minimal, 'the first playing pattern is Minimal');
+  assert(Math.abs(e.out.gain.at(0.05) - expected) < 1e-6, 'first tick applies the playing style trim, including mid-bar starts');
+}
+for (const seed of [42, 43]) {
+  const s = freshSong('minimal', 42); s.artist = { style: 'hardtechno', seed };
+  s.chainOn = true; s.chain = 'F'; s.ending = false;
+  const before = structuredClone(s), rec = new Recorder(s); rec.replay808Style = 'minimal';
+  const seq = new Sequencer(rec, s);
+  for (let i = 0, t = 0; i < 16; i++) { seq.tick(i, t); t += rec.stepDur; }
+  const drum = seed % 2 ? 'clap' : 'snare';
+  assert(rec.notes[drum]?.length >= 16, 'the project genre schedules audible breakdown rolls during a Minimal replay');
+  assert.deepEqual(capture(s, 1, { playbackStyle: 'minimal' }).notes, rec.notes, 'MIDI keeps project-genre drum dispatch and replay-genre instrumentation');
+  assert.deepEqual(s, before, 'MIDI dispatch does not mutate the listener project');
+  s.mutes[drum] = true;
+  assert.equal(capture(s, 1, { playbackStyle: 'minimal' }).notes[drum], undefined, 'muted breakdown rolls remain absent');
+}
+for (const listener of ['trap', 'dnb', undefined]) {
+  const song = freshSong('minimal', 12); song.artist = { style: 'minimal', seed: 12 };
+  const expected = capture(song).notes, saved = structuredClone(song);
+  saved.artist.style = listener;
+  const before = structuredClone(saved), c = capture(saved, 16, { playbackStyle: 'minimal' });
+  assert.deepEqual(c.notes, expected, 'saved Minimal MIDI uses its playback genre for lifted chords and every voicing');
+  assert.deepEqual(saved, before, 'MIDI genre selection does not rewrite the listener project');
+  assert.equal(c.state.artist.style, 'minimal', 'the isolated export snapshot belongs to the song');
+  assert.deepEqual(capture(saved, 16, { playbackStyle: null }).notes, capture(saved).notes, 'missing replay metadata retains the existing fallback');
+  saved.master.arr = 0; saved.chainOn = false;
+  for (const id of Object.keys(saved.params)) saved.mutes[id] = true;
+  assert.deepEqual(capture(saved, 1, { playbackStyle: 'minimal' }).notes, {}, 'muted saved Minimal MIDI remains empty');
+}
+for (const listener of ['trap', 'dnb', undefined]) {
+  const s = freshSong('minimal', 42); s.artist = { style: listener, seed: 4 };
+  const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false }), calls = [];
+  e.replay808Style = 'minimal'; e.replaySeed = 42;
+  e.applyMaster('drive', 0, true);
+  assert.equal(e.sat.curve.length, 2, 'saved Minimal keeps its own undriven saturator, not the listener genre');
+  const q = new Sequencer(e, s); q.startAt(0, 0.05); q.tick(0, 0.05);
+  assert(e.smoothOn, 'saved Minimal enables SMOOTH with any listener genre or missing artist style');
+  e.recordedNote = e.bass = () => assert.fail('saved Minimal cannot inherit recorded hook/chords or shared bass');
+  for (const method of ['minimalHook', 'minimalBass', 'keys']) e[method] = () => calls.push(method);
+  e.hook(0.1, 0.5, 0, 0.2, 'warm');
+  e.acidVoice(0.1, { n: 0 }, false, false, e.stepDur);
+  s.params.stab.voice = 7; e.stab(0.1, 0.5);
+  assert.deepEqual(calls, ['minimalHook', 'minimalBass', 'keys'], 'saved Minimal retains all three instruments');
+}
+{
+  const s = freshSong('trap', 42); s.artist = { style: 'minimal' };
+  const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
+  e.replay808Style = 'trap'; e.applyMaster('drive', 0, true);
+  assert(e.sat.curve.length > 2, 'a Minimal listener does not replace a saved Trap saturator');
+  const q = new Sequencer(e, s); q.startAt(0, 0.05); q.tick(0, 0.05);
+  assert(!e.smoothOn, 'a Minimal listener does not enable SMOOTH on another genre');
+}
+{
+  const s = freshSong('minimal', 12); s.artist = { style: 'minimal', seed: 12 };
+  assert.equal(s.params.stab.voice, 7, 'seed 12 selects Minimal felt piano');
+  const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false }), rec = new Recorder(s);
+  let played;
+  e.keys = (t, v, iv, root) => { played = iv.map(n => root + n); };
+  for (const db of [-12, 0.5]) {
+    e.smoothChords(db); rec.smoothChords(db); rec.notes = {};
+    e.stab(0.05, 0.7); rec.trigger('stab', 0.05, 0.7);
+    assert.deepEqual(rec.notes.stab.map(n => n.m), played, 'Minimal MIDI follows synthesized felt-key pitches, not recorded-piano octave folding');
+    if (db > 0) assert(played.includes(80), 'the lifted seed-12 felt-key chord retains MIDI 80');
+  }
+}
+{
+  const s = freshSong('minimal', 12); s.artist = { style: 'trap' };
+  const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false }), rec = new Recorder(s), calls = [];
+  e.replay808Style = rec.replay808Style = 'minimal';
+  e.minimalHook = () => calls.push('hook'); e.minimalBass = () => calls.push('bass');
+  let played; e.keys = (t, v, iv, root) => { played = iv.map(n => root + n); };
+  e.hook(0.05, 0.5, 0, 0.2, 'warm'); e.acidVoice(0.05, { n: 0 }, false, false, e.stepDur);
+  e.stab(0.05, 0.7); rec.trigger('stab', 0.05, 0.7);
+  assert.deepEqual(calls, ['hook', 'bass'], 'saved Minimal dispatch does not wait for a SMOOTH sequencer update');
+  assert.deepEqual(rec.notes.stab.map(n => n.m), played, 'saved Minimal piano MIDI matches playback before a SMOOTH update');
+}
+{
+  const s = freshSong('bossa', 42); s.artist = { style: 'minimal' };
+  const e = new Engine(new OfflineAudioContext(1, SR * 3, SR), s, { realtime: false });
+  e.replay808Style = 'bossa'; e.smoothChords(-12);
+  e.minimalHook = e.minimalBass = () => assert.fail('Bossa cannot play a stale Minimal palette');
+  const q = new Sequencer(e, s); q.startAt(0, 0.05);
+  for (let i = 0; i < 16; i++) q.tick(i, 0.05 + i * e.stepDur);
+  assert.equal(e.smoothOn, 0, 'Jazz dispatch clears the previous Minimal mix treatment');
+  assert.equal(q.smooth, false, 'Jazz dispatch clears the previous sequencer SMOOTH state');
+  e.hook(0.1, 0.5, 0, 0.2, 'warm');
+  e.state.params.acid.voice = 1; e.acidVoice(0.1, { n: 0 }, false, false, e.stepDur);
+}
+{
+  const s = freshSong('minimal', 42), bossa = freshSong('bossa', 42);
+  await loadBand('fl');
+  s.artist = { style: 'minimal' }; s.patterns[6] = bossa.patterns[6];
+  s.current = 0; s.chain = 'G'; s.chainOn = true; s.ending = false;
+  const e = new Engine(new OfflineAudioContext(1, SR * 3, SR), s, { realtime: false }), rec = new Recorder(s), calls = [];
+  e.smoothChords(-12);
+  e.minimalHook = e.minimalBass = () => assert.fail('pasted Bossa cannot inherit the project Minimal synths');
+  e.bass = () => calls.push('bass'); e.windHook = () => calls.push('flute');
+  const q = new Sequencer(e, s); q.startAt(0, 0.05);
+  for (let i = 0; i < 16; i++) q.tick(i, 0.05 + i * e.stepDur);
+  assert.equal(s.current, 0, 'the playing Bossa slot is not the selected Minimal slot');
+  assert.equal(e.minimal, false, 'the active pattern overrides the owning project genre');
+  assert.equal(e.smoothOn, 0);
+  e.hook(2, 0.5, 0, 0.2, 'airflute');
+  assert(calls.includes('flute') && calls.includes('bass'), 'pasted Bossa reaches the flute and selected non-Minimal bass');
+  rec.playingPattern = e.playingPattern;
+  assert.equal(rec.minimal, false, 'MIDI uses the same playing-pattern precedence');
+  const own = structuredClone(s); own.artist.style = 'bossa';
+  const native = new Engine(new OfflineAudioContext(1, SR, SR), own, { realtime: false });
+  native.playingPattern = e.playingPattern;
+  native.applyOutputTrim(true); e.applyOutputTrim(true);
+  assert.equal(e.out.gain.value, native.out.gain.value, 'Bossa does not inherit Minimal output calibration');
+  e.playingPattern = rec.playingPattern = s.patterns[0]; s.current = 6;
+  assert(e.minimal && rec.minimal, 'a playing Minimal pattern does not inherit the selected Bossa slot');
+  e.playingPattern = rec.playingPattern = { jazz: { style: 'unknown' } };
+  assert(e.minimal && rec.minimal, 'unknown pattern metadata retains the song-style fallback');
+}
+{
+  const s = freshSong('minimal', 42); s.artist = { style: 'minimal' }; s.key = 0;
+  s.params.acid.voice = 2; s.params.acid.tune = 0;
+  const e = new Engine(new OfflineAudioContext(1, SR * 2, SR), s, { realtime: false }), rec = new Recorder(s);
+  const pitches = [], bassMidi = e.bassMidi.bind(e);
+  e.bassMidi = (...a) => { const m = bassMidi(...a); pitches.push(m); return m; };
+  assert.deepEqual(rec.notes, {}, 'an empty 808 MIDI recorder has no notes');
+  for (const n of [2, 3, 4, 5, 6, 7, 8]) {
+    const t = n * 0.05, st = { n };
+    e.eight08(t, st, 0.1, false, false); rec.acid(t, st, false, false, 0.1);
+  }
+  assert.deepEqual(rec.notes.acid.map(n => n.m), pitches, 'Minimal 808 MIDI matches playback across both register boundaries');
+  assert.deepEqual(pitches.slice(1, 6), [27, 28, 29, 30, 31], '808 folds MIDI39–43 down one octave');
+  s.params.acid.voice = 1; rec.acid(1, { n: 4 }, false, false, 0.1);
+  assert.equal(rec.notes.acid.at(-1).m, 40, 'default Minimal bass retains its wider body register');
+}
+for (const [from, to, method] of [[2, 1, 'minimalBass'], [1, 2, 'eight08']]) {
+  const s = freshSong('minimal', 42); s.artist = { style: 'minimal' }; s.params.acid.decay = 1;
+  const ctx = new OfflineAudioContext(1, SR * 0.3, SR), e = new Engine(ctx, s, { realtime: false });
+  s.params.acid.voice = from; e.acidVoice(0.02, { n: 0 }, false, true, 0.1);
+  const nodes = from === 2 ? [e.mono.amp] : [...e.minimalMono.amps, e.minimalMono.touch], events = [];
+  for (const node of nodes) {
+    const p = node.gain, cancel = p.cancelScheduledValues.bind(p), target = p.setTargetAtTime.bind(p), calls = [];
+    p.cancelScheduledValues = (...a) => { calls.push(['cancel', ...a]); return cancel(...a); };
+    p.setTargetAtTime = (...a) => { calls.push(['target', ...a]); return target(...a); };
+    events.push(calls);
+  }
+  e[method] = () => {}; s.params.acid.voice = to;
+  e.acidVoice(0.03, { n: 0 }, false, true, 0.1);
+  for (const calls of events) {
+    assert.deepEqual(calls[0], ['cancel', 0.03], 'a bass switch cancels the outgoing future envelope before it can reopen');
+    assert.deepEqual(calls[1].slice(0, 3), ['target', 0, 0.03], 'a bass switch chokes every outgoing body, hit and click');
+  }
+  const pcm = (await ctx.startRendering(e.ch.acid.input)).getChannelData(0);
+  assert(rmsDb(pcm, Math.floor(SR * 0.02), Math.floor(SR * 0.03)) > -60, 'the outgoing voice really sounded');
+  assert(hitDb(pcm.slice(Math.floor(SR * 0.13), Math.floor(SR * 0.25))) < -80, `${from} to ${to} leaves no ringing voice under the next note`);
+}
 console.log('sound ok');

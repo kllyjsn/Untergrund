@@ -23,6 +23,8 @@ The gate records both as known breaches. They may not get louder, and once one i
 
 **Update: a nightly wide sweep.** To find the next out-of-sweep seed before Music does, a nightly job now renders 8 fresh seeds of every genre (272 songs), with new seeds each night. Its first trial run, 2 fresh seeds per genre (68 songs), found 3 songs over the ceiling: MINIMAL seeds 41654 and 41655 (both −0.94 dBTP at bar 107) and POP seed 41655 (−0.99 dBTP at bar 99). All three peak in an A section, which no breach before them did. They are now known breaches, so the per-PR gate renders them on every change. That is 3 of 68 fresh songs over the ceiling, against none of the 136 seeds the per-PR gate already sweeps, so the fixed sweep had been understating how often songs breach.
 
+**Update: the first full nightly.** Before it ran, the −12 LUFS mastering change in [#332](https://github.com/kllyjsn/Untergrund/pull/332) brought all three of those songs under the ceiling: MINIMAL 41654 and 41655 to −1.14 and −1.15 dBTP, POP 41655 to −1.36 dBTP. They are now regression seeds. The first full nightly then rendered 336 fresh songs across 42 genres and found one breach, R&B seed 166331 at −0.998 dBTP, peaking at bar 40 in a G section. R&B also had 4 of the next 5 hottest songs, all within 0.1 dB of the ceiling, so its headroom is the thinnest of any genre. Seed 166331 is now a known breach.
+
 {{chart sweep}}
 
 ## Most songs live just under the ceiling

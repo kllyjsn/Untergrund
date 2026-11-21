@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 // False conditional breakpoints observe module locals without changing app sources or pausing.
-export async function installDiagnostics(send, base, {vocalSlew = false, vocalRestart = false, wholeStep = false, dropStep = false, forceRepeat = false} = {}) {
+export async function installDiagnostics(send, base, {vocalSlew = false, vocalRestart = false, wholeStep = false, dropStep = false, forceRepeat = false, listenerAudit = false} = {}) {
   await send('Debugger.enable');
   const at = async (file, marker, body, required = true) => {
     const source = await readFile(new URL(`../js/${file}`, import.meta.url), 'utf8');
@@ -18,6 +18,15 @@ export async function installDiagnostics(send, base, {vocalSlew = false, vocalRe
         } return false; })()` });
   };
   const optional = name => `${name}:typeof ${name} === 'undefined' ? undefined : ${name}`;
+  if (listenerAudit) {
+    const mark = (kind, fields = '') => `(__clubAudio.transitions ||= []).push({kind:'${kind}',
+      at:performance.timeOrigin + performance.now(), contextTime:ctx?.currentTime${fields}})`;
+    await at('main.js', "if (!continuous || !sameSet) playbackStats.end", mark('join', ', continuous, sameSet, startsAt, broadcastId:item.broadcastId'));
+    await at('main.js', "function stop(playbackOutcome", mark('stop', ', playing, roomPlayback'));
+    await at('main.js', 'if (!seeking) engine.recLock', mark('play', ', nextTime, step:abs, transportOrigin'));
+    await at('main.js', 'if (fix.adopted) {', mark('grid', ', nextTime, step:abs, skip:fix.skip'), false);
+    return;
+  }
   const clock = `const selected = typeof best === 'undefined' ? null : best;
     const a = __clubAudio.roomClocks ||= []; if (!a.length || a.at(-1).best?.at !== selected?.at)
     a.push({at:performance.timeOrigin + performance.now(), best:selected ? {...selected} : null,

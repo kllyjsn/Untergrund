@@ -2273,7 +2273,7 @@ function buildHeader() {
       h('details', { class: 'menu' }, h('summary', { class: 'btn ghost', title: 'Export audio, save or open a project file' }, 'FILE'),
         h('div', { class: 'menu-pop' },
           h('div', { class: 'menu-row' }, bars, exportBtn),
-          ...exportButtons({ getState: () => state, getBars: () => +bars.value, download, toast, track: trackEvent, reportError }),
+          ...exportButtons({ getState: () => state, getBars: () => +bars.value, getPlaybackStyle: () => engine?.playbackStyle, download, toast, track: trackEvent, reportError }),
           h('button', { class: 'btn ghost', title: 'Save project file (.json) to reopen later', onclick: () => download(new Blob([JSON.stringify(state)], { type: 'application/json' }), `untergrund-${stamp()}.json`) }, 'SAVE PROJECT'),
           h('button', { class: 'btn ghost', title: 'Open a saved project file', onclick: () => fileIn.click() }, 'OPEN PROJECT'), fileIn,
           h('button', { class: 'btn ghost', title: 'Share a link, a 9:16 video or an embed code', onclick: () => showShare() }, 'SHARE LINK & VIDEO'),
