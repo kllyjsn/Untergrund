@@ -288,7 +288,7 @@ for (const listener of ['dnb', 'euphoric', 'deephouse']) {
   const before = waves.length;
   e.paletteWave(220, paletteFor(s).hook);
   assert.equal(waves.length, before + 1, 'hook and chord harmonic ceilings have separate caches');
-  assert(waves.at(-1).length <= 8, 'the hook keeps its approved harmonic ceiling');
+  assert(waves.at(-1).some((x, i) => x !== 0 && i * 220 > 2000), 'the liquid hook retains upper body harmonics rather than only attack noise');
   const upperSources = [], startUpper = e.startSource;
   e.startSource = function (o, ...args) { upperSources.push(o.frequency.value); return startUpper.call(this, o, ...args); };
   e.keys = () => assert.fail('the liquid upper renderer never enters shared keys');
@@ -307,6 +307,32 @@ for (const listener of ['dnb', 'euphoric', 'deephouse']) {
   assert.equal(upper, 1, 'the liquid chord bed has its own upper layer');
   e.hook(0.2, 0.4, 0, 0.5, 'analog');
   assert.equal(upper, 1, 'the upper layer does not leak into the hook');
+  const airGains = [], airFilter = e.filter, airGain = e.gain;
+  let captureAir = false;
+  e.filter = function (...args) {
+    const node = airFilter.apply(this, args);
+    if (args[0] === 'lowpass' && args[1] === 6000) {
+      assert.equal(args[2], 20 * Math.log10(Math.SQRT1_2), 'the broad upper band is non-resonant');
+      captureAir = true;
+    }
+    return node;
+  };
+  e.gain = function (...args) {
+    const node = airGain.apply(this, args);
+    if (captureAir) { airGains.push(node.gain); captureAir = false; }
+    return node;
+  };
+  for (const cutoff of [600, 1800, 10000]) e.paletteChord(0.3, 0.4, [0, 3, 7], 60, { ...s.params.stab, cutoff }, out, { ...chord, cutoff: 3200 });
+  assert.equal(airGains[0].value, chord.airBand, 'dark chords get bounded broad-band fill');
+  assert(airGains[1].value > airGains[2].value, 'brighter filter settings reduce compensation without seed lookups');
+  assert.equal(airGains[2].value, 0, 'already bright chords need no lift');
+  const airCount = airGains.length;
+  e.paletteChord(0.3, 0.4, [], 60, s.params.stab, out, chord);
+  e.paletteChord(0.3, 0.4, [0, 3, 7], 60, s.params.stab, out, { ...chord, airBand: undefined });
+  assert.equal(airGains.length, airCount, 'empty chords and unconfigured palettes never receive the upper band');
+  e.hook(0.3, 0.4, 0, 0.5, 'analog');
+  assert.equal(airGains.length, airCount + 1, 'the liquid hook has its own enveloped upper body');
+  e.filter = airFilter; e.gain = airGain;
   assert.equal(e.paletteUpperOut(out), e.paletteUpperOut(out), 'chords reuse their stereo upper-layer path');
   const widthDest = e.gain(1);
   assert.equal(e.paletteWidthOut(widthDest), widthDest, 'unconfigured palettes retain their existing width route');
