@@ -38,7 +38,7 @@ async function render(withEdit, route = true, action = '', actionAt = .9, mute =
   const env = {
     ...sync, ...media, seq, engine, ctx, state, applyPart, roomMediaSync, mediaRoute,
     document: {hidden: false, body: {classList: {add: noop}}, querySelectorAll: () => []}, Date: {now: () => 1000000 + 1000 * (ctx.currentTime + (ctx.currentTime >= .8 ? wallStep : 0))},
-    playing: true, roomPlayback: true, songOver: false, queuedRoomReplay: null, roomEditor: false, roomFirstNote: null, clockOffset: 1000,
+    playing: true, roomPlayback: true, songOver: false, queuedRoomSwitch: null, roomEditor: false, roomFirstNote: null, clockOffset: 1000,
     roomAudioClock: null, roomDrainUntil: null, vocalGridDirty: false,
     abs: 0, nextTime: .06, transportOrigin: 1000100, uiQueue: [], handoff: null,
     timeline: {skip: () => 0}, artistTick: noop, midiClockStep: noop, BG_LEAD: 1.5, ROOM_LEAD: .42,

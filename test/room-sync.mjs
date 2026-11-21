@@ -9,6 +9,7 @@ import { createRoomMediaSync, roomMediaLead, roomMediaTime } from '../js/room-me
 import { createClockSender } from '../js/midi-core.js';
 import { Sequencer } from '../js/engine.js';
 import { Recorder } from '../js/midi.js';
+import { PART_IDS, jammable, stepWall } from '../js/jam.js';
 
 const origin = 1_000_000;
 const close = (a, b) => assert(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
@@ -570,7 +571,7 @@ for (const [action, currentTime, playing, expected] of [
     document:{hidden:false}, ctx:{currentTime:10}, Date:{now:() => sandbox.ctx.currentTime * 1000},
     state:{bpm:120, part:'old'}, clockOffset:0, transportOrigin:2250, abs:68, nextTime:11.5,
     syncAudioClock, transportResync, slewTransport, roomTransportCorrection, roomDrainUntil:null, vocalCorrectionWindow:0,
-    queuedRoomReplay:null, handoff:null, jamQueue:[], vocalGridDirty:false, roomAudioClock:{at:10, contextTime:10, pending:null},
+    queuedRoomSwitch:null, handoff:null, jamQueue:[], vocalGridDirty:false, roomAudioClock:{at:10, contextTime:10, pending:null},
     performance:{now:() => sandbox.ctx.currentTime * 1000},
     engine:{stepDur:0.125, applyAll(){}, scheduleJamParams(){}, discardQueuedNotes:t => cancelled.push(t), vocal(){}},
     seq:{origin:0, chainPos:5, songBars:8, advanceBar(){}, rewind:step => rewinds.push(step),
@@ -635,7 +636,7 @@ for (const [action, currentTime, playing, expected] of [
   const replayNotes = [], switches = [];
   const replay = {...music, ROOM_LEAD:0.42, abs:68, nextTime:10.25, transportOrigin:1500, roomDrainUntil:null,
     ctx:{currentTime:10}, Date:{now:() => replay.ctx.currentTime * 1000}, jamQueue:[], uiQueue:[],
-    queuedRoomReplay:{startsAt:10375}, switchRoomReplay:at => switches.push(at),
+    queuedRoomSwitch:{startsAt:10375}, switchRoomSet:at => switches.push(at),
     seq:{...music.seq, tick:(step, time) => {replayNotes.push({step, time}); return {};}}};
   const replaySchedule = runInNewContext(`${schedulerSource}\nschedule(); schedule`, replay);
   assert.deepEqual(switches, [], 'a replay entering lookahead cannot bypass unscheduled outgoing steps while the frontier drains');
@@ -669,7 +670,7 @@ console.log('Room frontier PASS: large corrections drain then adopt, future-at-a
       document:{hidden:false}, ctx:{currentTime:now}, Date:{now:() => now * 1000},
       state, engine, seq, abs:step, nextTime, transportOrigin:gridOrigin, clockOffset,
       syncAudioClock, transportResync, slewTransport, roomTransportCorrection, roomDrainUntil:null, vocalCorrectionWindow:0,
-      queuedRoomReplay:null, handoff:null, vocalGridDirty:false, uiQueue:[], roomAudioClock:{at:now, contextTime:now, pending:null}, performance:{now:() => now * 1000},
+      queuedRoomSwitch:null, handoff:null, vocalGridDirty:false, uiQueue:[], roomAudioClock:{at:now, contextTime:now, pending:null}, performance:{now:() => now * 1000},
       jamQueue:[{part:'kick', layer:{id:'new'}, wall}], jamRedraw:0,
       timeline:{skip:() => 0}, artistTick(){}, midiClockStep(){}, midiClockStart(){},
       applyPart:(s, part, layer) => { s.part = layer.id; }, setTimeout(){}, cancelAnimationFrame(){}, requestAnimationFrame:() => 0};
@@ -715,7 +716,7 @@ console.log('Room frontier PASS: large corrections drain then adopt, future-at-a
 console.log('Room skipped boundaries PASS: sub-step Jam downbeat retained; skipped Jam, breakdown and mix automation land at grid time; late Jam catches the first playable step.');
 {
   const reanchorSource = main.slice(main.indexOf('function reanchorRoomSet('), main.indexOf('\nfunction stopRoomStats'));
-  const sandbox = {playing:true, roomPlayback:true, state:{bpm:newBpm}, seq:{origin:64}, transportOrigin:rebasedOrigin, vocalGridDirty:false, queuedRoomReplay:null};
+  const sandbox = {playing:true, roomPlayback:true, state:{bpm:newBpm}, seq:{origin:64}, transportOrigin:rebasedOrigin, vocalGridDirty:false, queuedRoomSwitch:null};
   const reanchor = runInNewContext(`${reanchorSource}\nreanchorRoomSet`, sandbox);
   reanchor(oldOrigin + 5, oldOrigin);
   close(sandbox.transportOrigin, rebasedOrigin + 5);
@@ -725,18 +726,18 @@ console.log('Room skipped boundaries PASS: sub-step Jam downbeat retained; skipp
   reanchor(oldOrigin + 8, oldOrigin + 8);
   close(sandbox.transportOrigin, rebasedOrigin + 8);
   sandbox.vocalGridDirty = false;
-  sandbox.queuedRoomReplay = {startsAt:oldOrigin + 20000};
+  sandbox.queuedRoomSwitch = {startsAt:oldOrigin + 20000};
   reanchor(oldOrigin + 20120, oldOrigin + 20000);
   close(sandbox.transportOrigin, rebasedOrigin + 8, 'queued replay calibration leaves outgoing origin alone');
   assert.equal(sandbox.vocalGridDirty, false);
-  assert.equal(sandbox.queuedRoomReplay.startsAt, oldOrigin + 20120);
+  assert.equal(sandbox.queuedRoomSwitch.startsAt, oldOrigin + 20120);
   reanchor(NaN, oldOrigin + 20120);
-  assert.equal(sandbox.queuedRoomReplay.startsAt, oldOrigin + 20120, 'invalid origins cannot move the queue');
-  const replaySource = main.slice(main.indexOf('function switchRoomReplay('), main.indexOf('\nfunction startRoomReplay('));
+  assert.equal(sandbox.queuedRoomSwitch.startsAt, oldOrigin + 20120, 'invalid origins cannot move the queue');
+  const replaySource = main.slice(main.indexOf('function switchRoomSet('), main.indexOf('\nfunction startRoomReplay('));
   const switches = [];
   sandbox.ctx = {currentTime:1};
   sandbox.startRoomReplay = (replay, at) => switches.push({startsAt:replay.startsAt, at});
-  runInNewContext(`${replaySource}\nswitchRoomReplay(${(origin + 20120) / 1000})`, sandbox);
+  runInNewContext(`${replaySource}\nswitchRoomSet(${(origin + 20120) / 1000})`, sandbox);
   assert.equal(switches[0].startsAt, oldOrigin + 20120);
   assert.equal(switches[0].at, (oldOrigin + 20120) / 1000, 'the switch uses the corrected queued timestamp');
   sandbox.playing = false;
@@ -775,6 +776,71 @@ function roomJoin(change = () => {}, options = {}) {
   const {calls, starts} = roomJoin((_, s) => { s.playing = false; }, {Date:{now:() => origin - 300}});
   assert.deepEqual(calls, ['replace', 'play'], 'a join already inside the lookahead starts without waiting');
   assert.deepEqual(starts, [origin]);
+}
+{
+  const startsAt = origin + 12000;
+  const {calls, sandbox} = roomJoin((item, s) => {
+    item.broadcastId = 'spin';
+    item.state.artist.seed = 11;
+    item.startsAt = startsAt;
+    s.engine.prepareVocal = () => {};
+  }, { prepareSample() {}, liveSets: () => [], loadSets: async () => {}, queuedRoomSwitch: null });
+  assert.deepEqual(calls, [], 'a future room song leaves the outgoing transport running');
+  assert.equal(sandbox.state.artist.seed, 7);
+  assert.equal(sandbox.queuedRoomSwitch.roomState.artist.seed, 11);
+  assert.equal(sandbox.queuedRoomSwitch.startsAt, startsAt);
+  const scheduled = [];
+  Object.assign(sandbox, {
+    stopTimeline() {},
+    installRoomSong(next, at) { sandbox.state = next; scheduled.push(at); },
+    play(opts) { scheduled.push(opts); },
+  });
+  const switchSource = main.slice(main.indexOf('function switchRoomSet('), main.indexOf('\nfunction startRoomReplay('));
+  runInNewContext(`${switchSource}\nswitchRoomSet(12)`, sandbox);
+  assert.equal(scheduled[0], 12, 'incoming parameters land on the audio boundary');
+  assert.equal(scheduled[1].switchAt, 12, 'incoming downbeat uses the same audio boundary');
+  assert.equal(scheduled[1].startsAt, startsAt, 'incoming grid uses the published origin');
+  assert.equal(sandbox.state.artist.seed, 11);
+}
+{
+  const startsAt = origin + 12000;
+  const {item, sandbox} = roomJoin((set, s) => {
+    Object.assign(set, {broadcastId:'jam-spin', startsAt, version:2});
+    set.state.artist.seed = 11;
+    Object.assign(s.engine, {prepareVocal(){}, discardQueuedNotes(){}, handoffIn(){}});
+  }, {prepareSample(){}, liveSets:() => [], loadSets:async () => {}, queuedRoomSwitch:null,
+    trackingReplay:false, listens:{end(){}}, listenPos(){}, autoMajor:false, refreshJamPrime(){}});
+  const source = await readFile(new URL('../js/club.js', import.meta.url), 'utf8');
+  const body = source.slice(source.indexOf('export class RoomBus'), source.indexOf('\nlet parkedBus')).replace('export class', 'class');
+  const RoomBus = runInNewContext(`${body}\nRoomBus`, {PART_IDS, jammable, stepWall});
+  const queue = main.slice(main.indexOf('function queueJamPart('), main.indexOf('\n// t: the audio time'));
+  const install = main.slice(main.indexOf('function installRoomSong('), main.indexOf('\n// Saved Club sets'));
+  const switchSource = main.slice(main.indexOf('function switchRoomSet('), main.indexOf('\nfunction startRoomReplay('));
+  const {queueJamPart, landJamParts, switchRoomSet, reanchorRoomSet} = runInNewContext(
+    `${queue}\n${install}\n${switchSource}\n${joinSource}\n({queueJamPart, landJamParts, switchRoomSet, reanchorRoomSet})`, sandbox);
+  const slot = {owner:'other', layer:{params:{kick:{level:.8}}}, step:0, rev:1};
+  const bus = Object.assign(Object.create(RoomBus.prototype), {clientId:'listener', serverConnected:true,
+    currentSet:item, jamFollow:item.broadcastId, jamApplied:{}, jamSent:{},
+    jam:{setVersion:item.version, parts:{drums:slot}}, jamHooks:{queuePart:queueJamPart}});
+  bus.syncJam();
+  slot.rev++;
+  slot.layer = {params:{kick:{level:.3}}};
+  bus.syncJam();
+  const outgoingEdits = sandbox.jamQueue.length, landed = [];
+  const adjustedStart = startsAt + 80;
+  reanchorRoomSet(adjustedStart, startsAt);
+  sandbox.landJamPart = (part, layer, at) => landed.push([sandbox.state.artist.seed, part, layer.params.kick.level, at]);
+  sandbox.play = () => {
+    landJamParts(adjustedStart - 1, 12);
+    assert.deepEqual(landed, [], 'the reanchored edit does not land early');
+    landJamParts(adjustedStart, 12.08);
+  };
+  switchRoomSet(12.08);
+  bus.syncJam();
+  assert.deepEqual(landed, [[11, 'drums', .3, 12.08]], 'accepted revisions survive the switch and land with the incoming song');
+  assert.equal(outgoingEdits, 0, 'incoming edits never enter the outgoing queue');
+  assert.equal(bus.jamApplied.drums, 2);
+  assert.equal(sandbox.jamQueue.length, 0, 'the acknowledged revision is not replayed');
 }
 {
   const {calls, sandbox, item, analytics} = roomJoin((item, s) => {
@@ -859,7 +925,7 @@ console.log('Room continuity PASS: role-only rebroadcast retains vocal/scheduler
 console.log('Room media joins PASS: duplicate ignored; DJ handoff and UPDATE ROOM still apply.');
 for (const mediaRoute of [null, {}]) {
   let delay;
-  roomJoin(i => { i.startsAt += 9000; }, {
+  roomJoin((i, s) => { i.startsAt += 9000; s.playing = false; }, {
     mediaRoute, roomMediaSync: createRoomMediaSync(), roomMediaLead,
     setTimeout: (fn, wait) => { delay = wait; },
   });
