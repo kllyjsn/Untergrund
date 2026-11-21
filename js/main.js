@@ -51,7 +51,7 @@ import { drawArtwork, artSeed } from './artwork.js';
 import { applyPart } from './jam.js';
 
 let state = (() => { const s = load(); return s?.fresh === 1 ? refreshSong(s) : s || defaultState(); })();
-let ctx = null, engine = null, seq = null, timer = null, setRec = null;
+let ctx = null, engine = null, seq = null, timer = null, setRec = null, roomOutput = null;
 const heldPads = new Map(), keyPads = new Set();
 // A held pad releases wherever the finger lifts, even if the pad was re-rendered mid-hold
 addEventListener('pointerup', (e) => { if (e.pointerType !== 'mouse' || !e.buttons) for (const k of [...heldPads.keys()]) if (!keyPads.has(k)) ui.perf?.[k]?.up(); });
@@ -151,14 +151,10 @@ function ensureAudio() {
   try {
     ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: matchMedia('(pointer: coarse)').matches ? 'playback' : 'balanced' });
   } catch (err) { reportError(err, { kind: 'audio_context' }); throw err; }
-  engine = new Engine(ctx, state, { vocal: vocalStem, trackQueuedNotes: true });
+  roomOutput = ctx.createGain();
   if (isIOS() && ctx.createMediaStreamDestination) {
     mediaRoute = ctx.createMediaStreamDestination();
-    try { engine.out.disconnect(ctx.destination); } catch {
-      engine.out.disconnect();
-      if (engine.analyser) engine.out.connect(engine.analyser);
-    }
-    engine.out.connect(mediaRoute);
+    roomOutput.connect(mediaRoute);
     mediaUnlock = document.createElement('audio');
     mediaUnlock.setAttribute('playsinline', '');
     mediaUnlock.setAttribute('x-webkit-airplay', 'deny');
@@ -171,13 +167,14 @@ function ensureAudio() {
     mediaUnlock.addEventListener('timeupdate', () => { if (playing && document.hidden) schedule(BG_LEAD); });
     document.body.append(mediaUnlock);
     unlockMediaChannel();
-  }
+  } else roomOutput.connect(ctx.destination);
+  engine = new Engine(ctx, state, { vocal: vocalStem, trackQueuedNotes: true, destination:roomOutput });
   ctx.addEventListener?.('statechange', onAudioState);
   seq = new Sequencer(engine, state);
   const src = "let id=null;onmessage=e=>{if(e.data==='start'&&!id)id=setInterval(()=>postMessage(0),15);if(e.data==='stop'){clearInterval(id);id=null;}}";
   timer = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
   timer.onmessage = schedule;
-  setRec = createSetRecorder(ctx, engine.out);
+  setRec = createSetRecorder(ctx, roomOutput);
 }
 
 // lead: how far ahead to queue audio (seconds); the worker tick passes its message event.
@@ -290,7 +287,8 @@ function schedule(lead) {
       landJamParts((gridTime + clockOffset) * 1000 + base * 500, t);
     }
     artistTick(abs - seq.origin);
-    const pat = seq.tick(abs, t, roomPlayback ? nextTime : undefined, roomEditor, roomPlayback);
+    const crackleUntil = queuedRoomSwitch?.track ? switchAt - 0.15 : Infinity;
+    const pat = seq.tick(abs, t, roomPlayback ? nextTime : undefined, roomEditor, roomPlayback, crackleUntil);
     const voice = engine.vocalNow, pos = seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1;
     const vocalStep = engine.vocalStepDur;
     const phase = voice ? (pos * 16 + (abs - seq.origin) % 16) * vocalStep - voice.ms / 1000 : 0;
@@ -1049,7 +1047,7 @@ function showJukebox() {
   });
 }
 
-function installRoomSong(next, at, replay808Style, replaySeed) {
+function installRoomSong(next, at, replay808Style, replaySeed, mixSpin = false) {
   playbackStats.end('skip');
   trackingReplay = false;
   listens.end(listenPos());
@@ -1059,6 +1057,11 @@ function installRoomSong(next, at, replay808Style, replaySeed) {
   engine.discardQueuedNotes(at);
   autoMajor = false;
   state = next;
+  if (mixSpin && at > ctx.currentTime) {
+    engine.fadeRoomTail(at);
+    engine = new Engine(ctx, state, { vocal:vocalStem, trackQueuedNotes:true, destination:roomOutput });
+    seq = new Sequencer(engine, state);
+  }
   engine.state = seq.s = state;
   engine.replay808Style = replay808Style;
   engine.replaySeed = replaySeed;
@@ -1123,7 +1126,7 @@ function switchRoomSet(at) {
   stopTimeline();
   style = nextStyle;
   songOrigin = { src:'room' };
-  installRoomSong(roomState, t, undefined, undefined);
+  installRoomSong(roomState, t, undefined, undefined, true);
   jamQueue = next.jamEdits;
   roomStatsItem = item;
   if (editRoom && track.trackId)
