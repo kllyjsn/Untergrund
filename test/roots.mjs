@@ -7,6 +7,7 @@ import { rootsTags, rootsFor, cleanRoots, uprightNotes, fiddlePitch, fiddleRole,
 import { Engine, Sequencer } from '../js/engine.js';
 import { Recorder, songMidi } from '../js/midi.js';
 import { stemList } from '../js/stems.js';
+import { setVoice, clearVoice } from '../js/voice.js';
 import { liveSets, withTakes, loadSets, assertRootsReady, bandKit, STAB_BAND } from '../js/livekit.js';
 
 const failure = execFileSync(process.execPath, [new URL('./roots-failure.mjs', import.meta.url).pathname], { encoding: 'utf8' });
@@ -44,7 +45,7 @@ assert.equal(rootsFor(s).style, 'country', 'saved playing style overrides listen
 s.patterns[0].jazz = { style: 'bossa' };
 assert.equal(rootsFor(s), null, 'an active jazz pattern overrides a stale roots tag');
 delete s.patterns[0].jazz;
-const names = withTakes([...liveSets(s), 'upright']);
+const names = withTakes([...liveSets(s), 'upright', 'gtr']);
 assert.throws(() => assertRootsReady(names), /Required recorded S9 samples unavailable/);
 await loadSets(names);
 assertRootsReady(names);
@@ -67,6 +68,31 @@ e.hook(.6, .7, 0, .15, 'warm');
 const first = buffers.at(-1);
 e.hook(.6, .7, 0, .15, 'warm');
 assert.notEqual(buffers.at(-1), first, 'spiccato alternates the real recorded takes');
+{
+  const roots = e.playingPattern.roots, chopNote = e.chopNote;
+  const voice = { buffer: e.ctx.createBuffer(1, 4800, 48000), chops: [{ midi: 60, start: 0, end: .1 }] };
+  let chops = 0;
+  e.chopNote = (take) => { assert.equal(take, voice); chops++; };
+  try {
+    for (const hook of ['fiddle', 'twang']) {
+      e.playingPattern.roots = { style: 'country', hook, answer: 'fiddle' };
+      clearVoice();
+      let before = buffers.length;
+      e.hook(.8, .7, 0, .5, 'chop');
+      assert.ok(buffers.length > before, `${hook} remains the fallback without a recording`);
+      setVoice(voice, 'MY VOICE', false);
+      before = buffers.length;
+      e.hook(.9, .7, 0, .5, 'chop');
+      assert.equal(buffers.length, before, `MY VOICE bypasses the saved ${hook} role`);
+      const midi = new Recorder(s); midi.playingPattern = e.playingPattern;
+      midi.hook(.9, .7, 0, .5, 'chop');
+      assert.equal(midi.notes.fiddle, undefined);
+      assert.equal(midi.notes.hook.length, 1);
+      assert.equal(midi.hookVoice, 'chop', 'MIDI keeps the selected recording role');
+    }
+    assert.equal(chops, 2);
+  } finally { clearVoice(); e.chopNote = chopNote; e.playingPattern.roots = roots; }
+}
 e.playingPattern.roots = { style: 'boombap', chord: 'upright' };
 s.params.stab.voice = 7;
 for (const [v, name] of [[.2, 'uprightsoft'], [.65, 'upright'], [1.1, 'uprighthard']]) {

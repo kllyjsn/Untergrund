@@ -3736,7 +3736,7 @@ export class Engine {
     v *= 1.3;
     n = hookSnap(n, h, p, strong, up);
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
-    const roots = rootsFor(this.state, this.playingPattern);
+    const roots = voice === 'chop' && getChops() ? null : rootsFor(this.state, this.playingPattern);
     if (fiddleRole(roots, expression)) {
       const kind = dur < .3 || expression.role === 'fiddle-answer' ? 'fiddlestac' : 'fiddle', set = this.rec(kind);
       if (set) return this.recordedNote(set, t, Math.min(1.3, v) * BAND_PLAY[kind].gain * .6, fiddlePitch(60 + k + oct * 12 + n), fiddleDuration(dur), this.bodyFor(this.hookBus || this.ch.stab.input, [850, .8, 4]), 0, kind, v / 1.3);

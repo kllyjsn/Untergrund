@@ -7,6 +7,7 @@ import { PIECE } from './repertoire.js';
 import { jazzStyle } from './jazz.js';
 import { SAX_HOOK, saxRoot } from './livekit.js';
 import { rootsFor, fiddleRole, fiddlePitch, fiddleDuration, rootsPitch, uprightNotes } from './roots.js';
+import { getChops } from './voice.js';
 
 export const PPQ = 480;
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
@@ -102,7 +103,7 @@ export class Recorder {
     }
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
     let pitch = 60 + k + oct * 12 + n;
-    const roots = rootsFor(this.state, this.playingPattern);
+    const roots = voice === 'chop' && getChops() ? null : rootsFor(this.state, this.playingPattern);
     if (fiddleRole(roots, expression)) return this.add('fiddle', t, fiddlePitch(pitch), fiddleDuration(dur), v);
     if (roots?.hook === 'twang') {
       this.hookVoice = 'twang';
