@@ -3163,7 +3163,7 @@ export class Engine {
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
     if (this.playbackStyle === 'bailefunk') return this.funkStab(t, v * 0.7, [n], 60 + k + oct * 12, dur, this.hookBus || this.ch.stab.input);
     const palette = paletteFor(this.state, this.playbackStyle);
-    if (palette) return this.paletteHook(t, v, midiHz(60 + k + oct * 12 + n), dur, palette.hook, this.hookBus || this.ch.stab.input);
+    if (palette && (voice !== 'chop' || !getChops())) return this.paletteHook(t, v, midiHz(60 + k + oct * 12 + n), dur, palette.hook, this.hookBus || this.ch.stab.input);
     if (this.state.artist?.style === 'dub') return this.dubChord(t, v * 0.38, [0], 60 + k + oct * 12 + n, { ...p, decay: Math.min(0.3, dur) }, this.hookBus || this.ch.stab.input);
     if (dampedChord(this) && (voice === 'vocal' || voice === 'reed')) {
       const name = Math.round(p.voice) === 1 ? 'keys' : 'organ';

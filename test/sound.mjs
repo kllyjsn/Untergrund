@@ -12,6 +12,7 @@ const { spectralBands, kWeight, lufs } = await import('../js/lab-metrics.js');
 const { lowEnd } = await import('../js/lowend.js');
 const { getSample } = await import('../js/sampler.js');
 const { createTimelineRecorder, stateAt } = await import('../js/set-timeline.js');
+const { setVoice, clearVoice } = await import('../js/voice.js');
 await import('./sampler.mjs');
 
 // 48 kHz like a real device: at 32 kHz bright resonant filters sit near Nyquist, where the shim blows up.
@@ -55,6 +56,28 @@ function hitDb(d) {
   return 10 * Math.log10(top.reduce((a, b) => a + b, 0) / top.length + 1e-20);
 }
 const rmsDb = (d, a, b) => { let e = 0; for (let i = a; i < b; i++) e += d[i] * d[i]; return 10 * Math.log10(e / Math.max(1, b - a) + 1e-20); };
+
+for (const style of ['dnb', 'euphoric', 'deephouse']) {
+  const s = freshSong(style, 42), ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
+  let synth = 0, recorded = 0;
+  e.paletteHook = () => synth++;
+  const voice = { buffer: ctx.createBuffer(1, SR / 2, SR), chops: [{ midi: 60, start: 0, end: 0.2 }] };
+  e.hookBus = ctx.createGain();
+  e.chopNote = (vc, t, v, midi, dur, expression, index, out) => {
+    assert.equal(vc, voice); assert.equal(out, e.hookBus); recorded++;
+  };
+  try {
+    clearVoice();
+    e.hook(0.05, 0.4, 0, 0.2, 'chop');
+    assert.equal(synth, 1, `${style} falls back to its palette without a recording`);
+    setVoice(voice, 'MY VOICE', false);
+    e.hook(0.05, 0.4, 0, 0.2, 'chop');
+    assert.equal(recorded, 1, `${style} MY VOICE takes precedence over its palette`);
+    assert.equal(synth, 1, `${style} does not double its recorded hook with a synth`);
+    e.hook(0.1, 0.4, 0, 0.2, 'analog');
+    assert.equal(synth, 2, `${style} analog still uses the palette with a recording loaded`);
+  } finally { clearVoice(); }
+}
 
 for (const listener of ['dnb', 'euphoric', 'deephouse']) {
   for (const recorded of ['trap', 'bailefunk']) {
