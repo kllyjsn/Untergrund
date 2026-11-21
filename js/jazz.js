@@ -42,17 +42,9 @@ const pc = (n) => ((n % 12) + 12) % 12;
 const near = (notes, to) => notes.reduce((a, n) => Math.abs(n - to) < Math.abs(a - to) ? n : a);
 const pitches = (root, iv, lo, hi) => Array.from({ length: hi - lo + 1 }, (_, i) => lo + i).filter((n) => iv.some((v) => pc(root + v) === pc(n)));
 
-export function jazzHarmony(pat, bar, chained = true) {
+export function jazzHarmony(pat, bar) {
   const prog = pat.prog || [];
   const span = pat.jazz?.progBars === 1 ? 1 : pat.jazz?.style === 'modal' ? 4 : pat.jazz?.style === 'jazzfunk' ? 2 : 1;
-  const sections = chained && pat.jazz?.progSections;
-  if (pat.jazz?.progBars === 1 && Array.isArray(sections) && sections.length && sections.length <= 16 && sections.every((n) => Number.isInteger(n) && n > 0 && n <= 48)) {
-    bar %= sections.reduce((a, b) => a + b, 0);
-    for (const n of sections) {
-      if (bar < n) break;
-      bar -= n;
-    }
-  }
   return prog.length ? prog[Math.floor(bar / span) % prog.length] : { r: 0, c: 17 };
 }
 

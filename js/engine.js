@@ -4888,7 +4888,7 @@ export class Sequencer {
     const sd = e.stepDur;
     const tt = t + swingLate(s, abs, sd);
     if (pat.jazz && isJazz(pat.jazz.style)) {
-      e.harm = jazzHarmony(pat, bar, !!n);
+      e.harm = this.jazzHarmonyAt(pat, bar, pos);
       return this.jazzStep(pat, abs, tt, pos, n);
     }
     const kl = this.keyLift = s.ending && pat.lift && lf > 0 && (pos >= lf || (pos === lf - 1 && abs % 16 >= 12)) ? pat.lift : 0;
@@ -5119,6 +5119,15 @@ export class Sequencer {
   // the intro brings in hats then percussion, the outro takes them away again, the first drop holds its ride back for
   // a phrase, the peak's second phrase opens up off-16th hats, every 8 bars ends on a snare/clap roll over a dropped
   // kick (two beats at 16-bar ends), and every fourth bar turns around on the percussion.
+  jazzHarmonyAt(pat, bar, pos) {
+    if (pat.jazz?.progBars !== 1 || pos < 0 || !this.songBars) return jazzHarmony(pat, bar);
+    const group = (slot) => slot < 2 ? slot : slot - slot % 2;
+    pos %= this.chainArr.length;
+    let start = pos;
+    while (start > 0 && group(this.chainArr[start - 1]) === group(this.chainArr[pos])) start--;
+    return jazzHarmony(pat, pos - start);
+  }
+
   jazzGrid(pat, id, abs, written, played, accents = []) {
     const row = pat.steps[id], len = pat.len[id] || 16;
     const generated = len === 16 && row.length === 16 && row.every((v, i) => id === 'acid'
@@ -5146,7 +5155,7 @@ export class Sequencer {
     const final = s.ending && bars && pos === bars - 1;
     if (final && i) return this.cur;
     const nextPat = bars && this.chainArr[pos + 1] != null ? s.patterns[this.chainArr[pos + 1]] : pat;
-    const next = jazzHarmony(nextPat, bar + 1, !!bars), h = e.harm;
+    const next = this.jazzHarmonyAt(nextPat, bar + 1, pos + 1), h = e.harm;
     const bass = jazzBass(style, s.key, h, next, bar);
     for (const id of ['ride', 'ch', 'kick', 'snare']) {
       if (!enabled(id) || !pat.steps[id][i]) continue;
@@ -5218,7 +5227,7 @@ export class Sequencer {
     const final = s.ending && bars && pos === bars - 1;
     if (final && i) return this.cur;
     const nextPat = bars && this.chainArr[pos + 1] != null ? s.patterns[this.chainArr[pos + 1]] : pat;
-    const h = e.harm, next = jazzHarmony(nextPat, bar + 1, !!bars), parity = bar % 2;
+    const h = e.harm, next = this.jazzHarmonyAt(nextPat, bar + 1, pos + 1), parity = bar % 2;
     const accent = (id) => pat.steps[id][abs % (pat.len[id] || 16)] === 2 ? 1 / 0.78 : 1;
     if (!final) {
       const rim = this.jazzGrid(pat, 'snare', abs, BOSSA_RIM[0], BOSSA_RIM[parity].includes(i));

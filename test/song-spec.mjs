@@ -13,18 +13,20 @@ import { patternAt } from '../js/scope.js';
 
 let n = 0;
 const t = (name, fn) => { try { fn(); n++; } catch (e) { console.error(`✗ ${name}`); throw e; } };
-t('explicit jazz harmony restarts at section boundaries through fills and chain loops', () => {
+t('explicit jazz harmony follows resized live sections through fills and chain loops', () => {
   for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
-    const sections = [{ role: 'intro', bars: 2 }, { role: 'verse', bars: 8, chords: ['i', 'IV', 'bVII', 'V'] },
-      { role: 'breakdown', bars: 2 }, { role: 'verse', bars: 6 }, { role: 'verse', bars: 2 }, { role: 'drop', bars: 2 }];
+    const sections = [{ role: 'intro', bars: 2 }, { role: 'verse', bars: 16, chords: ['i', 'IV', 'bVII', 'V'] },
+      { role: 'breakdown', bars: 2 }, { role: 'verse', bars: 8 }, { role: 'drop', bars: 2 }];
     const { state } = songState({ style, sections }, 42);
     for (const s of [state, sanitize(JSON.parse(JSON.stringify(state)))]) {
       s.ending = false;
       const e = new Recorder(s), seq = new Sequencer(e, s);
-      for (let bar = 0; bar < 44; bar++) {
+      const original = s.chain;
+      for (let bar = 0; bar < 66; bar++) {
+        if (bar === 1) s.chain = 'AAAAA' + original.slice(2);
         seq.tick(bar * 16, 0.05 + bar * 16 * e.stepDur);
-        const at = bar % 22, start = at >= 18 ? 18 : at >= 12 ? 12 : at >= 2 && at < 10 ? 2 : -1;
-        if (start >= 0 && at < 20) assert.deepEqual(e.harm, s.patterns[2].prog[(at - start) % 4], `${style} bar ${bar}`);
+        const at = bar % 33, start = at >= 23 && at < 31 ? 23 : at >= 5 && at < 21 ? 5 : -1;
+        if (start >= 0) assert.deepEqual(e.harm, s.patterns[2].prog[(at - start) % 4], `${style} bar ${bar}`);
       }
       s.chainOn = false; s.current = 2;
       const solo = new Recorder(s), loop = new Sequencer(solo, s);

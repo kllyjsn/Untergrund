@@ -200,10 +200,7 @@ export function realize(raw, seed = 1, opts = {}) {
     for (const i of twins) {
       if (prog) {
         pats[i].prog = clone(prog); progs[i] = prog;
-        if (isJazz(style)) {
-          pats[i].jazz.progBars = 1;
-          pats[i].jazz.progSections = spec.sections.map((s) => s.bars);
-        }
+        if (isJazz(style)) pats[i].jazz.progBars = 1;
       }
       voice(pats[i], s.instruments, full, s.energy, s.role, peak);
       if (isJazz(style) && s.instruments) pats[i].hm = s.instruments.includes('hook') ? Math.max(1, pats[i].hm || 0) : 0;
