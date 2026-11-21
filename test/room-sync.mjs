@@ -590,6 +590,28 @@ for (const [action, currentTime, playing, expected] of [
   runInNewContext(`${schedulerSource}\nschedule()`, initial);
   close(initialNotes[0].time, 10.1);
   assert.equal(initial.transportOrigin, 10100, 'the first unqueued room estimate snaps its audio deadline, never the shared broadcast origin');
+  {
+    const notes = [], cold = {...initial, abs:0, nextTime:13, transportOrigin:13000,
+      ctx:{currentTime:11.6}, Date:{now:() => 12100}, clockOffset:0,
+      roomAudioClock:{at:12, contextTime:11.5, pending:{since:9, values:[.5, .5, .5]}},
+      performance:{now:() => 12100}, roomDrainUntil:null, uiQueue:[],
+      seq:{...initial.seq, tick:(step, time) => { notes.push({step, time}); return {}; }}};
+    for (const queued of [{queuedNotes:[{t:13}]}, {vocalNow:{}}]) {
+      const sounding = {...cold, engine:{...cold.engine, ...queued}};
+      runInNewContext(`${schedulerSource}\nschedule()`, sounding);
+      close(sounding.nextTime, 13);
+      assert.equal(sounding.roomDrainUntil, 13, 'queued audio still drains before a clock correction');
+    }
+    const schedule = runInNewContext(`${schedulerSource}\nschedule(); schedule`, cold);
+    close(cold.nextTime, 12.5);
+    assert.equal(cold.roomDrainUntil, null, 'an unqueued first downbeat has no audio frontier to drain');
+    cold.ctx.currentTime = 12.3;
+    cold.Date.now = () => 12800;
+    cold.performance.now = () => 12800;
+    schedule();
+    assert.equal(notes[0].step, 0, 'a corrected cold clock preserves the still-future first downbeat');
+    close(notes[0].time, 12.5);
+  }
   for (const origin of [9999, 9960, 9920]) {
     const notes = [], padded = {...initial, abs:0, nextTime:10.01, transportOrigin:origin, uiQueue:[],
       roomAudioClock:null, roomDrainUntil:null, vocalGridDirty:false,
