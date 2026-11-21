@@ -8,6 +8,7 @@ import { toSections, sectionNames } from './timeline.js';
 import { rng } from './dsp.js';
 import { withMelody } from './melody.js';
 import { patternAt, setTake, remapTakes, changedBars, barsLabel } from './scope.js';
+import { editChainEntries } from './chain.js';
 
 // ---------------- vocabulary ----------------
 // Artists and scenes people name: folded into one token each, expanded by ARTISTS below.
@@ -1273,7 +1274,7 @@ export function applyEdits(state, edits, { seed = 1, style } = {}) {
           if (!S.chainOn) { skipped.push(`${e.src || e.sec} (song mode is off)`); continue; }
           if (byBar) { skipped.push(`${e.src} (name a section to make it longer, shorter or skip it)`); continue; }
           if (!runs.length) { skipped.push(`no ${e.sec} in this song`); continue; }
-          let c = S.chain;
+          let c = S.chain, chainEntries = S.chainEntries;
           for (const m of [...runs].reverse()) {
             const run = m[0];
             let next = '';
@@ -1281,12 +1282,15 @@ export function applyEdits(state, edits, { seed = 1, style } = {}) {
             if (op === 'skip') next = '';
             else if (a > 0) { const n = Math.max(2, Math.round(run.length * 0.5 * a)); next = end ? run + main.repeat(n) : main.repeat(n) + run; }
             else next = run.slice(Math.min(run.length - 1, Math.max(1, Math.round(run.length * 0.5 * Math.abs(a)))));
+            const before = c;
             c = c.slice(0, m.index) + next + c.slice(m.index + run.length);
+            if (chainEntries) chainEntries = editChainEntries(before, c, chainEntries);
           }
           if (!c || c.length > 128) { skipped.push(`${e.src || e.sec} (song would be ${c ? 'too long' : 'empty'})`); continue; }
           const d = c.length - S.chain.length;
           remapTakes(S.patterns, S.chain, c);
           S.chain = c;
+          if (chainEntries) S.chainEntries = chainEntries; else delete S.chainEntries;
           if (S.current >= S.patterns.length) S.current = 0;
           label = op === 'skip' ? `no ${secName} (${signed(d, ' bars')})` : `${a > 0 ? 'longer' : 'shorter'} ${secName} (${signed(d, ' bars')})`;
           break;

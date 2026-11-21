@@ -212,9 +212,10 @@ export function realize(raw, seed = 1, opts = {}) {
   const dProg = progs[2] || full.prog || null;
   if (dProg) pats[3].prog = clone(dProg); else delete pats[3].prog;
   if (spec.hook == null && !full.hook) for (const p of pats) delete p.hm;
-  const chain = chainFor(spec.sections, pats);
+  const chainEntries = chainFor(spec.sections, pats, true);
+  const chain = chainEntries.map((e) => String.fromCharCode(65 + e.p)).join('');
   developSong(pats, spec.sections.map((x) => [SPEC_KIND[x.role], x.bars]), { strict: true });
-  return { spec, g, patterns: pats, chain, bpm: spec.bpm, key: spec.key ?? g.key, scale };
+  return { spec, g, patterns: pats, chain, chainEntries, bpm: spec.bpm, key: spec.key ?? g.key, scale };
 }
 
 // Spec roles as longform.js section kinds, so repeats develop the same way GENERATE's do.
@@ -222,9 +223,11 @@ const SPEC_KIND = { intro: 'i', build: 'p', verse: 'v', drop: 'c', breakdown: 'b
 const same = (a, b) => JSON.stringify(a || null) === JSON.stringify(b || null);
 // Sections -> chain letters, with the turnarounds the hand-written forms use: a verse ends on its fill
 // bar (D), a drop on its switch-up (H), a breakdown builds back in on F, the outro thins B then A.
-export function chainFor(sections, pats) {
+export function chainFor(sections, pats, tagged = false) {
   let out = '';
+  const entries = [];
   sections.forEach((s, i) => {
+    const start = out.length;
     const n = s.bars, next = sections[i + 1];
     if (s.role === 'intro') out += 'A'.repeat(n);
     else if (s.role === 'build') out += 'B'.repeat(n);
@@ -238,15 +241,16 @@ export function chainFor(sections, pats) {
       const e = n <= 4 ? n : Math.ceil(n / 2), fill = next?.role === 'drop' && n - e > 1;
       out += 'E'.repeat(e) + 'F'.repeat(n - e - fill) + (fill ? 'D' : '');
     }
+    for (let bar = start; bar < out.length; bar++) entries.push({ p: out.charCodeAt(bar) - 65, sec: i });
   });
-  return out.slice(0, MAX_BARS);
+  return tagged ? entries.slice(0, MAX_BARS) : out.slice(0, MAX_BARS);
 }
 
 // A finished project state for a spec: what GENERATE would give, rewritten by the spec.
 export function songState(spec, seed = 1, base = defaultState(), opts = {}) {
   const r = realize(spec, seed, opts), s = clone(base);
   applyOverrides(s, r.g, true);
-  Object.assign(s, { patterns: r.patterns, chain: r.chain, chainOn: true, ending: true, current: 0, bpm: r.bpm, key: r.key, scale: r.scale });
+  Object.assign(s, { patterns: r.patterns, chain: r.chain, chainEntries: r.chainEntries, chainOn: true, ending: true, current: 0, bpm: r.bpm, key: r.key, scale: r.scale });
   const tex = r.spec.texture?.length ? applyEdits(s, r.spec.texture, { seed, style: r.spec.style }) : null;
   const out = tex?.state || s;
   out.artist = { name: base.artist?.name || 'UNTERGRUND', title: r.spec.title || trackTitle(seed), style: r.spec.style, seed, created: base.artist?.created || new Date(0).toISOString() };

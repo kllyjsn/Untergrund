@@ -4,6 +4,7 @@ import { assign as assignExperiment } from './experiments.js';
 import { createListens, songFingerprint, promptHash, promptText } from './listen.js';
 import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue, VOICE_HIDDEN } from './params.js';
 import { Engine, Sequencer, parseChain } from './engine.js';
+import { setChain } from './chain.js';
 import { defaultState, generate, mutate, arrangement, songChain, applySongPlan, applyOverrides, clone, save, load, sanitize, STYLES, MAJOR_STYLES, emptyPattern, emptyAcidStep, fitLyrics, refreshSong } from './state.js';
 import { renderBars, bufferToWav } from './render.js';
 import { exportButtons } from './export-ui.js';
@@ -2212,7 +2213,12 @@ function buildHeader() {
     h('button', { class: 'btn ghost', title: 'Clear pattern', onclick: () => { pushUndo(`CLEAR pattern ${PATTERN_NAMES[state.current]}`); state.patterns[state.current] = emptyPattern(); build(); persist(); } }, 'CLEAR'));
 
   const chainInput = h('input', { class: 'chain', value: state.chain, spellcheck: 'false', 'aria-label': 'Chain', title: 'Arrangement: one letter per bar, e.g. AABBCCDD',
-    oninput: (e) => { state.chain = e.target.value.toUpperCase().replace(/[^A-H]/g, ''); touched(); persist(); timeline.refresh(); } });
+    oninput: (e) => {
+      const chain = e.target.value.toUpperCase().replace(/[^A-H]/g, '');
+      const caret = e.target.value.slice(0, e.target.selectionStart).toUpperCase().replace(/[^A-H]/g, '').length;
+      setChain(state, chain, undefined, caret - Math.max(0, chain.length - state.chain.length));
+      touched(); persist(); timeline.refresh();
+    } });
   const chainBtn = h('button', { class: 'btn toggle chain-toggle' + (state.chainOn ? ' on' : ''), title: 'Play the arrangement chain',
     onclick: () => setSong(!state.chainOn) }, 'CHAIN');
 

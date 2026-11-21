@@ -10,21 +10,26 @@ const ROLES = {
 const QUIET = new Set([0, 1]);
 
 const clean = (chain) => String(chain || '').toUpperCase().replace(/[^A-H]/g, '').slice(0, MAX_BARS);
-const copy = (sections) => sections.map((s) => ({ p: s.p, bars: s.bars }));
+const copy = (sections) => sections.map((s) => ({ p: s.p, bars: s.bars, ...(s.sec != null ? { sec: s.sec } : {}) }));
 
 // 'AABCCC' → [{p:0,bars:2},{p:1,bars:1},{p:2,bars:3}]
-export function toSections(chain) {
+export function toSections(chain, entries) {
   const out = [];
-  for (const ch of clean(chain)) {
+  for (const [i, ch] of [...clean(chain)].entries()) {
     const p = ch.charCodeAt(0) - 65, last = out[out.length - 1];
-    if (last && last.p === p) last.bars++;
-    else out.push({ p, bars: 1 });
+    const sec = entries?.[i]?.sec;
+    if (last && last.p === p && last.sec === sec) last.bars++;
+    else out.push({ p, bars: 1, ...(sec != null ? { sec } : {}) });
   }
   return out;
 }
 
 export function toChain(sections) {
   return sections.map((s) => LETTERS[s.p].repeat(Math.max(1, s.bars | 0))).join('').slice(0, MAX_BARS);
+}
+
+export function toChainEntries(sections) {
+  return sections.flatMap((s) => Array.from({ length: Math.max(1, s.bars | 0) }, () => ({ p: s.p, ...(s.sec != null ? { sec: s.sec } : {}) }))).slice(0, MAX_BARS);
 }
 
 export const totalBars = (sections) => sections.reduce((n, s) => n + s.bars, 0);
@@ -87,7 +92,7 @@ export function duplicate(sections, i) {
   const out = copy(sections);
   if (!out[i]) return out;
   const bars = Math.min(out[i].bars, MAX_BARS - totalBars(out));
-  if (bars > 0) out.splice(i + 1, 0, { p: out[i].p, bars });
+  if (bars > 0) out.splice(i + 1, 0, { ...out[i], bars });
   return out;
 }
 

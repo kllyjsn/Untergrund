@@ -17,6 +17,7 @@ import { harmRoot, chordIv, stabNotes, hookSnap, voiceLead } from './harmony.js'
 import { develop, motifPlan, stepDeg } from './motif.js';
 import { MELODY_BARS, strongNote } from './melody.js';
 import { patternAt } from './scope.js';
+import { cleanChainEntries } from './chain.js';
 import { funkHand } from './baile.js';
 import { festivalTrap, festivalBuilds, festivalBuildStep } from './festival-build.js';
 
@@ -4796,6 +4797,7 @@ export class Sequencer {
     const arr = this.s.master.arr || 0;
     this.dropNow = !!this.dropNext; this.dropNext = false;
     this.songBars = chain.length; this.chainArr = chain;
+    this.chainEntries = cleanChainEntries(this.s.chain, this.s.chainEntries);
     if (this.liftChain !== this.s.chain) {
       // The final chorus: the last run of peak bars, if an earlier peak came before it.
       let i = chain.length - 1;
@@ -5126,9 +5128,14 @@ export class Sequencer {
   // kick (two beats at 16-bar ends), and every fourth bar turns around on the percussion.
   jazzHarmonyAt(pat, bar, pos) {
     if (pat.jazz?.progBars !== 1 || pos < 0 || !this.songBars) return jazzHarmony(pat, bar);
-    const group = (slot) => slot < 2 ? slot : slot - slot % 2;
     pos %= this.chainArr.length;
     let start = pos;
+    const sec = this.chainEntries?.[pos]?.sec;
+    if (sec != null) {
+      while (start > 0 && this.chainEntries[start - 1].sec === sec) start--;
+      return jazzHarmony(pat, pos - start);
+    }
+    const group = (slot) => slot < 2 ? slot : slot - slot % 2;
     while (start > 0 && group(this.chainArr[start - 1]) === group(this.chainArr[pos])) start--;
     return jazzHarmony(pat, pos - start);
   }
