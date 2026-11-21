@@ -167,8 +167,14 @@ export function isSongPrompt(text, lyrics = '') {
 
 // The sound words of a prompt: no topic, tempo, key or vocal.
 const soundOf = (text) => text.replace(ABOUT, ' ').replace(/\b\d{2,3}\s*bpm\b/gi, ' ').replace(/\b(?:in\s+)?(?:the\s+key\s+of\s+)?[a-g](?:#|b|\s+sharp|\s+flat)?\s+(?:major|minor|dorian|phrygian)\b/gi, ' ').replace(VOCAL_RE, ' ').replace(FILLER, ' ').replace(/\s*,\s*(?:,\s*)*/g, ', ').replace(/\s+/g, ' ').replace(/^[\s,]+|[\s,]+$/g, '');
+const SONG_NOUN = /\b(?:song|track|tune|beat|banger|piece|anthem|record|single|ballad|instrumental)\b/i;
+function genreOfPrompt(text, sound = soundOf(text)) {
+  const noun = text.match(SONG_NOUN);
+  const named = noun ? styleFor(soundOf(text.slice(0, noun.index + noun[0].length))) : null;
+  return named || styleFor(sound);
+}
 // The genre a prompt names ("indie" -> folk), or null when it names none.
-export const promptGenre = (prompt) => styleFor(soundOf(cleanText(prompt, PLAN_LIMITS.prompt)));
+export const promptGenre = (prompt) => genreOfPrompt(cleanText(prompt, PLAN_LIMITS.prompt));
 
 export function rulePlan(prompt, lyricsText = '', { style = null } = {}) {
   const text = cleanText(prompt, PLAN_LIMITS.prompt);
@@ -177,7 +183,7 @@ export function rulePlan(prompt, lyricsText = '', { style = null } = {}) {
   const sound = soundOf(text);
   const edits = parse(text.replace(ABOUT, ' '), { style, noSection: true }).edits;
   const value = (id) => edits.find((e) => e.id === id)?.value;
-  const target = styleFor(sound) || (STYLES[style] ? style : 'deephouse');
+  const target = genreOfPrompt(text, sound) || (STYLES[style] ? style : 'deephouse');
   const lyrics = splitLyrics(lyricsText);
   const titleLine = lyrics.find((s) => s.sec === 'chorus')?.lines[0]?.t;
   // No pasted words and a genre that sings a song: write them (js/lyric-writer.js).
