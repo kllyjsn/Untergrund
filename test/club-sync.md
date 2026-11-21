@@ -11,8 +11,9 @@ or `listener-reconnect`.
 
 Each trial writes separate DJ and listener WAVs to `test/out/`; the JSON
 contains set, network, and audio-clock markers, plus the clients’ long tasks and
-audio underrun counters. One output timestamp locates the start of each WAV;
-samples then stay in native frame order (gaps in capture fail the trial).
+audio underrun counters. One output timestamp locates the start of each WAV.
+Samples then stay in worklet message order, without filling or dropping PCM;
+`frameJumps` flags discontinuities in Chrome's reported frame index.
 The WAVs retain their original levels. This mode records transitions for
 inspection, rather than imposing the synthetic fixture's sync gates.
 

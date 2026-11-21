@@ -384,9 +384,12 @@ async function scenario(base, spec, network, run, auditStyle) {
       const beatMs = 60000 / song.bpm;
       const target = initial.startsAt + 12.5 * beatMs;
       if (spec.listenerAudit === 'handoff') {
+        await pause(Math.max(0, target - 2500 - Date.now()));
         await listener.clickText('JOIN DJ QUEUE');
-        await until(async () => (await snapshot()).queue?.includes(listenerId), 'listener queued');
-        await until(() => host.run("[...document.querySelectorAll('.club-secondary')].some(b => b.textContent === 'PASS DECK')"), 'PASS DECK visible');
+        events.queued = await until(async () => {
+          const s = await snapshot();
+          return s.queue?.includes(listenerId) && s;
+        }, 'listener queued');
         const pass = await host.prepareClickText('PASS DECK');
         await pause(Math.max(0, target - Date.now()));
         events.actionAt = await pass();

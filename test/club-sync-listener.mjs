@@ -17,24 +17,28 @@ function extractListenerPCM(from, to) {
   }, []);
   const anchor = anchors.reduce((best, a) => Math.abs(a[1] - from) < Math.abs(best[1] - from) ? a : best);
   const startFrame = Math.round((anchor[0] + (from - anchor[1]) / 1000) * rate);
-  const endFrame = startFrame + Math.round((to - from) * rate / 1000);
-  const data = new Float32Array((endFrame - startFrame) * 2);
-  let covered = startFrame;
+  const length = Math.round((to - from) * rate / 1000);
+  const data = new Float32Array(length * 2), frameJumps = [];
+  let previousEnd, written = 0;
   for (const { frame, pcm, right } of blocks) {
-    if (frame >= endFrame || frame + pcm.length <= startFrame) continue;
-    const lo = Math.max(frame, startFrame), hi = Math.min(frame + pcm.length, endFrame);
-    if (lo !== covered) throw new Error(`Noncontiguous PCM: expected ${covered}, got ${lo}`);
+    if (pcm.length + frame <= startFrame) continue;
+    const lo = previousEnd === undefined ? startFrame - frame : 0;
+    if (lo < 0) throw new Error(`Missing initial PCM at frame ${startFrame}`);
+    const hi = Math.min(pcm.length, lo + length - written);
+    if (previousEnd !== undefined && frame !== previousEnd) frameJumps.push({ offset:written, frames:frame - previousEnd });
     for (let i = lo; i < hi; i++) {
-      data[(i - startFrame) * 2] = pcm[i - frame];
-      data[(i - startFrame) * 2 + 1] = right[i - frame];
+      data[written * 2] = pcm[i];
+      data[written * 2 + 1] = right[i];
+      written++;
     }
-    covered = hi;
+    previousEnd = frame + pcm.length;
+    if (written === length) break;
   }
-  if (covered !== endFrame) throw new Error(`Missing PCM after frame ${covered} (expected through ${endFrame})`);
+  if (written !== length) throw new Error(`Incomplete PCM: captured ${written} of ${length} frames`);
   const bytes = new Uint8Array(data.buffer);
   let encoded = '';
   for (let i = 0; i < bytes.length; i += 16384) encoded += String.fromCharCode(...bytes.subarray(i, i + 16384));
-  return { pcm:btoa(encoded), startFrame, sampleRate:rate, anchor };
+  return { pcm:btoa(encoded), startFrame, sampleRate:rate, anchor, frameJumps };
 }
 
 export async function saveListenerClips(clients, captures, from, to, directory, prefix) {
