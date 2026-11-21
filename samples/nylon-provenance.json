@@ -4,6 +4,7 @@
   "source": "https://github.com/facebookincubator/Meta-open-sound/releases/tag/meta-nylon-guitar-v1.0.0",
   "licenseManifest": "https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-nylon-guitar/manifest.json",
   "license": "CC0-1.0",
+  "bossaPlaybackCorrection": { "file": "nylon_69.flac", "sourceHz": 2183, "q": 60, "gainDb": -30, "frequencyScaling": "sourceHz multiplied by the actual tuned playback rate; other styles and files unchanged" },
   "processing": "Original WAV, mono 48 kHz 24-bit FLAC; active-RMS linear normalization to -18 dBFS capped at -3 dBFS peak; 2 ms onset fade; maximum 4 s, 30 ms tail fade. Pitch centers measured with test/sampletune.py partial-window method; no denoising, synthesis or timbral EQ.",
   "samples": [
     {
