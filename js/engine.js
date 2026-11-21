@@ -6,7 +6,7 @@ import { pickChop } from './hum.js';
 import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, STAB_BAND, HOOK_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel, swingLate, swingDuration } from './groove.js';
-import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes, JAZZ_MIX, BOSSA_RIM, BOSSA_BATIDA, bossaBass } from './jazz.js';
+import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes, jazzNotches, JAZZ_MIX, BOSSA_RIM, BOSSA_BATIDA, bossaBass } from './jazz.js';
 import { funkBass, FUNK_KICK, FUNK_SNARE, FUNK_COMP } from './jazzfunk.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ, TECHNO_HOOK_SPACE } from './lead.js';
 import { lowEnd } from './lowend.js';
@@ -3005,7 +3005,7 @@ export class Engine {
       if (n % 2) [c, buf] = alt[i];
     }
     return this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
-      shelves: [[3000, tone]], peaks: R?.peak ? [R.peak] : [], lp: R ? R.lp * (F ? F[1] : 1) * (0.4 + 0.6 * hv) : 0, lpFrom: F ? F[0] : R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
+      shelves: [[3000, tone]], peaks: [...(R?.peak ? [R.peak] : []), ...(jazzStyle(this.state) === 'bossa' && kind === 'jazz' ? jazzNotches(kind, c, Math.pow(2, (m - c) / 12)) : [])], lp: R ? R.lp * (F ? F[1] : 1) * (0.4 + 0.6 * hv) : 0, lpFrom: F ? F[0] : R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
     });
   }
   // A guitar amp for the DRIVE GTR: tightened lows into an asymmetric tube-style clipper, then a 4x12 cab
@@ -3320,8 +3320,10 @@ export class Engine {
     const air = hash(step, m + 29), tongue = hash(step, m + 71), touch = Math.min(1, v);
     const out = this.trimOut(`hook-${voice}`, 1, this.hookBus || this.windDuck, -4, 500);
     const eq = this.bodyFor(this.bodyFor(out, presence), [780, 1.2, -2.5]);
+    const rate = 2 ** ((m - pitch - cents / 100) / 12);
     return this.playBuf(buf, t, gain * touch * dbGain(trim + (air - 0.5) * 1.2) * dbGain(jazzStyle(this.state) === 'bossa' && voice === 'tpt' ? JAZZ_MIX.bossa.trumpetLead : JAZZ_MIX[jazzStyle(this.state)]?.lead || 0), eq,
-      2 ** ((m - pitch - cents / 100) / 12), Math.max(0.06, dur * 0.92), {
+      rate, Math.max(0.06, dur * 0.92), {
+        peaks: jazzStyle(this.state) ? jazzNotches(useAlt ? TAKES[HOOK_BAND[voice]] : HOOK_BAND[voice], pitch, rate) : [],
         lp: 3850 + 2100 * touch + 650 * (air - 0.5), offset: offset + tongue * 0.012,
         fade: (voice === 'tpt' ? 0.025 : strong ? 0.007 : 0.012) + 0.009 * (1 - tongue),
         attackGain: (strong ? 1.04 : 0.9) + (tongue - 0.5) * 0.24,
