@@ -65,6 +65,8 @@ p.at = [{ b: [0, 0], hook: { ...structuredClone(p.hook), v: 'airflute' } }, { b:
 const notes = JSON.stringify(p.at[0].hook.s);
 for (const [label, voice] of [['HARMON', 'harmon'], ['SYNTH', 'warm'], ['MY VOICE', 'chop']]) {
   if (voice === 'chop') chops = {};
+  p.hook.v = voice;
+  p.at[0].hook.v = 'airflute';
   button(label).attrs.onclick();
   assert.equal(p.hook.v, voice);
   assert.equal(patternAt(p, 0).hook.v, voice, 'pop42 instrumental take must match Studio after selecting ' + label);
