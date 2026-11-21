@@ -1180,4 +1180,17 @@ for (const listener of ['trap', 'dnb', undefined]) {
   const q = new Sequencer(e, s); q.startAt(0, 0.05); q.tick(0, 0.05);
   assert(!e.smoothOn, 'a Minimal listener does not enable SMOOTH on another genre');
 }
+{
+  const s = freshSong('minimal', 12); s.artist = { style: 'minimal', seed: 12 };
+  assert.equal(s.params.stab.voice, 7, 'seed 12 selects Minimal felt piano');
+  const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false }), rec = new Recorder(s);
+  let played;
+  e.keys = (t, v, iv, root) => { played = iv.map(n => root + n); };
+  for (const db of [-12, 0.5]) {
+    e.smoothChords(db); rec.smoothChords(db); rec.notes = {};
+    e.stab(0.05, 0.7); rec.trigger('stab', 0.05, 0.7);
+    assert.deepEqual(rec.notes.stab.map(n => n.m), played, 'Minimal MIDI follows synthesized felt-key pitches, not recorded-piano octave folding');
+    if (db > 0) assert(played.includes(80), 'the lifted seed-12 felt-key chord retains MIDI 80');
+  }
+}
 console.log('sound ok');

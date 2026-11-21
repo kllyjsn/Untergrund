@@ -66,7 +66,10 @@ export class Recorder {
       const len = bossa ? p.decay : pedal ? this.stepDur * 14.4 : Math.max(this.stepDur * 2, (p.decay || 0.3) * 1.5);
       if (paletteFor(this.state)) for (const n of iv) this.add('stab', t, paletteColor(this.state).piano ? soundingPitch('piano', root + n) : root + n, len, v);
       else if (this.state.artist?.style === 'dub') for (const n of iv) this.add('stab', t, this.dubRegister(iv, root) + n, len, v);
-      else if (this.smoothOn || this.state.patterns.some((p) => p.jazz)) for (const m of new Set(iv.map((n) => soundingPitch(STAB_VOICES[vo], root + n)))) this.add('stab', t, m, len, v);
+      else if (this.smoothOn || this.state.patterns.some((p) => p.jazz)) {
+        const voice = this.smoothOn && vo === 7 ? 'keys' : STAB_VOICES[vo];
+        for (const m of new Set(iv.map((n) => soundingPitch(voice, root + n)))) this.add('stab', t, m, len, v);
+      }
       else for (const n of this.chord()) this.add('stab', t, 48 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + n, len, v);
     } else if (GM_DRUMS[id]) this.add(id, t, id === 'snare' && jazzStyle(this.state, this.playingPattern) === 'bossa' ? 37 : GM_DRUMS[id], this.stepDur, v);
   }
