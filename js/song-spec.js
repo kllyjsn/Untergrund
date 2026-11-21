@@ -2,7 +2,7 @@
 // deterministic engine performs it with the usual generators. The result is an ordinary project, so every
 // note, chord, section and knob stays editable afterwards. Pure module: runs in the browser and in Node.
 import { developSong, LENGTHS } from './longform.js';
-import { STYLES, MAJOR_STYLES, generate, arrangement, songChain, songPlan, freshSong, defaultState, applyOverrides, clone, emptyAcidStep } from './state.js';
+import { STYLES, MAJOR_STYLES, generate, arrangement, songChain, songPlan, defaultState, applyOverrides, clone, emptyAcidStep } from './state.js';
 import { SCALES, KEYS, TRACK_IDS, STEPS } from './params.js';
 import { toSections, MAX_BARS } from './timeline.js';
 import { parse, applyEdits, validateEdits, genreOf } from './describe.js';
@@ -182,7 +182,10 @@ export function realize(raw, seed = 1, opts = {}) {
   const { style, scale } = spec;
   const g = generate(style, seed, scale);
   const full = g.pattern;
-  if (spec.hook && full.hook) full.hook = contourHook(full.hook, spec.hook.contour, scale);
+  if (spec.hook && full.hook) {
+    full.hook = contourHook(full.hook, spec.hook.contour, scale);
+    if (isJazz(style)) full.hook.h = 1;
+  }
   const pats = arrangement(full, seed, spec.bpm >= 115);
   const sc = Math.round(g.params.stab?.chord ?? 1);
   const r = rng((seed ^ 0x51ed27) >>> 0);
@@ -197,6 +200,7 @@ export function realize(raw, seed = 1, opts = {}) {
     for (const i of twins) {
       if (prog) { pats[i].prog = clone(prog); progs[i] = prog; }
       voice(pats[i], s.instruments, full, s.energy, s.role, peak);
+      if (isJazz(style) && s.instruments) pats[i].hm = s.instruments.includes('hook') ? Math.max(1, pats[i].hm || 0) : 0;
       thinOut(pats[i], s.energy, r);
     }
     if (s.role === 'build' && prog) progs[1] = prog;
@@ -237,12 +241,6 @@ export function chainFor(sections, pats) {
 
 // A finished project state for a spec: what GENERATE would give, rewritten by the spec.
 export function songState(spec, seed = 1, base = defaultState(), opts = {}) {
-  if (isJazz(spec?.style)) {
-    const clean = validateSpec(spec), s = freshSong(clean.style, seed, { base, bpm: clean.bpm, scale: clean.scale });
-    if (clean.key != null) s.key = clean.key;
-    s.artist = { name: base.artist?.name || 'UNTERGRUND', title: clean.title || trackTitle(seed), style: clean.style, seed, created: base.artist?.created || new Date(0).toISOString() };
-    return { state: s, spec: clean, did: [] };
-  }
   const r = realize(spec, seed, opts), s = clone(base);
   applyOverrides(s, r.g, true);
   Object.assign(s, { patterns: r.patterns, chain: r.chain, chainOn: true, ending: true, current: 0, bpm: r.bpm, key: r.key, scale: r.scale });
