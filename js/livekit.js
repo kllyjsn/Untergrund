@@ -116,7 +116,7 @@ export function loadBand(name) {
     band[name] = entries; names.set(entries, name);
     for (const k of [TAKES[name], MUTE_LAYER[name]]) if (k) loadBand(k);
     return entries;
-  }).catch((err) => { console.warn(`${name} samples unavailable, using synth voice`, err); return null; });
+  }).catch((err) => { delete bandLoading[name]; console.warn(`${name} samples unavailable, using synth voice`, err); return null; });
   return bandLoading[name];
 }
 

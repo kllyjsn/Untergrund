@@ -200,3 +200,5 @@ console.log('hum: ok');
   assert.equal(livePitch(new Float32Array(2048).map(() => (Math.random() * 2 - 1) * 0.05), SR), null, 'noise is not a note');
 }
 console.log('hum refine: ok');
+
+await import('./harmon-retry.mjs');
