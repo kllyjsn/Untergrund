@@ -3,7 +3,21 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { baseSelection, detectStyles, hash, random, shuffle, main, seedOverrides, parseMergedPR, excerptWithFrom, checkBarWindow, selectStyles, edgeFadeFilter, baselineOverrides, planPairs, pcmDifference } from '../scripts/blind-pack.mjs';
+import { baseSelection, detectStyles, hash, random, shuffle, main, seedOverrides, parseMergedPR, excerptWithFrom, checkBarWindow, selectStyles, edgeFadeFilter, baselineOverrides, planPairs, pcmDifference, selectExcerptWindow, ratingSheet } from '../scripts/blind-pack.mjs';
+
+const songWindow = { sections: [['i', 8], ['v', 16], ['c', 8], ['v', 16], ['c', 16]], bars: 64, peakBar: 48 };
+assert.deepEqual(selectExcerptWindow(songWindow), { barWindow: [24, 32], method: 'section', section: { role: 'chorus', label: 'chorus', from: 24, to: 32 } });
+assert.deepEqual(selectExcerptWindow({ chain: 'AAAAAAAAGGGGGGGHCCCCCCCC', bars: 24, peakBar: 0 }).barWindow, [8, 16]);
+assert.equal(selectExcerptWindow({ chain: 'GGGGGGGGCCCCCCCC', patterns: Array.from({ length: 8 }, () => ({ sec: 'chorus' })), labels: { G: 'HEAD' }, bars: 16, peakBar: 8 }).section.label, 'HEAD');
+assert.deepEqual(selectExcerptWindow({ chain: 'AAAAAAAACCCCCCCC', labels: { C: 'HOOK' }, bars: 16, peakBar: 0 }).barWindow, [8, 16]);
+assert.deepEqual(selectExcerptWindow({ chain: 'AAAAAAAA', bars: 8, peakBar: 0 }), { barWindow: [0, 8], method: 'peak', section: null, fallbackReason: 'no-hook-drop-section' });
+assert.equal(selectExcerptWindow({ sections: [], bars: 16, peakBar: 8 }).method, 'peak');
+for (const metadata of [{ bars: 7, peakBar: 0 }, { bars: 8, peakBar: 1 }, { bars: 8, peakBar: NaN }, { sections: [['c', 4]], bars: 16 }, { sections: [['c', -1]], bars: 16 }, { chain: 'Z', bars: 16 }]) assert.throws(() => selectExcerptWindow(metadata));
+const sheet = ratingSheet([{ pair: '01', kind: 'null', style: 'electrohiphop' }]);
+assert.match(sheet, /For every pair, write one short reason \(one line\) in the Why column/);
+assert.match(sheet, /\| 01 \| \| \| \|/);
+assert.doesNotMatch(sheet, /null|control|electrohiphop/);
+assert.doesNotMatch(ratingSheet([]), /\| 01 \|/);
 
 assert.deepEqual(seedOverrides(), {});
 assert.deepEqual(seedOverrides('afrobeats:0,hyperpop:4294967295'), { afrobeats: 0, hyperpop: 4294967295 });

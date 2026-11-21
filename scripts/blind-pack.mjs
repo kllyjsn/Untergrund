@@ -78,6 +78,40 @@ export function checkBarWindow(actual, expected = actual) {
   if (!Array.isArray(actual) || actual.length !== 2 || !actual.every(Number.isInteger) || actual[0] < 0 || actual[1] - actual[0] !== 8 || actual.some((n, i) => n !== expected[i])) throw new Error(`Excerpt bar window mismatch: ${JSON.stringify(actual)} vs ${JSON.stringify(expected)}`);
   return [...actual];
 }
+export function selectExcerptWindow({ sections = null, chain = '', patterns = [], labels = {}, bars, peakBar }, windowBars = 8) {
+  if (!Number.isInteger(bars) || !Number.isInteger(windowBars) || windowBars < 1 || bars < windowBars) throw new Error('Invalid song length for excerpt');
+  const spans = [];
+  let at = 0;
+  if (sections) {
+    for (const [kind, length] of sections) {
+      if (!Number.isInteger(length) || length < 1) throw new Error('Invalid song section');
+      const role = kind === 'c' ? 'chorus' : kind;
+      spans.push({ role, label: role, from: at, to: at + length });
+      at += length;
+    }
+  } else {
+    for (const letter of chain) {
+      const index = 'ABCDEFGH'.indexOf(letter);
+      if (index < 0) throw new Error('Invalid song chain');
+      const role = patterns[index]?.sec || (index >= 6 ? 'drop' : '');
+      const label = labels[letter] || role || letter;
+      const last = spans.at(-1);
+      if (last && last.role === role && last.label === label) last.to++;
+      else spans.push({ role, label, from: at, to: at + 1 });
+      at++;
+    }
+  }
+  const section = spans.find(({ role, label }) => /^(hook|drop|chorus)$/i.test(role) || /^(hook|drop|chorus)$/i.test(label));
+  if (section) {
+    if (Math.min(section.to, bars) - section.from < windowBars) throw new Error('First hook/drop section is too short for excerpt');
+    return { barWindow: [section.from, section.from + windowBars], method: 'section', section };
+  }
+  if (!Number.isInteger(peakBar) || peakBar < 0 || peakBar + windowBars > bars) throw new Error('Invalid peak fallback window');
+  return { barWindow: [peakBar, peakBar + windowBars], method: 'peak', section: null, fallbackReason: 'no-hook-drop-section' };
+}
+export function ratingSheet(pairs) {
+  return '# Untergrund blind listening\n\nEach MP3 contains two versions of the same generated passage, separated by a short silence. The first/second order was randomized independently. The two excerpts in each pair are matched to within 0.1 LU.\n\nListen at the same playback volume. Rate each pair as a whole from **1 (poor) to 5 (excellent)**, then choose **first**, **second**, or **tie** for release. Judge whether the kick, bass and lead are easy to distinguish without losing the groove or character. If the difference does not matter to you, choose tie. For every pair, write one short reason (one line) in the Why column.\n\n| Pair | Pair rating (1–5) | First / second / tie | Why |\n| --- | --- | --- | --- |\n' + pairs.map((p) => `| ${p.pair} | | | |`).join('\n') + '\n\nThese are before/after mixes, not a competitive comparison. This pack does not contain the answer key or automated preferences.\n';
+}
 export function seedOverrides(text = '') {
   const out = {};
   for (const pair of text.split(',').filter(Boolean)) {
@@ -230,6 +264,21 @@ export async function main(argv = process.argv.slice(2)) {
           for (const style of styles) {
             const p = pairs.find((p) => p.style === style);
             console.log(`Rendering ${version} ${p.style} seed=${p.renderSeed}`);
+            if (version === 'revised') {
+              const metadata = await run(`(async () => {
+                const s = window.__q.song(${JSON.stringify(p.style)}, ${p.renderSeed});
+                const piece = s.patterns.find((pattern) => pattern.score)?.score?.piece;
+                if (piece) await (await import('/js/repertoire.js')).loadPiece(piece);
+                const timeline = window.__q.plan(s, 8);
+                const { songPlan } = await import('/js/state.js');
+                return { sections: songPlan(${JSON.stringify(p.style)}, ${p.renderSeed}, 'song', s.bpm).sections,
+                  chain: s.chain, patterns: s.patterns.map(({ sec }) => ({ sec })), labels: s.labels,
+                  bars: timeline.bars, peakBar: timeline.peakBar };
+              })()`);
+              const { barWindow, ...excerpt } = selectExcerptWindow(metadata);
+              p.barWindow = barWindow;
+              p.excerpt = excerpt;
+            }
             const options = { kind: 'peak', bars: 8, ...(p.barWindow ? { from: p.barWindow[0] } : {}) };
             const x = await run(`window.__q.excerpt(${JSON.stringify(p.style)}, ${p.renderSeed}, ${JSON.stringify(options)})`);
             p.barWindow = checkBarWindow(x.bars, p.barWindow);
@@ -271,11 +320,11 @@ export async function main(argv = process.argv.slice(2)) {
       console.log(`Pair-${p.pair} decoded MP3: ${p.lufs.first} / ${p.lufs.second} LUFS; difference ${Math.abs(p.lufs.first - p.lufs.second).toFixed(2)} LU`);
       if (Math.abs(p.lufs.first - p.lufs.second) > 0.100001) throw new Error(`Decoded MP3 loudness mismatch: pair ${p.pair}`);
     }
-    writeFileSync(join(pack, 'README.md'), '# Untergrund blind listening\n\nEach MP3 contains two versions of the same generated passage, separated by a short silence. The first/second order was randomized independently. The two excerpts in each pair are matched to within 0.1 LU.\n\nListen at the same playback volume. Rate each pair as a whole from **1 (poor) to 5 (excellent)**, then choose **first**, **second**, or **tie** for release. Judge whether the kick, bass and lead are easy to distinguish without losing the groove or character. If the difference does not matter to you, choose tie. Add a free-form explanation in Why.\n\n| Pair | Pair rating (1–5) | First / second / tie | Why |\n| --- | --- | --- | --- |\n' + pairs.map((p) => `| ${p.pair} | | | |`).join('\n') + '\n\nThese are before/after mixes, not a competitive comparison. This pack does not contain the answer key or automated preferences.\n');
+    writeFileSync(join(pack, 'README.md'), ratingSheet(pairs));
     const zip = join(out, `blind-rating-pack-${date}.zip`);
     rmSync(zip, { force: true });
     execFileSync('zip', ['-q', '-r', zip, 'blind-pilot'], { cwd: out });
-    const key = { schema: 'untergrund.blind-pack/1', date, generatedAt: new Date().toISOString(), seed, commit: head, base, sinceTime, mergedPRs, droppedStyles: selection.dropped, pairs, format: { codec: 'mp3', sampleRate: 48000, channels: 2, bitrate: 192000, silenceSeconds: 1.56, edgeFadeSeconds: 0.01, excerpt: 'peak', bars: 8, targetLUFS: -16, targetTruePeakDBTP: -1.5, measurement: 'ffmpeg loudnorm JSON input_i on decoded MP3 halves, excluding the inserted silence', normalization: 'two-pass loudnorm then downward pair gain matching' } };
+    const key = { schema: 'untergrund.blind-pack/1', date, generatedAt: new Date().toISOString(), seed, commit: head, base, sinceTime, mergedPRs, droppedStyles: selection.dropped, pairs, format: { codec: 'mp3', sampleRate: 48000, channels: 2, bitrate: 192000, silenceSeconds: 1.56, edgeFadeSeconds: 0.01, excerpt: 'first-hook-drop-or-peak', bars: 8, targetLUFS: -16, targetTruePeakDBTP: -1.5, measurement: 'ffmpeg loudnorm JSON input_i on decoded MP3 halves, excluding the inserted silence', normalization: 'two-pass loudnorm then downward pair gain matching' } };
     mkdirSync(keyDir, { recursive: true });
     writeFileSync(join(keyDir, `${date}.json`), JSON.stringify(key, null, 2) + '\n', { flag: 'wx' });
     console.log(`Pack: ${pack}\nZip: ${zip}\nKey: ${join(keyDir, `${date}.json`)}\nBase: ${base}\nHead: ${head}`);
