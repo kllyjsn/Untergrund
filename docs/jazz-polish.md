@@ -52,3 +52,26 @@ Seed 11's remaining 2968 Hz maximum is likewise predominantly accompaniment
 after treatment (only 1.09 dB lower with the lead muted). Seed 77's broad
 2–5 kHz level changes by about -1.2 dB, while 3.5–5 kHz changes by about
 -0.1 dB: the correction removes the narrow lines without discarding the air.
+
+## Recorded nylon batida
+
+Bossa's generated guitar ensembles now use nine actual fingerstyle nylon
+recordings from **Meta Nylon Guitar v1.0.0**, not an electric-guitar or synthetic
+approximation. The alternate piano ensemble and saved electric-guitar choices
+remain available. Existing voice numbers are unchanged; NYLON GTR is appended
+at 18 and exports as General MIDI nylon guitar.
+
+The versioned WAV release contains the CC0 1.0 Universal dedication, and the
+collection manifest explicitly says `CC0-1.0`. See
+[`samples/live/LICENSE.md`](../samples/live/LICENSE.md), the full
+[`CC0 text`](../samples/NYLON-LICENSE.txt), and the
+[`per-note provenance`](../samples/nylon-provenance.json).
+
+The imported MIDI 40/45/48/52/55/59/64/67/69 notes occupy **2,630,575 bytes**
+as mono 48 kHz / 24-bit FLAC. Finger takes with weak upper-register signal were
+excluded; the selected active-to-tail ratios are 44.8–56.3 dB. Their measured
+pitch offsets are corrected at playback. Only gain normalization and short
+edge fades were applied: no denoising, synthesis or timbral EQ is baked in.
+Two-millisecond finger spacing and short releases retain the batida articulation.
+Objective cleanliness and tuning were checked; subjective quality still needs
+the blind listening comparison.

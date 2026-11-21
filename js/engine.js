@@ -140,8 +140,8 @@ const WAKE_FLUSH = 0.024;
 const WAKE_FADE = 0.002;
 // Chord voices that sustain fill a breakdown on their own, so a smooth style only lifts the ones that decay.
 const HELD_CHORDS = new Set(['pad', 'organ', 'strings', 'cello']);
-export const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar', 'cello', 'clarinet'];
-const GRIPPED = new Set(['guitar', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar']);
+export const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar', 'cello', 'clarinet', 'nylon'];
+const GRIPPED = new Set(['guitar', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar', 'nylon']);
 // Soft-knee, slightly asymmetric clipping: even harmonics like a pushed preamp tube.
 const AMP_CURVE = (() => { const n = 2048, c = new Float32Array(n); for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; c[i] = Math.tanh(x * 2.2 + 0.18) - Math.tanh(0.18); } return c; })();
 // How each recorded instrument is played: level, DECAY->length, strum spread, register shift, held like a bow.
@@ -285,6 +285,7 @@ const BAND_PLAY = {
   drive: { set: 'gtr', amp: true, gain: 3.2, len: 3.4, min: 0.18, strum: 0.004, shift: 0, lo: 40, hi: 64, lp: 5200, soft: 1800, fade: 0.008, rel: 0.12, grip: true, even: 0.15 },
   // Steel-string acoustic: a wider strum, bright top, long ring; the boxy low mids of the close mic dipped.
   agtr: { gain: 4.2, len: 3.2, min: 0.7, strum: 0.011, shift: 0, lo: 40, hi: 76, lp: 7800, body: [280, 1.1, -4], soft: 0, finger: [1700, 0.6, 3.2], fade: 0.01, rel: 0.3, grip: true, even: 0.35 },
+  nylon: { gain: 2.2, len: 2.4, min: 0.25, strum: 0.002, shift: 0, lo: 40, hi: 76, lp: 10000, soft: 0, fade: 0.004, rel: 0.12, grip: true, even: 0.3 },
   // The archtop's magnetic pickup, neck position, tone rolled back: round, woody comping for soul and jazz chords.
   jazz: { gain: 9.5, len: 2.4, min: 0.5, softBelow: 0, strum: 0.005, shift: 0, lo: 43, hi: 72, lp: 3400, soft: 900, fade: 0.008, rel: 0.2, grip: true, even: 0.25 },
   // Six-string guitar banjo: a fast snappy strum that dies quickly, all top end.
@@ -2198,11 +2199,11 @@ export class Engine {
       return;
     }
     if (jazzStyle(this.state, this.playingPattern)) {
-      const name = vo === 13 ? 'jazz' : jazzStyle(this.state, this.playingPattern) === 'bossa' && vo === 8 ? 'gtr' : 'piano', set = this.rec(name);
+      const name = vo === 18 ? 'nylon' : vo === 13 ? 'jazz' : jazzStyle(this.state, this.playingPattern) === 'bossa' && vo === 8 ? 'gtr' : 'piano', set = this.rec(name);
       if (!set) { loadBand(name); return this.keys(t, v, iv, root, p, this.ch.stab.input); }
       const bossa = jazzStyle(this.state, this.playingPattern) === 'bossa';
-      const trim = bossa && vo === 7 ? JAZZ_MIX.bossa.pianoComp : bossa && vo === 8 ? JAZZ_MIX.bossa.guitarComp : JAZZ_MIX[jazzStyle(this.state, this.playingPattern)].comp;
-      for (const n of iv) this.recordedNote(set, t, v * 0.62 * dbGain(trim), root + n, pedal ? this.stepDur * 14.4 : p.decay * (bossa ? 1 : 1.7), this.ch.stab.band, -2, name, bossa ? v * 0.6 : v);
+      const trim = bossa && vo === 18 ? JAZZ_MIX.bossa.nylonComp : bossa && vo === 7 ? JAZZ_MIX.bossa.pianoComp : bossa && vo === 8 ? JAZZ_MIX.bossa.guitarComp : JAZZ_MIX[jazzStyle(this.state, this.playingPattern)].comp;
+      for (const [k, n] of iv.entries()) this.recordedNote(set, t + (name === 'nylon' ? k * 0.002 : 0), v * 0.62 * dbGain(trim), root + n, pedal ? this.stepDur * 14.4 : p.decay * (bossa ? 1 : 1.7), this.ch.stab.band, -2, name, bossa ? v * 0.6 : v);
       return;
     }
     if (this.playbackStyle === 'bailefunk') return this.funkStab(t, v, iv, root, p.decay, this.ch.stab.input);
@@ -3198,6 +3199,7 @@ export class Engine {
   }
   driveGuitar(...a) { return this.recorded('drive', 'pluck', ...a); }
   acoustic(...a) { return this.recorded('agtr', 'pluck', ...a); }
+  nylon(...a) { return this.recorded('nylon', 'pluck', ...a); }
   jazzGuitar(...a) { return this.recorded('jazz', 'keys', ...a); }
   banjo(...a) { return this.recorded('banjo', 'pluck', ...a); }
   twangGuitar(...a) { return this.recorded('gretsch', 'pluck', ...a); }
