@@ -1,9 +1,9 @@
-import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES, KIT_BACKBEAT, defaultParams } from './params.js';
+import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES, HAND_KIT, KIT_BACKBEAT, defaultParams } from './params.js';
 import { PALETTE_INSTRUMENTS, PALETTE_DEFAULTS, instrumentFor } from './palette-defaults.js';
 import { getSample, sungNote, SUNG_LEN, SUNG_VOWEL_COUNT } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
-import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, STAB_BAND, HOOK_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
+import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, loadHand, STAB_BAND, HOOK_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel, swingLate, swingDuration } from './groove.js';
 import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes, jazzNotches, JAZZ_MIX, BOSSA_RIM, BOSSA_BATIDA, bossaBass } from './jazz.js';
@@ -140,7 +140,7 @@ const WAKE_FLUSH = 0.024;
 const WAKE_FADE = 0.002;
 // Chord voices that sustain fill a breakdown on their own, so a smooth style only lifts the ones that decay.
 const HELD_CHORDS = new Set(['pad', 'organ', 'strings', 'cello']);
-export const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar', 'cello', 'clarinet', 'nylon'];
+export const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar', 'cello', 'clarinet', 'nylon', 'marimba'];
 const GRIPPED = new Set(['guitar', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar', 'nylon']);
 // Soft-knee, slightly asymmetric clipping: even harmonics like a pushed preamp tube.
 const AMP_CURVE = (() => { const n = 2048, c = new Float32Array(n); for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; c[i] = Math.tanh(x * 2.2 + 0.18) - Math.tanh(0.18); } return c; })();
@@ -275,6 +275,7 @@ export const MASTER_TONE = {
 };
 
 const BAND_PLAY = {
+  marimba: { gain: 1.35, len: 0.9, min: 0.15, max: 0.44, strum: 0.0015, shift: 0, lo: 48, hi: 84, lp: 7000, fade: 0.002, rel: 0.07, even: 0.35 },
   piano: { gain: 4, len: 4, min: 1.2, max: 3, pedal: 5, softBelow: 0.88, strum: 0.004, shift: 0, lo: 45, hi: 79, lp: 7000, rel: 0.18 },
   gtr: { gain: 4.4, len: 2.6, min: 0.6, softBelow: 0.75, strum: 0.006, shift: 0, lo: 40, hi: 74, lp: 2900, peak: [3600, 1.2, -6], soft: 1100, fade: 0.008, rel: 0.22, grip: true, even: 0.2 },
   horn: { gain: 2.2, len: 1.2, min: 0.25, strum: 0.003, shift: 12, lo: 53, hi: 81, lp: 4800, rel: 0.09 },
@@ -298,7 +299,7 @@ BAND_PLAY.twang = { ...BAND_PLAY.gtr, gain: 3, len: 1.4, min: 0.25, softBelow: 0
 // The rock band's riff guitar: the rhythm amp, double-stops up the neck.
 BAND_PLAY.lead = { ...BAND_PLAY.drive, lo: 45, hi: 79, grip: false, even: 0.4, gain: 2.2, lp: 4400, soft: 1600, vib: 8, rel: 0.16, oct: -1, dyad: true };
 // The pitch a non-gripped recorded chord voice sounds: shifted and kept in the register its samples were played in.
-const REC_KIND = { piano: 'piano', horns: 'horn', strings: 'str', cello: 'cello', clarinet: 'cl' };
+const REC_KIND = { piano: 'piano', horns: 'horn', strings: 'str', cello: 'cello', clarinet: 'cl', marimba: 'marimba' };
 export function soundingPitch(voice, m) {
   const R = BAND_PLAY[REC_KIND[voice]];
   if (!R) return m;
@@ -1956,10 +1957,16 @@ export class Engine {
   }
 
   perc(t, v) {
-    if (this.playbackStyle === 'bailefunk') return this.funkDrum('perc', t, v);
     const c = this.ctx, p = this.state.params.perc, out = this.ch.perc.input;
+    let vo = Math.round(p.voice || 0);
+    if (vo >= HAND_KIT.amapiano && vo <= HAND_KIT.bailefunk) {
+      if (!(v > 0) || ![t, v].every(Number.isFinite)) return;
+      if (this.recordedHands(vo, t, v, p, out)) return;
+      if (vo === HAND_KIT.bailefunk) return this.funkDrum('perc', t, v);
+      vo = vo === HAND_KIT.amapiano ? 3 : vo === HAND_KIT.reggaeton ? 2 : 1;
+    }
+    if (this.playbackStyle === 'bailefunk') return this.funkDrum('perc', t, v);
     if (this.hardTechno) this.hardPalette(t, v, [p.tune * 2], p.decay, out, 'metal');
-    const vo = Math.round(p.voice || 0);
     if (vo > 0) return this[['', 'hand', 'hand', 'shaker', 'clave'][vo]](t, v, p, out, vo === 2);
     const o = c.createOscillator(); o.type = 'sine';
     const f = p.tune;
@@ -1990,6 +1997,43 @@ export class Engine {
       this.adEnv(ng.gain, t, v * p.noise * 0.9, 0.0008, 0.035);
       n.connect(bp).connect(ng).connect(out);
     }
+  }
+
+  recordedHands(kit, t, v, p, out) {
+    const step = this.step ?? 0, bar = Math.floor(step / 16), beat = step % 16;
+    const row = this.playingPattern?.steps?.perc, len = this.playingPattern?.len?.perc || 16;
+    const cell = step % len;
+    const hit = row?.slice(0, cell).filter(Boolean).length ?? beat;
+    // Each kit plays the written rhythm; only the articulation changes from hit to hit.
+    let name, group = 0, ref, gain, gate, lp;
+    if (kit === HAND_KIT.amapiano) {
+      const open = row?.[cell] === 2;
+      [name, ref, gain, gate, lp] = open ? ['conga', 320, 0.49, 0.14, 5700] : ['shaker', 320, 0.31, 0.09, 10500];
+      group = open ? 2 : 0;
+    } else if (kit === HAND_KIT.afrobeats) {
+      [name, ref, gain, gate, lp] = [
+        ['conga', 240, 0.72, 0.17, 6100], ['shaker', 240, 0.38, 0.12, 11400],
+        ['cowbell', 240, 0.55, 0.15, 6500], ['conga', 240, 0.62, 0.13, 5400],
+        ['shaker', 240, 0.40, 0.12, 11400],
+      ][hit % 5];
+      group = hit % 5 === 0 ? 2 : 0;
+    } else if (kit === HAND_KIT.reggaeton) {
+      [name, ref, gain, gate, lp] = hit % 3 === 1 ? ['conga', 260, 0.64, 0.15, 5200] : ['timbale', 260, 0.65, 0.15, 7400];
+      group = name === 'conga' ? 2 : hit % 3 === 0 ? 0 : bar % 2 ? 4 : 2;
+    } else {
+      const answer = funkHand(step) === 2;
+      [name, ref, gain, gate, lp] = answer ? ['cuica', 220, 0.72, 0.17, 6700] : ['timbale', 220, 0.70, 0.13, 6800];
+      group = answer ? 0 : 2;
+    }
+    const takes = this.rec(name);
+    if (!takes) { loadHand(name); return false; }
+    const count = name === 'shaker' ? takes.length : 2;
+    const variation = hash(step, 59);
+    const take = takes[group + Math.floor(variation * count)];
+    const rate = Math.max(0.65, Math.min(1.55, p.tune / ref)) * (0.985 + 0.03 * hash(step, 62));
+    const dur = gate * Math.max(0.45, Math.min(2, p.decay / (kit === HAND_KIT.amapiano ? 0.09 : kit === HAND_KIT.afrobeats ? 0.2 : kit === HAND_KIT.reggaeton ? 0.15 : 0.18)));
+    this.playBuf(take, t, v * gain, out, rate, dur, { lp, fade: 0.001, release: 0.025, ringOut: true });
+    return true;
   }
 
   hardPalette(t, v, frequencies, dur, out, kind) {
@@ -3247,6 +3291,7 @@ export class Engine {
   strings(...a) { return this.recorded('str', 'pad', ...a); }
   cello(...a) { return this.recorded('cello', 'pad', ...a); }
   clarinet(...a) { return this.recorded('cl', 'keys', ...a); }
+  marimba(...a) { return this.recorded('marimba', 'pluck', ...a); }
 
   brass(t, v, iv, root, p, out) {
     const c = this.ctx, gate = Math.max(0.08, p.decay * 0.8), end = t + gate + 0.4;
@@ -3624,6 +3669,15 @@ export class Engine {
       if (harp) return this.harpHook(harp, t, v, 60 + k + oct * 12 + n, dur);
       loadBand('harp');
       voice = 'softmallet';
+    }
+    if (voice === 'marimba') {
+      const set = this.rec('marimba');
+      if (set) {
+        const out = this.hookBus || this.ch.stab.input;
+        return this.recordedNote(set, t, v * 1.55, 60 + k + oct * 12 + n, Math.max(0.11, dur * 1.2), out, 0, 'marimba', v);
+      }
+      loadBand('marimba');
+      voice = 'mallet';
     }
     if (voice === 'chop') {
       const vc = getChops();
