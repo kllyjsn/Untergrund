@@ -46,7 +46,7 @@ function hitDb(d) {
 }
 const rmsDb = (d, a, b) => { let e = 0; for (let i = a; i < b; i++) e += d[i] * d[i]; return 10 * Math.log10(e / Math.max(1, b - a) + 1e-20); };
 
-for (const style of ['euphoric']) {
+for (const style of ['euphoric', 'deephouse']) {
   const { paletteFor, paletteColor, soundingPitch } = await import('../js/engine.js');
   const voices = new Set();
   for (const seed of [11, 20, 42, 73, 211, 997, 1234, 2026]) {
