@@ -53,9 +53,10 @@ assert(truePeak([q, sine(997, -1, 2)]) >= 10 ** (-1 / 20) - 1e-6, 'true peak tak
 console.log('loudness meter: BS.1770 / EBU 3341 cases pass');
 
 // Every style has a target and a sane make-up gain.
+const feedStyle = (style) => [LOUDNESS_TARGET.feed, LOUDNESS_TARGET.transient].includes(targetFor(style));
 for (const id of Object.keys(STYLES)) {
-  assert([LOUDNESS_TARGET.feed, LOUDNESS_TARGET.quiet, LOUDNESS_TARGET.classical].includes(targetFor(id)), `${id} target`);
-  const expected = ['ambient', 'rnb', 'lofihiphop', 'swing', 'modal', 'bossa'].includes(id) ? -14 : ['symphony', 'concerto', 'nocturne', 'repertoire'].includes(id) ? -16 : -12;
+  assert([LOUDNESS_TARGET.feed, LOUDNESS_TARGET.transient, LOUDNESS_TARGET.quiet, LOUDNESS_TARGET.classical].includes(targetFor(id)), `${id} target`);
+  const expected = ['jazzfunk', 'hardtechno'].includes(id) ? -13 : ['ambient', 'rnb', 'lofihiphop', 'swing', 'modal', 'bossa'].includes(id) ? -14 : ['symphony', 'concerto', 'nocturne', 'repertoire'].includes(id) ? -16 : -12;
   assert.equal(targetFor(id), expected, `${id} feed target`);
   assert(Math.abs(MAKEUP_DB[id] ?? 0) <= 18, `${id} make-up gain`);
 }
@@ -68,8 +69,8 @@ const SEED_TOLERANCE = { breaks: 1.6, hyperpop: 3 };
 for (const id of Object.keys(STYLES)) {
   const b = base.styles[id];
   assert(b, `${id} is in test/loudness-baseline.json (run node scripts/loudness.mjs --write)`);
-  close(b.lufs, targetFor(id), targetFor(id) === LOUDNESS_TARGET.feed ? 0.3 : 1, `${id} full-song loudness in the baseline`);
-  if (targetFor(id) === LOUDNESS_TARGET.feed) {
+  close(b.lufs, targetFor(id), feedStyle(id) ? 0.3 : 1, `${id} full-song loudness in the baseline`);
+  if (feedStyle(id)) {
     assert.equal(b.measurements?.length, 3, `${id} has three calibration seeds`);
     for (const r of b.measurements) close(r.lufs, targetFor(id), SEED_TOLERANCE[id] ?? 1.5, `${id}/${r.seed} full-song loudness in the baseline`);
   }
@@ -113,7 +114,7 @@ if (!now) console.log('loudness: no Chrome found, genre check skipped');
 else {
   const bad = [];
   for (const [id, w] of Object.entries(now.styles)) {
-    const b = base.styles[id], reference = targetFor(id) === LOUDNESS_TARGET.feed ? b.measurements?.find((r) => r.seed === 42)?.lufs ?? b.lufs : b.lufs;
+    const b = base.styles[id], reference = feedStyle(id) ? b.measurements?.find((r) => r.seed === 42)?.lufs ?? b.lufs : b.lufs;
     const pred = reference + (w - b.window), t = targetFor(id);
     if (Math.abs(pred - t) > (SEED_TOLERANCE[id] ?? 1.5)) bad.push(`${id}: ~${pred.toFixed(1)} LUFS (target ${t}, window ${w.toFixed(2)} vs ${b.window.toFixed(2)})`);
   }
