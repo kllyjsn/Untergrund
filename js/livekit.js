@@ -11,6 +11,11 @@ export const LIVE_KIT = {
 // Centers are the measured pitch of each recording (python3 test/sampletune.py), not its name: the Eb1 take
 // was played about a quarter tone flat and Bb1 a tenth of a semitone flat, which left A1/B1 sour against the band.
 export const BASS_NOTES = [['c1', 23.91], ['eb1', 26.76], ['g1', 31.04], ['bb1', 33.9], ['d2', 38.07], ['f2', 41.03], ['a2', 44.99], ['c3', 48.05]];
+// Boom Bap chops the attack before the note settles. MIDI centers for takes A and B over 45–215 ms.
+export const BOOMBAP_BASS_CENTERS = {
+  c1: [23.969, 23.939], eb1: [26.602, 26.639], g1: [30.971, 31.033], bb1: [34.133, 34.103],
+  d2: [38.121, 38.178], f2: [41.104, 41.103], a2: [45.212, 45.182], c3: [48.019, 48.08],
+};
 // Measured head pitch of the recorded snare (Hz): it rings F#3 -33 c whatever the song's key. The kick is left alone:
 // its modes are inharmonic, so moving its 83 Hz peak onto the key put more of it off the grid, not less.
 export const KIT_PITCH = { snare: 181.4 };

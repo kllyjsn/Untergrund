@@ -124,6 +124,7 @@ for (const [style, hook, bass, snare, clap] of [
     assert.equal(g.pattern.hook.v, hook);
     assert(g.pattern.hook.s.slice(0, 16).some(Boolean) && g.pattern.hook.s.slice(16).some(Boolean));
     assert(bass.includes(g.params.acid.voice));
+    if (style === 'phonk') assert.deepEqual(['ch', 'oh', 'perc'].map((id) => g.params[id].pan), [-0.3, 0.3, 0.3]);
     const hits = (track) => g.pattern.steps[track].flatMap((v, i) => v ? [i] : []);
     assert.deepEqual(hits('snare'), snare);
     assert.deepEqual(hits('clap'), clap);
