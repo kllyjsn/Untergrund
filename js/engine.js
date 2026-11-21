@@ -948,8 +948,6 @@ export class Engine {
     this.setTo(this.glue.attack, this.hardTechno ? 0.035 : 0.015, true);
     this.setTo(this.limiter.threshold, this.hardTechno ? -3 : -6, true);
     this.setTo(this.limiter.knee, this.hardTechno ? 1 : 3, true);
-    const clipTrim = this.playbackStyle === 'neosoul' ? dbGain(-2.5) : this.playbackStyle === 'jazzfunk' ? dbGain(-1.5) : 1;
-    this.setTo(this.limTrim.gain, clipTrim * (this.hardTechno ? 1 : LIM_TRIM) / CLIP_HEADROOM, true);
     this.applyOutputTrim(true);
     this.applyTone();
     this.applyPaletteWidth();
@@ -972,8 +970,12 @@ export class Engine {
       this.festivalGate.gain.cancelScheduledValues(this.ctx.currentTime);
       this.festivalGate.gain.setValueAtTime(1, this.ctx.currentTime);
     }
-    const mix = JAZZ_MIX[jazzStyle(this.state, this.playingPattern)];
-    const trim = this.playbackStyle === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : jazzStyle(this.state, this.playingPattern) === 'bossa' ? voice === 7 ? mix.pianoOutput : voice === 8 ? mix.guitarOutput : mix.output : mix?.output ?? STYLE_OUTPUT_DB[this.playbackStyle] ?? 0;
+    const jazz = jazzStyle(this.state, this.playingPattern), mix = JAZZ_MIX[jazz];
+    const clipTrim = this.playbackStyle === 'neosoul' ? dbGain(-2.5) : jazz === 'jazzfunk' ? dbGain(-1.5) : 1;
+    const clipLevel = clipTrim * (this.hardTechno ? 1 : LIM_TRIM) / CLIP_HEADROOM;
+    if (Number.isFinite(time)) this.limTrim.gain.setValueAtTime(clipLevel, time);
+    else this.setTo(this.limTrim.gain, clipLevel, immediate);
+    const trim = this.playbackStyle === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : jazz === 'bossa' ? voice === 7 ? mix.pianoOutput : voice === 8 ? mix.guitarOutput : mix.output : mix?.output ?? STYLE_OUTPUT_DB[this.playbackStyle] ?? 0;
     const level = this.hardTechno ? 0.89 : OUT_TRIM * dbGain(trim);
     if (Number.isFinite(time)) this.out.gain.setValueAtTime(level, time);
     else this.setTo(this.out.gain, level, immediate);
