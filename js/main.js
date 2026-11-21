@@ -1069,7 +1069,7 @@ function timelineHooks(asGuest, replayStats = null, switchAt = null) {
     apply: (s, st) => {
       replaySeed = Number.isFinite(s.seed) ? s.seed : undefined;
       if (STYLES[st]) replay808Style = style = st;
-      const next = sanitize({ ...clone(state), ...s });
+      const next = sanitize({ ...clone(state), ...s, chainEntries: s.chainEntries });
       // The DJ generated a new song: the replay hands off on a downbeat too, from the new song's bar 1.
       const newSong = next.chain !== state.chain && JSON.stringify(next.patterns[0]) !== JSON.stringify(state.patterns[0]);
       if (playing && seq && newSong && !pat().score && !next.patterns.some((q) => q.score)) {
