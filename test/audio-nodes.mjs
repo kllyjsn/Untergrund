@@ -116,7 +116,8 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
   const setup = start.slice(start.lastIndexOf('  engine.replay808Style ='));
   for (const switchAt of [null, 2]) {
     const engine = { applyAll() { this.applied = this.replay808Style; } };
-    runInNewContext(setup, { engine, replay808Style: 'euphoric', switchAt });
+    runInNewContext(setup, { engine, replay808Style: 'euphoric', replaySeed: 8, switchAt });
+    assert.equal(engine.replaySeed, 8, 'replay start applies the recorded seed');
     assert.equal(engine.applied, switchAt === null ? 'euphoric' : undefined, 'replay start applies the recorded mix, while scheduled starts keep their handoff automation');
   }
   console.log('Club replay Euphoric mix follows recorded genre, not listener genre');
@@ -169,6 +170,23 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
   e.replay808Style = 'trap'; seq.advanceBar(32, 4);
   assert(seq.festivalPlan.length > 0, 'recorded Trap re-enables builds without changing the project');
   console.log('Saved-set style changes invalidate festival build-plan cache');
+}
+{
+  const s = defaultState(); s.artist = { style: 'trap', seed: 42 };
+  s.chainOn = true; s.chain = 'AAAAAAADGGGGGGGH'; s.params.stab.voice = 2;
+  const e = new Engine(fakeCtx(), s, { realtime: false }), seq = new Sequencer(e, s);
+  e.replaySeed = 0; seq.advanceBar(0, 0);
+  const key = seq.festivalKey, plan = seq.festivalPlan;
+  s.artist.seed = 211; seq.advanceBar(16, 2);
+  assert.equal(e.playbackSeed, 0);
+  assert.equal(seq.festivalKey, key, 'listener seed changes do not invalidate the recorded plan');
+  assert.equal(seq.festivalPlan, plan);
+  e.replaySeed = 1234; seq.advanceBar(32, 4);
+  assert.notEqual(seq.festivalKey, key, 'a recorded seed change invalidates the plan');
+  assert.notDeepEqual(seq.festivalPlan, plan);
+  e.replaySeed = undefined;
+  assert.equal(e.playbackSeed, 211, 'legacy replay and live generation fall back to the project seed');
+  console.log('Festival plan cache follows recorded seed, including zero, and clears to listener fallback');
 }
 {
   for (const [from, to] of [['euphoric', 'hypnotic'], ['hypnotic', 'euphoric']]) {

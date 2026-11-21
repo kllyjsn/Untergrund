@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { generate, defaultState, clone, sanitize } from '../js/state.js';
+import { readFile } from 'node:fs/promises';
+import { runInNewContext } from 'node:vm';
+import { generate, defaultState, clone, sanitize, STYLES } from '../js/state.js';
 import { createTimelineRecorder, stateAt, trimTimeline, createReplayer, normalizeTimeline, diffOps, applyOps, stepAt, compactTimeline, liveView, MAX_TIMELINE_BYTES } from '../js/set-timeline.js';
 import { startLiveSet, endLiveSet, playTimeline, stopTimeline } from '../js/live-sets.js';
 
@@ -29,6 +31,55 @@ const a = defaultState(), b = clone(a);
 b.params.kick.level = 0.3; b.mutes.clap = true; b.patterns[2].steps.ch[3] = 1; delete b.solos;
 assert.deepEqual(applyOps(clone(a), diffOps(a, b)), b);
 assert.equal(diffOps(a, clone(a)).length, 0);
+{
+  const state = defaultState(); state.artist = { style: 'trap', seed: 0 };
+  const rec = createTimelineRecorder({ state, style: 'trap', startsAt: 0 });
+  state.artist.seed = 1234; rec.capture(state, 'trap', 1000);
+  delete state.artist.seed; rec.capture(state, 'trap', 2000);
+  const saved = normalizeTimeline(rec.finish(15000));
+  assert.equal(stateAt(saved, 0).state.seed, 0, 'zero is a recorded seed');
+  assert.equal(stateAt(saved, 1500).state.seed, 1234, 'song changes record the new seed');
+  assert.equal(stateAt(saved, 2500).state.seed, undefined, 'missing seed clears the replay override');
+  assert.equal(stateAt(trimTimeline(saved, 1200, 1800), 0).state.seed, 1234, 'trimming keeps the seed at the cut');
+  const applied = [];
+  const rep = createReplayer(saved, { startsAt: 0, apply: s => applied.push(s.seed) });
+  rep.tick(0); rep.tick(1500); rep.tick(2500);
+  assert.deepEqual(applied, [1234, undefined]);
+  const compacted = compactTimeline(saved, 1);
+  assert.equal(stateAt(compacted, 2500).state.seed, undefined);
+  const invalid = normalizeTimeline({ ...saved, initial: { ...saved.initial, seed: '8' }, events: [{ t: 100, ops: [
+    [['seed'], null], [['seed'], '8'], [['seed', 'x'], 8], [['seed'], {}], [['seed'], 8],
+  ] }] });
+  assert.equal(invalid.initial.seed, undefined);
+  assert.deepEqual(invalid.events[0].ops, [[['seed'], 8]]);
+  assert.equal(stateAt(normalizeTimeline({ ...saved, initial: liveView(defaultState()), events: [] }), 0).state.seed, undefined, 'old timelines stay seedless');
+  console.log('Timeline seeds passed: record/update/remove, normalize, trim, compact, replay and legacy/invalid values');
+}
+{
+  const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+  const source = main.slice(main.indexOf('function timelineHooks('), main.indexOf('\nfunction replayToRoom('));
+  const env = { state: { ...defaultState(), artist: { style: 'trap', seed: 211 } }, style: 'trap', STYLES, sanitize, clone,
+    playing: false, engine: { applyAll() {} }, seq: {}, guest: null, build() {}, persist() {}, pat: () => ({}) };
+  let played, queued;
+  env.replaceState = s => { env.state = s; };
+  env.play = opts => { played = opts; };
+  env.queueSong = plan => { queued = plan; };
+  runInNewContext(`${source}; hooks = timelineHooks(false);`, env);
+  env.hooks.load({ ...defaultState(), seed: 8 }, 'trap');
+  env.hooks.play({});
+  assert.equal(played.replaySeed, 8, 'timeline load forwards seed to replay start');
+  assert.equal(env.state.artist.seed, 211, 'loading keeps listener artist metadata');
+  env.hooks.apply({ seed: 0 }, 'trap');
+  assert.equal(env.engine.replaySeed, 0, 'immediate timeline events forward zero seed');
+  env.hooks.apply({}, 'trap');
+  assert.equal(env.engine.replaySeed, undefined, 'legacy timeline clears the previous override');
+  env.playing = true;
+  const next = clone(env.state); next.seed = 1234; next.chain = 'GGGG';
+  next.patterns[0].steps.kick[0] = next.patterns[0].steps.kick[0] ? 0 : 1;
+  env.hooks.apply(next, 'trap');
+  assert.equal(queued.replaySeed, 1234, 'downbeat song handoffs carry the incoming recorded seed');
+  console.log('Timeline loading forwards recorded seed through start, immediate changes and queued song handoffs without mutating listener metadata');
+}
 
 // recorder -> stateAt reproduces the live state at every checkpoint
 const { timeline, truth } = performSet(7);

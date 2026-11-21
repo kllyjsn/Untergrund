@@ -4,7 +4,7 @@ import { songPlan, generate, STYLES } from '../js/state.js';
 import { buildSong, playSong } from '../scripts/composition.mjs';
 import { capture } from '../js/midi.js';
 import { Engine } from '../js/engine.js';
-import { createTimelineRecorder, stateAt } from '../js/set-timeline.js';
+import { createTimelineRecorder, stateAt, normalizeTimeline } from '../js/set-timeline.js';
 
 for (const seed of [8, 1234, 3, 20, 4, 42, 211, 11]) {
   const voice = generate('trap', seed).params.stab.voice;
@@ -70,6 +70,23 @@ for (const seed of [8, 1234]) {
   assert.equal(log.filter(x => x.k === 'festivalGap').length, seq.festivalPlan.length);
 }
 console.log('Saved-set festival gates follow recorded style: Baile Funk has no builds/gaps or extra kick/808 withdrawal; festival Trap still builds');
+{
+  const recorded = buildSong('trap', 8); recorded.artist = { style: 'trap', seed: 8 };
+  const timeline = normalizeTimeline(createTimelineRecorder({ state: recorded, style: 'trap', startsAt: 0 }).finish(15000));
+  const at = stateAt(timeline, 0);
+  const expected = festivalBuilds(recorded.chain, 'trap', recorded.params.stab.voice, 8);
+  assert.deepEqual(playSong(recorded).seq.festivalPlan, expected, 'live generation keeps its existing seeded plan');
+  for (const listener of [42, 211]) {
+    const s = { ...at.state, artist: { style: 'trap', seed: listener } };
+    assert.deepEqual(playSong(s, at.style, at.state.seed).seq.festivalPlan, expected, 'listeners share the recorded seed plan');
+    const legacy = structuredClone(timeline); delete legacy.initial.seed;
+    const old = stateAt(normalizeTimeline(legacy), 0);
+    assert.deepEqual(playSong(s, old.style, old.state.seed).seq.festivalPlan,
+      festivalBuilds(recorded.chain, 'trap', recorded.params.stab.voice, listener), 'old sets retain listener-seed fallback');
+    assert.equal(s.artist.seed, listener, 'replay does not replace listener metadata');
+  }
+  console.log('Saved-set festival seeds passed: two listeners match recorded plan, live generation unchanged, old sets retain listener-seed fallback');
+}
 for (const style of Object.keys(STYLES).filter(x => x !== 'trap')) {
   for (const voice of [0, 2, 7]) assert.deepEqual(festivalBuilds('AAAAAAADGGGGGGGH', style, voice, 8), []);
 }

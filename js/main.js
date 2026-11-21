@@ -438,6 +438,7 @@ function landSong(t) {
   for (const k of Object.keys(state)) if (!(k in plan.next)) delete state[k];
   Object.assign(state, plan.next);
   engine.replay808Style = plan.replay808Style;
+  engine.replaySeed = plan.replaySeed;
   transportOrigin = reanchor(transportOrigin, abs, fromBpm, state.bpm);
   const chain = state.chainOn ? parseChain(state.chain) : [];
   state.current = chain.length ? chain[0] : state.current;
@@ -478,7 +479,7 @@ function endTuning() {
   document.body.classList.remove('tuning');
 }
 
-function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room = startsAt !== null || roomPlayback, editRoom = roomEditor, replayStats = null, replay808Style = engine?.replay808Style, switchAt = null } = {}) {
+function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room = startsAt !== null || roomPlayback, editRoom = roomEditor, replayStats = null, replay808Style = engine?.replay808Style, replaySeed = engine?.replaySeed, switchAt = null } = {}) {
   const seeking = playing && switchAt === null;
   if (switchAt === null) cancelRoomPrime();
   else if (mediaRoute && roomPlayback) roomMediaSync.cancel(switchAt);
@@ -488,6 +489,7 @@ function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room 
   closePractice();
   ensureAudio();
   engine.replay808Style = replay808Style;
+  engine.replaySeed = replaySeed;
   if (switchAt === null && replay808Style != null) engine.applyAll();
   engine.prepareVocal();
   engine.roomSlewRate = 1;
@@ -560,7 +562,7 @@ function stop(playbackOutcome = 'stop') {
   listens.end(listenPos(), { finished: songOver });
   clearPaused();
   endTuning();
-  if (engine) { engine.recLock = null; engine.replay808Style = undefined; }
+  if (engine) { engine.recLock = null; engine.replay808Style = undefined; engine.replaySeed = undefined; }
   clearTimeout(roomJoinTimer);
   roomJoinTimer = 0;
   playing = false;
@@ -1032,10 +1034,10 @@ function showJukebox() {
 
 // Saved Club sets replay from their timeline; `asGuest` (jukebox) keeps the listener's own project safe.
 function timelineHooks(asGuest, replayStats = null, switchAt = null) {
-  // The timeline carries a genre but not the seed needed by other genre-specific processing.
-  let replay808Style;
+  let replay808Style, replaySeed;
   return {
     load: (s, st) => {
+      replaySeed = Number.isFinite(s.seed) ? s.seed : undefined;
       if (asGuest && !guest) guest = { backup: clone(state), style };
       songOrigin = { src: asGuest ? 'jukebox' : 'room' };
       if (STYLES[st]) replay808Style = style = st;
@@ -1052,6 +1054,7 @@ function timelineHooks(asGuest, replayStats = null, switchAt = null) {
         state = next;
         engine.state = seq.s = state;
         engine.replay808Style = replay808Style;
+        engine.replaySeed = replaySeed;
         engine.handoffIn(switchAt);
         return;
       }
@@ -1061,23 +1064,24 @@ function timelineHooks(asGuest, replayStats = null, switchAt = null) {
       build();
     },
     apply: (s, st) => {
+      replaySeed = Number.isFinite(s.seed) ? s.seed : undefined;
       if (STYLES[st]) replay808Style = style = st;
       const next = sanitize({ ...clone(state), ...s });
       // The DJ generated a new song: the replay hands off on a downbeat too, from the new song's bar 1.
       const newSong = next.chain !== state.chain && JSON.stringify(next.patterns[0]) !== JSON.stringify(state.patterns[0]);
       if (playing && seq && newSong && !pat().score && !next.patterns.some((q) => q.score)) {
         next.artist = state.artist;
-        return queueSong({ next, replay808Style, quiet: true, origin: { src: asGuest ? 'jukebox' : 'room' }, finish: () => { build(); if (!guest) persist(); } });
+        return queueSong({ next, replay808Style, replaySeed, quiet: true, origin: { src: asGuest ? 'jukebox' : 'room' }, finish: () => { build(); if (!guest) persist(); } });
       }
       if (playing && next.bpm !== state.bpm) transportOrigin = Date.now() - ((Date.now() - transportOrigin) / (15000 / state.bpm)) * (15000 / next.bpm);
       const want = next.current;
       next.current = state.current;
       state = next;
-      if (engine) { engine.state = state; seq.s = state; engine.replay808Style = replay808Style; engine.applyAll(); }
+      if (engine) { engine.state = state; seq.s = state; engine.replay808Style = replay808Style; engine.replaySeed = replaySeed; engine.applyAll(); }
       if (seq && !state.chainOn && want !== seq.cur) seq.queued = want;
       build(); if (!guest) persist();
     },
-    play: (opts) => play({ ...opts, room: !asGuest, editRoom: false, replayStats, replay808Style, switchAt }), isPlaying: () => playing, onEnd: () => playing && stop('complete'),
+    play: (opts) => play({ ...opts, room: !asGuest, editRoom: false, replayStats, replay808Style, replaySeed, switchAt }), isPlaying: () => playing, onEnd: () => playing && stop('complete'),
   };
 }
 function replayToRoom(timeline, startsAt, item) {
