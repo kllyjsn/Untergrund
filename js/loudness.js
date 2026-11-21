@@ -104,7 +104,7 @@ export const MAKEUP_DB = {
   bossa: 8.8,
   swing: 11.5, modal: 9.5,
   hypnotic: 1.1, industrial: -0.1, acid: 2.2, dub: 1.9, peak: 1.2, hardtechno: 2.6, deephouse: 2.15, minimal: 4.7,
-  ukg: 1.6, euphoric: 0.7, neosoul: 3.8, boombap: 3.7, breaks: 3.15, electro: 1.7, dnb: 1.75, trance: 1.4,
+  ukg: 1.6, euphoric: 0.7, neosoul: 5.8, boombap: 3.7, breaks: 3.15, electro: 1.7, dnb: 1.75, trance: 1.4,
   ambient: 2.4, amapiano: 1.5, afrobeats: 0.8, reggaeton: 1.8, bailefunk: 2.5, trap: 1.4, drill: 3.3,
   jerseyclub: 1.5, hyperpop: 0.5, symphony: 6.5, concerto: 5.3, nocturne: 11.9, repertoire: 3.6,
   pop: 3.2, rnb: 4.4, rock: 2.8, folk: 3.9, country: 1.6,

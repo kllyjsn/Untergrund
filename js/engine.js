@@ -568,7 +568,7 @@ const CLIP_HEADROOM = 2;
 const OUT_TRIM = 0.78;
 // Post-clipper headroom for Trap's saw, pad, and bells ensembles; leave their transients intact.
 const TRAP_OUTPUT_DB = { 0: -0.8, 2: -0.3, 6: -0.3 };
-const STYLE_OUTPUT_DB = { gfunk: -0.8, phonk: -0.8, electrohiphop: -0.5, euphoric: 0.7 };
+const STYLE_OUTPUT_DB = { gfunk: -0.8, phonk: -0.8, electrohiphop: -0.5, euphoric: 0.7, neosoul: 0.6 };
 
 // Six band-limited squares (808 cymbal cluster) summed once into a seamless 0.5 s loop.
 // Each square is read from a one-period wavetable; a small LRU bounds memory as tunings change.
