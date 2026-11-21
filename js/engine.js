@@ -40,7 +40,7 @@ const GENRE_PALETTES = {
       2: { ...DEEP_CHORD, level: 1.5, attack: 0.025, release: 0.6, fm: 0.28, cutoff: 1450, presence: 'pad' },
     },
     hook: { ...DEEP_CHORD, level: 0.4, attack: 0.012, release: 0.12, cutoff: 1800, spread: 1.5, width: 0.16, fm: 0.45, presence: false, eq: [], transpose: 24, range: [79, 91] },
-    bass: { type: 'round', wave: 'sine', fm: 0.65, level: 1, sub: 0.72, body: 0.8, cutoff: 460, decay: 0.11, sustain: 0.55, length: 0.88, balance: true },
+    bass: { type: 'round', wave: 'sine', fm: 0.65, level: 1, sub: 0.72, body: 0.8, cutoff: 460, decay: 0.11, sustain: 0.55, length: 0.88, balance: true, lowBand: { cutoff: 120, trim: -6, duck: 6 } },
   },
   euphoric: {
     name: 'uplift',
@@ -1164,10 +1164,10 @@ export class Engine {
       for (const p of [...freqs, ...waves, ...detunes, tone?.gain, lp.frequency, lp.Q]) p?.cancelScheduledValues(now);
     }
     this.acidRelease(now);
-    for (const p of [this.duck.gain, this.rumbleDuck.gain, this.ch.acid.sc?.gain, this.windDuck?.gain]) {
+    for (const p of [this.duck.gain, this.rumbleDuck.gain, this.ch.acid.sc?.gain, this.windDuck?.gain, this.pocketLow?.duck.gain]) {
       if (!p) continue;
       p.cancelScheduledValues(now);
-      p.setTargetAtTime(1, now, 0.01);
+      p.setTargetAtTime(p === this.pocketLow?.duck.gain ? 0 : 1, now, 0.01);
     }
   }
 
@@ -1205,6 +1205,11 @@ export class Engine {
     else if (L && sc) parts.push([sc, L.dip * (color?.duckScale ?? 1) * Math.min(1, v * 1.2), L.rel * (color?.recoveryScale ?? 1), 0.002, 0.012]);
     // Keep the wind lead out of the glue compressor's way during a kick's attack.
     if (this.windDuck && !funk) parts.push([this.windDuck.gain, 0.62 * Math.min(1, v * 1.2), 0.045, 0.003, 0.035]);
+    const low = paletteFor(this.state, this.playbackStyle)?.bass.lowBand;
+    if (low) {
+      this.pocketBassOut(low);
+      parts.push([this.pocketLow.duck.gain, low.duck * Math.min(1, v * 1.25), 0.07, 0.002, 0.03, 0]);
+    }
     const duck = { t, parts };
     if (this.queuedNotes) {
       this.ducks = this.ducks.filter(d => d.t + 0.03 >= this.ctx.currentTime);
@@ -1215,17 +1220,17 @@ export class Engine {
   }
 
   scheduleDuck({ t, parts }) {
-    for (const [param, depth, release, attack, hold] of parts) {
+    for (const [param, depth, release, attack, hold, rest = 1] of parts) {
       param.cancelScheduledValues(t);
-      param.setTargetAtTime(1 - depth, t, attack);
-      param.setTargetAtTime(1, t + hold, release);
+      param.setTargetAtTime(rest - depth, t, attack);
+      param.setTargetAtTime(rest, t + hold, release);
     }
   }
 
   // Rebuild only future ducking; a hit already sounding keeps its current pump.
   rebuildDucks(from) {
     this.ducks.sort((a, b) => a.t - b.t);
-    for (const param of [this.duck.gain, this.rumbleDuck.gain, this.ch.acid.sc?.gain, this.windDuck?.gain]) {
+    for (const param of [this.duck.gain, this.rumbleDuck.gain, this.ch.acid.sc?.gain, this.windDuck?.gain, this.pocketLow?.duck.gain]) {
       if (!param) continue;
       param.cancelScheduledValues(from);
       let previous;
@@ -1234,8 +1239,8 @@ export class Engine {
         if (duck.parts.some(p => p[0] === param)) previous = duck;
       }
       if (previous) {
-        const [, , release, , hold] = previous.parts.find(p => p[0] === param);
-        if (previous.t + hold >= from) param.setTargetAtTime(1, previous.t + hold, release);
+        const [, , release, , hold, rest = 1] = previous.parts.find(p => p[0] === param);
+        if (previous.t + hold >= from) param.setTargetAtTime(rest, previous.t + hold, release);
       }
     }
     for (const duck of this.ducks) if (duck.t >= from) this.scheduleDuck(duck);
@@ -2337,6 +2342,17 @@ export class Engine {
     return gain;
   }
 
+  pocketBassOut(low) {
+    if (!low) return this.ch.acid.input;
+    if (!this.pocketLow) {
+      const input = this.filter('lowshelf', low.cutoff, Math.SQRT1_2), duck = this.filter('lowshelf', low.cutoff, Math.SQRT1_2);
+      input.gain.value = low.trim;
+      input.connect(duck).connect(this.ch.acid.input);
+      this.pocketLow = { input, duck };
+    }
+    return this.pocketLow.input;
+  }
+
   pocketBass(t, st, sd, holdNext, sliding, color) {
     const c = this.ctx, p = this.state.params.acid, f = midiHz(this.bassMidi(st)), subF = midiHz(this.bassMidi(st, 36, Math.round(p.voice) === 5 ? 43 : 38));
     const drive = p.drive - this.paletteReference().acid.drive, preamp = 2 ** (drive * 2);
@@ -2353,7 +2369,7 @@ export class Engine {
       shape.curve = Float32Array.from(wet, (y, i) => { const x = i / (wet.length - 1) * 2 - 1; return x + drive * (y - x); });
       lp.connect(shape).connect(amp);
     } else lp.connect(amp);
-    amp.connect(this.ch.acid.input);
+    amp.connect(this.pocketBassOut(color.lowBand));
     let depth;
     if (color.fm) {
       const mod = c.createOscillator(); depth = this.gain(0);

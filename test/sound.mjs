@@ -224,7 +224,7 @@ for (const listener of ['dnb', 'euphoric', 'deephouse']) {
 {
   const { paletteFor, paletteHookPitch, paletteColor } = await import('../js/engine.js');
   const s = freshSong('deephouse', 20); s.artist = { style: 'deephouse', seed: 20 };
-  const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false }), rec = new Recorder(s), played = [];
+  const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false, trackQueuedNotes: true }), rec = new Recorder(s), played = [];
   const start = e.startSource;
   e.startSource = function (source, ...args) {
     if (source.frequency) played.push(Math.round(69 + 12 * Math.log2(source.frequency.value / 440)));
@@ -247,6 +247,17 @@ for (const listener of ['dnb', 'euphoric', 'deephouse']) {
     assert.deepEqual(paletteColor(s).eq[0], [320, 0.8, -5], 'Rhodes and organ share the extra 3dB low-mid trim');
   }
   assert(paletteFor(s).bass.balance, 'the adaptive bass cap remains enabled');
+  assert.deepEqual(paletteFor(s).bass.lowBand, { cutoff: 120, trim: -6, duck: 6 });
+  assert.equal(e.pocketBassOut(), e.ch.acid.input, 'other pocket basses keep their existing route');
+  const lowOut = e.pocketBassOut(paletteFor(s).bass.lowBand), ducks = [];
+  assert.notEqual(lowOut, e.ch.acid.input);
+  assert.equal(e.pocketBassOut(paletteFor(s).bass.lowBand), lowOut, 'notes share one low-band sidechain');
+  const target = e.pocketLow.duck.gain.setTargetAtTime;
+  e.pocketLow.duck.gain.setTargetAtTime = function (...args) { ducks.push(args); return target.apply(this, args); };
+  e.duckAt(0.1, 1);
+  assert(ducks.some(([gain, t]) => t === 0.1 && gain === -6), 'a kick ducks only the low band by 6dB');
+  e.discardQueuedNotes(0.2);
+  assert(ducks.some(([gain, t]) => gain === 0 && t === 0.2), 'discarding notes releases the low-band sidechain');
 }
 {
   const { paletteFor } = await import('../js/engine.js');
