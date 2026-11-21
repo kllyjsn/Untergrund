@@ -9,6 +9,7 @@ import { parse, applyEdits, validateEdits, genreOf } from './describe.js';
 import { semiOf } from './motif.js';
 import { trackTitle } from './crate.js';
 import { rng } from './dsp.js';
+import { isJazz } from './jazz.js';
 
 export const ROLES = ['intro', 'build', 'verse', 'breakdown', 'drop', 'outro'];
 export const PARTS = ['kick', 'drums', 'hats', 'perc', 'bass', 'chords', 'hook', 'vox'];
@@ -181,7 +182,10 @@ export function realize(raw, seed = 1, opts = {}) {
   const { style, scale } = spec;
   const g = generate(style, seed, scale);
   const full = g.pattern;
-  if (spec.hook && full.hook) full.hook = contourHook(full.hook, spec.hook.contour, scale);
+  if (spec.hook && full.hook) {
+    full.hook = contourHook(full.hook, spec.hook.contour, scale);
+    if (isJazz(style)) full.hook.h = 1;
+  }
   const pats = arrangement(full, seed, spec.bpm >= 115);
   const sc = Math.round(g.params.stab?.chord ?? 1);
   const r = rng((seed ^ 0x51ed27) >>> 0);
@@ -192,10 +196,14 @@ export function realize(raw, seed = 1, opts = {}) {
     if (s.role === 'outro' || done.has(slot)) continue;
     done.add(slot);
     const prog = progOf(s.chords, scale, sc);
-    const twins = s.role === 'breakdown' ? [4, 5] : s.role === 'drop' ? [6, 7] : [slot];
+    const twins = s.role === 'breakdown' ? [4, 5] : s.role === 'drop' ? [6, 7] : s.role === 'verse' && isJazz(style) ? [2, 3] : [slot];
     for (const i of twins) {
-      if (prog) { pats[i].prog = clone(prog); progs[i] = prog; }
+      if (prog) {
+        pats[i].prog = clone(prog); progs[i] = prog;
+        if (isJazz(style)) pats[i].jazz.progBars = 1;
+      }
       voice(pats[i], s.instruments, full, s.energy, s.role, peak);
+      if (isJazz(style) && s.instruments) pats[i].hm = s.instruments.includes('hook') ? Math.max(1, pats[i].hm || 0) : 0;
       thinOut(pats[i], s.energy, r);
     }
     if (s.role === 'build' && prog) progs[1] = prog;
@@ -223,7 +231,7 @@ export function chainFor(sections, pats) {
     else if (s.role === 'outro') out += 'B'.repeat(n >> 1) + 'A'.repeat(n - (n >> 1));
     else if (s.role === 'verse') {
       const end = pats && !same(pats[2].prog, pats[3].prog) ? 'C' : 'D';
-      out += n >= 16 ? 'C'.repeat(7) + 'H' + 'C'.repeat(n - 9) + end : 'C'.repeat(n - 1) + end;
+      out += n >= 16 ? 'C'.repeat(7) + (pats?.[2]?.jazz ? 'D' : 'H') + 'C'.repeat(n - 9) + end : 'C'.repeat(n - 1) + end;
     }
     else if (s.role === 'drop') out += 'G'.repeat(n - 1) + (next?.role === 'drop' || next?.role === 'outro' || !next ? 'G' : 'H');
     else if (s.role === 'breakdown') {
@@ -265,6 +273,9 @@ const MOOD_CHORDS = {
   tense: { verse: ['i', 'VI', 'i', 'VII'], drop: ['i', 'VII', 'VI', 'V'], breakdown: ['VI', 'Vsus4'], hook: [0, 0, 3, 2, 0, -2] },
 };
 const GENRE_WORDS = [
+  [/\bjazz[ -]?funk\b|\bfusion\b|\bheadhunters\b|\bherbie\b|\bdonald byrd\b|\broy ayers\b/, 'jazzfunk'],
+  [/\bbossa\b|\bjobim\b|\bbrazilian jazz\b|\bsamba jazz\b/, 'bossa'],
+  [/\bmodal\b|\bcoltrane\b|\bmiles\b|\bkind of blue\b/, 'modal'], [/\bjazz\b|\bbebop\b|\bhard bop\b/, 'swing'],
   [/\blo[\s-]?fi\b|\bchillhop\b/, 'lofihiphop'], [/\bhouse\b/, 'deephouse'], [/\btechno\b/, 'hypnotic'], [/\bgarage\b|\b2-?step\b/, 'ukg'], [/\bjungle\b|\bliquid\b/, 'dnb'],
   [/\bsynthwave\b|\boutrun\b|\bretrowave\b/, 'electro'], [/\bchill(?:out)?\b|\bdowntempo\b/, 'ambient'], [/\bedm\b|\bbig\s+room\b/, 'euphoric'],
 ];

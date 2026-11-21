@@ -90,6 +90,18 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
     assert.ok(Math.abs(12 * Math.log2(rate) - [2.03, 0.05][i]) < 0.001, 'choose and tune the nearest recorded pitch');
     assert.ok(fx.ringOut, 'fade before the sample runs out');
   }
+  state.patterns[7].hook = { v: 'tpt' };
+  assert(liveSets(state).includes('tpt'), 'trumpet hooks preload their recording independently of chords');
+  await loadSets(['tpt']);
+  e.recLock = new Map();
+  const trumpetAt = hits.length;
+  hit('tpt');
+  const trumpet = hits[trumpetAt];
+  assert.equal(trumpet[5], 0.3 * 0.92);
+  assert(trumpet[2] < 0.5, 'trumpet gain is conservative');
+  assert(trumpet[6].fade >= 0.025, 'breath attack fades in');
+  assert.equal(trumpet[6].vib, 6, 'held trumpet gets light delayed vibrato');
+  assert(trumpet[6].ringOut, 'natural sample endings fade safely');
   for (const [voice, semitones] of [['oboe', 2.02], ['airflute', -0.02]]) {
     const i = hits.length;
     e.step = 32; hit(voice);

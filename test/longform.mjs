@@ -7,9 +7,11 @@ import { STYLES, SONG_STYLES, songPlan, sanitize } from '../js/state.js';
 import { realize, validateSpec, localSpec } from '../js/song-spec.js';
 import { planSections, formChain, formSeconds, developSong, developFinalDrop, LENGTHS, MAX_SONG_BARS } from '../js/longform.js';
 import { patternAt } from '../js/scope.js';
+import { isJazz } from '../js/jazz.js';
 import { buildSong, playSong, scoreSong, aggregateComposition, compositionRegressions, SEEDS, loopStyles, runComposition } from '../scripts/composition.mjs';
 
 const LETTERS = 'ABCDEFGH';
+const SECTION_STYLES = [...SONG_STYLES].filter((style) => !isJazz(style));
 const secs = (s) => (s.chain.length * 240) / s.bpm;
 // What plays at a bar: its pattern and which of that pattern's takes (if any) covers the bar.
 const sig = (s, pos) => {
@@ -63,7 +65,7 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
 // P2 section roles: songs keep verse/chorus/bridge with an intro and outro; the last chorus is the longest.
 {
   let inst = 0, n = 0;
-  for (const style of SONG_STYLES) for (const seed of SEEDS) {
+  for (const style of SECTION_STYLES) for (const seed of SEEDS) {
     const { sections: S } = songPlan(style, seed), k = S.map((x) => x[0]), count = (c) => k.filter((x) => x === c).length;
     assert.equal(k[0], 'i', `${style} opens on an intro`); assert.equal(k.at(-1), 'o', `${style} ends on an outro`);
     assert(count('v') >= 2 && count('c') >= 3 && count('b') === 1, `${style}/${seed} form ${k.join(' ')}`);
@@ -89,7 +91,7 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
 // P3 repetition with development: choruses keep the hook and chords, verse 2 and the last chorus add material,
 // the instrumental hands the lead line to the riff, and the rendered last chorus is the densest.
 {
-  for (const style of SONG_STYLES) for (const seed of SEEDS.slice(0, 3)) {
+  for (const style of SECTION_STYLES) for (const seed of SEEDS.slice(0, 3)) {
     const s = buildSong(style, seed), { sections } = songPlan(style, seed, 'song', s.bpm), sp = spans(sections);
     const v = sp.filter((x) => x.k === 'v'), c = sp.filter((x) => x.k === 'c'), x = sp.find((y) => y.k === 'x');
     assert.notEqual(sig(s, v[1].at + v[1].bars - 2), sig(s, v[0].at + v[0].bars - 2), `${style}/${seed} verse 2 develops verse 1`);
@@ -128,7 +130,7 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
   assert.equal(validateSpec(long, { prompt: 'a pop song' }).sections.length, 8, 'a full prompt keeps its plan');
   // Locked tracks are never developed.
   const keep = ['kick', 'ch', 'oh', 'ride', 'perc', 'clap', 'snare'];
-  for (const style of SONG_STYLES) {
+  for (const style of SECTION_STYLES) {
     const s = buildSong(style, 7), pats = s.patterns.map((p) => ({ ...p, at: undefined }));
     developSong(pats, songPlan(style, 7, 'song', s.bpm).sections, { keep });
     for (const p of pats) for (const t of p.at || []) assert(!keep.some((id) => t.steps?.[id] || t.len?.[id]), `${style} develops a locked track`);
@@ -160,7 +162,7 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
 // P4 no loop padding: no stretch of the song is an identical copy of the stretch before it (unless it is one held
 // groove bar), and no single bar repeats unchanged for more than 16 bars.
 {
-  for (const style of loopStyles()) for (const seed of SEEDS) for (const length of ['song', 'sketch']) {
+  for (const style of loopStyles().filter((style) => !isJazz(style))) for (const seed of SEEDS) for (const length of ['song', 'sketch']) {
     const s = buildSong(style, seed, length), n = s.chain.length, g = Array.from({ length: n }, (_, i) => sig(s, i));
     let run = 1;
     for (let i = 1; i < n; i++) { run = g[i] === g[i - 1] ? run + 1 : 1; assert(run <= 16, `${style}/${seed} ${length}: bar ${i} repeats ${run}x`); }
@@ -171,4 +173,27 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
     }
   }
   console.log('long-form no-padding passed');
+}
+
+// Jazz develops its players at runtime rather than writing pop-section takes into pattern.at.
+{
+  for (const style of [...SONG_STYLES].filter(isJazz)) for (const seed of SEEDS) for (const length of ['song', 'sketch']) {
+    const s = buildSong(style, seed, length), { chain, sections } = songPlan(style, seed, length, s.bpm);
+    const head = length === 'sketch' ? 8 : 16;
+    assert.equal(sections, null);
+    assert.equal(s.chain, chain);
+    assert.equal(chain, 'G'.repeat(head) + 'C'.repeat(chain.length - 2 * head) + 'H'.repeat(head));
+    const { log } = playSong(s);
+    const phrase = (bar) => log.filter((x) => x.k === 'hook' && x.step >= bar * 16 && x.step < (bar + 8) * 16)
+      .map((x) => [x.step - bar * 16, ...x.a.slice(1, 4)]);
+    assert(phrase(0).length && phrase(chain.length - head).length, `${style}/${seed} both heads play`);
+    assert.notDeepEqual(phrase(head), phrase(0), `${style}/${seed} solos develop the head`);
+    assert.notDeepEqual(phrase(head), phrase(head + 8), `${style}/${seed} solos develop across phrases`);
+    for (let bar = 0; bar < chain.length - 1; bar++) {
+      const events = log.filter((x) => Math.floor(x.step / 16) === bar);
+      assert(events.some((x) => x.k === 'acid'), `${style}/${seed} bass continues at bar ${bar}`);
+      assert(events.some((x) => x.k === 'trigger' && ['kick', 'snare', 'ride', 'ch'].includes(x.a[0])), `${style}/${seed} drums continue at bar ${bar}`);
+    }
+  }
+  console.log('long-form jazz passed: full/sketch head–solos–head, runtime phrase development and continuous bass/drums');
 }

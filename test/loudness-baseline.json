@@ -228,6 +228,30 @@
    "spread": 0.3,
    "tp": -1.49,
    "window": -9.1
+  },
+  "swing": {
+   "lufs": -14.08,
+   "spread": 1.05,
+   "tp": -2.84,
+   "window": -13.32
+  },
+  "modal": {
+   "lufs": -14,
+   "spread": 1,
+   "tp": -2.63,
+   "window": -14.14
+  },
+  "bossa": {
+   "lufs": -13.82,
+   "spread": 0.41,
+   "tp": -3.54,
+   "window": -12.23
+  },
+  "jazzfunk": {
+   "lufs": -14.02,
+   "spread": 0.15,
+   "tp": -2.64,
+   "window": -11.62
   }
  },
  "seeds": [
