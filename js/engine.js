@@ -3,7 +3,7 @@ import { PALETTE_INSTRUMENTS, PALETTE_DEFAULTS, instrumentFor } from './palette-
 import { getSample, sungNote, SUNG_LEN, SUNG_VOWEL_COUNT } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
-import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, STAB_BAND, HOOK_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
+import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, STAB_BAND, HOOK_BAND, SAX_HOOK, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel, swingLate, swingDuration } from './groove.js';
 import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes, jazzNotches, JAZZ_MIX, BOSSA_RIM, BOSSA_BATIDA, bossaBass } from './jazz.js';
@@ -113,12 +113,27 @@ const WIND_HOOK = {
     takes: { 58: [15, 0.048, 0], 62: [-4, 0.01, 0], 65: [-3, 0.01, 0], 70: [-3, 0.02, -2.3], 74: [1, 0, 1], 77: [3, 0.03, 0], 82: [6, 0, -1.5] },
     second: { 58: [2, 0.012, -1], 62: [-2, 0.012, -3], 65: [-1, 0.008, -3.7], 70: [-2, 0.032, -2.1], 74: [-1, 0.012, 1.9], 77: [0, 0.008, -3.8], 82: [2, 0, 1] },
   },
+  // Saxophones sit inside the horn's written range (`lo` is the lowest phrase root), so a high key drops a whole octave
+  // instead of chipmunking the top notes. The MTG tenor was recorded 10-20 cents sharp.
+  altosax: {
+    gain: 2.8, presence: [2500, 0.8, 1.5], lo: 55,
+    takes: { 52: [-2, 0, 0], 55: [1, 0.6, 0], 58: [1, 0, 0], 61: [0, 0, 0], 64: [0, 0, 0], 67: [-1, 0.03, 0], 70: [0, 0, 0], 73: [0, 0, 0], 76: [0, 0, 0], 79: [1, 0, 0] },
+    second: { 52: [2, 0, 0], 55: [1, 0, 0], 58: [1, 0, 0], 61: [0, 0.02, 0], 64: [0, 0, 0], 67: [-1, 0.03, 0], 70: [0, 0, 0], 73: [1, 0, 0], 76: [0, 0, 0], 79: [1, 0, 0] },
+  },
+  tenorsax: {
+    gain: 2.8, presence: [2300, 0.8, 1], lo: 46,
+    takes: { 47: [11, 0.04, 0], 50: [8, 0, 0], 53: [18, 0, 0], 56: [14, 0, 0], 59: [19, 0.02, 0], 62: [20, 0, 0], 65: [21, 0.03, 0], 68: [12, 0, 0], 71: [19, 0.01, 0], 74: [36, 0, 0] },
+    second: { 47: [11, 0, 0], 50: [4, 0, 0], 53: [14, 0, 0], 56: [11, 0, 0], 59: [16, 0.01, 0], 62: [18, 0.08, 0], 65: [20, 0, 0], 68: [17, 0.28, 0], 71: [19, 0.1, 0], 74: [21, 0, 0] },
+  },
   airflute: {
     gain: 1.02, presence: [2950, 0.8, 6.2],
     takes: { 60: [1, 0.18, 3], 64: [-4, 0.11, 0], 69: [-18, 0.05, 0], 72: [-5, 0.01, 0], 76: [-5, 0.022, 0], 81: [-3, 0.022, -1.5], 84: [0, 0.043, 0] },
     second: { 60: [-36, 0.145, 3.8], 64: [-12, 0.105, 3], 69: [-2, 0.061, 0.8], 72: [2, 0.092, 3], 76: [0, 0.088, -0.5], 81: [0, 0.098, 0], 84: [0, 0.105, -3.2] },
   },
 };
+// Each genre's sax, in dB, matched to the synth reed it replaces (hook stem loudness over seeds): the recorded
+// tongued attack carries less energy on the short riffs of Afrobeats, Reggaeton and Breaks than on sung lines.
+const SAX_TRIM = { pop: -2.4, neosoul: -5.7, boombap: -3.2, trap: 1.1, afrobeats: 6, reggaeton: 4.5, breaks: 7.1 };
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
 const LIVE_REF = {
   kick: { tune: 52, decay: 0.5, drive: 0.2, click: 0.15, punch: 0.55 },
@@ -3412,7 +3427,8 @@ export class Engine {
   }
 
   windHook(set, t, v, m, dur, voice, strong, { harm, take = 0 }) {
-    const { gain, presence, takes, second } = WIND_HOOK[voice];
+    const { gain: base, presence, takes, second } = WIND_HOOK[voice];
+    const gain = base * dbGain(voice.endsWith('sax') ? SAX_TRIM[this.playbackStyle] ?? 0 : 0);
     const alt = TAKES[HOOK_BAND[voice]] && this.rec(TAKES[HOOK_BAND[voice]]);
     // The longer primary take can sustain through holds after transposition.
     const useAlt = alt && (take + (harm ? 1 : 0)) % 2 && dur <= 0.85;
@@ -3612,10 +3628,12 @@ export class Engine {
       while (root < 48) root += 12;
       return this[name](t, v, [0], root, { ...p, decay: Math.max(0.1, dur / 0.9) }, out);
     }
+    if (voice === 'reed' && SAX_HOOK[this.playbackStyle]) voice = SAX_HOOK[this.playbackStyle];
     const wind = Object.hasOwn(WIND_HOOK, voice);
     if (wind) {
-      const name = HOOK_BAND[voice], set = this.rec(name);
-      if (set) return this.windHook(set, t, v, 60 + k + oct * 12 + n, dur, voice, strong, expression);
+      const name = HOOK_BAND[voice], set = this.rec(name), lo = WIND_HOOK[voice].lo;
+      const root = lo ? lo + (((60 + k + oct * 12 - lo) % 12) + 12) % 12 : 60 + k + oct * 12;
+      if (set) return this.windHook(set, t, v, root + n, dur, voice, strong, expression);
       loadBand(name);
       voice = 'reed';
     }
