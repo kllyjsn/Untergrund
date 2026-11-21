@@ -12,6 +12,19 @@ import { writeMelody } from '../js/melody.js';
 import { rng } from '../js/dsp.js';
 
 const pc = (n) => ((n % 12) + 12) % 12;
+for (const style of ['bossa', 'jazzfunk']) for (const id of ['kick', 'snare', 'ch', 'oh', 'acid', 'stab']) {
+  const s = freshSong(style, 42); s.chain = 'GG'; s.ending = false;
+  const p = s.patterns[6];
+  const capture = () => {
+    const e = new Recorder(s), seq = new Sequencer(e, s);
+    for (let i = 0; i < 32; i++) seq.tick(i, 0.05 + i * e.stepDur);
+    return e.notes[id] || [];
+  };
+  p.steps[id] = p.steps[id].map((v) => id === 'acid' ? { ...v, on: false } : 0);
+  assert.equal(capture().length, 0, `${style}: clearing the ${id} row silences it`);
+  p.steps[id][1] = id === 'acid' ? { on: true, n: 3, a: false, s: false } : 1;
+  assert.equal(capture().length > 0, true, `${style}: a grid edit can add a ${id} hit`);
+}
 for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
   const s = freshSong(style, 42); s.chain = 'GG'; s.ending = false;
   const hook = s.patterns[6].hook = { h: 1, v: 'chop', o: 0, s: Array(32).fill(0), x: {} };

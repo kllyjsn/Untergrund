@@ -36,7 +36,7 @@ export function generateFunk(seed, bpm, palette, pocket) {
   const steps = Object.fromEntries(TRACK_IDS.map((id) => [id, Array.from({ length: 16 }, (_, i) => id === 'acid' ? { on: funkBass(0, prog[0], 0).some(([at]) => at === i), n: 0, a: false, s: false } : 0)]));
   for (const i of FUNK_KICK[0]) steps.kick[i] = 1;
   for (const i of FUNK_SNARE) steps.snare[i] = i % 8 === 4 ? 2 : 1;
-  for (let i = 0; i < 16; i++) steps.ch[i] = 1;
+  for (let i = 0; i < 16; i++) if (i !== 6 && i !== 14) steps.ch[i] = 1;
   for (const i of [6, 14]) steps.oh[i] = 1;
   for (const i of FUNK_COMP[0]) steps.stab[i] = 1;
   Object.assign(master, { kit: 1, swing8: 0, duck: 0, drive: 0.02, dust: 0, arr: 0, vary: 0.4, pocket, humanize: 0.08, room: 0.14, revLevel: 0.22, dlyLevel: 0 });

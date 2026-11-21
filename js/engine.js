@@ -5119,6 +5119,14 @@ export class Sequencer {
   // the intro brings in hats then percussion, the outro takes them away again, the first drop holds its ride back for
   // a phrase, the peak's second phrase opens up off-16th hats, every 8 bars ends on a snare/clap roll over a dropped
   // kick (two beats at 16-bar ends), and every fourth bar turns around on the percussion.
+  jazzGrid(pat, id, abs, written, played, accents = []) {
+    const row = pat.steps[id], len = pat.len[id] || 16;
+    const generated = len === 16 && row.length === 16 && row.every((v, i) => id === 'acid'
+      ? v.on === written.includes(i) && !v.n && !v.a && !v.s
+      : v === (written.includes(i) ? accents.includes(i) ? 2 : 1 : 0));
+    return generated ? played : row[abs % len];
+  }
+
   jazzHook(pat, abs, t, sd) {
     if (!pat.hook.h) return false;
     const note = pat.hook.s[abs % 32];
@@ -5144,8 +5152,8 @@ export class Sequencer {
       e.trigger(id, t, v);
     }
     if (!final && bar % 8 === 7 && i === 14) {
-      if (enabled('snare')) e.trigger('snare', t, 0.37);
-      if (enabled('kick')) e.trigger('kick', t, 0.32);
+      if (enabled('snare') && pat.steps.snare.some(Boolean)) e.trigger('snare', t, 0.37);
+      if (enabled('kick') && pat.steps.kick.some(Boolean)) e.trigger('kick', t, 0.32);
     }
     if (enabled('acid') && (i % 4 === 0 && pat.steps.acid[i]?.on || !final && bar % 8 === 6 && i === 14 && pat.steps.acid[12]?.on)) {
       const m = i === 14 ? bass[3] + (bass[3] < 49 ? 1 : -1) : bass[i / 4];
@@ -5168,17 +5176,20 @@ export class Sequencer {
     const final = s.ending && bars && pos === bars - 1;
     if (final && i) return this.cur;
     if (!final) {
-      if (enabled('kick') && FUNK_KICK[bar % 2].includes(i)) e.trigger('kick', t, 0.65);
-      if (enabled('snare') && FUNK_SNARE.includes(i)) e.trigger('snare', t, i % 8 === 4 ? 0.72 : 0.18);
-      if (enabled('ch') && i !== 6 && i !== 14) e.trigger('ch', t, (i % 4 === 0 ? 0.32 : i % 2 ? 0.17 : 0.23));
-      if (enabled('oh') && pat.steps.oh[i]) e.trigger('oh', t, 0.24);
+      if (enabled('kick') && this.jazzGrid(pat, 'kick', abs, FUNK_KICK[0], FUNK_KICK[bar % 2].includes(i))) e.trigger('kick', t, 0.65);
+      if (enabled('snare') && this.jazzGrid(pat, 'snare', abs, FUNK_SNARE, FUNK_SNARE.includes(i), [4, 12])) e.trigger('snare', t, i % 8 === 4 ? 0.72 : 0.18);
+      if (enabled('ch') && pat.steps.ch[abs % (pat.len.ch || 16)]) e.trigger('ch', t, (i % 4 === 0 ? 0.32 : i % 2 ? 0.17 : 0.23));
+      if (enabled('oh') && pat.steps.oh[abs % (pat.len.oh || 16)]) e.trigger('oh', t, 0.24);
     }
-    if (enabled('acid')) for (const [at, dur, m, v] of funkBass(s.key, e.harm, bar)) if (at === i) {
+    const bass = funkBass(s.key, e.harm, bar), note = bass.find(([at]) => at === i);
+    const st = this.jazzGrid(pat, 'acid', abs, funkBass(0, pat.prog?.[0] || e.harm, 0).map(([at]) => at), { on: !!note, n: 0, a: false, s: false });
+    if (enabled('acid') && st?.on) {
+      const [, dur, m, v] = note || [i, 1, bass[0][2], 0.75];
       e.noteVel = v;
-      e.acid(t, { on: true, n: m - 36 - s.key - harmRoot(e.harm), ap: true, a: false, s: false }, false, false, swingDuration(s, abs, final ? 6 : dur, sd), undefined, t);
+      e.acid(t, { ...st, n: m - 36 - s.key - harmRoot(e.harm) + st.n, ap: true }, false, false, swingDuration(s, abs, final ? 6 : dur, sd), undefined, t);
       e.noteVel = 1;
     }
-    if (enabled('stab') && (final || FUNK_COMP[bar % 2].includes(i))) e.trigger('stab', t, this.cur === 2 ? 0.48 : 0.6);
+    if (enabled('stab') && this.jazzGrid(pat, 'stab', abs, FUNK_COMP[0], final || FUNK_COMP[bar % 2].includes(i))) e.trigger('stab', t, this.cur === 2 ? 0.48 : 0.6);
     if (enabled('stab') && pat.hook && pat.hm && !this.jazzHook(pat, abs, t, sd)) {
       const notes = final ? [[0, 6, e.harm.r + CHORDS[e.harm.c].iv[1], 0.7]] : jazzNotes('jazzfunk', pat.jazz.seed, bar, e.harm, this.cur === 2);
       for (const [at, dur, pitch, v] of notes) if (at === i) {
@@ -5202,16 +5213,19 @@ export class Sequencer {
     const nextPat = bars && this.chainArr[pos + 1] != null ? s.patterns[this.chainArr[pos + 1]] : pat;
     const h = e.harm, next = jazzHarmony(nextPat, bar + 1), parity = bar % 2;
     if (!final) {
-      if (enabled('kick') && pat.steps.kick[i]) e.trigger('kick', t, i % 8 === 0 ? 0.2 : 0.08);
-      if (enabled('ch') && pat.steps.ch[i]) e.trigger('ch', t, i % 4 === 0 ? 0.29 : 0.23);
-      if (enabled('snare') && BOSSA_RIM[parity].includes(i)) e.trigger('snare', t, 0.29);
+      if (enabled('kick') && pat.steps.kick[abs % (pat.len.kick || 16)]) e.trigger('kick', t, i % 8 === 0 ? 0.2 : 0.08);
+      if (enabled('ch') && pat.steps.ch[abs % (pat.len.ch || 16)]) e.trigger('ch', t, i % 4 === 0 ? 0.29 : 0.23);
+      if (enabled('oh') && pat.steps.oh[abs % (pat.len.oh || 16)]) e.trigger('oh', t, 0.2);
+      if (enabled('snare') && this.jazzGrid(pat, 'snare', abs, BOSSA_RIM[0], BOSSA_RIM[parity].includes(i))) e.trigger('snare', t, 0.29);
     }
-    if (enabled('acid')) for (const [at, dur, m, v] of bossaBass(s.key, h, next)) if (i === at && pat.steps.acid[i]?.on) {
+    const bass = bossaBass(s.key, h, next), note = bass.find(([at]) => at === i), st = pat.steps.acid[abs % (pat.len.acid || 16)];
+    if (enabled('acid') && st?.on) {
+      const [, dur, m, v] = note || [i, 1, bass[0][2], 0.75];
       e.noteVel = v;
-      e.acid(t, { on: true, n: m - 36 - s.key - harmRoot(h), ap: true, a: false, s: false }, false, false, (final ? 8 : dur) * sd, undefined, t);
+      e.acid(t, { ...st, n: m - 36 - s.key - harmRoot(h) + st.n, ap: true }, false, false, (final ? 8 : dur) * sd, undefined, t);
       e.noteVel = 1;
     }
-    if (enabled('stab') && (final || i % 8 === 0 || BOSSA_BATIDA[parity].includes(i))) e.trigger('stab', t, i % 8 === 0 ? 0.5 : 0.43);
+    if (enabled('stab') && this.jazzGrid(pat, 'stab', abs, [...new Set([0, 8, ...BOSSA_BATIDA[0]])], final || i % 8 === 0 || BOSSA_BATIDA[parity].includes(i))) e.trigger('stab', t, i % 8 === 0 ? 0.5 : 0.43);
     if (enabled('stab') && pat.hook && pat.hm && !this.jazzHook(pat, abs, t, sd)) {
       const notes = final ? [[0, 8, h.r + CHORDS[h.c].iv[1], 0.6]] : jazzNotes('bossa', pat.jazz.seed, bar, h, this.cur === 2);
       for (const [at, dur, n, v] of notes) if (at === i) e.hook(t, v, n, dur * sd, pat.hook.v, pat.hook.o, i % 8 === 0, 0.8, false, pat.hook.x);
