@@ -89,6 +89,9 @@ export const MUTE_LAYER = { gtr: 'gtrmute' };
 const EXTRA_TAKES = Object.fromEntries([...Object.entries(TAKES), ...Object.entries(MUTE_LAYER)].map(([k, alt]) => [alt, BAND[k] || BAND.gtr]));
 // STAB voice index -> recorded instrument.
 export const STAB_BAND = { 7: 'piano', 8: 'gtr', 9: 'horn', 10: 'str', 11: 'gtr', 12: 'agtr', 13: 'jazz', 14: 'banjo', 15: 'gretsch', 16: 'cello', 17: 'cl', 18: 'nylon' };
+const ANALOG_PAD = { hypnotic: 'juno', ambient: 'juno', peak: 'jpad', hardtechno: 'jpad', trance: 'jxstr' };
+const ANALOG_BRASS = { industrial: 'jxbr', peak: 'jxbr', electro: 'jxbr', electrohiphop: 'jxbr', trance: 'jbr' };
+export const analogSet = (style, voice) => (voice === 2 ? ANALOG_PAD[style] : voice === 4 ? ANALOG_BRASS[style] : null) || null;
 export const HOOK_BAND = { harpplk: 'harp', oboe: 'ob', airflute: 'fl', tpt: 'tpt' };
 Object.assign(BAND, EXTRA_TAKES);
 export const BAND_FILES = Object.entries(BAND).flatMap(([k, ns]) => ns.map((n) => `${k}_${n}`));
@@ -148,6 +151,9 @@ export function liveSets(st) {
   if (Math.round(st?.params?.acid?.voice || 0) === 5) out.push('ebass');
   const name = STAB_BAND[Math.round(st?.params?.stab?.voice || 0)];
   if (name) out.push(name, ...(SOFT_LAYER[name] ? [SOFT_LAYER[name]] : []));
+  const analog = analogSet(st?.artist?.style, Math.round(st?.params?.stab?.voice || 0));
+  if (analog) out.push(analog);
+  if (st?.artist?.style === 'dub') out.push('dpad');
   for (const p of [st?.pattern, ...(st?.patterns || [])]) {
     const v = p?.hook?.v, voice = Object.hasOwn(HOOK_BAND, v) && HOOK_BAND[v];
     if (voice) out.push(voice, ...(TAKES[voice] ? [TAKES[voice]] : []));
