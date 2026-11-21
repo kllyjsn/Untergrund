@@ -184,7 +184,7 @@ for (const listener of ['dnb', 'euphoric', 'deephouse']) {
     setVoice({ buffer: e.ctx.createBuffer(1, SR / 2, SR), chops: [{ midi: 60, start: 0, end: 0.2 }] }, 'MY VOICE', false);
     assert.equal(paletteHookPitch(s, 60, 'chop'), 60, 'recorded MY VOICE does not inherit the synth register');
   } finally { clearVoice(); }
-  for (const style of ['euphoric', 'deephouse', 'unknown']) {
+  for (const style of ['euphoric', 'unknown']) {
     assert.equal(paletteHookPitch({ artist: { style } }, 60, 'analog'), 60, `${style} keeps its register`);
   }
   assert(paletteFor(s).hook.width > 0 && paletteFor(s).hook.breath > 0, 'the airy hook has stereo spread and high-frequency breath');
@@ -221,6 +221,33 @@ for (const listener of ['dnb', 'euphoric', 'deephouse']) {
   }
   assert(cuts[0] < 0 && cuts[1] < cuts[0] * 10, 'the mid-band dip responds to actual note level');
 }
+{
+  const { paletteFor, paletteHookPitch, paletteColor } = await import('../js/engine.js');
+  const s = freshSong('deephouse', 20); s.artist = { style: 'deephouse', seed: 20 };
+  const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false }), rec = new Recorder(s), played = [];
+  const start = e.startSource;
+  e.startSource = function (source, ...args) {
+    if (source.frequency) played.push(Math.round(69 + 12 * Math.log2(source.frequency.value / 440)));
+    return start.call(this, source, ...args);
+  };
+  for (const n of [-24, 0, 24, 48]) {
+    played.length = 0;
+    e.hook(0.05, 0.4, n, 0.5, 'analog');
+    rec.hook(0.05, 0.4, n, 0.5, 'analog');
+    assert.deepEqual(rec.notes.hook.splice(0).map(n => n.m), [...new Set(played)], 'Deep House MIDI follows its independent upper register');
+    assert(played.every(n => n >= 79 && n <= 91));
+  }
+  assert.equal(paletteHookPitch(s, 60, 'analog'), 84);
+  try {
+    setVoice({ buffer: e.ctx.createBuffer(1, SR / 2, SR), chops: [{ midi: 60, start: 0, end: 0.2 }] }, 'MY VOICE', false);
+    assert.equal(paletteHookPitch(s, 60, 'chop'), 60, 'recorded Deep House hooks keep their recording register');
+  } finally { clearVoice(); }
+  for (const voice of [1, 3]) {
+    s.params.stab.voice = voice;
+    assert.deepEqual(paletteColor(s).eq[0], [320, 0.8, -5], 'Rhodes and organ share the extra 3dB low-mid trim');
+  }
+  assert(paletteFor(s).bass.balance, 'the adaptive bass cap remains enabled');
+}
 for (const recorded of ['dnb', 'euphoric', 'deephouse']) {
   const s = freshSong(recorded, 42); s.artist = { style: 'trap' };
   const e = new Engine(new OfflineAudioContext(1, 256, SR), s, { realtime: false }), calls = [];
@@ -231,7 +258,7 @@ for (const recorded of ['dnb', 'euphoric', 'deephouse']) {
 }
 
 for (const style of ['euphoric', 'deephouse']) {
-  const { paletteFor, paletteColor, soundingPitch } = await import('../js/engine.js');
+  const { paletteFor, paletteColor, paletteHookPitch, soundingPitch } = await import('../js/engine.js');
   const voices = new Set();
   for (const seed of [11, 20, 42, 73, 211, 997, 1234, 2026]) {
     const s = freshSong(style, seed); s.artist = { style, seed };
@@ -248,7 +275,7 @@ for (const style of ['euphoric', 'deephouse']) {
     for (const [strong, up] of [[false, false], [true, false], [false, true]]) {
       e.hook(0.1, 0.4, 1, 0.2, 'analog', 0, strong, 1, up);
       rec.hook(0.1, 0.4, 1, 0.2, 'analog', 0, strong, 1, up);
-      assert(Math.abs(69 + 12 * Math.log2(frequency / 440) - rec.notes.hook.at(-1).m) < 1e-8, `${style} hook snap matches MIDI`);
+      assert(Math.abs(paletteHookPitch(s, 69 + 12 * Math.log2(frequency / 440), 'analog') - rec.notes.hook.at(-1).m) < 1e-8, `${style} hook snap and register match MIDI`);
     }
     e.acidVoice(0.05, { n: 0, a: false }, false, false, e.stepDur);
     assert.equal(bass, 1, `${style} has its own pocket bass`);

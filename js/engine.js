@@ -29,7 +29,7 @@ const BASS_COLOR = {
 };
 const LIQUID_CHORD = { wave: 'sawtooth', level: 0.3, attack: 0.065, release: 0.8, cutoff: 1700, spread: 6, fm: 0, width: 0 };
 const EUPHORIC_CHORD = { wave: 'sawtooth', level: 0.54, attack: 0.025, release: 0.85, cutoff: 2300, spread: 11, fm: 0 };
-const DEEP_CHORD = { wave: 'triangle', level: 1.35, attack: 0.007, release: 0.45, cutoff: 1700, spread: 2, fm: 0.65, width: 0.25, presence: 'keys', eq: [[320, 0.8, -2], [950, 0.8, 3]] };
+const DEEP_CHORD = { wave: 'triangle', level: 1.35, attack: 0.007, release: 0.45, cutoff: 1700, spread: 2, fm: 0.65, width: 0.25, presence: 'keys', eq: [[320, 0.8, -5], [950, 0.8, 3]] };
 const GENRE_PALETTES = {
   deephouse: {
     name: 'velvet',
@@ -39,7 +39,7 @@ const GENRE_PALETTES = {
       3: { ...DEEP_CHORD, wave: 'sine', organ: 0.35, level: 1.65, attack: 0.005, fm: 0, release: 0.42, cutoff: 1900, presence: 'organ' },
       2: { ...DEEP_CHORD, level: 1.5, attack: 0.025, release: 0.6, fm: 0.28, cutoff: 1450, presence: 'pad' },
     },
-    hook: { ...DEEP_CHORD, level: 0.4, attack: 0.012, release: 0.12, cutoff: 1800, spread: 1.5, width: 0.16, fm: 0.45, presence: false, eq: [] },
+    hook: { ...DEEP_CHORD, level: 0.4, attack: 0.012, release: 0.12, cutoff: 1800, spread: 1.5, width: 0.16, fm: 0.45, presence: false, eq: [], transpose: 24, range: [79, 91] },
     bass: { type: 'round', wave: 'sine', fm: 0.65, level: 1, sub: 0.72, body: 0.8, cutoff: 460, decay: 0.11, sustain: 0.55, length: 0.88, balance: true },
   },
   euphoric: {
