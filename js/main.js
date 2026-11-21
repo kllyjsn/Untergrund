@@ -4,6 +4,7 @@ import { assign as assignExperiment } from './experiments.js';
 import { createListens, songFingerprint, promptHash, promptText } from './listen.js';
 import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue, VOICE_HIDDEN } from './params.js';
 import { Engine, Sequencer, parseChain } from './engine.js';
+import { setChain } from './chain.js';
 import { defaultState, generate, mutate, arrangement, songChain, applySongPlan, applyOverrides, clone, save, load, sanitize, STYLES, MAJOR_STYLES, emptyPattern, emptyAcidStep, fitLyrics, refreshSong } from './state.js';
 import { renderBars, bufferToWav } from './render.js';
 import { exportButtons } from './export-ui.js';
@@ -843,7 +844,7 @@ function setMaster(id, v) {
 // Undo / redo. `label` names the edit for the toast ("Undone: CLEAR pattern B").
 function snapshot(like = {}) {
   const { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn } = state;
-  const snap = { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn, labels: state.labels || null, lyrics: state.lyrics || null, sing: state.sing || null };
+  const snap = { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn, chainEntries: state.chainEntries ?? null, labels: state.labels || null, lyrics: state.lyrics || null, sing: state.sing || null };
   if ('artist' in like) snap.artist = state.artist ?? null;
   if (like.ui) snap.ui = { style, family };
   return JSON.stringify(snap);
@@ -865,6 +866,7 @@ function restore(entry, verb) {
   const { ui: was, ...snap } = JSON.parse(entry.snap);
   if (was) { style = was.style; family = was.family; localStorage.setItem('untergrund.family', family); }
   Object.assign(state, snap);
+  if (!state.chainEntries) delete state.chainEntries;
   touched();
   if (!state.labels) delete state.labels;
   if (!state.lyrics) delete state.lyrics;
@@ -1067,7 +1069,7 @@ function timelineHooks(asGuest, replayStats = null, switchAt = null) {
     apply: (s, st) => {
       replaySeed = Number.isFinite(s.seed) ? s.seed : undefined;
       if (STYLES[st]) replay808Style = style = st;
-      const next = sanitize({ ...clone(state), ...s });
+      const next = sanitize({ ...clone(state), ...s, chainEntries: s.chainEntries });
       // The DJ generated a new song: the replay hands off on a downbeat too, from the new song's bar 1.
       const newSong = next.chain !== state.chain && JSON.stringify(next.patterns[0]) !== JSON.stringify(state.patterns[0]);
       if (playing && seq && newSong && !pat().score && !next.patterns.some((q) => q.score)) {
@@ -2212,7 +2214,12 @@ function buildHeader() {
     h('button', { class: 'btn ghost', title: 'Clear pattern', onclick: () => { pushUndo(`CLEAR pattern ${PATTERN_NAMES[state.current]}`); state.patterns[state.current] = emptyPattern(); build(); persist(); } }, 'CLEAR'));
 
   const chainInput = h('input', { class: 'chain', value: state.chain, spellcheck: 'false', 'aria-label': 'Chain', title: 'Arrangement: one letter per bar, e.g. AABBCCDD',
-    oninput: (e) => { state.chain = e.target.value.toUpperCase().replace(/[^A-H]/g, ''); touched(); persist(); timeline.refresh(); } });
+    oninput: (e) => {
+      const chain = e.target.value.toUpperCase().replace(/[^A-H]/g, '');
+      const caret = e.target.value.slice(0, e.target.selectionStart).toUpperCase().replace(/[^A-H]/g, '').length;
+      setChain(state, chain, undefined, caret - Math.max(0, chain.length - state.chain.length));
+      touched(); persist(); timeline.refresh();
+    } });
   const chainBtn = h('button', { class: 'btn toggle chain-toggle' + (state.chainOn ? ' on' : ''), title: 'Play the arrangement chain',
     onclick: () => setSong(!state.chainOn) }, 'CHAIN');
 

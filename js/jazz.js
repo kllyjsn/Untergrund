@@ -4,15 +4,15 @@ import { generateFunk, funkNotes, FUNK_PROGS } from './jazzfunk.js';
 
 export const isJazz = (style) => style === 'swing' || style === 'modal' || style === 'bossa' || style === 'jazzfunk';
 export const JAZZ_MIX = {
-  jazzfunk: { lead: 10, comp: 6.4, bass: 0.5, kick: -4.5, snare: 7.7, hat: 28, oh: 20, output: -2 },
-  bossa: { lead: 2, trumpetLead: 14.3, comp: 7, guitarComp: 3.2, pianoComp: 4.5, bass: 1, guitarBass: 3.5, pianoBass: 4.5, hat: 24, rim: 12, output: -2, guitarOutput: -2.5, pianoOutput: -4.25 },
+  jazzfunk: { lead: 10, comp: 7.6, bass: 0.5, kick: -4.5, snare: 7.7, hat: 28, oh: 20, output: -2 },
+  bossa: { lead: 2, trumpetLead: 14.3, comp: 7, nylonComp: 1.5, guitarComp: 3.2, pianoComp: 4.5, bass: 1, guitarBass: 3.5, pianoBass: 4.5, hat: 24, rim: 12, output: -2, guitarOutput: -2.5, pianoOutput: -4.25 },
   swing: { lead: 6, comp: -1.5, bass: -4, ride: 15.5, hat: 16, output: -2 },
   modal: { lead: 8, comp: -2, bass: -2, ride: 17.5, hat: 16, output: -2 },
 };
 export const jazzStyle = (s, pattern = s.patterns?.[s.current || 0]) => pattern ? (isJazz(pattern.jazz?.style) ? pattern.jazz.style : null) : (isJazz(s.artist?.style) ? s.artist.style : null);
 const RESONANCES = {
   tpt: { 57: [2645, 30, -7], 60: [2616, 30, -7], 63: [2795, 30, -7], 67: [2745, 30, -8], 70: [[2795, 30, -9], [2336, 50, -12]], 74: [2910, 30, -10], 77: [2790, 30, -12], 81: [2643, 30, -10] },
-  fl: { 60: [2619, 30, -8], 64: [2630, 30, -10], 69: [[2640, 30, -12], [3088, 60, -9]], 72: [2620, 30, -8], 76: [2640, 30, -9], 81: [2650, 30, -8], 84: [3140, 30, -8] },
+  fl: { 60: [2619, 35, -12], 64: [2636, 35, -16], 69: [[2644, 40, -18], [3088, 60, -14]], 72: [[2623, 35, -33], [3151, 50, -16]], 76: [2640, 30, -9], 81: [2650, 30, -8], 84: [3140, 30, -8] },
   flb: { 60: [2910, 30, -6], 64: [2625, 30, -8], 69: [2640, 30, -10], 72: [2620, 30, -8], 76: [2640, 30, -9], 81: [2643, 30, -8], 84: [3140, 30, -8] },
   jazz: { 63: [3126, 32, -14], 66: [2967, 32, -12], 69: [2640, 32, -10] },
 };
@@ -157,7 +157,7 @@ function generateBossa(seed, bpm, palette, pocket) {
   for (const i of BOSSA_RIM[0]) steps.snare[i] = 1;
   for (const i of new Set([0, 8, ...BOSSA_BATIDA[0]])) steps.stab[i] = 1;
   Object.assign(master, { kit: 1, swing8: 0, duck: 0, drive: 0.015, dust: 0, arr: 0, vary: 0.45, pocket, humanize: 0.08, room: 0.1, revLevel: 0.18, dlyLevel: 0 });
-  Object.assign(params.stab, { voice: ensemble[0], chord: prog[0].c, octave: 0, level: 0.58, decay: +(ensemble[3] * (0.9 + r() * 0.2)).toFixed(3), env: ensemble[4], cutoff: 1800, dly: 0, rev: 0.08, reso: 0.5 });
+  Object.assign(params.stab, { voice: ensemble[0] === 7 ? 7 : 18, chord: prog[0].c, octave: 0, level: 0.58, decay: +(ensemble[3] * (0.9 + r() * 0.2)).toFixed(3), env: ensemble[4], cutoff: 1800, dly: 0, rev: 0.08, reso: 0.5 });
   Object.assign(params.acid, { voice: 1, level: 0.92, tune: 0, decay: 0.38, cutoff: 1200, drive: 0, dly: 0, rev: 0.03 });
   Object.assign(params.ch, { level: 0.3, decay: 0.05, tone: 3200, dly: 0, rev: 0.02 });
   Object.assign(params.kick, { level: 0.38, drive: 0, dly: 0, rev: 0.02 });

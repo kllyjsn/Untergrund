@@ -10,9 +10,54 @@ import { handleDescribe } from '../api/_lib/describe-ai.js';
 import { memoryKv } from '../api/_lib/events.js';
 import { buildSong, scoreSong } from '../scripts/composition.mjs';
 import { patternAt } from '../js/scope.js';
+import { setChain } from '../js/chain.js';
+import { describe } from '../js/describe.js';
 
 let n = 0;
 const t = (name, fn) => { try { fn(); n++; } catch (e) { console.error(`✗ ${name}`); throw e; } };
+t('explicit chain section tags distinguish adjacent verses and survive in-section slot changes', () => {
+  const roles = [['intro', 2], ['build', 2], ['verse', 6], ['verse', 6], ['breakdown', 8], ['drop', 2], ['outro', 6]];
+  const sections = roles.map(([role, bars]) => ({ role, bars, chords: ['i', 'IV', 'bVII', 'V'] }));
+  for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
+    const { state } = songState({ style, sections }, 42);
+    assert.equal(new Set(state.chainEntries.map(e => e.id)).size, state.chain.length, 'chain construction assigns distinct stable bar identities');
+    assert(state.chainEntries.every(e => Number.isSafeInteger(e.id) && e.id >= 0));
+    assert.equal(state.chain.slice(16, 24), 'EEEEFFFD');
+    assert.equal(state.chain.slice(-6), 'BBBAAA');
+    for (const saved of [false, true]) for (const resized of [false, true]) {
+      const s = saved ? sanitize(JSON.parse(JSON.stringify(state))) : structuredClone(state);
+      assert.deepEqual(s.chainEntries, state.chainEntries, 'section identity survives save/load');
+      s.ending = false;
+      const e = new Recorder(s), seq = new Sequencer(e, s);
+      for (let bar = 0; bar < 70; bar++) {
+        if (bar === 1 && resized) setChain(s, 'AAA' + s.chain);
+        seq.tick(bar * 16, 0.05 + bar * 16 * e.stepDur);
+        const pos = bar % s.chain.length;
+        let start = 0, sec = 0;
+        while (pos >= start + roles[sec][1] + (sec === 0 && resized && bar > 0 ? 3 : 0)) {
+          start += roles[sec][1] + (sec === 0 && resized && bar > 0 ? 3 : 0); sec++;
+        }
+        assert.equal(s.chainEntries[pos].sec, sec, `${style} bar ${bar}: live section identity`);
+        const pat = s.patterns[s.chain.charCodeAt(pos) - 65];
+        assert.deepEqual(e.harm, pat.prog[(pos - start) % pat.prog.length], `${style} bar ${bar}: section phase across slots and loops`);
+      }
+    }
+    const longer = describe('longer intro', state, { style, seed: 42 }).state;
+    const added = longer.chain.length - state.chain.length;
+    assert(added > 0);
+    assert.deepEqual(longer.chainEntries.slice(added), state.chainEntries, 'Describe moves entry identities with the live bars');
+    assert.deepEqual(describe('skip the intro', state, { style, seed: 42 }).state.chainEntries, state.chainEntries.slice(2));
+    const intro = structuredClone(state);
+    setChain(intro, 'AA', [{ p: 0, sec: 0 }, { p: 0, sec: 0 }]);
+    assert.deepEqual(describe('skip the intro', intro, { style, seed: 42 }).state.chainEntries, intro.chainEntries, 'a rejected empty-chain edit leaves the tags untouched');
+  }
+  assert.deepEqual(chainFor([], undefined, true), []);
+  const tagged = chainFor(sections, undefined, true);
+  assert.equal(tagged[9].sec, 2);
+  assert.equal(tagged[10].sec, 3, 'adjacent verses have distinct source IDs despite the C/D slot family');
+  assert.equal(tagged[23].sec, 4, 'the breakdown D entry retains the breakdown ID');
+  assert.equal(tagged[28].sec, tagged[29].sec, 'the B-to-A outro switch retains its section ID');
+});
 t('explicit jazz harmony follows resized live sections through fills and chain loops', () => {
   for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
     const sections = [{ role: 'intro', bars: 2 }, { role: 'verse', bars: 16, chords: ['i', 'IV', 'bVII', 'V'] },

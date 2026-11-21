@@ -7,6 +7,7 @@ import { MODELS } from './composer-models.js';
 import { POCKETS, STYLE_POCKET } from './groove.js';
 import { REPERTOIRE, PIECE } from './repertoire.js';
 import { cleanLabels } from './timeline.js';
+import { cleanChainEntries } from './chain.js';
 import { withMelody, writeMelody, melodySteps, MELODY_BARS, SING_PROFILES } from './melody.js';
 import { stepDeg } from './motif.js';
 import { cleanLyrics } from './lyrics.js';
@@ -1309,6 +1310,7 @@ function drillVerses(pats, { chain, sections }, keep) {
 export function applySongPlan(s, style, seed, length = 'song') {
   const plan = songPlan(style, seed, length, s.bpm || midBpm(style));
   s.chain = plan.chain;
+  delete s.chainEntries;
   if (isJazz(style)) {
     const head = length === 'sketch' ? 8 : 16;
     s.labels = { G: 'HEAD', C: 'SOLOS', H: 'HEAD OUT' };
@@ -1454,6 +1456,8 @@ export function sanitize(s) {
   if (s.ending) out.ending = true;
   if (s.fresh === 0 || s.fresh === 1) out.fresh = s.fresh;
   out.chain = String(s.chain || d.chain).toUpperCase().replace(/[^A-H]/g, '').slice(0, 128) || d.chain;
+  const chainEntries = cleanChainEntries(out.chain, s.chainEntries);
+  if (chainEntries) out.chainEntries = chainEntries;
   const labels = cleanLabels(s.labels);
   if (labels) out.labels = labels;
   const lyrics = cleanLyrics(s.lyrics);

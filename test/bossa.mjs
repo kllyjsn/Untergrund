@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { freshSong, sanitize } from '../js/state.js';
 import { Engine, Sequencer, stabPitches } from '../js/engine.js';
 import { Recorder } from '../js/midi.js';
 import { BOSSA_RIM, BOSSA_BATIDA, bossaBass, jazzHarmony, jazzChordTones, jazzNotes } from '../js/jazz.js';
 import { parse } from '../js/describe.js';
 import { styleFor } from '../js/song-plan.js';
-import { liveSets } from '../js/livekit.js';
+import { BAND, liveSets } from '../js/livekit.js';
 import { stageScene } from '../js/club-stage.js';
 import { TRACK_IDS } from '../js/params.js';
 
@@ -22,8 +24,8 @@ for (const seed of [1, 2, 3, 11, 42, 77, 1234]) {
   assert(s.swing > 0 && s.swing <= 0.04);
   assert.equal(s.master.duck, 0); assert.equal(s.master.kit, 1);
   assert(s.master.room <= 0.1 && s.master.revLevel <= 0.18);
-  assert([13, 8, 7].includes(s.params.stab.voice));
-  assert(liveSets(s).includes('kit') && liveSets(s).includes(s.params.stab.voice === 13 ? 'jazz' : s.params.stab.voice === 8 ? 'gtr' : 'piano'));
+  assert([18, 7].includes(s.params.stab.voice));
+  assert(liveSets(s).includes('kit') && liveSets(s).includes(s.params.stab.voice === 18 ? 'nylon' : 'piano'));
   assert.equal(stageScene('bossa', s).kind, 'band');
   assert(s.chain.match(/^G+C+H+$/));
   for (let bar = 0; bar < 32; bar++) {
@@ -64,6 +66,21 @@ for (const seed of [1, 2, 3, 11, 42, 77, 1234]) {
   assert.equal(upright, 1);
 }
 assert.deepEqual(jazzNotes('bossa', 42, 3, { r: 0, c: 9 }), [], 'melody breathes for a full bar');
+const nylon = JSON.parse(readFileSync(new URL('../samples/nylon-provenance.json', import.meta.url)));
+assert.equal(nylon.license, 'CC0-1.0');
+assert.match(readFileSync(new URL('../samples/NYLON-LICENSE.txt', import.meta.url), 'utf8'), /CC0 1.0 Universal/);
+assert.deepEqual(nylon.samples.map((r) => r.midi), BAND.nylon);
+for (const row of nylon.samples) {
+  const data = readFileSync(new URL(`../samples/live/${row.importedFile}`, import.meta.url));
+  assert.equal(data.subarray(0, 4).toString(), 'fLaC');
+  assert.equal(createHash('sha256').update(data).digest('hex'), row.importedSha256);
+  assert(row.sourceActiveToTailDb > 40, 'exclude weak or noisy upper finger takes');
+}
+const guitar = freshSong('bossa', 42), played = [], banks = [];
+Engine.prototype.stab.call({ state: guitar, ctx: {}, step: 3, harm: jazzHarmony(guitar.patterns[6], 0), ch: { stab: { band: {}, input: {} } }, rec: (name) => { banks.push(name); return [[60, {}]]; }, recordedNote: (...a) => played.push(a) }, 1, 0.5);
+assert.deepEqual(banks, ['nylon']);
+assert(played.length > 1 && played.every((a) => a[7] === 'nylon'));
+assert(Math.abs(played[1][1] - played[0][1] - 0.002) < 1e-9, 'finger plucks are gently spread');
 const invalid = freshSong('bossa', 42); invalid.patterns[0].jazz = { style: 'missing', seed: null };
 assert(!sanitize(invalid).patterns[0].jazz);
 console.log('bossa: aliases, save/load, straight grid, root/fifth anticipations, batida/thumb, 3-2 rim sample/MIDI, soft kit, breaths, mutes and acoustic upright passed');

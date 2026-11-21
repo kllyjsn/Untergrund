@@ -12,7 +12,7 @@ const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453;
 // GM drum map (channel 10) and GM programs, so a DAW opens the file on sensible instruments.
 export const GM_DRUMS = { kick: 36, clap: 39, snare: 38, ch: 42, oh: 46, ride: 51, perc: 63 };
 const DRUM_NAMES = { kick: 'Kick', clap: 'Clap', snare: 'Snare', ch: 'Hats', oh: 'Open Hat', ride: 'Ride', perc: 'Perc' };
-const STAB_PROGRAM = { 0: 81, 1: 4, 2: 89, 3: 16, 4: 61, 5: 45, 6: 14, 7: 0, 8: 25, 9: 61, 10: 48, 16: 42, 17: 71 };
+const STAB_PROGRAM = { 0: 81, 1: 4, 2: 89, 3: 16, 4: 61, 5: 45, 6: 14, 7: 0, 8: 25, 9: 61, 10: 48, 16: 42, 17: 71, 18: 24 };
 const HOOK_PROGRAM = new Map([['oboe', 68], ['airflute', 73], ['tpt', 56]]);
 export const PARTS = {
   vln1: ['Violin I', 40], vln2: ['Violin II', 40], vla: ['Viola', 41], vc: ['Cello', 42], cb: ['Contrabass', 43],
