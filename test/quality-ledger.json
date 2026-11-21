@@ -1,1 +1,32 @@
-[]
+[
+  {
+    "date": "2026-11-21",
+    "target": "breaks",
+    "lever": "harmony",
+    "summary": "Breakdown leaves the two-chord vamp for VI-VII (or III-VII) and resolves up to i at the drop; the vamp no longer runs unchanged for the whole song",
+    "gains": [
+      "hardtechno drumBars 14.5->18",
+      "minimal melodyWindows 20->21",
+      "minimal preLift 0->0.167",
+      "minimal voiceMove 2.62->0.91",
+      "ukg voiceMove 1.88->1.205",
+      "breaks chords 2->4",
+      "breaks verseChorus 0->0.333",
+      "breaks bridgeAway 0->0.333",
+      "bailefunk drumBars 108->111",
+      "trap voiceMove 1.565->0.91",
+      "drill drumBars 125->126"
+    ],
+    "audio": {
+      "warn": [
+        6,
+        6
+      ],
+      "fail": [
+        0,
+        0
+      ],
+      "cleared": []
+    }
+  }
+]

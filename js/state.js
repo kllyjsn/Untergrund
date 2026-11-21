@@ -891,9 +891,11 @@ function generatePattern(style, seed, scaleName, starter) {
     else if (idea === 2 && S.stab.some(Boolean) && !['neosoul', 'boombap', 'country'].includes(style)) { const q = S.stab.slice(); S.stab = q.map((_, i) => q[(i + 1) % STEPS]); }
   }
   // Styles without written changes get harmony in their own idiom, from a separate stream so nothing above moves.
+  let breakdown = null;
   if (!P.prog) {
     const v = vampFor(style, Math.round(params.stab.chord ?? 0), rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)));
-    if (v?.pedal) P.pedal = v.pedal; else if (v) P.prog = v;
+    if (v?.pedal) P.pedal = v.pedal; else if (v) P.prog = v.prog || v;
+    breakdown = v?.alt;
   }
   // Groove and pop genres sing: the hook becomes a vocal-length melody over the changes (js/melody.js).
   const harpHook = style === 'drill' && stabVoice === 6 && hook?.v === 'mallet';
@@ -913,6 +915,7 @@ function generatePattern(style, seed, scaleName, starter) {
     P.sections = songSections(all, P, musicalScale, Math.round(params.stab.chord ?? 0), rng(Math.imul((seed | 0) ^ 0x51ed270b, 0x27d4eb2f)), SECTION_IDIOM[style]);
     if (P.sections.chorus) { P.prog = P.sections.chorus; delete P.sections.chorus; }
   }
+  if (breakdown) P.alt = breakdown;
   if (MAJOR_STYLES.has(style) || style === 'rock') P.band = true;
   if (style === 'bailefunk') { P.funk = true; S.perc = [...FUNK_HANDS[0]]; }
   if (style === 'pop' || style === 'rock') P.lite = true;
@@ -1185,13 +1188,18 @@ const VAMP = {
   jerseyclub: [[0, 0, 10, 10], [0, 0, 8, 8]],
   ambient: [[0, 0, 8, 8, 3, 3, 10, 10], [0, 0, 5, 5, 8, 8, 3, 3]],
 };
+// A breaks breakdown leaves the vamp for two chords it has not played and ends on VII, a whole step under the
+// tonic, so the drop's return to i is a harmonic arrival as well as the drums coming back.
+const BREAKDOWN = { 5: [8, 8, 10, 10], 8: [3, 3, 10, 10] };
 // Pop, trance and anthem songs lift the final chorus a whole step and stay there to the end.
 const LIFT = new Set(['euphoric', 'trance', 'hyperpop', 'pop', 'country']);
 const quality = (root, c) => (root === 0 || root === 5 || c === 4 || c === 6 ? c : root === 10 ? 10 : c === 2 ? 9 : 7);
 function vampFor(style, c, r) {
   const chords = (roots) => roots.map((x) => ({ r: x, c: quality(x, c) }));
   if (PEDAL.has(style)) { const [a, b] = [[5, 3], [8, 10], [10, 5]][Math.floor(r() * 3)]; return { pedal: chords([0, 0, 0, 0, 0, 0, a, b]) }; }
-  return VAMP[style] ? chords(VAMP[style][Math.floor(r() * VAMP[style].length)]) : null;
+  const vamp = VAMP[style]?.[Math.floor(r() * VAMP[style].length)];
+  if (!vamp) return null;
+  return style === 'breaks' ? { prog: chords(vamp), alt: chords(BREAKDOWN[vamp[2]]) } : chords(vamp);
 }
 
 const GROOVE = new Set(['jazzfunk', 'bossa', 'swing', 'modal', 'neosoul', 'boombap', ...HIPHOP_STYLES, 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill', 'pop', 'rnb', 'rock', 'folk', 'country']);

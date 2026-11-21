@@ -594,6 +594,11 @@ console.log('seeded instrument ensembles passed');
     if (techno) assert(sc.slice(0, 6).every((p) => !p.prog) && pr0(sc[6]).slice(0, 6).every((h) => h.r === 0), `${style} holds the pedal outside the peak`);
   }
   function pr0(p) { return p.prog; }
+  for (const seed of [1, 2, 3, 4]) {
+    const g = generate('breaks', seed), sc = arrangement(g.pattern, seed), vamp = new Set(sc[6].prog.map((h) => h.r));
+    for (const i of [4, 5]) assert(sc[i].prog.every((h) => !vamp.has(h.r)) && sc[i].prog.at(-1).r === 10, `breaks/${seed} breakdown leaves the vamp and ends on VII`);
+    assert.deepEqual(sc[2].prog, sc[6].prog, 'the verse and the drop share the vamp');
+  }
   for (const style of ['euphoric', 'trance', 'hyperpop']) {
     const s = buildSong(style, 101), { log, bars } = playSong(s), c = s.chain;
     assert.equal(sanitize(JSON.parse(JSON.stringify(s))).patterns[6].lift, 2, 'the lift survives save and load');
