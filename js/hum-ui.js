@@ -334,10 +334,13 @@ export function melodyPanel(api) {
     h('small', {}, mine ? (getChops() ? 'Sung with your voice' : 'Record your voice to hear it') : 'Hum your own and it plays here'),
     h('button', { class: 'btn accent', onclick: () => openHum(api, { from: 'studio' }) }, 'HUM A MELODY'),
     hk ? h('div', { class: 'voice-chips', role: 'radiogroup', 'aria-label': 'Melody sound' },
-      [[sound, false], ['MY VOICE', true]].map(([name, on]) => h('button', {
-        class: `vchip${on === mine ? ' on' : ''}`, role: 'radio', 'aria-checked': String(on === mine),
-        onclick: () => { if (on === mine) return; if (on && !getChops()) return openVoice(api); setVoice(on ? 'chop' : 'warm'); },
-      }, name))) : null,
+      [[sound, 'warm'], ['HARMON', 'harmon'], ['MY VOICE', 'chop']].map(([name, voice]) => {
+        const on = voice === 'warm' ? !mine && hk.v !== 'harmon' : hk.v === voice;
+        return h('button', {
+          class: `vchip${on ? ' on' : ''}`, role: 'radio', 'aria-checked': String(on),
+          onclick: () => { if (on) return; if (voice === 'chop' && !getChops()) return openVoice(api); setVoice(voice); },
+        }, name);
+      })) : null,
     h('button', { class: 'btn ghost', onclick: () => openVoice(api) }, getChops() ? 'MY VOICE CHOPS' : 'RECORD MY VOICE'));
 }
 

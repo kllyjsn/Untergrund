@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import './melody-sound.mjs';
 import { pitchTrack, segmentNotes, snapToScale, detectKey, quantize, hookFromNotes, analyzeHum, sliceChops, pickChop, tuneChops, noteLabel, tuningOffset, fillBars, fitProg, livePitch, prepareHum, hookFor } from '../js/hum.js';
 import { CHORDS } from '../js/params.js';
 
