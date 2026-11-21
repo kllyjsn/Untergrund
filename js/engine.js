@@ -5417,7 +5417,7 @@ export class Sequencer {
     const sp = pat.steps.stab;
     const roots = rootsFor(s, pat);
     const emptyEnding = roots?.answer === 'fiddle' && (sung ? !sung.busy.slice(12, 15).some(Boolean) : !hk || ![12, 13, 14].some((j) => hookBusy(hk, (abs - i16 + j) % 32, hm)));
-    if (leadOn && i16 === 12 && emptyEnding && fiddleAnswerRoll(roots, bar)) {
+    if (hm && leadOn && i16 === 12 && emptyEnding && fiddleAnswerRoll(roots, bar)) {
       e.hook(tt, .28, (e.harm?.r || 0) + 7, 2 * sd, hk?.v || pat.hook?.v || 'warm', 0, false, .7, false, { role: 'fiddle-answer' });
     }
     // Licks fill the lead's rests instead of talking over it.
