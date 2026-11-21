@@ -210,7 +210,7 @@ performance, not the keyboard sample in Freesound pack 34867.
 | `timbale_closed_{1,2}.flac` | [Metal Timbales, Suicidity](https://freesound.org/people/Suicidity/packs/5890/), CC0 1.0 Universal | [90524](https://freesound.org/s/90524/), [90529](https://freesound.org/s/90529/) |
 | `timbale_low_{1,2}.flac` | Metal Timbales, Suicidity, CC0 1.0 Universal | [90471](https://freesound.org/s/90471/), [90474](https://freesound.org/s/90474/) |
 | `timbale_high_{1,2}.flac` | Metal Timbales, Suicidity, CC0 1.0 Universal | [90506](https://freesound.org/s/90506/), [90509](https://freesound.org/s/90509/) |
-| `cuica_{1,2}.flac` | [“cuica (1).wav” by reinsamba](https://freesound.org/s/21715/), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | Two edited strokes from source windows 1.02–1.34 s and 1.39–1.66 s |
+| `cuica_{1,2}.flac` | [“cuica (1).wav” by reinsamba](https://freesound.org/s/21715/), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | Two edited strokes from source windows 0.550–0.770 s and 1.415–1.615 s |
 
 ## Sung vocals
 
