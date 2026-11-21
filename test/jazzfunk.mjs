@@ -12,15 +12,15 @@ import { stageScene } from '../js/club-stage.js';
 
 const pc = (n) => (n % 12 + 12) % 12;
 {
-  const probe = (velocity, notes = [0]) => {
+  const probe = (velocity, notes = [0], params = {}, style = 'jazzfunk') => {
     const oscillators = [], gains = [], filters = [];
     const param = () => ({ value: 0, events: [], setValueAtTime(v, t) { assert(Number.isFinite(v)); this.events.push(['set', v, t]); }, linearRampToValueAtTime(v, t) { assert(Number.isFinite(v)); this.events.push(['ramp', v, t]); }, setTargetAtTime(v, t, tau) { assert(Number.isFinite(v)); this.events.push(['target', v, t, tau]); } });
     const node = () => ({ connect(n) { return n; }, frequency: param(), gain: param(), pan: param(), stop() {} });
-    const state = freshSong('jazzfunk', 42);
+    const state = freshSong(style, 42);
     const e = { state, playingPattern: state.patterns[6], ctx: {
       createOscillator() { const n = node(); oscillators.push(n); return n; }, createStereoPanner: node,
     }, gain(v) { const n = node(); n.gain.value = v; gains.push(n); return n; }, filter(type, f) { const n = node(); n.type = type; n.frequency.value = f; filters.push(n); return n; }, startSource() {} };
-    Engine.prototype.jazzKeys.call(e, 0, velocity, notes, 69, { decay: 0.5, cutoff: 2200 }, node());
+    Engine.prototype.jazzKeys.call(e, 0, velocity, notes, 69, { decay: 0.5, cutoff: 2200, ...params }, node());
     return { oscillators, gains, filters };
   };
   const soft = probe(0.3), hard = probe(0.9);
@@ -31,6 +31,15 @@ const pc = (n) => (n % 12 + 12) % 12;
   const decays = hard.gains.flatMap(n => n.gain.events.filter(e => e[0] === 'target').map(e => e[3]));
   assert(decays.includes(0.028) && decays.includes(0.45), 'bell partial decays faster than the body');
   assert(hard.filters.some(n => n.type === 'peaking' && n.gain.value < 0), 'low-mid boxiness is attenuated');
+  const graph = p => ({ frequencies: p.oscillators.map(n => n.frequency.value), envelopes: p.gains.map(n => n.gain.events) });
+  assert.deepEqual(graph(probe(0.9, [0], { env: 0.12, detune: 0.6 })), graph(hard), 'generated Rhodes controls are neutral');
+  assert.deepEqual(graph(probe(0.9, [0], { env: 0.45, detune: 12 }, 'modal')), graph(probe(0.9, [0], {}, 'modal')), 'standard KEYS defaults are neutral');
+  const bright = probe(0.9, [0], { env: 1 }), mellow = probe(0.9, [0], { env: 0 });
+  assert(bark(bright) > bark(mellow), 'ENV controls strike bark');
+  const bodyDecay = p => p.gains.flatMap(n => n.gain.events).find(e => e[0] === 'target' && e[2] === 0.012)[3];
+  assert(bodyDecay(bright) > bodyDecay(mellow), 'ENV changes body articulation');
+  assert(probe(0.9, [0], { detune: 40 }).oscillators[3].frequency.value > probe(0.9, [0], { detune: 0 }).oscillators[3].frequency.value, 'DETUNE changes tone-bar beating');
+  assert.deepEqual(graph(probe(0.9, [0], { env: NaN, detune: Infinity })), graph(hard), 'invalid controls fall back to neutral defaults');
   assert.equal(probe(1, []).oscillators.length, 0, 'empty voicing allocates nothing');
   probe(0);
   assert.throws(() => probe(NaN), 'invalid levels are not scheduled');

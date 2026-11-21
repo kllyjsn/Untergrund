@@ -2150,8 +2150,12 @@ export class Engine {
 
   jazzKeys(t, v, iv, root, p, out) {
     if (!iv.length) return;
-    const c = this.ctx, decay = Math.max(0.15, p.decay * 0.9), end = t + Math.max(0.6, decay * 6) + 0.3;
     const style = jazzStyle(this.state, this.playingPattern);
+    const envDefault = style === 'jazzfunk' ? 0.12 : 0.45, detuneDefault = style === 'jazzfunk' ? 0.6 : 12;
+    const env = Number.isFinite(p.env) ? Math.max(0, Math.min(1, p.env)) : envDefault;
+    const detune = Number.isFinite(p.detune) ? Math.max(0, Math.min(40, p.detune)) : detuneDefault;
+    const articulation = 2 ** (env - envDefault), beating = 2 ** ((detune - detuneDefault) / 1200);
+    const c = this.ctx, decay = Math.max(0.15, p.decay * 0.9) * articulation, end = t + Math.max(0.6, decay * 6) + 0.3;
     const velocity = Math.max(0, Math.min(1, v / (style === 'jazzfunk' ? dbGain(JAZZ_MIX.jazzfunk.comp) : 1)));
     const lp = this.filter('lowpass', Math.min(5200, p.cutoff * 2.2), 0.5);
     const body = this.filter('peaking', 420, 0.8); body.gain.value = -4;
@@ -2164,9 +2168,9 @@ export class Engine {
       car.frequency.value = f; mod.frequency.value = f;
       const bark = this.gain(0);
       mod.connect(bark).connect(car.frequency);
-      bark.gain.setValueAtTime(f * (0.35 + velocity ** 2 * 2.4) * reg, t);
-      bark.gain.setTargetAtTime(f * (0.18 + 0.7 * velocity) * reg, t + 0.005, 0.11);
-      const bar = c.createOscillator(); bar.frequency.value = f * 1.0016;
+      bark.gain.setValueAtTime(f * (0.35 + velocity ** 2 * 2.4) * reg * articulation, t);
+      bark.gain.setTargetAtTime(f * (0.18 + 0.7 * velocity) * reg, t + 0.005, 0.11 * articulation);
+      const bar = c.createOscillator(); bar.frequency.value = f * 1.0016 * beating;
       const amp = this.gain(0);
       amp.gain.setValueAtTime(EPS, t);
       amp.gain.linearRampToValueAtTime(0.42 * level, t + 0.004);
