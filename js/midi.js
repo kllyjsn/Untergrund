@@ -107,7 +107,7 @@ export class Recorder {
     const p = this.state.params.acid, vo = Math.round(p.voice);
     this.acidRelease(t);
     const len = st.until != null ? st.until - t : holdNext ? sd * 2 : vo === 0 ? sd * 0.55 : st.ap ? sd * 0.9 : sd * (0.9 + p.decay * 2);
-    this.add('acid', t, this.bassMidi(st), len, (st.a ? 1 : 0.82) * (this.noteVel ?? 1));
+    this.add('acid', t, this.bassMidi(st, 36, this.minimal && vo === 2 ? 38 : 43), len, (st.a ? 1 : 0.82) * (this.noteVel ?? 1));
     this.bass = this.notes.acid.at(-1);
   }
   orch(part, t, m, dur, vel) { this.add(part, t, m, dur, vel); }

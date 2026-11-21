@@ -1216,4 +1216,20 @@ for (const listener of ['trap', 'dnb', undefined]) {
   e.hook(0.1, 0.5, 0, 0.2, 'warm');
   e.state.params.acid.voice = 1; e.acidVoice(0.1, { n: 0 }, false, false, e.stepDur);
 }
+{
+  const s = freshSong('minimal', 42); s.artist = { style: 'minimal' }; s.key = 0;
+  s.params.acid.voice = 2; s.params.acid.tune = 0;
+  const e = new Engine(new OfflineAudioContext(1, SR * 2, SR), s, { realtime: false }), rec = new Recorder(s);
+  const pitches = [], bassMidi = e.bassMidi.bind(e);
+  e.bassMidi = (...a) => { const m = bassMidi(...a); pitches.push(m); return m; };
+  assert.deepEqual(rec.notes, {}, 'an empty 808 MIDI recorder has no notes');
+  for (const n of [2, 3, 4, 5, 6, 7, 8]) {
+    const t = n * 0.05, st = { n };
+    e.eight08(t, st, 0.1, false, false); rec.acid(t, st, false, false, 0.1);
+  }
+  assert.deepEqual(rec.notes.acid.map(n => n.m), pitches, 'Minimal 808 MIDI matches playback across both register boundaries');
+  assert.deepEqual(pitches.slice(1, 6), [27, 28, 29, 30, 31], '808 folds MIDI39–43 down one octave');
+  s.params.acid.voice = 1; rec.acid(1, { n: 4 }, false, false, 0.1);
+  assert.equal(rec.notes.acid.at(-1).m, 40, 'default Minimal bass retains its wider body register');
+}
 console.log('sound ok');
