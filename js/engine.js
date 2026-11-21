@@ -4855,7 +4855,7 @@ const SECTION_DB = { verse: -1.8, chorus: 0.45 };
 // boom-chick verse; pop's chorus strings), so their verse gives back less level.
 // Styles that move between sections with filter glides instead of risers, snare rolls and impacts.
 const SMOOTH = new Set(['minimal']);
-const STYLE_SECTION_DB = { pop: { verse: -0.9 }, country: { verse: -0.8 } };
+const STYLE_SECTION_DB = { pop: { verse: -0.9 }, rnb: { chorus: 0.25 }, country: { verse: -0.8 } };
 
 export class Sequencer {
   constructor(engine, state) {
