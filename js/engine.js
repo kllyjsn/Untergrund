@@ -24,6 +24,26 @@ const BASS_COLOR = {
   afrobeats: { name: 'finger', knock: 1, settle: 0.018, wave: 'triangle', ratio: 3, harmonic: 0.8, tail: 0.25, decay: 0.07, round: 'triangle', pick: 1, gain: 0.85 },
   jerseyclub: { name: 'bounce', knock: 2.6, settle: 0.012, wave: 'sawtooth', ratio: 2, harmonic: 0.35, tail: 0.015, decay: 0.025, round: 'triangle', pick: 0.5, gain: 1.6, duckScale: 0.65, recoveryScale: 0.6 },
 };
+const LIQUID_CHORD = { wave: 'sawtooth', level: 0.4, attack: 0.065, release: 0.8, cutoff: 1700, spread: 6, fm: 0, width: 0 };
+const GENRE_PALETTES = {
+  dnb: {
+    name: 'liquid',
+    chords: {
+      default: LIQUID_CHORD,
+      10: { ...LIQUID_CHORD, level: 0.42, attack: 0.09, release: 1.1, cutoff: 1450 },
+      2: { ...LIQUID_CHORD, level: 0.44, attack: 0.075, cutoff: 1900, spread: 9 },
+      1: { ...LIQUID_CHORD, wave: 'triangle', level: 1.2, attack: 0.006, release: 0.5, cutoff: 2400, fm: 0.7 },
+      5: { ...LIQUID_CHORD, wave: 'triangle', level: 0.65, attack: 0.012, release: 0.32, cutoff: 2100, fm: 0.45 },
+    },
+    hook: { wave: 'triangle', level: 0.44, attack: 0.018, release: 0.16, cutoff: 2500, spread: 8, fm: 0.5, width: 0, air: 0.035 },
+    bass: { level: 1, sub: 0.9, body: 0.5, movement: 230, spread: 14 },
+  },
+};
+export const paletteFor = (state) => Object.hasOwn(GENRE_PALETTES, state.artist?.style) ? GENRE_PALETTES[state.artist.style] : undefined;
+export const paletteColor = (state) => {
+  const bank = paletteFor(state);
+  return bank && (bank.chords[Math.round(state.params.stab.voice)] || bank.chords.default);
+};
 // Chords sit under a sung line the way a mix rides the keys under a vocal: a little in the chorus, more in the verse
 // and most in the breakdown, so the drop still lands over it. Songs with sections already set the verse level.
 const STAB_UNDER_VOICE = { n: 0.84, v: 0.78, b: 0.45 };
@@ -1913,6 +1933,8 @@ export class Engine {
   stab(t, v, underHarp = false) {
     const c = this.ctx, p = this.state.params.stab;
     const { root, vo, iv } = stabPitches(this);
+    const palette = paletteFor(this.state);
+    if (palette) return this.paletteChord(t, v, iv, root, p, this.ch.stab.input, paletteColor(this.state));
     if (this.state.artist?.style === 'dub') {
       this.dubPad(t, v, iv, root);
       return this.dubChord(t, v, iv, root, p, this.ch.stab.input);
@@ -1997,6 +2019,117 @@ export class Engine {
       }
       return this._saws.cache.get(key);
     });
+  }
+
+  paletteChord(t, v, iv, root, p, out, color) {
+    if (!iv.length) return;
+    if (color.piano) {
+      const hp = this.filter('highpass', 160, 0.7), lp = this.filter('lowpass', color.cutoff, 0.6);
+      hp.connect(lp).connect(this.gain(color.level)).connect(out);
+      return this.piano(t, v, iv, root, { ...p, rev: Math.min(0.2, p.rev) }, hp);
+    }
+    for (const band of color.eq || []) out = this.bodyFor(out, band);
+    const release = Math.max(0.12, Math.min(color.release, p.decay)), hold = color.hold ?? 0.04, end = t + color.attack + hold + release * 6 + 0.02;
+    const cutoff = color.cutoff * Math.max(0.5, Math.min(1.8, p.cutoff / 1800));
+    const hp = this.filter('highpass', 180, 0.7), lp = this.filter('lowpass', cutoff, 0.6), amp = this.gain(0);
+    lp.frequency.setValueAtTime(cutoff * (0.7 + 0.6 * v), t);
+    lp.frequency.setTargetAtTime(cutoff * 0.65, t + color.attack + 0.01, Math.max(0.04, release * 0.4));
+    hp.connect(lp).connect(amp).connect(out);
+    amp.gain.setValueAtTime(0, t);
+    amp.gain.linearRampToValueAtTime(v * color.level / Math.sqrt(iv.length), t + color.attack);
+    amp.gain.setTargetAtTime(0, t + color.attack + hold, release);
+    amp.gain.setValueAtTime(0, end);
+    if (color.air) this.noiseSrc(t, end - t).connect(this.gain(color.air)).connect(hp);
+    const width = color.width ?? 0.55, pans = this.sidePans([-width, width], hp);
+    for (const n of iv) {
+      const f = midiHz(root + n), wave = this.paletteWave(f, color);
+      for (const side of [-1, 1]) {
+        const o = this.ctx.createOscillator(); o.type = color.wave; o.frequency.value = f;
+        o.detune.value = side * color.spread + Math.sin(t * 0.47 + n) * 1.4;
+        o.setPeriodicWave(wave);
+        o.connect(this.gain(0.5)).connect(pans[side < 0 ? 0 : 1]);
+        this.startSource(o, t); o.stop(end);
+      }
+    }
+  }
+
+  paletteWave(f, color) {
+    const waves = (this.paletteWaves ||= new Map()), key = `${f}:${color.wave}:${color.fm}:${color.organ || 0}`;
+    if (!waves.has(key)) {
+      const count = Math.max(1, Math.min(32, Math.floor(1750 / f))), re = new Float32Array(count + 1), im = new Float32Array(count + 1);
+      for (let h = 1; h <= count; h++) {
+        const edge = Math.min(1, Math.max(0, (1850 - f * h) / 350));
+        const core = color.wave === 'sawtooth' ? (h % 2 ? 1 : -1) / h : color.wave === 'triangle' ? (h % 2 ? (h % 4 === 1 ? 1 : -1) / (h * h) : 0) : h === 1 ? 1 : 0;
+        im[h] = edge * (core + (h === 2 ? color.fm * 0.22 + (color.organ || 0) : h === 3 ? color.fm * 0.07 : 0));
+      }
+      if (im[1] === 0) im[1] = 1;
+      waves.set(key, this.ctx.createPeriodicWave(re, im));
+    }
+    return waves.get(key);
+  }
+
+  paletteHook(t, v, f, dur, color, out) {
+    const p = this.state.params.stab;
+    return this.paletteChord(t, v, [0], 69 + 12 * Math.log2(f / 440), { ...p, decay: color.release }, out, { ...color, hold: Math.max(0.04, dur * 0.72) });
+  }
+
+  paletteBass(t, st, sd, holdNext, sliding, color) {
+    if (color.type) return this.pocketBass(t, st, sd, holdNext, sliding, color);
+    const c = this.ctx, p = this.state.params.acid, f = midiHz(this.bassMidi(st)), subF = midiHz(this.bassMidi(st, 36, 38));
+    const from = this.monoNote(t, f, sliding), len = holdNext ? sd * 2 : sd * (1 + p.decay * 6), end = t + len + 0.3;
+    const body = this.gain(1), lp = this.filter('lowpass', p.cutoff, Math.max(0.5, p.reso * 0.35)), amp = this.gain(0);
+    lp.frequency.setValueAtTime(Math.min(9000, p.cutoff * (1 + p.envmod * 5 + (st.a ? p.accent * 2 : 0))), t);
+    lp.frequency.setTargetAtTime(p.cutoff, t + 0.01, Math.max(0.03, p.decay * 0.6));
+    const drive = c.createWaveShaper(); drive.curve = driveCurve(0.15 + p.drive * 0.7);
+    const move = c.createOscillator(), depth = this.gain(color.movement);
+    move.frequency.value = 0.17 + p.wave * 0.13;
+    const phase = t * move.frequency.value * 2 * Math.PI;
+    move.setPeriodicWave(c.createPeriodicWave(new Float32Array([0, Math.sin(phase)]), new Float32Array([0, Math.cos(phase)])));
+    move.connect(depth).connect(lp.detune);
+    this.startSource(move, t); move.stop(end);
+    const vel = (st.a ? 0.95 : 0.8) * (this.noteVel ?? 1) * color.level;
+    amp.gain.setValueAtTime(EPS, t); amp.gain.linearRampToValueAtTime(vel * 0.5, t + 0.008);
+    amp.gain.setTargetAtTime(0, t + len, 0.04);
+    body.connect(lp).connect(drive).connect(amp); amp.connect(this.ch.acid.input);
+    for (const [type, det, level] of [['sawtooth', -color.spread, color.body], ['sawtooth', color.spread, color.body], ['sine', 0, color.sub]]) {
+      const o = c.createOscillator(); o.type = type; o.detune.value = det;
+      o.frequency.setValueAtTime(type === 'sine' ? subF : from, t);
+      if (type !== 'sine' && from !== f) o.frequency.exponentialRampToValueAtTime(f, t + 0.08);
+      o.connect(this.gain(level)).connect(type === 'sine' ? amp : body);
+      this.startSource(o, t); o.stop(end);
+    }
+    this.mono = { amp, f, end };
+  }
+
+  pocketBass(t, st, sd, holdNext, sliding, color) {
+    const c = this.ctx, p = this.state.params.acid, f = midiHz(this.bassMidi(st)), subF = midiHz(this.bassMidi(st, 36, Math.round(p.voice) === 5 ? 43 : 38));
+    const from = this.monoNote(t, f, sliding), len = (st.ap ? sd * 0.9 : holdNext ? sd * 2 : sd * (0.9 + p.decay * 2)) * color.length, end = t + len + 0.25;
+    const cutoff = Math.max(100, Math.min(4000, color.cutoff * (0.55 + p.cutoff / 600)));
+    const lp = this.filter('lowpass', cutoff, 0.6), amp = this.gain(0), vel = (st.a ? 1 : 0.82) * (this.noteVel ?? 1) * color.level;
+    lp.frequency.setValueAtTime(cutoff * (st.a ? 1.3 : 1), t);
+    lp.frequency.setTargetAtTime(cutoff * 0.45, t + 0.008, color.decay);
+    amp.gain.setValueAtTime(0, t); amp.gain.linearRampToValueAtTime(vel, t + 0.006);
+    amp.gain.setTargetAtTime(vel * color.sustain, t + 0.012, color.decay);
+    amp.gain.setTargetAtTime(0, t + len, 0.025);
+    lp.connect(amp); amp.connect(this.ch.acid.input);
+    let depth;
+    if (color.fm) {
+      const mod = c.createOscillator(); depth = this.gain(0);
+      mod.frequency.setValueAtTime(from * 3, t);
+      if (from !== f) mod.frequency.exponentialRampToValueAtTime(f * 3, t + 0.04);
+      depth.gain.setValueAtTime(f * color.fm, t);
+      depth.gain.setTargetAtTime(f * 0.03, t + 0.006, color.decay * 0.45);
+      mod.connect(depth); this.startSource(mod, t); mod.stop(end);
+    }
+    for (const [type, level, sub] of [[color.wave || 'triangle', color.body, false], ['sine', color.sub, true]]) {
+      const o = c.createOscillator(); o.type = type;
+      o.frequency.setValueAtTime(sub ? subF : from, t);
+      if (!sub && from !== f) o.frequency.exponentialRampToValueAtTime(f, t + 0.04);
+      if (!sub && depth) depth.connect(o.frequency);
+      o.connect(this.gain(level)).connect(sub ? amp : lp);
+      this.startSource(o, t); o.stop(end);
+    }
+    this.mono = { amp, f, end };
   }
 
   dubEchoOut(t) {
@@ -2897,6 +3030,8 @@ export class Engine {
     v *= 1.3;
     n = hookSnap(n, h, p, strong, up);
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
+    const palette = paletteFor(this.state);
+    if (palette) return this.paletteHook(t, v, midiHz(60 + k + oct * 12 + n), dur, palette.hook, this.hookBus || this.ch.stab.input);
     if (this.state.artist?.style === 'dub') return this.dubChord(t, v * 0.38, [0], 60 + k + oct * 12 + n, { ...p, decay: Math.min(0.3, dur) }, this.hookBus || this.ch.stab.input);
     if (dampedChord(this) && (voice === 'vocal' || voice === 'reed')) {
       const name = Math.round(p.voice) === 1 ? 'keys' : 'organ';
@@ -3449,6 +3584,11 @@ export class Engine {
 
   acidVoice(t, st, sliding, holdNext, sd, slideUntil, kickAt) {
     const a = this.acidNodes, p = this.state.params.acid;
+    const palette = paletteFor(this.state);
+    if (palette) {
+      a.vca.gain.setTargetAtTime(0, t, 0.005);
+      return this.paletteBass(t, st, sd, holdNext, sliding, palette.bass);
+    }
     if (this.state.artist?.style === 'dub') {
       a.vca.gain.setTargetAtTime(0, t, 0.005);
       return this.dubSub(t, st, sd, holdNext);

@@ -46,6 +46,60 @@ function hitDb(d) {
 }
 const rmsDb = (d, a, b) => { let e = 0; for (let i = a; i < b; i++) e += d[i] * d[i]; return 10 * Math.log10(e / Math.max(1, b - a) + 1e-20); };
 
+
+{
+  const { paletteFor, paletteColor } = await import('../js/engine.js');
+  assert.equal(paletteFor({ artist: { style: 'toString' } }), undefined, 'unknown styles cannot inherit a palette');
+  const voices = new Set();
+  for (const seed of [11, 20, 42, 73, 211, 997, 1234, 2026]) {
+    const s = freshSong('dnb', seed); s.artist = { style: 'dnb', seed };
+    const ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false }), rec = new Recorder(s), hits = {};
+    for (const name of ['paletteChord', 'paletteHook', 'paletteBass']) {
+      const f = e[name]; e[name] = function (...a) { hits[name] = (hits[name] || 0) + 1; return f.apply(this, a); };
+    }
+    for (const name of ['recordedNote', 'keys', 'pad', 'strings', 'reese']) e[name] = () => assert.fail(`liquid never enters ${name}`);
+    voices.add(s.params.stab.voice);
+    let played;
+    const chord = e.paletteChord;
+    e.paletteChord = function (t, v, iv, root, ...a) { played = iv.map(n => root + n); return chord.call(this, t, v, iv, root, ...a); };
+    e.stab(0.05, 0.7); rec.trigger('stab', 0.05, 0.7);
+    assert.deepEqual(rec.notes.stab.map(n => n.m), played, 'liquid MIDI keeps the actual chord voicing');
+    e.hook(0.1, 0.4, 0, 0.2, 'analog');
+    e.acidVoice(0.05, { n: 0, a: false }, false, false, e.stepDur);
+    assert.deepEqual(hits, { paletteChord: 2, paletteHook: 1, paletteBass: 1 });
+    assert.equal(paletteFor(s).name, 'liquid');
+    const d = (await ctx.startRendering(e.mix)).getChannelData(0);
+    assert(d.every(Number.isFinite) && hitDb(d) > -60, 'liquid renders finite audible PCM');
+    const fallback = paletteFor(s).chords.default;
+    s.params.stab.voice = 99;
+    assert.equal(paletteColor(s), fallback, 'unknown liquid palettes have a safe default');
+  }
+  assert.equal(voices.size, 4, 'all four liquid ensembles are covered');
+  const s = freshSong('dnb', 42); s.artist = { style: 'dnb' };
+  const ctx = new OfflineAudioContext(1, 256, SR), e = new Engine(ctx, s, { realtime: false });
+  const makeWave = ctx.createPeriodicWave.bind(ctx);
+  let fundamental;
+  ctx.createPeriodicWave = (re, im) => { fundamental = im[1]; return makeWave(re, im); };
+  e.paletteWave(2400, paletteFor(s).hook);
+  assert.equal(fundamental, 1, 'high-register palette notes retain their fundamental');
+  e.paletteChord(0, 1, [], 48, s.params.stab, e.ch.stab.input, paletteColor(s));
+  assert((await ctx.startRendering(e.mix)).getChannelData(0).every(v => v === 0), 'empty liquid voicing is silent');
+  for (const voice of [-1, 99, NaN]) {
+    const s = freshSong('dnb', 42); s.artist = { style: 'dnb' }; s.params.stab.voice = voice;
+    const ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
+    e.stab(0.05, 0.7);
+    const d = (await ctx.startRendering(e.mix)).getChannelData(0);
+    assert(d.every(Number.isFinite) && hitDb(d) > -60, 'unknown liquid palettes render safely and audibly');
+  }
+  for (const style of ['trap', 'jerseyclub', 'minimal', 'hardtechno', 'ambient', 'ukg']) {
+    const s = freshSong(style, 42); s.artist = { style };
+    assert.equal(paletteFor(s), undefined, `${style} has no liquid palette`);
+    const e = new Engine(new OfflineAudioContext(1, 256, SR), s, { realtime: false });
+    e.paletteChord = e.paletteHook = e.paletteBass = () => assert.fail(`${style} entered liquid dispatch`);
+    e.stab(0.05, 0.7); e.hook(0.05, 0.4, 0, 0.2, 'analog'); e.acidVoice(0.05, { n: 0 }, false, false, e.stepDur);
+  }
+}
+
 {
   const old = [[0, 2, 0, 0.35, 0.55], [3, 1, 0, 0.5, 0.25], [5, 2, 0, 0.45, 0.7], [9, 1, 0, 0.4, 0.55]];
   INSTRUMENTS.dub.forEach((tuple, i) => assert.notDeepEqual(tuple, old[i], `dub ensemble ${i} changes`));
