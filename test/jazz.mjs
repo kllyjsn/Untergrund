@@ -12,6 +12,22 @@ import { writeMelody } from '../js/melody.js';
 import { rng } from '../js/dsp.js';
 
 const pc = (n) => ((n % 12) + 12) % 12;
+for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
+  const s = freshSong(style, 42); s.chain = 'GG'; s.ending = false;
+  const hook = s.patterns[6].hook = { h: 1, v: 'chop', o: 0, s: Array(32).fill(0), x: {} };
+  hook.s[3] = [5, 2, 0.7]; hook.s[20] = [2, 1, 0.6];
+  const capture = () => {
+    const e = new Recorder(s), seq = new Sequencer(e, s), notes = [];
+    e.hook = (...args) => notes.push(args);
+    for (let i = 0; i < 32; i++) seq.tick(i, 0.05 + i * e.stepDur);
+    return notes;
+  };
+  assert.deepEqual(capture().map((n) => [n[2], n[4], n[6]]), [[5, 'chop', false], [2, 'chop', false]], `${style} plays a placed hook unchanged with My Voice`);
+  hook.s.fill(0);
+  assert.deepEqual(capture(), [], 'an empty placed hook does not regenerate the jazz melody');
+  delete hook.h; hook.v = 'vocal';
+  assert(capture().every((n) => n[4] === 'vocal'), 'jazz lead respects the selected voice');
+}
 {
   const s = freshSong('swing', 42), b = freshSong('bossa', 42);
   s.patterns[6] = b.patterns[6]; s.current = 0; s.chain = 'G'; s.chainOn = true; s.ending = false;

@@ -5119,6 +5119,13 @@ export class Sequencer {
   // the intro brings in hats then percussion, the outro takes them away again, the first drop holds its ride back for
   // a phrase, the peak's second phrase opens up off-16th hats, every 8 bars ends on a snare/clap roll over a dropped
   // kick (two beats at 16-bar ends), and every fourth bar turns around on the percussion.
+  jazzHook(pat, abs, t, sd) {
+    if (!pat.hook.h) return false;
+    const note = pat.hook.s[abs % 32];
+    if (note) this.e.hook(t, note[2], note[0], swingDuration(this.s, abs, note[1], sd), pat.hook.v, pat.hook.o, false, 0.8, false, pat.hook.x);
+    return true;
+  }
+
   jazzStep(pat, abs, t, pos, bars) {
     if (pat.jazz.style === 'jazzfunk') return this.jazzfunkStep(pat, abs, t, pos, bars);
     if (pat.jazz.style === 'bossa') return this.bossaStep(pat, abs, t, pos, bars);
@@ -5148,7 +5155,7 @@ export class Sequencer {
       e.noteVel = 1;
     }
     if (enabled('stab') && (final || pat.steps.stab[i] && (!solo || bar % 2 === 0 || i === 6))) e.trigger('stab', t, style === 'modal' ? 0.62 : solo ? 0.42 : 0.56);
-    if (enabled('stab') && pat.hook && pat.hm) {
+    if (enabled('stab') && pat.hook && pat.hm && !this.jazzHook(pat, abs, t, sd)) {
       const notes = final ? [[0, 8, h.r + CHORDS[h.c].iv[1], 0.7]] : jazzNotes(style, seed, bar, h, solo);
       for (const [at, dur, n, v] of notes) if (at === i) e.hook(t, v, n, swingDuration(s, abs, dur, sd), pat.hook.v, pat.hook.o, i % 8 === 0, 0.8, false, pat.hook.x);
     }
@@ -5172,14 +5179,16 @@ export class Sequencer {
       e.noteVel = 1;
     }
     if (enabled('stab') && (final || FUNK_COMP[bar % 2].includes(i))) e.trigger('stab', t, this.cur === 2 ? 0.48 : 0.6);
-    if (enabled('stab') && pat.hook && pat.hm) {
+    if (enabled('stab') && pat.hook && pat.hm && !this.jazzHook(pat, abs, t, sd)) {
       const notes = final ? [[0, 6, e.harm.r + CHORDS[e.harm.c].iv[1], 0.7]] : jazzNotes('jazzfunk', pat.jazz.seed, bar, e.harm, this.cur === 2);
       for (const [at, dur, pitch, v] of notes) if (at === i) {
         const k = s.key > 6 ? s.key - 12 : s.key;
         let n = pitch;
-        while (60 + k + n < 69) n += 12;
-        while (60 + k + n > 80) n -= 12;
-        e.hook(t, v, n, swingDuration(s, abs, dur, sd), 'tpt', 0, i % 4 === 0, 0.7, false, pat.hook.x);
+        if (pat.hook.v === 'tpt') {
+          while (60 + k + n < 69) n += 12;
+          while (60 + k + n > 80) n -= 12;
+        }
+        e.hook(t, v, n, swingDuration(s, abs, dur, sd), pat.hook.v, pat.hook.o, i % 4 === 0, 0.7, false, pat.hook.x);
       }
     }
     return this.cur;
@@ -5203,7 +5212,7 @@ export class Sequencer {
       e.noteVel = 1;
     }
     if (enabled('stab') && (final || i % 8 === 0 || BOSSA_BATIDA[parity].includes(i))) e.trigger('stab', t, i % 8 === 0 ? 0.5 : 0.43);
-    if (enabled('stab') && pat.hook && pat.hm) {
+    if (enabled('stab') && pat.hook && pat.hm && !this.jazzHook(pat, abs, t, sd)) {
       const notes = final ? [[0, 8, h.r + CHORDS[h.c].iv[1], 0.6]] : jazzNotes('bossa', pat.jazz.seed, bar, h, this.cur === 2);
       for (const [at, dur, n, v] of notes) if (at === i) e.hook(t, v, n, dur * sd, pat.hook.v, pat.hook.o, i % 8 === 0, 0.8, false, pat.hook.x);
     }
