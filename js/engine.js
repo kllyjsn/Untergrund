@@ -1,6 +1,6 @@
 import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES, KIT_BACKBEAT, defaultParams } from './params.js';
 import { PALETTE_INSTRUMENTS, PALETTE_DEFAULTS, instrumentFor } from './palette-defaults.js';
-import { getSample } from './sampler.js';
+import { getSample, synthSliceMidi } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
 import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, STAB_BAND, HOOK_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
@@ -3292,8 +3292,17 @@ export class Engine {
     const idx = (Math.round(p.slice) + jump) % slices.length;
     const from = slices[idx], to = slices[idx + 1] ?? buffer.duration;
     const notes = SCALES[this.state.scale]?.notes || SCALES.minor.notes;
-    const degree = hash(step, 3) < p.melody ? notes[Math.floor(hash(step, 4) * notes.length)] : 0;
-    const rate = 2 ** ((Math.round(p.pitch) + degree) / 12);
+    let rate;
+    if (this.playbackStyle === 'euphoric' && sample.source === 'synth') {
+      // Sing chord tones in the song's key: the synth slice's own note is known, so retune it onto the bar's chord.
+      const iv = chordIv(this.harm, this.state.params.stab), sliceMidi = synthSliceMidi(from);
+      const tone = hash(step, 3) < p.melody ? iv[Math.floor(hash(step, 4) * iv.length)] : 0;
+      const target = 60 + this.state.key + this.harmRoot() + tone + Math.round(p.pitch);
+      rate = 2 ** ((target - sliceMidi - 12 * Math.round((target - sliceMidi - 3) / 12)) / 12);
+    } else {
+      const degree = hash(step, 3) < p.melody ? notes[Math.floor(hash(step, 4) * notes.length)] : 0;
+      rate = 2 ** ((Math.round(p.pitch) + degree) / 12);
+    }
     const dur = Math.max(0.03, Math.min((to - from) / rate, p.length * this.stepDur));
     const src = c.createBufferSource();
     src.buffer = buffer;
