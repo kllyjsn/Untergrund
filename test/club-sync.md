@@ -1,5 +1,24 @@
 # Club rendered-audio sync harness
 
+## Listener transition audit
+
+`npm run test:club-sync -- --listener-audit jazzfunk,lofihiphop,hypnotic --repeat 3 --output listener-audit.json`
+captures stereo destination-tap PCM at the native sample rate across three
+real Club flows: PASS DECK → UPDATE ROOM (same song), SONGS → SPIN (seed 7 →
+11, same style), and a ten-second listener disconnect/reconnect (same set).
+Reconnect trials record whether server presence expired during the disconnect
+and verify the listener is present after reconnecting.
+To run one flow, use `--scenario listener-handoff`, `listener-track-change`,
+or `listener-reconnect`.
+
+Each trial writes separate DJ and listener WAVs to `test/out/`; the JSON
+contains set, network, and audio-clock markers, plus the clients’ long tasks and
+audio underrun counters. One output timestamp locates the start of each WAV.
+Samples then stay in worklet message order, without filling or dropping PCM;
+`frameJumps` flags discontinuities in Chrome's reported frame index.
+The WAVs retain their original levels. This mode records transitions for
+inspection, rather than imposing the synthetic fixture's sync gates.
+
 ## Real neural vocals (local CPU)
 
 `npm run test:club-sync -- --vocal real --scenario short-wake-mix --diagnostics`

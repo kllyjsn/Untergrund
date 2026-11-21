@@ -300,11 +300,11 @@ export async function extractPCM({ from, to, origin, gain, updatedOrigin = origi
   return { sampleRate, ...output };
 }
 
-export function floatWav(samples, sampleRate) {
+export function floatWav(samples, sampleRate, channels = 1) {
   const out = Buffer.alloc(44 + samples.length * 4);
   out.write('RIFF'); out.writeUInt32LE(out.length - 8, 4); out.write('WAVEfmt ', 8); out.writeUInt32LE(16, 16);
-  out.writeUInt16LE(3, 20); out.writeUInt16LE(1, 22); out.writeUInt32LE(sampleRate, 24); out.writeUInt32LE(sampleRate * 4, 28);
-  out.writeUInt16LE(4, 32); out.writeUInt16LE(32, 34); out.write('data', 36); out.writeUInt32LE(samples.length * 4, 40);
+  out.writeUInt16LE(3, 20); out.writeUInt16LE(channels, 22); out.writeUInt32LE(sampleRate, 24); out.writeUInt32LE(sampleRate * channels * 4, 28);
+  out.writeUInt16LE(channels * 4, 32); out.writeUInt16LE(32, 34); out.write('data', 36); out.writeUInt32LE(samples.length * 4, 40);
   for (let i = 0; i < samples.length; i++) out.writeFloatLE(samples[i], 44 + i * 4);
   return out;
 }
