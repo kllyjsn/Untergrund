@@ -21,6 +21,8 @@ The gate records both as known breaches. They may not get louder, and once one i
 
 **Update: a breach outside the sweep.** Music then measured rap TRAP seed 211 at −0.94 dBTP on main, and the gate renders it at the same −0.94 dBTP, peaking at bar 59 in its G section. Seed 211 picks the same ensemble as seed 11, which the sweep already renders at −1.15 dBTP, so covering every ensemble does not cover every hot song. The Trap fix in [#322](https://github.com/kllyjsn/Untergrund/pull/322) brought seed 211 down to −1.24 dBTP. Music also found EUPHORIC seed 2 at −0.88 dBTP. After the Euphoric fix in [#316](https://github.com/kllyjsn/Untergrund/pull/316) it measures −1.32 dBTP, and EUPHORIC seed 11 is under the ceiling too. TRAP seed 211 and EUPHORIC seeds 2 and 11 are now regression seeds: the sweep renders them on every change, so none of them can creep back over unseen. The known-breach list is empty.
 
+**Update: a nightly wide sweep.** To find the next out-of-sweep seed before Music does, a nightly job now renders 8 fresh seeds of every genre (272 songs), with new seeds each night. Its first trial run, 2 fresh seeds per genre (68 songs), found 3 songs over the ceiling: MINIMAL seeds 41654 and 41655 (both −0.94 dBTP at bar 107) and POP seed 41655 (−0.99 dBTP at bar 99). All three peak in an A section, which no breach before them did. They are now known breaches, so the per-PR gate renders them on every change. That is 3 of 68 fresh songs over the ceiling, against none of the 136 seeds the per-PR gate already sweeps, so the fixed sweep had been understating how often songs breach.
+
 {{chart sweep}}
 
 ## Most songs live just under the ceiling

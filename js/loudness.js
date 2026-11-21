@@ -103,7 +103,7 @@ export const targetFor = (style) => LOUDNESS_TARGET[TIER[style] || 'club'];
 export const MAKEUP_DB = {
   hypnotic: 3.6, industrial: 2.1, acid: 4.5, dub: 4.0, peak: 3.5, hardtechno: -0.1, deephouse: 3.0, minimal: 5.6,
   ukg: 2.1, euphoric: 3.5, neosoul: 3.0, boombap: 0.7, breaks: 3.7, electro: 3.9, dnb: 4.3, trance: 3.8,
-  ambient: 2.4, amapiano: 3.0, afrobeats: 2.5, reggaeton: 3.4, bailefunk: 2.8, trap: 3.0, drill: 4.2,
+  ambient: 2.4, amapiano: 3.0, afrobeats: 2.5, reggaeton: 3.4, bailefunk: 4.9, trap: 3.0, drill: 4.2,
   jerseyclub: 4.3, hyperpop: 3.2, symphony: 6.5, concerto: 5.3, nocturne: 11.9, repertoire: 3.6,
   pop: 5.3, rnb: 4.4, rock: 5.0, folk: 1.9, country: 4,
 };

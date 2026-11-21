@@ -1,0 +1,45 @@
+name: True-peak nightly
+
+# Renders fresh seeds of every style each night (scripts/true-peak.mjs --wide), so a hot seed outside the per-PR
+# sweep is caught here rather than by ear. A breach fails the run; add its seed to REGRESSION_SEEDS once fixed.
+on:
+  schedule:
+    - cron: '17 9 * * *'
+  workflow_dispatch:
+    inputs:
+      seeds_per_style:
+        description: Fresh seeds per style
+        default: '8'
+      night:
+        description: Night index to replay (UTC days since 1970); empty for today
+        default: ''
+
+jobs:
+  wide:
+    name: true-peak nightly (${{ matrix.shard }}/12)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    env:
+      CHROME_PATH: /usr/bin/google-chrome
+      WIDE: ${{ inputs.seeds_per_style || '8' }}
+      NIGHT: ${{ inputs.night }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Render fresh seeds of every genre; fail on any true peak over -1 dBTP
+        run: npm run test:true-peak -- --wide "$WIDE" --night "${NIGHT:-$(( $(date -u +%s) / 86400 ))}" --shard ${{ matrix.shard }}/12 --quiet
+      - name: Upload nightly sweep
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: true-peak-nightly-${{ matrix.shard }}
+          path: test/out/true-peak-*.json
+          if-no-files-found: warn

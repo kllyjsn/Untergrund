@@ -5,6 +5,7 @@ import { sanitize, STYLES } from '../js/state.js';
 import { handleDescribe } from '../api/_lib/describe-ai.js';
 import { memoryKv } from '../api/_lib/events.js';
 import { buildSong, scoreSong } from '../scripts/composition.mjs';
+import { patternAt } from '../js/scope.js';
 
 let n = 0;
 const t = (name, fn) => { try { fn(); n++; } catch (e) { console.error(`✗ ${name}`); throw e; } };
@@ -22,6 +23,17 @@ const FIXED = {
   ],
   texture: [{ id: 'space', amt: 1 }],
 };
+
+t('Baile generated takes respect explicit instrument exclusions', () => {
+  const spec = { ...FIXED, style: 'bailefunk', bpm: 128,
+    sections: FIXED.sections.map(s => ({ ...s, instruments: ['kick', 'bass'] })) };
+  const song = realize(spec, 1);
+  for (let bar = 0; bar < song.chain.length; bar++) {
+    if (song.chain[bar] !== 'G') continue;
+    const p = patternAt(song.patterns[6], bar);
+    for (const id of ['perc', 'vox']) assert(!p.steps[id].some(Boolean), `excluded ${id} stays silent at bar ${bar}`);
+  }
+});
 
 t('roman numerals read over the scale', () => {
   assert.deepEqual(parseChord('i', 'minor'), { r: 0, c: 1 });
