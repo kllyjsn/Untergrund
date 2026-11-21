@@ -1,6 +1,6 @@
 // Runs before app modules. Only the destination edge is replaced: the worklet
 // passes the original samples through unchanged and reports a low-pass envelope.
-export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, graph = null) {
+export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, graph = null, listenerAudit = null) {
   const RealDate = Date;
   globalThis.Date = new Proxy(RealDate, {
     apply: () => new RealDate(RealDate.now() + skew).toString(),
@@ -11,12 +11,13 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
     localStorage.setItem('untergrund.v1', JSON.stringify(fixture));
     localStorage.setItem('untergrund.made', '1');
   }
+  if (fixture && listenerAudit) localStorage.setItem('untergrund.family', listenerAudit);
   const tap = globalThis.__clubAudio = { samples: [], anchors: [], anchorPolls: [], errors: [], routes: [], requests: [], lifecycle: [], sources: [], playbackStats: [], vocalStarts: [] };
   tap.longTasks = [];
   new PerformanceObserver(list => {
     for (const e of list.getEntries()) tap.longTasks.push({ at: performance.timeOrigin + e.startTime, duration: e.duration });
   }).observe({ type: 'longtask', buffered: true });
-  if (mix) globalThis.__clubPCM = { mix: [], vocal: [] };
+  if (mix || listenerAudit) globalThis.__clubPCM = { mix: [], vocal: [] };
   if (mix) tap.channels = { kick: { samples: [] }, vocal: { samples: [] }, hat: { samples: [] } };
   const epoch = () => performance.timeOrigin + performance.now();
   const contexts = [];
@@ -121,7 +122,7 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
   const taps = new WeakMap();
   const code = `const lowPass = 1 - Math.exp(-2 * Math.PI * 180 / sampleRate);
   class Tap extends AudioWorkletProcessor {
-    constructor(options) { super(); this.isolated = !!options.processorOptions?.isolated; this.capture = !!options.processorOptions?.capture; this.pcm = this.capture ? new Float32Array(8192) : null; this.used = 0; this.low = 0; this.rows = []; }
+    constructor(options) { super(); this.isolated = !!options.processorOptions?.isolated; this.capture = !!options.processorOptions?.capture; this.stereo = !!options.processorOptions?.stereo; this.pcm = this.capture ? new Float32Array(8192) : null; this.right = this.stereo ? new Float32Array(8192) : null; this.used = 0; this.low = 0; this.rows = []; }
     process(inputs, outputs) {
       const input = inputs[0], output = outputs[0];
       for (let c = 0; c < output.length; c++) {
@@ -133,9 +134,13 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
       if (this.capture) {
         if (!this.used) this.frame = currentFrame;
         if (x) this.pcm.set(x, this.used);
+        if (this.right) this.right.set(output[1], this.used);
         this.used += 128;
         if (this.used === this.pcm.length) {
-          this.port.postMessage({pcm:this.pcm, frame:this.frame, sampleRate}, [this.pcm.buffer]);
+          const data = {pcm:this.pcm, frame:this.frame, sampleRate};
+          if (this.right) data.right = this.right;
+          this.port.postMessage(data, this.right ? [this.pcm.buffer, this.right.buffer] : [this.pcm.buffer]);
+          if (this.right) this.right = new Float32Array(8192);
           this.pcm = new Float32Array(8192); this.used = 0;
         }
       }
@@ -201,7 +206,7 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
       const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
       entry.ready = ctx.audioWorklet.addModule(url).then(() => {
         URL.revokeObjectURL(url);
-        const node = new AudioWorkletNode(ctx, 'club-tap', { outputChannelCount: [2], processorOptions:{capture:mix} });
+        const node = new AudioWorkletNode(ctx, 'club-tap', { outputChannelCount: [2], processorOptions:{capture:mix || !!listenerAudit, stereo:!!listenerAudit} });
         node.port.onmessage = ({ data }) => data.pcm ? __clubPCM.mix.push(data) : tap.samples.push(...data);
         connect.call(gain, node); connect.call(node, dest);
         entry.node = node;

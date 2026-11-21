@@ -9,7 +9,7 @@ import { createServer } from 'node:net';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findChrome } from './chrome.mjs';
-import { defaultState, emptyPattern } from '../js/state.js';
+import { defaultState, emptyPattern, STYLES } from '../js/state.js';
 import { installAudioTap, envelope, postResumeEnvelope, onsets, resolvedCompare, fixtureMissing, BPM, KICK_STEPS, PERIOD_MS } from './club-sync-audio.mjs';
 import { transitionAudio } from './club-sync-transition.mjs';
 import { measureDJEdits } from './club-dj-edit.mjs';
@@ -20,6 +20,7 @@ import { analyzeVocalGrid, vocalFindings, referenceEnvelope, clipRange, extractP
 import { parseNetwork, networkController, clockSpread } from './club-sync-network.mjs';
 import { stepFixture, forcedStepEvidence } from './club-sync-steps.mjs';
 import { startOutputCapture } from './club-sync-output.mjs';
+import { listenerSong, saveListenerClips } from './club-sync-listener.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const out = resolve(root, 'test/out');
@@ -46,13 +47,16 @@ const SCENARIOS = [
   { name: 'dj-handoff', handoff: true },
   { name: 'dj-handoff-mix', handoff: true, mix: true },
   { name: 'replay', replay: true },
+  { name: 'listener-handoff', listenerAudit: 'handoff' },
+  { name: 'listener-track-change', listenerAudit: 'track-change' },
+  { name: 'listener-reconnect', listenerAudit: 'reconnect' },
 ];
 const args = process.argv.slice(2);
 const options = { repeat: 1, output: 'club-sync.json', vocal: 'synthetic', 'net-target':'listener', 'net-label':'default' };
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
   if (['--assert', '--diagnostics', '--mute-audio', '--no-audio-device', '--startup-contention', '--clips', '--handoff-drop-kicks', '--vocal-slew-test', '--vocal-reanchor-control', '--whole-step-test', '--drop-step-control', '--vocal-force-repeat-control'].includes(arg)) options[arg.slice(2)] = true;
-  else if (['--scenario', '--repeat', '--output', '--output-capture', '--cpu-throttle', '--vocal', '--net', '--net-target', '--net-label'].includes(arg) && args[i + 1]) options[arg.slice(2)] = args[++i];
+  else if (['--scenario', '--repeat', '--output', '--output-capture', '--cpu-throttle', '--vocal', '--net', '--net-target', '--net-label', '--listener-audit'].includes(arg) && args[i + 1]) options[arg.slice(2)] = args[++i];
   else throw new Error(`Unknown/missing argument: ${arg}`);
 }
 const selected = options.scenario;
@@ -70,6 +74,10 @@ const mixSong = () => {
 };
 const selectedScenarios = selected?.split(',');
 assert.ok(!selectedScenarios || selectedScenarios.every(name => SCENARIOS.some(s => s.name === name)), 'Unknown scenario');
+const listenerStyles = options['listener-audit']?.split(',');
+assert.ok(!listenerStyles || listenerStyles.every(style => Object.hasOwn(STYLES, style)), 'Unknown listener audit style');
+assert.ok(!selectedScenarios || selectedScenarios.every(name => !!SCENARIOS.find(s => s.name === name).listenerAudit === !!listenerStyles),
+  'Listener audit scenarios require --listener-audit STYLES and cannot be mixed with sync scenarios');
 assert.ok(!options['output-capture'] || (process.platform === 'linux' &&
   ['host-first', 'listener-first'].includes(options['output-capture']) &&
   selectedScenarios?.every(name => SCENARIOS.find(s => s.name === name).coldDownbeat || options['whole-step-test']) &&
@@ -107,7 +115,7 @@ function visibleControl(selectors, label) {
   }
   return null;
 }
-async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = false, { limitPaint = false, hideStage = false, audioEnv } = {}) {
+async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = false, { limitPaint = false, hideStage = false, audioEnv, auditStyle } = {}) {
   const chrome = findChrome(); if (!chrome) throw new Error('Chrome required');
   const profile = await mkdtemp(join(out, 'chrome-'));
   const proc = spawn(chrome, ['--headless=new', '--no-sandbox', '--no-first-run', ...(process.platform === 'darwin' ? ['--window-size=1280,900'] : []), '--disable-background-timer-throttling',
@@ -186,16 +194,16 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = 
     }
     console.log(`CDP control RTT (unfiltered): ${JSON.stringify(cdpProbe)}ms`);
     console.log(`Chrome viewport: ${await run('JSON.stringify({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})')}`);
-    if (options.diagnostics || mix) await installDiagnostics(send, base, {vocalSlew:!!options['vocal-slew-test'],
+    if (options.diagnostics || mix || auditStyle) await installDiagnostics(send, base, {vocalSlew:!!options['vocal-slew-test'],
       vocalRestart:!!options['vocal-reanchor-control'], wholeStep:!!options['whole-step-test'], dropStep:!!options['drop-step-control'],
-      forceRepeat:!!options['vocal-force-repeat-control']});
+      forceRepeat:!!options['vocal-force-repeat-control'], listenerAudit:!!auditStyle});
     if (options.diagnostics) {
       await send('Profiler.enable');
       await send('Profiler.start');
       await send('Performance.enable');
     }
     const graph = mix ? await mixGraphEdges() : null;
-    await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${installAudioTap})(${skew}, ${JSON.stringify(fixture)}, ${displacementMs}, ${mix}, ${JSON.stringify(graph)})` });
+    await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${installAudioTap})(${skew}, ${JSON.stringify(fixture)}, ${displacementMs}, ${mix}, ${JSON.stringify(graph)}, ${JSON.stringify(auditStyle ? STYLES[auditStyle].family : null)})` });
     if (mix && !realVocal) await installMixStem(send, base, mixSong());
     if (mix && realVocal) {
       await send('Network.setBypassServiceWorker', { bypass: true });
@@ -280,14 +288,14 @@ async function seedReplay(host, room, song) {
   return saved;
 }
 
-async function scenario(base, spec, network, run) {
+async function scenario(base, spec, network, run, auditStyle) {
   const clients = [];
   const contention = [];
   const contentionFile = join(out, 'club-sync-contention.bin');
   let events = {};
   try {
     if (options['output-capture']) activeOutput = await startOutputCapture(out, options['output-capture'], until, terminate);
-    const song = spec.mix ? mixSong() : fixture();
+    const song = auditStyle ? listenerSong(auditStyle, 7) : spec.mix ? mixSong() : fixture();
     if (spec.replay && !spec.cold) {
       // The outgoing fixture promises one kick per beat; the replay uses the irregular grid.
       for (const p of song.patterns) p.steps.kick = p.steps.kick.map((_, step) => step % 4 === 0 ? 1 : 0);
@@ -299,16 +307,17 @@ async function scenario(base, spec, network, run) {
       song.patterns[0].steps.kick[0] = 1;
     }
     const handoffMix = spec.handoff && spec.mix;
-    const prejoin = spec.mix && !options.net && !spec.expiredMix && !!(spec.offlineMs || spec.freezeMs || handoffMix);
+    const prejoin = auditStyle || (spec.mix && !options.net && !spec.expiredMix && !!(spec.offlineMs || spec.freezeMs || handoffMix));
     const skipPaint = () => Promise.all(clients.map(c => c.run("document.body.style.contentVisibility = 'hidden'")));
-    const rendering = { limitPaint: !spec.mix || spec.expiredMix || prejoin || handoffMix, hideStage: !spec.mix || handoffMix };
+    const rendering = { limitPaint: !spec.mix || spec.expiredMix || prejoin || handoffMix, hideStage: !spec.mix || handoffMix, auditStyle };
     let room = prejoin || spec.coldDownbeat ? `sync-${randomBytes(6).toString('hex')}` : null;
     const snapshot = async () => {
       const response = await fetch(`${base}/api/rooms/${room}`);
       assert.ok(response.ok, `Room snapshot HTTP ${response.status}`);
       const r = await response.json();
       return { at: Date.now(), members: r.members.map(m => m.id), hostId: r.hostId, queue: r.queue,
-        set: { by: r.currentSet?.by, broadcastId: r.currentSet?.broadcastId, replay: !!r.currentSet?.replay },
+        set: { by: r.currentSet?.by, broadcastId: r.currentSet?.broadcastId, replay: !!r.currentSet?.replay,
+          ...(auditStyle && { style:r.currentSet?.style, seed:r.currentSet?.state?.artist?.seed, bpm:r.currentSet?.state?.bpm }) },
         memberSeen: r.members.map(m => ({ id: m.id, seen: m.seen })), startsAt: r.currentSet?.startsAt };
     };
     const host = await client(network.base('host'), spec.hostSkew, song, 0, spec.mix,
@@ -360,12 +369,73 @@ async function scenario(base, spec, network, run) {
       // The real UI actions are done; skip painting while the audio and network run.
       await skipPaint();
     }
-    const initial = await snapshot(); events.initial = initial;
+    const initial = auditStyle ? await until(async () => {
+      const s = await snapshot();
+      return s.set.broadcastId && s;
+    }, 'initial broadcast') : await snapshot();
+    events.initial = initial;
     events.cdpProbeMs = clients.map(c => c.cdpProbe);
     if (spec.djLatency)
       return { name: spec.name, spec, edits: await measureDJEdits(host, listener, initial.startsAt, { until, pause }) };
     const listenerId = await listener.run('sessionStorage.getItem("untergrund.client")');
-    if (spec.mainThreadStallMs) {
+    if (auditStyle) {
+      assert.equal(initial.set.style, auditStyle);
+      assert.equal(initial.set.seed, 7);
+      const beatMs = 60000 / song.bpm;
+      const target = initial.startsAt + 12.5 * beatMs;
+      if (spec.listenerAudit === 'handoff') {
+        await listener.clickText('JOIN DJ QUEUE');
+        await until(async () => (await snapshot()).queue?.includes(listenerId), 'listener queued');
+        await until(() => host.run("[...document.querySelectorAll('.club-secondary')].some(b => b.textContent === 'PASS DECK')"), 'PASS DECK visible');
+        const pass = await host.prepareClickText('PASS DECK');
+        await pause(Math.max(0, target - Date.now()));
+        events.actionAt = await pass();
+        events.passed = await until(async () => {
+          const s = await snapshot();
+          return s.hostId === listenerId && s;
+        }, 'deck passed');
+        events.broadcastAt = await listener.clickText('UPDATE ROOM');
+      } else if (spec.listenerAudit === 'track-change') {
+        const next = listenerSong(auditStyle, 11);
+        await host.run(`localStorage.setItem('untergrund.crate.v1', JSON.stringify([${JSON.stringify({
+          id:'local-club-audit', title:next.artist.title, artist:next.artist.name, state:next, style:auditStyle, bpm:next.bpm
+        })}])); true`);
+        if (await host.run('!document.querySelector(".club-social")?.getClientRects().length')) await host.click('.club-view-toggle');
+        await host.clickText('SONGS');
+        const spin = await host.prepareClickText('SPIN');
+        await pause(Math.max(0, target - Date.now()));
+        events.broadcastAt = events.actionAt = await spin();
+      } else {
+        await pause(Math.max(0, target - Date.now()));
+        events.actionAt = Date.now();
+        await listener.send('Network.setBlockedURLs', { urls: [`${network.base('listener')}/api/rooms*`] });
+        await listener.send('Network.emulateNetworkConditions', { offline:true, latency:0, downloadThroughput:-1, uploadThroughput:-1 });
+        events.offlineProbe = await listener.run(`fetch('/api/rooms/${room}').then(() => 'unexpected success', () => 'blocked')`);
+        assert.equal(events.offlineProbe, 'blocked');
+        await pause(10000);
+        events.during = await snapshot();
+        assert.ok(events.during.members.includes(listenerId), 'Short disconnect retains listener');
+        events.recoverAt = Date.now();
+        await listener.send('Network.setBlockedURLs', { urls: [] });
+        await listener.send('Network.emulateNetworkConditions', { offline:false, latency:0, downloadThroughput:-1, uploadThroughput:-1 });
+        events.reconnectedAt = await until(() => listener.run(`__clubAudio.requests.find(r => r.start >= ${events.recoverAt} && r.status === 200)?.end`), 'room request after reconnect');
+      }
+      if (events.broadcastAt) {
+        events.newSet = await until(async () => {
+          const s = await snapshot();
+          return s.set.broadcastId !== initial.set.broadcastId && s;
+        }, 'updated set');
+        assert.equal(events.newSet.set.by, spec.listenerAudit === 'handoff' ? listenerId : initial.hostId);
+        assert.equal(events.newSet.set.seed, spec.listenerAudit === 'handoff' ? 7 : 11);
+      }
+      const from = events.actionAt - 3000, to = Math.max(events.newSet?.startsAt || 0, events.reconnectedAt || 0, events.broadcastAt || 0) + 4000;
+      await pause(Math.max(0, to + 500 - Date.now()));
+      const captures = await Promise.all(clients.map(c => c.run('({...__clubAudio, samples:undefined, sources:undefined})')));
+      const prefix = `${options.output.slice(0, -5)}-${spec.name}-${auditStyle}-${run}`;
+      const clips = await saveListenerClips(clients, captures, from, to, out, prefix);
+      console.log(`  ${prefix}: ${clips.map(c => c.filename).join(', ')}`);
+      return { name:spec.name, spec, style:auditStyle, events, clips, raw:{captures} };
+    } else if (spec.mainThreadStallMs) {
       const target = initial.startsAt + Math.ceil((Date.now() + 2500 - initial.startsAt) / PERIOD_MS) * PERIOD_MS;
       await (spec.stallDJ ? host : listener).run(`(() => {
         const epoch = () => performance.timeOrigin + performance.now();
@@ -773,6 +843,7 @@ const stop = async signal => {
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(signal, () => { void stop(signal); });
 function failed(r) {
   if (r.error) return true;
+  if (r.spec.listenerAudit) return false;
   if (r.spec.djLatency) return r.edits.missed > 0;
   if (r.spec.mix) return r.failures.length > 0;
   if (r.spec.displacementMs) return !r.injectedEvidence || Math.abs(r.injectedEvidence.errorMs) > 50;
@@ -823,10 +894,12 @@ try {
   console.log(`Club sync: isolated Chrome processes; memory rooms; dry irregular ABCD kicks or seed-7 full-mix ${realVocal ? 'neural pop' : options.vocal === 'synthetic-pop' ? 'synthetic pop' : 'hypnotic sketch'} / 123 BPM.`);
   console.log('PCM destination tap → 180Hz low-pass RMS; getOutputTimestamp + true performance.timeOrigin.');
   console.log('Dry: signed lag resolved across ±3900ms; 7s baseline + interruption + 12s recovery. Mix: isolated rendered kick/vocal graph taps, drop−400ms freeze + 20s recovery; PCM resume boundaries for wakes.');
-  for (const spec of SCENARIOS.filter(s => selectedScenarios ? selectedScenarios.includes(s.name) : !(options.net && s.coldDownbeat))) {
+  const scenarios = SCENARIOS.filter(s => selectedScenarios ? selectedScenarios.includes(s.name) :
+    (!!s.listenerAudit === !!listenerStyles && !(options.net && s.coldDownbeat)));
+  for (const spec of scenarios) for (const style of listenerStyles || [undefined]) {
     for (let run = 1; run <= +options.repeat; run++) {
-      console.log(`Running ${spec.name}${+options.repeat > 1 ? ` (${run}/${options.repeat})` : ''}…`);
-      const result = { ...await scenario(base, spec, network, run), run,
+      console.log(`Running ${spec.name}${style ? ` / ${style}` : ''}${+options.repeat > 1 ? ` (${run}/${options.repeat})` : ''}…`);
+      const result = { ...await scenario(base, spec, network, run, style), run,
         network:{profile:networkProfile, target:options['net-target'], label:options['net-label']} };
       result.outputClockSpread = (result.raw?.captures || []).map(clockSpread);
       result.failed = !!failed(result);
@@ -834,7 +907,7 @@ try {
       results.push(result);
     }
   }
-  console.table(results.filter(r => !r.spec.djLatency && !r.spec.coldDownbeat && !r.error).map(r => ({ scenario: r.name, 'median |Δ| ms': r.median?.toFixed(2), 'p95 ms': r.p95?.toFixed(2),
+  console.table(results.filter(r => !r.spec.listenerAudit && !r.spec.djLatency && !r.spec.coldDownbeat && !r.error).map(r => ({ scenario: r.name, 'median |Δ| ms': r.median?.toFixed(2), 'p95 ms': r.p95?.toFixed(2),
     'max ms': r.max?.toFixed(2), matched: r.matched, missing: `${r.hostFixture.missing}/${r.missing}`,
     'signed lag ms': r.signedLagMs, 'entry→aligned ms': r.navigationToFirstAlignedKickMs?.toFixed(0) })));
   console.log('Detector validation: empty audio has no onsets; empty comparison cannot pass.');
