@@ -4317,7 +4317,12 @@ export class Engine {
       gain.setTargetAtTime(0, t, 0.008);
     }
     this.subVoice?.amp.gain.setTargetAtTime(0, t, 0.01);
-    if (this.mono) { this.mono.amp.gain.setTargetAtTime(0, t, 0.01); this.mono = null; }
+    if (this.mono) {
+      const g = this.mono.amp.gain;
+      if (g.cancelAndHoldAtTime) g.cancelAndHoldAtTime(t); else g.cancelScheduledValues(t);
+      g.setTargetAtTime(0, t, 0.01);
+      this.mono = null;
+    }
   }
 
   // ---------- arrangement FX ----------
