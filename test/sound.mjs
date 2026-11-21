@@ -1186,6 +1186,19 @@ for (const start of [0, 17]) {
   assert(e.minimal, 'the first playing pattern is Minimal');
   assert(Math.abs(e.out.gain.at(0.05) - expected) < 1e-6, 'first tick applies the playing style trim, including mid-bar starts');
 }
+for (const seed of [42, 43]) {
+  const s = freshSong('minimal', 42); s.artist = { style: 'hardtechno', seed };
+  s.chainOn = true; s.chain = 'F'; s.ending = false;
+  const before = structuredClone(s), rec = new Recorder(s); rec.replay808Style = 'minimal';
+  const seq = new Sequencer(rec, s);
+  for (let i = 0, t = 0; i < 16; i++) { seq.tick(i, t); t += rec.stepDur; }
+  const drum = seed % 2 ? 'clap' : 'snare';
+  assert(rec.notes[drum]?.length >= 16, 'the project genre schedules audible breakdown rolls during a Minimal replay');
+  assert.deepEqual(capture(s, 1, { playbackStyle: 'minimal' }).notes, rec.notes, 'MIDI keeps project-genre drum dispatch and replay-genre instrumentation');
+  assert.deepEqual(s, before, 'MIDI dispatch does not mutate the listener project');
+  s.mutes[drum] = true;
+  assert.equal(capture(s, 1, { playbackStyle: 'minimal' }).notes[drum], undefined, 'muted breakdown rolls remain absent');
+}
 for (const listener of ['trap', 'dnb', undefined]) {
   const song = freshSong('minimal', 12); song.artist = { style: 'minimal', seed: 12 };
   const expected = capture(song).notes, saved = structuredClone(song);

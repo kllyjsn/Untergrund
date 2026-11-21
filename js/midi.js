@@ -119,11 +119,13 @@ Recorder.prototype.dubRegister = Engine.prototype.dubRegister;
 // Plays the full arrangement (or score) into note lists, plus the timeline needed to place them in ticks.
 export function capture(state, loopBars = 16, { playbackStyle } = {}) {
   const s = JSON.parse(JSON.stringify(state));
+  const projectArtist = s.artist;
   if (playbackStyle != null) s.artist = { ...s.artist, style: playbackStyle };
   s.solos = {};
   const score = s.patterns.find((p) => p.score)?.score, sc = score ? compose(score) : null;
   const barLen = sc?.barLen || 16, bars = songBars(s, loopBars), steps = bars * barLen;
-  const rec = new Recorder(s), seq = new Sequencer(rec, s), at = [], dur = [], chords = [];
+  const dispatchState = playbackStyle == null ? s : { ...s, artist: projectArtist };
+  const rec = new Recorder(s), seq = new Sequencer(rec, dispatchState), at = [], dur = [], chords = [];
   for (let abs = 0, t = 0; abs < steps; abs++) {
     at.push(t);
     seq.tick(abs, t);
