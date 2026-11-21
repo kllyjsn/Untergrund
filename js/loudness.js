@@ -91,19 +91,20 @@ export const dbtp = (channels) => 20 * Math.log10(truePeak(channels));
 export const samplePeakDb = (channels) => { let p = 0; for (const x of channels) for (let i = 0; i < x.length; i++) p = Math.max(p, Math.abs(x[i])); return 20 * Math.log10(p); };
 
 // Whole-song feed target: -12 LUFS lets loud club genres back off their limiter/clipper instead of pushing
-// quieter bands into it. Ambient, R&B, Lo-Fi Hip-Hop and acoustic jazz stay at -14; orchestra and solo piano keep their dynamics at -16
+// quieter bands into it. Jazz-Funk and Hard Techno keep extra transient headroom at -13.
+// Ambient, R&B, Lo-Fi Hip-Hop and acoustic jazz stay at -14; orchestra and solo piano keep their dynamics at -16
 // (a nocturne's hammer peaks sit ~17 dB over its average, so louder would clip the piano).
 // Nothing may peak above -1 dBTP.
-export const LOUDNESS_TARGET = { feed: -12, quiet: -14, classical: -16, ceiling: -1 };
-const TIER = { ambient: 'quiet', rnb: 'quiet', lofihiphop: 'quiet', swing: 'quiet', modal: 'quiet', bossa: 'quiet', symphony: 'classical', concerto: 'classical', nocturne: 'classical', repertoire: 'classical' };
+export const LOUDNESS_TARGET = { feed: -12, transient: -13, quiet: -14, classical: -16, ceiling: -1 };
+const TIER = { jazzfunk: 'transient', hardtechno: 'transient', ambient: 'quiet', rnb: 'quiet', lofihiphop: 'quiet', swing: 'quiet', modal: 'quiet', bossa: 'quiet', symphony: 'classical', concerto: 'classical', nocturne: 'classical', repertoire: 'classical' };
 export const targetFor = (style) => LOUDNESS_TARGET[TIER[style] || 'feed'];
 
 // Per-style make-up gain (dB) applied in front of the master limiter, measured with scripts/loudness.mjs.
 export const MAKEUP_DB = {
-  jazzfunk: 9,
+  jazzfunk: 7.8,
   bossa: 8.8,
   swing: 11.5, modal: 9.5,
-  hypnotic: 1.1, industrial: -0.1, acid: 2.2, dub: 1.9, peak: 1.2, hardtechno: 2.6, deephouse: 2.15, minimal: 4.7,
+  hypnotic: 1.1, industrial: -0.1, acid: 2.2, dub: 1.9, peak: 1.2, hardtechno: 1.4, deephouse: 2.15, minimal: 4.7,
   ukg: 1.6, euphoric: 0.7, neosoul: 5.8, boombap: 3.7, breaks: 3.15, electro: 1.7, dnb: 1.75, trance: 1.4,
   ambient: 2.4, amapiano: 1.5, afrobeats: 0.8, reggaeton: 1.8, bailefunk: 2.5, trap: 1.4, drill: 3.3,
   jerseyclub: 1.5, hyperpop: 0.5, symphony: 6.5, concerto: 5.3, nocturne: 11.9, repertoire: 3.6,

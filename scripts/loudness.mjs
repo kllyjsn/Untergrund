@@ -76,7 +76,7 @@ const rows = await withChrome(async (runs) => {
 if (!rows) { console.log('loudness: no Chrome found'); process.exit(0); }
 
 const f = (v, d = 1) => (v >= 0 ? ' ' : '') + v.toFixed(d);
-console.log(`target ${LOUDNESS_TARGET.feed} LUFS (feed) / ${LOUDNESS_TARGET.quiet} (ambient, R&B, Lo-Fi Hip-Hop, acoustic jazz) / ${LOUDNESS_TARGET.classical} (classical), ceiling ${LOUDNESS_TARGET.ceiling} dBTP · ${SEEDS.length} seeds · ${bars || 'full'} bars · ${((Date.now() - t0) / 1000).toFixed(0)} s`);
+console.log(`target ${LOUDNESS_TARGET.feed} LUFS (feed) / ${LOUDNESS_TARGET.transient} (Jazz-Funk, Hard Techno) / ${LOUDNESS_TARGET.quiet} (ambient, R&B, Lo-Fi Hip-Hop, acoustic jazz) / ${LOUDNESS_TARGET.classical} (classical), ceiling ${LOUDNESS_TARGET.ceiling} dBTP · ${SEEDS.length} seeds · ${bars || 'full'} bars · ${((Date.now() - t0) / 1000).toFixed(0)} s`);
 console.log('style        target  makeup   mean LUFS  spread  vs target  max dBTP  GR mean  GR 1%  GR 10ms jump (p99)');
 const table = [];
 for (const style of styles) {
