@@ -1,14 +1,17 @@
 import { CHORDS, defaultParams, defaultMaster, TRACK_IDS } from './params.js';
 import { rng } from './dsp.js';
+import { generateFunk, funkNotes, FUNK_PROGS } from './jazzfunk.js';
 
-export const isJazz = (style) => style === 'swing' || style === 'modal' || style === 'bossa';
+export const isJazz = (style) => style === 'swing' || style === 'modal' || style === 'bossa' || style === 'jazzfunk';
 export const JAZZ_MIX = {
+  jazzfunk: { lead: 10, comp: 6.4, bass: 0.5, kick: -4.5, snare: 7.7, hat: 28, oh: 20, output: -2 },
   bossa: { lead: 2, trumpetLead: 14.3, comp: 7, guitarComp: 3.2, pianoComp: 4.5, bass: 1, guitarBass: 3.5, pianoBass: 4.5, hat: 24, rim: 12, output: -2, guitarOutput: -2.5, pianoOutput: -4.25 },
   swing: { lead: 6, comp: -1.5, bass: -4, ride: 15.5, hat: 16, output: -2 },
   modal: { lead: 8, comp: -2, bass: -2, ride: 17.5, hat: 16, output: -2 },
 };
 export const jazzStyle = (s) => s.patterns?.[s.current || 0]?.jazz?.style || (isJazz(s.artist?.style) ? s.artist.style : null);
 export const JAZZ_PROGS = {
+  jazzfunk: FUNK_PROGS,
   bossa: [
     [[0, 9], [2, 13], [2, 2], [1, 13]],
     [[0, 18], [9, 2], [2, 2], [7, 14]],
@@ -31,12 +34,12 @@ const pitches = (root, iv, lo, hi) => Array.from({ length: hi - lo + 1 }, (_, i)
 
 export function jazzHarmony(pat, bar) {
   const prog = pat.prog || [];
-  return prog.length ? prog[Math.floor(bar / (pat.jazz?.style === 'modal' ? 4 : 1)) % prog.length] : { r: 0, c: 17 };
+  return prog.length ? prog[Math.floor(bar / (pat.jazz?.style === 'modal' ? 4 : pat.jazz?.style === 'jazzfunk' ? 2 : 1)) % prog.length] : { r: 0, c: 17 };
 }
 
 export function jazzVoicing(h, key, style) {
   const iv = CHORDS[h.c].iv;
-  const shape = style === 'bossa' && h.r === 2 && h.c === 13 ? [4, 10, 18] : style === 'modal' && h.c === 17 || h.c === 5 ? iv :
+  const shape = style === 'jazzfunk' && h.c === 16 ? [3, 10, 17] : style === 'bossa' && h.r === 2 && h.c === 13 ? [4, 10, 18] : style === 'modal' && h.c === 17 || h.c === 5 ? iv :
     iv.includes(4) ? [4, iv.includes(11) ? 11 : iv.includes(10) ? 10 : 9, iv.includes(21) ? 21 : iv.includes(15) ? 15 : 14] :
       [3, iv.includes(9) ? 9 : 10, iv.includes(6) ? 6 : 14];
   let notes = shape.map((n) => 48 + key + h.r + n).sort((a, b) => a - b);
@@ -68,6 +71,7 @@ export function bossaBass(key, h, next) {
 }
 
 export function jazzNotes(style, seed, bar, h, solo = false) {
+  if (style === 'jazzfunk') return funkNotes(seed, bar, h, solo);
   if (style === 'bossa') {
     const r = rng(seed ^ Math.imul((solo ? bar + 31 : bar % 8) + 1, 0x45d9f3b));
     const rhythms = [[0, 6], [2, 8], [0], []], at = rhythms[bar % 4];
@@ -105,6 +109,7 @@ export function jazzMelody(style, seed, prog) {
 }
 
 export function generateJazz(style, seed, bpm, palette, pocket) {
+  if (style === 'jazzfunk') return generateFunk(seed, bpm, palette, pocket);
   if (style === 'bossa') return generateBossa(seed, bpm, palette, pocket);
   const r = rng(seed), params = defaultParams(), master = defaultMaster();
   const ensemble = palette[Math.floor(rng(Math.imul((seed | 0) ^ 0x6d2b79f5, 0x85ebca6b))() * palette.length)];

@@ -222,6 +222,12 @@
    "spread": 0.41,
    "tp": -3.54,
    "window": -12.23
+  },
+  "jazzfunk": {
+   "lufs": -14.02,
+   "spread": 0.15,
+   "tp": -2.64,
+   "window": -11.62
   }
  },
  "seeds": [

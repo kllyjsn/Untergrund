@@ -30,6 +30,7 @@ const PIECE_ENSEMBLE = Object.fromEntries(REPERTOIRE.map((p) => [p.id, p.ensembl
 // STAB voice (js/engine.js STAB_VOICES) -> who plays it on stage.
 const STAB_PLAYER = { 1: 'keys', 3: 'keys', 7: 'keys', 8: 'egtr', 9: 'sax', 10: 'violin', 11: 'egtr', 12: 'agtr', 13: 'egtr', 14: 'agtr', 15: 'egtr', 16: 'cello', 17: 'clarinet' };
 const BANDS = {
+  jazzfunk: { set: 'lounge', lead: 'trumpet', band: ['keys', 'bass', 'drums'] },
   bossa: { set: 'lounge', lead: 'flute', band: ['egtr', 'contrabass', 'drums'] },
   swing: { set: 'lounge', lead: 'trumpet', band: ['keys', 'contrabass', 'drums'] },
   modal: { set: 'lounge', lead: 'trumpet', band: ['keys', 'contrabass', 'drums'] },

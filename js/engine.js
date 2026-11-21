@@ -6,6 +6,7 @@ import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, KIT_PITCH, b
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel, swingLate, swingDuration } from './groove.js';
 import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes, JAZZ_MIX, BOSSA_RIM, BOSSA_BATIDA, bossaBass } from './jazz.js';
+import { funkBass, FUNK_KICK, FUNK_SNARE, FUNK_COMP } from './jazzfunk.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ, TECHNO_HOOK_SPACE } from './lead.js';
 import { lowEnd } from './lowend.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
@@ -1469,7 +1470,7 @@ export class Engine {
   liveHit(kit, name, id, t, level, drift, durOverride, touch) {
     const buf = kit[name], o = this.liveFx(id, buf, touch);
     const rate = KIT_PITCH[id] ? o.rate * this.inKey(KIT_PITCH[id] * o.rate) : o.rate;
-    this.playBuf(buf, t, level, this.ch[id].input, drift * rate, durOverride ?? o.dur, o.fx);
+    this.playBuf(buf, t, level * dbGain(jazzStyle(this.state) === 'jazzfunk' && ['kick', 'snare', 'oh'].includes(id) ? JAZZ_MIX.jazzfunk[id] : 0), this.ch[id].input, drift * rate, durOverride ?? o.dur, o.fx);
   }
 
   // A drummer tunes the heads to the record: move a drum's pitch onto the key's root, fourth or fifth,
@@ -2024,8 +2025,9 @@ export class Engine {
   // FM electric piano: sine carrier, 1:1 modulator for the bark, 14:1 burst for the tine.
   keys(t, v, iv, root, p, out) {
     const c = this.ctx, end = t + Math.max(0.6, p.decay * 3) + 0.3;
+    const funk = jazzStyle(this.state) === 'jazzfunk';
     const damped = this.state.artist?.style === 'breaks' && Math.round(p.voice) === 1;
-    const lp = this.filter('lowpass', Math.min(9000, p.cutoff * 2.5), 0.5);
+    const lp = this.filter('lowpass', funk ? Math.min(2600, p.cutoff * 1.3) : Math.min(9000, p.cutoff * 2.5), 0.5);
     const trem = c.createStereoPanner();
     const lfo = c.createOscillator(); lfo.frequency.value = 4.8;
     const depth = this.gain(0.35); lfo.connect(depth).connect(trem.pan);
@@ -2034,7 +2036,7 @@ export class Engine {
     iv.forEach((n, k) => {
       const f = midiHz(root + n), vel = v * (0.85 + hash(t * 97, k) * 0.3);
       // A smooth style's upper tines bark less, as a real Rhodes does, so high chords stay round instead of ringing.
-      const reg = damped ? Math.min(1, 200 / f) ** 4 : this.smoothOn ? Math.min(1, 523 / f) : 1;
+      const reg = damped ? Math.min(1, 200 / f) ** 4 : funk ? Math.min(1, 330 / f) ** 1.5 : this.smoothOn ? Math.min(1, 523 / f) : 1;
       const car = c.createOscillator(); car.frequency.value = f; car.detune.value = (k % 2 ? 1 : -1) * p.detune * 0.15;
       const mod = c.createOscillator(); mod.frequency.value = f;
       const modAmt = this.gain(0); mod.connect(modAmt).connect(car.frequency);
@@ -2042,7 +2044,7 @@ export class Engine {
       modAmt.gain.setTargetAtTime(f * 0.15 * reg, t + 0.005, 0.12 + p.env * 0.3);
       const tine = c.createOscillator(); tine.frequency.value = f * 14;
       const tineAmt = this.gain(0); tine.connect(tineAmt).connect(car.frequency);
-      tineAmt.gain.setValueAtTime(damped ? 0 : f * 2.5 * vel * bite * (p.tine ?? 1), t);
+      tineAmt.gain.setValueAtTime(damped || funk ? 0 : f * 2.5 * vel * bite * (p.tine ?? 1), t);
       tineAmt.gain.setTargetAtTime(0, t + 0.002, 0.018);
       const amp = this.gain(0);
       amp.gain.setValueAtTime(EPS, t);
@@ -2058,6 +2060,15 @@ export class Engine {
   stab(t, v, underHarp = false) {
     const c = this.ctx, p = this.state.params.stab;
     const { root, vo, iv, pedal } = stabPitches(this);
+    if (jazzStyle(this.state) === 'jazzfunk') {
+      const level = v * dbGain(JAZZ_MIX.jazzfunk.comp);
+      this.keys(t, level, iv, root, p, this.ch.stab.input);
+      if (Math.floor(this.step / 16) % 4 === 3 && this.step % 16 === 14) {
+        const set = this.rec('horn');
+        if (set) this.recordedNote(set, t, level * 0.08, root + iv.at(-1), 0.18, this.ch.stab.band, -4, 'horn', 0.5);
+      }
+      return;
+    }
     if (jazzStyle(this.state)) {
       const name = vo === 13 ? 'jazz' : jazzStyle(this.state) === 'bossa' && vo === 8 ? 'gtr' : 'piano', set = this.rec(name);
       if (!set) { loadBand(name); return this.keys(t, v, iv, root, p, this.ch.stab.input); }
@@ -2671,7 +2682,7 @@ export class Engine {
     if (this.stripMode) { const vel = Math.min(1.2, (this.noteVel ?? 1) * (st.a ? 1.15 : 1)); fx.lp = 1400 + 3600 * vel * vel; }
     const soul = this.state.artist?.style === 'neosoul';
     if (soul) Object.assign(fx, { lp: 1100, lpTo: 180, lpStages: 2, peaks: [[750, 0.7, 15]], fade: 0.006, release: 0.06 });
-    this.playBuf(buf, t, 1.1 * (st.a ? 1.15 : 1) * (this.noteVel ?? 1) * (soul ? 0.85 : 1), this.ch.acid.input, Math.pow(2, (m - c) / 12) * (1 + (hash(t * 1000, 5) - 0.5) * 0.002), len, fx);
+    this.playBuf(buf, t, 1.1 * (st.a ? 1.15 : 1) * (this.noteVel ?? 1) * (soul ? 0.85 : 1) * dbGain(jazzStyle(this.state) === 'jazzfunk' ? JAZZ_MIX.jazzfunk.bass : 0), this.ch.acid.input, Math.pow(2, (m - c) / 12) * (1 + (hash(t * 1000, 5) - 0.5) * 0.002), len, fx);
     if (soul) {
       const sub = this.ctx.createOscillator(), g = this.gain(0), v = 0.035 * (st.a ? 1.15 : 1) * (this.noteVel ?? 1);
       sub.frequency.value = midiHz(this.bassMidi(st, 36, 38));
@@ -4665,6 +4676,7 @@ export class Sequencer {
   // a phrase, the peak's second phrase opens up off-16th hats, every 8 bars ends on a snare/clap roll over a dropped
   // kick (two beats at 16-bar ends), and every fourth bar turns around on the percussion.
   jazzStep(pat, abs, t, pos, bars) {
+    if (pat.jazz.style === 'jazzfunk') return this.jazzfunkStep(pat, abs, t, pos, bars);
     if (pat.jazz.style === 'bossa') return this.bossaStep(pat, abs, t, pos, bars);
     const e = this.e, s = this.s, i = abs % 16, bar = Math.floor(abs / 16), sd = e.stepDur;
     const { style, seed } = pat.jazz, solo = this.cur === 2;
@@ -4695,6 +4707,36 @@ export class Sequencer {
     if (enabled('stab') && pat.hook && pat.hm) {
       const notes = final ? [[0, 8, h.r + CHORDS[h.c].iv[1], 0.7]] : jazzNotes(style, seed, bar, h, solo);
       for (const [at, dur, n, v] of notes) if (at === i) e.hook(t, v, n, swingDuration(s, abs, dur, sd), pat.hook.v, pat.hook.o, i % 8 === 0, 0.8, false, pat.hook.x);
+    }
+    return this.cur;
+  }
+
+  jazzfunkStep(pat, abs, t, pos, bars) {
+    const e = this.e, s = this.s, i = abs % 16, bar = Math.floor(abs / 16), sd = e.stepDur;
+    const enabled = (id) => !s.mutes[id] && (!Object.values(s.solos).some(Boolean) || s.solos[id]);
+    const final = s.ending && bars && pos === bars - 1;
+    if (final && i) return this.cur;
+    if (!final) {
+      if (enabled('kick') && FUNK_KICK[bar % 2].includes(i)) e.trigger('kick', t, 0.65);
+      if (enabled('snare') && FUNK_SNARE.includes(i)) e.trigger('snare', t, i % 8 === 4 ? 0.72 : 0.18);
+      if (enabled('ch') && i !== 6 && i !== 14) e.trigger('ch', t, (i % 4 === 0 ? 0.32 : i % 2 ? 0.17 : 0.23));
+      if (enabled('oh') && pat.steps.oh[i]) e.trigger('oh', t, 0.24);
+    }
+    if (enabled('acid')) for (const [at, dur, m, v] of funkBass(s.key, e.harm, bar)) if (at === i) {
+      e.noteVel = v;
+      e.acid(t, { on: true, n: m - 36 - s.key - harmRoot(e.harm), ap: true, a: false, s: false }, false, false, swingDuration(s, abs, final ? 6 : dur, sd), undefined, t);
+      e.noteVel = 1;
+    }
+    if (enabled('stab') && (final || FUNK_COMP[bar % 2].includes(i))) e.trigger('stab', t, this.cur === 2 ? 0.48 : 0.6);
+    if (enabled('stab') && pat.hook && pat.hm) {
+      const notes = final ? [[0, 6, e.harm.r + CHORDS[e.harm.c].iv[1], 0.7]] : jazzNotes('jazzfunk', pat.jazz.seed, bar, e.harm, this.cur === 2);
+      for (const [at, dur, pitch, v] of notes) if (at === i) {
+        const k = s.key > 6 ? s.key - 12 : s.key;
+        let n = pitch;
+        while (60 + k + n < 69) n += 12;
+        while (60 + k + n > 80) n -= 12;
+        e.hook(t, v, n, swingDuration(s, abs, dur, sd), 'tpt', 0, i % 4 === 0, 0.7, false, pat.hook.x);
+      }
     }
     return this.cur;
   }

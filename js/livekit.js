@@ -123,6 +123,7 @@ const layerSets = (style) => [...new Set(Object.values(BAND_LAYER[style] || {}).
 export function liveSets(st) {
   const mode = Math.round(st?.master?.kit || 0), fullKit = mode === 1 || mode === 2;
   const out = fullKit ? ['kit'] : mode === KIT_BACKBEAT ? ['snare'] : [];
+  if (st?.patterns?.some((p) => p.jazz?.style === 'jazzfunk') || st?.pattern?.jazz?.style === 'jazzfunk') out.push('horn');
   if (fullKit && pocketOf(st.master)?.band) out.push('kitx');
   if (Math.round(st?.params?.acid?.voice || 0) === 5) out.push('ebass');
   const name = STAB_BAND[Math.round(st?.params?.stab?.voice || 0)];

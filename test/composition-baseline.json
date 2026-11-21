@@ -685,5 +685,24 @@
     "peakAt": 0.35,
     "restsPerPhrase": 2,
     "stepShare": 0.59
+  },
+  "jazzfunk": {
+    "bars": 80,
+    "verseChorus": 0,
+    "chorusLift": 0,
+    "chorusPeak": 0,
+    "chorusEnergy": 0.955,
+    "preLift": 0,
+    "bridgeAway": 0,
+    "melodyWindows": 26,
+    "motifRecall": 0.8,
+    "chords": 3,
+    "voiceMove": 1.73,
+    "contrast": 0.107,
+    "drumBars": 3,
+    "phraseBars": 0.63,
+    "peakAt": 0.69,
+    "restsPerPhrase": 2,
+    "stepShare": 0.43
   }
 }

@@ -272,6 +272,7 @@ const MOOD_CHORDS = {
   tense: { verse: ['i', 'VI', 'i', 'VII'], drop: ['i', 'VII', 'VI', 'V'], breakdown: ['VI', 'Vsus4'], hook: [0, 0, 3, 2, 0, -2] },
 };
 const GENRE_WORDS = [
+  [/\bjazz[ -]?funk\b|\bfusion\b|\bheadhunters\b|\bherbie\b|\bdonald byrd\b|\broy ayers\b/, 'jazzfunk'],
   [/\bbossa\b|\bjobim\b|\bbrazilian jazz\b|\bsamba jazz\b/, 'bossa'],
   [/\bmodal\b|\bcoltrane\b|\bmiles\b|\bkind of blue\b/, 'modal'], [/\bjazz\b|\bbebop\b|\bhard bop\b/, 'swing'],
   [/\blo-?fi\b|\bchillhop\b/, 'boombap'], [/\bhouse\b/, 'deephouse'], [/\btechno\b/, 'hypnotic'], [/\bgarage\b|\b2-?step\b/, 'ukg'], [/\bjungle\b|\bliquid\b/, 'dnb'],

@@ -82,7 +82,7 @@ const P = Object.fromEntries(POCKET_NAMES.map((n, i) => [n, i]));
 
 export const STYLE_POCKET = {
   swing: P.JAZZ, modal: P.JAZZ,
-  bossa: P.BOSSA,
+  bossa: P.BOSSA, jazzfunk: P.SOUL,
   hypnotic: P.MACHINE, industrial: P.MACHINE, acid: P.MACHINE, dub: P.MACHINE, peak: P.MACHINE, hardtechno: P.MACHINE, electro: P.MACHINE, trance: P.MACHINE, ambient: P.MACHINE,
   deephouse: P.HOUSE, minimal: P.HOUSE, euphoric: P.HOUSE,
   ukg: P.GARAGE, jerseyclub: P.GARAGE,

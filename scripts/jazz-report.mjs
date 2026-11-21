@@ -12,11 +12,11 @@ const pc = (n) => ((n % 12) + 12) % 12;
 const dir = resolve('test/out/jazz'); mkdirSync(dir, { recursive: true });
 const selectedAt = process.argv.indexOf('--styles');
 const selected = selectedAt < 0 ? ['swing', 'modal', 'neosoul'] : process.argv[selectedAt + 1].split(',');
-if (selected.some((s) => !['swing', 'modal', 'bossa', 'neosoul'].includes(s))) throw new Error('Expected swing, modal, bossa or neosoul');
+if (selected.some((s) => !['swing', 'modal', 'bossa', 'jazzfunk', 'neosoul'].includes(s))) throw new Error('Expected a jazz style or neosoul');
 const previousFile = resolve(dir, 'measurements.json');
 const previous = existsSync(previousFile) ? JSON.parse(readFileSync(previousFile, 'utf8')) : { audit: [], measurements: [] };
 const audit = previous.audit.filter((r) => !selected.includes(r.style));
-for (const style of ['swing', 'modal', 'bossa'].filter((s) => selected.includes(s))) for (const seed of [11, 42]) {
+for (const style of ['swing', 'modal', 'bossa', 'jazzfunk'].filter((s) => selected.includes(s))) for (const seed of [11, 42]) {
   const s = freshSong(style, seed), e = new Recorder(s), seq = new Sequencer(e, s), rows = [];
   let strong = 0, outside = 0;
   for (const name of ['acid', 'hook']) {
@@ -35,6 +35,10 @@ for (const style of ['swing', 'modal', 'bossa'].filter((s) => selected.includes(
   const r = { style, seed, strong, outside, bass: rows };
   if (outside) throw new Error(JSON.stringify(r));
   audit.push(r); console.log(`${style}/${seed}: ${outside}/${strong} out-of-chord strong-beat lead/bass notes`);
+  if (style === 'jazzfunk') {
+    for (let bar = 1; bar <= 2; bar++) console.log(`jazzfunk/${seed} bar ${bar}: ${rows.find((x) => x.bar === bar).chord}; bass step:MIDI ${rows.filter((x) => x.bar === bar).map((x) => `${x.step}:${x.midi}`).join(', ')}`);
+    for (const id of ['kick', 'snare']) for (let bar = 0; bar < 2; bar++) console.log(`jazzfunk/${seed} bar ${bar + 1} ${id} step:velocity ${e.notes[id].filter((n) => n.t >= 0.05 + bar * 16 * e.stepDur - 0.001 && n.t < 0.05 + (bar + 1) * 16 * e.stepDur - 0.001).map((n) => `${Math.round((n.t - 0.05) / e.stepDur) % 16}:${n.v}`).join(', ')}`);
+  }
   if (style === 'swing' && seed === 42) for (let bar = 1; bar <= 4; bar++) console.log(`bar ${bar}: ${rows.find((x) => x.bar === bar).chord}; upright MIDI ${rows.filter((x) => x.bar === bar).map((x) => x.midi).join(', ')}`);
   if (style === 'bossa') {
     for (let bar = 1; bar <= 2; bar++) console.log(`bossa/${seed} bar ${bar}: ${rows.find((x) => x.bar === bar).chord}; bass step:MIDI ${rows.filter((x) => x.bar === bar).map((x) => `${x.step}:${x.midi}`).join(', ')}`);
@@ -86,7 +90,7 @@ if (!measurements) throw new Error('Chrome unavailable; full-song measurements n
 writeFileSync(resolve(dir, 'measurements.json'), JSON.stringify({ audit, measurements }, null, 2) + '\n');
 if (process.argv.includes('--write-baseline')) {
   const file = resolve('test/loudness-baseline.json'), base = JSON.parse(readFileSync(file, 'utf8'));
-  for (const style of ['swing', 'modal', 'bossa'].filter((s) => selected.includes(s))) {
+  for (const style of ['swing', 'modal', 'bossa', 'jazzfunk'].filter((s) => selected.includes(s))) {
     const rs = measurements.filter((r) => r.style === style), ls = rs.map((r) => r.lufs), round = (n) => +n.toFixed(2);
     base.styles[style] = { lufs: round(ls.reduce((a, b) => a + b, 0) / ls.length), spread: round(Math.max(...ls) - Math.min(...ls)), tp: round(Math.max(...rs.map((r) => r.dbtp))), window: round(rs.find((r) => r.seed === 42).window) };
   }

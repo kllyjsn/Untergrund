@@ -6,7 +6,7 @@ const styles = selectedAt < 0 ? ['swing', 'modal', 'neosoul'] : process.argv[sel
 const seedsAt = process.argv.indexOf('--seeds');
 const seeds = seedsAt < 0 ? [11, 42] : process.argv[seedsAt + 1].split(',').map(Number);
 if (!seeds.length || seeds.some((n) => !Number.isInteger(n))) throw new Error('Expected integer seeds');
-if (styles.some((s) => !['swing', 'modal', 'bossa', 'neosoul'].includes(s))) throw new Error('Unknown jazz comparison style');
+if (styles.some((s) => !['swing', 'modal', 'bossa', 'jazzfunk', 'neosoul'].includes(s))) throw new Error('Unknown jazz comparison style');
 const result = await withChrome(async (run) => run(`(async () => {
   const { freshSong } = await import('/js/state.js');
   const { render } = await import('/test/audio-quality-page.js');
@@ -23,9 +23,9 @@ const result = await withChrome(async (run) => run(`(async () => {
     const gain = 10 ** ((-16 - integrated) / 20);
     for (const c of ch) for (let i = 0; i < c.length; i++) c[i] *= gain;
     const spec = spectrum(ch[0], ch[1], buf.sampleRate);
-    const parts = {}, peaks = {}, ride = {};
-    if (style !== 'neosoul') for (const part of ['acid', 'ride', 'lead', 'piano', 'ch', 'kick', 'snare']) {
-      if (style === 'bossa' && part === 'ride') continue;
+    const parts = {}, peaks = {}, ride = {}, comp = {};
+    if (style !== 'neosoul') for (const part of ['acid', 'ride', 'lead', 'piano', 'ch', ...(style === 'jazzfunk' ? ['oh'] : []), 'kick', 'snare']) {
+      if (['bossa', 'jazzfunk'].includes(style) && part === 'ride') continue;
       const solo = structuredClone(s);
       solo.mutes = Object.fromEntries(TRACK_IDS.map((id) => [id, id !== (['lead', 'piano'].includes(part) ? 'stab' : part)]));
       const b = await render(solo, 0, 8, { sampleRate: 24000, tail: 1, onEngine(e) {
@@ -34,15 +34,17 @@ const result = await withChrome(async (run) => run(`(async () => {
       } });
       parts[part] = loudness([b.getChannelData(0), b.getChannelData(1)], b.sampleRate).integrated + 20 * Math.log10(gain);
       peaks[part] = 20 * Math.log10(truePeak([b.getChannelData(0), b.getChannelData(1)])) + 20 * Math.log10(gain);
-      if (part === 'ride') {
+      if (part === 'ride' || part === 'piano') {
         const ch = [b.getChannelData(0), b.getChannelData(1)];
         for (const c of ch) for (let i = 0; i < c.length; i++) c[i] *= gain;
         const spec = spectrum(ch[0], ch[1], b.sampleRate), e = spec.shares;
-        ride.dbtp = 20 * Math.log10(truePeak(ch)); ride.spectrum = spec;
-        ride.bumpDb = 10 * Math.log10(e.ride / Math.max(e.rideLower, e.rideUpper / Math.log2(1.5)));
+        if (part === 'ride') {
+          ride.dbtp = 20 * Math.log10(truePeak(ch)); ride.spectrum = spec;
+          ride.bumpDb = 10 * Math.log10(e.ride / Math.max(e.rideLower, e.rideUpper / Math.log2(1.5)));
+        } else comp.spectrum = spec;
       }
     }
-    out.push({ style, seed, leadVoice: s.patterns[6].hook.v, isolatedPartLufsAtMixGain: parts, isolatedPartDbtpAtMixGain: peaks, ride, sourceLufs: integrated, matchedLufs: loudness(ch, buf.sampleRate).integrated,
+    out.push({ style, seed, leadVoice: s.patterns[6].hook.v, isolatedPartLufsAtMixGain: parts, isolatedPartDbtpAtMixGain: peaks, ride, comp, sourceLufs: integrated, matchedLufs: loudness(ch, buf.sampleRate).integrated,
       matchedDbtp: 20 * Math.log10(truePeak(ch)), spectrum: spec, acousticDeviation: targetBalance(spec.octaves, 'swing') });
   }
   return { bars: 8, matchedTarget: -16, bands: BANDS, reference: 'Repository acoustic LTAS engineering target; not a measured jazz recording', measurements: out };
