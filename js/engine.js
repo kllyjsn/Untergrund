@@ -5,6 +5,7 @@ import { pickChop } from './hum.js';
 import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND, HOOK_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel, swingLate, swingDuration } from './groove.js';
+import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes } from './jazz.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ, TECHNO_HOOK_SPACE } from './lead.js';
 import { lowEnd } from './lowend.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
@@ -246,6 +247,12 @@ export function soundingPitch(voice, m) {
 // A smooth style raises a lifted breakdown an octave and folds notes above A5 down, where their harmonics ring as a whistle.
 export function stabPitches(e) {
   const p = e.state.params.stab, vo = Math.round(p.voice);
+  const jazz = jazzStyle(e.state);
+  if (jazz) {
+    const h = e.harm || { r: 0, c: Math.round(p.chord) }, pedal = jazz === 'modal' && e.step % 16 === 0;
+    const notes = pedal ? [48 + ((e.state.key + h.r) % 12 + 12) % 12] : jazzVoicing(h, e.state.key, jazz);
+    return { root: notes[0], vo, iv: notes.map((n) => n - notes[0]), pedal };
+  }
   const { root, notes, home } = stabNotes(e.state, e.harm);
   const voiced = e.lastChord = voiceLead(notes, e.lastChord, home);
   const vi = (GRIPPED.has(STAB_VOICES[vo]) ? notes : voiced).map((m) => m - root);
@@ -1151,6 +1158,7 @@ export class Engine {
   }
 
   duckAt(t, v) {
+    if (jazzStyle(this.state)) return;
     const depth = this.state.master.duck * Math.min(1, v * 1.25) * 0.9;
     const funk = this.playbackStyle === 'bailefunk';
     // Pump recovers over roughly one beat so offbeat basslines and pads audibly breathe
@@ -1431,6 +1439,7 @@ export class Engine {
     if (ref.click != null) shelves.push([3000, clamp((p.click - ref.click) * 22, -12, 15)]);
     // A shorter snare DECAY damps the shell ring (485-885 Hz) the way a towel or gel on the head does.
     const peaks = id === 'snare' && p.decay < ref.decay ? [[550, 1.5, -10 * (1 - p.decay / ref.decay)], [880, 2, -8 * (1 - p.decay / ref.decay)]] : [];
+    if (jazzStyle(this.state) && id === 'ride') peaks.push([5000, 0.8, -3], [7800, 1, -2]);
     const drive = ref.drive != null ? Math.max(0, p.drive - ref.drive) * 1.2 : 0;
     const punch = ref.punch != null ? (p.punch - ref.punch) * 1.4 : 0;
     const fx = { shelves, peaks, drive, punch };
@@ -2032,7 +2041,13 @@ export class Engine {
 
   stab(t, v, underHarp = false) {
     const c = this.ctx, p = this.state.params.stab;
-    const { root, vo, iv } = stabPitches(this);
+    const { root, vo, iv, pedal } = stabPitches(this);
+    if (jazzStyle(this.state)) {
+      const name = vo === 13 ? 'jazz' : 'piano', set = this.rec(name);
+      if (!set) { loadBand(name); return this.keys(t, v, iv, root, p, this.ch.stab.input); }
+      for (const n of iv) this.recordedNote(set, t, v * 0.62, root + n, pedal ? this.stepDur * 14.4 : p.decay * 1.7, this.ch.stab.band, -2, name, v);
+      return;
+    }
     if (this.playbackStyle === 'bailefunk') return this.funkStab(t, v, iv, root, p.decay, this.ch.stab.input);
     if (this.state.artist?.style === 'dub') {
       this.dubPad(t, v, iv, root);
@@ -3207,6 +3222,7 @@ export class Engine {
   // alter the pitch class without accidentally moving the whole bass line up.
   bassMidi(st, base = 36, high = 43) {
     let n = base + this.state.key + st.n + Math.round(this.state.params.acid.tune) + this.harmRoot();
+    if (jazzStyle(this.state)) return Math.max(28, Math.min(50, n));
     // Bass lines are written in the key, but over the bar's chord a note a half step off a chord tone
     // (a minor third under a major ninth chord) rubs like a detuned string; slide it onto that tone.
     const h = this.harm;
@@ -4397,6 +4413,10 @@ export class Sequencer {
     e.wide = pat.sec === 'chorus';
     const sd = e.stepDur;
     const tt = t + swingLate(s, abs, sd);
+    if (pat.jazz && isJazz(pat.jazz.style)) {
+      e.harm = jazzHarmony(pat, bar);
+      return this.jazzStep(pat, abs, tt, pos, n);
+    }
     const kl = this.keyLift = s.ending && pat.lift && lf > 0 && (pos >= lf || (pos === lf - 1 && abs % 16 >= 12)) ? pat.lift : 0;
     if (s.ending && n >= 16 && pos === n - 1 && !pat.score) return this.ending(pat, abs % 16, tt, sd, kl);
     // Turnaround: the last beat of a section anticipates the next section's first chord.
@@ -4625,6 +4645,40 @@ export class Sequencer {
   // the intro brings in hats then percussion, the outro takes them away again, the first drop holds its ride back for
   // a phrase, the peak's second phrase opens up off-16th hats, every 8 bars ends on a snare/clap roll over a dropped
   // kick (two beats at 16-bar ends), and every fourth bar turns around on the percussion.
+  jazzStep(pat, abs, t, pos, bars) {
+    const e = this.e, s = this.s, i = abs % 16, bar = Math.floor(abs / 16), sd = e.stepDur;
+    const { style, seed } = pat.jazz, solo = this.cur === 2;
+    const enabled = (id) => !s.mutes[id] && (!Object.values(s.solos).some(Boolean) || s.solos[id]);
+    const final = s.ending && bars && pos === bars - 1;
+    if (final && i) return this.cur;
+    const nextPat = bars && this.chainArr[pos + 1] != null ? s.patterns[this.chainArr[pos + 1]] : pat;
+    const next = jazzHarmony(nextPat, bar + 1), h = e.harm;
+    const bass = jazzBass(style, s.key, h, next, bar);
+    for (const id of ['ride', 'ch', 'kick', 'snare']) {
+      if (!enabled(id) || !pat.steps[id][i]) continue;
+      let v = id === 'ride' ? ([4, 12].includes(i) ? 0.76 : i % 4 ? 0.4 : 0.6) : id === 'ch' ? 0.45 : id === 'kick' ? 0.18 : 0.23;
+      if (style === 'modal') v *= 0.85 + 0.3 * hash(bar, i + 71);
+      e.trigger(id, t, v);
+    }
+    if (!final && bar % 8 === 7 && i === 14) {
+      if (enabled('snare')) e.trigger('snare', t, 0.37);
+      if (enabled('kick')) e.trigger('kick', t, 0.32);
+    }
+    if (enabled('acid') && (i % 4 === 0 && pat.steps.acid[i]?.on || !final && bar % 8 === 6 && i === 14 && pat.steps.acid[12]?.on)) {
+      const m = i === 14 ? bass[3] + (bass[3] < 49 ? 1 : -1) : bass[i / 4];
+      const st = { on: true, n: m - 36 - s.key - harmRoot(h), ap: true, a: false, s: false };
+      e.noteVel = i === 0 ? 0.85 : 0.76;
+      e.acid(t, st, false, false, final ? sd * 8 : swingDuration(s, abs, i === 12 && bar % 8 === 6 ? 2 : 4, sd), undefined, t);
+      e.noteVel = 1;
+    }
+    if (enabled('stab') && (final || pat.steps.stab[i] && (!solo || bar % 2 === 0 || i === 6))) e.trigger('stab', t, style === 'modal' ? 0.62 : solo ? 0.42 : 0.56);
+    if (enabled('stab') && pat.hook && pat.hm) {
+      const notes = final ? [[0, 8, h.r + CHORDS[h.c].iv[1], 0.7]] : jazzNotes(style, seed, bar, h, solo);
+      for (const [at, dur, n, v] of notes) if (at === i) e.hook(t, v, n, swingDuration(s, abs, dur, sd), pat.hook.v, pat.hook.o, i % 8 === 0, 0.8, false, pat.hook.x);
+    }
+    return this.cur;
+  }
+
   // Country bass walks up the scale into a change: the two scale tones under the next root, on beat 4 and its "and".
   walkUp(pat, nx, bar, kl) {
     const prog = pat.prog, next = (nx?.prog?.length ? nx.prog : prog)?.[(bar + 1) % (nx?.prog?.length || prog?.length || 1)];

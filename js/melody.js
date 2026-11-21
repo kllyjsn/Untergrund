@@ -8,6 +8,7 @@
 // semi in semitones above the key root (like hook.s), phrase is the line number and slot the syllable in it.
 import { CHORDS } from './params.js';
 import { lineStress } from './prosody.js';
+import { jazzMelody } from './jazz.js';
 
 export const MELODY_BARS = 8;
 export const PARTS = { n: 'hook', v: 'verse', b: 'bridge' };
@@ -20,6 +21,8 @@ const pick = (r, a) => a[Math.floor(r() * a.length)];
 // chance a held note opens with a melisma (one syllable over a turn to the note above), belt a louder, flatter line.
 // A new song genre sings once it has an entry here.
 export const SING_PROFILES = {
+  swing: { instrumental: true, k: [5, 7], art: 0.9, off: 0.7, six: 0, leap: 0.2, hi: 0, v: ['tpt', 'airflute', 'vocal'] },
+  modal: { instrumental: true, k: [1, 3], art: 0.9, off: 0.4, six: 0, leap: 0.6, hi: 0, v: ['tpt', 'airflute'] },
   deephouse: { k: [3, 5], art: 0.85, off: 0.35, six: 0.05, leap: 0.25, hi: 0 },
   ukg: { k: [4, 6], art: 0.7, off: 0.5, six: 0.3, leap: 0.3, hi: 0 },
   euphoric: { k: [3, 5], art: 0.9, off: 0.25, six: 0, leap: 0.35, hi: 1 },
@@ -363,6 +366,7 @@ function setPart(r, P, kind, deg, chordTones, words, sig, ceil = Infinity) {
 export function writeMelody(r, style, scale, { prog, alt, chord = 0, words = null, gainScale = 1 } = {}) {
   const profile = SING_PROFILES[style];
   if (!profile) return null;
+  if (profile.instrumental) return jazzMelody(style, Math.floor(r() * 0x7fffffff), prog);
   const P = gainScale === 1 ? profile : { ...profile, gain: (profile.gain ?? 1) * gainScale };
   const deg = scale.length >= 7 ? scale.slice(0, 7) : scale.slice(0, scale.length - 1);
   const tones = (pr) => (bar) => {

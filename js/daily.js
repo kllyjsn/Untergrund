@@ -4,7 +4,7 @@ import { STYLES, freshSong } from './state.js';
 // Fixed order so the schedule never depends on how STYLES happens to be sorted. Classical scores are left out.
 const POOL = ['hypnotic', 'deephouse', 'neosoul', 'breaks', 'amapiano', 'trance', 'ukg', 'boombap', 'acid', 'afrobeats', 'dnb', 'minimal',
   'trap', 'dub', 'reggaeton', 'euphoric', 'electro', 'industrial', 'drill', 'ambient', 'bailefunk', 'peak', 'jerseyclub', 'hardtechno', 'hyperpop',
-  'pop', 'rock', 'rnb', 'country', 'folk'];
+  'pop', 'rock', 'rnb', 'country', 'folk', 'swing', 'modal'];
 const FIRST = ['Morning', 'Copper', 'Soft', 'Paper', 'Silver', 'Midnight', 'Lucid', 'Sunday', 'Velvet', 'Stray', 'Distant', 'Warm', 'Quiet', 'Rising'];
 const SECOND = ['Light', 'Current', 'Weather', 'Signal', 'Garden', 'Motion', 'Static', 'Harbor', 'Orbit', 'Bloom', 'Transit', 'Mirror', 'Fever', 'Thread'];
 const DAY = 86400e3, FIRST_DROP = Date.UTC(2026, 10, 3);
@@ -22,16 +22,17 @@ function hash(str) {
 }
 
 // Each cycle plays every genre once in a seeded order, so a genre never repeats two days running.
-function styleForDay(day, pool) {
-  const n = pool.length, cycle = Math.floor(day / n), order = [...pool];
+function cycleOrder(cycle, pool) {
+  const n = pool.length, order = [...pool];
   for (let i = n - 1; i > 0; i--) {
     const j = hash(`cycle:${cycle}:${i}`) % (i + 1);
     [order[i], order[j]] = [order[j], order[i]];
   }
-  if (cycle > 0 && day % n === 0) {
-    const prev = styleForDay(day - 1, pool);
-    if (order[0] === prev) [order[0], order[1]] = [order[1], order[0]];
-  }
+  return order;
+}
+function styleForDay(day, pool) {
+  const n = pool.length, cycle = Math.floor(day / n), order = cycleOrder(cycle, pool);
+  if (order[0] === cycleOrder(cycle - 1, pool).at(-1)) [order[0], order[1]] = [order[1], order[0]];
   return order[((day % n) + n) % n];
 }
 

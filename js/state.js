@@ -14,6 +14,7 @@ import { cleanTakes, patternAt, setTake } from './scope.js';
 import { trackTitle } from './crate.js';
 import { FUNK_HANDS, FUNK_VOX, funkHandBar } from './baile.js';
 import { festivalBuilds } from './festival-build.js';
+import { isJazz, generateJazz } from './jazz.js';
 
 export const STYLES = {
   hypnotic: { name: 'HYPNOTIC', bpm: [130, 134], family: 'TECHNO', tag: 'deep · rolling' },
@@ -28,6 +29,8 @@ export const STYLES = {
   euphoric: { name: 'EUPHORIC', bpm: [126, 134], family: 'HOUSE', tag: 'emotional · vocal chops' },
   neosoul: { name: 'NEO-SOUL', bpm: [84, 94], family: 'JAZZ & HIP-HOP', tag: 'Glasper · Dilla swing' },
   boombap: { name: 'BOOM BAP', bpm: [88, 96], family: 'JAZZ & HIP-HOP', tag: 'dusty · jazz chords' },
+  swing: { name: 'SWING', bpm: [132, 176], family: 'JAZZ & HIP-HOP', tag: 'walking bass · ride' },
+  modal: { name: 'MODAL', bpm: [120, 144], family: 'JAZZ & HIP-HOP', tag: 'quartal · dorian' },
   breaks: { name: 'BREAKS', bpm: [128, 136], family: 'BREAKS & BASS', tag: 'broken · funky' },
   electro: { name: 'ELECTRO', bpm: [124, 130], family: 'BREAKS & BASS', tag: '808 · robotic' },
   dnb: { name: 'DRUM & BASS', bpm: [170, 176], family: 'BREAKS & BASS', tag: 'rolling · sub' },
@@ -160,6 +163,8 @@ export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet'
 // Every genre has several plausible ensembles. The seed chooses a player,
 // register and articulation while the genre keeps its drum, harmony and room identity.
 export const INSTRUMENTS = {
+  swing: [[7, 1, 0, 0.35, 0.3], [13, 1, 0, 0.22, 0.25]],
+  modal: [[7, 1, 0, 0.6, 0.3], [7, 1, 0, 0.45, 0.22]],
   // voice, bass, octave, release, articulation
   hypnotic: [[6, 0, 0, 0.25, 0.25], [3, 3, 0, 0.38, 0.7], [2, 0, 0, 0.9, 0.2], [0, 0, 0, 0.28, 0.8]],
   industrial: [[6, 6, 0, 0.3, 0.75], [4, 6, 0, 0.35, 0.65], [0, 6, 0, 0.24, 0.55], [11, 6, 0, 0.65, 0.85]],
@@ -244,6 +249,7 @@ function generatePattern(style, seed, scaleName, starter) {
   const master = {};
   const [lo, hi] = STYLES[style].bpm;
   const bpm = Math.round(lo + r() * (hi - lo));
+  if (isJazz(style)) return generateJazz(style, seed, bpm, INSTRUMENTS[style], STYLE_POCKET[style]);
   if (style === 'repertoire') return generateRepertoire(r, P, params, master);
   if (FORMS[style]) return generateClassical(style, seed, scaleName, r, P, params, master, bpm);
 
@@ -1002,6 +1008,7 @@ function liteVerse(full) {
 
 // Turn one full pattern into an 8-pattern arrangement: intro → build → peak → breakdown → return.
 export function arrangement(full, seed, half = false) {
+  if (full.jazz) return range(8, (i) => ({ ...clone(full), sec: i === 2 ? 'verse' : 'chorus' }));
   if (full.score) return range(8, () => clone(full));
   const strip = (p, keep) => {
     const q = clone(p);
@@ -1160,7 +1167,7 @@ function vampFor(style, c, r) {
   return VAMP[style] ? chords(VAMP[style][Math.floor(r() * VAMP[style].length)]) : null;
 }
 
-const GROOVE = new Set(['neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill', 'pop', 'rnb', 'rock', 'folk', 'country']);
+const GROOVE = new Set(['swing', 'modal', 'neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill', 'pop', 'rnb', 'rock', 'folk', 'country']);
 // Styles written as songs, with verse, pre-chorus, chorus and bridge sections (techno, trance and ambient
 // keep their repetition-led forms, where a section change is a mute or a filter, not new material).
 export const SONG_STYLES = new Set([...GROOVE, 'hyperpop']);
@@ -1189,6 +1196,11 @@ export const songForm = (spec) => formChain(parseForm(spec));
 // developSong writes the second verse, instrumental and final chorus). `length` is 'song' (3-4 min) or 'sketch'.
 // `bpm` is the tempo the song will actually play at, so the form is sized in seconds, not bars.
 export function songPlan(style, seed, length = 'song', bpm = midBpm(style)) {
+  if (isJazz(style)) {
+    const bars = length === 'sketch' ? 32 : Math.min(128, Math.ceil(190 * bpm / 240 / 16) * 16);
+    const head = length === 'sketch' ? 8 : 16;
+    return { chain: 'G'.repeat(head) + 'C'.repeat(bars - head * 2) + 'H'.repeat(head), sections: null };
+  }
   if (FORMS[style] || style === 'repertoire') return { chain: 'A', sections: null };
   if (SONG.has(style)) {
     const sections = planSections(IDIOM[style] || 'pop', bpm, length, rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)));
@@ -1271,6 +1283,11 @@ function drillVerses(pats, { chain, sections }, keep) {
 export function applySongPlan(s, style, seed, length = 'song') {
   const plan = songPlan(style, seed, length, s.bpm || midBpm(style));
   s.chain = plan.chain;
+  if (isJazz(style)) {
+    const head = length === 'sketch' ? 8 : 16;
+    s.labels = { G: 'HEAD', C: 'SOLOS', H: 'HEAD OUT' };
+    return plan;
+  }
   const keep = Object.keys(s.locks || {}).filter((t) => s.locks[t]);
   developSong(s.patterns, plan.sections, { keep });
   if (style === 'hardtechno') {
@@ -1296,6 +1313,7 @@ export function applySongPlan(s, style, seed, length = 'song') {
 export function freshSong(style, seed, { base = defaultState(), scale = null, length = 'song', bpm = null, swing = null } = {}) {
   const s = clone(base);
   s.scale = scale || (style === 'euphoric' || MAJOR_STYLES.has(style) ? 'major' : s.scale);
+  if (isJazz(style) && !scale) s.scale = style === 'modal' ? 'dorian' : 'major';
   const g = generate(style, seed, s.scale);
   s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   s.key = g.key;
@@ -1365,6 +1383,8 @@ export function defaultState() {
 export function applyOverrides(state, g, withBpm = true) {
   for (const [tid, o] of Object.entries(g.params)) Object.assign(state.params[tid], o);
   Object.assign(state.master, g.master);
+  state.master.swing8 = g.master.swing8 || 0;
+  if (g.scale) state.scale = g.scale;
   if (withBpm) state.bpm = g.bpm;
   if (withBpm && g.swing != null) state.swing = g.swing;
 }
@@ -1452,6 +1472,7 @@ export function sanitize(s) {
     const p = s.patterns[i];
     const e = emptyPattern();
     if (!p) return e;
+    if (isJazz(p.jazz?.style)) e.jazz = { style: p.jazz.style, seed: Number.isFinite(+p.jazz.seed) ? p.jazz.seed | 0 : 1 };
     for (const id of TRACK_IDS) {
       if (Array.isArray(p.steps?.[id])) e.steps[id] = cleanTrack(id, p.steps[id]);
       if (p.len?.[id]) e.len[id] = Math.max(1, Math.min(STEPS, p.len[id] | 0));

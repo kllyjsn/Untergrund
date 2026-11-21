@@ -7,6 +7,7 @@ import { Engine, Sequencer } from '../js/engine.js';
 import { capture, Recorder } from '../js/midi.js';
 import { patternAt } from '../js/scope.js';
 import { STAB_BAND } from '../js/livekit.js';
+import './jazz.mjs';
 
 {
   const close = (a, b) => assert(Math.abs(a - b) < 1e-12, `${a} != ${b}`);
@@ -156,6 +157,7 @@ for (const style of Object.keys(STYLES)) {
   const a = generate(style, 11, 'minor'), b = generate(style, 22, 'minor');
   if (STYLES[style].family === 'CLASSICAL') { assert(a.pattern.score && !a.pattern.hook, `${style} is a score, not a hook loop`); continue; }
   assert(a.pattern.hook && a.pattern.hook.s.length === 32, `${style} needs a hook`);
+  if (a.pattern.jazz) continue;
   const notes = a.pattern.hook.s.filter(Boolean);
   assert(notes.length >= (style === 'hardtechno' ? 2 : 4), `${style} hook too sparse`);
   // Song genres are major-key; generate() moves them off the minor default.
@@ -449,7 +451,7 @@ console.log('genre signatures passed');
           g.params.stab.voice,
           g.params.acid.voice,
           g.params.stab.octave,
-          ...(style === 'bailefunk' ? [g.params.stab.decay] : []),
+          ...(style === 'bailefunk' || g.pattern.jazz ? [g.params.stab.decay] : []),
         ].join('/'));
       }
       assert(ensembles.size >= 4, `${style} needs several seeded ensembles`);
@@ -545,7 +547,7 @@ console.log('seeded instrument ensembles passed');
   const { SONG_STYLES } = await import('../js/state.js');
   const { buildSong, playSong } = await import('../scripts/composition.mjs');
   const key = (pr) => JSON.stringify(pr);
-  for (const style of SONG_STYLES) for (const seed of [1, 2, 3, 4]) {
+  for (const style of [...SONG_STYLES].filter((s) => s !== 'swing' && s !== 'modal')) for (const seed of [1, 2, 3, 4]) {
     const g = generate(style, seed), sc = arrangement(g.pattern, seed), S = g.pattern.sections;
     assert(S, `${style} writes sections`);
     assert.deepEqual(sc.map((p) => p.sec), [undefined, 'pre', 'verse', undefined, 'bridge', 'bridge', 'chorus', 'chorus'], `${style} section slots`);

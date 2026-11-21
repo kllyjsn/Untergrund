@@ -204,6 +204,18 @@
    "spread": 0.3,
    "tp": -1.49,
    "window": -9.1
+  },
+  "swing": {
+   "lufs": -14.26,
+   "spread": 0.28,
+   "tp": -1.89,
+   "window": -12.47
+  },
+  "modal": {
+   "lufs": -13.97,
+   "spread": 0.15,
+   "tp": -1.88,
+   "window": -12.9
   }
  },
  "seeds": [

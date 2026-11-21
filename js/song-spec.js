@@ -2,13 +2,14 @@
 // deterministic engine performs it with the usual generators. The result is an ordinary project, so every
 // note, chord, section and knob stays editable afterwards. Pure module: runs in the browser and in Node.
 import { developSong, LENGTHS } from './longform.js';
-import { STYLES, MAJOR_STYLES, generate, arrangement, songChain, songPlan, defaultState, applyOverrides, clone, emptyAcidStep } from './state.js';
+import { STYLES, MAJOR_STYLES, generate, arrangement, songChain, songPlan, freshSong, defaultState, applyOverrides, clone, emptyAcidStep } from './state.js';
 import { SCALES, KEYS, TRACK_IDS, STEPS } from './params.js';
 import { toSections, MAX_BARS } from './timeline.js';
 import { parse, applyEdits, validateEdits, genreOf } from './describe.js';
 import { semiOf } from './motif.js';
 import { trackTitle } from './crate.js';
 import { rng } from './dsp.js';
+import { isJazz } from './jazz.js';
 
 export const ROLES = ['intro', 'build', 'verse', 'breakdown', 'drop', 'outro'];
 export const PARTS = ['kick', 'drums', 'hats', 'perc', 'bass', 'chords', 'hook', 'vox'];
@@ -236,6 +237,12 @@ export function chainFor(sections, pats) {
 
 // A finished project state for a spec: what GENERATE would give, rewritten by the spec.
 export function songState(spec, seed = 1, base = defaultState(), opts = {}) {
+  if (isJazz(spec?.style)) {
+    const clean = validateSpec(spec), s = freshSong(clean.style, seed, { base, bpm: clean.bpm, scale: clean.scale });
+    if (clean.key != null) s.key = clean.key;
+    s.artist = { name: base.artist?.name || 'UNTERGRUND', title: clean.title || trackTitle(seed), style: clean.style, seed, created: base.artist?.created || new Date(0).toISOString() };
+    return { state: s, spec: clean, did: [] };
+  }
   const r = realize(spec, seed, opts), s = clone(base);
   applyOverrides(s, r.g, true);
   Object.assign(s, { patterns: r.patterns, chain: r.chain, chainOn: true, ending: true, current: 0, bpm: r.bpm, key: r.key, scale: r.scale });
@@ -265,6 +272,7 @@ const MOOD_CHORDS = {
   tense: { verse: ['i', 'VI', 'i', 'VII'], drop: ['i', 'VII', 'VI', 'V'], breakdown: ['VI', 'Vsus4'], hook: [0, 0, 3, 2, 0, -2] },
 };
 const GENRE_WORDS = [
+  [/\bmodal\b|\bcoltrane\b|\bmiles\b|\bkind of blue\b/, 'modal'], [/\bjazz\b|\bbebop\b|\bhard bop\b/, 'swing'],
   [/\blo-?fi\b|\bchillhop\b/, 'boombap'], [/\bhouse\b/, 'deephouse'], [/\btechno\b/, 'hypnotic'], [/\bgarage\b|\b2-?step\b/, 'ukg'], [/\bjungle\b|\bliquid\b/, 'dnb'],
   [/\bsynthwave\b|\boutrun\b|\bretrowave\b/, 'electro'], [/\bchill(?:out)?\b|\bdowntempo\b/, 'ambient'], [/\bedm\b|\bbig\s+room\b/, 'euphoric'],
 ];

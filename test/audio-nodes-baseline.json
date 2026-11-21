@@ -11,6 +11,8 @@
  "euphoric": {"peak":314,"avg":188},
  "neosoul": {"peak":195,"avg":138},
  "boombap": {"peak":251,"avg":188},
+ "swing": {"peak":125,"avg":114},
+ "modal": {"peak":131,"avg":120},
  "breaks": {"peak":201,"avg":100},
  "electro": {"peak":270,"avg":147},
  "dnb": {"peak":292,"avg":187},

@@ -11,7 +11,7 @@ const phrasesOf = (list) => { const o = []; for (const x of list) (o[x[4]] ??= [
 // Vocal-length melodies: 4- or 8-bar phrases, a planned peak, a held last note and a breath, singable rhythm,
 // steps with recovered leaps, chord tones on strong beats, and a chorus hook that returns.
 let notes = 0, steps = 0, moves = 0, leaps = 0, recovered = 0, strong = 0, tones = 0, grid = 0;
-for (const style of Object.keys(SING_PROFILES)) for (const seed of [1, 2, 3, 5, 8, 13]) {
+for (const style of Object.keys(SING_PROFILES).filter((s) => !SING_PROFILES[s].instrumental)) for (const seed of [1, 2, 3, 5, 8, 13]) {
   const g = generate(style, seed, 'minor'), h = g.pattern.hook, m = h.m;
   assert(m && m.bars === MELODY_BARS && m.n.length && m.v.length && m.b.length, `${style}/${seed} sings`);
   assert.deepEqual(generate(style, seed, 'minor').pattern.hook, h, `${style}/${seed} is deterministic`);
@@ -140,7 +140,7 @@ console.log('sung song passed');
 // Section registers: the verse sings lowest, each pre-chorus climbs, and only the chorus reaches the song's top note.
 {
   let pres = 0, climbs = 0, songs = 0;
-  for (const style of Object.keys(SING_PROFILES)) for (const seed of [101, 307, 503]) {
+  for (const style of Object.keys(SING_PROFILES).filter((s) => !SING_PROFILES[s].instrumental)) for (const seed of [101, 307, 503]) {
     const s = buildSong(style, seed), { log } = playSong(s), by = {}, runs = [];
     const secOf = (b) => s.patterns['ABCDEFGH'.indexOf(s.chain[b])]?.sec;
     for (const L of log) {
