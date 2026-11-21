@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { freshSong, generate, sanitize, applyOverrides } from '../js/state.js';
-import { jazzBass, jazzHarmony, jazzNotes, jazzVoicing, JAZZ_PROGS } from '../js/jazz.js';
+import { jazzBass, jazzHarmony, jazzNotes, jazzVoicing, JAZZ_PROGS, JAZZ_MIX } from '../js/jazz.js';
 import { CHORDS } from '../js/params.js';
 import { Recorder } from '../js/midi.js';
 import { Engine, Sequencer, stabPitches } from '../js/engine.js';
@@ -71,10 +71,24 @@ assert(!sanitize(bad).patterns[0].jazz);
 const s = freshSong('modal', 11), fake = { state: s };
 assert.doesNotThrow(() => Engine.prototype.duckAt.call(fake, 0, 1), 'jazz skips all kick-driven duck automation');
 for (const style of ['swing', 'modal']) {
-  let played = 0;
-  const e = { state: freshSong(style, 42), ch: { acid: { input: {} } }, playBuf() { played++; },
+  let played = 0, level;
+  const e = { state: freshSong(style, 42), ch: { acid: { input: {} } }, playBuf(buf, t, gain) { played++; level = gain; },
     ctx: { createOscillator() { throw new Error('acoustic upright must not have a synthesized sub layer'); } } };
   Engine.prototype.sampledBass.call(e, {}, 0.05, 36, 0.4, false);
   assert.equal(played, 1);
+  assert.equal(level, 10 ** (JAZZ_MIX[style].bass / 20), 'upright balance is a linear trim, not a changed articulation');
+  const calls = [], comp = { state: freshSong(style, 42), ctx: {}, step: 6, stepDur: 0.1,
+    ch: { stab: { band: {} } }, rec: () => [], recordedNote: (...a) => calls.push(a) };
+  Engine.prototype.stab.call(comp, 0.1, 0.5);
+  assert(calls.length > 1);
+  for (const a of calls) {
+    assert.equal(a[2], 0.5 * 0.62 * 10 ** (JAZZ_MIX[style].comp / 20));
+    assert.equal(a[8], 0.5, 'comp trim preserves the sampled velocity layer');
+  }
+  const ride = Engine.prototype.liveFx.call({ state: freshSong(style, 42) }, 'ride', { duration: 2 });
+  assert.equal(ride.fx.fade, 0.005);
+  assert.equal(ride.fx.attackGain, 0.65);
+  assert.equal(ride.dur, 2, 'ride attack shaping retains the full recorded sustain');
+  assert.equal(JAZZ_MIX[style].output, -2, 'jazz leaves post-clipper intersample headroom');
 }
 console.log('jazz: progression-aware walking/approaches, strong-note harmony, quartal stacks, instrumental form, mutes, save/load, preload and routing passed');

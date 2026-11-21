@@ -2,6 +2,10 @@ import { CHORDS, defaultParams, defaultMaster, TRACK_IDS } from './params.js';
 import { rng } from './dsp.js';
 
 export const isJazz = (style) => style === 'swing' || style === 'modal';
+export const JAZZ_MIX = {
+  swing: { lead: 6, comp: -1.5, bass: -4, ride: 15.5, hat: 16, output: -2 },
+  modal: { lead: 8, comp: -2, bass: -2, ride: 17.5, hat: 16, output: -2 },
+};
 export const jazzStyle = (s) => s.patterns?.[s.current || 0]?.jazz?.style || (isJazz(s.artist?.style) ? s.artist.style : null);
 export const JAZZ_PROGS = {
   swing: [

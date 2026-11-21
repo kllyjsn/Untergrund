@@ -5,7 +5,7 @@ import { pickChop } from './hum.js';
 import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND, HOOK_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel, swingLate, swingDuration } from './groove.js';
-import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes } from './jazz.js';
+import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes, JAZZ_MIX } from './jazz.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ, TECHNO_HOOK_SPACE } from './lead.js';
 import { lowEnd } from './lowend.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
@@ -888,7 +888,7 @@ export class Engine {
       this.festivalGate.gain.cancelScheduledValues(this.ctx.currentTime);
       this.festivalGate.gain.setValueAtTime(1, this.ctx.currentTime);
     }
-    const trim = this.playbackStyle === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : 0;
+    const trim = this.playbackStyle === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : JAZZ_MIX[jazzStyle(this.state)]?.output || 0;
     this.setTo(this.out.gain, this.hardTechno ? 0.98 : OUT_TRIM * dbGain(trim), immediate);
   }
 
@@ -1443,6 +1443,10 @@ export class Engine {
     const drive = ref.drive != null ? Math.max(0, p.drive - ref.drive) * 1.2 : 0;
     const punch = ref.punch != null ? (p.punch - ref.punch) * 1.4 : 0;
     const fx = { shelves, peaks, drive, punch };
+    if (jazzStyle(this.state) && id === 'ride') {
+      Object.assign(fx, { fade: 0.005, attackGain: 0.65 });
+      return { rate, dur: dur || full, fx };
+    }
     if (id === 'snare' && Math.round(this.state.master.kit) === KIT_BACKBEAT) {
       peaks.push([650, 1.1, -8], [630, 3.5, -4], [1800, 0.8, 5.5]);
       if (touch != null) {
@@ -1514,7 +1518,7 @@ export class Engine {
       // A darker TONE is a lighter touch: the hardest stick layer ticks like a clank under soft keys.
       const touch = Math.min(1, this.state.params.ch.tone / LIVE_REF.ch.tone);
       const layer = Math.max(1, Math.min(4, Math.ceil(touch < 1 ? 4 * v ** 1.5 * touch : v * 4)));
-      this.liveHit(kit, `hh_v${layer}_${take(`hh${layer}`, 4)}`, 'ch', t, 0.32 * lift * v ** 1.5, drift);
+      this.liveHit(kit, `hh_v${layer}_${take(`hh${layer}`, 4)}`, 'ch', t, 0.32 * lift * v ** 1.5 * dbGain(JAZZ_MIX[jazzStyle(this.state)]?.hat || 0), drift);
       return true;
     }
     if (id === 'oh') {
@@ -1524,7 +1528,7 @@ export class Engine {
     if (id === 'ride') {
       const layer = v > 0.85 ? 3 : v > 0.55 ? 2 : 1;
       const name = layer === 2 ? `ride_v2_${take('ride2', 2)}` : `ride_v${layer}_1`;
-      this.liveHit(kit, name, 'ride', t, 0.3 * lift * v ** 1.3, drift);
+      this.liveHit(kit, name, 'ride', t, 0.3 * lift * v ** 1.3 * dbGain(JAZZ_MIX[jazzStyle(this.state)]?.ride || 0), drift);
       return true;
     }
     return false;
@@ -1537,7 +1541,7 @@ export class Engine {
     const fx = { shelves: [[700, Math.max(-24, Math.min(12, 8 * Math.log2(p.cutoff / ref.cutoff)))]], drive: Math.max(0, p.drive - ref.drive) * 1.4 };
     const chop = this.state.artist?.style === 'boombap';
     if (chop) { len = Math.min(len, 0.16 + p.decay * 0.16); Object.assign(fx, { lp: 900, fade: 0.003, attackGain: 1.12, release: 0.025 }); }
-    this.playBuf(kit[`bass_${name}_${hash(t * 1000, 3) > 0.5 ? 'a' : 'b'}`], t, (accent ? 1.2 : 1) * (this.noteVel ?? 1) * (chop ? 1.2 : 1), out, Math.pow(2, (m - center) / 12), len, fx);
+    this.playBuf(kit[`bass_${name}_${hash(t * 1000, 3) > 0.5 ? 'a' : 'b'}`], t, (accent ? 1.2 : 1) * (this.noteVel ?? 1) * (chop ? 1.2 : 1) * dbGain(JAZZ_MIX[jazzStyle(this.state)]?.bass || 0), out, Math.pow(2, (m - center) / 12), len, fx);
     if (jazzStyle(this.state)) return;
     const sub = this.ctx.createOscillator(); sub.frequency.value = midiHz(m);
     const sg = this.gain(0);
@@ -2046,7 +2050,7 @@ export class Engine {
     if (jazzStyle(this.state)) {
       const name = vo === 13 ? 'jazz' : 'piano', set = this.rec(name);
       if (!set) { loadBand(name); return this.keys(t, v, iv, root, p, this.ch.stab.input); }
-      for (const n of iv) this.recordedNote(set, t, v * 0.62, root + n, pedal ? this.stepDur * 14.4 : p.decay * 1.7, this.ch.stab.band, -2, name, v);
+      for (const n of iv) this.recordedNote(set, t, v * 0.62 * dbGain(JAZZ_MIX[jazzStyle(this.state)].comp), root + n, pedal ? this.stepDur * 14.4 : p.decay * 1.7, this.ch.stab.band, -2, name, v);
       return;
     }
     if (this.playbackStyle === 'bailefunk') return this.funkStab(t, v, iv, root, p.decay, this.ch.stab.input);
@@ -2918,7 +2922,7 @@ export class Engine {
     const air = hash(step, m + 29), tongue = hash(step, m + 71), touch = Math.min(1, v);
     const out = this.trimOut(`hook-${voice}`, 1, this.hookBus || this.windDuck, -4, 500);
     const eq = this.bodyFor(this.bodyFor(out, presence), [780, 1.2, -2.5]);
-    return this.playBuf(buf, t, gain * touch * dbGain(trim + (air - 0.5) * 1.2), eq,
+    return this.playBuf(buf, t, gain * touch * dbGain(trim + (air - 0.5) * 1.2) * dbGain(JAZZ_MIX[jazzStyle(this.state)]?.lead || 0), eq,
       2 ** ((m - pitch - cents / 100) / 12), Math.max(0.06, dur * 0.92), {
         lp: 3850 + 2100 * touch + 650 * (air - 0.5), offset: offset + tongue * 0.012,
         fade: (voice === 'tpt' ? 0.025 : strong ? 0.007 : 0.012) + 0.009 * (1 - tongue),
@@ -3074,6 +3078,7 @@ export class Engine {
     if (set) {
       const kind = twang ? 'twang' : Math.round(p.voice) === 11 ? 'lead' : band, R = BAND_PLAY[kind], ring = R.hold ? dur * 1.05 : Math.max(R.min * 0.6, dur * 1.5);
       let dest = this.hookBus || this.ch.stab.input;
+      if (jazzStyle(this.state)) dest = this.trimOut('jazz-recorded-lead', JAZZ_MIX[jazzStyle(this.state)].lead, dest, JAZZ_MIX[jazzStyle(this.state)].lead);
       if (R.amp) dest = this.ampFor(dest === this.ch.stab.input ? this.ch.stab.band : dest, R.lead);
       if (R.slap) {
         dest = this.slapFor(dest);

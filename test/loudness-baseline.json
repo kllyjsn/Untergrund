@@ -206,16 +206,16 @@
    "window": -9.1
   },
   "swing": {
-   "lufs": -14.26,
-   "spread": 0.28,
-   "tp": -1.89,
-   "window": -12.47
+   "lufs": -14.08,
+   "spread": 1.05,
+   "tp": -2.84,
+   "window": -13.32
   },
   "modal": {
-   "lufs": -13.97,
-   "spread": 0.15,
-   "tp": -1.88,
-   "window": -12.9
+   "lufs": -14,
+   "spread": 1,
+   "tp": -2.63,
+   "window": -14.14
   }
  },
  "seeds": [

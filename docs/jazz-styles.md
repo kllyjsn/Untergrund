@@ -19,8 +19,9 @@ last ensemble routes through its recorded PIANO chord voice, not a singer.
 Jazz has no clap/percussion/VOX row, kick ducking, electronic drops or risers.
 The dedicated JAZZ pocket preserves the ride-led feel. Eighth swing eases from
 0.85 to 0.65 over swing's tempo range; modal uses 0.7. The ride has broad cuts
-at 5 and 7.8 kHz. Makeup into the existing safety limiter is +8.5 dB for swing
-and +7.5 dB for modal.
+at 5 and 7.8 kHz, with a softened stick transient and full recorded sustain.
+Makeup into the existing safety limiter is +11.5 dB for swing and +9.5 dB for
+modal, with 2 dB additional jazz-only post-clipper headroom.
 
 Checks and reproducible WAV/measurement delivery:
 

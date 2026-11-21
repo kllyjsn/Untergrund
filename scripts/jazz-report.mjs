@@ -36,8 +36,8 @@ for (const style of ['swing', 'modal'].filter((s) => selected.includes(s))) for 
   audit.push(r); console.log(`${style}/${seed}: ${outside}/${strong} out-of-chord strong-beat lead/bass notes`);
   if (style === 'swing' && seed === 42) for (let bar = 1; bar <= 4; bar++) console.log(`bar ${bar}: ${rows.find((x) => x.bar === bar).chord}; upright MIDI ${rows.filter((x) => x.bar === bar).map((x) => x.midi).join(', ')}`);
 }
-const measurements = await withChrome(async (run) => {
-  await run(`(async () => {
+const measurements = await withChrome(async (runs) => {
+  await Promise.all(runs.map((run) => run(`(async () => {
     const state = await import('/js/state.js'), { render } = await import('/test/audio-quality-page.js');
     const { loudness, truePeak } = await import('/js/loudness.js');
     const { spectrum } = await import('/js/audio-quality.js');
@@ -53,9 +53,13 @@ const measurements = await withChrome(async (run) => {
       const blob = encodeWav(ch, buf.sampleRate); window.jazzWav = new Uint8Array(await blob.arrayBuffer());
       return { ...r, bytes: window.jazzWav.length };
     };
-  })()`);
+  })()`)));
   const out = previous.measurements.filter((r) => !selected.includes(r.style));
-  for (const style of selected) for (const seed of style === 'neosoul' ? [42] : [11, 42, 77]) {
+  const jobs = selected.flatMap((style) => (style === 'neosoul' ? [42] : [11, 42, 77]).map((seed) => ({ style, seed })));
+  let nextJob = 0;
+  await Promise.all(runs.map(async (run) => {
+    while (nextJob < jobs.length) {
+    const { style, seed } = jobs[nextJob++];
     const r = await run(`window.jazzRender(${JSON.stringify(style)}, ${seed})`);
     if (style !== 'neosoul' && seed !== 77) {
       const fd = openSync(resolve(dir, `${style}-${seed}.wav`), 'w');
@@ -68,9 +72,10 @@ const measurements = await withChrome(async (run) => {
     }
     console.log(`${style}/${seed}: ${r.bars} bars, ${r.seconds.toFixed(1)} s, ${r.lufs.toFixed(2)} LUFS, ${r.dbtp.toFixed(2)} dBTP`);
     out.push(r);
-  }
-  return out;
-});
+    }
+  }));
+  return out.sort((a, b) => a.style.localeCompare(b.style) || a.seed - b.seed);
+}, { pages: 3 });
 if (!measurements) throw new Error('Chrome unavailable; full-song measurements not performed');
 writeFileSync(resolve(dir, 'measurements.json'), JSON.stringify({ audit, measurements }, null, 2) + '\n');
 if (process.argv.includes('--write-baseline')) {
