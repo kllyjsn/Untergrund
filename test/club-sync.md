@@ -6,6 +6,8 @@
 captures stereo destination-tap PCM at the native sample rate across three
 real Club flows: PASS DECK → UPDATE ROOM (same song), SONGS → SPIN (seed 7 →
 11, same style), and a ten-second listener disconnect/reconnect (same set).
+Reconnect trials record whether server presence expired during the disconnect
+and verify the listener is present after reconnecting.
 To run one flow, use `--scenario listener-handoff`, `listener-track-change`,
 or `listener-reconnect`.
 

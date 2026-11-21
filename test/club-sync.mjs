@@ -410,6 +410,8 @@ async function scenario(base, spec, network, run, auditStyle) {
         events.broadcastAt = events.actionAt = await spin();
       } else {
         await pause(Math.max(0, target - Date.now()));
+        events.before = await snapshot();
+        assert.ok(events.before.members.includes(listenerId), 'Listener present before disconnect');
         events.actionAt = Date.now();
         await listener.send('Network.setBlockedURLs', { urls: [`${network.base('listener')}/api/rooms*`] });
         await listener.send('Network.emulateNetworkConditions', { offline:true, latency:0, downloadThroughput:-1, uploadThroughput:-1 });
@@ -417,11 +419,15 @@ async function scenario(base, spec, network, run, auditStyle) {
         assert.equal(events.offlineProbe, 'blocked');
         await pause(10000);
         events.during = await snapshot();
-        assert.ok(events.during.members.includes(listenerId), 'Short disconnect retains listener');
+        events.presenceExpired = !events.during.members.includes(listenerId);
         events.recoverAt = Date.now();
         await listener.send('Network.setBlockedURLs', { urls: [] });
         await listener.send('Network.emulateNetworkConditions', { offline:false, latency:0, downloadThroughput:-1, uploadThroughput:-1 });
         events.reconnectedAt = await until(() => listener.run(`__clubAudio.requests.find(r => r.start >= ${events.recoverAt} && r.status === 200)?.end`), 'room request after reconnect');
+        events.after = await until(async () => {
+          const s = await snapshot();
+          return s.members.includes(listenerId) && s;
+        }, 'listener present after reconnect');
       }
       if (events.broadcastAt) {
         events.newSet = await until(async () => {
