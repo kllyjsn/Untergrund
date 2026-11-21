@@ -27,7 +27,7 @@ const BASS_COLOR = {
   afrobeats: { name: 'finger', knock: 1, settle: 0.018, wave: 'triangle', ratio: 3, harmonic: 0.8, tail: 0.25, decay: 0.07, round: 'triangle', pick: 1, gain: 0.85 },
   jerseyclub: { name: 'bounce', knock: 2.6, settle: 0.012, wave: 'sawtooth', ratio: 2, harmonic: 0.35, tail: 0.015, decay: 0.025, round: 'triangle', pick: 0.5, gain: 1.6, duckScale: 0.65, recoveryScale: 0.6 },
 };
-const LIQUID_CHORD = { wave: 'sawtooth', level: 0.3, attack: 0.065, release: 0.8, cutoff: 1700, spread: 6, fm: 0, width: 0, eq: [[1130, 0.7, 3]] };
+const LIQUID_CHORD = { wave: 'sawtooth', level: 0.3, attack: 0.065, release: 0.8, cutoff: 2600, spread: 14, fm: 0, width: 0.7, sideCutoff: 150, harmonics: 4200, upper: 0.35, eq: [[1130, 0.7, 3]] };
 const EUPHORIC_CHORD = { wave: 'sawtooth', level: 0.54, attack: 0.025, release: 0.85, cutoff: 2300, spread: 11, fm: 0 };
 const DEEP_CHORD = { wave: 'triangle', level: 1.35, attack: 0.007, release: 0.45, cutoff: 1700, spread: 2, fm: 0.65, width: 0.25, presence: 'keys', eq: [[320, 0.8, -5], [950, 0.8, 3]] };
 const GENRE_PALETTES = {
@@ -59,10 +59,10 @@ const GENRE_PALETTES = {
     bed: true,
     chords: {
       default: LIQUID_CHORD,
-      10: { ...LIQUID_CHORD, attack: 0.09, release: 1.1, cutoff: 1450 },
-      2: { ...LIQUID_CHORD, level: 0.23, attack: 0.075, cutoff: 1900, spread: 9 },
-      1: { ...LIQUID_CHORD, wave: 'triangle', level: 0.35, attack: 0.006, release: 0.5, cutoff: 2400, fm: 0.7 },
-      5: { ...LIQUID_CHORD, wave: 'triangle', level: 0.42, attack: 0.012, release: 0.32, cutoff: 2100, fm: 0.45 },
+      10: { ...LIQUID_CHORD, attack: 0.09, release: 1.1, cutoff: 2200 },
+      2: { ...LIQUID_CHORD, level: 0.23, attack: 0.075, cutoff: 2800, spread: 18 },
+      1: { ...LIQUID_CHORD, wave: 'triangle', level: 0.35, attack: 0.006, release: 0.5, cutoff: 3200, fm: 0.7 },
+      5: { ...LIQUID_CHORD, wave: 'triangle', level: 0.42, attack: 0.012, release: 0.32, cutoff: 3000, fm: 0.45 },
     },
     hook: { wave: 'triangle', level: 0.44, attack: 0.018, release: 0.16, cutoff: 4500, spread: 8, fm: 0.5, width: 0.7, breath: 0.18, breathDecay: 0.06, transpose: 12, range: [72, 90], eq: [[1130, 0.7, 3]] },
     bass: { level: 1, sub: 0.9, body: 0.5, movement: 230, spread: 14, midCut: [325, 0.7, 3] },
@@ -666,6 +666,8 @@ export class Engine {
 
   buildFx() {
     const c = this.ctx;
+    this.paletteFxCutoff = paletteFor(this.state, this.playbackStyle)?.chords.default.sideCutoff || 0;
+    const widthOut = out => this.paletteWidthOut(out, this.paletteFxCutoff);
     // Reverb
     this.revIn = this.gain(1);
     this.revHP = this.filter('highpass', 240);
@@ -673,20 +675,21 @@ export class Engine {
     this.revConv.buffer = makeIR(c, 3.8, { decay: 3.4, brightStart: 0.8, brightEnd: 0.1, predelay: 0.018 });
     this.revLP = this.filter('lowpass', 4500);
     this.revOut = this.gain(0.7);
-    this.revIn.connect(this.revHP).connect(this.revConv).connect(this.revLP).connect(this.revOut).connect(this.duck);
+    this.revIn.connect(this.revHP).connect(this.revConv).connect(this.revLP).connect(this.revOut).connect(widthOut(this.duck));
     // Short shared room so the whole band sounds like it plays in one space
     this.roomIn = this.gain(1);
     this.roomConv = c.createConvolver();
     this.roomConv.buffer = makeIR(c, ...IR.room);
     this.roomHP = this.filter('highpass', 160);
     this.roomOut = this.gain(0);
-    this.roomIn.connect(this.roomHP).connect(this.roomConv).connect(this.roomOut).connect(this.mix);
+    this.roomIn.connect(this.roomHP).connect(this.roomConv).connect(this.roomOut).connect(widthOut(this.mix));
     // Recorded players get the body and air of a real room around them; dry mono samples read as a plug-in.
     this.bandIn = this.gain(1);
     this.bandConv = c.createConvolver();
     this.bandConv.buffer = makeIR(c, ...IR.band);
+    this.bandOut = this.gain(0.45);
     this.bandIn.connect(this.filter('highpass', 140)).connect(this.bandConv).connect(this.filter('lowpass', 7000))
-      .connect(this.gain(0.45)).connect(this.mix);
+      .connect(this.bandOut).connect(widthOut(this.mix));
 
     // Ping-pong delay with band-limited feedback
     this.dlyIn = this.gain(1);
@@ -703,7 +706,7 @@ export class Engine {
     const merge = c.createChannelMerger(2);
     this.dL.connect(merge, 0, 0); this.dR.connect(merge, 0, 1);
     this.dlyOut = this.gain(0.65);
-    merge.connect(this.dlyOut).connect(this.duck);
+    merge.connect(this.dlyOut).connect(widthOut(this.duck));
 
     // Kick rumble: dark reverb of the kick, low-passed and hard-ducked by the kick itself
     this.rumbleIn = this.gain(1);
@@ -914,7 +917,18 @@ export class Engine {
     this.setTo(this.limTrim.gain, (this.hardTechno ? 1 : LIM_TRIM) / CLIP_HEADROOM, true);
     this.applyOutputTrim(true);
     this.applyTone();
+    this.applyPaletteWidth();
     this.applyStrips();
+  }
+
+  applyPaletteWidth() {
+    const cutoff = paletteFor(this.state, this.playbackStyle)?.chords.default.sideCutoff || 0;
+    if ((this.paletteFxCutoff || 0) === cutoff) return;
+    for (const [source, out] of [[this.revOut, this.duck], [this.dlyOut, this.duck], [this.roomOut, this.mix], [this.bandOut, this.mix]]) {
+      source.disconnect(this.paletteWidthOut(out, this.paletteFxCutoff));
+      source.connect(this.paletteWidthOut(out, cutoff));
+    }
+    this.paletteFxCutoff = cutoff;
   }
 
   applyOutputTrim(immediate = false) {
@@ -2203,6 +2217,7 @@ export class Engine {
       else if (color.presence === 'pad') this.pad(t, v, iv, root, p, air);
       else this.keys(t, v, iv, root, p, air);
     }
+    if (color.upper) this.paletteUpperFM(t, v, iv, root, p, out, color.upper);
     for (const band of color.eq || []) out = this.bodyFor(out, band);
     const release = Math.max(0.12, Math.min(color.release, p.decay)), hold = color.hold ?? 0.04, end = t + color.attack + hold + release * 6 + 0.02;
     const cutoff = color.cutoff * Math.max(0.5, Math.min(1.8, p.cutoff / 1800));
@@ -2225,7 +2240,7 @@ export class Engine {
       }
       this.noiseSrc(t, end - t).connect(air).connect(top).connect(breath).connect(amp);
     }
-    const width = color.width ?? 0.55, pans = this.sidePans([-width, width], hp);
+    const width = color.width ?? 0.55, pans = this.sidePans([-width, width], color.sideCutoff ? this.paletteWidthOut(hp, color.sideCutoff) : hp);
     for (const n of iv) {
       const f = midiHz(root + n), wave = this.paletteWave(f, color);
       for (const side of [-1, 1]) {
@@ -2236,6 +2251,68 @@ export class Engine {
         this.startSource(o, t); o.stop(end);
       }
     }
+  }
+
+  paletteWidthOut(out, cutoff) {
+    if (!cutoff) return out;
+    const paths = (this.paletteWidths ||= new WeakMap());
+    if (!paths.has(out)) {
+      const input = this.gain(1), split = this.ctx.createChannelSplitter(2), stereo = this.ctx.createChannelMerger(2);
+      input.channelCount = 2; input.channelCountMode = 'explicit';
+      const mid = this.gain(0.5), side = this.gain(0.5), negative = this.gain(-1), invert = this.gain(-1);
+      input.connect(split);
+      split.connect(mid, 0); split.connect(mid, 1);
+      split.connect(side, 0); split.connect(negative, 1); negative.connect(side);
+      mid.connect(stereo, 0, 0); mid.connect(stereo, 0, 1);
+      const high = this.filter('highpass', cutoff, 20 * Math.log10(Math.SQRT1_2)), top = this.filter('highpass', cutoff, 20 * Math.log10(Math.SQRT1_2));
+      side.connect(high).connect(top);
+      top.connect(stereo, 0, 0); top.connect(invert).connect(stereo, 0, 1);
+      stereo.connect(out);
+      paths.set(out, input);
+    }
+    return paths.get(out);
+  }
+
+  paletteUpperFM(t, v, iv, root, p, out, level) {
+    if (!iv.length) return;
+    const end = t + Math.max(0.6, p.decay * 3) + 0.3;
+    const tone = this.filter('lowpass', Math.min(9000, p.cutoff * 2.5), 0.5), trim = this.gain(level);
+    tone.connect(trim).connect(this.palettePresenceOut(this.paletteUpperOut(out), Math.round(p.voice)));
+    const bite = 0.4 + 1.2 * Math.max(0, Math.min(1, p.env ?? 0.5));
+    for (const [k, n] of iv.entries()) {
+      const f = midiHz(root + n), vel = v * (0.85 + hash(t * 97, k) * 0.3);
+      const reg = this.smoothOn ? Math.min(1, 523 / f) : 1;
+      const car = this.ctx.createOscillator(), mod = this.ctx.createOscillator(), tine = this.ctx.createOscillator();
+      car.frequency.value = mod.frequency.value = f;
+      car.detune.value = (k % 2 ? 1 : -1) * p.detune * 0.15;
+      tine.frequency.value = f * 14;
+      const body = this.gain(0), strike = this.gain(0), amp = this.gain(0);
+      mod.connect(body).connect(car.frequency);
+      body.gain.setValueAtTime(f * (0.6 + vel * 1.6) * bite * reg, t);
+      body.gain.setTargetAtTime(f * 0.15 * reg, t + 0.005, 0.12 + p.env * 0.3);
+      tine.connect(strike).connect(car.frequency);
+      strike.gain.setValueAtTime(f * 2.5 * vel * bite * (p.tine ?? 1), t);
+      strike.gain.setTargetAtTime(0, t + 0.002, 0.018);
+      amp.gain.setValueAtTime(EPS, t);
+      amp.gain.linearRampToValueAtTime(0.42 * vel / Math.sqrt(iv.length), t + 0.004);
+      amp.gain.setTargetAtTime(0, t + 0.01, Math.max(0.15, p.decay * 0.9));
+      car.connect(amp).connect(tone);
+      for (const o of [car, mod, tine]) { this.startSource(o, t); o.stop(end); }
+    }
+  }
+
+  paletteUpperOut(out) {
+    const paths = (this.paletteUppers ||= new WeakMap());
+    if (!paths.has(out)) {
+      const input = this.filter('lowpass', 5200, Math.SQRT1_2), right = this.ctx.createDelay(0.025);
+      right.delayTime.value = 0.009;
+      const cutoff = paletteFor(this.state, this.playbackStyle)?.chords.default.sideCutoff;
+      const pans = this.sidePans([-0.8, 0.8], this.paletteWidthOut(out, cutoff));
+      input.connect(this.gain(0.7)).connect(pans[0]);
+      input.connect(right).connect(this.gain(0.7)).connect(pans[1]);
+      paths.set(out, input);
+    }
+    return paths.get(out);
   }
 
   palettePresenceOut(out, voice) {
@@ -2251,11 +2328,12 @@ export class Engine {
   }
 
   paletteWave(f, color) {
-    const waves = (this.paletteWaves ||= new Map()), key = `${f}:${color.wave}:${color.fm}:${color.organ || 0}:${color.tine ?? 1}`;
+    const limit = color.harmonics ?? 1850;
+    const waves = (this.paletteWaves ||= new Map()), key = `${f}:${color.wave}:${color.fm}:${color.organ || 0}:${color.tine ?? 1}:${limit}`;
     if (!waves.has(key)) {
-      const count = Math.max(1, Math.min(32, Math.floor(1750 / f))), re = new Float32Array(count + 1), im = new Float32Array(count + 1);
+      const count = Math.max(1, Math.min(32, Math.floor((limit - 100) / f))), re = new Float32Array(count + 1), im = new Float32Array(count + 1);
       for (let h = 1; h <= count; h++) {
-        const edge = Math.min(1, Math.max(0, (1850 - f * h) / 350));
+        const edge = Math.min(1, Math.max(0, (limit - f * h) / 350));
         const core = color.wave === 'sawtooth' ? (h % 2 ? 1 : -1) / h : color.wave === 'triangle' ? (h % 2 ? (h % 4 === 1 ? 1 : -1) / (h * h) : 0) : h === 1 ? 1 : 0;
         im[h] = edge * (core + (h === 2 ? color.fm * 0.22 + (color.organ || 0) : h === 3 ? color.fm * 0.07 : 0)) * (h === 1 ? 1 : color.tine ?? 1);
       }

@@ -277,6 +277,54 @@ for (const listener of ['dnb', 'euphoric', 'deephouse']) {
   assert(peaks.some(([value]) => value === 0.18), 'the initial airy attack is retained');
   assert.deepEqual(paletteFor(s).hook.eq, [[1130, 0.7, 3]]);
   for (const color of Object.values(paletteFor(s).chords)) assert.deepEqual(color.eq, [[1130, 0.7, 3]], 'every liquid chord variant has the same body boost');
+  const waves = [], create = e.ctx.createPeriodicWave;
+  e.ctx.createPeriodicWave = function (re, im, ...args) { waves.push(im); return create.call(this, re, im, ...args); };
+  for (const color of Object.values(paletteFor(s).chords)) {
+    assert(color.width >= 0.7 && color.spread >= 14, 'every liquid chord variant restores its stereo spread');
+    assert.equal(color.sideCutoff, 150, 'liquid chord width is confined above the low band');
+    e.paletteWave(220, color);
+    assert(waves.at(-1).some((x, i) => x !== 0 && i * 220 > 2000), 'liquid chord harmonics extend above 2kHz');
+  }
+  const before = waves.length;
+  e.paletteWave(220, paletteFor(s).hook);
+  assert.equal(waves.length, before + 1, 'hook and chord harmonic ceilings have separate caches');
+  assert(waves.at(-1).length <= 8, 'the hook keeps its approved harmonic ceiling');
+  const upperSources = [], startUpper = e.startSource;
+  e.startSource = function (o, ...args) { upperSources.push(o.frequency.value); return startUpper.call(this, o, ...args); };
+  e.keys = () => assert.fail('the liquid upper renderer never enters shared keys');
+  e.paletteUpperFM(0.1, 0.4, [], 60, s.params.stab, e.ch.stab.input, 0.4);
+  assert.deepEqual(upperSources, [], 'empty upper voicings create no oscillators');
+  e.paletteUpperFM(0.1, 0.4, [0], 60, s.params.stab, e.ch.stab.input, 0.4);
+  const upperRoot = 440 * 2 ** ((60 - 69) / 12);
+  assert.deepEqual(upperSources, [upperRoot, upperRoot, upperRoot * 14], 'the dedicated upper voice has its own FM carrier, body and strike');
+  e.startSource = startUpper;
+  let upper = 0;
+  e.paletteUpperFM = () => upper++;
+  const chord = paletteFor(s).chords.default, out = e.ch.stab.input;
+  e.paletteChord(0.1, 0.4, [], 60, s.params.stab, out, chord);
+  assert.equal(upper, 0, 'empty chords do not schedule an upper layer');
+  e.paletteChord(0.1, 0.4, [0, 3, 7], 60, s.params.stab, out, chord);
+  assert.equal(upper, 1, 'the liquid chord bed has its own upper layer');
+  e.hook(0.2, 0.4, 0, 0.5, 'analog');
+  assert.equal(upper, 1, 'the upper layer does not leak into the hook');
+  assert.equal(e.paletteUpperOut(out), e.paletteUpperOut(out), 'chords reuse their stereo upper-layer path');
+  const widthDest = e.gain(1);
+  assert.equal(e.paletteWidthOut(widthDest), widthDest, 'unconfigured palettes retain their existing width route');
+  const sideFilters = [], filter = e.filter;
+  e.filter = function (...args) { sideFilters.push(args); return filter.apply(this, args); };
+  const widthOut = e.paletteWidthOut(widthDest, 150);
+  e.filter = filter;
+  assert.deepEqual(sideFilters, [
+    ['highpass', 150, 20 * Math.log10(Math.SQRT1_2)],
+    ['highpass', 150, 20 * Math.log10(Math.SQRT1_2)],
+  ], 'side highpasses use Web Audio Q in dB, without a resonant boost above the crossover');
+  assert.notEqual(widthOut, widthDest);
+  assert.equal(e.paletteWidthOut(widthDest, 150), widthOut, 'liquid chords share their side-only highpass path');
+  assert.equal(e.paletteFxCutoff, 150, 'liquid chord reverb and echo returns share the low-side cutoff');
+  s.artist.style = 'euphoric'; e.applyPaletteWidth();
+  assert.equal(e.paletteFxCutoff, 0, 'switching away from liquid restores unfiltered FX return routes');
+  s.artist.style = 'dnb'; e.applyPaletteWidth();
+  assert.equal(e.paletteFxCutoff, 150, 'switching back restores low-side protection');
 }
 for (const recorded of ['dnb', 'euphoric', 'deephouse']) {
   const s = freshSong(recorded, 42); s.artist = { style: 'trap' };
