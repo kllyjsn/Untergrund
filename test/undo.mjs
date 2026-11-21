@@ -1,5 +1,34 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
 import { createHistory, gesture, LIMIT } from '../js/undo.js';
+
+{
+  const source = readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
+  const snapshot = source.slice(source.indexOf('function snapshot('), source.indexOf('// Any edit makes'));
+  const restore = source.slice(source.indexOf('function restore('), source.indexOf('const peekSnap'));
+  const state = { chain: 'CCCC', chainEntries: [{ p: 2, sec: 0 }, { p: 2, sec: 0 }, { p: 2, sec: 1 }, { p: 2, sec: 1 }] };
+  const noop = () => {};
+  const api = runInNewContext(`${snapshot}\n${restore}\n({ snapshot, restore })`, { state, knobGesture: { reset: noop }, touched: noop, engine: null, build: noop, persist: noop, toast: noop });
+  const before = api.snapshot(), h = createHistory();
+  h.push(before);
+  state.chain = 'CCCCC'; state.chainEntries.splice(1, 0, { p: 2, sec: 0 });
+  const resized = api.snapshot();
+  api.restore(h.undo(resized), 'Undone');
+  assert.equal(api.snapshot(), before, 'undo restores chain and section tags together');
+  api.restore(h.redo(api.snapshot()), 'Redone');
+  assert.equal(api.snapshot(), resized, 'redo restores the edited tags');
+  delete state.chainEntries;
+  const plain = api.snapshot();
+  state.chainEntries = [{ p: 2, sec: 4 }];
+  api.restore({ snap: plain }, 'Undone');
+  assert(!('chainEntries' in state), 'restoring an untagged arrangement clears stale tags');
+  state.chain = ''; state.chainEntries = [];
+  const empty = api.snapshot();
+  delete state.chainEntries;
+  api.restore({ snap: empty }, 'Undone');
+  assert.equal(JSON.stringify(state.chainEntries), '[]', 'empty tagged arrangements survive undo');
+}
 
 // Undo, then redo, walks back and forward through the same states with their labels.
 {

@@ -844,7 +844,7 @@ function setMaster(id, v) {
 // Undo / redo. `label` names the edit for the toast ("Undone: CLEAR pattern B").
 function snapshot(like = {}) {
   const { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn } = state;
-  const snap = { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn, labels: state.labels || null, lyrics: state.lyrics || null, sing: state.sing || null };
+  const snap = { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn, chainEntries: state.chainEntries ?? null, labels: state.labels || null, lyrics: state.lyrics || null, sing: state.sing || null };
   if ('artist' in like) snap.artist = state.artist ?? null;
   if (like.ui) snap.ui = { style, family };
   return JSON.stringify(snap);
@@ -866,6 +866,7 @@ function restore(entry, verb) {
   const { ui: was, ...snap } = JSON.parse(entry.snap);
   if (was) { style = was.style; family = was.family; localStorage.setItem('untergrund.family', family); }
   Object.assign(state, snap);
+  if (!state.chainEntries) delete state.chainEntries;
   touched();
   if (!state.labels) delete state.labels;
   if (!state.lyrics) delete state.lyrics;
