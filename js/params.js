@@ -25,6 +25,14 @@ export const CHORDS = [
   { name: 'ADD9', iv: [0, 4, 7, 14] },
   { name: 'MAJ', iv: [0, 4, 7] },
   { name: 'DOM7', iv: [0, 4, 7, 10] },
+  { name: 'DOM9', iv: [0, 4, 7, 10, 14] },
+  { name: 'DOM13', iv: [0, 4, 10, 14, 21] },
+  { name: '7ALT', iv: [0, 4, 10, 15, 20] },
+  { name: 'MIN11', iv: [0, 3, 7, 10, 14, 17] },
+  { name: 'QUARTAL', iv: [0, 5, 10, 15, 19] },
+  { name: 'MAJ6/9', iv: [0, 4, 9, 14] },
+  { name: 'MIN6/9', iv: [0, 3, 9, 14] },
+  { name: 'HALF-DIM', iv: [0, 3, 6, 10] },
 ];
 
 export const DELAY_TIMES = [
@@ -175,6 +183,7 @@ export const MASTER_PARAMS = [
   p('dlyFb', 'REPEATS', 0, 0.92, 0.45),
   p('dlyLevel', 'ECHO', 0, 1, 0.65),
   p('humanize', 'HUMANIZE', 0, 1, 0),
+  p('swing8', '8TH SWING', 0, 1, 0),
   p('warmth', 'WARMTH', 0, 1, 0),
   p('room', 'ROOM', 0, 1, 0),
   p('kit', 'KIT', 0, KIT_BACKBEAT, 0, { step: 1, list: ['MACHINE', 'LIVE', 'HYBRID', 'BACKBEAT'] }),

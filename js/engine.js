@@ -4,7 +4,7 @@ import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
 import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND, HOOK_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
-import { pocketOf, pocketLate, pocketVel } from './groove.js';
+import { pocketOf, pocketLate, pocketVel, swingLate, swingDuration } from './groove.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ, TECHNO_HOOK_SPACE } from './lead.js';
 import { lowEnd } from './lowend.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
@@ -41,6 +41,10 @@ const HARP_PLUCK = {
 };
 // Wind takes: cents from the file's pitch, lead-in seconds to skip, gain trim in dB.
 const WIND_HOOK = {
+  tpt: {
+    gain: 0.4, presence: [2700, 0.8, -2],
+    takes: Object.fromEntries([57, 60, 63, 67, 70, 74, 77, 81].map((m) => [m, [0, 0, 0]])),
+  },
   oboe: {
     gain: 1.23, presence: [2700, 0.8, 5.5],
     takes: { 58: [15, 0.048, 0], 62: [-4, 0.01, 0], 65: [-3, 0.01, 0], 70: [-3, 0.02, -2.3], 74: [1, 0, 1], 77: [3, 0.03, 0], 82: [6, 0, -1.5] },
@@ -138,7 +142,7 @@ export function guitarGrip(root, iv, prev = null) {
   let bass = root;
   while (bass > 51) bass -= 12;
   while (bass < 40) bass += 12;
-  const pcs = [...new Set(iv.slice(1).map((n) => ((n % 12) + 12) % 12))].filter((pc) => pc !== 0 && !(iv.length > 4 && pc === 7));
+  let pcs = [...new Set(iv.slice(1).map((n) => ((n % 12) + 12) % 12))].filter((pc) => pc !== 0 && !(iv.length > 4 && pc === 7));
   let best = null, bestCost = Infinity;
   const pick = (k, chosen) => {
     if (k === pcs.length) {
@@ -155,6 +159,18 @@ export function guitarGrip(root, iv, prev = null) {
     for (let m = bass + pcs[k]; m <= bass + 26; m += 12) if (m >= bass + 5) pick(k + 1, [...chosen, m]);
   };
   pick(0, []);
+  if (!best && CHORDS.slice(13).some((c) => c.iv.length === iv.length && c.iv.every((n, i) => n === iv[i]))) {
+    // A guitar leaves out extensions that cannot fit the hand, retaining third and seventh.
+    const all = pcs, third = all.includes(4) ? 4 : 3;
+    const core = all.filter((pc) => [third, 10, 11].includes(pc));
+    for (let count = all.length - 1; count >= core.length && !best; count--) {
+      for (let mask = 1; mask < 2 ** all.length; mask++) {
+        pcs = all.filter((_, i) => mask & (1 << i));
+        if (pcs.length === count && core.every((pc) => pcs.includes(pc))) pick(0, []);
+      }
+    }
+    pcs = all;
+  }
   // No shape satisfies every rule (a cluster chord): stack the tones a third or more apart instead.
   if (!best) { best = [bass]; let floor = bass + 7; for (const pc of [...pcs].sort((x, y) => x - y)) { let m = bass + pc; while (m < floor) m += 12; best.push(m); floor = m + 3; } best.sort((x, y) => x - y); }
   return best;
@@ -2415,7 +2431,7 @@ export class Engine {
   }
 
   // The step's own offset from the grid (swing and the pocket's push), so notes between hits sit like the hits.
-  stepLate(pk, s) { return (s % 2 ? (this.state.swing || 0) * this.stepDur * 0.5 : 0) + pocketLate(pk, 'stab', s % 16); }
+  stepLate(pk, s) { return swingLate(this.state, s, this.stepDur) + pocketLate(pk, 'stab', s % 16); }
 
   // Fingerstyle between chord hits. Guitar: Travis picking, the thumb alternating bass strings on the beats
   // (pinched with the top string on 1 and 3) and the fingers on the top strings on the offbeat 8ths.
@@ -2613,7 +2629,7 @@ export class Engine {
     const p = this.state.params.acid, m = this.bassMidi(st);
     let len = st.ap ? sd * 0.9 : holdNext ? sd * 2 : sd * (0.9 + p.decay * 2);
     // A band's bassist holds each note into the next one (up to two beats) instead of stopping short.
-    if (this.stripMode && this.acidGap && !st.ap) len = Math.max(len, Math.min(8, this.acidGap) * sd - 0.025);
+    if (this.stripMode && this.acidGap && !st.ap) len = Math.max(len, (this.acidGapSeconds ?? Math.min(8, this.acidGap) * sd) - 0.025);
     this.acidGap = 0;
     let [c, buf] = set[0];
     for (const [cm, b] of set) if (Math.abs(cm - m) < Math.abs(c - m)) [c, buf] = [cm, b];
@@ -2876,7 +2892,7 @@ export class Engine {
 
   windHook(set, t, v, m, dur, voice, strong, { harm, take = 0 }) {
     const { gain, presence, takes, second } = WIND_HOOK[voice];
-    const alt = this.rec(TAKES[HOOK_BAND[voice]]);
+    const alt = TAKES[HOOK_BAND[voice]] && this.rec(TAKES[HOOK_BAND[voice]]);
     // The longer primary take can sustain through holds after transposition.
     const useAlt = alt && (take + (harm ? 1 : 0)) % 2 && dur <= 0.85;
     const [pitch, buf] = (useAlt ? alt : set).reduce((best, note) => Math.abs(note[0] - m) < Math.abs(best[0] - m) ? note : best);
@@ -2889,9 +2905,9 @@ export class Engine {
     return this.playBuf(buf, t, gain * touch * dbGain(trim + (air - 0.5) * 1.2), eq,
       2 ** ((m - pitch - cents / 100) / 12), Math.max(0.06, dur * 0.92), {
         lp: 3850 + 2100 * touch + 650 * (air - 0.5), offset: offset + tongue * 0.012,
-        fade: (strong ? 0.007 : 0.012) + 0.009 * (1 - tongue),
+        fade: (voice === 'tpt' ? 0.025 : strong ? 0.007 : 0.012) + 0.009 * (1 - tongue),
         attackGain: (strong ? 1.04 : 0.9) + (tongue - 0.5) * 0.24,
-        release: 0.055, ringOut: true,
+        release: 0.055, ringOut: true, ...(voice === 'tpt' ? { vib: 6 } : {}),
       });
   }
 
@@ -4380,7 +4396,7 @@ export class Sequencer {
     e.stabPat = pat.steps.stab; e.stabLen = pat.len.stab || 16;
     e.wide = pat.sec === 'chorus';
     const sd = e.stepDur;
-    const tt = t + (abs % 2 ? s.swing * sd * 0.5 : 0);
+    const tt = t + swingLate(s, abs, sd);
     const kl = this.keyLift = s.ending && pat.lift && lf > 0 && (pos >= lf || (pos === lf - 1 && abs % 16 >= 12)) ? pat.lift : 0;
     if (s.ending && n >= 16 && pos === n - 1 && !pat.score) return this.ending(pat, abs % 16, tt, sd, kl);
     // Turnaround: the last beat of a section anticipates the next section's first chord.
@@ -4489,7 +4505,7 @@ export class Sequencer {
           const bassLean = feel * (i % 4 ? 0.032 : 0.009);
           let slideUntil;
           if ((s.params.acid.voice === 7 || s.params.acid.voice === 8) && pat.steps.acid[i].s) {
-            const nextSwing = abs % 2 ? 0 : s.swing * sd * 0.5;
+            const nextSwing = swingLate(s, abs + 1, sd);
             const nextLean = feel * (((i + 1) % len) % 4 ? 0.032 : 0.009);
             // Leave time for the next hit to cancel this fallback release.
             slideUntil = t + sd + nextSwing + nextLean + pocketLate(pk, 'acid', (i16 + 1) % 16) + 0.001;
@@ -4560,9 +4576,10 @@ export class Sequencer {
         const strong = !hk.h && (hi % 4 === 0 || st[1] >= 2), ht = tt + lean + (s.master.humanize || 0) * 0.008;
         const expression = Object.hasOwn(WIND_HOOK, hk.v)
           ? { ...x, take: windTake(hk.s, hi, 0, Math.floor(abs / 32)) } : x;
-        e.hook(ht, Math.min(1, st[2] * phraseVel), st[0] + lift, st[1] * sd, hk.v, hk.o, strong, b, !hk.h && resolve, expression);
+        const duration = swingDuration(s, abs, st[1], sd);
+        e.hook(ht, Math.min(1, st[2] * phraseVel), st[0] + lift, duration, hk.v, hk.o, strong, b, !hk.h && resolve, expression);
         // At the peak a second player doubles the answer's held notes a third below.
-        if (this.cur === 6 && answer && hm > 1 && st[1] >= 3 && !hk.h && this.songBars) e.hook(ht + 0.004, Math.min(1, st[2] * phraseVel) * 0.55, stepDeg(st[0], -2, scale) + lift, st[1] * sd, hk.v, hk.o, strong, b, false, { ...expression, harm: 1 });
+        if (this.cur === 6 && answer && hm > 1 && st[1] >= 3 && !hk.h && this.songBars) e.hook(ht + 0.004, Math.min(1, st[2] * phraseVel) * 0.55, stepDeg(st[0], -2, scale) + lift, duration, hk.v, hk.o, strong, b, false, { ...expression, harm: 1 });
       }
     }
     if (this.roll === null) this.rollCount = 0;
@@ -4738,8 +4755,9 @@ export class Sequencer {
       const ht = t + (hash(start, 97) - 0.5) * 0.008 * x.feel + (s.master.humanize || 0) * 0.008;
       const b = 0.58 + 0.42 * ((((bar % 8) + 8) % 8) / 7), v = Math.min(1, vel * sec) * (SUNG_VOICE[hk.v] ?? 1);
       const expression = o.take == null ? x : { ...x, take: o.take };
-      e.hook(ht, v, semi + lift, dur * sd, hk.v, hk.o, strong, b, false, expression);
-      if (this.cur === 6 && o.q === 'n' && ph % 2 === 1 && dur >= 6 && this.songBars) e.hook(ht + 0.004, v * 0.55, stepDeg(semi, -2, scale) + lift, dur * sd, hk.v, hk.o, strong, b, false, { ...expression, harm: 1 });
+      const duration = swingDuration(s, bar * 16 + i16, dur, sd);
+      e.hook(ht, v, semi + lift, duration, hk.v, hk.o, strong, b, false, expression);
+      if (this.cur === 6 && o.q === 'n' && ph % 2 === 1 && dur >= 6 && this.songBars) e.hook(ht + 0.004, v * 0.55, stepDeg(semi, -2, scale) + lift, duration, hk.v, hk.o, strong, b, false, { ...expression, harm: 1 });
     }
   }
 
@@ -4837,11 +4855,14 @@ export class Sequencer {
     let gap = 1;
     while (gap < len && !steps[(i + gap) % len].on) gap++;
     this.e.acidGap = gap;
+    const span = st.s && next.on ? 2 : 1;
+    if (this.s.master.swing8) this.e.acidGapSeconds = swingDuration(this.s, this.e.step, Math.min(8, gap), sd);
     const vel = this.e.noteVel;
     this.e.noteVel = (vel ?? 1) * (st.v ?? 1);
-    this.e.acid(t, st, this.acidPrevSlide, st.s && next.on, sd, slideUntil, kickAt);
+    this.e.acid(t, st, this.acidPrevSlide, st.s && next.on, swingDuration(this.s, this.e.step, span, sd) / span, slideUntil, kickAt);
     this.e.noteVel = vel;
     this.e.acidGap = 0;
+    this.e.acidGapSeconds = undefined;
     this.acidPrevSlide = !!st.s;
   }
 }

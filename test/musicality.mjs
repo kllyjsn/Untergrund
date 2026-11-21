@@ -1,10 +1,76 @@
 import assert from 'node:assert/strict';
 import { generate, arrangement, applySongPlan, sanitize, defaultState, freshSong, STYLES, MAJOR_STYLES, MUSICIAN_PRINCIPLES } from '../js/state.js';
-import { SCALES, KIT_BACKBEAT } from '../js/params.js';
+import { SCALES, KIT_BACKBEAT, CHORDS, TRACK_BY_ID } from '../js/params.js';
+import { swingLate, swingDuration } from '../js/groove.js';
+import { chordIv, hookSnap, voiceLead } from '../js/harmony.js';
 import { Engine, Sequencer } from '../js/engine.js';
 import { capture, Recorder } from '../js/midi.js';
 import { patternAt } from '../js/scope.js';
 import { STAB_BAND } from '../js/livekit.js';
+
+{
+  const close = (a, b) => assert(Math.abs(a - b) < 1e-12, `${a} != ${b}`);
+  const s = defaultState(), sd = 0.25;
+  assert.equal(s.master.swing8, 0);
+  for (let i = 0; i < 32; i++) {
+    assert.equal(swingLate(s, i, sd), i % 2 ? s.swing * sd * 0.5 : 0);
+    assert.equal(swingDuration(s, i, 2, sd), 2 * sd, 'legacy gates are unchanged');
+  }
+  s.swing = 0.6; s.master.swing8 = 1;
+  const beats = [0, 1 / 3, 2 / 3, 5 / 6, 1];
+  for (let i = 0; i <= 4; i++) {
+    close(i * sd + swingLate(s, i, sd), beats[i]);
+    if (i < 4) close(swingDuration(s, i, 1, sd), beats[i + 1] - beats[i]);
+  }
+  close(Engine.prototype.stepLate.call({ state: s, stepDur: sd }, null, 2), 1 / 6);
+  s.master.swing8 = 0.7;
+  close(swingLate(s, 2, sd), 0.7 / 6);
+  for (let i = 0; i < 16; i++) assert(swingDuration(s, i, 1, sd) > 0);
+  for (const [input, expected] of [[undefined, 0], [NaN, 0], [Infinity, 0], [-1, 0], [2, 1], [0.7, 0.7]]) {
+    s.master.swing8 = input;
+    assert.equal(sanitize(s).master.swing8, expected);
+  }
+  s.master.swing8 = 1; s.swing = 0; s.bpm = 60;
+  s.master.pocket = 0; s.master.humanize = 0; s.master.vary = 0;
+  const pat = s.patterns[0];
+  pat.steps.kick = Array(16).fill(0); pat.steps.kick[2] = 2;
+  const rec = new Recorder(s), seq = new Sequencer(rec, s);
+  const hooks = [];
+  pat.hook = { v: 'tpt', o: 0, s: Array(32).fill(0), x: { feel: 0, risk: 0, space: 0 } };
+  pat.hook.s[2] = [0, 2, 0.6]; pat.hm = 2;
+  rec.hook = (...args) => hooks.push(args);
+  for (let i = 0; i < 4; i++) seq.tick(i, i * sd);
+  close(rec.notes.kick[0].t, 2 / 3);
+  close(hooks[0][0], 2 / 3);
+  close(hooks[0][3], 1 / 3);
+  console.log(`swing8 offline scheduler: step 2 = ${rec.notes.kick[0].t.toFixed(12)} s; beat = 1.000000000000 s; ratio = ${(rec.notes.kick[0].t / 1).toFixed(12)}`);
+}
+
+{
+  assert.deepEqual(CHORDS.slice(0, 13).map((c) => c.name), ['MIN', 'MIN7', 'MIN9', 'DUB', 'SUS2', 'SUS4', '5TH', 'MAJ7', 'DIM', 'MAJ9', 'ADD9', 'MAJ', 'DOM7']);
+  assert.equal(TRACK_BY_ID.stab.params.find((q) => q.id === 'chord').max, CHORDS.length - 1);
+  assert.deepEqual(voiceLead([], null, 36), []);
+  let prev = null;
+  for (let c = 13; c < CHORDS.length; c++) {
+    const s = defaultState(), iv = CHORDS[c].iv;
+    s.params.stab.chord = c; s.patterns[0].prog = [{ r: 0, c }];
+    const saved = sanitize(JSON.parse(JSON.stringify(s)));
+    assert.equal(saved.params.stab.chord, c); assert.equal(saved.patterns[0].prog[0].c, c);
+    assert.deepEqual(chordIv({ c }, s.params.stab), iv);
+    const snapped = hookSnap(1, { r: 0, c }, s.params.stab, true, false);
+    assert(iv.some((n) => n % 12 === ((snapped % 12) + 12) % 12));
+    const voiced = voiceLead(iv.map((n) => n + 36), prev, 36);
+    assert(voiced[0] >= 48 && voiced.at(-1) <= 84, 'extended harmony stays above C3');
+    assert.deepEqual(voiced.map((n) => n - voiced[0]), iv, 'extensions and quartal stacking stay intact');
+    prev = voiced;
+  }
+  const s = defaultState(); s.params.stab.chord = 999; s.patterns[0].prog = [{ c: 999, r: 0 }];
+  assert.equal(sanitize(s).params.stab.chord, CHORDS.length - 1);
+  assert.equal(sanitize(s).patterns[0].prog[0].c, CHORDS.length - 1);
+  s.patterns[0].hook = { v: 'tpt', s: Array(32).fill(0) };
+  assert.equal(sanitize(s).patterns[0].hook.v, 'tpt');
+  console.log('extended jazz chords: stable legacy indices, UI bounds, save/load, snapping and clear-register stacks passed');
+}
 
 {
   const s = freshSong('neosoul', 42);

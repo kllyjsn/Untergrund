@@ -624,4 +624,28 @@ for (const style of ['reggaeton', 'afrobeats', 'jerseyclub', 'trap', 'drill', 'm
   assert.equal(fallback, 1, 'unavailable electric recording retains the audible synth fallback');
 }
 console.log('bass colors: all ensembles, attack/slide playback, finite PCM, matched-note identities and protected/missing-style bypass passed');
+for (const [voice, chord, set] of [['tpt', 1, 'tpt'], ['airflute', 1, 'fl'], ['vocal', 7, 'piano']]) {
+  await loadBand(set);
+  const s = defaultState(); s.key = 0; s.params.stab.voice = chord;
+  const ctx = new OfflineAudioContext(1, Math.ceil(SR * 1.2), SR), e = new Engine(ctx, s, { realtime: false });
+  const calls = [], play = e.playBuf;
+  e.playBuf = function (...args) { calls.push(args); return play.apply(this, args); };
+  e.hook(0.05, 0.65, 7, 0.55, voice);
+  assert(calls.length > 0, `${voice} uses recorded lead playback`);
+  const rendered = await ctx.startRendering(), pcm = rendered.getChannelData(0);
+  let peak = 0;
+  for (const sample of pcm) { assert(Number.isFinite(sample)); peak = Math.max(peak, Math.abs(sample)); }
+  assert(peak > 0.001 && peak < 1, `${voice} lead is audible and level-safe (${peak})`);
+  if (voice === 'tpt') {
+    assert(calls[0][6].fade >= 0.025 && calls[0][6].ringOut);
+    assert.equal(calls[0][6].vib, 6);
+    const missing = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false });
+    missing.rec = () => null;
+    let fallback = 0;
+    missing.leadTone = () => { fallback++; return missing.ch.stab.input; };
+    missing.hook(0.05, 0.65, 7, 0.3, 'tpt');
+    assert.equal(fallback, 1, 'missing trumpet falls back to the synth reed');
+  }
+}
+console.log('recorded jazz leads: trumpet, airflute and piano finite/audible/level-safe; trumpet envelope and missing-sample fallback passed');
 console.log('sound ok');

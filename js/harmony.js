@@ -27,6 +27,19 @@ export function hookSnap(n, h, p, strong, up) {
 // the previous chord (common tones hold), kept within a fifth of the home register so the hands don't drift.
 export function voiceLead(notes, prev, home) {
   if (notes.length < 2) return notes;
+  const extended = CHORDS.slice(13).some(({ iv }) => iv.length === notes.length && iv.every((n, i) => notes[i] - notes[0] === n));
+  if (extended) {
+    // Keep extended stacks intact above C3; move the whole hand, not individual extensions.
+    const center = prev?.length ? prev.reduce((a, n) => a + n, 0) / prev.length : Math.max(48, home) + (notes.at(-1) - notes[0]) / 2;
+    let best, cost = Infinity;
+    for (let octave = -4; octave <= 4; octave++) {
+      const shifted = notes.map((n) => n + octave * 12);
+      if (shifted[0] < 48 || shifted.at(-1) > Math.max(84, home + 26)) continue;
+      const distance = Math.abs(shifted.reduce((a, n) => a + n, 0) / shifted.length - center);
+      if (distance < cost) { best = shifted; cost = distance; }
+    }
+    return best || notes.map((n) => n + Math.max(0, Math.ceil((48 - notes[0]) / 12)) * 12);
+  }
   const lo = home - 5, hi = home + 26, base = notes[0];
   const opts = notes.map((m) => { const o = []; for (let x = m - 24; x <= m + 24; x += 12) if (x >= lo && x <= hi) o.push(x); return o.length ? o : [m]; });
   const center = notes.reduce((a, m) => a + m, 0) / notes.length - base + home;

@@ -69,7 +69,7 @@ export const MUTE_LAYER = { gtr: 'gtrmute' };
 const EXTRA_TAKES = Object.fromEntries([...Object.entries(TAKES), ...Object.entries(MUTE_LAYER)].map(([k, alt]) => [alt, BAND[k] || BAND.gtr]));
 // STAB voice index -> recorded instrument.
 export const STAB_BAND = { 7: 'piano', 8: 'gtr', 9: 'horn', 10: 'str', 11: 'gtr', 12: 'agtr', 13: 'jazz', 14: 'banjo', 15: 'gretsch', 16: 'cello', 17: 'cl' };
-export const HOOK_BAND = { harpplk: 'harp', oboe: 'ob', airflute: 'fl' };
+export const HOOK_BAND = { harpplk: 'harp', oboe: 'ob', airflute: 'fl', tpt: 'tpt' };
 Object.assign(BAND, EXTRA_TAKES);
 export const BAND_FILES = Object.entries(BAND).flatMap(([k, ns]) => ns.map((n) => `${k}_${n}`));
 // Crash and toms of the same recorded kit, loaded only by the band pockets that play them (POP, R&B, ROCK, FOLK, COUNTRY).

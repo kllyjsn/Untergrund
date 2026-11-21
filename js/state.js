@@ -155,7 +155,7 @@ const HOOK_STYLE = {
 };
 // 'chop' sings the hook with the user's own recorded voice (js/voice.js); a song without one plays 'vocal'.
 const TECHNO_HOOK = { hypnotic: 'softresonator', industrial: 'metalstrike', acid: 'acidlead', peak: 'ravestack', electro: 'robotformant' };
-export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell', 'chop', 'softmallet', 'harpplk', 'oboe', 'airflute', ...Object.values(TECHNO_HOOK)];
+export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell', 'chop', 'softmallet', 'harpplk', 'oboe', 'airflute', 'tpt', ...Object.values(TECHNO_HOOK)];
 
 // Every genre has several plausible ensembles. The seed chooses a player,
 // register and articulation while the genre keeps its drum, harmony and room identity.
@@ -749,7 +749,7 @@ function generatePattern(style, seed, scaleName, starter) {
   if (style === 'breaks') master.kit = 1;
   if (style === 'dnb') master.kit = 3;
   const dm = defaultMaster();
-  for (const k of Object.keys(dm)) if (k !== 'volume' && k !== 'dj') master[k] ??= dm[k];
+  for (const k of Object.keys(dm)) if (k !== 'volume' && k !== 'dj' && k !== 'swing8') master[k] ??= dm[k];
   // Each scene has its own room. Urban and club-pop records are dry and in your face; only the
   // ambient, dub and trance worlds get the big shared reverb.
   const ROOM = {
@@ -920,7 +920,7 @@ function generateClassical(style, seed, scaleName, r, P, params, master, bpm) {
   Object.assign(params.stab, { voice: 7, octave: 0 });
   Object.assign(master, { arr: 0, vary: 0, dust: 0, kit: 0, revLevel: 0.62, humanize: 0.45 });
   const dm = defaultMaster();
-  for (const k of Object.keys(dm)) if (k !== 'volume' && k !== 'dj') master[k] ??= dm[k];
+  for (const k of Object.keys(dm)) if (k !== 'volume' && k !== 'dj' && k !== 'swing8') master[k] ??= dm[k];
   const key = pick(r, mode === 'M' ? [0, 2, 3, 5, 7, 10] : [0, 2, 4, 7, 9]);
   return { pattern: P, params, master, bpm, key, swing: 0 };
 }
@@ -932,7 +932,7 @@ function generateRepertoire(r, P, params, master) {
   Object.assign(params.stab, { voice: 7, octave: 0 });
   Object.assign(master, { arr: 0, vary: 0, dust: 0, kit: 0, revLevel: 0.6, humanize: 0.3 });
   const dm = defaultMaster();
-  for (const k of Object.keys(dm)) if (k !== 'volume' && k !== 'dj') master[k] ??= dm[k];
+  for (const k of Object.keys(dm)) if (k !== 'volume' && k !== 'dj' && k !== 'swing8') master[k] ??= dm[k];
   return { pattern: P, params, master, bpm: piece.bpm, key: 0, swing: 0 };
 }
 

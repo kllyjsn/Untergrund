@@ -85,6 +85,22 @@ export const STYLE_POCKET = {
 
 export const pocketOf = (master) => POCKETS[Math.round(master?.pocket || 0)] || null;
 
+// Eighth swing stretches the first half-beat and compresses the second; inner sixteenths
+// bisect each half. Blend out legacy sixteenth swing so full triplets stay ordered.
+export function swingLate(state, step, sd) {
+  const legacy = step % 2 ? (state.swing || 0) * sd * 0.5 : 0;
+  const amount = state.master?.swing8 || 0;
+  if (!amount) return legacy;
+  const phase = ((step % 4) + 4) % 4;
+  const eighth = (phase <= 2 ? phase : 4 - phase) * sd / 3;
+  return legacy * (1 - amount) + eighth * amount;
+}
+
+export function swingDuration(state, step, steps, sd) {
+  const duration = steps * sd;
+  return state.master?.swing8 ? duration + swingLate(state, step + steps, sd) - swingLate(state, step, sd) : duration;
+}
+
 // Timing offset in seconds for one hit of `id` on 16th `i16`.
 export function pocketLate(pk, id, i16) {
   const a = pk?.at?.[id];

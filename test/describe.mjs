@@ -5,6 +5,7 @@ import { parse, applyEdits, describe, validateEdits, interpret, genreOf, suggest
 import { patternAt, changedBars } from '../js/scope.js';
 import { defaultState, generate, sanitize, clone, applyOverrides, arrangement, songChain, STYLES, songKind } from '../js/state.js';
 import { toSections, sectionNames } from '../js/timeline.js';
+import { CHORDS } from '../js/params.js';
 
 let fails = 0;
 const t = (name, fn) => { try { fn(); } catch (e) { fails++; console.error('FAIL', name, '\n ', e.message); } };
@@ -245,6 +246,17 @@ t('major remap keeps hook notes in the new scale', () => {
   const r = applyEdits(s, [{ id: 'scale', value: 'major' }]);
   const pcs = [0, 2, 4, 5, 7, 9, 11];
   for (const p of r.state.patterns) for (const st of p.acid || []) if (st?.on) assert.ok(pcs.includes(((st.note % 12) + 12) % 12), `note ${st.note}`);
+});
+for (let c = 13; c < CHORDS.length; c++) t(`${CHORDS[c].name} survives describe harmony and scale edits`, () => {
+  const s = defaultState();
+  s.params.stab.chord = c;
+  for (const p of s.patterns) { p.prog = [{ r: 0, c }]; p.alt = [{ r: 5, c }]; }
+  const { state } = applyEdits(s, [{ id: 'harmony', amt: 1 }, { id: 'scale', value: 'major' }]);
+  assert.equal(state.params.stab.chord, c);
+  for (const p of state.patterns) {
+    assert.equal(p.prog[0].c, c);
+    assert.equal(p.alt[0].c, c);
+  }
 });
 t('genre switch goes through regenerate', () => {
   const s = songFor('hypnotic');
