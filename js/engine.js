@@ -127,6 +127,7 @@ const LIVE_REF = {
   ride: { tune: 1, decay: 1.4, tone: 3800 },
   acid: { cutoff: 320, drive: 0.3 },
 };
+const BOOMBAP_KICK_RATE = 2 ** (-19.6 / 1200);
 const BACKBEAT_TOUCH = [0.42, 0.03, -0.42, -0.03];
 const BACKBEAT_TAKE_TRIM = { 23: -1.15, 24: 0.2, 33: 0.25, 34: 0.3 };
 const BACKBEAT_ATTACK_TRIM = [0, -0.25, 0.45, -0.05];
@@ -1517,7 +1518,8 @@ export class Engine {
   // The recorded kit follows the same TUNE/DECAY/TONE knobs as the synth kit; the live-kit preset is neutral.
   liveFx(id, buf, touch) {
     const p = this.state.params[id], ref = LIVE_REF[id], clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-    const rate = clamp(ref.tune ? p.tune / ref.tune : 1, 0.6, 1.7);
+    const center = id === 'kick' && this.playbackStyle === 'boombap' ? BOOMBAP_KICK_RATE : 1;
+    const rate = clamp(ref.tune ? p.tune / ref.tune : 1, 0.6, 1.7) * center;
     const full = buf.duration / rate;
     const dur = p.decay < ref.decay ? Math.max(0.03, full * (p.decay / ref.decay)) : 0;
     const shelves = [];
@@ -3459,8 +3461,10 @@ export class Engine {
   phonkBell(t, v, f, dur, strong) {
     const len = Math.min(0.19, dur * 1.1), end = t + len + 0.2;
     const amp = this.gain(0), tone = this.filter('lowpass', Math.min(3200, 1450 + 2 * f), 0.55);
+    const ring = this.filter('peaking', 3100, 4);
+    ring.gain.value = -2;
     const air = this.phonkAir(2);
-    tone.connect(air).connect(amp).connect(this.phonkMusicIn(this.hookBus || this.ch.stab.input));
+    tone.connect(ring).connect(air).connect(amp).connect(this.phonkMusicIn(this.hookBus || this.ch.stab.input));
     const strike = v * (strong ? 0.33 : 0.27);
     amp.gain.setValueAtTime(0, t);
     amp.gain.linearRampToValueAtTime(strike, t + 0.003);
@@ -3476,7 +3480,7 @@ export class Engine {
       osc.stop(end);
       return osc;
     });
-    this.retire(sources.at(-1), tone, air, amp);
+    this.retire(sources.at(-1), tone, ring, air, amp);
   }
 
   // Song hook: one lead note per call, snapped to the current chord on strong beats so it follows the changes.

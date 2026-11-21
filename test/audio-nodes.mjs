@@ -77,6 +77,33 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
   e.sampledBass(kit, 0.1, 34, 0.2, false);
   console.log('Boom Bap take tuning and Neo Soul pre-clip trim passed');
 }
+
+{
+  const s = defaultState();
+  applyOverrides(s, generate('boombap', 42));
+  const e = new Engine(fakeCtx(), s, { realtime: false }), buf = new FakeBuffer({ length: 48000 });
+  const hits = [];
+  e.playBuf = (...args) => hits.push(args);
+  for (const style of ['boombap', 'neosoul', 'trap']) {
+    e.replay808Style = style;
+    e.liveHit({ kick_v3_1: buf }, 'kick_v3_1', 'kick', 0.05, 0.8, 1);
+  }
+  assert(Math.abs(1200 * Math.log2(hits[0][4] / hits[1][4]) + 19.6) < 1e-9);
+  assert.equal(hits[1][4], hits[2][4]);
+  assert(hits.every((args) => args[1] === 0.05));
+
+  const filters = [], filter = e.filter.bind(e);
+  e.filter = (...args) => {
+    const n = filter(...args);
+    filters.push([n, args]);
+    return n;
+  };
+  e.phonkBell(0.05, 0.8, 440, 0.12, true);
+  const [ring, settings] = filters.find(([, [type]]) => type === 'peaking');
+  assert.deepEqual(settings, ['peaking', 3100, 4]);
+  assert.equal(ring.gain.value, -2);
+  console.log('Boom Bap kick pitch correction and Phonk cowbell resonance cut passed');
+}
 {
   const s = defaultState(); s.artist = { style: 'trap' }; s.params.stab.voice = 7;
   const ctx = fakeCtx(), e = new Engine(ctx, s, { realtime: false }), connections = [];
