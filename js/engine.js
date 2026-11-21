@@ -30,7 +30,7 @@ const BASS_COLOR = {
   jerseyclub: { name: 'bounce', knock: 2.6, settle: 0.012, wave: 'sawtooth', ratio: 2, harmonic: 0.35, tail: 0.015, decay: 0.025, round: 'triangle', pick: 0.5, gain: 1.6, duckScale: 0.65, recoveryScale: 0.6 },
   phonk: { name: 'phonk', knock: 1.28, settle: 0.026, wave: 'sawtooth', ratio: 2, harmonic: 0.36, tail: 0.22, decay: 0.13, gain: 0.94 },
 };
-const LIQUID_CHORD = { wave: 'sawtooth', level: 0.3, attack: 0.065, release: 0.8, cutoff: 2600, spread: 14, fm: 0, width: 0.7, sideCutoff: 150, harmonics: 4200, upper: 0.35, eq: [[1130, 0.7, 3]] };
+const LIQUID_CHORD = { wave: 'sawtooth', level: 0.3, attack: 0.065, release: 0.8, cutoff: 2600, spread: 14, fm: 0, width: 0.7, sideCutoff: 150, harmonics: 4200, upper: 0.35, airBand: 4, eq: [[1130, 0.7, 3]] };
 const EUPHORIC_CHORD = { wave: 'sawtooth', level: 0.54, attack: 0.025, release: 0.85, cutoff: 2300, spread: 11, fm: 0 };
 const DEEP_CHORD = { wave: 'triangle', level: 1.35, attack: 0.007, release: 0.45, cutoff: 1700, spread: 2, fm: 0.65, width: 0.25, presence: 'keys', eq: [[320, 0.8, -5], [950, 0.8, 3]] };
 const GENRE_PALETTES = {
@@ -67,7 +67,7 @@ const GENRE_PALETTES = {
       1: { ...LIQUID_CHORD, wave: 'triangle', level: 0.35, attack: 0.006, release: 0.5, cutoff: 3200, fm: 0.7 },
       5: { ...LIQUID_CHORD, wave: 'triangle', level: 0.42, attack: 0.012, release: 0.32, cutoff: 3000, fm: 0.45 },
     },
-    hook: { wave: 'triangle', level: 0.44, attack: 0.018, release: 0.16, cutoff: 4500, spread: 8, fm: 0.5, width: 0.7, breath: 0.18, breathDecay: 0.06, transpose: 12, range: [72, 90], eq: [[1130, 0.7, 3]] },
+    hook: { wave: 'triangle', level: 0.44, attack: 0.018, release: 0.16, cutoff: 4500, spread: 8, fm: 0.5, width: 0.7, breath: 0.18, breathDecay: 0.06, transpose: 12, range: [72, 90], harmonics: 6500, airBand: 4, eq: [[1130, 0.7, 3]] },
     bass: { level: 1, sub: 0.9, body: 0.5, movement: 230, spread: 14, midCut: [325, 0.7, 3] },
   },
 };
@@ -2297,6 +2297,11 @@ export class Engine {
     lp.frequency.setValueAtTime(cutoff * (0.7 + 0.6 * v) * articulation, t);
     lp.frequency.setTargetAtTime(cutoff * 0.65, t + color.attack + 0.01, Math.max(0.04, release * 0.4));
     hp.connect(lp).connect(amp).connect(out);
+    if (color.airBand) {
+      const q = 20 * Math.log10(Math.SQRT1_2), band = this.filter('highpass', 1800, q), top = this.filter('lowpass', 6000, q);
+      const lift = this.gain(color.airBand * Math.max(0, Math.min(1, (3200 - cutoff * 0.65) / 1800)));
+      hp.connect(band).connect(top).connect(lift).connect(amp);
+    }
     amp.gain.setValueAtTime(0, t);
     amp.gain.linearRampToValueAtTime(v * color.level / Math.sqrt(iv.length), t + color.attack);
     amp.gain.setTargetAtTime(0, t + color.attack + hold, release);
