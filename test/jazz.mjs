@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { freshSong, generate, sanitize, applyOverrides } from '../js/state.js';
-import { jazzBass, jazzHarmony, jazzNotes, jazzVoicing, jazzNotches, JAZZ_PROGS, JAZZ_MIX } from '../js/jazz.js';
+import { jazzBass, jazzHarmony, jazzNotes, jazzVoicing, jazzNotches, jazzStyle, JAZZ_PROGS, JAZZ_MIX } from '../js/jazz.js';
 import { CHORDS } from '../js/params.js';
 import { Recorder } from '../js/midi.js';
 import { Engine, Sequencer, stabPitches } from '../js/engine.js';
@@ -12,6 +12,20 @@ import { writeMelody } from '../js/melody.js';
 import { rng } from '../js/dsp.js';
 
 const pc = (n) => ((n % 12) + 12) % 12;
+{
+  const s = freshSong('swing', 42), b = freshSong('bossa', 42);
+  s.patterns[6] = b.patterns[6]; s.current = 0; s.chain = 'G'; s.chainOn = true; s.ending = false;
+  assert.equal(jazzStyle(s), 'swing');
+  assert.equal(jazzStyle(s, s.patterns[6]), 'bossa');
+  assert.equal(jazzStyle(s, {}), null, 'a non-jazz playing slot does not inherit the artist genre');
+  const e = new Recorder(s), seq = new Sequencer(e, s), trims = [];
+  e.applyOutputTrim = (immediate, t) => trims.push(t);
+  seq.tick(0, 3);
+  assert.equal(e.playingPattern.jazz.style, 'bossa');
+  assert.equal(e.notes.snare[0].m, 37, 'MIDI uses the playing rim-click slot');
+  assert.equal(s.current, 0, 'playback leaves the Studio selection alone');
+  assert.deepEqual(trims, [3], 'mixed-chain trims use scheduled audio time');
+}
 for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
   const state = freshSong(style, 42); state.master.volume = 0.37; state.master.dj = -0.42;
   applyOverrides(state, generate(style, 11));

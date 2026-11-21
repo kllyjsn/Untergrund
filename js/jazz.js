@@ -9,7 +9,7 @@ export const JAZZ_MIX = {
   swing: { lead: 6, comp: -1.5, bass: -4, ride: 15.5, hat: 16, output: -2 },
   modal: { lead: 8, comp: -2, bass: -2, ride: 17.5, hat: 16, output: -2 },
 };
-export const jazzStyle = (s) => s.patterns?.[s.current || 0]?.jazz?.style || (isJazz(s.artist?.style) ? s.artist.style : null);
+export const jazzStyle = (s, pattern = s.patterns?.[s.current || 0]) => pattern ? (isJazz(pattern.jazz?.style) ? pattern.jazz.style : null) : (isJazz(s.artist?.style) ? s.artist.style : null);
 const RESONANCES = {
   tpt: { 57: [2645, 30, -7], 60: [2616, 30, -7], 63: [2795, 30, -7], 67: [2745, 30, -8], 70: [2795, 30, -9], 74: [2910, 30, -10], 77: [2790, 30, -12], 81: [2643, 30, -10] },
   fl: { 60: [2619, 30, -8], 64: [2630, 30, -10], 69: [2640, 30, -12], 72: [2620, 30, -8], 76: [2640, 30, -9], 81: [2650, 30, -8], 84: [3140, 30, -8] },

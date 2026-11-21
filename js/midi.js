@@ -4,6 +4,7 @@ import { Engine, Sequencer, parseChain, stabPitches, soundingPitch, STAB_VOICES,
 import { CHORDS, KEYS, SCALES } from './params.js';
 import { compose } from './classical.js';
 import { PIECE } from './repertoire.js';
+import { jazzStyle } from './jazz.js';
 
 export const PPQ = 480;
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
@@ -61,13 +62,13 @@ export class Recorder {
     if (id === 'stab') {
       // Dub and smooth styles export the engine's own voicing (voice leading, chorus doubling, lift and fold).
       // Other styles keep the plain chord their sung parts are written against.
-      const p = this.state.params.stab, { root, vo, iv, pedal } = stabPitches(this), bossa = this.state.patterns[this.state.current || 0]?.jazz?.style === 'bossa';
+      const p = this.state.params.stab, { root, vo, iv, pedal } = stabPitches(this), bossa = jazzStyle(this.state, this.playingPattern) === 'bossa';
       const len = bossa ? p.decay : pedal ? this.stepDur * 14.4 : Math.max(this.stepDur * 2, (p.decay || 0.3) * 1.5);
       if (paletteFor(this.state)) for (const n of iv) this.add('stab', t, paletteColor(this.state).piano ? soundingPitch('piano', root + n) : root + n, len, v);
       else if (this.state.artist?.style === 'dub') for (const n of iv) this.add('stab', t, this.dubRegister(iv, root) + n, len, v);
       else if (this.smoothOn || this.state.patterns.some((p) => p.jazz)) for (const m of new Set(iv.map((n) => soundingPitch(STAB_VOICES[vo], root + n)))) this.add('stab', t, m, len, v);
       else for (const n of this.chord()) this.add('stab', t, 48 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + n, len, v);
-    } else if (GM_DRUMS[id]) this.add(id, t, id === 'snare' && this.state.patterns[this.state.current || 0]?.jazz?.style === 'bossa' ? 37 : GM_DRUMS[id], this.stepDur, v);
+    } else if (GM_DRUMS[id]) this.add(id, t, id === 'snare' && jazzStyle(this.state, this.playingPattern) === 'bossa' ? 37 : GM_DRUMS[id], this.stepDur, v);
   }
   vox(t, v, step) {
     const p = this.state.params.vox, notes = SCALES[this.state.scale]?.notes || SCALES.minor.notes;
