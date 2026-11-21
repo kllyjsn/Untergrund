@@ -1158,6 +1158,19 @@ console.log('recorded jazz leads: trumpet, airflute and piano finite/audible/lev
   assert.equal(calls.length, 6, 'each explicit bass selection schedules only its chosen instrument');
 }
 for (const listener of ['trap', 'dnb', undefined]) {
+  const song = freshSong('minimal', 12); song.artist = { style: 'minimal', seed: 12 };
+  const expected = capture(song).notes, saved = structuredClone(song);
+  saved.artist.style = listener;
+  const before = structuredClone(saved), c = capture(saved, 16, { playbackStyle: 'minimal' });
+  assert.deepEqual(c.notes, expected, 'saved Minimal MIDI uses its playback genre for lifted chords and every voicing');
+  assert.deepEqual(saved, before, 'MIDI genre selection does not rewrite the listener project');
+  assert.equal(c.state.artist.style, 'minimal', 'the isolated export snapshot belongs to the song');
+  assert.deepEqual(capture(saved, 16, { playbackStyle: null }).notes, capture(saved).notes, 'missing replay metadata retains the existing fallback');
+  saved.master.arr = 0; saved.chainOn = false;
+  for (const id of Object.keys(saved.params)) saved.mutes[id] = true;
+  assert.deepEqual(capture(saved, 1, { playbackStyle: 'minimal' }).notes, {}, 'muted saved Minimal MIDI remains empty');
+}
+for (const listener of ['trap', 'dnb', undefined]) {
   const s = freshSong('minimal', 42); s.artist = { style: listener, seed: 4 };
   const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false }), calls = [];
   e.replay808Style = 'minimal'; e.replaySeed = 42;

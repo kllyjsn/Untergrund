@@ -117,8 +117,9 @@ Recorder.prototype.bassMidi = Engine.prototype.bassMidi;
 Recorder.prototype.dubRegister = Engine.prototype.dubRegister;
 
 // Plays the full arrangement (or score) into note lists, plus the timeline needed to place them in ticks.
-export function capture(state, loopBars = 16) {
+export function capture(state, loopBars = 16, { playbackStyle } = {}) {
   const s = JSON.parse(JSON.stringify(state));
+  if (playbackStyle != null) s.artist = { ...s.artist, style: playbackStyle };
   s.solos = {};
   const score = s.patterns.find((p) => p.score)?.score, sc = score ? compose(score) : null;
   const barLen = sc?.barLen || 16, bars = songBars(s, loopBars), steps = bars * barLen;
@@ -192,8 +193,8 @@ export function writeMidi({ title = 'UNTERGRUND', tempos, timeSig = [4, 4], key,
 }
 
 // The whole song (or score) as a .mid; also returns per-track note counts.
-export function songMidi(state, { loopBars = 16, title } = {}) {
-  const c = capture(state, loopBars), tick = ticker(c.at, c.dur), s = c.state;
+export function songMidi(state, { loopBars = 16, title, playbackStyle } = {}) {
+  const c = capture(state, loopBars, { playbackStyle }), tick = ticker(c.at, c.dur), s = c.state;
   const order = c.score ? Object.keys(PARTS) : [...Object.keys(GM_DRUMS), 'acid', 'stab', 'hook', 'vox', ...Object.keys(PARTS)];
   let chan = 0;
   const tracks = [];
