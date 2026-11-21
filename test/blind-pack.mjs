@@ -3,13 +3,44 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { baseSelection, detectStyles, hash, random, shuffle, main, seedOverrides, parseMergedPR, excerptWithFrom, checkBarWindow, selectStyles, edgeFadeFilter } from '../scripts/blind-pack.mjs';
+import { baseSelection, detectStyles, hash, random, shuffle, main, seedOverrides, parseMergedPR, excerptWithFrom, checkBarWindow, selectStyles, edgeFadeFilter, baselineOverrides, planPairs, pcmDifference } from '../scripts/blind-pack.mjs';
 
 assert.deepEqual(seedOverrides(), {});
 assert.deepEqual(seedOverrides('afrobeats:0,hyperpop:4294967295'), { afrobeats: 0, hyperpop: 4294967295 });
 for (const value of ['unknown:1', 'dnb:', 'dnb:1.5', 'dnb:-1', 'dnb:4294967296', 'dnb:NaN', 'dnb:1:2', 'dnb:1,dnb:2']) assert.throws(() => seedOverrides(value), /Invalid genre seed/);
 
 const input = ['minimal', 'drill', 'hardtechno', 'trap'];
+assert.deepEqual(baselineOverrides(), {});
+assert.deepEqual(baselineOverrides('swing:abcdef0,deephouse:1234567'), { swing: 'abcdef0', deephouse: '1234567' });
+for (const value of ['swing:', 'unknown:abcdef0', 'swing:main', 'swing:abcdef0,swing:1234567', 'swing:abcdef0:extra']) assert.throws(() => baselineOverrides(value), /Invalid baseline/);
+assert.deepEqual(selectStyles(['trap'], [], 2, ['swing', 'modal', 'bossa']), { selected: ['swing', 'modal'], dropped: ['bossa'] });
+assert.throws(() => selectStyles([], [], 1, []), /empty/);
+const planned = planPairs(['swing', 'deephouse'], 42, { swing: 7 }, 'base', 'head', { swing: 'intro' }, true);
+assert.deepEqual(planned, planPairs(['swing', 'deephouse'], 42, { swing: 7 }, 'base', 'head', { swing: 'intro' }, true));
+assert.equal(planned.length, 3);
+const control = planned.find((p) => p.kind === 'null');
+assert.equal(control.nullCommit, 'head');
+assert.deepEqual(control.commits, { original: 'head', revised: 'head' });
+assert(!planned.some((p) => p.kind !== 'null' && p.style === control.style));
+for (let seed = 0; seed < 100; seed++) {
+  const pairs = planPairs(['swing', 'deephouse'], seed, {}, 'base', 'head', {}, true, ['swing', 'modal', 'deephouse', 'phonk']);
+  assert(!pairs.some((p) => p.kind !== 'null' && p.style === pairs.find((p) => p.kind === 'null').style));
+}
+assert.equal(planPairs(['swing'], 42, { electrohiphop: 7 }, 'base', 'head', {}, true, ['electrohiphop']).find((p) => p.kind === 'null').renderSeed, 7);
+assert.throws(() => planPairs(['swing'], 42, {}, 'base', 'head', {}, true, []), /outside/);
+assert.throws(() => planPairs(['swing'], 42, {}, 'base', 'head', {}, true, ['swing']), /outside/);
+assert.throws(() => planPairs(['swing'], 42, {}, 'base', 'head', {}, true, ['unknown']), /Unknown null genre/);
+assert.equal(planned.find((p) => p.style === 'swing' && p.kind !== 'null').baselineCommit, 'intro');
+assert.equal(planned.find((p) => p.style === 'deephouse' && p.kind !== 'null').baselineCommit, 'base');
+assert.equal(planPairs(['swing'], 42, {}, 'base', 'head').length, 1);
+assert.throws(() => planPairs([], 42, {}, 'base', 'head'), /empty/);
+assert.equal(pcmDifference([1, 2], [1, 2]).different, false);
+assert.equal(pcmDifference([1, 2], [2, 4]).different, false);
+assert.equal(pcmDifference([1, 2], [1.0001, 2]).different, false);
+assert.equal(pcmDifference([1, 2], [2, 1]).different, true);
+assert.equal(pcmDifference([1], [1, 1]).different, true);
+for (const [a, b] of [[[], [1]], [[0], [0]], [[NaN], [1]], [[1], [Infinity]]]) assert.throws(() => pcmDifference(a, b));
+assert.throws(() => pcmDifference([1], [1], -1), /Invalid/);
 assert.deepEqual(selectStyles(['acid', 'pop', 'minimal'], ['pop', 'hypnotic'], 6), { selected: [...input, 'pop', 'hypnotic'], dropped: ['acid'] });
 assert.deepEqual(selectStyles([]), { selected: input, dropped: [] });
 assert.deepEqual(selectStyles(['acid'], [], 4), { selected: input, dropped: ['acid'] });
