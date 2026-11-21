@@ -1,9 +1,31 @@
 # Daily blind rating pack
 
+Use `--styles deephouse,phonk,bossa,jazzfunk,lofihiphop` for an exact list without
+forced core genres. `--baselines style:COMMIT,style:COMMIT` overrides the global
+base per style; both commits are recorded per pair. `--null-control` adds one
+seed-selected detected style outside the real pairs using the same head render
+twice, then shuffles it among
+the real pairs. Its identity and commit appear only in the private key.
+Use `--null-style electrohiphop` with `--null-control` to choose that unused
+style explicitly. The command fails if no unused null style is available.
+`--max-pairs` caps real styles, before adding this optional control.
+`--min-difference 0.001` rejects real pairs with gain-matched relative PCM RMS
+difference at or below that threshold, measured on raw same-window renders.
+Existing dated pack directories and keys are never overwritten.
+
 Use `--max-pairs 6` to retain the four core genres and cap additional styles.
 Styles supplied with `--genres pop,hypnotic` take priority over detected additions.
 The key records dropped styles. Every half receives 10 ms fade-in and fade-out
 before two-pass normalization and decoded-MP3 loudness verification.
+
+Daily packs take eight bars from head's first hook/drop/chorus section, not its
+densest window. Song forms expose chorus spans; club arrangements use G/H drops.
+Jazz HEAD patterns carry the chorus role, so their opening theme qualifies even
+when it starts at bar zero. The peak (densest-note) window is used only when no
+hook/drop/chorus exists. A first section shorter than eight bars fails clearly.
+Base is forced to head's exact start bar. Each pair's `excerpt` records the
+selection method, section role/label and full section bounds, or the peak fallback
+reason; `barWindow` and `windows` still record the shared excerpt bounds.
 
 Run `npm run blind-pack -- --date YYYY-MM-DD --key-dir /private/path/blind-packs`.
 Requires Node 22+, Chrome, ffmpeg (libmp3lame), zip, and access to origin. The script fetches
@@ -17,11 +39,12 @@ audio values can differ between runs. Reuse `--base` for a repeat after recordin
 
 Share only `test/out/blind-packs/<date>/blind-rating-pack-<date>.zip` (or its
 `blind-pilot` folder). The separate `<key-dir>/<date>.json` reveals the identities;
-never include it in the listener pack. Rerunning a date replaces that date's pack and key.
+never include it in the listener pack. Rerunning an existing date is refused.
 Levels in the key are measured using loudnorm JSON input_i on decoded MP3 halves, split at the known
 inserted silence boundaries (also recorded in the key). A difference over 0.1 LU fails
 the run. Style detection ignores diffs under test/, docs/, research/, and Markdown files.
-The README requests a whole-pair rating plus first/second/tie and why.
+The README requests a whole-pair rating plus first/second/tie and one short reason
+(one line) in Why for every pair. It does not disclose controls.
 Pure Chrome-free checks: `node test/blind-pack.mjs`.
 
 # Rendered-audio benchmark

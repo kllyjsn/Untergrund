@@ -107,11 +107,16 @@ const now = await withChrome(async (runs) => {
     while (next < ids.length) { const id = ids[next++]; out.styles[id] = await run(`window.__m.windowLoudness(${JSON.stringify(id)})`); }
     while (nextPiece < pieces.length) { const id = pieces[nextPiece++]; out.pieces[id] = await run(`window.__m.pieceWindow(${JSON.stringify(id)})`); }
     while (nextSong < SONG_STYLES.length) { const id = SONG_STYLES[nextSong++]; out.builder.push(await run(`window.__m.builderWindow(${JSON.stringify(id)})`)); }
+    if (run === runs[0]) out.rnbGuitar = await run(`window.__m.wholeSongLoudness('rnb', 166329)`);
   }));
   return out;
 }, { pages: 4 });
 if (!now) console.log('loudness: no Chrome found, genre check skipped');
 else {
+  assert.equal(now.rnbGuitar.voice, 13, 'R&B/166329 retains the recorded jazz-guitar ensemble');
+  close(now.rnbGuitar.lufs, targetFor('rnb'), 1.5, 'R&B/166329 whole-song loudness');
+  assert(now.rnbGuitar.tp <= LOUDNESS_TARGET.ceiling, `R&B/166329 true peak ${now.rnbGuitar.tp} dBTP`);
+  console.log(`R&B/166329 whole-song regression: ${now.rnbGuitar.lufs.toFixed(2)} LUFS, ${now.rnbGuitar.tp.toFixed(2)} dBTP`);
   const bad = [];
   for (const [id, w] of Object.entries(now.styles)) {
     const b = base.styles[id], reference = feedStyle(id) ? b.measurements?.find((r) => r.seed === 42)?.lufs ?? b.lufs : b.lufs;

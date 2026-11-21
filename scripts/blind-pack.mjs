@@ -78,6 +78,40 @@ export function checkBarWindow(actual, expected = actual) {
   if (!Array.isArray(actual) || actual.length !== 2 || !actual.every(Number.isInteger) || actual[0] < 0 || actual[1] - actual[0] !== 8 || actual.some((n, i) => n !== expected[i])) throw new Error(`Excerpt bar window mismatch: ${JSON.stringify(actual)} vs ${JSON.stringify(expected)}`);
   return [...actual];
 }
+export function selectExcerptWindow({ sections = null, chain = '', patterns = [], labels = {}, bars, peakBar }, windowBars = 8) {
+  if (!Number.isInteger(bars) || !Number.isInteger(windowBars) || windowBars < 1 || bars < windowBars) throw new Error('Invalid song length for excerpt');
+  const spans = [];
+  let at = 0;
+  if (sections) {
+    for (const [kind, length] of sections) {
+      if (!Number.isInteger(length) || length < 1) throw new Error('Invalid song section');
+      const role = kind === 'c' ? 'chorus' : kind;
+      spans.push({ role, label: role, from: at, to: at + length });
+      at += length;
+    }
+  } else {
+    for (const letter of chain) {
+      const index = 'ABCDEFGH'.indexOf(letter);
+      if (index < 0) throw new Error('Invalid song chain');
+      const role = patterns[index]?.sec || (index >= 6 ? 'drop' : '');
+      const label = labels[letter] || role || letter;
+      const last = spans.at(-1);
+      if (last && last.role === role && last.label === label) last.to++;
+      else spans.push({ role, label, from: at, to: at + 1 });
+      at++;
+    }
+  }
+  const section = spans.find(({ role, label }) => /^(hook|drop|chorus)$/i.test(role) || /^(hook|drop|chorus)$/i.test(label));
+  if (section) {
+    if (Math.min(section.to, bars) - section.from < windowBars) throw new Error('First hook/drop section is too short for excerpt');
+    return { barWindow: [section.from, section.from + windowBars], method: 'section', section };
+  }
+  if (!Number.isInteger(peakBar) || peakBar < 0 || peakBar + windowBars > bars) throw new Error('Invalid peak fallback window');
+  return { barWindow: [peakBar, peakBar + windowBars], method: 'peak', section: null, fallbackReason: 'no-hook-drop-section' };
+}
+export function ratingSheet(pairs) {
+  return '# Untergrund blind listening\n\nEach MP3 contains two versions of the same generated passage, separated by a short silence. The first/second order was randomized independently. The two excerpts in each pair are matched to within 0.1 LU.\n\nListen at the same playback volume. Rate each pair as a whole from **1 (poor) to 5 (excellent)**, then choose **first**, **second**, or **tie** for release. Judge whether the kick, bass and lead are easy to distinguish without losing the groove or character. If the difference does not matter to you, choose tie. For every pair, write one short reason (one line) in the Why column.\n\n| Pair | Pair rating (1–5) | First / second / tie | Why |\n| --- | --- | --- | --- |\n' + pairs.map((p) => `| ${p.pair} | | | |`).join('\n') + '\n\nThese are before/after mixes, not a competitive comparison. This pack does not contain the answer key or automated preferences.\n';
+}
 export function seedOverrides(text = '') {
   const out = {};
   for (const pair of text.split(',').filter(Boolean)) {
@@ -88,11 +122,57 @@ export function seedOverrides(text = '') {
   }
   return out;
 }
-export function selectStyles(detected, priority = [], maxPairs = Infinity) {
-  if (maxPairs !== Infinity && (!Number.isInteger(maxPairs) || maxPairs < 4)) throw new Error('max-pairs must be an integer of at least 4');
-  const candidates = [...new Set(['minimal', 'drill', 'hardtechno', 'trap', ...priority, ...detected])];
+export function selectStyles(detected, priority = [], maxPairs = Infinity, explicit = null) {
+  if (maxPairs !== Infinity && (!Number.isInteger(maxPairs) || maxPairs < (explicit ? 1 : 4))) throw new Error('Invalid max-pairs');
+  if (explicit && !explicit.length) throw new Error('Explicit styles must not be empty');
+  const candidates = [...new Set(explicit || ['minimal', 'drill', 'hardtechno', 'trap', ...priority, ...detected])];
   for (const style of candidates) if (!Object.hasOwn(STYLES, style)) throw new Error(`Unknown genre: ${style}`);
   return { selected: candidates.slice(0, maxPairs), dropped: candidates.slice(maxPairs) };
+}
+export function baselineOverrides(text = '') {
+  const out = {};
+  for (const entry of text.split(',').filter(Boolean)) {
+    const [style, commit, ...rest] = entry.split(':');
+    if (!Object.hasOwn(STYLES, style) || !/^[a-f0-9]{7,40}$/i.test(commit || '') || rest.length || Object.hasOwn(out, style)) throw new Error(`Invalid baseline: ${entry}`);
+    out[style] = commit;
+  }
+  return out;
+}
+export function planPairs(styles, seed, seeds, base, head, baselines = {}, nullControl = false, nullCandidates = Object.keys(STYLES)) {
+  if (!styles.length) throw new Error('Cannot plan an empty pack');
+  const rng = random(seed);
+  const entries = styles.map((style) => ({ style, kind: 'comparison', baselineCommit: baselines[style] || base }));
+  if (nullControl) {
+    const available = [...new Set(nullCandidates)].filter((style) => !styles.includes(style));
+    if (!available.length) throw new Error('Null control requires a style outside the real pairs');
+    for (const style of available) if (!Object.hasOwn(STYLES, style)) throw new Error(`Unknown null genre: ${style}`);
+    entries.push({ style: available[Math.floor(rng() * available.length)], kind: 'null', baselineCommit: head, nullCommit: head });
+  }
+  return shuffle(entries, rng).map((p, i) => {
+    const first = rng() < 0.5 ? 'original' : 'revised';
+    return { ...p, pair: String(i + 1).padStart(2, '0'), genre: STYLES[p.style].name, renderSeed: seeds[p.style] ?? (hash(`${seed}:${p.style}`) || 1), bars: 8, first, second: first === 'original' ? 'revised' : 'original', commits: { original: p.baselineCommit, revised: head } };
+  });
+}
+export function pcmDifference(original, revised, threshold = 0.001) {
+  if (!original.length || !revised.length || !Number.isFinite(threshold) || threshold < 0) throw new Error('Invalid PCM comparison');
+  let xx = 0, yy = 0, xy = 0, dd = 0;
+  for (let i = 0; i < Math.max(original.length, revised.length); i++) {
+    const x = original[i] ?? 0, y = revised[i] ?? 0;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('Invalid PCM sample');
+    xx += x * x; yy += y * y; xy += x * y; dd += (x - y) ** 2;
+  }
+  if (!xx || !yy) throw new Error('Silent PCM comparison');
+  const rawRelativeRMS = Math.sqrt(dd / yy), gainMatchedRelativeRMS = Math.sqrt(Math.max(0, yy - xy * xy / xx) / yy);
+  return { rawRelativeRMS, gainMatchedRelativeRMS, baselineGain: xy / xx, threshold, different: gainMatchedRelativeRMS > threshold };
+}
+function compareFiles(original, revised, threshold) {
+  const decode = (file) => {
+    const bytes = execFileSync('ffmpeg', ['-v', 'error', '-i', file, '-ar', '48000', '-ac', '2', '-f', 'f32le', 'pipe:1'], { maxBuffer: 64 * 1024 * 1024 });
+    const samples = new Float32Array(bytes.length / 4);
+    for (let i = 0; i < samples.length; i++) samples[i] = bytes.readFloatLE(i * 4);
+    return samples;
+  };
+  return pcmDifference(decode(original), decode(revised), threshold);
 }
 export function edgeFadeFilter(seconds = 0.01) {
   if (!Number.isFinite(seconds) || seconds <= 0) throw new Error('Fade duration must be positive');
@@ -122,18 +202,23 @@ export function normalize(input, output) {
 }
 export async function main(argv = process.argv.slice(2)) {
   const options = {};
-  for (let i = 0; i < argv.length; i += 2) {
-    if (!/^--(date|seed|seeds|head|base|since|genres|max-pairs|key-dir)$/.test(argv[i]) || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Invalid option: ${argv[i]}`);
-    options[argv[i].slice(2)] = argv[i + 1];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--null-control') { options['null-control'] = true; continue; }
+    if (!/^--(date|seed|seeds|head|base|since|genres|styles|baselines|null-style|min-difference|max-pairs|key-dir)$/.test(argv[i]) || !argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Invalid option: ${argv[i]}`);
+    options[argv[i].slice(2)] = argv[++i];
   }
   const date = options.date || new Date().toISOString().slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || new Date(date).toISOString().slice(0, 10) !== date) throw new Error('Invalid date');
   const seed = options.seed === undefined ? hash(date) : Number(options.seed);
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) throw new Error('Seed must be a uint32');
   const seeds = seedOverrides(options.seeds);
+  const baselines = baselineOverrides(options.baselines);
+  const minDifference = options['min-difference'] === undefined ? null : Number(options['min-difference']);
+  if (minDifference !== null && (!Number.isFinite(minDifference) || minDifference < 0)) throw new Error('Invalid min-difference');
   const keyDir = resolve(options['key-dir'] || join(ROOT, 'test/out/blind-packs'));
   const out = join(ROOT, 'test/out/blind-packs', date), pack = join(out, 'blind-pilot');
   if (keyDir === pack || keyDir.startsWith(pack + '/')) throw new Error('Key directory must be outside the blind pack');
+  if (existsSync(join(keyDir, `${date}.json`)) || existsSync(out)) throw new Error(`Refusing to overwrite existing pack/key: ${date}`);
   git('fetch', 'origin', 'main');
   const head = git('rev-parse', '--verify', `${options.head || 'origin/main'}^{commit}`);
   const previous = existsSync(keyDir) ? readdirSync(keyDir).filter((f) => /^\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort().at(-1) : null;
@@ -148,16 +233,22 @@ export async function main(argv = process.argv.slice(2)) {
     if (!id) throw new Error(`Unknown genre: ${s}`);
     return id;
   });
-  const selection = selectStyles(mergedPRs.flatMap((p) => p.styles), extra, options['max-pairs'] === undefined ? Infinity : Number(options['max-pairs']));
+  const explicit = options.styles === undefined ? null : options.styles.split(',').map((s) => s.trim());
+  const selection = selectStyles(mergedPRs.flatMap((p) => p.styles), extra, options['max-pairs'] === undefined ? Infinity : Number(options['max-pairs']), explicit);
+  for (const style of Object.keys(baselines)) {
+    baselines[style] = git('rev-parse', '--verify', `${baselines[style]}^{commit}`);
+    git('merge-base', '--is-ancestor', baselines[style], head);
+  }
   console.log(`Merged PRs: ${mergedPRs.map((p) => '#' + p.number).join(', ')}`);
   console.log(`Selected styles: ${selection.selected.join(', ')}; dropped: ${selection.dropped.join(', ') || 'none'}`);
-  const rng = random(seed), styles = shuffle(selection.selected, rng);
-  const pairs = styles.map((style, i) => { const first = rng() < 0.5 ? 'original' : 'revised'; return { pair: String(i + 1).padStart(2, '0'), genre: STYLES[style].name, style, renderSeed: seeds[style] ?? (hash(`${seed}:${style}`) || 1), bars: 8, first, second: first === 'original' ? 'revised' : 'original' }; });
+  if (options['null-style'] && !options['null-control']) throw new Error('null-style requires null-control');
+  const pairs = planPairs(selection.selected, seed, seeds, base, head, baselines, options['null-control'], options['null-style'] ? [options['null-style']] : mergedPRs.flatMap((p) => p.styles));
   mkdirSync(out, { recursive: true });
   const temp = mkdtempSync(join(tmpdir(), 'ug-blind-')), worktrees = [];
   try {
-    for (const [version, commit] of [['revised', head], ['original', base]]) {
-      const dir = join(temp, version);
+    const renderGroups = [{ version: 'revised', commit: head, styles: pairs.map((p) => p.style) }, ...[...new Set(pairs.filter((p) => p.kind !== 'null').map((p) => p.baselineCommit))].map((commit) => ({ version: 'original', commit, styles: pairs.filter((p) => p.kind !== 'null' && p.baselineCommit === commit).map((p) => p.style) }))];
+    for (const [groupIndex, { version, commit, styles }] of renderGroups.entries()) {
+      const dir = join(temp, `revision-${groupIndex}`);
       git('worktree', 'add', '--detach', dir, commit); worktrees.push(dir);
       const excerptFile = join(dir, 'test/audio-quality-page.js');
       const source = readFileSync(excerptFile, 'utf8'), compatible = excerptWithFrom(source);
@@ -170,8 +261,24 @@ export async function main(argv = process.argv.slice(2)) {
         const rendered = await withChrome(async (run) => {
           const available = await run(`import('/test/audio-quality-page.js').then(m => { window.__q = m; return typeof m.excerpt === 'function'; })`);
           if (!available) throw new Error(`${version} ${commit} lacks excerpt() in test/audio-quality-page.js`);
-          for (const p of pairs) {
+          for (const style of styles) {
+            const p = pairs.find((p) => p.style === style);
             console.log(`Rendering ${version} ${p.style} seed=${p.renderSeed}`);
+            if (version === 'revised') {
+              const metadata = await run(`(async () => {
+                const s = window.__q.song(${JSON.stringify(p.style)}, ${p.renderSeed});
+                const piece = s.patterns.find((pattern) => pattern.score)?.score?.piece;
+                if (piece) await (await import('/js/repertoire.js')).loadPiece(piece);
+                const timeline = window.__q.plan(s, 8);
+                const { songPlan } = await import('/js/state.js');
+                return { sections: songPlan(${JSON.stringify(p.style)}, ${p.renderSeed}, 'song', s.bpm).sections,
+                  chain: s.chain, patterns: s.patterns.map(({ sec }) => ({ sec })), labels: s.labels,
+                  bars: timeline.bars, peakBar: timeline.peakBar };
+              })()`);
+              const { barWindow, ...excerpt } = selectExcerptWindow(metadata);
+              p.barWindow = barWindow;
+              p.excerpt = excerpt;
+            }
             const options = { kind: 'peak', bars: 8, ...(p.barWindow ? { from: p.barWindow[0] } : {}) };
             const x = await run(`window.__q.excerpt(${JSON.stringify(p.style)}, ${p.renderSeed}, ${JSON.stringify(options)})`);
             p.barWindow = checkBarWindow(x.bars, p.barWindow);
@@ -184,15 +291,24 @@ export async function main(argv = process.argv.slice(2)) {
         if (!rendered) throw new Error('Chrome is required to render the blind pack');
       } finally { process.chdir(cwd); }
     }
+    for (const p of pairs) {
+      if (p.kind === 'null') {
+        p.windows = { original: [...p.barWindow], revised: [...p.barWindow] };
+      } else if (minDifference !== null) {
+        p.pcmDifference = compareFiles(join(temp, `${p.style}-original.wav`), join(temp, `${p.style}-revised.wav`), minDifference);
+        console.log(`${p.style} PCM difference: ${JSON.stringify(p.pcmDifference)}`);
+        if (!p.pcmDifference.different) throw new Error(`Near-identical comparison: ${p.style}`);
+      }
+    }
     mkdirSync(pack, { recursive: true });
     for (const f of readdirSync(pack)) rmSync(join(pack, f), { recursive: true, force: true });
     for (const p of pairs) {
       const normalized = {};
-      for (const version of ['original', 'revised']) { const f = join(temp, `${p.style}-${version}-normalized.wav`); normalize(join(temp, `${p.style}-${version}.wav`), f); normalized[version] = f; }
+      for (const version of ['original', 'revised']) { const f = join(temp, `${p.pair}-${version}-normalized.wav`); normalize(join(temp, `${p.style}-${p.kind === 'null' ? 'revised' : version}.wav`), f); normalized[version] = f; }
       const levels = Object.fromEntries(Object.entries(normalized).map(([v, f]) => [v, measure(f)]));
       const target = Math.min(-16, ...Object.values(levels));
       const matched = {};
-      for (const version of ['original', 'revised']) { const f = join(temp, `${p.style}-${version}-matched.wav`); ff(['-i', normalized[version], '-af', `volume=${target - levels[version]}dB`, '-c:a', 'pcm_f32le', f]); matched[version] = f; }
+      for (const version of ['original', 'revised']) { const f = join(temp, `${p.pair}-${version}-matched.wav`); ff(['-i', normalized[version], '-af', `volume=${target - levels[version]}dB`, '-c:a', 'pcm_f32le', f]); matched[version] = f; }
       const mp3 = join(pack, `Pair-${p.pair}.mp3`);
       ff(['-i', matched[p.first], '-i', matched[p.second], '-filter_complex', '[0:a]apad=pad_dur=1.56[a];[a][1:a]concat=n=2:v=0:a=1[out]', '-map', '[out]', '-map_metadata', '-1', '-ar', '48000', '-ac', '2', '-c:a', 'libmp3lame', '-b:a', '192k', mp3]);
       const firstSeconds = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', matched[p.first]], { encoding: 'utf8' }).trim());
@@ -204,13 +320,13 @@ export async function main(argv = process.argv.slice(2)) {
       console.log(`Pair-${p.pair} decoded MP3: ${p.lufs.first} / ${p.lufs.second} LUFS; difference ${Math.abs(p.lufs.first - p.lufs.second).toFixed(2)} LU`);
       if (Math.abs(p.lufs.first - p.lufs.second) > 0.100001) throw new Error(`Decoded MP3 loudness mismatch: pair ${p.pair}`);
     }
-    writeFileSync(join(pack, 'README.md'), '# Untergrund blind listening\n\nEach MP3 contains two versions of the same generated passage, separated by a short silence. The first/second order was randomized independently. The two excerpts in each pair are matched to within 0.1 LU.\n\nListen at the same playback volume. Rate each pair as a whole from **1 (poor) to 5 (excellent)**, then choose **first**, **second**, or **tie** for release. Judge whether the kick, bass and lead are easy to distinguish without losing the groove or character. If the difference does not matter to you, choose tie. Add a free-form explanation in Why.\n\n| Pair | Pair rating (1–5) | First / second / tie | Why |\n| --- | --- | --- | --- |\n' + pairs.map((p) => `| ${p.pair} | | | |`).join('\n') + '\n\nThese are before/after mixes, not a competitive comparison. This pack does not contain the answer key or automated preferences.\n');
+    writeFileSync(join(pack, 'README.md'), ratingSheet(pairs));
     const zip = join(out, `blind-rating-pack-${date}.zip`);
     rmSync(zip, { force: true });
     execFileSync('zip', ['-q', '-r', zip, 'blind-pilot'], { cwd: out });
-    const key = { schema: 'untergrund.blind-pack/1', date, generatedAt: new Date().toISOString(), seed, commit: head, base, sinceTime, mergedPRs, droppedStyles: selection.dropped, pairs, format: { codec: 'mp3', sampleRate: 48000, channels: 2, bitrate: 192000, silenceSeconds: 1.56, edgeFadeSeconds: 0.01, excerpt: 'peak', bars: 8, targetLUFS: -16, targetTruePeakDBTP: -1.5, measurement: 'ffmpeg loudnorm JSON input_i on decoded MP3 halves, excluding the inserted silence', normalization: 'two-pass loudnorm then downward pair gain matching' } };
+    const key = { schema: 'untergrund.blind-pack/1', date, generatedAt: new Date().toISOString(), seed, commit: head, base, sinceTime, mergedPRs, droppedStyles: selection.dropped, pairs, format: { codec: 'mp3', sampleRate: 48000, channels: 2, bitrate: 192000, silenceSeconds: 1.56, edgeFadeSeconds: 0.01, excerpt: 'first-hook-drop-or-peak', bars: 8, targetLUFS: -16, targetTruePeakDBTP: -1.5, measurement: 'ffmpeg loudnorm JSON input_i on decoded MP3 halves, excluding the inserted silence', normalization: 'two-pass loudnorm then downward pair gain matching' } };
     mkdirSync(keyDir, { recursive: true });
-    writeFileSync(join(keyDir, `${date}.json`), JSON.stringify(key, null, 2) + '\n');
+    writeFileSync(join(keyDir, `${date}.json`), JSON.stringify(key, null, 2) + '\n', { flag: 'wx' });
     console.log(`Pack: ${pack}\nZip: ${zip}\nKey: ${join(keyDir, `${date}.json`)}\nBase: ${base}\nHead: ${head}`);
   } finally {
     for (const dir of worktrees.reverse()) git('worktree', 'remove', '--force', dir);

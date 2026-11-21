@@ -54,6 +54,30 @@ globalThis.fetch = async (url) => {
 
 const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCrossfade, vocalFadePowerRatio, vocalFadeBandPowerRatios } = await import('../js/engine.js');
 {
+  for (const listener of ['rnb', 'bossa', 'swing', 'neosoul']) {
+    const s = defaultState(); s.artist = { style: listener };
+    const e = new Engine(fakeCtx(), s, { realtime: false }), set = [[60, {}]];
+    let level;
+    e.playBuf = (_buf, _t, gain) => { level = gain; };
+    const noteLevel = kind => {
+      e.recordedNote(set, .05, .8, 60, .5, e.ch.stab.input, 0, kind);
+      return level;
+    };
+    for (const kind of ['jazz', 'piano', null]) {
+      e.replay808Style = 'bossa';
+      const plain = noteLevel(kind);
+      for (const recorded of ['rnb', 'bossa', 'swing', 'neosoul', undefined]) {
+        e.replay808Style = recorded;
+        const trimmed = (recorded ?? listener) === 'rnb' && kind === 'jazz';
+        assert(Math.abs(noteLevel(kind) / plain - (trimmed ? 10 ** (-10 / 20) : 1)) < 1e-12,
+          `${listener} listener, ${recorded} replay, ${kind}: guitar trim follows playback style`);
+        assert.equal(s.artist.style, listener, 'replay leaves listener style unchanged');
+      }
+    }
+  }
+  console.log('Recorded R&B guitar trim follows replay style both ways; other instruments and non-replay fallback passed');
+}
+{
   const s = defaultState();
   s.artist = { style: 'boombap' };
   const e = new Engine(fakeCtx(), s, { realtime: false });
@@ -1542,7 +1566,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         document:{hidden:false}, ctx:c, Date:{now:() => (c.currentTime + 1000 + offset()) * 1000},
         performance:{now:() => c.currentTime * 1000}, state, engine, clockOffset:1000,
         roomAudioClock:{at:9.5, contextTime:9.5, pending:null}, roomDrainUntil:null, vocalGridDirty:false,
-        transportOrigin:1010000, abs:0, nextTime:10, queuedRoomReplay:null, handoff:null, jamQueue:[], uiQueue:[],
+        transportOrigin:1010000, abs:0, nextTime:10, queuedRoomSwitch:null, handoff:null, jamQueue:[], uiQueue:[],
         syncAudioClock, transportResync, slewTransport, roomTransportCorrection,
         seq:{origin:0, chainPos:1, songBars:256, advanceBar:noop, rewind:noop,
           tick:(step, time) => {

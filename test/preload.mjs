@@ -2,9 +2,9 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
-import { liveSets, setsReady, loadSets, loadBand, BAND, STAB_BAND, LIVE_FILES, LIVE_KIT } from '../js/livekit.js';
+import { liveSet, liveSets, setsReady, loadSets, loadBand, BAND, STAB_BAND, LIVE_FILES, LIVE_KIT } from '../js/livekit.js';
 import { Engine, Sequencer } from '../js/engine.js';
-import { KIT_BACKBEAT } from '../js/params.js';
+import { KIT_BACKBEAT, HAND_KIT, MARIMBA_STAB } from '../js/params.js';
 import { defaultState, freshSong, generate, STYLES } from '../js/state.js';
 import { createPlayer } from '../js/player.js';
 import { OfflineAudioContext as FakeContext, AudioBuffer } from './offline-audio.mjs';
@@ -86,6 +86,80 @@ const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
   assert.ok(Engine.prototype.rec.call(room, 'jep1'), 'a live listener adopts the decoded bank without restarting the clock');
 }
 const feeds = (source, dest) => source === dest || dest.inputs.some((input) => feeds(source, input));
+{
+  const hands = {
+    amapiano: ['shaker', 'conga'],
+    afrobeats: ['conga', 'shaker', 'cowbell'],
+    reggaeton: ['conga', 'timbale'],
+    bailefunk: ['timbale', 'cuica'],
+  };
+  for (const [style, names] of Object.entries(hands)) {
+    const g = generate(style, 1);
+    assert.equal(g.params.perc.voice, HAND_KIT[style]);
+    assert.deepEqual(liveSets(g).filter((n) => Object.values(hands).flat().includes(n)), names);
+  }
+  const amapiano = generate('amapiano', 1);
+  assert.equal(amapiano.params.acid.voice, 4, 'keep the log drum');
+  assert.equal(amapiano.pattern.hook.v, 'marimba');
+  assert(liveSets(amapiano).includes('marimba'));
+  const afro = Array.from({ length: 24 }, (_, i) => generate('afrobeats', i + 1)).find((g) => g.params.stab.voice === MARIMBA_STAB);
+  assert(afro && liveSets(afro).includes('marimba'));
+
+  const hits = [], fallbacks = [];
+  const e = {
+    state: amapiano, ch: { perc: { input: {} } }, playingPattern: amapiano.pattern, step: 0, recLock: new Map(),
+    rec: Engine.prototype.rec, perc: Engine.prototype.perc, recordedHands: Engine.prototype.recordedHands,
+    shaker: () => fallbacks.push('shaker'), playBuf: (...args) => hits.push(args),
+  };
+  e.perc(1, 0.7);
+  await loadSets(Object.values(hands).flat().concat('marimba'));
+  e.perc(2, 0.7);
+  assert.deepEqual(fallbacks, ['shaker', 'shaker'], 'late decode does not replace the synth mid-song');
+  assert.equal(hits.length, 0);
+
+  for (const [style, names] of Object.entries(hands)) {
+    e.state = generate(style, 1); e.playingPattern = e.state.pattern; e.recLock = new Map();
+    const row = e.state.pattern.steps.perc;
+    hits.length = 0;
+    for (let i = 0; i < row.length; i++) if (row[i]) { e.step = i; e.perc(i + 1, 0.8); }
+    assert.equal(hits.length, row.filter(Boolean).length, `${style} plays one recording per written hit`);
+    for (const n of names) assert(hits.some(([buf]) => liveSet(n).includes(buf)), `${style} plays recorded ${n}`);
+    const last = hits.at(-1);
+    e.perc(100, 0.8);
+    assert.equal(hits.at(-1)[0], last[0], 'the same grid position retains its take after a seek');
+    assert.deepEqual(hits.at(-1).slice(2), last.slice(2), 'take and articulation do not depend on the playback clock');
+  }
+  const ctx = new FakeContext(1, 48000, 48000);
+  const take = new AudioBuffer(1, 9600, 48000);
+  const engine = { ctx, step: 3, rec: () => [take, take], gain: Engine.prototype.gain,
+    startSource: Engine.prototype.startSource, filter: Engine.prototype.filter };
+  const envelope = (decay) => {
+    let env;
+    engine.playBuf = (...args) => { env = Engine.prototype.playBuf.call(engine, ...args).g.gain; };
+    Engine.prototype.recordedHands.call(engine, HAND_KIT.bailefunk, 0.1, 1, { tune: 220, decay }, ctx.destination);
+    return env;
+  };
+  assert(envelope(0.18).at(0.23) > envelope(0.04).at(0.23) * 3, 'decay opens the body of a short cuíca recording');
+  files.clear();
+}
+{
+  const ctx = new FakeContext(2, 4096, 48000), state = defaultState(), out = ctx.createGain(), hits = [];
+  state.key = 0;
+  state.artist = { style: 'amapiano' };
+  await loadSets(['marimba']);
+  const e = {
+    state, ctx, ch: { stab: { band: out } }, rec: Engine.prototype.rec,
+    recordedNote: Engine.prototype.recordedNote, bodyFor: Engine.prototype.bodyFor,
+    filter: Engine.prototype.filter, playBuf: (...args) => hits.push(args),
+  };
+  Engine.prototype.hook.call(e, 0.1, 0.7, 3, 0.3, 'marimba');
+  const [take, , , eq, rate] = hits[0], f4 = liveSet('marimba').find(([m]) => m === 65);
+  assert.equal(take, f4[1]);
+  assert.equal(rate, 2 ** (-2 / 12), 'the EQ does not change the pitch or take');
+  assert.equal(eq.type, 'peaking');
+  assert.ok(eq.frequency.value > 2800 && eq.frequency.value < 3100 && eq.gain.value < -10);
+  assert.ok(feeds(eq, out), 'the marimba hook notch feeds the band bus');
+}
 {
   const ctx = new FakeContext(2, 4096, 48000), state = defaultState(), out = ctx.createGain();
   const hits = [], fallback = new Error('synth fallback');

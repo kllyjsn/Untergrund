@@ -64,7 +64,7 @@ let roomDrainUntil = null;
 let roomPlayback = false;
 let roomEditor = false;
 let roomFirstNote = null;
-let queuedRoomReplay = null, roomReplayLoad = null;
+let queuedRoomSwitch = null, roomReplayLoad = null;
 // A song waiting for its downbeat: { step, from, plan, out } (see queueSong).
 let handoff = null;
 const uiQueue = [];
@@ -183,10 +183,10 @@ function ensureAudio() {
 // lead: how far ahead to queue audio (seconds); the worker tick passes its message event.
 let songOver = false;
 function schedule(lead) {
-  if (!playing || (songOver && !queuedRoomReplay)) return;
+  if (!playing || (songOver && !queuedRoomSwitch)) return;
   const ahead = roomMediaSync.horizon(typeof lead === 'number' ? lead : document.hidden ? BG_LEAD : roomPlayback ? ROOM_LEAD : 0.12, roomPlayback, mediaRoute, roomPlayback && mediaRoute ? ctx.currentTime : 0);
   const now = ctx.currentTime;
-  const firstEstimate = roomPlayback && roomAudioClock === null && !engine.vocalNow &&
+  const firstEstimate = roomPlayback && (roomAudioClock === null || abs === 0) && !engine.vocalNow &&
     !engine.queuedNotes?.some(note => note.t >= now);
   if (roomEditor) engine.pruneEditableHits(now);
   const frozenOutputTime = roomAudioClock?.frozenOutputTime;
@@ -194,9 +194,9 @@ function schedule(lead) {
     roomPlayback ? {at:performance.now() / 1000, contextTime:now, state:roomAudioClock} : null);
   clockOffset = clock.offset;
   roomAudioClock = clock.state ?? null;
-  const replayAt = queuedRoomReplay ? roomMediaTime(queuedRoomReplay.startsAt / 1000 - clockOffset, roomPlayback, mediaRoute) : Infinity;
+  const switchAt = queuedRoomSwitch ? roomMediaTime(queuedRoomSwitch.startsAt / 1000 - clockOffset, roomPlayback, mediaRoute) : Infinity;
   if (songOver) {
-    if (replayAt < now + ahead) switchRoomReplay(replayAt);
+    if (switchAt < now + ahead) switchRoomSet(switchAt);
     return;
   }
   let base = 60 / state.bpm / 4, landed = null;
@@ -213,7 +213,7 @@ function schedule(lead) {
       engine.roomSlewProfile = null;
     }
     roomDrainUntil = correction.drainUntil;
-    if (replayAt <= roomDrainUntil + 0.03 && replayAt < now + ahead) switchRoomReplay(replayAt);
+    if (switchAt <= roomDrainUntil + 0.03 && switchAt < now + ahead) switchRoomSet(switchAt);
     return;
   }
   roomDrainUntil = null;
@@ -252,7 +252,7 @@ function schedule(lead) {
   // Landing redraws the whole UI for the new song, so schedule further ahead first to ride out that frame.
   while (true) {
     const horizon = ctx.currentTime + (landed ? Math.max(ahead, 0.5) : ahead);
-    if (!(Math.min(nextTime, replayAt) < horizon)) break;
+    if (!(Math.min(nextTime, switchAt) < horizon)) break;
     const gridTarget = roomMediaTime(transportOrigin / 1000 + abs * base - clockOffset, roomPlayback, mediaRoute);
     if (roomPlayback && !(playableFirst && firstTime !== undefined)) {
       if (engine.vocalNow?.correction || (Math.abs(gridTarget - nextTime) > 0.03 && (engine.roomSlewRate ?? 1) === 1)) {
@@ -272,9 +272,9 @@ function schedule(lead) {
     }
     const t = firstTime ?? nextTime;
     firstTime = undefined;
-    // Leave a nearly coincident outgoing step to the incoming replay downbeat.
-    if (t >= replayAt - 0.03 && replayAt < horizon) {
-      return switchRoomReplay(replayAt);
+    // Leave a nearly coincident outgoing step to the incoming downbeat.
+    if (t >= switchAt - 0.03 && switchAt < horizon) {
+      return switchRoomSet(switchAt);
     }
     if (handoff && !handoff.out && abs >= handoff.from) { engine.handoffOut(t, Math.max(t, nextTime + (handoff.step - abs) * engine.stepDur)); handoff.out = true; }
     // A stalled main thread can make the resync skip the planned downbeat; then the new song
@@ -368,6 +368,14 @@ function refreshJamPrime(wall = null) {
   });
 }
 function queueJamPart(part, layer, wall) {
+  const pending = queuedRoomSwitch?.jamEdits;
+  if (pending) {
+    const index = pending.findIndex((q) => q.part === part);
+    const edit = { part, layer, wall };
+    if (index < 0) pending.push(edit);
+    else pending[index] = edit;
+    return;
+  }
   jamQueue = jamQueue.filter((q) => q.part !== part);
   if (!playing || wall < Date.now() - 2000) return landJamPart(part, layer);
   jamQueue.push({ part, layer, wall });
@@ -542,7 +550,7 @@ function roomStartPending() {
 }
 
 function cancelRoomStart() {
-  queuedRoomReplay = roomReplayLoad = null;
+  queuedRoomSwitch = roomReplayLoad = null;
   if (roomStartPending()) {
     roomResume = null;
     stop();
@@ -560,8 +568,9 @@ function cancelRoomPrime() {
 }
 
 function stop(playbackOutcome = 'stop') {
-  const replay = playbackOutcome === 'complete' ? queuedRoomReplay : null;
-  queuedRoomReplay = roomReplayLoad = null;
+  const next = playbackOutcome === 'complete' ? queuedRoomSwitch : null;
+  if (next?.track) return;
+  queuedRoomSwitch = roomReplayLoad = null;
   if (roomStartPending() && !(mediaRoute && roomPlayback && roomMediaSync.active(ctx.currentTime))) engine.discardQueuedNotes(ctx.currentTime);
   cancelRoomPrime();
   playbackStats.end(playbackOutcome);
@@ -596,7 +605,7 @@ function stop(playbackOutcome = 'stop') {
   renderHome();
   releaseMedia();
   syncNowPlaying();
-  if (replay) startRoomReplay(replay);
+  if (next) startRoomReplay(next);
 }
 
 function recordPlayback(source, at, step) {
@@ -1040,6 +1049,22 @@ function showJukebox() {
   });
 }
 
+function installRoomSong(next, at, replay808Style, replaySeed) {
+  playbackStats.end('skip');
+  trackingReplay = false;
+  listens.end(listenPos());
+  if (artistLive) stopArtistLive(false);
+  jamQueue.length = 0;
+  seq.dropNext = false;
+  engine.discardQueuedNotes(at);
+  autoMajor = false;
+  state = next;
+  engine.state = seq.s = state;
+  engine.replay808Style = replay808Style;
+  engine.replaySeed = replaySeed;
+  engine.handoffIn(at);
+}
+
 // Saved Club sets replay from their timeline; `asGuest` (jukebox) keeps the listener's own project safe.
 function timelineHooks(asGuest, replayStats = null, switchAt = null) {
   let replay808Style, replaySeed;
@@ -1051,19 +1076,7 @@ function timelineHooks(asGuest, replayStats = null, switchAt = null) {
       if (STYLES[st]) replay808Style = style = st;
       const next = sanitize({ ...s, artist: state.artist });
       if (switchAt !== null) {
-        playbackStats.end('skip');
-        trackingReplay = false;
-        listens.end(listenPos());
-        if (artistLive) stopArtistLive(false);
-        jamQueue.length = 0;
-        seq.dropNext = false;
-        engine.discardQueuedNotes(switchAt);
-        autoMajor = false;
-        state = next;
-        engine.state = seq.s = state;
-        engine.replay808Style = replay808Style;
-        engine.replaySeed = replaySeed;
-        engine.handoffIn(switchAt);
+        installRoomSong(next, switchAt, replay808Style, replaySeed);
         return;
       }
       if (!asGuest) return replaceState(next);
@@ -1094,15 +1107,33 @@ function timelineHooks(asGuest, replayStats = null, switchAt = null) {
 }
 function replayToRoom(timeline, startsAt, item) {
   const replay = { timeline, startsAt, item };
-  queuedRoomReplay = roomReplayLoad = null;
-  if (playing && startsAt > Date.now()) queuedRoomReplay = replay;
+  queuedRoomSwitch = roomReplayLoad = null;
+  if (playing && startsAt > Date.now()) queuedRoomSwitch = replay;
   else startRoomReplay(replay);
 }
 
-function switchRoomReplay(at) {
-  const replay = queuedRoomReplay;
-  queuedRoomReplay = null;
-  startRoomReplay(replay, at > ctx.currentTime ? at : null);
+function switchRoomSet(at) {
+  const next = queuedRoomSwitch;
+  queuedRoomSwitch = null;
+  const switchAt = at > ctx.currentTime ? at : null;
+  if (!next.track) return startRoomReplay(next, switchAt);
+  const { track, roomState, nextStyle, startsAt, editRoom } = next;
+  const item = { ...track, startsAt };
+  const t = switchAt ?? ctx.currentTime;
+  stopTimeline();
+  style = nextStyle;
+  songOrigin = { src:'room' };
+  installRoomSong(roomState, t, undefined, undefined);
+  jamQueue = next.jamEdits;
+  roomStatsItem = item;
+  if (editRoom && track.trackId)
+    playbackSources.set(state, { surface:'public', trackId:track.trackId, fingerprint:songFingerprint(state) });
+  else if (!editRoom && track.public !== false)
+    playbackSources.set(state, { surface:'club', trackId:track.trackId, genre:style });
+  play({ startsAt, editRoom, switchAt });
+  if (mediaRoute && !editRoom) roomMediaSync.remember(item);
+  if (!editRoom) roomResume = () => joinRoomSet(item);
+  build(); persist();
 }
 
 function startRoomReplay({ timeline, startsAt, item }, switchAt = null) {
@@ -1131,16 +1162,12 @@ async function joinRoomReplay(item) {
 
 function joinRoomSet(item, { initial = false } = {}) {
   if (mediaRoute && initial && roomMediaSync.duplicate(item, playing, roomPlayback, mediaRoute)) return;
-  queuedRoomReplay = roomReplayLoad = null;
+  queuedRoomSwitch = roomReplayLoad = null;
   const sameSet = roomStatsItem === item || !!(item?.broadcastId && item.broadcastId === roomStatsItem?.broadcastId);
-  roomStatsItem = item;
-  if (item?.replay) return joinRoomReplay(item);
-  stopTimeline();
+  if (item?.replay) { roomStatsItem = item; return joinRoomReplay(item); }
   if (!item?.state) return;
-  if (mediaRoute) roomMediaSync.begin(item, playing, roomPlayback, mediaRoute);
   const nextStyle = STYLES[item.style] ? item.style : STYLES[item.state.artist?.style] ? item.state.artist.style : style;
   const roomState = sanitize(clone(item.state));
-  songOrigin = { src: 'room' };
   const startsAt = Number.isFinite(+item.startsAt) ? +item.startsAt : Date.now();
   const localState = sanitize(state);
   const continuous = playing && roomPlayback && !artistLive && !handoff && !jamQueue.length && seq.queued === null &&
@@ -1148,6 +1175,14 @@ function joinRoomSet(item, { initial = false } = {}) {
     nextStyle === style && roomState.artist?.style === localState.artist?.style && roomState.artist?.seed === localState.artist?.seed &&
     songFingerprint(roomState) === songFingerprint(localState) && JSON.stringify(roomState.sing) === JSON.stringify(localState.sing) &&
     (state.chainOn || roomState.current === state.current);
+  if (!continuous && playing && roomPlayback && startsAt > Date.now()) {
+    queueRoomTrack(item, roomState, nextStyle, startsAt, false);
+    return;
+  }
+  roomStatsItem = item;
+  stopTimeline();
+  if (mediaRoute) roomMediaSync.begin(item, playing, roomPlayback, mediaRoute);
+  songOrigin = { src: 'room' };
   if (!continuous || !sameSet) playbackStats.end('skip');
   style = nextStyle;
   if (continuous) {
@@ -1177,7 +1212,11 @@ function joinRoomSet(item, { initial = false } = {}) {
 
 function reanchorRoomSet(startsAt, previousStartsAt) {
   if (!playing || !roomPlayback || !Number.isFinite(startsAt)) return;
-  if (queuedRoomReplay) { queuedRoomReplay.startsAt = startsAt; return; }
+  if (queuedRoomSwitch) {
+    for (const edit of queuedRoomSwitch.jamEdits || []) edit.wall += startsAt - queuedRoomSwitch.startsAt;
+    queuedRoomSwitch.startsAt = startsAt;
+    return;
+  }
   const origin = Number.isFinite(previousStartsAt) ? transportOrigin + startsAt - previousStartsAt
     : startsAt - (seq?.origin || 0) * (15000 / state.bpm);
   if (Math.abs(origin - transportOrigin) > 0.5) vocalGridDirty = true;
@@ -1185,17 +1224,26 @@ function reanchorRoomSet(startsAt, previousStartsAt) {
 }
 
 function stopRoomStats(item) {
+  if (item.broadcastId && item.broadcastId === queuedRoomSwitch?.track?.broadcastId) queuedRoomSwitch.track.public = false;
   if (!item.broadcastId || item.broadcastId !== roomStatsItem?.broadcastId) return;
   roomStatsItem.public = false;
   if (trackingReplay || playbackSources.get(state)?.surface === 'club') playbackStats.cancel();
   if (playbackSources.get(state)?.surface === 'club') playbackSources.delete(state);
 }
 
-function startRoomBroadcast(startsAt) {
-  queuedRoomReplay = roomReplayLoad = null;
+function queueRoomTrack(track, roomState, nextStyle, startsAt, editRoom) {
+  queuedRoomSwitch = { track, roomState, nextStyle, startsAt, editRoom, jamEdits:[] };
+  prepareSample(roomState);
+  engine.prepareVocal(roomState);
+  loadSets(liveSets(roomState)).catch(() => {});
+}
+
+function startRoomBroadcast(startsAt, track) {
+  queuedRoomSwitch = roomReplayLoad = null;
   if (playing) {
-    playbackStats.end();
+    if (!track) playbackStats.end();
     roomPlayback = roomEditor = true;
+    if (track) queueRoomTrack(track, clone(track.state), track.style, startsAt, true);
     schedule();
     return;
   }
@@ -1204,17 +1252,23 @@ function startRoomBroadcast(startsAt) {
 }
 
 function showClub({ room = '', intent = '' } = {}) {
+  const prepareTrack = (track) => ({
+    style: STYLES[track.style] ? track.style : style,
+    state: refreshSong(sanitize(clone(track.state))),
+    trackId: !track.id?.startsWith('local-') && RELEASE_ID.test(track.id || '') ? track.id : '',
+  });
   openClub({
     room,
     intent,
     hue,
     getState: () => state,
     getStyle: () => style,
+    prepareTrack,
     loadTrack: (track) => {
-      style = STYLES[track.style] ? track.style : style;
-      replaceState(refreshSong(sanitize(clone(track.state))));
-      if (!track.id?.startsWith('local-') && RELEASE_ID.test(track.id || ''))
-        playbackSources.set(state, { surface: 'public', trackId: track.id, fingerprint: songFingerprint(state) });
+      const next = prepareTrack(track);
+      style = next.style;
+      replaceState(next.state);
+      if (next.trackId) playbackSources.set(state, { surface: 'public', trackId: next.trackId, fingerprint: songFingerprint(state) });
     },
     // Rooms count steps from where the playing song started (a GENERATE handoff restarts the song, not the clock).
     getTransport: () => ({ playing, startsAt: transportOrigin + (seq?.origin || 0) * (15000 / state.bpm) }),
@@ -1235,8 +1289,11 @@ function showClub({ room = '', intent = '' } = {}) {
     replayToRoom,
     jam: {
       queuePart: queueJamPart,
-      pending: (part) => jamQueue.find((q) => q.part === part)?.wall || 0,
-      reset: () => { jamQueue = []; },
+      pending: (part) => (queuedRoomSwitch?.jamEdits ?? jamQueue).find((q) => q.part === part)?.wall || 0,
+      reset: () => {
+        jamQueue = [];
+        if (queuedRoomSwitch?.jamEdits) queuedRoomSwitch.jamEdits.length = 0;
+      },
     },
     toast,
   });

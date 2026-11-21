@@ -82,7 +82,7 @@ function transport(mediaRoute, room = true, roomItem = item, bpm = 120) {
     roomTransportPosition, syncAudioClock, transportResync, BG_LEAD: 1.5, ROOM_LEAD: .42,
     slewTransport, roomTransportCorrection, roomDrainUntil: null, roomAudioClock: null, vocalGridDirty: false,
     performance: { now: () => s.ctx.currentTime * 1000 },
-    playing: true, songOver: false, queuedRoomReplay: null, roomPlayback: room, roomEditor: false, roomResume: null, roomFirstNote: null,
+    playing: true, songOver: false, queuedRoomSwitch: null, roomPlayback: room, roomEditor: false, roomResume: null, roomFirstNote: null,
     roomJoinTimer: 0, handoff: null, jamQueue: [], trackingReplay: false, playbackSources: new WeakMap(), state: { bpm, current: 0 },
     ctx: { currentTime: 10 }, Date: { now: () => 1000000 }, nextTime: 0, abs: 0,
     transportOrigin: 0, clockOffset: null, uiQueue: [],
@@ -117,8 +117,8 @@ for (const mediaRoute of [null, route]) {
   const { s, api } = transport(mediaRoute);
   const switches = [];
   s.songOver = true;
-  s.queuedRoomReplay = { startsAt: 1000300 };
-  s.switchRoomReplay = at => { switches.push(at); s.queuedRoomReplay = null; };
+  s.queuedRoomSwitch = { startsAt: 1000300 };
+  s.switchRoomSet = at => { switches.push(at); s.queuedRoomSwitch = null; };
   api.schedule();
   assert(Math.abs(switches[0] - (mediaRoute ? 10.26 : 10.3)) < 1e-9);
   let canceled = 0;

@@ -111,6 +111,13 @@ for (const [seed, chords, hook] of [[7, 42, 68], [503, 71, 73]]) {
   assert.deepEqual(tracks.find((t) => t.name === 'Hook').programs, [hook], `Drill ${seed} lead instrument`);
 }
 
+for (const [style, seed, part] of [['amapiano', 42, 'Hook'], ['afrobeats', 3, 'Chords']]) {
+  const { tracks } = parseMidi(songMidi(song(style, seed)).bytes);
+  const marimba = tracks.find((t) => t.name === part);
+  assert(marimba.notes.length > 0, `${style} exports marimba notes`);
+  assert.deepEqual(marimba.programs, [12], `${style} exports the GM Marimba program`);
+}
+
 // Independent kick count: with variation and the drop build off, every written kick in the chain plays once.
 {
   const s = song('hypnotic', 3);
