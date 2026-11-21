@@ -11,6 +11,18 @@ import { registerPiece, PIECE } from '../js/repertoire.js';
 import { ZipWriter, crc32 } from '../js/zip.js';
 import { exportName } from '../js/stems.js';
 
+{
+  const own = defaultState(), g = generate('minimal', 12);
+  applyOverrides(own, g); own.patterns = arrangement(g.pattern, 12); own.artist = { style: 'minimal' };
+  const expected = songMidi(own);
+  for (const style of ['trap', 'dnb']) {
+    const saved = structuredClone(own); saved.artist.style = style;
+    assert.deepEqual(songMidi(saved, { playbackStyle: 'minimal' }).bytes, expected.bytes, 'the public MIDI export entrypoint forwards the saved-song genre');
+    assert.equal(saved.artist.style, style, 'MIDI export preserves listener ownership');
+  }
+  assert.throws(() => songMidi({ ...own, patterns: null }, { playbackStyle: 'minimal' }), TypeError, 'invalid saved MIDI data still reports an error');
+}
+
 // A minimal Standard MIDI File reader.
 function parseMidi(bytes) {
   const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
