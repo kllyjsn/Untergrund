@@ -55,7 +55,7 @@ console.log('loudness meter: BS.1770 / EBU 3341 cases pass');
 // Every style has a target and a sane make-up gain.
 for (const id of Object.keys(STYLES)) {
   assert([LOUDNESS_TARGET.feed, LOUDNESS_TARGET.quiet, LOUDNESS_TARGET.classical].includes(targetFor(id)), `${id} target`);
-  const expected = ['ambient', 'rnb', 'lofihiphop'].includes(id) ? -14 : ['symphony', 'concerto', 'nocturne', 'repertoire'].includes(id) ? -16 : -12;
+  const expected = ['ambient', 'rnb', 'lofihiphop', 'swing', 'modal', 'bossa'].includes(id) ? -14 : ['symphony', 'concerto', 'nocturne', 'repertoire'].includes(id) ? -16 : -12;
   assert.equal(targetFor(id), expected, `${id} feed target`);
   assert(Math.abs(MAKEUP_DB[id] ?? 0) <= 18, `${id} make-up gain`);
 }

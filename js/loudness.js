@@ -91,16 +91,16 @@ export const dbtp = (channels) => 20 * Math.log10(truePeak(channels));
 export const samplePeakDb = (channels) => { let p = 0; for (const x of channels) for (let i = 0; i < x.length; i++) p = Math.max(p, Math.abs(x[i])); return 20 * Math.log10(p); };
 
 // Whole-song feed target: -12 LUFS lets loud club genres back off their limiter/clipper instead of pushing
-// quieter bands into it. Ambient, R&B and Lo-Fi Hip-Hop stay at -14; orchestra and solo piano keep their dynamics at -16
+// quieter bands into it. Ambient, R&B, Lo-Fi Hip-Hop and acoustic jazz stay at -14; orchestra and solo piano keep their dynamics at -16
 // (a nocturne's hammer peaks sit ~17 dB over its average, so louder would clip the piano).
 // Nothing may peak above -1 dBTP.
 export const LOUDNESS_TARGET = { feed: -12, quiet: -14, classical: -16, ceiling: -1 };
-const TIER = { ambient: 'quiet', rnb: 'quiet', lofihiphop: 'quiet', symphony: 'classical', concerto: 'classical', nocturne: 'classical', repertoire: 'classical' };
+const TIER = { ambient: 'quiet', rnb: 'quiet', lofihiphop: 'quiet', swing: 'quiet', modal: 'quiet', bossa: 'quiet', symphony: 'classical', concerto: 'classical', nocturne: 'classical', repertoire: 'classical' };
 export const targetFor = (style) => LOUDNESS_TARGET[TIER[style] || 'feed'];
 
 // Per-style make-up gain (dB) applied in front of the master limiter, measured with scripts/loudness.mjs.
 export const MAKEUP_DB = {
-  jazzfunk: 6.5,
+  jazzfunk: 9,
   bossa: 8.8,
   swing: 11.5, modal: 9.5,
   hypnotic: 1.1, industrial: -0.1, acid: 2.2, dub: 1.9, peak: 1.2, hardtechno: 2.6, deephouse: 2.15, minimal: 4.7,
