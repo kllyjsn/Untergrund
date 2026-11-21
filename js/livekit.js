@@ -86,9 +86,14 @@ export const SAX_HOOK = {
   boombap: 'tenorsax', afrobeats: 'tenorsax',
 };
 // Saxophones fold the key root into the horn's written range (`SAX_LO` is the lowest phrase root), so a high key drops a
-// whole octave instead of chipmunking the top notes; the hook's octave (a Describe edit) still moves it.
+// whole octave instead of chipmunking the top notes. A hook octave away from the style's generated one (`SAX_OCT`, a
+// Describe edit) still moves it.
 export const SAX_LO = { altosax: 55, tenorsax: 46 };
-export const saxRoot = (voice, root, oct = 0) => SAX_LO[voice] + (((root - SAX_LO[voice]) % 12) + 12) % 12 + oct * 12;
+export const SAX_OCT = { trap: 1 };
+export const saxRoot = (style, root, oct = SAX_OCT[style] ?? 0) => {
+  const lo = SAX_LO[SAX_HOOK[style]];
+  return lo + (((root - lo) % 12) + 12) % 12 + (oct - (SAX_OCT[style] ?? 0)) * 12;
+};
 Object.assign(BAND, EXTRA_TAKES);
 export const BAND_FILES = Object.entries(BAND).flatMap(([k, ns]) => ns.map((n) => `${k}_${n}`));
 // Crash and toms of the same recorded kit, loaded only by the band pockets that play them (POP, R&B, ROCK, FOLK, COUNTRY).

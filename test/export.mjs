@@ -112,7 +112,7 @@ for (const [seed, chords, hook] of [[7, 42, 68], [503, 71, 73]]) {
 }
 
 // A reed hook the engine plays on a recorded sax exports as that sax, in its register, and still follows an octave edit.
-for (const [style, program] of [['pop', 65], ['boombap', 66]]) {
+for (const [style, program] of [['pop', 65], ['trap', 65], ['boombap', 66]]) {
   const seed = [...Array(40).keys()].find((x) => song(style, x + 1).patterns.some((p) => p?.hook?.v === 'reed')) + 1;
   const s = song(style, seed), hook = (st) => parseMidi(songMidi(st).bytes).tracks.find((t) => t.name === 'Hook');
   const up = { ...s, patterns: s.patterns.map((p) => (p?.hook ? { ...p, hook: { ...p.hook, o: (p.hook.o || 0) + 1 } } : p)) };

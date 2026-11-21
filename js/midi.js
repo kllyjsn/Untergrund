@@ -102,7 +102,7 @@ export class Recorder {
       while (pitch < 48) pitch += 12;
     } else if (voice === 'reed' && SAX_HOOK[this.playbackStyle] && style !== 'dub' && !paletteFor(this.state, this.playbackStyle)) {
       voice = SAX_HOOK[this.playbackStyle];
-      pitch = saxRoot(voice, 60 + k, oct) + n;
+      pitch = saxRoot(this.playbackStyle, 60 + k, oct) + n;
     }
     this.hookVoice ??= voice;
     this.add('hook', t, pitch, dur * 0.92, v);

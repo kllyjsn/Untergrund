@@ -3631,7 +3631,7 @@ export class Engine {
     const wind = Object.hasOwn(WIND_HOOK, voice);
     if (wind) {
       const name = HOOK_BAND[voice], set = this.rec(name);
-      const root = SAX_LO[voice] ? saxRoot(voice, 60 + k, oct) : 60 + k + oct * 12;
+      const root = SAX_LO[voice] ? saxRoot(this.playbackStyle, 60 + k, oct) : 60 + k + oct * 12;
       if (set) return this.windHook(set, t, v, root + n, dur, voice, strong, expression);
       loadBand(name);
       voice = 'reed';

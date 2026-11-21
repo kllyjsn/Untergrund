@@ -903,7 +903,7 @@ for (const [style, seed] of [['deephouse', 211], ['trance', 211]]) {
         e.hook(0.1, 0.4, n, 0.2, hook);
         assert.equal(note, pitch, `${style}/${voice}/${hook}/${n} MIDI matches played pitch`);
         assert(note >= 48 && note <= 79);
-      } else if (hook === 'reed' && SAX_HOOK[style]) assert.equal(note, saxRoot(SAX_HOOK[style], 59) + n, `${style}/${voice}/reed MIDI is in the sax register`);
+      } else if (hook === 'reed' && SAX_HOOK[style]) assert.equal(note, saxRoot(style, 59, 0) + n, `${style}/${voice}/reed MIDI is in the sax register`);
       else assert.equal(note, 59 + n, `${style}/${voice}/${hook} MIDI register is unchanged`);
     }
   }
