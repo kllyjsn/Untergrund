@@ -9,6 +9,7 @@ import { createRoomMediaSync, roomMediaLead, roomMediaTime } from '../js/room-me
 import { createClockSender } from '../js/midi-core.js';
 import { Sequencer } from '../js/engine.js';
 import { Recorder } from '../js/midi.js';
+import { PART_IDS, jammable, stepWall } from '../js/jam.js';
 
 const origin = 1_000_000;
 const close = (a, b) => assert(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
@@ -822,6 +823,46 @@ function roomJoin(change = () => {}, options = {}) {
   assert.equal(scheduled[1].switchAt, 12, 'incoming downbeat uses the same audio boundary');
   assert.equal(scheduled[1].startsAt, startsAt, 'incoming grid uses the published origin');
   assert.equal(sandbox.state.artist.seed, 11);
+}
+{
+  const startsAt = origin + 12000;
+  const {item, sandbox} = roomJoin((set, s) => {
+    Object.assign(set, {broadcastId:'jam-spin', startsAt, version:2});
+    set.state.artist.seed = 11;
+    Object.assign(s.engine, {prepareVocal(){}, discardQueuedNotes(){}, handoffIn(){}});
+  }, {prepareSample(){}, liveSets:() => [], loadSets:async () => {}, queuedRoomSwitch:null,
+    trackingReplay:false, listens:{end(){}}, listenPos(){}, autoMajor:false, refreshJamPrime(){}});
+  const source = await readFile(new URL('../js/club.js', import.meta.url), 'utf8');
+  const body = source.slice(source.indexOf('export class RoomBus'), source.indexOf('\nlet parkedBus')).replace('export class', 'class');
+  const RoomBus = runInNewContext(`${body}\nRoomBus`, {PART_IDS, jammable, stepWall});
+  const queue = main.slice(main.indexOf('function queueJamPart('), main.indexOf('\n// t: the audio time'));
+  const install = main.slice(main.indexOf('function installRoomSong('), main.indexOf('\n// Saved Club sets'));
+  const switchSource = main.slice(main.indexOf('function switchRoomSet('), main.indexOf('\nfunction startRoomReplay('));
+  const {queueJamPart, landJamParts, switchRoomSet, reanchorRoomSet} = runInNewContext(
+    `${queue}\n${install}\n${switchSource}\n${joinSource}\n({queueJamPart, landJamParts, switchRoomSet, reanchorRoomSet})`, sandbox);
+  const slot = {owner:'other', layer:{params:{kick:{level:.8}}}, step:0, rev:1};
+  const bus = Object.assign(Object.create(RoomBus.prototype), {clientId:'listener', serverConnected:true,
+    currentSet:item, jamFollow:item.broadcastId, jamApplied:{}, jamSent:{},
+    jam:{setVersion:item.version, parts:{drums:slot}}, jamHooks:{queuePart:queueJamPart}});
+  bus.syncJam();
+  slot.rev++;
+  slot.layer = {params:{kick:{level:.3}}};
+  bus.syncJam();
+  const outgoingEdits = sandbox.jamQueue.length, landed = [];
+  const adjustedStart = startsAt + 80;
+  reanchorRoomSet(adjustedStart, startsAt);
+  sandbox.landJamPart = (part, layer, at) => landed.push([sandbox.state.artist.seed, part, layer.params.kick.level, at]);
+  sandbox.play = () => {
+    landJamParts(adjustedStart - 1, 12);
+    assert.deepEqual(landed, [], 'the reanchored edit does not land early');
+    landJamParts(adjustedStart, 12.08);
+  };
+  switchRoomSet(12.08);
+  bus.syncJam();
+  assert.deepEqual(landed, [[11, 'drums', .3, 12.08]], 'accepted revisions survive the switch and land with the incoming song');
+  assert.equal(outgoingEdits, 0, 'incoming edits never enter the outgoing queue');
+  assert.equal(bus.jamApplied.drums, 2);
+  assert.equal(sandbox.jamQueue.length, 0, 'the acknowledged revision is not replayed');
 }
 {
   const {calls, sandbox, item, analytics} = roomJoin((item, s) => {
