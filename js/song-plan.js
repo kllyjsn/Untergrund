@@ -5,7 +5,7 @@
 // Describe box's own edits, so a plan can only do what Describe can already do.
 import { STYLES } from './state.js';
 import { SCALES } from './params.js';
-import { parse, validateEdits, mergeEdits } from './describe.js';
+import { HIPHOP_PHRASES, parse, validateEdits, mergeEdits } from './describe.js';
 import { LYRIC_SECS, VOCALS, LIMITS, cleanText, cleanSections, splitLyrics } from './lyrics.js';
 import { SING_PROFILES } from './melody.js';
 import { writeLyrics } from './lyric-writer.js';
@@ -38,6 +38,8 @@ export function styleFor(text) {
   if (!t.trim()) return null;
   const word = t.trim().replace(/\s+/g, '');
   if (STYLES[word] && word !== 'repertoire') return word;
+  const hiphop = HIPHOP_PHRASES.find(([re]) => t.search(re) >= 0);
+  if (hiphop) return hiphop[1];
   for (const [id, name] of NAMES()) if (id !== 'repertoire' && (t.includes(` ${name} `) || t.includes(` ${id} `))) return id;
   for (const [re, ids] of STYLE_HINTS) if (re.test(t)) { const id = ids.find((x) => STYLES[x]); if (id) return id; }
   const g = parse(t).edits.find((e) => e.id === 'genre');

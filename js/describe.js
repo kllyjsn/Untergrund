@@ -48,6 +48,12 @@ const ARTISTS = {
 };
 const ARTIST_RE = Object.entries(ARTISTS).map(([id, [re]]) => [new RegExp(re.source, 'g'), ` artist${id} `]);
 
+export const HIPHOP_PHRASES = [
+  [/\blo[\s-]?fi[\s-]+(?:hip[\s-]?hop|beats?)\b|\bchillhop\b/g, 'lofihiphop'],
+  [/\bg[\s-]?funk\b/g, 'gfunk'], [/\b(?:drift|memphis)[\s-]+phonk\b/g, 'phonk'],
+  [/\b(?:old[\s-]?school[\s-]+(?:electro|hip[\s-]?hop)|electro[\s-]+(?:hip[\s-]?hop|funk|rap))\b/g, 'electrohiphop'],
+];
+
 // Multi-word phrases are folded into single tokens before matching.
 const PHRASES = [
   [/(?:make\s+it|go|sound|more)\s+(?:huge|massive|enormous|gigantic)\b/g, ' mainstage '],
@@ -63,9 +69,7 @@ const PHRASES = [
   [/(jazz|jazzy|funky|archtop|hollow[\s-]?body)\s+guitars?/g, ' $1 jazzguitar '], [/(twangy?|country|gretsch|rockabilly|chicken[\s-]picking)\s+guitars?/g, ' $1 twangguitar '], [/(?:distorted|overdriven|electric|crunchy|dirty)\s+guitars?/g, ' driveguitar '], [/(?:electric|fender)\s+bass|bass\s+guitar/g, ' electricbass '],
   [/drum\s+(?:roll|fill)s?/g, ' fills '], [/low[\s-]end/g, ' bass '], [/top[\s-]?line/g, ' melody '],
   [/drum\s*(?:and|&|n|'n'|n')\s*bass|\bd\s*(?:&|n)\s*b\b/g, ' dnb '],
-  [/\blo[\s-]?fi[\s-]+(?:hip[\s-]?hop|beats?)\b|\bchillhop\b/g, ' lofihiphop '],
-  [/\bg[\s-]?funk\b/g, ' gfunk '], [/\b(?:drift|memphis)[\s-]+phonk\b/g, ' phonk '],
-  [/\b(?:old[\s-]?school[\s-]+(?:electro|hip[\s-]?hop)|electro[\s-]+(?:hip[\s-]?hop|funk|rap))\b/g, ' electrohiphop '],
+  ...HIPHOP_PHRASES.map(([re, id]) => [re, ` ${id} `]),
   [/\bhip[\s-]?hop\b/g, ' hiphop '], [/\blo[\s-]?fi\b/g, ' lofi '], [/neo[\s-]?soul/g, ' neosoul '], [/boom[\s-]?bap/g, ' boombap '],
   [/deep[\s-]house/g, ' deephouse '], [/uk[\s-]?garage/g, ' ukg '], [/\b(?:2|two)[\s-]?step\b/g, ' ukg '],
   [/peak[\s-]time/g, ' peak '], [/hard[\s-]techno/g, ' hardtechno '], [/dub[\s-]techno/g, ' dub '],
