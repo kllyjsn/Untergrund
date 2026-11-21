@@ -2,17 +2,44 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { runInNewContext } from 'node:vm';
-import { createRoomClock, roomTransportPosition, shiftRoomSet, syncAudioClock, transportResync, calibrateRoomClock, slewTransport, roomTransportCorrection } from '../js/room-sync.js';
+import { createRoomClock, roomBoundary, roomTransportPosition, shiftRoomSet, syncAudioClock, transportResync, calibrateRoomClock, slewTransport, roomTransportCorrection } from '../js/room-sync.js';
 import { freshSong, clone, sanitize, STYLES } from '../js/state.js';
 import { songFingerprint } from '../js/listen.js';
 import { createRoomMediaSync, roomMediaLead, roomMediaTime } from '../js/room-media-sync.js';
 import { createClockSender } from '../js/midi-core.js';
-import { Sequencer } from '../js/engine.js';
+import { Engine, Sequencer } from '../js/engine.js';
 import { Recorder } from '../js/midi.js';
 import { PART_IDS, jammable, stepWall } from '../js/jam.js';
 
 const origin = 1_000_000;
 const close = (a, b) => assert(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
+
+{
+  const beat = 60000 / 78, earliest = origin + 4.1 * beat;
+  close(roomBoundary(origin, 78, earliest, 1), origin + 5 * beat);
+  close(roomBoundary(origin, 78, earliest, 4), origin + 8 * beat);
+  close(roomBoundary(origin, 120, origin + 3000, 1), origin + 3000);
+}
+
+{
+  const events = [], stop = (t) => events.push(['stop', t]);
+  const endSignal = { start() {}, stop };
+  const gain = {
+    setValueAtTime: (v, t) => events.push(['set', v, t]),
+    linearRampToValueAtTime: (v, t) => events.push(['ramp', v, t]),
+  };
+  const outgoing = { ctx:{currentTime:8, createConstantSource:() => endSignal}, continuousSources:[{stop}],
+    tailGain:{gain, disconnect:() => events.push(['disconnect-tail'])}, out:{disconnect:() => events.push(['disconnect'])} };
+  Engine.prototype.fadeRoomTail.call(outgoing, 8.1);
+  assert.deepEqual(events.map(e => e[0]), ['set', 'ramp', 'ramp', 'stop', 'stop']);
+  close(events[0][2], 8.108);
+  close(events[1][1], events[0][1] * .24);
+  close(events[1][2], 8.124);
+  close(events[2][1], 0);
+  for (const event of events.slice(2)) close(event.at(-1), 8.144);
+  endSignal.onended();
+  assert.deepEqual(events.slice(-2), [['disconnect-tail'], ['disconnect']]);
+}
 
 {
   let now = 100;
@@ -831,6 +858,7 @@ function roomJoin(change = () => {}, options = {}) {
     set.state.artist.seed = 11;
     Object.assign(s.engine, {prepareVocal(){}, discardQueuedNotes(){}, handoffIn(){}});
   }, {prepareSample(){}, liveSets:() => [], loadSets:async () => {}, queuedRoomSwitch:null,
+    roomOutput:{}, vocalStem(){}, Engine: class { handoffIn() {} }, Sequencer: class {},
     trackingReplay:false, listens:{end(){}}, listenPos(){}, autoMajor:false, refreshJamPrime(){}});
   const source = await readFile(new URL('../js/club.js', import.meta.url), 'utf8');
   const body = source.slice(source.indexOf('export class RoomBus'), source.indexOf('\nlet parkedBus')).replace('export class', 'class');
@@ -849,6 +877,8 @@ function roomJoin(change = () => {}, options = {}) {
   slot.layer = {params:{kick:{level:.3}}};
   bus.syncJam();
   const outgoingEdits = sandbox.jamQueue.length, landed = [];
+  const outgoingEngine = sandbox.engine, fades = [];
+  outgoingEngine.fadeRoomTail = at => fades.push(at);
   const adjustedStart = startsAt + 80;
   reanchorRoomSet(adjustedStart, startsAt);
   sandbox.landJamPart = (part, layer, at) => landed.push([sandbox.state.artist.seed, part, layer.params.kick.level, at]);
@@ -858,6 +888,8 @@ function roomJoin(change = () => {}, options = {}) {
     landJamParts(adjustedStart, 12.08);
   };
   switchRoomSet(12.08);
+  assert.deepEqual(fades, [12.08], 'only the outgoing engine is faded');
+  assert.notEqual(sandbox.engine, outgoingEngine, 'the incoming engine starts on an independent output');
   bus.syncJam();
   assert.deepEqual(landed, [[11, 'drums', .3, 12.08]], 'accepted revisions survive the switch and land with the incoming song');
   assert.equal(outgoingEdits, 0, 'incoming edits never enter the outgoing queue');

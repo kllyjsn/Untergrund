@@ -606,7 +606,7 @@ export class Engine {
   get minimal() { return (jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle) === 'minimal'; }
   get playbackSeed() { return this.replaySeed ?? this.state.artist?.seed; }
   get hardTechno() { return this.state.artist?.style === 'hardtechno'; }
-  constructor(ctx, state, { realtime = true, vocal = null, trackQueuedNotes = false } = {}) {
+  constructor(ctx, state, { realtime = true, vocal = null, trackQueuedNotes = false, destination = null } = {}) {
     this.ctx = ctx;
     this.state = state;
     this.realtime = realtime;
@@ -616,8 +616,9 @@ export class Engine {
     this.editableHits = [];
     this.ducks = [];
     this.gatedBasses = new Map();
+    this.continuousSources = [];
     this.noise = makeNoise(ctx, 2);
-    this.buildMaster();
+    this.buildMaster(destination);
     this.buildFx();
     this.buildChannels();
     if (state.artist?.style === 'dub') this.dubPadOut();
@@ -640,7 +641,7 @@ export class Engine {
     return c;
   }
 
-  buildMaster() {
+  buildMaster(destination) {
     const c = this.ctx;
     this.mix = this.gain(1);
     this.duck = this.gain(1);
@@ -686,7 +687,10 @@ export class Engine {
       this.wakeGain = this.gain();
       this.festivalGate.connect(this.wakeGain).connect(this.out);
     } else this.festivalGate.connect(this.out);
-    this.out.connect(c.destination);
+    if (destination) {
+      this.tailGain = this.gain();
+      this.out.connect(this.tailGain).connect(destination);
+    } else this.out.connect(c.destination);
     // The neural singer's stem (vocal(), js/sing.js): past the band's duck, into the master chain.
     this.vocalBus = this.gain(0);
     this.vocalOut = this.gain(1);
@@ -825,7 +829,7 @@ export class Engine {
     a.f1.connect(a.f2).connect(a.vca).connect(a.hp).connect(a.pre).connect(a.shaper).connect(a.tame).connect(a.post).connect(this.ch.acid.input);
     a.env.connect(a.f1.detune);
     a.env.connect(a.f2.detune);
-    a.o1.start(0); a.o2.start(0); a.env.start(0);
+    this.startContinuous(a.o1); this.startContinuous(a.o2); this.startContinuous(a.env);
     this.acidNodes = a;
   }
 
@@ -1142,6 +1146,28 @@ export class Engine {
     const note = { src, t };
     this.queuedNotes.push(note);
     this.editingHit?.sources.push(note);
+  }
+
+  startContinuous(src) {
+    src.start(0);
+    this.continuousSources.push(src);
+  }
+
+  fadeRoomTail(at) {
+    const end = at + 0.044;
+    const gain = this.tailGain.gain;
+    gain.setValueAtTime(1, at + 0.008);
+    gain.linearRampToValueAtTime(0.24, at + 0.024);
+    gain.linearRampToValueAtTime(0, end);
+    for (const src of this.continuousSources) src.stop(end);
+    this.continuousSources.length = 0;
+    const endSignal = this.ctx.createConstantSource();
+    endSignal.onended = () => {
+      this.tailGain.disconnect();
+      this.out.disconnect();
+    };
+    endSignal.start();
+    endSignal.stop(end);
   }
 
   planHit(time, track, pattern, plan) {
@@ -3030,7 +3056,7 @@ export class Engine {
       lfo.connect(depth).connect(d.delayTime);
       inp.connect(d).connect(this.gain(0.25)).connect(pan).connect(dest);
     }
-    lfo.start();
+    this.startContinuous(lfo);
     all.set(dest, inp);
     return inp;
   }
@@ -3042,7 +3068,7 @@ export class Engine {
     if (!tr) {
       const inp = this.gain(1), lfo = this.ctx.createOscillator(), amt = this.gain(0);
       inp.connect(dest); inp.gain.value = 1;
-      lfo.connect(amt).connect(inp.gain); lfo.start();
+      lfo.connect(amt).connect(inp.gain); this.startContinuous(lfo);
       all.set(dest, (tr = { inp, lfo, amt }));
     }
     tr.lfo.frequency.setValueAtTime(1 / (2 * this.stepDur), t);
@@ -3519,7 +3545,7 @@ export class Engine {
           const lfo = this.ctx.createOscillator();
           lfo.frequency.value = rate;
           lfo.connect(this.technoHookMotion);
-          lfo.start();
+          this.startContinuous(lfo);
         }
       }
       this.technoHookMotion.connect(depth).connect(diffuse.delayTime);
@@ -4040,7 +4066,7 @@ export class Engine {
     let s = this.subVoice;
     if (!s) {
       const o = this.ctx.createOscillator(), amp = this.gain(0);
-      o.frequency.value = f; o.connect(amp).connect(this.ch.acid.input); o.start();
+      o.frequency.value = f; o.connect(amp).connect(this.ch.acid.input); this.startContinuous(o);
       s = this.subVoice = { o, amp };
     }
     s.o.frequency.cancelScheduledValues(t); s.o.frequency.setTargetAtTime(f, t, sliding ? 0.03 : 0.001);
@@ -4084,7 +4110,7 @@ export class Engine {
     const waves = [], freqs = [];
     for (const wave of ['sine', 'sawtooth', 'square']) {
       const o = c.createOscillator(), gain = this.gain(0);
-      o.type = wave; o.connect(gain).connect(lp); o.start(0);
+      o.type = wave; o.connect(gain).connect(lp); this.startContinuous(o);
       waves.push(gain.gain); freqs.push(o.frequency);
     }
     lp.connect(drive).connect(amp).connect(this.ch.acid.input);
@@ -4124,14 +4150,14 @@ export class Engine {
     const tone = this.gain(wide ? 0.81 : 0.5);
     const sub = c.createOscillator();
     sub.connect(this.gain(wide ? 1.24 : 0.88)).connect(amp);
-    sub.start(0);
+    this.startContinuous(sub);
     const freqs = [sub.frequency], detunes = [];
     const seats = wide ? this.sidePans([-0.48, 0.48], lp) : [lp];
     for (const dest of seats) {
       const o = c.createOscillator(); o.type = wide ? 'sawtooth' : 'triangle';
       if (wide) o.connect(this.filter('highpass', 260, 0.7)).connect(dest);
       else o.connect(dest);
-      o.start(0);
+      this.startContinuous(o);
       freqs.push(o.frequency); detunes.push(o.detune);
     }
     lp.connect(drive);

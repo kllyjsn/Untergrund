@@ -43,6 +43,11 @@ export function shiftRoomSet(set, by) {
   };
 }
 
+export function roomBoundary(startsAt, bpm, earliest, beats) {
+  const span = 60000 * beats / bpm;
+  return startsAt + Math.ceil((earliest - startsAt) / span) * span;
+}
+
 export function roomTransportPosition(startsAt, bpm, now = Date.now()) {
   const origin = Number.isFinite(+startsAt) ? +startsAt : now;
   const tempo = Math.max(40, Math.min(240, Number.isFinite(+bpm) ? +bpm : 132));
