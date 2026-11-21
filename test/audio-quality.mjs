@@ -225,6 +225,35 @@ for (const pcm of [tone(800, 0.04), tone(800, 2, 1e-6), new Float32Array(sec(2))
 console.log('audio quality metrics: synthetic checks passed');
 
 const drill = await withChrome(async (run) => {
+  const paletteControls = await run(`(async () => {
+    const { song } = await import('/test/audio-quality-page.js');
+    const { Engine } = await import('/js/engine.js');
+    const results = [];
+    for (const style of ['dnb', 'euphoric', 'deephouse']) {
+      async function render(control, value, bass = false) {
+        const s = song(style, 42); s.params.stab.voice = 1;
+        if (control) s.params[bass ? 'acid' : 'stab'][control] = value;
+        const ctx = new OfflineAudioContext(1, 48000, 48000), e = new Engine(ctx, s, { realtime: false });
+        e.out.disconnect();
+        e.ch[bass ? 'acid' : 'stab'].input = ctx.destination;
+        if (bass) e.acidVoice(0.02, { n: 0, a: false }, false, false, e.stepDur);
+        else e.stab(0.02, 0.7);
+        return (await ctx.startRendering()).getChannelData(0);
+      }
+      const chord = await render();
+      const changes = [['env', 0.95, false], ['detune', 37, false], ['tine', 0, false]];
+      if (style !== 'dnb') changes.push(['drive', 0, true], ['drive', 0.8, true]);
+      for (const [control, value, bass] of changes) {
+        const before = bass ? await render(null, null, true) : chord, after = await render(control, value, bass);
+        let energy = 0, error = 0;
+        for (let i = 0; i < before.length; i++) { energy += before[i] ** 2; error += (after[i] - before[i]) ** 2; }
+        results.push({ style, control, value, relativeRms: Math.sqrt(error / energy), finite: after.every(Number.isFinite) });
+      }
+    }
+    return results;
+  })()`);
+  for (const row of paletteControls) assert(row.finite && row.relativeRms > 0.01, `Palette control changes native PCM: ${JSON.stringify(row)}`);
+  console.log('palette controls: KEYS ENV/DETUNE/TINE and pocket-bass DRIVE change native PCM');
   const wake = await run(`(async () => {
     const { defaultState } = await import('/js/state.js');
     const { Engine } = await import('/js/engine.js');

@@ -59,6 +59,7 @@ const rmsDb = (d, a, b) => { let e = 0; for (let i = a; i < b; i++) e += d[i] * 
 
 for (const style of ['dnb', 'euphoric', 'deephouse']) {
   const s = freshSong(style, 42), ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
+  s.artist = { style, seed: 42 };
   let synth = 0, recorded = 0;
   e.paletteHook = () => synth++;
   const voice = { buffer: ctx.createBuffer(1, SR / 2, SR), chops: [{ midi: 60, start: 0, end: 0.2 }] };
@@ -77,6 +78,38 @@ for (const style of ['dnb', 'euphoric', 'deephouse']) {
     e.hook(0.1, 0.4, 0, 0.2, 'analog');
     assert.equal(synth, 2, `${style} analog still uses the palette with a recording loaded`);
   } finally { clearVoice(); }
+}
+
+for (const style of ['dnb', 'euphoric', 'deephouse']) {
+  const sample = async (control = null, value = null, bass = false) => {
+    const s = freshSong(style, 42); s.artist = { style, seed: 42 }; s.params.stab.voice = 1;
+    if (control) s.params[bass ? 'acid' : 'stab'][control] = value;
+    const ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
+    e.ch[bass ? 'acid' : 'stab'].input.connect(ctx.destination);
+    if (bass) e.acidVoice(0.05, { n: 0, a: false }, false, false, e.stepDur);
+    else e.stab(0.05, 0.7);
+    return (await ctx.startRendering(ctx.destination)).getChannelData(0);
+  };
+  const chord = await sample();
+  for (const [control, value] of [['env', 0.95], ['detune', 37]]) {
+    const changed = await sample(control, value);
+    assert(changed.every(Number.isFinite), `${style} ${control} stays finite`);
+    assert(changed.some((x, i) => Math.abs(x - chord[i]) > 1e-5), `${style} KEYS ${control} changes audible PCM`);
+  }
+  if (style !== 'dnb') {
+    const bass = await sample(null, null, true);
+    for (const value of [0, 0.8]) {
+      const changed = await sample('drive', value, true);
+      assert(changed.every(Number.isFinite), `${style} DRIVE stays finite`);
+      assert(changed.some((x, i) => Math.abs(x - bass[i]) > 1e-5), `${style} DRIVE ${value} changes audible PCM`);
+    }
+  }
+  for (const seed of [11, 20, 42, 73, 211, 997, 1234, 2026]) {
+    const s = freshSong(style, seed); s.artist = { style, seed };
+    const e = new Engine(new OfflineAudioContext(1, 256, SR), s, { realtime: false }), ref = e.paletteReference();
+    for (const key of ['env', 'detune', 'tine']) assert.equal(ref.stab[key], s.params.stab[key], `${style}/${seed} neutral ${key}`);
+    assert.equal(ref.acid.drive, s.params.acid.drive, `${style}/${seed} neutral DRIVE`);
+  }
 }
 
 for (const listener of ['dnb', 'euphoric', 'deephouse']) {

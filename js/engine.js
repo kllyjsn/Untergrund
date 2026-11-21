@@ -1,4 +1,5 @@
-import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES, KIT_BACKBEAT } from './params.js';
+import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES, KIT_BACKBEAT, defaultParams } from './params.js';
+import { PALETTE_INSTRUMENTS, PALETTE_DEFAULTS, instrumentFor } from './palette-defaults.js';
 import { getSample } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
@@ -2063,7 +2064,7 @@ export class Engine {
     const { root, vo, iv } = stabPitches(this);
     if (this.playbackStyle === 'bailefunk') return this.funkStab(t, v, iv, root, p.decay, this.ch.stab.input);
     const palette = paletteFor(this.state, this.playbackStyle);
-    if (palette) return this.paletteChord(t, v, iv, root, p, this.ch.stab.input, paletteColor(this.state, this.playbackStyle));
+    if (palette) return this.paletteChord(t, v, iv, root, p, this.ch.stab.input, paletteColor(this.state, this.playbackStyle), Math.round(p.voice) === 1);
     if (this.state.artist?.style === 'dub') {
       this.dubPad(t, v, iv, root);
       return this.dubChord(t, v, iv, root, p, this.ch.stab.input);
@@ -2150,8 +2151,29 @@ export class Engine {
     });
   }
 
-  paletteChord(t, v, iv, root, p, out, color) {
+  paletteReference() {
+    const { style, seed } = this.state.artist || {}, playback = this.playbackStyle, key = `${playback}:${style}:${seed}:${this.state.scale}`;
+    if (this.paletteRef?.key !== key) {
+      const params = defaultParams();
+      const defaults = PALETTE_DEFAULTS[playback];
+      params.stab.detune = defaults?.detune ?? params.stab.detune;
+      params.acid.drive = defaults?.drive ?? params.acid.drive;
+      if (style === playback && Number.isFinite(seed) && paletteFor(this.state, playback)) {
+        params.stab.env = instrumentFor(PALETTE_INSTRUMENTS[style], seed)[4];
+      }
+      this.paletteRef = { key, stab: params.stab, acid: params.acid };
+    }
+    return this.paletteRef;
+  }
+
+  paletteChord(t, v, iv, root, p, out, color, keys = false) {
     if (!iv.length) return;
+    let articulation = 1;
+    if (keys) {
+      const ref = this.paletteReference().stab;
+      articulation = 2 ** ((p.env - ref.env) * 2);
+      color = { ...color, spread: Math.max(0, color.spread + (p.detune - ref.detune) * 0.5), tine: p.tine ?? 1 };
+    }
     if (color.piano) {
       const hp = this.filter('highpass', 160, 0.7), lp = this.filter('lowpass', color.cutoff, 0.6);
       hp.connect(lp).connect(this.gain(color.level)).connect(out);
@@ -2161,7 +2183,7 @@ export class Engine {
     const release = Math.max(0.12, Math.min(color.release, p.decay)), hold = color.hold ?? 0.04, end = t + color.attack + hold + release * 6 + 0.02;
     const cutoff = color.cutoff * Math.max(0.5, Math.min(1.8, p.cutoff / 1800));
     const hp = this.filter('highpass', 180, 0.7), lp = this.filter('lowpass', cutoff, 0.6), amp = this.gain(0);
-    lp.frequency.setValueAtTime(cutoff * (0.7 + 0.6 * v), t);
+    lp.frequency.setValueAtTime(cutoff * (0.7 + 0.6 * v) * articulation, t);
     lp.frequency.setTargetAtTime(cutoff * 0.65, t + color.attack + 0.01, Math.max(0.04, release * 0.4));
     hp.connect(lp).connect(amp).connect(out);
     amp.gain.setValueAtTime(0, t);
@@ -2183,13 +2205,13 @@ export class Engine {
   }
 
   paletteWave(f, color) {
-    const waves = (this.paletteWaves ||= new Map()), key = `${f}:${color.wave}:${color.fm}:${color.organ || 0}`;
+    const waves = (this.paletteWaves ||= new Map()), key = `${f}:${color.wave}:${color.fm}:${color.organ || 0}:${color.tine ?? 1}`;
     if (!waves.has(key)) {
       const count = Math.max(1, Math.min(32, Math.floor(1750 / f))), re = new Float32Array(count + 1), im = new Float32Array(count + 1);
       for (let h = 1; h <= count; h++) {
         const edge = Math.min(1, Math.max(0, (1850 - f * h) / 350));
         const core = color.wave === 'sawtooth' ? (h % 2 ? 1 : -1) / h : color.wave === 'triangle' ? (h % 2 ? (h % 4 === 1 ? 1 : -1) / (h * h) : 0) : h === 1 ? 1 : 0;
-        im[h] = edge * (core + (h === 2 ? color.fm * 0.22 + (color.organ || 0) : h === 3 ? color.fm * 0.07 : 0));
+        im[h] = edge * (core + (h === 2 ? color.fm * 0.22 + (color.organ || 0) : h === 3 ? color.fm * 0.07 : 0)) * (h === 1 ? 1 : color.tine ?? 1);
       }
       if (im[1] === 0) im[1] = 1;
       waves.set(key, this.ctx.createPeriodicWave(re, im));
@@ -2232,6 +2254,7 @@ export class Engine {
 
   pocketBass(t, st, sd, holdNext, sliding, color) {
     const c = this.ctx, p = this.state.params.acid, f = midiHz(this.bassMidi(st)), subF = midiHz(this.bassMidi(st, 36, Math.round(p.voice) === 5 ? 43 : 38));
+    const drive = p.drive - this.paletteReference().acid.drive, preamp = 2 ** (drive * 2);
     const from = this.monoNote(t, f, sliding), len = (st.ap ? sd * 0.9 : holdNext ? sd * 2 : sd * (0.9 + p.decay * 2)) * color.length, end = t + len + 0.25;
     const cutoff = Math.max(100, Math.min(4000, color.cutoff * (0.55 + p.cutoff / 600)));
     const lp = this.filter('lowpass', cutoff, 0.6), amp = this.gain(0), vel = (st.a ? 1 : 0.82) * (this.noteVel ?? 1) * color.level;
@@ -2240,7 +2263,12 @@ export class Engine {
     amp.gain.setValueAtTime(0, t); amp.gain.linearRampToValueAtTime(vel, t + 0.006);
     amp.gain.setTargetAtTime(vel * color.sustain, t + 0.012, color.decay);
     amp.gain.setTargetAtTime(0, t + len, 0.025);
-    lp.connect(amp); amp.connect(this.ch.acid.input);
+    if (drive > 0) {
+      const shape = c.createWaveShaper(), wet = driveCurve(drive * 0.7);
+      shape.curve = Float32Array.from(wet, (y, i) => { const x = i / (wet.length - 1) * 2 - 1; return x + drive * (y - x); });
+      lp.connect(shape).connect(amp);
+    } else lp.connect(amp);
+    amp.connect(this.ch.acid.input);
     let depth;
     if (color.fm) {
       const mod = c.createOscillator(); depth = this.gain(0);
@@ -2255,7 +2283,7 @@ export class Engine {
       o.frequency.setValueAtTime(sub ? subF : from, t);
       if (!sub && from !== f) o.frequency.exponentialRampToValueAtTime(f, t + 0.04);
       if (!sub && depth) depth.connect(o.frequency);
-      o.connect(this.gain(level)).connect(sub ? amp : lp);
+      o.connect(this.gain(sub ? level : level * preamp)).connect(sub ? amp : lp);
       this.startSource(o, t); o.stop(end);
     }
     this.mono = { amp, f, end };
