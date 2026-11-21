@@ -8,6 +8,7 @@ import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel, swingLate, swingDuration } from './groove.js';
 import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes, jazzNotches, JAZZ_MIX, BOSSA_RIM, BOSSA_BATIDA, bossaBass } from './jazz.js';
 import { funkBass, FUNK_KICK, FUNK_SNARE, FUNK_COMP } from './jazzfunk.js';
+import { recordedJazzKeys } from './jazz-recordings.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ, TECHNO_HOOK_SPACE } from './lead.js';
 import { lowEnd } from './lowend.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
@@ -2151,6 +2152,7 @@ export class Engine {
   jazzKeys(t, v, iv, root, p, out) {
     if (!iv.length) return;
     const style = jazzStyle(this.state, this.playingPattern);
+    if (recordedJazzKeys(this, t, v, iv, root, p, out, style === 'jazzfunk' ? dbGain(JAZZ_MIX.jazzfunk.comp) : 1)) return;
     const envDefault = style === 'jazzfunk' ? 0.12 : 0.45, detuneDefault = style === 'jazzfunk' ? 0.6 : 12;
     const env = Number.isFinite(p.env) ? Math.max(0, Math.min(1, p.env)) : envDefault;
     const detune = Number.isFinite(p.detune) ? Math.max(0, Math.min(40, p.detune)) : detuneDefault;

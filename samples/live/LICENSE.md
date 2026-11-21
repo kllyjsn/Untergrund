@@ -1,12 +1,13 @@
 # Recorded instrument samples: licenses
 
-Every audio file in this folder is derived from one of the sources below. All are released under the
+Every audio file in this folder is derived from one of the sources below. Except for the attributed
+Greg Sullivan Wurlitzer EP200 bank (CC-BY-3.0, documented below), these are released under the
 **Creative Commons CC0 1.0 Universal** public-domain dedication (full legal text in each source repo's `LICENSE`;
 the Virtuosity Drums and double-bass files are byte-identical, sha256 `a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499`).
 CC0 waives copyright and related rights, so the files can be redistributed in this app and used in commercial
 music without attribution. We credit the authors anyway.
 
-Processing applied to every file: summed to mono, resampled to 44.1 kHz 16-bit PCM, trimmed, 80 ms fade out.
+Default processing unless noted below: summed to mono, resampled to 44.1 kHz 16-bit PCM, trimmed, 80 ms fade out.
 Stored as lossless FLAC (bit-identical PCM to the original 16-bit WAVs). Drum files mix the close mic with the overhead mic of the same hit.
 
 ## Virtuosity Drums (Versilian Studios / Karoryfer, drummer Austin McMahon)
@@ -134,6 +135,16 @@ recording's measured pitch (`python3 test/sampletune.py`) is corrected in `js/li
 | `ebass_49.flac` | `darkblack/reg/darkblack_db4_mf_rr1.wav` | 49 |
 | `ebass_52.flac` | `darkblack/reg/darkblack_e4_mf_rr1.wav` | 52 |
 | `ebass_55.flac` | `darkblack/reg/darkblack_g4_mf_rr1.wav` | 55 |
+
+## Greg Sullivan Wurlitzer EP200 (jazz KEYS)
+
+- Source: https://github.com/sfzinstruments/GregSullivan.E-Pianos @ `8c3e581acda3594b553948ff0222d4f84a698376`
+- Recordings by Greg Sullivan; SFZ mapping by kinwie. License: **CC-BY-3.0**, not CC0.
+- Source wording: “This work is licensed under a Creative Commons Attribution 3.0 Unported License.”
+- `jep1_*`, `jep2_*`, `jep3_*`, `jep4_*` retain the four recorded dynamics (pp/mp/f/ff), each with its own nearest-root mapping.
+- Modified by Untergrund: mono 48 kHz / 24-bit FLAC, onset trim, at most six seconds, 80 ms tail fade, peak normalization and measured playback tuning corrections. No synthesis or denoising.
+- Full license: [`../WURLITZER-LICENSE.txt`](../WURLITZER-LICENSE.txt). Pinned URLs, original filenames, original/imported hashes, processing and pitch offsets: [`../wurlitzer-provenance.json`](../wurlitzer-provenance.json).
+- The original CC0 statements in this register apply to the other explicitly CC0 banks, not these attributed recordings.
 
 ## Rejected
 
