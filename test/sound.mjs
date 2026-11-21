@@ -7,7 +7,7 @@ installGlobals();
 const { defaultState, generate, applyOverrides, arrangement, freshSong, INSTRUMENTS } = await import('../js/state.js');
 const { Engine, Sequencer } = await import('../js/engine.js');
 const { Recorder, capture } = await import('../js/midi.js');
-const { loadBand, loadSets, liveSets, STAB_BAND, SOFT_LAYER } = await import('../js/livekit.js');
+const { loadBand, loadSets, liveSets, STAB_BAND, SOFT_LAYER, SAX_HOOK, saxRoot } = await import('../js/livekit.js');
 const { spectralBands, kWeight, lufs } = await import('../js/lab-metrics.js');
 const { lowEnd } = await import('../js/lowend.js');
 const { getSample } = await import('../js/sampler.js');
@@ -903,7 +903,8 @@ for (const [style, seed] of [['deephouse', 211], ['trance', 211]]) {
         e.hook(0.1, 0.4, n, 0.2, hook);
         assert.equal(note, pitch, `${style}/${voice}/${hook}/${n} MIDI matches played pitch`);
         assert(note >= 48 && note <= 79);
-      } else assert.equal(note, 59 + n, `${style}/${voice}/${hook} MIDI register is unchanged`);
+      } else if (hook === 'reed' && SAX_HOOK[style]) assert.equal(note, saxRoot(SAX_HOOK[style], 59) + n, `${style}/${voice}/reed MIDI is in the sax register`);
+      else assert.equal(note, 59 + n, `${style}/${voice}/${hook} MIDI register is unchanged`);
     }
   }
 }
