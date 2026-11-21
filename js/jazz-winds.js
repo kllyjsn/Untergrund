@@ -7,6 +7,7 @@ export const FLUTE_BANKS = ['jfl', 'jflb'];
 export const windBanks = (voice, style) => voice === 'tpt' ? TRUMPET_BANKS : voice === 'harmon' ? HARMON_BANKS : voice === 'airflute' ? style === 'bossa' ? ['jfl'] : FLUTE_BANKS : [];
 export const windNotches = (bank, midi, rate = 1) => Number.isFinite(rate) && rate > 0 ? (WIND_PEAKS[bank]?.[Math.round(midi)] || []).map(([f, q, db]) => [f * rate, q, db]) : [];
 const BOSSA_FLUTE_DEPTHS = { 69: { 2644: -3 } };
+const BOSSA_TRUMPET_LEVELS = { jtv1: { 65: -3.2 } };
 export const bossaFluteNotches = (midi, rate = 1) => Number.isFinite(rate) && rate > 0 ? jazzNotches('fl', midi).flatMap(([f, q, db]) => {
   const gain = BOSSA_FLUTE_DEPTHS[Math.round(midi)]?.[f] ?? db;
   return gain < 0 ? [[f * rate, q, gain]] : [];
@@ -26,9 +27,10 @@ export function recordedJazzWind(e, t, v, midi, duration, voice, strong, { take 
   const distance = ([pitch]) => Math.abs((bossa ? Math.round(pitch) : pitch) - midi);
   const [center, buffer] = set.reduce((a, b) => distance(b) < distance(a) ? b : a);
   const rate = 2 ** ((midi - center) / 12);
+  const balance = style === 'bossa' ? 10 ** ((BOSSA_TRUMPET_LEVELS[bank]?.[Math.round(center)] ?? 0) / 20) : 1;
   let out = e.trimOut(`hook-${voice}`, 1, e.hookBus || e.windDuck, -4, 500);
   if (bossa) out = e.bodyFor(e.bodyFor(out, [2950, .8, 6.2]), [780, 1.2, -2.5]);
-  e.playBuf(buffer, t, (flute ? 1.02 : muted ? .48 : .4) * touch * mix, out, rate, Math.max(.06, duration * .92), {
+  e.playBuf(buffer, t, (flute ? 1.02 : muted ? .48 : .4) * touch * mix * balance, out, rate, Math.max(.06, duration * .92), {
     peaks: bossa ? bossaFluteNotches(center, rate) : windNotches(bank, center, rate),
     fade: short ? .004 : flute ? .008 : .015,
     attackGain: strong ? 1.02 : .94,

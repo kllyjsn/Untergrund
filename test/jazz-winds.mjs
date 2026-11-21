@@ -102,6 +102,16 @@ for (const style of ['swing', 'modal', 'jazzfunk', undefined]) {
 assert.deepEqual(probe('tpt', .6, .5, 1, undefined, 'bossa').eq, [], 'Bossa trumpet is untouched');
 assert(!recordedJazzWind({ rec() {} }, 0, .5, 70, .2, 'reed', false, {}, 1), 'unrelated voices do not allocate nodes');
 {
+  const level = (style, velocity = .4, midi = 65, duration = .8, voice = 'tpt', take = 0) => probe(voice, velocity, duration, take, undefined, style, midi).calls[0][2];
+  assert(Math.abs(level('bossa') / level('modal') - 10 ** (-3.2 / 20)) < 1e-12, 'Bossa level-matches the soft F4 sustain take');
+  for (const args of [[.9, 65, .8], [.4, 63, .8], [.4, 65, .15], [.4, 65, .8, 'harmon']]) {
+    assert.equal(level('bossa', ...args), level('modal', ...args), 'other roots, layers and articulations retain their gain');
+  }
+  for (const style of ['swing', 'jazzfunk', undefined]) assert.equal(level(style), level('modal'), 'the take correction is Bossa-only');
+  assert.equal(level('bossa', .4, 65, .8, 'tpt', NaN), level('bossa'), 'invalid take indices keep the deterministic sustain fallback');
+  assert(!probe('tpt', .4, .8, 0, 'jtv1', 'bossa', 65).result, 'missing sustain recordings still use the existing fallback');
+}
+{
   const state = freshSong('bossa', 11), ctx = new OfflineAudioContext(2, 48000, 48000), calls = [], requested = [];
   const e = { state, ctx, harm: jazzHarmony(state.patterns[6], 0), playingPattern: state.patterns[6], hookBus: ctx.destination,
     rec(bank) { requested.push(bank); return bank === 'jfl' ? WIND_BANKS.jfl.map((m) => [m + WIND_TUNING.jfl[m] / 100, { bank, midi: m }]) : null; },

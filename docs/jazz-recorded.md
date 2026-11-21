@@ -82,3 +82,15 @@ with a 0.98 full-file peak guard. Existing shared `jflb` files were not relevele
 so non-Bossa playback stays unchanged. `--winds-legacy-levels` reproduces the
 shipped legacy-level files; `--winds` uses the corrected reference normalization
 for future imports and records that reference in provenance.
+
+## Bossa trumpet take balance
+
+The soft F4 sustain recording (`jtv1_65`) is level-matched down 3.2 dB on
+the Bossa trumpet path only. Bossa 7's largest 2–4 kHz RMS peaks repeatedly
+come from that take, roughly 0.11 and 0.35 seconds into the note. Matching
+the take brings the eight-bar peak/median from 16.69 to 14.16 dB, toward
+main's 13.53 dB. This is a full-spectrum per-take gain correction: no new
+filter, altered sample, onset delay or cut to another root/layer/style.
+The 2–4 kHz to 1.6–6.3 kHz power ratio changes only +0.05 dB; loudness-matched
+2–4 kHz power changes −0.58 dB. Source filenames, hashes and CC0 licence
+remain in `samples/jazz-winds-provenance.json`.
