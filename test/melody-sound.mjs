@@ -53,6 +53,8 @@ for (const style of ['bailefunk', 'minimal', 'dub', 'deephouse', 'euphoric', 'dn
   assert.equal(button('HARMON'), undefined, style + ' must not offer an ignored Harmon option');
   state.patterns[6].hook.v = 'harmon';
   assert.equal(button('SYNTH').attrs['aria-checked'], 'true', 'saved unsupported Harmon still displays the effective synth choice');
+  button('SYNTH').attrs.onclick();
+  assert.equal(state.patterns[6].hook.v, 'warm', 'the synth choice clears an unsupported Harmon selection');
 }
 for (const style of ['swing', 'modal', 'bossa', 'jazzfunk', 'pop', 'trap']) {
   Object.assign(state, freshSong(style, 42), { current: 6, artist: { style } });
@@ -72,5 +74,14 @@ for (const [label, voice] of [['HARMON', 'harmon'], ['SYNTH', 'warm'], ['MY VOIC
   assert.equal(patternAt(p, 0).hook.v, voice, 'pop42 instrumental take must match Studio after selecting ' + label);
   assert.equal(JSON.stringify(p.at[0].hook.s), notes, 'sound selection preserves the instrumental riff');
   assert.equal(p.at[1].hook, undefined, 'sound selection does not invent a hook in an empty take');
+}
+for (const [voice, label] of [['airflute', 'FLUTE'], ['oboe', 'OBOE'], ['harpplk', 'HARP'], ['tpt', 'SYNTH']]) {
+  Object.assign(state, freshSong('pop', 42), { current: 6, artist: { style: 'pop' } });
+  const p = state.patterns[6];
+  p.hook.v = voice;
+  p.at = [{ b: [0, 0], hook: { ...structuredClone(p.hook), v: 'warm' } }];
+  button(label).attrs.onclick();
+  assert.equal(p.hook.v, voice, 'reapplying a checked primary chip preserves its current recorded instrument');
+  assert.equal(patternAt(p, 0).hook.v, voice);
 }
 console.log('melody sound: Harmon selection, state propagation, accessibility and missing-chop/empty handling passed');

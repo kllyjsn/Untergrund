@@ -348,7 +348,7 @@ export function melodyPanel(api) {
         const on = voice === 'warm' ? !mine && (!harmon || hk.v !== 'harmon') : hk.v === voice;
         return h('button', {
           class: `vchip${on ? ' on' : ''}`, role: 'radio', 'aria-checked': String(on),
-          onclick: () => { if (voice === 'chop' && !getChops()) return openVoice(api); setVoice(voice); },
+          onclick: () => { if (voice === 'chop' && !getChops()) return openVoice(api); setVoice(on && voice === 'warm' && hk.v && hk.v !== 'harmon' ? hk.v : voice); },
         }, name);
       })) : null,
     h('button', { class: 'btn ghost', onclick: () => openVoice(api) }, getChops() ? 'MY VOICE CHOPS' : 'RECORD MY VOICE'));
