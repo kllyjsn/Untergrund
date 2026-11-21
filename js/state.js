@@ -396,9 +396,11 @@ function generatePattern(style, seed, scaleName, starter) {
     S.acid = range(STEPS, (i) => ([0, 3, 7, 10].includes(i) ? { on: true, n: i === 7 ? musicalScale[4] : i === 10 ? musicalScale[2] : 0, a: false, s: i === 3 } : emptyAcidStep()));
     Object.assign(params.kick, { tune: 48, decay: 0.55, drive: 0.15, rumble: 0.15, punch: 0.45, click: 0.2 });
     Object.assign(params.stab, { voice: 1, chord: pick(r, [1, 2]), cutoff: 1300 + r() * 500, reso: 2, decay: 0.7, env: 0.3, detune: PALETTE_DEFAULTS.deephouse.detune, rev: 0.4, dly: 0.25 });
-    master.humanize = 0.32; master.warmth = 0.4; master.room = 0.2;
+    master.humanize = 0.32; master.warmth = 0.22; master.room = 0.2;
     Object.assign(params.acid, { wave: 0.05, cutoff: 260, reso: 2, envmod: 0.12, decay: 0.4, drive: PALETTE_DEFAULTS.deephouse.drive, accent: 0.2 });
-    Object.assign(params.ride, { tone: 4200, decay: 0.6 });
+    Object.assign(params.ride, { tone: 6000, decay: 0.6 });
+    Object.assign(params.ch, { tone: 8500 });
+    Object.assign(params.oh, { tone: 8000 });
     master.duck = 0.6; master.revLevel = 0.6;
     swing = 0.3;
   } else if (style === 'minimal') {

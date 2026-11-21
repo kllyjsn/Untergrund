@@ -1,6 +1,6 @@
 import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES, KIT_BACKBEAT, defaultParams } from './params.js';
 import { PALETTE_INSTRUMENTS, PALETTE_DEFAULTS, instrumentFor } from './palette-defaults.js';
-import { getSample, sungNote, SUNG_LEN, SUNG_VOWEL_COUNT } from './sampler.js';
+import { getSample, sungNote, SUNG_LEN, SUNG_LOW, SUNG_NOTES, SUNG_VOWEL_COUNT } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
 import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, STAB_BAND, HOOK_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER, analogSet } from './livekit.js';
@@ -43,8 +43,8 @@ const GENRE_PALETTES = {
       3: { ...DEEP_CHORD, wave: 'sine', organ: 0.35, level: 1.65, attack: 0.005, fm: 0, release: 0.42, cutoff: 1900, presence: 'organ' },
       2: { ...DEEP_CHORD, level: 1.5, attack: 0.025, release: 0.6, fm: 0.28, cutoff: 1450, presence: 'pad' },
     },
-    hook: { ...DEEP_CHORD, level: 0.4, attack: 0.012, release: 0.12, cutoff: 1800, spread: 1.5, width: 0.16, fm: 0.45, presence: false, eq: [], transpose: 24, range: [79, 91] },
-    bass: { type: 'round', wave: 'sine', fm: 0.65, level: 1, sub: 0.72, body: 0.8, cutoff: 460, decay: 0.11, sustain: 0.55, length: 0.88, balance: true, lowBand: { cutoff: 120, trim: -6, duck: 6 } },
+    hook: { ...DEEP_CHORD, level: 0.45, attack: 0.012, release: 0.18, cutoff: 4000, spread: 6, width: 0.55, fm: 0.35, presence: false, eq: [], airBand: 2.5, transpose: 24, range: [79, 91] },
+    bass: { type: 'round', wave: 'triangle', fm: 0.65, level: 1, sub: 0.72, body: 0.8, cutoff: 760, decay: 0.16, sustain: 0.55, length: 0.88, balance: true, lowBand: { cutoff: 120, trim: -6, duck: 6 } },
   },
   euphoric: {
     name: 'uplift',
@@ -3144,6 +3144,7 @@ export class Engine {
   // Kept in the register the instrument was played in; every note lands a little differently and softer
   // notes are darker, the way hammers and plectrums behave. Released through a damper, not a gate.
   recordedNote(set, t, level, m, dur, out, tone = 0, kind = null, vel = 1, finger = false, fx = {}) {
+    if (this.playbackStyle === 'rnb' && kind === 'jazz') level *= dbGain(-10);
     const R = BAND_PLAY[kind], F = finger && R?.finger;
     if (R) { while (m > R.hi + 0.5) m -= 12; while (m < R.lo - 0.5) m += 12; }
     if (out === this.ch.stab.input) out = this.ch.stab.band;
@@ -3407,11 +3408,17 @@ export class Engine {
     const p = this.state.params.vox, iv = chordIv(this.harm, this.state.params.stab);
     const tone = hash(step, 3) < p.melody ? iv[Math.floor(hash(step, 4) * iv.length)] : 0;
     const vowel = Math.round(p.slice) + (hash(step, 1) < p.scatter ? Math.floor(hash(step, 2) * SUNG_VOWEL_COUNT) : 0);
-    const buffer = sungNote(owner, vowel, 60 + this.state.key + this.harmRoot() + tone + Math.round(p.pitch));
-    this.voxChop(t, v, buffer, 0, Math.max(0.06, Math.min(SUNG_LEN, p.length * this.stepDur)), 1, 0.03);
+    const home = Math.min(SUNG_LOW + SUNG_NOTES - 8, Math.max(SUNG_LOW + 7, 66 + Math.round(p.pitch))), prev = this.voxPrev ?? home, target = this.state.key + this.harmRoot() + tone + Math.round(p.pitch);
+    let midi = prev + ((target - prev) % 12 + 18) % 12 - 6;
+    if (midi - home > 7) midi -= 12;
+    else if (home - midi > 7) midi += 12;
+    this.voxPrev = midi;
+    const dur = Math.max(0.06, Math.min(SUNG_LEN, p.length * this.stepDur)), release = Math.min(0.06, Math.max(0.03, dur * 0.4));
+    this.voxChop(t, v, sungNote(owner, vowel, midi), 0, dur, 1, release, { curve: true });
+    for (const side of [-1, 1]) this.voxChop(t + (side < 0 ? 0.009 : 0.014), v * 0.25, sungNote(owner, vowel, midi, side < 0 ? 1 : 2), 0, dur, 2 ** (side * 6 / 1200), release, { curve: true, pan: side * 0.45 });
   }
 
-  voxChop(t, v, buffer, from, dur, rate, release = 0.015) {
+  voxChop(t, v, buffer, from, dur, rate, release = 0.015, { curve = false, pan = 0 } = {}) {
     const c = this.ctx, p = this.state.params.vox, src = c.createBufferSource();
     src.buffer = buffer;
     src.playbackRate.value = rate;
@@ -3420,9 +3427,18 @@ export class Engine {
     const amp = this.gain(0);
     amp.gain.setValueAtTime(0, t);
     amp.gain.linearRampToValueAtTime(v, t + 0.004);
-    amp.gain.setValueAtTime(v, t + Math.max(0.005, dur - release));
-    amp.gain.linearRampToValueAtTime(0, t + dur);
-    src.connect(lp).connect(amp).connect(this.ch.vox.input);
+    if (curve) amp.gain.setValueCurveAtTime(Float32Array.from({ length: 32 }, (_, i) => v * Math.cos(Math.PI / 2 * i / 31)), t + dur - release, release);
+    else {
+      amp.gain.setValueAtTime(v, t + Math.max(0.005, dur - release));
+      amp.gain.linearRampToValueAtTime(0, t + dur);
+    }
+    let out = src.connect(lp).connect(amp);
+    if (pan) {
+      const panner = c.createStereoPanner();
+      panner.pan.value = pan;
+      out = out.connect(panner);
+    }
+    out.connect(this.ch.vox.input);
     this.startSource(src, t, from, dur + 0.02);
   }
 
@@ -4919,6 +4935,7 @@ export class Engine {
 
   panic() {
     const now = this.ctx.currentTime;
+    this.voxPrev = undefined;
     this.vocalStop(now);
     this.handoffCancel();
     this.breakOpen(now);
@@ -4980,6 +4997,7 @@ export class Sequencer {
   }
 
   startAt(abs, t) {
+    this.e.voxPrev = undefined;
     const chain = this.s.chainOn ? parseChain(this.s.chain) : [];
     const bar = Math.floor(abs / 16), offset = abs % 16;
     const pos = chain.length ? bar % chain.length : -1;
