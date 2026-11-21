@@ -5,11 +5,20 @@ import { runInNewContext } from 'node:vm';
 import { liveSets, setsReady, loadSets, loadBand, BAND, STAB_BAND, LIVE_FILES, LIVE_KIT } from '../js/livekit.js';
 import { Engine, Sequencer } from '../js/engine.js';
 import { KIT_BACKBEAT } from '../js/params.js';
-import { defaultState, generate, STYLES } from '../js/state.js';
+import { defaultState, freshSong, generate, STYLES } from '../js/state.js';
 import { createPlayer } from '../js/player.js';
 import { OfflineAudioContext as FakeContext, AudioBuffer } from './offline-audio.mjs';
 
 const st = (kit, voice) => ({ master: { kit }, params: { stab: { voice } } });
+{
+  const bossa = freshSong('bossa', 11);
+  bossa.params.stab.voice = 18;
+  for (const p of bossa.patterns) if (p.hook) p.hook.v = 'airflute';
+  const banks = liveSets(bossa);
+  assert(!banks.some((n) => n.startsWith('jep')), 'nylon Bossa must not wait on an unused electric piano');
+  assert(banks.includes('jfl') && !banks.includes('jflb'), 'Bossa flute preloads its sustain performance, not unused expressive takes');
+  assert(!banks.includes('fl') && !banks.includes('flb'), 'a fully loaded recorded Bossa flute does not require legacy fallback banks');
+}
 const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
 const playSource = main.slice(main.indexOf('function play(opts = {})'), main.indexOf('\nfunction endTuning'));
 for (const opts of [{ startsAt: 12345 }, { stepWall: 12345 }, { delay: .1 }]) {
@@ -39,7 +48,7 @@ for (const id of Object.keys(STYLES)) {
     assert.equal(sets.includes('snare'), ['drill', 'dnb'].includes(id), `${id}/${seed} snare-only sample set`);
     assert.equal(sets.includes('harp'), g.pattern.hook?.v === 'harpplk', `${id}/${seed} recorded harp hook`);
     assert.equal(sets.includes('ob'), g.pattern.hook?.v === 'oboe', `${id}/${seed} recorded oboe hook`);
-    assert.equal(sets.includes('fl'), g.pattern.hook?.v === 'airflute', `${id}/${seed} recorded flute hook`);
+    assert.equal(sets.includes('fl'), g.pattern.hook?.v === 'airflute' && !g.pattern.jazz, `${id}/${seed} legacy flute hook`);
     assert.equal(sets.includes(band), !!band, `${id}/${seed} stab band`);
     assert.equal(sets.includes('pianosoft'), band === 'piano', `${id}/${seed} soft piano layer`);
     // Country's Telecaster lead loads the guitar whatever plays the chords.

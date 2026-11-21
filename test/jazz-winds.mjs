@@ -3,10 +3,11 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { WIND_BANKS, WIND_TUNING, WIND_PEAKS } from '../js/jazz-wind-data.js';
 import { windBanks, windNotches, bossaFluteNotches, recordedJazzWind } from '../js/jazz-winds.js';
-import { jazzNotches } from '../js/jazz.js';
+import { jazzNotches, jazzHarmony } from '../js/jazz.js';
 import { freshSong, sanitize, HOOK_VOICES } from '../js/state.js';
 import { liveSets } from '../js/livekit.js';
-import { Sequencer } from '../js/engine.js';
+import { Engine, Sequencer } from '../js/engine.js';
+import { OfflineAudioContext } from './offline-audio.mjs';
 import { Recorder } from '../js/midi.js';
 
 assert.equal(HOOK_VOICES.at(-1), 'harmon', 'new colour appends without renumbering old voices');
@@ -20,7 +21,7 @@ assert.equal(WIND_BANKS.jflb.length, 10);
 assert.equal(WIND_BANKS.jhm1.length, 8);
 for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
   const song = freshSong(style, 42), voice = song.patterns[6].hook.v;
-  assert(windBanks(voice).every((bank) => liveSets(song).includes(bank)));
+  assert(windBanks(voice, style).every((bank) => liveSets(song).includes(bank)));
 }
 assert(!liveSets(freshSong('trap', 42)).some((n) => Object.hasOwn(WIND_BANKS, n)));
 
@@ -70,6 +71,16 @@ for (const style of ['swing', 'modal', 'jazzfunk', undefined]) {
 }
 assert.deepEqual(probe('tpt', .6, .5, 1, undefined, 'bossa').eq, [], 'Bossa trumpet is untouched');
 assert(!recordedJazzWind({ rec() {} }, 0, .5, 70, .2, 'reed', false, {}, 1), 'unrelated voices do not allocate nodes');
+{
+  const state = freshSong('bossa', 11), ctx = new OfflineAudioContext(2, 48000, 48000), calls = [], requested = [];
+  const e = { state, ctx, harm: jazzHarmony(state.patterns[6], 0), playingPattern: state.patterns[6], hookBus: ctx.destination,
+    rec(bank) { requested.push(bank); return bank === 'jfl' ? WIND_BANKS.jfl.map((m) => [m + WIND_TUNING.jfl[m] / 100, { bank, midi: m }]) : null; },
+    trimOut: () => ctx.destination, bodyFor: (out) => out, playBuf: (...args) => calls.push(args),
+  };
+  Engine.prototype.hook.call(e, 0, .6, 7, .5, 'airflute', 0);
+  assert.equal(calls[0][0].bank, 'jfl', 'the selected recorded flute plays without loading legacy fallback banks');
+  assert(!requested.includes('fl'));
+}
 for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
   const song = freshSong(style, 42); song.chain = 'GGGGGGGG'; song.ending = false;
   const e = new Recorder(song), seq = new Sequencer(e, song), takes = [];

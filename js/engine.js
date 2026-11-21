@@ -3382,8 +3382,6 @@ export class Engine {
   }
 
   windHook(set, t, v, m, dur, voice, strong, { harm, take = 0 }) {
-    const style = jazzStyle(this.state, this.playingPattern);
-    if ((style || voice === 'harmon') && recordedJazzWind(this, t, v, m, dur, voice, strong, { harm, take, style }, dbGain(style === 'bossa' && voice === 'tpt' ? JAZZ_MIX.bossa.trumpetLead : JAZZ_MIX[style]?.lead || 0))) return;
     if (voice === 'harmon') voice = 'tpt';
     const { gain, presence, takes, second } = WIND_HOOK[voice];
     const alt = TAKES[HOOK_BAND[voice]] && this.rec(TAKES[HOOK_BAND[voice]]);
@@ -3587,6 +3585,8 @@ export class Engine {
     }
     const wind = Object.hasOwn(WIND_HOOK, voice);
     if (wind) {
+      const style = jazzStyle(this.state, this.playingPattern);
+      if ((style || voice === 'harmon') && recordedJazzWind(this, t, v, 60 + k + oct * 12 + n, dur, voice, strong, { ...expression, style }, dbGain(style === 'bossa' && voice === 'tpt' ? JAZZ_MIX.bossa.trumpetLead : JAZZ_MIX[style]?.lead || 0))) return;
       const name = HOOK_BAND[voice], set = this.rec(name);
       if (set) return this.windHook(set, t, v, 60 + k + oct * 12 + n, dur, voice, strong, expression);
       loadBand(name);

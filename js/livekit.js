@@ -137,16 +137,18 @@ const layerSets = (style) => [...new Set(Object.values(BAND_LAYER[style] || {}).
 export function liveSets(st) {
   const mode = Math.round(st?.master?.kit || 0), fullKit = mode === 1 || mode === 2;
   const out = fullKit ? ['kit'] : mode === KIT_BACKBEAT ? ['snare'] : [];
-  if ([st?.pattern, ...(st?.patterns || [])].some((p) => p?.jazz)) out.push(...EP_BANKS);
+  const patterns = [st?.pattern, ...(st?.patterns || [])];
+  if (patterns.some((p) => p?.jazz && (Math.round(st?.params?.stab?.voice || 0) === 1 || p.hook?.v === 'tapekeys'))) out.push(...EP_BANKS);
   if (st?.patterns?.some((p) => p.jazz?.style === 'jazzfunk') || st?.pattern?.jazz?.style === 'jazzfunk') out.push('horn');
   if (fullKit && pocketOf(st.master)?.band) out.push('kitx');
   if (Math.round(st?.params?.acid?.voice || 0) === 5) out.push('ebass');
   const name = STAB_BAND[Math.round(st?.params?.stab?.voice || 0)];
   if (name) out.push(name, ...(SOFT_LAYER[name] ? [SOFT_LAYER[name]] : []));
-  for (const p of [st?.pattern, ...(st?.patterns || [])]) {
+  for (const p of patterns) {
     const v = p?.hook?.v, voice = Object.hasOwn(HOOK_BAND, v) && HOOK_BAND[v];
-    if (voice) out.push(voice, ...(TAKES[voice] ? [TAKES[voice]] : []));
-    if (p?.jazz || v === 'harmon') out.push(...windBanks(v));
+    const recorded = p?.jazz || v === 'harmon' ? windBanks(v, p?.jazz?.style) : [];
+    if (recorded.length) out.push(...recorded);
+    else if (voice) out.push(voice, ...(TAKES[voice] ? [TAKES[voice]] : []));
   }
   // Country's lead is a Telecaster whatever plays the chords.
   if (pocketOf(st.master)?.walk && name !== 'gtr') out.push('gtr', 'gtrsoft');

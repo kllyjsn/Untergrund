@@ -4,7 +4,7 @@ import { jazzNotches } from './jazz.js';
 export const TRUMPET_BANKS = ['jtv1', 'jtv2', ...[1, 2, 3].flatMap((v) => [1, 2].map((rr) => `jts${v}${rr}`))];
 export const HARMON_BANKS = ['jhm1', 'jhm3'];
 export const FLUTE_BANKS = ['jfl', 'jflb'];
-export const windBanks = (voice) => voice === 'tpt' ? TRUMPET_BANKS : voice === 'harmon' ? HARMON_BANKS : voice === 'airflute' ? FLUTE_BANKS : [];
+export const windBanks = (voice, style) => voice === 'tpt' ? TRUMPET_BANKS : voice === 'harmon' ? HARMON_BANKS : voice === 'airflute' ? style === 'bossa' ? ['jfl'] : FLUTE_BANKS : [];
 export const windNotches = (bank, midi, rate = 1) => Number.isFinite(rate) && rate > 0 ? (WIND_PEAKS[bank]?.[Math.round(midi)] || []).map(([f, q, db]) => [f * rate, q, db]) : [];
 const BOSSA_FLUTE_DEPTHS = { 69: { 2644: -3 } };
 export const bossaFluteNotches = (midi, rate = 1) => Number.isFinite(rate) && rate > 0 ? jazzNotches('fl', midi).flatMap(([f, q, db]) => {
@@ -14,7 +14,7 @@ export const bossaFluteNotches = (midi, rate = 1) => Number.isFinite(rate) && ra
 
 export function recordedJazzWind(e, t, v, midi, duration, voice, strong, { take = 0, harm = false, style }, mix) {
   const bossa = style === 'bossa' && voice === 'airflute';
-  const banks = bossa ? ['jfl'] : windBanks(voice), sets = banks.map((bank) => e.rec(bank));
+  const banks = windBanks(voice, style), sets = banks.map((bank) => e.rec(bank));
   if (!banks.length || sets.some((set) => !set?.length)) return false;
   const touch = Math.max(0, Math.min(1, v));
   const velocity = Math.max(0, Math.min(1, v / 1.3));
