@@ -84,7 +84,8 @@ const SUNG_VOWELS = [
   [[325, 700, 2700, 3800, 4950], [50, 60, 170, 180, 200]],
   [[270, 2140, 2950, 3900, 4950], [60, 90, 100, 120, 120]],
 ];
-export const SUNG_LOW = 60, SUNG_NOTES = 12, SUNG_LEN = 0.46, SUNG_VOWEL_COUNT = SUNG_VOWELS.length;
+export const SUNG_LOW = 55, SUNG_NOTES = 20, SUNG_LEN = 0.46, SUNG_VOWEL_COUNT = SUNG_VOWELS.length;
+const SCHWA = [500, 1500, 2500, 3500, 4950];
 const FORMANT_GAIN = [1, 0.5, 0.2, 0.14, 0.05];
 const SINE = Float32Array.from({ length: 4097 }, (_, i) => Math.sin(2 * Math.PI * i / 4096));
 
@@ -96,16 +97,18 @@ export function sungNoteChannels(sr = 24000, seed = 0, vowelIndex = 0, note = 0)
   const f0 = 440 * 2 ** ((SUNG_LOW + note - 69) / 12);
   const harmonics = Math.floor(Math.min(8000, sr * 0.45) / f0), phase = Float64Array.from({ length: harmonics }, () => random());
   const rateHz = 5 + random() * 0.8, vibPhase = random() * Math.PI * 2;
-  let drift = 0, step = f0 / sr;
+  let drift = 0, shimmer = 0, step = f0 / sr;
   const amps = new Float64Array(harmonics), voiced = new Float32Array(len), breath = new Float32Array(len), noise = new Float32Array(len);
   for (let i = 0; i < len; i++) {
     const tm = i / sr;
     if (i % block === 0) {
       drift = drift * 0.97 + (random() * 2 - 1) * 0.6;
+      shimmer = shimmer * 0.8 + (random() * 2 - 1) * 0.01;
+      const glide = Math.min(1, tm / 0.035), shape = [vowel[0].map((fc, j) => fc + (SCHWA[j] - fc) * 0.5 * (1 - glide)), vowel[1]];
       const scoop = -35 * Math.max(0, 1 - tm / 0.07);
       const vib = 22 * Math.min(1, Math.max(0, (tm - 0.12) / 0.18)) * Math.sin(2 * Math.PI * rateHz * tm + vibPhase);
-      const f = f0 * 2 ** ((scoop + vib + drift) / 1200);
-      for (let h = 0; h < harmonics; h++) amps[h] = tract((h + 1) * f, vowel) / (h + 1);
+      const f = f0 * 2 ** ((scoop + vib + drift + (random() * 2 - 1) * 4) / 1200);
+      for (let h = 0; h < harmonics; h++) amps[h] = tract((h + 1) * f, shape) / (h + 1) * (1 + shimmer);
       step = f / sr;
     }
     let x = 0;
@@ -132,12 +135,15 @@ export function sungNoteChannels(sr = 24000, seed = 0, vowelIndex = 0, note = 0)
 
 const sungs = new Map();
 // One sung note per (seed, vowel, pitch), built on first use (a few ms) so no song start waits on all of them.
-export function sungNote(state, vowel, midi) {
-  const k = ((vowel % SUNG_VOWELS.length) + SUNG_VOWELS.length) % SUNG_VOWELS.length, n = ((midi - SUNG_LOW) % SUNG_NOTES + SUNG_NOTES) % SUNG_NOTES;
-  const key = `${voxSeed(state)}:${k}:${n}`;
+export function sungNote(state, vowel, midi, take = 0) {
+  const k = ((vowel % SUNG_VOWELS.length) + SUNG_VOWELS.length) % SUNG_VOWELS.length;
+  let n = midi - SUNG_LOW;
+  while (n < 0) n += 12;
+  while (n >= SUNG_NOTES) n -= 12;
+  const seed = voxSeed(state) + take * 977, key = `${seed}:${k}:${n}`;
   if (!sungs.has(key)) {
-    if (sungs.size >= 4 * SUNG_VOWELS.length * SUNG_NOTES) sungs.delete(sungs.keys().next().value);
-    sungs.set(key, makeBuffer(sungNoteChannels(24000, voxSeed(state), k, n), 24000));
+    if (sungs.size >= 6 * SUNG_VOWELS.length * SUNG_NOTES) sungs.delete(sungs.keys().next().value);
+    sungs.set(key, makeBuffer(sungNoteChannels(24000, seed, k, n), 24000));
   }
   return sungs.get(key);
 }
