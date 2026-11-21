@@ -70,4 +70,11 @@ const bad = freshSong('modal', 1); bad.patterns[0].jazz = { style: 'oops', seed:
 assert(!sanitize(bad).patterns[0].jazz);
 const s = freshSong('modal', 11), fake = { state: s };
 assert.doesNotThrow(() => Engine.prototype.duckAt.call(fake, 0, 1), 'jazz skips all kick-driven duck automation');
+for (const style of ['swing', 'modal']) {
+  let played = 0;
+  const e = { state: freshSong(style, 42), ch: { acid: { input: {} } }, playBuf() { played++; },
+    ctx: { createOscillator() { throw new Error('acoustic upright must not have a synthesized sub layer'); } } };
+  Engine.prototype.sampledBass.call(e, {}, 0.05, 36, 0.4, false);
+  assert.equal(played, 1);
+}
 console.log('jazz: progression-aware walking/approaches, strong-note harmony, quartal stacks, instrumental form, mutes, save/load, preload and routing passed');
