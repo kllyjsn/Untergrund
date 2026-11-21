@@ -73,6 +73,30 @@
    "tp": -2.02,
    "window": -13.79
   },
+  "lofihiphop": {
+   "lufs": -14.36,
+   "spread": 2.98,
+   "tp": -1.81,
+   "window": -15.93
+  },
+  "gfunk": {
+   "lufs": -10.80,
+   "spread": 1.88,
+   "tp": -2.08,
+   "window": -9.37
+  },
+  "phonk": {
+   "lufs": -9.68,
+   "spread": 0.43,
+   "tp": -1.72,
+   "window": -8.32
+  },
+  "electrohiphop": {
+   "lufs": -10.79,
+   "spread": 0.3,
+   "tp": -1.45,
+   "window": -9.89
+  },
   "breaks": {
    "lufs": -10.03,
    "spread": 2.32,

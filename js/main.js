@@ -32,6 +32,7 @@ import { initMidi, midiStrip, midiClockStart, midiClockStep, midiClockStop } fro
 import { openHum, melodyPanel, humButton, placeHook, humSeed } from './hum-ui.js';
 import { restoreVoice } from './voice.js';
 import { compose } from './classical.js';
+import { HIPHOP, HIPHOP_STYLES } from './hiphop.js';
 import { PIECE, loadPiece } from './repertoire.js';
 import { followingRow } from './feed.js';
 import { flagshipShelf } from './flagship.js';
@@ -1557,6 +1558,7 @@ function toggleStudio() {
 
 const STYLE_HUE = {
   jazzfunk: '#d9aa4c',
+  ...Object.fromEntries(HIPHOP_STYLES.map((id) => [id, HIPHOP[id].color])),
   symphony: '#e8c27a', concerto: '#f0d9a8', nocturne: '#9fb4ff', repertoire: '#d8b4fe',
   hypnotic: '#30d158', industrial: '#ff6a3d', acid: '#ffd60a', dub: '#3ad6c6', peak: '#ff4d86', hardtechno: '#ff3b3b',
   deephouse: '#6f9bff', minimal: '#e4e4ea', ukg: '#b892ff', euphoric: '#ff9ad5', neosoul: '#ffb347', boombap: '#dca86e', swing: '#e8c478', modal: '#79b9cc', bossa: '#a5c78a',
@@ -1565,7 +1567,7 @@ const STYLE_HUE = {
   pop: '#ff6fae', rnb: '#c77dff', rock: '#ff453a', folk: '#d4a373', country: '#e9b44c',
 };
 const BAND_STYLES = new Set(['pop', 'rnb', 'rock', 'folk', 'country']);
-const GROOVE_STYLES = new Set(['jazzfunk', 'bossa', 'swing', 'modal', 'neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill', 'hyperpop', ...BAND_STYLES]);
+const GROOVE_STYLES = new Set(['jazzfunk', 'bossa', 'swing', 'modal', 'neosoul', 'boombap', ...HIPHOP_STYLES, 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill', 'hyperpop', ...BAND_STYLES]);
 const SECTION_NAMES = {
   groove: ['INTRO', 'BUILD', 'VERSE', 'FILL', 'BRIDGE', 'BRIDGE', 'HOOK', 'HOOK'],
   club: ['INTRO', 'BUILD', 'DROP', 'FILL', 'BREAKDOWN', 'BREAKDOWN', 'DROP', 'HALF-TIME'],

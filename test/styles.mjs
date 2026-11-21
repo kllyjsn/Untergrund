@@ -115,6 +115,36 @@ for (const style of Object.keys(STYLES)) {
   sigs.set(sig, style);
 }
 console.log(`${sigs.size} distinct genres passed`);
+for (const [style, hook, bass, snare, clap] of [
+  ['lofihiphop', 'tapekeys', [1], [4, 12], []],
+  ['gfunk', 'funkwhistle', [1, 7], [], [4, 12]],
+  ['phonk', 'phonkbell', [2], [4, 12], [12]],
+  ['electrohiphop', 'robotformant', [6, 7], [12], [4, 12]],
+]) {
+  for (const seed of [11, 42, 1234]) {
+    const g = generate(style, seed), s = defaultState();
+    assert.equal(g.pattern.hook.v, hook);
+    assert(g.pattern.hook.s.slice(0, 16).some(Boolean) && g.pattern.hook.s.slice(16).some(Boolean));
+    assert(bass.includes(g.params.acid.voice));
+    if (style === 'phonk') {
+      assert.deepEqual(['ch', 'oh', 'perc'].map((id) => g.params[id].pan), [-0.5, 0.5, 0.5]);
+      assert.deepEqual(['kick', 'acid'].map((id) => g.params[id].pan ?? 0), [0, 0]);
+    }
+    const hits = (track) => g.pattern.steps[track].flatMap((v, i) => v ? [i] : []);
+    assert.deepEqual(hits('snare'), snare);
+    assert.deepEqual(hits('clap'), clap);
+    assert(g.pattern.steps.ch.every((v, i) => !(v && g.pattern.steps.oh[i])), 'open hats replace closed hats');
+    applyOverrides(s, g);
+    s.patterns = arrangement(g.pattern, seed, false);
+    s.artist = { style, seed };
+    applySongPlan(s, style, seed);
+    const loaded = sanitize(JSON.parse(JSON.stringify(s)));
+    assert.equal(loaded.artist.style, style);
+    assert(loaded.patterns.some((p) => p.hook?.v === hook), 'the instrument survives save and reload');
+    assert(loaded.chain.includes('G'), 'arrangement includes a chorus');
+  }
+}
+console.log('Hip-hop pockets, instrument voices and save/reload passed');
 const soulGen = generate('neosoul', 5, 'dorian');
 assert.equal(soulGen.pattern.prog.length, 4);
 assert(soulGen.master.vary > 0.5);
@@ -173,6 +203,19 @@ console.log('song sections passed');
   assert.equal(after.swing, fresh.swing);
 }
 console.log('live-kit settings do not leak into the next style passed');
+
+{
+  const pans = (s) => ['ch', 'oh', 'perc'].map((id) => s.params[id].pan);
+  for (const style of ['hypnotic', 'trap']) {
+    const fresh = defaultState(), after = defaultState(), next = generate(style, 42);
+    applyOverrides(after, generate('phonk', 42));
+    assert.deepEqual(pans(after), [-0.5, 0.5, 0.5]);
+    applyOverrides(after, next);
+    applyOverrides(fresh, next);
+    assert.deepEqual(pans(after), pans(fresh), `Phonk → ${style} restores the new genre's panning`);
+  }
+}
+console.log('Phonk hat and percussion panning does not leak into Hypnotic or Trap');
 
 {
   const { FAMILIES } = { FAMILIES: [...new Set(Object.values(STYLES).map((x) => x.family))] };

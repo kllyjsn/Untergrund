@@ -87,6 +87,7 @@ export const STYLE_POCKET = {
   deephouse: P.HOUSE, minimal: P.HOUSE, euphoric: P.HOUSE,
   ukg: P.GARAGE, jerseyclub: P.GARAGE,
   neosoul: P.SOUL, boombap: P.SOUL,
+  lofihiphop: P.SOUL, gfunk: P.BREAKS, phonk: P.TRAP, electrohiphop: P.MACHINE,
   breaks: P.BREAKS, dnb: P.BREAKS,
   amapiano: P.AFRO, afrobeats: P.AFRO, reggaeton: P.AFRO, bailefunk: P.AFRO,
   trap: P.TRAP, drill: P.TRAP, hyperpop: P.TRAP,
