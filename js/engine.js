@@ -9,7 +9,7 @@ import { pocketOf, pocketLate, pocketVel, swingLate, swingDuration } from './gro
 import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes, jazzNotches, JAZZ_MIX, BOSSA_RIM, BOSSA_BATIDA, bossaBass } from './jazz.js';
 import { funkBass, FUNK_KICK, FUNK_SNARE, FUNK_COMP } from './jazzfunk.js';
 import { recordedJazzKeys } from './jazz-recordings.js';
-import { recordedJazzWind } from './jazz-winds.js';
+import { recordedJazzWind, HARMON_BANKS } from './jazz-winds.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ, TECHNO_HOOK_SPACE } from './lead.js';
 import { lowEnd } from './lowend.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
@@ -832,12 +832,11 @@ export class Engine {
     this.acidNodes = a;
   }
 
-  // One sound per part for a whole song: while `recLock` is set (main.js sets it per song), a recording is used from
-  // the first note that needs it or not at all, so a slow download never swaps a synth stand-in for it mid-song.
+  // Ordinary parts keep their initial fallback; rooms and selectable Harmon banks can adopt decoded recordings.
   rec(name, lockOnUse = true) {
     const got = liveSet(name), lock = this.recLock;
     if (!lock || (!lockOnUse && !lock.has(name))) return got;
-    if (!lock.has(name) || (this.roomRecordings && !lock.get(name) && got)) lock.set(name, !!got);
+    if (!lock.has(name) || ((this.roomRecordings || HARMON_BANKS.includes(name)) && !lock.get(name) && got)) lock.set(name, !!got);
     return lock.get(name) ? got : null;
   }
 

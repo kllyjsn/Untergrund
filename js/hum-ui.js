@@ -8,6 +8,8 @@ import { getChops, setVoice, clearVoice, buildVoice } from './voice.js';
 import { KEYS, SCALES, CHORDS } from './params.js';
 import { generate } from './state.js';
 import { track as trackEvent } from './analytics.js';
+import { loadSets } from './livekit.js';
+import { windBanks } from './jazz-winds.js';
 
 const MAX_SEC = 8;
 const kk = (key) => (key > 6 ? key - 12 : key);
@@ -325,7 +327,10 @@ export function openVoice(api) {
 // Studio, CHORDS editor: where the song's melody (hook) comes from and which sound sings it.
 export function melodyPanel(api) {
   const s = api.state(), hk = s.patterns[s.current]?.hook;
-  const setVoice = (v) => api.edit((st) => st.patterns.forEach((p) => { if (p.hook) p.hook.v = v; }), 'HOOK sound');
+  const setVoice = (v) => {
+    api.edit((st) => st.patterns.forEach((p) => { if (p.hook) p.hook.v = v; }), 'HOOK sound');
+    if (v === 'harmon') loadSets(windBanks(v)).catch(() => {});
+  };
   const mine = hk?.v === 'chop';
   const sound = { harpplk: 'HARP', oboe: 'OBOE', airflute: 'FLUTE' }[hk?.v] || 'SYNTH';
   return h('div', { class: 'melody-panel' },

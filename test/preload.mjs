@@ -72,6 +72,12 @@ globalThis.OfflineAudioContext = class { decodeAudioData(b) { return Promise.res
 
 const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
 {
+  const local = { recLock: new Map() };
+  for (const name of ['jhm1', 'jhm3']) assert.equal(Engine.prototype.rec.call(local, name), null);
+  await loadSets(['jhm1', 'jhm3']);
+  for (const name of ['jhm1', 'jhm3']) assert.ok(Engine.prototype.rec.call(local, name), 'a selected Harmon bank retries its cold miss after decoding during local playback');
+}
+{
   const local = { recLock: new Map() }, room = { recLock: new Map(), roomRecordings: true };
   assert.equal(Engine.prototype.rec.call(local, 'jep1'), null);
   assert.equal(Engine.prototype.rec.call(room, 'jep1'), null);
