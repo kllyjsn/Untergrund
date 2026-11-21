@@ -10,7 +10,16 @@ assert.deepEqual([0, 37 / 127, 38 / 127, 65 / 127, 66 / 127, 89 / 127, 90 / 127,
 assert.equal(STAB_BAND[18], 'nylon', 'existing voice indices stay stable');
 assert.deepEqual(epNotches('jep3', 68.01, 2), [[4150, 50, -16], [4978, 50, -18]]);
 assert.deepEqual(epNotches('jep1', 68, 1), [], 'unaffected takes remain unfiltered');
-for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) assert(EP_BANKS.every((name) => liveSets(freshSong(style, 42)).includes(name)));
+for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
+  const song = freshSong(style, 42);
+  song.params.stab.voice = 1;
+  assert(EP_BANKS.every((name) => liveSets(song).includes(name)), 'selected piano comp preloads every recorded dynamic');
+  song.params.stab.voice = 18;
+  for (const p of song.patterns) if (p.hook) p.hook.v = 'airflute';
+  assert(!EP_BANKS.some((name) => liveSets(song).includes(name)), 'nylon comp and flute do not load an unused electric piano');
+  song.patterns[6].hook.v = 'tapekeys';
+  assert(EP_BANKS.every((name) => liveSets(song).includes(name)), 'a selected electric-piano lead still preloads its recordings');
+}
 assert(EP_BANKS.every((name) => !liveSets(freshSong('trap', 42)).includes(name)));
 
 const probe = (velocity = .6, params = {}, absent = '') => {
