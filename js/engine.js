@@ -67,6 +67,9 @@ const BACKBEAT_ATTACK_TRIM = [0, -0.25, 0.45, -0.05];
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
 const EPS = 0.0001;
 const SAMPLE_FADE = 1;
+// The master compressors and oversamplers can still hold an attack whose source has started.
+const WAKE_FLUSH = 0.024;
+const WAKE_FADE = 0.002;
 // Chord voices that sustain fill a breakdown on their own, so a smooth style only lifts the ones that decay.
 const HELD_CHORDS = new Set(['pad', 'organ', 'strings', 'cello']);
 export const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar', 'cello', 'clarinet'];
@@ -584,7 +587,11 @@ export class Engine {
     this.mix.connect(this.bandDuck).connect(this.preMaster);
     this.preMaster.connect(this.djHP).connect(this.djLP).connect(this.arrLP).connect(this.toneLow).connect(this.toneMud).connect(this.tonePres).connect(this.toneAir).connect(this.widthIn);
     this.widthOut.connect(this.glue).connect(this.satIn).connect(this.sat)
-      .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.secPreGain).connect(this.clip).connect(this.secGain).connect(this.singTrim).connect(this.festivalGate).connect(this.out);
+      .connect(this.warm).connect(this.master).connect(this.limIn).connect(this.limiter).connect(this.limTrim).connect(this.secPreGain).connect(this.clip).connect(this.secGain).connect(this.singTrim).connect(this.festivalGate);
+    if (this.queuedNotes) {
+      this.wakeGain = this.gain();
+      this.festivalGate.connect(this.wakeGain).connect(this.out);
+    } else this.festivalGate.connect(this.out);
     this.out.connect(c.destination);
     // The neural singer's stem (vocal(), js/sing.js): past the band's duck, into the master chain.
     this.vocalBus = this.gain(0);
@@ -1000,13 +1007,19 @@ export class Engine {
   }
 
   // ---------- helpers ----------
+  audibleTime(now) {
+    const t = this.ctx.getOutputTimestamp?.()?.contextTime;
+    return t > 0 && t <= now ? t : now - ((this.ctx.baseLatency || 0) + (this.ctx.outputLatency || 0));
+  }
+
   startSource(src, t, ...args) {
     src.start(t, ...args);
     if (!this.queuedNotes) return;
     const now = this.ctx.currentTime;
     if (t <= now) return;
     if (now - this.queuedNotesPrunedAt > 0.25) {
-      this.queuedNotes = this.queuedNotes.filter(note => note.t > now);
+      const cutoff = this.audibleTime(now) - WAKE_FLUSH;
+      this.queuedNotes = this.queuedNotes.filter(note => note.t >= cutoff);
       this.queuedNotesPrunedAt = now;
     }
     const note = { src, t };
@@ -1065,10 +1078,22 @@ export class Engine {
     }
   }
 
-  discardQueuedNotes(now) {
+  discardQueuedNotes(now, wakeAt = null, frozenOutputTime = null) {
     this.vocalStop(now);
+    const cutoff = wakeAt === null ? now : (frozenOutputTime ?? this.audibleTime(now)) - WAKE_FLUSH;
+    if (wakeAt !== null && this.queuedNotes.some(note => note.t >= cutoff && note.t < now)) {
+      const gain = this.wakeGain.gain;
+      const openAt = Math.max(now + WAKE_FLUSH, wakeAt);
+      const level = gain.value;
+      if (gain.cancelAndHoldAtTime) gain.cancelAndHoldAtTime(now);
+      else gain.cancelScheduledValues(now);
+      gain.setValueAtTime(level, now);
+      gain.linearRampToValueAtTime(0, now + WAKE_FADE);
+      gain.setValueAtTime(0, openAt);
+      gain.linearRampToValueAtTime(1, openAt + WAKE_FADE);
+    }
     // stop() before a source's scheduled start prevents it from sounding.
-    for (const { src, t } of this.queuedNotes) if (t >= now) src.stop(now);
+    for (const { src, t } of this.queuedNotes) if (t >= cutoff) src.stop(now);
     this.queuedNotes.length = 0;
     this.editableHits.length = 0;
     this.ducks.length = 0;
