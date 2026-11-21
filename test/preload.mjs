@@ -126,6 +126,35 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
   assert.ok(feeds(eq, out), 'the marimba hook notch feeds the band bus');
 }
 {
+  const ctx = new FakeContext(2, 4096, 48000), state = defaultState(), hits = [];
+  const stab = { input: ctx.createGain(), band: ctx.createGain() };
+  const gtr = [[63, {}]];
+  state.params.stab.voice = 8;
+  state.key = 0;
+  const e = {
+    state, ctx, ch: { stab }, playbackStyle: 'reggaeton', rec: (name) => name === 'gtr' ? gtr : null,
+    recordedNote: Engine.prototype.recordedNote, bodyFor: Engine.prototype.bodyFor, filter: Engine.prototype.filter,
+    leadOver: () => {}, playBuf: (...args) => hits.push(args),
+  };
+  const hook = () => Engine.prototype.hook.call(e, 1, 0.7, 3, 0.3, 'reed');
+  hook();
+  hook();
+  const eq = hits[0][3];
+  assert.equal(hits[1][3], eq, 'the Reggaeton guitar hook reuses its EQ');
+  assert.equal(eq.type, 'peaking');
+  assert.ok(eq.frequency.value >= 2900 && eq.frequency.value <= 2965 && eq.gain.value < 0);
+  assert.ok(feeds(eq, stab.band), 'playback and stem routing use the recorded-instrument bus');
+  e.hookBus = ctx.createGain();
+  hook();
+  assert.ok(feeds(hits[2][3], e.hookBus) && !feeds(hits[2][3], stab.band), 'the EQ follows the preview bus');
+  e.hookBus = null;
+  e.playbackStyle = 'afrobeats';
+  hook();
+  assert.equal(hits[3][3], stab.band, 'other genres keep the unfiltered guitar hook');
+  const withoutRoute = ([buf, t, v, , rate, dur, fx]) => [buf, t, v, rate, dur, fx];
+  assert.deepEqual(withoutRoute(hits[0]), withoutRoute(hits[3]), 'the EQ leaves the recorded note, pitch, level and timing unchanged');
+}
+{
   const ctx = new FakeContext(2, 4096, 48000), state = defaultState(), out = ctx.createGain();
   const hits = [], fallback = new Error('synth fallback');
   state.key = 0;
