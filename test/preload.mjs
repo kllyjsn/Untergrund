@@ -1,6 +1,7 @@
 // Live-kit preloading: which recordings a song needs, and the per-song lock that keeps a part on one sound.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { runInNewContext } from 'node:vm';
 import { liveSets, setsReady, loadSets, loadBand, BAND, STAB_BAND, LIVE_FILES, LIVE_KIT } from '../js/livekit.js';
 import { Engine, Sequencer } from '../js/engine.js';
 import { KIT_BACKBEAT } from '../js/params.js';
@@ -9,6 +10,17 @@ import { createPlayer } from '../js/player.js';
 import { OfflineAudioContext as FakeContext, AudioBuffer } from './offline-audio.mjs';
 
 const st = (kit, voice) => ({ master: { kit }, params: { stab: { voice } } });
+const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+const playSource = main.slice(main.indexOf('function play(opts = {})'), main.indexOf('\nfunction endTuning'));
+for (const opts of [{ startsAt: 12345 }, { stepWall: 12345 }, { delay: .1 }]) {
+  const calls = [];
+  const play = runInNewContext(`${playSource}\nplay`, {
+    playing: false, needsTuning: () => ({ load() { calls.push('load'); return new Promise(() => {}); } }),
+    start: (got) => { assert.equal(got, opts); calls.push('start'); },
+  });
+  play(opts);
+  assert.deepEqual(calls, ['load', 'start'], 'clock-synced playback loads in the background without waiting or changing the origin');
+}
 assert.deepEqual(liveSets(st(0, 1)), []);
 assert.deepEqual(liveSets(st(1, 1)), ['kit']);
 assert.deepEqual(liveSets(st(2, 8)), ['kit', 'gtr', 'gtrsoft']);
@@ -50,6 +62,14 @@ globalThis.fetch = async (url) => {
 globalThis.OfflineAudioContext = class { decodeAudioData(b) { return Promise.resolve({ length: b.byteLength }); } };
 
 const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
+{
+  const local = { recLock: new Map() }, room = { recLock: new Map(), roomRecordings: true };
+  assert.equal(Engine.prototype.rec.call(local, 'jep1'), null);
+  assert.equal(Engine.prototype.rec.call(room, 'jep1'), null);
+  await loadBand('jep1');
+  assert.equal(Engine.prototype.rec.call(local, 'jep1'), null, 'ordinary playback retains its initial fallback');
+  assert.ok(Engine.prototype.rec.call(room, 'jep1'), 'a live listener adopts the decoded bank without restarting the clock');
+}
 const feeds = (source, dest) => source === dest || dest.inputs.some((input) => feeds(source, input));
 {
   const ctx = new FakeContext(2, 4096, 48000), state = defaultState(), out = ctx.createGain();

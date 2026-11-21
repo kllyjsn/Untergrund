@@ -837,7 +837,7 @@ export class Engine {
   rec(name, lockOnUse = true) {
     const got = liveSet(name), lock = this.recLock;
     if (!lock || (!lockOnUse && !lock.has(name))) return got;
-    if (!lock.has(name)) lock.set(name, !!got);
+    if (!lock.has(name) || (this.roomRecordings && !lock.get(name) && got)) lock.set(name, !!got);
     return lock.get(name) ? got : null;
   }
 
