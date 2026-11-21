@@ -112,6 +112,44 @@ for (const style of ['dnb', 'euphoric', 'deephouse']) {
   }
 }
 
+{
+  const { paletteFor, paletteColor } = await import('../js/engine.js');
+  const s = freshSong('deephouse', 20); s.artist = { style: 'deephouse', seed: 20 };
+  const ctx = new OfflineAudioContext(1, SR, SR), e = new Engine(ctx, s, { realtime: false });
+  const color = paletteFor(s).bass, step = { n: 0, a: false }, len = e.stepDur * 1.7 * color.length;
+  const buffer = (level) => {
+    const b = ctx.createBuffer(1, SR / 2, SR), x = b.getChannelData(0);
+    for (let i = 0; i < x.length; i++) x[i] = level * Math.sin(i * 2 * Math.PI * 65 / SR);
+    return b;
+  };
+  let bank = [];
+  e.rec = () => bank;
+  assert.equal(e.pocketReferenceGain(step, len, color, 1), 1, 'missing legacy bass keeps its synth fallback');
+  bank = [[e.bassMidi(step), buffer(0.04)]];
+  const quiet = e.pocketReferenceGain(step, len, color, 1);
+  assert(quiet > 0 && quiet < 1, 'a quiet recorded bass caps the replacement');
+  assert.equal(e.pocketReferenceGain(step, len, color, 1), quiet, 'reference analysis is cached');
+  bank = [[e.bassMidi(step), buffer(0.8)]];
+  assert(e.pocketReferenceGain(step, len, color, 1) > quiet, 'the ceiling follows the actual recording energy');
+  bank = [[e.bassMidi(step), buffer(0)]];
+  assert.equal(e.pocketReferenceGain(step, len, color, 1), 0, 'silent legacy notes cannot become loud bass');
+  bank = [[e.bassMidi(step), null]];
+  assert.equal(e.pocketReferenceGain(step, len, color, 1), 1, 'unavailable reference buffers keep the fallback');
+  for (const style of ['euphoric', 'dnb']) {
+    assert.equal(e.pocketReferenceGain(step, len, paletteFor({ artist: { style } }).bass, 1), 1, `${style} has no Deep House ceiling`);
+  }
+  for (const [voice, method] of [[1, 'keys'], [2, 'pad'], [3, 'organ']]) {
+    s.params.stab.voice = voice;
+    let calls = 0;
+    e[method] = () => calls++;
+    e.paletteChord(0.05, 0.5, [], 48, s.params.stab, e.ch.stab.input, paletteColor(s));
+    assert.equal(calls, 0, 'an empty chord creates no presence lane');
+    e.stab(0.05, 0.5);
+    assert.equal(calls, 1, `Deep House ${method} has its own upper-band attack`);
+  }
+  assert.equal(paletteFor(s).hook.presence, false, 'the restrained Deep House lead does not inherit the chord attack');
+}
+
 for (const listener of ['dnb', 'euphoric', 'deephouse']) {
   for (const recorded of ['trap', 'bailefunk']) {
     const s = freshSong(recorded, 42); s.artist = { style: listener };

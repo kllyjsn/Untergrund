@@ -29,18 +29,18 @@ const BASS_COLOR = {
 };
 const LIQUID_CHORD = { wave: 'sawtooth', level: 0.4, attack: 0.065, release: 0.8, cutoff: 1700, spread: 6, fm: 0, width: 0 };
 const EUPHORIC_CHORD = { wave: 'sawtooth', level: 0.54, attack: 0.025, release: 0.85, cutoff: 2300, spread: 11, fm: 0 };
-const DEEP_CHORD = { wave: 'triangle', level: 1.35, attack: 0.007, release: 0.45, cutoff: 1700, spread: 2, fm: 0.65, width: 0.25, eq: [[320, 0.8, -2], [950, 0.8, 3]] };
+const DEEP_CHORD = { wave: 'triangle', level: 1.35, attack: 0.007, release: 0.45, cutoff: 1700, spread: 2, fm: 0.65, width: 0.25, presence: 'keys', eq: [[320, 0.8, -2], [950, 0.8, 3]] };
 const GENRE_PALETTES = {
   deephouse: {
     name: 'velvet',
     chords: {
       default: DEEP_CHORD,
       1: DEEP_CHORD,
-      3: { ...DEEP_CHORD, wave: 'sine', organ: 0.35, level: 1.65, attack: 0.005, fm: 0, release: 0.42, cutoff: 1900 },
-      2: { ...DEEP_CHORD, level: 1.5, attack: 0.025, release: 0.6, fm: 0.28, cutoff: 1450 },
+      3: { ...DEEP_CHORD, wave: 'sine', organ: 0.35, level: 1.65, attack: 0.005, fm: 0, release: 0.42, cutoff: 1900, presence: 'organ' },
+      2: { ...DEEP_CHORD, level: 1.5, attack: 0.025, release: 0.6, fm: 0.28, cutoff: 1450, presence: 'pad' },
     },
-    hook: { ...DEEP_CHORD, level: 0.4, attack: 0.012, release: 0.12, cutoff: 1800, spread: 1.5, width: 0.16, fm: 0.45, eq: [] },
-    bass: { type: 'round', wave: 'sine', fm: 0.65, level: 1, sub: 0.72, body: 0.8, cutoff: 460, decay: 0.11, sustain: 0.55, length: 0.88 },
+    hook: { ...DEEP_CHORD, level: 0.4, attack: 0.012, release: 0.12, cutoff: 1800, spread: 1.5, width: 0.16, fm: 0.45, presence: false, eq: [] },
+    bass: { type: 'round', wave: 'sine', fm: 0.65, level: 1, sub: 0.72, body: 0.8, cutoff: 460, decay: 0.11, sustain: 0.55, length: 0.88, balance: true },
   },
   euphoric: {
     name: 'uplift',
@@ -2179,6 +2179,12 @@ export class Engine {
       hp.connect(lp).connect(this.gain(color.level)).connect(out);
       return this.piano(t, v, iv, root, { ...p, rev: Math.min(0.2, p.rev) }, hp);
     }
+    if (color.presence) {
+      const air = this.palettePresenceOut(out, Math.round(p.voice));
+      if (color.presence === 'organ') this.organ(t, v, iv, root, p, air);
+      else if (color.presence === 'pad') this.pad(t, v, iv, root, p, air);
+      else this.keys(t, v, iv, root, p, air);
+    }
     for (const band of color.eq || []) out = this.bodyFor(out, band);
     const release = Math.max(0.12, Math.min(color.release, p.decay)), hold = color.hold ?? 0.04, end = t + color.attack + hold + release * 6 + 0.02;
     const cutoff = color.cutoff * Math.max(0.5, Math.min(1.8, p.cutoff / 1800));
@@ -2202,6 +2208,18 @@ export class Engine {
         this.startSource(o, t); o.stop(end);
       }
     }
+  }
+
+  palettePresenceOut(out, voice) {
+    const paths = (this.paletteAir ||= new WeakMap());
+    if (!paths.has(out)) paths.set(out, new Map());
+    const byVoice = paths.get(out);
+    if (!byVoice.has(voice)) {
+      const hp = this.filter('highpass', 1800, Math.SQRT1_2);
+      hp.connect(this.gain(0.9)).connect(out);
+      byVoice.set(voice, this.trimOut(`palette-presence${voice}`, STAB_TRIM_DB[voice] || 0, hp, 0, STAB_SHELF_HZ[voice]));
+    }
+    return byVoice.get(voice);
   }
 
   paletteWave(f, color) {
@@ -2252,12 +2270,47 @@ export class Engine {
     this.mono = { amp, f, end };
   }
 
+  pocketReferenceGain(st, len, color, preamp) {
+    if (!color.balance || Math.round(this.state.params.acid.voice) !== 5) return 1;
+    const set = this.rec('ebass');
+    if (!set?.length) return 1;
+    const p = this.state.params.acid, note = this.bassMidi(st);
+    let [m, buf] = set[0];
+    for (const [n, b] of set) if (Math.abs(n - note) < Math.abs(m - note)) [m, buf] = [n, b];
+    if (!buf?.length) return 1;
+    const cache = (this.pocketRefs ||= new WeakMap());
+    if (!cache.has(buf)) cache.set(buf, new Map());
+    const known = cache.get(buf), key = `${note}:${len}:${p.cutoff}:${preamp}:${!!st.a}`;
+    if (known.has(key)) return known.get(key);
+    const sr = buf.sampleRate, rate = 2 ** ((note - m) / 12), n = Math.ceil((len + 0.25) * sr), clip = new Float32Array(n);
+    const src = buf.getChannelData(0), gate = len / color.length;
+    let envelopeEnergy = 0;
+    const release = color.sustain + (1 - color.sustain) * Math.exp(-Math.max(0, len - 0.012) / color.decay);
+    for (let i = 0; i < n; i++) {
+      const t = i / sr, at = i * rate, j = Math.floor(at), mix = at - j;
+      const sample = (src[j] || 0) * (1 - mix) + (src[j + 1] || 0) * mix;
+      clip[i] = sample * (t <= gate ? 1 : Math.max(0, 1 - (t - gate) / 0.05));
+      const env = t > len ? release * Math.exp(-(t - len) / 0.025) : t < 0.006 ? t / 0.006 : t < 0.012 ? 1 : color.sustain + (1 - color.sustain) * Math.exp(-(t - 0.012) / color.decay);
+      envelopeEnergy += env * env;
+    }
+    const shelf = Math.max(-24, Math.min(10, 8 * Math.log2(p.cutoff / LIVE_REF.acid.cutoff)));
+    const reference = filterVocal(clip, biquad('highshelf', 900, Math.SQRT1_2, shelf, sr));
+    const low = filterVocal(reference, biquad('lowpass', 150, Math.SQRT1_2, 0, sr));
+    let broadEnergy = 0, lowEnergy = 0;
+    for (let i = 0; i < n; i++) { broadEnergy += reference[i] ** 2; lowEnergy += low[i] ** 2; }
+    const bound = envelopeEnergy * ((color.body * preamp + color.sub) * color.level) ** 2 / 2;
+    const touch = 1.1 * (st.a ? 1.15 : 1) / (st.a ? 1 : 0.82);
+    const gain = Math.min(1, 10 ** (1 / 20) * touch * Math.sqrt(Math.min(broadEnergy, lowEnergy) / Math.max(1e-20, bound)));
+    known.set(key, gain);
+    return gain;
+  }
+
   pocketBass(t, st, sd, holdNext, sliding, color) {
     const c = this.ctx, p = this.state.params.acid, f = midiHz(this.bassMidi(st)), subF = midiHz(this.bassMidi(st, 36, Math.round(p.voice) === 5 ? 43 : 38));
     const drive = p.drive - this.paletteReference().acid.drive, preamp = 2 ** (drive * 2);
     const from = this.monoNote(t, f, sliding), len = (st.ap ? sd * 0.9 : holdNext ? sd * 2 : sd * (0.9 + p.decay * 2)) * color.length, end = t + len + 0.25;
     const cutoff = Math.max(100, Math.min(4000, color.cutoff * (0.55 + p.cutoff / 600)));
-    const lp = this.filter('lowpass', cutoff, 0.6), amp = this.gain(0), vel = (st.a ? 1 : 0.82) * (this.noteVel ?? 1) * color.level;
+    const lp = this.filter('lowpass', cutoff, 0.6), amp = this.gain(0), vel = (st.a ? 1 : 0.82) * (this.noteVel ?? 1) * color.level * this.pocketReferenceGain(st, len, color, preamp);
     lp.frequency.setValueAtTime(cutoff * (st.a ? 1.3 : 1), t);
     lp.frequency.setTargetAtTime(cutoff * 0.45, t + 0.008, color.decay);
     amp.gain.setValueAtTime(0, t); amp.gain.linearRampToValueAtTime(vel, t + 0.006);
