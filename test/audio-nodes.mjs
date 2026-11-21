@@ -132,9 +132,17 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
       assert.equal(e.out.gain.value, .78 * 10 ** (db / 20), 'output trim follows the recorded style');
       const trims = [], trimOut = e.trimOut;
       e.trimOut = function (...args) { trims.push(args); return trimOut.apply(this, args); };
+      const funk = [], funkStab = e.funkStab;
+      e.funkStab = function (...args) { funk.push(args); return funkStab.apply(this, args); };
       e.hook(.05, .8, 0, 1, 'analog');
-      assert.equal(trims.find(([key]) => key.startsWith('hook-'))[1],
-        (HOOK_TRIM_DB.analog || 0) + (recorded === 'trap' && voice === 2 ? 3 : 0), 'PAD-only hook lift follows recorded style');
+      const hookTrim = trims.find(([key]) => key.startsWith('hook-'));
+      if (recorded === 'bailefunk') {
+        assert.equal(funk.length, 1, 'recorded Baile Funk hooks replay through the Volt stab');
+        assert.equal(hookTrim, undefined, 'recorded Baile Funk hooks skip the listener hook voice');
+      } else {
+        assert.equal(funk.length, 0, 'recorded Trap hooks skip the Baile palette');
+        assert.equal(hookTrim[1], (HOOK_TRIM_DB.analog || 0) + (voice === 2 ? 3 : 0), 'PAD-only hook lift follows recorded style');
+      }
       const calls = [];
       e.festivalGate.gain.setValueAtTime = value => calls.push(value);
       e.festivalGate.gain.cancelScheduledValues = () => calls.push('cancel');
