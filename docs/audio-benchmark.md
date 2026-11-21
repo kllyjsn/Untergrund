@@ -72,6 +72,8 @@ waveform hashes). The authoritative list with every threshold and its rationale 
 each report under `checks`.
 For kick/bass collision, drift only flags increases: reducing bass overlap with the kick is intentional in offbeat grooves.
 
+For swing, modal and bossa, the same low-frequency ratio is retained as the informational `acousticKickBass` measurement. Upright bass intentionally leads their feathered/surdo-style kick, so bass being louder in a kick window does not by itself establish masking. Missing-part and energetic-masking measurements still apply. Jazz-funk keeps the normal kick/bass guardrail because its kick is a foreground groove instrument.
+
 | group | checks | can conclude | cannot conclude |
 |---|---|---|---|
 | peaks | true peak (4x oversampled), clipped runs, DC (floored at -80 dBFS), clipper input over full scale | the master exceeds the -1 dBTP ceiling, clips, or drives the clipper into its flat top | inter-codec overshoot of a specific encoder |

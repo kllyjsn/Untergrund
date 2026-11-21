@@ -102,6 +102,17 @@ if (exportNull) {
   };
   assert.equal(kickBassLevel(-200), 'PASS', 'offbeat bass does not collide with the kick');
   assert.equal(kickBassLevel(-8), 'FAIL', 'an increase in kick masking still fails drift');
+  result.stems.kickBass.collisionP90Db = 20;
+  for (const style of ['swing', 'modal', 'bossa']) {
+    const metrics = report('fast', [42], [{ ...result, style }], null, {}).styles[style].metrics;
+    assert.equal(metrics.kickBass, undefined);
+    assert.equal(metrics.acousticKickBass.level, 'INFO', `${style} does not demand a kick louder than upright`);
+    assert.equal(metrics.acousticKickBass.worst, 20, 'the measurement remains visible');
+    const missingBass = { ...result, style, stems: { ...result.stems, missing: ['acid'] } };
+    assert.equal(report('fast', [42], [missingBass], null, {}).styles[style].metrics.missingParts.level, 'FAIL', `${style} still gates missing bass`);
+  }
+  assert.equal(run().styles.minimal.metrics.kickBass.level, 'FAIL', 'electronic grooves retain the absolute guardrail');
+  assert.equal(report('fast', [42], [{ ...result, style: 'jazzfunk' }], null, {}).styles.jazzfunk.metrics.kickBass.level, 'FAIL', 'jazz-funk retains the kick/bass guardrail');
   result.mix.peak.clipRuns = 1;
   assert.equal(run().verdict, 'FAIL');
   console.log('audio benchmark applicability passed: INFO counts, missing measurements and unchanged PASS/WARN/FAIL verdicts');
