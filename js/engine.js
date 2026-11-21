@@ -27,7 +27,7 @@ const BASS_COLOR = {
   afrobeats: { name: 'finger', knock: 1, settle: 0.018, wave: 'triangle', ratio: 3, harmonic: 0.8, tail: 0.25, decay: 0.07, round: 'triangle', pick: 1, gain: 0.85 },
   jerseyclub: { name: 'bounce', knock: 2.6, settle: 0.012, wave: 'sawtooth', ratio: 2, harmonic: 0.35, tail: 0.015, decay: 0.025, round: 'triangle', pick: 0.5, gain: 1.6, duckScale: 0.65, recoveryScale: 0.6 },
 };
-const LIQUID_CHORD = { wave: 'sawtooth', level: 0.3, attack: 0.065, release: 0.8, cutoff: 1700, spread: 6, fm: 0, width: 0 };
+const LIQUID_CHORD = { wave: 'sawtooth', level: 0.3, attack: 0.065, release: 0.8, cutoff: 1700, spread: 6, fm: 0, width: 0, eq: [[1130, 0.7, 3]] };
 const EUPHORIC_CHORD = { wave: 'sawtooth', level: 0.54, attack: 0.025, release: 0.85, cutoff: 2300, spread: 11, fm: 0 };
 const DEEP_CHORD = { wave: 'triangle', level: 1.35, attack: 0.007, release: 0.45, cutoff: 1700, spread: 2, fm: 0.65, width: 0.25, presence: 'keys', eq: [[320, 0.8, -5], [950, 0.8, 3]] };
 const GENRE_PALETTES = {
@@ -64,7 +64,7 @@ const GENRE_PALETTES = {
       1: { ...LIQUID_CHORD, wave: 'triangle', level: 0.35, attack: 0.006, release: 0.5, cutoff: 2400, fm: 0.7 },
       5: { ...LIQUID_CHORD, wave: 'triangle', level: 0.42, attack: 0.012, release: 0.32, cutoff: 2100, fm: 0.45 },
     },
-    hook: { wave: 'triangle', level: 0.44, attack: 0.018, release: 0.16, cutoff: 4500, spread: 8, fm: 0.5, width: 0.7, breath: 0.18, transpose: 12, range: [72, 90] },
+    hook: { wave: 'triangle', level: 0.44, attack: 0.018, release: 0.16, cutoff: 4500, spread: 8, fm: 0.5, width: 0.7, breath: 0.18, breathDecay: 0.06, transpose: 12, range: [72, 90], eq: [[1130, 0.7, 3]] },
     bass: { level: 1, sub: 0.9, body: 0.5, movement: 230, spread: 14, midCut: [325, 0.7, 3] },
   },
 };
@@ -2212,7 +2212,13 @@ export class Engine {
     if (color.air) this.noiseSrc(t, end - t).connect(this.gain(color.air)).connect(hp);
     if (color.breath) {
       const air = this.filter('highpass', 2000, Math.SQRT1_2), top = this.filter('lowpass', 9000, Math.SQRT1_2);
-      this.noiseSrc(t, end - t).connect(air).connect(top).connect(this.gain(color.breath)).connect(amp);
+      const breath = this.gain(color.breath);
+      if (color.breathDecay) {
+        breath.gain.setValueAtTime(0, t);
+        breath.gain.linearRampToValueAtTime(color.breath, t + color.attack);
+        breath.gain.setTargetAtTime(0, t + color.attack, color.breathDecay);
+      }
+      this.noiseSrc(t, end - t).connect(air).connect(top).connect(breath).connect(amp);
     }
     const width = color.width ?? 0.55, pans = this.sidePans([-width, width], hp);
     for (const n of iv) {

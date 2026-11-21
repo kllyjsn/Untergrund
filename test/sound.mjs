@@ -248,6 +248,25 @@ for (const listener of ['dnb', 'euphoric', 'deephouse']) {
   }
   assert(paletteFor(s).bass.balance, 'the adaptive bass cap remains enabled');
 }
+{
+  const { paletteFor } = await import('../js/engine.js');
+  const s = freshSong('dnb', 20); s.artist = { style: 'dnb', seed: 20 };
+  const e = new Engine(new OfflineAudioContext(1, SR * 2, SR), s, { realtime: false }), targets = [], peaks = [];
+  const gain = e.gain;
+  e.gain = function (...args) {
+    const g = gain.apply(this, args), target = g.gain.setTargetAtTime, ramp = g.gain.linearRampToValueAtTime;
+    g.gain.setTargetAtTime = function (...args) { targets.push(args); return target.apply(this, args); };
+    g.gain.linearRampToValueAtTime = function (...args) { peaks.push(args); return ramp.apply(this, args); };
+    return g;
+  };
+  e.paletteChord(0.05, 0.4, [], 72, s.params.stab, e.ch.stab.input, paletteFor(s).hook);
+  assert.equal(targets.length, 0, 'empty voicings do not schedule breath');
+  e.hook(0.05, 0.4, 0, 1, 'analog');
+  assert(targets.some(([value, time, decay]) => value === 0 && Math.abs(time - 0.068) < 1e-8 && decay === 0.06), 'breath fades after its attack rather than sustaining with the note');
+  assert(peaks.some(([value]) => value === 0.18), 'the initial airy attack is retained');
+  assert.deepEqual(paletteFor(s).hook.eq, [[1130, 0.7, 3]]);
+  for (const color of Object.values(paletteFor(s).chords)) assert.deepEqual(color.eq, [[1130, 0.7, 3]], 'every liquid chord variant has the same body boost');
+}
 for (const recorded of ['dnb', 'euphoric', 'deephouse']) {
   const s = freshSong(recorded, 42); s.artist = { style: 'trap' };
   const e = new Engine(new OfflineAudioContext(1, 256, SR), s, { realtime: false }), calls = [];
