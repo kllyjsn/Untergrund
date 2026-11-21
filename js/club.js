@@ -540,7 +540,7 @@ export function clubActions({ isHost, live, canListen, queued, queueLength = 0 }
   return queued ? { primary: null, secondary: [queue] } : { primary: queue, secondary: [] };
 }
 
-export function openClub({ getState, getStyle, loadTrack, getTransport, getReleaseId = () => '', startRoomBroadcast, unlockAudio, joinRoomSet: joinSet, reanchorRoomSet, onLeaveRoom, onPlaybackUnavailable, replayToRoom, jam: jamHooks = null, toast, room: requestedRoom = '', intent = '', hue = null }) {
+export function openClub({ getState, getStyle, loadTrack, prepareTrack, getTransport, getReleaseId = () => '', startRoomBroadcast, unlockAudio, joinRoomSet: joinSet, reanchorRoomSet, onLeaveRoom, onPlaybackUnavailable, replayToRoom, jam: jamHooks = null, toast, room: requestedRoom = '', intent = '', hue = null }) {
   const joinRoomSet = (set, options) => { joinSet(set, options); bus?.follow(set); };
   let audioReady = false;
   const unlock = () => unlockAudio().then((ok) => (audioReady = ok));
@@ -687,8 +687,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, getRelea
     stageView.react({ id: event.user?.id, name: event.user?.name, value: event.payload?.value || 'HYPE' });
   }
 
-  function nowPlaying() {
-    const state = getState();
+  function nowPlaying(state = getState()) {
     return {
       title: state.artist?.title || 'Live Machine Set',
       artist: state.artist?.name || 'UNTERGRUND',
@@ -698,7 +697,14 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, getRelea
     };
   }
 
-  function broadcastSet() {
+  const nextSetStart = (transport) => {
+    const earliest = Date.now() + ROOM_BROADCAST_LEAD_MS;
+    if (!transport.playing) return earliest;
+    const barMs = 240000 / getState().bpm;
+    return transport.startsAt + Math.ceil((earliest - transport.startsAt) / barMs) * barMs;
+  };
+
+  function broadcastSet(prepared = null) {
     unlock();
     if (room.hostId && room.hostId !== clientId()) {
       const queued = room.queue?.includes(clientId());
@@ -707,17 +713,20 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, getRelea
       return;
     }
     const transport = getTransport();
-    const startsAt = transport.playing ? transport.startsAt : Date.now() + ROOM_BROADCAST_LEAD_MS;
-    const track = nowPlaying();
-    const trackId = getReleaseId();
+    const startsAt = transport.playing && !prepared ? transport.startsAt : nextSetStart(transport);
+    const state = prepared?.state ?? getState();
+    const track = nowPlaying(state);
+    const trackId = prepared ? prepared.trackId : getReleaseId();
     const broadcastId = `${bus.clientId}:${Date.now()}:${++bus.localSetVersion}`;
     bus.initiatedSets.add(broadcastId);
     const listed = roomIsPublic();
-    bus.send('set', { ...track, ...(trackId && { trackId }), state: clone(getState()), style: getStyle(), startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId, public: listed });
+    const set = { ...track, ...(trackId && { trackId }), state: clone(state), style: prepared?.style ?? getStyle(),
+      startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId, public: listed };
+    bus.send('set', set);
     bus.follow(bus.currentSet);
-    startRoomBroadcast(startsAt);
+    startRoomBroadcast(startsAt, prepared ? set : null);
     startLiveSet({
-      getState, startsAt, toast, dj: avatar.name, room: activeRoom, title: track.title,
+      getState: () => prepared && Date.now() < startsAt ? state : getState(), startsAt, toast, dj: avatar.name, room: activeRoom, title: track.title,
       isPlaying: () => getTransport().playing,
       isDJ: () => { const b = parkedBus || bus; return !b.hostId || b.hostId === b.clientId; },
     });
@@ -957,12 +966,8 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, getRelea
     let timeline;
     try { timeline = await loadReplay(item); } catch { return toast('That set is no longer in the jukebox'); }
     endLiveSet({ offer: false });
-    const earliest = Date.now() + ROOM_BROADCAST_LEAD_MS;
     // Take the first outgoing bar after the invite warmup, so the replay starts on a phrase.
-    const transport = getTransport(), barMs = 240000 / getState().bpm;
-    const startsAt = transport.playing
-      ? transport.startsAt + Math.ceil((earliest - transport.startsAt) / barMs) * barMs
-      : earliest;
+    const startsAt = nextSetStart(getTransport());
     const broadcastId = `${bus.clientId}:${Date.now()}:${++bus.localSetVersion}`;
     bus.initiatedSets.add(broadcastId);
     const s = timeline.initial;
@@ -996,6 +1001,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, getRelea
     const spin = async (item) => {
       try {
         const track = await fetchTrack(item.id);
+        if (isHost && getTransport().playing) return broadcastSet(prepareTrack(track));
         loadTrack(track);
         if (isHost) broadcastSet();
         else toast(`Loaded “${item.title}”. Join the DJ queue to spin it.`);
