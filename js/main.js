@@ -368,6 +368,14 @@ function refreshJamPrime(wall = null) {
   });
 }
 function queueJamPart(part, layer, wall) {
+  const pending = queuedRoomSwitch?.jamEdits;
+  if (pending) {
+    const index = pending.findIndex((q) => q.part === part);
+    const edit = { part, layer, wall };
+    if (index < 0) pending.push(edit);
+    else pending[index] = edit;
+    return;
+  }
   jamQueue = jamQueue.filter((q) => q.part !== part);
   if (!playing || wall < Date.now() - 2000) return landJamPart(part, layer);
   jamQueue.push({ part, layer, wall });
@@ -1111,6 +1119,7 @@ function switchRoomSet(at) {
   style = nextStyle;
   songOrigin = { src:'room' };
   installRoomSong(roomState, t, undefined, undefined);
+  jamQueue = next.jamEdits;
   roomStatsItem = item;
   if (editRoom && track.trackId)
     playbackSources.set(state, { surface:'public', trackId:track.trackId, fingerprint:songFingerprint(state) });
@@ -1198,7 +1207,11 @@ function joinRoomSet(item, { initial = false } = {}) {
 
 function reanchorRoomSet(startsAt, previousStartsAt) {
   if (!playing || !roomPlayback || !Number.isFinite(startsAt)) return;
-  if (queuedRoomSwitch) { queuedRoomSwitch.startsAt = startsAt; return; }
+  if (queuedRoomSwitch) {
+    for (const edit of queuedRoomSwitch.jamEdits || []) edit.wall += startsAt - queuedRoomSwitch.startsAt;
+    queuedRoomSwitch.startsAt = startsAt;
+    return;
+  }
   const origin = Number.isFinite(previousStartsAt) ? transportOrigin + startsAt - previousStartsAt
     : startsAt - (seq?.origin || 0) * (15000 / state.bpm);
   if (Math.abs(origin - transportOrigin) > 0.5) vocalGridDirty = true;
@@ -1214,7 +1227,7 @@ function stopRoomStats(item) {
 }
 
 function queueRoomTrack(track, roomState, nextStyle, startsAt, editRoom) {
-  queuedRoomSwitch = { track, roomState, nextStyle, startsAt, editRoom };
+  queuedRoomSwitch = { track, roomState, nextStyle, startsAt, editRoom, jamEdits:[] };
   prepareSample(roomState);
   engine.prepareVocal(roomState);
   loadSets(liveSets(roomState)).catch(() => {});
@@ -1271,8 +1284,11 @@ function showClub({ room = '', intent = '' } = {}) {
     replayToRoom,
     jam: {
       queuePart: queueJamPart,
-      pending: (part) => jamQueue.find((q) => q.part === part)?.wall || 0,
-      reset: () => { jamQueue = []; },
+      pending: (part) => (queuedRoomSwitch?.jamEdits ?? jamQueue).find((q) => q.part === part)?.wall || 0,
+      reset: () => {
+        jamQueue = [];
+        if (queuedRoomSwitch?.jamEdits) queuedRoomSwitch.jamEdits.length = 0;
+      },
     },
     toast,
   });
