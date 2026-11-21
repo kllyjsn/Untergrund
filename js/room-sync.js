@@ -96,7 +96,8 @@ export function transportResync(target, nextTime, now, stepSec, jumped = false, 
   const ready = now + 0.005;
   // Recover one step near the render deadline without moving the grid or
   // squeezing the gap to its following step below half a step.
-  const earliest = jumped ? ready - Math.min(0.055, stepSec / 2) : room ? now : ready;
+  const recoverableLead = room ? stepSec / 2 : Math.min(0.055, stepSec / 2);
+  const earliest = jumped ? ready - recoverableLead : room ? now : ready;
   let skip = jumped ? Math.max(minSkip, Math.ceil((earliest - target) / stepSec)) : 0;
   target += skip * stepSec;
   while (target < earliest) { target += stepSec; skip++; }

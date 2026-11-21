@@ -422,6 +422,23 @@ console.log('Room S-curve clock precision PASS: real epoch arithmetic preserves 
 }
 
 {
+  const now = 10, step = 15 / 123, ready = now + .005;
+  const grid = now - .050002, missedSteps = 109;
+  const edge = transportResync(grid - missedSteps * step, 11.5, now, step, true, 0, true);
+  assert.equal(edge.skip, missedSteps, 'recover the first Club step just outside the old wake window');
+  assert.equal(edge.discard, true);
+  close(edge.firstTime, ready);
+  close(edge.nextTime, grid);
+  assert.ok(edge.nextTime + step - edge.firstTime >= step / 2, 'the next step stays on-grid with audible spacing');
+
+  const crowded = ready - step / 2 - .000002;
+  const skip = transportResync(crowded, 11.5, now, step, true, 0, true);
+  assert.equal(skip.skip, 1, 'skip an overdue Club step only when playing it would crowd the next');
+  assert.equal(skip.firstTime, undefined);
+  close(skip.nextTime, crowded + step);
+}
+
+{
   const songOrigin = 64, nextStep = 68;
   const recovery = transportResync(10.75, 11.5, 10, 0.125, true, songOrigin - nextStep);
   assert.equal(recovery.skip, -4, 'a landed handoff cannot rewind into the outgoing song');

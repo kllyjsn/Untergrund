@@ -1,5 +1,5 @@
 import { pocketOf } from './groove.js';
-import { KIT_BACKBEAT } from './params.js';
+import { HAND_KIT, MARIMBA_STAB, KIT_BACKBEAT } from './params.js';
 // Recorded acoustic kit and upright bass for the live-kit genres (CC0, see samples/live/LICENSE.md).
 // Loads lazily; until the buffers arrive the engine keeps using the synthesized live voices.
 export const LIVE_KIT = {
@@ -56,6 +56,7 @@ export const BAND = {
   // Tonewheel organ (UK Garage stabs, Rock choruses) and the Roland SH-2 analog bass (UK Garage).
   org: [43, 47, 48, 50, 52, 53, 55, 57, 59, 60, 62, 64, 65, 67, 69, 71, 72, 74, 76, 77, 79, 81, 83],
   abass: [36, 39, 42, 45, 48, 51, 54, 57, 60],
+  marimba: [48, 55, 59, 65, 72, 79, 83],
 };
 // Measured pitch of a recording minus its name, in cents (python3 test/sampletune.py), for takes played a little off.
 const GTR_TUNE = { 40: -4, 42: -2, 45: -8, 48: -6, 51: 8, 54: 4, 57: 9, 60: 4, 63: 2, 66: 2, 72: -2 };
@@ -77,19 +78,33 @@ export const MUTE_LAYER = { gtr: 'gtrmute' };
 // Background-only recordings: alternate takes and mutes, never waited on before a song starts.
 const EXTRA_TAKES = Object.fromEntries([...Object.entries(TAKES), ...Object.entries(MUTE_LAYER)].map(([k, alt]) => [alt, BAND[k] || BAND.gtr]));
 // STAB voice index -> recorded instrument.
-export const STAB_BAND = { 7: 'piano', 8: 'gtr', 9: 'horn', 10: 'str', 11: 'gtr', 12: 'agtr', 13: 'jazz', 14: 'banjo', 15: 'gretsch', 16: 'cello', 17: 'cl', 18: 'nylon' };
+export const STAB_BAND = { 7: 'piano', 8: 'gtr', 9: 'horn', 10: 'str', 11: 'gtr', 12: 'agtr', 13: 'jazz', 14: 'banjo', 15: 'gretsch', 16: 'cello', 17: 'cl', 18: 'nylon', [MARIMBA_STAB]: 'marimba' };
 // Styles whose ORGAN chords and REESE bass play those recordings instead of the synth voices.
 export const RECORDED_ORGAN = new Set(['ukg']);
 export const ANALOG_BASS = new Set(['ukg']);
-export const HOOK_BAND = { harpplk: 'harp', oboe: 'ob', airflute: 'fl', tpt: 'tpt' };
+export const HOOK_BAND = { harpplk: 'harp', oboe: 'ob', airflute: 'fl', tpt: 'tpt', marimba: 'marimba' };
 Object.assign(BAND, EXTRA_TAKES);
 export const BAND_FILES = Object.entries(BAND).flatMap(([k, ns]) => ns.map((n) => `${k}_${n}`));
 // Crash and toms of the same recorded kit, loaded only by the band pockets that play them (POP, R&B, ROCK, FOLK, COUNTRY).
 export const KIT_EXTRA = ['crash_v2', 'crash_v3', 'htom_v8', 'htom_v14', 'ltom_v8', 'ltom_v14'];
+const HANDS = {
+  shaker: ['shaker_1', 'shaker_2', 'shaker_4', 'shaker_7'],
+  conga: ['conga_tap_1', 'conga_tap_2', 'conga_open_1', 'conga_open_2'],
+  cowbell: ['cowbell_1', 'cowbell_2'],
+  timbale: ['timbale_closed_1', 'timbale_closed_2', 'timbale_low_1', 'timbale_low_2', 'timbale_high_1', 'timbale_high_2'],
+  cuica: ['cuica_1', 'cuica_2'],
+};
+const HAND_SETS = {
+  [HAND_KIT.amapiano]: ['shaker', 'conga'],
+  [HAND_KIT.afrobeats]: ['conga', 'shaker', 'cowbell'],
+  [HAND_KIT.reggaeton]: ['conga', 'timbale'],
+  [HAND_KIT.bailefunk]: ['timbale', 'cuica'],
+};
+export const HAND_FILES = Object.values(HANDS).flat();
 
 const BASE = new URL('../samples/live/', import.meta.url);
-// Samples are served with immutable caching: bump SAMPLES_REV whenever a file under samples/live changes.
-const SAMPLES_REV = 6;
+// Samples are served with immutable caching: bump SAMPLES_REV when replacing an existing recording.
+const SAMPLES_REV = 5;
 const sampleUrl = (file) => new URL(`${file}.flac?v=${SAMPLES_REV}`, BASE);
 let buffers = null, loading = null, extra = null, extraLoading = null;
 let snare = null, snareLoading = null;
@@ -140,6 +155,7 @@ export function liveSets(st) {
   if (Math.round(st?.params?.acid?.voice || 0) === 5) out.push('ebass');
   if (Math.round(st?.params?.acid?.voice || 0) === 3 && ANALOG_BASS.has(st?.artist?.style)) out.push('abass');
   if (Math.round(st?.params?.stab?.voice || 0) === 3 && RECORDED_ORGAN.has(st?.artist?.style)) out.push('org');
+  out.push(...(HAND_SETS[Math.round(st?.params?.perc?.voice || 0)] || []));
   const name = STAB_BAND[Math.round(st?.params?.stab?.voice || 0)];
   if (name) out.push(name, ...(SOFT_LAYER[name] ? [SOFT_LAYER[name]] : []));
   for (const p of [st?.pattern, ...(st?.patterns || [])]) {
@@ -155,7 +171,21 @@ export function liveSets(st) {
 export const withTakes = (names) => [...new Set(names.flatMap((n) => [n, TAKES[n], MUTE_LAYER[n], TAKES[MUTE_LAYER[n]]].filter(Boolean)))];
 export const liveSet = (name) => (name === 'kit' ? buffers : name === 'kitx' ? extra : name === 'snare' ? snare || buffers : bandKit(name));
 export const setsReady = (names) => names.every((n) => liveSet(n));
-export const loadSets = (names) => Promise.all(names.map((n) => (n === 'kit' ? loadLiveKit() : n === 'kitx' ? loadKitExtra() : n === 'snare' ? loadSnare() : loadBand(n))));
+export const loadSets = (names) => Promise.all(names.map((n) => (n === 'kit' ? loadLiveKit() : n === 'kitx' ? loadKitExtra() : n === 'snare' ? loadSnare() : Object.hasOwn(HANDS, n) ? loadHand(n) : loadBand(n))));
+
+export function loadHand(name) {
+  if (band[name]) return Promise.resolve(band[name]);
+  if (bandLoading[name]) return bandLoading[name];
+  if (!Object.hasOwn(HANDS, name) || typeof fetch !== 'function' || typeof OfflineAudioContext === 'undefined') return Promise.resolve(null);
+  const dec = new OfflineAudioContext(1, 1, 44100);
+  bandLoading[name] = Promise.all(HANDS[name].map(async (file) => {
+    const res = await fetch(sampleUrl(file));
+    if (!res.ok) throw new Error(`${file}: HTTP ${res.status}`);
+    return dec.decodeAudioData(await res.arrayBuffer());
+  })).then((takes) => (band[name] = takes))
+    .catch((err) => { console.warn(`${name} samples unavailable, using synth voice`, err); return null; });
+  return bandLoading[name];
+}
 
 export function loadSnare() {
   if (snare || buffers) return Promise.resolve(snare || buffers);

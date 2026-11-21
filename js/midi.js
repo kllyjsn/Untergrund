@@ -1,7 +1,7 @@
 // EXPORT MIDI: plays the song through the real Sequencer into a recorder instead of the audio engine,
 // so every pocket, swing and humanize offset and every velocity lands in the file as played.
 import { Engine, Sequencer, parseChain, stabPitches, soundingPitch, STAB_VOICES, paletteFor, paletteColor, paletteHookPitch } from './engine.js';
-import { CHORDS, KEYS, SCALES } from './params.js';
+import { CHORDS, KEYS, MARIMBA_STAB, SCALES } from './params.js';
 import { compose } from './classical.js';
 import { PIECE } from './repertoire.js';
 import { jazzStyle } from './jazz.js';
@@ -12,8 +12,8 @@ const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453;
 // GM drum map (channel 10) and GM programs, so a DAW opens the file on sensible instruments.
 export const GM_DRUMS = { kick: 36, clap: 39, snare: 38, ch: 42, oh: 46, ride: 51, perc: 63 };
 const DRUM_NAMES = { kick: 'Kick', clap: 'Clap', snare: 'Snare', ch: 'Hats', oh: 'Open Hat', ride: 'Ride', perc: 'Perc' };
-const STAB_PROGRAM = { 0: 81, 1: 4, 2: 89, 3: 16, 4: 61, 5: 45, 6: 14, 7: 0, 8: 25, 9: 61, 10: 48, 16: 42, 17: 71, 18: 24 };
-const HOOK_PROGRAM = new Map([['oboe', 68], ['airflute', 73], ['tpt', 56]]);
+const STAB_PROGRAM = { 0: 81, 1: 4, 2: 89, 3: 16, 4: 61, 5: 45, 6: 14, 7: 0, 8: 25, 9: 61, 10: 48, 16: 42, 17: 71, 18: 24, [MARIMBA_STAB]: 12 };
+const HOOK_PROGRAM = new Map([['oboe', 68], ['airflute', 73], ['tpt', 56], ['marimba', 12]]);
 export const PARTS = {
   vln1: ['Violin I', 40], vln2: ['Violin II', 40], vla: ['Viola', 41], vc: ['Cello', 42], cb: ['Contrabass', 43],
   fl: ['Flute', 73], ob: ['Oboe', 68], cl: ['Clarinet', 71], hn: ['Horn', 60], tpt: ['Trumpet', 56],
