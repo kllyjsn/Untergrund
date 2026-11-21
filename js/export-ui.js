@@ -6,13 +6,13 @@ import { songMidi, songBars } from './midi.js';
 
 const closeMenu = (e) => e.currentTarget.closest('details')?.removeAttribute('open');
 
-export function exportButtons({ getState, getBars, download, toast, track, reportError }) {
+export function exportButtons({ getState, getBars, getPlaybackStyle = () => undefined, download, toast, track, reportError }) {
   const stems = h('button', { class: 'btn ghost', title: 'Every instrument as its own 24-bit / 48 kHz WAV, lined up, in one .zip', onclick: (e) => { closeMenu(e); openStems(); } }, 'EXPORT STEMS');
   const midi = h('button', { class: 'btn ghost', title: 'The notes of the whole song as a MIDI file, one track per instrument', onclick: (e) => {
     closeMenu(e);
     const state = getState();
     try {
-      const r = songMidi(state, { loopBars: getBars() });
+      const r = songMidi(state, { loopBars: getBars(), playbackStyle: getPlaybackStyle() });
       download(new Blob([r.bytes], { type: 'audio/midi' }), exportName(state, '.mid'));
       toast(`MIDI saved · ${r.tracks.length} tracks · ${r.bars} bars`);
       track('export_midi', { bars: r.bars });

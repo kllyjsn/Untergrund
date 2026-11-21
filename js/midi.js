@@ -48,6 +48,8 @@ export function parseKeyName(name = '') {
 // Records what the Sequencer asks the engine to play. Pitch helpers are borrowed from the real Engine.
 export class Recorder {
   constructor(state) { this.state = state; this.notes = {}; this.harm = null; this.stepScale = 1; this.noteVel = 1; this.bass = null; }
+  get playbackStyle() { return this.replay808Style ?? this.state.artist?.style; }
+  get minimal() { return (jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle) === 'minimal'; }
   get stepDur() { return (60 / this.state.bpm / 4) * (this.stepScale || 1); }
   add(track, t, m, dur, v) { (this.notes[track] ||= []).push({ t, m, dur: Math.max(0.01, dur), v }); }
   chord() { const p = this.state.params.stab, h = this.harm; return CHORDS[h ? h.c : Math.round(p.chord)].iv; }
@@ -66,7 +68,10 @@ export class Recorder {
       const len = bossa ? p.decay : pedal ? this.stepDur * 14.4 : Math.max(this.stepDur * 2, (p.decay || 0.3) * 1.5);
       if (paletteFor(this.state)) for (const n of iv) this.add('stab', t, paletteColor(this.state).piano ? soundingPitch('piano', root + n) : root + n, len, v);
       else if (this.state.artist?.style === 'dub') for (const n of iv) this.add('stab', t, this.dubRegister(iv, root) + n, len, v);
-      else if (this.smoothOn || this.state.patterns.some((p) => p.jazz)) for (const m of new Set(iv.map((n) => soundingPitch(STAB_VOICES[vo], root + n)))) this.add('stab', t, m, len, v);
+      else if (this.minimal || this.state.patterns.some((p) => p.jazz)) {
+        const voice = this.minimal && vo === 7 ? 'keys' : STAB_VOICES[vo];
+        for (const m of new Set(iv.map((n) => soundingPitch(voice, root + n)))) this.add('stab', t, m, len, v);
+      }
       else for (const n of this.chord()) this.add('stab', t, 48 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + n, len, v);
     } else if (GM_DRUMS[id]) this.add(id, t, id === 'snare' && jazzStyle(this.state, this.playingPattern) === 'bossa' ? 37 : GM_DRUMS[id], this.stepDur, v);
   }
@@ -102,7 +107,7 @@ export class Recorder {
     const p = this.state.params.acid, vo = Math.round(p.voice);
     this.acidRelease(t);
     const len = st.until != null ? st.until - t : holdNext ? sd * 2 : vo === 0 ? sd * 0.55 : st.ap ? sd * 0.9 : sd * (0.9 + p.decay * 2);
-    this.add('acid', t, this.bassMidi(st), len, (st.a ? 1 : 0.82) * (this.noteVel ?? 1));
+    this.add('acid', t, this.bassMidi(st, 36, this.minimal && vo === 2 ? 38 : 43), len, (st.a ? 1 : 0.82) * (this.noteVel ?? 1));
     this.bass = this.notes.acid.at(-1);
   }
   orch(part, t, m, dur, vel) { this.add(part, t, m, dur, vel); }
@@ -112,12 +117,15 @@ Recorder.prototype.bassMidi = Engine.prototype.bassMidi;
 Recorder.prototype.dubRegister = Engine.prototype.dubRegister;
 
 // Plays the full arrangement (or score) into note lists, plus the timeline needed to place them in ticks.
-export function capture(state, loopBars = 16) {
+export function capture(state, loopBars = 16, { playbackStyle } = {}) {
   const s = JSON.parse(JSON.stringify(state));
+  const projectArtist = s.artist;
+  if (playbackStyle != null) s.artist = { ...s.artist, style: playbackStyle };
   s.solos = {};
   const score = s.patterns.find((p) => p.score)?.score, sc = score ? compose(score) : null;
   const barLen = sc?.barLen || 16, bars = songBars(s, loopBars), steps = bars * barLen;
-  const rec = new Recorder(s), seq = new Sequencer(rec, s), at = [], dur = [], chords = [];
+  const dispatchState = playbackStyle == null ? s : { ...s, artist: projectArtist };
+  const rec = new Recorder(s), seq = new Sequencer(rec, dispatchState), at = [], dur = [], chords = [];
   for (let abs = 0, t = 0; abs < steps; abs++) {
     at.push(t);
     seq.tick(abs, t);
@@ -187,8 +195,8 @@ export function writeMidi({ title = 'UNTERGRUND', tempos, timeSig = [4, 4], key,
 }
 
 // The whole song (or score) as a .mid; also returns per-track note counts.
-export function songMidi(state, { loopBars = 16, title } = {}) {
-  const c = capture(state, loopBars), tick = ticker(c.at, c.dur), s = c.state;
+export function songMidi(state, { loopBars = 16, title, playbackStyle } = {}) {
+  const c = capture(state, loopBars, { playbackStyle }), tick = ticker(c.at, c.dur), s = c.state;
   const order = c.score ? Object.keys(PARTS) : [...Object.keys(GM_DRUMS), 'acid', 'stab', 'hook', 'vox', ...Object.keys(PARTS)];
   let chan = 0;
   const tracks = [];

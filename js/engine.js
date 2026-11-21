@@ -603,6 +603,7 @@ function metallicBuf(mul, sr) {
 
 export class Engine {
   get playbackStyle() { return this.replay808Style ?? this.state.artist?.style; }
+  get minimal() { return (jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle) === 'minimal'; }
   get playbackSeed() { return this.replaySeed ?? this.state.artist?.seed; }
   get hardTechno() { return this.state.artist?.style === 'hardtechno'; }
   constructor(ctx, state, { realtime = true, vocal = null, trackQueuedNotes = false } = {}) {
@@ -973,7 +974,7 @@ export class Engine {
       this.festivalGate.gain.setValueAtTime(1, this.ctx.currentTime);
     }
     const mix = JAZZ_MIX[jazzStyle(this.state, this.playingPattern)];
-    const trim = this.playbackStyle === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : jazzStyle(this.state, this.playingPattern) === 'bossa' ? voice === 7 ? mix.pianoOutput : voice === 8 ? mix.guitarOutput : mix.output : mix?.output ?? STYLE_OUTPUT_DB[this.playbackStyle] ?? 0;
+    const trim = this.minimal ? 0.32 : this.playbackStyle === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : jazzStyle(this.state, this.playingPattern) === 'bossa' ? voice === 7 ? mix.pianoOutput : voice === 8 ? mix.guitarOutput : mix.output : mix?.output ?? STYLE_OUTPUT_DB[this.playbackStyle] ?? 0;
     const level = this.hardTechno ? 0.89 : OUT_TRIM * dbGain(trim);
     if (Number.isFinite(time)) this.out.gain.setValueAtTime(level, time);
     else this.setTo(this.out.gain, level, immediate);
@@ -1089,7 +1090,7 @@ export class Engine {
       this.setTo(this.djHP.Q, q, immediate); this.setTo(this.djLP.Q, q, immediate);
     } else if (id === 'drive') {
       // A smooth style with no drive gets a straight line through the saturator's headroom: even its gentlest curve intermodulates held chords.
-      this.sat.curve = !v && SMOOTH.has(this.state.artist?.style) ? new Float32Array([-SAT_HEADROOM, SAT_HEADROOM]) : satCurve(v);
+      this.sat.curve = !v && SMOOTH.has(this.playbackStyle) ? new Float32Array([-SAT_HEADROOM, SAT_HEADROOM]) : satCurve(v);
     } else if (id === 'volume') this.setTo(this.master.gain, v, immediate);
     else if (id === 'room') this.setTo(this.roomOut.gain, (v || 0) * 0.9, immediate);
     else if (id === 'warmth') this.setTo(this.warm.frequency, 20000 * Math.pow(0.22, v || 0), immediate);
@@ -1910,6 +1911,7 @@ export class Engine {
     bp.connect(hp);
     if (this.hardTechno) hp.connect(this.filter('lowpass', 10000, 0.6)).connect(env);
     else if (this.playbackStyle === 'phonk') hp.connect(this.phonkAir(7.8, 10000)).connect(env);
+    else if (this.smoothOn) hp.connect(this.filter('lowpass', 7000, -3.0103)).connect(env);
     else hp.connect(env);
     for (const o of oscs) o.stop(t + dur + 0.05);
     if (open) {
@@ -2117,8 +2119,9 @@ export class Engine {
     if (jazzStyle(this.state, this.playingPattern)) return this.jazzKeys(t, v, iv, root, p, out);
     const c = this.ctx, end = t + Math.max(0.6, p.decay * 3) + 0.3;
     const funk = jazzStyle(this.state, this.playingPattern) === 'jazzfunk';
+    const level = this.minimal ? Math.round(p.voice) === 7 ? 2.52 : 1.18 : 1;
     const damped = this.state.artist?.style === 'breaks' && Math.round(p.voice) === 1;
-    const lp = this.filter('lowpass', funk ? Math.min(2600, p.cutoff * 1.3) : Math.min(9000, p.cutoff * 2.5), 0.5);
+    const lp = this.filter('lowpass', funk ? Math.min(2600, p.cutoff * 1.3) : Math.min(9000, p.cutoff * (this.minimal ? 1.8 : 2.5)), this.minimal ? -3.0103 + Math.max(0, Math.min(20, p.reso)) : 0.5);
     const trem = c.createStereoPanner();
     const lfo = c.createOscillator(); lfo.frequency.value = 4.8;
     const depth = this.gain(0.35); lfo.connect(depth).connect(trem.pan);
@@ -2127,9 +2130,9 @@ export class Engine {
     iv.forEach((n, k) => {
       const f = midiHz(root + n), vel = v * (0.85 + hash(t * 97, k) * 0.3);
       // A smooth style's upper tines bark less, as a real Rhodes does, so high chords stay round instead of ringing.
-      const reg = damped ? Math.min(1, 200 / f) ** 4 : funk ? Math.min(1, 330 / f) ** 1.5 : this.smoothOn ? Math.min(1, 523 / f) : 1;
+      const reg = damped ? Math.min(1, 200 / f) ** 4 : funk ? Math.min(1, 330 / f) ** 1.5 : this.minimal ? Math.min(1, 523 / f) : 1;
       const car = c.createOscillator(); car.frequency.value = f; car.detune.value = (k % 2 ? 1 : -1) * p.detune * 0.15;
-      const mod = c.createOscillator(); mod.frequency.value = f;
+      const mod = c.createOscillator(); mod.frequency.value = f * (this.minimal ? 0.5 : 1);
       const modAmt = this.gain(0); mod.connect(modAmt).connect(car.frequency);
       modAmt.gain.setValueAtTime(f * (0.6 + vel * 1.6) * bite * reg, t);
       modAmt.gain.setTargetAtTime(f * 0.15 * reg, t + 0.005, 0.12 + p.env * 0.3);
@@ -2139,8 +2142,8 @@ export class Engine {
       tineAmt.gain.setTargetAtTime(0, t + 0.002, 0.018);
       const amp = this.gain(0);
       amp.gain.setValueAtTime(EPS, t);
-      amp.gain.linearRampToValueAtTime((0.42 * vel) / Math.sqrt(iv.length), t + 0.004);
-      amp.gain.setTargetAtTime(0, t + 0.01, Math.max(0.15, p.decay * 0.9));
+      amp.gain.linearRampToValueAtTime((0.42 * vel * level) / Math.sqrt(iv.length), t + 0.004);
+      amp.gain.setTargetAtTime(0, t + 0.01, Math.max(0.15, p.decay * (this.minimal ? 0.65 : 0.9)));
       car.connect(amp).connect(lp);
       for (const o of [car, mod, tine]) { this.startSource(o, t); o.stop(end); }
     });
@@ -2221,6 +2224,7 @@ export class Engine {
     if (this.playbackStyle === 'phonk') trimmed = this.phonkMusicIn(trimmed);
     if (this.playbackStyle === 'trap' && (vo === 0 || vo === 2)) trimmed = this.technoHookOut('ravestack', trimmed);
     const layers = this.hardTechno ? this.hardStabOut(trimmed) : null, out = layers ? layers.core : trimmed;
+    if (this.minimal && vo === 7) return this.keys(t, v, iv, root, p, out);
     if (layers) this.hardPalette(t, v, iv.map(n => midiHz(root + n)), Math.max(0.12, p.decay), layers.rave, 'rave');
     // A lifted breakdown plays decaying chords an octave up, filling it above the bass range it no longer shares.
     if (vo > 0) {
@@ -3552,6 +3556,7 @@ export class Engine {
     if (this.playbackStyle === 'bailefunk') return this.funkStab(t, v * 0.7, [n], 60 + k + oct * 12, dur, this.hookBus || this.ch.stab.input);
     const palette = paletteFor(this.state, this.playbackStyle);
     if (palette && (voice !== 'chop' || !getChops())) return this.paletteHook(t, v, midiHz(60 + k + oct * 12 + n), dur, palette.hook, this.hookBus || this.ch.stab.input);
+    if (this.minimal && (voice !== 'chop' || !getChops())) return this.minimalHook(t, v, midiHz(60 + k + oct * 12 + n), dur, this.hookBus || this.ch.stab.input);
     if (this.state.artist?.style === 'dub') return this.dubChord(t, v * 0.38, [0], 60 + k + oct * 12 + n, { ...p, decay: Math.min(0.3, dur) }, this.hookBus || this.ch.stab.input);
     if (dampedChord(this) && (voice === 'vocal' || voice === 'reed')) {
       const name = Math.round(p.voice) === 1 ? 'keys' : 'organ';
@@ -3754,6 +3759,57 @@ export class Engine {
   }
 
   bassColor() { return BASS_COLOR[this.playbackStyle]; }
+
+  minimalHook(t, v, f, dur, out) {
+    if (!(v > 0) || !(f > 0) || !(dur > 0) || ![t, v, f, dur].every(Number.isFinite)) return;
+    let input = this.minimalHooks?.get(out);
+    if (!input) {
+      input = this.gain(0.5);
+      input.connect(this.comp(0, 4, 3, 0.001, 0.05)).connect(this.gain(2)).connect(out);
+      (this.minimalHooks ||= new WeakMap()).set(out, input);
+    }
+    const p = this.state.params.stab, env = Math.max(0, Math.min(1, p.env)), decay = Math.min(0.25, 0.07 + dur * 0.18);
+    const hp = this.filter('highpass', 180, -3.0103), lp = this.filter('lowpass', Math.min(5000, p.cutoff * (0.8 + env)), -3.0103), amp = this.gain(0);
+    const car = this.ctx.createOscillator(), mod = this.ctx.createOscillator(), depth = this.gain(0);
+    car.type = 'triangle'; car.frequency.value = f; car.detune.value = p.detune * 0.6;
+    mod.frequency.value = f * 1.5;
+    mod.connect(depth).connect(car.frequency);
+    depth.gain.setValueAtTime(f * (0.06 + env * 0.3 + (p.tine ?? 0.15) * 0.1), t);
+    depth.gain.setTargetAtTime(0, t + 0.012, 0.03);
+    const register = Math.log2(f / 440), level = Math.round(p.voice) === 7 ? 10.7 - register * 6 : 7.7 + register * 3.5;
+    this.adEnv(amp.gain, t, v * 0.65 * dbGain(Math.max(2, Math.min(20, level))), 0.012 + env * 0.012, decay * 4);
+    car.connect(hp).connect(lp).connect(amp).connect(input);
+    for (const o of [car, mod]) { this.startSource(o, t); o.stop(t + decay * 7 + 0.05); }
+  }
+
+  minimalBass(t, st, sd, holdNext) {
+    if (!st || !(sd > 0) || ![t, st.n, sd].every(Number.isFinite)) return;
+    const p = this.state.params.acid, f = midiHz(this.bassMidi(st)), subF = midiHz(this.bassMidi(st, 36, 38));
+    const len = st.ap ? sd * 0.9 : holdNext ? sd * 2 : sd * (0.9 + p.decay * 2), vel = (st.a ? 0.9 + p.accent : 0.82) * (1 - p.drive * 0.2) * (this.noteVel ?? 1);
+    const body = this.ctx.createOscillator(), mod = this.ctx.createOscillator(), sub = this.ctx.createOscillator(), depth = this.gain(0);
+    body.frequency.value = f; mod.frequency.value = f * 2; sub.frequency.value = subF;
+    mod.connect(depth).connect(body.frequency);
+    depth.gain.setValueAtTime(f * (0.2 + (p.edge ?? 0.5) + p.envmod * 2), t);
+    depth.gain.setTargetAtTime(f * 0.08, t + 0.004, 0.018);
+    const lp = this.filter('lowpass', 250 + p.cutoff * 0.45, -3.0103), grit = this.ctx.createWaveShaper(), hit = this.gain(0), amp = this.gain(0);
+    grit.curve = driveCurve(0.08 + p.drive * 0.6);
+    body.connect(grit).connect(lp).connect(hit).connect(this.ch.acid.input);
+    this.adEnv(hit.gain, t, vel * 0.7, 0.002, 0.035 + p.decay * 0.12);
+    const subTone = this.filter('lowshelf', 60, 0.7); subTone.gain.value = -1;
+    sub.connect(amp).connect(subTone).connect(this.ch.acid.input);
+    body.connect(this.filter('lowpass', 180, -3.0103)).connect(this.gain(1.1)).connect(amp);
+    amp.gain.setValueAtTime(EPS, t);
+    amp.gain.linearRampToValueAtTime(vel, t + 0.006);
+    amp.gain.setTargetAtTime(vel * 0.55, t + 0.02, 0.12);
+    amp.gain.setTargetAtTime(0, t + len, 0.03);
+    if (this.minimalMono?.end > t) for (const node of this.minimalMono.amps) node.gain.setTargetAtTime(0, t, 0.004);
+    this.minimalMono = { end: t + len + 0.2, amps: [amp, hit] };
+    const click = this.noiseSrc(t, 0.012), tone = this.filter('bandpass', 650 + f * 2, -3.0103), touch = this.gain(0);
+    this.minimalMono.touch = touch;
+    this.adEnv(touch.gain, t, vel * 0.045, 0.001, 0.005);
+    click.connect(tone).connect(touch).connect(this.ch.acid.input);
+    for (const o of [body, mod, sub]) { this.startSource(o, t); o.stop(t + len + 0.25); }
+  }
 
   // Round finger-style bass: triangle + sine, short pluck through a gentle lowpass.
   bass(t, st, sd, holdNext) {
@@ -4106,6 +4162,24 @@ export class Engine {
 
   acidVoice(t, st, sliding, holdNext, sd, slideUntil, kickAt) {
     const a = this.acidNodes, p = this.state.params.acid;
+    if (this.minimal && Math.round(p.voice) === 1) {
+      if (this.mono) {
+        this.mono.amp.gain.cancelScheduledValues(t);
+        this.mono.amp.gain.setTargetAtTime(0, t, 0.005);
+        this.mono = null;
+      }
+      for (const { amp: { gain } } of this.gatedBasses.values()) {
+        gain.cancelScheduledValues(t); gain.setTargetAtTime(0, t, 0.005);
+      }
+      a.vca.gain.setTargetAtTime(0, t, 0.005);
+      return this.minimalBass(t, st, sd, holdNext);
+    }
+    if (this.minimalMono) {
+      for (const node of [...this.minimalMono.amps, this.minimalMono.touch]) if (node) {
+        node.gain.cancelScheduledValues(t); node.gain.setTargetAtTime(0, t, 0.004);
+      }
+      this.minimalMono = null;
+    }
     const palette = paletteFor(this.state, this.playbackStyle);
     if (palette) {
       a.vca.gain.setTargetAtTime(0, t, 0.005);
@@ -4864,10 +4938,10 @@ export class Sequencer {
         this.dropNext = peak(chain[(p + 1) % n]) && !peak(this.cur) && !(fill && peak(prev));
         if (!this.breakFilterPlanned && arr >= 0.75 && brk(this.cur) && !brk(prev)) {
           let k = 0; while (k < n && brk(chain[(p + k) % n])) k++;
-          this.e.breakSweep(t, k * 16 * this.e.stepDur, SMOOTH.has(this.s.artist?.style));
+          this.e.breakSweep(t, k * 16 * this.e.stepDur, SMOOTH.has(style));
         }
       }
-      if (!this.breakFilterPlanned && (!arr || !brk(this.cur))) this.e.breakOpen(t, SMOOTH.has(this.s.artist?.style));
+      if (!this.breakFilterPlanned && (!arr || !brk(this.cur))) this.e.breakOpen(t, SMOOTH.has(style));
       if (this.festivalPlan.length) {
         this.dropNow = !!arr && this.festivalPlan.some((b) => b.drop === p);
         this.dropNext = !!arr && this.festivalPlan.some((b) => b.drop === p + 1);
@@ -4929,9 +5003,9 @@ export class Sequencer {
     if (s.artist?.style === 'dub' || e.dubBreakdown === true) e.dubSection?.(t, s.artist?.style === 'dub' && s.chainOn && pos >= 48 && pos < 56 && (this.cur === 4 || this.cur === 5));
     if (abs % 16 === 0) e.vocal(t, pos, 0, roomGridTime, false, vocalSettling);
     const pat = patternAt(s.patterns[this.cur], pos);
-    const previousJazz = jazzStyle(s, e.playingPattern);
+    const firstTick = !e.playingPattern, previousJazz = jazzStyle(s, e.playingPattern);
     e.playingPattern = pat;
-    if (abs % 16 === 0 && previousJazz !== jazzStyle(s, pat)) e.applyOutputTrim?.(false, t);
+    if (firstTick || (abs % 16 === 0 && previousJazz !== jazzStyle(s, pat))) e.applyOutputTrim?.(false, t);
     const bar = Math.floor(abs / 16), vary = s.master.vary || 0;
     e.harm = pat.prog?.length ? pat.prog[bar % pat.prog.length] : null;
     e.step = abs;
@@ -4940,6 +5014,8 @@ export class Sequencer {
     const sd = e.stepDur;
     const tt = t + swingLate(s, abs, sd);
     if (pat.jazz && isJazz(pat.jazz.style)) {
+      if (e.smoothOn) e.smoothChords(0, t);
+      this.smooth = false;
       e.harm = this.jazzHarmonyAt(pat, bar, pos);
       return this.jazzStep(pat, abs, tt, pos, n);
     }
@@ -4975,7 +5051,7 @@ export class Sequencer {
         if (progress >= 2 / 3) e.trigger(drum, t + sd / 2, (0.1 + 0.25 * progress) * 0.85);
       }
     }
-    this.smooth = SMOOTH.has(s.artist?.style);
+    this.smooth = SMOOTH.has(e.playbackStyle ?? s.artist?.style);
     // The chords make room under the bass while it plays and fill the low mids back in when it drops out.
     const held = HELD_CHORDS.has(STAB_VOICES[s.params.stab.voice]);
     const sc = !this.smooth ? 0 : !s.mutes.acid && pat.steps.acid.some((st) => st?.on) ? (held ? -6 : -12) : held ? -2 : 0.5;
