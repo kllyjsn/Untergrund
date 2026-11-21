@@ -78,10 +78,14 @@ for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
 }
 for (const pitch of [57, 60, 63, 67, 70, 74, 77, 81]) {
   const a = jazzNotches('tpt', pitch), b = jazzNotches('tpt', pitch, 2 ** (-1 / 12));
-  assert(a.length === 1 && a[0][1] >= 30 && a[0][2] < 0);
-  assert.equal(b[0][0], a[0][0] * 2 ** (-1 / 12), 'sample correction follows transposition');
-  assert.deepEqual(b[0].slice(1), a[0].slice(1));
+  assert.equal(a.length, pitch === 70 ? 2 : 1);
+  for (let i = 0; i < a.length; i++) {
+    assert(a[i][1] >= 30 && a[i][2] < 0);
+    assert.equal(b[i][0], a[i][0] * 2 ** (-1 / 12), 'sample correction follows transposition');
+    assert.deepEqual(b[i].slice(1), a[i].slice(1));
+  }
 }
+assert.deepEqual(jazzNotches('fl', 69, 0.953739).map(([f, q, db]) => [Math.round(f), q, db]), [[2518, 30, -12], [2945, 60, -9]]);
 assert.deepEqual(jazzNotches('piano', 66), []);
 assert.deepEqual(jazzNotches('jazz', 60), []);
 assert.deepEqual(jazzNotches('tpt', NaN), []);
