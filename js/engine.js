@@ -4888,7 +4888,7 @@ export class Sequencer {
     const sd = e.stepDur;
     const tt = t + swingLate(s, abs, sd);
     if (pat.jazz && isJazz(pat.jazz.style)) {
-      e.harm = jazzHarmony(pat, bar);
+      e.harm = jazzHarmony(pat, bar, !!n);
       return this.jazzStep(pat, abs, tt, pos, n);
     }
     const kl = this.keyLift = s.ending && pat.lift && lf > 0 && (pos >= lf || (pos === lf - 1 && abs % 16 >= 12)) ? pat.lift : 0;
@@ -5146,7 +5146,7 @@ export class Sequencer {
     const final = s.ending && bars && pos === bars - 1;
     if (final && i) return this.cur;
     const nextPat = bars && this.chainArr[pos + 1] != null ? s.patterns[this.chainArr[pos + 1]] : pat;
-    const next = jazzHarmony(nextPat, bar + 1), h = e.harm;
+    const next = jazzHarmony(nextPat, bar + 1, !!bars), h = e.harm;
     const bass = jazzBass(style, s.key, h, next, bar);
     for (const id of ['ride', 'ch', 'kick', 'snare']) {
       if (!enabled(id) || !pat.steps[id][i]) continue;
@@ -5218,7 +5218,7 @@ export class Sequencer {
     const final = s.ending && bars && pos === bars - 1;
     if (final && i) return this.cur;
     const nextPat = bars && this.chainArr[pos + 1] != null ? s.patterns[this.chainArr[pos + 1]] : pat;
-    const h = e.harm, next = jazzHarmony(nextPat, bar + 1), parity = bar % 2;
+    const h = e.harm, next = jazzHarmony(nextPat, bar + 1, !!bars), parity = bar % 2;
     const accent = (id) => pat.steps[id][abs % (pat.len[id] || 16)] === 2 ? 1 / 0.78 : 1;
     if (!final) {
       const rim = this.jazzGrid(pat, 'snare', abs, BOSSA_RIM[0], BOSSA_RIM[parity].includes(i));

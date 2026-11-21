@@ -26,6 +26,12 @@ t('explicit jazz harmony restarts at section boundaries through fills and chain 
         const at = bar % 22, start = at >= 18 ? 18 : at >= 12 ? 12 : at >= 2 && at < 10 ? 2 : -1;
         if (start >= 0 && at < 20) assert.deepEqual(e.harm, s.patterns[2].prog[(at - start) % 4], `${style} bar ${bar}`);
       }
+      s.chainOn = false; s.current = 2;
+      const solo = new Recorder(s), loop = new Sequencer(solo, s);
+      for (let bar = 0; bar < 22; bar++) {
+        loop.tick(bar * 16, 0.05 + bar * 16 * solo.stepDur);
+        assert.deepEqual(solo.harm, s.patterns[2].prog[bar % 4], 'a standalone pattern loops without the song section offsets');
+      }
     }
     for (const bad of [[], [0], [-1], ['2'], [NaN], [Infinity], Array(17).fill(2)]) {
       const p = { prog: [{ r: 0, c: 1 }, { r: 5, c: 1 }], jazz: { style, progBars: 1, progSections: bad } };
