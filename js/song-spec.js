@@ -198,7 +198,10 @@ export function realize(raw, seed = 1, opts = {}) {
     const prog = progOf(s.chords, scale, sc);
     const twins = s.role === 'breakdown' ? [4, 5] : s.role === 'drop' ? [6, 7] : s.role === 'verse' && isJazz(style) ? [2, 3] : [slot];
     for (const i of twins) {
-      if (prog) { pats[i].prog = clone(prog); progs[i] = prog; }
+      if (prog) {
+        pats[i].prog = clone(prog); progs[i] = prog;
+        if (isJazz(style)) pats[i].jazz.progBars = 1;
+      }
       voice(pats[i], s.instruments, full, s.energy, s.role, peak);
       if (isJazz(style) && s.instruments) pats[i].hm = s.instruments.includes('hook') ? Math.max(1, pats[i].hm || 0) : 0;
       thinOut(pats[i], s.energy, r);

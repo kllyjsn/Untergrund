@@ -44,7 +44,8 @@ const pitches = (root, iv, lo, hi) => Array.from({ length: hi - lo + 1 }, (_, i)
 
 export function jazzHarmony(pat, bar) {
   const prog = pat.prog || [];
-  return prog.length ? prog[Math.floor(bar / (pat.jazz?.style === 'modal' ? 4 : pat.jazz?.style === 'jazzfunk' ? 2 : 1)) % prog.length] : { r: 0, c: 17 };
+  const span = pat.jazz?.progBars === 1 ? 1 : pat.jazz?.style === 'modal' ? 4 : pat.jazz?.style === 'jazzfunk' ? 2 : 1;
+  return prog.length ? prog[Math.floor(bar / span) % prog.length] : { r: 0, c: 17 };
 }
 
 export function jazzVoicing(h, key, style) {

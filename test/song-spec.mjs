@@ -2,7 +2,8 @@
 import assert from 'node:assert/strict';
 import { validateSpec, parseChord, realize, songState, localSpec, isSongPrompt, chainFor, contourHook, SONG_SYSTEM } from '../js/song-spec.js';
 import { promptGenre, rulePlan } from '../js/song-plan.js';
-import { sanitize, STYLES } from '../js/state.js';
+import { sanitize, STYLES, generate } from '../js/state.js';
+import { jazzHarmony } from '../js/jazz.js';
 import { handleDescribe } from '../api/_lib/describe-ai.js';
 import { memoryKv } from '../api/_lib/events.js';
 import { buildSong, scoreSong } from '../scripts/composition.mjs';
@@ -10,6 +11,24 @@ import { patternAt } from '../js/scope.js';
 
 let n = 0;
 const t = (name, fn) => { try { fn(); n++; } catch (e) { console.error(`✗ ${name}`); throw e; } };
+t('explicit jazz chord lists advance each bar and survive save/load', () => {
+  for (const style of ['modal', 'jazzfunk']) {
+    const { state } = songState({ style, sections: [{ role: 'verse', bars: 16, energy: 0.7, chords: ['i', 'IV', 'bVII', 'V'] }] }, 42);
+    for (const s of [state, sanitize(JSON.parse(JSON.stringify(state)))]) for (const id of [2, 3]) {
+      const p = s.patterns[id];
+      assert.equal(p.jazz.progBars, 1);
+      for (let bar = 0; bar < 8; bar++) assert.deepEqual(jazzHarmony(p, bar), p.prog[bar % 4]);
+    }
+    const p = generate(style, 42).pattern, span = style === 'modal' ? 4 : 2;
+    assert.deepEqual(jazzHarmony(p, span - 1), p.prog[0]);
+    assert.deepEqual(jazzHarmony(p, span), p.prog[1]);
+    for (const invalid of [0, -1, NaN, Infinity, '1']) {
+      p.jazz.progBars = invalid;
+      assert.deepEqual(jazzHarmony(p, span - 1), p.prog[0]);
+    }
+    assert.deepEqual(jazzHarmony({ jazz: { style, progBars: 1 }, prog: [] }, 1), { r: 0, c: 17 });
+  }
+});
 t('jazz verse turnarounds retain the verse instrument exclusions', () => {
   for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) for (const bars of [8, 16]) for (const instruments of [['kick', 'bass'], []]) {
     const { state } = songState({ style, sections: [{ role: 'drop', bars: 16, energy: 0.9 },
