@@ -5,15 +5,17 @@ import { windBanks } from '../js/jazz-winds.js';
 import { Engine, paletteFor } from '../js/engine.js';
 import { jazzStyle } from '../js/jazz.js';
 import { freshSong } from '../js/state.js';
+import { patternAt } from '../js/scope.js';
 
 const source = readFileSync(new URL('../js/hum-ui.js', import.meta.url), 'utf8');
 const state = { current: 0, patterns: [{ hook: { v: 'warm' } }, { hook: { v: 'airflute' } }, {}] };
 let opened = 0;
 const loads = [];
 let rejectLoad = false;
-const panel = runInNewContext(source.slice(source.indexOf('export function melodyPanel'), source.indexOf('\nexport const humButton')).replace('export function', 'function') + '\nmelodyPanel', {
+let chops = null;
+const panel = runInNewContext((source.match(/^const melodyHooks = .+;$/m)?.[0] || '') + '\n' + source.slice(source.indexOf('export function melodyPanel'), source.indexOf('\nexport const humButton')).replace('export function', 'function') + '\nmelodyPanel', {
   h: (tag, attrs, ...children) => ({ tag, attrs, children: children.flat().filter(Boolean) }),
-  getChops: () => null, openVoice: () => opened++, openHum() {},
+  getChops: () => chops, openVoice: () => opened++, openHum() {},
   windBanks, loadSets: (banks) => { loads.push(banks); return rejectLoad ? Promise.reject(new Error('offline')) : Promise.resolve(); },
   paletteFor, jazzStyle,
 });
@@ -55,5 +57,18 @@ for (const style of ['bailefunk', 'minimal', 'dub', 'deephouse', 'euphoric', 'dn
 for (const style of ['swing', 'modal', 'bossa', 'jazzfunk', 'pop', 'trap']) {
   Object.assign(state, freshSong(style, 42), { current: 6, artist: { style } });
   assert(button('HARMON'), style + ' honors recorded winds');
+}
+Object.assign(state, freshSong('pop', 42), { current: 6, artist: { style: 'pop' } });
+const p = state.patterns[6];
+p.hook.v = 'warm';
+p.at = [{ b: [0, 0], hook: { ...structuredClone(p.hook), v: 'airflute' } }, { b: [1, 1], hm: 0 }];
+const notes = JSON.stringify(p.at[0].hook.s);
+for (const [label, voice] of [['HARMON', 'harmon'], ['SYNTH', 'warm'], ['MY VOICE', 'chop']]) {
+  if (voice === 'chop') chops = {};
+  button(label).attrs.onclick();
+  assert.equal(p.hook.v, voice);
+  assert.equal(patternAt(p, 0).hook.v, voice, 'pop42 instrumental take must match Studio after selecting ' + label);
+  assert.equal(JSON.stringify(p.at[0].hook.s), notes, 'sound selection preserves the instrumental riff');
+  assert.equal(p.at[1].hook, undefined, 'sound selection does not invent a hook in an empty take');
 }
 console.log('melody sound: Harmon selection, state propagation, accessibility and missing-chop/empty handling passed');

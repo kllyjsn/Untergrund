@@ -16,6 +16,7 @@ import { jazzStyle } from './jazz.js';
 const MAX_SEC = 8;
 const kk = (key) => (key > 6 ? key - 12 : key);
 const SHAPE = [0, 0, 1, 2, 2, 1, 2, 2];
+const melodyHooks = (patterns) => patterns.flatMap((p) => [p.hook, ...(p.at || []).map((t) => t.hook)]).filter(Boolean);
 
 export function micError(err) {
   const n = err?.name;
@@ -310,7 +311,7 @@ export function openVoice(api) {
     const hasHook = s.patterns.some((p) => p.hook);
     const use = h('button', { class: 'btn accent hum-primary', onclick: () => {
       if (!hasHook) { close(true); return openHum(api, { from: 'studio' }); }
-      api.edit((st) => st.patterns.forEach((p) => { if (p.hook) p.hook.v = 'chop'; }), 'VOICE on hook');
+      api.edit((st) => melodyHooks(st.patterns).forEach((hook) => { hook.v = 'chop'; }), 'VOICE on hook');
       trackEvent('voice_chops', { kind: 'use' });
       close(true);
       api.toast('Your voice sings the melody now');
@@ -320,7 +321,7 @@ export function openVoice(api) {
       h('p', { class: 'hum-lead' }, `${vc.chops.length} chops, tuned to ${KEYS[s.key]}. Tap to play.`),
       pads,
       h('div', { class: 'hum-actions' }, use, mic.el,
-        h('button', { class: 'btn ghost', onclick: () => { clearVoice(); api.edit((st) => st.patterns.forEach((p) => { if (p.hook?.v === 'chop') p.hook.v = 'warm'; }), 'REMOVE voice'); render(); } }, 'REMOVE')),
+        h('button', { class: 'btn ghost', onclick: () => { clearVoice(); api.edit((st) => melodyHooks(st.patterns).forEach((hook) => { if (hook.v === 'chop') hook.v = 'warm'; }), 'REMOVE voice'); render(); } }, 'REMOVE')),
       h('p', { class: 'hum-note' }, 'Stays on this device unless you publish a song that uses it.'));
   };
   render();
@@ -330,7 +331,7 @@ export function openVoice(api) {
 export function melodyPanel(api) {
   const s = api.state(), hk = s.patterns[s.current]?.hook;
   const setVoice = (v) => {
-    api.edit((st) => st.patterns.forEach((p) => { if (p.hook) p.hook.v = v; }), 'HOOK sound');
+    api.edit((st) => melodyHooks(st.patterns).forEach((hook) => { hook.v = v; }), 'HOOK sound');
     if (v === 'harmon') loadSets(windBanks(v)).catch(() => {});
   };
   const mine = hk?.v === 'chop';
