@@ -4154,7 +4154,7 @@ export class Engine {
 
   acidVoice(t, st, sliding, holdNext, sd, slideUntil, kickAt) {
     const a = this.acidNodes, p = this.state.params.acid;
-    if (this.smoothOn) {
+    if (this.smoothOn && Math.round(p.voice) === 1) {
       a.vca.gain.setTargetAtTime(0, t, 0.005);
       return this.minimalBass(t, st, sd, holdNext);
     }

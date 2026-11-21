@@ -1145,4 +1145,16 @@ console.log('recorded jazz leads: trumpet, airflute and piano finite/audible/lev
   }
 }
 
+{
+  const s = freshSong('minimal', 42); s.artist = { style: 'minimal', seed: 42 };
+  const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false }), calls = [];
+  e.smoothChords(-12);
+  for (const method of ['minimalBass', 'eight08', 'reese', 'ebass', 'pulseBass']) e[method] = () => calls.push(method);
+  for (const [voice, method] of [[1, 'minimalBass'], [2, 'eight08'], [3, 'reese'], [5, 'ebass'], [7, 'pulseBass'], [1, 'minimalBass']]) {
+    s.params.acid.voice = voice;
+    e.acidVoice(0.05, { n: 0 }, false, false, e.stepDur);
+    assert.equal(calls.at(-1), method, `Minimal bass selection ${voice} reaches ${method}`);
+  }
+  assert.equal(calls.length, 6, 'each explicit bass selection schedules only its chosen instrument');
+}
 console.log('sound ok');
