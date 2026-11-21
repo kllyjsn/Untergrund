@@ -25,6 +25,7 @@ export const HOOK_TRIM_DB = {
   softmallet: 14,
   ravestack: 13,
   acidlead: 7,
+  funkwhistle: 4,
 };
 
 export const TECHNO_HOOK_SPACE = {
@@ -37,6 +38,7 @@ export const TECHNO_HOOK_SPACE = {
 
 const STACK = { atk: 0.008, sus: 0.5, hold: 0.2, rel: 0.1, q: 1, body: null, sub: 0, glide: 0, vib: [5.2, 10], tame: 3, air: 1.4, bite: 5, thin: 5 };
 const PRESETS = {
+  funkwhistle: { ...STACK, stack: true, wave: 'sawtooth', uni: 1, mix: 0.17, body: ['sine', 0.85, 1], cut: 1690, env: 420, q: 0.7, dec: 0.17, atk: 0.028, sus: 0.85, hold: 0.3, rel: 0.066, glide: 0.088, vib: [5.2, 27], tame: 5, air: 0.85, bite: 0, thin: 2, level: 0.31, bend: -92 },
   // Techno stab-lead: two squares, plucky filter snap, no glide.
   pulse: { ...STACK, stack: true, wave: 'square', uni: 2, spread: 7, mix: 0.42, body: ['triangle', 0.55, 1], cut: 520, env: 2600, q: 2.4, dec: 0.09, atk: 0.006, sus: 0.18, hold: 0.08, rel: 0.08, vib: [5.4, 6], level: 0.3 },
   // Trance/anthem lead: three-saw unison over a triangle body, opens with velocity, sings on long notes.

@@ -23,6 +23,12 @@ function songFor(style, seed = 7) {
 const same = (a, b) => a === b || (Array.isArray(a) && JSON.stringify(a) === JSON.stringify(b));
 const has = (edits, want) => want.every((w) => edits.some((e) => Object.entries(w).every(([k, v]) => same(e[k], v))));
 
+for (const [prompt, style] of [['lo-fi hip-hop', 'lofihiphop'], ['chillhop', 'lofihiphop'], ['G-Funk', 'gfunk'],
+  ['drift phonk', 'phonk'], ['electro hip-hop', 'electrohiphop'], ['old-school electro', 'electrohiphop']]) {
+  t(prompt, () => assert.equal(genreOf(parse(prompt, { style: 'boombap' }).edits, 'boombap'), style));
+}
+t('lo-fi remains a texture on an existing genre', () => assert.equal(genreOf(parse('make it more lo-fi').edits, 'deephouse'), null));
+
 for (const [phrase, voice] of [['add FM bass', 6], ['add pulse bass', 7], ['add wide reese bass', 8], ['add pluck bass', 9]]) {
   t(phrase, () => {
     const { edits } = parse(phrase);
