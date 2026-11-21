@@ -28,6 +28,30 @@ function performSet(seed, minutes = 6) {
 
 // diff/apply round trip
 const a = defaultState(), b = clone(a);
+{
+  const state = defaultState();
+  state.chain = 'CCCC';
+  state.chainEntries = [{ p: 2, sec: 0 }, { p: 2, sec: 0 }, { p: 2, sec: 1 }, { p: 2, sec: 1 }];
+  const before = clone(state.chainEntries);
+  const rec = createTimelineRecorder({ state, style: 'modal', startsAt: 0 });
+  state.chainEntries.reverse();
+  const moved = clone(state.chainEntries);
+  rec.capture(state, 'modal', 1000);
+  delete state.chainEntries;
+  rec.capture(state, 'modal', 2000);
+  const saved = normalizeTimeline(JSON.parse(JSON.stringify(rec.finish(15000))));
+  assert.deepEqual(saved.initial.chainEntries, before, 'saved sets keep distinct same-letter sections');
+  assert.deepEqual(stateAt(saved, 1500).state.chainEntries, moved, 'tag-only arrangement edits are replayed');
+  assert(!('chainEntries' in stateAt(saved, 2500).state), 'removing tags is recorded');
+  assert.deepEqual(trimTimeline(saved, 1200, 1800).initial.chainEntries, moved);
+  const applied = [], replay = createReplayer(saved, { startsAt: 0, apply: s => applied.push(s.chainEntries) });
+  replay.tick(0); replay.tick(1500); replay.tick(2500);
+  assert.deepEqual(applied, [moved, undefined], 'incremental replay carries edits and deletion');
+  const legacy = normalizeTimeline({ ...saved, initial: liveView(defaultState()), events: [] });
+  assert(!('chainEntries' in legacy.initial), 'legacy sets remain untagged');
+  const malformed = normalizeTimeline({ ...saved, initial: { ...saved.initial, chainEntries: [{ p: 7, sec: 0 }] }, events: [] });
+  assert(!('chainEntries' in malformed.initial), 'invalid opening tags are sanitized');
+}
 b.params.kick.level = 0.3; b.mutes.clap = true; b.patterns[2].steps.ch[3] = 1; delete b.solos;
 assert.deepEqual(applyOps(clone(a), diffOps(a, b)), b);
 assert.equal(diffOps(a, clone(a)).length, 0);
