@@ -15,7 +15,7 @@ Usage: python3 scripts/fetch-percussion.py [--sources DIR] [--check]
   --check writes to a temporary folder and compares each file byte for byte with samples/live/ instead of overwriting it.
 Requires ffmpeg (4.4, the encoder of the committed files), numpy and scipy.
 """
-import argparse, hashlib, os, subprocess, sys, tempfile, urllib.parse, urllib.request
+import argparse, contextlib, hashlib, os, subprocess, sys, tempfile, urllib.parse, urllib.request
 import numpy as np
 from scipy.signal import butter, sosfilt
 
@@ -110,22 +110,22 @@ if __name__ == '__main__':
     ap.add_argument('--sources', help='folder with Freesound originals named fs<ID>.wav')
     ap.add_argument('--check', action='store_true', help='compare with samples/live/ instead of writing there')
     args = ap.parse_args()
-    out = tempfile.mkdtemp() if args.check else OUT
-    names = []
-    for name, (src, sha, secs, fade, hz) in HITS.items():
-        write(os.path.join(out, name + '.flac'), hit(decode(original(src, sha, args.sources)), secs, fade, hz)); names.append(name)
-    src, sha, hz, windows = CUICA
-    raw = decode(original(src, sha, args.sources))
-    for i, (a, b) in enumerate(windows, 1):
-        write(os.path.join(out, f'cuica_{i}.flac'), stroke(raw[round(a * SR):round(b * SR)], hz)); names.append(f'cuica_{i}')
-    bad = 0
-    for name in names:
-        made = open(os.path.join(out, name + '.flac'), 'rb').read()
-        if args.check:
-            same = made == open(os.path.join(OUT, name + '.flac'), 'rb').read()
-            bad += not same
-            print(name, 'identical' if same else 'DIFFERS')
-        else:
-            print(name, hashlib.sha256(made).hexdigest())
+    with tempfile.TemporaryDirectory() if args.check else contextlib.nullcontext(OUT) as out:
+        names = []
+        for name, (src, sha, secs, fade, hz) in HITS.items():
+            write(os.path.join(out, name + '.flac'), hit(decode(original(src, sha, args.sources)), secs, fade, hz)); names.append(name)
+        src, sha, hz, windows = CUICA
+        raw = decode(original(src, sha, args.sources))
+        for i, (a, b) in enumerate(windows, 1):
+            write(os.path.join(out, f'cuica_{i}.flac'), stroke(raw[round(a * SR):round(b * SR)], hz)); names.append(f'cuica_{i}')
+        bad = 0
+        for name in names:
+            made = open(os.path.join(out, name + '.flac'), 'rb').read()
+            if args.check:
+                same = made == open(os.path.join(OUT, name + '.flac'), 'rb').read()
+                bad += not same
+                print(name, 'identical' if same else 'DIFFERS')
+            else:
+                print(name, hashlib.sha256(made).hexdigest())
     if bad:
         sys.exit(f'{bad} of {len(names)} files differ from samples/live/')
