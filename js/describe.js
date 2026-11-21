@@ -50,6 +50,7 @@ const ARTIST_RE = Object.entries(ARTISTS).map(([id, [re]]) => [new RegExp(re.sou
 
 // Multi-word phrases are folded into single tokens before matching.
 const PHRASES = [
+  [/bossa\s+nova|brazilian\s+jazz|samba\s+jazz/g, ' bossanova '],
   [/kind\s+of\s+blue/g, ' kindofblue '], [/hard[\s-]+bop/g, ' hardbop '], [/swing\s+jazz/g, ' swingjazz '],
   [/(?:make\s+it|go|sound|more)\s+(?:huge|massive|enormous|gigantic)\b/g, ' mainstage '],
   [/thin\s+(?:it\s+|them\s+|things\s+)?out/g, ' sparser '],
@@ -164,6 +165,7 @@ add(genre('deephouse', 'HOUSE'), 'house');
 add(genre('neosoul', 'JAZZ & HIP-HOP'), 'soul');
 add(genre('swing', 'JAZZ & HIP-HOP'), 'jazz', 'bebop', 'hardbop', 'swingjazz');
 add(genre('modal', 'JAZZ & HIP-HOP'), 'modal', 'coltrane', 'miles', 'kindofblue');
+add(genre('bossa', 'JAZZ & HIP-HOP'), 'bossa', 'bossanova', 'jobim');
 add(genre('pop', 'POP & R&B'), 'pop', 'mainstream', 'popsong');
 add(genre('rnb', 'POP & R&B'), 'rnb', 'slowjam', 'slowjams');
 add(genre('rock', 'ROCK & ROOTS'), 'rock', 'punk', 'grunge', 'indie', 'garagerock', 'alternative');

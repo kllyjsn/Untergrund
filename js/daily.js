@@ -4,7 +4,7 @@ import { STYLES, freshSong } from './state.js';
 // Fixed order so the schedule never depends on how STYLES happens to be sorted. Classical scores are left out.
 const POOL = ['hypnotic', 'deephouse', 'neosoul', 'breaks', 'amapiano', 'trance', 'ukg', 'boombap', 'acid', 'afrobeats', 'dnb', 'minimal',
   'trap', 'dub', 'reggaeton', 'euphoric', 'electro', 'industrial', 'drill', 'ambient', 'bailefunk', 'peak', 'jerseyclub', 'hardtechno', 'hyperpop',
-  'pop', 'rock', 'rnb', 'country', 'folk', 'swing', 'modal'];
+  'pop', 'rock', 'rnb', 'country', 'folk', 'swing', 'modal', 'bossa'];
 const FIRST = ['Morning', 'Copper', 'Soft', 'Paper', 'Silver', 'Midnight', 'Lucid', 'Sunday', 'Velvet', 'Stray', 'Distant', 'Warm', 'Quiet', 'Rising'];
 const SECOND = ['Light', 'Current', 'Weather', 'Signal', 'Garden', 'Motion', 'Static', 'Harbor', 'Orbit', 'Bloom', 'Transit', 'Mirror', 'Fever', 'Thread'];
 const DAY = 86400e3, FIRST_DROP = Date.UTC(2026, 10, 3);

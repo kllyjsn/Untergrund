@@ -4,6 +4,7 @@ import { generate, defaultState, applyOverrides, applySongPlan, sanitize, arrang
 import { patternAt } from '../js/scope.js';
 import { FUNK_HANDS, FUNK_VOX, funkHandBar } from '../js/baile.js';
 import { createTimelineRecorder, normalizeTimeline, stateAt } from '../js/set-timeline.js';
+import './bossa.mjs';
 
 for (const seed of [1, 3, 5, 42]) {
   const g = generate('bailefunk', seed), s = defaultState();

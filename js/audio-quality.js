@@ -130,7 +130,7 @@ export const TARGET_CURVES = {
   trap: [10, 5, 0, -1, 0, -2, -3, -5, -11],
 };
 const TARGET_FOR = {
-  swing: 'acoustic', modal: 'acoustic',
+  swing: 'acoustic', modal: 'acoustic', bossa: 'acoustic',
   pop: 'pop', rnb: 'rnb', neosoul: 'rnb', rock: 'rock', folk: 'acoustic', country: 'acoustic', deephouse: 'house',
   hypnotic: 'techno', industrial: 'hardtechno', acid: 'techno', dub: 'techno', peak: 'techno', hardtechno: 'hardtechno',
   minimal: 'minimal', trap: 'trap', drill: 'trap',

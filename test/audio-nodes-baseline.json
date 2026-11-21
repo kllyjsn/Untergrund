@@ -34,5 +34,6 @@
  "rnb": {"peak":204,"avg":142},
  "rock": {"peak":292,"avg":169},
  "folk": {"peak":213,"avg":138},
- "country": {"peak":260,"avg":149}
+ "country": {"peak":260,"avg":149},
+ "bossa": {"peak":145,"avg":135}
 }

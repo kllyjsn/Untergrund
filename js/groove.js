@@ -74,11 +74,15 @@ export const POCKETS = [
     at: { snare: 3, stab: 2, acid: 0, ride: 0, ch: 0 },
   },
 ];
+POCKETS.push({ name: 'BOSSA', hum: 0.08, jitter: 0.8, ghost: 0.05, band: true,
+  hat: bar([0.7, 0.4, 0.6, 0.4]), kick: [0.5, 0.25, 0.5, 0.25], back: [0.4, 0.4], bass: [1, 0.7, 0.95, 0.7],
+  at: { snare: 1, ch: 0, acid: 0, stab: 1 } });
 export const POCKET_NAMES = ['GRID', ...POCKETS.slice(1).map((p) => p.name)];
 const P = Object.fromEntries(POCKET_NAMES.map((n, i) => [n, i]));
 
 export const STYLE_POCKET = {
   swing: P.JAZZ, modal: P.JAZZ,
+  bossa: P.BOSSA,
   hypnotic: P.MACHINE, industrial: P.MACHINE, acid: P.MACHINE, dub: P.MACHINE, peak: P.MACHINE, hardtechno: P.MACHINE, electro: P.MACHINE, trance: P.MACHINE, ambient: P.MACHINE,
   deephouse: P.HOUSE, minimal: P.HOUSE, euphoric: P.HOUSE,
   ukg: P.GARAGE, jerseyclub: P.GARAGE,

@@ -31,6 +31,7 @@ export const STYLES = {
   boombap: { name: 'BOOM BAP', bpm: [88, 96], family: 'JAZZ & HIP-HOP', tag: 'dusty · jazz chords' },
   swing: { name: 'SWING', bpm: [132, 176], family: 'JAZZ & HIP-HOP', tag: 'walking bass · ride' },
   modal: { name: 'MODAL', bpm: [120, 144], family: 'JAZZ & HIP-HOP', tag: 'quartal · dorian' },
+  bossa: { name: 'BOSSA NOVA', bpm: [126, 142], family: 'JAZZ & HIP-HOP', tag: 'Jobim · nylon groove' },
   breaks: { name: 'BREAKS', bpm: [128, 136], family: 'BREAKS & BASS', tag: 'broken · funky' },
   electro: { name: 'ELECTRO', bpm: [124, 130], family: 'BREAKS & BASS', tag: '808 · robotic' },
   dnb: { name: 'DRUM & BASS', bpm: [170, 176], family: 'BREAKS & BASS', tag: 'rolling · sub' },
@@ -165,6 +166,7 @@ export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet'
 export const INSTRUMENTS = {
   swing: [[7, 1, 0, 0.35, 0.3], [13, 1, 0, 0.22, 0.25]],
   modal: [[7, 1, 0, 0.6, 0.3], [7, 1, 0, 0.45, 0.22]],
+  bossa: [[13, 1, 0, 0.25, 0.2], [13, 1, 0, 0.23, 0.18], [8, 1, 0, 0.25, 0.18], [7, 1, 0, 0.32, 0.2]],
   // voice, bass, octave, release, articulation
   hypnotic: [[6, 0, 0, 0.25, 0.25], [3, 3, 0, 0.38, 0.7], [2, 0, 0, 0.9, 0.2], [0, 0, 0, 0.28, 0.8]],
   industrial: [[6, 6, 0, 0.3, 0.75], [4, 6, 0, 0.35, 0.65], [0, 6, 0, 0.24, 0.55], [11, 6, 0, 0.65, 0.85]],
@@ -1167,7 +1169,7 @@ function vampFor(style, c, r) {
   return VAMP[style] ? chords(VAMP[style][Math.floor(r() * VAMP[style].length)]) : null;
 }
 
-const GROOVE = new Set(['swing', 'modal', 'neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill', 'pop', 'rnb', 'rock', 'folk', 'country']);
+const GROOVE = new Set(['bossa', 'swing', 'modal', 'neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill', 'pop', 'rnb', 'rock', 'folk', 'country']);
 // Styles written as songs, with verse, pre-chorus, chorus and bridge sections (techno, trance and ambient
 // keep their repetition-led forms, where a section change is a mute or a filter, not new material).
 export const SONG_STYLES = new Set([...GROOVE, 'hyperpop']);

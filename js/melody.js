@@ -23,6 +23,7 @@ const pick = (r, a) => a[Math.floor(r() * a.length)];
 export const SING_PROFILES = {
   swing: { instrumental: true, k: [5, 7], art: 0.9, off: 0.7, six: 0, leap: 0.2, hi: 0, v: ['tpt', 'airflute', 'vocal'] },
   modal: { instrumental: true, k: [1, 3], art: 0.9, off: 0.4, six: 0, leap: 0.6, hi: 0, v: ['tpt', 'airflute'] },
+  bossa: { instrumental: true, k: [1, 3], art: 0.9, off: 0.4, six: 0, leap: 0.2, hi: 0, v: ['airflute', 'tpt'] },
   deephouse: { k: [3, 5], art: 0.85, off: 0.35, six: 0.05, leap: 0.25, hi: 0 },
   ukg: { k: [4, 6], art: 0.7, off: 0.5, six: 0.3, leap: 0.3, hi: 0 },
   euphoric: { k: [3, 5], art: 0.9, off: 0.25, six: 0, leap: 0.35, hi: 1 },

@@ -5,7 +5,7 @@ import { pickChop } from './hum.js';
 import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND, HOOK_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel, swingLate, swingDuration } from './groove.js';
-import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes, JAZZ_MIX } from './jazz.js';
+import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes, JAZZ_MIX, BOSSA_RIM, BOSSA_BATIDA, bossaBass } from './jazz.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ, TECHNO_HOOK_SPACE } from './lead.js';
 import { lowEnd } from './lowend.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
@@ -250,7 +250,11 @@ export function stabPitches(e) {
   const jazz = jazzStyle(e.state);
   if (jazz) {
     const h = e.harm || { r: 0, c: Math.round(p.chord) }, pedal = jazz === 'modal' && e.step % 16 === 0;
-    const notes = pedal ? [48 + ((e.state.key + h.r) % 12 + 12) % 12] : jazzVoicing(h, e.state.key, jazz);
+    let notes = pedal ? [48 + ((e.state.key + h.r) % 12 + 12) % 12] : jazzVoicing(h, e.state.key, jazz);
+    if (jazz === 'bossa' && e.step % 8 === 0) {
+      const thumb = 48 + ((e.state.key + h.r + (e.step % 16 === 8 ? 7 : 0)) % 12 + 12) % 12;
+      notes = BOSSA_BATIDA[Math.floor(e.step / 16) % 2].includes(e.step % 16) ? [...new Set([thumb, ...notes])].sort((a, b) => a - b) : [thumb];
+    }
     return { root: notes[0], vo, iv: notes.map((n) => n - notes[0]), pedal };
   }
   const { root, notes, home } = stabNotes(e.state, e.harm);
@@ -888,7 +892,8 @@ export class Engine {
       this.festivalGate.gain.cancelScheduledValues(this.ctx.currentTime);
       this.festivalGate.gain.setValueAtTime(1, this.ctx.currentTime);
     }
-    const trim = this.playbackStyle === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : JAZZ_MIX[jazzStyle(this.state)]?.output || 0;
+    const mix = JAZZ_MIX[jazzStyle(this.state)];
+    const trim = this.playbackStyle === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : jazzStyle(this.state) === 'bossa' ? voice === 7 ? mix.pianoOutput : voice === 8 ? mix.guitarOutput : mix.output : mix?.output || 0;
     this.setTo(this.out.gain, this.hardTechno ? 0.98 : OUT_TRIM * dbGain(trim), immediate);
   }
 
@@ -1490,6 +1495,10 @@ export class Engine {
       return true;
     }
     if (id === 'snare') {
+      if (jazzStyle(this.state) === 'bossa') {
+        this.liveHit(kit, 'snare_rim', 'snare', t, 0.55 * v * dbGain(JAZZ_MIX.bossa.rim), drift);
+        return true;
+      }
       // Center hits only: a rimshot dropped onto random loud backbeats clanks like a cross-stick.
       const pair = v > 0.85 ? [34, 33] : v > 0.65 ? [24, 23] : v > 0.45 ? [14, 13] : v > 0.25 ? [6, 5] : [2, 5];
       let layer = pair[take(`snare${pair[0]}`, 2) - 1], rate = drift, touch, gain = 1;
@@ -1541,7 +1550,9 @@ export class Engine {
     const fx = { shelves: [[700, Math.max(-24, Math.min(12, 8 * Math.log2(p.cutoff / ref.cutoff)))]], drive: Math.max(0, p.drive - ref.drive) * 1.4 };
     const chop = this.state.artist?.style === 'boombap';
     if (chop) { len = Math.min(len, 0.16 + p.decay * 0.16); Object.assign(fx, { lp: 900, fade: 0.003, attackGain: 1.12, release: 0.025 }); }
-    this.playBuf(kit[`bass_${name}_${hash(t * 1000, 3) > 0.5 ? 'a' : 'b'}`], t, (accent ? 1.2 : 1) * (this.noteVel ?? 1) * (chop ? 1.2 : 1) * dbGain(JAZZ_MIX[jazzStyle(this.state)]?.bass || 0), out, Math.pow(2, (m - center) / 12), len, fx);
+    const voice = Math.round(this.state.params.stab.voice), mix = JAZZ_MIX[jazzStyle(this.state)];
+    const trim = jazzStyle(this.state) === 'bossa' ? voice === 7 ? mix.pianoBass : voice === 8 ? mix.guitarBass : mix.bass : mix?.bass || 0;
+    this.playBuf(kit[`bass_${name}_${hash(t * 1000, 3) > 0.5 ? 'a' : 'b'}`], t, (accent ? 1.2 : 1) * (this.noteVel ?? 1) * (chop ? 1.2 : 1) * dbGain(trim), out, Math.pow(2, (m - center) / 12), len, fx);
     if (jazzStyle(this.state)) return;
     const sub = this.ctx.createOscillator(); sub.frequency.value = midiHz(m);
     const sg = this.gain(0);
@@ -2048,9 +2059,11 @@ export class Engine {
     const c = this.ctx, p = this.state.params.stab;
     const { root, vo, iv, pedal } = stabPitches(this);
     if (jazzStyle(this.state)) {
-      const name = vo === 13 ? 'jazz' : 'piano', set = this.rec(name);
+      const name = vo === 13 ? 'jazz' : jazzStyle(this.state) === 'bossa' && vo === 8 ? 'gtr' : 'piano', set = this.rec(name);
       if (!set) { loadBand(name); return this.keys(t, v, iv, root, p, this.ch.stab.input); }
-      for (const n of iv) this.recordedNote(set, t, v * 0.62 * dbGain(JAZZ_MIX[jazzStyle(this.state)].comp), root + n, pedal ? this.stepDur * 14.4 : p.decay * 1.7, this.ch.stab.band, -2, name, v);
+      const bossa = jazzStyle(this.state) === 'bossa';
+      const trim = bossa && vo === 7 ? JAZZ_MIX.bossa.pianoComp : bossa && vo === 8 ? JAZZ_MIX.bossa.guitarComp : JAZZ_MIX[jazzStyle(this.state)].comp;
+      for (const n of iv) this.recordedNote(set, t, v * 0.62 * dbGain(trim), root + n, pedal ? this.stepDur * 14.4 : p.decay * (bossa ? 1 : 1.7), this.ch.stab.band, -2, name, bossa ? v * 0.6 : v);
       return;
     }
     if (this.playbackStyle === 'bailefunk') return this.funkStab(t, v, iv, root, p.decay, this.ch.stab.input);
@@ -2922,7 +2935,7 @@ export class Engine {
     const air = hash(step, m + 29), tongue = hash(step, m + 71), touch = Math.min(1, v);
     const out = this.trimOut(`hook-${voice}`, 1, this.hookBus || this.windDuck, -4, 500);
     const eq = this.bodyFor(this.bodyFor(out, presence), [780, 1.2, -2.5]);
-    return this.playBuf(buf, t, gain * touch * dbGain(trim + (air - 0.5) * 1.2) * dbGain(JAZZ_MIX[jazzStyle(this.state)]?.lead || 0), eq,
+    return this.playBuf(buf, t, gain * touch * dbGain(trim + (air - 0.5) * 1.2) * dbGain(jazzStyle(this.state) === 'bossa' && voice === 'tpt' ? JAZZ_MIX.bossa.trumpetLead : JAZZ_MIX[jazzStyle(this.state)]?.lead || 0), eq,
       2 ** ((m - pitch - cents / 100) / 12), Math.max(0.06, dur * 0.92), {
         lp: 3850 + 2100 * touch + 650 * (air - 0.5), offset: offset + tongue * 0.012,
         fade: (voice === 'tpt' ? 0.025 : strong ? 0.007 : 0.012) + 0.009 * (1 - tongue),
@@ -4652,6 +4665,7 @@ export class Sequencer {
   // a phrase, the peak's second phrase opens up off-16th hats, every 8 bars ends on a snare/clap roll over a dropped
   // kick (two beats at 16-bar ends), and every fourth bar turns around on the percussion.
   jazzStep(pat, abs, t, pos, bars) {
+    if (pat.jazz.style === 'bossa') return this.bossaStep(pat, abs, t, pos, bars);
     const e = this.e, s = this.s, i = abs % 16, bar = Math.floor(abs / 16), sd = e.stepDur;
     const { style, seed } = pat.jazz, solo = this.cur === 2;
     const enabled = (id) => !s.mutes[id] && (!Object.values(s.solos).some(Boolean) || s.solos[id]);
@@ -4681,6 +4695,31 @@ export class Sequencer {
     if (enabled('stab') && pat.hook && pat.hm) {
       const notes = final ? [[0, 8, h.r + CHORDS[h.c].iv[1], 0.7]] : jazzNotes(style, seed, bar, h, solo);
       for (const [at, dur, n, v] of notes) if (at === i) e.hook(t, v, n, swingDuration(s, abs, dur, sd), pat.hook.v, pat.hook.o, i % 8 === 0, 0.8, false, pat.hook.x);
+    }
+    return this.cur;
+  }
+
+  bossaStep(pat, abs, t, pos, bars) {
+    const e = this.e, s = this.s, i = abs % 16, bar = Math.floor(abs / 16), sd = e.stepDur;
+    const enabled = (id) => !s.mutes[id] && (!Object.values(s.solos).some(Boolean) || s.solos[id]);
+    const final = s.ending && bars && pos === bars - 1;
+    if (final && i) return this.cur;
+    const nextPat = bars && this.chainArr[pos + 1] != null ? s.patterns[this.chainArr[pos + 1]] : pat;
+    const h = e.harm, next = jazzHarmony(nextPat, bar + 1), parity = bar % 2;
+    if (!final) {
+      if (enabled('kick') && pat.steps.kick[i]) e.trigger('kick', t, i % 8 === 0 ? 0.2 : 0.08);
+      if (enabled('ch') && pat.steps.ch[i]) e.trigger('ch', t, i % 4 === 0 ? 0.29 : 0.23);
+      if (enabled('snare') && BOSSA_RIM[parity].includes(i)) e.trigger('snare', t, 0.29);
+    }
+    if (enabled('acid')) for (const [at, dur, m, v] of bossaBass(s.key, h, next)) if (i === at && pat.steps.acid[i]?.on) {
+      e.noteVel = v;
+      e.acid(t, { on: true, n: m - 36 - s.key - harmRoot(h), ap: true, a: false, s: false }, false, false, (final ? 8 : dur) * sd, undefined, t);
+      e.noteVel = 1;
+    }
+    if (enabled('stab') && (final || i % 8 === 0 || BOSSA_BATIDA[parity].includes(i))) e.trigger('stab', t, i % 8 === 0 ? 0.5 : 0.43);
+    if (enabled('stab') && pat.hook && pat.hm) {
+      const notes = final ? [[0, 8, h.r + CHORDS[h.c].iv[1], 0.6]] : jazzNotes('bossa', pat.jazz.seed, bar, h, this.cur === 2);
+      for (const [at, dur, n, v] of notes) if (at === i) e.hook(t, v, n, dur * sd, pat.hook.v, pat.hook.o, i % 8 === 0, 0.8, false, pat.hook.x);
     }
     return this.cur;
   }

@@ -666,5 +666,24 @@
     "rhymeRate": 0.972,
     "verseSpan": 6.375,
     "verseFit": 1
+  },
+  "bossa": {
+    "bars": 112,
+    "verseChorus": 0,
+    "chorusLift": -1,
+    "chorusPeak": -9,
+    "chorusEnergy": 0.975,
+    "preLift": 0,
+    "bridgeAway": 0,
+    "melodyWindows": 7,
+    "motifRecall": 0.5,
+    "chords": 4,
+    "voiceMove": 0.85,
+    "contrast": 0.102,
+    "drumBars": 3,
+    "phraseBars": 2.96,
+    "peakAt": 0.35,
+    "restsPerPhrase": 2,
+    "stepShare": 0.59
   }
 }

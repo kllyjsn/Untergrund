@@ -547,7 +547,7 @@ console.log('seeded instrument ensembles passed');
   const { SONG_STYLES } = await import('../js/state.js');
   const { buildSong, playSong } = await import('../scripts/composition.mjs');
   const key = (pr) => JSON.stringify(pr);
-  for (const style of [...SONG_STYLES].filter((s) => s !== 'swing' && s !== 'modal')) for (const seed of [1, 2, 3, 4]) {
+  for (const style of [...SONG_STYLES].filter((s) => !generate(s, 1).pattern.jazz)) for (const seed of [1, 2, 3, 4]) {
     const g = generate(style, seed), sc = arrangement(g.pattern, seed), S = g.pattern.sections;
     assert(S, `${style} writes sections`);
     assert.deepEqual(sc.map((p) => p.sec), [undefined, 'pre', 'verse', undefined, 'bridge', 'bridge', 'chorus', 'chorus'], `${style} section slots`);

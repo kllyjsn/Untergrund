@@ -216,6 +216,12 @@
    "spread": 1,
    "tp": -2.63,
    "window": -14.14
+  },
+  "bossa": {
+   "lufs": -13.82,
+   "spread": 0.41,
+   "tp": -3.54,
+   "window": -12.23
   }
  },
  "seeds": [

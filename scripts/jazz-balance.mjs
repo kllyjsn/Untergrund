@@ -1,6 +1,12 @@
 import { writeFileSync } from 'node:fs';
 import { withChrome } from '../test/chrome.mjs';
 
+const selectedAt = process.argv.indexOf('--styles');
+const styles = selectedAt < 0 ? ['swing', 'modal', 'neosoul'] : process.argv[selectedAt + 1].split(',');
+const seedsAt = process.argv.indexOf('--seeds');
+const seeds = seedsAt < 0 ? [11, 42] : process.argv[seedsAt + 1].split(',').map(Number);
+if (!seeds.length || seeds.some((n) => !Number.isInteger(n))) throw new Error('Expected integer seeds');
+if (styles.some((s) => !['swing', 'modal', 'bossa', 'neosoul'].includes(s))) throw new Error('Unknown jazz comparison style');
 const result = await withChrome(async (run) => run(`(async () => {
   const { freshSong } = await import('/js/state.js');
   const { render } = await import('/test/audio-quality-page.js');
@@ -9,7 +15,7 @@ const result = await withChrome(async (run) => run(`(async () => {
   const { TRACK_IDS } = await import('/js/params.js');
   Object.assign(BANDS, { below40: [20, 40], fundamentals: [40, 200], ride: [4000, 8000], rideLower: [2000, 4000], rideUpper: [8000, 12000] });
   const out = [];
-  for (const [style, seed] of [['swing', 11], ['swing', 42], ['modal', 11], ['modal', 42], ['neosoul', 42]]) {
+  for (const [style, seed] of ${JSON.stringify(styles)}.flatMap((style) => (style === 'neosoul' ? [42] : ${JSON.stringify(seeds)}).map((seed) => [style, seed]))) {
     const s = freshSong(style, seed); s.artist = { style, seed }; s.ending = false;
     const buf = await render(s, 0, 8, { sampleRate: 44100, tail: 1 });
     const ch = [buf.getChannelData(0), buf.getChannelData(1)];
@@ -19,6 +25,7 @@ const result = await withChrome(async (run) => run(`(async () => {
     const spec = spectrum(ch[0], ch[1], buf.sampleRate);
     const parts = {}, peaks = {}, ride = {};
     if (style !== 'neosoul') for (const part of ['acid', 'ride', 'lead', 'piano', 'ch', 'kick', 'snare']) {
+      if (style === 'bossa' && part === 'ride') continue;
       const solo = structuredClone(s);
       solo.mutes = Object.fromEntries(TRACK_IDS.map((id) => [id, id !== (['lead', 'piano'].includes(part) ? 'stab' : part)]));
       const b = await render(solo, 0, 8, { sampleRate: 24000, tail: 1, onEngine(e) {
@@ -41,5 +48,5 @@ const result = await withChrome(async (run) => run(`(async () => {
   return { bars: 8, matchedTarget: -16, bands: BANDS, reference: 'Repository acoustic LTAS engineering target; not a measured jazz recording', measurements: out };
 })()`));
 if (!result) throw new Error('Chrome unavailable');
-writeFileSync(process.argv[2] || 'test/out/jazz/balance.json', JSON.stringify(result, null, 2) + '\n');
+writeFileSync(process.argv[2]?.startsWith('--') ? 'test/out/jazz/balance.json' : process.argv[2] || 'test/out/jazz/balance.json', JSON.stringify(result, null, 2) + '\n');
 for (const r of result.measurements) console.log(JSON.stringify(r));
