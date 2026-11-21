@@ -10,7 +10,7 @@ import { PARTS, PART_IDS, extractPart, jamKey, jamStep, stepWall, jammable, part
 import { fetchLiveRooms, liveDirectory, roomCard, goLiveTile, isRoomPublic, setRoomPublic, myRoom, setMyRoom, roomInviteUrl } from './live-rooms.js';
 import { SHAPES, COLORS, GEAR, FALLBACK_NAME, generateName, randomLook, migrateAvatar, chatGroups } from './club-identity.js';
 import { createStage, stageScene } from './club-stage.js';
-import { createRoomClock, shiftRoomSet, calibrateRoomClock } from './room-sync.js';
+import { createRoomClock, shiftRoomSet, calibrateRoomClock, roomBoundary } from './room-sync.js';
 
 const AVATAR_KEY = 'untergrund.avatar.v1';
 const ROOM_KEY = 'untergrund.room.v1';
@@ -697,11 +697,10 @@ export function openClub({ getState, getStyle, loadTrack, prepareTrack, getTrans
     };
   }
 
-  const nextSetStart = (transport) => {
+  const nextSetStart = (transport, beats = 4) => {
     const earliest = Date.now() + ROOM_BROADCAST_LEAD_MS;
     if (!transport.playing) return earliest;
-    const barMs = 240000 / getState().bpm;
-    return transport.startsAt + Math.ceil((earliest - transport.startsAt) / barMs) * barMs;
+    return roomBoundary(transport.startsAt, getState().bpm, earliest, beats);
   };
 
   function broadcastSet(prepared = null) {
@@ -713,7 +712,7 @@ export function openClub({ getState, getStyle, loadTrack, prepareTrack, getTrans
       return;
     }
     const transport = getTransport();
-    const startsAt = transport.playing && !prepared ? transport.startsAt : nextSetStart(transport);
+    const startsAt = transport.playing && !prepared ? transport.startsAt : nextSetStart(transport, 1);
     const state = prepared?.state ?? getState();
     const track = nowPlaying(state);
     const trackId = prepared ? prepared.trackId : getReleaseId();

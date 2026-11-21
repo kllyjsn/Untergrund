@@ -3,13 +3,14 @@ import { PALETTE_INSTRUMENTS, PALETTE_DEFAULTS, instrumentFor } from './palette-
 import { getSample, sungNote, SUNG_LEN, SUNG_LOW, SUNG_NOTES, SUNG_VOWEL_COUNT } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
-import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, loadHand, STAB_BAND, HOOK_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER, RECORDED_ORGAN, ANALOG_BASS } from './livekit.js';
+import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, loadHand, STAB_BAND, HOOK_BAND, SAX_HOOK, SAX_LO, saxRoot, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER, RECORDED_ORGAN, ANALOG_BASS } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel, swingLate, swingDuration } from './groove.js';
 import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes, jazzNotches, JAZZ_MIX, BOSSA_RIM, BOSSA_BATIDA, bossaBass } from './jazz.js';
 import { funkBass, FUNK_KICK, FUNK_SNARE, FUNK_COMP } from './jazzfunk.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ, TECHNO_HOOK_SPACE } from './lead.js';
 import { lowEnd } from './lowend.js';
+import { HIPHOP } from './hiphop.js';
 import { midiHz, makeNoise, makeIR, driveCurve, clipCurve, satCurve, SAT_HEADROOM } from './dsp.js';
 import { biquad, filter as filterVocal, processedStem } from './vocal-chain.js';
 import { makeupGain } from './loudness.js';
@@ -43,7 +44,7 @@ const GENRE_PALETTES = {
       3: { ...DEEP_CHORD, wave: 'sine', organ: 0.35, level: 1.65, attack: 0.005, fm: 0, release: 0.42, cutoff: 1900, presence: 'organ' },
       2: { ...DEEP_CHORD, level: 1.5, attack: 0.025, release: 0.6, fm: 0.28, cutoff: 1450, presence: 'pad' },
     },
-    hook: { ...DEEP_CHORD, wave: 'sawtooth', harmonics: 7000, level: 0.36, attack: 0.012, release: 0.18, cutoff: 4000, spread: 6, width: 0.55, fm: 0.35, presence: false, eq: [], airBand: 2.5, breath: 0.08, breathDecay: 0.05, transpose: 24, range: [79, 91] },
+    hook: { ...DEEP_CHORD, wave: 'sawtooth', harmonics: 4500, level: 0.42, attack: 0.012, release: 0.18, cutoff: 4000, spread: 6, width: 0.55, fm: 0.35, presence: false, eq: [], airBand: 1, breath: 0.08, breathDecay: 0.05, transpose: 24, range: [79, 91] },
     bass: { type: 'round', wave: 'triangle', fm: 0.65, level: 1, sub: 0.72, body: 0.8, cutoff: 760, decay: 0.16, grit: 0.5, sustain: 0.55, length: 0.88, balance: true, lowBand: { cutoff: 120, trim: -6, duck: 6 } },
   },
   euphoric: {
@@ -113,12 +114,27 @@ const WIND_HOOK = {
     takes: { 58: [15, 0.048, 0], 62: [-4, 0.01, 0], 65: [-3, 0.01, 0], 70: [-3, 0.02, -2.3], 74: [1, 0, 1], 77: [3, 0.03, 0], 82: [6, 0, -1.5] },
     second: { 58: [2, 0.012, -1], 62: [-2, 0.012, -3], 65: [-1, 0.008, -3.7], 70: [-2, 0.032, -2.1], 74: [-1, 0.012, 1.9], 77: [0, 0.008, -3.8], 82: [2, 0, 1] },
   },
+  // The MTG tenor was recorded 10-20 cents sharp.
+  altosax: {
+    gain: 2.8, presence: [2500, 0.8, 1.5],
+    takes: { 52: [-2, 0, 0], 55: [1, 0, 0], 58: [1, 0, 0], 61: [0, 0, 0], 64: [0, 0, 0], 67: [-1, 0.03, 0], 70: [0, 0, 0], 73: [0, 0, 0], 76: [0, 0, 0], 79: [1, 0, 0] },
+    second: { 52: [2, 0, 0], 55: [1, 0, 0], 58: [1, 0, 0], 61: [0, 0.02, 0], 64: [0, 0, 0], 67: [-1, 0.03, 0], 70: [0, 0, 0], 73: [1, 0, 0], 76: [0, 0, 0], 79: [1, 0, 0] },
+  },
+  tenorsax: {
+    // The tenor's 1.5-3 kHz formant took over the mix's upper mids; darken it and keep its 700 Hz body.
+    gain: 2.8, presence: [2400, 0.6, -10], lp: 1500, tone: [[250, 1, -2], [780, 1.2, 2.5], [1900, 0.9, -6]],
+    takes: { 47: [11, 0.04, 0], 50: [8, 0, 0], 53: [18, 0, 0], 56: [14, 0, 0], 59: [19, 0.02, 0], 62: [20, 0, 0], 65: [21, 0.03, 0], 68: [12, 0, 0], 71: [19, 0.01, 0], 74: [36, 0, 0] },
+    second: { 47: [11, 0, 0], 50: [4, 0, 0], 53: [14, 0, 0], 56: [11, 0, 0], 59: [16, 0.01, 0], 62: [18, 0.08, 0], 65: [20, 0, 0], 68: [17, 0.28, 0], 71: [19, 0.1, 0], 74: [21, 0, 0] },
+  },
   airflute: {
     gain: 1.02, presence: [2950, 0.8, 6.2],
     takes: { 60: [1, 0.18, 3], 64: [-4, 0.11, 0], 69: [-18, 0.05, 0], 72: [-5, 0.01, 0], 76: [-5, 0.022, 0], 81: [-3, 0.022, -1.5], 84: [0, 0.043, 0] },
     second: { 60: [-36, 0.145, 3.8], 64: [-12, 0.105, 3], 69: [-2, 0.061, 0.8], 72: [2, 0.092, 3], 76: [0, 0.088, -0.5], 81: [0, 0.098, 0], 84: [0, 0.105, -3.2] },
   },
 };
+// Each genre's sax, in dB, matched to the synth reed it replaces (hook stem loudness over seeds): the recorded
+// tongued attack carries less energy on the short riffs of Afrobeats, Reggaeton and Breaks than on sung lines.
+const SAX_TRIM = { pop: -2.4, neosoul: -5.7, boombap: 3.5, trap: 1.1, afrobeats: 6.5, reggaeton: 4.5, breaks: 7.1 };
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
 const LIVE_REF = {
   kick: { tune: 52, decay: 0.5, drive: 0.2, click: 0.15, punch: 0.55 },
@@ -612,7 +628,7 @@ export class Engine {
   get minimal() { return (jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle) === 'minimal'; }
   get playbackSeed() { return this.replaySeed ?? this.state.artist?.seed; }
   get hardTechno() { return this.state.artist?.style === 'hardtechno'; }
-  constructor(ctx, state, { realtime = true, vocal = null, trackQueuedNotes = false } = {}) {
+  constructor(ctx, state, { realtime = true, vocal = null, trackQueuedNotes = false, destination = null } = {}) {
     this.ctx = ctx;
     this.state = state;
     this.realtime = realtime;
@@ -622,8 +638,9 @@ export class Engine {
     this.editableHits = [];
     this.ducks = [];
     this.gatedBasses = new Map();
+    this.continuousSources = [];
     this.noise = makeNoise(ctx, 2);
-    this.buildMaster();
+    this.buildMaster(destination);
     this.buildFx();
     this.buildChannels();
     if (state.artist?.style === 'dub') this.dubPadOut();
@@ -646,7 +663,7 @@ export class Engine {
     return c;
   }
 
-  buildMaster() {
+  buildMaster(destination) {
     const c = this.ctx;
     this.mix = this.gain(1);
     this.duck = this.gain(1);
@@ -692,7 +709,10 @@ export class Engine {
       this.wakeGain = this.gain();
       this.festivalGate.connect(this.wakeGain).connect(this.out);
     } else this.festivalGate.connect(this.out);
-    this.out.connect(c.destination);
+    if (destination) {
+      this.tailGain = this.gain();
+      this.out.connect(this.tailGain).connect(destination);
+    } else this.out.connect(c.destination);
     // The neural singer's stem (vocal(), js/sing.js): past the band's duck, into the master chain.
     this.vocalBus = this.gain(0);
     this.vocalOut = this.gain(1);
@@ -831,7 +851,7 @@ export class Engine {
     a.f1.connect(a.f2).connect(a.vca).connect(a.hp).connect(a.pre).connect(a.shaper).connect(a.tame).connect(a.post).connect(this.ch.acid.input);
     a.env.connect(a.f1.detune);
     a.env.connect(a.f2.detune);
-    a.o1.start(0); a.o2.start(0); a.env.start(0);
+    this.startContinuous(a.o1); this.startContinuous(a.o2); this.startContinuous(a.env);
     this.acidNodes = a;
   }
 
@@ -1150,6 +1170,32 @@ export class Engine {
     this.editingHit?.sources.push(note);
   }
 
+  startContinuous(src) {
+    src.start(0);
+    this.continuousSources.push(src);
+  }
+
+  fadeRoomTail(at) {
+    const end = at + 0.044;
+    const gain = this.tailGain.gain;
+    gain.setValueAtTime(1, at + 0.008);
+    gain.linearRampToValueAtTime(0.24, at + 0.024);
+    gain.linearRampToValueAtTime(0, end);
+    for (const src of this.continuousSources) src.stop(end);
+    this.continuousSources.length = 0;
+    this.riser?.s.stop(end);
+    this.riser = null;
+    const endSignal = this.ctx.createConstantSource();
+    endSignal.offset.value = 0;
+    endSignal.connect(this.tailGain);
+    endSignal.onended = () => {
+      this.tailGain.disconnect();
+      this.out.disconnect();
+    };
+    endSignal.start();
+    endSignal.stop(end);
+  }
+
   planHit(time, track, pattern, plan) {
     const hit = { time, track, pattern, plan, note: plan(), sources: [], ducks: [] };
     this.editableHits.push(hit);
@@ -1446,7 +1492,7 @@ export class Engine {
       o.connect(g).connect(out); this.startSource(o, t); o.stop(t + dec + 0.03);
     }
   }
-  dust(t, sd, abs) {
+  dust(t, sd, abs, crackleUntil = Infinity) {
     // Vinyl/tape bed: faint hiss plus sparse crackle, scheduled per step so it stops with transport.
     const d = this.state.master.dust || 0;
     // The hiss filter is linear and fixed, so every step's noise slice shares one band-pass and level.
@@ -1457,7 +1503,9 @@ export class Engine {
     this.noiseSrc(t, sd).connect(this.hiss.bp);
     for (let k = 0; k < 3; k++) {
       if (hash(abs, k + 70) > d * 0.55) continue;
-      const tt = t + hash(abs, k + 80) * sd, c = this.noiseSrc(tt, 0.003);
+      const tt = t + hash(abs, k + 80) * sd;
+      if (tt >= crackleUntil) continue;
+      const c = this.noiseSrc(tt, 0.003);
       const f = this.filter('highpass', 1500 + hash(abs, k + 90) * 4000, 0.7), g = this.gain(d * (0.05 + hash(abs, k + 60) * 0.18));
       c.connect(f).connect(g).connect(this.mix);
     }
@@ -3089,7 +3137,7 @@ export class Engine {
       lfo.connect(depth).connect(d.delayTime);
       inp.connect(d).connect(this.gain(0.25)).connect(pan).connect(dest);
     }
-    lfo.start();
+    this.startContinuous(lfo);
     all.set(dest, inp);
     return inp;
   }
@@ -3101,7 +3149,7 @@ export class Engine {
     if (!tr) {
       const inp = this.gain(1), lfo = this.ctx.createOscillator(), amt = this.gain(0);
       inp.connect(dest); inp.gain.value = 1;
-      lfo.connect(amt).connect(inp.gain); lfo.start();
+      lfo.connect(amt).connect(inp.gain); this.startContinuous(lfo);
       all.set(dest, (tr = { inp, lfo, amt }));
     }
     tr.lfo.frequency.setValueAtTime(1 / (2 * this.stepDur), t);
@@ -3152,7 +3200,7 @@ export class Engine {
       if (n % 2) [c, buf] = alt[i];
     }
     return this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
-      shelves: [[3000, tone]], peaks: [...(R?.peak ? [R.peak] : []), ...(jazzStyle(this.state, this.playingPattern) === 'bossa' && kind === 'jazz' ? jazzNotches(kind, c, Math.pow(2, (m - c) / 12)) : [])], lp: R ? R.lp * (F ? F[1] : 1) * (0.4 + 0.6 * hv) : 0, lpFrom: F ? F[0] : R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
+      shelves: [[3000, tone]], peaks: [...(R?.peak ? [R.peak] : []), ...(kind === 'str' ? HIPHOP[this.state.artist?.style]?.strEq ?? [] : []), ...(jazzStyle(this.state, this.playingPattern) === 'bossa' && kind === 'jazz' ? jazzNotches(kind, c, Math.pow(2, (m - c) / 12)) : [])], lp: R ? R.lp * (F ? F[1] : 1) * (0.4 + 0.6 * hv) : 0, lpFrom: F ? F[0] : R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
     });
   }
   // A guitar amp for the DRIVE GTR: tightened lows into an asymmetric tube-style clipper, then a 4x12 cab
@@ -3493,7 +3541,8 @@ export class Engine {
   }
 
   windHook(set, t, v, m, dur, voice, strong, { harm, take = 0 }) {
-    const { gain, presence, takes, second } = WIND_HOOK[voice];
+    const { gain: base, presence, takes, second, lp = 3850, tone = [] } = WIND_HOOK[voice];
+    const gain = base * dbGain(voice.endsWith('sax') ? SAX_TRIM[this.playbackStyle] ?? 0 : 0);
     const alt = TAKES[HOOK_BAND[voice]] && this.rec(TAKES[HOOK_BAND[voice]]);
     // The longer primary take can sustain through holds after transposition.
     const useAlt = alt && (take + (harm ? 1 : 0)) % 2 && dur <= 0.85;
@@ -3503,12 +3552,12 @@ export class Engine {
     const step = (this.step ?? 0) * 2 + (harm ? 1 : 0);
     const air = hash(step, m + 29), tongue = hash(step, m + 71), touch = Math.min(1, v);
     const out = this.trimOut(`hook-${voice}`, 1, this.hookBus || this.windDuck, -4, 500);
-    const eq = this.bodyFor(this.bodyFor(out, presence), [780, 1.2, -2.5]);
+    const eq = tone.reduce((o, band) => this.bodyFor(o, band), this.bodyFor(this.bodyFor(out, presence), [780, 1.2, -2.5]));
     const rate = 2 ** ((m - pitch - cents / 100) / 12);
     return this.playBuf(buf, t, gain * touch * dbGain(trim + (air - 0.5) * 1.2) * dbGain(jazzStyle(this.state, this.playingPattern) === 'bossa' && voice === 'tpt' ? JAZZ_MIX.bossa.trumpetLead : JAZZ_MIX[jazzStyle(this.state, this.playingPattern)]?.lead || 0), eq,
       rate, Math.max(0.06, dur * 0.92), {
         peaks: jazzStyle(this.state, this.playingPattern) ? jazzNotches(useAlt ? TAKES[HOOK_BAND[voice]] : HOOK_BAND[voice], pitch, rate) : [],
-        lp: 3850 + 2100 * touch + 650 * (air - 0.5), offset: offset + tongue * 0.012,
+        lp: lp + 2100 * touch + 650 * (air - 0.5), offset: offset + tongue * 0.012,
         fade: (voice === 'tpt' ? 0.025 : strong ? 0.007 : 0.012) + 0.009 * (1 - tongue),
         attackGain: (strong ? 1.04 : 0.9) + (tongue - 0.5) * 0.24,
         release: 0.055, ringOut: true, ...(voice === 'tpt' ? { vib: 6 } : {}),
@@ -3600,7 +3649,7 @@ export class Engine {
           const lfo = this.ctx.createOscillator();
           lfo.frequency.value = rate;
           lfo.connect(this.technoHookMotion);
-          lfo.start();
+          this.startContinuous(lfo);
         }
       }
       this.technoHookMotion.connect(depth).connect(diffuse.delayTime);
@@ -3693,10 +3742,12 @@ export class Engine {
       while (root < 48) root += 12;
       return this[name](t, v, [0], root, { ...p, decay: Math.max(0.1, dur / 0.9) }, out);
     }
+    if (voice === 'reed' && SAX_HOOK[this.playbackStyle]) voice = SAX_HOOK[this.playbackStyle];
     const wind = Object.hasOwn(WIND_HOOK, voice);
     if (wind) {
       const name = HOOK_BAND[voice], set = this.rec(name);
-      if (set) return this.windHook(set, t, v, 60 + k + oct * 12 + n, dur, voice, strong, expression);
+      const root = SAX_LO[voice] ? saxRoot(this.playbackStyle, 60 + k, oct) : 60 + k + oct * 12;
+      if (set) return this.windHook(set, t, v, root + n, dur, voice, strong, expression);
       loadBand(name);
       voice = 'reed';
     }
@@ -4150,7 +4201,7 @@ export class Engine {
     let s = this.subVoice;
     if (!s) {
       const o = this.ctx.createOscillator(), amp = this.gain(0);
-      o.frequency.value = f; o.connect(amp).connect(this.ch.acid.input); o.start();
+      o.frequency.value = f; o.connect(amp).connect(this.ch.acid.input); this.startContinuous(o);
       s = this.subVoice = { o, amp };
     }
     s.o.frequency.cancelScheduledValues(t); s.o.frequency.setTargetAtTime(f, t, sliding ? 0.03 : 0.001);
@@ -4194,7 +4245,7 @@ export class Engine {
     const waves = [], freqs = [];
     for (const wave of ['sine', 'sawtooth', 'square']) {
       const o = c.createOscillator(), gain = this.gain(0);
-      o.type = wave; o.connect(gain).connect(lp); o.start(0);
+      o.type = wave; o.connect(gain).connect(lp); this.startContinuous(o);
       waves.push(gain.gain); freqs.push(o.frequency);
     }
     lp.connect(drive).connect(amp).connect(this.ch.acid.input);
@@ -4234,14 +4285,14 @@ export class Engine {
     const tone = this.gain(wide ? 0.81 : 0.5);
     const sub = c.createOscillator();
     sub.connect(this.gain(wide ? 1.24 : 0.88)).connect(amp);
-    sub.start(0);
+    this.startContinuous(sub);
     const freqs = [sub.frequency], detunes = [];
     const seats = wide ? this.sidePans([-0.48, 0.48], lp) : [lp];
     for (const dest of seats) {
       const o = c.createOscillator(); o.type = wide ? 'sawtooth' : 'triangle';
       if (wide) o.connect(this.filter('highpass', 260, 0.7)).connect(dest);
       else o.connect(dest);
-      o.start(0);
+      this.startContinuous(o);
       freqs.push(o.frequency); detunes.push(o.detune);
     }
     lp.connect(drive);
@@ -5157,7 +5208,7 @@ export class Sequencer {
     this.e.sectionGain(t, db, ramp);
   }
 
-  tick(abs, t, roomGridTime, editable = false, vocalSettling = false) {
+  tick(abs, t, roomGridTime, editable = false, vocalSettling = false, crackleUntil = Infinity) {
     abs -= this.origin || 0;
     const s = this.s, e = this.e;
     this.advanceBar(abs, t);
@@ -5189,7 +5240,7 @@ export class Sequencer {
     if (nx && abs % 16 >= 12 && pat.prog?.length && nx.prog?.length) e.harm = nx.prog[(bar + 1) % nx.prog.length];
     if (kl && e.harm) e.harm = { r: e.harm.r + kl, c: e.harm.c };
     const pk = pocketOf(s.master);
-    if ((s.master.dust || 0) > 0.01) e.dust(t, sd, abs);
+    if ((s.master.dust || 0) > 0.01) e.dust(t, sd, abs, crackleUntil);
     const arr = s.master.arr || 0, i16 = abs % 16;
     const festival = this.festivalPlan?.length > 0;
     const buildAmount = arr * 2;
