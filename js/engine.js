@@ -3047,7 +3047,7 @@ export class Engine {
   // Kept in the register the instrument was played in; every note lands a little differently and softer
   // notes are darker, the way hammers and plectrums behave. Released through a damper, not a gate.
   recordedNote(set, t, level, m, dur, out, tone = 0, kind = null, vel = 1, finger = false) {
-    if (this.state.artist?.style === 'rnb' && kind === 'jazz') level *= dbGain(-10);
+    if (this.playbackStyle === 'rnb' && kind === 'jazz') level *= dbGain(-10);
     const R = BAND_PLAY[kind], F = finger && R?.finger;
     if (R) { while (m > R.hi + 0.5) m -= 12; while (m < R.lo - 0.5) m += 12; }
     if (out === this.ch.stab.input) out = this.ch.stab.band;
