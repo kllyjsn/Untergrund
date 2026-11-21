@@ -1,9 +1,9 @@
-import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES, KIT_BACKBEAT, defaultParams } from './params.js';
+import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES, HAND_KIT, KIT_BACKBEAT, defaultParams } from './params.js';
 import { PALETTE_INSTRUMENTS, PALETTE_DEFAULTS, instrumentFor } from './palette-defaults.js';
 import { getSample, sungNote, SUNG_LEN, SUNG_LOW, SUNG_NOTES, SUNG_VOWEL_COUNT } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
-import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, STAB_BAND, HOOK_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER, analogSet } from './livekit.js';
+import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, loadHand, STAB_BAND, HOOK_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER, analogSet } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel, swingLate, swingDuration } from './groove.js';
 import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes, jazzNotches, JAZZ_MIX, BOSSA_RIM, BOSSA_BATIDA, bossaBass } from './jazz.js';
@@ -43,8 +43,8 @@ const GENRE_PALETTES = {
       3: { ...DEEP_CHORD, wave: 'sine', organ: 0.35, level: 1.65, attack: 0.005, fm: 0, release: 0.42, cutoff: 1900, presence: 'organ' },
       2: { ...DEEP_CHORD, level: 1.5, attack: 0.025, release: 0.6, fm: 0.28, cutoff: 1450, presence: 'pad' },
     },
-    hook: { ...DEEP_CHORD, level: 0.45, attack: 0.012, release: 0.18, cutoff: 4000, spread: 6, width: 0.55, fm: 0.35, presence: false, eq: [], airBand: 2.5, transpose: 24, range: [79, 91] },
-    bass: { type: 'round', wave: 'triangle', fm: 0.65, level: 1, sub: 0.72, body: 0.8, cutoff: 760, decay: 0.16, sustain: 0.55, length: 0.88, balance: true, lowBand: { cutoff: 120, trim: -6, duck: 6 } },
+    hook: { ...DEEP_CHORD, wave: 'sawtooth', harmonics: 4500, level: 0.42, attack: 0.012, release: 0.18, cutoff: 4000, spread: 6, width: 0.55, fm: 0.35, presence: false, eq: [], airBand: 1, breath: 0.08, breathDecay: 0.05, transpose: 24, range: [79, 91] },
+    bass: { type: 'round', wave: 'triangle', fm: 0.65, level: 1, sub: 0.72, body: 0.8, cutoff: 760, decay: 0.16, grit: 0.5, sustain: 0.55, length: 0.88, balance: true, lowBand: { cutoff: 120, trim: -6, duck: 6 } },
   },
   euphoric: {
     name: 'uplift',
@@ -140,7 +140,7 @@ const WAKE_FLUSH = 0.024;
 const WAKE_FADE = 0.002;
 // Chord voices that sustain fill a breakdown on their own, so a smooth style only lifts the ones that decay.
 const HELD_CHORDS = new Set(['pad', 'organ', 'strings', 'cello']);
-export const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar', 'cello', 'clarinet', 'nylon'];
+export const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar', 'cello', 'clarinet', 'nylon', 'marimba'];
 const GRIPPED = new Set(['guitar', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar', 'nylon']);
 // Soft-knee, slightly asymmetric clipping: even harmonics like a pushed preamp tube.
 const AMP_CURVE = (() => { const n = 2048, c = new Float32Array(n); for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; c[i] = Math.tanh(x * 2.2 + 0.18) - Math.tanh(0.18); } return c; })();
@@ -301,6 +301,7 @@ export const MASTER_TONE = {
 };
 
 const BAND_PLAY = {
+  marimba: { gain: 1.35, len: 0.9, min: 0.15, max: 0.44, strum: 0.0015, shift: 0, lo: 48, hi: 84, lp: 7000, fade: 0.002, rel: 0.07, even: 0.35 },
   piano: { gain: 4, len: 4, min: 1.2, max: 3, pedal: 5, softBelow: 0.88, strum: 0.004, shift: 0, lo: 45, hi: 79, lp: 7000, rel: 0.18 },
   gtr: { gain: 4.4, len: 2.6, min: 0.6, softBelow: 0.75, strum: 0.006, shift: 0, lo: 40, hi: 74, lp: 2900, peak: [3600, 1.2, -6], soft: 1100, fade: 0.008, rel: 0.22, grip: true, even: 0.2 },
   horn: { gain: 2.2, len: 1.2, min: 0.25, strum: 0.003, shift: 12, lo: 53, hi: 81, lp: 4800, rel: 0.09 },
@@ -324,7 +325,7 @@ BAND_PLAY.twang = { ...BAND_PLAY.gtr, gain: 3, len: 1.4, min: 0.25, softBelow: 0
 // The rock band's riff guitar: the rhythm amp, double-stops up the neck.
 BAND_PLAY.lead = { ...BAND_PLAY.drive, lo: 45, hi: 79, grip: false, even: 0.4, gain: 2.2, lp: 4400, soft: 1600, vib: 8, rel: 0.16, oct: -1, dyad: true };
 // The pitch a non-gripped recorded chord voice sounds: shifted and kept in the register its samples were played in.
-const REC_KIND = { piano: 'piano', horns: 'horn', strings: 'str', cello: 'cello', clarinet: 'cl' };
+const REC_KIND = { piano: 'piano', horns: 'horn', strings: 'str', cello: 'cello', clarinet: 'cl', marimba: 'marimba' };
 export function soundingPitch(voice, m) {
   const R = BAND_PLAY[REC_KIND[voice]];
   if (!R) return m;
@@ -632,7 +633,7 @@ export class Engine {
   get minimal() { return (jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle) === 'minimal'; }
   get playbackSeed() { return this.replaySeed ?? this.state.artist?.seed; }
   get hardTechno() { return this.state.artist?.style === 'hardtechno'; }
-  constructor(ctx, state, { realtime = true, vocal = null, trackQueuedNotes = false } = {}) {
+  constructor(ctx, state, { realtime = true, vocal = null, trackQueuedNotes = false, destination = null } = {}) {
     this.ctx = ctx;
     this.state = state;
     this.realtime = realtime;
@@ -642,8 +643,9 @@ export class Engine {
     this.editableHits = [];
     this.ducks = [];
     this.gatedBasses = new Map();
+    this.continuousSources = [];
     this.noise = makeNoise(ctx, 2);
-    this.buildMaster();
+    this.buildMaster(destination);
     this.buildFx();
     this.buildChannels();
     if (state.artist?.style === 'dub') this.dubPadOut();
@@ -666,7 +668,7 @@ export class Engine {
     return c;
   }
 
-  buildMaster() {
+  buildMaster(destination) {
     const c = this.ctx;
     this.mix = this.gain(1);
     this.duck = this.gain(1);
@@ -712,7 +714,10 @@ export class Engine {
       this.wakeGain = this.gain();
       this.festivalGate.connect(this.wakeGain).connect(this.out);
     } else this.festivalGate.connect(this.out);
-    this.out.connect(c.destination);
+    if (destination) {
+      this.tailGain = this.gain();
+      this.out.connect(this.tailGain).connect(destination);
+    } else this.out.connect(c.destination);
     // The neural singer's stem (vocal(), js/sing.js): past the band's duck, into the master chain.
     this.vocalBus = this.gain(0);
     this.vocalOut = this.gain(1);
@@ -851,7 +856,7 @@ export class Engine {
     a.f1.connect(a.f2).connect(a.vca).connect(a.hp).connect(a.pre).connect(a.shaper).connect(a.tame).connect(a.post).connect(this.ch.acid.input);
     a.env.connect(a.f1.detune);
     a.env.connect(a.f2.detune);
-    a.o1.start(0); a.o2.start(0); a.env.start(0);
+    this.startContinuous(a.o1); this.startContinuous(a.o2); this.startContinuous(a.env);
     this.acidNodes = a;
   }
 
@@ -1170,6 +1175,32 @@ export class Engine {
     this.editingHit?.sources.push(note);
   }
 
+  startContinuous(src) {
+    src.start(0);
+    this.continuousSources.push(src);
+  }
+
+  fadeRoomTail(at) {
+    const end = at + 0.044;
+    const gain = this.tailGain.gain;
+    gain.setValueAtTime(1, at + 0.008);
+    gain.linearRampToValueAtTime(0.24, at + 0.024);
+    gain.linearRampToValueAtTime(0, end);
+    for (const src of this.continuousSources) src.stop(end);
+    this.continuousSources.length = 0;
+    this.riser?.s.stop(end);
+    this.riser = null;
+    const endSignal = this.ctx.createConstantSource();
+    endSignal.offset.value = 0;
+    endSignal.connect(this.tailGain);
+    endSignal.onended = () => {
+      this.tailGain.disconnect();
+      this.out.disconnect();
+    };
+    endSignal.start();
+    endSignal.stop(end);
+  }
+
   planHit(time, track, pattern, plan) {
     const hit = { time, track, pattern, plan, note: plan(), sources: [], ducks: [] };
     this.editableHits.push(hit);
@@ -1466,7 +1497,7 @@ export class Engine {
       o.connect(g).connect(out); this.startSource(o, t); o.stop(t + dec + 0.03);
     }
   }
-  dust(t, sd, abs) {
+  dust(t, sd, abs, crackleUntil = Infinity) {
     // Vinyl/tape bed: faint hiss plus sparse crackle, scheduled per step so it stops with transport.
     const d = this.state.master.dust || 0;
     // The hiss filter is linear and fixed, so every step's noise slice shares one band-pass and level.
@@ -1477,7 +1508,9 @@ export class Engine {
     this.noiseSrc(t, sd).connect(this.hiss.bp);
     for (let k = 0; k < 3; k++) {
       if (hash(abs, k + 70) > d * 0.55) continue;
-      const tt = t + hash(abs, k + 80) * sd, c = this.noiseSrc(tt, 0.003);
+      const tt = t + hash(abs, k + 80) * sd;
+      if (tt >= crackleUntil) continue;
+      const c = this.noiseSrc(tt, 0.003);
       const f = this.filter('highpass', 1500 + hash(abs, k + 90) * 4000, 0.7), g = this.gain(d * (0.05 + hash(abs, k + 60) * 0.18));
       c.connect(f).connect(g).connect(this.mix);
     }
@@ -1987,10 +2020,16 @@ export class Engine {
   }
 
   perc(t, v) {
-    if (this.playbackStyle === 'bailefunk') return this.funkDrum('perc', t, v);
     const c = this.ctx, p = this.state.params.perc, out = this.ch.perc.input;
+    let vo = Math.round(p.voice || 0);
+    if (vo >= HAND_KIT.amapiano && vo <= HAND_KIT.bailefunk) {
+      if (!(v > 0) || ![t, v].every(Number.isFinite)) return;
+      if (this.recordedHands(vo, t, v, p, out)) return;
+      if (vo === HAND_KIT.bailefunk) return this.funkDrum('perc', t, v);
+      vo = vo === HAND_KIT.amapiano ? 3 : vo === HAND_KIT.reggaeton ? 2 : 1;
+    }
+    if (this.playbackStyle === 'bailefunk') return this.funkDrum('perc', t, v);
     if (this.hardTechno) this.hardPalette(t, v, [p.tune * 2], p.decay, out, 'metal');
-    const vo = Math.round(p.voice || 0);
     if (vo > 0) return this[['', 'hand', 'hand', 'shaker', 'clave'][vo]](t, v, p, out, vo === 2);
     const o = c.createOscillator(); o.type = 'sine';
     const f = p.tune;
@@ -2021,6 +2060,43 @@ export class Engine {
       this.adEnv(ng.gain, t, v * p.noise * 0.9, 0.0008, 0.035);
       n.connect(bp).connect(ng).connect(out);
     }
+  }
+
+  recordedHands(kit, t, v, p, out) {
+    const step = this.step ?? 0, bar = Math.floor(step / 16), beat = step % 16;
+    const row = this.playingPattern?.steps?.perc, len = this.playingPattern?.len?.perc || 16;
+    const cell = step % len;
+    const hit = row?.slice(0, cell).filter(Boolean).length ?? beat;
+    // The recorded articulations follow the written rhythm, with gains matched to the replaced hit peaks.
+    let name, group = 0, ref, gain, gate, lp;
+    if (kit === HAND_KIT.amapiano) {
+      const open = row?.[cell] === 2;
+      [name, ref, gain, gate, lp] = open ? ['conga', 320, 1.13, 0.14, 5700] : ['shaker', 320, 0.95, 0.09, 10500];
+      group = open ? 2 : 0;
+    } else if (kit === HAND_KIT.afrobeats) {
+      [name, ref, gain, gate, lp] = [
+        ['conga', 240, 2.18, 0.17, 6100], ['shaker', 240, 1.78, 0.12, 11400],
+        ['cowbell', 240, 2.31, 0.15, 6500], ['conga', 240, 2.02, 0.13, 5400],
+        ['shaker', 240, 1.87, 0.12, 11400],
+      ][hit % 5];
+      group = hit % 5 === 0 ? 2 : 0;
+    } else if (kit === HAND_KIT.reggaeton) {
+      [name, ref, gain, gate, lp] = hit % 3 === 1 ? ['conga', 260, 1.63, 0.15, 5200] : ['timbale', 260, 1.73, 0.15, 7400];
+      group = name === 'conga' ? 2 : hit % 3 === 0 ? 0 : bar % 2 ? 4 : 2;
+    } else {
+      const answer = funkHand(step) === 2;
+      [name, ref, gain, gate, lp] = answer ? ['cuica', 220, 2.08, 0.17, 6700] : ['timbale', 220, 2.03, 0.13, 6800];
+      group = answer ? 0 : 2;
+    }
+    const takes = this.rec(name);
+    if (!takes) { loadHand(name); return false; }
+    const count = name === 'shaker' ? takes.length : 2;
+    const variation = hash(step, 59);
+    const take = takes[group + Math.floor(variation * count)];
+    const rate = Math.max(0.65, Math.min(1.55, p.tune / ref)) * (0.985 + 0.03 * hash(step, 62));
+    const dur = gate * Math.max(0.45, Math.min(2, p.decay / (kit === HAND_KIT.amapiano ? 0.09 : kit === HAND_KIT.afrobeats ? 0.2 : kit === HAND_KIT.reggaeton ? 0.15 : 0.18)));
+    this.playBuf(take, t, v * gain, out, rate, dur, { lp, fade: 0.001, release: 0.025 });
+    return true;
   }
 
   hardPalette(t, v, frequencies, dur, out, kind) {
@@ -2635,6 +2711,11 @@ export class Engine {
       shape.curve = Float32Array.from(wet, (y, i) => { const x = i / (wet.length - 1) * 2 - 1; return x + drive * (y - x); });
       lp.connect(shape).connect(amp);
     } else lp.connect(amp);
+    if (color.grit) {
+      const sat = c.createWaveShaper(), hp = this.filter('highpass', 280, 0.7), top = this.filter('lowpass', 1600, 0.7);
+      sat.curve = driveCurve(0.6);
+      lp.connect(sat).connect(hp).connect(top).connect(this.gain(color.grit)).connect(amp);
+    }
     amp.connect(this.pocketBassOut(color.lowBand));
     let depth;
     if (color.fm) {
@@ -3099,7 +3180,7 @@ export class Engine {
       lfo.connect(depth).connect(d.delayTime);
       inp.connect(d).connect(this.gain(0.25)).connect(pan).connect(dest);
     }
-    lfo.start();
+    this.startContinuous(lfo);
     all.set(dest, inp);
     return inp;
   }
@@ -3111,7 +3192,7 @@ export class Engine {
     if (!tr) {
       const inp = this.gain(1), lfo = this.ctx.createOscillator(), amt = this.gain(0);
       inp.connect(dest); inp.gain.value = 1;
-      lfo.connect(amt).connect(inp.gain); lfo.start();
+      lfo.connect(amt).connect(inp.gain); this.startContinuous(lfo);
       all.set(dest, (tr = { inp, lfo, amt }));
     }
     tr.lfo.frequency.setValueAtTime(1 / (2 * this.stepDur), t);
@@ -3318,6 +3399,7 @@ export class Engine {
   strings(...a) { return this.recorded('str', 'pad', ...a); }
   cello(...a) { return this.recorded('cello', 'pad', ...a); }
   clarinet(...a) { return this.recorded('cl', 'keys', ...a); }
+  marimba(...a) { return this.recorded('marimba', 'pluck', ...a); }
 
   brass(t, v, iv, root, p, out) {
     if (this.analogChord(4, t, v, iv, root, p, out)) return;
@@ -3606,7 +3688,7 @@ export class Engine {
           const lfo = this.ctx.createOscillator();
           lfo.frequency.value = rate;
           lfo.connect(this.technoHookMotion);
-          lfo.start();
+          this.startContinuous(lfo);
         }
       }
       this.technoHookMotion.connect(depth).connect(diffuse.delayTime);
@@ -3711,6 +3793,16 @@ export class Engine {
       if (harp) return this.harpHook(harp, t, v, 60 + k + oct * 12 + n, dur);
       loadBand('harp');
       voice = 'softmallet';
+    }
+    if (voice === 'marimba') {
+      const set = this.rec('marimba');
+      if (set) {
+        // The F4 recording's upper partial lands near 3 kHz after transposing to the hook notes.
+        const out = this.bodyFor(this.hookBus || this.ch.stab.band, [2915, 2.5, -20]);
+        return this.recordedNote(set, t, v * 1.55, 60 + k + oct * 12 + n, Math.max(0.11, dur * 1.2), out, 0, 'marimba', v);
+      }
+      loadBand('marimba');
+      voice = 'mallet';
     }
     if (voice === 'chop') {
       const vc = getChops();
@@ -4127,7 +4219,7 @@ export class Engine {
     let s = this.subVoice;
     if (!s) {
       const o = this.ctx.createOscillator(), amp = this.gain(0);
-      o.frequency.value = f; o.connect(amp).connect(this.ch.acid.input); o.start();
+      o.frequency.value = f; o.connect(amp).connect(this.ch.acid.input); this.startContinuous(o);
       s = this.subVoice = { o, amp };
     }
     s.o.frequency.cancelScheduledValues(t); s.o.frequency.setTargetAtTime(f, t, sliding ? 0.03 : 0.001);
@@ -4171,7 +4263,7 @@ export class Engine {
     const waves = [], freqs = [];
     for (const wave of ['sine', 'sawtooth', 'square']) {
       const o = c.createOscillator(), gain = this.gain(0);
-      o.type = wave; o.connect(gain).connect(lp); o.start(0);
+      o.type = wave; o.connect(gain).connect(lp); this.startContinuous(o);
       waves.push(gain.gain); freqs.push(o.frequency);
     }
     lp.connect(drive).connect(amp).connect(this.ch.acid.input);
@@ -4211,14 +4303,14 @@ export class Engine {
     const tone = this.gain(wide ? 0.81 : 0.5);
     const sub = c.createOscillator();
     sub.connect(this.gain(wide ? 1.24 : 0.88)).connect(amp);
-    sub.start(0);
+    this.startContinuous(sub);
     const freqs = [sub.frequency], detunes = [];
     const seats = wide ? this.sidePans([-0.48, 0.48], lp) : [lp];
     for (const dest of seats) {
       const o = c.createOscillator(); o.type = wide ? 'sawtooth' : 'triangle';
       if (wide) o.connect(this.filter('highpass', 260, 0.7)).connect(dest);
       else o.connect(dest);
-      o.start(0);
+      this.startContinuous(o);
       freqs.push(o.frequency); detunes.push(o.detune);
     }
     lp.connect(drive);
@@ -5129,7 +5221,7 @@ export class Sequencer {
     this.e.sectionGain(t, db, ramp);
   }
 
-  tick(abs, t, roomGridTime, editable = false, vocalSettling = false) {
+  tick(abs, t, roomGridTime, editable = false, vocalSettling = false, crackleUntil = Infinity) {
     abs -= this.origin || 0;
     const s = this.s, e = this.e;
     this.advanceBar(abs, t);
@@ -5161,7 +5253,7 @@ export class Sequencer {
     if (nx && abs % 16 >= 12 && pat.prog?.length && nx.prog?.length) e.harm = nx.prog[(bar + 1) % nx.prog.length];
     if (kl && e.harm) e.harm = { r: e.harm.r + kl, c: e.harm.c };
     const pk = pocketOf(s.master);
-    if ((s.master.dust || 0) > 0.01) e.dust(t, sd, abs);
+    if ((s.master.dust || 0) > 0.01) e.dust(t, sd, abs, crackleUntil);
     const arr = s.master.arr || 0, i16 = abs % 16;
     const festival = this.festivalPlan?.length > 0;
     const buildAmount = arr * 2;

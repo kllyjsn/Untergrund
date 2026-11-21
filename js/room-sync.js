@@ -43,6 +43,11 @@ export function shiftRoomSet(set, by) {
   };
 }
 
+export function roomBoundary(startsAt, bpm, earliest, beats) {
+  const span = 60000 * beats / bpm;
+  return startsAt + Math.ceil((earliest - startsAt) / span) * span;
+}
+
 export function roomTransportPosition(startsAt, bpm, now = Date.now()) {
   const origin = Number.isFinite(+startsAt) ? +startsAt : now;
   const tempo = Math.max(40, Math.min(240, Number.isFinite(+bpm) ? +bpm : 132));
@@ -96,7 +101,8 @@ export function transportResync(target, nextTime, now, stepSec, jumped = false, 
   const ready = now + 0.005;
   // Recover one step near the render deadline without moving the grid or
   // squeezing the gap to its following step below half a step.
-  const earliest = jumped ? ready - Math.min(0.055, stepSec / 2) : room ? now : ready;
+  const recoverableLead = room ? stepSec / 2 : Math.min(0.055, stepSec / 2);
+  const earliest = jumped ? ready - recoverableLead : room ? now : ready;
   let skip = jumped ? Math.max(minSkip, Math.ceil((earliest - target) / stepSec)) : 0;
   target += skip * stepSec;
   while (target < earliest) { target += stepSec; skip++; }

@@ -2,17 +2,64 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { runInNewContext } from 'node:vm';
-import { createRoomClock, roomTransportPosition, shiftRoomSet, syncAudioClock, transportResync, calibrateRoomClock, slewTransport, roomTransportCorrection } from '../js/room-sync.js';
+import { createRoomClock, roomBoundary, roomTransportPosition, shiftRoomSet, syncAudioClock, transportResync, calibrateRoomClock, slewTransport, roomTransportCorrection } from '../js/room-sync.js';
 import { freshSong, clone, sanitize, STYLES } from '../js/state.js';
 import { songFingerprint } from '../js/listen.js';
 import { createRoomMediaSync, roomMediaLead, roomMediaTime } from '../js/room-media-sync.js';
 import { createClockSender } from '../js/midi-core.js';
-import { Sequencer } from '../js/engine.js';
+import { Engine, Sequencer } from '../js/engine.js';
 import { Recorder } from '../js/midi.js';
 import { PART_IDS, jammable, stepWall } from '../js/jam.js';
 
 const origin = 1_000_000;
 const close = (a, b) => assert(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
+
+{
+  const beat = 60000 / 78, earliest = origin + 4.1 * beat;
+  close(roomBoundary(origin, 78, earliest, 1), origin + 5 * beat);
+  close(roomBoundary(origin, 78, earliest, 4), origin + 8 * beat);
+  close(roomBoundary(origin, 120, origin + 3000, 1), origin + 3000);
+}
+
+{
+  const events = [], stop = (t) => events.push(['stop', t]);
+  const endSignal = { offset:{value:1}, connect:node => events.push(['connect', node]), start() {}, stop };
+  const gain = {
+    setValueAtTime: (v, t) => events.push(['set', v, t]),
+    linearRampToValueAtTime: (v, t) => events.push(['ramp', v, t]),
+  };
+  const outgoing = { ctx:{currentTime:8, createConstantSource:() => endSignal}, continuousSources:[{stop}],
+    tailGain:{gain, disconnect:() => events.push(['disconnect-tail'])}, out:{disconnect:() => events.push(['disconnect'])} };
+  Engine.prototype.fadeRoomTail.call(outgoing, 8.1);
+  assert.deepEqual(events.map(e => e[0]), ['set', 'ramp', 'ramp', 'stop', 'connect', 'stop']);
+  close(events[0][2], 8.108);
+  close(events[1][1], events[0][1] * .24);
+  close(events[1][2], 8.124);
+  close(events[2][1], 0);
+  close(events[2][2], 8.144);
+  close(events[3][1], 8.144);
+  assert.equal(events[4][1], outgoing.tailGain, 'the render clock pulls the silent cleanup signal');
+  assert.equal(endSignal.offset.value, 0);
+  close(events[5][1], 8.144);
+  endSignal.onended();
+  assert.deepEqual(events.slice(-2), [['disconnect-tail'], ['disconnect']]);
+}
+
+{
+  const step = 15 / 78, at = 8, sources = [];
+  const node = {connect: () => node};
+  const engine = {
+    state:{master:{dust:.34}}, mix:node,
+    gain:() => node, filter:() => node,
+    noiseSrc(t, duration) { sources.push([t, duration]); return node; },
+  };
+  Engine.prototype.dust.call(engine, at - step, step, 67);
+  assert.deepEqual(sources.map(([, duration]) => duration), [step, .003]);
+  assert.ok(sources[1][0] > at - .15 && sources[1][0] < at);
+  sources.length = 0;
+  Engine.prototype.dust.call(engine, at - step, step, 67, at - .15);
+  assert.deepEqual(sources, [[at - step, step]], 'only the crackle is omitted before a spin');
+}
 
 {
   let now = 100;
@@ -419,6 +466,23 @@ console.log('Room S-curve clock precision PASS: real epoch arithmetic preserves 
   const fast = transportResync(9.965, 11.5, 10, 0.0625, true, 0);
   assert.equal(fast.skip, 1, 'a fast song does not crowd the next step to recover a late one');
   close(fast.nextTime, 10.0275);
+}
+
+{
+  const now = 10, step = 15 / 123, ready = now + .005;
+  const grid = now - .050002, missedSteps = 109;
+  const edge = transportResync(grid - missedSteps * step, 11.5, now, step, true, 0, true);
+  assert.equal(edge.skip, missedSteps, 'recover the first Club step just outside the old wake window');
+  assert.equal(edge.discard, true);
+  close(edge.firstTime, ready);
+  close(edge.nextTime, grid);
+  assert.ok(edge.nextTime + step - edge.firstTime >= step / 2, 'the next step stays on-grid with audible spacing');
+
+  const crowded = ready - step / 2 - .000002;
+  const skip = transportResync(crowded, 11.5, now, step, true, 0, true);
+  assert.equal(skip.skip, 1, 'skip an overdue Club step only when playing it would crowd the next');
+  assert.equal(skip.firstTime, undefined);
+  close(skip.nextTime, crowded + step);
 }
 
 {
@@ -831,6 +895,7 @@ function roomJoin(change = () => {}, options = {}) {
     set.state.artist.seed = 11;
     Object.assign(s.engine, {prepareVocal(){}, discardQueuedNotes(){}, handoffIn(){}});
   }, {prepareSample(){}, liveSets:() => [], loadSets:async () => {}, queuedRoomSwitch:null,
+    roomOutput:{}, vocalStem(){}, Engine: class { handoffIn() {} }, Sequencer: class {},
     trackingReplay:false, listens:{end(){}}, listenPos(){}, autoMajor:false, refreshJamPrime(){}});
   const source = await readFile(new URL('../js/club.js', import.meta.url), 'utf8');
   const body = source.slice(source.indexOf('export class RoomBus'), source.indexOf('\nlet parkedBus')).replace('export class', 'class');
@@ -849,6 +914,19 @@ function roomJoin(change = () => {}, options = {}) {
   slot.layer = {params:{kick:{level:.3}}};
   bus.syncJam();
   const outgoingEdits = sandbox.jamQueue.length, landed = [];
+  const outgoingEngine = sandbox.engine, riserStops = [];
+  const node = {gain:{setValueAtTime(){}, linearRampToValueAtTime(){}}, frequency:{setValueAtTime(){}, exponentialRampToValueAtTime(){}},
+    connect() { return this; }, disconnect() {}};
+  const riser = {...node, start(){}, stop:at => riserStops.push(at)};
+  Object.assign(outgoingEngine, {
+    ctx:{...sandbox.ctx, createBufferSource:() => riser,
+      createConstantSource:() => ({...node, offset:{}, start(){}, stop(){}})},
+    continuousSources:[], tailGain:node, out:node, gain:() => node, filter:() => node, mix:node, stepDur:15/78,
+    riserStart:Engine.prototype.riserStart, fadeRoomTail:Engine.prototype.fadeRoomTail,
+  });
+  outgoingEngine.riserStart();
+  assert.equal(riser.loop, true, 'the outgoing RISER is held across the spin');
+  const releaseRiser = () => Engine.prototype.riserStop.call(sandbox.engine);
   const adjustedStart = startsAt + 80;
   reanchorRoomSet(adjustedStart, startsAt);
   sandbox.landJamPart = (part, layer, at) => landed.push([sandbox.state.artist.seed, part, layer.params.kick.level, at]);
@@ -858,6 +936,11 @@ function roomJoin(change = () => {}, options = {}) {
     landJamParts(adjustedStart, 12.08);
   };
   switchRoomSet(12.08);
+  releaseRiser();
+  assert.equal(riserStops.length, 1, 'release targets the incoming deck; the outgoing deck must stop its own held riser');
+  close(riserStops[0], 12.124);
+  assert.equal(outgoingEngine.riser, null);
+  assert.notEqual(sandbox.engine, outgoingEngine, 'the incoming engine starts on an independent output');
   bus.syncJam();
   assert.deepEqual(landed, [[11, 'drums', .3, 12.08]], 'accepted revisions survive the switch and land with the incoming song');
   assert.equal(outgoingEdits, 0, 'incoming edits never enter the outgoing queue');
