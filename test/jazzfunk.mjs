@@ -11,6 +11,30 @@ import { liveSets } from '../js/livekit.js';
 import { stageScene } from '../js/club-stage.js';
 
 const pc = (n) => (n % 12 + 12) % 12;
+{
+  const probe = (velocity, notes = [0]) => {
+    const oscillators = [], gains = [], filters = [];
+    const param = () => ({ value: 0, events: [], setValueAtTime(v, t) { assert(Number.isFinite(v)); this.events.push(['set', v, t]); }, linearRampToValueAtTime(v, t) { assert(Number.isFinite(v)); this.events.push(['ramp', v, t]); }, setTargetAtTime(v, t, tau) { assert(Number.isFinite(v)); this.events.push(['target', v, t, tau]); } });
+    const node = () => ({ connect(n) { return n; }, frequency: param(), gain: param(), pan: param(), stop() {} });
+    const state = freshSong('jazzfunk', 42);
+    const e = { state, playingPattern: state.patterns[6], ctx: {
+      createOscillator() { const n = node(); oscillators.push(n); return n; }, createStereoPanner: node,
+    }, gain(v) { const n = node(); n.gain.value = v; gains.push(n); return n; }, filter(type, f) { const n = node(); n.type = type; n.frequency.value = f; filters.push(n); return n; }, startSource() {} };
+    Engine.prototype.jazzKeys.call(e, 0, velocity, notes, 69, { decay: 0.5, cutoff: 2200 }, node());
+    return { oscillators, gains, filters };
+  };
+  const soft = probe(0.3), hard = probe(0.9);
+  const bark = (p) => Math.max(...p.gains.flatMap(n => n.gain.events.filter(e => e[0] === 'set').map(e => e[1])));
+  assert(bark(hard) > bark(soft), 'harder strikes excite more FM bark');
+  assert(hard.oscillators.some(n => n.frequency.value === 440 * 1.0016), 'detuned tone bar beats against the tine');
+  assert(hard.oscillators.some(n => n.frequency.value === 440 * 7.03), 'separate bell attack');
+  const decays = hard.gains.flatMap(n => n.gain.events.filter(e => e[0] === 'target').map(e => e[3]));
+  assert(decays.includes(0.028) && decays.includes(0.45), 'bell partial decays faster than the body');
+  assert(hard.filters.some(n => n.type === 'peaking' && n.gain.value < 0), 'low-mid boxiness is attenuated');
+  assert.equal(probe(1, []).oscillators.length, 0, 'empty voicing allocates nothing');
+  probe(0);
+  assert.throws(() => probe(NaN), 'invalid levels are not scheduled');
+}
 for (const text of ['jazz funk', 'jazz-funk', 'fusion', 'Headhunters', 'Herbie', 'Donald Byrd', 'Roy Ayers']) {
   assert.equal(styleFor(text), 'jazzfunk');
   assert(parse(text).edits.some((e) => e.id === 'genre' && e.value === 'jazzfunk'), text);

@@ -2113,6 +2113,7 @@ export class Engine {
 
   // FM electric piano: sine carrier, 1:1 modulator for the bark, 14:1 burst for the tine.
   keys(t, v, iv, root, p, out) {
+    if (jazzStyle(this.state, this.playingPattern)) return this.jazzKeys(t, v, iv, root, p, out);
     const c = this.ctx, end = t + Math.max(0.6, p.decay * 3) + 0.3;
     const funk = jazzStyle(this.state, this.playingPattern) === 'jazzfunk';
     const damped = this.state.artist?.style === 'breaks' && Math.round(p.voice) === 1;
@@ -2143,6 +2144,44 @@ export class Engine {
       for (const o of [car, mod, tine]) { this.startSource(o, t); o.stop(end); }
     });
     lp.connect(trem).connect(out);
+    this.startSource(lfo, t); lfo.stop(end);
+  }
+
+  jazzKeys(t, v, iv, root, p, out) {
+    if (!iv.length) return;
+    const c = this.ctx, decay = Math.max(0.15, p.decay * 0.9), end = t + Math.max(0.6, decay * 6) + 0.3;
+    const style = jazzStyle(this.state, this.playingPattern);
+    const velocity = Math.max(0, Math.min(1, v / (style === 'jazzfunk' ? dbGain(JAZZ_MIX.jazzfunk.comp) : 1)));
+    const lp = this.filter('lowpass', Math.min(5200, p.cutoff * 2.2), 0.5);
+    const body = this.filter('peaking', 420, 0.8); body.gain.value = -4;
+    const trem = c.createStereoPanner(), lfo = c.createOscillator();
+    lfo.frequency.value = 4.8;
+    lfo.connect(this.gain(0.12)).connect(trem.pan);
+    iv.forEach((n, k) => {
+      const f = midiHz(root + n), level = v * (0.85 + hash(t * 97, k) * 0.3) / Math.sqrt(iv.length);
+      const reg = Math.min(1, 520 / f), car = c.createOscillator(), mod = c.createOscillator();
+      car.frequency.value = f; mod.frequency.value = f;
+      const bark = this.gain(0);
+      mod.connect(bark).connect(car.frequency);
+      bark.gain.setValueAtTime(f * (0.35 + velocity ** 2 * 2.4) * reg, t);
+      bark.gain.setTargetAtTime(f * (0.18 + 0.7 * velocity) * reg, t + 0.005, 0.11);
+      const bar = c.createOscillator(); bar.frequency.value = f * 1.0016;
+      const amp = this.gain(0);
+      amp.gain.setValueAtTime(EPS, t);
+      amp.gain.linearRampToValueAtTime(0.42 * level, t + 0.004);
+      amp.gain.setTargetAtTime(0, t + 0.012, decay);
+      car.connect(amp);
+      bar.connect(this.gain(0.18 / 0.82)).connect(amp);
+      amp.connect(lp);
+      const bell = c.createOscillator(); bell.frequency.value = f * 7.03;
+      const strike = this.gain(0);
+      strike.gain.setValueAtTime(0, t);
+      strike.gain.linearRampToValueAtTime(level * 0.025 * velocity ** 2, t + 0.002);
+      strike.gain.setTargetAtTime(0, t + 0.002, 0.028);
+      bell.connect(strike).connect(lp);
+      for (const source of [car, mod, bar, bell]) { this.startSource(source, t); source.stop(end); }
+    });
+    lp.connect(body).connect(trem).connect(out);
     this.startSource(lfo, t); lfo.stop(end);
   }
 
