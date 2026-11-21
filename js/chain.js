@@ -27,7 +27,7 @@ export function editChainEntries(before, after, entries, at = Infinity) {
 
 export function setChain(state, chain, entries, at) {
   const tagged = entries ? cleanChainEntries(chain, entries) : editChainEntries(state.chain, chain, state.chainEntries, at);
-  remapTakes(state.patterns, state.chain, chain);
+  remapTakes(state.patterns, state.chain, chain, state.chainEntries, tagged);
   state.chain = chain;
   if (tagged) state.chainEntries = tagged; else delete state.chainEntries;
 }

@@ -49,6 +49,27 @@ import { cleanChainEntries, editChainEntries, setChain } from '../js/chain.js';
   assert.equal('chainEntries' in project, false, 'a newly generated arrangement does not inherit old section tags');
 }
 
+{
+  const entries = [{ p: 2, sec: 0 }, { p: 2, sec: 0 }, { p: 2, sec: 1 }, { p: 2, sec: 1 }];
+  const state = { ...defaultState(), chain: 'CCCC', chainEntries: entries };
+  state.patterns[2].at = [{ b: [1, 1], hm: 2 }, { b: [2, 3], hm: 0 }];
+  const sections = toSections(state.chain, entries), longer = resize(sections, 0, 3);
+  setChain(state, toChain(longer), toChainEntries(longer));
+  assert.deepEqual(state.patterns[2].at, [{ b: [1, 1], hm: 2 }, { b: [3, 4], hm: 0 }], 'resizing the first same-letter verse moves the second verse takes');
+  const shorter = resize(toSections(state.chain, state.chainEntries), 0, 1);
+  setChain(state, toChain(shorter), toChainEntries(shorter));
+  assert.deepEqual(state.patterns[2].at, [{ b: [1, 2], hm: 0 }], 'deleted first-verse bars do not leak takes into the next verse');
+  const swapped = move(toSections(state.chain, state.chainEntries), 0, 1);
+  setChain(state, toChain(swapped), toChainEntries(swapped));
+  assert.deepEqual(state.patterns[2].at, [{ b: [0, 1], hm: 0 }], 'takes follow section identity even when the chain letters are unchanged');
+  setChain(state, '', []);
+  assert(!state.patterns[2].at, 'removing all bars removes their takes');
+  const legacy = { ...defaultState(), chain: 'AACCGG' };
+  legacy.patterns[2].at = [{ b: [2, 3], hm: 0 }];
+  setChain(legacy, 'AAAACCGG');
+  assert.deepEqual(legacy.patterns[2].at, [{ b: [4, 5], hm: 0 }], 'untagged chains retain letter-run remapping');
+}
+
 // Chain ⇄ sections is lossless for every generated song form.
 {
   const seen = new Set();

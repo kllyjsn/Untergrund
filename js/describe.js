@@ -1288,7 +1288,7 @@ export function applyEdits(state, edits, { seed = 1, style } = {}) {
           }
           if (!c || c.length > 128) { skipped.push(`${e.src || e.sec} (song would be ${c ? 'too long' : 'empty'})`); continue; }
           const d = c.length - S.chain.length;
-          remapTakes(S.patterns, S.chain, c);
+          remapTakes(S.patterns, S.chain, c, S.chainEntries, chainEntries);
           S.chain = c;
           if (chainEntries) S.chainEntries = chainEntries; else delete S.chainEntries;
           if (S.current >= S.patterns.length) S.current = 0;
