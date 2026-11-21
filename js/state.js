@@ -1385,6 +1385,7 @@ export function defaultState() {
 }
 
 export function applyOverrides(state, g, withBpm = true) {
+  for (const id of ['ch', 'oh', 'perc']) state.params[id].pan = TRACK_BY_ID[id].mix.pan;
   for (const [tid, o] of Object.entries(g.params)) Object.assign(state.params[tid], o);
   Object.assign(state.master, g.master);
   if (withBpm) state.bpm = g.bpm;

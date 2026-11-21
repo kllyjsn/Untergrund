@@ -3,7 +3,7 @@ import { PALETTE_INSTRUMENTS, PALETTE_DEFAULTS, instrumentFor } from './palette-
 import { getSample } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
-import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, KIT_PITCH, bandKit, loadBand, STAB_BAND, HOOK_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
+import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, STAB_BAND, HOOK_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel } from './groove.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ, TECHNO_HOOK_SPACE } from './lead.js';
@@ -917,7 +917,8 @@ export class Engine {
     this.setTo(this.glue.attack, this.hardTechno ? 0.035 : 0.015, true);
     this.setTo(this.limiter.threshold, this.hardTechno ? -3 : -6, true);
     this.setTo(this.limiter.knee, this.hardTechno ? 1 : 3, true);
-    this.setTo(this.limTrim.gain, (this.hardTechno ? 1 : LIM_TRIM) / CLIP_HEADROOM, true);
+    const clipTrim = this.playbackStyle === 'neosoul' ? dbGain(-2.5) : 1;
+    this.setTo(this.limTrim.gain, clipTrim * (this.hardTechno ? 1 : LIM_TRIM) / CLIP_HEADROOM, true);
     this.applyOutputTrim(true);
     this.applyTone();
     this.applyPaletteWidth();
@@ -1592,7 +1593,9 @@ export class Engine {
     const fx = { shelves: [[700, Math.max(-24, Math.min(12, 8 * Math.log2(p.cutoff / ref.cutoff)))]], drive: Math.max(0, p.drive - ref.drive) * 1.4 };
     const chop = this.state.artist?.style === 'boombap';
     if (chop) { len = Math.min(len, 0.16 + p.decay * 0.16); Object.assign(fx, { lp: 900, fade: 0.003, attackGain: 1.12, release: 0.025 }); }
-    this.playBuf(kit[`bass_${name}_${hash(t * 1000, 3) > 0.5 ? 'a' : 'b'}`], t, (accent ? 1.2 : 1) * (this.noteVel ?? 1) * (chop ? 1.2 : 1), out, Math.pow(2, (m - center) / 12), len, fx);
+    const take = hash(t * 1000, 3) > 0.5 ? 0 : 1;
+    if (chop) center = BOOMBAP_BASS_CENTERS[name][take];
+    this.playBuf(kit[`bass_${name}_${take ? 'b' : 'a'}`], t, (accent ? 1.2 : 1) * (this.noteVel ?? 1) * (chop ? 1.2 : 1), out, Math.pow(2, (m - center) / 12), len, fx);
     const sub = this.ctx.createOscillator(); sub.frequency.value = midiHz(m);
     const sg = this.gain(0);
     sg.gain.setValueAtTime(EPS, t);
@@ -1858,6 +1861,7 @@ export class Engine {
     this.adEnv(env.gain, t, v * 3.4, 0.0008, dur, ring);
     bp.connect(hp);
     if (this.hardTechno) hp.connect(this.filter('lowpass', 10000, 0.6)).connect(env);
+    else if (this.playbackStyle === 'phonk') hp.connect(this.phonkAir(7.8, 10000)).connect(env);
     else hp.connect(env);
     for (const o of oscs) o.stop(t + dur + 0.05);
     if (open) {
@@ -2105,6 +2109,7 @@ export class Engine {
       return this.dubChord(t, v, iv, root, p, this.ch.stab.input);
     }
     let trimmed = this.chordTone(vo, this.trimOut(`stab${vo}`, this.soulBand() ? 0 : STAB_TRIM_DB[vo] || 0, this.ch.stab.input, 0, STAB_SHELF_HZ[vo]));
+    if (this.playbackStyle === 'phonk') trimmed = this.phonkMusicIn(trimmed);
     if (this.playbackStyle === 'trap' && (vo === 0 || vo === 2)) trimmed = this.technoHookOut('ravestack', trimmed);
     const layers = this.hardTechno ? this.hardStabOut(trimmed) : null, out = layers ? layers.core : trimmed;
     if (layers) this.hardPalette(t, v, iv.map(n => midiHz(root + n)), Math.max(0.12, p.decay), layers.rave, 'rave');
@@ -3365,10 +3370,37 @@ export class Engine {
     return paths.get(voice);
   }
 
+  phonkAir(db, hz = 8000) {
+    const shelf = this.filter('highshelf', hz);
+    shelf.gain.value = db;
+    return shelf;
+  }
+
+  phonkMusicIn(out) {
+    const buses = (this.phonkMusicBuses ||= new WeakMap());
+    if (!buses.has(out)) {
+      const input = this.gain(), high = this.filter('highpass', 420), delay = this.ctx.createDelay(0.02);
+      const side = this.ctx.createChannelMerger(2);
+      const width = 1.42;
+      high.channelCount = 1;
+      high.channelCountMode = 'explicit';
+      delay.delayTime.value = 0.011;
+      input.connect(out);
+      // The high-passed reflection lives entirely in the side, leaving the dry fold-down intact.
+      input.connect(high).connect(delay);
+      delay.connect(this.gain(width)).connect(side, 0, 0);
+      delay.connect(this.gain(-width)).connect(side, 0, 1);
+      side.connect(out);
+      buses.set(out, input);
+    }
+    return buses.get(out);
+  }
+
   phonkBell(t, v, f, dur, strong) {
     const len = Math.min(0.19, dur * 1.1), end = t + len + 0.2;
     const amp = this.gain(0), tone = this.filter('lowpass', Math.min(3200, 1450 + 2 * f), 0.55);
-    tone.connect(amp).connect(this.hookBus || this.ch.stab.input);
+    const air = this.phonkAir(2);
+    tone.connect(air).connect(amp).connect(this.phonkMusicIn(this.hookBus || this.ch.stab.input));
     const strike = v * (strong ? 0.33 : 0.27);
     amp.gain.setValueAtTime(0, t);
     amp.gain.linearRampToValueAtTime(strike, t + 0.003);
@@ -3384,7 +3416,7 @@ export class Engine {
       osc.stop(end);
       return osc;
     });
-    this.retire(sources.at(-1), tone, amp);
+    this.retire(sources.at(-1), tone, air, amp);
   }
 
   // Song hook: one lead note per call, snapped to the current chord on strong beats so it follows the changes.

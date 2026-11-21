@@ -6,6 +6,30 @@ import { clipCurve, satCurve } from '../js/dsp.js';
 import { baselineOf, compare, report } from '../scripts/audio-benchmark.mjs';
 import { withChrome } from './chrome.mjs';
 
+const phonkWidth = await withChrome((run) => run(`(async () => {
+  const { Engine } = await import('/js/engine.js');
+  const { defaultState } = await import('/js/state.js');
+  const ctx = new OfflineAudioContext(2, 2048, 48000);
+  const engine = new Engine(ctx, defaultState(), { realtime: false });
+  engine.out.disconnect();
+  const source = ctx.createBufferSource();
+  source.buffer = ctx.createBuffer(1, 2048, 48000);
+  source.buffer.getChannelData(0)[0] = 0.25;
+  source.connect(engine.phonkMusicIn(ctx.destination));
+  source.start();
+  const audio = await ctx.startRendering(), L = audio.getChannelData(0), R = audio.getChannelData(1);
+  let foldError = 0, sidePeak = 0;
+  for (let i = 0; i < L.length; i++) {
+    foldError = Math.max(foldError, Math.abs((L[i] + R[i]) / 2 - (i === 0 ? 0.25 : 0)));
+    sidePeak = Math.max(sidePeak, Math.abs((L[i] - R[i]) / 2));
+  }
+  return { foldError, sidePeak };
+})()`));
+if (phonkWidth) {
+  assert(phonkWidth.sidePeak > 0.1 && phonkWidth.foldError < 1e-7, 'Phonk reflection adds width but cancels in mono');
+  console.log('Phonk reflection adds stereo width without changing the dry mono fold-down');
+}
+
 // Include the approach to a breakdown and the return to the drop: a late
 // cancel-and-hold/ramp changes the filter *before* the breakdown's downbeat.
 const exportNull = await withChrome((run) => run(`(async () => {

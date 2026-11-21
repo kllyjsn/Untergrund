@@ -13,6 +13,7 @@ import { syncAudioClock, transportResync, slewTransport, roomTransportCorrection
 import { createRoomMediaSync, roomMediaLead, roomMediaTime } from '../js/room-media-sync.js';
 import { applyPart, extractPart, normalizeLayer } from '../js/jam.js';
 import { rubatoMap } from '../js/perform.js';
+import { BASS_NOTES, BOOMBAP_BASS_CENTERS } from '../js/livekit.js';
 
 const BASELINE = new URL('./audio-nodes-baseline.json', import.meta.url);
 const SLACK = 1.15, FLOOR = 12;
@@ -52,6 +53,30 @@ globalThis.fetch = async (url) => {
 };
 
 const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCrossfade, vocalFadePowerRatio, vocalFadeBandPowerRatios } = await import('../js/engine.js');
+{
+  const s = defaultState();
+  s.artist = { style: 'boombap' };
+  const e = new Engine(fakeCtx(), s, { realtime: false });
+  const plain = e.limTrim.gain.value;
+  e.replay808Style = 'neosoul'; e.applyAll();
+  assert(Math.abs(20 * Math.log10(e.limTrim.gain.value / plain) + 2.5) < 1e-10);
+  e.replay808Style = 'trap'; e.applyAll();
+  assert.equal(e.limTrim.gain.value, plain);
+
+  const kit = { bass_bb1_a: 'a', bass_bb1_b: 'b' }, heard = new Set();
+  const centers = BOOMBAP_BASS_CENTERS.bb1;
+  let chop = true;
+  e.playBuf = (take, _time, _amp, _out, rate) => {
+    const center = chop ? centers[take === 'a' ? 0 : 1] : BASS_NOTES.find(([name]) => name === 'bb1')[1];
+    assert.equal(rate, 2 ** ((34 - center) / 12));
+    heard.add(take);
+  };
+  for (let i = 0; i < 20; i++) e.sampledBass(kit, i * 0.03, 34, 0.2, false);
+  assert.deepEqual(heard, new Set(['a', 'b']));
+  s.artist.style = 'neosoul'; chop = false;
+  e.sampledBass(kit, 0.1, 34, 0.2, false);
+  console.log('Boom Bap take tuning and Neo Soul pre-clip trim passed');
+}
 {
   const s = defaultState(); s.artist = { style: 'trap' }; s.params.stab.voice = 7;
   const ctx = fakeCtx(), e = new Engine(ctx, s, { realtime: false }), connections = [];
