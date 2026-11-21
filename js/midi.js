@@ -48,6 +48,8 @@ export function parseKeyName(name = '') {
 // Records what the Sequencer asks the engine to play. Pitch helpers are borrowed from the real Engine.
 export class Recorder {
   constructor(state) { this.state = state; this.notes = {}; this.harm = null; this.stepScale = 1; this.noteVel = 1; this.bass = null; }
+  get playbackStyle() { return this.replay808Style ?? this.state.artist?.style; }
+  get minimal() { return this.playbackStyle === 'minimal'; }
   get stepDur() { return (60 / this.state.bpm / 4) * (this.stepScale || 1); }
   add(track, t, m, dur, v) { (this.notes[track] ||= []).push({ t, m, dur: Math.max(0.01, dur), v }); }
   chord() { const p = this.state.params.stab, h = this.harm; return CHORDS[h ? h.c : Math.round(p.chord)].iv; }
@@ -66,8 +68,8 @@ export class Recorder {
       const len = bossa ? p.decay : pedal ? this.stepDur * 14.4 : Math.max(this.stepDur * 2, (p.decay || 0.3) * 1.5);
       if (paletteFor(this.state)) for (const n of iv) this.add('stab', t, paletteColor(this.state).piano ? soundingPitch('piano', root + n) : root + n, len, v);
       else if (this.state.artist?.style === 'dub') for (const n of iv) this.add('stab', t, this.dubRegister(iv, root) + n, len, v);
-      else if (this.smoothOn || this.state.patterns.some((p) => p.jazz)) {
-        const voice = this.smoothOn && vo === 7 ? 'keys' : STAB_VOICES[vo];
+      else if (this.minimal || this.state.patterns.some((p) => p.jazz)) {
+        const voice = this.minimal && vo === 7 ? 'keys' : STAB_VOICES[vo];
         for (const m of new Set(iv.map((n) => soundingPitch(voice, root + n)))) this.add('stab', t, m, len, v);
       }
       else for (const n of this.chord()) this.add('stab', t, 48 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + n, len, v);

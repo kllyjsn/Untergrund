@@ -1193,4 +1193,27 @@ for (const listener of ['trap', 'dnb', undefined]) {
     if (db > 0) assert(played.includes(80), 'the lifted seed-12 felt-key chord retains MIDI 80');
   }
 }
+{
+  const s = freshSong('minimal', 12); s.artist = { style: 'trap' };
+  const e = new Engine(new OfflineAudioContext(1, SR, SR), s, { realtime: false }), rec = new Recorder(s), calls = [];
+  e.replay808Style = rec.replay808Style = 'minimal';
+  e.minimalHook = () => calls.push('hook'); e.minimalBass = () => calls.push('bass');
+  let played; e.keys = (t, v, iv, root) => { played = iv.map(n => root + n); };
+  e.hook(0.05, 0.5, 0, 0.2, 'warm'); e.acidVoice(0.05, { n: 0 }, false, false, e.stepDur);
+  e.stab(0.05, 0.7); rec.trigger('stab', 0.05, 0.7);
+  assert.deepEqual(calls, ['hook', 'bass'], 'saved Minimal dispatch does not wait for a SMOOTH sequencer update');
+  assert.deepEqual(rec.notes.stab.map(n => n.m), played, 'saved Minimal piano MIDI matches playback before a SMOOTH update');
+}
+{
+  const s = freshSong('bossa', 42); s.artist = { style: 'minimal' };
+  const e = new Engine(new OfflineAudioContext(1, SR * 3, SR), s, { realtime: false });
+  e.replay808Style = 'bossa'; e.smoothChords(-12);
+  e.minimalHook = e.minimalBass = () => assert.fail('Bossa cannot play a stale Minimal palette');
+  const q = new Sequencer(e, s); q.startAt(0, 0.05);
+  for (let i = 0; i < 16; i++) q.tick(i, 0.05 + i * e.stepDur);
+  assert.equal(e.smoothOn, 0, 'Jazz dispatch clears the previous Minimal mix treatment');
+  assert.equal(q.smooth, false, 'Jazz dispatch clears the previous sequencer SMOOTH state');
+  e.hook(0.1, 0.5, 0, 0.2, 'warm');
+  e.state.params.acid.voice = 1; e.acidVoice(0.1, { n: 0 }, false, false, e.stepDur);
+}
 console.log('sound ok');
