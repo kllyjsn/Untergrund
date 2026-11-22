@@ -1708,11 +1708,12 @@ export class Engine {
     if (chop) center = BOOMBAP_BASS_CENTERS[name][take];
     this.playBuf(kit[`bass_${name}_${take ? 'b' : 'a'}`], t, (accent ? 1.2 : 1) * (this.noteVel ?? 1) * (chop ? 1.2 : 1) * dbGain(trim), out, Math.pow(2, (m - center) / 12), len, fx);
     if (jazzStyle(this.state, this.playingPattern)) return;
+    const folk = this.playbackStyle === 'folk';
     const sub = this.ctx.createOscillator(); sub.frequency.value = midiHz(m);
     const sg = this.gain(0);
     sg.gain.setValueAtTime(EPS, t);
-    sg.gain.linearRampToValueAtTime(0.12, t + 0.01);
-    sg.gain.setTargetAtTime(0.07, t + 0.05, 0.2);
+    sg.gain.linearRampToValueAtTime(folk ? 0.12 * dbGain(-3) : 0.12, t + 0.01);
+    sg.gain.setTargetAtTime(folk ? 0.07 * dbGain(-9) : 0.07, t + 0.05, folk ? this.stepDur * 0.8 : 0.2);
     sg.gain.setTargetAtTime(0, t + len, 0.04);
     sub.connect(this.filter('lowpass', 120, 0.7)).connect(sg).connect(out);
     this.startSource(sub, t); sub.stop(t + len + 0.3);
