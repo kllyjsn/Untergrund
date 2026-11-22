@@ -4,6 +4,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { redisEnv } from './crate.js';
 import { analyze, toMarkdown } from './improve.js';
 import { EXPERIMENTS, ARMS, XP_ID } from '../../js/experiments.js';
+import { isFeel } from '../../js/feel.js';
 
 export const EVENTS = ['app_open', 'generate', 'play_start', 'play_30s', 'save_track', 'publish', 'share_link_copied',
   'room_join', 'room_go_live', 'export_wav', 'export_stems', 'export_midi', 'return_visit', 'shared_open', 'remix', 'video_export', 'hum', 'voice_chops', 'song_edit', 'set_replay', 'daily_drop', 'describe', 'push', 'live_rooms', 'go_live_nudge', 'room_create', 'room_privacy', 'listen', 'radio', 'library', 'error'];
@@ -15,7 +16,7 @@ const P = 'untergrund:ev', TTL = 400 * 86400, MAX_EVENTS = 40, ERROR_LOG = 100;
 export const MAX_BODY = 32_000, BATCHES_PER_HOUR = 400, ERRORS_PER_HOUR = 20;
 // Listen signals (js/listen.js, docs/listen-signals.md): counted like events, and each full record is kept in a capped log.
 export const LISTEN_KINDS = ['start', 'complete', 'skip', 'partial', 'replay', 'keep', 'publish', 'share', 'live', 'love', 'unlove', 'down', 'undown', 'why', 'rewind'];
-export const DOWN_REASONS = ['boring', 'sounds_bad', 'not_my_style'], COHORTS = ['d0', 'd1_6', 'd7_29', 'd30_plus'], DEVICES = ['phone', 'tablet', 'desktop'];
+export const DOWN_REASONS = ['boring', 'sounds_bad', 'not_my_style', 'no_feeling'], COHORTS = ['d0', 'd1_6', 'd7_29', 'd30_plus'], DEVICES = ['phone', 'tablet', 'desktop'];
 export const LISTEN_LOG = 5000, LISTENS_PER_HOUR = 300, SIGNALS_MAX = 1000;
 // Day logs (untergrund:ev:listen:<day>) keep every day's records for HISTORY_DAYS, read in pages, so the improvement
 // engine sees weeks instead of the newest LISTEN_LOG records. DAY_LOG caps one day (reported as `capped`).
@@ -64,6 +65,7 @@ export function cleanListen(l, p = {}) {
   // Share attribution: `via` is the ref of the link a listen arrived through; a `share` carries the ref it minted.
   const via = id(l.via, SHARE_REF), ref = kind === 'share' ? id(l.ref, SHARE_REF) : '';
   if (via) out.via = via;
+  if (isFeel(l.feel)) out.feel = l.feel;
   if (ref) out.ref = ref;
   if (kind === 'why') { if (!DOWN_REASONS.includes(l.why)) return null; out.why = l.why; }
   if (kind === 'rewind') out.to = int(l.to, 0, 9999, 0);
@@ -174,6 +176,7 @@ async function ingest(batch, kv, client, now) {
       // so a standalone share (no listen behind it) stays out of them and of `listen:<kind>`; the release loop reads it from the raw log.
       if (l.lis) {
         if (l.style) cmds.push(['HINCRBY', `${P}:ls:${day}`, `${l.style}:${l.kind}`, 1], ['EXPIRE', `${P}:ls:${day}`, TTL]);
+        if (l.feel) cmds.push(['HINCRBY', `${P}:lf:${day}`, `${l.feel}:${l.kind}`, 1], ['EXPIRE', `${P}:lf:${day}`, TTL]);
         cmds.push(['HINCRBY', `${P}:fp:${l.fp}`, l.kind, 1], ['EXPIRE', `${P}:fp:${l.fp}`, TTL]);
       }
     }
@@ -214,6 +217,7 @@ export async function summarize(kv, { days = 30, now = Date.now() } = {}) {
   cmds.push(['LRANGE', `${P}:describe_miss`, 0, 99]);
   const lsDates = dates.slice(7);
   for (const d of lsDates) cmds.push(['HGETALL', `${P}:ls:${d}`]);
+  for (const d of lsDates) cmds.push(['HGETALL', `${P}:lf:${d}`]);
   const r = await kv(cmds);
   let i = 0;
   const counts = dates.map(() => toObj(r[i++]));
@@ -227,6 +231,11 @@ export async function summarize(kv, { days = 30, now = Date.now() } = {}) {
   for (const _ of lsDates) for (const [k, v] of Object.entries(toObj(r[i++]))) {
     const [st, kind] = k.split(':');
     (byStyle[st] ||= {})[kind] = (byStyle[st][kind] || 0) + v;
+  }
+  const byFeel = {};
+  for (const _ of lsDates) for (const [k, v] of Object.entries(toObj(r[i++]))) {
+    const [f, kind] = k.split(':');
+    (byFeel[f] ||= {})[kind] = (byFeel[f][kind] || 0) + v;
   }
 
   const totals = {};
@@ -246,7 +255,7 @@ export async function summarize(kv, { days = 30, now = Date.now() } = {}) {
     }
     retention[label] = { returned, cohort, rate: cohort ? returned / cohort : 0 };
   }
-  return { enabled: true, generated: new Date(now).toISOString(), days: n, events: EVENTS, funnel, retention, period, totals, daily, errors, misses, listening: listening(totals, byStyle) };
+  return { enabled: true, generated: new Date(now).toISOString(), days: n, events: EVENTS, funnel, retention, period, totals, daily, errors, misses, listening: listening(totals, byStyle, byFeel) };
 }
 
 // Enjoyment rates per listen start: how often a song is finished, skipped early, replayed, loved, kept, published, shared or played live.
@@ -256,10 +265,12 @@ export function listenRates(k = {}) {
   const starts = k.start || 0;
   return Object.fromEntries(Object.entries(RATES).map(([name, kind]) => [name, starts ? (NET[name] ? Math.max(0, (k[kind] || 0) - (k[NET[name]] || 0)) : k[kind] || 0) / starts : 0]));
 }
-function listening(totals, byStyle) {
+function listening(totals, byStyle, byFeel = {}) {
   const kinds = Object.fromEntries(LISTEN_KINDS.map((kind) => [kind, totals[`listen:${kind}`] || 0]));
   const styles = Object.entries(byStyle).map(([style, k]) => ({ style, starts: k.start || 0, counts: k, rates: listenRates(k) })).sort((a, b) => b.starts - a.starts);
-  return { kinds, rates: listenRates(kinds), styles };
+  // The same rates per intended feeling (js/feel.js): which feelings people finish, love or skip.
+  const feels = Object.entries(byFeel).map(([feel, k]) => ({ feel, starts: k.start || 0, counts: k, rates: listenRates(k) })).sort((a, b) => b.starts - a.starts);
+  return { kinds, rates: listenRates(kinds), styles, feels };
 }
 
 // Raw listen records, newest first (stats-token only): the input for offline learning and automations.
