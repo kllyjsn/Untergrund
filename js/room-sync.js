@@ -246,10 +246,18 @@ export function slewTransport(target, nextTime, limit = 0.03) {
   return Math.abs(error) <= limit ? nextTime + Math.max(-0.0015, Math.min(0.0015, error)) : nextTime;
 }
 
-export function roomTransportCorrection(target, nextTime, now, stepSec, drainUntil = null) {
+export function roomTransportCorrection(target, nextTime, now, stepSec, drainUntil = null, lead = 0) {
   if (drainUntil === null) {
     if (Math.abs(target - nextTime) <= 0.05) return null;
     drainUntil = nextTime;
+  }
+  if (target < drainUntil) {
+    const lastTime = drainUntil - stepSec;
+    const skip = Math.max(0, Math.floor((lastTime - target) / stepSec) + 1);
+    const corrected = target + skip * stepSec;
+    const firstTime = Math.max(corrected, lastTime + stepSec / 2, now + 0.005);
+    if (firstTime >= now + Math.max(lead, 0.02)) return {drainUntil};
+    return {skip, nextTime:corrected, firstTime, discard:false, adopted:true};
   }
   if (now < drainUntil) return {drainUntil};
   const skip = Math.max(0, Math.ceil((now - target) / stepSec));

@@ -206,7 +206,7 @@ function schedule(lead) {
   if (firstEstimate && !playableFirst && Math.abs(target - nextTime) > 0.000001) nextTime = target;
   if (roomPlayback && Math.abs(target - nextTime) > 0.000001) vocalGridDirty = true;
   if (clock.jumped) roomDrainUntil = null;
-  const correction = roomPlayback && !clock.jumped && !playableFirst ? roomTransportCorrection(target, nextTime, now, base, roomDrainUntil) : null;
+  const correction = roomPlayback && !clock.jumped && !playableFirst ? roomTransportCorrection(target, nextTime, now, base, roomDrainUntil, ahead) : null;
   if (correction?.drainUntil !== undefined) {
     if (roomDrainUntil === null) {
       engine.cancelVocalSlew?.();
@@ -286,7 +286,7 @@ function schedule(lead) {
       abs += skip * 16; seq.chainPos += skip; transportOrigin -= skip * 16 * base * 1000;
       if (handoff?.step != null) { handoff.step += skip * 16; handoff.from += skip * 16; }
     }
-    if (jamQueue.length && ((abs - seq.origin) % 16 === 0 || (roomPlayback && mediaRoute && roomMediaSync.active(now)))) {
+    if (jamQueue.length && ((abs - seq.origin) % 16 === 0 || (fix?.adopted && fix.skip > 0) || (roomPlayback && mediaRoute && roomMediaSync.active(now)))) {
       const gridTime = roomPlayback && mediaRoute ? nextTime + roomMediaLead(roomPlayback, mediaRoute) : nextTime;
       landJamParts((gridTime + clockOffset) * 1000 + base * 500, t);
     }
