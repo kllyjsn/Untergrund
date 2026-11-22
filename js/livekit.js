@@ -193,7 +193,8 @@ export function liveSets(st) {
     const roots = rootsFor(st, p);
     if (roots?.chord === 'upright' && Math.round(st?.params?.stab?.voice) === 7) out.push('upright');
     if (roots?.hook === 'fiddle' || roots?.answer === 'fiddle') out.push('fiddle');
-    if (roots?.hook === 'twang') out.push('gtr', 'gtrsoft');
+    // The engine plays a 'twang' lead on the Telecaster with harmonica answers, falling back to the Gretsch.
+    if (roots?.hook === 'twang') out.push('tele', 'hca', 'gtr', 'gtrsoft');
     const v = p?.hook?.v === 'reed' ? SAX_HOOK[roots?.style ?? st?.artist?.style] : p?.hook?.v, voice = Object.hasOwn(HOOK_BAND, v) && HOOK_BAND[v];
     if (voice) out.push(voice, ...(TAKES[voice] ? [TAKES[voice]] : []));
   }
