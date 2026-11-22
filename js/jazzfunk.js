@@ -52,13 +52,50 @@ export function funkBass(key, h, bar, seed = 0, next = h) {
   return [...notes.values()].sort((a, b) => a[0] - b[0]).map((n, i, ns) => [n[0], Math.min(n[1], (ns[i + 1]?.[0] ?? 16) - n[0] - 0.08), n[2], n[3]]);
 }
 
-export function funkNotes(seed, bar, h, solo) {
-  const r = rng(seed ^ Math.imul((solo ? bar + 47 : bar % 8) + 1, 0x45d9f3b));
-  const rhythms = [[0, 3, 6], [1, 4, 8], [0, 3, 7, 8], []];
-  const at = bar % 4 === 3 && solo ? [1, 5, 8] : rhythms[bar % 4];
-  const iv = CHORDS[h.c].iv, mode = iv.includes(3) || h.c === 15 ? [0, 3, 5, 6, 7, 10, 12, 15] : [0, 2, 4, 5, 7, 9, 10, 12, 14];
-  const tones = iv.map((n) => n % 12).concat(iv.map((n) => n % 12 + 12)).filter((n) => n <= 19);
-  return at.map((step, i) => [step, Math.min(2.2, (at[i + 1] ?? 11) - step - 0.2), h.r + near(step % 4 === 0 ? tones : mode, [7, 10, 12, 7][i] + (solo && r() > 0.7 ? 3 : 0)), 0.7 + r() * 0.1]);
+export function funkNotes(seed, bar, h, solo = false, { headOut = false, sectionBars = 48 } = {}) {
+  const phase = bar % 16, pair = Math.floor(phase / 2), chorus = Math.floor(bar / 16);
+  const r = rng(seed ^ Math.imul(pair + 1, 0x45d9f3b));
+  const motifs = [
+    [[2, 1], [3, 1], [4, 6], [10, 1], [11, 1], [12, 2], [14, 7], [21, 3], [24, 4], [28, 2]],
+    [[1, 1], [2, 1], [3, 5], [8, 2], [10, 1], [11, 1], [12, 2], [14, 8], [22, 2], [24, 5]],
+    [[2, 1], [3, 1], [4, 7], [11, 1], [12, 2], [14, 6], [20, 4], [24, 2], [26, 3]],
+  ];
+  const motif = motifs[Math.floor(rng(seed ^ 0x735a2d97)() * motifs.length)];
+  let rhythm = motif, peak = false;
+  if (solo) {
+    const peakBar = sectionBars - 4;
+    if (bar > peakBar || bar >= sectionBars - 2) return [];
+    peak = bar === peakBar;
+    if (peak) rhythm = [[bar % 2 * 16, 18]];
+    else if (chorus === 0) rhythm = [[2, 6], [8, 6], [14, 8], [22, 6]];
+    else if (chorus >= 2) {
+      const line = [1, 2, 3, 4, 6, 8, 10, 11, 12, 14, 16, 18, 20, 21, 22, 24, 26, 28];
+      rhythm = line.map((at, i) => [at, (line[i + 1] ?? 30) - at - 0.2]);
+    }
+  } else if (phase >= 12) {
+    rhythm = headOut ? [[1, 1], [2, 1], [3, 1], [4, 4], [8, 4], [12, 4], [16, 18]] : [[2, 1], [3, 1], [4, 6], [10, 2], [12, 4], [16, 18]];
+    if (phase >= 14) return [];
+  } else if (phase >= 8) rhythm = [[0, 7], [7, 1], [8, 6], [14, 8], [22, 1], [23, 1], [24, 5]];
+  else if (phase >= 4 && phase % 4 >= 2) rhythm = [[2, 2], [4, 6], [10, 2], [12, 2], [14, 8], [22, 2], [24, 5]];
+  const iv = CHORDS[h.c].iv;
+  const mode = iv.includes(3) ? [0, 2, 3, 5, 7, 9, 10] : iv.includes(11) ? [0, 2, 4, headOut ? 5 : 6, 7, 9, 11] : h.c === 15 ? [0, 1, 3, 4, 6, 8, 10] : [0, 2, 4, 5, 7, 9, 10];
+  const tones = iv.flatMap((n) => [pc(n), pc(n) + 12, pc(n) + 24]);
+  const passing = mode.flatMap((n) => [n, n + 12, n + 24]);
+  const shape = [7, 10, 12, 14, 12, 10, 9, 7, 12, 10];
+  const lift = solo ? Math.min(5, chorus * 2) + pair % 3 : phase >= 8 && phase < 12 ? 5 : 0;
+  return rhythm.flatMap(([at, dur], index) => {
+    if (Math.floor(at / 16) !== bar % 2) return [];
+    const step = at % 16, strong = step % 4 === 0 || dur >= 4;
+    const target = shape[(index + (pair % 2 ? 2 : 0)) % shape.length] + lift;
+    let n = near(strong ? tones : passing, target);
+    if (solo && chorus > 0 && !strong && step % 4 === 3 && rhythm[index + 1]?.[0] === at + 1)
+      n = near(tones, shape[(index + 1 + (pair % 2 ? 2 : 0)) % shape.length] + lift) - 1;
+    else if (!strong && dur <= 1 && r() < (headOut ? 0.3 : 0.12)) n = iv.includes(3) ? 6 : 3;
+    if (headOut && phase < 12 && index === rhythm.length - 1) n = near(tones, target + 2);
+    const length = solo && !peak ? Math.min(dur, (sectionBars - 4 - bar) * 16 - step) : dur;
+    const envelope = Math.sin(Math.PI * (at + 2) / 34);
+    return length > 0 ? [[step, length, h.r + n, peak ? 0.92 : 0.61 + 0.2 * Math.max(0, envelope) + r() * 0.035]] : [];
+  });
 }
 
 export function generateFunk(seed, bpm, palette, pocket) {

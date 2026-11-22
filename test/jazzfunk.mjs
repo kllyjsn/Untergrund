@@ -3,7 +3,7 @@ import { freshSong, sanitize } from '../js/state.js';
 import { Engine, Sequencer } from '../js/engine.js';
 import { Recorder } from '../js/midi.js';
 import { jazzHarmony, jazzNotes, jazzVoicing, jazzMelody } from '../js/jazz.js';
-import { funkBass, funkGroove, FUNK_PROGS } from '../js/jazzfunk.js';
+import { funkBass, funkGroove, funkNotes, FUNK_PROGS } from '../js/jazzfunk.js';
 import { CHORDS, TRACK_IDS } from '../js/params.js';
 import { parse } from '../js/describe.js';
 import { styleFor } from '../js/song-plan.js';
@@ -48,7 +48,7 @@ for (const text of ['jazz funk', 'jazz-funk', 'fusion', 'Headhunters', 'Herbie',
   assert.equal(styleFor(text), 'jazzfunk');
   assert(parse(text).edits.some((e) => e.id === 'genre' && e.value === 'jazzfunk'), text);
 }
-const record = (s, bars = 2, setup = () => {}) => {
+const record = (s, bars = 8, setup = () => {}) => {
   const e = new Recorder(s), seq = new Sequencer(e, s);
   setup(e);
   for (let i = 0; i < bars * 16; i++) seq.tick(i, 0.05 + i * e.stepDur);
@@ -64,7 +64,7 @@ for (const seed of [1, 2, 3, 11, 42, 77, 1234, 12345, 0x12345678]) {
   assert.equal(s.master.duck, 0); assert.equal(s.master.kit, 1);
   assert.equal(s.params.stab.voice, 1); assert.equal(s.params.acid.voice, 5);
   assert(s.params.stab.env <= 0.15 && s.params.stab.cutoff <= 1800);
-  for (const set of ['kit', 'ebass', 'tpt', 'horn', 'gtr', 'gtrmute']) assert(liveSets(s).includes(set), set);
+  for (const set of ['kit', 'ebass', 'tpt', 'horn', 'gtr', 'gtrmute', 'kitx']) assert(liveSets(s).includes(set), set);
   assert.equal(s.params.perc.pan, 0.45); assert(s.params.perc.level > 0);
   assert.equal(s.params.stab.pan, -0.15);
   for (const id of ['ch', 'oh']) assert.equal(s.params[id].pan, 0.25);
@@ -82,7 +82,7 @@ for (const seed of [1, 2, 3, 11, 42, 77, 1234, 12345, 0x12345678]) {
       if (step % 8 === 0) assert(tones.some((n) => pc(s.key + h.r + n) === pc(m)));
     }
     for (const [step, dur, n] of jazzNotes('jazzfunk', seed, bar, h, true)) {
-      assert(dur > 0 && step + dur <= 16);
+      assert(step >= 0 && step < 16 && dur > 0 && dur <= 32, 'lead onsets stay in the bar while ties may cross it');
       if (step % 4 === 0) assert(tones.some((v) => pc(h.r + v) === pc(n)));
     }
     const voicing = jazzVoicing(h, s.key, 'jazzfunk');
@@ -120,7 +120,7 @@ for (const seed of [1, 2, 3, 11, 42, 77, 1234, 12345, 0x12345678]) {
   Engine.prototype.stab.call(response, 0, 0.6);
   assert.equal(recorded, 1); assert.equal(keys, 3, 'missing horn samples retain Rhodes comping');
 }
-assert.deepEqual(jazzNotes('jazzfunk', 42, 3, { r: 0, c: 16 }), [], 'head leaves a bar for keys response');
+assert.deepEqual(jazzNotes('jazzfunk', 42, 15, { r: 0, c: 16 }), [], 'cadence leaves a breath for the band');
 assert(jazzMelody('jazzfunk', 42).n.length > 0, 'shared jazz melody helper resolves funk progressions');
 const empty = freshSong('jazzfunk', 42); for (const p of empty.patterns) p.hook = null;
 const rhythm = record(empty);
@@ -185,4 +185,62 @@ for (const prog of FUNK_PROGS) {
   p.hook = null;
   assert(record(s).perc.length, 'guitar is independent of the lead hook');
 }
-console.log('jazzfunk: moving rootless harmony, seeded interlock/fills, kick/bass lock, guitar recordings and row edits, pocket offsets, stereo seats, mutes/solos and save/load passed');
+const phrases = (notes, sd) => {
+  const spans = [];
+  for (const n of [...notes].sort((a, b) => a.t - b.t)) {
+    const last = spans.at(-1);
+    if (!last || n.t - last[1] >= 2 * sd - 1e-8) spans.push([n.t, n.t + n.dur]);
+    else last[1] = Math.max(last[1], n.t + n.dur);
+  }
+  return spans.map(([a, b]) => (b - a) / (16 * sd));
+};
+for (const seed of [0, 42, 77, 12345, 1e9]) {
+  const s = freshSong('jazzfunk', seed), sd = 60 / s.bpm / 4;
+  s.chain = 'G'.repeat(16) + 'C'.repeat(48) + 'H'.repeat(16); s.ending = true;
+  const notes = record(s, 80);
+  const step = (n) => Math.round((n.t - 0.05) / sd);
+  const within = (id, from, to) => (notes[id] || []).filter((n) => step(n) >= from * 16 && step(n) < to * 16);
+  assert(!within('hook', 0, 4).length, 'four-bar rhythm intro is trumpet tacet');
+  assert(!within('stab', 0, 2).length && within('stab', 2, 4).length, 'keys enter halfway through the intro');
+  for (const id of ['kick', 'acid', 'perc']) assert(within(id, 0, 2).length, `${id}: rhythm section opens the song`);
+  assert(within('hook', 4, 6).length, 'head phrase A enters at bar four');
+  assert(!within('stab', 32, 36).length && within('stab', 36, 38).length, 'keys lay out at the second solo chorus, then return');
+  assert(!within('hook', 62, 64).length && !within('ch', 62, 64).length && !within('oh', 62, 64).length && !within('perc', 62, 64).length, 'hits break clears lead, hats and guitar');
+  for (const [bar, figure] of [[62, [0, 6, 10]], [63, [0, 3, 6, 12, 15]]]) {
+    for (const id of ['kick', 'snare', 'stab', 'acid']) {
+      assert.deepEqual([...new Set(within(id, bar, bar + 1).map((n) => step(n) % 16))], figure, `${id}: band break figure`);
+    }
+  }
+  const peak = within('hook', 60, 61);
+  assert.equal(peak.length, 1); assert(peak[0].m >= 76 && peak[0].m <= 80 && peak[0].dur >= 16 * sd, 'last solo chorus peaks within the recorded trumpet range on a held chord tone');
+  const early = within('hook', 16, 30), late = within('hook', 48, 60);
+  assert(late.length / 12 > early.length / 14 * 2, 'solo density builds by section-relative chorus');
+  for (const [name, from, to] of [['head', 4, 16], ['solos', 16, 64], ['head-out', 64, 80]]) {
+    const lead = within('hook', from, to), lengths = phrases(lead, sd);
+    assert(lengths.reduce((a, b) => a + b, 0) / lengths.length >= 1.5, `${name}: phrases average at least 1.5 bars`);
+    assert(lead.some((n) => step(n) % 16 >= 14 && n.dur > (16 - step(n) % 16) * sd), `${name}: anticipation sustains over the barline`);
+    assert(lead.some((n) => n.dur >= 16 * sd), `${name}: held cadence or peak`);
+  }
+  assert(notes.hook.every((n) => n.m >= 69 && n.m <= 80));
+  for (const id of ['kick', 'stab', 'acid', 'oh']) assert.deepEqual([...new Set(within(id, 79, 80).map((n) => step(n) % 16))], [0], `${id}: final unison downbeat`);
+  for (const id of ['hook', 'ch', 'snare', 'perc']) assert(!within(id, 79, 80).length, `${id}: no extra attacks after the final hit`);
+  const lastBass = within('acid', 79, 80)[0];
+  assert.equal(pc(lastBass.m - s.key), pc(s.patterns[7].prog[0].r), 'ending resolves to the opening tonic chord');
+  assert.deepEqual(record(s, 80), notes, 'full lead and arrangement are deterministic');
+  const short = structuredClone(s); short.chain = 'G'.repeat(10) + 'C'.repeat(32) + 'H'.repeat(16);
+  const moved = record(short, 58), movedKeys = moved.stab.filter((n) => n.t >= 0.05 + 26 * 16 * sd && n.t < 0.05 + 30 * 16 * sd);
+  assert.equal(movedKeys.length, 0, 'second-chorus lay-out follows the section, not absolute song bars');
+  const fill = moved.snare.filter((n) => Math.round((n.t - 0.05) / sd) >= 9 * 16 && Math.round((n.t - 0.05) / sd) < 10 * 16).map((n) => Math.round((n.t - 0.05) / sd) % 16);
+  assert([10, 13, 14, 15].every((i) => fill.includes(i)), 'off-cycle section boundary gets a transition fill');
+  const raw = (headOut) => Array.from({ length: 16 }, (_, bar) => funkNotes(seed, bar, jazzHarmony(s.patterns[6], bar), false, { headOut }));
+  assert.notDeepEqual(raw(false), raw(true), 'head-out ornaments and cadence vary the head');
+  const line = funkNotes(seed, 32, { r: 0, c: 16 }, true, { sectionBars: 64 });
+  assert(line.some(([at, , n], i) => at % 4 === 3 && line[i + 1]?.[0] === at + 1 && pc(line[i + 1][2] - n) === 1), 'later solo lines resolve chromatic approaches into chord tones');
+  assert.deepEqual(funkNotes(seed, 0, { r: 0, c: 16 }, true, { sectionBars: 0 }), [], 'empty solo section is silent');
+  for (const slot of [2, 6]) {
+    const preview = structuredClone(s); preview.chainOn = false; preview.current = slot;
+    const lead = record(preview, 4).hook;
+    assert(lead?.length && phrases(lead, sd).some((n) => n >= 1.5), 'unchained pattern previews keep complete lead phrases');
+  }
+}
+console.log('jazzfunk: rootless harmony, seeded interlock, guitar/row edits, pocket/stereo, long head motifs and cadences, section-shaped solos, intro/breaks/final hit, mutes and persistence passed');
