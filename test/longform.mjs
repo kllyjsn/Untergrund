@@ -93,10 +93,11 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
   const style = 'deephouse', stepDur = 0.125;
   for (const seed of [11, 42, 77, 1234, 2024]) for (const length of ['song', 'sketch']) {
     const s = buildSong(style, seed, length), sp = spans(songPlan(style, seed, length, s.bpm).sections);
-    const [intro, pre, verse, , , , chorus, turnaround] = s.patterns;
+    const [intro, pre, verse, fill, , , chorus, turnaround] = s.patterns;
     assert.notDeepEqual(chorus.prog, intro.prog);
     assert.notDeepEqual(chorus.prog, verse.prog);
     assert.deepEqual(chorus.prog, turnaround.prog);
+    assert.deepEqual(patternAt(fill, sp[0].bars - 1).prog, intro.prog, 'the intro fill establishes the tonic');
     const levels = [];
     const seq = new Sequencer({ playbackStyle: style, stepDur, sectionGain: (...args) => levels.push(args), breakOpen() {} }, s);
     const bars = Array.from(s.chain, (_, bar) => {

@@ -182,6 +182,7 @@ export function developSong(pats, S, { keep = [], strict = false, chorusBuilds =
   const spans = sectionSpans(S), last = kinds(S).lastIndexOf('c'), end = (s) => Math.min(s.at + s.bars, MAX_SONG_BARS) - 1;
   spans.forEach((s, i) => {
     if (s.at >= MAX_SONG_BARS) return;
+    if (chorusBuilds && s.k === 'i' && pats[0].prog) add(pats[3], end(s), end(s), { prog: clone(pats[0].prog) });
     // A 16-bar verse accumulates: its second half brings the new part in.
     if (s.k === 'v' && ++verses > 1) add(C, s.bars >= 16 ? s.at + (s.bars >> 1) : s.at, end(s), strict ? finalTake(C, 1) : verseTake(C, G));
     if (s.k === 'p' && chorusBuilds) {
