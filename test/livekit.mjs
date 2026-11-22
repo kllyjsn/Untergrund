@@ -27,3 +27,4 @@ const other = { ...ukg, artist: { style: 'reggaeton' } };
 assert.ok(!liveSets(other).includes('org') && !liveSets(other).includes('abass'), 'other styles keep the synth organ and Reese');
 assert.deepEqual(BAND_LAYER.rock.chorus.parts, ['org']);
 console.log('live kit samples + license manifest passed');
+await import('./roots.mjs');
