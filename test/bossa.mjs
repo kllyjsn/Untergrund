@@ -47,7 +47,8 @@ for (const seed of [1, 2, 3, 11, 42, 77, 1234]) {
     }
   }
   const record = (state, from = 0, bars = state.chain.length) => {
-    const e = new Recorder(state), seq = new Sequencer(e, state);
+    const grid = { ...state, feel: null };
+    const e = new Recorder(grid), seq = new Sequencer(e, grid);
     seq.chainPos = from;
     for (let i = from * 16; i < (from + bars) * 16; i++) seq.tick(i, 0.05 + i * e.stepDur);
     return e.notes;

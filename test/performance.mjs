@@ -53,4 +53,9 @@ assert.ok(!plain.log.some((x) => x.k === 'breath'), 'no breath without a feeling
 
 // Velocity range: a tender song plays softer than a euphoric one from the same written melody.
 assert.ok(hookVel(tender) < hookVel(euphoric) - 0.03, `tender ${hookVel(tender)} vs euphoric ${hookVel(euphoric)}`);
+for (const style of ['swing', 'modal', 'bossa']) {
+  const breathed = play(style, 42, 'longing'), grid = play(style, 42, null);
+  assert.ok(breathed.scale.some((x) => x !== 1), `${style} follows the feeling's tempo breath`);
+  assert.ok(grid.scale.every((x) => x === 1), `${style} without a feeling keeps its authored grid`);
+}
 console.log('performance: ok');
