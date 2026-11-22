@@ -133,7 +133,10 @@ export function peakDevices(s) {
     roots[w].push(...B.roots); pcs[w].push(...B.lead.map((o) => ((o.n % 12) + 12) % 12));
     if (B.entry) out[w].add('entry');
     if (B.lead.some((o, i) => o.app && B.lead[i + 1] && Math.abs(B.lead[i + 1].t - (o.t + o.d)) < 1e-6 && [1, 2].includes(o.n - B.lead[i + 1].n))) out[w].add('suspension');
-    if (!B.band && (B.lead.length || B.stab) && per[b + 1]?.band && per.some((q, j) => j !== b && where(j) === w && q.band)) out[w].add('dropout');
+    // One bar that keeps one element and loses the band (or the chords under a lone lead) both neighbours play;
+    // a gap in a sparse fill (a drumless chorus) is not a band.
+    const lost = (k, n = 1) => !B[k] && per[b - 1]?.[k] >= n && per[b + 1]?.[k] >= n;
+    if (!B.band && (B.lead.length || B.stab) && (lost('band', 4) || (B.lead.length && lost('stab')))) out[w].add('dropout');
   });
   const up = (x) => { const had = new Set(x.earlier), hit = (k) => x.final.filter((r) => had.has((r + k + 12) % 12)).length; return had.size && hit(-2) > hit(0); };
   if (roots.earlier.length ? up(roots) : up(pcs)) out.final.add('lift');
