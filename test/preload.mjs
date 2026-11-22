@@ -160,6 +160,34 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
       const hookRecorder = new Recorder(state);
       hookRecorder.hook(4, 0.6, 0, 1, voice);
       assert.equal(hookRecorder.notes.hook[0].dur, hits.at(-1)[5], 'MIDI and audio retain the same hook duration');
+      assert.equal(hookRecorder.notes.hook[0].m, vowelPitch(60 + (state.key > 6 ? state.key - 12 : state.key)), `${style}/${voice} still exports the folded vowel pitch`);
+    }
+  }
+  {
+    const saved = defaultState();
+    saved.artist = { style: 'ukg' }; saved.key = 0;
+    const pattern = saved.patterns[0], actual = [];
+    const audio = Object.assign(Object.create(Engine.prototype), {
+      state: saved, ctx, playingPattern: pattern, harm: null,
+      ch: { stab: { input: hookOut } }, hookBus: hookOut,
+      rec: () => [[60, {}]], bodyFor: (out) => out, slapFor: (out) => out,
+      recordedNote: (_set, t, _v, m, dur, _out, _tone, kind) => actual.push({ t, m, dur, kind }),
+    });
+    for (const role of ['fiddle', 'twang']) for (const voice of ['vocal', 'chop']) {
+      pattern.roots = { style: 'country', hook: role };
+      actual.length = 0;
+      const midi = new Recorder(saved); midi.playingPattern = pattern;
+      assert.equal(audio.playbackStyle, 'country');
+      assert.equal(midi.playbackStyle, audio.playbackStyle);
+      audio.hook(3, 0.6, 0, 0.5, voice, 1);
+      midi.hook(3, 0.6, 0, 0.5, voice, 1);
+      const track = role === 'fiddle' ? 'fiddle' : 'hook';
+      assert.equal(actual.length, 1);
+      assert.equal(actual[0].kind, role);
+      assert.equal(actual[0].m, 72, 'saved Country keeps its recorded register, not the UKG vowel octave');
+      assert.deepEqual(midi.notes[track].map(({ t, m, dur }) => ({ t, m, dur })), actual.map(({ t, m, dur }) => ({ t, m, dur })), `UKG replay of Country ${role}/${voice} exports the audio notes`);
+      if (role === 'fiddle') assert.equal(midi.notes.hook, undefined);
+      else assert.equal(midi.hookVoice, 'twang');
     }
   }
   const take = new AudioBuffer(1, 24000, 48000);

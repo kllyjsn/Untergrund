@@ -111,7 +111,7 @@ export class Recorder {
     }
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
     let pitch = 60 + k + oct * 12 + n;
-    if (vowelStyle(this.state.artist?.style) && !hasUserSample() && (voice === 'vocal' || (voice === 'chop' && !getChops()))) {
+    if (vowelStyle(this.playbackStyle) && !hasUserSample() && (voice === 'vocal' || (voice === 'chop' && !getChops()))) {
       this.add('hook', t, vowelPitch(pitch), vowelHookDuration(this.playbackStyle, dur), v);
       return;
     }
