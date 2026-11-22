@@ -4036,7 +4036,10 @@ export class Engine {
     const color = this.bassColor();
     const note = this.bassMidi(st), f = midiHz(note), subF = midiHz(this.bassMidi(st, 36, 38));
     // A chromatic approach note leads into the next bar and gets out of the way when the chord lands.
-    const len = st.ap ? sd * 0.9 : holdNext ? sd * 2 : sd * (0.9 + p.decay * 2);
+    let len = st.ap ? sd * 0.9 : holdNext ? sd * 2 : sd * (0.9 + p.decay * 2);
+    // A band's bassist holds each note into the next one (up to two beats) instead of stopping short.
+    if (this.stripMode && this.acidGap && !st.ap) len = Math.max(len, (this.acidGapSeconds ?? Math.min(8, this.acidGap) * sd) - 0.025);
+    this.acidGap = 0;
     if (Math.round(this.state.master.kit || 0) === 1 && this.state.artist?.style !== 'breaks') {
       const kit = this.rec('kit');
       if (kit) return this.sampledBass(kit, t, note, len, st.a);
