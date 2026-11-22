@@ -7,7 +7,7 @@ import { KIT_BACKBEAT, HAND_KIT, MARIMBA_STAB } from '../js/params.js';
 import { defaultState, generate, STYLES } from '../js/state.js';
 import { createPlayer } from '../js/player.js';
 import { OfflineAudioContext as FakeContext, AudioBuffer } from './offline-audio.mjs';
-import { VOWEL_BAND, VOWEL_TUNE, VOWEL_STYLES, vowelPitch, vowelVoxNote, vowelLoop, playVowel } from '../js/vowels.js';
+import { VOWEL_BAND, VOWEL_TUNE, VOWEL_STYLES, vowelPitch, vowelVoxNote, vowelLoop, vowelSustain, playVowel } from '../js/vowels.js';
 import { setFromArrayBuffer, useSynthVox } from '../js/sampler.js';
 import { setVoice, clearVoice } from '../js/voice.js';
 import { Recorder } from '../js/midi.js';
@@ -137,7 +137,7 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
       Engine.prototype.vox.call(e, 3, 0.7, step);
       const [buffer, , , bus, rate, duration, fx] = hits.at(-1);
       const [center, sample] = liveSet(note.name)[0];
-      assert.equal(buffer, sample); assert.equal(bus, out);
+      assert.equal(buffer, ['deephouse', 'euphoric', 'dnb'].includes(style) ? vowelSustain(sample, ctx) : sample); assert.equal(bus, out);
       assert.equal(center, 53 + VOWEL_TUNE[note.name][53] / 100);
       assert(Math.abs(12 * Math.log2(rate)) <= 6.001);
       assert.equal(recorder.notes.vox[0].m, note.midi, 'MIDI follows folded recorded pitch');
@@ -161,13 +161,13 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
     assert(data[i] <= 0 && data[i + 1] > 0, 'sustain loops at rising zero crossings');
   }
   let source;
-  const player = { rec: () => [[53, take]], playBuf: (...args) => {
+  const player = { ctx, rec: () => [[53, take]], playBuf: (...args) => {
     const played = Engine.prototype.playBuf.call({ ctx, gain: Engine.prototype.gain, filter: Engine.prototype.filter, startSource: Engine.prototype.startSource }, ...args);
     source = played.s;
     return played;
   } };
   playVowel(player, 0.1, 0.6, 60, 1, 'vox_ahh', ctx.destination, 4000, true);
-  assert(source.loop && source.loopStart === loopStart && source.loopEnd === loopEnd, 'real buffer source sustains the vowel');
+  assert(source.loop && source.loopStart === 0 && source.loopEnd === vowelSustain(take, ctx).duration, 'real buffer source sustains the processed periodic vowel');
   assert.equal(playVowel({ rec: () => [] }, 0, 1, 53, 1, 'vox_ahh', out), false, 'empty sets fall back');
   for (const kind of ['file', 'mic']) {
     globalThis.OfflineAudioContext = class { decodeAudioData() { return Promise.resolve(take); } };

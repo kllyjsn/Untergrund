@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -19,6 +20,13 @@ spec.loader.exec_module(vocals)
 
 
 class Vocals(unittest.TestCase):
+    def test_runtime_sustains_keep_pitch_and_quiet_wraps(self):
+        with tempfile.TemporaryDirectory() as directory:
+            subprocess.check_call(['node', 'test/vowel-loop.mjs', directory], cwd=ROOT)
+            for vowel in ['ahh', 'eh', 'ooh']:
+                pcm = np.fromfile(Path(directory) / f'vowel-sustain-{vowel}.f32', dtype='<f4')
+                self.assertLess(abs(vocals.pitch(pcm, 53)['cents']), 5, vowel)
+
     def test_pitch_and_octave_evidence(self):
         t = np.arange(round(.5 * vocals.SR)) / vocals.SR
         f0 = 440 * 2 ** ((53 - 69) / 12) * 2 ** (23 / 1200)

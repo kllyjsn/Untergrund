@@ -254,6 +254,11 @@ performance, not the keyboard sample in Freesound pack 34867.
 
 ## Recorded S8 crowd vowels — CC0
 
+Sustained playback derives a cached mono loop at runtime: a whole number of
+F3 periods, a 60 ms or longer raised-cosine overlap, and circular one-period RMS
+envelope flattening. Chops retain the unmodified FLAC. Bundled asset hashes
+and tuning provenance below refer to those unchanged source FLACs.
+
 Crowd sung near concert F at GameSoundCon2024, recorded by **ShangusBurger
 (Shane Vincent)**. All three originals are lossless **96 kHz / 24-bit stereo WAV**,
 released under [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/).
