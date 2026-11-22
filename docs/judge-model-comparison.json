@@ -1,0 +1,529 @@
+{
+  "generated": "2026-11-19T07:13:01.915Z",
+  "requests": 407,
+  "reportedCost": 3.3944970999999984,
+  "conservativeCharge": 3.6589750999999913,
+  "budget": 18,
+  "models": [
+    {
+      "model": "google/gemini-2.5-pro",
+      "requests": 18,
+      "cost": 0.34361749999999996,
+      "error": "Audio response unavailable or invalid after one retry",
+      "completedControls": 2,
+      "completedPackGenres": 0,
+      "screen": {
+        "flips": {
+          "n": 2,
+          "flips": 0,
+          "rate": 0
+        },
+        "controls": {
+          "falsePreferenceRate": 0,
+          "accuracy": 0
+        },
+        "mild": 0,
+        "severe": null,
+        "calibration": "uncalibrated"
+      },
+      "passes": false,
+      "genres": {
+        "trap": {
+          "flips": {
+            "n": 2,
+            "flips": 0,
+            "rate": 0
+          },
+          "controls": {
+            "falsePreferenceRate": 0,
+            "accuracy": 0
+          },
+          "mild": 0,
+          "severe": null,
+          "calibration": "uncalibrated"
+        },
+        "minimal": {
+          "flips": {
+            "n": 0,
+            "flips": 0,
+            "rate": null
+          },
+          "controls": {
+            "falsePreferenceRate": null,
+            "accuracy": null
+          },
+          "mild": null,
+          "severe": null,
+          "calibration": "uncalibrated"
+        },
+        "uk-drill": {
+          "flips": {
+            "n": 0,
+            "flips": 0,
+            "rate": null
+          },
+          "controls": {
+            "falsePreferenceRate": null,
+            "accuracy": null
+          },
+          "mild": null,
+          "severe": null,
+          "calibration": "uncalibrated"
+        },
+        "hard-techno": {
+          "flips": {
+            "n": 0,
+            "flips": 0,
+            "rate": null
+          },
+          "controls": {
+            "falsePreferenceRate": null,
+            "accuracy": null
+          },
+          "mild": null,
+          "severe": null,
+          "calibration": "uncalibrated"
+        }
+      }
+    },
+    {
+      "model": "google/gemini-3.1-pro-preview",
+      "requests": 111,
+      "cost": 1.658578,
+      "completedControls": 12,
+      "completedPackGenres": 4,
+      "screen": {
+        "flips": {
+          "n": 12,
+          "flips": 0,
+          "rate": 0
+        },
+        "controls": {
+          "falsePreferenceRate": 0,
+          "accuracy": 0.5
+        },
+        "mild": 0,
+        "severe": 1,
+        "calibration": "uncalibrated"
+      },
+      "human": {
+        "trapAbove": {
+          "hard-techno": true,
+          "uk-drill": true,
+          "minimal": false
+        },
+        "badAcceptable": {
+          "hard-techno": false,
+          "uk-drill": false,
+          "minimal": false
+        },
+        "badFalsePreference": {
+          "hard-techno": false,
+          "uk-drill": false,
+          "minimal": false
+        }
+      },
+      "passes": false,
+      "genres": {
+        "trap": {
+          "flips": {
+            "n": 3,
+            "flips": 0,
+            "rate": 0
+          },
+          "controls": {
+            "falsePreferenceRate": 0,
+            "accuracy": 0.5
+          },
+          "mild": 0,
+          "severe": 1,
+          "calibration": "uncalibrated"
+        },
+        "minimal": {
+          "flips": {
+            "n": 3,
+            "flips": 0,
+            "rate": 0
+          },
+          "controls": {
+            "falsePreferenceRate": 0,
+            "accuracy": 0.5
+          },
+          "mild": 0,
+          "severe": 1,
+          "calibration": "uncalibrated"
+        },
+        "uk-drill": {
+          "flips": {
+            "n": 3,
+            "flips": 0,
+            "rate": 0
+          },
+          "controls": {
+            "falsePreferenceRate": 0,
+            "accuracy": 0.5
+          },
+          "mild": 0,
+          "severe": 1,
+          "calibration": "uncalibrated"
+        },
+        "hard-techno": {
+          "flips": {
+            "n": 3,
+            "flips": 0,
+            "rate": 0
+          },
+          "controls": {
+            "falsePreferenceRate": 0,
+            "accuracy": 0.5
+          },
+          "mild": 0,
+          "severe": 1,
+          "calibration": "uncalibrated"
+        }
+      }
+    },
+    {
+      "model": "google/gemini-3.8-flash",
+      "requests": 101,
+      "cost": 0.38893950000000016,
+      "completedControls": 12,
+      "completedPackGenres": 4,
+      "screen": {
+        "flips": {
+          "n": 12,
+          "flips": 3,
+          "rate": 0.25
+        },
+        "controls": {
+          "falsePreferenceRate": 0,
+          "accuracy": 0.125
+        },
+        "mild": 0,
+        "severe": 0.25,
+        "calibration": "uncalibrated"
+      },
+      "human": {
+        "trapAbove": {
+          "uk-drill": false,
+          "hard-techno": true,
+          "minimal": false
+        },
+        "badAcceptable": {
+          "uk-drill": true,
+          "hard-techno": true,
+          "minimal": true
+        },
+        "badFalsePreference": {
+          "uk-drill": false,
+          "hard-techno": false,
+          "minimal": false
+        }
+      },
+      "passes": false,
+      "genres": {
+        "trap": {
+          "flips": {
+            "n": 3,
+            "flips": 1,
+            "rate": 0.3333333333333333
+          },
+          "controls": {
+            "falsePreferenceRate": 0,
+            "accuracy": 0
+          },
+          "mild": 0,
+          "severe": 0,
+          "calibration": "uncalibrated"
+        },
+        "minimal": {
+          "flips": {
+            "n": 3,
+            "flips": 1,
+            "rate": 0.3333333333333333
+          },
+          "controls": {
+            "falsePreferenceRate": 0,
+            "accuracy": 0
+          },
+          "mild": 0,
+          "severe": 0,
+          "calibration": "uncalibrated"
+        },
+        "uk-drill": {
+          "flips": {
+            "n": 3,
+            "flips": 0,
+            "rate": 0
+          },
+          "controls": {
+            "falsePreferenceRate": 0,
+            "accuracy": 0.5
+          },
+          "mild": 0,
+          "severe": 1,
+          "calibration": "uncalibrated"
+        },
+        "hard-techno": {
+          "flips": {
+            "n": 3,
+            "flips": 1,
+            "rate": 0.3333333333333333
+          },
+          "controls": {
+            "falsePreferenceRate": 0,
+            "accuracy": 0
+          },
+          "mild": 0,
+          "severe": 0,
+          "calibration": "uncalibrated"
+        }
+      }
+    },
+    {
+      "model": "google/gemini-4-hydrogen",
+      "requests": 68,
+      "cost": 0.8707095,
+      "error": "Audio response unavailable or invalid after one retry",
+      "completedControls": 8,
+      "completedPackGenres": 0,
+      "screen": {
+        "flips": {
+          "n": 8,
+          "flips": 1,
+          "rate": 0.125
+        },
+        "controls": {
+          "falsePreferenceRate": 0,
+          "accuracy": 0.4
+        },
+        "mild": 0,
+        "severe": 0.6666666666666666,
+        "calibration": "uncalibrated"
+      },
+      "passes": false,
+      "genres": {
+        "trap": {
+          "flips": {
+            "n": 3,
+            "flips": 0,
+            "rate": 0
+          },
+          "controls": {
+            "falsePreferenceRate": 0,
+            "accuracy": 0.5
+          },
+          "mild": 0,
+          "severe": 1,
+          "calibration": "uncalibrated"
+        },
+        "minimal": {
+          "flips": {
+            "n": 3,
+            "flips": 1,
+            "rate": 0.3333333333333333
+          },
+          "controls": {
+            "falsePreferenceRate": 0,
+            "accuracy": 0
+          },
+          "mild": 0,
+          "severe": 0,
+          "calibration": "uncalibrated"
+        },
+        "uk-drill": {
+          "flips": {
+            "n": 2,
+            "flips": 0,
+            "rate": 0
+          },
+          "controls": {
+            "falsePreferenceRate": 0,
+            "accuracy": 1
+          },
+          "mild": null,
+          "severe": 1,
+          "calibration": "calibrated"
+        },
+        "hard-techno": {
+          "flips": {
+            "n": 0,
+            "flips": 0,
+            "rate": null
+          },
+          "controls": {
+            "falsePreferenceRate": null,
+            "accuracy": null
+          },
+          "mild": null,
+          "severe": null,
+          "calibration": "uncalibrated"
+        }
+      }
+    },
+    {
+      "model": "openai/gpt-audio-mini",
+      "requests": 2,
+      "cost": 0,
+      "error": "OpenRouter HTTP 400",
+      "completedControls": 0,
+      "completedPackGenres": 0,
+      "passes": false,
+      "genres": {
+        "trap": {
+          "flips": {
+            "n": 0,
+            "flips": 0,
+            "rate": null
+          },
+          "controls": {
+            "falsePreferenceRate": null,
+            "accuracy": null
+          },
+          "mild": null,
+          "severe": null,
+          "calibration": "uncalibrated"
+        },
+        "minimal": {
+          "flips": {
+            "n": 0,
+            "flips": 0,
+            "rate": null
+          },
+          "controls": {
+            "falsePreferenceRate": null,
+            "accuracy": null
+          },
+          "mild": null,
+          "severe": null,
+          "calibration": "uncalibrated"
+        },
+        "uk-drill": {
+          "flips": {
+            "n": 0,
+            "flips": 0,
+            "rate": null
+          },
+          "controls": {
+            "falsePreferenceRate": null,
+            "accuracy": null
+          },
+          "mild": null,
+          "severe": null,
+          "calibration": "uncalibrated"
+        },
+        "hard-techno": {
+          "flips": {
+            "n": 0,
+            "flips": 0,
+            "rate": null
+          },
+          "controls": {
+            "falsePreferenceRate": null,
+            "accuracy": null
+          },
+          "mild": null,
+          "severe": null,
+          "calibration": "uncalibrated"
+        }
+      }
+    },
+    {
+      "model": "qwen/qwen3.8-omni-flash",
+      "requests": 107,
+      "cost": 0.13265259999999998,
+      "completedControls": 12,
+      "completedPackGenres": 4,
+      "screen": {
+        "flips": {
+          "n": 12,
+          "flips": 1,
+          "rate": 0.08333333333333333
+        },
+        "controls": {
+          "falsePreferenceRate": 0,
+          "accuracy": 0.125
+        },
+        "mild": 0,
+        "severe": 0.25,
+        "calibration": "uncalibrated"
+      },
+      "human": {
+        "trapAbove": {
+          "uk-drill": false,
+          "hard-techno": false,
+          "minimal": false
+        },
+        "badAcceptable": {
+          "uk-drill": true,
+          "hard-techno": true,
+          "minimal": true
+        },
+        "badFalsePreference": {
+          "uk-drill": false,
+          "hard-techno": false,
+          "minimal": false
+        }
+      },
+      "passes": false,
+      "genres": {
+        "trap": {
+          "flips": {
+            "n": 3,
+            "flips": 1,
+            "rate": 0.3333333333333333
+          },
+          "controls": {
+            "falsePreferenceRate": 0,
+            "accuracy": 0
+          },
+          "mild": 0,
+          "severe": 0,
+          "calibration": "uncalibrated"
+        },
+        "minimal": {
+          "flips": {
+            "n": 3,
+            "flips": 0,
+            "rate": 0
+          },
+          "controls": {
+            "falsePreferenceRate": 0,
+            "accuracy": 0
+          },
+          "mild": 0,
+          "severe": 0,
+          "calibration": "uncalibrated"
+        },
+        "uk-drill": {
+          "flips": {
+            "n": 3,
+            "flips": 0,
+            "rate": 0
+          },
+          "controls": {
+            "falsePreferenceRate": 0,
+            "accuracy": 0.5
+          },
+          "mild": 0,
+          "severe": 1,
+          "calibration": "uncalibrated"
+        },
+        "hard-techno": {
+          "flips": {
+            "n": 3,
+            "flips": 0,
+            "rate": 0
+          },
+          "controls": {
+            "falsePreferenceRate": 0,
+            "accuracy": 0
+          },
+          "mild": 0,
+          "severe": 0,
+          "calibration": "uncalibrated"
+        }
+      }
+    }
+  ]
+}

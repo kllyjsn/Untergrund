@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { defaultState, generate, songChain, sanitize, STYLES } from '../js/state.js';
+import { defaultState, freshSong, generate, songChain, sanitize, STYLES } from '../js/state.js';
+import { KIT_BACKBEAT } from '../js/params.js';
+import { patternAt } from '../js/scope.js';
 import { encodeSong, decodeSong, readShareParams, songLink, remixState, creditLine, embedCode, normalizeSong, newShareRef, SHARE_REF } from '../js/share-code.js';
 import { peakWindow } from '../js/video.js';
 import { handleCrate, handleRemix, memoryStore } from '../api/_lib/crate.js';
@@ -20,6 +22,17 @@ for (const style of Object.keys(STYLES)) {
   assert.equal(back.style, style);
   assert.deepEqual(back.state, sanitize(state), `${style} state round-trips`);
   assert.deepEqual(sanitize(back.state), back.state, 'decoded state is already sanitized');
+}
+
+{
+  const state = freshSong('drill', 211);
+  const fill = state.chain.indexOf('CDG') + 1;
+  assert(fill > 0);
+  const back = await decodeSong(await encodeSong({ state }));
+  assert.equal(back.state.master.kit, KIT_BACKBEAT, 'a shared Drill song keeps its recorded snare');
+  const bass = patternAt(back.state.patterns[3], fill).steps.acid;
+  assert.equal(bass[14].v, 0.71, 'a shared Drill song keeps the softer first pickup hit');
+  assert.equal(bass[15].v, undefined, 'the second hit keeps its original velocity');
 }
 
 // Hash links and short ids parse too; junk never throws.

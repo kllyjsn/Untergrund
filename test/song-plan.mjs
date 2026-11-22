@@ -240,6 +240,27 @@ t('promptGenre: the genre a prompt names, whatever is playing', () => {
   assert.equal(promptGenre('A sunrise drive song'), null);
   for (const style of ['folk', 'neosoul', 'breaks', 'deephouse']) assert.equal(rulePlan('sad indie song about leaving LA, 90 bpm', '', { style }).style, 'folk');
 });
+t('hip-hop song prompts keep their specific genre in the song-plan hint', () => {
+  for (const [prompt, style] of [
+    ['lo-fi hip-hop track for studying', 'lofihiphop'],
+    ['G Funk track with a chilled groove', 'gfunk'],
+    ['old-school electro track from a drum machine', 'electrohiphop'],
+  ]) {
+    assert.equal(promptGenre(prompt), style, prompt);
+    assert.equal(rulePlan(prompt, '', { style: 'trap' }).style, style, prompt);
+  }
+});
+t('the genre named before the song noun wins over an influence', () => {
+  for (const [prompt, style] of [
+    ['a deep house song with a G-funk bassline', 'deephouse'],
+    ['a pop track featuring drum and bass percussion', 'pop'],
+    ['a G Funk song inspired by deep house', 'gfunk'],
+    ['a lo-fi beat with a G-funk bassline', 'lofihiphop'],
+  ]) {
+    assert.equal(promptGenre(prompt), style, prompt);
+    assert.equal(rulePlan(prompt, '', { style: 'trap' }).style, style, prompt);
+  }
+});
 t('sanitize: projects without lyrics are unchanged', () => {
   const s = songFor('deephouse');
   const back = sanitize(JSON.parse(JSON.stringify(s)));

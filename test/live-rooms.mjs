@@ -106,9 +106,9 @@ for (const q of [{ t: song.id, room: 'quiet-room' }, { t: song.id, room: '../x' 
   assert.equal(tag(page.body, 'og:image'), `${site}/api/page?og=${song.id}&amp;v=2`, JSON.stringify(q));
   assert.doesNotMatch(page.body, /Join the live room/);
 }
-const other = normalizeTrack({ title: 'Something Else', artist: 'Mira', style: 'acid', state: { ...defaultState(), bpm: 99 } });
+const other = normalizeTrack({ title: song.title, artist: 'Mira', style: 'acid', state: { ...defaultState(), bpm: 99 } });
 await crate.add(other);
-assert.doesNotMatch((await handlePage({ t: other.id, room: 'live-room' }, { site, og, crate, rooms })).body, /og_room/, 'only the song on stage gets the room');
+assert.doesNotMatch((await handlePage({ t: other.id, room: 'live-room' }, { site, og, crate, rooms })).body, /og_room/, 'a matching title alone does not get the room');
 assert.equal((await handlePage({ og_room: 'live-room', t: other.id }, { site, og, crate, rooms })).location, `${site}/api/page?og=${other.id}&v=2`);
 assert.equal((await handlePage({ og_room: 'quiet-room', t: song.id }, { site, og, crate, rooms })).location, `${site}/api/page?og=${song.id}&v=2`);
 

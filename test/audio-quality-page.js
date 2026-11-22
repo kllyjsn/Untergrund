@@ -1,6 +1,6 @@
 // Loaded inside headless Chrome by scripts/audio-benchmark.mjs: builds a song the way NEW SET does, renders it with
 // the real offline engine and measures the master output and the pre-master stems (js/audio-quality.js).
-import { defaultState, generate, applyOverrides, arrangement, applySongPlan, clone, STYLES } from '/js/state.js';
+import { defaultState, generate, applyOverrides, arrangement, applySongPlan, clone, STYLES, MAJOR_STYLES } from '/js/state.js';
 import { Engine, Sequencer, parseChain, scoreKinds } from '/js/engine.js';
 import { compose } from '/js/classical.js';
 import { loadPiece } from '/js/repertoire.js';
@@ -10,13 +10,15 @@ import { router, stemList } from '/js/stems.js';
 import { encodeWav } from '/js/dsp.js';
 import { targetFor } from '/js/loudness.js';
 import { analyzeMix, analyzeStems, targetBalance } from '/js/audio-quality.js';
+import { analyzePerceptual } from '/js/perceptual-audio.js';
 
 const START = 0.05, LETTERS = 'ABCDEFGH';
+const NON_INSTRUMENTS = new Set(['kick', 'snare', 'clap', 'ch', 'oh', 'ride', 'perc', 'timp', 'fx', 'vox', 'sung']);
 
 // js/main.js planSet(): a generated song with its ending, at its own tempo, with the style's make-up gain.
 export function song(style, seed) {
   const s = defaultState();
-  s.scale = style === 'euphoric' ? 'major' : 'minor';
+  s.scale = style === 'euphoric' || MAJOR_STYLES.has(style) ? 'major' : 'minor';
   const g = generate(style, seed, s.scale);
   s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   s.key = g.key;
@@ -114,13 +116,33 @@ async function master(s, fromBar, toBar, tail, taps = true) {
 
 // Pre-master stems of a window (js/stems.js routing), with each part's onsets inside it.
 async function stems(s, p, fromBar, toBar) {
-  const ids = stemList(s, p.bars), r = router(ids), t0 = p.barTimes[fromBar], t1 = p.barTimes[toBar];
+  const ids = stemList(s, p.bars), r = router(ids), t0 = p.barTimes[fromBar], t1 = p.barTimes[toBar], kicks = [];
+  // Timing humanization can put a kick on the other side of a window boundary.
+  const onEngine = (e) => {
+    r.onEngine(e);
+    const trigger = e.trigger;
+    e.trigger = (id, t, ...args) => {
+      if (id === 'kick') kicks.push(t);
+      return trigger.call(e, id, t, ...args);
+    };
+  };
   let buf;
-  try { buf = await render({ ...clone(s), solos: {} }, fromBar, toBar, { channels: ids.length * 2, tail: 1, onContext: r.onContext, onEngine: r.onEngine }); } finally { r.restore(); }
+  try { buf = await render({ ...clone(s), solos: {} }, fromBar, toBar, { channels: ids.length * 2, tail: 1, onContext: r.onContext, onEngine }); } finally { r.restore(); }
   const at = (t) => START + t - t0, inWin = (n) => n.t >= t0 && n.t < t1;
-  const list = ids.map((id, k) => ({ id, left: buf.getChannelData(2 * k), right: buf.getChannelData(2 * k + 1), notes: id === 'fx' ? null : (p.c.notes[id] || []).filter(inWin).length }));
-  const onsets = Object.fromEntries(ids.map((id) => [id, (p.c.notes[id] || []).filter(inWin).map((n) => at(n.t))]));
-  return analyzeStems(list, buf.sampleRate, { kicks: onsets.kick || [], onsets });
+  const onsets = Object.fromEntries(ids.map((id) => [id, id === 'kick' ? kicks : (p.c.notes[id] || []).filter(inWin).map((n) => at(n.t))]));
+  const list = ids.map((id, k) => ({ id, left: buf.getChannelData(2 * k), right: buf.getChannelData(2 * k + 1), notes: id === 'fx' ? null : onsets[id].length }));
+  const result = analyzeStems(list, buf.sampleRate, { kicks: onsets.kick || [], onsets }), window = perceptualWindow(p, fromBar, toBar, buf.sampleRate);
+  for (const [k, row] of result.stems.entries()) {
+    const { id, left, right } = list[k];
+    row.perceptual = window(left, right, !NON_INSTRUMENTS.has(id));
+  }
+  return result;
+}
+
+function perceptualWindow(p, from, to, fs) {
+  const start = Math.round(START * fs), end = start + Math.round((p.barTimes[to] - p.barTimes[from]) * fs);
+  const boundaries = p.sections.slice(1).filter(({ from: b }) => b > from && b < to).map(({ from: b }) => p.barTimes[b] - p.barTimes[from]);
+  return (L, R, instrument = true) => analyzePerceptual(L.subarray(start, end), R.subarray(start, end), fs, { boundaries, instrument });
 }
 
 // tier 'deep': the whole song (+ 8 s tail) and an 8-bar stem window. tier 'fast': the 2 densest bars (master + stems)
@@ -131,10 +153,12 @@ export async function measure(style, seed, { tier = 'fast' } = {}) {
   if (tier === 'deep') {
     const m = await master(s, 0, p.bars, 8), { buf, ch } = m;
     out.mix = analyzeMix(ch[0], ch[1], buf.sampleRate, { barTimes: p.barTimes.map((t) => t + START), sections: p.sections, finalHit: p.finalHit + START, songEnd: p.barTimes.at(-1) + START, target, lim: ch.slice(2, 6), clip: m.clip, sat: m.sat, makeupDb: m.makeupDb, barNotes: p.barNotes });
+    out.perceptual = perceptualWindow(p, 0, p.bars, buf.sampleRate)(ch[0], ch[1]);
   } else {
     let t = performance.now();
     const a = await master(s, win[0], win[1], 1);
     out.mix = analyzeMix(a.ch[0], a.ch[1], a.buf.sampleRate, { target, lim: a.ch.slice(2, 6), clip: a.clip, sat: a.sat, makeupDb: a.makeupDb, crestTimes: p.barTimes.slice(win[0], win[1] + 1).map((t) => t - p.barTimes[win[0]] + START) });
+    out.perceptual = perceptualWindow(p, win[0], win[1], a.buf.sampleRate)(a.ch[0], a.ch[1]);
     const e0 = Math.max(0, Math.min(p.bars - 2, p.finalBar - 1)), b = await master(s, e0, p.bars, 6, false), o = START - p.barTimes[e0];
     const endMix = analyzeMix(b.ch[0], b.ch[1], b.buf.sampleRate, { finalHit: p.finalHit + o, songEnd: p.barTimes.at(-1) + o, target, refLufs: out.mix.loudness.integrated });
     out.mix.ending = endMix.ending;
@@ -153,9 +177,10 @@ export async function measure(style, seed, { tier = 'fast' } = {}) {
 }
 
 // A listening excerpt (master only) as base64 WAV: kind 'peak' = densest bars, 'ending' = last bars and the ring-out.
-export async function excerpt(style, seed, { kind = 'peak', bars = 8 } = {}) {
+export async function excerpt(style, seed, { kind = 'peak', bars = 8, solo = null, from = null } = {}) {
   const s = await ready(song(style, seed)), p = plan(s, bars);
-  const [a, b, tail] = kind === 'ending' ? [Math.max(0, Math.min(p.bars - 2, p.finalBar - 2)), p.bars, 8] : [p.peakBar, Math.min(p.bars, p.peakBar + bars), 0.5];
+  if (solo) s.solos = { [solo]: true };
+  const [a, b, tail] = from != null ? [from, Math.min(p.bars, from + bars), 0.5] : kind === 'ending' ? [Math.max(0, Math.min(p.bars - 2, p.finalBar - 2)), p.bars, 8] : [p.peakBar, Math.min(p.bars, p.peakBar + bars), 0.5];
   const buf = await render(s, a, b, { tail });
   const bytes = new Uint8Array(await encodeWav([buf.getChannelData(0), buf.getChannelData(1)], buf.sampleRate).arrayBuffer());
   let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));

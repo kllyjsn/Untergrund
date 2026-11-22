@@ -1,0 +1,74 @@
+import assert from 'node:assert/strict';
+import { timbreFeatures, rankTimbres, ROLES, MAX_CI_WIDTH } from '../js/timbre-metrics.js';
+
+const fs = 12000, notes = [0.1, 0.8, 1.5].map((t) => ({ t, dur: 0.3 }));
+function signal(hz, attack = 0.015, tail = 0.025) {
+  const x = new Float32Array(fs * 3);
+  for (const { t, dur } of notes) for (let i = Math.floor(t * fs); i < Math.min(x.length, (t + dur + tail * 5) * fs); i++) {
+    const s = i / fs - t, a = s < dur ? Math.min(1, s / attack) : Math.exp(-(s - dur) / tail);
+    x[i] += Math.sin(2 * Math.PI * hz * i / fs) * a;
+  }
+  return x;
+}
+const a = timbreFeatures([signal(220)], fs, notes), same = timbreFeatures([signal(220)], fs, notes), b = timbreFeatures([signal(3500, 0.15, 0.09)], fs, notes);
+assert.equal(a.status, 'MEASURED'); assert.equal(b.status, 'MEASURED');
+assert.deepEqual(a.vector, same.vector);
+assert.ok(b.centroid > a.centroid * 5); assert.ok(b.envelope[0] > a.envelope[0]);
+const absent = timbreFeatures([new Float32Array(fs)], fs, notes);
+assert.equal(absent.status, 'ABSENT');
+assert.equal(timbreFeatures([], fs).status, 'UNMEASURED');
+assert.equal(timbreFeatures([Float32Array.of(NaN)], fs).status, 'UNMEASURED');
+const censored = timbreFeatures([signal(220)], fs, []);
+assert.equal(censored.status, 'MEASURED');
+assert.equal(censored.envelopeStatus, 'UNMEASURED');
+assert.equal(censored.envelopeVector, null);
+assert.ok(censored.vector.every(Number.isFinite));
+const overlappingNotes = [{ t: 0.05, dur: 1.9 }, ...notes];
+const contaminated = timbreFeatures([signal(220)], fs, overlappingNotes);
+assert.equal(contaminated.envelopes, 0);
+assert.equal(contaminated.envelopeStatus, 'UNMEASURED');
+assert.equal(contaminated.status, 'MEASURED');
+const rowsFor = (styles, get) => styles.flatMap((style) => [1, 2, 3, 4, 5, 6].map((seed) => ({ style, seed, roles: Object.fromEntries(Object.keys(ROLES).map((r) => [r, get(style, r, seed)])) })));
+const rows = rowsFor(['a', 'identical', 'different'], (style) => style === 'different' ? b : a);
+const report = rankTimbres(rows);
+const identical = report.pairs.find((p) => p.a === 'a' && p.b === 'identical');
+const distinct = report.pairs.find((p) => p.a === 'a' && p.b === 'different');
+assert.equal(identical.status, 'MEASURED');
+assert.equal(identical.similarity, 1); assert.deepEqual(identical.ci, [1, 1]);
+assert.equal(identical.roles.chords.withinDistance[0], 0);
+assert.equal(distinct.status, 'MEASURED'); assert.ok(distinct.similarity < identical.similarity);
+assert.deepEqual(rankTimbres(rows), report);
+
+const pairFor = (get, options) => rankTimbres(rowsFor(['a', 'b'], get), options).pairs[0];
+const twoShared = (style, role) => ['chords', 'lead'].includes(role) ? a : absent;
+const skipped = pairFor(twoShared);
+assert.equal(skipped.status, 'MEASURED'); assert.equal(skipped.similarity, 1);
+assert.equal(skipped.roles.pad.status, 'SKIPPED');
+const oneSided = pairFor((style, role) => role === 'bass' && style === 'a' ? a : twoShared(style, role));
+assert.equal(oneSided.roles.bass.similarity, 0);
+assert.deepEqual(oneSided.roles.bass.ci, [0, 0]);
+assert.equal(oneSided.similarity, 2 / 3);
+const drumsOnly = pairFor((style, role) => role === 'drums' ? a : absent);
+assert.equal(drumsOnly.status, 'UNMEASURED'); assert.equal(drumsOnly.similarity, null);
+assert.match(drumsOnly.reason, /fewer than two/);
+const oneMelody = pairFor((style, role) => ['drums', 'bass'].includes(role) ? a : absent);
+assert.equal(oneMelody.status, 'UNMEASURED');
+const intermittent = pairFor((style, role, seed) => role === 'lead' || role === 'bass' && seed === 1 ? a : absent, { maxCIWidth: 1 });
+assert.equal(intermittent.status, 'MEASURED');
+assert.equal(intermittent.roles.bass.shared, true);
+const drumDifference = pairFor((style, role) => role === 'drums' && style === 'a' ? a : twoShared(style, role));
+assert.equal(drumDifference.similarity, 6 / 7);
+assert.equal(drumDifference.melodic.similarity, 1);
+assert.ok(['chords', 'lead'].includes(drumDifference.drivingRole));
+const spectralOnly = pairFor((style, role) => role === 'pad' ? absent : censored);
+assert.equal(spectralOnly.status, 'MEASURED'); assert.equal(spectralOnly.similarity, 1);
+assert.equal(spectralOnly.roles.lead.envelopePairs, 0);
+const invalid = pairFor(() => ({ status: 'UNMEASURED', vector: null }));
+assert.equal(invalid.status, 'UNMEASURED'); assert.equal(invalid.roles.chords.similarity, null);
+const wide = pairFor((style, role, seed) => role === 'drums' ? absent : style === 'a' && seed % 2 ? b : a, { maxCIWidth: 0.01 });
+assert.equal(wide.status, 'UNMEASURED'); assert.match(wide.roles.lead.reason, /CI too wide/);
+assert.ok(wide.roles.lead.ci[1] - wide.roles.lead.ci[0] > 0.01);
+assert.equal(MAX_CI_WIDTH, 0.25);
+assert.deepEqual(rankTimbres([]), { pairs: [], melodicRanking: [], nearest: [] });
+assert.throws(() => rankTimbres(rows, { bootstrap: 0 }), /bootstrap/);
+console.log('timbre: identical/distinct spectra and envelopes, spectral-only coverage, absent/shared/one-sided roles, melodic weighting, seed-bootstrap CIs, wide-CI rejection and invalid/empty inputs passed');

@@ -1,0 +1,16 @@
+{
+  "version": "real-stem-vocal-timing-v1",
+  "about": "Music's real neural sung stems for the Club vocal timing eval (docs/vocal-timing-eval.md). Audio is private and never committed; these hashes pin the exact reviewed files.",
+  "stems": {
+    "ukg": { "file": "ukg-vocal.wav", "sha256": "a2132f1758df73fbc600066741607b93e520613233dac0eac7407c0f7914751d", "format": "48 kHz mono PCM16", "seed": 1329387711 },
+    "euphoric": { "file": "euphoric-vocal.wav", "sha256": "f1fba05bc1eac33fa25a28bb4279ac86c1b606dc6feb242fd0f28a8a34990857", "format": "48 kHz mono PCM16", "seed": 1320111611 },
+    "stress": { "file": "stress-source.wav", "sha256": "e76ad1875d381963c37f59a664b7432fb6eb75dd85a4532fabfe7d7c189d8530", "format": "48 kHz mono float32", "note": "22 s looped Euphoric stress input from the PR 301 review" }
+  },
+  "model": "spybyscript/scyllasband@de0d1d9dd9ddb23ba8c7cd8b3ec6ea842f250868, LiteRT CPU, voice gwen, dry singer output",
+  "cases": {
+    "ukg": { "stem": "ukg", "offsetS": 13.5 },
+    "euphoric": { "stem": "euphoric", "offsetS": 44.5 },
+    "stress": { "stem": "stress", "offsetS": 0 }
+  },
+  "render": { "bpm": 123, "rubato": [2048, 16, [], 1], "residuals": [0, 0.028, -0.028], "t0": 1, "lengthS": 22, "leadS": 0.4 }
+}
