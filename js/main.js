@@ -2472,6 +2472,8 @@ function reviseRoomHits(track, pattern) {
 
 function toggleTrackFlag(key, id) {
   state[key][id] = !state[key][id];
+  // A mute or solo is the listener's own mix, so the song stops following the generator and keeps it.
+  if (key !== 'locks') state.fresh = 0;
   if (key === 'mutes') reviseRoomHits(id);
   if (key === 'solos') reviseRoomHits();
   renderAllRows(); persist();
