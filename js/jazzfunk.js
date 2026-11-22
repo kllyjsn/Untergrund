@@ -13,6 +13,46 @@ export const FUNK_GUITAR = [1, 3, 5, 7, 9, 11, 13, 15];
 const pc = (n) => (n % 12 + 12) % 12;
 const near = (notes, n) => notes.reduce((a, b) => Math.abs(b - n) < Math.abs(a - n) ? b : a);
 const choose = (r, xs) => xs[Math.floor(r() * xs.length)];
+const headPhrases = new Map();
+
+function funkHead(seed, rhythm, tones, passing, top, shape, variation) {
+  const id = JSON.stringify([seed, rhythm.map(([at]) => at), tones, passing, top, shape, variation]);
+  if (headPhrases.has(id)) return headPhrases.get(id);
+  const cells = [[5, 2, 4, 1, 5, 1], [4, 1, 3, 0, 4, 2], [2, 5, 3, 1, 4, 1], [5, 3, 0, 2, 4, 1], [3, 0, 4, 1, 3, 1], [4, 2, 5, 1, 4, 2]];
+  const cell = cells[shape], count = rhythm.length, paths = [];
+  for (const width of [64, 256]) {
+    for (let leap = Math.ceil(count / 2); leap <= count - 3; leap++) {
+      let beam = [{ notes: [], cost: 0 }];
+      for (let i = 0; i < count; i++) {
+        const target = i < leap ? top - 8 + cell[i % cell.length] : top - 2 * (i - leap);
+        const pool = (i === 0 || rhythm[i][0] % 4 === 0 ? tones : passing).filter((m) => m <= top);
+        const next = [];
+        for (const path of beam) for (const n of pool) {
+          const prev = path.notes.at(-1), d = n - prev;
+          if (i && (i === leap ? d < 5 || d > 9 : Math.abs(d) < 1 || Math.abs(d) > 4)) continue;
+          if (i > leap && i <= leap + 2 && (d > -1 || d < -3)) continue;
+          if (i < leap && n > top - 2) continue;
+          if (i === leap && Math.min(...path.notes, n) > n - 7) continue;
+          next.push({ notes: [...path.notes, n], cost: path.cost + (n - target) ** 2 });
+        }
+        beam = next.sort((a, b) => a.cost - b.cost).slice(0, width);
+      }
+      for (const path of beam) {
+        const intervals = path.notes.slice(1).map((n, i) => Math.abs(n - path.notes[i])).sort((a, b) => a - b);
+        const mid = (intervals[(intervals.length - 1) >> 1] + intervals[intervals.length >> 1]) / 2;
+        if (mid >= 2 && mid <= 3 && intervals[intervals.length >> 1] <= 3) paths.push(path);
+      }
+    }
+    if (paths.length) break;
+  }
+  if (!paths.length) throw new Error(`Jazz-Funk head has no playable phrase: ${id}`);
+  const ranked = paths.sort((a, b) => a.cost - b.cost), opening = ranked[0].notes;
+  const endings = ranked.filter((p) => p.notes.slice(0, 4).every((n, i) => n === opening[i]) && p.notes.some((n, i) => i >= 4 && n !== opening[i]));
+  const notes = variation && endings.length ? endings[(variation - 1) % endings.length].notes : opening;
+  if (headPhrases.size >= 256) headPhrases.delete(headPhrases.keys().next().value);
+  headPhrases.set(id, notes);
+  return notes;
+}
 
 export function funkGroove(seed, bar, solo = false) {
   const r = rng(seed ^ Math.imul(Math.floor(bar / 2) + 1, 0x45d9f3b));
@@ -65,17 +105,22 @@ export function funkNotes(seed, bar, h, solo = false, { headOut = false, section
     [[0, 6], [6, 1], [7, 1], [8, 4], [12, 2], [14, 8], [22, 4], [26, 3]],
     [[2, 2], [4, 4], [8, 2], [10, 1], [11, 1], [12, 3], [15, 5], [20, 4], [24, 7]],
   ];
-  const plan = rng(Math.imul(seed ^ 0x735a2d97, 0x85ebca6b));
-  const theme = Math.floor(plan() * motifs.length), answer = 1 + Math.floor(plan() * 3);
+  let mixed = Math.imul(seed ^ seed >>> 16, 0x7feb352d);
+  mixed = Math.imul(mixed ^ mixed >>> 15, 0x846ca68b);
+  const plan = rng(mixed ^ mixed >>> 16 ^ 0x735a2d97);
+  const theme = Math.floor(plan() * motifs.length * 4), answer = 1 + Math.floor(plan() * 3);
   const contrast = Math.floor(plan() * 3), cadence = plan() < 0.5;
   const crest = [22, 24, 26][Math.floor(plan() * 3)];
-  const motif = motifs[theme];
+  const shape = Math.floor(plan() * 6), motif = motifs[theme % motifs.length].map((n) => [...n]);
+  if (theme & 8) motif[0][0] += motif[0][0] ? -1 : 1;
+  if (theme & 16) motif.at(-1)[0]--;
   let rhythm = motif.map((n) => [...n]), peak = false;
   if (pair % 2 || phase >= 4 && phase < 8) {
     const at = rhythm.length - 2;
     if (answer === 1) rhythm[at][0]++;
     else if (answer === 2) rhythm[at][0]--;
-    else rhythm.splice(at, 1);
+    else rhythm[at][0] = Math.ceil((rhythm[at - 1][0] + rhythm[at][0]) / 2);
+    rhythm[at][0] = Math.max(rhythm[at - 1][0] + 1, Math.min(rhythm[at + 1][0] - 1, rhythm[at][0]));
   }
   if (solo) {
     const peakBar = sectionBars - 4;
@@ -104,6 +149,8 @@ export function funkNotes(seed, bar, h, solo = false, { headOut = false, section
   const register = Array.from({ length: 12 }, (_, i) => 69 + i);
   const tones = register.filter((m) => iv.some((n) => pc(m - key - h.r) === pc(n)));
   const passing = register.filter((m) => mode.includes(pc(m - key - h.r)));
+  const colors = register.filter((m) => tones.includes(m) || mode.includes(pc(m - key - h.r)) && [0, 2, 7, 9, iv.includes(3) ? 5 : 6, ...(h.c === 15 ? [1, 3, 8] : [])].includes(pc(m - key - h.r)));
+  const head = solo ? null : funkHead(seed, phase < 8 ? motif : rhythm, colors, passing, headOut && phase >= 8 && phase < 12 ? 80 : 78, shape, (phase >= 4 && phase < 8 ? 1 : 0) + (headOut ? 2 : 0));
   const lift = solo ? Math.min(2, chorus) * 0.5 : phase >= 8 && phase < 12 ? headOut ? 3 : 1 : 0;
   const top = headOut && phase >= 8 && phase < 12 ? 80 : 78;
   const home = (solo ? 69 : 71) + lift + (pair % 2 ? 3 : 0), apex = pair % 2 ? 14 : crest;
@@ -124,6 +171,7 @@ export function funkNotes(seed, bar, h, solo = false, { headOut = false, section
       const blue = register.filter((m) => m <= top && pc(m - key - h.r) === (iv.includes(3) ? 6 : 3) && Math.abs(m - n) <= 2);
       if (blue.length) n = near(blue, n);
     }
+    if (head) n = head[index];
     previous = n;
     if (!peak && (solo || phase < 12 || index < rhythm.length - 1)) {
       const end = rhythm[index + 1]?.[0] ?? 32 + motif[0][0] - (pair % 2 ? 4 : 2);

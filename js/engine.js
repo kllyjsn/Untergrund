@@ -5593,11 +5593,14 @@ export class Sequencer {
             if (high != null) m = high;
           }
           const last = this.funkLead;
-          if (last && abs > last.step && t - last.end < 2 * sd && Math.abs(m - last.pitch) > 5) {
+          const connected = last && abs > last.step && t - last.end < 2 * sd;
+          let leaps = connected ? last.leaps : 0;
+          if (connected && Math.abs(m - last.pitch) > 5 && (solo || Math.abs(m - last.pitch) > 9 || leaps)) {
             const tones = Array.from({ length: 12 }, (_, j) => 69 + j).filter((p) => Math.abs(p - last.pitch) <= 5 && CHORDS[e.harm.c].iv.some((x) => (p - s.key - e.harm.r - x) % 12 === 0));
             if (tones.length) m = tones.reduce((a, b) => Math.abs(b - m) < Math.abs(a - m) ? b : a);
           }
-          this.funkLead = { step: abs, end: t + swingDuration(s, abs, dur, sd) * 0.92, pitch: m };
+          if (connected && Math.abs(m - last.pitch) > 5) leaps++;
+          this.funkLead = { step: abs, end: t + swingDuration(s, abs, dur, sd) * 0.92, pitch: m, leaps };
           n = m - 60 - k;
         }
         e.hook(t, v, n, swingDuration(s, abs, dur, sd), pat.hook.v, pat.hook.o, false, 0.7, false, pat.hook.x);

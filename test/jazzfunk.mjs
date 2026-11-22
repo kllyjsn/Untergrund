@@ -268,10 +268,22 @@ for (const seed of [42, 77, 12345, 0, 1, 314159, 271828, 1e9]) {
       assert(intervals.at(-1) <= 9, `${seed}/${slot}: no octave-fold jumps inside a head phrase`);
       assert(intervals[Math.floor(intervals.length / 2)] <= 3, `${seed}/${slot}: head intervals are mostly steps and thirds`);
       assert(intervals.filter((n) => n > 5).length <= 1, `${seed}/${slot}: at most one larger leap per phrase`);
+      assert(intervals.filter((n) => n === 0).length / intervals.length <= 0.25, `${seed}/${slot}: repeated notes do not flatten the phrase`);
+      assert(pitches.every((n, i) => i < 2 || n !== pitches[i - 1] || n !== pitches[i - 2]), `${seed}/${slot}: no repeated-note triples`);
+      assert(Math.max(...pitches) - Math.min(...pitches) >= 7, `${seed}/${slot}: each head phrase spans at least a fifth`);
+      assert(intervals.at(-1) >= 5, `${seed}/${slot}: each head phrase has a purposeful fourth-to-sixth leap`);
+      assert(pitches.some((n, i) => i > 0 && n - pitches[i - 1] >= 5 && n - pitches[i - 1] <= 9 && n - pitches[i + 1] >= 1 && n - pitches[i + 1] <= 3 && pitches[i + 1] - pitches[i + 2] >= 1 && pitches[i + 1] - pitches[i + 2] <= 3), `${seed}/${slot}: the leap resolves through two descending steps`);
+      const median = (intervals[(intervals.length - 1) >> 1] + intervals[intervals.length >> 1]) / 2;
+      assert(median >= 2 && median <= 3, `${seed}/${slot}: the median head interval is two to three semitones`);
     }
   }
   const a = funkNotes(seed, 0, { r: 0, c: 16 }), variant = funkNotes(seed, 4, { r: 0, c: 16 });
   assert.deepEqual(a.slice(0, 4).map((n) => n.slice(0, 3)), variant.slice(0, 4).map((n) => n.slice(0, 3)), 'A-prime restates the opening rhythm and contour before varying its ending');
 }
+{
+  const heads = [42, 77, 12345, 0, 1, 314159, 271828, 1e9].map((seed) => [0, 1].flatMap((bar) => funkNotes(seed, bar, { r: 0, c: 16 }).map(([at, , n]) => [at + bar * 16, n])));
+  assert(new Set(heads.map((ns) => JSON.stringify(ns.map(([at]) => at)))).size >= 6, 'at least six distinct opening head onset plans');
+  assert(new Set(heads.map((ns) => JSON.stringify(ns.slice(1).map(([, n], i) => n - ns[i][1])))).size >= 6, 'head contours differ by more than transposition');
+}
 assert.deepEqual(compositionRegressions(runComposition(['jazzfunk']), JSON.parse(readFileSync(new URL('./composition-baseline.json', import.meta.url)))), [], 'Jazz-Funk development meets the unchanged composition scorecard');
-console.log('jazzfunk: rootless harmony, seeded interlock, guitar/row edits, pocket/stereo, long head motifs and cadences, section-shaped solos, intro/breaks/final hit, mutes, persistence and seeded head diversity passed');
+console.log('jazzfunk: rootless harmony, seeded interlock, guitar/row edits, pocket/stereo, long motifs, leap/recovery heads, repeat/run/range limits, section-shaped solos, intro/breaks/final hit, mutes, persistence and seeded rhythm/contour diversity passed');
