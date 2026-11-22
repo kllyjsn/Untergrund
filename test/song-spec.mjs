@@ -139,6 +139,33 @@ t('jazz specs retain requested sections, instruments, harmony, contour and textu
   assert.equal(songState(spec, 42).state.chain.length, spec.sections.reduce((n, s) => n + s.bars, 0));
 });
 
+t('jazz prompts pin a supplied mode but leave omitted modes to the feeling', () => {
+  for (const name of ['swing jazz', 'bossa', 'modal jazz', 'jazz funk']) {
+    const spec = localSpec(`write a ${name} track`);
+    assert.equal(spec.scale, null);
+    assert.equal(validateSpec(JSON.parse(JSON.stringify(spec))).scale, null);
+    const changes = new Set();
+    for (let i = 1; i <= 24; i++) {
+      const seed = Math.imul(i, 0x9e3779b1) >>> 0;
+      const { state } = songState(spec, seed);
+      const g = generate(spec.style, seed, 'minor', { feel: state.feel });
+      assert.equal(state.scale, g.scale);
+      assert.deepEqual(state.patterns[2].prog, g.pattern.prog);
+      changes.add(JSON.stringify(state.patterns[2].prog));
+    }
+    assert(changes.size > 1, `${name} does not pin one progression`);
+  }
+  for (const mode of ['major', 'minor']) {
+    const spec = localSpec(`write a swing jazz track in C ${mode}`);
+    assert.equal(spec.scale, mode);
+    for (const seed of [7, 42, 77]) {
+      const { state } = songState(spec, seed);
+      assert.equal(state.scale, mode);
+      assert.equal(state.patterns[2].prog[0].c === 20, mode === 'minor');
+    }
+  }
+});
+
 t('named hip-hop genres keep their palettes in prompt-built songs', () => {
   for (const [prompt, style, voice] of [
     ['lo-fi hip-hop for studying', 'lofihiphop', 'tapekeys'],

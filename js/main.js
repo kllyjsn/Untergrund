@@ -2186,7 +2186,7 @@ function describeBox() {
         const next = songState(spec, s.artist.seed, s).state;
         // Written lyrics sing their title: the song takes it too.
         const out = lyrics ? fitLyrics({ ...next, lyrics, artist: lyrics.title ? { ...next.artist, title: lyrics.title } : next.artist }, spec.style) : next;
-        done(out.artist.title, out.key);
+        done(out.artist.title, out.key, out.scale);
         return out;
       });
       play();

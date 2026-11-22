@@ -27,6 +27,7 @@ const clamp = (v, lo, hi, d) => (Number.isFinite(+v) ? Math.max(lo, Math.min(hi,
 const cleanText = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f<>{}\[\]`\\]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 const hashStr = (s) => { let x = 2166136261; for (const c of String(s)) x = Math.imul(x ^ c.charCodeAt(0), 16777619); return x >>> 0; };
 export const specSeed = (spec, salt = 0) => hashStr(JSON.stringify(spec) + salt) % 1e9;
+const defaultSpecScale = (style) => style === 'euphoric' || MAJOR_STYLES.has(style) ? 'major' : 'minor';
 
 // ---------------- chords ----------------
 // Roman numerals over the song's scale: case gives the quality, "b"/"#" are relative to the major scale
@@ -77,7 +78,7 @@ export function validateSpec(raw, { style: fallbackStyle = 'deephouse', prompt =
   if (feel) spec.feel = feel;
   spec.bpm = Math.round(clamp(src.bpm, Math.max(60, lo - 20), Math.min(200, hi + 20), Math.round((lo + hi) / 2)));
   const scale = String(src.scale || '').toLowerCase();
-  spec.scale = SCALES[scale] ? scale : { aeolian: 'minor', ionian: 'major', 'harmonic minor': 'harmonic' }[scale] || (style === 'euphoric' || MAJOR_STYLES.has(style) ? 'major' : 'minor');
+  spec.scale = Object.hasOwn(SCALES, scale) ? scale : { aeolian: 'minor', ionian: 'major', 'harmonic minor': 'harmonic' }[scale] || (isJazz(style) ? null : defaultSpecScale(style));
   const k = typeof src.key === 'string' ? KEYS.indexOf(src.key.trim().toUpperCase().replace('♯', '#').replace(/^([A-G])B$/, (_, n) => KEYS[(KEYS.indexOf(n) + 11) % 12])) : src.key != null && src.key !== '' && Number.isFinite(+src.key) ? Math.round(+src.key) : -1;
   spec.key = k >= 0 && k <= 11 ? k : null;
   const hk = src.hook && typeof src.hook === 'object' ? src.hook : {};
@@ -183,10 +184,13 @@ function voice(p, parts, full, energy, role, peak) {
 // spec -> { state fields }: patterns, chain, tempo, key and the title, all from fixed seeds.
 export function realize(raw, seed = 1, opts = {}) {
   const spec = raw?.v === 1 && Array.isArray(raw.sections) ? raw : validateSpec(raw, opts);
-  const { style, scale } = spec;
+  const { style } = spec;
   const feel = spec.feel || pickFeel(style, STYLES[style].family, seed);
   const authored = spec.hook?.contour?.length || spec.sections.some((section) => section.chords?.length);
-  const g = generate(style, seed, scale, { feel: authored ? null : feel, keepScale: true });
+  const baseScale = spec.scale ?? defaultSpecScale(style);
+  const useGeneratedScale = isJazz(style) && !authored && spec.scale == null;
+  const g = generate(style, seed, baseScale, { feel: authored ? null : feel, keepScale: !useGeneratedScale });
+  const scale = useGeneratedScale ? g.scale : baseScale;
   const full = g.pattern;
   if (spec.hook && full.hook) {
     full.hook = contourHook(full.hook, spec.hook.contour, scale);
@@ -335,9 +339,9 @@ export function localSpec(text, { style: current = 'deephouse', seed, genre, bpm
   if (/\b(?:extended|long|epic|journey|dj\s+mix|club\s+mix)\b/.test(t) && !/\blong\s+intro\b/.test(t)) for (const s of sections) if (s.role === 'drop') s.bars = Math.min(32, s.bars + 8);
   if (M) for (const s of sections) s.chords = M[s.role] || (s.role === 'build' ? M.verse.slice(0, 2) : s.role === 'intro' ? M.verse : []);
   // Major moods only move the scale when the words didn't already pick one.
-  const scale = scaleEdit?.value || M?.scale || (style === 'euphoric' || MAJOR_STYLES.has(style) ? 'major' : 'minor');
+  const scale = scaleEdit?.value || M?.scale;
   // A minor-mode progression in a major song reads its numerals in the major scale; keep moods coherent.
-  if (M && !M.scale && scale === 'major') for (const s of sections) s.chords = [];
+  if (M && !M.scale && (scale ?? defaultSpecScale(style)) === 'major') for (const s of sections) s.chords = [];
   const texture = edits.filter((e) => TEXTURE.includes(e.id) && !e.target && e.amt).map(({ src: _s, ...e }) => e);
   const spec = {
     title: titleFrom(raw), style,
