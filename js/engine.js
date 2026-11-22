@@ -815,17 +815,19 @@ export class Engine {
       if (carve) carve.gain.value = 0;
       level.connect(carve || pan);
       if (carve) carve.connect(pan);
-      pan.connect(DUCKED.has(t.id) ? this.duck : this.mix);
-      pan.connect(rev).connect(this.revIn);
-      if (t.id !== 'vox') pan.connect(this.roomIn);
-      pan.connect(dly).connect(this.dlyIn);
-      pan.connect(this.throwBus);
       const ch = { input, level, pan, rev, dly, sc, strip, post, carve };
       if (t.id === 'stab') {
         ch.band = this.gain(1);
         ch.band.connect(input);
         ch.band.connect(this.bandIn);
+        this.wireOrganFill(ch);
       }
+      const out = ch.out || pan;
+      out.connect(DUCKED.has(t.id) ? this.duck : this.mix);
+      out.connect(rev).connect(this.revIn);
+      if (t.id !== 'vox') out.connect(this.roomIn);
+      out.connect(dly).connect(this.dlyIn);
+      out.connect(this.throwBus);
       if (t.id === 'kick') {
         ch.rumble = this.gain(0);
         level.connect(ch.rumble).connect(this.rumbleIn);
@@ -834,6 +836,31 @@ export class Engine {
     }
     this.windDuck = this.gain(1);
     this.windDuck.connect(this.ch.stab.input);
+  }
+
+  wireOrganFill(ch) {
+    // Keep the mono fill's pan law independent of the other voices on CHORDS.
+    const twins = (this.fillControls = new WeakMap());
+    const copyFilter = f => {
+      const n = this.filter(f.type, f.frequency.value, f.Q.value);
+      n.gain.value = f.gain.value;
+      for (const p of ['frequency', 'Q', 'gain']) twins.set(f[p], n[p]);
+      return n;
+    };
+    const level = this.gain(ch.level.gain.value), pan = this.ctx.createStereoPanner();
+    pan.channelCount = 1; pan.channelCountMode = 'explicit';
+    pan.pan.value = ch.pan.pan.value;
+    twins.set(ch.level.gain, level.gain); twins.set(ch.pan.pan, pan.pan);
+    ch.fill = this.gain(1);
+    ch.out = this.gain(1);
+    [ch.fill, ...ch.strip.map(copyFilter), level, copyFilter(ch.carve), pan, ch.out].reduce((a, n) => a.connect(n));
+    ch.pan.connect(ch.out);
+  }
+
+  chordParam(param, apply) {
+    apply(param);
+    const twin = this.fillControls?.get(param);
+    if (twin) apply(twin);
   }
 
   buildAcid() {
@@ -1045,9 +1072,10 @@ export class Engine {
     this.stripMode = mode;
     for (const id of TRACK_IDS) {
       const ch = this.ch[id], S = (mode && (mode === 'SOUL' ? SOUL_STRIP : BAND_STRIP)[id]) || null;
+      const mirror = (p, v) => this.chordParam(p, param => set(param, v));
       ch.strip.forEach((f, k) => {
         const b = S?.eq?.[k];
-        if (b) { set(f.frequency, b[0]); set(f.gain, b[1]); if (b[2]) set(f.Q, b[2]); } else set(f.gain, 0);
+        if (b) { mirror(f.frequency, b[0]); mirror(f.gain, b[1]); if (b[2]) mirror(f.Q, b[2]); } else mirror(f.gain, 0);
       });
     }
     if (!mode && this.smoothOn) this.smoothChords(this.smoothOn, at);
@@ -1063,8 +1091,10 @@ export class Engine {
     const [shelf, mid, bell] = this.ch.stab.strip, t = Math.max(at, this.ctx.currentTime);
     const { rev, dly, level } = this.ch.stab, ps = this.state.params.stab, up = db > 0 ? 10 ** (db / 20) : 1, wet = db > 0 ? 1.6 : 1;
     for (const [prm, v] of [[shelf.frequency, db < 0 ? 400 : 120], [shelf.gain, Math.min(db, 0)], [bell.frequency, 2500], [bell.Q, 2.5], [bell.gain, db > 0 ? -20 : db ? -10 : 0], [mid.frequency, db ? 2950 : 300], [mid.Q, db ? 3 : 1], [mid.gain, db ? -8 : 0], [level.gain, ps.level * up], [rev.gain, ps.rev * wet], [dly.gain, ps.dly * wet]]) {
-      prm.cancelScheduledValues(t);
-      prm.setTargetAtTime(v, t, 0.12);
+      this.chordParam(prm, param => {
+        param.cancelScheduledValues(t);
+        param.setTargetAtTime(v, t, 0.12);
+      });
     }
   }
 
@@ -1083,15 +1113,17 @@ export class Engine {
       const trim = tid === 'ch' && this.playbackStyle === 'euphoric' ? 10 ** (-1 / 20) : 1;
       const gain = v * trim * (tid === 'stab' && this.smoothOn > 0 ? 10 ** (this.smoothOn / 20) : 1), fade = this.hardFade;
       if (tid === 'stab' && this.dubPadBus) this.setTo(this.dubPadBus.gain, this.state.artist?.style === 'dub' ? gain : 0, immediate);
-      if (this.jamAt == null || !this.hardTechno || this.hardFadeAt == null) return this.setTo(ch.level.gain, gain, immediate);
+      if (this.jamAt == null || !this.hardTechno || this.hardFadeAt == null) return this.chordParam(ch.level.gain, p => this.setTo(p, gain, immediate));
       // A Jam level edit rides Hard Techno's section fade at its boundary, wherever a clock re-anchor put that boundary.
       const from = fade.from[tid] ?? 1, to = fade.to[tid] ?? 1;
       const k = Math.min(1, Math.max(0, (this.jamAt - fade.t) / (this.hardFadeAt - fade.t)));
-      this.setTo(ch.level.gain, gain * (from + (to - from) * k), immediate);
-      if (k < 1) ch.level.gain.linearRampToValueAtTime(gain * to, this.hardFadeAt);
+      this.chordParam(ch.level.gain, p => {
+        this.setTo(p, gain * (from + (to - from) * k), immediate);
+        if (k < 1) p.linearRampToValueAtTime(gain * to, this.hardFadeAt);
+      });
       return;
     }
-    if (id === 'pan') return this.setTo(ch.pan.pan, v, immediate);
+    if (id === 'pan') return this.chordParam(ch.pan.pan, p => this.setTo(p, v, immediate));
     if (id === 'rev') return this.setTo(ch.rev.gain, v * (tid === 'stab' && this.smoothOn > 0 ? 1.6 : 1), immediate);
     if (id === 'dly') return this.setTo(ch.dly.gain, v * (tid === 'stab' && this.state.artist?.style === 'dub' ? 0 : tid === 'stab' && this.smoothOn > 0 ? 1.6 : 1), immediate);
     if (tid === 'kick' && id === 'rumble') return this.setTo(ch.rumble.gain, v * v, immediate);
@@ -3507,7 +3539,8 @@ export class Engine {
     if (this.hardTechno) return this.hardLead(t, v * 0.12, midiHz(60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + n), Math.max(0.12, p.decay), this.ch.stab.input);
     const vo = Math.round(p.voice), lead = vo > 1 ? STAB_VOICES[vo] : 'keys';
     const style = this.state.artist?.style;
-    const out = style === 'breaks' || style === 'reggaeton' ? this.chordTone(vo, this.ch.stab.input) : this.ch.stab.input;
+    const dest = (lead === 'organ' && !RECORDED_ORGAN.has(this.playbackStyle) && this.ch.stab.fill) || this.ch.stab.input;
+    const out = style === 'breaks' || style === 'reggaeton' ? this.chordTone(vo, dest) : dest;
     return this[lead](t, v, [n], 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot(), p, out);
   }
 
@@ -4995,8 +5028,8 @@ export class Engine {
     // hookCarve: the exported hook stem's copy of the CHORDS channel (js/stems.js).
     for (const carve of [this.ch.stab?.carve, this.hookCarve]) {
       if (!carve || !v.fx?.carve) continue;
-      carve.frequency.setValueAtTime(v.fx.carve.hz, t);
-      this.duckUnder(v.buf, carve.gain, -v.fx.carve.db, t, t - off, 0);
+      this.chordParam(carve.frequency, p => p.setValueAtTime(v.fx.carve.hz, t));
+      this.chordParam(carve.gain, p => this.duckUnder(v.buf, p, -v.fx.carve.db, t, t - off, 0));
     }
     return true;
   }
@@ -5051,9 +5084,11 @@ export class Engine {
     this.vocalNow = null;
     const carves = [this.ch.stab?.carve?.gain, this.hookCarve?.gain].filter(Boolean);
     for (const p of [this.bandDuck.gain, this.singTrim.gain, ...carves]) {
-      if (p.cancelAndHoldAtTime) p.cancelAndHoldAtTime(t); else p.cancelScheduledValues(t);
-      // A held curve's rounded endpoint can extend just past t.
-      p.setTargetAtTime(carves.includes(p) ? 0 : 1, t + 1 / this.ctx.sampleRate, 0.08);
+      this.chordParam(p, param => {
+        if (param.cancelAndHoldAtTime) param.cancelAndHoldAtTime(t); else param.cancelScheduledValues(t);
+        // A held curve's rounded endpoint can extend just past t.
+        param.setTargetAtTime(carves.includes(p) ? 0 : 1, t + 1 / this.ctx.sampleRate, 0.08);
+      });
     }
     for (const voice of voices) {
       if (voice.g.gain.cancelAndHoldAtTime) voice.g.gain.cancelAndHoldAtTime(t); else voice.g.gain.cancelScheduledValues(t);
