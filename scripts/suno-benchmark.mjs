@@ -101,7 +101,7 @@ function status(dir, manifest) {
   return missing;
 }
 
-async function renderAll(prompts, dir, { only, pages, wav }) {
+async function renderAll(prompts, dir, { only, pages, wav, seedOverride }) {
   const { withChrome } = await import('../test/chrome.mjs');
   const jobs = prompts.prompts.map((p) => ({ p, style: resolveStyle(p) })).filter((j) => j.style && (!only || only.includes(j.p.id)));
   mkdirSync(join(dir, 'untergrund'), { recursive: true }); mkdirSync(join(dir, 'suno'), { recursive: true });
@@ -112,7 +112,7 @@ async function renderAll(prompts, dir, { only, pages, wav }) {
     let next = 0;
     await Promise.all(runs.map(async (run) => {
       while (next < jobs.length) {
-        const { p, style } = jobs[next++], seed = p.seed ?? prompts.seed;
+        const { p, style } = jobs[next++], seed = seedOverride ?? p.seed ?? prompts.seed;
         const x = await run(`window.__s.full(${JSON.stringify(style)}, ${seed})`), parts = [];
         for (let at = 0; at < x.bytes; at += 4 << 20) parts.push(Buffer.from(await run(`window.__s.chunk(${at}, ${4 << 20})`), 'base64'));
         const wavFile = join(dir, 'untergrund', `${p.id}-untergrund.wav`), mp3 = join(dir, oursFile(p.id));
@@ -137,7 +137,9 @@ async function main() {
     let commit = null; try { commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim(); } catch {}
     const only = arg('only') ? arg('only').split(',') : null, t0 = Date.now();
     console.log(`rendering ${only ? only.join(', ') : 'every prompt'} at commit ${commit} into ${relative(process.cwd(), dir) || '.'}/untergrund/`);
-    const rendered = await renderAll(prompts, dir, { only, pages: +arg('pages', 3), wav: flag('wav') });
+    const seedOverride = arg('seed') === undefined ? undefined : Number(arg('seed'));
+    if (seedOverride !== undefined && (!Number.isInteger(seedOverride) || seedOverride < 0)) throw new Error('--seed must be a nonnegative integer');
+    const rendered = await renderAll(prompts, dir, { only, pages: +arg('pages', 3), wav: flag('wav'), seedOverride });
     const prev = readManifest();
     if (only && prev) for (const p of prev.pairs) if (!rendered[p.id]) rendered[p.id] = { style: p.style, seed: p.seed, songwriting: p.songwriting };
     const manifest = buildManifest(prompts, rendered, { commit });

@@ -8,7 +8,7 @@ export const MAX_EVENTS = 6000;
 export const MAX_SET_MS = 6 * 3600e3;
 export const MIN_SET_MS = 15000;
 // What a DJ performs with. `current` is the pattern on deck; replay queues it for the next bar.
-export const LIVE_KEYS = ['bpm', 'swing', 'key', 'scale', 'current', 'chainOn', 'chain', 'params', 'master', 'mutes', 'solos', 'orch', 'orchMute', 'patterns', 'feel'];
+export const LIVE_KEYS = ['bpm', 'swing', 'key', 'scale', 'current', 'chainOn', 'chain', 'chainEntries', 'params', 'master', 'mutes', 'solos', 'orch', 'orchMute', 'patterns', 'seed', 'feel'];
 
 const copy = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
@@ -17,6 +17,9 @@ const SEG = /^[A-Za-z0-9_-]{1,32}$/;
 export function liveView(state) {
   const out = {};
   for (const k of LIVE_KEYS) if (state?.[k] !== undefined) out[k] = state[k];
+  const seed = state?.artist?.seed ?? state?.seed;
+  if (Number.isFinite(seed)) out.seed = seed;
+  else delete out.seed;
   return copy(out);
 }
 
@@ -138,7 +141,7 @@ function dedupeOps(ops) {
   return ops.filter((op, i) => seen.get(JSON.stringify(op[0])) === i);
 }
 
-const okPath = (p) => Array.isArray(p) && p.length >= 1 && p.length <= 8 && (LIVE_KEYS.includes(p[0]) || (p[0] === 'style' && p.length === 1)) &&
+const okPath = (p) => Array.isArray(p) && p.length >= 1 && p.length <= 8 && ((LIVE_KEYS.includes(p[0]) && p[0] !== 'seed') || (['style', 'seed'].includes(p[0]) && p.length === 1)) &&
   p.every((s, i) => (i === 0 ? typeof s === 'string' : (typeof s === 'string' && SEG.test(s) && s !== '__proto__' && s !== 'constructor' && s !== 'prototype') || (Number.isInteger(s) && s >= 0 && s < 4096)));
 
 // Validates untrusted timelines (rooms + jukebox). Returns null when unusable.
@@ -147,13 +150,15 @@ export function normalizeTimeline(raw) {
   if (JSON.stringify(raw).length > MAX_TIMELINE_BYTES * 1.2) return null;
   const clean = (v, n) => String(v || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, n);
   const initial = liveView(sanitize({ ...raw.initial, patterns: Array.isArray(raw.initial.patterns) ? raw.initial.patterns : undefined }));
+  if (Number.isFinite(raw.initial.seed)) initial.seed = raw.initial.seed;
+  else delete initial.seed;
   const duration = Math.max(0, Math.min(MAX_SET_MS, Math.round(+raw.duration || 0)));
   const events = [];
   let prev = 0;
   for (const ev of Array.isArray(raw.events) ? raw.events.slice(0, MAX_EVENTS) : []) {
     const t = Math.round(+ev?.t);
     if (!Number.isFinite(t) || t <= prev - 1 || t > duration || !Array.isArray(ev.ops)) continue;
-    const ops = ev.ops.filter((op) => Array.isArray(op) && (op.length === 1 || op.length === 2) && okPath(op[0]) && (op[0][0] !== 'style' || STYLES[op[1]]));
+    const ops = ev.ops.filter((op) => Array.isArray(op) && (op.length === 1 || op.length === 2) && okPath(op[0]) && (op[0][0] !== 'style' || STYLES[op[1]]) && (op[0][0] !== 'seed' || op.length === 1 || Number.isFinite(op[1])));
     if (ops.length) { events.push({ t, ops: copy(ops) }); prev = t; }
   }
   return { v: TIMELINE_VERSION, style: STYLES[raw.style] ? raw.style : 'hypnotic', dj: clean(raw.dj, 28), room: clean(raw.room, 32), title: clean(raw.title, 80), initial, events, duration };

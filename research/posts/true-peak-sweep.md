@@ -1,0 +1,53 @@
+---
+title: Every genre, every seed, under −1 dBTP: a true-peak gate
+date: 2026-11-20
+summary: We now render {{v truePeak.songs}} whole songs across {{v truePeak.genres}} genres on every change and block any that peaks over −1 dBTP. The first sweep found {{v truePeak.over}} songs over the ceiling on main.
+card: THE TRUE-PEAK GATE
+---
+Every UNTERGRUND master ends in a limiter set to −1 dBTP, the ceiling streaming services ask for so a song survives lossy encoding and cheap DACs without clipping. A ceiling on the limiter is a promise, not a measurement: the limiter works on samples, and a waveform can swing higher between two samples than at either one. This week a festival TRAP song, seed 20, measured −0.93 dBTP during review, over the ceiling, and it reached a human listener before any check caught it. Our audio benchmark only renders three seeds per genre, and seed 20 was not one of them.
+
+So we built a gate. Every change to UNTERGRUND now renders {{v truePeak.songs}} complete songs, every one of our {{v truePeak.genres}} genres at seeds 11, 42 and 1234 plus whichever seeds it takes to reach every instrument ensemble a genre can pick, through the same audio graph the app plays through, and meters each one's 4×-oversampled true peak. If any song goes over −1 dBTP, the change is blocked. This post reports the first sweep. Only test files had changed, so the audio is main's sound at snapshot commit `{{v commit}}`.
+
+## What it found
+
+Two songs on main already cross the ceiling.
+
+- **TRAP, seed 20: {{v truePeak.styles.trap.seeds.20.tp|2}} dBTP.** Built the way the app's NEW SET builds a song, seed 20 peaks in its G section at bar {{v truePeak.worst.bar}}, {{v truePeak.worst.at|0}} seconds in. That is louder than the −0.93 dBTP seen in review, which rendered a shorter chain without the song plan. The overshoot is not new to the change under review; it is on main.
+- **EUPHORIC, seed 11: {{v truePeak.styles.euphoric.seeds.11.tp|2}} dBTP**, at bar 98 of 116.
+
+The gate records both as known breaches. They may not get louder, and once one is fixed the gate insists it is taken off the list, so the list can only shrink. Any other song that crosses the ceiling fails the build.
+
+**Update since the snapshot.** The festival TRAP ensembles ([#298](https://github.com/kllyjsn/Untergrund/pull/298)) merged into main while this post was being written. They reorder TRAP's ensembles, so seed 20 now renders a different song. Rendering TRAP again on the new main, at 7 seeds that cover all 6 ensembles plus seed 20, gave a worst peak of −1.12 dBTP, and seed 20 now measures −1.22 dBTP. TRAP is back under the ceiling and off the known list. EUPHORIC seed 11 is unchanged at −0.97 dBTP and is now the only known breach.
+
+**Update: a breach outside the sweep.** Music then measured rap TRAP seed 211 at −0.94 dBTP on main, and the gate renders it at the same −0.94 dBTP, peaking at bar 59 in its G section. Seed 211 picks the same ensemble as seed 11, which the sweep already renders at −1.15 dBTP, so covering every ensemble does not cover every hot song. The Trap fix in [#322](https://github.com/kllyjsn/Untergrund/pull/322) brought seed 211 down to −1.24 dBTP. Music also found EUPHORIC seed 2 at −0.88 dBTP. After the Euphoric fix in [#316](https://github.com/kllyjsn/Untergrund/pull/316) it measures −1.32 dBTP, and EUPHORIC seed 11 is under the ceiling too. TRAP seed 211 and EUPHORIC seeds 2 and 11 are now regression seeds: the sweep renders them on every change, so none of them can creep back over unseen. The known-breach list is empty.
+
+**Update: a nightly wide sweep.** To find the next out-of-sweep seed before Music does, a nightly job now renders 8 fresh seeds of every genre (272 songs), with new seeds each night. Its first trial run, 2 fresh seeds per genre (68 songs), found 3 songs over the ceiling: MINIMAL seeds 41654 and 41655 (both −0.94 dBTP at bar 107) and POP seed 41655 (−0.99 dBTP at bar 99). All three peak in an A section, which no breach before them did. They are now known breaches, so the per-PR gate renders them on every change. That is 3 of 68 fresh songs over the ceiling, against none of the 136 seeds the per-PR gate already sweeps, so the fixed sweep had been understating how often songs breach.
+
+**Update: the first full nightly.** Before it ran, the −12 LUFS mastering change in [#332](https://github.com/kllyjsn/Untergrund/pull/332) brought all three of those songs under the ceiling: MINIMAL 41654 and 41655 to −1.14 and −1.15 dBTP, POP 41655 to −1.36 dBTP. They are now regression seeds. The first full nightly then rendered 336 fresh songs across 42 genres and found one breach, R&B seed 166331 at −0.998 dBTP, peaking at bar 40 in a G section. R&B also had 4 of the next 5 hottest songs, all within 0.1 dB of the ceiling, so its headroom is the thinnest of any genre. Seed 166331 is now a known breach.
+
+{{chart sweep}}
+
+## Most songs live just under the ceiling
+
+The median song peaks at {{v truePeak.median|2}} dBTP, but {{v truePeak.within}} of the {{v truePeak.songs}} sit in the last half decibel under the ceiling. MINIMAL is the tightest genre: all four seeds land between −1.05 and −1.03 dBTP, at the same bar (84). POP, DRILL and HARD TECHNO are within 0.15 dB on their worst seed. The classical styles and REPERTOIRE have the most room, at −2.3 dBTP or lower.
+
+That cluster is what a limiter looks like from outside: it holds samples at its threshold, and the true peak overshoots by however much the waveform swings between them. Why TRAP and EUPHORIC overshoot by more than the rest is not measured yet; one untested guess is more high-frequency energy at the limiter in their hottest sections.
+
+For comparison, the deep audio benchmark's true peaks, from three seeds per genre:
+
+{{chart truepeak}}
+
+{{chart peakwhere}}
+
+Hot songs do not peak in one place. Of the 50 songs within half a decibel of the ceiling or over it, 28 peak in the back half of the song and 22 in the front half, 19 of those between 20% and 50% of the way in. A fix has to cover whole arrangements, not just the final chorus.
+
+## How the gate works
+
+- **Whole songs.** Each song is generated as NEW SET generates it, rendered offline from its first bar to an 8-second tail, and metered with the same 4×-oversampled true-peak meter our loudness calibration uses.
+- **Every ensemble.** Each genre picks its instruments from a list of ensembles by seed. The gate adds the smallest seeds that reach every ensemble, so a new or retuned instrument is always rendered.
+- **Sharded.** The full sweep took 36 minutes on 8 parallel renderers, so CI splits it across six machines, each rendering every sixth song in about 20 minutes.
+- **Repeatable.** Rendering six of the hottest songs a second time gave the same peaks to 0.001 dB, so a song just under the line does not flicker in and out of failing on the same machine.
+
+## What it can't tell us
+
+A song under −1 dBTP can still sound harsh, and a limiter working hard to stay there can make a genre sound squashed. True peak is a safety check, not a quality score. It also only covers the seeds we render: the gate is a sample of what NEW SET can make, chosen to reach every ensemble, not a proof about every seed.

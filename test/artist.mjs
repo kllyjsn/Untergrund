@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createArtistCatalog, defaultArtistProfile } from '../js/artist.js';
+import { createArtistCatalog, createArtistProject, defaultArtistProfile } from '../js/artist.js';
 import { defaultState, sanitize } from '../js/state.js';
 
 const unsafe = defaultState();
@@ -15,6 +15,9 @@ assert.equal(safe.params.acid.cutoff, 380);
 
 const profile = defaultArtistProfile();
 const catalog = createArtistCatalog(defaultState(), profile, 3, 123456, []);
+const tagged = defaultState();
+tagged.chainEntries = [...tagged.chain].map((p) => ({ p: p.charCodeAt(0) - 65, sec: 0 }));
+assert.equal('chainEntries' in createArtistProject(tagged, profile, 123456).state, false, 'new artist arrangements discard previous section identities');
 
 assert.equal(catalog.length, 3);
 assert.equal(new Set(catalog.map((x) => x.target)).size, 3);
