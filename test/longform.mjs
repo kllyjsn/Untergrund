@@ -7,6 +7,7 @@ import { STYLES, SONG_STYLES, songPlan, sanitize } from '../js/state.js';
 import { realize, validateSpec, localSpec } from '../js/song-spec.js';
 import { planSections, formChain, formSeconds, developSong, developFinalDrop, finalPeak, writePeak, LENGTHS, MAX_SONG_BARS } from '../js/longform.js';
 import { patternAt } from '../js/scope.js';
+import { Sequencer } from '../js/engine.js';
 import { isJazz } from '../js/jazz.js';
 import { buildSong, playSong, scoreSong, aggregateComposition, compositionRegressions, peakDevices, SEEDS, loopStyles, runComposition } from '../scripts/composition.mjs';
 import { FEELS } from '../js/feel.js';
@@ -89,6 +90,47 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
     assert(c.startsWith('AAAA') && c.endsWith('A') && c.includes('E') && drops.length >= 2, `${style} club form ${c}`);
   }
   console.log(`long-form section roles passed (${inst}/${n} songs with an instrumental)`);
+}
+
+{
+  const style = 'deephouse', stepDur = 0.125;
+  for (const seed of [11, 42, 77, 1234, 2024]) for (const length of ['song', 'sketch']) {
+    const s = buildSong(style, seed, length), sp = spans(songPlan(style, seed, length, s.bpm).sections);
+    const [intro, pre, verse, fill, , , chorus, turnaround] = s.patterns;
+    assert.notDeepEqual(chorus.prog, intro.prog);
+    assert.notDeepEqual(chorus.prog, verse.prog);
+    assert.deepEqual(chorus.prog, turnaround.prog);
+    assert.deepEqual(patternAt(fill, sp[0].bars - 1).prog, intro.prog, 'the intro fill establishes the tonic');
+    const levels = [];
+    const seq = new Sequencer({ playbackStyle: style, stepDur, sectionGain: (...args) => levels.push(args), breakOpen() {} }, s);
+    const bars = Array.from(s.chain, (_, bar) => {
+      seq.advanceBar(bar * 16, bar * 16 * stepDur);
+      return levels.at(-1);
+    });
+    const choruses = sp.filter(({ k }) => k === 'c');
+    const firstLevel = bars[choruses[0].at][1];
+    assert(firstLevel - bars[0][1] >= 4, 'the intro leaves space for the chorus');
+    if (length === 'song') assert(bars[choruses.at(-1).at][1] - firstLevel >= 1, 'save the biggest chorus for last');
+    for (const [i, { k, at }] of sp.entries()) {
+      if (k === 'v') assert(firstLevel - bars[at][1] >= 2.5, 'verses stay below the first chorus');
+      if (k !== 'c') continue;
+      const build = sp[i - 1];
+      assert(build.k === 'p' && build.bars === 4 || build.k === 'b' && at === choruses.at(-1).at);
+      const pickup = bars.slice(at - 4, at);
+      assert(pickup.every(([, db, ramp], j) => ramp && (!j || db > pickup[j - 1][1])));
+      assert(bars[at][1] - pickup.at(-1)[1] >= 1, 'the build leaves a jump into the chorus');
+      const hits = (bar) => patternAt(pre, bar).steps.perc.filter(Boolean).length;
+      if (build.k === 'p') assert(hits(build.at) < hits(at - 1), 'the build opens up its percussion');
+    }
+    const build = choruses[0].at - 1, [from, to] = [bars[build][2][0], bars[build][1]];
+    seq.startAt(build * 16 + 8, 1000);
+    const [time, db, [gain, duration]] = levels.at(-1);
+    assert.equal(time, 1000);
+    assert.equal(db, to);
+    assert.equal(duration, 8 * stepDur);
+    assert(Math.abs(10 ** (gain / 20) - (10 ** (from / 20) + 10 ** (to / 20)) / 2) < 1e-9);
+  }
+  console.log('Deep House chorus builds, harmony, energy and seek passed');
 }
 
 // P3 repetition with development: choruses keep the hook and chords, verse 2 and the last chorus add material,
