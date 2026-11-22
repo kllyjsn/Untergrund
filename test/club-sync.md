@@ -210,6 +210,23 @@ otherwise a final expected kick can be counted outside the actual capture.
 JSON includes exact missing fixture timestamps. Large gaps are retained.
 Entry latency reports first kick and first globally pattern-aligned kick.
 
+Replay's host fixture gate and the two cold-invite first-downbeat gates use
+rendered tap sample positions mapped with the scheduler `clockOffset` before
+that transport's first queued kick (subtracting injected clock skew). This mapping is held fixed,
+not refitted as Chrome's output clock moves. Replay uses destination RMS;
+cold invites retain the isolated kick tap. The 60ms fixture and 50ms downbeat
+limits are unchanged. Fixture matching is one-to-one: RMS onsets within ±250ms
+identify a displaced kick, but offsets over 60ms still fail; no counterpart is
+reported as absent. Cold downbeats similarly report aligned/displaced/absent.
+`chromeHostFixture` and `chromeFirstDownbeat` retain output-clock diagnostics;
+independent sink-capture deltas remain diagnostic. These tap gates measure what
+Club schedules and renders, not device output latency. The mapping is pinned
+immediately before the first queued kick; cold-device clock estimates can change
+before any note is queued. Diagnostics retain each changed estimate. Other gates
+are unchanged.
+Tests and saved-artifact reanalysis:
+`node test/club-sync-tap-test.mjs [test/out/club-sync.json ...]`.
+
 The period bounds the unambiguous range: whole steps, beats, bars and ±2000ms
 are resolved; multiples of the entire 7805ms fixture still alias. The harness
 does not claim arbitrary absolute song-position detection beyond ±3900ms.
