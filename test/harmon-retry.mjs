@@ -6,6 +6,7 @@ import { Engine, paletteFor } from '../js/engine.js';
 import { freshSong } from '../js/state.js';
 import { jazzStyle } from '../js/jazz.js';
 import { HARMON_BANKS, recordedJazzWind, windBanks } from '../js/jazz-winds.js';
+import { rootsFor, hasRootsLead } from '../js/roots.js';
 
 const originalFetch = globalThis.fetch, originalContext = globalThis.OfflineAudioContext, originalWarn = console.warn;
 const fetched = [], warnings = [];
@@ -41,7 +42,7 @@ try {
   const source = readFileSync(new URL('../js/hum-ui.js', import.meta.url), 'utf8');
   const panel = runInNewContext(source.match(/^const melodyHooks = .+;$/m)[0] + '\n' + source.slice(source.indexOf('export function melodyPanel'), source.indexOf('\nexport const humButton')).replace('export function', 'function') + '\nmelodyPanel', {
     h: (tag, attrs, ...children) => ({ tag, attrs, children: children.flat().filter(Boolean) }),
-    getChops: () => null, loadSets, windBanks, paletteFor, jazzStyle,
+    getChops: () => null, loadSets, windBanks, paletteFor, jazzStyle, rootsFor, hasRootsLead,
   });
   const api = { state: () => state, edit: () => assert.fail('a checked Harmon retry must not create an undo entry') };
   const nodes = (node) => typeof node === 'object' ? [node, ...node.children.flatMap(nodes)] : [];

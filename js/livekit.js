@@ -2,7 +2,7 @@ import { pocketOf } from './groove.js';
 import { HAND_KIT, MARIMBA_STAB, KIT_BACKBEAT } from './params.js';
 import { WIND_BANKS, WIND_TUNING } from './jazz-wind-data.js';
 import { windBanks } from './jazz-winds.js';
-import { ROOT_LAYERS, rootsFor } from './roots.js';
+import { ROOT_LAYERS, rootsFor, hasRootsLead } from './roots.js';
 // Recorded acoustic kit and upright bass for the live-kit genres (CC0, see samples/live/LICENSE.md).
 // Loads lazily; until the buffers arrive the engine keeps using the synthesized live voices.
 export const LIVE_KIT = {
@@ -195,7 +195,9 @@ export function liveSets(st) {
     if (roots?.chord === 'upright' && Math.round(st?.params?.stab?.voice) === 7) out.push('upright');
     if (roots?.hook === 'fiddle' || roots?.answer === 'fiddle') out.push('fiddle');
     if (roots?.hook === 'twang') out.push('gtr', 'gtrsoft');
-    const v = p?.hook?.v === 'reed' ? SAX_HOOK[roots?.style ?? st?.artist?.style] : p?.hook?.v, voice = Object.hasOwn(HOOK_BAND, v) && HOOK_BAND[v];
+    const v = p?.hook?.v === 'reed' ? SAX_HOOK[roots?.style ?? st?.artist?.style] : p?.hook?.v;
+    if (v === 'harmon' && hasRootsLead(roots)) continue;
+    const voice = Object.hasOwn(HOOK_BAND, v) && HOOK_BAND[v];
     const recorded = p?.jazz || v === 'harmon' ? windBanks(v, p?.jazz?.style) : [];
     if (recorded.length) out.push(...recorded);
     else if (voice) out.push(voice, ...(TAKES[voice] ? [TAKES[voice]] : []));

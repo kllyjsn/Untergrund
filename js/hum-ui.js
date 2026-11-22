@@ -12,6 +12,7 @@ import { loadSets } from './livekit.js';
 import { windBanks } from './jazz-winds.js';
 import { paletteFor } from './engine.js';
 import { jazzStyle } from './jazz.js';
+import { rootsFor, hasRootsLead } from './roots.js';
 
 const MAX_SEC = 8;
 const kk = (key) => (key > 6 ? key - 12 : key);
@@ -338,7 +339,7 @@ export function melodyPanel(api) {
   };
   const mine = hk?.v === 'chop';
   const style = s.artist?.style;
-  const harmon = style !== 'bailefunk' && style !== 'dub' && (jazzStyle(s) ?? style) !== 'minimal' && !paletteFor(s);
+  const harmon = style !== 'bailefunk' && style !== 'dub' && (jazzStyle(s) ?? style) !== 'minimal' && !paletteFor(s) && !s.patterns.some((p) => hasRootsLead(rootsFor(s, p)));
   const sound = { harpplk: 'HARP', oboe: 'OBOE', airflute: 'FLUTE' }[hk?.v] || 'SYNTH';
   return h('div', { class: 'melody-panel' },
     h('div', { class: 'glabel' }, 'MELODY'),

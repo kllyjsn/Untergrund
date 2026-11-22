@@ -7,6 +7,7 @@ import { jazzStyle } from '../js/jazz.js';
 import { freshSong } from '../js/state.js';
 import { patternAt } from '../js/scope.js';
 import { createHistory } from '../js/undo.js';
+import { rootsFor, hasRootsLead } from '../js/roots.js';
 
 const source = readFileSync(new URL('../js/hum-ui.js', import.meta.url), 'utf8');
 const state = { current: 0, patterns: [{ hook: { v: 'warm' } }, { hook: { v: 'airflute' } }, {}] };
@@ -18,7 +19,7 @@ const panel = runInNewContext((source.match(/^const melodyHooks = .+;$/m)?.[0] |
   h: (tag, attrs, ...children) => ({ tag, attrs, children: children.flat().filter(Boolean) }),
   getChops: () => chops, openVoice: () => opened++, openHum() {},
   windBanks, loadSets: (banks) => { loads.push(banks); return rejectLoad ? Promise.reject(new Error('offline')) : Promise.resolve(); },
-  paletteFor, jazzStyle,
+  paletteFor, jazzStyle, rootsFor, hasRootsLead,
 });
 const history = createHistory();
 let edits = 0;
@@ -59,6 +60,34 @@ for (const style of ['bailefunk', 'minimal', 'dub', 'deephouse', 'euphoric', 'dn
   button('SYNTH').attrs.onclick();
   assert.equal(state.patterns[6].hook.v, 'warm', 'the synth choice clears an unsupported Harmon selection');
 }
+for (const hook of ['fiddle', 'twang']) {
+  Object.assign(state, freshSong('country', 42), { current: 6, artist: { style: 'country' } });
+  for (const p of state.patterns) p.roots.hook = hook;
+  const calls = [], e = { state, playingPattern: state.patterns[6], ctx: {}, harm: { r: 0, c: 0 }, hookBus: {},
+    rec: (name) => { calls.push(name); return []; }, bodyFor: () => ({}), slapFor: () => ({}), recordedNote() {} };
+  for (const voice of ['tpt', 'airflute', 'harmon']) {
+    calls.length = 0;
+    Engine.prototype.hook.call(e, 0, .5, 0, .5, voice);
+    assert.deepEqual(calls, [hook === 'fiddle' ? 'fiddle' : 'gtr'], 'saved roots ' + hook + ' overrides the selected ' + voice);
+  }
+  assert.equal(button('HARMON'), undefined, hook + ' leads must not offer an ignored Harmon option');
+  state.patterns[6].hook.v = 'harmon';
+  assert.equal(button('SYNTH').attrs['aria-checked'], 'true');
+  button('SYNTH').attrs.onclick();
+  assert.equal(state.patterns[6].hook.v, 'warm');
+  state.artist.style = 'pop';
+  assert.equal(button('HARMON'), undefined, 'saved pattern roots override the project style too');
+}
+Object.assign(state, freshSong('pop', 42), { current: 6, artist: { style: 'pop' } });
+state.patterns[0].roots = { style: 'country', seed: 42, hook: 'fiddle' };
+assert.equal(button('HARMON'), undefined, 'a different scene with a forced lead prevents a misleading song-wide sound choice');
+for (const style of ['country', 'boombap', 'lofihiphop']) {
+  Object.assign(state, freshSong(style, 42), { current: 6, artist: { style } });
+  for (const p of state.patterns) p.roots = style === 'country' ? null : { style, chord: 'upright' };
+  assert(button('HARMON'), style + ' without an overriding hook still honors Harmon');
+}
+for (const p of state.patterns) p.roots = { style: 'country', seed: 42, answer: 'fiddle' };
+assert(button('HARMON'), 'a fiddle answer alone does not replace the selected melody lead');
 for (const style of ['swing', 'modal', 'bossa', 'jazzfunk', 'pop', 'trap']) {
   Object.assign(state, freshSong(style, 42), { current: 6, artist: { style } });
   assert(button('HARMON'), style + ' honors recorded winds');
@@ -114,4 +143,4 @@ for (const [voice, label] of [['warm', 'SYNTH'], ['harmon', 'HARMON'], ['chop', 
   assert.equal(edits, before + 1, 'repeating the repaired sound creates no extra edit');
   assert.equal(p.at[1].hook, undefined);
 }
-console.log('melody sound: Harmon selection, state propagation, accessibility, no-op history and missing-chop/empty handling passed');
+console.log('melody sound: Harmon selection, roots-lead availability, state propagation, accessibility, no-op history and missing-chop/empty handling passed');

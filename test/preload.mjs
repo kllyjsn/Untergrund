@@ -10,6 +10,22 @@ import { createPlayer } from '../js/player.js';
 import { OfflineAudioContext as FakeContext, AudioBuffer } from './offline-audio.mjs';
 
 const st = (kit, voice) => ({ master: { kit }, params: { stab: { voice } } });
+for (const hook of ['fiddle', 'twang']) {
+  const song = { ...freshSong('country', 42), artist: { style: 'country' } };
+  for (const p of song.patterns) { p.hook.v = 'harmon'; p.roots.hook = hook; }
+  const sets = liveSets(song);
+  assert(sets.includes(hook === 'fiddle' ? 'fiddle' : 'gtr'), 'the overriding lead remains preloaded');
+  assert(!sets.some((n) => n.startsWith('jhm') || n === 'tpt'), 'ignored Harmon and its legacy fallback do not preload');
+  song.artist.style = 'pop';
+  assert(!liveSets(song).some((n) => n.startsWith('jhm')), 'saved roots also override a different project style');
+  song.patterns.forEach((p) => { p.roots = null; });
+  assert(liveSets(song).includes('jhm1'), 'without forced roots the saved Harmon still loads');
+}
+for (const style of ['boombap', 'lofihiphop']) {
+  const song = { ...freshSong(style, 42), artist: { style } };
+  for (const p of song.patterns) { p.hook.v = 'harmon'; p.roots = { style, chord: 'upright' }; }
+  assert(liveSets(song).includes('jhm1'), 'an upright chord does not override the Harmon hook');
+}
 {
   const bossa = freshSong('bossa', 11);
   bossa.params.stab.voice = 18;
