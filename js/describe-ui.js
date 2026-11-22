@@ -1,6 +1,6 @@
 // "Describe it" box on Create + Studio: type or tap what you want, get a one-line receipt with undo.
 import { h } from './ui.js';
-import { parse, applyEdits, genreOf, suggest, chipsFor, mergeEdits, needsMix, mixAdjust, heard, fallbackEdits, unresolvedText } from './describe.js';
+import { parse, applyEdits, genreOf, suggest, chipsFor, mergeEdits, needsMix, mixAdjust, heard, fallbackEdits } from './describe.js';
 import { privacyOptOut } from './analytics.js';
 import { isSongPrompt as isPlanPrompt, promptGenre, rulePlan, planEdits, planLyrics, validatePlan, lyricLines } from './song-plan.js';
 import { cleanLyrics, splitLyrics, lyricTimeline, lyricLabels, lyricsText, LIMITS } from './lyrics.js';
@@ -241,14 +241,11 @@ export function describeBar(ctx) {
     const parsed = parse(text, { style, last: recent, net });
     if (!parsed.edits.length) {
       const unsupported = parsed.unsupportedHarmony || [];
-      const query = unsupported.length || parsed.scopedUnknown?.length ? unresolvedText(parsed) : text;
       const why = unsupported.length ? 'Changing chord voicings in one section is not supported yet. Try:' : null;
-      if ((!query && !parsed.scopedUnknown?.length) || navigator.onLine === false) return miss(text, why);
-      const allowed = (s) => !/^(?:more|again|less|too much|other way|undo\b)/.test(s.toLowerCase());
-      if (!parsed.scopedUnknown?.length && !allowed(query)) return miss(text, why);
+      if (navigator.onLine === false || !parsed.unknown.some((clause) => !unsupported.includes(clause))) return miss(text, why);
       hint = { note: 'Thinking…', suggestions: [] };
       paint();
-      return fallbackEdits(parsed, (s) => allowed(s) ? askAI(s, style) : [], text).then((result) => {
+      return fallbackEdits(parsed, (s) => askAI(s, style), text).then((result) => {
         if (mine !== ticket) return;
         hint = null;
         if (!result.edits.length) return miss(text, why);

@@ -1,7 +1,8 @@
 // "Describe it": phrase -> edit table, state deltas, LLM validation, and that every edit changes what the engine plays.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { parse, applyEdits, describe, validateEdits, interpret, genreOf, suggest, CHIPS, chipsFor, needsMix, mixAdjust, TYPICAL, heard } from '../js/describe.js';
+import { parse, applyEdits, describe, validateEdits, interpret, genreOf, suggest, CHIPS, chipsFor, needsMix, mixAdjust, TYPICAL, heard, DESCRIBE_TEXT_LIMIT } from '../js/describe.js';
+import { describeBar } from '../js/describe-ui.js';
 import { patternAt, changedBars } from '../js/scope.js';
 import { defaultState, generate, sanitize, clone, applyOverrides, arrangement, songChain, STYLES, songKind } from '../js/state.js';
 import { toSections, sectionNames } from '../js/timeline.js';
@@ -83,6 +84,7 @@ t('modulation distinguishes its source and destination keys', () => {
     ['transpose up from the key of C major to the key of B flat minor', 10],
     ['transpose down a semitone from the key of D minor to a lower key', 1],
     ['transpose up from the key of D minor to a higher key', 3],
+    ['transpose up to A minor', 9],
     ['transpose down from D minor to A minor', 9],
     ['transpose down from the key of D minor to the key of A minor', 9],
     ['modulate to D minor chords', 2],
@@ -93,6 +95,9 @@ t('modulation distinguishes its source and destination keys', () => {
   }
   for (const [prompt, key] of [
     ['transpose down from D minor to A', 9],
+    ['transpose up from A to E', 4],
+    ['transpose down to A', 9],
+    ['raise the key to F', 5],
     ['transpose up from the key of C minor to A please', 9],
     ['transpose down from C minor to A sharp', 10],
     ['transpose from C minor to B', 11],
@@ -101,7 +106,34 @@ t('modulation distinguishes its source and destination keys', () => {
     assert.deepEqual(edits.map((e) => e.id), ['key'], prompt);
     assert.equal(applyEdits(song, edits, { style: 'rnb' }).state.key, key, prompt);
   }
+  for (const [prompt, key] of [['transpose up from A', 10], ['transpose down from A to a lower key', 8], ['modulate down from G', 5]]) {
+    const edits = parse(prompt, { style: 'rnb' }).edits;
+    assert.deepEqual(edits.map((e) => e.id), ['key', 'keyStep'], prompt);
+    assert.equal(applyEdits(song, edits, { style: 'rnb' }).state.key, key, prompt);
+  }
 });
+
+for (const [where, sec] of [['in the intro', 'intro'], ['in the verse', 'verse'], ['in the chorus', 'drop'], ['at the end of the song', 'outro']]) {
+  const pitch = ['transpose to D minor', 'transpose down from D minor to a lower key', 'change to major', 'switch to minor'];
+  for (const clause of [...pitch, 'no minor sevenths', 'add richer voicings']) {
+    for (const text of [`${clause} ${where}`, `${where}, ${clause}`]) {
+      t(text, () => {
+        const parsed = parse(text, { style: 'rnb' });
+        assert.deepEqual(parsed.edits, []);
+        assert.equal(parsed.unknown.length, 1);
+        if (pitch.includes(clause)) assert.equal(parsed.scopedUnknown[0].sec, sec);
+        else assert.deepEqual(parsed.unsupportedHarmony, parsed.unknown);
+      });
+    }
+  }
+  const compound = `${where}, transpose to A minor, change to major, no minor sevenths, more tension`;
+  t(compound, () => {
+    const parsed = parse(compound, { style: 'rnb' });
+    assert.deepEqual(parsed.edits.map(({ id, sec, op }) => [id, sec, op]), [['section', sec, 'tension']]);
+    assert.deepEqual(parsed.scopedUnknown.map((e) => e.sec), [sec, sec]);
+    assert.equal(parsed.unsupportedHarmony.length, 1);
+  });
+}
 
 for (const [phrase, voice] of [['add FM bass', 6], ['add pulse bass', 7], ['add wide reese bass', 8], ['add pluck bass', 9]]) {
   t(phrase, () => {
@@ -405,6 +437,87 @@ const done = (async () => {
   const c = await interpret('blorp');
   assert.equal(c.edits.length, 0);
 })().catch((e) => { fails++; console.error('FAIL interpret\n ', e.message); });
+
+// Submit through the real Describe form, intercepting only the DOM and remote service.
+async function describeForm() {
+  class NodeStub {
+    children = [];
+    listeners = {};
+    append(...children) { this.children.push(...children); }
+    replaceChildren(...children) { this.children = children; }
+    addEventListener(name, cb) { this.listeners[name] = cb; }
+    setAttribute() {}
+  }
+  const mocks = { window: {}, navigator: { onLine: true }, Node: NodeStub, document: { createElement: () => new NodeStub(), createTextNode: () => new NodeStub() } };
+  const requests = [], edits = [];
+  const section = (sec) => ({ id: 'section', sec, op: 'mute', tracks: ['ch'] });
+  const responses = new Map([
+    ['make it feel like velvet', [{ id: 'space', amt: 1 }]],
+    ['more syncopation in the intro', [section('drop'), section('intro')]],
+    ['smooth out the percussion in the drop', [section('intro'), section('drop')]],
+  ]);
+  mocks.fetch = async (url, opts) => {
+    const { text } = JSON.parse(opts.body);
+    requests.push([url, text]);
+    return { ok: true, json: async () => ({ edits: responses.get(text) || [] }) };
+  };
+  const saved = Object.keys(mocks).map((k) => [k, Object.getOwnPropertyDescriptor(globalThis, k)]);
+  let state = { ...songFor('rnb'), key: 0, scale: 'major' }, depth = 0;
+  const writes = [];
+  try {
+    for (const [k, value] of Object.entries(mocks)) Object.defineProperty(globalThis, k, { configurable: true, value });
+    const form = describeBar({
+      style: () => 'rnb', state: () => state, depth: () => depth, pushUndo: () => depth++,
+      commit: (next) => { state = next; edits.push(next); }, track: () => {},
+      song: (...args) => writes.push(args), switchGenre: (...args) => writes.push(args),
+    });
+    const submit = async (text) => {
+      form.children[0].children[0].value = text;
+      form.listeners.submit({ preventDefault() {} });
+      await new Promise((resolve) => setImmediate(resolve));
+    };
+    const assertRequests = (...queries) => {
+      assert.deepEqual(requests.splice(0), queries.map((q) => ['/api/describe', q]));
+      assert.ok(queries.every((q) => q.length <= DESCRIBE_TEXT_LIMIT));
+    };
+    for (const text of ['more', 'less', 'again', 'too much', 'other way', 'undo', 'undo the reverb']) {
+      await submit(text);
+      assertRequests();
+    }
+    const compound = 'Make it feel like velvet, more syncopation in the intro, smooth out the percussion in the drop';
+    await submit(compound);
+    assertRequests('make it feel like velvet', 'more syncopation in the intro', 'smooth out the percussion in the drop');
+    assert.equal(edits.length, 1);
+    assert.deepEqual(state, applyEdits({ ...songFor('rnb'), key: 0, scale: 'major' }, [
+      { id: 'space', amt: 1 }, section('intro'), section('drop'),
+    ], { style: 'rnb' }).state);
+
+    const withinLimit = 'in bars 9-16, smooth out the percussion, round out the bass, make the transitions more fluid, introduce some syncopation, soften the rhythm';
+    await submit(withinLimit);
+    assertRequests(withinLimit);
+    await submit(withinLimit + ', make the percussion feel closer to the listener, use alternating accents');
+    assertRequests(withinLimit, 'in bars 9-16, make the percussion feel closer to the listener, use alternating accents');
+    await submit('in bars 9-16, ' + 'distant '.repeat(19) + ', add a glassy shimmer');
+    assertRequests('in bars 9-16 add a glassy shimmer');
+
+    for (const [prompt, key, scale] of [
+      ['lock the song in D minor chords', 2, 'minor'],
+      ['keep this track in G major', 7, 'major'],
+      ['transpose the song to A', 9, 'major'],
+    ]) {
+      const before = edits.length;
+      await submit(prompt);
+      assertRequests();
+      assert.equal(writes.length, 0, prompt);
+      assert.equal(edits.length, before + 1, prompt);
+      assert.equal(state.key, key, prompt);
+      assert.equal(state.scale, scale, prompt);
+    }
+  } finally {
+    for (const [k, spec] of saved) if (spec) Object.defineProperty(globalThis, k, spec); else delete globalThis[k];
+  }
+}
+await describeForm().catch((e) => { fails++; console.error('FAIL Describe form\n ', e.stack); });
 
 // 4. Audibility: drive the real Engine + Sequencer against a recording fake AudioContext and require the scheduled audio to change.
 class FakeBuffer { constructor({ length, numberOfChannels = 1, sampleRate = 48000 }) { this.length = length; this.numberOfChannels = numberOfChannels; this.sampleRate = sampleRate; this.duration = length / sampleRate; this.ch = Array.from({ length: numberOfChannels }, () => new Float32Array(length)); } getChannelData(i) { return this.ch[i]; } copyToChannel(d, i) { this.ch[i].set(d); } }

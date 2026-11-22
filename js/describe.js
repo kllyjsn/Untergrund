@@ -379,10 +379,11 @@ export const SUGGESTIONS = ['darker', 'slower', 'more swing', 'less busy', 'bigg
 const KEY_PC = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
 const MODE = { minor: 'minor', min: 'minor', m: 'minor', major: 'major', maj: 'major', dorian: 'dorian', phrygian: 'phrygian' };
 const MODE_NAMES = Object.keys(MODE).join('|');
-const KEY_NAME = `(?!a\\s+(?!(?:sharp|flat|${MODE_NAMES}|please)\\b)\\S)([a-g])(#|b|\\s+sharp|\\s+flat)?(?:\\s+(${MODE_NAMES}))?(?=\\s|$)`;
-const KEY_PREFIX = '(?:in\\s+the\\s+key\\s+of|(?:to\\s+)?(?:the\\s+)?key\\s+of|in|to|key)';
-const KEY_WITH_PREFIX = new RegExp(`\\b${KEY_PREFIX}\\s+${KEY_NAME}`);
-const KEY_TRANSITION = new RegExp(`\\b((?:keychange|transpose|switch|change)\\b.*?)\\s+from\\s+(?:(?:the\\s+)?key\\s+of\\s+)?${KEY_NAME}\\s+(?=to\\s+(?:(?:the\\s+)?key\\s+of\\s+)?${KEY_NAME})`);
+const keyName = (following) => `(?!a\\s+(?!(?:sharp|flat|${MODE_NAMES}|${following})\\b)\\S)([a-g])(#|b|\\s+sharp|\\s+flat)?(?:\\s+(${MODE_NAMES}))?(?=\\s|$)`;
+const KEY_PREFIX = '(?:(?:(?:in|to)\\s+)?(?:the\\s+)?key\\s+of|in|to|key)';
+const KEY_SOURCE = new RegExp(`\\bfrom\\s+(?:(?:the\\s+)?key\\s+of\\s+)?${keyName('please|to')}`);
+const KEY_WITH_PREFIX = new RegExp(`\\b${KEY_PREFIX}\\s+${keyName('please')}`);
+const KEY_TRANSITION = new RegExp(`\\b((?:keychange|transpose|switch|change|raise|lower|pitch)\\b.*?)\\s+${KEY_SOURCE.source}\\s+(?=to\\s+(?:(?:the\\s+)?key\\s+of\\s+)?${keyName('please')})`);
 
 function lev(a, b) {
   if (Math.abs(a.length - b.length) > 2) return 9;
@@ -438,9 +439,9 @@ function extract(clause, edits) {
   if (bpm) { edits.push({ id: 'bpm', value: +bpm[1], src: bpm[0].trim() }); c = c.replace(bpm[0], ' '); }
   const transition = c.match(KEY_TRANSITION);
   if (transition) c = c.replace(KEY_TRANSITION, '$1 ');
-  const key = c.match(KEY_WITH_PREFIX)
+  const key = c.match(KEY_WITH_PREFIX) || c.match(KEY_SOURCE)
     || c.match(/\b([a-g])(#|b)?\s*(minor|major|m|maj|dorian|phrygian)\b/);
-  const sourceKey = key && /\bfrom(?:\s+the)?\s+$/.test(c.slice(0, key.index));
+  const sourceKey = key && (/^from\s/.test(key[0]) || /\bfrom(?:\s+the)?\s+$/.test(c.slice(0, key.index)));
   if (key) {
     let pc = KEY_PC[key[1]];
     if (key[2]) pc += /#|sharp/.test(key[2]) ? 1 : -1;
@@ -451,7 +452,7 @@ function extract(clause, edits) {
   const step = c.match(/\b(?:up\s+a\s+(?:key|step|semitone)|key\s+up|higher\s+key|raise\s+the\s+key|transpose\s+up|pitch\s+(?:it\s+)?up)\b/)
     || c.match(/\b(?:down\s+a\s+(?:key|step|semitone)|key\s+down|lower\s+key|lower\s+the\s+key|transpose\s+down|pitch\s+(?:it\s+)?down)\b/);
   if (step) {
-    if (!transition) edits.push({ id: 'keyStep', amt: /up|higher|raise/.test(step[0]) ? 1 : -1, src: step[0].trim() });
+    if (!transition && !/^to\s/.test(key?.[0] || '')) edits.push({ id: 'keyStep', amt: /up|higher|raise/.test(step[0]) ? 1 : -1, src: step[0].trim() });
     c = c.replace(step[0], ' ');
   }
   const scale = c.match(/\b(halftime|doubletime)\b/);
@@ -668,7 +669,9 @@ function findSection(clause) {
     if (SEC_WEAK.has(w) && !/\b(?:the|my|this|that|our)\s*$/.test(m[1])) continue;
     // "add a breakdown", "an intro" ask for more of a thing, not an edit of the existing one.
     if (!m[1] && /\b(?:a|an|another|more|some)\s*$/.test(clause.slice(0, m.index + 1))) continue;
-    return { sec: SEC_WORD[w], text: m[0] };
+    const start = m.index + m[0].length;
+    const currentSong = clause.slice(start).match(/^\s+of\s+(?:the|this|my|our)\s+(?:song|track|tune|beat)(?=\s|$)/);
+    return { sec: SEC_WORD[w], text: m[0] + (currentSong?.[0] || '') };
   }
   return null;
 }
@@ -841,7 +844,7 @@ export function parse(text, ctx = {}) {
         const text = found ? src : `${at.text.trim()} ${src}`;
         unknown.push(text);
         if (got.unsupportedHarmony) unsupportedHarmony.push(text);
-        else scopedUnknown.push({ text, sec, ...where });
+        else scopedUnknown.push({ text, clause: restS, prefix: at.text.trim(), sec, ...where });
       }
       lastTrack = null;
       continue;
@@ -1026,27 +1029,55 @@ export function validateEdits(list) {
 // phrases the rules don't understand. Off unless a caller passes one.
 const unscopedUnknown = ({ unknown, unsupportedHarmony, scopedUnknown }) => unknown
   .filter((clause) => !unsupportedHarmony?.includes(clause) && !scopedUnknown?.some((at) => at.text === clause));
-export const unresolvedText = (parsed) => unscopedUnknown(parsed).join(', ');
+export const DESCRIBE_TEXT_LIMIT = 140;
 
 const sameScope = (e, at) => e.id === 'section' && e.sec === at.sec && e.nth === at.nth &&
   (at.bars ? e.bars?.[0] === at.bars[0] && e.bars?.[1] === at.bars[1] : !e.bars);
 
+const canAsk = (text) => {
+  const clause = text.toLowerCase().trim().replace(/[.!?,]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return !FOLLOW.some(([, re]) => re.test(clause)) && !/^(?:undo|revert|take back|cancel)\b/.test(clause);
+};
+
+function fallbackBatches(items, scope) {
+  const batches = [];
+  const format = (list) => list.length === 1 ? list[0].text
+    : (scope ? scope.prefix + ', ' : '') + list.map((at) => at.clause).join(', ');
+  let batch = [];
+  for (const item of items) {
+    if (item.text.length > DESCRIBE_TEXT_LIMIT) continue;
+    if (format([...batch, item]).length > DESCRIBE_TEXT_LIMIT) {
+      batches.push({ scope, items: batch, query: format(batch) });
+      batch = [];
+    }
+    batch.push(item);
+  }
+  if (batch.length) batches.push({ scope, items: batch, query: format(batch) });
+  return batches;
+}
+
 export async function fallbackEdits(parsed, remote, originalText) {
-  const { scopedUnknown = [], unsupportedHarmony = [] } = parsed;
-  const global = unscopedUnknown(parsed);
-  const ask = async (text) => {
-    if (!text) return [];
-    try { return validateEdits(await remote(text)); } catch { return []; }
-  };
-  // Keep section-bound clauses separate so an answer can't turn one into a song-wide edit.
-  const [unscoped, scoped] = await Promise.all([
-    ask((!scopedUnknown.length && !unsupportedHarmony.length && originalText) || global.join(', ')),
-    ask(scopedUnknown.map((at) => at.text).join(', ')),
-  ]);
-  const accepted = scoped.filter((e) => scopedUnknown.some((at) => sameScope(e, at)));
-  const handled = new Set(unscoped.length ? global : []);
-  for (const at of scopedUnknown) if (accepted.some((e) => sameScope(e, at))) handled.add(at.text);
-  return { edits: [...unscoped, ...accepted], unknown: parsed.unknown.filter((text) => !handled.has(text)) };
+  const { scopedUnknown = [] } = parsed;
+  const global = unscopedUnknown(parsed).filter(canAsk).map((text) => ({ text, clause: text }));
+  const useOriginal = global.length && global.length === parsed.unknown.length &&
+    originalText?.length <= DESCRIBE_TEXT_LIMIT && canAsk(originalText);
+  const batches = useOriginal ? [{ items: global, query: originalText }] : fallbackBatches(global);
+  const scopes = new Map();
+  for (const at of scopedUnknown.filter((x) => canAsk(x.clause))) {
+    const key = JSON.stringify([at.sec, at.nth, at.bars]);
+    if (!scopes.has(key)) scopes.set(key, []);
+    scopes.get(key).push(at);
+  }
+  for (const items of scopes.values()) batches.push(...fallbackBatches(items, items[0]));
+  // Each section answer can only edit the section that was sent with that batch.
+  const answers = await Promise.all(batches.map(async ({ scope, items, query }) => {
+    let edits = [];
+    try { edits = validateEdits(await remote(query)); } catch {}
+    if (scope) edits = edits.filter((e) => sameScope(e, scope));
+    return { edits, handled: edits.length ? items.map((at) => at.text) : [] };
+  }));
+  const handled = new Set(answers.flatMap((a) => a.handled));
+  return { edits: answers.flatMap((a) => a.edits), unknown: parsed.unknown.filter((text) => !handled.has(text)) };
 }
 
 export async function interpret(text, ctx = {}, { remote } = {}) {
