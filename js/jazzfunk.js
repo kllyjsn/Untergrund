@@ -193,10 +193,10 @@ export function funkNotes(seed, bar, h, solo = false, { headOut = false, section
   return notes.filter(([at, length]) => Math.floor(at / 16) === bar % 2 && length > 0).map(([at, ...note]) => [at % 16, ...note]);
 }
 
-export function generateFunk(seed, bpm, palette, pocket) {
+export function generateFunk(seed, bpm, palette, pocket, choose = null) {
   const r = rng(seed), params = defaultParams(), master = {};
   const ensemble = palette[Math.floor(rng(Math.imul((seed | 0) ^ 0x6d2b79f5, 0x85ebca6b))() * palette.length)];
-  const prog = FUNK_PROGS[Math.floor(r() * FUNK_PROGS.length)].map(([r, c]) => ({ r, c }));
+  const roll = r(), prog = choose ? choose(roll) : FUNK_PROGS[Math.floor(roll * FUNK_PROGS.length)].map(([r, c]) => ({ r, c }));
   const steps = Object.fromEntries(TRACK_IDS.map((id) => [id, Array.from({ length: 16 }, (_, i) => id === 'acid' ? { on: funkBass(0, prog[0], 0).some(([at]) => at === i), n: 0, a: false, s: false } : 0)]));
   for (const i of FUNK_KICK[0]) steps.kick[i] = 1;
   for (const i of FUNK_SNARE) steps.snare[i] = i % 8 === 4 ? 2 : 1;
