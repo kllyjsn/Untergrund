@@ -230,7 +230,12 @@ export function writePeak(pats, chain, devices, seed = 0, { keep = [], drops = [
   // A festival build (festival-build.js) lands its kick on the final drop's downbeat: its dropout waits for the
   // drop's second phrase, which opens on the title again.
   const out = drops.includes(run.from) ? run.from + 8 : run.from;
-  const ok = (d) => (d === 'lift' ? pats.some((p) => p.lift) : d === 'dropout' ? out < run.to && c[out] === c[run.from] && !drops.includes(out) : lead);
+  // A dropout needs a band to take away: a hook-only drop (song-spec.js voice) has none.
+  const band = (pos) => {
+    const p = pats['ABCDEFGH'.indexOf(c[pos])], t = (p.at || []).findLast((v) => v.b[0] <= pos && pos <= v.b[1]);
+    return Object.entries({ ...p.steps, ...t?.steps }).some(([id, v]) => id !== 'stab' && v?.some((x) => (id === 'acid' ? x?.on : x)));
+  };
+  const ok = (d) => (d === 'lift' ? pats.some((p) => p.lift) : d === 'dropout' ? out < run.to && c[out] === c[run.from] && !drops.includes(out) && band(out) : lead);
   const opts = devices.filter((d) => PEAK_DEVICES.includes(d) && ok(d));
   if (!opts.length) return null;
   // The feeling's first device is its most idiomatic; drawn on its own stream so no other seeded choice moves.
