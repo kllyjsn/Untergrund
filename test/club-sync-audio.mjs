@@ -1,6 +1,6 @@
 // Runs before app modules. Only the destination edge is replaced: the worklet
 // passes the original samples through unchanged and reports a low-pass envelope.
-export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, graph = null, listenerAudit = null) {
+export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, graph = null, listenerAudit = null, capturePCM = false) {
   const RealDate = Date;
   globalThis.Date = new Proxy(RealDate, {
     apply: () => new RealDate(RealDate.now() + skew).toString(),
@@ -17,7 +17,7 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
   new PerformanceObserver(list => {
     for (const e of list.getEntries()) tap.longTasks.push({ at: performance.timeOrigin + e.startTime, duration: e.duration });
   }).observe({ type: 'longtask', buffered: true });
-  if (mix || listenerAudit) globalThis.__clubPCM = { mix: [], vocal: [] };
+  if (mix || listenerAudit || capturePCM) globalThis.__clubPCM = { mix: [], vocal: [] };
   if (mix) tap.channels = { kick: { samples: [] }, vocal: { samples: [] }, hat: { samples: [] } };
   const epoch = () => performance.timeOrigin + performance.now();
   const contexts = [];
@@ -206,7 +206,7 @@ export function installAudioTap(skew, fixture, displacementMs = 0, mix = false, 
       const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
       entry.ready = ctx.audioWorklet.addModule(url).then(() => {
         URL.revokeObjectURL(url);
-        const node = new AudioWorkletNode(ctx, 'club-tap', { outputChannelCount: [2], processorOptions:{capture:mix || !!listenerAudit, stereo:!!listenerAudit} });
+        const node = new AudioWorkletNode(ctx, 'club-tap', { outputChannelCount: [2], processorOptions:{capture:mix || !!listenerAudit || capturePCM, stereo:!!listenerAudit} });
         node.port.onmessage = ({ data }) => data.pcm ? __clubPCM.mix.push(data) : tap.samples.push(...data);
         connect.call(gain, node); connect.call(node, dest);
         entry.node = node;
