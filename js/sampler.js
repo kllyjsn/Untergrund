@@ -1,11 +1,32 @@
 // User-owned audio for the VOX track: mic recordings, local files, or the built-in synth choir.
 // Audio never leaves the device and is never fetched from the internet.
+import { rng } from './dsp.js';
+
 const DB = 'untergrund.samples', STORE = 'samples', KEY = 'current', MAX_SEC = 20;
-let current = null;
+let current = null, songSeed = 0;
 const listeners = new Set();
+const synths = new Map();
 
 export const onSample = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
-export const getSample = () => current || (current = synthSample());
+export const voxSeed = (state) => Number.isFinite(state?.artist?.seed) ? state.artist.seed : 0;
+export const getSample = (state) => {
+  if (state !== undefined) songSeed = voxSeed(state);
+  if (!current || (current.source === 'synth' && current.seed !== songSeed)) current = cachedSynth(songSeed);
+  return current;
+};
+export const prepareSample = (state) => current && current.source !== 'synth' ? current : cachedSynth(voxSeed(state));
+
+function cachedSynth(seed) {
+  const sample = synths.get(seed) || synthSample(seed);
+  synths.delete(seed);
+  synths.set(seed, sample);
+  if (synths.size > 8) {
+    for (const key of synths.keys()) {
+      if (key !== 0 && key !== seed && key !== current?.seed) { synths.delete(key); break; }
+    }
+  }
+  return sample;
+}
 
 function makeBuffer(channels, sampleRate) {
   const buffer = new AudioBuffer({ length: channels[0].length, numberOfChannels: channels.length, sampleRate });
@@ -25,7 +46,8 @@ function bandpass(input, sr, fc, bw, gain, out) {
   }
 }
 
-export function synthVoxChannels(sr = 48000) {
+export function synthVoxChannels(sr = 48000, seed = 0) {
+  const random = rng((seed | 0) ^ 0x564f5801);
   const vowels = [[730, 1090, 2440], [570, 840, 2410], [300, 870, 2240], [270, 2290, 3010], [530, 1840, 2480], [660, 1720, 2410], [440, 1020, 2240], [490, 1350, 1690]];
   const notes = [0, 3, 7, 10, 12, 7, 5, 3];
   const seg = Math.floor(0.42 * sr), len = Math.floor(seg * 0.92);
@@ -37,7 +59,7 @@ export function synthVoxChannels(sr = 48000) {
     for (let i = 0; i < len; i++) {
       ph += f0 * (1 + 0.006 * Math.sin(2 * Math.PI * 5.2 * i / sr)) / sr;
       ph -= Math.floor(ph);
-      src[i] = 2 * ph - 1 + (Math.random() * 2 - 1) * 0.04;
+      src[i] = 2 * ph - 1 + (random() * 2 - 1) * 0.04;
     }
     const voiced = new Float32Array(len);
     formants.forEach((fc, j) => bandpass(src, sr, fc, [80, 90, 120][j], [1, 0.55, 0.3][j], voiced));
@@ -48,6 +70,82 @@ export function synthVoxChannels(sr = 48000) {
   });
   normalize([out]);
   return [out];
+}
+
+// A sung voice for pop-house chops: each vowel recorded on every pitch from C4 to B4, so chops
+// land on chord tones at their own pitch instead of being sped up (no chipmunk formants).
+// Additive glottal source (-6 dB/oct) shaped by five soprano formants, with breath, a pitch scoop,
+// delayed vibrato and slow drift; each note fades in and out inside its segment so chops never click.
+const SUNG_VOWELS = [
+  [[800, 1150, 2900, 3900, 4950], [80, 90, 120, 130, 140]],
+  [[450, 800, 2830, 3800, 4950], [70, 80, 100, 130, 135]],
+  [[350, 2000, 2800, 3600, 4950], [60, 100, 120, 150, 200]],
+  [[660, 1700, 2400, 3500, 4950], [80, 100, 120, 150, 200]],
+  [[325, 700, 2700, 3800, 4950], [50, 60, 170, 180, 200]],
+  [[270, 2140, 2950, 3900, 4950], [60, 90, 100, 120, 120]],
+];
+export const SUNG_LOW = 55, SUNG_NOTES = 20, SUNG_LEN = 0.46, SUNG_VOWEL_COUNT = SUNG_VOWELS.length;
+const SCHWA = [500, 1500, 2500, 3500, 4950];
+const FORMANT_GAIN = [1, 0.5, 0.2, 0.14, 0.05];
+const SINE = Float32Array.from({ length: 4097 }, (_, i) => Math.sin(2 * Math.PI * i / 4096));
+
+export function sungNoteChannels(sr = 24000, seed = 0, vowelIndex = 0, note = 0) {
+  const vowel = SUNG_VOWELS[vowelIndex], random = rng(((seed | 0) ^ 0x53554e47) + vowelIndex * 7919 + note * 104729);
+  const len = Math.round(SUNG_LEN * sr), block = 64;
+  const out = new Float32Array(len);
+  const tract = (f, [fs, bs]) => fs.reduce((a, fc, j) => a + FORMANT_GAIN[j] / Math.hypot(1 - (f / fc) ** 2, f * bs[j] / (fc * fc)), 0);
+  const f0 = 440 * 2 ** ((SUNG_LOW + note - 69) / 12);
+  const harmonics = Math.floor(Math.min(8000, sr * 0.45) / f0), phase = Float64Array.from({ length: harmonics }, () => random());
+  const rateHz = 5 + random() * 0.8, vibPhase = random() * Math.PI * 2;
+  let drift = 0, shimmer = 0, step = f0 / sr;
+  const amps = new Float64Array(harmonics), voiced = new Float32Array(len), breath = new Float32Array(len), noise = new Float32Array(len);
+  for (let i = 0; i < len; i++) {
+    const tm = i / sr;
+    if (i % block === 0) {
+      drift = drift * 0.97 + (random() * 2 - 1) * 0.6;
+      shimmer = shimmer * 0.8 + (random() * 2 - 1) * 0.01;
+      const glide = Math.min(1, tm / 0.035), shape = [vowel[0].map((fc, j) => fc + (SCHWA[j] - fc) * 0.5 * (1 - glide)), vowel[1]];
+      const scoop = -35 * Math.max(0, 1 - tm / 0.07);
+      const vib = 22 * Math.min(1, Math.max(0, (tm - 0.12) / 0.18)) * Math.sin(2 * Math.PI * rateHz * tm + vibPhase);
+      const f = f0 * 2 ** ((scoop + vib + drift + (random() * 2 - 1) * 4) / 1200);
+      for (let h = 0; h < harmonics; h++) amps[h] = tract((h + 1) * f, shape) / (h + 1) * (1 + shimmer);
+      step = f / sr;
+    }
+    let x = 0;
+    for (let h = 0; h < harmonics; h++) {
+      let ph = phase[h] + (h + 1) * step;
+      ph -= Math.floor(ph);
+      phase[h] = ph;
+      const pos = ph * 4096, j = pos | 0;
+      x += amps[h] * (SINE[j] + (SINE[j + 1] - SINE[j]) * (pos - j));
+    }
+    voiced[i] = x;
+    noise[i] = random() * 2 - 1;
+  }
+  vowel[0].forEach((fc, j) => bandpass(noise, sr, fc, vowel[1][j] * 2, FORMANT_GAIN[j], breath));
+  let peak = 0;
+  for (let i = 0; i < len; i++) peak = Math.max(peak, Math.abs(voiced[i]));
+  for (let i = 0; i < len; i++) {
+    const tm = i / sr, rest = (len - i) / sr;
+    const env = Math.sin(Math.PI / 2 * Math.min(1, tm / 0.012)) * Math.sin(Math.PI / 2 * Math.min(1, rest / 0.06));
+    out[i] = 0.8 * (voiced[i] / peak * (0.9 + 0.1 * Math.sin(2 * Math.PI * 3.1 * tm)) + breath[i] * (0.05 + 0.25 * Math.max(0, 1 - tm / 0.03))) * env;
+  }
+  return [out];
+}
+
+const sungs = new Map();
+// One sung note per (seed, vowel, pitch), built on first use (a few ms) so no song start waits on all of them.
+export function sungNote(state, vowel, midi, take = 0) {
+  const k = ((vowel % SUNG_VOWELS.length) + SUNG_VOWELS.length) % SUNG_VOWELS.length;
+  let n = midi - SUNG_LOW;
+  while (n < 0) n += 12;
+  while (n >= SUNG_NOTES) n -= 12;
+  const seed = voxSeed(state) + take * 977, key = `${seed}:${k}:${n}`;
+  if (!sungs.has(key)) {
+    if (sungs.size >= 6 * SUNG_VOWELS.length * SUNG_NOTES) sungs.delete(sungs.keys().next().value);
+    sungs.set(key, makeBuffer(sungNoteChannels(24000, seed, k, n), 24000));
+  }
+  return sungs.get(key);
 }
 
 export function normalize(channels, target = 0.9) {
@@ -73,14 +171,15 @@ export function detectSlices(data, sr, duration, count = 8) {
   return picks.map((i) => (Math.max(0, i - 1) * hop) / sr).sort((a, b) => a - b);
 }
 
-function synthSample() {
-  const channels = synthVoxChannels();
+function synthSample(seed = songSeed) {
+  const channels = synthVoxChannels(48000, seed);
   const buffer = makeBuffer(channels, 48000);
-  return { buffer, name: 'SYNTH VOX', source: 'synth', slices: detectSlices(channels[0], 48000, buffer.duration) };
+  return { buffer, name: 'SYNTH VOX', source: 'synth', seed, slices: detectSlices(channels[0], 48000, buffer.duration) };
 }
 
 function setSample(buffer, name, source, store = true) {
   current = { buffer, name, source, slices: detectSlices(buffer.getChannelData(0), buffer.sampleRate, buffer.duration) };
+  if (source === 'synth') current.seed = songSeed;
   if (store) persist(source === 'synth' ? null : {
     name, source, sampleRate: buffer.sampleRate,
     channels: Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i).slice()),
@@ -98,7 +197,7 @@ export async function setFromArrayBuffer(arrayBuffer, name, source) {
 }
 
 export const loadAudioFile = async (file) => setFromArrayBuffer(await file.arrayBuffer(), file.name.replace(/\.[^.]+$/, ''), 'file');
-export const useSynthVox = () => setSample(synthSample().buffer, 'SYNTH VOX', 'synth');
+export const useSynthVox = () => setSample(cachedSynth(songSeed).buffer, 'SYNTH VOX', 'synth');
 
 // Mic capture shared by VOX, hum-to-hook and the voice instrument. Resolves with the decoded take
 // (mono/stereo Float32Arrays) without touching the VOX sample; `stream` is exposed for level meters.

@@ -32,14 +32,57 @@ export async function renderBars(state, bars, { sampleRate = 48000, tail, startB
   onContext?.(ctx);
   const engine = new Engine(ctx, snap, { realtime: false, vocal: vocalStem });
   onEngine?.(engine);
-  const seq = new Sequencer(engine, snap);
-  if (startBar && chain.length && !sc) { seq.chainPos = startBar; seq.cur = chain[(startBar - 1) % chain.length]; }
+  const cursor = (e) => {
+    const seq = new Sequencer(e, snap);
+    if (startBar && chain.length && !sc) { seq.chainPos = startBar; seq.cur = chain[(startBar - 1) % chain.length]; }
+    return seq;
+  };
+  const seq = cursor(engine);
+  let abs = 0;
   let end = start;
-  for (let abs = 0; abs < steps; abs++) { seq.tick(first + abs, end); end += engine.stepDur; }
-  engine.vocalStop(end);
+  const schedule = (to) => {
+    for (; abs < to; abs++) { seq.tick(first + abs, end); end += engine.stepDur; }
+    if (abs >= steps) engine.vocalStop(end);
+  };
+  // Keep externally routed graphs and the original score/vocal scheduling path intact.
+  if (engine.hardTechno && steps > 2 * BATCH_STEPS && !sc && !snap.sing?.on &&
+      !onContext && !onEngine && !onScheduled && typeof ctx.suspend === 'function') {
+    // A breakdown ramp can reach backwards to the previous automation event. Write the
+    // filter timeline at time zero, before rendering any audio; only hits are queued in batches.
+    if (chain.length && snap.master.arr) {
+      const filters = cursor({ stepDur: sd, breakSweep: engine.breakSweep.bind(engine), breakOpen: engine.breakOpen.bind(engine) });
+      for (let i = 0, t = start; i < steps; i++, t += sd) filters.advanceBar(first + i, t);
+      seq.breakFilterPlanned = true;
+    }
+    const [, buf] = await Promise.all([scheduleInBatches(ctx, steps, schedule, () => end), ctx.startRendering()]);
+    return buf;
+  }
+  schedule(steps);
   onScheduled?.(ctx);
   const buf = await ctx.startRendering();
   return trim ? trimTail(buf) : buf;
+}
+
+const BATCH_STEPS = 32;
+
+// Leave half a second for any notes played ahead of their nominal grid time.
+async function scheduleInBatches(ctx, steps, schedule, nextTime) {
+  const quantum = 128, rate = ctx.sampleRate;
+  let suspended = false;
+  try {
+    for (let to = BATCH_STEPS; ; to += BATCH_STEPS) {
+      schedule(Math.min(steps, to));
+      if (to >= steps) break;
+      const frame = Math.floor((nextTime() - 0.5) * rate / quantum) * quantum;
+      if (frame <= ctx.currentTime * rate + quantum) continue;
+      const ready = ctx.suspend(frame / rate);
+      if (suspended) await Promise.all([ready, ctx.resume()]);
+      else await ready;
+      suspended = true;
+    }
+  } finally {
+    if (suspended && ctx.state === 'suspended') await ctx.resume();
+  }
 }
 
 const SCORE_TAIL = 10;

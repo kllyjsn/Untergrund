@@ -2,10 +2,11 @@
 // Reads and writes state.chain (and optional state.labels), so saves, share links and rooms are unchanged.
 import { h } from './ui.js';
 import {
-  LETTERS, COLORS, toSections, toChain, totalBars, starts, locate, sectionNames, cleanLabel,
+  LETTERS, COLORS, toSections, toChain, toChainEntries, totalBars, starts, locate, sectionNames, cleanLabel,
   move, resize, duplicate, remove, setPattern, append, dropIndex, loopSkip,
 } from './timeline.js';
-import { ranges, remapTakes, barsLabel } from './scope.js';
+import { ranges, barsLabel } from './scope.js';
+import { setChain } from './chain.js';
 
 const HIT_MS = 2400;
 
@@ -16,8 +17,8 @@ export function songTimeline(o) {
   let el = null, lane = null, ph = null, hit = null;
 
   const sections = () => {
-    const chain = o.state().chain;
-    if (cache.chain !== chain) cache = { chain, sections: toSections(chain) };
+    const { chain, chainEntries: entries } = o.state();
+    if (cache.chain !== chain || cache.entries !== entries) cache = { chain, entries, sections: toSections(chain, entries) };
     return cache.sections;
   };
   const fmt = (sec) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}`;
@@ -38,12 +39,12 @@ export function songTimeline(o) {
   function commit(next, kind) {
     const st = o.state();
     const chain = toChain(next);
-    if (chain === st.chain) { cache = { chain, sections: next }; render(); return; }
+    const entries = st.chainEntries ? toChainEntries(next) : undefined;
+    if (chain === st.chain && JSON.stringify(entries) === JSON.stringify(st.chainEntries)) { cache = { chain, entries: st.chainEntries, sections: next }; render(); return; }
     o.before();
     // Per-bar edits ("bass up an octave in the second drop") move with their section.
-    remapTakes(st.patterns, st.chain, chain);
-    st.chain = chain;
-    cache = { chain, sections: next };
+    setChain(st, chain, entries);
+    cache = { chain, entries: st.chainEntries, sections: next };
     o.after();
     render();
     o.track(kind);
