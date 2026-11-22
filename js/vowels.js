@@ -23,7 +23,7 @@ export function vowelLoop(buffer) {
 
 export const vowelStyle = (style) => VOWEL_STYLES.includes(style);
 export const vowelSets = (style) => vowelStyle(style) ? Object.keys(VOWEL_BAND) : [];
-export const vowelPitch = (midi, center = 53) => midi + 12 * Math.round((center - midi) / 12);
+export const vowelPitch = (midi, center = 53) => midi + 12 * Math.round((Math.round(center) - midi) / 12);
 export const vowelDuration = (style, duration) => SHORT.has(style) ? Math.max(0.04, Math.min(0.14, duration)) : Math.max(0.4, Math.min(2.4, duration));
 export const vowelName = (style, section = 0, slice = 0) => `vox_${COLORS[style]?.[((section + Math.round(slice)) % 2 + 2) % 2] || 'ahh'}`;
 

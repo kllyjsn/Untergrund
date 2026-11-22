@@ -29,6 +29,7 @@ for (const style of Object.keys(STYLES)) {
 for (let midi = 0; midi <= 127; midi++) {
   assert(Math.abs(vowelPitch(midi) - 53) <= 6);
   assert((vowelPitch(midi) - midi) % 12 === 0);
+  assert.equal(vowelPitch(midi, 52.9999), vowelPitch(midi), 'fractional tuning does not flip the folded octave at a tritone');
 }
 
 // Every generated song: live-kit genres always need the kit, and the chord instrument matches its stab voice.
@@ -97,6 +98,7 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
       assert.equal(center, 53 + VOWEL_TUNE[note.name][53] / 100);
       assert(Math.abs(12 * Math.log2(rate)) <= 6.001);
       assert.equal(recorder.notes.vox[0].m, note.midi, 'MIDI follows folded recorded pitch');
+      assert(Math.abs(center + 12 * Math.log2(rate) - note.midi) < 1e-8, 'playback and MIDI retain the same octave');
       assert.equal(fx.loop, ['deephouse', 'euphoric', 'dnb'].includes(style));
       if (fx.loop) assert(duration > 0.4, `${style} sustains`);
       else assert(duration <= 0.14, `${style} chops`);
