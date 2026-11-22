@@ -43,7 +43,8 @@ export async function completeCallback(msg) {
     if (!Number.isFinite(pending.t) || Date.now() - pending.t > 600e3 || pending.t > Date.now()) throw new Error('SoundCloud authorization expired. Please connect again.');
     if (msg.error || !msg.code) throw new Error(msg.error || 'Authorization cancelled');
     if (new URL(pending.endpoint, location.origin).origin !== location.origin) throw new Error('Invalid SoundCloud exchange endpoint');
-    await tokenRequest({ code: msg.code, code_verifier: pending.verifier, redirect_uri: pending.redirect_uri }, pending.endpoint, pending.persistTokens);
+    const result = await tokenRequest({ code: msg.code, code_verifier: pending.verifier, redirect_uri: pending.redirect_uri }, pending.endpoint, pending.persistTokens);
+    if (result.account) outcome.result = { account: result.account };
     if (new URL(pending.endpoint, location.origin).pathname === '/api/autopublish') {
       const response = await fetch('/api/autopublish', { cache: 'no-store' });
       const status = await response.json();
@@ -82,7 +83,7 @@ export function connect({ endpoint, persistTokens = true } = {}) {
         const pending = JSON.parse(localStorage.getItem(PENDING) || 'null');
         if (pending?.state === state) localStorage.removeItem(PENDING);
       } catch {}
-      if (msg.done) return msg.error ? reject(new Error(msg.error)) : resolve({ connected: true });
+      if (msg.done) return msg.error ? reject(new Error(msg.error)) : resolve(msg.result || { connected: true });
       if (msg.error || !msg.code) return reject(new Error(msg.error || 'Authorization cancelled'));
       try { resolve(await tokenRequest({ code: msg.code, code_verifier: verifier, redirect_uri: redirectUri() }, endpoint, persistTokens)); } catch (e) { reject(e); }
     };

@@ -191,7 +191,8 @@ try {
 const saved = Object.fromEntries(['window', 'location', 'localStorage', 'fetch', 'document'].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
 try {
   const stored = new Map(), listeners = new Map();
-  let rejectConnect = false, persistTokens = false, callbackExchange = false, posts = 0;
+  let rejectConnect = false, persistTokens = false, callbackExchange = false, posts = 0, accountSignIn = false, accountRefreshes = 0;
+  const signedInAccount = { id: 'sc-42', handle: 'test-artist' };
   globalThis.localStorage = { getItem: (k) => stored.get(k), setItem: (k, v) => stored.set(k, v), removeItem: (k) => stored.delete(k) };
   globalThis.location = { origin: 'http://localhost' };
   globalThis.window = {
@@ -208,14 +209,18 @@ try {
   };
   globalThis.fetch = async (url, options) => {
     if (url === '/api/sc-config') return Response.json({ enabled: true, clientId: 'test', authUrl: 'https://soundcloud.example' });
+    if (url === '/api/account' && options?.method === 'GET') {
+      accountRefreshes++;
+      return Response.json({ enabled: true, account: signedInAccount, following: [] });
+    }
     if (url === '/api/autopublish' && !options?.method) return Response.json({ connected: callbackExchange, allowedPermalink: 'release-account' });
-    assert.equal(url, persistTokens ? '/api/sc-token' : '/api/autopublish');
+    assert.equal(url, accountSignIn ? '/api/account?action=soundcloud' : persistTokens ? '/api/sc-token' : '/api/autopublish');
     posts++;
     const body = JSON.parse(options.body);
     assert.equal(body.redirect_uri, 'http://localhost/sc-callback.html');
     assert(body.code_verifier.length > 40);
     if (rejectConnect) return Response.json({ error: 'wrong_account' }, { status: 403 });
-    return Response.json(persistTokens ? { access_token: 'browser-access', refresh_token: 'browser-refresh' } : { connected: true });
+    return Response.json(persistTokens ? { access_token: 'browser-access', refresh_token: 'browser-refresh', ...(accountSignIn ? { account: signedInAccount } : {}) } : { connected: true });
   };
   const { connect } = await import('../js/soundcloud.js');
   assert.equal((await connect({ endpoint: '/api/autopublish', persistTokens: false })).connected, true);
@@ -230,9 +235,20 @@ try {
   await connect();
   assert.equal(posts, before + 1, 'done outcome does not exchange twice');
   assert.equal(JSON.parse(stored.get('untergrund.sc')).refresh_token, 'browser-refresh', 'callback persists regular publishing tokens');
+  accountSignIn = true;
+  const { signInWithSoundCloud, getAccount } = await import('../js/account.js');
+  assert.deepEqual(await signInWithSoundCloud(), signedInAccount, 'detached callback preserves the sign-in account');
+  assert.deepEqual((await getAccount()).account, signedInAccount);
+  assert.equal(accountRefreshes, 1, 'account sign-in refreshes the account');
+  const reported = JSON.parse(stored.get('untergrund.sc.callback'));
+  assert.deepEqual(reported.result, { account: signedInAccount });
+  assert(!JSON.stringify(reported).includes('browser-access'));
+  assert(!JSON.stringify(reported).includes('browser-refresh'));
+  accountSignIn = false;
+  console.log('SoundCloud detached sign-in: account returned, profile refreshed and tokens excluded from callback outcome passed');
   rejectConnect = true; persistTokens = false;
   await assert.rejects(connect({ endpoint: '/api/autopublish', persistTokens: false }), /Sign in as release-account/);
-  assert.equal(posts, before + 2, 'reported callback error does not trigger a second exchange');
+  assert.equal(posts, before + 3, 'reported callback error does not trigger a second exchange');
   rejectConnect = false;
   stored.delete('untergrund.sc.callback');
   callbackExchange = false;
