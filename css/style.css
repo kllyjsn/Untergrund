@@ -1799,7 +1799,7 @@ body.mini-on { padding-bottom: 72px; }
   .tabbar { grid-template-columns: repeat(3,minmax(0,1fr)); }
   body.studio-open .studio-tabs { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .club-look-hero { grid-template-columns: minmax(0,1fr); }
-  .club-look-preview { width: 104px; height: 132px; }
+  .club-look-preview { width: 104px; }
   .club-look-tiles.five { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .club-look-swatches { grid-template-columns: repeat(3,minmax(0,1fr)); }
   body.studio-open .top > .group { flex-wrap: wrap; min-width: 0; max-width: 100%; }
