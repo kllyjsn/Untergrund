@@ -81,7 +81,9 @@ function song(style, seed) {
   assert.deepEqual(guitar.programs, [28], 'GM muted electric guitar');
   assert(!guitar.channels.has(9), 'pitched guitar never uses the drum channel');
   assert(!parsed.tracks.some((t) => t.name === 'Perc'), 'guitar is not duplicated as percussion');
-  const drums = parseMidi(songMidi(song('trap', 42)).bytes).tracks.find((t) => t.name === 'Perc');
+  const percussion = song('deephouse', 42);
+  for (const p of percussion.patterns) p.steps.perc[1] = 1;
+  const drums = parseMidi(songMidi(percussion).bytes).tracks.find((t) => t.name === 'Perc');
   assert(drums?.notes.length && drums.notes.every((n) => n.ch === 9 && n.m === GM_DRUMS.perc), 'real percussion retains GM drums');
   s.mutes.perc = true;
   assert(!parseMidi(songMidi(s).bytes).tracks.some((t) => t.name === 'Guitar'), 'perc-strip mute still silences exported guitar');

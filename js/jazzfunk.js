@@ -8,7 +8,7 @@ export const FUNK_PROGS = [
 ];
 export const FUNK_KICK = [[0, 3, 6, 10, 14], [0, 2, 7, 10, 15], [0, 3, 8, 10], [0, 6, 9, 14], [0, 6, 10, 13], [0, 3, 7, 12], [0, 2, 8, 11], [0, 7, 10, 14]];
 export const FUNK_SNARE = [4, 7, 11, 12, 15];
-export const FUNK_COMP = [[2, 7, 10], [3, 10, 15], [2, 6, 14], [6, 11, 14]];
+export const FUNK_COMP = [[2, 6, 10, 14], [2, 7, 10, 14], [3, 6, 10, 15], [2, 6, 11, 14]];
 export const FUNK_GUITAR = [1, 3, 5, 7, 9, 11, 13, 15];
 const pc = (n) => (n % 12 + 12) % 12;
 const near = (notes, n) => notes.reduce((a, b) => Math.abs(b - n) < Math.abs(a - n) ? b : a);
@@ -72,7 +72,7 @@ export function funkGroove(seed, bar, solo = false) {
   const ghosts = choose(touch, [[1, 7], [3, 11], [7, 15], [1, 9, 15]]);
   const snare = [4, 12, ...ghosts];
   if (fill) snare.push(...choose(touch, big ? [[10, 13, 14, 15], [11, 14, 15], [9, 10, 13, 15]] : [[13, 15], [10, 15], [11, 14]]));
-  const comp = [...choose(touch, FUNK_COMP)].filter((at, k) => !solo || k === 0 || touch() > 0.55);
+  const comp = [...choose(touch, FUNK_COMP)].filter((at, k) => !solo || k === 0 || touch() > 0.3);
   const oh = touch() < (fill ? 0.85 : 0.4) ? [choose(touch, [14, 15])] : [];
   const ch = Array.from({ length: 16 }, (_, i) => i).filter((i) => !oh.includes(i) && !(big && i >= 14));
   const guitar = FUNK_GUITAR.filter((i) => !comp.includes(i) && touch() > 0.22);
@@ -87,16 +87,16 @@ export function funkBass(key, h, bar, seed = 0, next = h) {
   const notes = new Map(groove.kick.map((at) => [at, [at, at === 0 ? 1.8 : 1.1, root + (at === 0 ? 0 : choose(r, [0, fifth, iv.includes(11) ? 11 : 10, third])), at === 0 ? 0.9 : 0.72 + r() * 0.12]]));
   const pop = choose(r, bar % 2 ? [3, 7, 11] : [3, 9, 13]);
   notes.set(pop, [pop, 0.65, root + 12, 0.78]);
-  for (const at of choose(r, [[1, 11], [5, 15], [7, 13]])) if (!notes.has(at)) notes.set(at, [at, 0.22, root, 0.12 + r() * 0.03]);
+  for (const at of choose(r, [[1, 11], [5, 15], [7, 13]])) if (!notes.has(at)) notes.set(at, [at, 0.22, root, 0.26 + r() * 0.03]);
   if (bar % 2) {
     const target = 28 + pc(key + next.r - 28), direction = target >= root ? -1 : 1;
     const at = groove.kick.includes(15) ? 15 : 14;
     notes.set(at, [at, 0.6, target + direction, 0.56]);
     if (groove.big) notes.set(13, [13, 0.4, target + 2 * direction, 0.42]);
   }
-  if (![...notes.values()].some((n) => n[3] < 0.2)) {
+  if (![...notes.values()].some((n) => n[3] < 0.3)) {
     const at = choose(r, [1, 3, 5, 7, 9, 11, 13, 15].filter((n) => !notes.has(n)));
-    notes.set(at, [at, 0.22, root, 0.13]);
+    notes.set(at, [at, 0.22, root, 0.27]);
   }
   return [...notes.values()].sort((a, b) => a[0] - b[0]).map((n, i, ns) => [n[0], Math.min(n[1], (ns[i + 1]?.[0] ?? 16) - n[0] - 0.08), n[2], n[3]]);
 }
@@ -204,13 +204,13 @@ export function generateFunk(seed, bpm, palette, pocket) {
   steps.oh[14] = 1;
   for (const i of FUNK_COMP[0]) steps.stab[i] = 1;
   for (const i of FUNK_GUITAR) steps.perc[i] = 1;
-  Object.assign(master, { kit: 1, swing8: 0, duck: 0, drive: 0.02, dust: 0, arr: 0, vary: 0.4, pocket, humanize: 0.08, room: 0.14, revLevel: 0.22, dlyLevel: 0 });
+  Object.assign(master, { kit: 1, swing8: 0.5, duck: 0, drive: 0.02, dust: 0, arr: 0, vary: 0.4, pocket, humanize: 0.08, room: 0.14, revLevel: 0.22, dlyLevel: 0 });
   Object.assign(params.stab, { voice: 1, chord: prog[0].c, octave: 0, level: 0.65, decay: +(ensemble[3] * (0.98 + rng(Math.imul(seed ^ 0x4e67c6a7, 0x85ebca6b))() * 0.04)).toFixed(3), env: 0.12, cutoff: 1700, detune: 0.6, dly: 0, rev: 0.08, reso: 0.5 });
   Object.assign(params.acid, { voice: 5, level: 0.8, tune: 0, decay: 0.12, cutoff: 1700, drive: 0, dly: 0, rev: 0.02 });
   Object.assign(params.kick, { level: 0.7, drive: 0, dly: 0, rev: 0.03 });
-  Object.assign(params.snare, { level: 0.65, decay: 0.22, tone: 4000, snappy: 0.32, dly: 0, rev: 0.06 });
-  Object.assign(params.ch, { level: 0.35, decay: 0.045, tone: 4200, dly: 0, rev: 0.02 });
-  Object.assign(params.oh, { level: 0.22, decay: 0.14, tone: 4000, dly: 0, rev: 0.03 });
+  Object.assign(params.snare, { level: 0.65, decay: 0.22, tone: 6500, snappy: 0.5, dly: 0, rev: 0.06 });
+  Object.assign(params.ch, { level: 0.35, decay: 0.045, tone: 6500, dly: 0, rev: 0.02 });
+  Object.assign(params.oh, { level: 0.22, decay: 0.14, tone: 6500, dly: 0, rev: 0.03 });
   Object.assign(params.perc, { level: 0.48, pan: 0.45, dly: 0, rev: 0.04 });
   for (const id of ['ch', 'oh']) params[id].pan = 0.25;
   params.stab.pan = -0.15;
@@ -219,5 +219,5 @@ export function generateFunk(seed, bpm, palette, pocket) {
   const part = (solo) => Array.from({ length: 8 }, (_, bar) => funkNotes(seed, bar, prog[Math.floor(bar / 2) % prog.length], solo).map(([at, dur, n, v], i) => [16 * bar + at, Math.round(dur), n, v, Math.floor(bar / 4), bar % 4 * 8 + i])).flat();
   const m = { bars: 8, n: part(false), v: part(true), b: part(true) }, preview = Array(32).fill(0);
   for (const [at, dur, n, v] of m.n) if (at < 32) preview[at] = [n, dur, v];
-  return { pattern: { jazz: { style: 'jazzfunk', seed }, steps, len: Object.fromEntries(TRACK_IDS.map((id) => [id, 16])), prog, hook: { v: 'tpt', o: 0, s: preview, m, x: { feel: 0.15, risk: 0, space: 0.5, warmth: 0.75 } }, hm: 2 }, params, master, bpm, key: Math.floor(r() * 12), swing: 0.06, scale: prog[0].c === 16 ? 'dorian' : 'major' };
+  return { pattern: { jazz: { style: 'jazzfunk', seed }, steps, len: Object.fromEntries(TRACK_IDS.map((id) => [id, 16])), prog, hook: { v: 'tpt', o: 0, s: preview, m, x: { feel: 0.15, risk: 0, space: 0.5, warmth: 0.75 } }, hm: 2 }, params, master, bpm, key: Math.floor(r() * 12), swing: 0.15, scale: prog[0].c === 16 ? 'dorian' : 'major' };
 }

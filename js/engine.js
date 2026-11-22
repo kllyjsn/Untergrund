@@ -5511,7 +5511,7 @@ export class Sequencer {
     if (hits) {
       const figure = sectionBar === sectionBars - 2 ? [0, 6, 10] : [0, 3, 6, 12, 15];
       groove.kick = groove.snare = groove.comp = figure;
-      groove.ch = groove.oh = groove.guitar = groove.chank = [];
+      groove.chank = [];
     }
     const enabled = (id) => !s.mutes[id] && (!Object.values(s.solos).some(Boolean) || s.solos[id]);
     const final = s.ending && bars && pos === bars - 1;
@@ -5519,7 +5519,7 @@ export class Sequencer {
     if (final && pat.prog?.length) e.harm = pat.prog[0];
     const jitter = (salt) => hash(abs + seed, salt);
     const kickAt = t + (jitter(201) * 2 - 1) * 0.001;
-    const comp = !keysOut && this.jazzGrid(pat, 'stab', abs, FUNK_COMP[0], final || groove.comp.includes(i));
+    const comp = this.jazzGrid(pat, 'stab', abs, FUNK_COMP[0], final || groove.comp.includes(i));
     if (final) {
       if (enabled('kick') && this.jazzGrid(pat, 'kick', abs, FUNK_KICK[0], true)) e.trigger('kick', t, 0.95);
       if (enabled('oh') && pat.steps.oh.some(Boolean)) e.crash(t, 0.7);
@@ -5531,12 +5531,12 @@ export class Sequencer {
       if (enabled('snare') && snare) {
         const back = i === 4 || i === 12, fill = groove.fill && i >= (groove.big ? 9 : 13);
         const at = t + (back ? (jitter(203) * 2 - 1) * 0.001 : 0.006 + jitter(204) * 0.004);
-        e.trigger('snare', at, (back ? 0.76 : fill ? 0.24 + jitter(205) * 0.18 : 0.1 + jitter(206) * 0.05) * snare);
+        e.trigger('snare', at, (back ? 0.76 : fill ? 0.32 + jitter(205) * 0.18 : 0.25 + jitter(206) * 0.05) * snare);
       }
       const ch = this.jazzGrid(pat, 'ch', abs, Array.from({ length: 16 }, (_, k) => k), groove.ch.includes(i));
       const oh = this.jazzGrid(pat, 'oh', abs, [14], groove.oh.includes(i));
       const hatAt = t + (i % 2 ? 0.003 + jitter(207) * 0.004 + (jitter(208) * 2 - 1) * 0.002 : 0);
-      if (!hits && enabled('ch') && ch) e.trigger('ch', hatAt, (i % 4 === 0 ? 0.36 : i % 2 ? 0.16 : 0.25) * (0.94 + jitter(209) * 0.12) * ch);
+      if (enabled('ch') && ch) e.trigger('ch', hatAt, (i % 4 === 0 ? 0.38 : i % 2 ? 0.28 : 0.32) * (hits ? 0.7 : 1) * (0.94 + jitter(209) * 0.12) * ch);
       if (!hits && enabled('oh') && oh) {
         const kit = e.rec?.('kit');
         if (kit && Math.round(s.master.kit) === 1) {
@@ -5546,10 +5546,10 @@ export class Sequencer {
         } else e.trigger('oh', hatAt, 0.25 * oh);
       }
       const guitar = this.jazzGrid(pat, 'perc', abs, FUNK_GUITAR, groove.guitar.includes(i) || groove.chank.includes(i));
-      if (!hits && enabled('perc') && guitar && !comp) {
+      if (enabled('perc') && guitar && !comp) {
         const chank = groove.chank.includes(i), name = chank ? 'gtr' : 'gtrmute';
         const at = t + 0.002 + jitter(210) * 0.003, dur = chank ? Math.min(0.13, sd * 0.8) : 0.045;
-        const v = (chank ? 0.42 : [5, 7, 13, 15].includes(i) ? 0.28 : 0.15) * guitar;
+        const v = (chank ? 0.48 : [5, 7, 13, 15].includes(i) ? 0.38 : 0.28) * (hits ? 0.7 : 1) * guitar;
         const notes = jazzVoicing(e.harm, s.key, 'jazzfunk').map((n) => n > 72 ? n - 12 : n);
         const pitches = chank ? notes.slice(-3) : [notes.at(-1)];
         if (e.rec) {
@@ -5558,7 +5558,7 @@ export class Sequencer {
           else if (chank) for (const [k, m] of pitches.entries()) e.recordedNote(set, at + k * 0.0015, v * 2, m, dur, e.ch.perc.input, -5, name, 0.9);
           else {
             const m = pitches[0], [center, buf] = set.reduce((a, b) => Math.abs(b[0] - m) < Math.abs(a[0] - m) ? b : a);
-            e.playBuf(buf, at, v * 2, e.ch.perc.input, 2 ** ((m - center) / 12), dur, { lp: 2400, fade: 0.002, release: 0.02 });
+            e.playBuf(buf, at, v * 2, e.ch.perc.input, 2 ** ((m - center) / 12), dur, { lp: 9000, fade: 0.002, release: 0.02 });
           }
         } else for (const [k, m] of pitches.entries()) e.add?.('guitar', at + k * 0.0015, m, dur, v);
       }
@@ -5575,7 +5575,7 @@ export class Sequencer {
       e.acid(at, { ...st, n: m - 36 - s.key - harmRoot(e.harm) + st.n, ap: true }, false, false, swingDuration(s, abs, dur, sd), undefined, kickAt);
       e.noteVel = 1;
     }
-    if (enabled('stab') && comp) e.trigger('stab', final ? t : t + 0.003, (final ? 0.85 : hits ? 0.7 : solo ? 0.4 : 0.54) * comp);
+    if (enabled('stab') && comp) e.trigger('stab', final ? t : t + 0.003, (final ? 0.85 : hits ? 0.7 : keysOut ? 0.35 : solo ? 0.48 : 0.6) * comp);
     if (!intro && !hits && !final && enabled('stab') && pat.hook && pat.hm && !this.jazzHook(pat, abs, t, sd)) {
       const firstHead = this.cur === 6 && start === 0 && sectionBars >= 16;
       let leadBar = sectionBar;

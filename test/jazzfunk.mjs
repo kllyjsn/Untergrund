@@ -12,6 +12,7 @@ import { liveSets } from '../js/livekit.js';
 import { stageScene } from '../js/club-stage.js';
 import { runComposition, compositionRegressions } from '../scripts/composition.mjs';
 import { songState } from '../js/song-spec.js';
+import { swingLate } from '../js/groove.js';
 
 const pc = (n) => (n % 12 + 12) % 12;
 {
@@ -72,7 +73,7 @@ for (const seed of [1, 2, 3, 11, 42, 77, 1234, 12345, 0x12345678]) {
   assert.deepEqual(saved.patterns, s.patterns); assert.equal(saved.scale, s.scale);
   assert(s.bpm >= 96 && s.bpm <= 110);
   assert(['dorian', 'major'].includes(s.scale));
-  assert.equal(s.master.swing8, 0); assert.equal(s.swing, 0.06);
+  assert.equal(s.master.swing8, 0.5); assert.equal(s.swing, 0.15);
   assert.equal(s.master.duck, 0); assert.equal(s.master.kit, 1);
   assert.equal(s.params.stab.voice, 1); assert.equal(s.params.acid.voice, 5);
   assert(s.params.stab.env <= 0.15 && s.params.stab.cutoff <= 1800);
@@ -87,7 +88,7 @@ for (const seed of [1, 2, 3, 11, 42, 77, 1234, 12345, 0x12345678]) {
   for (let bar = 0; bar < 32; bar++) {
     const h = jazzHarmony(p, bar), next = jazzHarmony(p, bar + 1), bass = funkBass(s.key, h, bar, seed, next), tones = CHORDS[h.c].iv;
     assert.equal(pc(bass[0][2] - s.key), pc(h.r));
-    assert(bass.some(([, dur, , v]) => dur < 0.3 && v <= 0.15));
+    assert(bass.some(([, dur, , v]) => dur < 0.3 && v >= 0.26 && v < 0.3), 'ghost bass stays short but audible');
     assert(bass.some(([, , m]) => m === bass[0][2] + 12));
     for (const [step, dur, m] of bass) {
       assert(dur > 0 && m >= 26 && m <= 51);
@@ -112,7 +113,7 @@ for (const seed of [1, 2, 3, 11, 42, 77, 1234, 12345, 0x12345678]) {
     assert.deepEqual(at('kick'), groove.kick); assert.deepEqual(at('snare'), groove.snare);
     assert.deepEqual(at('ch'), groove.ch); assert.deepEqual(at('oh'), groove.oh);
     assert(at('kick').every((i) => at('acid').includes(i)), 'every kick locks to a bass pluck');
-    assert(events('snare').some((n) => n.v <= 0.15) && events('snare').some((n) => n.v === 0.76));
+    assert(events('snare').some((n) => n.v >= 0.25 && n.v < 0.3) && events('snare').some((n) => n.v === 0.76));
     assert(at('guitar').every((i) => !at('stab').includes(i)), 'guitar leaves the keys room');
   }
   const muted = structuredClone(s); muted.mutes = Object.fromEntries(TRACK_IDS.map((id) => [id, true]));
@@ -155,7 +156,7 @@ for (const prog of FUNK_PROGS) {
   s.chain = 'G'.repeat(16); s.ending = false;
   const notes = record(s, 16);
   const step = (n) => Math.round((n.t - 0.05) / sd);
-  const late = (n) => (n.t - 0.05 - step(n) * sd - (step(n) % 2 ? s.swing * sd * 0.5 : 0)) * 1000;
+  const late = (n) => (n.t - 0.05 - step(n) * sd - swingLate(s, step(n), sd)) * 1000;
   assert(notes.kick.every((n) => Math.abs(late(n)) <= 1.00001));
   assert(notes.snare.filter((n) => [4, 12].includes(step(n) % 16)).every((n) => Math.abs(late(n)) <= 1.00001));
   assert(notes.snare.filter((n) => ![4, 12].includes(step(n) % 16)).every((n) => late(n) >= 5.99999 && late(n) <= 10.00001));
@@ -233,11 +234,11 @@ for (const seed of [0, 42, 77, 12345, 1e9]) {
   const step = (n) => Math.round((n.t - 0.05) / sd);
   const within = (id, from, to) => (notes[id] || []).filter((n) => step(n) >= from * 16 && step(n) < to * 16);
   assert(!within('hook', 0, 4).length, 'four-bar rhythm intro is trumpet tacet');
-  assert(!within('stab', 0, 2).length && within('stab', 2, 4).length, 'keys enter halfway through the intro');
+  assert(within('stab', 0, 2).length && within('stab', 0, 2).every((n) => n.v === 0.35), 'quiet intro comping maintains the band level');
   for (const id of ['kick', 'acid', 'guitar']) assert(within(id, 0, 2).length, `${id}: rhythm section opens the song`);
   assert(within('hook', 4, 6).length, 'head phrase A enters at bar four');
-  assert(!within('stab', 32, 36).length && within('stab', 36, 38).length, 'keys lay out at the second solo chorus, then return');
-  assert(!within('hook', 62, 64).length && !within('ch', 62, 64).length && !within('oh', 62, 64).length && !within('guitar', 62, 64).length, 'hits break clears lead, hats and guitar');
+  assert(within('stab', 32, 36).every((n) => n.v === 0.35) && within('stab', 36, 38).some((n) => n.v === 0.48), 'keys lay back for the second chorus, then return');
+  assert(!within('hook', 62, 64).length && within('ch', 62, 64).length && within('guitar', 62, 64).length, 'quiet hats and guitar keep time under the band hits');
   for (const [bar, figure] of [[62, [0, 6, 10]], [63, [0, 3, 6, 12, 15]]]) {
     for (const id of ['kick', 'snare', 'stab', 'acid']) {
       assert.deepEqual([...new Set(within(id, bar, bar + 1).map((n) => step(n) % 16))], figure, `${id}: band break figure`);
@@ -261,7 +262,7 @@ for (const seed of [0, 42, 77, 12345, 1e9]) {
   assert.deepEqual(record(s, 80), notes, 'full lead and arrangement are deterministic');
   const short = structuredClone(s); short.chain = 'G'.repeat(10) + 'C'.repeat(32) + 'H'.repeat(16);
   const moved = record(short, 58), movedKeys = moved.stab.filter((n) => n.t >= 0.05 + 26 * 16 * sd && n.t < 0.05 + 30 * 16 * sd);
-  assert.equal(movedKeys.length, 0, 'second-chorus lay-out follows the section, not absolute song bars');
+  assert(movedKeys.length && movedKeys.every((n) => n.v === 0.35), 'second-chorus lay-back follows the section, not absolute song bars');
   const fill = moved.snare.filter((n) => Math.round((n.t - 0.05) / sd) >= 9 * 16 && Math.round((n.t - 0.05) / sd) < 10 * 16).map((n) => Math.round((n.t - 0.05) / sd) % 16);
   assert([10, 13, 14, 15].every((i) => fill.includes(i)), 'off-cycle section boundary gets a transition fill');
   const raw = (headOut) => Array.from({ length: 16 }, (_, bar) => funkNotes(seed, bar, jazzHarmony(s.patterns[6], bar), false, { headOut }));
