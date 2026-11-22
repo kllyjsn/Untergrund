@@ -38,6 +38,11 @@ const s = freshSong('acid', 4242);
 s.artist = { name: 'X', title: trackTitle(4242), style: 'acid', seed: 4242 };
 s.fresh = 1;
 assert.deepEqual(refreshSong(clone(s)).patterns, s.patterns);
+// Mutes and solos carried over from an earlier song (e.g. stray 1-7 keys) don't silence an untouched song; an edited song keeps its mix.
+const muted = { ...clone(s), mutes: { kick: true, ch: true }, solos: { acid: true } };
+const replayed = refreshSong(clone(muted));
+assert.ok(!Object.values(replayed.mutes).some(Boolean) && !Object.values(replayed.solos).some(Boolean), 'carried-over mutes cleared');
+assert.equal(refreshSong({ ...clone(muted), fresh: 0 }).mutes.kick, true, 'an edited song keeps its mutes');
 const drop = dropSong(dailyDrop(new Date('2026-11-14T12:00:00Z')));
 assert.equal(refreshable(drop), false, 'a drop is rebuilt from its date, not refreshed');
 console.log('song refresh passed');
