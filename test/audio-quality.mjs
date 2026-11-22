@@ -7,7 +7,7 @@ import { baselineOf, compare, report } from '../scripts/audio-benchmark.mjs';
 import { withChrome } from './chrome.mjs';
 import { stringStopSections } from '../js/hiphop.js';
 
-for (const args of [[48000, 0, 4220], [48000, 4220, 1790], [8000, 1790, 4220], [NaN, 1790, 4220], [Infinity, 1790, 4220]]) {
+for (const args of [[48000, 0, 4220], [48000, 4220, 1790], [8000, 1790, 4220], [NaN, 1790, 4220], [Infinity, 1790, 4220], [48000, 1790, 4220, 0], [48000, 1790, 4220, -16], [48000, 1790, 4220, NaN]]) {
   assert.throws(() => stringStopSections(...args), RangeError);
 }
 const stringsStop = await withChrome((run) => run(`(async () => {
@@ -25,7 +25,8 @@ const stringsStop = await withChrome((run) => run(`(async () => {
       gain.forEach((v, i) => { gain[i] = v + 20 * Math.log10(magnitude[i]); });
     }
     for (let hz = 800; hz <= 1700; hz++) if (gain[hz - 20] < -1.5 || gain[hz - 20] > 0.001) throw Error('Strings body response at ' + fs);
-    if ([...gain].some(v => !Number.isFinite(v) || v > 0.001)) throw Error('Strings stop-band boost or invalid response');
+    if ([...gain].some(v => !Number.isFinite(v) || v > 0.001 || v < -16.001)) throw Error('Strings stop-band boost, excessive depth or invalid response');
+    if (Math.min(...gain.slice(1980, 3981)) > -15.9) throw Error('Strings stop band did not reach its depth cap');
     const old = new Float64Array(frequencies.length);
     for (const [frequency, Q, db] of [[2200, 1, -6], [3000, .6, -12]]) {
       const bell = ctx.createBiquadFilter(); bell.type = 'peaking'; bell.frequency.value = frequency; bell.Q.value = Q; bell.gain.value = db;
@@ -62,7 +63,7 @@ const stringsStop = await withChrome((run) => run(`(async () => {
   if (silent.some(v => v !== 0)) throw Error('Strings stop band changed silence');
   return true;
 })()`));
-if (stringsStop) console.log('G-Funk strings stop band: body/air at 22.05–192 kHz, finite impulses, genre/instrument scope, empty and silent PCM passed');
+if (stringsStop) console.log('G-Funk strings stop band: 16 dB cap without boosts, body/air at 22.05–192 kHz, finite impulses, genre/instrument scope, empty and silent PCM passed');
 
 const phonkWidth = await withChrome((run) => run(`(async () => {
   const { Engine } = await import('/js/engine.js');
