@@ -1,7 +1,7 @@
 # Recorded instrument samples: licenses
 
 Every audio file in this folder is derived from one of the sources below. Except for the attributed
-Greg Sullivan Wurlitzer EP200 bank (CC-BY-3.0, documented below), these are released under the
+MTG tenor saxophone bank (CC-BY-4.0, documented below), these are released under the
 **Creative Commons CC0 1.0 Universal** public-domain dedication (full legal text in each source repo's `LICENSE`;
 the Virtuosity Drums and double-bass files are byte-identical, sha256 `a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499`).
 CC0 waives copyright and related rights, so the files can be redistributed in this app and used in commercial
@@ -146,16 +146,6 @@ recording's measured pitch (`python3 test/sampletune.py`) is corrected in `js/li
 - `jfl_*` / `jflb_*`: sustain-vibrato / expressive-vibrato flute, all ten roots.
 - Modified by Untergrund: mono 48 kHz / 24-bit FLAC; onset trim, maximum 3.2 s sustains or 1 s staccato, 80 ms edge fade, peak normalization and measured playback tuning. No denoising, synthesis or baked EQ.
 - Per-file original names, pinned URLs, SHA256 hashes, processing and tuning: [`../jazz-winds-provenance.json`](../jazz-winds-provenance.json). Narrow runtime EQ measurements: [`../jazz-winds-resonances.json`](../jazz-winds-resonances.json).
-
-## Greg Sullivan Wurlitzer EP200 (jazz KEYS)
-
-- Source: https://github.com/sfzinstruments/GregSullivan.E-Pianos @ `8c3e581acda3594b553948ff0222d4f84a698376`
-- Recordings by Greg Sullivan; SFZ mapping by kinwie. License: **CC-BY-3.0**, not CC0.
-- Source wording: “This work is licensed under a Creative Commons Attribution 3.0 Unported License.”
-- `jep1_*`, `jep2_*`, `jep3_*`, `jep4_*` retain the four recorded dynamics (pp/mp/f/ff), each with its own nearest-root mapping.
-- Modified by Untergrund: mono 48 kHz / 24-bit FLAC, onset trim, at most six seconds, 80 ms tail fade, peak normalization and measured playback tuning corrections. No synthesis or denoising.
-- Full license: [`../WURLITZER-LICENSE.txt`](../WURLITZER-LICENSE.txt). Pinned URLs, original filenames, original/imported hashes, processing and pitch offsets: [`../wurlitzer-provenance.json`](../wurlitzer-provenance.json).
-- The original CC0 statements in this register apply to the other explicitly CC0 banks, not these attributed recordings.
 
 ## Saxophones: Karoryfer Weresax alto and MTG tenor (the recorded `reed` hook in Pop, Neo-Soul, Reggaeton, Breaks, Trap, Boom Bap and Afrobeats)
 

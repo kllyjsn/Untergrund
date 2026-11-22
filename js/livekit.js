@@ -1,7 +1,5 @@
 import { pocketOf } from './groove.js';
 import { HAND_KIT, MARIMBA_STAB, KIT_BACKBEAT } from './params.js';
-import { JAZZ_BANKS, JAZZ_TUNING } from './jazz-sample-data.js';
-import { EP_BANKS } from './jazz-recordings.js';
 import { WIND_BANKS, WIND_TUNING } from './jazz-wind-data.js';
 import { windBanks } from './jazz-winds.js';
 // Recorded acoustic kit and upright bass for the live-kit genres (CC0, see samples/live/LICENSE.md).
@@ -106,8 +104,6 @@ export const saxRoot = (style, root, oct = SAX_OCT[style] ?? 0) => {
   return lo + (((root - lo) % 12) + 12) % 12 + (oct - (SAX_OCT[style] ?? 0)) * 12;
 };
 Object.assign(BAND, EXTRA_TAKES);
-Object.assign(BAND, JAZZ_BANKS);
-Object.assign(BAND_TUNE, JAZZ_TUNING);
 Object.assign(BAND, WIND_BANKS);
 Object.assign(BAND_TUNE, WIND_TUNING);
 export const BAND_FILES = Object.entries(BAND).flatMap(([k, ns]) => ns.map((n) => `${k}_${n}`));
@@ -177,7 +173,6 @@ export function liveSets(st) {
   const mode = Math.round(st?.master?.kit || 0), fullKit = mode === 1 || mode === 2;
   const out = fullKit ? ['kit'] : mode === KIT_BACKBEAT ? ['snare'] : [];
   const patterns = [st?.pattern, ...(st?.patterns || [])];
-  if (patterns.some((p) => p?.jazz && (Math.round(st?.params?.stab?.voice || 0) === 1 || p.hook?.v === 'tapekeys'))) out.push(...EP_BANKS);
   if (st?.patterns?.some((p) => p.jazz?.style === 'jazzfunk') || st?.pattern?.jazz?.style === 'jazzfunk') out.push('horn');
   if (fullKit && pocketOf(st.master)?.band) out.push('kitx');
   if (Math.round(st?.params?.acid?.voice || 0) === 5) out.push('ebass');

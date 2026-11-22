@@ -82,11 +82,11 @@ const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
 }
 {
   const local = { recLock: new Map() }, room = { recLock: new Map(), roomRecordings: true };
-  assert.equal(Engine.prototype.rec.call(local, 'jep1'), null);
-  assert.equal(Engine.prototype.rec.call(room, 'jep1'), null);
-  await loadBand('jep1');
-  assert.equal(Engine.prototype.rec.call(local, 'jep1'), null, 'ordinary playback retains its initial fallback');
-  assert.ok(Engine.prototype.rec.call(room, 'jep1'), 'a live listener adopts the decoded bank without restarting the clock');
+  assert.equal(Engine.prototype.rec.call(local, 'timproll'), null);
+  assert.equal(Engine.prototype.rec.call(room, 'timproll'), null);
+  await loadBand('timproll');
+  assert.equal(Engine.prototype.rec.call(local, 'timproll'), null, 'ordinary playback retains its initial fallback');
+  assert.ok(Engine.prototype.rec.call(room, 'timproll'), 'a live listener adopts the decoded bank without restarting the clock');
 }
 const feeds = (source, dest) => source === dest || dest.inputs.some((input) => feeds(source, input));
 {

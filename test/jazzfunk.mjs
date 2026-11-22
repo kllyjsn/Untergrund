@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import './jazz-recordings.mjs';
+import './jazz-rhodes.mjs';
 import { freshSong, sanitize } from '../js/state.js';
 import { Engine, Sequencer } from '../js/engine.js';
 import { Recorder } from '../js/midi.js';
@@ -21,7 +21,7 @@ const pc = (n) => (n % 12 + 12) % 12;
     const state = freshSong(style, 42);
     const e = { state, playingPattern: state.patterns[6], ctx: {
       createOscillator() { const n = node(); oscillators.push(n); return n; }, createStereoPanner: node,
-    }, gain(v) { const n = node(); n.gain.value = v; gains.push(n); return n; }, filter(type, f) { const n = node(); n.type = type; n.frequency.value = f; filters.push(n); return n; }, startSource() {} };
+    }, gain(v) { const n = node(); n.gain.value = v; gains.push(n); return n; }, filter(type, f) { const n = node(); n.type = type; n.frequency.value = f; filters.push(n); return n; }, startSource() {}, rec() { throw Error('Rhodes must not consult recorded banks'); }, playBuf() { throw Error('Rhodes must not schedule a sample'); } };
     Engine.prototype.jazzKeys.call(e, 0, velocity, notes, 69, { decay: 0.5, cutoff: 2200, ...params }, node());
     return { oscillators, gains, filters };
   };
