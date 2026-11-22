@@ -12,7 +12,7 @@ import { encodeWav, rng } from './dsp.js';
 import { knob, numBox, h, controlHooks } from './ui.js';
 import { createHistory, gesture } from './undo.js';
 import { openPublish } from './publish.js';
-import { createSetRecorder, openSetCutter, openSongPublish, openJukebox, fmtTime, loadReplay } from './sets.js';
+import { createSetRecorder, openSetCutter, openSongPublish, openJukebox, jukeboxPreviewSeconds, fmtTime, loadReplay } from './sets.js';
 import { loadArtistProfile, openArtistStudio } from './artist.js';
 import { openClub, loadAvatar, avatarNode, hostingRoom } from './club.js';
 import { liveNowRow, watchLiveRooms, liveDirectory, fetchLiveRooms } from './live-rooms.js';
@@ -326,7 +326,13 @@ function schedule(lead) {
     // A generated song has played its final bar: let it ring, then stop rather than loop back to the intro.
     if (seq.finished && !handoff) {
       songOver = true;
-      setTimeout(() => { if (playing && songOver) { const radio = radioPlays(); stop('complete'); if (radio) { trackEvent('radio', { kind: 'next' }); radioNext(); } } }, Math.max(0, nextTime - ctx.currentTime + 2.5) * 1000);
+      setTimeout(() => {
+        if (!playing || !songOver) return;
+        const finishJukebox = jukeboxNow?.finish, radio = radioPlays();
+        stop('complete');
+        if (finishJukebox) finishJukebox();
+        else if (radio) { trackEvent('radio', { kind: 'next' }); radioNext(); }
+      }, Math.max(0, nextTime - ctx.currentTime + 2.5) * 1000);
       break;
     }
   }
@@ -851,7 +857,7 @@ function setMaster(id, v) {
 // Undo / redo. `label` names the edit for the toast ("Undone: CLEAR pattern B").
 function snapshot(like = {}) {
   const { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn } = state;
-  const snap = { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn, chainEntries: state.chainEntries ?? null, labels: state.labels || null, lyrics: state.lyrics || null, sing: state.sing || null };
+  const snap = { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn, chainEntries: state.chainEntries ?? null, labels: state.labels || null, lyrics: state.lyrics || null, sing: state.sing || null, feel: state.feel || null };
   if ('artist' in like) snap.artist = state.artist ?? null;
   if (like.ui) snap.ui = { style, family };
   return JSON.stringify(snap);
@@ -878,6 +884,7 @@ function restore(entry, verb) {
   if (!state.labels) delete state.labels;
   if (!state.lyrics) delete state.lyrics;
   if (!state.sing) delete state.sing;
+  if (!state.feel) delete state.feel;
   engine?.applyAll(); engine?.applyDelayTime();
   build(); persist(); toast(entry.label ? `${verb}: ${entry.label}` : verb);
 }
@@ -1038,8 +1045,7 @@ function showJukebox() {
         current = { ...normalizeSong({ ...item, state: saved.state, remixOf: saved.remixOf || item.remixOf }), trackId: item.local ? '' : item.trackId };
       }
       listen(current, item.kind === 'drop' ? 'drop' : 'jukebox');
-      const bars = state.chainOn ? parseChain(state.chain).length || 8 : 8;
-      return (Math.min(bars, 64) * 16 * 15) / state.bpm;
+      return jukeboxPreviewSeconds(state);
     },
   });
 }

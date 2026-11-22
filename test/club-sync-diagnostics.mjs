@@ -70,7 +70,7 @@ export async function installDiagnostics(send, base, {vocalSlew = false, vocalRe
           __clubAudio.droppedStep = {step:n, time:args[0]}; return seq.cur; } return tick(n, ...args); };` : ''}
     }` : ''}
     (__clubAudio.schedulerCalls ||= []).push(performance.timeOrigin + performance.now());
-    if (typeof ctx !== 'undefined' && (!a.length || performance.now() - a.at(-1).monotonic >= 1000))
+    if (typeof ctx !== 'undefined' && (!a.length || a.at(-1).clockOffset !== clockOffset || performance.now() - a.at(-1).monotonic >= 1000))
       a.push({at:performance.timeOrigin + performance.now(), monotonic:performance.now(),
         ${['abs', 'base', 'nextTime', 'transportOrigin', 'clockOffset'].map(optional).join(', ')},
         wallOffset:Date.now()/1000 - ctx.currentTime, contextTime:ctx.currentTime,
