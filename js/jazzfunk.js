@@ -52,7 +52,7 @@ export function funkBass(key, h, bar, seed = 0, next = h) {
   return [...notes.values()].sort((a, b) => a[0] - b[0]).map((n, i, ns) => [n[0], Math.min(n[1], (ns[i + 1]?.[0] ?? 16) - n[0] - 0.08), n[2], n[3]]);
 }
 
-export function funkNotes(seed, bar, h, solo = false, { headOut = false, sectionBars = 48 } = {}) {
+export function funkNotes(seed, bar, h, solo = false, { headOut = false, sectionBars = 48, key = 0 } = {}) {
   const phase = bar % 16, pair = Math.floor(phase / 2), chorus = Math.floor(bar / 16);
   const r = rng(seed ^ Math.imul(pair + 1, 0x45d9f3b));
   const motifs = [
@@ -68,46 +68,72 @@ export function funkNotes(seed, bar, h, solo = false, { headOut = false, section
   const plan = rng(Math.imul(seed ^ 0x735a2d97, 0x85ebca6b));
   const theme = Math.floor(plan() * motifs.length), answer = 1 + Math.floor(plan() * 3);
   const contrast = Math.floor(plan() * 3), cadence = plan() < 0.5;
-  const contours = [[7, 10, 12, 14, 12, 10, 9, 7, 12, 10], [12, 9, 7, 10, 14, 12, 10, 9, 7, 12], [9, 12, 14, 10, 7, 9, 12, 14, 10, 7]];
-  const shape = contours[Math.floor(plan() * contours.length)];
-  const motif = motifs[(theme + (pair % 2 ? answer : 0) + (phase >= 4 && phase < 8 ? 1 : 0)) % motifs.length];
-  let rhythm = motif, peak = false;
+  const crest = [22, 24, 26][Math.floor(plan() * 3)];
+  const motif = motifs[theme];
+  let rhythm = motif.map((n) => [...n]), peak = false;
+  if (pair % 2 || phase >= 4 && phase < 8) {
+    const at = rhythm.length - 2;
+    if (answer === 1) rhythm[at][0]++;
+    else if (answer === 2) rhythm[at][0]--;
+    else rhythm.splice(at, 1);
+  }
   if (solo) {
     const peakBar = sectionBars - 4;
     if (bar > peakBar || bar >= sectionBars - 2) return [];
     peak = bar === peakBar;
     if (peak) rhythm = [[bar % 2 * 16, 18]];
-    else if (chorus === 0) rhythm = [[2, 6], [8, 6], [14, 8], [22, 6]];
+    else if (chorus === 0) {
+      const sparse = rhythm.filter((_, i) => i % 2 === 0 || i === rhythm.length - 1);
+      if (sparse.length < Math.ceil(rhythm.length * 0.6)) sparse.splice(1, 0, rhythm[1]);
+      rhythm = sparse;
+    }
     else if (chorus >= 2) {
-      const line = [1, 2, 3, 4, 6, 8, 10, 11, 12, 14, 16, 18, 20, 21, 22, 24, 26, 28];
-      rhythm = line.map((at, i) => [at, (line[i + 1] ?? 30) - at - 0.2]);
+      const extra = Math.floor(rhythm.length / 2);
+      const gaps = [3, 7, 11, 15, 19, 23, 27, 9, 17].filter((at) => at > rhythm[0][0] && at < rhythm.at(-1)[0] && !rhythm.some(([n]) => n === at));
+      rhythm.push(...gaps.slice(0, extra).map((at) => [at, 0.8]));
+      rhythm.sort((a, b) => a[0] - b[0]);
     }
   } else if (phase >= 12) {
-    rhythm = headOut !== cadence ? [[1, 1], [2, 1], [3, 1], [4, 4], [8, 4], [12, 4], [16, 18]] : [[2, 1], [3, 1], [4, 6], [10, 2], [12, 4], [16, 18]];
+    rhythm = rhythm.filter(([at]) => at < 16);
+    if (headOut !== cadence) rhythm = rhythm.filter((_, i) => i !== rhythm.length - 2);
+    rhythm.push([16, 18]);
     if (phase >= 14) return [];
-  } else if (phase >= 8) rhythm = [
-    [[0, 7], [7, 1], [8, 6], [14, 8], [22, 1], [23, 1], [24, 5]],
-    [[2, 6], [8, 6], [14, 8], [22, 4], [26, 4]],
-    [[0, 8], [8, 4], [12, 3], [15, 7], [22, 1], [23, 1], [24, 6]],
-  ][contrast];
+  } else if (phase >= 8) rhythm = rhythm.filter((_, i) => i !== 1 + contrast && i !== 5 + contrast);
   const iv = CHORDS[h.c].iv;
   const mode = iv.includes(3) ? [0, 2, 3, 5, 7, 9, 10] : iv.includes(11) ? [0, 2, 4, headOut ? 5 : 6, 7, 9, 11] : h.c === 15 ? [0, 1, 3, 4, 6, 8, 10] : [0, 2, 4, 5, 7, 9, 10];
-  const tones = iv.flatMap((n) => [pc(n), pc(n) + 12, pc(n) + 24]);
-  const passing = mode.flatMap((n) => [n, n + 12, n + 24]);
-  const lift = solo ? Math.min(5, chorus * 2) + pair % 3 : phase >= 8 && phase < 12 ? 5 : 0;
-  return rhythm.flatMap(([at, dur], index) => {
-    if (Math.floor(at / 16) !== bar % 2) return [];
+  const register = Array.from({ length: 12 }, (_, i) => 69 + i);
+  const tones = register.filter((m) => iv.some((n) => pc(m - key - h.r) === pc(n)));
+  const passing = register.filter((m) => mode.includes(pc(m - key - h.r)));
+  const lift = solo ? Math.min(2, chorus) * 0.5 : phase >= 8 && phase < 12 ? headOut ? 3 : 1 : 0;
+  const top = headOut && phase >= 8 && phase < 12 ? 80 : 78;
+  const home = (solo ? 69 : 71) + lift + (pair % 2 ? 3 : 0), apex = pair % 2 ? 14 : crest;
+  let previous;
+  const notes = rhythm.map(([at, dur], index) => {
     const step = at % 16, strong = step % 4 === 0 || dur >= 4;
-    const target = shape[(index + (pair % 2 ? 2 : 0)) % shape.length] + lift;
-    let n = near(strong ? tones : passing, target);
+    const arc = at <= apex ? at / apex : Math.max(0, (32 - at) / (32 - apex));
+    const target = Math.min(top, home + 5 * arc);
+    let pool = (strong ? tones : passing).filter((m) => m <= top);
+    if (previous != null) {
+      const close = pool.filter((m) => Math.abs(m - previous) <= 5);
+      if (close.length) pool = close;
+    }
+    let n = near(pool, target);
     if (solo && chorus > 0 && !strong && step % 4 === 3 && rhythm[index + 1]?.[0] === at + 1)
-      n = near(tones, shape[(index + 1 + (pair % 2 ? 2 : 0)) % shape.length] + lift) - 1;
-    else if (!strong && dur <= 1 && r() < (headOut ? 0.3 : 0.12)) n = iv.includes(3) ? 6 : 3;
-    if (headOut && phase < 12 && index === rhythm.length - 1) n = near(tones, target + 2);
+      n = Math.max(69, near(tones.filter((m) => m <= top), target) - 1);
+    else if (!strong && dur <= 1 && r() < (headOut ? 0.3 : 0.12)) {
+      const blue = register.filter((m) => m <= top && pc(m - key - h.r) === (iv.includes(3) ? 6 : 3) && Math.abs(m - n) <= 2);
+      if (blue.length) n = near(blue, n);
+    }
+    previous = n;
+    if (!peak && (solo || phase < 12 || index < rhythm.length - 1)) {
+      const end = rhythm[index + 1]?.[0] ?? 32 + motif[0][0] - (pair % 2 ? 4 : 2);
+      dur = end - at;
+    }
     const length = solo && !peak ? Math.min(dur, (sectionBars - 4 - bar) * 16 - step) : dur;
     const envelope = Math.sin(Math.PI * (at + 2) / 34);
-    return length > 0 ? [[step, length, h.r + n, peak ? 0.92 : 0.61 + 0.2 * Math.max(0, envelope) + r() * 0.035]] : [];
+    return [at, length, n - 60 - (key > 6 ? key - 12 : key), peak ? 0.92 : 0.61 + 0.2 * Math.max(0, envelope) + r() * 0.035];
   });
+  return notes.filter(([at, length]) => Math.floor(at / 16) === bar % 2 && length > 0).map(([at, ...note]) => [at % 16, ...note]);
 }
 
 export function generateFunk(seed, bpm, palette, pocket) {

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { freshSong, sanitize } from '../js/state.js';
 import { Engine, Sequencer } from '../js/engine.js';
 import { Recorder } from '../js/midi.js';
@@ -9,6 +10,7 @@ import { parse } from '../js/describe.js';
 import { styleFor } from '../js/song-plan.js';
 import { liveSets } from '../js/livekit.js';
 import { stageScene } from '../js/club-stage.js';
+import { runComposition, compositionRegressions } from '../scripts/composition.mjs';
 
 const pc = (n) => (n % 12 + 12) % 12;
 {
@@ -248,4 +250,28 @@ for (const seed of [0, 42, 77, 12345, 1e9]) {
   assert(new Set(rhythms).size >= 7, 'seeded heads have distinct rhythm plans, not just transposed pitches');
   assert.notEqual(rhythms[0], rhythms[1], '42 and 77 no longer share a rhythm plan');
 }
+for (const seed of [42, 77, 12345, 0, 1, 314159, 271828, 1e9]) {
+  const s = freshSong('jazzfunk', seed), sd = 60 / s.bpm / 4, notes = record(s, s.chain.length);
+  const headOut = s.chain.indexOf('H'), high = (from, to) => Math.max(...notes.hook.filter((n) => n.t >= 0.05 + from * 16 * sd && n.t < 0.05 + to * 16 * sd).map((n) => n.m));
+  assert(high(headOut + 8, headOut + 12) > Math.max(high(4, 16), high(headOut, headOut + 8)), `${seed}: head-out B saves the highest register for late in the form`);
+  for (const [slot, from, to] of [[6, 4, 16], [7, s.chain.indexOf('H'), s.chain.length - 1]]) {
+    const lead = notes.hook.filter((n) => n.t >= 0.05 + from * 16 * sd && n.t < 0.05 + to * 16 * sd);
+    const groups = [];
+    for (const n of lead) {
+      let g = groups.at(-1);
+      if (!g || n.t - g.end >= 2 * sd - 1e-8) groups.push(g = { end: n.t, pitches: [] });
+      g.end = Math.max(g.end, n.t + n.dur); g.pitches.push(n.m);
+    }
+    for (const { pitches } of groups) {
+      const intervals = pitches.slice(1).map((n, i) => Math.abs(n - pitches[i])).sort((a, b) => a - b);
+      if (!intervals.length) continue;
+      assert(intervals.at(-1) <= 9, `${seed}/${slot}: no octave-fold jumps inside a head phrase`);
+      assert(intervals[Math.floor(intervals.length / 2)] <= 3, `${seed}/${slot}: head intervals are mostly steps and thirds`);
+      assert(intervals.filter((n) => n > 5).length <= 1, `${seed}/${slot}: at most one larger leap per phrase`);
+    }
+  }
+  const a = funkNotes(seed, 0, { r: 0, c: 16 }), variant = funkNotes(seed, 4, { r: 0, c: 16 });
+  assert.deepEqual(a.slice(0, 4).map((n) => n.slice(0, 3)), variant.slice(0, 4).map((n) => n.slice(0, 3)), 'A-prime restates the opening rhythm and contour before varying its ending');
+}
+assert.deepEqual(compositionRegressions(runComposition(['jazzfunk']), JSON.parse(readFileSync(new URL('./composition-baseline.json', import.meta.url)))), [], 'Jazz-Funk development meets the unchanged composition scorecard');
 console.log('jazzfunk: rootless harmony, seeded interlock, guitar/row edits, pocket/stereo, long head motifs and cadences, section-shaped solos, intro/breaks/final hit, mutes, persistence and seeded head diversity passed');

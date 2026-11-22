@@ -5581,20 +5581,26 @@ export class Sequencer {
       let leadBar = sectionBar;
       if (firstHead && sectionBar < 10) leadBar -= 4;
       else if (firstHead && sectionBar < 12) leadBar -= 2;
-      const notes = funkNotes(seed, leadBar, e.harm, solo, { headOut: this.cur === 7, sectionBars });
+      const notes = funkNotes(seed, leadBar, e.harm, solo, { headOut: this.cur === 7, sectionBars, key: s.key });
       for (const [at, dur, pitch, v] of notes) if (at === i) {
         const k = s.key > 6 ? s.key - 12 : s.key;
         let n = pitch;
         const peak = solo && sectionBar === sectionBars - 4;
         if (pat.hook.v === 'tpt') {
-          while (60 + k + n < 69) n += 12;
-          while (60 + k + n > 80) n -= 12;
+          let m = 60 + k + n;
           if (peak) {
             const high = [80, 79, 78, 77, 76].find((m) => CHORDS[e.harm.c].iv.some((x) => (m - s.key - e.harm.r - x) % 12 === 0));
-            if (high != null) n = high - 60 - k;
+            if (high != null) m = high;
           }
+          const last = this.funkLead;
+          if (last && abs > last.step && t - last.end < 2 * sd && Math.abs(m - last.pitch) > 5) {
+            const tones = Array.from({ length: 12 }, (_, j) => 69 + j).filter((p) => Math.abs(p - last.pitch) <= 5 && CHORDS[e.harm.c].iv.some((x) => (p - s.key - e.harm.r - x) % 12 === 0));
+            if (tones.length) m = tones.reduce((a, b) => Math.abs(b - m) < Math.abs(a - m) ? b : a);
+          }
+          this.funkLead = { step: abs, end: t + swingDuration(s, abs, dur, sd) * 0.92, pitch: m };
+          n = m - 60 - k;
         }
-        e.hook(t, v, n, swingDuration(s, abs, dur, sd), pat.hook.v, pat.hook.o, !peak && i % 4 === 0, 0.7, false, pat.hook.x);
+        e.hook(t, v, n, swingDuration(s, abs, dur, sd), pat.hook.v, pat.hook.o, false, 0.7, false, pat.hook.x);
       }
     }
     return this.cur;
