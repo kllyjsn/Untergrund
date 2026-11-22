@@ -416,14 +416,14 @@ function queueSong(plan) {
   h.plan = plan;
   const tryArm = () => {
     if (handoff !== h || h.step != null || !playing) return;
-    if (!setsReady(liveSets(h.plan.next)) && performance.now() - h.since < 7990) return;
+    if (!setsReady(liveSets(h.plan.next, h.plan.replay808Style)) && performance.now() - h.since < 7990) return;
     // The sweep needs its own lead past the audio already queued, not just from now.
     const lead = nextTime - ctx.currentTime;
     const at = handoffStep({ abs, lead, stepSec: engine.stepDur, origin: seq.origin, minLead: Math.max(MIN_LEAD, lead + 0.4) });
     Object.assign(h, at, { due: performance.now() + at.at * 1000, total: at.at * 1000, out: false });
     renderHome();
   };
-  loadSets(liveSets(plan.next)).catch(() => {}).then(tryArm);
+  loadSets(liveSets(plan.next, plan.replay808Style)).catch(() => {}).then(tryArm);
   setTimeout(tryArm, 8000 - (performance.now() - h.since));
   tryArm();
   const when = h.step == null ? 'seating the band' : 'on the bar';
@@ -462,14 +462,14 @@ function landSong(t) {
 // A song on recorded instruments holds its first downbeat until they're decoded (up to 8 s); a score waits longer,
 // since its orchestra has no synth stand-in. Recordings already here start at once, as do seeks and clock-synced starts.
 let tuning = null;
-function needsTuning() {
+function needsTuning(replay808Style = engine?.replay808Style) {
   const sc = pat()?.score;
   if (sc) return scoreReady(sc) ? null : { load: () => preloadScore(sc), wait: 30000, label: 'SEATING THE ORCHESTRA' };
-  const names = liveSets(state);
+  const names = liveSets(state, replay808Style);
   return setsReady(names) ? null : { load: () => loadSets(names), wait: 8000, label: 'SEATING THE BAND' };
 }
 function play(opts = {}) {
-  const need = playing || opts.delay != null || opts.startsAt != null || opts.stepWall != null ? null : needsTuning();
+  const need = playing || opts.delay != null || opts.startsAt != null || opts.stepWall != null ? null : needsTuning(opts.replay808Style);
   if (!need) return start(opts);
   ensureAudio(); stopPreview();
   clearTimeout(tuning?.timer);
@@ -1073,6 +1073,7 @@ function timelineHooks(asGuest, replayStats = null, switchAt = null) {
       songOrigin = { src: asGuest ? 'jukebox' : 'room' };
       if (STYLES[st]) replay808Style = style = st;
       const next = sanitize({ ...s, artist: state.artist });
+      loadSets(liveSets(next, replay808Style)).catch(() => {});
       if (switchAt !== null) {
         installRoomSong(next, switchAt, replay808Style, replaySeed);
         return;
@@ -1086,6 +1087,7 @@ function timelineHooks(asGuest, replayStats = null, switchAt = null) {
       replaySeed = Number.isFinite(s.seed) ? s.seed : undefined;
       if (STYLES[st]) replay808Style = style = st;
       const next = sanitize({ ...clone(state), ...s, chainEntries: s.chainEntries });
+      loadSets(liveSets(next, replay808Style)).catch(() => {});
       // The DJ generated a new song: the replay hands off on a downbeat too, from the new song's bar 1.
       const newSong = next.chain !== state.chain && JSON.stringify(next.patterns[0]) !== JSON.stringify(state.patterns[0]);
       if (playing && seq && newSong && !pat().score && !next.patterns.some((q) => q.score)) {
@@ -1233,7 +1235,7 @@ function queueRoomTrack(track, roomState, nextStyle, startsAt, editRoom) {
   queuedRoomSwitch = { track, roomState, nextStyle, startsAt, editRoom, jamEdits:[] };
   prepareSample(roomState);
   engine.prepareVocal(roomState);
-  loadSets(liveSets(roomState)).catch(() => {});
+  loadSets(liveSets(roomState, nextStyle)).catch(() => {});
 }
 
 function startRoomBroadcast(startsAt, track) {

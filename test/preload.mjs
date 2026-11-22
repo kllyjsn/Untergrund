@@ -21,6 +21,26 @@ assert.deepEqual(liveSets(st(1, 7)), ['kit', 'piano', 'pianosoft']);
 assert.deepEqual(liveSets(st(0, 10)), ['str']);
 assert.deepEqual(liveSets(st(1.2, 9.4)), ['kit', 'horn']);
 assert.deepEqual(liveSets({}), []);
+{
+  const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+  const source = main.slice(main.indexOf('function timelineHooks('), main.indexOf('\nfunction replayToRoom('));
+  const state = defaultState(), requested = [];
+  state.artist = { style: 'rock' };
+  const hooks = new Function('state', 'STYLES', 'sanitize', 'clone', 'loadSets', 'liveSets', 'replaceState', 'build', 'persist',
+    `let style, guest, engine, seq, songOrigin; const playing = false; ${source}; return timelineHooks(false);`)(
+    state, STYLES, (s) => s, structuredClone, (sets) => { requested.push(sets); return Promise.resolve(); }, liveSets, () => {}, () => {}, () => {});
+  hooks.load(structuredClone(state), 'ukg');
+  hooks.apply(structuredClone(state), 'dnb');
+  hooks.load(structuredClone(state), 'rock');
+  assert.deepEqual(requested.map((sets) => sets.filter((name) => name.startsWith('vox_'))),
+    [Object.keys(VOWEL_BAND), Object.keys(VOWEL_BAND), []], 'saved-set load and apply preload the replay genre, not the local artist');
+  const tuningSource = main.slice(main.indexOf('function needsTuning('), main.indexOf('\nfunction play(opts'));
+  const needed = new Function('state', 'engine', 'pat', 'liveSets', 'setsReady', 'loadSets',
+    `${tuningSource}; return needsTuning('ukg');`)(state, null, () => ({}), liveSets, () => false,
+    (sets) => { requested.push(sets); return Promise.resolve(); });
+  await needed.load();
+  assert.deepEqual(requested.at(-1).filter((name) => name.startsWith('vox_')), Object.keys(VOWEL_BAND), 'replay waits for its vowel preload before locking instruments');
+}
 for (const style of Object.keys(STYLES)) {
   const state = { ...generate(style, 8), artist: { style } };
   assert.deepEqual(liveSets(state).filter((n) => n.startsWith('vox_')), VOWEL_STYLES.includes(style) ? Object.keys(VOWEL_BAND) : [], `${style} vowel preload is target-only`);
