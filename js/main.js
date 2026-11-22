@@ -1463,8 +1463,8 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   const artist = piece ? piece.composer : loadAvatar().name || 'UNTERGRUND';
   s.artist = { name: artist, title, style: id, seed, created: new Date().toISOString() };
   delete s.remixOf; delete s.drop; delete s.lyrics;
-  // Hummed, prompted and experiment songs aren't just their seed, so they keep the notes they were written with.
-  s.fresh = typeof hum === 'function' || typeof steer === 'function' ? 0 : 1;
+  // Hummed, prompted, experiment and locked-track songs aren't just their seed, so they keep the notes and mix they were written with.
+  s.fresh = typeof hum === 'function' || typeof steer === 'function' || TRACK_IDS.some((t) => s.locks[t]) ? 0 : 1;
   if (drop) Object.assign(s, { drop: drop.date, remixOf: { id: '', title: `Daily Drop · ${drop.title}`, artist: 'UNTERGRUND' } });
   const prompt = typeof steer === 'function' ? pendingPrompt : null;
   pendingPrompt = null;
