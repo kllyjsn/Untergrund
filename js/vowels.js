@@ -3,7 +3,8 @@ import { SCALES } from './params.js';
 export const VOWEL_BAND = { vox_ahh: [53], vox_eh: [53], vox_ooh: [53] };
 export const VOWEL_TUNE = { vox_ahh: { 53: -0.010 }, vox_eh: { 53: -0.003 }, vox_ooh: { 53: 0.005 } };
 export const VOWEL_STYLES = ['ukg', 'jerseyclub', 'bailefunk', 'deephouse', 'euphoric', 'dnb'];
-export const VOWEL_HOOK_DB = { ukg: 8, jerseyclub: 12, bailefunk: 0, deephouse: 8, euphoric: 9.5, dnb: 9.8 };
+export const VOWEL_HOOK_DB = { ukg: 8.5, jerseyclub: 13.4, bailefunk: 0.5, deephouse: 12.8, euphoric: 9.5, dnb: 9.8 };
+export const VOWEL_HOOK_EQ = { deephouse: [[350, 0.65, -12], [3000, 0.8, 6]] };
 const SHORT = new Set(['ukg', 'jerseyclub', 'bailefunk']);
 const COLORS = { ukg: ['eh', 'ahh'], jerseyclub: ['ahh', 'eh'], bailefunk: ['eh', 'ahh'], deephouse: ['ooh', 'eh'], euphoric: ['ahh', 'ooh'], dnb: ['ooh', 'ahh'] };
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
@@ -65,7 +66,7 @@ export function vowelVoxNote(state, style, step, stepDur, harmony = 0) {
     name: vowelName(style, Math.floor(step / 64), p.slice + jump) };
 }
 
-export function playVowel(engine, t, velocity, midi, duration, name, out, tone = 5000, sustain = false) {
+export function playVowel(engine, t, velocity, midi, duration, name, out, tone = 5000, sustain = false, peaks = []) {
   const set = engine.rec(name);
   if (!set?.length) return false;
   let [center, buffer] = set[0];
@@ -74,7 +75,7 @@ export function playVowel(engine, t, velocity, midi, duration, name, out, tone =
   if (sustain) buffer = vowelSustain(buffer, engine.ctx);
   const release = Math.min(0.04, duration * 0.25);
   const length = sustain ? duration : Math.max(0.025, Math.min(duration, (buffer.duration - 0.01) / rate - release * 5));
-  const played = engine.playBuf(buffer, t, velocity * 0.55, out, rate, length, { lp: tone, fade: sustain ? 0.025 : 0.004, release: Math.min(release, length * 0.25), loop: sustain });
+  const played = engine.playBuf(buffer, t, velocity * 0.55, out, rate, length, { lp: tone, fade: sustain ? 0.025 : 0.004, release: Math.min(release, length * 0.25), loop: sustain, peaks });
   if (sustain && played?.s) {
     played.s.loop = true;
     played.s.loopStart = 0;

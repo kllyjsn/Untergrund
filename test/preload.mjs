@@ -7,7 +7,7 @@ import { KIT_BACKBEAT, HAND_KIT, MARIMBA_STAB } from '../js/params.js';
 import { defaultState, generate, STYLES } from '../js/state.js';
 import { createPlayer } from '../js/player.js';
 import { OfflineAudioContext as FakeContext, AudioBuffer } from './offline-audio.mjs';
-import { VOWEL_BAND, VOWEL_TUNE, VOWEL_STYLES, vowelPitch, vowelVoxNote, vowelLoop, vowelSustain, vowelHookDuration, playVowel } from '../js/vowels.js';
+import { VOWEL_BAND, VOWEL_TUNE, VOWEL_STYLES, VOWEL_HOOK_EQ, vowelPitch, vowelVoxNote, vowelLoop, vowelSustain, vowelHookDuration, playVowel } from '../js/vowels.js';
 import { setFromArrayBuffer, useSynthVox } from '../js/sampler.js';
 import { setVoice, clearVoice } from '../js/voice.js';
 import { Recorder } from '../js/midi.js';
@@ -143,12 +143,14 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
       assert.equal(recorder.notes.vox[0].m, note.midi, 'MIDI follows folded recorded pitch');
       assert(Math.abs(center + 12 * Math.log2(rate) - note.midi) < 1e-8, 'playback and MIDI retain the same octave');
       assert.equal(fx.loop, ['deephouse', 'euphoric', 'dnb'].includes(style));
+      assert.deepEqual(fx.peaks, [], 'hook EQ never affects the VOX lane');
       if (fx.loop) assert(duration > 0.4, `${style} sustains`);
       else assert(duration <= 0.14, `${style} chops`);
     }
     for (const voice of ['vocal', 'chop']) {
       Engine.prototype.hook.call(e, 4, 0.6, 0, 1, voice);
       assert.equal(hits.at(-1)[3], hookOut, `${style}/${voice} routes through the hook stem`);
+      assert.deepEqual(hits.at(-1)[6].peaks, VOWEL_HOOK_EQ[style] || [], `${style}/${voice} only uses its recorded hook EQ`);
       if (['ukg', 'jerseyclub', 'bailefunk'].includes(style)) assert(hits.at(-1)[5] <= 0.14);
       else {
         assert.equal(hits.at(-1)[5], 1, `${style} hook retains its sustained duration`);
