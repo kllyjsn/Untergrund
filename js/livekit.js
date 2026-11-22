@@ -1,6 +1,7 @@
 import { pocketOf } from './groove.js';
 import { HAND_KIT, MARIMBA_STAB, KIT_BACKBEAT } from './params.js';
 import { VOWEL_BAND, VOWEL_TUNE, vowelSets } from './vowels.js';
+import { ROOT_LAYERS, rootsFor } from './roots.js';
 // Recorded acoustic kit and upright bass for the live-kit genres (CC0, see samples/live/LICENSE.md).
 // Loads lazily; until the buffers arrive the engine keeps using the synthesized live voices.
 export const LIVE_KIT = {
@@ -28,6 +29,13 @@ export const LIVE_FILES = [
 // Recorded chord instruments, keyed by the MIDI note each sample was played at.
 export const BAND = {
   ...VOWEL_BAND,
+  fiddle: [55, 57, 60, 64, 67, 69, 72, 76, 79],
+  fiddlesoft: [55, 57, 60, 64, 67, 69, 72, 76, 79],
+  fiddlestac: [55, 57, 60, 64, 67, 69, 72, 76, 79],
+  fiddlestacsoft: [55, 57, 60, 64, 67, 69, 72, 76, 79],
+  upright: [41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85],
+  uprightsoft: [41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85],
+  uprighthard: [41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85],
   piano: [48, 52, 57, 60, 64, 67, 71, 74, 77, 81, 84, 88],
   pianosoft: [48, 52, 57, 60, 64, 67, 71, 74, 77, 81, 84, 88],
   gtr: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
@@ -74,10 +82,10 @@ const GRETSCH_TUNE = { 42: 19, 48: 6, 51: 5, 54: 5, 57: 10, 60: 7, 63: 6, 66: 4,
 const BANJO_TUNE = { 40: 41, 42: 41, 45: 48, 49: 39, 51: 43, 54: 34, 57: 13, 60: 30, 63: 41, 68: 23, 71: 10 };
 const BAND_TUNE = { ...VOWEL_TUNE, abass: { 36: -8.6, 39: -5.1, 42: -6.2, 45: -6.7, 48: -5.8, 51: -6.6, 54: -6.3, 57: -7.1, 60: -8 }, nylon: { 40: -6.7, 45: 2.3, 48: -2.9, 52: -9.6, 55: 10.4, 59: -3.6, 64: -19.7, 67: -11.6, 69: -17 }, jazz: JAZZ_TUNE, jazzb: JAZZ_TUNE, gretsch: GRETSCH_TUNE, gretschb: GRETSCH_TUNE, banjo: BANJO_TUNE, gtr: GTR_TUNE, gtrsoft: GTR_TUNE, gtrb: GTR_TUNE, gtrsoftb: GTR_TUNE, gtrmute: MUTE_TUNE, gtrmuteb: MUTE_TUNE_B };
 // Instruments recorded at two dynamics: the softly played layer loads with the instrument.
-export const SOFT_LAYER = { piano: 'pianosoft', gtr: 'gtrsoft' };
+export const SOFT_LAYER = { piano: 'pianosoft', gtr: 'gtrsoft', fiddle: 'fiddlesoft', fiddlestac: 'fiddlestacsoft' };
 // Alternate woodwind and guitar takes for repeated notes.
 // Loaded in the background once the first take is in; until then every hit plays the first take.
-export const TAKES = { gtr: 'gtrb', gtrsoft: 'gtrsoftb', agtr: 'agtrb', gtrmute: 'gtrmuteb', jazz: 'jazzb', gretsch: 'gretschb', ob: 'obb', fl: 'flb', asax: 'asaxb', tsax: 'tsaxb' };
+export const TAKES = { gtr: 'gtrb', gtrsoft: 'gtrsoftb', agtr: 'agtrb', gtrmute: 'gtrmuteb', jazz: 'jazzb', gretsch: 'gretschb', ob: 'obb', fl: 'flb', asax: 'asaxb', tsax: 'tsaxb', fiddlestac: 'fiddlestacb', fiddlestacsoft: 'fiddlestacsoftb' };
 // The Hofner's staccato (fretting hand lifted right after the pick): the DRIVE GTR's palm-muted chug.
 export const MUTE_LAYER = { gtr: 'gtrmute' };
 // Background-only recordings: alternate takes and mutes, never waited on before a song starts.
@@ -124,7 +132,7 @@ export const HAND_FILES = Object.values(HANDS).flat();
 
 const BASE = new URL('../samples/live/', import.meta.url);
 // Samples are served with immutable caching: bump SAMPLES_REV when replacing an existing recording.
-const SAMPLES_REV = 5;
+const SAMPLES_REV = 6;
 const sampleUrl = (file) => new URL(`${file}.flac?v=${SAMPLES_REV}`, BASE);
 let buffers = null, loading = null, extra = null, extraLoading = null;
 let snare = null, snareLoading = null;
@@ -135,6 +143,7 @@ export const bandKit = (name) => band[name] || null;
 export const bandName = (set) => names.get(set) || null;
 
 export function loadBand(name) {
+  for (const layer of ROOT_LAYERS[name] || []) loadBand(layer);
   if (SOFT_LAYER[name]) loadBand(SOFT_LAYER[name]);
   if (band[name]) for (const k of [TAKES[name], MUTE_LAYER[name]]) if (k) loadBand(k);
   if (band[name]) return Promise.resolve(band[name]);
@@ -180,18 +189,26 @@ export function liveSets(st, style = st?.artist?.style) {
   const name = STAB_BAND[Math.round(st?.params?.stab?.voice || 0)];
   if (name) out.push(name, ...(SOFT_LAYER[name] ? [SOFT_LAYER[name]] : []));
   for (const p of [st?.pattern, ...(st?.patterns || [])]) {
-    const v = p?.hook?.v === 'reed' ? SAX_HOOK[st?.artist?.style] : p?.hook?.v, voice = Object.hasOwn(HOOK_BAND, v) && HOOK_BAND[v];
+    const roots = rootsFor(st, p);
+    if (roots?.chord === 'upright' && Math.round(st?.params?.stab?.voice) === 7) out.push('upright');
+    if (roots?.hook === 'fiddle' || roots?.answer === 'fiddle') out.push('fiddle');
+    if (roots?.hook === 'twang') out.push('gtr', 'gtrsoft');
+    const v = p?.hook?.v === 'reed' ? SAX_HOOK[roots?.style ?? st?.artist?.style] : p?.hook?.v, voice = Object.hasOwn(HOOK_BAND, v) && HOOK_BAND[v];
     if (voice) out.push(voice, ...(TAKES[voice] ? [TAKES[voice]] : []));
   }
   // Country's lead is a Telecaster whatever plays the chords.
   if (pocketOf(st.master)?.walk && name !== 'gtr') out.push('gtr', 'gtrsoft');
   if (fullKit && pocketOf(st.master)?.band) out.push(...layerSets(st.artist?.style));
-  return [...new Set(out)];
+  return [...new Set(out.flatMap((n) => [n, ...(ROOT_LAYERS[n] || [])]))];
 }
 // A song's recordings plus their alternate takes and mutes: what an offline render waits for, so exports get every take.
-export const withTakes = (names) => [...new Set(names.flatMap((n) => [n, TAKES[n], MUTE_LAYER[n], TAKES[MUTE_LAYER[n]]].filter(Boolean)))];
+export const withTakes = (names) => [...new Set(names.flatMap((n) => [n, ...(ROOT_LAYERS[n] || [])]).flatMap((n) => [n, TAKES[n], MUTE_LAYER[n], TAKES[MUTE_LAYER[n]]].filter(Boolean)))];
 export const liveSet = (name) => (name === 'kit' ? buffers : name === 'kitx' ? extra : name === 'snare' ? snare || buffers : bandKit(name));
 export const setsReady = (names) => names.every((n) => liveSet(n));
+export function assertRootsReady(names) {
+  const roots = new Set(Object.entries(ROOT_LAYERS).flatMap(([name, layers]) => [name, ...layers]));
+  for (const name of names) if (roots.has(name) && !bandKit(name)) throw new Error(`Required recorded S9 samples unavailable: ${name}`);
+}
 export const loadSets = (names) => Promise.all(names.map((n) => (n === 'kit' ? loadLiveKit() : n === 'kitx' ? loadKitExtra() : n === 'snare' ? loadSnare() : Object.hasOwn(HANDS, n) ? loadHand(n) : loadBand(n))));
 
 export function loadHand(name) {

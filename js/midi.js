@@ -9,6 +9,8 @@ import { hasUserSample } from './sampler.js';
 import { getChops } from './voice.js';
 import { vowelStyle, vowelVoxNote, vowelPitch, vowelHookDuration } from './vowels.js';
 import { SAX_HOOK, saxRoot } from './livekit.js';
+import { rootsFor, fiddleRole, fiddlePitch, fiddleDuration, rootsPitch, uprightNotes } from './roots.js';
+import { getChops } from './voice.js';
 
 export const PPQ = 480;
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
@@ -17,7 +19,7 @@ const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453;
 export const GM_DRUMS = { kick: 36, clap: 39, snare: 38, ch: 42, oh: 46, ride: 51, perc: 63 };
 const DRUM_NAMES = { kick: 'Kick', clap: 'Clap', snare: 'Snare', ch: 'Hats', oh: 'Open Hat', ride: 'Ride', perc: 'Perc' };
 const STAB_PROGRAM = { 0: 81, 1: 4, 2: 89, 3: 16, 4: 61, 5: 45, 6: 14, 7: 0, 8: 25, 9: 61, 10: 48, 16: 42, 17: 71, 18: 24, [MARIMBA_STAB]: 12 };
-const HOOK_PROGRAM = new Map([['oboe', 68], ['airflute', 73], ['tpt', 56], ['marimba', 12], ['altosax', 65], ['tenorsax', 66]]);
+const HOOK_PROGRAM = new Map([['oboe', 68], ['airflute', 73], ['tpt', 56], ['marimba', 12], ['altosax', 65], ['tenorsax', 66], ['twang', 25]]);
 export const PARTS = {
   vln1: ['Violin I', 40], vln2: ['Violin II', 40], vla: ['Viola', 41], vc: ['Cello', 42], cb: ['Contrabass', 43],
   fl: ['Flute', 73], ob: ['Oboe', 68], cl: ['Clarinet', 71], hn: ['Horn', 60], tpt: ['Trumpet', 56],
@@ -52,7 +54,7 @@ export function parseKeyName(name = '') {
 // Records what the Sequencer asks the engine to play. Pitch helpers are borrowed from the real Engine.
 export class Recorder {
   constructor(state) { this.state = state; this.notes = {}; this.harm = null; this.stepScale = 1; this.noteVel = 1; this.bass = null; }
-  get playbackStyle() { return this.replay808Style ?? this.state.artist?.style; }
+  get playbackStyle() { return rootsFor(this.state, this.playingPattern)?.style ?? this.replay808Style ?? this.state.artist?.style; }
   get minimal() { return (jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle) === 'minimal'; }
   get stepDur() { return (60 / this.state.bpm / 4) * (this.stepScale || 1); }
   add(track, t, m, dur, v) { (this.notes[track] ||= []).push({ t, m, dur: Math.max(0.01, dur), v }); }
@@ -70,7 +72,10 @@ export class Recorder {
       // Other styles keep the plain chord their sung parts are written against.
       const p = this.state.params.stab, { root, vo, iv, pedal } = stabPitches(this), bossa = jazzStyle(this.state, this.playingPattern) === 'bossa';
       const len = bossa ? p.decay : pedal ? this.stepDur * 14.4 : Math.max(this.stepDur * 2, (p.decay || 0.3) * 1.5);
-      if (paletteFor(this.state)) for (const n of iv) this.add('stab', t, paletteColor(this.state).piano ? soundingPitch('piano', root + n) : root + n, len, v);
+      if (vo === 7 && rootsFor(this.state, this.playingPattern)?.chord === 'upright') {
+        for (const n of uprightNotes(t, v, iv, root, p)) this.add('stab', n.t, n.m, n.dur, n.v);
+      }
+      else if (paletteFor(this.state)) for (const n of iv) this.add('stab', t, paletteColor(this.state).piano ? soundingPitch('piano', root + n) : root + n, len, v);
       else if (this.state.artist?.style === 'dub') for (const n of iv) this.add('stab', t, this.dubRegister(iv, root) + n, len, v);
       else if (this.minimal || this.state.patterns.some((p) => p.jazz)) {
         const voice = this.minimal && vo === 7 ? 'keys' : STAB_VOICES[vo];
@@ -92,9 +97,13 @@ export class Recorder {
   }
   lick(t, v, k) {
     const p = this.state.params.stab, iv = this.chord(), n = iv[k % iv.length] + 12 * Math.floor(k / iv.length);
+    if (Math.round(p.voice) === 7 && rootsFor(this.state, this.playingPattern)?.chord === 'upright') {
+      for (const x of uprightNotes(t, v, [n], 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot(), p)) this.add('stab', x.t, x.m, x.dur, x.v);
+      return;
+    }
     this.add('stab', t, 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + n, this.stepDur * 2, v);
   }
-  hook(t, v, n, dur, voice, oct = 0, strong = false, b = 1, up = false) {
+  hook(t, v, n, dur, voice, oct = 0, strong = false, b = 1, up = false, expression = {}) {
     const h = this.harm;
     if (strong || up) {
       const tones = this.chord().map((x) => ((((h ? h.r : 0) + x) % 12) + 12) % 12), pc = ((n % 12) + 12) % 12;
@@ -106,6 +115,15 @@ export class Recorder {
     if (vowelStyle(this.state.artist?.style) && !hasUserSample() && (voice === 'vocal' || (voice === 'chop' && !getChops()))) {
       this.add('hook', t, vowelPitch(pitch), vowelHookDuration(this.playbackStyle, dur), v);
       return;
+    }
+    const roots = voice === 'chop' && getChops() ? null : rootsFor(this.state, this.playingPattern);
+    if (fiddleRole(roots, expression)) return this.add('fiddle', t, fiddlePitch(pitch), fiddleDuration(dur), v);
+    if (roots?.hook === 'twang') {
+      this.hookVoice = 'twang';
+      const scale = SCALES[this.state.scale]?.notes || SCALES.major.notes;
+      const lo = scale.includes((((pitch - 9 - 60 - k) % 12) + 12) % 12) ? pitch - 9 : pitch - 8;
+      if (strong && lo >= 52) this.add('hook', t + .006, rootsPitch(lo, 52, 84), Math.max(.15, dur * 1.5), v * .6);
+      return this.add('hook', t, rootsPitch(pitch, 52, 84), Math.max(.15, dur * 1.5), v);
     }
     pitch = paletteHookPitch(this.state, pitch, voice);
     const style = this.state.artist?.style, vo = Math.round(this.state.params.stab.voice);
@@ -214,7 +232,7 @@ export function writeMidi({ title = 'UNTERGRUND', tempos, timeSig = [4, 4], key,
 // The whole song (or score) as a .mid; also returns per-track note counts.
 export function songMidi(state, { loopBars = 16, title, playbackStyle } = {}) {
   const c = capture(state, loopBars, { playbackStyle }), tick = ticker(c.at, c.dur), s = c.state;
-  const order = c.score ? Object.keys(PARTS) : [...Object.keys(GM_DRUMS), 'acid', 'stab', 'hook', 'vox', ...Object.keys(PARTS)];
+  const order = c.score ? Object.keys(PARTS) : [...Object.keys(GM_DRUMS), 'acid', 'stab', 'hook', 'vox', 'fiddle', ...Object.keys(PARTS)];
   let chan = 0;
   const tracks = [];
   for (const id of order) {
@@ -223,8 +241,8 @@ export function songMidi(state, { loopBars = 16, title, playbackStyle } = {}) {
     const drum = !c.score && GM_DRUMS[id] != null;
     const channel = drum ? 9 : chan === 9 ? ++chan : chan;
     if (!drum) chan = Math.min(15, channel + 1);
-    const name = c.score || PARTS[id] ? PARTS[id][0] : drum ? DRUM_NAMES[id] : { acid: 'Bass', stab: 'Chords', hook: 'Hook', vox: 'Vocals' }[id];
-    const program = c.score || PARTS[id] ? PARTS[id][1] : drum ? null : { acid: Math.round(s.params.acid.voice) === 1 ? 33 : 38, stab: STAB_PROGRAM[Math.round(s.params.stab.voice)] ?? 4, hook: HOOK_PROGRAM.get(c.hookVoice) ?? 80, vox: 54 }[id];
+    const name = c.score || PARTS[id] ? PARTS[id][0] : drum ? DRUM_NAMES[id] : { acid: 'Bass', stab: 'Chords', hook: 'Hook', vox: 'Vocals', fiddle: 'Fiddle' }[id];
+    const program = c.score || PARTS[id] ? PARTS[id][1] : drum ? null : { acid: Math.round(s.params.acid.voice) === 1 ? 33 : 38, stab: STAB_PROGRAM[Math.round(s.params.stab.voice)] ?? 4, hook: HOOK_PROGRAM.get(c.hookVoice) ?? 80, vox: 54, fiddle: 40 }[id];
     // Two hits of one pitch on the same tick (a lick doubling a chord tone) are one note, at the louder velocity.
     const seen = new Map(), out = [];
     for (const n of notes) {
