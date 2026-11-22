@@ -38,7 +38,12 @@
 /* Home placement: its own row, never between the copy and GENERATE on phone. */
 .generate-home.has-live { grid-template-areas: 'copy styles' 'actions styles' 'describe live' 'status live' 'recents recents'; }
 .generate-home.has-live.has-concert { grid-template-areas: 'copy styles' 'actions styles' 'describe styles' 'status styles' 'concert concert' 'live live' 'recents recents'; }
-@media (min-width: 901px) { .generate-home.has-live:not(.has-concert) > .live-now { align-self: end; } }
+/* A family with many genres makes the picker taller than the left column; its extra height goes below DESCRIBE, never into Now Playing or GENERATE. */
+@media (min-width: 901px) {
+  .generate-home.has-live:not(.has-concert) { grid-template-areas: 'copy styles' 'actions styles' 'describe styles' 'status live' 'recents recents'; grid-template-rows: auto auto 1fr; }
+  .generate-home.has-live:not(.has-concert) > .live-now { align-self: end; }
+  .generate-home.has-live.has-concert { grid-template-rows: auto auto auto 1fr; }
+}
 @media (max-width: 900px) {
   .generate-home.has-live { grid-template-areas: 'copy' 'actions' 'describe' 'live' 'styles' 'status' 'recents'; }
   .generate-home.has-live.has-concert { grid-template-areas: 'copy' 'actions' 'describe' 'live' 'styles' 'concert' 'status' 'recents'; }
