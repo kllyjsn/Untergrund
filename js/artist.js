@@ -116,6 +116,7 @@ export function createArtistProject(baseState, profile, seed = Date.now(), index
   state.current = 0;
   state.chainOn = true;
   state.chain = pick(r, CHAINS);
+  delete state.chainEntries;
   state.swing = Math.max(0, Math.min(.26, .025 + profile.hypnosis / 950 + r() * .035));
   state.master.drive = Math.max(state.master.drive, (profile.darkness + profile.energy) / 320);
   state.master.revLevel = Math.max(.12, Math.min(.68, .12 + profile.space / 180));

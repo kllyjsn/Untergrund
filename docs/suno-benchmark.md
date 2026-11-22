@@ -1,5 +1,7 @@
 # UNTERGRUND vs Suno: the blind A/B benchmark
 
+For generated-only before/after PR reviews without reference recordings, see [Expert listening review](listening-review.md).
+
 "Suno-level" as a tracked number: the share of blind A/B ratings where UNTERGRUND's song beats a Suno song made from
 the same prompt, per genre and per lab dimension (musicality, originality, genre accuracy, emotional pull), plus how
 often listeners would replay or release ours. It runs on whatever `main` generates when you render, so re-running it

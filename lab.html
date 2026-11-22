@@ -13,6 +13,7 @@
     <section id="setup" class="panel">
       <p class="eyebrow">BLIND A/B BENCHMARK</p>
       <h1>Prove the music got better.</h1>
+      <p class="hint listener-id"></p>
       <p>Load a benchmark manifest and its audio files. Candidate identities stay hidden until the completed results are exported.</p>
       <div class="loaders">
         <label>BENCHMARK JSON<input id="manifest" type="file" accept=".json,application/json" /></label>
@@ -36,6 +37,7 @@
     </section>
     <section id="complete" class="panel" hidden>
       <p class="eyebrow">BENCHMARK COMPLETE</p><h1>Results are ready.</h1>
+      <p class="hint listener-id"></p>
       <div id="summary"></div><button id="export">EXPORT RESULTS</button>
     </section>
   </main>

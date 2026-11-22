@@ -2,12 +2,13 @@
 // "a bit darker and slower" or "like a 3am warehouse" into concrete edits on the existing controls
 // (master macros, track params, swing, bpm, scale/key, density, voices, mutes/locks, genre).
 // No network, no paid API. An optional interpreter can be plugged in later via interpret({ remote }).
-import { SCALES, KEYS, CHORDS, TRACK_IDS, TRACK_BY_ID, MASTER_PARAMS, STEPS } from './params.js';
+import { SCALES, KEYS, CHORDS, TRACK_IDS, TRACK_BY_ID, MASTER_PARAMS, STEPS, KIT_BACKBEAT } from './params.js';
 import { STYLES, mutate, clone, hookLine, songKind } from './state.js';
 import { toSections, sectionNames } from './timeline.js';
 import { rng } from './dsp.js';
 import { withMelody } from './melody.js';
 import { patternAt, setTake, remapTakes, changedBars, barsLabel } from './scope.js';
+import { editChainEntries } from './chain.js';
 
 // ---------------- vocabulary ----------------
 // Artists and scenes people name: folded into one token each, expanded by ARTISTS below.
@@ -48,8 +49,17 @@ const ARTISTS = {
 };
 const ARTIST_RE = Object.entries(ARTISTS).map(([id, [re]]) => [new RegExp(re.source, 'g'), ` artist${id} `]);
 
+export const HIPHOP_PHRASES = [
+  [/\blo[\s-]?fi[\s-]+(?:hip[\s-]?hop|beats?)\b|\bchillhop\b/g, 'lofihiphop'],
+  [/\bg[\s-]?funk\b/g, 'gfunk'], [/\b(?:drift|memphis)[\s-]+phonk\b/g, 'phonk'],
+  [/\b(?:old[\s-]?school[\s-]+(?:electro|hip[\s-]?hop)|electro[\s-]+(?:hip[\s-]?hop|funk|rap))\b/g, 'electrohiphop'],
+];
+
 // Multi-word phrases are folded into single tokens before matching.
 const PHRASES = [
+  [/jazz[\s-]+funk|donald\s+byrd|roy\s+ayers/g, ' jazzfunk '],
+  [/bossa\s+nova|brazilian\s+jazz|samba\s+jazz/g, ' bossanova '],
+  [/kind\s+of\s+blue/g, ' kindofblue '], [/hard[\s-]+bop/g, ' hardbop '], [/swing\s+jazz/g, ' swingjazz '],
   [/(?:make\s+it|go|sound|more)\s+(?:huge|massive|enormous|gigantic)\b/g, ' mainstage '],
   [/thin\s+(?:it\s+|them\s+|things\s+)?out/g, ' sparser '],
   [/\b(?:do|does|did)\s+not\s+like|not\s+(?:a\s+)?(?:fan|feeling|into)\s+(?:of\s+)?|can\s*not\s+stand/g, ' dislike '],
@@ -63,7 +73,8 @@ const PHRASES = [
   [/(jazz|jazzy|funky|archtop|hollow[\s-]?body)\s+guitars?/g, ' $1 jazzguitar '], [/(twangy?|country|gretsch|rockabilly|chicken[\s-]picking)\s+guitars?/g, ' $1 twangguitar '], [/(?:distorted|overdriven|electric|crunchy|dirty)\s+guitars?/g, ' driveguitar '], [/(?:electric|fender)\s+bass|bass\s+guitar/g, ' electricbass '],
   [/drum\s+(?:roll|fill)s?/g, ' fills '], [/low[\s-]end/g, ' bass '], [/top[\s-]?line/g, ' melody '],
   [/drum\s*(?:and|&|n|'n'|n')\s*bass|\bd\s*(?:&|n)\s*b\b/g, ' dnb '],
-  [/hip[\s-]?hop/g, ' hiphop '], [/lo[\s-]?fi/g, ' lofi '], [/neo[\s-]?soul/g, ' neosoul '], [/boom[\s-]?bap/g, ' boombap '],
+  ...HIPHOP_PHRASES.map(([re, id]) => [re, ` ${id} `]),
+  [/\bhip[\s-]?hop\b/g, ' hiphop '], [/\blo[\s-]?fi\b/g, ' lofi '], [/neo[\s-]?soul/g, ' neosoul '], [/boom[\s-]?bap/g, ' boombap '],
   [/deep[\s-]house/g, ' deephouse '], [/uk[\s-]?garage/g, ' ukg '], [/\b(?:2|two)[\s-]?step\b/g, ' ukg '],
   [/peak[\s-]time/g, ' peak '], [/hard[\s-]techno/g, ' hardtechno '], [/dub[\s-]techno/g, ' dub '],
   [/minimal\s+(?:house|techno)/g, ' minimalgenre '], [/baile(?:[\s-]funk)?|funk\s+carioca/g, ' bailefunk '],
@@ -72,6 +83,9 @@ const PHRASES = [
   [/(?:live|real|acoustic|recorded)\s+drums/g, ' livekit '],
   [/electric\s+piano|e[\s-]piano|fender\s+rhodes|wurlitzer|wurli/g, ' rhodes '], [/log[\s-]?drums?/g, ' logdrum '],
   [/acid\s+bass|\b303\b/g, ' acidbass '], [/(?:double|upright|live|bass)\s+(?:bass|guitar)/g, ' livebass '],
+  [/\bfm[\s-]+bass\b/g, ' fmbass '], [/\bpulse[\s-]+bass\b/g, ' pulsebass '],
+  [/\bwide[\s-]+reese(?:[\s-]+bass)?\b/g, ' widereese '], [/\bpluck[\s-]+bass\b/g, ' pluckbass '],
+  [/\b(bass(?:\s+voice)?\s+(?:to|sound\s+like))\s+(?:an?\s+)?(?:uk[\s-]+)?drill[\s-]+808s?\b/g, '$1 eightoheight '],
   [/\b808s?\b/g, ' eightoheight '],
   [/open[\s-]hi[\s-]?hats?|open[\s-]hats?/g, ' openhat '], [/(?:closed[\s-])?hi[\s-]?hats?/g, ' hats '], [/bass[\s-]?drums?/g, ' kick '],
   [/robert\s+glasper/g, ' glasper '], [/j\.?\s*dilla/g, ' dilla '],
@@ -157,7 +171,12 @@ add(bundle('burial'), 'burial');
 const genre = (id, family) => ({ k: 'genre', id, family });
 add(genre('hypnotic', 'TECHNO'), 'techno');
 add(genre('deephouse', 'HOUSE'), 'house');
-add(genre('neosoul', 'JAZZ & HIP-HOP'), 'jazz', 'soul');
+add(genre('neosoul', 'JAZZ & HIP-HOP'), 'soul');
+add(genre('swing', 'JAZZ & HIP-HOP'), 'jazz');
+add(genre('swing'), 'bebop', 'hardbop', 'swingjazz');
+add(genre('modal'), 'modal', 'coltrane', 'miles', 'kindofblue');
+add(genre('bossa'), 'bossa', 'bossanova', 'jobim');
+add(genre('jazzfunk'), 'jazzfunk', 'fusion', 'headhunters', 'herbie');
 add(genre('pop', 'POP & R&B'), 'pop', 'mainstream', 'popsong');
 add(genre('rnb', 'POP & R&B'), 'rnb', 'slowjam', 'slowjams');
 add(genre('rock', 'ROCK & ROOTS'), 'rock', 'punk', 'grunge', 'indie', 'garagerock', 'alternative');
@@ -201,7 +220,9 @@ add(voice(12), 'acousticguitar', 'strummed', 'strumming');
 add(voice(13), 'jazzguitar', 'archtop');
 add(voice(14), 'banjo', 'banjos');
 add(voice(15), 'twangguitar', 'gretsch');
-add(voice(10), 'strings', 'string', 'violin', 'violins', 'cello', 'cellos', 'viola', 'orchestral');
+add(voice(10), 'strings', 'string', 'violin', 'violins', 'viola', 'orchestral');
+add(voice(16), 'cello', 'cellos');
+add(voice(17), 'clarinet', 'clarinets');
 const bassVoice = (v) => ({ k: 'bassVoice', v });
 add(bassVoice(0), 'acidbass', 'squelch', 'squelchy');
 add(bassVoice(1), 'livebass');
@@ -209,6 +230,10 @@ add(bassVoice(2), 'eightoheight');
 add(bassVoice(3), 'reese', 'wobble', 'wobbly');
 add(bassVoice(4), 'logdrum');
 add(bassVoice(5), 'electricbass', 'bassguitar');
+add(bassVoice(6), 'fmbass');
+add(bassVoice(7), 'pulsebass');
+add(bassVoice(8), 'widereese');
+add(bassVoice(9), 'pluckbass');
 const kit = (v) => ({ k: 'kit', v });
 add(kit(1), 'livekit'); add(kit(0), 'machinekit');
 for (const id of Object.keys(SCALES)) W[id] = { k: 'scale', v: id };
@@ -254,7 +279,6 @@ Object.assign(B2, {
   triphop: scene('boombap', (a) => [{ id: 'tone', amt: -a }, { id: 'dust', amt: 0.5 * a }, { id: 'tempo', amt: -0.5 * a }, { id: 'space', amt: 0.5 * a }]),
   techhouse: scene('deephouse', (a) => [{ id: 'punch', amt: a }, { id: 'density', amt: 0.5 * a }, { id: 'grit', amt: 0.3 * a }]),
   afrohouse: scene('deephouse', (a) => [{ id: 'level', target: 'perc', amt: a }, { id: 'swing', amt: 0.3 * a }]),
-  phonk: scene('trap', (a) => [a > 0 && { id: 'bassVoice', value: 2 }, { id: 'grit', amt: a }, { id: 'dust', amt: 0.5 * a }, { id: 'level', target: 'perc', amt: 0.5 * a }]),
   edm: scene('euphoric', (a) => [{ id: 'drops', amt: a }, { id: 'pump', amt: 0.5 * a }]),
   progressive: scene('trance', (a) => [{ id: 'variation', amt: -0.3 * a }]),
   psytrance: scene('trance', (a) => [{ id: 'tempo', amt: a }, { id: 'grit', amt: 0.5 * a }]),
@@ -280,7 +304,7 @@ const BW = {
   holiday: ['christmas', 'xmas', 'festive', 'holiday', 'holidays', 'wintry', 'winter', 'snow'], chiptune: ['chiptune', 'arcade'], nineties: ['nineties'],
   synthwave: ['synthwave'], disco: ['disco', 'nudisco'], metal: ['metal', 'heavymetal'],
   reggae: ['reggae', 'ska', 'rocksteady'], dubstep: ['dubstep', 'brostep', 'riddim'], triphop: ['triphop'], techhouse: ['techhouse'],
-  afrohouse: ['afrohouse'], phonk: ['phonk'], edm: ['edm'], progressive: ['progressive'], psytrance: ['psytrance', 'psy', 'goa'],
+  afrohouse: ['afrohouse'], edm: ['edm'], progressive: ['progressive'], psytrance: ['psytrance', 'psy', 'goa'],
   idm: ['idm', 'glitch', 'glitchy'], footwork: ['footwork', 'juke'], grime: ['grime'], gospel: ['gospel', 'church'], dancehall: ['dancehall'],
 };
 for (const id of Object.keys(ARTISTS)) BW[`artist${id}`] = [`artist${id}`];
@@ -304,8 +328,8 @@ add(complaint('harsh'), 'harsh', 'harsher', 'shrill', 'piercing', 'abrasive', 't
 add(complaint('cluttered'), 'cluttered', 'messy', 'crowded', 'chaotic', 'cluttery', 'noisy', 'overcrowded');
 add(complaint('dull'), 'dull');
 
-const VOICE_NAMES = ['synth', 'Rhodes keys', 'pads', 'organ', 'brass', 'plucks', 'bells', 'piano', 'guitar', 'horns', 'strings', 'overdriven guitar', 'acoustic guitar', 'jazz guitar', 'banjo', 'twangy guitar'];
-const BASS_NAMES = ['303 acid bass', 'bass guitar', '808 bass', 'reese bass', 'log drum', 'electric bass'];
+const VOICE_NAMES = ['synth', 'Rhodes keys', 'pads', 'organ', 'brass', 'plucks', 'bells', 'piano', 'guitar', 'horns', 'strings', 'overdriven guitar', 'acoustic guitar', 'jazz guitar', 'banjo', 'twangy guitar', 'cello', 'clarinet'];
+const BASS_NAMES = ['303 acid bass', 'bass guitar', '808 bass', 'reese bass', 'log drum', 'electric bass', 'FM bass', 'pulse bass', 'wide Reese bass', 'pluck bass'];
 const TRACK_WORD = { drums: 'drums', melody: 'melody', kick: 'kick', clap: 'claps', snare: 'snare', ch: 'hats', oh: 'open hats', ride: 'ride', perc: 'percussion', acid: 'bass', stab: 'chords', vox: 'vocals' };
 
 // Bundles: moods, scenes and artists expand into the same primitive edits (a = signed amount).
@@ -893,9 +917,9 @@ export const INTENTS = {
   swing: 'amt: + swing / - straight', density: 'amt: + busier / - sparser', drops: 'amt: + bigger drops', space: 'amt: + reverb / - drier',
   echo: 'amt: + echo', grit: 'amt: + drive / - cleaner', pump: 'amt: + sidechain', punch: 'amt: + kick punch', variation: 'amt: + mutate / - steadier',
   volume: 'amt: ± master', harmony: 'amt: + richer chords / - plainer', dust: 'amt: + vinyl dust', scale: `value: ${Object.keys(SCALES).join('|')}`,
-  key: 'value: 0-11 (C=0)', keyStep: 'amt: ±1 semitone', voice: `value: 0-15 (${VOICE_NAMES.join(', ')})`, bassVoice: `value: 0-5 (${BASS_NAMES.join(', ')})`,
+  key: 'value: 0-11 (C=0)', keyStep: 'amt: ±1 semitone', voice: `value: 0-${VOICE_NAMES.length - 1} (${VOICE_NAMES.join(', ')})`, bassVoice: `value: 0-${BASS_NAMES.length - 1} (${BASS_NAMES.join(', ')})`,
   bpmScale: 'value: 0.5 half time | 2 double time', hook: 'value: 0 no melody | 1 add melody | 2 new melody',
-  kit: 'value: 0 machine | 1 live', level: `target: ${TRACK_IDS.join('|')}, amt`, mute: 'target, value: bool', lock: 'target, value: bool', genre: `value: ${Object.keys(STYLES).join('|')}`,
+  kit: `value: 0 machine | 1 live | 2 hybrid | ${KIT_BACKBEAT} recorded snare`, level: `target: ${TRACK_IDS.join('|')}, amt`, mute: 'target, value: bool', lock: 'target, value: bool', genre: `value: ${Object.keys(STYLES).join('|')}`,
   section: `sec: ${Object.keys(SECTION).join('|')}|bars; op: mute|add|density (tracks[]), energy|length|tension (amt), octave (tracks[] acid|stab, amt ±1|2), skip, strip, hook (value 0|1); `
     + 'optional nth: 1-8 or -1 (which pass of sec: "second drop" = 2, "last drop" = -1); sec bars needs bars: [from, to] 1-based ("bars 9-16" = [9,16], "last 8 bars" = [-8,-1])',
 };
@@ -938,8 +962,8 @@ export function validateEdits(list) {
     else if (e.id === 'bpm') { if ((x.value = num(e.value, 60, 200)) == null) continue; x.value = Math.round(x.value); }
     else if (e.id === 'key') { if ((x.value = num(e.value, 0, 11)) == null) continue; x.value = Math.round(x.value); }
     else if (e.id === 'voice') { if ((x.value = num(e.value, 0, VOICE_NAMES.length - 1)) == null) continue; x.value = Math.round(x.value); }
-    else if (e.id === 'bassVoice') { if ((x.value = num(e.value, 0, 5)) == null) continue; x.value = Math.round(x.value); }
-    else if (e.id === 'kit') { if ((x.value = num(e.value, 0, 2)) == null) continue; x.value = Math.round(x.value); }
+    else if (e.id === 'bassVoice') { if ((x.value = num(e.value, 0, BASS_NAMES.length - 1)) == null) continue; x.value = Math.round(x.value); }
+    else if (e.id === 'kit') { if ((x.value = num(e.value, 0, KIT_BACKBEAT)) == null) continue; x.value = Math.round(x.value); }
     else { if ((x.amt = num(e.amt, -3, 3)) == null || !x.amt) continue; }
     out.push(x);
   }
@@ -1171,7 +1195,7 @@ export function applyEdits(state, edits, { seed = 1, style } = {}) {
         P.acid.voice = Math.round(e.value); S.mutes.acid = false;
         label = BASS_NAMES[P.acid.voice];
         break;
-      case 'kit': M.kit = Math.round(e.value); label = M.kit === 1 ? 'live drums' : M.kit === 2 ? 'hybrid kit' : 'drum machine'; break;
+      case 'kit': M.kit = Math.round(e.value); label = M.kit === 1 ? 'live drums' : M.kit === 2 ? 'hybrid kit' : M.kit === KIT_BACKBEAT ? 'recorded snare' : 'drum machine'; break;
       case 'level': {
         const empty = !S.patterns.some((p) => hits(p.steps[t], p.len[t]));
         if (a > 0 && empty && DEFAULT_HITS[t]) {
@@ -1250,7 +1274,7 @@ export function applyEdits(state, edits, { seed = 1, style } = {}) {
           if (!S.chainOn) { skipped.push(`${e.src || e.sec} (song mode is off)`); continue; }
           if (byBar) { skipped.push(`${e.src} (name a section to make it longer, shorter or skip it)`); continue; }
           if (!runs.length) { skipped.push(`no ${e.sec} in this song`); continue; }
-          let c = S.chain;
+          let c = S.chain, chainEntries = S.chainEntries;
           for (const m of [...runs].reverse()) {
             const run = m[0];
             let next = '';
@@ -1258,12 +1282,15 @@ export function applyEdits(state, edits, { seed = 1, style } = {}) {
             if (op === 'skip') next = '';
             else if (a > 0) { const n = Math.max(2, Math.round(run.length * 0.5 * a)); next = end ? run + main.repeat(n) : main.repeat(n) + run; }
             else next = run.slice(Math.min(run.length - 1, Math.max(1, Math.round(run.length * 0.5 * Math.abs(a)))));
+            const before = c;
             c = c.slice(0, m.index) + next + c.slice(m.index + run.length);
+            if (chainEntries) chainEntries = editChainEntries(before, c, chainEntries, m.index + (a > 0 && end ? run.length : 0));
           }
           if (!c || c.length > 128) { skipped.push(`${e.src || e.sec} (song would be ${c ? 'too long' : 'empty'})`); continue; }
           const d = c.length - S.chain.length;
-          remapTakes(S.patterns, S.chain, c);
+          remapTakes(S.patterns, S.chain, c, S.chainEntries, chainEntries);
           S.chain = c;
+          if (chainEntries) S.chainEntries = chainEntries; else delete S.chainEntries;
           if (S.current >= S.patterns.length) S.current = 0;
           label = op === 'skip' ? `no ${secName} (${signed(d, ' bars')})` : `${a > 0 ? 'longer' : 'shorter'} ${secName} (${signed(d, ' bars')})`;
           break;

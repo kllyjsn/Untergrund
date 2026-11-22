@@ -135,10 +135,50 @@ recording's measured pitch (`python3 test/sampletune.py`) is corrected in `js/li
 | `ebass_52.flac` | `darkblack/reg/darkblack_e4_mf_rr1.wav` | 52 |
 | `ebass_55.flac` | `darkblack/reg/darkblack_g4_mf_rr1.wav` | 55 |
 
+## Saxophones: Karoryfer Weresax alto and MTG tenor (the recorded `reed` hook in Pop, Neo-Soul, Reggaeton, Breaks, Trap, Boom Bap and Afrobeats)
+
+- Alto source: https://github.com/sfzinstruments/karoryfer.weresax @ `a4d756b21d2a573aca0d840cce7e71ba5effd4c6`
+- Alto license: CC0 1.0 Universal (the `LICENSE` file in that repo)
+- Tenor source: https://github.com/sfzinstruments/MTG.SoloSax @ `b494d256549b3d088fdec176ce82867f8a1f58b2`
+  (sampled by the Music Technology Group, Universitat Pompeu Fabra, published on freesound.org; SFZ by kinwie)
+- Tenor license: Creative Commons Attribution 4.0 International (CC BY 4.0). Attribution: "MTG Solo Saxophones" by
+  the Music Technology Group (Universitat Pompeu Fabra), https://github.com/sfzinstruments/MTG.SoloSax, CC BY 4.0;
+  trimmed, converted to mono 16-bit FLAC and loudness matched for Untergrund.
+- Fetched and processed by `scripts/fetch-band.py --sax`: mono, 44.1 kHz, leading silence trimmed, cut at 3 s with an
+  80 ms fade, and scaled so every note has the same sustain loudness (RMS over 0.15-0.9 s). Weresax names its notes an
+  octave below MIDI (`a2` is MIDI 57, its SFZ key center); the MTG tenor numbers notes from MIDI 44 and plays 10-20
+  cents sharp, which `WIND_HOOK` in `js/engine.js` corrects. The `b` files are the alternate take for repeated notes:
+  the Weresax second round robin, and the MTG tenor's piano-dynamic take.
+
+| File | Source sample under `Samples/` | Key center (MIDI) |
+| --- | --- | --- |
+| `asax_52.flac` / `asaxb_52.flac` | `alto/e2_f_rr1_cnd.wav` / `alto/e2_f_rr2_cnd.wav` | 52 |
+| `asax_55.flac` / `asaxb_55.flac` | `alto/g2_f_rr1_cnd.wav` / `alto/g2_f_rr2_cnd.wav` | 55 |
+| `asax_58.flac` / `asaxb_58.flac` | `alto/bb2_f_rr1_cnd.wav` / `alto/bb2_f_rr2_cnd.wav` | 58 |
+| `asax_61.flac` / `asaxb_61.flac` | `alto/db3_f_rr1_cnd.wav` / `alto/db3_f_rr2_cnd.wav` | 61 |
+| `asax_64.flac` / `asaxb_64.flac` | `alto/e3_f_rr1_cnd.wav` / `alto/e3_f_rr2_cnd.wav` | 64 |
+| `asax_67.flac` / `asaxb_67.flac` | `alto/g3_f_rr1_cnd.wav` / `alto/g3_f_rr2_cnd.wav` | 67 |
+| `asax_70.flac` / `asaxb_70.flac` | `alto/bb3_f_rr1_cnd.wav` / `alto/bb3_f_rr2_cnd.wav` | 70 |
+| `asax_73.flac` / `asaxb_73.flac` | `alto/db4_f_rr1_cnd.wav` / `alto/db4_f_rr2_cnd.wav` | 73 |
+| `asax_76.flac` / `asaxb_76.flac` | `alto/e4_f_rr1_cnd.wav` / `alto/e4_f_rr2_cnd.wav` | 76 |
+| `asax_79.flac` / `asaxb_79.flac` | `alto/g4_f_rr1_cnd.wav` / `alto/g4_f_rr2_cnd.wav` | 79 |
+| `tsax_47.flac` / `tsaxb_47.flac` | `ten_f_04.flac` / `ten_p_04.flac` | 47 |
+| `tsax_50.flac` / `tsaxb_50.flac` | `ten_f_07.flac` / `ten_p_07.flac` | 50 |
+| `tsax_53.flac` / `tsaxb_53.flac` | `ten_f_10.flac` / `ten_p_10.flac` | 53 |
+| `tsax_56.flac` / `tsaxb_56.flac` | `ten_f_13.flac` / `ten_p_13.flac` | 56 |
+| `tsax_59.flac` / `tsaxb_59.flac` | `ten_f_16.flac` / `ten_p_16.flac` | 59 |
+| `tsax_62.flac` / `tsaxb_62.flac` | `ten_f_19.flac` / `ten_p_19.flac` | 62 |
+| `tsax_65.flac` / `tsaxb_65.flac` | `ten_f_22.flac` / `ten_p_22.flac` | 65 |
+| `tsax_68.flac` / `tsaxb_68.flac` | `ten_f_25.flac` / `ten_p_25.flac` | 68 |
+| `tsax_71.flac` / `tsaxb_71.flac` | `ten_f_28.flac` / `ten_p_28.flac` | 71 |
+| `tsax_74.flac` / `tsaxb_74.flac` | `ten_f_31.flac` / `ten_p_31.flac` | 74 |
+
 ## Rejected
 
 - jlearman jRhodes3d electric piano: its samples are CC-BY-NC 4.0 (non-commercial), so it is not bundled.
   The Rhodes stays synthesized until a CC0 electric piano is found.
+- MTG baritone sax and Karoryfer Bear Sax: the generated hooks sit in the alto and tenor ranges, so a baritone would
+  only play transposed or an octave under the bass; not bundled until a part is written for it.
 
 ## Recorded chord instruments (PIANO, GUITAR, HORNS, STRINGS)
 
@@ -173,12 +213,44 @@ principal pitch read from each drum's 1 : 1.5 : 2 partial series.
 | `cb_31.flac` … `cb_45.flac` (5) | VSCO-2-CE | `Strings/Solo Contrabass/SusVib/BKCtbss_SusVib_{G0,A#0,D1,F#1,A1}_v3_rr1.wav` |
 | `fl_60.flac` … `fl_84.flac` (7) | VSCO-2-CE | `Woodwinds/Flute/susvib/LDFlute_susvib_{C3,E3,A3,C4,E4,A4,C5}_v1_1.wav` |
 | `ob_58.flac` … `ob_82.flac` (7) | VSCO-2-CE | `Woodwinds/Oboe/Vib/Oboe_Vib_{A#2,D3,F3,A#3,D4,F4,A#4}_v1_Main.wav` |
+| `flb_60.flac` … `flb_84.flac` (7) | VSCO-2-CE | `Woodwinds/Flute/expvib/LDFlute_expvib_{C3,E3,A3,C4,E4,A4,C5}_v1_1.wav` (alternate hook takes, 1.4 s) |
+| `obb_58.flac` … `obb_82.flac` (7) | VSCO-2-CE | `Woodwinds/Oboe/Vib/Oboe_Vib_{A#2,D3,F3,A#3,D4,F4,A#4}_v3_Main.wav` (alternate hook takes, 1.4 s) |
 | `cl_50.flac` … `cl_74.flac` (7) | VSCO-2-CE | `Woodwinds/Clarinet/susLong/DCClar_susLong_{D2,F2,A#2,D3,F3,A#3,D4}_v2_rr1_sum.wav` |
 | `fh_43.flac` … `fh_60.flac` (6) | VSCO-2-CE | `Brass/F Horn/sus/MOHorn_sus_{G1,A#1,D2,F2,A2,C3}_v2_1.wav` |
 | `tpt_57.flac` … `tpt_81.flac` (8) | VSCO-2-CE | `Brass/Trumpet/susvib/Sum_SHTrumpet_susvib_{A2,C3,D#3,G3,A#3,D4,F4,A4}_v1_rr1.wav` |
 | `harp_47.flac` … `harp_91.flac` (9) | VSCO-2-CE | `Strings/Harp/KSHarp_{B1,F2,C3,E3,B3,F4,A4,C5,G5}_mf.wav` |
 | `timp_42.flac`, `timp_47.flac`, `timp_50.flac`, `timp_52.flac`, `timp_55.flac` | VSCO-2-CE | `Percussion/Timpani/Timpani{1,2,3,4,5}_Hit_v3_rr1_Sum.wav` |
 | `timproll_47.flac`, `timproll_52.flac` | VSCO-2-CE | `Percussion/Timpani/Rolls/Timpani{2,4}_Roll_v3_rr1_Sum.wav` |
+
+## Nylon guitar
+
+`nylon_{40,45,48,52,55,59,64,67,69}.flac` are nine fingerstyle notes from
+[Meta Nylon Guitar v1.0.0](https://github.com/facebookincubator/Meta-open-sound/releases/tag/meta-nylon-guitar-v1.0.0),
+released under **CC0 1.0 Universal**. The release includes that dedication and
+the collection's manifest explicitly identifies `CC0-1.0`. The complete legal
+text is in [NYLON-LICENSE.txt](../NYLON-LICENSE.txt); original filenames,
+SHA-256 hashes, measured pitch centers and processing are recorded in
+[nylon-provenance.json](../nylon-provenance.json). Original WAVs were converted
+to mono 48 kHz / 24-bit FLAC, gain-normalized with headroom and shortened to at
+most four seconds with short edge fades. No synthesis or denoising was used.
+
+## Marimba and hand percussion
+
+Original WAVs were downmixed to mono, resampled to 44.1 kHz, high-pass filtered,
+trimmed to their attacks, faded at the edges, and peak-normalized to −6 dBFS before
+encoding as 16-bit FLAC. The cuíca files are individual strokes cut from an acoustic
+performance, not the keyboard sample in Freesound pack 34867.
+
+| Bundled files | Source, credits and license | Original takes |
+| --- | --- | --- |
+| `marimba_{48,55,59,65,72,79,83}.flac` | [VSCO-2-CE, Versilian Studios](https://github.com/sgossner/VSCO-2-CE/tree/440300901dfe9275fd84e0b7763af1f8443ae62e), CC0 1.0 Universal | `Percussion/Marimba/Marimba_hit_Outrigger_{C2,G2,B2,F3,C4,G4,B4}_loud_01.wav` |
+| `shaker_{1,2,4,7}.flac` | VSCO-2-CE at the same commit, CC0 1.0 Universal | `VSCO 1 Percussion/varWood/Camo's Shaker/shake{1,2,4,7}.wav` |
+| `conga_{tap,open}_{1,2}.flac` | VSCO-2-CE at the same commit, CC0 1.0 Universal | `Percussion/Conga-{Tap1_v1,HitN_v2}_rr{1,2}_Sum.wav` |
+| `cowbell_{1,2}.flac` | [swirly-drums, Karoryfer Samples](https://github.com/sfzinstruments/karoryfer.swirly-drums/tree/c40dafe0011cb2e54c0c220ff0fa308a11fc60f5), CC0 1.0 Universal | `Samples/cowbell/cowbell_vl3_rr{1,2}.wav` |
+| `timbale_closed_{1,2}.flac` | [Metal Timbales, Suicidity](https://freesound.org/people/Suicidity/packs/5890/), CC0 1.0 Universal | [90524](https://freesound.org/s/90524/), [90529](https://freesound.org/s/90529/) |
+| `timbale_low_{1,2}.flac` | Metal Timbales, Suicidity, CC0 1.0 Universal | [90471](https://freesound.org/s/90471/), [90474](https://freesound.org/s/90474/) |
+| `timbale_high_{1,2}.flac` | Metal Timbales, Suicidity, CC0 1.0 Universal | [90506](https://freesound.org/s/90506/), [90509](https://freesound.org/s/90509/) |
+| `cuica_{1,2}.flac` | [“cuica (1).wav” by reinsamba](https://freesound.org/s/21715/), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | Two edited strokes from source windows 0.550–0.770 s and 1.415–1.615 s |
 
 ## Sung vocals
 

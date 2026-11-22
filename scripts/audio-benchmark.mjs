@@ -12,15 +12,17 @@ import { cpus } from 'node:os';
 import { withChrome } from '../test/chrome.mjs';
 import { STYLES } from '../js/state.js';
 import { targetFor, LOUDNESS_TARGET } from '../js/loudness.js';
+import { PERCEPTUAL_METRICS } from '../js/perceptual-audio.js';
 
 export const SCHEMA = 'untergrund.audio-benchmark/1';
 export const SEEDS = { fast: [42], deep: [11, 42, 1234] };
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const baselineFile = (tier) => join(ROOT, `test/audio-baseline/${tier}.json`);
-const LEVEL = { PASS: 0, WARN: 1, FAIL: 2 }, worse = (a, b) => (LEVEL[b] > LEVEL[a] ? b : a);
+const LEVEL = { INFO: -1, PASS: 0, WARN: 1, FAIL: 2 }, worse = (a, b) => (LEVEL[b] > LEVEL[a] ? b : a);
 // Styles that end on a long pad, reverb or delay fade by design.
 export const LONG_TAIL = ['ambient', 'dub', 'nocturne'];
 const classical = (style) => targetFor(style) === LOUDNESS_TARGET.classical;
+const acousticJazz = (style) => ['swing', 'modal', 'bossa'].includes(style);
 const r = (v, p = 2) => (Number.isFinite(v) ? +v.toFixed(p) : null);
 const pct = (xs, q) => { const a = xs.filter(Number.isFinite).sort((x, y) => x - y); return a.length ? a[Math.min(a.length - 1, Math.round((a.length - 1) * q))] : null; };
 const stem = (x, id) => x.stems.stems.find((s) => s.id === id);
@@ -44,7 +46,7 @@ export const CHECKS = [
   { id: 'truePeak', group: 'peaks', label: 'True peak', unit: 'dBTP', bad: 'high', warn: -0.9, fail: 0, drift: 0.5, repeat: 0.3, get: (x) => x.mix.peak.truePeakDb, why: '4x-oversampled peak (BS.1770); the master limiter ceiling is -1 dBTP, above 0 dBTP a lossy encode or DAC clips.' },
   { id: 'clipRuns', group: 'peaks', label: 'Clipped runs', unit: 'count', bad: 'high', warn: null, fail: 0.5, drift: null, repeat: 0, get: (x) => x.mix.peak.clipRuns, why: 'Runs of 2+ consecutive samples at or above 0.999 full scale.' },
   { id: 'dcOffset', group: 'peaks', label: 'DC offset', unit: 'dBFS', bad: 'high', warn: -40, fail: -30, drift: null, repeat: 3, get: (x) => Math.max(-80, x.mix.peak.dcDb), why: 'Mean sample value, floored at -80 dBFS (below that it is rounding noise, not DC); DC wastes headroom and thumps on start/stop.' },
-  { id: 'loudnessTarget', group: 'loudness', label: 'Integrated loudness vs target', unit: 'LU', bad: 'high', warn: 1.5, fail: 3, drift: 0.75, repeat: 0.1, tiers: ['deep'], get: (x) => Math.abs(x.mix.loudness.deltaTarget), why: 'Whole-song BS.1770 integrated loudness against the style target in js/loudness.js (-10 club / -14 quiet / -16 classical).' },
+  { id: 'loudnessTarget', group: 'loudness', label: 'Integrated loudness vs target', unit: 'LU', bad: 'high', warn: 1.5, fail: 3, drift: 0.75, repeat: 0.1, tiers: ['deep'], get: (x) => Math.abs(x.mix.loudness.deltaTarget), why: 'Whole-song BS.1770 integrated loudness against the style target in js/loudness.js (-12 feed / -14 ambient and R&B / -16 classical).' },
   { id: 'windowLufs', group: 'loudness', label: 'Densest-window loudness', unit: 'LUFS', bad: 'high', warn: null, fail: null, drift: 1, repeat: 0.1, tiers: ['fast'], get: (x) => x.mix.loudness.integrated, why: 'Loudness of the two densest bars; only gated as drift from baseline (the integrated target is a deep-tier check).' },
   { id: 'lra', group: 'loudness', label: 'Loudness range', unit: 'LU', bad: 'high', warn: 15, fail: 20, drift: 2, repeat: 0.3, tiers: ['deep'], applies: (s) => !classical(s), get: (x) => x.mix.loudness.lra, why: 'EBU Tech 3342 LRA of the whole song; very large values mean sections a listener has to ride the volume for. Club/pop styles only.' },
   { id: 'lraClassical', group: 'loudness', label: 'Loudness range (classical)', unit: 'LU', bad: 'high', warn: 22, fail: 28, drift: 2, repeat: 0.3, tiers: ['deep'], applies: classical, get: (x) => x.mix.loudness.lra, why: 'The same LRA for the classical styles, where 15-25 LU is normal for concert recordings (EBU R128 s1); only beyond that is the piece unlistenable without riding the volume.' },
@@ -65,7 +67,8 @@ export const CHECKS = [
   { id: 'monoLoss', group: 'stereo', label: 'Mono fold-down loss', unit: 'LU', bad: 'low', warn: -1.5, fail: -3, drift: 0.5, repeat: 0.1, get: (x) => x.mix.stereo.monoLossLu, why: 'Loudness change when L and R are summed to mono (phone speakers, club mono-sum); big losses mean phase cancellation.' },
   { id: 'correlation', group: 'stereo', label: 'L/R correlation (5th pct of 400 ms blocks)', unit: 'r', bad: 'low', warn: -0.4, fail: -0.7, drift: 0.2, repeat: 0.03, get: (x) => x.mix.stereo.correlationP5, why: 'Phase correlation of loud blocks. Wide reverb and pads sit near 0 (fine: -3 dB in mono); strongly negative blocks lose 6+ dB or vanish when summed to mono.' },
   { id: 'lowSide', group: 'stereo', label: 'Side energy under 120 Hz', unit: 'dB', bad: 'high', warn: -15, fail: -8, drift: 4, repeat: 1, applies: (s) => !classical(s), get: (x) => x.mix.stereo.lowSideDb, why: 'Bass width relative to bass mono; club rigs and vinyl want mono lows. Not applied to orchestral seating.' },
-  { id: 'kickBass', group: 'balance', label: 'Bass under the kick (p90)', unit: 'dB', bad: 'high', warn: 0, fail: 6, drift: 3, repeat: 1, get: (x) => x.stems.kickBass?.collisionP90Db ?? null, why: 'Bass-stem energy under 120 Hz in the 60 ms after each kick, relative to the kick: high means the two fight instead of ducking or interlocking.' },
+  { id: 'kickBass', group: 'balance', label: 'Bass under the kick (p90)', unit: 'dB', bad: 'high', warn: 0, fail: 6, drift: 3, driftOnlyWorse: true, repeat: 1, applies: (s) => !acousticJazz(s), get: (x) => x.stems.kickBass?.collisionP90Db ?? null, why: 'Bass-stem energy under 120 Hz in the 60 ms after each kick, relative to the kick: high means the two fight instead of ducking or interlocking. A quiet kick window is fine; missing bass is measured separately.' },
+  { id: 'acousticKickBass', group: 'balance', label: 'Upright over feathered kick (p90)', unit: 'dB', bad: 'high', warn: null, fail: null, drift: null, repeat: 1, applies: acousticJazz, get: (x) => x.stems.kickBass?.collisionP90Db ?? null, why: 'Informational for acoustic jazz: the upright intentionally leads a feathered or surdo-style kick. Their low-frequency level ratio alone cannot establish masking. Missing parts and energetic masking remain measured separately.' },
   { id: 'missingParts', group: 'balance', label: 'Silent parts that have notes', unit: 'count', bad: 'high', warn: null, fail: 0.5, drift: null, repeat: 0, get: (x) => x.stems.missing.length, why: 'A part the sequencer played at least twice in the window whose stem stayed below -70 dBFS.' },
   { id: 'masking', group: 'balance', label: 'Most-masked part', unit: 'share', bad: 'high', warn: 0.6, fail: 0.85, drift: 0.15, repeat: 0.04, get: (x) => Math.max(0, ...x.stems.stems.filter((s) => s.id !== 'fx' && (s.notes ?? 0) >= 4 && s.relLu != null && s.relLu > -20).map((s) => s.buriedShare ?? 0)), why: 'Share of a part\'s energy in time/third-octave cells where the rest of the mix is 10 dB louder (energetic masking), for parts within 20 LU of the mix.' },
   { id: 'stemDrift', group: 'balance', label: 'Largest stem level change', unit: 'LU', bad: 'high', warn: null, fail: null, drift: 3, repeat: 0.5, baselineOnly: true, get: () => null, why: 'Per-stem loudness relative to the mix vs baseline; catches one part getting much louder or quieter.' },
@@ -109,7 +112,7 @@ export function evaluate(tier, results, baseline) {
       if (!seeds.length) continue;
       const hi = c.bad === 'high', worstSeed = seeds.reduce((a, s) => ((hi ? vals[s] > vals[a] : vals[s] < vals[a]) ? s : a)), worst = vals[worstSeed];
       const over = (v, t) => t != null && (hi ? v > t : v < t);
-      const m = { worst, worstSeed: +worstSeed, p50: r(pct(Object.values(vals), 0.5)), values: vals, level: 'PASS' };
+      const m = { worst, worstSeed: +worstSeed, p50: r(pct(Object.values(vals), 0.5)), values: vals, level: [c.warn, c.fail, c.drift].some((v) => v != null) ? 'PASS' : 'INFO' };
       // A seed the check's excuse() clears (e.g. a drop no louder than the breakdown but clearly denser) keeps its
       // value and is still held to the FAIL guardrail, but not to WARN.
       const excused = c.excuse ? Object.fromEntries(rs.filter((x) => x.seed in vals).map((x) => [x.seed, c.excuse(x)]).filter(([, v]) => v)) : {};
@@ -117,14 +120,14 @@ export function evaluate(tier, results, baseline) {
       const held = seeds.filter((sd) => !(sd in excused)), ts = held.length ? held.reduce((a, sd) => ((hi ? vals[sd] > vals[a] : vals[sd] < vals[a]) ? sd : a)) : null, tv = ts == null ? null : vals[ts];
       let at = worstSeed;
       if (over(worst, c.fail)) m.level = 'FAIL'; else if (ts != null && over(tv, c.warn)) { m.level = 'WARN'; at = ts; }
-      if (m.level !== 'PASS') row.reasons.push({ check: c.id, level: m.level, kind: 'threshold', seed: +at, value: vals[at], threshold: m.level === 'FAIL' ? c.fail : c.warn, message: `${c.label} ${vals[at]} ${c.unit} (seed ${at}) ${hi ? '>' : '<'} ${m.level === 'FAIL' ? c.fail : c.warn}` });
+      if (m.level === 'WARN' || m.level === 'FAIL') row.reasons.push({ check: c.id, level: m.level, kind: 'threshold', seed: +at, value: vals[at], threshold: m.level === 'FAIL' ? c.fail : c.warn, message: `${c.label} ${vals[at]} ${c.unit} (seed ${at}) ${hi ? '>' : '<'} ${m.level === 'FAIL' ? c.fail : c.warn}` });
       // Margin to the WARN guardrail in units of the drift tolerance: the "closest to threshold" ranking.
       const t = c.warn ?? c.fail;
       if (t != null && c.drift) m.margin = r((hi ? t - worst : worst - t) / c.drift);
       const b = base?.metrics?.[c.id]?.worst;
       if (b != null && c.drift) {
         m.baseline = b; m.delta = r(worst - b);
-        const away = hi ? m.delta : -m.delta, drift = Math.abs(m.delta);
+        const away = hi ? m.delta : -m.delta, drift = c.driftOnlyWorse ? away : Math.abs(m.delta);
         let lvl = 'PASS';
         if (drift > 3 * c.drift) lvl = 'FAIL'; else if (drift > c.drift) lvl = 'WARN';
         if (lvl !== 'PASS') {
@@ -135,17 +138,32 @@ export function evaluate(tier, results, baseline) {
       row.metrics[c.id] = m; row.verdict = worse(row.verdict, m.level);
     }
     for (const x of rs) row.seeds[x.seed] = detail(x);
+    row.perceptual = {
+      mix: summarizePerceptual(rs.map((x) => [x.seed, x.perceptual])),
+      parts: Object.fromEntries([...new Set(rs.flatMap((x) => x.stems.stems.map((s) => s.id)))].map((part) =>
+        [part, summarizePerceptual(rs.map((x) => [x.seed, x.stems.stems.find((s) => s.id === part)?.perceptual]))])),
+    };
     styles[id] = row;
   }
   return styles;
 }
 const STEM_LABEL = (at) => { const [seed, id] = String(at).split(':'); return `${id} stem (seed ${seed})`; };
 
+function summarizePerceptual(rows) {
+  return Object.fromEntries(Object.keys(PERCEPTUAL_METRICS).map((id) => {
+    const measured = rows.map(([seed, p]) => [seed, p?.[id]]).filter(([, v]) => Number.isFinite(v));
+    if (!measured.length) return [id, { n: 0, p50: null, worst: null, worstSeed: null }];
+    const [worstSeed, worst] = measured.reduce((a, b) => b[1] > a[1] ? b : a);
+    return [id, { n: measured.length, p50: r(pct(measured.map(([, v]) => v), 0.5)), worst, worstSeed }];
+  }));
+}
+
 // What a chart needs per seed, kept small: spectrum, stems, the arrangement curve and the ending envelope.
 function detail(x) {
   const m = x.mix, d = { bars: x.bars, secs: x.secs, bpm: x.bpm, chain: x.chain, windows: x.windows, octaves: m.spectrum.octaves, shares: m.spectrum.shares, centroidHz: m.spectrum.centroid,
     loudness: m.loudness, stereo: m.stereo, limiter: m.limiter, clipper: m.clipper ?? null, saturator: m.saturator ?? null, crest: m.crest ?? null, balance: m.balance ?? null, kickBass: x.stems.kickBass ?? null,
-    stems: x.stems.stems.map(({ id, notes, relLu, buriedShare, hits }) => ({ id, notes, relLu, buriedShare, hits })) };
+    perceptual: x.perceptual ?? null,
+    stems: x.stems.stems.map(({ id, notes, relLu, buriedShare, hits, perceptual }) => ({ id, notes, relLu, buriedShare, hits, perceptual: perceptual ?? null })) };
   if (m.arrangement) Object.assign(d, { barLufs: m.arrangement.barLufs, sections: m.arrangement.sections ?? [] });
   if (m.ending) d.ending = { t40: m.ending.t40, cliffDb: m.ending.cliffDb, deadAirSec: m.ending.deadAirSec, tailLu: m.ending.tailLu, envelopeDb: m.ending.envelope, envelopeStepSec: 0.05 };
   return d;
@@ -161,7 +179,7 @@ export function report(tier, seeds, results, baseline, run) {
     if (!all.length) continue;
     const hi = c.bad === 'high', w = all.reduce((a, b) => ((hi ? b.v > a.v : b.v < a.v) ? b : a));
     global[c.id] = { n: all.length, p10: r(pct(all.map((a) => a.v), 0.1)), p50: r(pct(all.map((a) => a.v), 0.5)), p90: r(pct(all.map((a) => a.v), 0.9)), worst: w.v, worstStyle: w.style, worstSeed: w.seed,
-      levels: { PASS: list.filter(([, s]) => s.metrics[c.id]?.level === 'PASS').length, WARN: list.filter(([, s]) => s.metrics[c.id]?.level === 'WARN').length, FAIL: list.filter(([, s]) => s.metrics[c.id]?.level === 'FAIL').length } };
+      levels: { INFO: list.filter(([, s]) => s.metrics[c.id]?.level === 'INFO').length, PASS: list.filter(([, s]) => s.metrics[c.id]?.level === 'PASS').length, WARN: list.filter(([, s]) => s.metrics[c.id]?.level === 'WARN').length, FAIL: list.filter(([, s]) => s.metrics[c.id]?.level === 'FAIL').length } };
   }
   const reasons = list.flatMap(([id, s]) => s.reasons.map((x) => ({ style: id, ...x }))).sort((a, b) => LEVEL[b.level] - LEVEL[a.level]);
   const closest = list.flatMap(([id, s]) => Object.entries(s.metrics).filter(([, m]) => m.margin != null && m.level === 'PASS').map(([check, m]) => ({ style: id, seed: m.worstSeed, check, value: m.worst, margin: m.margin }))).sort((a, b) => a.margin - b.margin).slice(0, 12);
@@ -170,6 +188,7 @@ export function report(tier, seeds, results, baseline, run) {
     seeds, counts: { styles: list.length, songs: results.length, PASS: list.filter(([, s]) => s.verdict === 'PASS').length, WARN: list.filter(([, s]) => s.verdict === 'WARN').length, FAIL: list.filter(([, s]) => s.verdict === 'FAIL').length },
     baseline: baseline ? { file: `test/audio-baseline/${tier}.json`, commit: baseline.run?.commit ?? null } : null,
     checks: Object.fromEntries(checks.map(({ id, group, label, unit, bad, warn, fail, drift, repeat, why, applies }) => [id, { group, label, unit, worseWhen: bad, warn, fail, drift, repeat, appliesTo: applies ? Object.keys(STYLES).filter(applies) : 'all', why }])),
+    perceptual: { version: 1, gating: false, worseWhen: 'high', metrics: PERCEPTUAL_METRICS },
     global, reasons, closest, families, styles,
   };
 }

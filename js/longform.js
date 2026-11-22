@@ -16,9 +16,10 @@ const BASES = {
   song: {
     pop: ['i4 v8 p4 c8 v8 p4 c8 b8 c8 o4', 'i4 c8 v8 p4 c8 v8 p4 c8 b8 c8 o4', 'i8 v8 p4 c8 v8 p4 c8 b8 p4 c8 o4'],
     rap: ['i4 c8 v16 c8 v16 c8 b8 c8 o4', 'i8 v16 c8 v16 c8 b8 c8 o8'],
+    beat: ['i4 c8 v8 c8 x8 v8 c8 b8 c8 o4', 'i8 v8 c8 v8 c8 x8 b8 c8 o8'],
     house: ['i8 v8 c8 v8 c8 b8 c8 o8', 'i8 v8 p4 c8 v8 p4 c8 b8 c8 o8'],
   },
-  sketch: { pop: ['i4 v8 p4 c8 o4'], rap: ['i4 v16 c8 o4'], house: ['i8 v8 c8 o8'] },
+  sketch: { pop: ['i4 v8 p4 c8 o4'], rap: ['i4 v16 c8 o4'], beat: ['i4 v8 c8 o4'], house: ['i8 v8 c8 o8'] },
 };
 
 const kinds = (S) => S.map((s) => s[0]);
@@ -53,6 +54,7 @@ const GROW = {
 const ORDER = {
   pop: ['final', 'inst', 'verse2', 'pre', 'outro', 'intro', 'verse1', 'bridge', 'intro16', 'outro16'],
   rap: ['final', 'inst', 'outro', 'intro', 'verse3', 'bridge'],
+  beat: ['final', 'outro', 'intro'],
   house: ['final', 'inst', 'intro16', 'outro16', 'verse2', 'verse1', 'bridge'],
 };
 const SKETCH_ORDER = ['final', 'intro', 'outro'];
