@@ -19,6 +19,7 @@ import { FUNK_HANDS, FUNK_VOX, funkHandBar } from './baile.js';
 import { festivalBuilds } from './festival-build.js';
 import { isJazz, generateJazz } from './jazz.js';
 import { HIPHOP, HIPHOP_STYLES, hiphopGroove, hiphopMotif } from './hiphop.js';
+import { rootsTags, cleanRoots } from './roots.js';
 
 export const STYLES = {
   hypnotic: { name: 'HYPNOTIC', bpm: [130, 134], family: 'TECHNO', tag: 'deep · rolling' },
@@ -903,6 +904,8 @@ function generatePattern(style, seed, scaleName, starter) {
   const gainScale = harpHook ? 0.72 : 1;
   const sung = withMelody(P.hook, rng(Math.imul((seed | 0) ^ 0x68e31da4, 0x3c6ef372) ^ 0x1b873593), style, musicalScale, { prog: P.prog, alt: P.alt, chord: params.stab.chord | 0, gainScale });
   if (sung) { P.hook = sung; P.hm = 2; }
+  const roots = rootsTags(style, seed, params.stab.voice, P.hook);
+  if (roots) P.roots = roots;
   if (style === 'drill' && P.hook) {
     P.hook.v = harpHook ? 'harpplk' : P.hook.v === 'reed' ? 'oboe' : 'airflute';
   }
@@ -1514,6 +1517,8 @@ export function sanitize(s) {
     const p = s.patterns[i];
     const e = emptyPattern();
     if (!p) return e;
+    const roots = cleanRoots(p.roots);
+    if (roots) e.roots = roots;
     if (isJazz(p.jazz?.style)) e.jazz = { style: p.jazz.style, seed: Number.isFinite(+p.jazz.seed) ? p.jazz.seed | 0 : 1, ...(p.jazz.progBars === 1 ? { progBars: 1 } : {}) };
     for (const id of TRACK_IDS) {
       if (Array.isArray(p.steps?.[id])) e.steps[id] = cleanTrack(id, p.steps[id]);
