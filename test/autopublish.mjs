@@ -191,14 +191,17 @@ try {
 const saved = Object.fromEntries(['window', 'location', 'localStorage', 'fetch', 'document'].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
 try {
   const stored = new Map(), listeners = new Map();
-  let rejectConnect = false, persistTokens = false, callbackExchange = false, posts = 0, accountSignIn = false, accountRefreshes = 0;
+  let rejectConnect = false, persistTokens = false, callbackExchange = false, posts = 0, accountSignIn = false, accountRefreshes = 0, blockedStorage = false;
   const signedInAccount = { id: 'sc-42', handle: 'test-artist' };
-  globalThis.localStorage = { getItem: (k) => stored.get(k), setItem: (k, v) => stored.set(k, v), removeItem: (k) => stored.delete(k) };
+  globalThis.localStorage = { getItem: (k) => stored.get(k), setItem: (k, v) => {
+    if (blockedStorage) throw new Error('Storage unavailable');
+    stored.set(k, v);
+  }, removeItem: (k) => stored.delete(k) };
   globalThis.location = { origin: 'http://localhost' };
   globalThis.window = {
     open: () => ({ closed: false, close() {}, location: { set href(value) {
       const state = new URL(value).searchParams.get('state');
-      assert.equal(JSON.parse(stored.get('untergrund.sc.pending')).state, state, 'pending PKCE record is saved before navigation');
+      if (!blockedStorage) assert.equal(JSON.parse(stored.get('untergrund.sc.pending')).state, state, 'pending PKCE record is saved before navigation');
       queueMicrotask(async () => {
         const data = callbackExchange ? await completeCallback({ state, code: 'code' }) : { type: 'sc-auth', code: 'code', state };
         listeners.get('message')({ origin: location.origin, data });
@@ -252,6 +255,12 @@ try {
   rejectConnect = false;
   stored.delete('untergrund.sc.callback');
   callbackExchange = false;
+  blockedStorage = true;
+  const beforeBlocked = posts;
+  assert.equal((await connect({ endpoint: '/api/autopublish', persistTokens: false })).connected, true);
+  assert.equal(posts, beforeBlocked + 1, 'desktop postMessage exchange works without pending storage');
+  blockedStorage = false;
+  console.log('SoundCloud PKCE: blocked pending storage preserves desktop postMessage exchange passed');
   console.log('SoundCloud PKCE: server-only connection, wrong-account feedback and existing browser token flow passed');
   let click;
   const status = { textContent: '', replaceChildren(...parts) { this.textContent = parts.join(''); }, append(...parts) { this.textContent += parts.filter((p) => typeof p === 'string').join(''); } };

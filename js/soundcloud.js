@@ -93,8 +93,8 @@ export function connect({ endpoint, persistTokens = true } = {}) {
     const cleanup = () => { window.removeEventListener('message', onMsg); window.removeEventListener('storage', onStore); clearInterval(poll); };
     window.addEventListener('message', onMsg);
     window.addEventListener('storage', onStore);
+    try { localStorage.setItem(PENDING, JSON.stringify({ state, verifier, endpoint: endpoint || '/api/sc-token', persistTokens, redirect_uri: redirectUri(), t: Date.now() })); } catch {}
     try {
-      localStorage.setItem(PENDING, JSON.stringify({ state, verifier, endpoint: endpoint || '/api/sc-token', persistTokens, redirect_uri: redirectUri(), t: Date.now() }));
       popup.location.href = `${cfg.authUrl}/authorize?${q}`;
     } catch (error) { done = true; cleanup(); popup.close(); reject(error); }
   });
