@@ -5653,7 +5653,7 @@ export class Sequencer {
     if (this.songBars && hk && hm && leadOn && !held) this.interplay(pat, hk, abs, bar, tt, sd, busy, anySolo, !!hk.s[abs % 32]);
     if (this.songBars && sung?.part && leadOn && !held) this.interplay(pat, pat.hook, abs, bar, tt, sd, busy, anySolo, sung.notes.some((o) => o.at === i16));
     if (sung && leadOn) this.sing(sung, i16, bar, tt, sd, scale);
-    if (sung && leadOn && pocketOf(s.master)?.walk) this.answer(sung, i16, bar, tt, sd);
+    if (sung && leadOn && pocketOf(s.master)?.walk && roots?.hook !== 'fiddle') this.answer(sung, i16, bar, tt, sd);
     if (hk && hm && !s.mutes.stab && (!anySolo || s.solos.stab)) {
       const hi = abs % 32, st = hk.s[hi];
       const x = hk.x || { space: 0.4, risk: 0.4, feel: 0.4, warmth: 0.5 };
