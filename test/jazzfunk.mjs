@@ -11,6 +11,7 @@ import { styleFor } from '../js/song-plan.js';
 import { liveSets } from '../js/livekit.js';
 import { stageScene } from '../js/club-stage.js';
 import { runComposition, compositionRegressions } from '../scripts/composition.mjs';
+import { songState } from '../js/song-spec.js';
 
 const pc = (n) => (n % 12 + 12) % 12;
 {
@@ -56,6 +57,15 @@ const record = (s, bars = 8, setup = () => {}) => {
   for (let i = 0; i < bars * 16; i++) seq.tick(i, 0.05 + i * e.stepDur);
   return e.notes;
 };
+for (const chord of ['Isus2', 'Isus4']) {
+  const { state } = songState({ style: 'jazzfunk', bpm: 100, key: 'C', scale: 'major', sections: [{ role: 'drop', bars: 16, chords: [chord] }] }, 0);
+  const notes = record(state, 16);
+  assert(notes.hook.length, `${chord}: valid suspended spec retains its head`);
+  assert(notes.hook.every((n) => Number.isFinite(n.m) && n.m >= 69 && n.m <= 80), `${chord}: playable fallback register`);
+  assert.deepEqual(notes, record(state, 16), `${chord}: deterministic fallback`);
+  for (const p of state.patterns) p.hook = null;
+  assert(!record(state, 16).hook, `${chord}: missing hook stays silent`);
+}
 for (const seed of [1, 2, 3, 11, 42, 77, 1234, 12345, 0x12345678]) {
   const s = freshSong('jazzfunk', seed), p = s.patterns[6];
   const saved = sanitize(JSON.parse(JSON.stringify(s)));

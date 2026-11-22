@@ -45,7 +45,16 @@ function funkHead(seed, rhythm, tones, passing, top, shape, variation) {
     }
     if (paths.length) break;
   }
-  if (!paths.length) throw new Error(`Jazz-Funk head has no playable phrase: ${id}`);
+  if (!paths.length) {
+    let previous;
+    const notes = rhythm.map(([at], i) => {
+      const pool = (i === 0 || at % 4 === 0 ? tones : passing).filter((m) => m <= top);
+      const moving = pool.filter((m) => m !== previous && (previous == null || Math.abs(m - previous) <= 5));
+      previous = near(moving.length ? moving : pool, top - 8 + cell[i % cell.length]);
+      return previous;
+    });
+    paths.push({ notes, cost: 0 });
+  }
   const ranked = paths.sort((a, b) => a.cost - b.cost), opening = ranked[0].notes;
   const endings = ranked.filter((p) => p.notes.slice(0, 4).every((n, i) => n === opening[i]) && p.notes.some((n, i) => i >= 4 && n !== opening[i]));
   const notes = variation && endings.length ? endings[(variation - 1) % endings.length].notes : opening;
