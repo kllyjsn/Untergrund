@@ -17,7 +17,7 @@ export async function handleAutopublish({ method, query = {}, body = {}, kv, env
     }
     if (method !== 'POST' && !(method === 'GET' && query.run === '1')) return result(405, { error: 'method_not_allowed' });
     if (typeof body === 'string') {
-      try { body = JSON.parse(body); } catch { return result(400, { error: 'invalid_json' }); }
+      try { body = body.trim() ? JSON.parse(body) : {}; } catch { return result(400, { error: 'invalid_json' }); }
     }
     const run = query.run === '1';
     if (!run && (!body?.code || !body?.code_verifier || !body?.redirect_uri)) return result(400, { error: 'missing_parameters' });

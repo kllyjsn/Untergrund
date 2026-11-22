@@ -56,6 +56,7 @@ let initialRefresh;
 try {
   assert.deepEqual((await call('GET')).json, { connected: false, account: null, last: null });
   assert.equal((await call('POST', {}, { run: '1' })).json.error, 'not_connected');
+  for (const body of ['', ' \n\t ']) assert.equal((await call('POST', body, { run: '1' })).json.error, 'not_connected', 'bodyless runs reach publishing logic');
   assert.equal((await call('POST', {})).status, 400);
   assert.equal((await call('POST', '{')).json.error, 'invalid_json');
   assert.equal((await call('DELETE')).status, 405);
