@@ -17,9 +17,9 @@ const chordsFill = await withChrome((run) => run(`(async () => {
     s.key = 3;
     Object.assign(s.params.stab, { voice: 3, octave: 1, chord: 0, pan: 0 });
     const engine = new Engine(ctx, s, { realtime: false });
-    const { input, pan } = engine.ch.stab;
+    const { input, out } = engine.ch.stab;
     engine.out.disconnect();
-    pan.connect(ctx.destination);
+    out.connect(ctx.destination);
     if (withStereoVoice) {
       const voice = ctx.createBufferSource();
       voice.buffer = ctx.createBuffer(2, rate, rate);
@@ -49,6 +49,126 @@ if (chordsFill) {
     assert(relativeResidual < 1e-6, `organ fill changes with a preceding stereo voice (relative residual ${relativeResidual})`);
   }
   console.log('CHORDS organ fill nulls with and without a preceding stereo voice');
+}
+
+
+const chordsRoutes = await withChrome((run) => run(`(async () => {
+  const { Engine, paletteColor } = await import('/js/engine.js');
+  const { defaultState } = await import('/js/state.js');
+  const rate = 48000, at = 0.25, first = at * rate;
+  // Reference: the original strip, with each source rendered alone so its panner sees the source's width.
+  class Legacy extends Engine {
+    wireChords({ input, band, strip, level, carve, pan }) {
+      [input, ...strip, level, carve, pan].reduce((a, n) => a.connect(n));
+      band.connect(input); band.connect(this.bandIn);
+    }
+    routeWind(ch) { this.windDuck.connect(ch.input); }
+  }
+  function sample(ctx, width) {
+    const b = ctx.createBuffer(width, rate, rate);
+    for (let c = 0; c < width; c++) {
+      const chan = b.getChannelData(c);
+      for (let i = 0; i < chan.length; i++) chan[i] = 0.3 * Math.sin(i * (c ? 0.077 : 0.043));
+    }
+    return b;
+  }
+  const routes = {
+    'organ fill': ({ e }) => e.lick(at, 0.6, 0),
+    'trimmed chord organ': ({ e, p, input }) => e.synthOrgan(at, 0.6, [0, 4], 54, p, e.trimOut('test', 2, input)),
+    'bells under harp': ({ e, p, input }) => e.bells(at, 0.6, [0], 50, p, e.harpBacking(input)),
+    'Baile Funk stab': ({ e, input }) => e.funkStab(at, 0.7, [0, 3], 60, 0.3, input),
+    'compressed minimal hook': ({ e, input }) => e.minimalHook(at, 0.7, 440, 0.3, input),
+    'band sample': ({ e, b, input }) => e.recordedNote([[60, b]], at, 0.8, 60, 0.4, input),
+    'band sample through amp and slap': ({ e, b, input }) => {
+      const dest = e.slapFor(e.ampFor(input));
+      e.recordedNote([[60, b]], at, 0.8, 60, 0.4, dest);
+    },
+    'band sample through tremolo and body EQ': ({ e, b, band }) => {
+      const dest = e.tremFor(e.bodyFor(band, [300, 1, 2]), at, 0.3);
+      e.recordedNote([[60, b]], at, 0.8, 60, 0.4, dest);
+    },
+    'guitar hand squeak': ({ e, band }) => e.squeak(at, 1, band),
+    'EQ and tone path': ({ e, b, input }) => {
+      e.state.artist.style = 'reggaeton';
+      e.playBuf(b, at, 0.7, e.chordTone(3, e.trimOut('test', 2, input)), 1, 0.3);
+    },
+    'wind through duck bus': ({ e, b }) => {
+      e.duckAt(at + 0.05, 0.8);
+      e.windHook([[60, b]], at, 0.8, 60, 0.4, 'tpt', false, {});
+    },
+    'strip automation': ({ e, b, input }) => {
+      e.playBuf(b, at, 0.7, input, 1, 0.5);
+      e.smoothChords(-2, at + 0.05);
+      e.at = at + 0.1;
+      e.setParam('stab', 'pan', 0.4);
+      e.setParam('stab', 'level', 0.7);
+    },
+    'harp': ({ e, b }) => e.harpHook([[84, b]], at, 0.6, 72, 0.4),
+    'voice chop': ({ e, b }) => e.chopNote({ buffer: b, chops: [{ start: 0, end: 0.4, midi: 60 }] }, at, 0.8, 60, 0.4),
+    'palette with organ presence': ({ e, p, input }) => e.paletteChord(at, 0.6, [0, 3], 60, p, input, { ...paletteColor(e.state), presence: 'organ' }),
+    'palette piano sample': ({ e, p, input, b }) => {
+      e.rec = () => [[60, b]];
+      e.paletteChord(at, 0.6, [0], 60, p, input, { cutoff: 3000, level: 0.7, piano: true });
+    },
+    'mixed-width takes': ({ e, b, input }) => e.playBuf(b, at, 0.7, e.bodyFor(e.trimOut('test', 2, input), [900, 0.9, -3]), 1, 0.4),
+    'hook preview chop': ({ e, ctx, b, input }) => {
+      const bus = ctx.createGain(), mono = ctx.createGain();
+      bus.connect(input);
+      if (e.ch.stab.out) {
+        mono.connect(e.monoChordOut(input));
+        e.pairChordRoute(bus, () => mono);
+      }
+      e.chopNote({ buffer: b, chops: [{ start: 0, end: 0.4, midi: 60 }] }, at, 0.8, 60, 0.4, {}, 0, bus);
+    },
+  };
+  async function render(Impl, route, widths, ghost) {
+    const ctx = new OfflineAudioContext(2, rate, rate);
+    const s = defaultState();
+    s.artist = { style: 'deephouse', seed: 12 };
+    s.key = 3;
+    Object.assign(s.params.stab, { voice: 3, octave: 1, chord: 0, pan: -0.35 });
+    const e = new Impl(ctx, s, { realtime: false });
+    const { input, band, pan, out } = e.ch.stab;
+    e.out.disconnect();
+    (out || pan).connect(ctx.destination);
+    if (ghost) {
+      const preceding = ctx.createBufferSource();
+      preceding.buffer = ctx.createBuffer(2, rate, rate);
+      preceding.buffer.getChannelData(0).fill(0.1, 0, rate / 8);
+      preceding.buffer.getChannelData(1).fill(-0.1, 0, rate / 8);
+      preceding.connect(input);
+      preceding.start();
+    }
+    for (const width of widths) route({ e, ctx, input, band, p: s.params.stab, b: sample(ctx, width) });
+    const audio = await ctx.startRendering();
+    return [0, 1].map(c => audio.getChannelData(c).subarray(first));
+  }
+  const rows = [];
+  for (const [name, route] of Object.entries(routes)) {
+    const widths = name === 'mixed-width takes' ? [1, 2] : [1];
+    const solo = await Promise.all(widths.map(w => render(Legacy, route, [w], false)));
+    for (const ghost of [false, true]) {
+      const actual = await render(Engine, route, widths, ghost);
+      for (let c = 0; c < 2; c++) {
+        let energy = 0, error = 0;
+        for (let i = 0; i < actual[c].length; i++) {
+          const expected = solo.reduce((sum, take) => sum + take[c][i], 0);
+          energy += expected ** 2;
+          error += (expected - actual[c][i]) ** 2;
+        }
+        rows.push({ name, ghost, c, peak: Math.sqrt(energy / actual[c].length), residual: Math.sqrt(error / energy) });
+      }
+    }
+  }
+  return rows;
+})()`));
+if (chordsRoutes) {
+  for (const { name, ghost, c, peak, residual } of chordsRoutes) {
+    const what = `${name}, channel ${c}, with${ghost ? '' : 'out'} preceding stereo`;
+    assert(peak > 1e-5, `${what}: reference must be audible`);
+    assert(residual < 1e-5, `${what}: CHORDS no longer matches solo pan/gain (relative residual ${residual})`);
+  }
+  console.log('Mono and stereo CHORDS routes preserve solo level and panning with a connected stereo source');
 }
 
 const phonkWidth = await withChrome((run) => run(`(async () => {

@@ -80,25 +80,22 @@ export function router(want, { prebus = false } = {}) {
         orig.call(sum, split); orig.call(split, merge, 0, 2 * k); orig.call(split, merge, 1, 2 * k + 1);
         sums[id] = sum;
       });
-      for (const id of TRACK_IDS) owner.set(E.ch[id].pan, id);
+      for (const id of TRACK_IDS) owner.set(E.ch[id].out || E.ch[id].pan, id);
       if (E.dubPadBus) owner.set(E.dubPadBus, 'dubpad');
       owner.set(E.vocalOut, 'sung');
       for (const [src, dst] of conns) if (dst === E.mix || dst === E.duck || dst === E.preMaster) { src.disconnect(dst); route(src, dst); }
       // The hook plays through a copy of the CHORDS channel (same level, pan and sends) so it gets its own stem.
       const S = E.ch.stab, g = (v = 1) => { const n = ctx.createGain(); n.gain.value = v; return n; };
       const hc = { input: g(), level: g(S.level.gain.value), pan: ctx.createStereoPanner(), rev: g(S.rev.gain.value), dly: g(S.dly.gain.value), band: g() };
-      hc.pan.channelCountMode = S.pan.channelCountMode;
-      hc.pan.pan.value = S.pan.pan.value;
-      owner.set(hc.pan, 'hook');
       // Its own copy of the CHORDS channel strip EQ too, kept in step with the band mix (see Engine.applyStrips).
       hc.strip = (S.strip || []).map((f) => { const n = ctx.createBiquadFilter(); n.type = f.type; return n; });
-      const syncStrip = () => hc.strip.forEach((n, k) => { for (const p of ['frequency', 'Q', 'gain']) n[p].value = S.strip[k][p].value; });
+      const syncStrip = () => hc.strip.forEach((n, k) => { for (const p of ['frequency', 'Q', 'gain']) E.chordParam(n[p], param => { param.value = S.strip[k][p].value; }); });
       if (S.carve) { hc.carve = E.filter('peaking', 3000, 0.8); hc.carve.gain.value = 0; E.hookCarve = hc.carve; }
-      [hc.input, ...hc.strip].reduce((a, n) => a.connect(n)).connect(hc.level).connect(hc.carve || hc.pan);
-      if (hc.carve) hc.carve.connect(hc.pan);
-      hc.pan.connect(E.duck); hc.pan.connect(hc.rev).connect(E.revIn); hc.pan.connect(E.roomIn); hc.pan.connect(hc.dly).connect(E.dlyIn); hc.pan.connect(E.throwBus);
-      hc.band.connect(hc.input); hc.band.connect(E.bandIn);
-      E.windDuck.disconnect(); E.windDuck.connect(hc.input);
+      hc.pan.pan.value = S.pan.pan.value;
+      E.wireChords(hc);
+      owner.set(hc.out, 'hook');
+      hc.out.connect(E.duck); hc.out.connect(hc.rev).connect(E.revIn); hc.out.connect(E.roomIn); hc.out.connect(hc.dly).connect(E.dlyIn); hc.out.connect(E.throwBus);
+      E.routeWind(hc);
       const P = Engine.prototype;
       E.hook = function (...a) { const s = this.ch.stab; syncStrip(); this.ch.stab = hc; try { return P.hook.apply(this, a); } finally { this.ch.stab = s; } };
       // A smooth style's chord shaping is scheduled automation, which syncStrip's value copy misses: schedule it on the copy too.
