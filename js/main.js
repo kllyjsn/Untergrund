@@ -1,28 +1,32 @@
 import { track as trackEvent, reportError, playStarted, playStopped, did, signal, onTrack, flushEvents, listenerContext } from './analytics.js';
+import { createPlaybackAnalytics, RELEASE_ID } from './playback-analytics.js';
 import { assign as assignExperiment } from './experiments.js';
 import { createListens, songFingerprint, promptHash, promptText } from './listen.js';
 import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue, VOICE_HIDDEN } from './params.js';
 import { Engine, Sequencer, parseChain } from './engine.js';
-import { defaultState, generate, mutate, arrangement, songChain, applySongPlan, applyOverrides, clone, save, load, sanitize, STYLES, MAJOR_STYLES, emptyPattern, emptyAcidStep, fitLyrics } from './state.js';
+import { setChain } from './chain.js';
+import { defaultState, generate, mutate, arrangement, songChain, applySongPlan, applyOverrides, clone, save, load, sanitize, STYLES, MAJOR_STYLES, emptyPattern, emptyAcidStep, fitLyrics, refreshSong } from './state.js';
 import { renderBars, bufferToWav } from './render.js';
 import { exportButtons } from './export-ui.js';
 import { encodeWav, rng } from './dsp.js';
 import { knob, numBox, h, controlHooks } from './ui.js';
 import { createHistory, gesture } from './undo.js';
 import { openPublish } from './publish.js';
-import { createSetRecorder, openSetCutter, openSongPublish, openJukebox, fmtTime, loadReplay } from './sets.js';
+import { createSetRecorder, openSetCutter, openSongPublish, openJukebox, jukeboxPreviewSeconds, fmtTime, loadReplay } from './sets.js';
 import { loadArtistProfile, openArtistStudio } from './artist.js';
 import { openClub, loadAvatar, avatarNode, hostingRoom } from './club.js';
 import { liveNowRow, watchLiveRooms, liveDirectory, fetchLiveRooms } from './live-rooms.js';
 import { playTimeline, stopTimeline } from './live-sets.js';
 import { saveTrack, trackTitle, recentTracks, libraryTracks, fetchTrack, countPlay } from './crate.js';
 import { radioOn, setRadio, nextUp } from './radio.js';
+import { FEELS, FEEL_IDS, isFeel } from './feel.js';
 import { createMiniPlayer } from './mini-player.js';
 import { openLibrary } from './library.js';
 import { dropCard, pushOffer, guardPushOffer } from './drop.js';
 import { initPush, onPushChange, recordDropPlay, shouldOffer } from './push.js';
-import { getSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
-import { roomTransportPosition, transportResync } from './room-sync.js';
+import { getSample, prepareSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
+import { roomTransportPosition, syncAudioClock, transportResync, slewTransport, roomTransportCorrection } from './room-sync.js';
+import { createRoomMediaSync, roomMediaLead, roomMediaTime } from './room-media-sync.js';
 import { concertPanel, concertBar, preloadScore, scoreReady, loadPiano } from './concert.js';
 import { liveSets, loadSets, setsReady } from './livekit.js';
 import { closePractice } from './practice-ui.js';
@@ -30,13 +34,14 @@ import { initMidi, midiStrip, midiClockStart, midiClockStep, midiClockStop } fro
 import { openHum, melodyPanel, humButton, placeHook, humSeed } from './hum-ui.js';
 import { restoreVoice } from './voice.js';
 import { compose } from './classical.js';
+import { HIPHOP, HIPHOP_STYLES } from './hiphop.js';
 import { PIECE, loadPiece } from './repertoire.js';
 import { followingRow } from './feed.js';
 import { flagshipShelf } from './flagship.js';
 import { describeBar, syncLyrics } from './describe-ui.js';
 import { vocalStem } from './sing.js';
 import { songState } from './song-spec.js';
-import { fetchPublicTrack } from './account.js';
+import { fetchReleaseTrack } from './account.js';
 import { openShare, openSharedLanding, countRemix, track } from './share.js';
 import { readShareParams, decodeSong, normalizeSong, remixState } from './share-code.js';
 import { dailyDrop, dropSong, isDropDate } from './daily.js';
@@ -46,14 +51,21 @@ import { createNowPlaying, resumeStep, songClock } from './media-session.js';
 import { drawArtwork, artSeed } from './artwork.js';
 import { applyPart } from './jam.js';
 
-let state = load() || defaultState();
-let ctx = null, engine = null, seq = null, timer = null, setRec = null;
+let state = (() => { const s = load(); return s?.fresh === 1 ? refreshSong(s) : s || defaultState(); })();
+let ctx = null, engine = null, seq = null, timer = null, setRec = null, roomOutput = null;
 const heldPads = new Map(), keyPads = new Set();
 // A held pad releases wherever the finger lifts, even if the pad was re-rendered mid-hold
 addEventListener('pointerup', (e) => { if (e.pointerType !== 'mouse' || !e.buttons) for (const k of [...heldPads.keys()]) if (!keyPads.has(k)) ui.perf?.[k]?.up(); });
 addEventListener('blur', () => { for (const k of [...heldPads.keys()]) ui.perf?.[k]?.up(); });
 let playing = false, abs = 0, nextTime = 0, lastPlayedPat = null;
 let transportOrigin = 0, roomJoinTimer = 0, clockOffset = null;
+let roomAudioClock = null;
+let vocalGridDirty = false;
+let roomDrainUntil = null;
+let roomPlayback = false;
+let roomEditor = false;
+let roomFirstNote = null;
+let queuedRoomSwitch = null, roomReplayLoad = null;
 // A song waiting for its downbeat: { step, from, plan, out } (see queueSong).
 let handoff = null;
 const uiQueue = [];
@@ -73,6 +85,9 @@ window.addEventListener('error', (e) => showCrash(e.error || e.message));
 let studioOpen = localStorage.getItem('untergrund.studio-open') === '1';
 // GENERATE writes a full 3-4 minute song, or a sketch of the idea (longform.js).
 let songLength = localStorage.getItem('untergrund.length') === 'sketch' ? 'sketch' : 'song';
+// The feeling the listener asked for (a chip on Create); null lets each song's seed pick one that fits the genre.
+let feelPick = isFeel(localStorage.getItem('untergrund.feel')) ? localStorage.getItem('untergrund.feel') : null;
+let feelScroll = 0;
 // Phone Studio shows one section at a time; steps show 8 at a time.
 const STUDIO_TABS = [['song', 'SONG'], ['steps', 'STEPS'], ['sound', 'SOUND'], ['mix', 'MIX']];
 let studioTab = STUDIO_TABS.some(([id]) => id === localStorage.getItem('untergrund.studio-tab')) ? localStorage.getItem('untergrund.studio-tab') : 'steps';
@@ -95,6 +110,10 @@ let saveTimer = 0;
 let guest = null;
 // Listen signals (js/listen.js): songOrigin says how the song in `state` came to be; pendingPrompt is a Describe prompt about to become a song.
 const listens = createListens({ emit: signal });
+const playbackStats = createPlaybackAnalytics();
+const playbackSources = new WeakMap();
+let trackingReplay = false;
+let roomStatsItem = null;
 let songOrigin = { src: 'restored' }, pendingPrompt = null;
 // The Library list being played through ({ items, i }); GENERATE ends it.
 let queue = null;
@@ -106,9 +125,12 @@ function persist() { if (guest) return; clearTimeout(saveTimer); saveTimer = set
 // it uses the same media channel as music and video playback.
 let mediaUnlock = null;
 let mediaRoute = null;
+const roomMediaSync = createRoomMediaSync();
 let mediaIdle = 0;
-// Hidden or locked, timers can be throttled to about once a second: queue this much audio instead of 0.12 s.
+// Hidden or locked, timers can be throttled to about once a second.
 const BG_LEAD = 1.5;
+// Room playback needs enough queued audio to ride out a busy main thread.
+const ROOM_LEAD = 0.42;
 // After stopping, let the media element go so the lock screen shows paused (and iOS can release the audio session).
 function releaseMedia() {
   clearTimeout(mediaIdle);
@@ -133,14 +155,10 @@ function ensureAudio() {
   try {
     ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: matchMedia('(pointer: coarse)').matches ? 'playback' : 'balanced' });
   } catch (err) { reportError(err, { kind: 'audio_context' }); throw err; }
-  engine = new Engine(ctx, state, { vocal: vocalStem });
+  roomOutput = ctx.createGain();
   if (isIOS() && ctx.createMediaStreamDestination) {
     mediaRoute = ctx.createMediaStreamDestination();
-    try { engine.out.disconnect(ctx.destination); } catch {
-      engine.out.disconnect();
-      if (engine.analyser) engine.out.connect(engine.analyser);
-    }
-    engine.out.connect(mediaRoute);
+    roomOutput.connect(mediaRoute);
     mediaUnlock = document.createElement('audio');
     mediaUnlock.setAttribute('playsinline', '');
     mediaUnlock.setAttribute('x-webkit-airplay', 'deny');
@@ -153,68 +171,223 @@ function ensureAudio() {
     mediaUnlock.addEventListener('timeupdate', () => { if (playing && document.hidden) schedule(BG_LEAD); });
     document.body.append(mediaUnlock);
     unlockMediaChannel();
-  }
+  } else roomOutput.connect(ctx.destination);
+  engine = new Engine(ctx, state, { vocal: vocalStem, trackQueuedNotes: true, destination:roomOutput });
   ctx.addEventListener?.('statechange', onAudioState);
   seq = new Sequencer(engine, state);
   const src = "let id=null;onmessage=e=>{if(e.data==='start'&&!id)id=setInterval(()=>postMessage(0),15);if(e.data==='stop'){clearInterval(id);id=null;}}";
   timer = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
   timer.onmessage = schedule;
-  setRec = createSetRecorder(ctx, engine.out);
+  setRec = createSetRecorder(ctx, roomOutput);
 }
 
 // lead: how far ahead to queue audio (seconds); the worker tick passes its message event.
 let songOver = false;
 function schedule(lead) {
-  if (!playing || songOver) return;
-  const ahead = typeof lead === 'number' ? lead : document.hidden ? BG_LEAD : 0.12;
-  const offset = Date.now() / 1000 - ctx.currentTime;
-  clockOffset = clockOffset === null ? offset : clockOffset + (offset - clockOffset) * 0.05;
+  if (!playing || (songOver && !queuedRoomSwitch)) return;
+  const ahead = roomMediaSync.horizon(typeof lead === 'number' ? lead : document.hidden ? BG_LEAD : roomPlayback ? ROOM_LEAD : 0.12, roomPlayback, mediaRoute, roomPlayback && mediaRoute ? ctx.currentTime : 0);
+  const now = ctx.currentTime;
+  const firstEstimate = roomPlayback && (roomAudioClock === null || abs === 0) && !engine.vocalNow &&
+    !engine.queuedNotes?.some(note => note.t >= now);
+  if (roomEditor) engine.pruneEditableHits(now);
+  const frozenOutputTime = roomAudioClock?.frozenOutputTime;
+  const clock = syncAudioClock(clockOffset, Date.now() / 1000 - now,
+    roomPlayback ? {at:performance.now() / 1000, contextTime:now, state:roomAudioClock} : null);
+  clockOffset = clock.offset;
+  roomAudioClock = clock.state ?? null;
+  const switchAt = queuedRoomSwitch ? roomMediaTime(queuedRoomSwitch.startsAt / 1000 - clockOffset, roomPlayback, mediaRoute) : Infinity;
+  if (songOver) {
+    if (switchAt < now + ahead) switchRoomSet(switchAt);
+    return;
+  }
   let base = 60 / state.bpm / 4, landed = null;
-  const target = transportOrigin / 1000 + abs * base - clockOffset;
-  const fix = transportResync(target, nextTime, ctx.currentTime, base);
+  const target = roomMediaTime(transportOrigin / 1000 + abs * base - clockOffset, roomPlayback, mediaRoute);
+  const playableFirst = firstEstimate && target < now && nextTime >= now;
+  if (firstEstimate && !playableFirst && Math.abs(target - nextTime) > 0.000001) nextTime = target;
+  if (roomPlayback && Math.abs(target - nextTime) > 0.000001) vocalGridDirty = true;
+  if (clock.jumped) roomDrainUntil = null;
+  const correction = roomPlayback && !clock.jumped && !playableFirst ? roomTransportCorrection(target, nextTime, now, base, roomDrainUntil) : null;
+  if (correction?.drainUntil !== undefined) {
+    if (roomDrainUntil === null) {
+      engine.cancelVocalSlew?.();
+      engine.roomSlewRate = 1;
+      engine.roomSlewProfile = null;
+    }
+    roomDrainUntil = correction.drainUntil;
+    if (switchAt <= roomDrainUntil + 0.03 && switchAt < now + ahead) switchRoomSet(switchAt);
+    return;
+  }
+  roomDrainUntil = null;
+  const fix = playableFirst ? null : correction ?? transportResync(target, nextTime, now, base, clock.jumped, seq.origin - abs, roomPlayback);
+  let firstTime = playableFirst ? nextTime : fix?.firstTime;
   if (fix) {
-    for (let i = 0; i < fix.skip; i++, abs++) { artistTick(abs - seq.origin); seq.advanceBar(abs - seq.origin, ctx.currentTime); }
+    if (fix.discard) {
+      engine.discardQueuedNotes(now, roomPlayback ? firstTime ?? fix.nextTime : null, frozenOutputTime);
+      engine.roomSlewRate = 1;
+      engine.roomSlewProfile = null;
+      uiQueue.length = 0;
+      seq.acidPrevSlide = false;
+      if (handoff) { engine.handoffCancel(); handoff.out = false; }
+    }
+    if (fix.skip < 0) {
+      abs += fix.skip;
+      seq.rewind(abs, now);
+    }
+    for (let i = 0; i < fix.skip; i++, abs++) {
+      const gridTime = target + i * base, t = roomPlayback ? Math.max(now, gridTime) : now;
+      if (roomPlayback && jamQueue.length && (abs - seq.origin) % 16 === 0)
+        landJamParts((gridTime + roomMediaLead(roomPlayback, mediaRoute) + clockOffset) * 1000 + base * 500, t);
+      artistTick(abs - seq.origin);
+      seq.advanceBar(abs - seq.origin, t);
+    }
+    if (roomPlayback && fix.skip > 0 && jamQueue.length)
+      landJamParts((fix.nextTime + roomMediaLead(roomPlayback, mediaRoute) + clockOffset) * 1000, fix.nextTime);
     nextTime = fix.nextTime;
+    if (fix.adopted) {
+      midiClockStart(ctx, abs, nextTime);
+    } else if (roomPlayback && fix.skip > 0) midiClockStart(ctx, abs, nextTime);
+    const step = (abs - seq.origin) % 16;
+    if (fix.discard && step)
+      engine.vocal(firstTime ?? nextTime, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, step, roomPlayback ? nextTime : undefined);
   }
   // Landing redraws the whole UI for the new song, so schedule further ahead first to ride out that frame.
-  while (nextTime < ctx.currentTime + (landed ? Math.max(ahead, 0.5) : ahead)) {
-    if (handoff && !handoff.out && abs >= handoff.from) { engine.handoffOut(nextTime, nextTime + (handoff.step - abs) * engine.stepDur); handoff.out = true; }
+  while (true) {
+    const horizon = ctx.currentTime + (landed ? Math.max(ahead, 0.5) : ahead);
+    if (!(Math.min(nextTime, switchAt) < horizon)) break;
+    const gridTarget = roomMediaTime(transportOrigin / 1000 + abs * base - clockOffset, roomPlayback, mediaRoute);
+    if (roomPlayback && !(playableFirst && firstTime !== undefined)) {
+      if (engine.vocalNow?.correction || (Math.abs(gridTarget - nextTime) > 0.03 && (engine.roomSlewRate ?? 1) === 1)) {
+        nextTime = slewTransport(gridTarget, nextTime, 0.05);
+      } else {
+        const duration = engine.stepDur;
+        const slew = transportResync(gridTarget, nextTime, ctx.currentTime, duration, false, seq.origin - abs, engine.roomSlewRate ?? 1, true, engine.roomSlewProfile);
+        if (slew?.slew) {
+          const shifted = slewTransport(slew.nextTime, nextTime, 0.05);
+          if (!engine.vocalNow)
+            engine.slewVocal?.(shifted - nextTime, nextTime - duration, duration, slew.rate, slew.endRate);
+          engine.roomSlewRate = slew.endRate;
+          engine.roomSlewProfile = slew.profile;
+          nextTime = shifted;
+        }
+      }
+    }
+    const t = firstTime ?? nextTime;
+    firstTime = undefined;
+    // Leave a nearly coincident outgoing step to the incoming downbeat.
+    if (t >= switchAt - 0.03 && switchAt < horizon) {
+      return switchRoomSet(switchAt);
+    }
+    if (handoff && !handoff.out && abs >= handoff.from) { engine.handoffOut(t, Math.max(t, nextTime + (handoff.step - abs) * engine.stepDur)); handoff.out = true; }
     // A stalled main thread can make the resync skip the planned downbeat; then the new song
     // starts on the first step that still sounds rather than holding the sweep for another bar.
-    if (handoff && abs >= handoff.step) { landed = landSong(nextTime); base = 60 / state.bpm / 4; }
+    if (handoff && abs >= handoff.step) { landed = landSong(t); base = 60 / state.bpm / 4; }
     const skip = (abs - seq.origin) % 16 === 0 ? timeline.skip(seq.chainPos) : 0;
     if (skip) {
       abs += skip * 16; seq.chainPos += skip; transportOrigin -= skip * 16 * base * 1000;
       if (handoff?.step != null) { handoff.step += skip * 16; handoff.from += skip * 16; }
     }
-    if (jamQueue.length && (abs - seq.origin) % 16 === 0) landJamParts((nextTime + clockOffset) * 1000 + base * 500, nextTime);
+    if (jamQueue.length && ((abs - seq.origin) % 16 === 0 || (roomPlayback && mediaRoute && roomMediaSync.active(now)))) {
+      const gridTime = roomPlayback && mediaRoute ? nextTime + roomMediaLead(roomPlayback, mediaRoute) : nextTime;
+      landJamParts((gridTime + clockOffset) * 1000 + base * 500, t);
+    }
     artistTick(abs - seq.origin);
-    const pat = seq.tick(abs, nextTime);
-    uiQueue.push({ abs: abs - seq.origin, t: nextTime, pat });
+    const crackleUntil = queuedRoomSwitch?.track ? switchAt - 0.15 : Infinity;
+    const pat = seq.tick(abs, t, roomPlayback ? nextTime : undefined, roomEditor, roomPlayback, crackleUntil);
+    const voice = engine.vocalNow, pos = seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1;
+    const vocalStep = engine.vocalStepDur;
+    const phase = voice ? (pos * 16 + (abs - seq.origin) % 16) * vocalStep - voice.ms / 1000 : 0;
+    const vocalNext = voice ? voice.origin + phase : nextTime;
+    const vocalFrom = voice ? Math.max(vocalNext - vocalStep, voice.slewEnd ?? voice.at, ctx.currentTime + 0.005) : nextTime;
+    const vocalGap = voice?.slewEnd == null ? 0 : Math.max(0, vocalFrom - voice.slewEnd);
+    const vocalRubato = engine.vocalRubato;
+    const gridSlewing = (engine.roomSlewRate ?? 1) !== 1;
+    const vocalError = (vocalRubato && gridSlewing ? nextTime : gridTarget) - vocalNext - (1 - (voice?.slewRate ?? 1)) * vocalGap;
+    if (roomPlayback && voice && vocalRubato && Math.abs(vocalError) > 0.000001) vocalGridDirty = true;
+    const vocalSlewing = roomPlayback && voice && !voice.correction && !(vocalRubato && voice.gapCorrection) && voice.sd === vocalStep && pos >= 0 &&
+      Math.abs(vocalError) <= (vocalRubato ? 0.03 : 0.05);
+    if (vocalSlewing) {
+      const end = vocalFrom + vocalStep;
+      const slew = transportResync(end + vocalError, end, ctx.currentTime, vocalStep, false, -Infinity, voice.slewRate ?? 1, true, voice.slewProfile);
+      if (slew?.slew) engine.slewVocal(slew.nextTime - end, vocalFrom, vocalStep, slew.rate, slew.endRate, slew.profile);
+      if ((voice.slewRate ?? 1) === 1 && Math.abs(gridTarget - voice.origin - phase) < 1e-9 &&
+          (engine.roomSlewRate ?? 1) === 1 && Math.abs(gridTarget - nextTime) < 1e-9) vocalGridDirty = false;
+    }
+    const canReanchor = !gridSlewing && (Math.abs(gridTarget - nextTime) < 0.002 || voice?.correction?.forceStep != null);
+    if (roomPlayback && vocalGridDirty && !vocalSlewing && (canReanchor || (vocalRubato && voice?.sd === vocalStep && pos >= 0))) {
+      if (!vocalRubato || canReanchor) engine.cancelVocalSlew?.();
+      // The transport can advance the score grid by up to 1.5 ms per step.
+      const gapSpan = vocalRubato ? steps => seq.gridSpan?.(abs, steps, bar => timeline.skip(bar)) - steps * 0.0015 : undefined;
+      const aligned = engine.vocal(t, pos, (abs - seq.origin) % 16, nextTime, true, false, gapSpan);
+      vocalGridDirty = aligned === false;
+    }
+    uiQueue.push({ abs: abs - seq.origin, t, pat });
     // A score breathes (rubato): the transport clock follows the stretched step, not the metronome.
     const sd = engine.stepDur;
-    midiClockStep(ctx, abs, nextTime, sd);
+    midiClockStep(ctx, abs, t, sd);
     nextTime += sd;
     transportOrigin += (sd - base) * 1000;
     abs++;
     // A generated song has played its final bar: let it ring, then stop rather than loop back to the intro.
     if (seq.finished && !handoff) {
       songOver = true;
-      setTimeout(() => { if (playing && songOver) { const radio = radioPlays(); stop(); if (radio) { trackEvent('radio', { kind: 'next' }); radioNext(); } } }, Math.max(0, nextTime - ctx.currentTime + 2.5) * 1000);
+      setTimeout(() => {
+        if (!playing || !songOver) return;
+        const finishJukebox = jukeboxNow?.finish, radio = radioPlays();
+        stop('complete');
+        if (finishJukebox) finishJukebox();
+        else if (radio) { trackEvent('radio', { kind: 'next' }); radioNext(); }
+      }, Math.max(0, nextTime - ctx.currentTime + 2.5) * 1000);
       break;
     }
   }
   // The audio is queued; now redraw for the new song (it sounds ~0.1 s from now).
+  if (mediaRoute && roomPlayback) roomMediaSync.queued(nextTime, engine.queuedNotes);
   landed?.();
 }
 
 // Jam: another player's part lands on the room downbeat it was sent for (wall-clock ms), the same bar for everyone.
 // Old changes (catching up on join) or a stopped transport apply at once.
-let jamQueue = [], jamRedraw = 0;
+let jamQueue = [], jamRedraw = 0, jamReschedule = false;
+function refreshJamPrime(wall = null) {
+  if (!playing || !roomPlayback || !mediaRoute || !roomMediaSync.active(ctx.currentTime)) return;
+  const safe = Math.max(ctx.currentTime + ROOM_LEAD, wall == null ? 0 : roomMediaTime(wall / 1000 - clockOffset, true, mediaRoute));
+  const steps = Math.floor((nextTime - safe) / engine.stepDur + 1e-7);
+  if (steps <= 0) return;
+  nextTime -= steps * engine.stepDur;
+  abs -= steps;
+  roomDrainUntil = null;
+  const retained = engine.queuedNotes.filter(note => note.t < nextTime - 1e-6);
+  engine.discardQueuedNotes(nextTime - 1e-6);
+  engine.queuedNotes.push(...retained);
+  uiQueue.splice(0, uiQueue.length, ...uiQueue.filter(q => q.t < nextTime - 1e-6));
+  seq.rewind(abs, nextTime);
+  seq.acidPrevSlide = false;
+  seq.finished = songOver = false;
+  if (handoff) { engine.handoffCancel(); handoff.out = false; }
+  roomMediaSync.refill();
+  if (jamReschedule) return;
+  jamReschedule = true;
+  queueMicrotask(() => {
+    jamReschedule = false;
+    if (!playing || !roomPlayback || !mediaRoute) return;
+    const step = (abs - seq.origin) % 16;
+    if (step) engine.vocal(nextTime, seq.songBars ? (seq.chainPos - 1) % seq.songBars : -1, step, nextTime);
+    schedule();
+  });
+}
 function queueJamPart(part, layer, wall) {
+  const pending = queuedRoomSwitch?.jamEdits;
+  if (pending) {
+    const index = pending.findIndex((q) => q.part === part);
+    const edit = { part, layer, wall };
+    if (index < 0) pending.push(edit);
+    else pending[index] = edit;
+    return;
+  }
   jamQueue = jamQueue.filter((q) => q.part !== part);
   if (!playing || wall < Date.now() - 2000) return landJamPart(part, layer);
   jamQueue.push({ part, layer, wall });
+  refreshJamPrime(wall);
 }
 function landJamParts(stepWallMs, t) {
   const due = jamQueue.filter((q) => q.wall <= stepWallMs);
@@ -224,10 +397,20 @@ function landJamParts(stepWallMs, t) {
 }
 // t: the audio time the part first sounds; the Club flashes it then.
 function landJamPart(part, layer, t = null) {
+  const primed = playing && roomPlayback && mediaRoute && roomMediaSync.active(ctx.currentTime);
+  // Only the values this edit changes reach the audio clock; a pan-only edit never rewrites level.
+  const changed = {};
+  for (const [id, values] of Object.entries(layer.params || {}))
+    for (const [key, v] of Object.entries(values))
+      if (JSON.stringify(v) !== JSON.stringify(state.params[id]?.[key])) (changed[id] ||= {})[key] = v;
   applyPart(state, part, layer);
   const wait = t == null ? 0 : Math.max(0, (t - ctx.currentTime) * 1000);
   setTimeout(() => window.dispatchEvent(new CustomEvent('untergrund:jam', { detail: { part } })), wait);
-  if (engine) engine.applyAll();
+  if (t == null) refreshJamPrime();
+  if (engine) {
+    if (primed || t != null) engine.scheduleJamParams(changed, t ?? nextTime);
+    else engine.applyAll();
+  }
   cancelAnimationFrame(jamRedraw);
   jamRedraw = requestAnimationFrame(() => { build(); persist(); });
 }
@@ -236,6 +419,8 @@ function landJamPart(part, layer, t = null) {
 // Pressing again replaces the waiting song; the switch moment and transition stay put.
 // A song on recordings not yet downloaded waits (the old one keeps playing) until they're in, up to 8 s.
 function queueSong(plan) {
+  prepareSample(plan.replay808Style ? null : plan.next);
+  engine?.prepareVocal(plan.next);
   if (!handoff) handoff = { since: performance.now() };
   const h = handoff;
   h.plan = plan;
@@ -262,16 +447,21 @@ function landSong(t) {
   const { plan } = handoff;
   handoff = null;
   const fromBpm = state.bpm;
+  if (!trackingReplay) playbackStats.end('skip');
   if (plan.undo) pushUndo(plan.label || 'GENERATE');
   listens.end(listenPos());
+  playbackSources.delete(state);
   songOrigin = plan.origin || { src: 'crate' };
   autoMajor = plan.autoMajor ?? false;
   for (const k of Object.keys(state)) if (!(k in plan.next)) delete state[k];
   Object.assign(state, plan.next);
+  engine.replay808Style = plan.replay808Style;
+  engine.replaySeed = plan.replaySeed;
   transportOrigin = reanchor(transportOrigin, abs, fromBpm, state.bpm);
   const chain = state.chainOn ? parseChain(state.chain) : [];
   state.current = chain.length ? chain[0] : state.current;
   Object.assign(seq, { origin: abs, chainPos: 0, cur: state.current, queued: null, acidPrevSlide: false, dropNext: false });
+  engine.editableHits.length = 0;
   engine.handoffIn(t);
   if (engine.recLock) engine.recLock = new Map();
   uiQueue.length = 0;
@@ -289,7 +479,7 @@ function needsTuning() {
   return setsReady(names) ? null : { load: () => loadSets(names), wait: 8000, label: 'SEATING THE BAND' };
 }
 function play(opts = {}) {
-  const need = playing || opts.delay != null ? null : needsTuning();
+  const need = playing || opts.delay != null || opts.startsAt != null || opts.stepWall != null ? null : needsTuning();
   if (!need) return start(opts);
   ensureAudio(); stopPreview();
   clearTimeout(tuning?.timer);
@@ -307,30 +497,44 @@ function endTuning() {
   document.body.classList.remove('tuning');
 }
 
-function start({ step = 0, delay = 0.06 } = {}) {
-  const seeking = playing;
+function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room = startsAt !== null || roomPlayback, editRoom = roomEditor, replayStats = null, replay808Style = engine?.replay808Style, replaySeed = engine?.replaySeed, switchAt = null } = {}) {
+  const seeking = playing && switchAt === null;
+  if (switchAt === null) cancelRoomPrime();
+  else if (mediaRoute && roomPlayback) roomMediaSync.cancel(switchAt);
   clearPaused();
   roomResume = null;
   stopPreview();
   closePractice();
   ensureAudio();
+  engine.replay808Style = replay808Style;
+  engine.replaySeed = replaySeed;
+  if (switchAt === null && replay808Style != null) engine.applyAll();
+  engine.prepareVocal();
+  engine.roomSlewRate = 1;
+  engine.roomSlewProfile = null;
+  engine.editableHits.length = 0;
+  const wallNow = Date.now(), audioNow = ctx.currentTime;
+  if (startsAt !== null) ({ step, delay } = roomTransportPosition(startsAt, state.bpm, wallNow));
   uiQueue.length = 0;
   abs = Math.max(0, Math.floor(step));
-  const bar = Math.floor(abs / 16);
-  const chain = state.chainOn ? parseChain(state.chain) : [];
-  seq.cur = chain.length ? chain[bar % chain.length] : state.current;
-  seq.queued = null;
-  seq.chainPos = bar + (abs % 16 === 0 ? 0 : 1);
-  seq.acidPrevSlide = false;
-  seq.finished = false; songOver = false;
-  seq.origin = 0;
   if (handoff) { handoff = null; engine.handoffCancel(); }
+  const wait = stepWall === null ? Math.max(0.01, delay) : (stepWall - wallNow) / 1000;
+  nextTime = switchAt ?? roomMediaTime(audioNow + wait, room, mediaRoute);
+  seq.startAt(abs, Math.max(audioNow, nextTime));
   state.current = seq.cur;
-  nextTime = ctx.currentTime + Math.max(0.01, delay);
-  clockOffset = null;
-  transportOrigin = Date.now() + Math.max(0.01, delay) * 1000 - abs * (15000 / state.bpm);
+  songOver = false;
+  if (switchAt === null) clockOffset = null;
+  roomAudioClock = null;
+  vocalGridDirty = false;
+  roomDrainUntil = null;
+  transportOrigin = startsAt ?? ((stepWall ?? wallNow + wait * 1000) - abs * (15000 / state.bpm));
   if (!seeking) engine.recLock = new Map();
+  roomPlayback = room;
+  roomEditor = room && editRoom;
+  roomFirstNote = room && (startsAt > wallNow || stepWall > wallNow || switchAt !== null) ? nextTime : null;
+  roomMediaSync.start(room, mediaRoute);
   playing = true;
+  if (replayStats || !trackingReplay) recordPlayback(replayStats || (!editRoom && playbackSources.get(state)), nextTime, abs);
   if (pat().score) preloadScore(pat().score);
   timer.postMessage('start');
   midiClockStart(ctx, abs, nextTime);
@@ -344,14 +548,47 @@ function start({ step = 0, delay = 0.06 } = {}) {
   renderHome();
 }
 
-function stop() {
+function roomStartPending() {
+  return playing && roomFirstNote !== null && ctx.currentTime < roomFirstNote;
+}
+
+function cancelRoomStart() {
+  queuedRoomSwitch = roomReplayLoad = null;
+  if (roomStartPending()) {
+    roomResume = null;
+    stop();
+  } else if (!playing) {
+    clearTimeout(roomJoinTimer);
+    roomJoinTimer = 0;
+  }
+}
+
+function cancelRoomPrime() {
+  if (!roomPlayback) return;
+  const now = ctx.currentTime;
+  if (mediaRoute && roomMediaSync.cancel(now)) engine.discardQueuedNotes(now);
+  engine.cancelJamParams();
+}
+
+function stop(playbackOutcome = 'stop') {
+  const next = playbackOutcome === 'complete' ? queuedRoomSwitch : null;
+  if (next?.track) return;
+  queuedRoomSwitch = roomReplayLoad = null;
+  if (roomStartPending() && !(mediaRoute && roomPlayback && roomMediaSync.active(ctx.currentTime))) engine.discardQueuedNotes(ctx.currentTime);
+  cancelRoomPrime();
+  playbackStats.end(playbackOutcome);
+  trackingReplay = false;
   listens.end(listenPos(), { finished: songOver });
   clearPaused();
   endTuning();
-  if (engine) engine.recLock = null;
+  if (engine) { engine.recLock = null; engine.replay808Style = undefined; engine.replaySeed = undefined; }
   clearTimeout(roomJoinTimer);
   roomJoinTimer = 0;
   playing = false;
+  roomPlayback = false;
+  roomEditor = false;
+  roomFirstNote = null;
+  if (engine) engine.editableHits.length = 0;
   handoff = null;
   for (const q of jamQueue.splice(0)) applyPart(state, q.part, q.layer);
   guardPushOffer();
@@ -371,6 +608,20 @@ function stop() {
   renderHome();
   releaseMedia();
   syncNowPlaying();
+  if (next) startRoomReplay(next);
+}
+
+function recordPlayback(source, at, step) {
+  trackingReplay = Boolean(source?.replay);
+  if (!source) return;
+  const { surface, trackId, genre, replay } = source;
+  const score = !replay && pat()?.score ? compose(pat().score) : null;
+  const steps = score ? score.at.length : state.chainOn ? parseChain(state.chain).length * 16 : 0;
+  const expectedSeconds = replay ? replay.duration / 1000 : (score ? score.tempo.reduce((a, b) => a + b, 0) : steps) * 15 / state.bpm;
+  const from = replay ? (Date.now() - replay.startsAt) / replay.duration : steps ? (step - seq.origin) / steps : null;
+  const progress = () => replay ? (Date.now() - replay.startsAt) / replay.duration : steps
+    ? (abs - seq.origin - Math.max(0, nextTime - ctx.currentTime) / engine.stepDur) / steps : null;
+  playbackStats.start({ surface, ...(trackId ? { trackId } : { genre }) }, { ctx, at, from: from === null ? null : Math.max(0, from), progress, expectedSeconds });
 }
 
 // Where the listener is in the song now: bar, length in bars and the section name.
@@ -387,7 +638,7 @@ const listenSurface = () => (jukeboxNow ? 'jukebox' : songOrigin.src === 'room' 
 function listenCtx() {
   const a = state.artist || {};
   const ctx = { fp: songFingerprint(state), tid: guest?.song?.trackId || songOrigin.tid || '', seed: Number.isFinite(+a.seed) ? +a.seed : -1, style: STYLES[a.style] ? a.style : style,
-    src: songOrigin.src, surf: listenSurface(), ph: songOrigin.ph || '', pt: songOrigin.pt || '', arr: songShape(), via: songOrigin.via || '' };
+    src: songOrigin.src, surf: listenSurface(), ph: songOrigin.ph || '', pt: songOrigin.pt || '', arr: songShape(), via: songOrigin.via || '', feel: isFeel(state.feel) ? state.feel : '' };
   const x = experimentFor(ctx);
   // An experiment that changes songs (`apply`) tags only songs made under it, with the arm they were made in;
   // restored, crate, shared and room songs were never treated, so they stay out of its read-out.
@@ -437,10 +688,12 @@ function pause(reason = 'remote') {
   const step = playing ? resumeStep({ next: abs, origin: seq.origin, ahead: nextTime - ctx.currentTime, stepSec: engine.stepDur, ended: songOver }) : 0;
   const live = artistLive && { ...artistLive, bar: -1 };
   const rejoin = roomResume;
+  const room = roomPlayback;
+  const editRoom = roomEditor;
   listens.hold(listenPos());
   stop();
   paused = { step, reason, live, at: Date.now(), resume: rejoin || (() => {
-    play({ step });
+    play({ step, room, editRoom });
     // Artist Live carries on with the same performer and seed.
     if (live && !artistLive && (playing || tuning)) { artistLive = live; state.chainOn = true; document.body.classList.add('artist-live'); build(); syncNowPlaying(); }
   }) };
@@ -468,7 +721,7 @@ function onAudioState() {
   } else if (ctx.state !== 'closed') interrupt();
 }
 function restartSong() {
-  if (playing) { listens.rewind(listenPos(), 0); return start({ step: 0 }); }
+  if (playing) { listens.rewind(listenPos(), 0); if (!trackingReplay) playbackStats.end('skip'); return start({ step: 0 }); }
   clearPaused();
   play();
 }
@@ -487,7 +740,7 @@ const songFps = (s) => [...new Set([songFingerprint(s), songFingerprint(sanitize
 const radioPlays = () => radioOn() && !jukeboxNow && !roomResume && !artistLive && !guest && songOrigin.src !== 'room' &&
   !hostingRoom() && !document.querySelector('.club-overlay');
 function radioNext(why = '') {
-  const n = nextUp({ queue: queue && { ids: queue.items, i: queue.i }, style, styles: STYLES, why, skip: (t) => songFps(t.state).some(listens.isDowned) });
+  const n = nextUp({ queue: queue && { ids: queue.items, i: queue.i }, style, styles: STYLES, why, feel: feelPick, skip: (t) => songFps(t.state).some(listens.isDowned) });
   if (n.kind === 'track') { queue.i = n.i; return openRecent(queue.items[n.i]); }
   queue = null;
   if (n.style !== style) {
@@ -596,6 +849,7 @@ async function toggleRec() {
 const pat = () => state.patterns[state.current];
 
 function setParam(tid, id, v) {
+  touched();
   if (engine) engine.setParam(tid, id, v); else state.params[tid][id] = v;
   persist();
 }
@@ -607,13 +861,19 @@ function setMaster(id, v) {
 // Undo / redo. `label` names the edit for the toast ("Undone: CLEAR pattern B").
 function snapshot(like = {}) {
   const { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn } = state;
-  const snap = { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn, labels: state.labels || null, lyrics: state.lyrics || null, sing: state.sing || null };
+  const snap = { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn, chainEntries: state.chainEntries ?? null, labels: state.labels || null, lyrics: state.lyrics || null, sing: state.sing || null, feel: state.feel || null };
   if ('artist' in like) snap.artist = state.artist ?? null;
   if (like.ui) snap.ui = { style, family };
   return JSON.stringify(snap);
 }
+// Any edit makes the song the listener's own: it keeps its notes instead of following the generator (refreshSong).
+const touched = () => {
+  state.fresh = 0;
+  if (playbackSources.delete(state)) playbackStats.end();
+};
 function pushUndo(label = '') {
   if (typeof label !== 'string') label = '';
+  touched();
   knobGesture.reset();
   history.push(snapshot(), label);
   syncHistory();
@@ -623,9 +883,12 @@ function restore(entry, verb) {
   const { ui: was, ...snap } = JSON.parse(entry.snap);
   if (was) { style = was.style; family = was.family; localStorage.setItem('untergrund.family', family); }
   Object.assign(state, snap);
+  if (!state.chainEntries) delete state.chainEntries;
+  touched();
   if (!state.labels) delete state.labels;
   if (!state.lyrics) delete state.lyrics;
   if (!state.sing) delete state.sing;
+  if (!state.feel) delete state.feel;
   engine?.applyAll(); engine?.applyDelayTime();
   build(); persist(); toast(entry.label ? `${verb}: ${entry.label}` : verb);
 }
@@ -645,11 +908,11 @@ function syncHistory() {
   for (const b of document.querySelectorAll('.redo-btn')) b.disabled = !history.canRedo;
 }
 // One knob drag (or a burst of wheel ticks / arrow keys / MIDI CC) is one undo step.
-controlHooks.change = (el, label, held) => { if (knobGesture.begin(el, held)) { history.push(snapshot(), label); syncHistory(); } };
+controlHooks.change = (el, label, held) => { touched(); if (knobGesture.begin(el, held)) { history.push(snapshot(), label); syncHistory(); } };
 controlHooks.end = () => knobGesture.end();
 
-function replaceState(s) {
-  stop();
+function replaceState(s, outcome) {
+  stop(outcome);
   autoMajor = false;
   state = s;
   if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
@@ -682,8 +945,8 @@ function currentSong() {
 }
 // The song whose share sheet is open, so a share made before pressing play still names the song it shared.
 let sharing = null;
-const sharingCtx = () => (sharing?.song?.state ? { fp: songFingerprint(sharing.song.state), tid: sharing.song.trackId || '', style: sharing.song.style || '', surf: sharing.source || '' } : null);
-function showShare(song = currentSong(), source = 'studio') { sharing = { song, source }; openShare({ song, toast, download, source, hue: hue(song.style), beforeExport: () => { if (playing) stop(); } }); }
+const sharingCtx = () => (sharing?.song?.state ? { fp: songFingerprint(sharing.song.state), tid: sharing.song.trackId || '', style: sharing.song.style || '', surf: sharing.source || '', feel: isFeel(sharing.song.state.feel) ? sharing.song.state.feel : '' } : null);
+function showShare(song = currentSong(), source = 'studio') { sharing = { song, source }; openShare({ song, toast, download, source, hue: hue(song.style), room: hostingRoom(), beforeExport: () => { if (playing) stop(); } }); }
 
 // Play a shared or jukebox song in place; leaveGuest() puts the listener's own project back.
 function listen(song, src = 'shared', via = '') {
@@ -692,9 +955,11 @@ function listen(song, src = 'shared', via = '') {
   if (!guest) guest = { backup: clone(state), style };
   guest.song = song;
   if (STYLES[song.style]) style = song.style;
-  stop(); autoMajor = false;
+  stop('skip'); autoMajor = false;
   state = sanitize(clone(song.state));
   state.artist = { ...(state.artist || {}), title: song.title, name: song.artist, style: song.style };
+  if (song.trackId || src === 'shared' || src === 'drop') playbackSources.set(state, { surface: 'public', trackId: song.trackId, genre: song.style,
+    ...(song.trackId && { fingerprint: songFingerprint(state) }) });
   if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
   build();
   play();
@@ -758,7 +1023,7 @@ function showJukebox() {
   openJukebox({
     toast,
     onCreate: () => generateNow(),
-    stopSong: () => { if (playing) stop(); },
+    stopSong: (outcome) => { if (playing || tuning) stop(outcome); },
     onClose: leaveGuest,
     onNowPlaying: (ctl) => { jukeboxNow = ctl; syncNowPlaying(); },
     onRemix: () => current && remixSong(current, true),
@@ -782,102 +1047,245 @@ function showJukebox() {
         current = { ...normalizeSong({ ...item, state: saved.state, remixOf: saved.remixOf || item.remixOf }), trackId: item.local ? '' : item.trackId };
       }
       listen(current, item.kind === 'drop' ? 'drop' : 'jukebox');
-      const bars = state.chainOn ? parseChain(state.chain).length || 8 : 8;
-      return (Math.min(bars, 64) * 16 * 15) / state.bpm;
+      return jukeboxPreviewSeconds(state);
     },
   });
 }
 
+function installRoomSong(next, at, replay808Style, replaySeed, mixSpin = false) {
+  playbackStats.end('skip');
+  trackingReplay = false;
+  listens.end(listenPos());
+  if (artistLive) stopArtistLive(false);
+  jamQueue.length = 0;
+  seq.dropNext = false;
+  engine.discardQueuedNotes(at);
+  autoMajor = false;
+  state = next;
+  if (mixSpin && at > ctx.currentTime) {
+    engine.fadeRoomTail(at);
+    engine = new Engine(ctx, state, { vocal:vocalStem, trackQueuedNotes:true, destination:roomOutput });
+    seq = new Sequencer(engine, state);
+  }
+  engine.state = seq.s = state;
+  engine.replay808Style = replay808Style;
+  engine.replaySeed = replaySeed;
+  engine.handoffIn(at);
+}
+
 // Saved Club sets replay from their timeline; `asGuest` (jukebox) keeps the listener's own project safe.
-function timelineHooks(asGuest) {
+function timelineHooks(asGuest, replayStats = null, switchAt = null) {
+  let replay808Style, replaySeed;
   return {
     load: (s, st) => {
+      replaySeed = Number.isFinite(s.seed) ? s.seed : undefined;
       if (asGuest && !guest) guest = { backup: clone(state), style };
       songOrigin = { src: asGuest ? 'jukebox' : 'room' };
-      if (STYLES[st]) style = st;
+      if (STYLES[st]) replay808Style = style = st;
       const next = sanitize({ ...s, artist: state.artist });
+      if (switchAt !== null) {
+        installRoomSong(next, switchAt, replay808Style, replaySeed);
+        return;
+      }
       if (!asGuest) return replaceState(next);
       stop(); autoMajor = false; state = next;
       if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
       build();
     },
     apply: (s, st) => {
-      if (STYLES[st]) style = st;
-      const next = sanitize({ ...clone(state), ...s });
+      replaySeed = Number.isFinite(s.seed) ? s.seed : undefined;
+      if (STYLES[st]) replay808Style = style = st;
+      const next = sanitize({ ...clone(state), ...s, chainEntries: s.chainEntries });
       // The DJ generated a new song: the replay hands off on a downbeat too, from the new song's bar 1.
       const newSong = next.chain !== state.chain && JSON.stringify(next.patterns[0]) !== JSON.stringify(state.patterns[0]);
       if (playing && seq && newSong && !pat().score && !next.patterns.some((q) => q.score)) {
         next.artist = state.artist;
-        return queueSong({ next, quiet: true, origin: { src: asGuest ? 'jukebox' : 'room' }, finish: () => { build(); if (!guest) persist(); } });
+        return queueSong({ next, replay808Style, replaySeed, quiet: true, origin: { src: asGuest ? 'jukebox' : 'room' }, finish: () => { build(); if (!guest) persist(); } });
       }
       if (playing && next.bpm !== state.bpm) transportOrigin = Date.now() - ((Date.now() - transportOrigin) / (15000 / state.bpm)) * (15000 / next.bpm);
       const want = next.current;
       next.current = state.current;
       state = next;
-      if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
+      if (engine) { engine.state = state; seq.s = state; engine.replay808Style = replay808Style; engine.replaySeed = replaySeed; engine.applyAll(); }
       if (seq && !state.chainOn && want !== seq.cur) seq.queued = want;
       build(); if (!guest) persist();
     },
-    play, isPlaying: () => playing, onEnd: () => playing && stop(),
+    play: (opts) => play({ ...opts, room: !asGuest, editRoom: false, replayStats, replay808Style, replaySeed, switchAt }), isPlaying: () => playing, onEnd: () => playing && stop('complete'),
   };
 }
-function replayToRoom(timeline, startsAt) {
-  playTimeline(timeline, startsAt, timelineHooks(false));
-  roomResume = () => replayToRoom(timeline, startsAt);
+function replayToRoom(timeline, startsAt, item) {
+  const replay = { timeline, startsAt, item };
+  queuedRoomSwitch = roomReplayLoad = null;
+  if (playing && startsAt > Date.now()) queuedRoomSwitch = replay;
+  else startRoomReplay(replay);
+}
+
+function switchRoomSet(at) {
+  const next = queuedRoomSwitch;
+  queuedRoomSwitch = null;
+  const switchAt = at > ctx.currentTime ? at : null;
+  if (!next.track) return startRoomReplay(next, switchAt);
+  const { track, roomState, nextStyle, startsAt, editRoom } = next;
+  const item = { ...track, startsAt };
+  const t = switchAt ?? ctx.currentTime;
+  stopTimeline();
+  style = nextStyle;
+  songOrigin = { src:'room' };
+  installRoomSong(roomState, t, undefined, undefined, true);
+  jamQueue = next.jamEdits;
+  roomStatsItem = item;
+  if (editRoom && track.trackId)
+    playbackSources.set(state, { surface:'public', trackId:track.trackId, fingerprint:songFingerprint(state) });
+  else if (!editRoom && track.public !== false)
+    playbackSources.set(state, { surface:'club', trackId:track.trackId, genre:style });
+  play({ startsAt, editRoom, switchAt });
+  if (mediaRoute && !editRoom) roomMediaSync.remember(item);
+  if (!editRoom) roomResume = () => joinRoomSet(item);
+  build(); persist();
+}
+
+function startRoomReplay({ timeline, startsAt, item }, switchAt = null) {
+  const stats = item && item.public !== false && timeline.duration > 0
+    ? { surface: 'club', genre: timeline.style, replay: { startsAt, duration: timeline.duration } } : null;
+  playTimeline(timeline, startsAt, timelineHooks(false, stats, switchAt));
+  roomResume = () => replayToRoom(timeline, startsAt, item);
+  if (switchAt !== null) { build(); persist(); }
   syncNowPlaying();
 }
 
 async function joinRoomReplay(item) {
+  const request = roomReplayLoad = {};
+  let timeline;
   try {
-    const timeline = item.replay.timeline || await loadReplay(item.replay);
-    replayToRoom(timeline, +item.startsAt);
-    toast(`Replaying “${item.title}” with the room`);
-    trackEvent('set_replay', { kind: 'room_listener' });
-  } catch { joinRoomSet({ ...item, replay: null }); }
+    timeline = item.replay.timeline || await loadReplay(item.replay);
+  } catch {
+    if (roomReplayLoad === request) joinRoomSet({ ...item, replay: null });
+    return;
+  }
+  if (roomReplayLoad !== request) return;
+  try { replayToRoom(timeline, +item.startsAt, item); } catch { return joinRoomSet({ ...item, replay: null }); }
+  toast(`Replaying “${item.title}” with the room`);
+  trackEvent('set_replay', { kind: 'room_listener' });
 }
 
-function joinRoomSet(item) {
-  stopTimeline();
-  if (item?.replay) return joinRoomReplay(item);
+function joinRoomSet(item, { initial = false } = {}) {
+  if (mediaRoute && initial && roomMediaSync.duplicate(item, playing, roomPlayback, mediaRoute)) return;
+  queuedRoomSwitch = roomReplayLoad = null;
+  const sameSet = roomStatsItem === item || !!(item?.broadcastId && item.broadcastId === roomStatsItem?.broadcastId);
+  if (item?.replay) { roomStatsItem = item; return joinRoomReplay(item); }
   if (!item?.state) return;
-  style = STYLES[item.style] ? item.style : STYLES[item.state.artist?.style] ? item.state.artist.style : style;
+  const nextStyle = STYLES[item.style] ? item.style : STYLES[item.state.artist?.style] ? item.state.artist.style : style;
   const roomState = sanitize(clone(item.state));
-  songOrigin = { src: 'room' };
   const startsAt = Number.isFinite(+item.startsAt) ? +item.startsAt : Date.now();
-  replaceState(roomState);
+  const localState = sanitize(state);
+  const continuous = playing && roomPlayback && !artistLive && !handoff && !jamQueue.length && seq.queued === null &&
+    (sameSet || Math.abs(startsAt - (transportOrigin + seq.origin * (15000 / state.bpm))) <= 30) &&
+    nextStyle === style && roomState.artist?.style === localState.artist?.style && roomState.artist?.seed === localState.artist?.seed &&
+    songFingerprint(roomState) === songFingerprint(localState) && JSON.stringify(roomState.sing) === JSON.stringify(localState.sing) &&
+    (state.chainOn || roomState.current === state.current);
+  if (!continuous && playing && roomPlayback && startsAt > Date.now()) {
+    queueRoomTrack(item, roomState, nextStyle, startsAt, false);
+    return;
+  }
+  roomStatsItem = item;
+  stopTimeline();
+  if (mediaRoute) roomMediaSync.begin(item, playing, roomPlayback, mediaRoute);
+  songOrigin = { src: 'room' };
+  if (!continuous || !sameSet) playbackStats.end('skip');
+  style = nextStyle;
+  if (continuous) {
+    reanchorRoomSet(startsAt);
+    roomState.current = state.current;
+    state = roomState;
+    engine.state = seq.s = state;
+    roomEditor = false;
+    engine.editableHits.length = 0;
+    build(); persist();
+  } else replaceState(roomState);
+  if (item.public !== false) playbackSources.set(state, { surface: 'club', trackId: item.trackId, genre: nextStyle });
   const sync = () => {
-    const { step, delay } = roomTransportPosition(startsAt, roomState.bpm);
-    play({ step, delay });
+    if (!continuous) play({ startsAt });
+    else if (!sameSet) recordPlayback(playbackSources.get(state), ctx.currentTime, abs - Math.max(0, nextTime - ctx.currentTime) / engine.stepDur);
+    if (mediaRoute) roomMediaSync.remember(item);
     roomResume = () => joinRoomSet(item);
     syncNowPlaying();
     toast(`Synced to “${item.title || 'Live Machine Set'}”`);
   };
   const wait = startsAt - Date.now();
-  if (wait > 50) roomJoinTimer = setTimeout(sync, wait - 40);
+  // Prepare the graph with the same lookahead as room playback, not on the downbeat's deadline.
+  const leadMs = continuous ? 40 : ROOM_LEAD * 1000;
+  if (wait > Math.max(50, leadMs)) roomJoinTimer = setTimeout(sync, mediaRoute ? Math.max(0, wait - leadMs - roomMediaLead(true, mediaRoute) * 1000) : wait - leadMs);
   else sync();
 }
 
-function startRoomBroadcast(startsAt) {
-  if (playing) return;
+function reanchorRoomSet(startsAt, previousStartsAt) {
+  if (!playing || !roomPlayback || !Number.isFinite(startsAt)) return;
+  if (queuedRoomSwitch) {
+    for (const edit of queuedRoomSwitch.jamEdits || []) edit.wall += startsAt - queuedRoomSwitch.startsAt;
+    queuedRoomSwitch.startsAt = startsAt;
+    return;
+  }
+  const origin = Number.isFinite(previousStartsAt) ? transportOrigin + startsAt - previousStartsAt
+    : startsAt - (seq?.origin || 0) * (15000 / state.bpm);
+  if (Math.abs(origin - transportOrigin) > 0.5) vocalGridDirty = true;
+  transportOrigin = origin;
+}
+
+function stopRoomStats(item) {
+  if (item.broadcastId && item.broadcastId === queuedRoomSwitch?.track?.broadcastId) queuedRoomSwitch.track.public = false;
+  if (!item.broadcastId || item.broadcastId !== roomStatsItem?.broadcastId) return;
+  roomStatsItem.public = false;
+  if (trackingReplay || playbackSources.get(state)?.surface === 'club') playbackStats.cancel();
+  if (playbackSources.get(state)?.surface === 'club') playbackSources.delete(state);
+}
+
+function queueRoomTrack(track, roomState, nextStyle, startsAt, editRoom) {
+  queuedRoomSwitch = { track, roomState, nextStyle, startsAt, editRoom, jamEdits:[] };
+  prepareSample(roomState);
+  engine.prepareVocal(roomState);
+  loadSets(liveSets(roomState)).catch(() => {});
+}
+
+function startRoomBroadcast(startsAt, track) {
+  queuedRoomSwitch = roomReplayLoad = null;
+  if (playing) {
+    if (!track) playbackStats.end();
+    roomPlayback = roomEditor = true;
+    if (track) queueRoomTrack(track, clone(track.state), track.style, startsAt, true);
+    schedule();
+    return;
+  }
   clearTimeout(roomJoinTimer);
-  const wait = Math.max(0, startsAt - Date.now());
-  const lead = Math.min(60, wait);
-  roomJoinTimer = setTimeout(() => play({ delay: lead / 1000 }), Math.max(0, wait - lead));
+  roomJoinTimer = setTimeout(() => play({ startsAt, editRoom: true }), Math.max(0, startsAt - Date.now() - (mediaRoute ? ROOM_LEAD * 1000 + roomMediaLead(true, mediaRoute) * 1000 : ROOM_LEAD * 1000)));
 }
 
 function showClub({ room = '', intent = '' } = {}) {
+  const prepareTrack = (track) => ({
+    style: STYLES[track.style] ? track.style : style,
+    state: refreshSong(sanitize(clone(track.state))),
+    trackId: !track.id?.startsWith('local-') && RELEASE_ID.test(track.id || '') ? track.id : '',
+  });
   openClub({
     room,
     intent,
     hue,
     getState: () => state,
     getStyle: () => style,
+    prepareTrack,
     loadTrack: (track) => {
-      style = STYLES[track.style] ? track.style : style;
-      replaceState(sanitize(clone(track.state)));
+      const next = prepareTrack(track);
+      style = next.style;
+      replaceState(next.state);
+      if (next.trackId) playbackSources.set(state, { surface: 'public', trackId: next.trackId, fingerprint: songFingerprint(state) });
     },
     // Rooms count steps from where the playing song started (a GENERATE handoff restarts the song, not the clock).
     getTransport: () => ({ playing, startsAt: transportOrigin + (seq?.origin || 0) * (15000 / state.bpm) }),
+    onLeaveRoom: cancelRoomStart,
+    getReleaseId: () => {
+      const source = playbackSources.get(state);
+      return source?.trackId && source.fingerprint === songFingerprint(state) ? source.trackId : '';
+    },
+    onPlaybackUnavailable: stopRoomStats,
     startRoomBroadcast,
     unlockAudio: async () => {
       ensureAudio();
@@ -885,11 +1293,15 @@ function showClub({ room = '', intent = '' } = {}) {
       return ctx.state === 'running';
     },
     joinRoomSet,
+    reanchorRoomSet,
     replayToRoom,
     jam: {
       queuePart: queueJamPart,
-      pending: (part) => jamQueue.find((q) => q.part === part)?.wall || 0,
-      reset: () => { jamQueue = []; },
+      pending: (part) => (queuedRoomSwitch?.jamEdits ?? jamQueue).find((q) => q.part === part)?.wall || 0,
+      reset: () => {
+        jamQueue = [];
+        if (queuedRoomSwitch?.jamEdits) queuedRoomSwitch.jamEdits.length = 0;
+      },
     },
     toast,
   });
@@ -961,6 +1373,7 @@ function artistTick(step) {
       evolved.len[id] = source.len[id];
     }
     state.patterns[target] = evolved;
+    touched();
     persist();
   }
 
@@ -1052,12 +1465,14 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   // A score sets its own tempo even mid-set; a masterwork keeps its title and composer.
   if (g.pattern.score) s.bpm = g.bpm;
   if (typeof hum === 'function' && !g.pattern.score) { const r = hum(s.bpm, s.scale); s.key = r.key; if (r.hook) placeHook(s.patterns, r.hook); }
-  applySongPlan(s, id, seed, drop ? 'song' : songLength);
+  applySongPlan(s, id, seed, drop ? 'song' : songLength, drop ? null : feelPick);
   const piece = PIECE[g.pattern.score?.piece];
   const title = piece ? piece.title : drop ? drop.title : trackTitle(seed);
   const artist = piece ? piece.composer : loadAvatar().name || 'UNTERGRUND';
   s.artist = { name: artist, title, style: id, seed, created: new Date().toISOString() };
   delete s.remixOf; delete s.drop; delete s.lyrics;
+  // Hummed, prompted and experiment songs aren't just their seed, so they keep the notes they were written with.
+  s.fresh = typeof hum === 'function' || typeof steer === 'function' ? 0 : 1;
   if (drop) Object.assign(s, { drop: drop.date, remixOf: { id: '', title: `Daily Drop · ${drop.title}`, artist: 'UNTERGRUND' } });
   const prompt = typeof steer === 'function' ? pendingPrompt : null;
   pendingPrompt = null;
@@ -1066,7 +1481,7 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   // A running experiment changes only the variant arm's new songs, and only the one thing its `apply` does.
   const x = experimentFor({ style: id, src: origin.src, surf: listenSurface() });
   if (typeof x?.exp.apply === 'function') {
-    if (x.arm === 'variant') x.exp.apply(s, { seed });
+    if (x.arm === 'variant') { x.exp.apply(s, { seed }); s.fresh = 0; }
     Object.assign(origin, { xp: x.xp, arm: x.arm });
   }
   return {
@@ -1126,12 +1541,14 @@ function randomTrack(id) {
   const g = generate(style, (Math.random() * 1e9) | 0);
   pat().steps[id] = g.pattern.steps[id];
   pat().len[id] = g.pattern.len[id];
+  reviseRoomHits(id, state.current);
   renderRow(id); if (id === 'acid') renderRoll(); persist();
 }
 
 function clearTrack(id) {
   pushUndo(`CLR ${TRACK_BY_ID[id].name}`);
   pat().steps[id] = id === 'acid' ? Array.from({ length: STEPS }, emptyAcidStep) : Array(STEPS).fill(0);
+  reviseRoomHits(id, state.current);
   renderRow(id); if (id === 'acid') renderRoll(); persist();
 }
 
@@ -1142,6 +1559,7 @@ function rotateTrack(id, dir) {
   const head = s.slice(0, len);
   const r = dir > 0 ? [head[len - 1], ...head.slice(0, len - 1)] : [...head.slice(1), head[0]];
   for (let i = 0; i < len; i++) s[i] = r[i];
+  reviseRoomHits(id, state.current);
   renderRow(id); if (id === 'acid') renderRoll(); persist();
 }
 
@@ -1171,13 +1589,15 @@ const trackActive = (id) => {
 };
 
 // ---------------- build ----------------
-function build() {
-  app.innerHTML = '';
+// keepHeader leaves the transport header in place so an open menu there (style, key, FILE) survives playback redraws.
+function build({ keepHeader = false } = {}) {
+  const top = keepHeader && ui.pats?.closest('header.top');
+  if (top?.parentNode === app) { for (const n of [...app.children]) if (n !== top) n.remove(); } else app.innerHTML = '';
   ui.rows = {};
   document.body.classList.toggle('studio-open', studioOpen);
   document.body.dataset.stab = studioTab;
   document.body.dataset.spage = String(stepPage);
-  app.append(buildHeader(), studioOpen ? studioTabs() : '', buildGenerateHome(), state.patterns[0]?.score ? '' : timeline.mount(), h('main', { class: 'main studio-workspace' }, h('div', { class: 'left' }, buildGrid(), buildEditor()), buildMaster()), buildTabBar());
+  app.append(top?.parentNode === app ? '' : buildHeader(), studioOpen ? studioTabs() : '', buildGenerateHome(), state.patterns[0]?.score ? '' : timeline.mount(), h('main', { class: 'main studio-workspace' }, h('div', { class: 'left' }, buildGrid(), buildEditor()), buildMaster()), buildTabBar());
   guardPushOffer();
   renderPatterns();
   for (const id of TRACK_IDS) renderRow(id);
@@ -1209,15 +1629,17 @@ function toggleStudio() {
 }
 
 const STYLE_HUE = {
+  jazzfunk: '#d9aa4c',
+  ...Object.fromEntries(HIPHOP_STYLES.map((id) => [id, HIPHOP[id].color])),
   symphony: '#e8c27a', concerto: '#f0d9a8', nocturne: '#9fb4ff', repertoire: '#d8b4fe',
   hypnotic: '#30d158', industrial: '#ff6a3d', acid: '#ffd60a', dub: '#3ad6c6', peak: '#ff4d86', hardtechno: '#ff3b3b',
-  deephouse: '#6f9bff', minimal: '#e4e4ea', ukg: '#b892ff', euphoric: '#ff9ad5', neosoul: '#ffb347', boombap: '#dca86e',
+  deephouse: '#6f9bff', minimal: '#e4e4ea', ukg: '#b892ff', euphoric: '#ff9ad5', neosoul: '#ffb347', boombap: '#dca86e', swing: '#e8c478', modal: '#79b9cc', bossa: '#a5c78a',
   breaks: '#ff9340', electro: '#2bd9ff', dnb: '#7dff9a', trance: '#a98bff', ambient: '#8fd8ff',
   amapiano: '#f5c542', afrobeats: '#ff7b54', reggaeton: '#e83cff', bailefunk: '#4dff4d', trap: '#9b5cff', drill: '#5c7cff', jerseyclub: '#00ffd0', hyperpop: '#ff5ce1',
   pop: '#ff6fae', rnb: '#c77dff', rock: '#ff453a', folk: '#d4a373', country: '#e9b44c',
 };
 const BAND_STYLES = new Set(['pop', 'rnb', 'rock', 'folk', 'country']);
-const GROOVE_STYLES = new Set(['neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill', 'hyperpop', ...BAND_STYLES]);
+const GROOVE_STYLES = new Set(['jazzfunk', 'bossa', 'swing', 'modal', 'neosoul', 'boombap', ...HIPHOP_STYLES, 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill', 'hyperpop', ...BAND_STYLES]);
 const SECTION_NAMES = {
   groove: ['INTRO', 'BUILD', 'VERSE', 'FILL', 'BRIDGE', 'BRIDGE', 'HOOK', 'HOOK'],
   club: ['INTRO', 'BUILD', 'DROP', 'FILL', 'BREAKDOWN', 'BREAKDOWN', 'DROP', 'HALF-TIME'],
@@ -1266,8 +1688,8 @@ async function startPreview(id, card) {
     if (!p) {
       const snap = clone(state);
       const scale = id === 'euphoric' ? 'major' : 'minor';
-      const g = generate(id, (Math.random() * 1e9) | 0, scale);
-      Object.assign(snap, { patterns: [g.pattern], current: 0, chainOn: false, scale, mutes: {}, solos: {} });
+      const seed = (Math.random() * 1e9) | 0, g = generate(id, seed, scale);
+      Object.assign(snap, { artist: { style: id, seed }, patterns: [g.pattern], current: 0, chainOn: false, scale, mutes: {}, solos: {} });
       applyOverrides(snap, g, true);
       p = { buf: await renderBars(snap, 2, { tail: 1 }), loopEnd: 0.05 + (32 * 60) / snap.bpm / 4 };
       previewCache.set(id, p);
@@ -1316,6 +1738,27 @@ function lengthPicker() {
   return h('div', { class: 'gen-length', role: 'group', 'aria-label': 'Song length' },
     opt('song', 'FULL SONG · 3–4 MIN', 'Verses that develop, a bridge, an instrumental and a bigger last chorus'),
     opt('sketch', 'SKETCH · ~1 MIN', 'Just the idea: intro, verse, chorus, out'));
+}
+// How do you want to feel? Any (the seed picks) or one feeling; GENERATE and Radio write every song in it.
+const feelAsked = () => (STYLES[style].family === 'CLASSICAL' ? null : feelPick);
+function feelPicker() {
+  const opt = (id, label, title) => h('button', { class: 'feel-chip' + (feelPick === id ? ' on' : ''), type: 'button', 'data-feel': id || 'any', 'aria-pressed': String(feelPick === id), title,
+    onclick: () => { feelPick = id; if (id) localStorage.setItem('untergrund.feel', id); else localStorage.removeItem('untergrund.feel'); build(); } }, label);
+  const row = h('div', { class: 'gen-feel', role: 'group', 'aria-label': 'How do you want to feel?', onscroll: () => { feelScroll = row.scrollLeft; } },
+    opt(null, 'Any', 'Each song picks a feeling that fits the genre'),
+    FEEL_IDS.map((id) => opt(id, FEELS[id].label, `Every new song feels ${FEELS[id].label.toLowerCase()}`)));
+  // build() replaces the row: on phone (where it scrolls) keep where the listener left it, with the picked chip in view.
+  queueMicrotask(() => {
+    if (!row.isConnected) return;
+    row.scrollLeft = feelScroll;
+    const on = row.querySelector('.on');
+    if (!on || row.scrollWidth <= row.clientWidth) return;
+    const box = row.getBoundingClientRect(), chip = on.getBoundingClientRect(), fade = row.clientWidth * 0.15 + 4;
+    if (chip.left < box.left + 20) row.scrollLeft += chip.left - box.left - 20;
+    else if (chip.right > box.right - fade) row.scrollLeft += chip.right - box.right + fade;
+    feelScroll = row.scrollLeft;
+  });
+  return row;
 }
 
 function selectFamily(f) {
@@ -1414,7 +1857,7 @@ async function openRecent(t) {
     if (!track?.state) throw new Error('track_missing');
     const saved = track.style || t.style;
     if (STYLES[saved]) { style = saved; family = STYLES[saved].family; }
-    const next = sanitize(track.state), origin = { src: 'crate', tid: String(t.id || '').startsWith('local-') ? '' : t.id || '' };
+    const next = refreshSong(sanitize(track.state)), origin = { src: 'crate', tid: String(t.id || '').startsWith('local-') ? '' : t.id || '' };
     if (playing && !pat().score && !next.patterns.some((q) => q.score)) return queueSong({ next, origin, finish: () => { build(); persist(); } });
     songOrigin = origin;
     replaceState(next);
@@ -1426,15 +1869,14 @@ async function openRecent(t) {
 async function openShared(id, autoplay = false) {
   if (autoplay) ensureAudio();
   try {
-    const pub = await fetchPublicTrack(id);
-    const track = pub?.track || await fetchTrack(id);
+    const track = await fetchReleaseTrack(id);
     if (!track?.state) throw new Error('track_missing');
     if (STYLES[track.style]) { style = track.style; family = STYLES[track.style].family; }
-    if (playing) stop();
-    const next = sanitize(track.state);
-    next.artist = { ...(next.artist || {}), title: track.title, name: pub?.artist?.name || track.artist || next.artist?.name, style: track.style };
+    const next = refreshSong(sanitize(track.state));
+    next.artist = { ...(next.artist || {}), title: track.title, name: track.artist || next.artist?.name, style: track.style };
     songOrigin = { src: 'shared', tid: track.id || id };
-    replaceState(next);
+    replaceState(next, 'skip');
+    playbackSources.set(state, { surface: 'public', trackId: track.id || id, fingerprint: songFingerprint(state) });
     if (autoplay) play(); else toast(`Loaded “${track.title}”. Press play.`);
   } catch { toast('Could not load that track'); }
 }
@@ -1461,7 +1903,7 @@ function styleCard(id, value, isPlaying) {
   return card;
 }
 
-function buildNowPlaying(primary) {
+function buildNowPlaying(primary, feels = null) {
   const a = state.artist || {};
   const sid = STYLES[a.style] ? a.style : style;
   const sc = pat()?.score ? compose(pat().score) : null;
@@ -1481,7 +1923,9 @@ function buildNowPlaying(primary) {
       h('div', { class: 'np-top' }, h('span', { class: 'np-eyebrow' }, h('i', { class: 'np-dot' }), paused ? 'PAUSED' : 'NOW PLAYING'), h('span', { class: 'np-top-r' }, radioButton(), reactions.buttons)),
       reactions.reasons,
       h('h1', {}, a.title || 'Untitled set'),
-      h('div', { class: 'np-meta' }, [a.name || 'UNTERGRUND', STYLES[sid].name, `${state.bpm} BPM`, sc?.meta ? sc.meta.key.toUpperCase() : `${KEYS[state.key]} ${sc ? (pat().score.mode === 'm' ? 'MINOR' : 'MAJOR') : SCALES[state.scale]?.name || 'MINOR'}`]
+      // A listener hears a feeling, not a tempo and key (those stay in Studio); songs without one show tempo and key.
+      h('div', { class: 'np-meta' }, [a.name || 'UNTERGRUND', STYLES[sid].name, ...(!sc && isFeel(state.feel) ? [FEELS[state.feel].label.toUpperCase()]
+        : [`${state.bpm} BPM`, sc?.meta ? sc.meta.key.toUpperCase() : `${KEYS[state.key]} ${sc ? (pat().score.mode === 'm' ? 'MINOR' : 'MAJOR') : SCALES[state.scale]?.name || 'MINOR'}`])]
         .flatMap((v, i) => [i ? ' ' : '', h('span', {}, i ? `· ${v}` : v)])),
       ui.npCanvas,
       h('div', { class: 'np-progress' }, h('div', { class: 'np-label' }, ui.npSection, ui.npBar), h('div', { class: 'np-cells' }, ui.npCells))),
@@ -1489,13 +1933,14 @@ function buildNowPlaying(primary) {
       paused ? h('button', { class: 'np-stop resume', title: 'Resume (Space)', 'aria-label': 'Resume', onclick: toggle }, h('i'))
         : h('button', { class: 'np-stop', title: 'Stop (Space)', 'aria-label': 'Stop', onclick: toggle }, h('i')),
       primary,
+      feels,
       ...lifecycleActions()),
   ];
 }
 
-// The explicit reactions: love or down the song you hear, one tap each. After a down, three optional one-tap reasons
+// The explicit reactions: love or down the song you hear, one tap each. After a down, four optional one-tap reasons
 // (never a text box); everything else (where it was, what it is, what you did next) is read from the listen itself.
-const DOWN_WHY = { boring: 'Boring', sounds_bad: 'Sounds bad', not_my_style: 'Not my style' };
+const DOWN_WHY = { boring: 'Boring', no_feeling: "Didn't feel anything", sounds_bad: 'Sounds bad', not_my_style: 'Not my style' };
 // Now Playing can render before the next song's listen begins (song handoffs), so the controls repaint once it has.
 // Now Playing and the mini-player each have a set; a tap on either repaints both.
 const reactionPaints = new Set();
@@ -1640,7 +2085,7 @@ function buildGenerateHome() {
     ? h('button', { class: 'generate-primary tuning', 'aria-busy': 'true', style: `--tune-at:${((tuning.at - performance.now()) / 1000).toFixed(2)}s`, onclick: () => generateNow() },
       h('span', {}, 'TUNING UP'), h('small', {}, `${STYLES[state.artist?.style]?.name || STYLES[style].name} · ${tuning.label}`))
     : h('button', { class: 'generate-primary' + (performance.now() - generatedAt < 900 ? ' fired' : '') + (wait || band ? ' gen-queued' : ''), style: wait ? `--gen-wait:${Math.round(handoff.total)}ms;--gen-at:${Math.round(wait - handoff.total)}ms` : null, onclick: () => generateNow() },
-      h('span', {}, 'GENERATE'), h('small', {}, band ? 'Up next · seating the band' : wait ? 'Up next · on the bar' : `${STYLES[style].name} · ${STYLES[style].family === 'CLASSICAL' ? 'full piece' : songLength === 'sketch' ? 'sketch' : 'full song'}`));
+      h('span', {}, 'GENERATE'), h('small', {}, band ? 'Up next · seating the band' : wait ? 'Up next · on the bar' : [STYLES[style].name, feelAsked() && FEELS[feelAsked()].label, STYLES[style].family === 'CLASSICAL' ? 'full piece' : songLength === 'sketch' ? 'sketch' : 'full song'].filter(Boolean).join(' · ')));
   const showNp = (playing || !!paused) && !studioOpen;
   // First visit shows only the essentials; the rest unlocks once a track has been made.
   const made = hasMade();
@@ -1650,13 +2095,16 @@ function buildGenerateHome() {
   madeShown = made;
   const since = performance.now() - unlockAt, unlock = unlockAt > 0 && since < 900;
   const hum = !made || STYLES[style].family === 'CLASSICAL' ? null : humButton(humApi);
-  const left = showNp ? buildNowPlaying(primary) : [
+  // Secondary like the length picker: first run keeps GENERATE the only choice.
+  const feels = made && STYLES[style].family !== 'CLASSICAL' ? feelPicker() : null;
+  const left = showNp ? buildNowPlaying(primary, feels) : [
     h('div', { class: 'generate-copy' },
       h('h1', {}, 'Press Generate. Hear a finished track.'),
       h('p', {}, made ? 'Change it in words, refine it in Studio, or play it live in the Club.' : 'One tap writes, arranges and plays a whole song. Pick a sound first, or describe the song you want.'),
       made ? dropPeek() : null),
     h('div', { class: 'generate-actions' },
       studioOpen ? primary : h('div', { class: 'gen-wrap' }, primary, hum),
+      feels,
       made && STYLES[style].family !== 'CLASSICAL' ? lengthPicker() : null,
       made ? h('button', { class: 'btn refine-toggle', onclick: toggleStudio }, studioOpen ? 'HIDE STUDIO' : 'REFINE IN STUDIO') : null,
       studioOpen ? hum : null),
@@ -1741,15 +2189,18 @@ function describeBox() {
       });
       play();
     },
-    commit: (next) => { adoptState(next); build(); persist(); },
+    commit: (next) => { adoptState({ ...next, fresh: 0 }); build(); persist(); },
     persist: () => persist(),
+    sung: () => engine?.prepareVocal(),
     highlight: (bars) => timeline.flash(bars),
   });
 }
 
 function adoptState(next) {
+  if (playbackSources.delete(state)) playbackStats.end('skip');
   if (playing && next.bpm !== state.bpm) transportOrigin = Date.now() - ((Date.now() - transportOrigin) / (15000 / state.bpm)) * (15000 / next.bpm);
   Object.assign(state, next);
+  engine?.prepareVocal();
   engine?.applyAll(); engine?.applyDelayTime();
 }
 
@@ -1841,15 +2292,15 @@ function buildHeader() {
       const currentStep = (Date.now() - transportOrigin) / (15000 / state.bpm);
       transportOrigin = Date.now() - currentStep * (15000 / v);
     }
-    state.bpm = v; engine?.applyDelayTime(); persist();
+    state.bpm = v; touched(); engine?.applyDelayTime(); persist();
   }, { cls: 'bpm' });
   bpm.el.title = 'Tempo — drag / wheel / arrows';
-  const swing = knob({ id: 'swing', label: 'SWING', min: 0, max: 0.6, def: 0.06 }, state.swing, (v) => { state.swing = v; persist(); },
+  const swing = knob({ id: 'swing', label: 'SWING', min: 0, max: 0.6, def: 0.06 }, state.swing, (v) => { state.swing = v; touched(); persist(); },
     { size: 36, format: (v) => Math.round(v * 100) + '%', cls: 'sm' });
-  const key = h('select', { class: 'sel', title: 'Key', 'aria-label': 'Key', onchange: (e) => { state.key = +e.target.value; persist(); renderRow('acid'); renderRoll(); } },
+  const key = h('select', { class: 'sel', title: 'Key', 'aria-label': 'Key', onchange: (e) => { state.key = +e.target.value; touched(); persist(); renderRow('acid'); renderRoll(); } },
     KEYS.map((k, i) => { const o = h('option', { value: i }, k); if (i === state.key) o.selected = true; return o; }));
   const scale = h('select', { class: 'sel', 'aria-label': 'Scale', title: 'Scale used by the acid generator and highlighted in the piano roll',
-    onchange: (e) => { state.scale = e.target.value; autoMajor = false; persist(); renderRoll(); } },
+    onchange: (e) => { state.scale = e.target.value; autoMajor = false; touched(); persist(); renderRoll(); } },
     Object.entries(SCALES).map(([id, s]) => { const o = h('option', { value: id }, s.name); if (id === state.scale) o.selected = true; return o; }));
 
   const pats = h('div', { class: 'pats' }, PATTERN_NAMES.map((n, i) => h('button', { class: 'pat', 'data-i': i, onclick: () => selectPattern(i), title: `Pattern ${n} (← →)`, 'aria-label': `Pattern ${n}` }, n)));
@@ -1860,7 +2311,12 @@ function buildHeader() {
     h('button', { class: 'btn ghost', title: 'Clear pattern', onclick: () => { pushUndo(`CLEAR pattern ${PATTERN_NAMES[state.current]}`); state.patterns[state.current] = emptyPattern(); build(); persist(); } }, 'CLEAR'));
 
   const chainInput = h('input', { class: 'chain', value: state.chain, spellcheck: 'false', 'aria-label': 'Chain', title: 'Arrangement: one letter per bar, e.g. AABBCCDD',
-    oninput: (e) => { state.chain = e.target.value.toUpperCase().replace(/[^A-H]/g, ''); persist(); timeline.refresh(); } });
+    oninput: (e) => {
+      const chain = e.target.value.toUpperCase().replace(/[^A-H]/g, '');
+      const caret = e.target.value.slice(0, e.target.selectionStart).toUpperCase().replace(/[^A-H]/g, '').length;
+      setChain(state, chain, undefined, caret - Math.max(0, chain.length - state.chain.length));
+      touched(); persist(); timeline.refresh();
+    } });
   const chainBtn = h('button', { class: 'btn toggle chain-toggle' + (state.chainOn ? ' on' : ''), title: 'Play the arrangement chain',
     onclick: () => setSong(!state.chainOn) }, 'CHAIN');
 
@@ -1914,7 +2370,7 @@ function buildHeader() {
       h('details', { class: 'menu' }, h('summary', { class: 'btn ghost', title: 'Export audio, save or open a project file' }, 'FILE'),
         h('div', { class: 'menu-pop' },
           h('div', { class: 'menu-row' }, bars, exportBtn),
-          ...exportButtons({ getState: () => state, getBars: () => +bars.value, download, toast, track: trackEvent, reportError }),
+          ...exportButtons({ getState: () => state, getBars: () => +bars.value, getPlaybackStyle: () => engine?.playbackStyle, download, toast, track: trackEvent, reportError }),
           h('button', { class: 'btn ghost', title: 'Save project file (.json) to reopen later', onclick: () => download(new Blob([JSON.stringify(state)], { type: 'application/json' }), `untergrund-${stamp()}.json`) }, 'SAVE PROJECT'),
           h('button', { class: 'btn ghost', title: 'Open a saved project file', onclick: () => fileIn.click() }, 'OPEN PROJECT'), fileIn,
           h('button', { class: 'btn ghost', title: 'Share a link, a 9:16 video or an embed code', onclick: () => showShare() }, 'SHARE LINK & VIDEO'),
@@ -1964,8 +2420,8 @@ function buildGrid() {
     const id = t.id;
     const name = h('button', { class: 'tname', style: `--tc:${t.color}`, title: `${t.name} — click to edit & audition (key ${ti + 1} mutes)`, 'aria-pressed': String(selected === id),
       onclick: () => { selected = id; build(); audition(id); } }, h('span', { class: 'led' }), t.name);
-    const m = h('button', { class: 'm', title: 'Mute', 'aria-label': `Mute ${t.name}`, onclick: () => { state.mutes[id] = !state.mutes[id]; renderAllRows(); persist(); } }, 'M');
-    const s = h('button', { class: 's', title: 'Solo', 'aria-label': `Solo ${t.name}`, onclick: () => { state.solos[id] = !state.solos[id]; renderAllRows(); persist(); } }, 'S');
+    const m = h('button', { class: 'm', title: 'Mute', 'aria-label': `Mute ${t.name}`, onclick: () => toggleTrackFlag('mutes', id) }, 'M');
+    const s = h('button', { class: 's', title: 'Solo', 'aria-label': `Solo ${t.name}`, onclick: () => toggleTrackFlag('solos', id) }, 'S');
     const l = h('button', { class: 'l', title: 'Lock this track so generation and evolution preserve it', 'aria-label': `Lock ${t.name}`,
       onclick: () => { state.locks[id] = !state.locks[id]; renderAllRows(); persist(); } }, 'L');
     const cells = Array.from({ length: STEPS }, (_, i) => h('div', { class: 'step' + (i % 4 === 0 ? ' beat' : ''), 'data-i': i, role: 'button', tabindex: '-1' }, h('span', { class: 'nl', 'aria-hidden': 'true' })));
@@ -1987,7 +2443,7 @@ function buildGrid() {
       if (+cell.dataset.i !== paint.i && !paint.many) { paint.many = true; history.relabel(`PAINT ${t.name} steps`); }
       applyStep(id, +cell.dataset.i, paint.target);
     });
-    const len = numBox({ min: 1, max: STEPS, step: 1, def: STEPS }, pat().len[id], (v) => { pat().len[id] = v; renderRow(id); persist(); }, { cls: 'len', name: `${t.name} LEN` });
+    const len = numBox({ min: 1, max: STEPS, step: 1, def: STEPS }, pat().len[id], (v) => { pat().len[id] = v; reviseRoomHits(id, state.current); renderRow(id); persist(); }, { cls: 'len', name: `${t.name} LEN` });
     len.el.title = 'Track length (polymeter) — drag / wheel';
     const lvlQ = MIX_PARAMS[0];
     const lvl = knob(lvlQ, state.params[id].level, (v) => { setParam(id, 'level', v); if (selected === id) ui.editorKnobs?.level?.set(v); },
@@ -2045,6 +2501,17 @@ function stepTarget(id, i, e) {
   return cur ? 0 : 1;
 }
 
+function reviseRoomHits(track, pattern) {
+  if (roomEditor && !document.hidden && ctx.state === 'running') engine.reviseHits(track, pattern);
+}
+
+function toggleTrackFlag(key, id) {
+  state[key][id] = !state[key][id];
+  if (key === 'mutes') reviseRoomHits(id);
+  if (key === 'solos') reviseRoomHits();
+  renderAllRows(); persist();
+}
+
 function applyStep(id, i, target) {
   const s = pat().steps[id];
   if (id === 'acid') {
@@ -2053,6 +2520,7 @@ function applyStep(id, i, target) {
     else { st[target.mode] = target.val; if (target.val) st.on = true; }
     renderRoll();
   } else s[i] = target;
+  reviseRoomHits(id, state.current);
   renderRow(id); renderPatterns(); persist();
 }
 
@@ -2151,7 +2619,7 @@ function buildEditor() {
     stab: 'Tap a step to play a chord · shift or right-click makes it louder',
     sampler: 'Tap a step to play a slice · SCATTER picks slices · MELODY sings it in key',
   }[t.kind];
-  const flag = (key, cls, label, title) => h('button', { class: cls, title, 'aria-label': `${title} ${t.name}`, onclick: () => { state[key][id] = !state[key][id]; renderAllRows(); persist(); } }, label);
+  const flag = (key, cls, label, title) => h('button', { class: cls, title, 'aria-label': `${title} ${t.name}`, onclick: () => toggleTrackFlag(key, id) }, label);
   ui.edMs = { m: flag('mutes', 'm', 'M', 'Mute'), s: flag('solos', 's', 'S', 'Solo'), l: flag('locks', 'l', 'L', 'Lock') };
   const picker = h('div', { class: 'track-pick', role: 'group', 'aria-label': 'Track' },
     TRACKS.map((x) => h('button', { class: 'track-chip' + (x.id === id ? ' on' : ''), style: `--tc:${x.color}`, 'aria-pressed': String(x.id === id), onclick: () => { selected = x.id; build(); audition(x.id); } }, x.name)),
@@ -2183,10 +2651,10 @@ function voiceChips(q, id, voice, color) {
 }
 
 function samplePanel() {
-  const name = h('b', {}, getSample().name);
+  const name = h('b', {}, getSample(state).name);
   const info = h('small', {}, '');
   const show = (s) => { name.textContent = s.name; info.textContent = `${s.slices.length} slices · ${s.buffer.duration.toFixed(1)}s · stays on this device`; };
-  show(getSample());
+  show(getSample(state));
   const off = onSample((s) => (document.body.contains(name) ? show(s) : off()));
   let rec = null;
   const reset = () => { rec = null; recBtn.textContent = 'RECORD'; recBtn.classList.remove('live'); };
@@ -2208,7 +2676,7 @@ function samplePanel() {
   return h('div', { class: 'sampler' },
     h('div', { class: 'glabel' }, 'SOURCE'), name, info, recBtn, load,
     h('label', {}, rights, 'I recorded it or own the rights'),
-    h('button', { class: 'btn ghost', onclick: () => useSynthVox() }, 'SYNTH VOX'), file);
+    h('button', { class: 'btn ghost', onclick: () => { getSample(state); useSynthVox(); } }, 'SYNTH VOX'), file);
 }
 
 function buildRoll() {
@@ -2301,7 +2769,7 @@ function buildMaster() {
       hold('THROW', 'T', 'Throw everything into delay + reverb', () => engine.setThrow(true), () => engine.setThrow(false)),
       hold('RISER', 'Y', 'Noise riser that builds over 4 bars', () => engine.riserStart(), () => engine.riserStop())),
     midiStrip(),
-    h('div', { class: 'foot' }, `${getSample().source === 'synth' ? 'synths + recorded CC0 instruments' : 'synth + your own samples'} · 48k/24-bit export`));
+    h('div', { class: 'foot' }, `${getSample(state).source === 'synth' ? 'synths + recorded CC0 instruments' : 'synth + your own samples'} · 48k/24-bit export`));
 }
 
 function drawViz() {
@@ -2397,7 +2865,7 @@ function frame() {
       if (ev.pat !== lastPlayedPat) {
         const followView = lastPlayedPat === null || state.current === lastPlayedPat || state.chainOn;
         lastPlayedPat = ev.pat;
-        if (followView && state.current !== ev.pat) { state.current = ev.pat; build(); }
+        if (followView && state.current !== ev.pat) { state.current = ev.pat; build({ keepHeader: true }); }
         renderPatterns();
       }
       setPlayhead(ev);
@@ -2456,8 +2924,7 @@ window.addEventListener('keydown', (e) => {
   const digit = e.code.startsWith('Digit') ? +e.code.slice(5) : NaN;
   if (digit >= 1 && digit <= TRACK_IDS.length) {
     const id = TRACK_IDS[digit - 1];
-    if (e.shiftKey) state.solos[id] = !state.solos[id]; else state.mutes[id] = !state.mutes[id];
-    renderAllRows(); persist(); return;
+    toggleTrackFlag(e.shiftKey ? 'solos' : 'mutes', id); return;
   }
   if (k === 'arrowleft' || k === 'arrowright') {
     e.preventDefault();
@@ -2480,7 +2947,12 @@ document.addEventListener('visibilitychange', () => {
   // Going to the lock screen or another app: queue extra audio before timers slow down.
   if (playing && document.hidden) schedule(BG_LEAD);
 });
+document.addEventListener('freeze', () => {
+  if (playing && roomPlayback && roomAudioClock) roomAudioClock.frozenOutputTime = engine.audibleTime(ctx.currentTime);
+});
+document.addEventListener('resume', () => { if (ctx?.state === 'running') schedule(); });
 
+prepareSample(null);
 build();
 // Once the page is idle, warm the recordings the selected style and the saved song will play.
 (window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(() => {
@@ -2495,17 +2967,17 @@ onPushChange(() => { if (dropOpen && !playing) renderHome(); });
 navigator.serviceWorker?.addEventListener('message', (e) => { if (e.data?.type === 'untergrund:open') openDropLink(new URL(e.data.url, location.href).searchParams); });
 const shared = readShareParams(location);
 if (shared) setTimeout(() => {
-  const load = shared.code ? decodeSong(shared.code)
-    : fetch(`/api/tracks?id=${encodeURIComponent(shared.id)}`).then((r) => (r.ok ? r.json().then((j) => j.track) : Promise.reject()))
-      .catch(() => fetchTrack(shared.id)).then((t) => t?.state && { ...normalizeSong({ ...t, remixOf: t.remixOf }), trackId: t.id, remixes: t.remixes || 0, children: t.children || [] }).catch(() => null);
   // "Remix this track" from a release page goes straight into a credited remix.
   // An account's release can outlive its crate copy, so the public record is tried first, as the release page does.
   if (shared.id && new URLSearchParams(location.search).has('remix')) {
-    fetchPublicTrack(shared.id)
-      .then((pub) => (pub?.track?.state ? { ...normalizeSong({ ...pub.track, artist: pub.artist?.name || pub.track.artist }), trackId: pub.track.id } : load))
+    fetchReleaseTrack(shared.id)
+      .then((t) => t?.state && { ...normalizeSong(t), trackId: t.id })
       .then((song) => (song ? remixSong(song, false) : toast('Could not open that song')), () => toast('Could not open that song'));
     return;
   }
+  const load = shared.code ? decodeSong(shared.code)
+    : fetch(`/api/tracks?id=${encodeURIComponent(shared.id)}`).then((r) => (r.ok ? r.json().then((j) => j.track) : Promise.reject()))
+      .catch(() => fetchReleaseTrack(shared.id)).then((t) => t?.state && { ...normalizeSong(t), trackId: t.id, remixes: t.remixes || 0, children: t.children || [] }).catch(() => null);
   openLanding(load, 'shared', shared.ref);
 });
 else if (new URLSearchParams(location.search).has('drop')) setTimeout(() => openDropLink(new URLSearchParams(location.search)));

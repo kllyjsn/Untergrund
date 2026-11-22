@@ -4,6 +4,16 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      club_output_capture:
+        description: Run the shared-clock Club output experiment
+        type: boolean
+        default: false
+      club_contention_repeats:
+        description: Run five serialized late-join and host-skew trials
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -13,9 +23,66 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  club-sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: ${{ inputs.club_output_capture && 25 || 15 }}
+    continue-on-error: true
+    env:
+      CHROME_PATH: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Prepare serialized audio evaluation
+        run: |
+          echo "Runner: $RUNNER_OS $RUNNER_ARCH ($ImageOS $ImageVersion)"
+          nproc
+          python3 -m pip install matplotlib
+      - if: ${{ !inputs.club_output_capture && !inputs.club_contention_repeats }}
+        run: npm run test:club-sync -- --assert
+      - if: ${{ !inputs.club_output_capture && inputs.club_contention_repeats }}
+        run: npm run test:club-sync -- --assert --scenario late-join,host-skew --repeat 5
+      - if: inputs.club_output_capture
+        name: Interleave native-output controls and shared-clock captures
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pulseaudio pulseaudio-utils
+          for n in {1..5}; do
+            order=host-first
+            modes=(native captured)
+            if (( n % 2 == 0 )); then
+              order=listener-first
+              modes=(captured native)
+            fi
+            for scenario in cold-invite-first-downbeat short-wake-mix; do
+              flags=()
+              if [[ "$scenario" == short-wake-mix ]]; then flags+=(--whole-step-test --diagnostics); fi
+              for mode in "${modes[@]}"; do
+                capture=()
+                if [[ "$mode" == captured ]]; then capture=(--output-capture "$order"); fi
+                npm run test:club-sync -- --assert --scenario "$scenario" "${flags[@]}" --output "$scenario-$n-$mode.json" "${capture[@]}" || failed=1
+              done
+            done
+          done
+          exit "${failed:-0}"
+      - name: Upload rendered-audio sync evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: club-rendered-audio-sync
+          path: |
+            test/out/club-sync.json
+            test/out/*-native.json
+            test/out/*-captured.json
+            test/out/*-output.wav
+          if-no-files-found: warn
+
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -25,14 +92,65 @@ jobs:
       - run: npm ci
       - name: Syntax check (js/, api/)
         run: find js api -name '*.js' -not -path 'js/vendor/*' -print0 | xargs -0 -n1 node --check
-      - name: ffmpeg (test/sound.mjs decodes the FLAC samples)
-        run: command -v ffmpeg || (sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends ffmpeg)
-      - name: redis-server (test/rooms-concurrency.mjs runs the room Lua script on real Redis)
-        run: command -v redis-server || (sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends redis-server)
+      - name: Cache FFmpeg and Redis test binaries
+        id: test-binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/untergrund-test-bin
+          key: test-bin-${{ runner.os }}-${{ runner.arch }}-ffmpeg-6.0-redis-7.4.2-v1
+      - name: Download pinned FFmpeg and Redis test binaries
+        if: steps.test-binaries.outputs.cache-hit != 'true'
+        run: |
+          bin="$HOME/.cache/untergrund-test-bin"
+          mkdir -p "$bin"
+          curl -fL --retry 3 --connect-timeout 15 --max-time 120 \
+            https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-linux-x64.gz \
+            -o "$RUNNER_TEMP/ffmpeg.gz"
+          echo "17c1ae10b52ac499180679fe6ba77e17642390c4eedb0f1e3b0ac045da55128f  $RUNNER_TEMP/ffmpeg.gz" | sha256sum -c -
+          gzip -dc "$RUNNER_TEMP/ffmpeg.gz" > "$bin/ffmpeg"
+          # Tests spawn their own redis-server on a random port, rather than a service.
+          image=redis:7.4.2-bookworm@sha256:fbdbaea47b9ae4ecc2082ecdb4e1cea81e32176ffb1dcf643d422ad07427e5d9
+          container=$(docker create "$image")
+          trap 'docker rm -f "$container"' EXIT
+          docker cp "$container:/usr/local/bin/redis-server" "$bin/redis-server"
+          chmod +x "$bin/ffmpeg" "$bin/redis-server"
+      - name: Verify and expose test binaries
+        run: |
+          bin="$HOME/.cache/untergrund-test-bin"
+          "$bin/ffmpeg" -version
+          "$bin/redis-server" --version
+          echo "$bin" >> "$GITHUB_PATH"
       - run: npm test
       - run: npm run build
       - name: Smoke test server.mjs (SC_MOCK=1)
         run: scripts/smoke.sh
+
+  true-peak:
+    name: true-peak (${{ matrix.shard }}/6)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    env:
+      CHROME_PATH: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Render every genre across the seed sweep; fail on any true peak over -1 dBTP
+        run: npm run test:true-peak -- --shard ${{ matrix.shard }}/6 --quiet
+      - name: Upload true-peak sweep
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: true-peak-${{ matrix.shard }}
+          path: test/out/true-peak-*.json
+          if-no-files-found: warn
 
   ios:
     runs-on: macos-15

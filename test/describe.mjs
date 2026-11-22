@@ -5,6 +5,7 @@ import { parse, applyEdits, describe, validateEdits, interpret, genreOf, suggest
 import { patternAt, changedBars } from '../js/scope.js';
 import { defaultState, generate, sanitize, clone, applyOverrides, arrangement, songChain, STYLES, songKind } from '../js/state.js';
 import { toSections, sectionNames } from '../js/timeline.js';
+import { CHORDS } from '../js/params.js';
 
 let fails = 0;
 const t = (name, fn) => { try { fn(); } catch (e) { fails++; console.error('FAIL', name, '\n ', e.message); } };
@@ -22,6 +23,20 @@ function songFor(style, seed = 7) {
 }
 const same = (a, b) => a === b || (Array.isArray(a) && JSON.stringify(a) === JSON.stringify(b));
 const has = (edits, want) => want.every((w) => edits.some((e) => Object.entries(w).every(([k, v]) => same(e[k], v))));
+
+for (const [prompt, style] of [['lo-fi hip-hop', 'lofihiphop'], ['chillhop', 'lofihiphop'], ['G-Funk', 'gfunk'],
+  ['drift phonk', 'phonk'], ['electro hip-hop', 'electrohiphop'], ['old-school electro', 'electrohiphop']]) {
+  t(prompt, () => assert.equal(genreOf(parse(prompt, { style: 'boombap' }).edits, 'boombap'), style));
+}
+t('lo-fi remains a texture on an existing genre', () => assert.equal(genreOf(parse('make it more lo-fi').edits, 'deephouse'), null));
+
+for (const [phrase, voice] of [['add FM bass', 6], ['add pulse bass', 7], ['add wide reese bass', 8], ['add pluck bass', 9]]) {
+  t(phrase, () => {
+    const { edits } = parse(phrase);
+    assert(has(edits, [{ id: 'bassVoice', value: voice }]));
+    assert(!edits.some(({ id }) => id === 'key' || id === 'scale'));
+  });
+}
 
 // 1. Phrase table: text -> edits it must contain.
 const PHRASES = [
@@ -81,9 +96,19 @@ for (const [phrase, value] of [['make it pop', 'pop'], ['an r&b slow jam', 'rnb'
     assert.ok(edits.some((e) => e.id === 'genre' && e.value === value), `${phrase}: ${JSON.stringify(edits)}`);
   });
 }
-for (const [phrase, edit] of [['overdriven guitar', { id: 'voice', value: 11 }], ['acoustic guitar', { id: 'voice', value: 12 }], ['jazz guitar', { id: 'voice', value: 13 }], ['banjo', { id: 'voice', value: 14 }], ['twangy guitar', { id: 'voice', value: 15 }], ['electric bass', { id: 'bassVoice', value: 5 }]]) {
+for (const [phrase, edit] of [['overdriven guitar', { id: 'voice', value: 11 }], ['acoustic guitar', { id: 'voice', value: 12 }], ['jazz guitar', { id: 'voice', value: 13 }], ['banjo', { id: 'voice', value: 14 }], ['twangy guitar', { id: 'voice', value: 15 }], ['cello', { id: 'voice', value: 16 }], ['clarinet', { id: 'voice', value: 17 }], ['electric bass', { id: 'bassVoice', value: 5 }]]) {
   t(`"${phrase}" picks its player`, () => assert.ok(has(parse(phrase, { style: 'rock' }).edits, [edit]), JSON.stringify(parse(phrase, { style: 'rock' }).edits)));
 }
+
+t('bass-only Drill 808 requests keep the current song', () => {
+  for (const text of ['make the bass sound like a Drill 808', 'switch the bass to UK Drill 808']) {
+    const { edits, unknown } = parse(text, { style: 'deephouse' });
+    assert.deepEqual(unknown, [], text);
+    assert.deepEqual(edits.map(({ id, value }) => ({ id, value })), [{ id: 'bassVoice', value: 2 }], text);
+  }
+  const { edits } = parse('Make it UK Drill 808s at 142 BPM', { style: 'deephouse' });
+  assert.ok(has(edits, [{ id: 'genre', value: 'drill' }, { id: 'bassVoice', value: 2 }, { id: 'bpm', value: 142 }]));
+});
 
 // Everyday phrasing: complaints, track-scoped words, dislikes, only/except. Each pair is [phrase, must have, must not have].
 const EVERYDAY = [
@@ -228,10 +253,25 @@ t('major remap keeps hook notes in the new scale', () => {
   const pcs = [0, 2, 4, 5, 7, 9, 11];
   for (const p of r.state.patterns) for (const st of p.acid || []) if (st?.on) assert.ok(pcs.includes(((st.note % 12) + 12) % 12), `note ${st.note}`);
 });
+for (let c = 13; c < CHORDS.length; c++) t(`${CHORDS[c].name} survives describe harmony and scale edits`, () => {
+  const s = defaultState();
+  s.params.stab.chord = c;
+  for (const p of s.patterns) { p.prog = [{ r: 0, c }]; p.alt = [{ r: 5, c }]; }
+  const { state } = applyEdits(s, [{ id: 'harmony', amt: 1 }, { id: 'scale', value: 'major' }]);
+  assert.equal(state.params.stab.chord, c);
+  for (const p of state.patterns) {
+    assert.equal(p.prog[0].c, c);
+    assert.equal(p.alt[0].c, c);
+  }
+});
 t('genre switch goes through regenerate', () => {
   const s = songFor('hypnotic');
   assert.equal(genreOf(parse('make it house').edits, 'hypnotic'), 'deephouse');
   assert.equal(genreOf(parse('make it house').edits, 'deephouse'), null);
+  assert.equal(genreOf(parse('bossa nova').edits, 'jazzfunk'), 'bossa');
+  assert.equal(genreOf(parse('Kind of Blue').edits, 'swing'), 'modal');
+  assert.equal(genreOf(parse('bebop with trumpet').edits, 'neosoul'), 'swing');
+  assert.equal(genreOf(parse('make it jazz').edits, 'bossa'), null);
   const r = describe('make it house and darker', s, { style: 'hypnotic', regenerate: (g) => songFor(g, 9) });
   assert.equal(r.genre, 'deephouse');
   assert.ok(r.did[0].includes('DEEP') || r.did[0].toLowerCase().includes('house'), r.did[0]);
@@ -242,7 +282,7 @@ t('validateEdits drops anything outside the vocabulary', () => {
   const ok = validateEdits([{ id: 'tone', amt: -1 }, { id: 'rm -rf' }, { id: 'bpm', value: 9999 }, { id: 'mute', target: 'window', value: true }, { id: 'voice', value: 10 }, null, 'x']);
   assert.deepEqual(ok.map((e) => e.id), ['tone', 'bpm', 'voice']);
   assert.ok(ok[1].value <= 200);
-  assert.deepEqual(validateEdits([{ id: 'voice', value: 14 }, { id: 'voice', value: 99 }]).map((e) => e.value), [14, 15], 'jazz guitar, banjo and twang guitar survive validation');
+  assert.deepEqual(validateEdits([{ id: 'voice', value: 16 }, { id: 'voice', value: 99 }]).map((e) => e.value), [16, 17], 'cello and clarinet are valid chord voices');
 });
 let remoteCalls = 0;
 const remote = async (text) => { remoteCalls++; return { edits: [{ id: 'space', amt: 1 }, { id: 'evil', amt: 5 }] }; };

@@ -1,6 +1,6 @@
 // Share links: a song's replayable state packed into a short URL that works with no backend.
 // Format: z<base64url(deflate-raw(JSON))>, or j<base64url(JSON)> where CompressionStream is missing.
-import { sanitize, STYLES } from './state.js';
+import { sanitize, refreshSong, STYLES } from './state.js';
 
 const MAX_CODE = 60_000, MAX_JSON = 400_000;
 const clean = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max);
@@ -39,7 +39,7 @@ export function remixCredit(r) {
 // Every value that comes out of a link goes through the same sanitization as saved projects.
 export function normalizeSong(song) {
   if (!song || typeof song !== 'object' || !song.state || !Array.isArray(song.state.patterns)) return null;
-  const state = sanitize(song.state);
+  const state = refreshSong(sanitize(song.state));
   const style = STYLES[song.style] ? song.style : STYLES[state.artist?.style] ? state.artist.style : 'hypnotic';
   return {
     title: clean(song.title, 80) || state.artist?.title || 'Untitled Signal',
@@ -83,9 +83,13 @@ export function readShareParams(loc) {
 
 // A stored track shares as its release page /t/<id> (unless `release: false`, e.g. classical pieces that need the full app);
 // the embed keeps ?t=<id>; a code-only song rides in ?s=. A valid share ref rides along as r=.
-export function songLink(origin, { code, id, release = true }, page = '/', ref = '') {
+// `room`: the Club room the song is live in, so the release page unfurls with that room's stage while the set is on.
+export function songLink(origin, { code, id, release = true, room = '' }, page = '/', ref = '') {
   const r = SHARE_REF.test(ref) ? ref : '';
-  if (id && release && page === '/') return `${origin}/t/${encodeURIComponent(id)}${r ? `?r=${r}` : ''}`;
+  if (id && release && page === '/') {
+    const q = [r && `r=${r}`, /^[a-z0-9-]{2,32}$/.test(room) && `room=${room}`].filter(Boolean).join('&');
+    return `${origin}/t/${encodeURIComponent(id)}${q ? `?${q}` : ''}`;
+  }
   return `${origin}${page}?${id ? `t=${encodeURIComponent(id)}` : `s=${code}`}${r ? `&r=${r}` : ''}`;
 }
 export const embedCode = (src, title = 'UNTERGRUND') =>

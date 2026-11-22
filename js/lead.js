@@ -21,11 +21,24 @@ export const HOOK_TRIM_DB = {
   warm: 13,
   vocal: 17,
   reed: 11,
-  mallet: 16
+  mallet: 16,
+  softmallet: 14,
+  ravestack: 13,
+  acidlead: 7,
+  funkwhistle: 4,
+};
+
+export const TECHNO_HOOK_SPACE = {
+  metalstrike: { eq: [3110, 1.7, -9], diffusion: 0.00018, taps: [0.007, 0.014], width: 0.45 },
+  softresonator: { eq: [2640, 1.15, -10], diffusion: 0.00030, taps: [0.013, 0.023], width: 0.37 },
+  robotformant: { eq: [2490, 1.9, -4.5], diffusion: 0.00021, taps: [0.005, 0.011], width: 0.38 },
+  ravestack: { eq: [2650, 7, -14], diffusion: 0.00023, taps: [0.009, 0.017], width: 0.47 },
+  acidlead: { eq: [2840, 1.15, -9], diffusion: 0.00032, taps: [0.006, 0.013], width: 0.34 },
 };
 
 const STACK = { atk: 0.008, sus: 0.5, hold: 0.2, rel: 0.1, q: 1, body: null, sub: 0, glide: 0, vib: [5.2, 10], tame: 3, air: 1.4, bite: 5, thin: 5 };
 const PRESETS = {
+  funkwhistle: { ...STACK, stack: true, wave: 'sawtooth', uni: 1, mix: 0.17, body: ['sine', 0.85, 1], cut: 1690, env: 420, q: 0.7, dec: 0.17, atk: 0.028, sus: 0.85, hold: 0.3, rel: 0.066, glide: 0.088, vib: [5.2, 27], tame: 5, air: 0.85, bite: 0, thin: 2, level: 0.31, bend: -92 },
   // Techno stab-lead: two squares, plucky filter snap, no glide.
   pulse: { ...STACK, stack: true, wave: 'square', uni: 2, spread: 7, mix: 0.42, body: ['triangle', 0.55, 1], cut: 520, env: 2600, q: 2.4, dec: 0.09, atk: 0.006, sus: 0.18, hold: 0.08, rel: 0.08, vib: [5.4, 6], level: 0.3 },
   // Trance/anthem lead: three-saw unison over a triangle body, opens with velocity, sings on long notes.
@@ -35,6 +48,9 @@ const PRESETS = {
   vocal: { ...STACK, glide: 0.04, vib: [5, 14], cut: 1300, env: 1600, dec: 0.18, thin: 5, bite: 7 },
   reed: { ...STACK, glide: 0.05, vib: [0, 0], cut: 1300, env: 1800, dec: 0.2 },
   mallet: { ...STACK, vib: [0, 0] },
+  softmallet: { ...STACK, vib: [0, 0], thin: 3, bite: 4, tame: 6, air: 0.63 },
+  ravestack: { ...STACK, stack: true, wave: 'sawtooth', uni: 5, spread: 35, mix: 0.66, body: ['sawtooth', 0.23, 2], cut: 2170, env: 850, q: 0.7, dec: 0.17, atk: 0.048, sus: 0.70, hold: 0.14, rel: 0.11, vib: [0, 0], tame: 4, air: 0.98, bite: 3, level: 0.34 },
+  acidlead: { ...STACK, stack: true, wave: 'sawtooth', uni: 1, mix: 0.70, body: ['triangle', 0.30, 1], cut: 296, env: 1620, q: 9.9, dec: 0.033, atk: 0.003, sus: 0.14, hold: 0.052, rel: 0.026, glide: 0.075, vib: [0, 0], tame: 6, air: 0.78, bite: 2, level: 0.60, bend: 70 },
 };
 const POCKET_PRESETS = {
   // Hyperpop: wide bright saws, quick glides, fast deep vibrato.
