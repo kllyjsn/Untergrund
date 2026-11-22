@@ -860,8 +860,8 @@ function setMaster(id, v) {
 
 // Undo / redo. `label` names the edit for the toast ("Undone: CLEAR pattern B").
 function snapshot(like = {}) {
-  const { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn } = state;
-  const snap = { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn, chainEntries: state.chainEntries ?? null, labels: state.labels || null, lyrics: state.lyrics || null, sing: state.sing || null, feel: state.feel || null };
+  const { patterns, params, master, bpm, swing, key, scale, mutes, solos, locks, chain, chainOn } = state;
+  const snap = { patterns, params, master, bpm, swing, key, scale, mutes, solos, locks, chain, chainOn, chainEntries: state.chainEntries ?? null, labels: state.labels || null, lyrics: state.lyrics || null, sing: state.sing || null, feel: state.feel || null };
   if ('artist' in like) snap.artist = state.artist ?? null;
   if (like.ui) snap.ui = { style, family };
   return JSON.stringify(snap);
@@ -1463,6 +1463,8 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   }
   applyOverrides(s, g, withBpm);
   for (const [t, params] of Object.entries(lockedParams)) s.params[t] = params;
+  // A new song starts with every part on: mutes and solos from the last song (or a stray 1-7 key) would silence it.
+  for (const k of ['mutes', 'solos']) s[k] = Object.fromEntries(TRACK_IDS.map((t) => [t, !!(s.locks[t] && s[k]?.[t])]));
   s.chainOn = true;
   s.ending = true;
   // A score sets its own tempo even mid-set; a masterwork keeps its title and composer.
@@ -1474,8 +1476,8 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   const artist = piece ? piece.composer : loadAvatar().name || 'UNTERGRUND';
   s.artist = { name: artist, title, style: id, seed, created: new Date().toISOString() };
   delete s.remixOf; delete s.drop; delete s.lyrics;
-  // Hummed, prompted and experiment songs aren't just their seed, so they keep the notes they were written with.
-  s.fresh = typeof hum === 'function' || typeof steer === 'function' ? 0 : 1;
+  // Hummed, prompted, experiment and locked-track songs aren't just their seed, so they keep the notes and mix they were written with.
+  s.fresh = typeof hum === 'function' || typeof steer === 'function' || TRACK_IDS.some((t) => s.locks[t]) ? 0 : 1;
   if (drop) Object.assign(s, { drop: drop.date, remixOf: { id: '', title: `Daily Drop · ${drop.title}`, artist: 'UNTERGRUND' } });
   const prompt = typeof steer === 'function' ? pendingPrompt : null;
   pendingPrompt = null;
@@ -2510,6 +2512,8 @@ function reviseRoomHits(track, pattern) {
 
 function toggleTrackFlag(key, id) {
   state[key][id] = !state[key][id];
+  // A mute or solo is the listener's own mix, so the song stops following the generator and keeps it.
+  if (key !== 'locks') state.fresh = 0;
   if (key === 'mutes') reviseRoomHits(id);
   if (key === 'solos') reviseRoomHits();
   renderAllRows(); persist();
