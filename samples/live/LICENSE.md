@@ -1,13 +1,30 @@
 # Recorded instrument samples: licenses
 
 Every audio file in this folder is derived from one of the sources below. All are released under the
-**Creative Commons CC0 1.0 Universal** public-domain dedication (full legal text in each source repo's `LICENSE`;
-the Virtuosity Drums and double-bass files are byte-identical, sha256 `a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499`).
-CC0 waives copyright and related rights, so the files can be redistributed in this app and used in commercial
-music without attribution. We credit the authors anyway.
+**Creative Commons CC0 1.0 Universal** public-domain dedication except the two cuíca files and the twenty MTG tenor
+saxophone files (`tsax_*`, `tsaxb_*`), which are licensed **CC BY 4.0** and must keep the credits below wherever they
+are redistributed (full CC0 legal text in each source repo's `LICENSE`; the Virtuosity Drums and double-bass files are
+byte-identical, sha256 `a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499`). CC0 waives copyright and
+related rights, so those files can be redistributed in this app and used in commercial music without attribution; we
+credit the authors anyway. CC BY 4.0 also allows commercial use and redistribution, provided the author, source,
+license and changes are credited.
 
-Processing applied to every file: summed to mono, resampled to 44.1 kHz 16-bit PCM, trimmed (organ 2.2 s, bass 2.4 s), 80 ms fade out.
-Stored as lossless FLAC (bit-identical PCM to the original 16-bit WAVs). Drum files mix the close mic with the overhead mic of the same hit.
+## CC BY credits
+
+- `cuica_1.flac`, `cuica_2.flac`: ["cuica (1).wav"](https://freesound.org/s/21715/) by
+  [reinsamba](https://freesound.org/people/reinsamba/), licensed under
+  [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Changed: two single strokes cut from the
+  0.550–0.770 s and 1.415–1.615 s windows, high-pass filtered, faded, peak-normalized and encoded as 16-bit FLAC
+  (`scripts/fetch-percussion.py`).
+- `tsax_{47..74}.flac`, `tsaxb_{47..74}.flac`: "MTG Solo Saxophones" by the Music Technology Group (Universitat
+  Pompeu Fabra), [sfzinstruments/MTG.SoloSax](https://github.com/sfzinstruments/MTG.SoloSax), licensed under
+  [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Changed: trimmed, converted to mono 16-bit FLAC and
+  loudness matched (`scripts/fetch-band.py --sax`; details in the saxophone section).
+
+Processing applied to every file unless its section says otherwise: summed to mono, resampled to 44.1 kHz 16-bit
+PCM, trimmed (organ 2.2 s, bass 2.4 s), 80 ms fade out. Stored as lossless FLAC (bit-identical PCM to the original
+16-bit WAVs). Drum files mix the close mic with the overhead mic of the same hit.
+
 
 ## S9 fiddle and upright piano — VSCO 2 Community Edition (CC0)
 
@@ -289,7 +306,9 @@ most four seconds with short edge fades. No synthesis or denoising was used.
 
 Original WAVs were downmixed to mono, resampled to 44.1 kHz, high-pass filtered,
 trimmed to their attacks, faded at the edges, and peak-normalized to −6 dBFS before
-encoding as 16-bit FLAC. The cuíca files are individual strokes cut from an acoustic
+encoding as 16-bit FLAC. `scripts/fetch-percussion.py` downloads each original from its pinned commit or
+Freesound sound ID, checks its SHA-256 and regenerates these files byte for byte (`--check` compares them with the
+committed copies). The cuíca files are individual strokes cut from an acoustic
 performance, not the keyboard sample in Freesound pack 34867.
 
 | Bundled files | Source, credits and license | Original takes |
@@ -298,9 +317,9 @@ performance, not the keyboard sample in Freesound pack 34867.
 | `shaker_{1,2,4,7}.flac` | VSCO-2-CE at the same commit, CC0 1.0 Universal | `VSCO 1 Percussion/varWood/Camo's Shaker/shake{1,2,4,7}.wav` |
 | `conga_{tap,open}_{1,2}.flac` | VSCO-2-CE at the same commit, CC0 1.0 Universal | `Percussion/Conga-{Tap1_v1,HitN_v2}_rr{1,2}_Sum.wav` |
 | `cowbell_{1,2}.flac` | [swirly-drums, Karoryfer Samples](https://github.com/sfzinstruments/karoryfer.swirly-drums/tree/c40dafe0011cb2e54c0c220ff0fa308a11fc60f5), CC0 1.0 Universal | `Samples/cowbell/cowbell_vl3_rr{1,2}.wav` |
-| `timbale_closed_{1,2}.flac` | [Metal Timbales, Suicidity](https://freesound.org/people/Suicidity/packs/5890/), CC0 1.0 Universal | [90524](https://freesound.org/s/90524/), [90529](https://freesound.org/s/90529/) |
-| `timbale_low_{1,2}.flac` | Metal Timbales, Suicidity, CC0 1.0 Universal | [90471](https://freesound.org/s/90471/), [90474](https://freesound.org/s/90474/) |
-| `timbale_high_{1,2}.flac` | Metal Timbales, Suicidity, CC0 1.0 Universal | [90506](https://freesound.org/s/90506/), [90509](https://freesound.org/s/90509/) |
+| `timbale_closed_{1,2}.flac` | ["Metal Timbale" takes by Suicidity, pack "Trash Conga"](https://freesound.org/people/Suicidity/packs/5890/), CC0 1.0 Universal | [90524](https://freesound.org/s/90524/), [90529](https://freesound.org/s/90529/) |
+| `timbale_low_{1,2}.flac` | Suicidity, same pack, CC0 1.0 Universal | [90471](https://freesound.org/s/90471/), [90474](https://freesound.org/s/90474/) |
+| `timbale_high_{1,2}.flac` | Suicidity, same pack, CC0 1.0 Universal | [90506](https://freesound.org/s/90506/), [90509](https://freesound.org/s/90509/) |
 | `cuica_{1,2}.flac` | [“cuica (1).wav” by reinsamba](https://freesound.org/s/21715/), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | Two edited strokes from source windows 0.550–0.770 s and 1.415–1.615 s |
 
 ## Recorded S8 crowd vowels — CC0
