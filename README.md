@@ -106,6 +106,7 @@ The secret is only used by `/api/sc-token`; audio uploads go directly from the b
 
 - Storage: `api/events.js` writes daily Redis counters and HyperLogLog unique sessions when `KV_REST_API_URL`/`KV_REST_API_TOKEN` are set, and no-ops otherwise. `server.mjs` uses an in-memory store locally.
 - Stats: set `STATS_TOKEN` in Vercel, then open `/stats.html?token=<STATS_TOKEN>` (the token moves into session storage and leaves the URL). Locally with `SC_MOCK=1` the token is `dev`.
+- Published-song and genre playback: see **Listening · Genres and Published Songs** in `/stats.html`, or use the [playback report API](docs/playback-analytics.md) for weekly digests.
 - Page views: the free Vercel Web Analytics script loads on untergrund.sh once Web Analytics is enabled for the project in the Vercel dashboard. Custom events there need a paid plan, which is why the funnel is first-party.
 
 ## Legal requests

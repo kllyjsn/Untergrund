@@ -1,0 +1,118 @@
+{
+  "collection": "Meta Nylon Guitar",
+  "version": "meta-nylon-guitar-v1.0.0",
+  "source": "https://github.com/facebookincubator/Meta-open-sound/releases/tag/meta-nylon-guitar-v1.0.0",
+  "licenseManifest": "https://raw.githubusercontent.com/facebookincubator/Meta-open-sound/main/systems/instruments/meta-nylon-guitar/manifest.json",
+  "license": "CC0-1.0",
+  "processing": "Original WAV, mono 48 kHz 24-bit FLAC; active-RMS linear normalization to -18 dBFS capped at -3 dBFS peak; 2 ms onset fade; maximum 4 s, 30 ms tail fade. Pitch centers measured with test/sampletune.py partial-window method; no denoising, synthesis or timbral EQ.",
+  "samples": [
+    {
+      "midi": 40,
+      "source": "INSGuitarNylon_StringLowE_Vel01Finger_E2_01.wav",
+      "sourceSha256": "f82ba8fa6b2c193b4f2ecc8b78e192d78a037734e9e5210e7033e256d61d6596",
+      "importedFile": "nylon_40.flac",
+      "importedSha256": "6ca028435e6731a46eb7f6cb7d19c8f7c69df72982880cb3ff9d221710c7ba33",
+      "sourceActiveToTailDb": 47.77,
+      "measuredCents": -6.7,
+      "gainDb": 6.936,
+      "duration": 4,
+      "bytes": 284241
+    },
+    {
+      "midi": 45,
+      "source": "INSGuitarNylon_StringA_Vel01Finger_A2_01.wav",
+      "sourceSha256": "10834e5ed177df1e368dff62c7eb7267c856e12d7107fbc13cbc1e881bcd537c",
+      "importedFile": "nylon_45.flac",
+      "importedSha256": "2258bbf7a7ac7f0686afdbf26118a89b2597606df3ceb2b2dfa0e5270de8322e",
+      "sourceActiveToTailDb": 53.16,
+      "measuredCents": 2.3,
+      "gainDb": 6.239,
+      "duration": 4,
+      "bytes": 281920
+    },
+    {
+      "midi": 48,
+      "source": "INSGuitarNylon_StringA_Vel01Finger_C3_01.wav",
+      "sourceSha256": "58d01423d4c7b51e509ff24e8a0b68744f6e40bc785f88598e5faadf41485655",
+      "importedFile": "nylon_48.flac",
+      "importedSha256": "c6c0b020dce20900e01ffbd6854316a94adb43d2b1f3bf3eb81a77a55792faf7",
+      "sourceActiveToTailDb": 51.05,
+      "measuredCents": -2.9,
+      "gainDb": 10.947,
+      "duration": 4,
+      "bytes": 299294
+    },
+    {
+      "midi": 52,
+      "source": "INSGuitarNylon_StringA_Vel01Finger_E3_01.wav",
+      "sourceSha256": "c485192190d342b8b8324dacaf217380a53e2f505b75ab5be69f063148ca734a",
+      "importedFile": "nylon_52.flac",
+      "importedSha256": "5b4c2048422870fdc802e8bef060657f1fa4a953d3d4cbc7b3a820085ca3c29e",
+      "sourceActiveToTailDb": 56.06,
+      "measuredCents": -9.6,
+      "gainDb": 7.284,
+      "duration": 4,
+      "bytes": 281905
+    },
+    {
+      "midi": 55,
+      "source": "INSGuitarNylon_StringA_Vel01Finger_G3_01.wav",
+      "sourceSha256": "14793411173837ff763fe0ca7eb0ea38a9f4e5fdda6f053dabd451b890161e76",
+      "importedFile": "nylon_55.flac",
+      "importedSha256": "6b998109badfade0a886b87bbd75baa9404729eeba5180b4dac7615b12cfcf67",
+      "sourceActiveToTailDb": 53.91,
+      "measuredCents": 10.4,
+      "gainDb": 5.701,
+      "duration": 4,
+      "bytes": 276120
+    },
+    {
+      "midi": 59,
+      "source": "INSGuitarNylon_StringD_Vel01Finger_B3_01.wav",
+      "sourceSha256": "993ba5212bc2f383ae8bba0ec1984b561fcc9458957ad309cee95f88efc00908",
+      "importedFile": "nylon_59.flac",
+      "importedSha256": "7ead20d09a8cbbd317ba902c8c219bc21302c4ab66af7c274c573b29e89c7145",
+      "sourceActiveToTailDb": 47.68,
+      "measuredCents": -3.6,
+      "gainDb": 17.109,
+      "duration": 4,
+      "bytes": 319087
+    },
+    {
+      "midi": 64,
+      "source": "INSGuitarNylon_StringB_Vel01Finger_E4_01.wav",
+      "sourceSha256": "c980528419ae84150be67ec6349616d0cf29ffbfc3a5a45d61939eb79e9837e9",
+      "importedFile": "nylon_64.flac",
+      "importedSha256": "ed171d6e05a6420fa054bdebfb59fef6c767bfbc5e80feb36066f402a3acc3b8",
+      "sourceActiveToTailDb": 56.25,
+      "measuredCents": -19.7,
+      "gainDb": 10.132,
+      "duration": 4,
+      "bytes": 292590
+    },
+    {
+      "midi": 67,
+      "source": "INSGuitarNylon_StringHighE_Vel01Finger_G4_01.wav",
+      "sourceSha256": "b60da68aed9161ae752dcd778d5d1fe0d8b8b1f66c566ed397bc115a6db11574",
+      "importedFile": "nylon_67.flac",
+      "importedSha256": "e3f46f4c7019ddcd07e3718b3faabadb5aa21d6f1ae2d31c7493300a842218b9",
+      "sourceActiveToTailDb": 44.82,
+      "measuredCents": -11.6,
+      "gainDb": 15.284,
+      "duration": 3.9216,
+      "bytes": 305869
+    },
+    {
+      "midi": 69,
+      "source": "INSGuitarNylon_StringHighE_Vel01Finger_A4_01.wav",
+      "sourceSha256": "aa8a0e4039a917d9d8efb5828ebef17691a0ca2cb21c3102bc995346ba7d58b6",
+      "importedFile": "nylon_69.flac",
+      "importedSha256": "5ef5b26590c6e7368b12526003baa89acb3c8e8545fbb64320793b5caaa66596",
+      "sourceActiveToTailDb": 51.89,
+      "measuredCents": -17.0,
+      "gainDb": 15.398,
+      "duration": 3.7694,
+      "bytes": 289549
+    }
+  ]
+}

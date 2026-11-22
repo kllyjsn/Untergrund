@@ -4,8 +4,18 @@ import { h } from './ui.js';
 import { sheet } from './sets.js';
 import { drawArtwork, artSeed } from './artwork.js';
 import { parseChain } from './engine.js';
+import { sanitize, refreshSong } from './state.js';
 
 const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+// A row shows how long the song plays: untouched GENERATE songs open through today's generator (refreshSong).
+// Rows are re-read on every paint, so cache by what decides the result rather than by object.
+const played = new Map();
+const playedSeconds = (raw) => {
+  if (!raw || typeof raw !== 'object') return songSeconds(raw);
+  const a = raw.artist || {}, k = [a.style, a.seed, a.title, raw.fresh, raw.key, raw.bpm, raw.scale, raw.chainOn, raw.chain, !!raw.remixOf, raw.drop].join('|');
+  if (!played.has(k)) { if (played.size > 500) played.clear(); played.set(k, songSeconds(refreshSong(sanitize(raw)))); }
+  return played.get(k);
+};
 export function songSeconds(state) {
   const bars = state?.chainOn ? parseChain(state.chain || '').length : 0;
   return bars && state.bpm ? (bars * 4 * 60) / state.bpm : 0;
@@ -38,7 +48,7 @@ export function openLibrary({ tracks, fps, styles, hue, isLoved, isDowned, nowFp
       h('button', { class: 'family-tab' + (filter === id ? ' on' : ''), 'aria-pressed': String(filter === id), onclick: () => { filter = id; paint(); } }, label)));
   }
   function row(t, i, v, playingFp) {
-    const s = styles[t.style], secs = songSeconds(t.state), now = t.fps.includes(playingFp);
+    const s = styles[t.style], secs = playedSeconds(t.state), now = t.fps.includes(playingFp);
     const art = h('span', { class: 'lib-art', 'aria-hidden': 'true' });
     requestAnimationFrame(() => { try { art.append(drawArtwork(t.state, { title: t.title, style: s?.name, seed: artSeed(`${t.title}|${s?.name}`), size: 96 })); } catch {} });
     return h('button', { class: 'lib-row' + (now ? ' now' : '') + (t.fps.some(isDowned) ? ' downed' : ''), role: 'listitem', style: `--hue:${hue(t.style)}`, title: `Play “${t.title || 'Untitled'}”`,

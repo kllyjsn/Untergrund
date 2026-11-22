@@ -26,6 +26,7 @@ if (MOCK) {
 import { handleCrate, handleRemix, handleDrop, handlePlay, memoryStore, redisStore, MAX_TRACK_BYTES } from './api/_lib/crate.js';
 import { handleJukebox, memoryJukebox, redisJukebox } from './api/_lib/jukebox.js';
 import { handleEvents, memoryKv, redisKv, MAX_BODY as MAX_EVENT_BYTES } from './api/_lib/events.js';
+import { handlePlayback, memoryPlaybackKv, MAX_PLAYBACK_BODY } from './api/_lib/playback.js';
 import { handleDescribe, aiEnv } from './api/_lib/describe-ai.js';
 import { handlePlan, planEnv } from './api/_lib/song-plan-ai.js';
 import { handleSing, singEnv, memorySingStore, MAX_SING_BODY } from './api/_lib/sing.js';
@@ -35,8 +36,10 @@ import { handlePage } from './api/_lib/pages.js';
 import { handlePush } from './api/_lib/push.js';
 import { handleLegal } from './api/_lib/legal.js';
 import { ogImage, artSeed } from './api/_lib/og.js';
+import { clubImage } from './api/_lib/og-club.js';
 const jukeboxStore = redisJukebox() || memoryJukebox();
 const eventsKv = redisKv() || memoryKv();
+const playbackKv = redisAccountKv() || memoryPlaybackKv();
 const STATS_TOKEN = process.env.STATS_TOKEN || (MOCK ? 'dev' : '');
 const crateStore = redisStore() || memoryStore();
 const singStore = memorySingStore();
@@ -92,6 +95,13 @@ http.createServer(async (req, res) => {
       res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       return res.end(JSON.stringify(json));
     }
+    if (url.pathname === '/api/events' && url.searchParams.get('playback') === '1') {
+      const raw = req.method === 'POST' ? await readBody(req, MAX_PLAYBACK_BODY) : null;
+      if (raw === null && req.method === 'POST') return sendJson(res, 413, { error: 'too_large' });
+      const { status, json } = await handlePlayback({ method: req.method, query: Object.fromEntries(url.searchParams),
+        headers: req.headers, body: raw?.toString(), kv: playbackKv, accountKv, crate: crateStore, statsToken: STATS_TOKEN });
+      return sendJson(res, status, json);
+    }
     if (url.pathname === '/api/events' || url.pathname === '/api/improve-digest') {
       const raw = req.method === 'POST' ? await readBody(req, MAX_EVENT_BYTES) : null;
       if (raw === null && req.method === 'POST') return sendJson(res, 413, { error: 'too_large' });
@@ -141,8 +151,8 @@ http.createServer(async (req, res) => {
     }
     const pageMatch = url.pathname.match(/^\/(a|t|r)\/([^/]{1,60})\/?$/);
     if (pageMatch || url.pathname === '/api/page' || url.pathname === '/api/flagship') {
-      const query = pageMatch ? { [pageMatch[1]]: decodeURIComponent(pageMatch[2]) } : url.pathname === '/api/flagship' ? { flagship: '1' } : Object.fromEntries(url.searchParams);
-      const r = await handlePage(query, { kv: accountKv, crate: crateStore, site: `http://${req.headers.host}`, og: { ogImage, artSeed }, rooms });
+      const query = pageMatch ? { ...Object.fromEntries(url.searchParams), [pageMatch[1]]: decodeURIComponent(pageMatch[2]) } : url.pathname === '/api/flagship' ? { flagship: '1' } : Object.fromEntries(url.searchParams);
+      const r = await handlePage(query, { kv: accountKv, crate: crateStore, site: `http://${req.headers.host}`, og: { ogImage, artSeed, clubImage }, rooms });
       if (r.location) { res.writeHead(r.status, { Location: r.location }); return res.end(); }
       res.writeHead(r.status, { 'Content-Type': r.type, 'Cache-Control': 'no-store' });
       return res.end(r.body);

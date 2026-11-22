@@ -90,22 +90,26 @@ export function truePeak(channels) {
 export const dbtp = (channels) => 20 * Math.log10(truePeak(channels));
 export const samplePeakDb = (channels) => { let p = 0; for (const x of channels) for (let i = 0; i < x.length; i++) p = Math.max(p, Math.abs(x[i])); return 20 * Math.log10(p); };
 
-// Mastering targets (integrated LUFS over the whole song). Club genres: -10, a modern club master. The quiet
-// families keep their dynamics instead of being pushed into the limiter: the recorded jazz/hip-hop band and
-// beatless ambient at -14, the orchestra and solo piano at -16 (still far louder than a typical classical
-// release; a nocturne's hammer peaks sit ~17 dB over its average, so louder would clip the piano).
+// Whole-song feed target: -12 LUFS lets loud club genres back off their limiter/clipper instead of pushing
+// quieter bands into it. Jazz-Funk and Hard Techno keep extra transient headroom at -13.
+// Ambient, R&B, Lo-Fi Hip-Hop and acoustic jazz stay at -14; orchestra and solo piano keep their dynamics at -16
+// (a nocturne's hammer peaks sit ~17 dB over its average, so louder would clip the piano).
 // Nothing may peak above -1 dBTP.
-export const LOUDNESS_TARGET = { club: -10, quiet: -14, classical: -16, ceiling: -1 };
-const TIER = { ambient: 'quiet', neosoul: 'quiet', boombap: 'quiet', rnb: 'quiet', folk: 'quiet', symphony: 'classical', concerto: 'classical', nocturne: 'classical', repertoire: 'classical' };
-export const targetFor = (style) => LOUDNESS_TARGET[TIER[style] || 'club'];
+export const LOUDNESS_TARGET = { feed: -12, transient: -13, quiet: -14, classical: -16, ceiling: -1 };
+const TIER = { jazzfunk: 'transient', hardtechno: 'transient', ambient: 'quiet', rnb: 'quiet', lofihiphop: 'quiet', swing: 'quiet', modal: 'quiet', bossa: 'quiet', symphony: 'classical', concerto: 'classical', nocturne: 'classical', repertoire: 'classical' };
+export const targetFor = (style) => LOUDNESS_TARGET[TIER[style] || 'feed'];
 
 // Per-style make-up gain (dB) applied in front of the master limiter, measured with scripts/loudness.mjs.
 export const MAKEUP_DB = {
-  hypnotic: 3.6, industrial: 2.1, acid: 4.5, dub: 4.0, peak: 3.5, hardtechno: 2.1, deephouse: 3.0, minimal: 6.8,
-  ukg: 2.1, euphoric: 3.5, neosoul: 3.0, boombap: 0.7, breaks: 3.7, electro: 3.9, dnb: 4.3, trance: 3.8,
-  ambient: 2.4, amapiano: 3.0, afrobeats: 2.5, reggaeton: 3.4, bailefunk: 2.8, trap: 3.0, drill: 4.2,
-  jerseyclub: 4.3, hyperpop: 3.2, symphony: 6.5, concerto: 5.3, nocturne: 11.9, repertoire: 3.6,
-  pop: 5.3, rnb: 4.4, rock: 5.0, folk: 1.9, country: 4,
+  jazzfunk: 7.8,
+  bossa: 8.8,
+  swing: 11.5, modal: 9.5,
+  hypnotic: 1.1, industrial: -0.1, acid: 2.2, dub: 1.9, peak: 1.2, hardtechno: 1.4, deephouse: 2.15, minimal: 4.7,
+  ukg: 1.6, euphoric: 0.7, neosoul: 5.8, boombap: 3.7, breaks: 3.15, electro: 1.7, dnb: 1.75, trance: 1.4,
+  ambient: 2.4, amapiano: 1.5, afrobeats: 0.8, reggaeton: 1.8, bailefunk: 2.5, trap: 1.4, drill: 3.3,
+  jerseyclub: 1.5, hyperpop: 0.5, symphony: 6.5, concerto: 5.3, nocturne: 11.9, repertoire: 3.6,
+  pop: 3.2, rnb: 4.4, rock: 2.8, folk: 3.9, country: 1.6,
+  lofihiphop: 4.6, gfunk: 3.4, phonk: 3.7, electrohiphop: 3.65,
 };
 // REPERTOIRE masterworks differ from one another by several LU: a per-score trim (dB) on top of the style's make-up
 // lands each on -16 LUFS. Measured on the whole score with node scripts/loudness.mjs --pieces.

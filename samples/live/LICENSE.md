@@ -6,8 +6,45 @@ the Virtuosity Drums and double-bass files are byte-identical, sha256 `a2010f343
 CC0 waives copyright and related rights, so the files can be redistributed in this app and used in commercial
 music without attribution. We credit the authors anyway.
 
-Processing applied to every file: summed to mono, resampled to 44.1 kHz 16-bit PCM, trimmed, 80 ms fade out.
+Processing applied to every file: summed to mono, resampled to 44.1 kHz 16-bit PCM, trimmed (organ 2.2 s, bass 2.4 s), 80 ms fade out.
 Stored as lossless FLAC (bit-identical PCM to the original 16-bit WAVs). Drum files mix the close mic with the overhead mic of the same hit.
+
+## S9 fiddle and upright piano — VSCO 2 Community Edition (CC0)
+
+Solo violin: Sam Gossner / Versilian Studios. Upright piano: Simon Dalzell / Ivy Audio,
+distributed by Sam Gossner / Versilian Studios. Source WAVs are pinned to
+[`sgossner/VSCO-2-CE@440300901dfe9275fd84e0b7763af1f8443ae62e`](https://github.com/sgossner/VSCO-2-CE/tree/440300901dfe9275fd84e0b7763af1f8443ae62e).
+All these WAVs are covered by that repository's
+[CC0 1.0 Universal dedication](https://github.com/sgossner/VSCO-2-CE/blob/440300901dfe9275fd84e0b7763af1f8443ae62e/LICENSE):
+“Affirmer hereby overtly, fully, permanently, irrevocably and unconditionally waives, abandons,
+and surrenders all of Affirmer's Copyright and Related Rights”. The upright's `Info.txt` also
+states: “Bearer is granted right to redistribute this sample set by Versilian Studios LLC.”
+
+Sounding MIDI centers come from `SViolinVib.sfz`, `SViolinSpic.sfz` and `UprightPiano.sfz`, pinned to
+the [SFZ branch commit `6dd651d55dde97fd4028699be9d4481f26917891`](https://github.com/sgossner/VSCO-2-CE/tree/6dd651d55dde97fd4028699be9d4481f26917891).
+Spiccato filenames use an octave different from arco; piano filename numbers are sample indices, not MIDI.
+
+| Bundled FLACs | Source directory / articulation | Dynamics and takes | Sounding MIDI centers |
+| --- | --- | --- | --- |
+| `fiddle_*.flac` | `Strings/Solo Violin/Arco Vib` | f | 55,57,60,64,67,69,72,76,79 |
+| `fiddlesoft_*.flac` | `Strings/Solo Violin/Arco Vib` | p | same nine centers |
+| `fiddlestac_*.flac` | `Strings/Solo Violin/spic` | v2, rr1 | same nine centers |
+| `fiddlestacb_*.flac` | `Strings/Solo Violin/spic` | v2, rr2 | same nine centers |
+| `fiddlestacsoft_*.flac` | `Strings/Solo Violin/spic` | v1, rr1 | same nine centers |
+| `fiddlestacsoftb_*.flac` | `Strings/Solo Violin/spic` | v1, rr2 | same nine centers |
+| `uprightsoft_*.flac` | `Keys/Upright Piano` | dyn1, rr1 | 41,45,49,53,57,61,65,69,73,77,81,85 |
+| `upright_*.flac` | `Keys/Upright Piano` | dyn2, rr1 | same twelve centers |
+| `uprighthard_*.flac` | `Keys/Upright Piano` | dyn3, rr1 | same twelve centers |
+
+These 90 files use `scripts/fetch-roots.py`: mono 44.1 kHz/16-bit lossless FLAC, leading silence
+removed to 2 ms before the sustained -35 dB onset, 1 ms attack fade, measured tuning corrected
+by resampling and rechecked within 5 cents of the SFZ center. Per-note body RMS is matched to
+the instrument reference (fiddle -16 dBFS, upright -13.6 dBFS over 20–350 ms), limited to a
+-6 dBFS peak. Arco keeps up to 3 seconds with a 160 ms final fade, spiccato up to 1 second
+with an 80 ms fade, upright up to 6 seconds with a 500 ms fade. No loops. Unlike the older
+unretuned recordings, these PCM samples are resampled derivatives, not byte-identical source WAVs.
+`scripts/roots-samples.json` records each source URL/hash, SFZ center, tuning measurements,
+attack trim, normalization gain, duration and bundled FLAC hash.
 
 ## Virtuosity Drums (Versilian Studios / Karoryfer, drummer Austin McMahon)
 
@@ -135,16 +172,56 @@ recording's measured pitch (`python3 test/sampletune.py`) is corrected in `js/li
 | `ebass_52.flac` | `darkblack/reg/darkblack_e4_mf_rr1.wav` | 52 |
 | `ebass_55.flac` | `darkblack/reg/darkblack_g4_mf_rr1.wav` | 55 |
 
+## Saxophones: Karoryfer Weresax alto and MTG tenor (the recorded `reed` hook in Pop, Neo-Soul, Reggaeton, Breaks, Trap, Boom Bap and Afrobeats)
+
+- Alto source: https://github.com/sfzinstruments/karoryfer.weresax @ `a4d756b21d2a573aca0d840cce7e71ba5effd4c6`
+- Alto license: CC0 1.0 Universal (the `LICENSE` file in that repo)
+- Tenor source: https://github.com/sfzinstruments/MTG.SoloSax @ `b494d256549b3d088fdec176ce82867f8a1f58b2`
+  (sampled by the Music Technology Group, Universitat Pompeu Fabra, published on freesound.org; SFZ by kinwie)
+- Tenor license: Creative Commons Attribution 4.0 International (CC BY 4.0). Attribution: "MTG Solo Saxophones" by
+  the Music Technology Group (Universitat Pompeu Fabra), https://github.com/sfzinstruments/MTG.SoloSax, CC BY 4.0;
+  trimmed, converted to mono 16-bit FLAC and loudness matched for Untergrund.
+- Fetched and processed by `scripts/fetch-band.py --sax`: mono, 44.1 kHz, leading silence trimmed, cut at 3 s with an
+  80 ms fade, and scaled so every note has the same sustain loudness (RMS over 0.15-0.9 s). Weresax names its notes an
+  octave below MIDI (`a2` is MIDI 57, its SFZ key center); the MTG tenor numbers notes from MIDI 44 and plays 10-20
+  cents sharp, which `WIND_HOOK` in `js/engine.js` corrects. The `b` files are the alternate take for repeated notes:
+  the Weresax second round robin, and the MTG tenor's piano-dynamic take.
+
+| File | Source sample under `Samples/` | Key center (MIDI) |
+| --- | --- | --- |
+| `asax_52.flac` / `asaxb_52.flac` | `alto/e2_f_rr1_cnd.wav` / `alto/e2_f_rr2_cnd.wav` | 52 |
+| `asax_55.flac` / `asaxb_55.flac` | `alto/g2_f_rr1_cnd.wav` / `alto/g2_f_rr2_cnd.wav` | 55 |
+| `asax_58.flac` / `asaxb_58.flac` | `alto/bb2_f_rr1_cnd.wav` / `alto/bb2_f_rr2_cnd.wav` | 58 |
+| `asax_61.flac` / `asaxb_61.flac` | `alto/db3_f_rr1_cnd.wav` / `alto/db3_f_rr2_cnd.wav` | 61 |
+| `asax_64.flac` / `asaxb_64.flac` | `alto/e3_f_rr1_cnd.wav` / `alto/e3_f_rr2_cnd.wav` | 64 |
+| `asax_67.flac` / `asaxb_67.flac` | `alto/g3_f_rr1_cnd.wav` / `alto/g3_f_rr2_cnd.wav` | 67 |
+| `asax_70.flac` / `asaxb_70.flac` | `alto/bb3_f_rr1_cnd.wav` / `alto/bb3_f_rr2_cnd.wav` | 70 |
+| `asax_73.flac` / `asaxb_73.flac` | `alto/db4_f_rr1_cnd.wav` / `alto/db4_f_rr2_cnd.wav` | 73 |
+| `asax_76.flac` / `asaxb_76.flac` | `alto/e4_f_rr1_cnd.wav` / `alto/e4_f_rr2_cnd.wav` | 76 |
+| `asax_79.flac` / `asaxb_79.flac` | `alto/g4_f_rr1_cnd.wav` / `alto/g4_f_rr2_cnd.wav` | 79 |
+| `tsax_47.flac` / `tsaxb_47.flac` | `ten_f_04.flac` / `ten_p_04.flac` | 47 |
+| `tsax_50.flac` / `tsaxb_50.flac` | `ten_f_07.flac` / `ten_p_07.flac` | 50 |
+| `tsax_53.flac` / `tsaxb_53.flac` | `ten_f_10.flac` / `ten_p_10.flac` | 53 |
+| `tsax_56.flac` / `tsaxb_56.flac` | `ten_f_13.flac` / `ten_p_13.flac` | 56 |
+| `tsax_59.flac` / `tsaxb_59.flac` | `ten_f_16.flac` / `ten_p_16.flac` | 59 |
+| `tsax_62.flac` / `tsaxb_62.flac` | `ten_f_19.flac` / `ten_p_19.flac` | 62 |
+| `tsax_65.flac` / `tsaxb_65.flac` | `ten_f_22.flac` / `ten_p_22.flac` | 65 |
+| `tsax_68.flac` / `tsaxb_68.flac` | `ten_f_25.flac` / `ten_p_25.flac` | 68 |
+| `tsax_71.flac` / `tsaxb_71.flac` | `ten_f_28.flac` / `ten_p_28.flac` | 71 |
+| `tsax_74.flac` / `tsaxb_74.flac` | `ten_f_31.flac` / `ten_p_31.flac` | 74 |
+
 ## Rejected
 
 - jlearman jRhodes3d electric piano: its samples are CC-BY-NC 4.0 (non-commercial), so it is not bundled.
   The Rhodes stays synthesized until a CC0 electric piano is found.
+- MTG baritone sax and Karoryfer Bear Sax: the generated hooks sit in the alto and tenor ranges, so a baritone would
+  only play transposed or an octave under the bass; not bundled until a part is written for it.
 
 ## Recorded chord instruments (PIANO, GUITAR, HORNS, STRINGS)
 
 Every file below is derived from a CC0 1.0 Universal source (license file checked in each repository at the
 commit listed). Files are named by the MIDI note they sound at. Processing: leading silence removed, summed to
-mono, resampled to 44.1 kHz 16-bit PCM, trimmed, 80 ms fade out, peak-normalised to -6 dBFS, stored as lossless FLAC.
+mono, resampled to 44.1 kHz 16-bit PCM, trimmed (organ 2.2 s, bass 2.4 s), 80 ms fade out, peak-normalised to -6 dBFS, stored as lossless FLAC.
 The piano files (`piano_*`, `pianosoft_*`, `pianoext_*`, `pianoextsoft_*`) instead keep each note's natural ring
 until it has decayed 48 dB below its loudest 50 ms (at most 9 s), then fade over the last 0.6 s
 (`scripts/fetch-orchestra.py --piano`).
@@ -173,6 +250,8 @@ principal pitch read from each drum's 1 : 1.5 : 2 partial series.
 | `cb_31.flac` … `cb_45.flac` (5) | VSCO-2-CE | `Strings/Solo Contrabass/SusVib/BKCtbss_SusVib_{G0,A#0,D1,F#1,A1}_v3_rr1.wav` |
 | `fl_60.flac` … `fl_84.flac` (7) | VSCO-2-CE | `Woodwinds/Flute/susvib/LDFlute_susvib_{C3,E3,A3,C4,E4,A4,C5}_v1_1.wav` |
 | `ob_58.flac` … `ob_82.flac` (7) | VSCO-2-CE | `Woodwinds/Oboe/Vib/Oboe_Vib_{A#2,D3,F3,A#3,D4,F4,A#4}_v1_Main.wav` |
+| `flb_60.flac` … `flb_84.flac` (7) | VSCO-2-CE | `Woodwinds/Flute/expvib/LDFlute_expvib_{C3,E3,A3,C4,E4,A4,C5}_v1_1.wav` (alternate hook takes, 1.4 s) |
+| `obb_58.flac` … `obb_82.flac` (7) | VSCO-2-CE | `Woodwinds/Oboe/Vib/Oboe_Vib_{A#2,D3,F3,A#3,D4,F4,A#4}_v3_Main.wav` (alternate hook takes, 1.4 s) |
 | `cl_50.flac` … `cl_74.flac` (7) | VSCO-2-CE | `Woodwinds/Clarinet/susLong/DCClar_susLong_{D2,F2,A#2,D3,F3,A#3,D4}_v2_rr1_sum.wav` |
 | `fh_43.flac` … `fh_60.flac` (6) | VSCO-2-CE | `Brass/F Horn/sus/MOHorn_sus_{G1,A#1,D2,F2,A2,C3}_v2_1.wav` |
 | `tpt_57.flac` … `tpt_81.flac` (8) | VSCO-2-CE | `Brass/Trumpet/susvib/Sum_SHTrumpet_susvib_{A2,C3,D#3,G3,A#3,D4,F4,A4}_v1_rr1.wav` |
@@ -189,6 +268,50 @@ Both sources name notes in scientific pitch (C4 = MIDI 60).
 | --- | --- | --- | --- |
 | `tele_52.flac` … `tele_85.flac` (13) | [freepats/electric-guitar-FSBS-clean](https://github.com/freepats/electric-guitar-FSBS-clean) (FreePats, a Fender electric, clean, bridge pickup), CC0 1.0 Universal | `192cf0d9bf2c4ba6ead8e3524ba3f78818e4fe91` | `samples/bridge/{E3_s3,G3_s4,B3_s5,C#4_s5,E4_s6,G4_s6,B4_s6,C5_s6,D5_s6,F5_s6,G#5_s6,A#5_s6,C#6_s6}_01.flac` |
 | `hca_48.flac` … `hca_84.flac` (10) | [sgossner/VCSL](https://github.com/sgossner/VCSL) (Versilian Community Sample Library, Hohner Special 20 in C), CC0 1.0 Universal | `c1ea7bcc3c7309650ab0da9d15c9cd1fbc4a4c7e` | `Aerophones/Free Aerophones/Harmonica-Hohner-Special20-C/Sustains/Vib/Hohner-Special20_Vib_{C3,E3,G3,C4,E4,G4,C5,E5,G5,C6}.wav` |
+
+## Tonewheel organ and analog synth bass (Freesound, CC0)
+
+Original uploads (never the lossy previews), fetched through the Freesound API by `scripts/fetch-freesound.py`,
+which lists every sound id. Each sound page states **CC0 1.0 Universal**. Processing as above: leading silence
+removed, mono, resampled to 44.1 kHz 16-bit, trimmed (organ 2.2 s, bass 2.4 s), 80 ms fade out, peak -6 dBFS, lossless FLAC. Measured pitch
+is within 5 cents of each organ note's name.
+
+| Files | Source | Samples used |
+| --- | --- | --- |
+| `org_43.flac` … `org_83.flac` (23), the ORGAN voice in UK GARAGE and the ROCK chorus organ | Freesound pack [18844 "tonewheel organ sound samples"](https://freesound.org/people/hammondman/packs/18844/) by hammondman (32 kHz 16-bit WAV, the only full CC0 tonewheel multisample found on Freesound (the others were a 22 kHz rotary pack and a single M1 note); its energy ends near the 5.9 kHz top tonewheel, every file is more than 74 dB down above 10 kHz, and the engine low-passes the organ at 5.2–5.6 kHz, so a 16 kHz Nyquist loses nothing), CC0 1.0 Universal | sounds 333747–333770 except 333757: one held note per white key, `g2.wav` … `b5.wav` (scientific pitch, `c4` = MIDI 60) |
+| `abass_36.flac` … `abass_60.flac` (9), the REESE bass voice in UK GARAGE | Freesound pack [17593 "Roland SH-2 - Filter Vel Bass"](https://freesound.org/people/modularsamples/packs/17593/) by modularsamples (44.1 kHz 24-bit WAV), CC0 1.0 Universal | sounds 310235, 310247, 310259, 310271, 310282, 310294, 310306, 310318, 310330: the brightest of each note's velocity takes, every third semitone `36C1` … `60C3` (named by MIDI number); measured 5–9 cents flat, corrected in `js/livekit.js` |
+
+Both sets are rebuilt by `scripts/fetch-freesound.py`, which pins every original upload by Freesound sound ID and SHA-256, refuses any file whose hash differs, and reproduces the committed FLACs byte for byte from those originals.
+
+## Nylon guitar
+
+`nylon_{40,45,48,52,55,59,64,67,69}.flac` are nine fingerstyle notes from
+[Meta Nylon Guitar v1.0.0](https://github.com/facebookincubator/Meta-open-sound/releases/tag/meta-nylon-guitar-v1.0.0),
+released under **CC0 1.0 Universal**. The release includes that dedication and
+the collection's manifest explicitly identifies `CC0-1.0`. The complete legal
+text is in [NYLON-LICENSE.txt](../NYLON-LICENSE.txt); original filenames,
+SHA-256 hashes, measured pitch centers and processing are recorded in
+[nylon-provenance.json](../nylon-provenance.json). Original WAVs were converted
+to mono 48 kHz / 24-bit FLAC, gain-normalized with headroom and shortened to at
+most four seconds with short edge fades. No synthesis or denoising was used.
+
+## Marimba and hand percussion
+
+Original WAVs were downmixed to mono, resampled to 44.1 kHz, high-pass filtered,
+trimmed to their attacks, faded at the edges, and peak-normalized to −6 dBFS before
+encoding as 16-bit FLAC. The cuíca files are individual strokes cut from an acoustic
+performance, not the keyboard sample in Freesound pack 34867.
+
+| Bundled files | Source, credits and license | Original takes |
+| --- | --- | --- |
+| `marimba_{48,55,59,65,72,79,83}.flac` | [VSCO-2-CE, Versilian Studios](https://github.com/sgossner/VSCO-2-CE/tree/440300901dfe9275fd84e0b7763af1f8443ae62e), CC0 1.0 Universal | `Percussion/Marimba/Marimba_hit_Outrigger_{C2,G2,B2,F3,C4,G4,B4}_loud_01.wav` |
+| `shaker_{1,2,4,7}.flac` | VSCO-2-CE at the same commit, CC0 1.0 Universal | `VSCO 1 Percussion/varWood/Camo's Shaker/shake{1,2,4,7}.wav` |
+| `conga_{tap,open}_{1,2}.flac` | VSCO-2-CE at the same commit, CC0 1.0 Universal | `Percussion/Conga-{Tap1_v1,HitN_v2}_rr{1,2}_Sum.wav` |
+| `cowbell_{1,2}.flac` | [swirly-drums, Karoryfer Samples](https://github.com/sfzinstruments/karoryfer.swirly-drums/tree/c40dafe0011cb2e54c0c220ff0fa308a11fc60f5), CC0 1.0 Universal | `Samples/cowbell/cowbell_vl3_rr{1,2}.wav` |
+| `timbale_closed_{1,2}.flac` | [Metal Timbales, Suicidity](https://freesound.org/people/Suicidity/packs/5890/), CC0 1.0 Universal | [90524](https://freesound.org/s/90524/), [90529](https://freesound.org/s/90529/) |
+| `timbale_low_{1,2}.flac` | Metal Timbales, Suicidity, CC0 1.0 Universal | [90471](https://freesound.org/s/90471/), [90474](https://freesound.org/s/90474/) |
+| `timbale_high_{1,2}.flac` | Metal Timbales, Suicidity, CC0 1.0 Universal | [90506](https://freesound.org/s/90506/), [90509](https://freesound.org/s/90509/) |
+| `cuica_{1,2}.flac` | [“cuica (1).wav” by reinsamba](https://freesound.org/s/21715/), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | Two edited strokes from source windows 0.550–0.770 s and 1.415–1.615 s |
 
 ## Sung vocals
 
