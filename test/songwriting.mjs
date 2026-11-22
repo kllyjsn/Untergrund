@@ -2,7 +2,8 @@
 // them (fitLyrics): stressed syllables on beats, the title on the chorus downbeat and peak, the hook returning exactly.
 import assert from 'node:assert/strict';
 import { lineStress, rhymes } from '../js/prosody.js';
-import { writeLyrics, rhymePairs } from '../js/lyric-writer.js';
+import { writeLyrics, rhymePairs, themeOf } from '../js/lyric-writer.js';
+import { FEELS, FEEL_IDS } from '../js/feel.js';
 import { rulePlan, planLyrics } from '../js/song-plan.js';
 import { cleanLyrics } from '../js/lyrics.js';
 import { fitLyrics, sanitize } from '../js/state.js';
@@ -29,6 +30,33 @@ console.log('prosody passed');
   assert(rhymed / pairs >= 0.9, `line ends rhyme (${rhymed}/${pairs})`);
 }
 console.log('lyric writer passed');
+
+// Words in the song's feeling: the theme is the feeling's (or a named topic that agrees with it), so a happy chorus
+// never sings heartbreak and a sad one never sings sunshine. No feeling: the original six themes, chosen as before.
+export const SAD = /\b(?:cry\w*|tears?|alone|lonely|hurt\w*|falling|yesterday|cold|empty|without|sorry|lost|broken|goodbye|miss\w*|gone)\b/i;
+export const JOY = /\b(?:alive|sun\w*|free|danc\w*|golden|bright|smil\w*|summer|happy|flying|fire)\b/i;
+{
+  const prompts = ['a song', 'write me a pop song', ...LYRIC_PROMPTS, 'a happy song about the rain', 'a sad song about the summer'];
+  const themes = new Set(), choruses = new Set();
+  let pairs = 0, rhymed = 0;
+  for (const feel of FEEL_IDS) for (const prompt of prompts) for (const seed of [1, 2, 3, 4]) {
+    const a = writeLyrics({ prompt, style: 'pop', seed, feel }), F = FEELS[feel];
+    assert.deepEqual(a, writeLyrics({ prompt, style: 'pop', seed, feel }), 'deterministic');
+    const th = themeOf(prompt, [], feel), sung = [a.title, ...a.sections.filter((x) => x.sec === 'chorus' || x.sec === 'pre').flatMap((x) => x.lines)].join(' ');
+    themes.add(th); choruses.add(a.sections.find((x) => x.sec === 'chorus').lines[1]);
+    if (F.valence > 0.4) assert(!SAD.test(sung), `${feel} "${prompt}": no sad words in a happy chorus (${sung.match(SAD)})`);
+    if (F.valence < -0.4) assert(!JOY.test(sung), `${feel} "${prompt}": no joy words in a sad chorus (${sung.match(JOY)})`);
+    for (const [x, y] of rhymePairs(a.sections)) { pairs++; if (rhymes(x.split(' ').at(-1), y.split(' ').at(-1))) rhymed++; }
+  }
+  assert.equal(themeOf('a song', [], 'dark'), 'shadow');
+  assert.equal(themeOf('a happy song about the rain', [], 'joyful'), 'summer', 'a topic that disagrees gives way to the feeling');
+  assert.equal(themeOf('a song about going home', [], 'longing'), 'home', 'a topic that agrees is kept');
+  assert.equal(themeOf('a dark dreamy song', []), 'love', 'no feeling: the new themes are never chosen');
+  assert(themes.size === 9, `every theme is reachable (${[...themes]})`);
+  assert(choruses.size >= 20, `chorus variety (${choruses.size})`);
+  assert(rhymed / pairs >= 0.9, `line ends rhyme across feelings (${rhymed}/${pairs})`);
+}
+console.log('feeling lyrics passed');
 
 // Rule plans: a sung genre without pasted words gets written lyrics; club genres and pasted lyrics are unchanged.
 {
