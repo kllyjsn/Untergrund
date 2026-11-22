@@ -22,4 +22,15 @@ for (let k = 0; k < 20; k++) {
   assert.equal(STYLES[n.style].family, STYLES[style].family, 'and stays in the family');
 }
 for (const why of ['boring', 'sounds_bad']) assert.deepEqual(nextUp({ style, styles: STYLES, why }), { kind: 'generate', style }, `${why}: same style, new song`);
+// A feeling the listener asked for: "not my style" crosses genres but lands only where that feeling lives.
+import { feelsFor } from '../js/feel.js';
+const fams = new Set();
+for (let k = 0; k < 40; k++) {
+  const n = nextUp({ style: 'pop', styles: STYLES, why: 'not_my_style', feel: 'dark', rand: () => k / 40 });
+  assert.notEqual(n.style, 'pop');
+  assert.ok(feelsFor(n.style, STYLES[n.style].family).dark, `${n.style} carries dark`);
+  fams.add(STYLES[n.style].family);
+}
+assert.ok(fams.size >= 3 && [...fams].some((f) => f !== STYLES.pop.family), `dark radio crosses families: ${[...fams]}`);
+assert.deepEqual(nextUp({ style: 'pop', styles: STYLES, feel: 'dark' }), { kind: 'generate', style: 'pop' }, 'a song ending keeps the genre; the feeling rides along');
 console.log('radio passed');

@@ -20,6 +20,7 @@ import { festivalBuilds } from './festival-build.js';
 import { isJazz, generateJazz } from './jazz.js';
 import { BOSSA_PARTS, isBossaPart, bossaChart, bossaForm, bossaPreview } from './bossa.js';
 import { HIPHOP, HIPHOP_STYLES, hiphopGroove, hiphopMotif } from './hiphop.js';
+import { rootsTags, cleanRoots } from './roots.js';
 
 export const STYLES = {
   hypnotic: { name: 'HYPNOTIC', bpm: [130, 134], family: 'TECHNO', tag: 'deep · rolling' },
@@ -904,6 +905,8 @@ function generatePattern(style, seed, scaleName, starter) {
   const gainScale = harpHook ? 0.72 : 1;
   const sung = withMelody(P.hook, rng(Math.imul((seed | 0) ^ 0x68e31da4, 0x3c6ef372) ^ 0x1b873593), style, musicalScale, { prog: P.prog, alt: P.alt, chord: params.stab.chord | 0, gainScale });
   if (sung) { P.hook = sung; P.hm = 2; }
+  const roots = rootsTags(style, seed, params.stab.voice, P.hook);
+  if (roots) P.roots = roots;
   if (style === 'drill' && P.hook) {
     P.hook.v = harpHook ? 'harpplk' : P.hook.v === 'reed' ? 'oboe' : 'airflute';
   }
@@ -1324,12 +1327,13 @@ function drillVerses(pats, { chain, sections }, keep) {
 }
 
 // The form written into a fresh arrangement: chain plus the takes that develop each repeat.
-export function applySongPlan(s, style, seed, length = 'song') {
+// `feel` is the feeling the listener asked for; without one the seed picks a feeling that fits the genre.
+export function applySongPlan(s, style, seed, length = 'song', feel = null) {
   const plan = songPlan(style, seed, length, s.bpm || midBpm(style));
   s.chain = plan.chain;
   // Scores carry their own expression; every other GENERATE song gets a feeling from its seed.
   if (FORMS[style] || style === 'repertoire') delete s.feel;
-  else s.feel = pickFeel(style, STYLES[style].family, seed);
+  else s.feel = isFeel(feel) ? feel : pickFeel(style, STYLES[style].family, seed);
   delete s.chainEntries;
   if (style === 'bossa') {
     s.labels = { A: 'INTRO', B: 'TAG', C: 'SOLO', E: 'BRIDGE', F: 'INTERLUDE', G: 'HEAD', H: 'HEAD OUT' };
@@ -1361,7 +1365,7 @@ export function applySongPlan(s, style, seed, length = 'song') {
 
 // GENERATE's song for a style and seed, written on top of `base` (its mix, artist and mutes carry over).
 // `bpm`/`swing` keep a tempo the song already plays at; a score always sets its own.
-export function freshSong(style, seed, { base = defaultState(), scale = null, length = 'song', bpm = null, swing = null } = {}) {
+export function freshSong(style, seed, { base = defaultState(), scale = null, length = 'song', bpm = null, swing = null, feel = null } = {}) {
   const s = clone(base);
   s.scale = scale || (style === 'euphoric' || MAJOR_STYLES.has(style) ? 'major' : s.scale);
   if (isJazz(style) && !scale) s.scale = style === 'modal' || style === 'jazzfunk' ? 'dorian' : 'major';
@@ -1373,7 +1377,7 @@ export function freshSong(style, seed, { base = defaultState(), scale = null, le
   s.chainOn = true;
   s.ending = true;
   s.current = 0;
-  applySongPlan(s, style, seed, length);
+  applySongPlan(s, style, seed, length, feel);
   return s;
 }
 
@@ -1397,7 +1401,7 @@ export function refreshSong(s) {
   const { style, seed } = s.artist;
   const composer = s.patterns.find((p) => p.score?.composer)?.score.composer;
   const base = { ...s, locks: Object.fromEntries(TRACK_IDS.map((t) => [t, false])) };
-  const out = freshSong(style, seed, { base, scale: s.scale, length: lengthOf(s), bpm: s.bpm, swing: s.swing });
+  const out = freshSong(style, seed, { base, scale: s.scale, length: lengthOf(s), bpm: s.bpm, swing: s.swing, feel: s.feel });
   if (composer) for (const p of out.patterns) if (p.score?.form) p.score.composer = composer;
   if (out.chain !== s.chain) delete out.labels;
   out.fresh = 1;
@@ -1527,6 +1531,8 @@ export function sanitize(s) {
     const p = s.patterns[i];
     const e = emptyPattern();
     if (!p) return e;
+    const roots = cleanRoots(p.roots);
+    if (roots) e.roots = roots;
     if (isJazz(p.jazz?.style)) e.jazz = { style: p.jazz.style, seed: Number.isFinite(+p.jazz.seed) ? p.jazz.seed | 0 : 1, ...(p.jazz.progBars === 1 ? { progBars: 1 } : {}),
       ...(p.jazz.style === 'bossa' && isBossaPart(p.jazz.bossaPart) ? { bossaPart: p.jazz.bossaPart } : {}) };
     for (const id of TRACK_IDS) {

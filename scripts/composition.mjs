@@ -36,9 +36,10 @@ export function buildSong(style, seed, length = 'song') {
 // writes them), syllables laid on each phrase's notes in order the way the singer does. Measured on the written parts.
 export const LYRIC_PROMPTS = ['a song about leaving LA', 'a love song', 'a sad song about missing you', 'a song about a night out in the city',
   'a summer song about the beach', 'a song about going home'];
-export const songWords = (style, seed) => writeLyrics({ prompt: LYRIC_PROMPTS[seed % LYRIC_PROMPTS.length], style, seed });
+export const songWords = (style, seed, feel = null) => writeLyrics({ prompt: LYRIC_PROMPTS[seed % LYRIC_PROMPTS.length], style, seed, feel });
+// Written in the song's own feeling, as the prompt path does.
 export function lyricSong(style, seed) {
-  const lyr = songWords(style, seed), s = buildSong(style, seed);
+  const s = buildSong(style, seed), lyr = songWords(style, seed, s.feel);
   s.lyrics = { v: 1, title: lyr.title, sections: lyr.sections };
   return fitLyrics(s, style);
 }
