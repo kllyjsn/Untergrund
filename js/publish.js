@@ -1,10 +1,12 @@
 // Publish-to-SoundCloud modal: connect account, auto metadata + artwork, render + upload, share, and growth stats.
 import { h } from './ui.js';
-import { KEYS } from './params.js';
+import { autoTags, autoDescription } from './release-metadata.js';
 import { STYLES } from './state.js';
 import { drawArtwork, canvasToBlob } from './artwork.js';
 import * as sc from './soundcloud.js';
 import { track as trackEvent } from './analytics.js';
+
+export { autoTags, autoDescription } from './release-metadata.js';
 
 const WORDS_A = ['Beton', 'Stahl', 'Nacht', 'Tief', 'Dunkel', 'Strom', 'Schacht', 'Nebel', 'Kessel', 'Puls', 'Kammer', 'Vakuum', 'Spree', 'Transit', 'Signal'];
 const WORDS_B = ['Ritual', 'Schicht', 'Garage', 'Frequenz', 'Maschine', 'Hall', 'Tunnel', 'Werk', 'Zone', 'Bunker', 'Druck', 'Kreis', 'Linie', 'Feld', 'Raum'];
@@ -20,19 +22,6 @@ const randomTitle = () => (Math.random() < 0.7 ? `${pick(WORDS_A)} ${pick(WORDS_
 const releases = () => { try { return JSON.parse(localStorage.getItem(STORE)) || []; } catch { return []; } };
 const fmtDur = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 const fmtNum = (n) => (n >= 1e4 ? (n / 1e3).toFixed(n >= 1e5 ? 0 : 1) + 'k' : String(n ?? 0));
-
-export function autoTags(state, style) {
-  const s = STYLES[style]?.name.toLowerCase() || '';
-  return ['techno', s && `${s} techno`, 'berlin techno', 'warehouse', 'underground techno', `${state.bpm} bpm`,
-    `${KEYS[state.key]} ${state.scale || 'minor'}`, 'electronic', 'synthesizer', state.artist?.name?.toLowerCase(), 'untergrund'].filter(Boolean);
-}
-
-export function autoDescription(state, style, bars) {
-  const s = STYLES[style]?.name.toLowerCase() || 'techno';
-  return [`${s[0].toUpperCase() + s.slice(1)} techno · ${state.bpm} BPM · ${KEYS[state.key]} ${state.scale || 'minor'} · ${bars} bars.`,
-    '', 'Made in UNTERGRUND from its own synths and royalty-free (CC0) recorded instruments.',
-    'DJs: free download is on, play it out and tag me.', '', 'Follow for a new track every week.'].join('\n');
-}
 
 // Consecutive ISO weeks (ending this week or last) with at least one release.
 export function weekStreak(dates) {
@@ -119,7 +108,7 @@ export function openPublish({ getState, getStyle, render, toast, audio = null, t
     fields = {
       title: h('input', { class: 'inp', value: state.artist?.title || randomTitle(), maxlength: 100 }),
       bars: h('select', { class: 'sel' }, barOpts.map((b) => { const o = h('option', { value: b }, `${b} bars · ${fmtDur(secs(b))}`); if (b === defBars) o.selected = true; return o; })),
-      genre: h('input', { class: 'inp', value: 'Techno', maxlength: 40 }),
+      genre: h('input', { class: 'inp', value: STYLES[style]?.name || 'Electronic', maxlength: 40 }),
       tags: h('input', { class: 'inp', value: autoTags(state, style).join(', ') }),
       desc: h('textarea', { class: 'inp', rows: 6 }),
       sharing: h('select', { class: 'sel' }, h('option', { value: 'public' }, 'Public'), h('option', { value: 'private' }, 'Private (test first)')),
