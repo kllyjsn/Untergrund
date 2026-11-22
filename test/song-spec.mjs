@@ -153,7 +153,8 @@ t('jazz prompts pin a supplied mode but leave omitted modes to the feeling', () 
       assert.deepEqual(state.patterns[2].prog, g.pattern.prog);
       changes.add(JSON.stringify(state.patterns[2].prog));
     }
-    assert(changes.size > 1, `${name} does not pin one progression`);
+    if (spec.style === 'bossa') assert.equal(changes.size, 1, 'Bossa keeps its authored chart');
+    else assert(changes.size > 1, `${name} does not pin one progression`);
   }
   for (const mode of ['major', 'minor']) {
     const spec = localSpec(`write a swing jazz track in C ${mode}`);

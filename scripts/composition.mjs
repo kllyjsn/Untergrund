@@ -11,7 +11,7 @@ import { STYLES, MAJOR_STYLES, generate, arrangement, applySongPlan, songFeel, d
 import { SING_PROFILES } from '../js/melody.js';
 import { lineStress, rhymes } from '../js/prosody.js';
 import { writeLyrics, rhymePairs } from '../js/lyric-writer.js';
-import { Sequencer, guitarGrip } from '../js/engine.js';
+import { Sequencer, guitarGrip, stabPitches } from '../js/engine.js';
 import { stabNotes, hookSnap, voiceLead } from '../js/harmony.js';
 import { FEELS } from '../js/feel.js';
 
@@ -101,7 +101,7 @@ export function songwriting(m, sections) {
 export function playSong(s, replay808Style, replaySeed) {
   const log = [];
   const e = new Proxy({ stepDur: 0.125, harm: null, get playbackStyle() { return replay808Style ?? s.artist?.style; }, get playbackSeed() { return replaySeed ?? s.artist?.seed; } }, {
-    get(o, k) { return k in o ? o[k] : (...a) => { log.push({ k, a, harm: o.harm, step: o.step }); }; },
+    get(o, k) { return k in o ? o[k] : (...a) => { log.push({ k, a, harm: o.harm, step: o.step, ...(o.bossaComp ? { comp: o.bossaComp, pattern: o.playingPattern } : {}) }); }; },
     set(o, k, v) { o[k] = v; return true; },
   });
   const seq = new Sequencer(e, s);
@@ -136,11 +136,18 @@ export function scoreSong(s, o = {}) {
       B.hook.push(`${L.step % 16}:${snapped}`); B.notes.push(snapped); B.events++;
       if (!x?.harm) lead.push([L.step, Math.max(1, Math.round(d / stepDur)), snapped, L.a[1], B.sec, d]);
     } else if (L.k === 'trigger' && L.a[0] === 'stab') {
-      const { root, notes, home } = stabNotes(s, L.harm);
-      const led = last = voiceLead(notes, last, home);
-      const v = guitar && notes.length > 1 ? (grip = guitarGrip(root, notes.map((m) => m - root), grip)) : led;
-      if (!voicings.length || voicings[voicings.length - 1].join() !== v.join()) voicings.push(v);
       B.events++;
+      if (L.comp?.thumb != null) continue;
+      let v;
+      if (L.comp) {
+        const { root, iv } = stabPitches({ state: s, playingPattern: L.pattern, harm: L.harm, bossaComp: L.comp });
+        v = iv.map((n) => root + n);
+      } else {
+        const { root, notes, home } = stabNotes(s, L.harm);
+        const led = last = voiceLead(notes, last, home);
+        v = guitar && notes.length > 1 ? (grip = guitarGrip(root, notes.map((m) => m - root), grip)) : led;
+      }
+      if (!voicings.length || voicings[voicings.length - 1].join() !== v.join()) voicings.push(v);
     } else if (L.k === 'trigger' && DRUMS.has(L.a[0])) {
       B.drums.push(`${L.a[0]}${L.step % 16}:${Math.round(L.a[2] * 4)}`); B.events++;
       if (L.a[0] === 'kick') B.kicks++;

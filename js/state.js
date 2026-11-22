@@ -13,11 +13,11 @@ import { stepDeg } from './motif.js';
 import { cleanLyrics } from './lyrics.js';
 import { SING_VOICES } from './sing-score.js';
 import { cleanTakes, patternAt, setTake } from './scope.js';
-import { trackTitle } from './crate.js';
 import { pickFeel, isFeel, FEELS } from './feel.js';
 import { FUNK_HANDS, FUNK_VOX, funkHandBar } from './baile.js';
 import { festivalBuilds } from './festival-build.js';
 import { isJazz, generateJazz } from './jazz.js';
+import { BOSSA_PARTS, isBossaPart, bossaChart, bossaForm, bossaPreview } from './bossa.js';
 import { HIPHOP, HIPHOP_STYLES, hiphopGroove, hiphopMotif } from './hiphop.js';
 import { rootsTags, cleanRoots } from './roots.js';
 
@@ -287,7 +287,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor', { feel =
 
 function generatePattern(style, seed, scaleName, starter, feel = null, keepScale = false) {
   const r = rng(seed);
-  const F = !FORMS[style] && style !== 'repertoire' && isFeel(feel) ? FEELS[feel] : null;
+  const F = !FORMS[style] && style !== 'repertoire' && style !== 'bossa' && isFeel(feel) ? FEELS[feel] : null;
   const mode = F && !keepScale && feelMode(style, feel, scaleName);
   if (mode) scaleName = mode;
   const musicalScale = SCALES[MAJOR_STYLES.has(style) && scaleName === 'minor' ? 'major' : scaleName]?.notes || SCALES.minor.notes;
@@ -305,7 +305,7 @@ function generatePattern(style, seed, scaleName, starter, feel = null, keepScale
   const bpm = F ? Math.max(lo, Math.min(Math.round(lo + Math.max(0, Math.min(1, F.tempo + jitter)) * (hi - lo)), Math.floor((MAX_SONG_BARS * 240) / LENGTHS.song.lo)))
     : Math.round(lo + x0 * (hi - lo));
   if (isJazz(style)) return generateJazz(style, seed, bpm, INSTRUMENTS[style], STYLE_POCKET[style],
-    F ? (x, progs) => feelPick(x, progs, F, keepScale ? musicalScale.includes(4) : style === 'swing' || style === 'bossa') : null,
+    F ? (x, progs) => feelPick(x, progs, F, keepScale ? musicalScale.includes(4) : style === 'swing') : null,
     keepScale ? scaleName : null);
   if (style === 'repertoire') return generateRepertoire(r, P, params, master);
   if (FORMS[style]) return generateClassical(style, seed, scaleName, r, P, params, master, bpm);
@@ -1084,6 +1084,18 @@ function liteVerse(full) {
 
 // Turn one full pattern into an 8-pattern arrangement: intro → build → peak → breakdown → return.
 export function arrangement(full, seed, half = false) {
+  if (full.jazz?.bossaPart) return BOSSA_PARTS.map((part, i) => {
+    const p = clone(full);
+    p.jazz.bossaPart = part;
+    p.prog = bossaChart(part);
+    p.sec = i >= 6 ? 'chorus' : part === 'solo' ? 'verse' : 'bridge';
+    if (p.hook && !p.hook.h) {
+      p.hook.m = bossaPreview(part, p.jazz.seed, p.prog);
+      p.hook.s = Array(32).fill(0);
+      for (const [at, dur, n, v] of p.hook.m.n) if (at < 32) p.hook.s[at] = [n, dur, v];
+    }
+    return p;
+  });
   if (full.jazz) return range(8, (i) => ({ ...clone(full), sec: i === 2 ? 'verse' : 'chorus' }));
   if (full.score) return range(8, () => clone(full));
   const strip = (p, keep) => {
@@ -1284,6 +1296,7 @@ export const songForm = (spec) => formChain(parseForm(spec));
 // developSong writes the second verse, instrumental and final chorus). `length` is 'song' (3-4 min) or 'sketch'.
 // `bpm` is the tempo the song will actually play at, so the form is sized in seconds, not bars.
 export function songPlan(style, seed, length = 'song', bpm = midBpm(style)) {
+  if (style === 'bossa') return { chain: bossaForm(length, bpm), sections: null };
   if (isJazz(style)) {
     const bars = length === 'sketch' ? 32 : Math.min(128, Math.ceil(190 * bpm / 240 / 16) * 16);
     const head = length === 'sketch' ? 8 : 16;
@@ -1376,8 +1389,11 @@ export function applySongPlan(s, style, seed, length = 'song', feel = null) {
   const picked = songFeel(style, seed, feel);
   if (picked) s.feel = picked; else delete s.feel;
   delete s.chainEntries;
+  if (style === 'bossa') {
+    s.labels = { A: 'INTRO', B: 'TAG', C: 'SOLO', E: 'BRIDGE', F: 'INTERLUDE', G: 'HEAD', H: 'HEAD OUT' };
+    return plan;
+  }
   if (isJazz(style)) {
-    const head = length === 'sketch' ? 8 : 16;
     s.labels = { G: 'HEAD', C: 'SOLOS', H: 'HEAD OUT' };
     return plan;
   }
@@ -1423,16 +1439,13 @@ export function freshSong(style, seed, { base = defaultState(), scale = null, le
 
 // A song GENERATE wrote and nobody changed is just its style, seed and length, so it always plays as today's
 // generator writes it: new melodies, forms, players and mixes reach songs made before them.
-// `fresh` is 1 on an untouched GENERATE song and 0 once it's edited; songs saved before the flag existed count
-// as untouched only while their title, key and tempo are still the ones that seed was given.
+// `fresh` is 1 on an untouched GENERATE song and 0 once it's edited. Songs saved before the flag existed keep
+// the notes they were written with: a reroll by today's generator can sound worse than the song people heard.
 export function refreshable(s) {
   const a = s?.artist, style = a?.style;
   if (!a || !STYLES[style] || style === 'repertoire' || !Number.isFinite(a.seed) || !a.seed || s.remixOf || s.fresh === 0) return false;
   if (s.patterns?.some((p) => p.score?.piece)) return false;
-  if (s.fresh === 1) return true;
-  if (s.drop || a.title !== trackTitle(a.seed)) return false;
-  const g = generate(style, a.seed, s.scale);
-  return s.key === g.key && s.bpm === g.bpm;
+  return s.fresh === 1;
 }
 // A sketch stays a sketch; anything longer than a sketch can run was a song, and grows to today's song length.
 const lengthOf = (s) => String(s.chain || 'A').length * 240 / (s.bpm || 120) <= LENGTHS.sketch.hi + 10 ? 'sketch' : 'song';
@@ -1440,7 +1453,9 @@ export function refreshSong(s) {
   if (!refreshable(s)) return s;
   const { style, seed } = s.artist;
   const composer = s.patterns.find((p) => p.score?.composer)?.score.composer;
-  const base = { ...s, locks: Object.fromEntries(TRACK_IDS.map((t) => [t, false])) };
+  // An untouched song has no mix of its own: mutes and solos saved with it were carried over from an earlier song.
+  const off = () => Object.fromEntries(TRACK_IDS.map((t) => [t, false]));
+  const base = { ...s, locks: off(), mutes: off(), solos: off() };
   const out = freshSong(style, seed, { base, scale: s.scale, length: lengthOf(s), bpm: s.bpm, swing: s.swing, feel: s.feel });
   if (composer) for (const p of out.patterns) if (p.score?.form) p.score.composer = composer;
   if (out.chain !== s.chain) delete out.labels;
@@ -1566,14 +1581,15 @@ export function sanitize(s) {
       ...(hook.up ? { up: 1 } : {}),
       ...(cleanMelody(hook.m) ? { m: cleanMelody(hook.m) } : {}),
     }) : null;
-  const cleanProg = (prog) => prog.slice(0, 8).map((c) => ({ r: Math.max(-12, Math.min(12, c?.r | 0)), c: Math.max(0, Math.min(CHORDS.length - 1, c?.c | 0)) }));
+  const cleanProg = (prog, limit = 8) => prog.slice(0, limit).map((c) => ({ r: Math.max(-12, Math.min(12, c?.r | 0)), c: Math.max(0, Math.min(CHORDS.length - 1, c?.c | 0)) }));
   out.patterns = range(8, (i) => {
     const p = s.patterns[i];
     const e = emptyPattern();
     if (!p) return e;
     const roots = cleanRoots(p.roots);
     if (roots) e.roots = roots;
-    if (isJazz(p.jazz?.style)) e.jazz = { style: p.jazz.style, seed: Number.isFinite(+p.jazz.seed) ? p.jazz.seed | 0 : 1, ...(p.jazz.progBars === 1 ? { progBars: 1 } : {}) };
+    if (isJazz(p.jazz?.style)) e.jazz = { style: p.jazz.style, seed: Number.isFinite(+p.jazz.seed) ? p.jazz.seed | 0 : 1, ...(p.jazz.progBars === 1 ? { progBars: 1 } : {}),
+      ...(p.jazz.style === 'bossa' && isBossaPart(p.jazz.bossaPart) ? { bossaPart: p.jazz.bossaPart } : {}) };
     for (const id of TRACK_IDS) {
       if (Array.isArray(p.steps?.[id])) e.steps[id] = cleanTrack(id, p.steps[id]);
       if (p.len?.[id]) e.len[id] = Math.max(1, Math.min(STEPS, p.len[id] | 0));
@@ -1587,8 +1603,9 @@ export function sanitize(s) {
     if (p.lift) e.lift = Math.max(0, Math.min(3, p.lift | 0));
     if (p.verseSwell === true) e.verseSwell = true;
     if (['verse', 'pre', 'chorus', 'bridge'].includes(p.sec)) e.sec = p.sec;
-    if (Array.isArray(p.prog) && p.prog.length) e.prog = cleanProg(p.prog);
-    const at = !e.score && cleanTakes(p.at, cleanTrack, cleanHook, cleanProg);
+    const progLimit = e.jazz?.bossaPart ? 16 : 8;
+    if (Array.isArray(p.prog) && p.prog.length) e.prog = cleanProg(p.prog, progLimit);
+    const at = !e.score && cleanTakes(p.at, cleanTrack, cleanHook, (prog) => cleanProg(prog, progLimit));
     if (at) e.at = at;
     return e;
   });

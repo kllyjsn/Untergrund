@@ -16,7 +16,7 @@ const minor = (h) => { const iv = CHORDS[h.c].iv; return iv.includes(3) && !iv.i
 // Without an assigned feeling, generation matches the main branch used for this change.
 const h = createHash('sha256');
 for (const style of Object.keys(STYLES)) for (const seed of [1, 7, 42, 1234, 99991]) h.update(style + JSON.stringify(generate(style, seed, scaleOf(style))));
-assert.equal(h.digest('hex'), '52b8d174b55b784d8f70834d05c749336340c879c1a73f0f17a7c98a9fc76147', 'no-feel generate() changed');
+assert.equal(h.digest('hex'), '173df40a726c4288d72f1b2e3f9b42a94ee4a424b2995e52c31e4ddf18fdb31b', 'no-feel generate() changed');
 // Scores and the repertoire never take a feeling.
 for (const style of [...Object.keys(FORMS), 'repertoire'].filter((s) => STYLES[s])) {
   assert.equal(songFeel(style, 3), null, style);
@@ -96,7 +96,7 @@ console.log('feel music: ok', { pop: Object.fromEntries(['heartbroken', 'longing
   assert.notEqual(JSON.stringify(asked.patterns), JSON.stringify(freshSong('pop', seed).patterns));
 }
 
-for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
+for (const style of ['swing', 'modal', 'jazzfunk']) {
   const varied = Array.from({ length: 32 }, (_, i) => {
     const seed = Math.imul(i + 1, 0x9e3779b1);
     const bright = generate(style, seed, 'minor', { feel: 'joyful' }).pattern;
@@ -104,6 +104,14 @@ for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
     return JSON.stringify(bright.prog) !== JSON.stringify(sad.prog) && JSON.stringify(bright.hook.m.n) !== JSON.stringify(sad.hook.m.n);
   });
   assert(varied.some(Boolean), `${style} changes both harmony and melody without relying on tempo`);
+}
+for (const seed of [11, 42, 77]) {
+  const bossa = (feel) => freshSong('bossa', seed, { feel });
+  const { bpm, chain, patterns } = bossa('joyful');
+  const sad = bossa('heartbroken');
+  assert.equal(sad.bpm, bpm);
+  assert.equal(sad.chain, chain);
+  assert.deepEqual(sad.patterns, patterns, 'mood leaves the authored Bossa section charts and motifs intact');
 }
 {
   const spec = { style: 'pop', bpm: 110, scale: 'major', sections: [{ role: 'verse', bars: 16 }, { role: 'drop', bars: 16 }] };
