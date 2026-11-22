@@ -1383,7 +1383,9 @@ export function refreshSong(s) {
   if (!refreshable(s)) return s;
   const { style, seed } = s.artist;
   const composer = s.patterns.find((p) => p.score?.composer)?.score.composer;
-  const base = { ...s, locks: Object.fromEntries(TRACK_IDS.map((t) => [t, false])) };
+  // An untouched song has no mix of its own: mutes and solos saved with it were carried over from an earlier song.
+  const off = () => Object.fromEntries(TRACK_IDS.map((t) => [t, false]));
+  const base = { ...s, locks: off(), mutes: off(), solos: off() };
   const out = freshSong(style, seed, { base, scale: s.scale, length: lengthOf(s), bpm: s.bpm, swing: s.swing, feel: s.feel });
   if (composer) for (const p of out.patterns) if (p.score?.form) p.score.composer = composer;
   if (out.chain !== s.chain) delete out.labels;
