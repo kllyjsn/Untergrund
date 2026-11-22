@@ -10,7 +10,6 @@ import { getChops } from './voice.js';
 import { vowelStyle, vowelVoxNote, vowelPitch, vowelHookDuration } from './vowels.js';
 import { SAX_HOOK, saxRoot } from './livekit.js';
 import { rootsFor, fiddleRole, fiddlePitch, fiddleDuration, rootsPitch, uprightNotes } from './roots.js';
-import { getChops } from './voice.js';
 
 export const PPQ = 480;
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
