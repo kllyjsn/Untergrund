@@ -24,7 +24,7 @@ export const HIPHOP = {
     stabs: [[0, 8], [0, 10], [0, 6, 8]],
     bass: [[0, 0], [3, 4], [6, 0], [8, 0], [11, 7], [14, 4]], hook: 'funkwhistle', octave: 1,
     // Recorded strings' [Hz, Q, dB] peaks: body under the whistle, their 2-4 kHz partials out of its way.
-    strEq: [[500, 0.7, 5], [2200, 1.2, -3], [3300, 0.8, -6]],
+    strEq: [[500, 0.7, 2.5], [2200, 1.0, -6], [3000, 0.6, -12]],
     riffs: [[[0, 4, 4], [4, 5, 2], [6, 4, 6]], [[2, 2, 4], [6, 4, 4], [10, 3, 4]], [[0, 2, 4], [4, 3, 4], [8, 4, 5]]],
     mix: {
       kick: { tune: 55, decay: 0.2, drive: 0.25, click: 0.14, punch: 0.64, rumble: 0, level: 0.86 },
