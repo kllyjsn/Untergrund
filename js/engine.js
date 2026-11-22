@@ -5271,6 +5271,8 @@ export class Sequencer {
       for (const hit of build.rolls) e.trigger('snare', t + hit.offset * sd, hit.velocity);
     }
     const sung = pat.hook?.m && !pat.hook.h ? this.sungBar(bar, n ? pos : bar) : null;
+    // The peak's dropout (longform.js writePeak): one bar of only the lead (the chords, with no lead), then the band returns.
+    const alone = pat.peak === 'dropout' ? (sung || (pat.hook && !pat.hook.h && pat.hm) ? 'lead' : 'stab') : null;
     const hookStep = sung ? this.songBars && !sung.hook.m.c && sung.notes.some((o) => o.at === i16 && i16 % 8) : pat.hook && pat.hm ? pat.hook.s[abs % 32] : 0;
     const hard = s.artist?.style === 'hardtechno';
     if (hard && this.cur === 5 && this.runLen > 0) {
@@ -5290,7 +5292,7 @@ export class Sequencer {
       e.smoothChords(sc, t);
       // A lifted breakdown opens on a chord so its first bar does not fall into a gap.
       const soloed = Object.values(s.solos || {}).some(Boolean);
-      if (sc > 0 && i16 === 0 && pat.peak !== 'dropout' && !s.mutes.stab && (!soloed || s.solos.stab)) e.trigger('stab', t, 0.45);
+      if (sc > 0 && i16 === 0 && alone !== 'lead' && !s.mutes.stab && (!soloed || s.solos.stab)) e.trigger('stab', t, 0.45);
     }
     if (!festival && this.dropNext && this.smooth) { if (i16 === 0) e.dropDip(t, 16 * sd); } else if (!festival && this.dropNext && !hard) {
       if (i16 === 0) e.sweep(t, 16 * sd, arr);
@@ -5300,8 +5302,6 @@ export class Sequencer {
         if (i16 >= 12) e.trigger('snare', tt + sd / 2, rv * 0.85);
       }
     }
-    // The peak's dropout (longform.js writePeak): one bar of only the lead (the chords, with no lead), then the band returns.
-    const alone = pat.peak === 'dropout' ? (sung || (pat.hook && !pat.hook.h && pat.hm) ? 'lead' : 'stab') : null;
     if (alone) this.peakDrop = pos;
     else if (i16 === 0 && pos > 0 && this.peakDrop === pos - 1) e.impact(t, Math.max(0.5, arr));
     if (this.dropNow && i16 === 0 && !this.smooth && !alone) e.impact(t, arr);
