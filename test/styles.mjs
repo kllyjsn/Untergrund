@@ -315,6 +315,28 @@ console.log('arrangement dynamics passed');
   assert.equal(guitarHand('gretsch', 'COUNTRY', false).fx, 'trem', 'twang guitar plays through amp tremolo');
   assert.equal(guitarHand('agtr', 'COUNTRY', false).play, 'boom', 'country acoustic plays boom-chick');
   {
+    const out = {}, combo = {}, slap = {}, genericAmp = {};
+    const sets = { tele: [{}], hca: [{}], gtr: [{}] };
+    const e = {
+      state: { key: 0, scale: 'major', params: { stab: { voice: 11 } }, artist: { style: 'country' } },
+      playingPattern: { roots: { style: 'country', hook: 'twang' } },
+      playbackStyle: 'country', hookBus: out, ch: { stab: { input: {} } },
+      rec: (kind) => sets[kind],
+      teleFor: (dest) => { assert.equal(dest, out); return combo; },
+      slapFor: (dest) => { assert.equal(dest, sets.tele ? combo : out); return slap; },
+      ampFor: (dest) => { assert.equal(dest, out); return genericAmp; },
+      recordedNote: (set, t, gain, pitch, dur, dest, bright, preset) => [Object.keys(sets).find((name) => sets[name] === set), preset, dest],
+    };
+    const play = (expression) => Engine.prototype.hook.call(e, 1, .6, 0, .5, 'warm', 0, false, 1, false, expression);
+    assert.deepEqual(play(), ['tele', 'tele', slap]);
+    assert.deepEqual(play({ harp: true }), ['hca', 'hca', out]);
+    delete sets.tele;
+    assert.deepEqual(play(), ['gtr', 'twang', slap]);
+    e.state.artist.style = e.playbackStyle = 'rock';
+    e.playingPattern = {};
+    assert.deepEqual(play(), ['gtr', 'lead', genericAmp]);
+  }
+  {
     // Country lead bends land exactly on the note, start from a scale tone, and only on notes long enough to hear it land.
     const { teleBend, bendCurve, BEND_HOLD, BEND_RISE, TELE_LICKS, HARP_RUNS } = await import('../js/engine.js');
     const { SCALES } = await import('../js/params.js');
