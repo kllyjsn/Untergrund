@@ -1,6 +1,6 @@
 // "Describe it" box on Create + Studio: type or tap what you want, get a one-line receipt with undo.
 import { h } from './ui.js';
-import { parse, applyEdits, genreOf, suggest, chipsFor, mergeEdits, needsMix, mixAdjust, heard, validateEdits } from './describe.js';
+import { parse, applyEdits, genreOf, suggest, chipsFor, mergeEdits, needsMix, mixAdjust, heard, validateEdits, unresolvedText } from './describe.js';
 import { privacyOptOut } from './analytics.js';
 import { isSongPrompt as isPlanPrompt, promptGenre, rulePlan, planEdits, planLyrics, validatePlan, lyricLines } from './song-plan.js';
 import { cleanLyrics, splitLyrics, lyricTimeline, lyricLabels, lyricsText, LIMITS } from './lyrics.js';
@@ -240,15 +240,17 @@ export function describeBar(ctx) {
     if (isPlanPrompt(text)) return runPlan(text, '');
     const parsed = parse(text, { style, last: recent, net });
     if (!parsed.edits.length) {
-      if (parsed.unsupportedHarmony?.length) return miss(text, 'Changing chord voicings in one section is not supported yet. Try:');
-      if (navigator.onLine === false || /^(?:more|again|less|too much|other way|undo\b)/.test(text.toLowerCase())) return miss(text);
+      const unsupported = parsed.unsupportedHarmony || [];
+      const query = unsupported.length ? unresolvedText(parsed) : text;
+      const why = unsupported.length ? 'Changing chord voicings in one section is not supported yet. Try:' : null;
+      if (!query || navigator.onLine === false || /^(?:more|again|less|too much|other way|undo\b)/.test(query.toLowerCase())) return miss(text, why);
       hint = { note: 'Thinking…', suggestions: [] };
       paint();
-      return askAI(text, style).then((edits) => {
+      return askAI(query, style).then((edits) => {
         if (mine !== ticket) return;
         hint = null;
-        if (!edits.length) return miss(text);
-        apply(text, style, { edits, unknown: [] }, []);
+        if (!edits.length) return miss(text, why);
+        apply(text, style, { edits, unknown: unsupported }, []);
       });
     }
     if (!genreOf(parsed.edits, style) && needsMix(parsed.edits)) {

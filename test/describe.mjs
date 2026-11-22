@@ -349,6 +349,15 @@ const done = (async () => {
   const unsupported = await interpret('no minor seventh chords in the intro', {}, { remote });
   assert.equal(remoteCalls, 0, 'remote must not approximate an unsupported section voicing edit');
   assert.equal(unsupported.unsupportedHarmony.length, 1);
+  const compound = await interpret('no minor sevenths in the intro, transpose one semitone upward', {}, {
+    remote: async (text) => {
+      assert.equal(text, 'transpose one semitone upward');
+      return { edits: [{ id: 'keyStep', amt: 1 }] };
+    },
+  });
+  assert.deepEqual(compound.edits.map((e) => [e.id, e.amt]), [['keyStep', 1]]);
+  assert.equal(compound.unknown.length, 1);
+  assert.deepEqual(compound.unknown, compound.unsupportedHarmony);
   const b = await interpret('make it feel like velvet', {}, { remote });
   assert.equal(remoteCalls, 1);
   assert.deepEqual(b.edits.map((e) => e.id), ['space']);

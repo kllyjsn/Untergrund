@@ -1010,12 +1010,15 @@ export function validateEdits(list) {
 }
 // Local rules first; `remote` (e.g. an env-gated /api endpoint backed by an LLM) is only asked about
 // phrases the rules don't understand. Off unless a caller passes one.
+export const unresolvedText = ({ unknown, unsupportedHarmony }) => unknown
+  .filter((clause) => !unsupportedHarmony?.includes(clause)).join(', ');
+
 export async function interpret(text, ctx = {}, { remote } = {}) {
   const local = parse(text, ctx);
-  const unresolved = local.unknown.filter((clause) => !local.unsupportedHarmony?.includes(clause));
-  if (!remote || !unresolved.length) return { ...local, via: 'rules' };
+  const unresolved = unresolvedText(local);
+  if (!remote || !unresolved) return { ...local, via: 'rules' };
   try {
-    const r = await remote(unresolved.join(', '), { ...ctx, intents: INTENTS });
+    const r = await remote(unresolved, { ...ctx, intents: INTENTS });
     const extra = validateEdits(r?.edits);
     if (extra.length) return { ...local, edits: merge([...local.edits, ...extra]), unknown: local.unsupportedHarmony || [], via: 'remote' };
   } catch {}
