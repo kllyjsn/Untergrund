@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import { installGlobals } from './offline-audio.mjs';
+import { defaultState } from '../js/state.js';
+import { renderBars } from '../js/render.js';
+installGlobals();
+globalThis.fetch = async () => ({ ok: false, status: 404 });
+console.warn = () => {};
+const s = defaultState();
+s.patterns[0].roots = { style: 'boombap', chord: 'upright' };
+s.params.stab.voice = 7;
+await assert.rejects(renderBars(s, 1), /Required recorded S9 samples unavailable: upright/);
+console.log('S9 offline missing recordings rejected');
