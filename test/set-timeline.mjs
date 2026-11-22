@@ -3,10 +3,82 @@ import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { generate, defaultState, clone, sanitize, STYLES } from '../js/state.js';
 import { createTimelineRecorder, stateAt, trimTimeline, createReplayer, normalizeTimeline, diffOps, applyOps, stepAt, compactTimeline, liveView, MAX_TIMELINE_BYTES } from '../js/set-timeline.js';
-import { startLiveSet, endLiveSet, playTimeline, stopTimeline } from '../js/live-sets.js';
+import { startLiveSet, endLiveSet, playTimeline, stopTimeline, timelineSets } from '../js/live-sets.js';
+import { liveSets } from '../js/livekit.js';
 
 // Deterministic "DJ": a seeded run of knob turns, mutes, pattern switches, tempo and genre changes.
 function rng(seed) { let x = seed >>> 0; return () => ((x = (x * 1664525 + 1013904223) >>> 0) / 2 ** 32); }
+{
+  const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+  const replay = await readFile(new URL('../js/live-sets.js', import.meta.url), 'utf8');
+  const source = replay.slice(replay.indexOf('export async function prepareTimeline('), replay.indexOf('\nexport function playTimeline(')).replace('export async', 'async');
+  const room = main.slice(main.indexOf('async function joinRoomReplay('), main.indexOf('\nfunction joinRoomSet('));
+  const timeline = { style: 'gfunk', initial: { bpm: 120, params: { acid: { voice: 1 }, stab: { voice: 1 } } },
+    events: [{ t: 10000, ops: [[['params', 'stab', 'voice'], 3]] }], duration: 20000 };
+  const setup = (load) => {
+    let now = 0, next = 0;
+    const timers = new Map(), calls = [];
+    const env = {
+      stateAt, liveSets, timelineSets, Date: { now: () => now },
+      loadSets: names => { calls.push(names); return load(names); },
+      setTimeout: (fn, delay) => { timers.set(++next, { fn, delay }); return next; },
+      clearTimeout: id => timers.delete(id),
+    };
+    runInNewContext(`${source}; this.prepare = prepareTimeline;`, env);
+    return { env, calls, timers, advance: t => { now = t; } };
+  };
+  const pending = () => new Promise(() => {});
+  const cold = setup(pending);
+  let played;
+  Object.assign(cold.env, { roomReplayLoad: null, replayToRoom: (t, startsAt) => { played = startsAt; }, toast() {}, trackEvent() {} });
+  runInNewContext(`${room}; this.join = joinRoomReplay;`, cold.env);
+  const joined = cold.env.join({ startsAt: 1000, replay: { timeline } });
+  assert.deepEqual(cold.calls, [['abass']], 'only the opening recordings compete for the scheduled room start');
+  const deadline = [...cold.timers.values()].find(t => t.delay === 800);
+  assert.ok(deadline && played === undefined);
+  cold.advance(800); deadline.fn();
+  await joined;
+  assert.equal(played, 1000, 'the room is armed before its original start even if opening decode never settles');
+  [...cold.timers.values()].find(t => t.delay === 0).fn();
+  assert.deepEqual(cold.calls[1], ['abass', 'org'], 'later organ voices continue loading in the background');
+  const late = setup(pending);
+  late.advance(2000);
+  await late.env.prepare(timeline, 1000);
+  assert.ok(![...late.timers.values()].some(t => t.delay > 0), 'an already-running room never waits for recordings');
+  const { promise, resolve } = Promise.withResolvers();
+  const jukebox = setup(() => promise);
+  let ready = false;
+  const prepared = jukebox.env.prepare(timeline).then(() => { ready = true; });
+  await Promise.resolve();
+  assert.equal(ready, false, 'a cold standalone replay waits for its opening SH-2');
+  resolve();
+  await prepared;
+  assert.ok(ready && ![...jukebox.timers.values()].some(t => t.delay > 0), 'opening decode releases the jukebox without waiting for later edits');
+  const empty = setup(() => Promise.resolve());
+  await empty.env.prepare({ initial: {}, events: [] });
+  assert.deepEqual(empty.calls, [[]]);
+  const failed = setup(() => Promise.reject(new Error('unavailable samples')));
+  await failed.env.prepare(timeline);
+  [...failed.timers.values()].find(t => t.delay === 0).fn();
+  await Promise.resolve();
+  assert.ok(![...failed.timers.values()].some(t => t.delay > 0), 'failed downloads fall back without holding a start timer');
+  const callbacks = {};
+  let queued, began;
+  const { promise: waiting, resolve: release } = Promise.withResolvers();
+  const env = {
+    ensureAudio() {}, trackEvent() {}, leaveGuest() {}, openJukebox: o => Object.assign(callbacks, o),
+    loadReplay: async () => timeline, prepareTimeline: t => { queued = t; return waiting; },
+    playTimeline: (t, startsAt) => { began = { t, startsAt }; }, timelineHooks: () => ({}), Date: { now: () => 5000 },
+  };
+  runInNewContext(main.slice(main.indexOf('function showJukebox('), main.indexOf('\nfunction installRoomSong(')) + '; showJukebox();', env);
+  const playing = callbacks.playReplay({});
+  await Promise.resolve();
+  assert.equal(queued, timeline);
+  assert.equal(began, undefined, 'the actual jukebox callback cannot start and lock missing recordings before preparation');
+  release(); await playing;
+  assert.equal(began.t, timeline); assert.equal(began.startsAt, 5200);
+  console.log('Replay preparation passed: cold jukebox waits, room deadline/late join stays on clock, future voices load in background, empty/error fallback');
+}
 function performSet(seed, minutes = 6) {
   const r = rng(seed), live = defaultState(), t0 = 1_700_000_000_000;
   let style = 'hypnotic';

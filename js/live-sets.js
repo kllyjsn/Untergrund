@@ -2,7 +2,7 @@
 // one tap saves the cut to the jukebox. Lives outside the Club DOM (which re-renders on every heartbeat).
 import { h } from './ui.js';
 import { createTimelineRecorder, createReplayer, trimTimeline, stateAt, stepAt, applyOps, MIN_SET_MS } from './set-timeline.js';
-import { liveSets } from './livekit.js';
+import { liveSets, loadSets } from './livekit.js';
 import { sheet, fmtTime, publishReplay, drawPeaks } from './sets.js';
 import { track as trackEvent } from './analytics.js';
 
@@ -50,6 +50,18 @@ export function timelineSets(timeline) {
     for (const name of liveSets(state, style)) names.add(name);
   }
   return [...names];
+}
+export async function prepareTimeline(timeline, startsAt = null) {
+  const at = stateAt(timeline, startsAt === null ? 0 : Math.max(0, Date.now() - startsAt));
+  const opening = loadSets(liveSets(at.state, at.style)).catch(() => {});
+  const wait = startsAt === null ? 8000 : Math.max(0, startsAt - Date.now() - 200);
+  let timer;
+  try {
+    if (wait) await Promise.race([opening, new Promise(resolve => { timer = setTimeout(resolve, wait); })]);
+  } finally {
+    clearTimeout(timer);
+    setTimeout(() => { loadSets(timelineSets(timeline)).catch(() => {}); }, 0);
+  }
 }
 export function playTimeline(timeline, startsAt, { load, apply, play, isPlaying, onEnd }) {
   stopTimeline();
