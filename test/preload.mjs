@@ -9,6 +9,7 @@ import { KIT_BACKBEAT, HAND_KIT, MARIMBA_STAB, CHORDS } from '../js/params.js';
 import { defaultState, generate, STYLES, arrangement, applyOverrides, applySongPlan } from '../js/state.js';
 import { hookSnap } from '../js/harmony.js';
 import { createPlayer } from '../js/player.js';
+import { timelineSets } from '../js/live-sets.js';
 import { OfflineAudioContext as FakeContext, AudioBuffer } from './offline-audio.mjs';
 
 const st = (kit, voice) => ({ master: { kit }, params: { stab: { voice } } });
@@ -20,6 +21,8 @@ assert.deepEqual(liveSets(st(1, 7)), ['kit', 'piano', 'pianosoft']);
 assert.deepEqual(liveSets(st(0, 10)), ['str']);
 assert.deepEqual(liveSets(st(1.2, 9.4)), ['kit', 'horn']);
 assert.deepEqual(liveSets({}), []);
+assert.deepEqual(liveSets({ params: { stab: { voice: 1 } }, artist: { style: 'hypnotic' } }, 'rnb'), ['rhodes'], 'replay style preloads Rhodes independently of the listener genre');
+assert.deepEqual(liveSets({ params: { stab: { voice: 1 } }, artist: { style: 'rnb' } }, 'trap'), [], 'listener genre does not add Rhodes to other replay styles');
 assert.deepEqual(liveSets({ artist: { style: 'pop' }, pattern: { hook: { v: 'reed' } } }), ['asax', 'asaxb'], 'pop reed is the recorded alto');
 assert.deepEqual(liveSets({ artist: { style: 'boombap' }, pattern: { hook: { v: 'reed' } } }), ['tsax', 'tsaxb'], 'boom bap reed is the recorded tenor');
 assert.deepEqual(liveSets({ artist: { style: 'country' }, pattern: { hook: { v: 'reed' } } }), [], 'other reed styles stay synthesized');
@@ -272,6 +275,25 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
   files.clear();
 }
 {
+  const initial = { params: { acid: { voice: 1 }, stab: { voice: 1 } }, artist: { style: 'hypnotic' } };
+  const timeline = { style: 'gfunk', initial, events: [
+    { t: 1000, ops: [[['params', 'stab', 'voice'], 3]] },
+    { t: 2000, ops: [[['style'], 'trap'], [['patterns'], [{ hook: { v: 'reed' } }]]] },
+  ] };
+  const before = JSON.stringify(timeline);
+  assert.deepEqual(timelineSets(timeline), ['abass', 'org', 'asax', 'asaxb'], 'replay style and all later voices preload, not the listener genre');
+  assert.equal(JSON.stringify(timeline), before, 'collecting recordings does not mutate the replay');
+  assert.deepEqual(timelineSets({}), []);
+  assert.deepEqual(liveSets(initial, 'ukg'), [], 'UK Garage BASS stays synthesized');
+  const late = new Map();
+  assert.equal(rec(late, 'abass'), null);
+  await loadSets(timelineSets(timeline));
+  assert.equal(rec(late, 'abass'), null, 'a failed cold start would stay on the synth even after decode');
+  const ready = new Map();
+  assert.ok(rec(ready, 'abass') && rec(ready, 'org'), 'preloading before replay locks both recordings in from their first use');
+  files.clear();
+}
+{
   const hands = {
     amapiano: ['shaker', 'conga'],
     afrobeats: ['conga', 'shaker', 'cowbell'],
@@ -344,6 +366,35 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
   assert.equal(eq.type, 'peaking');
   assert.ok(eq.frequency.value > 2800 && eq.frequency.value < 3100 && eq.gain.value < -10);
   assert.ok(feeds(eq, out), 'the marimba hook notch feeds the band bus');
+}
+{
+  const ctx = new FakeContext(2, 4096, 48000), state = defaultState(), hits = [];
+  const stab = { input: ctx.createGain(), band: ctx.createGain() };
+  const gtr = [[63, {}]];
+  state.params.stab.voice = 8;
+  state.key = 0;
+  const e = {
+    state, ctx, ch: { stab }, playbackStyle: 'reggaeton', rec: (name) => name === 'gtr' ? gtr : null,
+    recordedNote: Engine.prototype.recordedNote, bodyFor: Engine.prototype.bodyFor, filter: Engine.prototype.filter,
+    leadOver: () => {}, playBuf: (...args) => hits.push(args),
+  };
+  const hook = () => Engine.prototype.hook.call(e, 1, 0.7, 3, 0.3, 'warm');
+  hook();
+  hook();
+  const eq = hits[0][3];
+  assert.equal(hits[1][3], eq, 'the Reggaeton guitar hook reuses its EQ');
+  assert.equal(eq.type, 'peaking');
+  assert.ok(eq.frequency.value >= 2900 && eq.frequency.value <= 2965 && eq.gain.value < 0);
+  assert.ok(feeds(eq, stab.band), 'playback and stem routing use the recorded-instrument bus');
+  e.hookBus = ctx.createGain();
+  hook();
+  assert.ok(feeds(hits[2][3], e.hookBus) && !feeds(hits[2][3], stab.band), 'the EQ follows the preview bus');
+  e.hookBus = null;
+  e.playbackStyle = 'afrobeats';
+  hook();
+  assert.equal(hits[3][3], stab.band, 'other genres keep the unfiltered guitar hook');
+  const withoutRoute = ([buf, t, v, , rate, dur, fx]) => [buf, t, v, rate, dur, fx];
+  assert.deepEqual(withoutRoute(hits[0]), withoutRoute(hits[3]), 'the EQ leaves the recorded note, pitch, level and timing unchanged');
 }
 {
   const ctx = new FakeContext(2, 4096, 48000), state = defaultState(), out = ctx.createGain();

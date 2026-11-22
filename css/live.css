@@ -107,10 +107,10 @@
 /* Room head: back to rooms, then the room (name, privacy, link live in its sheet). */
 .club-rooms-btn { flex: none; height: 32px; padding: 0 10px; font-size: 9px; }
 .club-rooms-btn::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 7px; border: solid currentColor; border-width: 0 0 1.5px 1.5px; transform: translateY(-1px) rotate(45deg); }
-.club-room-sheet { left: 16px; right: auto; }
+.club-room-sheet { left: 16px; right: auto; max-width: calc(100% - 32px); }
 .club-room-link { flex: 1; min-width: 0; padding: 0 10px; height: 30px; line-height: 30px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--hair); border-radius: var(--r1); background: #1c1c1e; color: var(--text); font: 500 12px var(--mono); }
-.club-room-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.club-room-choice { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--hair2); border-radius: var(--r1); background: #1c1c1e; color: var(--text); text-align: left; cursor: pointer; }
+.club-room-choices { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px; }
+.club-room-choice { min-width: 0; display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--hair2); border-radius: var(--r1); background: #1c1c1e; color: var(--text); text-align: left; cursor: pointer; }
 .club-room-choice b { font: 600 14px var(--sans); }
 .club-room-choice small { color: var(--dim); font: 400 12px/1.35 var(--sans); }
 .club-room-choice.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
@@ -137,7 +137,19 @@
   .club-rooms-btn { width: 36px; height: 36px; padding: 0; }
   .club-rooms-btn span { display: none; }
   .club-rooms-btn::before { margin: 0 0 0 3px; }
-  .club-room-btn { padding: 2px 6px; }
+  .club-head-actions { flex: none; }
+  .club-room-btn { flex: 1; min-height: 44px; padding: 2px 6px; }
   .club-room-btn b { font-size: 15px; }
+  /* Match the phone sheet above navigation, not the desktop left-anchored popover. */
+  .club-room-sheet { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-width: none; max-height: calc(100% - 24px - env(safe-area-inset-top)); border-width: 1px 0 0; border-radius: var(--r2) var(--r2) 0 0; padding: 12px 14px 16px; }
+  .club-room-choices { grid-template-columns: minmax(0,1fr); }
+  .club-room-sheet .btn { min-width: 44px; min-height: 44px; font-size: 10px; }
+  .club-room-sheet .club-room-input { min-height: 44px; font-size: 16px; }
+  .club-room-link { height: 44px; line-height: 44px; }
+}
+@media (max-width: 319px) {
+  /* Browser zoom can leave less than a phone's usual 320 CSS pixels. */
+  .club-head { flex-wrap: wrap; gap: 6px; }
+  .club-room-name { flex-basis: 100%; }
 }
 @media (prefers-reduced-motion: reduce) { .lr-dot::after { animation: none; } }
