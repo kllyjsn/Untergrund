@@ -2967,6 +2967,7 @@ export class Engine {
     if (!set) { loadBand(base); return this[fallback](t, v, iv, root, p, out); }
     if (out === this.ch.stab.input) out = this.ch.stab.band;
     else if (R.room) out = this.bandTap(out, R.room);
+    if (kind === 'gtr' && this.playbackStyle === 'reggaeton') out = this.bodyFor(out, [2960, 6, -12]);
     const chord = R.grip && iv.length > 1, live = chord && this.step != null;
     const pk = live ? pocketOf(this.state.master) : null, hand = live ? guitarHand(kind, pk?.name, this.wide) : null;
     // Two takes of the rhythm part panned hard left and right; a pedal or amp effect per player, then the amp.
