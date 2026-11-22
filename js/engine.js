@@ -5185,11 +5185,12 @@ const PRE_HZ = 4500, BUILD_HZ = 3000;
 // phrase and broadens into a new section (classical.js tempoMap at low depth, deeper for calmer feelings), and the
 // ending slows over its last bars by the feeling's end.rit. A song with a sung stem keeps strict time, as does one
 // without a feeling.
+const GRID_TEMPO = new Set(['hypnotic', 'industrial', 'acid', 'dub', 'peak', 'hardtechno', 'deephouse', 'minimal', 'ukg', 'euphoric', 'trance', 'amapiano', 'bailefunk', 'jerseyclub']);
 export function feelTempo(s, chain, pos, i16) {
   const f = feelOf(s), n = chain.length;
-  if (!f || !n || s.sing?.on) return 1;
+  if (!f || !n || s.sing?.on || GRID_TEMPO.has(s.artist?.style)) return 1;
   let m = 1;
-  if (s.patterns[chain[pos]]?.sec && s.artist?.style !== 'hardtechno' && jazzStyle(s, s.patterns[chain[pos]]) !== 'jazzfunk') {
+  if (s.patterns[chain[pos]]?.sec && jazzStyle(s, s.patterns[chain[pos]]) !== 'jazzfunk') {
     let a = pos;
     while (a > 0 && chain[a - 1] === chain[pos]) a--;
     const d = 0.25 + 0.1 * (1 - f.arousal), ph = ((((pos - a) % 4) * 16) + i16) / 64;
@@ -5397,7 +5398,7 @@ export class Sequencer {
     const hp = f ? this.hairpin(f, abs) : 1;
     // The breath is a lifted hand: ringing chords and the bass are damped, then let back in for the downbeat.
     if (held && abs % 16 === 12) e.breath(tt, false);
-    if (held && abs % 16 === 15) e.breath(tt + sd - 0.012, true);
+    if (held && abs % 16 === 15) e.breath(t + sd - 0.012, true);
     if (s.ending && n >= 16 && pos === n - 1 && !pat.score) return this.ending(pat, abs % 16, tt, sd, kl);
     // Turnaround: the last beat of a section anticipates the next section's first chord.
     const nx = n && pos + 1 < n && this.chainArr[pos + 1] !== this.cur ? patternAt(s.patterns[this.chainArr[pos + 1]], pos + 1) : null;
