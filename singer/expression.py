@@ -56,6 +56,30 @@ def clean_expr(raw: Any) -> dict:
     return out
 
 
+def clean_parts(raw: Any, beats: float = 1600.0) -> list:
+    """Section deliveries ``[{"beat", "expr"}]`` (js/sing-score.js cleanParts): rising beats inside the score, each with
+    knobs; anything else drops them all."""
+    if not isinstance(raw, list) or not raw or len(raw) > 64:
+        return []
+    out = []
+    for p in raw:
+        b = p.get("beat") if isinstance(p, dict) else None
+        expr = clean_expr(p.get("expr")) if isinstance(p, dict) else {}
+        if isinstance(b, bool) or not isinstance(b, (int, float)) or not math.isfinite(b) or not 0 <= b <= beats or not expr or (out and b <= out[-1]["beat"]):
+            return []
+        out.append({"beat": round(float(b), 4), "expr": expr})
+    return out
+
+
+def part_at(parts: list, beat: float) -> dict | None:
+    """The delivery of the last part starting at or before ``beat`` (a phrase's first note)."""
+    got = None
+    for p in parts or []:
+        if p["beat"] <= beat + 1e-3:
+            got = p["expr"]
+    return got
+
+
 def knobs(expr: dict) -> dict:
     return {k: expr.get(k, d) for k, (d, _, _) in KNOBS.items()}
 
@@ -211,8 +235,10 @@ def stressed_words(phrase, bpm: float) -> list[bool]:
 
 
 # --- the render --------------------------------------------------------------------------------------------------------
-def sing(engine, score: dict, voice: str, seed: int, expr: dict, language: str = "en_us", report: dict | None = None) -> np.ndarray:
-    """``scyllasband.singing.sing`` with expression: a mono float32 song, sample 0 on the score's first beat."""
+def sing(engine, score: dict, voice: str, seed: int, expr: dict, language: str = "en_us", report: dict | None = None,
+         parts: list | None = None) -> np.ndarray:
+    """``scyllasband.singing.sing`` with expression: a mono float32 song, sample 0 on the score's first beat. ``parts``
+    (clean_parts) give each phrase the delivery of the section it starts in; guidance and align stay the song's."""
     from scyllasband import singing as S
     k = knobs(expr)
     plan = S.plan_song(score, engine, voice, language)
@@ -233,13 +259,15 @@ def sing(engine, score: dict, voice: str, seed: int, expr: dict, language: str =
     shifts, prev_end = [], 0.0
     for item in plan.phrases:
         ph = item.phrase
+        own = part_at(parts, (ph.start + ph.notes[0].start) / beat)
+        kp = {**knobs(own), "guidance": k["guidance"], "align": k["align"]} if own else k
         stressed = stressed_words(ph, plan.score.bpm)
-        durations, moved = retime(item.durations, item.sentence.phones, item.sentence.word_starts, stressed, k)
+        durations, moved = retime(item.durations, item.sentence.phones, item.sentence.word_starts, stressed, kp)
         melody = S.frame_melody(ph.notes, sum(durations), hop=hop, sample_rate=sr,
                                 midi_center=float((singing.get("melody") or {}).get("midi_center", S.MIDI_CENTER)), midi_scale=scale)
         if any(moved):
             melody = lift_lead_ins(melody, durations, item.sentence.word_starts, item.sentence.phones, moved)
-        melody = bend(melody, ph.notes, k, hop=hop, sr=sr, scale=scale)
+        melody = bend(melody, ph.notes, kp, hop=hop, sr=sr, scale=scale)
         rng = np.random.default_rng(int(seed) + item.index)
         result = engine.synthesize_sentence(item.sentence, voice=voice, language=language, delivery=delivery, steps=steps, sampler=sampler,
                                             rng=rng, durations=durations, melody=melody, delivery_mode=plan.mode_id, guidance=guidance)
@@ -257,18 +285,18 @@ def sing(engine, score: dict, voice: str, seed: int, expr: dict, language: str =
         if offset < 0:
             audio, offset = audio[-offset:], 0
         count = min(audio.size, song.size - offset)
-        if k["breath"] > 0 and ph.start + first - prev_end >= BREATH_REST:
+        if kp["breath"] > 0 and ph.start + first - prev_end >= BREATH_REST:
             level = np.sqrt(np.mean(audio[audio != 0] ** 2)) if np.any(audio) else 0.0
             dur = min(0.32, 0.45 * (ph.start + first - prev_end))
             end = ph.start + first - lead_s - 0.03
-            b = breath(np.random.default_rng(int(seed) + BREATH_SEED + item.index), dur, sr) * level * 10 ** (-k["breath"] / 20) * 2.5
+            b = breath(np.random.default_rng(int(seed) + BREATH_SEED + item.index), dur, sr) * level * 10 ** (-kp["breath"] / 20) * 2.5
             b0 = int(round((end - dur) * sr))
             if b0 >= 0:
                 song[b0:b0 + b.size] += b[: max(0, song.size - b0)]
         song[offset:offset + count] += audio[:count]
         prev_end = ph.start + max(n.end for n in ph.notes if n.midi is not None)
-        if k["stress_db"] > 0:
-            up = 10 ** (k["stress_db"] / 20) - 1
+        if kp["stress_db"] > 0:
+            up = 10 ** (kp["stress_db"] / 20) - 1
             ramp = int(0.03 * sr)
             for w, s in zip(ph.words, stressed):
                 if not s:
