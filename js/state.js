@@ -219,7 +219,7 @@ export const INSTRUMENTS = {
 // A 2-bar call and answer: same rhythm both bars, the answer bends its ending (resolve or leave open).
 // Deep House keys: a two-bar call and answer. The answer repeats the call's opening, then comes home to the root;
 // each bar ends in rests, and the line stays between a fifth below and a fifth above middle C.
-const DEEP_CALLS = [[[0, 2], [3, 1], [6, 2], [10, 3]], [[2, 1], [4, 2], [7, 1], [10, 2]], [[0, 3], [6, 1], [8, 2], [11, 2]], [[3, 2], [6, 2], [10, 1], [12, 2]]];
+const DEEP_CALLS = [[[0, 2], [3, 1], [6, 2], [10, 3]], [[2, 1], [4, 2], [7, 1], [10, 2]], [[0, 3], [6, 1], [8, 2], [11, 2]], [[3, 2], [6, 2], [10, 1], [12, 2]], [[0, 1], [2, 1], [4, 3], [10, 2]], [[1, 2], [6, 1], [7, 2], [11, 2]]];
 function deepCallAnswer(r, scale) {
   const deg = scale.length >= 7 ? scale.slice(0, 7) : scale.slice(0, scale.length - 1), N = deg.length;
   const semi = (d) => deg[((d % N) + N) % N] + 12 * Math.floor(d / N);
