@@ -1,6 +1,8 @@
 // Radio: what plays next when a song ends, on ⏭, or after a "not for me" reason.
 // A Library queue plays through in order (skipping songs you turned down), then new songs in the same style keep coming;
-// "not my style" moves to another style in the same family. Pure: the caller loads tracks and generates songs.
+// "not my style" moves to another style in the same family, or, when the listener asked for a feeling, to any genre
+// that carries that feeling. Pure: the caller loads tracks and generates songs.
+import { feelsFor } from './feel.js';
 export const RADIO_KEY = 'untergrund.radio';
 export function radioOn(store = globalThis.localStorage) {
   try { return store?.getItem(RADIO_KEY) !== '0'; } catch { return true; }
@@ -12,7 +14,8 @@ export function setRadio(on, store = globalThis.localStorage) {
 
 // queue: { ids, i } (the Library list and the index playing now); styles: STYLES; skip(id): true for songs to pass over.
 // -> { kind: 'track', i } for the next queued song, or { kind: 'generate', style } for a new one.
-export function nextUp({ queue = null, style, styles, why = '', skip = () => false, rand = Math.random }) {
+// feel: the feeling the listener picked (js/feel.js), or null.
+export function nextUp({ queue = null, style, styles, why = '', skip = () => false, rand = Math.random, feel = null }) {
   if (queue && why !== 'not_my_style') {
     for (let i = queue.i + 1; i < queue.ids.length; i++) if (!skip(queue.ids[i])) return { kind: 'track', i };
   }
@@ -20,6 +23,7 @@ export function nextUp({ queue = null, style, styles, why = '', skip = () => fal
   const fam = styles[style].family;
   const others = Object.keys(styles).filter((id) => id !== style && styles[id].family !== 'CLASSICAL');
   const near = others.filter((id) => styles[id].family === fam);
-  const pool = near.length ? near : others;
+  const carry = feel ? others.filter((id) => feelsFor(id, styles[id].family)[feel]) : [];
+  const pool = carry.length ? carry : near.length ? near : others;
   return { kind: 'generate', style: pool.length ? pool[Math.floor(rand() * pool.length) % pool.length] : style };
 }

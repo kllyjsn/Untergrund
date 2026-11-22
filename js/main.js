@@ -19,6 +19,7 @@ import { liveNowRow, watchLiveRooms, liveDirectory, fetchLiveRooms } from './liv
 import { playTimeline, stopTimeline } from './live-sets.js';
 import { saveTrack, trackTitle, recentTracks, libraryTracks, fetchTrack, countPlay } from './crate.js';
 import { radioOn, setRadio, nextUp } from './radio.js';
+import { FEELS, FEEL_IDS, isFeel } from './feel.js';
 import { createMiniPlayer } from './mini-player.js';
 import { openLibrary } from './library.js';
 import { dropCard, pushOffer, guardPushOffer } from './drop.js';
@@ -40,7 +41,6 @@ import { flagshipShelf } from './flagship.js';
 import { describeBar, syncLyrics } from './describe-ui.js';
 import { vocalStem } from './sing.js';
 import { songState } from './song-spec.js';
-import { isFeel } from './feel.js';
 import { fetchReleaseTrack } from './account.js';
 import { openShare, openSharedLanding, countRemix, track } from './share.js';
 import { readShareParams, decodeSong, normalizeSong, remixState } from './share-code.js';
@@ -85,6 +85,9 @@ window.addEventListener('error', (e) => showCrash(e.error || e.message));
 let studioOpen = localStorage.getItem('untergrund.studio-open') === '1';
 // GENERATE writes a full 3-4 minute song, or a sketch of the idea (longform.js).
 let songLength = localStorage.getItem('untergrund.length') === 'sketch' ? 'sketch' : 'song';
+// The feeling the listener asked for (a chip on Create); null lets each song's seed pick one that fits the genre.
+let feelPick = isFeel(localStorage.getItem('untergrund.feel')) ? localStorage.getItem('untergrund.feel') : null;
+let feelScroll = 0;
 // Phone Studio shows one section at a time; steps show 8 at a time.
 const STUDIO_TABS = [['song', 'SONG'], ['steps', 'STEPS'], ['sound', 'SOUND'], ['mix', 'MIX']];
 let studioTab = STUDIO_TABS.some(([id]) => id === localStorage.getItem('untergrund.studio-tab')) ? localStorage.getItem('untergrund.studio-tab') : 'steps';
@@ -742,7 +745,7 @@ const songFps = (s) => [...new Set([songFingerprint(s), songFingerprint(sanitize
 const radioPlays = () => radioOn() && !jukeboxNow && !roomResume && !artistLive && !guest && songOrigin.src !== 'room' &&
   !hostingRoom() && !document.querySelector('.club-overlay');
 function radioNext(why = '') {
-  const n = nextUp({ queue: queue && { ids: queue.items, i: queue.i }, style, styles: STYLES, why, skip: (t) => songFps(t.state).some(listens.isDowned) });
+  const n = nextUp({ queue: queue && { ids: queue.items, i: queue.i }, style, styles: STYLES, why, feel: feelPick, skip: (t) => songFps(t.state).some(listens.isDowned) });
   if (n.kind === 'track') { queue.i = n.i; return openRecent(queue.items[n.i]); }
   queue = null;
   if (n.style !== style) {
@@ -1467,7 +1470,7 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   // A score sets its own tempo even mid-set; a masterwork keeps its title and composer.
   if (g.pattern.score) s.bpm = g.bpm;
   if (typeof hum === 'function' && !g.pattern.score) { const r = hum(s.bpm, s.scale); s.key = r.key; if (r.hook) placeHook(s.patterns, r.hook); }
-  applySongPlan(s, id, seed, drop ? 'song' : songLength);
+  applySongPlan(s, id, seed, drop ? 'song' : songLength, drop ? null : feelPick);
   const piece = PIECE[g.pattern.score?.piece];
   const title = piece ? piece.title : drop ? drop.title : trackTitle(seed);
   const artist = piece ? piece.composer : loadAvatar().name || 'UNTERGRUND';
@@ -1741,6 +1744,27 @@ function lengthPicker() {
     opt('song', 'FULL SONG · 3–4 MIN', 'Verses that develop, a bridge, an instrumental and a bigger last chorus'),
     opt('sketch', 'SKETCH · ~1 MIN', 'Just the idea: intro, verse, chorus, out'));
 }
+// How do you want to feel? Any (the seed picks) or one feeling; GENERATE and Radio write every song in it.
+const feelAsked = () => (STYLES[style].family === 'CLASSICAL' ? null : feelPick);
+function feelPicker() {
+  const opt = (id, label, title) => h('button', { class: 'feel-chip' + (feelPick === id ? ' on' : ''), type: 'button', 'data-feel': id || 'any', 'aria-pressed': String(feelPick === id), title,
+    onclick: () => { feelPick = id; if (id) localStorage.setItem('untergrund.feel', id); else localStorage.removeItem('untergrund.feel'); build(); } }, label);
+  const row = h('div', { class: 'gen-feel', role: 'group', 'aria-label': 'How do you want to feel?', onscroll: () => { feelScroll = row.scrollLeft; } },
+    opt(null, 'Any', 'Each song picks a feeling that fits the genre'),
+    FEEL_IDS.map((id) => opt(id, FEELS[id].label, `Every new song feels ${FEELS[id].label.toLowerCase()}`)));
+  // build() replaces the row: on phone (where it scrolls) keep where the listener left it, with the picked chip in view.
+  queueMicrotask(() => {
+    if (!row.isConnected) return;
+    row.scrollLeft = feelScroll;
+    const on = row.querySelector('.on');
+    if (!on || row.scrollWidth <= row.clientWidth) return;
+    const box = row.getBoundingClientRect(), chip = on.getBoundingClientRect(), fade = row.clientWidth * 0.15 + 4;
+    if (chip.left < box.left + 20) row.scrollLeft += chip.left - box.left - 20;
+    else if (chip.right > box.right - fade) row.scrollLeft += chip.right - box.right + fade;
+    feelScroll = row.scrollLeft;
+  });
+  return row;
+}
 
 function selectFamily(f) {
   family = f;
@@ -1884,7 +1908,7 @@ function styleCard(id, value, isPlaying) {
   return card;
 }
 
-function buildNowPlaying(primary) {
+function buildNowPlaying(primary, feels = null) {
   const a = state.artist || {};
   const sid = STYLES[a.style] ? a.style : style;
   const sc = pat()?.score ? compose(pat().score) : null;
@@ -1904,7 +1928,9 @@ function buildNowPlaying(primary) {
       h('div', { class: 'np-top' }, h('span', { class: 'np-eyebrow' }, h('i', { class: 'np-dot' }), paused ? 'PAUSED' : 'NOW PLAYING'), h('span', { class: 'np-top-r' }, radioButton(), reactions.buttons)),
       reactions.reasons,
       h('h1', {}, a.title || 'Untitled set'),
-      h('div', { class: 'np-meta' }, [a.name || 'UNTERGRUND', STYLES[sid].name, `${state.bpm} BPM`, sc?.meta ? sc.meta.key.toUpperCase() : `${KEYS[state.key]} ${sc ? (pat().score.mode === 'm' ? 'MINOR' : 'MAJOR') : SCALES[state.scale]?.name || 'MINOR'}`]
+      // A listener hears a feeling, not a tempo and key (those stay in Studio); songs without one show tempo and key.
+      h('div', { class: 'np-meta' }, [a.name || 'UNTERGRUND', STYLES[sid].name, ...(!sc && isFeel(state.feel) ? [FEELS[state.feel].label.toUpperCase()]
+        : [`${state.bpm} BPM`, sc?.meta ? sc.meta.key.toUpperCase() : `${KEYS[state.key]} ${sc ? (pat().score.mode === 'm' ? 'MINOR' : 'MAJOR') : SCALES[state.scale]?.name || 'MINOR'}`])]
         .flatMap((v, i) => [i ? ' ' : '', h('span', {}, i ? `· ${v}` : v)])),
       ui.npCanvas,
       h('div', { class: 'np-progress' }, h('div', { class: 'np-label' }, ui.npSection, ui.npBar), h('div', { class: 'np-cells' }, ui.npCells))),
@@ -1912,6 +1938,7 @@ function buildNowPlaying(primary) {
       paused ? h('button', { class: 'np-stop resume', title: 'Resume (Space)', 'aria-label': 'Resume', onclick: toggle }, h('i'))
         : h('button', { class: 'np-stop', title: 'Stop (Space)', 'aria-label': 'Stop', onclick: toggle }, h('i')),
       primary,
+      feels,
       ...lifecycleActions()),
   ];
 }
@@ -2063,7 +2090,7 @@ function buildGenerateHome() {
     ? h('button', { class: 'generate-primary tuning', 'aria-busy': 'true', style: `--tune-at:${((tuning.at - performance.now()) / 1000).toFixed(2)}s`, onclick: () => generateNow() },
       h('span', {}, 'TUNING UP'), h('small', {}, `${STYLES[state.artist?.style]?.name || STYLES[style].name} · ${tuning.label}`))
     : h('button', { class: 'generate-primary' + (performance.now() - generatedAt < 900 ? ' fired' : '') + (wait || band ? ' gen-queued' : ''), style: wait ? `--gen-wait:${Math.round(handoff.total)}ms;--gen-at:${Math.round(wait - handoff.total)}ms` : null, onclick: () => generateNow() },
-      h('span', {}, 'GENERATE'), h('small', {}, band ? 'Up next · seating the band' : wait ? 'Up next · on the bar' : `${STYLES[style].name} · ${STYLES[style].family === 'CLASSICAL' ? 'full piece' : songLength === 'sketch' ? 'sketch' : 'full song'}`));
+      h('span', {}, 'GENERATE'), h('small', {}, band ? 'Up next · seating the band' : wait ? 'Up next · on the bar' : [STYLES[style].name, feelAsked() && FEELS[feelAsked()].label, STYLES[style].family === 'CLASSICAL' ? 'full piece' : songLength === 'sketch' ? 'sketch' : 'full song'].filter(Boolean).join(' · ')));
   const showNp = (playing || !!paused) && !studioOpen;
   // First visit shows only the essentials; the rest unlocks once a track has been made.
   const made = hasMade();
@@ -2073,13 +2100,16 @@ function buildGenerateHome() {
   madeShown = made;
   const since = performance.now() - unlockAt, unlock = unlockAt > 0 && since < 900;
   const hum = !made || STYLES[style].family === 'CLASSICAL' ? null : humButton(humApi);
-  const left = showNp ? buildNowPlaying(primary) : [
+  // Secondary like the length picker: first run keeps GENERATE the only choice.
+  const feels = made && STYLES[style].family !== 'CLASSICAL' ? feelPicker() : null;
+  const left = showNp ? buildNowPlaying(primary, feels) : [
     h('div', { class: 'generate-copy' },
       h('h1', {}, 'Press Generate. Hear a finished track.'),
       h('p', {}, made ? 'Change it in words, refine it in Studio, or play it live in the Club.' : 'One tap writes, arranges and plays a whole song. Pick a sound first, or describe the song you want.'),
       made ? dropPeek() : null),
     h('div', { class: 'generate-actions' },
       studioOpen ? primary : h('div', { class: 'gen-wrap' }, primary, hum),
+      feels,
       made && STYLES[style].family !== 'CLASSICAL' ? lengthPicker() : null,
       made ? h('button', { class: 'btn refine-toggle', onclick: toggleStudio }, studioOpen ? 'HIDE STUDIO' : 'REFINE IN STUDIO') : null,
       studioOpen ? hum : null),

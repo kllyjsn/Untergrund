@@ -10,6 +10,43 @@ music without attribution. We credit the authors anyway.
 Default processing unless noted below: summed to mono, resampled to 44.1 kHz 16-bit PCM, trimmed (organ 2.2 s, bass 2.4 s), 80 ms fade out.
 Stored as lossless FLAC (bit-identical PCM to the original 16-bit WAVs). Drum files mix the close mic with the overhead mic of the same hit.
 
+## S9 fiddle and upright piano — VSCO 2 Community Edition (CC0)
+
+Solo violin: Sam Gossner / Versilian Studios. Upright piano: Simon Dalzell / Ivy Audio,
+distributed by Sam Gossner / Versilian Studios. Source WAVs are pinned to
+[`sgossner/VSCO-2-CE@440300901dfe9275fd84e0b7763af1f8443ae62e`](https://github.com/sgossner/VSCO-2-CE/tree/440300901dfe9275fd84e0b7763af1f8443ae62e).
+All these WAVs are covered by that repository's
+[CC0 1.0 Universal dedication](https://github.com/sgossner/VSCO-2-CE/blob/440300901dfe9275fd84e0b7763af1f8443ae62e/LICENSE):
+“Affirmer hereby overtly, fully, permanently, irrevocably and unconditionally waives, abandons,
+and surrenders all of Affirmer's Copyright and Related Rights”. The upright's `Info.txt` also
+states: “Bearer is granted right to redistribute this sample set by Versilian Studios LLC.”
+
+Sounding MIDI centers come from `SViolinVib.sfz`, `SViolinSpic.sfz` and `UprightPiano.sfz`, pinned to
+the [SFZ branch commit `6dd651d55dde97fd4028699be9d4481f26917891`](https://github.com/sgossner/VSCO-2-CE/tree/6dd651d55dde97fd4028699be9d4481f26917891).
+Spiccato filenames use an octave different from arco; piano filename numbers are sample indices, not MIDI.
+
+| Bundled FLACs | Source directory / articulation | Dynamics and takes | Sounding MIDI centers |
+| --- | --- | --- | --- |
+| `fiddle_*.flac` | `Strings/Solo Violin/Arco Vib` | f | 55,57,60,64,67,69,72,76,79 |
+| `fiddlesoft_*.flac` | `Strings/Solo Violin/Arco Vib` | p | same nine centers |
+| `fiddlestac_*.flac` | `Strings/Solo Violin/spic` | v2, rr1 | same nine centers |
+| `fiddlestacb_*.flac` | `Strings/Solo Violin/spic` | v2, rr2 | same nine centers |
+| `fiddlestacsoft_*.flac` | `Strings/Solo Violin/spic` | v1, rr1 | same nine centers |
+| `fiddlestacsoftb_*.flac` | `Strings/Solo Violin/spic` | v1, rr2 | same nine centers |
+| `uprightsoft_*.flac` | `Keys/Upright Piano` | dyn1, rr1 | 41,45,49,53,57,61,65,69,73,77,81,85 |
+| `upright_*.flac` | `Keys/Upright Piano` | dyn2, rr1 | same twelve centers |
+| `uprighthard_*.flac` | `Keys/Upright Piano` | dyn3, rr1 | same twelve centers |
+
+These 90 files use `scripts/fetch-roots.py`: mono 44.1 kHz/16-bit lossless FLAC, leading silence
+removed to 2 ms before the sustained -35 dB onset, 1 ms attack fade, measured tuning corrected
+by resampling and rechecked within 5 cents of the SFZ center. Per-note body RMS is matched to
+the instrument reference (fiddle -16 dBFS, upright -13.6 dBFS over 20–350 ms), limited to a
+-6 dBFS peak. Arco keeps up to 3 seconds with a 160 ms final fade, spiccato up to 1 second
+with an 80 ms fade, upright up to 6 seconds with a 500 ms fade. No loops. Unlike the older
+unretuned recordings, these PCM samples are resampled derivatives, not byte-identical source WAVs.
+`scripts/roots-samples.json` records each source URL/hash, SFZ center, tuning measurements,
+attack trim, normalization gain, duration and bundled FLAC hash.
+
 ## Virtuosity Drums (Versilian Studios / Karoryfer, drummer Austin McMahon)
 
 - Source: https://github.com/sfzinstruments/virtuosity_drums @ `9f04cf9a734527edfbb0a4eee1f674e45bbf71bc`
