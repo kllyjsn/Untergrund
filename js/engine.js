@@ -5560,7 +5560,7 @@ export class Sequencer {
             const m = pitches[0], [center, buf] = set.reduce((a, b) => Math.abs(b[0] - m) < Math.abs(a[0] - m) ? b : a);
             e.playBuf(buf, at, v * 2, e.ch.perc.input, 2 ** ((m - center) / 12), dur, { lp: 2400, fade: 0.002, release: 0.02 });
           }
-        } else for (const [k, m] of pitches.entries()) e.add?.('perc', at + k * 0.0015, m, dur, v);
+        } else for (const [k, m] of pitches.entries()) e.add?.('guitar', at + k * 0.0015, m, dur, v);
       }
     }
     const nextPat = bars && this.chainArr[pos + 1] != null ? s.patterns[this.chainArr[pos + 1]] : pat;

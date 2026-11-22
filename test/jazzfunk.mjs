@@ -104,7 +104,7 @@ for (const seed of [1, 2, 3, 11, 42, 77, 1234, 12345, 0x12345678]) {
   }
   const notes = record(s), sd = 60 / s.bpm / 4;
   assert(notes.hook.every((n) => n.m >= 69 && n.m <= 80), 'projected trumpet register across keys');
-  assert(!notes.ride && !notes.clap && !notes.vox && notes.perc.length);
+  assert(!notes.ride && !notes.clap && !notes.vox && notes.guitar.length);
   for (let bar = 0; bar < 2; bar++) {
     const events = (id) => (notes[id] || []).filter((n) => Math.floor(Math.round((n.t - 0.05) / sd) / 16) === bar);
     const at = (id) => events(id).map((n) => (Math.round((n.t - 0.05) / sd) % 16 + 16) % 16);
@@ -113,14 +113,14 @@ for (const seed of [1, 2, 3, 11, 42, 77, 1234, 12345, 0x12345678]) {
     assert.deepEqual(at('ch'), groove.ch); assert.deepEqual(at('oh'), groove.oh);
     assert(at('kick').every((i) => at('acid').includes(i)), 'every kick locks to a bass pluck');
     assert(events('snare').some((n) => n.v <= 0.15) && events('snare').some((n) => n.v === 0.76));
-    assert(at('perc').every((i) => !at('stab').includes(i)), 'guitar leaves the keys room');
+    assert(at('guitar').every((i) => !at('stab').includes(i)), 'guitar leaves the keys room');
   }
   const muted = structuredClone(s); muted.mutes = Object.fromEntries(TRACK_IDS.map((id) => [id, true]));
   assert.deepEqual(record(muted), {});
   const solo = structuredClone(s); solo.solos = { acid: true };
   assert.deepEqual(Object.keys(record(solo)), ['acid']);
   solo.solos = { perc: true };
-  assert.deepEqual(Object.keys(record(solo)), ['perc']);
+  assert.deepEqual(Object.keys(record(solo)), ['guitar']);
   assert.deepEqual(record(s, 16), record(s, 16), 'seeded full phrase is deterministic');
   let keys = 0, recorded = 0;
   Engine.prototype.stab.call({ state: s, step: 0, harm: jazzHarmony(p, 0), ch: { stab: { input: {}, band: {} } }, keys: () => keys++, recordedNote: () => recorded++ }, 0, 0.6);
@@ -160,7 +160,7 @@ for (const prog of FUNK_PROGS) {
   assert(notes.snare.filter((n) => [4, 12].includes(step(n) % 16)).every((n) => Math.abs(late(n)) <= 1.00001));
   assert(notes.snare.filter((n) => ![4, 12].includes(step(n) % 16)).every((n) => late(n) >= 5.99999 && late(n) <= 10.00001));
   assert(notes.ch.filter((n) => step(n) % 2).every((n) => late(n) >= 0.99999 && late(n) <= 9.00001));
-  assert(notes.perc.every((n) => late(n) >= 1.99999 && late(n) <= 8.00001));
+  assert(notes.guitar.every((n) => late(n) >= 1.99999 && late(n) <= 8.00001));
   for (const n of notes.kick) {
     const bass = notes.acid.find((b) => step(b) === step(n));
     assert(bass && (bass.t - n.t) >= 0.00399999 && (bass.t - n.t) <= 0.00600001);
@@ -173,10 +173,11 @@ for (const prog of FUNK_PROGS) {
   assert(solo.comp.length < shapes[0].comp.length, 'keys leave space for solos');
   for (const id of ['kick', 'snare', 'ch', 'oh', 'acid', 'stab', 'perc']) {
     const edited = structuredClone(s), row = edited.patterns[6].steps[id];
+    const part = id === 'perc' ? 'guitar' : id;
     row.fill(id === 'acid' ? { on: false, n: 0, a: false, s: false } : 0);
-    assert(!record(edited)[id]?.length, `${id}: clearing the row silences the part`);
+    assert(!record(edited)[part]?.length, `${id}: clearing the row silences the part`);
     row[1] = id === 'acid' ? { on: true, n: 3, a: false, s: false } : 1;
-    assert(record(edited)[id]?.length, `${id}: an added hit is played`);
+    assert(record(edited)[part]?.length, `${id}: an added hit is played`);
   }
   const calls = [], out = {}, kit = { hh_half: {}, hh_half_2: {} };
   record(s, 8, (e) => {
@@ -195,7 +196,7 @@ for (const prog of FUNK_PROGS) {
   }
   assert.doesNotThrow(() => record(s, 2, (e) => { e.rec = () => null; e.playBuf = e.recordedNote = () => assert.fail('unloaded guitar must skip, not synthesize'); }));
   p.hook = null;
-  assert(record(s).perc.length, 'guitar is independent of the lead hook');
+  assert(record(s).guitar.length, 'guitar is independent of the lead hook');
 }
 const phrases = (notes, sd) => {
   const spans = [];
@@ -214,10 +215,10 @@ for (const seed of [0, 42, 77, 12345, 1e9]) {
   const within = (id, from, to) => (notes[id] || []).filter((n) => step(n) >= from * 16 && step(n) < to * 16);
   assert(!within('hook', 0, 4).length, 'four-bar rhythm intro is trumpet tacet');
   assert(!within('stab', 0, 2).length && within('stab', 2, 4).length, 'keys enter halfway through the intro');
-  for (const id of ['kick', 'acid', 'perc']) assert(within(id, 0, 2).length, `${id}: rhythm section opens the song`);
+  for (const id of ['kick', 'acid', 'guitar']) assert(within(id, 0, 2).length, `${id}: rhythm section opens the song`);
   assert(within('hook', 4, 6).length, 'head phrase A enters at bar four');
   assert(!within('stab', 32, 36).length && within('stab', 36, 38).length, 'keys lay out at the second solo chorus, then return');
-  assert(!within('hook', 62, 64).length && !within('ch', 62, 64).length && !within('oh', 62, 64).length && !within('perc', 62, 64).length, 'hits break clears lead, hats and guitar');
+  assert(!within('hook', 62, 64).length && !within('ch', 62, 64).length && !within('oh', 62, 64).length && !within('guitar', 62, 64).length, 'hits break clears lead, hats and guitar');
   for (const [bar, figure] of [[62, [0, 6, 10]], [63, [0, 3, 6, 12, 15]]]) {
     for (const id of ['kick', 'snare', 'stab', 'acid']) {
       assert.deepEqual([...new Set(within(id, bar, bar + 1).map((n) => step(n) % 16))], figure, `${id}: band break figure`);
@@ -235,7 +236,7 @@ for (const seed of [0, 42, 77, 12345, 1e9]) {
   }
   assert(notes.hook.every((n) => n.m >= 69 && n.m <= 80));
   for (const id of ['kick', 'stab', 'acid', 'oh']) assert.deepEqual([...new Set(within(id, 79, 80).map((n) => step(n) % 16))], [0], `${id}: final unison downbeat`);
-  for (const id of ['hook', 'ch', 'snare', 'perc']) assert(!within(id, 79, 80).length, `${id}: no extra attacks after the final hit`);
+  for (const id of ['hook', 'ch', 'snare', 'guitar']) assert(!within(id, 79, 80).length, `${id}: no extra attacks after the final hit`);
   const lastBass = within('acid', 79, 80)[0];
   assert.equal(pc(lastBass.m - s.key), pc(s.patterns[7].prog[0].r), 'ending resolves to the opening tonic chord');
   assert.deepEqual(record(s, 80), notes, 'full lead and arrangement are deterministic');
