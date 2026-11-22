@@ -3,7 +3,8 @@ import {withChrome} from './chrome.mjs';
 
 const result = await withChrome(async run => run(`(async()=>{
   const {rubatoVocalFixture} = await import('/test/rubato-vocal-fixture.mjs');
-  return Promise.all(['ukg','euphoric'].flatMap(style=>[0,.028].map(residual=>rubatoVocalFixture({style,residual}))));
+  // UKG seed 8 keeps the gap density main's seed-7 UKG song had before feelings reshaped its hook.
+  return Promise.all([['ukg',8],['euphoric',7]].flatMap(([style,seed])=>[0,.028].map(residual=>rubatoVocalFixture({style,residual,seed}))));
 })()`));
 for (const r of result || []) {
   assert.equal(r.measurements.length, 192);
