@@ -6,6 +6,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { publicConfig, exchangeToken } from './api/_lib/soundcloud.js';
+import { handleAutopublish } from './api/_lib/autopublish.js';
 import { createRooms, roomsKv, memoryRoomsKv, roomsHandler } from './api/_lib/rooms.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -168,6 +169,12 @@ http.createServer(async (req, res) => {
       const cfg = publicConfig(env);
       if (MOCK) { const o = `http://${req.headers.host}/mock-sc`; cfg.authUrl = o; cfg.apiUrl = o + '/api'; }
       return sendJson(res, 200, cfg);
+    }
+    if (url.pathname === '/api/autopublish' || (url.pathname === '/api/sc-token' && url.searchParams.get('autopublish') === '1')) {
+      const raw = req.method === 'POST' ? await readBody(req, 16000) : null;
+      if (raw === null && req.method === 'POST') return sendJson(res, 413, { error: 'too_large' });
+      const { status, json } = await handleAutopublish({ method: req.method, query: Object.fromEntries(url.searchParams), body: raw?.toString(), kv: accountKv, env });
+      return sendJson(res, status, json);
     }
     if (url.pathname === '/api/sc-token' && req.method === 'POST') {
       const { status, json } = await exchangeToken(JSON.parse((await readBody(req)).toString() || '{}'), env);

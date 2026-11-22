@@ -39,6 +39,31 @@ UNTERGRUND generates performances, not collections of random notes. Every musica
 
 Sound quality is part of musicianship. Leads need expressive articulation and dynamics, bass belongs in a useful club register, and every genre needs its own timing feel rather than a globally quantized loop.
 
+## Daily autopublishing
+
+Jason: open [autopublish.html](https://www.untergrund.sh/autopublish.html) and connect SoundCloud once.
+Only `jason-kelley-203620322` can connect by default (`AUTOPUBLISH_SC_USER` overrides the permalink).
+The existing SoundCloud client ID/secret and Upstash Redis configuration must be set on Vercel.
+Refresh tokens stay in Redis and are replaced immediately after every refresh; the page never receives them.
+
+GitHub Actions renders a full song at 13:00 UTC, rotating through all `STYLES` by UTC epoch day, and creates
+`daily-YYYY-MM-DD` with a stereo 44.1 kHz / 320 kbps MP3, generated PNG cover and `release.json`.
+Existing releases are left untouched. `/api/autopublish?run=1` publishes today's release to SoundCloud;
+a 14:00 UTC Vercel cron retries if needed. GitHub releases are read publicly from `kllyjsn/Untergrund`
+(`AUTOPUBLISH_GITHUB_REPO` can override this). The endpoint shares `api/sc-token.js` via a rewrite,
+so it adds no serverless function to the existing consolidated API deployment.
+
+For local rendering, install Chrome and ffmpeg, use Node 22, and run
+`node scripts/daily-release.mjs --style swing --out out` (`--day N` overrides the UTC epoch day).
+Scores render their complete composition, including repertoire titles/credits; other genres follow their full arrangement.
+A failed or 40-minute render is logged and skipped in favor of the next genre.
+The workflow's manual `day`/`style` inputs support backfills, but autopublish intentionally only publishes **today**.
+Run `node test/autopublish.mjs` for the offline integration checks.
+
+Redis locks serialize runs and per-day records prevent repeat publication. If a request dies after an upload starts,
+the day remains held (`publish_uncertain`) rather than risking a duplicate. An operator should check SoundCloud,
+then reconcile `untergrund:autopublish:day:<epoch-day>` with the track ID/URL or delete that record only if no upload occurred.
+
 ## Production backend
 
 The site is a static build on Vercel project `untergrund-i2i9` (team kllyjsns-projects) with serverless functions in `api/`. Each backend piece is optional: when it is off, the app keeps working in the browser (IndexedDB/localStorage crate and jukebox, `BroadcastChannel` rooms for tabs on one browser) and never shows local participants as real remote listeners.

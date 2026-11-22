@@ -1,0 +1,66 @@
+name: Daily SoundCloud release
+
+on:
+  schedule:
+    - cron: '0 13 * * *'
+  workflow_dispatch:
+    inputs:
+      day:
+        description: UTC epoch day (empty for today)
+        default: ''
+      style:
+        description: Override genre ID (empty for rotation)
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-soundcloud
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      CHROME_PATH: /usr/bin/google-chrome
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_DAY: ${{ inputs.day }}
+      RELEASE_STYLE: ${{ inputs.style }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install MP3 encoder
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Render and publish GitHub release unless it already exists
+        run: |
+          day="${RELEASE_DAY:-$(( $(date -u +%s) / 86400 ))}"
+          date=$(node --input-type=module -e 'import {releaseChoice} from "./scripts/daily-release.mjs"; console.log(releaseChoice(Number(process.argv[1])).date)' "$day")
+          tag="daily-$date"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "$tag already exists; skipping render"
+          else
+            args=(--day "$day" --out out)
+            if [[ -n "$RELEASE_STYLE" ]]; then args+=(--style "$RELEASE_STYLE"); fi
+            node scripts/daily-release.mjs "${args[@]}"
+            audio=$(node -p 'require("./out/release.json").audio')
+            artwork=$(node -p 'require("./out/release.json").artwork')
+            gh release create "$tag" "out/$audio" "out/$artwork" out/release.json --target "$GITHUB_SHA" --title "UNTERGRUND · $date" --notes "Daily generative release. Make your own at https://www.untergrund.sh" --latest=false
+          fi
+      - name: Trigger today's SoundCloud publish
+        run: |
+          status=0
+          curl -sS --fail-with-body -X POST 'https://www.untergrund.sh/api/autopublish?run=1' -o autopublish-response.json || status=$?
+          cat autopublish-response.json
+          if [[ "$status" -ne 0 ]]; then
+            if [[ "$status" -eq 22 ]] && node -e 'process.exit(JSON.parse(require("fs").readFileSync("autopublish-response.json")).error === "not_connected" ? 0 : 1)'; then
+              echo 'Connect SoundCloud at https://www.untergrund.sh/autopublish.html'
+            else
+              exit "$status"
+            fi
+          fi
