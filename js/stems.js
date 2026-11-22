@@ -32,7 +32,7 @@ export const exportName = (state, suffix) => `${slug(state.artist?.title)}-${Mat
 // The stems this song actually plays, in mixer order: the instruments with notes, then FX/returns.
 export function stemList(state, loopBars = 16) {
   const c = capture(state, loopBars), ids = c.score ? Object.keys(PARTS) : [...TRACK_IDS.slice(0, TRACK_IDS.indexOf('stab') + 1), 'hook', ...TRACK_IDS.slice(TRACK_IDS.indexOf('stab') + 1), ...Object.keys(PARTS)];
-  return [...ids.filter((id) => c.notes[id]?.length), ...(state.artist?.style === 'dub' && c.notes.stab?.length ? ['dubpad'] : []), ...(vocalStem(state) ? ['sung'] : []), 'fx'];
+  return [...ids.filter((id) => c.notes[id]?.length || (id === 'hook' && c.notes.fiddle?.length)), ...(state.artist?.style === 'dub' && c.notes.stab?.length ? ['dubpad'] : []), ...(vocalStem(state) ? ['sung'] : []), 'fx'];
 }
 
 // Re-routes everything that would reach engine.mix / engine.duck / engine.preMaster into per-stem sums on its own channel pair.
@@ -80,7 +80,7 @@ export function router(want, { prebus = false } = {}) {
         orig.call(sum, split); orig.call(split, merge, 0, 2 * k); orig.call(split, merge, 1, 2 * k + 1);
         sums[id] = sum;
       });
-      for (const id of TRACK_IDS) owner.set(E.ch[id].pan, id);
+      for (const id of TRACK_IDS) owner.set(E.ch[id].out || E.ch[id].pan, id);
       if (E.dubPadBus) owner.set(E.dubPadBus, 'dubpad');
       owner.set(E.vocalOut, 'sung');
       for (const [src, dst] of conns) if (dst === E.mix || dst === E.duck || dst === E.preMaster) { src.disconnect(dst); route(src, dst); }

@@ -3,7 +3,8 @@ import crypto from 'node:crypto';
 
 const codes = new Map();
 const tracks = [];
-const user = { id: 1, username: 'untergrund-test', permalink_url: 'https://soundcloud.com/untergrund-test',
+let refreshSequence = 0;
+const user = { id: 1, username: 'untergrund-test', permalink: 'untergrund-test', permalink_url: 'https://soundcloud.com/untergrund-test',
   avatar_url: '', followers_count: 128, followings_count: 40 };
 const json = (res, status, body) => {
   res.writeHead(status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization, Content-Type' });
@@ -30,7 +31,7 @@ export async function handle(req, res, url, readBody) {
       if (!challenge || challenge !== expect) return json(res, 400, { error: 'invalid_grant' });
       codes.delete(f.get('code'));
     }
-    return json(res, 200, { access_token: 'mock-access-' + Date.now(), refresh_token: 'mock-refresh', expires_in: 3600, scope: '', token_type: 'bearer' });
+    return json(res, 200, { access_token: 'mock-access-' + Date.now(), refresh_token: `mock-refresh-${++refreshSequence}`, expires_in: 3600, scope: '', token_type: 'bearer' });
   }
   if (!p.startsWith('/api/')) return json(res, 404, { error: 'not_found' });
   if (!authed(req)) return json(res, 401, { error: 'unauthorized' });
