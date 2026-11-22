@@ -43,9 +43,29 @@ t('a chord quality names the target without changing the song mode or harmony', 
     assert.deepEqual(edits(text), [{ id: 'harmony', amt: -1 }], text);
   }
   assert.deepEqual(edits('add reverb to D minor chords'), [{ id: 'space', target: 'stab', amt: 1 }]);
-  for (const text of ['transpose to D minor', 'transpose to D minor chords']) {
+  for (const text of ['transpose to D minor', 'transpose to D minor chords', 'set the key to D minor chords', 'change the key to D minor chords', 'modulate to D minor chords']) {
     assert.deepEqual(edits(text), [{ id: 'key', value: 2 }, { id: 'scale', value: 'minor', explicit: true }], text);
   }
+  assert.deepEqual(edits('more swing, with the F minor seventh chords quieter'), [
+    { id: 'swing', amt: 1 }, { id: 'level', target: 'stab', amt: -1 },
+  ]);
+  assert.deepEqual(edits('with the F minor sevenths wetter'), [{ id: 'space', target: 'stab', amt: 1 }]);
+  assert.deepEqual(edits('with the F minor sevenths off'), [{ id: 'mute', target: 'stab', value: true }]);
+});
+
+t('unsupported section voicing is reported without muting chords or dropping other edits', () => {
+  for (const prompt of ['no minor seventh chords in the intro', 'fewer minor sevenths in the second drop', 'add more minor sevenths in the chorus']) {
+    const parsed = parse(prompt, { style: 'rnb' });
+    assert.deepEqual(parsed.edits, [], prompt);
+    assert.equal(parsed.unsupportedHarmony.length, 1, prompt);
+    assert.deepEqual(parsed.unknown, parsed.unsupportedHarmony, prompt);
+  }
+  const parsed = parse('no minor seventh chords in the intro, more reverb', { style: 'rnb' });
+  assert.deepEqual(parsed.edits.map(({ src, ...edit }) => edit), [{ id: 'space', amt: 1 }]);
+  assert.equal(parsed.unsupportedHarmony.length, 1);
+  const before = songFor('rnb');
+  const after = applyEdits(before, parsed.edits, { style: 'rnb' }).state;
+  assert.deepEqual(after.patterns, before.patterns);
 });
 
 for (const [phrase, voice] of [['add FM bass', 6], ['add pulse bass', 7], ['add wide reese bass', 8], ['add pluck bass', 9]]) {
@@ -309,6 +329,9 @@ const done = (async () => {
   assert.ok(a.edits.length && !a.unknown.length);
   await interpret('darker', {}, { remote });
   assert.equal(remoteCalls, 0, 'remote called although local rules understood');
+  const unsupported = await interpret('no minor seventh chords in the intro', {}, { remote });
+  assert.equal(remoteCalls, 0, 'remote must not approximate an unsupported section voicing edit');
+  assert.equal(unsupported.unsupportedHarmony.length, 1);
   const b = await interpret('make it feel like velvet', {}, { remote });
   assert.equal(remoteCalls, 1);
   assert.deepEqual(b.edits.map((e) => e.id), ['space']);

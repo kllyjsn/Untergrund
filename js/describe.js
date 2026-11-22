@@ -53,8 +53,9 @@ const CHORD_EXTENSION = '(?:sixth|seventh|ninth|eleventh|thirteenth)s?|(?:6|7|9|
 const CHORD_QUALITY = new RegExp(
   `\\b(?:([a-g](?:#|b|\\s+sharp|\\s+flat)?)\\s+)?(major|minor)[\\s-]+(?:(${CHORD_EXTENSION})(?:[\\s-]+${CHORD_NOUN})?|(6|7|9|11|13)[\\s-]+${CHORD_NOUN}|${CHORD_NOUN})\\b`, 'g',
 );
-const KEY_BEFORE_CHORD = /\b(?:in(?:\s+the\s+key\s+of)?|key(?:\s+of)?|(?:transpose|modulate|switch|change)(?:\s+(?:it|the\s+key))?\s+to)\s+$/;
+const KEY_BEFORE_CHORD = /\b(?:in(?:\s+the\s+key\s+of)?|key(?:\s+of)?|(?:key|(?:transpose|modulate|switch|change)(?:\s+it)?)\s+to)\s+$/;
 const CHORD_AMOUNT = /\b(?:add|include|use|with|more|less|fewer|no|without)\s+(?:(?:some|a\s+few|a|an|the)\s+)?$/;
+const CLAUSE_BREAK = /\s*(?:,|;|\.|!|\?|\band\b|&|\+|\bbut\b|\bthen\b|\balso\b|\bplus\b|\bwith\b|\bwhile\b|\bnow\b)\s*/;
 
 export const HIPHOP_PHRASES = [
   [/\blo[\s-]?fi[\s-]+(?:hip[\s-]?hop|beats?)\b|\bchillhop\b/g, 'lofihiphop'],
@@ -397,10 +398,19 @@ function normalize(text) {
   s = s.replace(/\bbase(line)?\b/g, 'bass$1');
   s = s.replace(/\bcan'?t\b/g, 'can not').replace(/\bwon'?t\b/g, 'will not').replace(/n't\b/g, ' not');
   for (const [re, to] of ARTIST_RE) s = s.replace(re, to);
-  s = s.replace(CHORD_QUALITY, (_, root, mode, ordinal, number, offset, text) => {
+  s = s.replace(CHORD_QUALITY, (phrase, root, mode, ordinal, number, offset, text) => {
     const before = text.slice(0, offset);
-    if (root && KEY_BEFORE_CHORD.test(before)) return root + ' ' + mode + ' chords';
-    return (ordinal || number) && CHORD_AMOUNT.test(before) ? 'richer harmony' : 'chords';
+    if (root && KEY_BEFORE_CHORD.test(before)) return root + ' ' + mode;
+    if ((ordinal || number) && CHORD_AMOUNT.test(before)) {
+      const tail = ` ${text.slice(offset + phrase.length).split(CLAUSE_BREAK, 1)[0].trim()} `;
+      const scope = findScope(tail) || findSection(tail);
+      const words = (scope ? tail.replace(scope.text, ' ') : tail).split(/[^a-z0-9#]+/).filter(Boolean);
+      if (!words.some((_, i) => {
+        const { e, t } = lookup(words, i);
+        return isMixTerm(e) || LEVEL_UP.has(t) || LEVEL_DOWN.has(t) || MUTE.has(t) || HARD_VERB.has(t);
+      })) return 'richer harmony';
+    }
+    return 'chords';
   });
   for (const [re, to] of PHRASES) s = s.replace(re, to);
   // "only bass and drums", "everything except the kick and hats", "bass and drums only" stay one clause.
@@ -417,7 +427,8 @@ function extract(clause, edits) {
   if (bpm) { edits.push({ id: 'bpm', value: +bpm[1], src: bpm[0].trim() }); c = c.replace(bpm[0], ' '); }
   const key = c.match(/\b(?:in\s+the\s+key\s+of|key\s+of|in|to|key)\s+([a-g])(#|b|\s+sharp|\s+flat)?(?:\s+(minor|major|min|maj|m|dorian|phrygian))?(?=\s|$)/)
     || c.match(/\b([a-g])(#|b)?\s*(minor|major|m|maj|dorian|phrygian)\b/);
-  if (key && !(key[1] === 'a' && !key[2] && !key[3] && /\bin\s+a\s*$|\bto\s+a\s*$/.test(key[0]) === false && !/key/.test(key[0]))) {
+  const absoluteKey = key && !(key[1] === 'a' && !key[2] && !key[3] && /\bin\s+a\s*$|\bto\s+a\s*$/.test(key[0]) === false && !/key/.test(key[0]));
+  if (absoluteKey) {
     let pc = KEY_PC[key[1]];
     if (key[2]) pc += /#|sharp/.test(key[2]) ? 1 : -1;
     edits.push({ id: 'key', value: ((pc % 12) + 12) % 12, src: key[0].trim() });
@@ -429,7 +440,10 @@ function extract(clause, edits) {
   if (step) { edits.push({ id: 'keyStep', amt: /up|higher|raise/.test(step[0]) ? 1 : -1, src: step[0].trim() }); c = c.replace(step[0], ' '); }
   const scale = c.match(/\b(halftime|doubletime)\b/);
   if (scale) { edits.push({ id: 'bpmScale', value: scale[1] === 'halftime' ? 0.5 : 2, src: scale[0] }); c = c.replace(scale[0], ' '); }
-  if (/\bkeychange\b/.test(c)) { edits.push({ id: 'keyStep', amt: 2, src: 'new key' }); c = c.replace(/\bkeychange\b/, ' '); }
+  if (/\bkeychange\b/.test(c)) {
+    if (!absoluteKey) edits.push({ id: 'keyStep', amt: 2, src: 'new key' });
+    c = c.replace(/\bkeychange\b/, ' ');
+  }
   const bare = c.match(/(?:^|\s)(?:make\s+it\s+|go\s+|try\s+|around\s+)?(\d{2,3})(?=\s|$)/);
   if (bare && +bare[1] >= 60 && +bare[1] <= 200) { edits.push({ id: 'bpm', value: +bare[1], src: bare[0].trim() }); c = c.replace(bare[0], ' '); }
   return c;
@@ -444,6 +458,7 @@ const REGEN = new Set(['new', 'another', 'different', 'fresh', 'change', 'rewrit
 const ONLY = new Set(['only', 'solo', 'except', 'isolate']);
 // Axes that mean something on a single track ("faster hats", "more reverb on the chords", "make the kick louder").
 const SCOPED = new Set(['tone', 'warmth', 'space', 'echo', 'density', 'grit', 'tempo', 'volume', 'punch', 'variation']);
+const isMixTerm = (e) => e && ((e.k === 'axis' && SCOPED.has(e.id)) || e.k === 'complaint' || (e.k === 'bundle' && e.id === 'fat'));
 const SCOPE_NEG = new Set([...NEGATE, 'down', 'off', 'cut', 'kill', 'remove', 'drop', 'lose', 'ditch']);
 const HARD_VERB = new Set(['mute', 'silence', 'delete', 'unmute', 'restore', 'return', 'lock', 'unlock', 'keep', 'freeze', 'unfreeze', 'hold', 'protect', 'save', 'release']);
 COMPLAINTS.buried = (a) => [{ id: 'volume', amt: 0.5 * a }];
@@ -703,20 +718,21 @@ function sectionClause(sec, rest, src, ctx, carry = [], where = {}) {
   }
   const sub = carry.length ? carry : parse(rest, { ...ctx, noSection: true, last: null, net: null }).edits;
   const out = [], mute = [], add = [];
-  let energy = 0, left = 0;
+  let energy = 0, left = 0, unsupportedHarmony = false;
   for (const e of sub) {
     if (e.target && e.id === 'mute') (e.value ? mute : add).push(e.target);
     else if (e.target && e.id === 'level') { if (e.amt > 0) add.push(e.target); else out.push(E('density', { tracks: [e.target], amt: e.amt })); }
     else if (e.target && e.id === 'density') out.push(E('density', { tracks: [e.target], amt: e.amt }));
     else if (e.id === 'hook') out.push(E('hook', { value: e.value ? 1 : 0 }));
+    else if (e.id === 'harmony') unsupportedHarmony = true;
     else if (!e.target && SEC_ENERGY.has(e.id) && e.amt) energy += Math.sign(e.amt);
     else left++;
   }
   if (mute.length) out.push(E('mute', { tracks: [...new Set(mute)] }));
   if (add.length) out.push(E('add', { tracks: [...new Set(add)] }));
-  if (!out.length && !energy && !left) energy = SMALLER.test(s) || /\bless\b/.test(s) ? -1 : FULLER.test(s) ? 1 : 0;
+  if (!out.length && !energy && !left && !unsupportedHarmony) energy = SMALLER.test(s) || /\bless\b/.test(s) ? -1 : FULLER.test(s) ? 1 : 0;
   if (energy) out.push(E('energy', { amt: Math.sign(energy) }));
-  return { edits: out, miss: left > 0 || !out.length };
+  return { edits: out, miss: left > 0 || !out.length || unsupportedHarmony, unsupportedHarmony };
 }
 
 // Mix-aware fixes. Each stem's loudness against the whole mix (LU) and the share of energy above 120 Hz
@@ -774,8 +790,8 @@ export function parse(text, ctx = {}) {
   // "undo the reverb" with nothing to undo must not add reverb.
   if (UNDO_ONLY.test(String(text || '').toLowerCase().trim().replace(/[.!?,]+/g, ' ').replace(/\s+/g, ' ').trim())) return { edits: [], unknown: [String(text).trim()] };
   const s = normalize(text);
-  const clauses = s.split(/\s*(?:,|;|\.|!|\?|\band\b|&|\+|\bbut\b|\bthen\b|\balso\b|\bplus\b|\bwith\b|\bwhile\b|\bnow\b)\s*/).map((c) => c.trim()).filter(Boolean);
-  const edits = [], unknown = [];
+  const clauses = s.split(CLAUSE_BREAK).map((c) => c.trim()).filter(Boolean);
+  const edits = [], unknown = [], unsupportedHarmony = [];
   let lastTrack = null, pending = null, clauseStart = 0;
   for (const clause of clauses) {
     const before = edits.length;
@@ -804,6 +820,7 @@ export function parse(text, ctx = {}) {
       const got = sectionClause(sec, restS, src, ctx, carry, where);
       edits.push(...got.edits);
       if (got.miss) unknown.push(clause);
+      if (got.unsupportedHarmony) unsupportedHarmony.push(clause);
       lastTrack = null;
       continue;
     }
@@ -839,7 +856,7 @@ export function parse(text, ctx = {}) {
     }
     const nextReal = (i) => items.slice(i + 1).find((y) => y.e || !STOP.has(y.t));
     const blocked = items.some((x, i) => (HARD_VERB.has(x.t) || MUTE.has(x.t)) && isTrack(nextReal(i)?.e));
-    const scopedItems = items.filter((x) => x.e && ((x.e.k === 'axis' && SCOPED.has(x.e.id)) || x.e.k === 'complaint' || (x.e.k === 'bundle' && x.e.id === 'fat')));
+    const scopedItems = items.filter((x) => isMixTerm(x.e));
     if (targets.length && scopedItems.length && !blocked && !flags.hate && !flags.dislike) {
       const mods = items.filter((x) => !x.e).map((x) => x.t);
       const neg = mods.filter((w) => SCOPE_NEG.has(w)).length % 2 === 1;
@@ -904,7 +921,7 @@ export function parse(text, ctx = {}) {
   }
   // An explicit BPM already says how fast: "slow down to 90".
   const exact = edits.some((e) => e.id === 'bpm');
-  return { edits: merge(exact ? edits.filter((e) => e.id !== 'tempo') : edits), unknown };
+  return { edits: merge(exact ? edits.filter((e) => e.id !== 'tempo') : edits), unknown, ...(unsupportedHarmony.length ? { unsupportedHarmony } : {}) };
 }
 const melodyRegen = (x, words) => x.e.k === 'track' && x.e.ids.includes('melody') && words.some((w) => REGEN.has(w));
 
@@ -986,11 +1003,12 @@ export function validateEdits(list) {
 // phrases the rules don't understand. Off unless a caller passes one.
 export async function interpret(text, ctx = {}, { remote } = {}) {
   const local = parse(text, ctx);
-  if (!remote || !local.unknown.length) return { ...local, via: 'rules' };
+  const unresolved = local.unknown.filter((clause) => !local.unsupportedHarmony?.includes(clause));
+  if (!remote || !unresolved.length) return { ...local, via: 'rules' };
   try {
-    const r = await remote(local.unknown.join(', '), { ...ctx, intents: INTENTS });
+    const r = await remote(unresolved.join(', '), { ...ctx, intents: INTENTS });
     const extra = validateEdits(r?.edits);
-    if (extra.length) return { edits: merge([...local.edits, ...extra]), unknown: [], via: 'remote' };
+    if (extra.length) return { ...local, edits: merge([...local.edits, ...extra]), unknown: local.unsupportedHarmony || [], via: 'remote' };
   } catch {}
   return { ...local, via: 'rules' };
 }

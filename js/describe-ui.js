@@ -240,6 +240,7 @@ export function describeBar(ctx) {
     if (isPlanPrompt(text)) return runPlan(text, '');
     const parsed = parse(text, { style, last: recent, net });
     if (!parsed.edits.length) {
+      if (parsed.unsupportedHarmony?.length) return miss(text, 'Changing chord voicings in one section is not supported yet. Try:');
       if (navigator.onLine === false || /^(?:more|again|less|too much|other way|undo\b)/.test(text.toLowerCase())) return miss(text);
       hint = { note: 'Thinking…', suggestions: [] };
       paint();
