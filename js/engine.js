@@ -6073,7 +6073,7 @@ export class Sequencer {
     if (hash(bar, 131) > 0.85) return;
     const e = this.e, hk = sung.hook, x = hk.x || {}, root = harmRoot(e.harm);
     const tele = this.cur === 2, licks = tele ? TELE_LICKS : HARP_RUNS, lick = licks[Math.floor(hash(bar, 132) * licks.length)];
-    const len = Math.max(...lick.map(([at, , d]) => at + Math.min(d, 2)));
+    const len = Math.max(...lick.map(([at, , d]) => at + d));
     if (sung.busy.slice(i16, i16 + len + 1).some(Boolean)) return;
     this.answered = bar;
     const base = ((root % 12) + 12) % 12 - (root % 12 > 6 ? 12 : 0);
