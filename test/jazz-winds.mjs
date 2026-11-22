@@ -27,18 +27,21 @@ for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
 assert(!liveSets(freshSong('trap', 42)).some((n) => Object.hasOwn(WIND_BANKS, n)));
 for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
   const song = freshSong(style, 42); song.chainOn = false; song.current = 6;
+  const voice = song.patterns[6].hook.v;
   const collect = (from = 0) => {
     const e = new Recorder(song), seq = new Sequencer(e, song), hits = [];
-    e.hook = (...args) => hits.push({ step: e.step, pitch: args[2] + (args[5] || 0) * 12, take: args[9]?.take });
+    e.hook = (...args) => hits.push({ step: e.step, pitch: args[2] + (args[5] || 0) * 12, velocity: args[1], duration: args[3], take: args[9]?.take });
     if (from) seq.startAt(from, .05);
     for (let i = from; i < 128; i++) seq.tick(i, .05 + i * e.stepDur);
     return hits;
   };
   const hits = collect(), counts = new Map();
   for (const hit of hits) {
-    const count = counts.get(hit.pitch) || 0;
+    if (voice === 'tpt' && hit.duration > .26) continue;
+    const key = voice === 'tpt' ? `${hit.pitch}:${hit.velocity < .48 ? 1 : hit.velocity < .75 ? 2 : 3}` : hit.pitch;
+    const count = counts.get(key) || 0;
     if (hit.step >= 16) assert.equal(hit.take, count % 2, `pitch ${hit.pitch}, step ${hit.step}: RR must continue across bars`);
-    counts.set(hit.pitch, count + 1);
+    counts.set(key, count + 1);
   }
   assert.deepEqual(collect(64), hits.filter((hit) => hit.step >= 64), 'seeking reconstructs the same written-note RR history');
   song.patterns[6].hook = { h: 1, v: 'tpt', o: 0, s: Array(32).fill(0), x: {} };
@@ -46,6 +49,42 @@ for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
   const placed = collect();
   assert.deepEqual(placed.map((hit) => hit.take), [0, 1, 0, 1, 0, 1, 0, 1], 'placed repeats continue across bars and phrase passes');
   assert.deepEqual(collect(64), placed.filter((hit) => hit.step >= 64), 'placed-note seeks reconstruct the same RR history');
+}
+
+for (const [style, legacy] of [['swing', false], ['modal', false], ['jazzfunk', false], ['bossa', false], ['bossa', true]]) {
+  const song = freshSong(style, 7); song.chainOn = false; song.current = 6; song.ending = false;
+  delete song.feel;
+  const pat = song.patterns[6];
+  if (legacy) delete pat.jazz.bossaPart;
+  const collect = (from = 0) => {
+    const e = new Recorder(song), seq = new Sequencer(e, song), hits = [];
+    e.rec = (bank) => WIND_BANKS[bank]?.map((m) => [m, { bank, midi: m }]);
+    e.trimOut = () => ({});
+    e.playBuf = (buf, t, v, out, rate) => hits.push({ step: e.step, bank: buf.bank, pitch: Math.round(buf.midi + 12 * Math.log2(rate)) });
+    e.hook = Engine.prototype.hook.bind(e);
+    if (from) seq.startAt(from, .05);
+    for (let i = from; i < 256; i++) seq.tick(i, .05 + i * e.stepDur);
+    return hits;
+  };
+  pat.hook.v = 'tpt';
+  const generated = collect();
+  assert(generated.length, `${style}/${legacy}: real dispatcher reaches recorded winds`);
+  const counts = new Map();
+  for (const hit of generated) if (hit.bank.startsWith('jts')) {
+    const key = `${hit.pitch}:${hit.bank.slice(0, -1)}`, count = counts.get(key) || 0;
+    assert.equal(hit.bank.at(-1), String(count % 2 + 1), `${style}/${legacy}: held notes and other dynamics never consume a staccato turn`);
+    counts.set(key, count + 1);
+  }
+  assert.deepEqual(collect(128), generated.filter((h) => h.step >= 128), `${style}/${legacy}: generated-bank seek history`);
+  pat.hook = { h: 1, v: 'tpt', o: 0, s: Array(32).fill(0), x: {} };
+  for (const [at, duration, velocity] of [[0, 1, .6], [4, 4, .6], [8, 1, .3], [16, 1, .6], [20, 1, .9], [24, 1, .6]]) pat.hook.s[at] = [4, duration, velocity];
+  const placed = collect();
+  assert.deepEqual(placed.slice(0, 6).map((h) => h.bank), ['jts21', 'jtv1', 'jts11', 'jts22', 'jts31', 'jts21']);
+  for (const from of [16, 32, 128]) assert.deepEqual(collect(from), placed.filter((h) => h.step >= from), `${style}/${legacy}: placed banks after short/held/different-dynamic seek`);
+  song.chainOn = true; song.chain = 'G'.repeat(16); song.feel = 'longing'; song.bpm = 58;
+  const breathed = collect();
+  assert.deepEqual(collect(128), breathed.filter((h) => h.step >= 128), `${style}/${legacy}: seek reconstructs duration thresholds with feeling tempo and swing`);
+  assert.equal(new Sequencer(new Recorder(song), song).jazzExpression(pat.hook, [], 0, 0), pat.hook.x, 'an empty note list does not advance RR');
 }
 
 const probe = (voice = 'tpt', velocity = .5, duration = .8, take = 0, missing, style, midi = 73) => {
@@ -58,6 +97,8 @@ for (const [voice, velocity, duration, take, bank] of [
   ['tpt', .4, .8, 0, 'jtv1'], ['tpt', .9, .8, 0, 'jtv2'],
   ['tpt', .3, .15, 0, 'jts11'], ['tpt', .3, .15, 1, 'jts12'],
   ['tpt', .6, .15, 0, 'jts21'], ['tpt', .9, .15, 1, 'jts32'],
+  ['tpt', .48, .26, 1, 'jts22'], ['tpt', .75, .26, 0, 'jts31'],
+  ['tpt', .6, .260001, 1, 'jtv1'],
   ['harmon', .4, .8, 0, 'jhm1'], ['harmon', .9, .8, 0, 'jhm3'],
   ['airflute', .6, .5, 0, 'jfl'], ['airflute', .6, .5, 1, 'jflb'],
   ['airflute', .6, 1.2, 1, 'jfl'],
@@ -125,9 +166,17 @@ assert(!recordedJazzWind({ rec() {} }, 0, .5, 70, .2, 'reed', false, {}, 1), 'un
 for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
   const song = freshSong(style, 42); song.chain = 'GGGGGGGG'; song.ending = false;
   const e = new Recorder(song), seq = new Sequencer(e, song), takes = [];
-  e.hook = (...args) => takes.push(args[9]?.take);
+  e.hook = (...args) => takes.push({ pitch: args[2], duration: args[3], velocity: args[1], take: args[9]?.take });
   for (let i = 0; i < 128; i++) seq.tick(i, .05 + i * e.stepDur);
-  assert(takes.includes(0) && takes.includes(1), `${style}: actual jazz dispatch alternates takes, not just direct helper calls`);
+  const counts = new Map();
+  for (const hit of takes) {
+    const trumpet = song.patterns[6].hook.v === 'tpt';
+    if (trumpet && hit.duration > .26) { assert.equal(hit.take, 0); continue; }
+    const key = trumpet ? `${hit.pitch}:${hit.velocity < .48 ? 1 : hit.velocity < .75 ? 2 : 3}` : hit.pitch;
+    const count = counts.get(key) || 0;
+    assert.equal(hit.take, count % 2, `${style}: dispatched RR counts only the matching recorded bank`);
+    counts.set(key, count + 1);
+  }
   song.patterns[6].hook = { h: 1, v: 'airflute', o: 0, s: Array(32).fill(0), x: {} };
   song.patterns[6].hook.s[0] = [4, 1, .6]; song.patterns[6].hook.s[4] = [4, 1, .6];
   const placed = new Recorder(song), player = new Sequencer(placed, song), pair = [];
