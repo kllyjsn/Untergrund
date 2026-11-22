@@ -65,14 +65,15 @@ function rng(seed) { let x = seed >>> 0; return () => ((x = (x * 1664525 + 10139
   const callbacks = {};
   let queued, began;
   const { promise: waiting, resolve: release } = Promise.withResolvers();
+  const { promise: queuedReplay, resolve: queuedReady } = Promise.withResolvers();
   const env = {
-    ensureAudio() {}, trackEvent() {}, leaveGuest() {}, openJukebox: o => Object.assign(callbacks, o),
-    loadReplay: async () => timeline, prepareTimeline: t => { queued = t; return waiting; },
+    ensureAudio() {}, trackEvent() {}, leaveGuest() {}, toast() {}, openJukebox: o => Object.assign(callbacks, o),
+    loadReplay: async () => timeline, prepareTimeline: t => { queued = t; queuedReady(); return waiting; },
     playTimeline: (t, startsAt) => { began = { t, startsAt }; }, timelineHooks: () => ({}), Date: { now: () => 5000 },
   };
   runInNewContext(main.slice(main.indexOf('function showJukebox('), main.indexOf('\nfunction installRoomSong(')) + '; showJukebox();', env);
   const playing = callbacks.playReplay({});
-  await Promise.resolve();
+  await queuedReplay;
   assert.equal(queued, timeline);
   assert.equal(began, undefined, 'the actual jukebox callback cannot start and lock missing recordings before preparation');
   release(); await playing;
