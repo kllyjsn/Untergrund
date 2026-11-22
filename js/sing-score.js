@@ -4,6 +4,7 @@
 import { Sequencer, parseChain } from './engine.js';
 import { Recorder } from './midi.js';
 import { lineSlots, lyricTimeline } from './lyrics.js';
+import { FEELS } from './feel.js';
 
 export const SING_FORMAT = 'untergrund-sing/1';
 // Scylla's Band v4 built-in voices (spybyscript/scyllasband, voices.json). No other voice can be asked for.
@@ -33,6 +34,38 @@ export const SING_STYLE = {
   folk: { female: 'ariadne', male: 'rex', expr: { ...EXPR_BASE, scoop: 0.6, glide_ms: 40, vib_cents: 22, vib_rate: 5.0, vib_delay: 0.35, breath: 20 } },
 };
 const styleSing = (style) => SING_STYLE[style] || SING_STYLE.pop;
+// The genre's expression in a song's feeling (js/feel.js expr multiplies vibrato, breath, scoop, glide and stress;
+// arousal quickens the vibrato and the scoops). No feeling: the genre's expression as it is.
+export function feelExpr(expr, feel) {
+  const F = FEELS[feel];
+  if (!F) return cleanExpr(expr);
+  const x = F.expr, e = { ...expr };
+  e.vib_cents = expr.vib_cents * x.vib;
+  e.vib_rate = expr.vib_rate * (1 + 0.08 * F.arousal);
+  e.scoop = expr.scoop * x.scoop;
+  e.scoop_ms = expr.scoop_ms * (1 - 0.15 * F.arousal);
+  e.glide_ms = expr.glide_ms * x.glide;
+  // breath is dB under the phrase: more breath is fewer dB (0 stays off).
+  e.breath = expr.breath && Math.max(1, expr.breath - 20 * Math.log10(x.breath));
+  e.stress_db = expr.stress_db * x.stress;
+  e.stress_vowel = expr.stress_vowel * x.stress;
+  return cleanExpr(e);
+}
+// How close to the mic each section sings (0..1): verses intimate, pre and bridge halfway, the chorus opens up.
+export const INTIMATE = { intro: 0.5, verse: 1, pre: 0.5, chorus: 0, bridge: 0.5, outro: 0.5 };
+// Intimate delivery: less and later vibrato, softer accents, gentler scoops, closer breaths.
+export function intimate(expr, a) {
+  if (!a) return cleanExpr(expr);
+  const e = { ...expr };
+  e.vib_cents = expr.vib_cents * (1 - 0.4 * a);
+  e.vib_delay = expr.vib_delay + 0.15 * a;
+  e.vib_ramp = expr.vib_ramp * (1 + 0.5 * a);
+  e.scoop = expr.scoop * (1 - 0.3 * a);
+  e.stress_db = expr.stress_db * (1 - 0.5 * a);
+  e.stress_vowel = expr.stress_vowel * (1 - 0.4 * a);
+  e.breath = expr.breath && Math.max(1, expr.breath - 6 * a);
+  return cleanExpr(e);
+}
 export const SING_LIMITS = { notes: 1500, beats: 1600, seconds: 420, text: 4000, label: 40, bpm: [40, 240], midi: [36, 91], seed: 2 ** 31 - 1 };
 // Gaps shorter than this inside a line are sung through (legato); longer ones are rests (a breath).
 const LEGATO = 1;
@@ -163,7 +196,7 @@ export function singScore(state, { voice, seed, kind = 'club', format = 'opus' }
     });
   }
   const swing = state.swing || 0, beat = (step) => (step + (step % 2 ? swing * 0.5 : 0)) / 4;
-  const rows = [], words = [], meta = [];
+  const rows = [], words = [], meta = [], secs = [];
   let cursor = 0;
   // A gap too short to be a rest (rounding) lengthens the note before it.
   const rest = (to) => {
@@ -202,6 +235,7 @@ export function singScore(state, { voice, seed, kind = 'club', format = 'opus' }
       if (rows.length && rows.at(-1)[0].split('~')[0] === label) { words.push(label); sungWords.push(label); }
     });
     meta.push({ part: p.q, bar: p.bar, start: r4(beat(p.notes[0].at)), text: sungWords.join(' '), dropped });
+    secs.push(state.lyrics.sections[p.s]?.sec);
   }
   if (!words.length) return null;
   // Melisma labels need unbroken numbering: renumber each run of parts of one word.
@@ -223,7 +257,27 @@ export function singScore(state, { voice, seed, kind = 'club', format = 'opus' }
   const ss = styleSing(style), gender = state.lyrics.vocal === 'male' ? 'male' : 'female';
   const v = SING_VOICES.includes(voice) ? voice : (['female', 'male'].includes(state.lyrics.vocal) ? ss[gender] : VOCAL_VOICE[state.lyrics.vocal]) || ss.female;
   const sd = Number.isInteger(seed) ? seed : hash(JSON.stringify(score) + v) % SING_LIMITS.seed;
-  return { format: SING_FORMAT, voice: v, seed: sd, audio: SING_FORMATS.includes(format) ? format : 'opus', score, expr: cleanExpr(ss.expr), key: state.key, phrases: meta };
+  // With a feeling, `expr` is the chorus delivery and `parts` moves each section to its own from the beat its first phrase starts.
+  const expr = feelExpr(ss.expr, state.feel), parts = [];
+  if (FEELS[state.feel]) {
+    meta.forEach((m, i) => {
+      const e = intimate(expr, INTIMATE[secs[i]] ?? 0);
+      if (JSON.stringify(e) !== JSON.stringify(parts.at(-1)?.expr)) parts.push({ beat: parts.length ? m.start : 0, expr: e });
+    });
+  }
+  return { format: SING_FORMAT, voice: v, seed: sd, audio: SING_FORMATS.includes(format) ? format : 'opus', score, expr, ...(parts.some((p) => JSON.stringify(p.expr) !== JSON.stringify(expr)) && { parts }), key: state.key, phrases: meta };
+}
+
+// Section deliveries: [{ beat, expr }] with rising beats inside the score; anything else drops them all.
+export function cleanParts(raw, beats = SING_LIMITS.beats) {
+  if (!Array.isArray(raw) || !raw.length || raw.length > 64) return null;
+  const out = [];
+  for (const p of raw) {
+    const b = p?.beat, expr = cleanExpr(p?.expr);
+    if (!(typeof b === 'number' && b >= 0 && b <= beats) || !expr || (out.length && b <= out.at(-1).beat)) return null;
+    out.push({ beat: r4(b), expr });
+  }
+  return out;
 }
 
 // Server-side check of a sing request (api/_lib/sing.js; singer/singer.py checks the same limits again).
@@ -253,6 +307,6 @@ export function validateSing(raw) {
   if (beats > L.beats || (beats * 60) / bpm > L.seconds || words.join(' ') !== score.text) return null;
   const voice = SING_VOICES.includes(raw.voice) ? raw.voice : null, seed = raw.seed;
   if (!voice || !Number.isInteger(seed) || seed < 0 || seed > L.seed) return null;
-  const expr = cleanExpr(raw.expr);
-  return { format: SING_FORMAT, voice, seed, audio: SING_FORMATS.includes(raw.audio) ? raw.audio : 'opus', score: { text: score.text, bpm, style: score.style, notes: score.notes.map((r) => [...r]) }, ...(expr && { expr }) };
+  const expr = cleanExpr(raw.expr), parts = cleanParts(raw.parts, beats);
+  return { format: SING_FORMAT, voice, seed, audio: SING_FORMATS.includes(raw.audio) ? raw.audio : 'opus', score: { text: score.text, bpm, style: score.style, notes: score.notes.map((r) => [...r]) }, ...(expr && { expr }), ...(parts && { parts }) };
 }
