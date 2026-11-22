@@ -8,6 +8,7 @@ import { jazzStyle } from './jazz.js';
 import { hasUserSample } from './sampler.js';
 import { getChops } from './voice.js';
 import { vowelStyle, vowelVoxNote, vowelPitch, vowelDuration } from './vowels.js';
+import { SAX_HOOK, saxRoot } from './livekit.js';
 
 export const PPQ = 480;
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
@@ -16,7 +17,7 @@ const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453;
 export const GM_DRUMS = { kick: 36, clap: 39, snare: 38, ch: 42, oh: 46, ride: 51, perc: 63 };
 const DRUM_NAMES = { kick: 'Kick', clap: 'Clap', snare: 'Snare', ch: 'Hats', oh: 'Open Hat', ride: 'Ride', perc: 'Perc' };
 const STAB_PROGRAM = { 0: 81, 1: 4, 2: 89, 3: 16, 4: 61, 5: 45, 6: 14, 7: 0, 8: 25, 9: 61, 10: 48, 16: 42, 17: 71, 18: 24, [MARIMBA_STAB]: 12 };
-const HOOK_PROGRAM = new Map([['oboe', 68], ['airflute', 73], ['tpt', 56], ['marimba', 12]]);
+const HOOK_PROGRAM = new Map([['oboe', 68], ['airflute', 73], ['tpt', 56], ['marimba', 12], ['altosax', 65], ['tenorsax', 66]]);
 export const PARTS = {
   vln1: ['Violin I', 40], vln2: ['Violin II', 40], vla: ['Viola', 41], vc: ['Cello', 42], cb: ['Contrabass', 43],
   fl: ['Flute', 73], ob: ['Oboe', 68], cl: ['Clarinet', 71], hn: ['Horn', 60], tpt: ['Trumpet', 56],
@@ -94,7 +95,6 @@ export class Recorder {
     this.add('stab', t, 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + n, this.stepDur * 2, v);
   }
   hook(t, v, n, dur, voice, oct = 0, strong = false, b = 1, up = false) {
-    this.hookVoice ??= voice;
     const h = this.harm;
     if (strong || up) {
       const tones = this.chord().map((x) => ((((h ? h.r : 0) + x) % 12) + 12) % 12), pc = ((n % 12) + 12) % 12;
@@ -113,7 +113,11 @@ export class Recorder {
     if (((style === 'breaks' && vo === 1) || (style === 'reggaeton' && vo === 3)) && (voice === 'vocal' || voice === 'reed')) {
       while (pitch > 79) pitch -= 12;
       while (pitch < 48) pitch += 12;
+    } else if (voice === 'reed' && SAX_HOOK[this.playbackStyle] && style !== 'dub' && !paletteFor(this.state, this.playbackStyle)) {
+      voice = SAX_HOOK[this.playbackStyle];
+      pitch = saxRoot(this.playbackStyle, 60 + k, oct) + n;
     }
+    this.hookVoice ??= voice;
     this.add('hook', t, pitch, dur * 0.92, v);
   }
   acid(t, st, sliding, holdNext, sd) {

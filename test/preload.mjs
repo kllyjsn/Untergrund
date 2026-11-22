@@ -31,6 +31,9 @@ for (let midi = 0; midi <= 127; midi++) {
   assert((vowelPitch(midi) - midi) % 12 === 0);
   assert.equal(vowelPitch(midi, 52.9999), vowelPitch(midi), 'fractional tuning does not flip the folded octave at a tritone');
 }
+assert.deepEqual(liveSets({ artist: { style: 'pop' }, pattern: { hook: { v: 'reed' } } }), ['asax', 'asaxb'], 'pop reed is the recorded alto');
+assert.deepEqual(liveSets({ artist: { style: 'boombap' }, pattern: { hook: { v: 'reed' } } }), ['tsax', 'tsaxb'], 'boom bap reed is the recorded tenor');
+assert.deepEqual(liveSets({ artist: { style: 'country' }, pattern: { hook: { v: 'reed' } } }), [], 'other reed styles stay synthesized');
 
 // Every generated song: live-kit genres always need the kit, and the chord instrument matches its stab voice.
 for (const id of Object.keys(STYLES)) {
