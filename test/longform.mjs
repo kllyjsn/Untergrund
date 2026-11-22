@@ -7,6 +7,7 @@ import { STYLES, SONG_STYLES, songPlan, sanitize } from '../js/state.js';
 import { realize, validateSpec, localSpec } from '../js/song-spec.js';
 import { planSections, formChain, formSeconds, developSong, developFinalDrop, LENGTHS, MAX_SONG_BARS } from '../js/longform.js';
 import { patternAt } from '../js/scope.js';
+import { Sequencer } from '../js/engine.js';
 import { isJazz } from '../js/jazz.js';
 import { buildSong, playSong, scoreSong, aggregateComposition, compositionRegressions, SEEDS, loopStyles, runComposition } from '../scripts/composition.mjs';
 
@@ -86,6 +87,47 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
     assert(c.startsWith('AAAA') && c.endsWith('A') && c.includes('E') && drops.length >= 2, `${style} club form ${c}`);
   }
   console.log(`long-form section roles passed (${inst}/${n} songs with an instrumental)`);
+}
+
+{
+  const style = 'deephouse', stepDur = 0.125;
+  for (const seed of [11, 42, 77, 1234, 2024]) for (const length of ['song', 'sketch']) {
+    const s = buildSong(style, seed, length), sp = spans(songPlan(style, seed, length, s.bpm).sections);
+    const [intro, pre, verse, fill, , , chorus, turnaround] = s.patterns;
+    assert.notDeepEqual(chorus.prog, intro.prog);
+    assert.notDeepEqual(chorus.prog, verse.prog);
+    assert.deepEqual(chorus.prog, turnaround.prog);
+    assert.deepEqual(patternAt(fill, sp[0].bars - 1).prog, intro.prog, 'the intro fill establishes the tonic');
+    const levels = [];
+    const seq = new Sequencer({ playbackStyle: style, stepDur, sectionGain: (...args) => levels.push(args), breakOpen() {} }, s);
+    const bars = Array.from(s.chain, (_, bar) => {
+      seq.advanceBar(bar * 16, bar * 16 * stepDur);
+      return levels.at(-1);
+    });
+    const choruses = sp.filter(({ k }) => k === 'c');
+    const firstLevel = bars[choruses[0].at][1];
+    assert(firstLevel - bars[0][1] >= 4, 'the intro leaves space for the chorus');
+    if (length === 'song') assert(bars[choruses.at(-1).at][1] - firstLevel >= 1, 'save the biggest chorus for last');
+    for (const [i, { k, at }] of sp.entries()) {
+      if (k === 'v') assert(firstLevel - bars[at][1] >= 2.5, 'verses stay below the first chorus');
+      if (k !== 'c') continue;
+      const build = sp[i - 1];
+      assert(build.k === 'p' && build.bars === 4 || build.k === 'b' && at === choruses.at(-1).at);
+      const pickup = bars.slice(at - 4, at);
+      assert(pickup.every(([, db, ramp], j) => ramp && (!j || db > pickup[j - 1][1])));
+      assert(bars[at][1] - pickup.at(-1)[1] >= 1, 'the build leaves a jump into the chorus');
+      const hits = (bar) => patternAt(pre, bar).steps.perc.filter(Boolean).length;
+      if (build.k === 'p') assert(hits(build.at) < hits(at - 1), 'the build opens up its percussion');
+    }
+    const build = choruses[0].at - 1, [from, to] = [bars[build][2][0], bars[build][1]];
+    seq.startAt(build * 16 + 8, 1000);
+    const [time, db, [gain, duration]] = levels.at(-1);
+    assert.equal(time, 1000);
+    assert.equal(db, to);
+    assert.equal(duration, 8 * stepDur);
+    assert(Math.abs(10 ** (gain / 20) - (10 ** (from / 20) + 10 ** (to / 20)) / 2) < 1e-9);
+  }
+  console.log('Deep House chorus builds, harmony, energy and seek passed');
 }
 
 // P3 repetition with development: choruses keep the hook and chords, verse 2 and the last chorus add material,
@@ -182,18 +224,30 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
     const head = length === 'sketch' ? 8 : 16;
     assert.equal(sections, null);
     assert.equal(s.chain, chain);
-    assert.equal(chain, 'G'.repeat(head) + 'C'.repeat(chain.length - 2 * head) + 'H'.repeat(head));
     const { log } = playSong(s);
     const phrase = (bar) => log.filter((x) => x.k === 'hook' && x.step >= bar * 16 && x.step < (bar + 8) * 16)
       .map((x) => [x.step - bar * 16, ...x.a.slice(1, 4)]);
-    assert(phrase(0).length && phrase(chain.length - head).length, `${style}/${seed} both heads play`);
-    assert.notDeepEqual(phrase(head), phrase(0), `${style}/${seed} solos develop the head`);
-    assert.notDeepEqual(phrase(head), phrase(head + 8), `${style}/${seed} solos develop across phrases`);
+    if (style === 'bossa') {
+      assert.match(chain, length === 'sketch' ? /^G{8}E{8}H{8}B{8}$/ : /^A{8}G{16}E{16}H{16}C{16}F{16}(C{16})?H{16}B{8}$/);
+      const theme = (slot) => phrase(chain.indexOf(slot)).map(([step, , note]) => [step, note]);
+      assert(theme('G').length && theme('H').length, 'Bossa plays the head and its reprise');
+      assert.deepEqual(theme('H').filter(([step]) => step < 16), theme('G').filter(([step]) => step < 16), 'the reprise recalls the opening motif');
+      assert.notDeepEqual(theme('H'), theme('G'), 'the rest of the reprise develops the motif');
+      assert.notDeepEqual(theme('E'), theme('G'), 'the bridge introduces a different theme');
+      if (chain.includes('C')) assert.notDeepEqual(phrase(chain.indexOf('C')), phrase(chain.indexOf('C') + 8), 'the solo has two different phrases');
+    } else {
+      assert.equal(chain, 'G'.repeat(head) + 'C'.repeat(chain.length - 2 * head) + 'H'.repeat(head));
+      assert(phrase(0).length && phrase(chain.length - head).length, `${style}/${seed} both heads play`);
+      assert.notDeepEqual(phrase(head), phrase(0), `${style}/${seed} solos develop the head`);
+      assert.notDeepEqual(phrase(head), phrase(head + 8), `${style}/${seed} solos develop across phrases`);
+    }
     for (let bar = 0; bar < chain.length - 1; bar++) {
       const events = log.filter((x) => Math.floor(x.step / 16) === bar);
       assert(events.some((x) => x.k === 'acid'), `${style}/${seed} bass continues at bar ${bar}`);
-      assert(events.some((x) => x.k === 'trigger' && ['kick', 'snare', 'ride', 'ch'].includes(x.a[0])), `${style}/${seed} drums continue at bar ${bar}`);
+      const slot = chain[bar], local = bar - chain.indexOf(slot);
+      const drumRest = style === 'bossa' && ((slot === 'A' || slot === 'F') && local < 4 || slot === 'B' && local >= 6);
+      assert.equal(events.some((x) => x.k === 'trigger' && ['kick', 'snare', 'ride', 'ch'].includes(x.a[0])), !drumRest, `${style}/${seed} drum arrangement at bar ${bar}`);
     }
   }
-  console.log('long-form jazz passed: full/sketch head–solos–head, runtime phrase development and continuous bass/drums');
+  console.log('long-form jazz passed: full/sketch forms, returning motifs, runtime phrase development and bass/drum arrangement');
 }
