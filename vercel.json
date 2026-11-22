@@ -1,4 +1,5 @@
 {
+  "framework": null,
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": { "api/sc-token.js": { "maxDuration": 60 }, "api/push.js": { "maxDuration": 60 }, "api/describe.js": { "maxDuration": 30 }, "api/rooms.js": { "maxDuration": 10 }, "api/events.js": { "maxDuration": 60 } },
