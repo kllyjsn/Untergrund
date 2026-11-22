@@ -5053,6 +5053,11 @@ export class Sequencer {
     this.queued = null;
     this.acidPrevSlide = false;
     this.finished = false;
+    if (offset && pos >= 0 && this.s.patterns[this.cur]?.jazz?.bossaPart) {
+      this.chainPos = bar;
+      this.advanceBar(bar * 16, t, offset);
+      return;
+    }
     if (offset && pos >= 0 && !(this.s.ending && chain.length >= 16 && bar >= chain.length))
       this.verseFillSwell(t, chain, pos, offset);
   }
@@ -5574,7 +5579,7 @@ export class Sequencer {
     const final = s.ending && bars && pos === bars - 1;
     if (final && i) return this.cur;
     const nextPos = bars ? (pos + 1) % bars : -1;
-    const nextSlot = this.chainArr[nextPos] ?? this.cur;
+    const nextSlot = this.chainArr?.[nextPos] ?? this.cur;
     const boundary = nextSlot !== this.cur || (bars > 1 && nextPos === 0);
     const nextPat = patternAt(s.patterns[nextSlot], nextPos);
     const h = e.harm, next = nextPat.jazz?.bossaPart && nextPat.jazz.progBars !== 1

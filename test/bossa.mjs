@@ -97,6 +97,13 @@ for (const row of nylon.samples) {
   assert(row.sourceActiveToTailDb > 40, 'exclude weak or noisy upper finger takes');
 }
 const guitar = freshSong('bossa', 42), played = [], banks = [];
+{
+  const step = 11 * 16 + 8, e = new Recorder(guitar), seq = new Sequencer(e, guitar);
+  seq.startAt(step, 1);
+  seq.tick(step, 1);
+  assert.deepEqual(e.harm, guitar.patterns[6].prog[3], 'joining halfway into the head uses the right chord');
+  assert(e.notes.acid?.length, 'a late join starts on the next bass note, not the next bar');
+}
 Engine.prototype.stab.call({ state: guitar, ctx: {}, step: 3, harm: jazzHarmony(guitar.patterns[6], 0), ch: { stab: { band: {}, input: {} } }, rec: (name) => { banks.push(name); return [[60, {}]]; }, recordedNote: (...a) => played.push(a) }, 1, 0.5);
 assert.deepEqual(banks, ['nylon']);
 assert(played.length > 1 && played.every((a) => a[7] === 'nylon'));
