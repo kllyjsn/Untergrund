@@ -5407,7 +5407,7 @@ export class Sequencer {
     const lick = this.lickCell(i16, vary);
     if (lick && leadOn && !busy && !(this.songBars && ((hk && hm) || sung?.any) && i16 === 15) && bar % 8 === 7 && !sp[abs % (pat.len.stab || 16)]) {
       const phraseMidi = e.playbackStyle === 'lofihiphop'
-        ? Array.from({ length: 8 }, (_, i) => i * 2).filter((i) => !sp[i % (pat.len.stab || 16)])
+        ? Array.from({ length: 8 }, (_, i) => i * 2).filter((i) => !sp[(bar * 16 + i) % (pat.len.stab || 16)])
           .flatMap((i) => {
             const note = this.lickCell(i, vary);
             if (!note) return [];

@@ -115,6 +115,19 @@ const rhodesTune = JSON.parse(await readFile(new URL('../samples/rhodes-analysis
           tunedStretch: +tunedStretch.toFixed(4), notes: part.after.length }];
       }));
     }
+    row = { chords: { before: [], after: [] }, lines: { before: [], after: [] } };
+    phraseShifts = new Map();
+    const poly = defaultState(), g = generate('lofihiphop', 1);
+    applyOverrides(poly, g, true); poly.artist = { style: 'lofihiphop', seed: 2 };
+    poly.master.vary = 1; poly.chainOn = false; poly.current = 0;
+    poly.patterns = Array.from({ length: 8 }, () => {
+      const p = structuredClone(g.pattern);
+      p.hook = null; p.hm = 0; p.len.stab = 13; p.steps.stab = Array(13).fill(1);
+      p.steps.stab[(7 * 16 + 12) % 13] = 0;
+      return p;
+    });
+    capture(poly, 8);
+    assert(row.lines.after.length > 0, 'a playable lick survives the 13-step chord-row gate');
   } finally {
     Recorder.prototype.trigger = before; Recorder.prototype.hook = hook; Recorder.prototype.lick = lick;
     delete Recorder.prototype.keys; delete Recorder.prototype.rhodesKeys;
