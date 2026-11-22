@@ -7,6 +7,10 @@ import { KIT_BACKBEAT, HAND_KIT, MARIMBA_STAB } from '../js/params.js';
 import { defaultState, generate, STYLES } from '../js/state.js';
 import { createPlayer } from '../js/player.js';
 import { OfflineAudioContext as FakeContext, AudioBuffer } from './offline-audio.mjs';
+import { VOWEL_BAND, VOWEL_TUNE, VOWEL_STYLES, vowelPitch, vowelVoxNote, vowelLoop, playVowel } from '../js/vowels.js';
+import { setFromArrayBuffer, useSynthVox } from '../js/sampler.js';
+import { setVoice, clearVoice } from '../js/voice.js';
+import { Recorder } from '../js/midi.js';
 
 const st = (kit, voice) => ({ master: { kit }, params: { stab: { voice } } });
 assert.deepEqual(liveSets(st(0, 1)), []);
@@ -17,6 +21,15 @@ assert.deepEqual(liveSets(st(1, 7)), ['kit', 'piano', 'pianosoft']);
 assert.deepEqual(liveSets(st(0, 10)), ['str']);
 assert.deepEqual(liveSets(st(1.2, 9.4)), ['kit', 'horn']);
 assert.deepEqual(liveSets({}), []);
+for (const style of Object.keys(STYLES)) {
+  const state = { ...generate(style, 8), artist: { style } };
+  assert.deepEqual(liveSets(state).filter((n) => n.startsWith('vox_')), VOWEL_STYLES.includes(style) ? Object.keys(VOWEL_BAND) : [], `${style} vowel preload is target-only`);
+  assert.deepEqual(liveSets(generate(style, 8), style).filter((n) => n.startsWith('vox_')), liveSets(state).filter((n) => n.startsWith('vox_')), 'style-picker preloading includes the same vowels');
+}
+for (let midi = 0; midi <= 127; midi++) {
+  assert(Math.abs(vowelPitch(midi) - 53) <= 6);
+  assert((vowelPitch(midi) - midi) % 12 === 0);
+}
 
 // Every generated song: live-kit genres always need the kit, and the chord instrument matches its stab voice.
 for (const id of Object.keys(STYLES)) {
@@ -51,6 +64,97 @@ globalThis.OfflineAudioContext = class { decodeAudioData(b) { return Promise.res
 
 const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
 const feeds = (source, dest) => source === dest || dest.inputs.some((input) => feeds(source, input));
+{
+  const audioBuffer = globalThis.AudioBuffer;
+  globalThis.AudioBuffer = AudioBuffer;
+  const ctx = new FakeContext(1, 96000, 48000), state = defaultState();
+  state.artist = { style: 'ukg', seed: 8 };
+  const hits = [], fallback = [], out = {}, hookOut = {};
+  const e = { state, ctx, playbackStyle: 'ukg', stepDur: 0.125, step: 0, recLock: new Map(),
+    rec: Engine.prototype.rec, harmRoot: () => 0, ch: { vox: { input: out }, stab: { input: {} } }, hookBus: hookOut,
+    playBuf: (...args) => { hits.push(args); }, voxChop: () => fallback.push('synth'),
+    sungVox: () => fallback.push('sung'), funkVox: () => fallback.push('funk') };
+  Engine.prototype.vox.call(e, 1, 0.7, 0);
+  assert.equal(fallback.length, 1, 'missing vowel falls back to synth');
+  const decoder = globalThis.OfflineAudioContext;
+  globalThis.OfflineAudioContext = class { decodeAudioData() { return Promise.resolve(new AudioBuffer(1, 22050, 44100)); } };
+  await loadSets(Object.keys(VOWEL_BAND));
+  globalThis.OfflineAudioContext = decoder;
+  Engine.prototype.vox.call(e, 2, 0.7, 0);
+  assert.equal(hits.length, 0, 'late vowel does not replace locked synth mid-song');
+  for (const style of VOWEL_STYLES) {
+    state.artist.style = e.playbackStyle = style;
+    e.recLock = new Map();
+    state.params.vox.length = 8;
+    for (const step of [0, 64]) {
+      const note = vowelVoxNote(state, style, step, e.stepDur);
+      const recorder = new Recorder(state);
+      recorder.vox(3, 0.7, step);
+      Engine.prototype.vox.call(e, 3, 0.7, step);
+      const [buffer, , , bus, rate, duration, fx] = hits.at(-1);
+      const [center, sample] = liveSet(note.name)[0];
+      assert.equal(buffer, sample); assert.equal(bus, out);
+      assert.equal(center, 53 + VOWEL_TUNE[note.name][53] / 100);
+      assert(Math.abs(12 * Math.log2(rate)) <= 6.001);
+      assert.equal(recorder.notes.vox[0].m, note.midi, 'MIDI follows folded recorded pitch');
+      assert.equal(fx.loop, ['deephouse', 'euphoric', 'dnb'].includes(style));
+      if (fx.loop) assert(duration > 0.4, `${style} sustains`);
+      else assert(duration <= 0.14, `${style} chops`);
+    }
+    for (const voice of ['vocal', 'chop']) {
+      Engine.prototype.hook.call(e, 4, 0.6, 0, 1, voice);
+      assert.equal(hits.at(-1)[3], hookOut, `${style}/${voice} routes through the hook stem`);
+      assert(hits.at(-1)[5] <= 0.14);
+    }
+  }
+  const take = new AudioBuffer(1, 24000, 48000);
+  take.getChannelData(0).forEach((_, i, a) => { a[i] = Math.sin(i * 2 * Math.PI * 174.614 / 48000); });
+  const [loopStart, loopEnd] = vowelLoop(take);
+  assert(loopStart > 0 && loopEnd > loopStart && loopEnd < take.duration);
+  for (const point of [loopStart, loopEnd]) {
+    const i = Math.round(point * take.sampleRate), data = take.getChannelData(0);
+    assert(data[i] <= 0 && data[i + 1] > 0, 'sustain loops at rising zero crossings');
+  }
+  let source;
+  const player = { rec: () => [[53, take]], playBuf: (...args) => {
+    const played = Engine.prototype.playBuf.call({ ctx, gain: Engine.prototype.gain, filter: Engine.prototype.filter, startSource: Engine.prototype.startSource }, ...args);
+    source = played.s;
+    return played;
+  } };
+  playVowel(player, 0.1, 0.6, 60, 1, 'vox_ahh', ctx.destination, 4000, true);
+  assert(source.loop && source.loopStart === loopStart && source.loopEnd === loopEnd, 'real buffer source sustains the vowel');
+  assert.equal(playVowel({ rec: () => [] }, 0, 1, 53, 1, 'vox_ahh', out), false, 'empty sets fall back');
+  for (const kind of ['file', 'mic']) {
+    globalThis.OfflineAudioContext = class { decodeAudioData() { return Promise.resolve(take); } };
+    await setFromArrayBuffer(new ArrayBuffer(1), 'OWN VOICE', kind);
+    globalThis.OfflineAudioContext = decoder;
+    const count = hits.length;
+    for (const style of VOWEL_STYLES) {
+      e.playbackStyle = state.artist.style = style;
+      Engine.prototype.vox.call(e, 5, 0.7, 1);
+    }
+    assert.equal(hits.length, count, `${kind} audio wins over recorded vowels`);
+  }
+  useSynthVox();
+  let ownChop = false;
+  setVoice({ buffer: take, data: take.getChannelData(0), sampleRate: 48000, chops: [{ start: 0, end: 0.2, midi: 53 }] }, 'OWN CHOP', false);
+  e.chopNote = () => { ownChop = true; };
+  Engine.prototype.hook.call(e, 6, 0.7, 0, 1, 'chop');
+  assert(ownChop, 'user hook chops win before palette dispatch');
+  clearVoice();
+  globalThis.AudioBuffer = audioBuffer;
+  const fetchFile = globalThis.fetch, warn = console.warn, warnings = [];
+  try {
+    globalThis.fetch = async () => ({ ok: false, status: 503 });
+    console.warn = (...args) => warnings.push(args.join(' '));
+    const failed = await import('../js/livekit.js?vowel-failure');
+    assert.deepEqual(await failed.loadSets(Object.keys(VOWEL_BAND)), [null, null, null]);
+    assert.equal(warnings.length, 3);
+    assert(warnings.every((w) => w.includes('HTTP 503') && w.includes('using synth voice')));
+  } finally { globalThis.fetch = fetchFile; console.warn = warn; }
+  files.clear();
+  console.log('recorded vowels: target-only preload, cents centers, VOX/hooks, user priority, MIDI and synth fallback passed');
+}
 {
   const hands = {
     amapiano: ['shaker', 'conga'],

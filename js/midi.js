@@ -5,6 +5,9 @@ import { CHORDS, KEYS, MARIMBA_STAB, SCALES } from './params.js';
 import { compose } from './classical.js';
 import { PIECE } from './repertoire.js';
 import { jazzStyle } from './jazz.js';
+import { hasUserSample } from './sampler.js';
+import { getChops } from './voice.js';
+import { vowelStyle, vowelVoxNote, vowelPitch, vowelDuration } from './vowels.js';
 
 export const PPQ = 480;
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
@@ -76,6 +79,12 @@ export class Recorder {
     } else if (GM_DRUMS[id]) this.add(id, t, id === 'snare' && jazzStyle(this.state, this.playingPattern) === 'bossa' ? 37 : GM_DRUMS[id], this.stepDur, v);
   }
   vox(t, v, step) {
+    const style = this.state.artist?.style;
+    if (vowelStyle(style) && !hasUserSample()) {
+      const note = vowelVoxNote(this.state, style, step, this.stepDur, this.harmRoot());
+      this.add('vox', t, note.midi, note.duration, v);
+      return;
+    }
     const p = this.state.params.vox, notes = SCALES[this.state.scale]?.notes || SCALES.minor.notes;
     const degree = hash(step, 3) < p.melody ? notes[Math.floor(hash(step, 4) * notes.length)] : 0;
     this.add('vox', t, 60 + Math.round(p.pitch) + degree, Math.max(0.03, p.length * this.stepDur), v);
@@ -94,6 +103,10 @@ export class Recorder {
     }
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
     let pitch = 60 + k + oct * 12 + n;
+    if (vowelStyle(this.state.artist?.style) && !hasUserSample() && (voice === 'vocal' || (voice === 'chop' && !getChops()))) {
+      this.add('hook', t, vowelPitch(pitch), vowelDuration('ukg', dur), v);
+      return;
+    }
     pitch = paletteHookPitch(this.state, pitch, voice);
     const style = this.state.artist?.style, vo = Math.round(this.state.params.stab.voice);
     if (style === 'dub') pitch = this.dubRegister([0], pitch);

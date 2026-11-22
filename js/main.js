@@ -1719,7 +1719,7 @@ function preloadStyle(id) {
   warmed = `${id}:${nextSeed}`;
   const g = generate(id, nextSeed, state.scale);
   if (g.pattern.score) preloadScore(g.pattern.score).catch(() => {});
-  else loadSets(liveSets(g));
+  else loadSets(liveSets(g, id));
 }
 function selectStyle(id) { style = id; preloadStyle(id); if (STYLES[id].family === 'CLASSICAL') loadPiano(); build(); }
 function lengthPicker() {
