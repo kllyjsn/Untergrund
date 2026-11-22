@@ -2309,6 +2309,7 @@ export class Engine {
     const requested = iv.map((n) => root + n);
     if (!requested.length || requested.some((n) => !Number.isFinite(n)) || !Number.isFinite(v) || v <= 0) return true;
     const notes = p.rhodesLine ? requested : rhodesVoicing(requested);
+    if (!notes.length) return true;
     const funk = (jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle) === 'jazzfunk';
     const velocity = Math.max(0, Math.min(1, v / (funk ? dbGain(JAZZ_MIX.jazzfunk.comp) : 1)));
     const hold = p.rhodesHold ?? Math.max(0.08, p.decay * (funk ? 1 : 1.7));

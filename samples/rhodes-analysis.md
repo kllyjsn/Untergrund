@@ -31,7 +31,7 @@ Per-file provenance is in `rhodes-sources.json`; numerical measurements and the 
 
 There are no new samples filling the 21 missing semitones. An unrestricted nearest-measured-center mapping would send **MIDI 65–75 (F4–D#5)** to **rhodes_64 / E4** pitched up 1–11 semitones, and **76–85 (E5–C#6)** to **rhodes_86 / D6** pitched down 10–1 semitones. MIDI 86/D6 itself has a real sample. Those large stretches would change attack and decay noticeably; they are not native mid/high-register coverage. The widest split falls just above MIDI 75 because the corrected centers are 64.0515 and 85.9937.
 
-The engine instead avoids MIDI 69–81: chords are octave-folded with duplicate/crowded voices removed or respaced, and single lines are octave-transposed as phrases. See [rhodes-integration.md](rhodes-integration.md) for runtime checks and measurements.
+The engine instead transposes whole chord voicings into MIDI 40–68, dropping low roots/doublings to leave at most one note below MIDI 48; individual chord notes are never octave-folded. Single lines are octave-transposed as phrases to avoid MIDI 69–81 and may use the high sample island. See [rhodes-integration.md](rhodes-integration.md) for runtime checks and measurements.
 
 ## All originals
 

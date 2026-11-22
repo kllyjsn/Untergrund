@@ -23,8 +23,10 @@ assert.deepEqual(liveSets({}), []);
 
 assert.deepEqual(rhodesVoicing([]), []);
 assert.deepEqual(rhodesVoicing([60, 64, 67, 72]), [48, 52, 55, 60], 'drop a gap-top voicing together');
-assert.deepEqual(rhodesVoicing([60, 64, 76, 84]), [60, 64, 84], 'fold inner gap voices without duplicates');
-assert.deepEqual(rhodesVoicing([60, 61, 64]), [48, 61, 64], 'uncrowd the lower voice, retain the top');
+assert.deepEqual(rhodesVoicing([60, 64, 76, 84]), [40, 52, 60], 'transpose the whole chord and drop the low root');
+assert.deepEqual(rhodesVoicing([60, 61, 64]), [60, 61, 64], 'preserve original intervals, including seconds');
+assert.deepEqual(rhodesVoicing([40, 44, 47, 52, 52, 64]), [47, 52, 64], 'drop low roots/doublings and exact duplicates only');
+assert.deepEqual(rhodesVoicing([28, 35, 39]), [], 'omit chords entirely below E2');
 const rhodesTune = JSON.parse(await readFile(new URL('../samples/rhodes-analysis.json', import.meta.url), 'utf8')).tune;
 {
   const before = Recorder.prototype.trigger, hook = Recorder.prototype.hook, lick = Recorder.prototype.lick;
@@ -33,10 +35,17 @@ const rhodesTune = JSON.parse(await readFile(new URL('../samples/rhodes-analysis
   Recorder.prototype.rhodesKeys = function (_t, _v, iv, root, p) {
     const requested = iv.map((n) => root + n);
     const played = p.rhodesLine ? requested : rhodesVoicing(requested);
-    row.before.push(...(linePitch == null ? requested : [linePitch])); row.after.push(...played);
+    const part = p.rhodesLine ? row.lines : row.chords;
+    part.before.push(...(linePitch == null ? requested : [linePitch])); part.after.push(...played);
     assert.equal(new Set(played).size, played.length);
     assert(played.every((n) => n <= 68 || n >= 82), `${this.playbackStyle}: unsafe Rhodes pitch ${played}`);
     assert(played.every((n) => n >= 28 && n <= 104), `Rhodes endpoint stretch: ${played}`);
+    if (!p.rhodesLine) {
+      assert(played.every((n) => n >= 40 && n <= 68));
+      assert(played.filter((n) => n < 48).length <= 1);
+      const shift = 12 * Math.max(0, Math.ceil((Math.max(...requested) - 68) / 12));
+      assert(played.every((n) => requested.includes(n + shift)), 'one octave shift shared by every chord voice');
+    }
     return true;
   };
   Recorder.prototype.keys = Engine.prototype.keys;
@@ -66,7 +75,7 @@ const rhodesTune = JSON.parse(await readFile(new URL('../samples/rhodes-analysis
   };
   try {
     for (const style of RHODES_STYLES) {
-      row = { before: [], after: [] };
+      row = { chords: { before: [], after: [] }, lines: { before: [], after: [] } };
       for (let seed = 1; seed <= 40; seed++) {
         const s = defaultState(), g = generate(style, seed);
         applyOverrides(s, g, true);
@@ -74,12 +83,13 @@ const rhodesTune = JSON.parse(await readFile(new URL('../samples/rhodes-analysis
         s.chainOn = true; applySongPlan(s, style, seed);
         capture(s, 32);
       }
-      const stretch = Math.max(...row.after.map((n) => Math.min(...BAND.rhodes.map((c) => Math.abs(n - c)))));
-      const tunedStretch = Math.max(...row.after.map((n) => Math.min(...BAND.rhodes.map((c) => Math.abs(n - c - rhodesTune[c] / 100)))));
-      assert(tunedStretch <= 4, `${style}: excessive corrected playback-rate stretch`);
-      ranges[style] = { before: [Math.min(...row.before), Math.max(...row.before)],
-        after: [Math.min(...row.after), Math.max(...row.after)], maxStretch: stretch,
-        tunedStretch: +tunedStretch.toFixed(4), notes: row.after.length };
+      ranges[style] = Object.fromEntries(Object.entries(row).map(([kind, part]) => {
+        const tunedStretch = Math.max(0, ...part.after.map((n) => Math.min(...BAND.rhodes.map((c) => Math.abs(n - c - rhodesTune[c] / 100)))));
+        assert(tunedStretch <= 4, `${style}: excessive corrected playback-rate stretch`);
+        return [kind, { before: part.before.length ? [Math.min(...part.before), Math.max(...part.before)] : null,
+          after: part.after.length ? [Math.min(...part.after), Math.max(...part.after)] : null,
+          tunedStretch: +tunedStretch.toFixed(4), notes: part.after.length }];
+      }));
     }
   } finally {
     Recorder.prototype.trigger = before; Recorder.prototype.hook = hook; Recorder.prototype.lick = lick;
