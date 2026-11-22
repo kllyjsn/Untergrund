@@ -11,6 +11,7 @@ import { OfflineAudioContext } from './offline-audio.mjs';
 import { Recorder } from '../js/midi.js';
 
 assert.equal(HOOK_VOICES.indexOf('harmon'), 25, 'new colours preserve the saved Harmon voice index');
+assert.equal(HOOK_VOICES.indexOf('marimba'), 26, 'sax dispatch preserves the saved marimba voice index');
 assert.equal(freshSong('modal', 1).patterns[6].hook.v, 'tpt', 'Modal defaults to the open recorded trumpet');
 const saved = freshSong('modal', 1); saved.patterns[6].hook.v = 'harmon';
 assert.equal(sanitize(JSON.parse(JSON.stringify(saved))).patterns[6].hook.v, 'harmon', 'Harmon remains an explicit saved voice choice');

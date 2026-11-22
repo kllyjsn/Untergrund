@@ -38,6 +38,9 @@ assert.deepEqual(liveSets(st(1, 7)), ['kit', 'piano', 'pianosoft']);
 assert.deepEqual(liveSets(st(0, 10)), ['str']);
 assert.deepEqual(liveSets(st(1.2, 9.4)), ['kit', 'horn']);
 assert.deepEqual(liveSets({}), []);
+assert.deepEqual(liveSets({ artist: { style: 'pop' }, pattern: { hook: { v: 'reed' } } }), ['asax', 'asaxb'], 'pop reed is the recorded alto');
+assert.deepEqual(liveSets({ artist: { style: 'boombap' }, pattern: { hook: { v: 'reed' } } }), ['tsax', 'tsaxb'], 'boom bap reed is the recorded tenor');
+assert.deepEqual(liveSets({ artist: { style: 'country' }, pattern: { hook: { v: 'reed' } } }), [], 'other reed styles stay synthesized');
 
 // Every generated song: live-kit genres always need the kit, and the chord instrument matches its stab voice.
 for (const id of Object.keys(STYLES)) {
