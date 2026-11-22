@@ -3,6 +3,8 @@
 // Bump PRINCIPLES_VERSION when a rule changes meaning, so a read-out can say which rules a song was written under.
 import { SCALES } from './params.js';
 import { stepDeg } from './motif.js';
+import { STYLES } from './state.js';
+import { FEELS } from './feel.js';
 
 export const PRINCIPLES_VERSION = 1;
 
@@ -27,6 +29,8 @@ export const PRINCIPLES = [
     refs: ['senn2016', 'davies2013', 'madison2006'], measure: 'style swing table', experiment: 'deephouse-swing' },
   { id: 'emotion.peak-last', area: 'emotion', rule: 'The biggest moment comes last: entries, a register rise and a loudness rise after an expected arrival. Every song with a feeling gives its final chorus or drop a chill device no earlier chorus has, chosen from the feeling (feel.js peak): a suspension on the peak note resolving down a step, a new voice entering, a one-bar dropout then the full return, or the key lift.',
     refs: ['sloboda1991', 'grewe2007', 'guhn2007', 'salimpoor2011'], measure: 'test/longform.mjs P4 and P8; composition.mjs --peaks; audio-benchmark section LUFS' },
+  { id: 'emotion.coherent-cues', area: 'emotion', rule: 'A feeling is carried by many cues at once (tempo, mode, register, loudness range, articulation, contrast); they communicate it when they agree.',
+    refs: ['juslinlaukka2003', 'scherer2015', 'friberg2006'], measure: 'composition feelFit (scripts/composition.mjs feelCues)', experiment: 'folk-feel-cues' },
   { id: 'vocal.singable', area: 'vocal', rule: 'Lines are written for a body: 3-4 bar phrases with breath, a peak inside the phrase, mostly steps, and expressive cues (tempo, level, timbre) that agree with the intended emotion.',
     refs: ['juslinlaukka2003', 'scherer2015', 'friberg2006', 'larrouymaestri2013'], measure: 'composition phraseBars, peakAt, stepShare (docs/melody.md)' },
   { id: 'listener.separate-signals', area: 'preference', rule: 'Read skips, downs, completions, replays and returns as separate implicit signals with confidence, never one taste score.',
@@ -81,4 +85,40 @@ export const PROPOSED = [
     offline: { metric: 'swing', expect: 'lower' },
     apply(song) { if (Number.isFinite(song.swing) && song.swing > 0.2) song.swing = 0.2; },
   },
+  {
+    id: 'folk-feel-cues', lever: 'generator', principle: 'emotion.coherent-cues', scope: { style: 'folk', src: 'generate' }, share: 0.1,
+    hypothesis: 'Moving tempo, mode, note length and the soft/loud range of the sung line to the song\'s intended feeling (FEELS) raises completion: the cues stop contradicting each other.',
+    primary: { metric: 'complete', goal: 'higher' }, guardrails: ['skip', 'down', 'love'], minListensPerArm: perArm(0.45, 0.05),
+    offline: { metric: 'feelFit', expect: 'higher' },
+    apply(song) { feelCuesOn(song, 'folk'); },
+  },
 ];
+
+// The feel-coherent variant: tempo placed in the style range, the feeling's mode, and the melody's note lengths and
+// soft/loud range set from FEELS[song.feel]. Notes, rhythm and form are unchanged. No feeling, no change.
+function feelCuesOn(song, style) {
+  const f = FEELS[song.feel], range = STYLES[style]?.bpm;
+  if (!f || !range) return;
+  song.bpm = Math.round(range[0] + f.tempo * (range[1] - range[0]));
+  if (SCALES[f.mode]) song.scale = f.mode;
+  const ratio = f.mel.vel[0] / f.mel.vel[1];
+  // xs: [onset, dur, …] notes; vel is the index of each note's velocity.
+  const shape = (xs, vel) => {
+    const on = xs.filter(Array.isArray), vs = on.map((x) => x[vel]).sort((a, b) => a - b);
+    const lo = vs[Math.round(0.1 * (vs.length - 1))], hi = vs[Math.round(0.9 * (vs.length - 1))];
+    const next = (x) => Math.min(...on.map((y) => y[0]).filter((t) => t > x[0]));
+    return xs.map((x) => {
+      if (!Array.isArray(x)) return x;
+      const gap = next(x) - x[0], y = [...x];
+      if (gap < 16) y[1] = Math.max(1, Math.min(gap, Math.round(f.mel.legato * gap)));
+      if (hi > lo) y[vel] = +Math.max(0, Math.min(1, hi - ((hi - x[vel]) * (1 - ratio) * hi) / (hi - lo))).toFixed(3);
+      return y;
+    });
+  };
+  for (const p of song.patterns || []) {
+    if (!p?.hook) continue;
+    const m = p.hook.m, steps = p.hook.s.map((x, j) => (Array.isArray(x) ? [j, x[1], x[0], x[2]] : 0));
+    p.hook = { ...p.hook, s: shape(steps, 3).map((x) => (Array.isArray(x) ? [x[2], x[1], x[3]] : 0)),
+      ...(m ? { m: { ...m, n: shape(m.n || [], 3), v: shape(m.v || [], 3), b: shape(m.b || [], 3) } } : {}) };
+  }
+}

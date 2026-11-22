@@ -16,7 +16,8 @@
     "phraseBars": 2.76,
     "peakAt": 0.41,
     "restsPerPhrase": 1.56,
-    "stepShare": 0.685
+    "stepShare": 0.685,
+    "feelFit": 0.446
   },
   "modal": {
     "bars": 96,
@@ -35,7 +36,8 @@
     "phraseBars": 1.79,
     "peakAt": 0.355,
     "restsPerPhrase": 2.06,
-    "stepShare": 0.02
+    "stepShare": 0.02,
+    "feelFit": 0.512
   },
   "hypnotic": {
     "bars": 112,
@@ -54,7 +56,8 @@
     "phraseBars": 0.645,
     "peakAt": 0.135,
     "restsPerPhrase": 2.29,
-    "stepShare": 0.225
+    "stepShare": 0.225,
+    "feelFit": 0.548
   },
   "industrial": {
     "bars": 112,
@@ -73,7 +76,8 @@
     "phraseBars": 0.625,
     "peakAt": 0.165,
     "restsPerPhrase": 1.91,
-    "stepShare": 0.24
+    "stepShare": 0.24,
+    "feelFit": 0.591
   },
   "acid": {
     "bars": 112,
@@ -92,7 +96,8 @@
     "phraseBars": 0.625,
     "peakAt": 0.165,
     "restsPerPhrase": 1.91,
-    "stepShare": 0.24
+    "stepShare": 0.24,
+    "feelFit": 0.56
   },
   "dub": {
     "bars": 112,
@@ -111,7 +116,8 @@
     "phraseBars": 0.99,
     "peakAt": 0.225,
     "restsPerPhrase": 1.335,
-    "stepShare": 0
+    "stepShare": 0,
+    "feelFit": 0.55
   },
   "peak": {
     "bars": 112,
@@ -130,7 +136,8 @@
     "phraseBars": 0.625,
     "peakAt": 0.165,
     "restsPerPhrase": 1.91,
-    "stepShare": 0.24
+    "stepShare": 0.24,
+    "feelFit": 0.563
   },
   "hardtechno": {
     "bars": 128,
@@ -149,7 +156,8 @@
     "phraseBars": 0,
     "peakAt": 0,
     "restsPerPhrase": 0,
-    "stepShare": 0
+    "stepShare": 0,
+    "feelFit": 0.696
   },
   "deephouse": {
     "bars": 112,
@@ -168,7 +176,8 @@
     "phraseBars": 3.965,
     "peakAt": 0.535,
     "restsPerPhrase": 1.06,
-    "stepShare": 0.73
+    "stepShare": 0.73,
+    "feelFit": 0.538
   },
   "minimal": {
     "bars": 112,
@@ -187,7 +196,8 @@
     "phraseBars": 0.645,
     "peakAt": 0.125,
     "restsPerPhrase": 2.29,
-    "stepShare": 0.195
+    "stepShare": 0.195,
+    "feelFit": 0.538
   },
   "ukg": {
     "bars": 116,
@@ -206,7 +216,8 @@
     "phraseBars": 3.895,
     "peakAt": 0.55,
     "restsPerPhrase": 1.195,
-    "stepShare": 0.85
+    "stepShare": 0.85,
+    "feelFit": 0.467
   },
   "euphoric": {
     "bars": 116,
@@ -225,7 +236,8 @@
     "phraseBars": 3.89,
     "peakAt": 0.53,
     "restsPerPhrase": 1.085,
-    "stepShare": 0.635
+    "stepShare": 0.635,
+    "feelFit": 0.613
   },
   "neosoul": {
     "bars": 80,
@@ -244,7 +256,8 @@
     "phraseBars": 3.6,
     "peakAt": 0.545,
     "restsPerPhrase": 1.06,
-    "stepShare": 0.83
+    "stepShare": 0.83,
+    "feelFit": 0.633
   },
   "boombap": {
     "bars": 88,
@@ -263,7 +276,8 @@
     "phraseBars": 3.59,
     "peakAt": 0.49,
     "restsPerPhrase": 1,
-    "stepShare": 0.88
+    "stepShare": 0.88,
+    "feelFit": 0.569
   },
   "lofihiphop": {
     "bars": 72,
@@ -282,7 +296,8 @@
     "phraseBars": 1.3,
     "peakAt": 0.445,
     "restsPerPhrase": 4.5,
-    "stepShare": 0.1
+    "stepShare": 0.1,
+    "feelFit": 0.627
   },
   "gfunk": {
     "bars": 88,
@@ -301,7 +316,8 @@
     "phraseBars": 1.645,
     "peakAt": 0.6,
     "restsPerPhrase": 1.6,
-    "stepShare": 0.185
+    "stepShare": 0.185,
+    "feelFit": 0.643
   },
   "phonk": {
     "bars": 124,
@@ -320,7 +336,8 @@
     "phraseBars": 2.89,
     "peakAt": 0.615,
     "restsPerPhrase": 1.465,
-    "stepShare": 0.135
+    "stepShare": 0.135,
+    "feelFit": 0.645
   },
   "electrohiphop": {
     "bars": 96,
@@ -339,7 +356,8 @@
     "phraseBars": 0.86,
     "peakAt": 0.6,
     "restsPerPhrase": 2.18,
-    "stepShare": 0
+    "stepShare": 0,
+    "feelFit": 0.625
   },
   "breaks": {
     "bars": 112,
@@ -358,7 +376,8 @@
     "phraseBars": 0.715,
     "peakAt": 0.35,
     "restsPerPhrase": 2.73,
-    "stepShare": 0.165
+    "stepShare": 0.165,
+    "feelFit": 0.559
   },
   "electro": {
     "bars": 112,
@@ -377,7 +396,8 @@
     "phraseBars": 0.625,
     "peakAt": 0.165,
     "restsPerPhrase": 1.91,
-    "stepShare": 0.245
+    "stepShare": 0.245,
+    "feelFit": 0.597
   },
   "dnb": {
     "bars": 128,
@@ -396,7 +416,8 @@
     "phraseBars": 1.525,
     "peakAt": 0.055,
     "restsPerPhrase": 2.195,
-    "stepShare": 0
+    "stepShare": 0,
+    "feelFit": 0.521
   },
   "trance": {
     "bars": 112,
@@ -415,7 +436,8 @@
     "phraseBars": 3.58,
     "peakAt": 0.56,
     "restsPerPhrase": 1,
-    "stepShare": 0.74
+    "stepShare": 0.74,
+    "feelFit": 0.619
   },
   "ambient": {
     "bars": 80,
@@ -434,7 +456,8 @@
     "phraseBars": 1.41,
     "peakAt": 0.4,
     "restsPerPhrase": 1.335,
-    "stepShare": 0.1
+    "stepShare": 0.1,
+    "feelFit": 0.654
   },
   "amapiano": {
     "bars": 104,
@@ -453,7 +476,8 @@
     "phraseBars": 4.045,
     "peakAt": 0.55,
     "restsPerPhrase": 1.095,
-    "stepShare": 0.78
+    "stepShare": 0.78,
+    "feelFit": 0.496
   },
   "afrobeats": {
     "bars": 88,
@@ -472,7 +496,8 @@
     "phraseBars": 3.91,
     "peakAt": 0.495,
     "restsPerPhrase": 1.22,
-    "stepShare": 0.87
+    "stepShare": 0.87,
+    "feelFit": 0.4
   },
   "reggaeton": {
     "bars": 80,
@@ -491,7 +516,8 @@
     "phraseBars": 3.605,
     "peakAt": 0.565,
     "restsPerPhrase": 1.03,
-    "stepShare": 0.85
+    "stepShare": 0.85,
+    "feelFit": 0.43
   },
   "bailefunk": {
     "bars": 112,
@@ -510,7 +536,8 @@
     "phraseBars": 0.685,
     "peakAt": 0.16,
     "restsPerPhrase": 2.88,
-    "stepShare": 0.19
+    "stepShare": 0.19,
+    "feelFit": 0.469
   },
   "trap": {
     "bars": 128,
@@ -529,7 +556,8 @@
     "phraseBars": 3.835,
     "peakAt": 0.56,
     "restsPerPhrase": 1.08,
-    "stepShare": 0.815
+    "stepShare": 0.815,
+    "feelFit": 0.538
   },
   "drill": {
     "bars": 128,
@@ -548,7 +576,8 @@
     "phraseBars": 3.81,
     "peakAt": 0.49,
     "restsPerPhrase": 1.06,
-    "stepShare": 0.77
+    "stepShare": 0.77,
+    "feelFit": 0.563
   },
   "jerseyclub": {
     "bars": 112,
@@ -567,7 +596,8 @@
     "phraseBars": 0.86,
     "peakAt": 0.345,
     "restsPerPhrase": 2.755,
-    "stepShare": 0.325
+    "stepShare": 0.325,
+    "feelFit": 0.621
   },
   "hyperpop": {
     "bars": 124,
@@ -586,7 +616,8 @@
     "phraseBars": 4.025,
     "peakAt": 0.56,
     "restsPerPhrase": 1.09,
-    "stepShare": 0.82
+    "stepShare": 0.82,
+    "feelFit": 0.355
   },
   "pop": {
     "bars": 88,
@@ -617,7 +648,8 @@
     "vocalRange": 15,
     "rhymeRate": 0.977,
     "verseSpan": 6.25,
-    "verseFit": 1
+    "verseFit": 1,
+    "feelFit": 0.499
   },
   "rnb": {
     "bars": 64,
@@ -648,7 +680,8 @@
     "vocalRange": 13.5,
     "rhymeRate": 0.977,
     "verseSpan": 6.313,
-    "verseFit": 1
+    "verseFit": 1,
+    "feelFit": 0.514
   },
   "rock": {
     "bars": 108,
@@ -679,7 +712,8 @@
     "vocalRange": 14,
     "rhymeRate": 0.972,
     "verseSpan": 6.375,
-    "verseFit": 1
+    "verseFit": 1,
+    "feelFit": 0.514
   },
   "folk": {
     "bars": 72,
@@ -710,7 +744,8 @@
     "vocalRange": 14.5,
     "rhymeRate": 0.972,
     "verseSpan": 6.125,
-    "verseFit": 1
+    "verseFit": 1,
+    "feelFit": 0.513
   },
   "country": {
     "bars": 94,
@@ -741,7 +776,8 @@
     "vocalRange": 15,
     "rhymeRate": 0.972,
     "verseSpan": 6.375,
-    "verseFit": 1
+    "verseFit": 1,
+    "feelFit": 0.518
   },
   "bossa": {
     "bars": 112,
@@ -760,7 +796,8 @@
     "phraseBars": 2.96,
     "peakAt": 0.35,
     "restsPerPhrase": 2,
-    "stepShare": 0.59
+    "stepShare": 0.59,
+    "feelFit": 0.423
   },
   "jazzfunk": {
     "bars": 80,
@@ -779,6 +816,7 @@
     "phraseBars": 0.63,
     "peakAt": 0.69,
     "restsPerPhrase": 2,
-    "stepShare": 0.43
+    "stepShare": 0.43,
+    "feelFit": 0.513
   }
 }
