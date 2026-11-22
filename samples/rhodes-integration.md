@@ -2,26 +2,31 @@
 
 The 18-note tim.kahn CC BY 4.0 set replaces FM electric piano only in `neosoul`, `rnb`, `lofihiphop` and `jazzfunk`. Minimal's felt keys and other styles retain their previous voices. Both `keys` and `jazzKeys` enter the recorded player; Jazz-Funk's existing `stab` dispatch reaches `keys`. Cold/unavailable recordings fall through to the existing FM implementation without recursion. The existing per-song recording lock is retained.
 
-Chords have deterministic 2–8 ms hammer offsets, velocity-dependent low-pass/high-shelf tone, natural recorded decay while held, and a 30 ms release time constant (40 dB attenuation in 138 ms). Neo Soul, R&B and Lo-Fi use shallow 1.1 Hz stereo motion; Jazz-Funk is dry. Existing channel strips and comp trims remain in place. Recorded gains were matched against isolated FM comp, rather than against the full mix.
+Chords have deterministic 2–8 ms hammer offsets, velocity-dependent low-pass/high-shelf tone, natural recorded decay while held, and a 30 ms release time constant (40 dB attenuation in 138 ms). Neo Soul, R&B and Lo-Fi use shallow 1.1 Hz stereo motion; Jazz-Funk is dry. Jazz-Funk recorded comp alone has a −8 dB low shelf at 255 Hz, before its existing channel strip, with 1.58 dB source make-up gain to retain its comp level. Other instruments and the shared bus are unchanged. Existing comp trims remain in place.
+
+ENV scales the recorded hold exponentially; DETUNE adds a small alternating pitch offset; TINE adjusts the velocity shelf and low-pass. Controls are centered on their generated palette values, so untouched controls retain the default sound. `node test/rhodes-controls.mjs --base /path/to/de91a94-worktree` checks that each knob changes recorded PCM in all four styles and that Neo Soul/R&B default PCM still nulls against de91a94 (including their electric-piano ensembles).
 
 ## Register policy
 
-`js/rhodes.js` transposes the entire chord down by the fewest octaves needed to put its top at or below MIDI 68. Individual notes are never octave-folded, and chords never use the high sample island. Exact duplicate pitches are removed, notes below MIDI 40 are omitted, and lower notes are dropped until at most one remains below MIDI 48. Original intervals of retained voices are unchanged. Lo-Fi lead, harmony and counterline players each choose a single octave per bar phrase using their snapped pitches; licks use the bar's candidate lick notes. Each whole line phrase fits MIDI 48–68, or 82–104 if the lower island cannot fit it. An unplayable custom phrase is omitted rather than individually folding its notes. Other styles retain their previous phrase policy. Only single lines may use the high sample island.
+Neo Soul, R&B and Jazz-Funk retain de91a94's whole-chord downward transposition to MIDI 68 or below. Exact duplicates and notes below 40 are removed, and at most one voice remains below 48. Lo-Fi instead retains the requested chord register (or raises the whole chord to at least 48); if all voices cannot fit 48–68, the original FM chord plays instead. It never lowers or thins a Lo-Fi chord to fit the recordings. Chords never use the high sample island.
 
-`node test/preload.mjs` measures generated seeds 1–40 over 32 arranged bars per style, including chords, tapekeys, counterlines and licks. It asserts that no recorded pitch falls in 69–81, no duplicate voicing pitches survive, and corrected sample stretch is at most four semitones.
+Lo-Fi lead, harmony, counterline and lick players choose one register per phrase, including snapped pitches, anticipated harmony and key lifts. Recorded phrases move up to 60–68, or retain an already-high phrase wholly in 82–104. Otherwise FM plays the phrase, preserving its register except for raising any phrase that would go below 48. No phrase is dropped for a range mismatch. Other styles retain their previous phrase policy. Polymetric lick planning uses the same absolute-step chord-row gate as playback, including 13-step rows.
+
+`node test/preload.mjs` measures generated seeds 1–40 over their full arrangements, including chords, tapekeys, counterlines and licks. It asserts that no recorded pitch falls in 69–81, no duplicate voicing pitches survive, and corrected sample stretch is at most four semitones. FM fallback pitches need not avoid the recording gap.
 
 | Style | Requested chords | Played chords | Requested lines | Played lines | Chord / line notes |
 | --- | --- | --- | --- | --- | ---: |
 | neosoul | 44–91 | 40–68 | 60–85 | 48–67 | 6,530 / 46 |
 | rnb | 56–98 | 40–68 | 76–97 | 48–68 | 10,120 / 67 |
-| lofihiphop | 45–102 | 40–68 | 34–96 | 48–83 | 9,372 / 5,067 |
+| lofihiphop (recorded) | 48–68 | 48–68 | 39–96 | 60–96 | 731 / 2,142 |
+| lofihiphop (FM fallback) | — | 45–102 | — | 48–81 | 13,388 / 2,925 |
 | jazzfunk | 48–76 | 43–68 | none | none | 38,040 / 0 |
 
-Maximum corrected stretch is 3.9485 semitones for chords in every style and for R&B/Lo-Fi lines; Neo Soul lines use at most 2.9485 semitones. Lo-Fi line notes remain out of MIDI 69–81, all 5,067 line notes are retained, and the test verifies a constant octave shift for each player's bar phrase.
+Maximum corrected stretch is 3.9485 semitones for chords and R&B lines, 3.9937 for Lo-Fi lines, and 2.9485 for Neo Soul lines. All 5,067 Lo-Fi line notes play, recorded or FM, and the test verifies a constant octave shift for each player's bar phrase.
 
 ## Loudness
 
-Reproduce with `node test/rhodes-render.mjs --levels` (headless Chrome required). Each pair renders eight bars of the same generated comp, hooks and licks disabled, tapping the stab channel after its existing strip and fader, before master processing. The FM control bypasses only the new recorded dispatch, leaving the original FM implementation intact. RMS excludes the final one-second tail; values below are stereo dBFS RMS, not LUFS or full-mix loudness.
+`node test/rhodes-render.mjs --levels` measures eight bars of the same generated comp, hooks and licks disabled, tapping the stab channel after its existing strip and fader, before master processing. RMS excludes the final one-second tail. The table below records the initial integration, before the Jazz-Funk shelf and higher-register Lo-Fi/FM fallback revision; it is not a measurement of the revised player.
 
 | Style / seed | FM | Recorded | Difference |
 | --- | ---: | ---: | ---: |
@@ -44,4 +49,4 @@ Attribution is in `live/LICENSE.md`, `rhodes-sources.json`, and `/legal/`, with 
 
 ## Test result
 
-After merging main and fixing Lo-Fi phrase registers, full `npm test` exited 0. The benchmark reported 31 PASS / 11 WARN / 0 FAIL. Its Jazz-Funk warning is a 5 dB reduction in side energy below 120 Hz relative to the old baseline; no thresholds or reference baselines were relaxed. The trap PCM null check against merged main also passed. Phrase planning includes anticipated section harmony and key lifts, so its octave choice cannot change mid-phrase when the harmony anticipates the next section.
+The preload regression covers recording availability, tone, release, controls, style gating, full-arrangement ranges, FM fallbacks and the 13-step lick gate. The separate control renderer performs PCM checks; the full project gate remains `npm test`. No reference baselines or thresholds are relaxed for the revised player.

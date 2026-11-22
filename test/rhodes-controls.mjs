@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { withChrome } from './chrome.mjs';
 
 const baseAt = process.argv.indexOf('--base'), unchangedAt = process.argv.indexOf('--unchanged');
-const unchanged = unchangedAt < 0 ? ['neosoul'] : process.argv[unchangedAt + 1].split(',');
+const unchanged = unchangedAt < 0 ? ['neosoul', 'rnb'] : process.argv[unchangedAt + 1].split(',');
 const probe = async (controls) => withChrome((run) => run(`(async () => {
   (await import('/test/stable-audio-sums.js')).stableAudioSums();
   const {song, render} = await import('/test/audio-quality-page.js');
@@ -13,7 +13,7 @@ const probe = async (controls) => withChrome((run) => run(`(async () => {
     return [...new Uint8Array(h)].map(n => n.toString(16).padStart(2,'0')).join('');
   }));
   const defaults = {}, changes = [];
-  for (const style of ${JSON.stringify(unchanged)}) for (const seed of [1,2,...(style === 'neosoul' ? [5,11] : [])]) {
+  for (const style of ${JSON.stringify(unchanged)}) for (const seed of [1,2,...(style === 'neosoul' ? [5,11] : style === 'rnb' ? [3,4] : [])]) {
     defaults[style + '/' + seed] = await digest(await render(song(style, seed), 16, 24, {tail:4}));
   }
   if (${controls}) for (const [style, seed] of [['neosoul',5],['rnb',3],['lofihiphop',1],['jazzfunk',1]]) {

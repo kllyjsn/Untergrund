@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { liveSet, liveSets, setsReady, loadSets, loadBand, BAND, STAB_BAND, LIVE_FILES, LIVE_KIT } from '../js/livekit.js';
 import { Engine, Sequencer, stabPitches } from '../js/engine.js';
-import { rhodesVoicing, rhodesLineOctave, rhodesPhraseOctave, RHODES_STYLES } from '../js/rhodes.js';
+import { rhodesVoicing, rhodesLineOctave, rhodesPhraseOctave, rhodesLoFiVoicing, rhodesLoFiPhrase, RHODES_STYLES } from '../js/rhodes.js';
 import { Recorder, capture } from '../js/midi.js';
 import { KIT_BACKBEAT, HAND_KIT, MARIMBA_STAB, CHORDS } from '../js/params.js';
 import { defaultState, generate, STYLES, arrangement, applyOverrides, applySongPlan } from '../js/state.js';
@@ -25,6 +25,13 @@ assert.deepEqual(liveSets({ artist: { style: 'boombap' }, pattern: { hook: { v: 
 assert.deepEqual(liveSets({ artist: { style: 'country' }, pattern: { hook: { v: 'reed' } } }), [], 'other reed styles stay synthesized');
 
 assert.deepEqual(rhodesVoicing([]), []);
+assert.deepEqual(rhodesLoFiVoicing([40, 44, 47]), [52, 56, 59]);
+assert.equal(rhodesLoFiVoicing([60, 64, 67, 71]), null, 'Lo-Fi uses FM rather than lowering a high chord');
+assert.deepEqual(rhodesLoFiPhrase([48, 52, 55]), { shift: 12, fm: false });
+assert.deepEqual(rhodesLoFiPhrase([60, 67, 72]), { shift: 0, fm: true });
+assert.deepEqual(rhodesLoFiPhrase([34, 40, 46]), { shift: 24, fm: true });
+assert.equal(rhodesLoFiPhrase([]), null);
+assert.equal(rhodesLoFiPhrase([NaN]), null);
 assert.equal(rhodesPhraseOctave([34, 41]), 24);
 assert.equal(rhodesPhraseOctave([59, 69]), 24, 'move the whole phrase to the high island when the low island cannot fit');
 assert.equal(rhodesPhraseOctave([60, 64]), 0);
@@ -40,17 +47,19 @@ const rhodesTune = JSON.parse(await readFile(new URL('../samples/rhodes-analysis
 {
   const before = Recorder.prototype.trigger, hook = Recorder.prototype.hook, lick = Recorder.prototype.lick;
   const ranges = {};
-  let row, linePitch, linePart, phraseShifts;
+  let row, linePitch, linePart, phraseShifts, fmNotes, lineEvents;
   Recorder.prototype.rhodesKeys = function (_t, _v, iv, root, p) {
     const requested = iv.map((n) => root + n);
-    const played = p.rhodesLine ? requested : rhodesVoicing(requested);
+    const played = p.rhodesLine || p.rhodesFM ? requested : this.playbackStyle === 'lofihiphop' ? rhodesLoFiVoicing(requested) : rhodesVoicing(requested);
     const part = p.rhodesLine ? row.lines : row.chords;
     if (p.rhodesLine && this.playbackStyle === 'lofihiphop') {
+      lineEvents++;
       assert(played.every((n) => n >= 48), 'Lo-Fi melody never enters the bass register');
       const phrase = `${Math.floor(this.step / 16)}:${linePart}`, shift = requested[0] - linePitch;
       if (phraseShifts.has(phrase)) assert.equal(shift, phraseShifts.get(phrase), 'one octave choice per Lo-Fi line phrase');
       phraseShifts.set(phrase, shift);
     }
+    if (p.rhodesFM) { fmNotes[p.rhodesLine ? 'lines' : 'chords'].push(...played); return true; }
     part.before.push(...(linePitch == null ? requested : [linePitch])); part.after.push(...played);
     assert.equal(new Set(played).size, played.length);
     assert(played.every((n) => n <= 68 || n >= 82), `${this.playbackStyle}: unsafe Rhodes pitch ${played}`);
@@ -58,12 +67,19 @@ const rhodesTune = JSON.parse(await readFile(new URL('../samples/rhodes-analysis
     if (!p.rhodesLine) {
       assert(played.every((n) => n >= 40 && n <= 68));
       assert(played.filter((n) => n < 48).length <= 1);
-      const shift = 12 * Math.max(0, Math.ceil((Math.max(...requested) - 68) / 12));
+      const shift = this.playbackStyle === 'lofihiphop' ? -12 * Math.max(0, Math.ceil((48 - Math.min(...requested)) / 12))
+        : 12 * Math.max(0, Math.ceil((Math.max(...requested) - 68) / 12));
+      if (this.playbackStyle === 'lofihiphop') assert(played.every((n) => n >= 48));
       assert(played.every((n) => requested.includes(n + shift)), 'one octave shift shared by every chord voice');
     }
     return true;
   };
-  Recorder.prototype.keys = Engine.prototype.keys;
+  Recorder.prototype.keys = function (t, v, iv, root, p, out) {
+    if (p.rhodesFM || (this.playbackStyle === 'lofihiphop' && !p.rhodesLine && rhodesLoFiVoicing(iv.map((n) => root + n)) === null)) {
+      return this.rhodesKeys(t, v, iv, root, { ...p, rhodesFM: true }, out);
+    }
+    return Engine.prototype.keys.call(this, t, v, iv, root, p, out);
+  };
   Recorder.prototype.trigger = function (id, t, v) {
     if (id === 'stab' && (this.playbackStyle === 'jazzfunk' || Math.round(this.state.params.stab.voice) === 1)) {
       const { iv, root } = stabPitches(this);
@@ -89,16 +105,17 @@ const rhodesTune = JSON.parse(await readFile(new URL('../samples/rhodes-analysis
     const iv = CHORDS[this.harm ? this.harm.c : Math.round(p.chord)].iv, k = args[2];
     linePitch = 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + iv[k % iv.length] + 12 * Math.floor(k / iv.length);
     linePart = 'lick';
-    const count = row.lines.after.length;
+    const count = lineEvents;
     try {
       const result = Engine.prototype.lick.apply(this, args);
-      if (this.playbackStyle === 'lofihiphop') assert(row.lines.after.length > count, 'every Lo-Fi lick phrase fits without omitted notes');
+      if (this.playbackStyle === 'lofihiphop') assert(lineEvents > count, 'every Lo-Fi lick plays recorded keys or an FM fallback');
       return result;
     } finally { linePitch = null; }
   };
   try {
     for (const style of RHODES_STYLES) {
       row = { chords: { before: [], after: [] }, lines: { before: [], after: [] } };
+      fmNotes = { chords: [], lines: [] }; lineEvents = 0;
       for (let seed = 1; seed <= 40; seed++) {
         phraseShifts = new Map();
         const s = defaultState(), g = generate(style, seed);
@@ -114,8 +131,10 @@ const rhodesTune = JSON.parse(await readFile(new URL('../samples/rhodes-analysis
           after: part.after.length ? [Math.min(...part.after), Math.max(...part.after)] : null,
           tunedStretch: +tunedStretch.toFixed(4), notes: part.after.length }];
       }));
+      ranges[style].fm = Object.fromEntries(Object.entries(fmNotes).map(([kind, notes]) => [kind, { notes: notes.length, range: notes.length ? [Math.min(...notes), Math.max(...notes)] : null }]));
     }
     row = { chords: { before: [], after: [] }, lines: { before: [], after: [] } };
+    fmNotes = { chords: [], lines: [] }; lineEvents = 0;
     phraseShifts = new Map();
     const poly = defaultState(), g = generate('lofihiphop', 1);
     applyOverrides(poly, g, true); poly.artist = { style: 'lofihiphop', seed: 2 };
@@ -127,12 +146,12 @@ const rhodesTune = JSON.parse(await readFile(new URL('../samples/rhodes-analysis
       return p;
     });
     capture(poly, 8);
-    assert(row.lines.after.length > 0, 'a playable lick survives the 13-step chord-row gate');
+    assert(lineEvents > 0, 'a playable lick survives the 13-step chord-row gate');
   } finally {
     Recorder.prototype.trigger = before; Recorder.prototype.hook = hook; Recorder.prototype.lick = lick;
     delete Recorder.prototype.keys; delete Recorder.prototype.rhodesKeys;
   }
-  console.log('Rhodes seeds 1–40, 32 bars/style:', JSON.stringify(ranges));
+  console.log('Rhodes seeds 1–40, full generated arrangements:', JSON.stringify(ranges));
 }
 
 // Every generated song: live-kit genres always need the kit, and the chord instrument matches its stab voice.
@@ -174,7 +193,7 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
   const s = generate('lofihiphop', 1), state = { ...defaultState(), ...s, patterns: [s.pattern], artist: { style: 'lofihiphop' } };
   const ctx = new FakeContext(2, 48000, 48000), hits = [];
   const e = { state, ctx, step: 0, playbackStyle: 'lofihiphop', rec: () => null, gain: Engine.prototype.gain,
-    startSource: Engine.prototype.startSource, playBuf: (...a) => hits.push(a) };
+    startSource: Engine.prototype.startSource, filter: Engine.prototype.filter, playBuf: (...a) => hits.push(a) };
   assert.equal(Engine.prototype.rhodesKeys.call(e, 1, .5, [0], 60, state.params.stab, ctx.destination), false, 'cold set falls through, never recurses');
   await loadBand('rhodes');
   for (const [i, [center]] of liveSet('rhodes').entries()) {
@@ -194,7 +213,11 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
   assert.equal(hard[0][6].release, .03, 'damper decays 40 dB in 138 ms');
   assert(hard.every((a) => a[5] > 1), 'natural held sustain, not a guitar chop');
   assert.notEqual(hard[0][3], ctx.destination, 'suitcase stereo motion');
-  assert.equal(chord(.8, 'jazzfunk')[0][3], ctx.destination, 'Jazz-Funk dry');
+  const funkOut = chord(.8, 'jazzfunk')[0][3];
+  assert.equal(funkOut.type, 'lowshelf');
+  assert.equal(funkOut.frequency.value, 255); assert.equal(funkOut.gain.value, -8);
+  assert(feeds(funkOut, ctx.destination), 'Jazz-Funk comp has a dry low shelf, not a bus effect');
+  assert(!chord(.8, 'neosoul')[0][6].shelves.some(([hz]) => hz === 255), 'Neo Soul retains its default tone');
   const controlParams = { ...state.params.stab, voice: 1, env: 0.12, detune: 8, tine: 0.18 };
   const controlled = (patch) => {
     e.playbackStyle = 'lofihiphop'; hits.length = 0;

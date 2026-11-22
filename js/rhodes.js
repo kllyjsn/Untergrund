@@ -31,3 +31,19 @@ export function rhodesPhraseOctave(notes) {
   }
   return null;
 }
+
+export function rhodesLoFiVoicing(notes) {
+  if (!notes.length) return [];
+  const shift = 12 * Math.max(0, Math.ceil((48 - Math.min(...notes)) / 12));
+  const voiced = [...new Set(notes.map((n) => n + shift))].sort((a, b) => a - b);
+  return voiced.at(-1) <= 68 ? voiced : null;
+}
+
+export function rhodesLoFiPhrase(notes) {
+  if (!notes.length || notes.some((n) => !Number.isFinite(n))) return null;
+  const bottom = Math.min(...notes), top = Math.max(...notes);
+  if (bottom >= 82 && top <= 104) return { shift: 0, fm: false };
+  const shift = 12 * Math.max(0, Math.ceil((60 - bottom) / 12));
+  if (top + shift <= 68) return { shift, fm: false };
+  return { shift: 12 * Math.max(0, Math.ceil((48 - bottom) / 12)), fm: true };
+}
