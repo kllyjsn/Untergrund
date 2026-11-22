@@ -155,7 +155,7 @@ const SAMPLE_FADE = 1;
 const WAKE_FLUSH = 0.024;
 const WAKE_FADE = 0.002;
 const ANALOG_BASS_GAIN = 4.4;
-const ANALOG_TONE = { ukg: { close: 2.2, open: 3, env: 8 }, gfunk: { close: 0.4, open: 0.7, env: 1, hp: 35, hpStages: 4, hpQ: -3.01, lp: 1000, gain: { 1: 3.35, 7: 3.4 }, organGain: 1.27, release: 0.03, organRelease: 0.018 } };
+const ANALOG_TONE = { ukg: { close: 2.2, open: 3, env: 8 }, gfunk: { close: 0.4, open: 0.7, env: 1, hp: 35, hpStages: 4, hpQ: -3.01, lp: 1000, gain: { 1: 3.35, 7: 3.4 }, organGain: 1.27, headroom: dbGain(-4.61), release: 0.03, organRelease: 0.018 } };
 // Chord voices that sustain fill a breakdown on their own, so a smooth style only lifts the ones that decay.
 const HELD_CHORDS = new Set(['pad', 'organ', 'strings', 'cello']);
 export const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar', 'cello', 'clarinet', 'nylon', 'marimba'];
@@ -3202,6 +3202,7 @@ export class Engine {
       if (n % 2) [c, buf] = alt[i];
     }
     return this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
+      hp: kind === 'org' && this.playbackStyle === 'gfunk' ? 110 : 0, hpQ: -3.01,
       shelves: [[3000, tone]], peaks: [...(R?.peak ? [R.peak] : []), ...(kind === 'org' && this.playbackStyle === 'gfunk' ? [[2200, 1.2, -3], [3300, 0.8, -6]] : []), ...(kind === 'str' ? HIPHOP[this.state.artist?.style]?.strEq ?? [] : []), ...(jazzStyle(this.state, this.playingPattern) === 'bossa' && kind === 'jazz' ? jazzNotches(kind, c, Math.pow(2, (m - c) / 12)) : [])], lp: R ? R.lp * (F ? F[1] : 1) * (0.4 + 0.6 * hv) : 0, lpFrom: F ? F[0] : R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
     });
   }
@@ -4132,7 +4133,7 @@ export class Engine {
     const release = (organ ? tone.organRelease : null) ?? tone.release ?? 0.04;
     const gate = organ ? 0.7 + p.decay * 1.5 : 0.9 + p.decay * 2;
     const len = st.ap && tone.release ? sd * 0.9 : holdNext ? sd * 2 : sd * (tone.release ? gate : 1 + p.decay * 6);
-    const gain = ANALOG_BASS_GAIN * ((organ ? tone.organGain : null) ?? tone.gain?.[Math.round(p.voice)] ?? 1);
+    const gain = ANALOG_BASS_GAIN * ((organ ? tone.organGain : null) ?? tone.gain?.[Math.round(p.voice)] ?? 1) * (tone.headroom ?? 1);
     const close = Math.max(tone.hp ? 180 : 500, p.cutoff * tone.close), open = Math.max(close * 1.5, Math.min(10000, p.cutoff * (tone.open + p.envmod * tone.env + (st.a ? (p.accent ?? 0.5) * (tone.hp ? 1 : 3) : 0))));
     const h = this.playBuf(buf, t, vel * gain, this.ch.acid.input, rate, len, { lp: tone.lp ? Math.min(tone.lp, open) : open, lpTo: close, lpStages: tone.lp ? 2 : 1, hp: tone.hp, hpStages: tone.hpStages, hpQ: tone.hpQ, fade: 0.003, release, loop: true });
     if (tone.release) {
