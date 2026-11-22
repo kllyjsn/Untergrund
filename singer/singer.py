@@ -29,7 +29,7 @@ from urllib.parse import parse_qs, urlparse
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from expression import clean_expr, is_off, sing as sing_expressive  # noqa: E402
+from expression import clean_expr, clean_parts, is_off, sing as sing_expressive  # noqa: E402
 
 # Pins (docs/singer.md#licenses): weights spybyscript/scyllasband tag v4-20261106, runtime lowkeytea/scyllasband
 # commit "Release v4-20261106". Both Apache-2.0.
@@ -108,6 +108,9 @@ def validate(raw: Any) -> dict:
     expr = clean_expr(raw.get("expr"))
     if expr:
         req["expr"] = expr
+    parts = clean_parts(raw.get("parts"), sum(r[2] for r in out))
+    if parts:
+        req["parts"] = parts
     return req
 
 
@@ -200,11 +203,11 @@ class ScyllasBand:
                 raise ValueError(f"unknown SINGER_BACKEND {self.backend!r}")
         return self
 
-    def sing(self, score: dict, voice: str, seed: int, expr: dict | None = None) -> np.ndarray:
+    def sing(self, score: dict, voice: str, seed: int, expr: dict | None = None, parts: list | None = None) -> np.ndarray:
         rt = self.load().rt
-        if not expr or is_off(expr):
+        if (not expr or is_off(expr)) and not parts:
             return np.asarray(rt.sing(score, voice, seed=seed).audio, np.float32).reshape(-1)
-        return np.asarray(sing_expressive(rt.engine, score, voice, seed, expr), np.float32).reshape(-1)
+        return np.asarray(sing_expressive(rt.engine, score, voice, seed, expr or {}, parts=parts), np.float32).reshape(-1)
 
 
 class SoulXSinger:
@@ -214,7 +217,7 @@ class SoulXSinger:
         raise NotImplementedError("SoulX-Singer is not implemented; only Scylla's Band's built-in voices are approved")
 
 
-# Singing engines behind one interface: Engine(models_dir, backend, threads).load(); .sing(score, voice, seed, expr) -> mono
+# Singing engines behind one interface: Engine(models_dir, backend, threads).load(); .sing(score, voice, seed, expr, parts) -> mono
 # float32 at SAMPLE_RATE, sample 0 on the score's first beat.
 BACKENDS = {"scyllasband": ScyllasBand, "soulx-singer": SoulXSinger}
 
@@ -236,7 +239,7 @@ class Singer:
         req = validate(raw)
         with self.lock:
             t0 = time.time()
-            sung = self.engine.sing(req["score"], req["voice"], req["seed"], req.get("expr"))
+            sung = self.engine.sing(req["score"], req["voice"], req["seed"], req.get("expr"), req.get("parts"))
         score = req["score"]
         seconds = sum(r[2] for r in score["notes"]) * 60.0 / score["bpm"]
         audio = master(sung, seconds)
