@@ -30,9 +30,10 @@ export const vowelName = (style, section = 0, slice = 0) => `vox_${COLORS[style]
 export function vowelVoxNote(state, style, step, stepDur, harmony = 0) {
   const p = state.params.vox, notes = SCALES[state.scale]?.notes || SCALES.minor.notes;
   const degree = hash(step, 3) < p.melody ? notes[Math.floor(hash(step, 4) * notes.length)] : 0;
+  const jump = hash(step, 1) < p.scatter ? Math.floor(hash(step, 2) * (COLORS[style]?.length || 1)) : 0;
   return { midi: vowelPitch(60 + (state.key || 0) + harmony + Math.round(p.pitch) + degree),
     duration: vowelDuration(style, p.length * stepDur),
-    name: vowelName(style, Math.floor(step / 64), p.slice) };
+    name: vowelName(style, Math.floor(step / 64), p.slice + jump) };
 }
 
 export function playVowel(engine, t, velocity, midi, duration, name, out, tone = 5000, sustain = false) {

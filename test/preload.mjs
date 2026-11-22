@@ -51,6 +51,26 @@ for (let midi = 0; midi <= 127; midi++) {
   assert((vowelPitch(midi) - midi) % 12 === 0);
   assert.equal(vowelPitch(midi, 52.9999), vowelPitch(midi), 'fractional tuning does not flip the folded octave at a tritone');
 }
+for (const style of VOWEL_STYLES) {
+  const state = defaultState(), hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
+  let changed = false;
+  for (let step = 0; step < 128; step++) {
+    state.params.vox.scatter = 0;
+    const plain = vowelVoxNote(state, style, step, 0.125);
+    state.params.vox.scatter = 1;
+    const scattered = vowelVoxNote(state, style, step, 0.125);
+    assert.equal(scattered.midi, plain.midi);
+    assert.equal(scattered.duration, plain.duration);
+    if (Math.floor(hash(step, 2) * 2)) {
+      assert.notEqual(scattered.name, plain.name, 'scatter chooses the next recorded vowel');
+      changed = true;
+    } else assert.equal(scattered.name, plain.name);
+    state.params.vox.scatter = 0.5;
+    assert.deepEqual(vowelVoxNote(state, style, step, 0.125), hash(step, 1) < 0.5 ? scattered : plain, 'scatter uses the synth path probability and slice hash');
+    assert.deepEqual(vowelVoxNote(state, style, step, 0.125), vowelVoxNote(state, style, step, 0.125), 'scatter is repeatable');
+  }
+  assert(changed, `${style} scatter changes the recorded vowel`);
+}
 assert.deepEqual(liveSets({ artist: { style: 'pop' }, pattern: { hook: { v: 'reed' } } }), ['asax', 'asaxb'], 'pop reed is the recorded alto');
 assert.deepEqual(liveSets({ artist: { style: 'boombap' }, pattern: { hook: { v: 'reed' } } }), ['tsax', 'tsaxb'], 'boom bap reed is the recorded tenor');
 assert.deepEqual(liveSets({ artist: { style: 'country' }, pattern: { hook: { v: 'reed' } } }), [], 'other reed styles stay synthesized');
