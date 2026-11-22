@@ -40,12 +40,17 @@ const rhodesTune = JSON.parse(await readFile(new URL('../samples/rhodes-analysis
 {
   const before = Recorder.prototype.trigger, hook = Recorder.prototype.hook, lick = Recorder.prototype.lick;
   const ranges = {};
-  let row, linePitch;
+  let row, linePitch, linePart, phraseShifts;
   Recorder.prototype.rhodesKeys = function (_t, _v, iv, root, p) {
     const requested = iv.map((n) => root + n);
     const played = p.rhodesLine ? requested : rhodesVoicing(requested);
     const part = p.rhodesLine ? row.lines : row.chords;
-    if (p.rhodesLine && this.playbackStyle === 'lofihiphop') assert(played.every((n) => n >= 48), 'Lo-Fi melody never enters the bass register');
+    if (p.rhodesLine && this.playbackStyle === 'lofihiphop') {
+      assert(played.every((n) => n >= 48), 'Lo-Fi melody never enters the bass register');
+      const phrase = `${Math.floor(this.step / 16)}:${linePart}`, shift = requested[0] - linePitch;
+      if (phraseShifts.has(phrase)) assert.equal(shift, phraseShifts.get(phrase), 'one octave choice per Lo-Fi line phrase');
+      phraseShifts.set(phrase, shift);
+    }
     part.before.push(...(linePitch == null ? requested : [linePitch])); part.after.push(...played);
     assert.equal(new Set(played).size, played.length);
     assert(played.every((n) => n <= 68 || n >= 82), `${this.playbackStyle}: unsafe Rhodes pitch ${played}`);
@@ -72,6 +77,7 @@ const rhodesTune = JSON.parse(await readFile(new URL('../samples/rhodes-analysis
       this.ch = { stab: { input: {} } };
       const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
       linePitch = 60 + k + (args[5] || 0) * 12 + hookSnap(args[2], this.harm, this.state.params.stab, args[6], args[8]);
+      linePart = `hook:${!!args[9]?.counter}:${!!args[9]?.harm}`;
       try { return Engine.prototype.hook.apply(this, args); } finally { linePitch = null; }
     }
     return hook.apply(this, args);
@@ -82,6 +88,7 @@ const rhodesTune = JSON.parse(await readFile(new URL('../samples/rhodes-analysis
     this.ch = { stab: { input: {} } };
     const iv = CHORDS[this.harm ? this.harm.c : Math.round(p.chord)].iv, k = args[2];
     linePitch = 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + iv[k % iv.length] + 12 * Math.floor(k / iv.length);
+    linePart = 'lick';
     const count = row.lines.after.length;
     try {
       const result = Engine.prototype.lick.apply(this, args);
@@ -93,6 +100,7 @@ const rhodesTune = JSON.parse(await readFile(new URL('../samples/rhodes-analysis
     for (const style of RHODES_STYLES) {
       row = { chords: { before: [], after: [] }, lines: { before: [], after: [] } };
       for (let seed = 1; seed <= 40; seed++) {
+        phraseShifts = new Map();
         const s = defaultState(), g = generate(style, seed);
         applyOverrides(s, g, true);
         s.patterns = arrangement(g.pattern, seed, g.bpm >= 115); s.artist = { style, seed }; s.key = g.key; s.bpm = g.bpm;

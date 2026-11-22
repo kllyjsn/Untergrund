@@ -6,7 +6,7 @@ Chords have deterministic 2–8 ms hammer offsets, velocity-dependent low-pass/h
 
 ## Register policy
 
-`js/rhodes.js` transposes the entire chord down by the fewest octaves needed to put its top at or below MIDI 68. Individual notes are never octave-folded, and chords never use the high sample island. Exact duplicate pitches are removed, notes below MIDI 40 are omitted, and lower notes are dropped until at most one remains below MIDI 48. Original intervals of retained voices are unchanged. Lo-Fi tapekeys uses a song-level octave decision covering the written hook and its answer/development headroom. Its guide-tone counterline has a separate bar-phrase octave decision, shared by both notes. Licks choose one octave for the six-note chord-tone phrase, not separately for each note. Only single lines may use the high sample island.
+`js/rhodes.js` transposes the entire chord down by the fewest octaves needed to put its top at or below MIDI 68. Individual notes are never octave-folded, and chords never use the high sample island. Exact duplicate pitches are removed, notes below MIDI 40 are omitted, and lower notes are dropped until at most one remains below MIDI 48. Original intervals of retained voices are unchanged. Lo-Fi lead, harmony and counterline players each choose a single octave per bar phrase using their snapped pitches; licks use the bar's candidate lick notes. Each whole line phrase fits MIDI 48–68, or 82–104 if the lower island cannot fit it. An unplayable custom phrase is omitted rather than individually folding its notes. Other styles retain their previous phrase policy. Only single lines may use the high sample island.
 
 `node test/preload.mjs` measures generated seeds 1–40 over 32 arranged bars per style, including chords, tapekeys, counterlines and licks. It asserts that no recorded pitch falls in 69–81, no duplicate voicing pitches survive, and corrected sample stretch is at most four semitones.
 
@@ -14,10 +14,10 @@ Chords have deterministic 2–8 ms hammer offsets, velocity-dependent low-pass/h
 | --- | --- | --- | --- | --- | ---: |
 | neosoul | 44–91 | 40–68 | 60–85 | 48–67 | 6,530 / 46 |
 | rnb | 56–98 | 40–68 | 76–97 | 48–68 | 10,120 / 67 |
-| lofihiphop | 45–102 | 40–68 | 34–96 | 28–68 | 9,372 / 5,067 |
+| lofihiphop | 45–102 | 40–68 | 34–96 | 48–83 | 9,372 / 5,067 |
 | jazzfunk | 48–76 | 43–68 | none | none | 38,040 / 0 |
 
-Maximum corrected stretch is 3.9485 semitones for chords in every style and for R&B/Lo-Fi lines; Neo Soul lines use at most 2.9485 semitones. No high-island line happened to be needed in these seeds.
+Maximum corrected stretch is 3.9485 semitones for chords in every style and for R&B/Lo-Fi lines; Neo Soul lines use at most 2.9485 semitones. Lo-Fi line notes remain out of MIDI 69–81, all 5,067 line notes are retained, and the test verifies a constant octave shift for each player's bar phrase.
 
 ## Loudness
 
@@ -44,4 +44,4 @@ Attribution is in `live/LICENSE.md`, `rhodes-sources.json`, and `/legal/`, with 
 
 ## Test result
 
-After the whole-voicing review fix, `preload`, `jazzfunk`, `rhodes-render` (levels and trap null versus main), `audio-nodes`, `timbre`, `musicality`, and the asserted fast audio benchmark all exited 0. The benchmark reported 30 PASS / 12 WARN / 0 FAIL. Its Jazz-Funk warning is a 5 dB reduction in side energy below 120 Hz relative to the old baseline; no thresholds or reference baselines were relaxed. The previous integration commit also passed full `npm test`.
+After merging main and fixing Lo-Fi phrase registers, full `npm test` exited 0. The benchmark reported 31 PASS / 11 WARN / 0 FAIL. Its Jazz-Funk warning is a 5 dB reduction in side energy below 120 Hz relative to the old baseline; no thresholds or reference baselines were relaxed. The trap PCM null check against merged main also passed. Phrase planning includes anticipated section harmony and key lifts, so its octave choice cannot change mid-phrase when the harmony anticipates the next section.
