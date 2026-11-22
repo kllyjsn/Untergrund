@@ -8,6 +8,8 @@ import { ensureDevice, myTracks } from './account.js';
 import { creditLine } from './share-code.js';
 import { recentDrops, dailyDrop, dropSong } from './daily.js';
 import { drawArtwork } from './artwork.js';
+import { parseChain } from './engine.js';
+import { compose } from './classical.js';
 
 const MAX_WAV_SECONDS = 15 * 60;
 export const fmtTime = (sec) => {
@@ -329,27 +331,38 @@ export async function myPublished() {
   return out.sort((a, b) => String(b.created).localeCompare(String(a.created)));
 }
 
+export function jukeboxPreviewSeconds(state) {
+  const chain = state.chainOn ? parseChain(state.chain) : [];
+  const score = state.patterns[chain[0] ?? state.current]?.score;
+  if (state.ending && (score ? !compose(score).waiting : chain.length >= 16)) return null;
+  return Math.min(chain.length || 8, 64) * 16 * 15 / state.bpm;
+}
+
 export function openJukebox({ playSong, playReplay, stopSong, toast, onCreate, onClose, onRemix, onShare, onNowPlaying }) {
   const audio = new Audio();
-  let items = [], queue = [], idx = -1, timer = null, filter = 'all', urls = [], due = 0, left = 0, mine = mineIds(), myTrackIds = new Set();
-  const stopAll = (outcome) => { audio.pause(); clearTimeout(timer); stopSong(outcome); idx = -1; onNowPlaying?.(null); };
-  // Songs and replays have no media element of their own: a timer moves on when they're done.
-  const advance = (ms) => { clearTimeout(timer); due = Date.now() + ms; timer = setTimeout(() => playAt(idx + 1), ms); };
+  let items = [], queue = [], idx = -1, timer = null, filter = 'all', urls = [], due = 0, left = null, mine = mineIds(), myTrackIds = new Set();
+  const cancelAdvance = () => { clearTimeout(timer); timer = null; };
+  const stopAll = (outcome) => { audio.pause(); cancelAdvance(); left = null; stopSong(outcome); idx = -1; onNowPlaying?.(null); };
+  // Finite songs advance on the transport's actual ending; only loops and replays need a timer.
+  const advance = (ms) => { cancelAdvance(); due = Date.now() + ms; timer = setTimeout(() => playAt(idx + 1), ms); };
   // Lock-screen controls for the playing item. Pausing a song holds its timer (the app pauses the music);
   // a recorded set pauses its own audio; a replay can't hold its room timeline, so PLAY starts it over.
-  const remote = (it) => ({
+  const remote = (it, finite = false) => ({
     title: it.title, artist: it.artist, kind: it.replay ? 'replay' : it.kind,
     playing: () => (it.kind === 'set' && !it.replay ? !audio.paused : null),
+    finish: finite ? () => { if (queue[idx] === it) playAt(idx + 1); } : undefined,
     next: () => playAt(idx + 1, 'skip'),
     prev: () => playAt(Math.max(0, idx - 1), 'skip'),
     pause: (pauseSong) => {
       if (it.kind === 'set' && !it.replay) return audio.pause();
-      left = Math.max(1000, due - Date.now()); clearTimeout(timer); pauseSong();
+      if (timer !== null) left = Math.max(1000, due - Date.now());
+      cancelAdvance(); pauseSong();
     },
     resume: (resumeSong) => {
       if (it.kind === 'set' && !it.replay) return audio.play().catch(() => {});
       if (it.replay) return playAt(idx);
-      resumeSong(); advance(left);
+      resumeSong();
+      if (left !== null) { advance(left); left = null; }
     },
   });
   audio.onplay = audio.onpause = () => { const it = queue[idx]; if (it?.kind === 'set') onNowPlaying?.(remote(it)); };
@@ -399,6 +412,7 @@ export function openJukebox({ playSong, playReplay, stopSong, toast, onCreate, o
     showNow(it);
     renderList();
     try {
+      let finite = false;
       if (it.replay) {
         const secs = await playReplay(it);
         advance(Math.max(1, secs) * 1000);
@@ -412,10 +426,11 @@ export function openJukebox({ playSong, playReplay, stopSong, toast, onCreate, o
         await audio.play();
       } else {
         const secs = await playSong(it);
-        advance(Math.max(10, secs) * 1000);
+        finite = secs === null;
+        if (!finite) advance(Math.max(10, secs) * 1000);
         showNow(it, '', true);
       }
-      if (idx === i) onNowPlaying?.(remote(it));
+      if (idx === i) onNowPlaying?.(remote(it, finite));
     } catch (err) {
       console.error(err); toast(`Couldn't play “${it.title}”`);
       timer = setTimeout(() => playAt(idx + 1), 800);

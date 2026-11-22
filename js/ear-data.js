@@ -91,7 +91,7 @@ export function summarize(judgments) {
 
 // Hearts, downs and down reasons from the player (docs/listen-signals.md) are labels too: absolute ones, on whole
 // songs. The device id stays out of the public repo; only this short hash of it is kept.
-export const DOWN_REASONS = ['boring', 'sounds_bad', 'not_my_style'];
+export const DOWN_REASONS = ['boring', 'sounds_bad', 'not_my_style', 'no_feeling'];
 export function deviceHash(lid) {
   let h = 0x811c9dc5;
   for (const c of `ear:${lid}`) h = Math.imul(h ^ c.charCodeAt(0), 0x01000193);
