@@ -39,7 +39,7 @@ for (const e of PROPOSED) {
     e.apply(variant, { seed });
     assert.equal(variant.chain.length, control.chain.length, `${e.id} ${seed}: same length`);
     assert.deepEqual(songOf(e, seed), control, `${e.id}: control is untouched and deterministic`);
-    const pick = (s) => (e.offline.metric === 'swing' ? s.swing : scoreSong(s)[e.offline.metric]);
+    const pick = (s) => (e.offline.metric === 'swing' ? s.swing : scoreSong(s, { style: e.scope.style })[e.offline.metric]);
     a.push(pick(control)); b.push(pick(variant));
     if (e.offline.expect === 'zero') assert(pick(control) > 0 && pick(variant) === 0, `${e.id} ${seed}: ${pick(control)} -> ${pick(variant)}`);
     if (e.offline.expect === 'higher') assert(pick(variant) >= pick(control), `${e.id} ${seed}: ${pick(control)} -> ${pick(variant)}`);
