@@ -45,7 +45,7 @@ const GENRE_PALETTES = {
       2: { ...DEEP_CHORD, level: 1.5, attack: 0.025, release: 0.6, fm: 0.28, cutoff: 1450, presence: 'pad' },
     },
     hook: { ...DEEP_CHORD, wave: 'sawtooth', harmonics: 4500, level: 0.42, attack: 0.012, release: 0.18, cutoff: 4000, spread: 6, width: 0.55, fm: 0.35, presence: false, eq: [], airBand: 1, breath: 0.08, breathDecay: 0.05, transpose: 24, range: [79, 91] },
-    bass: { type: 'round', wave: 'triangle', fm: 0.65, level: 1, sub: 0.72, body: 0.8, cutoff: 760, decay: 0.16, grit: 0.5, sustain: 0.55, length: 0.88, balance: true, lowBand: { cutoff: 120, trim: -6, duck: 6 } },
+    bass: { type: 'round', wave: 'triangle', fm: 0.65, level: 1.25, sub: 0.72, subHigh: 43, body: 0.8, cutoff: 760, decay: 0.16, grit: 0.9, sustain: 0.55, length: 0.88, balance: true, lowBand: { cutoff: 120, trim: -3, duck: 4 } },
   },
   euphoric: {
     name: 'uplift',
@@ -2681,7 +2681,7 @@ export class Engine {
   }
 
   pocketBass(t, st, sd, holdNext, sliding, color) {
-    const c = this.ctx, p = this.state.params.acid, f = midiHz(this.bassMidi(st)), subF = midiHz(this.bassMidi(st, 36, Math.round(p.voice) === 5 ? 43 : 38));
+    const c = this.ctx, p = this.state.params.acid, f = midiHz(this.bassMidi(st)), subF = midiHz(this.bassMidi(st, 36, color.subHigh ?? (Math.round(p.voice) === 5 ? 43 : 38)));
     const drive = p.drive - this.paletteReference().acid.drive, preamp = 2 ** (drive * 2);
     const from = this.monoNote(t, f, sliding), len = (st.ap ? sd * 0.9 : holdNext ? sd * 2 : sd * (0.9 + p.decay * 2)) * color.length, end = t + len + 0.25;
     const cutoff = Math.max(100, Math.min(4000, color.cutoff * (0.55 + p.cutoff / 600)));
