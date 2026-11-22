@@ -167,6 +167,23 @@ t('jazz prompts pin a supplied mode but leave omitted modes to the feeling', () 
   }
 });
 
+t('a mode-only prompt does not specify an A tonic', () => {
+  for (const [prompt, key, mode] of [
+    ['write jazz in a minor key', null, 'minor'],
+    ['write jazz in a major key', null, 'major'],
+    ['write jazz in A minor', 9, 'minor'],
+    ['write jazz in A minor key', 9, 'minor'],
+    ['write jazz in the key of A minor', 9, 'minor'],
+  ]) {
+    const spec = localSpec(prompt, { style: 'swing' });
+    assert.deepEqual([spec.key, spec.scale], [key, mode], prompt);
+    if (!prompt.includes('the key of')) {
+      const plan = rulePlan(prompt, '', { style: 'swing' });
+      assert.deepEqual([plan.key, plan.mode], [key, mode], prompt);
+    }
+  }
+});
+
 t('an explicit Swing mode beats a conflicting mood in the prompt', () => {
   for (const [prompt, mode, feel] of [
     ['jazz major heartbroken', 'major', 'heartbroken'],

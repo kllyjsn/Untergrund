@@ -384,6 +384,7 @@ const keyName = (following = KEY_REQUEST_TAIL) => `(?!a\\s+(?!(?:sharp|flat|${MO
 const KEY_PREFIX = '(?:(?:(?:in|to)\\s+)?(?:the\\s+)?key\\s+of|in|to|key)';
 const KEY_SOURCE = new RegExp(`\\bfrom\\s+(?:(?:the\\s+)?key\\s+of\\s+)?${keyName(`to\\b|${KEY_REQUEST_TAIL}`)}`);
 const KEY_WITH_PREFIX = new RegExp(`\\b${KEY_PREFIX}\\s+${keyName()}`);
+const KEY_STANDALONE = new RegExp(`^\\s*${keyName()}(?:\\s+${KEY_REQUEST_TAIL})?\\s*$`);
 const KEY_TRANSITION = new RegExp(`\\b((?:keychange|transpose|switch|change|raise|lower|pitch)\\b.*?)\\s+${KEY_SOURCE.source}\\s+(?:please\\s+)?(?=to\\s+(?:(?:the\\s+)?key\\s+of\\s+)?${keyName()})`);
 
 function lev(a, b) {
@@ -404,7 +405,8 @@ function fuzzy(tok) {
 }
 
 function normalize(text) {
-  let s = ` ${String(text || '').toLowerCase().replace(/[’']/g, "'").replace(/♯/g, '#').replace(/♭/g, 'b')} `;
+  const input = String(text || '').replace(/\ba\s+(?=(?:major|minor|dorian|phrygian)\s+key\b)/gi, (article) => article.startsWith('a') ? '' : article);
+  let s = ` ${input.toLowerCase().replace(/[’']/g, "'").replace(/♯/g, '#').replace(/♭/g, 'b')} `;
   s = s.replace(/\bbase(line)?\b/g, 'bass$1');
   s = s.replace(/\bcan'?t\b/g, 'can not').replace(/\bwon'?t\b/g, 'will not').replace(/n't\b/g, ' not');
   for (const [re, to] of ARTIST_RE) s = s.replace(re, to);
@@ -444,7 +446,7 @@ function extract(clause, edits) {
   }
   const transition = c.match(KEY_TRANSITION);
   if (transition) c = c.replace(KEY_TRANSITION, '$1 ');
-  const key = c.match(KEY_WITH_PREFIX) || c.match(KEY_SOURCE)
+  const key = c.match(KEY_WITH_PREFIX) || c.match(KEY_SOURCE) || c.match(KEY_STANDALONE)
     || c.match(/\b([a-g])(#|b)?\s*(minor|major|m|maj|dorian|phrygian)\b/);
   const sourceKey = key && (/^from\s/.test(key[0]) || /\bfrom(?:\s+the)?\s+$/.test(c.slice(0, key.index)));
   if (key) {
