@@ -99,7 +99,7 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
     assert.deepEqual(chorus.prog, turnaround.prog);
     assert.deepEqual(patternAt(fill, sp[0].bars - 1).prog, intro.prog, 'the intro fill establishes the tonic');
     const levels = [];
-    const seq = new Sequencer({ playbackStyle: style, stepDur, sectionGain: (...args) => levels.push(args), breakOpen() {} }, s);
+    const seq = new Sequencer({ playbackStyle: style, stepDur, sectionGain: (...args) => levels.push(args), breakOpen() {}, breakSweep() {} }, s);
     const bars = Array.from(s.chain, (_, bar) => {
       seq.advanceBar(bar * 16, bar * 16 * stepDur);
       return levels.at(-1);
