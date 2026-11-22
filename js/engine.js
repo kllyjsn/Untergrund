@@ -2992,6 +2992,10 @@ export class Engine {
     // Two takes of the rhythm part panned hard left and right; a pedal or amp effect per player, then the amp.
     let outs = hand?.double ? [this.panFor(out, -1, true), this.panFor(out, 1, false)] : [out];
     if (R.body) outs = outs.map((o) => this.bodyFor(o, R.body));
+    if (kind === 'agtr' && this.playbackStyle === 'country') {
+      outs = outs.map((o) => this.bodyFor(this.bodyFor(o, [3050, 0.95, -10]), [1100, 0.8, 9]));
+      v *= dbGain(1.5);
+    }
     if (hand?.fx === 'chorus') outs = outs.map((o) => this.chorusFor(o));
     if (hand?.fx === 'trem') outs = outs.map((o) => this.tremFor(o, t, this.wide ? 0 : 0.3));
     if (R.amp) outs = outs.map((o) => this.ampFor(o));
@@ -3259,8 +3263,7 @@ export class Engine {
   }
 
   // The country lead's amp: a small clean tube combo. A gentle tube stage and a leveling compressor into a 1x12:
-  // body and a little low-mid, the bridge pickup's 2-3 kHz zing and the 7 kHz fizz tamed,
-  // a steep roll-off above 4.2 kHz.
+  // a warm midrange, the bridge pickup's upper-mid zing and fizz tamed, and a steep roll-off above 3.8 kHz.
   teleFor(dest) {
     const amps = (this.teles ||= new Map());
     if (amps.has(dest)) return amps.get(dest);
@@ -3268,7 +3271,7 @@ export class Engine {
     sh.curve = TELE_CURVE; sh.oversample = '4x';
     comp.threshold.value = -22; comp.knee.value = 6; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.14;
     let node = inp.connect(this.filter('lowpass', 2600, 0.6)).connect(this.gain(0.5)).connect(sh).connect(comp);
-    for (const [type, f, q, db] of [['highpass', 90, 0.7], ['peaking', 180, 0.8, 2], ['peaking', 800, 0.9, 1.5], ['peaking', 2000, 1, -7], ['peaking', 2900, 0.8, -5], ['peaking', 7000, 1, -6], ['lowpass', 3800, 0.54], ['lowpass', 3800, 1.31]]) {
+    for (const [type, f, q, db] of [['highpass', 90, 0.7], ['peaking', 180, 0.8, 2], ['peaking', 950, 0.8, 13], ['highshelf', 1800, 0.7, -14], ['peaking', 2000, 1, -7], ['peaking', 2900, 0.8, -5], ['peaking', 7000, 1, -6], ['lowpass', 3800, 0.54], ['lowpass', 3800, 1.31]]) {
       const f2 = this.filter(type, f, q);
       if (db) f2.gain.value = db;
       node = node.connect(f2);
@@ -3860,7 +3863,8 @@ export class Engine {
     const band = countryBand === 'twang' ? 'gtr' : countryBand || (!wind && !synth && voice !== 'pulse' && voice !== 'funkwhistle' && STAB_BAND[Math.round(p.voice)]);
     const set = band && this.rec(band);
     if (set) {
-      const kind = countryBand || Math.round(p.voice) === 11 ? 'lead' : band, R = BAND_PLAY[kind], ring = R.hold ? dur * 1.05 : Math.max(R.min * 0.6, dur * 1.5);
+      const kind = countryBand || (Math.round(p.voice) === 11 ? 'lead' : band);
+      const R = BAND_PLAY[kind], ring = R.hold ? dur * 1.05 : Math.max(R.min * 0.6, dur * 1.5);
       let dest = this.hookBus || this.ch.stab.input;
       if (kind === 'gtr' && this.playbackStyle === 'reggaeton') dest = this.bodyFor(dest === this.ch.stab.input ? this.ch.stab.band : dest, [2930, 5, -12]);
       if (jazzStyle(this.state, this.playingPattern)) dest = this.trimOut('jazz-recorded-lead', JAZZ_MIX[jazzStyle(this.state, this.playingPattern)].lead, dest, JAZZ_MIX[jazzStyle(this.state, this.playingPattern)].lead);
