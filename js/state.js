@@ -1339,7 +1339,9 @@ export function applySongPlan(s, style, seed, length = 'song') {
   if (style === 'drill' && plan.sections) drillVerses(s.patterns, plan, keep);
   if (style === 'bailefunk') funkPhrases(s.patterns, plan.chain, keep);
   if (plan.chain === TECHNO_LONG) developFinalDrop(s.patterns, plan.chain, { keep });
-  if (s.feel) writePeak(s.patterns, plan.chain, FEELS[s.feel].peak, seed, { keep, drops: (plan.builds || []).map((b) => b.drop) });
+  // The engine's festival builds follow the playing chord voice (a locked one, too), not the seed's pick.
+  const drops = festivalBuilds(plan.chain, style, s.params.stab.voice, seed).map((b) => b.drop);
+  if (s.feel) writePeak(s.patterns, plan.chain, FEELS[s.feel].peak, seed, { keep, drops });
   return plan;
 }
 
