@@ -52,8 +52,14 @@ export async function renderBars(state, bars, { sampleRate = 48000, tail, startB
     // A breakdown ramp can reach backwards to the previous automation event. Write the
     // filter timeline at time zero, before rendering any audio; only hits are queued in batches.
     if (chain.length && snap.master.arr) {
-      const filters = cursor({ stepDur: sd, breakSweep: engine.breakSweep.bind(engine), breakOpen: engine.breakOpen.bind(engine) });
-      for (let i = 0, t = start; i < steps; i++, t += sd) filters.advanceBar(first + i, t);
+      const fe = { stepScale: 1, get stepDur() { return sd * this.stepScale; }, breakSweep: engine.breakSweep.bind(engine), breakOpen: engine.breakOpen.bind(engine) };
+      const filters = cursor(fe);
+      // Follow the feeling's tempo breath exactly as tick() does, so the planned sweeps land on the played bars.
+      for (let i = 0, t = start; i < steps; i++, t += fe.stepDur) {
+        filters.advanceBar(first + i, t);
+        const n = filters.songBars || 0;
+        if (!(filters.finished && n)) fe.stepScale = n ? feelTempo(snap, filters.chainArr, (filters.chainPos - 1) % n, (first + i) % 16) : 1;
+      }
       seq.breakFilterPlanned = true;
     }
     const [, buf] = await Promise.all([scheduleInBatches(ctx, steps, schedule, () => end), ctx.startRendering()]);

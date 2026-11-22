@@ -5070,7 +5070,9 @@ const STYLE_SECTION_DB = { pop: { verse: -0.9 }, rnb: { chorus: 0.25 }, deephous
 const feelOf = (s) => (s.feel && Object.hasOwn(FEELS, s.feel) ? FEELS[s.feel] : null);
 // The written melody's 0.68-0.98 velocity band, played across the feeling's own range (its arc into each phrase's
 // peak note becomes a real hairpin).
-const feelVel = (f, v) => { const [lo, hi] = f.mel.vel; return lo + (hi - lo) * Math.max(0, Math.min(1, (v - 0.68) / 0.3)); };
+// A part's accents (0.68-0.98) spread over the feeling's mel.vel; quieter writing (Drill's harp, ghost notes) keeps
+// its level relative to the bottom of that range.
+const feelVel = (f, v) => { const [lo, hi] = f.mel.vel; return v < 0.68 ? (v * lo) / 0.68 : lo + (hi - lo) * Math.min(1, (v - 0.68) / 0.3); };
 // Low-pass the mix starts from as a pre-chorus (or a club build) opens up into its peak.
 const PRE_HZ = 4500, BUILD_HZ = 3000;
 
@@ -5082,7 +5084,7 @@ export function feelTempo(s, chain, pos, i16) {
   const f = feelOf(s), n = chain.length;
   if (!f || !n || s.sing?.on) return 1;
   let m = 1;
-  if (s.patterns[chain[pos]]?.sec && jazzStyle(s, s.patterns[chain[pos]]) !== 'jazzfunk') {
+  if (s.patterns[chain[pos]]?.sec && s.artist?.style !== 'hardtechno' && jazzStyle(s, s.patterns[chain[pos]]) !== 'jazzfunk') {
     let a = pos;
     while (a > 0 && chain[a - 1] === chain[pos]) a--;
     const d = 0.25 + 0.1 * (1 - f.arousal), ph = ((((pos - a) % 4) * 16) + i16) / 64;
@@ -5195,7 +5197,8 @@ export class Sequencer {
         this.dropNow = !!arr && this.festivalPlan.some((b) => b.drop === p);
         this.dropNext = !!arr && this.festivalPlan.some((b) => b.drop === p + 1);
       }
-      const f = feelOf(this.s), sec = this.s.patterns[this.cur]?.sec, free = !this.breakFilterPlanned;
+      // Hard Techno runs its own section dynamics (hardSection), so the feeling leaves its filter alone.
+      const f = this.s.artist?.style === 'hardtechno' ? null : feelOf(this.s), sec = this.s.patterns[this.cur]?.sec, free = !this.breakFilterPlanned;
       if (free && f && sec === 'pre') { if (!this.runPos) this.e.breakSweep(t, this.runLen * 16 * this.e.stepDur, false, PRE_HZ); }
       else if (free && f && !sec && this.dropNext && !this.e.arrClosed) this.e.breakSweep(t, 16 * this.e.stepDur, false, BUILD_HZ);
       else if (free && (!arr || !brk(this.cur))) this.e.breakOpen(t, SMOOTH.has(style));
