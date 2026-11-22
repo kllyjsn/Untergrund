@@ -138,6 +138,9 @@ const WIND_HOOK = {
 };
 // Each genre's sax, in dB, matched to the synth reed it replaces (hook stem loudness over seeds): the recorded
 // tongued attack carries less energy on the short riffs of Afrobeats, Reggaeton and Breaks than on sung lines.
+// Held alto notes sat dead straight, so their 8th-15th harmonics rang as fixed 2.5-3.1 kHz lines over the mix;
+// a player's 20-cent vibrato, leaned into after the attack, spreads them.
+const ALTO_VIB = 20;
 const SAX_TRIM = { pop: -2.4, neosoul: -5.7, boombap: 3.5, trap: 1.1, afrobeats: 6.5, reggaeton: 4.5, breaks: 7.1 };
 // Pop and Reggaeton hats live above 4 kHz, where the alto's breath otherwise fills the gaps between hits, so
 // those altos get a fixed high cut; the Afrobeats tenor's low register piles up at 220-260 Hz over the bass.
@@ -3652,7 +3655,7 @@ export class Engine {
         lp: Math.min(styleFx.cap ?? Infinity, lp + 2100 * touch + 650 * (air - 0.5)), lpStages: styleFx.lpStages, offset: offset + tongue * 0.012,
         fade: (voice === 'tpt' ? 0.025 : strong ? 0.007 : 0.012) + 0.009 * (1 - tongue),
         attackGain: (strong ? 1.04 : 0.9) + (tongue - 0.5) * 0.24,
-        release: 0.055, ringOut: true, ...(voice === 'tpt' ? { vib: 6 } : {}),
+        release: 0.055, ringOut: true, ...(voice === 'tpt' ? { vib: 6 } : voice === 'altosax' ? { vib: ALTO_VIB } : {}),
       });
   }
 
