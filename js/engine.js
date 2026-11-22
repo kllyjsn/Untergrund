@@ -5637,7 +5637,10 @@ export class Sequencer {
       else {
         const h = this.jazzHarmonyAt(p, b, pos);
         const final = s.ending && chain.length && pos === chain.length - 1;
-        pitches = final ? [h.r + CHORDS[h.c].iv[1]] : jazzNotes(p.jazz.style, p.jazz.seed, b, h, slot === 2).map((n) => n[2]);
+        if (p.jazz.bossaPart) {
+          const local = this.bossaSectionBar(b, pos);
+          pitches = final ? [h.r] : bossaLine(p.jazz.bossaPart, local, h, p.jazz.seed, (b - local) / 8).map((n) => n[2]);
+        } else pitches = final ? [h.r + CHORDS[h.c].iv[1]] : jazzNotes(p.jazz.style, p.jazz.seed, b, h, slot === 2).map((n) => n[2]);
       }
       for (const pitch of pitches) {
         const k = pitchKey(p, pitch, !!p.hook.h);
@@ -5812,7 +5815,8 @@ export class Sequencer {
         const pickup = dur <= 2 ? -0.10 : 0;
         const layBack = dur >= 4 ? 0.07 * Math.sin((j + local % 4) * 1.7) : 0;
         const take = dur < 2.5 && (j + local) % 3 === 0 ? 1 : 0;
-        e.hook(time('hook', pickup + layBack), v, n, dur * sd, pat.hook.v, pat.hook.o, anchor, 0.8, false, { ...pat.hook.x, take });
+        const expression = Object.hasOwn(WIND_HOOK, pat.hook.v) ? this.jazzExpression(pat.hook, notes, j, bar) : { ...pat.hook.x, take };
+        e.hook(time('hook', pickup + layBack), v, n, dur * sd, pat.hook.v, pat.hook.o, anchor, 0.8, false, expression);
       }
     }
     return this.cur;
