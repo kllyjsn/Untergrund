@@ -341,6 +341,19 @@ t('Deep House mood prompts retain the tonic intro and rising build', () => {
   assert.notDeepEqual(patterns[2].prog, patterns[6].prog);
 });
 
+t('Deep House major and Phrygian prompts keep their mood progressions', () => {
+  for (const [prompt, scale, roots] of [
+    ['happy deep house for a party', 'major', [0, 7, 9, 5]],
+    ['dark deep house for a warehouse', 'phrygian', [0, 1, 0, 10]],
+  ]) {
+    const sp = localSpec(prompt, { seed: 11 });
+    assert.equal(sp.scale, scale);
+    const { patterns } = songState(sp, 11).state;
+    assert.deepEqual(patterns[0].prog.map(({ r }) => r), roots);
+    assert.deepEqual(patterns[1].prog.map(({ r }) => r), roots.slice(0, 2));
+  }
+});
+
 // Realized prompt songs score at least as well as plain GENERATE for the same style and seed.
 {
   const P = ['melancholic deep house for a sunrise drive, builds to a big euphoric drop', 'dark techno for a warehouse at 4am', 'happy afrobeats summer party', 'nostalgic synthwave night drive'];
