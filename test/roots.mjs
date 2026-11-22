@@ -45,7 +45,18 @@ assert.equal(rootsFor(s).style, 'country', 'saved playing style overrides listen
 s.patterns[0].jazz = { style: 'bossa' };
 assert.equal(rootsFor(s), null, 'an active jazz pattern overrides a stale roots tag');
 delete s.patterns[0].jazz;
-const names = withTakes([...liveSets(s), 'upright', 'gtr']);
+const duet = defaultState();
+duet.artist = { style: 'trap' }; duet.params.stab.voice = 7;
+duet.patterns[0].roots = { style: 'boombap', chord: 'upright' };
+duet.patterns[0].hook = { v: 'reed' };
+const duetSets = withTakes(liveSets(duet));
+for (const name of ['upright', 'uprightsoft', 'uprighthard', 'tsax', 'tsaxb']) assert.ok(duetSets.includes(name), name);
+assert.ok(!duetSets.includes('asax'), 'saved Boom Bap loads its tenor, not the listener genre alto');
+delete duet.patterns[0].hook;
+assert.ok(!liveSets(duet).includes('tsax'), 'no hook needs no sax');
+delete duet.patterns[0].roots;
+assert.ok(!liveSets(duet).includes('upright'), 'no explicit role needs no upright');
+const names = withTakes([...liveSets(s), 'upright', 'gtr', 'tsax']);
 assert.throws(() => assertRootsReady(names), /Required recorded S9 samples unavailable/);
 await loadSets(names);
 assertRootsReady(names);
@@ -110,6 +121,17 @@ assert.deepEqual(actual.map(({ t, m, dur }) => ({ t, m, dur })), rec.notes.stab.
 actual.length = 0; rec.notes.stab = [];
 e.lick(2.5, .4, 2); rec.lick(2.5, .4, 2);
 assert.deepEqual(actual.map(({ t, m, dur }) => ({ t, m, dur })), rec.notes.stab.map(({ t, m, dur }) => ({ t, m, dur })), 'upright fill MIDI matches playback');
+actual.length = 0;
+const windHook = e.windHook, saxCalls = [];
+e.windHook = function (set, t, v, m, dur, voice, ...args) {
+  saxCalls.push({ set, m, voice }); return windHook.call(this, set, t, v, m, dur, voice, ...args);
+};
+e.hook(2.75, .7, 0, .5, 'reed'); rec.hook(2.75, .7, 0, .5, 'reed');
+assert.equal(saxCalls.at(-1).voice, 'tenorsax', 'upright role leaves the sax hook recorded');
+assert.equal(saxCalls.at(-1).set, bandKit('tsax'), 'co-playing sax uses its loaded recordings');
+assert.equal(rec.hookVoice, 'tenorsax', 'MIDI retains the sax program alongside upright');
+assert.equal(saxCalls.at(-1).m, rec.notes.hook.at(-1).m, 'co-playing sax MIDI matches playback pitch');
+e.windHook = windHook;
 e.playingPattern.roots = { style: 'country', hook: 'fiddle', answer: 'fiddle' };
 rec.playingPattern = e.playingPattern; actual.length = 0;
 e.hook(3, .7, -20, .5, 'warm'); rec.hook(3, .7, -20, .5, 'warm');
