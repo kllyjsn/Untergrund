@@ -116,3 +116,21 @@ for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
   const written = { hook: { contour: [0, 2, 4, 2, 0] }, sections: spec.sections.map(s => ({ ...s, chords: ['I', 'V', 'vi', 'IV'] })) };
   assert.deepEqual(state('joyful', written).patterns, state('heartbroken', written).patterns, 'feel leaves authored backing and melody intact');
 }
+{
+  const sections = [{ role: 'verse', bars: 16 }];
+  for (const i of seeds) for (const feel of ['joyful', 'heartbroken']) {
+    const seed = Math.imul(i, 0x9e3779b1) >>> 0;
+    for (const scale of ['major', 'minor']) {
+      const { state } = songState({ style: 'swing', key: 0, scale, feel, sections }, seed);
+      assert.equal(state.scale, scale);
+      assert.equal(state.patterns[2].prog[0].c === 20, scale === 'minor', 'swing backing follows the requested mode');
+    }
+    for (const scale of ['dorian', 'mixolydian']) {
+      const funk = generate('jazzfunk', seed, scale, { feel, keepScale: true });
+      assert.equal(funk.scale, scale);
+      assert.equal(funk.pattern.prog[0].c === 16, scale === 'dorian', 'Jazz-Funk backing follows the requested mode');
+    }
+    const modal = generate('modal', seed, 'phrygian', { feel, keepScale: true });
+    assert.deepEqual(modal.pattern.prog, generate('modal', seed).pattern.prog, 'the feel does not switch progressions outside a supported mode');
+  }
+}

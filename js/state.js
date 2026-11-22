@@ -305,7 +305,8 @@ function generatePattern(style, seed, scaleName, starter, feel = null, keepScale
   const bpm = F ? Math.max(lo, Math.min(Math.round(lo + Math.max(0, Math.min(1, F.tempo + jitter)) * (hi - lo)), Math.floor((MAX_SONG_BARS * 240) / LENGTHS.song.lo)))
     : Math.round(lo + x0 * (hi - lo));
   if (isJazz(style)) return generateJazz(style, seed, bpm, INSTRUMENTS[style], STYLE_POCKET[style],
-    F ? (x, progs) => feelPick(x, progs, F, style === 'swing' || style === 'bossa') : null);
+    F ? (x, progs) => feelPick(x, progs, F, keepScale ? musicalScale.includes(4) : style === 'swing' || style === 'bossa') : null,
+    keepScale ? scaleName : null);
   if (style === 'repertoire') return generateRepertoire(r, P, params, master);
   if (FORMS[style]) return generateClassical(style, seed, scaleName, r, P, params, master, bpm);
 

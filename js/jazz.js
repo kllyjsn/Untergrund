@@ -124,7 +124,16 @@ function pickChanges(pool, roll, choose) {
   return changes[choose ? choose(roll, changes) : Math.floor(roll * changes.length)];
 }
 
-export function generateJazz(style, seed, bpm, palette, pocket, choose = null) {
+export function generateJazz(style, seed, bpm, palette, pocket, choose = null, scale = null) {
+  if (choose && scale) {
+    const chooseByFeel = choose;
+    choose = (roll, changes) => {
+      const compatible = changes.filter((prog) => jazzMode(style, prog) === scale);
+      // Some jazz palettes have no changes in this mode; keep the genre's seeded default.
+      if (!compatible.length) return Math.floor(roll * changes.length);
+      return changes.indexOf(compatible[chooseByFeel(roll, compatible)]);
+    };
+  }
   if (style === 'jazzfunk') return generateFunk(seed, bpm, palette, pocket, choose ? (roll) => pickChanges(JAZZ_PROGS.jazzfunk, roll, choose) : null);
   if (style === 'bossa') return generateBossa(seed, bpm, palette, pocket, choose);
   const r = rng(seed), params = defaultParams(), master = {};
@@ -149,7 +158,13 @@ export function generateJazz(style, seed, bpm, palette, pocket, choose = null) {
   const m = jazzMelody(style, seed, prog), preview = Array(32).fill(0);
   for (const [at, dur, n, v] of m.n) if (at < 32) preview[at] = [n, dur, v];
   const hook = { v: voices[Math.floor(r() * voices.length)], o: 0, s: preview, m, x: { feel: 0.2, risk: 0, space: 0.7, warmth: 0.7 } };
-  return { pattern: { jazz: { style, seed }, steps, len: Object.fromEntries(TRACK_IDS.map((id) => [id, 16])), prog, hook, hm: 2 }, params, master, bpm, key: Math.floor(r() * 12), swing: 0, scale: style === 'modal' ? 'dorian' : prog[0].c === 20 ? 'minor' : 'major' };
+  return { pattern: { jazz: { style, seed }, steps, len: Object.fromEntries(TRACK_IDS.map((id) => [id, 16])), prog, hook, hm: 2 }, params, master, bpm, key: Math.floor(r() * 12), swing: 0, scale: jazzMode(style, prog) };
+}
+
+function jazzMode(style, prog) {
+  if (style === 'modal') return 'dorian';
+  if (style === 'jazzfunk') return prog[0].c === 16 ? 'dorian' : 'mixolydian';
+  return style === 'swing' && prog[0].c === 20 ? 'minor' : 'major';
 }
 
 function generateBossa(seed, bpm, palette, pocket, choose) {
