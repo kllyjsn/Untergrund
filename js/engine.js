@@ -4142,10 +4142,11 @@ export class Engine {
     if (from !== f) { h.s.playbackRate.setValueAtTime(rate * (from / f), t); h.s.playbackRate.exponentialRampToValueAtTime(rate, t + 0.08); }
     this.mono = { amp: h.g, f, end: t + len + 0.3 };
   }
-  // The SH-2's sub oscillator reaches 26 Hz on the lowest notes: a 4th-order Butterworth at 28 Hz trims it, leaving 40 Hz and up.
+  // The SH-2's sub oscillator reaches 26 Hz on the lowest notes: a 4th-order Butterworth at 30 Hz trims it (-6 dB at 26 Hz)
+  // and leaves 40 Hz and up within half a dB. A highpass biquad's Q is in dB: 0.541 and 1.307 are -5.33 and +2.33 dB.
   analogBassOut() {
     if (!this.abassHP) {
-      const a = this.filter('highpass', 28, 0.541), b = this.filter('highpass', 28, 1.307);
+      const a = this.filter('highpass', 30, -5.33), b = this.filter('highpass', 30, 2.33);
       a.connect(b).connect(this.ch.acid.input);
       this.abassHP = a;
     }
