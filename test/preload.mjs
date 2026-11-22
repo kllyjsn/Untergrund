@@ -182,6 +182,16 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
   assert(hard.every((a) => a[5] > 1), 'natural held sustain, not a guitar chop');
   assert.notEqual(hard[0][3], ctx.destination, 'suitcase stereo motion');
   assert.equal(chord(.8, 'jazzfunk')[0][3], ctx.destination, 'Jazz-Funk dry');
+  const controlParams = { ...state.params.stab, voice: 1, env: 0.12, detune: 8, tine: 0.18 };
+  const controlled = (patch) => {
+    e.playbackStyle = 'lofihiphop'; hits.length = 0;
+    Engine.prototype.rhodesKeys.call(e, 1, .8, [0, 4, 7], 60, { ...controlParams, ...patch }, ctx.destination);
+    return hits.map((hit) => [hit[4], hit[5], hit[6]]);
+  };
+  const neutral = controlled({});
+  assert(controlled({ env: .8 })[0][1] > neutral[0][1], 'ENV lengthens the recorded hold');
+  assert.notEqual(controlled({ detune: 35 })[0][0], neutral[0][0], 'DETUNE offsets sample pitch');
+  assert(controlled({ tine: .9 })[0][2].lp > neutral[0][2].lp, 'TINE brightens the recorded attack');
   for (const [v, notes, root] of [[0, [0], 60], [NaN, [0], 60], [.8, [], 60], [.8, [Infinity], 60], [.8, [0], NaN]]) {
     hits.length = 0;
     assert.equal(Engine.prototype.rhodesKeys.call(e, 1, v, notes, root, state.params.stab, ctx.destination), true);

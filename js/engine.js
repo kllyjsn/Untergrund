@@ -2325,9 +2325,16 @@ export class Engine {
     if (!requested.length || requested.some((n) => !Number.isFinite(n)) || !Number.isFinite(v) || v <= 0) return true;
     const notes = p.rhodesLine ? requested : rhodesVoicing(requested);
     if (!notes.length) return true;
-    const funk = (jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle) === 'jazzfunk';
+    const style = jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle, funk = style === 'jazzfunk';
+    const [envRef, detuneRef, tineRef] = {
+      neosoul: [0.25, 14, 1], rnb: [0.25, 10, 1], lofihiphop: [0.12, 8, 0.18], jazzfunk: [0.12, 0.6, 1],
+    }[style];
+    const envHome = style === 'lofihiphop'
+      ? HIPHOP.lofihiphop.ensembles.find(([voice, , octave]) => voice === Math.round(p.voice) && octave === Math.round(p.octave))?.[4] ?? envRef : envRef;
+    const env = (p.env ?? envHome) - envHome, detune = ((p.detune ?? detuneRef) - detuneRef) * 0.15;
+    const tine = (p.tine ?? tineRef) - tineRef;
     const velocity = Math.max(0, Math.min(1, v / (funk ? dbGain(JAZZ_MIX.jazzfunk.comp) : 1)));
-    const hold = p.rhodesHold ?? Math.max(0.08, p.decay * (funk ? 1 : 1.7));
+    const hold = (p.rhodesHold ?? Math.max(0.08, p.decay * (funk ? 1 : 1.7))) * 2 ** (env * 3);
     const end = t + hold + 0.22;
     if (!funk) {
       const trem = this.ctx.createStereoPanner(), lfo = this.ctx.createOscillator();
@@ -2337,12 +2344,12 @@ export class Engine {
       this.startSource(lfo, t); lfo.stop(end);
     }
     const level = v * (funk ? 0.70 : 0.96) / Math.sqrt(notes.length);
-    const lp = Math.min(8500, Math.max(550, p.cutoff * (0.55 + 2.2 * velocity ** 2)));
+    const lp = Math.min(8500, Math.max(550, p.cutoff * (0.55 + 2.2 * velocity ** 2) * 2 ** tine));
     for (const [i, m] of notes.entries()) {
       const [center, buf] = set.reduce((a, b) => Math.abs(b[0] - m) < Math.abs(a[0] - m) ? b : a);
       const at = t + 0.002 + hash((this.step || 0) + m, i + 621) * 0.006;
-      this.playBuf(buf, at, level, out, 2 ** ((m - center) / 12), hold,
-        { lp, shelves: [[3000, -9 * (1 - velocity)]], fade: 0.001, release: 0.03, ringOut: true });
+      this.playBuf(buf, at, level, out, 2 ** ((m - center) / 12 + (i % 2 ? detune : -detune) / 1200), hold,
+        { lp, shelves: [[3000, -9 * (1 - velocity) + tine * 12]], fade: 0.001, release: 0.03, ringOut: true });
     }
     return true;
   }
