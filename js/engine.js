@@ -190,9 +190,9 @@ export function scoreKinds(spec) { return kindsOf([...new Set(compose(spec).note
 const LOOPS = new WeakMap();
 const ANALOG_LOOPS = new WeakMap();
 const ANALOG_LEVEL = {
-  hypnotic: { 2: 0.695 }, ambient: { 2: 0.661 }, peak: { 2: 0.625, 4: 0.731 },
-  hardtechno: { 2: 0.485 }, trance: { 2: 0.51, 4: 0.632 }, industrial: { 4: 0.759 },
-  electro: { 4: 0.852 }, electrohiphop: { 4: 0.914 },
+  hypnotic: { 2: 0.695 }, ambient: { 2: 0.661 }, peak: { 2: 0.625, 4: 0.765 },
+  hardtechno: { 2: 0.485 }, trance: { 2: 0.51, 4: 0.662 }, industrial: { 4: 0.795 },
+  electro: { 4: 0.892 }, electrohiphop: { 4: 0.957 },
 };
 const DUB_PAD_LEVEL = { 0: 1.55, 2: 1.28, 3: 1.96, 5: 1.26 };
 function analogLoop(ctx, buf) {
@@ -2914,6 +2914,28 @@ export class Engine {
     });
   }
 
+  analogBrassOut(out) {
+    const paths = (this.analogBrassPaths ||= new WeakMap());
+    if (!paths.has(out)) {
+      const input = this.gain(1), split = this.ctx.createChannelSplitter(2), stereo = this.ctx.createChannelMerger(2);
+      input.channelCount = 2; input.channelCountMode = 'explicit';
+      const mid = this.gain(0.5), side = this.gain(0.5), negative = this.gain(-1), invert = this.gain(-1);
+      input.connect(split);
+      split.connect(mid, 0); split.connect(mid, 1);
+      split.connect(side, 0); split.connect(negative, 1); negative.connect(side);
+      mid.connect(stereo, 0, 0); mid.connect(stereo, 0, 1);
+      let top = side;
+      for (let i = 0; i < 4; i++) {
+        const q = 1 / (2 * Math.cos((2 * i + 1) * Math.PI / 16));
+        top = top.connect(this.filter('highpass', 350, 20 * Math.log10(q)));
+      }
+      top.connect(stereo, 0, 0); top.connect(invert).connect(stereo, 0, 1);
+      stereo.connect(out);
+      paths.set(out, input);
+    }
+    return paths.get(out);
+  }
+
   analogChord(voice, t, v, iv, root, p, out) {
     const name = analogSet(this.playbackStyle, voice);
     if (!name) return false;
@@ -2934,7 +2956,7 @@ export class Engine {
     }
     amp.gain.setValueAtTime(0, t + end);
     const hp = this.filter('highpass', hard ? 300 : 150, 0.5);
-    amp.connect(hp).connect(out);
+    amp.connect(hp).connect(pad ? out : this.analogBrassOut(out));
     const pans = this.sidePans([-0.6, 0, 0.6], amp);
     const sides = pad ? [-1, 0, 1] : [-1, 1], spread = pad ? (4 + p.detune) * (hard ? 3 : 1) : p.detune * 0.5;
     iv.forEach((n, k) => {

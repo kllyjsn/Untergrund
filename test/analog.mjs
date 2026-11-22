@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { withChrome } from './chrome.mjs';
 import { OfflineAudioContext, installGlobals } from './offline-audio.mjs';
 installGlobals();
 const { freshSong, INSTRUMENTS, STYLES } = await import('../js/state.js');
@@ -101,4 +102,44 @@ for (const [style, voices] of Object.entries(mapping)) for (const tuple of INSTR
 }
 assert(bandKit('jxbr').every(([center]) => Math.abs(center - Math.round(center)) > 0), 'Brassy measured tuning is loaded');
 assert.equal(bandKit('jxbr')[0][0], 48 - 23.6 / 100);
-console.log('analog: style/tuple preloads, synth fallbacks, measured pitch, stereo crossfaded loops, DETUNE PCM/spread, release, Hard Techno attack and Dub cadence passed');
+const stereoBrass = await withChrome(async run => run(`(async () => {
+  const { freshSong } = await import('/js/state.js');
+  const { Engine } = await import('/js/engine.js');
+  const { loadBand } = await import('/js/livekit.js');
+  const { fft } = await import('/js/audio-quality.js');
+  await Promise.all([loadBand('jxbr'), loadBand('jbr')]);
+  const rows = [];
+  for (const [style, seed] of [['electrohiphop', 1], ['trance', 3], ['industrial', 5], ['peak', 1], ['electro', 3]]) {
+    const state = freshSong(style, seed), sr = 48000;
+    state.artist = { style, seed };
+    const ctx = new OfflineAudioContext(2, sr * 3, sr), engine = new Engine(ctx, state, { realtime: false });
+    const out = ctx.createGain(); out.connect(ctx.destination);
+    engine.brass(0.1, 0.8, [0, 3, 7], 48, state.params.stab, out);
+    const cached = engine.analogBrassOut(out) === engine.analogBrassOut(out);
+    const buffer = await ctx.startRendering(), n = 2 ** Math.ceil(Math.log2(buffer.length));
+    const spectra = [0, 1].map(ch => {
+      const re = new Float64Array(n), im = new Float64Array(n);
+      re.set(buffer.getChannelData(ch)); fft(re, im); return { re, im };
+    });
+    let ll = 0, rr = 0, lr = 0, high = 0, highSide = 0;
+    for (let k = 1; k < n / 2; k++) {
+      const f = k * sr / n, [l, r] = spectra;
+      const a = l.re[k] ** 2 + l.im[k] ** 2, b = r.re[k] ** 2 + r.im[k] ** 2;
+      const cross = l.re[k] * r.re[k] + l.im[k] * r.im[k];
+      if (f >= 62 && f <= 250) { ll += a; rr += b; lr += cross; }
+      if (f >= 700 && f <= 5000) { high += a + b; highSide += (a + b - 2 * cross) / 2; }
+    }
+    rows.push({ style, cached, energy: ll + rr, correlation: lr / Math.sqrt(ll * rr),
+      loss: 10 * Math.log10((ll + rr + 2 * lr) / (2 * (ll + rr))), highSide: highSide / high });
+  }
+  return rows;
+})()`));
+assert(stereoBrass, 'native stereo brass verification requires Chrome');
+for (const row of stereoBrass) {
+  assert(row.cached, `${row.style}: brass bus is reused`);
+  assert(row.energy > 1, `${row.style}: low-band test is not silent`);
+  assert(row.correlation > 0.98, `${row.style}: 62–250 Hz L/R correlation ${row.correlation}`);
+  assert(row.loss > -0.05, `${row.style}: low-band mono loss ${row.loss} dB`);
+  assert(row.highSide > 0.001, `${row.style}: upper-band stereo is preserved`);
+}
+console.log('analog: style/tuple preloads, synth fallbacks, measured pitch, stereo crossfaded loops, DETUNE PCM/spread, mono-safe brass, release, Hard Techno attack and Dub cadence passed');
