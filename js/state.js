@@ -17,6 +17,7 @@ import { trackTitle } from './crate.js';
 import { FUNK_HANDS, FUNK_VOX, funkHandBar } from './baile.js';
 import { festivalBuilds } from './festival-build.js';
 import { isJazz, generateJazz } from './jazz.js';
+import { BOSSA_PARTS, isBossaPart, bossaChart, bossaForm, bossaPreview } from './bossa.js';
 import { HIPHOP, HIPHOP_STYLES, hiphopGroove, hiphopMotif } from './hiphop.js';
 
 export const STYLES = {
@@ -1037,6 +1038,18 @@ function liteVerse(full) {
 
 // Turn one full pattern into an 8-pattern arrangement: intro → build → peak → breakdown → return.
 export function arrangement(full, seed, half = false) {
+  if (full.jazz?.bossaPart) return BOSSA_PARTS.map((part, i) => {
+    const p = clone(full);
+    p.jazz.bossaPart = part;
+    p.prog = bossaChart(part);
+    p.sec = i >= 6 ? 'chorus' : i === 2 ? 'verse' : 'bridge';
+    if (p.hook && !p.hook.h) {
+      p.hook.m = bossaPreview(part, p.jazz.seed, p.prog);
+      p.hook.s = Array(32).fill(0);
+      for (const [at, dur, n, v] of p.hook.m.n) if (at < 32) p.hook.s[at] = [n, dur, v];
+    }
+    return p;
+  });
   if (full.jazz) return range(8, (i) => ({ ...clone(full), sec: i === 2 ? 'verse' : 'chorus' }));
   if (full.score) return range(8, () => clone(full));
   const strip = (p, keep) => {
@@ -1225,6 +1238,7 @@ export const songForm = (spec) => formChain(parseForm(spec));
 // developSong writes the second verse, instrumental and final chorus). `length` is 'song' (3-4 min) or 'sketch'.
 // `bpm` is the tempo the song will actually play at, so the form is sized in seconds, not bars.
 export function songPlan(style, seed, length = 'song', bpm = midBpm(style)) {
+  if (style === 'bossa') return { chain: bossaForm(length, bpm), sections: null };
   if (isJazz(style)) {
     const bars = length === 'sketch' ? 32 : Math.min(128, Math.ceil(190 * bpm / 240 / 16) * 16);
     const head = length === 'sketch' ? 8 : 16;
@@ -1313,8 +1327,11 @@ export function applySongPlan(s, style, seed, length = 'song') {
   const plan = songPlan(style, seed, length, s.bpm || midBpm(style));
   s.chain = plan.chain;
   delete s.chainEntries;
+  if (style === 'bossa') {
+    s.labels = { A: 'INTRO', B: 'TAG', C: 'SOLO', E: 'BRIDGE', F: 'INTERLUDE', G: 'HEAD', H: 'HEAD OUT' };
+    return plan;
+  }
   if (isJazz(style)) {
-    const head = length === 'sketch' ? 8 : 16;
     s.labels = { G: 'HEAD', C: 'SOLOS', H: 'HEAD OUT' };
     return plan;
   }
@@ -1500,12 +1517,13 @@ export function sanitize(s) {
       ...(hook.up ? { up: 1 } : {}),
       ...(cleanMelody(hook.m) ? { m: cleanMelody(hook.m) } : {}),
     }) : null;
-  const cleanProg = (prog) => prog.slice(0, 8).map((c) => ({ r: Math.max(-12, Math.min(12, c?.r | 0)), c: Math.max(0, Math.min(CHORDS.length - 1, c?.c | 0)) }));
+  const cleanProg = (prog, limit = 8) => prog.slice(0, limit).map((c) => ({ r: Math.max(-12, Math.min(12, c?.r | 0)), c: Math.max(0, Math.min(CHORDS.length - 1, c?.c | 0)) }));
   out.patterns = range(8, (i) => {
     const p = s.patterns[i];
     const e = emptyPattern();
     if (!p) return e;
-    if (isJazz(p.jazz?.style)) e.jazz = { style: p.jazz.style, seed: Number.isFinite(+p.jazz.seed) ? p.jazz.seed | 0 : 1, ...(p.jazz.progBars === 1 ? { progBars: 1 } : {}) };
+    if (isJazz(p.jazz?.style)) e.jazz = { style: p.jazz.style, seed: Number.isFinite(+p.jazz.seed) ? p.jazz.seed | 0 : 1, ...(p.jazz.progBars === 1 ? { progBars: 1 } : {}),
+      ...(p.jazz.style === 'bossa' && isBossaPart(p.jazz.bossaPart) ? { bossaPart: p.jazz.bossaPart } : {}) };
     for (const id of TRACK_IDS) {
       if (Array.isArray(p.steps?.[id])) e.steps[id] = cleanTrack(id, p.steps[id]);
       if (p.len?.[id]) e.len[id] = Math.max(1, Math.min(STEPS, p.len[id] | 0));
@@ -1519,7 +1537,7 @@ export function sanitize(s) {
     if (p.lift) e.lift = Math.max(0, Math.min(3, p.lift | 0));
     if (p.verseSwell === true) e.verseSwell = true;
     if (['verse', 'pre', 'chorus', 'bridge'].includes(p.sec)) e.sec = p.sec;
-    if (Array.isArray(p.prog) && p.prog.length) e.prog = cleanProg(p.prog);
+    if (Array.isArray(p.prog) && p.prog.length) e.prog = cleanProg(p.prog, e.jazz?.bossaPart ? 16 : 8);
     const at = !e.score && cleanTakes(p.at, cleanTrack, cleanHook, cleanProg);
     if (at) e.at = at;
     return e;

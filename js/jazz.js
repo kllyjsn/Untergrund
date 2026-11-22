@@ -1,6 +1,7 @@
 import { CHORDS, defaultParams, TRACK_IDS } from './params.js';
 import { rng } from './dsp.js';
 import { generateFunk, funkNotes, FUNK_PROGS } from './jazzfunk.js';
+import { bossaChart, bossaPreview } from './bossa.js';
 
 export const isJazz = (style) => style === 'swing' || style === 'modal' || style === 'bossa' || style === 'jazzfunk';
 export const JAZZ_MIX = {
@@ -150,21 +151,22 @@ export function generateJazz(style, seed, bpm, palette, pocket) {
 function generateBossa(seed, bpm, palette, pocket) {
   const r = rng(seed), params = defaultParams(), master = {};
   const ensemble = palette[Math.floor(rng(Math.imul((seed | 0) ^ 0x6d2b79f5, 0x85ebca6b))() * palette.length)];
-  const prog = JAZZ_PROGS.bossa[Math.floor(r() * JAZZ_PROGS.bossa.length)].map(([r, c]) => ({ r, c }));
+  r(); // Keep the seed’s instrument and key draws stable.
+  const prog = bossaChart('head');
   const steps = Object.fromEntries(TRACK_IDS.map((id) => [id, Array.from({ length: 16 }, (_, i) => id === 'acid' ? { on: [0, 6, 8, 14].includes(i), n: 0, a: false, s: false } : 0)]));
   for (const i of [0, 3, 8, 11]) steps.kick[i] = 1;
   for (let i = 0; i < 16; i += 2) steps.ch[i] = 1;
   for (const i of BOSSA_RIM[0]) steps.snare[i] = 1;
   for (const i of new Set([0, 8, ...BOSSA_BATIDA[0]])) steps.stab[i] = 1;
   Object.assign(master, { kit: 1, swing8: 0, duck: 0, drive: 0.015, dust: 0, arr: 0, vary: 0.45, pocket, humanize: 0.08, room: 0.1, revLevel: 0.18, dlyLevel: 0 });
-  Object.assign(params.stab, { voice: ensemble[0] === 7 ? 7 : 18, chord: prog[0].c, octave: 0, level: 0.58, decay: +(ensemble[3] * (0.9 + r() * 0.2)).toFixed(3), env: ensemble[4], cutoff: 1800, dly: 0, rev: 0.08, reso: 0.5 });
-  Object.assign(params.acid, { voice: 1, level: 0.92, tune: 0, decay: 0.38, cutoff: 1200, drive: 0, dly: 0, rev: 0.03 });
+  Object.assign(params.stab, { voice: ensemble[0] === 7 ? 7 : 18, chord: prog[0].c, octave: 0, level: 0.68, decay: +(ensemble[3] * (0.9 + r() * 0.2)).toFixed(3), env: ensemble[4], cutoff: 1800, dly: 0, rev: 0.1, reso: 0.5, pan: -0.09 });
+  Object.assign(params.acid, { voice: 1, level: 0.63, tune: 0, decay: 0.38, cutoff: 1200, drive: 0, dly: 0, rev: 0.03 });
   Object.assign(params.ch, { level: 0.3, decay: 0.05, tone: 3200, dly: 0, rev: 0.02 });
   Object.assign(params.kick, { level: 0.38, drive: 0, dly: 0, rev: 0.02 });
   Object.assign(params.snare, { level: 0.32, decay: 0.1, tone: 2800, snappy: 0.1, dly: 0, rev: 0.04 });
   for (const id of ['ride', 'clap', 'perc', 'vox', 'oh']) params[id].level = 0;
-  const m = jazzMelody('bossa', seed, prog), preview = Array(32).fill(0);
+  const m = bossaPreview('head', seed, prog), preview = Array(32).fill(0);
   for (const [at, dur, n, v] of m.n) if (at < 32) preview[at] = [n, dur, v];
   const hook = { v: r() < 0.75 ? 'airflute' : 'tpt', o: 0, s: preview, m, x: { feel: 0.1, risk: 0, space: 0.8, warmth: 0.8 } };
-  return { pattern: { jazz: { style: 'bossa', seed }, steps, len: Object.fromEntries(TRACK_IDS.map((id) => [id, 16])), prog, hook, hm: 2 }, params, master, bpm, key: Math.floor(r() * 12), swing: 0.03, scale: 'major' };
+  return { pattern: { jazz: { style: 'bossa', seed, bossaPart: 'head' }, steps, len: Object.fromEntries(TRACK_IDS.map((id) => [id, 16])), prog, hook, hm: 2 }, params, master, bpm, key: Math.floor(r() * 12), swing: 0.03, scale: 'major' };
 }
