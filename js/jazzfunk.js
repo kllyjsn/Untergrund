@@ -59,8 +59,18 @@ export function funkNotes(seed, bar, h, solo = false, { headOut = false, section
     [[2, 1], [3, 1], [4, 6], [10, 1], [11, 1], [12, 2], [14, 7], [21, 3], [24, 4], [28, 2]],
     [[1, 1], [2, 1], [3, 5], [8, 2], [10, 1], [11, 1], [12, 2], [14, 8], [22, 2], [24, 5]],
     [[2, 1], [3, 1], [4, 7], [11, 1], [12, 2], [14, 6], [20, 4], [24, 2], [26, 3]],
+    [[0, 4], [4, 2], [6, 1], [7, 1], [8, 6], [14, 6], [20, 2], [22, 2], [24, 5]],
+    [[3, 1], [4, 4], [8, 3], [11, 1], [12, 2], [14, 7], [21, 1], [22, 2], [24, 6]],
+    [[1, 1], [2, 2], [4, 6], [10, 2], [12, 3], [15, 7], [22, 2], [24, 4], [28, 3]],
+    [[0, 6], [6, 1], [7, 1], [8, 4], [12, 2], [14, 8], [22, 4], [26, 3]],
+    [[2, 2], [4, 4], [8, 2], [10, 1], [11, 1], [12, 3], [15, 5], [20, 4], [24, 7]],
   ];
-  const motif = motifs[Math.floor(rng(seed ^ 0x735a2d97)() * motifs.length)];
+  const plan = rng(Math.imul(seed ^ 0x735a2d97, 0x85ebca6b));
+  const theme = Math.floor(plan() * motifs.length), answer = 1 + Math.floor(plan() * 3);
+  const contrast = Math.floor(plan() * 3), cadence = plan() < 0.5;
+  const contours = [[7, 10, 12, 14, 12, 10, 9, 7, 12, 10], [12, 9, 7, 10, 14, 12, 10, 9, 7, 12], [9, 12, 14, 10, 7, 9, 12, 14, 10, 7]];
+  const shape = contours[Math.floor(plan() * contours.length)];
+  const motif = motifs[(theme + (pair % 2 ? answer : 0) + (phase >= 4 && phase < 8 ? 1 : 0)) % motifs.length];
   let rhythm = motif, peak = false;
   if (solo) {
     const peakBar = sectionBars - 4;
@@ -73,15 +83,17 @@ export function funkNotes(seed, bar, h, solo = false, { headOut = false, section
       rhythm = line.map((at, i) => [at, (line[i + 1] ?? 30) - at - 0.2]);
     }
   } else if (phase >= 12) {
-    rhythm = headOut ? [[1, 1], [2, 1], [3, 1], [4, 4], [8, 4], [12, 4], [16, 18]] : [[2, 1], [3, 1], [4, 6], [10, 2], [12, 4], [16, 18]];
+    rhythm = headOut !== cadence ? [[1, 1], [2, 1], [3, 1], [4, 4], [8, 4], [12, 4], [16, 18]] : [[2, 1], [3, 1], [4, 6], [10, 2], [12, 4], [16, 18]];
     if (phase >= 14) return [];
-  } else if (phase >= 8) rhythm = [[0, 7], [7, 1], [8, 6], [14, 8], [22, 1], [23, 1], [24, 5]];
-  else if (phase >= 4 && phase % 4 >= 2) rhythm = [[2, 2], [4, 6], [10, 2], [12, 2], [14, 8], [22, 2], [24, 5]];
+  } else if (phase >= 8) rhythm = [
+    [[0, 7], [7, 1], [8, 6], [14, 8], [22, 1], [23, 1], [24, 5]],
+    [[2, 6], [8, 6], [14, 8], [22, 4], [26, 4]],
+    [[0, 8], [8, 4], [12, 3], [15, 7], [22, 1], [23, 1], [24, 6]],
+  ][contrast];
   const iv = CHORDS[h.c].iv;
   const mode = iv.includes(3) ? [0, 2, 3, 5, 7, 9, 10] : iv.includes(11) ? [0, 2, 4, headOut ? 5 : 6, 7, 9, 11] : h.c === 15 ? [0, 1, 3, 4, 6, 8, 10] : [0, 2, 4, 5, 7, 9, 10];
   const tones = iv.flatMap((n) => [pc(n), pc(n) + 12, pc(n) + 24]);
   const passing = mode.flatMap((n) => [n, n + 12, n + 24]);
-  const shape = [7, 10, 12, 14, 12, 10, 9, 7, 12, 10];
   const lift = solo ? Math.min(5, chorus * 2) + pair % 3 : phase >= 8 && phase < 12 ? 5 : 0;
   return rhythm.flatMap(([at, dur], index) => {
     if (Math.floor(at / 16) !== bar % 2) return [];

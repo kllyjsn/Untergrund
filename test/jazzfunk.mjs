@@ -243,4 +243,9 @@ for (const seed of [0, 42, 77, 12345, 1e9]) {
     assert(lead?.length && phrases(lead, sd).some((n) => n >= 1.5), 'unchained pattern previews keep complete lead phrases');
   }
 }
-console.log('jazzfunk: rootless harmony, seeded interlock, guitar/row edits, pocket/stereo, long head motifs and cadences, section-shaped solos, intro/breaks/final hit, mutes and persistence passed');
+{
+  const rhythms = [42, 77, 12345, 0, 1, 314159, 271828, 1e9].map((seed) => JSON.stringify(Array.from({ length: 12 }, (_, bar) => funkNotes(seed, bar, { r: 0, c: 16 }).map(([at, dur]) => [at, dur]))));
+  assert(new Set(rhythms).size >= 7, 'seeded heads have distinct rhythm plans, not just transposed pitches');
+  assert.notEqual(rhythms[0], rhythms[1], '42 and 77 no longer share a rhythm plan');
+}
+console.log('jazzfunk: rootless harmony, seeded interlock, guitar/row edits, pocket/stereo, long head motifs and cadences, section-shaped solos, intro/breaks/final hit, mutes, persistence and seeded head diversity passed');
