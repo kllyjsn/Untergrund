@@ -335,7 +335,11 @@ export function localSpec(text, { style: current = 'deephouse', seed, genre, bpm
     for (let i = 0; i < sections.length; i++) { const k = sections[i].role; if (seen.has(k) && k !== 'outro') { sections.splice(i, 1); i--; } else seen.add(k); }
   }
   if (/\b(?:extended|long|epic|journey|dj\s+mix|club\s+mix)\b/.test(t) && !/\blong\s+intro\b/.test(t)) for (const s of sections) if (s.role === 'drop') s.bars = Math.min(32, s.bars + 8);
-  if (M) for (const s of sections) s.chords = M[s.role] || (s.role === 'build' ? M.verse.slice(0, 2) : s.role === 'intro' ? M.verse : []);
+  if (M) for (const s of sections) {
+    // Deep House already has a tonic intro and a rising pre-chorus.
+    if (style === 'deephouse' && (s.role === 'intro' || s.role === 'build')) continue;
+    s.chords = M[s.role] || (s.role === 'build' ? M.verse.slice(0, 2) : s.role === 'intro' ? M.verse : []);
+  }
   // Major moods only move the scale when the words didn't already pick one.
   const scale = scaleEdit?.value || M?.scale || (style === 'euphoric' || MAJOR_STYLES.has(style) ? 'major' : 'minor');
   // A minor-mode progression in a major song reads its numerals in the major scale; keep moods coherent.

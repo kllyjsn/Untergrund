@@ -333,6 +333,14 @@ const call = (text, content, extra = {}) => handleDescribe({ method: 'POST', bod
   t('song mode shares the per-client rate limit', () => assert.equal(last.status, 429));
 }
 
+t('Deep House mood prompts retain the tonic intro and rising build', () => {
+  const sp = localSpec('melancholic deep house for a sunrise drive, builds to a big euphoric drop', { seed: 11 });
+  const { patterns } = songState(sp, 11).state;
+  assert.deepEqual(patterns[0].prog, [{ r: 0, c: 0 }]);
+  assert.deepEqual(patterns[1].prog.map(({ r }) => r), [5, 8, 10, 7]);
+  assert.notDeepEqual(patterns[2].prog, patterns[6].prog);
+});
+
 // Realized prompt songs score at least as well as plain GENERATE for the same style and seed.
 {
   const P = ['melancholic deep house for a sunrise drive, builds to a big euphoric drop', 'dark techno for a warehouse at 4am', 'happy afrobeats summer party', 'nostalgic synthwave night drive'];
