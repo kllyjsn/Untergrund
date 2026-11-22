@@ -48,6 +48,9 @@ const ARTISTS = {
   goldie: [/goldie|ltj\s+bukem/, 'dnb', [['space', 0.5]]],
 };
 const ARTIST_RE = Object.entries(ARTISTS).map(([id, [re]]) => [new RegExp(re.source, 'g'), ` artist${id} `]);
+const CHORD_QUALITY = /\b(major|minor)(?:[\s-]+((?:sixth|seventh|ninth|eleventh|thirteenth)s?|(?:6|7|9|11|13)(?:ths?)?))?[\s-]+(?:chords?|triads?|voicings?)\b/g;
+const KEY_PREFIX = /\b(?:in\s+the\s+key\s+of|key\s+of|in|to|key)\s+[a-g](?:#|b|\s+sharp|\s+flat)?\s+$/;
+const ADD_CHORDS = /\b(?:add|include|use|with)\s+(?:(?:some|a\s+few|a|an)\s+)?(?:[a-g][#b]?\s+)?$/;
 
 export const HIPHOP_PHRASES = [
   [/\blo[\s-]?fi[\s-]+(?:hip[\s-]?hop|beats?)\b|\bchillhop\b/g, 'lofihiphop'],
@@ -66,8 +69,6 @@ const PHRASES = [
   [/\b(?:everything|all)\s+(?:but|except|apart\s+from|other\s+than)|\bapart\s+from|\bother\s+than/g, ' except '],
   [/half[\s-]?time|half\s+speed/g, ' halftime '], [/double[\s-]?time|double\s+(?:the\s+)?(?:speed|tempo)/g, ' doubletime '],
   [/(?:change|switch|new|different|another|modulate)\s+(?:the\s+)?key|key\s+change|modulate/g, ' keychange '],
-  [/\b(?:major|minor)[\s-]+(?:sixths?|6ths?|sevenths?|7ths?|ninths?|9ths?|elevenths?|11ths?|thirteenths?|13ths?|6|7|9|11|13)\b(?:\s+(?:chords?|voicings?))?/g, ' richer harmony '],
-  [/\b(?:major|minor)[\s-]+(?=(?:chords?|triads?|voicings?)\b)/g, ''],
   [/jazz(?:y)?\s+chords|(?:seventh|7th|extended|ninth|9th)\s+chords|maj(?:or)?\s*7(?:ths?)?/g, ' richer harmony '],
   [/\b(?:19)?80s\b|eighties|retro[\s-]?wave|out[\s-]?run|vapou?r[\s-]?wave/g, ' synthwave '], [/\b(?:19)?90s\b|nineties/g, ' nineties '], [/\b(?:19)?70s\b|seventies/g, ' disco '],
   [/video\s+games?(?:\s+music)?|\b8[\s-]?bit\b|chip[\s-]?tunes?/g, ' chiptune '], [/(?:movie|film|tv)\s+(?:soundtrack|score|music)|soundtrack/g, ' cinematic '],
@@ -392,6 +393,11 @@ function normalize(text) {
   s = s.replace(/\bbase(line)?\b/g, 'bass$1');
   s = s.replace(/\bcan'?t\b/g, 'can not').replace(/\bwon'?t\b/g, 'will not').replace(/n't\b/g, ' not');
   for (const [re, to] of ARTIST_RE) s = s.replace(re, to);
+  s = s.replace(CHORD_QUALITY, (_, mode, extension, offset, text) => {
+    const before = text.slice(0, offset);
+    if (KEY_PREFIX.test(before)) return mode + ' chords';
+    return extension && ADD_CHORDS.test(before) ? 'richer harmony' : 'chords';
+  });
   for (const [re, to] of PHRASES) s = s.replace(re, to);
   // "only bass and drums", "everything except the kick and hats", "bass and drums only" stay one clause.
   const glue = (list) => list.replace(/\s*(?:,|\band\b|&|\+)\s*/g, ' ');

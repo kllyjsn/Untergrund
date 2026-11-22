@@ -30,6 +30,14 @@ for (const [prompt, style] of [['lo-fi hip-hop', 'lofihiphop'], ['chillhop', 'lo
 }
 t('lo-fi remains a texture on an existing genre', () => assert.equal(genreOf(parse('make it more lo-fi').edits, 'deephouse'), null));
 
+t('a chord quality names the target without changing the song mode or harmony', () => {
+  const edits = (text) => parse(text, { style: 'rnb' }).edits.map(({ src, ...edit }) => edit);
+  assert.deepEqual(edits('make the minor sixth chords quieter'), [{ id: 'level', target: 'stab', amt: -1 }]);
+  assert.deepEqual(edits('make the minor sixth chords plainer'), [{ id: 'harmony', amt: -1 }]);
+  assert.deepEqual(edits('add minor sixth chords'), [{ id: 'harmony', amt: 1 }]);
+  assert.deepEqual(edits('make the F minor 7th voicings quieter'), [{ id: 'level', target: 'stab', amt: -1 }]);
+});
+
 for (const [phrase, voice] of [['add FM bass', 6], ['add pulse bass', 7], ['add wide reese bass', 8], ['add pluck bass', 9]]) {
   t(phrase, () => {
     const { edits } = parse(phrase);

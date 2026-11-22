@@ -214,6 +214,14 @@ t('jazz chord qualities do not override the requested song mode', () => {
   const namedChord = localSpec('write jazz in C major with an F minor chord');
   assert.equal(namedChord.scale, 'major');
   assert.equal(namedChord.key, 0);
+  for (const suffix of ['6/8 time', 'chords']) {
+    const prompt = 'joyful jazz in D minor ' + suffix;
+    const minor = localSpec(prompt);
+    assert.equal(minor.key, 2);
+    assert.equal(minor.scale, 'minor', prompt);
+    assert.equal(songState(minor, 2654435761).state.scale, 'minor');
+    assert.equal(validateSpec({ ...major, key: 'D' }, { prompt }).scale, 'minor');
+  }
 });
 
 t('named hip-hop genres keep their palettes in prompt-built songs', () => {
