@@ -80,7 +80,7 @@ export function router(want, { prebus = false } = {}) {
         orig.call(sum, split); orig.call(split, merge, 0, 2 * k); orig.call(split, merge, 1, 2 * k + 1);
         sums[id] = sum;
       });
-      for (const id of TRACK_IDS) owner.set(E.ch[id].pan, id);
+      for (const id of TRACK_IDS) owner.set(E.ch[id].out || E.ch[id].pan, id);
       if (E.dubPadBus) owner.set(E.dubPadBus, 'dubpad');
       owner.set(E.vocalOut, 'sung');
       for (const [src, dst] of conns) if (dst === E.mix || dst === E.duck || dst === E.preMaster) { src.disconnect(dst); route(src, dst); }
