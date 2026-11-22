@@ -10,7 +10,7 @@ open low E, MIDI 28), both checked by measuring the recordings' pitch.
 Processing: leading silence removed, mono (drum mics summed), 44.1 kHz 16-bit, trimmed, 80 ms fade, peak -6 dBFS.
 Guitar takes (--takes): a second round-robin take of every guitar note (gtrb_, gtrsoftb_, agtrb_) and the Hofner's staccato (fretting hand lifted, the palm-mute chug;
 gtrmute_, gtrmuteb_), each matched to the loudness of the take it alternates with.
-Requires ffmpeg and numpy.  Usage: python3 scripts/fetch-band.py [--takes]   (--takes fetches only the guitar takes, --guitars only JAZZ GTR, TWANG GTR and BANJO, --kit only the extra kit takes)
+Requires ffmpeg and numpy.  Usage: python3 scripts/fetch-band.py [--takes]   (--sax fetches only the saxophones, --takes only the guitar takes, --guitars only JAZZ GTR, TWANG GTR and BANJO, --kit only the extra kit takes)
 """
 import os, sys
 sys.path.insert(0, os.path.dirname(__file__))
@@ -52,6 +52,18 @@ GUITAR_TAKES = {
     'jazzb': (AGTR, SHINY + 'electric/{n}_vl3_rr2_2.wav', 3.0, 'jazz'),
     'gretschb': (HOFNER, GREEN + 'ord/twang_{n}_mf_rr2.wav', 2.4, 'gretsch'),
 }
+# Saxophones (--sax): Karoryfer Weresax alto (CC0; condenser mic, forte, two round robins) and the MTG tenor (CC-BY 4.0,
+# forte, its piano take as the alternate). Weresax names sit an octave below MIDI (a2 is MIDI 57); the MTG tenor numbers
+# its notes from MIDI 44. Every file is matched to the same sustain loudness, so the hook's level does not jump by note.
+WERESAX = 'https://raw.githubusercontent.com/sfzinstruments/karoryfer.weresax/a4d756b21d2a573aca0d840cce7e71ba5effd4c6/Samples/alto/'
+SOLOSAX = 'https://raw.githubusercontent.com/sfzinstruments/MTG.SoloSax/b494d256549b3d088fdec176ce82867f8a1f58b2/MTG Solo Saxophones/Samples/'
+ALTO = {52: 'e2', 55: 'g2', 58: 'bb2', 61: 'db3', 64: 'e3', 67: 'g3', 70: 'bb3', 73: 'db4', 76: 'e4', 79: 'g4'}
+TENOR = {m: '%02d' % (m - 43) for m in (47, 50, 53, 56, 59, 62, 65, 68, 71, 74)}
+SAX = {
+    'asax': (ALTO, WERESAX + '{n}_f_rr1_cnd.wav'), 'asaxb': (ALTO, WERESAX + '{n}_f_rr2_cnd.wav'),
+    'tsax': (TENOR, SOLOSAX + 'ten_f_{n}.flac'), 'tsaxb': (TENOR, SOLOSAX + 'ten_p_{n}.flac'),
+}
+
 # name -> (mic files summed, seconds)
 DRUMS = {
     'crash_v2': (['oh/crash/oh_crash_crash_vl2_rr1.flac', 'mid/crash/mid_crash_crash_vl2_rr1.flac'], 3.2),
@@ -116,7 +128,16 @@ def guitars():
             rms = lambda z: np.sqrt(np.mean(z[:k] ** 2))
             write(f'{prefix}_{m}', x * min(rms(y) / rms(x), 0.98 / np.max(np.abs(x)))); print(prefix, m)
 
+def sax(secs=3.0, level=0.1):
+    import numpy as np
+    for prefix, (notes, tpl) in SAX.items():
+        for m, n in notes.items():
+            x = process(decode(tpl.format(n=n)), secs)
+            body = x[int(0.15 * orch.SR):int(0.9 * orch.SR)]
+            write(f'{prefix}_{m}', x * min(level / np.sqrt(np.mean(body ** 2)), 0.98 / np.max(np.abs(x)))); print(prefix, m)
+
 if __name__ == '__main__':
+    if '--sax' in sys.argv: sax(); sys.exit()
     if '--takes' in sys.argv: takes(); sys.exit()
     if '--guitars' in sys.argv: guitars(); sys.exit()
     if '--kit' in sys.argv:

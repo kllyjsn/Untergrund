@@ -45,6 +45,9 @@ export const BAND = {
   harp: [47, 53, 60, 64, 71, 77, 81, 84, 91],
   timp: [42, 47, 50, 52, 55],
   timproll: [47, 52],
+  // The saxophones: Karoryfer Weresax alto and MTG tenor (scripts/fetch-band.py --sax).
+  asax: [52, 55, 58, 61, 64, 67, 70, 73, 76, 79],
+  tsax: [47, 50, 53, 56, 59, 62, 65, 68, 71, 74],
   // The SONGS band: steel-string acoustic guitar and electric bass guitar.
   agtr: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
   nylon: [40, 45, 48, 52, 55, 59, 64, 67, 69],
@@ -72,7 +75,7 @@ const BAND_TUNE = { abass: { 36: -8.6, 39: -5.1, 42: -6.2, 45: -6.7, 48: -5.8, 5
 export const SOFT_LAYER = { piano: 'pianosoft', gtr: 'gtrsoft' };
 // Alternate woodwind and guitar takes for repeated notes.
 // Loaded in the background once the first take is in; until then every hit plays the first take.
-export const TAKES = { gtr: 'gtrb', gtrsoft: 'gtrsoftb', agtr: 'agtrb', gtrmute: 'gtrmuteb', jazz: 'jazzb', gretsch: 'gretschb', ob: 'obb', fl: 'flb' };
+export const TAKES = { gtr: 'gtrb', gtrsoft: 'gtrsoftb', agtr: 'agtrb', gtrmute: 'gtrmuteb', jazz: 'jazzb', gretsch: 'gretschb', ob: 'obb', fl: 'flb', asax: 'asaxb', tsax: 'tsaxb' };
 // The Hofner's staccato (fretting hand lifted right after the pick): the DRIVE GTR's palm-muted chug.
 export const MUTE_LAYER = { gtr: 'gtrmute' };
 // Background-only recordings: alternate takes and mutes, never waited on before a song starts.
@@ -83,7 +86,22 @@ export const STAB_BAND = { 7: 'piano', 8: 'gtr', 9: 'horn', 10: 'str', 11: 'gtr'
 export const RECORDED_ORGAN = new Set(['ukg', 'gfunk']);
 export const ANALOG_BASS = { ukg: [3], gfunk: [1, 7] };
 export const playsAnalogBass = (style, voice) => !!ANALOG_BASS[style]?.includes(Math.round(voice || 0));
-export const HOOK_BAND = { harpplk: 'harp', oboe: 'ob', airflute: 'fl', tpt: 'tpt', marimba: 'marimba' };
+export const HOOK_BAND = { harpplk: 'harp', oboe: 'ob', airflute: 'fl', tpt: 'tpt', marimba: 'marimba', altosax: 'asax', tenorsax: 'tsax' };
+// Where a generic 'reed' hook is a saxophone part: alto for the sung pop, neo-soul, club and trap leads; tenor for the dusty
+// boom bap loop and the Afrobeat horn line, an octave lower. Other reed styles keep their own lead.
+export const SAX_HOOK = {
+  neosoul: 'altosax', pop: 'altosax', reggaeton: 'altosax', breaks: 'altosax', trap: 'altosax',
+  boombap: 'tenorsax', afrobeats: 'tenorsax',
+};
+// Saxophones fold the key root into the horn's written range (`SAX_LO` is the lowest phrase root), so a high key drops a
+// whole octave instead of chipmunking the top notes. A hook octave away from the style's generated one (`SAX_OCT`, a
+// Describe edit) still moves it.
+export const SAX_LO = { altosax: 55, tenorsax: 46 };
+export const SAX_OCT = { trap: 1 };
+export const saxRoot = (style, root, oct = SAX_OCT[style] ?? 0) => {
+  const lo = SAX_LO[SAX_HOOK[style]];
+  return lo + (((root - lo) % 12) + 12) % 12 + (oct - (SAX_OCT[style] ?? 0)) * 12;
+};
 Object.assign(BAND, EXTRA_TAKES);
 export const BAND_FILES = Object.entries(BAND).flatMap(([k, ns]) => ns.map((n) => `${k}_${n}`));
 // Crash and toms of the same recorded kit, loaded only by the band pockets that play them (POP, R&B, ROCK, FOLK, COUNTRY).
@@ -160,7 +178,7 @@ export function liveSets(st) {
   const name = STAB_BAND[Math.round(st?.params?.stab?.voice || 0)];
   if (name) out.push(name, ...(SOFT_LAYER[name] ? [SOFT_LAYER[name]] : []));
   for (const p of [st?.pattern, ...(st?.patterns || [])]) {
-    const v = p?.hook?.v, voice = Object.hasOwn(HOOK_BAND, v) && HOOK_BAND[v];
+    const v = p?.hook?.v === 'reed' ? SAX_HOOK[st?.artist?.style] : p?.hook?.v, voice = Object.hasOwn(HOOK_BAND, v) && HOOK_BAND[v];
     if (voice) out.push(voice, ...(TAKES[voice] ? [TAKES[voice]] : []));
   }
   // Country's lead is a Telecaster whatever plays the chords.
