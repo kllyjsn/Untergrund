@@ -227,8 +227,10 @@ export function writePeak(pats, chain, devices, seed = 0, { keep = [], drops = [
   if (!devices?.length || !run || !G || pats.length < 8 || pats.some((p) => p.score)) return null;
   const c = [].concat(chain).join(''), lead = G.hook && !G.hook.h && G.hm > 0 && !keep.includes('stab');
   // The key lift stays with the styles that idiomatically change key (state.js LIFT): there it is already written.
-  // A festival build (festival-build.js) already lands its kick on the final drop's downbeat: no dropout there.
-  const ok = (d) => (d === 'lift' ? pats.some((p) => p.lift) : d === 'dropout' ? !drops.includes(run.from) : lead);
+  // A festival build (festival-build.js) lands its kick on the final drop's downbeat: its dropout waits for the
+  // drop's second phrase, which opens on the title again.
+  const out = drops.includes(run.from) ? run.from + 8 : run.from;
+  const ok = (d) => (d === 'lift' ? pats.some((p) => p.lift) : d === 'dropout' ? out < run.to && c[out] === c[run.from] && !drops.includes(out) : lead);
   const opts = devices.filter((d) => PEAK_DEVICES.includes(d) && ok(d));
   if (!opts.length) return null;
   // The feeling's first device is its most idiomatic; drawn on its own stream so no other seeded choice moves.
@@ -237,8 +239,8 @@ export function writePeak(pats, chain, devices, seed = 0, { keep = [], drops = [
   for (let i = 0; i < opts.length; i++) if ((x -= w[i]) < 0) { d = opts[i]; break; }
   if (d === 'lift') return d;
   // Dropout: the final chorus opens on its title with only the lead (the chords, if it has none), then the band returns.
-  const to = d === 'dropout' ? run.from : run.to;
-  for (let pos = run.from; pos <= to;) {
+  const from = d === 'dropout' ? out : run.from, to = d === 'dropout' ? out : run.to;
+  for (let pos = from; pos <= to;) {
     const p = pats['ABCDEFGH'.indexOf(c[pos])], at = (p.at ??= []);
     const cover = (q) => { for (let i = at.length - 1; i >= 0; i--) if (at[i].b[0] <= q && q <= at[i].b[1]) return at[i]; return null; };
     const t = cover(pos);
