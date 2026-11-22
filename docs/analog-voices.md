@@ -42,6 +42,23 @@ loop start. This avoids the trimmed files' final fades without modifying the
 decoded originals or collapsing stereo. The amplitude envelope releases over
 the looping source, rather than allowing the file to end mid-chord.
 
+## Brass mono compatibility
+
+Recorded brass sums its detuned layers and chord seats before a cached M/S bus.
+The mid is unchanged; an eighth-order Butterworth high-pass at 350 Hz removes
+low side energy while retaining the upper-band stereo. A fourth-order 200 Hz
+side cut still lost up to 1.53 dB in the 62–250 Hz mono comparison, so the higher,
+steeper crossover protects that entire band. The per-style brass gains compensate
+for the removed side energy; pads and synth fallbacks bypass this bus.
+
+The stereo `jxbr_48` source has −0.364 L/R correlation at 62–150 Hz. `jbr` is
+already mono, but its chord seats and detuned layers also create low stereo
+energy, so both brass sets use the same post-voice path. No FLAC, hash or sample
+cache revision changes are needed. `test/analog.mjs` checks native stereo renders
+of all five mapped styles: 62–250 Hz correlation above 0.98, mono loss below
+0.05 dB, nonzero low-band energy, retained upper-band stereo and bus reuse.
+This side cut does not reconstruct bass already canceled in the mid signal.
+
 ## Tuple seeds and level comparison
 
 Reference: `origin/main` at `7678aa3`. Chrome offline rendering, 48 kHz stereo,

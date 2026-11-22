@@ -190,8 +190,8 @@ export function scoreKinds(spec) { return kindsOf([...new Set(compose(spec).note
 const LOOPS = new WeakMap();
 const ANALOG_LOOPS = new WeakMap();
 const ANALOG_LEVEL = {
-  hypnotic: { 2: 0.695 }, ambient: { 2: 0.661 }, peak: { 2: 0.625, 4: 0.765 },
-  hardtechno: { 2: 0.485 }, trance: { 2: 0.51, 4: 0.662 }, industrial: { 4: 0.795 },
+  hypnotic: { 2: 0.695 }, ambient: { 2: 0.661 }, peak: { 2: 0.625, 4: 0.82 },
+  hardtechno: { 2: 0.485 }, trance: { 2: 0.51, 4: 0.662 }, industrial: { 4: 0.823 },
   electro: { 4: 0.892 }, electrohiphop: { 4: 0.957 },
 };
 const DUB_PAD_LEVEL = { 0: 1.55, 2: 1.28, 3: 1.96, 5: 1.26 };
