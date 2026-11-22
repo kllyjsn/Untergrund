@@ -166,6 +166,37 @@ t('jazz prompts pin a supplied mode but leave omitted modes to the feeling', () 
   }
 });
 
+t('an explicit Swing mode beats a conflicting mood in the prompt', () => {
+  for (const [prompt, mode, feel] of [
+    ['jazz major heartbroken', 'major', 'heartbroken'],
+    ['jazz minor joyful', 'minor', 'joyful'],
+    ['joyful jazz minor', 'minor', 'joyful'],
+    ['jazz in F major heartbroken', 'major', 'heartbroken'],
+  ]) {
+    assert.equal(isSongPrompt(prompt), true, prompt);
+    const spec = localSpec(prompt, { genre: promptGenre(prompt), bpm: rulePlan(prompt)?.bpm });
+    assert.equal(spec.style, 'swing');
+    assert.equal(spec.feel, feel);
+    assert.equal(spec.scale, mode, prompt);
+    assert(spec.sections.every((s) => !s.chords.length), 'do not import chords from the opposite mode');
+    const { state } = songState(spec, 2654435761);
+    assert.equal(state.scale, mode);
+    assert.equal(state.feel, feel);
+    if (prompt.includes('in F')) assert.equal(state.key, 5);
+    const prog = state.patterns[2].prog;
+    assert.equal(prog[0].c === 20, mode === 'minor', 'the actual backing is in the named mode');
+    assert.equal(jazzHarmony(state.patterns[6], 10).c, mode === 'minor' ? 2 : 7, 'the rendered window resolves to the named tonic quality');
+  }
+  const wrong = validateSpec({
+    style: 'swing', scale: 'major', feel: 'joyful', hook: { contour: [0, 2, 4, 2] },
+    sections: [{ role: 'verse', bars: 16, chords: ['I', 'IV', 'V'] }],
+  }, { prompt: 'jazz minor joyful' });
+  assert.equal(wrong.scale, 'minor');
+  assert.equal(wrong.hook, null);
+  assert.deepEqual(wrong.sections[0].chords, []);
+  assert.equal(songState(wrong, 2654435761).state.patterns[2].prog[0].c, 20);
+});
+
 t('named hip-hop genres keep their palettes in prompt-built songs', () => {
   for (const [prompt, style, voice] of [
     ['lo-fi hip-hop for studying', 'lofihiphop', 'tapekeys'],

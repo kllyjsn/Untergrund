@@ -409,7 +409,7 @@ function extract(clause, edits) {
     let pc = KEY_PC[key[1]];
     if (key[2]) pc += /#|sharp/.test(key[2]) ? 1 : -1;
     edits.push({ id: 'key', value: ((pc % 12) + 12) % 12, src: key[0].trim() });
-    if (key[3]) edits.push({ id: 'scale', value: MODE[key[3]], src: key[3] });
+    if (key[3]) edits.push({ id: 'scale', value: MODE[key[3]], explicit: true, src: key[3] });
     c = c.replace(key[0], ' ');
   }
   const step = c.match(/\b(?:up\s+a\s+(?:key|step|semitone)|key\s+up|higher\s+key|raise\s+the\s+key|transpose\s+up|pitch\s+(?:it\s+)?up)\b/)
@@ -497,7 +497,7 @@ function resolve(entry, mods, ctx, src, flags = {}) {
     for (const e of COMPLAINTS[entry.id](want ? -int : int).filter(Boolean)) out.push({ ...e, src, why: entry.id });
   }
   else if (entry.k === 'genre') { if (sign > 0) out.push({ id: 'genre', value: entry.id, family: entry.family, src }); }
-  else if (entry.k === 'scale') { if (sign > 0) out.push({ id: 'scale', value: entry.v, src }); }
+  else if (entry.k === 'scale') { if (sign > 0) out.push({ id: 'scale', value: entry.v, explicit: true, src }); }
   else if (entry.k === 'kit') { if (sign > 0) out.push({ id: 'kit', value: entry.v, src }); }
   else if (entry.k === 'bassVoice') {
     if (words.some((w) => MUTE.has(w)) || flags.hate) out.push({ id: 'mute', target: 'acid', value: true, src });
@@ -904,6 +904,7 @@ function merge(edits) {
     const k = key(e);
     const prev = out.find((x) => key(x) === k);
     if (!prev) { out.push({ ...e }); continue; }
+    if (e.id === 'scale' && prev.explicit && !e.explicit) continue;
     if (e.amt != null && prev.amt != null) prev.amt = Math.max(-3, Math.min(3, prev.amt + e.amt));
     else Object.assign(prev, e);
   }
