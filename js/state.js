@@ -275,6 +275,9 @@ const feelPick = (x, items, F, major) => {
 // Dark techno sits in phrygian (the flat second over the pedal); every other genre keeps its own mode.
 const feelMode = (style, feel, scaleName) => (feel === 'dark' && PEDAL.has(style) && (scaleName === 'minor' || scaleName === 'phrygian') ? 'phrygian' : null);
 
+// Deep house's chorus voicing: ninths over the minor and dub chords, the major seventh opened to a ninth.
+const deepChorus = ({ r, c }) => ({ r, c: (r === 7 ? c : ({ 0: 2, 1: 2, 3: 2, 7: 9 })[c] ?? c) });
+
 // The melody shape a feeling asks for (js/melody.js writeMelody).
 const feelShape = (F) => (F ? { reg: F.mel.reg, leap: F.mel.leap, arousal: F.arousal } : null);
 
@@ -809,7 +812,8 @@ function generatePattern(style, seed, scaleName, starter, feel = null, keepScale
   if (PROGS[style]) {
     const progs = PROGS[style].map((pr) => pr.map(([root, c]) => ({ r: root, c })));
     const major = musicalScale[2] === 4;
-    const main = F ? feelPick(r(), progs, F, major) : Math.floor(r() * progs.length);
+    // Deep house plays its progression with chorus voicings, so the feeling weighs those chords.
+    const main = F ? feelPick(r(), style === 'deephouse' ? progs.map((pr) => pr.map(deepChorus)) : progs, F, major) : Math.floor(r() * progs.length);
     P.prog = progs[main];
     P.alt = progs[(main + 1 + Math.floor(r() * (progs.length - 1))) % progs.length];
   }
@@ -964,7 +968,7 @@ function generatePattern(style, seed, scaleName, starter, feel = null, keepScale
       // The intro holds the tonic; save the full movement and ninths for the chorus.
       P.sections.intro = [{ r: 0, c: 0 }];
       P.sections.verse = P.sections.verse.map(({ r, c }) => ({ r, c: ({ 2: 1, 9: 7 })[c] ?? c }));
-      P.sections.chorus = P.prog.map(({ r, c }) => ({ r, c: (r === 7 ? c : ({ 0: 2, 1: 2, 3: 2, 7: 9 })[c] ?? c) }));
+      P.sections.chorus = P.prog.map(deepChorus);
       P.sections.bridge = [{ r: 8, c: 7 }, { r: 3, c: 10 }, { r: 5, c: 16 }, { r: 7, c: 5 }];
     }
     if (P.sections.chorus) { P.prog = P.sections.chorus; delete P.sections.chorus; }
