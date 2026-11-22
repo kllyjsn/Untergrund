@@ -41,7 +41,6 @@ import { flagshipShelf } from './flagship.js';
 import { describeBar, syncLyrics } from './describe-ui.js';
 import { vocalStem } from './sing.js';
 import { songState } from './song-spec.js';
-import { isFeel } from './feel.js';
 import { fetchReleaseTrack } from './account.js';
 import { openShare, openSharedLanding, countRemix, track } from './share.js';
 import { readShareParams, decodeSong, normalizeSong, remixState } from './share-code.js';
