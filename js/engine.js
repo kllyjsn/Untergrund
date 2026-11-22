@@ -5644,7 +5644,8 @@ export class Sequencer {
         const hit = e.planHit(t, id, hitContext.cur, () => {
           if (held || this.s !== s || s.mutes[id] || (TRACK_IDS.some(k => s.solos[k]) && !s.solos[id])) return null;
           const current = patternAt(s.patterns[hitContext.cur], pos);
-          if (!current) return null;
+          // The final chorus's dropout bar leaves only the lead or the chords: no drum is planned or replanned into it.
+          if (!current || current.peak === 'dropout') return null;
           const hit = this.gridHit.call(hitContext, id, current, grid);
           return hit && { ...hit, key: JSON.stringify([hit.method, ...hit.args]), step, scale, harm };
         });

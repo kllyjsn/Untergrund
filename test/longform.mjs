@@ -3,7 +3,8 @@
 // Principles and research basis: docs/long-form.md.
 import assert from 'node:assert/strict';
 import './festival-build.mjs';
-import { STYLES, SONG_STYLES, songPlan, sanitize } from '../js/state.js';
+import { STYLES, SONG_STYLES, songPlan, sanitize, freshSong } from '../js/state.js';
+import { Recorder } from '../js/midi.js';
 import { realize, validateSpec, localSpec } from '../js/song-spec.js';
 import { planSections, formChain, formSeconds, developSong, developFinalDrop, finalPeak, writePeak, LENGTHS, MAX_SONG_BARS } from '../js/longform.js';
 import { patternAt } from '../js/scope.js';
@@ -292,4 +293,37 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
     }
   }
   console.log('long-form jazz passed: full/sketch forms, returning motifs, runtime phrase development and bass/drum arrangement');
+}
+
+{
+  // Editable (Club) playback plans drum hits through Engine.planHit and may replan them; the dropout bar stays empty either way.
+  const DRUMS = ['kick', 'clap', 'snare', 'ch', 'oh', 'ride', 'perc', 'vox'];
+  const run = (style, seed, editable) => {
+    const s = JSON.parse(JSON.stringify(freshSong(style, seed))), rec = new Recorder(s), plans = [], at = [];
+    s.solos = {};
+    rec.planHit = function (time, track, pattern, plan) {
+      const n = plan();
+      plans.push({ time, plan });
+      if (n) this[n.method](...n.args);
+      return n;
+    };
+    const seq = new Sequencer(rec, s);
+    for (let abs = 0, t = 0; abs < s.chain.length * 16; abs++) { at.push(t); seq.tick(abs, t, undefined, editable); t += rec.stepDur; }
+    return { s, rec, plans, at };
+  };
+  let checked = 0;
+  for (const [style, seed] of [['minimal', 42], ['deephouse', 11], ['jerseyclub', 42]]) {
+    const off = run(style, seed, false), ed = run(style, seed, true);
+    const bar = off.s.patterns.flatMap((p) => (p.at || []).filter((v) => v.peak === 'dropout').map((v) => v.b[0]))[0];
+    assert(bar > 0, `${style}/${seed} has a dropout bar`);
+    const inBar = (r, b, t) => t >= r.at[b * 16] - 1e-6 && t < (r.at[(b + 1) * 16] ?? Infinity) - 1e-6;
+    const hits = (r, b) => DRUMS.map((id) => (r.rec.notes[id] || []).filter((n) => inBar(r, b, n.t)).length);
+    assert.deepEqual(hits(ed, bar), hits(off, bar), `${style}/${seed} editable dropout bar ${bar} plays the offline drums`);
+    assert.deepEqual(hits(ed, bar), DRUMS.map(() => 0), `${style}/${seed} dropout bar ${bar} has no drums`);
+    assert.deepEqual(hits(ed, bar + 1), hits(off, bar + 1), `${style}/${seed} editable return bar matches offline`);
+    assert(hits(ed, bar + 1).some(Boolean), `${style}/${seed} the drums return after the dropout`);
+    assert.equal(ed.plans.filter((p) => inBar(ed, bar, p.time) && p.plan()).length, 0, `${style}/${seed} a replan adds no drum to the dropout bar`);
+    checked++;
+  }
+  console.log(`long-form dropout parity passed: editable and offline drums match in ${checked} dropout and return bars`);
 }
