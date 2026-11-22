@@ -3,7 +3,7 @@ import { PALETTE_INSTRUMENTS, PALETTE_DEFAULTS, instrumentFor } from './palette-
 import { getSample, sungNote, SUNG_LEN, SUNG_LOW, SUNG_NOTES, SUNG_VOWEL_COUNT } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
-import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, loadHand, STAB_BAND, HOOK_BAND, SAX_HOOK, SAX_LO, saxRoot, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
+import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, loadHand, STAB_BAND, HOOK_BAND, SAX_HOOK, SAX_LO, saxRoot, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER, RECORDED_ORGAN, ANALOG_BASS } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel, swingLate, swingDuration } from './groove.js';
 import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes, jazzNotches, JAZZ_MIX, BOSSA_RIM, BOSSA_BATIDA, bossaBass } from './jazz.js';
@@ -154,6 +154,7 @@ const SAMPLE_FADE = 1;
 // The master compressors and oversamplers can still hold an attack whose source has started.
 const WAKE_FLUSH = 0.024;
 const WAKE_FADE = 0.002;
+const ANALOG_BASS_GAIN = 4.4;
 // Chord voices that sustain fill a breakdown on their own, so a smooth style only lifts the ones that decay.
 const HELD_CHORDS = new Set(['pad', 'organ', 'strings', 'cello']);
 export const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar', 'cello', 'clarinet', 'nylon', 'marimba'];
@@ -176,6 +177,8 @@ const ORCH = {
   harp: { kinds: ['harp'], gain: 0.55, lo: 40, hi: 96, pan: -0.5, lp: 8000, rel: 0.6 },
   timp: { kinds: ['timp'], gain: 0.85, lo: 40, hi: 57, pan: 0.15, lp: 3000, rel: 0.5 },
   pno: { kinds: ['pianoext', 'piano'], soft: ['pianoextsoft', 'pianosoft'], gain: 1.8, lo: 21, hi: 104, pan: 0, lp: 12000, rel: 0.3 },
+  // The band's tonewheel organ (ROCK choruses): drawbars held under the guitars, the sustain looped.
+  org: { kinds: ['org'], gain: 0.62, lo: 43, hi: 84, pan: 0.22, lp: 5200, rel: 0.09, loop: true, hp: 110 },
 };
 const kindsOf = (parts) => [...new Set(parts.flatMap((p) => [...ORCH[p].kinds, ...(ORCH[p].soft || []), ...(p === 'timp' ? ['timproll'] : [])]))];
 export const ORCH_KINDS = kindsOf(Object.keys(ORCH));
@@ -309,6 +312,8 @@ const BAND_PLAY = {
   banjo: { gain: 5, len: 1.2, min: 0.3, strum: 0.007, shift: 0, lo: 45, hi: 79, lp: 9000, soft: 0, fade: 0.006, rel: 0.12, grip: true, even: 0.4 },
   // The green Gretsch hollow-body: bright, snappy, open chords that ring for country and rockabilly.
   gretsch: { gain: 4.2, len: 2.6, min: 0.6, softBelow: 0, strum: 0.006, shift: 0, lo: 40, hi: 74, lp: 4600, peak: [3400, 1.2, -4], soft: 1100, fade: 0.008, rel: 0.18, grip: true, even: 0.3 },
+  // UK Garage's organ stab: the tonewheel organ keyed hard and let go, every note of the chord at once.
+  org: { gain: 1.9, len: 1.6, min: 0.12, max: 0.8, strum: 0, shift: 0, lo: 52, hi: 79, lp: 5600, fade: 0.003, rel: 0.05, even: 0.15 },
 };
 // Country lead: the same guitar clean and bright off the bridge pickup, single notes with a slapback.
 BAND_PLAY.twang = { ...BAND_PLAY.gtr, gain: 3, len: 1.4, min: 0.25, softBelow: 0, lo: 52, hi: 84, lp: 6800, grip: false, even: 0.4, rel: 0.12, oct: 0, slap: true };
@@ -2911,7 +2916,12 @@ export class Engine {
   }
 
   // Drawbar organ with key click and a rotary-style vibrato; DETUNE sets rotor depth.
+  // UK Garage plays the recorded tonewheel organ (CC0); the other styles keep their drawbar synth.
   organ(t, v, iv, root, p, out) {
+    if (RECORDED_ORGAN.has(this.playbackStyle)) return this.recorded('org', 'synthOrgan', t, v, iv, root, p, out);
+    return this.synthOrgan(t, v, iv, root, p, out);
+  }
+  synthOrgan(t, v, iv, root, p, out) {
     const c = this.ctx, gate = Math.max(0.08, p.decay * 0.9), end = t + gate + 0.25;
     const damped = this.state.artist?.style === 'reggaeton' && Math.round(p.voice) === 3;
     const lp = this.filter('lowpass', Math.min(12000, p.cutoff * 3), 0.6);
@@ -3327,6 +3337,11 @@ export class Engine {
     for (const part of L.parts) {
       if (part === 'pno') {
         notes.forEach((m, k) => this.orch('pno', t + k * 0.004 + hash(t, m) * 0.006, fit('pno', m + 12), 8 * sd * 0.95, v * (i16 ? 0.92 : 1)));
+        continue;
+      }
+      // The organist holds the whole chord through the bar, keyed together.
+      if (part === 'org') {
+        if (!i16) notes.forEach((m) => this.orch('org', t, fit('org', m + 12), 16 * sd * 0.98, v));
         continue;
       }
       if (i16) continue;
@@ -4099,9 +4114,28 @@ export class Engine {
     this.mono = { amp, f, end, eight08, octave: h2g };
   }
 
+  // UK Garage's bass: a recorded Roland SH-2 (CC0) with its sub oscillator, played mono, each note choking the last.
+  // The filter opens on the attack (CUTOFF, ENV MOD, ACCENT) and closes onto CUTOFF; a slide glides the pitch.
+  analogBass(t, st, sd, holdNext, sliding) {
+    const set = this.rec('abass'), p = this.state.params.acid, m = this.bassMidi(st), f = midiHz(m), prev = this.mono?.amp.gain;
+    // The last note's release is already scheduled: drop it so the choke is not undone by it.
+    if (prev && this.mono.end > t) { if (prev.cancelAndHoldAtTime) prev.cancelAndHoldAtTime(t); else prev.cancelScheduledValues(t); }
+    const from = this.monoNote(t, f, sliding), len = holdNext ? sd * 2 : sd * (1 + p.decay * 6);
+    let [c, buf] = set[0];
+    for (const [cm, b] of set) if (Math.abs(cm - m) < Math.abs(c - m)) [c, buf] = [cm, b];
+    const rate = Math.pow(2, (m - c) / 12), vel = (st.a ? 0.95 : 0.8) * (this.noteVel ?? 1);
+    const close = Math.max(500, p.cutoff * 2.2), open = Math.max(close * 1.5, Math.min(10000, p.cutoff * (3 + p.envmod * 8 + (st.a ? (p.accent ?? 0.5) * 3 : 0))));
+    const h = this.playBuf(buf, t, vel * ANALOG_BASS_GAIN, this.ch.acid.input, rate, len, { lp: open, lpTo: close, fade: 0.003, release: 0.04, loop: true });
+    if (from !== f) { h.s.playbackRate.setValueAtTime(rate * (from / f), t); h.s.playbackRate.exponentialRampToValueAtTime(rate, t + 0.08); }
+    this.mono = { amp: h.g, f, end: t + len + 0.3 };
+  }
   // Reese: two detuned saws beating against each other plus a sine sub. SAW/SQR sets the detune spread,
   // ENV MOD sweeps the filter, RESO adds bite.
   reese(t, st, sd, holdNext, sliding) {
+    if (ANALOG_BASS.has(this.playbackStyle)) {
+      if (this.rec('abass')) return this.analogBass(t, st, sd, holdNext, sliding);
+      loadBand('abass');
+    }
     const c = this.ctx, p = this.state.params.acid;
     const f = midiHz(this.bassMidi(st)), subF = midiHz(this.bassMidi(st, 36, 38));
     const from = this.monoNote(t, f, sliding), len = holdNext ? sd * 2 : sd * (1 + p.decay * 6), end = t + len + 0.3;
@@ -4410,7 +4444,12 @@ export class Engine {
       gain.setTargetAtTime(0, t, 0.008);
     }
     this.subVoice?.amp.gain.setTargetAtTime(0, t, 0.01);
-    if (this.mono) { this.mono.amp.gain.setTargetAtTime(0, t, 0.01); this.mono = null; }
+    if (this.mono) {
+      const g = this.mono.amp.gain;
+      if (g.cancelAndHoldAtTime) g.cancelAndHoldAtTime(t); else g.cancelScheduledValues(t);
+      g.setTargetAtTime(0, t, 0.01);
+      this.mono = null;
+    }
   }
 
   // ---------- arrangement FX ----------
