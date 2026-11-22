@@ -3884,7 +3884,7 @@ export class Engine {
     const band = countryBand === 'twang' ? 'gtr' : countryBand || (!wind && !synth && voice !== 'pulse' && voice !== 'funkwhistle' && STAB_BAND[Math.round(p.voice)]);
     const set = band && this.rec(band);
     if (set) {
-      const kind = countryBand || Math.round(p.voice) === 11 ? 'lead' : band, R = BAND_PLAY[kind], ring = R.hold ? dur * 1.05 : Math.max(R.min * 0.6, dur * 1.5);
+      const kind = countryBand || (Math.round(p.voice) === 11 ? 'lead' : band), R = BAND_PLAY[kind], ring = R.hold ? dur * 1.05 : Math.max(R.min * 0.6, dur * 1.5);
       let dest = this.hookBus || this.ch.stab.input;
       if (kind === 'gtr' && this.playbackStyle === 'reggaeton') dest = this.bodyFor(dest === this.ch.stab.input ? this.ch.stab.band : dest, [2930, 5, -12]);
       if (jazzStyle(this.state, this.playingPattern)) dest = this.trimOut('jazz-recorded-lead', JAZZ_MIX[jazzStyle(this.state, this.playingPattern)].lead, dest, JAZZ_MIX[jazzStyle(this.state, this.playingPattern)].lead);
