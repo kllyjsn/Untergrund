@@ -178,7 +178,7 @@ const ORCH = {
   timp: { kinds: ['timp'], gain: 0.85, lo: 40, hi: 57, pan: 0.15, lp: 3000, rel: 0.5 },
   pno: { kinds: ['pianoext', 'piano'], soft: ['pianoextsoft', 'pianosoft'], gain: 1.8, lo: 21, hi: 104, pan: 0, lp: 12000, rel: 0.3 },
   // The band's tonewheel organ (ROCK choruses): drawbars held under the guitars, the sustain looped.
-  org: { kinds: ['org'], gain: 0.62, lo: 43, hi: 84, pan: 0.22, lp: 5200, rel: 0.09, loop: true, hp: 110 },
+  org: { kinds: ['org'], gain: 0.62, lo: 43, hi: 84, pan: 0.22, lp: 5200, rel: 0.09, loop: true, hp: 110, room: 1800 },
 };
 const kindsOf = (parts) => [...new Set(parts.flatMap((p) => [...ORCH[p].kinds, ...(ORCH[p].soft || []), ...(p === 'timp' ? ['timproll'] : [])]))];
 export const ORCH_KINDS = kindsOf(Object.keys(ORCH));
@@ -2947,6 +2947,18 @@ export class Engine {
     this.startSource(lfo, t); lfo.stop(end);
   }
 
+  // A recorded voice played through a presence path still reaches the band room, through the same high-pass as the dry path.
+  bandTap(out, hz) {
+    const taps = (this.bandTaps ||= new WeakMap());
+    if (!taps.has(out)) {
+      const g = this.gain(1);
+      g.connect(out);
+      g.connect(this.filter('highpass', hz, Math.SQRT1_2)).connect(this.gain(0.9)).connect(this.bandIn);
+      taps.set(out, g);
+    }
+    return taps.get(out);
+  }
+
   // Brass section: saws scooping into pitch while the filter blooms; ENV sets the blare.
   // Recorded chord instruments (CC0): nearest sample per chord note, repitched; the synth voice covers loading.
   recorded(kind, fallback, t, v, iv, root, p, out) {
@@ -2954,6 +2966,7 @@ export class Engine {
     let set = this.rec(base);
     if (!set) { loadBand(base); return this[fallback](t, v, iv, root, p, out); }
     if (out === this.ch.stab.input) out = this.ch.stab.band;
+    else if (R.room) out = this.bandTap(out, R.room);
     const chord = R.grip && iv.length > 1, live = chord && this.step != null;
     const pk = live ? pocketOf(this.state.master) : null, hand = live ? guitarHand(kind, pk?.name, this.wide) : null;
     // Two takes of the rhythm part panned hard left and right; a pedal or amp effect per player, then the amp.
@@ -4125,9 +4138,18 @@ export class Engine {
     for (const [cm, b] of set) if (Math.abs(cm - m) < Math.abs(c - m)) [c, buf] = [cm, b];
     const rate = Math.pow(2, (m - c) / 12), vel = (st.a ? 0.95 : 0.8) * (this.noteVel ?? 1);
     const close = Math.max(500, p.cutoff * 2.2), open = Math.max(close * 1.5, Math.min(10000, p.cutoff * (3 + p.envmod * 8 + (st.a ? (p.accent ?? 0.5) * 3 : 0))));
-    const h = this.playBuf(buf, t, vel * ANALOG_BASS_GAIN, this.ch.acid.input, rate, len, { lp: open, lpTo: close, fade: 0.003, release: 0.04, loop: true });
+    const h = this.playBuf(buf, t, vel * ANALOG_BASS_GAIN, this.analogBassOut(), rate, len, { lp: open, lpTo: close, fade: 0.003, release: 0.04, loop: true });
     if (from !== f) { h.s.playbackRate.setValueAtTime(rate * (from / f), t); h.s.playbackRate.exponentialRampToValueAtTime(rate, t + 0.08); }
     this.mono = { amp: h.g, f, end: t + len + 0.3 };
+  }
+  // The SH-2's sub oscillator reaches 26 Hz on the lowest notes: a 4th-order Butterworth at 28 Hz trims it, leaving 40 Hz and up.
+  analogBassOut() {
+    if (!this.abassHP) {
+      const a = this.filter('highpass', 28, 0.541), b = this.filter('highpass', 28, 1.307);
+      a.connect(b).connect(this.ch.acid.input);
+      this.abassHP = a;
+    }
+    return this.abassHP;
   }
   // Reese: two detuned saws beating against each other plus a sine sub. SAW/SQR sets the detune spread,
   // ENV MOD sweeps the filter, RESO adds bite.
