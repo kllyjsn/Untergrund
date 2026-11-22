@@ -5043,7 +5043,7 @@ export function feelTempo(s, chain, pos, i16) {
   const f = feelOf(s), n = chain.length;
   if (!f || !n || s.sing?.on) return 1;
   let m = 1;
-  if (s.patterns[chain[pos]]?.sec) {
+  if (s.patterns[chain[pos]]?.sec && jazzStyle(s, s.patterns[chain[pos]]) !== 'jazzfunk') {
     let a = pos;
     while (a > 0 && chain[a - 1] === chain[pos]) a--;
     const d = 0.25 + 0.1 * (1 - f.arousal), ph = ((((pos - a) % 4) * 16) + i16) / 64;
