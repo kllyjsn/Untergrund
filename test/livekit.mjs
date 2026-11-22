@@ -111,7 +111,7 @@ for (const recorded of [true, false]) {
     assert.equal(n.fx.hpQ, -3.01);
     assert.equal(n.fx.hpStages, 4);
     assert.equal(n.fx.hp, 35);
-    assert.ok(Math.abs(n.level - 0.8 * 4.4 * (voice === 1 ? 3.35 : 3.4) * 10 ** (-4.61 / 20)) < 1e-12, 'G-Funk reserves headroom before the raw bass stem');
+    assert.ok(Math.abs(n.level - 0.8 * 4.4 * (voice === 1 ? 3.35 : 3.4)) < 1e-12, 'G-Funk keeps its calibrated SH-2 gain');
     assert.ok(Math.abs(n.len - sd * 1.3) < 1e-12);
     assert.ok(n.amp.at(0.1) < n.amp.at(0.015), 'the recorded bass decays during its body instead of holding full gain');
     assert.ok(n.amp.at(n.len + 0.15) < n.level * 0.01, 'release clears space before the next kick');
@@ -120,7 +120,7 @@ for (const recorded of [true, false]) {
     assert.equal(note({ voice, approach: true }).len, sd * 0.9, 'approach notes clear the downbeat');
   }
   const organ = note({ organ: true }), uk = note({ style: 'ukg', voice: 3 });
-  assert.ok(Math.abs(organ.level - 0.8 * 4.4 * 1.27 * 10 ** (-4.61 / 20)) < 1e-12, 'the organ ensemble receives the same headroom cut');
+  assert.ok(Math.abs(organ.level - 0.8 * 4.4 * 1.27) < 1e-12, 'the organ ensemble keeps its calibrated bass gain');
   assert.equal(uk.level, 0.8 * 4.4, 'UKG recorded bass keeps its gain');
   assert.ok(organ.len < note().len && organ.fx.release < note().fx.release, 'the held organ ensemble leaves a shorter bass pocket');
   assert.equal(uk.len, sd * 2.2); assert.equal(uk.fx.release, 0.04);
@@ -135,7 +135,7 @@ for (const recorded of [true, false]) {
     assert.equal(filters.length, 4);
     assert.ok(filters.every(f => f.Q.value === (hpQ ?? 0.7)), 'each stage receives the selected Q without changing other recorded voices');
   }
-  console.log('G-Funk headroom: both SH-2 voices and organ ensemble trimmed equally; UKG gain unchanged');
+  console.log('G-Funk SH-2 gain: both voices and organ ensemble retain calibrated levels; UKG unchanged');
   console.log('G-Funk SH-2: flat HP stages, decaying body, kick-clearing release, held/approach notes and unchanged UKG passed');
 }
 for (const style of ['gfunk', 'ukg', 'rock', undefined]) {
