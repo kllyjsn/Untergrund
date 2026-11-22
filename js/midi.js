@@ -5,9 +5,12 @@ import { CHORDS, KEYS, MARIMBA_STAB, SCALES } from './params.js';
 import { compose } from './classical.js';
 import { PIECE } from './repertoire.js';
 import { jazzStyle } from './jazz.js';
+import { hasUserSample } from './sampler.js';
+import { getChops } from './voice.js';
+import { vowelStyle, vowelVoxNote, vowelPitch, vowelHookDuration } from './vowels.js';
 import { SAX_HOOK, saxRoot } from './livekit.js';
 import { rootsFor, fiddleRole, fiddlePitch, fiddleDuration, rootsPitch, uprightNotes } from './roots.js';
-import { getChops } from './voice.js';
+import { hookSnap } from './harmony.js';
 
 export const PPQ = 480;
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
@@ -82,6 +85,12 @@ export class Recorder {
     } else if (GM_DRUMS[id]) this.add(id, t, id === 'snare' && jazzStyle(this.state, this.playingPattern) === 'bossa' ? 37 : GM_DRUMS[id], this.stepDur, v);
   }
   vox(t, v, step) {
+    const style = this.state.artist?.style;
+    if (vowelStyle(style) && !hasUserSample()) {
+      const note = vowelVoxNote(this.state, style, step, this.stepDur, this.harmRoot());
+      this.add('vox', t, note.midi, note.duration, v);
+      return;
+    }
     const p = this.state.params.vox, notes = SCALES[this.state.scale]?.notes || SCALES.minor.notes;
     const degree = hash(step, 3) < p.melody ? notes[Math.floor(hash(step, 4) * notes.length)] : 0;
     this.add('vox', t, 60 + Math.round(p.pitch) + degree, Math.max(0.03, p.length * this.stepDur), v);
@@ -103,6 +112,10 @@ export class Recorder {
     }
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
     let pitch = 60 + k + oct * 12 + n;
+    if (vowelStyle(this.playbackStyle) && !hasUserSample() && (voice === 'vocal' || (voice === 'chop' && !getChops()))) {
+      this.add('hook', t, vowelPitch(pitch), vowelHookDuration(this.playbackStyle, dur), v);
+      return;
+    }
     const roots = voice === 'chop' && getChops() ? null : rootsFor(this.state, this.playingPattern);
     if (fiddleRole(roots, expression)) return this.add('fiddle', t, fiddlePitch(pitch), fiddleDuration(dur), v);
     if (roots?.hook === 'twang') {
@@ -133,6 +146,11 @@ export class Recorder {
     this.bass = this.notes.acid.at(-1);
   }
   orch(part, t, m, dur, vel) { this.add(part, t, m, dur, vel); }
+  peakVoice(t, v, n, dur, oct = 0, strong = false) {
+    n = hookSnap(n, this.harm, this.state.params.stab, strong, false);
+    const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
+    this.add('vln1', t, 60 + k + (oct + 1) * 12 + n, Math.max(dur, this.stepDur * 2), v);
+  }
 }
 Recorder.prototype.harmRoot = Engine.prototype.harmRoot;
 Recorder.prototype.bassMidi = Engine.prototype.bassMidi;

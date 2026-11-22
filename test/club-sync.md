@@ -227,6 +227,15 @@ are unchanged.
 Tests and saved-artifact reanalysis:
 `node test/club-sync-tap-test.mjs [test/out/club-sync.json ...]`.
 
+Mix BEFORE/AFTER kick gates also use scheduler-pinned rendered taps. A lifecycle
+resume starts a new context segment; the recovery window pins both clients before
+their first newly queued kick after wake/reconnect. Clock adoption within a segment
+does not refit the mapping. Resume frame censoring, analysis windows and timing
+limits are unchanged. `phases.*.chromeKicks` retains the Chrome output-clock
+comparison in JSON and logs; vocal metrics (including vocal-relative-to-kick) and
+section boundaries remain in Chrome coordinates. Reanalyze saved seed-7 captures
+with `node test/club-sync-mix-reanalysis.mjs <capture.json> [...]`.
+
 The period bounds the unambiguous range: whole steps, beats, bars and ±2000ms
 are resolved; multiples of the entire 7805ms fixture still alias. The harness
 does not claim arbitrary absolute song-position detection beyond ±3900ms.
