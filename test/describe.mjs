@@ -99,6 +99,11 @@ t('modulation distinguishes its source and destination keys', () => {
     ['transpose down to A', 9],
     ['raise the key to F', 5],
     ['transpose up from the key of C minor to A please', 9],
+    ['transpose from C minor to A instead', 9],
+    ['Change the key to A thanks', 9],
+    ['modulate from D minor to a instead please', 9],
+    ['transpose down from D minor to A this time', 9],
+    ['raise the key to A if possible', 9],
     ['transpose down from C minor to A sharp', 10],
     ['transpose from C minor to B', 11],
   ]) {
@@ -106,15 +111,18 @@ t('modulation distinguishes its source and destination keys', () => {
     assert.deepEqual(edits.map((e) => e.id), ['key'], prompt);
     assert.equal(applyEdits(song, edits, { style: 'rnb' }).state.key, key, prompt);
   }
-  for (const [prompt, key] of [['transpose up from A', 10], ['transpose down from A to a lower key', 8], ['modulate down from G', 5]]) {
+  for (const [prompt, key] of [['transpose up from A', 10], ['transpose down from A to a lower key', 8], ['transpose down from A to a lower key instead', 8], ['modulate down from G', 5]]) {
     const edits = parse(prompt, { style: 'rnb' }).edits;
     assert.deepEqual(edits.map((e) => e.id), ['key', 'keyStep'], prompt);
     assert.equal(applyEdits(song, edits, { style: 'rnb' }).state.key, key, prompt);
   }
+  const mixed = parse('change the key to A thanks, more reverb', { style: 'rnb' });
+  assert.deepEqual(mixed.edits.map(({ id, value, amt }) => [id, value ?? amt]), [['key', 9], ['space', 1]]);
+  assert.deepEqual(parse('transpose to a warmer sound', { style: 'rnb' }).edits.map((e) => e.id), ['warmth']);
 });
 
 for (const [where, sec] of [['in the intro', 'intro'], ['in the verse', 'verse'], ['in the chorus', 'drop'], ['at the end of the song', 'outro']]) {
-  const pitch = ['transpose to D minor', 'transpose down from D minor to a lower key', 'change to major', 'switch to minor'];
+  const pitch = ['transpose to D minor', 'transpose to A instead', 'transpose down from D minor to a lower key', 'change to major', 'switch to minor'];
   for (const clause of [...pitch, 'no minor sevenths', 'add richer voicings']) {
     for (const text of [`${clause} ${where}`, `${where}, ${clause}`]) {
       t(text, () => {

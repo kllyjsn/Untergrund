@@ -379,11 +379,12 @@ export const SUGGESTIONS = ['darker', 'slower', 'more swing', 'less busy', 'bigg
 const KEY_PC = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
 const MODE = { minor: 'minor', min: 'minor', m: 'minor', major: 'major', maj: 'major', dorian: 'dorian', phrygian: 'phrygian' };
 const MODE_NAMES = Object.keys(MODE).join('|');
-const keyName = (following) => `(?!a\\s+(?!(?:sharp|flat|${MODE_NAMES}|${following})\\b)\\S)([a-g])(#|b|\\s+sharp|\\s+flat)?(?:\\s+(${MODE_NAMES}))?(?=\\s|$)`;
+const KEY_REQUEST_TAIL = '(?:(?:please|instead|thanks|thank you|again|this time|if possible|if you can)\\b\\s*)+$';
+const keyName = (following = KEY_REQUEST_TAIL) => `(?!a\\s+(?!(?:sharp|flat|${MODE_NAMES})\\b|${following})\\S)([a-g])(#|b|\\s+sharp|\\s+flat)?(?:\\s+(${MODE_NAMES}))?(?=\\s|$)`;
 const KEY_PREFIX = '(?:(?:(?:in|to)\\s+)?(?:the\\s+)?key\\s+of|in|to|key)';
-const KEY_SOURCE = new RegExp(`\\bfrom\\s+(?:(?:the\\s+)?key\\s+of\\s+)?${keyName('please|to')}`);
-const KEY_WITH_PREFIX = new RegExp(`\\b${KEY_PREFIX}\\s+${keyName('please')}`);
-const KEY_TRANSITION = new RegExp(`\\b((?:keychange|transpose|switch|change|raise|lower|pitch)\\b.*?)\\s+${KEY_SOURCE.source}\\s+(?=to\\s+(?:(?:the\\s+)?key\\s+of\\s+)?${keyName('please')})`);
+const KEY_SOURCE = new RegExp(`\\bfrom\\s+(?:(?:the\\s+)?key\\s+of\\s+)?${keyName(`to\\b|${KEY_REQUEST_TAIL}`)}`);
+const KEY_WITH_PREFIX = new RegExp(`\\b${KEY_PREFIX}\\s+${keyName()}`);
+const KEY_TRANSITION = new RegExp(`\\b((?:keychange|transpose|switch|change|raise|lower|pitch)\\b.*?)\\s+${KEY_SOURCE.source}\\s+(?=to\\s+(?:(?:the\\s+)?key\\s+of\\s+)?${keyName()})`);
 
 function lev(a, b) {
   if (Math.abs(a.length - b.length) > 2) return 9;
