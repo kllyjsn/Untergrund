@@ -810,14 +810,14 @@ for (const [action, currentTime, playing, expected] of [
 }
 console.log('Room frontier PASS: large corrections drain then adopt, future-at-adoption steps render, no reorder/rebuild, solo no-repeat, explicit SPP and monotonic MIDI.');
 {
-  const runBoundary = ({step=63, nextTime=10.5, gridOrigin=2325, now=10, wall=10325, clockOffset=0, lead, pendingForce=false, mediaRoute=null} = {}) => {
+  const runBoundary = ({step=63, nextTime=10.5, gridOrigin=2325, now=10, wall=10325, clockOffset=0, lead, pendingForce=false, mediaRoute=null, level=null} = {}) => {
     const notes = [], effects = [], vocals = [], state = freshSong('hypnotic', 7, {length:'sketch', bpm:120});
     state.bpm = 120; state.chainOn = true; state.chain = 'CCCCEEEECCCC'; state.master.arr = 1; state.part = 'old';
     const engine = new Recorder(state), seq = new Sequencer(engine, state);
     seq.chainPos = 4; seq.cur = 2;
     engine.at = 0;
     engine.applyAll = () => effects.push({kind:'mix', time:engine.at});
-    engine.scheduleJamParams = (params, time) => effects.push({kind:'mix', time});
+    engine.scheduleJamParams = (params, time) => effects.push({kind:'mix', time, params});
     engine.breakSweep = time => effects.push({kind:'break', time});
     engine.discardQueuedNotes = () => assert.fail('a room correction must preserve the queued notes');
     engine.vocal = (...args) => vocals.push(args);
@@ -830,9 +830,9 @@ console.log('Room frontier PASS: large corrections drain then adopt, future-at-a
       state, engine, seq, abs:step, nextTime, transportOrigin:gridOrigin, clockOffset,
       syncAudioClock, transportResync, slewTransport, roomTransportCorrection, roomDrainUntil:null, vocalCorrectionWindow:0,
       queuedRoomSwitch:null, handoff:null, vocalGridDirty:false, uiQueue:[], roomLifecycleAt:-Infinity, roomAudioClock:{at:now, contextTime:now, pending:null}, performance:{now:() => now * 1000},
-      jamQueue:[{part:'kick', layer:{id:'new'}, wall}], jamRedraw:0,
+      jamQueue:[{part:'kick', layer:{id:'new', ...(level == null ? {} : {params:{kick:{level}}})}, wall}], jamRedraw:0,
       timeline:{skip:() => 0}, artistTick(){}, midiClockStep(){}, midiClockStart(){},
-      applyPart:(s, part, layer) => { s.part = layer.id; }, setTimeout(){}, cancelAnimationFrame(){}, requestAnimationFrame:() => 0};
+      applyPart:(s, part, layer) => { s.part = layer.id; Object.assign(s.params.kick, layer.params?.kick); }, setTimeout(){}, cancelAnimationFrame(){}, requestAnimationFrame:() => 0};
     const scheduler = main.slice(main.indexOf('function schedule(lead)'), main.indexOf('\n// Jam:'));
     const jam = main.slice(main.indexOf('function landJamParts('), main.indexOf('\n// GENERATE while'));
     runInNewContext(`${scheduler}\n${jam}\nschedule(${lead})`, sandbox);
@@ -844,14 +844,19 @@ console.log('Room frontier PASS: large corrections drain then adopt, future-at-a
   close(small.notes[0].time, 11.4985);
   const future = runBoundary({now:9.9, lead:0.5});
   assert.equal(future.notes.length, 0, 'large corrections leave future queued notes alone while draining');
+  const early = runBoundary({step:64, nextTime:10.5, gridOrigin:2250, now:10.1, wall:10250, lead:.5, level:0});
+  const cut = early.effects.find(e => e.kind === 'mix');
+  assert.equal(cut.params.kick.level, 0, 'the skipped Jam downbeat applies a real level cut');
+  assert.ok(cut.time > 10.375, 'a skipped Jam edit cannot silence the previous-bar hit already queued at10.375');
+  close(cut.time, early.notes[0].time, 'the mix edit lands on the first retained note');
   const skipped = runBoundary({now:10.5});
   assert.equal(skipped.sandbox.abs, 68);
   assert.equal(skipped.sandbox.state.part, 'new', 'a skipped Jam boundary lands rather than waiting another bar');
   assert.equal(skipped.sandbox.jamQueue.length, 0);
   assert.equal(skipped.sandbox.seq.cur, 4, 'a skipped breakdown advances the actual section');
   assert.deepEqual(skipped.notes.map(n => n.abs), [65, 66, 67], 'only duplicated steps are skipped; the late frontier step is retained');
-  close(skipped.effects.find(e => e.kind === 'break').time, 10.5);
-  close(skipped.effects.find(e => e.kind === 'mix').time, 10.5);
+  close(skipped.effects.find(e => e.kind === 'break').time, 10.505);
+  close(skipped.effects.find(e => e.kind === 'mix').time, 10.505);
   const boundary = runBoundary({now:10.6, nextTime:10.6, gridOrigin:2825});
   const downbeat = boundary.notes.find(n => n.abs === 64);
   close(boundary.effects.find(e => e.kind === 'break').time, downbeat.time);
@@ -872,7 +877,7 @@ console.log('Room frontier PASS: large corrections drain then adopt, future-at-a
       'ordinary slews hold vocal checks, but a pending large-correction deadline cannot miss its downbeat during a later small slew');
   }
 }
-console.log('Room skipped boundaries PASS: sub-step Jam downbeat retained; skipped Jam, breakdown and mix automation land at grid time; late Jam catches the first playable step.');
+console.log('Room skipped boundaries PASS: sub-step Jam downbeat retained; skipped Jam, breakdown and mix automation wait for the first retained hit; outgoing queued hits keep their level; late Jam catches the first playable step.');
 {
   const reanchorSource = main.slice(main.indexOf('function reanchorRoomSet('), main.indexOf('\nfunction stopRoomStats'));
   const sandbox = {playing:true, roomPlayback:true, state:{bpm:newBpm}, seq:{origin:64}, transportOrigin:rebasedOrigin, vocalGridDirty:false, queuedRoomSwitch:null};

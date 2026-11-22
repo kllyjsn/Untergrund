@@ -222,6 +222,7 @@ function schedule(lead) {
   const fix = playableFirst ? null : correction ?? transportResync(target, nextTime, now, base, clock.jumped, seq.origin - abs, roomPlayback);
   let firstTime = playableFirst ? nextTime : fix?.firstTime;
   if (fix) {
+    const adoptedTime = fix.adopted ? Math.max(now + 0.005, firstTime ?? fix.nextTime) : null;
     if (fix.discard) {
       engine.discardQueuedNotes(now, roomPlayback ? firstTime ?? fix.nextTime : null, frozenOutputTime);
       engine.roomSlewRate = 1;
@@ -235,17 +236,17 @@ function schedule(lead) {
       seq.rewind(abs, now);
     }
     for (let i = 0; i < fix.skip; i++, abs++) {
-      const gridTime = target + i * base, t = roomPlayback ? Math.max(now, gridTime) : now;
+      const gridTime = target + i * base, t = adoptedTime ?? (roomPlayback ? Math.max(now, gridTime) : now);
       if (roomPlayback && jamQueue.length && (abs - seq.origin) % 16 === 0)
         landJamParts((gridTime + roomMediaLead(roomPlayback, mediaRoute) + clockOffset) * 1000 + base * 500, t);
       artistTick(abs - seq.origin);
       seq.advanceBar(abs - seq.origin, t);
     }
     if (roomPlayback && fix.skip > 0 && jamQueue.length)
-      landJamParts((fix.nextTime + roomMediaLead(roomPlayback, mediaRoute) + clockOffset) * 1000, fix.nextTime);
+      landJamParts((fix.nextTime + roomMediaLead(roomPlayback, mediaRoute) + clockOffset) * 1000, adoptedTime ?? fix.nextTime);
     nextTime = fix.nextTime;
     if (fix.adopted) {
-      midiClockStart(ctx, abs, nextTime);
+      midiClockStart(ctx, abs, adoptedTime);
     } else if (roomPlayback && fix.skip > 0) midiClockStart(ctx, abs, nextTime);
     const step = (abs - seq.origin) % 16;
     if (fix.discard && step)
