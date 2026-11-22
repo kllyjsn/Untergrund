@@ -83,3 +83,14 @@ for (const style of ['pop', 'rock', 'deephouse']) {
   assert.equal(songScale({ feel: 'tense', scale: 'phrygian' }), 'phrygian');
 }
 console.log('feel music: ok', { pop: Object.fromEntries(['heartbroken', 'longing', 'tender', 'joyful', 'euphoric'].map((f) => [f, { tempo: +tempoPos('pop', f).toFixed(2), register: +register('pop', f).toFixed(2), leap: +leap('pop', f).toFixed(2) }])) });
+
+// A feeling the listener asked for (a chip on Create) is the one the music plays, not just the label.
+{
+  let seed = 1; while (songFeel('pop', seed) === 'euphoric') seed++;
+  const asked = freshSong('pop', seed, { feel: 'euphoric' });
+  assert.equal(asked.feel, 'euphoric');
+  assert.equal(songFeel('pop', seed, 'euphoric'), 'euphoric');
+  assert.equal(songFeel('nocturne', seed, 'euphoric'), null);
+  assert.equal(asked.bpm, generate('pop', seed, 'major', { feel: 'euphoric' }).bpm);
+  assert.notEqual(JSON.stringify(asked.patterns), JSON.stringify(freshSong('pop', seed).patterns));
+}

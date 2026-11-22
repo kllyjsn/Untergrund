@@ -249,7 +249,8 @@ export function hookLine(r, style, scale) {
 }
 
 // The feeling GENERATE gives a style's song at a seed; scores carry their own expression.
-export const songFeel = (style, seed) => (FORMS[style] || style === 'repertoire' || !STYLES[style] ? null : pickFeel(style, STYLES[style].family, seed));
+// The feeling a GENERATE song plays: the one the listener asked for, else the seed's pick for the genre; scores take none.
+export const songFeel = (style, seed, asked = null) => (FORMS[style] || style === 'repertoire' || !STYLES[style] ? null : isFeel(asked) ? asked : pickFeel(style, STYLES[style].family, seed));
 
 // How well a progression carries a feeling, from its chord qualities: sad feelings lean on minor and borrowed
 // chords (iv, bIII, bVI, bVII in a major key), happy ones on major chords, tense ones on suspended and dominant
@@ -1362,12 +1363,13 @@ function drillVerses(pats, { chain, sections }, keep) {
 }
 
 // The form written into a fresh arrangement: chain plus the takes that develop each repeat.
-export function applySongPlan(s, style, seed, length = 'song') {
+// `feel` is the feeling the listener asked for; without one the seed picks a feeling that fits the genre.
+export function applySongPlan(s, style, seed, length = 'song', feel = null) {
   const plan = songPlan(style, seed, length, s.bpm || midBpm(style));
   s.chain = plan.chain;
   // Scores carry their own expression; every other GENERATE song gets a feeling from its seed.
-  const feel = songFeel(style, seed);
-  if (feel) s.feel = feel; else delete s.feel;
+  const picked = songFeel(style, seed, feel);
+  if (picked) s.feel = picked; else delete s.feel;
   delete s.chainEntries;
   if (isJazz(style)) {
     const head = length === 'sketch' ? 8 : 16;
@@ -1398,11 +1400,11 @@ export function applySongPlan(s, style, seed, length = 'song') {
 export const songScale = (s) => (s.feel === 'dark' && s.scale === 'phrygian' ? 'minor' : s.scale);
 // GENERATE's song for a style and seed, written on top of `base` (its mix, artist and mutes carry over).
 // `bpm`/`swing` keep a tempo the song already plays at; a score always sets its own.
-export function freshSong(style, seed, { base = defaultState(), scale = null, length = 'song', bpm = null, swing = null } = {}) {
+export function freshSong(style, seed, { base = defaultState(), scale = null, length = 'song', bpm = null, swing = null, feel = null } = {}) {
   const s = clone(base);
   s.scale = scale || (style === 'euphoric' || MAJOR_STYLES.has(style) ? 'major' : songScale(s));
   if (isJazz(style) && !scale) s.scale = style === 'modal' || style === 'jazzfunk' ? 'dorian' : 'major';
-  const g = generate(style, seed, s.scale, { feel: songFeel(style, seed) });
+  const g = generate(style, seed, s.scale, { feel: songFeel(style, seed, feel) });
   s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   s.key = g.key;
   applyOverrides(s, g, true);
@@ -1410,7 +1412,7 @@ export function freshSong(style, seed, { base = defaultState(), scale = null, le
   s.chainOn = true;
   s.ending = true;
   s.current = 0;
-  applySongPlan(s, style, seed, length);
+  applySongPlan(s, style, seed, length, feel);
   return s;
 }
 
@@ -1434,7 +1436,7 @@ export function refreshSong(s) {
   const { style, seed } = s.artist;
   const composer = s.patterns.find((p) => p.score?.composer)?.score.composer;
   const base = { ...s, locks: Object.fromEntries(TRACK_IDS.map((t) => [t, false])) };
-  const out = freshSong(style, seed, { base, scale: s.scale, length: lengthOf(s), bpm: s.bpm, swing: s.swing });
+  const out = freshSong(style, seed, { base, scale: s.scale, length: lengthOf(s), bpm: s.bpm, swing: s.swing, feel: s.feel });
   if (composer) for (const p of out.patterns) if (p.score?.form) p.score.composer = composer;
   if (out.chain !== s.chain) delete out.labels;
   out.fresh = 1;

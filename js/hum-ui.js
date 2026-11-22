@@ -42,10 +42,10 @@ export function songKey(detected, scaleName) {
 
 // Build-around picks, from a handful of seeds of the style, the song whose chord changes carry the
 // hummed melody best (the main progression counts most; the bridge's alt changes a little).
-export function humSeed(style, scale, hum, tries = 24) {
+export function humSeed(style, scale, hum, tries = 24, feel = null) {
   let best = (Math.random() * 1e9) | 0, score = -1;
   for (let i = 0; i < tries; i++) {
-    const seed = (Math.random() * 1e9) | 0, g = generate(style, seed, scale, { feel: songFeel(style, seed) });
+    const seed = (Math.random() * 1e9) | 0, g = generate(style, seed, scale, { feel: songFeel(style, seed, feel) });
     if (!g.pattern.prog?.length || g.pattern.score) return seed;
     const { hook } = hum(g.bpm, scale);
     const fit = fitProg(hook, g.pattern.prog, CHORDS) + 0.3 * fitProg(hook, g.pattern.alt, CHORDS);
