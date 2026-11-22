@@ -62,6 +62,9 @@ export const BAND = {
   jazz: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
   banjo: [40, 42, 45, 49, 51, 54, 57, 60, 63, 68, 71],
   gretsch: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
+  // Tonewheel organ (UK Garage stabs, Rock choruses) and the Roland SH-2 analog bass (UK Garage).
+  org: [43, 47, 48, 50, 52, 53, 55, 57, 59, 60, 62, 64, 65, 67, 69, 71, 72, 74, 76, 77, 79, 81, 83],
+  abass: [36, 39, 42, 45, 48, 51, 54, 57, 60],
   marimba: [48, 55, 59, 65, 72, 79, 83],
 };
 // Measured pitch of a recording minus its name, in cents (python3 test/sampletune.py), for takes played a little off.
@@ -73,7 +76,7 @@ const JAZZ_TUNE = { 42: -7, 48: -10, 51: -3, 57: -3, 63: -3, 66: 4, 69: -3, 72: 
 const GRETSCH_TUNE = { 42: 19, 48: 6, 51: 5, 54: 5, 57: 10, 60: 7, 63: 6, 66: 4, 69: 2 };
 // The guitar banjo was tuned up a little under a quarter tone.
 const BANJO_TUNE = { 40: 41, 42: 41, 45: 48, 49: 39, 51: 43, 54: 34, 57: 13, 60: 30, 63: 41, 68: 23, 71: 10 };
-const BAND_TUNE = { nylon: { 40: -6.7, 45: 2.3, 48: -2.9, 52: -9.6, 55: 10.4, 59: -3.6, 64: -19.7, 67: -11.6, 69: -17 }, jazz: JAZZ_TUNE, jazzb: JAZZ_TUNE, gretsch: GRETSCH_TUNE, gretschb: GRETSCH_TUNE, banjo: BANJO_TUNE, gtr: GTR_TUNE, gtrsoft: GTR_TUNE, gtrb: GTR_TUNE, gtrsoftb: GTR_TUNE, gtrmute: MUTE_TUNE, gtrmuteb: MUTE_TUNE_B };
+const BAND_TUNE = { abass: { 36: -8.6, 39: -5.1, 42: -6.2, 45: -6.7, 48: -5.8, 51: -6.6, 54: -6.3, 57: -7.1, 60: -8 }, nylon: { 40: -6.7, 45: 2.3, 48: -2.9, 52: -9.6, 55: 10.4, 59: -3.6, 64: -19.7, 67: -11.6, 69: -17 }, jazz: JAZZ_TUNE, jazzb: JAZZ_TUNE, gretsch: GRETSCH_TUNE, gretschb: GRETSCH_TUNE, banjo: BANJO_TUNE, gtr: GTR_TUNE, gtrsoft: GTR_TUNE, gtrb: GTR_TUNE, gtrsoftb: GTR_TUNE, gtrmute: MUTE_TUNE, gtrmuteb: MUTE_TUNE_B };
 Object.assign(BAND_TUNE, {
   juno: { 48: 1.3, 52: 1.7, 56: 2.1, 60: 1.7, 64: 2.9, 68: 2.5, 72: 2.2, 76: 2.4, 80: 2.7, 84: 2 },
   jpad: { 48: 7.5, 52: 4.8, 56: 4.4, 60: 4, 64: 2.8, 68: 3.3, 72: 3.6, 76: 4.9, 80: 4.7, 84: 4.1 },
@@ -96,6 +99,9 @@ export const STAB_BAND = { 7: 'piano', 8: 'gtr', 9: 'horn', 10: 'str', 11: 'gtr'
 const ANALOG_PAD = { hypnotic: 'juno', ambient: 'juno', peak: 'jpad', hardtechno: 'jpad', trance: 'jxstr' };
 const ANALOG_BRASS = { industrial: 'jxbr', peak: 'jxbr', electro: 'jxbr', electrohiphop: 'jxbr', trance: 'jbr' };
 export const analogSet = (style, voice) => (voice === 2 ? ANALOG_PAD[style] : voice === 4 ? ANALOG_BRASS[style] : null) || null;
+// Styles whose ORGAN chords and REESE bass play those recordings instead of the synth voices.
+export const RECORDED_ORGAN = new Set(['ukg']);
+export const ANALOG_BASS = new Set(['ukg']);
 export const HOOK_BAND = { harpplk: 'harp', oboe: 'ob', airflute: 'fl', tpt: 'tpt', marimba: 'marimba', altosax: 'asax', tenorsax: 'tsax' };
 // Where a generic 'reed' hook is a saxophone part: alto for the sung pop, neo-soul, club and trap leads; tenor for the dusty
 // boom bap loop and the Afrobeat horn line, an octave lower. Other reed styles keep their own lead.
@@ -170,11 +176,11 @@ export const liveKit = () => buffers;
 export const BAND_LAYER = {
   pop: { pre: { parts: ['vc'], v: 0.5 }, chorus: { parts: ['vln1', 'vla', 'vc'], v: 0.55 }, bridge: { parts: ['vla', 'vc'], v: 0.5 } },
   rnb: { chorus: { parts: ['vln1', 'vla'], v: 0.45 }, bridge: { parts: ['vln1', 'vla', 'vc'], v: 0.45 } },
-  rock: { chorus: { parts: ['pno'], v: 0.64 }, bridge: { parts: ['vla', 'vc'], v: 0.5 } },
+  rock: { chorus: { parts: ['org'], v: 0.6 }, bridge: { parts: ['vla', 'vc'], v: 0.5 } },
   folk: { pre: { parts: ['vc'], v: 0.45 }, chorus: { parts: ['vc', 'vla'], v: 0.5 }, bridge: { parts: ['vln1', 'vla', 'vc'], v: 0.45 } },
   country: { pre: { parts: ['pno'], v: 0.62 }, chorus: { parts: ['pno', 'vla'], v: 0.62 }, bridge: { parts: ['vln1', 'vla'], v: 0.45 } },
 };
-const LAYER_SETS = { vc: ['cello'], vla: ['cello', 'str'], vln1: ['str'], pno: ['pianoext', 'piano', 'pianoextsoft', 'pianosoft'] };
+const LAYER_SETS = { vc: ['cello'], vla: ['cello', 'str'], vln1: ['str'], pno: ['pianoext', 'piano', 'pianoextsoft', 'pianosoft'], org: ['org'] };
 const layerSets = (style) => [...new Set(Object.values(BAND_LAYER[style] || {}).flatMap((x) => x.parts.flatMap((p) => LAYER_SETS[p])))];
 export function liveSets(st) {
   const mode = Math.round(st?.master?.kit || 0), fullKit = mode === 1 || mode === 2;
@@ -182,6 +188,8 @@ export function liveSets(st) {
   if (st?.patterns?.some((p) => p.jazz?.style === 'jazzfunk') || st?.pattern?.jazz?.style === 'jazzfunk') out.push('horn');
   if (fullKit && pocketOf(st.master)?.band) out.push('kitx');
   if (Math.round(st?.params?.acid?.voice || 0) === 5) out.push('ebass');
+  if (Math.round(st?.params?.acid?.voice || 0) === 3 && ANALOG_BASS.has(st?.artist?.style)) out.push('abass');
+  if (Math.round(st?.params?.stab?.voice || 0) === 3 && RECORDED_ORGAN.has(st?.artist?.style)) out.push('org');
   out.push(...(HAND_SETS[Math.round(st?.params?.perc?.voice || 0)] || []));
   const name = STAB_BAND[Math.round(st?.params?.stab?.voice || 0)];
   if (name) out.push(name, ...(SOFT_LAYER[name] ? [SOFT_LAYER[name]] : []));
