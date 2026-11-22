@@ -136,6 +136,13 @@ const WIND_HOOK = {
 // Each genre's sax, in dB, matched to the synth reed it replaces (hook stem loudness over seeds): the recorded
 // tongued attack carries less energy on the short riffs of Afrobeats, Reggaeton and Breaks than on sung lines.
 const SAX_TRIM = { pop: -2.4, neosoul: -5.7, boombap: 3.5, trap: 1.1, afrobeats: 6.5, reggaeton: 4.5, breaks: 7.1 };
+// Pop and Reggaeton hats live above 4 kHz, where the alto's breath otherwise fills the gaps between hits, so
+// those altos get a fixed high cut; the Afrobeats tenor's low register piles up at 220-260 Hz over the bass.
+const SAX_FX = {
+  pop: { cap: 3000, lpStages: 4, shelves: [[4000, -12]] },
+  reggaeton: { cap: 3000, lpStages: 4, shelves: [[4000, -14]] },
+  afrobeats: { peaks: [[245, 1.6, -8]] },
+};
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
 const LIVE_REF = {
   kick: { tune: 52, decay: 0.5, drive: 0.2, click: 0.15, punch: 0.55 },
@@ -3602,10 +3609,12 @@ export class Engine {
     const out = this.trimOut(`hook-${voice}`, 1, this.hookBus || this.windDuck, -4, 500);
     const eq = tone.reduce((o, band) => this.bodyFor(o, band), this.bodyFor(this.bodyFor(out, presence), [780, 1.2, -2.5]));
     const rate = 2 ** ((m - pitch - cents / 100) / 12);
+    const styleFx = voice.endsWith('sax') ? SAX_FX[this.playbackStyle] ?? {} : {};
     return this.playBuf(buf, t, gain * touch * dbGain(trim + (air - 0.5) * 1.2) * dbGain(jazzStyle(this.state, this.playingPattern) === 'bossa' && voice === 'tpt' ? JAZZ_MIX.bossa.trumpetLead : JAZZ_MIX[jazzStyle(this.state, this.playingPattern)]?.lead || 0), eq,
       rate, Math.max(0.06, dur * 0.92), {
-        peaks: jazzStyle(this.state, this.playingPattern) ? jazzNotches(useAlt ? TAKES[HOOK_BAND[voice]] : HOOK_BAND[voice], pitch, rate) : [],
-        lp: lp + 2100 * touch + 650 * (air - 0.5), offset: offset + tongue * 0.012,
+        peaks: [...(jazzStyle(this.state, this.playingPattern) ? jazzNotches(useAlt ? TAKES[HOOK_BAND[voice]] : HOOK_BAND[voice], pitch, rate) : []), ...(styleFx.peaks || [])],
+        shelves: styleFx.shelves,
+        lp: Math.min(styleFx.cap ?? Infinity, lp + 2100 * touch + 650 * (air - 0.5)), lpStages: styleFx.lpStages, offset: offset + tongue * 0.012,
         fade: (voice === 'tpt' ? 0.025 : strong ? 0.007 : 0.012) + 0.009 * (1 - tongue),
         attackGain: (strong ? 1.04 : 0.9) + (tongue - 0.5) * 0.24,
         release: 0.055, ringOut: true, ...(voice === 'tpt' ? { vib: 6 } : {}),
