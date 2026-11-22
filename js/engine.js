@@ -310,7 +310,9 @@ export const MASTER_TONE = {
   folk: [3, -3, 0.5, 4, 0.5], country: [2, -3, 2.5, 4, 0.6],
 };
 
-const REGGAETON_GUITAR_HOOK_EQ = [[2930, 5, -12], [2645, 64, -9], [2777, 64, -9], [2962, 64, -8]];
+const REGGAETON_GUITAR_HOOK_EQ = [
+  [2930, 5, -12], [2645, 64, -9], [2777, 64, -9], [2962, 64, -8], [3085, 64, -17],
+];
 const BAND_PLAY = {
   marimba: { gain: 1.35, len: 0.9, min: 0.15, max: 0.44, strum: 0.0015, shift: 0, lo: 48, hi: 84, lp: 7000, fade: 0.002, rel: 0.07, even: 0.35 },
   upright: { gain: 4, lo: 45, hi: 79, lp: 2800, rel: .18, even: .25 },
