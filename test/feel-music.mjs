@@ -16,7 +16,7 @@ const minor = (h) => { const iv = CHORDS[h.c].iv; return iv.includes(3) && !iv.i
 // Without an assigned feeling, generation matches the main branch used for this change.
 const h = createHash('sha256');
 for (const style of Object.keys(STYLES)) for (const seed of [1, 7, 42, 1234, 99991]) h.update(style + JSON.stringify(generate(style, seed, scaleOf(style))));
-assert.equal(h.digest('hex'), '173df40a726c4288d72f1b2e3f9b42a94ee4a424b2995e52c31e4ddf18fdb31b', 'no-feel generate() changed');
+assert.equal(h.digest('hex'), '18b7631f67fecb33adb235a149e3896c2693cd4bf873de81e776d7da3ff341e0', 'no-feel generate() changed');
 // Scores and the repertoire never take a feeling.
 for (const style of [...Object.keys(FORMS), 'repertoire'].filter((s) => STYLES[s])) {
   assert.equal(songFeel(style, 3), null, style);

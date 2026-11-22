@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
+import { completeCallback } from '../js/soundcloud.js';
 import { handle } from './mock-soundcloud.mjs';
 import { memoryKv } from '../api/_lib/kv.js';
 import { handleAutopublish, AUTOPUBLISH } from '../api/_lib/autopublish.js';
@@ -112,6 +114,60 @@ try {
   assert.equal(uploads, 2, 'uncertain uploads are not duplicated');
   console.log('autopublish: wrong-account rejection, PKCE connect, missing release/assets, rotation, concurrency, publish-once and uncertain-upload protection passed');
 
+  const originalFetch = globalThis.fetch;
+  const callbackStored = new Map();
+  const callbackScript = readFileSync(new URL('../sc-callback.html', import.meta.url), 'utf8').match(/<script type="module">([\s\S]*?)<\/script>/)[1].replace(/import .*?;/, '');
+  let callbackPosts = 0, wrongAccount = false, unconfirmed = false;
+  globalThis.localStorage = { getItem: (k) => callbackStored.get(k), setItem: (k, v) => callbackStored.set(k, v), removeItem: (k) => callbackStored.delete(k) };
+  globalThis.location = { origin: 'http://localhost' };
+  globalThis.fetch = async (url, options) => {
+    if (url !== '/api/autopublish') return originalFetch(url, options);
+    if (options?.method === 'POST') callbackPosts++;
+    if (unconfirmed && !options?.method) return Response.json({ connected: false });
+    const response = await call(options?.method || 'GET', options?.body, {}, { env: { ...env, ...(wrongAccount ? { AUTOPUBLISH_SC_USER: 'allowed-account' } : {}) } });
+    return Response.json(response.json, { status: response.status });
+  };
+  const callbackPage = async (state, code) => {
+    const message = { textContent: 'Connecting SoundCloud…' };
+    await runInNewContext(`(async () => { ${callbackScript} })()`, { completeCallback, URLSearchParams,
+      location: { origin: 'http://localhost', search: `?${new URLSearchParams({ state, code })}` },
+      window: { opener: null }, document: { getElementById: () => message } });
+    return message.textContent;
+  };
+  const prepareCallback = async (state, age = 0) => {
+    const body = await codeBody();
+    callbackStored.set('untergrund.sc.pending', JSON.stringify({ state, verifier: body.code_verifier, endpoint: '/api/autopublish', persistTokens: false, redirect_uri: body.redirect_uri, t: Date.now() - age }));
+    return body.code;
+  };
+  try {
+    await kv.cmd(['DEL', `${AUTOPUBLISH}:account`]);
+    const code = await prepareCallback('no-opener');
+    assert.equal(await callbackPage('no-opener', code), 'Connected — you can close this tab.');
+    assert.equal((await call('GET')).json.connected, true, 'callback exchanges against mock SoundCloud and connects the server');
+    assert.equal(callbackPosts, 1);
+    assert.equal(callbackStored.has('untergrund.sc.pending'), false);
+    assert.equal(callbackStored.has('untergrund.sc'), false, 'server-only callback stores no browser tokens');
+    assert.equal(JSON.parse(callbackStored.get('untergrund.sc.callback')).done, true);
+    assert.match(await callbackPage('no-opener', code), /does not match/);
+    assert.equal(callbackPosts, 1, 'pending record is single-use');
+    wrongAccount = true;
+    assert.equal(await callbackPage('wrong', await prepareCallback('wrong')), "That SoundCloud account isn't the one set up for autopublishing. Sign in as allowed-account and try again.");
+    assert(JSON.parse(callbackStored.get('untergrund.sc.callback')).error);
+    wrongAccount = false; unconfirmed = true;
+    assert.match(await callbackPage('unconfirmed', await prepareCallback('unconfirmed')), /could not be confirmed/);
+    unconfirmed = false;
+    const beforeExpired = callbackPosts;
+    assert.match(await callbackPage('expired', await prepareCallback('expired', 601e3)), /expired/);
+    assert.equal(callbackStored.has('untergrund.sc.pending'), false);
+    assert.match(await callbackPage('mismatch', await prepareCallback('expected')), /does not match/);
+    assert.equal(callbackPosts, beforeExpired, 'expired and mismatched callbacks never exchange');
+    console.log('SoundCloud callback page: no-opener server exchange, confirmation, wrong-account feedback, expiry and replay protection passed');
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete globalThis.localStorage;
+    delete globalThis.location;
+  }
+
   const ids = Object.keys(STYLES);
   for (let i = 0; i < ids.length; i++) assert.equal(releaseChoice(i).style, ids[i]);
   assert.equal(releaseChoice(day, 'swing').style, 'swing');
@@ -135,26 +191,39 @@ try {
 const saved = Object.fromEntries(['window', 'location', 'localStorage', 'fetch', 'document'].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
 try {
   const stored = new Map(), listeners = new Map();
-  let rejectConnect = false, persistTokens = false;
-  globalThis.localStorage = { getItem: (k) => stored.get(k), setItem: (k, v) => stored.set(k, v), removeItem: (k) => stored.delete(k) };
+  let rejectConnect = false, persistTokens = false, callbackExchange = false, posts = 0, accountSignIn = false, accountRefreshes = 0, blockedStorage = false;
+  const signedInAccount = { id: 'sc-42', handle: 'test-artist' };
+  globalThis.localStorage = { getItem: (k) => stored.get(k), setItem: (k, v) => {
+    if (blockedStorage) throw new Error('Storage unavailable');
+    stored.set(k, v);
+  }, removeItem: (k) => stored.delete(k) };
   globalThis.location = { origin: 'http://localhost' };
   globalThis.window = {
     open: () => ({ closed: false, close() {}, location: { set href(value) {
       const state = new URL(value).searchParams.get('state');
-      queueMicrotask(() => listeners.get('message')({ origin: location.origin, data: { type: 'sc-auth', code: 'code', state } }));
+      if (!blockedStorage) assert.equal(JSON.parse(stored.get('untergrund.sc.pending')).state, state, 'pending PKCE record is saved before navigation');
+      queueMicrotask(async () => {
+        const data = callbackExchange ? await completeCallback({ state, code: 'code' }) : { type: 'sc-auth', code: 'code', state };
+        listeners.get('message')({ origin: location.origin, data });
+      });
     } } }),
     addEventListener: (event, callback) => listeners.set(event, callback),
     removeEventListener: (event) => listeners.delete(event),
   };
   globalThis.fetch = async (url, options) => {
     if (url === '/api/sc-config') return Response.json({ enabled: true, clientId: 'test', authUrl: 'https://soundcloud.example' });
-    if (url === '/api/autopublish' && !options?.method) return Response.json({ connected: false, allowedPermalink: 'release-account' });
-    assert.equal(url, persistTokens ? '/api/sc-token' : '/api/autopublish');
+    if (url === '/api/account' && options?.method === 'GET') {
+      accountRefreshes++;
+      return Response.json({ enabled: true, account: signedInAccount, following: [] });
+    }
+    if (url === '/api/autopublish' && !options?.method) return Response.json({ connected: callbackExchange, allowedPermalink: 'release-account' });
+    assert.equal(url, accountSignIn ? '/api/account?action=soundcloud' : persistTokens ? '/api/sc-token' : '/api/autopublish');
+    posts++;
     const body = JSON.parse(options.body);
     assert.equal(body.redirect_uri, 'http://localhost/sc-callback.html');
     assert(body.code_verifier.length > 40);
     if (rejectConnect) return Response.json({ error: 'wrong_account' }, { status: 403 });
-    return Response.json(persistTokens ? { access_token: 'browser-access', refresh_token: 'browser-refresh' } : { connected: true });
+    return Response.json(persistTokens ? { access_token: 'browser-access', refresh_token: 'browser-refresh', ...(accountSignIn ? { account: signedInAccount } : {}) } : { connected: true });
   };
   const { connect } = await import('../js/soundcloud.js');
   assert.equal((await connect({ endpoint: '/api/autopublish', persistTokens: false })).connected, true);
@@ -164,11 +233,40 @@ try {
   rejectConnect = false; persistTokens = true;
   await connect();
   assert.equal(JSON.parse(stored.get('untergrund.sc')).access_token, 'browser-access', 'normal publishing still stores browser tokens');
+  callbackExchange = true;
+  const before = posts;
+  await connect();
+  assert.equal(posts, before + 1, 'done outcome does not exchange twice');
+  assert.equal(JSON.parse(stored.get('untergrund.sc')).refresh_token, 'browser-refresh', 'callback persists regular publishing tokens');
+  accountSignIn = true;
+  const { signInWithSoundCloud, getAccount } = await import('../js/account.js');
+  assert.deepEqual(await signInWithSoundCloud(), signedInAccount, 'detached callback preserves the sign-in account');
+  assert.deepEqual((await getAccount()).account, signedInAccount);
+  assert.equal(accountRefreshes, 1, 'account sign-in refreshes the account');
+  const reported = JSON.parse(stored.get('untergrund.sc.callback'));
+  assert.deepEqual(reported.result, { account: signedInAccount });
+  assert(!JSON.stringify(reported).includes('browser-access'));
+  assert(!JSON.stringify(reported).includes('browser-refresh'));
+  accountSignIn = false;
+  console.log('SoundCloud detached sign-in: account returned, profile refreshed and tokens excluded from callback outcome passed');
+  rejectConnect = true; persistTokens = false;
+  await assert.rejects(connect({ endpoint: '/api/autopublish', persistTokens: false }), /Sign in as release-account/);
+  assert.equal(posts, before + 3, 'reported callback error does not trigger a second exchange');
+  rejectConnect = false;
+  stored.delete('untergrund.sc.callback');
+  callbackExchange = false;
+  blockedStorage = true;
+  const beforeBlocked = posts;
+  assert.equal((await connect({ endpoint: '/api/autopublish', persistTokens: false })).connected, true);
+  assert.equal(posts, beforeBlocked + 1, 'desktop postMessage exchange works without pending storage');
+  blockedStorage = false;
+  console.log('SoundCloud PKCE: blocked pending storage preserves desktop postMessage exchange passed');
   console.log('SoundCloud PKCE: server-only connection, wrong-account feedback and existing browser token flow passed');
   let click;
   const status = { textContent: '', replaceChildren(...parts) { this.textContent = parts.join(''); }, append(...parts) { this.textContent += parts.filter((p) => typeof p === 'string').join(''); } };
   const button = { addEventListener: (_, callback) => { click = callback; } };
-  globalThis.document = { querySelector: (selector) => selector === '#status' ? status : button, createTextNode: (s) => s, createElement: () => ({}) };
+  const documentListeners = new Map();
+  globalThis.document = { addEventListener: (event, fn) => documentListeners.set(event, fn), querySelector: (selector) => selector === '#status' ? status : button, createTextNode: (s) => s, createElement: () => ({}) };
   await import('../js/autopublish.js');
   await new Promise((resolve) => setImmediate(resolve));
   assert(status.textContent.includes('Allowed SoundCloud account: release-account'));
@@ -176,6 +274,15 @@ try {
   await click();
   assert.equal(status.textContent, "That SoundCloud account isn't the one set up for autopublishing. Sign in as release-account and try again.");
   assert.equal(button.disabled, false);
+  callbackExchange = true;
+  await listeners.get('focus')();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert(status.textContent.startsWith('Connected:'), 'focus refreshes the server connection status');
+  callbackExchange = false;
+  document.visibilityState = 'visible';
+  await documentListeners.get('visibilitychange')();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert(status.textContent.startsWith('Not connected.'), 'visibility refreshes server status');
   console.log('autopublish page: allowed account displayed and wrong-account rejection shows sign-in guidance passed');
 } finally {
   for (const [key, descriptor] of Object.entries(saved)) {

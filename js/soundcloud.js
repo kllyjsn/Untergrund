@@ -1,5 +1,6 @@
 // Browser client for SoundCloud: OAuth 2.1 + PKCE (token exchange via /api/sc-token), profile/stats, direct uploads.
 const STORE = 'untergrund.sc';
+const PENDING = 'untergrund.sc.pending';
 let config = null;
 
 export async function getConfig() {
@@ -32,6 +33,35 @@ async function tokenRequest(body, endpoint = '/api/sc-token', persistTokens = tr
   return json;
 }
 
+export async function completeCallback(msg) {
+  const outcome = { type: 'sc-auth', state: msg.state, done: true };
+  let pending;
+  try {
+    pending = JSON.parse(localStorage.getItem(PENDING) || 'null');
+    if (!pending || !msg.state || pending.state !== msg.state) throw new Error('SoundCloud authorization does not match. Please connect again.');
+    localStorage.removeItem(PENDING);
+    if (!Number.isFinite(pending.t) || Date.now() - pending.t > 600e3 || pending.t > Date.now()) throw new Error('SoundCloud authorization expired. Please connect again.');
+    if (msg.error || !msg.code) throw new Error(msg.error || 'Authorization cancelled');
+    if (new URL(pending.endpoint, location.origin).origin !== location.origin) throw new Error('Invalid SoundCloud exchange endpoint');
+    const result = await tokenRequest({ code: msg.code, code_verifier: pending.verifier, redirect_uri: pending.redirect_uri }, pending.endpoint, pending.persistTokens);
+    if (result.account) outcome.result = { account: result.account };
+    if (new URL(pending.endpoint, location.origin).pathname === '/api/autopublish') {
+      const response = await fetch('/api/autopublish', { cache: 'no-store' });
+      const status = await response.json();
+      if (!response.ok || !status.connected) throw new Error(status.error || 'SoundCloud connection could not be confirmed. Please connect again.');
+    }
+  } catch (error) {
+    outcome.error = error.message;
+    if (outcome.error === 'wrong_account') {
+      let allowed;
+      try { allowed = (await (await fetch('/api/autopublish', { cache: 'no-store' })).json()).allowedPermalink; } catch {}
+      outcome.error = `That SoundCloud account isn't the one set up for autopublishing. Sign in as ${allowed || 'the configured autopublishing account'} and try again.`;
+    }
+  }
+  localStorage.setItem('untergrund.sc.callback', JSON.stringify({ ...outcome, t: Date.now() }));
+  return outcome;
+}
+
 // Must be called from a click handler so the popup is not blocked.
 // `endpoint` lets account sign-in exchange the code server-side and attach the SoundCloud identity.
 export function connect({ endpoint, persistTokens = true } = {}) {
@@ -45,12 +75,15 @@ export function connect({ endpoint, persistTokens = true } = {}) {
     const q = new URLSearchParams({ client_id: cfg.clientId, redirect_uri: redirectUri(), response_type: 'code',
       code_challenge: challenge, code_challenge_method: 'S256', state });
     if (!popup) return reject(new Error('Popup blocked — allow popups for this site'));
-    popup.location.href = `${cfg.authUrl}/authorize?${q}`;
-
     let done = false;
     const finish = async (msg) => {
       if (done || !msg || msg.state !== state) return;
       done = true; cleanup();
+      try {
+        const pending = JSON.parse(localStorage.getItem(PENDING) || 'null');
+        if (pending?.state === state) localStorage.removeItem(PENDING);
+      } catch {}
+      if (msg.done) return msg.error ? reject(new Error(msg.error)) : resolve(msg.result || { connected: true });
       if (msg.error || !msg.code) return reject(new Error(msg.error || 'Authorization cancelled'));
       try { resolve(await tokenRequest({ code: msg.code, code_verifier: verifier, redirect_uri: redirectUri() }, endpoint, persistTokens)); } catch (e) { reject(e); }
     };
@@ -60,6 +93,10 @@ export function connect({ endpoint, persistTokens = true } = {}) {
     const cleanup = () => { window.removeEventListener('message', onMsg); window.removeEventListener('storage', onStore); clearInterval(poll); };
     window.addEventListener('message', onMsg);
     window.addEventListener('storage', onStore);
+    try { localStorage.setItem(PENDING, JSON.stringify({ state, verifier, endpoint: endpoint || '/api/sc-token', persistTokens, redirect_uri: redirectUri(), t: Date.now() })); } catch {}
+    try {
+      popup.location.href = `${cfg.authUrl}/authorize?${q}`;
+    } catch (error) { done = true; cleanup(); popup.close(); reject(error); }
   });
 }
 
