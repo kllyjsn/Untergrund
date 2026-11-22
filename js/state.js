@@ -169,7 +169,7 @@ const HOOK_STYLE = {
 };
 // 'chop' sings the hook with the user's own recorded voice (js/voice.js); a song without one plays 'vocal'.
 const TECHNO_HOOK = { hypnotic: 'softresonator', industrial: 'metalstrike', acid: 'acidlead', peak: 'ravestack', electro: 'robotformant' };
-export const HOOK_VOICES = [...new Set(['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell', 'chop', 'softmallet', 'harpplk', 'oboe', 'airflute', 'tpt', 'marimba', ...Object.values(TECHNO_HOOK), ...HIPHOP_STYLES.map((id) => HIPHOP[id].hook)])];
+export const HOOK_VOICES = [...new Set(['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell', 'chop', 'softmallet', 'harpplk', 'oboe', 'airflute', 'tpt', 'marimba', 'deepkeys', ...Object.values(TECHNO_HOOK), ...HIPHOP_STYLES.map((id) => HIPHOP[id].hook)])];
 
 // Every genre has several plausible ensembles. The seed chooses a player,
 // register and articulation while the genre keeps its drum, harmony and room identity.
@@ -217,6 +217,22 @@ export const INSTRUMENTS = {
 };
 
 // A 2-bar call and answer: same rhythm both bars, the answer bends its ending (resolve or leave open).
+// Deep House keys: a two-bar call and answer. The answer repeats the call's opening, then comes home to the root;
+// each bar ends in rests, and the line stays between a fifth below and a fifth above middle C.
+const DEEP_CALLS = [[[0, 2], [3, 1], [6, 2], [10, 3]], [[2, 1], [4, 2], [7, 1], [10, 2]], [[0, 3], [6, 1], [8, 2], [11, 2]], [[3, 2], [6, 2], [10, 1], [12, 2]]];
+function deepCallAnswer(r, scale) {
+  const deg = scale.length >= 7 ? scale.slice(0, 7) : scale.slice(0, scale.length - 1), N = deg.length;
+  const semi = (d) => deg[((d % N) + N) % N] + 12 * Math.floor(d / N);
+  const rh = pick(r, DEEP_CALLS), call = pick(r, [[4, 2, 3, 2], [2, 4, 3, 1], [4, 3, 2, 4], [0, 2, 4, 2]]);
+  const answer = [call[0], call[1], pick(r, [1, 2, -1]), 0];
+  const s = range(32, () => 0);
+  rh.forEach(([i, l], j) => {
+    s[i] = [semi(call[j]), l, j === 0 ? 0.9 : 0.78];
+    s[16 + i] = [semi(answer[j]), j === 3 ? Math.min(14 - i, l + 2) : l, j === 3 ? 0.94 : 0.8];
+  });
+  return { v: 'deepkeys', o: 0, s, x: { space: 0.5, risk: 0.2, feel: 0.5, warmth: 0.6 } };
+}
+
 export function hookLine(r, style, scale) {
   if (Object.hasOwn(HIPHOP, style)) return hiphopMotif(HIPHOP[style], r, scale);
   const H = HOOKS[HOOK_STYLE[style]];
@@ -951,6 +967,8 @@ function generatePattern(style, seed, scaleName, starter, feel = null, keepScale
   const gainScale = harpHook ? 0.72 : 1;
   const sung = withMelody(P.hook, rng(Math.imul((seed | 0) ^ 0x68e31da4, 0x3c6ef372) ^ 0x1b873593), style, musicalScale, { prog: P.prog, alt: P.alt, chord: params.stab.chord | 0, gainScale, shape: feelShape(F) });
   if (sung) { P.hook = sung; P.hm = 2; }
+  // Deep House answers its own call on a recorded piano in the middle register instead of a sung top line.
+  if (style === 'deephouse' && P.hook) { P.hook = deepCallAnswer(rng(Math.imul((seed | 0) ^ 0x5bd1e995, 0x27d4eb2d)), musicalScale); P.hm = 2; }
   const roots = rootsTags(style, seed, params.stab.voice, P.hook);
   if (roots) P.roots = roots;
   if (style === 'drill' && P.hook) {

@@ -116,7 +116,7 @@ export const analogSet = (style, voice) => (voice === 2 ? ANALOG_PAD[style] : vo
 export const RECORDED_ORGAN = new Set(['ukg', 'gfunk']);
 export const ANALOG_BASS = { ukg: [3], gfunk: [1, 7] };
 export const playsAnalogBass = (style, voice) => !!ANALOG_BASS[style]?.includes(Math.round(voice || 0));
-export const HOOK_BAND = { harpplk: 'harp', oboe: 'ob', airflute: 'fl', tpt: 'tpt', marimba: 'marimba', altosax: 'asax', tenorsax: 'tsax' };
+export const HOOK_BAND = { deepkeys: 'piano', harpplk: 'harp', oboe: 'ob', airflute: 'fl', tpt: 'tpt', marimba: 'marimba', altosax: 'asax', tenorsax: 'tsax' };
 // Where a generic 'reed' hook is a saxophone part: alto for the sung pop, neo-soul, club and trap leads; tenor for the dusty
 // boom bap loop and the Afrobeat horn line, an octave lower. Other reed styles keep their own lead.
 export const SAX_HOOK = {

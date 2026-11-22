@@ -354,6 +354,7 @@ const REGGAETON_GUITAR_HOOK_EQ = [
   [2643.88, 33.41, -12.32], [2792, 32, -21],
   [2958.34, 18.65, -18.9], [3085.16, 75.05, -20.79],
 ];
+const DEEP_KEYS_GAIN = 1.4;
 const BAND_PLAY = {
   marimba: { gain: 1.35, len: 0.9, min: 0.15, max: 0.44, strum: 0.0015, shift: 0, lo: 48, hi: 84, lp: 7000, fade: 0.002, rel: 0.07, even: 0.35 },
   upright: { gain: 4, lo: 45, hi: 79, lp: 2800, rel: .18, even: .25 },
@@ -4076,6 +4077,12 @@ export class Engine {
     }
     if (voice === 'phonkbell') return this.phonkBell(t, v, midiHz(60 + k + oct * 12 + n), dur, strong);
     if (this.playbackStyle === 'bailefunk') return this.funkStab(t, v * 0.7, [n], 60 + k + oct * 12, dur, this.hookBus || this.ch.stab.input);
+    if (voice === 'deepkeys') {
+      const set = this.rec('piano'), m = 60 + k + oct * 12 + n, out = this.trimOut('hook-deepkeys', 3, this.hookBus || this.ch.stab.input, -7, 600);
+      if (set) return this.recordedNote(set, t, v * DEEP_KEYS_GAIN, m, Math.max(0.3, dur * 1.6), out, 0, 'piano', v);
+      loadBand('piano');
+      return this.keys(t, v * 0.5, [n], 60 + k + oct * 12, { ...p, decay: Math.max(0.2, dur) }, out);
+    }
     const palette = paletteFor(this.state, this.playbackStyle);
     if (palette && (voice !== 'chop' || !getChops())) return this.paletteHook(t, v, midiHz(60 + k + oct * 12 + n), dur, palette.hook, this.hookBus || this.ch.stab.input);
     if (this.minimal && (voice !== 'chop' || !getChops())) return this.minimalHook(t, v, midiHz(60 + k + oct * 12 + n), dur, this.hookBus || this.ch.stab.input);
