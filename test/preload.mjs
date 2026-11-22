@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { liveSet, liveSets, setsReady, loadSets, loadBand, BAND, STAB_BAND, LIVE_FILES, LIVE_KIT } from '../js/livekit.js';
 import { Engine, Sequencer, stabPitches } from '../js/engine.js';
-import { rhodesVoicing, rhodesLineOctave, rhodesPhraseOctave, rhodesLoFiVoicing, rhodesLoFiPhrase, RHODES_STYLES } from '../js/rhodes.js';
+import { rhodesVoicing, rhodesLineOctave, rhodesPhraseOctave, rhodesLoFiVoicing, rhodesLoFiPhrase, rhodesRnBVoicing, RHODES_STYLES } from '../js/rhodes.js';
 import { Recorder, capture } from '../js/midi.js';
 import { KIT_BACKBEAT, HAND_KIT, MARIMBA_STAB, CHORDS } from '../js/params.js';
 import { defaultState, generate, STYLES, arrangement, applyOverrides, applySongPlan } from '../js/state.js';
@@ -25,6 +25,12 @@ assert.deepEqual(liveSets({ artist: { style: 'boombap' }, pattern: { hook: { v: 
 assert.deepEqual(liveSets({ artist: { style: 'country' }, pattern: { hook: { v: 'reed' } } }), [], 'other reed styles stay synthesized');
 
 assert.deepEqual(rhodesVoicing([]), []);
+assert.deepEqual(rhodesRnBVoicing([]), []);
+assert.equal(rhodesRnBVoicing([NaN]), null);
+assert.deepEqual(rhodesRnBVoicing([40, 44, 47]), [56, 59], 'raise the whole R&B chord and thin its bass voice');
+assert.deepEqual(rhodesRnBVoicing([60, 64, 67, 67]), [64, 67], 'remove exact duplicates and the lowest voice');
+assert.equal(rhodesRnBVoicing([67, 71, 74, 78]), null, 'R&B falls back rather than transposing a high chord down');
+assert.equal(rhodesRnBVoicing([48, 52, 60]), null, 'do not drop an upper voice to force an R&B chord into range');
 assert.deepEqual(rhodesLoFiVoicing([40, 44, 47]), [52, 56, 59]);
 assert.equal(rhodesLoFiVoicing([60, 64, 67, 71]), null, 'Lo-Fi uses FM rather than lowering a high chord');
 assert.deepEqual(rhodesLoFiPhrase([48, 52, 55]), { shift: 12, fm: false });
@@ -50,7 +56,7 @@ const rhodesTune = JSON.parse(await readFile(new URL('../samples/rhodes-analysis
   let row, linePitch, linePart, phraseShifts, fmNotes, lineEvents;
   Recorder.prototype.rhodesKeys = function (_t, _v, iv, root, p) {
     const requested = iv.map((n) => root + n);
-    const played = p.rhodesLine || p.rhodesFM ? requested : this.playbackStyle === 'lofihiphop' ? rhodesLoFiVoicing(requested) : rhodesVoicing(requested);
+    const played = p.rhodesLine || p.rhodesFM ? requested : this.playbackStyle === 'lofihiphop' ? rhodesLoFiVoicing(requested) : this.playbackStyle === 'rnb' ? rhodesRnBVoicing(requested) : rhodesVoicing(requested);
     const part = p.rhodesLine ? row.lines : row.chords;
     if (p.rhodesLine && this.playbackStyle === 'lofihiphop') {
       lineEvents++;
@@ -67,15 +73,17 @@ const rhodesTune = JSON.parse(await readFile(new URL('../samples/rhodes-analysis
     if (!p.rhodesLine) {
       assert(played.every((n) => n >= 40 && n <= 68));
       assert(played.filter((n) => n < 48).length <= 1);
-      const shift = this.playbackStyle === 'lofihiphop' ? -12 * Math.max(0, Math.ceil((48 - Math.min(...requested)) / 12))
+      const shift = this.playbackStyle === 'rnb' ? -12 * Math.max(0, Math.ceil((52 - Math.min(...requested)) / 12)) : this.playbackStyle === 'lofihiphop' ? -12 * Math.max(0, Math.ceil((48 - Math.min(...requested)) / 12))
         : 12 * Math.max(0, Math.ceil((Math.max(...requested) - 68) / 12));
       if (this.playbackStyle === 'lofihiphop') assert(played.every((n) => n >= 48));
+      if (this.playbackStyle === 'rnb') assert(played.every((n) => n >= 52));
       assert(played.every((n) => requested.includes(n + shift)), 'one octave shift shared by every chord voice');
     }
     return true;
   };
   Recorder.prototype.keys = function (t, v, iv, root, p, out) {
-    if (p.rhodesFM || (this.playbackStyle === 'lofihiphop' && !p.rhodesLine && rhodesLoFiVoicing(iv.map((n) => root + n)) === null)) {
+    if (p.rhodesFM || (!p.rhodesLine && ((this.playbackStyle === 'lofihiphop' && rhodesLoFiVoicing(iv.map((n) => root + n)) === null)
+      || (this.playbackStyle === 'rnb' && rhodesRnBVoicing(iv.map((n) => root + n)) === null)))) {
       return this.rhodesKeys(t, v, iv, root, { ...p, rhodesFM: true }, out);
     }
     return Engine.prototype.keys.call(this, t, v, iv, root, p, out);
@@ -215,8 +223,12 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
   assert.notEqual(hard[0][3], ctx.destination, 'suitcase stereo motion');
   const funkOut = chord(.8, 'jazzfunk')[0][3];
   assert.equal(funkOut.type, 'lowshelf');
-  assert.equal(funkOut.frequency.value, 255); assert.equal(funkOut.gain.value, -8);
+  assert.equal(funkOut.frequency.value, 300); assert.equal(funkOut.gain.value, -19);
   assert(feeds(funkOut, ctx.destination), 'Jazz-Funk comp has a dry low shelf, not a bus effect');
+  e.playbackStyle = 'rnb'; hits.length = 0;
+  assert.equal(Engine.prototype.rhodesKeys.call(e, 1, .8, [0, 4, 7, 11], 67, state.params.stab, ctx.destination), false, 'loaded R&B set still falls through for high chords');
+  assert.equal(hits.length, 0, 'FM fallback schedules no recorded fragments');
+  assert.equal(chord(.8, 'rnb').length, 2, 'a fitting R&B chord keeps the recorded higher voices');
   assert(!chord(.8, 'neosoul')[0][6].shelves.some(([hz]) => hz === 255), 'Neo Soul retains its default tone');
   const controlParams = { ...state.params.stab, voice: 1, env: 0.12, detune: 8, tine: 0.18 };
   const controlled = (patch) => {

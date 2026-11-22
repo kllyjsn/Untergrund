@@ -39,6 +39,16 @@ export function rhodesLoFiVoicing(notes) {
   return voiced.at(-1) <= 68 ? voiced : null;
 }
 
+export function rhodesRnBVoicing(notes) {
+  if (!notes.length) return [];
+  if (notes.some((n) => !Number.isFinite(n))) return null;
+  const shift = 12 * Math.max(0, Math.ceil((52 - Math.min(...notes)) / 12));
+  const voiced = [...new Set(notes.map((n) => n + shift))].sort((a, b) => a - b);
+  if (voiced.at(-1) > 68) return null;
+  if (voiced.length > 2) voiced.shift();
+  return voiced;
+}
+
 export function rhodesLoFiPhrase(notes) {
   if (!notes.length || notes.some((n) => !Number.isFinite(n))) return null;
   const bottom = Math.min(...notes), top = Math.max(...notes);

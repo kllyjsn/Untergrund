@@ -2,13 +2,13 @@
 
 The 18-note tim.kahn CC BY 4.0 set replaces FM electric piano only in `neosoul`, `rnb`, `lofihiphop` and `jazzfunk`. Minimal's felt keys and other styles retain their previous voices. Both `keys` and `jazzKeys` enter the recorded player; Jazz-Funk's existing `stab` dispatch reaches `keys`. Cold/unavailable recordings fall through to the existing FM implementation without recursion. The existing per-song recording lock is retained.
 
-Chords have deterministic 2–8 ms hammer offsets, velocity-dependent low-pass/high-shelf tone, natural recorded decay while held, and a 30 ms release time constant (40 dB attenuation in 138 ms). Neo Soul, R&B and Lo-Fi use shallow 1.1 Hz stereo motion; Jazz-Funk is dry. Jazz-Funk recorded comp alone has a −8 dB low shelf at 255 Hz, before its existing channel strip, with 4.68 dB source make-up gain to retain its comp level. Other instruments and the shared bus are unchanged. Existing comp trims remain in place.
+Chords have deterministic 2–8 ms hammer offsets, velocity-dependent low-pass/high-shelf tone, natural recorded decay while held, and a 30 ms release time constant (40 dB attenuation in 138 ms). Neo Soul, R&B and Lo-Fi use shallow 1.1 Hz stereo motion; Jazz-Funk is dry. Jazz-Funk recorded comp alone has a −19 dB low shelf at 300 Hz, before its existing channel strip, with another 5 dB source make-up gain above the previous 4.68 dB compensation. Other instruments and the shared bus are unchanged. Existing comp trims remain in place.
 
-ENV scales the recorded hold exponentially; DETUNE adds a small alternating pitch offset; TINE adjusts the velocity shelf and low-pass. Controls are centered on their generated palette values, so untouched controls retain the default sound. `node test/rhodes-controls.mjs --base /path/to/de91a94-worktree` checks that each knob changes recorded PCM in all four styles and that Neo Soul/R&B default PCM still nulls against de91a94 (including their electric-piano ensembles).
+ENV scales the recorded hold exponentially; DETUNE adds a small alternating pitch offset; TINE adjusts the velocity shelf and low-pass. Controls are centered on their generated palette values, so untouched controls retain the default sound. `node test/rhodes-controls.mjs --base /path/to/902941a-worktree --unchanged neosoul,lofihiphop` checks that each knob changes recorded PCM in all four styles and that Neo Soul/Lo-Fi default PCM still nulls against 902941a.
 
 ## Register policy
 
-Neo Soul, R&B and Jazz-Funk retain de91a94's whole-chord downward transposition to MIDI 68 or below. Exact duplicates and notes below 40 are removed, and at most one voice remains below 48. Lo-Fi instead retains the requested chord register (or raises the whole chord to at least 48); if all voices cannot fit 48–68, the original FM chord plays instead. It never lowers or thins a Lo-Fi chord to fit the recordings. Chords never use the high sample island.
+Neo Soul and Jazz-Funk retain de91a94's whole-chord downward transposition to MIDI 68 or below. Exact duplicates and notes below 40 are removed, and at most one voice remains below 48. R&B retains or raises the whole requested chord to fit 52–68, then removes the lowest voice when more than two unique notes remain. If it cannot fit without lowering, the original FM chord plays instead; no additional R&B shelf or gain is applied. Lo-Fi retains the requested chord register (or raises the whole chord to at least 48); if all voices cannot fit 48–68, the original FM chord plays instead. It never lowers or thins a Lo-Fi chord to fit the recordings. Chords never use the high sample island.
 
 Lo-Fi lead, harmony, counterline and lick players choose one register per phrase, including snapped pitches, anticipated harmony and key lifts. Recorded phrases move up to 60–68, or retain an already-high phrase wholly in 82–104. Otherwise FM plays the phrase, preserving its register except for raising any phrase that would go below 48. No phrase is dropped for a range mismatch. Other styles retain their previous phrase policy. Polymetric lick planning uses the same absolute-step chord-row gate as playback, including 13-step rows.
 
@@ -17,7 +17,8 @@ Lo-Fi lead, harmony, counterline and lick players choose one register per phrase
 | Style | Requested chords | Played chords | Requested lines | Played lines | Chord / line notes |
 | --- | --- | --- | --- | --- | ---: |
 | neosoul | 44–91 | 40–68 | 60–85 | 48–67 | 6,530 / 46 |
-| rnb | 56–98 | 40–68 | 76–97 | 48–68 | 10,120 / 67 |
+| rnb (recorded) | none fit | none | 76–97 | 48–68 | 0 / 67 |
+| rnb (FM fallback) | 56–98 | 56–98 | — | — | 12,434 / 0 |
 | lofihiphop (recorded) | 48–68 | 48–68 | 39–96 | 60–96 | 731 / 2,142 |
 | lofihiphop (FM fallback) | — | 45–102 | — | 48–81 | 13,388 / 2,925 |
 | jazzfunk | 48–76 | 43–68 | none | none | 38,040 / 0 |

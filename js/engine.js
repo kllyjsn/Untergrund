@@ -21,7 +21,7 @@ import { patternAt } from './scope.js';
 import { cleanChainEntries } from './chain.js';
 import { funkHand } from './baile.js';
 import { festivalTrap, festivalBuilds, festivalBuildStep } from './festival-build.js';
-import { RHODES_STYLES, rhodesVoicing, rhodesLineOctave, rhodesLoFiVoicing, rhodesLoFiPhrase } from './rhodes.js';
+import { RHODES_STYLES, rhodesVoicing, rhodesLineOctave, rhodesLoFiVoicing, rhodesLoFiPhrase, rhodesRnBVoicing } from './rhodes.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
 const dampedChord = (e) => (e.state.artist?.style === 'breaks' && Math.round(e.state.params.stab.voice) === 1)
@@ -2329,7 +2329,7 @@ export class Engine {
     const requested = iv.map((n) => root + n);
     if (!requested.length || requested.some((n) => !Number.isFinite(n)) || !Number.isFinite(v) || v <= 0) return true;
     const style = jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle, funk = style === 'jazzfunk';
-    const notes = p.rhodesLine ? requested : style === 'lofihiphop' ? rhodesLoFiVoicing(requested) : rhodesVoicing(requested);
+    const notes = p.rhodesLine ? requested : style === 'lofihiphop' ? rhodesLoFiVoicing(requested) : style === 'rnb' ? rhodesRnBVoicing(requested) : rhodesVoicing(requested);
     if (notes === null) return false;
     if (!notes.length) return true;
     const [envRef, detuneRef, tineRef] = {
@@ -2343,8 +2343,8 @@ export class Engine {
     const hold = (p.rhodesHold ?? Math.max(0.08, p.decay * (funk ? 1 : 1.7))) * 2 ** (env * 3);
     const end = t + hold + 0.22;
     if (funk && !p.rhodesLine) {
-      const shelf = this.filter('lowshelf', 255, Math.SQRT1_2);
-      shelf.gain.value = -8; shelf.connect(out); out = shelf;
+      const shelf = this.filter('lowshelf', 300, Math.SQRT1_2);
+      shelf.gain.value = -19; shelf.connect(out); out = shelf;
     }
     if (!funk) {
       const trem = this.ctx.createStereoPanner(), lfo = this.ctx.createOscillator();
@@ -2353,7 +2353,7 @@ export class Engine {
       trem.connect(out); out = trem;
       this.startSource(lfo, t); lfo.stop(end);
     }
-    const level = v * (funk ? 1.2 : 0.96) / Math.sqrt(notes.length);
+    const level = v * (funk ? 1.2 * (p.rhodesLine ? 1 : dbGain(5)) : 0.96) / Math.sqrt(notes.length);
     const lp = Math.min(8500, Math.max(550, p.cutoff * (0.55 + 2.2 * velocity ** 2) * 2 ** tine));
     for (const [i, m] of notes.entries()) {
       const [center, buf] = set.reduce((a, b) => Math.abs(b[0] - m) < Math.abs(a[0] - m) ? b : a);
