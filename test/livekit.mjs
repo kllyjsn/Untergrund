@@ -68,6 +68,26 @@ for (const recorded of [true, false]) {
     assert.equal(engine.ch.acid.input, input, 'a failed pickup also restores the destination');
   }
 }
+{
+  const ctx = new OfflineAudioContext(1, 48000, 48000);
+  const bassLevel = ({ voice = 3, level = 0.5, mutes = {}, solos = {} } = {}) => {
+    let volume;
+    const engine = {
+      state: { params: { acid: { voice: 1, cutoff: 500, decay: 0.5, envmod: 0 }, stab: { voice, level } }, mutes, solos },
+      playbackStyle: 'gfunk', ch: { acid: { input: ctx.destination } },
+      rec: () => [[36, {}]], bassMidi: () => 36, monoNote: (t, f) => f,
+      playBuf: (buf, t, v) => { volume = v; return { g: ctx.createGain() }; },
+    };
+    Engine.prototype.analogBass.call(engine, 0, {}, 0.1, false, false);
+    return volume;
+  };
+  const normal = bassLevel({ voice: 1 }), ensemble = bassLevel();
+  assert.ok(Math.abs(20 * Math.log10(ensemble / normal) + 10.4575749) < 1e-6);
+  assert.equal(bassLevel({ mutes: { stab: true } }), normal, 'muted organ selection does not attenuate the bass');
+  assert.equal(bassLevel({ solos: { acid: true } }), normal, 'a bass solo excludes the organ-ensemble trim');
+  assert.equal(bassLevel({ level: 0 }), normal, 'a zero-level organ does not attenuate the bass');
+  assert.equal(bassLevel({ solos: { acid: true, stab: true } }), ensemble, 'an audible soloed organ keeps the ensemble balance');
+}
 for (const style of ['gfunk', 'ukg', 'rock', undefined]) {
   const engine = { playbackStyle: style, recorded: (kind, fallback) => [kind, fallback], synthOrgan: () => 'synth' };
   assert.deepEqual(Engine.prototype.organ.call(engine), ['gfunk', 'ukg'].includes(style) ? ['org', 'synthOrgan'] : 'synth');

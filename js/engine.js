@@ -4127,7 +4127,9 @@ export class Engine {
     for (const [cm, b] of set) if (Math.abs(cm - m) < Math.abs(c - m)) [c, buf] = [cm, b];
     const rate = Math.pow(2, (m - c) / 12), vel = (st.a ? 0.95 : 0.8) * (this.noteVel ?? 1);
     const tone = ANALOG_TONE[this.playbackStyle] || ANALOG_TONE.ukg;
-    const gain = ANALOG_BASS_GAIN * ((Math.round(this.state.params.stab.voice) === 3 ? tone.organGain : null) ?? tone.gain?.[Math.round(p.voice)] ?? 1);
+    const organ = Math.round(this.state.params.stab.voice) === 3 && !this.state.mutes?.stab
+      && (!TRACK_IDS.some(id => this.state.solos?.[id]) || this.state.solos.stab) && (this.state.params.stab.level ?? 1) > 0;
+    const gain = ANALOG_BASS_GAIN * ((organ ? tone.organGain : null) ?? tone.gain?.[Math.round(p.voice)] ?? 1);
     const close = Math.max(tone.hp ? 180 : 500, p.cutoff * tone.close), open = Math.max(close * 1.5, Math.min(10000, p.cutoff * (tone.open + p.envmod * tone.env + (st.a ? (p.accent ?? 0.5) * (tone.hp ? 1 : 3) : 0))));
     const h = this.playBuf(buf, t, vel * gain, this.ch.acid.input, rate, len, { lp: tone.lp ? Math.min(tone.lp, open) : open, lpTo: close, lpStages: tone.lp ? 2 : 1, hp: tone.hp, hpStages: tone.hpStages, fade: 0.003, release: 0.04, loop: true });
     if (from !== f) { h.s.playbackRate.setValueAtTime(rate * (from / f), t); h.s.playbackRate.exponentialRampToValueAtTime(rate, t + 0.08); }
