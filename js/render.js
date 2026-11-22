@@ -1,4 +1,4 @@
-import { Engine, Sequencer, parseChain, scoreKinds } from './engine.js';
+import { Engine, Sequencer, parseChain, scoreKinds, feelTempo } from './engine.js';
 import { compose } from './classical.js';
 import { loadPiece } from './repertoire.js';
 import { clone } from './state.js';
@@ -21,12 +21,14 @@ export async function renderBars(state, bars, { sampleRate = 48000, tail, startB
   const sc = score ? compose(score) : null;
   const steps = bars * (sc?.barLen || 16);
   const start = 0.05;
-  // A score's rubato stretches the timeline; size the render to the music, not the metronome.
+  // A score's rubato (or a feeling's tempo breath) stretches the timeline; size the render to the music, not the metronome.
   const tempo = sc ? sc.tempo : null;
   const chain = snap.chainOn ? parseChain(snap.chain) : [];
   const first = sc ? startBar * (sc.barLen || 16) : chain.length ? startBar * 16 : 0;
   let span = 0;
-  for (let i = 0; i < steps; i++) span += tempo ? tempo[(first + i) % tempo.length] : 1;
+  for (let i = 0; i < steps; i++) {
+    span += tempo ? tempo[(first + i) % tempo.length] : chain.length ? feelTempo(snap, chain, Math.floor((first + i) / 16) % chain.length, i % 16) : 1;
+  }
   // A score's last bar is its final chord: render room for it to ring out, then end the file once it has died away.
   const trim = tail == null && sc && !sc.waiting && !onContext && !onEngine;
   const len = Math.ceil((start + span * sd + (tail ?? (sc ? SCORE_TAIL : 4))) * sampleRate);
@@ -52,8 +54,14 @@ export async function renderBars(state, bars, { sampleRate = 48000, tail, startB
     // A breakdown ramp can reach backwards to the previous automation event. Write the
     // filter timeline at time zero, before rendering any audio; only hits are queued in batches.
     if (chain.length && snap.master.arr) {
-      const filters = cursor({ stepDur: sd, breakSweep: engine.breakSweep.bind(engine), breakOpen: engine.breakOpen.bind(engine) });
-      for (let i = 0, t = start; i < steps; i++, t += sd) filters.advanceBar(first + i, t);
+      const fe = { stepScale: 1, get stepDur() { return sd * this.stepScale; }, breakSweep: engine.breakSweep.bind(engine), breakOpen: engine.breakOpen.bind(engine) };
+      const filters = cursor(fe);
+      // Follow the feeling's tempo breath exactly as tick() does, so the planned sweeps land on the played bars.
+      for (let i = 0, t = start; i < steps; i++, t += fe.stepDur) {
+        filters.advanceBar(first + i, t);
+        const n = filters.songBars || 0;
+        if (!(filters.finished && n)) fe.stepScale = n ? feelTempo(snap, filters.chainArr, (filters.chainPos - 1) % n, (first + i) % 16) : 1;
+      }
       seq.breakFilterPlanned = true;
     }
     const [, buf] = await Promise.all([scheduleInBatches(ctx, steps, schedule, () => end), ctx.startRendering()]);

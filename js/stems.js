@@ -189,22 +189,17 @@ Each instrument stem is dry plus its own channel processing; reverb, delay, room
 arrangement FX (risers, impacts, vinyl dust) are in the fx-returns stem. Recorded live-kit pieces are
 in the stem of the drum they play (kick.wav holds the recorded kick when the live kit is on).
 Notes come in a separate EXPORT MIDI file from the same FILE menu.
-${r.stems.some((x) => x.id === 'sung') ? `The other stems are printed without the ${VOCAL_DUCK_DB.toFixed(1)} dB dip the band takes while the sung vocal sings: duck them under sung-vocal.wav to rebuild the mix.\n` : ''}${(r.trims || []).map((x) => `${x.name}.wav is printed ${(-x.db).toFixed(1)} dB under its mix level so it does not clip: raise it ${(-x.db).toFixed(1)} dB to rebuild the mix.\n`).join('')}
+${r.stems.some((x) => x.id === 'sung') ? `The other stems are printed without the ${VOCAL_DUCK_DB.toFixed(1)} dB dip the band takes while the sung vocal sings: duck them under sung-vocal.wav to rebuild the mix.\n` : ''}${r.gain < 1 ? `Every stem is printed ${(-20 * Math.log10(r.gain)).toFixed(2)} dB (gain ${r.gain.toFixed(6)}) under its mix level so the loudest does not clip: raise all of them by that same amount to rebuild the mix.\n` : ''}
 ${r.stems.map((x, i) => `${String(i + 1).padStart(2, '0')}-${x.name}.wav`).join('\n')}
 `;
 
-// A stem can peak above full scale at mix level (the singer, a hot recorded bass) and would clip in a fixed-point WAV:
-// print it just under full scale and say in the README how far to raise it.
+// A stem over full scale would clip in the WAV. Print every stem by one common gain, so the loudest sits just under full
+// scale and the stems still sum to the mix in a DAW; the README gives that exact gain.
 export function fitStems(r) {
-  r.trims = [];
-  for (const x of r.stems) {
-    let peak = 0;
-    for (const c of [x.left, x.right]) for (const v of c) peak = Math.max(peak, Math.abs(v));
-    if (peak <= 0.99) continue;
-    const g = 0.99 / peak;
-    for (const c of [x.left, x.right]) for (let i = 0; i < c.length; i++) c[i] *= g;
-    r.trims.push({ id: x.id, name: x.name, db: 20 * Math.log10(g) });
-  }
+  let peak = 0;
+  for (const x of r.stems) for (const c of [x.left, x.right]) for (const v of c) peak = Math.max(peak, Math.abs(v));
+  r.gain = peak > 0.99 ? 0.99 / peak : 1;
+  if (r.gain < 1) for (const x of r.stems) for (const c of [x.left, x.right]) for (let i = 0; i < c.length; i++) c[i] *= r.gain;
   return r;
 }
 
