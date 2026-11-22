@@ -90,6 +90,14 @@ for (let launch = 0; launch < 3; launch++) {
       const buf = await ctx.startRendering();
       results.push([buf.getChannelData(0)[1024], buf.getChannelData(1)[1024]]);
     }
+    const { renderBars } = await import('/js/render.js');
+    const { song } = await import('/test/audio-quality-page.js');
+    const { AUDIO_CONNECT } = await import('/js/audio-sums.js');
+    for (const style of ['hardtechno', 'lofihiphop', 'deephouse']) {
+      await renderBars(song(style, 42), 1, { sampleRate: 8000, tail: 0, onContext(ctx) {
+        if (!!ctx[AUDIO_CONNECT] !== (style !== 'hardtechno')) throw Error('Unexpected sum routing for ' + style);
+      } });
+    }
     return results;
   })()`));
   if (row === null) throw Error('Render determinism regression requires Chrome');

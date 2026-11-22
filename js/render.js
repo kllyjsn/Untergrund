@@ -30,7 +30,8 @@ export async function renderBars(state, bars, { sampleRate = 48000, tail, startB
   const trim = tail == null && sc && !sc.waiting && !onContext && !onEngine;
   const len = Math.ceil((start + span * sd + (tail ?? (sc ? SCORE_TAIL : 4))) * sampleRate);
   const ctx = new OfflineAudioContext(channels, len, sampleRate);
-  const flushSums = deterministicAudioSums(ctx, { incremental: snap.artist?.style === 'hardtechno' });
+  // Native sums preserve bounded Hard Techno batching; its exports are not bit-exact.
+  const flushSums = snap.artist?.style === 'hardtechno' ? () => {} : deterministicAudioSums(ctx);
   onContext?.(ctx);
   const engine = new Engine(ctx, snap, { realtime: false, vocal: vocalStem });
   onEngine?.(engine);
