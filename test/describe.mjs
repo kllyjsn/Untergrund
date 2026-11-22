@@ -45,9 +45,10 @@ t('a chord quality names the target without changing the song mode or harmony', 
   for (const text of ['add reverb to D minor chords', 'more reverb in D minor chords']) {
     assert.deepEqual(edits(text), [{ id: 'space', target: 'stab', amt: 1 }], text);
   }
-  for (const text of ['transpose to D minor', 'transpose to D minor chords', 'set the key to D minor chords', 'change the key to D minor chords', 'modulate to D minor chords']) {
+  for (const text of ['transpose to D minor', 'transpose to D minor chords', 'set the key to D minor chords', 'change the key to D minor chords', 'modulate to D minor chords', 'keep it in D minor chords', 'lock the song in D minor chords']) {
     assert.deepEqual(edits(text), [{ id: 'key', value: 2 }, { id: 'scale', value: 'minor', explicit: true }], text);
   }
+  assert.deepEqual(edits('lock the chords'), [{ id: 'lock', target: 'stab', value: true }]);
   assert.deepEqual(edits('more swing, with the F minor seventh chords quieter'), [
     { id: 'swing', amt: 1 }, { id: 'level', target: 'stab', amt: -1 },
   ]);
@@ -76,7 +77,10 @@ t('modulation distinguishes its source and destination keys', () => {
     ['modulate up from D minor', 4],
     ['modulate down from D minor', 0],
     ['modulate up a step from D minor', 3],
+    ['modulate up from the key of D minor', 4],
     ['modulate from C major to D minor chords', 2],
+    ['modulate from the key of C major to C minor', 0],
+    ['transpose up from the key of C major to the key of B flat minor', 10],
     ['modulate to D minor chords', 2],
   ]) {
     const after = applyEdits(song, parse(prompt, { style: 'rnb' }).edits, { style: 'rnb' }).state;

@@ -53,7 +53,7 @@ const CHORD_EXTENSION = '(?:sixth|seventh|ninth|eleventh|thirteenth)s?|(?:6|7|9|
 const CHORD_QUALITY = new RegExp(
   `\\b(?:([a-g](?:#|b|\\s+sharp|\\s+flat)?)\\s+)?(major|minor)[\\s-]+(?:(${CHORD_EXTENSION})(?:[\\s-]+${CHORD_NOUN})?|(6|7|9|11|13)[\\s-]+${CHORD_NOUN}|${CHORD_NOUN})\\b`, 'g',
 );
-const KEY_BEFORE_CHORD = /\b(?:key(?:\s+of|\s+to)?|(?:transpose|modulate|switch|change)(?:\s+it)?\s+to)\s+$/;
+const KEY_BEFORE_CHORD = /\b(?:key(?:\s+of|\s+to)?|(?:transpose|modulate|switch|change)(?:\s+it)?\s+to|(?:keep|lock)\s+(?:it|the\s+(?:song|track|tune))\s+in)\s+$/;
 const CHORD_AMOUNT = /\b(?:add|include|use|with|more|less|fewer|no|without)\s+(?:(?:some|a\s+few|a|an|the)\s+)?$/;
 const CLAUSE_BREAK = /\s*(?:,|;|\.|!|\?|\band\b|&|\+|\bbut\b|\bthen\b|\balso\b|\bplus\b|\bwith\b|\bwhile\b|\bnow\b)\s*/;
 
@@ -375,6 +375,10 @@ export const SUGGESTIONS = ['darker', 'slower', 'more swing', 'less busy', 'bigg
 // ---------------- parsing ----------------
 const KEY_PC = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
 const MODE = { minor: 'minor', min: 'minor', m: 'minor', major: 'major', maj: 'major', dorian: 'dorian', phrygian: 'phrygian' };
+const KEY_NAME = `([a-g])(#|b|\\s+sharp|\\s+flat)?(?:\\s+(${Object.keys(MODE).join('|')}))?(?=\\s|$)`;
+const KEY_PREFIX = '(?:in\\s+the\\s+key\\s+of|(?:to\\s+)?(?:the\\s+)?key\\s+of|in|to|key)';
+const KEY_WITH_PREFIX = new RegExp(`\\b${KEY_PREFIX}\\s+${KEY_NAME}`);
+const KEY_TRANSITION = new RegExp(`\\b((?:keychange|transpose|switch|change)\\b.*?)\\s+from\\s+(?:(?:the\\s+)?key\\s+of\\s+)?${KEY_NAME}\\s+(?=to\\s+(?:(?:the\\s+)?key\\s+of\\s+)?${KEY_NAME})`);
 
 function lev(a, b) {
   if (Math.abs(a.length - b.length) > 2) return 9;
@@ -428,7 +432,9 @@ function extract(clause, edits) {
   let c = clause;
   const bpm = c.match(/\b(\d{2,3})\s*bpm\b/) || c.match(/\b(?:tempo|bpm)\s*(?:of|to|at|=)?\s*(\d{2,3})\b/) || c.match(/\b(?:at|to)\s+(\d{2,3})\b/);
   if (bpm) { edits.push({ id: 'bpm', value: +bpm[1], src: bpm[0].trim() }); c = c.replace(bpm[0], ' '); }
-  const key = c.match(/\b(?:in\s+the\s+key\s+of|key\s+of|in|to|key)\s+([a-g])(#|b|\s+sharp|\s+flat)?(?:\s+(minor|major|min|maj|m|dorian|phrygian))?(?=\s|$)/)
+  const transition = c.match(KEY_TRANSITION);
+  if (transition) c = c.replace(KEY_TRANSITION, '$1 ');
+  const key = c.match(KEY_WITH_PREFIX)
     || c.match(/\b([a-g])(#|b)?\s*(minor|major|m|maj|dorian|phrygian)\b/);
   const absoluteKey = key && !(key[1] === 'a' && !key[2] && !key[3] && /\bin\s+a\s*$|\bto\s+a\s*$/.test(key[0]) === false && !/key/.test(key[0]));
   const sourceKey = absoluteKey && /\bfrom(?:\s+the)?\s+$/.test(c.slice(0, key.index));
@@ -437,15 +443,14 @@ function extract(clause, edits) {
     if (key[2]) pc += /#|sharp/.test(key[2]) ? 1 : -1;
     edits.push({ id: 'key', value: ((pc % 12) + 12) % 12, src: key[0].trim() });
     if (key[3]) edits.push({ id: 'scale', value: MODE[key[3]], explicit: true, src: key[3] });
-    let lead = c.slice(0, key.index);
-    if (/^to\b/.test(key[0]) && /\b(?:keychange|transpose)\b/.test(lead)) {
-      lead = lead.replace(/\bfrom\s+(?:(?:the\s+)?key\s+of\s+)?[a-g](?:#|b|\s+sharp|\s+flat)?(?:\s+(?:minor|major|min|maj|m|dorian|phrygian))?\s*$/, ' ');
-    }
-    c = lead + ' ' + c.slice(key.index + key[0].length);
+    c = c.slice(0, key.index) + ' ' + c.slice(key.index + key[0].length);
   }
   const step = c.match(/\b(?:up\s+a\s+(?:key|step|semitone)|key\s+up|higher\s+key|raise\s+the\s+key|transpose\s+up|pitch\s+(?:it\s+)?up)\b/)
     || c.match(/\b(?:down\s+a\s+(?:key|step|semitone)|key\s+down|lower\s+key|lower\s+the\s+key|transpose\s+down|pitch\s+(?:it\s+)?down)\b/);
-  if (step) { edits.push({ id: 'keyStep', amt: /up|higher|raise/.test(step[0]) ? 1 : -1, src: step[0].trim() }); c = c.replace(step[0], ' '); }
+  if (step) {
+    if (!transition) edits.push({ id: 'keyStep', amt: /up|higher|raise/.test(step[0]) ? 1 : -1, src: step[0].trim() });
+    c = c.replace(step[0], ' ');
+  }
   const scale = c.match(/\b(halftime|doubletime)\b/);
   if (scale) { edits.push({ id: 'bpmScale', value: scale[1] === 'halftime' ? 0.5 : 2, src: scale[0] }); c = c.replace(scale[0], ' '); }
   const change = c.match(/\bkeychange(?:\s+(up|down))?\b/);
