@@ -8,11 +8,21 @@ import { fetchReleaseTrack } from '../js/account.js';
 import { fetchTrack } from '../js/crate.js';
 import { freshSong, refreshSong, sanitize } from '../js/state.js';
 import { songOf } from '../js/player.js';
+import { jukeboxPreviewSeconds } from '../js/sets.js';
 import { encodeSong, decodeSong, normalizeSong } from '../js/share-code.js';
 import { songMidi } from '../js/midi.js';
 import { SET_PATH } from '../api/set-upload.js';
 
 const store = memoryJukebox(), crate = memoryStore();
+{
+  const arranged = { ...freshSong('trance', 42), bpm: 140, chainOn: true, chain: 'AB'.repeat(56), ending: true };
+  assert.equal(jukeboxPreviewSeconds(arranged), null, 'a 112-bar song advances on the actual transport ending');
+  assert.equal(jukeboxPreviewSeconds({ ...arranged, ending: false }), 64 * 16 * 15 / 140, 'long loops still have a bounded preview');
+  assert.equal(jukeboxPreviewSeconds({ ...arranged, chain: 'AB' }), 2 * 16 * 15 / 140, 'short chains loop even when ending is set');
+  assert.equal(jukeboxPreviewSeconds({ ...arranged, chainOn: false }), 8 * 16 * 15 / 140, 'unchained loops retain their preview');
+  const score = { ...arranged, chainOn: false, current: 0, patterns: [{ score: { form: 'nocturne', seed: 9, mode: 'm' } }] };
+  assert.equal(jukeboxPreviewSeconds(score), null, 'a finite variable-tempo score also uses the transport ending');
+}
 assert.equal((await handleJukebox('GET', null, { store: null })).status, 503);
 const state = { ...freshSong('amapiano', 1234), fresh: 1, artist: { title: 'Original', name: 'Mira', style: 'amapiano', seed: 1234 }, chain: 'AABB' };
 const draft = sanitize(state);
