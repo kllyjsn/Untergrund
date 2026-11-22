@@ -21,3 +21,13 @@ export function rhodesLineOctave(state) {
   const top = Math.max(79, ...tops);
   return -12 * Math.max(0, Math.ceil((top - 68) / 12));
 }
+
+export function rhodesPhraseOctave(notes) {
+  if (!notes.length || notes.some((n) => !Number.isFinite(n))) return null;
+  const bottom = Math.min(...notes), top = Math.max(...notes);
+  for (const [low, high] of [[48, 68], [82, 104]]) {
+    const first = Math.ceil((low - bottom) / 12), last = Math.floor((high - top) / 12);
+    if (first <= last) return 12 * Math.max(first, Math.min(0, last));
+  }
+  return null;
+}

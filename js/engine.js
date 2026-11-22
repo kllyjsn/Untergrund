@@ -21,7 +21,7 @@ import { patternAt } from './scope.js';
 import { cleanChainEntries } from './chain.js';
 import { funkHand } from './baile.js';
 import { festivalTrap, festivalBuilds, festivalBuildStep } from './festival-build.js';
-import { RHODES_STYLES, rhodesVoicing, rhodesLineOctave } from './rhodes.js';
+import { RHODES_STYLES, rhodesVoicing, rhodesLineOctave, rhodesPhraseOctave } from './rhodes.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
 const dampedChord = (e) => (e.state.artist?.style === 'breaks' && Math.round(e.state.params.stab.voice) === 1)
@@ -3498,7 +3498,10 @@ export class Engine {
     if (lead === 'keys' && RHODES_STYLES.has(jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle)) {
       const root = 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot();
       const top = Math.max(...Array.from({ length: 6 }, (_, i) => root + iv[i % iv.length] + 12 * Math.floor(i / iv.length)));
-      const shift = -12 * Math.max(0, Math.ceil((top - 68) / 12));
+      const shift = this.playbackStyle === 'lofihiphop'
+        ? rhodesPhraseOctave(Array.from({ length: 6 }, (_, i) => root + iv[i % iv.length] + 12 * Math.floor(i / iv.length)))
+        : -12 * Math.max(0, Math.ceil((top - 68) / 12));
+      if (shift === null) return;
       if (this.rhodesKeys(t, v, [n], root + shift, { ...p, rhodesLine: true }, out)) return;
     }
     return this[lead](t, v, [n], 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot(), p, out);
@@ -3734,7 +3737,11 @@ export class Engine {
     if (voice === 'tapekeys') {
       const out = this.hookBus || this.ch.stab.input;
       if (RHODES_STYLES.has(jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle)) {
-        const pitch = 60 + k + oct * 12 + n + (expression.rhodesOctave ?? rhodesLineOctave(this.state));
+        const raw = 60 + k + oct * 12 + n;
+        const shift = Object.hasOwn(expression, 'rhodesOctave') ? expression.rhodesOctave
+          : this.playbackStyle === 'lofihiphop' ? rhodesPhraseOctave([raw]) : rhodesLineOctave(this.state);
+        if (shift === null) return;
+        const pitch = raw + shift;
         if (this.rhodesKeys(t, v * 0.53, [0], pitch, { ...p, cutoff: 680, rhodesLine: true, rhodesHold: dur }, out)) return;
       }
       return this.keys(t, v * 0.53, [n], 60 + k + oct * 12, { ...p, cutoff: 680, env: 0.08, tine: 0.08, decay: dur * 0.52 }, out);
@@ -5395,12 +5402,23 @@ export class Sequencer {
         const lean = (answer ? 0.006 : -0.003) * x.feel + (hash(hi, 97) - 0.5) * 0.008 * x.feel;
         const resolve = hm > 1 && answer && ph === 1 && !hk.s.slice(hi + 1).some(Boolean);
         const strong = !hk.h && (hi % 4 === 0 || st[1] >= 2), ht = tt + lean + (s.master.humanize || 0) * 0.008;
-        const expression = Object.hasOwn(WIND_HOOK, hk.v)
+        let expression = Object.hasOwn(WIND_HOOK, hk.v)
           ? { ...x, take: windTake(hk.s, hi, 0, Math.floor(abs / 32)) } : x;
+        let harmonyRegister = {};
+        if (e.playbackStyle === 'lofihiphop' && hk.v === 'tapekeys') {
+          const phrase = hk.s.flatMap((note, at) => {
+            if (!note || Math.floor(at / 16) !== Math.floor(hi / 16)) return [];
+            const resolveAt = hm > 1 && at >= 16 && ph === 1 && !hk.s.slice(at + 1).some(Boolean);
+            return [{ note, pitch: note[0] + lift, strong: !hk.h && (at % 4 === 0 || note[1] >= 2), resolve: !hk.h && resolveAt }];
+          });
+          expression = { ...expression, ...this.rhodesPhrase(phrase.map((o) => [o.pitch, o.strong, o.resolve]), hk) };
+          harmonyRegister = this.rhodesPhrase(phrase.filter((o) => o.note[1] >= 3)
+            .map((o) => [stepDeg(o.note[0], -2, scale) + lift, o.strong, false]), hk);
+        }
         const duration = swingDuration(s, abs, st[1], sd);
         e.hook(ht, Math.min(1, st[2] * phraseVel), st[0] + lift, duration, hk.v, hk.o, strong, b, !hk.h && resolve, expression);
         // At the peak a second player doubles the answer's held notes a third below.
-        if (this.cur === 6 && answer && hm > 1 && st[1] >= 3 && !hk.h && this.songBars) e.hook(ht + 0.004, Math.min(1, st[2] * phraseVel) * 0.55, stepDeg(st[0], -2, scale) + lift, duration, hk.v, hk.o, strong, b, false, { ...expression, harm: 1 });
+        if (this.cur === 6 && answer && hm > 1 && st[1] >= 3 && !hk.h && this.songBars) e.hook(ht + 0.004, Math.min(1, st[2] * phraseVel) * 0.55, stepDeg(st[0], -2, scale) + lift, duration, hk.v, hk.o, strong, b, false, { ...expression, harm: 1, ...harmonyRegister });
       }
     }
     if (this.roll === null) this.rollCount = 0;
@@ -5613,6 +5631,12 @@ export class Sequencer {
 
   // Parts that listen to the lead. In grooves and peaks the bass answers the hook's rests with an off-beat octave,
   // or a walk into the next chord; breakdowns get a quiet guide-tone line (3rds and 7ths) under the B-phrase.
+  rhodesPhrase(notes, hook) {
+    if (this.e.playbackStyle !== 'lofihiphop' || hook.v !== 'tapekeys') return {};
+    const s = this.s, base = 60 + (s.key > 6 ? s.key - 12 : s.key) + (hook.o || 0) * 12;
+    return { rhodesOctave: rhodesPhraseOctave(notes.map(([n, strong, up]) => base + hookSnap(n, this.e.harm, s.params.stab, strong, up))) };
+  }
+
   interplay(pat, hk, abs, bar, t, sd, busy, anySolo, leadStarts) {
     if (this.s.artist?.style === 'hardtechno') return;
     const s = this.s, e = this.e, i16 = abs % 16, len = pat.len.acid || 16, a = pat.steps.acid;
@@ -5635,7 +5659,9 @@ export class Sequencer {
         if (this.rhodesCounterAt !== bar) {
           const next = cands.filter((m) => m !== n).reduce((b, m) => Math.abs(m - n) < Math.abs(b - n) ? m : b, Infinity);
           const top = 60 + (s.key > 6 ? s.key - 12 : s.key) + (hk.o || 0) * 12 + Math.max(n, Number.isFinite(next) ? next : n);
-          this.rhodesCounterOctave = -12 * Math.max(0, Math.ceil((top - 68) / 12));
+          this.rhodesCounterOctave = e.playbackStyle === 'lofihiphop'
+            ? this.rhodesPhrase([n, Number.isFinite(next) ? next : n].map((m) => [m, true, false]), hk).rhodesOctave
+            : -12 * Math.max(0, Math.ceil((top - 68) / 12));
           this.rhodesCounterAt = bar;
         }
         rhodesOctave = this.rhodesCounterOctave;
@@ -5717,16 +5743,23 @@ export class Sequencer {
   // a breath before a drop, and at the peak a second voice a third under the held notes of the answering phrase.
   sing(sung, i16, bar, t, sd, scale) {
     const s = this.s, e = this.e, hk = sung.hook, x = hk.x || { space: 0.4, risk: 0.4, feel: 0.4, warmth: 0.5 };
+    let register = {}, harmonyRegister = {};
+    if (e.playbackStyle === 'lofihiphop' && hk.v === 'tapekeys') {
+      const pitch = (o) => (o.sh ? stepDeg(o.x[2], o.sh, scale) : o.x[2]) + (this.keyLift || 0);
+      register = this.rhodesPhrase(sung.notes.map((o) => [pitch(o), strongNote(o.x[0], o.x[1]), false]), hk);
+      harmonyRegister = this.rhodesPhrase(sung.notes.filter((o) => o.q === 'n' && o.x[4] % 2 === 1 && o.x[1] >= 6)
+        .map((o) => [stepDeg(pitch(o) - (this.keyLift || 0), -2, scale) + (this.keyLift || 0), strongNote(o.x[0], o.x[1]), false]), hk);
+    }
     for (const o of sung.notes) {
       if (o.at !== i16 || (this.dropNext && i16 >= 8 && !o.pickup)) continue;
       const [start, dur, w, vel, ph] = o.x, lift = this.keyLift || 0, semi = o.sh ? stepDeg(w, o.sh, scale) : w;
       const sec = o.q === 'v' ? (s.patterns[this.cur]?.sec ? 1.15 : 0.82) : o.q === 'b' ? 0.6 : 1, strong = strongNote(start, dur);
       const ht = t + (hash(start, 97) - 0.5) * 0.008 * x.feel + (s.master.humanize || 0) * 0.008;
       const b = 0.58 + 0.42 * ((((bar % 8) + 8) % 8) / 7), v = Math.min(1, vel * sec) * (SUNG_VOICE[hk.v] ?? 1);
-      const expression = o.take == null ? x : { ...x, take: o.take };
+      const expression = { ...(o.take == null ? x : { ...x, take: o.take }), ...register };
       const duration = swingDuration(s, bar * 16 + i16, dur, sd);
       e.hook(ht, v, semi + lift, duration, hk.v, hk.o, strong, b, false, expression);
-      if (this.cur === 6 && o.q === 'n' && ph % 2 === 1 && dur >= 6 && this.songBars) e.hook(ht + 0.004, v * 0.55, stepDeg(semi, -2, scale) + lift, duration, hk.v, hk.o, strong, b, false, { ...expression, harm: 1 });
+      if (this.cur === 6 && o.q === 'n' && ph % 2 === 1 && dur >= 6 && this.songBars) e.hook(ht + 0.004, v * 0.55, stepDeg(semi, -2, scale) + lift, duration, hk.v, hk.o, strong, b, false, { ...expression, harm: 1, ...harmonyRegister });
     }
   }
 
