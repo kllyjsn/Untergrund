@@ -21,7 +21,7 @@ const HOOK_PROGRAM = new Map([['oboe', 68], ['airflute', 73], ['tpt', 56], ['mar
 export const PARTS = {
   vln1: ['Violin I', 40], vln2: ['Violin II', 40], vla: ['Viola', 41], vc: ['Cello', 42], cb: ['Contrabass', 43],
   fl: ['Flute', 73], ob: ['Oboe', 68], cl: ['Clarinet', 71], hn: ['Horn', 60], tpt: ['Trumpet', 56],
-  harp: ['Harp', 46], timp: ['Timpani', 47], pno: ['Piano', 0],
+  harp: ['Harp', 46], timp: ['Timpani', 47], pno: ['Piano', 0], org: ['Organ', 16],
 };
 
 const clampVel = (v) => Math.max(1, Math.min(127, Math.round(v * 127)));

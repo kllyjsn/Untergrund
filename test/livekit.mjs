@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { VOWEL_BAND, VOWEL_TUNE } from '../js/vowels.js';
-import { LIVE_FILES, BAND_FILES, KIT_EXTRA, HAND_FILES, BAND, TAKES, MUTE_LAYER, SOFT_LAYER, withTakes } from '../js/livekit.js';
+import { LIVE_FILES, BAND_FILES, KIT_EXTRA, HAND_FILES, BAND, TAKES, MUTE_LAYER, SOFT_LAYER, withTakes, liveSets, BAND_LAYER } from '../js/livekit.js';
+import { generate } from '../js/state.js';
 
 const dir = new URL('../samples/live/', import.meta.url);
 const license = readFileSync(new URL('LICENSE.md', dir), 'utf8');
@@ -38,4 +39,11 @@ for (const [k, mute] of Object.entries(MUTE_LAYER)) assert.deepEqual(BAND[mute],
 // An offline render waits for every take, so an exported song has the same round robins and mutes as playback.
 assert.deepEqual(withTakes(['gtr', SOFT_LAYER.gtr]).sort(), ['gtr', 'gtrb', 'gtrmute', 'gtrmuteb', 'gtrsoft', 'gtrsoftb']);
 assert.deepEqual(withTakes(['agtr']).sort(), ['agtr', 'agtrb']);
+// UK Garage's ORGAN chords and REESE bass load the recorded tonewheel organ and SH-2; another style's stay synth.
+const ukg = { ...generate('ukg', 1), artist: { style: 'ukg' } };
+assert.equal(Math.round(ukg.params.stab.voice), 3); assert.equal(Math.round(ukg.params.acid.voice), 3);
+assert.ok(liveSets(ukg).includes('org') && liveSets(ukg).includes('abass'), 'UK Garage loads org + abass');
+const other = { ...ukg, artist: { style: 'reggaeton' } };
+assert.ok(!liveSets(other).includes('org') && !liveSets(other).includes('abass'), 'other styles keep the synth organ and Reese');
+assert.deepEqual(BAND_LAYER.rock.chorus.parts, ['org']);
 console.log('live kit samples + license manifest passed');
