@@ -870,16 +870,23 @@ export class Engine {
   }
 
   routeWind(ch) {
-    this.windDuck.disconnect(); this.windDuck.connect(ch.input);
-    this.windDuckMono.disconnect(); this.windDuckMono.connect(this.monoChordOut(ch.input));
-    this.pairChordRoute(this.windDuck, () => this.windDuckMono);
+    if (this.windStrip) {
+      this.windDuck.disconnect();
+      this.windDuckMono.disconnect();
+    }
+    this.windStrip = ch;
+    this.connectChordSubmix(this.windDuck, this.windDuckMono, ch);
+  }
+
+  connectChordSubmix(stereo, mono, ch = this.ch.stab) {
+    stereo.connect(ch.input);
+    mono.connect(monoChordOut(this, ch.input));
+    this.pairChordRoute(stereo, () => mono);
   }
 
   pairChordRoute(out, mono) {
     (this.chordMonoRoutes ||= new WeakMap()).set(out, mono);
   }
-
-  monoChordOut(out) { return monoChordOut(this, out); }
 
   buildAcid() {
     const c = this.ctx;

@@ -187,9 +187,7 @@ function preview(api, res, voice, sung) {
   const e = api.engine(), s = api.state(), t0 = e.ctx.currentTime + 0.08, sd = 60 / res.bpm / 4;
   const off = kk(res.key) - kk(s.key), bus = e.ctx.createGain(), mono = e.ctx.createGain();
   previewBus = [bus, mono];
-  bus.connect(e.ch.stab.input);
-  mono.connect(e.monoChordOut(e.ch.stab.input));
-  e.pairChordRoute(bus, () => mono);
+  e.connectChordSubmix(bus, mono);
   e.hookBus = bus;
   try {
     res.hook.s.forEach((st, i) => {

@@ -113,11 +113,8 @@ const chordsRoutes = await withChrome((run) => run(`(async () => {
     'mixed-width takes': ({ e, b, input }) => e.playBuf(b, at, 0.7, e.bodyFor(e.trimOut('test', 2, input), [900, 0.9, -3]), 1, 0.4),
     'hook preview chop': ({ e, ctx, b, input }) => {
       const bus = ctx.createGain(), mono = ctx.createGain();
-      bus.connect(input);
-      if (e.ch.stab.out) {
-        mono.connect(e.monoChordOut(input));
-        e.pairChordRoute(bus, () => mono);
-      }
+      if (e.ch.stab.out) e.connectChordSubmix(bus, mono);
+      else bus.connect(input);
       e.chopNote({ buffer: b, chops: [{ start: 0, end: 0.4, midi: 60 }] }, at, 0.8, 60, 0.4, {}, 0, bus);
     },
   };
