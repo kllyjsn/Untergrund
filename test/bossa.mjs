@@ -8,6 +8,7 @@ import { BOSSA_RIM, BOSSA_BATIDA, bossaBass, jazzHarmony, jazzChordTones, jazzNo
 import { bossaGrip, bossaLine } from '../js/bossa.js';
 import { parse } from '../js/describe.js';
 import { styleFor } from '../js/song-plan.js';
+import { songState } from '../js/song-spec.js';
 import { BAND, liveSets } from '../js/livekit.js';
 import { stageScene } from '../js/club-stage.js';
 import { TRACK_IDS } from '../js/params.js';
@@ -114,6 +115,15 @@ const guitar = freshSong('bossa', 42), played = [], banks = [];
   seq.startAt(16 * 16, 1);
   seq.tick(16 * 16, 1);
   assert.deepEqual(e.harm, prog[8], 'a saved reharmonization plays in the second half');
+}
+{
+  const { state } = songState({ style: 'bossa', sections: [{ role: 'verse', bars: 16 }, { role: 'drop', bars: 16 }] }, 42);
+  assert.match(state.chain, /^C{7}DC{7}D/, 'the spec inserts a mid-verse fill');
+  const e = new Recorder(state), seq = new Sequencer(e, state), expected = state.patterns[2].prog;
+  for (let bar = 0; bar < 16; bar++) {
+    seq.tick(bar * 16, 1 + bar * 16 * e.stepDur);
+    assert.deepEqual(e.harm, expected[bar], `the verse keeps its chord through the fill (bar ${bar + 1})`);
+  }
 }
 Engine.prototype.stab.call({ state: guitar, ctx: {}, step: 3, harm: jazzHarmony(guitar.patterns[6], 0), ch: { stab: { band: {}, input: {} } }, rec: (name) => { banks.push(name); return [[60, {}]]; }, recordedNote: (...a) => played.push(a) }, 1, 0.5);
 assert.deepEqual(banks, ['nylon']);

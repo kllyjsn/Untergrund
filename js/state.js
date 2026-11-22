@@ -1042,7 +1042,7 @@ export function arrangement(full, seed, half = false) {
     const p = clone(full);
     p.jazz.bossaPart = part;
     p.prog = bossaChart(part);
-    p.sec = i >= 6 ? 'chorus' : i === 2 ? 'verse' : 'bridge';
+    p.sec = i >= 6 ? 'chorus' : part === 'solo' ? 'verse' : 'bridge';
     if (p.hook && !p.hook.h) {
       p.hook.m = bossaPreview(part, p.jazz.seed, p.prog);
       p.hook.s = Array(32).fill(0);

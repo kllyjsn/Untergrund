@@ -79,7 +79,7 @@ const PARTS = {
   coda: [CODA, TAG], solo: [HEAD, SOLO], bridge: [BRIDGE, B], head: [HEAD, A], reprise: [HEAD, A],
   interlude: [BRIDGE, [[], [], [], [], B[4], B[5], [], [], B[8], [], B[10], B[11], B[12], B[13], B[14], []]],
 };
-export const BOSSA_PARTS = ['intro', 'coda', 'solo', 'head', 'bridge', 'interlude', 'head', 'reprise'];
+export const BOSSA_PARTS = ['intro', 'coda', 'solo', 'solo', 'bridge', 'interlude', 'head', 'reprise'];
 export const isBossaPart = (part) => Object.hasOwn(PARTS, part);
 export const bossaChart = (part) => PARTS[part][0].map(([r, c]) => ({ r, c }));
 

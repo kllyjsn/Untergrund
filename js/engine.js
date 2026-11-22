@@ -5202,7 +5202,7 @@ export class Sequencer {
     if (pat.jazz && isJazz(pat.jazz.style)) {
       if (e.smoothOn) e.smoothChords(0, t);
       this.smooth = false;
-      e.harm = pat.jazz.bossaPart && pat.jazz.progBars !== 1 && pos >= 0 ? jazzHarmony(pat, this.runPos) : this.jazzHarmonyAt(pat, bar, pos);
+      e.harm = this.jazzHarmonyAt(pat, bar, pos);
       return this.jazzStep(pat, abs, tt, pos, n);
     }
     const kl = this.keyLift = s.ending && pat.lift && lf > 0 && (pos >= lf || (pos === lf - 1 && abs % 16 >= 12)) ? pat.lift : 0;
@@ -5434,6 +5434,7 @@ export class Sequencer {
   // a phrase, the peak's second phrase opens up off-16th hats, every 8 bars ends on a snare/clap roll over a dropped
   // kick (two beats at 16-bar ends), and every fourth bar turns around on the percussion.
   jazzHarmonyAt(pat, bar, pos) {
+    if (pat.jazz?.bossaPart && pat.jazz.progBars !== 1) return jazzHarmony(pat, this.bossaSectionBar(bar, pos));
     if (pat.jazz?.progBars !== 1 || pos < 0 || !this.songBars) return jazzHarmony(pat, bar);
     pos %= this.chainArr.length;
     let start = pos;
@@ -5445,6 +5446,14 @@ export class Sequencer {
     const group = (slot) => slot < 2 ? slot : slot - slot % 2;
     while (start > 0 && group(this.chainArr[start - 1]) === group(this.chainArr[pos])) start--;
     return jazzHarmony(pat, pos - start);
+  }
+
+  bossaSectionBar(bar, pos) {
+    if (pos < 0) return bar;
+    let start = pos;
+    const sec = this.chainEntries?.[pos]?.sec, slot = this.chainArr[pos];
+    while (start > 0 && (sec != null ? this.chainEntries[start - 1].sec === sec : this.chainArr[start - 1] === slot)) start--;
+    return pos - start;
   }
 
   jazzGrid(pat, id, abs, written, played, accents = []) {
@@ -5574,17 +5583,15 @@ export class Sequencer {
 
   bossaSongStep(pat, abs, t, pos, bars) {
     const e = this.e, s = this.s, i = abs % 16, bar = Math.floor(abs / 16), sd = e.stepDur;
-    const { bossaPart: part, seed } = pat.jazz, local = bars ? this.runPos : bar;
+    const { bossaPart: part, seed } = pat.jazz, local = this.bossaSectionBar(bar, pos);
     const enabled = (id) => !s.mutes[id] && (!Object.values(s.solos).some(Boolean) || s.solos[id]);
     const final = s.ending && bars && pos === bars - 1;
     if (final && i) return this.cur;
     const nextPos = bars ? (pos + 1) % bars : -1;
     const nextSlot = this.chainArr?.[nextPos] ?? this.cur;
-    const boundary = nextSlot !== this.cur || (bars > 1 && nextPos === 0);
+    const boundary = bars > 1 && this.bossaSectionBar(bar + 1, nextPos) === 0;
     const nextPat = patternAt(s.patterns[nextSlot], nextPos);
-    const h = e.harm, next = nextPat.jazz?.bossaPart && nextPat.jazz.progBars !== 1
-      ? jazzHarmony(nextPat, boundary ? 0 : local + 1)
-      : this.jazzHarmonyAt(nextPat, bar + 1, nextPos);
+    const h = e.harm, next = this.jazzHarmonyAt(nextPat, bar + 1, nextPos);
     const groove = bossaRhythm(part, local, i, boundary);
     // Per-player placement around the same straight pulse. Never schedule ahead of the start of playback.
     const time = (id, extra = 0) => t + Math.max(abs === 0 ? 0 : -0.05, bossaPocket(id, bar, i, sd, seed) + extra * sd);
