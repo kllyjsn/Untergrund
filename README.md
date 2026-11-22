@@ -43,13 +43,15 @@ Sound quality is part of musicianship. Leads need expressive articulation and dy
 
 Jason: open [autopublish.html](https://www.untergrund.sh/autopublish.html) and connect SoundCloud once.
 Only `jason-kelley-203620322` can connect by default (`AUTOPUBLISH_SC_USER` overrides the permalink).
-The existing SoundCloud client ID/secret and Upstash Redis configuration must be set on Vercel.
+The existing SoundCloud client ID/secret, Upstash Redis configuration and `CRON_SECRET` must be set on Vercel.
 Refresh tokens stay in Redis and are replaced immediately after every refresh; the page never receives them.
 
-GitHub Actions renders a full song at 13:00 UTC, rotating through all `STYLES` by UTC epoch day, and creates
+GitHub Actions renders a full song at 11:00 UTC, rotating through all `STYLES` by UTC epoch day, and creates
 `daily-YYYY-MM-DD` with a stereo 44.1 kHz / 320 kbps MP3, generated PNG cover and `release.json`.
-Existing releases are left untouched. `/api/autopublish?run=1` publishes today's release to SoundCloud;
-a 14:00 UTC Vercel cron retries if needed. GitHub releases are read publicly from `kllyjsn/Untergrund`
+Existing releases are left untouched. The 14:00 UTC Vercel cron calls `/api/autopublish?run=1` to publish
+today's release to SoundCloud. GET and POST publishing requests require `Authorization: Bearer <CRON_SECRET>`;
+Vercel sends this automatically. Missing or incorrect secrets return 401 without publishing.
+The workflow only creates the GitHub release; it does not trigger SoundCloud. GitHub releases are read publicly from `kllyjsn/Untergrund`
 (`AUTOPUBLISH_GITHUB_REPO` can override this). The endpoint shares `api/sc-token.js` via a rewrite,
 so it adds no serverless function to the existing consolidated API deployment.
 
@@ -59,6 +61,7 @@ Scores render their complete composition, including repertoire titles/credits; o
 A failed or 40-minute render is logged and skipped in favor of the next genre.
 The workflow's manual `day`/`style` inputs support backfills, but autopublish intentionally only publishes **today**.
 Run `node test/autopublish.mjs` for the offline integration checks.
+With `SC_MOCK=1`, the local server uses `CRON_SECRET` from the environment or `dev` by default.
 
 Redis locks serialize runs and per-day records prevent repeat publication. If a request dies after an upload starts,
 the day remains held (`publish_uncertain`) rather than risking a duplicate. An operator should check SoundCloud,

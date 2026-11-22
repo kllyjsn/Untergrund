@@ -1,10 +1,17 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { exchangeToken, scConfig } from './soundcloud.js';
 
 export const AUTOPUBLISH = 'untergrund:autopublish';
 const result = (status, json) => ({ status, json });
 const request = (url, options = {}) => fetch(url, { ...options, signal: AbortSignal.timeout(45000) });
 
-export async function handleAutopublish({ method, query = {}, body = {}, kv, env = process.env, fetchImpl = request, now = Date.now() }) {
+export async function handleAutopublish({ method, query = {}, body = {}, headers = {}, kv, env = process.env, fetchImpl = request, now = Date.now() }) {
+  if (query.run === '1') {
+    const authorization = headers.authorization || headers.Authorization;
+    const hash = (value) => createHash('sha256').update(value).digest();
+    if (!env.CRON_SECRET || typeof authorization !== 'string' ||
+        !timingSafeEqual(hash(authorization), hash(`Bearer ${env.CRON_SECRET}`))) return result(401, { error: 'unauthorized' });
+  }
   if (!kv) return result(503, { error: 'storage_unavailable' });
   const day = Math.floor(now / 86400e3), date = new Date(day * 86400e3).toISOString().slice(0, 10);
   const dayKey = `${AUTOPUBLISH}:day:${day}`;

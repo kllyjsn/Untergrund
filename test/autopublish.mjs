@@ -16,7 +16,7 @@ const server = createServer(async (req, res) => {
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const base = `http://127.0.0.1:${server.address().port}/mock-sc`;
 const env = { SOUNDCLOUD_CLIENT_ID: 'mock-client', SOUNDCLOUD_CLIENT_SECRET: 'mock-secret', SOUNDCLOUD_AUTH_URL: base,
-  SOUNDCLOUD_API_URL: `${base}/api`, AUTOPUBLISH_SC_USER: 'untergrund-test' };
+  SOUNDCLOUD_API_URL: `${base}/api`, AUTOPUBLISH_SC_USER: 'untergrund-test', CRON_SECRET: 'test-cron-secret' };
 const kv = memoryKv(), now = Date.parse('2026-11-22T13:30:00Z'), day = Math.floor(now / 86400e3), date = '2026-11-22';
 const prefix = `https://github.com/kllyjsn/Untergrund/releases/download/daily-${date}/`;
 const meta = { day, date, title: 'Copper Orbit', audio: 'song.mp3', artwork: 'cover.png', description: 'Daily swing · https://www.untergrund.sh', tags: ['swing', '120 bpm'], genre: 'SWING' };
@@ -44,7 +44,7 @@ const fakeFetch = async (url, opts) => {
   }
   return fetch(url, opts);
 };
-const call = (method, body, query = {}, extra = {}) => handleAutopublish({ method, body, query, kv, env, now, fetchImpl: fakeFetch, ...extra });
+const call = (method, body, query = {}, extra = {}) => handleAutopublish({ method, body, query, headers: { authorization: `Bearer ${env.CRON_SECRET}` }, kv, env, now, fetchImpl: fakeFetch, ...extra });
 async function codeBody() {
   const verifier = 'a-valid-pkce-verifier-for-autopublish-test';
   const q = new URLSearchParams({ code_challenge: createHash('sha256').update(verifier).digest('base64url'), redirect_uri: 'http://localhost/sc-callback.html', state: 'test' });
@@ -54,6 +54,18 @@ async function codeBody() {
 }
 let initialRefresh;
 try {
+  for (const method of ['GET', 'POST']) {
+    for (const extra of [{ headers: {} }, { headers: { authorization: 'Bearer wrong' } }, { env: { ...env, CRON_SECRET: '' } }]) {
+      const response = await call(method, '', { run: '1' }, {
+        ...extra,
+        kv: { cmd() { assert.fail('unauthorized runs must not access storage'); } },
+        fetchImpl() { assert.fail('unauthorized runs must not fetch'); }
+      });
+      assert.equal(response.status, 401);
+      assert.equal(response.json.error, 'unauthorized');
+    }
+  }
+  console.log('autopublish authorization: GET/POST reject missing, wrong and unset secrets without side effects passed');
   assert.deepEqual((await call('GET')).json, { connected: false, account: null, allowedPermalink: 'untergrund-test', last: null });
   assert.equal((await call('GET', null, {}, { env: { ...env, AUTOPUBLISH_SC_USER: '' } })).json.allowedPermalink, 'jason-kelley-203620322');
   assert.equal((await call('POST', {}, { run: '1' })).json.error, 'not_connected');

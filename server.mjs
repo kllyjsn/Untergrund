@@ -19,6 +19,7 @@ const handleRooms = roomsHandler(rooms, { allowedOrigin: process.env.ROOMS_ALLOW
 let mock = null;
 const env = { ...process.env };
 if (MOCK) {
+  env.CRON_SECRET ||= 'dev';
   mock = await import('./test/mock-soundcloud.mjs');
   Object.assign(env, { SOUNDCLOUD_CLIENT_ID: 'mock-client', SOUNDCLOUD_CLIENT_SECRET: 'mock-secret',
     SOUNDCLOUD_AUTH_URL: `http://localhost:${PORT}/mock-sc`, SOUNDCLOUD_API_URL: `http://localhost:${PORT}/mock-sc/api` });
@@ -173,7 +174,7 @@ http.createServer(async (req, res) => {
     if (url.pathname === '/api/autopublish' || (url.pathname === '/api/sc-token' && url.searchParams.get('autopublish') === '1')) {
       const raw = req.method === 'POST' ? await readBody(req, 16000) : null;
       if (raw === null && req.method === 'POST') return sendJson(res, 413, { error: 'too_large' });
-      const { status, json } = await handleAutopublish({ method: req.method, query: Object.fromEntries(url.searchParams), body: raw?.toString(), kv: accountKv, env });
+      const { status, json } = await handleAutopublish({ method: req.method, query: Object.fromEntries(url.searchParams), body: raw?.toString(), headers: req.headers, kv: accountKv, env });
       return sendJson(res, status, json);
     }
     if (url.pathname === '/api/sc-token' && req.method === 'POST') {

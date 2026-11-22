@@ -2,7 +2,7 @@ name: Daily SoundCloud release
 
 on:
   schedule:
-    - cron: '0 13 * * *'
+    - cron: '0 11 * * *'
   workflow_dispatch:
     inputs:
       day:
@@ -51,16 +51,4 @@ jobs:
             audio=$(node -p 'require("./out/release.json").audio')
             artwork=$(node -p 'require("./out/release.json").artwork')
             gh release create "$tag" "out/$audio" "out/$artwork" out/release.json --target "$GITHUB_SHA" --title "UNTERGRUND · $date" --notes "Daily generative release. Make your own at https://www.untergrund.sh" --latest=false
-          fi
-      - name: Trigger today's SoundCloud publish
-        run: |
-          status=0
-          curl -sS --fail-with-body -X POST 'https://www.untergrund.sh/api/autopublish?run=1' -o autopublish-response.json || status=$?
-          cat autopublish-response.json
-          if [[ "$status" -ne 0 ]]; then
-            if [[ "$status" -eq 22 ]] && node -e 'process.exit(JSON.parse(require("fs").readFileSync("autopublish-response.json")).error === "not_connected" ? 0 : 1)'; then
-              echo 'Connect SoundCloud at https://www.untergrund.sh/autopublish.html'
-            else
-              exit "$status"
-            fi
           fi
