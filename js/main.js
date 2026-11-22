@@ -1450,6 +1450,8 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   }
   applyOverrides(s, g, withBpm);
   for (const [t, params] of Object.entries(lockedParams)) s.params[t] = params;
+  // A new song starts with every part on: mutes and solos from the last song (or a stray 1-7 key) would silence it.
+  for (const k of ['mutes', 'solos']) s[k] = Object.fromEntries(TRACK_IDS.map((t) => [t, !!(s.locks[t] && s[k]?.[t])]));
   s.chainOn = true;
   s.ending = true;
   // A score sets its own tempo even mid-set; a masterwork keeps its title and composer.
