@@ -53,7 +53,7 @@ const CHORD_EXTENSION = '(?:sixth|seventh|ninth|eleventh|thirteenth)s?|(?:6|7|9|
 const CHORD_QUALITY = new RegExp(
   `\\b(?:([a-g](?:#|b|\\s+sharp|\\s+flat)?)\\s+)?(major|minor)[\\s-]+(?:(${CHORD_EXTENSION})(?:[\\s-]+${CHORD_NOUN})?|(6|7|9|11|13)[\\s-]+${CHORD_NOUN}|${CHORD_NOUN})\\b`, 'g',
 );
-const KEY_BEFORE_CHORD = /\b(?:in(?:\s+the\s+key\s+of)?|key(?:\s+of)?|(?:key|(?:transpose|modulate|switch|change)(?:\s+it)?)\s+to)\s+$/;
+const KEY_BEFORE_CHORD = /\b(?:key(?:\s+of|\s+to)?|(?:transpose|modulate|switch|change)(?:\s+it)?\s+to)\s+$/;
 const CHORD_AMOUNT = /\b(?:add|include|use|with|more|less|fewer|no|without)\s+(?:(?:some|a\s+few|a|an|the)\s+)?$/;
 const CLAUSE_BREAK = /\s*(?:,|;|\.|!|\?|\band\b|&|\+|\bbut\b|\bthen\b|\balso\b|\bplus\b|\bwith\b|\bwhile\b|\bnow\b)\s*/;
 
@@ -400,7 +400,9 @@ function normalize(text) {
   for (const [re, to] of ARTIST_RE) s = s.replace(re, to);
   s = s.replace(CHORD_QUALITY, (phrase, root, mode, ordinal, number, offset, text) => {
     const before = text.slice(0, offset);
-    if (root && KEY_BEFORE_CHORD.test(before)) return root + ' ' + mode;
+    const lead = before.split(CLAUSE_BREAK).pop().trim();
+    const implicitKey = /\bin$/.test(lead) && !lead.split(/[^a-z0-9#]+/).some((w) => isMixTerm(W[w]) || HARD_VERB.has(w) || MUTE.has(w));
+    if (root && (KEY_BEFORE_CHORD.test(before) || implicitKey)) return root + ' ' + mode;
     if ((ordinal || number) && CHORD_AMOUNT.test(before)) {
       const tail = ` ${text.slice(offset + phrase.length).split(CLAUSE_BREAK, 1)[0].trim()} `;
       const scope = findScope(tail) || findSection(tail);

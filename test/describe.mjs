@@ -42,7 +42,9 @@ t('a chord quality names the target without changing the song mode or harmony', 
   for (const text of ['no minor seventh chords', 'fewer minor sevenths', 'without F minor sevenths']) {
     assert.deepEqual(edits(text), [{ id: 'harmony', amt: -1 }], text);
   }
-  assert.deepEqual(edits('add reverb to D minor chords'), [{ id: 'space', target: 'stab', amt: 1 }]);
+  for (const text of ['add reverb to D minor chords', 'more reverb in D minor chords']) {
+    assert.deepEqual(edits(text), [{ id: 'space', target: 'stab', amt: 1 }], text);
+  }
   for (const text of ['transpose to D minor', 'transpose to D minor chords', 'set the key to D minor chords', 'change the key to D minor chords', 'modulate to D minor chords']) {
     assert.deepEqual(edits(text), [{ id: 'key', value: 2 }, { id: 'scale', value: 'minor', explicit: true }], text);
   }
