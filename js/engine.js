@@ -5238,7 +5238,7 @@ const PRE_HZ = 4500, BUILD_HZ = 3000;
 // without a feeling.
 export function feelTempo(s, chain, pos, i16) {
   const f = feelOf(s), n = chain.length;
-  if (!f || !n || s.sing?.on) return 1;
+  if (!f || !n || s.sing?.on || jazzStyle(s, s.patterns[chain[pos]]) === 'jazzfunk') return 1;
   let m = 1;
   if (s.patterns[chain[pos]]?.sec && s.artist?.style !== 'hardtechno' && jazzStyle(s, s.patterns[chain[pos]]) !== 'jazzfunk') {
     let a = pos;
@@ -5380,7 +5380,7 @@ export class Sequencer {
       this.e.hardSection?.(t, this.cur, this.runPos, this.runLen, this.chainArr[this.chainPos]);
       return;
     }
-    const pats = this.s.patterns, sec = pats[this.cur]?.sec, f = feelOf(this.s);
+    const pats = this.s.patterns, sec = pats[this.cur]?.sec, f = jazzStyle(this.s, pats[this.cur]) === 'jazzfunk' ? null : feelOf(this.s);
     if (!sec && f && this.dropNext) return this.level(t, 0, [-1.2 * f.dyn.contrast, 16 * this.e.stepDur]);
     if (!sec) {
       if (this.verseFillSwell(t, this.chainArr, pos, offset)) return;

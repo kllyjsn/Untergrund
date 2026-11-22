@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { freshSong, sanitize } from '../js/state.js';
-import { Engine, Sequencer } from '../js/engine.js';
+import { Engine, Sequencer, feelTempo, parseChain } from '../js/engine.js';
 import { Recorder } from '../js/midi.js';
 import { jazzHarmony, jazzNotes, jazzVoicing, jazzMelody } from '../js/jazz.js';
 import { funkBass, funkGroove, funkNotes, FUNK_PROGS } from '../js/jazzfunk.js';
@@ -15,6 +15,22 @@ import { songState } from '../js/song-spec.js';
 import { swingLate } from '../js/groove.js';
 
 const pc = (n) => (n % 12 + 12) % 12;
+{
+  const s = freshSong('jazzfunk', 42), chain = parseChain(s.chain);
+  s.ending = true;
+  for (const feel of ['dark', 'longing', 'dreamy', 'heartbroken', null, 'invalid']) {
+    s.feel = feel;
+    for (const pos of [0, chain.length - 3, chain.length - 2, chain.length - 1]) {
+      for (const step of [0, 8, 15]) assert.equal(feelTempo(s, chain, pos, step), 1, `${feel}: Jazz-Funk keeps its strict pocket through the ending`);
+    }
+    assert.equal(feelTempo(s, [], 0, 0), 1);
+    const levels = [], seq = new Sequencer(new Recorder(s), s);
+    seq.level = (t, db) => levels.push(db);
+    seq.cur = 2;
+    seq.sectionLevel(0, 16, 0);
+    assert.deepEqual(levels, [-1.8], `${feel}: Jazz-Funk retains its written verse level`);
+  }
+}
 {
   const probe = (velocity, notes = [0], params = {}, style = 'jazzfunk') => {
     const oscillators = [], gains = [], filters = [];
