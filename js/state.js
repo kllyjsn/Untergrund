@@ -13,7 +13,6 @@ import { stepDeg } from './motif.js';
 import { cleanLyrics } from './lyrics.js';
 import { SING_VOICES } from './sing-score.js';
 import { cleanTakes, patternAt, setTake } from './scope.js';
-import { trackTitle } from './crate.js';
 import { pickFeel, isFeel } from './feel.js';
 import { FUNK_HANDS, FUNK_VOX, funkHandBar } from './baile.js';
 import { festivalBuilds } from './festival-build.js';
@@ -715,11 +714,11 @@ function generatePattern(style, seed, scaleName, starter) {
     S.ch = range(STEPS, (i) => (i % 2 === 0 ? 1 : 0));
     S.stab = pad16(pick(r, [[2, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1], [2, 0, 1, 0, 1, 0, 1, 0, 2, 0, 1, 0, 1, 0, 1], [2, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1]]));
     S.acid = range(STEPS, (i) => (i === 0 || i === 8 ? { on: true, n: i === 8 ? 7 : 0, a: i === 0, s: false } : emptyAcidStep()));
-    Object.assign(params.kick, { tune: 54, decay: 0.4, drive: 0.1, punch: 0.4, rumble: 0, click: 0.15, level: 1.25 });
+    Object.assign(params.kick, { tune: 54, decay: 0.4, drive: 0.1, punch: 0.4, rumble: 0, click: 0.15, level: 1.2 });
     Object.assign(params.snare, { tune: 200, snappy: 0.2, decay: 0.1, level: 0.9, rev: 0.3 });
     Object.assign(params.ch, { decay: 0.04, tone: 3000, level: 0.5, rev: 0.15 });
     Object.assign(params.stab, { chord: 11, octave: 0, cutoff: 3000, reso: 1, decay: 1.6, env: 0.3, detune: 4, rev: 0.3, dly: 0, level: 0.85 });
-    Object.assign(params.acid, { voice: 1, wave: 0, tune: -12, cutoff: 340, reso: 1, envmod: 0.1, decay: 0.6, drive: 0.15, accent: 0.1, level: 1.4, dly: 0 });
+    Object.assign(params.acid, { voice: 1, wave: 0, tune: -12, cutoff: 340, reso: 1, envmod: 0.1, decay: 0.6, drive: 0.15, accent: 0.1, level: 1.2, dly: 0 });
     master.kit = 1; master.warmth = 0.45; master.room = 0.5; master.duck = 0; master.drive = 0.05; master.revLevel = 0.45;
     swing = 0.15;
   } else if (style === 'country') {
@@ -739,7 +738,7 @@ function generatePattern(style, seed, scaleName, starter) {
     Object.assign(params.snare, { tune: 210, snappy: 0.6, decay: 0.16, level: 1.15, rev: 0.25 });
     Object.assign(params.ch, { decay: 0.045, tone: 5500, level: 0.6, rev: 0.1 });
     Object.assign(params.stab, { chord: 11, octave: 0, cutoff: 3200, reso: 1, decay: 0.35, env: 0.75, detune: 4, rev: 0.25, dly: 0, level: 0.6 });
-    Object.assign(params.acid, { voice: 5, wave: 0, tune: -12, cutoff: 450, reso: 1, envmod: 0.1, decay: 0.35, drive: 0.15, accent: 0.2, level: 1.4, dly: 0 });
+    Object.assign(params.acid, { voice: 5, wave: 0, tune: -12, cutoff: 450, reso: 1, envmod: 0.1, decay: 0.35, drive: 0.15, accent: 0.2, level: 1.2, dly: 0 });
     master.kit = 1; master.warmth = 0.35; master.room = 0.3; master.duck = 0; master.drive = 0.05; master.revLevel = 0.25;
     swing = 0.1;
   }
@@ -810,7 +809,7 @@ function generatePattern(style, seed, scaleName, starter) {
   // Pop's keys carry the song alone where the piano would; they sit up with the band instead of under it.
   if (style === 'pop' && stabVoice === 1) params.stab.level = 1.1;
   // Folk and country are a band around the guitar, not a guitar over a click: it sits with the bass and kit.
-  if (style === 'folk' || style === 'country') params.stab.level = 0.6;
+  if (style === 'folk' || style === 'country') params.stab.level = 0.5;
   if (style === 'trance' && stabVoice === 0) {
     params.stab.level = 0.5;
     params.stab.cutoff = Math.min(params.stab.cutoff ?? 1800, 1800);
@@ -1383,16 +1382,13 @@ export function freshSong(style, seed, { base = defaultState(), scale = null, le
 
 // A song GENERATE wrote and nobody changed is just its style, seed and length, so it always plays as today's
 // generator writes it: new melodies, forms, players and mixes reach songs made before them.
-// `fresh` is 1 on an untouched GENERATE song and 0 once it's edited; songs saved before the flag existed count
-// as untouched only while their title, key and tempo are still the ones that seed was given.
+// `fresh` is 1 on an untouched GENERATE song and 0 once it's edited. Songs saved before the flag existed keep
+// the notes they were written with: a reroll by today's generator can sound worse than the song people heard.
 export function refreshable(s) {
   const a = s?.artist, style = a?.style;
   if (!a || !STYLES[style] || style === 'repertoire' || !Number.isFinite(a.seed) || !a.seed || s.remixOf || s.fresh === 0) return false;
   if (s.patterns?.some((p) => p.score?.piece)) return false;
-  if (s.fresh === 1) return true;
-  if (s.drop || a.title !== trackTitle(a.seed)) return false;
-  const g = generate(style, a.seed, s.scale);
-  return s.key === g.key && s.bpm === g.bpm;
+  return s.fresh === 1;
 }
 // A sketch stays a sketch; anything longer than a sketch can run was a song, and grows to today's song length.
 const lengthOf = (s) => String(s.chain || 'A').length * 240 / (s.bpm || 120) <= LENGTHS.sketch.hi + 10 ? 'sketch' : 'song';

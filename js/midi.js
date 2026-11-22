@@ -57,7 +57,7 @@ export class Recorder {
   add(track, t, m, dur, v) { (this.notes[track] ||= []).push({ t, m, dur: Math.max(0.01, dur), v }); }
   chord() { const p = this.state.params.stab, h = this.harm; return CHORDS[h ? h.c : Math.round(p.chord)].iv; }
   dust() {} vocal() {} sweep() {} impact() {} breakSweep() {} dropDip() {}
-  smoothChords(db) { this.smoothOn = db; } breakOpen() {} sectionGain() {} quietGrip() {}
+  smoothChords(db) { this.smoothOn = db; } breakOpen() {} sectionGain() {} quietGrip() {} breath() {}
   dubSection(t, active) { this.dubBreakdown = active; }
   bandLayer(...a) { return Engine.prototype.bandLayer.apply(this, a); }
   crash(t, v) { this.add('oh', t, 49, this.stepDur * 4, v); }
@@ -240,7 +240,8 @@ export function songMidi(state, { loopBars = 16, title, playbackStyle } = {}) {
     tracks.push({ id, name, channel, program, notes: out });
   }
   const base = s.bpm, tempos = [[0, base]];
-  if (c.score) {
+  // A score's rubato, or a feeling's tempo breath and ritardando (js/engine.js feelTempo), as a tempo map.
+  if (c.score || c.dur.some((d) => d !== c.dur[0])) {
     let lastBpm = base;
     c.dur.forEach((d, i) => { const bpm = Math.round((60 / (d * 4)) * 1000) / 1000; if (i && Math.abs(bpm - lastBpm) > 0.01) { tempos.push([i * (PPQ / 4), bpm]); lastBpm = bpm; } });
     tempos[0][1] = Math.round((60 / (c.dur[0] * 4)) * 1000) / 1000;
