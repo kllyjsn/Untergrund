@@ -777,6 +777,20 @@ for (const [action, currentTime, playing, expected] of [
     assert.equal(hits.filter(h => h.step === 272).length, 1);
   }
   music.ctx.currentTime = 11.5;
+  for (const now of [20, 20.3]) {
+    const base = 15 / 123, target = 20 - .056, hits = [];
+    const delayed = {...music, state:{...music.state, bpm:123}, abs:272, nextTime:20,
+      transportOrigin:(target - 272 * base) * 1000, roomDrainUntil:null, uiQueue:[],
+      ctx:{currentTime:now}, Date:{now:() => now * 1000}, performance:{now:() => now * 1000},
+      roomAudioClock:{at:now, contextTime:now, pending:null}, engine:{...music.engine, stepDur:base},
+      seq:{...music.seq, tick:(step, time) => { hits.push({step, time}); return {}; }}};
+    runInNewContext(`${schedulerSource}\nschedule(0.42)`, delayed);
+    assert.equal(hits[0].step, 272, 'a late drain callback still retains the frontier kick');
+    assert.ok(hits.every((hit, i) => hit.time >= (i ? hits[i - 1].time : now + .005)),
+      'all retained steps use the safe audio deadline; a past deadline cannot precede the padded frontier');
+    for (const hit of hits.filter(h => target + (h.step - 272) * base > now + .005))
+      close(hit.time, target + (hit.step - 272) * base);
+  }
   const relocations = [], forward = {...music, abs:68, nextTime:11.5, transportOrigin:3250, roomDrainUntil:null,
     seq:{...music.seq, tick:() => ({})}, midiClockStart:(ctx, step, time) => relocations.push({step, time})};
   runInNewContext(`${schedulerSource}\nschedule(0.5)`, forward);

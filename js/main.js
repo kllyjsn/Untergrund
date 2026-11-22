@@ -272,7 +272,7 @@ function schedule(lead) {
         }
       }
     }
-    const t = firstTime ?? nextTime;
+    const t = roomPlayback ? Math.max(firstTime ?? nextTime, now + 0.005) : firstTime ?? nextTime;
     firstTime = undefined;
     // Leave a nearly coincident outgoing step to the incoming downbeat.
     if (t >= switchAt - 0.03 && switchAt < horizon) {
