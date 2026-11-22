@@ -83,7 +83,8 @@ assert.equal(diffOps(a, clone(a)).length, 0);
   const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
   const source = main.slice(main.indexOf('function timelineHooks('), main.indexOf('\nfunction replayToRoom('));
   const env = { state: { ...defaultState(), artist: { style: 'trap', seed: 211 } }, style: 'trap', STYLES, sanitize, clone,
-    playing: false, engine: { applyAll() {} }, seq: {}, guest: null, build() {}, persist() {}, pat: () => ({}) };
+    playing: false, engine: { applyAll() {} }, seq: {}, guest: null, build() {}, persist() {}, pat: () => ({}),
+    liveSets: () => [], loadSets: async () => {} };
   let played, queued;
   env.replaceState = s => { env.state = s; };
   env.play = opts => { played = opts; };
