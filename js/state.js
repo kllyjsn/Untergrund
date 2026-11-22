@@ -14,6 +14,7 @@ import { cleanLyrics } from './lyrics.js';
 import { SING_VOICES } from './sing-score.js';
 import { cleanTakes, patternAt, setTake } from './scope.js';
 import { trackTitle } from './crate.js';
+import { pickFeel, isFeel } from './feel.js';
 import { FUNK_HANDS, FUNK_VOX, funkHandBar } from './baile.js';
 import { festivalBuilds } from './festival-build.js';
 import { isJazz, generateJazz } from './jazz.js';
@@ -1320,6 +1321,9 @@ function drillVerses(pats, { chain, sections }, keep) {
 export function applySongPlan(s, style, seed, length = 'song') {
   const plan = songPlan(style, seed, length, s.bpm || midBpm(style));
   s.chain = plan.chain;
+  // Scores carry their own expression; every other GENERATE song gets a feeling from its seed.
+  if (FORMS[style] || style === 'repertoire') delete s.feel;
+  else s.feel = pickFeel(style, STYLES[style].family, seed);
   delete s.chainEntries;
   if (isJazz(style)) {
     const head = length === 'sketch' ? 8 : 16;
@@ -1474,6 +1478,7 @@ export function sanitize(s) {
   if (lyrics) out.lyrics = lyrics;
   const sing = cleanSing(s.sing);
   if (sing) out.sing = sing;
+  if (isFeel(s.feel)) out.feel = s.feel;
   out.mutes = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.mutes?.[id]]));
   out.solos = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.solos?.[id]]));
   out.locks = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.locks?.[id]]));

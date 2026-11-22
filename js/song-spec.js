@@ -9,6 +9,7 @@ import { parse, applyEdits, validateEdits, genreOf } from './describe.js';
 import { semiOf } from './motif.js';
 import { trackTitle } from './crate.js';
 import { rng } from './dsp.js';
+import { feelOf, FEELS, isFeel, pickFeel } from './feel.js';
 import { isJazz } from './jazz.js';
 import { identifyChainEntries } from './chain-entries.js';
 
@@ -72,6 +73,8 @@ export function validateSpec(raw, { style: fallbackStyle = 'deephouse', prompt =
   const [lo, hi] = STYLES[style].bpm;
   const spec = { v: 1, style };
   spec.title = cleanText(src.title, 40) || null;
+  const feel = isFeel(src.feel) ? src.feel : feelOf(prompt);
+  if (feel) spec.feel = feel;
   spec.bpm = Math.round(clamp(src.bpm, Math.max(60, lo - 20), Math.min(200, hi + 20), Math.round((lo + hi) / 2)));
   const scale = String(src.scale || '').toLowerCase();
   spec.scale = SCALES[scale] ? scale : { aeolian: 'minor', ionian: 'major', 'harmonic minor': 'harmonic' }[scale] || (style === 'euphoric' || MAJOR_STYLES.has(style) ? 'major' : 'minor');
@@ -254,21 +257,14 @@ export function songState(spec, seed = 1, base = defaultState(), opts = {}) {
   Object.assign(s, { patterns: r.patterns, chain: r.chain, chainEntries: r.chainEntries, chainOn: true, ending: true, current: 0, bpm: r.bpm, key: r.key, scale: r.scale });
   const tex = r.spec.texture?.length ? applyEdits(s, r.spec.texture, { seed, style: r.spec.style }) : null;
   const out = tex?.state || s;
+  out.feel = r.spec.feel || pickFeel(r.spec.style, STYLES[r.spec.style].family, seed);
   out.artist = { name: base.artist?.name || 'UNTERGRUND', title: r.spec.title || trackTitle(seed), style: r.spec.style, seed, created: base.artist?.created || new Date(0).toISOString() };
   return { state: out, spec: r.spec, did: tex?.did || [] };
 }
 
 // ---------------- prompt -> spec without a model ----------------
 // The rule parser reads genre, tempo, key, mood and texture; structure words reshape the style's own form;
-// moods pick a progression and a hook contour.
-const MOODS = [
-  [/\b(?:melanchol\w*|sad|bittersweet|wistful|lonely|rainy|heartbreak\w*|longing|blue)\b/, 'sad'],
-  [/\b(?:euphori\w*|uplifting|anthem\w*|soaring|triumphant|festival|hands\s+up)\b/, 'lift'],
-  [/\b(?:dark|sinister|menacing|evil|haunted|ominous|warehouse|industrial|gritty)\b/, 'dark'],
-  [/\b(?:dreamy|floating|hazy|ethereal|nostalgi\w*|sunset|sunrise|dawn|ocean|beach)\b/, 'dream'],
-  [/\b(?:happy|joyful|sunny|summer|party|bright|fun|playful|celebrat\w*)\b/, 'happy'],
-  [/\b(?:tense|anxious|urgent|chase|driving|relentless|nervous)\b/, 'tense'],
-];
+// feelings (js/feel.js) pick a progression and a hook contour.
 const MOOD_CHORDS = {
   sad: { verse: ['i', 'VI', 'III', 'VII'], drop: ['VImaj7', 'VII', 'i7', 'III'], breakdown: ['iv7', 'VImaj7', 'i', 'VIIsus4'], hook: [4, 3, 2, 0, -1, 0] },
   lift: { verse: ['vi', 'IV', 'I', 'V'], drop: ['IV', 'V', 'vi7', 'Iadd9'], breakdown: ['IVmaj7', 'I', 'Vsus4', 'vi'], hook: [0, 2, 4, 5, 7, 4], scale: 'major' },
@@ -311,7 +307,7 @@ export function localSpec(text, { style: current = 'deephouse', seed, genre, bpm
   if (firstWord) named.push({ v: firstWord[1], at: t.search(firstWord[0]) });
   named.sort((a, b) => (a.at < 0 ? 1e9 : a.at) - (b.at < 0 ? 1e9 : b.at));
   const style = SONG_STYLES.includes(genre) ? genre : named[0]?.v || (SONG_STYLES.includes(current) ? current : genreOf(edits, current) || 'deephouse');
-  const mood = MOODS.find(([re]) => re.test(t))?.[1] || null;
+  const feel = feelOf(t), mood = feel && FEELS[feel].chords;
   const M = mood && MOOD_CHORDS[mood];
   const [lo, hi] = STYLES[style].bpm;
   const bpmEdit = edits.find((e) => e.id === 'bpm'), tempo = edits.filter((e) => e.id === 'tempo').reduce((a, e) => a + e.amt, 0);
