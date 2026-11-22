@@ -4541,7 +4541,9 @@ export class Engine {
       const [from, dur, hold = 0] = ramp, start = 10 ** (from / 20);
       g.setValueAtTime(start, t);
       if (hold) g.setValueAtTime(start, t + hold);
-      if (dur) g.linearRampToValueAtTime(v, t + hold + dur);
+      // Keep the Deep House build endpoint ahead of the next bar's cancellation.
+      const margin = this.playbackStyle === 'deephouse' ? 1 / this.ctx.sampleRate : 0;
+      if (dur) g.linearRampToValueAtTime(v, t + hold + Math.max(0, dur - margin));
     } else g.setTargetAtTime(v, t, 0.012);
   }
 
