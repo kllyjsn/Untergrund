@@ -3415,10 +3415,18 @@ export class Engine {
     iv.forEach((n, k) => {
       const tt = t + k * 0.018, f = midiHz(root + 12 + n), end = tt + ring * 4;
       const car = c.createOscillator(); car.frequency.value = f; car.detune.value = (k % 2 ? 1 : -1) * p.detune * 0.2;
-      const mod = c.createOscillator(); mod.frequency.value = f * 3.5;
+      const mod = c.createOscillator();
+      if (this.playbackStyle === 'trap') {
+        mod.frequency.setValueAtTime(f * 3.5, tt);
+        mod.frequency.setValueAtTime(f * 3.5, tt + 0.002);
+        mod.frequency.linearRampToValueAtTime(f * (k % 2 ? 4.4 : 2.6), tt + ring);
+      } else mod.frequency.value = f * 3.5;
       const ma = this.gain(0); mod.connect(ma).connect(car.frequency);
       ma.gain.setValueAtTime(f * (0.5 + p.env * 4) * v, tt);
-      ma.gain.setTargetAtTime(f * 0.05, tt + 0.002, ring * 0.25);
+      if (this.playbackStyle === 'trap') {
+        ma.gain.setTargetAtTime(0, tt + 0.002, ring * 0.25);
+        ma.gain.setValueAtTime(0, tt + ring * 2);
+      } else ma.gain.setTargetAtTime(f * 0.05, tt + 0.002, ring * 0.25);
       const amp = this.gain(0);
       amp.gain.setValueAtTime(EPS, tt);
       amp.gain.linearRampToValueAtTime((v * 0.3) / Math.sqrt(iv.length), tt + 0.002);

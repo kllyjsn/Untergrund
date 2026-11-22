@@ -19,6 +19,35 @@ await import('./sampler.mjs');
 const SR = 48000, P = Engine.prototype, orig = {};
 for (const k of ['stab', 'lick', 'hook', 'kick']) orig[k] = Object.getOwnPropertyDescriptor(P, k).value;
 
+{
+  const bell = (style, replay, iv = [0, 7]) => {
+    const ctx = new OfflineAudioContext(1, SR, SR), gains = [], frequencies = [];
+    const oscillator = ctx.createOscillator.bind(ctx);
+    ctx.createOscillator = () => { const o = oscillator(); frequencies.push(o.frequency); return o; };
+    const e = Object.create(P);
+    Object.assign(e, { ctx, state: { artist: { style } }, replay808Style: replay, realtime: false });
+    e.gain = (v) => { const g = P.gain.call(e, v); gains.push(g.gain); return g; };
+    e.bells(12, 0.8, iv, 48, { decay: 0.88, cutoff: 2785, detune: 12, env: 0.7 }, ctx.destination);
+    return { gains: gains.map((p) => p.events), frequencies: frequencies.map((p) => p.events) };
+  };
+  const trap = bell('trap'), legacy = bell('electro');
+  assert.deepEqual(bell('electro', 'trap'), trap, 'Trap replay uses the Trap bell envelope');
+  assert.deepEqual(bell('trap', 'electro'), legacy, 'non-Trap replay preserves the legacy envelope');
+  assert.deepEqual(bell('trap'), trap, 'bell automation is deterministic');
+  assert.deepEqual(bell('trap', null, []), { gains: [], frequencies: [] }, 'an empty bell chord creates no sources or envelopes');
+  for (let k = 0; k < 2; k++) {
+    const t = 12 + k * 0.018, mod = trap.gains[k * 2], old = legacy.gains[k * 2];
+    const ring = 0.88 * 1.6, f = 440 * 2 ** ((48 + 12 + [0, 7][k] - 69) / 12);
+    assert.deepEqual(mod[0], old[0], 'the initial FM strike is unchanged');
+    assert.deepEqual(mod.slice(1), [{ k: 'g', t: t + 0.002, v: 0, tc: ring * 0.25 }, { k: 's', t: t + ring * 2, v: 0 }], 'modulation ends relative to the scheduled note, not context time');
+    assert.deepEqual(trap.frequencies[k * 2 + 1], [{ k: 's', t, v: f * 3.5 }, { k: 's', t: t + 0.002, v: f * 3.5 }, { k: 'l', t: t + ring, v: f * (k % 2 ? 4.4 : 2.6) }], 'the bright strike is held before the scheduled sideband sweep');
+    assert.deepEqual(legacy.frequencies[k * 2 + 1], [], 'non-Trap modulator frequency remains unchanged');
+    assert(old[1].v > 0 && old[1].tc === 0.88 * 1.6 * 0.25, 'non-Trap modulation keeps its sustained index');
+    assert.deepEqual(trap.gains[k * 2 + 1], legacy.gains[k * 2 + 1], 'the carrier level and amplitude decay are unchanged');
+    assert.deepEqual(trap.frequencies[k * 2], legacy.frequencies[k * 2], 'carrier tuning remains unchanged');
+  }
+}
+
 async function render(style, seed, { stem = 'full', bars = 4, voice = null, mute = null } = {}) {
   const s = defaultState(), g = generate(style, seed);
   applyOverrides(s, g); s.patterns = arrangement(g.pattern, seed); s.current = 6;
