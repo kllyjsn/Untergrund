@@ -1,10 +1,10 @@
 // Loaded inside headless Chrome by scripts/audio-benchmark.mjs: builds a song the way NEW SET does, renders it with
 // the real offline engine and measures the master output and the pre-master stems (js/audio-quality.js).
-import { defaultState, generate, applyOverrides, arrangement, applySongPlan, clone, STYLES, MAJOR_STYLES } from '/js/state.js';
+import { defaultState, generate, applyOverrides, arrangement, applySongPlan, songFeel, clone, STYLES, MAJOR_STYLES } from '/js/state.js';
 import { Engine, Sequencer, parseChain, scoreKinds } from '/js/engine.js';
 import { compose } from '/js/classical.js';
 import { loadPiece } from '/js/repertoire.js';
-import { loadBand, liveSets, loadSets, withTakes } from '/js/livekit.js';
+import { loadBand, liveSets, loadSets, withTakes, assertRootsReady } from '/js/livekit.js';
 import { capture } from '/js/midi.js';
 import { router, stemList } from '/js/stems.js';
 import { encodeWav } from '/js/dsp.js';
@@ -19,7 +19,7 @@ const NON_INSTRUMENTS = new Set(['kick', 'snare', 'clap', 'ch', 'oh', 'ride', 'p
 export function song(style, seed) {
   const s = defaultState();
   s.scale = style === 'euphoric' || MAJOR_STYLES.has(style) ? 'major' : 'minor';
-  const g = generate(style, seed, s.scale);
+  const g = generate(style, seed, s.scale, { feel: songFeel(style, seed) });
   s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   s.key = g.key;
   applyOverrides(s, g, true);
@@ -59,7 +59,9 @@ export function plan(s, windowBars = 2) {
 // renders ~7x slower. fromBar starts inside the song with the arrangement state it has there.
 export async function render(s, fromBar, toBar, { sampleRate = 48000, tail = 8, channels = 2, onContext, onEngine } = {}) {
   const snap = clone(s);
-  await loadSets(withTakes(liveSets(snap)));
+  const sets = withTakes(liveSets(snap));
+  await loadSets(sets);
+  assertRootsReady(sets);
   const score = snap.patterns.find((p) => p.score)?.score;
   if (score?.piece) await loadPiece(score.piece);
   if (score) await Promise.all(scoreKinds(score).map((k) => loadBand(k)));

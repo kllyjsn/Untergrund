@@ -1,6 +1,6 @@
 // "Describe it" box on Create + Studio: type or tap what you want, get a one-line receipt with undo.
 import { h } from './ui.js';
-import { parse, applyEdits, genreOf, suggest, chipsFor, mergeEdits, needsMix, mixAdjust, heard, validateEdits } from './describe.js';
+import { parse, applyEdits, genreOf, suggest, chipsFor, mergeEdits, needsMix, mixAdjust, heard, fallbackEdits } from './describe.js';
 import { privacyOptOut } from './analytics.js';
 import { isSongPrompt as isPlanPrompt, promptGenre, rulePlan, planEdits, planLyrics, validatePlan, lyricLines } from './song-plan.js';
 import { cleanLyrics, splitLyrics, lyricTimeline, lyricLabels, lyricsText, LIMITS } from './lyrics.js';
@@ -49,7 +49,7 @@ async function askAI(text, style) {
   try {
     const res = await fetch('/api/describe', { method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, style, log: !privacyOptOut(window) }) });
-    return res.ok ? validateEdits((await res.json()).edits) : [];
+    return res.ok ? (await res.json()).edits : [];
   } catch { return []; } finally { clearTimeout(timer); }
 }
 // A whole song from one sentence: the server's model (or its rules, with no key) writes a validated spec;
@@ -80,7 +80,7 @@ const chipList = (ctx) => (ctx.fresh?.() ? FIRST_CHIPS : [songChip(ctx.style()),
 const placeholder = (ctx) => (lyricsOpen ? 'Describe the song: “sad indie, female vocal, 90 bpm”' : ctx.fresh?.() ? 'Or describe a song' : `Try “${chipsFor(ctx.style())[0]}”`);
 const songChip = (style) => (/CLASSICAL|JAZZ/.test(STYLE_FAMILY(style)) ? 'A late-night rainy track' : 'A sunrise drive song');
 const STYLE_FAMILY = (id) => STYLES[id]?.family || '';
-// ctx: state(), style(), styleName(id), depth(), pushUndo(label), undo(), switchGenre(id, steer, label), song(spec, label, done(title, key), lyrics), commit(nextState), track(props), kind(),
+// ctx: state(), style(), styleName(id), depth(), pushUndo(label), undo(), switchGenre(id, steer, label), song(spec, label, done(title, key, scale), lyrics), commit(nextState), track(props), kind(),
 // prompted(text) (optional: the prompt the next switchGenre/song is written from, for listen signals)
 // highlight(bars) (optional: shows which bars of the song a scoped edit changed)
 export function describeBar(ctx) {
@@ -240,14 +240,16 @@ export function describeBar(ctx) {
     if (isPlanPrompt(text)) return runPlan(text, '');
     const parsed = parse(text, { style, last: recent, net });
     if (!parsed.edits.length) {
-      if (navigator.onLine === false || /^(?:more|again|less|too much|other way|undo\b)/.test(text.toLowerCase())) return miss(text);
+      const unsupported = parsed.unsupportedHarmony || [];
+      const why = unsupported.length ? 'Changing chord voicings in one section is not supported yet. Try:' : null;
+      if (navigator.onLine === false || !parsed.unknown.some((clause) => !unsupported.includes(clause))) return miss(text, why);
       hint = { note: 'Thinking…', suggestions: [] };
       paint();
-      return askAI(text, style).then((edits) => {
+      return fallbackEdits(parsed, (s) => askAI(s, style), text).then((result) => {
         if (mine !== ticket) return;
         hint = null;
-        if (!edits.length) return miss(text);
-        apply(text, style, { edits, unknown: [] }, []);
+        if (!result.edits.length) return miss(text, why);
+        apply(text, style, result, []);
       });
     }
     if (!genreOf(parsed.edits, style) && needsMix(parsed.edits)) {
@@ -305,6 +307,8 @@ export function describeBar(ctx) {
       const lyrics = cleanLyrics(planLyrics(plan, text));
       if (lyrics) r.state.lyrics = lyrics; else delete r.state.lyrics;
       if (plan.title && r.state.artist) r.state.artist.title = plan.title;
+      // The plan's feeling (named, or the one its words were written in) is the song's, so the singer agrees with the words.
+      if (plan.feel && r.state.feel) r.state.feel = plan.feel;
       if (lyrics) r.state = fitLyrics(r.state, plan.style);
       const lines = lyrics?.sections.reduce((n, x) => n + x.lines.length, 0) || 0;
       last = { did: [`new ${ctx.styleName(plan.style)} song`, ...r.did, ...(lines ? [`${lines} lyric lines`] : []), ...(plan.vocal ? [`${plan.vocal} vocal (not sung yet)`] : [])], miss: '', depth: ctx.depth() };
@@ -317,15 +321,18 @@ export function describeBar(ctx) {
     hint = { note: 'Writing the song…', suggestions: [] };
     paint();
     // The plan rules read words the spec rules don't ("indie", "female vocal"); the vocal is kept for the singer.
-    const plan = rulePlan(text, '', { style }), meta = plan ? cleanLyrics(planLyrics(plan, text)) : null;
+    let plan = rulePlan(text, '', { style }), meta = plan ? cleanLyrics(planLyrics(plan, text)) : null;
     return askSong(text, style, { genre: promptGenre(text), bpm: plan?.bpm }).then((spec) => {
       if (mine !== ticket) return;
+      // The written words and the song share one feeling: the spec's if it names one, else the one the words were written in.
+      if (meta && plan.feel && spec.feel && spec.feel !== plan.feel) { plan = rulePlan(text, '', { style, feel: spec.feel }); meta = cleanLyrics(planLyrics(plan, text)); }
+      else if (meta && plan.feel && !spec.feel) spec = { ...spec, feel: plan.feel };
       hint = null; draft = ''; recent = null; net = null;
       const label = `“${text.length > 32 ? text.slice(0, 31) + '…' : text}”`;
       const bars = spec.sections.reduce((a, x) => a + x.bars, 0);
       ctx.prompted?.(text);
-      ctx.song(spec, label, (title, key) => {
-        last = { did: [`new ${ctx.styleName(spec.style)} song “${title}”`, `${spec.sections.length} sections, ${bars} bars, ${spec.bpm} BPM in ${KEYS[key]} ${spec.scale}`, ...(meta?.vocal ? [`${meta.vocal} vocal (not sung yet)`] : [])], miss: '', depth: ctx.depth() };
+      ctx.song(spec, label, (title, key, scale) => {
+        last = { did: [`new ${ctx.styleName(spec.style)} song “${title}”`, `${spec.sections.length} sections, ${bars} bars, ${spec.bpm} BPM in ${KEYS[key]} ${scale}`, ...(meta?.vocal ? [`${meta.vocal} vocal (not sung yet)`] : [])], miss: '', depth: ctx.depth() };
       }, meta);
       ctx.track({ kind: 'song', genre: spec.style });
     });

@@ -5,20 +5,21 @@ import { createListens, songFingerprint, promptHash, promptText } from './listen
 import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue, VOICE_HIDDEN } from './params.js';
 import { Engine, Sequencer, parseChain } from './engine.js';
 import { setChain } from './chain.js';
-import { defaultState, generate, mutate, arrangement, songChain, applySongPlan, applyOverrides, clone, save, load, sanitize, STYLES, MAJOR_STYLES, emptyPattern, emptyAcidStep, fitLyrics, refreshSong } from './state.js';
+import { defaultState, generate, mutate, arrangement, songChain, applySongPlan, songFeel, songScale, applyOverrides, clone, save, load, sanitize, STYLES, MAJOR_STYLES, emptyPattern, emptyAcidStep, fitLyrics, refreshSong } from './state.js';
 import { renderBars, bufferToWav } from './render.js';
 import { exportButtons } from './export-ui.js';
 import { encodeWav, rng } from './dsp.js';
 import { knob, numBox, h, controlHooks } from './ui.js';
 import { createHistory, gesture } from './undo.js';
 import { openPublish } from './publish.js';
-import { createSetRecorder, openSetCutter, openSongPublish, openJukebox, fmtTime, loadReplay } from './sets.js';
+import { createSetRecorder, openSetCutter, openSongPublish, openJukebox, jukeboxPreviewSeconds, fmtTime, loadReplay } from './sets.js';
 import { loadArtistProfile, openArtistStudio } from './artist.js';
 import { openClub, loadAvatar, avatarNode, hostingRoom } from './club.js';
 import { liveNowRow, watchLiveRooms, liveDirectory, fetchLiveRooms } from './live-rooms.js';
-import { playTimeline, stopTimeline } from './live-sets.js';
+import { playTimeline, stopTimeline, prepareTimeline } from './live-sets.js';
 import { saveTrack, trackTitle, recentTracks, libraryTracks, fetchTrack, countPlay } from './crate.js';
 import { radioOn, setRadio, nextUp } from './radio.js';
+import { FEELS, FEEL_IDS, isFeel } from './feel.js';
 import { createMiniPlayer } from './mini-player.js';
 import { openLibrary } from './library.js';
 import { dropCard, pushOffer, guardPushOffer } from './drop.js';
@@ -84,6 +85,9 @@ window.addEventListener('error', (e) => showCrash(e.error || e.message));
 let studioOpen = localStorage.getItem('untergrund.studio-open') === '1';
 // GENERATE writes a full 3-4 minute song, or a sketch of the idea (longform.js).
 let songLength = localStorage.getItem('untergrund.length') === 'sketch' ? 'sketch' : 'song';
+// The feeling the listener asked for (a chip on Create); null lets each song's seed pick one that fits the genre.
+let feelPick = isFeel(localStorage.getItem('untergrund.feel')) ? localStorage.getItem('untergrund.feel') : null;
+let feelScroll = 0;
 // Phone Studio shows one section at a time; steps show 8 at a time.
 const STUDIO_TABS = [['song', 'SONG'], ['steps', 'STEPS'], ['sound', 'SOUND'], ['mix', 'MIX']];
 let studioTab = STUDIO_TABS.some(([id]) => id === localStorage.getItem('untergrund.studio-tab')) ? localStorage.getItem('untergrund.studio-tab') : 'steps';
@@ -326,7 +330,13 @@ function schedule(lead) {
     // A generated song has played its final bar: let it ring, then stop rather than loop back to the intro.
     if (seq.finished && !handoff) {
       songOver = true;
-      setTimeout(() => { if (playing && songOver) { const radio = radioPlays(); stop('complete'); if (radio) { trackEvent('radio', { kind: 'next' }); radioNext(); } } }, Math.max(0, nextTime - ctx.currentTime + 2.5) * 1000);
+      setTimeout(() => {
+        if (!playing || !songOver) return;
+        const finishJukebox = jukeboxNow?.finish, radio = radioPlays();
+        stop('complete');
+        if (finishJukebox) finishJukebox();
+        else if (radio) { trackEvent('radio', { kind: 'next' }); radioNext(); }
+      }, Math.max(0, nextTime - ctx.currentTime + 2.5) * 1000);
       break;
     }
   }
@@ -416,14 +426,14 @@ function queueSong(plan) {
   h.plan = plan;
   const tryArm = () => {
     if (handoff !== h || h.step != null || !playing) return;
-    if (!setsReady(liveSets(h.plan.next)) && performance.now() - h.since < 7990) return;
+    if (!setsReady(liveSets(h.plan.next, h.plan.replay808Style)) && performance.now() - h.since < 7990) return;
     // The sweep needs its own lead past the audio already queued, not just from now.
     const lead = nextTime - ctx.currentTime;
     const at = handoffStep({ abs, lead, stepSec: engine.stepDur, origin: seq.origin, minLead: Math.max(MIN_LEAD, lead + 0.4) });
     Object.assign(h, at, { due: performance.now() + at.at * 1000, total: at.at * 1000, out: false });
     renderHome();
   };
-  loadSets(liveSets(plan.next)).catch(() => {}).then(tryArm);
+  loadSets(liveSets(plan.next, plan.replay808Style)).catch(() => {}).then(tryArm);
   setTimeout(tryArm, 8000 - (performance.now() - h.since));
   tryArm();
   const when = h.step == null ? 'seating the band' : 'on the bar';
@@ -462,14 +472,14 @@ function landSong(t) {
 // A song on recorded instruments holds its first downbeat until they're decoded (up to 8 s); a score waits longer,
 // since its orchestra has no synth stand-in. Recordings already here start at once, as do seeks and clock-synced starts.
 let tuning = null;
-function needsTuning() {
+function needsTuning(replay808Style = engine?.replay808Style) {
   const sc = pat()?.score;
   if (sc) return scoreReady(sc) ? null : { load: () => preloadScore(sc), wait: 30000, label: 'SEATING THE ORCHESTRA' };
-  const names = liveSets(state);
+  const names = liveSets(state, replay808Style);
   return setsReady(names) ? null : { load: () => loadSets(names), wait: 8000, label: 'SEATING THE BAND' };
 }
 function play(opts = {}) {
-  const need = playing || opts.delay != null || opts.startsAt != null || opts.stepWall != null ? null : needsTuning();
+  const need = playing || opts.delay != null || opts.startsAt != null || opts.stepWall != null ? null : needsTuning(opts.replay808Style);
   if (!need) return start(opts);
   ensureAudio(); stopPreview();
   clearTimeout(tuning?.timer);
@@ -628,7 +638,7 @@ const listenSurface = () => (jukeboxNow ? 'jukebox' : songOrigin.src === 'room' 
 function listenCtx() {
   const a = state.artist || {};
   const ctx = { fp: songFingerprint(state), tid: guest?.song?.trackId || songOrigin.tid || '', seed: Number.isFinite(+a.seed) ? +a.seed : -1, style: STYLES[a.style] ? a.style : style,
-    src: songOrigin.src, surf: listenSurface(), ph: songOrigin.ph || '', pt: songOrigin.pt || '', arr: songShape(), via: songOrigin.via || '' };
+    src: songOrigin.src, surf: listenSurface(), ph: songOrigin.ph || '', pt: songOrigin.pt || '', arr: songShape(), via: songOrigin.via || '', feel: isFeel(state.feel) ? state.feel : '' };
   const x = experimentFor(ctx);
   // An experiment that changes songs (`apply`) tags only songs made under it, with the arm they were made in;
   // restored, crate, shared and room songs were never treated, so they stay out of its read-out.
@@ -730,7 +740,7 @@ const songFps = (s) => [...new Set([songFingerprint(s), songFingerprint(sanitize
 const radioPlays = () => radioOn() && !jukeboxNow && !roomResume && !artistLive && !guest && songOrigin.src !== 'room' &&
   !hostingRoom() && !document.querySelector('.club-overlay');
 function radioNext(why = '') {
-  const n = nextUp({ queue: queue && { ids: queue.items, i: queue.i }, style, styles: STYLES, why, skip: (t) => songFps(t.state).some(listens.isDowned) });
+  const n = nextUp({ queue: queue && { ids: queue.items, i: queue.i }, style, styles: STYLES, why, feel: feelPick, skip: (t) => songFps(t.state).some(listens.isDowned) });
   if (n.kind === 'track') { queue.i = n.i; return openRecent(queue.items[n.i]); }
   queue = null;
   if (n.style !== style) {
@@ -850,8 +860,8 @@ function setMaster(id, v) {
 
 // Undo / redo. `label` names the edit for the toast ("Undone: CLEAR pattern B").
 function snapshot(like = {}) {
-  const { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn } = state;
-  const snap = { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn, chainEntries: state.chainEntries ?? null, labels: state.labels || null, lyrics: state.lyrics || null, sing: state.sing || null };
+  const { patterns, params, master, bpm, swing, key, scale, mutes, solos, locks, chain, chainOn } = state;
+  const snap = { patterns, params, master, bpm, swing, key, scale, mutes, solos, locks, chain, chainOn, chainEntries: state.chainEntries ?? null, labels: state.labels || null, lyrics: state.lyrics || null, sing: state.sing || null, feel: state.feel || null };
   if ('artist' in like) snap.artist = state.artist ?? null;
   if (like.ui) snap.ui = { style, family };
   return JSON.stringify(snap);
@@ -878,6 +888,7 @@ function restore(entry, verb) {
   if (!state.labels) delete state.labels;
   if (!state.lyrics) delete state.lyrics;
   if (!state.sing) delete state.sing;
+  if (!state.feel) delete state.feel;
   engine?.applyAll(); engine?.applyDelayTime();
   build(); persist(); toast(entry.label ? `${verb}: ${entry.label}` : verb);
 }
@@ -934,7 +945,7 @@ function currentSong() {
 }
 // The song whose share sheet is open, so a share made before pressing play still names the song it shared.
 let sharing = null;
-const sharingCtx = () => (sharing?.song?.state ? { fp: songFingerprint(sharing.song.state), tid: sharing.song.trackId || '', style: sharing.song.style || '', surf: sharing.source || '' } : null);
+const sharingCtx = () => (sharing?.song?.state ? { fp: songFingerprint(sharing.song.state), tid: sharing.song.trackId || '', style: sharing.song.style || '', surf: sharing.source || '', feel: isFeel(sharing.song.state.feel) ? sharing.song.state.feel : '' } : null);
 function showShare(song = currentSong(), source = 'studio') { sharing = { song, source }; openShare({ song, toast, download, source, hue: hue(song.style), room: hostingRoom(), beforeExport: () => { if (playing) stop(); } }); }
 
 // Play a shared or jukebox song in place; leaveGuest() puts the listener's own project back.
@@ -1021,7 +1032,9 @@ function showJukebox() {
       ensureAudio();
       current = null;
       trackEvent('set_replay', { kind: 'jukebox' });
-      return playTimeline(await loadReplay(item), Date.now() + 200, timelineHooks(true));
+      const timeline = await loadReplay(item);
+      await prepareTimeline(timeline);
+      return playTimeline(timeline, Date.now() + 200, timelineHooks(true));
     },
     playSong: async (item) => {
       ensureAudio();
@@ -1036,8 +1049,7 @@ function showJukebox() {
         current = { ...normalizeSong({ ...item, state: saved.state, remixOf: saved.remixOf || item.remixOf }), trackId: item.local ? '' : item.trackId };
       }
       listen(current, item.kind === 'drop' ? 'drop' : 'jukebox');
-      const bars = state.chainOn ? parseChain(state.chain).length || 8 : 8;
-      return (Math.min(bars, 64) * 16 * 15) / state.bpm;
+      return jukeboxPreviewSeconds(state);
     },
   });
 }
@@ -1073,6 +1085,7 @@ function timelineHooks(asGuest, replayStats = null, switchAt = null) {
       songOrigin = { src: asGuest ? 'jukebox' : 'room' };
       if (STYLES[st]) replay808Style = style = st;
       const next = sanitize({ ...s, artist: state.artist });
+      loadSets(liveSets(next, replay808Style)).catch(() => {});
       if (switchAt !== null) {
         installRoomSong(next, switchAt, replay808Style, replaySeed);
         return;
@@ -1086,6 +1099,7 @@ function timelineHooks(asGuest, replayStats = null, switchAt = null) {
       replaySeed = Number.isFinite(s.seed) ? s.seed : undefined;
       if (STYLES[st]) replay808Style = style = st;
       const next = sanitize({ ...clone(state), ...s, chainEntries: s.chainEntries });
+      loadSets(liveSets(next, replay808Style)).catch(() => {});
       // The DJ generated a new song: the replay hands off on a downbeat too, from the new song's bar 1.
       const newSong = next.chain !== state.chain && JSON.stringify(next.patterns[0]) !== JSON.stringify(state.patterns[0]);
       if (playing && seq && newSong && !pat().score && !next.patterns.some((q) => q.score)) {
@@ -1148,6 +1162,7 @@ async function joinRoomReplay(item) {
   let timeline;
   try {
     timeline = item.replay.timeline || await loadReplay(item.replay);
+    await prepareTimeline(timeline, +item.startsAt);
   } catch {
     if (roomReplayLoad === request) joinRoomSet({ ...item, replay: null });
     return;
@@ -1233,7 +1248,7 @@ function queueRoomTrack(track, roomState, nextStyle, startsAt, editRoom) {
   queuedRoomSwitch = { track, roomState, nextStyle, startsAt, editRoom, jamEdits:[] };
   prepareSample(roomState);
   engine.prepareVocal(roomState);
-  loadSets(liveSets(roomState)).catch(() => {});
+  loadSets(liveSets(roomState, nextStyle)).catch(() => {});
 }
 
 function startRoomBroadcast(startsAt, track) {
@@ -1438,9 +1453,11 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   let seed = drop ? drop.seed : songSeed();
   const source = clone(pat());
   const lockedParams = Object.fromEntries(TRACK_IDS.filter((t) => s.locks[t]).map((t) => [t, clone(s.params[t])]));
+  s.scale = songScale(s);
   const major = matchStyleScale(s);
-  if (typeof hum === 'function' && !drop) seed = humSeed(id, s.scale, hum);
-  const g = generate(id, seed, s.scale);
+  const asked = drop ? null : feelPick;
+  if (typeof hum === 'function' && !drop) seed = humSeed(id, s.scale, hum, 24, asked);
+  const g = generate(id, seed, s.scale, { feel: songFeel(id, seed, asked) });
   s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   if (source.score?.composer) for (const q of s.patterns) if (q.score?.form) q.score.composer = source.score.composer;
   s.key = g.key;
@@ -1450,19 +1467,21 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   }
   applyOverrides(s, g, withBpm);
   for (const [t, params] of Object.entries(lockedParams)) s.params[t] = params;
+  // A new song starts with every part on: mutes and solos from the last song (or a stray 1-7 key) would silence it.
+  for (const k of ['mutes', 'solos']) s[k] = Object.fromEntries(TRACK_IDS.map((t) => [t, !!(s.locks[t] && s[k]?.[t])]));
   s.chainOn = true;
   s.ending = true;
   // A score sets its own tempo even mid-set; a masterwork keeps its title and composer.
   if (g.pattern.score) s.bpm = g.bpm;
   if (typeof hum === 'function' && !g.pattern.score) { const r = hum(s.bpm, s.scale); s.key = r.key; if (r.hook) placeHook(s.patterns, r.hook); }
-  applySongPlan(s, id, seed, drop ? 'song' : songLength);
+  applySongPlan(s, id, seed, drop ? 'song' : songLength, asked);
   const piece = PIECE[g.pattern.score?.piece];
   const title = piece ? piece.title : drop ? drop.title : trackTitle(seed);
   const artist = piece ? piece.composer : loadAvatar().name || 'UNTERGRUND';
   s.artist = { name: artist, title, style: id, seed, created: new Date().toISOString() };
   delete s.remixOf; delete s.drop; delete s.lyrics;
-  // Hummed, prompted and experiment songs aren't just their seed, so they keep the notes they were written with.
-  s.fresh = typeof hum === 'function' || typeof steer === 'function' ? 0 : 1;
+  // Hummed, prompted, experiment and locked-track songs aren't just their seed, so they keep the notes and mix they were written with.
+  s.fresh = typeof hum === 'function' || typeof steer === 'function' || TRACK_IDS.some((t) => s.locks[t]) ? 0 : 1;
   if (drop) Object.assign(s, { drop: drop.date, remixOf: { id: '', title: `Daily Drop · ${drop.title}`, artist: 'UNTERGRUND' } });
   const prompt = typeof steer === 'function' ? pendingPrompt : null;
   pendingPrompt = null;
@@ -1715,11 +1734,11 @@ let nextSeed = null, warmed = '';
 const songSeed = () => { const s = nextSeed ?? ((Math.random() * 1e9) | 0); nextSeed = null; return s; };
 function preloadStyle(id) {
   nextSeed ??= (Math.random() * 1e9) | 0;
-  if (warmed === `${id}:${nextSeed}`) return;
-  warmed = `${id}:${nextSeed}`;
-  const g = generate(id, nextSeed, state.scale);
+  if (warmed === `${id}:${nextSeed}:${feelPick}`) return;
+  warmed = `${id}:${nextSeed}:${feelPick}`;
+  const g = generate(id, nextSeed, state.scale, { feel: songFeel(id, nextSeed, feelPick) });
   if (g.pattern.score) preloadScore(g.pattern.score).catch(() => {});
-  else loadSets(liveSets(g));
+  else loadSets(liveSets(g, id));
 }
 function selectStyle(id) { style = id; preloadStyle(id); if (STYLES[id].family === 'CLASSICAL') loadPiano(); build(); }
 function lengthPicker() {
@@ -1728,6 +1747,27 @@ function lengthPicker() {
   return h('div', { class: 'gen-length', role: 'group', 'aria-label': 'Song length' },
     opt('song', 'FULL SONG · 3–4 MIN', 'Verses that develop, a bridge, an instrumental and a bigger last chorus'),
     opt('sketch', 'SKETCH · ~1 MIN', 'Just the idea: intro, verse, chorus, out'));
+}
+// How do you want to feel? Any (the seed picks) or one feeling; GENERATE and Radio write every song in it.
+const feelAsked = () => (STYLES[style].family === 'CLASSICAL' ? null : feelPick);
+function feelPicker() {
+  const opt = (id, label, title) => h('button', { class: 'feel-chip' + (feelPick === id ? ' on' : ''), type: 'button', 'data-feel': id || 'any', 'aria-pressed': String(feelPick === id), title,
+    onclick: () => { feelPick = id; if (id) localStorage.setItem('untergrund.feel', id); else localStorage.removeItem('untergrund.feel'); build(); } }, label);
+  const row = h('div', { class: 'gen-feel', role: 'group', 'aria-label': 'How do you want to feel?', onscroll: () => { feelScroll = row.scrollLeft; } },
+    opt(null, 'Any', 'Each song picks a feeling that fits the genre'),
+    FEEL_IDS.map((id) => opt(id, FEELS[id].label, `Every new song feels ${FEELS[id].label.toLowerCase()}`)));
+  // build() replaces the row: on phone (where it scrolls) keep where the listener left it, with the picked chip in view.
+  queueMicrotask(() => {
+    if (!row.isConnected) return;
+    row.scrollLeft = feelScroll;
+    const on = row.querySelector('.on');
+    if (!on || row.scrollWidth <= row.clientWidth) return;
+    const box = row.getBoundingClientRect(), chip = on.getBoundingClientRect(), fade = row.clientWidth * 0.15 + 4;
+    if (chip.left < box.left + 20) row.scrollLeft += chip.left - box.left - 20;
+    else if (chip.right > box.right - fade) row.scrollLeft += chip.right - box.right + fade;
+    feelScroll = row.scrollLeft;
+  });
+  return row;
 }
 
 function selectFamily(f) {
@@ -1872,7 +1912,7 @@ function styleCard(id, value, isPlaying) {
   return card;
 }
 
-function buildNowPlaying(primary) {
+function buildNowPlaying(primary, feels = null) {
   const a = state.artist || {};
   const sid = STYLES[a.style] ? a.style : style;
   const sc = pat()?.score ? compose(pat().score) : null;
@@ -1892,7 +1932,9 @@ function buildNowPlaying(primary) {
       h('div', { class: 'np-top' }, h('span', { class: 'np-eyebrow' }, h('i', { class: 'np-dot' }), paused ? 'PAUSED' : 'NOW PLAYING'), h('span', { class: 'np-top-r' }, radioButton(), reactions.buttons)),
       reactions.reasons,
       h('h1', {}, a.title || 'Untitled set'),
-      h('div', { class: 'np-meta' }, [a.name || 'UNTERGRUND', STYLES[sid].name, `${state.bpm} BPM`, sc?.meta ? sc.meta.key.toUpperCase() : `${KEYS[state.key]} ${sc ? (pat().score.mode === 'm' ? 'MINOR' : 'MAJOR') : SCALES[state.scale]?.name || 'MINOR'}`]
+      // A listener hears a feeling, not a tempo and key (those stay in Studio); songs without one show tempo and key.
+      h('div', { class: 'np-meta' }, [a.name || 'UNTERGRUND', STYLES[sid].name, ...(!sc && isFeel(state.feel) ? [FEELS[state.feel].label.toUpperCase()]
+        : [`${state.bpm} BPM`, sc?.meta ? sc.meta.key.toUpperCase() : `${KEYS[state.key]} ${sc ? (pat().score.mode === 'm' ? 'MINOR' : 'MAJOR') : SCALES[state.scale]?.name || 'MINOR'}`])]
         .flatMap((v, i) => [i ? ' ' : '', h('span', {}, i ? `· ${v}` : v)])),
       ui.npCanvas,
       h('div', { class: 'np-progress' }, h('div', { class: 'np-label' }, ui.npSection, ui.npBar), h('div', { class: 'np-cells' }, ui.npCells))),
@@ -1900,13 +1942,14 @@ function buildNowPlaying(primary) {
       paused ? h('button', { class: 'np-stop resume', title: 'Resume (Space)', 'aria-label': 'Resume', onclick: toggle }, h('i'))
         : h('button', { class: 'np-stop', title: 'Stop (Space)', 'aria-label': 'Stop', onclick: toggle }, h('i')),
       primary,
+      feels,
       ...lifecycleActions()),
   ];
 }
 
-// The explicit reactions: love or down the song you hear, one tap each. After a down, three optional one-tap reasons
+// The explicit reactions: love or down the song you hear, one tap each. After a down, four optional one-tap reasons
 // (never a text box); everything else (where it was, what it is, what you did next) is read from the listen itself.
-const DOWN_WHY = { boring: 'Boring', sounds_bad: 'Sounds bad', not_my_style: 'Not my style' };
+const DOWN_WHY = { boring: 'Boring', no_feeling: "Didn't feel anything", sounds_bad: 'Sounds bad', not_my_style: 'Not my style' };
 // Now Playing can render before the next song's listen begins (song handoffs), so the controls repaint once it has.
 // Now Playing and the mini-player each have a set; a tap on either repaints both.
 const reactionPaints = new Set();
@@ -2051,7 +2094,7 @@ function buildGenerateHome() {
     ? h('button', { class: 'generate-primary tuning', 'aria-busy': 'true', style: `--tune-at:${((tuning.at - performance.now()) / 1000).toFixed(2)}s`, onclick: () => generateNow() },
       h('span', {}, 'TUNING UP'), h('small', {}, `${STYLES[state.artist?.style]?.name || STYLES[style].name} · ${tuning.label}`))
     : h('button', { class: 'generate-primary' + (performance.now() - generatedAt < 900 ? ' fired' : '') + (wait || band ? ' gen-queued' : ''), style: wait ? `--gen-wait:${Math.round(handoff.total)}ms;--gen-at:${Math.round(wait - handoff.total)}ms` : null, onclick: () => generateNow() },
-      h('span', {}, 'GENERATE'), h('small', {}, band ? 'Up next · seating the band' : wait ? 'Up next · on the bar' : `${STYLES[style].name} · ${STYLES[style].family === 'CLASSICAL' ? 'full piece' : songLength === 'sketch' ? 'sketch' : 'full song'}`));
+      h('span', {}, 'GENERATE'), h('small', {}, band ? 'Up next · seating the band' : wait ? 'Up next · on the bar' : [STYLES[style].name, feelAsked() && FEELS[feelAsked()].label, STYLES[style].family === 'CLASSICAL' ? 'full piece' : songLength === 'sketch' ? 'sketch' : 'full song'].filter(Boolean).join(' · ')));
   const showNp = (playing || !!paused) && !studioOpen;
   // First visit shows only the essentials; the rest unlocks once a track has been made.
   const made = hasMade();
@@ -2061,13 +2104,16 @@ function buildGenerateHome() {
   madeShown = made;
   const since = performance.now() - unlockAt, unlock = unlockAt > 0 && since < 900;
   const hum = !made || STYLES[style].family === 'CLASSICAL' ? null : humButton(humApi);
-  const left = showNp ? buildNowPlaying(primary) : [
+  // Secondary like the length picker: first run keeps GENERATE the only choice.
+  const feels = made && STYLES[style].family !== 'CLASSICAL' ? feelPicker() : null;
+  const left = showNp ? buildNowPlaying(primary, feels) : [
     h('div', { class: 'generate-copy' },
       h('h1', {}, 'Press Generate. Hear a finished track.'),
       h('p', {}, made ? 'Change it in words, refine it in Studio, or play it live in the Club.' : 'One tap writes, arranges and plays a whole song. Pick a sound first, or describe the song you want.'),
       made ? dropPeek() : null),
     h('div', { class: 'generate-actions' },
       studioOpen ? primary : h('div', { class: 'gen-wrap' }, primary, hum),
+      feels,
       made && STYLES[style].family !== 'CLASSICAL' ? lengthPicker() : null,
       made ? h('button', { class: 'btn refine-toggle', onclick: toggleStudio }, studioOpen ? 'HIDE STUDIO' : 'REFINE IN STUDIO') : null,
       studioOpen ? hum : null),
@@ -2147,7 +2193,7 @@ function describeBox() {
         const next = songState(spec, s.artist.seed, s).state;
         // Written lyrics sing their title: the song takes it too.
         const out = lyrics ? fitLyrics({ ...next, lyrics, artist: lyrics.title ? { ...next.artist, title: lyrics.title } : next.artist }, spec.style) : next;
-        done(out.artist.title, out.key);
+        done(out.artist.title, out.key, out.scale);
         return out;
       });
       play();
@@ -2470,6 +2516,8 @@ function reviseRoomHits(track, pattern) {
 
 function toggleTrackFlag(key, id) {
   state[key][id] = !state[key][id];
+  // A mute or solo is the listener's own mix, so the song stops following the generator and keeps it.
+  if (key !== 'locks') state.fresh = 0;
   if (key === 'mutes') reviseRoomHits(id);
   if (key === 'solos') reviseRoomHits();
   renderAllRows(); persist();

@@ -99,6 +99,16 @@ try {
   assert(result[2].stems.includes('pno') && !result[2].stems.includes('kick'), 'nocturne stems are orchestra parts');
   assert(result[3].loud.includes('hook') && result[3].loud.includes('kick'), 'the sidechained Drill hook and kick have separate stems');
   assert(result[4].loud.includes('dubpad') && result[4].loud.includes('stab') && result[4].loud.includes('acid'), 'Dub pad, stabs and sub have separate audible stems');
+  const fit = await run(`(async () => {
+    const { fitStems } = await import('/js/stems.js');
+    const r = { stems: [{ id: 'acid', name: 'bass', left: new Float32Array([0.5, 1.2]), right: new Float32Array([0, -0.6]) },
+      { id: 'kick', name: 'kick', left: new Float32Array([0.5]), right: new Float32Array([-0.5]) }] };
+    fitStems(r);
+    return { gain: r.gain, bass: Math.max(...r.stems[0].left.map(Math.abs)), kick: r.stems[1].left[0] };
+  })()`);
+  assert.equal(fit.bass, Math.fround(0.99), 'the loudest stem is printed just under full scale');
+  assert(Math.abs(fit.gain - 0.99 / Math.fround(1.2)) < 1e-9, 'one common gain for every stem');
+  assert.equal(fit.kick, Math.fround(0.5 * fit.gain), 'the other stems take the same gain, so the sum still matches the mix');
   ws.close();
   console.log('stems tests passed');
 } finally { await done(); }

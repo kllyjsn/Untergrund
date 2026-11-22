@@ -1,17 +1,20 @@
 // Composition scorecard: plays every genre's full song through the real Sequencer with a note-logging
 // engine and measures how the music develops: melody, harmony, voice leading, arrangement contrast, and how
-// distinct its sections are (verse vs chorus chords, register and energy, the pre-chorus lift, the bridge).
+// distinct its sections are (verse vs chorus chords, register and energy, the pre-chorus lift, the bridge), and whether
+// its measurable cues agree with the feeling it was written for (feelFit, FEELS in js/feel.js).
 // node scripts/composition.mjs [--assert] [--update] [--json out.json] [--style id]
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { STYLES, MAJOR_STYLES, generate, arrangement, applySongPlan, defaultState, applyOverrides, fitLyrics } from '../js/state.js';
+import { STYLES, MAJOR_STYLES, generate, arrangement, applySongPlan, songFeel, defaultState, applyOverrides, fitLyrics } from '../js/state.js';
 import { SING_PROFILES } from '../js/melody.js';
 import { lineStress, rhymes } from '../js/prosody.js';
 import { writeLyrics, rhymePairs } from '../js/lyric-writer.js';
-import { Sequencer, guitarGrip } from '../js/engine.js';
+import { Sequencer, guitarGrip, stabPitches } from '../js/engine.js';
 import { stabNotes, hookSnap, voiceLead } from '../js/harmony.js';
+import { finalPeak } from '../js/longform.js';
+import { FEELS } from '../js/feel.js';
 
 export const SEEDS = [101, 211, 307, 401, 503, 601, 701, 809];
 const BASELINE = resolve(dirname(fileURLToPath(import.meta.url)), '../test/composition-baseline.json');
@@ -23,7 +26,7 @@ const ROLE = ['intro', 'pre', 'verse', 'fill', 'bridge', 'bridge', 'chorus', 'ch
 export function buildSong(style, seed, length = 'song') {
   const s = defaultState();
   if (MAJOR_STYLES.has(style)) s.scale = 'major';
-  const g = generate(style, seed, s.scale);
+  const g = generate(style, seed, s.scale, { feel: songFeel(style, seed) });
   s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   applyOverrides(s, g, true);
   s.chainOn = true; applySongPlan(s, style, seed, length); s.ending = true; s.current = 0;
@@ -34,9 +37,10 @@ export function buildSong(style, seed, length = 'song') {
 // writes them), syllables laid on each phrase's notes in order the way the singer does. Measured on the written parts.
 export const LYRIC_PROMPTS = ['a song about leaving LA', 'a love song', 'a sad song about missing you', 'a song about a night out in the city',
   'a summer song about the beach', 'a song about going home'];
-export const songWords = (style, seed) => writeLyrics({ prompt: LYRIC_PROMPTS[seed % LYRIC_PROMPTS.length], style, seed });
+export const songWords = (style, seed, feel = null) => writeLyrics({ prompt: LYRIC_PROMPTS[seed % LYRIC_PROMPTS.length], style, seed, feel });
+// Written in the song's own feeling, as the prompt path does.
 export function lyricSong(style, seed) {
-  const lyr = songWords(style, seed), s = buildSong(style, seed);
+  const s = buildSong(style, seed), lyr = songWords(style, seed, s.feel);
   s.lyrics = { v: 1, title: lyr.title, sections: lyr.sections };
   return fitLyrics(s, style);
 }
@@ -98,7 +102,7 @@ export function songwriting(m, sections) {
 export function playSong(s, replay808Style, replaySeed) {
   const log = [];
   const e = new Proxy({ stepDur: 0.125, harm: null, get playbackStyle() { return replay808Style ?? s.artist?.style; }, get playbackSeed() { return replaySeed ?? s.artist?.seed; } }, {
-    get(o, k) { return k in o ? o[k] : (...a) => { log.push({ k, a, harm: o.harm, step: o.step }); }; },
+    get(o, k) { return k in o ? o[k] : (...a) => { log.push({ k, a, harm: o.harm, step: o.step, ...(o.bossaComp ? { comp: o.bossaComp, pattern: o.playingPattern } : {}) }); }; },
     set(o, k, v) { o[k] = v; return true; },
   });
   const seq = new Sequencer(e, s);
@@ -107,13 +111,49 @@ export function playSong(s, replay808Style, replaySeed) {
   return { log, bars, seq };
 }
 
+// The chill (emotion.peak-last): which peak devices each stretch of peak bars plays, read off the engine's events.
+// suspension: an accented upper neighbour resolved down a step onto the next lead note; entry: a voice doubling the
+// lead that no other bar has; dropout: a bar with the lead (or the chords) and no drums or bass, before the band
+// returns; lift: the chords a whole step above the earlier choruses'. `fresh` lists what only the final run has.
+export function peakDevices(s) {
+  const { log, bars } = playSong(s), run = finalPeak(s.chain), p = s.params.stab;
+  if (!run) return { final: [], earlier: [], fresh: [] };
+  const c = [].concat(s.chain).join(''), where = (b) => (b >= run.from && b <= run.to ? 'final' : b < run.from && 'GH'.includes(c[b]) ? 'earlier' : null);
+  const per = Array.from({ length: bars }, () => ({ lead: [], band: 0, roots: [], pcs: [], entry: 0 }));
+  for (const L of log) {
+    const B = per[Math.floor(L.step / 16)];
+    if (!B) continue;
+    if (L.harm && (L.k === 'acid' || (L.k === 'trigger' && L.a[0] === 'stab'))) B.roots.push(((L.harm.r % 12) + 12) % 12);
+    if (L.k === 'hook' && !L.a[9]?.harm) B.lead.push({ t: L.a[0], d: L.a[3], n: hookSnap(L.a[2], L.harm, p, L.a[6], L.a[8]), app: L.a[9]?.app });
+    else if (L.k === 'peakVoice') B.entry++;
+    else if ((L.k === 'trigger' && L.a[0] !== 'stab') || L.k === 'acid') B.band++;
+    else if (L.k === 'trigger') B.stab = (B.stab || 0) + 1;
+  }
+  const out = { final: new Set(), earlier: new Set() }, roots = { final: [], earlier: [] }, pcs = { final: [], earlier: [] };
+  per.forEach((B, b) => {
+    const w = where(b);
+    if (!w) return;
+    roots[w].push(...B.roots); pcs[w].push(...B.lead.map((o) => ((o.n % 12) + 12) % 12));
+    if (B.entry) out[w].add('entry');
+    if (B.lead.some((o, i) => o.app && B.lead[i + 1] && Math.abs(B.lead[i + 1].t - (o.t + o.d)) < 1e-6 && [1, 2].includes(o.n - B.lead[i + 1].n))) out[w].add('suspension');
+    // One bar that keeps one element and loses the band (or the chords under a lone lead) both neighbours play;
+    // a gap in a sparse fill (a drumless chorus) is not a band.
+    const lost = (k, n = 1) => !B[k] && per[b - 1]?.[k] >= n && per[b + 1]?.[k] >= n;
+    if (!B.band && (B.lead.length || B.stab) && (lost('band', 4) || (B.lead.length && lost('stab')))) out[w].add('dropout');
+  });
+  const up = (x) => { const had = new Set(x.earlier), hit = (k) => x.final.filter((r) => had.has((r + k + 12) % 12)).length; return had.size && hit(-2) > hit(0); };
+  if (roots.earlier.length ? up(roots) : up(pcs)) out.final.add('lift');
+  const final = [...out.final], earlier = [...out.earlier];
+  return { final, earlier, fresh: final.filter((d) => !out.earlier.has(d)) };
+}
+
 const median = (xs) => { const a = [...xs].sort((x, y) => x - y); return a.length ? (a[(a.length - 1) >> 1] + a[a.length >> 1]) / 2 : 0; };
 const jaccard = (a, b) => { const A = new Set(a), B = new Set(b); const u = new Set([...A, ...B]).size; return u ? [...A].filter((x) => B.has(x)).length / u : 1; };
 // Average distance each voice travels to the nearest note of the next chord (common tones cost 0).
 const move = (a, b) => (a.reduce((c, m) => c + Math.min(...b.map((q) => Math.abs(q - m))), 0) / a.length
   + b.reduce((c, m) => c + Math.min(...a.map((q) => Math.abs(q - m))), 0) / b.length) / 2;
 
-export function scoreSong(s) {
+export function scoreSong(s, o = {}) {
   const { log, bars } = playSong(s);
   const p = s.params.stab, guitar = Math.round(p.voice) === 8;
   const perBar = Array.from({ length: bars }, (_, b) => {
@@ -129,15 +169,25 @@ export function scoreSong(s) {
     if (L.harm) { harms.add(`${L.harm.r}:${L.harm.c}`); B.chords.add(`${L.harm.r}:${L.harm.c}`); B.root ??= L.harm.r; }
     if (L.k === 'hook' && L.a[9]?.counter) continue;
     if (L.k === 'hook') {
-      const [, , n, d, , , strong, , up, x] = L.a, snapped = hookSnap(n, L.harm, p, strong, up);
-      B.hook.push(`${L.step % 16}:${snapped}`); B.notes.push(snapped); B.events++;
-      if (!x?.harm) lead.push([L.step, Math.max(1, Math.round(d / stepDur)), snapped]);
+      // A suspension's resolution (Engine.suspend) sounds `res` steps after the step that played it; it ornaments
+      // one written note (`to`), so the motif is read as written.
+      const [, , n, d, , , strong, , up, x] = L.a, snapped = hookSnap(n, L.harm, p, strong, up), at = L.step + (x?.res || 0);
+      if (!x?.res) B.hook.push(`${at % 16}:${x?.app ? x.to : snapped}`);
+      B.notes.push(snapped); B.events++;
+      if (!x?.harm) lead.push([at, Math.max(1, Math.round(d / stepDur)), snapped, L.a[1], B.sec, d]);
     } else if (L.k === 'trigger' && L.a[0] === 'stab') {
-      const { root, notes, home } = stabNotes(s, L.harm);
-      const led = last = voiceLead(notes, last, home);
-      const v = guitar && notes.length > 1 ? (grip = guitarGrip(root, notes.map((m) => m - root), grip)) : led;
-      if (!voicings.length || voicings[voicings.length - 1].join() !== v.join()) voicings.push(v);
       B.events++;
+      if (L.comp?.thumb != null) continue;
+      let v;
+      if (L.comp) {
+        const { root, iv } = stabPitches({ state: s, playingPattern: L.pattern, harm: L.harm, bossaComp: L.comp });
+        v = iv.map((n) => root + n);
+      } else {
+        const { root, notes, home } = stabNotes(s, L.harm);
+        const led = last = voiceLead(notes, last, home);
+        v = guitar && notes.length > 1 ? (grip = guitarGrip(root, notes.map((m) => m - root), grip)) : led;
+      }
+      if (!voicings.length || voicings[voicings.length - 1].join() !== v.join()) voicings.push(v);
     } else if (L.k === 'trigger' && DRUMS.has(L.a[0])) {
       B.drums.push(`${L.a[0]}${L.step % 16}:${Math.round(L.a[2] * 4)}`); B.events++;
       if (L.a[0] === 'kick') B.kicks++;
@@ -156,6 +206,9 @@ export function scoreSong(s) {
   const moves = voicings.slice(1).map((v, i) => move(voicings[i], v));
   const density = perBar.map((b) => b.events), mean = density.reduce((a, b) => a + b, 0) / bars;
   const sd = Math.sqrt(density.reduce((a, b) => a + (b - mean) ** 2, 0) / bars);
+  const raw = rawCues(s, lead, perBar);
+  if (o.raw) return raw;
+  const fit = feelCues(s, raw, o.style);
   return {
     bars,
     ...sections(perBar),
@@ -166,7 +219,58 @@ export function scoreSong(s) {
     contrast: +(mean ? sd / mean : 0).toFixed(3),
     drumBars: new Set(perBar.map((b) => b.drums.join())).size,
     ...melodyShape(lead),
+    ...(fit ? { feelFit: fit.fit } : {}),
   };
+}
+
+// ---- Feel coherence: do the song's measurable cues agree with FEELS[s.feel]?
+// Six cues, each scored 0..1 and averaged: tempo position in the style's range, mode, lead register and section
+// contrast (both relative to the style's own benchmark songs), lead velocity range, and legato (note length / gap).
+const MODE_FAMILY = { major: 'major', minor: 'minor', dorian: 'minor', phrygian: 'minor', harmonic: 'minor', pentatonic: 'minor' };
+const clamp01 = (x) => Math.max(0, Math.min(1, x));
+const quantile = (xs, q) => { const a = [...xs].sort((x, y) => x - y); return a.length ? a[Math.min(a.length - 1, Math.round(q * (a.length - 1)))] : NaN; };
+const avgOf = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
+function rawCues(s, lead, perBar) {
+  // Note length over the gap to the next onset, inside a phrase (a gap of a bar or more is a rest, not a line).
+  const leg = [], step = 0.125; // playSong ticks at a fixed stepDur, so lengths are in 0.125 s steps at any bpm
+  for (let i = 0; i + 1 < lead.length; i++) { const gap = lead[i + 1][0] - lead[i][0]; if (gap > 0 && gap < 16) leg.push(Math.min(1, lead[i][5] / step / gap)); }
+  // Soft/loud range (10th/90th percentile velocity) inside each section, so section levels count only as contrast.
+  const bySec = new Map();
+  for (const x of lead) if (Number.isFinite(x[3])) (bySec.get(x[4]) || bySec.set(x[4], []).get(x[4])).push(x[3]);
+  const spans = [...bySec.values()].filter((v) => v.length >= 4).map((v) => quantile(v, 0.1) / Math.max(1e-6, quantile(v, 0.9)));
+  const velIn = (sec) => avgOf(lead.filter((x) => x[4] === sec).map((x) => x[3]));
+  const events = (sec) => avgOf(perBar.filter((b) => b.sec === sec).map((b) => b.events));
+  const lift = (events('chorus') / Math.max(1, events('verse'))) * ((velIn('chorus') || 1) / (velIn('verse') || 1));
+  return { pitch: median(lead.map((x) => x[2])), vel: avgOf(spans), legato: avgOf(leg), contrast: Number.isFinite(lift) && lift > 0 ? Math.log(lift) : NaN };
+}
+// A style's own register and contrast, from its benchmark songs, and the feelings those songs carried.
+const NORMS = new Map();
+function styleNorm(style) {
+  if (!NORMS.has(style)) {
+    const songs = SEEDS.map((seed) => buildSong(style, seed)), raws = songs.map((x) => scoreSong(x, { raw: true }));
+    const fs = songs.map((x) => FEELS[x.feel]).filter(Boolean), ok = (xs) => xs.filter(Number.isFinite);
+    NORMS.set(style, { pitch: median(ok(raws.map((r) => r.pitch))), contrast: median(ok(raws.map((r) => r.contrast))),
+      reg: avgOf(fs.map((f) => f.mel.reg)) || 0, dyn: avgOf(fs.map((f) => Math.log(f.dyn.contrast))) || 0 });
+  }
+  return NORMS.get(style);
+}
+export function feelCues(s, raw, style = s.artist?.style) {
+  const f = FEELS[s.feel];
+  if (!f || !STYLES[style]) return null;
+  const [lo, hi] = STYLES[style].bpm, pos = hi > lo ? clamp01((s.bpm - lo) / (hi - lo)) : 0.5;
+  const fam = (m) => MODE_FAMILY[m] || m;
+  const cues = {
+    tempo: 1 - clamp01(Math.abs(pos - f.tempo) / 0.5),
+    mode: s.scale === f.mode ? 1 : fam(s.scale) === fam(f.mode) ? 0.75 : 0,
+  };
+  const n = styleNorm(style), ok = Number.isFinite;
+  // One step of mel.reg is about a whole tone; the song should sit above or below its style-mates by that much.
+  if (ok(raw.pitch) && ok(n.pitch)) cues.register = 1 - clamp01(Math.abs(raw.pitch - n.pitch - 2 * (f.mel.reg - n.reg)) / 8);
+  if (ok(raw.vel)) cues.velocity = 1 - clamp01(Math.abs(raw.vel - f.mel.vel[0] / f.mel.vel[1]) / 0.3);
+  if (ok(raw.legato)) cues.legato = 1 - clamp01(Math.abs(raw.legato - f.mel.legato) / 0.5);
+  if (ok(raw.contrast) && ok(n.contrast)) cues.contrast = 1 - clamp01(Math.abs(raw.contrast - n.contrast - (Math.log(f.dyn.contrast) - n.dyn)) / 0.3);
+  const v = Object.values(cues);
+  return { feel: s.feel, cues, fit: +(v.reduce((a, b) => a + b, 0) / v.length).toFixed(3) };
 }
 
 // The lead as a singer would phrase it: a rest of a beat or more is a breath that ends a phrase.
@@ -234,13 +338,13 @@ function sections(perBar) {
 }
 
 export const HIGHER = ['bars', 'melodyWindows', 'motifRecall', 'chords', 'contrast', 'drumBars', 'phraseBars', 'stepShare', 'verseChorus', 'chorusLift', 'chorusPeak', 'chorusEnergy', 'preLift', 'bridgeAway',
-  'stressBeat', 'titleDownbeat', 'titlePeak', 'hookRepeats', 'hookRecall', 'rhythmContrast', 'onsetContrast', 'holdRatio', 'rhymeRate', 'verseFit'];
+  'stressBeat', 'titleDownbeat', 'titlePeak', 'hookRepeats', 'hookRecall', 'rhythmContrast', 'onsetContrast', 'holdRatio', 'rhymeRate', 'verseFit', 'feelFit'];
 export const LOWER = ['voiceMove', 'vocalRange'], NEAR = ['peakAt', 'restsPerPhrase', 'verseSpan'];
 // Allowed slack before a change counts as a regression.
 export const TOL = { bars: 0, melodyWindows: 0.5, motifRecall: 0.05, chords: 0, contrast: 0.03, drumBars: 0.5, voiceMove: 0.15,
   phraseBars: 0.25, stepShare: 0.05, peakAt: 0.1, restsPerPhrase: 0.5,
   verseChorus: 0.05, chorusLift: 0.5, chorusPeak: 0.5, chorusEnergy: 0.05, preLift: 0.05, bridgeAway: 0.05,
-  stressBeat: 0.03, titleDownbeat: 0.1, titlePeak: 0.1, hookRepeats: 0, hookRecall: 0.1, rhythmContrast: 0.03, onsetContrast: 0.03, holdRatio: 0.1, vocalRange: 1, rhymeRate: 0.03, verseSpan: 1, verseFit: 0.05 };
+  stressBeat: 0.03, titleDownbeat: 0.1, titlePeak: 0.1, hookRepeats: 0, hookRecall: 0.1, rhythmContrast: 0.03, onsetContrast: 0.03, holdRatio: 0.1, vocalRange: 1, rhymeRate: 0.03, verseSpan: 1, verseFit: 0.05, feelFit: 0.05 };
 
 export function aggregateComposition(rows, average = false) {
   return Object.fromEntries(Object.keys(rows[0] || {}).map((k) => {
@@ -265,13 +369,24 @@ export function compositionRegressions(report, base) {
 export function runComposition(styles) {
   const out = {};
   for (const style of styles) {
-    const rows = SEEDS.map((seed) => scoreSong(buildSong(style, seed)));
+    const rows = SEEDS.map((seed) => scoreSong(buildSong(style, seed), { style }));
     out[style] = aggregateComposition(rows);
     if (SING_PROFILES[style]?.song) {
       const sw = SEEDS.map((seed) => { const st = lyricSong(style, seed); return songwriting(st.patterns.find((p) => p.hook?.m).hook.m, st.lyrics.sections); });
       const avg = (k) => +(sw.reduce((a, r) => a + r[k], 0) / sw.length).toFixed(3);
       Object.assign(out[style], Object.fromEntries(Object.keys(sw[0]).map((k) => [k, k === 'vocalRange' ? +median(sw.map((r) => r[k])).toFixed(3) : avg(k)])));
     }
+  }
+  return out;
+}
+
+// Per style over SEEDS: how many songs end on a peak device no earlier chorus has, and which devices they use.
+export function peakReport(styles) {
+  const out = {};
+  for (const style of styles) {
+    const rows = SEEDS.map((seed) => { const st = buildSong(style, seed); return { feel: st.feel, ...peakDevices(st) }; });
+    const n = (d) => rows.filter((r) => r.fresh.includes(d)).length;
+    out[style] = { fresh: `${rows.filter((r) => r.fresh.length).length}/${rows.length}`, suspension: n('suspension'), entry: n('entry'), dropout: n('dropout'), lift: n('lift') };
   }
   return out;
 }
@@ -297,6 +412,7 @@ export const loopStyles = () => Object.keys(STYLES).filter((id) => STYLES[id].fa
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2), at = args.indexOf('--style');
   if (args.includes('--prompts')) { await promptReport(); process.exit(0); }
+  if (args.includes('--peaks')) { console.table(peakReport(at >= 0 ? [args[at + 1]] : loopStyles())); process.exit(0); }
   const styles = at >= 0 ? [args[at + 1]] : loopStyles();
   const report = runComposition(styles);
   if (!args.includes('--quiet')) console.table(report);

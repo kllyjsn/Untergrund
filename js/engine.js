@@ -1,13 +1,15 @@
 import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES, HAND_KIT, KIT_BACKBEAT, defaultParams } from './params.js';
 import { PALETTE_INSTRUMENTS, PALETTE_DEFAULTS, instrumentFor } from './palette-defaults.js';
-import { getSample, sungNote, SUNG_LEN, SUNG_LOW, SUNG_NOTES, SUNG_VOWEL_COUNT } from './sampler.js';
+import { getSample, hasUserSample, sungNote, SUNG_LEN, SUNG_LOW, SUNG_NOTES, SUNG_VOWEL_COUNT } from './sampler.js';
+import { vowelStyle, vowelVoxNote, vowelName, vowelHookDuration, playVowel, VOWEL_HOOK_DB, VOWEL_HOOK_EQ } from './vowels.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
-import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, loadHand, STAB_BAND, HOOK_BAND, SAX_HOOK, SAX_LO, saxRoot, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
+import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, loadHand, STAB_BAND, HOOK_BAND, SAX_HOOK, SAX_LO, saxRoot, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER, RECORDED_ORGAN, playsAnalogBass } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel, swingLate, swingDuration } from './groove.js';
 import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes, jazzNotches, JAZZ_MIX, BOSSA_RIM, BOSSA_BATIDA, bossaBass } from './jazz.js';
 import { funkBass, FUNK_KICK, FUNK_SNARE, FUNK_COMP } from './jazzfunk.js';
+import { bossaGrip, bossaLine, bossaPocket, bossaRhythm, BOSSA_KICK, BOSSA_HAT, BOSSA_BASS } from './bossa.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ, TECHNO_HOOK_SPACE } from './lead.js';
 import { lowEnd } from './lowend.js';
 import { HIPHOP } from './hiphop.js';
@@ -18,9 +20,11 @@ import { harmRoot, chordIv, stabNotes, hookSnap, voiceLead } from './harmony.js'
 import { develop, motifPlan, stepDeg } from './motif.js';
 import { MELODY_BARS, strongNote } from './melody.js';
 import { patternAt } from './scope.js';
+import { FEELS } from './feel.js';
 import { cleanChainEntries } from './chain.js';
 import { funkHand } from './baile.js';
 import { festivalTrap, festivalBuilds, festivalBuildStep } from './festival-build.js';
+import { rootsFor, fiddleRole, fiddlePitch, fiddleDuration, fiddleAnswerRoll, uprightNotes } from './roots.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
 const dampedChord = (e) => (e.state.artist?.style === 'breaks' && Math.round(e.state.params.stab.voice) === 1)
@@ -93,6 +97,8 @@ export const paletteHookPitch = (state, pitch, voice, style) => {
 // Chords sit under a sung line the way a mix rides the keys under a vocal: a little in the chorus, more in the verse
 // and most in the breakdown, so the drop still lands over it. Songs with sections already set the verse level.
 const STAB_UNDER_VOICE = { n: 0.84, v: 0.78, b: 0.45 };
+// The final chorus's entering voice, against the lead it doubles.
+const PEAK_ENTRY = 0.5;
 // Lead voices balanced for a sung line, so the voice sits at the same level over the band whichever one sings it
 // (the reed is forward, the flute sits back). Songs with sections drop the verse by its section level, so
 // the verse is sung a little forward to stay on top of the band.
@@ -134,7 +140,17 @@ const WIND_HOOK = {
 };
 // Each genre's sax, in dB, matched to the synth reed it replaces (hook stem loudness over seeds): the recorded
 // tongued attack carries less energy on the short riffs of Afrobeats, Reggaeton and Breaks than on sung lines.
+// Held alto notes sat dead straight, so their 8th-15th harmonics rang as fixed 2.5-3.1 kHz lines over the mix;
+// a player's 20-cent vibrato, leaned into after the attack, spreads them.
+const ALTO_VIB = 20;
 const SAX_TRIM = { pop: -2.4, neosoul: -5.7, boombap: 3.5, trap: 1.1, afrobeats: 6.5, reggaeton: 4.5, breaks: 7.1 };
+// Pop and Reggaeton hats live above 4 kHz, where the alto's breath otherwise fills the gaps between hits, so
+// those altos get a fixed high cut; the Afrobeats tenor's low register piles up at 220-260 Hz over the bass.
+const SAX_FX = {
+  pop: { cap: 3000, lpStages: 4, shelves: [[4000, -12]] },
+  reggaeton: { cap: 3000, lpStages: 4, shelves: [[4000, -14]] },
+  afrobeats: { peaks: [[245, 1.6, -8]] },
+};
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
 const LIVE_REF = {
   kick: { tune: 52, decay: 0.5, drive: 0.2, click: 0.15, punch: 0.55 },
@@ -154,6 +170,8 @@ const SAMPLE_FADE = 1;
 // The master compressors and oversamplers can still hold an attack whose source has started.
 const WAKE_FLUSH = 0.024;
 const WAKE_FADE = 0.002;
+const ANALOG_BASS_GAIN = 4.4;
+const ANALOG_TONE = { ukg: { close: 2.2, open: 3, env: 8 }, gfunk: { close: 0.4, open: 0.7, env: 1, hp: 35, hpStages: 4, hpQ: -3.01, lp: 1000, gain: { 1: 3.35, 7: 3.4 }, organGain: 1.27, release: 0.03, organRelease: 0.018 } };
 // Chord voices that sustain fill a breakdown on their own, so a smooth style only lifts the ones that decay.
 const HELD_CHORDS = new Set(['pad', 'organ', 'strings', 'cello']);
 export const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar', 'cello', 'clarinet', 'nylon', 'marimba'];
@@ -176,6 +194,8 @@ const ORCH = {
   harp: { kinds: ['harp'], gain: 0.55, lo: 40, hi: 96, pan: -0.5, lp: 8000, rel: 0.6 },
   timp: { kinds: ['timp'], gain: 0.85, lo: 40, hi: 57, pan: 0.15, lp: 3000, rel: 0.5 },
   pno: { kinds: ['pianoext', 'piano'], soft: ['pianoextsoft', 'pianosoft'], gain: 1.8, lo: 21, hi: 104, pan: 0, lp: 12000, rel: 0.3 },
+  // The band's tonewheel organ (ROCK choruses): drawbars held under the guitars, the sustain looped.
+  org: { kinds: ['org'], gain: 0.62, lo: 43, hi: 84, pan: 0.22, lp: 5200, rel: 0.09, loop: true, hp: 110 },
 };
 const kindsOf = (parts) => [...new Set(parts.flatMap((p) => [...ORCH[p].kinds, ...(ORCH[p].soft || []), ...(p === 'timp' ? ['timproll'] : [])]))];
 export const ORCH_KINDS = kindsOf(Object.keys(ORCH));
@@ -290,8 +310,14 @@ export const MASTER_TONE = {
   folk: [3, -3, 0.5, 4, 0.5], country: [2, -3, 2.5, 4, 0.6],
 };
 
+const REGGAETON_GUITAR_HOOK_EQ = [
+  [2930, 5, -12], [2645, 64, -9], [2777, 64, -9], [2962, 64, -8], [3085, 64, -17],
+];
 const BAND_PLAY = {
   marimba: { gain: 1.35, len: 0.9, min: 0.15, max: 0.44, strum: 0.0015, shift: 0, lo: 48, hi: 84, lp: 7000, fade: 0.002, rel: 0.07, even: 0.35 },
+  upright: { gain: 4, lo: 45, hi: 79, lp: 2800, rel: .18, even: .25 },
+  fiddle: { gain: 2.4, lo: 55, hi: 79, lp: 2800, rel: .14, fade: .006, softBelow: .6, peak: [2800, .8, -6], even: .2 },
+  fiddlestac: { gain: 2.4, lo: 55, hi: 79, lp: 3200, rel: .08, softBelow: .6, peak: [2800, .8, -6], even: .2 },
   piano: { gain: 4, len: 4, min: 1.2, max: 3, pedal: 5, softBelow: 0.88, strum: 0.004, shift: 0, lo: 45, hi: 79, lp: 7000, rel: 0.18 },
   gtr: { gain: 4.4, len: 2.6, min: 0.6, softBelow: 0.75, strum: 0.006, shift: 0, lo: 40, hi: 74, lp: 2900, peak: [3600, 1.2, -6], soft: 1100, fade: 0.008, rel: 0.22, grip: true, even: 0.2 },
   horn: { gain: 2.2, len: 1.2, min: 0.25, strum: 0.003, shift: 12, lo: 53, hi: 81, lp: 4800, rel: 0.09 },
@@ -309,6 +335,8 @@ const BAND_PLAY = {
   banjo: { gain: 5, len: 1.2, min: 0.3, strum: 0.007, shift: 0, lo: 45, hi: 79, lp: 9000, soft: 0, fade: 0.006, rel: 0.12, grip: true, even: 0.4 },
   // The green Gretsch hollow-body: bright, snappy, open chords that ring for country and rockabilly.
   gretsch: { gain: 4.2, len: 2.6, min: 0.6, softBelow: 0, strum: 0.006, shift: 0, lo: 40, hi: 74, lp: 4600, peak: [3400, 1.2, -4], soft: 1100, fade: 0.008, rel: 0.18, grip: true, even: 0.3 },
+  // UK Garage's organ stab: the tonewheel organ keyed hard and let go, every note of the chord at once.
+  org: { gain: 1.9, len: 1.6, min: 0.12, max: 0.8, strum: 0, shift: 0, lo: 52, hi: 79, lp: 5600, fade: 0.003, rel: 0.05, even: 0.15, room: 1800 },
 };
 // Country lead: the same guitar clean and bright off the bridge pickup, single notes with a slapback.
 BAND_PLAY.twang = { ...BAND_PLAY.gtr, gain: 3, len: 1.4, min: 0.25, softBelow: 0, lo: 52, hi: 84, lp: 6800, grip: false, even: 0.4, rel: 0.12, oct: 0, slap: true };
@@ -331,6 +359,10 @@ export function stabPitches(e) {
   const jazz = jazzStyle(e.state, e.playingPattern);
   if (jazz) {
     const h = e.harm || { r: 0, c: Math.round(p.chord) }, pedal = jazz === 'modal' && e.step % 16 === 0;
+    if (jazz === 'bossa' && e.bossaComp) {
+      const notes = bossaGrip(h, e.state.key, e.bossaComp);
+      return { root: notes[0], vo, iv: notes.map((n) => n - notes[0]), dur: e.bossaComp.dur };
+    }
     let notes = pedal ? [48 + ((e.state.key + h.r) % 12 + 12) % 12] : jazzVoicing(h, e.state.key, jazz);
     if (jazz === 'bossa' && e.step % 8 === 0) {
       const thumb = 48 + ((e.state.key + h.r + (e.step % 16 === 8 ? 7 : 0)) % 12 + 12) % 12;
@@ -619,7 +651,7 @@ function metallicBuf(mul, sr) {
 }
 
 export class Engine {
-  get playbackStyle() { return this.replay808Style ?? this.state.artist?.style; }
+  get playbackStyle() { return rootsFor(this.state, this.playingPattern)?.style ?? this.replay808Style ?? this.state.artist?.style; }
   get minimal() { return (jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle) === 'minimal'; }
   get playbackSeed() { return this.replaySeed ?? this.state.artist?.seed; }
   get hardTechno() { return this.state.artist?.style === 'hardtechno'; }
@@ -805,17 +837,19 @@ export class Engine {
       if (carve) carve.gain.value = 0;
       level.connect(carve || pan);
       if (carve) carve.connect(pan);
-      pan.connect(DUCKED.has(t.id) ? this.duck : this.mix);
-      pan.connect(rev).connect(this.revIn);
-      if (t.id !== 'vox') pan.connect(this.roomIn);
-      pan.connect(dly).connect(this.dlyIn);
-      pan.connect(this.throwBus);
       const ch = { input, level, pan, rev, dly, sc, strip, post, carve };
       if (t.id === 'stab') {
         ch.band = this.gain(1);
         ch.band.connect(input);
         ch.band.connect(this.bandIn);
+        this.wireOrganFill(ch);
       }
+      const out = ch.out || pan;
+      out.connect(DUCKED.has(t.id) ? this.duck : this.mix);
+      out.connect(rev).connect(this.revIn);
+      if (t.id !== 'vox') out.connect(this.roomIn);
+      out.connect(dly).connect(this.dlyIn);
+      out.connect(this.throwBus);
       if (t.id === 'kick') {
         ch.rumble = this.gain(0);
         level.connect(ch.rumble).connect(this.rumbleIn);
@@ -824,6 +858,31 @@ export class Engine {
     }
     this.windDuck = this.gain(1);
     this.windDuck.connect(this.ch.stab.input);
+  }
+
+  wireOrganFill(ch) {
+    // Keep the mono fill's pan law independent of the other voices on CHORDS.
+    const twins = (this.fillControls = new WeakMap());
+    const copyFilter = f => {
+      const n = this.filter(f.type, f.frequency.value, f.Q.value);
+      n.gain.value = f.gain.value;
+      for (const p of ['frequency', 'Q', 'gain']) twins.set(f[p], n[p]);
+      return n;
+    };
+    const level = this.gain(ch.level.gain.value), pan = this.ctx.createStereoPanner();
+    pan.channelCount = 1; pan.channelCountMode = 'explicit';
+    pan.pan.value = ch.pan.pan.value;
+    twins.set(ch.level.gain, level.gain); twins.set(ch.pan.pan, pan.pan);
+    ch.fill = this.gain(1);
+    ch.out = this.gain(1);
+    [ch.fill, ...ch.strip.map(copyFilter), level, copyFilter(ch.carve), pan, ch.out].reduce((a, n) => a.connect(n));
+    ch.pan.connect(ch.out);
+  }
+
+  chordParam(param, apply) {
+    apply(param);
+    const twin = this.fillControls?.get(param);
+    if (twin) apply(twin);
   }
 
   buildAcid() {
@@ -1035,9 +1094,10 @@ export class Engine {
     this.stripMode = mode;
     for (const id of TRACK_IDS) {
       const ch = this.ch[id], S = (mode && (mode === 'SOUL' ? SOUL_STRIP : BAND_STRIP)[id]) || null;
+      const mirror = (p, v) => this.chordParam(p, param => set(param, v));
       ch.strip.forEach((f, k) => {
         const b = S?.eq?.[k];
-        if (b) { set(f.frequency, b[0]); set(f.gain, b[1]); if (b[2]) set(f.Q, b[2]); } else set(f.gain, 0);
+        if (b) { mirror(f.frequency, b[0]); mirror(f.gain, b[1]); if (b[2]) mirror(f.Q, b[2]); } else mirror(f.gain, 0);
       });
     }
     if (!mode && this.smoothOn) this.smoothChords(this.smoothOn, at);
@@ -1053,8 +1113,10 @@ export class Engine {
     const [shelf, mid, bell] = this.ch.stab.strip, t = Math.max(at, this.ctx.currentTime);
     const { rev, dly, level } = this.ch.stab, ps = this.state.params.stab, up = db > 0 ? 10 ** (db / 20) : 1, wet = db > 0 ? 1.6 : 1;
     for (const [prm, v] of [[shelf.frequency, db < 0 ? 400 : 120], [shelf.gain, Math.min(db, 0)], [bell.frequency, 2500], [bell.Q, 2.5], [bell.gain, db > 0 ? -20 : db ? -10 : 0], [mid.frequency, db ? 2950 : 300], [mid.Q, db ? 3 : 1], [mid.gain, db ? -8 : 0], [level.gain, ps.level * up], [rev.gain, ps.rev * wet], [dly.gain, ps.dly * wet]]) {
-      prm.cancelScheduledValues(t);
-      prm.setTargetAtTime(v, t, 0.12);
+      this.chordParam(prm, param => {
+        param.cancelScheduledValues(t);
+        param.setTargetAtTime(v, t, 0.12);
+      });
     }
   }
 
@@ -1073,15 +1135,17 @@ export class Engine {
       const trim = tid === 'ch' && this.playbackStyle === 'euphoric' ? 10 ** (-1 / 20) : 1;
       const gain = v * trim * (tid === 'stab' && this.smoothOn > 0 ? 10 ** (this.smoothOn / 20) : 1), fade = this.hardFade;
       if (tid === 'stab' && this.dubPadBus) this.setTo(this.dubPadBus.gain, this.state.artist?.style === 'dub' ? gain : 0, immediate);
-      if (this.jamAt == null || !this.hardTechno || this.hardFadeAt == null) return this.setTo(ch.level.gain, gain, immediate);
+      if (this.jamAt == null || !this.hardTechno || this.hardFadeAt == null) return this.chordParam(ch.level.gain, p => this.setTo(p, gain, immediate));
       // A Jam level edit rides Hard Techno's section fade at its boundary, wherever a clock re-anchor put that boundary.
       const from = fade.from[tid] ?? 1, to = fade.to[tid] ?? 1;
       const k = Math.min(1, Math.max(0, (this.jamAt - fade.t) / (this.hardFadeAt - fade.t)));
-      this.setTo(ch.level.gain, gain * (from + (to - from) * k), immediate);
-      if (k < 1) ch.level.gain.linearRampToValueAtTime(gain * to, this.hardFadeAt);
+      this.chordParam(ch.level.gain, p => {
+        this.setTo(p, gain * (from + (to - from) * k), immediate);
+        if (k < 1) p.linearRampToValueAtTime(gain * to, this.hardFadeAt);
+      });
       return;
     }
-    if (id === 'pan') return this.setTo(ch.pan.pan, v, immediate);
+    if (id === 'pan') return this.chordParam(ch.pan.pan, p => this.setTo(p, v, immediate));
     if (id === 'rev') return this.setTo(ch.rev.gain, v * (tid === 'stab' && this.smoothOn > 0 ? 1.6 : 1), immediate);
     if (id === 'dly') return this.setTo(ch.dly.gain, v * (tid === 'stab' && this.state.artist?.style === 'dub' ? 0 : tid === 'stab' && this.smoothOn > 0 ? 1.6 : 1), immediate);
     if (tid === 'kick' && id === 'rumble') return this.setTo(ch.rumble.gain, v * v, immediate);
@@ -1524,8 +1588,9 @@ export class Engine {
       const f = this.ctx.createBiquadFilter(); f.type = 'peaking'; f.frequency.value = freq; f.Q.value = q; f.gain.value = db;
       node = node.connect(f);
     }
+    for (let i = 0; fx.hp && i < (fx.hpStages || 1); i++) node = node.connect(this.filter('highpass', fx.hp, fx.hpQ ?? 0.7));
     for (let i = 0; fx.lp && i < (fx.lpStages || 1); i++) {
-      const lp = this.filter('lowpass', fx.lp, 0.5);
+      const lp = this.filter('lowpass', fx.lp, fx.lpQ ?? 0.5);
       // The first 30 ms of a picked string is bright zing and pick noise; a thumb rounds it off.
       if (fx.lpTo && fx.lpTo < fx.lp) { lp.frequency.setValueAtTime(fx.lp, t); lp.frequency.exponentialRampToValueAtTime(fx.lpTo, t + 0.05); }
       else if (fx.lpFrom && fx.lpFrom < fx.lp) { lp.frequency.setValueAtTime(fx.lpFrom, t); lp.frequency.exponentialRampToValueAtTime(fx.lp, t + 0.09); }
@@ -2317,7 +2382,7 @@ export class Engine {
 
   stab(t, v, underHarp = false) {
     const c = this.ctx, p = this.state.params.stab;
-    const { root, vo, iv, pedal } = stabPitches(this);
+    const { root, vo, iv, pedal, dur } = stabPitches(this);
     if (jazzStyle(this.state, this.playingPattern) === 'jazzfunk') {
       const level = v * dbGain(JAZZ_MIX.jazzfunk.comp);
       this.keys(t, level, iv, root, p, this.ch.stab.input);
@@ -2332,7 +2397,8 @@ export class Engine {
       if (!set) { loadBand(name); return this.keys(t, v, iv, root, p, this.ch.stab.input); }
       const bossa = jazzStyle(this.state, this.playingPattern) === 'bossa';
       const trim = bossa && vo === 18 ? JAZZ_MIX.bossa.nylonComp : bossa && vo === 7 ? JAZZ_MIX.bossa.pianoComp : bossa && vo === 8 ? JAZZ_MIX.bossa.guitarComp : JAZZ_MIX[jazzStyle(this.state, this.playingPattern)].comp;
-      for (const [k, n] of iv.entries()) this.recordedNote(set, t + (name === 'nylon' ? k * 0.002 : 0), v * 0.62 * dbGain(trim), root + n, pedal ? this.stepDur * 14.4 : p.decay * (bossa ? 1 : 1.7), this.ch.stab.band, -2, name, bossa ? v * 0.6 : v);
+      const out = this.bossaComp?.chord ? this.bodyFor(this.ch.stab.band, [240, 0.9, -2.5]) : this.ch.stab.band;
+      for (const [k, n] of iv.entries()) this.recordedNote(set, t + (name === 'nylon' ? k * 0.002 : 0), v * 0.62 * dbGain(trim), root + n, dur ?? (pedal ? this.stepDur * 14.4 : p.decay * (bossa ? 1 : 1.7)), out, -2, name, bossa ? v * 0.6 : v);
       return;
     }
     if (this.playbackStyle === 'bailefunk') return this.funkStab(t, v, iv, root, p.decay, this.ch.stab.input);
@@ -2911,7 +2977,12 @@ export class Engine {
   }
 
   // Drawbar organ with key click and a rotary-style vibrato; DETUNE sets rotor depth.
+  // UK Garage plays the recorded tonewheel organ (CC0); the other styles keep their drawbar synth.
   organ(t, v, iv, root, p, out) {
+    if (RECORDED_ORGAN.has(this.playbackStyle)) return this.recorded('org', 'synthOrgan', t, v, iv, root, p, out);
+    return this.synthOrgan(t, v, iv, root, p, out);
+  }
+  synthOrgan(t, v, iv, root, p, out) {
     const c = this.ctx, gate = Math.max(0.08, p.decay * 0.9), end = t + gate + 0.25;
     const damped = this.state.artist?.style === 'reggaeton' && Math.round(p.voice) === 3;
     const lp = this.filter('lowpass', Math.min(12000, p.cutoff * 3), 0.6);
@@ -2937,6 +3008,18 @@ export class Engine {
     this.startSource(lfo, t); lfo.stop(end);
   }
 
+  // A recorded voice played through a presence path still reaches the band room, through the same high-pass as the dry path.
+  bandTap(out, hz) {
+    const taps = (this.bandTaps ||= new WeakMap());
+    if (!taps.has(out)) {
+      const g = this.gain(1);
+      g.connect(out);
+      g.connect(this.filter('highpass', hz, Math.SQRT1_2)).connect(this.gain(0.9)).connect(this.bandIn);
+      taps.set(out, g);
+    }
+    return taps.get(out);
+  }
+
   // Brass section: saws scooping into pitch while the filter blooms; ENV sets the blare.
   // Recorded chord instruments (CC0): nearest sample per chord note, repitched; the synth voice covers loading.
   recorded(kind, fallback, t, v, iv, root, p, out) {
@@ -2944,6 +3027,8 @@ export class Engine {
     let set = this.rec(base);
     if (!set) { loadBand(base); return this[fallback](t, v, iv, root, p, out); }
     if (out === this.ch.stab.input) out = this.ch.stab.band;
+    else if (R.room) out = this.bandTap(out, R.room);
+    if (kind === 'gtr' && this.playbackStyle === 'reggaeton') out = this.bodyFor(out, [2960, 6, -12]);
     const chord = R.grip && iv.length > 1, live = chord && this.step != null;
     const pk = live ? pocketOf(this.state.master) : null, hand = live ? guitarHand(kind, pk?.name, this.wide) : null;
     // Two takes of the rhythm part panned hard left and right; a pedal or amp effect per player, then the amp.
@@ -3177,6 +3262,7 @@ export class Engine {
     if (R) { while (m > R.hi + 0.5) m -= 12; while (m < R.lo - 0.5) m += 12; }
     if (out === this.ch.stab.input) out = this.ch.stab.band;
     const touch = 1 - 0.2 * (R?.even ?? 1) + 0.4 * (R?.even ?? 1) * hash(t * 7 + m, 24), hv = Math.max(0.25, Math.min(1.2, vel * touch));
+    if (kind === 'upright') set = this.rec(hv < 61 / 127 ? 'uprightsoft' : hv >= 111 / 127 ? 'uprighthard' : 'upright') || set;
     // Soft touches play the softly struck or plucked recording: a different tone, not just a quieter one.
     if (hv < (R?.softBelow ?? 0) && this.rec(SOFT_LAYER[kind])) set = this.rec(SOFT_LAYER[kind]);
     let i = 0;
@@ -3190,7 +3276,8 @@ export class Engine {
       if (n % 2) [c, buf] = alt[i];
     }
     return this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
-      shelves: [[3000, tone]], peaks: [...(R?.peak ? [R.peak] : []), ...(kind === 'str' ? HIPHOP[this.state.artist?.style]?.strEq ?? [] : []), ...(jazzStyle(this.state, this.playingPattern) === 'bossa' && kind === 'jazz' ? jazzNotches(kind, c, Math.pow(2, (m - c) / 12)) : [])], lp: R ? R.lp * (F ? F[1] : 1) * (0.4 + 0.6 * hv) : 0, lpFrom: F ? F[0] : R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
+      hp: kind === 'org' && this.playbackStyle === 'gfunk' ? 110 : 0, hpQ: -3.01,
+      shelves: [[3000, tone]], peaks: [...(R?.peak ? [R.peak] : []), ...(kind === 'org' && this.playbackStyle === 'gfunk' ? [[2200, 1.2, -3], [3300, 0.8, -6]] : []), ...(kind === 'str' ? HIPHOP[this.state.artist?.style]?.strEq ?? [] : []), ...(jazzStyle(this.state, this.playingPattern) === 'bossa' && kind === 'jazz' ? jazzNotches(kind, c, Math.pow(2, (m - c) / 12)) : [])], lp: R ? R.lp * (F ? F[1] : 1) * (0.4 + 0.6 * hv) : 0, ...(kind === 'upright' ? { lpStages: 2, lpQ: -6.0206 } : {}), lpFrom: F ? F[0] : R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
     });
   }
   // A guitar amp for the DRIVE GTR: tightened lows into an asymmetric tube-style clipper, then a 4x12 cab
@@ -3314,7 +3401,22 @@ export class Engine {
     h.g.gain.cancelScheduledValues(t); h.g.gain.setValueAtTime(h.g.gain.value, t); h.g.gain.setTargetAtTime(0, t, damp);
     try { h.s.stop(t + damp * 8); } catch {}
   }
-  piano(...a) { return this.recorded('piano', 'keys', ...a); }
+  piano(t, v, iv, root, p, out) {
+    if (Math.round(p.voice) !== 7 || rootsFor(this.state, this.playingPattern)?.chord !== 'upright') return this.recorded('piano', 'keys', t, v, iv, root, p, out);
+    const set = this.rec('upright');
+    if (!set) { loadBand('upright'); return this.recorded('piano', 'keys', t, v, iv, root, p, out); }
+    const tone = rootsFor(this.state, this.playingPattern).style === 'lofihiphop' ? -3 : -1.5;
+    if (out === this.ch.stab.input) out = this.ch.stab.band;
+    for (const n of uprightNotes(t, v, iv, root, p)) this.recordedNote(set, n.t, n.v * BAND_PLAY.upright.gain, n.m, n.dur, out, tone, 'upright', v);
+  }
+  // The final chorus's new voice (longform.js writePeak 'entry'): the lead doubled an octave up on the recorded
+  // violins, or by a second synth lead until they have loaded.
+  peakVoice(t, v, n, dur, oct = 0, strong = false) {
+    n = hookSnap(n, this.harm, this.state.params.stab, strong, false);
+    const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
+    if (this.orch('vln1', t, 60 + k + (oct + 1) * 12 + n, Math.max(dur, this.stepDur * 2), v)) return;
+    this.hook(t, v * 0.6, n + 12, dur, 'warm', oct, false, 1, false, { harm: 1 });
+  }
   // A band's second layer for this section: cello on the root, viola on a middle chord tone, violins on the top
   // an octave up, each bowed through the bar; or the piano doubling the chords on beats 1 and 3.
   bandLayer(t, sec, i16, style) {
@@ -3327,6 +3429,11 @@ export class Engine {
     for (const part of L.parts) {
       if (part === 'pno') {
         notes.forEach((m, k) => this.orch('pno', t + k * 0.004 + hash(t, m) * 0.006, fit('pno', m + 12), 8 * sd * 0.95, v * (i16 ? 0.92 : 1)));
+        continue;
+      }
+      // The organist holds the whole chord through the bar, keyed together.
+      if (part === 'org') {
+        if (!i16) notes.forEach((m) => this.orch('org', t, fit('org', m + 12), 16 * sd * 0.98, v));
         continue;
       }
       if (i16) continue;
@@ -3399,10 +3506,18 @@ export class Engine {
     iv.forEach((n, k) => {
       const tt = t + k * 0.018, f = midiHz(root + 12 + n), end = tt + ring * 4;
       const car = c.createOscillator(); car.frequency.value = f; car.detune.value = (k % 2 ? 1 : -1) * p.detune * 0.2;
-      const mod = c.createOscillator(); mod.frequency.value = f * 3.5;
+      const mod = c.createOscillator();
+      if (this.playbackStyle === 'trap') {
+        mod.frequency.setValueAtTime(f * 3.5, tt);
+        mod.frequency.setValueAtTime(f * 3.5, tt + 0.002);
+        mod.frequency.linearRampToValueAtTime(f * (k % 2 ? 4.4 : 2.6), tt + ring);
+      } else mod.frequency.value = f * 3.5;
       const ma = this.gain(0); mod.connect(ma).connect(car.frequency);
       ma.gain.setValueAtTime(f * (0.5 + p.env * 4) * v, tt);
-      ma.gain.setTargetAtTime(f * 0.05, tt + 0.002, ring * 0.25);
+      if (this.playbackStyle === 'trap') {
+        ma.gain.setTargetAtTime(0, tt + 0.002, ring * 0.25);
+        ma.gain.setValueAtTime(0, tt + ring * 2);
+      } else ma.gain.setTargetAtTime(f * 0.05, tt + 0.002, ring * 0.25);
       const amp = this.gain(0);
       amp.gain.setValueAtTime(EPS, tt);
       amp.gain.linearRampToValueAtTime((v * 0.3) / Math.sqrt(iv.length), tt + 0.002);
@@ -3414,6 +3529,10 @@ export class Engine {
   }
 
   vox(t, v, step) {
+    if (vowelStyle(this.playbackStyle) && !hasUserSample()) {
+      const note = vowelVoxNote(this.state, this.playbackStyle, step, this.stepDur, this.harmRoot());
+      if (playVowel(this, t, v, note.midi, note.duration, note.name, this.ch.vox.input, this.state.params.vox.tone, !['ukg', 'jerseyclub', 'bailefunk'].includes(this.playbackStyle))) return;
+    }
     if (this.playbackStyle === 'bailefunk') return this.funkVox(t, v, step);
     // Saved set timelines omit song metadata, so never borrow the listener's project seed.
     const c = this.ctx, p = this.state.params.vox, owner = this.replay808Style ? null : this.state, sample = getSample(owner);
@@ -3477,7 +3596,8 @@ export class Engine {
     if (this.hardTechno) return this.hardLead(t, v * 0.12, midiHz(60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + n), Math.max(0.12, p.decay), this.ch.stab.input);
     const vo = Math.round(p.voice), lead = vo > 1 ? STAB_VOICES[vo] : 'keys';
     const style = this.state.artist?.style;
-    const out = style === 'breaks' || style === 'reggaeton' ? this.chordTone(vo, this.ch.stab.input) : this.ch.stab.input;
+    const dest = (lead === 'organ' && !RECORDED_ORGAN.has(this.playbackStyle) && this.ch.stab.fill) || this.ch.stab.input;
+    const out = style === 'breaks' || style === 'reggaeton' ? this.chordTone(vo, dest) : dest;
     return this[lead](t, v, [n], 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot(), p, out);
   }
 
@@ -3539,13 +3659,15 @@ export class Engine {
     const out = this.trimOut(`hook-${voice}`, 1, this.hookBus || this.windDuck, -4, 500);
     const eq = tone.reduce((o, band) => this.bodyFor(o, band), this.bodyFor(this.bodyFor(out, presence), [780, 1.2, -2.5]));
     const rate = 2 ** ((m - pitch - cents / 100) / 12);
+    const styleFx = voice.endsWith('sax') ? SAX_FX[this.playbackStyle] ?? {} : {};
     return this.playBuf(buf, t, gain * touch * dbGain(trim + (air - 0.5) * 1.2) * dbGain(jazzStyle(this.state, this.playingPattern) === 'bossa' && voice === 'tpt' ? JAZZ_MIX.bossa.trumpetLead : JAZZ_MIX[jazzStyle(this.state, this.playingPattern)]?.lead || 0), eq,
       rate, Math.max(0.06, dur * 0.92), {
-        peaks: jazzStyle(this.state, this.playingPattern) ? jazzNotches(useAlt ? TAKES[HOOK_BAND[voice]] : HOOK_BAND[voice], pitch, rate) : [],
-        lp: lp + 2100 * touch + 650 * (air - 0.5), offset: offset + tongue * 0.012,
+        peaks: [...(jazzStyle(this.state, this.playingPattern) ? jazzNotches(useAlt ? TAKES[HOOK_BAND[voice]] : HOOK_BAND[voice], pitch, rate) : []), ...(styleFx.peaks || [])],
+        shelves: styleFx.shelves,
+        lp: Math.min(styleFx.cap ?? Infinity, lp + 2100 * touch + 650 * (air - 0.5)), lpStages: styleFx.lpStages, offset: offset + tongue * 0.012,
         fade: (voice === 'tpt' ? 0.025 : strong ? 0.007 : 0.012) + 0.009 * (1 - tongue),
         attackGain: (strong ? 1.04 : 0.9) + (tongue - 0.5) * 0.24,
-        release: 0.055, ringOut: true, ...(voice === 'tpt' ? { vib: 6 } : {}),
+        release: 0.055, ringOut: true, ...(voice === 'tpt' ? { vib: 6 } : voice === 'altosax' ? { vib: ALTO_VIB } : {}),
       });
   }
 
@@ -3709,6 +3831,28 @@ export class Engine {
     v *= 1.3;
     n = hookSnap(n, h, p, strong, up);
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
+    if (vowelStyle(this.playbackStyle) && (voice === 'vocal' || voice === 'chop')) {
+      const vc = voice === 'chop' && getChops(), out = this.hookBus || this.ch.stab.input;
+      if (vc) return this.chopNote(vc, t, v, 60 + k + oct * 12 + n, dur, expression, null, out);
+      if (!hasUserSample() && playVowel(this, t, v * 10 ** (VOWEL_HOOK_DB[this.playbackStyle] / 20), 60 + k + oct * 12 + n, vowelHookDuration(this.playbackStyle, dur), vowelName(this.playbackStyle, Math.floor((this.step || 0) / 64)), out, 5000, !['ukg', 'jerseyclub', 'bailefunk'].includes(this.playbackStyle), VOWEL_HOOK_EQ[this.playbackStyle])) return;
+    }
+    const roots = voice === 'chop' && getChops() ? null : rootsFor(this.state, this.playingPattern);
+    if (fiddleRole(roots, expression)) {
+      const kind = dur < .3 || expression.role === 'fiddle-answer' ? 'fiddlestac' : 'fiddle', set = this.rec(kind);
+      if (set) return this.recordedNote(set, t, Math.min(1.3, v) * BAND_PLAY[kind].gain * .6, fiddlePitch(60 + k + oct * 12 + n), fiddleDuration(dur), this.bodyFor(this.hookBus || this.ch.stab.input, [850, .8, 4]), 0, kind, v / 1.3);
+      loadBand('fiddle');
+    }
+    if (roots?.hook === 'twang') {
+      const set = this.rec('gtr'), R = BAND_PLAY.twang;
+      if (set) {
+        const dest = this.slapFor(this.hookBus || this.ch.stab.input), m = 60 + k + oct * 12 + n, ring = Math.max(R.min * .6, dur * 1.5);
+        const scale = SCALES[this.state.scale]?.notes || SCALES.major.notes;
+        const lo = scale.includes((((m - 9 - 60 - k) % 12) + 12) % 12) ? m - 9 : m - 8;
+        if (strong && lo >= R.lo) this.recordedNote(set, t + .006, Math.min(1.3, v) * R.gain * .36, lo, ring, dest, 0, 'twang', v / 1.3);
+        return this.recordedNote(set, t, Math.min(1.3, v) * R.gain * .6, m, ring, dest, 0, 'twang', v / 1.3);
+      }
+      loadBand('gtr');
+    }
     if (voice === 'tapekeys') {
       const out = this.hookBus || this.ch.stab.input;
       return this.keys(t, v * 0.53, [n], 60 + k + oct * 12, { ...p, cutoff: 680, env: 0.08, tine: 0.08, decay: dur * 0.52 }, out);
@@ -3767,6 +3911,10 @@ export class Engine {
     if (set) {
       const kind = twang ? 'twang' : Math.round(p.voice) === 11 ? 'lead' : band, R = BAND_PLAY[kind], ring = R.hold ? dur * 1.05 : Math.max(R.min * 0.6, dur * 1.5);
       let dest = this.hookBus || this.ch.stab.input;
+      if (kind === 'gtr' && this.playbackStyle === 'reggaeton') {
+        if (dest === this.ch.stab.input) dest = this.ch.stab.band;
+        for (const band of REGGAETON_GUITAR_HOOK_EQ) dest = this.bodyFor(dest, band);
+      }
       if (jazzStyle(this.state, this.playingPattern)) dest = this.trimOut('jazz-recorded-lead', JAZZ_MIX[jazzStyle(this.state, this.playingPattern)].lead, dest, JAZZ_MIX[jazzStyle(this.state, this.playingPattern)].lead);
       if (R.amp) dest = this.ampFor(dest === this.ch.stab.input ? this.ch.stab.band : dest, R.lead);
       if (R.slap) {
@@ -3900,9 +4048,18 @@ export class Engine {
       const ring = Math.max(0.35, Math.min(1.4, len * 1.2));
       const blp = this.filter('lowpass', 1900 + 1300 * b, 0.5); blp.connect(amp);
       const car = osc('sine', f, 0, 1, blp);
-      const mod = c.createOscillator(); mod.frequency.value = f * 2.5; const ma = this.gain(0);
+      const mod = c.createOscillator(), ma = this.gain(0);
+      if (this.playbackStyle === 'trap') {
+        mod.frequency.setValueAtTime(f * 2.5, t);
+        mod.frequency.setValueAtTime(f * 2.5, t + 0.002);
+        mod.frequency.linearRampToValueAtTime(f * (hash(t * 7, 19) < 0.5 ? 2 : 3), t + ring);
+      } else mod.frequency.value = f * 2.5;
       mod.connect(ma).connect(car.frequency); oscs.push(mod);
-      ma.gain.setValueAtTime(f * (0.3 + 0.35 * b) * v, t); ma.gain.setTargetAtTime(f * 0.04, t + 0.002, ring * 0.2);
+      ma.gain.setValueAtTime(f * (0.3 + 0.35 * b) * v, t);
+      if (this.playbackStyle === 'trap') {
+        ma.gain.setTargetAtTime(0, t + 0.002, ring * 0.2);
+        ma.gain.setValueAtTime(0, Math.min(end, t + ring * 2));
+      } else ma.gain.setTargetAtTime(f * 0.04, t + 0.002, ring * 0.2);
       amp.gain.setValueAtTime(EPS, t);
       amp.gain.linearRampToValueAtTime(0.34 * v, t + 0.004);
       amp.gain.setTargetAtTime(0, t + 0.004, ring * 0.45);
@@ -4099,6 +4256,46 @@ export class Engine {
     this.mono = { amp, f, end, eight08, octave: h2g };
   }
 
+  // UK Garage's bass: a recorded Roland SH-2 (CC0) with its sub oscillator, played mono, each note choking the last.
+  // The filter opens on the attack (CUTOFF, ENV MOD, ACCENT) and closes onto CUTOFF; a slide glides the pitch.
+  analogBass(t, st, sd, holdNext, sliding) {
+    const set = this.rec('abass'), p = this.state.params.acid, m = this.bassMidi(st), f = midiHz(m), prev = this.mono?.amp.gain;
+    // The last note's release is already scheduled: drop it so the choke is not undone by it.
+    if (prev && this.mono.end > t) { if (prev.cancelAndHoldAtTime) prev.cancelAndHoldAtTime(t); else prev.cancelScheduledValues(t); }
+    const from = this.monoNote(t, f, sliding);
+    let [c, buf] = set[0];
+    for (const [cm, b] of set) if (Math.abs(cm - m) < Math.abs(c - m)) [c, buf] = [cm, b];
+    const rate = Math.pow(2, (m - c) / 12), vel = (st.a ? 0.95 : 0.8) * (this.noteVel ?? 1);
+    const tone = ANALOG_TONE[this.playbackStyle] || ANALOG_TONE.ukg;
+    const organ = Math.round(this.state.params.stab.voice) === 3 && !this.state.mutes?.stab
+      && (!TRACK_IDS.some(id => this.state.solos?.[id]) || this.state.solos.stab) && (this.state.params.stab.level ?? 1) > 0;
+    const release = (organ ? tone.organRelease : null) ?? tone.release ?? 0.04;
+    const gate = organ ? 0.7 + p.decay * 1.5 : 0.9 + p.decay * 2;
+    const len = st.ap && tone.release ? sd * 0.9 : holdNext ? sd * 2 : sd * (tone.release ? gate : 1 + p.decay * 6);
+    const gain = ANALOG_BASS_GAIN * ((organ ? tone.organGain : null) ?? tone.gain?.[Math.round(p.voice)] ?? 1);
+    const close = Math.max(tone.hp ? 180 : 500, p.cutoff * tone.close), open = Math.max(close * 1.5, Math.min(10000, p.cutoff * (tone.open + p.envmod * tone.env + (st.a ? (p.accent ?? 0.5) * (tone.hp ? 1 : 3) : 0))));
+    const h = this.playBuf(buf, t, vel * gain, tone.hp ? this.ch.acid.input : this.analogBassOut(), rate, len, { lp: tone.lp ? Math.min(tone.lp, open) : open, lpTo: close, lpStages: tone.lp ? 2 : 1, hp: tone.hp, hpStages: tone.hpStages, hpQ: tone.hpQ, fade: 0.003, release, loop: true });
+    if (tone.release) {
+      const amp = h.g.gain;
+      amp.cancelScheduledValues(t);
+      amp.setValueAtTime(0, t);
+      amp.linearRampToValueAtTime(vel * gain, t + 0.006);
+      amp.setTargetAtTime(vel * gain * 0.55, t + 0.02, organ ? 0.036 : 0.12);
+      amp.setTargetAtTime(0, t + len, release);
+    }
+    if (from !== f) { h.s.playbackRate.setValueAtTime(rate * (from / f), t); h.s.playbackRate.exponentialRampToValueAtTime(rate, t + 0.08); }
+    this.mono = { amp: h.g, f, end: t + len + 0.3 };
+  }
+  // The SH-2's sub oscillator reaches 26 Hz on the lowest notes: a 4th-order Butterworth at 30 Hz trims it (-6 dB at 26 Hz)
+  // and leaves 40 Hz and up within half a dB. A highpass biquad's Q is in dB: 0.541 and 1.307 are -5.33 and +2.33 dB.
+  analogBassOut() {
+    if (!this.abassHP) {
+      const a = this.filter('highpass', 30, -5.33), b = this.filter('highpass', 30, 2.33);
+      a.connect(b).connect(this.ch.acid.input);
+      this.abassHP = a;
+    }
+    return this.abassHP;
+  }
   // Reese: two detuned saws beating against each other plus a sine sub. SAW/SQR sets the detune spread,
   // ENV MOD sweeps the filter, RESO adds bite.
   reese(t, st, sd, holdNext, sliding) {
@@ -4318,7 +4515,7 @@ export class Engine {
       this.ch.acid.input = gate;
       try {
         const result = this.acidVoice(t, st, false, false, sd, slideUntil, kickAt);
-        if (vo === 0 || vo >= 7) {
+        if (vo === 0 || (vo >= 7 && !(playsAnalogBass(this.playbackStyle, vo) && this.rec('abass')))) {
           const amp = vo === 0 ? this.acidNodes.vca : this.gatedBasses.get(vo)?.amp;
           for (const node of [amp, this.subVoice?.amp]) if (node) {
             node.gain.cancelScheduledValues(st.until - 0.018);
@@ -4363,8 +4560,15 @@ export class Engine {
       return this.dubSub(t, st, sd, holdNext);
     }
     const vo = Math.round(p.voice);
-    for (const [voice, { amp: { gain } }] of this.gatedBasses) if (vo !== voice) {
+    const analog = playsAnalogBass(this.playbackStyle, vo) && this.rec('abass');
+    for (const [voice, { amp: { gain } }] of this.gatedBasses) if (vo !== voice || analog) {
       gain.cancelScheduledValues(t); gain.setTargetAtTime(0, t, 0.005);
+    }
+    if (vo > 0 && playsAnalogBass(this.playbackStyle, vo)) {
+      if (analog) a.vca.gain.cancelScheduledValues(t);
+      a.vca.gain.setTargetAtTime(0, t, 0.005);
+      if (analog) return this.analogBass(t, st, sd, holdNext, sliding);
+      loadBand('abass');
     }
     if (vo > 0) { a.vca.gain.setTargetAtTime(0, t, 0.005); return this[['', 'bass', 'eight08', 'reese', 'logdrum', 'ebass', 'fmBass', 'pulseBass', 'harmonicBass', 'harmonicBass'][vo]](t, st, sd, holdNext, sliding, vo === 2 ? kickAt : slideUntil); }
     const f = midiHz(this.bassMidi(st)), sub = lowEnd(this.state.master)?.sub[0];
@@ -4389,6 +4593,9 @@ export class Engine {
     if (!holdNext) a.vca.gain.setTargetAtTime(0, t + sd * 0.55, 0.006);
   }
 
+  breath(t, open) {
+    for (const n of [this.ch.stab?.band, this.ch.acid?.input]) { if (!n) continue; n.gain.cancelScheduledValues(t); n.gain.setTargetAtTime(open ? 1 : 0, t, open ? 0.003 : 0.03); }
+  }
   dubSub(t, st, sd, holdNext) {
     const f = midiHz(this.bassMidi(st, 36, 38)), len = holdNext ? sd * 1.9 : sd * 1.15;
     const amp = this.gain(0), lp = this.filter('lowpass', 180, 0.5), hp = this.filter('highpass', 27, 0.5);
@@ -4410,7 +4617,12 @@ export class Engine {
       gain.setTargetAtTime(0, t, 0.008);
     }
     this.subVoice?.amp.gain.setTargetAtTime(0, t, 0.01);
-    if (this.mono) { this.mono.amp.gain.setTargetAtTime(0, t, 0.01); this.mono = null; }
+    if (this.mono) {
+      const g = this.mono.amp.gain;
+      if (g.cancelAndHoldAtTime) g.cancelAndHoldAtTime(t); else g.cancelScheduledValues(t);
+      g.setTargetAtTime(0, t, 0.01);
+      this.mono = null;
+    }
   }
 
   // ---------- arrangement FX ----------
@@ -4541,7 +4753,9 @@ export class Engine {
       const [from, dur, hold = 0] = ramp, start = 10 ** (from / 20);
       g.setValueAtTime(start, t);
       if (hold) g.setValueAtTime(start, t + hold);
-      if (dur) g.linearRampToValueAtTime(v, t + hold + dur);
+      // Keep the Deep House build endpoint ahead of the next bar's cancellation.
+      const margin = this.playbackStyle === 'deephouse' ? 1 / this.ctx.sampleRate : 0;
+      if (dur) g.linearRampToValueAtTime(v, t + hold + Math.max(0, dur - margin));
     } else g.setTargetAtTime(v, t, 0.012);
   }
 
@@ -4562,14 +4776,14 @@ export class Engine {
   }
 
   // Breakdowns start dark and open back up over the whole section
-  breakSweep(t, dur, smooth) {
+  breakSweep(t, dur, smooth, from = 700) {
     const f = this.arrLP.frequency;
     if (this.hardTechno) {
       this.hardFilter(t, [[10000, t + Math.min(dur * 0.25, 16 * this.stepDur)], [18000, t + dur]]);
     } else {
       f.cancelScheduledValues(t);
       // A smooth style glides into the dark over a beat instead of cutting to it.
-      if (smooth) { f.setValueAtTime(f.value, t); f.setTargetAtTime(900, t, 0.12); f.setTargetAtTime(18000, t + 0.6, dur / 3); } else { f.setValueAtTime(700, t); f.exponentialRampToValueAtTime(18000, t + dur); }
+      if (smooth) { f.setValueAtTime(f.value, t); f.setTargetAtTime(900, t, 0.12); f.setTargetAtTime(18000, t + 0.6, dur / 3); } else { f.setValueAtTime(from, t); f.exponentialRampToValueAtTime(18000, t + dur); }
     }
     this.arrClosed = true;
   }
@@ -4905,8 +5119,8 @@ export class Engine {
     // hookCarve: the exported hook stem's copy of the CHORDS channel (js/stems.js).
     for (const carve of [this.ch.stab?.carve, this.hookCarve]) {
       if (!carve || !v.fx?.carve) continue;
-      carve.frequency.setValueAtTime(v.fx.carve.hz, t);
-      this.duckUnder(v.buf, carve.gain, -v.fx.carve.db, t, t - off, 0);
+      this.chordParam(carve.frequency, p => p.setValueAtTime(v.fx.carve.hz, t));
+      this.chordParam(carve.gain, p => this.duckUnder(v.buf, p, -v.fx.carve.db, t, t - off, 0));
     }
     return true;
   }
@@ -4961,9 +5175,11 @@ export class Engine {
     this.vocalNow = null;
     const carves = [this.ch.stab?.carve?.gain, this.hookCarve?.gain].filter(Boolean);
     for (const p of [this.bandDuck.gain, this.singTrim.gain, ...carves]) {
-      if (p.cancelAndHoldAtTime) p.cancelAndHoldAtTime(t); else p.cancelScheduledValues(t);
-      // A held curve's rounded endpoint can extend just past t.
-      p.setTargetAtTime(carves.includes(p) ? 0 : 1, t + 1 / this.ctx.sampleRate, 0.08);
+      this.chordParam(p, param => {
+        if (param.cancelAndHoldAtTime) param.cancelAndHoldAtTime(t); else param.cancelScheduledValues(t);
+        // A held curve's rounded endpoint can extend just past t.
+        param.setTargetAtTime(carves.includes(p) ? 0 : 1, t + 1 / this.ctx.sampleRate, 0.08);
+      });
     }
     for (const voice of voices) {
       if (voice.g.gain.cancelAndHoldAtTime) voice.g.gain.cancelAndHoldAtTime(t); else voice.g.gain.cancelScheduledValues(t);
@@ -4979,6 +5195,7 @@ export class Engine {
     this.vocalStop(now);
     this.handoffCancel();
     this.breakOpen(now);
+    this.breath(now, true);
     this.acidRelease(now);
     this.riserStop();
     this.setThrow(false);
@@ -5007,6 +5224,12 @@ function windTake(notes, index, pitchIndex, pass) {
 }
 
 // Is the hook sounding at (or about to play) step hi? A note started k steps ago still rings for its length.
+// The answer half's highest held note: where the final chorus's suspension lands.
+function peakStep(s) {
+  let at = -1;
+  for (let i = 16; i < 32; i++) if (s[i] && s[i][1] >= 2 && (at < 0 || s[i][0] > s[at][0])) at = i;
+  return at;
+}
 function hookBusy(hk, hi, hm) {
   const plays = (j) => hk.s[j] && (hm > 1 || j < 16);
   for (let k = 0; k < 16; k++) { const j = (hi - k + 32) % 32; if (plays(j) && hk.s[j][1] > k) return true; }
@@ -5021,6 +5244,40 @@ const SECTION_DB = { verse: -1.8, chorus: 0.45 };
 // Styles that move between sections with filter glides instead of risers, snare rolls and impacts.
 const SMOOTH = new Set(['minimal']);
 const STYLE_SECTION_DB = { pop: { verse: -0.9 }, rnb: { chorus: 0.25 }, deephouse: { chorus: 0.25 }, country: { verse: -0.8 } };
+const DEEP_HOUSE_DB = { intro: -5.5, verse: -4.4, bridge: -4.5, chorus: -0.95, final: 0.25, buildFrom: -4.1, buildTo: -2.2 };
+
+// A song's feeling (js/feel.js) shapes how it is performed; a song without one plays exactly as written.
+const feelOf = (s) => (s.feel && Object.hasOwn(FEELS, s.feel) ? FEELS[s.feel] : null);
+// The written melody's 0.68-0.98 velocity band, played across the feeling's own range (its arc into each phrase's
+// peak note becomes a real hairpin).
+// A part's accents (0.68-0.98) spread over the feeling's mel.vel; quieter writing (Drill's harp, ghost notes) keeps
+// its level relative to the bottom of that range.
+const feelVel = (f, v) => { const [lo, hi] = f.mel.vel; return v < 0.68 ? (v * lo) / 0.68 : lo + (hi - lo) * Math.min(1, (v - 0.68) / 0.3); };
+// Low-pass the mix starts from as a pre-chorus (or a club build) opens up into its peak.
+const PRE_HZ = 4500, BUILD_HZ = 3000;
+
+// Step-length multiplier (1 = metronome) at step i16 of chain bar pos. A song genre breathes a little over each 4-bar
+// phrase and broadens into a new section (classical.js tempoMap at low depth, deeper for calmer feelings), and the
+// ending slows over its last bars by the feeling's end.rit. A song with a sung stem keeps strict time, as does one
+// without a feeling.
+export function feelTempo(s, chain, pos, i16) {
+  const f = feelOf(s), n = chain.length;
+  if (!f || !n || s.sing?.on) return 1;
+  let m = 1;
+  if (s.patterns[chain[pos]]?.sec && s.artist?.style !== 'hardtechno' && jazzStyle(s, s.patterns[chain[pos]]) !== 'jazzfunk') {
+    let a = pos;
+    while (a > 0 && chain[a - 1] === chain[pos]) a--;
+    const d = 0.25 + 0.1 * (1 - f.arousal), ph = ((((pos - a) % 4) * 16) + i16) / 64;
+    m += -0.025 * d * Math.sin(Math.PI * ph * 1.6) + (ph > 0.85 ? (0.05 * d * (ph - 0.85)) / 0.15 : 0);
+    if (pos + 1 < n && chain[pos + 1] !== chain[pos] && i16 >= 8) m += (0.06 * d * (i16 - 7)) / 8;
+  }
+  const rit = f.end?.rit || 0;
+  if (s.ending && n >= 16 && rit) {
+    if (pos === n - 1) m *= 1 + 0.5 * rit;
+    else if (pos >= n - 3) m *= 1 + 0.3 * rit * ((((pos - (n - 3)) * 16) + i16) / 32) ** 1.6;
+  }
+  return m;
+}
 
 export class Sequencer {
   constructor(engine, state) {
@@ -5047,8 +5304,17 @@ export class Sequencer {
     this.queued = null;
     this.acidPrevSlide = false;
     this.finished = false;
-    if (offset && pos >= 0 && !(this.s.ending && chain.length >= 16 && bar >= chain.length))
-      this.verseFillSwell(t, chain, pos, offset);
+    if (offset && pos >= 0 && this.s.patterns[this.cur]?.jazz?.bossaPart) {
+      this.chainPos = bar;
+      this.advanceBar(bar * 16, t, offset);
+      return;
+    }
+    if (offset && pos >= 0 && !(this.s.ending && chain.length >= 16 && bar >= chain.length)) {
+      if (this.deepHouseArc()) {
+        this.updateLift(chain);
+        this.deepHouseLevel(t, chain, pos, offset);
+      } else this.verseFillSwell(t, chain, pos, offset);
+    }
   }
 
   rewind(abs, t) {
@@ -5092,13 +5358,7 @@ export class Sequencer {
     this.dropNow = !!this.dropNext; this.dropNext = false;
     this.songBars = chain.length; this.chainArr = chain;
     this.chainEntries = cleanChainEntries(this.s.chain, this.s.chainEntries);
-    if (this.liftChain !== this.s.chain) {
-      // The final chorus: the last run of peak bars, if an earlier peak came before it.
-      let i = chain.length - 1;
-      while (i >= 0 && chain[i] !== 6) i--;
-      while (i > 0 && (chain[i - 1] === 6 || chain[i - 1] === 7)) i--;
-      this.liftChain = this.s.chain; this.liftFrom = i > 0 && chain.slice(0, i).includes(6) ? i : -1;
-    }
+    this.updateLift(chain);
     if (chain.length) {
       const n = chain.length, p = this.chainPos % n, prev = this.chainPos ? this.cur : -1;
       // Past the last bar of a song with an ending (even if a stalled main thread skipped its steps): finished, silent.
@@ -5108,7 +5368,8 @@ export class Sequencer {
       while (a > 0 && chain[a - 1] === this.cur) a--;
       while (b < n - 1 && chain[b + 1] === this.cur) b++;
       this.runPos = p - a; this.runLen = b - a + 1;
-      const peak = (x) => x === 2 || x === 6, brk = (x) => x === 4 || x === 5, fill = this.cur === 3 || this.cur === 7;
+      const houseArc = this.deepHouseArc();
+      const peak = (x) => x === 6 || (x === 2 && !houseArc), brk = (x) => x === 4 || x === 5, fill = this.cur === 3 || this.cur === 7;
       if (arr) {
         this.dropNext = peak(chain[(p + 1) % n]) && !peak(this.cur) && !(fill && peak(prev));
         if (!this.breakFilterPlanned && arr >= 0.75 && brk(this.cur) && !brk(prev)) {
@@ -5116,11 +5377,15 @@ export class Sequencer {
           this.e.breakSweep(t, k * 16 * this.e.stepDur, SMOOTH.has(style));
         }
       }
-      if (!this.breakFilterPlanned && (!arr || !brk(this.cur))) this.e.breakOpen(t, SMOOTH.has(style));
       if (this.festivalPlan.length) {
         this.dropNow = !!arr && this.festivalPlan.some((b) => b.drop === p);
         this.dropNext = !!arr && this.festivalPlan.some((b) => b.drop === p + 1);
       }
+      // Hard Techno runs its own section dynamics (hardSection), so the feeling leaves its filter alone.
+      const f = this.s.artist?.style === 'hardtechno' ? null : feelOf(this.s), sec = this.s.patterns[this.cur]?.sec, free = !this.breakFilterPlanned;
+      if (free && f && sec === 'pre') { if (!this.runPos) this.e.breakSweep(t, this.runLen * 16 * this.e.stepDur, false, PRE_HZ); }
+      else if (free && f && !sec && this.dropNext && !this.e.arrClosed) this.e.breakSweep(t, 16 * this.e.stepDur, false, BUILD_HZ);
+      else if (free && (!arr || !brk(this.cur))) this.e.breakOpen(t, SMOOTH.has(style));
       this.sectionLevel(t, p, offset);
       return;
     }
@@ -5130,18 +5395,61 @@ export class Sequencer {
     if (this.queued !== null) { this.cur = this.queued; this.queued = null; }
   }
 
+  updateLift(chain) {
+    if (this.liftChain === this.s.chain && this.liftBars === chain.length) return;
+    // The final chorus: the last run of peak bars, if an earlier peak came before it.
+    let i = chain.lastIndexOf(6);
+    while (i > 0 && (chain[i - 1] === 6 || chain[i - 1] === 7)) i--;
+    this.liftChain = this.s.chain; this.liftBars = chain.length;
+    this.liftFrom = i > 0 && chain.slice(0, i).includes(6) ? i : -1;
+  }
+
+  deepHouseArc() {
+    const pats = this.s.patterns;
+    return (this.e.playbackStyle ?? this.s.artist?.style) === 'deephouse' &&
+      pats[1]?.sec === 'pre' && pats[6]?.sec === 'chorus';
+  }
+
+  deepHouseLevel(t, chain, pos, offset = 0) {
+    const db = DEEP_HOUSE_DB, sec = this.s.patterns[this.cur]?.sec;
+    // The breakdown keeps its own harmony and groove; its back half builds into the final chorus.
+    const bridgeBuild = this.liftFrom >= 4 && pos >= this.liftFrom - 4 && pos < this.liftFrom &&
+      chain[this.liftFrom - 1] === 3 && chain.slice(this.liftFrom - 4, this.liftFrom - 1).every((i) => i === 4 || i === 5);
+    if (sec !== 'pre' && !bridgeBuild) {
+      const level = sec === 'chorus' && this.liftFrom >= 0 && pos >= this.liftFrom ? db.final : db[sec] ?? db.intro;
+      return this.level(t, level, offset ? [level, 0] : undefined);
+    }
+    let first = this.liftFrom - 4, last = this.liftFrom - 1;
+    if (!bridgeBuild) {
+      first = last = pos;
+      while (first > 0 && chain[first - 1] === this.cur) first--;
+      while (last + 1 < chain.length && chain[last + 1] === this.cur) last++;
+    }
+    const at = (step) => db.buildFrom + (db.buildTo - db.buildFrom) * step / (16 * (last - first + 1));
+    const step = 16 * (pos - first);
+    const from = at(step), to = at(step + 16);
+    const gain = (v) => 10 ** (v / 20);
+    const resumed = offset ? 20 * Math.log10(gain(from) + (gain(to) - gain(from)) * offset / 16) : from;
+    return this.level(t, to, [resumed, (16 - offset) * this.e.stepDur]);
+  }
+
   // Verses sit under the chorus. A pre-chorus or a written verse fill can swell into it.
+  // A feeling scales the verse's distance under the chorus by its dyn.contrast (the chorus never goes above its
+  // ceiling-safe lift), and a club build dips and swells back up into the drop.
   sectionLevel(t, pos, offset) {
+    if (this.deepHouseArc()) return this.deepHouseLevel(t, this.chainArr, pos, offset);
     if (this.s.artist?.style === 'hardtechno') {
       this.e.hardSection?.(t, this.cur, this.runPos, this.runLen, this.chainArr[this.chainPos]);
       return;
     }
-    const pats = this.s.patterns, sec = pats[this.cur]?.sec;
+    const pats = this.s.patterns, sec = pats[this.cur]?.sec, f = feelOf(this.s);
+    if (!sec && f && this.dropNext) return this.level(t, 0, [-1.2 * f.dyn.contrast, 16 * this.e.stepDur]);
     if (!sec) {
       if (this.verseFillSwell(t, this.chainArr, pos, offset)) return;
       return this.level(t, pats.some((p) => p.sec) ? this.secDb ?? 0 : 0);
     }
     const db = { ...SECTION_DB, ...STYLE_SECTION_DB[this.s.artist?.style] };
+    if (f) db.verse *= f.dyn.contrast;
     if (sec !== 'pre') return this.level(t, db[sec] ?? 0);
     const { verse: v, chorus: c } = db, at = (k) => v + ((c - v) * k) / this.runLen;
     this.level(t, at(this.runPos + 1), [at(this.runPos), 16 * this.e.stepDur]);
@@ -5178,6 +5486,7 @@ export class Sequencer {
     if (s.artist?.style === 'dub' || e.dubBreakdown === true) e.dubSection?.(t, s.artist?.style === 'dub' && s.chainOn && pos >= 48 && pos < 56 && (this.cur === 4 || this.cur === 5));
     if (abs % 16 === 0) e.vocal(t, pos, 0, roomGridTime, false, vocalSettling);
     const pat = patternAt(s.patterns[this.cur], pos);
+    if (!pat.score) e.stepScale = n ? feelTempo(s, this.chainArr, pos, abs % 16) : 1;
     const firstTick = !e.playingPattern, previousJazz = jazzStyle(s, e.playingPattern);
     e.playingPattern = pat;
     if (firstTick || (abs % 16 === 0 && previousJazz !== jazzStyle(s, pat))) e.applyOutputTrim?.(false, t);
@@ -5195,6 +5504,13 @@ export class Sequencer {
       return this.jazzStep(pat, abs, tt, pos, n);
     }
     const kl = this.keyLift = s.ending && pat.lift && lf > 0 && (pos >= lf || (pos === lf - 1 && abs % 16 >= 12)) ? pat.lift : 0;
+    // With a feeling, the band holds its breath for the last beat before the final chorus (or drop); only the lead's
+    // pickup sounds. Every player leans in towards the third bar of each 4-bar phrase and eases off into its end.
+    const f = feelOf(s), held = f && lf > 0 && pos === lf - 1 && abs % 16 >= 12;
+    const hp = f ? this.hairpin(f, abs) : 1;
+    // The breath is a lifted hand: ringing chords and the bass are damped, then let back in for the downbeat.
+    if (held && abs % 16 === 12) e.breath(tt, false);
+    if (held && abs % 16 === 15) e.breath(tt + sd - 0.012, true);
     if (s.ending && n >= 16 && pos === n - 1 && !pat.score) return this.ending(pat, abs % 16, tt, sd, kl);
     // Turnaround: the last beat of a section anticipates the next section's first chord.
     const nx = n && pos + 1 < n && this.chainArr[pos + 1] !== this.cur ? patternAt(s.patterns[this.chainArr[pos + 1]], pos + 1) : null;
@@ -5215,6 +5531,8 @@ export class Sequencer {
       for (const hit of build.rolls) e.trigger('snare', t + hit.offset * sd, hit.velocity);
     }
     const sung = pat.hook?.m && !pat.hook.h ? this.sungBar(bar, n ? pos : bar) : null;
+    // The peak's dropout (longform.js writePeak): one bar of only the lead (the chords, with no lead), then the band returns.
+    const alone = pat.peak === 'dropout' ? (sung || (pat.hook && !pat.hook.h && pat.hm) ? 'lead' : 'stab') : null;
     const hookStep = sung ? this.songBars && !sung.hook.m.c && sung.notes.some((o) => o.at === i16 && i16 % 8) : pat.hook && pat.hm ? pat.hook.s[abs % 32] : 0;
     const hard = s.artist?.style === 'hardtechno';
     if (hard && this.cur === 5 && this.runLen > 0) {
@@ -5228,25 +5546,27 @@ export class Sequencer {
     }
     this.smooth = SMOOTH.has(e.playbackStyle ?? s.artist?.style);
     // The chords make room under the bass while it plays and fill the low mids back in when it drops out.
-    const held = HELD_CHORDS.has(STAB_VOICES[s.params.stab.voice]);
-    const sc = !this.smooth ? 0 : !s.mutes.acid && pat.steps.acid.some((st) => st?.on) ? (held ? -6 : -12) : held ? -2 : 0.5;
+    const heldChords = HELD_CHORDS.has(STAB_VOICES[s.params.stab.voice]);
+    const sc = !this.smooth ? 0 : !s.mutes.acid && pat.steps.acid.some((st) => st?.on) ? (heldChords ? -6 : -12) : heldChords ? -2 : 0.5;
     if (sc !== (e.smoothOn || 0)) {
       e.smoothChords(sc, t);
       // A lifted breakdown opens on a chord so its first bar does not fall into a gap.
       const soloed = Object.values(s.solos || {}).some(Boolean);
-      if (sc > 0 && i16 === 0 && !s.mutes.stab && (!soloed || s.solos.stab)) e.trigger('stab', t, 0.45);
+      if (sc > 0 && i16 === 0 && alone !== 'lead' && !s.mutes.stab && (!soloed || s.solos.stab)) e.trigger('stab', t, 0.45);
     }
     if (!festival && this.dropNext && this.smooth) { if (i16 === 0) e.dropDip(t, 16 * sd); } else if (!festival && this.dropNext && !hard) {
       if (i16 === 0) e.sweep(t, 16 * sd, arr);
-      if (i16 >= 8 && !s.mutes.snare) {
+      if (i16 >= 8 && !s.mutes.snare && !held) {
         const rv = (0.25 + (0.6 * (i16 - 8)) / 7) * arr;
         e.trigger('snare', tt, rv);
         if (i16 >= 12) e.trigger('snare', tt + sd / 2, rv * 0.85);
       }
     }
-    if (this.dropNow && i16 === 0 && !this.smooth) e.impact(t, arr);
+    if (alone) this.peakDrop = pos;
+    else if (i16 === 0 && pos > 0 && this.peakDrop === pos - 1) e.impact(t, Math.max(0.5, arr));
+    if (this.dropNow && i16 === 0 && !this.smooth && !alone) e.impact(t, arr);
     if (pat.score) this.scoreStep(pat.score, abs, t, sd);
-    else { e.stepScale = 1; e.variableScoreTempo = false; }
+    else e.variableScoreTempo = false;
     const anySolo = TRACK_IDS.some((id) => s.solos[id]);
     const rp = arr && !vary && n && !pat.score && (this.runLen >= 8 || (hard && this.runLen >= 4)) ? this.runPos : -1;
     // A song verse running straight into the pre-chorus fills its own last bar (no D/H turnaround follows it).
@@ -5256,16 +5576,16 @@ export class Sequencer {
     const band = pk?.band && Math.round(s.master.kit || 0) === 1;
     // The rhythm guitar palm-mutes the verse and breakdown and opens up for the pre-chorus and chorus.
     e.palm = band && (this.cur === 2 || this.cur === 4);
-    if (band && i16 === 0 && pos > 0 && this.chainArr[pos - 1] !== this.cur && pat.steps.kick.some(Boolean) && !s.mutes.oh && (!anySolo || s.solos.oh)) {
+    if (band && !alone && i16 === 0 && pos > 0 && this.chainArr[pos - 1] !== this.cur && pat.steps.kick.some(Boolean) && !s.mutes.oh && (!anySolo || s.solos.oh)) {
       e.crash(tt + pocketLate(pk, 'oh', 0), this.cur === 6 || this.cur === 7 ? 1 : 0.7);
     }
     // A queued fill keeps its instrument when a single track is edited.
     const roller = rp >= 0 && i16 >= fillAt && pat.steps.snare.some(Boolean) ? 'snare' : 'clap';
-    const grid = { abs, tt, bar, i16, vary, rp, pos, n, fillAt, roller, pk, band, sung, hum: s.master.humanize || 0, liveKit: Math.round(s.master.kit || 0) === 1 };
+    const grid = { abs, tt, bar, i16, vary, rp, pos, n, fillAt, roller, pk, band, sung, hum: s.master.humanize || 0, liveKit: Math.round(s.master.kit || 0) === 1, hp };
     const hitContext = editable ? { e, cur: this.cur, runLen: this.runLen, smooth: this.smooth, build: this.build } : null;
     let kickAt;
     for (const id of TRACK_IDS) {
-      const on = !s.mutes[id] && (!anySolo || s.solos[id]);
+      const on = !held && (!alone || (alone === 'stab' && id === 'stab')) && !s.mutes[id] && (!anySolo || s.solos[id]);
       if (build?.lowOff && (id === 'kick' || id === 'acid')) continue;
       if (build && !build.drop && (id === 'snare' || (['ch', 'oh', 'ride'].includes(id) && build.thin))) continue;
       if (build?.drop && on && id === 'kick') { e.trigger('kick', t, buildAmount); kickAt = t; continue; }
@@ -5285,7 +5605,7 @@ export class Sequencer {
         }
         this.acidMuted = false;
         // A bass player leans on the one and plays the in-between notes softer
-        e.noteVel = pk ? pocketVel(pk, 'acid', i16) * (1 + (hash(abs, 93) - 0.5) * 0.1) : 1;
+        e.noteVel = (pk ? pocketVel(pk, 'acid', i16) * (1 + (hash(abs, 93) - 0.5) * 0.1) : 1) * hp;
         const walk = pk?.walk && (i16 === 12 || i16 === 14) && e.harm ? this.walkUp(pat, nx, bar, kl) : null;
         if (walk) {
           e.acid(tt + pocketLate(pk, 'acid', i16), { on: true, n: walk[i16 === 12 ? 0 : 1] - (e.harm.r - kl), a: false, s: false, ap: true }, false, false, sd);
@@ -5324,9 +5644,10 @@ export class Sequencer {
       if (editable && EDITABLE_HITS.has(id)) {
         const step = e.step, scale = e.stepScale, harm = e.harm;
         const hit = e.planHit(t, id, hitContext.cur, () => {
-          if (this.s !== s || s.mutes[id] || (TRACK_IDS.some(k => s.solos[k]) && !s.solos[id])) return null;
+          if (held || this.s !== s || s.mutes[id] || (TRACK_IDS.some(k => s.solos[k]) && !s.solos[id])) return null;
           const current = patternAt(s.patterns[hitContext.cur], pos);
-          if (!current) return null;
+          // The final chorus's dropout bar leaves only the lead or the chords: no drum is planned or replanned into it.
+          if (!current || current.peak === 'dropout') return null;
           const hit = this.gridHit.call(hitContext, id, current, grid);
           return hit && { ...hit, key: JSON.stringify([hit.method, ...hit.args]), step, scale, harm };
         });
@@ -5342,19 +5663,24 @@ export class Sequencer {
       if (id === 'kick') kickAt = hit?.time;
     }
     // A band adds players by section (BAND_LAYER): strings under the changes, a piano doubling the strum.
-    if (band && i16 % 8 === 0 && pat.sec && !pat.score && !s.mutes.stab && (!anySolo || s.solos.stab)) e.bandLayer(tt, pat.sec, i16, s.artist?.style);
+    if (band && !alone && i16 % 8 === 0 && pat.sec && !pat.score && !s.mutes.stab && (!anySolo || s.solos.stab)) e.bandLayer(tt, pat.sec, i16, s.artist?.style);
     const hm = pat.hm || 0, scale = SCALES[s.scale]?.notes || SCALES.minor.notes;
     const hk = sung ? null : pat.hook && !pat.hook.h && this.songBars ? (pat.sec === 'pre' ? this.climb(pat.hook, bar % 4, scale) : this.motif(pat.hook, motifPlan(bar, this.songBars, this.cur, pat.hook.s.filter(Boolean).length), scale)) : pat.hook;
     const leadOn = !s.mutes.stab && (!anySolo || s.solos.stab), busy = sung ? this.songBars && leadOn && sung.busy[i16] : this.songBars && hk && hm && leadOn && hookBusy(hk, abs % 32, hm);
     const sp = pat.steps.stab;
+    const roots = rootsFor(s, pat);
+    const emptyEnding = roots?.answer === 'fiddle' && (sung ? !sung.busy.slice(12, 15).some(Boolean) : !hk || ![12, 13, 14].some((j) => hookBusy(hk, (abs - i16 + j) % 32, hm)));
+    if (hm && leadOn && !alone && i16 === 12 && emptyEnding && fiddleAnswerRoll(roots, bar)) {
+      e.hook(tt, .28, (e.harm?.r || 0) + 7, 2 * sd, hk?.v || pat.hook?.v || 'warm', 0, false, .7, false, { role: 'fiddle-answer' });
+    }
     // Licks fill the lead's rests instead of talking over it.
     const lick = this.lickCell(i16, vary);
-    if (lick && leadOn && !busy && !(this.songBars && ((hk && hm) || sung?.any) && i16 === 15) && bar % 8 === 7 && !sp[abs % (pat.len.stab || 16)]) {
+    if (lick && !held && leadOn && !alone && !busy && !(this.songBars && ((hk && hm) || sung?.any) && i16 === 15) && bar % 8 === 7 && !sp[abs % (pat.len.stab || 16)]) {
       e.lick(tt, lick.v, lick.k);
     }
-    if (this.songBars && hk && hm && leadOn) this.interplay(pat, hk, abs, bar, tt, sd, busy, anySolo, !!hk.s[abs % 32]);
-    if (this.songBars && sung?.part && leadOn) this.interplay(pat, pat.hook, abs, bar, tt, sd, busy, anySolo, sung.notes.some((o) => o.at === i16));
-    if (sung && leadOn) this.sing(sung, i16, bar, tt, sd, scale);
+    if (this.songBars && hk && hm && leadOn && !held && !alone) this.interplay(pat, hk, abs, bar, tt, sd, busy, anySolo, !!hk.s[abs % 32]);
+    if (this.songBars && sung?.part && leadOn && !held && !alone) this.interplay(pat, pat.hook, abs, bar, tt, sd, busy, anySolo, sung.notes.some((o) => o.at === i16));
+    if (sung && leadOn) this.sing(sung, i16, bar, tt, sd, scale, pat.peak, !!alone);
     if (hk && hm && !s.mutes.stab && (!anySolo || s.solos.stab)) {
       const hi = abs % 32, st = hk.s[hi];
       const x = hk.x || { space: 0.4, risk: 0.4, feel: 0.4, warmth: 0.5 };
@@ -5374,16 +5700,19 @@ export class Sequencer {
         const expression = Object.hasOwn(WIND_HOOK, hk.v)
           ? { ...x, take: windTake(hk.s, hi, 0, Math.floor(abs / 32)) } : x;
         const duration = swingDuration(s, abs, st[1], sd);
-        e.hook(ht, Math.min(1, st[2] * phraseVel), st[0] + lift, duration, hk.v, hk.o, strong, b, !hk.h && resolve, expression);
+        const v = Math.min(1, (f ? feelVel(f, st[2]) : st[2]) * phraseVel), top = pat.peak === 'suspension' && answer && st[1] >= 2 && hi === peakStep(hk.s);
+        if (top) this.suspend(ht, v, st[0] + lift, st[1], sd, hk, strong, b, expression, scale);
+        else e.hook(ht, v, st[0] + lift, duration, hk.v, hk.o, strong, b, !hk.h && resolve, expression);
+        if (pat.peak === 'entry') e.peakVoice(ht + 0.006, v * PEAK_ENTRY, st[0] + lift, duration, hk.o, strong);
         // At the peak a second player doubles the answer's held notes a third below.
-        if (this.cur === 6 && answer && hm > 1 && st[1] >= 3 && !hk.h && this.songBars) e.hook(ht + 0.004, Math.min(1, st[2] * phraseVel) * 0.55, stepDeg(st[0], -2, scale) + lift, duration, hk.v, hk.o, strong, b, false, { ...expression, harm: 1 });
+        if (this.cur === 6 && !alone && answer && hm > 1 && st[1] >= 3 && !hk.h && this.songBars) e.hook(ht + 0.004, v * 0.55, stepDeg(st[0], -2, scale) + lift, duration, hk.v, hk.o, strong, b, false, { ...expression, harm: 1 });
       }
     }
     if (this.roll === null) this.rollCount = 0;
     return this.cur;
   }
 
-  gridHit(id, pat, { abs, tt, bar, i16, vary, rp, pos, n, fillAt, roller, pk, band, sung, hum, liveKit }) {
+  gridHit(id, pat, { abs, tt, bar, i16, vary, rp, pos, n, fillAt, roller, pk, band, sung, hum, liveKit, hp = 1 }) {
     const i = abs % (pat.len[id] || 16);
     let v = pat.steps[id][i];
     if (vary) {
@@ -5409,7 +5738,7 @@ export class Sequencer {
     const hv = (1 - hum * 0.22 * hash(abs, k + 20)) * (1 - hum * (1 - accent)) * swell * pv;
     const ghostSnare = id === 'snare' && liveKit;
     const under = id === 'stab' && n && sung?.any ? STAB_UNDER_VOICE[pat.sec && sung.part === 'v' ? 'n' : sung.part] ?? STAB_UNDER_VOICE.n : 1;
-    const vel = (v === 2 ? 1 : v === 1 ? (ghostSnare ? 0.45 : 0.78) : v) * hv * under;
+    const vel = (v === 2 ? 1 : v === 1 ? (ghostSnare ? 0.45 : 0.78) : v) * hv * under * hp;
     if (!v) return null;
     if (id === 'vox') return { method: 'vox', args: [ht, vel, this.e.playbackStyle === 'bailefunk' ? abs : i], time: ht };
     if (band && id === 'snare' && (this.cur === 3 ? i16 >= 12 : i16 >= fillAt))
@@ -5423,6 +5752,7 @@ export class Sequencer {
   // a phrase, the peak's second phrase opens up off-16th hats, every 8 bars ends on a snare/clap roll over a dropped
   // kick (two beats at 16-bar ends), and every fourth bar turns around on the percussion.
   jazzHarmonyAt(pat, bar, pos) {
+    if (pat.jazz?.bossaPart && pat.jazz.progBars !== 1) return jazzHarmony(pat, this.bossaSectionBar(bar, pos));
     if (pat.jazz?.progBars !== 1 || pos < 0 || !this.songBars) return jazzHarmony(pat, bar);
     pos %= this.chainArr.length;
     let start = pos;
@@ -5434,6 +5764,14 @@ export class Sequencer {
     const group = (slot) => slot < 2 ? slot : slot - slot % 2;
     while (start > 0 && group(this.chainArr[start - 1]) === group(this.chainArr[pos])) start--;
     return jazzHarmony(pat, pos - start);
+  }
+
+  bossaSectionBar(bar, pos) {
+    if (pos < 0) return bar;
+    let start = pos;
+    const sec = this.chainEntries?.[pos]?.sec, slot = this.chainArr[pos];
+    while (start > 0 && (sec != null ? this.chainEntries[start - 1].sec === sec : this.chainArr[start - 1] === slot)) start--;
+    return pos - start;
   }
 
   jazzGrid(pat, id, abs, written, played, accents = []) {
@@ -5530,6 +5868,7 @@ export class Sequencer {
   }
 
   bossaStep(pat, abs, t, pos, bars) {
+    if (pat.jazz.bossaPart) return this.bossaSongStep(pat, abs, t, pos, bars);
     const e = this.e, s = this.s, i = abs % 16, bar = Math.floor(abs / 16), sd = e.stepDur;
     const enabled = (id) => !s.mutes[id] && (!Object.values(s.solos).some(Boolean) || s.solos[id]);
     const final = s.ending && bars && pos === bars - 1;
@@ -5556,6 +5895,63 @@ export class Sequencer {
     if (enabled('stab') && pat.hook && pat.hm && !this.jazzHook(pat, abs, t, sd)) {
       const notes = final ? [[0, 8, h.r + CHORDS[h.c].iv[1], 0.6]] : jazzNotes('bossa', pat.jazz.seed, bar, h, this.cur === 2);
       for (const [at, dur, n, v] of notes) if (at === i) e.hook(t, v, n, dur * sd, pat.hook.v, pat.hook.o, i % 8 === 0, 0.8, false, pat.hook.x);
+    }
+    return this.cur;
+  }
+
+  bossaSongStep(pat, abs, t, pos, bars) {
+    const e = this.e, s = this.s, i = abs % 16, bar = Math.floor(abs / 16), sd = e.stepDur;
+    const { bossaPart: part, seed } = pat.jazz, local = this.bossaSectionBar(bar, pos);
+    const enabled = (id) => !s.mutes[id] && (!Object.values(s.solos).some(Boolean) || s.solos[id]);
+    const final = s.ending && bars && pos === bars - 1;
+    if (final && i) return this.cur;
+    const nextPos = bars ? (pos + 1) % bars : -1;
+    const nextSlot = this.chainArr?.[nextPos] ?? this.cur;
+    const boundary = bars > 1 && this.bossaSectionBar(bar + 1, nextPos) === 0;
+    const nextPat = patternAt(s.patterns[nextSlot], nextPos);
+    const h = e.harm, next = this.jazzHarmonyAt(nextPat, bar + 1, nextPos);
+    const groove = bossaRhythm(part, local, i, boundary);
+    // Per-player placement around the same straight pulse. Never schedule ahead of the start of playback.
+    const time = (id, extra = 0) => t + Math.max(abs === 0 ? 0 : -0.05, bossaPocket(id, bar, i, sd, seed) + extra * sd);
+    if (!final) {
+      const rows = [['kick', BOSSA_KICK], ['ch', BOSSA_HAT], ['snare', BOSSA_RIM[0]], ['oh', []]];
+      for (const [id, row] of rows) {
+        if (!enabled(id)) continue;
+        const v = this.jazzGrid(pat, id, abs, row, !!groove[id]);
+        if (v) e.trigger(id, time(id === 'oh' ? 'ch' : id), (groove[id] || (id === 'oh' ? 0.2 : 0.24)) * v);
+      }
+    }
+    const bass = bossaBass(s.key, h, next), note = bass.find(([at]) => at === i);
+    const st = this.jazzGrid(pat, 'acid', abs, BOSSA_BASS,
+      { on: !!note && (!groove.airy || i === 0 || i === 14 && !final), n: 0, a: false, s: false });
+    if (enabled('acid') && st?.on) {
+      const [, dur, m, v] = note || [i, 1.5, bass[0][2], 0.64];
+      const approach = groove.turn && i === 14 && next.r !== h.r ? (m <= 29 ? 1 : -1) : 0;
+      e.noteVel = v * (i === 6 || i === 14 ? 0.79 : 0.92);
+      e.acid(time('acid'), { ...st, n: m + approach - 36 - s.key - harmRoot(h) + st.n, ap: true }, false, false,
+        (final ? 10 : groove.airy && i === 0 ? 7 : dur * 0.88) * sd, undefined, t);
+      e.noteVel = 1;
+    }
+    const comp = this.jazzGrid(pat, 'stab', abs, [...new Set([0, 8, ...BOSSA_BATIDA[0]])], final || groove.comp > 0 || groove.thumb != null);
+    if (enabled('stab') && comp) {
+      const pluck = (id, v, grip) => {
+        e.bossaComp = grip;
+        e.trigger('stab', time(id), v * comp);
+        e.bossaComp = null;
+      };
+      if (groove.thumb != null) pluck('thumb', final ? 0.46 : 0.33, { thumb: groove.thumb, dur: (final ? 8 : 3.4) * sd });
+      if (final || groove.comp || groove.thumb == null) pluck('stab', final ? 0.58 : groove.comp || 0.52,
+        { chord: true, dur: final ? 10 * sd : groove.airy ? 6 * sd : undefined });
+    }
+    if (enabled('stab') && pat.hook && pat.hm && !this.jazzHook(pat, abs, t, sd)) {
+      const notes = final ? [[0, 10, h.r, 0.67]] : bossaLine(part, local, h, seed, (bar - local) / 8);
+      for (const [j, [at, dur, n, v]] of notes.entries()) if (at === i) {
+        const anchor = i % 8 === 0 && CHORDS[h.c].iv.some((p) => (n - h.r - p) % 12 === 0);
+        const pickup = dur <= 2 ? -0.10 : 0;
+        const layBack = dur >= 4 ? 0.07 * Math.sin((j + local % 4) * 1.7) : 0;
+        const take = dur < 2.5 && (j + local) % 3 === 0 ? 1 : 0;
+        e.hook(time('hook', pickup + layBack), v, n, dur * sd, pat.hook.v, pat.hook.o, anchor, 0.8, false, { ...pat.hook.x, take });
+      }
     }
     return this.cur;
   }
@@ -5681,19 +6077,39 @@ export class Sequencer {
 
   // Sing the notes that start on this step: pitch and length as written, the verse a little softer than the chorus,
   // a breath before a drop, and at the peak a second voice a third under the held notes of the answering phrase.
-  sing(sung, i16, bar, t, sd, scale) {
+  sing(sung, i16, bar, t, sd, scale, peak = null, alone = false) {
     const s = this.s, e = this.e, hk = sung.hook, x = hk.x || { space: 0.4, risk: 0.4, feel: 0.4, warmth: 0.5 };
+    // The suspension lands on the answer bar's highest held note.
+    const top = peak === 'suspension' && bar % 2 === 1 ? sung.notes.reduce((a, o) => (o.x[1] >= 2 && (!a || o.x[2] > a.x[2]) ? o : a), null) : null;
     for (const o of sung.notes) {
       if (o.at !== i16 || (this.dropNext && i16 >= 8 && !o.pickup)) continue;
       const [start, dur, w, vel, ph] = o.x, lift = this.keyLift || 0, semi = o.sh ? stepDeg(w, o.sh, scale) : w;
       const sec = o.q === 'v' ? (s.patterns[this.cur]?.sec ? 1.15 : 0.82) : o.q === 'b' ? 0.6 : 1, strong = strongNote(start, dur);
       const ht = t + (hash(start, 97) - 0.5) * 0.008 * x.feel + (s.master.humanize || 0) * 0.008;
-      const b = 0.58 + 0.42 * ((((bar % 8) + 8) % 8) / 7), v = Math.min(1, vel * sec) * (SUNG_VOICE[hk.v] ?? 1);
+      const f = feelOf(s), b = 0.58 + 0.42 * ((((bar % 8) + 8) % 8) / 7), v = Math.min(1, (f ? feelVel(f, vel) : vel) * sec) * (SUNG_VOICE[hk.v] ?? 1);
       const expression = o.take == null ? x : { ...x, take: o.take };
       const duration = swingDuration(s, bar * 16 + i16, dur, sd);
-      e.hook(ht, v, semi + lift, duration, hk.v, hk.o, strong, b, false, expression);
-      if (this.cur === 6 && o.q === 'n' && ph % 2 === 1 && dur >= 6 && this.songBars) e.hook(ht + 0.004, v * 0.55, stepDeg(semi, -2, scale) + lift, duration, hk.v, hk.o, strong, b, false, { ...expression, harm: 1 });
+      if (o === top && !o.sh) this.suspend(ht, v, semi + lift, dur, sd, hk, strong, b, expression, scale);
+      else e.hook(ht, v, semi + lift, duration, hk.v, hk.o, strong, b, false, expression);
+      if (peak === 'entry') e.peakVoice(ht + 0.006, v * PEAK_ENTRY, semi + lift, duration, hk.o, strong);
+      if (this.cur === 6 && !alone && o.q === 'n' && ph % 2 === 1 && dur >= 6 && this.songBars) e.hook(ht + 0.004, v * 0.55, stepDeg(semi, -2, scale) + lift, duration, hk.v, hk.o, strong, b, false, { ...expression, harm: 1 });
     }
+  }
+
+  // The peak's suspension (Sloboda 1991): the peak note is approached from the scale step above, held over the
+  // chord as a dissonance for half its length, then resolved down by step onto the written note.
+  suspend(t, v, n, steps, sd, hk, strong, b, x, scale) {
+    const e = this.e, to = hookSnap(n, e.harm, this.s.params.stab, strong, false), hold = Math.max(1, steps >> 1);
+    e.hook(t, Math.min(1, v * 1.08), stepDeg(to, 1, scale), hold * sd, hk.v, hk.o, false, b, false, { ...x, app: 1, to });
+    e.hook(t + hold * sd, v * 0.9, to, (steps - hold) * sd, hk.v, hk.o, false, b, false, { ...x, res: hold });
+  }
+
+  // Velocity multiplier (<= 1) over the 4-bar phrase of the section: swells into its third bar, eases off to the end.
+  // The swing is a third of the feeling's melody velocity range.
+  hairpin(f, abs) {
+    const x = ((((this.songBars ? this.runPos : Math.floor(abs / 16)) || 0) % 4) * 16 + (abs % 16)) / 64;
+    const shape = x < 0.7 ? Math.sin((Math.PI / 2) * (x / 0.7)) : 1 - (0.6 * (x - 0.7)) / 0.3;
+    return 1 - ((f.mel.vel[1] - f.mel.vel[0]) / 3) * (1 - shape);
   }
 
   // The last bar of a generated song: one final downbeat on the home chord, left to ring out.
@@ -5707,7 +6123,12 @@ export class Sequencer {
     if (on('kick')) e.trigger('kick', t, 1);
     if (on('acid')) e.acid(t, { on: true, n: 0, a: true, s: false }, false, false, sd);
     // The final chord is struck and left to ring: no picking pattern or scratches after it.
-    if (on('stab')) { const st = e.step; e.step = null; e.trigger('stab', t, 0.85); e.step = st; }
+    // A feeling that slows into its ending (end.rit) also lets that chord ring longer.
+    if (on('stab')) {
+      const st = e.step, p = s.params.stab, decay = p.decay, f = feelOf(s);
+      e.step = null; if (f) p.decay = decay * (1 + f.end.rit);
+      try { e.trigger('stab', t, 0.85); } finally { e.step = st; p.decay = decay; }
+    }
     const hk = pat.hook;
     if (hk && on('stab')) {
       const ns = hk.s.filter(Boolean).map((x) => x[0]), tonic = 12 * Math.round(ns.reduce((a, b) => a + b, 0) / ns.length / 12) + kl;

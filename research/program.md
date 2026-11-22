@@ -168,13 +168,22 @@ Performers share phrase-final lengthening while differing widely in the details 
 measures (interval deviation, contour errors) track expert judgments of singing accuracy closely
 (**larrouymaestri2013**).
 
-**Principle.** `vocal.singable`.
+**Principle.** `vocal.singable`, `emotion.coherent-cues`.
 
 **Hypothesis V1.** Lead lines with phrase-final lengthening and a phrase arch in velocity get fewer `sounds_bad`
 downs than flat-velocity lines.
 **Test.** Composition `phraseBars`, `peakAt`, `stepShare` (`docs/melody.md`) as the floor; the causal read is a
 `sound` experiment on velocity shaping. For the neural singer, objective pitch accuracy against the written melody is a
 candidate gate.
+
+**Hypothesis V2.** A feeling is communicated when its cues agree (**juslinlaukka2003**): songs whose tempo, mode,
+note lengths and soft/loud range match their intended feeling (`FEELS` in `js/feel.js`) are finished more often than
+songs whose cues contradict it.
+**Test.** Experiment `folk-feel-cues` (primary `complete`, guardrails `skip`, `down`, `love`). Offline: composition
+`feelFit` rises on every benchmark seed. GENERATE already places the tempo by feeling, so the control carries that
+cue; the variant snaps it to the feeling's exact tempo and moves the mode, note lengths and soft/loud range. Each
+section keeps its average level, so the verse/chorus contrast is still scored as its own cue. Read it with the `feel` split of the listen signals and the `no_feeling`
+down reason (`docs/listen-signals.md`).
 
 - **juslinlaukka2003** Juslin, P. N., & Laukka, P. (2003). Communication of emotions in vocal expression and music performance: Different channels, same code? *Psychological Bulletin*, 129(5), 770-814. https://doi.org/10.1037/0033-2909.129.5.770
 - **scherer2015** Scherer, K. R., Sundberg, J., Tamarit, L., & Salomão, G. L. (2015). Comparing the acoustic expression of emotion in the speaking and the singing voice. *Computer Speech & Language*, 29(1), 218-235. https://doi.org/10.1016/j.csl.2013.10.002
@@ -248,6 +257,7 @@ in `PROPOSED` names its primary metric, guardrails and listens per arm before it
 | `pop-no-bridge` | `form.bridge` | pop, GENERATE | the bridge becomes another verse of the same length | `complete` | 1531 |
 | `pop-chorus-lift` | `expect.lift` | pop, GENERATE | the verse melody one scale step lower | `replay` | 1496 |
 | `deephouse-swing` | `groove.systematic-feel` | deep house, GENERATE | swing 0.30 to 0.20 | `complete` | 1531 |
+| `folk-feel-cues` | `emotion.coherent-cues` | singer-songwriter, GENERATE | tempo, mode, note length and velocity range set from the song's feeling, section levels kept | `complete` | 1562 |
 
 Listens per arm assume a 45% completion rate (detect 5 points) and an 8% replay rate (detect 3 points); recompute them
 from the improvement report's real rates for the scope before starting one. Only one runs at a time per scope.

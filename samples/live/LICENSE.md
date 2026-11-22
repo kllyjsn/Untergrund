@@ -6,8 +6,45 @@ the Virtuosity Drums and double-bass files are byte-identical, sha256 `a2010f343
 CC0 waives copyright and related rights, so the files can be redistributed in this app and used in commercial
 music without attribution. We credit the authors anyway.
 
-Processing applied to every file: summed to mono, resampled to 44.1 kHz 16-bit PCM, trimmed, 80 ms fade out.
+Processing applied to every file: summed to mono, resampled to 44.1 kHz 16-bit PCM, trimmed (organ 2.2 s, bass 2.4 s), 80 ms fade out.
 Stored as lossless FLAC (bit-identical PCM to the original 16-bit WAVs). Drum files mix the close mic with the overhead mic of the same hit.
+
+## S9 fiddle and upright piano — VSCO 2 Community Edition (CC0)
+
+Solo violin: Sam Gossner / Versilian Studios. Upright piano: Simon Dalzell / Ivy Audio,
+distributed by Sam Gossner / Versilian Studios. Source WAVs are pinned to
+[`sgossner/VSCO-2-CE@440300901dfe9275fd84e0b7763af1f8443ae62e`](https://github.com/sgossner/VSCO-2-CE/tree/440300901dfe9275fd84e0b7763af1f8443ae62e).
+All these WAVs are covered by that repository's
+[CC0 1.0 Universal dedication](https://github.com/sgossner/VSCO-2-CE/blob/440300901dfe9275fd84e0b7763af1f8443ae62e/LICENSE):
+“Affirmer hereby overtly, fully, permanently, irrevocably and unconditionally waives, abandons,
+and surrenders all of Affirmer's Copyright and Related Rights”. The upright's `Info.txt` also
+states: “Bearer is granted right to redistribute this sample set by Versilian Studios LLC.”
+
+Sounding MIDI centers come from `SViolinVib.sfz`, `SViolinSpic.sfz` and `UprightPiano.sfz`, pinned to
+the [SFZ branch commit `6dd651d55dde97fd4028699be9d4481f26917891`](https://github.com/sgossner/VSCO-2-CE/tree/6dd651d55dde97fd4028699be9d4481f26917891).
+Spiccato filenames use an octave different from arco; piano filename numbers are sample indices, not MIDI.
+
+| Bundled FLACs | Source directory / articulation | Dynamics and takes | Sounding MIDI centers |
+| --- | --- | --- | --- |
+| `fiddle_*.flac` | `Strings/Solo Violin/Arco Vib` | f | 55,57,60,64,67,69,72,76,79 |
+| `fiddlesoft_*.flac` | `Strings/Solo Violin/Arco Vib` | p | same nine centers |
+| `fiddlestac_*.flac` | `Strings/Solo Violin/spic` | v2, rr1 | same nine centers |
+| `fiddlestacb_*.flac` | `Strings/Solo Violin/spic` | v2, rr2 | same nine centers |
+| `fiddlestacsoft_*.flac` | `Strings/Solo Violin/spic` | v1, rr1 | same nine centers |
+| `fiddlestacsoftb_*.flac` | `Strings/Solo Violin/spic` | v1, rr2 | same nine centers |
+| `uprightsoft_*.flac` | `Keys/Upright Piano` | dyn1, rr1 | 41,45,49,53,57,61,65,69,73,77,81,85 |
+| `upright_*.flac` | `Keys/Upright Piano` | dyn2, rr1 | same twelve centers |
+| `uprighthard_*.flac` | `Keys/Upright Piano` | dyn3, rr1 | same twelve centers |
+
+These 90 files use `scripts/fetch-roots.py`: mono 44.1 kHz/16-bit lossless FLAC, leading silence
+removed to 2 ms before the sustained -35 dB onset, 1 ms attack fade, measured tuning corrected
+by resampling and rechecked within 5 cents of the SFZ center. Per-note body RMS is matched to
+the instrument reference (fiddle -16 dBFS, upright -13.6 dBFS over 20–350 ms), limited to a
+-6 dBFS peak. Arco keeps up to 3 seconds with a 160 ms final fade, spiccato up to 1 second
+with an 80 ms fade, upright up to 6 seconds with a 500 ms fade. No loops. Unlike the older
+unretuned recordings, these PCM samples are resampled derivatives, not byte-identical source WAVs.
+`scripts/roots-samples.json` records each source URL/hash, SFZ center, tuning measurements,
+attack trim, normalization gain, duration and bundled FLAC hash.
 
 ## Virtuosity Drums (Versilian Studios / Karoryfer, drummer Austin McMahon)
 
@@ -184,7 +221,7 @@ recording's measured pitch (`python3 test/sampletune.py`) is corrected in `js/li
 
 Every file below is derived from a CC0 1.0 Universal source (license file checked in each repository at the
 commit listed). Files are named by the MIDI note they sound at. Processing: leading silence removed, summed to
-mono, resampled to 44.1 kHz 16-bit PCM, trimmed, 80 ms fade out, peak-normalised to -6 dBFS, stored as lossless FLAC.
+mono, resampled to 44.1 kHz 16-bit PCM, trimmed (organ 2.2 s, bass 2.4 s), 80 ms fade out, peak-normalised to -6 dBFS, stored as lossless FLAC.
 The piano files (`piano_*`, `pianosoft_*`, `pianoext_*`, `pianoextsoft_*`) instead keep each note's natural ring
 until it has decayed 48 dB below its loudest 50 ms (at most 9 s), then fade over the last 0.6 s
 (`scripts/fetch-orchestra.py --piano`).
@@ -222,6 +259,20 @@ principal pitch read from each drum's 1 : 1.5 : 2 partial series.
 | `timp_42.flac`, `timp_47.flac`, `timp_50.flac`, `timp_52.flac`, `timp_55.flac` | VSCO-2-CE | `Percussion/Timpani/Timpani{1,2,3,4,5}_Hit_v3_rr1_Sum.wav` |
 | `timproll_47.flac`, `timproll_52.flac` | VSCO-2-CE | `Percussion/Timpani/Rolls/Timpani{2,4}_Roll_v3_rr1_Sum.wav` |
 
+## Tonewheel organ and analog synth bass (Freesound, CC0)
+
+Original uploads (never the lossy previews), fetched through the Freesound API by `scripts/fetch-freesound.py`,
+which lists every sound id. Each sound page states **CC0 1.0 Universal**. Processing as above: leading silence
+removed, mono, resampled to 44.1 kHz 16-bit, trimmed (organ 2.2 s, bass 2.4 s), 80 ms fade out, peak -6 dBFS, lossless FLAC. Measured pitch
+is within 5 cents of each organ note's name.
+
+| Files | Source | Samples used |
+| --- | --- | --- |
+| `org_43.flac` … `org_83.flac` (23), the ORGAN voice in UK GARAGE and the ROCK chorus organ | Freesound pack [18844 "tonewheel organ sound samples"](https://freesound.org/people/hammondman/packs/18844/) by hammondman (32 kHz 16-bit WAV, the only full CC0 tonewheel multisample found on Freesound (the others were a 22 kHz rotary pack and a single M1 note); its energy ends near the 5.9 kHz top tonewheel, every file is more than 74 dB down above 10 kHz, and the engine low-passes the organ at 5.2–5.6 kHz, so a 16 kHz Nyquist loses nothing), CC0 1.0 Universal | sounds 333747–333770 except 333757: one held note per white key, `g2.wav` … `b5.wav` (scientific pitch, `c4` = MIDI 60) |
+| `abass_36.flac` … `abass_60.flac` (9), the REESE bass voice in UK GARAGE | Freesound pack [17593 "Roland SH-2 - Filter Vel Bass"](https://freesound.org/people/modularsamples/packs/17593/) by modularsamples (44.1 kHz 24-bit WAV), CC0 1.0 Universal | sounds 310235, 310247, 310259, 310271, 310282, 310294, 310306, 310318, 310330: the brightest of each note's velocity takes, every third semitone `36C1` … `60C3` (named by MIDI number); measured 5–9 cents flat, corrected in `js/livekit.js` |
+
+Both sets are rebuilt by `scripts/fetch-freesound.py`, which pins every original upload by Freesound sound ID and SHA-256, refuses any file whose hash differs, and reproduces the committed FLACs byte for byte from those originals.
+
 ## Nylon guitar
 
 `nylon_{40,45,48,52,55,59,64,67,69}.flac` are nine fingerstyle notes from
@@ -251,6 +302,43 @@ performance, not the keyboard sample in Freesound pack 34867.
 | `timbale_low_{1,2}.flac` | Metal Timbales, Suicidity, CC0 1.0 Universal | [90471](https://freesound.org/s/90471/), [90474](https://freesound.org/s/90474/) |
 | `timbale_high_{1,2}.flac` | Metal Timbales, Suicidity, CC0 1.0 Universal | [90506](https://freesound.org/s/90506/), [90509](https://freesound.org/s/90509/) |
 | `cuica_{1,2}.flac` | [“cuica (1).wav” by reinsamba](https://freesound.org/s/21715/), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | Two edited strokes from source windows 0.550–0.770 s and 1.415–1.615 s |
+
+## Recorded S8 crowd vowels — CC0
+
+Sustained playback derives a cached mono loop at runtime: a whole number of
+F3 periods, a 60 ms or longer raised-cosine overlap, and circular one-period RMS
+envelope flattening. Chops retain the unmodified FLAC. Bundled asset hashes
+and tuning provenance below refer to those unchanged source FLACs.
+
+Crowd sung near concert F at GameSoundCon2024, recorded by **ShangusBurger
+(Shane Vincent)**. All three originals are lossless **96 kHz / 24-bit stereo WAV**,
+released under [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/).
+
+| Bundled file | Freesound original | Original filename |
+| --- | --- | --- |
+| `vox_ahh_53.flac` | [763909 — Ahh](https://freesound.org/people/ShangusBurger/sounds/763909/) | `CRWDSing_Ahh Vowel Sung Near F 01_ShaneVincent_GSC24_XY-AKG214-96k.wav` |
+| `vox_eh_53.flac` | [763911 — Eh](https://freesound.org/people/ShangusBurger/sounds/763911/) | `CRWDSing_Eh Vowel Sung Near F 01_ShaneVincent_GSC24_XY-AKG214-96k.wav` |
+| `vox_ooh_53.flac` | [763893 — Ooh](https://freesound.org/people/ShangusBurger/sounds/763893/) | `CRWDSing_U Ooh Vowel Sung Near F 01_ShaneVincent_GSC24_XY-AKG214-96k.wav` |
+
+Original SHA-256s, APIv2 original-download endpoints and processing parameters are
+pinned in [`vocal-samples.json`](../../scripts/vocal-samples.json). Rebuild with
+`python3 scripts/fetch-vocals.py --from /path/to/originals --report samples/vocal-provenance.json`,
+or omit `--from` and provide an OAuth access token in `FREESOUND_TOKEN` (Bearer).
+Local files may use either the manifest's local filenames or the original names.
+No lossy previews are used. Originals are hash-checked before processing.
+
+Processing: downmix to mono 44.1 kHz; retain the steadiest half-second window
+(Ahh 6.250–6.750 s, Eh 5.775–6.275 s, Ooh 4.575–5.075 s); constant polyphase
+resampling to F3 (MIDI 53); 8 ms attack / 25 ms release fades; peak normalize to
+−6 dBFS; encode 16-bit FLAC. Four spectral partials support F3, including the
+fundamental and odd harmonics; suboctave energy is checked to reject octave errors.
+Output hashes, before/after F0 and cents, spectral evidence and 300 ms sliding-window
+pitch ranges are in [`vocal-provenance.json`](../vocal-provenance.json).
+These are naturally spread crowd voices, not individually pitch-flattened singers.
+Only these short windows met the few-cents stability criterion; no longer source
+passage is claimed to be equally steady. Deep House, Euphoric and DnB hold notes by
+looping the steady middle at rising zero crossings; UKG, Jersey and Baile use short
+unlooped chops. User/mic audio overrides this built-in set.
 
 ## Sung vocals
 

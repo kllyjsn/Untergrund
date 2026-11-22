@@ -1,7 +1,8 @@
 // Every Club set records itself as replayable UNTERGRUND state + timeline; when the DJ stops or hands off the deck,
 // one tap saves the cut to the jukebox. Lives outside the Club DOM (which re-renders on every heartbeat).
 import { h } from './ui.js';
-import { createTimelineRecorder, createReplayer, trimTimeline, stateAt, stepAt, MIN_SET_MS } from './set-timeline.js';
+import { createTimelineRecorder, createReplayer, trimTimeline, stateAt, stepAt, applyOps, MIN_SET_MS } from './set-timeline.js';
+import { liveSets, loadSets } from './livekit.js';
 import { sheet, fmtTime, publishReplay, drawPeaks } from './sets.js';
 import { track as trackEvent } from './analytics.js';
 
@@ -37,6 +38,31 @@ export function endLiveSet({ offer = true } = {}) {
 // Replays a saved set from its timeline in lockstep with startsAt, so every listener in a room hears the same moment.
 let replayTimer = 0;
 export function stopTimeline() { clearInterval(replayTimer); replayTimer = 0; }
+export function timelineSets(timeline) {
+  const state = JSON.parse(JSON.stringify(timeline?.initial || {}));
+  let style = timeline?.style;
+  const names = new Set(liveSets(state, style));
+  for (const event of timeline?.events || []) {
+    for (const op of event.ops) {
+      if (op[0][0] === 'style') style = op[1];
+      else applyOps(state, [op]);
+    }
+    for (const name of liveSets(state, style)) names.add(name);
+  }
+  return [...names];
+}
+export async function prepareTimeline(timeline, startsAt = null) {
+  const at = stateAt(timeline, startsAt === null ? 0 : Math.max(0, Date.now() - startsAt));
+  const opening = loadSets(liveSets(at.state, at.style)).catch(() => {});
+  const wait = startsAt === null ? 8000 : Math.max(0, startsAt - Date.now() - 200);
+  let timer;
+  try {
+    if (wait) await Promise.race([opening, new Promise(resolve => { timer = setTimeout(resolve, wait); })]);
+  } finally {
+    clearTimeout(timer);
+    setTimeout(() => { loadSets(timelineSets(timeline)).catch(() => {}); }, 0);
+  }
+}
 export function playTimeline(timeline, startsAt, { load, apply, play, isPlaying, onEnd }) {
   stopTimeline();
   const now = Date.now(), t = Math.max(0, now - startsAt);

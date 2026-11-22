@@ -426,7 +426,7 @@ a.jb-item.artist-song .jb-side { color: var(--accent); }
 .overlay.live-set-overlay { z-index: 70; }
 .live-set-pref { display: flex; gap: 8px; align-items: center; font-size: 12px; color: #94949e; margin-top: 10px; }
 .club-overlay { position: fixed; inset: 0; z-index: 60; background: #19191a; color: #f1f1f4; }
-.club-shell { --club-purple: #8d5cff; height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0,1fr) auto; overflow: hidden; background:
+.club-shell { --club-purple: #8d5cff; height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0,1fr); grid-template-rows: auto minmax(0,1fr) auto; overflow: hidden; background:
   radial-gradient(circle at 50% 20%, rgba(99,53,164,.22), transparent 33%),
   linear-gradient(180deg,#1d1c22,#171719 72%); }
 .club-head { min-height: 60px; display: flex; align-items: center; gap: 16px; padding: 10px 16px; border-bottom: 1px solid var(--hair); background: #1f1f21; }

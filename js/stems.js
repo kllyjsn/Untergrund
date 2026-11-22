@@ -32,7 +32,7 @@ export const exportName = (state, suffix) => `${slug(state.artist?.title)}-${Mat
 // The stems this song actually plays, in mixer order: the instruments with notes, then FX/returns.
 export function stemList(state, loopBars = 16) {
   const c = capture(state, loopBars), ids = c.score ? Object.keys(PARTS) : [...TRACK_IDS.slice(0, TRACK_IDS.indexOf('stab') + 1), 'hook', ...TRACK_IDS.slice(TRACK_IDS.indexOf('stab') + 1), ...Object.keys(PARTS)];
-  return [...ids.filter((id) => c.notes[id]?.length), ...(state.artist?.style === 'dub' && c.notes.stab?.length ? ['dubpad'] : []), ...(vocalStem(state) ? ['sung'] : []), 'fx'];
+  return [...ids.filter((id) => c.notes[id]?.length || (id === 'hook' && c.notes.fiddle?.length)), ...(state.artist?.style === 'dub' && c.notes.stab?.length ? ['dubpad'] : []), ...(vocalStem(state) ? ['sung'] : []), 'fx'];
 }
 
 // Re-routes everything that would reach engine.mix / engine.duck / engine.preMaster into per-stem sums on its own channel pair.
@@ -80,7 +80,7 @@ export function router(want, { prebus = false } = {}) {
         orig.call(sum, split); orig.call(split, merge, 0, 2 * k); orig.call(split, merge, 1, 2 * k + 1);
         sums[id] = sum;
       });
-      for (const id of TRACK_IDS) owner.set(E.ch[id].pan, id);
+      for (const id of TRACK_IDS) owner.set(E.ch[id].out || E.ch[id].pan, id);
       if (E.dubPadBus) owner.set(E.dubPadBus, 'dubpad');
       owner.set(E.vocalOut, 'sung');
       for (const [src, dst] of conns) if (dst === E.mix || dst === E.duck || dst === E.preMaster) { src.disconnect(dst); route(src, dst); }
@@ -189,24 +189,24 @@ Each instrument stem is dry plus its own channel processing; reverb, delay, room
 arrangement FX (risers, impacts, vinyl dust) are in the fx-returns stem. Recorded live-kit pieces are
 in the stem of the drum they play (kick.wav holds the recorded kick when the live kit is on).
 Notes come in a separate EXPORT MIDI file from the same FILE menu.
-${r.stems.some((x) => x.id === 'sung') ? `The other stems are printed without the ${VOCAL_DUCK_DB.toFixed(1)} dB dip the band takes while the sung vocal sings: duck them under sung-vocal.wav to rebuild the mix.\n` : ''}${r.sungDb ? `sung-vocal.wav is printed ${(-r.sungDb).toFixed(1)} dB under its mix level so it does not clip: raise it ${(-r.sungDb).toFixed(1)} dB to rebuild the mix.\n` : ''}
+${r.stems.some((x) => x.id === 'sung') ? `The other stems are printed without the ${VOCAL_DUCK_DB.toFixed(1)} dB dip the band takes while the sung vocal sings: duck them under sung-vocal.wav to rebuild the mix.\n` : ''}${r.gain < 1 ? `Every stem is printed ${(-20 * Math.log10(r.gain)).toFixed(2)} dB (gain ${r.gain.toFixed(6)}) under its mix level so the loudest does not clip: raise all of them by that same amount to rebuild the mix.\n` : ''}
 ${r.stems.map((x, i) => `${String(i + 1).padStart(2, '0')}-${x.name}.wav`).join('\n')}
 `;
+
+// A stem over full scale would clip in the WAV. Print every stem by one common gain, so the loudest sits just under full
+// scale and the stems still sum to the mix in a DAW; the README gives that exact gain.
+export function fitStems(r) {
+  let peak = 0;
+  for (const x of r.stems) for (const c of [x.left, x.right]) for (const v of c) peak = Math.max(peak, Math.abs(v));
+  r.gain = peak > 0.99 ? 0.99 / peak : 1;
+  if (r.gain < 1) for (const x of r.stems) for (const c of [x.left, x.right]) for (let i = 0; i < c.length; i++) c[i] *= r.gain;
+  return r;
+}
 
 // The finished .zip: one WAV per stem plus a README.
 export async function stemsZip(state, opts = {}) {
   const r = await renderStems(state, opts);
-  const sung = r.stems.find((x) => x.id === 'sung');
-  if (sung) {
-    let peak = 0;
-    for (const c of [sung.left, sung.right]) for (const v of c) peak = Math.max(peak, Math.abs(v));
-    // The singer's stem peaks far above its RMS; at mix level it would clip in a fixed-point WAV.
-    if (peak > 0.99) {
-      const g = 0.99 / peak;
-      for (const c of [sung.left, sung.right]) for (let i = 0; i < c.length; i++) c[i] *= g;
-      r.sungDb = 20 * Math.log10(g);
-    }
-  }
+  fitStems(r);
   const zip = new ZipWriter(), dir = exportName(state, '-stems');
   for (const [i, x] of r.stems.entries()) {
     if (opts.signal?.aborted) throw abortError();
