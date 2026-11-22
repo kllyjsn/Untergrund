@@ -16,7 +16,7 @@ import { createSetRecorder, openSetCutter, openSongPublish, openJukebox, jukebox
 import { loadArtistProfile, openArtistStudio } from './artist.js';
 import { openClub, loadAvatar, avatarNode, hostingRoom } from './club.js';
 import { liveNowRow, watchLiveRooms, liveDirectory, fetchLiveRooms } from './live-rooms.js';
-import { playTimeline, stopTimeline } from './live-sets.js';
+import { playTimeline, stopTimeline, prepareTimeline } from './live-sets.js';
 import { saveTrack, trackTitle, recentTracks, libraryTracks, fetchTrack, countPlay } from './crate.js';
 import { radioOn, setRadio, nextUp } from './radio.js';
 import { FEELS, FEEL_IDS, isFeel } from './feel.js';
@@ -1037,7 +1037,9 @@ function showJukebox() {
       ensureAudio();
       current = null;
       trackEvent('set_replay', { kind: 'jukebox' });
-      return playTimeline(await loadReplay(item), Date.now() + 200, timelineHooks(true));
+      const timeline = await loadReplay(item);
+      await prepareTimeline(timeline);
+      return playTimeline(timeline, Date.now() + 200, timelineHooks(true));
     },
     playSong: async (item) => {
       ensureAudio();
@@ -1163,6 +1165,7 @@ async function joinRoomReplay(item) {
   let timeline;
   try {
     timeline = item.replay.timeline || await loadReplay(item.replay);
+    await prepareTimeline(timeline, +item.startsAt);
   } catch {
     if (roomReplayLoad === request) joinRoomSet({ ...item, replay: null });
     return;
