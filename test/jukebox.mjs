@@ -1,14 +1,60 @@
 import assert from 'node:assert/strict';
 import { handleJukebox, memoryJukebox } from '../api/_lib/jukebox.js';
-import { memoryStore } from '../api/_lib/crate.js';
-import { defaultState } from '../js/state.js';
+import { handleAccount, attachTrack } from '../api/_lib/accounts.js';
+import { handleCrate, memoryStore } from '../api/_lib/crate.js';
+import { memoryKv } from '../api/_lib/kv.js';
+import { handlePage } from '../api/_lib/pages.js';
+import { fetchReleaseTrack } from '../js/account.js';
+import { fetchTrack } from '../js/crate.js';
+import { freshSong, refreshSong, sanitize } from '../js/state.js';
+import { songOf } from '../js/player.js';
+import { encodeSong, decodeSong, normalizeSong } from '../js/share-code.js';
+import { songMidi } from '../js/midi.js';
 import { SET_PATH } from '../api/set-upload.js';
 
 const store = memoryJukebox(), crate = memoryStore();
 assert.equal((await handleJukebox('GET', null, { store: null })).status, 503);
-const song = await handleJukebox('POST', { kind: 'song', title: 'Test', style: 'amapiano', state: defaultState() }, { store, crate, client: 'a' });
+const state = { ...freshSong('amapiano', 1234), fresh: 1, artist: { title: 'Original', name: 'Mira', style: 'amapiano', seed: 1234 }, chain: 'AABB' };
+const draft = sanitize(state);
+assert.notEqual(refreshSong(draft).chain, draft.chain, 'an unpinned song would regenerate');
+const song = await handleJukebox('POST', { kind: 'song', title: 'Test', style: 'amapiano', state }, { store, crate, client: 'a' });
 assert.equal(song.status, 201);
-assert((await crate.get(song.json.item.trackId)).state, 'published song is replayable from the crate');
+const release = await crate.get(song.json.item.trackId);
+assert.deepEqual(songOf(release.state), { ...draft, fresh: 0 }, 'the player uses the published arrangement and settings');
+assert.deepEqual((await decodeSong(await encodeSong(release))).state, songOf(release.state), 'the link round-trip keeps the published arrangement');
+assert.equal(state.fresh, 1, 'publishing does not pin the studio draft');
+
+{
+  const ctx = { kv: memoryKv(), crate: memoryStore(), secret: 's'.repeat(40) };
+  const owner = await handleAccount({ method: 'POST', body: { action: 'claim', handle: 'mira', name: 'Mira Live' } }, ctx);
+  assert(await attachTrack(ctx.kv, owner.json.account.id, release));
+  assert.equal(await ctx.crate.get(release.id), null, 'the rolling crate no longer has this release');
+  const page = await handlePage({ t: release.id, room: 'the-bunker' }, ctx);
+  assert.equal(page.status, 200);
+  const data = JSON.parse(page.body.match(/<script id="page-data" type="application\/json">([\s\S]*?)<\/script>/)[1]);
+  assert(!data.room, 'the release remains playable without an active matching room');
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async (url) => {
+      const { pathname, searchParams } = new URL(url, 'https://untergrund.test');
+      const r = pathname === '/api/account'
+        ? await handleAccount({ method: 'GET', query: Object.fromEntries(searchParams) }, ctx)
+        : await handleCrate('GET', null, ctx.crate, searchParams.get('id'));
+      return { ok: r.status === 200, json: async () => r.json };
+    };
+    await assert.rejects(fetchTrack(release.id), /track_missing/, 'the old crate-only embed lookup fails');
+    const linked = normalizeSong(await fetchReleaseTrack(release.id));
+    assert.equal(linked.artist, data.artist.name);
+    assert.deepEqual(linked.state, { ...draft, fresh: 0 });
+    assert.deepEqual(linked.state, songOf(data.track.state), 'the embed and release page schedule the same pinned version');
+    assert.deepEqual(songMidi(linked.state), songMidi(songOf(data.track.state)), 'Studio export uses the same notes and tempo');
+
+    await ctx.crate.add(release);
+    ctx.kv = null;
+    assert.deepEqual(await fetchReleaseTrack(release.id), (await handleCrate('GET', null, ctx.crate, release.id)).json.track, 'crate-only shares still load when accounts are offline');
+  } finally { globalThis.fetch = originalFetch; }
+}
+
 const url = 'https://abc123.public.blob.vercel-storage.com/sets/night-AbC12.webm';
 const set = await handleJukebox('POST', { kind: 'set', title: 'Live', url, duration: 600, start: 30, end: 540, peaks: [0.5, 2, -1] }, { store, crate, client: 'a' });
 assert.equal(set.status, 201);

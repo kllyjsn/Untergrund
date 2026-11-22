@@ -12,7 +12,7 @@ export function findChrome() {
   const cands = [process.env.CHROME_PATH];
   const devin = '/opt/.devin/chrome/chrome';
   if (existsSync(devin)) for (const d of readdirSync(devin)) cands.push(join(devin, d, 'chrome-linux64/chrome'));
-  cands.push('/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser');
+  cands.push('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser');
   for (const c of cands) if (c && existsSync(c)) return c;
   try { return execFileSync('which', ['google-chrome'], { encoding: 'utf8' }).trim() || null; } catch { return null; }
 }
@@ -39,8 +39,9 @@ export async function withChrome(fn, { pages = 1 } = {}) {
       proc.stderr.on('data', (d) => { buf += d; const m = /DevTools listening on (ws:\/\/\S+)/.exec(buf); if (m) { clearTimeout(t); res(m[1]); } });
     });
     const http = wsUrl.replace(/^ws/, 'http').replace(/\/devtools\/browser\/.*/, '');
+    const pageUrl = `http://localhost:${port}/blank.html`;
     const open = async () => {
-      const target = await (await fetch(`${http}/json/new?http://localhost:${port}/blank.html`, { method: 'PUT' })).json();
+      const target = await (await fetch(`${http}/json/new?${pageUrl}`, { method: 'PUT' })).json();
       const ws = new WebSocket(target.webSocketDebuggerUrl);
       sockets.push(ws);
       await new Promise((r) => ws.addEventListener('open', r, { once: true }));
@@ -48,7 +49,14 @@ export async function withChrome(fn, { pages = 1 } = {}) {
       const pending = new Map();
       ws.addEventListener('message', (e) => { const m = JSON.parse(e.data); if (pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } });
       const send = (method, params) => new Promise((r) => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
-      await new Promise((r) => setTimeout(r, 300));
+      const deadline = Date.now() + 15000;
+      const ready = `location.href === ${JSON.stringify(pageUrl)} && document.readyState === 'complete'`;
+      while (true) {
+        const r = await send('Runtime.evaluate', { expression: ready, returnByValue: true });
+        if (r.result?.result?.value === true) break;
+        if (Date.now() > deadline) throw new Error(`Chrome did not load ${pageUrl}`);
+        await new Promise((r) => setTimeout(r, 25));
+      }
       return async (expr) => {
         const r = await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true });
         if (r.result?.exceptionDetails) throw new Error(r.result.exceptionDetails.exception?.description || r.result.exceptionDetails.text);

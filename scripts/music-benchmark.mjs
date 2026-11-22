@@ -73,7 +73,8 @@ export function runMusicBenchmark({ enforce = false } = {}) {
       if (hash(first) === hash(second)) deterministic++;
       patterns.add(hash(first.pattern));
       arrangements.add(hash(arrangement(first.pattern, seed)));
-      ensembles.add([first.params.stab.voice, first.params.acid.voice, first.params.stab.octave].join('/'));
+      ensembles.add([first.params.stab.voice, first.params.acid.voice, first.params.stab.octave,
+        ...(style === 'bailefunk' || first.pattern.jazz ? [first.params.stab.decay] : [])].join('/'));
       const row = { style, seed, vector: { base: featureVector(first), score: scoreFeatures(first.pattern.score) }, projectHash: hash(first) };
       rows.push(row);
       styleRows.push(row);

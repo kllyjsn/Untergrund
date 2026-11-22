@@ -15,7 +15,7 @@ import { vocalStem, VOCAL_DUCK_DB } from './sing.js';
 
 export const STEM_NAMES = {
   kick: 'kick', clap: 'clap', snare: 'snare', ch: 'hats', oh: 'open-hat', ride: 'ride', perc: 'perc',
-  acid: 'bass', stab: 'chords', hook: 'hook', vox: 'vocals', sung: 'sung-vocal', fx: 'fx-returns',
+  acid: 'bass', stab: 'chords', hook: 'hook', vox: 'vocals', sung: 'sung-vocal', fx: 'fx-returns', dubpad: 'dub-pad',
   ...Object.fromEntries(Object.entries(PARTS).map(([id, [name]]) => [id, name.toLowerCase().replace(/\s+/g, '-')])),
 };
 const BUDGET = 256 * 1024 * 1024;
@@ -32,7 +32,7 @@ export const exportName = (state, suffix) => `${slug(state.artist?.title)}-${Mat
 // The stems this song actually plays, in mixer order: the instruments with notes, then FX/returns.
 export function stemList(state, loopBars = 16) {
   const c = capture(state, loopBars), ids = c.score ? Object.keys(PARTS) : [...TRACK_IDS.slice(0, TRACK_IDS.indexOf('stab') + 1), 'hook', ...TRACK_IDS.slice(TRACK_IDS.indexOf('stab') + 1), ...Object.keys(PARTS)];
-  return [...ids.filter((id) => c.notes[id]?.length), ...(vocalStem(state) ? ['sung'] : []), 'fx'];
+  return [...ids.filter((id) => c.notes[id]?.length), ...(state.artist?.style === 'dub' && c.notes.stab?.length ? ['dubpad'] : []), ...(vocalStem(state) ? ['sung'] : []), 'fx'];
 }
 
 // Re-routes everything that would reach engine.mix / engine.duck / engine.preMaster into per-stem sums on its own channel pair.
@@ -81,6 +81,7 @@ export function router(want, { prebus = false } = {}) {
         sums[id] = sum;
       });
       for (const id of TRACK_IDS) owner.set(E.ch[id].pan, id);
+      if (E.dubPadBus) owner.set(E.dubPadBus, 'dubpad');
       owner.set(E.vocalOut, 'sung');
       for (const [src, dst] of conns) if (dst === E.mix || dst === E.duck || dst === E.preMaster) { src.disconnect(dst); route(src, dst); }
       // The hook plays through a copy of the CHORDS channel (same level, pan and sends) so it gets its own stem.
@@ -96,8 +97,11 @@ export function router(want, { prebus = false } = {}) {
       if (hc.carve) hc.carve.connect(hc.pan);
       hc.pan.connect(E.duck); hc.pan.connect(hc.rev).connect(E.revIn); hc.pan.connect(E.roomIn); hc.pan.connect(hc.dly).connect(E.dlyIn); hc.pan.connect(E.throwBus);
       hc.band.connect(hc.input); hc.band.connect(E.bandIn);
+      E.windDuck.disconnect(); E.windDuck.connect(hc.input);
       const P = Engine.prototype;
       E.hook = function (...a) { const s = this.ch.stab; syncStrip(); this.ch.stab = hc; try { return P.hook.apply(this, a); } finally { this.ch.stab = s; } };
+      // A smooth style's chord shaping is scheduled automation, which syncStrip's value copy misses: schedule it on the copy too.
+      E.smoothChords = function (...a) { P.smoothChords.apply(this, a); const s = this.ch.stab; this.ch.stab = hc; try { P.smoothChords.apply(this, a); } finally { this.ch.stab = s; } };
       E.orchBus = function (p) {
         if (this.orchBuses?.[p]) return this.orchBuses[p];
         part = p;

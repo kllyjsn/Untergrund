@@ -2,15 +2,19 @@
 // half), keeps its genre's section roles, repeats with development, and never pads time with copied loops.
 // Principles and research basis: docs/long-form.md.
 import assert from 'node:assert/strict';
+import './festival-build.mjs';
 import { STYLES, SONG_STYLES, songPlan, sanitize } from '../js/state.js';
 import { realize, validateSpec, localSpec } from '../js/song-spec.js';
 import { planSections, formChain, formSeconds, developSong, developFinalDrop, finalPeak, writePeak, LENGTHS, MAX_SONG_BARS } from '../js/longform.js';
-import { buildSong, playSong, peakDevices, SEEDS, loopStyles, runComposition } from '../scripts/composition.mjs';
+import { patternAt } from '../js/scope.js';
+import { isJazz } from '../js/jazz.js';
+import { buildSong, playSong, scoreSong, aggregateComposition, compositionRegressions, peakDevices, SEEDS, loopStyles, runComposition } from '../scripts/composition.mjs';
 import { FEELS } from '../js/feel.js';
 import { sungNotes } from '../js/sing-score.js';
 import { liveSets } from '../js/livekit.js';
 
 const LETTERS = 'ABCDEFGH';
+const SECTION_STYLES = [...SONG_STYLES].filter((style) => !isJazz(style));
 const secs = (s) => (s.chain.length * 240) / s.bpm;
 // What plays at a bar: its pattern and which of that pattern's takes (if any) covers the bar.
 const sig = (s, pos) => {
@@ -20,6 +24,25 @@ const sig = (s, pos) => {
 };
 const spans = (S) => { let at = 0; return S.map(([k, n]) => { const x = { k, at, bars: n }; at += n; return x; }); };
 const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L.step >= from * 16 && L.step < (from + bars) * 16).length / bars;
+
+{
+  const song = buildSong('minimal', 42), measured = scoreSong(song);
+  assert(measured.melodyWindows > 0 && Number.isFinite(measured.motifRecall));
+  for (const p of song.patterns) delete p.hook;
+  const empty = scoreSong(song);
+  assert.equal(empty.melodyWindows, 0);
+  assert.equal(empty.motifRecall, null, 'no hook windows cannot establish recall');
+  const rows = [{ motifRecall: null }, { motifRecall: 0.4 }, { motifRecall: 0.8 }];
+  assert.deepEqual(aggregateComposition(rows), { motifRecall: 0.6 });
+  assert.deepEqual(aggregateComposition(rows, true), { motifRecall: 0.6 });
+  assert.deepEqual(aggregateComposition([{ motifRecall: null }]), { motifRecall: null });
+  assert.deepEqual(aggregateComposition([]), {});
+  assert.deepEqual(compositionRegressions({ minimal: { motifRecall: null } }, { minimal: { motifRecall: 1 } }), []);
+  assert.deepEqual(compositionRegressions({ minimal: { motifRecall: 0.4 } }, { minimal: { motifRecall: null } }), []);
+  assert.equal(compositionRegressions({ minimal: { motifRecall: 0.4 } }, { minimal: { motifRecall: 1 } }).length, 1);
+  assert.throws(() => compositionRegressions({ minimal: measured }, {}), /no composition baseline/);
+  console.log('composition applicability passed: no-hook recall, measured-only aggregation and regression checks');
+}
 
 // P1 duration: 3-4 minutes at the generated tempo (slow ballads may reach ~4:15, the 128-bar cap keeps the fastest near 3:00).
 {
@@ -45,7 +68,7 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
 // P2 section roles: songs keep verse/chorus/bridge with an intro and outro; the last chorus is the longest.
 {
   let inst = 0, n = 0;
-  for (const style of SONG_STYLES) for (const seed of SEEDS) {
+  for (const style of SECTION_STYLES) for (const seed of SEEDS) {
     const { sections: S } = songPlan(style, seed), k = S.map((x) => x[0]), count = (c) => k.filter((x) => x === c).length;
     assert.equal(k[0], 'i', `${style} opens on an intro`); assert.equal(k.at(-1), 'o', `${style} ends on an outro`);
     assert(count('v') >= 2 && count('c') >= 3 && count('b') === 1, `${style}/${seed} form ${k.join(' ')}`);
@@ -71,11 +94,18 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
 // P3 repetition with development: choruses keep the hook and chords, verse 2 and the last chorus add material,
 // the instrumental hands the lead line to the riff, and the rendered last chorus is the densest.
 {
-  for (const style of SONG_STYLES) for (const seed of SEEDS.slice(0, 3)) {
+  for (const style of SECTION_STYLES) for (const seed of SEEDS.slice(0, 3)) {
     const s = buildSong(style, seed), { sections } = songPlan(style, seed, 'song', s.bpm), sp = spans(sections);
     const v = sp.filter((x) => x.k === 'v'), c = sp.filter((x) => x.k === 'c'), x = sp.find((y) => y.k === 'x');
     assert.notEqual(sig(s, v[1].at + v[1].bars - 2), sig(s, v[0].at + v[0].bars - 2), `${style}/${seed} verse 2 develops verse 1`);
-    assert.equal(sig(s, c[1].at), sig(s, c[0].at), `${style}/${seed} the second chorus is the same chorus`);
+    if (style === 'drill') {
+      const theme = (pos) => {
+        const { hook, prog, hm, steps: { kick, ...parts } } = patternAt(s.patterns[6], pos);
+        return { hook, prog, hm, parts };
+      };
+      assert.deepEqual(theme(c[1].at), theme(c[0].at), `${style}/${seed} only the entrance kick can vary`);
+      assert.equal(sig(s, c[1].at + 1), sig(s, c[0].at + 1), `${style}/${seed} the choruses return to the same groove`);
+    } else assert.equal(sig(s, c[1].at), sig(s, c[0].at), `${style}/${seed} the second chorus is the same chorus`);
     assert.notEqual(sig(s, c.at(-1).at), sig(s, c[0].at), `${style}/${seed} the last chorus is bigger`);
     if (x) assert.equal(s.patterns[6].at.find((t) => t.b[0] === x.at)?.hook?.h ?? 1, 1, `${style} instrumental plays the riff`);
     if (x) assert(s.patterns[7].at?.some((t) => t.b[0] === x.at), `${style} the instrumental's last bar (H) stays instrumental`);
@@ -103,7 +133,7 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
   assert.equal(validateSpec(long, { prompt: 'a pop song' }).sections.length, 8, 'a full prompt keeps its plan');
   // Locked tracks are never developed.
   const keep = ['kick', 'ch', 'oh', 'ride', 'perc', 'clap', 'snare'];
-  for (const style of SONG_STYLES) {
+  for (const style of SECTION_STYLES) {
     const s = buildSong(style, 7), pats = s.patterns.map((p) => ({ ...p, at: undefined }));
     developSong(pats, songPlan(style, 7, 'song', s.bpm).sections, { keep });
     for (const p of pats) for (const t of p.at || []) assert(!keep.some((id) => t.steps?.[id] || t.len?.[id]), `${style} develops a locked track`);
@@ -135,7 +165,7 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
 // P4 no loop padding: no stretch of the song is an identical copy of the stretch before it (unless it is one held
 // groove bar), and no single bar repeats unchanged for more than 16 bars.
 {
-  for (const style of loopStyles()) for (const seed of SEEDS) for (const length of ['song', 'sketch']) {
+  for (const style of loopStyles().filter((style) => !isJazz(style))) for (const seed of SEEDS) for (const length of ['song', 'sketch']) {
     const s = buildSong(style, seed, length), n = s.chain.length, g = Array.from({ length: n }, (_, i) => sig(s, i));
     let run = 1;
     for (let i = 1; i < n; i++) { run = g[i] === g[i - 1] ? run + 1 : 1; assert(run <= 16, `${style}/${seed} ${length}: bar ${i} repeats ${run}x`); }
@@ -152,7 +182,8 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
 // chorus or drop plays, heard in the engine's events; the device survives a save; without a feeling nothing is written.
 {
   const written = (s) => (s.patterns.some((p) => p.lift) ? 'lift' : s.patterns.flatMap((p) => p.at || []).find((t) => t.peak)?.peak);
-  for (const style of loopStyles()) for (const seed of SEEDS.slice(0, 3)) {
+  // Jazz (head–solos–head) develops its head out at runtime in jazzStep and writes no peak takes.
+  for (const style of loopStyles().filter((x) => !isJazz(x))) for (const seed of SEEDS.slice(0, 3)) {
     const s = buildSong(style, seed), d = peakDevices(s);
     assert(s.feel && d.fresh.length, `${style}/${seed} (${s.feel}) final chorus has a device no earlier chorus has: ${JSON.stringify(d)}`);
     const w = written(s);
@@ -184,4 +215,27 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
   assert.equal(writePeak(old.patterns.map((p) => ({ ...p, score: {} })), old.chain, FEELS.tender.peak, 101), null, 'a score keeps its own arc');
   assert.equal(JSON.stringify(old.patterns), before, 'and the arrangement is untouched');
   console.log('long-form chill passed');
+}
+
+// Jazz develops its players at runtime rather than writing pop-section takes into pattern.at.
+{
+  for (const style of [...SONG_STYLES].filter(isJazz)) for (const seed of SEEDS) for (const length of ['song', 'sketch']) {
+    const s = buildSong(style, seed, length), { chain, sections } = songPlan(style, seed, length, s.bpm);
+    const head = length === 'sketch' ? 8 : 16;
+    assert.equal(sections, null);
+    assert.equal(s.chain, chain);
+    assert.equal(chain, 'G'.repeat(head) + 'C'.repeat(chain.length - 2 * head) + 'H'.repeat(head));
+    const { log } = playSong(s);
+    const phrase = (bar) => log.filter((x) => x.k === 'hook' && x.step >= bar * 16 && x.step < (bar + 8) * 16)
+      .map((x) => [x.step - bar * 16, ...x.a.slice(1, 4)]);
+    assert(phrase(0).length && phrase(chain.length - head).length, `${style}/${seed} both heads play`);
+    assert.notDeepEqual(phrase(head), phrase(0), `${style}/${seed} solos develop the head`);
+    assert.notDeepEqual(phrase(head), phrase(head + 8), `${style}/${seed} solos develop across phrases`);
+    for (let bar = 0; bar < chain.length - 1; bar++) {
+      const events = log.filter((x) => Math.floor(x.step / 16) === bar);
+      assert(events.some((x) => x.k === 'acid'), `${style}/${seed} bass continues at bar ${bar}`);
+      assert(events.some((x) => x.k === 'trigger' && ['kick', 'snare', 'ride', 'ch'].includes(x.a[0])), `${style}/${seed} drums continue at bar ${bar}`);
+    }
+  }
+  console.log('long-form jazz passed: full/sketch head–solos–head, runtime phrase development and continuous bass/drums');
 }

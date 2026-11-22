@@ -96,9 +96,9 @@ export function songwriting(m, sections) {
 }
 
 // Every musical event of one pass through the song, with the harmony it was played over.
-export function playSong(s) {
+export function playSong(s, replay808Style, replaySeed) {
   const log = [];
-  const e = new Proxy({ stepDur: 0.125, harm: null }, {
+  const e = new Proxy({ stepDur: 0.125, harm: null, get playbackStyle() { return replay808Style ?? s.artist?.style; }, get playbackSeed() { return replaySeed ?? s.artist?.seed; } }, {
     get(o, k) { return k in o ? o[k] : (...a) => { log.push({ k, a, harm: o.harm, step: o.step }); }; },
     set(o, k, v) { o[k] = v; return true; },
   });
@@ -189,7 +189,7 @@ export function scoreSong(s) {
   const count = new Map(); for (const w of wins) count.set(w.join(), (count.get(w.join()) || 0) + 1);
   const motif = wins.find((w) => count.get(w.join()) === Math.max(...count.values())) || [];
   const like = (w) => Math.max(...[-2, 0, 2].map((d) => jaccard(onsets(w).map((x) => x + d), onsets(motif))));
-  const recall = wins.length ? wins.filter((w) => like(w) >= 0.4).length / wins.length : 1;
+  const recall = wins.length ? wins.filter((w) => like(w) >= 0.4).length / wins.length : null;
   const moves = voicings.slice(1).map((v, i) => move(voicings[i], v));
   const density = perBar.map((b) => b.events), mean = density.reduce((a, b) => a + b, 0) / bars;
   const sd = Math.sqrt(density.reduce((a, b) => a + (b - mean) ** 2, 0) / bars);
@@ -197,7 +197,7 @@ export function scoreSong(s) {
     bars,
     ...sections(perBar),
     melodyWindows: new Set(wins.map((w) => w.join())).size,
-    motifRecall: +recall.toFixed(3),
+    motifRecall: recall == null ? null : +recall.toFixed(3),
     chords: harms.size || 1,
     voiceMove: +(moves.length ? moves.reduce((a, b) => a + b, 0) / moves.length : 0).toFixed(2),
     contrast: +(mean ? sd / mean : 0).toFixed(3),
@@ -279,11 +279,31 @@ export const TOL = { bars: 0, melodyWindows: 0.5, motifRecall: 0.05, chords: 0, 
   verseChorus: 0.05, chorusLift: 0.5, chorusPeak: 0.5, chorusEnergy: 0.05, preLift: 0.05, bridgeAway: 0.05,
   stressBeat: 0.03, titleDownbeat: 0.1, titlePeak: 0.1, hookRepeats: 0, hookRecall: 0.1, rhythmContrast: 0.03, onsetContrast: 0.03, holdRatio: 0.1, vocalRange: 1, rhymeRate: 0.03, verseSpan: 1, verseFit: 0.05 };
 
+export function aggregateComposition(rows, average = false) {
+  return Object.fromEntries(Object.keys(rows[0] || {}).map((k) => {
+    const values = rows.map((r) => r[k]).filter(Number.isFinite);
+    return [k, values.length ? +(average ? values.reduce((a, b) => a + b, 0) / values.length : median(values)).toFixed(3) : null];
+  }));
+}
+
+export function compositionRegressions(report, base) {
+  const fails = [];
+  for (const [style, m] of Object.entries(report)) {
+    const b = base[style];
+    assert(b, `${style} has no composition baseline (run node scripts/composition.mjs --update)`);
+    const measured = (k) => Number.isFinite(b[k]) && Number.isFinite(m[k]);
+    for (const k of HIGHER) if (measured(k) && m[k] < b[k] - TOL[k]) fails.push(`${style} ${k} ${m[k]} < baseline ${b[k]}`);
+    for (const k of LOWER) if (measured(k) && m[k] > b[k] + TOL[k]) fails.push(`${style} ${k} ${m[k]} > baseline ${b[k]}`);
+    for (const k of NEAR) if (measured(k) && Math.abs(m[k] - b[k]) > TOL[k]) fails.push(`${style} ${k} ${m[k]} moved from baseline ${b[k]}`);
+  }
+  return fails;
+}
+
 export function runComposition(styles) {
   const out = {};
   for (const style of styles) {
     const rows = SEEDS.map((seed) => scoreSong(buildSong(style, seed)));
-    out[style] = Object.fromEntries(Object.keys(rows[0]).map((k) => [k, +median(rows.map((r) => r[k])).toFixed(3)]));
+    out[style] = aggregateComposition(rows);
     if (SING_PROFILES[style]?.song) {
       const sw = SEEDS.map((seed) => { const st = lyricSong(style, seed); return songwriting(st.patterns.find((p) => p.hook?.m).hook.m, st.lyrics.sections); });
       const avg = (k) => +(sw.reduce((a, r) => a + r[k], 0) / sw.length).toFixed(3);
@@ -309,7 +329,7 @@ export const PROMPTS = ['melancholic deep house for a sunrise drive, builds to a
   'dreamy ambient for floating in space', 'tense drum and bass chase scene', 'nostalgic synthwave night drive', 'lofi beat for a rainy study night', 'uplifting trance anthem for the sunrise set'];
 async function promptReport() {
   const { localSpec, songState } = await import('../js/song-spec.js');
-  const mean = (rows) => Object.fromEntries(Object.keys(rows[0]).map((k) => [k, +(rows.reduce((a, r) => a + r[k], 0) / rows.length).toFixed(3)]));
+  const mean = (rows) => aggregateComposition(rows, true);
   const all = { plain: [], prompt: [] }, table = {};
   for (const p of PROMPTS) {
     const plain = [], prompt = [];
@@ -336,14 +356,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     console.log(`wrote ${BASELINE}`);
   } else if (args.includes('--assert')) {
     const base = JSON.parse(readFileSync(BASELINE, 'utf8'));
-    const fails = [];
-    for (const [style, m] of Object.entries(report)) {
-      const b = base[style];
-      assert(b, `${style} has no composition baseline (run node scripts/composition.mjs --update)`);
-      for (const k of HIGHER) if (b[k] !== undefined && m[k] < b[k] - TOL[k]) fails.push(`${style} ${k} ${m[k]} < baseline ${b[k]}`);
-      for (const k of LOWER) if (b[k] !== undefined && m[k] > b[k] + TOL[k]) fails.push(`${style} ${k} ${m[k]} > baseline ${b[k]}`);
-      for (const k of NEAR) if (b[k] !== undefined && Math.abs(m[k] - b[k]) > TOL[k]) fails.push(`${style} ${k} ${m[k]} moved from baseline ${b[k]}`);
-    }
+    const fails = compositionRegressions(report, base);
     assert.equal(fails.length, 0, `composition regressed:\n  ${fails.join('\n  ')}`);
     console.log(`composition scorecard passed: ${Object.keys(report).length} genres x ${SEEDS.length} seeds`);
   }

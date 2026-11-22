@@ -2,6 +2,8 @@ import { POCKET_NAMES } from './groove.js';
 export const KEYS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 export const PATTERN_NAMES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 export const STEPS = 16;
+export const HAND_KIT = { amapiano: 5, afrobeats: 6, reggaeton: 7, bailefunk: 8 };
+export const MARIMBA_STAB = 19;
 export const SCALES = {
   minor: { name: 'MINOR', notes: [0, 2, 3, 5, 7, 8, 10, 12] },
   dorian: { name: 'DORIAN', notes: [0, 2, 3, 5, 7, 9, 10, 12] },
@@ -9,6 +11,7 @@ export const SCALES = {
   harmonic: { name: 'HARM MIN', notes: [0, 2, 3, 5, 7, 8, 11, 12] },
   pentatonic: { name: 'MIN PENTA', notes: [0, 3, 5, 7, 10, 12] },
   major: { name: 'MAJOR', notes: [0, 2, 4, 5, 7, 9, 11, 12] },
+  mixolydian: { name: 'MIXOLYDIAN', notes: [0, 2, 4, 5, 7, 9, 10, 12] },
 };
 
 export const CHORDS = [
@@ -25,6 +28,14 @@ export const CHORDS = [
   { name: 'ADD9', iv: [0, 4, 7, 14] },
   { name: 'MAJ', iv: [0, 4, 7] },
   { name: 'DOM7', iv: [0, 4, 7, 10] },
+  { name: 'DOM9', iv: [0, 4, 7, 10, 14] },
+  { name: 'DOM13', iv: [0, 4, 10, 14, 21] },
+  { name: '7ALT', iv: [0, 4, 10, 15, 20] },
+  { name: 'MIN11', iv: [0, 3, 7, 10, 14, 17] },
+  { name: 'QUARTAL', iv: [0, 5, 10, 15, 19] },
+  { name: 'MAJ6/9', iv: [0, 4, 9, 14] },
+  { name: 'MIN6/9', iv: [0, 3, 9, 14] },
+  { name: 'HALF-DIM', iv: [0, 3, 6, 10] },
 ];
 
 export const DELAY_TIMES = [
@@ -110,7 +121,7 @@ export const TRACKS = [
       p('bend', 'BEND', 0, 1, 0.45),
       p('noise', 'NOISE', 0, 1, 0.2),
       p('metal', 'METAL', 0, 1, 0.3),
-      p('voice', 'VOICE', 0, 4, 0, { step: 1, list: ['SYNTH', 'CONGA', 'BONGO', 'SHAKER', 'CLAVE'] }),
+      p('voice', 'VOICE', 0, 8, 0, { step: 1, list: ['SYNTH', 'CONGA', 'BONGO', 'SHAKER', 'CLAVE', 'PIANO HANDS', 'AFRO HANDS', 'DEMBOW HANDS', 'RIO HANDS'] }),
     ],
     mix: { level: 0.45, pan: -0.3, rev: 0.2, dly: 0.25 },
   },
@@ -125,7 +136,8 @@ export const TRACKS = [
       p('decay', 'DECAY', 0.04, 1.2, 0.24, { curve: 'exp', unit: 's' }),
       p('accent', 'ACCENT', 0, 1, 0.65),
       p('drive', 'DRIVE', 0, 1, 0.5),
-      p('voice', 'VOICE', 0, 5, 0, { step: 1, list: ['303', 'BASS', '808', 'REESE', 'LOG', 'E.BASS'] }),
+      p('edge', 'EDGE', 0, 1, 0),
+      p('voice', 'VOICE', 0, 9, 0, { step: 1, list: ['303', 'BASS', '808', 'REESE', 'LOG', 'E.BASS', 'FM', 'PULSE', 'WIDE REESE', 'PLUCK'] }),
     ],
     mix: { level: 0.55, dly: 0.12, rev: 0.05 },
   },
@@ -139,7 +151,8 @@ export const TRACKS = [
       p('env', 'ENV', 0, 1, 0.45),
       p('decay', 'DECAY', 0.05, 2.5, 0.28, { curve: 'exp', unit: 's' }),
       p('detune', 'DETUNE', 0, 40, 12, { unit: 'ct' }),
-      p('voice', 'VOICE', 0, 15, 0, { step: 1, list: ['SAW', 'KEYS', 'PAD', 'ORGAN', 'BRASS', 'PLUCK', 'BELLS', 'PIANO', 'GUITAR', 'HORNS', 'STRINGS', 'DRIVE GTR', 'ACOUSTIC', 'JAZZ GTR', 'BANJO', 'TWANG GTR'] }),
+      p('tine', 'TINE', 0, 1, 1),
+      p('voice', 'VOICE', 0, MARIMBA_STAB, 0, { step: 1, list: ['SAW', 'KEYS', 'PAD', 'ORGAN', 'BRASS', 'PLUCK', 'BELLS', 'PIANO', 'GUITAR', 'HORNS', 'STRINGS', 'DRIVE GTR', 'ACOUSTIC', 'JAZZ GTR', 'BANJO', 'TWANG GTR', 'CELLO', 'CLARINET', 'NYLON GTR', 'MARIMBA'] }),
     ],
     mix: { level: 0.42, rev: 0.35, dly: 0.42 },
   },
@@ -160,6 +173,8 @@ export const TRACKS = [
 export const TRACK_IDS = TRACKS.map((t) => t.id);
 export const TRACK_BY_ID = Object.fromEntries(TRACKS.map((t) => [t.id, t]));
 
+export const KIT_BACKBEAT = 3;
+
 export const MASTER_PARAMS = [
   p('dj', 'FILTER', -1, 1, 0, { bipolar: true }),
   p('duck', 'SIDECHAIN', 0, 1, 0.5),
@@ -171,9 +186,10 @@ export const MASTER_PARAMS = [
   p('dlyFb', 'REPEATS', 0, 0.92, 0.45),
   p('dlyLevel', 'ECHO', 0, 1, 0.65),
   p('humanize', 'HUMANIZE', 0, 1, 0),
+  p('swing8', '8TH SWING', 0, 1, 0),
   p('warmth', 'WARMTH', 0, 1, 0),
   p('room', 'ROOM', 0, 1, 0),
-  p('kit', 'KIT', 0, 2, 0, { step: 1, list: ['MACHINE', 'LIVE', 'HYBRID'] }),
+  p('kit', 'KIT', 0, KIT_BACKBEAT, 0, { step: 1, list: ['MACHINE', 'LIVE', 'HYBRID', 'BACKBEAT'] }),
   p('vary', 'VARIATION', 0, 1, 0),
   p('pocket', 'POCKET', 0, POCKET_NAMES.length - 1, 0, { step: 1, list: POCKET_NAMES }),
   p('dust', 'DUST', 0, 1, 0),
@@ -208,7 +224,8 @@ export function formatValue(q, v) {
 }
 
 export const VOICE_HIDDEN = {
-  perc: [[], ['metal'], ['metal'], ['bend', 'metal'], ['bend', 'noise', 'metal']],
-  acid: [[], ['wave', 'reso', 'envmod', 'accent'], ['wave', 'reso', 'envmod'], [], ['wave', 'reso', 'envmod'], ['wave', 'reso', 'envmod', 'accent']],
-  stab: [[], ['reso'], [], ['reso', 'env'], [], [], ['reso'], ...Array(6).fill(['reso', 'env', 'detune'])],
+  perc: [[], ['metal'], ['metal'], ['bend', 'metal'], ...Array(5).fill(['bend', 'noise', 'metal'])],
+  // EDGE only acts on the BASS voice and TINE only on KEYS.
+  acid: [[], ['wave', 'reso', 'envmod', 'accent'], ['wave', 'reso', 'envmod'], [], ['wave', 'reso', 'envmod'], ['wave', 'reso', 'envmod', 'accent'], [], [], [], []].map((h, i) => (i === 1 ? h : [...h, 'edge'])),
+  stab: [[], ['reso'], [], ['reso', 'env'], [], [], ['reso'], ...Array(6).fill(['reso', 'env', 'detune']), [], [], [], [], [], [], []].map((h, i) => (i === 1 ? h : [...h, 'tine'])),
 };

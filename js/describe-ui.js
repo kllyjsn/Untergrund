@@ -5,7 +5,7 @@ import { privacyOptOut } from './analytics.js';
 import { isSongPrompt as isPlanPrompt, promptGenre, rulePlan, planEdits, planLyrics, validatePlan, lyricLines } from './song-plan.js';
 import { cleanLyrics, splitLyrics, lyricTimeline, lyricLabels, lyricsText, LIMITS } from './lyrics.js';
 import { barsLabel } from './scope.js';
-import { isSongPrompt, localSpec, validateSpec, SONG_STYLES } from './song-spec.js';
+import { isSongPrompt, localSpec, validateSpec } from './song-spec.js';
 import { KEYS } from './params.js';
 import { STYLES, fitLyrics } from './state.js';
 import { singAvailable, singSong, hasStem, singRequest } from './sing.js';
@@ -56,10 +56,7 @@ async function askAI(text, style) {
 // offline or on any error the same rules run here, so a song always arrives.
 // hint: the plan rules' read of the prompt; a genre it names ("indie", "trap") and an explicit BPM win over the spec rules'.
 async function askSong(text, style, hint = {}) {
-  const local = () => {
-    const sp = localSpec(text, { style }), pick = SONG_STYLES.includes(hint.genre) ? hint.genre : sp.style;
-    return pick === sp.style && hint.bpm == null ? sp : validateSpec({ ...sp, style: pick, bpm: hint.bpm ?? sp.bpm }, { style: pick, prompt: text });
-  };
+  const local = () => localSpec(text, { style, genre: hint.genre, bpm: hint.bpm });
   if (navigator.onLine === false) return local();
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 10000);
   try {
@@ -143,6 +140,7 @@ export function describeBar(ctx) {
       status.textContent = 'Warming up the singer…';
       try {
         await singSong(ctx.state(), { onWait: (s) => { status.textContent = `Singing… ${s}s`; } });
+        ctx.sung?.();
         status.textContent = ''; ctx.track?.({ sing: 'ok' });
       } catch (err) {
         status.textContent = err.message; ctx.track?.({ sing: 'error' });

@@ -61,9 +61,10 @@ try {
     const { defaultState, generate, applyOverrides, arrangement, songChain } = await import('/js/state.js');
     const { renderStems, renderPreBus, stemList } = await import('/js/stems.js');
     const out = [];
-    for (const [style, seed, bars] of [['neosoul', 42, 4], ['deephouse', 7, 4], ['nocturne', 9, 2]]) {
+    for (const [style, seed, bars] of [['neosoul', 42, 4], ['deephouse', 7, 4], ['nocturne', 9, 2], ['drill', 7, 4], ['dub', 42, 8]]) {
       const s = defaultState(), g = generate(style, seed);
       applyOverrides(s, g); s.key = g.key; s.patterns = arrangement(g.pattern, seed); s.chainOn = true; s.chain = songChain(style, seed);
+      if (style === 'dub') s.artist = { style, seed };
       // Start at the first chorus so the full band and the hook are playing. Four bars of the sung genres:
       // the chords' licks answer the singer in the breath at the end of the 4-bar phrase.
       if (!g.pattern.score) s.chain = s.chain.slice(s.chain.indexOf('G'));
@@ -96,6 +97,8 @@ try {
   }
   assert(result[1].stems.includes('hook') && result[1].loud.includes('hook'), 'deephouse hook gets its own stem');
   assert(result[2].stems.includes('pno') && !result[2].stems.includes('kick'), 'nocturne stems are orchestra parts');
+  assert(result[3].loud.includes('hook') && result[3].loud.includes('kick'), 'the sidechained Drill hook and kick have separate stems');
+  assert(result[4].loud.includes('dubpad') && result[4].loud.includes('stab') && result[4].loud.includes('acid'), 'Dub pad, stabs and sub have separate audible stems');
   ws.close();
   console.log('stems tests passed');
 } finally { await done(); }

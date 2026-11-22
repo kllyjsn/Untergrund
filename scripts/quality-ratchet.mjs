@@ -26,7 +26,7 @@ export function compareComposition(before, after) {
     const b = before[style];
     if (!b) continue;
     for (const k of [...HIGHER, ...LOWER]) {
-      if (b[k] === undefined || m[k] === undefined) continue;
+      if (!Number.isFinite(b[k]) || !Number.isFinite(m[k])) continue;
       const tol = TOL[k] ?? 0, up = HIGHER.includes(k), d = +(m[k] - b[k]).toFixed(3);
       const better = up ? d > tol : d < -tol, worse = up ? d < -tol : d > tol;
       if (better) gains.push({ style, metric: k, from: b[k], to: m[k] });

@@ -16,9 +16,10 @@ const BASES = {
   song: {
     pop: ['i4 v8 p4 c8 v8 p4 c8 b8 c8 o4', 'i4 c8 v8 p4 c8 v8 p4 c8 b8 c8 o4', 'i8 v8 p4 c8 v8 p4 c8 b8 p4 c8 o4'],
     rap: ['i4 c8 v16 c8 v16 c8 b8 c8 o4', 'i8 v16 c8 v16 c8 b8 c8 o8'],
+    beat: ['i4 c8 v8 c8 x8 v8 c8 b8 c8 o4', 'i8 v8 c8 v8 c8 x8 b8 c8 o8'],
     house: ['i8 v8 c8 v8 c8 b8 c8 o8', 'i8 v8 p4 c8 v8 p4 c8 b8 c8 o8'],
   },
-  sketch: { pop: ['i4 v8 p4 c8 o4'], rap: ['i4 v16 c8 o4'], house: ['i8 v8 c8 o8'] },
+  sketch: { pop: ['i4 v8 p4 c8 o4'], rap: ['i4 v16 c8 o4'], beat: ['i4 v8 c8 o4'], house: ['i8 v8 c8 o8'] },
 };
 
 const kinds = (S) => S.map((s) => s[0]);
@@ -53,6 +54,7 @@ const GROW = {
 const ORDER = {
   pop: ['final', 'inst', 'verse2', 'pre', 'outro', 'intro', 'verse1', 'bridge', 'intro16', 'outro16'],
   rap: ['final', 'inst', 'outro', 'intro', 'verse3', 'bridge'],
+  beat: ['final', 'outro', 'intro'],
   house: ['final', 'inst', 'intro16', 'outro16', 'verse2', 'verse1', 'bridge'],
 };
 const SKETCH_ORDER = ['final', 'intro', 'outro'];
@@ -220,12 +222,13 @@ export function finalPeak(chain) {
   while (from > 0 && 'GH'.includes(c[from - 1])) from--;
   return from > 0 && c.slice(0, from).includes('G') ? { from, to } : null;
 }
-export function writePeak(pats, chain, devices, seed = 0, { keep = [] } = {}) {
+export function writePeak(pats, chain, devices, seed = 0, { keep = [], drops = [] } = {}) {
   const run = finalPeak(chain), G = pats?.[6];
   if (!devices?.length || !run || !G || pats.length < 8 || pats.some((p) => p.score)) return null;
   const c = [].concat(chain).join(''), lead = G.hook && !G.hook.h && G.hm > 0 && !keep.includes('stab');
   // The key lift stays with the styles that idiomatically change key (state.js LIFT): there it is already written.
-  const ok = (d) => (d === 'lift' ? pats.some((p) => p.lift) : d === 'dropout' || lead);
+  // A festival build (festival-build.js) already lands its kick on the final drop's downbeat: no dropout there.
+  const ok = (d) => (d === 'lift' ? pats.some((p) => p.lift) : d === 'dropout' ? !drops.includes(run.from) : lead);
   const opts = devices.filter((d) => PEAK_DEVICES.includes(d) && ok(d));
   if (!opts.length) return null;
   // The feeling's first device is its most idiomatic; drawn on its own stream so no other seeded choice moves.

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { generate, sanitize, defaultState, applyOverrides, STYLES, MAJOR_STYLES } from '../js/state.js';
 import { CHORDS, SCALES } from '../js/params.js';
-import { SING_PROFILES, MELODY_BARS, melodyScore, strongNote, sings } from '../js/melody.js';
+import { SING_PROFILES, MELODY_BARS, melodyScore, strongNote, sings, writeMelody } from '../js/melody.js';
 import { stepDeg } from '../js/motif.js';
 import { buildSong, playSong, melodyShape } from '../scripts/composition.mjs';
 
@@ -11,7 +11,7 @@ const phrasesOf = (list) => { const o = []; for (const x of list) (o[x[4]] ??= [
 // Vocal-length melodies: 4- or 8-bar phrases, a planned peak, a held last note and a breath, singable rhythm,
 // steps with recovered leaps, chord tones on strong beats, and a chorus hook that returns.
 let notes = 0, steps = 0, moves = 0, leaps = 0, recovered = 0, strong = 0, tones = 0, grid = 0;
-for (const style of Object.keys(SING_PROFILES)) for (const seed of [1, 2, 3, 5, 8, 13]) {
+for (const style of Object.keys(SING_PROFILES).filter((s) => !SING_PROFILES[s].instrumental)) for (const seed of [1, 2, 3, 5, 8, 13]) {
   const g = generate(style, seed, 'minor'), h = g.pattern.hook, m = h.m;
   assert(m && m.bars === MELODY_BARS && m.n.length && m.v.length && m.b.length, `${style}/${seed} sings`);
   assert.deepEqual(generate(style, seed, 'minor').pattern.hook, h, `${style}/${seed} is deterministic`);
@@ -58,6 +58,24 @@ assert(steps / moves >= 0.55, `mostly stepwise (${(steps / moves).toFixed(2)})`)
 assert(!leaps || recovered / leaps >= 0.7, `leaps recover (${recovered}/${leaps})`);
 assert(tones / strong >= 0.9, `strong beats land on chord tones (${tones}/${strong})`);
 console.log('vocal-length melodies passed');
+
+{
+  const bells = generate('drill', 1234), other = generate('drill', 42);
+  assert.equal(bells.params.stab.voice, 6);
+  assert.notEqual(other.params.stab.voice, 6);
+  assert.equal(bells.pattern.hook.v, 'harpplk');
+  assert.equal(other.pattern.hook.v, 'airflute');
+  const peak = (g, part) => Math.max(...g.pattern.hook.m[part].map((note) => note[3]));
+  for (const part of ['n', 'v', 'b']) {
+    assert(peak(bells, part) < peak(other, part), `Drill's bell ensemble leaves more headroom in ${part}`);
+  }
+}
+for (const style of ['drill', 'pop']) {
+  const melody = writeMelody(() => 0.5, style, SCALES.minor.notes, { gainScale: 0 });
+  for (const part of ['n', 'v', 'b']) {
+    assert(melody[part].length && melody[part].every((note) => note[3] === 0), `${style} preserves zero note velocity`);
+  }
+}
 
 // The 32-step hook path stays for techno and old projects: no melody, nothing new in a sanitized old hook.
 for (const style of ['hypnotic', 'acid', 'peak', 'dnb', 'jerseyclub', 'dub']) {
@@ -122,7 +140,7 @@ console.log('sung song passed');
 // Section registers: the verse sings lowest, each pre-chorus climbs, and only the chorus reaches the song's top note.
 {
   let pres = 0, climbs = 0, songs = 0;
-  for (const style of Object.keys(SING_PROFILES)) for (const seed of [101, 307, 503]) {
+  for (const style of Object.keys(SING_PROFILES).filter((s) => !SING_PROFILES[s].instrumental)) for (const seed of [101, 307, 503]) {
     const s = buildSong(style, seed), { log } = playSong(s), by = {}, runs = [];
     const secOf = (b) => s.patterns['ABCDEFGH'.indexOf(s.chain[b])]?.sec;
     for (const L of log) {
@@ -153,3 +171,19 @@ console.log('sung song passed');
   assert(inTake.length && inTake.every((L) => want.has(L.a[2])), 'a take sings its own melody');
 }
 console.log('scoped melody passed');
+
+{
+  const piano = generate('trap', 42), bells = generate('trap', 11);
+  assert.equal(piano.params.stab.voice, 7);
+  assert.notEqual(bells.params.stab.voice, 7);
+  assert.equal(piano.pattern.hook.v, bells.pattern.hook.v);
+  const peak = (g, part) => Math.max(...g.pattern.hook.m[part].map((note) => note[3]));
+  for (const part of ['n', 'v', 'b']) {
+    assert(peak(piano, part) < peak(bells, part), `Trap's piano melody leaves more headroom in ${part}`);
+  }
+  const { m, s } = piano.pattern.hook;
+  assert.deepEqual(piano.pattern.sections.vhook.m, m, 'section variations inherit the lighter touch');
+  for (const [step, , , vel] of m.n) {
+    if (step >= 0 && step < 32) assert.equal(s[step][2], vel, 'preview matches the piano performance');
+  }
+}
