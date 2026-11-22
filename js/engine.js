@@ -1,6 +1,7 @@
 import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES, HAND_KIT, KIT_BACKBEAT, defaultParams } from './params.js';
 import { PALETTE_INSTRUMENTS, PALETTE_DEFAULTS, instrumentFor } from './palette-defaults.js';
-import { getSample, sungNote, SUNG_LEN, SUNG_LOW, SUNG_NOTES, SUNG_VOWEL_COUNT } from './sampler.js';
+import { getSample, hasUserSample, sungNote, SUNG_LEN, SUNG_LOW, SUNG_NOTES, SUNG_VOWEL_COUNT } from './sampler.js';
+import { vowelStyle, vowelVoxNote, vowelName, vowelHookDuration, playVowel, VOWEL_HOOK_DB, VOWEL_HOOK_EQ } from './vowels.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
 import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, loadHand, STAB_BAND, HOOK_BAND, SAX_HOOK, SAX_LO, saxRoot, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER, RECORDED_ORGAN, playsAnalogBass } from './livekit.js';
@@ -137,6 +138,9 @@ const WIND_HOOK = {
 };
 // Each genre's sax, in dB, matched to the synth reed it replaces (hook stem loudness over seeds): the recorded
 // tongued attack carries less energy on the short riffs of Afrobeats, Reggaeton and Breaks than on sung lines.
+// Held alto notes sat dead straight, so their 8th-15th harmonics rang as fixed 2.5-3.1 kHz lines over the mix;
+// a player's 20-cent vibrato, leaned into after the attack, spreads them.
+const ALTO_VIB = 20;
 const SAX_TRIM = { pop: -2.4, neosoul: -5.7, boombap: 3.5, trap: 1.1, afrobeats: 6.5, reggaeton: 4.5, breaks: 7.1 };
 // Pop and Reggaeton hats live above 4 kHz, where the alto's breath otherwise fills the gaps between hits, so
 // those altos get a fixed high cut; the Afrobeats tenor's low register piles up at 220-260 Hz over the bass.
@@ -328,7 +332,7 @@ const BAND_PLAY = {
   // The green Gretsch hollow-body: bright, snappy, open chords that ring for country and rockabilly.
   gretsch: { gain: 4.2, len: 2.6, min: 0.6, softBelow: 0, strum: 0.006, shift: 0, lo: 40, hi: 74, lp: 4600, peak: [3400, 1.2, -4], soft: 1100, fade: 0.008, rel: 0.18, grip: true, even: 0.3 },
   // UK Garage's organ stab: the tonewheel organ keyed hard and let go, every note of the chord at once.
-  org: { gain: 1.9, len: 1.6, min: 0.12, max: 0.8, strum: 0, shift: 0, lo: 52, hi: 79, lp: 5600, fade: 0.003, rel: 0.05, even: 0.15 },
+  org: { gain: 1.9, len: 1.6, min: 0.12, max: 0.8, strum: 0, shift: 0, lo: 52, hi: 79, lp: 5600, fade: 0.003, rel: 0.05, even: 0.15, room: 1800 },
 };
 // Country lead: the same guitar clean and bright off the bridge pickup, single notes with a slapback.
 BAND_PLAY.twang = { ...BAND_PLAY.gtr, gain: 3, len: 1.4, min: 0.25, softBelow: 0, lo: 52, hi: 84, lp: 6800, grip: false, even: 0.4, rel: 0.12, oct: 0, slap: true };
@@ -3000,6 +3004,18 @@ export class Engine {
     this.startSource(lfo, t); lfo.stop(end);
   }
 
+  // A recorded voice played through a presence path still reaches the band room, through the same high-pass as the dry path.
+  bandTap(out, hz) {
+    const taps = (this.bandTaps ||= new WeakMap());
+    if (!taps.has(out)) {
+      const g = this.gain(1);
+      g.connect(out);
+      g.connect(this.filter('highpass', hz, Math.SQRT1_2)).connect(this.gain(0.9)).connect(this.bandIn);
+      taps.set(out, g);
+    }
+    return taps.get(out);
+  }
+
   // Brass section: saws scooping into pitch while the filter blooms; ENV sets the blare.
   // Recorded chord instruments (CC0): nearest sample per chord note, repitched; the synth voice covers loading.
   recorded(kind, fallback, t, v, iv, root, p, out) {
@@ -3007,6 +3023,7 @@ export class Engine {
     let set = this.rec(base);
     if (!set) { loadBand(base); return this[fallback](t, v, iv, root, p, out); }
     if (out === this.ch.stab.input) out = this.ch.stab.band;
+    else if (R.room) out = this.bandTap(out, R.room);
     if (kind === 'gtr' && this.playbackStyle === 'reggaeton') out = this.bodyFor(out, [2960, 6, -12]);
     const chord = R.grip && iv.length > 1, live = chord && this.step != null;
     const pk = live ? pocketOf(this.state.master) : null, hand = live ? guitarHand(kind, pk?.name, this.wide) : null;
@@ -3255,6 +3272,7 @@ export class Engine {
       if (n % 2) [c, buf] = alt[i];
     }
     return this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
+      hp: kind === 'org' && this.playbackStyle === 'gfunk' ? 110 : 0, hpQ: -3.01,
       shelves: [[3000, tone]], peaks: [...(R?.peak ? [R.peak] : []), ...(kind === 'org' && this.playbackStyle === 'gfunk' ? [[2200, 1.2, -3], [3300, 0.8, -6]] : []), ...(kind === 'str' ? HIPHOP[this.state.artist?.style]?.strEq ?? [] : []), ...(jazzStyle(this.state, this.playingPattern) === 'bossa' && kind === 'jazz' ? jazzNotches(kind, c, Math.pow(2, (m - c) / 12)) : [])], lp: R ? R.lp * (F ? F[1] : 1) * (0.4 + 0.6 * hv) : 0, ...(kind === 'upright' ? { lpStages: 2, lpQ: -6.0206 } : {}), lpFrom: F ? F[0] : R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
     });
   }
@@ -3476,10 +3494,18 @@ export class Engine {
     iv.forEach((n, k) => {
       const tt = t + k * 0.018, f = midiHz(root + 12 + n), end = tt + ring * 4;
       const car = c.createOscillator(); car.frequency.value = f; car.detune.value = (k % 2 ? 1 : -1) * p.detune * 0.2;
-      const mod = c.createOscillator(); mod.frequency.value = f * 3.5;
+      const mod = c.createOscillator();
+      if (this.playbackStyle === 'trap') {
+        mod.frequency.setValueAtTime(f * 3.5, tt);
+        mod.frequency.setValueAtTime(f * 3.5, tt + 0.002);
+        mod.frequency.linearRampToValueAtTime(f * (k % 2 ? 4.4 : 2.6), tt + ring);
+      } else mod.frequency.value = f * 3.5;
       const ma = this.gain(0); mod.connect(ma).connect(car.frequency);
       ma.gain.setValueAtTime(f * (0.5 + p.env * 4) * v, tt);
-      ma.gain.setTargetAtTime(f * 0.05, tt + 0.002, ring * 0.25);
+      if (this.playbackStyle === 'trap') {
+        ma.gain.setTargetAtTime(0, tt + 0.002, ring * 0.25);
+        ma.gain.setValueAtTime(0, tt + ring * 2);
+      } else ma.gain.setTargetAtTime(f * 0.05, tt + 0.002, ring * 0.25);
       const amp = this.gain(0);
       amp.gain.setValueAtTime(EPS, tt);
       amp.gain.linearRampToValueAtTime((v * 0.3) / Math.sqrt(iv.length), tt + 0.002);
@@ -3491,6 +3517,10 @@ export class Engine {
   }
 
   vox(t, v, step) {
+    if (vowelStyle(this.playbackStyle) && !hasUserSample()) {
+      const note = vowelVoxNote(this.state, this.playbackStyle, step, this.stepDur, this.harmRoot());
+      if (playVowel(this, t, v, note.midi, note.duration, note.name, this.ch.vox.input, this.state.params.vox.tone, !['ukg', 'jerseyclub', 'bailefunk'].includes(this.playbackStyle))) return;
+    }
     if (this.playbackStyle === 'bailefunk') return this.funkVox(t, v, step);
     // Saved set timelines omit song metadata, so never borrow the listener's project seed.
     const c = this.ctx, p = this.state.params.vox, owner = this.replay808Style ? null : this.state, sample = getSample(owner);
@@ -3625,7 +3655,7 @@ export class Engine {
         lp: Math.min(styleFx.cap ?? Infinity, lp + 2100 * touch + 650 * (air - 0.5)), lpStages: styleFx.lpStages, offset: offset + tongue * 0.012,
         fade: (voice === 'tpt' ? 0.025 : strong ? 0.007 : 0.012) + 0.009 * (1 - tongue),
         attackGain: (strong ? 1.04 : 0.9) + (tongue - 0.5) * 0.24,
-        release: 0.055, ringOut: true, ...(voice === 'tpt' ? { vib: 6 } : {}),
+        release: 0.055, ringOut: true, ...(voice === 'tpt' ? { vib: 6 } : voice === 'altosax' ? { vib: ALTO_VIB } : {}),
       });
   }
 
@@ -3789,6 +3819,11 @@ export class Engine {
     v *= 1.3;
     n = hookSnap(n, h, p, strong, up);
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
+    if (vowelStyle(this.playbackStyle) && (voice === 'vocal' || voice === 'chop')) {
+      const vc = voice === 'chop' && getChops(), out = this.hookBus || this.ch.stab.input;
+      if (vc) return this.chopNote(vc, t, v, 60 + k + oct * 12 + n, dur, expression, null, out);
+      if (!hasUserSample() && playVowel(this, t, v * 10 ** (VOWEL_HOOK_DB[this.playbackStyle] / 20), 60 + k + oct * 12 + n, vowelHookDuration(this.playbackStyle, dur), vowelName(this.playbackStyle, Math.floor((this.step || 0) / 64)), out, 5000, !['ukg', 'jerseyclub', 'bailefunk'].includes(this.playbackStyle), VOWEL_HOOK_EQ[this.playbackStyle])) return;
+    }
     const roots = voice === 'chop' && getChops() ? null : rootsFor(this.state, this.playingPattern);
     if (fiddleRole(roots, expression)) {
       const kind = dur < .3 || expression.role === 'fiddle-answer' ? 'fiddlestac' : 'fiddle', set = this.rec(kind);
@@ -4001,9 +4036,18 @@ export class Engine {
       const ring = Math.max(0.35, Math.min(1.4, len * 1.2));
       const blp = this.filter('lowpass', 1900 + 1300 * b, 0.5); blp.connect(amp);
       const car = osc('sine', f, 0, 1, blp);
-      const mod = c.createOscillator(); mod.frequency.value = f * 2.5; const ma = this.gain(0);
+      const mod = c.createOscillator(), ma = this.gain(0);
+      if (this.playbackStyle === 'trap') {
+        mod.frequency.setValueAtTime(f * 2.5, t);
+        mod.frequency.setValueAtTime(f * 2.5, t + 0.002);
+        mod.frequency.linearRampToValueAtTime(f * (hash(t * 7, 19) < 0.5 ? 2 : 3), t + ring);
+      } else mod.frequency.value = f * 2.5;
       mod.connect(ma).connect(car.frequency); oscs.push(mod);
-      ma.gain.setValueAtTime(f * (0.3 + 0.35 * b) * v, t); ma.gain.setTargetAtTime(f * 0.04, t + 0.002, ring * 0.2);
+      ma.gain.setValueAtTime(f * (0.3 + 0.35 * b) * v, t);
+      if (this.playbackStyle === 'trap') {
+        ma.gain.setTargetAtTime(0, t + 0.002, ring * 0.2);
+        ma.gain.setValueAtTime(0, Math.min(end, t + ring * 2));
+      } else ma.gain.setTargetAtTime(f * 0.04, t + 0.002, ring * 0.2);
       amp.gain.setValueAtTime(EPS, t);
       amp.gain.linearRampToValueAtTime(0.34 * v, t + 0.004);
       amp.gain.setTargetAtTime(0, t + 0.004, ring * 0.45);
@@ -4218,7 +4262,7 @@ export class Engine {
     const len = st.ap && tone.release ? sd * 0.9 : holdNext ? sd * 2 : sd * (tone.release ? gate : 1 + p.decay * 6);
     const gain = ANALOG_BASS_GAIN * ((organ ? tone.organGain : null) ?? tone.gain?.[Math.round(p.voice)] ?? 1);
     const close = Math.max(tone.hp ? 180 : 500, p.cutoff * tone.close), open = Math.max(close * 1.5, Math.min(10000, p.cutoff * (tone.open + p.envmod * tone.env + (st.a ? (p.accent ?? 0.5) * (tone.hp ? 1 : 3) : 0))));
-    const h = this.playBuf(buf, t, vel * gain, this.ch.acid.input, rate, len, { lp: tone.lp ? Math.min(tone.lp, open) : open, lpTo: close, lpStages: tone.lp ? 2 : 1, hp: tone.hp, hpStages: tone.hpStages, hpQ: tone.hpQ, fade: 0.003, release, loop: true });
+    const h = this.playBuf(buf, t, vel * gain, tone.hp ? this.ch.acid.input : this.analogBassOut(), rate, len, { lp: tone.lp ? Math.min(tone.lp, open) : open, lpTo: close, lpStages: tone.lp ? 2 : 1, hp: tone.hp, hpStages: tone.hpStages, hpQ: tone.hpQ, fade: 0.003, release, loop: true });
     if (tone.release) {
       const amp = h.g.gain;
       amp.cancelScheduledValues(t);
@@ -4229,6 +4273,16 @@ export class Engine {
     }
     if (from !== f) { h.s.playbackRate.setValueAtTime(rate * (from / f), t); h.s.playbackRate.exponentialRampToValueAtTime(rate, t + 0.08); }
     this.mono = { amp: h.g, f, end: t + len + 0.3 };
+  }
+  // The SH-2's sub oscillator reaches 26 Hz on the lowest notes: a 4th-order Butterworth at 30 Hz trims it (-6 dB at 26 Hz)
+  // and leaves 40 Hz and up within half a dB. A highpass biquad's Q is in dB: 0.541 and 1.307 are -5.33 and +2.33 dB.
+  analogBassOut() {
+    if (!this.abassHP) {
+      const a = this.filter('highpass', 30, -5.33), b = this.filter('highpass', 30, 2.33);
+      a.connect(b).connect(this.ch.acid.input);
+      this.abassHP = a;
+    }
+    return this.abassHP;
   }
   // Reese: two detuned saws beating against each other plus a sine sub. SAW/SQR sets the detune spread,
   // ENV MOD sweeps the filter, RESO adds bite.
@@ -4687,7 +4741,9 @@ export class Engine {
       const [from, dur, hold = 0] = ramp, start = 10 ** (from / 20);
       g.setValueAtTime(start, t);
       if (hold) g.setValueAtTime(start, t + hold);
-      if (dur) g.linearRampToValueAtTime(v, t + hold + dur);
+      // Keep the Deep House build endpoint ahead of the next bar's cancellation.
+      const margin = this.playbackStyle === 'deephouse' ? 1 / this.ctx.sampleRate : 0;
+      if (dur) g.linearRampToValueAtTime(v, t + hold + Math.max(0, dur - margin));
     } else g.setTargetAtTime(v, t, 0.012);
   }
 
@@ -5170,6 +5226,7 @@ const SECTION_DB = { verse: -1.8, chorus: 0.45 };
 // Styles that move between sections with filter glides instead of risers, snare rolls and impacts.
 const SMOOTH = new Set(['minimal']);
 const STYLE_SECTION_DB = { pop: { verse: -0.9 }, rnb: { chorus: 0.25 }, deephouse: { chorus: 0.25 }, country: { verse: -0.8 } };
+const DEEP_HOUSE_DB = { intro: -5.5, verse: -4.4, bridge: -4.5, chorus: -0.95, final: 0.25, buildFrom: -4.1, buildTo: -2.2 };
 
 // A song's feeling (js/feel.js) shapes how it is performed; a song without one plays exactly as written.
 const feelOf = (s) => (s.feel && Object.hasOwn(FEELS, s.feel) ? FEELS[s.feel] : null);
@@ -5234,8 +5291,12 @@ export class Sequencer {
       this.advanceBar(bar * 16, t, offset);
       return;
     }
-    if (offset && pos >= 0 && !(this.s.ending && chain.length >= 16 && bar >= chain.length))
-      this.verseFillSwell(t, chain, pos, offset);
+    if (offset && pos >= 0 && !(this.s.ending && chain.length >= 16 && bar >= chain.length)) {
+      if (this.deepHouseArc()) {
+        this.updateLift(chain);
+        this.deepHouseLevel(t, chain, pos, offset);
+      } else this.verseFillSwell(t, chain, pos, offset);
+    }
   }
 
   rewind(abs, t) {
@@ -5279,13 +5340,7 @@ export class Sequencer {
     this.dropNow = !!this.dropNext; this.dropNext = false;
     this.songBars = chain.length; this.chainArr = chain;
     this.chainEntries = cleanChainEntries(this.s.chain, this.s.chainEntries);
-    if (this.liftChain !== this.s.chain) {
-      // The final chorus: the last run of peak bars, if an earlier peak came before it.
-      let i = chain.length - 1;
-      while (i >= 0 && chain[i] !== 6) i--;
-      while (i > 0 && (chain[i - 1] === 6 || chain[i - 1] === 7)) i--;
-      this.liftChain = this.s.chain; this.liftFrom = i > 0 && chain.slice(0, i).includes(6) ? i : -1;
-    }
+    this.updateLift(chain);
     if (chain.length) {
       const n = chain.length, p = this.chainPos % n, prev = this.chainPos ? this.cur : -1;
       // Past the last bar of a song with an ending (even if a stalled main thread skipped its steps): finished, silent.
@@ -5295,7 +5350,8 @@ export class Sequencer {
       while (a > 0 && chain[a - 1] === this.cur) a--;
       while (b < n - 1 && chain[b + 1] === this.cur) b++;
       this.runPos = p - a; this.runLen = b - a + 1;
-      const peak = (x) => x === 2 || x === 6, brk = (x) => x === 4 || x === 5, fill = this.cur === 3 || this.cur === 7;
+      const houseArc = this.deepHouseArc();
+      const peak = (x) => x === 6 || (x === 2 && !houseArc), brk = (x) => x === 4 || x === 5, fill = this.cur === 3 || this.cur === 7;
       if (arr) {
         this.dropNext = peak(chain[(p + 1) % n]) && !peak(this.cur) && !(fill && peak(prev));
         if (!this.breakFilterPlanned && arr >= 0.75 && brk(this.cur) && !brk(prev)) {
@@ -5321,10 +5377,49 @@ export class Sequencer {
     if (this.queued !== null) { this.cur = this.queued; this.queued = null; }
   }
 
+  updateLift(chain) {
+    if (this.liftChain === this.s.chain && this.liftBars === chain.length) return;
+    // The final chorus: the last run of peak bars, if an earlier peak came before it.
+    let i = chain.lastIndexOf(6);
+    while (i > 0 && (chain[i - 1] === 6 || chain[i - 1] === 7)) i--;
+    this.liftChain = this.s.chain; this.liftBars = chain.length;
+    this.liftFrom = i > 0 && chain.slice(0, i).includes(6) ? i : -1;
+  }
+
+  deepHouseArc() {
+    const pats = this.s.patterns;
+    return (this.e.playbackStyle ?? this.s.artist?.style) === 'deephouse' &&
+      pats[1]?.sec === 'pre' && pats[6]?.sec === 'chorus';
+  }
+
+  deepHouseLevel(t, chain, pos, offset = 0) {
+    const db = DEEP_HOUSE_DB, sec = this.s.patterns[this.cur]?.sec;
+    // The breakdown keeps its own harmony and groove; its back half builds into the final chorus.
+    const bridgeBuild = this.liftFrom >= 4 && pos >= this.liftFrom - 4 && pos < this.liftFrom &&
+      chain[this.liftFrom - 1] === 3 && chain.slice(this.liftFrom - 4, this.liftFrom - 1).every((i) => i === 4 || i === 5);
+    if (sec !== 'pre' && !bridgeBuild) {
+      const level = sec === 'chorus' && this.liftFrom >= 0 && pos >= this.liftFrom ? db.final : db[sec] ?? db.intro;
+      return this.level(t, level, offset ? [level, 0] : undefined);
+    }
+    let first = this.liftFrom - 4, last = this.liftFrom - 1;
+    if (!bridgeBuild) {
+      first = last = pos;
+      while (first > 0 && chain[first - 1] === this.cur) first--;
+      while (last + 1 < chain.length && chain[last + 1] === this.cur) last++;
+    }
+    const at = (step) => db.buildFrom + (db.buildTo - db.buildFrom) * step / (16 * (last - first + 1));
+    const step = 16 * (pos - first);
+    const from = at(step), to = at(step + 16);
+    const gain = (v) => 10 ** (v / 20);
+    const resumed = offset ? 20 * Math.log10(gain(from) + (gain(to) - gain(from)) * offset / 16) : from;
+    return this.level(t, to, [resumed, (16 - offset) * this.e.stepDur]);
+  }
+
   // Verses sit under the chorus. A pre-chorus or a written verse fill can swell into it.
   // A feeling scales the verse's distance under the chorus by its dyn.contrast (the chorus never goes above its
   // ceiling-safe lift), and a club build dips and swells back up into the drop.
   sectionLevel(t, pos, offset) {
+    if (this.deepHouseArc()) return this.deepHouseLevel(t, this.chainArr, pos, offset);
     if (this.s.artist?.style === 'hardtechno') {
       this.e.hardSection?.(t, this.cur, this.runPos, this.runLen, this.chainArr[this.chainPos]);
       return;
