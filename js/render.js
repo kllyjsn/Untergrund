@@ -3,7 +3,7 @@ import { compose } from './classical.js';
 import { loadPiece } from './repertoire.js';
 import { clone } from './state.js';
 import { encodeWav } from './dsp.js';
-import { loadBand, liveSets, loadSets, withTakes } from './livekit.js';
+import { loadBand, liveSets, loadSets, withTakes, assertRootsReady } from './livekit.js';
 import { vocalStem } from './sing.js';
 
 // startBar renders a window from inside the song chain (e.g. the peak), with the arrangement state it would have there.
@@ -11,7 +11,9 @@ import { vocalStem } from './sing.js';
 // scheduled, onScheduled(ctx) just before rendering; channels sets the output channel count.
 export async function renderBars(state, bars, { sampleRate = 48000, tail, startBar = 0, channels = 2, onContext, onEngine, onScheduled } = {}) {
   const snap = clone(state);
-  await loadSets(withTakes(liveSets(snap)));
+  const sets = withTakes(liveSets(snap));
+  await loadSets(sets);
+  assertRootsReady(sets);
   const score = snap.patterns.find((p) => p.score)?.score;
   if (score?.piece) await loadPiece(score.piece);
   if (score) await Promise.all(scoreKinds(score).map((k) => loadBand(k)));
