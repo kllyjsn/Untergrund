@@ -1,6 +1,6 @@
 // A small dry-mix OfflineAudioContext for Node tests, so CI can render the real engine without a browser.
 // Mono, 128-sample blocks, band-limited oscillators, Web Audio biquad/param maths. Reverb, echo and
-// dynamics are left out (convolver/delay are silent, compressors pass through): tests measure the dry voices.
+// dynamics are left out (convolver/long delays are silent, compressors pass through): tests measure the dry voices.
 import { readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 
@@ -271,7 +271,33 @@ class Compressor extends Pass {
 }
 class Analyser extends Silent { constructor(ctx) { super(ctx); this.fftSize = 2048; this.smoothingTimeConstant = 0.8; } }
 class Convolver extends Silent { constructor(ctx) { super(ctx); this.buffer = null; this.normalize = true; } }
-class Delay extends Silent { constructor(ctx) { super(ctx); this.delayTime = new Param(ctx, 0); } }
+class Delay extends Node {
+  constructor(ctx, maxDelay) {
+    super(ctx);
+    this.delayTime = new Param(ctx, 0);
+    this.max = maxDelay * ctx.sampleRate;
+    if (this.max < BLOCK) {
+      this.history = new Float32Array(BLOCK * 2);
+      this.delays = new Float32Array(BLOCK);
+    }
+  }
+  process(b) {
+    const a = this.history;
+    if (!a) return DEAD;
+    const x = this.mix(b), active = !!x && x !== DEAD;
+    if (!active && !this.tail) return x;
+    a.copyWithin(0, BLOCK);
+    if (active) a.set(x, BLOCK); else a.fill(0, BLOCK);
+    this.tail = active;
+    const d = this.delayTime.fill(b, this.delays), sr = this.ctx.sampleRate, y = this.buf;
+    for (let i = 0; i < BLOCK; i++) {
+      const at = Math.min(this.max, Math.max(0, d[i] * sr)), n = Math.floor(at), f = at - n;
+      const j = BLOCK + i - n;
+      y[i] = a[j] * (1 - f) + a[j - 1] * f;
+    }
+    return y;
+  }
+}
 
 function decodeWav(ab) {
   const v = new DataView(ab instanceof ArrayBuffer ? ab : ab.buffer.slice(ab.byteOffset, ab.byteOffset + ab.byteLength));
@@ -310,7 +336,7 @@ export class OfflineAudioContext {
   createDynamicsCompressor() { return new Compressor(this); }
   createAnalyser() { return new Analyser(this); }
   createConvolver() { return new Convolver(this); }
-  createDelay() { return new Delay(this); }
+  createDelay(maxDelay = 1) { return new Delay(this, maxDelay); }
   createPeriodicWave() { return {}; }
   createBuffer(ch, len, sr) { return new AudioBuffer(ch, len, sr); }
   async decodeAudioData(ab) {

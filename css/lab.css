@@ -1,3 +1,4 @@
+.listener-id { font-size: 11px; overflow-wrap: anywhere; }
 :root { color-scheme: dark; --bg:#070708; --panel:#111114; --line:#2b2b31; --text:#f6f6f7; --muted:#96969f; --red:#ff2b2b; font-family:Arial,sans-serif; }
 * { box-sizing:border-box; } body { margin:0; background:radial-gradient(circle at 80% 0,#250a0c 0,transparent 35%),var(--bg); color:var(--text); min-height:100vh; }
 main { width:min(1040px,calc(100% - 32px)); margin:auto; padding:28px 0 80px; }

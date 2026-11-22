@@ -1,16 +1,24 @@
-import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, CHORDS, defaultParams, defaultMaster } from './params.js';
+import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, CHORDS, HAND_KIT, MARIMBA_STAB, KIT_BACKBEAT, defaultParams, defaultMaster } from './params.js';
 import { rng } from './dsp.js';
-import { planSections, formChain, parseForm, developSong, developFinalDrop, LENGTHS } from './longform.js';
+import { PALETTE_INSTRUMENTS, PALETTE_DEFAULTS, instrumentFor } from './palette-defaults.js';
+import { planSections, formChain, parseForm, sectionSpans, developSong, developFinalDrop, LENGTHS } from './longform.js';
 import { FORMS, SECTIONS } from './classical.js';
 import { MODELS } from './composer-models.js';
 import { POCKETS, STYLE_POCKET } from './groove.js';
 import { REPERTOIRE, PIECE } from './repertoire.js';
 import { cleanLabels } from './timeline.js';
+import { cleanChainEntries } from './chain.js';
 import { withMelody, writeMelody, melodySteps, MELODY_BARS, SING_PROFILES } from './melody.js';
 import { stepDeg } from './motif.js';
 import { cleanLyrics } from './lyrics.js';
 import { SING_VOICES } from './sing-score.js';
-import { cleanTakes } from './scope.js';
+import { cleanTakes, patternAt, setTake } from './scope.js';
+import { pickFeel, isFeel } from './feel.js';
+import { FUNK_HANDS, FUNK_VOX, funkHandBar } from './baile.js';
+import { festivalBuilds } from './festival-build.js';
+import { isJazz, generateJazz } from './jazz.js';
+import { HIPHOP, HIPHOP_STYLES, hiphopGroove, hiphopMotif } from './hiphop.js';
+import { rootsTags, cleanRoots } from './roots.js';
 
 export const STYLES = {
   hypnotic: { name: 'HYPNOTIC', bpm: [130, 134], family: 'TECHNO', tag: 'deep · rolling' },
@@ -25,6 +33,14 @@ export const STYLES = {
   euphoric: { name: 'EUPHORIC', bpm: [126, 134], family: 'HOUSE', tag: 'emotional · vocal chops' },
   neosoul: { name: 'NEO-SOUL', bpm: [84, 94], family: 'JAZZ & HIP-HOP', tag: 'Glasper · Dilla swing' },
   boombap: { name: 'BOOM BAP', bpm: [88, 96], family: 'JAZZ & HIP-HOP', tag: 'dusty · jazz chords' },
+  swing: { name: 'SWING', bpm: [132, 176], family: 'JAZZ & HIP-HOP', tag: 'walking bass · ride' },
+  modal: { name: 'MODAL', bpm: [120, 144], family: 'JAZZ & HIP-HOP', tag: 'quartal · dorian' },
+  bossa: { name: 'BOSSA NOVA', bpm: [126, 142], family: 'JAZZ & HIP-HOP', tag: 'Jobim · nylon groove' },
+  jazzfunk: { name: 'JAZZ-FUNK', bpm: [96, 110], family: 'JAZZ & HIP-HOP', tag: 'Headhunters · Rhodes' },
+  ...Object.fromEntries(HIPHOP_STYLES.map((id) => {
+    const { name, bpm, tag } = HIPHOP[id];
+    return [id, { name, bpm, family: 'JAZZ & HIP-HOP', tag }];
+  })),
   breaks: { name: 'BREAKS', bpm: [128, 136], family: 'BREAKS & BASS', tag: 'broken · funky' },
   electro: { name: 'ELECTRO', bpm: [124, 130], family: 'BREAKS & BASS', tag: '808 · robotic' },
   dnb: { name: 'DRUM & BASS', bpm: [170, 176], family: 'BREAKS & BASS', tag: 'rolling · sub' },
@@ -132,8 +148,8 @@ const HOOKS = {
   garage: { v: ['vocal'], o: 0, hits: [5, 7], w: (i) => (i % 2 ? 0.85 : 0.25), len: [1, 1, 1, 2], lo: -2, hi: 5, leap: 0.3, x: [0.42, 0.45, 0.6, 0.42] },
   // Liquid drum & bass: few long notes floating over fast drums.
   dnb: { v: ['analog'], o: 0, hits: [2, 3], w: (i) => (i % 8 === 0 ? 0.8 : i % 4 === 2 ? 0.5 : 0.15), len: [4, 6, 8], lo: 0, hi: 7, leap: 0.35, x: [0.6, 0.5, 0.4, 0.6] },
-  // Amapiano: short offbeat piano-like figures; the log drum carries the weight.
-  piano: { v: ['mallet'], o: 0, hits: [4, 6], w: (i) => (i % 4 === 3 || i % 4 === 1 ? 0.8 : 0.2), len: [1, 1, 2], lo: -2, hi: 6, leap: 0.3, x: [0.45, 0.4, 0.6, 0.45] },
+  // Amapiano: short offbeat marimba figures; the log drum carries the weight.
+  piano: { v: ['marimba'], o: 0, hits: [4, 6], w: (i) => (i % 4 === 3 || i % 4 === 1 ? 0.8 : 0.2), len: [1, 1, 2], lo: -2, hi: 6, leap: 0.3, x: [0.45, 0.4, 0.6, 0.45] },
   // Hyperpop: busy, high, wide leaps.
   pop: { v: ['pulse'], o: 1, hits: [6, 9], w: (i) => (i % 2 === 0 ? 0.8 : 0.5), len: [1, 1, 2], lo: 0, hi: 9, leap: 0.45, x: [0.2, 0.8, 0.3, 0.25] },
   // Song genres: a singable line on the band's own instrument (the recorded chord player answers the hook).
@@ -151,38 +167,46 @@ const HOOK_STYLE = {
   pop: 'song', rnb: 'soulful', rock: 'riff', folk: 'roots', country: 'twang',
 };
 // 'chop' sings the hook with the user's own recorded voice (js/voice.js); a song without one plays 'vocal'.
-export const HOOK_VOICES = ['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell', 'chop'];
+const TECHNO_HOOK = { hypnotic: 'softresonator', industrial: 'metalstrike', acid: 'acidlead', peak: 'ravestack', electro: 'robotformant' };
+export const HOOK_VOICES = [...new Set(['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell', 'chop', 'softmallet', 'harpplk', 'oboe', 'airflute', 'tpt', 'marimba', ...Object.values(TECHNO_HOOK), ...HIPHOP_STYLES.map((id) => HIPHOP[id].hook)])];
 
 // Every genre has several plausible ensembles. The seed chooses a player,
 // register and articulation while the genre keeps its drum, harmony and room identity.
-const INSTRUMENTS = {
+export const INSTRUMENTS = {
+  swing: [[7, 1, 0, 0.35, 0.3], [13, 1, 0, 0.22, 0.25]],
+  modal: [[7, 1, 0, 0.6, 0.3], [7, 1, 0, 0.45, 0.22]],
+  bossa: [[13, 1, 0, 0.25, 0.2], [13, 1, 0, 0.23, 0.18], [8, 1, 0, 0.25, 0.18], [7, 1, 0, 0.32, 0.2]],
+  jazzfunk: [[1, 5, 0, 0.18, 0.12], [1, 5, 0, 0.22, 0.1]],
   // voice, bass, octave, release, articulation
-  hypnotic: [[0, 0, 0, 0.25, 0.25], [6, 0, 0, 0.38, 0.7], [3, 0, 0, 0.3, 0.2], [5, 3, 0, 0.28, 0.8]],
-  industrial: [[6, 3, 0, 0.3, 0.75], [4, 3, 0, 0.35, 0.65], [0, 3, 0, 0.24, 0.55], [10, 3, 0, 0.65, 0.85]],
+  hypnotic: [[6, 0, 0, 0.25, 0.25], [3, 3, 0, 0.38, 0.7], [2, 0, 0, 0.9, 0.2], [0, 0, 0, 0.28, 0.8]],
+  industrial: [[6, 6, 0, 0.3, 0.75], [4, 6, 0, 0.35, 0.65], [0, 6, 0, 0.24, 0.55], [11, 6, 0, 0.65, 0.85]],
   acid: [[0, 0, 0, 0.35, 0.45], [5, 0, 1, 0.28, 0.8], [3, 0, 0, 0.4, 0.3], [6, 0, 0, 0.35, 0.75]],
-  dub: [[0, 2, 0, 0.35, 0.55], [3, 1, 0, 0.5, 0.25], [5, 2, 0, 0.45, 0.7], [9, 1, 0, 0.4, 0.55]],
-  peak: [[4, 0, 0, 0.3, 0.65], [6, 3, 0, 0.3, 0.75], [0, 0, 0, 0.22, 0.6], [10, 3, 1, 0.8, 0.8]],
-  hardtechno: [[0, 3, 0, 0.2, 0.65], [4, 3, 0, 0.3, 0.7], [6, 0, 0, 0.25, 0.8], [5, 3, 0, 0.22, 0.9]],
-  deephouse: [[7, 1, 0, 1.5, 0.25], [1, 1, 0, 0.9, 0.35], [8, 1, 0, 0.65, 0.75], [10, 1, 0, 1.4, 0.2]],
-  minimal: [[6, 2, 0, 0.12, 0.65], [5, 1, 0, 0.1, 0.8], [3, 2, 0, 0.15, 0.25], [8, 1, 0, 0.15, 0.7]],
-  ukg: [[3, 3, 0, 0.25, 0.45], [7, 1, 0, 0.75, 0.5], [5, 3, 1, 0.25, 0.85], [8, 2, 1, 0.4, 0.8]],
-  euphoric: [[7, 1, 0, 1.6, 0.25], [10, 1, 0, 1.8, 0.2], [2, 1, 0, 2.1, 0.15], [9, 0, 0, 0.65, 0.7]],
+  dub: [[0, 1, 0, 0.22, 0.18], [2, 1, 0, 0.3, 0.22], [3, 1, 0, 0.26, 0.2], [5, 1, 0, 0.2, 0.3]],
+  peak: [[4, 8, 0, 0.3, 0.65], [6, 8, 0, 0.3, 0.75], [0, 8, 0, 0.22, 0.6], [2, 8, 1, 0.8, 0.8]],
+  hardtechno: [[0, 3, 0, 0.45, 0.22], [0, 3, 1, 0.6, 0.18], [2, 3, 0, 0.65, 0.2], [2, 3, 1, 0.8, 0.15]],
+  deephouse: PALETTE_INSTRUMENTS.deephouse,
+  // Minimal is a felt Rhodes, a recorded piano, a dark dub chord or a slow pad over a round, filtered bass:
+  // no bells, plucks or guitar, which read as toys against its dry clicks.
+  minimal: [[1, 1, 0, 0.6, 0.2], [7, 1, 0, 0.7, 0.3], [2, 1, 0, 0.6, 0.2], [2, 1, 1, 0.9, 0.15]],
+  ukg: [[3, 3, 0, 0.25, 0.45], [5, 3, 0, 0.75, 0.5], [4, 2, 1, 0.25, 0.85], [1, 2, 1, 0.4, 0.8]],
+  euphoric: PALETTE_INSTRUMENTS.euphoric,
   // Neo-soul is a Rhodes/piano/guitar band; strings pad the changes; the horn section honked.
-  neosoul: [[7, 1, 0, 1.6, 0.2], [1, 1, 0, 1.4, 0.25], [13, 1, 0, 0.75, 0.7], [10, 1, 0, 1.4, 0.2]],
+  neosoul: [[7, 5, 0, 1.6, 0.2], [1, 5, 0, 1.4, 0.25], [13, 5, 0, 0.75, 0.7], [10, 5, 0, 1.4, 0.2]],
   boombap: [[9, 1, 0, 0.7, 0.6], [7, 1, 0, 1.2, 0.2], [8, 1, 0, 0.6, 0.75], [10, 1, 0, 1.1, 0.3]],
-  breaks: [[8, 0, 0, 0.6, 0.75], [5, 1, 1, 0.25, 0.85], [3, 0, 0, 0.55, 0.35], [7, 0, 1, 0.7, 0.5]],
-  electro: [[0, 0, 0, 0.25, 0.7], [6, 2, 0, 0.4, 0.75], [5, 2, 0, 0.2, 0.9], [4, 0, 0, 0.3, 0.65]],
-  dnb: [[10, 3, 0, 1.6, 0.25], [2, 3, 1, 1.8, 0.2], [7, 2, 1, 1.2, 0.45], [9, 3, 1, 0.55, 0.75]],
-  trance: [[5, 0, 0, 0.35, 0.85], [0, 0, 1, 0.14, 0.7], [7, 0, 1, 0.3, 0.35], [10, 0, 1, 1.2, 0.15]],
-  ambient: [[2, 1, 0, 2.4, 0.1], [10, 1, 1, 2.8, 0.15], [6, 1, 1, 2.2, 0.3], [7, 1, 1, 2.5, 0.15]],
+  ...Object.fromEntries(HIPHOP_STYLES.map((id) => [id, HIPHOP[id].ensembles])),
+  breaks: [[8, 0, 0, 0.6, 0.75], [5, 1, 1, 0.25, 0.85], [3, 0, 0, 0.55, 0.35], [1, 1, 1, 0.7, 0.5]],
+  electro: [[0, 7, 0, 0.25, 0.7], [6, 7, 0, 0.4, 0.75], [5, 7, 0, 0.2, 0.9], [4, 7, 0, 0.3, 0.65]],
+  dnb: PALETTE_INSTRUMENTS.dnb,
+  trance: [[5, 9, 0, 0.35, 0.85], [0, 9, 1, 0.14, 0.7], [2, 9, 1, 1.2, 0.35], [4, 9, 1, 1.2, 0.15]],
+  ambient: [[2, 1, 0, 2.4, 0.1], [10, 1, 1, 2.8, 0.15], [6, 1, 1, 2.2, 0.3], [1, 1, 1, 2.5, 0.15]],
   amapiano: [[7, 4, 0, 0.7, 0.35], [3, 4, 1, 0.55, 0.45], [8, 4, 0, 0.55, 0.8], [5, 4, 1, 0.25, 0.85]],
-  afrobeats: [[8, 2, 0, 0.55, 0.8], [9, 1, 0, 0.55, 0.65], [7, 1, 1, 0.7, 0.45], [3, 2, 0, 0.5, 0.5]],
-  reggaeton: [[8, 2, 0, 0.45, 0.8], [5, 2, 1, 0.22, 0.9], [9, 1, 0, 0.45, 0.7], [7, 2, 1, 0.55, 0.45]],
-  bailefunk: [[4, 2, 0, 0.3, 0.75], [6, 2, 0, 0.25, 0.85], [8, 2, 0, 0.4, 0.8], [5, 3, 1, 0.2, 0.9]],
-  trap: [[7, 2, 1, 0.75, 0.4], [6, 2, 0, 0.8, 0.7], [10, 2, 1, 1.5, 0.2], [8, 2, 1, 0.5, 0.8]],
-  drill: [[10, 2, 1, 1.4, 0.2], [7, 2, 0, 0.9, 0.45], [9, 2, 0, 0.5, 0.75], [6, 2, 1, 0.65, 0.8]],
+  afrobeats: [[8, 2, 0, 0.55, 0.8], [9, 1, 0, 0.55, 0.65], [1, 2, 1, 0.7, 0.45], [MARIMBA_STAB, 2, 0, 0.5, 0.5]],
+  reggaeton: [[8, 2, 0, 0.45, 0.8], [5, 2, 1, 0.22, 0.9], [9, 1, 0, 0.45, 0.7], [3, 2, 1, 0.55, 0.45]],
+  bailefunk: [[4, 2, 0, 0.3, 0.75], [4, 2, 0, 0.25, 0.85], [4, 2, 0, 0.4, 0.8], [4, 2, 1, 0.2, 0.9]],
+  trap: [[10, 2, 1, 1.5, 0.2], [7, 2, 1, 0.75, 0.4], [6, 2, 0, 0.8, 0.7], [8, 2, 1, 0.5, 0.8], [0, 2, 1, 0.48, 0.12], [2, 2, 0, 1.8, 0.4]],
+  drill: [[16, 2, 1, 1.4, 0.2], [16, 2, 0, 0.9, 0.45], [17, 2, 0, 0.5, 0.75], [6, 2, 1, 0.65, 0.8]],
   jerseyclub: [[0, 2, 1, 0.2, 0.75], [4, 2, 0, 0.2, 0.7], [8, 2, 1, 0.4, 0.8], [6, 2, 1, 0.5, 0.85]],
-  hyperpop: [[8, 3, 1, 0.4, 0.85], [6, 2, 0, 0.3, 0.75], [10, 3, 1, 1.2, 0.2], [7, 2, 2, 0.65, 0.55]],
+  hyperpop: [[0, 3, 1, 0.4, 0.85], [6, 2, 0, 0.3, 0.75], [5, 2, 1, 1.2, 0.2], [11, 3, 2, 0.65, 0.55]],
   // The song genres are recorded bands: piano, guitars (clean, driven, acoustic, jazz archtop, banjo, Gretsch twang), electric or upright bass, live kit.
   pop: [[7, 5, 0, 1, 0.4], [7, 5, 1, 1.3, 0.3], [8, 5, 0, 0.8, 0.6], [1, 5, 1, 1.2, 0.35]],
   rnb: [[7, 5, 1, 1.6, 0.2], [1, 5, 1, 1.5, 0.25], [13, 5, 1, 0.8, 0.6], [1, 1, 1, 1.4, 0.25]],
@@ -193,6 +217,7 @@ const INSTRUMENTS = {
 
 // A 2-bar call and answer: same rhythm both bars, the answer bends its ending (resolve or leave open).
 export function hookLine(r, style, scale) {
+  if (Object.hasOwn(HIPHOP, style)) return hiphopMotif(HIPHOP[style], r, scale);
   const H = HOOKS[HOOK_STYLE[style]];
   if (!H) return null;
   const deg = scale.length >= 7 ? scale.slice(0, 7) : scale.slice(0, scale.length - 1);
@@ -225,15 +250,22 @@ export function hookLine(r, style, scale) {
 
 // Returns { pattern, params, master, bpm } — params/master are partial overrides.
 export function generate(style, seed = Date.now(), scaleName = 'minor') {
+  return generatePattern(style, seed, scaleName, false);
+}
+
+function generatePattern(style, seed, scaleName, starter) {
   const r = rng(seed);
   const musicalScale = SCALES[MAJOR_STYLES.has(style) && scaleName === 'minor' ? 'major' : scaleName]?.notes || SCALES.minor.notes;
   const P = emptyPattern();
   const S = P.steps;
-  const params = { kick: {}, acid: {}, stab: {}, perc: {}, ch: {}, oh: {}, ride: {}, clap: {}, snare: {}, vox: {} };
+  const params = { kick: {}, acid: { edge: 0 }, stab: { tine: 1 }, perc: {}, ch: {}, oh: {}, ride: {}, clap: {}, snare: {}, vox: {} };
   let swing;
   const master = {};
+  const hiphop = Object.hasOwn(HIPHOP, style) ? HIPHOP[style] : null;
+  let hiphopHook;
   const [lo, hi] = STYLES[style].bpm;
   const bpm = Math.round(lo + r() * (hi - lo));
+  if (isJazz(style)) return generateJazz(style, seed, bpm, INSTRUMENTS[style], STYLE_POCKET[style]);
   if (style === 'repertoire') return generateRepertoire(r, P, params, master);
   if (FORMS[style]) return generateClassical(style, seed, scaleName, r, P, params, master, bpm);
 
@@ -246,7 +278,11 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     range(STEPS, (i) => ([1, 3, 6, 7, 9, 11, 14, 15].includes(i) ? (i % 4 === 3 ? 2 : 1) : 0)),
   ];
 
-  if (style === 'hypnotic') {
+  if (hiphop) {
+    hiphopGroove(hiphop, r, musicalScale, S, params, master);
+    hiphopHook = hookLine(r, style, musicalScale);
+    swing = hiphop.swing;
+  } else if (style === 'hypnotic') {
     S.ch = pick(r, hatTemplates);
     S.oh = offbeatOH;
     S.ride = r() < 0.6 ? range(STEPS, (i) => (i % 4 === 2 ? 1 : 0)) : range(STEPS, (i) => (i % 2 === 0 ? 0 : 1));
@@ -257,7 +293,10 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     P.len.stab = pick(r, [7, 11, 13]);
     if (r() < 0.5) S.clap[12] = 1;
     Object.assign(params.kick, { tune: 44 + r() * 6, decay: 0.5 + r() * 0.25, drive: 0.35, rumble: 0.45, punch: 0.5 });
-    Object.assign(params.acid, { wave: 0.15, cutoff: 180 + r() * 120, reso: 8, envmod: 0.35, decay: 0.18, accent: 0.4, drive: 0.35 });
+    const bassShade = r();
+    Object.assign(params.acid, starter
+      ? { wave: 0.15, cutoff: 180 + bassShade * 120, reso: 8, envmod: 0.35, decay: 0.18, accent: 0.4, drive: 0.35 }
+      : { wave: 0.32, cutoff: 180 + bassShade * 90, reso: 0.55, envmod: 0.17, decay: 0.065, accent: 0.4, drive: 0.16 });
     Object.assign(params.stab, { chord: pick(r, [1, 3, 4]), cutoff: 1100, decay: 0.22, env: 0.4 });
     Object.assign(params.perc, { tune: 180 + r() * 300, metal: 0.4, bend: 0.3 });
     master.duck = 0.55;
@@ -275,7 +314,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     Object.assign(params.kick, { tune: 40 + r() * 6, decay: 0.75, drive: 0.85, rumble: 0.7, punch: 0.7, click: 0.5 });
     Object.assign(params.clap, { tone: 900, decay: 0.35 });
     Object.assign(params.perc, { tune: 90 + r() * 120, metal: 0.8, noise: 0.5, bend: 0.7 });
-    Object.assign(params.acid, { wave: 1, cutoff: 260, reso: 14, envmod: 0.55, drive: 0.95, decay: 0.2 });
+    Object.assign(params.acid, { wave: 0.65, cutoff: 720, reso: 3.5, envmod: 0.43, drive: 0.31, decay: 0.19 });
     master.duck = 0.6; master.drive = 0.55;
   } else if (style === 'acid') {
     S.ch = pick(r, hatTemplates);
@@ -285,7 +324,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.stab = pad16(pick(r, [[0, 0, 0, 0, 0, 0, 1], [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]]));
     S.acid = acidLine(r, { density: 0.75, accent: 0.35, slide: 0.25, scale: [0, 0, ...musicalScale] });
     Object.assign(params.kick, { tune: 48, decay: 0.45, drive: 0.4, rumble: 0.25 });
-    Object.assign(params.acid, { wave: r() < 0.7 ? 0 : 1, cutoff: 300 + r() * 300, reso: 20, envmod: 0.65, decay: 0.26, accent: 0.75, drive: 0.6 });
+    Object.assign(params.acid, { wave: r() < 0.7 ? 0 : 1, cutoff: 255 + r() * 195, reso: 17, envmod: 0.81, decay: 0.245, accent: 0.8, drive: 0.57 });
     master.duck = 0.45;
   } else if (style === 'dub') {
     S.ch = range(STEPS, (i) => (i % 4 === 2 ? 1 : 0));
@@ -295,7 +334,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.stab = pad16(pick(r, [[0, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1], [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1]]));
     S.acid = range(STEPS, (i) => (i % 4 === 2 ? { on: true, n: 0, a: false, s: false } : emptyAcidStep()));
     Object.assign(params.kick, { tune: 47, decay: 0.6, drive: 0.15, rumble: 0.5, click: 0.15 });
-    Object.assign(params.stab, { chord: pick(r, [1, 2, 3]), cutoff: 900 + r() * 600, reso: 6, decay: 0.35, env: 0.5, detune: 10 });
+    Object.assign(params.stab, { chord: pick(r, [1, 2]), cutoff: 900 + r() * 600, reso: 0.6, decay: 0.24, env: 0.2, detune: 5 });
     Object.assign(params.acid, { wave: 0.4, cutoff: 140, reso: 4, envmod: 0.2, decay: 0.3, drive: 0.2, accent: 0.2 });
     master.duck = 0.65; master.dlyTime = 2; master.dlyFb = 0.62;
   } else if (style === 'peak') {
@@ -309,7 +348,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.stab = pad16(pick(r, [[0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1], [1, 0, 0, 0, 0, 0, 0, 1]]));
     S.acid = acidLine(r, { density: 0.8, scale: [0, 0, ...musicalScale], accent: 0.4, slide: 0.15, jump: 0.3 });
     Object.assign(params.kick, { tune: 50, decay: 0.42, drive: 0.75, punch: 0.75, rumble: 0.4, click: 0.45 });
-    Object.assign(params.acid, { wave: 0.3, cutoff: 500, reso: 22, envmod: 0.7, decay: 0.2, accent: 0.8, drive: 0.8 });
+    Object.assign(params.acid, { wave: 0.72, cutoff: 1060, reso: 1.5, envmod: 0.24, decay: 0.11, accent: 0.4, drive: 0.22 });
     master.duck = 0.5; master.drive = 0.45;
   } else if (style === 'euphoric') {
     const twoStep = r() < 0.5;
@@ -324,23 +363,29 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.acid = range(STEPS, (i) => ([2, 6, 10, 14].includes(i) || (i === 11 && r() < 0.6)
       ? { on: true, n: i === 10 ? pick(r, [0, musicalScale[3], musicalScale[4]]) : 0, a: false, s: false } : emptyAcidStep()));
     Object.assign(params.kick, { tune: 50, decay: 0.5, drive: 0.2, rumble: 0.1, punch: 0.6, click: 0.3 });
-    Object.assign(params.stab, { chord: pick(r, [2, 4, 7, 9, 10]), octave: 0, cutoff: 2400 + r() * 1600, reso: 3, decay: 0.9 + r() * 0.6, env: 0.25, detune: 18, rev: 0.5, dly: 0.3 });
+    Object.assign(params.stab, { chord: pick(r, [2, 4, 7, 9, 10]), octave: 0, cutoff: 2400 + r() * 1600, reso: 3, decay: 0.9 + r() * 0.6, env: 0.25, detune: PALETTE_DEFAULTS.euphoric.detune, rev: 0.5, dly: 0.3 });
     Object.assign(params.vox, { slice: Math.floor(r() * 8), scatter: 0.4 + r() * 0.5, melody: 0.5 + r() * 0.4, length: pick(r, [0.5, 1, 1.5]), tone: 6500, rev: 0.35, dly: 0.28 });
-    Object.assign(params.acid, { wave: 0.1, cutoff: 220, reso: 2, envmod: 0.15, decay: 0.35, drive: 0.15, accent: 0.2 });
+    Object.assign(params.acid, { wave: 0.1, cutoff: 220, reso: 2, envmod: 0.15, decay: 0.35, drive: PALETTE_DEFAULTS.euphoric.drive, accent: 0.2 });
     master.duck = 0.8; master.revLevel = 0.8; master.dlyTime = 1; master.dlyFb = 0.38;
     swing = twoStep ? 0.28 : 0.14;
   } else if (style === 'hardtechno') {
+    const color = ((seed >>> 0) ^ (seed >>> 2)) & 3;
+    const bass = [[2, 6, 10, 14], [2, 3, 6, 10, 11, 14], [2, 6, 7, 10, 14, 15], [2, 3, 6, 7, 10, 14]][color];
     S.kick = range(STEPS, (i) => (i % 4 === 0 ? 2 : 0));
     S.oh = offbeatOH;
     S.ch = range(STEPS, (i) => (i % 2 ? 1 : 0));
     S.clap = pad16([0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]);
-    S.perc = pad16(euclid(5, 16, Math.floor(r() * 16)));
+    S.perc = pad16(euclid([3, 5, 7, 5][color], 16, Math.floor(r() * 16)));
     S.stab = pad16(pick(r, [[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1], [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]]));
-    S.acid = range(STEPS, (i) => (i % 4 === 2 || i % 4 === 3 ? { on: true, n: 0, a: i % 4 === 2, s: false } : emptyAcidStep()));
-    Object.assign(params.kick, { tune: 52, decay: 0.38, drive: 1, punch: 0.9, click: 0.7, rumble: 0.85 });
-    Object.assign(params.perc, { tune: 420, metal: 0.9, noise: 0.6, bend: 0.8 });
-    Object.assign(params.acid, { wave: 0.9, cutoff: 300, reso: 10, envmod: 0.5, decay: 0.12, drive: 1 });
-    master.duck = 0.7; master.drive = 0.8;
+    S.acid = range(STEPS, (i) => (bass.includes(i) ? { on: true, n: 0, a: i % 4 === 2, s: false } : emptyAcidStep()));
+    Object.assign(params.kick, { tune: [47, 49, 46, 51][color], decay: [0.42, 0.37, 0.48, 0.4][color], drive: 0.9, punch: 0.8, click: 0.3, rumble: 0.68 });
+    Object.assign(params.perc, { tune: [210, 260, 230, 285][color], metal: [0.3, 0.42, 0.36, 0.48][color], noise: 0.25, bend: 0.35, level: 0.3 });
+    Object.assign(params.acid, { wave: 0.55, cutoff: [210, 280, 240, 190][color], reso: 2.5, envmod: 0.25, decay: 0.18, drive: 0.75 });
+    Object.assign(params.stab, { cutoff: 850, reso: 0.8, detune: 9, rev: 0.22, dly: 0.12 });
+    Object.assign(params.clap, { tone: 950, decay: 0.2, level: 0.45 });
+    Object.assign(params.ch, { tune: 1, decay: 0.055, level: 0.4 });
+    Object.assign(params.oh, { tune: 1, decay: 0.26, level: 0.34 });
+    master.duck = 0.7; master.drive = 0.08;
   } else if (style === 'deephouse') {
     S.ch = range(STEPS, (i) => (i % 4 === 2 ? 1 : 0));
     // A hand shaker playing every 16th; the HOUSE pocket decides which ones it leans on
@@ -351,29 +396,38 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.stab = pad16(pick(r, [[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1], [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1], [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]]));
     S.acid = range(STEPS, (i) => ([0, 3, 7, 10].includes(i) ? { on: true, n: i === 7 ? musicalScale[4] : i === 10 ? musicalScale[2] : 0, a: false, s: i === 3 } : emptyAcidStep()));
     Object.assign(params.kick, { tune: 48, decay: 0.55, drive: 0.15, rumble: 0.15, punch: 0.45, click: 0.2 });
-    Object.assign(params.stab, { voice: 1, chord: pick(r, [1, 2]), cutoff: 1300 + r() * 500, reso: 2, decay: 0.7, env: 0.3, detune: 8, rev: 0.4, dly: 0.25 });
-    master.humanize = 0.32; master.warmth = 0.4; master.room = 0.2;
-    Object.assign(params.acid, { wave: 0.05, cutoff: 260, reso: 2, envmod: 0.12, decay: 0.4, drive: 0.1, accent: 0.2 });
-    Object.assign(params.ride, { tone: 4200, decay: 0.6 });
+    Object.assign(params.stab, { voice: 1, chord: pick(r, [1, 2]), cutoff: 1300 + r() * 500, reso: 2, decay: 0.7, env: 0.3, detune: PALETTE_DEFAULTS.deephouse.detune, rev: 0.4, dly: 0.25 });
+    master.humanize = 0.32; master.warmth = 0.22; master.room = 0.2;
+    Object.assign(params.acid, { wave: 0.05, cutoff: 260, reso: 2, envmod: 0.12, decay: 0.4, drive: PALETTE_DEFAULTS.deephouse.drive, accent: 0.2 });
+    Object.assign(params.ride, { tone: 6000, decay: 0.6 });
+    Object.assign(params.ch, { tone: 8500 });
+    Object.assign(params.oh, { tone: 8000 });
     master.duck = 0.6; master.revLevel = 0.6;
     swing = 0.3;
   } else if (style === 'minimal') {
     S.kick = range(STEPS, (i) => (i % 4 === 0 ? 1 : 0));
     S.ch = range(STEPS, (i) => (i % 4 === 2 ? 1 : 0));
+    // A soft shaker on a Euclidean loop that drifts against the bar, not a clicking sine clave.
     S.perc = pad16(euclid(pick(r, [5, 7]), 16, Math.floor(r() * 16)));
     P.len.perc = pick(r, [11, 13, 15]);
     S.snare = pad16([0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
     S.clap[12] = 1;
-    S.acid = range(STEPS, (i) => ([2, 11].includes(i) ? { on: true, n: i === 11 ? musicalScale[3] : 0, a: false, s: false } : emptyAcidStep()));
+    S.acid = range(STEPS, (i) => ([2, 10].includes(i) ? { on: true, n: i === 10 ? musicalScale[3] : 0, a: false, s: false } : emptyAcidStep()));
     S.stab = pad16([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
     P.len.stab = 13;
-    Object.assign(params.kick, { tune: 54, decay: 0.28, drive: 0.1, rumble: 0, punch: 0.7, click: 0.55 });
-    Object.assign(params.perc, { tune: 700 + r() * 150, decay: 0.05, metal: 0.2, noise: 0.1, bend: 0.1 });
-    Object.assign(params.snare, { tune: 300, snappy: 0.2, decay: 0.06 });
-    Object.assign(params.acid, { wave: 0.6, cutoff: 420, reso: 6, envmod: 0.3, decay: 0.09, drive: 0.1 });
-    Object.assign(params.stab, { chord: 6, cutoff: 2500, decay: 0.08, env: 0.6, dly: 0.5 });
-    master.duck = 0.3; master.revLevel = 0.3;
-    swing = 0.1;
+    Object.assign(params.kick, { tune: 58, decay: 0.24, drive: 0.05, rumble: 0, punch: 0.6, click: 0.35, level: 0.78 });
+    Object.assign(params.perc, { tune: 300, decay: 0.08, noise: 0.35, level: 0.42 });
+    Object.assign(params.snare, { tune: 240, snappy: 0.15, decay: 0.08, level: 0.5 });
+    Object.assign(params.ch, { decay: 0.12, tone: 8000, level: 0.48 });
+    // A soft ride on the off-beats in the full groove gives the top end air without a bright lead.
+    S.ride = range(STEPS, (i) => (i % 4 === 2 ? 1 : 0));
+    Object.assign(params.ride, { decay: 0.5, tone: 7000, level: 0.22 });
+    // A round bass with some edge for definition, barely resonant, the filter only opening a little on each note.
+    Object.assign(params.acid, { wave: 0.3, cutoff: 1400, edge: 0.5, reso: 1.5, envmod: 0.3, decay: 0.12, drive: 0.1, accent: 0.1, level: 0.37 });
+    Object.assign(params.stab, { chord: pick(r, [1, 2, 3]), cutoff: 1900, reso: 0.4, decay: 0.45, env: 0.45, detune: 4, level: 0.55, dly: 0.45, rev: 0.4 });
+    // Clean master bus: the saturator's intermodulation of the held chords lands as faint tones at 2-2.5 kHz.
+    master.duck = 0.3; master.revLevel = 0.35; master.drive = 0;
+    swing = 0.04;
   } else if (style === 'ukg') {
     S.kick = pad16([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1]);
     S.snare = pad16([0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]);
@@ -437,7 +491,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     Object.assign(params.kick, { tune: 42, decay: 1.2, drive: 0.35, punch: 0.6, rumble: 0, click: 0.6 });
     Object.assign(params.ch, { decay: 0.02, tone: 9000 });
     Object.assign(params.perc, { tune: 900, decay: 0.08, metal: 0.95, bend: 0.2 });
-    Object.assign(params.acid, { wave: 1, cutoff: 700, reso: 12, envmod: 0.4, decay: 0.14, drive: 0.5 });
+    Object.assign(params.acid, { wave: 0.86, cutoff: 700, reso: 2, envmod: 0.22, decay: 0.09, drive: 0.2 });
     master.duck = 0.2; master.dlyTime = 0;
   } else if (style === 'dnb') {
     S.kick = pad16([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
@@ -449,7 +503,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.stab = pad16([1]);
     Object.assign(params.kick, { tune: 55, decay: 0.3, drive: 0.4, punch: 0.85, rumble: 0, click: 0.6 });
     Object.assign(params.snare, { tune: 240, snappy: 0.9, decay: 0.18 });
-    Object.assign(params.acid, { wave: 0, tune: -12, cutoff: 160, reso: 1, envmod: 0.05, decay: 0.9, drive: 0.25 });
+    Object.assign(params.acid, { wave: 0, tune: -12, cutoff: 160, reso: 1, envmod: 0.05, decay: 0.9, drive: PALETTE_DEFAULTS.dnb.drive });
     Object.assign(params.stab, { chord: 1, cutoff: 1800, decay: 2.2, env: 0.1, rev: 0.6 });
     master.duck = 0.5; master.revLevel = 0.5;
   } else if (style === 'trance') {
@@ -460,7 +514,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.stab = range(STEPS, (i) => (i % 2 === 0 ? (i % 4 === 0 ? 2 : 1) : 0));
     Object.assign(params.kick, { tune: 49, decay: 0.45, drive: 0.4, punch: 0.65 });
     Object.assign(params.stab, { chord: pick(r, [0, 4, 7]), octave: 1, cutoff: 3200, reso: 6, decay: 0.12, env: 0.4, detune: 34, rev: 0.45, dly: 0.35 });
-    Object.assign(params.acid, { wave: 0, tune: 12, cutoff: 380, reso: 4, envmod: 0.3, decay: 0.1, drive: 0.3 });
+    Object.assign(params.acid, { wave: 0.35, cutoff: 160, reso: 2, envmod: 0.66, decay: 0.044, accent: 0.4, drive: 0.08 });
     master.duck = 0.75; master.revLevel = 0.75; master.dlyTime = 2; master.dlyFb = 0.45;
   } else if (style === 'ambient') {
     S.kick = range(STEPS, () => 0);
@@ -523,8 +577,8 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.kick = pad16(pick(r, [[2, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], [2, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 1, 0, 0, 1]]));
     S.clap = pad16([0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1]);
     S.ch = range(STEPS, (i) => (i % 2 === 0 ? 1 : 0));
-    S.perc = pad16(euclid(7, 16, 0));
-    S.vox = pad16(pick(r, [[0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1], [1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1]]));
+    S.perc = [...FUNK_HANDS[0]];
+    S.vox = [...FUNK_VOX[0]];
     S.acid = range(STEPS, (i) => (i === 0 || i === 8 ? { on: true, n: 0, a: true, s: false } : emptyAcidStep()));
     Object.assign(params.kick, { tune: 46, decay: 0.7, drive: 0.6, punch: 0.8, click: 0.4, rumble: 0.3 });
     Object.assign(params.clap, { tone: 1400, decay: 0.2 });
@@ -554,13 +608,17 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     S.ch = pad16([2, 0, 0, 1, 0, 0, 1, 0, 2, 0, 0, 1, 0, 0, 1]);
     S.perc = pad16([0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]);
     S.stab = pad16([1]);
-    S.acid = range(STEPS, (i) => ([0, 3, 6, 10, 12].includes(i) ? { on: true, n: pick(r, [0, 0, musicalScale[2], 12, musicalScale[4] - 12]), a: i === 0, s: i === 6 || i === 12 } : emptyAcidStep()));
-    Object.assign(params.kick, { tune: 50, decay: 0.28, drive: 0.35, punch: 0.75, click: 0.45, rumble: 0 });
-    Object.assign(params.snare, { tune: 230, snappy: 0.85, decay: 0.16 });
+    S.acid = range(STEPS, (i) => ([0, 3, 6, 11, 12].includes(i) ? { on: true, n: pick(r, [0, 0, musicalScale[2], 12, musicalScale[4] - 12]), a: i === 0, s: i === 11 } : emptyAcidStep()));
+    // The pickup has to touch its destination, and octave doubles fold to the same 808 pitch.
+    const pitchClass = (n) => (n + 12) % 12;
+    if (pitchClass(S.acid[11].n) === pitchClass(S.acid[12].n)) S.acid[11].n = pitchClass(S.acid[12].n) ? 0 : 7;
+    Object.assign(params.kick, { tune: 50, decay: 0.17, drive: 0.35, punch: 0.75, click: 0.45, rumble: 0 });
+    Object.assign(params.snare, { tune: 211, snappy: 0.64, decay: 0.15, level: 0.96 });
+    params.clap.level = 0.23;
     Object.assign(params.perc, { tune: 800, decay: 0.05, metal: 0.6 });
     Object.assign(params.stab, { chord: pick(r, [0, 8]), cutoff: 1400, decay: 2, env: 0.3, rev: 0.6 });
     Object.assign(params.acid, { tune: 0, cutoff: 350, decay: 1, drive: 0.2, level: 0.45 });
-    master.duck = 0.15;
+    master.duck = 0.15; master.kit = KIT_BACKBEAT;
     swing = 0;
   } else if (style === 'jerseyclub') {
     S.kick = pad16(pick(r, [[2, 0, 0, 0, 2, 0, 0, 1, 0, 0, 1, 0, 2], [2, 0, 0, 1, 0, 0, 1, 0, 2, 0, 0, 0, 1, 0, 1]]));
@@ -686,6 +744,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   const PROGS = {
     neosoul: [[[0, 2], [5, 2], [10, 9], [3, 9]], [[0, 2], [8, 9], [3, 9], [10, 10]], [[0, 2], [3, 9], [5, 1], [7, 1]], [[0, 2], [10, 9], [8, 9], [7, 1]], [[0, 2], [1, 7], [10, 2], [8, 9]]],
     boombap: [[[0, 1], [0, 1], [8, 7], [7, 1]], [[0, 2], [5, 1], [0, 2], [8, 7]], [[0, 1], [3, 7], [5, 1], [8, 9]]],
+    ...Object.fromEntries(HIPHOP_STYLES.map((id) => [id, HIPHOP[id].chords])),
     deephouse: [[[0, 2], [5, 1], [3, 9], [10, 10]], [[0, 2], [8, 7], [5, 2], [7, 1]], [[0, 1], [0, 5], [8, 7], [7, 5]], [[0, 0], [10, 0], [8, 7], [7, 1]], [[0, 3], [0, 3], [5, 1], [3, 4]]],
     ukg: [[[0, 2], [5, 1], [8, 7], [7, 1]], [[0, 1], [3, 9], [10, 10], [5, 2]], [[0, 1], [7, 5], [8, 7], [5, 1]], [[0, 0], [3, 7], [10, 6], [8, 7]]],
     euphoric: [[[0, 9], [7, 10], [9, 2], [5, 9]], [[5, 9], [7, 10], [0, 9], [9, 2]], [[0, 9], [4, 1], [5, 9], [7, 5]], [[9, 1], [5, 9], [0, 10], [7, 10]]],
@@ -716,8 +775,10 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   if (VARY[style]) master.vary = VARY[style];
   if (STYLE_POCKET[style]) { master.pocket = STYLE_POCKET[style]; master.humanize ??= POCKETS[master.pocket].hum; }
   if (['deephouse', 'ukg', 'euphoric'].includes(style)) master.kit ??= 2;
+  if (style === 'breaks') master.kit = 1;
+  if (style === 'dnb') master.kit = 3;
   const dm = defaultMaster();
-  for (const k of Object.keys(dm)) if (k !== 'volume' && k !== 'dj') master[k] ??= dm[k];
+  for (const k of Object.keys(dm)) if (k !== 'volume' && k !== 'dj' && k !== 'swing8') master[k] ??= dm[k];
   // Each scene has its own room. Urban and club-pop records are dry and in your face; only the
   // ambient, dub and trance worlds get the big shared reverb.
   const ROOM = {
@@ -729,20 +790,21 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     master.revLevel = ROOM[style];
     params.stab.rev = +((params.stab.rev ?? 0.3) * (0.4 + ROOM[style])).toFixed(3);
   }
-  const instrumentRng = rng(Math.imul((seed | 0) ^ 0x6d2b79f5, 0x85ebca6b));
-  const ensemble = pick(instrumentRng, INSTRUMENTS[style]);
+  const ensemble = instrumentFor(INSTRUMENTS[style], seed);
   const [stabVoice, bassVoice, octave, decay, articulation] = ensemble;
   params.stab.voice = stabVoice;
   params.stab.octave = octave;
   params.stab.decay = decay;
   params.stab.env = articulation;
   const ensembleLevel = [0.75, 0.78, 0.72, 0.78, 0.78, 0.8, 0.75, 0.9, 0.9, 0.9, 0.9, 0.85, 0.9, 0.9, 0.9, 0.9][stabVoice] ?? 0.9;
-  params.stab.level = Math.max(params.stab.level ?? 0.42, ensembleLevel);
+  params.stab.level = hiphop ? hiphop.mix.stab.level : Math.max(params.stab.level ?? 0.42, ensembleLevel);
+  if (style === 'deephouse' && stabVoice === 3) params.stab.level = 0.48;
   const closeLevel = { 'jerseyclub:0': 0.52, 'jerseyclub:4': 0.55, 'hyperpop:6': 0.5 }[`${style}:${stabVoice}`];
   if (closeLevel) {
     params.stab.level = closeLevel;
     params.stab.cutoff = Math.min(params.stab.cutoff ?? 2400, style === 'hyperpop' ? 2200 : 1800);
   }
+  if (style === 'minimal') params.stab.level *= 0.7;
   // Pop's keys carry the song alone where the piano would; they sit up with the band instead of under it.
   if (style === 'pop' && stabVoice === 1) params.stab.level = 1.1;
   // Folk and country are a band around the guitar, not a guitar over a click: it sits with the bass and kit.
@@ -758,13 +820,18 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
     params.stab.dly = Math.min(params.stab.dly ?? 0.42, 0.08);
     params.stab.rev = Math.min(params.stab.rev ?? 0.3, 0.2);
   }
-  params.acid.voice = bassVoice;
+  params.acid.voice = style === 'hypnotic' && !starter ? 7 : bassVoice;
+  if (style === 'dub') {
+    Object.assign(params.stab, { level: 0.6, dly: 0.42, rev: 0.24 });
+    Object.assign(params.acid, { dly: 0, rev: 0 });
+    master.dlyFb = 0.52;
+  }
   for (const t of ['acid', 'stab']) params[t].voice ??= 0;
-  const PERC = { dnb: 3, deephouse: 3, ukg: 3, boombap: 3, neosoul: 3, breaks: 2, minimal: 4, dub: 4, euphoric: 3, ambient: 2, amapiano: 3, afrobeats: 1, reggaeton: 2, bailefunk: 1 };
-  params.perc.voice = PERC[style] ?? 0;
+  const PERC = { dnb: 3, deephouse: 3, ukg: 3, boombap: 3, neosoul: 3, breaks: 2, minimal: 3, dub: 4, euphoric: 3, ambient: 2 };
+  params.perc.voice = hiphop?.percVoice ?? HAND_KIT[style] ?? PERC[style] ?? 0;
   const DUST = { boombap: 0.45, dub: 0.3, ambient: 0.2, deephouse: 0.12, minimal: 0.1 };
-  master.dust = DUST[style] ?? 0;
-  master.arr = { neosoul: 0, boombap: 0, ambient: 0 }[style] ?? (GROOVE.has(style) ? 0.5 : 1);
+  master.dust = hiphop?.master.dust ?? DUST[style] ?? 0;
+  master.arr = hiphop?.master.arr ?? { neosoul: 0, boombap: 0, drill: 0, ambient: 0 }[style] ?? (GROOVE.has(style) ? 0.5 : 1);
   // Per-seed identity on its own RNG so the genre grammar above stays stable.
   const r2 = rng(Math.imul((seed | 0) ^ 0x5bd1e995, 0x9e3779b1) ^ 0x2545f491);
   for (let k = 0; k < 4; k++) r2();
@@ -774,40 +841,89 @@ export function generate(style, seed = Date.now(), scaleName = 'minor') {
   if (['deephouse', 'ukg', 'afrobeats', 'amapiano', 'euphoric'].includes(style)) {
     for (let g = 0, n = 1 + Math.floor(r2() * 3); g < n; g++) { const i = 1 + 2 * Math.floor(r2() * 8); if (!S.ch[i]) S.ch[i] = 1; }
   }
-  if (params.stab.cutoff) params.stab.cutoff = Math.round(params.stab.cutoff * (0.75 + r2() * 0.6));
+  if (params.stab.cutoff && style !== 'hardtechno') params.stab.cutoff = Math.round(params.stab.cutoff * (0.75 + r2() * 0.6));
   if (params.stab.decay) params.stab.decay = +(params.stab.decay * (0.8 + r2() * 0.4)).toFixed(3);
+  // Minimal's chords stay soft whatever the ensemble picked: a long decay, a gentle touch and a dark, unresonant filter.
+  if (style === 'minimal') Object.assign(params.stab, { decay: Math.max(params.stab.decay, 0.45), env: Math.min(params.stab.env, 0.08), cutoff: Math.min(params.stab.cutoff, 1300), reso: 0.4, tine: 0.15 });
+  const color = {
+    'afrobeats:1': { cutoff: 600, env: 0.15, tine: 0.1 },
+    'breaks:1': { cutoff: 600, env: 0.15, tine: 0.1 },
+    'reggaeton:3': { cutoff: 600, env: 0.15 },
+    'breaks:5': { cutoff: 900, env: 0.15 },
+    'hyperpop:0': { cutoff: 900, env: 0.15 },
+    'hyperpop:5': { cutoff: 350, env: 0.12 },
+    'hyperpop:11': { cutoff: 900, env: 0.4, level: 0.85 },
+    'ukg:5': { cutoff: 400, env: 0.2 },
+  }[`${style}:${stabVoice}`];
+  if (color) Object.assign(params.stab, { octave: 0, reso: 0.7, level: 1 }, color);
+  const festivalTrap = style === 'trap' && (stabVoice === 0 || stabVoice === 2);
+  if (festivalTrap) {
+    Object.assign(params.stab, { cutoff: stabVoice === 0 ? 3000 : 2700, reso: 0.5, detune: 16, rev: 0.38, dly: 0.18, level: stabVoice === 0 ? 0.65 : 0.6 });
+    master.duck = 0.65;
+  }
+  if (style === 'breaks' && stabVoice === 1) {
+    params.acid.level = 0.18;
+    params.kick.level = 0.55;
+  }
   const PUNCH = { deephouse: 0.55, ukg: 0.7, afrobeats: 0.7, amapiano: 0.65, euphoric: 0.72, trance: 0.72, reggaeton: 0.7 };
   if (PUNCH[style]) {
     params.kick.punch = Math.max(params.kick.punch ?? 0, PUNCH[style]);
     params.kick.drive = Math.max(params.kick.drive ?? 0, 0.3);
     params.acid.level = style === 'trance' ? 0.72 : Math.max(params.acid.level ?? 0.55, 0.98);
   }
-  const hook = hookLine(r2, style, musicalScale);
+  const hook = hiphopHook ?? hookLine(r2, style, musicalScale);
+  if (festivalTrap && hook) hook.v = 'ravestack';
+  if (hook && !starter && TECHNO_HOOK[style]) hook.v = TECHNO_HOOK[style];
+  if (hook && style === 'hardtechno') {
+    hook.v = 'analog';
+    hook.o = -1; hook.h = 1;
+    hook.up = 0; hook.x.risk = 0.1;
+    const vel = 0.22 + r2() * 0.08;
+    hook.s = range(32, (i) => i === 0 ? [0, 12, vel] : i === 16 ? [7, 12, vel * 0.9] : 0);
+  }
+  // Minimal keeps the techno hook's line but plays it on a warm filtered voice, not a square pulse.
+  if (hook && style === 'minimal') hook.v = 'warm';
   if (hook) { P.hook = hook; P.hm = 2; }
   // One seeded idea per track, chosen from moves that fit any groove: an octave pop at the end of
   // the bass phrase, displaced percussion, or a chord that anticipates the beat. Sometimes restraint.
   const idea = Math.floor(r2() * 4);
   const on = S.acid.map((st, i) => (st.on ? i : -1)).filter((i) => i >= 0);
-  if (idea === 0 && on.length > 2) S.acid[on[on.length - 1]].n += 12;
-  else if (idea === 1 && S.perc.some(Boolean)) { const k = 1 + Math.floor(r2() * 3), q = S.perc.slice(); S.perc = q.map((_, i) => q[(i - k + STEPS) % STEPS]); }
-  else if (idea === 2 && S.stab.some(Boolean) && !['neosoul', 'boombap', 'country'].includes(style)) { const q = S.stab.slice(); S.stab = q.map((_, i) => q[(i + 1) % STEPS]); }
+  if (!hiphop) {
+    if (idea === 0 && on.length > 2) S.acid[on[on.length - 1]].n += 12;
+    else if (idea === 1 && S.perc.some(Boolean)) { const k = 1 + Math.floor(r2() * 3), q = S.perc.slice(); S.perc = q.map((_, i) => q[(i - k + STEPS) % STEPS]); }
+    else if (idea === 2 && S.stab.some(Boolean) && !['neosoul', 'boombap', 'country'].includes(style)) { const q = S.stab.slice(); S.stab = q.map((_, i) => q[(i + 1) % STEPS]); }
+  }
   // Styles without written changes get harmony in their own idiom, from a separate stream so nothing above moves.
   if (!P.prog) {
     const v = vampFor(style, Math.round(params.stab.chord ?? 0), rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)));
     if (v?.pedal) P.pedal = v.pedal; else if (v) P.prog = v;
   }
   // Groove and pop genres sing: the hook becomes a vocal-length melody over the changes (js/melody.js).
-  const sung = withMelody(P.hook, rng(Math.imul((seed | 0) ^ 0x68e31da4, 0x3c6ef372) ^ 0x1b873593), style, musicalScale, { prog: P.prog, alt: P.alt, chord: params.stab.chord | 0 });
+  const harpHook = style === 'drill' && stabVoice === 6 && hook?.v === 'mallet';
+  const gainScale = harpHook ? 0.72 : 1;
+  const sung = withMelody(P.hook, rng(Math.imul((seed | 0) ^ 0x68e31da4, 0x3c6ef372) ^ 0x1b873593), style, musicalScale, { prog: P.prog, alt: P.alt, chord: params.stab.chord | 0, gainScale });
   if (sung) { P.hook = sung; P.hm = 2; }
+  const roots = rootsTags(style, seed, params.stab.voice, P.hook);
+  if (roots) P.roots = roots;
+  if (style === 'drill' && P.hook) {
+    P.hook.v = harpHook ? 'harpplk' : P.hook.v === 'reed' ? 'oboe' : 'airflute';
+  }
   if (LIFT.has(style) && P.prog) P.lift = 2;
+  if (style === 'trap' && stabVoice === 7 && sung?.v === 'mallet' && sung.m) {
+    for (const part of ['n', 'v', 'b']) for (const note of sung.m[part]) note[3] *= 0.78;
+    sung.s = melodySteps(sung.m.n);
+  }
   if (SONG.has(style) && P.prog && P.alt) {
     const all = PROGS[style].map((pr) => pr.map(([root, c]) => ({ r: root, c })));
     P.sections = songSections(all, P, musicalScale, Math.round(params.stab.chord ?? 0), rng(Math.imul((seed | 0) ^ 0x51ed270b, 0x27d4eb2f)), SECTION_IDIOM[style]);
     if (P.sections.chorus) { P.prog = P.sections.chorus; delete P.sections.chorus; }
   }
   if (MAJOR_STYLES.has(style) || style === 'rock') P.band = true;
+  if (style === 'bailefunk') { P.funk = true; S.perc = [...FUNK_HANDS[0]]; }
   if (style === 'pop' || style === 'rock') P.lite = true;
   if (style === 'country') P.lite = 'country';
+  if (style === 'gfunk') P.lite = 'gfunk';
+  if (style === 'minimal') P.smooth = true;
   return { pattern: P, params, master, bpm, key, swing: swing ?? 0.06 };
 }
 
@@ -837,7 +953,7 @@ function generateClassical(style, seed, scaleName, r, P, params, master, bpm) {
   Object.assign(params.stab, { voice: 7, octave: 0 });
   Object.assign(master, { arr: 0, vary: 0, dust: 0, kit: 0, revLevel: 0.62, humanize: 0.45 });
   const dm = defaultMaster();
-  for (const k of Object.keys(dm)) if (k !== 'volume' && k !== 'dj') master[k] ??= dm[k];
+  for (const k of Object.keys(dm)) if (k !== 'volume' && k !== 'dj' && k !== 'swing8') master[k] ??= dm[k];
   const key = pick(r, mode === 'M' ? [0, 2, 3, 5, 7, 10] : [0, 2, 4, 7, 9]);
   return { pattern: P, params, master, bpm, key, swing: 0 };
 }
@@ -849,7 +965,7 @@ function generateRepertoire(r, P, params, master) {
   Object.assign(params.stab, { voice: 7, octave: 0 });
   Object.assign(master, { arr: 0, vary: 0, dust: 0, kit: 0, revLevel: 0.6, humanize: 0.3 });
   const dm = defaultMaster();
-  for (const k of Object.keys(dm)) if (k !== 'volume' && k !== 'dj') master[k] ??= dm[k];
+  for (const k of Object.keys(dm)) if (k !== 'volume' && k !== 'dj' && k !== 'swing8') master[k] ??= dm[k];
   return { pattern: P, params, master, bpm: piece.bpm, key: 0, swing: 0 };
 }
 
@@ -896,6 +1012,11 @@ function halfTime(full) {
 // pop thins to kick, backbeat and quarter hats.
 function liteVerse(full) {
   const q = clone(full);
+  if (full.lite === 'gfunk') {
+    q.steps.ch = q.steps.ch.map((v, i) => (i % 4 === 0 ? v : 0));
+    q.steps.oh = range(STEPS, () => 0);
+    return q;
+  }
   // Country verse: boom-chick. The guitar chops 2 and 4, the snare drops to the backbeat, and the chorus opens up
   // into the strummed eighths and the full train beat or the eighth hats.
   if (full.lite === 'country') {
@@ -919,6 +1040,7 @@ function liteVerse(full) {
 
 // Turn one full pattern into an 8-pattern arrangement: intro → build → peak → breakdown → return.
 export function arrangement(full, seed, half = false) {
+  if (full.jazz) return range(8, (i) => ({ ...clone(full), sec: i === 2 ? 'verse' : 'chorus' }));
   if (full.score) return range(8, () => clone(full));
   const strip = (p, keep) => {
     const q = clone(p);
@@ -929,7 +1051,8 @@ export function arrangement(full, seed, half = false) {
   const without = (...ids) => all.filter((x) => !ids.includes(x));
   const fill = clone(full);
   delete fill.alt;
-  fill.steps.snare = pad16([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2]);
+  // A smooth style turns its phrase over with a ghost note and a dropped kick, not a snare roll.
+  if (full.smooth) { fill.steps.kick[12] = 0; fill.steps.snare[15] = 1; fill.steps.oh[14] = 1; } else fill.steps.snare = pad16([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2]);
   // One chord per half bar, left to ring, so the intro has the band's sound and still leaves the verse room to grow.
   const ringIntro = (p) => { p.steps.stab = p.steps.stab.map((v, i, row) => (v && !row.slice(i < 8 ? 0 : 8, i).some(Boolean) ? 1 : 0)); return p; };
   const scenes = [
@@ -942,15 +1065,33 @@ export function arrangement(full, seed, half = false) {
     strip(full, ['ride', 'perc', 'stab', 'ch']),
     strip(full, ['ride', 'perc', 'stab', 'acid', 'oh']),
     clone(full),
-    half ? halfTime(full) : mutate(full, seed + 2),
+    half && !full.smooth ? halfTime(full) : mutate(full, seed + 2),
   ];
-  for (const p of scenes) { delete p.alt; delete p.pedal; delete p.sections; delete p.band; delete p.lite; }
+  for (const p of scenes) { delete p.alt; delete p.pedal; delete p.sections; delete p.band; delete p.lite; delete p.smooth; }
   if (full.pedal) for (const i of [6, 7]) scenes[i].prog = clone(full.pedal);
   // Hook: absent in the intro, teased (call only) in the verse and deep breakdown, full in the fill, breakdown and peaks.
   [0, 0, 1, 2, 2, 1, 2, 2].forEach((m, i) => { if (full.hook) scenes[i].hm = m; else delete scenes[i].hm; });
   if (full.alt) for (const i of [4, 5]) scenes[i].prog = clone(full.alt);
   if (full.sections) songScenes(scenes, full, full.sections);
+  if (full.funk) {
+    for (const p of scenes) delete p.funk;
+    funkPhrases(scenes, songChain('bailefunk', seed));
+  }
   return scenes;
+}
+
+function funkPhrases(patterns, chain, keep = []) {
+  for (const p of patterns) for (const take of p.at || []) {
+    for (const id of ['perc', 'vox']) if (take.steps) delete take.steps[id];
+  }
+  for (let bar = 0; bar < chain.length; bar++) {
+    const p = patterns['ABCDEFGH'.indexOf(chain[bar])], eff = clone(patternAt(p, bar));
+    for (const id of ['perc', 'vox']) {
+      if (keep.includes(id) || !p.steps[id].some(Boolean)) continue;
+      eff.steps[id] = [...(id === 'perc' ? FUNK_HANDS[funkHandBar(bar)] : FUNK_VOX[bar % 2])];
+    }
+    setTake(p, bar, eff);
+  }
 }
 
 // Songs (see SONG) write each section like a songwriter would: B becomes the pre-chorus, C the verse,
@@ -1058,7 +1199,7 @@ function vampFor(style, c, r) {
   return VAMP[style] ? chords(VAMP[style][Math.floor(r() * VAMP[style].length)]) : null;
 }
 
-const GROOVE = new Set(['neosoul', 'boombap', 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill', 'pop', 'rnb', 'rock', 'folk', 'country']);
+const GROOVE = new Set(['jazzfunk', 'bossa', 'swing', 'modal', 'neosoul', 'boombap', ...HIPHOP_STYLES, 'deephouse', 'ukg', 'euphoric', 'amapiano', 'afrobeats', 'reggaeton', 'trap', 'drill', 'pop', 'rnb', 'rock', 'folk', 'country']);
 // Styles written as songs, with verse, pre-chorus, chorus and bridge sections (techno, trance and ambient
 // keep their repetition-led forms, where a section change is a mute or a filter, not new material).
 export const SONG_STYLES = new Set([...GROOVE, 'hyperpop']);
@@ -1072,7 +1213,7 @@ const SONG_FORMS = {
   techno: ['AAAAAAAABBBBBBBBCCCCCCCCCCCCCCCDGGGGGGGGGGGGGGGHEEEEEEEEFFFFFFFDGGGGGGGGGGGGGGGHCCCCCCCHCCCCCCCDBBBBBBBBAAAAAAAA', 'AAAAAAAABBBBBBBDCCCCCCCDCCCCCCCDGGGGGGGHGGGGGGGHEEEEEEEEFFFFFFFDGGGGGGGHGGGGGGGHGGGGGGGGGGGGGGGDBBBBBBBBAAAAAAAA', 'AAAAAAAABBBBBBBBCCCCCCCCCCCCCCCDEEEEEEEEFFFFFFFDGGGGGGGGGGGGGGGHGGGGGGGGGGGGGGGHCCCCCCCDBBBBAAAA'],
 };
 
-const IDIOM = { boombap: 'rap', trap: 'rap', drill: 'rap', deephouse: 'house', amapiano: 'house' };
+const IDIOM = { boombap: 'rap', lofihiphop: 'beat', gfunk: 'rap', phonk: 'rap', electrohiphop: 'rap', trap: 'rap', drill: 'rap', deephouse: 'house', amapiano: 'house' };
 // Ambient drifts longer: each return of a texture comes back after something else has been heard, and the opening
 // theme (E) comes back three times against the peak's two, so the motif stays the thread of a 3.5-minute piece.
 const AMBIENT_FULL = ['AAAAAAAAEEEEEEEEGGGGGGGGFFFFFFFFEEEEEEEEFFFFFFFFGGGGGGGGEEEEEEEEFFFFFFFFAAAAAAAA', 'AAAAAAAAEEEEEEEEFFFFFFFFGGGGGGGGEEEEEEEEGGGGGGGGFFFFFFFFEEEEEEEEFFFFFFFFAAAAAAAA'];
@@ -1087,10 +1228,29 @@ export const songForm = (spec) => formChain(parseForm(spec));
 // developSong writes the second verse, instrumental and final chorus). `length` is 'song' (3-4 min) or 'sketch'.
 // `bpm` is the tempo the song will actually play at, so the form is sized in seconds, not bars.
 export function songPlan(style, seed, length = 'song', bpm = midBpm(style)) {
+  if (isJazz(style)) {
+    const bars = length === 'sketch' ? 32 : Math.min(128, Math.ceil(190 * bpm / 240 / 16) * 16);
+    const head = length === 'sketch' ? 8 : 16;
+    return { chain: 'G'.repeat(head) + 'C'.repeat(bars - head * 2) + 'H'.repeat(head), sections: null };
+  }
   if (FORMS[style] || style === 'repertoire') return { chain: 'A', sections: null };
   if (SONG.has(style)) {
     const sections = planSections(IDIOM[style] || 'pop', bpm, length, rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)));
-    return { chain: formChain(sections), sections };
+    const chain = formChain(sections);
+    if (style === 'trap') {
+      const voice = pick(rng(Math.imul((seed | 0) ^ 0x6d2b79f5, 0x85ebca6b)), INSTRUMENTS.trap)[0];
+      const builds = festivalBuilds(chain, style, voice, seed);
+      if (builds.length) return { chain, sections, builds };
+    }
+    return { chain, sections };
+  }
+  if (style === 'hardtechno' && length !== 'sketch') {
+    const r = rng(Math.imul(seed ^ 0x45d9f3b, 0x27d4eb2d));
+    const phrase = ((seed >>> 0) ^ (seed >>> 2)) & 3, outro = 4 + 4 * (phrase % 2);
+    const runs = [['A', 4 + 4 * phrase], ['B', 8], ['C', [16, 20, 16, 8][phrase]], ['E', 8 + 4 * (phrase % 2)], ['F', pick(r, [4, 8])], ['G', 16 + 4 * ((phrase + 1) % 3) + (phrase === 3 ? 4 : 0)], ['E', 12 - 4 * (phrase % 2)], ['F', 4 + 4 * (phrase % 2)]];
+    const used = runs.reduce((n, [, len]) => n + len, 0);
+    runs.push(['G', 120 - outro - used], ['B', 8], ['A', outro]);
+    return { chain: runs.map(([id, len]) => id.repeat(len)).join(''), sections: null };
   }
   const kind = style === 'ambient' ? 'ambient' : 'techno';
   if (length === 'sketch') return { chain: CLUB_SKETCH[kind], sections: null };
@@ -1098,21 +1258,99 @@ export function songPlan(style, seed, length = 'song', bpm = midBpm(style)) {
   return { chain: (112 * 240) / bpm < LENGTHS.song.lo ? TECHNO_LONG : pick(rng(seed + 9), SONG_FORMS.techno), sections: null };
 }
 export const songChain = (style, seed, length = 'song') => songPlan(style, seed, length).chain;
+
+// Drill answers its lower verse hook with syncopated chords and carries the pocket through the fill.
+function drillVerses(pats, { chain, sections }, keep) {
+  const verse = pats[2], fill = pats[3], chorus = pats[6];
+  const edit = (base, rows) => ({ ...base, steps: { ...base.steps,
+    ...Object.fromEntries(Object.entries(rows).filter(([id]) => !keep.includes(id))) } });
+  verse.steps = edit(verse, {
+    kick: pad16([2, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
+    ch: pad16([1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1]),
+    stab: pad16([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    perc: pad16([0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1]),
+  }).steps;
+  const spans = sectionSpans(sections);
+  let verses = 0;
+  for (const { k, at, bars } of spans) {
+    if (k !== 'v' || ++verses === 1 || bars < 16 || keep.includes('kick')) continue;
+    const response = pad16([2, 0, 0, 0, 0, 0, 0, 1]);
+    response[verses % 2 ? 13 : 11] = 1;
+    for (let bar = at; bar < at + (bars >> 1) && chain[bar] === 'C'; bar++) {
+      setTake(verse, bar, edit(patternAt(verse, bar), { kick: [...response] }));
+    }
+  }
+  let firstPickup = true;
+  for (let i = 1; i < spans.length; i++) {
+    const { k, at } = spans[i], bar = at - 1;
+    if (k !== 'c' || spans[i - 1].k !== 'v' || chain[bar] !== 'D' || chain[at] !== 'G') continue;
+    fill.verseSwell = true;
+    const steps = clone(verse.steps);
+    steps.perc[15] = 1;
+    // On repeats the 808 starts before the last kick, carrying through its tail instead of coming in after it.
+    const pickup = firstPickup ? 14 : 12;
+    const acid = steps.acid.map((note, step) => step === pickup ? { ...emptyAcidStep(), on: true, v: firstPickup ? 0.71 : 0.92 } :
+      step === 15 ? { ...emptyAcidStep(), on: true } :
+      step === 11 || step === 12 || step === 14 ? emptyAcidStep() : note);
+    firstPickup = false;
+    const base = patternAt(fill, bar);
+    setTake(fill, bar, edit(base, {
+      ...steps, acid,
+      kick: pad16([2, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1]),
+      ch: pad16([1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1]),
+      stab: pad16([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+      snare: pad16([0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 1, 1]),
+    }));
+    // Let the 808 land on the one, then answer it with the kick instead of stacking their attacks.
+    const landing = patternAt(chorus, at);
+    const kick = [...landing.steps.kick];
+    if (!keep.includes('kick') && landing.steps.acid[0].on && kick[0] && !kick[1]) {
+      [kick[0], kick[1]] = [kick[1], kick[0]];
+      setTake(chorus, at, edit(landing, { kick }));
+    }
+  }
+}
+
 // The form written into a fresh arrangement: chain plus the takes that develop each repeat.
-export function applySongPlan(s, style, seed, length = 'song') {
+// `feel` is the feeling the listener asked for; without one the seed picks a feeling that fits the genre.
+export function applySongPlan(s, style, seed, length = 'song', feel = null) {
   const plan = songPlan(style, seed, length, s.bpm || midBpm(style));
   s.chain = plan.chain;
+  // Scores carry their own expression; every other GENERATE song gets a feeling from its seed.
+  if (FORMS[style] || style === 'repertoire') delete s.feel;
+  else s.feel = isFeel(feel) ? feel : pickFeel(style, STYLES[style].family, seed);
+  delete s.chainEntries;
+  if (isJazz(style)) {
+    const head = length === 'sketch' ? 8 : 16;
+    s.labels = { G: 'HEAD', C: 'SOLOS', H: 'HEAD OUT' };
+    return plan;
+  }
   const keep = Object.keys(s.locks || {}).filter((t) => s.locks[t]);
   developSong(s.patterns, plan.sections, { keep });
+  if (style === 'hardtechno') {
+    for (const i of [4, 5]) for (const id of TRACK_IDS) if (!keep.includes(id)) s.patterns[i].steps[id] = clone(s.patterns[6].steps[id]);
+    for (const run of plan.chain.matchAll(/([A-H])\1*/g)) {
+      const p = s.patterns['ABCDEFGH'.indexOf(run[1])];
+      const id = ['perc', 'ch', 'oh'].find((t) => !keep.includes(t) && p.steps[t].some(Boolean));
+      if (!id) continue;
+      for (let at = run.index + 16; at < run.index + run[0].length; at += 16) {
+        const level = 0.82 + (((seed >>> 0) + at) % 3) * 0.06;
+        (p.at ??= []).push({ b: [at, Math.min(at + 15, run.index + run[0].length - 1)], steps: { [id]: p.steps[id].map((v) => v * level) } });
+      }
+    }
+  }
+  if (style === 'drill' && plan.sections) drillVerses(s.patterns, plan, keep);
+  if (style === 'bailefunk') funkPhrases(s.patterns, plan.chain, keep);
   if (plan.chain === TECHNO_LONG) developFinalDrop(s.patterns, plan.chain, { keep });
   return plan;
 }
 
 // GENERATE's song for a style and seed, written on top of `base` (its mix, artist and mutes carry over).
 // `bpm`/`swing` keep a tempo the song already plays at; a score always sets its own.
-export function freshSong(style, seed, { base = defaultState(), scale = null, length = 'song', bpm = null, swing = null } = {}) {
+export function freshSong(style, seed, { base = defaultState(), scale = null, length = 'song', bpm = null, swing = null, feel = null } = {}) {
   const s = clone(base);
   s.scale = scale || (style === 'euphoric' || MAJOR_STYLES.has(style) ? 'major' : s.scale);
+  if (isJazz(style) && !scale) s.scale = style === 'modal' || style === 'jazzfunk' ? 'dorian' : 'major';
   const g = generate(style, seed, s.scale);
   s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   s.key = g.key;
@@ -1121,7 +1359,7 @@ export function freshSong(style, seed, { base = defaultState(), scale = null, le
   s.chainOn = true;
   s.ending = true;
   s.current = 0;
-  applySongPlan(s, style, seed, length);
+  applySongPlan(s, style, seed, length, feel);
   return s;
 }
 
@@ -1142,7 +1380,7 @@ export function refreshSong(s) {
   const { style, seed } = s.artist;
   const composer = s.patterns.find((p) => p.score?.composer)?.score.composer;
   const base = { ...s, locks: Object.fromEntries(TRACK_IDS.map((t) => [t, false])) };
-  const out = freshSong(style, seed, { base, scale: s.scale, length: lengthOf(s), bpm: s.bpm, swing: s.swing });
+  const out = freshSong(style, seed, { base, scale: s.scale, length: lengthOf(s), bpm: s.bpm, swing: s.swing, feel: s.feel });
   if (composer) for (const p of out.patterns) if (p.score?.form) p.score.composer = composer;
   if (out.chain !== s.chain) delete out.labels;
   out.fresh = 1;
@@ -1150,7 +1388,8 @@ export function refreshSong(s) {
 }
 
 export function defaultState() {
-  const g = generate('hypnotic', 1337);
+  // The starter also supplies defaults for missing save fields and other genres' partial overrides.
+  const g = generatePattern('hypnotic', 1337, 'minor', true);
   const full = g.pattern;
   full.steps.clap = pad16([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
   const s = {
@@ -1176,8 +1415,11 @@ export function defaultState() {
 }
 
 export function applyOverrides(state, g, withBpm = true) {
+  for (const id of ['ch', 'oh', 'perc']) state.params[id].pan = TRACK_BY_ID[id].mix.pan;
   for (const [tid, o] of Object.entries(g.params)) Object.assign(state.params[tid], o);
   Object.assign(state.master, g.master);
+  state.master.swing8 = g.master.swing8 || 0;
+  if (g.scale) state.scale = g.scale;
   if (withBpm) state.bpm = g.bpm;
   if (withBpm && g.swing != null) state.swing = g.swing;
 }
@@ -1220,12 +1462,15 @@ export function sanitize(s) {
   if (s.ending) out.ending = true;
   if (s.fresh === 0 || s.fresh === 1) out.fresh = s.fresh;
   out.chain = String(s.chain || d.chain).toUpperCase().replace(/[^A-H]/g, '').slice(0, 128) || d.chain;
+  const chainEntries = cleanChainEntries(out.chain, s.chainEntries);
+  if (chainEntries) out.chainEntries = chainEntries;
   const labels = cleanLabels(s.labels);
   if (labels) out.labels = labels;
   const lyrics = cleanLyrics(s.lyrics);
   if (lyrics) out.lyrics = lyrics;
   const sing = cleanSing(s.sing);
   if (sing) out.sing = sing;
+  if (isFeel(s.feel)) out.feel = s.feel;
   out.mutes = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.mutes?.[id]]));
   out.solos = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.solos?.[id]]));
   out.locks = Object.fromEntries(TRACK_IDS.map((id) => [id, !!s.locks?.[id]]));
@@ -1234,13 +1479,14 @@ export function sanitize(s) {
   out.orchMute = Object.fromEntries(SECTIONS.map((k) => [k, !!s.orchMute?.[k]]));
   const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, Number.isFinite(+v) ? +v : lo));
   const cleanTrack = (id, arr) => pad16(arr).map((v, j) => {
-    if (id !== 'acid') return v === 2 ? 2 : v ? 1 : 0;
+    if (id !== 'acid') return s.artist?.style === 'hardtechno' ? cl(v, 0, 2) : v === 2 ? 2 : v ? 1 : 0;
     const step = arr[j] || {};
     return {
       on: !!step.on,
       n: Math.max(-24, Math.min(24, Number.isFinite(+step.n) ? Math.round(+step.n) : 0)),
       a: !!step.a,
       s: !!step.s,
+      ...(step.on && Number.isFinite(step.v) && step.v > 0 && step.v < 1 ? { v: step.v } : {}),
     };
   });
   const cleanNotes = (a) => (Array.isArray(a) ? a : []).filter(Array.isArray).slice(0, 96).map((x) => [Math.round(cl(x[0], -8, MELODY_BARS * 16 - 1)), Math.round(cl(x[1], 1, 16)), Math.round(cl(x[2], -24, 36)), cl(x[3], 0, 1), Math.round(cl(x[4], 0, 7)), Math.round(cl(x[5], 0, 95))]);
@@ -1264,6 +1510,9 @@ export function sanitize(s) {
     const p = s.patterns[i];
     const e = emptyPattern();
     if (!p) return e;
+    const roots = cleanRoots(p.roots);
+    if (roots) e.roots = roots;
+    if (isJazz(p.jazz?.style)) e.jazz = { style: p.jazz.style, seed: Number.isFinite(+p.jazz.seed) ? p.jazz.seed | 0 : 1, ...(p.jazz.progBars === 1 ? { progBars: 1 } : {}) };
     for (const id of TRACK_IDS) {
       if (Array.isArray(p.steps?.[id])) e.steps[id] = cleanTrack(id, p.steps[id]);
       if (p.len?.[id]) e.len[id] = Math.max(1, Math.min(STEPS, p.len[id] | 0));
@@ -1275,6 +1524,7 @@ export function sanitize(s) {
     if (p.score?.piece && PIECE[p.score.piece]) e.score = { piece: p.score.piece };
     else if (p.score && FORMS[p.score.form]) e.score = { form: p.score.form, seed: Number.isFinite(+p.score.seed) ? +p.score.seed | 0 : 1, mode: p.score.mode === 'm' ? 'm' : 'M', ...(MODELS[p.score.composer] ? { composer: p.score.composer } : {}) };
     if (p.lift) e.lift = Math.max(0, Math.min(3, p.lift | 0));
+    if (p.verseSwell === true) e.verseSwell = true;
     if (['verse', 'pre', 'chorus', 'bridge'].includes(p.sec)) e.sec = p.sec;
     if (Array.isArray(p.prog) && p.prog.length) e.prog = cleanProg(p.prog);
     const at = !e.score && cleanTakes(p.at, cleanTrack, cleanHook, cleanProg);

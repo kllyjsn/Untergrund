@@ -8,12 +8,12 @@ const T0 = Date.UTC(2026, 10, 1);
 let n = 0;
 // One listen as the raw signals js/listen.js would send for it.
 function listen({ lid, fp = `fp${lid}aaaaaa`.slice(0, 14), style = 'acid', src = 'generate', surf = 'home', dev = 'desktop', co = 'd1_6', arr = 'intro-8.build-8.drop-16',
-  outcome = 'complete', end = 32, bars = 32, down = false, why = null, downAt = end, love = false, rewind = null, keep = false, t = T0 }) {
+  outcome = 'complete', end = 32, bars = 32, down = false, why = null, downAt = end, love = false, loveAt = 4, rewind = null, keep = false, feel = '', t = T0 }) {
   const lis = `l${(n++).toString(36).padStart(6, '0')}`;
-  const base = { v: 1, lis, lid, fp, seed: 5, style, src, surf, dev, co, bars, t };
+  const base = { v: 1, lis, lid, fp, seed: 5, style, src, surf, dev, co, bars, t, ...(feel ? { feel } : {}) };
   const out = [{ ...base, kind: 'start', bar: 0, arr, t }];
   if (rewind != null) out.push({ ...base, kind: 'rewind', bar: rewind, to: 0, t: t + 1 });
-  if (love) out.push({ ...base, kind: 'love', bar: 4, t: t + 2 });
+  if (love) out.push({ ...base, kind: 'love', bar: loveAt, t: t + 2 });
   if (down) out.push({ ...base, kind: 'down', bar: downAt, t: t + 3 });
   if (why) out.push({ ...base, kind: 'why', why, bar: downAt, t: t + 4 });
   if (keep) out.push({ ...base, kind: 'keep', bar: end, t: t + 5 });
@@ -178,6 +178,23 @@ assert.equal(analyze([]).totals.listens, 0);
   assert.deepEqual([quiet.judged, quiet.returned, quiet.returnRate7d], [3, 0, 0], 'a week later, creators never heard from again count as not back');
   assert.match(toMarkdown(analyze(S)), /## Release loop[\s\S]*shares per published song \| 0\.667 \(2 shares of 3 songs, 0 before playing\)[\s\S]*creator return within 7 days \| 33% \(1 of 3/);
   assert.deepEqual(analyze([]).loop.creators, { total: 0, judged: 0, returned: 0, returnRate7d: null });
+}
+
+// Feelings and love moments: tense pop is skipped where tender pop is finished, and the hearts land in the drop.
+{
+  const fx = [];
+  for (let i = 0; i < 400; i++) {
+    const lid = lids[i % lids.length], feel = i % 2 ? 'tense' : 'tender', skip = rnd() < (feel === 'tense' ? 0.6 : 0.1);
+    fx.push(...listen({ lid, style: 'pop', feel, t: T0 + i * 1000, outcome: skip ? 'skip' : 'complete', end: skip ? 2 : 32, love: !skip && rnd() < 0.4, loveAt: rnd() < 0.8 ? 20 : 4 }));
+  }
+  const rows = listensFrom(fx);
+  assert.ok(rows.every((l) => l.feel) && rows.some((l) => l.loveAt?.bar === 20), 'rows keep the feeling and the love moment');
+  const fr = analyze(fx, { top: 50 });
+  assert.ok(fr.findings.some((f) => f.type === 'segment' && f.scope.feel === 'tense' && moved(f, 'skip') && f.direction === 'problem'), 'skips split by feeling');
+  assert.ok(fr.findings.some((f) => f.type === 'section' && f.scope.section === 'drop' && f.metric === 'love' && f.direction === 'strength'), 'hearts land in the drop');
+  assert.ok('no_feeling' in fr.totals.reasons);
+  const nf = proposeExperiment({ id: 'reason:pop:no_feeling', type: 'reason', reason: 'no_feeling', scope: { style: 'pop' }, metric: 'down', rate: 0.5, comparable: 0.25, direction: 'problem', n: 40 });
+  assert.equal(nf.lever, 'feel', '"Didn\'t feel anything" points at the feeling');
 }
 
 if (process.argv.includes('--print')) console.log(toMarkdown(r));

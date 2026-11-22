@@ -15,7 +15,7 @@ import { vocalStem, VOCAL_DUCK_DB } from './sing.js';
 
 export const STEM_NAMES = {
   kick: 'kick', clap: 'clap', snare: 'snare', ch: 'hats', oh: 'open-hat', ride: 'ride', perc: 'perc',
-  acid: 'bass', stab: 'chords', hook: 'hook', vox: 'vocals', sung: 'sung-vocal', fx: 'fx-returns',
+  acid: 'bass', stab: 'chords', hook: 'hook', vox: 'vocals', sung: 'sung-vocal', fx: 'fx-returns', dubpad: 'dub-pad',
   ...Object.fromEntries(Object.entries(PARTS).map(([id, [name]]) => [id, name.toLowerCase().replace(/\s+/g, '-')])),
 };
 const BUDGET = 256 * 1024 * 1024;
@@ -32,7 +32,7 @@ export const exportName = (state, suffix) => `${slug(state.artist?.title)}-${Mat
 // The stems this song actually plays, in mixer order: the instruments with notes, then FX/returns.
 export function stemList(state, loopBars = 16) {
   const c = capture(state, loopBars), ids = c.score ? Object.keys(PARTS) : [...TRACK_IDS.slice(0, TRACK_IDS.indexOf('stab') + 1), 'hook', ...TRACK_IDS.slice(TRACK_IDS.indexOf('stab') + 1), ...Object.keys(PARTS)];
-  return [...ids.filter((id) => c.notes[id]?.length), ...(vocalStem(state) ? ['sung'] : []), 'fx'];
+  return [...ids.filter((id) => c.notes[id]?.length || (id === 'hook' && c.notes.fiddle?.length)), ...(state.artist?.style === 'dub' && c.notes.stab?.length ? ['dubpad'] : []), ...(vocalStem(state) ? ['sung'] : []), 'fx'];
 }
 
 // Re-routes everything that would reach engine.mix / engine.duck / engine.preMaster into per-stem sums on its own channel pair.
@@ -81,6 +81,7 @@ export function router(want, { prebus = false } = {}) {
         sums[id] = sum;
       });
       for (const id of TRACK_IDS) owner.set(E.ch[id].pan, id);
+      if (E.dubPadBus) owner.set(E.dubPadBus, 'dubpad');
       owner.set(E.vocalOut, 'sung');
       for (const [src, dst] of conns) if (dst === E.mix || dst === E.duck || dst === E.preMaster) { src.disconnect(dst); route(src, dst); }
       // The hook plays through a copy of the CHORDS channel (same level, pan and sends) so it gets its own stem.
@@ -96,8 +97,11 @@ export function router(want, { prebus = false } = {}) {
       if (hc.carve) hc.carve.connect(hc.pan);
       hc.pan.connect(E.duck); hc.pan.connect(hc.rev).connect(E.revIn); hc.pan.connect(E.roomIn); hc.pan.connect(hc.dly).connect(E.dlyIn); hc.pan.connect(E.throwBus);
       hc.band.connect(hc.input); hc.band.connect(E.bandIn);
+      E.windDuck.disconnect(); E.windDuck.connect(hc.input);
       const P = Engine.prototype;
       E.hook = function (...a) { const s = this.ch.stab; syncStrip(); this.ch.stab = hc; try { return P.hook.apply(this, a); } finally { this.ch.stab = s; } };
+      // A smooth style's chord shaping is scheduled automation, which syncStrip's value copy misses: schedule it on the copy too.
+      E.smoothChords = function (...a) { P.smoothChords.apply(this, a); const s = this.ch.stab; this.ch.stab = hc; try { P.smoothChords.apply(this, a); } finally { this.ch.stab = s; } };
       E.orchBus = function (p) {
         if (this.orchBuses?.[p]) return this.orchBuses[p];
         part = p;
@@ -185,24 +189,29 @@ Each instrument stem is dry plus its own channel processing; reverb, delay, room
 arrangement FX (risers, impacts, vinyl dust) are in the fx-returns stem. Recorded live-kit pieces are
 in the stem of the drum they play (kick.wav holds the recorded kick when the live kit is on).
 Notes come in a separate EXPORT MIDI file from the same FILE menu.
-${r.stems.some((x) => x.id === 'sung') ? `The other stems are printed without the ${VOCAL_DUCK_DB.toFixed(1)} dB dip the band takes while the sung vocal sings: duck them under sung-vocal.wav to rebuild the mix.\n` : ''}${r.sungDb ? `sung-vocal.wav is printed ${(-r.sungDb).toFixed(1)} dB under its mix level so it does not clip: raise it ${(-r.sungDb).toFixed(1)} dB to rebuild the mix.\n` : ''}
+${r.stems.some((x) => x.id === 'sung') ? `The other stems are printed without the ${VOCAL_DUCK_DB.toFixed(1)} dB dip the band takes while the sung vocal sings: duck them under sung-vocal.wav to rebuild the mix.\n` : ''}${(r.trims || []).map((x) => `${x.name}.wav is printed ${(-x.db).toFixed(1)} dB under its mix level so it does not clip: raise it ${(-x.db).toFixed(1)} dB to rebuild the mix.\n`).join('')}
 ${r.stems.map((x, i) => `${String(i + 1).padStart(2, '0')}-${x.name}.wav`).join('\n')}
 `;
+
+// A stem can peak above full scale at mix level (the singer, a hot recorded bass) and would clip in a fixed-point WAV:
+// print it just under full scale and say in the README how far to raise it.
+export function fitStems(r) {
+  r.trims = [];
+  for (const x of r.stems) {
+    let peak = 0;
+    for (const c of [x.left, x.right]) for (const v of c) peak = Math.max(peak, Math.abs(v));
+    if (peak <= 0.99) continue;
+    const g = 0.99 / peak;
+    for (const c of [x.left, x.right]) for (let i = 0; i < c.length; i++) c[i] *= g;
+    r.trims.push({ id: x.id, name: x.name, db: 20 * Math.log10(g) });
+  }
+  return r;
+}
 
 // The finished .zip: one WAV per stem plus a README.
 export async function stemsZip(state, opts = {}) {
   const r = await renderStems(state, opts);
-  const sung = r.stems.find((x) => x.id === 'sung');
-  if (sung) {
-    let peak = 0;
-    for (const c of [sung.left, sung.right]) for (const v of c) peak = Math.max(peak, Math.abs(v));
-    // The singer's stem peaks far above its RMS; at mix level it would clip in a fixed-point WAV.
-    if (peak > 0.99) {
-      const g = 0.99 / peak;
-      for (const c of [sung.left, sung.right]) for (let i = 0; i < c.length; i++) c[i] *= g;
-      r.sungDb = 20 * Math.log10(g);
-    }
-  }
+  fitStems(r);
   const zip = new ZipWriter(), dir = exportName(state, '-stems');
   for (const [i, x] of r.stems.entries()) {
     if (opts.signal?.aborted) throw abortError();

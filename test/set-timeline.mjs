@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
-import { generate, defaultState, clone, sanitize } from '../js/state.js';
+import { readFile } from 'node:fs/promises';
+import { runInNewContext } from 'node:vm';
+import { generate, defaultState, clone, sanitize, STYLES } from '../js/state.js';
 import { createTimelineRecorder, stateAt, trimTimeline, createReplayer, normalizeTimeline, diffOps, applyOps, stepAt, compactTimeline, liveView, MAX_TIMELINE_BYTES } from '../js/set-timeline.js';
+import { startLiveSet, endLiveSet, playTimeline, stopTimeline } from '../js/live-sets.js';
 
 // Deterministic "DJ": a seeded run of knob turns, mutes, pattern switches, tempo and genre changes.
 function rng(seed) { let x = seed >>> 0; return () => ((x = (x * 1664525 + 1013904223) >>> 0) / 2 ** 32); }
@@ -25,9 +28,88 @@ function performSet(seed, minutes = 6) {
 
 // diff/apply round trip
 const a = defaultState(), b = clone(a);
+{
+  const state = defaultState();
+  state.chain = 'CCCC';
+  state.chainEntries = [{ p: 2, sec: 0, id: 0 }, { p: 2, sec: 0, id: 1 }, { p: 2, sec: 1, id: 2 }, { p: 2, sec: 1, id: 3 }];
+  const before = clone(state.chainEntries);
+  const rec = createTimelineRecorder({ state, style: 'modal', startsAt: 0 });
+  state.chainEntries.reverse();
+  const moved = clone(state.chainEntries);
+  rec.capture(state, 'modal', 1000);
+  delete state.chainEntries;
+  rec.capture(state, 'modal', 2000);
+  const saved = normalizeTimeline(JSON.parse(JSON.stringify(rec.finish(15000))));
+  assert.deepEqual(saved.initial.chainEntries, before, 'saved sets keep distinct same-letter sections');
+  assert.deepEqual(stateAt(saved, 1500).state.chainEntries, moved, 'tag-only arrangement edits are replayed');
+  assert(!('chainEntries' in stateAt(saved, 2500).state), 'removing tags is recorded');
+  assert.deepEqual(trimTimeline(saved, 1200, 1800).initial.chainEntries, moved);
+  const applied = [], replay = createReplayer(saved, { startsAt: 0, apply: s => applied.push(s.chainEntries) });
+  replay.tick(0); replay.tick(1500); replay.tick(2500);
+  assert.deepEqual(applied, [moved, undefined], 'incremental replay carries edits and deletion');
+  const legacy = normalizeTimeline({ ...saved, initial: liveView(defaultState()), events: [] });
+  assert(!('chainEntries' in legacy.initial), 'legacy sets remain untagged');
+  const malformed = normalizeTimeline({ ...saved, initial: { ...saved.initial, chainEntries: [{ p: 7, sec: 0 }] }, events: [] });
+  assert(!('chainEntries' in malformed.initial), 'invalid opening tags are sanitized');
+}
 b.params.kick.level = 0.3; b.mutes.clap = true; b.patterns[2].steps.ch[3] = 1; delete b.solos;
 assert.deepEqual(applyOps(clone(a), diffOps(a, b)), b);
 assert.equal(diffOps(a, clone(a)).length, 0);
+{
+  const state = defaultState(); state.artist = { style: 'trap', seed: 0 };
+  const rec = createTimelineRecorder({ state, style: 'trap', startsAt: 0 });
+  state.artist.seed = 1234; rec.capture(state, 'trap', 1000);
+  delete state.artist.seed; rec.capture(state, 'trap', 2000);
+  const saved = normalizeTimeline(rec.finish(15000));
+  assert.equal(stateAt(saved, 0).state.seed, 0, 'zero is a recorded seed');
+  assert.equal(stateAt(saved, 1500).state.seed, 1234, 'song changes record the new seed');
+  assert.equal(stateAt(saved, 2500).state.seed, undefined, 'missing seed clears the replay override');
+  assert.equal(stateAt(trimTimeline(saved, 1200, 1800), 0).state.seed, 1234, 'trimming keeps the seed at the cut');
+  const applied = [];
+  const rep = createReplayer(saved, { startsAt: 0, apply: s => applied.push(s.seed) });
+  rep.tick(0); rep.tick(1500); rep.tick(2500);
+  assert.deepEqual(applied, [1234, undefined]);
+  const compacted = compactTimeline(saved, 1);
+  assert.equal(stateAt(compacted, 2500).state.seed, undefined);
+  const invalid = normalizeTimeline({ ...saved, initial: { ...saved.initial, seed: '8' }, events: [{ t: 100, ops: [
+    [['seed'], null], [['seed'], '8'], [['seed', 'x'], 8], [['seed'], {}], [['seed'], 8],
+  ] }] });
+  assert.equal(invalid.initial.seed, undefined);
+  assert.deepEqual(invalid.events[0].ops, [[['seed'], 8]]);
+  assert.equal(stateAt(normalizeTimeline({ ...saved, initial: liveView(defaultState()), events: [] }), 0).state.seed, undefined, 'old timelines stay seedless');
+  console.log('Timeline seeds passed: record/update/remove, normalize, trim, compact, replay and legacy/invalid values');
+}
+{
+  const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+  const source = main.slice(main.indexOf('function timelineHooks('), main.indexOf('\nfunction replayToRoom('));
+  const env = { state: { ...defaultState(), artist: { style: 'trap', seed: 211 } }, style: 'trap', STYLES, sanitize, clone,
+    playing: false, engine: { applyAll() {} }, seq: {}, guest: null, build() {}, persist() {}, pat: () => ({}) };
+  let played, queued;
+  env.replaceState = s => { env.state = s; };
+  env.play = opts => { played = opts; };
+  env.queueSong = plan => { queued = plan; };
+  runInNewContext(`${source}; hooks = timelineHooks(false);`, env);
+  env.hooks.load({ ...defaultState(), seed: 8 }, 'trap');
+  env.hooks.play({});
+  assert.equal(played.replaySeed, 8, 'timeline load forwards seed to replay start');
+  assert.equal(env.state.artist.seed, 211, 'loading keeps listener artist metadata');
+  env.hooks.apply({ seed: 0 }, 'trap');
+  assert.equal(env.engine.replaySeed, 0, 'immediate timeline events forward zero seed');
+  env.hooks.apply({}, 'trap');
+  assert.equal(env.engine.replaySeed, undefined, 'legacy timeline clears the previous override');
+  env.state.chain = 'CCCC';
+  const tags = [{ p: 2, sec: 0 }, { p: 2, sec: 0 }, { p: 2, sec: 1 }, { p: 2, sec: 1 }];
+  env.hooks.apply({ chain: 'CCCC', chainEntries: tags }, 'modal');
+  assert.deepEqual(env.state.chainEntries, tags, 'player applies recorded section tags');
+  env.hooks.apply({ chain: 'CCCC' }, 'modal');
+  assert(!('chainEntries' in env.state), 'player clears tags when replay switches to an untagged identical-letter chain');
+  env.playing = true;
+  const next = clone(env.state); next.seed = 1234; next.chain = 'GGGG';
+  next.patterns[0].steps.kick[0] = next.patterns[0].steps.kick[0] ? 0 : 1;
+  env.hooks.apply(next, 'trap');
+  assert.equal(queued.replaySeed, 1234, 'downbeat song handoffs carry the incoming recorded seed');
+  console.log('Timeline loading forwards recorded seed through start, immediate changes and queued song handoffs without mutating listener metadata');
+}
 
 // recorder -> stateAt reproduces the live state at every checkpoint
 const { timeline, truth } = performSet(7);
@@ -68,7 +150,58 @@ for (const t of [0, 30e3, 90e3, 120e3]) assert.deepEqual(stateAt(cut, t).state, 
 // tempo integration: 120 BPM for 10 s (80 steps) then 150 BPM for 2 s (20 steps)
 const tempo = { initial: { bpm: 120 }, events: [{ t: 10000, ops: [[['bpm'], 150]] }], duration: 20000 };
 assert.equal(stepAt(tempo, 12000).steps, 100);
+
+{
+  const realNow = Date.now, startsAt = 50000;
+  try {
+    for (const [joinAt, expected] of [
+      [startsAt - 300, { step: 0, stepWall: startsAt }],
+      [startsAt + 12000, { step: 101, stepWall: startsAt + 12100 }],
+    ]) {
+      let wall = joinAt, played;
+      Date.now = () => wall;
+      playTimeline(tempo, startsAt, {
+        load: () => { wall += 60; },
+        play: (opts) => { played = opts; },
+      });
+      assert.deepEqual(played, expected, 'rendering the loaded state does not move the first replay step');
+      stopTimeline();
+    }
+  } finally {
+    Date.now = realNow;
+    stopTimeline();
+  }
+}
 assert.equal(stepAt(tempo, 12000).bpm, 150);
+
+// A set records the playing song's genre, not the genre picker.
+{
+  const project = { ...defaultState(), artist: { style: 'drill' } };
+  const storage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const realNow = Date.now, interval = globalThis.setInterval, clear = globalThis.clearInterval;
+  const startsAt = 1000;
+  let now = startsAt, picker = 'trap', tick;
+  try {
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => null } });
+    Date.now = () => now;
+    globalThis.setInterval = (fn) => { tick = fn; return 1; };
+    globalThis.clearInterval = () => {};
+    startLiveSet({ getState: () => project, getStyle: () => picker, startsAt, isPlaying: () => true, isDJ: () => true });
+    now += 500; picker = 'hardtechno'; tick();
+    now += 500; project.artist.style = 'trap'; tick();
+    const replay = endLiveSet({ offer: false });
+    assert.equal(stateAt(replay, 0).style, 'drill');
+    assert.equal(stateAt(replay, 500).style, 'drill');
+    assert.equal(stateAt(replay, 1000).style, 'trap');
+  } finally {
+    endLiveSet({ offer: false });
+    if (storage) Object.defineProperty(globalThis, 'localStorage', storage);
+    else delete globalThis.localStorage;
+    Date.now = realNow;
+    globalThis.setInterval = interval;
+    globalThis.clearInterval = clear;
+  }
+}
 
 // untrusted input: survives normalize unchanged, drops prototype pollution and foreign keys
 const norm = normalizeTimeline(JSON.parse(JSON.stringify(timeline)));

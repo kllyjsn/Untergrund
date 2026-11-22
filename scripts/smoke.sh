@@ -22,7 +22,8 @@ check() {
 }
 
 check 200 /
-check 200 /js/main.js
+curl --fail --silent --show-error "$BASE/js/main.js" | node --input-type=module --check
+echo "ok   /js/main.js parses as a module"
 check 200 /css/style.css
 check 200 /embed.html
 check 200 /manifest.webmanifest
