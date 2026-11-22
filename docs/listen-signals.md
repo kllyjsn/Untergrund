@@ -17,9 +17,9 @@ Code: `js/listen.js` (lifecycle + fingerprint), wired in `js/main.js`; validated
 | `publish` | publishing the song (crate publish, SoundCloud) |
 | `share` | copying/sending a song link, embed, or making/sharing a video |
 | `live` | going live in a room |
-| `love` / `unlove` | explicit reaction: the heart in Now Playing (a toggle, remembered per device) |
+| `love` / `unlove` | explicit reaction: the heart in Now Playing (a toggle, remembered per device). A `love` carries the moment it was tapped (`bar`, `sec`, `pct`), so the engine can tell which section moved people |
 | `down` / `undown` | explicit reaction: the down arrow next to the heart. One tap is the whole signal; love and down exclude each other (switching sends `unlove`/`undown` first) |
-| `why` | optional, only after a down: one tap on `boring`, `sounds_bad` or `not_my_style` (field `why`). A closed set; there is never a text box. A later tap replaces the reason |
+| `why` | optional, only after a down: one tap on `boring`, `no_feeling` ("Didn't feel anything"), `sounds_bad` or `not_my_style` (field `why`). A closed set; there is never a text box. A later tap replaces the reason |
 | `rewind` | jumping back inside the song you're hearing (previous-track / restart while playing): `bar` is where from, `to` the target bar |
 
 Every listen ends with exactly one of `complete`, `skip` or `partial` (switching songs, stopping, or closing the page). `keep`/`publish`/`share`/`live` count at most once per listen, and still attach to the song that just ended for 10 minutes after it stops. A `share` with no listen behind it (a link copied before pressing play) is sent standalone: no `lis`, with the shared song's `fp`/`tid`, its `surf` and the minted `ref`. The server accepts a missing `lis` only on `share`, keeps one per minted `ref`, and leaves it out of the per-start rates (`listening`, per-genre and per-song counters); the release loop counts it from the raw log.
@@ -39,6 +39,7 @@ Sent as `{ n: 'listen', p: { kind, genre }, l: <record>, t }`. The server keeps 
 | `src` | how the song came to be: `generate`, `prompt` (Describe), `hum`, `drop` (Daily Drop), `piece`, `remix`, `crate`, `shared`, `jukebox`, `room`, `restored`, `radio` (started by Radio when the last song ended or was turned down), `release` (played on a `/t/<id>` release page without a share ref) |
 | `surf` | where it was heard: `home`, `studio`, `shared`, `jukebox`, `room`, `release` (the `/t/<id>` page) |
 | `ph` | hash of the normalized Describe prompt, when `src` is `prompt` |
+| `feel` | the song's intended feeling (`state.feel`, one of `FEELS` in `js/feel.js`: `heartbroken`, `longing`, `euphoric`, `dark`, `dreamy`, `joyful`, `tense`, `tender`), on every signal of the listen. Absent for songs without one (older saves, the repertoire, classical scores); the server drops unknown values |
 | `pt` | the prompt text itself, **only on `start`**, max 120 chars, dropped if it looks like an email, URL or phone number |
 | `bar`, `bars`, `sec`, `pct` | position when the signal fired: bar, song length in bars, section name, percent (`-1` if length unknown) |
 | `arr` | song structure, **only on `start`**: score sections with bar counts (`intro-8.verse-16.drop-8`) or the pattern chain (`aabbc`, one letter per bar); max 80 chars |
@@ -63,11 +64,12 @@ Anything else is dropped by `cleanListen()`; unknown kinds or a missing fingerpr
 
 - `untergrund:d:<day>` — `listen` and `listen:<kind>` counts, like every event.
 - `untergrund:ls:<day>` — `<style>:<kind>` counts per day.
+- `untergrund:lf:<day>` — `<feel>:<kind>` counts per day, for listens of songs with a `feel`.
 - `untergrund:fp:<fp>` — `<kind>` counts per song fingerprint.
 - `untergrund:listen` — raw records, newest first, capped at 5000. Max 300 records per client per hour.
 - `untergrund:ev:listen:<day>` — the same records per UTC day (max 5000 a day, kept 29 days), read in pages by the improvement report.
 
-`GET /api/events?summary=1` (stats token) adds `listening: { kinds, rates, styles }`, where rates are per `start`: `completion`, `skip`, `replay`, `rewind`, `love` (love − unlove), `down` (down − undown), `keep`, `publish`, `share`, `live`. `stats.html` shows them.
+`GET /api/events?summary=1` (stats token) adds `listening: { kinds, rates, styles, feels }` (`feels`: the same rates per intended feeling), where rates are per `start`: `completion`, `skip`, `replay`, `rewind`, `love` (love − unlove), `down` (down − undown), `keep`, `publish`, `share`, `live`. `stats.html` shows them.
 
 `GET /api/events?signals=1&limit=500[&fp=<fp>]` (stats token) returns `{ version, signals, song? }`: the raw log for offline learning and automations, plus counts/rates for one song.
 
