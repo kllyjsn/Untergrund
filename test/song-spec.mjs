@@ -197,6 +197,25 @@ t('an explicit Swing mode beats a conflicting mood in the prompt', () => {
   assert.equal(songState(wrong, 2654435761).state.patterns[2].prog[0].c, 20);
 });
 
+t('jazz chord qualities do not override the requested song mode', () => {
+  const major = {
+    style: 'swing', key: 'C', scale: 'major', hook: { contour: [0, 2, 4, 2] },
+    sections: [{ role: 'verse', bars: 16, chords: ['Imaj7', 'ii7', 'V7'] }],
+  };
+  const prompt = 'write jazz in C major with some minor seventh chords';
+  const spec = validateSpec(major, { prompt });
+  assert.equal(spec.scale, 'major');
+  assert.equal(spec.key, 0);
+  assert.deepEqual(spec.hook, major.hook);
+  assert.deepEqual(spec.sections[0].chords, major.sections[0].chords);
+  assert.equal(localSpec(prompt).scale, 'major');
+  assert.equal(localSpec('write jazz in D minor with a few major triads').scale, 'minor');
+  assert.equal(localSpec('write a jazz track with minor 7th chords').scale, null);
+  const namedChord = localSpec('write jazz in C major with an F minor chord');
+  assert.equal(namedChord.scale, 'major');
+  assert.equal(namedChord.key, 0);
+});
+
 t('named hip-hop genres keep their palettes in prompt-built songs', () => {
   for (const [prompt, style, voice] of [
     ['lo-fi hip-hop for studying', 'lofihiphop', 'tapekeys'],

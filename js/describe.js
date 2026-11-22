@@ -66,6 +66,8 @@ const PHRASES = [
   [/\b(?:everything|all)\s+(?:but|except|apart\s+from|other\s+than)|\bapart\s+from|\bother\s+than/g, ' except '],
   [/half[\s-]?time|half\s+speed/g, ' halftime '], [/double[\s-]?time|double\s+(?:the\s+)?(?:speed|tempo)/g, ' doubletime '],
   [/(?:change|switch|new|different|another|modulate)\s+(?:the\s+)?key|key\s+change|modulate/g, ' keychange '],
+  [/\b(?:major|minor)[\s-]+(?:sixths?|6ths?|sevenths?|7ths?|ninths?|9ths?|elevenths?|11ths?|thirteenths?|13ths?|6|7|9|11|13)\b(?:\s+(?:chords?|voicings?))?/g, ' richer harmony '],
+  [/\b(?:major|minor)[\s-]+(?=(?:chords?|triads?|voicings?)\b)/g, ''],
   [/jazz(?:y)?\s+chords|(?:seventh|7th|extended|ninth|9th)\s+chords|maj(?:or)?\s*7(?:ths?)?/g, ' richer harmony '],
   [/\b(?:19)?80s\b|eighties|retro[\s-]?wave|out[\s-]?run|vapou?r[\s-]?wave/g, ' synthwave '], [/\b(?:19)?90s\b|nineties/g, ' nineties '], [/\b(?:19)?70s\b|seventies/g, ' disco '],
   [/video\s+games?(?:\s+music)?|\b8[\s-]?bit\b|chip[\s-]?tunes?/g, ' chiptune '], [/(?:movie|film|tv)\s+(?:soundtrack|score|music)|soundtrack/g, ' cinematic '],
