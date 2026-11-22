@@ -209,6 +209,13 @@ t('jazz chord qualities do not override the requested song mode', () => {
   assert.deepEqual(spec.hook, major.hook);
   assert.deepEqual(spec.sections[0].chords, major.sections[0].chords);
   assert.equal(localSpec(prompt).scale, 'major');
+  for (const voicing of ['minor sevenths', 'F minor sevenths']) {
+    const shorthand = 'write jazz in C major with ' + voicing;
+    const spec = localSpec(shorthand);
+    assert.equal(spec.scale, 'major');
+    assert.equal(spec.key, 0);
+    assert.deepEqual(validateSpec(major, { prompt: shorthand }).hook, major.hook);
+  }
   assert.equal(localSpec('write jazz in D minor with a few major triads').scale, 'minor');
   assert.equal(localSpec('write a jazz track with minor 7th chords').scale, null);
   const namedChord = localSpec('write jazz in C major with an F minor chord');

@@ -48,9 +48,13 @@ const ARTISTS = {
   goldie: [/goldie|ltj\s+bukem/, 'dnb', [['space', 0.5]]],
 };
 const ARTIST_RE = Object.entries(ARTISTS).map(([id, [re]]) => [new RegExp(re.source, 'g'), ` artist${id} `]);
-const CHORD_QUALITY = /\b(major|minor)(?:[\s-]+((?:sixth|seventh|ninth|eleventh|thirteenth)s?|(?:6|7|9|11|13)(?:ths?)?))?[\s-]+(?:chords?|triads?|voicings?)\b/g;
-const KEY_PREFIX = /\b(?:in\s+the\s+key\s+of|key\s+of|in|to|key)\s+[a-g](?:#|b|\s+sharp|\s+flat)?\s+$/;
-const ADD_CHORDS = /\b(?:add|include|use|with)\s+(?:(?:some|a\s+few|a|an)\s+)?(?:[a-g][#b]?\s+)?$/;
+const CHORD_NOUN = '(?:chords?|triads?|voicings?)';
+const CHORD_EXTENSION = '(?:sixth|seventh|ninth|eleventh|thirteenth)s?|(?:6|7|9|11|13)ths?';
+const CHORD_QUALITY = new RegExp(
+  `\\b(?:([a-g](?:#|b|\\s+sharp|\\s+flat)?)\\s+)?(major|minor)[\\s-]+(?:(${CHORD_EXTENSION})(?:[\\s-]+${CHORD_NOUN})?|(6|7|9|11|13)[\\s-]+${CHORD_NOUN}|${CHORD_NOUN})\\b`, 'g',
+);
+const KEY_BEFORE_CHORD = /\b(?:in(?:\s+the\s+key\s+of)?|key(?:\s+of)?|(?:transpose|modulate|switch|change)(?:\s+(?:it|the\s+key))?\s+to)\s+$/;
+const CHORD_AMOUNT = /\b(?:add|include|use|with|more|less|fewer|no|without)\s+(?:(?:some|a\s+few|a|an|the)\s+)?$/;
 
 export const HIPHOP_PHRASES = [
   [/\blo[\s-]?fi[\s-]+(?:hip[\s-]?hop|beats?)\b|\bchillhop\b/g, 'lofihiphop'],
@@ -393,10 +397,10 @@ function normalize(text) {
   s = s.replace(/\bbase(line)?\b/g, 'bass$1');
   s = s.replace(/\bcan'?t\b/g, 'can not').replace(/\bwon'?t\b/g, 'will not').replace(/n't\b/g, ' not');
   for (const [re, to] of ARTIST_RE) s = s.replace(re, to);
-  s = s.replace(CHORD_QUALITY, (_, mode, extension, offset, text) => {
+  s = s.replace(CHORD_QUALITY, (_, root, mode, ordinal, number, offset, text) => {
     const before = text.slice(0, offset);
-    if (KEY_PREFIX.test(before)) return mode + ' chords';
-    return extension && ADD_CHORDS.test(before) ? 'richer harmony' : 'chords';
+    if (root && KEY_BEFORE_CHORD.test(before)) return root + ' ' + mode + ' chords';
+    return (ordinal || number) && CHORD_AMOUNT.test(before) ? 'richer harmony' : 'chords';
   });
   for (const [re, to] of PHRASES) s = s.replace(re, to);
   // "only bass and drums", "everything except the kick and hats", "bass and drums only" stay one clause.

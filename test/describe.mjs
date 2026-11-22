@@ -36,6 +36,16 @@ t('a chord quality names the target without changing the song mode or harmony', 
   assert.deepEqual(edits('make the minor sixth chords plainer'), [{ id: 'harmony', amt: -1 }]);
   assert.deepEqual(edits('add minor sixth chords'), [{ id: 'harmony', amt: 1 }]);
   assert.deepEqual(edits('make the F minor 7th voicings quieter'), [{ id: 'level', target: 'stab', amt: -1 }]);
+  for (const text of ['add more minor seventh chords', 'add minor sevenths', 'use F minor sevenths']) {
+    assert.deepEqual(edits(text), [{ id: 'harmony', amt: 1 }], text);
+  }
+  for (const text of ['no minor seventh chords', 'fewer minor sevenths', 'without F minor sevenths']) {
+    assert.deepEqual(edits(text), [{ id: 'harmony', amt: -1 }], text);
+  }
+  assert.deepEqual(edits('add reverb to D minor chords'), [{ id: 'space', target: 'stab', amt: 1 }]);
+  for (const text of ['transpose to D minor', 'transpose to D minor chords']) {
+    assert.deepEqual(edits(text), [{ id: 'key', value: 2 }, { id: 'scale', value: 'minor', explicit: true }], text);
+  }
 });
 
 for (const [phrase, voice] of [['add FM bass', 6], ['add pulse bass', 7], ['add wide reese bass', 8], ['add pluck bass', 9]]) {
