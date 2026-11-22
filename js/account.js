@@ -2,6 +2,7 @@
 // "Your public page" panel in the Artist sheet. Everything no-ops gracefully when /api/account is off.
 import { h } from './ui.js';
 import * as sc from './soundcloud.js';
+import { fetchTrack } from './crate.js';
 
 const API = '/api/account';
 const OFF = { enabled: false, account: null, following: [] };
@@ -93,6 +94,11 @@ export async function fetchFeed() {
 export async function fetchPublicTrack(id) {
   const r = await call('GET', null, `?track=${encodeURIComponent(id)}`).catch(() => null);
   return r?.ok ? r.json : null;
+}
+
+export async function fetchReleaseTrack(id) {
+  const { track, artist } = (await fetchPublicTrack(id)) || {};
+  return track?.state ? { ...track, artist: artist?.name || track.artist } : fetchTrack(id);
 }
 
 // Songs published while storage was off live only in this browser; publish them under the account now.

@@ -91,7 +91,7 @@ console.log('events rate limit passed');
 
   const lk = memoryKv();
   const sig = (kind, extra = {}) => ({ n: 'listen', p: { kind, genre: 'acid' }, l: { ...rec, ...extra }, t: T0 });
-  const body = { sid: 'cccccccc01', route: '/', events: [sig('start'), sig('replay'), sig('complete'), sig('love'), sig('share'), sig('share', { lis: '', ref: 'k3j9x0aa' }), sig('start', { lis: 'bbbbbb1234', fp: 'bbbbbbb1234567', style: 'techno' }), sig('skip', { lis: 'bbbbbb1234', fp: 'bbbbbbb1234567', style: 'techno' })] };
+  const body = { sid: 'cccccccc01', route: '/', events: [sig('start'), sig('replay'), sig('complete'), sig('love'), sig('share'), sig('share', { lis: '', ref: 'k3j9x0aa' }), sig('start', { lis: 'bbbbbb1234', fp: 'bbbbbbb1234567', style: 'techno', feel: 'tense' }), sig('skip', { lis: 'bbbbbb1234', fp: 'bbbbbbb1234567', style: 'techno', feel: 'tense' })] };
   assert.equal((await post(lk, body)).status, 202);
   const get = (query, token = 'secret') => handleEvents({ method: 'GET', query: { ...query, token }, kv: lk, statsToken: 'secret', now: T0 });
   const L = (await get({ summary: '1' })).json.listening;
@@ -101,6 +101,7 @@ console.log('events rate limit passed');
   assert.equal(L.rates.completion, 0.5);
   assert.equal(L.rates.skip, 0.5);
   assert.deepEqual(L.styles.map((x) => [x.style, x.starts, x.rates.completion, x.rates.love]), [['acid', 1, 1, 1], ['techno', 1, 0, 0]]);
+  assert.deepEqual(L.feels.map((x) => [x.feel, x.starts, x.rates.completion, x.rates.skip]), [['tense', 1, 0, 1]], 'rates split by intended feeling; songs without one stay out');
   assert.equal((await get({ signals: '1' }, 'nope')).status, 401, 'raw signals need the stats token');
   const raw = (await get({ signals: '1', fp: 'abcdefg1234567', limit: '3' })).json;
   assert.equal(raw.signals.length, 3);
@@ -114,6 +115,10 @@ console.log('events rate limit passed');
   // Down reasons are a closed set; cohort/device are enums; structure only on start; rewinds carry their target bar.
   assert.equal(cleanListen({ ...rec, why: 'boring' }, { kind: 'why' }).why, 'boring');
   assert.equal(cleanListen({ ...rec, why: 'it was too long' }, { kind: 'why' }), null, 'no free-text reasons');
+  assert.equal(cleanListen({ ...rec, why: 'no_feeling' }, { kind: 'why' }).why, 'no_feeling');
+  assert.equal(cleanListen({ ...rec, feel: 'heartbroken' }, { kind: 'love' }).feel, 'heartbroken', 'the intended feeling is kept');
+  assert.equal(cleanListen({ ...rec, feel: 'sad<b>' }, { kind: 'love' }).feel, undefined, 'only known feelings');
+  assert.equal('feel' in cleanListen(rec, { kind: 'start' }), false, 'no feeling, no field');
   assert.equal(cleanListen({ ...rec, why: 'boring' }, { kind: 'down' }).why, undefined);
   const ctxRec = cleanListen({ ...rec, co: 'd1_6', dev: 'phone', arr: 'intro-8.drop-16' }, { kind: 'start' });
   assert.deepEqual([ctxRec.co, ctxRec.dev, ctxRec.arr], ['d1_6', 'phone', 'intro-8.drop-16']);

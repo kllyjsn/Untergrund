@@ -20,7 +20,7 @@ async function copy(text, toast, what) {
 
 // The /t/<id> release page when the crate backend stores it; otherwise the whole song rides in the URL.
 const linkCache = new Map();
-export async function shareLinks(song, origin = location.origin, shareRef = '') {
+export async function shareLinks(song, origin = location.origin, shareRef = '', room = '') {
   const code = await encodeSong(song);
   let ref = linkCache.get(code);
   if (!ref) {
@@ -34,7 +34,7 @@ export async function shareLinks(song, origin = location.origin, shareRef = '') 
   }
   // The release page's light player renders loop/chain songs; classical scores (and repertoire loading) need the full app.
   const release = STYLES[song.style]?.family !== 'CLASSICAL';
-  return { link: songLink(origin, { ...ref, release }, '/', shareRef), embed: songLink(origin, ref, '/embed.html'), short: !!ref.id };
+  return { link: songLink(origin, { ...ref, release, room }, '/', shareRef), embed: songLink(origin, ref, '/embed.html'), short: !!ref.id };
 }
 
 export function countRemix(id) {
@@ -42,7 +42,7 @@ export function countRemix(id) {
   fetch(`/api/tracks?remix=${encodeURIComponent(id)}`, { method: 'POST' }).catch(() => {});
 }
 
-export function openShare({ song, toast, hue, download, source = 'studio', beforeExport }) {
+export function openShare({ song, toast, hue, download, source = 'studio', beforeExport, room = '' }) {
   let ctrl = null, videoUrl = '';
   const { body } = sheet('SHARE', { onClose: () => { ctrl?.abort(); if (videoUrl) URL.revokeObjectURL(videoUrl); } });
   const linkBox = h('input', { class: 'inp share-link', readonly: '', value: 'Making your link…', 'aria-label': 'Song link' });
@@ -51,7 +51,7 @@ export function openShare({ song, toast, hue, download, source = 'studio', befor
   // One ref per share sheet, only when analytics is on (Do Not Track, GPC and automation get a plain link). Every share
   // from the sheet carries it: a listen records only its first share, which must still join to the link's ref.
   const ref = analytics?.enabled ? newShareRef() : '';
-  const ready = shareLinks(song, location.origin, ref).then((l) => { links = l; linkBox.value = l.link; return l; })
+  const ready = shareLinks(song, location.origin, ref, room).then((l) => { links = l; linkBox.value = l.link; return l; })
     .catch((err) => { console.error(err); linkBox.value = 'Could not make a link for this song.'; });
   const withLinks = (fn) => async () => { const l = links || await ready; if (l) fn(l); };
   const text = `${song.title} by ${song.artist}, made in UNTERGRUND`;

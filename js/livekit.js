@@ -1,4 +1,6 @@
 import { pocketOf } from './groove.js';
+import { HAND_KIT, MARIMBA_STAB, KIT_BACKBEAT } from './params.js';
+import { ROOT_LAYERS, rootsFor } from './roots.js';
 // Recorded acoustic kit and upright bass for the live-kit genres (CC0, see samples/live/LICENSE.md).
 // Loads lazily; until the buffers arrive the engine keeps using the synthesized live voices.
 export const LIVE_KIT = {
@@ -10,6 +12,11 @@ export const LIVE_KIT = {
 // Centers are the measured pitch of each recording (python3 test/sampletune.py), not its name: the Eb1 take
 // was played about a quarter tone flat and Bb1 a tenth of a semitone flat, which left A1/B1 sour against the band.
 export const BASS_NOTES = [['c1', 23.91], ['eb1', 26.76], ['g1', 31.04], ['bb1', 33.9], ['d2', 38.07], ['f2', 41.03], ['a2', 44.99], ['c3', 48.05]];
+// Boom Bap chops the attack before the note settles. MIDI centers for takes A and B over the first 225 ms.
+export const BOOMBAP_BASS_CENTERS = {
+  c1: [24.09, 24.027], eb1: [26.709, 26.726], g1: [31.035, 31.1], bb1: [34.033, 34.021],
+  d2: [38.119, 38.175], f2: [41.11, 41.105], a2: [45.173, 45.115], c3: [48.042, 48.079],
+};
 // Measured head pitch of the recorded snare (Hz): it rings F#3 -33 c whatever the song's key. The kick is left alone:
 // its modes are inharmonic, so moving its 83 Hz peak onto the key put more of it off the grid, not less.
 export const KIT_PITCH = { snare: 181.4 };
@@ -20,6 +27,13 @@ export const LIVE_FILES = [
 
 // Recorded chord instruments, keyed by the MIDI note each sample was played at.
 export const BAND = {
+  fiddle: [55, 57, 60, 64, 67, 69, 72, 76, 79],
+  fiddlesoft: [55, 57, 60, 64, 67, 69, 72, 76, 79],
+  fiddlestac: [55, 57, 60, 64, 67, 69, 72, 76, 79],
+  fiddlestacsoft: [55, 57, 60, 64, 67, 69, 72, 76, 79],
+  upright: [41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85],
+  uprightsoft: [41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85],
+  uprighthard: [41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85],
   piano: [48, 52, 57, 60, 64, 67, 71, 74, 77, 81, 84, 88],
   pianosoft: [48, 52, 57, 60, 64, 67, 71, 74, 77, 81, 84, 88],
   gtr: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
@@ -39,8 +53,12 @@ export const BAND = {
   harp: [47, 53, 60, 64, 71, 77, 81, 84, 91],
   timp: [42, 47, 50, 52, 55],
   timproll: [47, 52],
+  // The saxophones: Karoryfer Weresax alto and MTG tenor (scripts/fetch-band.py --sax).
+  asax: [52, 55, 58, 61, 64, 67, 70, 73, 76, 79],
+  tsax: [47, 50, 53, 56, 59, 62, 65, 68, 71, 74],
   // The SONGS band: steel-string acoustic guitar and electric bass guitar.
   agtr: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
+  nylon: [40, 45, 48, 52, 55, 59, 64, 67, 69],
   ebass: [28, 31, 34, 37, 40, 43, 46, 49, 52, 55],
   // COUNTRY: a Fender clean off the bridge pickup for the lead, and a diatonic harmonica in C for the answers.
   tele: [52, 55, 59, 61, 64, 67, 71, 72, 74, 77, 80, 82, 85],
@@ -49,6 +67,10 @@ export const BAND = {
   jazz: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
   banjo: [40, 42, 45, 49, 51, 54, 57, 60, 63, 68, 71],
   gretsch: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
+  // Tonewheel organ (UK Garage stabs, Rock choruses) and the Roland SH-2 analog bass (UK Garage).
+  org: [43, 47, 48, 50, 52, 53, 55, 57, 59, 60, 62, 64, 65, 67, 69, 71, 72, 74, 76, 77, 79, 81, 83],
+  abass: [36, 39, 42, 45, 48, 51, 54, 57, 60],
+  marimba: [48, 55, 59, 65, 72, 79, 83],
 };
 // Measured pitch of a recording minus its name, in cents (python3 test/sampletune.py), for takes played a little off.
 const GTR_TUNE = { 40: -4, 42: -2, 45: -8, 48: -6, 51: 8, 54: 4, 57: 9, 60: 4, 63: 2, 66: 2, 72: -2 };
@@ -59,28 +81,62 @@ const JAZZ_TUNE = { 42: -7, 48: -10, 51: -3, 57: -3, 63: -3, 66: 4, 69: -3, 72: 
 const GRETSCH_TUNE = { 42: 19, 48: 6, 51: 5, 54: 5, 57: 10, 60: 7, 63: 6, 66: 4, 69: 2 };
 // The guitar banjo was tuned up a little under a quarter tone.
 const BANJO_TUNE = { 40: 41, 42: 41, 45: 48, 49: 39, 51: 43, 54: 34, 57: 13, 60: 30, 63: 41, 68: 23, 71: 10 };
-const BAND_TUNE = { tele: { 55: -8 }, hca: { 48: -8 }, jazz: JAZZ_TUNE, jazzb: JAZZ_TUNE, gretsch: GRETSCH_TUNE, gretschb: GRETSCH_TUNE, banjo: BANJO_TUNE, gtr: GTR_TUNE, gtrsoft: GTR_TUNE, gtrb: GTR_TUNE, gtrsoftb: GTR_TUNE, gtrmute: MUTE_TUNE, gtrmuteb: MUTE_TUNE_B };
+const BAND_TUNE = { tele: { 55: -8 }, hca: { 48: -8 }, abass: { 36: -8.6, 39: -5.1, 42: -6.2, 45: -6.7, 48: -5.8, 51: -6.6, 54: -6.3, 57: -7.1, 60: -8 }, nylon: { 40: -6.7, 45: 2.3, 48: -2.9, 52: -9.6, 55: 10.4, 59: -3.6, 64: -19.7, 67: -11.6, 69: -17 }, jazz: JAZZ_TUNE, jazzb: JAZZ_TUNE, gretsch: GRETSCH_TUNE, gretschb: GRETSCH_TUNE, banjo: BANJO_TUNE, gtr: GTR_TUNE, gtrsoft: GTR_TUNE, gtrb: GTR_TUNE, gtrsoftb: GTR_TUNE, gtrmute: MUTE_TUNE, gtrmuteb: MUTE_TUNE_B };
 // Instruments recorded at two dynamics: the softly played layer loads with the instrument.
-export const SOFT_LAYER = { piano: 'pianosoft', gtr: 'gtrsoft' };
-// A second take of every guitar note, so a repeated strum alternates recordings instead of machine-gunning one.
+export const SOFT_LAYER = { piano: 'pianosoft', gtr: 'gtrsoft', fiddle: 'fiddlesoft', fiddlestac: 'fiddlestacsoft' };
+// Alternate woodwind and guitar takes for repeated notes.
 // Loaded in the background once the first take is in; until then every hit plays the first take.
-export const TAKES = { gtr: 'gtrb', gtrsoft: 'gtrsoftb', agtr: 'agtrb', gtrmute: 'gtrmuteb', jazz: 'jazzb', gretsch: 'gretschb' };
+export const TAKES = { gtr: 'gtrb', gtrsoft: 'gtrsoftb', agtr: 'agtrb', gtrmute: 'gtrmuteb', jazz: 'jazzb', gretsch: 'gretschb', ob: 'obb', fl: 'flb', asax: 'asaxb', tsax: 'tsaxb', fiddlestac: 'fiddlestacb', fiddlestacsoft: 'fiddlestacsoftb' };
 // The Hofner's staccato (fretting hand lifted right after the pick): the DRIVE GTR's palm-muted chug.
 export const MUTE_LAYER = { gtr: 'gtrmute' };
 // Background-only recordings: alternate takes and mutes, never waited on before a song starts.
 const EXTRA_TAKES = Object.fromEntries([...Object.entries(TAKES), ...Object.entries(MUTE_LAYER)].map(([k, alt]) => [alt, BAND[k] || BAND.gtr]));
 // STAB voice index -> recorded instrument.
-export const STAB_BAND = { 7: 'piano', 8: 'gtr', 9: 'horn', 10: 'str', 11: 'gtr', 12: 'agtr', 13: 'jazz', 14: 'banjo', 15: 'gretsch' };
+export const STAB_BAND = { 7: 'piano', 8: 'gtr', 9: 'horn', 10: 'str', 11: 'gtr', 12: 'agtr', 13: 'jazz', 14: 'banjo', 15: 'gretsch', 16: 'cello', 17: 'cl', 18: 'nylon', [MARIMBA_STAB]: 'marimba' };
+// Styles whose ORGAN chords and REESE bass play those recordings instead of the synth voices.
+export const RECORDED_ORGAN = new Set(['ukg']);
+export const ANALOG_BASS = new Set(['ukg']);
+export const HOOK_BAND = { harpplk: 'harp', oboe: 'ob', airflute: 'fl', tpt: 'tpt', marimba: 'marimba', altosax: 'asax', tenorsax: 'tsax' };
+// Where a generic 'reed' hook is a saxophone part: alto for the sung pop, neo-soul, club and trap leads; tenor for the dusty
+// boom bap loop and the Afrobeat horn line, an octave lower. Other reed styles keep their own lead.
+export const SAX_HOOK = {
+  neosoul: 'altosax', pop: 'altosax', reggaeton: 'altosax', breaks: 'altosax', trap: 'altosax',
+  boombap: 'tenorsax', afrobeats: 'tenorsax',
+};
+// Saxophones fold the key root into the horn's written range (`SAX_LO` is the lowest phrase root), so a high key drops a
+// whole octave instead of chipmunking the top notes. A hook octave away from the style's generated one (`SAX_OCT`, a
+// Describe edit) still moves it.
+export const SAX_LO = { altosax: 55, tenorsax: 46 };
+export const SAX_OCT = { trap: 1 };
+export const saxRoot = (style, root, oct = SAX_OCT[style] ?? 0) => {
+  const lo = SAX_LO[SAX_HOOK[style]];
+  return lo + (((root - lo) % 12) + 12) % 12 + (oct - (SAX_OCT[style] ?? 0)) * 12;
+};
 Object.assign(BAND, EXTRA_TAKES);
 export const BAND_FILES = Object.entries(BAND).flatMap(([k, ns]) => ns.map((n) => `${k}_${n}`));
 // Crash and toms of the same recorded kit, loaded only by the band pockets that play them (POP, R&B, ROCK, FOLK, COUNTRY).
 export const KIT_EXTRA = ['crash_v2', 'crash_v3', 'htom_v8', 'htom_v14', 'ltom_v8', 'ltom_v14'];
+const HANDS = {
+  shaker: ['shaker_1', 'shaker_2', 'shaker_4', 'shaker_7'],
+  conga: ['conga_tap_1', 'conga_tap_2', 'conga_open_1', 'conga_open_2'],
+  cowbell: ['cowbell_1', 'cowbell_2'],
+  timbale: ['timbale_closed_1', 'timbale_closed_2', 'timbale_low_1', 'timbale_low_2', 'timbale_high_1', 'timbale_high_2'],
+  cuica: ['cuica_1', 'cuica_2'],
+};
+const HAND_SETS = {
+  [HAND_KIT.amapiano]: ['shaker', 'conga'],
+  [HAND_KIT.afrobeats]: ['conga', 'shaker', 'cowbell'],
+  [HAND_KIT.reggaeton]: ['conga', 'timbale'],
+  [HAND_KIT.bailefunk]: ['timbale', 'cuica'],
+};
+export const HAND_FILES = Object.values(HANDS).flat();
 
 const BASE = new URL('../samples/live/', import.meta.url);
-// Samples are served with immutable caching: bump SAMPLES_REV whenever a file under samples/live changes.
-const SAMPLES_REV = 4;
+// Samples are served with immutable caching: bump SAMPLES_REV when replacing an existing recording.
+const SAMPLES_REV = 6;
 const sampleUrl = (file) => new URL(`${file}.flac?v=${SAMPLES_REV}`, BASE);
 let buffers = null, loading = null, extra = null, extraLoading = null;
+let snare = null, snareLoading = null;
 const band = {}, bandLoading = {}, names = new WeakMap();
 
 export const bandKit = (name) => band[name] || null;
@@ -88,6 +144,7 @@ export const bandKit = (name) => band[name] || null;
 export const bandName = (set) => names.get(set) || null;
 
 export function loadBand(name) {
+  for (const layer of ROOT_LAYERS[name] || []) loadBand(layer);
   if (SOFT_LAYER[name]) loadBand(SOFT_LAYER[name]);
   if (band[name]) for (const k of [TAKES[name], MUTE_LAYER[name]]) if (k) loadBand(k);
   if (band[name]) return Promise.resolve(band[name]);
@@ -114,28 +171,73 @@ export const liveKit = () => buffers;
 export const BAND_LAYER = {
   pop: { pre: { parts: ['vc'], v: 0.5 }, chorus: { parts: ['vln1', 'vla', 'vc'], v: 0.55 }, bridge: { parts: ['vla', 'vc'], v: 0.5 } },
   rnb: { chorus: { parts: ['vln1', 'vla'], v: 0.45 }, bridge: { parts: ['vln1', 'vla', 'vc'], v: 0.45 } },
-  rock: { chorus: { parts: ['pno'], v: 0.64 }, bridge: { parts: ['vla', 'vc'], v: 0.5 } },
+  rock: { chorus: { parts: ['org'], v: 0.6 }, bridge: { parts: ['vla', 'vc'], v: 0.5 } },
   folk: { pre: { parts: ['vc'], v: 0.45 }, chorus: { parts: ['vc', 'vla'], v: 0.5 }, bridge: { parts: ['vln1', 'vla', 'vc'], v: 0.45 } },
   country: { pre: { parts: ['pno'], v: 0.62 }, chorus: { parts: ['pno', 'vla'], v: 0.62 }, bridge: { parts: ['vln1', 'vla'], v: 0.45 } },
 };
-const LAYER_SETS = { vc: ['cello'], vla: ['cello', 'str'], vln1: ['str'], pno: ['pianoext', 'piano', 'pianoextsoft', 'pianosoft'] };
+const LAYER_SETS = { vc: ['cello'], vla: ['cello', 'str'], vln1: ['str'], pno: ['pianoext', 'piano', 'pianoextsoft', 'pianosoft'], org: ['org'] };
 const layerSets = (style) => [...new Set(Object.values(BAND_LAYER[style] || {}).flatMap((x) => x.parts.flatMap((p) => LAYER_SETS[p])))];
 export function liveSets(st) {
-  const out = Math.round(st?.master?.kit || 0) >= 1 ? ['kit'] : [];
-  if (out.length && pocketOf(st.master)?.band) out.push('kitx');
+  const mode = Math.round(st?.master?.kit || 0), fullKit = mode === 1 || mode === 2;
+  const out = fullKit ? ['kit'] : mode === KIT_BACKBEAT ? ['snare'] : [];
+  if (st?.patterns?.some((p) => p.jazz?.style === 'jazzfunk') || st?.pattern?.jazz?.style === 'jazzfunk') out.push('horn');
+  if (fullKit && pocketOf(st.master)?.band) out.push('kitx');
   if (Math.round(st?.params?.acid?.voice || 0) === 5) out.push('ebass');
+  if (Math.round(st?.params?.acid?.voice || 0) === 3 && ANALOG_BASS.has(st?.artist?.style)) out.push('abass');
+  if (Math.round(st?.params?.stab?.voice || 0) === 3 && RECORDED_ORGAN.has(st?.artist?.style)) out.push('org');
+  out.push(...(HAND_SETS[Math.round(st?.params?.perc?.voice || 0)] || []));
   const name = STAB_BAND[Math.round(st?.params?.stab?.voice || 0)];
   if (name) out.push(name, ...(SOFT_LAYER[name] ? [SOFT_LAYER[name]] : []));
-  // Country's lead is a Telecaster whatever plays the chords, answered by a harmonica.
-  if (pocketOf(st.master)?.walk) out.push('tele', 'hca');
-  if (out.length && pocketOf(st.master)?.band) out.push(...layerSets(st.artist?.style));
-  return [...new Set(out)];
+  for (const p of [st?.pattern, ...(st?.patterns || [])]) {
+    const roots = rootsFor(st, p);
+    if (roots?.chord === 'upright' && Math.round(st?.params?.stab?.voice) === 7) out.push('upright');
+    if (roots?.hook === 'fiddle' || roots?.answer === 'fiddle') out.push('fiddle');
+    if (roots?.hook === 'twang') out.push('gtr', 'gtrsoft');
+    const v = p?.hook?.v === 'reed' ? SAX_HOOK[roots?.style ?? st?.artist?.style] : p?.hook?.v, voice = Object.hasOwn(HOOK_BAND, v) && HOOK_BAND[v];
+    if (voice) out.push(voice, ...(TAKES[voice] ? [TAKES[voice]] : []));
+  }
+  // Country's lead is a Telecaster whatever plays the chords.
+  if (pocketOf(st.master)?.walk) out.push('tele', 'hca', 'gtr', 'gtrsoft');
+  if (fullKit && pocketOf(st.master)?.band) out.push(...layerSets(st.artist?.style));
+  return [...new Set(out.flatMap((n) => [n, ...(ROOT_LAYERS[n] || [])]))];
 }
 // A song's recordings plus their alternate takes and mutes: what an offline render waits for, so exports get every take.
-export const withTakes = (names) => [...new Set(names.flatMap((n) => [n, TAKES[n], MUTE_LAYER[n], TAKES[MUTE_LAYER[n]]].filter(Boolean)))];
-export const liveSet = (name) => (name === 'kit' ? buffers : name === 'kitx' ? extra : bandKit(name));
+export const withTakes = (names) => [...new Set(names.flatMap((n) => [n, ...(ROOT_LAYERS[n] || [])]).flatMap((n) => [n, TAKES[n], MUTE_LAYER[n], TAKES[MUTE_LAYER[n]]].filter(Boolean)))];
+export const liveSet = (name) => (name === 'kit' ? buffers : name === 'kitx' ? extra : name === 'snare' ? snare || buffers : bandKit(name));
 export const setsReady = (names) => names.every((n) => liveSet(n));
-export const loadSets = (names) => Promise.all(names.map((n) => (n === 'kit' ? loadLiveKit() : n === 'kitx' ? loadKitExtra() : loadBand(n))));
+export function assertRootsReady(names) {
+  const roots = new Set(Object.entries(ROOT_LAYERS).flatMap(([name, layers]) => [name, ...layers]));
+  for (const name of names) if (roots.has(name) && !bandKit(name)) throw new Error(`Required recorded S9 samples unavailable: ${name}`);
+}
+export const loadSets = (names) => Promise.all(names.map((n) => (n === 'kit' ? loadLiveKit() : n === 'kitx' ? loadKitExtra() : n === 'snare' ? loadSnare() : Object.hasOwn(HANDS, n) ? loadHand(n) : loadBand(n))));
+
+export function loadHand(name) {
+  if (band[name]) return Promise.resolve(band[name]);
+  if (bandLoading[name]) return bandLoading[name];
+  if (!Object.hasOwn(HANDS, name) || typeof fetch !== 'function' || typeof OfflineAudioContext === 'undefined') return Promise.resolve(null);
+  const dec = new OfflineAudioContext(1, 1, 44100);
+  bandLoading[name] = Promise.all(HANDS[name].map(async (file) => {
+    const res = await fetch(sampleUrl(file));
+    if (!res.ok) throw new Error(`${file}: HTTP ${res.status}`);
+    return dec.decodeAudioData(await res.arrayBuffer());
+  })).then((takes) => (band[name] = takes))
+    .catch((err) => { console.warn(`${name} samples unavailable, using synth voice`, err); return null; });
+  return bandLoading[name];
+}
+
+export function loadSnare() {
+  if (snare || buffers) return Promise.resolve(snare || buffers);
+  if (snareLoading) return snareLoading;
+  if (typeof fetch !== 'function' || typeof OfflineAudioContext === 'undefined') return Promise.resolve(null);
+  const dec = new OfflineAudioContext(1, 1, 44100);
+  snareLoading = Promise.all(LIVE_KIT.snare.map(async (name) => {
+    const res = await fetch(sampleUrl(name));
+    if (!res.ok) throw new Error(`${name}: HTTP ${res.status}`);
+    return [name, await dec.decodeAudioData(await res.arrayBuffer())];
+  })).then((entries) => (snare = Object.fromEntries(entries)))
+    .catch((err) => { console.warn('snare samples unavailable, using synth voice', err); return null; });
+  return snareLoading;
+}
 
 export function loadKitExtra() {
   if (extra) return Promise.resolve(extra);

@@ -5,7 +5,7 @@ export const LISTEN_VERSION = 1;
 export const SKIP_MS = 30_000, COMPLETE_PCT = 90, AFTER_MS = 10 * 60_000;
 export const LISTEN_KINDS = ['start', 'complete', 'skip', 'partial', 'replay', 'keep', 'publish', 'share', 'live', 'love', 'unlove', 'down', 'undown', 'why', 'rewind'];
 // One-tap reasons after a down. Categorical only: there is never a free-text field.
-export const DOWN_REASONS = ['boring', 'sounds_bad', 'not_my_style'];
+export const DOWN_REASONS = ['boring', 'sounds_bad', 'not_my_style', 'no_feeling'];
 const ONCE = new Set(['keep', 'publish', 'share', 'live']);
 const HEARD = 'untergrund.heard', LOVED = 'untergrund.loved', DOWNED = 'untergrund.downed', HEARD_MAX = 200, LOVED_MAX = 300;
 
@@ -36,7 +36,7 @@ const list = (store, key) => { try { const v = JSON.parse(store?.getItem(key) ||
 const keep = (store, key, arr, max) => { try { store?.setItem(key, JSON.stringify(arr.slice(-max))); } catch {} };
 const rid = () => Array.from({ length: 10 }, () => ((Math.random() * 36) | 0).toString(36)).join('');
 
-// ctx (per listen): { fp, tid, seed, style, src, surf, ph, pt, arr, via?, xp?, arm? } (via: the share ref the listener arrived through) (xp/arm: js/experiments.js); pos (per signal): { bar, bars, sec }.
+// ctx (per listen): { fp, tid, seed, style, src, surf, ph, pt, arr, feel?, via?, xp?, arm? } (feel: the song's intended feeling, js/feel.js; via: the share ref the listener arrived through) (xp/arm: js/experiments.js); pos (per signal): { bar, bars, sec }.
 export function createListens({ emit = () => {}, now = () => Date.now(), store = globalThis.localStorage } = {}) {
   let cur = null, last = null;
   const soloShared = new Set();
@@ -49,7 +49,7 @@ export function createListens({ emit = () => {}, now = () => Date.now(), store =
     const p = l.pos || {};
     const rec = { v: LISTEN_VERSION, lis: l.id, fp: l.fp, tid: l.tid || '', seed: Number.isFinite(l.seed) ? l.seed : -1, style: l.style || '',
       src: l.src || '', surf: l.surf || '', ph: l.ph || '', bar: p.bar ?? 0, bars: p.bars ?? 0, sec: p.sec || '', pct: pctOf(p), ms: Math.round(played(l)),
-      ...(l.via ? { via: l.via } : {}), ...(l.xp && l.arm ? { xp: l.xp, arm: l.arm } : {}), ...extra };
+      ...(l.feel ? { feel: l.feel } : {}), ...(l.via ? { via: l.via } : {}), ...(l.xp && l.arm ? { xp: l.xp, arm: l.arm } : {}), ...extra };
     emit(kind, rec);
     return rec;
   }
@@ -102,7 +102,7 @@ export function createListens({ emit = () => {}, now = () => Date.now(), store =
     if (!song?.fp || soloShared.has(key)) return null;
     soloShared.add(key);
     const rec = { v: LISTEN_VERSION, lis: '', fp: song.fp, tid: song.tid || '', seed: Number.isFinite(song.seed) ? song.seed : -1, style: song.style || '',
-      src: song.src || '', surf: song.surf || '', ph: '', bar: 0, bars: 0, sec: '', pct: -1, ms: 0, ...(song.via ? { via: song.via } : {}), ...extra };
+      src: song.src || '', surf: song.surf || '', ph: '', bar: 0, bars: 0, sec: '', pct: -1, ms: 0, ...(song.feel ? { feel: song.feel } : {}), ...(song.via ? { via: song.via } : {}), ...extra };
     emit('share', rec);
     return rec;
   }
@@ -111,6 +111,7 @@ export function createListens({ emit = () => {}, now = () => Date.now(), store =
   const isDowned = (fp) => !!fp && downed.has(fp);
   const at = (l, pos) => (l === cur && !l.held ? pos : l.pos);
   // The explicit reactions: love or down, on the song you hear (or just heard). One tap each; they exclude each other.
+  // Each carries where it happened (bar, sec, pct): a love marks the moment that moved the listener.
   function react(mine, other, [on, off], [otherOff, key, otherKey], pos) {
     const l = target();
     if (!l) return null;
