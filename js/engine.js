@@ -4352,7 +4352,7 @@ export class Engine {
       this.ch.acid.input = gate;
       try {
         const result = this.acidVoice(t, st, false, false, sd, slideUntil, kickAt);
-        if (vo === 0 || vo >= 7) {
+        if (vo === 0 || (vo >= 7 && !(playsAnalogBass(this.playbackStyle, vo) && this.rec('abass')))) {
           const amp = vo === 0 ? this.acidNodes.vca : this.gatedBasses.get(vo)?.amp;
           for (const node of [amp, this.subVoice?.amp]) if (node) {
             node.gain.cancelScheduledValues(st.until - 0.018);
@@ -4397,12 +4397,16 @@ export class Engine {
       return this.dubSub(t, st, sd, holdNext);
     }
     const vo = Math.round(p.voice);
-    for (const [voice, { amp: { gain } }] of this.gatedBasses) if (vo !== voice) {
+    const analog = playsAnalogBass(this.playbackStyle, vo) && this.rec('abass');
+    for (const [voice, { amp: { gain } }] of this.gatedBasses) if (vo !== voice || analog) {
       gain.cancelScheduledValues(t); gain.setTargetAtTime(0, t, 0.005);
     }
     if (vo > 0 && playsAnalogBass(this.playbackStyle, vo)) {
       a.vca.gain.setTargetAtTime(0, t, 0.005);
-      if (this.rec('abass')) return this.analogBass(t, st, sd, holdNext, sliding);
+      if (analog) {
+        a.vca.gain.cancelScheduledValues(t);
+        return this.analogBass(t, st, sd, holdNext, sliding);
+      }
       loadBand('abass');
     }
     if (vo > 0) { a.vca.gain.setTargetAtTime(0, t, 0.005); return this[['', 'bass', 'eight08', 'reese', 'logdrum', 'ebass', 'fmBass', 'pulseBass', 'harmonicBass', 'harmonicBass'][vo]](t, st, sd, holdNext, sliding, vo === 2 ? kickAt : slideUntil); }

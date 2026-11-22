@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { LIVE_FILES, BAND_FILES, KIT_EXTRA, HAND_FILES, BAND, TAKES, MUTE_LAYER, SOFT_LAYER, withTakes, liveSets, BAND_LAYER, playsAnalogBass } from '../js/livekit.js';
 import { generate } from '../js/state.js';
 import { Engine } from '../js/engine.js';
+import { OfflineAudioContext } from './offline-audio.mjs';
 
 const dir = new URL('../samples/live/', import.meta.url);
 const license = readFileSync(new URL('LICENSE.md', dir), 'utf8');
@@ -41,10 +42,31 @@ for (const [style, voice] of [['ukg', 1], ['rock', 1], ['trap', 7], ['gfunk', 3]
 for (const [style, voice, expected] of [['gfunk', 1, 'recorded'], ['gfunk', 7, 'recorded'], ['ukg', 3, 'recorded'], ['ukg', 1, 'synth'], ['rock', 1, 'synth']]) {
   const engine = {
     state: { artist: { style }, params: { acid: { voice } } }, playbackStyle: style,
-    acidNodes: { vca: { gain: { setTargetAtTime() {} } } }, gatedBasses: new Map(),
+    acidNodes: { vca: { gain: { setTargetAtTime() {}, cancelScheduledValues() {} } } }, gatedBasses: new Map(),
     rec: () => true, analogBass: () => 'recorded', bass: () => 'synth',
   };
   assert.equal(Engine.prototype.acidVoice.call(engine, 0, {}, false, false, 0.1), expected, `${style} voice ${voice} dispatch`);
+}
+for (const recorded of [true, false]) {
+  const ctx = new OfflineAudioContext(1, 48000, 48000), input = ctx.createGain(), amp = ctx.createGain(), vca = ctx.createGain();
+  amp.gain.setValueAtTime(1, 0.5); vca.gain.setValueAtTime(1, 0.5);
+  let pickup;
+  const engine = {
+    ctx, state: { artist: { style: 'gfunk' }, params: { acid: { voice: 7 } } }, playbackStyle: 'gfunk',
+    ch: { acid: { input } }, acidNodes: { vca }, gatedBasses: new Map([[7, { amp }]]),
+    gain: Engine.prototype.gain, acidVoice: Engine.prototype.acidVoice, rec: () => recorded,
+    analogBass: () => { pickup = engine.ch.acid.input; return 'recorded'; },
+    pulseBass: () => { pickup = engine.ch.acid.input; return 'synth'; },
+  };
+  assert.equal(Engine.prototype.acid.call(engine, 0.1, { until: 0.2, targetAt: 0.3 }, false, false, 0.1), recorded ? 'recorded' : 'synth');
+  assert.equal(engine.ch.acid.input, input, 'the pickup restores the main bass destination');
+  assert.equal(pickup.gain.at(0.3), recorded ? 0 : 1, 'only a shared synth bank needs its pickup gate reopened');
+  if (recorded) {
+    assert.ok(amp.gain.at(0.6) < 1e-6 && vca.gain.at(0.6) < 1e-6, 'recorded routing cancels stale same-voice bank and synth VCA automation');
+    engine.analogBass = () => { throw new Error('test playback failure'); };
+    assert.throws(() => Engine.prototype.acid.call(engine, 0.7, { until: 0.8, targetAt: 0.9 }, false, false, 0.1), /test playback failure/);
+    assert.equal(engine.ch.acid.input, input, 'a failed pickup also restores the destination');
+  }
 }
 for (const style of ['gfunk', 'ukg', 'rock', undefined]) {
   const engine = { playbackStyle: style, recorded: (kind, fallback) => [kind, fallback], synthOrgan: () => 'synth' };
