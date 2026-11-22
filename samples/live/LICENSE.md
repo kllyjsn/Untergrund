@@ -6,7 +6,7 @@ the Virtuosity Drums and double-bass files are byte-identical, sha256 `a2010f343
 CC0 waives copyright and related rights, so the files can be redistributed in this app and used in commercial
 music without attribution. We credit the authors anyway.
 
-Processing applied to every file: summed to mono, resampled to 44.1 kHz 16-bit PCM, trimmed, 80 ms fade out.
+Processing applied to every file: summed to mono, resampled to 44.1 kHz 16-bit PCM, trimmed (organ 2.2 s, bass 2.4 s), 80 ms fade out.
 Stored as lossless FLAC (bit-identical PCM to the original 16-bit WAVs). Drum files mix the close mic with the overhead mic of the same hit.
 
 ## Virtuosity Drums (Versilian Studios / Karoryfer, drummer Austin McMahon)
@@ -135,16 +135,56 @@ recording's measured pitch (`python3 test/sampletune.py`) is corrected in `js/li
 | `ebass_52.flac` | `darkblack/reg/darkblack_e4_mf_rr1.wav` | 52 |
 | `ebass_55.flac` | `darkblack/reg/darkblack_g4_mf_rr1.wav` | 55 |
 
+## Saxophones: Karoryfer Weresax alto and MTG tenor (the recorded `reed` hook in Pop, Neo-Soul, Reggaeton, Breaks, Trap, Boom Bap and Afrobeats)
+
+- Alto source: https://github.com/sfzinstruments/karoryfer.weresax @ `a4d756b21d2a573aca0d840cce7e71ba5effd4c6`
+- Alto license: CC0 1.0 Universal (the `LICENSE` file in that repo)
+- Tenor source: https://github.com/sfzinstruments/MTG.SoloSax @ `b494d256549b3d088fdec176ce82867f8a1f58b2`
+  (sampled by the Music Technology Group, Universitat Pompeu Fabra, published on freesound.org; SFZ by kinwie)
+- Tenor license: Creative Commons Attribution 4.0 International (CC BY 4.0). Attribution: "MTG Solo Saxophones" by
+  the Music Technology Group (Universitat Pompeu Fabra), https://github.com/sfzinstruments/MTG.SoloSax, CC BY 4.0;
+  trimmed, converted to mono 16-bit FLAC and loudness matched for Untergrund.
+- Fetched and processed by `scripts/fetch-band.py --sax`: mono, 44.1 kHz, leading silence trimmed, cut at 3 s with an
+  80 ms fade, and scaled so every note has the same sustain loudness (RMS over 0.15-0.9 s). Weresax names its notes an
+  octave below MIDI (`a2` is MIDI 57, its SFZ key center); the MTG tenor numbers notes from MIDI 44 and plays 10-20
+  cents sharp, which `WIND_HOOK` in `js/engine.js` corrects. The `b` files are the alternate take for repeated notes:
+  the Weresax second round robin, and the MTG tenor's piano-dynamic take.
+
+| File | Source sample under `Samples/` | Key center (MIDI) |
+| --- | --- | --- |
+| `asax_52.flac` / `asaxb_52.flac` | `alto/e2_f_rr1_cnd.wav` / `alto/e2_f_rr2_cnd.wav` | 52 |
+| `asax_55.flac` / `asaxb_55.flac` | `alto/g2_f_rr1_cnd.wav` / `alto/g2_f_rr2_cnd.wav` | 55 |
+| `asax_58.flac` / `asaxb_58.flac` | `alto/bb2_f_rr1_cnd.wav` / `alto/bb2_f_rr2_cnd.wav` | 58 |
+| `asax_61.flac` / `asaxb_61.flac` | `alto/db3_f_rr1_cnd.wav` / `alto/db3_f_rr2_cnd.wav` | 61 |
+| `asax_64.flac` / `asaxb_64.flac` | `alto/e3_f_rr1_cnd.wav` / `alto/e3_f_rr2_cnd.wav` | 64 |
+| `asax_67.flac` / `asaxb_67.flac` | `alto/g3_f_rr1_cnd.wav` / `alto/g3_f_rr2_cnd.wav` | 67 |
+| `asax_70.flac` / `asaxb_70.flac` | `alto/bb3_f_rr1_cnd.wav` / `alto/bb3_f_rr2_cnd.wav` | 70 |
+| `asax_73.flac` / `asaxb_73.flac` | `alto/db4_f_rr1_cnd.wav` / `alto/db4_f_rr2_cnd.wav` | 73 |
+| `asax_76.flac` / `asaxb_76.flac` | `alto/e4_f_rr1_cnd.wav` / `alto/e4_f_rr2_cnd.wav` | 76 |
+| `asax_79.flac` / `asaxb_79.flac` | `alto/g4_f_rr1_cnd.wav` / `alto/g4_f_rr2_cnd.wav` | 79 |
+| `tsax_47.flac` / `tsaxb_47.flac` | `ten_f_04.flac` / `ten_p_04.flac` | 47 |
+| `tsax_50.flac` / `tsaxb_50.flac` | `ten_f_07.flac` / `ten_p_07.flac` | 50 |
+| `tsax_53.flac` / `tsaxb_53.flac` | `ten_f_10.flac` / `ten_p_10.flac` | 53 |
+| `tsax_56.flac` / `tsaxb_56.flac` | `ten_f_13.flac` / `ten_p_13.flac` | 56 |
+| `tsax_59.flac` / `tsaxb_59.flac` | `ten_f_16.flac` / `ten_p_16.flac` | 59 |
+| `tsax_62.flac` / `tsaxb_62.flac` | `ten_f_19.flac` / `ten_p_19.flac` | 62 |
+| `tsax_65.flac` / `tsaxb_65.flac` | `ten_f_22.flac` / `ten_p_22.flac` | 65 |
+| `tsax_68.flac` / `tsaxb_68.flac` | `ten_f_25.flac` / `ten_p_25.flac` | 68 |
+| `tsax_71.flac` / `tsaxb_71.flac` | `ten_f_28.flac` / `ten_p_28.flac` | 71 |
+| `tsax_74.flac` / `tsaxb_74.flac` | `ten_f_31.flac` / `ten_p_31.flac` | 74 |
+
 ## Rejected
 
 - jlearman jRhodes3d electric piano: its samples are CC-BY-NC 4.0 (non-commercial), so it is not bundled.
   The Rhodes stays synthesized until a CC0 electric piano is found.
+- MTG baritone sax and Karoryfer Bear Sax: the generated hooks sit in the alto and tenor ranges, so a baritone would
+  only play transposed or an octave under the bass; not bundled until a part is written for it.
 
 ## Recorded chord instruments (PIANO, GUITAR, HORNS, STRINGS)
 
 Every file below is derived from a CC0 1.0 Universal source (license file checked in each repository at the
 commit listed). Files are named by the MIDI note they sound at. Processing: leading silence removed, summed to
-mono, resampled to 44.1 kHz 16-bit PCM, trimmed, 80 ms fade out, peak-normalised to -6 dBFS, stored as lossless FLAC.
+mono, resampled to 44.1 kHz 16-bit PCM, trimmed (organ 2.2 s, bass 2.4 s), 80 ms fade out, peak-normalised to -6 dBFS, stored as lossless FLAC.
 The piano files (`piano_*`, `pianosoft_*`, `pianoext_*`, `pianoextsoft_*`) instead keep each note's natural ring
 until it has decayed 48 dB below its loudest 50 ms (at most 9 s), then fade over the last 0.6 s
 (`scripts/fetch-orchestra.py --piano`).
@@ -181,6 +221,20 @@ principal pitch read from each drum's 1 : 1.5 : 2 partial series.
 | `harp_47.flac` … `harp_91.flac` (9) | VSCO-2-CE | `Strings/Harp/KSHarp_{B1,F2,C3,E3,B3,F4,A4,C5,G5}_mf.wav` |
 | `timp_42.flac`, `timp_47.flac`, `timp_50.flac`, `timp_52.flac`, `timp_55.flac` | VSCO-2-CE | `Percussion/Timpani/Timpani{1,2,3,4,5}_Hit_v3_rr1_Sum.wav` |
 | `timproll_47.flac`, `timproll_52.flac` | VSCO-2-CE | `Percussion/Timpani/Rolls/Timpani{2,4}_Roll_v3_rr1_Sum.wav` |
+
+## Tonewheel organ and analog synth bass (Freesound, CC0)
+
+Original uploads (never the lossy previews), fetched through the Freesound API by `scripts/fetch-freesound.py`,
+which lists every sound id. Each sound page states **CC0 1.0 Universal**. Processing as above: leading silence
+removed, mono, resampled to 44.1 kHz 16-bit, trimmed (organ 2.2 s, bass 2.4 s), 80 ms fade out, peak -6 dBFS, lossless FLAC. Measured pitch
+is within 5 cents of each organ note's name.
+
+| Files | Source | Samples used |
+| --- | --- | --- |
+| `org_43.flac` … `org_83.flac` (23), the ORGAN voice in UK GARAGE and the ROCK chorus organ | Freesound pack [18844 "tonewheel organ sound samples"](https://freesound.org/people/hammondman/packs/18844/) by hammondman (32 kHz 16-bit WAV, the only full CC0 tonewheel multisample found on Freesound (the others were a 22 kHz rotary pack and a single M1 note); its energy ends near the 5.9 kHz top tonewheel, every file is more than 74 dB down above 10 kHz, and the engine low-passes the organ at 5.2–5.6 kHz, so a 16 kHz Nyquist loses nothing), CC0 1.0 Universal | sounds 333747–333770 except 333757: one held note per white key, `g2.wav` … `b5.wav` (scientific pitch, `c4` = MIDI 60) |
+| `abass_36.flac` … `abass_60.flac` (9), the REESE bass voice in UK GARAGE | Freesound pack [17593 "Roland SH-2 - Filter Vel Bass"](https://freesound.org/people/modularsamples/packs/17593/) by modularsamples (44.1 kHz 24-bit WAV), CC0 1.0 Universal | sounds 310235, 310247, 310259, 310271, 310282, 310294, 310306, 310318, 310330: the brightest of each note's velocity takes, every third semitone `36C1` … `60C3` (named by MIDI number); measured 5–9 cents flat, corrected in `js/livekit.js` |
+
+Both sets are rebuilt by `scripts/fetch-freesound.py`, which pins every original upload by Freesound sound ID and SHA-256, refuses any file whose hash differs, and reproduces the committed FLACs byte for byte from those originals.
 
 ## Nylon guitar
 
