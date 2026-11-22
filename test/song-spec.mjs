@@ -167,20 +167,21 @@ t('jazz prompts pin a supplied mode but leave omitted modes to the feeling', () 
   }
 });
 
-t('a mode-only prompt does not specify an A tonic', () => {
+t('a mode-only prompt does not pin A, but a named tonic does', () => {
   for (const [prompt, key, mode] of [
     ['write jazz in a minor key', null, 'minor'],
     ['write jazz in a major key', null, 'major'],
+    ['write jazz in a Dorian key', null, 'dorian'],
     ['write jazz in A minor', 9, 'minor'],
     ['write jazz in A minor key', 9, 'minor'],
-    ['write jazz in the key of A minor', 9, 'minor'],
+    ['write jazz in the key of a minor', 9, 'minor'],
+    ['write jazz in the key of a minor key', 9, 'minor'],
+    ['write jazz in key of a Dorian key', 9, 'dorian'],
   ]) {
     const spec = localSpec(prompt, { style: 'swing' });
     assert.deepEqual([spec.key, spec.scale], [key, mode], prompt);
-    if (!prompt.includes('the key of')) {
-      const plan = rulePlan(prompt, '', { style: 'swing' });
-      assert.deepEqual([plan.key, plan.mode], [key, mode], prompt);
-    }
+    const plan = rulePlan(prompt, '', { style: 'swing' });
+    assert.deepEqual([plan.key, plan.mode, plan.about], [key, mode, ''], prompt);
   }
 });
 

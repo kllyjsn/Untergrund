@@ -550,6 +550,7 @@ async function describeForm() {
     for (const [prompt, key, scale] of [
       ['A please at 120 BPM', 9, 'major'],
       ['lock the song in D minor chords', 2, 'minor'],
+      ['in the key of a minor key', 9, 'minor'],
       ['keep this track in G major', 7, 'major'],
       ['transpose the song to A', 9, 'major'],
     ]) {

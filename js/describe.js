@@ -405,7 +405,8 @@ function fuzzy(tok) {
 }
 
 function normalize(text) {
-  const input = String(text || '').replace(/\ba\s+(?=(?:major|minor|dorian|phrygian)\s+key\b)/gi, (article) => article.startsWith('a') ? '' : article);
+  const input = String(text || '').replace(/(\bkey\s+of\s+)?\b(a)\s+(?=(?:major|minor|dorian|phrygian)\s+key\b)/gi,
+    (match, keyOf, note) => keyOf || note === 'A' ? match : '');
   let s = ` ${input.toLowerCase().replace(/[’']/g, "'").replace(/♯/g, '#').replace(/♭/g, 'b')} `;
   s = s.replace(/\bbase(line)?\b/g, 'bass$1');
   s = s.replace(/\bcan'?t\b/g, 'can not').replace(/\bwon'?t\b/g, 'will not').replace(/n't\b/g, ' not');
