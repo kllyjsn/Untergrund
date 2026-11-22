@@ -5,7 +5,8 @@ import { rulePlan, planLyrics } from '../js/song-plan.js';
 import { localSpec, songState } from '../js/song-spec.js';
 import { defaultState, sanitize } from '../js/state.js';
 import { lineSlots } from '../js/lyrics.js';
-import { singScore, sungNotes, validateSing, noteName, SING_VOICES, SING_FORMAT } from '../js/sing-score.js';
+import { singScore, sungNotes, validateSing, noteName, feelExpr, SING_STYLE, SING_VOICES, SING_FORMAT } from '../js/sing-score.js';
+import { FEELS, FEEL_IDS } from '../js/feel.js';
 import { handleSing, memorySingStore, blobSingStore, singHash, SING_PER_HOUR } from '../api/_lib/sing.js';
 import { memoryKv } from '../api/_lib/events.js';
 
@@ -80,11 +81,43 @@ await t('validateSing rejects hostile or oversized requests', () => {
   assert.equal(bad((r) => { r.seed = -1; }), null);
   assert.equal(validateSing(null), null);
   const clean = validateSing({ ...ok, extra: 'dropped' });
-  assert.deepEqual(Object.keys(clean).sort(), ['audio', 'expr', 'format', 'score', 'seed', 'voice']);
+  assert.deepEqual(Object.keys(clean).sort(), ['audio', 'expr', 'format', 'parts', 'score', 'seed', 'voice']);
+  // Section deliveries: rising beats inside the score with real knobs, else all dropped.
+  assert.deepEqual(clean.parts, ok.parts);
+  assert.equal('parts' in bad((r) => { r.parts[1].beat = r.parts[0].beat; }), false);
+  assert.equal('parts' in bad((r) => { r.parts[0].expr = { nope: 1 }; }), false);
+  assert.equal('parts' in bad((r) => { r.parts[0].beat = 1e6; }), false);
+  assert.equal('parts' in bad((r) => { r.parts = 'x'; }), false);
   // Expression knobs: known names only, clamped to their ranges; none at all leaves the runtime's own singing.
   const x = validateSing({ ...ok, expr: { vib_cents: 900, scoop: -4, lead: 0.5, align: true, eval: 'x', breath: NaN } }).expr;
   assert.deepEqual(x, { scoop: 0, vib_cents: 80, lead: 0.5, align: 1 });
   assert.equal('expr' in validateSing({ ...ok, expr: { nope: 1 } }), false);
+});
+
+await t('the singer sings the song\'s feeling, the verse closer than the chorus; no feeling sings as before', () => {
+  const base = song(SONGS.pop), G = SING_STYLE.pop.expr;
+  const old = singScore({ ...base, feel: undefined });
+  assert.deepEqual(old.expr, G, 'no feeling: the genre expression, untouched');
+  assert.equal('parts' in old, false);
+  const by = Object.fromEntries(FEEL_IDS.map((f) => [f, singScore({ ...base, feel: f })]));
+  for (const [f, req] of Object.entries(by)) {
+    const x = FEELS[f].expr, e = req.expr;
+    assert.ok(validateSing(req)?.parts, `${f}: parts pass the server check`);
+    for (const [k, m] of [['vib_cents', x.vib], ['scoop', x.scoop], ['glide_ms', x.glide], ['stress_db', x.stress]]) assert.ok(Math.sign(e[k] - G[k]) === Math.sign(Math.round((m - 1) * 100)), `${f} ${k} ${e[k]} vs ${G[k]}`);
+    assert.ok(x.breath > 1 ? e.breath < G.breath : x.breath < 1 ? e.breath > G.breath : e.breath === G.breath, `${f} breath`);
+    assert.equal(req.parts[0].beat, 0);
+    // Each verse phrase sings the intimate delivery, each chorus phrase the full one.
+    const at = (b) => req.parts.filter((p) => p.beat <= b + 1e-3).at(-1).expr;
+    const verse = req.parts.find((p) => p.expr.vib_cents < e.vib_cents)?.expr, chorus = req.parts.find((p) => p.expr.vib_cents === e.vib_cents)?.expr;
+    assert.ok(verse && chorus, `${f}: a verse and a chorus delivery`);
+    assert.deepEqual(chorus, e, 'the chorus sings the full feeling');
+    assert.ok(verse.vib_cents < chorus.vib_cents && verse.stress_db < chorus.stress_db && verse.vib_delay > chorus.vib_delay && verse.breath < chorus.breath, `${f}: the verse is more intimate`);
+    assert.deepEqual(at(req.phrases[0].start), verse, 'the song opens on a verse');
+  }
+  assert.ok(by.heartbroken.expr.vib_cents > by.tense.expr.vib_cents && by.heartbroken.expr.glide_ms > by.euphoric.expr.glide_ms && by.tense.expr.stress_db > by.tender.expr.stress_db);
+  assert.ok(by.tense.expr.vib_rate > by.heartbroken.expr.vib_rate, 'arousal quickens the vibrato');
+  const verses = { ...base, feel: 'tender', lyrics: { ...base.lyrics, sections: base.lyrics.sections.map((x) => ({ ...x, sec: 'verse' })) } }, vr = singScore(verses);
+  assert.ok(vr.parts?.length === 1 && vr.parts[0].expr.vib_cents < vr.expr.vib_cents, 'verse-only words still sing intimately');
 });
 
 await t('old projects and share links still load; sing settings survive sanitize', () => {
@@ -259,7 +292,7 @@ await t('while the vocal sings the CHORDS channel dips in the presence band; gen
   assert.equal(e.ch.stab.carve.frequency.events[0].v, VOCAL_FX.pop.carve.hz);
   for (const style of ['pop', 'rnb', 'folk']) {
     const s2 = song(SONGS[style]), req = singScore(s2);
-    assert.deepEqual(req.expr, (SING_STYLE[s2.artist.style] || SING_STYLE.pop).expr);
+    assert.deepEqual(req.expr, feelExpr((SING_STYLE[s2.artist.style] || SING_STYLE.pop).expr, s2.feel));
     assert.deepEqual(validateSing(req).expr, req.expr);
   }
 });
