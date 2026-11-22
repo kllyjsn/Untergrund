@@ -198,6 +198,25 @@ for (const prog of FUNK_PROGS) {
   p.hook = null;
   assert(record(s).guitar.length, 'guitar is independent of the lead hook');
 }
+{
+  const hats = (decay, loaded = true, mode = 1) => {
+    const s = freshSong('jazzfunk', 42), calls = [], buf = { duration: 0.3 };
+    s.params.oh.decay = decay; s.master.kit = mode;
+    record(s, 8, (e) => {
+      e.ch = { oh: { input: {} } };
+      e.rec = (name) => name === 'kit' && loaded ? { hh_half: buf, hh_half_2: buf } : null;
+      e.liveFx = Engine.prototype.liveFx;
+      e.playBuf = (...args) => calls.push(args);
+    });
+    return calls;
+  };
+  const natural = hats(0.32), short = hats(0.001);
+  assert(natural.length && natural.length === short.length);
+  assert(short.every((a, i) => a[5] === Math.min(0.03, natural[i][5])), 'recorded hats honor DECAY without delaying the next-downbeat choke');
+  assert(short.some((a, i) => a[5] < natural[i][5]), 'DECAY audibly shortens recorded hats');
+  assert.deepEqual(hats(0.001, false), [], 'unloaded kit uses the synth path');
+  assert.deepEqual(hats(0.001, true, 0), [], 'synth kit never schedules recorded hats');
+}
 const phrases = (notes, sd) => {
   const spans = [];
   for (const n of [...notes].sort((a, b) => a.t - b.t)) {

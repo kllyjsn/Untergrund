@@ -5542,7 +5542,7 @@ export class Sequencer {
         if (kit && Math.round(s.master.kit) === 1) {
           const buf = kit[jitter(212) < 0.5 ? 'hh_half' : 'hh_half_2'], fx = e.liveFx('oh', buf);
           const close = t - swingLate(s, abs, sd) + (16 - i) * sd;
-          e.playBuf(buf, hatAt, 0.3 * 0.25 * oh * dbGain(JAZZ_MIX.jazzfunk.oh), e.ch.oh.input, fx.rate, Math.max(0.02, close - hatAt - 0.025), { ...fx.fx, release: 0.005 });
+          e.playBuf(buf, hatAt, 0.3 * 0.25 * oh * dbGain(JAZZ_MIX.jazzfunk.oh), e.ch.oh.input, fx.rate, Math.min(fx.dur || Infinity, Math.max(0.02, close - hatAt - 0.025)), { ...fx.fx, release: 0.005 });
         } else e.trigger('oh', hatAt, 0.25 * oh);
       }
       const guitar = this.jazzGrid(pat, 'perc', abs, FUNK_GUITAR, groove.guitar.includes(i) || groove.chank.includes(i));
