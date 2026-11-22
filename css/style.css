@@ -66,7 +66,6 @@ body {
   user-select: none;
 }
 button { font-family: inherit; }
-:where(button, a, input, select, textarea, summary):focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; }
 #app { display: flex; flex-direction: column; min-width: 0; min-height: 100vh; }
 
 /* ---------- header ---------- */
@@ -1230,8 +1229,7 @@ body.recording .np-actions .btn.rec .dot { background: var(--accent); animation:
 @media (max-width: 760px) { .menu-pop { left: 0; right: auto; } }
 
 /* Accessible defaults: readable small labels, visible focus, named instrument choices. */
-:root { --dim: #9595a0; --dim2: #868692; }
-:focus-visible { outline: 2px solid #8ab4ff; outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 .knob:focus-visible { outline-offset: 4px; border-radius: var(--r1); }
 .voice-chips { display: flex; flex-wrap: wrap; gap: 6px; flex-basis: 100%; order: -1; margin-bottom: 6px; }
 .vchip { font: 600 12px/1 var(--sans); letter-spacing: .02em; color: var(--text); background: var(--panel2); border: 1px solid var(--line2);
@@ -1494,7 +1492,7 @@ body.studio-open .describe-chips { flex-wrap: nowrap; overflow-x: auto; scrollba
 
 /* Undo / redo, keyboard step grid, reduced motion. */
 .btn.undo-btn:disabled, .btn.redo-btn:disabled { opacity: .45; cursor: default; }
-.steps .step:focus-visible { outline: 2px solid #8ab4ff; outline-offset: 1px; z-index: 1; }
+.steps .step:focus-visible { outline: 2px solid var(--signal); outline-offset: 1px; z-index: 1; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; transition-delay: 0s !important; }
