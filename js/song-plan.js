@@ -5,7 +5,7 @@
 // Describe box's own edits, so a plan can only do what Describe can already do.
 import { STYLES } from './state.js';
 import { SCALES } from './params.js';
-import { HIPHOP_PHRASES, parse, validateEdits, mergeEdits } from './describe.js';
+import { HIPHOP_PHRASES, parse, validateEdits, mergeEdits, withoutCurrentSong } from './describe.js';
 import { LYRIC_SECS, VOCALS, LIMITS, cleanText, cleanSections, splitLyrics } from './lyrics.js';
 import { SING_PROFILES } from './melody.js';
 import { writeLyrics, namedTheme, THEME_FEEL } from './lyric-writer.js';
@@ -168,7 +168,7 @@ export const SONG_WORD = /\b(?:song|ballad|anthem|lyrics?|verse|chorus|singer|si
 // Does this text ask for a whole song (Suno-style) rather than an edit to the current one?
 export function isSongPrompt(text, lyrics = '') {
   if (String(lyrics || '').trim()) return true;
-  const t = String(text ?? '').toLowerCase();
+  const t = withoutCurrentSong(String(text ?? '').toLowerCase());
   if (!t.trim()) return false;
   return /\b(?:song|ballad|anthem|lyrics?)\b/.test(t) || /\b(?:track|tune|piece|banger|beat)\s+about\b/.test(t) || /\b(?:female|male|woman|man|girl|guy|boy)\s+(?:vocals?|voice|singer|rap|rapper)\b/.test(t);
 }
