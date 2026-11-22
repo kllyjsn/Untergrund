@@ -139,7 +139,7 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
     recordedNote: Engine.prototype.recordedNote, bodyFor: Engine.prototype.bodyFor, filter: Engine.prototype.filter,
     leadOver: () => {}, playBuf: (...args) => hits.push(args),
   };
-  const hook = () => Engine.prototype.hook.call(e, 1, 0.7, 3, 0.3, 'reed');
+  const hook = () => Engine.prototype.hook.call(e, 1, 0.7, 3, 0.3, 'warm');
   hook();
   hook();
   const eq = hits[0][3];
