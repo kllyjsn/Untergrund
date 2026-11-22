@@ -3524,6 +3524,8 @@ export class Engine {
   harpHook(set, t, v, m, dur) {
     const best = set.reduce((pick, take) => Math.abs(HARP_PLUCK[take[0]][0] - m) < Math.abs(HARP_PLUCK[pick[0]][0] - m) ? take : pick);
     const [center, offset] = HARP_PLUCK[best[0]];
+    // Keep the mono harp's stem headroom with the fixed stereo CHORDS pan.
+    const levelMatch = best[1].numberOfChannels === 1 ? Math.SQRT1_2 : 1;
     const out = this.trimOut('hook-harpplk', 4, this.hookBus || this.ch.stab.input, -2, 700);
     const tones = (this.harpTones ||= new WeakMap());
     if (!tones.has(out)) {
@@ -3535,7 +3537,7 @@ export class Engine {
       tones.set(out, dip);
     }
     // Keep the closing accent in range, and trim strings pitched above the recording.
-    const level = 2.85 * Math.min(v, 0.8) * dbGain(1.35 - Math.min(3.3, Math.max(0, m - 81) * 0.42));
+    const level = 2.85 * levelMatch * Math.min(v, 0.8) * dbGain(1.35 - Math.min(3.3, Math.max(0, m - 81) * 0.42));
     const attackTrim = Math.min(1.3, Math.max(0, m - 82) * 0.22) * Math.min(1, Math.max(0, v - 0.36) / 0.15);
     return this.playBuf(best[1], t, level, tones.get(out), 2 ** ((m - center) / 12), Math.max(0.06, dur * 0.92), {
       lp: 3100 + 2300 * Math.min(1, v / 1.3), offset, fade: 0.007, release: 0.09, ringOut: true,
