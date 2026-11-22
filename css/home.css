@@ -3,6 +3,11 @@
 .gen-length-opt { flex: 1 1 0; min-height: 32px; padding: 0 8px; border: 1px solid rgba(255,255,255,.16); border-radius: var(--r2, 4px); background: none; color: #a8a8b2; font: 700 11px var(--sans); letter-spacing: .04em; cursor: pointer; }
 .gen-length-opt.on { border-color: rgba(255,255,255,.6); color: #fff; }
 .gen-length-opt:hover { color: #fff; }
+/* How do you want to feel? A quiet segmented row under GENERATE: gray until chosen, never a second primary. */
+.gen-feel { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.feel-chip { flex: 0 0 auto; height: 30px; padding: 0 11px; border: 1px solid var(--hair2); border-radius: var(--r1); background: none; color: #a8a8b2; font: 600 12px var(--sans); letter-spacing: .01em; cursor: pointer; white-space: nowrap; transition: color .15s, border-color .15s, background .15s; }
+.feel-chip:hover { color: #fff; }
+.feel-chip.on { border-color: rgba(255,255,255,.6); background: rgba(255,255,255,.06); color: #fff; }
 .gen-wrap { position: relative; flex: 1 1 100%; display: flex; }
 .gen-wrap > .generate-primary { flex: 1 1 auto; padding-right: 84px; }
 .gen-wrap > .hum-cta { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); flex: none; width: 48px; height: 48px; min-height: 0; padding: 0 0 0 16px; gap: 0; justify-content: flex-start; overflow: hidden; border: 0; border-radius: var(--r2, 4px); background: rgba(255,255,255,.22); color: #111; transition: width .28s cubic-bezier(.2,.8,.2,1), background .15s; }
@@ -22,13 +27,16 @@ body:not(.studio-open) .generate-actions:not(.np-actions) > .btn:hover { backgro
 
 @keyframes home-rise { from { opacity: 0; transform: translateY(8px); } }
 .drop-card.drop-in { animation: home-rise .32s cubic-bezier(.2,.8,.2,1) both; }
-.generate-home.unlock .generate-actions > .btn, .generate-home.unlock .describe, .generate-home.unlock .generate-status { animation: home-rise .5s cubic-bezier(.2,.8,.2,1) var(--ua, 0ms) both; }
+.generate-home.unlock .generate-actions > .btn, .generate-home.unlock .gen-feel, .generate-home.unlock .describe, .generate-home.unlock .generate-status { animation: home-rise .5s cubic-bezier(.2,.8,.2,1) var(--ua, 0ms) both; }
 .generate-home.unlock .generate-actions > .btn:nth-child(3) { animation-delay: calc(var(--ua, 0ms) + 80ms); }
 .generate-home.unlock .describe { animation-delay: calc(var(--ua, 0ms) + 160ms); }
 .generate-home.unlock .generate-status { animation-delay: calc(var(--ua, 0ms) + 240ms); }
 
 @media (max-width: 760px) {
   .drop-peek { margin-top: 14px; }
+  /* one sideways row on a phone, fading at the edge like the genre strip */
+  .gen-feel { flex-basis: calc(100% + 32px); flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px; -webkit-mask: linear-gradient(90deg,transparent,#000 16px,#000 85%,transparent); mask: linear-gradient(90deg,transparent,#000 16px,#000 85%,transparent); }
+  .gen-feel::-webkit-scrollbar { display: none; }
   .gen-wrap > .hum-cta { right: 14px; }
 }
 @media (prefers-reduced-motion: reduce) {
