@@ -6,6 +6,7 @@ import { Engine, Sequencer } from '../js/engine.js';
 import { KIT_BACKBEAT, HAND_KIT, MARIMBA_STAB } from '../js/params.js';
 import { defaultState, generate, STYLES } from '../js/state.js';
 import { createPlayer } from '../js/player.js';
+import { timelineSets } from '../js/live-sets.js';
 import { OfflineAudioContext as FakeContext, AudioBuffer } from './offline-audio.mjs';
 
 const st = (kit, voice) => ({ master: { kit }, params: { stab: { voice } } });
@@ -55,6 +56,25 @@ globalThis.OfflineAudioContext = class { decodeAudioData(b) { return Promise.res
 
 const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
 const feeds = (source, dest) => source === dest || dest.inputs.some((input) => feeds(source, input));
+{
+  const initial = { params: { acid: { voice: 1 }, stab: { voice: 1 } }, artist: { style: 'hypnotic' } };
+  const timeline = { style: 'gfunk', initial, events: [
+    { t: 1000, ops: [[['params', 'stab', 'voice'], 3]] },
+    { t: 2000, ops: [[['style'], 'trap'], [['patterns'], [{ hook: { v: 'reed' } }]]] },
+  ] };
+  const before = JSON.stringify(timeline);
+  assert.deepEqual(timelineSets(timeline), ['abass', 'org', 'asax', 'asaxb'], 'replay style and all later voices preload, not the listener genre');
+  assert.equal(JSON.stringify(timeline), before, 'collecting recordings does not mutate the replay');
+  assert.deepEqual(timelineSets({}), []);
+  assert.deepEqual(liveSets(initial, 'ukg'), [], 'UK Garage BASS stays synthesized');
+  const late = new Map();
+  assert.equal(rec(late, 'abass'), null);
+  await loadSets(timelineSets(timeline));
+  assert.equal(rec(late, 'abass'), null, 'a failed cold start would stay on the synth even after decode');
+  const ready = new Map();
+  assert.ok(rec(ready, 'abass') && rec(ready, 'org'), 'preloading before replay locks both recordings in from their first use');
+  files.clear();
+}
 {
   const hands = {
     amapiano: ['shaker', 'conga'],

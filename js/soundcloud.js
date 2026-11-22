@@ -24,17 +24,17 @@ function writeTokens(t) {
 export const isConnected = () => Boolean(readTokens()?.access_token);
 export function disconnect() { writeTokens(null); }
 
-async function tokenRequest(body, endpoint = '/api/sc-token') {
+async function tokenRequest(body, endpoint = '/api/sc-token', persistTokens = true) {
   const r = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const json = await r.json().catch(() => ({}));
-  if (!r.ok || !json.access_token) throw new Error(json.error_description || json.error || `token exchange failed (${r.status})`);
-  writeTokens(json);
+  if (!r.ok || (persistTokens && !json.access_token)) throw new Error(json.error_description || json.error || `token exchange failed (${r.status})`);
+  if (persistTokens) writeTokens(json);
   return json;
 }
 
 // Must be called from a click handler so the popup is not blocked.
 // `endpoint` lets account sign-in exchange the code server-side and attach the SoundCloud identity.
-export function connect({ endpoint } = {}) {
+export function connect({ endpoint, persistTokens = true } = {}) {
   const popup = window.open('about:blank', 'sc-auth', 'width=520,height=720');
   return new Promise(async (resolve, reject) => {
     const cfg = await getConfig();
@@ -52,7 +52,7 @@ export function connect({ endpoint } = {}) {
       if (done || !msg || msg.state !== state) return;
       done = true; cleanup();
       if (msg.error || !msg.code) return reject(new Error(msg.error || 'Authorization cancelled'));
-      try { resolve(await tokenRequest({ code: msg.code, code_verifier: verifier, redirect_uri: redirectUri() }, endpoint)); } catch (e) { reject(e); }
+      try { resolve(await tokenRequest({ code: msg.code, code_verifier: verifier, redirect_uri: redirectUri() }, endpoint, persistTokens)); } catch (e) { reject(e); }
     };
     const onMsg = (e) => { if (e.origin === location.origin && e.data?.type === 'sc-auth') finish(e.data); };
     const onStore = (e) => { if (e.key === 'untergrund.sc.callback' && e.newValue) finish(JSON.parse(e.newValue)); };
