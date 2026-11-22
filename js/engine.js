@@ -1,7 +1,7 @@
 import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES, HAND_KIT, KIT_BACKBEAT, defaultParams } from './params.js';
 import { PALETTE_INSTRUMENTS, PALETTE_DEFAULTS, instrumentFor } from './palette-defaults.js';
 import { getSample, hasUserSample, sungNote, SUNG_LEN, SUNG_LOW, SUNG_NOTES, SUNG_VOWEL_COUNT } from './sampler.js';
-import { vowelStyle, vowelVoxNote, vowelName, vowelDuration, playVowel, VOWEL_HOOK_DB } from './vowels.js';
+import { vowelStyle, vowelVoxNote, vowelName, vowelHookDuration, playVowel, VOWEL_HOOK_DB } from './vowels.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
 import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, loadHand, STAB_BAND, HOOK_BAND, SAX_HOOK, SAX_LO, saxRoot, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
@@ -3717,7 +3717,7 @@ export class Engine {
     if (vowelStyle(this.playbackStyle) && (voice === 'vocal' || voice === 'chop')) {
       const vc = voice === 'chop' && getChops(), out = this.hookBus || this.ch.stab.input;
       if (vc) return this.chopNote(vc, t, v, 60 + k + oct * 12 + n, dur, expression, null, out);
-      if (!hasUserSample() && playVowel(this, t, v * 10 ** (VOWEL_HOOK_DB[this.playbackStyle] / 20), 60 + k + oct * 12 + n, vowelDuration('ukg', dur), vowelName(this.playbackStyle, Math.floor((this.step || 0) / 64)), out)) return;
+      if (!hasUserSample() && playVowel(this, t, v * 10 ** (VOWEL_HOOK_DB[this.playbackStyle] / 20), 60 + k + oct * 12 + n, vowelHookDuration(this.playbackStyle, dur), vowelName(this.playbackStyle, Math.floor((this.step || 0) / 64)), out, 5000, !['ukg', 'jerseyclub', 'bailefunk'].includes(this.playbackStyle))) return;
     }
     if (voice === 'tapekeys') {
       const out = this.hookBus || this.ch.stab.input;

@@ -3,7 +3,7 @@ import { SCALES } from './params.js';
 export const VOWEL_BAND = { vox_ahh: [53], vox_eh: [53], vox_ooh: [53] };
 export const VOWEL_TUNE = { vox_ahh: { 53: -0.010 }, vox_eh: { 53: -0.003 }, vox_ooh: { 53: 0.005 } };
 export const VOWEL_STYLES = ['ukg', 'jerseyclub', 'bailefunk', 'deephouse', 'euphoric', 'dnb'];
-export const VOWEL_HOOK_DB = { ukg: 8, jerseyclub: 12, bailefunk: 0, deephouse: 0, euphoric: 6, dnb: 6 };
+export const VOWEL_HOOK_DB = { ukg: 8, jerseyclub: 12, bailefunk: 0, deephouse: 8, euphoric: 9.5, dnb: 9.8 };
 const SHORT = new Set(['ukg', 'jerseyclub', 'bailefunk']);
 const COLORS = { ukg: ['eh', 'ahh'], jerseyclub: ['ahh', 'eh'], bailefunk: ['eh', 'ahh'], deephouse: ['ooh', 'eh'], euphoric: ['ahh', 'ooh'], dnb: ['ooh', 'ahh'] };
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
@@ -53,6 +53,7 @@ export const vowelStyle = (style) => VOWEL_STYLES.includes(style);
 export const vowelSets = (style) => vowelStyle(style) ? Object.keys(VOWEL_BAND) : [];
 export const vowelPitch = (midi, center = 53) => midi + 12 * Math.round((Math.round(center) - midi) / 12);
 export const vowelDuration = (style, duration) => SHORT.has(style) ? Math.max(0.04, Math.min(0.14, duration)) : Math.max(0.4, Math.min(2.4, duration));
+export const vowelHookDuration = (style, duration) => SHORT.has(style) ? vowelDuration(style, duration) : Math.max(0.04, duration);
 export const vowelName = (style, section = 0, slice = 0) => `vox_${COLORS[style]?.[((section + Math.round(slice)) % 2 + 2) % 2] || 'ahh'}`;
 
 export function vowelVoxNote(state, style, step, stepDur, harmony = 0) {

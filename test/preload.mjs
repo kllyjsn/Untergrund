@@ -7,7 +7,7 @@ import { KIT_BACKBEAT, HAND_KIT, MARIMBA_STAB } from '../js/params.js';
 import { defaultState, generate, STYLES } from '../js/state.js';
 import { createPlayer } from '../js/player.js';
 import { OfflineAudioContext as FakeContext, AudioBuffer } from './offline-audio.mjs';
-import { VOWEL_BAND, VOWEL_TUNE, VOWEL_STYLES, vowelPitch, vowelVoxNote, vowelLoop, vowelSustain, playVowel } from '../js/vowels.js';
+import { VOWEL_BAND, VOWEL_TUNE, VOWEL_STYLES, vowelPitch, vowelVoxNote, vowelLoop, vowelSustain, vowelHookDuration, playVowel } from '../js/vowels.js';
 import { setFromArrayBuffer, useSynthVox } from '../js/sampler.js';
 import { setVoice, clearVoice } from '../js/voice.js';
 import { Recorder } from '../js/midi.js';
@@ -149,7 +149,15 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
     for (const voice of ['vocal', 'chop']) {
       Engine.prototype.hook.call(e, 4, 0.6, 0, 1, voice);
       assert.equal(hits.at(-1)[3], hookOut, `${style}/${voice} routes through the hook stem`);
-      assert(hits.at(-1)[5] <= 0.14);
+      if (['ukg', 'jerseyclub', 'bailefunk'].includes(style)) assert(hits.at(-1)[5] <= 0.14);
+      else {
+        assert.equal(hits.at(-1)[5], 1, `${style} hook retains its sustained duration`);
+        assert.equal(vowelHookDuration(style, 0.2), 0.2, 'sustained hooks are not stretched to the VOX minimum');
+        assert.equal(vowelHookDuration(style, 3), 3, 'sustained hooks are not truncated to the VOX maximum');
+      }
+      const hookRecorder = new Recorder(state);
+      hookRecorder.hook(4, 0.6, 0, 1, voice);
+      assert.equal(hookRecorder.notes.hook[0].dur, hits.at(-1)[5], 'MIDI and audio retain the same hook duration');
     }
   }
   const take = new AudioBuffer(1, 24000, 48000);

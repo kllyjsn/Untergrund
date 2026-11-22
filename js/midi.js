@@ -7,7 +7,7 @@ import { PIECE } from './repertoire.js';
 import { jazzStyle } from './jazz.js';
 import { hasUserSample } from './sampler.js';
 import { getChops } from './voice.js';
-import { vowelStyle, vowelVoxNote, vowelPitch, vowelDuration } from './vowels.js';
+import { vowelStyle, vowelVoxNote, vowelPitch, vowelHookDuration } from './vowels.js';
 import { SAX_HOOK, saxRoot } from './livekit.js';
 
 export const PPQ = 480;
@@ -104,7 +104,7 @@ export class Recorder {
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
     let pitch = 60 + k + oct * 12 + n;
     if (vowelStyle(this.state.artist?.style) && !hasUserSample() && (voice === 'vocal' || (voice === 'chop' && !getChops()))) {
-      this.add('hook', t, vowelPitch(pitch), vowelDuration('ukg', dur), v);
+      this.add('hook', t, vowelPitch(pitch), vowelHookDuration(this.playbackStyle, dur), v);
       return;
     }
     pitch = paletteHookPitch(this.state, pitch, voice);
