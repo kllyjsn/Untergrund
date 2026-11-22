@@ -181,7 +181,7 @@
         <div class="range">${[7, 30, 90].map((d) => `<button data-days="${d}" class="${d === days ? 'on' : ''}">${d} DAYS</button>`).join('')}</div>
         ${s ? `<div class="updated">Updated ${new Date(s.generated).toLocaleString()} · days are UTC · sessions are anonymous tabs</div>` : ''}</header>`;
       if (!s) {
-        root.innerHTML = head + `<section class="notice"><h2>STORAGE NOT CONNECTED</h2>The app is ready to count events, but no Redis store is connected, so nothing is saved yet.
+      root.innerHTML = head + `<section class="notice"><h2>STORAGE NOT CONNECTED</h2>The app is ready to count events, but no Redis store is connected, so nothing is saved yet.
           Connect Upstash Redis (free) to the Vercel project so <code>KV_REST_API_URL</code> and <code>KV_REST_API_TOKEN</code> are set, then redeploy.</section>`;
         return bindRange();
       }
@@ -216,6 +216,7 @@
         + [['completion', 'Finished'], ['skip', 'Skipped early'], ['replay', 'Replayed'], ['rewind', 'Rewound'], ['love', 'Loved'], ['down', 'Downed'], ['keep', 'Kept'], ['publish', 'Published'], ['share', 'Shared'], ['live', 'Played live']].map(([k, l]) => `<div class="genre"><span>${l.toUpperCase()}</span><span class="num">${pct(lr[k] || 0)}</span></div>`).join('')
         : '<div class="empty">No listens yet.</div>';
       const byStyle = (ls?.styles || []).slice(0, 10).map((x) => `<div class="genre"><span>${esc(x.style.toUpperCase())} · ${fmt(x.starts)}</span><span class="num">${pct(x.rates.completion)} done · ${pct(x.rates.skip)} skip · ${pct(x.rates.love)} ♥ · ${pct(x.rates.down || 0)} ↓</span></div>`).join('') || '<div class="empty">No listens yet.</div>';
+      const byFeel = (ls?.feels || []).map((x) => `<div class="genre"><span>${esc(x.feel.toUpperCase())} · ${fmt(x.starts)}</span><span class="num">${pct(x.rates.completion)} done · ${pct(x.rates.skip)} skip · ${pct(x.rates.love)} ♥ · ${pct(x.rates.down || 0)} ↓</span></div>`).join('') || '<div class="empty">No listens with a feeling yet.</div>';
       root.innerHTML = head + `<div class="kpis">${kpis}</div>
         <section id="playback"><h2>LISTENING · GENRES AND PUBLISHED SONGS</h2>
           <label class="pb-filters">Playback source <select id="playback-surface">${[['', 'All sources'], ['public', 'Public'], ['embed', 'Embeds'], ['club', 'Club Rooms']].map(([id, label]) =>
@@ -228,6 +229,7 @@
           <section><h2>RECENT ERRORS · ${fmt(t.error || 0)} IN RANGE</h2>${errors}</section></div>
         <div class="grid2" style="margin-top:14px"><section><h2>ENJOYMENT · PER LISTEN</h2>${listening}</section>
           <section><h2>ENJOYMENT · BY GENRE</h2>${byStyle}</section></div>
+        <div class="grid2" style="margin-top:14px"><section><h2>ENJOYMENT · BY FEELING</h2>${byFeel}</section></div>
         <div id="findings" style="margin-top:14px"><div class="empty">Loading findings…</div></div>
         <section style="margin-top:14px"><h2>DESCRIBE · PHRASES THE RULES COULDN’T READ</h2>${misses}</section>
         <section style="margin-top:14px"><h2>DAILY COUNTS</h2><div class="table"><table><thead><tr><th>Day</th><th>Sessions</th>${events.map((e) => `<th>${LABEL[e]}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div></section>`;
