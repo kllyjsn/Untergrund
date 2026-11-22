@@ -70,6 +70,21 @@ t('unsupported section voicing is reported without muting chords or dropping oth
   assert.deepEqual(after.patterns, before.patterns);
 });
 
+t('modulation distinguishes its source and destination keys', () => {
+  const song = songFor('rnb');
+  for (const [prompt, key] of [
+    ['modulate up from D minor', 4],
+    ['modulate down from D minor', 0],
+    ['modulate up a step from D minor', 3],
+    ['modulate from C major to D minor chords', 2],
+    ['modulate to D minor chords', 2],
+  ]) {
+    const after = applyEdits(song, parse(prompt, { style: 'rnb' }).edits, { style: 'rnb' }).state;
+    assert.equal(after.key, key, prompt);
+    assert.equal(after.scale, 'minor', prompt);
+  }
+});
+
 for (const [phrase, voice] of [['add FM bass', 6], ['add pulse bass', 7], ['add wide reese bass', 8], ['add pluck bass', 9]]) {
   t(phrase, () => {
     const { edits } = parse(phrase);

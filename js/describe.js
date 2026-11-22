@@ -402,7 +402,8 @@ function normalize(text) {
     const before = text.slice(0, offset);
     const lead = before.split(CLAUSE_BREAK).pop().trim();
     const implicitKey = /\bin$/.test(lead) && !lead.split(/[^a-z0-9#]+/).some((w) => isMixTerm(W[w]) || HARD_VERB.has(w) || MUTE.has(w));
-    if (root && (KEY_BEFORE_CHORD.test(before) || implicitKey)) return root + ' ' + mode;
+    const fromTo = /\b(?:transpose|modulate|switch|change)\b.*\bfrom\b.*\bto$/.test(lead);
+    if (root && (KEY_BEFORE_CHORD.test(before) || fromTo || implicitKey)) return root + ' ' + mode;
     if ((ordinal || number) && CHORD_AMOUNT.test(before)) {
       const tail = ` ${text.slice(offset + phrase.length).split(CLAUSE_BREAK, 1)[0].trim()} `;
       const scope = findScope(tail) || findSection(tail);
@@ -430,21 +431,27 @@ function extract(clause, edits) {
   const key = c.match(/\b(?:in\s+the\s+key\s+of|key\s+of|in|to|key)\s+([a-g])(#|b|\s+sharp|\s+flat)?(?:\s+(minor|major|min|maj|m|dorian|phrygian))?(?=\s|$)/)
     || c.match(/\b([a-g])(#|b)?\s*(minor|major|m|maj|dorian|phrygian)\b/);
   const absoluteKey = key && !(key[1] === 'a' && !key[2] && !key[3] && /\bin\s+a\s*$|\bto\s+a\s*$/.test(key[0]) === false && !/key/.test(key[0]));
+  const sourceKey = absoluteKey && /\bfrom(?:\s+the)?\s+$/.test(c.slice(0, key.index));
   if (absoluteKey) {
     let pc = KEY_PC[key[1]];
     if (key[2]) pc += /#|sharp/.test(key[2]) ? 1 : -1;
     edits.push({ id: 'key', value: ((pc % 12) + 12) % 12, src: key[0].trim() });
     if (key[3]) edits.push({ id: 'scale', value: MODE[key[3]], explicit: true, src: key[3] });
-    c = c.replace(key[0], ' ');
+    let lead = c.slice(0, key.index);
+    if (/^to\b/.test(key[0]) && /\b(?:keychange|transpose)\b/.test(lead)) {
+      lead = lead.replace(/\bfrom\s+(?:(?:the\s+)?key\s+of\s+)?[a-g](?:#|b|\s+sharp|\s+flat)?(?:\s+(?:minor|major|min|maj|m|dorian|phrygian))?\s*$/, ' ');
+    }
+    c = lead + ' ' + c.slice(key.index + key[0].length);
   }
   const step = c.match(/\b(?:up\s+a\s+(?:key|step|semitone)|key\s+up|higher\s+key|raise\s+the\s+key|transpose\s+up|pitch\s+(?:it\s+)?up)\b/)
     || c.match(/\b(?:down\s+a\s+(?:key|step|semitone)|key\s+down|lower\s+key|lower\s+the\s+key|transpose\s+down|pitch\s+(?:it\s+)?down)\b/);
   if (step) { edits.push({ id: 'keyStep', amt: /up|higher|raise/.test(step[0]) ? 1 : -1, src: step[0].trim() }); c = c.replace(step[0], ' '); }
   const scale = c.match(/\b(halftime|doubletime)\b/);
   if (scale) { edits.push({ id: 'bpmScale', value: scale[1] === 'halftime' ? 0.5 : 2, src: scale[0] }); c = c.replace(scale[0], ' '); }
-  if (/\bkeychange\b/.test(c)) {
-    if (!absoluteKey) edits.push({ id: 'keyStep', amt: 2, src: 'new key' });
-    c = c.replace(/\bkeychange\b/, ' ');
+  const change = c.match(/\bkeychange(?:\s+(up|down))?\b/);
+  if (change) {
+    if (!step && (!absoluteKey || sourceKey)) edits.push({ id: 'keyStep', amt: change[1] === 'down' ? -2 : 2, src: 'new key' });
+    c = c.replace(change[0], ' ');
   }
   const bare = c.match(/(?:^|\s)(?:make\s+it\s+|go\s+|try\s+|around\s+)?(\d{2,3})(?=\s|$)/);
   if (bare && +bare[1] >= 60 && +bare[1] <= 200) { edits.push({ id: 'bpm', value: +bare[1], src: bare[0].trim() }); c = c.replace(bare[0], ' '); }
