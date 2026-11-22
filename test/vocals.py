@@ -42,7 +42,7 @@ class Vocals(unittest.TestCase):
                         den = [1 + alpha / a, -2 * np.cos(w), 1 - alpha / a]
                         x = lfilter(np.array(b) / den[0], np.array(den) / den[0], x)
                     w = 2 * np.pi * 5000 / 48000
-                    alpha = np.sin(w)
+                    alpha = np.sin(w) / (2 * 10 ** (0.5 / 20))
                     b = [(1 - np.cos(w)) / 2, 1 - np.cos(w), (1 - np.cos(w)) / 2]
                     den = [1 + alpha, -2 * np.cos(w), 1 - alpha]
                     x = lfilter(np.array(b) / den[0], np.array(den) / den[0], x)
