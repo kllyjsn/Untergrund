@@ -12,6 +12,7 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
+from scipy.signal import lfilter
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('vocals', ROOT / 'scripts/fetch-vocals.py')
@@ -23,9 +24,33 @@ class Vocals(unittest.TestCase):
     def test_runtime_sustains_keep_pitch_and_quiet_wraps(self):
         with tempfile.TemporaryDirectory() as directory:
             subprocess.check_call(['node', 'test/vowel-loop.mjs', directory], cwd=ROOT)
+            eq = json.loads((Path(directory) / 'hook-eq.json').read_text())['deephouse']
             for vowel in ['ahh', 'eh', 'ooh']:
                 pcm = np.fromfile(Path(directory) / f'vowel-sustain-{vowel}.f32', dtype='<f4')
                 self.assertLess(abs(vocals.pitch(pcm, 53)['cents']), 5, vowel)
+                loop = pcm[:len(pcm) // 10]
+                steps = []
+                for midi in range(48, 60):
+                    rate = 2 ** ((midi - 53) / 12)
+                    positions = np.arange(96000) * rate * vocals.SR / 48000 % len(loop)
+                    x = np.interp(positions, np.arange(len(loop) + 1), np.r_[loop, loop[0]])
+                    for hz, q, db in eq:
+                        a = 10 ** (db / 40)
+                        w = 2 * np.pi * hz / 48000
+                        alpha = np.sin(w) / (2 * q)
+                        b = [1 + alpha * a, -2 * np.cos(w), 1 - alpha * a]
+                        den = [1 + alpha / a, -2 * np.cos(w), 1 - alpha / a]
+                        x = lfilter(np.array(b) / den[0], np.array(den) / den[0], x)
+                    w = 2 * np.pi * 5000 / 48000
+                    alpha = np.sin(w)
+                    b = [(1 - np.cos(w)) / 2, 1 - np.cos(w), (1 - np.cos(w)) / 2]
+                    den = [1 + alpha, -2 * np.cos(w), 1 - alpha]
+                    x = lfilter(np.array(b) / den[0], np.array(den) / den[0], x)
+                    boundary = round(4 * len(loop) / (vocals.SR * rate) * 48000)
+                    step = 10 * np.log10(np.mean(x[boundary:boundary + 1200] ** 2) / np.mean(x[boundary - 1200:boundary] ** 2))
+                    self.assertLess(abs(step), 1, f'{vowel}/{midi} after hook EQ')
+                    steps.append(abs(step))
+                print(f'{vowel}: post-hook-EQ wrap max {max(steps):.3f} dB across MIDI 48–59')
 
     def test_pitch_and_octave_evidence(self):
         t = np.arange(round(.5 * vocals.SR)) / vocals.SR

@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { vowelSustain } from '../js/vowels.js';
+import { vowelSustain, VOWEL_HOOK_EQ } from '../js/vowels.js';
+
+if (process.argv[2]) writeFileSync(join(process.argv[2], 'hook-eq.json'), JSON.stringify(VOWEL_HOOK_EQ));
 
 const ctx = { createBuffer: (_, length, sampleRate) => {
   const data = new Float32Array(length);
