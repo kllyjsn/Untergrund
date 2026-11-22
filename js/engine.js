@@ -6071,12 +6071,12 @@ export class Sequencer {
   answer(sung, i16, bar, t, sd) {
     if ((this.cur !== 2 && this.cur !== 6) || i16 % 2 || i16 < 2 || i16 > 10 || this.answered === bar || !sung.part) return;
     if (hash(bar, 131) > 0.85) return;
-    const e = this.e, hk = sung.hook, x = hk.x || {}, root = harmRoot(e.harm) + (this.keyLift || 0);
+    const e = this.e, hk = sung.hook, x = hk.x || {}, root = harmRoot(e.harm);
     const tele = this.cur === 2, licks = tele ? TELE_LICKS : HARP_RUNS, lick = licks[Math.floor(hash(bar, 132) * licks.length)];
     const len = Math.max(...lick.map(([at, , d]) => at + Math.min(d, 2)));
     if (sung.busy.slice(i16, i16 + len + 1).some(Boolean)) return;
     this.answered = bar;
-    const base = ((root % 12) + 12) % 12 - (root % 12 > 6 ? 12 : 0) + (sung.part === 'v' ? -2 : 0);
+    const base = ((root % 12) + 12) % 12 - (root % 12 > 6 ? 12 : 0);
     const ex = tele ? { ...x, fill: 1 } : { ...x, harp: 1, fill: 1 };
     lick.forEach(([at, d, dur, v], j) => e.hook(t + at * sd + (hash(bar * 3 + j, 133) - 0.5) * 0.01, v, base + d, dur * sd, hk.v, hk.o, j === lick.length - 1, 0.6, false, ex));
   }
