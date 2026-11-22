@@ -1,6 +1,6 @@
 // "Describe it" box on Create + Studio: type or tap what you want, get a one-line receipt with undo.
 import { h } from './ui.js';
-import { parse, applyEdits, genreOf, suggest, chipsFor, mergeEdits, needsMix, mixAdjust, heard, validateEdits, unresolvedText } from './describe.js';
+import { parse, applyEdits, genreOf, suggest, chipsFor, mergeEdits, needsMix, mixAdjust, heard, fallbackEdits, unresolvedText } from './describe.js';
 import { privacyOptOut } from './analytics.js';
 import { isSongPrompt as isPlanPrompt, promptGenre, rulePlan, planEdits, planLyrics, validatePlan, lyricLines } from './song-plan.js';
 import { cleanLyrics, splitLyrics, lyricTimeline, lyricLabels, lyricsText, LIMITS } from './lyrics.js';
@@ -49,7 +49,7 @@ async function askAI(text, style) {
   try {
     const res = await fetch('/api/describe', { method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, style, log: !privacyOptOut(window) }) });
-    return res.ok ? validateEdits((await res.json()).edits) : [];
+    return res.ok ? (await res.json()).edits : [];
   } catch { return []; } finally { clearTimeout(timer); }
 }
 // A whole song from one sentence: the server's model (or its rules, with no key) writes a validated spec;
@@ -241,16 +241,18 @@ export function describeBar(ctx) {
     const parsed = parse(text, { style, last: recent, net });
     if (!parsed.edits.length) {
       const unsupported = parsed.unsupportedHarmony || [];
-      const query = unsupported.length ? unresolvedText(parsed) : text;
+      const query = unsupported.length || parsed.scopedUnknown?.length ? unresolvedText(parsed) : text;
       const why = unsupported.length ? 'Changing chord voicings in one section is not supported yet. Try:' : null;
-      if (!query || navigator.onLine === false || /^(?:more|again|less|too much|other way|undo\b)/.test(query.toLowerCase())) return miss(text, why);
+      if ((!query && !parsed.scopedUnknown?.length) || navigator.onLine === false) return miss(text, why);
+      const allowed = (s) => !/^(?:more|again|less|too much|other way|undo\b)/.test(s.toLowerCase());
+      if (!parsed.scopedUnknown?.length && !allowed(query)) return miss(text, why);
       hint = { note: 'Thinking…', suggestions: [] };
       paint();
-      return askAI(query, style).then((edits) => {
+      return fallbackEdits(parsed, (s) => allowed(s) ? askAI(s, style) : [], text).then((result) => {
         if (mine !== ticket) return;
         hint = null;
-        if (!edits.length) return miss(text, why);
-        apply(text, style, { edits, unknown: unsupported }, []);
+        if (!result.edits.length) return miss(text, why);
+        apply(text, style, result, []);
       });
     }
     if (!genreOf(parsed.edits, style) && needsMix(parsed.edits)) {

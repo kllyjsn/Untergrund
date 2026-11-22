@@ -805,7 +805,7 @@ export function parse(text, ctx = {}) {
   if (UNDO_ONLY.test(String(text || '').toLowerCase().trim().replace(/[.!?,]+/g, ' ').replace(/\s+/g, ' ').trim())) return { edits: [], unknown: [String(text).trim()] };
   const s = normalize(text);
   const clauses = s.split(CLAUSE_BREAK).map((c) => c.trim()).filter(Boolean);
-  const edits = [], unknown = [], unsupportedHarmony = [];
+  const edits = [], unknown = [], unsupportedHarmony = [], scopedUnknown = [];
   let lastTrack = null, pending = null, clauseStart = 0;
   for (const clause of clauses) {
     const before = edits.length;
@@ -833,8 +833,12 @@ export function parse(text, ctx = {}) {
       }
       const got = sectionClause(sec, restS, src, ctx, carry, where);
       edits.push(...got.edits);
-      if (got.miss) unknown.push(clause);
-      if (got.unsupportedHarmony) unsupportedHarmony.push(clause);
+      if (got.miss) {
+        const text = found ? src : `${at.text.trim()} ${src}`;
+        unknown.push(text);
+        if (got.unsupportedHarmony) unsupportedHarmony.push(text);
+        else scopedUnknown.push({ text, sec, ...where });
+      }
       lastTrack = null;
       continue;
     }
@@ -935,7 +939,8 @@ export function parse(text, ctx = {}) {
   }
   // An explicit BPM already says how fast: "slow down to 90".
   const exact = edits.some((e) => e.id === 'bpm');
-  return { edits: merge(exact ? edits.filter((e) => e.id !== 'tempo') : edits), unknown, ...(unsupportedHarmony.length ? { unsupportedHarmony } : {}) };
+  return { edits: merge(exact ? edits.filter((e) => e.id !== 'tempo') : edits), unknown,
+    ...(unsupportedHarmony.length ? { unsupportedHarmony } : {}), ...(scopedUnknown.length ? { scopedUnknown } : {}) };
 }
 const melodyRegen = (x, words) => x.e.k === 'track' && x.e.ids.includes('melody') && words.some((w) => REGEN.has(w));
 
@@ -1015,18 +1020,36 @@ export function validateEdits(list) {
 }
 // Local rules first; `remote` (e.g. an env-gated /api endpoint backed by an LLM) is only asked about
 // phrases the rules don't understand. Off unless a caller passes one.
-export const unresolvedText = ({ unknown, unsupportedHarmony }) => unknown
-  .filter((clause) => !unsupportedHarmony?.includes(clause)).join(', ');
+const unscopedUnknown = ({ unknown, unsupportedHarmony, scopedUnknown }) => unknown
+  .filter((clause) => !unsupportedHarmony?.includes(clause) && !scopedUnknown?.some((at) => at.text === clause));
+export const unresolvedText = (parsed) => unscopedUnknown(parsed).join(', ');
+
+const sameScope = (e, at) => e.id === 'section' && e.sec === at.sec && e.nth === at.nth &&
+  (at.bars ? e.bars?.[0] === at.bars[0] && e.bars?.[1] === at.bars[1] : !e.bars);
+
+export async function fallbackEdits(parsed, remote, originalText) {
+  const { scopedUnknown = [], unsupportedHarmony = [] } = parsed;
+  const global = unscopedUnknown(parsed);
+  const ask = async (text) => {
+    if (!text) return [];
+    try { return validateEdits(await remote(text)); } catch { return []; }
+  };
+  // Keep section-bound clauses separate so an answer can't turn one into a song-wide edit.
+  const [unscoped, scoped] = await Promise.all([
+    ask((!scopedUnknown.length && !unsupportedHarmony.length && originalText) || global.join(', ')),
+    ask(scopedUnknown.map((at) => at.text).join(', ')),
+  ]);
+  const accepted = scoped.filter((e) => scopedUnknown.some((at) => sameScope(e, at)));
+  const handled = new Set(unscoped.length ? global : []);
+  for (const at of scopedUnknown) if (accepted.some((e) => sameScope(e, at))) handled.add(at.text);
+  return { edits: [...unscoped, ...accepted], unknown: parsed.unknown.filter((text) => !handled.has(text)) };
+}
 
 export async function interpret(text, ctx = {}, { remote } = {}) {
   const local = parse(text, ctx);
-  const unresolved = unresolvedText(local);
-  if (!remote || !unresolved) return { ...local, via: 'rules' };
-  try {
-    const r = await remote(unresolved, { ...ctx, intents: INTENTS });
-    const extra = validateEdits(r?.edits);
-    if (extra.length) return { ...local, edits: merge([...local.edits, ...extra]), unknown: local.unsupportedHarmony || [], via: 'remote' };
-  } catch {}
+  if (!remote) return { ...local, via: 'rules' };
+  const extra = await fallbackEdits(local, async (query) => (await remote(query, { ...ctx, intents: INTENTS }))?.edits);
+  if (extra.edits.length) return { ...local, edits: merge([...local.edits, ...extra.edits]), unknown: extra.unknown, via: 'remote' };
   return { ...local, via: 'rules' };
 }
 

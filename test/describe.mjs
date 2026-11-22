@@ -362,6 +362,29 @@ const done = (async () => {
   assert.deepEqual(compound.edits.map((e) => [e.id, e.amt]), [['keyStep', 1]]);
   assert.equal(compound.unknown.length, 1);
   assert.deepEqual(compound.unknown, compound.unsupportedHarmony);
+  const scoped = await interpret('in the intro, no minor sevenths, transpose up a semitone', {}, {
+    remote: async (text) => {
+      assert.equal(text, 'in the intro transpose up a semitone');
+      return { edits: [{ id: 'keyStep', amt: 1 }, { id: 'section', sec: 'drop', op: 'energy', amt: 1 }] };
+    },
+  });
+  assert.deepEqual(scoped.edits, []);
+  assert.ok(scoped.unknown.includes('in the intro transpose up a semitone'));
+  const split = await interpret('transpose one semitone upward, in bars 9-16, smooth out the percussion', {}, {
+    remote: async (text) => {
+      if (text === 'transpose one semitone upward') return { edits: [{ id: 'keyStep', amt: 1 }] };
+      assert.equal(text, 'in bars 9-16 smooth out the percussion');
+      return { edits: [
+        { id: 'keyStep', amt: -1 },
+        { id: 'section', sec: 'bars', bars: [9, 15], op: 'energy', amt: 1 },
+        { id: 'section', sec: 'bars', bars: [9, 16], op: 'energy', amt: -1 },
+      ] };
+    },
+  });
+  assert.deepEqual(split.edits.map(({ src, ...e }) => e), [
+    { id: 'keyStep', amt: 1 }, { id: 'section', sec: 'bars', bars: [9, 16], op: 'energy', amt: -1 },
+  ]);
+  assert.deepEqual(split.unknown, []);
   const b = await interpret('make it feel like velvet', {}, { remote });
   assert.equal(remoteCalls, 1);
   assert.deepEqual(b.edits.map((e) => e.id), ['space']);
