@@ -18,11 +18,11 @@ export const METRICS = {
 };
 // Segments are compared only against comparable listens: the rest of their parent (same style, other sources, …).
 export const SEGMENTS = [
-  ['style'], ['src'], ['surf'], ['dev'], ['co'],
-  ['style', 'src'], ['style', 'surf'], ['style', 'dev'], ['style', 'co'],
+  ['style'], ['src'], ['surf'], ['dev'], ['co'], ['feel'],
+  ['style', 'src'], ['style', 'surf'], ['style', 'dev'], ['style', 'co'], ['style', 'feel'],
 ];
 const COHORT_DIMS = ['dev', 'co'];
-const REASON_LEVER = { boring: 'arrangement', sounds_bad: 'sound', not_my_style: 'targeting' };
+const REASON_LEVER = { boring: 'arrangement', sounds_bad: 'sound', not_my_style: 'targeting', no_feeling: 'feel' };
 
 // ---- one row per listen
 // Sections from the start record's `arr`: "intro-8.drop-16" (score sections) or "aabbc" (one pattern per bar).
@@ -51,12 +51,12 @@ export function listensFrom(signals = [], { returnAfterMs = DEFAULTS.returnAfter
   for (const s of [...signals].filter((x) => x && x.lis && x.fp).sort((a, b) => (a.t || 0) - (b.t || 0))) {
     let l = by.get(s.lis);
     if (!l) by.set(s.lis, l = { lis: s.lis, lid: s.lid || '', sid: s.sid || '', fp: s.fp, t: s.t || 0, outcome: null, love: false, down: false, why: null,
-      replay: false, rewind: false, keep: false, spread: false, rewinds: [], end: null, downAt: null });
-    for (const k of ['tid', 'seed', 'style', 'src', 'surf', 'ph', 'co', 'dev', 'arr', 'xp', 'arm', 'via']) if (l[k] == null || l[k] === '' || l[k] === -1) if (s[k] != null && s[k] !== '') l[k] = s[k];
+      replay: false, rewind: false, keep: false, spread: false, rewinds: [], end: null, downAt: null, loveAt: null });
+    for (const k of ['tid', 'seed', 'style', 'src', 'surf', 'ph', 'co', 'dev', 'arr', 'xp', 'arm', 'via', 'feel']) if (l[k] == null || l[k] === '' || l[k] === -1) if (s[k] != null && s[k] !== '') l[k] = s[k];
     if (s.kind === 'start' && s.pt) l.pt = s.pt;
     if (s.kind === 'complete' || s.kind === 'skip' || s.kind === 'partial') { l.outcome = s.kind; l.end = { bar: s.bar, bars: s.bars, pct: s.pct, ms: s.ms, sec: s.sec }; }
-    else if (s.kind === 'love') { l.love = true; l.down = false; l.why = null; }
-    else if (s.kind === 'unlove') l.love = false;
+    else if (s.kind === 'love') { l.love = true; l.down = false; l.why = null; l.loveAt = { bar: s.bar, pct: s.pct, sec: s.sec }; }
+    else if (s.kind === 'unlove') { l.love = false; l.loveAt = null; }
     else if (s.kind === 'down') { l.down = true; l.love = false; l.downAt = { bar: s.bar, pct: s.pct, sec: s.sec }; }
     else if (s.kind === 'undown') { l.down = false; l.why = null; l.downAt = null; }
     // A reason is only offered on a downed song; without a `down` in this listen, it is still downed from an earlier one.
@@ -147,27 +147,29 @@ function sectionFindings(rows, o) {
   const out = [];
   for (const [style, group] of groupBy(rows, (l) => l.style || null)) {
     const by = new Map();
-    const at = (kind) => by.get(kind) || by.set(kind, { reached: 0, exits: 0, downs: 0, rewinds: 0, lids: new Set() }).get(kind);
+    const at = (kind) => by.get(kind) || by.set(kind, { reached: 0, exits: 0, downs: 0, loves: 0, rewinds: 0, lids: new Set() }).get(kind);
     for (const l of group) {
       const shape = parseShape(l.arr);
       if (!shape.length) continue;
-      const lastBar = l.outcome === 'complete' ? Infinity : l.end?.bar ?? l.downAt?.bar ?? 0;
+      const lastBar = l.outcome === 'complete' ? Infinity : Math.max(l.end?.bar ?? l.downAt?.bar ?? 0, l.loveAt?.bar ?? 0);
       for (const s of shape) if (s.at <= lastBar) { const x = at(s.kind); x.reached++; x.lids.add(l.lid || l.lis); }
       if (l.outcome && l.outcome !== 'complete') { const s = sectionAt(shape, l.end?.bar ?? 0); if (s) at(s.kind).exits++; }
       if (l.down && l.downAt) { const s = sectionAt(shape, l.downAt.bar); if (s) at(s.kind).downs++; }
+      // A love marks the moment: the section playing when the heart was tapped.
+      if (l.love && l.loveAt) { const s = sectionAt(shape, l.loveAt.bar); if (s) at(s.kind).loves++; }
       for (const r of l.rewinds) { const s = sectionAt(shape, r.bar); if (s) at(s.kind).rewinds++; }
     }
-    const tot = { reached: 0, exits: 0, downs: 0, rewinds: 0 };
+    const tot = { reached: 0, exits: 0, downs: 0, loves: 0, rewinds: 0 };
     for (const x of by.values()) for (const k in tot) tot[k] += x[k];
     for (const [kind, x] of by) {
       const rest = tot.reached - x.reached;
       if (x.reached < o.minListens || rest < o.minListens || x.lids.size < o.minListeners) continue;
-      for (const [metric, key] of [['skip', 'exits'], ['down', 'downs'], ['rewind', 'rewinds']]) {
+      for (const [metric, key] of [['skip', 'exits'], ['down', 'downs'], ['love', 'loves'], ['rewind', 'rewinds']]) {
         const c = compare(x[key], x.reached, tot[key] - x[key], rest);
-        // A section with fewer exits only means people leave elsewhere; only more exits/downs, or more rewinds, say something.
+        // A section with fewer exits only means people leave elsewhere; only more exits/downs, or more loves/rewinds, say something.
         if (Math.abs(c.z) < o.z || c.lift <= 0) continue;
         out.push(finding('section', { style, section: kind }, metric, c, x.reached, { comparedTo: `other sections of ${style}`, listeners: x.lids.size,
-          note: metric === 'skip' ? 'exit rate among listens that reached this section' : metric === 'down' ? 'downs while this section played' : 'rewinds from this section' }, o));
+          note: metric === 'skip' ? 'exit rate among listens that reached this section' : metric === 'down' ? 'downs while this section played' : metric === 'love' ? 'loves tapped while this section played' : 'rewinds from this section' }, o));
       }
     }
   }
@@ -241,6 +243,7 @@ const CHANGES = {
   seed: (f) => `Seed new ${f.scope.style} songs near this one (same arrangement shape and sound, new seed) for the variant arm.`,
   next_song: (f) => `After a listen in ${label(f.scope)}, offer the next song from the listener's best style instead of the default.`,
   lifecycle: (f) => `Surface the keep/share step sooner in ${label(f.scope)} (once, after the first complete listen).`,
+  feel: (f) => `Make ${label(f.scope)} songs land their intended feeling: move tempo, dynamics and phrasing toward FEELS[feel] (js/feel.js), patterns fixed.`,
   surface: (f) => `Change one thing about the ${f.scope.surf} surface (what plays first, or autoplay), not the generator.`,
   generator: (f) => `Try one generator variation scoped to ${label(f.scope)} (e.g. intro length or energy curve), behind the experiment arm only.`,
 };
