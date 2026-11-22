@@ -28,8 +28,11 @@ for (const style of Object.keys(STYLES)) for (const voice of [0, 2, 4, 10]) {
   s.params.stab.voice = voice;
   assert.equal(analogSet(style, voice), expected);
   const sets = liveSets(s);
-  for (const name of ['juno', 'jpad', 'jxstr', 'jxbr', 'jbr', 'dpad'])
+  const replaySets = liveSets({ ...s, artist: { style: 'ambient' } }, style);
+  for (const name of ['juno', 'jpad', 'jxstr', 'jxbr', 'jbr', 'dpad']) {
     assert.equal(sets.includes(name), name === expected || style === 'dub' && name === 'dpad', `${style}/${voice}: ${name} preload`);
+    assert.equal(replaySets.includes(name), name === expected || style === 'dub' && name === 'dpad', `${style}/${voice}: ${name} replay preload`);
+  }
 }
 for (const [style, voices] of Object.entries(mapping)) for (const voice of Object.keys(voices).map(Number)) {
   const { e, nodes } = instrument(style), args = [0.1, 0.8, [0, 3, 7], 60, e.state.params.stab, e.ch.stab.input];

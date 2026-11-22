@@ -107,9 +107,10 @@ export const STAB_BAND = { 7: 'piano', 8: 'gtr', 9: 'horn', 10: 'str', 11: 'gtr'
 const ANALOG_PAD = { hypnotic: 'juno', ambient: 'juno', peak: 'jpad', hardtechno: 'jpad', trance: 'jxstr' };
 const ANALOG_BRASS = { industrial: 'jxbr', peak: 'jxbr', electro: 'jxbr', electrohiphop: 'jxbr', trance: 'jbr' };
 export const analogSet = (style, voice) => (voice === 2 ? ANALOG_PAD[style] : voice === 4 ? ANALOG_BRASS[style] : null) || null;
-// Styles whose ORGAN chords and REESE bass play those recordings instead of the synth voices.
-export const RECORDED_ORGAN = new Set(['ukg']);
-export const ANALOG_BASS = new Set(['ukg']);
+// Styles whose ORGAN chords play the recorded tonewheel organ, and the BASS voices each style plays on the recorded SH-2.
+export const RECORDED_ORGAN = new Set(['ukg', 'gfunk']);
+export const ANALOG_BASS = { ukg: [3], gfunk: [1, 7] };
+export const playsAnalogBass = (style, voice) => !!ANALOG_BASS[style]?.includes(Math.round(voice || 0));
 export const HOOK_BAND = { harpplk: 'harp', oboe: 'ob', airflute: 'fl', tpt: 'tpt', marimba: 'marimba', altosax: 'asax', tenorsax: 'tsax' };
 // Where a generic 'reed' hook is a saxophone part: alto for the sung pop, neo-soul, club and trap leads; tenor for the dusty
 // boom bap loop and the Afrobeat horn line, an octave lower. Other reed styles keep their own lead.
@@ -191,31 +192,31 @@ export const BAND_LAYER = {
 };
 const LAYER_SETS = { vc: ['cello'], vla: ['cello', 'str'], vln1: ['str'], pno: ['pianoext', 'piano', 'pianoextsoft', 'pianosoft'], org: ['org'] };
 const layerSets = (style) => [...new Set(Object.values(BAND_LAYER[style] || {}).flatMap((x) => x.parts.flatMap((p) => LAYER_SETS[p])))];
-export function liveSets(st) {
+export function liveSets(st, style = st?.artist?.style) {
   const mode = Math.round(st?.master?.kit || 0), fullKit = mode === 1 || mode === 2;
   const out = fullKit ? ['kit'] : mode === KIT_BACKBEAT ? ['snare'] : [];
   if (st?.patterns?.some((p) => p.jazz?.style === 'jazzfunk') || st?.pattern?.jazz?.style === 'jazzfunk') out.push('horn');
   if (fullKit && pocketOf(st.master)?.band) out.push('kitx');
   if (Math.round(st?.params?.acid?.voice || 0) === 5) out.push('ebass');
-  if (Math.round(st?.params?.acid?.voice || 0) === 3 && ANALOG_BASS.has(st?.artist?.style)) out.push('abass');
-  if (Math.round(st?.params?.stab?.voice || 0) === 3 && RECORDED_ORGAN.has(st?.artist?.style)) out.push('org');
+  if (playsAnalogBass(style, st?.params?.acid?.voice)) out.push('abass');
+  if (Math.round(st?.params?.stab?.voice || 0) === 3 && RECORDED_ORGAN.has(style)) out.push('org');
   out.push(...(HAND_SETS[Math.round(st?.params?.perc?.voice || 0)] || []));
   const name = STAB_BAND[Math.round(st?.params?.stab?.voice || 0)];
   if (name) out.push(name, ...(SOFT_LAYER[name] ? [SOFT_LAYER[name]] : []));
-  const analog = analogSet(st?.artist?.style, Math.round(st?.params?.stab?.voice || 0));
+  const analog = analogSet(style, Math.round(st?.params?.stab?.voice || 0));
   if (analog) out.push(analog);
-  if (st?.artist?.style === 'dub') out.push('dpad');
+  if (style === 'dub') out.push('dpad');
   for (const p of [st?.pattern, ...(st?.patterns || [])]) {
     const roots = rootsFor(st, p);
     if (roots?.chord === 'upright' && Math.round(st?.params?.stab?.voice) === 7) out.push('upright');
     if (roots?.hook === 'fiddle' || roots?.answer === 'fiddle') out.push('fiddle');
     if (roots?.hook === 'twang') out.push('gtr', 'gtrsoft');
-    const v = p?.hook?.v === 'reed' ? SAX_HOOK[roots?.style ?? st?.artist?.style] : p?.hook?.v, voice = Object.hasOwn(HOOK_BAND, v) && HOOK_BAND[v];
+    const v = p?.hook?.v === 'reed' ? SAX_HOOK[roots?.style ?? style] : p?.hook?.v, voice = Object.hasOwn(HOOK_BAND, v) && HOOK_BAND[v];
     if (voice) out.push(voice, ...(TAKES[voice] ? [TAKES[voice]] : []));
   }
   // Country's lead is a Telecaster whatever plays the chords.
   if (pocketOf(st.master)?.walk && name !== 'gtr') out.push('gtr', 'gtrsoft');
-  if (fullKit && pocketOf(st.master)?.band) out.push(...layerSets(st.artist?.style));
+  if (fullKit && pocketOf(st.master)?.band) out.push(...layerSets(style));
   return [...new Set(out.flatMap((n) => [n, ...(ROOT_LAYERS[n] || [])]))];
 }
 // A song's recordings plus their alternate takes and mutes: what an offline render waits for, so exports get every take.

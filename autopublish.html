@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Daily autopublishing · UNTERGRUND</title>
+<link rel="stylesheet" href="/css/style.css">
+<body>
+<main class="panel" style="max-width:680px;margin:8vh auto;padding:24px">
+  <a href="/">UNTERGRUND</a>
+  <h1>Daily autopublishing</h1>
+  <p>Connect the release account once. A new track is rendered and published every day.</p>
+  <p>Only the configured SoundCloud account can connect. Refresh tokens stay on the server.</p>
+  <button class="btn accent" id="connect">CONNECT SOUNDCLOUD</button>
+  <p id="status" role="status" aria-live="polite">Loading status…</p>
+</main>
+<script type="module" src="/js/autopublish.js"></script>
+</body>
+</html>
