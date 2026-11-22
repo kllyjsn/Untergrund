@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { generate, defaultState, applyOverrides, applySongPlan, sanitize, arrangement, songChain, INSTRUMENTS } from '../js/state.js';
+import { generate, defaultState, applyOverrides, applySongPlan, sanitize, arrangement, songChain, INSTRUMENTS, freshSong } from '../js/state.js';
 import { patternAt } from '../js/scope.js';
 import { FUNK_HANDS, FUNK_VOX, funkHandBar } from '../js/baile.js';
 import { createTimelineRecorder, normalizeTimeline, stateAt } from '../js/set-timeline.js';
 import './bossa.mjs';
 import './jazzfunk.mjs';
+
+for (const style of ['folk', 'country']) for (const seed of [1, 2, 7, 11, 42, 77]) {
+  const fresh = freshSong(style, seed), loaded = sanitize(JSON.parse(JSON.stringify(fresh)));
+  for (const track of ['kick', 'acid', 'stab']) assert.equal(loaded.params[track].level, fresh.params[track].level, `${style}/${seed} ${track} level survives reload`);
+}
 
 for (const seed of [1, 3, 5, 42]) {
   const g = generate('bailefunk', seed), s = defaultState();
