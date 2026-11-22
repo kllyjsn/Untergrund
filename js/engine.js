@@ -3,7 +3,7 @@ import { PALETTE_INSTRUMENTS, PALETTE_DEFAULTS, instrumentFor } from './palette-
 import { getSample, sungNote, SUNG_LEN, SUNG_LOW, SUNG_NOTES, SUNG_VOWEL_COUNT } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
-import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, loadHand, STAB_BAND, HOOK_BAND, SAX_HOOK, SAX_LO, saxRoot, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER, RECORDED_ORGAN, ANALOG_BASS } from './livekit.js';
+import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, loadHand, STAB_BAND, HOOK_BAND, SAX_HOOK, SAX_LO, saxRoot, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER, RECORDED_ORGAN, playsAnalogBass } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel, swingLate, swingDuration } from './groove.js';
 import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes, jazzNotches, JAZZ_MIX, BOSSA_RIM, BOSSA_BATIDA, bossaBass } from './jazz.js';
@@ -156,6 +156,7 @@ const SAMPLE_FADE = 1;
 const WAKE_FLUSH = 0.024;
 const WAKE_FADE = 0.002;
 const ANALOG_BASS_GAIN = 4.4;
+const ANALOG_TONE = { ukg: { close: 2.2, open: 3, env: 8 }, gfunk: { close: 0.4, open: 0.7, env: 1, hp: 35, hpStages: 4, hpQ: -3.01, lp: 1000, gain: { 1: 3.35, 7: 3.4 }, organGain: 1.27, release: 0.03, organRelease: 0.018 } };
 // Chord voices that sustain fill a breakdown on their own, so a smooth style only lifts the ones that decay.
 const HELD_CHORDS = new Set(['pad', 'organ', 'strings', 'cello']);
 export const STAB_VOICES = [null, 'keys', 'pad', 'organ', 'brass', 'pluck', 'bells', 'piano', 'guitar', 'horns', 'strings', 'driveGuitar', 'acoustic', 'jazzGuitar', 'banjo', 'twangGuitar', 'cello', 'clarinet', 'nylon', 'marimba'];
@@ -1533,6 +1534,7 @@ export class Engine {
       const f = this.ctx.createBiquadFilter(); f.type = 'peaking'; f.frequency.value = freq; f.Q.value = q; f.gain.value = db;
       node = node.connect(f);
     }
+    for (let i = 0; fx.hp && i < (fx.hpStages || 1); i++) node = node.connect(this.filter('highpass', fx.hp, fx.hpQ ?? 0.7));
     for (let i = 0; fx.lp && i < (fx.lpStages || 1); i++) {
       const lp = this.filter('lowpass', fx.lp, fx.lpQ ?? 0.5);
       // The first 30 ms of a picked string is bright zing and pick noise; a thumb rounds it off.
@@ -3206,7 +3208,7 @@ export class Engine {
       if (n % 2) [c, buf] = alt[i];
     }
     return this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
-      shelves: [[3000, tone]], peaks: [...(R?.peak ? [R.peak] : []), ...(kind === 'str' ? HIPHOP[this.state.artist?.style]?.strEq ?? [] : []), ...(jazzStyle(this.state, this.playingPattern) === 'bossa' && kind === 'jazz' ? jazzNotches(kind, c, Math.pow(2, (m - c) / 12)) : [])], lp: R ? R.lp * (F ? F[1] : 1) * (0.4 + 0.6 * hv) : 0, ...(kind === 'upright' ? { lpStages: 2, lpQ: -6.0206 } : {}), lpFrom: F ? F[0] : R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
+      shelves: [[3000, tone]], peaks: [...(R?.peak ? [R.peak] : []), ...(kind === 'org' && this.playbackStyle === 'gfunk' ? [[2200, 1.2, -3], [3300, 0.8, -6]] : []), ...(kind === 'str' ? HIPHOP[this.state.artist?.style]?.strEq ?? [] : []), ...(jazzStyle(this.state, this.playingPattern) === 'bossa' && kind === 'jazz' ? jazzNotches(kind, c, Math.pow(2, (m - c) / 12)) : [])], lp: R ? R.lp * (F ? F[1] : 1) * (0.4 + 0.6 * hv) : 0, ...(kind === 'upright' ? { lpStages: 2, lpQ: -6.0206 } : {}), lpFrom: F ? F[0] : R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
     });
   }
   // A guitar amp for the DRIVE GTR: tightened lows into an asymmetric tube-style clipper, then a 4x12 cab
@@ -4151,22 +4153,33 @@ export class Engine {
     const set = this.rec('abass'), p = this.state.params.acid, m = this.bassMidi(st), f = midiHz(m), prev = this.mono?.amp.gain;
     // The last note's release is already scheduled: drop it so the choke is not undone by it.
     if (prev && this.mono.end > t) { if (prev.cancelAndHoldAtTime) prev.cancelAndHoldAtTime(t); else prev.cancelScheduledValues(t); }
-    const from = this.monoNote(t, f, sliding), len = holdNext ? sd * 2 : sd * (1 + p.decay * 6);
+    const from = this.monoNote(t, f, sliding);
     let [c, buf] = set[0];
     for (const [cm, b] of set) if (Math.abs(cm - m) < Math.abs(c - m)) [c, buf] = [cm, b];
     const rate = Math.pow(2, (m - c) / 12), vel = (st.a ? 0.95 : 0.8) * (this.noteVel ?? 1);
-    const close = Math.max(500, p.cutoff * 2.2), open = Math.max(close * 1.5, Math.min(10000, p.cutoff * (3 + p.envmod * 8 + (st.a ? (p.accent ?? 0.5) * 3 : 0))));
-    const h = this.playBuf(buf, t, vel * ANALOG_BASS_GAIN, this.ch.acid.input, rate, len, { lp: open, lpTo: close, fade: 0.003, release: 0.04, loop: true });
+    const tone = ANALOG_TONE[this.playbackStyle] || ANALOG_TONE.ukg;
+    const organ = Math.round(this.state.params.stab.voice) === 3 && !this.state.mutes?.stab
+      && (!TRACK_IDS.some(id => this.state.solos?.[id]) || this.state.solos.stab) && (this.state.params.stab.level ?? 1) > 0;
+    const release = (organ ? tone.organRelease : null) ?? tone.release ?? 0.04;
+    const gate = organ ? 0.7 + p.decay * 1.5 : 0.9 + p.decay * 2;
+    const len = st.ap && tone.release ? sd * 0.9 : holdNext ? sd * 2 : sd * (tone.release ? gate : 1 + p.decay * 6);
+    const gain = ANALOG_BASS_GAIN * ((organ ? tone.organGain : null) ?? tone.gain?.[Math.round(p.voice)] ?? 1);
+    const close = Math.max(tone.hp ? 180 : 500, p.cutoff * tone.close), open = Math.max(close * 1.5, Math.min(10000, p.cutoff * (tone.open + p.envmod * tone.env + (st.a ? (p.accent ?? 0.5) * (tone.hp ? 1 : 3) : 0))));
+    const h = this.playBuf(buf, t, vel * gain, this.ch.acid.input, rate, len, { lp: tone.lp ? Math.min(tone.lp, open) : open, lpTo: close, lpStages: tone.lp ? 2 : 1, hp: tone.hp, hpStages: tone.hpStages, hpQ: tone.hpQ, fade: 0.003, release, loop: true });
+    if (tone.release) {
+      const amp = h.g.gain;
+      amp.cancelScheduledValues(t);
+      amp.setValueAtTime(0, t);
+      amp.linearRampToValueAtTime(vel * gain, t + 0.006);
+      amp.setTargetAtTime(vel * gain * 0.55, t + 0.02, organ ? 0.036 : 0.12);
+      amp.setTargetAtTime(0, t + len, release);
+    }
     if (from !== f) { h.s.playbackRate.setValueAtTime(rate * (from / f), t); h.s.playbackRate.exponentialRampToValueAtTime(rate, t + 0.08); }
     this.mono = { amp: h.g, f, end: t + len + 0.3 };
   }
   // Reese: two detuned saws beating against each other plus a sine sub. SAW/SQR sets the detune spread,
   // ENV MOD sweeps the filter, RESO adds bite.
   reese(t, st, sd, holdNext, sliding) {
-    if (ANALOG_BASS.has(this.playbackStyle)) {
-      if (this.rec('abass')) return this.analogBass(t, st, sd, holdNext, sliding);
-      loadBand('abass');
-    }
     const c = this.ctx, p = this.state.params.acid;
     const f = midiHz(this.bassMidi(st)), subF = midiHz(this.bassMidi(st, 36, 38));
     const from = this.monoNote(t, f, sliding), len = holdNext ? sd * 2 : sd * (1 + p.decay * 6), end = t + len + 0.3;
@@ -4383,7 +4396,7 @@ export class Engine {
       this.ch.acid.input = gate;
       try {
         const result = this.acidVoice(t, st, false, false, sd, slideUntil, kickAt);
-        if (vo === 0 || vo >= 7) {
+        if (vo === 0 || (vo >= 7 && !(playsAnalogBass(this.playbackStyle, vo) && this.rec('abass')))) {
           const amp = vo === 0 ? this.acidNodes.vca : this.gatedBasses.get(vo)?.amp;
           for (const node of [amp, this.subVoice?.amp]) if (node) {
             node.gain.cancelScheduledValues(st.until - 0.018);
@@ -4428,8 +4441,15 @@ export class Engine {
       return this.dubSub(t, st, sd, holdNext);
     }
     const vo = Math.round(p.voice);
-    for (const [voice, { amp: { gain } }] of this.gatedBasses) if (vo !== voice) {
+    const analog = playsAnalogBass(this.playbackStyle, vo) && this.rec('abass');
+    for (const [voice, { amp: { gain } }] of this.gatedBasses) if (vo !== voice || analog) {
       gain.cancelScheduledValues(t); gain.setTargetAtTime(0, t, 0.005);
+    }
+    if (vo > 0 && playsAnalogBass(this.playbackStyle, vo)) {
+      if (analog) a.vca.gain.cancelScheduledValues(t);
+      a.vca.gain.setTargetAtTime(0, t, 0.005);
+      if (analog) return this.analogBass(t, st, sd, holdNext, sliding);
+      loadBand('abass');
     }
     if (vo > 0) { a.vca.gain.setTargetAtTime(0, t, 0.005); return this[['', 'bass', 'eight08', 'reese', 'logdrum', 'ebass', 'fmBass', 'pulseBass', 'harmonicBass', 'harmonicBass'][vo]](t, st, sd, holdNext, sliding, vo === 2 ? kickAt : slideUntil); }
     const f = midiHz(this.bassMidi(st)), sub = lowEnd(this.state.master)?.sub[0];
