@@ -9,11 +9,12 @@ export async function handleAutopublish({ method, query = {}, body = {}, kv, env
   const day = Math.floor(now / 86400e3), date = new Date(day * 86400e3).toISOString().slice(0, 10);
   const dayKey = `${AUTOPUBLISH}:day:${day}`;
   const cfg = scConfig(env);
+  const allowedPermalink = env.AUTOPUBLISH_SC_USER || 'jason-kelley-203620322';
   try {
     if (method === 'GET' && query.run !== '1') {
       const account = JSON.parse(await kv.cmd(['GET', `${AUTOPUBLISH}:account`]) || 'null');
       const last = JSON.parse(await kv.cmd(['GET', `${AUTOPUBLISH}:last`]) || 'null');
-      return result(200, { connected: !!account, account: account?.permalink_url || null, last });
+      return result(200, { connected: !!account, account: account?.permalink_url || null, allowedPermalink, last });
     }
     if (method !== 'POST' && !(method === 'GET' && query.run === '1')) return result(405, { error: 'method_not_allowed' });
     if (typeof body === 'string') {
@@ -30,7 +31,7 @@ export async function handleAutopublish({ method, query = {}, body = {}, kv, env
         const meResponse = await fetchImpl(`${cfg.apiUrl}/me`, { headers: { Authorization: `OAuth ${token.json.access_token}` } });
         if (!meResponse.ok) return result(502, { error: 'account_lookup_failed' });
         const me = await meResponse.json();
-        if (me.permalink !== (env.AUTOPUBLISH_SC_USER || 'jason-kelley-203620322')) return result(403, { error: 'wrong_account' });
+        if (me.permalink !== allowedPermalink) return result(403, { error: 'wrong_account' });
         await kv.cmd(['SET', `${AUTOPUBLISH}:account`, JSON.stringify({ refresh_token: token.json.refresh_token, permalink_url: me.permalink_url })]);
         return result(200, { connected: true, account: me.permalink_url });
       }

@@ -54,7 +54,8 @@ async function codeBody() {
 }
 let initialRefresh;
 try {
-  assert.deepEqual((await call('GET')).json, { connected: false, account: null, last: null });
+  assert.deepEqual((await call('GET')).json, { connected: false, account: null, allowedPermalink: 'untergrund-test', last: null });
+  assert.equal((await call('GET', null, {}, { env: { ...env, AUTOPUBLISH_SC_USER: '' } })).json.allowedPermalink, 'jason-kelley-203620322');
   assert.equal((await call('POST', {}, { run: '1' })).json.error, 'not_connected');
   for (const body of ['', ' \n\t ']) assert.equal((await call('POST', body, { run: '1' })).json.error, 'not_connected', 'bodyless runs reach publishing logic');
   assert.equal((await call('POST', {})).status, 400);
@@ -119,7 +120,7 @@ try {
   console.log('daily release: all 42 genre rotation, overrides, invalid input and genre-correct metadata passed');
 } finally { await new Promise((resolve) => server.close(resolve)); }
 
-const saved = Object.fromEntries(['window', 'location', 'localStorage', 'fetch'].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+const saved = Object.fromEntries(['window', 'location', 'localStorage', 'fetch', 'document'].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
 try {
   const stored = new Map(), listeners = new Map();
   let rejectConnect = false, persistTokens = false;
@@ -135,6 +136,7 @@ try {
   };
   globalThis.fetch = async (url, options) => {
     if (url === '/api/sc-config') return Response.json({ enabled: true, clientId: 'test', authUrl: 'https://soundcloud.example' });
+    if (url === '/api/autopublish' && !options?.method) return Response.json({ connected: false, allowedPermalink: 'release-account' });
     assert.equal(url, persistTokens ? '/api/sc-token' : '/api/autopublish');
     const body = JSON.parse(options.body);
     assert.equal(body.redirect_uri, 'http://localhost/sc-callback.html');
@@ -151,6 +153,18 @@ try {
   await connect();
   assert.equal(JSON.parse(stored.get('untergrund.sc')).access_token, 'browser-access', 'normal publishing still stores browser tokens');
   console.log('SoundCloud PKCE: server-only connection, wrong-account feedback and existing browser token flow passed');
+  let click;
+  const status = { textContent: '', replaceChildren(...parts) { this.textContent = parts.join(''); }, append(...parts) { this.textContent += parts.filter((p) => typeof p === 'string').join(''); } };
+  const button = { addEventListener: (_, callback) => { click = callback; } };
+  globalThis.document = { querySelector: (selector) => selector === '#status' ? status : button, createTextNode: (s) => s, createElement: () => ({}) };
+  await import('../js/autopublish.js');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert(status.textContent.includes('Allowed SoundCloud account: release-account'));
+  rejectConnect = true; persistTokens = false;
+  await click();
+  assert.equal(status.textContent, "That SoundCloud account isn't the one set up for autopublishing. Sign in as release-account and try again.");
+  assert.equal(button.disabled, false);
+  console.log('autopublish page: allowed account displayed and wrong-account rejection shows sign-in guidance passed');
 } finally {
   for (const [key, descriptor] of Object.entries(saved)) {
     if (descriptor) Object.defineProperty(globalThis, key, descriptor);
