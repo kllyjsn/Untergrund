@@ -23,8 +23,8 @@ export const HIPHOP = {
     kicks: [[0, 6, 8, 11], [0, 3, 8, 10], [0, 7, 10, 14]], clap: [4, 12], hats: [0, 2, 4, 6, 8, 10, 12, 14, 15], open: [10, 14],
     stabs: [[0, 8], [0, 10], [0, 6, 8]],
     bass: [[0, 0], [3, 4], [6, 0], [8, 0], [11, 7], [14, 4]], hook: 'funkwhistle', octave: 1,
-    // Recorded strings' [Hz, Q, dB] peaks: body under the whistle, their 2-4 kHz partials out of its way.
-    strEq: [[500, 0.7, 2.5], [1680, 1.22, 8.2], [1705, 6.24, 5.2], [2120, 2.23, -18.5], [2570, 2.12, -14.5], [3220, 2.88, -13], [3915, 5.23, -11]],
+    // Recorded strings: [Hz, Q, dB] body peak and Butterworth stop-band edges in Hz.
+    strEq: [[500, 0.7, 2.5]], strStop: [1790, 4220],
     riffs: [[[0, 4, 4], [4, 5, 2], [6, 4, 6]], [[2, 2, 4], [6, 4, 4], [10, 3, 4]], [[0, 2, 4], [4, 3, 4], [8, 4, 5]]],
     mix: {
       kick: { tune: 55, decay: 0.2, drive: 0.25, click: 0.14, punch: 0.64, rumble: 0, level: 0.86 },
@@ -86,6 +86,20 @@ export const HIPHOP = {
 };
 
 export const HIPHOP_STYLES = Object.keys(HIPHOP);
+export function stringStopSections(sampleRate, low, high) {
+  if (!(Number.isFinite(sampleRate) && low > 0 && low < high && high < sampleRate / 2)) throw new RangeError('Invalid strings stop band');
+  const lo = Math.tan(Math.PI * low / sampleRate), hi = Math.tan(Math.PI * high / sampleRate);
+  const w2 = lo * hi, width = hi - lo, u = [1 + w2, 2 * (w2 - 1), 1 + w2], v = [1, 0, -1];
+  const product = (a, b) => {
+    const out = Array(a.length + b.length - 1).fill(0);
+    a.forEach((x, i) => b.forEach((y, j) => { out[i + j] += x * y; }));
+    return out;
+  };
+  const numerator = product(u, u), uv = product(u, v), vv = product(v, v);
+  return [2 * Math.sin(Math.PI / 8), 2 * Math.sin(3 * Math.PI / 8)].map((damping) => [
+    numerator, numerator.map((x, i) => x + damping * width * uv[i] + width * width * vv[i]),
+  ]);
+}
 const choose = (r, rows) => rows[Math.floor(r() * rows.length)];
 
 export function hiphopGroove(profile, r, scale, steps, params, master) {
