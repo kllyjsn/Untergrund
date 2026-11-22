@@ -4,7 +4,7 @@ import { defaultState, generate, applyOverrides, arrangement, applySongPlan, son
 import { Engine, Sequencer, parseChain, scoreKinds } from '/js/engine.js';
 import { compose } from '/js/classical.js';
 import { loadPiece } from '/js/repertoire.js';
-import { loadBand, liveSets, loadSets, withTakes } from '/js/livekit.js';
+import { loadBand, liveSets, loadSets, withTakes, assertRootsReady } from '/js/livekit.js';
 import { capture } from '/js/midi.js';
 import { router, stemList } from '/js/stems.js';
 import { encodeWav } from '/js/dsp.js';
@@ -59,7 +59,9 @@ export function plan(s, windowBars = 2) {
 // renders ~7x slower. fromBar starts inside the song with the arrangement state it has there.
 export async function render(s, fromBar, toBar, { sampleRate = 48000, tail = 8, channels = 2, onContext, onEngine } = {}) {
   const snap = clone(s);
-  await loadSets(withTakes(liveSets(snap)));
+  const sets = withTakes(liveSets(snap));
+  await loadSets(sets);
+  assertRootsReady(sets);
   const score = snap.patterns.find((p) => p.score)?.score;
   if (score?.piece) await loadPiece(score.piece);
   if (score) await Promise.all(scoreKinds(score).map((k) => loadBand(k)));
