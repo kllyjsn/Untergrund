@@ -81,11 +81,25 @@ t('modulation distinguishes its source and destination keys', () => {
     ['modulate from C major to D minor chords', 2],
     ['modulate from the key of C major to C minor', 0],
     ['transpose up from the key of C major to the key of B flat minor', 10],
+    ['transpose down a semitone from the key of D minor to a lower key', 1],
+    ['transpose up from the key of D minor to a higher key', 3],
+    ['transpose down from D minor to A minor', 9],
+    ['transpose down from the key of D minor to the key of A minor', 9],
     ['modulate to D minor chords', 2],
   ]) {
     const after = applyEdits(song, parse(prompt, { style: 'rnb' }).edits, { style: 'rnb' }).state;
     assert.equal(after.key, key, prompt);
     assert.equal(after.scale, 'minor', prompt);
+  }
+  for (const [prompt, key] of [
+    ['transpose down from D minor to A', 9],
+    ['transpose up from the key of C minor to A please', 9],
+    ['transpose down from C minor to A sharp', 10],
+    ['transpose from C minor to B', 11],
+  ]) {
+    const edits = parse(prompt, { style: 'rnb' }).edits;
+    assert.deepEqual(edits.map((e) => e.id), ['key'], prompt);
+    assert.equal(applyEdits(song, edits, { style: 'rnb' }).state.key, key, prompt);
   }
 });
 

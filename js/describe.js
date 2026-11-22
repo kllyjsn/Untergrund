@@ -56,7 +56,9 @@ const CHORD_QUALITY = new RegExp(
 const KEY_BEFORE_CHORD = /\b(?:key(?:\s+of|\s+to)?|(?:transpose|modulate|switch|change)(?:\s+it)?\s+to|(?:keep|lock)\s+(?:it|the\s+(?:song|track|tune))\s+in)\s+$/;
 const CHORD_AMOUNT = /\b(?:add|include|use|with|more|less|fewer|no|without)\s+(?:(?:some|a\s+few|a|an|the)\s+)?$/;
 const CLAUSE_BREAK = /\s*(?:,|;|\.|!|\?|\band\b|&|\+|\bbut\b|\bthen\b|\balso\b|\bplus\b|\bwith\b|\bwhile\b|\bnow\b)\s*/;
-export const withoutCurrentSong = (text) => text.replace(/\b(?:of|in|to|on)\s+(?:the|this|my|our)\s+(?:song|track|tune|beat)\b/g, ' ');
+export const withoutCurrentSong = (text) => text
+  .replace(/\b(?:of|in|to|on)\s+(?:the|this|my|our)\s+(?:song|track|tune|beat)\b/g, ' ')
+  .replace(/^(\s*(?:please\s+)?(?:keep|lock|transpose|modulate|change|switch|set)\s+)(?:the|this|my|our)\s+(?:song|track|tune|beat)\s+(?=(?:in|to|from)\s+)/, '$1');
 
 export const HIPHOP_PHRASES = [
   [/\blo[\s-]?fi[\s-]+(?:hip[\s-]?hop|beats?)\b|\bchillhop\b/g, 'lofihiphop'],
@@ -376,7 +378,8 @@ export const SUGGESTIONS = ['darker', 'slower', 'more swing', 'less busy', 'bigg
 // ---------------- parsing ----------------
 const KEY_PC = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
 const MODE = { minor: 'minor', min: 'minor', m: 'minor', major: 'major', maj: 'major', dorian: 'dorian', phrygian: 'phrygian' };
-const KEY_NAME = `([a-g])(#|b|\\s+sharp|\\s+flat)?(?:\\s+(${Object.keys(MODE).join('|')}))?(?=\\s|$)`;
+const MODE_NAMES = Object.keys(MODE).join('|');
+const KEY_NAME = `(?!a\\s+(?!(?:sharp|flat|${MODE_NAMES}|please)\\b)\\S)([a-g])(#|b|\\s+sharp|\\s+flat)?(?:\\s+(${MODE_NAMES}))?(?=\\s|$)`;
 const KEY_PREFIX = '(?:in\\s+the\\s+key\\s+of|(?:to\\s+)?(?:the\\s+)?key\\s+of|in|to|key)';
 const KEY_WITH_PREFIX = new RegExp(`\\b${KEY_PREFIX}\\s+${KEY_NAME}`);
 const KEY_TRANSITION = new RegExp(`\\b((?:keychange|transpose|switch|change)\\b.*?)\\s+from\\s+(?:(?:the\\s+)?key\\s+of\\s+)?${KEY_NAME}\\s+(?=to\\s+(?:(?:the\\s+)?key\\s+of\\s+)?${KEY_NAME})`);
@@ -437,9 +440,8 @@ function extract(clause, edits) {
   if (transition) c = c.replace(KEY_TRANSITION, '$1 ');
   const key = c.match(KEY_WITH_PREFIX)
     || c.match(/\b([a-g])(#|b)?\s*(minor|major|m|maj|dorian|phrygian)\b/);
-  const absoluteKey = key && !(key[1] === 'a' && !key[2] && !key[3] && /\bin\s+a\s*$|\bto\s+a\s*$/.test(key[0]) === false && !/key/.test(key[0]));
-  const sourceKey = absoluteKey && /\bfrom(?:\s+the)?\s+$/.test(c.slice(0, key.index));
-  if (absoluteKey) {
+  const sourceKey = key && /\bfrom(?:\s+the)?\s+$/.test(c.slice(0, key.index));
+  if (key) {
     let pc = KEY_PC[key[1]];
     if (key[2]) pc += /#|sharp/.test(key[2]) ? 1 : -1;
     edits.push({ id: 'key', value: ((pc % 12) + 12) % 12, src: key[0].trim() });
@@ -456,7 +458,7 @@ function extract(clause, edits) {
   if (scale) { edits.push({ id: 'bpmScale', value: scale[1] === 'halftime' ? 0.5 : 2, src: scale[0] }); c = c.replace(scale[0], ' '); }
   const change = c.match(/\bkeychange(?:\s+(up|down))?\b/);
   if (change) {
-    if (!step && (!absoluteKey || sourceKey)) edits.push({ id: 'keyStep', amt: change[1] === 'down' ? -2 : 2, src: 'new key' });
+    if (!step && (!key || sourceKey)) edits.push({ id: 'keyStep', amt: change[1] === 'down' ? -2 : 2, src: 'new key' });
     c = c.replace(change[0], ' ');
   }
   const bare = c.match(/(?:^|\s)(?:make\s+it\s+|go\s+|try\s+|around\s+)?(\d{2,3})(?=\s|$)/);
@@ -732,6 +734,7 @@ function sectionClause(sec, rest, src, ctx, carry = [], where = {}) {
     if (STRIP.test(s)) return { edits: [E('strip')] };
   }
   const sub = carry.length ? carry : parse(rest, { ...ctx, noSection: true, last: null, net: null }).edits;
+  const pitch = sub.some((e) => ['key', 'keyStep', 'scale'].includes(e.id));
   const out = [], mute = [], add = [];
   let energy = 0, left = 0, unsupportedHarmony = false;
   for (const e of sub) {
@@ -740,7 +743,7 @@ function sectionClause(sec, rest, src, ctx, carry = [], where = {}) {
     else if (e.target && e.id === 'density') out.push(E('density', { tracks: [e.target], amt: e.amt }));
     else if (e.id === 'hook') out.push(E('hook', { value: e.value ? 1 : 0 }));
     else if (e.id === 'harmony') unsupportedHarmony = true;
-    else if (!e.target && SEC_ENERGY.has(e.id) && e.amt) energy += Math.sign(e.amt);
+    else if (!e.target && SEC_ENERGY.has(e.id) && e.amt && !(pitch && e.id === 'variation' && /^change\b/.test(plain))) energy += Math.sign(e.amt);
     else left++;
   }
   if (mute.length) out.push(E('mute', { tracks: [...new Set(mute)] }));
