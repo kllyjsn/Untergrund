@@ -61,9 +61,10 @@ try {
     const { defaultState, generate, applyOverrides, arrangement, songChain } = await import('/js/state.js');
     const { renderStems, renderPreBus, stemList } = await import('/js/stems.js');
     const out = [];
-    for (const [style, seed, bars] of [['neosoul', 42, 4], ['deephouse', 7, 4], ['nocturne', 9, 2]]) {
+    for (const [style, seed, bars] of [['neosoul', 42, 4], ['deephouse', 7, 4], ['nocturne', 9, 2], ['drill', 7, 4], ['dub', 42, 8]]) {
       const s = defaultState(), g = generate(style, seed);
       applyOverrides(s, g); s.key = g.key; s.patterns = arrangement(g.pattern, seed); s.chainOn = true; s.chain = songChain(style, seed);
+      if (style === 'dub') s.artist = { style, seed };
       // Start at the first chorus so the full band and the hook are playing. Four bars of the sung genres:
       // the chords' licks answer the singer in the breath at the end of the 4-bar phrase.
       if (!g.pattern.score) s.chain = s.chain.slice(s.chain.indexOf('G'));
@@ -96,6 +97,19 @@ try {
   }
   assert(result[1].stems.includes('hook') && result[1].loud.includes('hook'), 'deephouse hook gets its own stem');
   assert(result[2].stems.includes('pno') && !result[2].stems.includes('kick'), 'nocturne stems are orchestra parts');
+  assert(result[3].loud.includes('hook') && result[3].loud.includes('kick'), 'the sidechained Drill hook and kick have separate stems');
+  assert(result[4].loud.includes('dubpad') && result[4].loud.includes('stab') && result[4].loud.includes('acid'), 'Dub pad, stabs and sub have separate audible stems');
+  const fit = await run(`(async () => {
+    const { fitStems } = await import('/js/stems.js');
+    const r = { stems: [{ id: 'acid', name: 'bass', left: new Float32Array([0.5, 1.2]), right: new Float32Array([0, -0.6]) },
+      { id: 'kick', name: 'kick', left: new Float32Array([0.5]), right: new Float32Array([-0.5]) }] };
+    fitStems(r);
+    return { trims: r.trims, bass: Math.max(...r.stems[0].left.map(Math.abs)), kick: r.stems[1].left[0] };
+  })()`);
+  assert.equal(fit.bass, Math.fround(0.99), 'a stem over full scale is printed just under it');
+  assert.equal(fit.kick, 0.5, 'stems under full scale are untouched');
+  assert.deepEqual(fit.trims.map((x) => x.id), ['acid'], 'the README names the trimmed stem');
+  assert(Math.abs(fit.trims[0].db - 20 * Math.log10(0.99 / Math.fround(1.2))) < 1e-6);
   ws.close();
   console.log('stems tests passed');
 } finally { await done(); }

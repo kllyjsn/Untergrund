@@ -10,9 +10,12 @@ import { PARTS, PART_IDS, extractPart, jamKey, jamStep, stepWall, jammable, part
 import { fetchLiveRooms, liveDirectory, roomCard, goLiveTile, isRoomPublic, setRoomPublic, myRoom, setMyRoom, roomInviteUrl } from './live-rooms.js';
 import { SHAPES, COLORS, GEAR, FALLBACK_NAME, generateName, randomLook, migrateAvatar, chatGroups } from './club-identity.js';
 import { createStage, stageScene } from './club-stage.js';
+import { createRoomClock, shiftRoomSet, calibrateRoomClock, roomBoundary } from './room-sync.js';
 
 const AVATAR_KEY = 'untergrund.avatar.v1';
 const ROOM_KEY = 'untergrund.room.v1';
+// A fresh invite needs time to load the page, connect to the room and warm its audio graph.
+const ROOM_BROADCAST_LEAD_MS = 3000;
 const REACTIONS = ['HYPE', 'DEEP', 'ACID'];
 const JAM_LINES = {
   claim: (part) => `took the ${part}`,
@@ -95,7 +98,8 @@ export function avatarNode(avatar, extra = '', style = '') {
     safe.name ? h('div', { class: 'club-name' }, safe.name) : null);
 }
 
-class RoomBus {
+let clockProbe = 0;
+export class RoomBus {
   constructor(id, user, onUpdate, onEvent, apiBase = '') {
     this.id = cleanRoom(id);
     this.user = user;
@@ -108,6 +112,7 @@ class RoomBus {
     this.tokenKey = `untergrund.room-token:${this.id}:${this.clientId}`;
     this.token = sessionStorage.getItem(this.tokenKey) || '';
     this.apiBase = String(apiBase || '').replace(/\/$/, '');
+    this.roomClock = createRoomClock();
     this.serverConnected = false;
     this.seq = 0;
     this.seen = new Set();
@@ -138,7 +143,7 @@ class RoomBus {
     this.poller = 0;
     this.onVisible = () => { if (!document.hidden) { this.activeAt = Date.now(); this.poll(); } };
     document.addEventListener('visibilitychange', this.onVisible);
-    this.ready = this.heartbeat();
+    this.ready = this.heartbeat(true);
     this.channel?.postMessage({ kind: 'snapshot-request', requester: this.clientId });
     this.poll();
   }
@@ -162,7 +167,7 @@ class RoomBus {
     const snapshot = this.snapshot(extra);
     const signature = JSON.stringify({
       members: snapshot.members.map((member) => [member.id, member.name, member.avatar || member.shape, member.color, member.gear]),
-      set: snapshot.currentSet ? [snapshot.currentSet.version, snapshot.currentSet.title, snapshot.currentSet.startsAt] : null,
+      set: snapshot.currentSet ? [snapshot.currentSet.version, snapshot.currentSet.title, snapshot.currentSet.startsAt, snapshot.currentSet.public] : null,
       hostId: snapshot.hostId || null,
       queue: snapshot.queue || [],
       jam: this.jam ? [this.jam.rev, this.jam.open, ...PART_IDS.map((p) => [this.jam.parts[p]?.owner, this.jam.parts[p]?.step])] : null,
@@ -189,7 +194,12 @@ class RoomBus {
   applySet(set, userId, snapshot = false) {
     if (!set || !this.acceptsSet(set)) return;
     const key = this.setKey(set);
-    if (key === this.currentSetKey) return;
+    const sameBroadcast = set.broadcastId && set.broadcastId === this.currentSet?.broadcastId;
+    if (sameBroadcast && set.public === false) this.onPlaybackUnavailable?.(set);
+    if (key === this.currentSetKey) {
+      if (sameBroadcast) this.currentSet.public = set.public;
+      return;
+    }
     this.currentSet = set;
     this.currentSetKey = key;
     const seenBroadcast = !!(set.broadcastId && this.appliedBroadcasts.has(set.broadcastId));
@@ -222,12 +232,22 @@ class RoomBus {
     }
     await this.ready;
     try {
+      const from = performance.now();
+      let wirePayload = event.payload;
+      if (type === 'set') {
+        wirePayload = shiftRoomSet(event.payload, this.roomClock.shift());
+        if (wirePayload.broadcastId && this.serverOrigin?.broadcastId === wirePayload.broadcastId) {
+          wirePayload = { ...wirePayload, startsAt: this.serverOrigin.startsAt };
+        }
+      }
       const response = await fetch(this.endpoint('/events'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...event, clientId: this.clientId, clientSecret: this.clientSecret, token: this.token, since: this.seq, ...this.known() }),
+        body: JSON.stringify({ ...event, payload: wirePayload, clientId: this.clientId, clientSecret: this.clientSecret, token: this.token, since: this.seq, ...this.known() }),
       });
+      const to = performance.now();
       const json = await response.json().catch(() => null);
+      this.roomClock.observe(json?.clock, from, to);
       if (response.ok || json?.jam) this.applySnapshot(json);
       return { ok: response.ok, error: json?.error };
     } catch { return { ok: false, error: 'offline' }; }
@@ -294,7 +314,7 @@ class RoomBus {
     this.heartbeat();
   }
 
-  async heartbeat() {
+  async heartbeat(calibrate = false) {
     const event = {
       id: `${this.clientId}-presence-${Date.now()}`,
       type: 'presence',
@@ -303,13 +323,40 @@ class RoomBus {
     };
     this.channel?.postMessage(event);
     this.receive(event);
+    const sample = async (token, timeout) => {
+      const probe = calibrate && !this.apiBase;
+      const url = this.endpoint(probe ? `/events?clockProbe=${++clockProbe}` : '/events');
+      const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), timeout);
+      try {
+        const from = performance.now();
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'presence', clientId: this.clientId, clientSecret: this.clientSecret, token, user: { ...this.user, joinedAt: this.joinedAt }, since: this.seq, ...this.known() }),
+          signal: ctrl.signal,
+        });
+        const to = performance.now();
+        if (!response.ok) return null;
+        const snapshot = await response.json();
+        // Use the browser's wire timing rather than time waiting for the
+        // startup page to run fetch callbacks. A unique URL identifies this POST.
+        const timing = probe && performance.getEntriesByName(response.url, 'resource')[0];
+        const wire = timing?.requestStart > 0 && timing.requestStart >= from
+          && timing.responseStart >= timing.requestStart && timing.responseStart <= to;
+        const latency = this.roomClock.observe(snapshot.clock, wire ? timing.requestStart : from, wire ? timing.responseStart : to);
+        return { snapshot, latency };
+      } finally { clearTimeout(timer); }
+    };
     try {
-      const response = await fetch(this.endpoint('/events'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'presence', clientId: this.clientId, clientSecret: this.clientSecret, token: this.token, user: { ...this.user, joinedAt: this.joinedAt }, since: this.seq, ...this.known() }),
-      });
-      if (response.ok) this.applySnapshot(await response.json());
+      const initial = await sample(this.token, 5000);
+      if (!initial || this.closed) return;
+      this.applySnapshot(initial.snapshot);
+      if (calibrate) this.calibration = calibrateRoomClock(initial, async (token, timeout) => {
+        if (this.closed) return null;
+        const warm = await sample(token || this.token, timeout);
+        if (warm && !this.closed) this.applySnapshot(warm.snapshot);
+        return warm;
+      }).catch(() => {});
     } catch {}
   }
 
@@ -325,6 +372,8 @@ class RoomBus {
   }
 
   async poll() {
+    // The uncached presence POST gives us a clock sample before a CDN-cached poll can return a set.
+    await this.ready;
     clearTimeout(this.poller);
     if (this.closed) return;
     const due = this.pollDelay() - (Date.now() - this.lastSync);
@@ -352,8 +401,9 @@ class RoomBus {
     this.seq = Math.max(this.seq, snapshot.seq || 0);
     this.hostId = snapshot.hostId || this.hostId;
     this.queue = snapshot.queue || this.queue;
+    const shift = this.roomClock.shift();
     for (const member of snapshot.members || []) {
-      if (member.id !== this.clientId) this.members.set(member.id, normalizeMember(member));
+      if (member.id !== this.clientId) this.members.set(member.id, normalizeMember({ ...member, seen: member.seen - shift }));
     }
     this.members.set(this.clientId, normalizeMember({
       id: this.clientId,
@@ -364,7 +414,19 @@ class RoomBus {
     const cutoff = Date.now() - 15000;
     for (const [id, member] of this.members) if ((member.seen || 0) < cutoff) this.members.delete(id);
     if (snapshot.currentSet) {
-      this.applySet(snapshot.currentSet, snapshot.hostId, true);
+      const { broadcastId, startsAt } = snapshot.currentSet;
+      let set = shiftRoomSet(snapshot.currentSet, -shift);
+      if (broadcastId && broadcastId === this.currentSet?.broadcastId) set = { ...set, startsAt: this.currentSet.startsAt };
+      this.applySet(set, snapshot.hostId, true);
+      if (this.currentSet === set) this.serverOrigin = { broadcastId, startsAt };
+    }
+    if (this.serverOrigin?.broadcastId && this.serverOrigin.broadcastId === this.currentSet?.broadcastId) {
+      const startsAt = this.serverOrigin.startsAt - shift;
+      if (Number.isFinite(startsAt) && Math.abs(startsAt - this.currentSet.startsAt) > 3) {
+        const previousStartsAt = this.currentSet.startsAt;
+        this.currentSet = { ...this.currentSet, startsAt };
+        this.onClock?.({ broadcastId:this.currentSet.broadcastId, startsAt, previousStartsAt });
+      }
     }
     if (snapshot.jam) {
       this.jam = snapshot.jam;
@@ -455,6 +517,7 @@ class RoomBus {
 
   close() {
     this.closed = true;
+    if (this.currentSet) this.onPlaybackUnavailable?.(this.currentSet);
     clearInterval(this.jamTimer);
     clearInterval(this.timer);
     clearTimeout(this.poller);
@@ -477,14 +540,14 @@ export function clubActions({ isHost, live, canListen, queued, queueLength = 0 }
   return queued ? { primary: null, secondary: [queue] } : { primary: queue, secondary: [] };
 }
 
-export function openClub({ getState, getStyle, loadTrack, getTransport, startRoomBroadcast, unlockAudio, joinRoomSet: joinSet, replayToRoom, jam: jamHooks = null, toast, room: requestedRoom = '', intent = '', hue = null }) {
-  const joinRoomSet = (set) => { joinSet(set); bus?.follow(set); };
+export function openClub({ getState, getStyle, loadTrack, prepareTrack, getTransport, getReleaseId = () => '', startRoomBroadcast, unlockAudio, joinRoomSet: joinSet, reanchorRoomSet, onLeaveRoom, onPlaybackUnavailable, replayToRoom, jam: jamHooks = null, toast, room: requestedRoom = '', intent = '', hue = null }) {
+  const joinRoomSet = (set, options) => { joinSet(set, options); bus?.follow(set); };
   let audioReady = false;
   const unlock = () => unlockAudio().then((ok) => (audioReady = ok));
   unlock().then(() => {
     if (closed) return;
     if (audioReady && pendingSet && !getTransport().playing) {
-      joinRoomSet(pendingSet);
+      joinRoomSet(pendingSet, { initial: true });
       pendingSet = null;
     }
     render();
@@ -508,13 +571,19 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     history.replaceState(history.state, '', url);
   };
 
+  const leaveRoom = (leaving = bus) => {
+    if (!leaving) return;
+    leaving.close();
+    onLeaveRoom?.();
+  };
+
   const close = () => {
     closed = true;
     if (bus && (bus.hostId === bus.clientId || bus.myPart()) && bus.currentSet && getTransport().playing) {
       bus.onUpdate = () => {};
       bus.onEvent = () => {};
       parkedBus = bus;
-    } else bus?.close();
+    } else leaveRoom();
     clearTimeout(lobbyTimer);
     setRoomQuery('');
     window.dispatchEvent(new Event('untergrund:club-closed'));
@@ -583,10 +652,16 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
       goLive = false;
       return;
     }
-    parkedBus?.close();
+    leaveRoom(parkedBus);
     parkedBus = null;
-    bus?.close();
+    leaveRoom();
     bus = new RoomBus(activeRoom, avatar, onUpdate, onEvent, apiBase);
+    const clockBus = bus;
+    bus.onClock = ({ broadcastId, startsAt, previousStartsAt }) => {
+      if (pendingSet?.broadcastId === broadcastId) pendingSet = { ...pendingSet, startsAt };
+      if (clockBus.jamFollow === broadcastId && getTransport().playing) reanchorRoomSet?.(startsAt, previousStartsAt);
+    };
+    bus.onPlaybackUnavailable = onPlaybackUnavailable;
     if (jamHooks) bus.jamHooks = { ...jamHooks, getState, isPlaying: () => getTransport().playing };
     if (goLive) {
       const mine = bus;
@@ -612,8 +687,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     stageView.react({ id: event.user?.id, name: event.user?.name, value: event.payload?.value || 'HYPE' });
   }
 
-  function nowPlaying() {
-    const state = getState();
+  function nowPlaying(state = getState()) {
     return {
       title: state.artist?.title || 'Live Machine Set',
       artist: state.artist?.name || 'UNTERGRUND',
@@ -623,7 +697,13 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     };
   }
 
-  function broadcastSet() {
+  const nextSetStart = (transport, beats = 4) => {
+    const earliest = Date.now() + ROOM_BROADCAST_LEAD_MS;
+    if (!transport.playing) return earliest;
+    return roomBoundary(transport.startsAt, getState().bpm, earliest, beats);
+  };
+
+  function broadcastSet(prepared = null) {
     unlock();
     if (room.hostId && room.hostId !== clientId()) {
       const queued = room.queue?.includes(clientId());
@@ -632,29 +712,34 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
       return;
     }
     const transport = getTransport();
-    const startsAt = transport.playing ? transport.startsAt : Date.now() + 1600;
-    const track = nowPlaying();
+    const startsAt = transport.playing && !prepared ? transport.startsAt : nextSetStart(transport, 1);
+    const state = prepared?.state ?? getState();
+    const track = nowPlaying(state);
+    const trackId = prepared ? prepared.trackId : getReleaseId();
     const broadcastId = `${bus.clientId}:${Date.now()}:${++bus.localSetVersion}`;
     bus.initiatedSets.add(broadcastId);
-    bus.send('set', { ...track, state: clone(getState()), style: getStyle(), startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId, public: isRoomPublic(activeRoom) });
+    const listed = roomIsPublic();
+    const set = { ...track, ...(trackId && { trackId }), state: clone(state), style: prepared?.style ?? getStyle(),
+      startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId, public: listed };
+    bus.send('set', set);
     bus.follow(bus.currentSet);
-    if (!transport.playing) startRoomBroadcast(startsAt);
+    startRoomBroadcast(startsAt, prepared ? set : null);
     startLiveSet({
-      getState, getStyle, startsAt, toast, dj: avatar.name, room: activeRoom, title: track.title,
+      getState: () => prepared && Date.now() < startsAt ? state : getState(), startsAt, toast, dj: avatar.name, room: activeRoom, title: track.title,
       isPlaying: () => getTransport().playing,
       isDJ: () => { const b = parkedBus || bus; return !b.hostId || b.hostId === b.clientId; },
     });
-    trackEvent('room_go_live', { kind: room.currentSet ? 'rebroadcast' : 'first', public: isRoomPublic(activeRoom) });
+    trackEvent('room_go_live', { kind: room.currentSet ? 'rebroadcast' : 'first', public: listed });
     toast(`Broadcasting “${track.title}” to ${activeRoom}`);
   }
 
-  // Public rooms are listed in LIVE NOW; private ones are link-only. A live DJ re-sends the running set so the directory updates now.
-  function togglePublic() {
-    const next = !isRoomPublic(activeRoom);
+  const roomIsPublic = () => room.currentSet ? room.currentSet.public !== false : isRoomPublic(activeRoom);
+  // The current DJ can change the running set's visibility, including after a handoff.
+  function togglePublic(next) {
     setRoomPublic(activeRoom, next);
     trackEvent('room_privacy', { kind: next ? 'public' : 'private' });
     const set = room.currentSet, isHost = !room.hostId || room.hostId === clientId();
-    if (bus && set && isHost && set.by === bus.clientId && getTransport().playing) {
+    if (bus && set && isHost) {
       const { version, ...payload } = set;
       bus.send('set', { ...payload, public: next, orderAt: Date.now() });
     }
@@ -681,7 +766,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
       bus.onUpdate = () => {};
       bus.onEvent = () => {};
       parkedBus = bus;
-    } else bus?.close();
+    } else leaveRoom();
     bus = null;
     joinedRoom = '';
     lobby = true;
@@ -880,13 +965,14 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     let timeline;
     try { timeline = await loadReplay(item); } catch { return toast('That set is no longer in the jukebox'); }
     endLiveSet({ offer: false });
-    const startsAt = Date.now() + 1600;
+    // Take the first outgoing bar after the invite warmup, so the replay starts on a phrase.
+    const startsAt = nextSetStart(getTransport());
     const broadcastId = `${bus.clientId}:${Date.now()}:${++bus.localSetVersion}`;
     bus.initiatedSets.add(broadcastId);
     const s = timeline.initial;
     bus.send('set', {
       title: item.title, artist: item.artist, bpm: s.bpm, key: `${KEYS[s.key]} ${SCALES[s.scale]?.name || 'MINOR'}`,
-      state: clone(s), style: timeline.style, startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId,
+      state: clone(s), style: timeline.style, startsAt, orderAt: Date.now(), broadcastId, by: bus.clientId, public: roomIsPublic(),
       replay: { ...(item.local ? { timeline } : { id: item.id }), title: item.title, dj: item.artist },
     });
     bus.follow(bus.currentSet);
@@ -914,6 +1000,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     const spin = async (item) => {
       try {
         const track = await fetchTrack(item.id);
+        if (isHost && getTransport().playing) return broadcastSet(prepareTrack(track));
         loadTrack(track);
         if (isHost) broadcastSet();
         else toast(`Loaded “${item.title}”. Join the DJ queue to spin it.`);
@@ -1082,7 +1169,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     const nameInput = h('input', { class: 'inp club-room-input', value: activeRoom, maxlength: 32, 'aria-label': 'Room name', 'data-focus-key': 'room', enterkeyhint: 'go', spellcheck: 'false', autocapitalize: 'off',
       onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } } });
     const choice = (pub, label, hint) => h('button', { class: `club-room-choice${roomPublic === pub ? ' on' : ''}`, 'aria-pressed': String(roomPublic === pub),
-      onclick: () => { if (roomPublic !== pub) togglePublic(); } }, h('b', {}, label), h('small', {}, hint));
+      onclick: () => { if (roomPublic !== pub) togglePublic(pub); } }, h('b', {}, label), h('small', {}, hint));
     return h('div', { class: 'club-look-layer' },
       h('div', { class: 'club-look-scrim', onclick: done }),
       h('section', { class: 'club-look club-room-sheet', role: 'dialog', 'aria-label': 'Room' },
@@ -1117,14 +1204,14 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
     modal.classList.toggle('is-lobby', lobby);
     if (lobby) { renderLobby(); restoreDraft(draft); return; }
     const invite = roomInviteUrl(activeRoom);
-    const roomPublic = isRoomPublic(activeRoom);
+    const isHost = !room.hostId || room.hostId === clientId();
+    const roomPublic = roomIsPublic();
         const shareInvite = async () => {
       trackEvent('share_link_copied', { what: 'room' });
       if (navigator.share && matchMedia('(pointer: coarse)').matches) return navigator.share({ title: `UNTERGRUND Club · ${activeRoom}`, url: invite.toString() }).catch(() => {});
       await navigator.clipboard?.writeText(invite.toString());
       toast('Room link copied');
     };
-    const isHost = !room.hostId || room.hostId === clientId();
     const here = room.members.length || 1;
     const roomBtn = h('button', { class: `club-room-btn${roomOpen ? ' on' : ''}`, 'aria-haspopup': 'dialog', 'aria-expanded': String(roomOpen), title: 'Room name, link and privacy',
       onclick: () => { roomOpen = !roomOpen; lookOpen = false; render(); } },
@@ -1133,7 +1220,7 @@ export function openClub({ getState, getStyle, loadTrack, getTransport, startRoo
       await unlock();
       const set = pendingSet || room.currentSet;
       if (set && audioReady && shouldJoin(set)) {
-        joinRoomSet(set);
+        joinRoomSet(set, { initial: true });
         pendingSet = null;
       }
       render();
