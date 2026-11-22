@@ -23,7 +23,7 @@ const meta = { day, date, title: 'Copper Orbit', audio: 'song.mp3', artwork: 'co
 let uploads = 0, failAsset = false, missingRelease = false, missingAudio = false, badMeta = false, rejectUpload = false;
 const fakeFetch = async (url, opts) => {
   if (url.startsWith('https://api.github.com/')) {
-    assert.equal(url, `https://api.github.com/repos/kllyjsn/Untergrund/releases/tags/daily-${date}`);
+    assert.equal(url.toLowerCase(), `https://api.github.com/repos/kllyjsn/Untergrund/releases/tags/daily-${date}`.toLowerCase());
     if (missingRelease) return new Response('', { status: 404 });
     return Response.json({ assets: ['release.json', ...(!missingAudio ? ['song.mp3'] : []), 'cover.png'].map((name) => ({ name, browser_download_url: prefix + name })) });
   }
@@ -77,7 +77,10 @@ try {
   assert.equal((await call('POST', {}, { run: '1' })).status, 502);
   assert.equal(await kv.cmd(['GET', `${AUTOPUBLISH}:day:${day}`]), null, 'pre-upload failure remains retryable');
   failAsset = false;
-  const [first, concurrent] = await Promise.all([call('POST', {}, { run: '1' }), call('POST', {}, { run: '1' })]);
+  const [first, concurrent] = await Promise.all([
+    call('POST', {}, { run: '1' }, { env: { ...env, AUTOPUBLISH_GITHUB_REPO: 'kllyjsn/untergrund' } }),
+    call('POST', {}, { run: '1' }),
+  ]);
   assert.equal(first.status, 200); assert.equal(first.json.published, true);
   assert.equal(concurrent.json.error, 'busy');
   assert.equal(uploads, 1);

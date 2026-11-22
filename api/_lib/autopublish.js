@@ -47,7 +47,7 @@ export async function handleAutopublish({ method, query = {}, body = {}, kv, env
       const release = await releaseResponse.json();
       const asset = (name) => {
         const found = release.assets?.find((a) => a.name === name);
-        if (!found?.browser_download_url?.startsWith(`https://github.com/${repo}/releases/download/${tag}/`)) throw new Error('invalid_release_asset');
+        if (!found?.browser_download_url?.toLowerCase().startsWith(`https://github.com/${repo}/releases/download/${tag}/`.toLowerCase())) throw new Error('invalid_release_asset');
         return found.browser_download_url;
       };
       const download = async (name, limit) => {
