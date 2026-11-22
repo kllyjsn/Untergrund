@@ -87,6 +87,7 @@ export function router(want, { prebus = false } = {}) {
       // The hook plays through a copy of the CHORDS channel (same level, pan and sends) so it gets its own stem.
       const S = E.ch.stab, g = (v = 1) => { const n = ctx.createGain(); n.gain.value = v; return n; };
       const hc = { input: g(), level: g(S.level.gain.value), pan: ctx.createStereoPanner(), rev: g(S.rev.gain.value), dly: g(S.dly.gain.value), band: g() };
+      hc.pan.channelCountMode = S.pan.channelCountMode;
       hc.pan.pan.value = S.pan.pan.value;
       owner.set(hc.pan, 'hook');
       // Its own copy of the CHORDS channel strip EQ too, kept in step with the band mix (see Engine.applyStrips).

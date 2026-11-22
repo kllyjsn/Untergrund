@@ -6,6 +6,51 @@ import { clipCurve, satCurve } from '../js/dsp.js';
 import { baselineOf, compare, report } from '../scripts/audio-benchmark.mjs';
 import { withChrome } from './chrome.mjs';
 
+const chordsFill = await withChrome((run) => run(`(async () => {
+  const { Engine } = await import('/js/engine.js');
+  const { defaultState } = await import('/js/state.js');
+  const rate = 48000, fillAt = 0.5, first = fillAt * rate;
+  async function render(withStereoVoice) {
+    const ctx = new OfflineAudioContext(2, rate, rate);
+    const s = defaultState();
+    s.artist = { style: 'deephouse', seed: 12 };
+    s.key = 3;
+    Object.assign(s.params.stab, { voice: 3, octave: 1, chord: 0, pan: 0 });
+    const engine = new Engine(ctx, s, { realtime: false });
+    const { input, pan } = engine.ch.stab;
+    engine.out.disconnect();
+    pan.connect(ctx.destination);
+    if (withStereoVoice) {
+      const voice = ctx.createBufferSource();
+      voice.buffer = ctx.createBuffer(2, rate, rate);
+      // The stereo note has gone silent by the fill, but its source is still connected.
+      voice.buffer.getChannelData(0).fill(0.1, 0, rate / 8);
+      voice.buffer.getChannelData(1).fill(-0.1, 0, rate / 8);
+      voice.connect(input);
+      voice.start();
+    }
+    engine.lick(fillAt, 0.6, 0); // D#5 organ fill on the shared strip
+    return ctx.startRendering();
+  }
+  const alone = await render(false), afterStereo = await render(true);
+  return [0, 1].map(c => {
+    const a = alone.getChannelData(c), b = afterStereo.getChannelData(c);
+    let energy = 0, error = 0;
+    for (let i = first; i < a.length; i++) {
+      energy += b[i] ** 2;
+      error += (a[i] - b[i]) ** 2;
+    }
+    return { rms: Math.sqrt(energy / (a.length - first)), relativeResidual: Math.sqrt(error / energy) };
+  });
+})()`));
+if (chordsFill) {
+  for (const { rms, relativeResidual } of chordsFill) {
+    assert(rms > 0.001, 'organ fill is audible in each channel');
+    assert(relativeResidual < 1e-6, `organ fill changes with a preceding stereo voice (relative residual ${relativeResidual})`);
+  }
+  console.log('CHORDS organ fill nulls with and without a preceding stereo voice');
+}
+
 const phonkWidth = await withChrome((run) => run(`(async () => {
   const { Engine } = await import('/js/engine.js');
   const { defaultState } = await import('/js/state.js');

@@ -794,6 +794,8 @@ export class Engine {
       const input = this.gain(1);
       const level = this.gain(1);
       const pan = c.createStereoPanner();
+      // A mono CHORDS fill must keep the same gain when a stereo voice ends.
+      if (t.id === 'stab') pan.channelCountMode = 'explicit';
       const rev = this.gain(0);
       const dly = this.gain(0);
       // The bass gets its own kick sidechain (see duckAt) on top of the shared pump.
