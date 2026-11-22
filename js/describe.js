@@ -380,11 +380,11 @@ const KEY_PC = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
 const MODE = { minor: 'minor', min: 'minor', m: 'minor', major: 'major', maj: 'major', dorian: 'dorian', phrygian: 'phrygian' };
 const MODE_NAMES = Object.keys(MODE).join('|');
 const KEY_REQUEST_TAIL = '(?:(?:please|instead|thanks|thank you|again|this time|if possible|if you can)\\b\\s*)+$';
-const keyName = (following = KEY_REQUEST_TAIL) => `(?!a\\s+(?!(?:sharp|flat|${MODE_NAMES})\\b|${following})\\S)([a-g])(#|b|\\s+sharp|\\s+flat)?(?:\\s+(${MODE_NAMES}))?(?=\\s|$)`;
+const keyName = (following = KEY_REQUEST_TAIL) => `(?!a\\s+(?!(?:sharp|flat|${MODE_NAMES}|please)\\b|${following})\\S)([a-g])(#|b|\\s+sharp|\\s+flat)?(?:\\s+(${MODE_NAMES}))?(?=\\s|$)`;
 const KEY_PREFIX = '(?:(?:(?:in|to)\\s+)?(?:the\\s+)?key\\s+of|in|to|key)';
 const KEY_SOURCE = new RegExp(`\\bfrom\\s+(?:(?:the\\s+)?key\\s+of\\s+)?${keyName(`to\\b|${KEY_REQUEST_TAIL}`)}`);
 const KEY_WITH_PREFIX = new RegExp(`\\b${KEY_PREFIX}\\s+${keyName()}`);
-const KEY_TRANSITION = new RegExp(`\\b((?:keychange|transpose|switch|change|raise|lower|pitch)\\b.*?)\\s+${KEY_SOURCE.source}\\s+(?=to\\s+(?:(?:the\\s+)?key\\s+of\\s+)?${keyName()})`);
+const KEY_TRANSITION = new RegExp(`\\b((?:keychange|transpose|switch|change|raise|lower|pitch)\\b.*?)\\s+${KEY_SOURCE.source}\\s+(?:please\\s+)?(?=to\\s+(?:(?:the\\s+)?key\\s+of\\s+)?${keyName()})`);
 
 function lev(a, b) {
   if (Math.abs(a.length - b.length) > 2) return 9;
@@ -437,7 +437,11 @@ function normalize(text) {
 function extract(clause, edits) {
   let c = clause;
   const bpm = c.match(/\b(\d{2,3})\s*bpm\b/) || c.match(/\b(?:tempo|bpm)\s*(?:of|to|at|=)?\s*(\d{2,3})\b/) || c.match(/\b(?:at|to)\s+(\d{2,3})\b/);
-  if (bpm) { edits.push({ id: 'bpm', value: +bpm[1], src: bpm[0].trim() }); c = c.replace(bpm[0], ' '); }
+  if (bpm) {
+    edits.push({ id: 'bpm', value: +bpm[1], src: bpm[0].trim() });
+    const before = c.slice(0, bpm.index).replace(/\bat\s+$/, '');
+    c = before + ' ' + c.slice(bpm.index + bpm[0].length);
+  }
   const transition = c.match(KEY_TRANSITION);
   if (transition) c = c.replace(KEY_TRANSITION, '$1 ');
   const key = c.match(KEY_WITH_PREFIX) || c.match(KEY_SOURCE)

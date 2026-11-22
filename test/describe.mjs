@@ -116,9 +116,38 @@ t('modulation distinguishes its source and destination keys', () => {
     assert.deepEqual(edits.map((e) => e.id), ['key', 'keyStep'], prompt);
     assert.equal(applyEdits(song, edits, { style: 'rnb' }).state.key, key, prompt);
   }
-  const mixed = parse('change the key to A thanks, more reverb', { style: 'rnb' });
-  assert.deepEqual(mixed.edits.map(({ id, value, amt }) => [id, value ?? amt]), [['key', 9], ['space', 1]]);
+  const politeSource = parse('transpose from the key of A please to D', { style: 'rnb' });
+  assert.deepEqual(politeSource.edits.map(({ id, value }) => [id, value]), [['key', 2]]);
+  const relativeTempo = parse('transpose down from D minor to a lower key please at 120 BPM', { style: 'rnb' });
+  assert.equal(applyEdits(song, relativeTempo.edits, { style: 'rnb' }).state.key, 1);
+  assert.deepEqual(relativeTempo.edits.map((e) => e.id), ['bpm', 'key', 'scale', 'keyStep']);
   assert.deepEqual(parse('transpose to a warmer sound', { style: 'rnb' }).edits.map((e) => e.id), ['warmth']);
+});
+
+t('named destinations survive request endings, source keys, tempo and mix clauses', () => {
+  const keys = [['A', 9], ['A minor', 9, 'minor'], ['F#', 6], ['Bb', 10]];
+  const leads = ['Change the key to', 'Transpose from C minor to', 'Transpose up from the key of E major to the key of'];
+  const endings = ['', ' thanks', ' please', ' please for me', ' instead', ' now', ' thank you', ' again', ' this time', ' if possible', ' if you can'];
+  const clauses = [
+    ['', []],
+    [' at 120 BPM', [['bpm', 120]]],
+    [' and more reverb', [['space', 1]]],
+    [' at 120 BPM, more reverb', [['bpm', 120], ['space', 1]]],
+    [' at 120 BPM please with more reverb', [['bpm', 120], ['space', 1]]],
+  ];
+  for (const [name, pc, mode] of keys) {
+    for (const lead of leads) {
+      for (const ending of endings) {
+        for (const [clause, otherEdits] of clauses) {
+          const prompt = `${lead} ${name}${ending}${clause}`;
+          const { edits, unknown } = parse(prompt, { style: 'rnb' });
+          assert.deepEqual(edits.map(({ id, value, amt }) => [id, value ?? amt]).sort(),
+            [['key', pc], ...(mode ? [['scale', mode]] : []), ...otherEdits].sort(), prompt);
+          assert.deepEqual(unknown, [], prompt);
+        }
+      }
+    }
+  }
 });
 
 for (const [where, sec] of [['in the intro', 'intro'], ['in the verse', 'verse'], ['in the chorus', 'drop'], ['at the end of the song', 'outro']]) {
