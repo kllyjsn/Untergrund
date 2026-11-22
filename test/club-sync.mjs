@@ -147,8 +147,8 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = 
       const i = ++id, timer = setTimeout(() => { pending.delete(i); reject(new Error(`CDP timeout: ${method}`)); }, 30000);
       pending.set(i, { resolve, reject, timer }); ws.send(JSON.stringify({ id: i, method, params }));
     });
-    const run = async expression => {
-      const r = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+    const run = async (expression, userGesture = false) => {
+      const r = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true, userGesture });
       if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
       return r.result?.value;
     };
@@ -346,6 +346,19 @@ async function scenario(base, spec, network, run, auditStyle) {
         return s.set.replay && s;
       }, 'replay published before opening invite');
       assert.deepEqual(replay.members, [replay.hostId], 'The cold listener has not joined the replay room yet');
+    } else if (handoffMix && prejoin) {
+      // Room updates can replace GO LIVE between mouse events. Activate the setup control in one browser task;
+      // PASS DECK still uses timed mouse input.
+      await until(() => host.run(`(() => {
+        const button = (${visibleControl})(['.club-primary'], 'GO LIVE');
+        if (!button) return false;
+        button.click();
+        return true;
+      })()`, true), 'GO LIVE');
+      events.initial = await until(async () => {
+        const s = await snapshot();
+        return s.set.broadcastId && s.set.by === s.hostId && s;
+      }, 'initial GO LIVE broadcast on room server');
     } else {
       await host.clickElement(`(${visibleControl})(['.lobby-cta', '.club-primary'], 'GO LIVE')`, 'GO LIVE');
     }
@@ -370,10 +383,10 @@ async function scenario(base, spec, network, run, auditStyle) {
       // The real UI actions are done; skip painting while the audio and network run.
       await skipPaint();
     }
-    const initial = auditStyle ? await until(async () => {
+    const initial = events.initial ?? (auditStyle ? await until(async () => {
       const s = await snapshot();
       return s.set.broadcastId && s;
-    }, 'initial broadcast') : await snapshot();
+    }, 'initial broadcast') : await snapshot());
     events.initial = initial;
     events.cdpProbeMs = clients.map(c => c.cdpProbe);
     if (spec.djLatency)
