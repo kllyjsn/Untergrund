@@ -3,7 +3,7 @@ import { PALETTE_INSTRUMENTS, PALETTE_DEFAULTS, instrumentFor } from './palette-
 import { getSample, sungNote, SUNG_LEN, SUNG_LOW, SUNG_NOTES, SUNG_VOWEL_COUNT } from './sampler.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
-import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, loadHand, STAB_BAND, HOOK_BAND, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
+import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, loadHand, STAB_BAND, HOOK_BAND, SAX_HOOK, SAX_LO, saxRoot, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel, swingLate, swingDuration } from './groove.js';
 import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes, jazzNotches, JAZZ_MIX, BOSSA_RIM, BOSSA_BATIDA, bossaBass } from './jazz.js';
@@ -115,12 +115,27 @@ const WIND_HOOK = {
     takes: { 58: [15, 0.048, 0], 62: [-4, 0.01, 0], 65: [-3, 0.01, 0], 70: [-3, 0.02, -2.3], 74: [1, 0, 1], 77: [3, 0.03, 0], 82: [6, 0, -1.5] },
     second: { 58: [2, 0.012, -1], 62: [-2, 0.012, -3], 65: [-1, 0.008, -3.7], 70: [-2, 0.032, -2.1], 74: [-1, 0.012, 1.9], 77: [0, 0.008, -3.8], 82: [2, 0, 1] },
   },
+  // The MTG tenor was recorded 10-20 cents sharp.
+  altosax: {
+    gain: 2.8, presence: [2500, 0.8, 1.5],
+    takes: { 52: [-2, 0, 0], 55: [1, 0, 0], 58: [1, 0, 0], 61: [0, 0, 0], 64: [0, 0, 0], 67: [-1, 0.03, 0], 70: [0, 0, 0], 73: [0, 0, 0], 76: [0, 0, 0], 79: [1, 0, 0] },
+    second: { 52: [2, 0, 0], 55: [1, 0, 0], 58: [1, 0, 0], 61: [0, 0.02, 0], 64: [0, 0, 0], 67: [-1, 0.03, 0], 70: [0, 0, 0], 73: [1, 0, 0], 76: [0, 0, 0], 79: [1, 0, 0] },
+  },
+  tenorsax: {
+    // The tenor's 1.5-3 kHz formant took over the mix's upper mids; darken it and keep its 700 Hz body.
+    gain: 2.8, presence: [2400, 0.6, -10], lp: 1500, tone: [[250, 1, -2], [780, 1.2, 2.5], [1900, 0.9, -6]],
+    takes: { 47: [11, 0.04, 0], 50: [8, 0, 0], 53: [18, 0, 0], 56: [14, 0, 0], 59: [19, 0.02, 0], 62: [20, 0, 0], 65: [21, 0.03, 0], 68: [12, 0, 0], 71: [19, 0.01, 0], 74: [36, 0, 0] },
+    second: { 47: [11, 0, 0], 50: [4, 0, 0], 53: [14, 0, 0], 56: [11, 0, 0], 59: [16, 0.01, 0], 62: [18, 0.08, 0], 65: [20, 0, 0], 68: [17, 0.28, 0], 71: [19, 0.1, 0], 74: [21, 0, 0] },
+  },
   airflute: {
     gain: 1.02, presence: [2950, 0.8, 6.2],
     takes: { 60: [1, 0.18, 3], 64: [-4, 0.11, 0], 69: [-18, 0.05, 0], 72: [-5, 0.01, 0], 76: [-5, 0.022, 0], 81: [-3, 0.022, -1.5], 84: [0, 0.043, 0] },
     second: { 60: [-36, 0.145, 3.8], 64: [-12, 0.105, 3], 69: [-2, 0.061, 0.8], 72: [2, 0.092, 3], 76: [0, 0.088, -0.5], 81: [0, 0.098, 0], 84: [0, 0.105, -3.2] },
   },
 };
+// Each genre's sax, in dB, matched to the synth reed it replaces (hook stem loudness over seeds): the recorded
+// tongued attack carries less energy on the short riffs of Afrobeats, Reggaeton and Breaks than on sung lines.
+const SAX_TRIM = { pop: -2.4, neosoul: -5.7, boombap: 3.5, trap: 1.1, afrobeats: 6.5, reggaeton: 4.5, breaks: 7.1 };
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
 const LIVE_REF = {
   kick: { tune: 52, decay: 0.5, drive: 0.2, click: 0.15, punch: 0.55 },
@@ -3486,7 +3501,7 @@ export class Engine {
     this.startSource(src, t, from, dur + 0.02);
   }
 
-  lick(t, v, k) {
+  lick(t, v, k, phraseKeys = [0, 1, 2, 3, 4, 5]) {
     const p = this.state.params.stab, h = this.harm;
     const iv = CHORDS[h ? h.c : Math.round(p.chord)].iv;
     const n = iv[k % iv.length] + 12 * Math.floor(k / iv.length);
@@ -3499,7 +3514,7 @@ export class Engine {
       const root = 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot();
       const top = Math.max(...Array.from({ length: 6 }, (_, i) => root + iv[i % iv.length] + 12 * Math.floor(i / iv.length)));
       const shift = this.playbackStyle === 'lofihiphop'
-        ? rhodesPhraseOctave(Array.from({ length: 6 }, (_, i) => root + iv[i % iv.length] + 12 * Math.floor(i / iv.length)))
+        ? rhodesPhraseOctave(phraseKeys.map((i) => root + iv[i % iv.length] + 12 * Math.floor(i / iv.length)))
         : -12 * Math.max(0, Math.ceil((top - 68) / 12));
       if (shift === null) return;
       if (this.rhodesKeys(t, v, [n], root + shift, { ...p, rhodesLine: true }, out)) return;
@@ -3552,7 +3567,8 @@ export class Engine {
   }
 
   windHook(set, t, v, m, dur, voice, strong, { harm, take = 0 }) {
-    const { gain, presence, takes, second } = WIND_HOOK[voice];
+    const { gain: base, presence, takes, second, lp = 3850, tone = [] } = WIND_HOOK[voice];
+    const gain = base * dbGain(voice.endsWith('sax') ? SAX_TRIM[this.playbackStyle] ?? 0 : 0);
     const alt = TAKES[HOOK_BAND[voice]] && this.rec(TAKES[HOOK_BAND[voice]]);
     // The longer primary take can sustain through holds after transposition.
     const useAlt = alt && (take + (harm ? 1 : 0)) % 2 && dur <= 0.85;
@@ -3562,12 +3578,12 @@ export class Engine {
     const step = (this.step ?? 0) * 2 + (harm ? 1 : 0);
     const air = hash(step, m + 29), tongue = hash(step, m + 71), touch = Math.min(1, v);
     const out = this.trimOut(`hook-${voice}`, 1, this.hookBus || this.windDuck, -4, 500);
-    const eq = this.bodyFor(this.bodyFor(out, presence), [780, 1.2, -2.5]);
+    const eq = tone.reduce((o, band) => this.bodyFor(o, band), this.bodyFor(this.bodyFor(out, presence), [780, 1.2, -2.5]));
     const rate = 2 ** ((m - pitch - cents / 100) / 12);
     return this.playBuf(buf, t, gain * touch * dbGain(trim + (air - 0.5) * 1.2) * dbGain(jazzStyle(this.state, this.playingPattern) === 'bossa' && voice === 'tpt' ? JAZZ_MIX.bossa.trumpetLead : JAZZ_MIX[jazzStyle(this.state, this.playingPattern)]?.lead || 0), eq,
       rate, Math.max(0.06, dur * 0.92), {
         peaks: jazzStyle(this.state, this.playingPattern) ? jazzNotches(useAlt ? TAKES[HOOK_BAND[voice]] : HOOK_BAND[voice], pitch, rate) : [],
-        lp: 3850 + 2100 * touch + 650 * (air - 0.5), offset: offset + tongue * 0.012,
+        lp: lp + 2100 * touch + 650 * (air - 0.5), offset: offset + tongue * 0.012,
         fade: (voice === 'tpt' ? 0.025 : strong ? 0.007 : 0.012) + 0.009 * (1 - tongue),
         attackGain: (strong ? 1.04 : 0.9) + (tongue - 0.5) * 0.24,
         release: 0.055, ringOut: true, ...(voice === 'tpt' ? { vib: 6 } : {}),
@@ -3760,10 +3776,12 @@ export class Engine {
       while (root < 48) root += 12;
       return this[name](t, v, [0], root, { ...p, decay: Math.max(0.1, dur / 0.9) }, out);
     }
+    if (voice === 'reed' && SAX_HOOK[this.playbackStyle]) voice = SAX_HOOK[this.playbackStyle];
     const wind = Object.hasOwn(WIND_HOOK, voice);
     if (wind) {
       const name = HOOK_BAND[voice], set = this.rec(name);
-      if (set) return this.windHook(set, t, v, 60 + k + oct * 12 + n, dur, voice, strong, expression);
+      const root = SAX_LO[voice] ? saxRoot(this.playbackStyle, 60 + k, oct) : 60 + k + oct * 12;
+      if (set) return this.windHook(set, t, v, root + n, dur, voice, strong, expression);
       loadBand(name);
       voice = 'reed';
     }
@@ -5051,7 +5069,7 @@ const SECTION_DB = { verse: -1.8, chorus: 0.45 };
 // boom-chick verse; pop's chorus strings), so their verse gives back less level.
 // Styles that move between sections with filter glides instead of risers, snare rolls and impacts.
 const SMOOTH = new Set(['minimal']);
-const STYLE_SECTION_DB = { pop: { verse: -0.9 }, rnb: { chorus: 0.25 }, country: { verse: -0.8 } };
+const STYLE_SECTION_DB = { pop: { verse: -0.9 }, rnb: { chorus: 0.25 }, deephouse: { chorus: 0.25 }, country: { verse: -0.8 } };
 
 export class Sequencer {
   constructor(engine, state) {
@@ -5381,7 +5399,10 @@ export class Sequencer {
     // Licks fill the lead's rests instead of talking over it.
     const lick = this.lickCell(i16, vary);
     if (lick && leadOn && !busy && !(this.songBars && ((hk && hm) || sung?.any) && i16 === 15) && bar % 8 === 7 && !sp[abs % (pat.len.stab || 16)]) {
-      e.lick(tt, lick.v, lick.k);
+      const phraseKeys = e.playbackStyle === 'lofihiphop'
+        ? Array.from({ length: 8 }, (_, i) => i * 2).filter((i) => !sp[i % (pat.len.stab || 16)])
+          .map((i) => this.lickCell(i, vary)).filter(Boolean).map((note) => note.k) : undefined;
+      e.lick(tt, lick.v, lick.k, phraseKeys);
     }
     if (this.songBars && hk && hm && leadOn) this.interplay(pat, hk, abs, bar, tt, sd, busy, anySolo, !!hk.s[abs % 32]);
     if (this.songBars && sung?.part && leadOn) this.interplay(pat, pat.hook, abs, bar, tt, sd, busy, anySolo, sung.notes.some((o) => o.at === i16));

@@ -20,6 +20,9 @@ assert.deepEqual(liveSets(st(1, 7)), ['kit', 'piano', 'pianosoft']);
 assert.deepEqual(liveSets(st(0, 10)), ['str']);
 assert.deepEqual(liveSets(st(1.2, 9.4)), ['kit', 'horn']);
 assert.deepEqual(liveSets({}), []);
+assert.deepEqual(liveSets({ artist: { style: 'pop' }, pattern: { hook: { v: 'reed' } } }), ['asax', 'asaxb'], 'pop reed is the recorded alto');
+assert.deepEqual(liveSets({ artist: { style: 'boombap' }, pattern: { hook: { v: 'reed' } } }), ['tsax', 'tsaxb'], 'boom bap reed is the recorded tenor');
+assert.deepEqual(liveSets({ artist: { style: 'country' }, pattern: { hook: { v: 'reed' } } }), [], 'other reed styles stay synthesized');
 
 assert.deepEqual(rhodesVoicing([]), []);
 assert.equal(rhodesPhraseOctave([34, 41]), 24);
@@ -65,6 +68,7 @@ const rhodesTune = JSON.parse(await readFile(new URL('../samples/rhodes-analysis
   };
   Recorder.prototype.hook = function (...args) {
     if (args[4] === 'tapekeys') {
+      if (this.playbackStyle === 'lofihiphop' && Object.hasOwn(args[9] || {}, 'rhodesOctave')) assert.notEqual(args[9].rhodesOctave, null, `unplayable Lo-Fi phrase at ${this.step}`);
       this.ch = { stab: { input: {} } };
       const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
       linePitch = 60 + k + (args[5] || 0) * 12 + hookSnap(args[2], this.harm, this.state.params.stab, args[6], args[8]);
@@ -78,7 +82,12 @@ const rhodesTune = JSON.parse(await readFile(new URL('../samples/rhodes-analysis
     this.ch = { stab: { input: {} } };
     const iv = CHORDS[this.harm ? this.harm.c : Math.round(p.chord)].iv, k = args[2];
     linePitch = 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + iv[k % iv.length] + 12 * Math.floor(k / iv.length);
-    try { return Engine.prototype.lick.apply(this, args); } finally { linePitch = null; }
+    const count = row.lines.after.length;
+    try {
+      const result = Engine.prototype.lick.apply(this, args);
+      if (this.playbackStyle === 'lofihiphop') assert(row.lines.after.length > count, 'every Lo-Fi lick phrase fits without omitted notes');
+      return result;
+    } finally { linePitch = null; }
   };
   try {
     for (const style of RHODES_STYLES) {
