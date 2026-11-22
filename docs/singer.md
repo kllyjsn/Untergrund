@@ -65,7 +65,7 @@ per phrase: the per-frame melody (`note_phase_presence`: pitch, phase in the not
 durations. `expression.sing()` is that same phrase loop with those inputs reshaped, so nothing reaches the model that it
 wasn't trained on. With no knobs set it returns sample-for-sample what `runtime.sing()` returns. The request's `expr`
 object (`SING_EXPR` / `cleanExpr()` in `js/sing-score.js`, `clean_expr()` in Python) is validated against fixed ranges.
-Unknown names are dropped and values are clamped. `SING_STYLE` sends one set per genre:
+Unknown names are dropped and values are clamped. `SING_STYLE` sends one set per genre (bent by the song's feeling, below):
 
 | Knob | Range | What it does |
 |---|---|---|
@@ -85,6 +85,20 @@ Unknown names are dropped and values are clamped. `SING_STYLE` sends one set per
 
 Every phrase draws its noise from `seed + phrase`, the same as the runtime, and breaths from `seed + 7919 + phrase`,
 so a request is deterministic.
+
+### Feeling and sections
+
+A song with a feeling (`state.feel`, `js/feel.js`) sings the genre's set bent by `FEELS[feel].expr` (`feelExpr()` in
+`js/sing-score.js`): `vib` × `vib_cents`, `scoop` × `scoop`, `glide` × `glide_ms`, `stress` × `stress_db` and
+`stress_vowel`, and `breath` × the breath level (`breath` dB drops by 20·log10 of it, never to 0). Arousal quickens
+`vib_rate` (± 8 %) and shortens `scoop_ms` (± 15 %). That full delivery is the request's `expr`, and the chorus sings
+it. The request also carries `parts`: `[{ "beat", "expr" }]`, rising beats from 0, each a complete knob set that holds
+from the phrase starting at that beat (its first note) until the next part. Verses sing it intimately (`intimate()`,
+`INTIMATE` per section: verse 1, pre / bridge / intro / outro 0.5, chorus 0): × (1 − 0.4a) vibrato depth, + 0.15a s
+vibrato delay, × (1 + 0.5a) vibrato ramp, × (1 − 0.3a) scoop, × (1 − 0.5a) stress lift, × (1 − 0.4a) vowel stretch and
+breaths 6a dB closer. `guidance` and `align` stay the song's. `cleanParts()` / `clean_parts()` drop all parts if any is
+out of order, outside the score, or has no knobs. A song with no feeling (old projects, the repertoire, the classical
+scores) sends the genre's `expr` unchanged and no `parts`.
 
 ## Voice defaults
 
