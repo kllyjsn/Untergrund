@@ -139,6 +139,99 @@ t('jazz specs retain requested sections, instruments, harmony, contour and textu
   assert.equal(songState(spec, 42).state.chain.length, spec.sections.reduce((n, s) => n + s.bars, 0));
 });
 
+t('jazz prompts pin a supplied mode but leave omitted modes to the feeling', () => {
+  for (const name of ['swing jazz', 'bossa', 'modal jazz', 'jazz funk']) {
+    const spec = localSpec(`write a ${name} track`);
+    assert.equal(spec.scale, null);
+    assert.equal(validateSpec(JSON.parse(JSON.stringify(spec))).scale, null);
+    const changes = new Set();
+    for (let i = 1; i <= 24; i++) {
+      const seed = Math.imul(i, 0x9e3779b1) >>> 0;
+      const { state } = songState(spec, seed);
+      const g = generate(spec.style, seed, 'minor', { feel: state.feel });
+      assert.equal(state.scale, g.scale);
+      assert.deepEqual(state.patterns[2].prog, g.pattern.prog);
+      changes.add(JSON.stringify(state.patterns[2].prog));
+    }
+    if (spec.style === 'bossa') assert.equal(changes.size, 1, 'Bossa keeps its authored chart');
+    else assert(changes.size > 1, `${name} does not pin one progression`);
+  }
+  for (const mode of ['major', 'minor']) {
+    const spec = localSpec(`write a swing jazz track in C ${mode}`);
+    assert.equal(spec.scale, mode);
+    for (const seed of [7, 42, 77]) {
+      const { state } = songState(spec, seed);
+      assert.equal(state.scale, mode);
+      assert.equal(state.patterns[2].prog[0].c === 20, mode === 'minor');
+    }
+  }
+});
+
+t('an explicit Swing mode beats a conflicting mood in the prompt', () => {
+  for (const [prompt, mode, feel] of [
+    ['jazz major heartbroken', 'major', 'heartbroken'],
+    ['jazz minor joyful', 'minor', 'joyful'],
+    ['joyful jazz minor', 'minor', 'joyful'],
+    ['jazz in F major heartbroken', 'major', 'heartbroken'],
+  ]) {
+    assert.equal(isSongPrompt(prompt), true, prompt);
+    const spec = localSpec(prompt, { genre: promptGenre(prompt), bpm: rulePlan(prompt)?.bpm });
+    assert.equal(spec.style, 'swing');
+    assert.equal(spec.feel, feel);
+    assert.equal(spec.scale, mode, prompt);
+    assert(spec.sections.every((s) => !s.chords.length), 'do not import chords from the opposite mode');
+    const { state } = songState(spec, 2654435761);
+    assert.equal(state.scale, mode);
+    assert.equal(state.feel, feel);
+    if (prompt.includes('in F')) assert.equal(state.key, 5);
+    const prog = state.patterns[2].prog;
+    assert.equal(prog[0].c === 20, mode === 'minor', 'the actual backing is in the named mode');
+    assert.equal(jazzHarmony(state.patterns[6], 10).c, mode === 'minor' ? 2 : 7, 'the rendered window resolves to the named tonic quality');
+  }
+  const wrong = validateSpec({
+    style: 'swing', scale: 'major', feel: 'joyful', hook: { contour: [0, 2, 4, 2] },
+    sections: [{ role: 'verse', bars: 16, chords: ['I', 'IV', 'V'] }],
+  }, { prompt: 'jazz minor joyful' });
+  assert.equal(wrong.scale, 'minor');
+  assert.equal(wrong.hook, null);
+  assert.deepEqual(wrong.sections[0].chords, []);
+  assert.equal(songState(wrong, 2654435761).state.patterns[2].prog[0].c, 20);
+});
+
+t('jazz chord qualities do not override the requested song mode', () => {
+  const major = {
+    style: 'swing', key: 'C', scale: 'major', hook: { contour: [0, 2, 4, 2] },
+    sections: [{ role: 'verse', bars: 16, chords: ['Imaj7', 'ii7', 'V7'] }],
+  };
+  const prompt = 'write jazz in C major with some minor seventh chords';
+  const spec = validateSpec(major, { prompt });
+  assert.equal(spec.scale, 'major');
+  assert.equal(spec.key, 0);
+  assert.deepEqual(spec.hook, major.hook);
+  assert.deepEqual(spec.sections[0].chords, major.sections[0].chords);
+  assert.equal(localSpec(prompt).scale, 'major');
+  for (const voicing of ['minor sevenths', 'F minor sevenths']) {
+    const shorthand = 'write jazz in C major with ' + voicing;
+    const spec = localSpec(shorthand);
+    assert.equal(spec.scale, 'major');
+    assert.equal(spec.key, 0);
+    assert.deepEqual(validateSpec(major, { prompt: shorthand }).hook, major.hook);
+  }
+  assert.equal(localSpec('write jazz in D minor with a few major triads').scale, 'minor');
+  assert.equal(localSpec('write a jazz track with minor 7th chords').scale, null);
+  const namedChord = localSpec('write jazz in C major with an F minor chord');
+  assert.equal(namedChord.scale, 'major');
+  assert.equal(namedChord.key, 0);
+  for (const suffix of ['6/8 time', 'chords']) {
+    const prompt = 'joyful jazz in D minor ' + suffix;
+    const minor = localSpec(prompt);
+    assert.equal(minor.key, 2);
+    assert.equal(minor.scale, 'minor', prompt);
+    assert.equal(songState(minor, 2654435761).state.scale, 'minor');
+    assert.equal(validateSpec({ ...major, key: 'D' }, { prompt }).scale, 'minor');
+  }
+});
+
 t('named hip-hop genres keep their palettes in prompt-built songs', () => {
   for (const [prompt, style, voice] of [
     ['lo-fi hip-hop for studying', 'lofihiphop', 'tapekeys'],
@@ -300,9 +393,9 @@ t('no key: the rule parser writes the spec', () => {
 });
 
 t('whole-song phrases are told apart from changes', () => {
-  for (const p of ['melancholic deep house for a sunrise drive, builds to a big euphoric drop', 'dark techno for a warehouse', 'a sunrise drive song', 'write me a jazzy hip hop beat'])
+  for (const p of ['melancholic deep house for a sunrise drive, builds to a big euphoric drop', 'dark techno for a warehouse', 'a sunrise drive song', 'write me a jazzy hip hop beat', 'write a jazz song with no minor sevenths in the intro'])
     assert.ok(isSongPrompt(p, { style: 'hypnotic' }), p);
-  for (const p of ['darker', 'no hats in the drop', 'make it house', 'more swing please', 'less busy in the breakdown', 'add strings'])
+  for (const p of ['darker', 'no hats in the drop', 'make it house', 'more swing please', 'less busy in the breakdown', 'add strings', 'more minor sevenths at the end of the song'])
     assert.ok(!isSongPrompt(p, { style: 'hypnotic' }), p);
 });
 

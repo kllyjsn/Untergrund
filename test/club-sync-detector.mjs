@@ -83,7 +83,7 @@ const tailCapture = (hits, frame = 500) => {
     return [t / 1000, level, level];
   });
   const channel = { ready: true, edge: 1, samples };
-  return { errors: [], anchors: [[0, origin]], resumeBoundary: { sampleRate: 1000, frame },
+  return { errors: [], anchors: [[0, origin]], scheduler:[{transportOrigin:origin, clockOffset:origin / 1000}], resumeBoundary: { sampleRate: 1000, frame },
     samples, channels: { kick: channel, vocal: channel } };
 };
 const mix = mixFixture(), wake = { interruptAt: origin + 200, recoverAt: origin + 500 };
