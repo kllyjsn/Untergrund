@@ -13,6 +13,7 @@ import { lineStress, rhymes } from '../js/prosody.js';
 import { writeLyrics, rhymePairs } from '../js/lyric-writer.js';
 import { Sequencer, guitarGrip, stabPitches } from '../js/engine.js';
 import { stabNotes, hookSnap, voiceLead } from '../js/harmony.js';
+import { finalPeak } from '../js/longform.js';
 import { FEELS } from '../js/feel.js';
 
 export const SEEDS = [101, 211, 307, 401, 503, 601, 701, 809];
@@ -110,6 +111,42 @@ export function playSong(s, replay808Style, replaySeed) {
   return { log, bars, seq };
 }
 
+// The chill (emotion.peak-last): which peak devices each stretch of peak bars plays, read off the engine's events.
+// suspension: an accented upper neighbour resolved down a step onto the next lead note; entry: a voice doubling the
+// lead that no other bar has; dropout: a bar with the lead (or the chords) and no drums or bass, before the band
+// returns; lift: the chords a whole step above the earlier choruses'. `fresh` lists what only the final run has.
+export function peakDevices(s) {
+  const { log, bars } = playSong(s), run = finalPeak(s.chain), p = s.params.stab;
+  if (!run) return { final: [], earlier: [], fresh: [] };
+  const c = [].concat(s.chain).join(''), where = (b) => (b >= run.from && b <= run.to ? 'final' : b < run.from && 'GH'.includes(c[b]) ? 'earlier' : null);
+  const per = Array.from({ length: bars }, () => ({ lead: [], band: 0, roots: [], pcs: [], entry: 0 }));
+  for (const L of log) {
+    const B = per[Math.floor(L.step / 16)];
+    if (!B) continue;
+    if (L.harm && (L.k === 'acid' || (L.k === 'trigger' && L.a[0] === 'stab'))) B.roots.push(((L.harm.r % 12) + 12) % 12);
+    if (L.k === 'hook' && !L.a[9]?.harm) B.lead.push({ t: L.a[0], d: L.a[3], n: hookSnap(L.a[2], L.harm, p, L.a[6], L.a[8]), app: L.a[9]?.app });
+    else if (L.k === 'peakVoice') B.entry++;
+    else if ((L.k === 'trigger' && L.a[0] !== 'stab') || L.k === 'acid') B.band++;
+    else if (L.k === 'trigger') B.stab = (B.stab || 0) + 1;
+  }
+  const out = { final: new Set(), earlier: new Set() }, roots = { final: [], earlier: [] }, pcs = { final: [], earlier: [] };
+  per.forEach((B, b) => {
+    const w = where(b);
+    if (!w) return;
+    roots[w].push(...B.roots); pcs[w].push(...B.lead.map((o) => ((o.n % 12) + 12) % 12));
+    if (B.entry) out[w].add('entry');
+    if (B.lead.some((o, i) => o.app && B.lead[i + 1] && Math.abs(B.lead[i + 1].t - (o.t + o.d)) < 1e-6 && [1, 2].includes(o.n - B.lead[i + 1].n))) out[w].add('suspension');
+    // One bar that keeps one element and loses the band (or the chords under a lone lead) both neighbours play;
+    // a gap in a sparse fill (a drumless chorus) is not a band.
+    const lost = (k, n = 1) => !B[k] && per[b - 1]?.[k] >= n && per[b + 1]?.[k] >= n;
+    if (!B.band && (B.lead.length || B.stab) && (lost('band', 4) || (B.lead.length && lost('stab')))) out[w].add('dropout');
+  });
+  const up = (x) => { const had = new Set(x.earlier), hit = (k) => x.final.filter((r) => had.has((r + k + 12) % 12)).length; return had.size && hit(-2) > hit(0); };
+  if (roots.earlier.length ? up(roots) : up(pcs)) out.final.add('lift');
+  const final = [...out.final], earlier = [...out.earlier];
+  return { final, earlier, fresh: final.filter((d) => !out.earlier.has(d)) };
+}
+
 const median = (xs) => { const a = [...xs].sort((x, y) => x - y); return a.length ? (a[(a.length - 1) >> 1] + a[a.length >> 1]) / 2 : 0; };
 const jaccard = (a, b) => { const A = new Set(a), B = new Set(b); const u = new Set([...A, ...B]).size; return u ? [...A].filter((x) => B.has(x)).length / u : 1; };
 // Average distance each voice travels to the nearest note of the next chord (common tones cost 0).
@@ -132,9 +169,12 @@ export function scoreSong(s, o = {}) {
     if (L.harm) { harms.add(`${L.harm.r}:${L.harm.c}`); B.chords.add(`${L.harm.r}:${L.harm.c}`); B.root ??= L.harm.r; }
     if (L.k === 'hook' && L.a[9]?.counter) continue;
     if (L.k === 'hook') {
-      const [, , n, d, , , strong, , up, x] = L.a, snapped = hookSnap(n, L.harm, p, strong, up);
-      B.hook.push(`${L.step % 16}:${snapped}`); B.notes.push(snapped); B.events++;
-      if (!x?.harm) lead.push([L.step, Math.max(1, Math.round(d / stepDur)), snapped, L.a[1], B.sec, d]);
+      // A suspension's resolution (Engine.suspend) sounds `res` steps after the step that played it; it ornaments
+      // one written note (`to`), so the motif is read as written.
+      const [, , n, d, , , strong, , up, x] = L.a, snapped = hookSnap(n, L.harm, p, strong, up), at = L.step + (x?.res || 0);
+      if (!x?.res) B.hook.push(`${at % 16}:${x?.app ? x.to : snapped}`);
+      B.notes.push(snapped); B.events++;
+      if (!x?.harm) lead.push([at, Math.max(1, Math.round(d / stepDur)), snapped, L.a[1], B.sec, d]);
     } else if (L.k === 'trigger' && L.a[0] === 'stab') {
       B.events++;
       if (L.comp?.thumb != null) continue;
@@ -340,6 +380,17 @@ export function runComposition(styles) {
   return out;
 }
 
+// Per style over SEEDS: how many songs end on a peak device no earlier chorus has, and which devices they use.
+export function peakReport(styles) {
+  const out = {};
+  for (const style of styles) {
+    const rows = SEEDS.map((seed) => { const st = buildSong(style, seed); return { feel: st.feel, ...peakDevices(st) }; });
+    const n = (d) => rows.filter((r) => r.fresh.includes(d)).length;
+    out[style] = { fresh: `${rows.filter((r) => r.fresh.length).length}/${rows.length}`, suspension: n('suspension'), entry: n('entry'), dropout: n('dropout'), lift: n('lift') };
+  }
+  return out;
+}
+
 // Prompt to song vs plain GENERATE: the same style and seeds, once as written by the prompt's spec.
 export const PROMPTS = ['melancholic deep house for a sunrise drive, builds to a big euphoric drop', 'dark techno for a warehouse at 4am', 'happy afrobeats summer party',
   'dreamy ambient for floating in space', 'tense drum and bass chase scene', 'nostalgic synthwave night drive', 'lofi beat for a rainy study night', 'uplifting trance anthem for the sunrise set'];
@@ -361,6 +412,7 @@ export const loopStyles = () => Object.keys(STYLES).filter((id) => STYLES[id].fa
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2), at = args.indexOf('--style');
   if (args.includes('--prompts')) { await promptReport(); process.exit(0); }
+  if (args.includes('--peaks')) { console.table(peakReport(at >= 0 ? [args[at + 1]] : loopStyles())); process.exit(0); }
   const styles = at >= 0 ? [args[at + 1]] : loopStyles();
   const report = runComposition(styles);
   if (!args.includes('--quiet')) console.table(report);

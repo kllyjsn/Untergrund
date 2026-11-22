@@ -1,7 +1,7 @@
 import { TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, STEPS, SCALES, CHORDS, HAND_KIT, MARIMBA_STAB, KIT_BACKBEAT, defaultParams, defaultMaster } from './params.js';
 import { rng } from './dsp.js';
 import { PALETTE_INSTRUMENTS, PALETTE_DEFAULTS, instrumentFor } from './palette-defaults.js';
-import { planSections, formChain, parseForm, sectionSpans, developSong, developFinalDrop, LENGTHS } from './longform.js';
+import { planSections, formChain, parseForm, sectionSpans, developSong, developFinalDrop, writePeak, LENGTHS } from './longform.js';
 import { FORMS, SECTIONS } from './classical.js';
 import { MODELS } from './composer-models.js';
 import { POCKETS, STYLE_POCKET } from './groove.js';
@@ -13,7 +13,7 @@ import { stepDeg } from './motif.js';
 import { cleanLyrics } from './lyrics.js';
 import { SING_VOICES } from './sing-score.js';
 import { cleanTakes, patternAt, setTake } from './scope.js';
-import { pickFeel, isFeel } from './feel.js';
+import { pickFeel, isFeel, FEELS } from './feel.js';
 import { FUNK_HANDS, FUNK_VOX, funkHandBar } from './baile.js';
 import { festivalBuilds } from './festival-build.js';
 import { isJazz, generateJazz } from './jazz.js';
@@ -1367,6 +1367,9 @@ export function applySongPlan(s, style, seed, length = 'song', feel = null) {
   if (style === 'drill' && plan.sections) drillVerses(s.patterns, plan, keep);
   if (style === 'bailefunk') funkPhrases(s.patterns, plan.chain, keep);
   if (plan.chain === TECHNO_LONG) developFinalDrop(s.patterns, plan.chain, { keep });
+  // The engine's festival builds follow the playing chord voice (a locked one, too), not the seed's pick.
+  const drops = festivalBuilds(plan.chain, style, s.params.stab.voice, seed).map((b) => b.drop);
+  if (s.feel) writePeak(s.patterns, plan.chain, FEELS[s.feel].peak, seed, { keep, drops });
   return plan;
 }
 

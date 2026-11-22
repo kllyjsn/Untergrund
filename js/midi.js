@@ -10,6 +10,7 @@ import { getChops } from './voice.js';
 import { vowelStyle, vowelVoxNote, vowelPitch, vowelHookDuration } from './vowels.js';
 import { SAX_HOOK, saxRoot } from './livekit.js';
 import { rootsFor, fiddleRole, fiddlePitch, fiddleDuration, rootsPitch, uprightNotes } from './roots.js';
+import { hookSnap } from './harmony.js';
 
 export const PPQ = 480;
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
@@ -145,6 +146,11 @@ export class Recorder {
     this.bass = this.notes.acid.at(-1);
   }
   orch(part, t, m, dur, vel) { this.add(part, t, m, dur, vel); }
+  peakVoice(t, v, n, dur, oct = 0, strong = false) {
+    n = hookSnap(n, this.harm, this.state.params.stab, strong, false);
+    const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
+    this.add('vln1', t, 60 + k + (oct + 1) * 12 + n, Math.max(dur, this.stepDur * 2), v);
+  }
 }
 Recorder.prototype.harmRoot = Engine.prototype.harmRoot;
 Recorder.prototype.bassMidi = Engine.prototype.bassMidi;
