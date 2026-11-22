@@ -21,6 +21,7 @@ import { parseNetwork, networkController, clockSpread } from './club-sync-networ
 import { stepFixture, forcedStepEvidence } from './club-sync-steps.mjs';
 import { startOutputCapture } from './club-sync-output.mjs';
 import { listenerSong, saveListenerClips } from './club-sync-listener.mjs';
+import { schedulerTapEnvelope, tapFirstDownbeat, tapFixtureEvidence } from './club-sync-tap.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const out = resolve(root, 'test/out');
@@ -115,7 +116,7 @@ function visibleControl(selectors, label) {
   }
   return null;
 }
-async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = false, { limitPaint = false, hideStage = false, audioEnv, auditStyle } = {}) {
+async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = false, { limitPaint = false, hideStage = false, audioEnv, auditStyle, tapTiming = false } = {}) {
   const chrome = findChrome(); if (!chrome) throw new Error('Chrome required');
   const profile = await mkdtemp(join(out, 'chrome-'));
   const proc = spawn(chrome, ['--headless=new', '--no-sandbox', '--no-first-run', ...(process.platform === 'darwin' ? ['--window-size=1280,900'] : []), '--disable-background-timer-throttling',
@@ -146,8 +147,8 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = 
       const i = ++id, timer = setTimeout(() => { pending.delete(i); reject(new Error(`CDP timeout: ${method}`)); }, 30000);
       pending.set(i, { resolve, reject, timer }); ws.send(JSON.stringify({ id: i, method, params }));
     });
-    const run = async expression => {
-      const r = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+    const run = async (expression, userGesture = false) => {
+      const r = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true, userGesture });
       if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
       return r.result?.value;
     };
@@ -194,7 +195,7 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = 
     }
     console.log(`CDP control RTT (unfiltered): ${JSON.stringify(cdpProbe)}ms`);
     console.log(`Chrome viewport: ${await run('JSON.stringify({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})')}`);
-    if (options.diagnostics || mix || auditStyle) await installDiagnostics(send, base, {vocalSlew:!!options['vocal-slew-test'],
+    if (options.diagnostics || mix || auditStyle || tapTiming) await installDiagnostics(send, base, {vocalSlew:!!options['vocal-slew-test'],
       vocalRestart:!!options['vocal-reanchor-control'], wholeStep:!!options['whole-step-test'], dropStep:!!options['drop-step-control'],
       forceRepeat:!!options['vocal-force-repeat-control'], listenerAudit:!!auditStyle});
     if (options.diagnostics) {
@@ -203,7 +204,7 @@ async function client(base, skew = 0, fixture = null, displacementMs = 0, mix = 
       await send('Performance.enable');
     }
     const graph = mix ? await mixGraphEdges() : null;
-    await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${installAudioTap})(${skew}, ${JSON.stringify(fixture)}, ${displacementMs}, ${mix}, ${JSON.stringify(graph)}, ${JSON.stringify(auditStyle ? STYLES[auditStyle].family : null)})` });
+    await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${installAudioTap})(${skew}, ${JSON.stringify(fixture)}, ${displacementMs}, ${mix}, ${JSON.stringify(graph)}, ${JSON.stringify(auditStyle ? STYLES[auditStyle].family : null)}, ${!!process.env.CLUB_FIX_PCM})` });
     if (mix && !realVocal) await installMixStem(send, base, mixSong());
     if (mix && realVocal) {
       await send('Network.setBypassServiceWorker', { bypass: true });
@@ -309,7 +310,7 @@ async function scenario(base, spec, network, run, auditStyle) {
     const handoffMix = spec.handoff && spec.mix;
     const prejoin = auditStyle || (spec.mix && !options.net && !spec.expiredMix && !!(spec.offlineMs || spec.freezeMs || handoffMix));
     const skipPaint = () => Promise.all(clients.map(c => c.run("document.body.style.contentVisibility = 'hidden'")));
-    const rendering = { limitPaint: !spec.mix || spec.expiredMix || prejoin || handoffMix, hideStage: !spec.mix || handoffMix, auditStyle };
+    const rendering = { limitPaint: !spec.mix || spec.expiredMix || prejoin || handoffMix, hideStage: !spec.mix || handoffMix, auditStyle, tapTiming: !!spec.replay };
     let room = prejoin || spec.coldDownbeat ? `sync-${randomBytes(6).toString('hex')}` : null;
     const snapshot = async () => {
       const response = await fetch(`${base}/api/rooms/${room}`);
@@ -345,6 +346,19 @@ async function scenario(base, spec, network, run, auditStyle) {
         return s.set.replay && s;
       }, 'replay published before opening invite');
       assert.deepEqual(replay.members, [replay.hostId], 'The cold listener has not joined the replay room yet');
+    } else if (handoffMix && prejoin) {
+      // Room updates can replace GO LIVE between mouse events. Activate the setup control in one browser task;
+      // PASS DECK still uses timed mouse input.
+      await until(() => host.run(`(() => {
+        const button = (${visibleControl})(['.club-primary'], 'GO LIVE');
+        if (!button) return false;
+        button.click();
+        return true;
+      })()`, true), 'GO LIVE');
+      events.initial = await until(async () => {
+        const s = await snapshot();
+        return s.set.broadcastId && s.set.by === s.hostId && s;
+      }, 'initial GO LIVE broadcast on room server');
     } else {
       await host.clickElement(`(${visibleControl})(['.lobby-cta', '.club-primary'], 'GO LIVE')`, 'GO LIVE');
     }
@@ -369,10 +383,10 @@ async function scenario(base, spec, network, run, auditStyle) {
       // The real UI actions are done; skip painting while the audio and network run.
       await skipPaint();
     }
-    const initial = auditStyle ? await until(async () => {
+    const initial = events.initial ?? (auditStyle ? await until(async () => {
       const s = await snapshot();
       return s.set.broadcastId && s;
-    }, 'initial broadcast') : await snapshot();
+    }, 'initial broadcast') : await snapshot());
     events.initial = initial;
     events.cdpProbeMs = clients.map(c => c.cdpProbe);
     if (spec.djLatency)
@@ -608,6 +622,12 @@ async function scenario(base, spec, network, run, auditStyle) {
       if (spec.expiredMix) assert.ok(events.after.members.includes(listenerId), 'The expired listener rejoined');
     } else await pause(22000);
     const raw = await Promise.all(clients.map(c => c.run('({...__clubAudio, clockSkew: Date.now() - (performance.timeOrigin + performance.now())})')));
+    if (process.env.CLUB_FIX_PCM) {
+      for (const [i, c] of clients.entries()) {
+        const pcm = await c.run('__clubPCM.mix.map(({pcm, frame, sampleRate}) => ({pcm:Array.from(pcm), frame, sampleRate}))');
+        await writeFile(join(out, `${options.output.slice(0, -5)}-${spec.name}-${run}-${i}-pcm.json`), JSON.stringify(pcm));
+      }
+    }
     let independentOutput;
     if (activeOutput) {
       const wav = `${options.output.slice(0, -5)}-${spec.name}-${run}-output.wav`;
@@ -627,10 +647,11 @@ async function scenario(base, spec, network, run, auditStyle) {
     }));
     if (spec.coldDownbeat) {
       const [hostOnsets, listenerOnsets] = raw.map(c => onsets(channelEnvelope(c, 'kick'), song.bpm));
-      const firstDownbeat = firstMixDownbeat(hostOnsets, listenerOnsets, initial.startsAt, song.bpm);
-      const failures = missedFirstMixDownbeat(firstDownbeat) ? ['first downbeat'] : [];
-      console.log(`  ${spec.name}: ${JSON.stringify({ ...firstDownbeat, navigationLeadMs: initial.startsAt - navigation, failures })}`);
-      return { name: spec.name, spec, events, firstDownbeat, independentOutput, failures, raw: { captures: raw, hostOnsets, listenerOnsets } };
+      const chromeFirstDownbeat = firstMixDownbeat(hostOnsets, listenerOnsets, initial.startsAt, song.bpm);
+      const firstDownbeat = tapFirstDownbeat(raw, initial.startsAt, song.bpm);
+      const failures = missedFirstMixDownbeat(firstDownbeat) ? [`first downbeat ${firstDownbeat.status}`] : [];
+      console.log(`  ${spec.name}: ${JSON.stringify({ tap: firstDownbeat, chrome: chromeFirstDownbeat, navigationLeadMs: initial.startsAt - navigation, failures })}`);
+      return { name: spec.name, spec, events, firstDownbeat, chromeFirstDownbeat, independentOutput, failures, raw: { captures: raw, hostOnsets, listenerOnsets } };
     }
     if (spec.mix) {
       const mix = analyzeMix(raw, song, events, initial.startsAt, {
@@ -720,7 +741,16 @@ async function scenario(base, spec, network, run, auditStyle) {
       events.mainThreadStall = stall;
     }
     const stats = resolvedCompare(he, le, start, end);
-    const hostFixture = fixtureMissing(he, events.newSet?.startsAt ?? initial.startsAt, start, end);
+    const chromeHostFixture = fixtureMissing(he, events.newSet?.startsAt ?? initial.startsAt, start, end);
+    let hostFixture = chromeHostFixture;
+    if (spec.replay) {
+      const origin = events.newSet.startsAt;
+      const taps = raw.map(c => schedulerTapEnvelope(c, origin));
+      const from = Math.max(origin, ...taps.map(e => e[0][0])) + 500;
+      const to = Math.min(...taps.map(e => e.at(-1)[0])) - 100;
+      hostFixture = { ...tapFixtureEvidence(taps[0], origin, from, to), from, to };
+      console.log(`  replay fixture tap: expected=${hostFixture.expected}; absent=${hostFixture.absentAt.length}; displaced=${hostFixture.displaced.length}; Chrome-mapped missing=${chromeHostFixture.missing} (diagnostic)`);
+    }
     const self = resolvedCompare(he, he, start, end);
     assert.equal(self.max, 0);
     const phases = {};
@@ -785,7 +815,7 @@ async function scenario(base, spec, network, run, auditStyle) {
       assert.ok(diagnostics.every(d => d.roomClock?.best && d.starts.length && d.schedulerSamples >= 5), 'Diagnostic breakpoints captured both app paths');
       console.log(`  diagnostics host/listener: clock shift=${diagnostics.map(d => ms(d.roomClock.shiftMs)).join('/')}ms; origin−server=${diagnostics.map(d => ms(d.originMinusServerMs)).join('/')}ms; scheduled output offset=${diagnostics.map(d => ms(d.scheduledOutputOffsetMs)).join('/')}ms; output clock lead=${diagnostics.map(d => ms(d.outputClockLeadMs)).join('/')}ms; smoothing residual=${diagnostics.map(d => ms(d.smoothingResidualMs)).join('/')}ms; tolerance residual=${diagnostics.map(d => ms(d.toleranceResidualMs)).join('/')}ms`);
     }
-    return { name: spec.name, ...stats, hostFixture, phases, events, transition, diagnostics, injectedEvidence, navigationToFirstKickMs: lo[0] - navigation,
+    return { name: spec.name, ...stats, hostFixture, ...(spec.replay ? { chromeHostFixture } : {}), phases, events, transition, diagnostics, injectedEvidence, navigationToFirstKickMs: lo[0] - navigation,
       navigationToFirstAlignedKickMs: aligned ? aligned - navigation : null, broadcast, navigation,
       detected: { host: ho.length, listener: lo.length }, detectorValidation: { selfMaxMs: self.max },
       spec, join: joined, raw: { captures: raw, hostOnsets: ho, listenerOnsets: lo } };
