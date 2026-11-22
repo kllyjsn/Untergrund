@@ -4391,7 +4391,7 @@ export class Engine {
   }
 
   breath(t, open) {
-    for (const g of [this.ch.stab.band.gain, this.ch.acid.input.gain]) { g.cancelScheduledValues(t); g.setTargetAtTime(open ? 1 : 0, t, open ? 0.003 : 0.03); }
+    for (const n of [this.ch.stab?.band, this.ch.acid?.input]) { if (!n) continue; n.gain.cancelScheduledValues(t); n.gain.setTargetAtTime(open ? 1 : 0, t, open ? 0.003 : 0.03); }
   }
   dubSub(t, st, sd, holdNext) {
     const f = midiHz(this.bassMidi(st, 36, 38)), len = holdNext ? sd * 1.9 : sd * 1.15;
