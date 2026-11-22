@@ -176,18 +176,17 @@ export function drawRoll(canvas, res, playStep = -1) {
 let previewBus = null;
 export function stopPreview() {
   if (!previewBus) return;
-  const buses = previewBus;
+  const bus = previewBus, t = bus.context.currentTime;
   previewBus = null;
-  for (const bus of buses) bus.gain.setTargetAtTime(0, bus.context.currentTime, 0.015);
-  setTimeout(() => buses.forEach(bus => bus.disconnect()), 120);
+  bus.gain.setTargetAtTime(0, t, 0.015);
+  setTimeout(() => bus.disconnect(), 120);
 }
 
 function preview(api, res, voice, sung) {
   stopPreview();
   const e = api.engine(), s = api.state(), t0 = e.ctx.currentTime + 0.08, sd = 60 / res.bpm / 4;
-  const off = kk(res.key) - kk(s.key), bus = e.ctx.createGain(), mono = e.ctx.createGain();
-  previewBus = [bus, mono];
-  e.connectChordSubmix(bus, mono);
+  const off = kk(res.key) - kk(s.key), bus = previewBus = e.ctx.createGain();
+  bus.connect(e.ch.stab.input);
   e.hookBus = bus;
   try {
     res.hook.s.forEach((st, i) => {

@@ -623,13 +623,6 @@ function metallicBuf(mul, sr) {
   return buf;
 }
 
-const monoChordOut = (engine, out) => engine.chordMonoRoutes?.get(out)?.() ?? out;
-
-// Width-preserving effects can be mirrored lazily for the mono path.
-function chordEffect(engine, node, dest, make) {
-  if (engine.chordMonoRoutes?.has(dest)) engine.pairChordRoute(node, () => make(monoChordOut(engine, dest)));
-}
-
 export class Engine {
   get playbackStyle() { return this.replay808Style ?? this.state.artist?.style; }
   get minimal() { return (jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle) === 'minimal'; }
@@ -808,18 +801,21 @@ export class Engine {
       // Channel strip: low shelf, two bells and an air shelf, flat (and bit-transparent) until a band mix sets it.
       const strip = [this.filter('lowshelf', 120), this.filter('peaking', 300, 1), this.filter('peaking', 3000, 1), this.filter('highshelf', 9000)];
       strip.forEach((f) => { f.gain.value = 0; });
+      strip.reduce((a, f) => a.connect(f), input);
       const post = sc || level;
       if (sc) sc.connect(level);
+      strip[3].connect(post);
       // CHORDS (keys, guitars) step out of the sung vocal's presence band while it sings (Engine.vocal, carve).
       const carve = t.id === 'stab' ? this.filter('peaking', 3000, 0.8) : null;
       if (carve) carve.gain.value = 0;
+      level.connect(carve || pan);
+      if (carve) carve.connect(pan);
       const ch = { input, level, pan, rev, dly, sc, strip, post, carve };
       if (t.id === 'stab') {
         ch.band = this.gain(1);
-        this.wireChords(ch);
-      } else {
-        [input, ...strip, post].reduce((a, n) => a.connect(n));
-        level.connect(pan);
+        ch.band.connect(input);
+        ch.band.connect(this.bandIn);
+        this.wireOrganFill(ch);
       }
       const out = ch.out || pan;
       out.connect(DUCKED.has(t.id) ? this.duck : this.mix);
@@ -834,58 +830,32 @@ export class Engine {
       this.ch[t.id] = ch;
     }
     this.windDuck = this.gain(1);
-    this.windDuckMono = this.gain(1);
-    this.routeWind(this.ch.stab);
+    this.windDuck.connect(this.ch.stab.input);
   }
 
-  wireChords(ch) {
-    const c = this.ctx, { input, band, strip, level, carve, pan } = ch;
-    const mono = this.gain(1), bandMono = this.gain(1), monoPan = c.createStereoPanner();
-    const monoLevel = this.gain(level.gain.value), twins = (this.chordControls ||= new WeakMap());
+  wireOrganFill(ch) {
+    // Keep the mono fill's pan law independent of the other voices on CHORDS.
+    const twins = (this.fillControls = new WeakMap());
     const copyFilter = f => {
       const n = this.filter(f.type, f.frequency.value, f.Q.value);
       n.gain.value = f.gain.value;
       for (const p of ['frequency', 'Q', 'gain']) twins.set(f[p], n[p]);
       return n;
     };
-    pan.channelCount = 2; pan.channelCountMode = 'explicit';
-    monoPan.channelCount = 1; monoPan.channelCountMode = 'explicit';
-    monoPan.pan.value = pan.pan.value;
-    twins.set(level.gain, monoLevel.gain); twins.set(pan.pan, monoPan.pan);
-    // Independent widths through EQ and pan, with the same strip controls on both paths.
-    [input, ...strip, level, carve, pan].filter(Boolean).reduce((a, n) => a.connect(n));
-    [mono, ...strip.map(copyFilter), monoLevel, carve && copyFilter(carve), monoPan].filter(Boolean).reduce((a, n) => a.connect(n));
+    const level = this.gain(ch.level.gain.value), pan = this.ctx.createStereoPanner();
+    pan.channelCount = 1; pan.channelCountMode = 'explicit';
+    pan.pan.value = ch.pan.pan.value;
+    twins.set(ch.level.gain, level.gain); twins.set(ch.pan.pan, pan.pan);
+    ch.fill = this.gain(1);
     ch.out = this.gain(1);
-    monoPan.connect(ch.out); pan.connect(ch.out);
-    band.connect(input); band.connect(this.bandIn);
-    bandMono.connect(mono); bandMono.connect(this.bandIn);
-    this.pairChordRoute(input, () => mono);
-    this.pairChordRoute(band, () => bandMono);
+    [ch.fill, ...ch.strip.map(copyFilter), level, copyFilter(ch.carve), pan, ch.out].reduce((a, n) => a.connect(n));
+    ch.pan.connect(ch.out);
   }
 
   chordParam(param, apply) {
     apply(param);
-    const twin = this.chordControls?.get(param);
+    const twin = this.fillControls?.get(param);
     if (twin) apply(twin);
-  }
-
-  routeWind(ch) {
-    if (this.windStrip) {
-      this.windDuck.disconnect();
-      this.windDuckMono.disconnect();
-    }
-    this.windStrip = ch;
-    this.connectChordSubmix(this.windDuck, this.windDuckMono, ch);
-  }
-
-  connectChordSubmix(stereo, mono, ch = this.ch.stab) {
-    stereo.connect(ch.input);
-    mono.connect(monoChordOut(this, ch.input));
-    this.pairChordRoute(stereo, () => mono);
-  }
-
-  pairChordRoute(out, mono) {
-    (this.chordMonoRoutes ||= new WeakMap()).set(out, mono);
   }
 
   buildAcid() {
@@ -941,10 +911,7 @@ export class Engine {
 
   // Where a running Hard Techno section fade has a track level at t, for browsers without cancelAndHoldAtTime.
   sectionLevelAt(param, t) {
-    const fade = this.hardFade, id = fade && TRACK_IDS.find(k => {
-      const gain = this.ch[k].level.gain;
-      return gain === param || this.chordControls?.get(gain) === param;
-    });
+    const fade = this.hardFade, id = fade && TRACK_IDS.find(k => this.ch[k].level.gain === param);
     if (!id || t <= fade.t || t >= this.hardFadeAt) return null;
     const from = fade.from[id] ?? 1, to = fade.to[id] ?? 1;
     return fade.levels[id] * (from + (to - from) * (t - fade.t) / (this.hardFadeAt - fade.t));
@@ -1339,7 +1306,7 @@ export class Engine {
       for (const p of [...freqs, ...waves, ...detunes, tone?.gain, lp.frequency, lp.Q]) p?.cancelScheduledValues(now);
     }
     this.acidRelease(now);
-    for (const p of [this.duck.gain, this.rumbleDuck.gain, this.ch.acid.sc?.gain, this.windDuck?.gain, this.windDuckMono?.gain, this.pocketLow?.duck.gain]) {
+    for (const p of [this.duck.gain, this.rumbleDuck.gain, this.ch.acid.sc?.gain, this.windDuck?.gain, this.pocketLow?.duck.gain]) {
       if (!p) continue;
       p.cancelScheduledValues(now);
       p.setTargetAtTime(p === this.pocketLow?.duck.gain ? 0 : 1, now, 0.01);
@@ -1380,9 +1347,7 @@ export class Engine {
     if (funk && sc) parts.push([sc, 1 - 10 ** (-1.5 / 20), 0.02, 0.002, 0.07]);
     else if (L && sc) parts.push([sc, L.dip * (color?.duckScale ?? 1) * Math.min(1, v * 1.2), L.rel * (color?.recoveryScale ?? 1), 0.002, 0.012]);
     // Keep the wind lead out of the glue compressor's way during a kick's attack.
-    if (!funk) for (const wind of [this.windDuck, this.windDuckMono]) {
-      if (wind) parts.push([wind.gain, 0.62 * Math.min(1, v * 1.2), 0.045, 0.003, 0.035]);
-    }
+    if (this.windDuck && !funk) parts.push([this.windDuck.gain, 0.62 * Math.min(1, v * 1.2), 0.045, 0.003, 0.035]);
     const low = paletteFor(this.state, this.playbackStyle)?.bass.lowBand;
     if (low) {
       this.pocketBassOut(low);
@@ -1408,7 +1373,7 @@ export class Engine {
   // Rebuild only future ducking; a hit already sounding keeps its current pump.
   rebuildDucks(from) {
     this.ducks.sort((a, b) => a.t - b.t);
-    for (const param of [this.duck.gain, this.rumbleDuck.gain, this.ch.acid.sc?.gain, this.windDuck?.gain, this.windDuckMono?.gain, this.pocketLow?.duck.gain]) {
+    for (const param of [this.duck.gain, this.rumbleDuck.gain, this.ch.acid.sc?.gain, this.windDuck?.gain, this.pocketLow?.duck.gain]) {
       if (!param) continue;
       param.cancelScheduledValues(from);
       let previous;
@@ -1455,7 +1420,6 @@ export class Engine {
     if (!byKey[key]) {
       const g = (byKey[key] = this.gain(dbGain(db)));
       const shelf = this.filter('lowshelf', shelfHz, 0.7); shelf.gain.value = lowDb - db; g.connect(shelf).connect(dst);
-      chordEffect(this, g, dst, mono => this.trimOut(key, db, mono, lowDb, shelfHz));
     }
     return byKey[key];
   }
@@ -1477,7 +1441,6 @@ export class Engine {
       const first = this.filter('lowpass', tone[0], 0.5411961), second = this.filter('lowpass', tone[0], 1.3065630);
       first.connect(second).connect(this.gain(dbGain(tone[1]))).connect(dst);
       byTone.set(key, first);
-      chordEffect(this, first, dst, mono => this.chordTone(voice, mono));
     }
     return byTone.get(key);
   }
@@ -1615,7 +1578,7 @@ export class Engine {
       g.gain.linearRampToValueAtTime(level * dbGain(fx.strokeBody), t + 0.072);
       g.gain.linearRampToValueAtTime(level, t + 0.118);
     }
-    node.connect(g).connect(buf.numberOfChannels === 1 ? monoChordOut(this, out) : out);
+    node.connect(g).connect(out);
     // A held lead note: vibrato that the player leans into after the pick attack.
     if (fx.vib && dur > 0.2) {
       const lfo = this.ctx.createOscillator(), depth = this.gain(0);
@@ -1826,7 +1789,7 @@ export class Engine {
     lp.frequency.setValueAtTime(2100, t); lp.frequency.exponentialRampToValueAtTime(650, t + len);
     amp.gain.setValueAtTime(0, t); amp.gain.linearRampToValueAtTime(v * 0.38 / Math.sqrt(iv.length), t + 0.008);
     amp.gain.exponentialRampToValueAtTime(EPS, t + len + 0.09);
-    lp.connect(amp).connect(monoChordOut(this, out));
+    lp.connect(amp).connect(out);
     for (const note of iv) for (const cents of [-5, 5]) {
       const osc = this.ctx.createOscillator(); osc.type = 'sawtooth';
       osc.frequency.value = midiHz(root + note); osc.detune.value = cents;
@@ -2469,7 +2432,6 @@ export class Engine {
       const shimmer = this.filter('highshelf', 1550); shimmer.gain.value = -2;
       box.connect(space).connect(shimmer).connect(out);
       tones.set(out, box);
-      chordEffect(this, box, out, mono => this.harpBacking(mono));
     }
     return tones.get(out);
   }
@@ -2526,18 +2488,11 @@ export class Engine {
       color = { ...color, spread: Math.max(0, color.spread + (p.detune - ref.detune) * 0.5), tine: p.tine ?? 1 };
     }
     if (color.piano) {
-      const tone = dest => {
-        const hp = this.filter('highpass', 160, 0.7), lp = this.filter('lowpass', color.cutoff, 0.6);
-        hp.connect(lp).connect(this.gain(color.level)).connect(dest);
-        return hp;
-      };
-      const hp = tone(out);
-      let mono;
-      chordEffect(this, hp, out, dest => (mono ||= tone(dest)));
+      const hp = this.filter('highpass', 160, 0.7), lp = this.filter('lowpass', color.cutoff, 0.6);
+      hp.connect(lp).connect(this.gain(color.level)).connect(out);
       return this.piano(t, v, iv, root, { ...p, rev: Math.min(0.2, p.rev) }, hp);
     }
     if (color.presence) {
-      // The presence layer is part of the stereo palette, not an independent CHORDS voice.
       const air = this.palettePresenceOut(out, Math.round(p.voice));
       if (color.presence === 'organ') this.organ(t, v, iv, root, p, air);
       else if (color.presence === 'pad') this.pad(t, v, iv, root, p, air);
@@ -2999,7 +2954,6 @@ export class Engine {
     return this.synthOrgan(t, v, iv, root, p, out);
   }
   synthOrgan(t, v, iv, root, p, out) {
-    out = monoChordOut(this, out);
     const c = this.ctx, gate = Math.max(0.08, p.decay * 0.9), end = t + gate + 0.25;
     const damped = this.state.artist?.style === 'reggaeton' && Math.round(p.voice) === 3;
     const lp = this.filter('lowpass', Math.min(12000, p.cutoff * 3), 0.6);
@@ -3199,7 +3153,6 @@ export class Engine {
     if (!tones.has(key)) {
       const eq = this.filter('peaking', f, q);
       eq.gain.value = db; eq.connect(dest); tones.set(key, eq);
-      chordEffect(this, eq, dest, mono => this.bodyFor(mono, [f, q, db]));
     }
     return tones.get(key);
   }
@@ -3231,17 +3184,10 @@ export class Engine {
       inp.connect(dest); inp.gain.value = 1;
       lfo.connect(amt).connect(inp.gain); this.startContinuous(lfo);
       all.set(dest, (tr = { inp, lfo, amt }));
-      if (this.chordMonoRoutes?.has(dest)) {
-        const mono = tr.mono = this.gain(1);
-        mono.connect(monoChordOut(this, dest));
-        amt.connect(mono.gain);
-        this.pairChordRoute(inp, () => mono);
-      }
     }
     tr.lfo.frequency.setValueAtTime(1 / (2 * this.stepDur), t);
     tr.amt.gain.setValueAtTime(depth / 2, t);
     tr.inp.gain.setValueAtTime(1 - depth / 2, t);
-    tr.mono?.gain.setValueAtTime(1 - depth / 2, t);
     return tr.inp;
   }
 
@@ -3263,7 +3209,7 @@ export class Engine {
     const len = 0.06 + hash(t, 26) * 0.05, n = this.noiseSrc(t, len), bp = this.filter('bandpass', 1500 + hash(t, 27) * 900, 5), g = this.gain(0);
     bp.frequency.setValueAtTime(bp.frequency.value, t); bp.frequency.exponentialRampToValueAtTime(bp.frequency.value * 1.9, t + len);
     g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(Math.min(0.2, 0.012 * v), t + len * 0.4); g.gain.linearRampToValueAtTime(0, t + len);
-    n.connect(bp).connect(g).connect(monoChordOut(this, out));
+    n.connect(bp).connect(g).connect(out);
   }
 
   // Kept in the register the instrument was played in; every note lands a little differently and softer
@@ -3301,7 +3247,6 @@ export class Engine {
     inp.connect(dest);
     inp.connect(this.filter('highpass', 350, 0.7)).connect(this.filter('lowpass', 3500, 0.7)).connect(d).connect(g).connect(dest);
     slaps.set(dest, inp);
-    chordEffect(this, inp, dest, mono => this.slapFor(mono));
     return inp;
   }
 
@@ -3320,7 +3265,6 @@ export class Engine {
     if (lead) cab.frequency.value = 3400;
     inp.connect(hp).connect(mid).connect(this.gain(lead ? 1.4 : 7)).connect(sh).connect(body).connect(fizz).connect(cab).connect(cab2).connect(this.gain(lead ? 0.42 : 0.16)).connect(dest);
     if (lead) (this.leadAmps ||= new Map()).set(dest, inp); else amps.set(key, inp);
-    chordEffect(this, inp, dest, mono => this.ampFor(mono, lead));
     return inp;
   }
 
@@ -3514,7 +3458,7 @@ export class Engine {
       car.connect(amp).connect(lp);
       for (const o of [car, mod]) { this.startSource(o, tt); o.stop(end); }
     });
-    lp.connect(monoChordOut(this, out));
+    lp.connect(out);
   }
 
   vox(t, v, step) {
@@ -3581,7 +3525,8 @@ export class Engine {
     if (this.hardTechno) return this.hardLead(t, v * 0.12, midiHz(60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + n), Math.max(0.12, p.decay), this.ch.stab.input);
     const vo = Math.round(p.voice), lead = vo > 1 ? STAB_VOICES[vo] : 'keys';
     const style = this.state.artist?.style;
-    const out = style === 'breaks' || style === 'reggaeton' ? this.chordTone(vo, this.ch.stab.input) : this.ch.stab.input;
+    const dest = (lead === 'organ' && !RECORDED_ORGAN.has(this.playbackStyle) && this.ch.stab.fill) || this.ch.stab.input;
+    const out = style === 'breaks' || style === 'reggaeton' ? this.chordTone(vo, dest) : dest;
     return this[lead](t, v, [n], 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot(), p, out);
   }
 
@@ -3602,7 +3547,7 @@ export class Engine {
     amp.gain.linearRampToValueAtTime(g, t + 0.006);
     amp.gain.setValueAtTime(g, t + Math.max(0.008, len - 0.04));
     amp.gain.linearRampToValueAtTime(0, t + len);
-    src.connect(lp).connect(amp).connect(vc.buffer.numberOfChannels === 1 ? monoChordOut(this, out) : out);
+    src.connect(lp).connect(amp).connect(out);
     this.startSource(src, t, ch.start, Math.min(ch.end - ch.start, (len + 0.02) * rate));
     src.stop(t + len + 0.05);
   }
@@ -3610,8 +3555,7 @@ export class Engine {
   harpHook(set, t, v, m, dur) {
     const best = set.reduce((pick, take) => Math.abs(HARP_PLUCK[take[0]][0] - m) < Math.abs(HARP_PLUCK[pick[0]][0] - m) ? take : pick);
     const [center, offset] = HARP_PLUCK[best[0]];
-    const dest = this.hookBus || this.ch.stab.input;
-    const out = this.trimOut('hook-harpplk', 4, best[1].numberOfChannels === 1 ? monoChordOut(this, dest) : dest, -2, 700);
+    const out = this.trimOut('hook-harpplk', 4, this.hookBus || this.ch.stab.input, -2, 700);
     const tones = (this.harpTones ||= new WeakMap());
     if (!tones.has(out)) {
       const dip = this.filter('peaking', 640, 2.6); dip.gain.value = -3.8;
@@ -4600,11 +4544,9 @@ export class Engine {
     this.hardFadeAt = this.gridTime(t + dur);
     this.hardFade = {t, from: prev, to: target, levels: Object.fromEntries(TRACK_IDS.map(id => [id, this.state.params[id].level]))};
     for (const id of TRACK_IDS) {
-      const level = this.state.params[id].level;
-      this.chordParam(this.ch[id].level.gain, p => {
-        if (!this.hardLevels) p.setValueAtTime(level * (prev[id] ?? 1), t);
-        p.linearRampToValueAtTime(level * (target[id] ?? 1), this.hardFadeAt);
-      });
+      const p = this.ch[id].level.gain, level = this.state.params[id].level;
+      if (!this.hardLevels) p.setValueAtTime(level * (prev[id] ?? 1), t);
+      p.linearRampToValueAtTime(level * (target[id] ?? 1), this.hardFadeAt);
     }
     if (!this.hardLevels) {
       this.secGain.gain.setValueAtTime(10 ** (prev.db / 20), t);
