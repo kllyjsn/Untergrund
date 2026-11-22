@@ -821,7 +821,8 @@ a.jb-item.artist-song .jb-side { color: var(--accent); }
 .club-look-head b { font: 900 16px var(--sans); letter-spacing: .08em; }
 .club-look-head .btn { height: 30px; padding: 0 14px; }
 .club-look-hero { display: grid; grid-template-columns: 104px minmax(0,1fr); gap: 14px; align-items: center; }
-.club-look-preview { position: relative; height: 172px; border: 1px solid var(--hair); border-radius: var(--r1); background: linear-gradient(180deg,#2b2930 0 64%,#1f1e22 64%); overflow: hidden; }
+/* The 156px rig's projected antenna and glow need headroom above the body. */
+.club-look-preview { position: relative; height: 208px; border: 1px solid var(--hair); border-radius: var(--r1); background: linear-gradient(180deg,#2b2930 0 64%,#1f1e22 64%); overflow: hidden; }
 .club-look-preview .club-person { position: absolute; left: 0; bottom: 4px; }
 .club-look-preview .club-name { bottom: -2px; max-width: 96px; }
 .club-look-id { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
