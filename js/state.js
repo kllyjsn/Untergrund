@@ -913,6 +913,13 @@ function generatePattern(style, seed, scaleName, starter) {
   if (SONG.has(style) && P.prog && P.alt) {
     const all = PROGS[style].map((pr) => pr.map(([root, c]) => ({ r: root, c })));
     P.sections = songSections(all, P, musicalScale, Math.round(params.stab.chord ?? 0), rng(Math.imul((seed | 0) ^ 0x51ed270b, 0x27d4eb2f)), SECTION_IDIOM[style]);
+    if (style === 'deephouse') {
+      // The intro holds the tonic; save the full movement and ninths for the chorus.
+      P.sections.intro = [{ r: 0, c: 0 }];
+      P.sections.verse = P.sections.verse.map(({ r, c }) => ({ r, c: ({ 2: 1, 9: 7 })[c] ?? c }));
+      P.sections.chorus = P.prog.map(({ r, c }) => ({ r, c: (r === 7 ? c : ({ 0: 2, 1: 2, 3: 2, 7: 9 })[c] ?? c) }));
+      P.sections.bridge = [{ r: 8, c: 7 }, { r: 3, c: 10 }, { r: 5, c: 16 }, { r: 7, c: 5 }];
+    }
     if (P.sections.chorus) { P.prog = P.sections.chorus; delete P.sections.chorus; }
   }
   if (MAJOR_STYLES.has(style) || style === 'rock') P.band = true;
@@ -1095,6 +1102,7 @@ function funkPhrases(patterns, chain, keep = []) {
 // E-F the bridge and G-H the chorus, each with its own chords, register and energy.
 function songScenes(scenes, full, S) {
   const st = full.steps, zero = () => range(STEPS, () => 0);
+  if (S.intro) scenes[0].prog = clone(S.intro);
   // The verse keeps one chord per half bar, low in the mix of the groove; no open hats, ride or chops.
   const sparse = (row) => row.map((v, i) => (v && !row.slice(i < 8 ? 0 : 8, i).some(Boolean) ? 1 : 0));
   const verse = scenes[2];
@@ -1232,7 +1240,7 @@ export function songPlan(style, seed, length = 'song', bpm = midBpm(style)) {
   }
   if (FORMS[style] || style === 'repertoire') return { chain: 'A', sections: null };
   if (SONG.has(style)) {
-    const sections = planSections(IDIOM[style] || 'pop', bpm, length, rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)));
+    const sections = planSections(IDIOM[style] || 'pop', bpm, length, rng(Math.imul((seed | 0) ^ 0x2c1b3c6d, 0x297a2d39)), { chorusBuilds: style === 'deephouse' });
     const chain = formChain(sections);
     if (style === 'trap') {
       const voice = pick(rng(Math.imul((seed | 0) ^ 0x6d2b79f5, 0x85ebca6b)), INSTRUMENTS.trap)[0];
@@ -1319,7 +1327,7 @@ export function applySongPlan(s, style, seed, length = 'song') {
     return plan;
   }
   const keep = Object.keys(s.locks || {}).filter((t) => s.locks[t]);
-  developSong(s.patterns, plan.sections, { keep });
+  developSong(s.patterns, plan.sections, { keep, chorusBuilds: style === 'deephouse' });
   if (style === 'hardtechno') {
     for (const i of [4, 5]) for (const id of TRACK_IDS) if (!keep.includes(id)) s.patterns[i].steps[id] = clone(s.patterns[6].steps[id]);
     for (const run of plan.chain.matchAll(/([A-H])\1*/g)) {

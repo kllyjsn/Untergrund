@@ -5021,6 +5021,7 @@ const SECTION_DB = { verse: -1.8, chorus: 0.45 };
 // Styles that move between sections with filter glides instead of risers, snare rolls and impacts.
 const SMOOTH = new Set(['minimal']);
 const STYLE_SECTION_DB = { pop: { verse: -0.9 }, rnb: { chorus: 0.25 }, deephouse: { chorus: 0.25 }, country: { verse: -0.8 } };
+const DEEP_HOUSE_DB = { intro: -5.5, verse: -4.4, bridge: -4.5, chorus: -0.95, final: 0.25, buildFrom: -4.1, buildTo: -2.2 };
 
 export class Sequencer {
   constructor(engine, state) {
@@ -5047,8 +5048,12 @@ export class Sequencer {
     this.queued = null;
     this.acidPrevSlide = false;
     this.finished = false;
-    if (offset && pos >= 0 && !(this.s.ending && chain.length >= 16 && bar >= chain.length))
-      this.verseFillSwell(t, chain, pos, offset);
+    if (offset && pos >= 0 && !(this.s.ending && chain.length >= 16 && bar >= chain.length)) {
+      if (this.deepHouseArc()) {
+        this.updateLift(chain);
+        this.deepHouseLevel(t, chain, pos, offset);
+      } else this.verseFillSwell(t, chain, pos, offset);
+    }
   }
 
   rewind(abs, t) {
@@ -5092,13 +5097,7 @@ export class Sequencer {
     this.dropNow = !!this.dropNext; this.dropNext = false;
     this.songBars = chain.length; this.chainArr = chain;
     this.chainEntries = cleanChainEntries(this.s.chain, this.s.chainEntries);
-    if (this.liftChain !== this.s.chain) {
-      // The final chorus: the last run of peak bars, if an earlier peak came before it.
-      let i = chain.length - 1;
-      while (i >= 0 && chain[i] !== 6) i--;
-      while (i > 0 && (chain[i - 1] === 6 || chain[i - 1] === 7)) i--;
-      this.liftChain = this.s.chain; this.liftFrom = i > 0 && chain.slice(0, i).includes(6) ? i : -1;
-    }
+    this.updateLift(chain);
     if (chain.length) {
       const n = chain.length, p = this.chainPos % n, prev = this.chainPos ? this.cur : -1;
       // Past the last bar of a song with an ending (even if a stalled main thread skipped its steps): finished, silent.
@@ -5108,7 +5107,8 @@ export class Sequencer {
       while (a > 0 && chain[a - 1] === this.cur) a--;
       while (b < n - 1 && chain[b + 1] === this.cur) b++;
       this.runPos = p - a; this.runLen = b - a + 1;
-      const peak = (x) => x === 2 || x === 6, brk = (x) => x === 4 || x === 5, fill = this.cur === 3 || this.cur === 7;
+      const houseArc = this.deepHouseArc();
+      const peak = (x) => x === 6 || (x === 2 && !houseArc), brk = (x) => x === 4 || x === 5, fill = this.cur === 3 || this.cur === 7;
       if (arr) {
         this.dropNext = peak(chain[(p + 1) % n]) && !peak(this.cur) && !(fill && peak(prev));
         if (!this.breakFilterPlanned && arr >= 0.75 && brk(this.cur) && !brk(prev)) {
@@ -5130,8 +5130,47 @@ export class Sequencer {
     if (this.queued !== null) { this.cur = this.queued; this.queued = null; }
   }
 
+  updateLift(chain) {
+    if (this.liftChain === this.s.chain && this.liftBars === chain.length) return;
+    // The final chorus: the last run of peak bars, if an earlier peak came before it.
+    let i = chain.lastIndexOf(6);
+    while (i > 0 && (chain[i - 1] === 6 || chain[i - 1] === 7)) i--;
+    this.liftChain = this.s.chain; this.liftBars = chain.length;
+    this.liftFrom = i > 0 && chain.slice(0, i).includes(6) ? i : -1;
+  }
+
+  deepHouseArc() {
+    const pats = this.s.patterns;
+    return (this.e.playbackStyle ?? this.s.artist?.style) === 'deephouse' &&
+      pats[1]?.sec === 'pre' && pats[6]?.sec === 'chorus';
+  }
+
+  deepHouseLevel(t, chain, pos, offset = 0) {
+    const db = DEEP_HOUSE_DB, sec = this.s.patterns[this.cur]?.sec;
+    // The breakdown keeps its own harmony and groove; its back half builds into the final chorus.
+    const bridgeBuild = this.liftFrom >= 4 && pos >= this.liftFrom - 4 && pos < this.liftFrom &&
+      chain[this.liftFrom - 1] === 3 && chain.slice(this.liftFrom - 4, this.liftFrom - 1).every((i) => i === 4 || i === 5);
+    if (sec !== 'pre' && !bridgeBuild) {
+      const level = sec === 'chorus' && this.liftFrom >= 0 && pos >= this.liftFrom ? db.final : db[sec] ?? db.intro;
+      return this.level(t, level, offset ? [level, 0] : undefined);
+    }
+    let first = this.liftFrom - 4, last = this.liftFrom - 1;
+    if (!bridgeBuild) {
+      first = last = pos;
+      while (first > 0 && chain[first - 1] === this.cur) first--;
+      while (last + 1 < chain.length && chain[last + 1] === this.cur) last++;
+    }
+    const at = (step) => db.buildFrom + (db.buildTo - db.buildFrom) * step / (16 * (last - first + 1));
+    const step = 16 * (pos - first);
+    const from = at(step), to = at(step + 16);
+    const gain = (v) => 10 ** (v / 20);
+    const resumed = offset ? 20 * Math.log10(gain(from) + (gain(to) - gain(from)) * offset / 16) : from;
+    return this.level(t, to, [resumed, (16 - offset) * this.e.stepDur]);
+  }
+
   // Verses sit under the chorus. A pre-chorus or a written verse fill can swell into it.
   sectionLevel(t, pos, offset) {
+    if (this.deepHouseArc()) return this.deepHouseLevel(t, this.chainArr, pos, offset);
     if (this.s.artist?.style === 'hardtechno') {
       this.e.hardSection?.(t, this.cur, this.runPos, this.runLen, this.chainArr[this.chainPos]);
       return;

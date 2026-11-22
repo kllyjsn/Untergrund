@@ -64,7 +64,7 @@ export const formBars = (S) => S.reduce((a, s) => a + s[1], 0);
 export const formSeconds = (S, bpm) => (formBars(S) * 240) / bpm;
 
 // The section plan for an idiom at a tempo. `r` is the seeded random source that picks the base.
-export function planSections(idiom, bpm, length = 'song', r = Math.random) {
+export function planSections(idiom, bpm, length = 'song', r = Math.random, { chorusBuilds = false } = {}) {
   const L = LENGTHS[length] ? length : 'song', T = LENGTHS[L], list = BASES[L][idiom] || BASES[L].pop;
   // The last chorus is the longest wherever the tempo allows; at ballad tempos, bases that already fill the
   // song are preferred, and the shortest is used when none fits.
@@ -81,6 +81,13 @@ export function planSections(idiom, bpm, length = 'song', r = Math.random) {
     const trial = S.map((s) => [...s]);
     if (!GROW[op](trial) || formBars(trial) > MAX_SONG_BARS || formSeconds(trial, bpm) > T.hi) continue;
     S.splice(0, S.length, ...trial);
+  }
+  // Turn the last phrase of a verse into a build without moving the chorus downbeat.
+  if (chorusBuilds) for (let i = S.length - 1; i > 0; i--) {
+    const [kind, bars] = S[i - 1];
+    if (S[i][0] === 'c' && kind === 'v' && bars >= 8) {
+      S.splice(i - 1, 1, [kind, bars - 4], ['p', 4]);
+    }
   }
   return S;
 }
@@ -156,7 +163,7 @@ function finalTake(G, level) {
 // Writes the development of a planned song into its patterns as per-bar takes (scope.js): repeats stay the same
 // song (the chorus hook and chords are untouched) but never play back identically. `keep` tracks (locked ones) are
 // never touched; `strict` only develops tracks a section already plays, so an explicit instrument list holds.
-export function developSong(pats, S, { keep = [], strict = false } = {}) {
+export function developSong(pats, S, { keep = [], strict = false, chorusBuilds = false } = {}) {
   if (!S?.length || !pats || pats.length < 8 || pats.some((p) => p.score)) return pats;
   const B = pats[1], C = pats[2], G = pats[6];
   const add = (pat, from, to, body) => {
@@ -177,9 +184,14 @@ export function developSong(pats, S, { keep = [], strict = false } = {}) {
     if (s.at >= MAX_SONG_BARS) return;
     // A 16-bar verse accumulates: its second half brings the new part in.
     if (s.k === 'v' && ++verses > 1) add(C, s.bars >= 16 ? s.at + (s.bars >> 1) : s.at, end(s), strict ? finalTake(C, 1) : verseTake(C, G));
-    if (s.k === 'p' && ++pres > 1) {
+    if (s.k === 'p' && chorusBuilds) {
+      add(B, s.at, s.at + (s.bars >> 1) - 1, { steps: { perc: B.steps.perc.map((v, j) => (j % 4 === 2 ? v : 0)) } });
+    } else if (s.k === 'p' && ++pres > 1) {
       add(B, s.at, s.at + (s.bars >> 1) - 1, driveTake(B, G));
       add(B, end(s), end(s), rollTake(B));
+    }
+    if (chorusBuilds && s.k === 'b' && i + 1 === last && pats[5].prog) {
+      add(pats[3], end(s), end(s), { prog: clone(pats[5].prog) });
     }
     // An instrumental's last bar is the switch-up (H): it stays instrumental too.
     if (s.k === 'x') { add(G, s.at, end(s), instTake(G)); add(pats[7], s.at, end(s), instTake(pats[7])); }
