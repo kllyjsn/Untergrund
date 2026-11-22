@@ -2348,7 +2348,7 @@ export class Engine {
       trem.connect(out); out = trem;
       this.startSource(lfo, t); lfo.stop(end);
     }
-    const level = v * (funk ? 0.84 : 0.96) / Math.sqrt(notes.length);
+    const level = v * (funk ? 1.2 : 0.96) / Math.sqrt(notes.length);
     const lp = Math.min(8500, Math.max(550, p.cutoff * (0.55 + 2.2 * velocity ** 2) * 2 ** tine));
     for (const [i, m] of notes.entries()) {
       const [center, buf] = set.reduce((a, b) => Math.abs(b[0] - m) < Math.abs(a[0] - m) ? b : a);
