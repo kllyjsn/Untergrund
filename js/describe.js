@@ -56,6 +56,7 @@ const CHORD_QUALITY = new RegExp(
 const KEY_BEFORE_CHORD = /\b(?:key(?:\s+of|\s+to)?|(?:transpose|modulate|switch|change)(?:\s+it)?\s+to|(?:keep|lock)\s+(?:it|the\s+(?:song|track|tune))\s+in)\s+$/;
 const CHORD_AMOUNT = /\b(?:add|include|use|with|more|less|fewer|no|without)\s+(?:(?:some|a\s+few|a|an|the)\s+)?$/;
 const CLAUSE_BREAK = /\s*(?:,|;|\.|!|\?|\band\b|&|\+|\bbut\b|\bthen\b|\balso\b|\bplus\b|\bwith\b|\bwhile\b|\bnow\b)\s*/;
+export const withoutCurrentSong = (text) => text.replace(/\b(?:of|in|to|on)\s+(?:the|this|my|our)\s+(?:song|track|tune|beat)\b/g, ' ');
 
 export const HIPHOP_PHRASES = [
   [/\blo[\s-]?fi[\s-]+(?:hip[\s-]?hop|beats?)\b|\bchillhop\b/g, 'lofihiphop'],

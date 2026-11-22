@@ -57,7 +57,7 @@ t('a chord quality names the target without changing the song mode or harmony', 
 });
 
 t('unsupported section voicing is reported without muting chords or dropping other edits', () => {
-  for (const prompt of ['no minor seventh chords in the intro', 'fewer minor sevenths in the second drop', 'add more minor sevenths in the chorus']) {
+  for (const prompt of ['no minor seventh chords in the intro', 'fewer minor sevenths in the second drop', 'add more minor sevenths in the chorus', 'more minor sevenths at the end of the song']) {
     const parsed = parse(prompt, { style: 'rnb' });
     assert.deepEqual(parsed.edits, [], prompt);
     assert.equal(parsed.unsupportedHarmony.length, 1, prompt);

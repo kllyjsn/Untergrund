@@ -5,7 +5,7 @@ import { developSong, LENGTHS } from './longform.js';
 import { STYLES, MAJOR_STYLES, generate, arrangement, songChain, songPlan, defaultState, applyOverrides, clone, emptyAcidStep } from './state.js';
 import { SCALES, KEYS, TRACK_IDS, STEPS } from './params.js';
 import { toSections, MAX_BARS } from './timeline.js';
-import { parse, applyEdits, validateEdits, genreOf } from './describe.js';
+import { parse, applyEdits, validateEdits, genreOf, withoutCurrentSong } from './describe.js';
 import { semiOf } from './motif.js';
 import { trackTitle } from './crate.js';
 import { rng } from './dsp.js';
@@ -364,7 +364,7 @@ export function localSpec(text, { style: current = 'deephouse', seed, genre, bpm
 // to this one ("darker", "no hats in the drop")?
 const SONGISH = /\b(?:song|track|tune|beat|banger|anthem|instrumental|piece|jam|something|write|compose|produce|soundtrack)\b|\bfor\s+(?:a|an|the|my|our)\b|\bbuilds?\s+(?:up\s+)?(?:to|into)\b|\babout\b/;
 export function isSongPrompt(text, { style } = {}) {
-  const t = String(text || '').toLowerCase().trim();
+  const t = withoutCurrentSong(String(text || '').toLowerCase()).trim();
   if (!t || t.split(/\s+/).length < 3) return false;
   if (/^(?:make|turn|add|remove|less|more|no|mute|drop|undo|give)\b/.test(t) && !/\b(?:song|track|tune|beat)\b/.test(t)) return false;
   if (SONGISH.test(t)) return true;

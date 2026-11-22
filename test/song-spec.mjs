@@ -393,9 +393,9 @@ t('no key: the rule parser writes the spec', () => {
 });
 
 t('whole-song phrases are told apart from changes', () => {
-  for (const p of ['melancholic deep house for a sunrise drive, builds to a big euphoric drop', 'dark techno for a warehouse', 'a sunrise drive song', 'write me a jazzy hip hop beat'])
+  for (const p of ['melancholic deep house for a sunrise drive, builds to a big euphoric drop', 'dark techno for a warehouse', 'a sunrise drive song', 'write me a jazzy hip hop beat', 'write a jazz song with no minor sevenths in the intro'])
     assert.ok(isSongPrompt(p, { style: 'hypnotic' }), p);
-  for (const p of ['darker', 'no hats in the drop', 'make it house', 'more swing please', 'less busy in the breakdown', 'add strings'])
+  for (const p of ['darker', 'no hats in the drop', 'make it house', 'more swing please', 'less busy in the breakdown', 'add strings', 'more minor sevenths at the end of the song'])
     assert.ok(!isSongPrompt(p, { style: 'hypnotic' }), p);
 });
 
