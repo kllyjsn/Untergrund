@@ -1537,8 +1537,9 @@ export function sanitize(s) {
     if (p.lift) e.lift = Math.max(0, Math.min(3, p.lift | 0));
     if (p.verseSwell === true) e.verseSwell = true;
     if (['verse', 'pre', 'chorus', 'bridge'].includes(p.sec)) e.sec = p.sec;
-    if (Array.isArray(p.prog) && p.prog.length) e.prog = cleanProg(p.prog, e.jazz?.bossaPart ? 16 : 8);
-    const at = !e.score && cleanTakes(p.at, cleanTrack, cleanHook, cleanProg);
+    const progLimit = e.jazz?.bossaPart ? 16 : 8;
+    if (Array.isArray(p.prog) && p.prog.length) e.prog = cleanProg(p.prog, progLimit);
+    const at = !e.score && cleanTakes(p.at, cleanTrack, cleanHook, (prog) => cleanProg(prog, progLimit));
     if (at) e.at = at;
     return e;
   });

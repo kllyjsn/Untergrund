@@ -104,6 +104,17 @@ const guitar = freshSong('bossa', 42), played = [], banks = [];
   assert.deepEqual(e.harm, guitar.patterns[6].prog[3], 'joining halfway into the head uses the right chord');
   assert(e.notes.acid?.length, 'a late join starts on the next bass note, not the next bar');
 }
+{
+  const edited = structuredClone(guitar), p = edited.patterns[6], prog = structuredClone(p.prog);
+  prog[8] = { r: 1, c: 13 };
+  p.at = [{ b: [16, 16], prog }];
+  const restored = sanitize(edited);
+  assert.deepEqual(restored.patterns[6].at[0].prog, prog, 'scoped harmony keeps the whole 16-bar chart');
+  const e = new Recorder(restored), seq = new Sequencer(e, restored);
+  seq.startAt(16 * 16, 1);
+  seq.tick(16 * 16, 1);
+  assert.deepEqual(e.harm, prog[8], 'a saved reharmonization plays in the second half');
+}
 Engine.prototype.stab.call({ state: guitar, ctx: {}, step: 3, harm: jazzHarmony(guitar.patterns[6], 0), ch: { stab: { band: {}, input: {} } }, rec: (name) => { banks.push(name); return [[60, {}]]; }, recordedNote: (...a) => played.push(a) }, 1, 0.5);
 assert.deepEqual(banks, ['nylon']);
 assert(played.length > 1 && played.every((a) => a[7] === 'nylon'));
