@@ -5186,9 +5186,9 @@ const PRE_HZ = 4500, BUILD_HZ = 3000;
 // ending slows over its last bars by the feeling's end.rit. A song with a sung stem keeps strict time, as does one
 // without a feeling.
 const GRID_TEMPO = new Set(['hypnotic', 'industrial', 'acid', 'dub', 'peak', 'hardtechno', 'deephouse', 'minimal', 'ukg', 'euphoric', 'trance', 'amapiano', 'bailefunk', 'jerseyclub']);
-export function feelTempo(s, chain, pos, i16) {
+export function feelTempo(s, chain, pos, i16, style = s.artist?.style) {
   const f = feelOf(s), n = chain.length;
-  if (!f || !n || s.sing?.on || GRID_TEMPO.has(s.artist?.style)) return 1;
+  if (!f || !n || s.sing?.on || GRID_TEMPO.has(style)) return 1;
   let m = 1;
   if (s.patterns[chain[pos]]?.sec && jazzStyle(s, s.patterns[chain[pos]]) !== 'jazzfunk') {
     let a = pos;
@@ -5374,7 +5374,7 @@ export class Sequencer {
     if (s.artist?.style === 'dub' || e.dubBreakdown === true) e.dubSection?.(t, s.artist?.style === 'dub' && s.chainOn && pos >= 48 && pos < 56 && (this.cur === 4 || this.cur === 5));
     if (abs % 16 === 0) e.vocal(t, pos, 0, roomGridTime, false, vocalSettling);
     const pat = patternAt(s.patterns[this.cur], pos);
-    if (!pat.score) e.stepScale = n ? feelTempo(s, this.chainArr, pos, abs % 16) : 1;
+    if (!pat.score) e.stepScale = n ? feelTempo(s, this.chainArr, pos, abs % 16, e.playbackStyle ?? s.artist?.style) : 1;
     const firstTick = !e.playingPattern, previousJazz = jazzStyle(s, e.playingPattern);
     e.playingPattern = pat;
     if (firstTick || (abs % 16 === 0 && previousJazz !== jazzStyle(s, pat))) e.applyOutputTrim?.(false, t);
