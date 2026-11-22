@@ -6,7 +6,7 @@ import { fnv } from './listen.js';
 export const ARMS = ['control', 'variant'];
 export const XP_ID = /^[a-z0-9][a-z0-9_.-]{0,31}$/;
 // Scope keys are the listen's own context; a listen outside the scope is never assigned or tagged.
-export const SCOPE_KEYS = ['style', 'src', 'surf', 'dev', 'co'];
+export const SCOPE_KEYS = ['style', 'src', 'surf', 'dev', 'co', 'feel'];
 export const MAX_SHARE = 0.5;
 
 // The running experiments, shipped (and ended) only by reviewed PRs, usually from a proposal in the improvement report:
