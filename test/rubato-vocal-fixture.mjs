@@ -84,7 +84,7 @@ export async function rubatoVocalFixture({style = 'ukg', residual = 0, rubato = 
   const env = {...sync,...media,engine,ctx,state,seq,roomMediaSync:media.createRoomMediaSync(),mediaRoute:null,
     document:{hidden:false},Date:{now:()=>1000000},performance:{now:()=>0},
     playing:true,roomPlayback:true,songOver:false,queuedRoomSwitch:null,roomEditor:false,
-    roomFirstNote:null,clockOffset:1000,roomAudioClock:null,roomDrainUntil:null,vocalGridDirty:false,
+    roomFirstNote:null,clockOffset:1000,roomAudioClock:null,roomLifecycleAt:-Infinity,roomDrainUntil:null,vocalGridDirty:false,
     abs:0,nextTime:1,transportOrigin:1001000,uiQueue:[],handoff:null,jamQueue:[],
     timeline:{skip:()=>0},artistTick:noop,midiClockStep:noop,midiClockStart:noop,
     BG_LEAD:1.5,ROOM_LEAD:.42,setTimeout:noop};

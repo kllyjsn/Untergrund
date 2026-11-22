@@ -60,6 +60,7 @@ addEventListener('blur', () => { for (const k of [...heldPads.keys()]) ui.perf?.
 let playing = false, abs = 0, nextTime = 0, lastPlayedPat = null;
 let transportOrigin = 0, roomJoinTimer = 0, clockOffset = null;
 let roomAudioClock = null;
+let roomLifecycleAt = -Infinity;
 let vocalGridDirty = false;
 let roomDrainUntil = null;
 let roomPlayback = false;
@@ -192,7 +193,7 @@ function schedule(lead) {
   if (roomEditor) engine.pruneEditableHits(now);
   const frozenOutputTime = roomAudioClock?.frozenOutputTime;
   const clock = syncAudioClock(clockOffset, Date.now() / 1000 - now,
-    roomPlayback ? {at:performance.now() / 1000, contextTime:now, state:roomAudioClock} : null);
+    roomPlayback ? {at:performance.now() / 1000, contextTime:now, state:roomAudioClock, lifecycleAt:roomLifecycleAt} : null);
   clockOffset = clock.offset;
   roomAudioClock = clock.state ?? null;
   const switchAt = queuedRoomSwitch ? roomMediaTime(queuedRoomSwitch.startsAt / 1000 - clockOffset, roomPlayback, mediaRoute) : Infinity;
@@ -716,6 +717,7 @@ function interrupt() {
 // The audio clock stopping under a playing song (a call, Siri, iOS suspending the page) pauses it;
 // when it runs again soon after, the song carries on.
 function onAudioState() {
+  roomLifecycleAt = performance.now() / 1000;
   if (ctx.state === 'running') {
     if (paused?.reason === 'interrupted' && Date.now() - paused.at < RESUME_WINDOW) remote.play();
   } else if (ctx.state !== 'closed') interrupt();
@@ -2950,6 +2952,7 @@ window.addEventListener('keyup', (e) => {
 });
 
 document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) roomLifecycleAt = performance.now() / 1000;
   if (!guest) save(state);
   // Going to the lock screen or another app: queue extra audio before timers slow down.
   if (playing && document.hidden) schedule(BG_LEAD);
@@ -2957,7 +2960,11 @@ document.addEventListener('visibilitychange', () => {
 document.addEventListener('freeze', () => {
   if (playing && roomPlayback && roomAudioClock) roomAudioClock.frozenOutputTime = engine.audibleTime(ctx.currentTime);
 });
-document.addEventListener('resume', () => { if (ctx?.state === 'running') schedule(); });
+document.addEventListener('resume', () => {
+  roomLifecycleAt = performance.now() / 1000;
+  if (ctx?.state === 'running') schedule();
+});
+window.addEventListener('pageshow', () => { roomLifecycleAt = performance.now() / 1000; });
 
 prepareSample(null);
 build();

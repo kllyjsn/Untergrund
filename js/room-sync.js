@@ -66,8 +66,10 @@ export function syncAudioClock(previous, measured, sample = null) {
   const jumped = previous !== null && Math.abs(measured - previous) > 0.15;
   if (sample) {
     const prior = sample.state;
+    const gap = prior && sample.at - prior.at - (sample.contextTime - prior.contextTime);
+    const recentLifecycle = Number.isFinite(sample.lifecycleAt) && sample.at >= sample.lifecycleAt && sample.at - sample.lifecycleAt <= 2;
     const wake = jumped && prior && sample.at - prior.at > 0.15 &&
-      sample.at - prior.at - (sample.contextTime - prior.contextTime) > 0.15;
+      gap > 0.15 && (gap > 0.5 || recentLifecycle);
     const state = {at:sample.at, contextTime:sample.contextTime, pending:null};
     if (previous === null || wake) return {offset:measured, jumped:!!wake, state};
     if (Math.abs(measured - previous) <= 0.008) return {offset:previous, jumped:false, state};

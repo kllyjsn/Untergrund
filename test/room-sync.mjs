@@ -531,6 +531,39 @@ console.log('room transport alignment passed');
   assert.equal(clock.jumped, true, 'a real frozen-page interval retains immediate wake recovery');
   close(clock.offset, 1002.08);
 }
+{
+  const initial = () => syncAudioClock(null, 1000, {at:10, contextTime:10, state:null});
+  let clock = initial();
+  const sample = (at, measured) => clock = syncAudioClock(clock.offset, measured,
+    {at, contextTime:at - (measured - 1000), state:clock.state});
+  sample(10.19, 1000.155);
+  assert.equal(clock.jumped, false, 'a visible running-context stall is not a wake');
+  assert.equal(clock.offset, 1000);
+  for (let i = 1; i <= 90; i++) {
+    sample(10.19 + i * .02, 1000.155);
+    assert.equal(clock.offset, 1000, 'the transient offset is held before persistence');
+    assert.equal(clock.jumped, false);
+  }
+  sample(12.07, 1000.019);
+  assert.equal(clock.offset, 1000, '136ms catch-up does not immediately adopt either offset');
+  assert.equal(clock.jumped, false);
+  sample(12.09, 1000.005);
+  assert.equal(clock.offset, 1000);
+  assert.equal(clock.state.pending, null);
+  for (const [gap, lifecycleAt, expected] of [[.18, 10.1, true], [.18, 7, false], [.18, 11, false], [.8, undefined, true], [15, undefined, true]]) {
+    const prior = initial();
+    const wake = syncAudioClock(prior.offset, 1000 + gap,
+      {at:10 + gap, contextTime:10, state:prior.state, lifecycleAt});
+    assert.equal(wake.jumped, expected, `${gap}s gap with lifecycle ${lifecycleAt}`);
+    close(wake.offset, expected ? 1000 + gap : 1000);
+  }
+  clock = initial();
+  sample(10.19, 1000.155);
+  for (let i = 1; i <= 101; i++) sample(10.19 + i * .02, 1000.155);
+  close(clock.offset, 1000.155);
+  assert.equal(clock.jumped, false, 'a sustained running stall adopts without destructive wake recovery');
+}
+console.log('Room false wake PASS: 155ms stall / 136ms catch-up held; stale/future lifecycle ignored; recent resume180ms and unsignalled800ms/15s wake immediately; sustained stall adopts without discard.');
 for (const rate of [-0.005, 0.005]) {
   let clock = syncAudioClock(null, 1000, {at:0, contextTime:0, state:null});
   let adopted = 0, residual = 0;
@@ -644,7 +677,7 @@ for (const [action, currentTime, playing, expected] of [
     document:{hidden:false}, ctx:{currentTime:10}, Date:{now:() => sandbox.ctx.currentTime * 1000},
     state:{bpm:120, part:'old'}, clockOffset:0, transportOrigin:2250, abs:68, nextTime:11.5,
     syncAudioClock, transportResync, slewTransport, roomTransportCorrection, roomDrainUntil:null, vocalCorrectionWindow:0,
-    queuedRoomSwitch:null, handoff:null, jamQueue:[], vocalGridDirty:false, roomAudioClock:{at:10, contextTime:10, pending:null},
+    queuedRoomSwitch:null, handoff:null, jamQueue:[], vocalGridDirty:false, roomLifecycleAt:-Infinity, roomAudioClock:{at:10, contextTime:10, pending:null},
     performance:{now:() => sandbox.ctx.currentTime * 1000},
     engine:{stepDur:0.125, applyAll(){}, scheduleJamParams(){}, discardQueuedNotes:t => cancelled.push(t), vocal(){}},
     seq:{origin:0, chainPos:5, songBars:8, advanceBar(){}, rewind:step => rewinds.push(step),
@@ -782,7 +815,7 @@ console.log('Room frontier PASS: large corrections drain then adopt, future-at-a
       document:{hidden:false}, ctx:{currentTime:now}, Date:{now:() => now * 1000},
       state, engine, seq, abs:step, nextTime, transportOrigin:gridOrigin, clockOffset,
       syncAudioClock, transportResync, slewTransport, roomTransportCorrection, roomDrainUntil:null, vocalCorrectionWindow:0,
-      queuedRoomSwitch:null, handoff:null, vocalGridDirty:false, uiQueue:[], roomAudioClock:{at:now, contextTime:now, pending:null}, performance:{now:() => now * 1000},
+      queuedRoomSwitch:null, handoff:null, vocalGridDirty:false, uiQueue:[], roomLifecycleAt:-Infinity, roomAudioClock:{at:now, contextTime:now, pending:null}, performance:{now:() => now * 1000},
       jamQueue:[{part:'kick', layer:{id:'new'}, wall}], jamRedraw:0,
       timeline:{skip:() => 0}, artistTick(){}, midiClockStep(){}, midiClockStart(){},
       applyPart:(s, part, layer) => { s.part = layer.id; }, setTimeout(){}, cancelAnimationFrame(){}, requestAnimationFrame:() => 0};
