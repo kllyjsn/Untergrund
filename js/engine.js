@@ -4402,11 +4402,9 @@ export class Engine {
       gain.cancelScheduledValues(t); gain.setTargetAtTime(0, t, 0.005);
     }
     if (vo > 0 && playsAnalogBass(this.playbackStyle, vo)) {
+      if (analog) a.vca.gain.cancelScheduledValues(t);
       a.vca.gain.setTargetAtTime(0, t, 0.005);
-      if (analog) {
-        a.vca.gain.cancelScheduledValues(t);
-        return this.analogBass(t, st, sd, holdNext, sliding);
-      }
+      if (analog) return this.analogBass(t, st, sd, holdNext, sliding);
       loadBand('abass');
     }
     if (vo > 0) { a.vca.gain.setTargetAtTime(0, t, 0.005); return this[['', 'bass', 'eight08', 'reese', 'logdrum', 'ebass', 'fmBass', 'pulseBass', 'harmonicBass', 'harmonicBass'][vo]](t, st, sd, holdNext, sliding, vo === 2 ? kickAt : slideUntil); }
