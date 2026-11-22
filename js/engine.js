@@ -178,7 +178,7 @@ const ORCH = {
   timp: { kinds: ['timp'], gain: 0.85, lo: 40, hi: 57, pan: 0.15, lp: 3000, rel: 0.5 },
   pno: { kinds: ['pianoext', 'piano'], soft: ['pianoextsoft', 'pianosoft'], gain: 1.8, lo: 21, hi: 104, pan: 0, lp: 12000, rel: 0.3 },
   // The band's tonewheel organ (ROCK choruses): drawbars held under the guitars, the sustain looped.
-  org: { kinds: ['org'], gain: 0.62, lo: 43, hi: 84, pan: 0.22, lp: 5200, rel: 0.09, loop: true, hp: 110, room: 1800 },
+  org: { kinds: ['org'], gain: 0.62, lo: 43, hi: 84, pan: 0.22, lp: 5200, rel: 0.09, loop: true, hp: 110 },
 };
 const kindsOf = (parts) => [...new Set(parts.flatMap((p) => [...ORCH[p].kinds, ...(ORCH[p].soft || []), ...(p === 'timp' ? ['timproll'] : [])]))];
 export const ORCH_KINDS = kindsOf(Object.keys(ORCH));
@@ -313,7 +313,7 @@ const BAND_PLAY = {
   // The green Gretsch hollow-body: bright, snappy, open chords that ring for country and rockabilly.
   gretsch: { gain: 4.2, len: 2.6, min: 0.6, softBelow: 0, strum: 0.006, shift: 0, lo: 40, hi: 74, lp: 4600, peak: [3400, 1.2, -4], soft: 1100, fade: 0.008, rel: 0.18, grip: true, even: 0.3 },
   // UK Garage's organ stab: the tonewheel organ keyed hard and let go, every note of the chord at once.
-  org: { gain: 1.9, len: 1.6, min: 0.12, max: 0.8, strum: 0, shift: 0, lo: 52, hi: 79, lp: 5600, fade: 0.003, rel: 0.05, even: 0.15 },
+  org: { gain: 1.9, len: 1.6, min: 0.12, max: 0.8, strum: 0, shift: 0, lo: 52, hi: 79, lp: 5600, fade: 0.003, rel: 0.05, even: 0.15, room: 1800 },
 };
 // Country lead: the same guitar clean and bright off the bridge pickup, single notes with a slapback.
 BAND_PLAY.twang = { ...BAND_PLAY.gtr, gain: 3, len: 1.4, min: 0.25, softBelow: 0, lo: 52, hi: 84, lp: 6800, grip: false, even: 0.4, rel: 0.12, oct: 0, slap: true };
