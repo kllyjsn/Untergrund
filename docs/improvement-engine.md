@@ -6,7 +6,7 @@ Code: `api/_lib/improve.js` (pure, deterministic). Read it via `GET /api/events?
 
 ## Listener effort: one tap
 
-The down arrow next to the heart in Now Playing is the whole negative signal. After it, three optional one-tap reasons appear (`boring`, `sounds_bad`, `not_my_style`); ignoring them is fine. There is no text field anywhere. Everything else the engine needs is already on the listen: where in the song (`bar`, `sec`, `pct`), the song's structure (`arr`), what it is (`fp`, `seed`, `style`, `src`, `ph`/`pt`), where it was heard (`surf`), who's listening in coarse terms (`co`, `dev`, `lid`), and what happened next (complete/skip/partial, replay, rewind, keep, share/publish/live, love/down, coming back on a later day).
+The down arrow next to the heart in Now Playing is the whole negative signal. After it, four optional one-tap reasons appear (`boring`, `no_feeling`, `sounds_bad`, `not_my_style`); ignoring them is fine. There is no text field anywhere. Everything else the engine needs is already on the listen: where in the song (`bar`, `sec`, `pct`), the song's structure (`arr`), what it is (`fp`, `seed`, `style`, `feel`, `src`, `ph`/`pt`), where it was heard (`surf`), who's listening in coarse terms (`co`, `dev`, `lid`), and what happened next (complete/skip/partial, replay, rewind, keep, share/publish/live, love/down, coming back on a later day).
 
 ## How it reads the log
 
@@ -16,7 +16,7 @@ The down arrow next to the heart in Now Playing is the whole negative signal. Af
 4. **Finding types**
    - `segment`: a style/source/surface/device/cohort (or style × one of those) that differs from its comparables.
    - `split`: a style that one cohort (`dev`, `co`) takes differently from another. A targeting question, not a sound one.
-   - `section`: where songs lose people. Exit and down rates among listens that reached a section kind (from `arr`), plus sections people rewind from.
+   - `section`: where songs lose people, and where they are moved. Exit, down and love rates among listens that reached a section kind (from `arr`; a love counts in the section playing when the heart was tapped), plus sections people rewind from.
    - `reason`: what the one-tap reasons say in a segment, against reasons elsewhere (or an even split).
    - `song`: single fingerprints that stand out from their style, with seed/prompt/structure for study.
 5. **Bar to report** (defaults; `minListens` is overridable with `?min=` / `--min`): ≥ 20 listens (8 for a single song) from ≥ 3 distinct listeners, and |z| ≥ 1.96 on a two-proportion test. Below that, nothing is reported.
@@ -31,6 +31,7 @@ Each proposal (top 8, one per scope) comes from one finding and names a single *
 | downs mostly `boring`, exits/downs in a section | `arrangement` | shorten or vary that section; nothing else |
 | downs mostly `sounds_bad` | `sound` | one master/mix or instrument-param change |
 | downs mostly `not_my_style`, taste `split` | `targeting` | leave the style alone; change who hears it |
+| downs mostly `no_feeling` ("Didn't feel anything") | `feel` | move tempo, dynamics and phrasing toward the song's `FEELS[feel]` cues; patterns fixed |
 | sections people rewind to | `arrangement` | give that section more room |
 | a song that's downed a lot / loved a lot | `rotation` / `seed` | hold it out of autoplay / seed new songs near it |
 | low return, low keep/share | `next_song` / `lifecycle` | next-song choice / when the keep/share step shows |
@@ -50,7 +51,7 @@ A proposal runs only once a reviewed PR adds it to `EXPERIMENTS` in `js/experime
 
 Research-backed proposals that are ready to start live in `PROPOSED` in `js/principles.js`, each tied to a product principle in [research/program.md](../research/program.md) and checked offline by `test/principles.mjs`. Starting one is copying it here with dates.
 
-- **Assignment** is deterministic: `fnv(lid + ':' + id) % 100 < share × 100` → `variant`, else `control`. The same device gets the same arm every visit, and arms of different experiments are independent. Scope keys are listen context (`style`, `src`, `surf`, `dev`, `co`); a listen outside the scope is never assigned. The first live experiment whose scope matches takes the listen, so a listen is in at most one. `share` is capped at 50%.
+- **Assignment** is deterministic: `fnv(lid + ':' + id) % 100 < share × 100` → `variant`, else `control`. The same device gets the same arm every visit, and arms of different experiments are independent. Scope keys are listen context (`style`, `src`, `surf`, `dev`, `co`, `feel`); a listen outside the scope is never assigned. The first live experiment whose scope matches takes the listen, so a listen is in at most one. `share` is capped at 50%.
 - **Privacy**: assignment needs the listener id, which exists only when analytics is on. Under Do Not Track, Global Privacy Control or an automated browser there is no id, so no arm, no tag, and the default song.
 - **Applying**: `apply(song, { seed })` runs on new songs made by Generate/Describe/Hum/Daily Drop (`planSet` in `js/main.js`), for the variant arm only. Scope an experiment with an `apply` on fields known when a song is made (`style`, `src`, `dev`, `co`). Experiments without `apply` (targeting, rotation) act wherever their PR changes behavior, using `assign()`.
 - **Tagging**: for an experiment with `apply`, only songs made under it are tagged, with the arm they were made in (a restored, crate, shared or room song was never treated). Otherwise every listen in scope is. Every signal of a tagged listen carries `xp` (experiment id) and `arm` (`control` / `variant`); the server keeps them only when both are valid.
