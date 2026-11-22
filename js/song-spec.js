@@ -184,7 +184,9 @@ function voice(p, parts, full, energy, role, peak) {
 export function realize(raw, seed = 1, opts = {}) {
   const spec = raw?.v === 1 && Array.isArray(raw.sections) ? raw : validateSpec(raw, opts);
   const { style, scale } = spec;
-  const g = generate(style, seed, scale);
+  const feel = spec.feel || pickFeel(style, STYLES[style].family, seed);
+  const authored = spec.hook?.contour?.length || spec.sections.some((section) => section.chords?.length);
+  const g = generate(style, seed, scale, { feel: authored ? null : feel, keepScale: true });
   const full = g.pattern;
   if (spec.hook && full.hook) {
     full.hook = contourHook(full.hook, spec.hook.contour, scale);
@@ -219,7 +221,7 @@ export function realize(raw, seed = 1, opts = {}) {
   const chainEntries = chainFor(spec.sections, pats, true);
   const chain = chainEntries.map((e) => String.fromCharCode(65 + e.p)).join('');
   developSong(pats, spec.sections.map((x) => [SPEC_KIND[x.role], x.bars]), { strict: true });
-  return { spec, g, patterns: pats, chain, chainEntries, bpm: spec.bpm, key: spec.key ?? g.key, scale };
+  return { spec, g, patterns: pats, chain, chainEntries, bpm: spec.bpm, key: spec.key ?? g.key, scale, feel };
 }
 
 // Spec roles as longform.js section kinds, so repeats develop the same way GENERATE's do.
@@ -257,7 +259,7 @@ export function songState(spec, seed = 1, base = defaultState(), opts = {}) {
   Object.assign(s, { patterns: r.patterns, chain: r.chain, chainEntries: r.chainEntries, chainOn: true, ending: true, current: 0, bpm: r.bpm, key: r.key, scale: r.scale });
   const tex = r.spec.texture?.length ? applyEdits(s, r.spec.texture, { seed, style: r.spec.style }) : null;
   const out = tex?.state || s;
-  out.feel = r.spec.feel || pickFeel(r.spec.style, STYLES[r.spec.style].family, seed);
+  out.feel = r.feel;
   out.artist = { name: base.artist?.name || 'UNTERGRUND', title: r.spec.title || trackTitle(seed), style: r.spec.style, seed, created: base.artist?.created || new Date(0).toISOString() };
   return { state: out, spec: r.spec, did: tex?.did || [] };
 }

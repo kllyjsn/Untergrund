@@ -6,6 +6,7 @@ import { STYLES, MAJOR_STYLES, generate, songFeel, freshSong, songScale } from '
 import { FEELS } from '../js/feel.js';
 import { CHORDS } from '../js/params.js';
 import { FORMS } from '../js/classical.js';
+import { songState } from '../js/song-spec.js';
 
 const scaleOf = (style) => (MAJOR_STYLES.has(style) ? 'major' : 'minor');
 const mean = (a) => a.reduce((x, y) => x + y, 0) / (a.length || 1);
@@ -93,4 +94,25 @@ console.log('feel music: ok', { pop: Object.fromEntries(['heartbroken', 'longing
   assert.equal(songFeel('nocturne', seed, 'euphoric'), null);
   assert.equal(asked.bpm, generate('pop', seed, 'major', { feel: 'euphoric' }).bpm);
   assert.notEqual(JSON.stringify(asked.patterns), JSON.stringify(freshSong('pop', seed).patterns));
+}
+
+for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
+  const varied = Array.from({ length: 32 }, (_, i) => {
+    const seed = Math.imul(i + 1, 0x9e3779b1);
+    const bright = generate(style, seed, 'minor', { feel: 'joyful' }).pattern;
+    const sad = generate(style, seed, 'minor', { feel: 'heartbroken' }).pattern;
+    return JSON.stringify(bright.prog) !== JSON.stringify(sad.prog) && JSON.stringify(bright.hook.m.n) !== JSON.stringify(sad.hook.m.n);
+  });
+  assert(varied.some(Boolean), `${style} changes both harmony and melody without relying on tempo`);
+}
+{
+  const spec = { style: 'pop', bpm: 110, scale: 'major', sections: [{ role: 'verse', bars: 16 }, { role: 'drop', bars: 16 }] };
+  const state = (feel, authored = {}) => songState({ ...spec, ...authored, feel }, 1).state;
+  const happy = state('joyful'), sad = state('heartbroken');
+  assert.equal(happy.bpm, sad.bpm);
+  assert.equal(happy.scale, sad.scale);
+  assert.notDeepEqual(happy.patterns[2].prog, sad.patterns[2].prog);
+  assert.notDeepEqual(happy.patterns[2].hook.m, sad.patterns[2].hook.m);
+  const written = { hook: { contour: [0, 2, 4, 2, 0] }, sections: spec.sections.map(s => ({ ...s, chords: ['I', 'V', 'vi', 'IV'] })) };
+  assert.deepEqual(state('joyful', written).patterns, state('heartbroken', written).patterns, 'feel leaves authored backing and melody intact');
 }

@@ -280,14 +280,14 @@ const feelShape = (F) => (F ? { reg: F.mel.reg, leap: F.mel.leap, arousal: F.aro
 // Returns { pattern, params, master, bpm } — params/master are partial overrides.
 // With a `feel` (js/feel.js) the tempo, progression, mode and melody shape follow the feeling inside the genre's idiom,
 // and `scale` is returned when the mode changed.
-export function generate(style, seed = Date.now(), scaleName = 'minor', { feel = null } = {}) {
-  return generatePattern(style, seed, scaleName, false, feel);
+export function generate(style, seed = Date.now(), scaleName = 'minor', { feel = null, keepScale = false } = {}) {
+  return generatePattern(style, seed, scaleName, false, feel, keepScale);
 }
 
-function generatePattern(style, seed, scaleName, starter, feel = null) {
+function generatePattern(style, seed, scaleName, starter, feel = null, keepScale = false) {
   const r = rng(seed);
   const F = !FORMS[style] && style !== 'repertoire' && isFeel(feel) ? FEELS[feel] : null;
-  const mode = F && feelMode(style, feel, scaleName);
+  const mode = F && !keepScale && feelMode(style, feel, scaleName);
   if (mode) scaleName = mode;
   const musicalScale = SCALES[MAJOR_STYLES.has(style) && scaleName === 'minor' ? 'major' : scaleName]?.notes || SCALES.minor.notes;
   const P = emptyPattern();
@@ -303,7 +303,8 @@ function generatePattern(style, seed, scaleName, starter, feel = null) {
   // ...but never so fast that the longest form (MAX_SONG_BARS) runs under a full song (D&B's top end).
   const bpm = F ? Math.max(lo, Math.min(Math.round(lo + Math.max(0, Math.min(1, F.tempo + jitter)) * (hi - lo)), Math.floor((MAX_SONG_BARS * 240) / LENGTHS.song.lo)))
     : Math.round(lo + x0 * (hi - lo));
-  if (isJazz(style)) return generateJazz(style, seed, bpm, INSTRUMENTS[style], STYLE_POCKET[style]);
+  if (isJazz(style)) return generateJazz(style, seed, bpm, INSTRUMENTS[style], STYLE_POCKET[style],
+    F ? (x, progs) => feelPick(x, progs, F, style === 'swing' || style === 'bossa') : null);
   if (style === 'repertoire') return generateRepertoire(r, P, params, master);
   if (FORMS[style]) return generateClassical(style, seed, scaleName, r, P, params, master, bpm);
 
