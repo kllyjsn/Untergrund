@@ -104,12 +104,11 @@ try {
     const r = { stems: [{ id: 'acid', name: 'bass', left: new Float32Array([0.5, 1.2]), right: new Float32Array([0, -0.6]) },
       { id: 'kick', name: 'kick', left: new Float32Array([0.5]), right: new Float32Array([-0.5]) }] };
     fitStems(r);
-    return { trims: r.trims, bass: Math.max(...r.stems[0].left.map(Math.abs)), kick: r.stems[1].left[0] };
+    return { gain: r.gain, bass: Math.max(...r.stems[0].left.map(Math.abs)), kick: r.stems[1].left[0] };
   })()`);
-  assert.equal(fit.bass, Math.fround(0.99), 'a stem over full scale is printed just under it');
-  assert.equal(fit.kick, 0.5, 'stems under full scale are untouched');
-  assert.deepEqual(fit.trims.map((x) => x.id), ['acid'], 'the README names the trimmed stem');
-  assert(Math.abs(fit.trims[0].db - 20 * Math.log10(0.99 / Math.fround(1.2))) < 1e-6);
+  assert.equal(fit.bass, Math.fround(0.99), 'the loudest stem is printed just under full scale');
+  assert(Math.abs(fit.gain - 0.99 / Math.fround(1.2)) < 1e-9, 'one common gain for every stem');
+  assert.equal(fit.kick, Math.fround(0.5 * fit.gain), 'the other stems take the same gain, so the sum still matches the mix');
   ws.close();
   console.log('stems tests passed');
 } finally { await done(); }

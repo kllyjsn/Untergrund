@@ -33,6 +33,22 @@ coldClock.scheduler = [
 ];
 coldClock.sources = [{at:2500, tag:'kick', when:0}];
 assert.deepEqual(schedulerTapEnvelope(coldClock, origin), rows());
+const resumed = capture();
+resumed.samples = resumed.channels.kick.samples = [[9, 1], [10, 2], [11, 3]];
+resumed.scheduler = [
+  {at:origin, transportOrigin:origin, clockOffset:100},
+  {at:origin + 25000, transportOrigin:origin, clockOffset:115},
+  {at:origin + 26000, transportOrigin:origin, clockOffset:115.06},
+];
+resumed.sources = [{at:origin + 1, tag:'kick'}, {at:origin + 25001, tag:'kick'}];
+resumed.lifecycle = [{name:'resume', at:origin + 25000, clocks:[{contextTime:10}]}];
+resumed.resumeBoundary = {frame:10000, sampleRate:1000};
+assert.deepEqual(schedulerTapEnvelope(resumed, origin, 'kick', {segmented:true}), [[109000,1], [125000,2], [126000,3]]);
+assert.deepEqual(schedulerTapEnvelope(resumed, origin, 'kick', {segmented:true, after:true, since:origin + 25000}), [[125000,2], [126000,3]]);
+assert.deepEqual(schedulerTapEnvelope({...resumed, lifecycle:[]}, origin, 'kick'), [[109000,1], [110000,2], [111000,3]], 'clock adoption alone cannot reset an existing segment');
+assert.deepEqual(schedulerTapEnvelope({...resumed, lifecycle:[]}, origin, 'kick', {since:origin + 25000}), [[124000,1], [125000,2], [126000,3]], 'reconnect pins once before its first queued kick');
+assert.throws(() => schedulerTapEnvelope({...resumed, lifecycle:[{name:'resume', at:origin + 25000}]}, origin, 'kick', {segmented:true}), /Missing resume context/);
+assert.throws(() => schedulerTapEnvelope(host, origin, 'kick', {after:true}), /Missing resume PCM/);
 assert.equal(tapFirstDownbeat([host, listener], origin, BPM).status, 'aligned');
 const delayed = capture(60);
 assert.equal(delayed.sources[0].when - listener.sources[0].when, .06);
@@ -65,6 +81,7 @@ assert.throws(() => schedulerTapEnvelope(host, NaN), /Missing server/);
 assert.throws(() => schedulerTapEnvelope(host, origin, 'vocal'), /Missing rendered vocal/);
 assert.throws(() => tapFixtureEvidence(rows(), NaN, from, to), /Missing server/);
 console.log('Tap timing tests PASS: fixed mapping, skew, 60ms scheduling regression, absent/displaced RMS, one-to-one fixture matching, empty/error.');
+console.log('Segmented tap tests PASS: 15s suspension, resume frame censoring, reconnect pin, later adoption ignored, missing boundary errors.');
 
 for (const path of process.argv.slice(2)) {
   const saved = JSON.parse(await readFile(path, 'utf8'));

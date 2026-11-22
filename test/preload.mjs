@@ -6,7 +6,12 @@ import { Engine, Sequencer } from '../js/engine.js';
 import { KIT_BACKBEAT, HAND_KIT, MARIMBA_STAB } from '../js/params.js';
 import { defaultState, generate, STYLES } from '../js/state.js';
 import { createPlayer } from '../js/player.js';
+import { timelineSets } from '../js/live-sets.js';
 import { OfflineAudioContext as FakeContext, AudioBuffer } from './offline-audio.mjs';
+import { VOWEL_BAND, VOWEL_TUNE, VOWEL_STYLES, VOWEL_HOOK_EQ, vowelPitch, vowelVoxNote, vowelLoop, vowelSustain, vowelHookDuration, playVowel } from '../js/vowels.js';
+import { setFromArrayBuffer, useSynthVox } from '../js/sampler.js';
+import { setVoice, clearVoice } from '../js/voice.js';
+import { Recorder } from '../js/midi.js';
 
 const st = (kit, voice) => ({ master: { kit }, params: { stab: { voice } } });
 assert.deepEqual(liveSets(st(0, 1)), []);
@@ -17,6 +22,56 @@ assert.deepEqual(liveSets(st(1, 7)), ['kit', 'piano', 'pianosoft']);
 assert.deepEqual(liveSets(st(0, 10)), ['str']);
 assert.deepEqual(liveSets(st(1.2, 9.4)), ['kit', 'horn']);
 assert.deepEqual(liveSets({}), []);
+{
+  const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+  const source = main.slice(main.indexOf('function timelineHooks('), main.indexOf('\nfunction replayToRoom('));
+  const state = defaultState(), requested = [];
+  state.artist = { style: 'rock' };
+  const hooks = new Function('state', 'STYLES', 'sanitize', 'clone', 'loadSets', 'liveSets', 'replaceState', 'build', 'persist',
+    `let style, guest, engine, seq, songOrigin; const playing = false; ${source}; return timelineHooks(false);`)(
+    state, STYLES, (s) => s, structuredClone, (sets) => { requested.push(sets); return Promise.resolve(); }, liveSets, () => {}, () => {}, () => {});
+  hooks.load(structuredClone(state), 'ukg');
+  hooks.apply(structuredClone(state), 'dnb');
+  hooks.load(structuredClone(state), 'rock');
+  assert.deepEqual(requested.map((sets) => sets.filter((name) => name.startsWith('vox_'))),
+    [Object.keys(VOWEL_BAND), Object.keys(VOWEL_BAND), []], 'saved-set load and apply preload the replay genre, not the local artist');
+  const tuningSource = main.slice(main.indexOf('function needsTuning('), main.indexOf('\nfunction play(opts'));
+  const needed = new Function('state', 'engine', 'pat', 'liveSets', 'setsReady', 'loadSets',
+    `${tuningSource}; return needsTuning('ukg');`)(state, null, () => ({}), liveSets, () => false,
+    (sets) => { requested.push(sets); return Promise.resolve(); });
+  await needed.load();
+  assert.deepEqual(requested.at(-1).filter((name) => name.startsWith('vox_')), Object.keys(VOWEL_BAND), 'replay waits for its vowel preload before locking instruments');
+}
+for (const style of Object.keys(STYLES)) {
+  const state = { ...generate(style, 8), artist: { style } };
+  assert.deepEqual(liveSets(state).filter((n) => n.startsWith('vox_')), VOWEL_STYLES.includes(style) ? Object.keys(VOWEL_BAND) : [], `${style} vowel preload is target-only`);
+  assert.deepEqual(liveSets(generate(style, 8), style).filter((n) => n.startsWith('vox_')), liveSets(state).filter((n) => n.startsWith('vox_')), 'style-picker preloading includes the same vowels');
+}
+for (let midi = 0; midi <= 127; midi++) {
+  assert(Math.abs(vowelPitch(midi) - 53) <= 6);
+  assert((vowelPitch(midi) - midi) % 12 === 0);
+  assert.equal(vowelPitch(midi, 52.9999), vowelPitch(midi), 'fractional tuning does not flip the folded octave at a tritone');
+}
+for (const style of VOWEL_STYLES) {
+  const state = defaultState(), hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
+  let changed = false;
+  for (let step = 0; step < 128; step++) {
+    state.params.vox.scatter = 0;
+    const plain = vowelVoxNote(state, style, step, 0.125);
+    state.params.vox.scatter = 1;
+    const scattered = vowelVoxNote(state, style, step, 0.125);
+    assert.equal(scattered.midi, plain.midi);
+    assert.equal(scattered.duration, plain.duration);
+    if (Math.floor(hash(step, 2) * 2)) {
+      assert.notEqual(scattered.name, plain.name, 'scatter chooses the next recorded vowel');
+      changed = true;
+    } else assert.equal(scattered.name, plain.name);
+    state.params.vox.scatter = 0.5;
+    assert.deepEqual(vowelVoxNote(state, style, step, 0.125), hash(step, 1) < 0.5 ? scattered : plain, 'scatter uses the synth path probability and slice hash');
+    assert.deepEqual(vowelVoxNote(state, style, step, 0.125), vowelVoxNote(state, style, step, 0.125), 'scatter is repeatable');
+  }
+  assert(changed, `${style} scatter changes the recorded vowel`);
+}
 assert.deepEqual(liveSets({ artist: { style: 'pop' }, pattern: { hook: { v: 'reed' } } }), ['asax', 'asaxb'], 'pop reed is the recorded alto');
 assert.deepEqual(liveSets({ artist: { style: 'boombap' }, pattern: { hook: { v: 'reed' } } }), ['tsax', 'tsaxb'], 'boom bap reed is the recorded tenor');
 assert.deepEqual(liveSets({ artist: { style: 'country' }, pattern: { hook: { v: 'reed' } } }), [], 'other reed styles stay synthesized');
@@ -54,6 +109,155 @@ globalThis.OfflineAudioContext = class { decodeAudioData(b) { return Promise.res
 
 const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
 const feeds = (source, dest) => source === dest || dest.inputs.some((input) => feeds(source, input));
+{
+  const audioBuffer = globalThis.AudioBuffer;
+  globalThis.AudioBuffer = AudioBuffer;
+  const ctx = new FakeContext(1, 96000, 48000), state = defaultState();
+  state.artist = { style: 'ukg', seed: 8 };
+  const hits = [], fallback = [], out = {}, hookOut = {};
+  const e = { state, ctx, playbackStyle: 'ukg', stepDur: 0.125, step: 0, recLock: new Map(),
+    rec: Engine.prototype.rec, harmRoot: () => 0, ch: { vox: { input: out }, stab: { input: {} } }, hookBus: hookOut,
+    playBuf: (...args) => { hits.push(args); }, voxChop: () => fallback.push('synth'),
+    sungVox: () => fallback.push('sung'), funkVox: () => fallback.push('funk') };
+  Engine.prototype.vox.call(e, 1, 0.7, 0);
+  assert.equal(fallback.length, 1, 'missing vowel falls back to synth');
+  const decoder = globalThis.OfflineAudioContext;
+  globalThis.OfflineAudioContext = class { decodeAudioData() { return Promise.resolve(new AudioBuffer(1, 22050, 44100)); } };
+  await loadSets(Object.keys(VOWEL_BAND));
+  globalThis.OfflineAudioContext = decoder;
+  Engine.prototype.vox.call(e, 2, 0.7, 0);
+  assert.equal(hits.length, 0, 'late vowel does not replace locked synth mid-song');
+  for (const style of VOWEL_STYLES) {
+    state.artist.style = e.playbackStyle = style;
+    e.recLock = new Map();
+    state.params.vox.length = 8;
+    for (const step of [0, 64]) {
+      const note = vowelVoxNote(state, style, step, e.stepDur);
+      const recorder = new Recorder(state);
+      recorder.vox(3, 0.7, step);
+      Engine.prototype.vox.call(e, 3, 0.7, step);
+      const [buffer, , , bus, rate, duration, fx] = hits.at(-1);
+      const [center, sample] = liveSet(note.name)[0];
+      assert.equal(buffer, ['deephouse', 'euphoric', 'dnb'].includes(style) ? vowelSustain(sample, ctx) : sample); assert.equal(bus, out);
+      assert.equal(center, 53 + VOWEL_TUNE[note.name][53] / 100);
+      assert(Math.abs(12 * Math.log2(rate)) <= 6.001);
+      assert.equal(recorder.notes.vox[0].m, note.midi, 'MIDI follows folded recorded pitch');
+      assert(Math.abs(center + 12 * Math.log2(rate) - note.midi) < 1e-8, 'playback and MIDI retain the same octave');
+      assert.equal(fx.loop, ['deephouse', 'euphoric', 'dnb'].includes(style));
+      assert.deepEqual(fx.peaks, [], 'hook EQ never affects the VOX lane');
+      if (fx.loop) assert(duration > 0.4, `${style} sustains`);
+      else assert(duration <= 0.14, `${style} chops`);
+    }
+    for (const voice of ['vocal', 'chop']) {
+      Engine.prototype.hook.call(e, 4, 0.6, 0, 1, voice);
+      assert.equal(hits.at(-1)[3], hookOut, `${style}/${voice} routes through the hook stem`);
+      assert.deepEqual(hits.at(-1)[6].peaks, VOWEL_HOOK_EQ[style] || [], `${style}/${voice} only uses its recorded hook EQ`);
+      if (['ukg', 'jerseyclub', 'bailefunk'].includes(style)) assert(hits.at(-1)[5] <= 0.14);
+      else {
+        assert.equal(hits.at(-1)[5], 1, `${style} hook retains its sustained duration`);
+        assert.equal(vowelHookDuration(style, 0.2), 0.2, 'sustained hooks are not stretched to the VOX minimum');
+        assert.equal(vowelHookDuration(style, 3), 3, 'sustained hooks are not truncated to the VOX maximum');
+      }
+      const hookRecorder = new Recorder(state);
+      hookRecorder.hook(4, 0.6, 0, 1, voice);
+      assert.equal(hookRecorder.notes.hook[0].dur, hits.at(-1)[5], 'MIDI and audio retain the same hook duration');
+      assert.equal(hookRecorder.notes.hook[0].m, vowelPitch(60 + (state.key > 6 ? state.key - 12 : state.key)), `${style}/${voice} still exports the folded vowel pitch`);
+    }
+  }
+  {
+    const saved = defaultState();
+    saved.artist = { style: 'ukg' }; saved.key = 0;
+    const pattern = saved.patterns[0], actual = [];
+    const audio = Object.assign(Object.create(Engine.prototype), {
+      state: saved, ctx, playingPattern: pattern, harm: null,
+      ch: { stab: { input: hookOut } }, hookBus: hookOut,
+      rec: () => [[60, {}]], bodyFor: (out) => out, slapFor: (out) => out,
+      recordedNote: (_set, t, _v, m, dur, _out, _tone, kind) => actual.push({ t, m, dur, kind }),
+    });
+    for (const role of ['fiddle', 'twang']) for (const voice of ['vocal', 'chop']) {
+      pattern.roots = { style: 'country', hook: role };
+      actual.length = 0;
+      const midi = new Recorder(saved); midi.playingPattern = pattern;
+      assert.equal(audio.playbackStyle, 'country');
+      assert.equal(midi.playbackStyle, audio.playbackStyle);
+      audio.hook(3, 0.6, 0, 0.5, voice, 1);
+      midi.hook(3, 0.6, 0, 0.5, voice, 1);
+      const track = role === 'fiddle' ? 'fiddle' : 'hook';
+      assert.equal(actual.length, 1);
+      assert.equal(actual[0].kind, role);
+      assert.equal(actual[0].m, 72, 'saved Country keeps its recorded register, not the UKG vowel octave');
+      assert.deepEqual(midi.notes[track].map(({ t, m, dur }) => ({ t, m, dur })), actual.map(({ t, m, dur }) => ({ t, m, dur })), `UKG replay of Country ${role}/${voice} exports the audio notes`);
+      if (role === 'fiddle') assert.equal(midi.notes.hook, undefined);
+      else assert.equal(midi.hookVoice, 'twang');
+    }
+  }
+  const take = new AudioBuffer(1, 24000, 48000);
+  take.getChannelData(0).forEach((_, i, a) => { a[i] = Math.sin(i * 2 * Math.PI * 174.614 / 48000); });
+  const [loopStart, loopEnd] = vowelLoop(take);
+  assert(loopStart > 0 && loopEnd > loopStart && loopEnd < take.duration);
+  for (const point of [loopStart, loopEnd]) {
+    const i = Math.round(point * take.sampleRate), data = take.getChannelData(0);
+    assert(data[i] <= 0 && data[i + 1] > 0, 'sustain loops at rising zero crossings');
+  }
+  let source;
+  const player = { ctx, rec: () => [[53, take]], playBuf: (...args) => {
+    const played = Engine.prototype.playBuf.call({ ctx, gain: Engine.prototype.gain, filter: Engine.prototype.filter, startSource: Engine.prototype.startSource }, ...args);
+    source = played.s;
+    return played;
+  } };
+  playVowel(player, 0.1, 0.6, 60, 1, 'vox_ahh', ctx.destination, 4000, true);
+  assert(source.loop && source.loopStart === 0 && source.loopEnd === vowelSustain(take, ctx).duration, 'real buffer source sustains the processed periodic vowel');
+  assert.equal(playVowel({ rec: () => [] }, 0, 1, 53, 1, 'vox_ahh', out), false, 'empty sets fall back');
+  for (const kind of ['file', 'mic']) {
+    globalThis.OfflineAudioContext = class { decodeAudioData() { return Promise.resolve(take); } };
+    await setFromArrayBuffer(new ArrayBuffer(1), 'OWN VOICE', kind);
+    globalThis.OfflineAudioContext = decoder;
+    const count = hits.length;
+    for (const style of VOWEL_STYLES) {
+      e.playbackStyle = state.artist.style = style;
+      Engine.prototype.vox.call(e, 5, 0.7, 1);
+    }
+    assert.equal(hits.length, count, `${kind} audio wins over recorded vowels`);
+  }
+  useSynthVox();
+  let ownChop = false;
+  setVoice({ buffer: take, data: take.getChannelData(0), sampleRate: 48000, chops: [{ start: 0, end: 0.2, midi: 53 }] }, 'OWN CHOP', false);
+  e.chopNote = () => { ownChop = true; };
+  Engine.prototype.hook.call(e, 6, 0.7, 0, 1, 'chop');
+  assert(ownChop, 'user hook chops win before palette dispatch');
+  clearVoice();
+  globalThis.AudioBuffer = audioBuffer;
+  const fetchFile = globalThis.fetch, warn = console.warn, warnings = [];
+  try {
+    globalThis.fetch = async () => ({ ok: false, status: 503 });
+    console.warn = (...args) => warnings.push(args.join(' '));
+    const failed = await import('../js/livekit.js?vowel-failure');
+    assert.deepEqual(await failed.loadSets(Object.keys(VOWEL_BAND)), [null, null, null]);
+    assert.equal(warnings.length, 3);
+    assert(warnings.every((w) => w.includes('HTTP 503') && w.includes('using synth voice')));
+  } finally { globalThis.fetch = fetchFile; console.warn = warn; }
+  files.clear();
+  console.log('recorded vowels: target-only preload, cents centers, VOX/hooks, user priority, MIDI and synth fallback passed');
+}
+{
+  const initial = { params: { acid: { voice: 1 }, stab: { voice: 1 } }, artist: { style: 'hypnotic' } };
+  const timeline = { style: 'gfunk', initial, events: [
+    { t: 1000, ops: [[['params', 'stab', 'voice'], 3]] },
+    { t: 2000, ops: [[['style'], 'trap'], [['patterns'], [{ hook: { v: 'reed' } }]]] },
+  ] };
+  const before = JSON.stringify(timeline);
+  assert.deepEqual(timelineSets(timeline), ['abass', 'org', 'asax', 'asaxb'], 'replay style and all later voices preload, not the listener genre');
+  assert.equal(JSON.stringify(timeline), before, 'collecting recordings does not mutate the replay');
+  assert.deepEqual(timelineSets({}), []);
+  assert.deepEqual(liveSets(initial, 'ukg'), Object.keys(VOWEL_BAND), 'UK Garage BASS stays synthesized while recorded vowels preload');
+  const late = new Map();
+  assert.equal(rec(late, 'abass'), null);
+  await loadSets(timelineSets(timeline));
+  assert.equal(rec(late, 'abass'), null, 'a failed cold start would stay on the synth even after decode');
+  const ready = new Map();
+  assert.ok(rec(ready, 'abass') && rec(ready, 'org'), 'preloading before replay locks both recordings in from their first use');
+  files.clear();
+}
 {
   const hands = {
     amapiano: ['shaker', 'conga'],
@@ -131,25 +335,38 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
 {
   const ctx = new FakeContext(2, 4096, 48000), state = defaultState(), hits = [];
   const stab = { input: ctx.createGain(), band: ctx.createGain() };
-  const gtr = [[63, {}]];
+  const gtr = [[63, {}]], sax = [[63, {}]], wind = [];
   state.params.stab.voice = 8;
   state.key = 0;
   const e = {
-    state, ctx, ch: { stab }, playbackStyle: 'reggaeton', rec: (name) => name === 'gtr' ? gtr : null,
+    state, ctx, ch: { stab }, playbackStyle: 'reggaeton', rec: (name) => ({ gtr, asax: sax })[name],
     recordedNote: Engine.prototype.recordedNote, bodyFor: Engine.prototype.bodyFor, filter: Engine.prototype.filter,
-    leadOver: () => {}, playBuf: (...args) => hits.push(args),
+    leadOver: () => {}, playBuf: (...args) => hits.push(args), windHook: (...args) => wind.push(args),
   };
-  const hook = () => Engine.prototype.hook.call(e, 1, 0.7, 3, 0.3, 'warm');
+  const hook = (voice = 'warm') => Engine.prototype.hook.call(e, 1, 0.7, 3, 0.3, voice);
+  const checkEq = (out, source) => {
+    for (const [f, q, db] of [[2930, 5, -12], [2645, 64, -9], [2777, 64, -9], [2962, 64, -8], [3085, 64, -17]]) {
+      assert.equal(out.inputs.length, 1);
+      [out] = out.inputs;
+      assert.deepEqual([out.type, out.frequency.value, out.Q.value, out.gain.value], ['peaking', f, q, db]);
+    }
+    assert.equal(out, source, 'notes enter the complete guitar hook EQ');
+  };
   hook();
   hook();
   const eq = hits[0][3];
   assert.equal(hits[1][3], eq, 'the Reggaeton guitar hook reuses its EQ');
-  assert.equal(eq.type, 'peaking');
-  assert.ok(eq.frequency.value >= 2900 && eq.frequency.value <= 2965 && eq.gain.value < 0);
-  assert.ok(feeds(eq, stab.band), 'playback and stem routing use the recorded-instrument bus');
+  checkEq(stab.band, eq);
+  assert.equal(stab.input.inputs.length, 0, 'the guitar chain bypasses the synth strip');
   e.hookBus = ctx.createGain();
   hook();
-  assert.ok(feeds(hits[2][3], e.hookBus) && !feeds(hits[2][3], stab.band), 'the EQ follows the preview bus');
+  checkEq(e.hookBus, hits[2][3]);
+  assert.ok(!feeds(hits[2][3], stab.band), 'the preview EQ only feeds the preview bus');
+  hook('reed');
+  assert.equal(hits.length, 3, 'the Reggaeton reed never plays recorded guitar');
+  assert.equal(wind.length, 1);
+  assert.equal(wind[0][0], sax);
+  assert.equal(wind[0][5], 'altosax');
   e.hookBus = null;
   e.playbackStyle = 'afrobeats';
   hook();
@@ -423,8 +640,9 @@ assert.deepEqual(await loadSets([]), []);
   const voiced = hits.splice(0), cut = voiced[0][3];
   assert.ok(voiced.length > 1 && voiced.every((hit) => hit[3] === cut), 'all chord strings share one EQ');
   assert.equal(cut.type, 'peaking');
-  assert.ok(cut.frequency.value >= 2945 && cut.frequency.value <= 2980 && cut.gain.value < 0);
-  assert.ok(feeds(cut, stab.band), 'the EQ feeds the recorded-instrument bus instead of the synth strip');
+  assert.deepEqual([cut.frequency.value, cut.Q.value, cut.gain.value], [2960, 6, -12]);
+  assert.deepEqual(stab.band.inputs, [cut], 'the chord bus only sees its own EQ');
+  assert.equal(cut.inputs.length, 0, 'the chord EQ does not carry the hook cuts');
   e.playbackStyle = 'afrobeats';
   chord();
   const control = hits.splice(0);
