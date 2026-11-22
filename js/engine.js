@@ -139,7 +139,7 @@ const SAX_TRIM = { pop: -2.4, neosoul: -5.7, boombap: 3.5, trap: 1.1, afrobeats:
 // those altos get a fixed high cut; the Afrobeats tenor's low register piles up at 220-260 Hz over the bass.
 const SAX_FX = {
   pop: { cap: 3000, lpStages: 4, shelves: [[4000, -12]] },
-  reggaeton: { cap: 2500, lpStages: 4, shelves: [[3500, -15]] },
+  reggaeton: { cap: 3000, lpStages: 4, shelves: [[4000, -14]] },
   afrobeats: { peaks: [[245, 1.6, -8]] },
 };
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
