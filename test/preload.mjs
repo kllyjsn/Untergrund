@@ -2,9 +2,12 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { liveSet, liveSets, setsReady, loadSets, loadBand, BAND, STAB_BAND, LIVE_FILES, LIVE_KIT } from '../js/livekit.js';
-import { Engine, Sequencer } from '../js/engine.js';
-import { KIT_BACKBEAT, HAND_KIT, MARIMBA_STAB } from '../js/params.js';
-import { defaultState, generate, STYLES } from '../js/state.js';
+import { Engine, Sequencer, stabPitches } from '../js/engine.js';
+import { rhodesVoicing, rhodesLineOctave, RHODES_STYLES } from '../js/rhodes.js';
+import { Recorder, capture } from '../js/midi.js';
+import { KIT_BACKBEAT, HAND_KIT, MARIMBA_STAB, CHORDS } from '../js/params.js';
+import { defaultState, generate, STYLES, arrangement, applyOverrides, applySongPlan } from '../js/state.js';
+import { hookSnap } from '../js/harmony.js';
 import { createPlayer } from '../js/player.js';
 import { OfflineAudioContext as FakeContext, AudioBuffer } from './offline-audio.mjs';
 
@@ -18,11 +21,80 @@ assert.deepEqual(liveSets(st(0, 10)), ['str']);
 assert.deepEqual(liveSets(st(1.2, 9.4)), ['kit', 'horn']);
 assert.deepEqual(liveSets({}), []);
 
+assert.deepEqual(rhodesVoicing([]), []);
+assert.deepEqual(rhodesVoicing([60, 64, 67, 72]), [48, 52, 55, 60], 'drop a gap-top voicing together');
+assert.deepEqual(rhodesVoicing([60, 64, 76, 84]), [60, 64, 84], 'fold inner gap voices without duplicates');
+assert.deepEqual(rhodesVoicing([60, 61, 64]), [48, 61, 64], 'uncrowd the lower voice, retain the top');
+const rhodesTune = JSON.parse(await readFile(new URL('../samples/rhodes-analysis.json', import.meta.url), 'utf8')).tune;
+{
+  const before = Recorder.prototype.trigger, hook = Recorder.prototype.hook, lick = Recorder.prototype.lick;
+  const ranges = {};
+  let row, linePitch;
+  Recorder.prototype.rhodesKeys = function (_t, _v, iv, root, p) {
+    const requested = iv.map((n) => root + n);
+    const played = p.rhodesLine ? requested : rhodesVoicing(requested);
+    row.before.push(...(linePitch == null ? requested : [linePitch])); row.after.push(...played);
+    assert.equal(new Set(played).size, played.length);
+    assert(played.every((n) => n <= 68 || n >= 82), `${this.playbackStyle}: unsafe Rhodes pitch ${played}`);
+    assert(played.every((n) => n >= 28 && n <= 104), `Rhodes endpoint stretch: ${played}`);
+    return true;
+  };
+  Recorder.prototype.keys = Engine.prototype.keys;
+  Recorder.prototype.trigger = function (id, t, v) {
+    if (id === 'stab' && (this.playbackStyle === 'jazzfunk' || Math.round(this.state.params.stab.voice) === 1)) {
+      const { iv, root } = stabPitches(this);
+      return this.keys(t, v, iv, root, this.state.params.stab, {});
+    }
+    return before.call(this, id, t, v);
+  };
+  Recorder.prototype.hook = function (...args) {
+    if (args[4] === 'tapekeys') {
+      this.ch = { stab: { input: {} } };
+      const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
+      linePitch = 60 + k + (args[5] || 0) * 12 + hookSnap(args[2], this.harm, this.state.params.stab, args[6], args[8]);
+      try { return Engine.prototype.hook.apply(this, args); } finally { linePitch = null; }
+    }
+    return hook.apply(this, args);
+  };
+  Recorder.prototype.lick = function (...args) {
+    const p = this.state.params.stab;
+    if (Math.round(p.voice) > 1) return lick.apply(this, args);
+    this.ch = { stab: { input: {} } };
+    const iv = CHORDS[this.harm ? this.harm.c : Math.round(p.chord)].iv, k = args[2];
+    linePitch = 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot() + iv[k % iv.length] + 12 * Math.floor(k / iv.length);
+    try { return Engine.prototype.lick.apply(this, args); } finally { linePitch = null; }
+  };
+  try {
+    for (const style of RHODES_STYLES) {
+      row = { before: [], after: [] };
+      for (let seed = 1; seed <= 40; seed++) {
+        const s = defaultState(), g = generate(style, seed);
+        applyOverrides(s, g, true);
+        s.patterns = arrangement(g.pattern, seed, g.bpm >= 115); s.artist = { style, seed }; s.key = g.key; s.bpm = g.bpm;
+        s.chainOn = true; applySongPlan(s, style, seed);
+        capture(s, 32);
+      }
+      const stretch = Math.max(...row.after.map((n) => Math.min(...BAND.rhodes.map((c) => Math.abs(n - c)))));
+      const tunedStretch = Math.max(...row.after.map((n) => Math.min(...BAND.rhodes.map((c) => Math.abs(n - c - rhodesTune[c] / 100)))));
+      assert(tunedStretch <= 4, `${style}: excessive corrected playback-rate stretch`);
+      ranges[style] = { before: [Math.min(...row.before), Math.max(...row.before)],
+        after: [Math.min(...row.after), Math.max(...row.after)], maxStretch: stretch,
+        tunedStretch: +tunedStretch.toFixed(4), notes: row.after.length };
+    }
+  } finally {
+    Recorder.prototype.trigger = before; Recorder.prototype.hook = hook; Recorder.prototype.lick = lick;
+    delete Recorder.prototype.keys; delete Recorder.prototype.rhodesKeys;
+  }
+  console.log('Rhodes seeds 1–40, 32 bars/style:', JSON.stringify(ranges));
+}
+
 // Every generated song: live-kit genres always need the kit, and the chord instrument matches its stab voice.
 for (const id of Object.keys(STYLES)) {
   if (STYLES[id].family === 'CLASSICAL') continue;
   for (let seed = 1; seed <= 12; seed++) {
     const g = generate(id, seed), sets = liveSets(g), band = STAB_BAND[Math.round(g.params.stab.voice)];
+    assert.equal(liveSets({ ...g, artist: { style: id } }).includes('rhodes'), id === 'jazzfunk' || ['neosoul', 'rnb', 'lofihiphop'].includes(id)
+      && (Math.round(g.params.stab.voice) <= 1 || g.pattern.hook?.v === 'tapekeys'), `${id}/${seed} recorded Rhodes`);
     if (['neosoul', 'boombap', 'breaks'].includes(id)) assert.ok(sets.includes('kit'), `${id}/${seed} needs the live kit`);
     assert.equal(sets.includes('snare'), ['drill', 'dnb'].includes(id), `${id}/${seed} snare-only sample set`);
     assert.equal(sets.includes('harp'), g.pattern.hook?.v === 'harpplk', `${id}/${seed} recorded harp hook`);
@@ -51,6 +123,46 @@ globalThis.OfflineAudioContext = class { decodeAudioData(b) { return Promise.res
 
 const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
 const feeds = (source, dest) => source === dest || dest.inputs.some((input) => feeds(source, input));
+{
+  const s = generate('lofihiphop', 1), state = { ...defaultState(), ...s, patterns: [s.pattern], artist: { style: 'lofihiphop' } };
+  const ctx = new FakeContext(2, 48000, 48000), hits = [];
+  const e = { state, ctx, step: 0, playbackStyle: 'lofihiphop', rec: () => null, gain: Engine.prototype.gain,
+    startSource: Engine.prototype.startSource, playBuf: (...a) => hits.push(a) };
+  assert.equal(Engine.prototype.rhodesKeys.call(e, 1, .5, [0], 60, state.params.stab, ctx.destination), false, 'cold set falls through, never recurses');
+  await loadBand('rhodes');
+  for (const [i, [center]] of liveSet('rhodes').entries()) {
+    const midi = BAND.rhodes[i];
+    assert.equal(center, midi + rhodesTune[midi] / 100, 'every shipped sample loads with its measured tuning');
+  }
+  e.rec = () => BAND.rhodes.map((n) => [n, { duration: 9 }]);
+  const chord = (v, style = 'lofihiphop') => {
+    e.playbackStyle = style; hits.length = 0;
+    Engine.prototype.rhodesKeys.call(e, 1, v, [0, 4, 7], 60, state.params.stab, ctx.destination);
+    return [...hits];
+  };
+  const soft = chord(.3), hard = chord(.9);
+  assert.equal(hard.length, 3);
+  assert(hard.every((a) => a[1] >= 1.002 && a[1] <= 1.008), 'all hammers within 2–8 ms, not strummed');
+  assert(hard[0][6].lp > soft[0][6].lp && hard[0][6].shelves[0][1] > soft[0][6].shelves[0][1], 'velocity changes tone');
+  assert.equal(hard[0][6].release, .03, 'damper decays 40 dB in 138 ms');
+  assert(hard.every((a) => a[5] > 1), 'natural held sustain, not a guitar chop');
+  assert.notEqual(hard[0][3], ctx.destination, 'suitcase stereo motion');
+  assert.equal(chord(.8, 'jazzfunk')[0][3], ctx.destination, 'Jazz-Funk dry');
+  for (const [v, notes, root] of [[0, [0], 60], [NaN, [0], 60], [.8, [], 60], [.8, [Infinity], 60], [.8, [0], NaN]]) {
+    hits.length = 0;
+    assert.equal(Engine.prototype.rhodesKeys.call(e, 1, v, notes, root, state.params.stab, ctx.destination), true);
+    assert.equal(hits.length, 0, 'empty or invalid notes never schedule sources');
+  }
+  assert(Number.isInteger(rhodesLineOctave(state) / 12));
+  for (const style of ['minimal', 'boombap', 'gfunk', 'deephouse', 'trap']) {
+    let called = false;
+    const context = { ...e, playbackStyle: style, state: { ...state, artist: { style } },
+      rhodesKeys: () => { called = true; }, filter: () => { throw new Error('FM reached'); } };
+    assert.throws(() => Engine.prototype.keys.call(context, 1, .8, [0], 60, state.params.stab, ctx.destination), /FM reached/);
+    assert.equal(called, false, `${style} never enters the recorded route`);
+  }
+  files.clear();
+}
 {
   const hands = {
     amapiano: ['shaker', 'conga'],

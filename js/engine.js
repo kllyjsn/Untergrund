@@ -21,6 +21,7 @@ import { patternAt } from './scope.js';
 import { cleanChainEntries } from './chain.js';
 import { funkHand } from './baile.js';
 import { festivalTrap, festivalBuilds, festivalBuildStep } from './festival-build.js';
+import { RHODES_STYLES, rhodesVoicing, rhodesLineOctave } from './rhodes.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
 const dampedChord = (e) => (e.state.artist?.style === 'breaks' && Math.round(e.state.params.stab.voice) === 1)
@@ -2198,6 +2199,7 @@ export class Engine {
 
   // FM electric piano: sine carrier, 1:1 modulator for the bark, 14:1 burst for the tine.
   keys(t, v, iv, root, p, out) {
+    if (RHODES_STYLES.has(jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle) && this.rhodesKeys(t, v, iv, root, p, out)) return;
     if (jazzStyle(this.state, this.playingPattern)) return this.jazzKeys(t, v, iv, root, p, out);
     const felt = this.minimal && !!this.smoothOn;
     if (felt && (!iv.length || !Number.isFinite(root) || !Number.isFinite(v) || v <= 0 || iv.some(n => !Number.isFinite(n)))) return;
@@ -2259,6 +2261,7 @@ export class Engine {
   }
 
   jazzKeys(t, v, iv, root, p, out) {
+    if (RHODES_STYLES.has(jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle) && this.rhodesKeys(t, v, iv, root, p, out)) return;
     if (!iv.length) return;
     const style = jazzStyle(this.state, this.playingPattern);
     const envDefault = style === 'jazzfunk' ? 0.12 : 0.45, detuneDefault = style === 'jazzfunk' ? 0.6 : 12;
@@ -2298,6 +2301,34 @@ export class Engine {
     });
     lp.connect(body).connect(trem).connect(out);
     this.startSource(lfo, t); lfo.stop(end);
+  }
+
+  rhodesKeys(t, v, iv, root, p, out) {
+    const set = this.rec('rhodes');
+    if (!set) { loadBand('rhodes'); return false; }
+    const requested = iv.map((n) => root + n);
+    if (!requested.length || requested.some((n) => !Number.isFinite(n)) || !Number.isFinite(v) || v <= 0) return true;
+    const notes = p.rhodesLine ? requested : rhodesVoicing(requested);
+    const funk = (jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle) === 'jazzfunk';
+    const velocity = Math.max(0, Math.min(1, v / (funk ? dbGain(JAZZ_MIX.jazzfunk.comp) : 1)));
+    const hold = p.rhodesHold ?? Math.max(0.08, p.decay * (funk ? 1 : 1.7));
+    const end = t + hold + 0.22;
+    if (!funk) {
+      const trem = this.ctx.createStereoPanner(), lfo = this.ctx.createOscillator();
+      lfo.frequency.value = 1.1;
+      lfo.connect(this.gain(0.12)).connect(trem.pan);
+      trem.connect(out); out = trem;
+      this.startSource(lfo, t); lfo.stop(end);
+    }
+    const level = v * (funk ? 0.70 : 0.96) / Math.sqrt(notes.length);
+    const lp = Math.min(8500, Math.max(550, p.cutoff * (0.55 + 2.2 * velocity ** 2)));
+    for (const [i, m] of notes.entries()) {
+      const [center, buf] = set.reduce((a, b) => Math.abs(b[0] - m) < Math.abs(a[0] - m) ? b : a);
+      const at = t + 0.002 + hash((this.step || 0) + m, i + 621) * 0.006;
+      this.playBuf(buf, at, level, out, 2 ** ((m - center) / 12), hold,
+        { lp, shelves: [[3000, -9 * (1 - velocity)]], fade: 0.001, release: 0.03, ringOut: true });
+    }
+    return true;
   }
 
   stab(t, v, underHarp = false) {
@@ -3463,6 +3494,12 @@ export class Engine {
     const vo = Math.round(p.voice), lead = vo > 1 ? STAB_VOICES[vo] : 'keys';
     const style = this.state.artist?.style;
     const out = style === 'breaks' || style === 'reggaeton' ? this.chordTone(vo, this.ch.stab.input) : this.ch.stab.input;
+    if (lead === 'keys' && RHODES_STYLES.has(jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle)) {
+      const root = 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot();
+      const top = Math.max(...Array.from({ length: 6 }, (_, i) => root + iv[i % iv.length] + 12 * Math.floor(i / iv.length)));
+      const shift = -12 * Math.max(0, Math.ceil((top - 68) / 12));
+      if (this.rhodesKeys(t, v, [n], root + shift, { ...p, rhodesLine: true }, out)) return;
+    }
     return this[lead](t, v, [n], 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot(), p, out);
   }
 
@@ -3695,6 +3732,10 @@ export class Engine {
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
     if (voice === 'tapekeys') {
       const out = this.hookBus || this.ch.stab.input;
+      if (RHODES_STYLES.has(jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle)) {
+        const pitch = 60 + k + oct * 12 + n + (expression.rhodesOctave ?? rhodesLineOctave(this.state));
+        if (this.rhodesKeys(t, v * 0.53, [0], pitch, { ...p, cutoff: 680, rhodesLine: true, rhodesHold: dur }, out)) return;
+      }
       return this.keys(t, v * 0.53, [n], 60 + k + oct * 12, { ...p, cutoff: 680, env: 0.08, tine: 0.08, decay: dur * 0.52 }, out);
     }
     if (voice === 'phonkbell') return this.phonkBell(t, v, midiHz(60 + k + oct * 12 + n), dur, strong);
@@ -5588,7 +5629,17 @@ export class Sequencer {
       const cands = [iv[1], iv[3] ?? iv[2]].flatMap((x) => [-12, 0, 12].map((o) => home + r + x + o)).filter((m) => m !== prev || i16 === 0);
       const n = cands.reduce((b, m) => (Math.abs(m - prev) < Math.abs(b - prev) ? m : b));
       this.counter = n;
-      e.hook(t + 0.003, 0.3, n, 8 * sd, hk.v, hk.o, true, 0.5, false, { ...(hk.x || {}), harm: 1, counter: 1 });
+      let rhodesOctave;
+      if (hk.v === 'tapekeys' && RHODES_STYLES.has(e.playbackStyle)) {
+        if (this.rhodesCounterAt !== bar) {
+          const next = cands.filter((m) => m !== n).reduce((b, m) => Math.abs(m - n) < Math.abs(b - n) ? m : b, Infinity);
+          const top = 60 + (s.key > 6 ? s.key - 12 : s.key) + (hk.o || 0) * 12 + Math.max(n, Number.isFinite(next) ? next : n);
+          this.rhodesCounterOctave = -12 * Math.max(0, Math.ceil((top - 68) / 12));
+          this.rhodesCounterAt = bar;
+        }
+        rhodesOctave = this.rhodesCounterOctave;
+      }
+      e.hook(t + 0.003, 0.3, n, 8 * sd, hk.v, hk.o, true, 0.5, false, { ...(hk.x || {}), harm: 1, counter: 1, rhodesOctave });
     }
   }
 
