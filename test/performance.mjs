@@ -5,16 +5,16 @@ import { FEELS } from '../js/feel.js';
 import { Sequencer, feelTempo, parseChain } from '../js/engine.js';
 import { buildSong } from '../scripts/composition.mjs';
 
-function play(style, seed, feel) {
+function play(style, seed, feel, editable = false) {
   const s = buildSong(style, seed), log = [], scale = [], db = [];
   if (feel === null) delete s.feel; else if (feel) s.feel = feel;
   let abs = 0;
-  const e = new Proxy({ stepDur: 0.125, harm: null }, {
+  const e = new Proxy({ stepDur: 0.125, harm: null, planHit(t, id, cur, plan) { const h = plan(); if (h) log.push({ k: 'trigger', a: [id], abs }); return h; } }, {
     get: (o, k) => (k in o ? o[k] : k === 'sectionGain' ? (t, d) => db.push(d) : (...a) => log.push({ k, a, abs })),
     set: (o, k, v) => { o[k] = v; return true; },
   });
   const seq = new Sequencer(e, s), chain = parseChain(s.chain);
-  for (; abs < chain.length * 16 && !seq.finished; abs++) { seq.tick(abs, abs * 0.125); scale.push(e.stepScale ?? 1); }
+  for (; abs < chain.length * 16 && !seq.finished; abs++) { seq.tick(abs, abs * 0.125, undefined, editable); scale.push(e.stepScale ?? 1); }
   return { s, log, scale, db, chain, seq };
 }
 const median = (a) => [...a].sort((x, y) => x - y)[a.length >> 1];
@@ -45,6 +45,9 @@ const lf = sad.seq.liftFrom ?? sad.chain.findLastIndex((p, i) => p === 6 && sad.
 const beat = (r) => r.log.filter((x) => x.abs >= lf * 16 - 4 && x.abs < lf * 16 && x.k === 'trigger');
 assert.equal(beat(sad).length, 0, 'no drums or chords in the held breath');
 assert.ok(beat(plain).length > 0, 'without a feeling the band plays through');
+const club = play('pop', 11, 'heartbroken', true), clubPlain = play('pop', 11, null, true);
+assert.equal(beat(club).length, 0, 'Club (editable) drums also hold the breath');
+assert.ok(beat(clubPlain).length > 0, 'Club drums play through without a feeling');
 assert.deepEqual(sad.log.filter((x) => x.k === 'breath').map((x) => x.abs - lf * 16), [-4, -1], 'ringing chords and bass are damped for the breath');
 assert.ok(!plain.log.some((x) => x.k === 'breath'), 'no breath without a feeling');
 

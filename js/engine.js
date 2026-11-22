@@ -5418,7 +5418,7 @@ export class Sequencer {
       if (editable && EDITABLE_HITS.has(id)) {
         const step = e.step, scale = e.stepScale, harm = e.harm;
         const hit = e.planHit(t, id, hitContext.cur, () => {
-          if (this.s !== s || s.mutes[id] || (TRACK_IDS.some(k => s.solos[k]) && !s.solos[id])) return null;
+          if (held || this.s !== s || s.mutes[id] || (TRACK_IDS.some(k => s.solos[k]) && !s.solos[id])) return null;
           const current = patternAt(s.patterns[hitContext.cur], pos);
           if (!current) return null;
           const hit = this.gridHit.call(hitContext, id, current, grid);
