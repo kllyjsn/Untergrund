@@ -279,6 +279,7 @@ console.log('Drill verse and turnaround passed');
   // A replay keeps its pattern data even when the listener's artist differs.
   song.artist = { style: 'trap' };
   song.chain = 'ADGCDECDG';
+  delete song.feel; // strict tempo: the feeling's tempo breath would stretch the ramp times
   const rec = new Recorder(song), seq = new Sequencer(rec, song), levels = [];
   rec.sectionGain = (t, db, ramp) => levels.push({ t, db, ramp });
   const sd = rec.stepDur;
@@ -689,10 +690,12 @@ console.log('seeded instrument ensembles passed');
   console.log('song ending stops passed');
 }
 
-// Song sections set the output level: the chorus lands 1.5-3 dB over the verse; techno and ambient stay at unity.
+// Song sections set the output level: the chorus lands 1.5-3 dB over the verse (scaled by the song's feeling,
+// js/feel.js dyn.contrast); techno and ambient stay at unity.
 {
   const { buildSong } = await import('../scripts/composition.mjs');
   const { Sequencer } = await import('../js/engine.js');
+  const { FEELS } = await import('../js/feel.js');
   for (const style of ['euphoric', 'reggaeton', 'neosoul', 'pop', 'rock', 'country', 'hypnotic', 'ambient']) {
     const s = buildSong(style, 101), lv = {}, at = [];
     const e = new Proxy({ stepDur: 0.125, harm: null }, {
@@ -706,8 +709,8 @@ console.log('seeded instrument ensembles passed');
       if (abs % 16 === 0 && sec && at.length) lv[sec] = at.at(-1);
     }
     if (!s.patterns.some((p) => p.sec)) { assert(at.every((db) => db === 0), `${style}: no section levels`); continue; }
-    const lift = lv.chorus - lv.verse;
-    assert(lift >= 1 && lift <= 3, `${style}: chorus ${lift} dB over the verse`);
+    const lift = lv.chorus - lv.verse, k = FEELS[s.feel]?.dyn.contrast ?? 1;
+    assert(lift >= 1 && lift <= 3 * k, `${style} (${s.feel}): chorus ${lift} dB over the verse`);
   }
   // As heard: pop's and country's bands play a much fuller chorus on top of the level change, so the mastered
   // render (median 3 s loudness, chorus minus verse) must still land in 1.5-3 dB.
@@ -723,6 +726,6 @@ console.log('seeded instrument ensembles passed');
     return out;
   }, { pages: 3 });
   if (!heard) console.log('section levels: no Chrome found, rendered chorus lift skipped');
-  else jobs.forEach(([style, seed], i) => assert(heard[i] >= (style === 'pop' ? 1.5 : 1) && heard[i] <= 3, `${style}/${seed}: rendered chorus ${heard[i].toFixed(2)} dB over the verse`));
+  else jobs.forEach(([style, seed], i) => assert(heard[i] >= (style === 'pop' ? 1.5 : 1) && heard[i] <= 3 * (FEELS[buildSong(style, seed).feel]?.dyn.contrast ?? 1), `${style}/${seed}: rendered chorus ${heard[i].toFixed(2)} dB over the verse`));
   console.log(`section levels passed${heard ? ` (rendered chorus over verse: ${jobs.map(([st, se], i) => `${st}/${se} ${heard[i].toFixed(2)}`).join(', ')} dB)` : ''}`);
 }

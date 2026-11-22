@@ -65,6 +65,78 @@ const stringsStop = await withChrome((run) => run(`(async () => {
 })()`));
 if (stringsStop) console.log('G-Funk strings stop band: 16 dB cap without boosts, body/air at 22.05–192 kHz, finite impulses, genre/instrument scope, empty and silent PCM passed');
 
+const chordsFill = await withChrome((run) => run(`(async () => {
+  const { Engine } = await import('/js/engine.js');
+  const { defaultState } = await import('/js/state.js');
+  const rate = 48000, fillAt = 0.5, first = fillAt * rate;
+  class Legacy extends Engine {
+    wireOrganFill() {}
+  }
+  const routes = {
+    fill: e => e.lick(fillAt, 0.6, 0),
+    'organ chord': e => e.synthOrgan(fillAt, 0.6, [0, 4, 7], 50, e.state.params.stab, e.ch.stab.input),
+    'mono sample through band EQ': (e, take) => e.playBuf(take, fillAt, 0.7, e.bodyFor(e.ch.stab.band, [390, 1, 2]), 1, 0.3),
+    'mono piano with stereo tape keys': (e, take) => {
+      e.playBuf(take, fillAt, 0.7, e.ch.stab.band, 1, 0.3);
+      e.hook(fillAt - 0.1, 0.7, 3, 0.35, 'tapekeys');
+    },
+    'mono harp': (e, take) => e.harpHook([[84, take]], fillAt, 0.6, 72, 0.4),
+  };
+  async function render(EngineType, withStereoVoice, play) {
+    const ctx = new OfflineAudioContext(2, rate, rate);
+    const s = defaultState();
+    s.artist = { style: 'deephouse', seed: 12 };
+    s.key = 3;
+    Object.assign(s.params.stab, { voice: 3, octave: 1, chord: 0, pan: 0 });
+    const engine = new EngineType(ctx, s, { realtime: false });
+    const { input, out, pan } = engine.ch.stab;
+    engine.out.disconnect();
+    (out || pan).connect(ctx.destination);
+    engine.smoothChords(-2, 0.25);
+    engine.at = 0.35;
+    engine.setParam('stab', 'pan', 0.31);
+    engine.setParam('stab', 'level', 0.7);
+    if (withStereoVoice) {
+      const voice = ctx.createBufferSource();
+      voice.buffer = ctx.createBuffer(2, rate, rate);
+      // The stereo note has gone silent by the fill, but its source is still connected.
+      voice.buffer.getChannelData(0).fill(0.1, 0, rate / 8);
+      voice.buffer.getChannelData(1).fill(-0.1, 0, rate / 8);
+      voice.connect(input);
+      voice.start();
+    }
+    const take = ctx.createBuffer(1, rate, rate), pcm = take.getChannelData(0);
+    for (let i = 0; i < pcm.length; i++) pcm[i] = 0.2 * Math.sin(i * 0.05);
+    play(engine, take);
+    return ctx.startRendering();
+  }
+  const rows = [];
+  for (const [route, play] of Object.entries(routes)) {
+    for (const ghost of [false, true]) {
+      const before = await render(Legacy, route !== 'fill' && ghost, play);
+      const after = await render(Engine, ghost, play);
+      for (const channel of [0, 1]) {
+        const a = before.getChannelData(channel), b = after.getChannelData(channel);
+        let energy = 0, error = 0;
+        for (let i = first; i < a.length; i++) {
+          energy += a[i] ** 2;
+          error += (a[i] - b[i]) ** 2;
+        }
+        rows.push({ route, ghost, channel, rms: Math.sqrt(energy / (a.length - first)), relativeResidual: Math.sqrt(error / energy) });
+      }
+    }
+  }
+  return rows;
+})()`));
+if (chordsFill) {
+  for (const row of chordsFill) {
+    assert(row.rms > 0.001, 'CHORDS voice is audible in each channel');
+    assert(row.relativeResidual < 1e-5, `CHORDS voice no longer matches its legacy level: ${JSON.stringify(row)}`);
+  }
+  console.log('CHORDS organ fill preserves its solo level with or without a stereo predecessor; the shared path is unchanged');
+}
+
+
 const phonkWidth = await withChrome((run) => run(`(async () => {
   const { Engine } = await import('/js/engine.js');
   const { defaultState } = await import('/js/state.js');
