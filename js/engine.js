@@ -1,6 +1,7 @@
 import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES, HAND_KIT, KIT_BACKBEAT, defaultParams } from './params.js';
 import { PALETTE_INSTRUMENTS, PALETTE_DEFAULTS, instrumentFor } from './palette-defaults.js';
-import { getSample, sungNote, SUNG_LEN, SUNG_LOW, SUNG_NOTES, SUNG_VOWEL_COUNT } from './sampler.js';
+import { getSample, hasUserSample, sungNote, SUNG_LEN, SUNG_LOW, SUNG_NOTES, SUNG_VOWEL_COUNT } from './sampler.js';
+import { vowelStyle, vowelVoxNote, vowelName, vowelHookDuration, playVowel, VOWEL_HOOK_DB, VOWEL_HOOK_EQ } from './vowels.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
 import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, loadHand, STAB_BAND, HOOK_BAND, SAX_HOOK, SAX_LO, saxRoot, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER, RECORDED_ORGAN, playsAnalogBass } from './livekit.js';
@@ -330,7 +331,7 @@ const BAND_PLAY = {
   // The green Gretsch hollow-body: bright, snappy, open chords that ring for country and rockabilly.
   gretsch: { gain: 4.2, len: 2.6, min: 0.6, softBelow: 0, strum: 0.006, shift: 0, lo: 40, hi: 74, lp: 4600, peak: [3400, 1.2, -4], soft: 1100, fade: 0.008, rel: 0.18, grip: true, even: 0.3 },
   // UK Garage's organ stab: the tonewheel organ keyed hard and let go, every note of the chord at once.
-  org: { gain: 1.9, len: 1.6, min: 0.12, max: 0.8, strum: 0, shift: 0, lo: 52, hi: 79, lp: 5600, fade: 0.003, rel: 0.05, even: 0.15 },
+  org: { gain: 1.9, len: 1.6, min: 0.12, max: 0.8, strum: 0, shift: 0, lo: 52, hi: 79, lp: 5600, fade: 0.003, rel: 0.05, even: 0.15, room: 1800 },
 };
 // Country lead: the same guitar clean and bright off the bridge pickup, single notes with a slapback.
 BAND_PLAY.twang = { ...BAND_PLAY.gtr, gain: 3, len: 1.4, min: 0.25, softBelow: 0, lo: 52, hi: 84, lp: 6800, grip: false, even: 0.4, rel: 0.12, oct: 0, slap: true };
@@ -3002,6 +3003,18 @@ export class Engine {
     this.startSource(lfo, t); lfo.stop(end);
   }
 
+  // A recorded voice played through a presence path still reaches the band room, through the same high-pass as the dry path.
+  bandTap(out, hz) {
+    const taps = (this.bandTaps ||= new WeakMap());
+    if (!taps.has(out)) {
+      const g = this.gain(1);
+      g.connect(out);
+      g.connect(this.filter('highpass', hz, Math.SQRT1_2)).connect(this.gain(0.9)).connect(this.bandIn);
+      taps.set(out, g);
+    }
+    return taps.get(out);
+  }
+
   // Brass section: saws scooping into pitch while the filter blooms; ENV sets the blare.
   // Recorded chord instruments (CC0): nearest sample per chord note, repitched; the synth voice covers loading.
   recorded(kind, fallback, t, v, iv, root, p, out) {
@@ -3009,6 +3022,7 @@ export class Engine {
     let set = this.rec(base);
     if (!set) { loadBand(base); return this[fallback](t, v, iv, root, p, out); }
     if (out === this.ch.stab.input) out = this.ch.stab.band;
+    else if (R.room) out = this.bandTap(out, R.room);
     if (kind === 'gtr' && this.playbackStyle === 'reggaeton') out = this.bodyFor(out, [2960, 6, -12]);
     const chord = R.grip && iv.length > 1, live = chord && this.step != null;
     const pk = live ? pocketOf(this.state.master) : null, hand = live ? guitarHand(kind, pk?.name, this.wide) : null;
@@ -3257,6 +3271,7 @@ export class Engine {
       if (n % 2) [c, buf] = alt[i];
     }
     return this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
+      hp: kind === 'org' && this.playbackStyle === 'gfunk' ? 110 : 0, hpQ: -3.01,
       shelves: [[3000, tone]], peaks: [...(R?.peak ? [R.peak] : []), ...(kind === 'org' && this.playbackStyle === 'gfunk' ? [[2200, 1.2, -3], [3300, 0.8, -6]] : []), ...(kind === 'str' ? HIPHOP[this.state.artist?.style]?.strEq ?? [] : []), ...(jazzStyle(this.state, this.playingPattern) === 'bossa' && kind === 'jazz' ? jazzNotches(kind, c, Math.pow(2, (m - c) / 12)) : [])], lp: R ? R.lp * (F ? F[1] : 1) * (0.4 + 0.6 * hv) : 0, ...(kind === 'upright' ? { lpStages: 2, lpQ: -6.0206 } : {}), lpFrom: F ? F[0] : R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
     });
   }
@@ -3486,10 +3501,18 @@ export class Engine {
     iv.forEach((n, k) => {
       const tt = t + k * 0.018, f = midiHz(root + 12 + n), end = tt + ring * 4;
       const car = c.createOscillator(); car.frequency.value = f; car.detune.value = (k % 2 ? 1 : -1) * p.detune * 0.2;
-      const mod = c.createOscillator(); mod.frequency.value = f * 3.5;
+      const mod = c.createOscillator();
+      if (this.playbackStyle === 'trap') {
+        mod.frequency.setValueAtTime(f * 3.5, tt);
+        mod.frequency.setValueAtTime(f * 3.5, tt + 0.002);
+        mod.frequency.linearRampToValueAtTime(f * (k % 2 ? 4.4 : 2.6), tt + ring);
+      } else mod.frequency.value = f * 3.5;
       const ma = this.gain(0); mod.connect(ma).connect(car.frequency);
       ma.gain.setValueAtTime(f * (0.5 + p.env * 4) * v, tt);
-      ma.gain.setTargetAtTime(f * 0.05, tt + 0.002, ring * 0.25);
+      if (this.playbackStyle === 'trap') {
+        ma.gain.setTargetAtTime(0, tt + 0.002, ring * 0.25);
+        ma.gain.setValueAtTime(0, tt + ring * 2);
+      } else ma.gain.setTargetAtTime(f * 0.05, tt + 0.002, ring * 0.25);
       const amp = this.gain(0);
       amp.gain.setValueAtTime(EPS, tt);
       amp.gain.linearRampToValueAtTime((v * 0.3) / Math.sqrt(iv.length), tt + 0.002);
@@ -3501,6 +3524,10 @@ export class Engine {
   }
 
   vox(t, v, step) {
+    if (vowelStyle(this.playbackStyle) && !hasUserSample()) {
+      const note = vowelVoxNote(this.state, this.playbackStyle, step, this.stepDur, this.harmRoot());
+      if (playVowel(this, t, v, note.midi, note.duration, note.name, this.ch.vox.input, this.state.params.vox.tone, !['ukg', 'jerseyclub', 'bailefunk'].includes(this.playbackStyle))) return;
+    }
     if (this.playbackStyle === 'bailefunk') return this.funkVox(t, v, step);
     // Saved set timelines omit song metadata, so never borrow the listener's project seed.
     const c = this.ctx, p = this.state.params.vox, owner = this.replay808Style ? null : this.state, sample = getSample(owner);
@@ -3799,6 +3826,11 @@ export class Engine {
     v *= 1.3;
     n = hookSnap(n, h, p, strong, up);
     const k = this.state.key > 6 ? this.state.key - 12 : this.state.key;
+    if (vowelStyle(this.playbackStyle) && (voice === 'vocal' || voice === 'chop')) {
+      const vc = voice === 'chop' && getChops(), out = this.hookBus || this.ch.stab.input;
+      if (vc) return this.chopNote(vc, t, v, 60 + k + oct * 12 + n, dur, expression, null, out);
+      if (!hasUserSample() && playVowel(this, t, v * 10 ** (VOWEL_HOOK_DB[this.playbackStyle] / 20), 60 + k + oct * 12 + n, vowelHookDuration(this.playbackStyle, dur), vowelName(this.playbackStyle, Math.floor((this.step || 0) / 64)), out, 5000, !['ukg', 'jerseyclub', 'bailefunk'].includes(this.playbackStyle), VOWEL_HOOK_EQ[this.playbackStyle])) return;
+    }
     const roots = voice === 'chop' && getChops() ? null : rootsFor(this.state, this.playingPattern);
     if (fiddleRole(roots, expression)) {
       const kind = dur < .3 || expression.role === 'fiddle-answer' ? 'fiddlestac' : 'fiddle', set = this.rec(kind);
@@ -4011,9 +4043,18 @@ export class Engine {
       const ring = Math.max(0.35, Math.min(1.4, len * 1.2));
       const blp = this.filter('lowpass', 1900 + 1300 * b, 0.5); blp.connect(amp);
       const car = osc('sine', f, 0, 1, blp);
-      const mod = c.createOscillator(); mod.frequency.value = f * 2.5; const ma = this.gain(0);
+      const mod = c.createOscillator(), ma = this.gain(0);
+      if (this.playbackStyle === 'trap') {
+        mod.frequency.setValueAtTime(f * 2.5, t);
+        mod.frequency.setValueAtTime(f * 2.5, t + 0.002);
+        mod.frequency.linearRampToValueAtTime(f * (hash(t * 7, 19) < 0.5 ? 2 : 3), t + ring);
+      } else mod.frequency.value = f * 2.5;
       mod.connect(ma).connect(car.frequency); oscs.push(mod);
-      ma.gain.setValueAtTime(f * (0.3 + 0.35 * b) * v, t); ma.gain.setTargetAtTime(f * 0.04, t + 0.002, ring * 0.2);
+      ma.gain.setValueAtTime(f * (0.3 + 0.35 * b) * v, t);
+      if (this.playbackStyle === 'trap') {
+        ma.gain.setTargetAtTime(0, t + 0.002, ring * 0.2);
+        ma.gain.setValueAtTime(0, Math.min(end, t + ring * 2));
+      } else ma.gain.setTargetAtTime(f * 0.04, t + 0.002, ring * 0.2);
       amp.gain.setValueAtTime(EPS, t);
       amp.gain.linearRampToValueAtTime(0.34 * v, t + 0.004);
       amp.gain.setTargetAtTime(0, t + 0.004, ring * 0.45);
@@ -4228,7 +4269,7 @@ export class Engine {
     const len = st.ap && tone.release ? sd * 0.9 : holdNext ? sd * 2 : sd * (tone.release ? gate : 1 + p.decay * 6);
     const gain = ANALOG_BASS_GAIN * ((organ ? tone.organGain : null) ?? tone.gain?.[Math.round(p.voice)] ?? 1);
     const close = Math.max(tone.hp ? 180 : 500, p.cutoff * tone.close), open = Math.max(close * 1.5, Math.min(10000, p.cutoff * (tone.open + p.envmod * tone.env + (st.a ? (p.accent ?? 0.5) * (tone.hp ? 1 : 3) : 0))));
-    const h = this.playBuf(buf, t, vel * gain, this.ch.acid.input, rate, len, { lp: tone.lp ? Math.min(tone.lp, open) : open, lpTo: close, lpStages: tone.lp ? 2 : 1, hp: tone.hp, hpStages: tone.hpStages, hpQ: tone.hpQ, fade: 0.003, release, loop: true });
+    const h = this.playBuf(buf, t, vel * gain, tone.hp ? this.ch.acid.input : this.analogBassOut(), rate, len, { lp: tone.lp ? Math.min(tone.lp, open) : open, lpTo: close, lpStages: tone.lp ? 2 : 1, hp: tone.hp, hpStages: tone.hpStages, hpQ: tone.hpQ, fade: 0.003, release, loop: true });
     if (tone.release) {
       const amp = h.g.gain;
       amp.cancelScheduledValues(t);
@@ -4239,6 +4280,16 @@ export class Engine {
     }
     if (from !== f) { h.s.playbackRate.setValueAtTime(rate * (from / f), t); h.s.playbackRate.exponentialRampToValueAtTime(rate, t + 0.08); }
     this.mono = { amp: h.g, f, end: t + len + 0.3 };
+  }
+  // The SH-2's sub oscillator reaches 26 Hz on the lowest notes: a 4th-order Butterworth at 30 Hz trims it (-6 dB at 26 Hz)
+  // and leaves 40 Hz and up within half a dB. A highpass biquad's Q is in dB: 0.541 and 1.307 are -5.33 and +2.33 dB.
+  analogBassOut() {
+    if (!this.abassHP) {
+      const a = this.filter('highpass', 30, -5.33), b = this.filter('highpass', 30, 2.33);
+      a.connect(b).connect(this.ch.acid.input);
+      this.abassHP = a;
+    }
+    return this.abassHP;
   }
   // Reese: two detuned saws beating against each other plus a sine sub. SAW/SQR sets the detune spread,
   // ENV MOD sweeps the filter, RESO adds bite.

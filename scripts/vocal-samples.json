@@ -1,0 +1,47 @@
+[
+  {
+    "id": 763909,
+    "vowel": "ahh",
+    "midi": 53,
+    "author": "ShangusBurger (Shane Vincent)",
+    "source_url": "https://freesound.org/people/ShangusBurger/sounds/763909/",
+    "download_url": "https://freesound.org/apiv2/sounds/763909/download/",
+    "original_filename": "CRWDSing_Ahh Vowel Sung Near F 01_ShaneVincent_GSC24_XY-AKG214-96k.wav",
+    "local_filename": "shangus-ahh-763909.wav",
+    "source_sha256": "4157e3538fac2a2fe415770c0f3a0effa59094e0dd0034bf54814d22a3a845d8",
+    "license": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "original_format": "96000 Hz, 24-bit stereo PCM WAV",
+    "sustain_window_seconds": [6.25, 6.75],
+    "processing": { "channels": 1, "sample_rate": 44100, "bits": 16, "codec": "FLAC", "fade_in_seconds": 0.008, "fade_out_seconds": 0.025, "peak_dbfs": -6, "tuning": "constant polyphase resampling to nearest semitone; four-partial FFT and 300 ms stability checks" }
+  },
+  {
+    "id": 763911,
+    "vowel": "eh",
+    "midi": 53,
+    "author": "ShangusBurger (Shane Vincent)",
+    "source_url": "https://freesound.org/people/ShangusBurger/sounds/763911/",
+    "download_url": "https://freesound.org/apiv2/sounds/763911/download/",
+    "original_filename": "CRWDSing_Eh Vowel Sung Near F 01_ShaneVincent_GSC24_XY-AKG214-96k.wav",
+    "local_filename": "shangus-eh-763911.wav",
+    "source_sha256": "bd6de886abe5b04520b533626f83bc3351ec8bfd11745945264dc017478ca247",
+    "license": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "original_format": "96000 Hz, 24-bit stereo PCM WAV",
+    "sustain_window_seconds": [5.775, 6.275],
+    "processing": { "channels": 1, "sample_rate": 44100, "bits": 16, "codec": "FLAC", "fade_in_seconds": 0.008, "fade_out_seconds": 0.025, "peak_dbfs": -6, "tuning": "constant polyphase resampling to nearest semitone; four-partial FFT and 300 ms stability checks" }
+  },
+  {
+    "id": 763893,
+    "vowel": "ooh",
+    "midi": 53,
+    "author": "ShangusBurger (Shane Vincent)",
+    "source_url": "https://freesound.org/people/ShangusBurger/sounds/763893/",
+    "download_url": "https://freesound.org/apiv2/sounds/763893/download/",
+    "original_filename": "CRWDSing_U Ooh Vowel Sung Near F 01_ShaneVincent_GSC24_XY-AKG214-96k.wav",
+    "local_filename": "shangus-ooh-763893.wav",
+    "source_sha256": "31c29798755167bd982482577f3583b2fc1f3e05cd4e8a9f5f0ce008fe4bd74f",
+    "license": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "original_format": "96000 Hz, 24-bit stereo PCM WAV",
+    "sustain_window_seconds": [4.575, 5.075],
+    "processing": { "channels": 1, "sample_rate": 44100, "bits": 16, "codec": "FLAC", "fade_in_seconds": 0.008, "fade_out_seconds": 0.025, "peak_dbfs": -6, "tuning": "constant polyphase resampling to nearest semitone; four-partial FFT and 300 ms stability checks" }
+  }
+]
