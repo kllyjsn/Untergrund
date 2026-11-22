@@ -426,14 +426,14 @@ function queueSong(plan) {
   h.plan = plan;
   const tryArm = () => {
     if (handoff !== h || h.step != null || !playing) return;
-    if (!setsReady(liveSets(h.plan.next)) && performance.now() - h.since < 7990) return;
+    if (!setsReady(liveSets(h.plan.next, h.plan.replay808Style)) && performance.now() - h.since < 7990) return;
     // The sweep needs its own lead past the audio already queued, not just from now.
     const lead = nextTime - ctx.currentTime;
     const at = handoffStep({ abs, lead, stepSec: engine.stepDur, origin: seq.origin, minLead: Math.max(MIN_LEAD, lead + 0.4) });
     Object.assign(h, at, { due: performance.now() + at.at * 1000, total: at.at * 1000, out: false });
     renderHome();
   };
-  loadSets(liveSets(plan.next)).catch(() => {}).then(tryArm);
+  loadSets(liveSets(plan.next, plan.replay808Style)).catch(() => {}).then(tryArm);
   setTimeout(tryArm, 8000 - (performance.now() - h.since));
   tryArm();
   const when = h.step == null ? 'seating the band' : 'on the bar';
@@ -472,14 +472,14 @@ function landSong(t) {
 // A song on recorded instruments holds its first downbeat until they're decoded (up to 8 s); a score waits longer,
 // since its orchestra has no synth stand-in. Recordings already here start at once, as do seeks and clock-synced starts.
 let tuning = null;
-function needsTuning() {
+function needsTuning(replay808Style = engine?.replay808Style) {
   const sc = pat()?.score;
   if (sc) return scoreReady(sc) ? null : { load: () => preloadScore(sc), wait: 30000, label: 'SEATING THE ORCHESTRA' };
-  const names = liveSets(state);
+  const names = liveSets(state, replay808Style);
   return setsReady(names) ? null : { load: () => loadSets(names), wait: 8000, label: 'SEATING THE BAND' };
 }
 function play(opts = {}) {
-  const need = playing || opts.delay != null || opts.startsAt != null || opts.stepWall != null ? null : needsTuning();
+  const need = playing || opts.delay != null || opts.startsAt != null || opts.stepWall != null ? null : needsTuning(opts.replay808Style);
   if (!need) return start(opts);
   ensureAudio(); stopPreview();
   clearTimeout(tuning?.timer);
@@ -860,8 +860,8 @@ function setMaster(id, v) {
 
 // Undo / redo. `label` names the edit for the toast ("Undone: CLEAR pattern B").
 function snapshot(like = {}) {
-  const { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn } = state;
-  const snap = { patterns, params, master, bpm, swing, key, scale, mutes, locks, chain, chainOn, chainEntries: state.chainEntries ?? null, labels: state.labels || null, lyrics: state.lyrics || null, sing: state.sing || null, feel: state.feel || null };
+  const { patterns, params, master, bpm, swing, key, scale, mutes, solos, locks, chain, chainOn } = state;
+  const snap = { patterns, params, master, bpm, swing, key, scale, mutes, solos, locks, chain, chainOn, chainEntries: state.chainEntries ?? null, labels: state.labels || null, lyrics: state.lyrics || null, sing: state.sing || null, feel: state.feel || null };
   if ('artist' in like) snap.artist = state.artist ?? null;
   if (like.ui) snap.ui = { style, family };
   return JSON.stringify(snap);
@@ -1085,6 +1085,7 @@ function timelineHooks(asGuest, replayStats = null, switchAt = null) {
       songOrigin = { src: asGuest ? 'jukebox' : 'room' };
       if (STYLES[st]) replay808Style = style = st;
       const next = sanitize({ ...s, artist: state.artist });
+      loadSets(liveSets(next, replay808Style)).catch(() => {});
       if (switchAt !== null) {
         installRoomSong(next, switchAt, replay808Style, replaySeed);
         return;
@@ -1098,6 +1099,7 @@ function timelineHooks(asGuest, replayStats = null, switchAt = null) {
       replaySeed = Number.isFinite(s.seed) ? s.seed : undefined;
       if (STYLES[st]) replay808Style = style = st;
       const next = sanitize({ ...clone(state), ...s, chainEntries: s.chainEntries });
+      loadSets(liveSets(next, replay808Style)).catch(() => {});
       // The DJ generated a new song: the replay hands off on a downbeat too, from the new song's bar 1.
       const newSong = next.chain !== state.chain && JSON.stringify(next.patterns[0]) !== JSON.stringify(state.patterns[0]);
       if (playing && seq && newSong && !pat().score && !next.patterns.some((q) => q.score)) {
@@ -1246,7 +1248,7 @@ function queueRoomTrack(track, roomState, nextStyle, startsAt, editRoom) {
   queuedRoomSwitch = { track, roomState, nextStyle, startsAt, editRoom, jamEdits:[] };
   prepareSample(roomState);
   engine.prepareVocal(roomState);
-  loadSets(liveSets(roomState)).catch(() => {});
+  loadSets(liveSets(roomState, nextStyle)).catch(() => {});
 }
 
 function startRoomBroadcast(startsAt, track) {
@@ -1463,6 +1465,8 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   }
   applyOverrides(s, g, withBpm);
   for (const [t, params] of Object.entries(lockedParams)) s.params[t] = params;
+  // A new song starts with every part on: mutes and solos from the last song (or a stray 1-7 key) would silence it.
+  for (const k of ['mutes', 'solos']) s[k] = Object.fromEntries(TRACK_IDS.map((t) => [t, !!(s.locks[t] && s[k]?.[t])]));
   s.chainOn = true;
   s.ending = true;
   // A score sets its own tempo even mid-set; a masterwork keeps its title and composer.
@@ -1474,8 +1478,8 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   const artist = piece ? piece.composer : loadAvatar().name || 'UNTERGRUND';
   s.artist = { name: artist, title, style: id, seed, created: new Date().toISOString() };
   delete s.remixOf; delete s.drop; delete s.lyrics;
-  // Hummed, prompted and experiment songs aren't just their seed, so they keep the notes they were written with.
-  s.fresh = typeof hum === 'function' || typeof steer === 'function' ? 0 : 1;
+  // Hummed, prompted, experiment and locked-track songs aren't just their seed, so they keep the notes and mix they were written with.
+  s.fresh = typeof hum === 'function' || typeof steer === 'function' || TRACK_IDS.some((t) => s.locks[t]) ? 0 : 1;
   if (drop) Object.assign(s, { drop: drop.date, remixOf: { id: '', title: `Daily Drop · ${drop.title}`, artist: 'UNTERGRUND' } });
   const prompt = typeof steer === 'function' ? pendingPrompt : null;
   pendingPrompt = null;
@@ -1732,7 +1736,7 @@ function preloadStyle(id) {
   warmed = `${id}:${nextSeed}`;
   const g = generate(id, nextSeed, state.scale);
   if (g.pattern.score) preloadScore(g.pattern.score).catch(() => {});
-  else loadSets(liveSets(g));
+  else loadSets(liveSets(g, id));
 }
 function selectStyle(id) { style = id; preloadStyle(id); if (STYLES[id].family === 'CLASSICAL') loadPiano(); build(); }
 function lengthPicker() {
@@ -2510,6 +2514,8 @@ function reviseRoomHits(track, pattern) {
 
 function toggleTrackFlag(key, id) {
   state[key][id] = !state[key][id];
+  // A mute or solo is the listener's own mix, so the song stops following the generator and keeps it.
+  if (key !== 'locks') state.fresh = 0;
   if (key === 'mutes') reviseRoomHits(id);
   if (key === 'solos') reviseRoomHits();
   renderAllRows(); persist();

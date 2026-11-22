@@ -32,3 +32,7 @@ button.addEventListener('click', async () => {
   finally { button.disabled = false; }
 });
 refresh().catch((error) => { status.textContent = error.message; });
+window.addEventListener('focus', () => { refresh().catch((error) => { status.textContent = error.message; }); });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') refresh().catch((error) => { status.textContent = error.message; });
+});
