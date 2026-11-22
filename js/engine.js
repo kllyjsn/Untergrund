@@ -144,9 +144,11 @@ const ALTO_VIB = 20;
 const SAX_TRIM = { pop: -2.4, neosoul: -5.7, boombap: 3.5, trap: 1.1, afrobeats: 6.5, reggaeton: 4.5, breaks: 7.1 };
 // Pop and Reggaeton hats live above 4 kHz, where the alto's breath otherwise fills the gaps between hits, so
 // those altos get a fixed high cut; the Afrobeats tenor's low register piles up at 220-260 Hz over the bass.
+// Reggaeton's alto repeats short riff notes too brief for vibrato, so each repeat lands within 8 cents of
+// the last, as a player's would, instead of stacking the same harmonics into fixed 2.4-3.3 kHz lines.
 const SAX_FX = {
   pop: { cap: 3000, lpStages: 4, shelves: [[4000, -12]] },
-  reggaeton: { cap: 3000, lpStages: 4, shelves: [[4000, -14]] },
+  reggaeton: { cap: 3000, lpStages: 4, shelves: [[4000, -14]], scatter: 8 },
   afrobeats: { peaks: [[245, 1.6, -8]] },
 };
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
@@ -3646,8 +3648,9 @@ export class Engine {
     const air = hash(step, m + 29), tongue = hash(step, m + 71), touch = Math.min(1, v);
     const out = this.trimOut(`hook-${voice}`, 1, this.hookBus || this.windDuck, -4, 500);
     const eq = tone.reduce((o, band) => this.bodyFor(o, band), this.bodyFor(this.bodyFor(out, presence), [780, 1.2, -2.5]));
-    const rate = 2 ** ((m - pitch - cents / 100) / 12);
     const styleFx = voice.endsWith('sax') ? SAX_FX[this.playbackStyle] ?? {} : {};
+    const drift = styleFx.scatter ? (hash(step, m + 113) - 0.5) * 2 * styleFx.scatter : 0;
+    const rate = 2 ** ((m - pitch - (cents + drift) / 100) / 12);
     return this.playBuf(buf, t, gain * touch * dbGain(trim + (air - 0.5) * 1.2) * dbGain(jazzStyle(this.state, this.playingPattern) === 'bossa' && voice === 'tpt' ? JAZZ_MIX.bossa.trumpetLead : JAZZ_MIX[jazzStyle(this.state, this.playingPattern)]?.lead || 0), eq,
       rate, Math.max(0.06, dur * 0.92), {
         peaks: [...(jazzStyle(this.state, this.playingPattern) ? jazzNotches(useAlt ? TAKES[HOOK_BAND[voice]] : HOOK_BAND[voice], pitch, rate) : []), ...(styleFx.peaks || [])],
