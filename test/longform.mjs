@@ -224,18 +224,30 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
     const head = length === 'sketch' ? 8 : 16;
     assert.equal(sections, null);
     assert.equal(s.chain, chain);
-    assert.equal(chain, 'G'.repeat(head) + 'C'.repeat(chain.length - 2 * head) + 'H'.repeat(head));
     const { log } = playSong(s);
     const phrase = (bar) => log.filter((x) => x.k === 'hook' && x.step >= bar * 16 && x.step < (bar + 8) * 16)
       .map((x) => [x.step - bar * 16, ...x.a.slice(1, 4)]);
-    assert(phrase(0).length && phrase(chain.length - head).length, `${style}/${seed} both heads play`);
-    assert.notDeepEqual(phrase(head), phrase(0), `${style}/${seed} solos develop the head`);
-    assert.notDeepEqual(phrase(head), phrase(head + 8), `${style}/${seed} solos develop across phrases`);
+    if (style === 'bossa') {
+      assert.match(chain, length === 'sketch' ? /^G{8}E{8}H{8}B{8}$/ : /^A{8}G{16}E{16}H{16}C{16}F{16}(C{16})?H{16}B{8}$/);
+      const theme = (slot) => phrase(chain.indexOf(slot)).map(([step, , note]) => [step, note]);
+      assert(theme('G').length && theme('H').length, 'Bossa plays the head and its reprise');
+      assert.deepEqual(theme('H').filter(([step]) => step < 16), theme('G').filter(([step]) => step < 16), 'the reprise recalls the opening motif');
+      assert.notDeepEqual(theme('H'), theme('G'), 'the rest of the reprise develops the motif');
+      assert.notDeepEqual(theme('E'), theme('G'), 'the bridge introduces a different theme');
+      if (chain.includes('C')) assert.notDeepEqual(phrase(chain.indexOf('C')), phrase(chain.indexOf('C') + 8), 'the solo has two different phrases');
+    } else {
+      assert.equal(chain, 'G'.repeat(head) + 'C'.repeat(chain.length - 2 * head) + 'H'.repeat(head));
+      assert(phrase(0).length && phrase(chain.length - head).length, `${style}/${seed} both heads play`);
+      assert.notDeepEqual(phrase(head), phrase(0), `${style}/${seed} solos develop the head`);
+      assert.notDeepEqual(phrase(head), phrase(head + 8), `${style}/${seed} solos develop across phrases`);
+    }
     for (let bar = 0; bar < chain.length - 1; bar++) {
       const events = log.filter((x) => Math.floor(x.step / 16) === bar);
       assert(events.some((x) => x.k === 'acid'), `${style}/${seed} bass continues at bar ${bar}`);
-      assert(events.some((x) => x.k === 'trigger' && ['kick', 'snare', 'ride', 'ch'].includes(x.a[0])), `${style}/${seed} drums continue at bar ${bar}`);
+      const slot = chain[bar], local = bar - chain.indexOf(slot);
+      const drumRest = style === 'bossa' && ((slot === 'A' || slot === 'F') && local < 4 || slot === 'B' && local >= 6);
+      assert.equal(events.some((x) => x.k === 'trigger' && ['kick', 'snare', 'ride', 'ch'].includes(x.a[0])), !drumRest, `${style}/${seed} drum arrangement at bar ${bar}`);
     }
   }
-  console.log('long-form jazz passed: full/sketch head–solos–head, runtime phrase development and continuous bass/drums');
+  console.log('long-form jazz passed: full/sketch forms, returning motifs, runtime phrase development and bass/drum arrangement');
 }

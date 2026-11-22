@@ -68,8 +68,8 @@ export class Recorder {
     if (id === 'stab') {
       // Dub and smooth styles export the engine's own voicing (voice leading, chorus doubling, lift and fold).
       // Other styles keep the plain chord their sung parts are written against.
-      const p = this.state.params.stab, { root, vo, iv, pedal } = stabPitches(this), bossa = jazzStyle(this.state, this.playingPattern) === 'bossa';
-      const len = bossa ? p.decay : pedal ? this.stepDur * 14.4 : Math.max(this.stepDur * 2, (p.decay || 0.3) * 1.5);
+      const p = this.state.params.stab, { root, vo, iv, pedal, dur } = stabPitches(this), bossa = jazzStyle(this.state, this.playingPattern) === 'bossa';
+      const len = dur ?? (bossa ? p.decay : pedal ? this.stepDur * 14.4 : Math.max(this.stepDur * 2, (p.decay || 0.3) * 1.5));
       if (vo === 7 && rootsFor(this.state, this.playingPattern)?.chord === 'upright') {
         for (const n of uprightNotes(t, v, iv, root, p)) this.add('stab', n.t, n.m, n.dur, n.v);
       }
