@@ -42,11 +42,15 @@ export function rhodesLoFiVoicing(notes) {
 export function rhodesRnBVoicing(notes) {
   if (!notes.length) return [];
   if (notes.some((n) => !Number.isFinite(n))) return null;
-  const shift = 12 * Math.max(0, Math.ceil((52 - Math.min(...notes)) / 12));
-  const voiced = [...new Set(notes.map((n) => n + shift))].sort((a, b) => a - b);
-  if (voiced.at(-1) > 68) return null;
-  if (voiced.length > 2) voiced.shift();
-  return voiced;
+  const shift = 12 * Math.max(0, Math.ceil((Math.max(...notes) - 68) / 12));
+  const chord = [...new Set(notes.map((n) => n - shift))].sort((a, b) => a - b);
+  const voiced = chord.filter((n) => n >= 52);
+  for (const note of chord) {
+    if (voiced.length >= 3) break;
+    const raised = note + 12 * Math.max(1, Math.ceil((52 - note) / 12));
+    if (raised <= 68 && !voiced.includes(raised)) voiced.push(raised);
+  }
+  return voiced.length >= 3 ? voiced.sort((a, b) => a - b) : null;
 }
 
 export function rhodesLoFiPhrase(notes) {
