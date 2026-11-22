@@ -13,7 +13,6 @@ import { stepDeg } from './motif.js';
 import { cleanLyrics } from './lyrics.js';
 import { SING_VOICES } from './sing-score.js';
 import { cleanTakes, patternAt, setTake } from './scope.js';
-import { trackTitle } from './crate.js';
 import { pickFeel, isFeel } from './feel.js';
 import { FUNK_HANDS, FUNK_VOX, funkHandBar } from './baile.js';
 import { festivalBuilds } from './festival-build.js';
@@ -1383,16 +1382,13 @@ export function freshSong(style, seed, { base = defaultState(), scale = null, le
 
 // A song GENERATE wrote and nobody changed is just its style, seed and length, so it always plays as today's
 // generator writes it: new melodies, forms, players and mixes reach songs made before them.
-// `fresh` is 1 on an untouched GENERATE song and 0 once it's edited; songs saved before the flag existed count
-// as untouched only while their title, key and tempo are still the ones that seed was given.
+// `fresh` is 1 on an untouched GENERATE song and 0 once it's edited. Songs saved before the flag existed keep
+// the notes they were written with: a reroll by today's generator can sound worse than the song people heard.
 export function refreshable(s) {
   const a = s?.artist, style = a?.style;
   if (!a || !STYLES[style] || style === 'repertoire' || !Number.isFinite(a.seed) || !a.seed || s.remixOf || s.fresh === 0) return false;
   if (s.patterns?.some((p) => p.score?.piece)) return false;
-  if (s.fresh === 1) return true;
-  if (s.drop || a.title !== trackTitle(a.seed)) return false;
-  const g = generate(style, a.seed, s.scale);
-  return s.key === g.key && s.bpm === g.bpm;
+  return s.fresh === 1;
 }
 // A sketch stays a sketch; anything longer than a sketch can run was a song, and grows to today's song length.
 const lengthOf = (s) => String(s.chain || 'A').length * 240 / (s.bpm || 120) <= LENGTHS.sketch.hi + 10 ? 'sketch' : 'song';
