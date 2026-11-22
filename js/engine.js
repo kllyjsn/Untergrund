@@ -1538,7 +1538,9 @@ export class Engine {
       const loop = analogLoop(this.ctx, buf);
       s.buffer = loop.buffer; s.loop = true; s.loopStart = loop.start; s.loopEnd = loop.end;
     } else s.buffer = buf;
-    if (fx.pitchAttack) { s.detune.setValueAtTime(240, t); s.detune.setTargetAtTime(0, t + 0.008, 0.014); }
+    const detune = fx.detune || 0;
+    s.detune.value = detune;
+    if (fx.pitchAttack) { s.detune.setValueAtTime(240 + detune, t); s.detune.setTargetAtTime(detune, t + 0.008, 0.014); }
     const g = this.gain(level);
     let node = s;
     if (fx.drive > 0.01) {
@@ -2929,7 +2931,10 @@ export class Engine {
     const hp = this.filter('highpass', hard ? 300 : 150, 0.5);
     amp.connect(hp).connect(out);
     const pans = this.sidePans([-0.6, 0, 0.6], amp);
-    iv.forEach((n, k) => this.recordedNote(set, t, 1, root + n, end, pans[k % pans.length], 0, null, 1, false, { loop: 'analog', even: 0, pitchAttack: hard }));
+    const sides = pad ? [-1, 0, 1] : [-1, 1], spread = pad ? (4 + p.detune) * (hard ? 3 : 1) : p.detune * 0.5;
+    iv.forEach((n, k) => {
+      for (const side of sides) this.recordedNote(set, t, 1 / Math.sqrt(sides.length), root + n, end, pans[k % pans.length], 0, null, 1, false, { loop: 'analog', even: 0, pitchAttack: hard, detune: side * spread });
+    });
     return true;
   }
 

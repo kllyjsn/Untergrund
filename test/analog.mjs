@@ -45,12 +45,12 @@ for (const [style, voices] of Object.entries(mapping)) for (const voice of Objec
   assert(set?.length);
   e.rec = () => set;
   e[method](...args);
-  const sources = nodes.filter(n => n.buffer);
-  assert.equal(sources.length, 3, `${style}: one recording per chord tone`);
+  const sources = nodes.filter(n => n.buffer), sides = voice === 2 ? [-1, 0, 1] : [-1, 1];
+  assert.equal(sources.length, 3 * sides.length, `${style}: detuned recording layers per chord tone`);
   assert(sources.every(n => n.loop && n.loopStart > 0 && n.loopEnd < n.buffer.duration - 0.08));
   assert(!nodes.some(n => n.frequency && n.detune), `${style}: loaded recordings replace oscillators`);
   sources.forEach((source, k) => {
-    const m = 60 + args[2][k], nearest = set.reduce((a, b) => Math.abs(a[0] - m) <= Math.abs(b[0] - m) ? a : b);
+    const m = 60 + args[2][Math.floor(k / sides.length)], nearest = set.reduce((a, b) => Math.abs(a[0] - m) <= Math.abs(b[0] - m) ? a : b);
     assert(Math.abs(source.playbackRate.value - 2 ** ((m - nearest[0]) / 12)) < 1e-9, 'measured nearest center, including BAND_TUNE');
     assert.equal(source.buffer.numberOfChannels, nearest[1].numberOfChannels);
     assert.notEqual(source.buffer, nearest[1], 'loop preparation does not modify original decoded audio');
@@ -61,14 +61,24 @@ for (const [style, voices] of Object.entries(mapping)) for (const voice of Objec
       assert.equal(loop[a], raw[a], 'loop start is unchanged');
     }
     assert(source.t1 > 0.1 + (voice === 2 ? args[4].decay * 2 : args[4].decay * 0.8), 'release is scheduled');
+    const spread = voice === 2 ? (4 + args[4].detune) * (style === 'hardtechno' ? 3 : 1) : args[4].detune * 0.5;
+    assert.equal(source.detune.at(0.1), sides[k % sides.length] * spread + (style === 'hardtechno' ? 240 : 0), 'synth-scale cents spread');
     if (style === 'hardtechno') {
-      assert.equal(source.detune.at(0.1), 240);
       assert(source.detune.at(0.11) - source.detune.at(0.15) > 150, 'Hard Techno attack settles');
     }
   });
   nodes.length = 0;
   e[method](0.1, 0.8, [], 60, args[4], args[5]);
   assert.equal(nodes.length, 0, 'empty chord is silent');
+  const renderDetune = async detune => {
+    const { e, ctx } = instrument(style);
+    e.rec = () => set;
+    e[method](0.1, 0.8, [0, 3, 7], 60, { ...e.state.params.stab, detune }, e.ch.stab.input);
+    return (await ctx.startRendering(e.ch.stab.input)).getChannelData(0);
+  };
+  const narrow = await renderDetune(0), wide = await renderDetune(40);
+  const difference = Math.sqrt(narrow.reduce((sum, x, i) => sum + (x - wide[i]) ** 2, 0) / narrow.length);
+  assert(difference > 0.001, `${style}/${voice}: recorded DETUNE 0 vs 40 changes PCM`);
 }
 {
   const { e, nodes } = instrument('dub');
@@ -91,4 +101,4 @@ for (const [style, voices] of Object.entries(mapping)) for (const tuple of INSTR
 }
 assert(bandKit('jxbr').every(([center]) => Math.abs(center - Math.round(center)) > 0), 'Brassy measured tuning is loaded');
 assert.equal(bandKit('jxbr')[0][0], 48 - 23.6 / 100);
-console.log('analog: style/tuple preloads, synth fallbacks, measured pitch, stereo crossfaded loops, release, Hard Techno attack and Dub cadence passed');
+console.log('analog: style/tuple preloads, synth fallbacks, measured pitch, stereo crossfaded loops, DETUNE PCM/spread, release, Hard Techno attack and Dub cadence passed');
