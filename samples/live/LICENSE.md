@@ -1,13 +1,13 @@
 # Recorded instrument samples: licenses
 
 Every audio file in this folder is derived from one of the sources below. All are released under the
-**Creative Commons CC0 1.0 Universal** public-domain dedication except the two cuíca files, which are licensed
-**CC BY 4.0** and must keep the credit below wherever they are redistributed (full CC0 legal text in each source
-repo's `LICENSE`; the Virtuosity Drums and double-bass files are byte-identical, sha256
-`a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499`). CC0 waives copyright and related rights, so
-those files can be redistributed in this app and used in commercial music without attribution; we credit the
-authors anyway. CC BY 4.0 also allows commercial use and redistribution, provided the author, source, license and
-changes are credited.
+**Creative Commons CC0 1.0 Universal** public-domain dedication except the two cuíca files and the twenty MTG tenor
+saxophone files (`tsax_*`, `tsaxb_*`), which are licensed **CC BY 4.0** and must keep the credits below wherever they
+are redistributed (full CC0 legal text in each source repo's `LICENSE`; the Virtuosity Drums and double-bass files are
+byte-identical, sha256 `a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499`). CC0 waives copyright and
+related rights, so those files can be redistributed in this app and used in commercial music without attribution; we
+credit the authors anyway. CC BY 4.0 also allows commercial use and redistribution, provided the author, source,
+license and changes are credited.
 
 ## CC BY credits
 
@@ -16,10 +16,15 @@ changes are credited.
   [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Changed: two single strokes cut from the
   0.550–0.770 s and 1.415–1.615 s windows, high-pass filtered, faded, peak-normalized and encoded as 16-bit FLAC
   (`scripts/fetch-percussion.py`).
+- `tsax_{47..74}.flac`, `tsaxb_{47..74}.flac`: "MTG Solo Saxophones" by the Music Technology Group (Universitat
+  Pompeu Fabra), [sfzinstruments/MTG.SoloSax](https://github.com/sfzinstruments/MTG.SoloSax), licensed under
+  [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Changed: trimmed, converted to mono 16-bit FLAC and
+  loudness matched (`scripts/fetch-band.py --sax`; details in the saxophone section).
 
 Processing applied to every file unless its section says otherwise: summed to mono, resampled to 44.1 kHz 16-bit
-PCM, trimmed (organ 2.2 s, bass 2.4 s), 80 ms fade out. Stored as lossless FLAC (bit-identical PCM to the original 16-bit WAVs). Drum files
-mix the close mic with the overhead mic of the same hit.
+PCM, trimmed (organ 2.2 s, bass 2.4 s), 80 ms fade out. Stored as lossless FLAC (bit-identical PCM to the original
+16-bit WAVs). Drum files mix the close mic with the overhead mic of the same hit.
+
 
 ## Virtuosity Drums (Versilian Studios / Karoryfer, drummer Austin McMahon)
 
