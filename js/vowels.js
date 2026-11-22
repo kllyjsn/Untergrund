@@ -3,7 +3,7 @@ import { SCALES } from './params.js';
 export const VOWEL_BAND = { vox_ahh: [53], vox_eh: [53], vox_ooh: [53] };
 export const VOWEL_TUNE = { vox_ahh: { 53: -0.010 }, vox_eh: { 53: -0.003 }, vox_ooh: { 53: 0.005 } };
 export const VOWEL_STYLES = ['ukg', 'jerseyclub', 'bailefunk', 'deephouse', 'euphoric', 'dnb'];
-export const VOWEL_HOOK_DB = { ukg: 8, jerseyclub: 12, bailefunk: 8, deephouse: 8, euphoric: 6, dnb: 6 };
+export const VOWEL_HOOK_DB = { ukg: 8, jerseyclub: 12, bailefunk: 0, deephouse: 0, euphoric: 6, dnb: 6 };
 const SHORT = new Set(['ukg', 'jerseyclub', 'bailefunk']);
 const COLORS = { ukg: ['eh', 'ahh'], jerseyclub: ['ahh', 'eh'], bailefunk: ['eh', 'ahh'], deephouse: ['ooh', 'eh'], euphoric: ['ahh', 'ooh'], dnb: ['ooh', 'ahh'] };
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
