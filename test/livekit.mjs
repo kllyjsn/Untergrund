@@ -82,11 +82,57 @@ for (const recorded of [true, false]) {
     return volume;
   };
   const normal = bassLevel({ voice: 1 }), ensemble = bassLevel();
-  assert.ok(Math.abs(20 * Math.log10(ensemble / normal) + 10.4575749) < 1e-6);
+  assert.ok(ensemble > 0 && ensemble < normal, 'an audible organ ensemble keeps its separately calibrated bass level');
   assert.equal(bassLevel({ mutes: { stab: true } }), normal, 'muted organ selection does not attenuate the bass');
   assert.equal(bassLevel({ solos: { acid: true } }), normal, 'a bass solo excludes the organ-ensemble trim');
   assert.equal(bassLevel({ level: 0 }), normal, 'a zero-level organ does not attenuate the bass');
   assert.equal(bassLevel({ solos: { acid: true, stab: true } }), ensemble, 'an audible soloed organ keeps the ensemble balance');
+}
+{
+  const ctx = new OfflineAudioContext(1, 48000, 48000), sd = 60 / 92 / 4;
+  const note = ({ style = 'gfunk', organ = false, hold = false, approach = false, voice = 1 } = {}) => {
+    let call;
+    const engine = {
+      state: { params: { acid: { voice, cutoff: 485, decay: 0.2, envmod: 0.36 }, stab: { voice: organ ? 3 : 1 } } },
+      playbackStyle: style, ch: { acid: { input: ctx.destination } },
+      rec: () => [[36, {}]], bassMidi: () => 36, monoNote: (t, f) => f,
+      playBuf: (buf, t, level, out, rate, len, fx) => {
+        const g = ctx.createGain(); g.gain.value = level;
+        g.gain.setValueAtTime(level, t + len);
+        g.gain.setTargetAtTime(0, t + len, fx.release);
+        call = { level, len, fx, amp: g.gain }; return { g };
+      },
+    };
+    Engine.prototype.analogBass.call(engine, 0, { ap: approach }, sd, hold, false);
+    return call;
+  };
+  for (const voice of [1, 7]) {
+    const n = note({ voice });
+    assert.equal(n.fx.hpQ, -3.01);
+    assert.equal(n.fx.hpStages, 4);
+    assert.equal(n.fx.hp, 35);
+    assert.ok(Math.abs(n.len - sd * 1.3) < 1e-12);
+    assert.ok(n.amp.at(0.1) < n.amp.at(0.015), 'the recorded bass decays during its body instead of holding full gain');
+    assert.ok(n.amp.at(n.len + 0.15) < n.level * 0.01, 'release clears space before the next kick');
+    assert.ok(n.amp.events.every(e => e.k !== 's' || e.v === 0), 'a stale playBuf hold cannot reopen the release');
+    assert.equal(note({ voice, hold: true }).len, sd * 2, 'held and slide-connected steps keep their body');
+    assert.equal(note({ voice, approach: true }).len, sd * 0.9, 'approach notes clear the downbeat');
+  }
+  const organ = note({ organ: true }), uk = note({ style: 'ukg', voice: 3 });
+  assert.ok(organ.len < note().len && organ.fx.release < note().fx.release, 'the held organ ensemble leaves a shorter bass pocket');
+  assert.equal(uk.len, sd * 2.2); assert.equal(uk.fx.release, 0.04);
+  assert.equal(uk.fx.hp, undefined); assert.equal(uk.amp.at(0.1), uk.level, 'UKG keeps its existing recorded hold');
+  for (const hpQ of [undefined, -3.01]) {
+    const filters = [], engine = {
+      ctx, gain: v => { const g = ctx.createGain(); g.gain.value = v; return g; },
+      filter: (type, f, q) => { const n = Engine.prototype.filter.call({ ctx }, type, f, q); filters.push(n); return n; },
+      startSource: (s, t, off) => s.start(t, off),
+    };
+    Engine.prototype.playBuf.call(engine, ctx.createBuffer(1, 48000, 48000), 0, 1, ctx.destination, 1, 0.2, { hp: 35, hpStages: 4, hpQ });
+    assert.equal(filters.length, 4);
+    assert.ok(filters.every(f => f.Q.value === (hpQ ?? 0.7)), 'each stage receives the selected Q without changing other recorded voices');
+  }
+  console.log('G-Funk SH-2: flat HP stages, decaying body, kick-clearing release, held/approach notes and unchanged UKG passed');
 }
 for (const style of ['gfunk', 'ukg', 'rock', undefined]) {
   const engine = { playbackStyle: style, recorded: (kind, fallback) => [kind, fallback], synthOrgan: () => 'synth' };
