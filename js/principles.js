@@ -87,7 +87,7 @@ export const PROPOSED = [
   },
   {
     id: 'folk-feel-cues', lever: 'generator', principle: 'emotion.coherent-cues', scope: { style: 'folk', src: 'generate' }, share: 0.1,
-    hypothesis: 'Moving tempo, mode, note length and the soft/loud range of the sung line to the song\'s intended feeling (FEELS) raises completion: the cues stop contradicting each other.',
+    hypothesis: 'Moving tempo, mode, note length and the soft/loud range of the sung line toward the song\'s intended feeling (FEELS) raises completion: the cues stop contradicting each other.',
     primary: { metric: 'complete', goal: 'higher' }, guardrails: ['skip', 'down', 'love'], minListensPerArm: perArm(0.45, 0.05),
     offline: { metric: 'feelFit', expect: 'higher' },
     apply(song) { feelCuesOn(song, 'folk'); },
@@ -111,7 +111,11 @@ function feelCuesOn(song, style) {
       if (!Array.isArray(x)) return x;
       const gap = next(x) - x[0], y = [...x];
       if (gap < 16) y[1] = Math.max(1, Math.min(gap, Math.round(f.mel.legato * gap)));
-      if (hi > lo) y[vel] = +Math.max(0, Math.min(1, hi - ((hi - x[vel]) * (1 - ratio) * hi) / (hi - lo))).toFixed(3);
+      if (hi > lo) {
+        const target = Math.max(0, Math.min(1, hi - ((hi - x[vel]) * (1 - ratio) * hi) / (hi - lo)));
+        // Leave room for the engine's own velocity shaping and section contrast.
+        y[vel] = +((x[vel] + target) * 0.5).toFixed(3);
+      }
       return y;
     });
   };
