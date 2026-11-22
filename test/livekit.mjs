@@ -75,7 +75,7 @@ for (const recorded of [true, false]) {
     const engine = {
       state: { params: { acid: { voice: 1, cutoff: 500, decay: 0.5, envmod: 0 }, stab: { voice, level } }, mutes, solos },
       playbackStyle: 'gfunk', ch: { acid: { input: ctx.destination } },
-      rec: () => [[36, {}]], bassMidi: () => 36, monoNote: (t, f) => f,
+      rec: () => [[36, {}]], bassMidi: () => 36, monoNote: (t, f) => f, analogBassOut() { return this.ch.acid.input; },
       playBuf: (buf, t, v) => { volume = v; return { g: ctx.createGain() }; },
     };
     Engine.prototype.analogBass.call(engine, 0, {}, 0.1, false, false);
@@ -95,7 +95,7 @@ for (const recorded of [true, false]) {
     const engine = {
       state: { params: { acid: { voice, cutoff: 485, decay: 0.2, envmod: 0.36 }, stab: { voice: organ ? 3 : 1 } } },
       playbackStyle: style, ch: { acid: { input: ctx.destination } },
-      rec: () => [[36, {}]], bassMidi: () => 36, monoNote: (t, f) => f,
+      rec: () => [[36, {}]], bassMidi: () => 36, monoNote: (t, f) => f, analogBassOut() { return this.ch.acid.input; },
       playBuf: (buf, t, level, out, rate, len, fx) => {
         const g = ctx.createGain(); g.gain.value = level;
         g.gain.setValueAtTime(level, t + len);
