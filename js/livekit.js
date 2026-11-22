@@ -166,24 +166,24 @@ export const BAND_LAYER = {
 };
 const LAYER_SETS = { vc: ['cello'], vla: ['cello', 'str'], vln1: ['str'], pno: ['pianoext', 'piano', 'pianoextsoft', 'pianosoft'], org: ['org'] };
 const layerSets = (style) => [...new Set(Object.values(BAND_LAYER[style] || {}).flatMap((x) => x.parts.flatMap((p) => LAYER_SETS[p])))];
-export function liveSets(st) {
+export function liveSets(st, style = st?.artist?.style) {
   const mode = Math.round(st?.master?.kit || 0), fullKit = mode === 1 || mode === 2;
   const out = fullKit ? ['kit'] : mode === KIT_BACKBEAT ? ['snare'] : [];
   if (st?.patterns?.some((p) => p.jazz?.style === 'jazzfunk') || st?.pattern?.jazz?.style === 'jazzfunk') out.push('horn');
   if (fullKit && pocketOf(st.master)?.band) out.push('kitx');
   if (Math.round(st?.params?.acid?.voice || 0) === 5) out.push('ebass');
-  if (playsAnalogBass(st?.artist?.style, st?.params?.acid?.voice)) out.push('abass');
-  if (Math.round(st?.params?.stab?.voice || 0) === 3 && RECORDED_ORGAN.has(st?.artist?.style)) out.push('org');
+  if (playsAnalogBass(style, st?.params?.acid?.voice)) out.push('abass');
+  if (Math.round(st?.params?.stab?.voice || 0) === 3 && RECORDED_ORGAN.has(style)) out.push('org');
   out.push(...(HAND_SETS[Math.round(st?.params?.perc?.voice || 0)] || []));
   const name = STAB_BAND[Math.round(st?.params?.stab?.voice || 0)];
   if (name) out.push(name, ...(SOFT_LAYER[name] ? [SOFT_LAYER[name]] : []));
   for (const p of [st?.pattern, ...(st?.patterns || [])]) {
-    const v = p?.hook?.v === 'reed' ? SAX_HOOK[st?.artist?.style] : p?.hook?.v, voice = Object.hasOwn(HOOK_BAND, v) && HOOK_BAND[v];
+    const v = p?.hook?.v === 'reed' ? SAX_HOOK[style] : p?.hook?.v, voice = Object.hasOwn(HOOK_BAND, v) && HOOK_BAND[v];
     if (voice) out.push(voice, ...(TAKES[voice] ? [TAKES[voice]] : []));
   }
   // Country's lead is a Telecaster whatever plays the chords.
   if (pocketOf(st.master)?.walk && name !== 'gtr') out.push('gtr', 'gtrsoft');
-  if (fullKit && pocketOf(st.master)?.band) out.push(...layerSets(st.artist?.style));
+  if (fullKit && pocketOf(st.master)?.band) out.push(...layerSets(style));
   return [...new Set(out)];
 }
 // A song's recordings plus their alternate takes and mutes: what an offline render waits for, so exports get every take.
