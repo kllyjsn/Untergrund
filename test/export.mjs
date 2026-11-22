@@ -11,6 +11,18 @@ import { registerPiece, PIECE } from '../js/repertoire.js';
 import { ZipWriter, crc32 } from '../js/zip.js';
 import { exportName } from '../js/stems.js';
 
+{
+  const own = defaultState(), g = generate('minimal', 12);
+  applyOverrides(own, g); own.patterns = arrangement(g.pattern, 12); own.artist = { style: 'minimal' };
+  const expected = songMidi(own);
+  for (const style of ['trap', 'dnb']) {
+    const saved = structuredClone(own); saved.artist.style = style;
+    assert.deepEqual(songMidi(saved, { playbackStyle: 'minimal' }).bytes, expected.bytes, 'the public MIDI export entrypoint forwards the saved-song genre');
+    assert.equal(saved.artist.style, style, 'MIDI export preserves listener ownership');
+  }
+  assert.throws(() => songMidi({ ...own, patterns: null }, { playbackStyle: 'minimal' }), TypeError, 'invalid saved MIDI data still reports an error');
+}
+
 // A minimal Standard MIDI File reader.
 function parseMidi(bytes) {
   const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -91,6 +103,28 @@ for (const [style, seed] of [['neosoul', 42], ['deephouse', 7], ['hypnotic', 3]]
   if (s.master.humanize > 0.1) assert(hats.notes.some((n) => n.tick % (PPQ / 4)), `${style}: hats keep their microtiming`);
   assert(new Set(hats.notes.map((n) => n.vel)).size > 3, `${style}: hat velocities preserved`);
   console.log(`${style} ${seed}: ${r.tracks.map((t) => `${t.name} ${t.notes}`).join(', ')}`);
+}
+
+for (const [seed, chords, hook] of [[7, 42, 68], [503, 71, 73]]) {
+  const { tracks } = parseMidi(songMidi(song('drill', seed)).bytes);
+  assert.deepEqual(tracks.find((t) => t.name === 'Chords').programs, [chords], `Drill ${seed} chord instrument`);
+  assert.deepEqual(tracks.find((t) => t.name === 'Hook').programs, [hook], `Drill ${seed} lead instrument`);
+}
+
+// A reed hook the engine plays on a recorded sax exports as that sax, in its register, and still follows an octave edit.
+for (const [style, program] of [['pop', 65], ['trap', 65], ['boombap', 66]]) {
+  const seed = [...Array(40).keys()].find((x) => song(style, x + 1).patterns.some((p) => p?.hook?.v === 'reed')) + 1;
+  const s = song(style, seed), hook = (st) => parseMidi(songMidi(st).bytes).tracks.find((t) => t.name === 'Hook');
+  const up = { ...s, patterns: s.patterns.map((p) => (p?.hook ? { ...p, hook: { ...p.hook, o: (p.hook.o || 0) + 1 } } : p)) };
+  assert.deepEqual(hook(s).programs, [program], `${style} ${seed} sax lead instrument`);
+  assert.deepEqual(hook(up).notes.map((n) => n.m), hook(s).notes.map((n) => n.m + 12), `${style} ${seed} sax follows the hook octave`);
+}
+
+for (const [style, seed, part] of [['amapiano', 42, 'Hook'], ['afrobeats', 3, 'Chords']]) {
+  const { tracks } = parseMidi(songMidi(song(style, seed)).bytes);
+  const marimba = tracks.find((t) => t.name === part);
+  assert(marimba.notes.length > 0, `${style} exports marimba notes`);
+  assert.deepEqual(marimba.programs, [12], `${style} exports the GM Marimba program`);
 }
 
 // Independent kick count: with variation and the drop build off, every written kick in the chain plays once.

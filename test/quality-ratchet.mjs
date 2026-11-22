@@ -11,6 +11,8 @@ assert.deepEqual(comp.losses.map((g) => `${g.style} ${g.metric}`), ['rock voiceM
 assert.equal(verdict(comp, null, 'folk').ok, false, 'a regression anywhere blocks the day');
 assert.equal(verdict(compareComposition(before, { ...after, rock: before.rock }), null, 'folk').ok, true);
 assert.equal(verdict(compareComposition(before, { ...after, rock: before.rock }), null, 'rock').ok, false, 'gains must land in the target genre');
+assert.deepEqual(compareComposition({ folk: { motifRecall: 1 } }, { folk: { motifRecall: null } }), { gains: [], losses: [] }, 'unmeasured recall is not a regression');
+assert.deepEqual(compareComposition({ folk: { motifRecall: null } }, { folk: { motifRecall: 0.7 } }), { gains: [], losses: [] }, 'unmeasured baseline recall is not a gain');
 
 // Audio: reasons keyed by style + check; WARN->FAIL counts as new, FAIL->WARN as cleared.
 const rep = (styles, warn, fail) => ({ counts: { WARN: warn, FAIL: fail }, styles });

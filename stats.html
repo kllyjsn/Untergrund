@@ -47,6 +47,10 @@
     th { color: var(--dim); font-weight: 600; }
     td.zero { color: #45454c; }
     .genre { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--line); }
+    .pb-filters { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .pb-filters select { color: var(--text); background: var(--panel); padding: 5px; border: 1px solid var(--line); border-radius: 4px; }
+    #playback a { color: var(--text); }
+    #playback summary { cursor: pointer; padding: 6px 0; }
     .err { border-bottom: 1px solid var(--line); padding: 10px 0; }
     .err b { color: var(--red); font-size: 12px; letter-spacing: .06em; }
     .err .meta { color: var(--dim); font-size: 12px; }
@@ -80,6 +84,7 @@
     if (params.get('token')) { sessionStorage.setItem('untergrund.statsToken', params.get('token')); params.delete('token'); history.replaceState(null, '', location.pathname + (params.size ? `?${params}` : '')); }
     let token = sessionStorage.getItem('untergrund.statsToken') || '';
     let days = +(params.get('days') || 30);
+    let surface = '';
     const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
     const fmt = (n) => (n >= 10000 ? `${(n / 1000).toFixed(1)}k` : Number(n || 0).toLocaleString());
     const pct = (r) => (r ? `${(r * 100).toFixed(r < 0.1 ? 1 : 0)}%` : '—');
@@ -101,7 +106,34 @@
       if (res.status === 503 || json.enabled === false) return render(null);
       if (!res.ok) return gate(`Stats are unavailable right now (${res.status}).`);
       render(json);
+      loadPlayback();
       loadFindings();
+    }
+
+    async function loadPlayback() {
+      const box = root.querySelector('#playback-content');
+      if (!box) return;
+      const query = new URLSearchParams({ playback: '1', days, ...(surface && { surface }) });
+      box.innerHTML = '<p class="empty">Loading playback…</p>';
+      try {
+        const res = await fetch('/api/events?' + query, { headers: { 'x-stats-token': token }, cache: 'no-store' });
+        if (!res.ok) throw new Error();
+        const report = await res.json();
+        if (query.get('surface') !== (surface || null)) return;
+        const points = (p) => p.map((b) => `${b.fromPercent}${b.fromPercent === b.toPercent ? '' : '–' + b.toPercent}% (${fmt(b.count)})`).join(', ') || '—';
+        const row = (label, r) => `<tr><th scope="row">${label}</th><td>${fmt(r.starts)}</td><td>${r.completed ? pct(r.completionRate) : '0%'}</td>
+          <td>${r.medianListenSeconds === null ? '—' : `${r.medianListenSeconds}s`}</td><td>${r.medianProgressPercent === null ? '—' : `${r.medianProgressPercent}%`}</td>
+          <td>${points(r.topSkipPoints)}</td><td>${points(r.topStopPoints)}</td></tr>`;
+        const table = (label, rows) => `<div class="table"><table><thead><tr><th scope="col">${label}</th><th scope="col">Starts</th><th scope="col">Completed</th>
+          <th scope="col">Median heard</th><th scope="col">Median reached</th><th scope="col">Top skips</th><th scope="col">Top stops</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+        box.innerHTML = report.genres.length
+          ? table('Genre', report.genres.map((g) => row(esc(g.label), g)).join('')) + report.genres.filter((g) => g.songs.length).map((g) =>
+            `<details><summary>${esc(g.label)} · ${fmt(g.songs.length)} published songs</summary>${table('Release', g.songs.map((s) =>
+              row(`<a href="/t/${encodeURIComponent(s.trackId)}">${esc(s.trackId)}</a>`, s)).join(''))}</details>`).join('')
+          : '<p class="empty">No playback recorded in this range.</p>';
+      } catch {
+        if (query.get('surface') === (surface || null)) box.innerHTML = '<p class="empty">Playback stats are temporarily unavailable.</p>';
+      }
     }
 
     // The improvement engine: ranked findings and proposed experiments (never applied automatically).
@@ -185,6 +217,11 @@
         : '<div class="empty">No listens yet.</div>';
       const byStyle = (ls?.styles || []).slice(0, 10).map((x) => `<div class="genre"><span>${esc(x.style.toUpperCase())} · ${fmt(x.starts)}</span><span class="num">${pct(x.rates.completion)} done · ${pct(x.rates.skip)} skip · ${pct(x.rates.love)} ♥ · ${pct(x.rates.down || 0)} ↓</span></div>`).join('') || '<div class="empty">No listens yet.</div>';
       root.innerHTML = head + `<div class="kpis">${kpis}</div>
+        <section id="playback"><h2>LISTENING · GENRES AND PUBLISHED SONGS</h2>
+          <label class="pb-filters">Playback source <select id="playback-surface">${[['', 'All sources'], ['public', 'Public'], ['embed', 'Embeds'], ['club', 'Club Rooms']].map(([id, label]) =>
+            `<option value="${id}" ${id === surface ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
+          <div id="playback-content" aria-live="polite"></div>
+          <p class="empty">Each audible play attempt counts once. Listen times use 5s buckets; skip and stop points show position in the song or set.</p></section>
         <div class="grid2"><section><h2>FUNNEL · UNIQUE SESSIONS</h2>${funnel}</section>
           <section><h2>DAILY SESSIONS</h2>${chart(s.daily)}</section></div>
         <div class="grid2" style="margin-top:14px"><section><h2>TOP GENRES · SONGS MADE</h2>${genres.length ? genres.map(([k, v]) => `<div class="genre"><span>${esc(k.slice(9).toUpperCase())}</span><span class="num">${fmt(v)}</span></div>`).join('') : '<div class="empty">No songs made yet.</div>'}</section>
@@ -195,6 +232,7 @@
         <section style="margin-top:14px"><h2>DESCRIBE · PHRASES THE RULES COULDN’T READ</h2>${misses}</section>
         <section style="margin-top:14px"><h2>DAILY COUNTS</h2><div class="table"><table><thead><tr><th>Day</th><th>Sessions</th>${events.map((e) => `<th>${LABEL[e]}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div></section>`;
       bindRange();
+      root.querySelector('#playback-surface').onchange = (e) => { surface = e.target.value; loadPlayback(); };
     }
     function bindRange() {
       root.querySelectorAll('.range button').forEach((b) => { b.onclick = () => { days = +b.dataset.days; const q = new URLSearchParams(location.search); q.set('days', days); history.replaceState(null, '', `${location.pathname}?${q}`); load(); }; });

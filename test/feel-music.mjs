@@ -12,10 +12,10 @@ const mean = (a) => a.reduce((x, y) => x + y, 0) / (a.length || 1);
 const seeds = Array.from({ length: 24 }, (_, i) => i + 1);
 const minor = (h) => { const iv = CHORDS[h.c].iv; return iv.includes(3) && !iv.includes(4); };
 
-// No feeling: byte-identical to the generator before feelings existed.
+// No feeling: byte-identical to main's generator before feelings existed.
 const h = createHash('sha256');
 for (const style of Object.keys(STYLES)) for (const seed of [1, 7, 42, 1234, 99991]) h.update(style + JSON.stringify(generate(style, seed, scaleOf(style))));
-assert.equal(h.digest('hex'), '792f74771a6182007b85b486aeaa39d5ddf66b764b3a033117e30a1b66dcaf72', 'no-feel generate() changed');
+assert.equal(h.digest('hex'), '4609ff165c8d37552efb9d6f24b128e2dc944a0162b81f5edfe79576032ee350', 'no-feel generate() changed');
 // Scores and the repertoire never take a feeling.
 for (const style of [...Object.keys(FORMS), 'repertoire'].filter((s) => STYLES[s])) {
   assert.equal(songFeel(style, 3), null, style);

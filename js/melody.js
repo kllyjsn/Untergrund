@@ -8,6 +8,7 @@
 // semi in semitones above the key root (like hook.s), phrase is the line number and slot the syllable in it.
 import { CHORDS } from './params.js';
 import { lineStress } from './prosody.js';
+import { jazzMelody } from './jazz.js';
 
 export const MELODY_BARS = 8;
 export const PARTS = { n: 'hook', v: 'verse', b: 'bridge' };
@@ -20,6 +21,10 @@ const pick = (r, a) => a[Math.floor(r() * a.length)];
 // chance a held note opens with a melisma (one syllable over a turn to the note above), belt a louder, flatter line.
 // A new song genre sings once it has an entry here.
 export const SING_PROFILES = {
+  swing: { instrumental: true, k: [5, 7], art: 0.9, off: 0.7, six: 0, leap: 0.2, hi: 0, v: ['tpt', 'airflute', 'vocal'] },
+  modal: { instrumental: true, k: [1, 3], art: 0.9, off: 0.4, six: 0, leap: 0.6, hi: 0, v: ['tpt', 'airflute'] },
+  bossa: { instrumental: true, k: [1, 3], art: 0.9, off: 0.4, six: 0, leap: 0.2, hi: 0, v: ['airflute', 'tpt'] },
+  jazzfunk: { instrumental: true, k: [3, 5], art: 0.8, off: 0.7, six: 0.4, leap: 0.3, hi: 0, v: ['tpt'] },
   deephouse: { k: [3, 5], art: 0.85, off: 0.35, six: 0.05, leap: 0.25, hi: 0 },
   ukg: { k: [4, 6], art: 0.7, off: 0.5, six: 0.3, leap: 0.3, hi: 0 },
   euphoric: { k: [3, 5], art: 0.9, off: 0.25, six: 0, leap: 0.35, hi: 1 },
@@ -196,7 +201,7 @@ function writePart(r, P, kind, deg, chordTones, hookHead) {
     rh.forEach(([s, d], j) => {
       const x = (s - rh[0][0]) / ((rh[rh.length - 1][0] - rh[0][0]) || 1), pk = peakJ / Math.max(1, rh.length - 1);
       const arc = (P.belt ? 0.86 : 0.76) + (P.belt ? 0.1 : 0.18) * Math.max(0, 1 - Math.abs(x - pk) * 1.6) + (mod(s, 16) === 0 ? 0.04 : 0) - (s < 0 || mod(s, 16) >= 12 && j < 2 ? 0.08 : 0);
-      const at = bar0 * 16 + s, v = +(Math.min(1, j === peakJ ? 0.98 : arc) * (P.gain || 1)).toFixed(3);
+      const at = bar0 * 16 + s, v = +(Math.min(1, j === peakJ ? 0.98 : arc) * (P.gain ?? 1)).toFixed(3);
       // A melisma keeps the syllable's slot: the note, a 16th on the step above, back to the note and hold (never in the
       // hook bar, which must return note for note).
       if (P.mel && d >= 6 && ds[j] + 1 < ds[peakJ] && !(kind === 'n' && s < 16) && r() < P.mel) notes.push([at, 1, semi(ds[j]), v, ph, j], [at + 1, 1, semi(ds[j] + 1), +(v * 0.9).toFixed(3), ph, j], [at + 2, d - 2, semi(ds[j]), v, ph, j]);
@@ -362,7 +367,7 @@ function setPart(r, P, kind, deg, chordTones, words, sig, ceil = Infinity) {
     rh.forEach(([s, d], j) => {
       const x = (s - rh[0][0]) / ((rh.at(-1)[0] - rh[0][0]) || 1), pk = peakJ / Math.max(1, rh.length - 1);
       const arc = (P.belt ? 0.86 : 0.76) + (P.belt ? 0.1 : 0.18) * Math.max(0, 1 - Math.abs(x - pk) * 1.6) + (stress[j] ? 0.05 : 0) - (s < 0 ? 0.08 : 0);
-      const a = bar0 * 16 + s, v = +(Math.min(1, j === peakJ ? 0.98 : arc) * (P.gain || 1)).toFixed(3);
+      const a = bar0 * 16 + s, v = +(Math.min(1, j === peakJ ? 0.98 : arc) * (P.gain ?? 1)).toFixed(3);
       if (P.mel && d >= 6 && ds[j] + 1 < ds[peakJ] && !(chorus && j < la) && r() < P.mel) notes.push([a, 1, semi(ds[j]), v, ph, j], [a + 1, 1, semi(ds[j] + 1), +(v * 0.9).toFixed(3), ph, j], [a + 2, d - 2, semi(ds[j]), v, ph, j]);
       else notes.push([a, d, semi(ds[j]), v, ph, j]);
     });
@@ -374,9 +379,11 @@ function setPart(r, P, kind, deg, chordTones, words, sig, ceil = Infinity) {
 // `words` ({ n, v, b }: up to 4 lyric lines each) sets the parts to those lines; the song genres always text-set.
 // `shape` ({ reg, leap, arousal } from the song's feeling, js/feel.js) moves the register (semitones, as scale steps),
 // the leap appetite and the signature leap, and where phrases peak: an aroused line climbs late, a low one sighs early.
-export function writeMelody(r, style, scale, { prog, alt, chord = 0, words = null, shape = null } = {}) {
-  const base = SING_PROFILES[style];
-  if (!base) return null;
+export function writeMelody(r, style, scale, { prog, alt, chord = 0, words = null, gainScale = 1, shape = null } = {}) {
+  const profile = SING_PROFILES[style];
+  if (!profile) return null;
+  if (profile.instrumental) return jazzMelody(style, Math.floor(r() * 0x7fffffff), prog);
+  const base = gainScale === 1 ? profile : { ...profile, gain: (profile.gain ?? 1) * gainScale };
   const P = shape ? { ...base, leap: Math.max(0.05, Math.min(0.95, base.leap + (shape.leap - 0.45) * 0.6)), lift: Math.round(shape.reg / 1.7), arc: 0.08 * (shape.arousal || 0) } : base;
   const deg = scale.length >= 7 ? scale.slice(0, 7) : scale.slice(0, scale.length - 1);
   const tones = (pr) => (bar) => {

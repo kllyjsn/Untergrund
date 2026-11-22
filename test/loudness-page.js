@@ -1,6 +1,7 @@
 // Loaded inside headless Chrome by scripts/loudness.mjs and test/loudness.mjs: builds a generated song the way
 // GENERATE does, renders it with the real offline engine and meters the master output.
-import { defaultState, generate, applyOverrides, arrangement, songChain, STYLES } from '/js/state.js';
+import { defaultState, STYLES } from '/js/state.js';
+import { song, plan, render } from '/test/audio-quality-page.js';
 import { renderBars } from '/js/render.js';
 import { songBars } from '/js/midi.js';
 import { loadPiece, PIECE } from '/js/repertoire.js';
@@ -8,18 +9,12 @@ import { loudness, truePeak } from '/js/loudness.js';
 import { kHops, loudnessRange } from '/js/audio-quality.js';
 import { localSpec, songState } from '/js/song-spec.js';
 
-export function song(style, seed) {
-  const s = defaultState();
-  s.scale = style === 'euphoric' ? 'major' : 'minor';
-  const g = generate(style, seed, s.scale);
-  s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
-  s.key = g.key;
-  applyOverrides(s, g);
-  s.chainOn = true;
-  s.chain = songChain(style, seed);
-  if (g.pattern.score) s.bpm = g.bpm;
-  s.artist = { name: 'UNTERGRUND', title: 'meter', style, seed, created: '' };
-  return s;
+export { song };
+
+export async function wholeSongLoudness(style, seed) {
+  const s = song(style, seed), buf = await render(s, 0, plan(s).bars);
+  const ch = [buf.getChannelData(0), buf.getChannelData(1)];
+  return { voice: s.params.stab.voice, lufs: loudness(ch, buf.sampleRate).integrated, tp: 20 * Math.log10(truePeak(ch)) };
 }
 
 // bars: render only that many bars (default the whole song) starting at startBar of the chain.
@@ -128,13 +123,15 @@ export async function sectionLift(style, seed) {
   return med(sec.G) - med(sec.C);
 }
 
-// The song builder's peak section against GENERATE's for the same style and seed (test/loudness.mjs): the two
-// share make-up gain and patterns, so a builder change that runs hotter or quieter shows up here.
+// The song builder's peak section against GENERATE's for the same style and seed, at a common tempo
+// (test/loudness.mjs): note density must not masquerade as a mastering-level difference.
 export async function builderWindow(style, seed = WINDOW.seed, bars = 4) {
   const one = async (s) => {
     const buf = await renderBars(s, bars, { sampleRate: WINDOW.sampleRate, tail: 0.5, startBar: Math.max(0, s.chain.indexOf('G')) });
     const ch = [buf.getChannelData(0), buf.getChannelData(1)];
     return { lufs: loudness(ch, buf.sampleRate).integrated, tp: 20 * Math.log10(truePeak(ch)) };
   };
-  return { style, seed, gen: await one(song(style, seed)), builder: await one(builderSong(style, seed)) };
+  const gen = song(style, seed), builder = builderSong(style, seed);
+  gen.bpm = builder.bpm;
+  return { style, seed, gen: await one(gen), builder: await one(builder) };
 }

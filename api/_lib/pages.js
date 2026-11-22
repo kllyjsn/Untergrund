@@ -176,9 +176,8 @@ const ROOM_ID = /^[a-z0-9-]{2,32}$/;
 const cleanRoomId = (v) => String(v || '').toLowerCase().slice(0, 32);
 const roomSnap = async (rooms, id) => (rooms ? (await rooms.get(id).catch(() => null))?.json : null);
 const liveSet = (snap) => (snap?.members?.length && snap.currentSet?.state ? snap.currentSet : null);
-// The set on stage is this song when its notes match (titles can differ: untitled sets go live as 'Live Machine Set') or its title does.
-const sameTrack = (track, set) => !!set && ((!!track.state && songFingerprint(set.state) === songFingerprint(track.state))
-  || String(set.title || '').trim().toLowerCase() === String(track.title || '').trim().toLowerCase());
+// Titles can change on publish or repeat across unrelated songs. Only link the matching version.
+const sameTrack = (track, set) => !!(set?.state && track.state && songFingerprint(set.state) === songFingerprint(track.state));
 const sameSong = async (kv, crate, id, set) => { const t = await publicTrack(kv, crate, id).catch(() => null); return !!t && sameTrack(t.track, set); };
 
 // /r/<room>: the invite link. Unfurls with what's playing; the page itself forwards people into the Club (js/page.js).
