@@ -6,7 +6,7 @@ import { Engine, Sequencer, stabPitches } from '../js/engine.js';
 import { rhodesVoicing, rhodesLineOctave, rhodesPhraseOctave, rhodesLoFiVoicing, rhodesLoFiPhrase, rhodesRnBVoicing, RHODES_STYLES } from '../js/rhodes.js';
 import { Recorder, capture } from '../js/midi.js';
 import { KIT_BACKBEAT, HAND_KIT, MARIMBA_STAB, CHORDS } from '../js/params.js';
-import { defaultState, generate, STYLES, arrangement, applyOverrides, applySongPlan } from '../js/state.js';
+import { defaultState, generate, STYLES, arrangement, applyOverrides, applySongPlan, freshSong } from '../js/state.js';
 import { hookSnap } from '../js/harmony.js';
 import { createPlayer } from '../js/player.js';
 import { timelineSets } from '../js/live-sets.js';
@@ -270,7 +270,41 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
   const e = { state, ctx, step: 0, playbackStyle: 'lofihiphop', rec: () => null, gain: Engine.prototype.gain,
     startSource: Engine.prototype.startSource, filter: Engine.prototype.filter, playBuf: (...a) => hits.push(a) };
   assert.equal(Engine.prototype.rhodesKeys.call(e, 1, .5, [0], 60, state.params.stab, ctx.destination), false, 'cold set falls through, never recurses');
+  const audioBuffer = globalThis.AudioBuffer;
+  globalThis.AudioBuffer = AudioBuffer;
+  const funkState = freshSong('jazzfunk', 42), funk = new Engine(new FakeContext(2, 48000, 48000), funkState, { realtime: false });
+  const fmOutput = funk.out.gain.value;
+  funk.recLock = new Map();
+  funk.applyOutputTrim(true);
+  assert.equal(funk.out.gain.value, fmOutput, 'unloaded Jazz-Funk keeps the FM master level');
+  assert.equal(funk.recLock.has('rhodes'), false, 'reading output trim does not lock a not-yet-played part');
   await loadBand('rhodes');
+  const recordedOutput = fmOutput * 10 ** (0.5 / 20);
+  funk.playBuf = () => {};
+  assert.equal(funk.rhodesKeys(2, .5, [0, 4, 7], 60, funkState.params.stab, funk.ctx.destination), true);
+  assert(Math.abs(funk.out.gain.at(2) - recordedOutput) < 1e-12, 'a recording ready at its first note gets the scheduled master makeup');
+  assert.equal(funk.recLock.get('rhodes'), true);
+  funk.recLock = new Map([['rhodes', false]]);
+  funk.applyOutputTrim(true);
+  assert.equal(funk.out.gain.value, fmOutput, 'a locked FM song stays at main level after recordings load');
+  assert.equal(funk.rhodesKeys(3, .5, [0, 4, 7], 60, funkState.params.stab, funk.ctx.destination), false);
+  funk.recLock = new Map();
+  funkState.params.stab.rhodesFM = true;
+  funk.applyOutputTrim(true);
+  assert.equal(funk.out.gain.value, fmOutput, 'explicit FM playback does not get recorded makeup');
+  delete funkState.params.stab.rhodesFM;
+  funk.applyOutputTrim(true);
+  assert(Math.abs(funk.out.gain.value - recordedOutput) < 1e-12);
+  funk.playingPattern = {};
+  funk.applyOutputTrim(true);
+  assert.equal(funk.out.gain.value, .78, 'leaving the Jazz-Funk pattern removes its recorded makeup');
+  for (const style of ['neosoul', 'rnb', 'lofihiphop', 'trap']) {
+    const other = new Engine(new FakeContext(2, 48000, 48000), freshSong(style, 42), { realtime: false });
+    const output = other.out.gain.value;
+    other.recLock = new Map([['rhodes', false]]); other.applyOutputTrim(true);
+    assert.equal(other.out.gain.value, output, `${style} master level is independent of Rhodes availability`);
+  }
+  globalThis.AudioBuffer = audioBuffer;
   for (const [i, [center]] of liveSet('rhodes').entries()) {
     const midi = BAND.rhodes[i];
     assert.equal(center, midi + rhodesTune[midi] / 100, 'every shipped sample loads with its measured tuning');

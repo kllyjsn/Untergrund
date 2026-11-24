@@ -1054,7 +1054,8 @@ export class Engine {
     }
     const mix = JAZZ_MIX[jazzStyle(this.state, this.playingPattern)];
     const trim = this.minimal ? 0.32 : this.playbackStyle === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : jazzStyle(this.state, this.playingPattern) === 'bossa' ? voice === 7 ? mix.pianoOutput : voice === 8 ? mix.guitarOutput : mix.output : mix?.output ?? STYLE_OUTPUT_DB[this.playbackStyle] ?? 0;
-    const level = this.hardTechno ? 0.89 : OUT_TRIM * dbGain(trim);
+    this.rhodesOutput = jazzStyle(this.state, this.playingPattern) === 'jazzfunk' && !this.state.params.stab.rhodesFM && !!this.rec('rhodes', false);
+    const level = this.hardTechno ? 0.89 : OUT_TRIM * dbGain(trim + (this.rhodesOutput ? 0.5 : 0));
     if (Number.isFinite(time)) this.out.gain.setValueAtTime(level, time);
     else this.setTo(this.out.gain, level, immediate);
     const clipTrim = this.playbackStyle === 'neosoul' ? dbGain(-2.5) : jazzStyle(this.state, this.playingPattern) === 'jazzfunk' ? dbGain(-1.5) : 1;
@@ -2392,6 +2393,7 @@ export class Engine {
     const notes = p.rhodesLine ? requested : style === 'lofihiphop' ? rhodesLoFiVoicing(requested) : style === 'rnb' ? rhodesRnBVoicing(requested) : rhodesVoicing(requested);
     if (notes === null) return false;
     if (!notes.length) return true;
+    if (funk && !this.rhodesOutput) this.applyOutputTrim?.(false, t);
     const [envRef, detuneRef, tineRef] = {
       neosoul: [0.25, 14, 1], rnb: [0.25, 10, 1], lofihiphop: [0.12, 8, 0.18], jazzfunk: [0.12, 0.6, 1],
     }[style];

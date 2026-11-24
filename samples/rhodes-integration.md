@@ -28,6 +28,8 @@ Maximum corrected stretch is 3.9485 semitones for chords and R&B lines, 3.9937 f
 
 ## Loudness
 
+Recorded Jazz-Funk adds 0.5 dB through the existing post-clipper master output trim. The recording lock gates this makeup: unloaded, locked-FM and explicit-FM songs keep main's level. A recording ready at its first note refreshes the trim at that note. Comp gain, the −19 dB / 300 Hz shelf, limiter drive and other styles are unchanged. This is the smallest 0.25 dB step giving at least 0.25 LU margin in the seed-42 loudness gate and full-song seeds 11/42/77; no loudness targets or baselines change.
+
 `node test/rhodes-render.mjs --levels` measures eight bars of the same generated comp, hooks and licks disabled, tapping the stab channel after its existing strip and fader, before master processing. RMS excludes the final one-second tail. The table below records the initial integration, before the Jazz-Funk shelf and higher-register Lo-Fi/FM fallback revision; it is not a measurement of the revised player.
 
 | Style / seed | FM | Recorded | Difference |
