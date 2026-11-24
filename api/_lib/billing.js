@@ -180,14 +180,19 @@ export async function handleBillingWebhook(req, { kv, env = process.env, fetchIm
   return result(200, { received: true });
 }
 
-export async function readBillingWebhook(req) {
-  let size = 0;
-  const chunks = [];
-  for await (const chunk of req) {
-    size += chunk.length;
-    if (size <= MAX_WEBHOOK_BYTES) chunks.push(chunk);
-  }
-  return size <= MAX_WEBHOOK_BYTES ? Buffer.concat(chunks) : null;
+export function readBillingWebhook(req) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    // Vercel replays the original bytes to data/end listeners after parsing the request.
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size <= MAX_WEBHOOK_BYTES) chunks.push(chunk);
+    });
+    req.on('end', () => resolve(size <= MAX_WEBHOOK_BYTES ? Buffer.concat(chunks) : null));
+    req.on('error', reject);
+    req.on('aborted', () => reject(new Error('Billing webhook aborted')));
+  });
 }
 
 export async function hasProBadge(kv, account, env = process.env) {

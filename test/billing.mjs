@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
+import { PassThrough, Readable } from 'node:stream';
 import { handleAccount, linkProvider, sessionCookie, signSession } from '../api/_lib/accounts.js';
 import { billingConfig, handleBilling, handleBillingWebhook, hasProBadge, readBillingWebhook } from '../api/_lib/billing.js';
 import { memoryKv } from '../api/_lib/kv.js';
@@ -114,8 +115,15 @@ const send = (type, status, opts = {}, context = ctx) => {
 assert.equal((await send('customer.subscription.created', 'active', { tampered: true })).status, 400);
 assert.equal((await send('customer.subscription.created', 'active', { age: 301 })).status, 400);
 assert.equal((await send('customer.subscription.created', 'active', { live: true })).status, 400);
-assert.equal((await readBillingWebhook([Buffer.from(' {'), Buffer.from('} ')])).toString(), ' {} ');
-assert.equal(await readBillingWebhook([Buffer.alloc(512 * 1024 + 1)]), null);
+assert.equal((await readBillingWebhook(Readable.from([Buffer.from(' {'), Buffer.from('} ')]))).toString(), ' {} ');
+assert.equal(await readBillingWebhook(Readable.from([Buffer.alloc(512 * 1024 + 1)])), null);
+const consumed = Readable.from([]);
+for await (const _ of consumed) { /* Vercel has consumed the request. */ }
+const replay = new PassThrough();
+const originalOn = consumed.on.bind(consumed);
+consumed.on = consumed.addListener = (event, fn) => ['data', 'end'].includes(event) ? replay.on(event, fn) : originalOn(event, fn);
+replay.end(Buffer.from('{\n  "livemode": false\n}'));
+assert.equal((await readBillingWebhook(consumed)).toString(), '{\n  "livemode": false\n}');
 assert.equal(await hasProBadge(kv, acct.id, env), false);
 
 latest.status = 'complete';
