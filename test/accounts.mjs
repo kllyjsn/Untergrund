@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { generateKeyPairSync, sign } from 'node:crypto';
+import { once } from 'node:events';
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:net';
+import { fileURLToPath } from 'node:url';
 import { memoryKv } from '../api/_lib/kv.js';
 import { memoryStore } from '../api/_lib/crate.js';
 import { handleAccount, handleError, normalizeHandle, signSession, verifySession, sessionCookie, parseCookies, attachPublished, attachTrack, COOKIE } from '../api/_lib/accounts.js';
@@ -287,3 +292,30 @@ assert.equal((await googleFlow(oldGoogle, false)).result.redirect, '/?account=go
 assert.notEqual((await request(oldGoogle, null, {}, { method: 'GET' })).json.account.id, id, 'the old Google identity cannot regain access after recovery');
 assert.equal((await signIn(jar(), { password: resetPassword })).json.account.id, id);
 console.log('Resend reset delivery, single-use tokens and session rotation passed');
+
+// ---------- self-hosted account data stays private ----------
+const root = fileURLToPath(new URL('../', import.meta.url));
+const dir = await mkdtemp(root + 'data/account-store-test-');
+const file = dir + '/kv.json';
+const server = createServer().listen(0, '127.0.0.1');
+await once(server, 'listening');
+const { port } = server.address();
+await new Promise((resolve) => server.close(resolve));
+await writeFile(file, '{}');
+await symlink(file, dir + '/alias.json');
+const app = spawn(process.execPath, ['server.mjs'], { cwd: root, env: { ...process.env, PORT: String(port), DATA_FILE: file },
+  stdio: ['ignore', 'pipe', 'inherit'] });
+try {
+  await Promise.race([once(app.stdout, 'data'), once(app, 'exit').then(([code]) => { throw new Error(`self-hosted server exited: ${code}`); })]);
+  const status = async (path) => (await fetch(`http://127.0.0.1:${port}/${path}`)).status;
+  assert.equal(await status('index.html'), 200);
+  assert.equal(await status(file.slice(root.length)), 404);
+  assert.equal(await status(dir.slice(root.length) + '/alias.json'), 404);
+  assert.equal(await status('.data/kv.json'), 404);
+} finally {
+  const exited = once(app, 'exit');
+  app.kill();
+  await exited;
+  await rm(dir, { recursive: true, force: true });
+}
+console.log('self-hosted static files refuse configured account stores and filesystem aliases');

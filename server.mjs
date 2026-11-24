@@ -2,7 +2,7 @@
 // SC_MOCK=1 points the app at an in-process fake SoundCloud for offline testing.
 import { randomBytes } from 'node:crypto';
 import http from 'node:http';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { publicConfig, exchangeToken } from './api/_lib/soundcloud.js';
@@ -47,7 +47,8 @@ const STATS_TOKEN = process.env.STATS_TOKEN || (MOCK ? 'dev' : '');
 const crateStore = redisStore() || memoryStore();
 const singStore = memorySingStore();
 // Accounts/handles/follows persist to a local JSON file when Redis isn't configured.
-const accountKv = redisAccountKv() || memoryAccountKv({ file: process.env.DATA_FILE || path.join(ROOT, '.data/kv.json') });
+const accountDataFile = path.resolve(process.env.DATA_FILE || path.join(ROOT, '.data/kv.json'));
+const accountKv = redisAccountKv() || memoryAccountKv({ file: accountDataFile });
 let authSecret = process.env.AUTH_SECRET || '';
 if (!authSecret && !redisKv()) {
   authSecret = (await accountKv.cmd(['GET', 'untergrund:dev:auth-secret'])) || randomBytes(32).toString('hex');
@@ -201,8 +202,15 @@ http.createServer(async (req, res) => {
     }
     if (p.endsWith('/')) p += 'index.html';
     const file = path.join(ROOT, path.normalize(p));
-    if (!file.startsWith(ROOT) || /\/(\.git|api|node_modules|suno-lab)(\/|$)/.test(file.slice(ROOT.length))) { res.writeHead(404); return res.end(); }
-    const data = await readFile(file);
+    const privatePath = (file) => !file.startsWith(ROOT) || /\/(\.[^/]+|api|node_modules|suno-lab)(\/|$)/.test(file.slice(ROOT.length));
+    if (privatePath(file) || file === accountDataFile) { res.writeHead(404); return res.end(); }
+    const resolved = await realpath(file);
+    const privateStore = await realpath(accountDataFile).catch((err) => {
+      if (err.code !== 'ENOENT') throw err;
+      return accountDataFile;
+    });
+    if (privatePath(resolved) || resolved === privateStore) { res.writeHead(404); return res.end(); }
+    const data = await readFile(resolved);
     res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
     res.end(data);
   } catch (err) {
