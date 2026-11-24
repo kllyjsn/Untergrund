@@ -290,7 +290,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor', { feel =
 
 function generatePattern(style, seed, scaleName, starter, feel = null, keepScale = false) {
   const r = rng(seed);
-  const F = !FORMS[style] && style !== 'repertoire' && style !== 'bossa' && isFeel(feel) ? FEELS[feel] : null;
+  const F = !FORMS[style] && style !== 'repertoire' && style !== 'bossa' && style !== 'jazzfunk' && isFeel(feel) ? FEELS[feel] : null;
   const mode = F && !keepScale && feelMode(style, feel, scaleName);
   if (mode) scaleName = mode;
   const musicalScale = SCALES[MAJOR_STYLES.has(style) && scaleName === 'minor' ? 'major' : scaleName]?.notes || SCALES.minor.notes;

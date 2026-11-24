@@ -145,4 +145,25 @@ for (const row of stereoBrass) {
   assert(row.loss > -0.05, `${row.style}: low-band mono loss ${row.loss} dB`);
   assert(row.highSide > 0.001, `${row.style}: upper-band stereo is preserved`);
 }
+const weightCases = [['peak', 1], ['industrial', 5], ['electrohiphop', 20], ['electrohiphop', 1]];
+const brassWeight = await withChrome(async runs => Promise.all(weightCases.map(([style, seed], i) => runs[i](`(async () => {
+  const { brassWeight } = await import('/test/brass-weight-page.js');
+  const rows = [];
+  for (const variant of ${JSON.stringify(i === 0 ? ['synth', 'before', 'current'] : ['synth', 'current'])}) rows.push(await brassWeight('${style}', ${seed}, variant));
+  return rows;
+})()`))), { pages: weightCases.length });
+assert(brassWeight, 'native whole-render brass weight verification requires Chrome');
+for (const rows of brassWeight) {
+  const main = rows.find(r => r.variant === 'synth'), current = rows.find(r => r.variant === 'current'), before = rows.find(r => r.variant === 'before');
+  assert(current.calls > 0 && current.frames === main.frames, `${current.style}: aligned whole-song brass`);
+  if (current.style === 'electrohiphop') {
+    assert(Math.abs(current.lufs - main.lufs) < 0.5, `${current.style}/${current.seed}: brass loudness delta ${current.lufs - main.lufs} LU`);
+  } else {
+    for (const channel of ['stereo', 'mono']) assert(Math.abs(current[channel] - main[channel]) < 1, `${current.style}: 62–125 Hz ${channel} delta ${current[channel] - main[channel]} dB`);
+  }
+  assert(current.correlation > 0.98, `${current.style}: whole-render low-band correlation ${current.correlation}`);
+  assert(current.loss > -0.05, `${current.style}: whole-render low-band mono loss ${current.loss} dB`);
+  if (before) assert(Math.abs(current.lufs - before.lufs) < 0.5, `Peak: brass loudness change ${current.lufs - before.lufs} LU`);
+}
+console.log('analog brass weight: native whole-song raw stems, zero-phase Butterworth 62–125 Hz, mono safety and integrated loudness passed');
 console.log('analog: style/tuple preloads, synth fallbacks, measured pitch, stereo crossfaded loops, DETUNE PCM/spread, mono-safe brass, release, Hard Techno attack and Dub cadence passed');

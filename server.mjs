@@ -2,7 +2,7 @@
 // SC_MOCK=1 points the app at an in-process fake SoundCloud for offline testing.
 import { randomBytes } from 'node:crypto';
 import http from 'node:http';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { publicConfig, exchangeToken } from './api/_lib/soundcloud.js';
@@ -36,6 +36,7 @@ import { handlePlan, planEnv } from './api/_lib/song-plan-ai.js';
 import { handleSing, singEnv, memorySingStore, MAX_SING_BODY } from './api/_lib/sing.js';
 import { redisKv as redisAccountKv, memoryKv as memoryAccountKv } from './api/_lib/kv.js';
 import { handleAccount, attachPublished } from './api/_lib/accounts.js';
+import { GOOGLE_CALLBACK } from './api/_lib/listener-auth.js';
 import { handleBilling, handleBillingWebhook, readBillingWebhook } from './api/_lib/billing.js';
 import { handleSongDrafts, MAX_DRAFT_BODY } from './api/_lib/song-drafts.js';
 import { handlePage } from './api/_lib/pages.js';
@@ -118,8 +119,9 @@ http.createServer(async (req, res) => {
         for await (const c of req) { size += c.length; if (size > MAX_TRACK_BYTES * 2) break; chunks.push(c); }
         try { body = JSON.parse(Buffer.concat(chunks).toString() || '{}'); } catch { body = null; }
       }
-      const { status, json } = await handleJukebox(req.method, body, { store: jukeboxStore, crate: crateStore, client: req.socket.remoteAddress, id: url.searchParams.get('id') || '' });
-      if (status === 201 && json.item?.trackId) await attachPublished({ kv: accountKv, secret: authSecret, cookie: req.headers.cookie, crate: crateStore, trackId: json.item.trackId });
+      const auth = { kv: accountKv, secret: authSecret, cookie: req.headers.cookie };
+      const { status, json } = await handleJukebox(req.method, body, { store: jukeboxStore, crate: crateStore, auth, client: req.socket.remoteAddress, id: url.searchParams.get('id') || '' });
+      if (status === 201 && json.item?.trackId && !body.accountId) await attachPublished({ ...auth, crate: crateStore, trackId: json.item.trackId });
       res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       return res.end(JSON.stringify(json));
     }
@@ -193,13 +195,16 @@ http.createServer(async (req, res) => {
         return sendJson(res, 502, { error: 'billing_unavailable' });
       }
     }
-    if (url.pathname === '/api/account') {
+    if (url.pathname === '/api/account' || url.pathname === GOOGLE_CALLBACK) {
       let body = {};
       if (req.method === 'POST') { const raw = await readBody(req, 16000); try { body = JSON.parse(raw?.toString() || '{}'); } catch { body = null; } }
-      const { status, json, cookie } = await handleAccount({ method: req.method, query: Object.fromEntries(url.searchParams), body, cookie: req.headers.cookie,
+      const query = Object.fromEntries(url.searchParams);
+      if (url.pathname === GOOGLE_CALLBACK) query.action = 'google-callback';
+      const { status, json, cookie, redirect } = await handleAccount({ method: req.method, query, body, cookie: req.headers.cookie,
         client: req.socket.remoteAddress, origin: req.headers.origin, host: req.headers.host }, accountCtx());
-      res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(cookie && { 'Set-Cookie': cookie }) });
-      return res.end(JSON.stringify(json));
+      res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(cookie && { 'Set-Cookie': cookie }),
+        ...(redirect && { Location: redirect, 'Referrer-Policy': 'no-referrer' }) });
+      return res.end(redirect ? undefined : JSON.stringify(json));
     }
     const pageMatch = url.pathname.match(/^\/(a|t|r)\/([^/]{1,60})\/?$/);
     if (pageMatch || url.pathname === '/api/page' || url.pathname === '/api/flagship') {
@@ -248,9 +253,15 @@ http.createServer(async (req, res) => {
     }
     if (p.endsWith('/')) p += 'index.html';
     const file = path.join(ROOT, path.normalize(p));
-    if (!file.startsWith(ROOT + path.sep) || file === accountDataFile ||
-      /\/(\.[^/]+|api|node_modules|suno-lab)(\/|$)/.test(file.slice(ROOT.length))) { res.writeHead(404); return res.end(); }
-    const data = await readFile(file);
+    const privatePath = (file) => !file.startsWith(ROOT + path.sep) || /\/(\.[^/]+|api|node_modules|suno-lab)(\/|$)/.test(file.slice(ROOT.length));
+    if (privatePath(file) || file === accountDataFile) { res.writeHead(404); return res.end(); }
+    const resolved = await realpath(file);
+    const privateStore = await realpath(accountDataFile).catch((err) => {
+      if (err.code !== 'ENOENT') throw err;
+      return accountDataFile;
+    });
+    if (privatePath(resolved) || resolved === privateStore) { res.writeHead(404); return res.end(); }
+    const data = await readFile(resolved);
     res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
     res.end(data);
   } catch (err) {

@@ -8,7 +8,7 @@ import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel, swingLate, swingDuration } from './groove.js';
 import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes, jazzNotches, JAZZ_MIX, BOSSA_RIM, BOSSA_BATIDA, bossaBass } from './jazz.js';
-import { funkBass, FUNK_KICK, FUNK_SNARE, FUNK_COMP } from './jazzfunk.js';
+import { funkBass, funkGroove, funkNotes, FUNK_KICK, FUNK_SNARE, FUNK_COMP, FUNK_GUITAR } from './jazzfunk.js';
 import { bossaGrip, bossaLine, bossaPocket, bossaRhythm, BOSSA_KICK, BOSSA_HAT, BOSSA_BASS } from './bossa.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ, TECHNO_HOOK_SPACE } from './lead.js';
 import { lowEnd } from './lowend.js';
@@ -144,6 +144,10 @@ const WIND_HOOK = {
 // Held alto notes sat dead straight, so their 8th-15th harmonics rang as fixed 2.5-3.1 kHz lines over the mix;
 // a player's 20-cent vibrato, leaned into after the attack, spreads them.
 const ALTO_VIB = 20;
+// Vibrato timing: shortest note that gets it, onset delay, and when it reaches full depth (cap, share of note).
+const VIB_ON = [0.2, 0.12, 0.45, 0.6];
+// The alto's quarter-note riff repeats are mostly shorter than VIB_ON's ramp, so its vibrato starts sooner.
+const ALTO_VIB_ON = [0.15, 0.06, 0.3, 0.5];
 // Notes the alto repeats or holds still stack their 4th-8th harmonics in 2.4-3.3 kHz, so each note dips
 // whichever of its own harmonics land there by 9 dB, leaving the rest of the horn's tone intact.
 const ALTO_RING = { lo: 2400, hi: 3300, q: 24, db: -9 };
@@ -223,7 +227,7 @@ const ANALOG_LOOPS = new WeakMap();
 const ANALOG_LEVEL = {
   hypnotic: { 2: 0.695 }, ambient: { 2: 0.661 }, peak: { 2: 0.625, 4: 0.82 },
   hardtechno: { 2: 0.485 }, trance: { 2: 0.51, 4: 0.662 }, industrial: { 4: 0.823 },
-  electro: { 4: 0.892 }, electrohiphop: { 4: 0.957 },
+  electro: { 4: 0.892 }, electrohiphop: { 4: 0.88 },
 };
 const DUB_PAD_LEVEL = { 0: 1.55, 2: 1.28, 3: 1.96, 5: 1.26 };
 function analogLoop(ctx, buf) {
@@ -1711,11 +1715,12 @@ export class Engine {
     // A bent note: the string is pushed up from below and lands on the pitch.
     if (fx.bend) { s.detune.setValueAtTime(-100 * fx.bend, t); s.detune.setValueCurveAtTime(bendCurve(fx.bend), t + BEND_HOLD, BEND_RISE); }
     // A held lead note: vibrato that the player leans into after the pick attack.
-    if (fx.vib && dur > 0.2) {
+    const [vibMin, vibDelay, vibFull, vibShare] = fx.vibOn || VIB_ON;
+    if (fx.vib && dur > vibMin) {
       const lfo = this.ctx.createOscillator(), depth = this.gain(0);
       lfo.frequency.value = 5.2 + hash(t, 31) * 0.8;
-      const still = fx.bend ? BEND_HOLD + BEND_RISE + 0.05 : 0.12;
-      depth.gain.setValueAtTime(0, t + still); depth.gain.linearRampToValueAtTime(fx.vib, t + Math.max(still + 0.1, Math.min(0.45, dur * 0.6)));
+      const still = fx.bend ? BEND_HOLD + BEND_RISE + 0.05 : vibDelay, full = Math.min(vibFull, dur * vibShare);
+      depth.gain.setValueAtTime(0, t + still); depth.gain.linearRampToValueAtTime(fx.vib, t + (fx.bend ? Math.max(still + 0.1, full) : full));
       lfo.connect(depth).connect(s.detune); this.startSource(lfo, t); lfo.stop(t + dur + 0.5);
     }
     // Held orchestral notes outlast their recording: loop the sustained middle, after the attack.
@@ -3146,7 +3151,12 @@ export class Engine {
     const atk = pad ? 0.04 + p.env * 0.9 : 0.025;
     const hold = pad ? Math.max(this.stepDur * 4, p.decay * 1.2) : Math.max(0.08, p.decay * 0.8);
     const end = pad ? atk + hold + p.decay * 2 + 0.2 : hold + 0.4;
-    const amp = this.gain(0), level = ANALOG_LEVEL[this.playbackStyle][voice];
+    const amp = this.gain(0);
+    let level = ANALOG_LEVEL[this.playbackStyle][voice];
+    if (!pad && this.playbackStyle === 'electrohiphop') {
+      const register = root + iv.reduce((sum, n) => sum + n, 0) / iv.length;
+      level *= dbGain((60 - register) / 6);
+    }
     amp.gain.setValueAtTime(0, t);
     amp.gain.linearRampToValueAtTime(v * level / Math.sqrt(iv.length), t + atk);
     if (pad) amp.gain.setTargetAtTime(0, t + atk + hold, Math.max(0.1, p.decay * 0.6));
@@ -3155,8 +3165,15 @@ export class Engine {
       amp.gain.setTargetAtTime(0, t + hold, 0.06);
     }
     amp.gain.setValueAtTime(0, t + end);
-    const hp = this.filter('highpass', hard ? 300 : 150, 0.5);
-    amp.connect(hp).connect(pad ? out : this.analogBrassOut(out));
+    const body = !pad && (this.playbackStyle === 'peak' || this.playbackStyle === 'industrial');
+    const hp = this.filter('highpass', hard ? 300 : body ? 70 : 150, 0.5);
+    let tail = hp;
+    if (body) {
+      tail = hp.connect(this.filter('lowshelf', 125, 0.7));
+      tail.gain.value = this.playbackStyle === 'peak' ? 1 : 2.5;
+    }
+    amp.connect(hp);
+    tail.connect(pad ? out : this.analogBrassOut(out));
     const pans = this.sidePans([-0.6, 0, 0.6], amp);
     const sides = pad ? [-1, 0, 1] : [-1, 1], spread = pad ? (4 + p.detune) * (hard ? 3 : 1) : p.detune * 0.5;
     iv.forEach((n, k) => {
@@ -3958,7 +3975,7 @@ export class Engine {
         lp: Math.min(styleFx.cap ?? Infinity, lp + 2100 * touch + 650 * (air - 0.5)), lpStages: styleFx.lpStages, offset: offset + tongue * 0.012,
         fade: (voice === 'tpt' ? 0.025 : strong ? 0.007 : 0.012) + 0.009 * (1 - tongue),
         attackGain: (strong ? 1.04 : 0.9) + (tongue - 0.5) * 0.24,
-        release: 0.055, ringOut: true, ...(voice === 'tpt' ? { vib: 6 } : voice === 'altosax' ? { vib: ALTO_VIB } : {}),
+        release: 0.055, ringOut: true, ...(voice === 'tpt' ? { vib: 6 } : voice === 'altosax' ? { vib: ALTO_VIB, vibOn: ALTO_VIB_ON } : {}),
       });
   }
 
@@ -5579,7 +5596,7 @@ const PRE_HZ = 4500, BUILD_HZ = 3000;
 const GRID_TEMPO = new Set(['hypnotic', 'industrial', 'acid', 'dub', 'peak', 'hardtechno', 'deephouse', 'minimal', 'ukg', 'euphoric', 'trance', 'amapiano', 'bailefunk', 'jerseyclub']);
 export function feelTempo(s, chain, pos, i16, style = s.artist?.style) {
   const f = feelOf(s), n = chain.length;
-  if (!f || !n || s.sing?.on || GRID_TEMPO.has(style)) return 1;
+  if (!f || !n || s.sing?.on || GRID_TEMPO.has(style) || jazzStyle(s, s.patterns[chain[pos]]) === 'jazzfunk') return 1;
   let m = 1;
   if (s.patterns[chain[pos]]?.sec && jazzStyle(s, s.patterns[chain[pos]]) !== 'jazzfunk') {
     let a = pos;
@@ -5759,7 +5776,7 @@ export class Sequencer {
       this.e.hardSection?.(t, this.cur, this.runPos, this.runLen, this.chainArr[this.chainPos]);
       return;
     }
-    const pats = this.s.patterns, sec = pats[this.cur]?.sec, f = feelOf(this.s);
+    const pats = this.s.patterns, sec = pats[this.cur]?.sec, f = jazzStyle(this.s, pats[this.cur]) === 'jazzfunk' ? null : feelOf(this.s);
     if (!sec && f && this.dropNext) return this.level(t, 0, [-1.2 * f.dyn.contrast, 16 * this.e.stepDur]);
     if (!sec) {
       if (this.verseFillSwell(t, this.chainArr, pos, offset)) return;
@@ -6169,38 +6186,118 @@ export class Sequencer {
 
   jazzfunkStep(pat, abs, t, pos, bars) {
     const e = this.e, s = this.s, i = abs % 16, bar = Math.floor(abs / 16), sd = e.stepDur;
+    const seed = pat.jazz.seed, solo = this.cur === 2, groove = funkGroove(seed, bar, solo);
+    let start = pos, end = pos + 1;
+    const sec = this.chainEntries?.[pos]?.sec;
+    const same = (at) => sec != null ? this.chainEntries?.[at]?.sec === sec : this.chainArr[at] === this.cur;
+    while (start > 0 && same(start - 1)) start--;
+    while (end < bars && same(end)) end++;
+    const sectionBar = bars ? pos - start : bar % 48, sectionBars = bars ? end - start : 48;
+    const intro = this.cur === 6 && start === 0 && sectionBars >= 8 && sectionBar < 4;
+    const keysOut = intro && sectionBar < 2 || solo && sectionBar >= 16 && sectionBar < 20;
+    const hits = solo && sectionBars >= 8 && sectionBar >= sectionBars - 2;
+    const transition = bars && end < bars && pos === end - 1;
+    if (transition) {
+      groove.fill = groove.big = true;
+      groove.snare = [...new Set([...groove.snare, 10, 13, 14, 15])];
+      groove.kick = [...new Set([...groove.kick, 14])];
+    }
+    if (hits) {
+      const figure = sectionBar === sectionBars - 2 ? [0, 6, 10] : [0, 3, 6, 12, 15];
+      groove.kick = groove.snare = groove.comp = figure;
+      groove.chank = [];
+    }
     const enabled = (id) => !s.mutes[id] && (!Object.values(s.solos).some(Boolean) || s.solos[id]);
     const final = s.ending && bars && pos === bars - 1;
     if (final && i) return this.cur;
-    const accent = (id) => pat.steps[id][abs % (pat.len[id] || 16)] === 2 ? 1 / 0.78 : 1;
-    if (!final) {
-      const kick = this.jazzGrid(pat, 'kick', abs, FUNK_KICK[0], FUNK_KICK[bar % 2].includes(i));
-      const snare = this.jazzGrid(pat, 'snare', abs, FUNK_SNARE, FUNK_SNARE.includes(i), [4, 12]);
-      if (enabled('kick') && kick) e.trigger('kick', t, 0.65 * kick);
-      if (enabled('snare') && snare) e.trigger('snare', t, (i % 8 === 4 ? 0.72 : 0.18) * snare);
-      if (enabled('ch') && pat.steps.ch[abs % (pat.len.ch || 16)]) e.trigger('ch', t, (i % 4 === 0 ? 0.32 : i % 2 ? 0.17 : 0.23) * accent('ch'));
-      if (enabled('oh') && pat.steps.oh[abs % (pat.len.oh || 16)]) e.trigger('oh', t, 0.24 * accent('oh'));
+    if (final && pat.prog?.length) e.harm = pat.prog[0];
+    const jitter = (salt) => hash(abs + seed, salt);
+    const kickAt = t + (jitter(201) * 2 - 1) * 0.001;
+    const comp = this.jazzGrid(pat, 'stab', abs, FUNK_COMP[0], final || groove.comp.includes(i));
+    if (final) {
+      if (enabled('kick') && this.jazzGrid(pat, 'kick', abs, FUNK_KICK[0], true)) e.trigger('kick', t, 0.95);
+      if (enabled('oh') && pat.steps.oh.some(Boolean)) e.crash(t, 0.7);
     }
-    const bass = funkBass(s.key, e.harm, bar), note = bass.find(([at]) => at === i);
+    if (!final) {
+      const kick = this.jazzGrid(pat, 'kick', abs, FUNK_KICK[0], groove.kick.includes(i));
+      const snare = this.jazzGrid(pat, 'snare', abs, FUNK_SNARE, groove.snare.includes(i), [4, 12]);
+      if (enabled('kick') && kick) e.trigger('kick', kickAt, (i === 0 ? 0.8 : 0.66 + jitter(202) * 0.08) * kick);
+      if (enabled('snare') && snare) {
+        const back = i === 4 || i === 12, fill = groove.fill && i >= (groove.big ? 9 : 13);
+        const at = t + (back ? (jitter(203) * 2 - 1) * 0.001 : 0.006 + jitter(204) * 0.004);
+        e.trigger('snare', at, (back ? 0.76 : fill ? 0.32 + jitter(205) * 0.18 : 0.25 + jitter(206) * 0.05) * snare);
+      }
+      const ch = this.jazzGrid(pat, 'ch', abs, Array.from({ length: 16 }, (_, k) => k), groove.ch.includes(i));
+      const oh = this.jazzGrid(pat, 'oh', abs, [14], groove.oh.includes(i));
+      const hatAt = t + (i % 2 ? 0.003 + jitter(207) * 0.004 + (jitter(208) * 2 - 1) * 0.002 : 0);
+      if (enabled('ch') && ch) e.trigger('ch', hatAt, (i % 4 === 0 ? 0.38 : i % 2 ? 0.28 : 0.32) * (hits ? 0.7 : 1) * (0.94 + jitter(209) * 0.12) * ch);
+      if (!hits && enabled('oh') && oh) {
+        const kit = e.rec?.('kit');
+        if (kit && Math.round(s.master.kit) === 1) {
+          const buf = kit[jitter(212) < 0.5 ? 'hh_half' : 'hh_half_2'], fx = e.liveFx('oh', buf);
+          const close = t - swingLate(s, abs, sd) + (16 - i) * sd;
+          e.playBuf(buf, hatAt, 0.3 * 0.25 * oh * dbGain(JAZZ_MIX.jazzfunk.oh), e.ch.oh.input, fx.rate, Math.min(fx.dur || Infinity, Math.max(0.02, close - hatAt - 0.025)), { ...fx.fx, release: 0.005 });
+        } else e.trigger('oh', hatAt, 0.25 * oh);
+      }
+      const guitar = this.jazzGrid(pat, 'perc', abs, FUNK_GUITAR, groove.guitar.includes(i) || groove.chank.includes(i));
+      if (enabled('perc') && guitar && !comp) {
+        const chank = groove.chank.includes(i), name = chank ? 'gtr' : 'gtrmute';
+        const at = t + 0.002 + jitter(210) * 0.003, dur = chank ? Math.min(0.13, sd * 0.8) : 0.045;
+        const v = (chank ? 0.48 : [5, 7, 13, 15].includes(i) ? 0.38 : 0.28) * (hits ? 0.7 : 1) * guitar;
+        const notes = jazzVoicing(e.harm, s.key, 'jazzfunk').map((n) => n > 72 ? n - 12 : n);
+        const pitches = chank ? notes.slice(-3) : [notes.at(-1)];
+        if (e.rec) {
+          const set = e.rec(name);
+          if (!set) loadBand(name);
+          else if (chank) for (const [k, m] of pitches.entries()) e.recordedNote(set, at + k * 0.0015, v * 2, m, dur, e.ch.perc.input, -5, name, 0.9);
+          else {
+            const m = pitches[0], [center, buf] = set.reduce((a, b) => Math.abs(b[0] - m) < Math.abs(a[0] - m) ? b : a);
+            e.playBuf(buf, at, v * 2, e.ch.perc.input, 2 ** ((m - center) / 12), dur, { lp: 9000, fade: 0.002, release: 0.02 });
+          }
+        } else for (const [k, m] of pitches.entries()) e.add?.('guitar', at + k * 0.0015, m, dur, v);
+      }
+    }
+    const nextPat = bars && this.chainArr[pos + 1] != null ? s.patterns[this.chainArr[pos + 1]] : pat;
+    const next = this.jazzHarmonyAt(nextPat, bar + 1, pos + 1);
+    const bass = funkBass(s.key, e.harm, bar, seed, next);
+    const note = final || hits && groove.kick.includes(i) ? [i, final ? 12 : 0.8, bass[0][2], 0.9] : hits ? null : bass.find(([at]) => at === i) || (groove.kick.includes(i) ? [i, 1, bass[0][2], 0.78] : null);
     const st = this.jazzGrid(pat, 'acid', abs, funkBass(0, pat.prog?.[0] || e.harm, 0).map(([at]) => at), { on: !!note, n: 0, a: false, s: false });
     if (enabled('acid') && st?.on) {
       const [, dur, m, v] = note || [i, 1, bass[0][2], 0.75];
       e.noteVel = v;
-      e.acid(t, { ...st, n: m - 36 - s.key - harmRoot(e.harm) + st.n, ap: true }, false, false, swingDuration(s, abs, final ? 6 : dur, sd), undefined, t);
+      const at = kickAt + 0.004 + jitter(211) * 0.002;
+      e.acid(at, { ...st, n: m - 36 - s.key - harmRoot(e.harm) + st.n, ap: true }, false, false, swingDuration(s, abs, dur, sd), undefined, kickAt);
       e.noteVel = 1;
     }
-    const comp = this.jazzGrid(pat, 'stab', abs, FUNK_COMP[0], final || FUNK_COMP[bar % 2].includes(i));
-    if (enabled('stab') && comp) e.trigger('stab', t, (this.cur === 2 ? 0.48 : 0.6) * comp);
-    if (enabled('stab') && pat.hook && pat.hm && !this.jazzHook(pat, abs, t, sd)) {
-      const notes = final ? [[0, 6, e.harm.r + CHORDS[e.harm.c].iv[1], 0.7]] : jazzNotes('jazzfunk', pat.jazz.seed, bar, e.harm, this.cur === 2);
+    if (enabled('stab') && comp) e.trigger('stab', final ? t : t + 0.003, (final ? 0.85 : hits ? 0.7 : keysOut ? 0.35 : solo ? 0.48 : 0.6) * comp);
+    if (!intro && !hits && !final && enabled('stab') && pat.hook && pat.hm && !this.jazzHook(pat, abs, t, sd)) {
+      const firstHead = this.cur === 6 && start === 0 && sectionBars >= 16;
+      let leadBar = sectionBar;
+      if (firstHead && sectionBar < 10) leadBar -= 4;
+      else if (firstHead && sectionBar < 12) leadBar -= 2;
+      const notes = funkNotes(seed, leadBar, e.harm, solo, { headOut: this.cur === 7, sectionBars, key: s.key });
       for (const [at, dur, pitch, v] of notes) if (at === i) {
         const k = s.key > 6 ? s.key - 12 : s.key;
         let n = pitch;
+        const peak = solo && sectionBar === sectionBars - 4;
         if (pat.hook.v === 'tpt') {
-          while (60 + k + n < 69) n += 12;
-          while (60 + k + n > 80) n -= 12;
+          let m = 60 + k + n;
+          if (peak) {
+            const high = [80, 79, 78, 77, 76].find((m) => CHORDS[e.harm.c].iv.some((x) => (m - s.key - e.harm.r - x) % 12 === 0));
+            if (high != null) m = high;
+          }
+          const last = this.funkLead;
+          const connected = last && abs > last.step && t - last.end < 2 * sd;
+          let leaps = connected ? last.leaps : 0;
+          if (connected && Math.abs(m - last.pitch) > 5 && (solo || Math.abs(m - last.pitch) > 9 || leaps)) {
+            const tones = Array.from({ length: 12 }, (_, j) => 69 + j).filter((p) => Math.abs(p - last.pitch) <= 5 && CHORDS[e.harm.c].iv.some((x) => (p - s.key - e.harm.r - x) % 12 === 0));
+            if (tones.length) m = tones.reduce((a, b) => Math.abs(b - m) < Math.abs(a - m) ? b : a);
+          }
+          if (connected && Math.abs(m - last.pitch) > 5) leaps++;
+          this.funkLead = { step: abs, end: t + swingDuration(s, abs, dur, sd) * 0.92, pitch: m, leaps };
+          n = m - 60 - k;
         }
-        e.hook(t, v, n, swingDuration(s, abs, dur, sd), pat.hook.v, pat.hook.o, i % 4 === 0, 0.7, false, pat.hook.x);
+        e.hook(t, v, n, swingDuration(s, abs, dur, sd), pat.hook.v, pat.hook.o, false, 0.7, false, pat.hook.x);
       }
     }
     return this.cur;
