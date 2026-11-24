@@ -74,15 +74,14 @@ export async function handleJukebox(method, body, { store, crate, client = 'anon
   if (!entry || (entry.kind === 'song' && (!track || !crate))) return { status: 400, json: { error: 'invalid_entry' } };
   const expected = track && body.accountId;
   const invalidSession = { status: 401, json: { error: 'publish_session_changed' } };
-  if (expected && (await accountFromSession(auth.kv, auth.secret, auth.cookie))?.id !== expected) return invalidSession;
   if (!(await store.allow(clean(client, 64) || 'anon'))) return { status: 429, json: { error: 'rate_limited' } };
   if (track) {
     track.state.fresh = 0;
-    await crate.add(track);
     if (expected) {
       const owner = await accountFromSession(auth.kv, auth.secret, auth.cookie);
       if (owner?.id !== expected || !await attachTrack(auth.kv, owner.id, track)) return invalidSession;
     }
+    await crate.add(track);
     entry.trackId = track.id;
     entry.bpm = track.bpm;
     if (track.remixOf) entry.remixOf = track.remixOf;
