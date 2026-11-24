@@ -312,7 +312,8 @@ for (const listener of ['dnb', 'euphoric', 'deephouse']) {
     assert.deepEqual(paletteColor(s).eq[0], [320, 0.8, -5], 'Rhodes and organ share the extra 3dB low-mid trim');
   }
   assert(paletteFor(s).bass.balance, 'the adaptive bass cap remains enabled');
-  assert.deepEqual(paletteFor(s).bass.lowBand, { cutoff: 120, trim: -6, duck: 6 });
+  assert.deepEqual(paletteFor(s).bass.lowBand, { cutoff: 120, trim: -3, duck: 18, lead: 0.015, hold: 0.08, duckCutoff: 250 });
+  assert.equal(paletteFor(s).bass.subHigh, 43, 'the Deep House sub doubles the bassline in its own octave, not below 60Hz');
   assert.equal(e.pocketBassOut(), e.ch.acid.input, 'other pocket basses keep their existing route');
   const lowOut = e.pocketBassOut(paletteFor(s).bass.lowBand), ducks = [];
   assert.notEqual(lowOut, e.ch.acid.input);
@@ -320,7 +321,22 @@ for (const listener of ['dnb', 'euphoric', 'deephouse']) {
   const target = e.pocketLow.duck.gain.setTargetAtTime;
   e.pocketLow.duck.gain.setTargetAtTime = function (...args) { ducks.push(args); return target.apply(this, args); };
   e.duckAt(0.1, 1);
-  assert(ducks.some(([gain, t]) => t === 0.1 && gain === -6), 'a kick ducks only the low band by 6dB');
+  assert(ducks.some(([gain, t]) => Math.abs(t - 0.085) < 1e-9 && gain === -18), 'a kick ducks only the low band by 18dB, starting 15ms ahead of its attack');
+  assert(ducks.some(([gain, t]) => Math.abs(t - 0.18) < 1e-9 && gain === 0), 'the low band holds its duck through the kick body for 80ms');
+  assert.equal(e.pocketLow.duck.frequency.value, 250, 'the duck shelf reaches the bass harmonics above the 120Hz trim');
+  const cancels = [], cancel = e.pocketLow.duck.gain.cancelScheduledValues;
+  e.pocketLow.duck.gain.cancelScheduledValues = function (t) { cancels.push(t); return cancel.call(this, t); };
+  e.scheduleDuck({ t: 0.1, parts: [[e.pocketLow.duck.gain, 18, 0.07, 0.002, 0.08, 0, 0.015]] });
+  cancels.length = 0; e.ducks = [];
+  e.rebuildDucks(0.1);
+  assert(cancels.some((t) => t <= 0.085 + 1e-9), 'removing a kick also cancels the low-band duck that leads it');
+  e.ducks = [];
+  e.duckAt(0.1, 1);
+  Object.defineProperty(e.ctx, 'currentTime', { value: 0.15, configurable: true });
+  e.duckAt(0.16, 1);
+  delete e.ctx.currentTime;
+  assert(e.ducks.some((d) => d.t === 0.1), 'a kick stays on record until its low-band release, so muting the next kick can restore it');
+  e.pocketLow.duck.gain.cancelScheduledValues = cancel;
   e.discardQueuedNotes(0.2);
   assert(ducks.some(([gain, t]) => gain === 0 && t === 0.2), 'discarding notes releases the low-band sidechain');
 }
