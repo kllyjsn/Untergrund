@@ -445,6 +445,15 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
       if (role === 'fiddle') assert.equal(midi.notes.hook, undefined);
       else assert.equal(midi.hookVoice, 'twang');
     }
+    // The harmonica answer folds up above the harp's low C, with no Telecaster double-stop.
+    pattern.roots = { style: 'country', hook: 'twang' };
+    actual.length = 0;
+    const harpMidi = new Recorder(saved); harpMidi.playingPattern = pattern;
+    audio.hook(3, 0.6, 0, 0.5, 'vocal', 1, true, 1, false, { harp: 1 });
+    harpMidi.hook(3, 0.6, 0, 0.5, 'vocal', 1, true, 1, false, { harp: 1 });
+    assert.deepEqual(actual.map(({ kind, m }) => [kind, m]), [['hca', 60]], 'the harmonica sounds an octave under the line, above its low C');
+    const round = (list) => list.map(({ t, m, dur }) => ({ t: Math.round(t * 20) / 20, m, dur }));
+    assert.deepEqual(round(harpMidi.notes.hook), round(actual), 'the harmonica exports the notes it plays');
   }
   const take = new AudioBuffer(1, 24000, 48000);
   take.getChannelData(0).forEach((_, i, a) => { a[i] = Math.sin(i * 2 * Math.PI * 174.614 / 48000); });

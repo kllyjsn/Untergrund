@@ -412,8 +412,8 @@ BAND_PLAY.gretschc = { ...BAND_PLAY.gretsch, set: 'gretsch', lp: 3400, peak: [34
 BAND_PLAY.tele = { set: 'tele', gain: 3, len: 1.6, min: 0.3, strum: 0, shift: 0, lo: 52, hi: 74, lp: 4000, fade: 0.004, rel: 0.15, grip: false, even: 0.4, oct: -1, slap: true, tele: true, vib: 18 };
 // A hammer-on's grace note: the step below, cut off by the finger landing on the note.
 BAND_PLAY.grace = { ...BAND_PLAY.tele, rel: 0.015, fade: 0.003, vib: 0 };
-// Its answer: a diatonic harmonica in C breathing held notes.
-BAND_PLAY.hca = { gain: 1.7, len: 1.2, min: 0.3, strum: 0, shift: 0, lo: 55, hi: 84, lp: 3600, peak: [4400, 0.9, -9], fade: 0.03, rel: 0.12, even: 0.5, oct: -1, hold: true };
+// Its answer: a diatonic harmonica in C breathing held notes an octave under the line, folded up above the harp's low C.
+BAND_PLAY.hca = { gain: 2.2, len: 1.2, min: 0.3, strum: 0, shift: 0, lo: 60, hi: 84, lp: 3000, peak: [4400, 0.9, -9], fade: 0.03, rel: 0.12, even: 0.5, oct: -1, hold: true };
 // The rock band's riff guitar: the rhythm amp, double-stops up the neck.
 BAND_PLAY.lead = { ...BAND_PLAY.drive, lo: 45, hi: 79, grip: false, even: 0.4, gain: 2.2, lp: 4400, soft: 1600, vib: 8, rel: 0.16, oct: -1, dyad: true };
 // The country lead amp's tube stage: a gentle tanh, biased so it adds even harmonics, normalised to +-1.
@@ -3270,7 +3270,8 @@ export class Engine {
     let outs = hand?.double ? [this.panFor(out, -1, true), this.panFor(out, 1, false)] : [out];
     if (R.body) outs = outs.map((o) => this.bodyFor(o, R.body));
     if (kind === 'agtr' && this.playbackStyle === 'country') {
-      outs = outs.map((o) => this.bodyFor(this.bodyFor(o, [3050, 0.95, -2]), [1100, 0.8, 3]));
+      // Narrow notches where the high samples' ringing partials pile up near 5.5 and 7.1 kHz, too narrow to dull the strings.
+      outs = outs.map((o) => this.bodyFor(this.bodyFor(this.bodyFor(this.bodyFor(o, [3050, 0.95, -2]), [1100, 0.8, 1.5]), [5520, 6, -8]), [7110, 6, -12]));
       v *= dbGain(1.5);
     }
     if (hand?.fx === 'chorus') outs = outs.map((o) => this.chorusFor(o));
@@ -3298,13 +3299,14 @@ export class Engine {
     // an offbeat downstroke sometimes misses the low string.
     let notes = hand?.play === 'chop' ? grip.slice(beat > 1 ? -4 : -3) : chord && up && grip.length > 3 ? grip.slice(-3) : grip;
     if (hand?.play === 'strum' && !up && this.step % 4 && notes.length > 4 && hash(t, 26) < 0.5) notes = notes.slice(1);
-    // Boom-chick: the thumb picks the root on 1 and the fifth on 3 and lets it ring; every other hit is a quick
-    // strum of the top strings, damped by the fretting hand.
+    // Boom-chick: the thumb picks the root on 1 and the fifth on 3 and lets it ring up to the next hit; every
+    // other hit is a quick strum of the top strings, damped by the fretting hand (later when the next hit is far).
     const boom = hand?.play === 'boom' && chord && this.step % 8 === 0;
     if (boom) notes = [this.step % 16 ? grip.find((m) => (m - grip[0]) % 12 === 7) ?? grip[1] : grip[0]];
     else if (hand?.play === 'boom' && chord) notes = grip.slice(up ? -3 : -4);
     const ring = hand?.play === 'chop' ? Math.min(dur, this.stepDur * Math.min(2, gap || 2) * 0.8)
-      : boom ? Math.min(dur, this.stepDur * 3.6) : hand?.play === 'boom' && chord ? Math.min(dur, this.stepDur * (up ? 1 : 1.6)) : dur, lift = chord && up ? 0.8 : 1;
+      : boom ? Math.max(Math.min(dur, this.stepDur * 3.6), this.stepDur * Math.min(7.6, (gap || 4) - 0.4))
+        : hand?.play === 'boom' && chord ? (gap >= 6 ? this.stepDur * Math.min(4, gap * 0.5) : Math.min(dur, this.stepDur * (up ? 1 : 1.6))) : dur, lift = chord && up ? 0.8 : 1;
     // A strummer starts the stroke a little early so the middle of the chord, not its last string, lands on the beat.
     const lead = chord ? Math.min((notes.length - 1) * strum * 0.5, Math.max(0, t - this.ctx.currentTime)) : 0;
     // A struck string stops its last note; on an upstroke of the same grip the low strings ring on.
@@ -3550,7 +3552,7 @@ export class Engine {
     sh.curve = TELE_CURVE; sh.oversample = '4x';
     comp.threshold.value = -22; comp.knee.value = 6; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.14;
     let node = inp.connect(this.filter('lowpass', 2600, 0.6)).connect(this.gain(0.5)).connect(sh).connect(comp);
-    for (const [type, f, q, db] of [['highpass', 90, 0.7], ['peaking', 180, 0.8, 2], ['peaking', 950, 0.8, 8], ['highshelf', 1800, 0.7, -11], ['peaking', 2000, 1, -10], ['peaking', 2900, 0.8, -10], ['peaking', 7000, 1, -6], ['lowpass', 3200, 0.54], ['lowpass', 3200, 1.31]]) {
+    for (const [type, f, q, db] of [['highpass', 150, 0.7], ['peaking', 330, 0.7, -8], ['peaking', 950, 0.8, 8], ['highshelf', 1800, 0.7, -11], ['peaking', 2000, 1, -10], ['peaking', 2900, 0.8, -10], ['peaking', 7000, 1, -6], ['lowpass', 3200, 0.54], ['lowpass', 3200, 1.31]]) {
       const f2 = this.filter(type, f, q);
       if (db) f2.gain.value = db;
       node = node.connect(f2);
@@ -4214,7 +4216,9 @@ export class Engine {
       }
       if (jazzStyle(this.state, this.playingPattern)) dest = this.trimOut('jazz-recorded-lead', JAZZ_MIX[jazzStyle(this.state, this.playingPattern)].lead, dest, JAZZ_MIX[jazzStyle(this.state, this.playingPattern)].lead);
       if (R.amp) dest = this.ampFor(dest === this.ch.stab.input ? this.ch.stab.band : dest, R.lead);
-      const m = 60 + k + (oct + (R.oct || 0)) * 12 + n, g = Math.min(1.3, v) * R.gain * 0.6;
+      // A harmonica carrying the melody plays out at the Telecaster's level; its answers stay underneath.
+      const carry = kind === 'hca' && expression.harp && !expression.harm && !expression.counter && !expression.fill ? 1.8 : 1;
+      const m = 60 + k + (oct + (R.oct || 0)) * 12 + n, g = Math.min(1.3, v) * R.gain * carry * 0.6;
       // The Telecaster player sits a hair behind the beat, never exactly on the grid.
       if (kind === 'tele') t += (hash(t * 3, 44) - 0.3) * 0.016;
       const scale = SCALES[this.state.scale]?.notes || SCALES.major.notes, inKey = (x) => scale.includes((((x - 60 - k) % 12) + 12) % 12);

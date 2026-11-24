@@ -121,10 +121,13 @@ export class Recorder {
     if (roots?.hook === 'twang') {
       this.hookVoice = 'twang';
       pitch -= 12; // the Telecaster and harmonica sound an octave under the written line
+      // As in playback: the Telecaster plays 52-84 with double-stops; the harmonica folds up above its
+      // low C (60-84), one reed at a time, held for the note.
+      const harp = !!(expression?.harp || expression?.harm || expression?.counter), floor = harp ? 60 : 52;
       const scale = SCALES[this.state.scale]?.notes || SCALES.major.notes;
       const lo = scale.includes((((pitch - 9 - 60 - k) % 12) + 12) % 12) ? pitch - 9 : pitch - 8;
-      if (strong && lo >= 52) this.add('hook', t + .006, rootsPitch(lo, 52, 84), Math.max(.15, dur * 1.5), v * .6);
-      return this.add(expression?.fill ? 'stab' : 'hook', t, rootsPitch(pitch, 52, 84), Math.max(.15, dur * 1.5), v);
+      if (!harp && strong && lo >= 52) this.add('hook', t + .006, rootsPitch(lo, 52, 84), Math.max(.15, dur * 1.5), v * .6);
+      return this.add(expression?.fill ? 'stab' : 'hook', t, rootsPitch(pitch, floor, 84), Math.max(.15, dur * (harp ? 1.05 : 1.5)), v);
     }
     pitch = paletteHookPitch(this.state, pitch, voice);
     const style = this.state.artist?.style, vo = Math.round(this.state.params.stab.voice);
