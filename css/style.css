@@ -1358,6 +1358,11 @@ body.recording .np-actions .btn.rec .dot { background: var(--accent); animation:
 .describe-chip { height: 30px; padding: 0 12px; border-radius: var(--r1); border: 1px solid rgba(255,255,255,.12); background: transparent; color: #cfcfd6; font: 500 12px var(--sans); white-space: nowrap; cursor: pointer; transition: border-color .15s, color .15s; }
 .describe-chip:hover, .describe-chip:focus-visible { border-color: var(--hue); color: #fff; outline: none; }
 .describe-chip.sm { height: 26px; padding: 0 10px; font-size: 11px; }
+.describe-chip.describe-pro, .describe-pro-link { color: #ffd581; }
+.describe-chip.describe-pro:disabled { opacity: .6; cursor: wait; }
+.describe-drafts { flex: 1 0 100%; }
+.describe-chip.describe-draft { height: auto; min-height: 48px; max-width: 100%; padding: 7px 10px; display: grid; gap: 3px; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.describe-draft span { font-size: 11px; }
 .describe-receipt { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: #d8d8de; font: 500 13px/1.4 var(--sans); }
 .describe-receipt[hidden] { display: none; }
 .describe-chip.lyrics-chip.on { border-color: var(--hue); color: #fff; background: color-mix(in srgb, var(--hue) 18%, transparent); }

@@ -21,7 +21,7 @@ const K = {
 };
 const TRACK_LIMIT = 500, FEED_FOLLOWS = 50, FEED_LIMIT = 30;
 const LIMITS = { device: [20, 3600], claim: [12, 3600], profile: [60, 3600], follow: [120, 3600], soundcloud: [30, 3600] };
-const RATE_LIMITS = { ...LIMITS, 'billing-status': [120, 60], 'billing-write': [12, 60] };
+const RATE_LIMITS = { ...LIMITS, 'billing-status': [120, 60], 'billing-write': [12, 60], 'pro-drafts': [6, 60] };
 export const DNA_TRAITS = ['darkness', 'hypnosis', 'acid', 'space', 'energy'];
 
 // ---------- handles ----------
@@ -208,12 +208,12 @@ export async function linkProvider(kv, current, provider, profile) {
 }
 
 // ---------- public reads (pages and API) ----------
-export async function publicArtistPage(kv, handle, { supporter } = {}) {
+export async function publicArtistPage(kv, handle, { pro } = {}) {
   const acct = kv && await accountByHandle(kv, handle);
   if (!acct) return null;
-  const [followers, following, tracks, isSupporter] = await Promise.all([
-    kv.cmd(['SCARD', K.followers(acct.id)]), kv.cmd(['SCARD', K.following(acct.id)]), tracksOf(kv, acct.id), supporter?.(acct.id)]);
-  return { artist: { ...publicArtist(acct, followers, following), ...(isSupporter && { supporter: true }) }, tracks };
+  const [followers, following, tracks, isPro] = await Promise.all([
+    kv.cmd(['SCARD', K.followers(acct.id)]), kv.cmd(['SCARD', K.following(acct.id)]), tracksOf(kv, acct.id), pro?.(acct.id)]);
+  return { artist: { ...publicArtist(acct, followers, following), ...(isPro && { pro: true }) }, tracks };
 }
 
 export async function publishedTrack(kv, crate, rawId) {

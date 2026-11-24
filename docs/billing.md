@@ -1,6 +1,6 @@
-# Supporter billing
+# Studio Pro billing
 
-Free keeps the studio, publishing and public rooms. Supporter is a monthly subscription that funds Untergrund and adds a badge to the subscriber's public artist page. Start with one `Untergrund Supporter` product and a fixed USD recurring price ($12/month proposed); the Plans page displays the configured Stripe Price. A SoundCloud-linked creator account is required so members can recover billing access on a different device.
+Free keeps the studio, single-song generation, exports, publishing, and public rooms. Studio Pro adds three alternative editable arrangements from one brief without restricting any Free features. Members get 60 successful draft sets per UTC calendar month. Start with one `Untergrund Studio Pro` product and a fixed $19 USD monthly Price; other amounts are rejected. A SoundCloud-linked creator account keeps billing and draft access tied to the same account across devices.
 
 ## Before enabling checkout
 
@@ -16,8 +16,10 @@ Free keeps the studio, publishing and public rooms. Supporter is a monthly subsc
 | `UNTERGRUND_STRIPE_PRICE_ID` | Recurring USD Price ID |
 | `UNTERGRUND_STRIPE_PORTAL_CONFIGURATION` | Portal configuration ID |
 | `UNTERGRUND_BILLING_ORIGIN` | Exact origin used for checkout, portal and returns, e.g. `http://localhost:8020` |
+| `OPENROUTER_API_KEY` or `GEMINI_API_KEY` | Existing song generation provider; checkout is paused without it |
+| `UNTERGRUND_LIVE_CHECKOUT` | Leave unset in sandbox and before launch; set to `1` only after explicit go-live approval |
 
-4. Open `/pricing`, sign in, and pay with a [Stripe test card](https://docs.stripe.com/testing). Verify the paid state, webhook delivery and badge at `/a/<handle>`. Test a canceled checkout, a returning subscriber, and portal cancellation. In sandbox, cancel immediately in the Stripe Dashboard to confirm the badge disappears. Checkout and portal URLs are generated server-side; callbacks alone do not grant membership.
-5. Before going live, finish Stripe account activation, confirm the actual price, tax treatment and cancellation terms, and confirm production account authentication is ready. Repeat setup with **live** resources under Vercel **Production** at `https://www.untergrund.sh`, set `UNTERGRUND_STRIPE_MODE=live`, then redeploy. Nothing charges while configuration is absent. Do not copy preview credentials into production. Verify app and webhook readiness before directing customers to checkout.
+4. Open `/pricing`, sign in, and pay with a [Stripe test card](https://docs.stripe.com/testing). Verify the paid state, webhook delivery, and badge at `/a/<handle>`. In the studio, enter a brief, choose **3 drafts · Pro**, and open a draft. Test a canceled checkout, a returning subscriber, and portal cancellation. In sandbox, cancel immediately in Stripe and confirm the badge and access disappear. Checkout callbacks alone do not grant membership.
+5. Before going live, finish Stripe account activation and confirm pricing, tax treatment, cancellation terms, and production authentication. Repeat setup with **live** resources under Vercel **Production** at `https://www.untergrund.sh`, set `UNTERGRUND_STRIPE_MODE=live`, then redeploy. After checking app and webhook readiness and obtaining approval, set `UNTERGRUND_LIVE_CHECKOUT=1` and redeploy to accept payments. Do not copy preview credentials into production.
 
-Stripe owns subscription state; signed events refresh the cached artist badge from the current subscription, so retries and late delivery do not restore a canceled badge. If a badge is out of date, check destination deliveries and resend the latest subscription event. To stop new sales in an incident, archive the Price in Stripe and expire any open Checkout Sessions; keep the webhook destination and portal configuration in place for existing subscribers.
+Stripe owns subscription state. Draft generation checks the current subscription for the configured Price on every request and does not count failed model calls against the monthly allowance. Signed events refresh the cached artist badge from the current subscription, so retries and late delivery do not restore a canceled badge. To stop new sales in an incident, unset `UNTERGRUND_LIVE_CHECKOUT` and redeploy, archive the Price in Stripe, and expire any open Checkout Sessions. Keep the webhook destination and portal configuration in place for existing subscribers.

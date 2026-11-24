@@ -10,9 +10,19 @@ import { KEYS } from './params.js';
 import { STYLES, fitLyrics } from './state.js';
 import { singAvailable, singSong, hasStem, singRequest } from './sing.js';
 import { SING_VOICES } from './sing-score.js';
+import { PRO_DRAFTS_PER_SET } from './pro-plan.js';
 
 let last = null, hint = null, draft = '', recent = null, net = null, ticket = 0;
 let lyricsDraft = '', lyricsOpen = false, planOff = false, view = null;
+let draftAvailability;
+const draftsEnabled = () => draftAvailability ??= fetch('/api/song-drafts')
+  .then((res) => res.ok && res.json()).then((data) => data?.enabled === true).catch(() => false);
+const draftErrors = {
+  sign_in_required: 'Sign in with SoundCloud to use Studio Pro drafts.',
+  pro_required: 'Multiple drafts are included with Studio Pro.',
+  monthly_limit: 'You’ve used this month’s Pro draft sets. Your allowance resets on the first of next month (UTC).',
+  rate_limited: 'Too many draft requests. Try again in a minute.',
+};
 // A song prompt goes to /api/song-plan (an env-gated LLM); null when it's off, slow or wrong, and the local rules plan instead.
 async function askPlan(prompt, lyrics, style) {
   if (planOff || (typeof navigator !== 'undefined' && navigator.onLine === false)) return null;
@@ -84,6 +94,7 @@ const STYLE_FAMILY = (id) => STYLES[id]?.family || '';
 // prompted(text) (optional: the prompt the next switchGenre/song is written from, for listen signals)
 // highlight(bars) (optional: shows which bars of the song a scoped edit changed)
 export function describeBar(ctx) {
+  let draftsBusy = false;
   const input = h('input', { class: 'describe-input', type: 'text', placeholder: placeholder(ctx), 'aria-label': 'Describe a song to write, or a change to this one',
     autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'go', maxlength: '200', oninput: () => { draft = input.value; } });
   input.value = draft;
@@ -93,7 +104,9 @@ export function describeBar(ctx) {
   lyricsBox.value = lyricsDraft;
   lyricsBox.hidden = !lyricsOpen;
   const lyricsChip = h('button', { type: 'button', class: 'describe-chip lyrics-chip' + (lyricsOpen ? ' on' : ''), 'aria-pressed': String(lyricsOpen), onclick: () => toggleLyrics() }, 'Lyrics');
+  const draftsChip = ctx.song && h('button', { type: 'button', class: 'describe-chip describe-pro', onclick: makeDrafts }, '3 drafts · Pro');
   const chips = h('div', { class: 'describe-chips' }, lyricsChip, ...chipList(ctx).map((c) => h('button', { type: 'button', class: 'describe-chip', onclick: () => run(c) }, c)));
+  if (draftsChip) draftsEnabled().then((enabled) => { if (enabled) chips.append(draftsChip); });
   const box = h('form', { class: 'describe', onsubmit: (e) => { e.preventDefault(); run(input.value); } },
     h('div', { class: 'describe-row' }, input, Speech ? mic() : null, h('button', { class: 'describe-go', type: 'submit' }, ctx.fresh?.() ? 'MAKE IT' : 'DO IT')), lyricsBox, receipt, lyricsView(), chips);
   paint();
@@ -218,8 +231,49 @@ export function describeBar(ctx) {
     }
     if (hint) {
       receipt.append(h('div', { class: 'describe-line' }, h('span', { class: 'describe-note' }, hint.note),
+        hint.plans ? h('a', { class: 'describe-pro-link', href: '/pricing' }, 'See plans') : null,
         ...hint.suggestions.map((s) => h('button', { type: 'button', class: 'describe-chip sm', onclick: () => run(s) }, s))));
+      if (hint.drafts) receipt.append(h('div', { class: 'describe-line describe-drafts', role: 'group', 'aria-label': 'Song drafts' },
+        ...hint.drafts.specs.map((spec, i) => {
+          const { text } = hint.drafts;
+          const bars = spec.sections.reduce((sum, section) => sum + section.bars, 0);
+          const roles = spec.sections.slice(0, 5).map((section) => section.role).join(' → ') + (spec.sections.length > 5 ? ' …' : '');
+          return h('button', { type: 'button', class: 'describe-chip describe-draft', onclick: () => applySongSpec(text, spec, null, 'song_drafts') },
+            h('strong', {}, `${i + 1}. ${spec.title || 'Untitled draft'}`), h('span', {}, `${ctx.styleName(spec.style)} · ${spec.bpm} BPM · ${bars} bars`), h('span', {}, roles));
+        })));
     }
+  }
+
+  async function makeDrafts() {
+    if (draftsBusy) return;
+    const text = input.value.trim();
+    if (!text) { input.focus(); return miss('', 'Describe the song you want to draft.'); }
+    if (lyricsOpen && lyricsDraft.trim()) return miss(text, 'Pro drafts use the song brief only. Use the main button to build from your lyrics.');
+    const mine = ++ticket, style = ctx.style();
+    draftsBusy = draftsChip.disabled = true;
+    hint = { note: 'Writing three arrangements…', suggestions: [] };
+    paint();
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 28000);
+    try {
+      const res = await fetch('/api/song-drafts', { method: 'POST', signal: ctl.signal,
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, style }) });
+      const data = await res.json();
+      if (mine !== ticket || !box.isConnected) return;
+      if (!res.ok || data.drafts?.length !== PRO_DRAFTS_PER_SET) {
+        hint = { note: draftErrors[data.error] || 'Couldn’t make drafts. Try again, or make one song with the main button.',
+          suggestions: [], plans: ['sign_in_required', 'pro_required'].includes(data.error) };
+      } else {
+        const specs = data.drafts.map((spec) => validateSpec(spec, { fallbackStyle: style, prompt: text }));
+        hint = { note: 'Choose a draft to open in the studio.', suggestions: [], drafts: { text, specs } };
+      }
+    } catch {
+      if (mine !== ticket || !box.isConnected) return;
+      hint = { note: 'Couldn’t make drafts. Try again, or make one song with the main button.', suggestions: [] };
+    } finally {
+      clearTimeout(timer);
+      draftsBusy = draftsChip.disabled = false;
+    }
+    paint();
   }
 
   function miss(text, why) {
@@ -327,15 +381,19 @@ export function describeBar(ctx) {
       // The written words and the song share one feeling: the spec's if it names one, else the one the words were written in.
       if (meta && plan.feel && spec.feel && spec.feel !== plan.feel) { plan = rulePlan(text, '', { style, feel: spec.feel }); meta = cleanLyrics(planLyrics(plan, text)); }
       else if (meta && plan.feel && !spec.feel) spec = { ...spec, feel: plan.feel };
-      hint = null; draft = ''; recent = null; net = null;
-      const label = `“${text.length > 32 ? text.slice(0, 31) + '…' : text}”`;
-      const bars = spec.sections.reduce((a, x) => a + x.bars, 0);
-      ctx.prompted?.(text);
-      ctx.song(spec, label, (title, key, scale) => {
-        last = { did: [`new ${ctx.styleName(spec.style)} song “${title}”`, `${spec.sections.length} sections, ${bars} bars, ${spec.bpm} BPM in ${KEYS[key]} ${scale}`, ...(meta?.vocal ? [`${meta.vocal} vocal (not sung yet)`] : [])], miss: '', depth: ctx.depth() };
-      }, meta);
-      ctx.track({ kind: 'song', genre: spec.style });
+      applySongSpec(text, spec, meta);
     });
+  }
+
+  function applySongSpec(text, spec, meta, kind = 'song') {
+    hint = null; draft = ''; recent = null; net = null;
+    const label = `“${text.length > 32 ? text.slice(0, 31) + '…' : text}”`;
+    const bars = spec.sections.reduce((a, x) => a + x.bars, 0);
+    ctx.prompted?.(text);
+    ctx.song(spec, label, (title, key, scale) => {
+      last = { did: [`new ${ctx.styleName(spec.style)} song “${title}”`, `${spec.sections.length} sections, ${bars} bars, ${spec.bpm} BPM in ${KEYS[key]} ${scale}`, ...(meta?.vocal ? [`${meta.vocal} vocal (not sung yet)`] : [])], miss: '', depth: ctx.depth() };
+    }, meta);
+    ctx.track({ kind, genre: spec.style });
   }
 
   function apply(text, style, { edits, unknown, next, follow }, notes) {

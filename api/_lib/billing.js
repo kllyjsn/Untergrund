@@ -1,5 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { accountFromSession, allow, authEnabled } from './accounts.js';
+import { aiEnv } from './describe-ai.js';
+import { PRO_PRICE_CENTS } from '../../js/pro-plan.js';
 
 const LIVE_ORIGIN = 'https://www.untergrund.sh';
 const MAX_WEBHOOK_BYTES = 512 * 1024;
@@ -32,7 +34,7 @@ export function billingConfig(env = process.env) {
 
 const key = (cfg, kind, account) => `untergrund:billing:${cfg.mode}:${kind}:${account}`;
 const customerKey = (cfg, account) => key(cfg, 'customer', account);
-const badgeKey = (cfg, account) => key(cfg, 'supporter', account);
+const badgeKey = (cfg, account) => key(cfg, 'pro', account);
 
 function stripeApi(cfg, fetchImpl) {
   return async (path, params = {}, idempotencyKey) => {
@@ -57,7 +59,7 @@ async function planPrice(api, cfg) {
   if (priceCache?.id === cfg.price && priceCache.mode === cfg.mode && priceCache.until > Date.now()) return priceCache.plan;
   const p = await api(`prices/${cfg.price}`);
   if (p.id !== cfg.price || p.livemode !== (cfg.mode === 'live') ||
-      p.currency !== 'usd' || !Number.isSafeInteger(p.unit_amount) || p.unit_amount < 50 ||
+      p.currency !== 'usd' || p.unit_amount !== PRO_PRICE_CENTS ||
       p.type !== 'recurring' || p.recurring?.interval !== 'month' || p.recurring.interval_count !== 1 ||
       p.recurring.usage_type !== 'licensed') throw new Error('Stripe price is not a fixed monthly USD price');
   const plan = { cents: p.unit_amount, currency: p.currency, accepting: p.active === true };
@@ -71,7 +73,8 @@ async function membership(api, cfg, customer, account) {
     const rows = await api('subscriptions', { customer, status: 'all', limit: 100, ...(cursor && { starting_after: cursor }) });
     const owned = rows.data.filter((s) => s.customer === customer && s.livemode === (cfg.mode === 'live') &&
       s.metadata?.ug_account === account && !['canceled', 'incomplete_expired'].includes(s.status));
-    const active = owned.find((s) => ['active', 'trialing'].includes(s.status));
+    const active = owned.find((s) => ['active', 'trialing'].includes(s.status) &&
+      s.items?.data?.some((item) => item.price?.id === cfg.price));
     if (active) return { state: 'active', ending: Boolean(active.cancel_at_period_end || active.cancel_at) };
     attention ||= owned.length > 0;
     cursor = rows.has_more ? rows.data.at(-1)?.id : null;
@@ -104,11 +107,12 @@ export async function handleBilling(action, req, { kv, secret, env = process.env
   const acct = await accountFromSession(kv, secret, req.cookie);
   const account = acct && Object.keys(acct.providers || {}).length ? acct.id : null;
   const api = stripeApi(cfg, fetchImpl);
+  const checkoutEnabled = Boolean(aiEnv(env).key) && (cfg.mode === 'test' || env.UNTERGRUND_LIVE_CHECKOUT === '1');
   if (action === 'status') {
     if (!await allow(kv, 'billing-status', req.client)) return error(429, 'rate_limited');
     const customer = account && await kv.cmd(['GET', customerKey(cfg, account)]);
     const [plan, sub] = await Promise.all([planPrice(api, cfg), customer ? membership(api, cfg, customer, account) : { state: 'free' }]);
-    return result(200, { available: true, test: cfg.mode === 'test', plan, signedIn: Boolean(account),
+    return result(200, { available: true, test: cfg.mode === 'test', plan: { ...plan, accepting: plan.accepting && checkoutEnabled }, signedIn: Boolean(account),
       member: sub.state, ending: Boolean(sub.ending), manage: Boolean(customer) });
   }
   if (!account) return error(401, 'sign_in_required');
@@ -120,7 +124,7 @@ export async function handleBilling(action, req, { kv, secret, env = process.env
     return result(200, { url: hostedUrl(portal.url, 'billing.stripe.com') });
   }
 
-  if (!(await planPrice(api, cfg)).accepting) return error(409, 'checkout_paused');
+  if (!checkoutEnabled || !(await planPrice(api, cfg)).accepting) return error(409, 'checkout_paused');
   const customer = await getCustomer(api, kv, cfg, account);
   // The latest session's ID makes simultaneous requests use the same idempotency key, even across instances.
   const latest = (await api('checkout/sessions', { customer, limit: 1 })).data[0];
@@ -137,6 +141,11 @@ export async function handleBilling(action, req, { kv, secret, env = process.env
     cancel_url: `${cfg.origin}/pricing?checkout=canceled`,
   }, `ug-checkout-${customer}-${latest?.id || 'first'}`);
   return result(200, { url: hostedUrl(session.url, 'checkout.stripe.com') });
+}
+
+export async function hasActivePro(kv, account, cfg, fetchImpl = fetch) {
+  const customer = await kv.cmd(['GET', customerKey(cfg, account)]);
+  return !!customer && (await membership(stripeApi(cfg, fetchImpl), cfg, customer, account)).state === 'active';
 }
 
 function signedEvent(raw, signature, secret, now) {
@@ -181,7 +190,7 @@ export async function readBillingWebhook(req) {
   return size <= MAX_WEBHOOK_BYTES ? Buffer.concat(chunks) : null;
 }
 
-export async function hasSupporterBadge(kv, account, env = process.env) {
+export async function hasProBadge(kv, account, env = process.env) {
   const cfg = billingConfig(env);
   if (!cfg || !kv) return false;
   const [latest] = await kv.cmd(['ZREVRANGEBYSCORE', badgeKey(cfg, account), '+inf', '-inf', 'LIMIT', 0, 1]);

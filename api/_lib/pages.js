@@ -4,7 +4,7 @@ import { KEYS, SCALES } from '../../js/params.js';
 import { STYLES } from '../../js/state.js';
 import { songFingerprint } from '../../js/listen.js';
 import { publicArtistPage, publicTrack } from './accounts.js';
-import { billingConfig, hasSupporterBadge } from './billing.js';
+import { billingConfig, hasProBadge } from './billing.js';
 import { remixTree } from './crate.js';
 import { FLAGSHIP } from '../../config/flagship.js';
 
@@ -149,7 +149,7 @@ export function renderArtistPage({ artist, tracks }, { site = SITE } = {}) {
     <div class="pp-hero">
       <div class="pp-avatar" aria-hidden="true">${esc(artist.name.slice(0, 2).toUpperCase())}</div>
       <div class="pp-who">
-        <span class="pp-eyebrow">ARTIST${artist.supporter ? ' · <a class="pp-supporter" href="/pricing">SUPPORTER</a>' : ''}</span>
+        <span class="pp-eyebrow">ARTIST${artist.pro ? ' · <a class="pp-pro" href="/pricing">STUDIO PRO</a>' : ''}</span>
         <h1>${esc(artist.name)}</h1>
         <div class="pp-handle">@${esc(artist.handle)}</div>
         ${artist.bio ? `<p class="pp-bio">${esc(artist.bio)}</p>` : ''}
@@ -241,7 +241,7 @@ export async function handlePage(query, { kv, crate, site = SITE, og, rooms = nu
     return t ? html(200, renderTrackPage(t, { site })) : html(404, renderMissing('track', query.t, { site, enabled: !!(kv || crate) }), 'no-store');
   }
   if (query.a) {
-    const p = await publicArtistPage(kv, query.a, { supporter: (id) => hasSupporterBadge(kv, id, env).catch(() => false) });
+    const p = await publicArtistPage(kv, query.a, { pro: (id) => hasProBadge(kv, id, env).catch(() => false) });
     return p ? html(200, renderArtistPage(p, { site }), billingConfig(env) ? 'no-store' : cache)
       : html(404, renderMissing('artist', query.a, { site, enabled: !!kv }), 'no-store');
   }

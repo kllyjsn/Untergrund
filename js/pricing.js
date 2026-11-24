@@ -46,7 +46,7 @@ async function refresh(retries = 5) {
   }
   if (!info.available) {
     button(action); button(manage); renewal.hidden = true;
-    status.textContent = 'Paid membership is not available yet. The studio is still free.';
+    status.textContent = 'Studio Pro is not available yet. The studio is still free.';
     return;
   }
   const formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: info.plan.currency,
@@ -56,11 +56,14 @@ async function refresh(retries = 5) {
   const prefix = info.test ? 'Stripe test mode — no real charges. ' : '';
   status.textContent = prefix;
   button(manage, info.manage ? 'Manage billing' : '', () => redirect('portal'));
-  if (!info.signedIn) {
+  if (!info.signedIn && !info.plan.accepting) {
+    status.textContent += errors.checkout_paused;
+    button(action);
+  } else if (!info.signedIn) {
     status.textContent += 'Sign in so you can manage your membership on any device.';
     button(action, 'Sign in with SoundCloud', async () => { await signInWithSoundCloud(); await refresh(); });
   } else if (info.member === 'active') {
-    status.textContent += info.ending ? 'Supporter is active until your current period ends.' : 'You’re an active Supporter.';
+    status.textContent += info.ending ? 'Studio Pro is active until your current period ends.' : 'Studio Pro is active.';
     button(action);
   } else if (info.member === 'attention') {
     status.textContent += 'Your subscription needs attention. Check its status in billing.';
@@ -74,7 +77,7 @@ async function refresh(retries = 5) {
     button(action);
   } else {
     if (returned === 'canceled') status.textContent += 'Checkout was closed.';
-    button(action, 'Become a Supporter', () => redirect('checkout'));
+    button(action, 'Get Studio Pro', () => redirect('checkout'));
   }
 }
 

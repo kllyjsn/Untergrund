@@ -35,6 +35,7 @@ import { handleSing, singEnv, memorySingStore, MAX_SING_BODY } from './api/_lib/
 import { redisKv as redisAccountKv, memoryKv as memoryAccountKv } from './api/_lib/kv.js';
 import { handleAccount, attachPublished } from './api/_lib/accounts.js';
 import { handleBilling, handleBillingWebhook, readBillingWebhook } from './api/_lib/billing.js';
+import { handleSongDrafts, MAX_DRAFT_BODY } from './api/_lib/song-drafts.js';
 import { handlePage } from './api/_lib/pages.js';
 import { handlePush } from './api/_lib/push.js';
 import { handleLegal } from './api/_lib/legal.js';
@@ -113,6 +114,17 @@ http.createServer(async (req, res) => {
       const { status, json } = await handleEvents({ method: req.method, query, headers: req.headers, body: raw ? raw.toString() : null, kv: eventsKv, client: req.socket.remoteAddress,
         statsToken: STATS_TOKEN, cronSecret: process.env.CRON_SECRET || '', webhook: process.env.DIGEST_WEBHOOK_URL || '' });
       return sendJson(res, status, json);
+    }
+    if (url.pathname === '/api/song-drafts' || (url.pathname === '/api/describe' && url.searchParams.get('drafts') === '1')) {
+      try {
+        const raw = req.method === 'POST' ? await readBody(req, MAX_DRAFT_BODY) : '';
+        if (raw === null) return sendJson(res, 413, { error: 'too_large' });
+        const r = await handleSongDrafts({ method: req.method, body: raw.toString(), cookie: req.headers.cookie,
+          origin: req.headers.origin, host: req.headers.host }, accountCtx());
+        return sendJson(res, r.status, r.json);
+      } catch {
+        return sendJson(res, 502, { error: 'drafts_unavailable' });
+      }
     }
     if (url.pathname === '/api/describe') {
       const raw = req.method === 'POST' ? await readBody(req, 4000) : null;
