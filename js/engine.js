@@ -5535,6 +5535,8 @@ export class Sequencer {
   startAt(abs, t) {
     this.e.voxPrev = undefined;
     const chain = this.s.chainOn ? parseChain(this.s.chain) : [];
+    this.songBars = chain.length; this.chainArr = chain;
+    this.chainEntries = cleanChainEntries(this.s.chain, this.s.chainEntries);
     const bar = Math.floor(abs / 16), offset = abs % 16;
     const pos = chain.length ? bar % chain.length : -1;
     this.cur = pos >= 0 ? chain[pos] : this.s.current;

@@ -15,6 +15,9 @@ import { stageScene } from '../js/club-stage.js';
 import { runComposition, compositionRegressions } from '../scripts/composition.mjs';
 import { songState } from '../js/song-spec.js';
 import { swingLate } from '../js/groove.js';
+import { OfflineAudioContext, installGlobals } from './offline-audio.mjs';
+
+installGlobals();
 
 const pc = (n) => (n % 12 + 12) % 12;
 {
@@ -76,6 +79,34 @@ const record = (s, bars = 8, setup = () => {}) => {
   for (let i = 0; i < bars * 16; i++) seq.tick(i, 0.05 + i * e.stepDur);
   return e.notes;
 };
+for (const seed of [42, 77, 17]) {
+  const s = freshSong('jazzfunk', seed), from = 65;
+  const e = new Engine(new OfflineAudioContext(1, 256, 48000), s, { realtime: false }), seq = new Sequencer(e, s), hits = [];
+  const hook = e.hook.bind(e);
+  e.hook = (...args) => { hits.push(e.step); return hook(...args); };
+  assert.equal(e.playingPattern, undefined, 'room join starts with a cold engine');
+  assert.equal(seq.chainArr, undefined, 'no downbeat has initialized the chain');
+  seq.startAt(from, .05);
+  assert.equal(hits.length, 0, 'joining never replays earlier wind notes');
+  let abs = from;
+  assert.doesNotThrow(() => {
+    for (; abs < 96; abs++) seq.tick(abs, .05 + (abs - from) * e.stepDur);
+  }, `${seed}: a cold mid-bar join schedules through the next downbeat`);
+  assert(hits.some(step => step < 80), `${seed}: generated wind notes sound before the first joined downbeat`);
+  assert.equal(abs, 96, 'the scheduling cursor advances past the joined bar');
+  assert.equal(seq.chainPos, 6, 'the next downbeat advances the chain exactly once');
+  assert.equal(seq.songBars, parseChain(s.chain).length);
+  assert.deepEqual(seq.chainArr, parseChain(s.chain));
+}
+for (const [chainOn, chain, voice] of [[true, 'GGGG', 'tpt'], [false, 'GGGGGGGG', 'tpt'], [true, '', 'tpt'], [true, 'GGGG', 'marimba']]) {
+  const s = freshSong('jazzfunk', 42); s.chainOn = chainOn; s.chain = chain; s.current = 6; s.patterns[6].hook.v = voice;
+  const e = new Recorder(s), seq = new Sequencer(e, s);
+  seq.startAt(1, .05);
+  assert.doesNotThrow(() => { for (let abs = 1; abs < 32; abs++) seq.tick(abs, .05 + (abs - 1) * e.stepDur); });
+  assert.deepEqual(seq.chainArr, chainOn ? parseChain(chain) : [], 'empty and disabled chains retain preview semantics');
+  assert.equal(seq.songBars, chainOn ? parseChain(chain).length : 0);
+  assert(e.notes.hook?.length, 'generated wind and non-wind previews remain audible');
+}
 for (const chord of ['Isus2', 'Isus4']) {
   const { state } = songState({ style: 'jazzfunk', bpm: 100, key: 'C', scale: 'major', sections: [{ role: 'drop', bars: 16, chords: [chord] }] }, 0);
   const notes = record(state, 16);
