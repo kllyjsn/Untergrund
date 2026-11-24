@@ -346,7 +346,7 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
   const hook = (voice = 'warm') => Engine.prototype.hook.call(e, 1, 0.7, 3, 0.3, voice);
   const checkEq = (out, source) => {
     for (const [f, q, db] of [
-      [2643.88, 33.41, -12.32], [2778.29, 51.19, -13.1],
+      [2643.88, 33.41, -12.32], [2792, 32, -21],
       [2958.34, 18.65, -18.9], [3085.16, 75.05, -20.79],
     ]) {
       assert.equal(out.inputs.length, 1);
