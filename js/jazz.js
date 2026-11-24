@@ -5,7 +5,7 @@ import { bossaChart, bossaPreview } from './bossa.js';
 
 export const isJazz = (style) => style === 'swing' || style === 'modal' || style === 'bossa' || style === 'jazzfunk';
 export const JAZZ_MIX = {
-  jazzfunk: { lead: 10, comp: 7.6, bass: 0.5, kick: -4.5, snare: 7.7, hat: 28, oh: 20, output: -0.6 },
+  jazzfunk: { lead: 8, comp: 6.5, bass: 0.5, kick: -4.5, snare: 6.5, hat: 26.5, oh: 20, output: -0.65 },
   bossa: { lead: 2, trumpetLead: 14.3, comp: 7, nylonComp: 1.5, guitarComp: 3.2, pianoComp: 4.5, bass: 1, guitarBass: 3.5, pianoBass: 4.5, hat: 24, rim: 12, output: -2, guitarOutput: -2.5, pianoOutput: -4.25 },
   swing: { lead: 6, comp: -1.5, bass: -4, ride: 15.5, hat: 16, output: -2 },
   modal: { lead: 8, comp: -2, bass: -2, ride: 17.5, hat: 16, output: -2 },
@@ -51,6 +51,12 @@ export function jazzHarmony(pat, bar) {
 
 export function jazzVoicing(h, key, style) {
   const iv = CHORDS[h.c].iv;
+  if (style === 'jazzfunk') {
+    const tones = h.c === 16 ? [3, 10, 14, 17] : iv.includes(4) ? [4, iv.includes(11) ? 11 : 10, iv.includes(15) ? 15 : 14, iv.includes(21) ? 21 : iv.includes(20) ? 20 : 7] : iv.includes(3) ? [3, 7, 10, 14] : [5, 7, 10];
+    const candidates = tones.flatMap((n) => [48, 60, 72].map((oct) => oct + pc(key + h.r + n))).filter((n) => n >= 67 && n <= 79);
+    const top = near(candidates, 73);
+    return tones.map((n) => top - pc(top - key - h.r - n)).sort((a, b) => a - b);
+  }
   const shape = style === 'jazzfunk' && h.c === 16 ? [3, 10, 17] : style === 'bossa' && h.r === 2 && h.c === 13 ? [4, 10, 18] : style === 'modal' && h.c === 17 || h.c === 5 ? iv :
     iv.includes(4) ? [4, iv.includes(11) ? 11 : iv.includes(10) ? 10 : 9, iv.includes(21) ? 21 : iv.includes(15) ? 15 : 14] :
       [3, iv.includes(9) ? 9 : 10, iv.includes(6) ? 6 : 14];

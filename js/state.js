@@ -290,7 +290,7 @@ export function generate(style, seed = Date.now(), scaleName = 'minor', { feel =
 
 function generatePattern(style, seed, scaleName, starter, feel = null, keepScale = false) {
   const r = rng(seed);
-  const F = !FORMS[style] && style !== 'repertoire' && style !== 'bossa' && isFeel(feel) ? FEELS[feel] : null;
+  const F = !FORMS[style] && style !== 'repertoire' && style !== 'bossa' && style !== 'jazzfunk' && isFeel(feel) ? FEELS[feel] : null;
   const mode = F && !keepScale && feelMode(style, feel, scaleName);
   if (mode) scaleName = mode;
   const musicalScale = SCALES[MAJOR_STYLES.has(style) && scaleName === 'minor' ? 'major' : scaleName]?.notes || SCALES.minor.notes;
@@ -937,7 +937,7 @@ function generatePattern(style, seed, scaleName, starter, feel = null, keepScale
   if (!hiphop) {
     if (idea === 0 && on.length > 2) S.acid[on[on.length - 1]].n += 12;
     else if (idea === 1 && S.perc.some(Boolean)) { const k = 1 + Math.floor(r2() * 3), q = S.perc.slice(); S.perc = q.map((_, i) => q[(i - k + STEPS) % STEPS]); }
-    else if (idea === 2 && S.stab.some(Boolean) && !['neosoul', 'boombap', 'country'].includes(style)) { const q = S.stab.slice(); S.stab = q.map((_, i) => q[(i + 1) % STEPS]); }
+    else if (idea === 2 && S.stab.some(Boolean) && !['neosoul', 'boombap', 'country', 'folk'].includes(style)) { const q = S.stab.slice(); S.stab = q.map((_, i) => q[(i + 1) % STEPS]); }
   }
   // Styles without written changes get harmony in their own idiom, from a separate stream so nothing above moves.
   if (!P.prog) {

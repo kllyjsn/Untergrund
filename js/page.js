@@ -164,7 +164,7 @@ function artistView(artist, tracks) {
   root.replaceChildren(
     h('div', { class: 'pp-hero' }, avatar,
       h('div', { class: 'pp-who' },
-        h('span', { class: 'pp-eyebrow' }, 'ARTIST'),
+        h('span', { class: 'pp-eyebrow' }, 'ARTIST', artist.pro ? [' · ', h('a', { class: 'pp-pro', href: '/pricing' }, 'STUDIO PRO')] : null),
         h('h1', {}, artist.name),
         h('div', { class: 'pp-handle' }, `@${artist.handle}`),
         artist.bio ? h('p', { class: 'pp-bio' }, artist.bio) : null,

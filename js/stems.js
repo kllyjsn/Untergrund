@@ -12,6 +12,7 @@ import { capture, songBars, parseKeyName, PARTS } from './midi.js';
 import { PIECE } from './repertoire.js';
 import { ZipWriter } from './zip.js';
 import { vocalStem, VOCAL_DUCK_DB } from './sing.js';
+import { AUDIO_CONNECT, AUDIO_ROUTE } from './audio-sums.js';
 
 export const STEM_NAMES = {
   kick: 'kick', clap: 'clap', snare: 'snare', ch: 'hats', oh: 'open-hat', ride: 'ride', perc: 'perc',
@@ -32,16 +33,17 @@ export const exportName = (state, suffix) => `${slug(state.artist?.title)}-${Mat
 // The stems this song actually plays, in mixer order: the instruments with notes, then FX/returns.
 export function stemList(state, loopBars = 16) {
   const c = capture(state, loopBars), ids = c.score ? Object.keys(PARTS) : [...TRACK_IDS.slice(0, TRACK_IDS.indexOf('stab') + 1), 'hook', ...TRACK_IDS.slice(TRACK_IDS.indexOf('stab') + 1), ...Object.keys(PARTS)];
-  return [...ids.filter((id) => c.notes[id]?.length || (id === 'hook' && c.notes.fiddle?.length)), ...(state.artist?.style === 'dub' && c.notes.stab?.length ? ['dubpad'] : []), ...(vocalStem(state) ? ['sung'] : []), 'fx'];
+  return [...ids.filter((id) => c.notes[id]?.length || (id === 'perc' && c.notes.guitar?.length) || (id === 'hook' && c.notes.fiddle?.length)), ...(state.artist?.style === 'dub' && c.notes.stab?.length ? ['dubpad'] : []), ...(vocalStem(state) ? ['sung'] : []), 'fx'];
 }
 
 // Re-routes everything that would reach engine.mix / engine.duck / engine.preMaster into per-stem sums on its own channel pair.
 // prebus: no stems, just the mix bus straight out (the reference the stems sum to).
 export function router(want, { prebus = false } = {}) {
-  const proto = AudioNode.prototype, orig = proto.connect;
+  const proto = AudioNode.prototype;
+  let orig = proto.connect, contextual = false;
   let ctx = null, E = null, part = null;
   const conns = [], sums = {}, clones = {}, owner = new Map();
-  const restore = () => { if (proto.connect !== orig) proto.connect = orig; };
+  const restore = () => { if (contextual) delete ctx[AUDIO_ROUTE]; else if (proto.connect !== orig) proto.connect = orig; };
   const route = (src, dst) => {
     if (src === E.duck) return dst;
     const stem = part || owner.get(src) || 'fx', sum = sums[stem];
@@ -59,13 +61,16 @@ export function router(want, { prebus = false } = {}) {
     restore,
     onContext(c) {
       ctx = c;
-      proto.connect = function (dst, ...a) {
+      contextual = !!ctx[AUDIO_CONNECT];
+      if (contextual) orig = ctx[AUDIO_CONNECT];
+      const connect = function (dst, ...a) {
         if (this.context === ctx) {
           if (E && !prebus && (dst === E.mix || dst === E.duck || dst === E.preMaster)) return route(this, dst);
           if (!E) conns.push([this, dst]);
         }
         return orig.call(this, dst, ...a);
       };
+      if (contextual) ctx[AUDIO_ROUTE] = connect; else proto.connect = connect;
     },
     onEngine(engine) {
       E = engine;

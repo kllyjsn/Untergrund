@@ -41,7 +41,8 @@ import { flagshipShelf } from './flagship.js';
 import { describeBar, syncLyrics } from './describe-ui.js';
 import { vocalStem } from './sing.js';
 import { songState } from './song-spec.js';
-import { fetchReleaseTrack } from './account.js';
+import { fetchReleaseTrack, getAccount, onAccount } from './account.js';
+import { openListenerAccount } from './listener-account.js';
 import { openShare, openSharedLanding, countRemix, track } from './share.js';
 import { readShareParams, decodeSong, normalizeSong, remixState } from './share-code.js';
 import { dailyDrop, dropSong, isDropDate } from './daily.js';
@@ -60,6 +61,7 @@ addEventListener('blur', () => { for (const k of [...heldPads.keys()]) ui.perf?.
 let playing = false, abs = 0, nextTime = 0, lastPlayedPat = null;
 let transportOrigin = 0, roomJoinTimer = 0, clockOffset = null;
 let roomAudioClock = null;
+let roomLifecycleAt = -Infinity;
 let vocalGridDirty = false;
 let roomDrainUntil = null;
 let roomPlayback = false;
@@ -75,6 +77,7 @@ let family = localStorage.getItem('untergrund.family') || 'TECHNO';
 let style = STYLES[state.artist?.style]?.family === family ? state.artist.style
   : Object.keys(STYLES).find((id) => STYLES[id].family === family) || 'hypnotic';
 family = STYLES[style].family;
+let favoriteGenres = [], listenerDefault = null, listenerAccountID;
 let generatedAt = 0;
 function showCrash(err) {
   if (document.querySelector('.crash')) return;
@@ -192,7 +195,7 @@ function schedule(lead) {
   if (roomEditor) engine.pruneEditableHits(now);
   const frozenOutputTime = roomAudioClock?.frozenOutputTime;
   const clock = syncAudioClock(clockOffset, Date.now() / 1000 - now,
-    roomPlayback ? {at:performance.now() / 1000, contextTime:now, state:roomAudioClock} : null);
+    roomPlayback ? {at:performance.now() / 1000, contextTime:now, state:roomAudioClock, lifecycleAt:roomLifecycleAt} : null);
   clockOffset = clock.offset;
   roomAudioClock = clock.state ?? null;
   const switchAt = queuedRoomSwitch ? roomMediaTime(queuedRoomSwitch.startsAt / 1000 - clockOffset, roomPlayback, mediaRoute) : Infinity;
@@ -206,7 +209,7 @@ function schedule(lead) {
   if (firstEstimate && !playableFirst && Math.abs(target - nextTime) > 0.000001) nextTime = target;
   if (roomPlayback && Math.abs(target - nextTime) > 0.000001) vocalGridDirty = true;
   if (clock.jumped) roomDrainUntil = null;
-  const correction = roomPlayback && !clock.jumped && !playableFirst ? roomTransportCorrection(target, nextTime, now, base, roomDrainUntil) : null;
+  const correction = roomPlayback && !clock.jumped && !playableFirst ? roomTransportCorrection(target, nextTime, now, base, roomDrainUntil, ahead) : null;
   if (correction?.drainUntil !== undefined) {
     if (roomDrainUntil === null) {
       engine.cancelVocalSlew?.();
@@ -221,6 +224,7 @@ function schedule(lead) {
   const fix = playableFirst ? null : correction ?? transportResync(target, nextTime, now, base, clock.jumped, seq.origin - abs, roomPlayback);
   let firstTime = playableFirst ? nextTime : fix?.firstTime;
   if (fix) {
+    const adoptedTime = fix.adopted ? Math.max(now + 0.005, firstTime ?? fix.nextTime) : null;
     if (fix.discard) {
       engine.discardQueuedNotes(now, roomPlayback ? firstTime ?? fix.nextTime : null, frozenOutputTime);
       engine.roomSlewRate = 1;
@@ -234,17 +238,17 @@ function schedule(lead) {
       seq.rewind(abs, now);
     }
     for (let i = 0; i < fix.skip; i++, abs++) {
-      const gridTime = target + i * base, t = roomPlayback ? Math.max(now, gridTime) : now;
+      const gridTime = target + i * base, t = adoptedTime ?? (roomPlayback ? Math.max(now, gridTime) : now);
       if (roomPlayback && jamQueue.length && (abs - seq.origin) % 16 === 0)
         landJamParts((gridTime + roomMediaLead(roomPlayback, mediaRoute) + clockOffset) * 1000 + base * 500, t);
       artistTick(abs - seq.origin);
       seq.advanceBar(abs - seq.origin, t);
     }
     if (roomPlayback && fix.skip > 0 && jamQueue.length)
-      landJamParts((fix.nextTime + roomMediaLead(roomPlayback, mediaRoute) + clockOffset) * 1000, fix.nextTime);
+      landJamParts((fix.nextTime + roomMediaLead(roomPlayback, mediaRoute) + clockOffset) * 1000, adoptedTime ?? fix.nextTime);
     nextTime = fix.nextTime;
     if (fix.adopted) {
-      midiClockStart(ctx, abs, nextTime);
+      midiClockStart(ctx, abs, adoptedTime);
     } else if (roomPlayback && fix.skip > 0) midiClockStart(ctx, abs, nextTime);
     const step = (abs - seq.origin) % 16;
     if (fix.discard && step)
@@ -271,7 +275,7 @@ function schedule(lead) {
         }
       }
     }
-    const t = firstTime ?? nextTime;
+    const t = roomPlayback ? Math.max(firstTime ?? nextTime, now + 0.005) : firstTime ?? nextTime;
     firstTime = undefined;
     // Leave a nearly coincident outgoing step to the incoming downbeat.
     if (t >= switchAt - 0.03 && switchAt < horizon) {
@@ -286,7 +290,7 @@ function schedule(lead) {
       abs += skip * 16; seq.chainPos += skip; transportOrigin -= skip * 16 * base * 1000;
       if (handoff?.step != null) { handoff.step += skip * 16; handoff.from += skip * 16; }
     }
-    if (jamQueue.length && ((abs - seq.origin) % 16 === 0 || (roomPlayback && mediaRoute && roomMediaSync.active(now)))) {
+    if (jamQueue.length && ((abs - seq.origin) % 16 === 0 || (fix?.adopted && fix.skip > 0) || (roomPlayback && mediaRoute && roomMediaSync.active(now)))) {
       const gridTime = roomPlayback && mediaRoute ? nextTime + roomMediaLead(roomPlayback, mediaRoute) : nextTime;
       landJamParts((gridTime + clockOffset) * 1000 + base * 500, t);
     }
@@ -716,6 +720,7 @@ function interrupt() {
 // The audio clock stopping under a playing song (a call, Siri, iOS suspending the page) pauses it;
 // when it runs again soon after, the song carries on.
 function onAudioState() {
+  roomLifecycleAt = performance.now() / 1000;
   if (ctx.state === 'running') {
     if (paused?.reason === 'interrupted' && Date.now() - paused.at < RESUME_WINDOW) remote.play();
   } else if (ctx.state !== 'closed') interrupt();
@@ -1776,6 +1781,11 @@ function selectFamily(f) {
   if (STYLES[style].family !== f) style = Object.keys(STYLES).find((id) => STYLES[id].family === f);
   build();
 }
+
+function chooseFavorite(id) {
+  style = id;
+  selectFamily(STYLES[id].family);
+}
 function generateNow(drop = null, { radio = false } = {}) {
   if (!drop?.date) drop = null;
   roomResume = null;
@@ -2083,6 +2093,10 @@ function buildGenerateHome() {
   if (!families.includes(family)) family = STYLES[style].family;
   const playingStyle = (playing || paused) && state.artist?.style;
   const picker = h('div', { class: 'generate-families' },
+    favoriteGenres.length ? h('div', { class: 'listener-shortcuts', role: 'group', 'aria-label': 'Favorite genres' },
+      h('span', {}, 'FAVORITES'), favoriteGenres.map((id) => h('button', { type: 'button',
+        class: 'btn ghost' + (id === style ? ' on' : ''), 'aria-pressed': String(id === style),
+        onclick: () => chooseFavorite(id) }, STYLES[id].name))) : null,
     h('div', { class: 'family-tabs', role: 'group', 'aria-label': 'Genre family' },
       families.map((f) => h('button', { class: 'family-tab' + (f === family ? ' on' : ''), 'aria-pressed': String(f === family), onclick: () => selectFamily(f) }, f)),
       h('button', { class: 'family-tab surprise', title: 'Pick any genre and generate', onclick: surprise }, 'SURPRISE ME')),
@@ -2130,7 +2144,9 @@ function buildGenerateHome() {
   const live = made ? liveStrip() : null;
   const home = h('section', { role: studioOpen ? 'region' : 'main', 'aria-label': 'Create', class: 'generate-home' + (showNp ? ' is-playing' : '') + (concert ? ' has-concert' : '') + (live && !live.hidden ? ' has-live' : '') + (made ? '' : ' first-run') + (unlock ? ' unlock' : ''), style: `--hue:${hue(showNp ? playingStyle || style : style)}` + (unlock ? `;--ua:${-Math.round(since)}ms` : '') }, left, describeBox(), live, picker, concert, recents, following, flagship,
     h('div', { class: 'home-foot-links' },
+      h('a', { class: 'home-research', href: '/start/' }, 'GETTING STARTED', h('span', {}, 'Create, listen, remix and release')),
       h('a', { class: 'home-research', href: '/research/' }, 'RESEARCH', h('span', {}, 'How we measure the sound')),
+      h('a', { class: 'home-research', href: '/pricing' }, 'PLANS', h('span', {}, 'Free studio and Studio Pro')),
       h('a', { class: 'home-research', href: '/legal/' }, 'LEGAL', h('span', {}, 'Rights, privacy and terms'))));
   ui.home = home;
   return home;
@@ -2388,6 +2404,8 @@ function buildHeader() {
       h('button', { class: 'btn' + (studioOpen ? '' : ' on'), ...(!studioOpen && { 'aria-current': 'page' }), title: 'Generate and play songs', onclick: () => { if (studioOpen) toggleStudio(); } }, 'CREATE'),
       h('button', { class: 'btn studio-toggle' + (studioOpen ? ' on' : ''), ...(studioOpen && { 'aria-current': 'page' }), title: 'Sequencer, mixer, export and every control', onclick: () => { if (!studioOpen) toggleStudio(); } }, 'STUDIO'),
       clubBtn, libraryBtn, jukeboxBtn, artistBtn),
+    h('button', { type: 'button', class: 'btn ghost listener-entry', 'aria-haspopup': 'dialog',
+      onclick: () => openListenerAccount() }, h('i', { 'aria-hidden': 'true' }), 'ACCOUNT'),
     h('button', { class: 'btn ghost tools-toggle studio-only', 'aria-expanded': 'false', onclick: (e) => {
       const open = document.body.classList.toggle('tools-open');
       e.currentTarget.setAttribute('aria-expanded', String(open));
@@ -2780,7 +2798,7 @@ function buildMaster() {
       hold('THROW', 'T', 'Throw everything into delay + reverb', () => engine.setThrow(true), () => engine.setThrow(false)),
       hold('RISER', 'Y', 'Noise riser that builds over 4 bars', () => engine.riserStart(), () => engine.riserStop())),
     midiStrip(),
-    h('div', { class: 'foot' }, `${getSample(state).source === 'synth' ? 'synths + recorded CC0 instruments' : 'synth + your own samples'} · 48k/24-bit export`));
+    h('div', { class: 'foot' }, `${getSample(state).source === 'synth' ? 'synths + recorded CC0 / CC BY instruments' : 'synth + your own samples'} · 48k/24-bit export`));
 }
 
 function drawViz() {
@@ -2954,6 +2972,7 @@ window.addEventListener('keyup', (e) => {
 });
 
 document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) roomLifecycleAt = performance.now() / 1000;
   if (!guest) save(state);
   // Going to the lock screen or another app: queue extra audio before timers slow down.
   if (playing && document.hidden) schedule(BG_LEAD);
@@ -2961,10 +2980,31 @@ document.addEventListener('visibilitychange', () => {
 document.addEventListener('freeze', () => {
   if (playing && roomPlayback && roomAudioClock) roomAudioClock.frozenOutputTime = engine.audibleTime(ctx.currentTime);
 });
-document.addEventListener('resume', () => { if (ctx?.state === 'running') schedule(); });
+document.addEventListener('resume', () => {
+  roomLifecycleAt = performance.now() / 1000;
+  if (ctx?.state === 'running') schedule();
+});
+window.addEventListener('pageshow', () => { roomLifecycleAt = performance.now() / 1000; });
 
 prepareSample(null);
 build();
+onAccount(({ account }) => {
+  const prefs = account?.listener;
+  const favorites = (prefs?.favoriteGenres || []).filter((id) => Object.hasOwn(STYLES, id));
+  const nextDefault = prefs?.defaultGenre;
+  const changed = favoriteGenres.join() !== favorites.join();
+  const applyDefault = !playing && !paused && !tuning && !guest && Object.hasOwn(STYLES, nextDefault) &&
+    (nextDefault !== listenerDefault || account.id !== listenerAccountID);
+  favoriteGenres = favorites;
+  listenerDefault = nextDefault;
+  listenerAccountID = account?.id;
+  if (applyDefault) {
+    style = nextDefault;
+    family = STYLES[style].family;
+    build();
+  } else if (changed) renderHome();
+});
+getAccount();
 // Once the page is idle, warm the recordings the selected style and the saved song will play.
 (window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(() => {
   preloadStyle(style);
@@ -2977,7 +3017,16 @@ requestAnimationFrame(frame);
 onPushChange(() => { if (dropOpen && !playing) renderHome(); });
 navigator.serviceWorker?.addEventListener('message', (e) => { if (e.data?.type === 'untergrund:open') openDropLink(new URL(e.data.url, location.href).searchParams); });
 const shared = readShareParams(location);
-if (shared) setTimeout(() => {
+const accountParams = new URLSearchParams(location.search);
+const googleResult = accountParams.get('account');
+const resetToken = new URLSearchParams(location.hash.slice(1)).get('reset-password');
+if (googleResult !== null || resetToken !== null) {
+  accountParams.delete('account');
+  const search = accountParams.toString();
+  window.history.replaceState(null, '', location.pathname + (search ? '?' + search : '') + (resetToken === null ? location.hash : ''));
+  openListenerAccount({ googleResult, resetToken });
+}
+else if (shared) setTimeout(() => {
   // "Remix this track" from a release page goes straight into a credited remix.
   // An account's release can outlive its crate copy, so the public record is tried first, as the release page does.
   if (shared.id && new URLSearchParams(location.search).has('remix')) {

@@ -74,6 +74,21 @@ function song(style, seed) {
   return s;
 }
 
+{
+  const s = song('jazzfunk', 763150), parsed = parseMidi(songMidi(s).bytes);
+  const guitar = parsed.tracks.find((t) => t.name === 'Guitar');
+  assert(guitar?.notes.length, 'Jazz-Funk guitar has its own pitched track');
+  assert.deepEqual(guitar.programs, [28], 'GM muted electric guitar');
+  assert(!guitar.channels.has(9), 'pitched guitar never uses the drum channel');
+  assert(!parsed.tracks.some((t) => t.name === 'Perc'), 'guitar is not duplicated as percussion');
+  const percussion = song('deephouse', 42);
+  for (const p of percussion.patterns) p.steps.perc[1] = 1;
+  const drums = parseMidi(songMidi(percussion).bytes).tracks.find((t) => t.name === 'Perc');
+  assert(drums?.notes.length && drums.notes.every((n) => n.ch === 9 && n.m === GM_DRUMS.perc), 'real percussion retains GM drums');
+  s.mutes.perc = true;
+  assert(!parseMidi(songMidi(s).bytes).tracks.some((t) => t.name === 'Guitar'), 'perc-strip mute still silences exported guitar');
+}
+
 // Loop genres: one track per instrument, drums on channel 10 with the GM map, counts and timing as played.
 for (const [style, seed] of [['neosoul', 42], ['deephouse', 7], ['hypnotic', 3]]) {
   const s = song(style, seed), r = songMidi(s), m = parseMidi(r.bytes);

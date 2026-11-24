@@ -5,6 +5,7 @@ import { clone } from './state.js';
 import { encodeWav } from './dsp.js';
 import { loadBand, liveSets, loadSets, withTakes, assertRootsReady } from './livekit.js';
 import { vocalStem } from './sing.js';
+import { deterministicAudioSums } from './audio-sums.js';
 
 // startBar renders a window from inside the song chain (e.g. the peak), with the arrangement state it would have there.
 // Hooks (used by js/stems.js): onContext(ctx) before the engine is built, onEngine(engine) before the song is
@@ -33,6 +34,8 @@ export async function renderBars(state, bars, { sampleRate = 48000, tail, startB
   const trim = tail == null && sc && !sc.waiting && !onContext && !onEngine;
   const len = Math.ceil((start + span * sd + (tail ?? (sc ? SCORE_TAIL : 4))) * sampleRate);
   const ctx = new OfflineAudioContext(channels, len, sampleRate);
+  // Native sums preserve bounded Hard Techno batching; its exports are not bit-exact.
+  const flushSums = snap.artist?.style === 'hardtechno' ? () => {} : deterministicAudioSums(ctx);
   onContext?.(ctx);
   const engine = new Engine(ctx, snap, { realtime: false, vocal: vocalStem });
   onEngine?.(engine);
@@ -47,6 +50,7 @@ export async function renderBars(state, bars, { sampleRate = 48000, tail, startB
   const schedule = (to) => {
     for (; abs < to; abs++) { seq.tick(first + abs, end); end += engine.stepDur; }
     if (abs >= steps) engine.vocalStop(end);
+    flushSums();
   };
   // Keep externally routed graphs and the original score/vocal scheduling path intact.
   if (engine.hardTechno && steps > 2 * BATCH_STEPS && !sc && !snap.sing?.on &&
@@ -69,6 +73,7 @@ export async function renderBars(state, bars, { sampleRate = 48000, tail, startB
   }
   schedule(steps);
   onScheduled?.(ctx);
+  flushSums();
   const buf = await ctx.startRendering();
   return trim ? trimTail(buf) : buf;
 }

@@ -5,6 +5,97 @@ import { analyzePerceptual, PERCEPTUAL_METRICS } from '../js/perceptual-audio.js
 import { clipCurve, satCurve } from '../js/dsp.js';
 import { baselineOf, compare, report } from '../scripts/audio-benchmark.mjs';
 import { withChrome } from './chrome.mjs';
+import { stringStopSections } from '../js/hiphop.js';
+import './render-determinism.mjs';
+
+for (const args of [[48000, 0, 4220], [48000, 4220, 1790], [8000, 1790, 4220], [NaN, 1790, 4220], [Infinity, 1790, 4220], [48000, 1790, 4220, 0], [48000, 1790, 4220, -16], [48000, 1790, 4220, NaN]]) {
+  assert.throws(() => stringStopSections(...args), RangeError);
+}
+const stringsStop = await withChrome((run) => run(`(async () => {
+  const { HIPHOP, stringStopSections } = await import('/js/hiphop.js');
+  const { Engine } = await import('/js/engine.js');
+  const { defaultState, STYLES } = await import('/js/state.js');
+  const { withStableAudioSums } = await import('/test/stable-audio-sums.js');
+  const edges = HIPHOP.gfunk.strStop;
+  for (const fs of [22050, 44100, 48000, 96000, 192000]) {
+    const ctx = new OfflineAudioContext(1, fs, fs), frequencies = Float32Array.from({ length: 7981 }, (_, i) => i + 20);
+    const gain = new Float64Array(frequencies.length), phase = new Float32Array(frequencies.length), magnitude = new Float32Array(frequencies.length);
+    const sections = stringStopSections(fs, ...edges);
+    for (const [b, a] of sections) {
+      ctx.createIIRFilter(b, a).getFrequencyResponse(frequencies, magnitude, phase);
+      gain.forEach((v, i) => { gain[i] = v + 20 * Math.log10(magnitude[i]); });
+    }
+    for (let hz = 800; hz <= 1700; hz++) if (gain[hz - 20] < -1.5 || gain[hz - 20] > 0.001) throw Error('Strings body response at ' + fs);
+    if ([...gain].some(v => !Number.isFinite(v) || v > 0.001 || v < -16.001)) throw Error('Strings stop-band boost, excessive depth or invalid response');
+    if (Math.min(...gain.slice(1980, 3981)) > -15.9) throw Error('Strings stop band did not reach its depth cap');
+    const old = new Float64Array(frequencies.length);
+    for (const [frequency, Q, db] of [[2200, 1, -6], [3000, .6, -12]]) {
+      const bell = ctx.createBiquadFilter(); bell.type = 'peaking'; bell.frequency.value = frequency; bell.Q.value = Q; bell.gain.value = db;
+      bell.getFrequencyResponse(frequencies, magnitude, phase);
+      old.forEach((v, i) => { old[i] = v + 20 * Math.log10(magnitude[i]); });
+    }
+    for (let hz = 5000; hz <= 8000; hz++) if (gain[hz - 20] < old[hz - 20] - .001) throw Error('Strings air response at ' + fs);
+    const source = ctx.createBufferSource(); source.buffer = ctx.createBuffer(1, fs, fs); source.buffer.getChannelData(0)[0] = 1;
+    let node = source;
+    for (const [b, a] of sections) node = node.connect(ctx.createIIRFilter(b, a));
+    node.connect(ctx.destination); source.start();
+    if ([...(await ctx.startRendering()).getChannelData(0)].some(v => !Number.isFinite(v))) throw Error('Unstable strings impulse at ' + fs);
+  }
+  const ctx = new OfflineAudioContext(1, 1024, 48000), state = defaultState(), engine = new Engine(ctx, state, { realtime: false });
+  let fx;
+  engine.playBuf = (...args) => { fx = args[6]; };
+  for (const style of Object.keys(STYLES)) for (const kind of ['str', 'piano', null]) {
+    state.artist = { style };
+    engine.recordedNote([[60, {}]], .05, .8, 60, .5, ctx.destination, 0, kind);
+    if (Boolean(fx.stop) !== (style === 'gfunk' && kind === 'str')) throw Error('Strings stop-band scope: ' + style + '/' + kind);
+  }
+  async function pcm(stop, silent = false) {
+    return withStableAudioSums(async () => {
+      const ctx = new OfflineAudioContext(1, 8192, 48000), e = new Engine(ctx, defaultState(), { realtime: false }); e.out.disconnect();
+      const buffer = ctx.createBuffer(1, 8192, 48000);
+      if (!silent) buffer.getChannelData(0)[0] = .25;
+      e.playBuf(buffer, 0, 1, ctx.destination, 1, 0, { stop });
+      return [...(await ctx.startRendering()).getChannelData(0)];
+    });
+  }
+  const plain = await pcm(), empty = await pcm(null), filtered = await pcm(edges), silent = await pcm(edges, true);
+  if (plain.some((v, i) => v !== empty[i])) throw Error('Empty stop band changed PCM');
+  if (!filtered.some((v, i) => Math.abs(v - plain[i]) > 1e-4)) throw Error('Strings stop band did not process PCM');
+  if (silent.some(v => v !== 0)) throw Error('Strings stop band changed silence');
+  return true;
+})()`));
+if (stringsStop) console.log('G-Funk strings stop band: 16 dB cap without boosts, body/air at 22.05–192 kHz, finite impulses, genre/instrument scope, empty and silent PCM passed');
+
+const velvetWhistle = await withChrome((run) => run(`(async () => {
+  const { Engine, paletteColor } = await import('/js/engine.js');
+  const { song } = await import('/test/audio-quality-page.js');
+  const s = song('deephouse', 42), ctx = new OfflineAudioContext(2, 48000, 48000);
+  const engine = new Engine(ctx, s, { realtime: false }), out = ctx.createGain(), filters = [];
+  const filter = engine.filter;
+  engine.filter = function (...args) { const f = filter.apply(this, args); filters.push(f); return f; };
+  engine.paletteChord(0, 0.5, [], 60, s.params.stab, out, paletteColor(s));
+  const empty = filters.length === 0;
+  const input = engine.paletteWhistleOut(out), cached = input === engine.paletteWhistleOut(out);
+  const frequencies = new Float32Array([1000, 2000, 2600, 2640, 2750, 2800, 2965, 3000, 4000, 6000]);
+  const db = new Float32Array(frequencies.length);
+  for (const f of filters) {
+    const mag = new Float32Array(frequencies.length), phase = new Float32Array(frequencies.length);
+    f.getFrequencyResponse(frequencies, mag, phase);
+    mag.forEach((x, i) => db[i] += 20 * Math.log10(x));
+  }
+  engine.replay808Style = 'dnb';
+  const foreign = engine.paletteWhistleOut(out) === out;
+  s.artist.style = 'dnb'; engine.replay808Style = 'deephouse';
+  const replay = engine.paletteWhistleOut(out) === input;
+  return { empty, cached, foreign, replay, db: Array.from(db) };
+})()`));
+if (velvetWhistle) {
+  assert(velvetWhistle.empty && velvetWhistle.cached, 'empty chords allocate nothing; notes share the whistle filter');
+  assert(velvetWhistle.foreign && velvetWhistle.replay, 'whistle suppression follows playback style, not listener style');
+  assert(velvetWhistle.db.slice(2, 8).every(db => db < -30), 'the detuned whistle band is suppressed by at least 30 dB');
+  assert([0, 1, 8, 9].every(i => velvetWhistle.db[i] > -2), 'body and upper air stay within 2 dB');
+  console.log('Velvet whistle: >30 dB rejection at 2.6–3 kHz; body and air within 2 dB; cached and playback-scoped');
+}
 
 const deepHouseBuild = await withChrome((run) => run(`(async () => {
   const { Engine, Sequencer } = await import('/js/engine.js');
