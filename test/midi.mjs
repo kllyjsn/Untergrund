@@ -162,6 +162,33 @@ function fakeAccess(inNames = ['Pad Ctl'], outNames = ['TR-8']) {
   assert.deepEqual(sent.slice(looped).map(([bytes]) => bytes), Array.from({length:6}, () => [0xf8]), 'a Studio section-loop index jump sends only continuous clocks, never SPP/Continue');
 }
 console.log('MIDI relocation PASS: explicit room seeks send SPP; adjacent, duplicate and Studio section-loop steps preserve continuous clocks.');
+{
+  for (const nudgeMs of [0, -7, 8]) {
+    let now = 900, queued = [], clears = 0;
+    const emitted = [];
+    const clock = createClockSender((bytes, time) => {
+      emitted.push({bytes, time}); queued.push({bytes, time});
+    }, {nudgeMs, now:() => now, clear:() => { queued = []; clears++; }});
+    clock.start(64, 1000);
+    clock.step(64, 1000, 125);
+    clock.step(65, 1125, 125);
+    now = 1030;
+    queued = queued.filter(e => e.time > now);
+    const cutoff = 1187.5 + nudgeMs - 2;
+    const keep = queued.filter(e => e.time < cutoff);
+    const before = emitted.length;
+    clock.start(66, 1187.5);
+    clock.step(66, 1187.5, 125);
+    assert.equal(clears, 1, 'a pulled-forward relocation clears the old pending ticks');
+    assert.deepEqual(queued.filter(e => e.time < cutoff), keep, 'ticks before relocation survive exactly once');
+    assert.ok(emitted.slice(before).every(e => e.time > now), 'already emitted ticks are never replayed');
+    assert.deepEqual(queued.filter(e => e.bytes[0] === 0xf8 && e.time >= cutoff).map(e => e.time),
+      stepTicks(1187.5, 125).map(t => t + nudgeMs), 'only the relocated step supplies clocks after its SPP');
+    clock.stop(1400);
+    assert.deepEqual(queued, [{bytes:[0xfc], time:1400}], 'stop removes the retained queue too');
+  }
+}
+console.log('MIDI queued relocation PASS: old future ticks cancelled, earlier pending ticks retained, delivered ticks never replayed, output nudge respected.');
 
 // Hub with a fake MIDIAccess: default map, learn, takeover + glide, pads, clock in/out
 {

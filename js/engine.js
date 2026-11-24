@@ -146,9 +146,11 @@ const ALTO_VIB = 20;
 const SAX_TRIM = { pop: -2.4, neosoul: -5.7, boombap: 3.5, trap: 1.1, afrobeats: 6.5, reggaeton: 4.5, breaks: 7.1 };
 // Pop and Reggaeton hats live above 4 kHz, where the alto's breath otherwise fills the gaps between hits, so
 // those altos get a fixed high cut; the Afrobeats tenor's low register piles up at 220-260 Hz over the bass.
+// Reggaeton's alto repeats short riff notes too brief for vibrato, so each repeat lands within 8 cents of
+// the last, as a player's would, instead of stacking the same harmonics into fixed 2.4-3.3 kHz lines.
 const SAX_FX = {
   pop: { cap: 3000, lpStages: 4, shelves: [[4000, -12]] },
-  reggaeton: { cap: 3000, lpStages: 4, shelves: [[4000, -14]] },
+  reggaeton: { cap: 3000, lpStages: 4, shelves: [[4000, -14]], scatter: 8 },
   afrobeats: { peaks: [[245, 1.6, -8]] },
 };
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
@@ -3659,8 +3661,9 @@ export class Engine {
     const air = hash(step, m + 29), tongue = hash(step, m + 71), touch = Math.min(1, v);
     const out = this.trimOut(`hook-${voice}`, 1, this.hookBus || this.windDuck, -4, 500);
     const eq = tone.reduce((o, band) => this.bodyFor(o, band), this.bodyFor(this.bodyFor(out, presence), [780, 1.2, -2.5]));
-    const rate = 2 ** ((m - pitch - cents / 100) / 12);
     const styleFx = voice.endsWith('sax') ? SAX_FX[this.playbackStyle] ?? {} : {};
+    const drift = styleFx.scatter ? (hash(step, m + 113) - 0.5) * 2 * styleFx.scatter : 0;
+    const rate = 2 ** ((m - pitch - (cents + drift) / 100) / 12);
     return this.playBuf(buf, t, gain * touch * dbGain(trim + (air - 0.5) * 1.2) * dbGain(jazzStyle(this.state, this.playingPattern) === 'bossa' && voice === 'tpt' ? JAZZ_MIX.bossa.trumpetLead : JAZZ_MIX[jazzStyle(this.state, this.playingPattern)]?.lead || 0), eq,
       rate, Math.max(0.06, dur * 0.92), {
         peaks: [...(jazzStyle(this.state, this.playingPattern) ? jazzNotches(useAlt ? TAKES[HOOK_BAND[voice]] : HOOK_BAND[voice], pitch, rate) : []), ...(styleFx.peaks || [])],
@@ -5264,11 +5267,12 @@ const PRE_HZ = 4500, BUILD_HZ = 3000;
 // phrase and broadens into a new section (classical.js tempoMap at low depth, deeper for calmer feelings), and the
 // ending slows over its last bars by the feeling's end.rit. A song with a sung stem keeps strict time, as does one
 // without a feeling.
-export function feelTempo(s, chain, pos, i16) {
+const GRID_TEMPO = new Set(['hypnotic', 'industrial', 'acid', 'dub', 'peak', 'hardtechno', 'deephouse', 'minimal', 'ukg', 'euphoric', 'trance', 'amapiano', 'bailefunk', 'jerseyclub']);
+export function feelTempo(s, chain, pos, i16, style = s.artist?.style) {
   const f = feelOf(s), n = chain.length;
-  if (!f || !n || s.sing?.on || jazzStyle(s, s.patterns[chain[pos]]) === 'jazzfunk') return 1;
+  if (!f || !n || s.sing?.on || GRID_TEMPO.has(style) || jazzStyle(s, s.patterns[chain[pos]]) === 'jazzfunk') return 1;
   let m = 1;
-  if (s.patterns[chain[pos]]?.sec && s.artist?.style !== 'hardtechno' && jazzStyle(s, s.patterns[chain[pos]]) !== 'jazzfunk') {
+  if (s.patterns[chain[pos]]?.sec && jazzStyle(s, s.patterns[chain[pos]]) !== 'jazzfunk') {
     let a = pos;
     while (a > 0 && chain[a - 1] === chain[pos]) a--;
     const d = 0.25 + 0.1 * (1 - f.arousal), ph = ((((pos - a) % 4) * 16) + i16) / 64;
@@ -5490,7 +5494,7 @@ export class Sequencer {
     if (s.artist?.style === 'dub' || e.dubBreakdown === true) e.dubSection?.(t, s.artist?.style === 'dub' && s.chainOn && pos >= 48 && pos < 56 && (this.cur === 4 || this.cur === 5));
     if (abs % 16 === 0) e.vocal(t, pos, 0, roomGridTime, false, vocalSettling);
     const pat = patternAt(s.patterns[this.cur], pos);
-    if (!pat.score) e.stepScale = n ? feelTempo(s, this.chainArr, pos, abs % 16) : 1;
+    if (!pat.score) e.stepScale = n ? feelTempo(s, this.chainArr, pos, abs % 16, e.playbackStyle ?? s.artist?.style) : 1;
     const firstTick = !e.playingPattern, previousJazz = jazzStyle(s, e.playingPattern);
     e.playingPattern = pat;
     if (firstTick || (abs % 16 === 0 && previousJazz !== jazzStyle(s, pat))) e.applyOutputTrim?.(false, t);
@@ -5514,7 +5518,7 @@ export class Sequencer {
     const hp = f ? this.hairpin(f, abs) : 1;
     // The breath is a lifted hand: ringing chords and the bass are damped, then let back in for the downbeat.
     if (held && abs % 16 === 12) e.breath(tt, false);
-    if (held && abs % 16 === 15) e.breath(tt + sd - 0.012, true);
+    if (held && abs % 16 === 15) e.breath(t + sd - 0.012, true);
     if (s.ending && n >= 16 && pos === n - 1 && !pat.score) return this.ending(pat, abs % 16, tt, sd, kl);
     // Turnaround: the last beat of a section anticipates the next section's first chord.
     const nx = n && pos + 1 < n && this.chainArr[pos + 1] !== this.cur ? patternAt(s.patterns[this.chainArr[pos + 1]], pos + 1) : null;

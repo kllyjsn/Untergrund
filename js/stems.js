@@ -12,6 +12,7 @@ import { capture, songBars, parseKeyName, PARTS } from './midi.js';
 import { PIECE } from './repertoire.js';
 import { ZipWriter } from './zip.js';
 import { vocalStem, VOCAL_DUCK_DB } from './sing.js';
+import { AUDIO_CONNECT, AUDIO_ROUTE } from './audio-sums.js';
 
 export const STEM_NAMES = {
   kick: 'kick', clap: 'clap', snare: 'snare', ch: 'hats', oh: 'open-hat', ride: 'ride', perc: 'perc',
@@ -38,10 +39,11 @@ export function stemList(state, loopBars = 16) {
 // Re-routes everything that would reach engine.mix / engine.duck / engine.preMaster into per-stem sums on its own channel pair.
 // prebus: no stems, just the mix bus straight out (the reference the stems sum to).
 export function router(want, { prebus = false } = {}) {
-  const proto = AudioNode.prototype, orig = proto.connect;
+  const proto = AudioNode.prototype;
+  let orig = proto.connect, contextual = false;
   let ctx = null, E = null, part = null;
   const conns = [], sums = {}, clones = {}, owner = new Map();
-  const restore = () => { if (proto.connect !== orig) proto.connect = orig; };
+  const restore = () => { if (contextual) delete ctx[AUDIO_ROUTE]; else if (proto.connect !== orig) proto.connect = orig; };
   const route = (src, dst) => {
     if (src === E.duck) return dst;
     const stem = part || owner.get(src) || 'fx', sum = sums[stem];
@@ -59,13 +61,16 @@ export function router(want, { prebus = false } = {}) {
     restore,
     onContext(c) {
       ctx = c;
-      proto.connect = function (dst, ...a) {
+      contextual = !!ctx[AUDIO_CONNECT];
+      if (contextual) orig = ctx[AUDIO_CONNECT];
+      const connect = function (dst, ...a) {
         if (this.context === ctx) {
           if (E && !prebus && (dst === E.mix || dst === E.duck || dst === E.preMaster)) return route(this, dst);
           if (!E) conns.push([this, dst]);
         }
         return orig.call(this, dst, ...a);
       };
+      if (contextual) ctx[AUDIO_ROUTE] = connect; else proto.connect = connect;
     },
     onEngine(engine) {
       E = engine;
