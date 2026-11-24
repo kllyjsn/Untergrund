@@ -24,6 +24,7 @@ import { FEELS } from './feel.js';
 import { cleanChainEntries } from './chain.js';
 import { funkHand } from './baile.js';
 import { festivalTrap, festivalBuilds, festivalBuildStep } from './festival-build.js';
+import { RHODES_STYLES, rhodesVoicing, rhodesLineOctave, rhodesLoFiVoicing, rhodesLoFiPhrase, rhodesRnBVoicing } from './rhodes.js';
 import { rootsFor, fiddleRole, fiddlePitch, fiddleDuration, fiddleAnswerRoll, uprightNotes } from './roots.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
@@ -1090,7 +1091,8 @@ export class Engine {
     }
     const mix = JAZZ_MIX[jazzStyle(this.state, this.playingPattern)];
     const trim = this.minimal ? 0.32 : this.playbackStyle === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : jazzStyle(this.state, this.playingPattern) === 'bossa' ? voice === 7 ? mix.pianoOutput : voice === 8 ? mix.guitarOutput : mix.output : mix?.output ?? STYLE_OUTPUT_DB[this.playbackStyle] ?? 0;
-    const level = this.hardTechno ? 0.89 : OUT_TRIM * dbGain(trim);
+    this.rhodesOutput = jazzStyle(this.state, this.playingPattern) === 'jazzfunk' && !this.state.params.stab.rhodesFM && !!this.rec('rhodes', false);
+    const level = this.hardTechno ? 0.89 : OUT_TRIM * dbGain(trim + (this.rhodesOutput ? 0.5 : 0));
     if (Number.isFinite(time)) this.out.gain.setValueAtTime(level, time);
     else this.setTo(this.out.gain, level, immediate);
     const clipTrim = this.playbackStyle === 'neosoul' ? dbGain(-2.5) : jazzStyle(this.state, this.playingPattern) === 'jazzfunk' ? dbGain(-1.5) : 1;
@@ -2332,6 +2334,7 @@ export class Engine {
 
   // FM electric piano: sine carrier, 1:1 modulator for the bark, 14:1 burst for the tine.
   keys(t, v, iv, root, p, out) {
+    if (!p.rhodesFM && RHODES_STYLES.has(jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle) && this.rhodesKeys(t, v, iv, root, p, out)) return;
     if (jazzStyle(this.state, this.playingPattern)) return this.jazzKeys(t, v, iv, root, p, out);
     const felt = this.minimal && !!this.smoothOn;
     if (felt && (!iv.length || !Number.isFinite(root) || !Number.isFinite(v) || v <= 0 || iv.some(n => !Number.isFinite(n)))) return;
@@ -2393,6 +2396,7 @@ export class Engine {
   }
 
   jazzKeys(t, v, iv, root, p, out) {
+    if (!p.rhodesFM && RHODES_STYLES.has(jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle) && this.rhodesKeys(t, v, iv, root, p, out)) return;
     if (!iv.length) return;
     const style = jazzStyle(this.state, this.playingPattern);
     const envDefault = style === 'jazzfunk' ? 0.12 : 0.45, detuneDefault = style === 'jazzfunk' ? 0.6 : 12;
@@ -2432,6 +2436,55 @@ export class Engine {
     });
     lp.connect(body).connect(trem).connect(out);
     this.startSource(lfo, t); lfo.stop(end);
+  }
+
+  rhodesKeys(t, v, iv, root, p, out) {
+    const set = this.rec('rhodes');
+    if (!set) { loadBand('rhodes'); return false; }
+    const requested = iv.map((n) => root + n);
+    if (!requested.length || requested.some((n) => !Number.isFinite(n)) || !Number.isFinite(v) || v <= 0) return true;
+    const style = jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle, funk = style === 'jazzfunk';
+    const notes = p.rhodesLine ? requested : style === 'lofihiphop' ? rhodesLoFiVoicing(requested) : style === 'rnb' ? rhodesRnBVoicing(requested) : rhodesVoicing(requested);
+    if (notes === null) return false;
+    if (!notes.length) return true;
+    if (funk && !this.rhodesOutput) this.applyOutputTrim?.(false, t);
+    const [envRef, detuneRef, tineRef] = {
+      neosoul: [0.25, 14, 1], rnb: [0.25, 10, 1], lofihiphop: [0.12, 8, 0.18], jazzfunk: [0.12, 0.6, 1],
+    }[style];
+    const envHome = style === 'lofihiphop'
+      ? HIPHOP.lofihiphop.ensembles.find(([voice, , octave]) => voice === Math.round(p.voice) && octave === Math.round(p.octave))?.[4] ?? envRef : envRef;
+    const env = (p.env ?? envHome) - envHome, detune = ((p.detune ?? detuneRef) - detuneRef) * 0.15;
+    const tine = (p.tine ?? tineRef) - tineRef;
+    const velocity = Math.max(0, Math.min(1, v / (funk ? dbGain(JAZZ_MIX.jazzfunk.comp) : 1)));
+    const hold = (p.rhodesHold ?? Math.max(0.08, p.decay * (funk ? 1 : 1.7))) * 2 ** (env * 3);
+    const end = t + hold + 0.22;
+    if (funk && !p.rhodesLine) {
+      const shelf = this.filter('lowshelf', 300, Math.SQRT1_2);
+      shelf.gain.value = -19; shelf.connect(out); out = shelf;
+    }
+    if (style === 'rnb' && !p.rhodesLine) {
+      for (let i = 0; i < 2; i++) {
+        const shelf = this.filter('lowshelf', 400);
+        shelf.gain.value = -24; shelf.connect(out); out = shelf;
+      }
+    }
+    if (!funk) {
+      const trem = this.ctx.createStereoPanner(), lfo = this.ctx.createOscillator();
+      lfo.frequency.value = 1.1;
+      lfo.connect(this.gain(0.12)).connect(trem.pan);
+      trem.connect(out); out = trem;
+      this.startSource(lfo, t); lfo.stop(end);
+    }
+    let level = v * (funk ? 1.2 * (p.rhodesLine ? 1 : dbGain(5)) : 0.96) / Math.sqrt(notes.length);
+    if (style === 'rnb' && !p.rhodesLine) level *= dbGain(28.8);
+    const lp = Math.min(8500, Math.max(550, p.cutoff * (0.55 + 2.2 * velocity ** 2) * 2 ** tine));
+    for (const [i, m] of notes.entries()) {
+      const [center, buf] = set.reduce((a, b) => Math.abs(b[0] - m) < Math.abs(a[0] - m) ? b : a);
+      const at = t + 0.002 + hash((this.step || 0) + m, i + 621) * 0.006;
+      this.playBuf(buf, at, level, out, 2 ** ((m - center) / 12 + (i % 2 ? detune : -detune) / 1200), hold,
+        { lp, shelves: [[3000, -9 * (1 - velocity) + tine * 12]], fade: 0.001, release: 0.03, ringOut: true });
+    }
+    return true;
   }
 
   stab(t, v, underHarp = false) {
@@ -3723,7 +3776,7 @@ export class Engine {
     this.startSource(src, t, from, dur + 0.02);
   }
 
-  lick(t, v, k) {
+  lick(t, v, k, phraseMidi) {
     const p = this.state.params.stab, h = this.harm;
     const iv = CHORDS[h ? h.c : Math.round(p.chord)].iv;
     const n = iv[k % iv.length] + 12 * Math.floor(k / iv.length);
@@ -3733,6 +3786,16 @@ export class Engine {
     const style = this.state.artist?.style;
     const dest = (lead === 'organ' && !RECORDED_ORGAN.has(this.playbackStyle) && this.ch.stab.fill) || this.ch.stab.input;
     const out = style === 'breaks' || style === 'reggaeton' ? this.chordTone(vo, dest) : dest;
+    if (lead === 'keys' && RHODES_STYLES.has(jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle)) {
+      const root = 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot();
+      const top = Math.max(...Array.from({ length: 6 }, (_, i) => root + iv[i % iv.length] + 12 * Math.floor(i / iv.length)));
+      const phrase = this.playbackStyle === 'lofihiphop'
+        ? rhodesLoFiPhrase(phraseMidi ?? Array.from({ length: 6 }, (_, i) => root + iv[i % iv.length] + 12 * Math.floor(i / iv.length))) : null;
+      const shift = this.playbackStyle === 'lofihiphop' ? phrase?.shift ?? null : -12 * Math.max(0, Math.ceil((top - 68) / 12));
+      if (shift === null) return;
+      if (phrase?.fm) return this.keys(t, v, [n], root + shift, { ...p, rhodesFM: true, rhodesLine: true }, out);
+      if (this.rhodesKeys(t, v, [n], root + shift, { ...p, rhodesLine: true }, out)) return;
+    }
     return this[lead](t, v, [n], 60 + this.state.key + Math.round(p.octave) * 12 + this.harmRoot(), p, out);
   }
 
@@ -3991,6 +4054,18 @@ export class Engine {
     }
     if (voice === 'tapekeys') {
       const out = this.hookBus || this.ch.stab.input;
+      if (RHODES_STYLES.has(jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle)) {
+        const raw = 60 + k + oct * 12 + n;
+        const phrase = this.playbackStyle === 'lofihiphop' ? rhodesLoFiPhrase([raw]) : null;
+        const shift = Object.hasOwn(expression, 'rhodesOctave') ? expression.rhodesOctave
+          : this.playbackStyle === 'lofihiphop' ? phrase?.shift ?? null : rhodesLineOctave(this.state);
+        if (shift === null) return;
+        const fm = Object.hasOwn(expression, 'rhodesFM') ? expression.rhodesFM : phrase?.fm;
+        if (fm) return this.keys(t, v * 0.53, [n], 60 + k + oct * 12 + shift,
+          { ...p, cutoff: 680, env: 0.08, tine: 0.08, decay: dur * 0.52, rhodesFM: true, rhodesLine: true }, out);
+        const pitch = raw + shift;
+        if (this.rhodesKeys(t, v * 0.53, [0], pitch, { ...p, cutoff: 680, rhodesLine: true, rhodesHold: dur }, out)) return;
+      }
       return this.keys(t, v * 0.53, [n], 60 + k + oct * 12, { ...p, cutoff: 680, env: 0.08, tine: 0.08, decay: dur * 0.52 }, out);
     }
     if (voice === 'phonkbell') return this.phonkBell(t, v, midiHz(60 + k + oct * 12 + n), dur, strong);
@@ -5816,7 +5891,15 @@ export class Sequencer {
     // Licks fill the lead's rests instead of talking over it.
     const lick = this.lickCell(i16, vary);
     if (lick && !held && leadOn && !alone && !busy && !(this.songBars && ((hk && hm) || sung?.any) && i16 === 15) && bar % 8 === 7 && !sp[abs % (pat.len.stab || 16)]) {
-      e.lick(tt, lick.v, lick.k);
+      const phraseMidi = e.playbackStyle === 'lofihiphop'
+        ? Array.from({ length: 8 }, (_, i) => i * 2).filter((i) => !sp[(bar * 16 + i) % (pat.len.stab || 16)])
+          .flatMap((i) => {
+            const note = this.lickCell(i, vary);
+            if (!note) return [];
+            const h = this.rhodesHarmony(i).harm, p = s.params.stab, iv = chordIv(h, p), k = note.k;
+            return [60 + s.key + Math.round(p.octave) * 12 + harmRoot(h) + iv[k % iv.length] + 12 * Math.floor(k / iv.length)];
+          }) : undefined;
+      e.lick(tt, lick.v, lick.k, phraseMidi);
     }
     if (this.songBars && hk && hm && leadOn && !held && !alone) this.interplay(pat, hk, abs, bar, tt, sd, busy, anySolo, !!hk.s[abs % 32]);
     if (this.songBars && sung?.part && leadOn && !held && !alone) this.interplay(pat, pat.hook, abs, bar, tt, sd, busy, anySolo, sung.notes.some((o) => o.at === i16));
@@ -5837,15 +5920,27 @@ export class Sequencer {
         const lean = (answer ? 0.006 : -0.003) * x.feel + (hash(hi, 97) - 0.5) * 0.008 * x.feel;
         const resolve = hm > 1 && answer && ph === 1 && !hk.s.slice(hi + 1).some(Boolean);
         const strong = !hk.h && (hi % 4 === 0 || st[1] >= 2), ht = tt + lean + (s.master.humanize || 0) * 0.008;
-        const expression = Object.hasOwn(WIND_HOOK, hk.v)
+        let expression = Object.hasOwn(WIND_HOOK, hk.v)
           ? { ...x, take: windTake(hk.s, hi, 0, Math.floor(abs / 32)) } : x;
+        let harmonyRegister = {};
+        if (e.playbackStyle === 'lofihiphop' && hk.v === 'tapekeys') {
+          const phrase = hk.s.flatMap((note, at) => {
+            if (!note || Math.floor(at / 16) !== Math.floor(hi / 16)) return [];
+            const resolveAt = hm > 1 && at >= 16 && ph === 1 && !hk.s.slice(at + 1).some(Boolean);
+            const suspension = pat.peak === 'suspension' && at >= 16 && note[1] >= 2 && at === peakStep(hk.s);
+            return [{ note, at: at % 16, pitch: note[0] + lift, strong: !hk.h && (at % 4 === 0 || note[1] >= 2), resolve: !hk.h && resolveAt && !suspension, suspension }];
+          });
+          expression = { ...expression, ...this.rhodesPhrase(phrase.map((o) => [o.pitch, o.strong, o.resolve, o.at, o.suspension]), hk) };
+          harmonyRegister = this.rhodesPhrase(phrase.filter((o) => o.note[1] >= 3)
+            .map((o) => [stepDeg(o.note[0], -2, scale) + lift, o.strong, false, o.at]), hk);
+        }
         const duration = swingDuration(s, abs, st[1], sd);
         const v = Math.min(1, (f ? feelVel(f, st[2]) : st[2]) * phraseVel), top = pat.peak === 'suspension' && answer && st[1] >= 2 && hi === peakStep(hk.s);
         if (top) this.suspend(ht, v, st[0] + lift, st[1], sd, hk, strong, b, expression, scale);
         else e.hook(ht, v, st[0] + lift, duration, hk.v, hk.o, strong, b, !hk.h && resolve, expression);
         if (pat.peak === 'entry') e.peakVoice(ht + 0.006, v * PEAK_ENTRY, st[0] + lift, duration, hk.o, strong);
         // At the peak a second player doubles the answer's held notes a third below.
-        if (this.cur === 6 && !alone && answer && hm > 1 && st[1] >= 3 && !hk.h && this.songBars) e.hook(ht + 0.004, v * 0.55, stepDeg(st[0], -2, scale) + lift, duration, hk.v, hk.o, strong, b, false, { ...expression, harm: 1 });
+        if (this.cur === 6 && !alone && answer && hm > 1 && st[1] >= 3 && !hk.h && this.songBars) e.hook(ht + 0.004, v * 0.55, stepDeg(st[0], -2, scale) + lift, duration, hk.v, hk.o, strong, b, false, { ...expression, harm: 1, ...harmonyRegister });
       }
     }
     if (this.roll === null) this.rollCount = 0;
@@ -6125,6 +6220,29 @@ export class Sequencer {
 
   // Parts that listen to the lead. In grooves and peaks the bass answers the hook's rests with an off-beat octave,
   // or a walk into the next chord; breakdowns get a quiet guide-tone line (3rds and 7ths) under the B-phrase.
+  rhodesHarmony(at) {
+    const s = this.s, pat = this.e.playingPattern, bar = Math.floor(this.e.step / 16);
+    const n = this.songBars || 0, pos = n ? (this.chainPos - 1) % n : -1, lf = this.liftFrom;
+    const lift = s.ending && pat.lift && lf > 0 && (pos >= lf || (pos === lf - 1 && at >= 12)) ? pat.lift : 0;
+    const nx = n && pos + 1 < n && this.chainArr[pos + 1] !== this.cur ? patternAt(s.patterns[this.chainArr[pos + 1]], pos + 1) : null;
+    let harm = pat.prog?.length ? pat.prog[bar % pat.prog.length] : null;
+    if (nx && at >= 12 && pat.prog?.length && nx.prog?.length) harm = nx.prog[(bar + 1) % nx.prog.length];
+    if (lift && harm) harm = { r: harm.r + lift, c: harm.c };
+    return { harm, lift };
+  }
+
+  rhodesPhrase(notes, hook) {
+    if (this.e.playbackStyle !== 'lofihiphop' || hook.v !== 'tapekeys') return {};
+    const s = this.s, base = 60 + (s.key > 6 ? s.key - 12 : s.key) + (hook.o || 0) * 12;
+    const scale = SCALES[s.scale]?.notes || SCALES.minor.notes;
+    const phrase = rhodesLoFiPhrase(notes.flatMap(([n, strong, up, at, suspension]) => {
+      const { harm, lift } = at == null ? { harm: this.e.harm, lift: this.keyLift || 0 } : this.rhodesHarmony(at);
+      const pitch = hookSnap(n + lift - (this.keyLift || 0), harm, s.params.stab, strong, up);
+      return suspension ? [base + pitch, base + stepDeg(pitch, 1, scale)] : [base + pitch];
+    }));
+    return { rhodesOctave: phrase?.shift ?? null, rhodesFM: phrase?.fm ?? true };
+  }
+
   interplay(pat, hk, abs, bar, t, sd, busy, anySolo, leadStarts) {
     if (this.s.artist?.style === 'hardtechno') return;
     const s = this.s, e = this.e, i16 = abs % 16, len = pat.len.acid || 16, a = pat.steps.acid;
@@ -6142,7 +6260,22 @@ export class Sequencer {
       const cands = [iv[1], iv[3] ?? iv[2]].flatMap((x) => [-12, 0, 12].map((o) => home + r + x + o)).filter((m) => m !== prev || i16 === 0);
       const n = cands.reduce((b, m) => (Math.abs(m - prev) < Math.abs(b - prev) ? m : b));
       this.counter = n;
-      e.hook(t + 0.003, 0.3, n, 8 * sd, hk.v, hk.o, true, 0.5, false, { ...(hk.x || {}), harm: 1, counter: 1 });
+      let rhodesOctave, rhodesFM;
+      if (hk.v === 'tapekeys' && RHODES_STYLES.has(e.playbackStyle)) {
+        if (this.rhodesCounterAt !== bar) {
+          const next = cands.filter((m) => m !== n).reduce((b, m) => Math.abs(m - n) < Math.abs(b - n) ? m : b, Infinity);
+          const top = 60 + (s.key > 6 ? s.key - 12 : s.key) + (hk.o || 0) * 12 + Math.max(n, Number.isFinite(next) ? next : n);
+          this.rhodesCounterOctave = e.playbackStyle === 'lofihiphop'
+            ? this.rhodesPhrase([n, Number.isFinite(next) ? next : n].map((m) => [m, true, false]), hk).rhodesOctave
+            : -12 * Math.max(0, Math.ceil((top - 68) / 12));
+          this.rhodesCounterFM = e.playbackStyle === 'lofihiphop'
+            && this.rhodesPhrase([n, Number.isFinite(next) ? next : n].map((m) => [m, true, false]), hk).rhodesFM;
+          this.rhodesCounterAt = bar;
+        }
+        rhodesOctave = this.rhodesCounterOctave;
+        rhodesFM = this.rhodesCounterFM;
+      }
+      e.hook(t + 0.003, 0.3, n, 8 * sd, hk.v, hk.o, true, 0.5, false, { ...(hk.x || {}), harm: 1, counter: 1, rhodesOctave, rhodesFM });
     }
   }
 
@@ -6221,18 +6354,25 @@ export class Sequencer {
     const s = this.s, e = this.e, hk = sung.hook, x = hk.x || { space: 0.4, risk: 0.4, feel: 0.4, warmth: 0.5 };
     // The suspension lands on the answer bar's highest held note.
     const top = peak === 'suspension' && bar % 2 === 1 ? sung.notes.reduce((a, o) => (o.x[1] >= 2 && (!a || o.x[2] > a.x[2]) ? o : a), null) : null;
+    let register = {}, harmonyRegister = {};
+    if (e.playbackStyle === 'lofihiphop' && hk.v === 'tapekeys') {
+      const pitch = (o) => (o.sh ? stepDeg(o.x[2], o.sh, scale) : o.x[2]) + (this.keyLift || 0);
+      register = this.rhodesPhrase(sung.notes.map((o) => [pitch(o), strongNote(o.x[0], o.x[1]), false, o.at, o === top && !o.sh]), hk);
+      harmonyRegister = this.rhodesPhrase(sung.notes.filter((o) => o.q === 'n' && o.x[4] % 2 === 1 && o.x[1] >= 6)
+        .map((o) => [stepDeg(pitch(o) - (this.keyLift || 0), -2, scale) + (this.keyLift || 0), strongNote(o.x[0], o.x[1]), false, o.at]), hk);
+    }
     for (const o of sung.notes) {
       if (o.at !== i16 || (this.dropNext && i16 >= 8 && !o.pickup)) continue;
       const [start, dur, w, vel, ph] = o.x, lift = this.keyLift || 0, semi = o.sh ? stepDeg(w, o.sh, scale) : w;
       const sec = o.q === 'v' ? (s.patterns[this.cur]?.sec ? 1.15 : 0.82) : o.q === 'b' ? 0.6 : 1, strong = strongNote(start, dur);
       const ht = t + (hash(start, 97) - 0.5) * 0.008 * x.feel + (s.master.humanize || 0) * 0.008;
       const f = feelOf(s), b = 0.58 + 0.42 * ((((bar % 8) + 8) % 8) / 7), v = Math.min(1, (f ? feelVel(f, vel) : vel) * sec) * (SUNG_VOICE[hk.v] ?? 1);
-      const expression = o.take == null ? x : { ...x, take: o.take };
+      const expression = { ...(o.take == null ? x : { ...x, take: o.take }), ...register };
       const duration = swingDuration(s, bar * 16 + i16, dur, sd);
       if (o === top && !o.sh) this.suspend(ht, v, semi + lift, dur, sd, hk, strong, b, expression, scale);
       else e.hook(ht, v, semi + lift, duration, hk.v, hk.o, strong, b, false, expression);
       if (peak === 'entry') e.peakVoice(ht + 0.006, v * PEAK_ENTRY, semi + lift, duration, hk.o, strong);
-      if (this.cur === 6 && !alone && o.q === 'n' && ph % 2 === 1 && dur >= 6 && this.songBars) e.hook(ht + 0.004, v * 0.55, stepDeg(semi, -2, scale) + lift, duration, hk.v, hk.o, strong, b, false, { ...expression, harm: 1 });
+      if (this.cur === 6 && !alone && o.q === 'n' && ph % 2 === 1 && dur >= 6 && this.songBars) e.hook(ht + 0.004, v * 0.55, stepDeg(semi, -2, scale) + lift, duration, hk.v, hk.o, strong, b, false, { ...expression, harm: 1, ...harmonyRegister });
     }
   }
 

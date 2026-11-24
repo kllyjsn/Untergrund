@@ -2784,7 +2784,7 @@ function buildMaster() {
       hold('THROW', 'T', 'Throw everything into delay + reverb', () => engine.setThrow(true), () => engine.setThrow(false)),
       hold('RISER', 'Y', 'Noise riser that builds over 4 bars', () => engine.riserStart(), () => engine.riserStop())),
     midiStrip(),
-    h('div', { class: 'foot' }, `${getSample(state).source === 'synth' ? 'synths + recorded CC0 instruments' : 'synth + your own samples'} · 48k/24-bit export`));
+    h('div', { class: 'foot' }, `${getSample(state).source === 'synth' ? 'synths + recorded CC0 / CC BY instruments' : 'synth + your own samples'} · 48k/24-bit export`));
 }
 
 function drawViz() {
