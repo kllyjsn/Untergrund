@@ -49,7 +49,7 @@ const GENRE_PALETTES = {
       2: { ...DEEP_CHORD, level: 1.5, attack: 0.025, release: 0.6, fm: 0.28, cutoff: 1450, presence: 'pad' },
     },
     hook: { ...DEEP_CHORD, wave: 'sawtooth', harmonics: 4500, level: 0.42, attack: 0.012, release: 0.18, cutoff: 4000, spread: 6, width: 0.55, fm: 0.35, presence: false, eq: [], airBand: 1, breath: 0.08, breathDecay: 0.05, transpose: 24, range: [79, 91] },
-    bass: { type: 'round', wave: 'triangle', fm: 0.65, level: 1.25, sub: 0.72, subHigh: 43, body: 0.8, cutoff: 760, decay: 0.16, grit: 0.9, sustain: 0.55, length: 0.88, balance: true, lowBand: { cutoff: 120, trim: -3, duck: 12, lead: 0.008 } },
+    bass: { type: 'round', wave: 'triangle', fm: 0.65, level: 1.25, sub: 0.72, subHigh: 43, body: 0.8, cutoff: 760, decay: 0.16, grit: 0.9, sustain: 0.55, length: 0.88, balance: true, lowBand: { cutoff: 120, trim: -3, duck: 18, lead: 0.015, hold: 0.08, duckCutoff: 250 } },
   },
   euphoric: {
     name: 'uplift',
@@ -1380,7 +1380,7 @@ export class Engine {
     const low = paletteFor(this.state, this.playbackStyle)?.bass.lowBand;
     if (low) {
       this.pocketBassOut(low);
-      parts.push([this.pocketLow.duck.gain, low.duck * Math.min(1, v * 1.25), 0.07, 0.002, 0.03, 0, low.lead || 0]);
+      parts.push([this.pocketLow.duck.gain, low.duck * Math.min(1, v * 1.25), 0.07, 0.002, low.hold ?? 0.03, 0, low.lead || 0]);
     }
     const duck = { t, parts };
     if (this.queuedNotes) {
@@ -2744,7 +2744,7 @@ export class Engine {
   pocketBassOut(low) {
     if (!low) return this.ch.acid.input;
     if (!this.pocketLow) {
-      const input = this.filter('lowshelf', low.cutoff, Math.SQRT1_2), duck = this.filter('lowshelf', low.cutoff, Math.SQRT1_2);
+      const input = this.filter('lowshelf', low.cutoff, Math.SQRT1_2), duck = this.filter('lowshelf', low.duckCutoff ?? low.cutoff, Math.SQRT1_2);
       input.gain.value = low.trim;
       input.connect(duck).connect(this.ch.acid.input);
       this.pocketLow = { input, duck };
