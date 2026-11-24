@@ -73,7 +73,11 @@ const env = { ...process.env, PORT: String(PORT), SC_MOCK: '1' };
 for (const k of ['KV_REST_API_URL', 'KV_REST_API_TOKEN', 'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN']) delete env[k];
 const server = spawn(process.execPath, ['server.mjs'], { env, stdio: ['ignore', 'pipe', 'inherit'] });
 try {
-  await new Promise((ok, fail) => { server.stdout.on('data', (d) => String(d).includes('UNTERGRUND on') && ok()); server.on('exit', fail); setTimeout(fail, 10e3); });
+  await new Promise((ok, fail) => {
+    const timer = setTimeout(fail, 10e3);
+    server.stdout.on('data', (d) => { if (String(d).includes('UNTERGRUND on')) { clearTimeout(timer); ok(); } });
+    server.on('exit', (code) => { clearTimeout(timer); fail(code); });
+  });
   const base = `http://localhost:${PORT}`;
   const post = (path, body, ip) => fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(ip && { 'X-Forwarded-For': ip }) }, body: body && JSON.stringify(body) }).then(async (r) => ({ status: r.status, json: await r.json() }));
   const get = (path) => fetch(base + path).then(async (r) => ({ status: r.status, json: await r.json() }));
