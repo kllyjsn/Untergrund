@@ -6,6 +6,8 @@ import { stepDeg } from '../js/motif.js';
 import { buildSong, playSong, melodyShape } from '../scripts/composition.mjs';
 
 const pc = (x) => ((x % 12) + 12) % 12;
+// Deep House plays its chorus hook on a recorded piano call and answer; it keeps the score for lyrics but doesn't sing it.
+const pianoHook = (style) => generate(style, 1, 'minor').pattern.hook.v === 'deepkeys';
 const phrasesOf = (list) => { const o = []; for (const x of list) (o[x[4]] ??= []).push(x); return o.filter(Boolean); };
 
 // Vocal-length melodies: 4- or 8-bar phrases, a planned peak, a held last note and a breath, singable rhythm,
@@ -125,7 +127,7 @@ console.log('legacy hooks passed');
 console.log('melody score passed');
 
 // In a song the verse sings in C, the chorus in G, the bridge in the breakdown; phrases run 4+ bars with breaths.
-for (const style of ['deephouse', 'neosoul', 'trap']) {
+for (const style of ['neosoul', 'trap']) {
   const s = buildSong(style, 307), { log, seq } = playSong(s), m = s.patterns[6].hook.m, scale = SCALES[s.scale].notes;
   const lead = log.filter((L) => L.k === 'hook' && !L.a[9]?.harm && !L.a[9]?.counter);
   const sect = (c) => lead.filter((L) => s.chain[Math.floor(L.step / 16)] === c).map((L) => L.a[2]);
@@ -140,7 +142,7 @@ console.log('sung song passed');
 // Section registers: the verse sings lowest, each pre-chorus climbs, and only the chorus reaches the song's top note.
 {
   let pres = 0, climbs = 0, songs = 0;
-  for (const style of Object.keys(SING_PROFILES).filter((s) => !SING_PROFILES[s].instrumental)) for (const seed of [101, 307, 503]) {
+  for (const style of Object.keys(SING_PROFILES).filter((s) => !SING_PROFILES[s].instrumental && !pianoHook(s))) for (const seed of [101, 307, 503]) {
     const s = buildSong(style, seed), { log } = playSong(s), by = {}, runs = [];
     const secOf = (b) => s.patterns['ABCDEFGH'.indexOf(s.chain[b])]?.sec;
     for (const L of log) {
@@ -162,7 +164,7 @@ console.log('sung song passed');
 
 // A scoped edit (a take over some bars) that brings its own melody is what those bars sing.
 {
-  const s = buildSong('deephouse', 307), pos = s.chain.indexOf('G'), hk = s.patterns[6].hook;
+  const s = buildSong('neosoul', 307), pos = s.chain.indexOf('G'), hk = s.patterns[6].hook;
   const up = (a) => a.map((x) => [x[0], x[1], x[2] + 24, ...x.slice(3)]);
   s.patterns[6].at = [{ b: [pos, pos + 7], hook: { ...hk, m: { ...hk.m, n: up(hk.m.n) } } }];
   const lead = playSong(s).log.filter((L) => L.k === 'hook' && !L.a[9]?.harm && !L.a[9]?.counter);

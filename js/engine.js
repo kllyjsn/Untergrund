@@ -93,7 +93,7 @@ const paletteRegister = (pitch, color) => {
 };
 export const paletteHookPitch = (state, pitch, voice, style) => {
   const color = paletteFor(state, style)?.hook;
-  return !color || voice === 'chop' && getChops() ? pitch : paletteRegister(pitch, color);
+  return !color || voice === 'deepkeys' || voice === 'chop' && getChops() ? pitch : paletteRegister(pitch, color);
 };
 // Chords sit under a sung line the way a mix rides the keys under a vocal: a little in the chorus, more in the verse
 // and most in the breakdown, so the drop still lands over it. Songs with sections already set the verse level.
@@ -358,6 +358,7 @@ const REGGAETON_GUITAR_HOOK_EQ = [
   [2643.88, 33.41, -12.32], [2792, 32, -21],
   [2958.34, 18.65, -18.9], [3085.16, 75.05, -20.79],
 ];
+const DEEP_KEYS_GAIN = 2.45, DEEP_KEYS_STAB_UNDER = 0.5;
 const BAND_PLAY = {
   marimba: { gain: 1.35, len: 0.9, min: 0.15, max: 0.44, strum: 0.0015, shift: 0, lo: 48, hi: 84, lp: 7000, fade: 0.002, rel: 0.07, even: 0.35 },
   upright: { gain: 4, lo: 45, hi: 79, lp: 2800, rel: .18, even: .25 },
@@ -4093,6 +4094,33 @@ export class Engine {
     }
     if (voice === 'phonkbell') return this.phonkBell(t, v, midiHz(60 + k + oct * 12 + n), dur, strong);
     if (this.playbackStyle === 'bailefunk') return this.funkStab(t, v * 0.7, [n], 60 + k + oct * 12, dur, this.hookBus || this.ch.stab.input);
+    if (voice === 'deepkeys') {
+      const set = this.rec('piano'), m = 60 + k + oct * 12 + n, out = this.trimOut('hook-deepkeys', 3, this.hookBus || this.ch.stab.input, -14, 600);
+      // The piano samples are mono: upmix here so the CHORDS panner treats them the same whether or not chords are playing.
+      out.channelCount = 2; out.channelCountMode = 'explicit';
+      const pres = (this.deepKeysPresence ||= new Map());
+      if (!pres.has(out)) {
+        const body = this.filter('peaking', 750, 0.9), f = this.filter('peaking', 3000, 0.8);
+        body.gain.value = -9; f.gain.value = 7;
+        body.connect(f).connect(out); pres.set(out, body);
+      }
+      if (set) {
+        const len = Math.max(0.3, Math.min(dur * 1.6, dur + this.stepDur * 1.5));
+        let top = m; while (top > BAND_PLAY.piano.hi + 0.5) top -= 12;
+        // Right-hand octaves, as house pianists play a riff, with a hammer that is bright for its first few ms
+        // and a puff of felt noise: the attack reads on small speakers without leaving a sustained resonant line.
+        const hammer = this.filter('peaking', 3500, 0.7);
+        hammer.gain.setValueAtTime(12, t); hammer.gain.setTargetAtTime(0, t + 0.012, 0.015);
+        hammer.connect(pres.get(out));
+        const nz = this.noiseSrc(t, 0.06), bp = this.filter('bandpass', 3000, 0.7), ng = this.gain(0);
+        this.adEnv(ng.gain, t, v * 0.5, 0.001, 0.045);
+        nz.connect(bp).connect(ng).connect(pres.get(out));
+        this.recordedNote(set, t, v * DEEP_KEYS_GAIN * 0.5, top + 12, len, hammer, 0, null, v);
+        return this.recordedNote(set, t, v * DEEP_KEYS_GAIN, m, len, hammer, 0, 'piano', v);
+      }
+      loadBand('piano');
+      return this.keys(t, v * 0.5, [n], 60 + k + oct * 12, { ...p, decay: Math.max(0.2, dur) }, out);
+    }
     const palette = paletteFor(this.state, this.playbackStyle);
     if (palette && (voice !== 'chop' || !getChops())) return this.paletteHook(t, v, midiHz(60 + k + oct * 12 + n), dur, palette.hook, this.hookBus || this.ch.stab.input);
     if (this.minimal && (voice !== 'chop' || !getChops())) return this.minimalHook(t, v, midiHz(60 + k + oct * 12 + n), dur, this.hookBus || this.ch.stab.input);
@@ -5768,7 +5796,7 @@ export class Sequencer {
     if (build && !build.drop && !s.mutes.snare && (!TRACK_IDS.some((id) => s.solos[id]) || s.solos.snare)) {
       for (const hit of build.rolls) e.trigger('snare', t + hit.offset * sd, hit.velocity);
     }
-    const sung = pat.hook?.m && !pat.hook.h ? this.sungBar(bar, n ? pos : bar) : null;
+    const sung = pat.hook?.m && !pat.hook.h && pat.hook.v !== 'deepkeys' ? this.sungBar(bar, n ? pos : bar) : null;
     // The peak's dropout (longform.js writePeak): one bar of only the lead (the chords, with no lead), then the band returns.
     const alone = pat.peak === 'dropout' ? (sung || (pat.hook && !pat.hook.h && pat.hm) ? 'lead' : 'stab') : null;
     const hookStep = sung ? this.songBars && !sung.hook.m.c && sung.notes.some((o) => o.at === i16 && i16 % 8) : pat.hook && pat.hm ? pat.hook.s[abs % 32] : 0;
@@ -5895,8 +5923,10 @@ export class Sequencer {
       if (!on) { if (id === 'stab' && e.gripHeld?.length) e.quietGrip(tt); continue; }
       // Accompaniment listens to the lead. Do not stack a chord stab on top of
       // the hook's important notes; the gap makes the motif read as intentional.
-      if (id === 'stab' && hookStep && !paletteFor(s, e.playbackStyle ?? s.artist?.style)?.bed) continue;
+      if (id === 'stab' && hookStep && pat.hook?.v !== 'deepkeys' && !paletteFor(s, e.playbackStyle ?? s.artist?.style)?.bed) continue;
       const hit = this.gridHit(id, pat, grid);
+      // Under the piano riff the chord stab still plays, but softer, so the riff's attack reads over it.
+      if (hit && id === 'stab' && hookStep && pat.hook?.v === 'deepkeys') hit.args[2] *= DEEP_KEYS_STAB_UNDER;
       if (hit) e[hit.method](...hit.args);
       if (id === 'kick') kickAt = hit?.time;
     }

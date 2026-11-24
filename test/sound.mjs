@@ -7,7 +7,7 @@ installGlobals();
 const { defaultState, generate, applyOverrides, arrangement, freshSong, INSTRUMENTS } = await import('../js/state.js');
 const { Engine, Sequencer } = await import('../js/engine.js');
 const { Recorder, capture } = await import('../js/midi.js');
-const { loadBand, loadSets, liveSets, STAB_BAND, SOFT_LAYER, SAX_HOOK, saxRoot } = await import('../js/livekit.js');
+const { loadBand, loadSets, liveSets, STAB_BAND, HOOK_BAND, SOFT_LAYER, SAX_HOOK, saxRoot } = await import('../js/livekit.js');
 const { spectralBands, kWeight, lufs } = await import('../js/lab-metrics.js');
 const { lowEnd } = await import('../js/lowend.js');
 const { getSample } = await import('../js/sampler.js');
@@ -91,6 +91,7 @@ async function render(style, seed, { stem = 'full', bars = 4, voice = null, mute
   if (voice != null) s.params.stab.voice = voice;
   const band = STAB_BAND[Math.round(s.params.stab.voice)];
   if (band) { await loadBand(band); if (SOFT_LAYER[band]) await loadBand(SOFT_LAYER[band]); }
+  if (HOOK_BAND[g.pattern.hook?.v]) await loadBand(HOOK_BAND[g.pattern.hook.v]);
   const kicks = [];
   P.stab = stem === 'hook' ? () => {} : orig.stab;
   P.lick = stem === 'hook' ? () => {} : orig.lick;
