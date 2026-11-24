@@ -158,6 +158,15 @@ t('fallback: key, style, tempo words', () => {
   assert.equal(rulePlan('dreamy ambient piece about the ocean').style, 'ambient');
   assert.equal(rulePlan('a song', '', { style: 'dnb' }).style, 'dnb');
 });
+t('fallback: key-of phrasing is separate from the topic', () => {
+  for (const prompt of [
+    'write a pop song about the rain in the key of a minor key',
+    'write a pop song in the key of a minor key about the rain',
+  ]) {
+    const plan = rulePlan(prompt);
+    assert.deepEqual([plan.key, plan.mode, plan.about], [9, 'minor', 'the rain'], prompt);
+  }
+});
 t('fallback: pasted lyrics set form, title and sections', () => {
   const p = rulePlan('', LYRICS, { style: 'neosoul' });
   assert.deepEqual(p.lyrics.map((s) => s.sec), ['verse', 'chorus', 'verse', 'chorus']);
