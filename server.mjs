@@ -15,7 +15,8 @@ const PORT = +(process.env.PORT || 8000);
 const MOCK = process.env.SC_MOCK === '1';
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.wav': 'audio/wav', '.flac': 'audio/flac', '.webmanifest': 'application/manifest+json' };
 const rooms = createRooms({ kv: roomsKv() || memoryRoomsKv() });
-const handleRooms = roomsHandler(rooms, { allowedOrigin: process.env.ROOMS_ALLOWED_ORIGIN || '*' });
+const roomsApiBase = process.env.ROOMS_API_URL;
+const handleRooms = roomsHandler(rooms, { allowedOrigin: process.env.ROOMS_ALLOWED_ORIGIN || '*', apiBase: roomsApiBase });
 
 let mock = null;
 const env = { ...process.env };
@@ -69,7 +70,7 @@ http.createServer(async (req, res) => {
     const publicRoute = publicApiRoute(url.pathname);
     if (publicRoute) {
       const r = await handlePublicApi({ method: req.method, ...publicRoute, ip: req.socket.remoteAddress },
-        { kv: accountKv, crate: crateStore, rooms, rateKv: redisAccountKv(), site: url.origin });
+        { kv: accountKv, crate: crateStore, rooms, roomsApiBase, rateKv: redisAccountKv(), site: url.origin });
       res.writeHead(r.status, { 'Content-Type': 'application/json', ...r.headers });
       return res.end(r.status === 204 ? '' : JSON.stringify(r.json));
     }

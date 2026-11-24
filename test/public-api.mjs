@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
 import { handlePublicApi, publicApiRoute, PUBLIC_API_LIMIT } from '../api/_lib/public-api.js';
 import { handleAccount, attachTrack } from '../api/_lib/accounts.js';
 import { memoryStore, normalizeTrack } from '../api/_lib/crate.js';
 import { memoryKv } from '../api/_lib/kv.js';
-import { createRooms, memoryRoomsKv } from '../api/_lib/rooms.js';
+import { createRooms, memoryRoomsKv, roomsHandler } from '../api/_lib/rooms.js';
+import pageHandler from '../api/page.js';
+import legacyRoomsHandler from '../api/rooms.js';
 import { defaultState } from '../js/state.js';
 
 const site = 'https://www.untergrund.sh', kv = memoryKv(), crate = memoryStore(), rooms = createRooms({ kv: memoryRoomsKv() });
@@ -52,6 +56,31 @@ assert.deepEqual(live.json.data.rooms.map((room) => room.url), [site + '/r/publi
 assert.equal(live.json.data.rooms[0].key, 'A minor');
 assert.equal(live.json.data.rooms[0].clientSecret, undefined);
 assert.match(live.headers['Cache-Control'], /max-age=5/);
+
+{
+  const upstream = roomsHandler(rooms);
+  const server = createServer((request, response) => upstream(request, response, new URL(request.url, site)));
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const oldBase = process.env.ROOMS_API_URL;
+  process.env.ROOMS_API_URL = `http://127.0.0.1:${server.address().port}/`;
+  try {
+    const call = async (handler, request) => {
+      const response = { setHeader() {}, status(value) { this.code = value; return this; }, json(value) { return value; } };
+      const json = await handler({ method: 'GET', headers: {}, ...request }, response);
+      assert.equal(response.code, 200);
+      return json;
+    };
+    const legacy = await call(legacyRoomsHandler, { url: '/api/rooms' });
+    const versioned = await call(pageHandler, { query: { publicApi: 'rooms' } });
+    assert.deepEqual(legacy.rooms.map(({ id }) => id), ['public-stage']);
+    assert.deepEqual(versioned.data.rooms.map(({ url, ...room }) => room), legacy.rooms);
+  } finally {
+    if (oldBase === undefined) delete process.env.ROOMS_API_URL;
+    else process.env.ROOMS_API_URL = oldBase;
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
 
 assert.equal(publicApiRoute('/api/tracks'), null);
 for (const path of ['tracks/missing-123', 'tracks/%2F', 'artists/nobody-here', 'elsewhere']) {

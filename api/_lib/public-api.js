@@ -44,7 +44,7 @@ const publicTrackMeta = (track, site) => ({
   embedUrl: `${site}/embed.html?t=${encodeURIComponent(track.id)}`,
 });
 
-export async function handlePublicApi({ method, route, id, ip }, { kv, crate, rooms, rateKv, site, now = Date.now() }) {
+export async function handlePublicApi({ method, route, id, ip }, { kv, crate, rooms, roomsApiBase, rateKv, site, now = Date.now() }) {
   if (method === 'OPTIONS') return reply(204, null, 'no-store', { 'Access-Control-Max-Age': '600' });
   if (method !== 'GET') return error(405, 'method_not_allowed', 'Use GET for this read-only API.', { Allow: 'GET, OPTIONS' });
   if (route === 'openapi') return reply(200, openApi, 'public, max-age=300, s-maxage=3600');
@@ -54,8 +54,8 @@ export async function handlePublicApi({ method, route, id, ip }, { kv, crate, ro
       return error(429, 'rate_limited', 'Too many requests. Try again next minute.', { 'Retry-After': String(Math.ceil((60000 - now % 60000) / 1000)) });
     }
     if (route === 'rooms') {
-      if (!rooms) return unavailable();
-      const { json } = await routeRooms(rooms, { method: 'GET', path: '/api/rooms' });
+      const { json } = await routeRooms(rooms, { method: 'GET', path: '/api/rooms', apiBase: roomsApiBase });
+      if (!json.enabled) return unavailable();
       return success({ rooms: json.rooms.map((room) => ({ ...room, url: `${site}/r/${encodeURIComponent(room.id)}` })) }, 5);
     }
     if (route === 'artist') {

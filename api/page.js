@@ -15,7 +15,7 @@ export default async function handler(req, res) {
     const kv = redisKv();
     const ip = String(req.headers['x-vercel-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
     const r = await handlePublicApi({ method: req.method, route: req.query.publicApi, id: req.query.publicId, ip },
-      { kv, crate: redisStore(), rooms, rateKv: kv, site });
+      { kv, crate: redisStore(), rooms, roomsApiBase: process.env.ROOMS_API_URL, rateKv: kv, site });
     for (const [name, value] of Object.entries(r.headers)) res.setHeader(name, value);
     return r.status === 204 ? res.status(204).end() : res.status(r.status).json(r.json);
   }
