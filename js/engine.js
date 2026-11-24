@@ -1281,7 +1281,7 @@ export class Engine {
     if (!this.editableHits.length) return;
     const now = this.ctx.currentTime, ready = now + HIT_EDIT_GUARD;
     this.pruneEditableHits(now);
-    const removed = new Set();
+    const removed = new Set(), removedDucks = [];
     let duckFrom = Infinity;
     this.revisingHits = true;
     try {
@@ -1296,6 +1296,7 @@ export class Engine {
           removed.add(note);
         }
         for (const { t } of hit.ducks) duckFrom = Math.min(duckFrom, t);
+        removedDucks.push(...hit.ducks);
         this.ducks = this.ducks.filter(d => !hit.ducks.includes(d));
         Object.assign(hit, { note: next, sources: [], ducks: [] });
         if (next) this.renderHit(hit);
@@ -1304,7 +1305,7 @@ export class Engine {
     } finally {
       this.revisingHits = false;
       if (removed.size) this.queuedNotes = this.queuedNotes.filter(note => !removed.has(note));
-      if (Number.isFinite(duckFrom)) this.rebuildDucks(duckFrom);
+      if (Number.isFinite(duckFrom)) this.rebuildDucks(duckFrom, removedDucks);
     }
   }
 
@@ -1401,7 +1402,8 @@ export class Engine {
   }
 
   // Rebuild only future ducking; a hit already sounding keeps its current pump.
-  rebuildDucks(from) {
+  rebuildDucks(from, removed = []) {
+    const now = this.ctx.currentTime;
     this.ducks.sort((a, b) => a.t - b.t);
     for (const param of [this.duck.gain, this.rumbleDuck.gain, this.ch.acid.sc?.gain, this.windDuck?.gain, this.pocketLow?.duck.gain]) {
       if (!param) continue;
@@ -1413,10 +1415,14 @@ export class Engine {
         if (duck.t >= from) break;
         if (duck.parts.some(p => p[0] === param)) previous = duck;
       }
+      let released = false;
       if (previous) {
         const [, , release, , hold, rest = 1] = previous.parts.find(p => p[0] === param);
-        if (previous.t + hold >= at) param.setTargetAtTime(rest, previous.t + hold, release);
+        if ((released = previous.t + hold >= at)) param.setTargetAtTime(rest, previous.t + hold, release);
       }
+      // A removed hit whose lead already started has pulled the param down; let it go now.
+      const cut = !released && at <= now && removed.flatMap(d => d.parts).find(p => p[0] === param);
+      if (cut) param.setTargetAtTime(cut[5] ?? 1, now, cut[2]);
     }
     for (const duck of this.ducks) if (duck.t >= from) this.scheduleDuck(duck);
   }
