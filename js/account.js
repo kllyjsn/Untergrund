@@ -3,6 +3,7 @@
 import { h } from './ui.js';
 import * as sc from './soundcloud.js';
 import { fetchTrack } from './crate.js';
+import { STYLES } from './state.js';
 
 const API = '/api/account';
 const OFF = { enabled: false, account: null, following: [] };
@@ -146,6 +147,10 @@ export function accountPanel({ getProfile, toast }) {
     el.replaceChildren(h('div', { class: 'acct-label acct-heading' }, 'YOUR LINK', h('a', { href: '/pricing' }, 'PLANS')));
     if (!a.enabled) return el.append(h('p', { class: 'acct-dim' }, 'Artist pages go live once public storage is connected. Your music stays saved in this browser.'));
     const acct = a.account;
+    const signedIn = acct && !acct.anon;
+    const signedInFooter = () => h('div', { class: 'acct-foot' },
+      h('span', { class: 'acct-dim' }, acct.providers.includes('soundcloud') ? 'Signed in with SoundCloud.' : 'Signed in.'),
+      h('button', { class: 'btn ghost acct-out', onclick: async () => { await signOut(); toast('Signed out'); render(); } }, 'SIGN OUT'));
     const scBtn = (label) => cfg.enabled ? h('button', { class: 'btn sc acct-sc', onclick: async (e) => {
       const b = e.currentTarget; b.disabled = true; b.textContent = 'CONNECTING…';
       try { const who = await signInWithSoundCloud(); toast(who.handle ? `Signed in as @${who.handle}` : 'Signed in with SoundCloud'); render(); }
@@ -159,11 +164,21 @@ export function accountPanel({ getProfile, toast }) {
           h('div', { class: 'acct-btns' },
             h('a', { class: 'btn', href: `/a/${acct.handle}`, target: '_blank', rel: 'noopener' }, 'VIEW PAGE'),
             h('button', { class: 'btn ghost', onclick: () => copy(pageUrl(acct.handle)) }, 'COPY LINK'))),
-        acct.anon
-          ? h('div', { class: 'acct-foot' }, h('span', { class: 'acct-dim' }, 'Saved to this browser. Sign in to keep it on every device.'), scBtn('SIGN IN WITH SOUNDCLOUD'))
-          : h('div', { class: 'acct-foot' }, h('span', { class: 'acct-dim' }, `Signed in with ${acct.providers.includes('soundcloud') ? 'SoundCloud' : 'your account'}.`),
-            h('button', { class: 'btn ghost acct-out', onclick: async () => { await signOut(); toast('Signed out'); render(); } }, 'SIGN OUT')));
+        signedIn ? signedInFooter()
+          : h('div', { class: 'acct-foot' }, h('span', { class: 'acct-dim' }, 'Saved to this browser. Sign in to keep it on every device.'), scBtn('SIGN IN WITH SOUNDCLOUD')));
       return;
+    }
+    if (signedIn) {
+      const { displayName, defaultGenre, favoriteGenres = [] } = acct.listener || {};
+      const favorites = favoriteGenres.map((id) => STYLES[id]?.name).filter(Boolean);
+      el.replaceChildren(h('div', { class: 'acct-label acct-heading' }, 'YOUR ACCOUNT', h('a', { href: '/pricing' }, 'PLANS')));
+      el.append(h('dl', { class: 'acct-details' },
+        h('dt', {}, 'Profile'), h('dd', {}, displayName || acct.name || 'No display name'),
+        h('dt', {}, 'Email'), h('dd', {}, acct.email || 'No email on this account'),
+        h('dt', {}, 'Preferences'), h('dd', {}, [
+          STYLES[defaultGenre]?.name && `Default genre: ${STYLES[defaultGenre].name}`,
+          favorites.length && `Favorites: ${favorites.join(', ')}`,
+        ].filter(Boolean).join(' · ') || 'No listening preferences set')), signedInFooter());
     }
     const prof = getProfile();
     const input = h('input', { class: 'inp acct-input', maxlength: 24, placeholder: 'yourname', autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false',
@@ -192,8 +207,10 @@ export function accountPanel({ getProfile, toast }) {
     el.append(
       h('p', { class: 'acct-copy' }, 'Claim a free link. Every song you publish gets its own page that plays instantly.'),
       h('div', { class: 'acct-claim' }, h('span', { class: 'acct-prefix' }, `${location.host.replace(/^www\./, '')}/a/`), input, go),
-      hint,
-      cfg.enabled ? h('div', { class: 'acct-foot' }, h('span', { class: 'acct-dim' }, 'Have SoundCloud? Use it to sign in on any device.'), scBtn('SIGN IN WITH SOUNDCLOUD')) : null);
+      hint);
+    if (!signedIn && cfg.enabled) {
+      el.append(h('div', { class: 'acct-foot' }, h('span', { class: 'acct-dim' }, 'Have SoundCloud? Use it to sign in on any device.'), scBtn('SIGN IN WITH SOUNDCLOUD')));
+    }
     if (input.value) check();
   }
   render();

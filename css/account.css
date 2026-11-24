@@ -15,6 +15,10 @@ p.acct-dim { margin: 0; }
 .acct-hint.ok { color: var(--green); }
 .acct-hint.bad { color: #ff7a7a; }
 .acct-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.06); }
+.acct-details { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px; font: 400 14px/1.45 var(--sans); }
+.acct-details dt { color: var(--dim); }
+.acct-details dd { margin: 0; overflow-wrap: anywhere; }
+.acct-details + .acct-foot { margin: 0 0 16px; padding-top: 0; border-top: 0; }
 .acct-live { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px; }
 .acct-avatar { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; object-fit: cover; background: radial-gradient(circle at 30% 25%, #ff6b6b, var(--accent) 45%, #3a0606); color: #fff; font: 900 15px var(--sans); }
 .acct-who { display: grid; gap: 2px; min-width: 0; }
