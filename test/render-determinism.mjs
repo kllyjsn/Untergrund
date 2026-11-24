@@ -33,6 +33,7 @@ await assert.rejects(measure({ style: 'deephouse', seed: NaN }), /integer seed/)
 await assert.rejects(measure({ style: 'deephouse', seed: 11, bars: -1 }), /integer bar count/);
 
 const rows = [];
+const excerpts = [];
 for (let launch = 0; launch < 3; launch++) {
   const row = await withChrome(run => run(`(async () => {
     const { deterministicAudioSums } = await import('/js/audio-sums.js');
@@ -91,17 +92,26 @@ for (let launch = 0; launch < 3; launch++) {
       results.push([buf.getChannelData(0)[1024], buf.getChannelData(1)[1024]]);
     }
     const { renderBars } = await import('/js/render.js');
-    const { song } = await import('/test/audio-quality-page.js');
+    const { excerpt, song } = await import('/test/audio-quality-page.js');
     const { AUDIO_CONNECT } = await import('/js/audio-sums.js');
     for (const style of ['hardtechno', 'lofihiphop', 'deephouse']) {
       await renderBars(song(style, 42), 1, { sampleRate: 8000, tail: 0, onContext(ctx) {
         if (!!ctx[AUDIO_CONNECT] !== (style !== 'hardtechno')) throw Error('Unexpected sum routing for ' + style);
       } });
     }
-    return results;
+    const hashes = [];
+    for (const style of ['deephouse', 'hypnotic']) {
+      const { wav } = await excerpt(style, 42, { kind: 'ending' });
+      const digest = await crypto.subtle.digest('SHA-256', Uint8Array.from(atob(wav), c => c.charCodeAt(0)));
+      hashes.push(Array.from(new Uint8Array(digest)));
+    }
+    return { results, hashes };
   })()`));
   if (row === null) throw Error('Render determinism regression requires Chrome');
-  rows.push(row);
+  rows.push(row.results);
+  excerpts.push(row.hashes);
 }
 for (const row of rows) assert.deepEqual(row, [[0, 0], [0.125, 0.125], [1, 1], [0.875, 0.875], [0, 0], [0.125, 0.125], [0, 0], [0.875, 0.875], ...Array.from({ length: 80 }, () => [0, 0])]);
+for (const repeat of excerpts.slice(1)) assert.deepEqual(repeat, excerpts[0], 'Deep House and Hypnotic ending WAVs must repeat exactly');
 console.log('Render determinism: node sums, intrinsic AudioParam sums, mono downmix, silence, connections, errors and context isolation passed across 3 Chrome launches');
+console.log('Render determinism: Deep House and Hypnotic ending WAVs matched exactly across 3 Chrome launches');

@@ -8,6 +8,7 @@ import { loadBand, liveSets, loadSets, withTakes, assertRootsReady } from '/js/l
 import { capture } from '/js/midi.js';
 import { router, stemList } from '/js/stems.js';
 import { encodeWav } from '/js/dsp.js';
+import { deterministicAudioSums } from '/js/audio-sums.js';
 import { targetFor } from '/js/loudness.js';
 import { analyzeMix, analyzeStems, targetBalance } from '/js/audio-quality.js';
 import { analyzePerceptual } from '/js/perceptual-audio.js';
@@ -57,7 +58,7 @@ export function plan(s, windowBars = 2) {
 // renderBars (js/render.js) with the steps scheduled a couple of bars ahead of the render through suspend(),
 // the way live playback schedules them: an offline graph holding every future hit of a 3-minute song at once
 // renders ~7x slower. fromBar starts inside the song with the arrangement state it has there.
-export async function render(s, fromBar, toBar, { sampleRate = 48000, tail = 8, channels = 2, onContext, onEngine } = {}) {
+export async function render(s, fromBar, toBar, { sampleRate = 48000, tail = 8, channels = 2, stableSums = false, onContext, onEngine } = {}) {
   const snap = clone(s);
   const sets = withTakes(liveSets(snap));
   await loadSets(sets);
@@ -69,6 +70,7 @@ export async function render(s, fromBar, toBar, { sampleRate = 48000, tail = 8, 
   const from = fromBar * per, to = toBar * per;
   let span = 0; for (let i = from; i < to; i++) span += tempo ? tempo[i % tempo.length] : 1;
   const len = Math.ceil((START + span * sd + tail) * sampleRate), ctx = new OfflineAudioContext(channels, len, sampleRate);
+  if (stableSums) deterministicAudioSums(ctx, { incremental: true });
   onContext?.(ctx);
   const engine = new Engine(ctx, snap, { realtime: false });
   onEngine?.(engine);
@@ -108,9 +110,9 @@ async function makeupDb(e) {
   let sq = 0; for (let i = a; i < y.length; i++) sq += y[i] * y[i];
   return (makeup = 10 * Math.log10(sq / (y.length - a)) - (l.threshold.value - 40));
 }
-async function master(s, fromBar, toBar, tail, taps = true) {
+async function master(s, fromBar, toBar, { tail, taps = true, stableSums = true }) {
   let eng;
-  const buf = await render(s, fromBar, toBar, taps ? { channels: 8, tail, onEngine: (e) => { eng = e; tapLimiter(e); } } : { tail });
+  const buf = await render(s, fromBar, toBar, taps ? { channels: 8, tail, stableSums, onEngine: (e) => { eng = e; tapLimiter(e); } } : { tail, stableSums });
   const out = { buf, ch: Array.from({ length: buf.numberOfChannels }, (_, k) => buf.getChannelData(k)) };
   if (taps) Object.assign(out, { clip: { gain: eng.limTrim.gain.value, curve: eng.clip.curve }, sat: { curve: eng.sat.curve, taps: out.ch.slice(6, 8) }, makeupDb: await makeupDb(eng) });
   return out;
@@ -129,7 +131,7 @@ async function stems(s, p, fromBar, toBar) {
     };
   };
   let buf;
-  try { buf = await render({ ...clone(s), solos: {} }, fromBar, toBar, { channels: ids.length * 2, tail: 1, onContext: r.onContext, onEngine }); } finally { r.restore(); }
+  try { buf = await render({ ...clone(s), solos: {} }, fromBar, toBar, { channels: ids.length * 2, tail: 1, stableSums: true, onContext: r.onContext, onEngine }); } finally { r.restore(); }
   const at = (t) => START + t - t0, inWin = (n) => n.t >= t0 && n.t < t1;
   const onsets = Object.fromEntries(ids.map((id) => [id, id === 'kick' ? kicks : (p.c.notes[id] || []).filter(inWin).map((n) => at(n.t))]));
   const list = ids.map((id, k) => ({ id, left: buf.getChannelData(2 * k), right: buf.getChannelData(2 * k + 1), notes: id === 'fx' ? null : onsets[id].length }));
@@ -153,15 +155,15 @@ export async function measure(style, seed, { tier = 'fast' } = {}) {
   const t0 = performance.now(), s = await ready(song(style, seed)), W = tier === 'deep' ? 8 : 2, p = plan(s, W), target = targetFor(style);
   const win = [p.peakBar, Math.min(p.bars, p.peakBar + W)], out = { style, seed, tier, bpm: s.bpm, bars: p.bars, secs: +p.barTimes.at(-1).toFixed(2), chain: s.chain.length > 1 ? s.chain : null, windows: { stems: win } };
   if (tier === 'deep') {
-    const m = await master(s, 0, p.bars, 8), { buf, ch } = m;
+    const m = await master(s, 0, p.bars, { tail: 8, stableSums: false }), { buf, ch } = m;
     out.mix = analyzeMix(ch[0], ch[1], buf.sampleRate, { barTimes: p.barTimes.map((t) => t + START), sections: p.sections, finalHit: p.finalHit + START, songEnd: p.barTimes.at(-1) + START, target, lim: ch.slice(2, 6), clip: m.clip, sat: m.sat, makeupDb: m.makeupDb, barNotes: p.barNotes });
     out.perceptual = perceptualWindow(p, 0, p.bars, buf.sampleRate)(ch[0], ch[1]);
   } else {
     let t = performance.now();
-    const a = await master(s, win[0], win[1], 1);
+    const a = await master(s, win[0], win[1], { tail: 1 });
     out.mix = analyzeMix(a.ch[0], a.ch[1], a.buf.sampleRate, { target, lim: a.ch.slice(2, 6), clip: a.clip, sat: a.sat, makeupDb: a.makeupDb, crestTimes: p.barTimes.slice(win[0], win[1] + 1).map((t) => t - p.barTimes[win[0]] + START) });
     out.perceptual = perceptualWindow(p, win[0], win[1], a.buf.sampleRate)(a.ch[0], a.ch[1]);
-    const e0 = Math.max(0, Math.min(p.bars - 2, p.finalBar - 1)), b = await master(s, e0, p.bars, 6, false), o = START - p.barTimes[e0];
+    const e0 = Math.max(0, Math.min(p.bars - 2, p.finalBar - 1)), b = await master(s, e0, p.bars, { tail: 6, taps: false }), o = START - p.barTimes[e0];
     const endMix = analyzeMix(b.ch[0], b.ch[1], b.buf.sampleRate, { finalHit: p.finalHit + o, songEnd: p.barTimes.at(-1) + o, target, refLufs: out.mix.loudness.integrated });
     out.mix.ending = endMix.ending;
     out.mix.peak.truePeakDb = Math.max(out.mix.peak.truePeakDb, endMix.peak.truePeakDb);
@@ -183,7 +185,7 @@ export async function excerpt(style, seed, { kind = 'peak', bars = 8, solo = nul
   const s = await ready(song(style, seed)), p = plan(s, bars);
   if (solo) s.solos = { [solo]: true };
   const [a, b, tail] = from != null ? [from, Math.min(p.bars, from + bars), 0.5] : kind === 'ending' ? [Math.max(0, Math.min(p.bars - 2, p.finalBar - 2)), p.bars, 8] : [p.peakBar, Math.min(p.bars, p.peakBar + bars), 0.5];
-  const buf = await render(s, a, b, { tail });
+  const buf = await render(s, a, b, { tail, stableSums: true });
   const bytes = new Uint8Array(await encodeWav([buf.getChannelData(0), buf.getChannelData(1)], buf.sampleRate).arrayBuffer());
   let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return { bars: [a, b], secs: buf.length / buf.sampleRate, wav: btoa(bin) };

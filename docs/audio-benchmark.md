@@ -81,7 +81,9 @@ weight and window loudness are gated only as drift from each style's own baselin
 | deep | whole song + 8 s tail (master with limiter taps), 8 densest bars of stems | 11, 42, 1234 | `npm run benchmark:audio:deep` |
 
 Renders schedule two bars ahead through `OfflineAudioContext.suspend()` (as live playback does) instead of queuing a
-whole song at once, which renders ~7x slower. Against `js/render.js` `renderBars`, whole-song integrated loudness
+whole song at once, which renders ~7x slower. The fast benchmark, stem windows, and listening excerpts use
+connection-ordered sums before metering or WAV encoding. Whole-song deep renders and true-peak sweeps retain
+native sums to keep scheduling costs bounded. Against `js/render.js` `renderBars`, whole-song integrated loudness
 agrees within 0.01 LU (REPERTOIRE seeds 11/42/1234); sample-level waveforms agree for deephouse/trap (relative
 difference 3e-4, the same as two `renderBars` runs) but not for hypnotic/acid (0.23-0.29), so treat the renders as
 the same music, not the same samples.
