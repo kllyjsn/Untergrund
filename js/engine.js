@@ -2547,6 +2547,7 @@ export class Engine {
 
   paletteChord(t, v, iv, root, p, out, color, keys = false) {
     if (!iv.length) return;
+    out = this.paletteWhistleOut(out);
     let articulation = 1;
     if (keys) {
       const ref = this.paletteReference().stab;
@@ -2603,6 +2604,21 @@ export class Engine {
         this.startSource(o, t); o.stop(end);
       }
     }
+  }
+
+  paletteWhistleOut(out) {
+    if (this.playbackStyle !== 'deephouse') return out;
+    const paths = (this.paletteWhistles ||= new WeakMap());
+    if (!paths.has(out)) {
+      const input = this.gain(1);
+      let tail = input;
+      for (const pitch of [100, 101, 102]) {
+        for (let i = 0; i < 3; i++) tail = tail.connect(this.filter('notch', midiHz(pitch), 8));
+      }
+      tail.connect(out);
+      paths.set(out, input);
+    }
+    return paths.get(out);
   }
 
   paletteWidthOut(out, cutoff) {
