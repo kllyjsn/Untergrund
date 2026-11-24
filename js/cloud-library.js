@@ -22,25 +22,8 @@ const full = 'Your cloud Library is full (100 songs). Remove a song to sync more
 const tooLarge = 'This song is too large to sync (200 KB limit).';
 const MAX_UPLOAD_BYTES = 200_000;
 const revisionOf = (row) => row?.revision ?? row?.updatedAt ?? 0;
-function reapply(base, draft, latest) {
-  if (JSON.stringify(base) === JSON.stringify(draft)) return latest;
-  if (Array.isArray(base) && Array.isArray(draft) && base.length === draft.length &&
-      Array.isArray(latest) && latest.length === base.length) {
-    return draft.map((value, i) => reapply(base[i], value, latest[i]));
-  }
-  const object = (value) => value && typeof value === 'object' && !Array.isArray(value);
-  if (object(base) && object(draft) && object(latest)) {
-    const result = { ...latest };
-    for (const key of Object.keys(base)) if (!Object.hasOwn(draft, key)) delete result[key];
-    for (const [key, value] of Object.entries(draft)) {
-      if (JSON.stringify(value) !== JSON.stringify(base[key])) {
-        Object.defineProperty(result, key, { value: reapply(base[key], value, latest[key]), enumerable: true, configurable: true, writable: true });
-      }
-    }
-    return result;
-  }
-  return draft;
-}
+const copySuffix = ' (edited on this device)';
+const conflictMessage = 'A newer version was kept in your Library. Your edits were kept as a separate song.';
 const saveNotice = (error, kept) => {
   const location = kept ? ' It stays on this device.' : ' The song could not be saved to your Library.';
   return (error === 'library_full' ? full : error === 'too_large' ? tooLarge : 'Cloud Library sync is unavailable.') + location;
@@ -58,9 +41,9 @@ async function api(account, body, id) {
 
 export function createCloudLibrary({ get = getAccount, subscribe = onAccount, device = libraryTracks, deviceRecent = recentTracks, request = api,
   read = readPending, write = writePending, readSaved = readCache, writeSaved = writeCache,
-  savePublic = saveTrack, saveLocal = saveLocalTrack, change = () => {} } = {}) {
+  savePublic = saveTrack, saveLocal = saveLocalTrack, change = () => {}, onConflict = () => {} } = {}) {
   let account = '', known = false, epoch = 0, syncing = null;
-  let cloud = new Map(), removed = new Set(), notice = '';
+  let cloud = new Map(), removed = new Set(), notice = '', conflictNotice = '';
   const flights = new Map(), timers = new Map();
   const connected = () => !!account;
   const alive = (id, version) => id === account && version === epoch;
@@ -83,23 +66,32 @@ export function createCloudLibrary({ get = getAccount, subscribe = onAccount, de
       write(owner, [...rest, row]);
   }
 
-  function acknowledge(owner, item) {
-    const row = pending(owner, item.id);
-    if (!row || revisionOf(row) !== revisionOf(item)) return;
-    if (revisionOf(row) === revisionOf(item)) {
-      const state = sanitize(row.state);
-      if (item.fps?.includes(songFingerprint(state))) cache(owner, item.id, { state, revision: revisionOf(item), item });
-    }
-    write(owner, read(owner).filter((row) => row.id !== item.id || revisionOf(row) > revisionOf(item)));
+  function acknowledge(owner, sent, item) {
+    const rows = read(owner), revision = revisionOf(item);
+    write(owner, rows.flatMap((row) => {
+      if (row.id !== item.id) return [row];
+      if (revisionOf(row) <= revision) return [];
+      if ((row.baseRevision || 0) === (sent.baseRevision || 0)) return [{ ...row, baseRevision: revision }];
+      return [row];
+    }));
   }
 
-  function rebased(owner, row, project) {
-    const baseRevision = revisionOf(project);
-    if (!row || baseRevision <= (row.baseRevision || 0)) return row;
-    const state = row.baseState ? reapply(row.baseState, row.state, project.state) : row.state;
-    const next = { ...row, state, bpm: state.bpm, baseState: project.state, baseRevision,
-      revision: Math.max(Date.now(), revisionOf(row) + 1, baseRevision + 1) };
-    return stage(owner, next) ? next : row;
+  function copyConflict(owner, row, project) {
+    const { id, title, artist, style, state } = row;
+    const copy = {
+      id: newLibraryId(), title: (title || 'Untitled').slice(0, 80 - copySuffix.length).trimEnd() + copySuffix,
+      artist, style, state, bpm: state.bpm, created: new Date().toISOString(), revision: Date.now(), conflictCopy: true,
+    };
+    if (!write(owner, [...read(owner).filter((item) => item.id !== id), copy])) {
+      return null;
+    }
+    const { created } = row;
+    const item = { id, title, artist, style, created, ...cloud.get(id), bpm: project.state.bpm, revision: revisionOf(project), cloud: true };
+    cloud.set(id, item);
+    cache(owner, id, { ...project, item });
+    conflictNotice = conflictMessage;
+    onConflict(owner, id, copy, conflictMessage);
+    return copy;
   }
 
   function tracks() {
@@ -127,43 +119,41 @@ export function createCloudLibrary({ get = getAccount, subscribe = onAccount, de
     const version = epoch, key = `${owner}:${id}`;
     if (!owner || !alive(owner, version) || removed.has(id)) return Promise.resolve({});
     if (flights.has(key)) return flights.get(key);
-    let current = pending(owner, id) || fallback;
+    const current = pending(owner, id) || fallback;
     if (!current) return Promise.resolve({ item: cloud.get(id) });
     const active = (async () => {
       try {
-        const upload = (row) => {
-          const { title, artist, style, created, state, baseRevision = 0 } = row;
-          const body = { action: 'upsert', id, title, artist, style, created, state, baseRevision, revision: revisionOf(row) };
-          if (new TextEncoder().encode(JSON.stringify(body)).length > MAX_UPLOAD_BYTES) throw new Error('too_large');
-          return request(owner, body);
-        };
-        let result;
-        try {
-          result = await upload(current);
-        } catch (err) {
-          if (err.message !== 'revision_conflict') throw err;
-          const project = await request(owner, null, id);
-          if (!alive(owner, version) || removed.has(id)) return {};
-          const latest = pending(owner, id) || current;
-          current = rebased(owner, latest, project);
-          if (current === latest) throw err;
-          result = await upload(current);
-        }
-        const { item } = result;
+        const { title, artist, style, created, state, baseRevision = 0 } = current;
+        const body = { action: 'upsert', id, title, artist, style, created, state, baseRevision, revision: revisionOf(current) };
+        if (new TextEncoder().encode(JSON.stringify(body)).length > MAX_UPLOAD_BYTES) throw new Error('too_large');
+        const { item } = await request(owner, body);
         if (item.id !== id || revisionOf(item) !== revisionOf(current)) throw new Error('invalid_ack');
         if (!alive(owner, version) || removed.has(id)) return {};
         const playable = sanitize(current.state);
         if (item.fps?.includes(songFingerprint(playable))) cache(owner, id, { state: playable, revision: item.revision, item });
-        acknowledge(owner, item);
+        acknowledge(owner, current, item);
         if (revisionOf(item) >= revisionOf(cloud.get(id))) cloud.set(id, { ...item, cloud: true });
         if (pending(owner, id)) schedule(owner, id);
         return { item };
       } catch (err) {
+        if (alive(owner, version) && err.message === 'revision_conflict') {
+          try {
+            const project = await request(owner, null, id);
+            if (!alive(owner, version) || removed.has(id)) return {};
+            const copy = copyConflict(owner, pending(owner, id) || current, project);
+            if (!copy) {
+              notice = 'A newer version exists. A separate copy could not be saved on this device; your edits are still pending.';
+              return { error: 'revision_conflict' };
+            }
+            return { ...await flush(owner, copy.id), message: notice || conflictMessage };
+          } catch (error) { err = error; }
+        }
         if (alive(owner, version)) {
           if (err.message === 'track_deleted') { cloud.delete(id); removed.add(id); forget(owner, id); }
           else {
             const newer = pending(owner, id);
-            notice = saveNotice(err.message, !!newer || device().some((row) => row.id === id));
+            notice = (current.conflictCopy ? conflictMessage + ' ' : '') +
+              saveNotice(err.message, !!newer || device().some((row) => row.id === id));
             if (revisionOf(newer) > revisionOf(current)) schedule(owner, id);
           }
         }
@@ -200,7 +190,10 @@ export function createCloudLibrary({ get = getAccount, subscribe = onAccount, de
           seen.add(row.id);
           let queued = pending(id, row.id);
           if (!queued && cloud.has(row.id)) continue;
-          if (!cloud.has(row.id) && cloud.size >= list.limit) { notice = saveNotice('library_full', true); continue; }
+          if (!cloud.has(row.id) && cloud.size >= list.limit) {
+            notice = (row.conflictCopy ? conflictMessage + ' ' : '') + saveNotice('library_full', true);
+            continue;
+          }
           if (!revisionOf(queued)) {
             queued = { ...row, revision: Date.now() };
             stage(id, queued);
@@ -225,7 +218,7 @@ export function createCloudLibrary({ get = getAccount, subscribe = onAccount, de
     known = true;
     const id = info?.account && !info.account.anon ? info.account.id : '';
     if (id === account) return;
-    account = id; epoch++; cloud = new Map(); removed = new Set(); notice = ''; syncing = null;
+    account = id; epoch++; cloud = new Map(); removed = new Set(); notice = ''; conflictNotice = ''; syncing = null;
     change();
     if (account) sync();
   }
@@ -256,9 +249,9 @@ export function createCloudLibrary({ get = getAccount, subscribe = onAccount, de
     const kept = stage(owner, row);
     if (kept && (!expected || unowned)) write('', read('').filter((item) => item.id !== trackId || revisionOf(item) > revisionOf(row)));
     onPrivate(owner, revisionOf(row));
-    const { item, error } = await flush(owner, trackId, row);
-    return item ? { private: true, synced: true, item, owner } :
-      { private: true, synced: false, kept, ...(error && { message: saveNotice(error, kept) }) };
+    const { item, error, message } = await flush(owner, trackId, row);
+    return item ? { private: true, synced: true, item, owner, message } :
+      { private: true, synced: false, kept, ...(error && { message: message || saveNotice(error, kept) }) };
   }
 
   async function load(id) {
@@ -273,9 +266,7 @@ export function createCloudLibrary({ get = getAccount, subscribe = onAccount, de
       const project = await request(owner, null, id);
       if (!alive(owner, version)) throw new Error('account_changed');
       cache(owner, id, { ...project, item: cloud.get(id) || cached(owner, id)?.item });
-      const draft = pending(owner, id);
-      if (draft && revisionOf(draft) !== revisionOf(project)) return view(rebased(owner, draft, project));
-      return view(draft || project);
+      return view(pending(owner, id) || project);
     } catch (err) {
       if (!alive(owner, version) || ['account_changed', 'sign_in_required'].includes(err.message) ||
           err.message === 'track_missing' && !pending(owner, id) || !onDevice) throw err;
@@ -283,7 +274,7 @@ export function createCloudLibrary({ get = getAccount, subscribe = onAccount, de
     }
   }
 
-  function update(owner, id, state, after = 0, previous) {
+  function update(owner, id, state, after = 0) {
     const queued = pending(owner, id);
     if (!owner && !queued || owner && known && owner !== account || owner === account && removed.has(id)) return;
     const saved = owner === account && cloud.get(id);
@@ -293,8 +284,7 @@ export function createCloudLibrary({ get = getAccount, subscribe = onAccount, de
     const revision = Math.max(Date.now(), after + 1, revisionOf(saved) + 1, revisionOf(queued) + 1, revisionOf(local) + 1);
     const { title, artist, style, created } = row;
     const baseRevision = queued ? queued.baseRevision || 0 : after || revisionOf(local) || revisionOf(saved);
-    const baseState = queued ? queued.baseState || queued.state : previous || local?.state;
-    const kept = stage(owner, { id, title, artist, style, created, state, bpm: state.bpm, revision, baseRevision, baseState });
+    const kept = stage(owner, { id, title, artist, style, created, state, bpm: state.bpm, revision, baseRevision, conflictCopy: queued?.conflictCopy });
     if (kept) schedule(owner, id);
     else if (owner) { notice = 'Could not save the Library edit on this device.'; change(); }
     return { revision, kept };
@@ -317,5 +307,5 @@ export function createCloudLibrary({ get = getAccount, subscribe = onAccount, de
     saveGenerated, resumeDraft: (id, onPrivate) => {
       const row = pending('', id);
       if (account && row) return saveGenerated(row, id, onPrivate);
-    }, load, update, remove, notice: () => notice };
+    }, load, update, remove, notice: () => notice || conflictNotice };
 }

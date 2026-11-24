@@ -147,9 +147,8 @@ function persist() {
   if (!project) return;
   const key = projectKey(state);
   if (key === project.key) return;
-  const previous = JSON.parse(project.key);
   project.key = key;
-  const edit = cloudLibrary.update(project.owner || '', project.id, { ...clone(state), fresh: 0 }, project.updatedAt, previous);
+  const edit = cloudLibrary.update(project.owner || '', project.id, { ...clone(state), fresh: 0 }, project.updatedAt);
   if (edit) { project.updatedAt = edit.revision; saveStudio(); }
 }
 
@@ -2314,7 +2313,20 @@ function buildTabBar() {
     tab('Artist', false, openArtist));
 }
 
-const cloudLibrary = createCloudLibrary({ change: () => { ui.lib?.paint(); renderHome(); } });
+const cloudLibrary = createCloudLibrary({
+  change: () => { ui.lib?.paint(); renderHome(); },
+  onConflict: (owner, id, copy, message) => {
+    const project = projectRefs.get(id);
+    if (project?.owner === owner) {
+      projectRefs.delete(id);
+      project.id = copy.id;
+      project.updatedAt = copy.revision;
+      projectRefs.set(copy.id, project);
+      if (songOrigin.library === project) saveStudio();
+    }
+    toast(message);
+  },
+});
 async function refreshLibrary() {
   await cloudLibrary.refresh();
   const project = songOrigin.library;

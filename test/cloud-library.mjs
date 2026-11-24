@@ -106,11 +106,12 @@ const original = await cloud.load(browser[0].id);
 assert.deepEqual(original.state, (await call(alice, 'alice', null, browser[0].id)).json.state);
 await cloud.update('alice', browser[0].id, { ...original.state, bpm: 147 }, original.updatedAt + 1);
 await cloud.refresh();
-assert.equal((await cloud.load(browser[0].id)).state.bpm, 147, 'opening an existing local song fetches the newer cloud edit');
+const updated = await cloud.load(browser[0].id);
+assert.equal(updated.state.bpm, 147, 'opening an existing local song fetches the newer cloud edit');
 assert.equal(cloud.tracks().find((t) => t.id === browser[0].id).bpm, 147, 'cloud metadata takes precedence over the original local copy');
 offline = true;
 assert.equal((await cloud.load(browser[0].id)).state.bpm, 147, 'offline playback uses the synced edit, not the original browser copy');
-await cloud.update('alice', browser[0].id, { ...original.state, bpm: 151 }, original.updatedAt + 2);
+await cloud.update('alice', browser[0].id, { ...updated.state, bpm: 151 }, updated.updatedAt);
 assert.equal((await cloud.load(browser[0].id)).state.bpm, 151, 'an offline edit takes priority on this device');
 let bound;
 const pendingId = 'local-offline-new';
@@ -193,6 +194,7 @@ for (const [error, message] of [
   });
   assert.equal((await lost.saveGenerated(draft, lostId)).synced, false);
   assert.equal(rows.get('alice').find((row) => row.id === lostId).revision, (await server('alice', null, lostId)).revision);
+  await lost.refresh();
   lost.update('alice', lostId, { ...draft.state, bpm: 156 });
   await lost.refresh();
   assert.equal((await server('alice', null, lostId)).state.bpm, 156, 'retry updates the same song after a lost create response');
@@ -234,30 +236,90 @@ for (const [error, message] of [
   assert.equal((await importer.load(imported.id)).state.bpm, draft.state.bpm, 'an imported song opens offline without a cloud cache');
 
   const sharedId = 'local-competing-devices';
-  const deviceA = newClient(server);
+  const conflicting = deferred(), releaseConflict = deferred();
+  let holdConflict = false;
+  const deviceA = newClient(async (...args) => {
+    try { return await server(...args); }
+    catch (err) {
+      if (holdConflict && args[1]?.id === sharedId && err.message === 'revision_conflict') {
+        conflicting.resolve();
+        await releaseConflict.promise;
+      }
+      throw err;
+    }
+  });
   await deviceA.saveGenerated(draft, sharedId);
   const before = await deviceA.load(sharedId);
   await server('alice', { ...draft, id: sharedId, baseRevision: before.updatedAt,
     revision: before.updatedAt + 1, state: { ...before.state, bpm: 160 } });
   const fresh = await deviceA.load(sharedId);
   assert.equal(fresh.state.bpm, 160, 'online load fetches changes made after the last Library list refresh');
+  const remote = { ...fresh.state, bpm: 161, chain: 'BACCD' };
   await server('alice', { ...draft, id: sharedId, baseRevision: fresh.updatedAt,
-    revision: fresh.updatedAt + 1, state: { ...fresh.state, bpm: 161 } });
-  const changed = { ...fresh.state, master: { ...fresh.state.master, volume: 0.375 } };
-  deviceA.update('alice', sharedId, changed, fresh.updatedAt, fresh.state);
-  await deviceA.refresh();
-  const merged = (await server('alice', null, sharedId)).state;
-  assert.equal(merged.bpm, 161, 'rebasing the local edit preserves another device’s BPM change');
-  assert.equal(merged.master.volume, 0.375, 'the local edit is reapplied after the conflict');
+    revision: fresh.updatedAt + 1, state: remote });
+  const local = { ...fresh.state, chain: 'ACCDA' };
+  holdConflict = true;
+  deviceA.update('alice', sharedId, { ...local, bpm: 162 }, fresh.updatedAt);
+  const savingConflict = deviceA.refresh();
+  await conflicting.promise;
+  deviceA.update('alice', sharedId, local, fresh.updatedAt);
+  releaseConflict.resolve();
+  await savingConflict;
+  const items = (await server('alice')).items;
+  const copy = items.find((item) => item.title === draft.title + ' (edited on this device)' &&
+    item.id !== sharedId);
+  assert.ok(copy, 'a conflict adds a separate Library song');
+  assert.deepEqual((await deviceA.load(sharedId)).state, sanitize(remote), 'the original adopts the complete server version');
+  assert.deepEqual((await server('alice', null, copy.id)).state, sanitize(local), 'the copy keeps the latest complete draft, including the undo during upload');
+  assert.match(deviceA.notice(), /newer version.*separate song/);
 
   rows.set('alice', Array.from({ length: 30 }, (_, i) => ({ ...draft, id: `local-new-${i}` })));
   const offlinePage = newClient(() => assert.fail('offline edits must not make a request'));
-  const capped = offlinePage.update('alice', sharedId, { ...merged, bpm: 162 }, fresh.updatedAt + 1, merged);
+  const capped = offlinePage.update('alice', sharedId, { ...remote, bpm: 162 }, fresh.updatedAt + 1);
   assert.equal(capped.kept, true, 'an existing Library song can be edited when the new-song queue is full');
-  offlinePage.update('alice', sharedId, { ...merged, bpm: 163 }, capped.revision, merged);
+  offlinePage.update('alice', sharedId, { ...remote, bpm: 163 }, capped.revision);
   const existing = rows.get('alice').filter((row) => row.id === sharedId);
   assert.equal(rows.get('alice').length, 31);
   assert.deepEqual(existing.map((row) => row.state.bpm), [163]);
+}
+{
+  const owner = 'conflict-cap', id = 'local-cap-original', capAccount = await session(owner);
+  const server = async (owner, body, id) => {
+    const r = await call(capAccount, owner, body, id);
+    if (r.status !== 200) throw new Error(r.json.error);
+    return r.json;
+  };
+  const { item } = await server(owner, { ...draft, id });
+  for (let i = 0; i < LIBRARY_LIMIT - 1; i++) {
+    const key = `local-cap-${i}`;
+    await kv.cmd(['HSET', `untergrund:library:{${owner}}:meta`, key, JSON.stringify({ ...item, id: key })]);
+  }
+  let rows = [], offline = false;
+  const client = createCloudLibrary({
+    get: async () => ({ account: { id: owner } }), subscribe: () => {}, device: () => [],
+    read: () => rows, write: (_, value) => { rows = value; return true; },
+    request: (...args) => { if (offline) throw new Error('offline'); return server(...args); },
+  });
+  await client.refresh();
+  const base = await client.load(id);
+  await server(owner, { ...draft, id, revision: base.updatedAt + 1, baseRevision: base.updatedAt, state: { ...base.state, bpm: 170 } });
+  const edited = { ...base.state, bpm: 171 };
+  client.update(owner, id, edited, base.updatedAt);
+  await client.refresh();
+  assert.equal((await server(owner)).items.length, LIBRARY_LIMIT, 'a conflict copy does not bypass the cloud capacity limit');
+  assert.match(client.notice(), /separate song.*full \(100 songs\).*Remove a song.*stays on this device/);
+  assert.equal(rows.length, 1);
+  assert.notEqual(rows[0].id, id);
+  assert.equal(rows[0].title, draft.title + ' (edited on this device)');
+  assert.equal((await client.load(id)).state.bpm, 170);
+  offline = true;
+  assert.deepEqual((await client.load(rows[0].id)).state, edited, 'the unsynced copy is durable and playable offline');
+  offline = false;
+  const copyId = rows[0].id;
+  await server(owner, { action: 'delete', id: 'local-cap-0' });
+  await client.refresh();
+  assert.equal((await server(owner, null, copyId)).state.bpm, 171, 'the same copy syncs when a slot opens up');
+  assert.equal((await server(owner)).items.length, LIBRARY_LIMIT);
 }
 const oversizedSong = createCloudLibrary({
   get: async () => ({ account: { id: 'alice' } }), subscribe: () => {}, device: () => [],
