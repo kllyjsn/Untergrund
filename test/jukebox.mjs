@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { handleJukebox, memoryJukebox } from '../api/_lib/jukebox.js';
-import { handleAccount, attachTrack } from '../api/_lib/accounts.js';
+import { handleAccount, attachTrack, COOKIE } from '../api/_lib/accounts.js';
 import { handleCrate, memoryStore } from '../api/_lib/crate.js';
 import { memoryKv } from '../api/_lib/kv.js';
 import { handlePage } from '../api/_lib/pages.js';
@@ -33,6 +33,30 @@ const release = await crate.get(song.json.item.trackId);
 assert.deepEqual(songOf(release.state), { ...draft, fresh: 0 }, 'the player uses the published arrangement and settings');
 assert.deepEqual((await decodeSong(await encodeSong(release))).state, songOf(release.state), 'the link round-trip keeps the published arrangement');
 assert.equal(state.fresh, 1, 'publishing does not pin the studio draft');
+
+{
+  const auth = { kv: memoryKv(), secret: 's'.repeat(40) };
+  const account = (action, cookie, fields) => handleAccount({ method: 'POST', cookie, body: { action, ...fields } }, auth);
+  const password = 'Original long passphrase';
+  const created = await account('email-signup', '', { email: 'publisher@example.test', password });
+  const cookie = created.cookie.split(';')[0];
+  assert(cookie.startsWith(`${COOKIE}=`));
+  const changed = await account('password-change', cookie, { currentPassword: password, password: 'Replacement long passphrase' });
+  assert.equal(changed.status, 200);
+  const song = { kind: 'song', title: 'Account release', state, accountId: created.json.account.id };
+  const store = memoryJukebox(), crate = memoryStore();
+  const publish = (cookie) => handleJukebox('POST', song, { store, crate, auth: { ...auth, cookie } });
+  assert.equal((await publish(cookie)).status, 401, 'a revoked session cannot publish an unattached release');
+  assert.deepEqual(await store.list(), []);
+  assert.deepEqual(await crate.list(), []);
+  const current = changed.cookie.split(';')[0];
+  const response = await publish(current);
+  assert.equal(response.status, 201);
+  const artist = await account('claim', current, { handle: 'publisher' });
+  assert.equal(artist.status, 200);
+  const page = await handleAccount({ method: 'GET', query: { handle: 'publisher' } }, auth);
+  assert.deepEqual(page.json.tracks.map((t) => t.id), [response.json.item.trackId]);
+}
 
 {
   const ctx = { kv: memoryKv(), crate: memoryStore(), secret: 's'.repeat(40) };

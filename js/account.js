@@ -125,7 +125,8 @@ export async function migrateLocalSongs() {
     const track = crate.find((t) => t.id === it.trackId);
     if (!track?.state) continue;
     const res = await fetch('/api/jukebox', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind: 'song', title: it.title, style: it.style, artist: cache?.account?.name || it.artist, bpm: it.bpm, state: track.state }) }).catch(() => null);
+      body: JSON.stringify({ kind: 'song', title: it.title, style: it.style, artist: cache?.account?.name || it.artist, bpm: it.bpm, state: track.state,
+        accountId: cache?.account?.id }) }).catch(() => null);
     if (!res?.ok) break;
     await idb('delete', it.id).catch(() => {});
     moved++;

@@ -2,6 +2,7 @@
 import { STYLES } from '../../js/state.js';
 import { redisEnv, redis, normalizeTrack, MAX_TRACK_BYTES } from './crate.js';
 import { normalizeTimeline } from '../../js/set-timeline.js';
+import { accountFromSession, attachTrack } from './accounts.js';
 
 const KEY = 'untergrund:jukebox', LIMIT = 1000, RATE_PER_HOUR = 20;
 const clean = (value, max) => String(value || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max);
@@ -59,7 +60,7 @@ export function memoryJukebox() {
   };
 }
 
-export async function handleJukebox(method, body, { store, crate, client = 'anon', uploads = false, id = '' }) {
+export async function handleJukebox(method, body, { store, crate, client = 'anon', uploads = false, id = '', auth = {} }) {
   if (!store) return { status: 503, json: { enabled: false, uploads: false, items: [] } };
   if (method === 'GET' && id) {
     const timeline = /^[a-z0-9-]{1,40}$/.test(id) ? await store.getSet(id) : null;
@@ -71,10 +72,17 @@ export async function handleJukebox(method, body, { store, crate, client = 'anon
   const entry = normalizeEntry(body);
   const track = entry?.kind === 'song' ? normalizeTrack(body) : null;
   if (!entry || (entry.kind === 'song' && (!track || !crate))) return { status: 400, json: { error: 'invalid_entry' } };
+  const expected = track && body.accountId;
+  const invalidSession = { status: 401, json: { error: 'publish_session_changed' } };
+  if (expected && (await accountFromSession(auth.kv, auth.secret, auth.cookie))?.id !== expected) return invalidSession;
   if (!(await store.allow(clean(client, 64) || 'anon'))) return { status: 429, json: { error: 'rate_limited' } };
   if (track) {
     track.state.fresh = 0;
     await crate.add(track);
+    if (expected) {
+      const owner = await accountFromSession(auth.kv, auth.secret, auth.cookie);
+      if (owner?.id !== expected || !await attachTrack(auth.kv, owner.id, track)) return invalidSession;
+    }
     entry.trackId = track.id;
     entry.bpm = track.bpm;
     if (track.remixOf) entry.remixOf = track.remixOf;
