@@ -143,6 +143,14 @@ const WIND_HOOK = {
 // Held alto notes sat dead straight, so their 8th-15th harmonics rang as fixed 2.5-3.1 kHz lines over the mix;
 // a player's 20-cent vibrato, leaned into after the attack, spreads them.
 const ALTO_VIB = 20;
+// Notes the alto repeats or holds still stack their 4th-8th harmonics in 2.4-3.3 kHz, so each note dips
+// whichever of its own harmonics land there by 9 dB, leaving the rest of the horn's tone intact.
+const ALTO_RING = { lo: 2400, hi: 3300, q: 24, db: -9 };
+const altoRingNotches = (m) => {
+  const f0 = 440 * 2 ** ((m - 69) / 12), { lo, hi, q, db } = ALTO_RING, out = [];
+  for (let k = Math.ceil(lo / f0); k * f0 <= hi; k++) out.push([k * f0, q, db]);
+  return out;
+};
 const SAX_TRIM = { pop: -2.4, neosoul: -5.7, boombap: 3.5, trap: 1.1, afrobeats: 6.5, reggaeton: 4.5, breaks: 7.1 };
 // Pop and Reggaeton hats live above 4 kHz, where the alto's breath otherwise fills the gaps between hits, so
 // those altos get a fixed high cut; the Afrobeats tenor's low register piles up at 220-260 Hz over the bass.
@@ -3666,7 +3674,7 @@ export class Engine {
     const rate = 2 ** ((m - pitch - (cents + drift) / 100) / 12);
     return this.playBuf(buf, t, gain * touch * dbGain(trim + (air - 0.5) * 1.2) * dbGain(jazzStyle(this.state, this.playingPattern) === 'bossa' && voice === 'tpt' ? JAZZ_MIX.bossa.trumpetLead : JAZZ_MIX[jazzStyle(this.state, this.playingPattern)]?.lead || 0), eq,
       rate, Math.max(0.06, dur * 0.92), {
-        peaks: [...(jazzStyle(this.state, this.playingPattern) ? jazzNotches(useAlt ? TAKES[HOOK_BAND[voice]] : HOOK_BAND[voice], pitch, rate) : []), ...(styleFx.peaks || [])],
+        peaks: [...(jazzStyle(this.state, this.playingPattern) ? jazzNotches(useAlt ? TAKES[HOOK_BAND[voice]] : HOOK_BAND[voice], pitch, rate) : []), ...(styleFx.peaks || []), ...(voice === 'altosax' ? altoRingNotches(m) : [])],
         shelves: styleFx.shelves,
         lp: Math.min(styleFx.cap ?? Infinity, lp + 2100 * touch + 650 * (air - 0.5)), lpStages: styleFx.lpStages, offset: offset + tongue * 0.012,
         fade: (voice === 'tpt' ? 0.025 : strong ? 0.007 : 0.012) + 0.009 * (1 - tongue),
