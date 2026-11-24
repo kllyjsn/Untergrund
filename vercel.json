@@ -5,6 +5,7 @@
   "functions": { "api/sc-token.js": { "maxDuration": 60 }, "api/push.js": { "maxDuration": 60 }, "api/describe.js": { "maxDuration": 30 }, "api/rooms.js": { "maxDuration": 10 }, "api/events.js": { "maxDuration": 60 } },
   "crons": [{ "path": "/api/push", "schedule": "0 16 * * *" }, { "path": "/api/improve-digest", "schedule": "0 15 * * *" }, { "path": "/api/autopublish?run=1", "schedule": "0 14 * * *" }],
   "rewrites": [
+    { "source": "/api/billing/:action", "destination": "/api/account?billing=:action" },
     { "source": "/api/autopublish", "destination": "/api/sc-token?autopublish=1" },
     { "source": "/api/song-plan", "destination": "/api/describe?plan=1" },
     { "source": "/api/sing", "destination": "/api/describe?sing=1" },
@@ -17,6 +18,7 @@
     { "source": "/t/:id", "destination": "/api/page?t=:id" },
     { "source": "/r/:room", "destination": "/api/page?r=:room" },
     { "source": "/legal", "destination": "/legal/index.html" },
+    { "source": "/pricing", "destination": "/pricing/index.html" },
     { "source": "/research", "destination": "/research/index.html" },
     { "source": "/research/:slug", "destination": "/research/:slug/index.html" }
   ]

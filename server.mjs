@@ -34,6 +34,7 @@ import { handlePlan, planEnv } from './api/_lib/song-plan-ai.js';
 import { handleSing, singEnv, memorySingStore, MAX_SING_BODY } from './api/_lib/sing.js';
 import { redisKv as redisAccountKv, memoryKv as memoryAccountKv } from './api/_lib/kv.js';
 import { handleAccount, attachPublished } from './api/_lib/accounts.js';
+import { handleBilling, handleBillingWebhook, readBillingWebhook } from './api/_lib/billing.js';
 import { handlePage } from './api/_lib/pages.js';
 import { handlePush } from './api/_lib/push.js';
 import { handleLegal } from './api/_lib/legal.js';
@@ -143,6 +144,19 @@ http.createServer(async (req, res) => {
       });
       return sendJson(res, status, json);
     }
+    if (url.pathname.startsWith('/api/billing/') || (url.pathname === '/api/account' && url.searchParams.has('billing'))) {
+      const action = url.pathname.startsWith('/api/billing/') ? url.pathname.slice('/api/billing/'.length) : url.searchParams.get('billing');
+      try {
+        const r = action === 'webhook'
+          ? await handleBillingWebhook({ method: req.method, raw: req.method === 'POST' && await readBillingWebhook(req), signature: req.headers['stripe-signature'] }, accountCtx())
+          : await handleBilling(action, { method: req.method, cookie: req.headers.cookie, client: req.socket.remoteAddress,
+            origin: req.headers.origin, host: req.headers.host }, accountCtx());
+        return sendJson(res, r.status, r.json);
+      } catch (err) {
+        console.error('Billing request failed:', err.message);
+        return sendJson(res, 502, { error: 'billing_unavailable' });
+      }
+    }
     if (url.pathname === '/api/account') {
       let body = {};
       if (req.method === 'POST') { const raw = await readBody(req, 16000); try { body = JSON.parse(raw?.toString() || '{}'); } catch { body = null; } }
@@ -154,7 +168,7 @@ http.createServer(async (req, res) => {
     const pageMatch = url.pathname.match(/^\/(a|t|r)\/([^/]{1,60})\/?$/);
     if (pageMatch || url.pathname === '/api/page' || url.pathname === '/api/flagship') {
       const query = pageMatch ? { ...Object.fromEntries(url.searchParams), [pageMatch[1]]: decodeURIComponent(pageMatch[2]) } : url.pathname === '/api/flagship' ? { flagship: '1' } : Object.fromEntries(url.searchParams);
-      const r = await handlePage(query, { kv: accountKv, crate: crateStore, site: `http://${req.headers.host}`, og: { ogImage, artSeed, clubImage }, rooms });
+      const r = await handlePage(query, { kv: accountKv, crate: crateStore, site: `http://${req.headers.host}`, og: { ogImage, artSeed, clubImage }, rooms, env });
       if (r.location) { res.writeHead(r.status, { Location: r.location }); return res.end(); }
       res.writeHead(r.status, { 'Content-Type': r.type, 'Cache-Control': 'no-store' });
       return res.end(r.body);
@@ -188,6 +202,7 @@ http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true });
     }
     let p = decodeURIComponent(url.pathname);
+    if (p === '/pricing') p = '/pricing/';
     if (p === '/research' || p.startsWith('/research/')) {
       const files = (await import('./scripts/research.mjs')).renderSite();
       const f = files.get(p) || files.get(p.replace(/\/?$/, '/index.html'));

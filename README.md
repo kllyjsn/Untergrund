@@ -77,6 +77,7 @@ The site is a static build on Vercel project `untergrund-i2i9` (team kllyjsns-pr
 | Jukebox | `/api/jukebox` | same Redis env vars | 503 `enabled:false`, browser-only jukebox |
 | Recorded set uploads | `/api/set-upload` | `BLOB_READ_WRITE_TOKEN` (Vercel Blob) | jukebox reports `uploads:false` |
 | Multi-device Club rooms + live directory | `/api/rooms`, `/api/rooms/:room[/events]` | the same `KV_REST_API_*` Redis (optional override: `ROOMS_API_URL`) | rooms 503 and stay per-browser; directory 200 `enabled:false` |
+| Supporter membership | `/pricing`, `/api/billing/:action` | Stripe, Redis and creator accounts; see the [billing runbook](docs/billing.md) | free Studio works; no checkout |
 
 ### 1. Storage (Vercel dashboard)
 
