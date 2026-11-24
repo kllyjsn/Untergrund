@@ -10,7 +10,7 @@ import { KEYS } from './params.js';
 import { STYLES, fitLyrics } from './state.js';
 import { singAvailable, singSong, hasStem, singRequest } from './sing.js';
 import { SING_VOICES } from './sing-score.js';
-import { PRO_DRAFTS_PER_SET } from './pro-plan.js';
+import { PRO_DRAFT_PROMPT_LIMIT, PRO_DRAFTS_PER_SET } from './pro-plan.js';
 
 let last = null, hint = null, draft = '', recent = null, net = null, ticket = 0;
 let lyricsDraft = '', lyricsOpen = false, planOff = false, view = null;
@@ -96,7 +96,7 @@ const STYLE_FAMILY = (id) => STYLES[id]?.family || '';
 export function describeBar(ctx) {
   let draftsBusy = false;
   const input = h('input', { class: 'describe-input', type: 'text', placeholder: placeholder(ctx), 'aria-label': 'Describe a song to write, or a change to this one',
-    autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'go', maxlength: '200', oninput: () => { draft = input.value; } });
+    autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'go', maxlength: String(PRO_DRAFT_PROMPT_LIMIT), oninput: () => { draft = input.value; } });
   input.value = draft;
   const receipt = h('div', { class: 'describe-receipt', 'aria-live': 'polite' });
   const lyricsBox = h('textarea', { class: 'describe-lyrics-input', rows: '6', maxlength: String(LIMITS.text), 'aria-label': 'Lyrics', spellcheck: 'true',

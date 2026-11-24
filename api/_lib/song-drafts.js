@@ -1,9 +1,8 @@
 import { accountFromSession, allow, authEnabled } from './accounts.js';
 import { aiEnv, askGemini, askOpenRouter } from './describe-ai.js';
 import { billingConfig, hasActivePro } from './billing.js';
-import { DESCRIBE_TEXT_LIMIT } from '../../js/describe.js';
 import { localSpec, SONG_SYSTEM, validateSpec } from '../../js/song-spec.js';
-import { PRO_DRAFTS_PER_SET, PRO_DRAFT_SETS_PER_MONTH } from '../../js/pro-plan.js';
+import { PRO_DRAFT_PROMPT_LIMIT, PRO_DRAFTS_PER_SET, PRO_DRAFT_SETS_PER_MONTH } from '../../js/pro-plan.js';
 
 export const MAX_DRAFT_BODY = 4000;
 const system = `${SONG_SYSTEM.replace('Reply with JSON only, exactly this shape:', 'Reply with JSON only: {"drafts":[...]}. Each entry is a song spec with this shape:')}
@@ -25,7 +24,7 @@ export async function handleSongDrafts(req, { kv, secret, env = process.env, str
     try { body = JSON.parse(body); } catch { return err(400, 'bad_request'); }
   }
   if (JSON.stringify(body ?? null).length > MAX_DRAFT_BODY) return err(413, 'too_large');
-  const text = typeof body?.text === 'string' ? body.text.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, DESCRIBE_TEXT_LIMIT) : '';
+  const text = typeof body?.text === 'string' ? body.text.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, PRO_DRAFT_PROMPT_LIMIT) : '';
   const style = typeof body?.style === 'string' ? body.style.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 32) : '';
   if (!text) return err(400, 'no_prompt');
   const acct = await accountFromSession(kv, secret, req.cookie);

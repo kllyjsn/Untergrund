@@ -6,7 +6,7 @@ import { billingConfig, handleBilling, handleBillingWebhook, hasProBadge, readBi
 import { memoryKv } from '../api/_lib/kv.js';
 import { handlePage } from '../api/_lib/pages.js';
 import { handleSongDrafts } from '../api/_lib/song-drafts.js';
-import { PRO_DRAFT_SETS_PER_MONTH, PRO_PRICE_CENTS } from '../js/pro-plan.js';
+import { PRO_DRAFT_PROMPT_LIMIT, PRO_DRAFT_SETS_PER_MONTH, PRO_PRICE_CENTS } from '../js/pro-plan.js';
 
 const kv = memoryKv(), secret = 'a'.repeat(48), origin = 'http://localhost:8020';
 const env = {
@@ -147,14 +147,16 @@ assert.doesNotMatch((await handlePage({ a: 'echo' }, { kv, env })).body, /class=
 const plansHtml = await import('node:fs/promises').then((fs) => fs.readFile(new URL('../pricing/index.html', import.meta.url), 'utf8'));
 assert.ok(plansHtml.includes(`$${PRO_PRICE_CENTS / 100} / month`));
 assert.ok(plansHtml.includes(`${PRO_DRAFT_SETS_PER_MONTH} draft sets`));
+const briefEnding = ' End the final breakdown with no drums.';
+const fullBrief = 'Deep house with a bouncy bass line and warm chords. '.padEnd(PRO_DRAFT_PROMPT_LIMIT - briefEnding.length, 'x') + briefEnding;
 const draftReq = { method: 'POST', cookie: cookie(acct), origin, host: 'localhost:8020',
-  body: { text: 'Deep house with a bouncy bass line', style: 'deephouse' } };
+  body: { text: fullBrief, style: 'deephouse' } };
 let modelCalls = 0, badDrafts = false;
 const modelFetch = async (url, req) => {
   assert.match(url, /^https:\/\/generativelanguage\.googleapis\.com\//);
   const { systemInstruction, contents } = JSON.parse(req.body);
   assert.match(systemInstruction.parts[0].text, /exactly 3 complete drafts/);
-  assert.match(contents[0].parts[0].text, /bouncy bass/);
+  assert.equal(JSON.parse(contents[0].parts[0].text).request, fullBrief);
   modelCalls++;
   const drafts = ['intro', 'build', 'verse'].map((role, i) => ({
     title: `Draft ${i + 1}`, style: 'deephouse', bpm: 122,
