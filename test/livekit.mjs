@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { VOWEL_BAND, VOWEL_TUNE } from '../js/vowels.js';
+import { VOWEL_BAND, VOWEL_TUNE, playVowel } from '../js/vowels.js';
+import { VowelDuck, vowelWindows } from '../js/vowel-duck.js';
 import { LIVE_FILES, BAND_FILES, KIT_EXTRA, HAND_FILES, BAND, TAKES, MUTE_LAYER, SOFT_LAYER, withTakes, liveSets, BAND_LAYER, playsAnalogBass } from '../js/livekit.js';
 import { generate } from '../js/state.js';
 import { Engine } from '../js/engine.js';
@@ -164,19 +165,49 @@ for (const style of ['gfunk', 'ukg', 'rock', undefined]) {
 }
 for (const style of ['gfunk', 'ukg', 'rock', undefined]) {
   for (const kind of ['org', 'str']) for (const hm of [undefined, 0, 1, 2]) for (const hook of [undefined, { v: 'vocal', s: [] }, { v: 'reed', s: [1] }, { v: 'vocal', s: [1] }, { v: 'chop', s: [1] }, { v: 'vocal', m: { n: [[0, 1, 0]] } }, { v: 'vocal', h: 1, s: [1] }]) {
-    let fx;
+    let fx, keyed = false;
     const engine = {
       playbackStyle: style, state: {}, playingPattern: { hook, hm }, ch: { stab: { input: {}, band: {} } },
       rec: () => null,
+      ukgOrganOut: (out) => { keyed = true; return out; },
       playBuf: (...args) => { fx = args.at(-1); },
     };
     Engine.prototype.recordedNote.call(engine, [[60, {}]], 0, 1, 60, 0.5, {}, 0, kind);
     assert.equal(fx.hp, kind === 'org' && style === 'gfunk' ? 110 : 0, 'only G-Funk recorded organ loses its kick-band lows');
     assert.equal(fx.hpQ, -3.01, 'organ low-cut is non-resonant');
     const cut = style === 'ukg' && kind === 'org' && hm && ['vocal', 'chop'].includes(hook?.v) && (hook.s?.length || hook.m?.n?.length);
-    assert.deepEqual(fx.shelves, [[3000, 0], ...(cut ? Array.from({ length: 4 }, () => [1600, -6]) : [])],
-      'presence cut is isolated to UKG recorded organ under an enabled written vocal hook');
+    assert.deepEqual(fx.shelves, [[3000, 0]], 'organ notes have no static hook-region shelves');
+    assert.equal(keyed, !!cut, 'only eligible UKG organ notes enter the vowel-keyed bus');
   }
+}
+{
+  const nodes = [], out = {};
+  const engine = { filter: (type, frequency) => {
+    const events = [], node = { type, frequency, events, connect: (dest) => dest,
+      gain: { cancelScheduledValues: (t) => events.push(['cancel', t]), setValueAtTime: (v, t) => events.push(['set', v, t]), linearRampToValueAtTime: (v, t) => events.push(['ramp', v, t]) } };
+    nodes.push(node); return node;
+  } };
+  const bus = new VowelDuck(engine, out);
+  assert.equal(bus.input, nodes[0]);
+  bus.schedule([], 0);
+  assert(nodes.every((n) => n.type === 'highshelf' && n.frequency === 1600 && JSON.stringify(n.events) === JSON.stringify([['cancel', 0], ['set', 0, 0]])), 'vowel-silent organ remains flat');
+  nodes.forEach((n) => { n.events.length = 0; });
+  bus.schedule([[1, 1.3]], 0);
+  assert(nodes.every((n) => JSON.stringify(n.events) === JSON.stringify([['cancel', 0], ['set', 0, 0], ['set', 0, 1], ['ramp', -6, 1.004], ['set', -6, 1.296], ['ramp', 0, 1.3]])), 'all four shelves cut only across the sounding overlap, with smooth edges');
+  nodes.forEach((n) => { n.events.length = 0; });
+  bus.schedule([[1, 1.3]], 1.1);
+  assert.deepEqual(nodes[0].events[1], ['set', -6, 1.1], 'organ starting during a vowel inherits the active cut');
+  nodes.forEach((n) => { n.events.length = 0; });
+  bus.schedule([[1, 1.315, 1.21]], 1.2625);
+  assert(Math.abs(nodes[0].events[1][1] + 3) < 1e-10, 'the organ recovers smoothly through the quiet vowel release');
+  assert.deepEqual(vowelWindows([[1, 1.3], [3, 3.2]], 1.2, 1.5, 0), [[1, 1.5, 1.496], [3, 3.2, 3.196]], 'overlapping releases form one window without reopening the cut');
+  assert.deepEqual(vowelWindows([[1, 1.3]], 2, 2.3, 1.5), [[2, 2.3, 2.296]], 'past notes are discarded');
+  let span;
+  const callback = (...args) => { span = args; }, sample = { duration: 2 };
+  assert.equal(playVowel({ rec: () => null }, 1, 1, 53, .14, 'vox_eh', out, 5000, false, [], callback), false);
+  assert.equal(span, undefined, 'missing vowel recording cannot key the organ');
+  playVowel({ rec: () => [[53, sample]], playBuf: () => ({}) }, 1, 1, 53, .14, 'vox_eh', out, 5000, false, [], callback);
+  assert.deepEqual(span, [1, .14, .035], 'key timing comes from the actual recorded vowel envelope, including its release');
 }
 console.log('Recorded organ low-cut: 110 Hz non-resonant HPF isolated to G-Funk organ');
 console.log('UKG recorded organ presence: vocal/chop hook regions only; empty hooks, other voices and genres unchanged');
