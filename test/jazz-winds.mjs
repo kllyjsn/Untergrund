@@ -116,11 +116,11 @@ const tones = {
   modal: { body: [[1800, 1.2, -.46], [2050, 4, -16.17], [2300, 1.4, 16], [2800, 4, 11.23], [3600, 1.4, -16.37]], shelves: [[2600, -3.09], [5000, -21.81]] },
   bossa: { body: [[1800, 1.2, 3.83], [2050, 4, -15.02], [2300, 1.4, 2.18], [2800, 4, 5.13], [3600, 1.4, -4.13]], shelves: [[2600, -10.71], [5000, -15.58]] },
   flute: { body: [[2050, 4, 1.35], [2300, 1.4, -.53], [2800, 4, 1.16], [3600, 1.4, 3.25]], shelves: [[2600, -1.39], [5000, -3.8]] },
-  jazzfunk: { body: [[1800, 1.2, -2.97], [2050, 4, -7.34], [2300, 1.4, 13.69], [2800, 4, -7.78], [3600, 1.4, -11.3]], shelves: [[2600, -8.84], [5000, -23.05]] },
+  jazzfunk: { body: [[1800, 1.2, -2.97], [2050, 4, -7.34], [2300, 1.4, 13.69], [2800, 4, -7.78], [3600, 1.4, -11.3]], shelves: [[2600, -9.17], [5000, -28.25]] },
 };
 for (const [key, expected] of Object.entries(tones)) for (const short of [false, true]) {
   const style = key === 'flute' ? 'bossa' : key, voice = key === 'flute' ? 'airflute' : 'tpt';
-  const body = [...expected.body, ...(style === 'jazzfunk' ? [[2000, .9, short ? -3 : 1]] : [])];
+  const body = [...expected.body, ...(style === 'jazzfunk' ? [[2000, .9, short ? -3 : 1], [1200, .9, -1.64], [1800, 1.2, 3.21], [2300, 1.4, -1.31], [2800, 4, -3.99], [3600, 1.4, -2.5]] : [])];
   assert.deepEqual(windTone(style, voice, short), { body, shelves: expected.shelves, fade: voice === 'airflute' ? .012 : .028 });
   const { calls, eq } = probe(voice, .6, short ? .15 : .8, 0, undefined, style);
   assert.deepEqual(eq, [...(key === 'flute' ? [[2950, .8, 6.2], [780, 1.2, -2.5]] : []), ...body], 'the cached wind bus receives only its style/articulation body stages');
@@ -130,6 +130,14 @@ for (const [key, expected] of Object.entries(tones)) for (const short of [false,
 for (const style of [undefined, null, '', 'trap', 'country', 'constructor', '__proto__']) for (const voice of ['tpt', 'airflute', 'harmon', 'reed']) assert.equal(windTone(style, voice), null);
 for (const style of ['swing', 'modal', 'jazzfunk']) assert.equal(windTone(style, 'airflute'), null);
 for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) for (const voice of ['harmon', 'reed', 'constructor', '__proto__']) assert.equal(windTone(style, voice), null);
+for (const midi of [76, 77, 78]) {
+  const { calls, eq } = probe('tpt', .9, .7, 0, undefined, 'jazzfunk', midi);
+  assert.equal(calls[0][0].bank, 'jtv2'); assert.equal(calls[0][0].midi, 77);
+  assert.deepEqual(eq, [...windTone('jazzfunk', 'tpt').body, [900, .7, 5.04]], 'only the identified hard sustain restores its broad low body, without changing source notches or the +2dB gain');
+}
+for (const bank of ['jtv1', 'jts21', 'jts31', undefined]) assert.deepEqual(windTone('jazzfunk', 'tpt', false, bank, 77), windTone('jazzfunk', 'tpt'));
+for (const root of [74, 81, NaN, Infinity, undefined, null]) assert.deepEqual(windTone('jazzfunk', 'tpt', false, 'jtv2', root), windTone('jazzfunk', 'tpt'));
+for (const style of ['swing', 'modal', 'bossa']) assert.deepEqual(windTone(style, 'tpt', false, 'jtv2', 77), windTone(style, 'tpt'));
 const takeCuts = { 60: [2611, 60, -18], 65: [2812, 60, -12], 77: [2795, 60, -12] };
 for (const [root, cut] of Object.entries(takeCuts)) {
   for (const style of ['bossa', 'swing', 'modal', 'jazzfunk', undefined]) for (const midi of [+root, +root + 1]) {

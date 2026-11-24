@@ -25,12 +25,13 @@ const WIND_TONES = {
     tpt: { body: [[1800, 1.2, 3.83], [2050, 4, -15.02], [2300, 1.4, 2.18], [2800, 4, 5.13], [3600, 1.4, -4.13]], shelves: [[2600, -10.71], [5000, -15.58]] },
     airflute: { body: [[2050, 4, 1.35], [2300, 1.4, -.53], [2800, 4, 1.16], [3600, 1.4, 3.25]], shelves: [[2600, -1.39], [5000, -3.8]] },
   },
-  jazzfunk: { tpt: { body: [[1800, 1.2, -2.97], [2050, 4, -7.34], [2300, 1.4, 13.69], [2800, 4, -7.78], [3600, 1.4, -11.3]], shelves: [[2600, -8.84], [5000, -23.05]] } },
+  jazzfunk: { tpt: { body: [[1800, 1.2, -2.97], [2050, 4, -7.34], [2300, 1.4, 13.69], [2800, 4, -7.78], [3600, 1.4, -11.3]], shelves: [[2600, -9.17], [5000, -28.25]] } },
 };
-export const windTone = (style, voice, short = false) => {
+const JAZZFUNK_BODY = [[1200, .9, -1.64], [1800, 1.2, 3.21], [2300, 1.4, -1.31], [2800, 4, -3.99], [3600, 1.4, -2.5]];
+export const windTone = (style, voice, short = false, bank, root) => {
   const voices = Object.hasOwn(WIND_TONES, style) ? WIND_TONES[style] : null;
   const tone = voices && Object.hasOwn(voices, voice) ? voices[voice] : null;
-  return tone ? { body: [...tone.body, ...(style === 'jazzfunk' ? [[2000, .9, short ? -3 : 1]] : [])], shelves: tone.shelves, fade: voice === 'airflute' ? .012 : .028 } : null;
+  return tone ? { body: [...tone.body, ...(style === 'jazzfunk' ? [[2000, .9, short ? -3 : 1], ...JAZZFUNK_BODY, ...(bank === 'jtv2' && Number.isFinite(root) && Math.round(root) === 77 ? [[900, .7, 5.04]] : [])] : [])], shelves: tone.shelves, fade: voice === 'airflute' ? .012 : .028 } : null;
 };
 
 export function recordedJazzWind(e, t, v, midi, duration, voice, strong, { take = 0, harm = false, style }, mix) {
@@ -51,7 +52,7 @@ export function recordedJazzWind(e, t, v, midi, duration, voice, strong, { take 
   const balance = style === 'bossa' ? 10 ** ((BOSSA_TRUMPET_LEVELS[bank]?.[Math.round(center)] ?? 0) / 20) : style === 'jazzfunk' && voice === 'tpt' ? 10 ** (2 / 20) : 1;
   let out = e.trimOut(`hook-${voice}`, 1, e.hookBus || e.windDuck, -4, 500);
   if (bossa) out = e.bodyFor(e.bodyFor(out, [2950, .8, 6.2]), [780, 1.2, -2.5]);
-  const tone = windTone(style, voice, short);
+  const tone = windTone(style, voice, short, bank, center);
   for (const band of tone?.body || []) out = e.bodyFor(out, band);
   e.playBuf(buffer, t, (flute ? 1.02 : muted ? .48 : .4) * touch * mix * balance, out, rate, Math.max(.06, duration * .92), {
     ...(tone ? { shelves: tone.shelves } : {}),
