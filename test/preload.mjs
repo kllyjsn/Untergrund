@@ -1,6 +1,7 @@
 // Live-kit preloading: which recordings a song needs, and the per-song lock that keeps a part on one sound.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { runInNewContext } from 'node:vm';
 import { liveSet, liveSets, setsReady, loadSets, loadBand, BAND, STAB_BAND, LIVE_FILES, LIVE_KIT } from '../js/livekit.js';
 import { Engine, Sequencer, stabPitches } from '../js/engine.js';
 import { rhodesVoicing, rhodesLineOctave, rhodesPhraseOctave, rhodesLoFiVoicing, rhodesLoFiPhrase, rhodesRnBVoicing, RHODES_STYLES } from '../js/rhodes.js';
@@ -16,6 +17,42 @@ import { setFromArrayBuffer, useSynthVox } from '../js/sampler.js';
 import { setVoice, clearVoice } from '../js/voice.js';
 
 const st = (kit, voice) => ({ master: { kit }, params: { stab: { voice } } });
+for (const hook of ['fiddle', 'twang']) {
+  const song = { ...freshSong('country', 42), artist: { style: 'country' } };
+  for (const p of song.patterns) { p.hook.v = 'harmon'; p.roots.hook = hook; }
+  const sets = liveSets(song);
+  assert(sets.includes(hook === 'fiddle' ? 'fiddle' : 'gtr'), 'the overriding lead remains preloaded');
+  assert(!sets.some((n) => n.startsWith('jhm') || n === 'tpt'), 'ignored Harmon and its legacy fallback do not preload');
+  song.artist.style = 'pop';
+  assert(!liveSets(song).some((n) => n.startsWith('jhm')), 'saved roots also override a different project style');
+  song.patterns.forEach((p) => { p.roots = null; });
+  assert(liveSets(song).includes('jhm1'), 'without forced roots the saved Harmon still loads');
+}
+for (const style of ['boombap', 'lofihiphop']) {
+  const song = { ...freshSong(style, 42), artist: { style } };
+  for (const p of song.patterns) { p.hook.v = 'harmon'; p.roots = { style, chord: 'upright' }; }
+  assert(liveSets(song).includes('jhm1'), 'an upright chord does not override the Harmon hook');
+}
+{
+  const bossa = freshSong('bossa', 11);
+  bossa.params.stab.voice = 18;
+  for (const p of bossa.patterns) if (p.hook) p.hook.v = 'airflute';
+  const banks = liveSets(bossa);
+  assert(!banks.some((n) => n.startsWith('jep')), 'nylon Bossa must not wait on an unused electric piano');
+  assert(banks.includes('jfl') && !banks.includes('jflb'), 'Bossa flute preloads its sustain performance, not unused expressive takes');
+  assert(!banks.includes('fl') && !banks.includes('flb'), 'a fully loaded recorded Bossa flute does not require legacy fallback banks');
+}
+const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+const playSource = main.slice(main.indexOf('function play(opts = {})'), main.indexOf('\nfunction endTuning'));
+for (const opts of [{ startsAt: 12345 }, { stepWall: 12345 }, { delay: .1 }]) {
+  const calls = [];
+  const play = runInNewContext(`${playSource}\nplay`, {
+    playing: false, needsTuning: () => ({ load() { calls.push('load'); return new Promise(() => {}); } }),
+    start: (got) => { assert.equal(got, opts); calls.push('start'); },
+  });
+  play(opts);
+  assert.deepEqual(calls, ['load', 'start'], 'clock-synced playback loads in the background without waiting or changing the origin');
+}
 assert.deepEqual(liveSets(st(0, 1)), []);
 assert.deepEqual(liveSets(st(1, 1)), ['kit']);
 assert.deepEqual(liveSets(st(2, 8)), ['kit', 'gtr', 'gtrsoft']);
@@ -240,7 +277,7 @@ for (const id of Object.keys(STYLES)) {
     assert.equal(sets.includes('snare'), ['drill', 'dnb'].includes(id), `${id}/${seed} snare-only sample set`);
     assert.equal(sets.includes('harp'), g.pattern.hook?.v === 'harpplk', `${id}/${seed} recorded harp hook`);
     assert.equal(sets.includes('ob'), g.pattern.hook?.v === 'oboe', `${id}/${seed} recorded oboe hook`);
-    assert.equal(sets.includes('fl'), g.pattern.hook?.v === 'airflute', `${id}/${seed} recorded flute hook`);
+    assert.equal(sets.includes('fl'), g.pattern.hook?.v === 'airflute' && !g.pattern.jazz, `${id}/${seed} legacy flute hook`);
     assert.equal(sets.includes(band), !!band, `${id}/${seed} stab band`);
     assert.equal(sets.includes('pianosoft'), band === 'piano', `${id}/${seed} soft piano layer`);
     // Country's Telecaster lead loads the guitar whatever plays the chords.
@@ -263,6 +300,20 @@ globalThis.fetch = async (url) => {
 globalThis.OfflineAudioContext = class { decodeAudioData(b) { return Promise.resolve({ length: b.byteLength }); } };
 
 const rec = (lock, name) => Engine.prototype.rec.call({ recLock: lock }, name);
+{
+  const local = { recLock: new Map() };
+  for (const name of ['jhm1', 'jhm3']) assert.equal(Engine.prototype.rec.call(local, name), null);
+  await loadSets(['jhm1', 'jhm3']);
+  for (const name of ['jhm1', 'jhm3']) assert.ok(Engine.prototype.rec.call(local, name), 'a selected Harmon bank retries its cold miss after decoding during local playback');
+}
+{
+  const local = { recLock: new Map() }, room = { recLock: new Map(), roomRecordings: true };
+  assert.equal(Engine.prototype.rec.call(local, 'timproll'), null);
+  assert.equal(Engine.prototype.rec.call(room, 'timproll'), null);
+  await loadBand('timproll');
+  assert.equal(Engine.prototype.rec.call(local, 'timproll'), null, 'ordinary playback retains its initial fallback');
+  assert.ok(Engine.prototype.rec.call(room, 'timproll'), 'a live listener adopts the decoded bank without restarting the clock');
+}
 const feeds = (source, dest) => source === dest || dest.inputs.some((input) => feeds(source, input));
 {
   const s = generate('lofihiphop', 1), state = { ...defaultState(), ...s, patterns: [s.pattern], artist: { style: 'lofihiphop' } };

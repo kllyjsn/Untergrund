@@ -39,6 +39,7 @@ export function rootsPitch(m, lo, hi) {
 export const fiddlePitch = (m) => rootsPitch(m, 55, 79);
 export const fiddleDuration = (dur) => Math.max(.08, Math.min(3, dur));
 export const fiddleRole = (r, expression) => r?.hook === 'fiddle' || (r?.answer === 'fiddle' && expression?.role === 'fiddle-answer');
+export const hasRootsLead = (r) => fiddleRole(r) || r?.hook === 'twang';
 export const fiddleAnswerRoll = (r, bar) => r?.answer === 'fiddle' && bar % 4 === 3 && roll(Math.floor(bar / 4) + r.seed, 293) < .25;
 
 export function uprightNotes(t, v, iv, root, p) {

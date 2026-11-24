@@ -9,6 +9,7 @@ import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel, swingLate, swingDuration } from './groove.js';
 import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes, jazzNotches, JAZZ_MIX, BOSSA_RIM, BOSSA_BATIDA, bossaBass } from './jazz.js';
 import { funkBass, funkGroove, funkNotes, FUNK_KICK, FUNK_SNARE, FUNK_COMP, FUNK_GUITAR } from './jazzfunk.js';
+import { recordedJazzWind, HARMON_BANKS, trumpetStaccatoLayer } from './jazz-winds.js';
 import { bossaGrip, bossaLine, bossaPocket, bossaRhythm, BOSSA_KICK, BOSSA_HAT, BOSSA_BASS } from './bossa.js';
 import { leadPreset, dbGain, STAB_TRIM_DB, HOOK_TRIM_DB, HOOK_LOW_DB, STAB_SHELF_HZ, TECHNO_HOOK_SPACE } from './lead.js';
 import { lowEnd } from './lowend.js';
@@ -139,6 +140,7 @@ const WIND_HOOK = {
     second: { 60: [-36, 0.145, 3.8], 64: [-12, 0.105, 3], 69: [-2, 0.061, 0.8], 72: [2, 0.092, 3], 76: [0, 0.088, -0.5], 81: [0, 0.098, 0], 84: [0, 0.105, -3.2] },
   },
 };
+WIND_HOOK.harmon = WIND_HOOK.tpt;
 // Each genre's sax, in dB, matched to the synth reed it replaces (hook stem loudness over seeds): the recorded
 // tongued attack carries less energy on the short riffs of Afrobeats, Reggaeton and Breaks than on sung lines.
 // Held alto notes sat dead straight, so their 8th-15th harmonics rang as fixed 2.5-3.1 kHz lines over the mix;
@@ -954,12 +956,11 @@ export class Engine {
     this.acidNodes = a;
   }
 
-  // One sound per part for a whole song: while `recLock` is set (main.js sets it per song), a recording is used from
-  // the first note that needs it or not at all, so a slow download never swaps a synth stand-in for it mid-song.
+  // Ordinary parts keep their initial fallback; rooms and selectable Harmon banks can adopt decoded recordings.
   rec(name, lockOnUse = true) {
     const got = liveSet(name), lock = this.recLock;
     if (!lock || (!lockOnUse && !lock.has(name))) return got;
-    if (!lock.has(name)) lock.set(name, !!got);
+    if (!lock.has(name) || ((this.roomRecordings || HARMON_BANKS.includes(name)) && !lock.get(name) && got)) lock.set(name, !!got);
     return lock.get(name) ? got : null;
   }
 
@@ -3486,7 +3487,7 @@ export class Engine {
     }
     return this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
       hp: kind === 'org' && this.playbackStyle === 'gfunk' ? 110 : 0, hpQ: -3.01,
-      shelves: [[3000, tone]], peaks: [...(R?.peak ? [R.peak] : []), ...(kind === 'org' && this.playbackStyle === 'gfunk' ? [[2200, 1.2, -3], [3300, 0.8, -6]] : []), ...(kind === 'str' ? HIPHOP[this.state.artist?.style]?.strEq ?? [] : []), ...(jazzStyle(this.state, this.playingPattern) === 'bossa' && kind === 'jazz' ? jazzNotches(kind, c, Math.pow(2, (m - c) / 12)) : [])], stop: kind === 'str' ? HIPHOP[this.state.artist?.style]?.strStop : null, lp: R ? R.lp * (F ? F[1] : 1) * (0.4 + 0.6 * hv) : 0, ...(kind === 'upright' ? { lpStages: 2, lpQ: -6.0206 } : {}), lpFrom: F ? F[0] : R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
+      shelves: [[3000, tone]], peaks: [...(R?.peak ? [R.peak] : []), ...(kind === 'org' && this.playbackStyle === 'gfunk' ? [[2200, 1.2, -3], [3300, 0.8, -6]] : []), ...(kind === 'str' ? HIPHOP[this.state.artist?.style]?.strEq ?? [] : []), ...(jazzStyle(this.state, this.playingPattern) === 'bossa' && (kind === 'jazz' || kind === 'nylon') ? jazzNotches(kind, c, Math.pow(2, (m - c) / 12)) : [])], stop: kind === 'str' ? HIPHOP[this.state.artist?.style]?.strStop : null, lp: R ? R.lp * (F ? F[1] : 1) * (0.4 + 0.6 * hv) : 0, ...(kind === 'upright' ? { lpStages: 2, lpQ: -6.0206 } : {}), lpFrom: F ? F[0] : R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
       ...fx,
     });
   }
@@ -3867,6 +3868,7 @@ export class Engine {
   }
 
   windHook(set, t, v, m, dur, voice, strong, { harm, take = 0 }) {
+    if (voice === 'harmon') voice = 'tpt';
     const { gain: base, presence, takes, second, lp = 3850, tone = [] } = WIND_HOOK[voice];
     const gain = base * dbGain(voice.endsWith('sax') ? SAX_TRIM[this.playbackStyle] ?? 0 : 0);
     const alt = TAKES[HOOK_BAND[voice]] && this.rec(TAKES[HOOK_BAND[voice]]);
@@ -4108,6 +4110,8 @@ export class Engine {
     if (voice === 'reed' && SAX_HOOK[this.playbackStyle]) voice = SAX_HOOK[this.playbackStyle];
     const wind = Object.hasOwn(WIND_HOOK, voice);
     if (wind) {
+      const style = jazzStyle(this.state, this.playingPattern);
+      if ((style || voice === 'harmon') && recordedJazzWind(this, t, v, 60 + k + oct * 12 + n, dur, voice, strong, { ...expression, style }, dbGain(style === 'bossa' && voice === 'tpt' ? JAZZ_MIX.bossa.trumpetLead : JAZZ_MIX[style]?.lead || 0))) return;
       const name = HOOK_BAND[voice], set = this.rec(name);
       const root = SAX_LO[voice] ? saxRoot(this.playbackStyle, 60 + k, oct) : 60 + k + oct * 12;
       if (set) return this.windHook(set, t, v, root + n, dur, voice, strong, expression);
@@ -5460,6 +5464,15 @@ function windTake(notes, index, pitchIndex, pass) {
   return pass % 2;
 }
 
+function jazzWindPitch(s, pat, pitch, placed = false) {
+  if (!placed && pat.jazz.style === 'jazzfunk' && pat.hook.v === 'tpt') {
+    const k = s.key > 6 ? s.key - 12 : s.key;
+    while (60 + k + pitch < 69) pitch += 12;
+    while (60 + k + pitch > 80) pitch -= 12;
+  }
+  return pitch;
+}
+
 // Is the hook sounding at (or about to play) step hi? A note started k steps ago still rings for its length.
 // The answer half's highest held note: where the final chorus's suspension lands.
 function peakStep(s) {
@@ -5534,6 +5547,8 @@ export class Sequencer {
   startAt(abs, t) {
     this.e.voxPrev = undefined;
     const chain = this.s.chainOn ? parseChain(this.s.chain) : [];
+    this.songBars = chain.length; this.chainArr = chain;
+    this.chainEntries = cleanChainEntries(this.s.chain, this.s.chainEntries);
     const bar = Math.floor(abs / 16), offset = abs % 16;
     const pos = chain.length ? bar % chain.length : -1;
     this.cur = pos >= 0 ? chain[pos] : this.s.current;
@@ -6043,10 +6058,84 @@ export class Sequencer {
     return v ? (v === 2 ? 1 : v === 1 ? 0.78 : v) / base : 0;
   }
 
+  jazzFunkWindNotes(pat, bar, pos, history) {
+    if (history.funkBar === bar) return history.funkNotes;
+    const s = { ...this.s, mutes: { ...this.s.mutes, ...Object.fromEntries(TRACK_IDS.filter((id) => id !== 'stab').map((id) => [id, true])) } };
+    const e = { state: s, stepDur: this.e.stepDur, harm: this.jazzHarmonyAt(pat, bar, pos), playingPattern: pat, trigger: () => {} }, player = Object.create(this), notes = [];
+    Object.assign(player, { s, e, cur: pos < 0 ? this.cur : this.chainArr[pos], funkLead: history.funkLead, jazzExpression: () => pat.hook.x });
+    let at;
+    e.hook = (t, v, n, dur) => notes.push([at, dur / e.stepDur, n, v, dur]);
+    for (at = 0; at < 16; at++) {
+      const abs = bar * 16 + at;
+      player.jazzfunkStep(pat, abs, abs * e.stepDur + swingLate(s, abs, e.stepDur), pos, this.songBars || 0);
+    }
+    history.funkLead = player.funkLead;
+    history.funkBar = bar;
+    return history.funkNotes = notes;
+  }
+
+  jazzExpression(hook, notes, index, bar, pitchIndex = 2, actualPitch) {
+    if (!Object.hasOwn(WIND_HOOK, hook.v) || !notes[index]) return hook.x;
+    const s = this.s, pat = this.e.playingPattern;
+    if (!pat?.jazz || !isJazz(pat.jazz.style)) return { ...hook.x, take: windTake(notes, index, pitchIndex, bar) };
+    const chain = s.chainOn ? parseChain(s.chain) : [];
+    const key = JSON.stringify([s.key, s.bpm, s.swing, s.master.swing8, s.feel, s.sing?.on, chain, s.chainEntries, s.ending, chain.length ? null : this.cur, s.patterns]);
+    let history = this.jazzWindHistory;
+    if (!history || history.key !== key || history.bar > bar) history = this.jazzWindHistory = { key, bar: 0, counts: new Map() };
+    const noteKey = (p, note, placed, b, at) => {
+      const pitch = note[placed ? 0 : 2];
+      let bank = p.hook.v;
+      if (bank === 'tpt') {
+        const sd = 60 / s.bpm / 4 * (chain.length ? feelTempo(s, chain, b % chain.length, at) : 1);
+        const duration = !placed && Number.isFinite(note[4]) ? note[4] : !placed && p.jazz.style === 'bossa' ? note[1] * sd : swingDuration(s, b * 16 + at, note[1], sd);
+        const layer = trumpetStaccatoLayer(note[placed ? 2 : 3], duration);
+        if (layer == null) return null;
+        bank = `jts${layer}`;
+      }
+      return `${bank}:${jazzWindPitch(s, p, pitch, placed) + (p.hook.o || 0) * 12}`;
+    };
+    for (; history.bar < bar; history.bar++) {
+      const b = history.bar, pos = chain.length ? b % chain.length : -1, slot = pos < 0 ? this.cur : chain[pos];
+      const p = patternAt(s.patterns[slot], pos);
+      if (!p?.jazz || !isJazz(p.jazz.style) || !p.hm || !p.hook || !Object.hasOwn(WIND_HOOK, p.hook.v)) continue;
+      let prior;
+      if (p.hook.h) prior = p.hook.s.slice((b % 2) * 16, (b % 2 + 1) * 16);
+      else {
+        const h = this.jazzHarmonyAt(p, b, pos);
+        const final = s.ending && chain.length && pos === chain.length - 1;
+        if (p.jazz.style === 'jazzfunk') prior = this.jazzFunkWindNotes(p, b, pos, history);
+        else if (p.jazz.bossaPart) {
+          const local = this.bossaSectionBar(b, pos);
+          prior = final ? [[0, 10, h.r, 0.67]] : bossaLine(p.jazz.bossaPart, local, h, p.jazz.seed, (b - local) / 8);
+        } else prior = final ? [[0, p.jazz.style === 'jazzfunk' ? 6 : 8, h.r + CHORDS[h.c].iv[1], p.jazz.style === 'bossa' ? 0.6 : 0.7]] : jazzNotes(p.jazz.style, p.jazz.seed, b, h, slot === 2);
+      }
+      for (const [i, note] of prior.entries()) {
+        if (!note) continue;
+        const k = noteKey(p, note, !!p.hook.h, b, p.hook.h ? i : note[0]);
+        if (k == null) continue;
+        history.counts.set(k, (history.counts.get(k) || 0) + 1);
+      }
+    }
+    if (pat.jazz.style === 'jazzfunk' && pitchIndex === 2) {
+      const at = notes[index][0];
+      notes = this.jazzFunkWindNotes(pat, bar, chain.length ? bar % chain.length : -1, history);
+      index = notes.findIndex((note) => note[0] === at);
+      if (index < 0) return hook.x;
+    }
+    const targetNote = Number.isFinite(actualPitch) ? notes[index].map((n, i) => i === pitchIndex ? actualPitch : n) : notes[index];
+    const target = noteKey(pat, targetNote, pitchIndex === 0, bar, pitchIndex === 0 ? index % 16 : notes[index][0]);
+    if (target == null) return { ...hook.x, take: 0 };
+    let count = history.counts.get(target) || 0;
+    for (let i = pitchIndex === 0 ? index - index % 16 : 0; i < index; i++) {
+      if (notes[i] && noteKey(pat, notes[i], pitchIndex === 0, bar, pitchIndex === 0 ? i % 16 : notes[i][0]) === target) count++;
+    }
+    return { ...hook.x, take: count % 2 };
+  }
+
   jazzHook(pat, abs, t, sd) {
     if (!pat.hook.h) return false;
     const note = pat.hook.s[abs % 32];
-    if (note) this.e.hook(t, note[2], note[0], swingDuration(this.s, abs, note[1], sd), pat.hook.v, pat.hook.o, false, 0.8, false, pat.hook.x);
+    if (note) this.e.hook(t, note[2], note[0], swingDuration(this.s, abs, note[1], sd), pat.hook.v, pat.hook.o, false, 0.8, false, this.jazzExpression(pat.hook, pat.hook.s, abs % 32, Math.floor(abs / 16), 0));
     return true;
   }
 
@@ -6081,7 +6170,7 @@ export class Sequencer {
     if (enabled('stab') && (final || pat.steps.stab[i] && (!solo || bar % 2 === 0 || i === 6))) e.trigger('stab', t, style === 'modal' ? 0.62 : solo ? 0.42 : 0.56);
     if (enabled('stab') && pat.hook && pat.hm && !this.jazzHook(pat, abs, t, sd)) {
       const notes = final ? [[0, 8, h.r + CHORDS[h.c].iv[1], 0.7]] : jazzNotes(style, seed, bar, h, solo);
-      for (const [at, dur, n, v] of notes) if (at === i) e.hook(t, v, n, swingDuration(s, abs, dur, sd), pat.hook.v, pat.hook.o, i % 8 === 0, 0.8, false, pat.hook.x);
+      for (const [index, [at, dur, n, v]] of notes.entries()) if (at === i) e.hook(t, v, n, swingDuration(s, abs, dur, sd), pat.hook.v, pat.hook.o, i % 8 === 0, 0.8, false, this.jazzExpression(pat.hook, notes, index, bar));
     }
     return this.cur;
   }
@@ -6178,7 +6267,7 @@ export class Sequencer {
       if (firstHead && sectionBar < 10) leadBar -= 4;
       else if (firstHead && sectionBar < 12) leadBar -= 2;
       const notes = funkNotes(seed, leadBar, e.harm, solo, { headOut: this.cur === 7, sectionBars, key: s.key });
-      for (const [at, dur, pitch, v] of notes) if (at === i) {
+      for (const [index, [at, dur, pitch, v]] of notes.entries()) if (at === i) {
         const k = s.key > 6 ? s.key - 12 : s.key;
         let n = pitch;
         const peak = solo && sectionBar === sectionBars - 4;
@@ -6199,7 +6288,7 @@ export class Sequencer {
           this.funkLead = { step: abs, end: t + swingDuration(s, abs, dur, sd) * 0.92, pitch: m, leaps };
           n = m - 60 - k;
         }
-        e.hook(t, v, n, swingDuration(s, abs, dur, sd), pat.hook.v, pat.hook.o, false, 0.7, false, pat.hook.x);
+        e.hook(t, v, n, swingDuration(s, abs, dur, sd), pat.hook.v, pat.hook.o, false, 0.7, false, this.jazzExpression(pat.hook, notes, index, bar, 2, n));
       }
     }
     return this.cur;
@@ -6232,7 +6321,7 @@ export class Sequencer {
     if (enabled('stab') && comp) e.trigger('stab', t, (i % 8 === 0 ? 0.5 : 0.43) * comp);
     if (enabled('stab') && pat.hook && pat.hm && !this.jazzHook(pat, abs, t, sd)) {
       const notes = final ? [[0, 8, h.r + CHORDS[h.c].iv[1], 0.6]] : jazzNotes('bossa', pat.jazz.seed, bar, h, this.cur === 2);
-      for (const [at, dur, n, v] of notes) if (at === i) e.hook(t, v, n, dur * sd, pat.hook.v, pat.hook.o, i % 8 === 0, 0.8, false, pat.hook.x);
+      for (const [index, [at, dur, n, v]] of notes.entries()) if (at === i) e.hook(t, v, n, dur * sd, pat.hook.v, pat.hook.o, i % 8 === 0, 0.8, false, this.jazzExpression(pat.hook, notes, index, bar));
     }
     return this.cur;
   }
@@ -6288,7 +6377,8 @@ export class Sequencer {
         const pickup = dur <= 2 ? -0.10 : 0;
         const layBack = dur >= 4 ? 0.07 * Math.sin((j + local % 4) * 1.7) : 0;
         const take = dur < 2.5 && (j + local) % 3 === 0 ? 1 : 0;
-        e.hook(time('hook', pickup + layBack), v, n, dur * sd, pat.hook.v, pat.hook.o, anchor, 0.8, false, { ...pat.hook.x, take });
+        const expression = Object.hasOwn(WIND_HOOK, pat.hook.v) ? this.jazzExpression(pat.hook, notes, j, bar) : { ...pat.hook.x, take };
+        e.hook(time('hook', pickup + layBack), v, n, dur * sd, pat.hook.v, pat.hook.o, anchor, 0.8, false, expression);
       }
     }
     return this.cur;

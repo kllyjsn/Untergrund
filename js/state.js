@@ -169,7 +169,7 @@ const HOOK_STYLE = {
 };
 // 'chop' sings the hook with the user's own recorded voice (js/voice.js); a song without one plays 'vocal'.
 const TECHNO_HOOK = { hypnotic: 'softresonator', industrial: 'metalstrike', acid: 'acidlead', peak: 'ravestack', electro: 'robotformant' };
-export const HOOK_VOICES = [...new Set(['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell', 'chop', 'softmallet', 'harpplk', 'oboe', 'airflute', 'tpt', 'marimba', ...Object.values(TECHNO_HOOK), ...HIPHOP_STYLES.map((id) => HIPHOP[id].hook)])];
+export const HOOK_VOICES = [...new Set(['pulse', 'analog', 'warm', 'vocal', 'reed', 'mallet', 'sq', 'saw', 'pluck', 'flute', 'bell', 'chop', 'softmallet', 'harpplk', 'oboe', 'airflute', 'tpt', ...Object.values(TECHNO_HOOK), ...HIPHOP_STYLES.map((id) => HIPHOP[id].hook), 'harmon', 'marimba'])];
 
 // Every genre has several plausible ensembles. The seed chooses a player,
 // register and articulation while the genre keeps its drum, harmony and room identity.

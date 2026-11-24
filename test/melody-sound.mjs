@@ -1,0 +1,146 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
+import { windBanks } from '../js/jazz-winds.js';
+import { Engine, paletteFor } from '../js/engine.js';
+import { jazzStyle } from '../js/jazz.js';
+import { freshSong } from '../js/state.js';
+import { patternAt } from '../js/scope.js';
+import { createHistory } from '../js/undo.js';
+import { rootsFor, hasRootsLead } from '../js/roots.js';
+
+const source = readFileSync(new URL('../js/hum-ui.js', import.meta.url), 'utf8');
+const state = { current: 0, patterns: [{ hook: { v: 'warm' } }, { hook: { v: 'airflute' } }, {}] };
+let opened = 0;
+const loads = [];
+let rejectLoad = false;
+let chops = null;
+const panel = runInNewContext((source.match(/^const melodyHooks = .+;$/m)?.[0] || '') + '\n' + source.slice(source.indexOf('export function melodyPanel'), source.indexOf('\nexport const humButton')).replace('export function', 'function') + '\nmelodyPanel', {
+  h: (tag, attrs, ...children) => ({ tag, attrs, children: children.flat().filter(Boolean) }),
+  getChops: () => chops, openVoice: () => opened++, openHum() {},
+  windBanks, loadSets: (banks) => { loads.push(banks); return rejectLoad ? Promise.reject(new Error('offline')) : Promise.resolve(); },
+  paletteFor, jazzStyle, rootsFor, hasRootsLead,
+});
+const history = createHistory();
+let edits = 0;
+const api = { state: () => state, edit: (fn) => { edits++; history.push(JSON.stringify(state)); fn(state); } };
+const nodes = (node) => typeof node === 'object' ? [node, ...node.children.flatMap(nodes)] : [];
+const button = (label) => nodes(panel(api)).find((n) => n.tag === 'button' && n.children.includes(label));
+assert(button('HARMON'), 'the appended Harmon voice must be selectable in Melody sound');
+button('HARMON').attrs.onclick();
+assert.deepEqual(loads[0], ['jhm1', 'jhm3'], 'selecting Harmon starts both recorded layers without waiting for playback to restart');
+assert.deepEqual(state.patterns.slice(0, 2).map((p) => p.hook.v), ['harmon', 'harmon']);
+assert.equal(button('HARMON').attrs['aria-checked'], 'true');
+assert.equal(button('SYNTH').attrs['aria-checked'], 'false');
+button('MY VOICE').attrs.onclick();
+assert.equal(opened, 1, 'missing voice chops open the recorder without discarding the selected instrument');
+assert.equal(state.patterns[0].hook.v, 'harmon');
+button('SYNTH').attrs.onclick();
+assert.equal(state.patterns[0].hook.v, 'warm');
+assert.equal(loads.length, 1, 'other sound choices do not load Harmon');
+rejectLoad = true;
+button('HARMON').attrs.onclick();
+await new Promise((resolve) => setImmediate(resolve));
+assert.equal(state.patterns[0].hook.v, 'harmon', 'a failed background load keeps the selected voice and fallback');
+state.patterns[0].hook = null;
+assert.equal(button('HARMON'), undefined, 'an empty melody has no active sound selector');
+for (const style of ['bailefunk', 'minimal', 'dub', 'deephouse', 'euphoric', 'dnb']) {
+  Object.assign(state, freshSong(style, 42), { current: 6, artist: { style } });
+  const calls = [], e = { state, ctx: {}, harm: { r: 0, c: 0 }, hookBus: {}, playbackStyle: style, minimal: style === 'minimal' };
+  for (const method of ['funkStab', 'minimalHook', 'dubChord', 'paletteHook']) e[method] = () => calls.push(method);
+  const expected = style === 'bailefunk' ? 'funkStab' : style === 'minimal' ? 'minimalHook' : style === 'dub' ? 'dubChord' : 'paletteHook';
+  for (const voice of ['tpt', 'airflute', 'harmon']) {
+    calls.length = 0;
+    Engine.prototype.hook.call(e, 0, .5, 0, .2, voice);
+    assert.deepEqual(calls, [expected], style + ' already overrides recorded trumpet/flute/Harmon');
+  }
+  assert.equal(button('HARMON'), undefined, style + ' must not offer an ignored Harmon option');
+  state.patterns[6].hook.v = 'harmon';
+  assert.equal(button('SYNTH').attrs['aria-checked'], 'true', 'saved unsupported Harmon still displays the effective synth choice');
+  button('SYNTH').attrs.onclick();
+  assert.equal(state.patterns[6].hook.v, 'warm', 'the synth choice clears an unsupported Harmon selection');
+}
+for (const hook of ['fiddle', 'twang']) {
+  Object.assign(state, freshSong('country', 42), { current: 6, artist: { style: 'country' } });
+  for (const p of state.patterns) p.roots.hook = hook;
+  const calls = [], e = { state, playingPattern: state.patterns[6], ctx: {}, harm: { r: 0, c: 0 }, hookBus: {},
+    rec: (name) => { calls.push(name); return []; }, bodyFor: () => ({}), slapFor: () => ({}), recordedNote() {} };
+  for (const voice of ['tpt', 'airflute', 'harmon']) {
+    calls.length = 0;
+    Engine.prototype.hook.call(e, 0, .5, 0, .5, voice);
+    assert.deepEqual(calls, [hook === 'fiddle' ? 'fiddle' : 'gtr'], 'saved roots ' + hook + ' overrides the selected ' + voice);
+  }
+  assert.equal(button('HARMON'), undefined, hook + ' leads must not offer an ignored Harmon option');
+  state.patterns[6].hook.v = 'harmon';
+  assert.equal(button('SYNTH').attrs['aria-checked'], 'true');
+  button('SYNTH').attrs.onclick();
+  assert.equal(state.patterns[6].hook.v, 'warm');
+  state.artist.style = 'pop';
+  assert.equal(button('HARMON'), undefined, 'saved pattern roots override the project style too');
+}
+Object.assign(state, freshSong('pop', 42), { current: 6, artist: { style: 'pop' } });
+state.patterns[0].roots = { style: 'country', seed: 42, hook: 'fiddle' };
+assert.equal(button('HARMON'), undefined, 'a different scene with a forced lead prevents a misleading song-wide sound choice');
+for (const style of ['country', 'boombap', 'lofihiphop']) {
+  Object.assign(state, freshSong(style, 42), { current: 6, artist: { style } });
+  for (const p of state.patterns) p.roots = style === 'country' ? null : { style, chord: 'upright' };
+  assert(button('HARMON'), style + ' without an overriding hook still honors Harmon');
+}
+for (const p of state.patterns) p.roots = { style: 'country', seed: 42, answer: 'fiddle' };
+assert(button('HARMON'), 'a fiddle answer alone does not replace the selected melody lead');
+for (const style of ['swing', 'modal', 'bossa', 'jazzfunk', 'pop', 'trap']) {
+  Object.assign(state, freshSong(style, 42), { current: 6, artist: { style } });
+  assert(button('HARMON'), style + ' honors recorded winds');
+}
+Object.assign(state, freshSong('pop', 42), { current: 6, artist: { style: 'pop' } });
+const p = state.patterns[6];
+p.hook.v = 'warm';
+p.at = [{ b: [0, 0], hook: { ...structuredClone(p.hook), v: 'airflute' } }, { b: [1, 1], hm: 0 }];
+const notes = JSON.stringify(p.at[0].hook.s);
+for (const [label, voice] of [['HARMON', 'harmon'], ['SYNTH', 'warm'], ['MY VOICE', 'chop']]) {
+  if (voice === 'chop') chops = {};
+  p.hook.v = voice;
+  p.at[0].hook.v = 'airflute';
+  button(label).attrs.onclick();
+  assert.equal(p.hook.v, voice);
+  assert.equal(patternAt(p, 0).hook.v, voice, 'pop42 instrumental take must match Studio after selecting ' + label);
+  assert.equal(JSON.stringify(p.at[0].hook.s), notes, 'sound selection preserves the instrumental riff');
+  assert.equal(p.at[1].hook, undefined, 'sound selection does not invent a hook in an empty take');
+}
+for (const [voice, label] of [['airflute', 'FLUTE'], ['oboe', 'OBOE'], ['harpplk', 'HARP'], ['tpt', 'SYNTH']]) {
+  Object.assign(state, freshSong('pop', 42), { current: 6, artist: { style: 'pop' } });
+  const p = state.patterns[6];
+  p.hook.v = voice;
+  p.at = [{ b: [0, 0], hook: { ...structuredClone(p.hook), v: 'warm' } }];
+  button(label).attrs.onclick();
+  assert.equal(p.hook.v, voice, 'reapplying a checked primary chip preserves its current recorded instrument');
+  assert.equal(patternAt(p, 0).hook.v, voice);
+}
+for (const [voice, label] of [['warm', 'SYNTH'], ['harmon', 'HARMON'], ['chop', 'MY VOICE'], ['airflute', 'FLUTE'], ['oboe', 'OBOE'], ['harpplk', 'HARP'], ['tpt', 'SYNTH']]) {
+  Object.assign(state, freshSong('pop', 42), { current: 6, artist: { style: 'pop' } });
+  for (const p of state.patterns) {
+    if (p.hook) p.hook.v = voice;
+    for (const take of p.at || []) if (take.hook) take.hook.v = voice;
+  }
+  const p = state.patterns[6];
+  p.at = [{ b: [0, 0], hook: structuredClone(p.hook) }, { b: [1, 1], hm: 0 }];
+  history.clear();
+  history.push('before');
+  history.undo(JSON.stringify(state));
+  const before = edits, loadsBefore = loads.length;
+  button(label).attrs.onclick();
+  assert.equal(history.canRedo, true, 'a no-op ' + label + ' reselect preserves redo');
+  assert.equal(history.depth, 0, 'a no-op reselect adds no undo step');
+  assert.equal(edits, before, 'identical base and take sounds skip api.edit');
+  if (voice === 'harmon') assert.equal(loads.length, loadsBefore + 1, 'a no-op Harmon reselect can still retry loading');
+  p.at[0].hook.v = voice === 'warm' ? 'airflute' : 'warm';
+  button(label).attrs.onclick();
+  assert.equal(edits, before + 1, 'a differing take still creates one edit');
+  assert.equal(history.canRedo, false, 'a real edit clears redo');
+  assert.equal(history.depth, 1);
+  assert.equal(patternAt(p, 0).hook.v, voice, 'checked sound still repairs a stale take');
+  button(label).attrs.onclick();
+  assert.equal(edits, before + 1, 'repeating the repaired sound creates no extra edit');
+  assert.equal(p.at[1].hook, undefined);
+}
+console.log('melody sound: Harmon selection, roots-lead availability, state propagation, accessibility, no-op history and missing-chop/empty handling passed');

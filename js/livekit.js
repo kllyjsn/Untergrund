@@ -1,8 +1,10 @@
 import { pocketOf } from './groove.js';
 import { RHODES_STYLES } from './rhodes.js';
 import { HAND_KIT, MARIMBA_STAB, KIT_BACKBEAT } from './params.js';
+import { WIND_BANKS, WIND_TUNING } from './jazz-wind-data.js';
+import { windBanks } from './jazz-winds.js';
+import { ROOT_LAYERS, rootsFor, hasRootsLead } from './roots.js';
 import { VOWEL_BAND, VOWEL_TUNE, vowelSets } from './vowels.js';
-import { ROOT_LAYERS, rootsFor } from './roots.js';
 // Recorded acoustic kit and upright bass for the live-kit genres (CC0, see samples/live/LICENSE.md).
 // Loads lazily; until the buffers arrive the engine keeps using the synthesized live voices.
 export const LIVE_KIT = {
@@ -116,7 +118,7 @@ export const analogSet = (style, voice) => (voice === 2 ? ANALOG_PAD[style] : vo
 export const RECORDED_ORGAN = new Set(['ukg', 'gfunk']);
 export const ANALOG_BASS = { ukg: [3], gfunk: [1, 7] };
 export const playsAnalogBass = (style, voice) => !!ANALOG_BASS[style]?.includes(Math.round(voice || 0));
-export const HOOK_BAND = { harpplk: 'harp', oboe: 'ob', airflute: 'fl', tpt: 'tpt', marimba: 'marimba', altosax: 'asax', tenorsax: 'tsax' };
+export const HOOK_BAND = { harpplk: 'harp', oboe: 'ob', airflute: 'fl', tpt: 'tpt', harmon: 'tpt', marimba: 'marimba', altosax: 'asax', tenorsax: 'tsax' };
 // Where a generic 'reed' hook is a saxophone part: alto for the sung pop, neo-soul, club and trap leads; tenor for the dusty
 // boom bap loop and the Afrobeat horn line, an octave lower. Other reed styles keep their own lead.
 export const SAX_HOOK = {
@@ -133,6 +135,8 @@ export const saxRoot = (style, root, oct = SAX_OCT[style] ?? 0) => {
   return lo + (((root - lo) % 12) + 12) % 12 + (oct - (SAX_OCT[style] ?? 0)) * 12;
 };
 Object.assign(BAND, EXTRA_TAKES);
+Object.assign(BAND, WIND_BANKS);
+Object.assign(BAND_TUNE, WIND_TUNING);
 export const BAND_FILES = Object.entries(BAND).flatMap(([k, ns]) => ns.map((n) => `${k}_${n}`));
 // Crash and toms of the same recorded kit, loaded only by the band pockets that play them (POP, R&B, ROCK, FOLK, COUNTRY).
 export const KIT_EXTRA = ['crash_v2', 'crash_v3', 'htom_v8', 'htom_v14', 'ltom_v8', 'ltom_v14'];
@@ -179,7 +183,7 @@ export function loadBand(name) {
     band[name] = entries; names.set(entries, name);
     for (const k of [TAKES[name], MUTE_LAYER[name]]) if (k) loadBand(k);
     return entries;
-  }).catch((err) => { console.warn(`${name} samples unavailable, using synth voice`, err); return null; });
+  }).catch((err) => { delete bandLoading[name]; console.warn(`${name} samples unavailable, using synth voice`, err); return null; });
   return bandLoading[name];
 }
 
@@ -215,13 +219,17 @@ export function liveSets(st, style = st?.artist?.style) {
   const analog = analogSet(style, Math.round(st?.params?.stab?.voice || 0));
   if (analog) out.push(analog);
   if (style === 'dub') out.push('dpad');
-  for (const p of [st?.pattern, ...(st?.patterns || [])]) {
+  for (const p of patterns) {
     const roots = rootsFor(st, p);
     if (roots?.chord === 'upright' && Math.round(st?.params?.stab?.voice) === 7) out.push('upright');
     if (roots?.hook === 'fiddle' || roots?.answer === 'fiddle') out.push('fiddle');
     if (roots?.hook === 'twang') out.push('gtr', 'gtrsoft');
-    const v = p?.hook?.v === 'reed' ? SAX_HOOK[roots?.style ?? style] : p?.hook?.v, voice = Object.hasOwn(HOOK_BAND, v) && HOOK_BAND[v];
-    if (voice) out.push(voice, ...(TAKES[voice] ? [TAKES[voice]] : []));
+    const v = p?.hook?.v === 'reed' ? SAX_HOOK[roots?.style ?? style] : p?.hook?.v;
+    if (v === 'harmon' && hasRootsLead(roots)) continue;
+    const voice = Object.hasOwn(HOOK_BAND, v) && HOOK_BAND[v];
+    const recorded = p?.jazz || v === 'harmon' ? windBanks(v, p?.jazz?.style) : [];
+    if (recorded.length) out.push(...recorded);
+    else if (voice) out.push(voice, ...(TAKES[voice] ? [TAKES[voice]] : []));
   }
   // Country's lead is a Telecaster whatever plays the chords.
   if (pocketOf(st.master)?.walk && name !== 'gtr') out.push('gtr', 'gtrsoft');

@@ -8,10 +8,16 @@ import { getChops, setVoice, clearVoice, buildVoice } from './voice.js';
 import { KEYS, SCALES, CHORDS } from './params.js';
 import { generate, songFeel } from './state.js';
 import { track as trackEvent } from './analytics.js';
+import { loadSets } from './livekit.js';
+import { windBanks } from './jazz-winds.js';
+import { paletteFor } from './engine.js';
+import { jazzStyle } from './jazz.js';
+import { rootsFor, hasRootsLead } from './roots.js';
 
 const MAX_SEC = 8;
 const kk = (key) => (key > 6 ? key - 12 : key);
 const SHAPE = [0, 0, 1, 2, 2, 1, 2, 2];
+const melodyHooks = (patterns) => patterns.flatMap((p) => [p.hook, ...(p.at || []).map((t) => t.hook)]).filter(Boolean);
 
 export function micError(err) {
   const n = err?.name;
@@ -306,7 +312,7 @@ export function openVoice(api) {
     const hasHook = s.patterns.some((p) => p.hook);
     const use = h('button', { class: 'btn accent hum-primary', onclick: () => {
       if (!hasHook) { close(true); return openHum(api, { from: 'studio' }); }
-      api.edit((st) => st.patterns.forEach((p) => { if (p.hook) p.hook.v = 'chop'; }), 'VOICE on hook');
+      api.edit((st) => melodyHooks(st.patterns).forEach((hook) => { hook.v = 'chop'; }), 'VOICE on hook');
       trackEvent('voice_chops', { kind: 'use' });
       close(true);
       api.toast('Your voice sings the melody now');
@@ -316,7 +322,7 @@ export function openVoice(api) {
       h('p', { class: 'hum-lead' }, `${vc.chops.length} chops, tuned to ${KEYS[s.key]}. Tap to play.`),
       pads,
       h('div', { class: 'hum-actions' }, use, mic.el,
-        h('button', { class: 'btn ghost', onclick: () => { clearVoice(); api.edit((st) => st.patterns.forEach((p) => { if (p.hook?.v === 'chop') p.hook.v = 'warm'; }), 'REMOVE voice'); render(); } }, 'REMOVE')),
+        h('button', { class: 'btn ghost', onclick: () => { clearVoice(); api.edit((st) => melodyHooks(st.patterns).forEach((hook) => { if (hook.v === 'chop') hook.v = 'warm'; }), 'REMOVE voice'); render(); } }, 'REMOVE')),
       h('p', { class: 'hum-note' }, 'Stays on this device unless you publish a song that uses it.'));
   };
   render();
@@ -325,8 +331,15 @@ export function openVoice(api) {
 // Studio, CHORDS editor: where the song's melody (hook) comes from and which sound sings it.
 export function melodyPanel(api) {
   const s = api.state(), hk = s.patterns[s.current]?.hook;
-  const setVoice = (v) => api.edit((st) => st.patterns.forEach((p) => { if (p.hook) p.hook.v = v; }), 'HOOK sound');
+  const setVoice = (v) => {
+    if (melodyHooks(api.state().patterns).some((hook) => hook.v !== v)) {
+      api.edit((st) => melodyHooks(st.patterns).forEach((hook) => { hook.v = v; }), 'HOOK sound');
+    }
+    if (v === 'harmon') loadSets(windBanks(v)).catch(() => {});
+  };
   const mine = hk?.v === 'chop';
+  const style = s.artist?.style;
+  const harmon = style !== 'bailefunk' && style !== 'dub' && (jazzStyle(s) ?? style) !== 'minimal' && !paletteFor(s) && !s.patterns.some((p) => hasRootsLead(rootsFor(s, p)));
   const sound = { harpplk: 'HARP', oboe: 'OBOE', airflute: 'FLUTE' }[hk?.v] || 'SYNTH';
   return h('div', { class: 'melody-panel' },
     h('div', { class: 'glabel' }, 'MELODY'),
@@ -334,10 +347,13 @@ export function melodyPanel(api) {
     h('small', {}, mine ? (getChops() ? 'Sung with your voice' : 'Record your voice to hear it') : 'Hum your own and it plays here'),
     h('button', { class: 'btn accent', onclick: () => openHum(api, { from: 'studio' }) }, 'HUM A MELODY'),
     hk ? h('div', { class: 'voice-chips', role: 'radiogroup', 'aria-label': 'Melody sound' },
-      [[sound, false], ['MY VOICE', true]].map(([name, on]) => h('button', {
-        class: `vchip${on === mine ? ' on' : ''}`, role: 'radio', 'aria-checked': String(on === mine),
-        onclick: () => { if (on === mine) return; if (on && !getChops()) return openVoice(api); setVoice(on ? 'chop' : 'warm'); },
-      }, name))) : null,
+      [[sound, 'warm'], ...(harmon ? [['HARMON', 'harmon']] : []), ['MY VOICE', 'chop']].map(([name, voice]) => {
+        const on = voice === 'warm' ? !mine && (!harmon || hk.v !== 'harmon') : hk.v === voice;
+        return h('button', {
+          class: `vchip${on ? ' on' : ''}`, role: 'radio', 'aria-checked': String(on),
+          onclick: () => { if (voice === 'chop' && !getChops()) return openVoice(api); setVoice(on && voice === 'warm' && hk.v && hk.v !== 'harmon' ? hk.v : voice); },
+        }, name);
+      })) : null,
     h('button', { class: 'btn ghost', onclick: () => openVoice(api) }, getChops() ? 'MY VOICE CHOPS' : 'RECORD MY VOICE'));
 }
 

@@ -483,7 +483,11 @@ function needsTuning(replay808Style = engine?.replay808Style) {
   return setsReady(names) ? null : { load: () => loadSets(names), wait: 8000, label: 'SEATING THE BAND' };
 }
 function play(opts = {}) {
-  const need = playing || opts.delay != null || opts.startsAt != null || opts.stepWall != null ? null : needsTuning(opts.replay808Style);
+  const need = needsTuning(opts.replay808Style);
+  if (playing || opts.delay != null || opts.startsAt != null || opts.stepWall != null) {
+    need?.load().catch(() => {});
+    return start(opts);
+  }
   if (!need) return start(opts);
   ensureAudio(); stopPreview();
   clearTimeout(tuning?.timer);
@@ -514,6 +518,7 @@ function start({ step = 0, delay = 0.06, startsAt = null, stepWall = null, room 
   engine.replaySeed = replaySeed;
   if (switchAt === null && replay808Style != null) engine.applyAll();
   engine.prepareVocal();
+  engine.roomRecordings = room;
   engine.roomSlewRate = 1;
   engine.roomSlewProfile = null;
   engine.editableHits.length = 0;

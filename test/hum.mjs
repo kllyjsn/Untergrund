@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import './melody-sound.mjs';
 import { pitchTrack, segmentNotes, snapToScale, detectKey, quantize, hookFromNotes, analyzeHum, sliceChops, pickChop, tuneChops, noteLabel, tuningOffset, fillBars, fitProg, livePitch, prepareHum, hookFor } from '../js/hum.js';
 import { CHORDS } from '../js/params.js';
 
@@ -199,3 +200,5 @@ console.log('hum: ok');
   assert.equal(livePitch(new Float32Array(2048).map(() => (Math.random() * 2 - 1) * 0.05), SR), null, 'noise is not a note');
 }
 console.log('hum refine: ok');
+
+await import('./harmon-retry.mjs');
