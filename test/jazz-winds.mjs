@@ -93,6 +93,17 @@ const probe = (voice = 'tpt', velocity = .5, duration = .8, take = 0, missing, s
   const result = recordedJazzWind(e, 0, velocity * 1.3, midi, duration, voice, true, { take, style }, 2);
   return { result, calls, eq };
 };
+for (const velocity of [0, .3, .6, .9]) for (const duration of [.15, .8]) for (const take of [0, 1]) {
+  const reference = probe('tpt', velocity, duration, take, undefined, 'swing').calls[0];
+  const actual = probe('tpt', velocity, duration, take, undefined, 'jazzfunk').calls[0];
+  assert.equal(actual[2], reference[2] * 10 ** (2 / 20), 'Jazz-Funk alone lifts every recorded trumpet layer and articulation by 2 dB');
+  assert.deepEqual(actual.map((v, i) => i === 2 ? 0 : v), reference.map((v, i) => i === 2 ? 0 : v), 'bank, take, tuning, envelope and EQ stay unchanged');
+  for (const style of ['modal', undefined]) assert.deepEqual(probe('tpt', velocity, duration, take, undefined, style).calls[0], reference, 'other styles retain their gain');
+}
+for (const voice of ['harmon', 'airflute']) assert.deepEqual(probe(voice, .6, .8, 0, undefined, 'jazzfunk').calls, probe(voice, .6, .8, 0, undefined, 'swing').calls, 'the Jazz-Funk lift never affects another wind voice');
+const missingFunk = probe('tpt', .6, .8, 0, 'jtv1', 'jazzfunk');
+assert.equal(missingFunk.result, false);
+assert.deepEqual(missingFunk.calls, [], 'a failed Jazz-Funk bank retains the loading fallback');
 for (const [voice, velocity, duration, take, bank] of [
   ['tpt', .4, .8, 0, 'jtv1'], ['tpt', .9, .8, 0, 'jtv2'],
   ['tpt', .3, .15, 0, 'jts11'], ['tpt', .3, .15, 1, 'jts12'],
@@ -170,7 +181,8 @@ assert(!recordedJazzWind({ rec() {} }, 0, .5, 70, .2, 'reed', false, {}, 1), 'un
   for (const args of [[.9, 65, .8], [.4, 63, .8], [.4, 65, .15], [.4, 65, .8, 'harmon']]) {
     assert.equal(level('bossa', ...args), level('modal', ...args), 'other roots, layers and articulations retain their gain');
   }
-  for (const style of ['swing', 'jazzfunk', undefined]) assert.equal(level(style), level('modal'), 'the take correction is Bossa-only');
+  for (const style of ['swing', undefined]) assert.equal(level(style), level('modal'), 'the take correction is Bossa-only');
+  assert.equal(level('jazzfunk'), level('modal') * 10 ** (2 / 20), 'Jazz-Funk uses its separate whole-trumpet gain, not the Bossa take trim');
   assert.equal(level('bossa', .4, 65, .8, 'tpt', NaN), level('bossa'), 'invalid take indices keep the deterministic sustain fallback');
   assert(!probe('tpt', .4, .8, 0, 'jtv1', 'bossa', 65).result, 'missing sustain recordings still use the existing fallback');
 }

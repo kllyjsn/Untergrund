@@ -30,7 +30,7 @@ export function recordedJazzWind(e, t, v, midi, duration, voice, strong, { take 
   const distance = ([pitch]) => Math.abs((bossa ? Math.round(pitch) : pitch) - midi);
   const [center, buffer] = set.reduce((a, b) => distance(b) < distance(a) ? b : a);
   const rate = 2 ** ((midi - center) / 12);
-  const balance = style === 'bossa' ? 10 ** ((BOSSA_TRUMPET_LEVELS[bank]?.[Math.round(center)] ?? 0) / 20) : 1;
+  const balance = style === 'bossa' ? 10 ** ((BOSSA_TRUMPET_LEVELS[bank]?.[Math.round(center)] ?? 0) / 20) : style === 'jazzfunk' && voice === 'tpt' ? 10 ** (2 / 20) : 1;
   let out = e.trimOut(`hook-${voice}`, 1, e.hookBus || e.windDuck, -4, 500);
   if (bossa) out = e.bodyFor(e.bodyFor(out, [2950, .8, 6.2]), [780, 1.2, -2.5]);
   e.playBuf(buffer, t, (flute ? 1.02 : muted ? .48 : .4) * touch * mix * balance, out, rate, Math.max(.06, duration * .92), {
