@@ -144,6 +144,10 @@ const WIND_HOOK = {
 // Held alto notes sat dead straight, so their 8th-15th harmonics rang as fixed 2.5-3.1 kHz lines over the mix;
 // a player's 20-cent vibrato, leaned into after the attack, spreads them.
 const ALTO_VIB = 20;
+// Vibrato timing: shortest note that gets it, onset delay, and when it reaches full depth (cap, share of note).
+const VIB_ON = [0.2, 0.12, 0.45, 0.6];
+// The alto's quarter-note riff repeats are mostly shorter than VIB_ON's ramp, so its vibrato starts sooner.
+const ALTO_VIB_ON = [0.15, 0.06, 0.3, 0.5];
 // Notes the alto repeats or holds still stack their 4th-8th harmonics in 2.4-3.3 kHz, so each note dips
 // whichever of its own harmonics land there by 9 dB, leaving the rest of the horn's tone intact.
 const ALTO_RING = { lo: 2400, hi: 3300, q: 24, db: -9 };
@@ -1669,10 +1673,11 @@ export class Engine {
     }
     node.connect(g).connect(out);
     // A held lead note: vibrato that the player leans into after the pick attack.
-    if (fx.vib && dur > 0.2) {
+    const [vibMin, vibDelay, vibFull, vibShare] = fx.vibOn || VIB_ON;
+    if (fx.vib && dur > vibMin) {
       const lfo = this.ctx.createOscillator(), depth = this.gain(0);
       lfo.frequency.value = 5.2 + hash(t, 31) * 0.8;
-      depth.gain.setValueAtTime(0, t + 0.12); depth.gain.linearRampToValueAtTime(fx.vib, t + Math.min(0.45, dur * 0.6));
+      depth.gain.setValueAtTime(0, t + vibDelay); depth.gain.linearRampToValueAtTime(fx.vib, t + Math.min(vibFull, dur * vibShare));
       lfo.connect(depth).connect(s.detune); this.startSource(lfo, t); lfo.stop(t + dur + 0.5);
     }
     // Held orchestral notes outlast their recording: loop the sustained middle, after the attack.
@@ -3872,7 +3877,7 @@ export class Engine {
         lp: Math.min(styleFx.cap ?? Infinity, lp + 2100 * touch + 650 * (air - 0.5)), lpStages: styleFx.lpStages, offset: offset + tongue * 0.012,
         fade: (voice === 'tpt' ? 0.025 : strong ? 0.007 : 0.012) + 0.009 * (1 - tongue),
         attackGain: (strong ? 1.04 : 0.9) + (tongue - 0.5) * 0.24,
-        release: 0.055, ringOut: true, ...(voice === 'tpt' ? { vib: 6 } : voice === 'altosax' ? { vib: ALTO_VIB } : {}),
+        release: 0.055, ringOut: true, ...(voice === 'tpt' ? { vib: 6 } : voice === 'altosax' ? { vib: ALTO_VIB, vibOn: ALTO_VIB_ON } : {}),
       });
   }
 
