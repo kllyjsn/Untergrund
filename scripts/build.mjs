@@ -12,6 +12,7 @@ mkdirSync('dist');
 for (const path of ['index.html', 'embed.html', 'lab.html', 'ear.html', 'sc-callback.html', 'autopublish.html', 'stats.html', 'social-card.png', 'manifest.webmanifest', 'sw.js', 'icons', 'css', 'js', 'samples', 'data', 'legal', 'start']) {
   cpSync(path, `dist/${path}`, { recursive: true });
 }
+cpSync('developers', 'dist/developers', { recursive: true });
 
 // Service worker: precache every shell file and version the cache by their content, so each deploy that changes
 // the app ships a byte-different sw.js (browsers then install it and drop the previous shell cache).

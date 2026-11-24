@@ -163,3 +163,7 @@ Every published song gets a permanent page at `/t/<id>` that replays its stored 
 - Sign in with SoundCloud reuses the SoundCloud setup above.
 
 Locally, `server.mjs` uses an in-memory store saved to `.data/kv.json` and a generated dev secret, so everything works without env vars.
+
+## Developer API
+
+See the [developer quickstart](https://www.untergrund.sh/developers/) and [OpenAPI 3.1 specification](https://www.untergrund.sh/api/v1/openapi.json) for the read-only public release, creator, and live room API. No API key is required.

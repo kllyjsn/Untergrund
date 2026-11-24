@@ -1,4 +1,5 @@
 import { handlePage, renderMissing, SITE } from './_lib/pages.js';
+import { handlePublicApi } from './_lib/public-api.js';
 import { ogImage, artSeed } from './_lib/og.js';
 import { clubImage } from './_lib/og-club.js';
 import { redisKv } from './_lib/kv.js';
@@ -18,6 +19,14 @@ export default async function handler(req, res) {
   }
   const site = process.env.PUBLIC_SITE_URL || SITE;
   if (rooms === undefined) { const kv = roomsKv(); rooms = kv ? createRooms({ kv }) : null; }
+  if (req.query?.publicApi) {
+    const kv = redisKv();
+    const ip = String(req.headers['x-vercel-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
+    const r = await handlePublicApi({ method: req.method, route: req.query.publicApi, id: req.query.publicId, ip },
+      { kv, crate: redisStore(), rooms, roomsApiBase: process.env.ROOMS_API_URL, rateKv: kv, site });
+    for (const [name, value] of Object.entries(r.headers)) res.setHeader(name, value);
+    return r.status === 204 ? res.status(204).end() : res.status(r.status).json(r.json);
+  }
   try {
     const r = await handlePage(req.query || {}, { kv: redisKv(), crate: redisStore(), jukebox: redisJukebox(), site, og: { ogImage, artSeed, clubImage }, rooms });
     if (r.location) { res.setHeader('Location', r.location); return res.status(r.status).end(); }

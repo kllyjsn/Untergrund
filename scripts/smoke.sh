@@ -69,6 +69,13 @@ check 404 /research/no-such-post
 check 200 "/api/rooms/ci-smoke?since=0"
 check 404 /api/does-not-exist
 check 404 /api/tracks.js
+check 200 /developers/
+check 200 /api/v1/tracks
+check 404 /api/v1/tracks/missing-track
+check 404 /api/v1/artists/nobody-here
+check 200 /api/v1/rooms
+check 200 /api/v1/openapi.json
+check 404 /api/v1/does-not-exist
 
 if [ "$fail" != 0 ]; then echo "--- server log"; cat "$LOG"; exit 1; fi
 echo "smoke test passed"

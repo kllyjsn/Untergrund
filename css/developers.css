@@ -1,0 +1,9 @@
+.dev-docs { max-width: 900px; color: #c8c8d0; font: 500 16px/1.65 var(--sans); }
+.dev-docs header { padding: 20px 0 36px; }
+.dev-docs header .pp-make { display: inline-block; }
+.dev-docs section { padding: 22px 0; border-top: 1px solid var(--hair); }
+.dev-docs h2 { margin: 0 0 10px; color: var(--text); font: 700 26px var(--sans); }
+.dev-docs code { color: #ededf3; font: 500 13px/1.6 var(--mono); }
+.dev-docs pre { overflow: auto; padding: 14px 16px; background: var(--well); border: 1px solid var(--hair); border-radius: var(--r2); }
+.dev-docs dt { margin-top: 9px; }
+.dev-docs dd { margin-left: 0; }
