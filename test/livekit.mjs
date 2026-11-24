@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { VOWEL_BAND, VOWEL_TUNE } from '../js/vowels.js';
 import { LIVE_FILES, BAND_FILES, KIT_EXTRA, HAND_FILES, BAND, TAKES, MUTE_LAYER, SOFT_LAYER, withTakes, liveSets, BAND_LAYER, playsAnalogBass } from '../js/livekit.js';
 import { generate } from '../js/state.js';
 import { Engine } from '../js/engine.js';
@@ -14,6 +16,24 @@ assert.deepEqual(files.sort(), ALL.map((f) => `${f}.flac`).sort(), 'every bundle
 const prefixes = new Set(files.map((f) => f.split('_')[0]));
 for (const p of prefixes) assert.ok(license.includes(`\`${p}_`), `${p}_* files have a license entry`);
 assert.ok(license.includes('CC0 1.0 Universal'));
+const manifest = JSON.parse(readFileSync(new URL('../scripts/vocal-samples.json', import.meta.url)));
+const provenance = JSON.parse(readFileSync(new URL('../samples/vocal-provenance.json', import.meta.url)));
+assert.deepEqual(manifest.map((v) => v.id), [763909, 763911, 763893]);
+for (const entry of manifest) {
+  const name = `vox_${entry.vowel}`, file = `${name}_${entry.midi}.flac`;
+  assert.deepEqual(BAND[name], VOWEL_BAND[name]);
+  assert(license.includes(`\`${file}\``) && license.includes(entry.source_url));
+  assert.equal(entry.license, 'https://creativecommons.org/publicdomain/zero/1.0/');
+  assert.equal(entry.download_url, `https://freesound.org/apiv2/sounds/${entry.id}/download/`);
+  assert.match(entry.source_sha256, /^[a-f0-9]{64}$/);
+  const report = provenance.find((p) => p.file === file);
+  assert.equal(report.source_sha256, entry.source_sha256);
+  assert.equal(report.sha256, createHash('sha256').update(readFileSync(new URL(file, dir))).digest('hex'));
+  assert(Math.abs(report.after.cents) < 5);
+  assert(Math.abs(VOWEL_TUNE[name][entry.midi] - report.after.cents) < 0.001);
+  assert(Math.max(Math.abs(report.stability.min_cents), Math.abs(report.stability.max_cents)) < 5);
+  assert(report.before.fundamental_over_suboctave_db > 6 && report.before.partial_levels[2] > report.before.partial_levels[0] * 0.05);
+}
 assert.ok(!/^\| `[^|]*\.wav`/m.test(license), 'license manifest lists the bundled .flac names');
 // A take alternates note-for-note with the recording it doubles (js/engine.js recordedNote picks by index).
 for (const [k, alt] of Object.entries(TAKES)) assert.deepEqual(BAND[alt], BAND[k], `${alt} covers the notes of ${k}`);
@@ -75,7 +95,7 @@ for (const recorded of [true, false]) {
     const engine = {
       state: { params: { acid: { voice: 1, cutoff: 500, decay: 0.5, envmod: 0 }, stab: { voice, level } }, mutes, solos },
       playbackStyle: 'gfunk', ch: { acid: { input: ctx.destination } },
-      rec: () => [[36, {}]], bassMidi: () => 36, monoNote: (t, f) => f,
+      rec: () => [[36, {}]], bassMidi: () => 36, monoNote: (t, f) => f, analogBassOut() { return this.ch.acid.input; },
       playBuf: (buf, t, v) => { volume = v; return { g: ctx.createGain() }; },
     };
     Engine.prototype.analogBass.call(engine, 0, {}, 0.1, false, false);
@@ -95,7 +115,7 @@ for (const recorded of [true, false]) {
     const engine = {
       state: { params: { acid: { voice, cutoff: 485, decay: 0.2, envmod: 0.36 }, stab: { voice: organ ? 3 : 1 } } },
       playbackStyle: style, ch: { acid: { input: ctx.destination } },
-      rec: () => [[36, {}]], bassMidi: () => 36, monoNote: (t, f) => f,
+      rec: () => [[36, {}]], bassMidi: () => 36, monoNote: (t, f) => f, analogBassOut() { return this.ch.acid.input; },
       playBuf: (buf, t, level, out, rate, len, fx) => {
         const g = ctx.createGain(); g.gain.value = level;
         g.gain.setValueAtTime(level, t + len);
@@ -111,6 +131,7 @@ for (const recorded of [true, false]) {
     assert.equal(n.fx.hpQ, -3.01);
     assert.equal(n.fx.hpStages, 4);
     assert.equal(n.fx.hp, 35);
+    assert.ok(Math.abs(n.level - 0.8 * 4.4 * (voice === 1 ? 3.35 : 3.4)) < 1e-12, 'G-Funk keeps its calibrated SH-2 gain');
     assert.ok(Math.abs(n.len - sd * 1.3) < 1e-12);
     assert.ok(n.amp.at(0.1) < n.amp.at(0.015), 'the recorded bass decays during its body instead of holding full gain');
     assert.ok(n.amp.at(n.len + 0.15) < n.level * 0.01, 'release clears space before the next kick');
@@ -119,6 +140,8 @@ for (const recorded of [true, false]) {
     assert.equal(note({ voice, approach: true }).len, sd * 0.9, 'approach notes clear the downbeat');
   }
   const organ = note({ organ: true }), uk = note({ style: 'ukg', voice: 3 });
+  assert.ok(Math.abs(organ.level - 0.8 * 4.4 * 1.27) < 1e-12, 'the organ ensemble keeps its calibrated bass gain');
+  assert.equal(uk.level, 0.8 * 4.4, 'UKG recorded bass keeps its gain');
   assert.ok(organ.len < note().len && organ.fx.release < note().fx.release, 'the held organ ensemble leaves a shorter bass pocket');
   assert.equal(uk.len, sd * 2.2); assert.equal(uk.fx.release, 0.04);
   assert.equal(uk.fx.hp, undefined); assert.equal(uk.amp.at(0.1), uk.level, 'UKG keeps its existing recorded hold');
@@ -132,12 +155,27 @@ for (const recorded of [true, false]) {
     assert.equal(filters.length, 4);
     assert.ok(filters.every(f => f.Q.value === (hpQ ?? 0.7)), 'each stage receives the selected Q without changing other recorded voices');
   }
+  console.log('G-Funk SH-2 gain: both voices and organ ensemble retain calibrated levels; UKG unchanged');
   console.log('G-Funk SH-2: flat HP stages, decaying body, kick-clearing release, held/approach notes and unchanged UKG passed');
 }
 for (const style of ['gfunk', 'ukg', 'rock', undefined]) {
   const engine = { playbackStyle: style, recorded: (kind, fallback) => [kind, fallback], synthOrgan: () => 'synth' };
   assert.deepEqual(Engine.prototype.organ.call(engine), ['gfunk', 'ukg'].includes(style) ? ['org', 'synthOrgan'] : 'synth');
 }
+for (const style of ['gfunk', 'ukg', 'rock', undefined]) {
+  for (const kind of ['org', 'str']) {
+    let fx;
+    const engine = {
+      playbackStyle: style, state: {}, ch: { stab: { input: {}, band: {} } },
+      rec: () => null,
+      playBuf: (...args) => { fx = args.at(-1); },
+    };
+    Engine.prototype.recordedNote.call(engine, [[60, {}]], 0, 1, 60, 0.5, {}, 0, kind);
+    assert.equal(fx.hp, kind === 'org' && style === 'gfunk' ? 110 : 0, 'only G-Funk recorded organ loses its kick-band lows');
+    assert.equal(fx.hpQ, -3.01, 'organ low-cut is non-resonant');
+  }
+}
+console.log('Recorded organ low-cut: 110 Hz non-resonant HPF isolated to G-Funk organ');
 assert.ok(!liveSets({ ...ukg, params: { ...ukg.params, acid: { ...ukg.params.acid, voice: 1 } } }).includes('abass'), 'UK Garage keeps its synth BASS voice');
 const other = { ...ukg, artist: { style: 'reggaeton' } };
 assert.ok(!liveSets(other).includes('org') && !liveSets(other).includes('abass'), 'other styles keep the synth organ and Reese');

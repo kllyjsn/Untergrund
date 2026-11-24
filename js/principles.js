@@ -27,8 +27,8 @@ export const PRINCIPLES = [
     refs: ['witek2014', 'matthews2019', 'janata2012'], measure: 'audio-benchmark arrangement checks; proposed syncopation index' },
   { id: 'groove.systematic-feel', area: 'groove', rule: 'Feel comes from systematic, idiomatic timing (swing, laid-back parts), not random jitter.',
     refs: ['senn2016', 'davies2013', 'madison2006'], measure: 'style swing table', experiment: 'deephouse-swing' },
-  { id: 'emotion.peak-last', area: 'emotion', rule: 'The biggest moment comes last: entries, a register rise and a loudness rise after an expected arrival.',
-    refs: ['sloboda1991', 'grewe2007', 'guhn2007', 'salimpoor2011'], measure: 'test/longform.mjs P4; audio-benchmark section LUFS' },
+  { id: 'emotion.peak-last', area: 'emotion', rule: 'The biggest moment comes last: entries, a register rise and a loudness rise after an expected arrival. Every song with a feeling gives its final chorus or drop a chill device no earlier chorus has, chosen from the feeling (feel.js peak): a suspension on the peak note resolving down a step, a new voice entering, a one-bar dropout then the full return, or the key lift.',
+    refs: ['sloboda1991', 'grewe2007', 'guhn2007', 'salimpoor2011'], measure: 'test/longform.mjs P4 and P8; composition.mjs --peaks; audio-benchmark section LUFS' },
   { id: 'emotion.coherent-cues', area: 'emotion', rule: 'A feeling is carried by many cues at once (tempo, mode, register, loudness range, articulation, contrast); they communicate it when they agree.',
     refs: ['juslinlaukka2003', 'scherer2015', 'friberg2006'], measure: 'composition feelFit (scripts/composition.mjs feelCues)', experiment: 'folk-feel-cues' },
   { id: 'vocal.singable', area: 'vocal', rule: 'Lines are written for a body: 3-4 bar phrases with breath, a peak inside the phrase, mostly steps, and expressive cues (tempo, level, timbre) that agree with the intended emotion.',
@@ -95,7 +95,8 @@ export const PROPOSED = [
 ];
 
 // The feel-coherent variant: tempo placed in the style range, the feeling's mode, and the melody's note lengths and
-// soft/loud range set from FEELS[song.feel]. Notes, rhythm and form are unchanged. No feeling, no change.
+// soft/loud range set from FEELS[song.feel], each section keeping its average level. Notes, rhythm and form are
+// unchanged. No feeling, no change.
 function feelCuesOn(song, style) {
   const f = FEELS[song.feel], range = STYLES[style]?.bpm;
   if (!f || !range) return;
@@ -107,11 +108,14 @@ function feelCuesOn(song, style) {
     const on = xs.filter(Array.isArray), vs = on.map((x) => x[vel]).sort((a, b) => a - b);
     const lo = vs[Math.round(0.1 * (vs.length - 1))], hi = vs[Math.round(0.9 * (vs.length - 1))];
     const next = (x) => Math.min(...on.map((y) => y[0]).filter((t) => t > x[0]));
+    const squeeze = (v) => hi - ((hi - v) * (1 - ratio) * hi) / (hi - lo), mean = (f) => on.reduce((a, x) => a + f(x[vel]), 0) / (on.length || 1);
+    // Keep the section's average level, so the verse/chorus contrast stays its own cue.
+    const shift = hi > lo ? mean((v) => v) - mean(squeeze) : 0;
     return xs.map((x) => {
       if (!Array.isArray(x)) return x;
       const gap = next(x) - x[0], y = [...x];
       if (gap < 16) y[1] = Math.max(1, Math.min(gap, Math.round(f.mel.legato * gap)));
-      if (hi > lo) y[vel] = +Math.max(0, Math.min(1, hi - ((hi - x[vel]) * (1 - ratio) * hi) / (hi - lo))).toFixed(3);
+      if (hi > lo) y[vel] = +Math.max(0, Math.min(1, squeeze(x[vel]) + shift)).toFixed(3);
       return y;
     });
   };

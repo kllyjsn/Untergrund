@@ -12,6 +12,7 @@ import { capture, songBars, parseKeyName, PARTS } from './midi.js';
 import { PIECE } from './repertoire.js';
 import { ZipWriter } from './zip.js';
 import { vocalStem, VOCAL_DUCK_DB } from './sing.js';
+import { AUDIO_CONNECT, AUDIO_ROUTE } from './audio-sums.js';
 
 export const STEM_NAMES = {
   kick: 'kick', clap: 'clap', snare: 'snare', ch: 'hats', oh: 'open-hat', ride: 'ride', perc: 'perc',
@@ -38,10 +39,11 @@ export function stemList(state, loopBars = 16) {
 // Re-routes everything that would reach engine.mix / engine.duck / engine.preMaster into per-stem sums on its own channel pair.
 // prebus: no stems, just the mix bus straight out (the reference the stems sum to).
 export function router(want, { prebus = false } = {}) {
-  const proto = AudioNode.prototype, orig = proto.connect;
+  const proto = AudioNode.prototype;
+  let orig = proto.connect, contextual = false;
   let ctx = null, E = null, part = null;
   const conns = [], sums = {}, clones = {}, owner = new Map();
-  const restore = () => { if (proto.connect !== orig) proto.connect = orig; };
+  const restore = () => { if (contextual) delete ctx[AUDIO_ROUTE]; else if (proto.connect !== orig) proto.connect = orig; };
   const route = (src, dst) => {
     if (src === E.duck) return dst;
     const stem = part || owner.get(src) || 'fx', sum = sums[stem];
@@ -59,13 +61,16 @@ export function router(want, { prebus = false } = {}) {
     restore,
     onContext(c) {
       ctx = c;
-      proto.connect = function (dst, ...a) {
+      contextual = !!ctx[AUDIO_CONNECT];
+      if (contextual) orig = ctx[AUDIO_CONNECT];
+      const connect = function (dst, ...a) {
         if (this.context === ctx) {
           if (E && !prebus && (dst === E.mix || dst === E.duck || dst === E.preMaster)) return route(this, dst);
           if (!E) conns.push([this, dst]);
         }
         return orig.call(this, dst, ...a);
       };
+      if (contextual) ctx[AUDIO_ROUTE] = connect; else proto.connect = connect;
     },
     onEngine(engine) {
       E = engine;
@@ -189,22 +194,17 @@ Each instrument stem is dry plus its own channel processing; reverb, delay, room
 arrangement FX (risers, impacts, vinyl dust) are in the fx-returns stem. Recorded live-kit pieces are
 in the stem of the drum they play (kick.wav holds the recorded kick when the live kit is on).
 Notes come in a separate EXPORT MIDI file from the same FILE menu.
-${r.stems.some((x) => x.id === 'sung') ? `The other stems are printed without the ${VOCAL_DUCK_DB.toFixed(1)} dB dip the band takes while the sung vocal sings: duck them under sung-vocal.wav to rebuild the mix.\n` : ''}${(r.trims || []).map((x) => `${x.name}.wav is printed ${(-x.db).toFixed(1)} dB under its mix level so it does not clip: raise it ${(-x.db).toFixed(1)} dB to rebuild the mix.\n`).join('')}
+${r.stems.some((x) => x.id === 'sung') ? `The other stems are printed without the ${VOCAL_DUCK_DB.toFixed(1)} dB dip the band takes while the sung vocal sings: duck them under sung-vocal.wav to rebuild the mix.\n` : ''}${r.gain < 1 ? `Every stem is printed ${(-20 * Math.log10(r.gain)).toFixed(2)} dB (gain ${r.gain.toFixed(6)}) under its mix level so the loudest does not clip: raise all of them by that same amount to rebuild the mix.\n` : ''}
 ${r.stems.map((x, i) => `${String(i + 1).padStart(2, '0')}-${x.name}.wav`).join('\n')}
 `;
 
-// A stem can peak above full scale at mix level (the singer, a hot recorded bass) and would clip in a fixed-point WAV:
-// print it just under full scale and say in the README how far to raise it.
+// A stem over full scale would clip in the WAV. Print every stem by one common gain, so the loudest sits just under full
+// scale and the stems still sum to the mix in a DAW; the README gives that exact gain.
 export function fitStems(r) {
-  r.trims = [];
-  for (const x of r.stems) {
-    let peak = 0;
-    for (const c of [x.left, x.right]) for (const v of c) peak = Math.max(peak, Math.abs(v));
-    if (peak <= 0.99) continue;
-    const g = 0.99 / peak;
-    for (const c of [x.left, x.right]) for (let i = 0; i < c.length; i++) c[i] *= g;
-    r.trims.push({ id: x.id, name: x.name, db: 20 * Math.log10(g) });
-  }
+  let peak = 0;
+  for (const x of r.stems) for (const c of [x.left, x.right]) for (const v of c) peak = Math.max(peak, Math.abs(v));
+  r.gain = peak > 0.99 ? 0.99 / peak : 1;
+  if (r.gain < 1) for (const x of r.stems) for (const c of [x.left, x.right]) for (let i = 0; i < c.length; i++) c[i] *= r.gain;
   return r;
 }
 

@@ -394,5 +394,10 @@ console.log('arrangement dynamics passed');
   assert([1, 2, 3, 4, 5, 6, 7, 8].some((seed) => names('rnb', seed).some((n) => /MIN9|MAJ9|DOM7|MIN7|MAJ7/.test(n))), 'r&b uses extended chords');
   assert([1, 2, 3, 4, 5, 6, 7, 8].some((seed) => gen('country', seed).pattern.prog.map((h) => h.r).join() === '0,5,0,7'), 'country has I-IV-I-V');
   assert([1, 2, 3, 4, 5, 6, 7, 8].some((seed) => gen('pop', seed).pattern.prog.map((h) => h.r).join() === '0,7,9,5'), 'pop has I-V-vi-IV');
-  console.log('song genres (pop, r&b, rock, folk, country) passed');
+console.log('song genres (pop, r&b, rock, folk, country) passed');
+
+for (let seed = 1; seed <= 16; seed++) {
+  const { stab } = generate('folk', seed).pattern.steps;
+  assert.deepEqual(stab.flatMap((hit, i) => hit ? [i] : []), [0, 4, 6, 10, 12, 14], `folk/${seed} strums stay on the written eighth-note grid`);
+}
 }
