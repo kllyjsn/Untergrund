@@ -167,7 +167,7 @@ export function scoreSong(s, o = {}) {
     const bar = Math.floor(L.step / 16), B = perBar[bar];
     if (!B) continue;
     if (L.harm) { harms.add(`${L.harm.r}:${L.harm.c}`); B.chords.add(`${L.harm.r}:${L.harm.c}`); B.root ??= L.harm.r; }
-    if (L.k === 'hook' && L.a[9]?.counter) continue;
+    if (L.k === 'hook' && (L.a[9]?.counter || L.a[9]?.fill)) continue;
     if (L.k === 'hook') {
       // A suspension's resolution (Engine.suspend) sounds `res` steps after the step that played it; it ornaments
       // one written note (`to`), so the motif is read as written.

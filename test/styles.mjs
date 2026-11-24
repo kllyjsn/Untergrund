@@ -318,6 +318,50 @@ console.log('arrangement dynamics passed');
   assert.deepEqual(guitarHand('gtr', 'R&B', false), { play: 'chop', double: false, fx: 'chorus' }, 'R&B guitar chops through a chorus pedal');
   assert(guitarHand('drive', 'ROCK', false).double && !guitarHand('gtr', 'POP', false).double && guitarHand('gtr', 'POP', true).double, 'rock and pop choruses double-track');
   assert.equal(guitarHand('gretsch', 'COUNTRY', false).fx, 'trem', 'twang guitar plays through amp tremolo');
+  assert.equal(guitarHand('agtr', 'COUNTRY', false).play, 'boom', 'country acoustic plays boom-chick');
+  {
+    const out = {}, combo = {}, slap = {}, genericAmp = {};
+    const sets = { tele: [{}], hca: [{}], gtr: [{}] };
+    const e = {
+      state: { key: 0, scale: 'major', params: { stab: { voice: 11 } }, artist: { style: 'country' } },
+      playingPattern: { roots: { style: 'country', hook: 'twang' } },
+      playbackStyle: 'country', hookBus: out, ch: { stab: { input: {} } },
+      rec: (kind) => sets[kind],
+      teleFor: (dest) => { assert.equal(dest, out); return combo; },
+      slapFor: (dest) => { assert.equal(dest, sets.tele ? combo : out); return slap; },
+      ampFor: (dest) => { assert.equal(dest, out); return genericAmp; },
+      recordedNote: (set, t, gain, pitch, dur, dest, bright, preset) => [Object.keys(sets).find((name) => sets[name] === set), preset, dest],
+    };
+    const play = (expression) => Engine.prototype.hook.call(e, 1, .6, 0, .5, 'warm', 0, false, 1, false, expression);
+    assert.deepEqual(play(), ['tele', 'tele', slap]);
+    assert.deepEqual(play({ harp: true }), ['hca', 'hca', out]);
+    delete sets.tele;
+    assert.deepEqual(play(), ['gtr', 'twang', slap]);
+    e.state.artist.style = e.playbackStyle = 'rock';
+    e.playingPattern = {};
+    assert.deepEqual(play(), ['gtr', 'lead', genericAmp]);
+  }
+  {
+    // Country lead bends land exactly on the note, start from a scale tone, and only on notes long enough to hear it land.
+    const { teleBend, bendCurve, BEND_HOLD, BEND_RISE, HARP_RUNS } = await import('../js/engine.js');
+    const { SCALES } = await import('../js/params.js');
+    for (const st of [1, 2]) {
+      const c = bendCurve(st);
+      assert.equal(c[0], -100 * st); assert.equal(c[c.length - 1], 0, 'a bend lands on the note');
+      for (let i = 1; i < c.length; i++) assert(c[i] >= c[i - 1], 'a bend only rises');
+    }
+    assert(BEND_HOLD + BEND_RISE <= 0.16, 'a bend lands within 160 ms');
+    for (const [name, sc] of Object.entries(SCALES)) for (let k = 0; k < 12; k++) for (let m = 52; m <= 74; m++) {
+      const inKey = (x) => sc.notes.includes((((x - 60 - k) % 12) + 12) % 12);
+      for (const r of [0, 0.2, 0.39, 0.5, 0.9]) for (const dur of [0.2, 0.45, 0.5, 1.2]) {
+        const b = teleBend(m, dur, true, inKey, r);
+        if (dur < 0.5 || r >= 0.4) assert.equal(b, 0, 'short or unlucky notes are not bent');
+        if (b) assert(inKey(m - b), `${name} bend starts on a scale tone`);
+      }
+      assert.equal(teleBend(m, 1.2, false, inKey, 0), 0, 'weak beats are not bent');
+      for (const L of HARP_RUNS) for (const [, d] of L) assert.ok([0, 2, 4, 7, 9, 12].includes(d), `country fill note ${d} is off the major pentatonic`);
+    }
+  }
   assert.equal(guitarHand('piano', 'POP', true).play, 'strum');
   console.log('guitar hands passed');
 }

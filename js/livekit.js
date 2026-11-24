@@ -70,6 +70,9 @@ export const BAND = {
   agtr: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
   nylon: [40, 45, 48, 52, 55, 59, 64, 67, 69],
   ebass: [28, 31, 34, 37, 40, 43, 46, 49, 52, 55],
+  // COUNTRY: a Fender clean off the bridge pickup for the lead, and a diatonic harmonica in C for the answers.
+  tele: [52, 55, 59, 61, 64, 67, 71, 72, 74, 77, 80, 82, 85],
+  hca: [48, 52, 55, 60, 64, 67, 72, 76, 79, 84],
   // More guitars: the archtop's magnetic pickup (JAZZ GTR), the SX guitar banjo, the green Gretsch (TWANG GTR).
   jazz: [40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72],
   banjo: [40, 42, 45, 49, 51, 54, 57, 60, 63, 68, 71],
@@ -88,7 +91,7 @@ const JAZZ_TUNE = { 42: -7, 48: -10, 51: -3, 57: -3, 63: -3, 66: 4, 69: -3, 72: 
 const GRETSCH_TUNE = { 42: 19, 48: 6, 51: 5, 54: 5, 57: 10, 60: 7, 63: 6, 66: 4, 69: 2 };
 // The guitar banjo was tuned up a little under a quarter tone.
 const BANJO_TUNE = { 40: 41, 42: 41, 45: 48, 49: 39, 51: 43, 54: 34, 57: 13, 60: 30, 63: 41, 68: 23, 71: 10 };
-const BAND_TUNE = { ...VOWEL_TUNE, abass: { 36: -8.6, 39: -5.1, 42: -6.2, 45: -6.7, 48: -5.8, 51: -6.6, 54: -6.3, 57: -7.1, 60: -8 }, nylon: { 40: -6.7, 45: 2.3, 48: -2.9, 52: -9.6, 55: 10.4, 59: -3.6, 64: -19.7, 67: -11.6, 69: -17 }, jazz: JAZZ_TUNE, jazzb: JAZZ_TUNE, gretsch: GRETSCH_TUNE, gretschb: GRETSCH_TUNE, banjo: BANJO_TUNE, gtr: GTR_TUNE, gtrsoft: GTR_TUNE, gtrb: GTR_TUNE, gtrsoftb: GTR_TUNE, gtrmute: MUTE_TUNE, gtrmuteb: MUTE_TUNE_B };
+const BAND_TUNE = { ...VOWEL_TUNE, tele: { 55: -8 }, hca: { 48: -8 }, abass: { 36: -8.6, 39: -5.1, 42: -6.2, 45: -6.7, 48: -5.8, 51: -6.6, 54: -6.3, 57: -7.1, 60: -8 }, nylon: { 40: -6.7, 45: 2.3, 48: -2.9, 52: -9.6, 55: 10.4, 59: -3.6, 64: -19.7, 67: -11.6, 69: -17 }, jazz: JAZZ_TUNE, jazzb: JAZZ_TUNE, gretsch: GRETSCH_TUNE, gretschb: GRETSCH_TUNE, banjo: BANJO_TUNE, gtr: GTR_TUNE, gtrsoft: GTR_TUNE, gtrb: GTR_TUNE, gtrsoftb: GTR_TUNE, gtrmute: MUTE_TUNE, gtrmuteb: MUTE_TUNE_B };
 BAND_TUNE.rhodes = { 28: 0.23, 31: 2.49, 34: 3.23, 37: 2.93, 40: 2.83, 43: 2.51, 46: 0.44, 49: 1.39, 52: -1.24, 55: 1.37, 58: -2.82, 61: 1.67, 64: 5.15, 86: -0.63, 89: -0.72, 93: -6.84, 96: -4.38, 100: 7.88 };
 Object.assign(BAND_TUNE, {
   juno: { 48: 1.3, 52: 1.7, 56: 2.1, 60: 1.7, 64: 2.9, 68: 2.5, 72: 2.2, 76: 2.4, 80: 2.7, 84: 2 },
@@ -187,15 +190,16 @@ export const liveKit = () => buffers;
 
 // The recordings a song plays: 'kit' (drums + upright bass, for LIVE and HYBRID kits) and the chord instrument.
 // A band's second layer by section (Engine.bandLayer), on the recorded orchestra: vc cello, vla viola, vln1 violins,
-// pno the concert grand. Loudness of the part is v.
+// pno the concert grand, egtr a second electric (the Gretsch) chopping the backbeat. Loudness of the part is v. Country
+// opens its chorus up with that second guitar, never a piano or a string pad.
 export const BAND_LAYER = {
   pop: { pre: { parts: ['vc'], v: 0.5 }, chorus: { parts: ['vln1', 'vla', 'vc'], v: 0.55 }, bridge: { parts: ['vla', 'vc'], v: 0.5 } },
   rnb: { chorus: { parts: ['vln1', 'vla'], v: 0.45 }, bridge: { parts: ['vln1', 'vla', 'vc'], v: 0.45 } },
   rock: { chorus: { parts: ['org'], v: 0.6 }, bridge: { parts: ['vla', 'vc'], v: 0.5 } },
   folk: { pre: { parts: ['vc'], v: 0.45 }, chorus: { parts: ['vc', 'vla'], v: 0.5 }, bridge: { parts: ['vln1', 'vla', 'vc'], v: 0.45 } },
-  country: { pre: { parts: ['pno'], v: 0.62 }, chorus: { parts: ['pno', 'vla'], v: 0.62 }, bridge: { parts: ['vln1', 'vla'], v: 0.45 } },
+  country: { chorus: { parts: ['egtr'], v: 0.5 } },
 };
-const LAYER_SETS = { vc: ['cello'], vla: ['cello', 'str'], vln1: ['str'], pno: ['pianoext', 'piano', 'pianoextsoft', 'pianosoft'], org: ['org'] };
+const LAYER_SETS = { vc: ['cello'], vla: ['cello', 'str'], vln1: ['str'], pno: ['pianoext', 'piano', 'pianoextsoft', 'pianosoft'], egtr: ['gretsch', 'gretschb'], org: ['org'] };
 const layerSets = (style) => [...new Set(Object.values(BAND_LAYER[style] || {}).flatMap((x) => x.parts.flatMap((p) => LAYER_SETS[p])))];
 export function liveSets(st, style = st?.artist?.style) {
   const mode = Math.round(st?.master?.kit || 0), fullKit = mode === 1 || mode === 2;
@@ -219,12 +223,13 @@ export function liveSets(st, style = st?.artist?.style) {
     const roots = rootsFor(st, p);
     if (roots?.chord === 'upright' && Math.round(st?.params?.stab?.voice) === 7) out.push('upright');
     if (roots?.hook === 'fiddle' || roots?.answer === 'fiddle') out.push('fiddle');
-    if (roots?.hook === 'twang') out.push('gtr', 'gtrsoft');
+    // The engine plays a 'twang' lead on the Telecaster with harmonica answers, falling back to the Gretsch.
+    if (roots?.hook === 'twang') out.push('tele', 'hca', 'gtr', 'gtrsoft');
     const v = p?.hook?.v === 'reed' ? SAX_HOOK[roots?.style ?? style] : p?.hook?.v, voice = Object.hasOwn(HOOK_BAND, v) && HOOK_BAND[v];
     if (voice) out.push(voice, ...(TAKES[voice] ? [TAKES[voice]] : []));
   }
   // Country's lead is a Telecaster whatever plays the chords.
-  if (pocketOf(st.master)?.walk && name !== 'gtr') out.push('gtr', 'gtrsoft');
+  if (pocketOf(st.master)?.walk) out.push('tele', 'hca', 'gtr', 'gtrsoft');
   if (fullKit && pocketOf(st.master)?.band) out.push(...layerSets(style));
   // The final chorus's entering voice (Engine.peakVoice) is the recorded violins.
   if (st?.patterns?.some((p) => p?.at?.some((v) => v.peak === 'entry'))) out.push(...LAYER_SETS.vln1);

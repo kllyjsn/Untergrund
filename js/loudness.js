@@ -108,7 +108,7 @@ export const MAKEUP_DB = {
   ukg: 1.6, euphoric: 0.7, neosoul: 5.8, boombap: 3.7, breaks: 3.15, electro: 1.7, dnb: 1.75, trance: 1.4,
   ambient: 2.4, amapiano: 1.5, afrobeats: 0.8, reggaeton: 1.8, bailefunk: 2.5, trap: 1.4, drill: 3.3,
   jerseyclub: 1.5, hyperpop: 0.5, symphony: 6.5, concerto: 5.3, nocturne: 11.9, repertoire: 3.6,
-  pop: 3.2, rnb: 4.4, rock: 2.8, folk: 3.9, country: 1.6,
+  pop: 3.2, rnb: 4.4, rock: 2.8, folk: 3.9, country: 0.5,
   lofihiphop: 4.6, gfunk: 3.4, phonk: 3.7, electrohiphop: 3.65,
 };
 // REPERTOIRE masterworks differ from one another by several LU: a per-score trim (dB) on top of the style's make-up
