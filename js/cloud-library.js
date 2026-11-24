@@ -1,13 +1,23 @@
 import { getAccount, onAccount } from './account.js';
 import { libraryTracks, recentTracks, saveLocalTrack, saveTrack } from './crate.js';
+import { sanitize } from './state.js';
+import { songFingerprint } from './listen.js';
 
 const deviceKey = (id) => `untergrund.library.pending.v1.${id}`;
+const cacheKey = (id) => `untergrund.library.cache.v1.${id}`;
+export const newLibraryId = () => `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 const readPending = (id) => {
   try { const rows = JSON.parse(localStorage.getItem(deviceKey(id))); return Array.isArray(rows) ? rows : []; } catch { return []; }
 };
 const writePending = (id, rows) => {
   try { localStorage.setItem(deviceKey(id), JSON.stringify(rows)); return true; } catch { return false; }
 };
+function readCache(owner) {
+  try { const rows = JSON.parse(localStorage.getItem(cacheKey(owner)) || '[]'); return Array.isArray(rows) ? rows : []; } catch { return []; }
+}
+function writeCache(owner, rows) {
+  try { localStorage.setItem(cacheKey(owner), JSON.stringify(rows.slice(0, 8))); } catch {}
+}
 const full = 'Your cloud Library is full (100 songs). Remove a song to sync more.';
 const tooLarge = 'This song is too large to sync (200 KB limit).';
 const MAX_UPLOAD_BYTES = 200_000;
@@ -27,11 +37,19 @@ async function api(account, body, id) {
 }
 
 export function createCloudLibrary({ get = getAccount, subscribe = onAccount, device = libraryTracks, deviceRecent = recentTracks, request = api,
-  read = readPending, write = writePending, savePublic = saveTrack, saveLocal = saveLocalTrack, change = () => {} } = {}) {
+  read = readPending, write = writePending, readSaved = readCache, writeSaved = writeCache,
+  savePublic = saveTrack, saveLocal = saveLocalTrack, change = () => {} } = {}) {
   let account = '', epoch = 0, work = Promise.resolve(), syncing = null;
   let cloud = new Map(), removed = new Set(), notice = '';
   const connected = () => !!account;
   const alive = (id, version) => id === account && version === epoch;
+  const forget = (owner, id) => writeSaved(owner, readSaved(owner).filter((row) => row.id !== id));
+  function cache(owner, id, project) {
+    const rows = readSaved(owner), previous = rows.find((row) => row.id === id);
+    if (!previous || (previous.updatedAt || 0) <= (project.updatedAt || 0)) {
+      writeSaved(owner, [{ id, ...project }, ...rows.filter((row) => row.id !== id)]);
+    }
+  }
 
   function tracks() {
     if (!account) return device();
@@ -41,7 +59,7 @@ export function createCloudLibrary({ get = getAccount, subscribe = onAccount, de
     }
     for (const row of read(account)) if (!removed.has(row.id)) {
       const saved = rows.get(row.id);
-      if (!saved?.cloud || row.updatedAt > saved.updatedAt) rows.set(row.id, { ...saved, ...row });
+      if (!saved?.cloud || row.updatedAt > saved.updatedAt) rows.set(row.id, { ...saved, ...row, pending: true });
     }
     return [...rows.values()].filter((row) => !removed.has(row.id))
       .sort((a, b) => String(b.created).localeCompare(String(a.created)));
@@ -58,7 +76,12 @@ export function createCloudLibrary({ get = getAccount, subscribe = onAccount, de
     const { id: trackId, title, artist, style, created, state, updatedAt, action = 'save' } = row;
     const body = { action, id: trackId, title, artist, style, created, state, updatedAt };
     if (new TextEncoder().encode(JSON.stringify(body)).length > MAX_UPLOAD_BYTES) throw new Error('too_large');
-    return (await request(id, body)).item;
+    const { item } = await request(id, body);
+    const playable = sanitize(state);
+    if (action === 'save' ? item.fps.includes(songFingerprint(playable)) : item.updatedAt === updatedAt) {
+      cache(id, trackId, { state: playable, updatedAt: item.updatedAt, item });
+    }
+    return item;
   }
 
   function sync() {
@@ -121,18 +144,20 @@ export function createCloudLibrary({ get = getAccount, subscribe = onAccount, de
     return sync();
   }
 
-  async function saveGenerated(track) {
+  async function saveGenerated(track, trackId = newLibraryId(), onPrivate = () => {}) {
     const info = await get(true);
     setAccount(info);
     if (!account) return info.unavailable ? saveLocal(track) : savePublic(track);
-    const row = { ...track, id: `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
-      bpm: track.state.bpm, created: new Date().toISOString() };
+    const row = { ...track, id: trackId, updatedAt: Date.now(), bpm: track.state.bpm, created: new Date().toISOString() };
+    const owner = account;
     const pending = read(account);
     const kept = pending.length < 30 && write(account, [...pending, row]);
+    onPrivate(owner);
     const result = await run(async (id, version) => {
       try {
-        const item = await upload(id, row);
-        write(id, read(id).filter((r) => r.id !== row.id));
+        const current = read(id).find((r) => r.id === trackId) || row;
+        const item = await upload(id, current);
+        write(id, read(id).filter((r) => r.id !== trackId || r.updatedAt !== current.updatedAt));
         if (alive(id, version)) cloud.set(row.id, { ...item, cloud: true });
         return { private: true, synced: true, item, owner: id };
       } catch (err) {
@@ -144,29 +169,55 @@ export function createCloudLibrary({ get = getAccount, subscribe = onAccount, de
     return result || { private: true, synced: false, kept };
   }
 
-  async function load(id, fallback) {
+  async function load(id) {
     const owner = account, version = epoch;
     if (!owner) throw new Error('sign_in_required');
     const pending = read(owner).find((row) => row.id === id);
+    const cached = readSaved(owner).find((row) => row.id === id);
+    if (removed.has(id)) throw new Error('track_missing');
     let project;
-    try { project = await request(owner, null, id); }
+    try {
+      project = await request(owner, null, id);
+      if (alive(owner, version)) cache(owner, id, { ...project, item: cloud.get(id) || cached?.item });
+    }
     catch (err) {
-      if (['track_missing', 'account_changed', 'sign_in_required'].includes(err.message) || !(pending?.state || fallback)) throw err;
-      project = { state: pending?.state || fallback, updatedAt: pending?.updatedAt };
+      if (['account_changed', 'sign_in_required'].includes(err.message) ||
+        err.message === 'track_missing' && (!pending || pending.action === 'update')) throw err;
+      const latest = cloud.get(id)?.updatedAt || 0;
+      if (pending && pending.updatedAt >= latest) project = pending;
+      else if (cached && (cached.updatedAt || 0) >= latest) project = cached;
+      else throw err;
     }
     if (!alive(owner, version)) throw new Error('account_changed');
     if (pending?.updatedAt > (project.updatedAt || 0)) project = pending;
     return { state: project.state, updatedAt: project.updatedAt || 0, owner };
   }
 
-  function update(owner, id, state, updatedAt) {
+  function stageEdit(owner, id, state, updatedAt, saved) {
+    const pending = read(owner), queued = pending.find((row) => row.id === id);
+    if (queued && queued.updatedAt > updatedAt) return;
+    const cached = readSaved(owner).find((row) => row.id === id)?.item;
+    const row = saved || queued || cached || { id, title: state.artist?.title, artist: state.artist?.name, style: state.artist?.style };
+    const action = !saved && queued && queued.action !== 'update' ? 'save' : 'update';
+    const edit = { ...row, action, state, bpm: state.bpm, updatedAt };
+    const remaining = pending.filter((row) => row.id !== id);
+    return { edit, kept: remaining.length < 30 && write(owner, [...remaining, edit]) };
+  }
+
+  async function update(owner, id, state, updatedAt) {
+    if (!account) {
+      const info = await get();
+      setAccount(info);
+      if (!account && info.unavailable) {
+        stageEdit(owner, id, state, updatedAt);
+        return;
+      }
+    }
     if (owner !== account || removed.has(id)) return;
-    const row = cloud.get(id);
-    if (!row) return;
-    const pending = read(owner).filter((r) => r.id !== id);
-    const edit = { ...row, action: 'update', state, updatedAt };
-    const kept = pending.length < 30 && write(owner, [...pending, edit]);
     return run(async (idOwner, version) => {
+      const staged = stageEdit(owner, id, state, updatedAt, cloud.get(id));
+      if (!staged) return;
+      const { edit, kept } = staged;
       try {
         const item = await upload(idOwner, edit);
         write(idOwner, read(idOwner).filter((r) => r.id !== id || r.updatedAt !== updatedAt));
@@ -182,6 +233,7 @@ export function createCloudLibrary({ get = getAccount, subscribe = onAccount, de
       await request(owner, { action: 'delete', id });
       if (!alive(owner, version)) return false;
       cloud.delete(id); removed.add(id);
+      forget(owner, id);
       write(owner, read(owner).filter((row) => row.id !== id));
       change();
       return true;

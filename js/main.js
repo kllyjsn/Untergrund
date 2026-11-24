@@ -22,7 +22,7 @@ import { radioOn, setRadio, nextUp } from './radio.js';
 import { FEELS, FEEL_IDS, isFeel } from './feel.js';
 import { createMiniPlayer } from './mini-player.js';
 import { openLibrary } from './library.js';
-import { createCloudLibrary } from './cloud-library.js';
+import { createCloudLibrary, newLibraryId } from './cloud-library.js';
 import { dropCard, pushOffer, guardPushOffer } from './drop.js';
 import { initPush, onPushChange, recordDropPlay, shouldOffer } from './push.js';
 import { getSample, prepareSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
@@ -52,7 +52,8 @@ import { createNowPlaying, resumeStep, songClock } from './media-session.js';
 import { drawArtwork, artSeed } from './artwork.js';
 import { applyPart } from './jam.js';
 
-let state = (() => { const s = load(); return s?.fresh === 1 ? refreshSong(s) : s || defaultState(); })();
+const savedProject = load(true);
+let state = savedProject?.state?.fresh === 1 ? refreshSong(savedProject.state) : savedProject?.state || defaultState();
 let ctx = null, engine = null, seq = null, timer = null, setRec = null, roomOutput = null;
 const heldPads = new Map(), keyPads = new Set();
 // A held pad releases wherever the finger lifts, even if the pad was re-rendered mid-hold
@@ -120,19 +121,45 @@ let songOrigin = { src: 'restored' }, pendingPrompt = null;
 // The Library list being played through ({ items, i }); GENERATE ends it.
 let queue = null;
 const projectKey = ({ current, fresh, ...project }) => JSON.stringify(project);
+const projectRefs = new Map();
+const libraryRef = (ref) => ref && { id: ref.id, owner: ref.owner, updatedAt: ref.updatedAt };
+function bindLibrary(ref, song = state) {
+  if (!ref || typeof ref.id !== 'string') return;
+  const binding = projectRefs.get(ref.id) || { ...ref };
+  if (ref.owner) binding.owner = ref.owner;
+  binding.updatedAt = Math.max(binding.updatedAt || 0, ref.updatedAt || 0);
+  binding.key = projectKey(song);
+  projectRefs.set(ref.id, binding);
+  if (projectRefs.size > 100) projectRefs.delete(projectRefs.keys().next().value);
+  return binding;
+}
+songOrigin.library = bindLibrary(savedProject?.libraryRef);
+function saveStudio() {
+  if (guest) return;
+  const ref = libraryRef(songOrigin.library);
+  save(ref?.owner ? { ...state, libraryRef: ref } : state);
+}
+function scheduleLibraryUpdate(project) {
+  if (!project.owner || !project.draft) return;
+  clearTimeout(project.timer);
+  project.timer = setTimeout(() => {
+    const { draft, owner, id, updatedAt } = project;
+    project.draft = null;
+    cloudLibrary.update(owner, id, draft, updatedAt);
+  }, 500);
+}
 function persist() {
   if (guest) return;
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => save(state), 300);
+  saveTimer = setTimeout(saveStudio, 300);
   const project = songOrigin.library;
   if (!project) return;
   const key = projectKey(state);
   if (key === project.key) return;
   project.key = key;
   project.updatedAt = Math.max(Date.now(), project.updatedAt + 1);
-  const snapshot = { ...clone(state), fresh: 0 };
-  clearTimeout(project.timer);
-  project.timer = setTimeout(() => cloudLibrary.update(project.owner, project.id, snapshot, project.updatedAt), 500);
+  project.draft = { ...clone(state), fresh: 0 };
+  scheduleLibraryUpdate(project);
 }
 
 // ---------------- audio ----------------
@@ -885,6 +912,8 @@ function setMaster(id, v) {
 
 // Undo / redo. `label` names the edit for the toast ("Undone: CLEAR pattern B").
 function snapshot(like = {}) {
+  const ref = libraryRef(songOrigin.library);
+  if (ref) return JSON.stringify({ ...state, libraryRef: ref, ui: { style, family } });
   const { patterns, params, master, bpm, swing, key, scale, mutes, solos, locks, chain, chainOn } = state;
   const snap = { patterns, params, master, bpm, swing, key, scale, mutes, solos, locks, chain, chainOn, chainEntries: state.chainEntries ?? null, labels: state.labels || null, lyrics: state.lyrics || null, sing: state.sing || null, feel: state.feel || null };
   if ('artist' in like) snap.artist = state.artist ?? null;
@@ -905,8 +934,10 @@ function pushUndo(label = '') {
 }
 function restore(entry, verb) {
   knobGesture.reset();
-  const { ui: was, ...snap } = JSON.parse(entry.snap);
+  const { ui: was, libraryRef: ref, ...snap } = JSON.parse(entry.snap);
+  const previous = songOrigin.library;
   if (was) { style = was.style; family = was.family; localStorage.setItem('untergrund.family', family); }
+  if (ref) for (const k of Object.keys(state)) if (!(k in snap)) delete state[k];
   Object.assign(state, snap);
   if (!state.chainEntries) delete state.chainEntries;
   touched();
@@ -914,6 +945,7 @@ function restore(entry, verb) {
   if (!state.lyrics) delete state.lyrics;
   if (!state.sing) delete state.sing;
   if (!state.feel) delete state.feel;
+  if (ref?.id !== previous?.id) songOrigin = { src: 'restored', library: bindLibrary(ref) };
   engine?.applyAll(); engine?.applyDelayTime();
   build(); persist(); toast(entry.label ? `${verb}: ${entry.label}` : verb);
 }
@@ -977,8 +1009,8 @@ function showShare(song = currentSong(), source = 'studio') { sharing = { song, 
 // Play a shared or jukebox song in place; leaveGuest() puts the listener's own project back.
 function listen(song, src = 'shared', via = '') {
   ensureAudio();
+  if (!guest) guest = { backup: clone(state), style, origin: songOrigin };
   songOrigin = { src, tid: song.trackId || '', ...(via ? { via } : {}) };
-  if (!guest) guest = { backup: clone(state), style };
   guest.song = song;
   if (STYLES[song.style]) style = song.style;
   stop('skip'); autoMajor = false;
@@ -1020,20 +1052,21 @@ function openLanding(load, src = 'shared', via = '') {
 }
 function leaveGuest() {
   if (!guest) return;
-  const { backup, style: own } = guest;
+  const { backup, style: own, origin } = guest;
   guest = null;
   style = own;
-  songOrigin = { src: 'restored' };
-  replaceState(backup);
+  songOrigin = origin;
+  replaceState(backup, undefined, origin.library);
 }
 function remixSong(song, autoplay = playing) {
   const next = remixState(song, { name: loadArtistProfile().name });
   if (!next) return toast('Could not open that song');
   listens.act('keep', listenPos());
-  songOrigin = { src: 'remix', tid: song.trackId || '' };
   const own = guest ? guest.backup : clone(state);
+  const ref = libraryRef((guest?.origin || songOrigin).library);
+  songOrigin = { src: 'remix', tid: song.trackId || '' };
   guest = null;
-  history.push(JSON.stringify({ patterns: own.patterns, params: own.params, master: own.master, bpm: own.bpm }), 'REMIX');
+  history.push(JSON.stringify(ref ? { ...own, libraryRef: ref } : { patterns: own.patterns, params: own.params, master: own.master, bpm: own.bpm }), 'REMIX');
   if (STYLES[song.style]) { style = song.style; family = STYLES[style].family; }
   replaceState(next);
   if (!studioOpen) toggleStudio();
@@ -1107,7 +1140,7 @@ function timelineHooks(asGuest, replayStats = null, switchAt = null) {
   return {
     load: (s, st) => {
       replaySeed = Number.isFinite(s.seed) ? s.seed : undefined;
-      if (asGuest && !guest) guest = { backup: clone(state), style };
+      if (asGuest && !guest) guest = { backup: clone(state), style, origin: songOrigin };
       songOrigin = { src: asGuest ? 'jukebox' : 'room' };
       if (STYLES[st]) replay808Style = style = st;
       const next = sanitize({ ...s, artist: state.artist });
@@ -1528,12 +1561,15 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
       if (!landed) toast(piece ? `${piece.composer.split(' ').pop()}: ${title}` : `New ${STYLES[id].name} track “${title}”`);
       // The drop itself is everyone's; only a published version joins today's remixes.
       const { drop: _d, remixOf: _r, ...own } = clone(state);
-      const source = songOrigin, generated = drop ? own : clone(state), key = projectKey(state);
-      cloudLibrary.saveGenerated({ title, artist, style: id, state: generated }).then((saved) => {
-        if (saved?.private && saved.synced && songOrigin === source) {
-          source.library = { id: saved.item.id, owner: saved.owner, updatedAt: saved.item.updatedAt, key };
-          persist();
-        }
+      const source = songOrigin, generated = drop ? own : clone(state);
+      const project = source.library = bindLibrary({ id: newLibraryId() });
+      cloudLibrary.saveGenerated({ title, artist, style: id, state: generated }, project.id, (owner) => {
+        project.owner = owner;
+        scheduleLibraryUpdate(project);
+        if (songOrigin === source) saveStudio();
+      }).then((saved) => {
+        if (saved?.synced) project.updatedAt = Math.max(project.updatedAt, (saved.item.updatedAt || 0) + (project.draft ? 1 : 0));
+        if (!saved?.private && source.library === project) delete source.library;
         if (saved?.message) return toast(saved.message);
         if (!saved || saved.private && !saved.synced && !saved.kept) return toast('Could not save that song to your Library');
         toast(`“${title}” saved to ${saved.private ? (saved.synced ? 'your cloud Library' : 'this device') : (saved.shared ? 'the shared CRATE' : 'your CRATE')}`);
@@ -1896,14 +1932,14 @@ function surprise() {
 async function openRecent(t, stillNext) {
   ensureAudio();
   try {
-    const project = t.cloud ? await cloudLibrary.load(t.id, t.state) : null;
+    const project = t.cloud || t.pending ? await cloudLibrary.load(t.id) : null;
     const track = project ? { ...t, state: project.state } : t.state ? t : await fetchTrack(t.id);
     if (stillNext && !stillNext()) return false;
     if (!track?.state) throw new Error('track_missing');
     const saved = track.style || t.style;
     if (STYLES[saved]) { style = saved; family = STYLES[saved].family; }
     const next = refreshSong(sanitize(track.state)), origin = { src: 'crate', tid: String(t.id || '').startsWith('local-') ? '' : t.id || '' };
-    if (project) origin.library = { id: t.id, owner: project.owner, updatedAt: project.updatedAt, key: projectKey(next) };
+    if (project) origin.library = bindLibrary({ id: t.id, owner: project.owner, updatedAt: project.updatedAt }, next);
     if (playing && !pat().score && !next.patterns.some((q) => q.score)) queueSong({ next, origin, finish: () => { build(); persist(); } });
     else {
       songOrigin = origin;
@@ -3006,7 +3042,7 @@ window.addEventListener('keyup', (e) => {
 
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) roomLifecycleAt = performance.now() / 1000;
-  if (!guest) save(state);
+  saveStudio();
   // Going to the lock screen or another app: queue extra audio before timers slow down.
   if (playing && document.hidden) schedule(BG_LEAD);
 });

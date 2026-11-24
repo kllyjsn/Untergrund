@@ -9,7 +9,12 @@ import { createHistory, gesture, LIMIT } from '../js/undo.js';
   const restore = source.slice(source.indexOf('function restore('), source.indexOf('const peekSnap'));
   const state = { chain: 'CCCC', chainEntries: [{ p: 2, sec: 0, id: 0 }, { p: 2, sec: 0, id: 1 }, { p: 2, sec: 1, id: 2 }, { p: 2, sec: 1, id: 3 }] };
   const noop = () => {};
-  const api = runInNewContext(`${snapshot}\n${restore}\n({ snapshot, restore })`, { state, knobGesture: { reset: noop }, touched: noop, engine: null, build: noop, persist: noop, toast: noop });
+  const helpers = source.slice(source.indexOf('const projectKey'), source.indexOf('function saveStudio'));
+  const store = { setItem: noop };
+  const api = runInNewContext(`let style = 'acid', family = 'TECHNO', songOrigin = {};
+    ${helpers}\n${snapshot}\n${restore}\n
+    ({ snapshot, restore, bind: (ref) => { songOrigin.library = bindLibrary(ref); }, ref: () => libraryRef(songOrigin.library) })`,
+  { state, savedProject: null, localStorage: store, knobGesture: { reset: noop }, touched: noop, engine: null, build: noop, persist: noop, toast: noop });
   const before = api.snapshot(), h = createHistory();
   h.push(before);
   state.chain = 'CCCCC'; state.chainEntries.splice(1, 0, { p: 2, sec: 0, id: 4 });
@@ -28,6 +33,40 @@ import { createHistory, gesture, LIMIT } from '../js/undo.js';
   delete state.chainEntries;
   api.restore({ snap: empty }, 'Undone');
   assert.equal(JSON.stringify(state.chainEntries), '[]', 'empty tagged arrangements survive undo');
+  api.bind({ id: 'song-one', owner: 'alice', updatedAt: 1 });
+  state.bpm = 117; state.artist = { title: 'First' };
+  const first = api.snapshot();
+  api.bind({ id: 'song-two', owner: 'alice', updatedAt: 2 });
+  state.bpm = 131; state.artist = { title: 'Second' };
+  const second = api.snapshot();
+  h.push(first, 'GENERATE');
+  api.restore(h.undo(second), 'Undone');
+  assert.equal(api.ref().id, 'song-one', 'undoing generation restores the first Library link');
+  assert.equal(state.bpm, 117);
+  assert.equal(state.artist.title, 'First');
+  api.restore(h.redo(api.snapshot()), 'Redone');
+  assert.equal(api.ref().id, 'song-two', 'redo restores the second Library link');
+  assert.equal(state.bpm, 131);
+  assert.equal(state.artist.title, 'Second');
+}
+
+{
+  const source = readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
+  const listen = source.slice(source.indexOf('function listen(song'), source.indexOf('// Shelf plays'));
+  const leave = source.slice(source.indexOf('function leaveGuest'), source.indexOf('function remixSong'));
+  const noop = () => {};
+  const restored = runInNewContext(`
+    let state = { bpm: 120 }, style = 'acid', guest = null, autoMajor = false, played;
+    let songOrigin = { src: 'crate', library: { id: 'own-song', owner: 'alice' } };
+    function replaceState(state, outcome, ref) { played = { bpm: state.bpm, id: ref.id }; }
+    ${listen}\n${leave}
+    listen({ state: { bpm: 150 }, style: 'acid' });
+    listen({ state: { bpm: 160 }, style: 'acid' });
+    leaveGuest();
+    JSON.stringify(played)
+  `, { ensureAudio: noop, clone: structuredClone, sanitize: structuredClone, STYLES: { acid: {} },
+    stop: noop, playbackSources: new WeakMap(), engine: null, build: noop, play: noop });
+  assert.deepEqual(JSON.parse(restored), { bpm: 120, id: 'own-song' }, 'guest playback restores the original Library identity');
 }
 
 // Undo, then redo, walks back and forward through the same states with their labels.

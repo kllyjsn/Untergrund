@@ -10,7 +10,7 @@ import { memoryKv } from '../api/_lib/kv.js';
 import { memoryStore } from '../api/_lib/crate.js';
 import { libraryScripts, LIBRARY_LIMIT, LIBRARY_BODY_BYTES } from '../api/_lib/library.js';
 import { createCloudLibrary } from '../js/cloud-library.js';
-import { defaultState, sanitize } from '../js/state.js';
+import { defaultState, load, sanitize, save } from '../js/state.js';
 import { songFingerprint } from '../js/listen.js';
 
 const kv = memoryKv({ scripts: libraryScripts }), crate = memoryStore(), secret = 'cloud-test'.repeat(5);
@@ -76,7 +76,7 @@ assert.equal(await kv.cmd(['HLEN', 'untergrund:library:{fill}:meta']), LIBRARY_L
 console.log('private Library API passed: signed-in access, CSRF, isolated state, atomic limit and deletion');
 
 let active = { account: null }, cached = active, update, cookie = alice, offline = false, publicSaves = 0, localSaves = 0;
-const browser = [{ ...draft, id: 'local-browser-song' }], pending = new Map();
+const browser = [{ ...draft, id: 'local-browser-song' }], pending = new Map(), savedCopies = new Map();
 const cloud = createCloudLibrary({
   get: async (force) => force ? active : cached, subscribe: (cb) => { update = (info) => { cached = info; cb(info); }; }, device: () => browser,
   request: async (owner, body, id) => {
@@ -86,6 +86,7 @@ const cloud = createCloudLibrary({
     return r.json;
   },
   read: (id) => pending.get(id) || [], write: (id, rows) => { pending.set(id, rows); return true; },
+  readSaved: (id) => savedCopies.get(id) || [], writeSaved: (id, rows) => { savedCopies.set(id, rows); },
   savePublic: () => ++publicSaves,
   saveLocal: () => ++localSaves,
 });
@@ -100,19 +101,37 @@ assert.deepEqual((await call(alice, 'alice')).json.items.map((t) => t.id), [brow
 const original = await cloud.load(browser[0].id);
 assert.deepEqual(original.state, (await call(alice, 'alice', null, browser[0].id)).json.state);
 await cloud.update('alice', browser[0].id, { ...original.state, bpm: 147 }, original.updatedAt + 1);
-assert.equal((await cloud.load(browser[0].id, original.state)).state.bpm, 147, 'opening an existing local song fetches the newer cloud edit');
+assert.equal((await cloud.load(browser[0].id)).state.bpm, 147, 'opening an existing local song fetches the newer cloud edit');
 assert.equal(cloud.tracks().find((t) => t.id === browser[0].id).bpm, 147, 'cloud metadata takes precedence over the original local copy');
 offline = true;
+assert.equal((await cloud.load(browser[0].id)).state.bpm, 147, 'offline playback uses the synced edit, not the original browser copy');
 await cloud.update('alice', browser[0].id, { ...original.state, bpm: 151 }, original.updatedAt + 2);
-assert.equal((await cloud.load(browser[0].id, original.state)).state.bpm, 151, 'an offline edit takes priority on this device');
-const localSave = await cloud.saveGenerated(draft);
+assert.equal((await cloud.load(browser[0].id)).state.bpm, 151, 'an offline edit takes priority on this device');
+let bound;
+const pendingId = 'local-offline-new';
+const localSave = await cloud.saveGenerated(draft, pendingId, (id) => { bound = id; });
 assert.equal(localSave.synced, false);
 assert.equal(localSave.kept, true);
+assert.equal(bound, 'alice', 'a pending save binds to Studio before the upload result');
+await cloud.update(bound, pendingId, { ...draft.state, bpm: 154 }, Date.now() + 2);
+assert.equal((await cloud.load(pendingId)).state.bpm, 154);
 assert.equal(pending.get('alice').length, 2);
 offline = false;
 await cloud.refresh();
 assert.equal(pending.get('alice').length, 0);
 assert.equal((await call(alice, 'alice', null, browser[0].id)).json.state.bpm, 151, 'the edit syncs when back online');
+assert.equal((await call(alice, 'alice', null, pendingId)).json.state.bpm, 154, 'first upload uses the edited pending state');
+const reloaded = createCloudLibrary({
+  get: async () => ({ unavailable: true }), subscribe: () => {}, device: () => [],
+  read: (id) => pending.get(id) || [], write: (id, rows) => { pending.set(id, rows); return true; },
+  readSaved: (id) => savedCopies.get(id) || [], writeSaved: (id, rows) => { savedCopies.set(id, rows); },
+  request: async () => assert.fail('an offline reload must not upload until the account is verified'),
+});
+await reloaded.update('alice', pendingId, { ...draft.state, bpm: 155 }, Date.now() + 10);
+assert.equal(pending.get('alice')[0].state.bpm, 155, 'edits after an offline reload remain attached to the private song');
+assert.deepEqual(reloaded.recent(), [], 'offline reload does not reveal private recents without an account');
+await cloud.refresh();
+assert.equal((await call(alice, 'alice', null, pendingId)).json.state.bpm, 155);
 assert.equal(cloud.tracks().length, 2);
 assert.equal(publicSaves, 1, 'signed-in generation never goes through the public crate');
 assert.equal(await cloud.remove(browser[0].id), true);
@@ -156,6 +175,20 @@ const oversizedSong = createCloudLibrary({
 const tooBig = await oversizedSong.saveGenerated({ ...draft, state: { ...draft.state, extra: 'ü'.repeat(100_000) } });
 assert.equal(tooBig.message, 'This song is too large to sync (200 KB limit). It stays on this device.');
 const previousFetch = globalThis.fetch, previousListener = globalThis.addEventListener;
+const previousStorage = globalThis.localStorage;
+try {
+  const store = new Map();
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: (key) => store.get(key), setItem: (key, value) => store.set(key, value) } });
+  const libraryRef = { id: 'local-studio-song', owner: 'alice', updatedAt: 100 };
+  save({ ...draft.state, libraryRef });
+  assert.deepEqual(load(true).libraryRef, libraryRef, 'Studio reload preserves the Library identity');
+  assert.equal(load().libraryRef, undefined, 'Library ownership is not part of the playable or exported project');
+  save(draft.state);
+  assert.equal(load(true).libraryRef, undefined, 'an unrelated project clears the saved identity');
+} finally {
+  if (previousStorage === undefined) delete globalThis.localStorage;
+  else Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: previousStorage });
+}
 try {
   let notifyStorage, resolveAccount;
   globalThis.addEventListener = (name, fn) => { if (name === 'storage') notifyStorage = fn; };
