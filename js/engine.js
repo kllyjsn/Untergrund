@@ -93,7 +93,7 @@ const paletteRegister = (pitch, color) => {
 };
 export const paletteHookPitch = (state, pitch, voice, style) => {
   const color = paletteFor(state, style)?.hook;
-  return !color || voice === 'chop' && getChops() ? pitch : paletteRegister(pitch, color);
+  return !color || voice === 'deepkeys' || voice === 'chop' && getChops() ? pitch : paletteRegister(pitch, color);
 };
 // Chords sit under a sung line the way a mix rides the keys under a vocal: a little in the chorus, more in the verse
 // and most in the breakdown, so the drop still lands over it. Songs with sections already set the verse level.
@@ -4078,8 +4078,10 @@ export class Engine {
     if (voice === 'phonkbell') return this.phonkBell(t, v, midiHz(60 + k + oct * 12 + n), dur, strong);
     if (this.playbackStyle === 'bailefunk') return this.funkStab(t, v * 0.7, [n], 60 + k + oct * 12, dur, this.hookBus || this.ch.stab.input);
     if (voice === 'deepkeys') {
-      const set = this.rec('piano'), m = 60 + k + oct * 12 + n, out = this.trimOut('hook-deepkeys', 3, this.hookBus || this.ch.stab.input, -7, 600);
-      if (set) return this.recordedNote(set, t, v * DEEP_KEYS_GAIN, m, Math.max(0.3, dur * 1.6), out, 0, 'piano', v);
+      const set = this.rec('piano'), m = 60 + k + oct * 12 + n, out = this.trimOut('hook-deepkeys', 3, this.hookBus || this.ch.stab.input, -10, 600);
+      // The piano samples are mono: upmix here so the CHORDS panner treats them the same whether or not chords are playing.
+      out.channelCount = 2; out.channelCountMode = 'explicit';
+      if (set) return this.recordedNote(set, t, v * DEEP_KEYS_GAIN, m, Math.max(0.3, Math.min(dur * 1.6, dur + this.stepDur * 1.5)), out, 0, 'piano', v);
       loadBand('piano');
       return this.keys(t, v * 0.5, [n], 60 + k + oct * 12, { ...p, decay: Math.max(0.2, dur) }, out);
     }
