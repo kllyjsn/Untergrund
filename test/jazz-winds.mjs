@@ -94,12 +94,15 @@ const probe = (voice = 'tpt', velocity = .5, duration = .8, take = 0, missing, s
   const result = recordedJazzWind(e, 0, velocity * 1.3, midi, duration, voice, true, { take, style }, 2);
   return { result, calls, eq };
 };
-const withoutTone = (call) => call.map((v, i) => i === 2 ? 0 : i === 6 ? (({ shelves, fade, ...fx }) => fx)(v) : v);
+const withoutTone = (call) => call.map((v, i) => i === 2 ? 0 : i === 6 ? (({ shelves, fade, offset, attackGain, ...fx }) => fx)(v) : v);
 for (const velocity of [0, .3, .6, .9]) for (const duration of [.15, .8]) for (const take of [0, 1]) {
   const reference = probe('tpt', velocity, duration, take, undefined, 'swing').calls[0];
   const actual = probe('tpt', velocity, duration, take, undefined, 'jazzfunk').calls[0];
   assert.equal(actual[2], reference[2] * 10 ** (2 / 20), 'Jazz-Funk alone lifts every recorded trumpet layer and articulation by 2 dB');
-  assert.deepEqual(withoutTone(actual), withoutTone(reference), 'style voicing preserves bank, take, tuning, source notches, attack gain, release and tail');
+  assert.deepEqual(withoutTone(actual), withoutTone(reference), 'style voicing preserves bank, take, tuning, source notches, release and tail');
+  assert.equal(actual[6].attackGain, 1);
+  assert.equal(actual[6].offset, .02);
+  assert.equal(actual[6].fade, .004);
   for (const style of ['modal', undefined]) {
     const other = probe('tpt', velocity, duration, take, undefined, style).calls[0];
     assert.equal(other[2], reference[2], 'other styles retain their gain');
@@ -113,37 +116,57 @@ assert.deepEqual(missingFunk.calls, [], 'a failed Jazz-Funk bank retains the loa
 assert.deepEqual(missingFunk.eq, [], 'missing recordings never create tone nodes');
 const tones = {
   swing: { body: [[1800, 1.2, 4.3], [2050, 4, -8.4], [2800, 4, -6.87], [3600, 1.4, -.68]], shelves: [[2600, -11.31], [5000, -13.8]] },
-  modal: { body: [[1800, 1.2, -.46], [2050, 4, -16.17], [2300, 1.4, 16], [2800, 4, 11.23], [3600, 1.4, -16.37]], shelves: [[2600, -3.09], [5000, -21.81]] },
+  modal: { body: [[1800, 1.2, -.46], [2050, 4, -16.17], [2300, 1.4, 16], [2800, 4, 11.23], [3600, 1.4, -16.37]], shelves: [[2600, -3.09], [5000, -19.72]] },
   bossa: { body: [[1800, 1.2, 3.83], [2050, 4, -15.02], [2300, 1.4, 2.18], [2800, 4, 5.13], [3600, 1.4, -4.13]], shelves: [[2600, -10.71], [5000, -15.58]] },
   flute: { body: [[2050, 4, 1.35], [2300, 1.4, -.53], [2800, 4, 1.16], [3600, 1.4, 3.25]], shelves: [[2600, -1.39], [5000, -3.8]] },
-  jazzfunk: { body: [[1800, 1.2, -2.97], [2050, 4, -7.34], [2300, 1.4, 13.69], [2800, 4, -7.78], [3600, 1.4, -11.3]], shelves: [[2600, -9.17], [5000, -28.25]] },
+  jazzfunk: { body: [[2300, 1.4, -.4], [2800, 2, -2.17], [3600, 1.4, -.17], [1800, 1.2, 1.13], [2300, 1.4, .15], [3600, 1.4, .02]], shelves: [[2600, -16.28], [5000, -7.38]] },
 };
 for (const [key, expected] of Object.entries(tones)) for (const short of [false, true]) {
   const style = key === 'flute' ? 'bossa' : key, voice = key === 'flute' ? 'airflute' : 'tpt';
-  const body = [...expected.body, ...(style === 'jazzfunk' ? [[2000, .9, short ? -3 : 1], [1200, .9, -1.64], [1800, 1.2, 3.21], [2300, 1.4, -1.31], [2800, 4, -3.99], [3600, 1.4, -2.5]] : [])];
-  assert.deepEqual(windTone(style, voice, short), { body, shelves: expected.shelves, fade: voice === 'airflute' ? .012 : .028 });
+  const body = expected.body, envelope = style === 'jazzfunk' ? { fade: .004, offset: .02, attackGain: 1 } : { fade: voice === 'airflute' ? .012 : .028 };
+  assert.deepEqual(windTone(style, voice, short), { body, shelves: expected.shelves, ...envelope });
   const { calls, eq } = probe(voice, .6, short ? .15 : .8, 0, undefined, style);
   assert.deepEqual(eq, [...(key === 'flute' ? [[2950, .8, 6.2], [780, 1.2, -2.5]] : []), ...body], 'the cached wind bus receives only its style/articulation body stages');
   assert.deepEqual(calls[0][6].shelves, expected.shelves);
-  assert.equal(calls[0][6].fade, voice === 'airflute' ? .012 : .028);
+  assert.equal(calls[0][6].fade, envelope.fade);
+  assert.equal(calls[0][6].offset, envelope.offset);
+  assert.equal(calls[0][6].attackGain, envelope.attackGain ?? 1.02);
 }
 for (const style of [undefined, null, '', 'trap', 'country', 'constructor', '__proto__']) for (const voice of ['tpt', 'airflute', 'harmon', 'reed']) assert.equal(windTone(style, voice), null);
 for (const style of ['swing', 'modal', 'jazzfunk']) assert.equal(windTone(style, 'airflute'), null);
 for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) for (const voice of ['harmon', 'reed', 'constructor', '__proto__']) assert.equal(windTone(style, voice), null);
+const sustainBody = [[1000, .7, 2.28], [1800, 1, .39], [2800, 3, .13]];
 for (const midi of [76, 77, 78]) {
   const { calls, eq } = probe('tpt', .9, .7, 0, undefined, 'jazzfunk', midi);
   assert.equal(calls[0][0].bank, 'jtv2'); assert.equal(calls[0][0].midi, 77);
-  assert.deepEqual(eq, [...windTone('jazzfunk', 'tpt').body, [900, .7, 5.04]], 'only the identified hard sustain restores its broad low body, without changing source notches or the +2dB gain');
+  assert.deepEqual(eq, [...windTone('jazzfunk', 'tpt').body, ...sustainBody], 'only the identified hard sustain receives the fitted body restoration');
+  assert.equal(calls[0][6].release, .055);
 }
+assert.deepEqual(windTone('jazzfunk', 'tpt', false, 'jtv2', 77.0005).body, [...tones.jazzfunk.body, ...sustainBody]);
+assert.deepEqual(windTone('jazzfunk', 'tpt', true, 'jtv2', 77).body, [...tones.jazzfunk.body, ...sustainBody]);
 for (const bank of ['jtv1', 'jts21', 'jts31', undefined]) assert.deepEqual(windTone('jazzfunk', 'tpt', false, bank, 77), windTone('jazzfunk', 'tpt'));
 for (const root of [74, 81, NaN, Infinity, undefined, null]) assert.deepEqual(windTone('jazzfunk', 'tpt', false, 'jtv2', root), windTone('jazzfunk', 'tpt'));
 for (const style of ['swing', 'modal', 'bossa']) assert.deepEqual(windTone(style, 'tpt', false, 'jtv2', 77), windTone(style, 'tpt'));
 const takeCuts = { 60: [2611, 60, -18], 65: [2812, 60, -12], 77: [2795, 60, -12] };
+const stemCuts = {
+  jtv1: { 74: [[2931, 60, -10]] },
+  jtv2: { 60: [[2879.2, 60, -10], [3150, 60, -18]], 65: [[2461.4, 628.96, -12.01]], 67: [[2745.9, 60, -6]], 70: [[2796, 60, -10], [3263.1, 60, -8]], 74: [[2923, 60, -10]] },
+  jts21: { 60: [[3141.3, 60, -18]], 67: [[3150.4, 60, -18]], 74: [[2931, 60, -10]] },
+  jts22: { 65: [[3147.8, 60, -18]] },
+  jts31: { 70: [[2319.1, 60, -10]], 77: [[2764.6, 60, -6]] },
+  jts32: { 70: [[2760.2, 45, -12]], 74: [[2927.4, 60, -18]], 77: [[2757.9, 60, -6]] },
+};
+const expectedTakeCuts = (bank, root, style) => {
+  const prior = bank === 'jtv2' && takeCuts[root] ? [takeCuts[root]] : bank === 'jts21' && root === 74 ? [[2929, 60, -18]] : bank === 'jfl' && root === 69 ? [[2631, 60, -6]] : [];
+  const added = (stemCuts[bank]?.[root] || []).map(([f, q, db]) => [f, q, style === 'modal' && bank === 'jtv2' && root === 65 ? -14 : db]);
+  const scoped = style === 'bossa' && bank === 'jtv2' && root === 63 ? [[2819.5, 60, -6]] : style === 'bossa' && bank === 'jtv2' && root === 67 ? [[2739, 40, -27], [3131, 40, -27]] : style === 'swing' && bank === 'jts31' && root === 65 ? [[2790.6, 60, -3]] : [];
+  return [...prior, ...added, ...scoped];
+};
 for (const [root, cut] of Object.entries(takeCuts)) {
   for (const style of ['bossa', 'swing', 'modal', 'jazzfunk', undefined]) for (const midi of [+root, +root + 1]) {
     const [buf, , level, , rate, , fx] = probe('tpt', .9, .7, 0, undefined, style, midi).calls[0];
     assert.equal(buf.bank, 'jtv2'); assert.equal(buf.midi, +root);
-    assert.deepEqual(fx.peaks, [...WIND_PEAKS.jtv2[root], cut].map(([f, q, db]) => [f * rate, q, db]), 'the identified hard sustain carries its narrow correction at the actual transposed rate');
+    assert.deepEqual(fx.peaks, [...WIND_PEAKS.jtv2[root], ...expectedTakeCuts('jtv2', +root, style)].map(([f, q, db]) => [f * rate, q, db]), 'the identified hard sustain carries its narrow correction at the actual transposed rate');
     assert.equal(level, .8 * (style === 'jazzfunk' ? 10 ** (2 / 20) : 1), 'take EQ preserves body gain and the approved Jazz-Funk lift');
   }
   for (const rate of [NaN, Infinity, 0, -1]) assert.deepEqual(windNotches('jtv2', +root, rate), []);
@@ -158,7 +181,7 @@ for (const [voice, bank, root, cut, velocity, duration] of [
     const [buf, , level, , rate, , fx] = probe(voice, velocity, duration, 0, undefined, style, midi).calls[0];
     assert.equal(buf.bank, bank); assert.equal(buf.midi, root);
     const base = style === 'bossa' && voice === 'airflute' ? [[2644 * rate, 40, -3], [3088 * rate, 60, -14]] : WIND_PEAKS[bank][root].map(([f, q, db]) => [f * rate, q, db]);
-    assert.deepEqual(fx.peaks, [...base, [cut[0] * rate, cut[1], cut[2]]], 'only the identified take tracks its partial through the played MIDI and measured tuning');
+    assert.deepEqual(fx.peaks, [...base, ...expectedTakeCuts(bank, root, style).map(([f, q, db]) => [f * rate, q, db])], 'only the identified take tracks its partial through the played MIDI and measured tuning');
     assert.equal(level, (voice === 'airflute' ? 1.02 : .4) * (velocity * 1.3) * 2 * (style === 'jazzfunk' && voice === 'tpt' ? 10 ** (2 / 20) : 1), 'narrow cuts preserve gain and the approved trumpet lift');
   }
   for (const rate of [NaN, Infinity, 0, -1]) assert.deepEqual(windNotches(bank, root, rate), []);
@@ -167,7 +190,7 @@ for (const [voice, bank, root, cut, velocity, duration] of [
 }
 for (const [voice, velocity, duration, take, bank, root] of [
   ['tpt', .3, .15, 0, 'jts11', 74], ['tpt', .6, .15, 1, 'jts22', 74],
-  ['tpt', .9, .15, 0, 'jts31', 74], ['tpt', .6, .8, 0, 'jtv1', 74],
+  ['tpt', .9, .15, 0, 'jts31', 74], ['tpt', .6, .8, 0, 'jtv1', 70],
   ['airflute', .6, .5, 1, 'jflb', 69], ['harmon', .6, .8, 0, 'jhm1', 70],
 ]) {
   const [buf, , , , rate, , fx] = probe(voice, velocity, duration, take, undefined, 'swing', root).calls[0];
@@ -300,8 +323,9 @@ for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
 assert.deepEqual(windNotches('jtv1', 70, NaN), []);
 assert.deepEqual(windNotches('missing', 70, 1), []);
 for (const [bank, notes] of Object.entries(WIND_PEAKS)) for (const [m, peaks] of Object.entries(notes)) {
-  const extra = bank === 'jtv2' && takeCuts[m] ? [takeCuts[m]] : bank === 'jts21' && +m === 74 ? [[2929, 60, -18]] : bank === 'jfl' && +m === 69 ? [[2631, 60, -6]] : [];
-  assert.deepEqual(windNotches(bank, +m, 2), [...peaks, ...extra].map(([f, q, db]) => [f * 2, q, db]), 'every other recorded take retains its exact existing filters');
+  for (const style of ['swing', 'modal', 'bossa', 'jazzfunk', undefined, 'constructor']) for (const rate of [.9, 1, 2]) {
+    assert.deepEqual(windNotches(bank, +m, rate, style), [...peaks, ...expectedTakeCuts(bank, +m, style)].map(([f, q, db]) => [f * rate, q, db]), 'only localized recordings and styles gain pitch-tracked stem corrections');
+  }
   assert(peaks.every(([f]) => f > 1.1 * 440 * 2 ** ((+m - 69) / 12)), 'a high flute fundamental is the note, not an unwanted resonance');
 }
 const provenance = JSON.parse(readFileSync(new URL('../samples/jazz-winds-provenance.json', import.meta.url)));
