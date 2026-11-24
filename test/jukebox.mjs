@@ -43,7 +43,7 @@ assert.equal(state.fresh, 1, 'publishing does not pin the studio draft');
   assert(cookie.startsWith(`${COOKIE}=`));
   const song = { kind: 'song', title: 'Account release', state, accountId: created.json.account.id };
   const store = memoryJukebox(), crate = memoryStore();
-  const publish = (cookie, target = store) => handleJukebox('POST', song, { store: target, crate, auth: { ...auth, cookie } });
+  const publish = (cookie, target = store, targetCrate = crate) => handleJukebox('POST', song, { store: target, crate: targetCrate, auth: { ...auth, cookie } });
   let changed;
   const racingStore = { ...store, async allow(client) {
     changed = await account('password-change', cookie, { currentPassword: password, password: 'Replacement long passphrase' });
@@ -55,13 +55,16 @@ assert.equal(state.fresh, 1, 'publishing does not pin the studio draft');
   assert.deepEqual(await store.list(), []);
   assert.deepEqual(await crate.list(), []);
   const current = changed.cookie.split(';')[0];
+  const artist = await account('claim', current, { handle: 'publisher' });
+  assert.equal(artist.status, 200);
+  const page = () => handleAccount({ method: 'GET', query: { handle: 'publisher' } }, auth);
+  const unavailable = { ...crate, async add() { throw new Error('crate write failed'); } };
+  await assert.rejects(publish(current, store, unavailable), /crate write failed/);
+  assert.deepEqual((await page()).json.tracks, [], 'a failed crate write does not attach an artist release');
   const response = await publish(current);
   assert.equal(response.status, 201);
   assert.equal((await crate.list()).length, 1, 'retry after signing in leaves one public release');
-  const artist = await account('claim', current, { handle: 'publisher' });
-  assert.equal(artist.status, 200);
-  const page = await handleAccount({ method: 'GET', query: { handle: 'publisher' } }, auth);
-  assert.deepEqual(page.json.tracks.map((t) => t.id), [response.json.item.trackId]);
+  assert.deepEqual((await page()).json.tracks.map((t) => t.id), [response.json.item.trackId]);
 }
 
 {

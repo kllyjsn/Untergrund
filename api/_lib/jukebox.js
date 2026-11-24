@@ -77,11 +77,10 @@ export async function handleJukebox(method, body, { store, crate, client = 'anon
   if (!(await store.allow(clean(client, 64) || 'anon'))) return { status: 429, json: { error: 'rate_limited' } };
   if (track) {
     track.state.fresh = 0;
-    if (expected) {
-      const owner = await accountFromSession(auth.kv, auth.secret, auth.cookie);
-      if (owner?.id !== expected || !await attachTrack(auth.kv, owner.id, track)) return invalidSession;
-    }
+    const owner = expected ? await accountFromSession(auth.kv, auth.secret, auth.cookie) : null;
+    if (expected && owner?.id !== expected) return invalidSession;
     await crate.add(track);
+    if (owner && !await attachTrack(auth.kv, owner.id, track)) throw new Error('release_attachment_failed');
     entry.trackId = track.id;
     entry.bpm = track.bpm;
     if (track.remixOf) entry.remixOf = track.remixOf;
