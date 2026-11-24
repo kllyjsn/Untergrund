@@ -204,7 +204,7 @@ export function liveSets(st, style = st?.artist?.style) {
   if ((RHODES_STYLES.has(style) && (Math.round(st?.params?.stab?.voice) <= 1 || patterns.some((p) => p.hook?.v === 'tapekeys')))
       || patterns.some((p) => p.jazz?.style === 'jazzfunk')) out.push('rhodes');
   out.push(...vowelSets(style));
-  if (st?.patterns?.some((p) => p.jazz?.style === 'jazzfunk') || st?.pattern?.jazz?.style === 'jazzfunk') out.push('horn');
+  if (st?.patterns?.some((p) => p.jazz?.style === 'jazzfunk') || st?.pattern?.jazz?.style === 'jazzfunk') out.push('horn', 'gtr', 'gtrmute', 'kitx');
   if (fullKit && pocketOf(st.master)?.band) out.push('kitx');
   if (Math.round(st?.params?.acid?.voice || 0) === 5) out.push('ebass');
   if (playsAnalogBass(style, st?.params?.acid?.voice)) out.push('abass');

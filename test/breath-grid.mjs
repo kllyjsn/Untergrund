@@ -47,7 +47,7 @@ function measure(style, seed) {
 console.log(baseline ? 'origin/main' : 'working tree');
 for (const [style, seed] of [['neosoul', 11], ['deephouse', 42], ['folk', 77], ['pop', 11], ['trance', 11], ['deephouse', 11]]) measure(style, seed);
 if (!baseline) {
-  for (const style of ['hypnotic', 'industrial', 'acid', 'dub', 'peak', 'hardtechno', 'deephouse', 'minimal', 'ukg', 'euphoric', 'trance', 'amapiano', 'bailefunk', 'jerseyclub']) {
+  for (const style of ['hypnotic', 'industrial', 'acid', 'dub', 'peak', 'hardtechno', 'deephouse', 'minimal', 'ukg', 'euphoric', 'trance', 'amapiano', 'bailefunk', 'jerseyclub', 'jazzfunk']) {
     const s = buildSong(style, 11), chain = parseChain(s.chain);
     s.artist = { style, seed: 11 };
     s.feel = 'tender';

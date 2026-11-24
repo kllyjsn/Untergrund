@@ -237,7 +237,7 @@ export function writeMidi({ title = 'UNTERGRUND', tempos, timeSig = [4, 4], key,
 // The whole song (or score) as a .mid; also returns per-track note counts.
 export function songMidi(state, { loopBars = 16, title, playbackStyle } = {}) {
   const c = capture(state, loopBars, { playbackStyle }), tick = ticker(c.at, c.dur), s = c.state;
-  const order = c.score ? Object.keys(PARTS) : [...Object.keys(GM_DRUMS), 'acid', 'stab', 'hook', 'vox', 'fiddle', ...Object.keys(PARTS)];
+  const order = c.score ? Object.keys(PARTS) : [...Object.keys(GM_DRUMS), 'acid', 'stab', 'hook', 'vox', 'guitar', 'fiddle', ...Object.keys(PARTS)];
   let chan = 0;
   const tracks = [];
   for (const id of order) {
@@ -246,8 +246,8 @@ export function songMidi(state, { loopBars = 16, title, playbackStyle } = {}) {
     const drum = !c.score && GM_DRUMS[id] != null;
     const channel = drum ? 9 : chan === 9 ? ++chan : chan;
     if (!drum) chan = Math.min(15, channel + 1);
-    const name = c.score || PARTS[id] ? PARTS[id][0] : drum ? DRUM_NAMES[id] : { acid: 'Bass', stab: 'Chords', hook: 'Hook', vox: 'Vocals', fiddle: 'Fiddle' }[id];
-    const program = c.score || PARTS[id] ? PARTS[id][1] : drum ? null : { acid: Math.round(s.params.acid.voice) === 1 ? 33 : 38, stab: STAB_PROGRAM[Math.round(s.params.stab.voice)] ?? 4, hook: HOOK_PROGRAM.get(c.hookVoice) ?? 80, vox: 54, fiddle: 40 }[id];
+    const name = c.score || PARTS[id] ? PARTS[id][0] : drum ? DRUM_NAMES[id] : { acid: 'Bass', stab: 'Chords', hook: 'Hook', vox: 'Vocals', guitar: 'Guitar', fiddle: 'Fiddle' }[id];
+    const program = c.score || PARTS[id] ? PARTS[id][1] : drum ? null : { acid: Math.round(s.params.acid.voice) === 1 ? 33 : 38, stab: STAB_PROGRAM[Math.round(s.params.stab.voice)] ?? 4, hook: HOOK_PROGRAM.get(c.hookVoice) ?? 80, vox: 54, guitar: 28, fiddle: 40 }[id];
     // Two hits of one pitch on the same tick (a lick doubling a chord tone) are one note, at the louder velocity.
     const seen = new Map(), out = [];
     for (const n of notes) {
