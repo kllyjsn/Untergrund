@@ -208,6 +208,11 @@ for (const style of ['gfunk', 'ukg', 'rock', undefined]) {
   assert.equal(span, undefined, 'missing vowel recording cannot key the organ');
   playVowel({ rec: () => [[53, sample]], playBuf: () => ({}) }, 1, 1, 53, .14, 'vox_eh', out, 5000, false, [], callback);
   assert.deepEqual(span, [1, .14, .035], 'key timing comes from the actual recorded vowel envelope, including its release');
+  for (const style of ['ukg', 'gfunk']) for (const hm of [0, 1]) for (const voice of ['vocal', 'chop', 'reed']) {
+    const e = { playbackStyle: style, playingPattern: { hm, hook: { v: voice, s: [1] } }, ctx: { currentTime: 0 } };
+    Engine.prototype.keyUkgVowel.call(e, 1, .14, .035);
+    assert.equal(!!e.ukgVowels?.length, style === 'ukg' && !!hm && voice !== 'reed', 'recorded VOX and hook keys obey the same eligible-hook gates');
+  }
 }
 console.log('Recorded organ low-cut: 110 Hz non-resonant HPF isolated to G-Funk organ');
 console.log('UKG recorded organ presence: vocal/chop hook regions only; empty hooks, other voices and genres unchanged');

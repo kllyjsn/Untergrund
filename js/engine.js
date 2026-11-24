@@ -190,6 +190,9 @@ const SAMPLE_FADE = 1;
 const WAKE_FLUSH = 0.024;
 const WAKE_FADE = 0.002;
 const ANALOG_BASS_GAIN = 4.4;
+const ukgVowelHook = (e) => e.playbackStyle === 'ukg' && e.playingPattern?.hm && ['vocal', 'chop'].includes(e.playingPattern.hook?.v)
+  && (e.playingPattern.hook.v !== 'chop' || !getChops()) && !hasUserSample()
+  && (e.playingPattern.hook.s?.some(Boolean) || e.playingPattern.hook.m?.n?.length);
 const ANALOG_TONE = { ukg: { close: 2.2, open: 3, env: 8 }, gfunk: { close: 0.4, open: 0.7, env: 1, hp: 35, hpStages: 4, hpQ: -3.01, lp: 1000, gain: { 1: 3.35, 7: 3.4 }, organGain: 1.27, release: 0.03, organRelease: 0.018 } };
 // Chord voices that sustain fill a breakdown on their own, so a smooth style only lifts the ones that decay.
 const HELD_CHORDS = new Set(['pad', 'organ', 'strings', 'cello']);
@@ -3468,9 +3471,7 @@ export class Engine {
   // notes are darker, the way hammers and plectrums behave. Released through a damper, not a gate.
   recordedNote(set, t, level, m, dur, out, tone = 0, kind = null, vel = 1, finger = false, fx = {}) {
     if (this.playbackStyle === 'rnb' && kind === 'jazz') level *= dbGain(-10);
-    const hook = this.playingPattern?.hook;
-    const ukgHook = kind === 'org' && this.playbackStyle === 'ukg' && this.playingPattern?.hm && (hook?.v === 'vocal' || (hook?.v === 'chop' && !getChops()))
-      && (hook.s?.some(Boolean) || hook.m?.n?.length) && !hasUserSample();
+    const ukgHook = kind === 'org' && ukgVowelHook(this);
     const R = BAND_PLAY[kind], F = finger && R?.finger;
     if (R) { while (m > R.hi + 0.5) m -= 12; while (m < R.lo - 0.5) m += 12; }
     if (out === this.ch.stab.input) out = this.ch.stab.band;
@@ -3504,6 +3505,7 @@ export class Engine {
   }
 
   keyUkgVowel(t, length, release) {
+    if (!ukgVowelHook(this)) return;
     this.ukgVowels = vowelWindows(this.ukgVowels || [], t, t + length + release * 5, this.ctx.currentTime, t + length + release * 2);
     for (const bus of this.ukgOrganBuses?.values() || []) bus.schedule(this.ukgVowels, this.ctx.currentTime);
   }
@@ -3759,7 +3761,7 @@ export class Engine {
   vox(t, v, step) {
     if (vowelStyle(this.playbackStyle) && !hasUserSample()) {
       const note = vowelVoxNote(this.state, this.playbackStyle, step, this.stepDur, this.harmRoot());
-      if (playVowel(this, t, v, note.midi, note.duration, note.name, this.ch.vox.input, this.state.params.vox.tone, !['ukg', 'jerseyclub', 'bailefunk'].includes(this.playbackStyle))) return;
+      if (playVowel(this, t, v, note.midi, note.duration, note.name, this.ch.vox.input, this.state.params.vox.tone, !['ukg', 'jerseyclub', 'bailefunk'].includes(this.playbackStyle), [], this.playbackStyle === 'ukg' ? (...args) => this.keyUkgVowel?.(...args) : undefined)) return;
     }
     if (this.playbackStyle === 'bailefunk') return this.funkVox(t, v, step);
     // Saved set timelines omit song metadata, so never borrow the listener's project seed.
