@@ -144,6 +144,8 @@ const WIND_HOOK = {
 // Held alto notes sat dead straight, so their 8th-15th harmonics rang as fixed 2.5-3.1 kHz lines over the mix;
 // a player's 20-cent vibrato, leaned into after the attack, spreads them.
 const ALTO_VIB = 20;
+// At full depth a 16th audibly bends, so notes of 0.2 s or less get half.
+const ALTO_VIB_16TH = 10;
 // Vibrato timing: shortest note that gets it, onset delay, and when it reaches full depth (cap, share of note).
 const VIB_ON = [0.2, 0.12, 0.45, 0.6];
 // The alto's riff repeats are mostly shorter than VIB_ON's ramp, so its vibrato starts sooner, down to 16ths.
@@ -3882,7 +3884,7 @@ export class Engine {
         lp: Math.min(styleFx.cap ?? Infinity, lp + 2100 * touch + 650 * (air - 0.5)), lpStages: styleFx.lpStages, offset: offset + tongue * 0.012,
         fade: (voice === 'tpt' ? 0.025 : strong ? 0.007 : 0.012) + 0.009 * (1 - tongue) + (styleFx.soft || 0),
         attackGain: ((strong ? 1.04 : 0.9) + (tongue - 0.5) * 0.24) * (styleFx.soft ? 0.9 : 1),
-        release: voice === 'altosax' ? ALTO_RELEASE : 0.055, ringOut: true, ...(voice === 'tpt' ? { vib: 6 } : voice === 'altosax' ? { vib: ALTO_VIB, vibOn: ALTO_VIB_ON } : {}),
+        release: voice === 'altosax' ? ALTO_RELEASE : 0.055, ringOut: true, ...(voice === 'tpt' ? { vib: 6 } : voice === 'altosax' ? { vib: dur <= 0.2 ? ALTO_VIB_16TH : ALTO_VIB, vibOn: ALTO_VIB_ON } : {}),
       });
   }
 
