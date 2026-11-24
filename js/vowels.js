@@ -4,7 +4,7 @@ export const VOWEL_BAND = { vox_ahh: [53], vox_eh: [53], vox_ooh: [53] };
 export const VOWEL_TUNE = { vox_ahh: { 53: -0.010 }, vox_eh: { 53: -0.003 }, vox_ooh: { 53: 0.005 } };
 export const VOWEL_STYLES = ['ukg', 'jerseyclub', 'bailefunk', 'deephouse', 'euphoric', 'dnb'];
 export const VOWEL_HOOK_DB = { ukg: 8.5, jerseyclub: 13.4, bailefunk: 0.5, deephouse: 11.2, euphoric: 9.5, dnb: 9.8 };
-export const VOWEL_HOOK_EQ = { deephouse: [[350, 0.65, -8], [3000, 0.8, 6]] };
+export const VOWEL_HOOK_EQ = { deephouse: [[350, 0.65, -8], [3000, 0.8, 2]] };
 const SHORT = new Set(['ukg', 'jerseyclub', 'bailefunk']);
 const COLORS = { ukg: ['eh', 'ahh'], jerseyclub: ['ahh', 'eh'], bailefunk: ['eh', 'ahh'], deephouse: ['ooh', 'eh'], euphoric: ['ahh', 'ooh'], dnb: ['ooh', 'ahh'] };
 const hash = (n, k) => { const x = Math.sin(n * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
