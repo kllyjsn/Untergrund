@@ -155,6 +155,28 @@ const oversizedSong = createCloudLibrary({
 });
 const tooBig = await oversizedSong.saveGenerated({ ...draft, state: { ...draft.state, extra: 'ü'.repeat(100_000) } });
 assert.equal(tooBig.message, 'This song is too large to sync (200 KB limit). It stays on this device.');
+const previousFetch = globalThis.fetch, previousListener = globalThis.addEventListener;
+try {
+  let notifyStorage, resolveAccount;
+  globalThis.addEventListener = (name, fn) => { if (name === 'storage') notifyStorage = fn; };
+  globalThis.fetch = async () => Response.json({ enabled: true, account: { id: 'alice' } });
+  const { getAccount, onAccount } = await import('../js/account.js?cross-tab');
+  const otherTab = createCloudLibrary({ get: getAccount, subscribe: onAccount, device: () => [],
+    request: async () => ({ items: [first.json.item], removed: [], limit: LIBRARY_LIMIT }) });
+  await otherTab.refresh();
+  assert.equal(otherTab.recent()[0].id, draft.id);
+  globalThis.fetch = () => new Promise((resolve) => { resolveAccount = resolve; });
+  const stale = getAccount(true);
+  notifyStorage({ key: 'untergrund.account.signed-out', newValue: 'signed-out' });
+  assert.deepEqual(otherTab.recent(), [], 'another tab signing out immediately clears private recents');
+  resolveAccount(Response.json({ enabled: true, account: { id: 'alice' } }));
+  assert.equal((await stale).account, null, 'a late response cannot restore the signed-out account');
+  assert.deepEqual(otherTab.recent(), []);
+} finally {
+  globalThis.fetch = previousFetch;
+  if (previousListener === undefined) delete globalThis.addEventListener;
+  else globalThis.addEventListener = previousListener;
+}
 console.log('cloud Library client passed: local merge, offline retry, private saves and account switching');
 
 const root = fileURLToPath(new URL('..', import.meta.url));
