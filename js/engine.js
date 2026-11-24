@@ -1384,7 +1384,7 @@ export class Engine {
     }
     const duck = { t, parts };
     if (this.queuedNotes) {
-      this.ducks = this.ducks.filter(d => d.t + 0.03 >= this.ctx.currentTime);
+      this.ducks = this.ducks.filter(d => d.t + Math.max(0.03, ...d.parts.map(p => p[4])) >= this.ctx.currentTime);
       this.ducks.push(duck);
       this.editingHit?.ducks.push(duck);
     }

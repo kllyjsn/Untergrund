@@ -330,6 +330,12 @@ for (const listener of ['dnb', 'euphoric', 'deephouse']) {
   cancels.length = 0; e.ducks = [];
   e.rebuildDucks(0.1);
   assert(cancels.some((t) => t <= 0.085 + 1e-9), 'removing a kick also cancels the low-band duck that leads it');
+  e.ducks = [];
+  e.duckAt(0.1, 1);
+  Object.defineProperty(e.ctx, 'currentTime', { value: 0.15, configurable: true });
+  e.duckAt(0.16, 1);
+  delete e.ctx.currentTime;
+  assert(e.ducks.some((d) => d.t === 0.1), 'a kick stays on record until its low-band release, so muting the next kick can restore it');
   e.pocketLow.duck.gain.cancelScheduledValues = cancel;
   e.discardQueuedNotes(0.2);
   assert(ducks.some(([gain, t]) => gain === 0 && t === 0.2), 'discarding notes releases the low-band sidechain');
