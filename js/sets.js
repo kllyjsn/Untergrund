@@ -77,6 +77,7 @@ export async function jukeboxConfig() {
 async function postEntry(entry) {
   const res = await fetch('/api/jukebox', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(entry) });
   const json = await res.json().catch(() => ({}));
+  if (json.error === 'publish_session_changed') throw new Error('Your account session changed. Sign in again, then retry.');
   if (!res.ok) throw new Error(json.error === 'rate_limited' ? 'too many publishes this hour' : json.error || `publish failed (${res.status})`);
   return json.item;
 }
@@ -100,8 +101,8 @@ export async function publishSong({ state: draft, title, style, artist }) {
   const state = { ...draft, fresh: 0 };
   const cfg = await jukeboxConfig();
   if (cfg.enabled) {
-    await ensureDevice().catch(() => null);
-    return { public: true, state, item: rememberMine(await postEntry({ kind: 'song', title, style, artist, bpm: state.bpm, state })) };
+    const account = await ensureDevice().catch(() => null);
+    return { public: true, state, item: rememberMine(await postEntry({ kind: 'song', title, style, artist, bpm: state.bpm, state, accountId: account?.id })) };
   }
   const { track } = await saveTrack({ title, style, artist, state });
   const item = { id: localId(), kind: 'song', title, style, artist, bpm: state.bpm, trackId: track.id, created: new Date().toISOString(), local: true, ...(state.remixOf && { remixOf: state.remixOf }) };

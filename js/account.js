@@ -16,6 +16,11 @@ const clearAccount = () => {
   pending = null;
   set({ account: null, following: [], unavailable: false });
 };
+const finishSignOut = () => {
+  sc.disconnect();
+  clearAccount();
+  try { localStorage.setItem(SIGN_OUT_KEY, `${Date.now()}-${Math.random()}`); } catch {}
+};
 globalThis.addEventListener?.('storage', (event) => {
   if (event.key === SIGN_OUT_KEY && event.newValue) clearAccount();
 });
@@ -35,6 +40,18 @@ export async function getAccount(force = false) {
     pending = read;
   }
   return pending;
+}
+
+export async function accountAction(action, fields = {}) {
+  const r = await call('POST', { action, ...fields });
+  if (!r.ok) throw new Error(r.json.error || 'unavailable');
+  if (action === 'signout') {
+    finishSignOut();
+  } else if (r.json.account) {
+    set({ account: r.json.account, ...(action === 'preferences' ? {} : { following: [] }) });
+    if (action !== 'preferences') getAccount(true);
+  }
+  return r.json;
 }
 
 // Anonymous identity, created the first time this browser publishes or follows.
@@ -89,9 +106,7 @@ export async function signInWithSoundCloud() {
 
 export async function signOut() {
   await call('POST', { action: 'signout' }).catch(() => {});
-  sc.disconnect();
-  clearAccount();
-  try { localStorage.setItem(SIGN_OUT_KEY, `${Date.now()}-${Math.random()}`); } catch {}
+  finishSignOut();
 }
 
 // The signed-in artist's published tracks (from their public page), or [] without a claimed link.
@@ -128,7 +143,8 @@ export async function migrateLocalSongs() {
     const track = crate.find((t) => t.id === it.trackId);
     if (!track?.state) continue;
     const res = await fetch('/api/jukebox', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind: 'song', title: it.title, style: it.style, artist: cache?.account?.name || it.artist, bpm: it.bpm, state: track.state }) }).catch(() => null);
+      body: JSON.stringify({ kind: 'song', title: it.title, style: it.style, artist: cache?.account?.name || it.artist, bpm: it.bpm, state: track.state,
+        accountId: cache?.account?.id }) }).catch(() => null);
     if (!res?.ok) break;
     await idb('delete', it.id).catch(() => {});
     moved++;

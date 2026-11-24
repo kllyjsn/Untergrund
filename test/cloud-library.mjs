@@ -350,7 +350,7 @@ try {
   let notifyStorage, resolveAccount;
   globalThis.addEventListener = (name, fn) => { if (name === 'storage') notifyStorage = fn; };
   globalThis.fetch = async () => Response.json({ enabled: true, account: { id: 'alice' } });
-  const { getAccount, onAccount } = await import('../js/account.js?cross-tab');
+  const { accountAction, getAccount, onAccount } = await import('../js/account.js?cross-tab');
   const otherTab = createCloudLibrary({ get: getAccount, subscribe: onAccount, device: () => [],
     request: async () => ({ items: [first.json.item], removed: [], limit: LIBRARY_LIMIT }) });
   await otherTab.refresh();
@@ -362,6 +362,23 @@ try {
   resolveAccount(Response.json({ enabled: true, account: { id: 'alice' } }));
   assert.equal((await stale).account, null, 'a late response cannot restore the signed-out account');
   assert.deepEqual(otherTab.recent(), []);
+  const previousStorage = globalThis.localStorage;
+  const signOutWrites = new Map();
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (key) => signOutWrites.get(key), setItem: (key, value) => signOutWrites.set(key, value),
+    removeItem: (key) => signOutWrites.delete(key),
+  } });
+  try {
+    globalThis.fetch = async (url, options) => Response.json({ enabled: true, account: options.method === 'POST' ? null : { id: 'alice' } });
+    await otherTab.refresh();
+    assert.equal(otherTab.recent()[0].id, draft.id);
+    await accountAction('signout');
+    assert.ok(signOutWrites.get('untergrund.account.signed-out'), 'listener sign-out broadcasts to other tabs');
+    assert.deepEqual(otherTab.recent(), []);
+  } finally {
+    if (previousStorage === undefined) delete globalThis.localStorage;
+    else Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: previousStorage });
+  }
 } finally {
   globalThis.fetch = previousFetch;
   if (previousListener === undefined) delete globalThis.addEventListener;
@@ -382,6 +399,12 @@ const output = createInterface({ input: proc.stdout }), exited = once(proc, 'exi
 try {
   const [line] = await once(output, 'line', { signal: AbortSignal.timeout(5000) });
   const [base] = line.match(/http:\/\/localhost:\d+/);
+  const callback = await fetch(base + '/api/auth/google/callback?library=alice', {
+    headers: { Cookie: alice }, redirect: 'manual',
+  });
+  assert.equal(callback.status, 303);
+  assert.equal(callback.headers.get('location'), '/?account=google_failed');
+  assert.equal(callback.headers.get('referrer-policy'), 'no-referrer');
   const saved = await fetch(base + '/api/account?library=alice', {
     method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base, Cookie: alice },
     body: JSON.stringify({ ...draft, padding: 'x'.repeat(20000) }),
