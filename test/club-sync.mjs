@@ -704,7 +704,8 @@ async function scenario(base, spec, network, run, auditStyle) {
       console.log(`${spec.name}: ${spec.offlineMs ? `offline ${spec.offlineMs}ms` : spec.handoff ? 'PASS DECK → new DJ UPDATE ROOM' : 'frozen → wake'}; realign=${mix.timeToRealignMs}ms / budget=${mix.budgetMs}ms`);
       for (const [name, p] of Object.entries(mix.phases)) {
         console.log(`  ${name}: ${JSON.stringify({
-          kicks:{...p.kicks, pairs:undefined, hostOnsets:undefined, listenerOnsets:undefined}, vocal:{...p.vocal, pairs:undefined}})}`);
+          kicks:{...p.kicks, pairs:undefined, hostOnsets:undefined, listenerOnsets:undefined},
+          chromeKicks:{...p.chromeKicks, pairs:undefined}, vocal:{...p.vocal, pairs:undefined}})}`);
         for (const [i, stats] of p.attribution.clients.entries())
           console.log(`  underruns ${name.toUpperCase()} ${['host', 'listener'][i]}: ${stats.countDelta === null ? 'unavailable' : `+${stats.countDelta} / ${stats.durationDeltaMs.toFixed(1)}ms (sampled)`}`);
         const point = p => `${p.onset === null ? 'missing@' : ''}${(p.referenceAt - initial.startsAt).toFixed(1)}ms start=${p.nearestStart?.when.toFixed(6) ?? 'none'} submit=${p.nearestStart?.submitContextTime.toFixed(6) ?? 'none'} overlap=${p.underrunOverlap === null ? 'unknown' : p.underrunOverlap ? 'yes' : 'no'}`;

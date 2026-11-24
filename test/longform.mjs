@@ -3,13 +3,17 @@
 // Principles and research basis: docs/long-form.md.
 import assert from 'node:assert/strict';
 import './festival-build.mjs';
-import { STYLES, SONG_STYLES, songPlan, sanitize } from '../js/state.js';
+import { STYLES, SONG_STYLES, songPlan, sanitize, freshSong } from '../js/state.js';
+import { Recorder } from '../js/midi.js';
 import { realize, validateSpec, localSpec } from '../js/song-spec.js';
-import { planSections, formChain, formSeconds, developSong, developFinalDrop, LENGTHS, MAX_SONG_BARS } from '../js/longform.js';
+import { planSections, formChain, formSeconds, developSong, developFinalDrop, finalPeak, writePeak, LENGTHS, MAX_SONG_BARS } from '../js/longform.js';
 import { patternAt } from '../js/scope.js';
 import { Sequencer } from '../js/engine.js';
 import { isJazz } from '../js/jazz.js';
-import { buildSong, playSong, scoreSong, aggregateComposition, compositionRegressions, SEEDS, loopStyles, runComposition } from '../scripts/composition.mjs';
+import { buildSong, playSong, scoreSong, aggregateComposition, compositionRegressions, peakDevices, SEEDS, loopStyles, runComposition } from '../scripts/composition.mjs';
+import { FEELS } from '../js/feel.js';
+import { sungNotes } from '../js/sing-score.js';
+import { liveSets } from '../js/livekit.js';
 
 const LETTERS = 'ABCDEFGH';
 const SECTION_STYLES = [...SONG_STYLES].filter((style) => !isJazz(style));
@@ -99,7 +103,7 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
     assert.deepEqual(chorus.prog, turnaround.prog);
     assert.deepEqual(patternAt(fill, sp[0].bars - 1).prog, intro.prog, 'the intro fill establishes the tonic');
     const levels = [];
-    const seq = new Sequencer({ playbackStyle: style, stepDur, sectionGain: (...args) => levels.push(args), breakOpen() {} }, s);
+    const seq = new Sequencer({ playbackStyle: style, stepDur, sectionGain: (...args) => levels.push(args), breakOpen() {}, breakSweep() {} }, s);
     const bars = Array.from(s.chain, (_, bar) => {
       seq.advanceBar(bar * 16, bar * 16 * stepDur);
       return levels.at(-1);
@@ -217,6 +221,45 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
   console.log('long-form no-padding passed');
 }
 
+// P8 the chill (emotion.peak-last): a song with a feeling ends on a peak device from that feeling which no earlier
+// chorus or drop plays, heard in the engine's events; the device survives a save; without a feeling nothing is written.
+{
+  const written = (s) => (s.patterns.some((p) => p.lift) ? 'lift' : s.patterns.flatMap((p) => p.at || []).find((t) => t.peak)?.peak);
+  // Jazz (head–solos–head) develops its head out at runtime in jazzStep and writes no peak takes.
+  for (const style of loopStyles().filter((x) => !isJazz(x))) for (const seed of SEEDS.slice(0, 3)) {
+    const s = buildSong(style, seed), d = peakDevices(s);
+    assert(s.feel && d.fresh.length, `${style}/${seed} (${s.feel}) final chorus has a device no earlier chorus has: ${JSON.stringify(d)}`);
+    const w = written(s);
+    assert(w === 'lift' || FEELS[s.feel].peak.includes(w), `${style}/${seed} plays ${w}, one of ${s.feel}'s devices`);
+    if (w !== 'lift') {
+      const run = finalPeak(s.chain), t = s.patterns.flatMap((p) => p.at || []).filter((x) => x.peak);
+      assert(t.every((x) => x.b[0] >= run.from && x.b[1] <= run.to), `${style}/${seed} the ${w} plays only in the final run`);
+      assert(d.fresh.includes(w), `${style}/${seed} the written ${w} is heard: ${JSON.stringify(d)}`);
+    }
+  }
+  const s = buildSong('pop', 101), re = sanitize(JSON.parse(JSON.stringify(s)));
+  assert.deepEqual(peakDevices(re), peakDevices(s), 'the peak device survives a save and reload');
+  // The neural singer sings the suspension's resolution too, and an offline render loads the entering violins.
+  const seen = { suspension: 0, entry: 0 };
+  for (const seed of SEEDS) {
+    const x = buildSong('pop', seed), w = x.patterns.flatMap((p) => p.at || []).find((t) => t.peak)?.peak, o = sungNotes(x);
+    if (w === 'suspension') {
+      seen.suspension++;
+      assert(o.some((n, i) => i && o[i - 1].slot === n.slot && o[i - 1].at + o[i - 1].dur === n.at && [1, 2].includes(o[i - 1].midi - n.midi)), `pop/${seed} sings the suspension resolving down a step`);
+    }
+    if (w === 'entry') { seen.entry++; assert(liveSets(x).includes('str'), `pop/${seed} loads the violins its final chorus enters on`); }
+  }
+  assert(seen.suspension && seen.entry, `pop seeds cover both sung devices: ${JSON.stringify(seen)}`);
+  // No feeling (old saves, the repertoire, the classical scores, which carry their own arc): the arrangement is what it was.
+  const old = buildSong('peak', 101);
+  for (const p of old.patterns) if (p.at) p.at = p.at.filter((t) => !t.peak);
+  const before = JSON.stringify(old.patterns);
+  assert.equal(writePeak(old.patterns, old.chain, null, 101), null, 'no feeling, no device');
+  assert.equal(writePeak(old.patterns.map((p) => ({ ...p, score: {} })), old.chain, FEELS.tender.peak, 101), null, 'a score keeps its own arc');
+  assert.equal(JSON.stringify(old.patterns), before, 'and the arrangement is untouched');
+  console.log('long-form chill passed');
+}
+
 // Jazz develops its players at runtime rather than writing pop-section takes into pattern.at.
 {
   for (const style of [...SONG_STYLES].filter(isJazz)) for (const seed of SEEDS) for (const length of ['song', 'sketch']) {
@@ -250,4 +293,37 @@ const hitsPerBar = (log, from, bars) => log.filter((L) => L.k === 'trigger' && L
     }
   }
   console.log('long-form jazz passed: full/sketch forms, returning motifs, runtime phrase development and bass/drum arrangement');
+}
+
+{
+  // Editable (Club) playback plans drum hits through Engine.planHit and may replan them; the dropout bar stays empty either way.
+  const DRUMS = ['kick', 'clap', 'snare', 'ch', 'oh', 'ride', 'perc', 'vox'];
+  const run = (style, seed, editable) => {
+    const s = JSON.parse(JSON.stringify(freshSong(style, seed))), rec = new Recorder(s), plans = [], at = [];
+    s.solos = {};
+    rec.planHit = function (time, track, pattern, plan) {
+      const n = plan();
+      plans.push({ time, plan });
+      if (n) this[n.method](...n.args);
+      return n;
+    };
+    const seq = new Sequencer(rec, s);
+    for (let abs = 0, t = 0; abs < s.chain.length * 16; abs++) { at.push(t); seq.tick(abs, t, undefined, editable); t += rec.stepDur; }
+    return { s, rec, plans, at };
+  };
+  let checked = 0;
+  for (const [style, seed] of [['minimal', 42], ['deephouse', 11], ['jerseyclub', 42]]) {
+    const off = run(style, seed, false), ed = run(style, seed, true);
+    const bar = off.s.patterns.flatMap((p) => (p.at || []).filter((v) => v.peak === 'dropout').map((v) => v.b[0]))[0];
+    assert(bar > 0, `${style}/${seed} has a dropout bar`);
+    const inBar = (r, b, t) => t >= r.at[b * 16] - 1e-6 && t < (r.at[(b + 1) * 16] ?? Infinity) - 1e-6;
+    const hits = (r, b) => DRUMS.map((id) => (r.rec.notes[id] || []).filter((n) => inBar(r, b, n.t)).length);
+    assert.deepEqual(hits(ed, bar), hits(off, bar), `${style}/${seed} editable dropout bar ${bar} plays the offline drums`);
+    assert.deepEqual(hits(ed, bar), DRUMS.map(() => 0), `${style}/${seed} dropout bar ${bar} has no drums`);
+    assert.deepEqual(hits(ed, bar + 1), hits(off, bar + 1), `${style}/${seed} editable return bar matches offline`);
+    assert(hits(ed, bar + 1).some(Boolean), `${style}/${seed} the drums return after the dropout`);
+    assert.equal(ed.plans.filter((p) => inBar(ed, bar, p.time) && p.plan()).length, 0, `${style}/${seed} a replan adds no drum to the dropout bar`);
+    checked++;
+  }
+  console.log(`long-form dropout parity passed: editable and offline drums match in ${checked} dropout and return bars`);
 }
