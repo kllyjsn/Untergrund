@@ -118,7 +118,7 @@ for (const [root, cut] of Object.entries(takeCuts)) {
 }
 for (const [voice, bank, root, cut, velocity, duration] of [
   ['tpt', 'jts21', 74, [2929, 60, -18], .6, .15],
-  ['airflute', 'jfl', 69, [2631, 60, -12], .6, 1.2],
+  ['airflute', 'jfl', 69, [2631, 60, -6], .6, 1.2],
 ]) {
   for (const style of ['bossa', 'swing', 'modal', 'jazzfunk', undefined]) for (const midi of [root - 2, root, root + 1]) {
     const [buf, , level, , rate, , fx] = probe(voice, velocity, duration, 0, undefined, style, midi).calls[0];
@@ -197,8 +197,8 @@ for (const duration of [.15, .5, .85, 1.2]) {
 }
 const bossaA = probe('airflute', .6, .5, 1, undefined, 'bossa', 68).calls[0];
 assert.equal(bossaA[0].midi, 69);
-assert.deepEqual(bossaA[6].peaks, [[2644 * bossaA[4], 40, -3], [3088 * bossaA[4], 60, -14], [2631 * bossaA[4], 60, -12]], 'the A4 sustain retains its existing lines and tracks the newly localized partial');
-assert.deepEqual(bossaFluteNotches(69, 2), [[5288, 40, -3], [6176, 60, -14], [5262, 60, -12]]);
+assert.deepEqual(bossaA[6].peaks, [[2644 * bossaA[4], 40, -3], [3088 * bossaA[4], 60, -14], [2631 * bossaA[4], 60, -6]], 'the A4 sustain retains its existing lines and tracks the newly localized partial');
+assert.deepEqual(bossaFluteNotches(69, 2), [[5288, 40, -3], [6176, 60, -14], [5262, 60, -6]]);
 assert.deepEqual(bossaFluteNotches(64, 1.5), [[3954, 35, -16]]);
 assert.deepEqual(bossaFluteNotches(61), []);
 for (const rate of [NaN, Infinity, 0, -1]) assert.deepEqual(bossaFluteNotches(69, rate), []);
@@ -256,7 +256,7 @@ for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
 assert.deepEqual(windNotches('jtv1', 70, NaN), []);
 assert.deepEqual(windNotches('missing', 70, 1), []);
 for (const [bank, notes] of Object.entries(WIND_PEAKS)) for (const [m, peaks] of Object.entries(notes)) {
-  const extra = bank === 'jtv2' && takeCuts[m] ? [takeCuts[m]] : bank === 'jts21' && +m === 74 ? [[2929, 60, -18]] : bank === 'jfl' && +m === 69 ? [[2631, 60, -12]] : [];
+  const extra = bank === 'jtv2' && takeCuts[m] ? [takeCuts[m]] : bank === 'jts21' && +m === 74 ? [[2929, 60, -18]] : bank === 'jfl' && +m === 69 ? [[2631, 60, -6]] : [];
   assert.deepEqual(windNotches(bank, +m, 2), [...peaks, ...extra].map(([f, q, db]) => [f * 2, q, db]), 'every other recorded take retains its exact existing filters');
   assert(peaks.every(([f]) => f > 1.1 * 440 * 2 ** ((+m - 69) / 12)), 'a high flute fundamental is the note, not an unwanted resonance');
 }

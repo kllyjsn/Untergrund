@@ -7,7 +7,7 @@ export const FLUTE_BANKS = ['jfl', 'jflb'];
 export const windBanks = (voice, style) => voice === 'tpt' ? TRUMPET_BANKS : voice === 'harmon' ? HARMON_BANKS : voice === 'airflute' ? style === 'bossa' ? ['jfl'] : FLUTE_BANKS : [];
 export const trumpetStaccatoLayer = (velocity, duration) => duration <= .26 ? velocity < .48 ? 1 : velocity < .75 ? 2 : 3 : null;
 const BOSSA_TRUMPET_PEAKS = { jtv2: { 67: [[2739, 40, -27], [3131, 40, -27]] } };
-const WIND_TAKE_PEAKS = { jtv2: { 60: [[2611, 60, -18]], 65: [[2812, 60, -12]], 77: [[2795, 60, -12]] }, jts21: { 74: [[2929, 60, -18]] }, jfl: { 69: [[2631, 60, -12]] } };
+const WIND_TAKE_PEAKS = { jtv2: { 60: [[2611, 60, -18]], 65: [[2812, 60, -12]], 77: [[2795, 60, -12]] }, jts21: { 74: [[2929, 60, -18]] }, jfl: { 69: [[2631, 60, -6]] } };
 const takePeaks = (bank, midi) => WIND_TAKE_PEAKS[bank]?.[Math.round(midi)] || [];
 export const windNotches = (bank, midi, rate = 1, style) => Number.isFinite(rate) && rate > 0 ? [...(WIND_PEAKS[bank]?.[Math.round(midi)] || []), ...takePeaks(bank, midi), ...(style === 'bossa' ? BOSSA_TRUMPET_PEAKS[bank]?.[Math.round(midi)] || [] : [])].map(([f, q, db]) => [f * rate, q, db]) : [];
 const BOSSA_FLUTE_DEPTHS = { 69: { 2644: -3 } };
