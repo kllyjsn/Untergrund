@@ -160,7 +160,7 @@ http.createServer(async (req, res) => {
     const pageMatch = url.pathname.match(/^\/(a|t|r)\/([^/]{1,60})\/?$/);
     if (pageMatch || url.pathname === '/api/page' || url.pathname === '/api/flagship') {
       const query = pageMatch ? { ...Object.fromEntries(url.searchParams), [pageMatch[1]]: decodeURIComponent(pageMatch[2]) } : url.pathname === '/api/flagship' ? { flagship: '1' } : Object.fromEntries(url.searchParams);
-      const r = await handlePage(query, { kv: accountKv, crate: crateStore, site: `http://${req.headers.host}`, og: { ogImage, artSeed, clubImage }, rooms });
+      const r = await handlePage(query, { kv: accountKv, crate: crateStore, jukebox: jukeboxStore, site: `http://${req.headers.host}`, og: { ogImage, artSeed, clubImage }, rooms });
       if (r.location) { res.writeHead(r.status, { Location: r.location }); return res.end(); }
       res.writeHead(r.status, { 'Content-Type': r.type, 'Cache-Control': 'no-store' });
       return res.end(r.body);

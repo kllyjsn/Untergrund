@@ -206,7 +206,7 @@ export function renderRoomPage(id, snap, { site = SITE } = {}) {
 }
 
 // Shared by api/page.js and server.mjs. Returns { status, type, body, cache }.
-export async function handlePage(query, { kv, crate, site = SITE, og, rooms = null, flagship = flagshipIds() }) {
+export async function handlePage(query, { kv, crate, jukebox, site = SITE, og, rooms = null, flagship = flagshipIds() }) {
   const cache = 'public, max-age=60, s-maxage=300, stale-while-revalidate=86400';
   const html = (status, body, c = cache) => ({ status, type: 'text/html; charset=utf-8', body, cache: c });
   const live = 'public, max-age=15, s-maxage=30, stale-while-revalidate=60';
@@ -227,8 +227,9 @@ export async function handlePage(query, { kv, crate, site = SITE, og, rooms = nu
   }
   if (query.flagship) {
     const pinned = await flagshipTracks({ kv, crate, ids: flagship });
-    const recent = !pinned.length && crate ? await crate.list(6).catch(() => []) : [];
-    const tracks = pinned.length ? pinned : await shelfTracks(kv, crate, recent.map(({ id }) => id));
+    const recent = !pinned.length && jukebox ? await jukebox.list(60).catch(() => []) : [];
+    const recentIds = new Set(recent.filter((item) => item.kind === 'song' && item.trackId).map((item) => item.trackId));
+    const tracks = pinned.length ? pinned : await shelfTracks(kv, crate, [...recentIds].slice(0, 6));
     const kind = pinned.length ? 'flagship' : 'recent';
     return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify({ tracks, kind }), cache: 'public, max-age=60, s-maxage=300, stale-while-revalidate=600' };
   }

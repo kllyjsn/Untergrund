@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { memoryKv } from '../api/_lib/kv.js';
 import { memoryStore, normalizeTrack } from '../api/_lib/crate.js';
+import { memoryJukebox, handleJukebox } from '../api/_lib/jukebox.js';
 import { handleAccount, attachTrack } from '../api/_lib/accounts.js';
 import { handlePage, renderTrackPage } from '../api/_lib/pages.js';
 import { ogImage, artSeed } from '../api/_lib/og.js';
@@ -84,13 +85,21 @@ console.log('Open Graph image passed');
   assert.equal(r.status, 200);
   assert.equal(JSON.parse(r.body).tracks[0].id, real.id);
   assert.equal(JSON.parse(r.body).kind, 'flagship');
-  const recent = Array.from({ length: 7 }, (_, i) => ({ ...real, id: `recent-${i}`, title: `Recent ${i}` }));
-  for (const t of recent) await store.add(t);
-  const getShelf = async (flagship, crate = store) => JSON.parse((await hp({ flagship: '1' }, { kv: null, crate, site, og, flagship })).body);
+  const jukebox = memoryJukebox(), recent = [];
+  for (let i = 0; i < 7; i++) {
+    const publication = await handleJukebox('POST', { ...real, kind: 'song', title: `Release ${i}` }, { store: jukebox, crate: store });
+    assert.equal(publication.status, 201);
+    recent.push(publication.json.item.trackId);
+  }
+  await jukebox.add({ kind: 'set', trackId: real.id });
+  const unpublished = normalizeTrack({ ...real, title: 'Generated but not published' });
+  await store.add(unpublished);
+  const getShelf = async (flagship, releases = jukebox) => JSON.parse((await hp({ flagship: '1' }, { kv: null, crate: store, jukebox: releases, site, og, flagship })).body);
   for (const ids of [[], ['gone-404']]) {
     const fallback = await getShelf(ids);
     assert.equal(fallback.kind, 'recent');
-    assert.deepEqual(fallback.tracks.map((t) => t.id), recent.slice(1).reverse().map((t) => t.id));
+    assert.deepEqual(fallback.tracks.map((t) => t.id), recent.slice(1).reverse());
+    assert.ok(fallback.tracks.every((t) => t.by === 'Real Artist' && t.id !== unpublished.id));
   }
   assert.deepEqual((await getShelf(['gone-404', real.id])).tracks.map((t) => t.id), [real.id]);
   assert.deepEqual(await getShelf([], null), { tracks: [], kind: 'recent' });
