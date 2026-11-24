@@ -1,11 +1,13 @@
-import { signInWithSoundCloud } from './account.js';
+import { openListenerAccount } from './listener-account.js';
 
 const price = document.getElementById('plan-price');
 const status = document.getElementById('plan-status');
 const action = document.getElementById('plan-action');
 const manage = document.getElementById('plan-manage');
 const renewal = document.getElementById('plan-renewal');
-const returned = new URLSearchParams(location.search).get('checkout');
+const query = new URLSearchParams(location.search);
+const returned = query.get('checkout');
+const googleResult = query.get('account');
 const errors = {
   rate_limited: 'Too many requests. Try again in a minute.',
   sign_in_required: 'Sign in again before starting checkout.',
@@ -61,7 +63,7 @@ async function refresh(retries = 5) {
     button(action);
   } else if (!info.signedIn) {
     status.textContent += 'Sign in so you can manage your membership on any device.';
-    button(action, 'Sign in with SoundCloud', async () => { await signInWithSoundCloud(); await refresh(); });
+    button(action, 'Sign in', () => openAccount());
   } else if (info.member === 'active') {
     status.textContent += info.ending ? 'Studio Pro is active until your current period ends.' : 'Studio Pro is active.';
     button(action);
@@ -81,4 +83,13 @@ async function refresh(retries = 5) {
   }
 }
 
+function openAccount(googleResult) {
+  openListenerAccount({ googleResult, returnTo: '/pricing', includeSoundCloud: true, onClose: () => refresh() });
+}
+
+if (['google_ok', 'google_failed', 'google_conflict'].includes(googleResult)) {
+  query.delete('account');
+  history.replaceState(null, '', location.pathname + (query.size ? `?${query}` : '') + location.hash);
+  if (googleResult !== 'google_ok') openAccount(googleResult);
+}
 refresh();
