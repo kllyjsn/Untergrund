@@ -21,6 +21,7 @@ const K = {
 };
 const TRACK_LIMIT = 500, FEED_FOLLOWS = 50, FEED_LIMIT = 30;
 const LIMITS = { device: [20, 3600], claim: [12, 3600], profile: [60, 3600], follow: [120, 3600], soundcloud: [30, 3600] };
+const RATE_LIMITS = { ...LIMITS, 'billing-status': [120, 60], 'billing-write': [12, 60], 'pro-drafts': [6, 60] };
 export const DNA_TRAITS = ['darkness', 'hypnosis', 'acid', 'space', 'energy'];
 
 // ---------- handles ----------
@@ -80,11 +81,18 @@ export const clearCookie = ({ secure = true } = {}) => `${COOKIE}=; Path=/; Http
 
 // ---------- storage helpers ----------
 const getJson = async (kv, key) => { const s = await kv.cmd(['GET', key]); try { return s ? JSON.parse(s) : null; } catch { return null; } };
+export async function accountFromSession(kv, secret, cookie) {
+  if (!kv) return null;
+  let token;
+  try { token = parseCookies(cookie)[COOKIE]; } catch { return null; }
+  const session = verifySession(token, secret);
+  return session ? getJson(kv, K.acct(session.sub)) : null;
+}
 const setJson = (kv, key, v) => kv.cmd(['SET', key, JSON.stringify(v)]);
 const newId = () => `u${Date.now().toString(36)}${randomBytes(6).toString('hex')}`;
 
 export async function allow(kv, bucket, client) {
-  const [max, windowSec] = LIMITS[bucket] || [60, 3600];
+  const [max, windowSec] = RATE_LIMITS[bucket] || [60, 3600];
   const key = K.rate(bucket, clean(client, 64) || 'anon');
   const n = await kv.cmd(['INCR', key]);
   if (n === 1) await kv.cmd(['EXPIRE', key, windowSec]);
@@ -200,12 +208,12 @@ export async function linkProvider(kv, current, provider, profile) {
 }
 
 // ---------- public reads (pages and API) ----------
-export async function publicArtistPage(kv, handle) {
+export async function publicArtistPage(kv, handle, { pro } = {}) {
   const acct = kv && await accountByHandle(kv, handle);
   if (!acct) return null;
-  const [followers, following, tracks] = await Promise.all([
-    kv.cmd(['SCARD', K.followers(acct.id)]), kv.cmd(['SCARD', K.following(acct.id)]), tracksOf(kv, acct.id)]);
-  return { artist: publicArtist(acct, followers, following), tracks };
+  const [followers, following, tracks, isPro] = await Promise.all([
+    kv.cmd(['SCARD', K.followers(acct.id)]), kv.cmd(['SCARD', K.following(acct.id)]), tracksOf(kv, acct.id), pro?.(acct.id)]);
+  return { artist: { ...publicArtist(acct, followers, following), ...(isPro && { pro: true }) }, tracks };
 }
 
 export async function publishedTrack(kv, crate, rawId) {
@@ -244,8 +252,7 @@ export async function handleAccount(req, ctx) {
   const { kv, secret, env = process.env, secure = true, fetchImpl = fetch } = ctx;
   const q = req.query || {};
   if (!kv || !authEnabled(secret)) return { status: 503, json: { enabled: false, account: null } };
-  const session = verifySession(parseCookies(req.cookie)[COOKIE], secret);
-  let me = session ? await getJson(kv, K.acct(session.sub)) : null;
+  let me = await accountFromSession(kv, secret, req.cookie);
   const client = clean(req.client, 64) || 'anon';
   const issue = (acct) => sessionCookie(signSession({ sub: acct.id }, secret), { secure });
 

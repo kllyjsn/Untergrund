@@ -143,7 +143,7 @@ export function accountPanel({ getProfile, toast }) {
   const copy = async (text) => { try { await navigator.clipboard.writeText(text); toast('Link copied'); } catch { toast(text); } };
   async function render() {
     const [a, cfg] = await Promise.all([getAccount(), sc.getConfig().catch(() => ({ enabled: false }))]);
-    el.replaceChildren(h('div', { class: 'acct-label' }, 'YOUR LINK'));
+    el.replaceChildren(h('div', { class: 'acct-label acct-heading' }, 'YOUR LINK', h('a', { href: '/pricing' }, 'PLANS')));
     if (!a.enabled) return el.append(h('p', { class: 'acct-dim' }, 'Artist pages go live once public storage is connected. Your music stays saved in this browser.'));
     const acct = a.account;
     const scBtn = (label) => cfg.enabled ? h('button', { class: 'btn sc acct-sc', onclick: async (e) => {
