@@ -80,7 +80,7 @@ function transport(mediaRoute, room = true, roomItem = item, bpm = 120) {
   const noop = () => {};
   const s = { mediaRoute, roomMediaSync: createRoomMediaSync(), roomMediaTime, roomMediaLead,
     roomTransportPosition, syncAudioClock, transportResync, BG_LEAD: 1.5, ROOM_LEAD: .42,
-    slewTransport, roomTransportCorrection, roomDrainUntil: null, roomAudioClock: null, vocalGridDirty: false,
+    slewTransport, roomTransportCorrection, roomDrainUntil: null, roomAudioClock: null, roomLifecycleAt: -Infinity, vocalGridDirty: false,
     performance: { now: () => s.ctx.currentTime * 1000 },
     playing: true, songOver: false, queuedRoomSwitch: null, roomPlayback: room, roomEditor: false, roomResume: null, roomFirstNote: null,
     roomJoinTimer: 0, handoff: null, jamQueue: [], trackingReplay: false, playbackSources: new WeakMap(), state: { bpm, current: 0 },

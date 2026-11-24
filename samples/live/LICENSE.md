@@ -3,7 +3,7 @@
 Every audio file in this folder is derived from one of the sources below. All are released under the
 **Creative Commons CC0 1.0 Universal** public-domain dedication except the two cuíca files, the twenty MTG tenor
 saxophone files (`tsax_*`, `tsaxb_*`) and Fender Rhodes Mark II recordings, which are licensed **CC BY 4.0** and must
-keep the credits below wherever they are redistributed (full CC0 legal text in each source repo's `LICENSE`; the Virtuosity Drums and double-bass files are
+keep the credits below wherever they are redistributed (full CC0 legal text linked below or in each source repo's `LICENSE`; the Virtuosity Drums and double-bass files are
 byte-identical, sha256 `a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499`). CC0 waives copyright and
 related rights, so those files can be redistributed in this app and used in commercial music without attribution; we
 credit the authors anyway. CC BY 4.0 also allows commercial use and redistribution, provided the author, source,
@@ -24,6 +24,87 @@ license and changes are credited.
 Processing applied to every file unless its section says otherwise: summed to mono, resampled to 44.1 kHz 16-bit
 PCM, trimmed (organ 2.2 s, bass 2.4 s), 80 ms fade out. Stored as lossless FLAC (bit-identical PCM to the original
 16-bit WAVs). Drum files mix the close mic with the overhead mic of the same hit.
+
+## Modularsamples analog synthesizers (Freesound)
+
+- Author: [modularsamples](https://freesound.org/people/modularsamples/).
+- License: [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/) for every source below, verified in Freesound API metadata.
+- Packs: [Juno 6 Open Pad](https://freesound.org/people/modularsamples/packs/17475/) (`juno`), [Jupiter 4 Unison Pad](https://freesound.org/people/modularsamples/packs/17534/) (`jpad`), [JX-8P Dark Pad Chorus](https://freesound.org/people/modularsamples/packs/17573/) (`dpad`), [JX-3P On Off Strings](https://freesound.org/people/modularsamples/packs/17554/) (`jxstr`), [JX-3P Brassy](https://freesound.org/people/modularsamples/packs/17540/) (`jxbr`), [Jupiter 4 Baby Brass](https://freesound.org/people/modularsamples/packs/17484/) (`jbr`).
+
+The [per-file manifest](../../scripts/analog-samples.json) pins original AIFF, output FLAC and decoded PCM SHA-256 hashes, source format and credits, measured centers/cents, and exact processing parameters. The [fetch/conversion script](../../scripts/fetch-analog.py) verifies both source and output hashes, preserving the recorded channel layouts. Downloads use `FREESOUND_ACCESS_TOKEN` as a Bearer token with rate-limit backoff; the script never refreshes tokens. Encoder and numpy versions used for byte-identical reproduction are recorded in the manifest.
+
+From the repository root, reproduce into a separate directory using cached originals, or hash only the shipped FLACs:
+```sh
+python3 scripts/fetch-analog.py --source-dir ~/s2-raw --offline --output-dir ~/analog-reproduced
+python3 scripts/fetch-analog.py --verify
+```
+
+Processing: decoded original AIFF at 44.1 kHz, trimmed leading silence below -60 dB relative to peak (with 5 ms preroll), retained the first 4 s for pads/strings or 3 s for brass, peak-normalized each retained recording to -1 dBFS, applied an 80 ms linear fade-out, quantized to 16-bit PCM and encoded losslessly as FLAC. No pitch shifting. Original mono/stereo channel layouts are preserved: Juno/Jupiter/JX-8P are mono, both JX-3P sets are stereo (the strings are nearly dual-mono). Original recordings remain outside the repository. The original natural releases fall beyond the retained window; these files fade the sustained tone instead.
+
+Pitch centers: YIN autocorrelation over four sustain windows, independently refined with harmonic FFT peaks; the median measured center determines the MIDI filename and the cents offset in `BAND_TUNE`. Pads/strings use windows starting at 0.5, 1.5, 2.5 and 3.5 s; brass at 0.3, 0.9, 1.5 and 2.1 s (700 ms per window). Analog drift/chorus means these are average centers, not constant-frequency claims. Juno/Unison Pad/Dark Pad/On Off Strings measure an octave below the source MIDI/display label. Brassy has a lower audible oscillator seven semitones below its display label plus an upper fifth; filenames reference the lower audible oscillator, not the absent virtual fundamental an octave beneath it. Baby Brass follows source MIDI with positive tuning offsets. On Off Strings consistently uses the lowest Freesound sound ID available for each pitch.
+
+The end-level column is RMS over the last 0.5 s **before** the added fade, relative to 0.5–1.5 s after trimming; all retained samples still sustain (less than 12 dB attenuation). All are 44.1 kHz / 16-bit FLAC. Total: **14,818,976 bytes**.
+
+| File | Source sound | Original Freesound filename | Measured center (MIDI + cents) | Source / retained duration (s) | Channels | End level (dB) |
+| --- | --- | --- | --- | --- | --- | --- |
+| `juno_48.flac` | [302576](https://freesound.org/s/302576/) | `Roland Juno 6 - Open Pad - C4 (Open Pad-60-127-H3F5.aif)` | 48 +1.3 c | 11.245 / 4.000 | mono | -0.3 |
+| `juno_52.flac` | [302580](https://freesound.org/s/302580/) | `Roland Juno 6 - Open Pad - E4 (Open Pad-64-127-OXV7.aif)` | 52 +1.7 c | 11.696 / 4.000 | mono | 0.4 |
+| `juno_56.flac` | [302584](https://freesound.org/s/302584/) | `Roland Juno 6 - Open Pad - G4 (Open Pad-68-127-6Z4N.aif)` | 56 +2.1 c | 11.238 / 4.000 | mono | 0.2 |
+| `juno_60.flac` | [302588](https://freesound.org/s/302588/) | `Roland Juno 6 - Open Pad - C5 (Open Pad-72-127-BT3P.aif)` | 60 +1.7 c | 11.615 / 4.000 | mono | -0.3 |
+| `juno_64.flac` | [302592](https://freesound.org/s/302592/) | `Roland Juno 6 - Open Pad - E5 (Open Pad-76-127-S7Y0.aif)` | 64 +2.9 c | 11.352 / 4.000 | mono | -0.1 |
+| `juno_68.flac` | [302596](https://freesound.org/s/302596/) | `Roland Juno 6 - Open Pad - G5 (Open Pad-80-127-NQN2.aif)` | 68 +2.5 c | 11.432 / 4.000 | mono | 0.1 |
+| `juno_72.flac` | [302600](https://freesound.org/s/302600/) | `Roland Juno 6 - Open Pad - C6 (Open Pad-84-127-I8Q7.aif)` | 72 +2.2 c | 11.182 / 4.000 | mono | 0.0 |
+| `juno_76.flac` | [302604](https://freesound.org/s/302604/) | `Roland Juno 6 - Open Pad - E6 (Open Pad-88-127-CU3I.aif)` | 76 +2.4 c | 11.189 / 4.000 | mono | -0.2 |
+| `juno_80.flac` | [302608](https://freesound.org/s/302608/) | `Roland Juno 6 - Open Pad - G6 (Open Pad-92-127-8G1X.aif)` | 80 +2.7 c | 11.097 / 4.000 | mono | 0.2 |
+| `juno_84.flac` | [302612](https://freesound.org/s/302612/) | `Roland Juno 6 - Open Pad - C7 (Open Pad-96-127-V4LI.aif)` | 84 +2.0 c | 11.400 / 4.000 | mono | -0.3 |
+| `jpad_48.flac` | [305768](https://freesound.org/s/305768/) | `Roland Jupiter 4 - Unison Pad - C4 (JP4 - Unison Pad-60-127.aif)` | 48 +7.5 c | 12.481 / 4.000 | mono | -1.2 |
+| `jpad_52.flac` | [305772](https://freesound.org/s/305772/) | `Roland Jupiter 4 - Unison Pad - E4 (JP4 - Unison Pad-64-127.aif)` | 52 +4.8 c | 12.504 / 4.000 | mono | 1.1 |
+| `jpad_56.flac` | [305776](https://freesound.org/s/305776/) | `Roland Jupiter 4 - Unison Pad - G4 (JP4 - Unison Pad-68-127.aif)` | 56 +4.4 c | 12.527 / 4.000 | mono | -1.0 |
+| `jpad_60.flac` | [305780](https://freesound.org/s/305780/) | `Roland Jupiter 4 - Unison Pad - C5 (JP4 - Unison Pad-72-127.aif)` | 60 +4.0 c | 12.481 / 4.000 | mono | -3.6 |
+| `jpad_64.flac` | [305784](https://freesound.org/s/305784/) | `Roland Jupiter 4 - Unison Pad - E5 (JP4 - Unison Pad-76-127.aif)` | 64 +2.8 c | 12.469 / 4.000 | mono | -3.5 |
+| `jpad_68.flac` | [305788](https://freesound.org/s/305788/) | `Roland Jupiter 4 - Unison Pad - G5 (JP4 - Unison Pad-80-127.aif)` | 68 +3.3 c | 12.736 / 4.000 | mono | 0.3 |
+| `jpad_72.flac` | [305792](https://freesound.org/s/305792/) | `Roland Jupiter 4 - Unison Pad - C6 (JP4 - Unison Pad-84-127.aif)` | 72 +3.6 c | 12.481 / 4.000 | mono | -2.7 |
+| `jpad_76.flac` | [305796](https://freesound.org/s/305796/) | `Roland Jupiter 4 - Unison Pad - E6 (JP4 - Unison Pad-88-127.aif)` | 76 +4.9 c | 12.458 / 4.000 | mono | -2.5 |
+| `jpad_80.flac` | [305800](https://freesound.org/s/305800/) | `Roland Jupiter 4 - Unison Pad - G6 (JP4 - Unison Pad-92-127.aif)` | 80 +4.7 c | 12.527 / 4.000 | mono | -0.6 |
+| `jpad_84.flac` | [305804](https://freesound.org/s/305804/) | `Roland Jupiter 4 - Unison Pad - C7 (JP4 - Unison Pad-96-127.aif)` | 84 +4.1 c | 12.574 / 4.000 | mono | -0.7 |
+| `dpad_48.flac` | [307942](https://freesound.org/s/307942/) | `Roland JX-8P - Dark Pad Chorus - C4 (60C3-CLE6.aif)` | 48 -0.5 c | 12.252 / 4.000 | mono | 8.4 |
+| `dpad_52.flac` | [307946](https://freesound.org/s/307946/) | `Roland JX-8P - Dark Pad Chorus - E4 (64E3-GJR3.aif)` | 52 -0.9 c | 12.244 / 4.000 | mono | 9.5 |
+| `dpad_56.flac` | [307950](https://freesound.org/s/307950/) | `Roland JX-8P - Dark Pad Chorus - G4 (68G#3-G6CQ.aif)` | 56 +1.7 c | 12.112 / 4.000 | mono | 8.2 |
+| `dpad_60.flac` | [307954](https://freesound.org/s/307954/) | `Roland JX-8P - Dark Pad Chorus - C5 (72C4-J2TB.aif)` | 60 +2.0 c | 12.224 / 4.000 | mono | 10.2 |
+| `dpad_64.flac` | [307958](https://freesound.org/s/307958/) | `Roland JX-8P - Dark Pad Chorus - E5 (76E4-6RNS.aif)` | 64 +1.8 c | 12.225 / 4.000 | mono | 8.6 |
+| `dpad_68.flac` | [307962](https://freesound.org/s/307962/) | `Roland JX-8P - Dark Pad Chorus - G5 (80G#4-CNPN.aif)` | 68 +1.4 c | 12.081 / 4.000 | mono | 8.7 |
+| `dpad_72.flac` | [307966](https://freesound.org/s/307966/) | `Roland JX-8P - Dark Pad Chorus - C6 (84C5-E92B.aif)` | 72 +0.8 c | 11.879 / 4.000 | mono | 8.0 |
+| `dpad_76.flac` | [307970](https://freesound.org/s/307970/) | `Roland JX-8P - Dark Pad Chorus - E6 (88E5-5HJ0.aif)` | 76 -2.0 c | 11.908 / 4.000 | mono | 9.3 |
+| `dpad_80.flac` | [307974](https://freesound.org/s/307974/) | `Roland JX-8P - Dark Pad Chorus - G6 (92G#5-WPI0.aif)` | 80 +3.0 c | 11.793 / 4.000 | mono | 7.5 |
+| `dpad_84.flac` | [307978](https://freesound.org/s/307978/) | `Roland JX-8P - Dark Pad Chorus - C7 (96C6-YF7W.aif)` | 84 +4.3 c | 11.601 / 4.000 | mono | 8.3 |
+| `jxstr_48.flac` | [306938](https://freesound.org/s/306938/) | `Roland JX-3P - On Off Strings - C4 (0-GSKD.aif)` | 48 -14.8 c | 12.260 / 4.000 | stereo | 0.5 |
+| `jxstr_52.flac` | [306945](https://freesound.org/s/306945/) | `Roland JX-3P - On Off Strings - E4 (0-XNAU.aif)` | 52 -16.9 c | 13.560 / 4.000 | stereo | -0.2 |
+| `jxstr_56.flac` | [306952](https://freesound.org/s/306952/) | `Roland JX-3P - On Off Strings - G4 (0-XXYS.aif)` | 56 -17.1 c | 13.909 / 4.000 | stereo | -0.2 |
+| `jxstr_60.flac` | [306960](https://freesound.org/s/306960/) | `Roland JX-3P - On Off Strings - C5 (0-XL6I.aif)` | 60 -15.1 c | 12.283 / 4.000 | stereo | -0.5 |
+| `jxstr_64.flac` | [306968](https://freesound.org/s/306968/) | `Roland JX-3P - On Off Strings - E5 (0-I9Z7.aif)` | 64 -16.0 c | 12.202 / 4.000 | stereo | -0.6 |
+| `jxstr_68.flac` | [306976](https://freesound.org/s/306976/) | `Roland JX-3P - On Off Strings - G5 (0-0GXN.aif)` | 68 -14.2 c | 13.247 / 4.000 | stereo | -0.5 |
+| `jxstr_72.flac` | [306984](https://freesound.org/s/306984/) | `Roland JX-3P - On Off Strings - C6 (0-B5L8.aif)` | 72 -16.9 c | 12.423 / 4.000 | stereo | -1.1 |
+| `jxstr_76.flac` | [306992](https://freesound.org/s/306992/) | `Roland JX-3P - On Off Strings - E6 (0-U0MY.aif)` | 76 -8.5 c | 14.013 / 4.000 | stereo | -0.9 |
+| `jxstr_80.flac` | [307000](https://freesound.org/s/307000/) | `Roland JX-3P - On Off Strings - G6 (0-O1XW.aif)` | 80 -5.3 c | 14.571 / 4.000 | stereo | -0.3 |
+| `jxstr_84.flac` | [307008](https://freesound.org/s/307008/) | `Roland JX-3P - On Off Strings - C7 (0-TSM7.aif)` | 84 -4.2 c | 12.365 / 4.000 | stereo | -0.3 |
+| `jxbr_48.flac` | [306094](https://freesound.org/s/306094/) | `Roland JX-3P - Brassy - F#3 (0-W2Y0.aif)` | 48 -23.6 c | 10.520 / 3.000 | stereo | 0.2 |
+| `jxbr_51.flac` | [306097](https://freesound.org/s/306097/) | `Roland JX-3P - Brassy - A#3 (0-98PU.aif)` | 51 -20.2 c | 10.318 / 3.000 | stereo | 0.7 |
+| `jxbr_54.flac` | [306100](https://freesound.org/s/306100/) | `Roland JX-3P - Brassy - C#4 (0-5435.aif)` | 54 -22.3 c | 10.312 / 3.000 | stereo | 0.4 |
+| `jxbr_57.flac` | [306103](https://freesound.org/s/306103/) | `Roland JX-3P - Brassy - E4 (0-UZQH.aif)` | 57 -22.4 c | 10.285 / 3.000 | stereo | -0.2 |
+| `jxbr_60.flac` | [306106](https://freesound.org/s/306106/) | `Roland JX-3P - Brassy - F#4 (0-9QOB.aif)` | 60 -21.1 c | 10.297 / 3.000 | stereo | 0.4 |
+| `jxbr_63.flac` | [306109](https://freesound.org/s/306109/) | `Roland JX-3P - Brassy - A#4 (0-Q2XC.aif)` | 63 -20.6 c | 10.647 / 3.000 | stereo | -0.4 |
+| `jxbr_66.flac` | [306112](https://freesound.org/s/306112/) | `Roland JX-3P - Brassy - C#5 (0-8V1R.aif)` | 66 -22.7 c | 10.295 / 3.000 | stereo | 0.0 |
+| `jxbr_69.flac` | [306115](https://freesound.org/s/306115/) | `Roland JX-3P - Brassy - E5 (0-8AZB.aif)` | 69 -20.5 c | 10.296 / 3.000 | stereo | 0.9 |
+| `jxbr_72.flac` | [306118](https://freesound.org/s/306118/) | `Roland JX-3P - Brassy - F#5 (0-HK82.aif)` | 72 -20.3 c | 10.295 / 3.000 | stereo | 0.3 |
+| `jbr_48.flac` | [303202](https://freesound.org/s/303202/) | `Roland Jupiter 4 - Baby brass - C3 (Baby brass-48-127.aif)` | 48 +20.0 c | 10.681 / 3.000 | mono | -0.3 |
+| `jbr_51.flac` | [303205](https://freesound.org/s/303205/) | `Roland Jupiter 4 - Baby brass - D#3 (Baby brass-51-127.aif)` | 51 +34.1 c | 10.693 / 3.000 | mono | -0.4 |
+| `jbr_54.flac` | [303208](https://freesound.org/s/303208/) | `Roland Jupiter 4 - Baby brass - F3 (Baby brass-54-127.aif)` | 54 +24.3 c | 10.728 / 3.000 | mono | -0.4 |
+| `jbr_57.flac` | [303211](https://freesound.org/s/303211/) | `Roland Jupiter 4 - Baby brass - A3 (Baby brass-57-127.aif)` | 57 +21.9 c | 10.716 / 3.000 | mono | -0.3 |
+| `jbr_60.flac` | [303214](https://freesound.org/s/303214/) | `Roland Jupiter 4 - Baby brass - C4 (Baby brass-60-127.aif)` | 60 +18.8 c | 10.681 / 3.000 | mono | -0.3 |
+| `jbr_63.flac` | [303217](https://freesound.org/s/303217/) | `Roland Jupiter 4 - Baby brass - D#4 (Baby brass-63-127.aif)` | 63 +31.1 c | 10.681 / 3.000 | mono | -0.3 |
+| `jbr_66.flac` | [303220](https://freesound.org/s/303220/) | `Roland Jupiter 4 - Baby brass - F4 (Baby brass-66-127.aif)` | 66 +24.3 c | 10.704 / 3.000 | mono | -0.4 |
+| `jbr_69.flac` | [303223](https://freesound.org/s/303223/) | `Roland Jupiter 4 - Baby brass - A4 (Baby brass-69-127.aif)` | 69 +21.3 c | 10.716 / 3.000 | mono | -0.4 |
+| `jbr_72.flac` | [303226](https://freesound.org/s/303226/) | `Roland Jupiter 4 - Baby brass - C5 (Baby brass-72-127.aif)` | 72 +19.7 c | 10.693 / 3.000 | mono | -0.3 |
 
 
 ## S9 fiddle and upright piano — VSCO 2 Community Edition (CC0)

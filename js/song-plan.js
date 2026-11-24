@@ -160,7 +160,7 @@ function ranges(lyr, i) {
 export const lyricLines = (text) => splitLyrics(text).flatMap((s) => s.lines.map((l) => l.t));
 
 // ---------------- rule-based fallback ----------------
-const ABOUT = /\b(?:about|on|of)\s+((?:(?!\b(?:with|in [a-g]\b|at \d|\d+\s*bpm|female|male|vocals?|voice)\b)[^,;.!?])+)/i;
+const ABOUT = /\b(?:about|on|(?<!\bkey )of)\s+((?:(?!\b(?:with|in (?:[a-g]\b|(?:the )?key of\b)|at \d|\d+\s*bpm|female|male|vocals?|voice)\b)[^,;.!?])+)/i;
 const VOCAL_RE = /\b(?:(?:female|male|woman|man|girl|guy|boy|soft|breathy|raspy|deep|high|duet|choir|choral)\s+)*(?:female|male|woman|man|girl|guy|boy|duet|choir|choral)(?:\s+(?:vocals?|voice|singer|vox|rap|rapper|lead))?\b|\b(?:vocals?|voice|singer)\s*:\s*(?:female|male)\b/gi;
 const FILLER = /\b(?:a|an|the|write|make|create|give|me|us|please|song|songs|track|tune|banger|piece|anthem|record|single|ballad|lyrics?|instrumental|style|vibe|feel|type|genre|with)\b/gi;
 export const SONG_WORD = /\b(?:song|ballad|anthem|lyrics?|verse|chorus|singer|sing|sung|vocals?|female|male)\b|\babout\b/i;

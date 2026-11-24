@@ -60,6 +60,7 @@ addEventListener('blur', () => { for (const k of [...heldPads.keys()]) ui.perf?.
 let playing = false, abs = 0, nextTime = 0, lastPlayedPat = null;
 let transportOrigin = 0, roomJoinTimer = 0, clockOffset = null;
 let roomAudioClock = null;
+let roomLifecycleAt = -Infinity;
 let vocalGridDirty = false;
 let roomDrainUntil = null;
 let roomPlayback = false;
@@ -192,7 +193,7 @@ function schedule(lead) {
   if (roomEditor) engine.pruneEditableHits(now);
   const frozenOutputTime = roomAudioClock?.frozenOutputTime;
   const clock = syncAudioClock(clockOffset, Date.now() / 1000 - now,
-    roomPlayback ? {at:performance.now() / 1000, contextTime:now, state:roomAudioClock} : null);
+    roomPlayback ? {at:performance.now() / 1000, contextTime:now, state:roomAudioClock, lifecycleAt:roomLifecycleAt} : null);
   clockOffset = clock.offset;
   roomAudioClock = clock.state ?? null;
   const switchAt = queuedRoomSwitch ? roomMediaTime(queuedRoomSwitch.startsAt / 1000 - clockOffset, roomPlayback, mediaRoute) : Infinity;
@@ -206,7 +207,7 @@ function schedule(lead) {
   if (firstEstimate && !playableFirst && Math.abs(target - nextTime) > 0.000001) nextTime = target;
   if (roomPlayback && Math.abs(target - nextTime) > 0.000001) vocalGridDirty = true;
   if (clock.jumped) roomDrainUntil = null;
-  const correction = roomPlayback && !clock.jumped && !playableFirst ? roomTransportCorrection(target, nextTime, now, base, roomDrainUntil) : null;
+  const correction = roomPlayback && !clock.jumped && !playableFirst ? roomTransportCorrection(target, nextTime, now, base, roomDrainUntil, ahead) : null;
   if (correction?.drainUntil !== undefined) {
     if (roomDrainUntil === null) {
       engine.cancelVocalSlew?.();
@@ -221,6 +222,7 @@ function schedule(lead) {
   const fix = playableFirst ? null : correction ?? transportResync(target, nextTime, now, base, clock.jumped, seq.origin - abs, roomPlayback);
   let firstTime = playableFirst ? nextTime : fix?.firstTime;
   if (fix) {
+    const adoptedTime = fix.adopted ? Math.max(now + 0.005, firstTime ?? fix.nextTime) : null;
     if (fix.discard) {
       engine.discardQueuedNotes(now, roomPlayback ? firstTime ?? fix.nextTime : null, frozenOutputTime);
       engine.roomSlewRate = 1;
@@ -234,17 +236,17 @@ function schedule(lead) {
       seq.rewind(abs, now);
     }
     for (let i = 0; i < fix.skip; i++, abs++) {
-      const gridTime = target + i * base, t = roomPlayback ? Math.max(now, gridTime) : now;
+      const gridTime = target + i * base, t = adoptedTime ?? (roomPlayback ? Math.max(now, gridTime) : now);
       if (roomPlayback && jamQueue.length && (abs - seq.origin) % 16 === 0)
         landJamParts((gridTime + roomMediaLead(roomPlayback, mediaRoute) + clockOffset) * 1000 + base * 500, t);
       artistTick(abs - seq.origin);
       seq.advanceBar(abs - seq.origin, t);
     }
     if (roomPlayback && fix.skip > 0 && jamQueue.length)
-      landJamParts((fix.nextTime + roomMediaLead(roomPlayback, mediaRoute) + clockOffset) * 1000, fix.nextTime);
+      landJamParts((fix.nextTime + roomMediaLead(roomPlayback, mediaRoute) + clockOffset) * 1000, adoptedTime ?? fix.nextTime);
     nextTime = fix.nextTime;
     if (fix.adopted) {
-      midiClockStart(ctx, abs, nextTime);
+      midiClockStart(ctx, abs, adoptedTime);
     } else if (roomPlayback && fix.skip > 0) midiClockStart(ctx, abs, nextTime);
     const step = (abs - seq.origin) % 16;
     if (fix.discard && step)
@@ -271,7 +273,7 @@ function schedule(lead) {
         }
       }
     }
-    const t = firstTime ?? nextTime;
+    const t = roomPlayback ? Math.max(firstTime ?? nextTime, now + 0.005) : firstTime ?? nextTime;
     firstTime = undefined;
     // Leave a nearly coincident outgoing step to the incoming downbeat.
     if (t >= switchAt - 0.03 && switchAt < horizon) {
@@ -286,7 +288,7 @@ function schedule(lead) {
       abs += skip * 16; seq.chainPos += skip; transportOrigin -= skip * 16 * base * 1000;
       if (handoff?.step != null) { handoff.step += skip * 16; handoff.from += skip * 16; }
     }
-    if (jamQueue.length && ((abs - seq.origin) % 16 === 0 || (roomPlayback && mediaRoute && roomMediaSync.active(now)))) {
+    if (jamQueue.length && ((abs - seq.origin) % 16 === 0 || (fix?.adopted && fix.skip > 0) || (roomPlayback && mediaRoute && roomMediaSync.active(now)))) {
       const gridTime = roomPlayback && mediaRoute ? nextTime + roomMediaLead(roomPlayback, mediaRoute) : nextTime;
       landJamParts((gridTime + clockOffset) * 1000 + base * 500, t);
     }
@@ -716,6 +718,7 @@ function interrupt() {
 // The audio clock stopping under a playing song (a call, Siri, iOS suspending the page) pauses it;
 // when it runs again soon after, the song carries on.
 function onAudioState() {
+  roomLifecycleAt = performance.now() / 1000;
   if (ctx.state === 'running') {
     if (paused?.reason === 'interrupted' && Date.now() - paused.at < RESUME_WINDOW) remote.play();
   } else if (ctx.state !== 'closed') interrupt();
@@ -2954,6 +2957,7 @@ window.addEventListener('keyup', (e) => {
 });
 
 document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) roomLifecycleAt = performance.now() / 1000;
   if (!guest) save(state);
   // Going to the lock screen or another app: queue extra audio before timers slow down.
   if (playing && document.hidden) schedule(BG_LEAD);
@@ -2961,7 +2965,11 @@ document.addEventListener('visibilitychange', () => {
 document.addEventListener('freeze', () => {
   if (playing && roomPlayback && roomAudioClock) roomAudioClock.frozenOutputTime = engine.audibleTime(ctx.currentTime);
 });
-document.addEventListener('resume', () => { if (ctx?.state === 'running') schedule(); });
+document.addEventListener('resume', () => {
+  roomLifecycleAt = performance.now() / 1000;
+  if (ctx?.state === 'running') schedule();
+});
+window.addEventListener('pageshow', () => { roomLifecycleAt = performance.now() / 1000; });
 
 prepareSample(null);
 build();

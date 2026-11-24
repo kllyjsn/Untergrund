@@ -4,7 +4,7 @@ import { getSample, hasUserSample, sungNote, SUNG_LEN, SUNG_LOW, SUNG_NOTES, SUN
 import { vowelStyle, vowelVoxNote, vowelName, vowelHookDuration, playVowel, VOWEL_HOOK_DB, VOWEL_HOOK_EQ } from './vowels.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
-import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, loadHand, STAB_BAND, HOOK_BAND, SAX_HOOK, SAX_LO, saxRoot, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER, RECORDED_ORGAN, playsAnalogBass } from './livekit.js';
+import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, loadHand, STAB_BAND, HOOK_BAND, SAX_HOOK, SAX_LO, saxRoot, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER, RECORDED_ORGAN, playsAnalogBass, analogSet } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel, swingLate, swingDuration } from './groove.js';
 import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes, jazzNotches, JAZZ_MIX, BOSSA_RIM, BOSSA_BATIDA, bossaBass } from './jazz.js';
@@ -49,7 +49,7 @@ const GENRE_PALETTES = {
       3: { ...DEEP_CHORD, wave: 'sine', organ: 0.35, level: 1.65, attack: 0.005, fm: 0, release: 0.42, cutoff: 1900, presence: 'organ' },
       2: { ...DEEP_CHORD, level: 1.5, attack: 0.025, release: 0.6, fm: 0.28, cutoff: 1450, presence: 'pad' },
     },
-    hook: { ...DEEP_CHORD, wave: 'sawtooth', harmonics: 4500, level: 0.42, attack: 0.012, release: 0.18, cutoff: 4000, spread: 6, width: 0.55, fm: 0.35, presence: false, eq: [], airBand: 1, breath: 0.08, breathDecay: 0.05, transpose: 24, range: [79, 91] },
+    hook: { ...DEEP_CHORD, wave: 'sawtooth', harmonics: 4500, level: 0.42, attack: 0.012, release: 0.18, cutoff: 4000, spread: 6, width: 0.55, fm: 0.35, presence: false, eq: [[1200, 0.8, 1.5], [4800, 0.9, -3]], airBand: 0, breath: 0.08, breathDecay: 0.05, transpose: 24, range: [79, 91] },
     bass: { type: 'round', wave: 'triangle', fm: 0.65, level: 1, sub: 0.72, body: 0.8, cutoff: 760, decay: 0.16, grit: 0.5, sustain: 0.55, length: 0.88, balance: true, lowBand: { cutoff: 120, trim: -6, duck: 6 } },
   },
   euphoric: {
@@ -147,9 +147,11 @@ const ALTO_VIB = 20;
 const SAX_TRIM = { pop: -2.4, neosoul: -5.7, boombap: 3.5, trap: 1.1, afrobeats: 6.5, reggaeton: 4.5, breaks: 7.1 };
 // Pop and Reggaeton hats live above 4 kHz, where the alto's breath otherwise fills the gaps between hits, so
 // those altos get a fixed high cut; the Afrobeats tenor's low register piles up at 220-260 Hz over the bass.
+// Reggaeton's alto repeats short riff notes too brief for vibrato, so each repeat lands within 8 cents of
+// the last, as a player's would, instead of stacking the same harmonics into fixed 2.4-3.3 kHz lines.
 const SAX_FX = {
   pop: { cap: 3000, lpStages: 4, shelves: [[4000, -12]] },
-  reggaeton: { cap: 3000, lpStages: 4, shelves: [[4000, -14]] },
+  reggaeton: { cap: 3000, lpStages: 4, shelves: [[4000, -14]], scatter: 8 },
   afrobeats: { peaks: [[245, 1.6, -8]] },
 };
 // Knob values the NEO-SOUL live-kit preset uses; the recorded samples play unaltered at these settings
@@ -206,6 +208,32 @@ export function scoreKinds(spec) { return kindsOf([...new Set(compose(spec).note
 // Sustain loop for a held orchestral note: the steady middle of the recording, cut at rising zero crossings
 // so the seam does not click.
 const LOOPS = new WeakMap();
+const ANALOG_LOOPS = new WeakMap();
+const ANALOG_LEVEL = {
+  hypnotic: { 2: 0.695 }, ambient: { 2: 0.661 }, peak: { 2: 0.625, 4: 0.82 },
+  hardtechno: { 2: 0.485 }, trance: { 2: 0.51, 4: 0.662 }, industrial: { 4: 0.823 },
+  electro: { 4: 0.892 }, electrohiphop: { 4: 0.957 },
+};
+const DUB_PAD_LEVEL = { 0: 1.55, 2: 1.28, 3: 1.96, 5: 1.26 };
+function analogLoop(ctx, buf) {
+  if (ANALOG_LOOPS.has(buf)) return ANALOG_LOOPS.get(buf);
+  const sr = buf.sampleRate, n = buf.length, fade = Math.floor(sr * 0.04), a = Math.floor(n * 0.55);
+  const data = Array.from({ length: buf.numberOfChannels }, (_, k) => buf.getChannelData(k));
+  let b = Math.floor(n * 0.88), best = Infinity;
+  for (let j = Math.floor(n * 0.84); j < Math.floor(n * 0.92); j += 4) {
+    let error = 0;
+    for (const d of data) for (let k = 0; k < fade; k += 32) error += (d[j - fade + k] - d[a - fade + k]) ** 2;
+    if (error < best) { best = error; b = j; }
+  }
+  const loop = ctx.createBuffer(buf.numberOfChannels, n, sr);
+  data.forEach((d, k) => {
+    const out = loop.getChannelData(k); out.set(d);
+    for (let i = 0; i < fade; i++) { const w = i / (fade - 1); out[b - fade + i] = d[b - fade + i] * (1 - w) + d[a - fade + i] * w; }
+  });
+  const result = { buffer: loop, start: a / sr, end: b / sr };
+  ANALOG_LOOPS.set(buf, result);
+  return result;
+}
 function loopPoints(buf) {
   if (LOOPS.has(buf)) return LOOPS.get(buf);
   const d = buf.getChannelData(0), sr = buf.sampleRate, rise = (i) => { for (let k = i; k < d.length - 1; k++) if (d[k] <= 0 && d[k + 1] > 0) return k; return i; };
@@ -1573,7 +1601,14 @@ export class Engine {
   }
   playBuf(buf, t, level, out, rate = 1, dur = 0, fx = {}) {
     const s = this.ctx.createBufferSource();
-    s.buffer = buf; s.playbackRate.value = rate;
+    s.playbackRate.value = rate;
+    if (fx.loop === 'analog') {
+      const loop = analogLoop(this.ctx, buf);
+      s.buffer = loop.buffer; s.loop = true; s.loopStart = loop.start; s.loopEnd = loop.end;
+    } else s.buffer = buf;
+    const detune = fx.detune || 0;
+    s.detune.value = detune;
+    if (fx.pitchAttack) { s.detune.setValueAtTime(240 + detune, t); s.detune.setTargetAtTime(detune, t + 0.008, 0.014); }
     const g = this.gain(level);
     let node = s;
     if (fx.drive > 0.01) {
@@ -1617,7 +1652,7 @@ export class Engine {
       lfo.connect(depth).connect(s.detune); this.startSource(lfo, t); lfo.stop(t + dur + 0.5);
     }
     // Held orchestral notes outlast their recording: loop the sustained middle, after the attack.
-    if (fx.loop && dur > buf.duration / rate - 0.3) { const [a, b] = loopPoints(buf); s.loop = true; s.loopStart = a; s.loopEnd = b; }
+    if (fx.loop && fx.loop !== 'analog' && dur > buf.duration / rate - 0.3) { const [a, b] = loopPoints(buf); s.loop = true; s.loopStart = a; s.loopEnd = b; }
     if (fx.offset || fx.fade) {
       g.gain.setValueAtTime(0, t);
       g.gain.linearRampToValueAtTime(level * (fx.attackGain ?? 1), t + (fx.fade || 0.006));
@@ -1766,11 +1801,12 @@ export class Engine {
     if (chop) center = BOOMBAP_BASS_CENTERS[name][take];
     this.playBuf(kit[`bass_${name}_${take ? 'b' : 'a'}`], t, (accent ? 1.2 : 1) * (this.noteVel ?? 1) * (chop ? 1.2 : 1) * dbGain(trim), out, Math.pow(2, (m - center) / 12), len, fx);
     if (jazzStyle(this.state, this.playingPattern)) return;
+    const folk = this.playbackStyle === 'folk';
     const sub = this.ctx.createOscillator(); sub.frequency.value = midiHz(m);
     const sg = this.gain(0);
     sg.gain.setValueAtTime(EPS, t);
-    sg.gain.linearRampToValueAtTime(0.12, t + 0.01);
-    sg.gain.setTargetAtTime(0.07, t + 0.05, 0.2);
+    sg.gain.linearRampToValueAtTime(folk ? 0.12 * dbGain(-3) : 0.12, t + 0.01);
+    sg.gain.setTargetAtTime(folk ? 0.07 * dbGain(-9) : 0.07, t + 0.05, folk ? this.stepDur * 0.8 : 0.2);
     sg.gain.setTargetAtTime(0, t + len, 0.04);
     sub.connect(this.filter('lowpass', 120, 0.7)).connect(sg).connect(out);
     this.startSource(sub, t); sub.stop(t + len + 0.3);
@@ -2975,6 +3011,17 @@ export class Engine {
     amp.gain.setTargetAtTime(0, t + hold, 1); amp.gain.setValueAtTime(0, end);
     hp.connect(lp).connect(amp).connect(this.dubPadOut());
     const pans = this.sidePans([-0.85, 0.85], hp);
+    const set = this.playbackStyle === 'dub' && this.rec('dpad');
+    if (this.playbackStyle === 'dub' && !set?.length) loadBand('dpad');
+    if (set?.length) {
+      iv.forEach(n => {
+        for (const side of [-1, 1]) {
+          const { s } = this.recordedNote(set, t, DUB_PAD_LEVEL[Math.round(this.state.params.stab.voice)] ?? 1.55, root + n, end - t, pans[side < 0 ? 0 : 1], 0, null, 1, false, { loop: 'analog', even: 0 });
+          s.detune.setValueAtTime(side * 5, t); s.detune.linearRampToValueAtTime(-side * 3, end);
+        }
+      });
+      return;
+    }
     iv.forEach(n => {
       for (const side of [-1, 1]) {
         const o = this.ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = midiHz(root + n);
@@ -2984,8 +3031,60 @@ export class Engine {
     });
   }
 
+  analogBrassOut(out) {
+    const paths = (this.analogBrassPaths ||= new WeakMap());
+    if (!paths.has(out)) {
+      const input = this.gain(1), split = this.ctx.createChannelSplitter(2), stereo = this.ctx.createChannelMerger(2);
+      input.channelCount = 2; input.channelCountMode = 'explicit';
+      const mid = this.gain(0.5), side = this.gain(0.5), negative = this.gain(-1), invert = this.gain(-1);
+      input.connect(split);
+      split.connect(mid, 0); split.connect(mid, 1);
+      split.connect(side, 0); split.connect(negative, 1); negative.connect(side);
+      mid.connect(stereo, 0, 0); mid.connect(stereo, 0, 1);
+      let top = side;
+      for (let i = 0; i < 4; i++) {
+        const q = 1 / (2 * Math.cos((2 * i + 1) * Math.PI / 16));
+        top = top.connect(this.filter('highpass', 350, 20 * Math.log10(q)));
+      }
+      top.connect(stereo, 0, 0); top.connect(invert).connect(stereo, 0, 1);
+      stereo.connect(out);
+      paths.set(out, input);
+    }
+    return paths.get(out);
+  }
+
+  analogChord(voice, t, v, iv, root, p, out) {
+    const name = analogSet(this.playbackStyle, voice);
+    if (!name) return false;
+    const set = this.rec(name);
+    if (!set?.length) { loadBand(name); return false; }
+    if (!iv.length) return true;
+    const pad = voice === 2, hard = pad && this.hardTechno;
+    const atk = pad ? 0.04 + p.env * 0.9 : 0.025;
+    const hold = pad ? Math.max(this.stepDur * 4, p.decay * 1.2) : Math.max(0.08, p.decay * 0.8);
+    const end = pad ? atk + hold + p.decay * 2 + 0.2 : hold + 0.4;
+    const amp = this.gain(0), level = ANALOG_LEVEL[this.playbackStyle][voice];
+    amp.gain.setValueAtTime(0, t);
+    amp.gain.linearRampToValueAtTime(v * level / Math.sqrt(iv.length), t + atk);
+    if (pad) amp.gain.setTargetAtTime(0, t + atk + hold, Math.max(0.1, p.decay * 0.6));
+    else {
+      amp.gain.setTargetAtTime(v * level * 0.75 / Math.sqrt(iv.length), t + 0.05, 0.1);
+      amp.gain.setTargetAtTime(0, t + hold, 0.06);
+    }
+    amp.gain.setValueAtTime(0, t + end);
+    const hp = this.filter('highpass', hard ? 300 : 150, 0.5);
+    amp.connect(hp).connect(pad ? out : this.analogBrassOut(out));
+    const pans = this.sidePans([-0.6, 0, 0.6], amp);
+    const sides = pad ? [-1, 0, 1] : [-1, 1], spread = pad ? (4 + p.detune) * (hard ? 3 : 1) : p.detune * 0.5;
+    iv.forEach((n, k) => {
+      for (const side of sides) this.recordedNote(set, t, 1 / Math.sqrt(sides.length), root + n, end, pans[k % pans.length], 0, null, 1, false, { loop: 'analog', even: 0, pitchAttack: hard, detune: side * spread });
+    });
+    return true;
+  }
+
   // Slow-swelling ensemble: three detuned saws per note, filter opens with ENV, DECAY sets release.
   pad(t, v, iv, root, p, out) {
+    if (this.analogChord(2, t, v, iv, root, p, out)) return;
     const c = this.ctx, atk = 0.04 + p.env * 0.9, hold = Math.max(this.stepDur * 4, p.decay * 1.2), end = t + atk + hold + p.decay * 2 + 0.2;
     const festival = this.playbackStyle === 'trap' && Math.round(p.voice) === 2;
     const lp = this.filter('lowpass', p.cutoff * 0.5, Math.max(0.5, p.reso * 0.4));
@@ -3309,12 +3408,12 @@ export class Engine {
 
   // Kept in the register the instrument was played in; every note lands a little differently and softer
   // notes are darker, the way hammers and plectrums behave. Released through a damper, not a gate.
-  recordedNote(set, t, level, m, dur, out, tone = 0, kind = null, vel = 1, finger = false) {
+  recordedNote(set, t, level, m, dur, out, tone = 0, kind = null, vel = 1, finger = false, fx = {}) {
     if (this.playbackStyle === 'rnb' && kind === 'jazz') level *= dbGain(-10);
     const R = BAND_PLAY[kind], F = finger && R?.finger;
     if (R) { while (m > R.hi + 0.5) m -= 12; while (m < R.lo - 0.5) m += 12; }
     if (out === this.ch.stab.input) out = this.ch.stab.band;
-    const touch = 1 - 0.2 * (R?.even ?? 1) + 0.4 * (R?.even ?? 1) * hash(t * 7 + m, 24), hv = Math.max(0.25, Math.min(1.2, vel * touch));
+    const touch = 1 - 0.2 * (fx.even ?? R?.even ?? 1) + 0.4 * (fx.even ?? R?.even ?? 1) * hash(t * 7 + m, 24), hv = Math.max(0.25, Math.min(1.2, vel * touch));
     if (kind === 'upright') set = this.rec(hv < 61 / 127 ? 'uprightsoft' : hv >= 111 / 127 ? 'uprighthard' : 'upright') || set;
     // Soft touches play the softly struck or plucked recording: a different tone, not just a quieter one.
     if (hv < (R?.softBelow ?? 0) && this.rec(SOFT_LAYER[kind])) set = this.rec(SOFT_LAYER[kind]);
@@ -3331,6 +3430,7 @@ export class Engine {
     return this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
       hp: kind === 'org' && this.playbackStyle === 'gfunk' ? 110 : 0, hpQ: -3.01,
       shelves: [[3000, tone]], peaks: [...(R?.peak ? [R.peak] : []), ...(kind === 'org' && this.playbackStyle === 'gfunk' ? [[2200, 1.2, -3], [3300, 0.8, -6]] : []), ...(kind === 'str' ? HIPHOP[this.state.artist?.style]?.strEq ?? [] : []), ...(jazzStyle(this.state, this.playingPattern) === 'bossa' && kind === 'jazz' ? jazzNotches(kind, c, Math.pow(2, (m - c) / 12)) : [])], lp: R ? R.lp * (F ? F[1] : 1) * (0.4 + 0.6 * hv) : 0, ...(kind === 'upright' ? { lpStages: 2, lpQ: -6.0206 } : {}), lpFrom: F ? F[0] : R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
+      ...fx,
     });
   }
   // A guitar amp for the DRIVE GTR: tightened lows into an asymmetric tube-style clipper, then a 4x12 cab
@@ -3508,6 +3608,7 @@ export class Engine {
   marimba(...a) { return this.recorded('marimba', 'pluck', ...a); }
 
   brass(t, v, iv, root, p, out) {
+    if (this.analogChord(4, t, v, iv, root, p, out)) return;
     const c = this.ctx, gate = Math.max(0.08, p.decay * 0.8), end = t + gate + 0.4;
     const lp = this.filter('lowpass', p.cutoff * 0.4, Math.max(0.7, p.reso * 0.5));
     lp.frequency.setValueAtTime(p.cutoff * 0.35, t);
@@ -3721,8 +3822,9 @@ export class Engine {
     const air = hash(step, m + 29), tongue = hash(step, m + 71), touch = Math.min(1, v);
     const out = this.trimOut(`hook-${voice}`, 1, this.hookBus || this.windDuck, -4, 500);
     const eq = tone.reduce((o, band) => this.bodyFor(o, band), this.bodyFor(this.bodyFor(out, presence), [780, 1.2, -2.5]));
-    const rate = 2 ** ((m - pitch - cents / 100) / 12);
     const styleFx = voice.endsWith('sax') ? SAX_FX[this.playbackStyle] ?? {} : {};
+    const drift = styleFx.scatter ? (hash(step, m + 113) - 0.5) * 2 * styleFx.scatter : 0;
+    const rate = 2 ** ((m - pitch - (cents + drift) / 100) / 12);
     return this.playBuf(buf, t, gain * touch * dbGain(trim + (air - 0.5) * 1.2) * dbGain(jazzStyle(this.state, this.playingPattern) === 'bossa' && voice === 'tpt' ? JAZZ_MIX.bossa.trumpetLead : JAZZ_MIX[jazzStyle(this.state, this.playingPattern)]?.lead || 0), eq,
       rate, Math.max(0.06, dur * 0.92), {
         peaks: [...(jazzStyle(this.state, this.playingPattern) ? jazzNotches(useAlt ? TAKES[HOOK_BAND[voice]] : HOOK_BAND[voice], pitch, rate) : []), ...(styleFx.peaks || [])],
@@ -4222,7 +4324,10 @@ export class Engine {
     const color = this.bassColor();
     const note = this.bassMidi(st), f = midiHz(note), subF = midiHz(this.bassMidi(st, 36, 38));
     // A chromatic approach note leads into the next bar and gets out of the way when the chord lands.
-    const len = st.ap ? sd * 0.9 : holdNext ? sd * 2 : sd * (0.9 + p.decay * 2);
+    let len = st.ap ? sd * 0.9 : holdNext ? sd * 2 : sd * (0.9 + p.decay * 2);
+    // A band's bassist holds each note into the next one (up to two beats) instead of stopping short.
+    if (this.stripMode && this.acidGap && !st.ap) len = Math.max(len, (this.acidGapSeconds ?? Math.min(8, this.acidGap) * sd) - 0.025);
+    this.acidGap = 0;
     if (Math.round(this.state.master.kit || 0) === 1 && this.state.artist?.style !== 'breaks') {
       const kit = this.rec('kit');
       if (kit) return this.sampledBass(kit, t, note, len, st.a);
@@ -5335,11 +5440,12 @@ const PRE_HZ = 4500, BUILD_HZ = 3000;
 // phrase and broadens into a new section (classical.js tempoMap at low depth, deeper for calmer feelings), and the
 // ending slows over its last bars by the feeling's end.rit. A song with a sung stem keeps strict time, as does one
 // without a feeling.
-export function feelTempo(s, chain, pos, i16) {
+const GRID_TEMPO = new Set(['hypnotic', 'industrial', 'acid', 'dub', 'peak', 'hardtechno', 'deephouse', 'minimal', 'ukg', 'euphoric', 'trance', 'amapiano', 'bailefunk', 'jerseyclub']);
+export function feelTempo(s, chain, pos, i16, style = s.artist?.style) {
   const f = feelOf(s), n = chain.length;
-  if (!f || !n || s.sing?.on) return 1;
+  if (!f || !n || s.sing?.on || GRID_TEMPO.has(style)) return 1;
   let m = 1;
-  if (s.patterns[chain[pos]]?.sec && s.artist?.style !== 'hardtechno' && jazzStyle(s, s.patterns[chain[pos]]) !== 'jazzfunk') {
+  if (s.patterns[chain[pos]]?.sec && jazzStyle(s, s.patterns[chain[pos]]) !== 'jazzfunk') {
     let a = pos;
     while (a > 0 && chain[a - 1] === chain[pos]) a--;
     const d = 0.25 + 0.1 * (1 - f.arousal), ph = ((((pos - a) % 4) * 16) + i16) / 64;
@@ -5561,7 +5667,7 @@ export class Sequencer {
     if (s.artist?.style === 'dub' || e.dubBreakdown === true) e.dubSection?.(t, s.artist?.style === 'dub' && s.chainOn && pos >= 48 && pos < 56 && (this.cur === 4 || this.cur === 5));
     if (abs % 16 === 0) e.vocal(t, pos, 0, roomGridTime, false, vocalSettling);
     const pat = patternAt(s.patterns[this.cur], pos);
-    if (!pat.score) e.stepScale = n ? feelTempo(s, this.chainArr, pos, abs % 16) : 1;
+    if (!pat.score) e.stepScale = n ? feelTempo(s, this.chainArr, pos, abs % 16, e.playbackStyle ?? s.artist?.style) : 1;
     const firstTick = !e.playingPattern, previousJazz = jazzStyle(s, e.playingPattern);
     e.playingPattern = pat;
     if (firstTick || (abs % 16 === 0 && previousJazz !== jazzStyle(s, pat))) e.applyOutputTrim?.(false, t);
@@ -5585,7 +5691,7 @@ export class Sequencer {
     const hp = f ? this.hairpin(f, abs) : 1;
     // The breath is a lifted hand: ringing chords and the bass are damped, then let back in for the downbeat.
     if (held && abs % 16 === 12) e.breath(tt, false);
-    if (held && abs % 16 === 15) e.breath(tt + sd - 0.012, true);
+    if (held && abs % 16 === 15) e.breath(t + sd - 0.012, true);
     if (s.ending && n >= 16 && pos === n - 1 && !pat.score) return this.ending(pat, abs % 16, tt, sd, kl);
     // Turnaround: the last beat of a section anticipates the next section's first chord.
     const nx = n && pos + 1 < n && this.chainArr[pos + 1] !== this.cur ? patternAt(s.patterns[this.chainArr[pos + 1]], pos + 1) : null;
