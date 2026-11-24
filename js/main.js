@@ -743,9 +743,16 @@ const remote = {
 const songFps = (s) => [...new Set([songFingerprint(s), songFingerprint(sanitize(s))])];
 const radioPlays = () => radioOn() && !jukeboxNow && !roomResume && !artistLive && !guest && songOrigin.src !== 'room' &&
   !hostingRoom() && !document.querySelector('.club-overlay');
-function radioNext(why = '') {
-  const n = nextUp({ queue: queue && { ids: queue.items, i: queue.i }, style, styles: STYLES, why, feel: feelPick, skip: (t) => (t.fps || songFps(t.state)).some(listens.isDowned) });
-  if (n.kind === 'track') { queue.i = n.i; return openRecent(queue.items[n.i]); }
+async function radioNext(why = '') {
+  const current = queue;
+  const pick = () => nextUp({ queue: current && { ids: current.items, i: current.i }, style, styles: STYLES, why, feel: feelPick, skip: (t) => (t.fps || songFps(t.state)).some(listens.isDowned) });
+  let n = pick();
+  while (n.kind === 'track') {
+    const index = current.i = n.i;
+    const stillNext = () => queue === current && current.i === index;
+    if (await openRecent(current.items[index], stillNext) || !stillNext()) return;
+    n = pick();
+  }
   queue = null;
   if (n.style !== style) {
     style = n.style; family = STYLES[style].family;
@@ -1865,19 +1872,26 @@ function surprise() {
   localStorage.setItem('untergrund.family', family);
   generateNow();
 }
-async function openRecent(t) {
+async function openRecent(t, stillNext) {
   ensureAudio();
   try {
     const track = t.state ? t : t.cloud ? { ...t, state: await cloudLibrary.load(t.id) } : await fetchTrack(t.id);
+    if (stillNext && !stillNext()) return false;
     if (!track?.state) throw new Error('track_missing');
     const saved = track.style || t.style;
     if (STYLES[saved]) { style = saved; family = STYLES[saved].family; }
     const next = refreshSong(sanitize(track.state)), origin = { src: 'crate', tid: String(t.id || '').startsWith('local-') ? '' : t.id || '' };
-    if (playing && !pat().score && !next.patterns.some((q) => q.score)) return queueSong({ next, origin, finish: () => { build(); persist(); } });
-    songOrigin = origin;
-    replaceState(next);
-    play();
-  } catch { toast('Could not load that track'); }
+    if (playing && !pat().score && !next.patterns.some((q) => q.score)) queueSong({ next, origin, finish: () => { build(); persist(); } });
+    else {
+      songOrigin = origin;
+      replaceState(next);
+      play();
+    }
+    return true;
+  } catch {
+    if (!stillNext) toast('Could not load that track');
+    return false;
+  }
 }
 
 // Open a published track from its public page (/?track=<id>) or the following feed.

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { nextUp, radioOn, setRadio } from '../js/radio.js';
 import { STYLES } from '../js/state.js';
 
@@ -33,4 +34,16 @@ for (let k = 0; k < 40; k++) {
 }
 assert.ok(fams.size >= 3 && [...fams].some((f) => f !== STYLES.pop.family), `dark radio crosses families: ${[...fams]}`);
 assert.deepEqual(nextUp({ style: 'pop', styles: STYLES, feel: 'dark' }), { kind: 'generate', style: 'pop' }, 'a song ending keeps the genre; the feeling rides along');
+
+const main = readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
+const radioNextSource = main.match(/(?:async )?function radioNext\([^)]*\) \{[\s\S]*?\n\}/)[0];
+const attempted = [];
+const runNext = new Function('nextUp', 'STYLES', 'openRecent', 'generateNow', `
+  let queue = { items: [{ id: 'playing' }, { id: 'removed', cloud: true, fps: [] }, { id: 'next', fps: [] }], i: 0 };
+  const style = 'pop', feelPick = null, listens = { isDowned: () => false };
+  ${radioNextSource}
+  return radioNext();
+`);
+await runNext(nextUp, STYLES, async (row) => { attempted.push(row.id); return row.id !== 'removed'; }, () => attempted.push('generate'));
+assert.deepEqual(attempted, ['removed', 'next'], 'radio advances past a cloud track that no longer loads');
 console.log('radio passed');
