@@ -277,8 +277,13 @@ const resetLink = delivered.text.match(/http:\/\/localhost:8020\/#reset-password
 assert(resetLink);
 const resetPassword = 'Third long test passphrase';
 const reset = (j) => request(j, 'reset-password', { token: resetLink[1], password: resetPassword }, { context: integrations });
-assert.equal((await reset(tablet)).json.account.id, id);
+const recovered = (await reset(tablet)).json.account;
+assert.equal(recovered.id, id);
+assert.deepEqual(recovered.providers, ['email'], 'recovery removes sign-in methods linked before proving mailbox ownership');
 assert.equal((await reset(jar())).json.error, 'invalid_reset');
 assert.equal((await request(googleDevice, null, {}, { method: 'GET' })).json.account, null);
+const oldGoogle = jar();
+assert.equal((await googleFlow(oldGoogle, false)).result.redirect, '/?account=google_ok');
+assert.notEqual((await request(oldGoogle, null, {}, { method: 'GET' })).json.account.id, id, 'the old Google identity cannot regain access after recovery');
 assert.equal((await signIn(jar(), { password: resetPassword })).json.account.id, id);
 console.log('Resend reset delivery, single-use tokens and session rotation passed');

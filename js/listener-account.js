@@ -97,7 +97,7 @@ export function openListenerAccount({ googleResult, resetToken } = {}) {
       title.textContent = 'Reset your password';
       const [label, field] = password('New password', true);
       focusOn = field;
-      content.replaceChildren(h('p', { class: 'listener-intro' }, 'Choose a new password with at least 12 characters. Other devices will be signed out.'),
+      content.replaceChildren(h('p', { class: 'listener-intro' }, 'Choose a new password with at least 12 characters. Other devices will be signed out, and you’ll need to reconnect Google if you used it.'),
         makeForm([label], submit('Set new password'), async () => {
           ({ account } = await accountAction('reset-password', { token: resetToken, password: field.value }));
           resetToken = null;

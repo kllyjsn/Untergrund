@@ -384,9 +384,15 @@ export async function handleAccount(req, ctx) {
     if (action === 'password-change' && (!validPassword(body.currentPassword, 1) ||
         !await passwordMatches(body.currentPassword, hash))) return err(401, 'invalid_credentials');
     const next = { ...me, authVersion: randomToken() };
+    const providers = [];
+    if (action === 'reset-password' && me.providers.google) {
+      const { google, ...remaining } = me.providers;
+      next.providers = remaining;
+      providers.push([K.link('google', google.id), me.id, null]);
+    }
     const newHash = await passwordHash(body.password);
     if (!await commit(kv, [K.acct(me.id), JSON.stringify(me), JSON.stringify(next)], [passwordKey, hash, newHash],
-      ...(key ? [[key, saved, null]] : []))) return err(409, 'account_conflict');
+      ...providers, ...(key ? [[key, saved, null]] : []))) return err(409, 'account_conflict');
     return signedIn(next);
   }
 
