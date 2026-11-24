@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { freshSong, sanitize } from '../js/state.js';
-import { Engine, Sequencer, feelTempo, parseChain } from '../js/engine.js';
+import { Engine, Sequencer, feelTempo, parseChain, stabPitches } from '../js/engine.js';
 import { Recorder } from '../js/midi.js';
 import { jazzHarmony, jazzNotes, jazzVoicing, jazzMelody } from '../js/jazz.js';
 import { funkBass, funkGroove, funkNotes, FUNK_PROGS } from '../js/jazzfunk.js';
@@ -15,6 +15,22 @@ import { songState } from '../js/song-spec.js';
 import { swingLate } from '../js/groove.js';
 
 const pc = (n) => (n % 12 + 12) % 12;
+{
+  for (const bpm of [90, 120]) {
+    const s = freshSong('jazzfunk', 42); s.bpm = bpm;
+    const e = new Recorder(s); e.playingPattern = s.patterns[6]; e.harm = jazzHarmony(e.playingPattern, 0);
+    const hold = Math.max(s.params.stab.decay, e.stepDur * 3);
+    assert.equal(stabPitches(e).dur, hold, 'comp holds through three sixteenths without changing its tone controls');
+    e.trigger('stab', 0.05, 0.6);
+    assert(e.notes.stab.length && e.notes.stab.every((n) => n.dur === hold), 'MIDI uses the scheduled comp hold');
+    const params = structuredClone(s.params.stab), calls = [];
+    Engine.prototype.stab.call({ state: s, step: 0, stepDur: e.stepDur, harm: e.harm, ch: { stab: { input: {} } }, keys: (...a) => calls.push(a) }, 0.05, 0.6);
+    assert.equal(calls[0][4].rhodesHold, hold, 'audio uses the same comp hold');
+    assert.deepEqual(s.params.stab, params, 'scheduled hold never leaks into saved or other-genre parameters');
+    s.params.stab.rhodesHold = 0.125;
+    assert.equal(stabPitches(e).dur, 0.125, 'explicit hold remains editable');
+  }
+}
 {
   const s = freshSong('jazzfunk', 42), chain = parseChain(s.chain);
   s.ending = true;
@@ -142,12 +158,17 @@ for (const seed of [1, 2, 3, 11, 42, 77, 1234, 12345, 0x12345678]) {
   let keys = 0, recorded = 0;
   Engine.prototype.stab.call({ state: s, step: 0, harm: jazzHarmony(p, 0), ch: { stab: { input: {}, band: {} } }, keys: () => keys++, recordedNote: () => recorded++ }, 0, 0.6);
   assert.equal(keys, 1); assert.equal(recorded, 0, 'main comping is FM keys, not a piano sample');
-  const response = { state: s, step: 62, harm: jazzHarmony(p, 3), ch: { stab: { input: {}, band: {} } }, keys: () => keys++, recordedNote: () => recorded++, rec: () => [[60, {}]] };
+  const keyLevels = [], hornLevels = [];
+  const response = { state: s, step: 62, harm: jazzHarmony(p, 3), ch: { stab: { input: {}, band: {} } }, keys: (t, v) => { keys++; keyLevels.push(v); }, recordedNote: (set, t, v) => { recorded++; hornLevels.push(v); }, rec: () => [[60, {}]] };
   Engine.prototype.stab.call(response, 0, 0.6);
   assert.equal(recorded, 1, 'supporting horns answer the head breath');
+  response.funkKeysGain = 0;
+  Engine.prototype.stab.call(response, 0, 0.6);
+  assert(Math.abs(keyLevels[0] / keyLevels[1] - 10 ** (10.2 / 20)) < 1e-12, 'keys receive the head mix lift');
+  assert.equal(hornLevels[0], hornLevels[1], 'keys-only fader never boosts the horn response');
   response.rec = () => null;
   Engine.prototype.stab.call(response, 0, 0.6);
-  assert.equal(recorded, 1); assert.equal(keys, 3, 'missing horn samples retain Rhodes comping');
+  assert.equal(recorded, 2); assert.equal(keys, 4, 'missing horn samples retain Rhodes comping');
 }
 assert.deepEqual(jazzNotes('jazzfunk', 42, 15, { r: 0, c: 16 }), [], 'cadence leaves a breath for the band');
 assert(jazzMelody('jazzfunk', 42).n.length > 0, 'shared jazz melody helper resolves funk progressions');
@@ -187,7 +208,7 @@ for (const prog of FUNK_PROGS) {
   assert.notDeepEqual(shapes[3].snare, shapes[7].snare, 'large fills develop the four-bar pickup');
   assert.notDeepEqual(shapes[7], funkGroove(77, 7), 'fills differ by seed');
   const solo = funkGroove(42, 0, true);
-  assert(solo.comp.length < shapes[0].comp.length, 'keys leave space for solos');
+  assert.deepEqual(solo.comp, shapes[0].comp, 'solo comp retains every written hit under the horn');
   for (const id of ['kick', 'snare', 'ch', 'oh', 'acid', 'stab', 'perc']) {
     const edited = structuredClone(s), row = edited.patterns[6].steps[id];
     const part = id === 'perc' ? 'guitar' : id;
@@ -246,14 +267,28 @@ const phrases = (notes, sd) => {
 for (const seed of [0, 42, 77, 12345, 1e9]) {
   const s = freshSong('jazzfunk', seed), sd = 60 / s.bpm / 4;
   s.chain = 'G'.repeat(16) + 'C'.repeat(48) + 'H'.repeat(16); s.ending = true;
-  const notes = record(s, 80);
+  const faders = [], notes = record(s, 80, (e) => {
+    const trigger = e.trigger.bind(e);
+    e.trigger = (id, t, v) => {
+      if (id === 'stab') faders.push({ t, db: e.funkKeysGain });
+      trigger(id, t, v);
+    };
+  });
   const step = (n) => Math.round((n.t - 0.05) / sd);
   const within = (id, from, to) => (notes[id] || []).filter((n) => step(n) >= from * 16 && step(n) < to * 16);
   assert(!within('hook', 0, 4).length, 'four-bar rhythm intro is trumpet tacet');
   assert(within('stab', 0, 2).length && within('stab', 0, 2).every((n) => n.v === 0.35), 'quiet intro comping maintains the band level');
   for (const id of ['kick', 'acid', 'guitar']) assert(within(id, 0, 2).length, `${id}: rhythm section opens the song`);
   assert(within('hook', 4, 6).length, 'head phrase A enters at bar four');
-  assert(within('stab', 32, 36).every((n) => n.v === 0.35) && within('stab', 36, 38).some((n) => n.v === 0.48), 'keys lay back for the second chorus, then return');
+  assert(within('stab', 32, 36).every((n) => n.v === 0.35) && within('stab', 36, 38).some((n) => n.v === 0.48), 'keys retain the written lay-back while their fader supports the second chorus');
+  for (const [from, to, db] of [[4, 16, 10.2], [16, 32, 11.5], [32, 36, 12], [36, 48, 11.5]]) {
+    const levels = faders.filter((n) => step(n) >= from * 16 && step(n) < to * 16);
+    assert(levels.length && levels.every((n) => n.db === db), 'head, solo and lay-back use keys-only faders');
+  }
+  for (let bar = 16; bar < 62; bar++) {
+    assert.equal(new Set(within('stab', bar, bar + 1).map(step)).size, 4, 'each solo bar retains four comp strikes');
+    assert(within('stab', bar, bar + 1).every((n) => n.dur >= sd * 3), 'solo comp sustains between strikes');
+  }
   assert(!within('hook', 62, 64).length && within('ch', 62, 64).length && within('guitar', 62, 64).length, 'quiet hats and guitar keep time under the band hits');
   for (const [bar, figure] of [[62, [0, 6, 10]], [63, [0, 3, 6, 12, 15]]]) {
     for (const id of ['kick', 'snare', 'stab', 'acid']) {

@@ -72,7 +72,9 @@ export function funkGroove(seed, bar, solo = false) {
   const ghosts = choose(touch, [[1, 7], [3, 11], [7, 15], [1, 9, 15]]);
   const snare = [4, 12, ...ghosts];
   if (fill) snare.push(...choose(touch, big ? [[10, 13, 14, 15], [11, 14, 15], [9, 10, 13, 15]] : [[13, 15], [10, 15], [11, 14]]));
-  const comp = [...choose(touch, FUNK_COMP)].filter((at, k) => !solo || k === 0 || touch() > 0.3);
+  const comp = [...choose(touch, FUNK_COMP)];
+  // Keep the hat draws independent of solo comp coverage.
+  if (solo) for (let k = 1; k < comp.length; k++) touch();
   const oh = touch() < (fill ? 0.85 : 0.4) ? [choose(touch, [14, 15])] : [];
   const ch = Array.from({ length: 16 }, (_, i) => i).filter((i) => !oh.includes(i) && !(big && i >= 14));
   const guitar = FUNK_GUITAR.filter((i) => !comp.includes(i) && touch() > 0.22);
