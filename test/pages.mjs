@@ -92,6 +92,7 @@ console.log('Open Graph image passed');
     recent.push(publication.json.item.trackId);
   }
   await jukebox.add({ kind: 'set', trackId: real.id });
+  for (let i = 0; i < 6; i++) await jukebox.add({ kind: 'song', trackId: `expired-${i}` });
   const unpublished = normalizeTrack({ ...real, title: 'Generated but not published' });
   await store.add(unpublished);
   const getShelf = async (flagship, releases = jukebox) => JSON.parse((await hp({ flagship: '1' }, { kv: null, crate: store, jukebox: releases, site, og, flagship })).body);

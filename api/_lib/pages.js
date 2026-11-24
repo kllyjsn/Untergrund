@@ -130,8 +130,12 @@ export async function flagshipTracks({ kv, crate, ids = FLAGSHIP, max = 12 }) {
   return shelfTracks(kv, crate, [...new Set(ids)].slice(0, max));
 }
 
-async function shelfTracks(kv, crate, ids) {
-  const found = (await Promise.all(ids.map((id) => publicTrack(kv, crate, id).catch(() => null)))).filter(Boolean);
+async function shelfTracks(kv, crate, ids, max = ids.length) {
+  const found = [];
+  for (let offset = 0; offset < ids.length && found.length < max; offset += max) {
+    const batch = await Promise.all(ids.slice(offset, offset + max).map((id) => publicTrack(kv, crate, id).catch(() => null)));
+    found.push(...batch.filter(Boolean).slice(0, max - found.length));
+  }
   const counts = crate?.counts ? await crate.counts(found.map((f) => f.track.id)).catch(() => []) : [];
   return found.map(({ track: t, artist }, i) => ({
     id: t.id, title: t.title, style: t.style, bpm: t.bpm, key: t.key, scale: t.scale, state: t.state,
@@ -229,7 +233,7 @@ export async function handlePage(query, { kv, crate, jukebox, site = SITE, og, r
     const pinned = await flagshipTracks({ kv, crate, ids: flagship });
     const recent = !pinned.length && jukebox ? await jukebox.list(60).catch(() => []) : [];
     const recentIds = new Set(recent.filter((item) => item.kind === 'song' && item.trackId).map((item) => item.trackId));
-    const tracks = pinned.length ? pinned : await shelfTracks(kv, crate, [...recentIds].slice(0, 6));
+    const tracks = pinned.length ? pinned : await shelfTracks(kv, crate, [...recentIds], 6);
     const kind = pinned.length ? 'flagship' : 'recent';
     return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify({ tracks, kind }), cache: 'public, max-age=60, s-maxage=300, stale-while-revalidate=600' };
   }
