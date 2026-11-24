@@ -24,7 +24,7 @@ import { FEELS } from './feel.js';
 import { cleanChainEntries } from './chain.js';
 import { funkHand } from './baile.js';
 import { festivalTrap, festivalBuilds, festivalBuildStep } from './festival-build.js';
-import { RHODES_STYLES, rhodesVoicing, rhodesLineOctave, rhodesLoFiVoicing, rhodesLoFiPhrase, rhodesRnBVoicing } from './rhodes.js';
+import { RHODES_STYLES, rhodesVoicing, rhodesFunkVoicing, rhodesLineOctave, rhodesLoFiVoicing, rhodesLoFiPhrase, rhodesRnBVoicing } from './rhodes.js';
 import { rootsFor, fiddleRole, fiddlePitch, fiddleDuration, fiddleAnswerRoll, uprightNotes } from './roots.js';
 
 const DUCKED = new Set(['acid', 'stab', 'vox']);
@@ -1094,8 +1094,7 @@ export class Engine {
     }
     const mix = JAZZ_MIX[jazzStyle(this.state, this.playingPattern)];
     const trim = this.minimal ? 0.32 : this.playbackStyle === 'trap' ? TRAP_OUTPUT_DB[voice] ?? 0 : jazzStyle(this.state, this.playingPattern) === 'bossa' ? voice === 7 ? mix.pianoOutput : voice === 8 ? mix.guitarOutput : mix.output : mix?.output ?? STYLE_OUTPUT_DB[this.playbackStyle] ?? 0;
-    this.rhodesOutput = jazzStyle(this.state, this.playingPattern) === 'jazzfunk' && !this.state.params.stab.rhodesFM && !!this.rec('rhodes', false);
-    const level = this.hardTechno ? 0.89 : OUT_TRIM * dbGain(trim + (this.rhodesOutput ? 0.5 : 0));
+    const level = this.hardTechno ? 0.89 : OUT_TRIM * dbGain(trim);
     if (Number.isFinite(time)) this.out.gain.setValueAtTime(level, time);
     else this.setTo(this.out.gain, level, immediate);
     const clipTrim = this.playbackStyle === 'neosoul' ? dbGain(-2.5) : jazzStyle(this.state, this.playingPattern) === 'jazzfunk' ? dbGain(-1.5) : 1;
@@ -2450,10 +2449,9 @@ export class Engine {
     const requested = iv.map((n) => root + n);
     if (!requested.length || requested.some((n) => !Number.isFinite(n)) || !Number.isFinite(v) || v <= 0) return true;
     const style = jazzStyle(this.state, this.playingPattern) ?? this.playbackStyle, funk = style === 'jazzfunk';
-    const notes = p.rhodesLine ? requested : style === 'lofihiphop' ? rhodesLoFiVoicing(requested) : style === 'rnb' ? rhodesRnBVoicing(requested) : rhodesVoicing(requested);
+    const notes = p.rhodesLine ? requested : funk ? rhodesFunkVoicing(requested) : style === 'lofihiphop' ? rhodesLoFiVoicing(requested) : style === 'rnb' ? rhodesRnBVoicing(requested) : rhodesVoicing(requested);
     if (notes === null) return false;
     if (!notes.length) return true;
-    if (funk && !this.rhodesOutput) this.applyOutputTrim?.(false, t);
     const [envRef, detuneRef, tineRef] = {
       neosoul: [0.25, 14, 1], rnb: [0.25, 10, 1], lofihiphop: [0.12, 8, 0.18], jazzfunk: [0.12, 0.6, 1],
     }[style];
@@ -2462,11 +2460,13 @@ export class Engine {
     const env = (p.env ?? envHome) - envHome, detune = ((p.detune ?? detuneRef) - detuneRef) * 0.15;
     const tine = (p.tine ?? tineRef) - tineRef;
     const velocity = Math.max(0, Math.min(1, v / (funk ? dbGain(JAZZ_MIX.jazzfunk.comp) : 1)));
-    const hold = (p.rhodesHold ?? Math.max(0.08, p.decay * (funk ? 1 : 1.7))) * 2 ** (env * 3);
+    const hold = (p.rhodesHold ?? Math.max(0.08, p.decay * (funk ? p.rhodesLine ? 1 : 0.5 : 1.7))) * 2 ** (env * 3);
     const end = t + hold + 0.22;
     if (funk && !p.rhodesLine) {
       const shelf = this.filter('lowshelf', 300, Math.SQRT1_2);
-      shelf.gain.value = -19; shelf.connect(out); out = shelf;
+      const body = this.filter('peaking', 250, 1.5);
+      shelf.gain.value = -13; body.gain.value = -8;
+      shelf.connect(body).connect(out); out = shelf;
     }
     if (style === 'rnb' && !p.rhodesLine) {
       for (let i = 0; i < 2; i++) {
@@ -2481,14 +2481,14 @@ export class Engine {
       trem.connect(out); out = trem;
       this.startSource(lfo, t); lfo.stop(end);
     }
-    let level = v * (funk ? 1.2 * (p.rhodesLine ? 1 : dbGain(5)) : 0.96) / Math.sqrt(notes.length);
+    let level = v * (funk ? 1.2 * (p.rhodesLine ? 1 : dbGain(13)) : 0.96) / Math.sqrt(notes.length);
     if (style === 'rnb' && !p.rhodesLine) level *= dbGain(28.8);
     const lp = Math.min(8500, Math.max(550, p.cutoff * (0.55 + 2.2 * velocity ** 2) * 2 ** tine));
     for (const [i, m] of notes.entries()) {
       const [center, buf] = set.reduce((a, b) => Math.abs(b[0] - m) < Math.abs(a[0] - m) ? b : a);
       const at = t + 0.002 + hash((this.step || 0) + m, i + 621) * 0.006;
       this.playBuf(buf, at, level, out, 2 ** ((m - center) / 12 + (i % 2 ? detune : -detune) / 1200), hold,
-        { lp, shelves: [[3000, -9 * (1 - velocity) + tine * 12]], fade: 0.001, release: 0.03, ringOut: true });
+        { lp, shelves: [[3000, -9 * (1 - velocity) + tine * 12]], fade: 0.001, release: funk && !p.rhodesLine ? 0.012 : 0.03, ringOut: true });
     }
     return true;
   }

@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { liveSet, liveSets, setsReady, loadSets, loadBand, BAND, STAB_BAND, LIVE_FILES, LIVE_KIT } from '../js/livekit.js';
 import { Engine, Sequencer, stabPitches } from '../js/engine.js';
-import { rhodesVoicing, rhodesLineOctave, rhodesPhraseOctave, rhodesLoFiVoicing, rhodesLoFiPhrase, rhodesRnBVoicing, RHODES_STYLES } from '../js/rhodes.js';
+import { rhodesVoicing, rhodesFunkVoicing, rhodesLineOctave, rhodesPhraseOctave, rhodesLoFiVoicing, rhodesLoFiPhrase, rhodesRnBVoicing, RHODES_STYLES } from '../js/rhodes.js';
 import { Recorder, capture } from '../js/midi.js';
 import { KIT_BACKBEAT, HAND_KIT, MARIMBA_STAB, CHORDS } from '../js/params.js';
-import { defaultState, generate, STYLES, arrangement, applyOverrides, applySongPlan, freshSong } from '../js/state.js';
+import { defaultState, generate, STYLES, arrangement, applyOverrides, applySongPlan } from '../js/state.js';
 import { hookSnap } from '../js/harmony.js';
 import { createPlayer } from '../js/player.js';
 import { timelineSets } from '../js/live-sets.js';
@@ -81,6 +81,13 @@ assert.deepEqual(liveSets({ artist: { style: 'boombap' }, pattern: { hook: { v: 
 assert.deepEqual(liveSets({ artist: { style: 'country' }, pattern: { hook: { v: 'reed' } } }), [], 'other reed styles stay synthesized');
 
 assert.deepEqual(rhodesVoicing([]), []);
+assert.deepEqual(rhodesFunkVoicing([]), []);
+assert.deepEqual(rhodesFunkVoicing([NaN]), []);
+assert.deepEqual(rhodesFunkVoicing([Infinity]), []);
+assert.deepEqual(rhodesFunkVoicing([57, 63, 74]), [57, 62, 63], 'fold only the high funk voice, not the written bass');
+assert.deepEqual(rhodesFunkVoicing([51, 58, 65]), [51, 58, 65], 'retain an already-fitting funk chord');
+assert.deepEqual(rhodesFunkVoicing([48, 60, 72, 84]), [48, 60], 'remove octave-folded duplicates');
+assert.deepEqual(rhodesFunkVoicing([28, 35, 39]), [], 'omit a funk chord below the playable range');
 assert.deepEqual(rhodesRnBVoicing([]), []);
 assert.equal(rhodesRnBVoicing([NaN]), null);
 assert.deepEqual(rhodesRnBVoicing([40, 44, 47]), [52, 56, 59], 'restore three low chord tones by octave');
@@ -114,7 +121,7 @@ const rhodesTune = JSON.parse(await readFile(new URL('../samples/rhodes-analysis
   let row, linePitch, linePart, phraseShifts, fmNotes, lineEvents, rnbRecorded, rnbFM;
   Recorder.prototype.rhodesKeys = function (_t, _v, iv, root, p) {
     const requested = iv.map((n) => root + n);
-    const played = p.rhodesLine || p.rhodesFM ? requested : this.playbackStyle === 'lofihiphop' ? rhodesLoFiVoicing(requested) : this.playbackStyle === 'rnb' ? rhodesRnBVoicing(requested) : rhodesVoicing(requested);
+    const played = p.rhodesLine || p.rhodesFM ? requested : this.playbackStyle === 'jazzfunk' ? rhodesFunkVoicing(requested) : this.playbackStyle === 'lofihiphop' ? rhodesLoFiVoicing(requested) : this.playbackStyle === 'rnb' ? rhodesRnBVoicing(requested) : rhodesVoicing(requested);
     const part = p.rhodesLine ? row.lines : row.chords;
     if (p.rhodesLine && this.playbackStyle === 'lofihiphop') {
       lineEvents++;
@@ -138,6 +145,9 @@ const rhodesTune = JSON.parse(await readFile(new URL('../samples/rhodes-analysis
         assert(played.length >= 3 && played.every((n) => n >= 52));
         assert(played.every((n) => requested.some((m) => (m - n) % 12 === 0)), 'R&B repair retains chord tones');
         assert(requested.map((n) => n - shift).filter((n) => n >= 52).every((n) => played.includes(n)), 'retain upper voices after whole-chord transposition');
+      } else if (this.playbackStyle === 'jazzfunk') {
+        assert(played.every((n) => requested.some((m) => m >= n && (m - n) % 12 === 0)), 'funk folds high voices by octave only');
+        assert(requested.filter((n) => n >= 48 && n <= 68).every((n) => played.includes(n)), 'funk keeps its written low and inner voices');
       } else assert(played.every((n) => requested.includes(n + shift)), 'one octave shift shared by every chord voice');
     }
     return true;
@@ -270,41 +280,7 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
   const e = { state, ctx, step: 0, playbackStyle: 'lofihiphop', rec: () => null, gain: Engine.prototype.gain,
     startSource: Engine.prototype.startSource, filter: Engine.prototype.filter, playBuf: (...a) => hits.push(a) };
   assert.equal(Engine.prototype.rhodesKeys.call(e, 1, .5, [0], 60, state.params.stab, ctx.destination), false, 'cold set falls through, never recurses');
-  const audioBuffer = globalThis.AudioBuffer;
-  globalThis.AudioBuffer = AudioBuffer;
-  const funkState = freshSong('jazzfunk', 42), funk = new Engine(new FakeContext(2, 48000, 48000), funkState, { realtime: false });
-  const fmOutput = funk.out.gain.value;
-  funk.recLock = new Map();
-  funk.applyOutputTrim(true);
-  assert.equal(funk.out.gain.value, fmOutput, 'unloaded Jazz-Funk keeps the FM master level');
-  assert.equal(funk.recLock.has('rhodes'), false, 'reading output trim does not lock a not-yet-played part');
   await loadBand('rhodes');
-  const recordedOutput = fmOutput * 10 ** (0.5 / 20);
-  funk.playBuf = () => {};
-  assert.equal(funk.rhodesKeys(2, .5, [0, 4, 7], 60, funkState.params.stab, funk.ctx.destination), true);
-  assert(Math.abs(funk.out.gain.at(2) - recordedOutput) < 1e-12, 'a recording ready at its first note gets the scheduled master makeup');
-  assert.equal(funk.recLock.get('rhodes'), true);
-  funk.recLock = new Map([['rhodes', false]]);
-  funk.applyOutputTrim(true);
-  assert.equal(funk.out.gain.value, fmOutput, 'a locked FM song stays at main level after recordings load');
-  assert.equal(funk.rhodesKeys(3, .5, [0, 4, 7], 60, funkState.params.stab, funk.ctx.destination), false);
-  funk.recLock = new Map();
-  funkState.params.stab.rhodesFM = true;
-  funk.applyOutputTrim(true);
-  assert.equal(funk.out.gain.value, fmOutput, 'explicit FM playback does not get recorded makeup');
-  delete funkState.params.stab.rhodesFM;
-  funk.applyOutputTrim(true);
-  assert(Math.abs(funk.out.gain.value - recordedOutput) < 1e-12);
-  funk.playingPattern = {};
-  funk.applyOutputTrim(true);
-  assert.equal(funk.out.gain.value, .78, 'leaving the Jazz-Funk pattern removes its recorded makeup');
-  for (const style of ['neosoul', 'rnb', 'lofihiphop', 'trap']) {
-    const other = new Engine(new FakeContext(2, 48000, 48000), freshSong(style, 42), { realtime: false });
-    const output = other.out.gain.value;
-    other.recLock = new Map([['rhodes', false]]); other.applyOutputTrim(true);
-    assert.equal(other.out.gain.value, output, `${style} master level is independent of Rhodes availability`);
-  }
-  globalThis.AudioBuffer = audioBuffer;
   for (const [i, [center]] of liveSet('rhodes').entries()) {
     const midi = BAND.rhodes[i];
     assert.equal(center, midi + rhodesTune[midi] / 100, 'every shipped sample loads with its measured tuning');
@@ -322,10 +298,22 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
   assert.equal(hard[0][6].release, .03, 'damper decays 40 dB in 138 ms');
   assert(hard.every((a) => a[5] > 1), 'natural held sustain, not a guitar chop');
   assert.notEqual(hard[0][3], ctx.destination, 'suitcase stereo motion');
-  const funkOut = chord(.8, 'jazzfunk')[0][3];
+  const funkHits = chord(.8, 'jazzfunk'), funkOut = funkHits[0][3];
   assert.equal(funkOut.type, 'lowshelf');
-  assert.equal(funkOut.frequency.value, 300); assert.equal(funkOut.gain.value, -19);
+  assert.equal(funkOut.frequency.value, 300); assert.equal(funkOut.gain.value, -13);
+  const funkBody = ctx.destination.inputs.at(-1);
+  assert.equal(funkBody.type, 'peaking'); assert.equal(funkBody.frequency.value, 250);
+  assert.equal(funkBody.Q.value, 1.5); assert.equal(funkBody.gain.value, -8);
+  assert(funkHits.every((a) => a[6].release === .012 && a[5] === Math.max(.08, state.params.stab.decay * .5) * 2 ** ((state.params.stab.env - .12) * 3)), 'funk comp halves its hold and uses a 12 ms damper');
+  assert(Math.abs(funkHits[0][2] - .8 * 1.2 * 10 ** (13 / 20) / Math.sqrt(3)) < 1e-12, 'funk compensation is on the comp voice, not the master');
   assert(feeds(funkOut, ctx.destination), 'Jazz-Funk comp has a dry low shelf, not a bus effect');
+  e.playbackStyle = 'jazzfunk'; hits.length = 0;
+  assert.equal(Engine.prototype.rhodesKeys.call(e, 1, .8, [], 60, state.params.stab, ctx.destination), true);
+  assert.equal(Engine.prototype.rhodesKeys.call(e, 1, .8, [NaN], 60, state.params.stab, ctx.destination), true);
+  assert.equal(hits.length, 0, 'empty and invalid funk chords schedule no fragments');
+  Engine.prototype.rhodesKeys.call(e, 1, .8, [0], 60, { ...state.params.stab, rhodesLine: true }, ctx.destination);
+  assert.equal(hits[0][6].release, .03, 'funk single lines retain their damper');
+  assert.equal(hits[0][3], ctx.destination, 'funk single lines bypass comp EQ');
   e.playbackStyle = 'rnb'; hits.length = 0;
   assert.equal(Engine.prototype.rhodesKeys.call(e, 1, .8, [0, 4], 60, state.params.stab, ctx.destination), false, 'fall through only when octave repair cannot make three voices');
   assert.equal(hits.length, 0, 'FM fallback schedules no recorded fragments');
