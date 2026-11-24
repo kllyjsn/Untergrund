@@ -15,6 +15,7 @@ import { songState } from '../js/song-spec.js';
 import { swingLate } from '../js/groove.js';
 
 const pc = (n) => (n % 12 + 12) % 12;
+const keysGain = (v) => ({ gain: { value: v }, connect() {} });
 {
   for (const bpm of [90, 120]) {
     const s = freshSong('jazzfunk', 42); s.bpm = bpm;
@@ -24,11 +25,36 @@ const pc = (n) => (n % 12 + 12) % 12;
     e.trigger('stab', 0.05, 0.6);
     assert(e.notes.stab.length && e.notes.stab.every((n) => n.dur === hold), 'MIDI uses the scheduled comp hold');
     const params = structuredClone(s.params.stab), calls = [];
-    Engine.prototype.stab.call({ state: s, step: 0, stepDur: e.stepDur, harm: e.harm, ch: { stab: { input: {} } }, keys: (...a) => calls.push(a) }, 0.05, 0.6);
+    Engine.prototype.stab.call({ state: s, step: 0, stepDur: e.stepDur, harm: e.harm, ch: { stab: { input: {} } }, gain: keysGain, keys: (...a) => calls.push(a) }, 0.05, 0.6);
     assert.equal(calls[0][4].rhodesHold, hold, 'audio uses the same comp hold');
     assert.deepEqual(s.params.stab, params, 'scheduled hold never leaks into saved or other-genre parameters');
     s.params.stab.rhodesHold = 0.125;
     assert.equal(stabPitches(e).dur, 0.125, 'explicit hold remains editable');
+  }
+}
+{
+  const probe = (env, gain, velocity, explicit) => {
+    const state = freshSong('jazzfunk', 42), samples = [], faders = [];
+    state.params.stab.env = env;
+    if (explicit !== undefined) state.params.stab.rhodesHold = explicit;
+    const recorder = new Recorder(state); recorder.playingPattern = state.patterns[6]; recorder.harm = jazzHarmony(recorder.playingPattern, 0);
+    const e = { state, step: 0, stepDur: recorder.stepDur, harm: recorder.harm, funkKeysGain: gain,
+      ch: { stab: { input: {} } }, rec: () => [[60, {}]],
+      gain(v) { faders.push(v); return keysGain(v); }, filter: () => keysGain(1),
+      playBuf: (...a) => samples.push(a), keys: Engine.prototype.keys, rhodesKeys: Engine.prototype.rhodesKeys };
+    Engine.prototype.stab.call(e, 0.05, velocity);
+    recorder.trigger('stab', 0.05, velocity);
+    assert(samples.length && recorder.notes.stab.length);
+    assert(samples.every((a) => Math.abs(a[5] - recorder.notes.stab[0].dur) < 1e-12), 'ENV-scaled sample holds match MIDI');
+    return { samples, faders };
+  };
+  for (const env of [undefined, 0, 0.12, 0.5, 1]) for (const explicit of [undefined, 0.125]) {
+    for (const velocity of [0.25, 0.35, 0.48, 0.6, 0.8]) {
+      const plain = probe(env, 0, velocity, explicit), boosted = probe(env, 8, velocity, explicit);
+      assert.deepEqual(boosted.samples.map((a) => a[6]), plain.samples.map((a) => a[6]), 'section fader leaves sample low-pass and shelf parameters identical');
+      assert.deepEqual(boosted.samples.map((a) => a[2]), plain.samples.map((a) => a[2]), 'written velocity reaches the Rhodes unchanged');
+      assert.equal(boosted.faders[0] / plain.faders[0], 10 ** (8 / 20), 'section gain is downstream of the voice');
+    }
   }
 }
 {
@@ -156,10 +182,10 @@ for (const seed of [1, 2, 3, 11, 42, 77, 1234, 12345, 0x12345678]) {
   assert.deepEqual(Object.keys(record(solo)), ['guitar']);
   assert.deepEqual(record(s, 16), record(s, 16), 'seeded full phrase is deterministic');
   let keys = 0, recorded = 0;
-  Engine.prototype.stab.call({ state: s, step: 0, harm: jazzHarmony(p, 0), ch: { stab: { input: {}, band: {} } }, keys: () => keys++, recordedNote: () => recorded++ }, 0, 0.6);
+  Engine.prototype.stab.call({ state: s, step: 0, harm: jazzHarmony(p, 0), ch: { stab: { input: {}, band: {} } }, gain: keysGain, keys: () => keys++, recordedNote: () => recorded++ }, 0, 0.6);
   assert.equal(keys, 1); assert.equal(recorded, 0, 'main comping is FM keys, not a piano sample');
   const keyLevels = [], hornLevels = [];
-  const response = { state: s, step: 62, harm: jazzHarmony(p, 3), ch: { stab: { input: {}, band: {} } }, keys: (t, v) => { keys++; keyLevels.push(v); }, recordedNote: (set, t, v) => { recorded++; hornLevels.push(v); }, rec: () => [[60, {}]] };
+  const response = { state: s, step: 62, harm: jazzHarmony(p, 3), ch: { stab: { input: {}, band: {} } }, gain: keysGain, keys: (t, v, iv, root, params, out) => { keys++; keyLevels.push(v * out.gain.value); }, recordedNote: (set, t, v) => { recorded++; hornLevels.push(v); }, rec: () => [[60, {}]] };
   Engine.prototype.stab.call(response, 0, 0.6);
   assert.equal(recorded, 1, 'supporting horns answer the head breath');
   response.funkKeysGain = 0;

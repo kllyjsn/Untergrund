@@ -413,7 +413,8 @@ export function stabPitches(e) {
       const thumb = 48 + ((e.state.key + h.r + (e.step % 16 === 8 ? 7 : 0)) % 12 + 12) % 12;
       notes = BOSSA_BATIDA[Math.floor(e.step / 16) % 2].includes(e.step % 16) ? [...new Set([thumb, ...notes])].sort((a, b) => a - b) : [thumb];
     }
-    return { root: notes[0], vo, iv: notes.map((n) => n - notes[0]), pedal, ...(jazz === 'jazzfunk' ? { dur: p.rhodesHold ?? Math.max(p.decay, (e.stepDur || 60 / e.state.bpm / 4) * 4.5) } : {}) };
+    const rhodesHold = p.rhodesHold ?? Math.max(p.decay, (e.stepDur || 60 / e.state.bpm / 4) * 4.5);
+    return { root: notes[0], vo, iv: notes.map((n) => n - notes[0]), pedal, ...(jazz === 'jazzfunk' ? { rhodesHold, dur: rhodesHold * 2 ** (((p.env ?? 0.12) - 0.12) * 3) } : {}) };
   }
   const { root, notes, home } = stabNotes(e.state, e.harm);
   const voiced = e.lastChord = voiceLead(notes, e.lastChord, home);
@@ -2500,10 +2501,12 @@ export class Engine {
 
   stab(t, v, underHarp = false) {
     const c = this.ctx, p = this.state.params.stab;
-    const { root, vo, iv, pedal, dur } = stabPitches(this);
+    const { root, vo, iv, pedal, dur, rhodesHold } = stabPitches(this);
     if (jazzStyle(this.state, this.playingPattern) === 'jazzfunk') {
       const level = v * dbGain(JAZZ_MIX.jazzfunk.comp);
-      this.keys(t, level * dbGain(this.funkKeysGain ?? JAZZ_MIX.jazzfunk.keys), iv, root, { ...p, rhodesHold: dur }, this.ch.stab.input);
+      const out = this.gain(dbGain(this.funkKeysGain ?? JAZZ_MIX.jazzfunk.keys));
+      out.connect(this.ch.stab.input);
+      this.keys(t, level, iv, root, { ...p, rhodesHold }, out);
       if (Math.floor(this.step / 16) % 4 === 3 && this.step % 16 === 14) {
         const set = this.rec('horn');
         if (set) this.recordedNote(set, t, level * 0.08, root + iv.at(-1), 0.18, this.ch.stab.band, -4, 'horn', 0.5);
