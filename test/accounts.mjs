@@ -291,9 +291,14 @@ const resetLink = delivered.text.match(/http:\/\/localhost:8020\/#reset-password
 assert(resetLink);
 const resetPassword = 'Third long test passphrase';
 const reset = (j) => request(j, 'reset-password', { token: resetLink[1], password: resetPassword }, { context: integrations });
+const recoveryDevice = (await request(tablet, 'claim', { handle: 'recovery-device' })).json.account;
+const recoveryTrack = (await import('../api/_lib/crate.js')).normalizeTrack({ title: 'Recovery Jam', state: defaultState() });
+await attachTrack(kv, recoveryDevice.id, recoveryTrack);
 const recovered = (await reset(tablet)).json.account;
 assert.equal(recovered.id, id);
 assert.deepEqual(recovered.providers, ['email'], 'recovery removes sign-in methods linked before proving mailbox ownership');
+assert.equal((await request(jar(), null, {}, { method: 'GET', query: { track: recoveryTrack.id } })).json.artist.handle, 'sub-signal',
+  'password recovery moves anonymous device releases into the recovered account');
 assert.equal((await reset(jar())).json.error, 'invalid_reset');
 assert.equal((await request(googleDevice, null, {}, { method: 'GET' })).json.account, null);
 const oldGoogle = jar();

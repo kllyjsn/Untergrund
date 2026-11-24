@@ -185,12 +185,12 @@ async function tracksOf(kv, accountId, n = 50) {
 }
 
 // Fold an anonymous device account into the account a provider sign-in resolved to.
-export async function mergeAccounts(kv, from, into) {
+export async function mergeAccounts(kv, from, into, updates = into, writes = []) {
   if (!from || !into || from.id === into.id || !isAnon(from)) return into;
-  const next = { ...into, handle: into.handle || from.handle };
+  const next = { ...updates, handle: into.handle || from.handle };
   for (const f of ['name', 'bio', 'avatar', 'dna']) if (!next[f] && from[f]) next[f] = from[f];
   const rows = [[K.acct(from.id), JSON.stringify(from), null], [K.acct(into.id), JSON.stringify(into), JSON.stringify(next)],
-    ...(from.handle ? [[K.handle(from.handle), from.id, into.handle ? null : into.id]] : [])];
+    ...(from.handle ? [[K.handle(from.handle), from.id, into.handle ? null : into.id]] : []), ...writes];
   return await migrateAccountData(kv, rows, P, from.id, into.id, TRACK_LIMIT) ? next : null;
 }
 
@@ -358,6 +358,7 @@ export async function handleAccount(req, ctx) {
 
   if (action === 'password-change' || action === 'reset-password') {
     if (!validPassword(body.password)) return err(400, 'invalid_password');
+    const device = isAnon(me) ? me : null;
     let key, saved;
     if (action === 'reset-password') {
       if (!reset || !validToken(body.token)) return err(400, 'invalid_reset');
@@ -381,8 +382,12 @@ export async function handleAccount(req, ctx) {
       providers.push([K.link('google', google.id), me.id, null]);
     }
     const newHash = await passwordHash(body.password);
-    if (!await commit(kv, [K.acct(me.id), JSON.stringify(me), JSON.stringify(next)], [passwordKey, hash, newHash],
-      ...providers, ...(key ? [[key, saved, null]] : []))) return err(409, 'account_conflict');
+    const writes = [[passwordKey, hash, newHash], ...providers, ...(key ? [[key, saved, null]] : [])];
+    if (key && device && device.id !== me.id) {
+      const destination = await mergeAccounts(kv, device, me, next, writes);
+      return destination ? signedIn(destination) : err(409, 'account_conflict');
+    }
+    if (!await commit(kv, [K.acct(me.id), JSON.stringify(me), JSON.stringify(next)], ...writes)) return err(409, 'account_conflict');
     return signedIn(next);
   }
 
