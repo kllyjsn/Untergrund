@@ -22,6 +22,8 @@ check() {
 }
 
 check 200 /
+check 200 /start/
+check 200 /css/start.css
 curl --fail --silent --show-error "$BASE/js/main.js" | node --input-type=module --check
 echo "ok   /js/main.js parses as a module"
 check 200 /css/style.css
@@ -50,6 +52,7 @@ check 200 /css/drop.css
 check 200 /api/jukebox
 check 404 "/api/jukebox?id=no-such-set"
 check 200 /api/account
+check 200 /api/health
 check 404 /a/nobody-here
 check 404 /t/missing-track
 check 200 /css/pages.css
@@ -66,6 +69,13 @@ check 404 /research/no-such-post
 check 200 "/api/rooms/ci-smoke?since=0"
 check 404 /api/does-not-exist
 check 404 /api/tracks.js
+check 200 /developers/
+check 200 /api/v1/tracks
+check 404 /api/v1/tracks/missing-track
+check 404 /api/v1/artists/nobody-here
+check 200 /api/v1/rooms
+check 200 /api/v1/openapi.json
+check 404 /api/v1/does-not-exist
 
 if [ "$fail" != 0 ]; then echo "--- server log"; cat "$LOG"; exit 1; fi
 echo "smoke test passed"

@@ -19,7 +19,7 @@ const pc = (n) => (n % 12 + 12) % 12;
     const param = () => ({ value: 0, events: [], setValueAtTime(v, t) { assert(Number.isFinite(v)); this.events.push(['set', v, t]); }, linearRampToValueAtTime(v, t) { assert(Number.isFinite(v)); this.events.push(['ramp', v, t]); }, setTargetAtTime(v, t, tau) { assert(Number.isFinite(v)); this.events.push(['target', v, t, tau]); } });
     const node = () => ({ connect(n) { return n; }, frequency: param(), gain: param(), pan: param(), stop() {} });
     const state = freshSong(style, 42);
-    const e = { state, playingPattern: state.patterns[6], ctx: {
+    const e = { state, playingPattern: state.patterns[6], rhodesKeys: () => false, ctx: {
       createOscillator() { const n = node(); oscillators.push(n); return n; }, createStereoPanner: node,
     }, gain(v) { const n = node(); n.gain.value = v; gains.push(n); return n; }, filter(type, f) { const n = node(); n.type = type; n.frequency.value = f; filters.push(n); return n; }, startSource() {}, rec() { throw Error('Rhodes must not consult recorded banks'); }, playBuf() { throw Error('Rhodes must not schedule a sample'); } };
     Engine.prototype.jazzKeys.call(e, 0, velocity, notes, 69, { decay: 0.5, cutoff: 2200, ...params }, node());

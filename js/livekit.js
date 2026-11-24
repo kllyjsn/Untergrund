@@ -1,4 +1,5 @@
 import { pocketOf } from './groove.js';
+import { RHODES_STYLES } from './rhodes.js';
 import { HAND_KIT, MARIMBA_STAB, KIT_BACKBEAT } from './params.js';
 import { WIND_BANKS, WIND_TUNING } from './jazz-wind-data.js';
 import { windBanks } from './jazz-winds.js';
@@ -30,6 +31,7 @@ export const LIVE_FILES = [
 
 // Recorded chord instruments, keyed by the MIDI note each sample was played at.
 export const BAND = {
+  rhodes: [28, 31, 34, 37, 40, 43, 46, 49, 52, 55, 58, 61, 64, 86, 89, 93, 96, 100],
   ...VOWEL_BAND,
   fiddle: [55, 57, 60, 64, 67, 69, 72, 76, 79],
   fiddlesoft: [55, 57, 60, 64, 67, 69, 72, 76, 79],
@@ -89,6 +91,7 @@ const GRETSCH_TUNE = { 42: 19, 48: 6, 51: 5, 54: 5, 57: 10, 60: 7, 63: 6, 66: 4,
 // The guitar banjo was tuned up a little under a quarter tone.
 const BANJO_TUNE = { 40: 41, 42: 41, 45: 48, 49: 39, 51: 43, 54: 34, 57: 13, 60: 30, 63: 41, 68: 23, 71: 10 };
 const BAND_TUNE = { ...VOWEL_TUNE, abass: { 36: -8.6, 39: -5.1, 42: -6.2, 45: -6.7, 48: -5.8, 51: -6.6, 54: -6.3, 57: -7.1, 60: -8 }, nylon: { 40: -6.7, 45: 2.3, 48: -2.9, 52: -9.6, 55: 10.4, 59: -3.6, 64: -19.7, 67: -11.6, 69: -17 }, jazz: JAZZ_TUNE, jazzb: JAZZ_TUNE, gretsch: GRETSCH_TUNE, gretschb: GRETSCH_TUNE, banjo: BANJO_TUNE, gtr: GTR_TUNE, gtrsoft: GTR_TUNE, gtrb: GTR_TUNE, gtrsoftb: GTR_TUNE, gtrmute: MUTE_TUNE, gtrmuteb: MUTE_TUNE_B };
+BAND_TUNE.rhodes = { 28: 0.23, 31: 2.49, 34: 3.23, 37: 2.93, 40: 2.83, 43: 2.51, 46: 0.44, 49: 1.39, 52: -1.24, 55: 1.37, 58: -2.82, 61: 1.67, 64: 5.15, 86: -0.63, 89: -0.72, 93: -6.84, 96: -4.38, 100: 7.88 };
 Object.assign(BAND_TUNE, {
   juno: { 48: 1.3, 52: 1.7, 56: 2.1, 60: 1.7, 64: 2.9, 68: 2.5, 72: 2.2, 76: 2.4, 80: 2.7, 84: 2 },
   jpad: { 48: 7.5, 52: 4.8, 56: 4.4, 60: 4, 64: 2.8, 68: 3.3, 72: 3.6, 76: 4.9, 80: 4.7, 84: 4.1 },
@@ -201,7 +204,9 @@ const layerSets = (style) => [...new Set(Object.values(BAND_LAYER[style] || {}).
 export function liveSets(st, style = st?.artist?.style) {
   const mode = Math.round(st?.master?.kit || 0), fullKit = mode === 1 || mode === 2;
   const out = fullKit ? ['kit'] : mode === KIT_BACKBEAT ? ['snare'] : [];
-  const patterns = [st?.pattern, ...(st?.patterns || [])];
+  const patterns = [st?.pattern, ...(st?.patterns || [])].filter(Boolean);
+  if ((RHODES_STYLES.has(style) && (Math.round(st?.params?.stab?.voice) <= 1 || patterns.some((p) => p.hook?.v === 'tapekeys')))
+      || patterns.some((p) => p.jazz?.style === 'jazzfunk')) out.push('rhodes');
   out.push(...vowelSets(style));
   if (st?.patterns?.some((p) => p.jazz?.style === 'jazzfunk') || st?.pattern?.jazz?.style === 'jazzfunk') out.push('horn');
   if (fullKit && pocketOf(st.master)?.band) out.push('kitx');

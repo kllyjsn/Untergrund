@@ -1,0 +1,11 @@
+.start { max-width: 1000px; }
+.start-hero { padding: clamp(20px, 5vw, 60px) 0 32px; }
+.start-hero > p:not(.pp-eyebrow) { max-width: 56ch; margin: 16px 0 22px; color: #c8c8d0; font: 500 17px/1.6 var(--sans); }
+.start-steps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; list-style: none; margin: 0; padding: 0; }
+.start-steps li { padding: clamp(16px, 3vw, 28px); border: 1px solid var(--hair); border-radius: var(--r2); background: var(--well); }
+.start-steps h2 { margin: 8px 0; color: var(--text); font: 700 23px var(--sans); }
+.start-steps p { margin: 0; color: #c8c8d0; font: 500 15px/1.55 var(--sans); }
+.start-steps strong { color: #f2f2f5; }
+@media (max-width: 560px) {
+  .start-steps { grid-template-columns: minmax(0, 1fr); }
+}
