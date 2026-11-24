@@ -22,6 +22,8 @@ check() {
 }
 
 check 200 /
+check 200 /start/
+check 200 /css/start.css
 curl --fail --silent --show-error "$BASE/js/main.js" | node --input-type=module --check
 echo "ok   /js/main.js parses as a module"
 check 200 /css/style.css
@@ -50,6 +52,7 @@ check 200 /css/drop.css
 check 200 /api/jukebox
 check 404 "/api/jukebox?id=no-such-set"
 check 200 /api/account
+check 200 /api/health
 check 404 /a/nobody-here
 check 404 /t/missing-track
 check 200 /css/pages.css
