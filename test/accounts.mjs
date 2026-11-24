@@ -124,8 +124,8 @@ const scEnv = { SOUNDCLOUD_CLIENT_ID: 'id', SOUNDCLOUD_CLIENT_SECRET: 'secret', 
 const realFetch = globalThis.fetch;
 globalThis.fetch = async (url) => ({ ok: true, status: 200, text: async () => JSON.stringify({ access_token: 'tok', refresh_token: 'r', expires_in: 3600 }), json: async () => ({}) });
 const scFetch = (id, permalink) => async () => ({ ok: true, json: async () => ({ id, username: `DJ ${permalink}`, permalink_url: `https://soundcloud.com/${permalink}`, avatar_url: 'https://i1.sndcdn.com/avatars-1-large.jpg' }) });
-const scCall = (j, id, permalink) => handleAccount({ method: 'POST', body: { code: 'c', code_verifier: 'v', redirect_uri: 'https://www.untergrund.sh/sc-callback.html' }, query: { action: 'soundcloud' }, cookie: j.cookie, client: 'ip-sc' },
-  { ...ctx, env: scEnv, fetchImpl: scFetch(id, permalink) }).then((x) => j.take(x));
+const scCall = (j, id, permalink, storage = kv) => handleAccount({ method: 'POST', body: { code: 'c', code_verifier: 'v', redirect_uri: 'https://www.untergrund.sh/sc-callback.html' }, query: { action: 'soundcloud' }, cookie: j.cookie, client: 'ip-sc' },
+  { ...ctx, kv: storage, env: scEnv, fetchImpl: scFetch(id, permalink) }).then((x) => j.take(x));
 // 1) anonymous alice signs in: same account, now provider-backed
 r = await scCall(alice, 77, 'alice-sc');
 assert.equal(r.status, 200);
@@ -139,6 +139,13 @@ await call(phone, 'POST', { action: 'device' }, {}, 'ip-phone');
 const t2 = await (async () => { const { normalizeTrack } = await import('../api/_lib/crate.js'); const t = normalizeTrack({ title: 'Phone Jam', state: defaultState() }); await crate.add(t); return t; })();
 assert.equal(await attachTrack(kv, (await call(phone, 'GET')).json.account.id, t2), true);
 await call(phone, 'POST', { action: 'follow', handle: 'bobby' }, {}, 'ip-phone');
+const interrupted = { cmd: (args) => {
+  if ((args[0] === 'EVAL' && args[1].includes('LRANGE')) || (args[0] === 'SET' && args[1].includes(':o:'))) throw new Error('store interrupted');
+  return kv.cmd(args);
+} };
+await assert.rejects(scCall(phone, 77, 'alice-sc', interrupted), /store interrupted/);
+assert.equal((await call(phone, 'GET')).json.account.anon, true, 'a failed transfer leaves the source session and tracks recoverable');
+assert.deepEqual((await call(phone, 'GET')).json.following, ['bobby']);
 r = await scCall(phone, 77, 'alice-sc');
 assert.equal(r.json.account.handle, 'alice', 'device session now points at the signed-in account');
 const merged = await call(eve, 'GET', null, { handle: 'alice' });

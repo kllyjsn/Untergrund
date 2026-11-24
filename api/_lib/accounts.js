@@ -4,7 +4,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { STYLES } from '../../js/state.js';
 import { clean } from './crate.js';
 import { scConfig, exchangeToken } from './soundcloud.js';
-import { compareAndSet as commit } from './kv.js';
+import { compareAndSet as commit, migrateAccountData } from './kv.js';
 import { accountOrigin, digest, emailAddress, emailID, GOOGLE_CALLBACK, googleAuthorization, googleEnabled,
   googleProfile, passwordHash, passwordMatches, randomToken, resetEnabled, sendPasswordReset, validPassword } from './listener-auth.js';
 
@@ -189,23 +189,9 @@ export async function mergeAccounts(kv, from, into) {
   if (!from || !into || from.id === into.id || !isAnon(from)) return into;
   const next = { ...into, handle: into.handle || from.handle };
   for (const f of ['name', 'bio', 'avatar', 'dna']) if (!next[f] && from[f]) next[f] = from[f];
-  if (!await commit(kv, [K.acct(from.id), JSON.stringify(from), null], [K.acct(into.id), JSON.stringify(into), JSON.stringify(next)],
-    ...(from.handle ? [[K.handle(from.handle), from.id, into.handle ? null : into.id]] : []))) return into;
-  for (const t of (await tracksOf(kv, from.id, TRACK_LIMIT)).reverse()) {
-    await kv.cmd(['SET', K.owner(t.id), into.id]);
-    await kv.cmd(['LPUSH', K.tracks(into.id), JSON.stringify(t)]);
-  }
-  await kv.cmd(['LTRIM', K.tracks(into.id), 0, TRACK_LIMIT - 1]);
-  for (const id of await kv.cmd(['SMEMBERS', K.following(from.id)])) {
-    await kv.cmd(['SREM', K.followers(id), from.id]);
-    if (id !== into.id) { await kv.cmd(['SADD', K.following(into.id), id]); await kv.cmd(['SADD', K.followers(id), into.id]); }
-  }
-  for (const id of await kv.cmd(['SMEMBERS', K.followers(from.id)])) {
-    await kv.cmd(['SREM', K.following(id), from.id]);
-    if (id !== into.id) { await kv.cmd(['SADD', K.followers(into.id), id]); await kv.cmd(['SADD', K.following(id), into.id]); }
-  }
-  await kv.cmd(['DEL', K.tracks(from.id), K.following(from.id), K.followers(from.id)]);
-  return next;
+  const rows = [[K.acct(from.id), JSON.stringify(from), null], [K.acct(into.id), JSON.stringify(into), JSON.stringify(next)],
+    ...(from.handle ? [[K.handle(from.handle), from.id, into.handle ? null : into.id]] : [])];
+  return await migrateAccountData(kv, rows, P, from.id, into.id, TRACK_LIMIT) ? next : null;
 }
 
 export async function linkProvider(kv, current, provider, profile) {
@@ -214,7 +200,10 @@ export async function linkProvider(kv, current, provider, profile) {
   const key = K.link(provider, pid);
   const linkedId = await kv.cmd(['GET', key]);
   let acct = linkedId ? await getJson(kv, K.acct(linkedId)) : null;
-  if (acct && current && current.id !== acct.id && isAnon(current)) acct = await mergeAccounts(kv, current, acct);
+  if (acct && current && current.id !== acct.id && isAnon(current)) {
+    acct = await mergeAccounts(kv, current, acct);
+    if (!acct) return null;
+  }
   const previous = acct || (current && isAnon(current) ? current : null);
   const next = { ...(previous || newAccount()) };
   next.providers = { ...next.providers, [provider]: { id: pid, username: clean(profile.username, 60), url: clean(profile.url, 200) } };
@@ -363,7 +352,8 @@ export async function handleAccount(req, ctx) {
     if (!await passwordMatches(body.password, hash)) return err(401, 'invalid_credentials');
     const account = await getJson(kv, K.acct(accountID));
     if (!account || account.email !== email || await kv.cmd(['GET', K.password(accountID)]) !== hash) return err(401, 'invalid_credentials');
-    return signedIn(me && me.id !== account.id && isAnon(me) ? await mergeAccounts(kv, me, account) : account);
+    const destination = me && me.id !== account.id && isAnon(me) ? await mergeAccounts(kv, me, account) : account;
+    return destination ? signedIn(destination) : err(409, 'account_conflict');
   }
 
   if (action === 'password-change' || action === 'reset-password') {
@@ -496,7 +486,8 @@ async function completeGoogle({ req, kv, env, me, google, origin, secure, client
   if (id) {
     const account = await getJson(kv, K.acct(id));
     if (!account || account.providers?.google?.id !== profile.id) return finish('google_failed');
-    return finish('google_ok', me && me.id !== id && isAnon(me) ? await mergeAccounts(kv, me, account) : account);
+    const destination = me && me.id !== id && isAnon(me) ? await mergeAccounts(kv, me, account) : account;
+    return destination ? finish('google_ok', destination) : finish('google_failed');
   }
   const account = me || newAccount();
   if (account.providers.google) return finish('google_conflict');
