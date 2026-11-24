@@ -5,11 +5,25 @@ import * as sc from './soundcloud.js';
 import { fetchTrack } from './crate.js';
 
 const API = '/api/account';
-const OFF = { enabled: false, account: null, following: [] };
+const SIGN_OUT_KEY = 'untergrund.account.signed-out';
+const OFF = { enabled: false, account: null, following: [], unavailable: false };
+const UNAVAILABLE = { ...OFF, unavailable: true };
 let cache = null, pending = null;
 const listeners = new Set();
 export const onAccount = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
 const set = (patch) => { cache = { ...(cache || OFF), ...patch }; listeners.forEach((fn) => fn(cache)); return cache; };
+const clearAccount = () => {
+  pending = null;
+  set({ account: null, following: [], unavailable: false });
+};
+const finishSignOut = () => {
+  sc.disconnect();
+  clearAccount();
+  try { localStorage.setItem(SIGN_OUT_KEY, `${Date.now()}-${Math.random()}`); } catch {}
+};
+globalThis.addEventListener?.('storage', (event) => {
+  if (event.key === SIGN_OUT_KEY && event.newValue) clearAccount();
+});
 
 async function call(method, body, query = '') {
   const res = await fetch(API + query, { method, credentials: 'same-origin', ...(body && { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) });
@@ -17,8 +31,14 @@ async function call(method, body, query = '') {
 }
 
 export async function getAccount(force = false) {
-  if (cache && !force) return cache;
-  pending ||= call('GET').then((r) => set(r.ok ? r.json : OFF), () => set(OFF)).finally(() => { pending = null; });
+  if (cache && !force && !cache.unavailable) return cache;
+  if (!pending) {
+    const read = call('GET').then((r) => r.ok ? { ...r.json, unavailable: false } :
+      r.status === 503 && r.json.enabled === false ? OFF : UNAVAILABLE, () => UNAVAILABLE)
+      .then((result) => pending === read ? set(result) : cache || OFF)
+      .finally(() => { if (pending === read) pending = null; });
+    pending = read;
+  }
   return pending;
 }
 
@@ -26,8 +46,7 @@ export async function accountAction(action, fields = {}) {
   const r = await call('POST', { action, ...fields });
   if (!r.ok) throw new Error(r.json.error || 'unavailable');
   if (action === 'signout') {
-    sc.disconnect();
-    set({ account: null, following: [] });
+    finishSignOut();
   } else if (r.json.account) {
     set({ account: r.json.account, ...(action === 'preferences' ? {} : { following: [] }) });
     if (action !== 'preferences') getAccount(true);
@@ -87,8 +106,7 @@ export async function signInWithSoundCloud() {
 
 export async function signOut() {
   await call('POST', { action: 'signout' }).catch(() => {});
-  sc.disconnect();
-  set({ account: null, following: [] });
+  finishSignOut();
 }
 
 // The signed-in artist's published tracks (from their public page), or [] without a claimed link.

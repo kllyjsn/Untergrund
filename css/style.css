@@ -1727,6 +1727,8 @@ body.mini-on { padding-bottom: 72px; }
 .lib-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
 .lib-head .lib-tabs { margin-left: auto; }
 .lib-list { display: flex; flex-direction: column; }
+.lib-cloud-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; }
+.lib-sync-status { margin: 0 0 8px; color: var(--dim); }
 .lib-row { display: grid; grid-template-columns: 44px minmax(0,1fr) 16px 44px; align-items: center; gap: 12px; width: 100%; padding: 8px 6px; border: 0; border-radius: var(--r2);
   background: none; color: inherit; text-align: left; cursor: pointer; }
 .lib-row:hover { background: var(--ctl-hover); }

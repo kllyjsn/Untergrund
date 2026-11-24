@@ -5,6 +5,7 @@ import http from 'node:http';
 import { readFile, writeFile, mkdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { realpath as resolveFile } from 'node:fs/promises';
 import { publicConfig, exchangeToken } from './api/_lib/soundcloud.js';
 import { handleAutopublish } from './api/_lib/autopublish.js';
 import { createRooms, roomsKv, memoryRoomsKv, roomsHandler } from './api/_lib/rooms.js';
@@ -34,7 +35,7 @@ import { handlePlayback, memoryPlaybackKv, MAX_PLAYBACK_BODY } from './api/_lib/
 import { handleDescribe, aiEnv } from './api/_lib/describe-ai.js';
 import { handlePlan, planEnv } from './api/_lib/song-plan-ai.js';
 import { handleSing, singEnv, memorySingStore, MAX_SING_BODY } from './api/_lib/sing.js';
-import { redisKv as redisAccountKv, memoryKv as memoryAccountKv } from './api/_lib/kv.js';
+import { redisKv as redisAccountKv, memoryKv as memoryAccount } from './api/_lib/kv.js';
 import { handleAccount, attachPublished } from './api/_lib/accounts.js';
 import { GOOGLE_CALLBACK } from './api/_lib/listener-auth.js';
 import { handleBilling, handleBillingWebhook, readBillingWebhook } from './api/_lib/billing.js';
@@ -45,6 +46,8 @@ import { handleLegal } from './api/_lib/legal.js';
 import { ogImage, artSeed } from './api/_lib/og.js';
 import { clubImage } from './api/_lib/og-club.js';
 import { handleHealth, redisHealthCheck } from './api/_lib/health.js';
+import { LIBRARY_BODY_BYTES, libraryScripts } from './api/_lib/library.js';
+const memoryAccountKv = (options) => memoryAccount({ ...options, scripts: libraryScripts });
 const jukeboxStore = redisJukebox() || memoryJukebox();
 const eventsKv = redisKv() || memoryKv();
 const playbackKv = redisAccountKv() || memoryPlaybackKv();
@@ -60,10 +63,14 @@ if (!authSecret && !redisKv()) {
   await accountKv.cmd(['SET', 'untergrund:dev:auth-secret', authSecret]);
 }
 const accountCtx = () => ({ kv: accountKv, crate: crateStore, secret: authSecret, env, secure: false });
-const readBody = (req, max = Infinity) => new Promise((ok, fail) => {
+const readBody = (req, max = Infinity, drain = false) => new Promise((ok, fail) => {
   const c = []; let size = 0;
-  req.on('data', (d) => { size += d.length; if (size > max) { ok(null); req.destroy(); } else c.push(d); });
-  req.on('end', () => ok(Buffer.concat(c)));
+  req.on('data', (d) => {
+    size += d.length;
+    if (size <= max) c.push(d);
+    else if (!drain) { ok(null); req.destroy(); }
+  });
+  req.on('end', () => ok(size > max ? null : Buffer.concat(c)));
   req.on('error', fail);
 });
 const sendJson = (res, status, json) => { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(json)); };
@@ -196,11 +203,17 @@ http.createServer(async (req, res) => {
       }
     }
     if (url.pathname === '/api/account' || url.pathname === GOOGLE_CALLBACK) {
-      let body = {};
-      if (req.method === 'POST') { const raw = await readBody(req, 16000); try { body = JSON.parse(raw?.toString() || '{}'); } catch { body = null; } }
       const query = Object.fromEntries(url.searchParams);
-      if (url.pathname === GOOGLE_CALLBACK) query.action = 'google-callback';
-      const { status, json, cookie, redirect } = await handleAccount({ method: req.method, query, body, cookie: req.headers.cookie,
+      const isGoogleCallback = url.pathname === GOOGLE_CALLBACK;
+      if (isGoogleCallback) query.action = 'google-callback';
+      const library = !isGoogleCallback && query.library !== undefined;
+      let body = {}, tooLarge = false;
+      if (req.method === 'POST') {
+        const raw = await readBody(req, library ? LIBRARY_BODY_BYTES : 16000, library);
+        tooLarge = raw === null;
+        try { body = JSON.parse(raw?.toString() || '{}'); } catch { body = null; }
+      }
+      const { status, json, cookie, redirect } = await handleAccount({ method: req.method, query, body, tooLarge, cookie: req.headers.cookie,
         client: req.socket.remoteAddress, origin: req.headers.origin, host: req.headers.host }, accountCtx());
       res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(cookie && { 'Set-Cookie': cookie }),
         ...(redirect && { Location: redirect, 'Referrer-Policy': 'no-referrer' }) });
@@ -250,6 +263,15 @@ http.createServer(async (req, res) => {
       if (!f) { res.writeHead(404); return res.end('not found'); }
       res.writeHead(200, { 'Content-Type': f.type, 'Cache-Control': 'no-store' });
       return res.end(f.body);
+    }
+    if (accountKv.kind === 'memory') {
+      const localStore = path.resolve(process.env.DATA_FILE || path.join(ROOT, '.data/kv.json'));
+      const requested = path.join(ROOT, path.normalize(p.endsWith('/') ? `${p}index.html` : p));
+      const resolvedStore = await resolveFile(localStore).catch(() => localStore);
+      if (requested === localStore || await resolveFile(requested).catch(() => null) === resolvedStore) {
+        res.writeHead(404);
+        return res.end('not found');
+      }
     }
     if (p.endsWith('/')) p += 'index.html';
     const file = path.join(ROOT, path.normalize(p));

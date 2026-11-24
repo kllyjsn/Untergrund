@@ -1,5 +1,6 @@
 // Creator accounts: an anonymous device identity (signed httpOnly cookie) that can claim a handle,
 // provider sign-in (SoundCloud first) that attaches to it, follows, and permanent track homes.
+import { handleLibrary } from './library.js';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { setTimeout as wait } from 'node:timers/promises';
 import { STYLES } from '../../js/state.js';
@@ -32,7 +33,7 @@ const LIMITS = { device: [20, 3600], claim: [12, 3600], profile: [60, 3600], fol
   'email-signup': [6, 3600], 'email-login': [20, 900], 'email-attempt': [10, 900], 'password-change': [8, 900],
   'reset-request': [8, 3600], 'reset-email': [3, 3600], 'reset-password': [15, 900],
   'google-start': [20, 900], 'google-callback': [30, 900], preferences: [60, 3600] };
-const RATE_LIMITS = { ...LIMITS, 'billing-status': [120, 60], 'billing-write': [12, 60], 'pro-drafts': [6, 60] };
+const RATE_LIMITS = { ...LIMITS, 'billing-status': [120, 60], 'billing-write': [12, 60], 'pro-drafts': [6, 60], library: [180, 3600] };
 const WRITE_ACTIONS = new Set([...Object.keys(LIMITS).filter((a) => !['email-attempt', 'reset-email', 'google-callback'].includes(a)), 'unfollow', 'signout']);
 const OAUTH_COOKIE = 'ug_google';
 const RESET_TTL = 30 * 60;
@@ -273,6 +274,10 @@ export async function handleAccount(req, ctx) {
   const google = googleEnabled(env) && !!origin && (!secure || req.host === new URL(origin).host);
   const reset = resetEnabled(env) && !!origin;
   const auth = { google, reset };
+
+  if (q.library !== undefined && q.action !== 'google-callback') return handleLibrary(req, {
+    kv, account: privateView(me), secure, allowWrite: () => allow(kv, 'library', `acct-${me.id}`),
+  });
 
   if (req.method === 'GET') {
     if (q.action === 'google-callback') return completeGoogle({ req, kv, env, me, google, origin, secure, client, issue, fetchImpl });

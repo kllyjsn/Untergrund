@@ -10,6 +10,7 @@ import { memoryStore } from '../api/_lib/crate.js';
 import { handleAccount, handleError, normalizeHandle, signSession, verifySession, sessionCookie, parseCookies, attachPublished, attachTrack, COOKIE } from '../api/_lib/accounts.js';
 import { defaultState } from '../js/state.js';
 import { emailID, GOOGLE_CALLBACK } from '../api/_lib/listener-auth.js';
+import { libraryScripts } from '../api/_lib/library.js';
 
 // ---------- handles ----------
 assert.equal(normalizeHandle('  @Nova_Berlin '), 'nova_berlin');
@@ -41,7 +42,7 @@ assert.equal(parseCookies(`a=1; ${COOKIE}=${tok}`)[COOKIE], tok);
 console.log('session signing passed');
 
 // ---------- API with in-memory KV ----------
-const kv = memoryKv(), crate = memoryStore();
+const kv = memoryKv({ scripts: libraryScripts }), crate = memoryStore();
 const ctx = { kv, crate, secret: SECRET, secure: false };
 const jar = () => { let c = ''; return { get cookie() { return c; }, take(r) { if (r.cookie) c = r.cookie.split(';')[0]; return r; } }; };
 const call = (j, method, body = null, query = {}, client = 'ip1') => handleAccount({ method, body, query, cookie: j.cookie, client }, ctx).then((r) => j.take(r));
@@ -167,6 +168,12 @@ const request = (j, action, fields = {}, opts = {}) => {
   return handleAccount({ method, body: { action, ...fields }, query, cookie, client, host, origin: `http://${host}` }, context)
     .then((response) => j.take(response));
 };
+const library = (j, account, draft, track) => request(j, null, draft, {
+  method: draft ? 'POST' : 'GET', query: { library: account.id, ...(track && { id: track }) },
+});
+const privateDraft = {
+  action: 'upsert', id: 'listener-draft', title: 'Listener draft', baseRevision: 0, revision: Date.now(), state: defaultState(),
+};
 const listener = jar(), tablet = jar();
 const email = 'listener@example.com', password = 'Some strong phrase 16';
 const signIn = (j, fields = {}, opts) => request(j, 'email-login', { email, password, ...fields }, opts);
@@ -190,6 +197,10 @@ assert.equal((await request(listener, 'preferences', { ...prefs, favoriteGenres:
 assert.equal((await request(listener, 'preferences', prefs)).status, 200);
 const login = await signIn(tablet);
 assert.equal(login.json.account.id, id);
+assert.equal(login.json.account.handle, null);
+assert.equal((await library(tablet, login.json.account, privateDraft)).status, 200);
+assert.equal((await library(listener, login.json.account)).json.items[0].id, privateDraft.id);
+assert.equal((await library(listener, login.json.account, null, privateDraft.id)).json.state.bpm, privateDraft.state.bpm);
 assert.deepEqual(login.json.account.listener, { ...prefs, favoriteGenres: ['acid', 'hypnotic'] });
 assert(!JSON.stringify(login.json).includes(password));
 const publicHandle = await request(listener, 'claim', { handle: 'sub-signal' });
@@ -283,6 +294,12 @@ const separate = (await request(unlinked, null, {}, { method: 'GET' })).json.acc
 assert.notEqual(separate.id, id, 'a matching email claim never automatically links accounts');
 assert.deepEqual(separate.providers, ['google']);
 assert.equal(separate.email, undefined);
+assert.equal(separate.handle, null);
+assert.equal((await library(unlinked, login.json.account)).status, 409);
+assert.deepEqual((await library(unlinked, separate)).json.items, []);
+const googleDraft = { ...privateDraft, title: 'Google-only draft', state: { ...privateDraft.state, bpm: 146 } };
+assert.equal((await library(unlinked, separate, googleDraft)).status, 200);
+assert.equal((await library(unlinked, separate, null, googleDraft.id)).json.state.bpm, 146);
 subject = 'google-123';
 const linked = await googleFlow(listener, true);
 assert.equal(linked.result.redirect, '/?account=google_ok');
@@ -292,6 +309,9 @@ assert.equal((await googleFlow(googleDevice, false)).result.redirect, '/?account
 const googleAccount = (await request(googleDevice, null, {}, { method: 'GET' })).json.account;
 assert.equal(googleAccount.id, id, 'Google and email sign in to the same explicitly linked account');
 assert.deepEqual(googleAccount.providers, ['email', 'google']);
+assert.equal((await library(googleDevice, googleAccount)).json.items[0].title, privateDraft.title);
+assert.equal((await library(googleDevice, googleAccount, null, privateDraft.id)).json.state.bpm, privateDraft.state.bpm);
+console.log('Listener Library passed: email login, Google-only login, account isolation and linked sessions');
 assert.equal((await googleFlow(jar(), false, { returnTo: '/pricing' })).result.redirect, '/pricing?account=google_ok');
 assert.equal((await googleFlow(jar(), false, { returnTo: 'https://outside.example' })).result.redirect, '/?account=google_ok');
 const other = jar();

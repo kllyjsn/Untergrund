@@ -53,6 +53,7 @@
   "node test/principles.mjs --quiet",
   "node test/share.mjs",
   "node test/accounts.mjs",
+  "node test/cloud-library.mjs",
   "node test/billing.mjs",
   "node test/pages.mjs",
   "node test/public-api.mjs",

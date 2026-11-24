@@ -1519,11 +1519,13 @@ const KEY = 'untergrund.v1';
 export function save(state) {
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {}
 }
-export function load() {
+export function load(withLibrary = false) {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
-    return sanitize(JSON.parse(raw));
+    const saved = JSON.parse(raw);
+    const state = sanitize(saved);
+    return withLibrary ? { state, libraryRef: saved.libraryRef } : state;
   } catch { return null; }
 }
 

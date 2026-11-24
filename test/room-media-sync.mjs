@@ -180,7 +180,7 @@ for (const action of ['stop', 'replaceState', 'start']) for (const mode of ['pri
   });
   let discarded = 0;
   engine.discardQueuedNotes = (now) => { discarded++; Engine.prototype.discardQueuedNotes.call(engine, now); };
-  Object.assign(s, { engine, playbackStats: { end: noop }, listens: { end: noop }, listenPos: noop,
+  Object.assign(s, { engine, songOrigin: {}, playbackStats: { end: noop }, listens: { end: noop }, listenPos: noop,
     endTuning: noop, guardPushOffer: noop, playStopped: noop, midiClockStop: noop,
     setPlayhead: noop, artistLive: null, renderPatterns: noop, renderHome: noop,
     releaseMedia: noop, build: noop, persist: noop, clearTimeout: noop, timeline: { frame: noop, skip: () => 0 },
