@@ -390,16 +390,8 @@ const BAND_PLAY = {
 // the note. Only notes held long enough to hear it land are bent, from a whole step below or a half step when that is
 // the scale tone.
 export const BEND_HOLD = 0.02, BEND_RISE = 0.12;
-// Fills between sung lines, in semitones over the chord root: [16th, semitone, length in 16ths, velocity].
-// The Telecaster's are chicken-picked 16th runs down and up the major pentatonic, the harmonica's breathed 8ths.
-export const TELE_LICKS = [
-  [[0, 9, 1, 0.55], [1, 7, 1, 0.42], [2, 4, 1, 0.5], [3, 7, 1, 0.4], [4, 4, 3, 0.6]],
-  [[0, 2, 1, 0.5], [1, 4, 1, 0.45], [2, 7, 2, 0.55], [4, 9, 1, 0.45], [5, 7, 3, 0.6]],
-  [[0, 7, 1, 0.3], [1, 7, 1, 0.55], [2, 4, 1, 0.45], [3, 2, 1, 0.42], [4, 0, 4, 0.62]],
-  [[0, 4, 2, 0.5], [2, 7, 1, 0.45], [3, 9, 1, 0.5], [4, 12, 4, 0.62]],
-  [[0, 12, 1, 0.55], [1, 9, 1, 0.42], [2, 7, 1, 0.48], [3, 4, 1, 0.42], [4, 2, 1, 0.45], [5, 4, 3, 0.6]],
-  [[0, 2, 1, 0.45], [1, 4, 2, 0.55], [3, 2, 1, 0.42], [4, 0, 4, 0.6]],
-];
+// Harmonica fills between the Telecaster's sung lines, breathed 8ths down or up the major pentatonic over the chord
+// root: [16th, semitone, length in 16ths, velocity].
 export const HARP_RUNS = [[9, 7, 4], [4, 2, 0], [12, 9, 7], [2, 4, 7], [7, 9, 12]].map((r) => r.map((d, j) => [j * 2, d, j === 2 ? 4 : 1.8, j === 2 ? 0.62 : 0.5]));
 export function bendCurve(semis, n = 32) {
   const c = new Float32Array(n);
@@ -3317,13 +3309,14 @@ export class Engine {
     let notes = hand?.play === 'chop' ? grip.slice(beat > 1 ? -4 : -3) : chord && up && grip.length > 3 ? grip.slice(-3) : grip;
     if (hand?.play === 'strum' && !up && this.step % 4 && notes.length > 4 && hash(t, 26) < 0.5) notes = notes.slice(1);
     // Boom-chick: the thumb picks the root on 1 and the fifth on 3 and lets it ring up to the next hit; every
-    // other hit is a quick strum of the top strings, damped by the fretting hand (later when the next hit is far).
-    const boom = hand?.play === 'boom' && chord && this.step % 8 === 0;
+    // other hit is a quick strum of the top strings, damped by the fretting hand. A sparse part (intro, breakdown)
+    // strums the whole chord and lets it ring to the next hit instead.
+    const sparse = gap >= 6, boom = hand?.play === 'boom' && chord && this.step % 8 === 0 && !sparse;
     if (boom) notes = [this.step % 16 ? grip.find((m) => (m - grip[0]) % 12 === 7) ?? grip[1] : grip[0]];
-    else if (hand?.play === 'boom' && chord) notes = grip.slice(up ? -3 : -4);
+    else if (hand?.play === 'boom' && chord && !sparse) notes = grip.slice(up ? -3 : -4);
     const ring = hand?.play === 'chop' ? Math.min(dur, this.stepDur * Math.min(2, gap || 2) * 0.8)
       : boom ? Math.max(Math.min(dur, this.stepDur * 3.6), this.stepDur * Math.min(7.6, (gap || 4) - 0.4))
-        : hand?.play === 'boom' && chord ? (gap >= 6 ? this.stepDur * Math.min(4, gap * 0.5) : Math.min(dur, this.stepDur * (up ? 1 : 1.6))) : dur, lift = chord && up ? 0.8 : 1;
+        : hand?.play === 'boom' && chord && !sparse ? Math.min(dur, this.stepDur * (up ? 1 : 1.6)) : dur, lift = chord && up ? 0.8 : 1;
     // A strummer starts the stroke a little early so the middle of the chord, not its last string, lands on the beat.
     const lead = chord ? Math.min((notes.length - 1) * strum * 0.5, Math.max(0, t - this.ctx.currentTime)) : 0;
     // A struck string stops its last note; on an upstroke of the same grip the low strings ring on.
@@ -4233,8 +4226,10 @@ export class Engine {
       }
       if (jazzStyle(this.state, this.playingPattern)) dest = this.trimOut('jazz-recorded-lead', JAZZ_MIX[jazzStyle(this.state, this.playingPattern)].lead, dest, JAZZ_MIX[jazzStyle(this.state, this.playingPattern)].lead);
       if (R.amp) dest = this.ampFor(dest === this.ch.stab.input ? this.ch.stab.band : dest, R.lead);
+      // A harmonica carrying the breakdown plays out over the thinned band, softened above 2 kHz so it does not turn shrill.
+      if (kind === 'hca' && expression.brk) dest = this.bodyFor(dest, [2800, 0.7, -6]);
       // A harmonica carrying the melody plays out at the Telecaster's level; its answers stay underneath.
-      const carry = kind === 'hca' && expression.harp && !expression.harm && !expression.counter && !expression.fill ? 1.8 : 1;
+      const carry = kind === 'hca' && expression.harp && !expression.harm && !expression.counter && !expression.fill ? (expression.brk ? 3.2 : 1.8) : 1;
       const m = 60 + k + (oct + (R.oct || 0)) * 12 + n, g = Math.min(1.3, v) * R.gain * carry * 0.6;
       // The Telecaster player sits a hair behind the beat, never exactly on the grid.
       if (kind === 'tele') t += (hash(t * 3, 44) - 0.3) * 0.016;
@@ -6042,7 +6037,8 @@ export class Sequencer {
         const strong = !hk.h && (hi % 4 === 0 || st[1] >= 2), ht = tt + lean + (s.master.humanize || 0) * 0.008;
         let expression = Object.hasOwn(WIND_HOOK, hk.v)
           ? { ...x, take: windTake(hk.s, hi, 0, Math.floor(abs / 32)) } : x;
-        if ([0, 4, 5].includes(this.cur)) expression = { ...expression, harp: 1 };
+        // Country: the Telecaster sings the verse and chorus; the harmonica takes the intro and carries the breakdown.
+      if ([0, 4, 5].includes(this.cur)) expression = { ...expression, harp: 1, ...(this.cur && { brk: 1 }) };
         let harmonyRegister = {};
         if (e.playbackStyle === 'lofihiphop' && hk.v === 'tapekeys') {
           const phrase = hk.s.flatMap((note, at) => {
@@ -6569,8 +6565,8 @@ export class Sequencer {
       const ht = t + (hash(start, 97) - 0.5) * 0.008 * x.feel + (s.master.humanize || 0) * 0.008;
       const f = feelOf(s), b = 0.58 + 0.42 * ((((bar % 8) + 8) % 8) / 7), v = Math.min(1, (f ? feelVel(f, vel) : vel) * sec) * (SUNG_VOICE[hk.v] ?? 1);
       let expression = { ...(o.take == null ? x : { ...x, take: o.take }), ...register };
-      // Country: the harmonica takes the verse, the Telecaster the chorus.
-      if ([0, 4, 5].includes(this.cur) || (o.q === 'v' && pocketOf(s.master)?.walk)) expression = { ...expression, harp: 1 };
+      // Country: the Telecaster sings the verse and chorus; the harmonica takes the intro and carries the breakdown.
+      if ([0, 4, 5].includes(this.cur)) expression = { ...expression, harp: 1, ...(this.cur && { brk: 1 }) };
       const duration = swingDuration(s, bar * 16 + i16, dur, sd);
       if (o === top && !o.sh) this.suspend(ht, v, semi + lift, dur, sd, hk, strong, b, expression, scale);
       else e.hook(ht, v, semi + lift, duration, hk.v, hk.o, strong, b, false, expression);
@@ -6579,19 +6575,18 @@ export class Sequencer {
     }
   }
 
-  // Country call and response: where the melody breathes for a beat and a half, the other player answers with a short
-  // run down (or up) the chord's major pentatonic onto a chord tone. The Telecaster answers the harmonica's verse, the
-  // harmonica the Telecaster's chorus. One answer a bar at most, never over a melody note.
+  // Country call and response: where the Telecaster's line breathes for a beat and a half, the harmonica answers with a
+  // short run down (or up) the chord's major pentatonic onto a chord tone. One answer a bar at most, never over a melody note.
   answer(sung, i16, bar, t, sd) {
     if ((this.cur !== 2 && this.cur !== 6) || i16 % 2 || i16 < 2 || i16 > 10 || this.answered === bar || !sung.part) return;
     if (hash(bar, 131) > 0.85) return;
     const e = this.e, hk = sung.hook, x = hk.x || {}, root = harmRoot(e.harm);
-    const tele = this.cur === 2, licks = tele ? TELE_LICKS : HARP_RUNS, lick = licks[Math.floor(hash(bar, 132) * licks.length)];
+    const lick = HARP_RUNS[Math.floor(hash(bar, 132) * HARP_RUNS.length)];
     const len = Math.max(...lick.map(([at, , d]) => at + d));
     if (sung.busy.slice(i16, i16 + len + 1).some(Boolean)) return;
     this.answered = bar;
     const base = ((root % 12) + 12) % 12 - (root % 12 > 6 ? 12 : 0);
-    const ex = tele ? { ...x, fill: 1 } : { ...x, harp: 1, fill: 1 };
+    const ex = { ...x, harp: 1, fill: 1 };
     lick.forEach(([at, d, dur, v], j) => e.hook(t + at * sd + (hash(bar * 3 + j, 133) - 0.5) * 0.01, v, base + d, dur * sd, hk.v, hk.o, j === lick.length - 1, 0.6, false, ex));
   }
 
