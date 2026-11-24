@@ -19,7 +19,9 @@ local existing = redis.call('HGET', KEYS[1], id)
 local row = ARGV[4]
 if existing then
   local previous, newer = cjson.decode(existing), cjson.decode(row)
-  if (previous.revision or previous.updatedAt or 0) >= newer.revision then return existing end
+  local revision = previous.revision or previous.updatedAt or 0
+  if revision == newer.revision and redis.call('HGET', KEYS[2], id) == ARGV[5] then return existing end
+  if revision > tonumber(ARGV[6]) or revision >= newer.revision then return 'conflict' end
   newer.created = previous.created
   row = cjson.encode(newer)
 else
@@ -32,7 +34,7 @@ return row
 `;
 
 export const libraryScripts = {
-  [edit](call, [meta, states, removed], [id, action, limit, row, state]) {
+  [edit](call, [meta, states, removed], [id, action, limit, row, state, base]) {
     if (action === 'delete') {
       call('HDEL', meta, id);
       call('HDEL', states, id);
@@ -43,7 +45,9 @@ export const libraryScripts = {
     const existing = call('HGET', meta, id);
     if (existing) {
       const previous = JSON.parse(existing), newer = JSON.parse(row);
-      if ((previous.revision ?? previous.updatedAt ?? 0) >= newer.revision) return existing;
+      const revision = previous.revision ?? previous.updatedAt ?? 0;
+      if (revision === newer.revision && call('HGET', states, id) === state) return existing;
+      if (revision > Number(base) || revision >= newer.revision) return 'conflict';
       row = JSON.stringify({ ...newer, created: previous.created });
     } else {
       if (call('ZREVRANGEBYSCORE', removed, '+inf', '-inf').includes(id)) return 'removed';
@@ -94,7 +98,8 @@ export async function handleLibrary(req, { kv, account, secure, allowWrite }) {
   if (!isId(body?.id) || !['upsert', 'delete'].includes(body.action)) return fail(400, 'invalid_track');
   if (Buffer.byteLength(JSON.stringify(body)) > LIBRARY_BODY_BYTES) return fail(413, 'too_large');
   const now = Date.now();
-  if (body.action === 'upsert' && (!Number.isSafeInteger(body.revision) || body.revision <= 0 || body.revision > now + 300_000)) return fail(400, 'invalid_revision');
+  if (body.action === 'upsert' && (!Number.isSafeInteger(body.baseRevision) || body.baseRevision < 0 ||
+    !Number.isSafeInteger(body.revision) || body.revision <= body.baseRevision || body.revision > now + 300_000)) return fail(400, 'invalid_revision');
   if (!await allowWrite()) return fail(429, 'rate_limited');
   const args = ['EVAL', edit, 3, meta, states, removed, body.id, body.action];
   if (body.action === 'delete') {
@@ -115,8 +120,10 @@ export async function handleLibrary(req, { kv, account, secure, allowWrite }) {
     revision: body.revision, updatedAt: body.revision,
     fps: [...new Set([songFingerprint(body.state), songFingerprint(state), songFingerprint(refreshSong(sanitize(state)))])],
   };
-  const result = await kv.cmd([...args, LIBRARY_LIMIT, JSON.stringify(row), JSON.stringify({ state, revision: row.revision, updatedAt: row.updatedAt })]);
+  const result = await kv.cmd([...args, LIBRARY_LIMIT, JSON.stringify(row),
+    JSON.stringify({ state, revision: row.revision, updatedAt: row.updatedAt }), body.baseRevision]);
   if (result === 'full') return fail(409, 'library_full');
   if (result === 'removed') return fail(409, 'track_deleted');
+  if (result === 'conflict') return fail(409, 'revision_conflict');
   return res(200, { item: JSON.parse(result) });
 }

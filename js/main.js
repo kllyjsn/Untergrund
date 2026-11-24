@@ -147,8 +147,9 @@ function persist() {
   if (!project) return;
   const key = projectKey(state);
   if (key === project.key) return;
+  const previous = JSON.parse(project.key);
   project.key = key;
-  const edit = cloudLibrary.update(project.owner || '', project.id, { ...clone(state), fresh: 0 }, project.updatedAt);
+  const edit = cloudLibrary.update(project.owner || '', project.id, { ...clone(state), fresh: 0 }, project.updatedAt, previous);
   if (edit) { project.updatedAt = edit.revision; saveStudio(); }
 }
 

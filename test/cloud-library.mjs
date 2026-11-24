@@ -26,7 +26,7 @@ const call = (cookie, library, body, id, headers = {}) => handleAccount({
   host, origin, body, ...headers,
 }, ctx);
 const draft = { id: 'local-song-one', title: 'A private song', artist: 'Alice', style: 'acid',
-  created: '2025-10-01T10:00:00Z', action: 'upsert', revision: Date.now(),
+  created: '2025-10-01T10:00:00Z', action: 'upsert', revision: Date.now(), baseRevision: 0,
   state: { ...defaultState(), renderedAudio: 'not stored' } };
 draft.state.params = Object.fromEntries(Object.entries(draft.state.params).reverse());
 for (const cookie of ['', device]) {
@@ -49,7 +49,7 @@ assert.deepEqual((await call(alice, 'alice')).json.items, [first.json.item]);
 assert.deepEqual((await call(bob, 'bob')).json.items, []);
 assert.equal((await call(bob, 'bob', null, draft.id)).status, 404);
 assert.deepEqual((await call(alice, 'alice', null, draft.id)).json.state, sanitize(draft.state));
-const revision = { ...draft, revision: draft.revision + 2, state: { ...draft.state, bpm: 145 } };
+const revision = { ...draft, baseRevision: draft.revision, revision: draft.revision + 2, state: { ...draft.state, bpm: 145 } };
 assert.equal((await call(bob, 'alice', revision)).status, 409);
 assert.equal((await call(alice, 'alice', revision, null, { origin: '' })).status, 403);
 assert.equal((await call(alice, 'alice', { ...revision, revision: 0 })).json.error, 'invalid_revision');
@@ -57,7 +57,10 @@ assert.equal((await call(alice, 'alice', { ...revision, extra: 'x'.repeat(LIBRAR
 const revised = await call(alice, 'alice', { ...revision, created: '2026-01-01' });
 assert.equal(revised.json.item.bpm, 145);
 assert.equal(revised.json.item.created, first.json.item.created);
-assert.equal((await call(alice, 'alice', { ...revision, revision: revision.revision - 1, state: draft.state })).json.item.bpm, 145);
+const conflict = await call(alice, 'alice', { ...revision, revision: revision.revision + 1, state: draft.state });
+assert.equal(conflict.status, 409);
+assert.equal(conflict.json.error, 'revision_conflict');
+assert.equal((await call(alice, 'alice', revision)).json.item.bpm, 145, 'an identical retry acknowledges an already accepted revision');
 assert.equal((await call(alice, 'alice', null, draft.id)).json.updatedAt, revision.revision);
 assert.equal((await call(alice, 'alice', null, draft.id)).json.state.bpm, 145);
 assert.deepEqual(await crate.list(), []);
@@ -229,6 +232,32 @@ for (const [error, message] of [
   assert.equal((await server('alice', null, imported.id)).state.bpm, draft.state.bpm);
   online = false;
   assert.equal((await importer.load(imported.id)).state.bpm, draft.state.bpm, 'an imported song opens offline without a cloud cache');
+
+  const sharedId = 'local-competing-devices';
+  const deviceA = newClient(server);
+  await deviceA.saveGenerated(draft, sharedId);
+  const before = await deviceA.load(sharedId);
+  await server('alice', { ...draft, id: sharedId, baseRevision: before.updatedAt,
+    revision: before.updatedAt + 1, state: { ...before.state, bpm: 160 } });
+  const fresh = await deviceA.load(sharedId);
+  assert.equal(fresh.state.bpm, 160, 'online load fetches changes made after the last Library list refresh');
+  await server('alice', { ...draft, id: sharedId, baseRevision: fresh.updatedAt,
+    revision: fresh.updatedAt + 1, state: { ...fresh.state, bpm: 161 } });
+  const changed = { ...fresh.state, master: { ...fresh.state.master, volume: 0.375 } };
+  deviceA.update('alice', sharedId, changed, fresh.updatedAt, fresh.state);
+  await deviceA.refresh();
+  const merged = (await server('alice', null, sharedId)).state;
+  assert.equal(merged.bpm, 161, 'rebasing the local edit preserves another device’s BPM change');
+  assert.equal(merged.master.volume, 0.375, 'the local edit is reapplied after the conflict');
+
+  rows.set('alice', Array.from({ length: 30 }, (_, i) => ({ ...draft, id: `local-new-${i}` })));
+  const offlinePage = newClient(() => assert.fail('offline edits must not make a request'));
+  const capped = offlinePage.update('alice', sharedId, { ...merged, bpm: 162 }, fresh.updatedAt + 1, merged);
+  assert.equal(capped.kept, true, 'an existing Library song can be edited when the new-song queue is full');
+  offlinePage.update('alice', sharedId, { ...merged, bpm: 163 }, capped.revision, merged);
+  const existing = rows.get('alice').filter((row) => row.id === sharedId);
+  assert.equal(rows.get('alice').length, 31);
+  assert.deepEqual(existing.map((row) => row.state.bpm), [163]);
 }
 const oversizedSong = createCloudLibrary({
   get: async () => ({ account: { id: 'alice' } }), subscribe: () => {}, device: () => [],
