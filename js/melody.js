@@ -46,7 +46,7 @@ export const SING_PROFILES = {
   // Folk: a story, many syllables, almost all steps.
   folk: { song: 1, k: [4, 6], art: 0.8, off: 0.3, six: 0.05, leap: 0.1, hi: 0 },
   // Country: twang, leaps of a fourth or more, and pickups into nearly every line.
-  // Lines say a few words on one note and step to the next (rep, zz: no seesaw between two neighbours), and the chorus
+  // Lines say a few words on one note and step to the next (rep; zz: no verse seesaw between two neighbours), and the chorus
   // can open on any chord tone (cs). The chorus pushes words an 8th ahead of beats 1 and 3 (push).
   country: { song: 1, k: [4, 5], art: 0.75, off: 0.35, six: 0.1, leap: 0.5, hi: 0, pk: 0.9, jump: 0.8, pks: [[-2], [-4, -2], [-3, -2], [-4, -3, -2]], rep: 0.15, zz: 1.6, cs: [0, 2, 4, 5], push: 3.5 },
 };
@@ -140,7 +140,7 @@ function phrasePitches(r, P, rh, plan, ctAt, forced, opt = {}) {
         if (opt.jump?.has(j) && mv >= 3) c -= opt.jumpBonus;
         if (Math.abs(last) >= 3 && !(Math.abs(mv) >= 1 && Math.abs(mv) <= 2 && Math.sign(mv) === -Math.sign(last))) c += 6;
         if (mv === 0 && last === 0) c += 1.5;
-        if (P.zz && mv && last && Math.abs(mv) <= 2 && Math.abs(last) <= 2 && Math.sign(mv) !== Math.sign(last)) c += P.zz;
+        if (P.zz && opt.zz && mv && last && Math.abs(mv) <= 2 && Math.abs(last) <= 2 && Math.sign(mv) !== Math.sign(last)) c += P.zz;
         if (c < nc[d][mv + 7]) { nc[d][mv + 7] = c; bk[d][mv + 7] = [p, m]; }
       }
     }
@@ -328,7 +328,7 @@ function setPart(r, P, kind, deg, chordTones, words, sig, ceil = Infinity) {
     const ctAt = (s, d) => chordTones(Math.floor(mod(bar0 * 16 + s, MELODY_BARS * 16) / 16)).has(mod(semi(d), 12));
     const snap = (d, s) => [0, 1, -1, 2, -2].map((x) => d + x).find((q) => ctAt(s, q)) ?? d;
     plan.end = snap(plan.end, at.at(-1));
-    const forced = {}, opt = { strong: stress, colour: chorus ? 0.25 : 0.15, leapMul: P.jump ? 1 : 1.6 };
+    const forced = {}, opt = { strong: stress, colour: chorus ? 0.25 : 0.15, leapMul: P.jump ? 1 : 1.6, zz: kind === 'v' };
     // Pickup genres leap up from the pickup onto the line's first downbeat (country's "and-a HOME").
     if (P.jump) { const fa = lines[ia].indexOf(1), fb = lines[ib].indexOf(1); opt.jump = new Set([fa, la + fb].filter((j) => j > 0 && j !== la)); opt.jumpBonus = P.jump * 8; }
     if (chorus && ph === 0) {
