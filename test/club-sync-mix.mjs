@@ -6,6 +6,7 @@ import { rulePlan, planLyrics } from '../js/song-plan.js';
 import { vocalFx } from '../js/sing.js';
 import { envelope, postResumeEnvelope, onsets, correlate } from './club-sync-audio.mjs';
 import { gridKicks } from './club-sync-grid.mjs';
+import { schedulerTapEnvelope } from './club-sync-tap.mjs';
 
 export function mixFixture() {
   const s = freshSong('hypnotic', 7, { length: 'sketch', bpm: 123, swing: 0 });
@@ -277,11 +278,11 @@ export function underrunEvidence(capture, from, to) {
     intervals: intervals.filter(i => i.to >= from && i.from <= to) };
 }
 
-export function kickAttribution(raw, kicks) {
+export function kickAttribution(raw, kicks, envelopes) {
   const clients = raw.map(c => underrunEvidence(c, kicks.from, kicks.to));
-  const channels = raw.map(c => {
+  const channels = raw.map((c, i) => {
     const samples = c.channels.kick.samples;
-    const mapped = envelope({ ...c, samples });
+    const mapped = envelopes?.[i] ?? envelope({ ...c, samples });
     const starts = (c.sources || []).filter(s => s.tag === 'kick').map(s => ({ when: s.when,
       submitContextTime: s.clock.contextTime, submitAt: s.at, leadMs: (s.when - s.clock.contextTime) * 1000,
       projectedOutputAt: s.clock.outputEpochMs + (s.when - s.clock.outputContextTime) * 1000 }));
@@ -326,27 +327,35 @@ export function analyzeMix(raw, s, events, origin, { resume = true, checkFirstDo
   const start = Math.max(Math.max(he[0][0], le[0][0]) + 500, events.baselineAt ?? -Infinity);
   const end = Math.min(he.at(-1)[0], le.at(-1)[0]) - 200;
   const phases = {};
-  // The host keeps rendering: match its continuous onsets by output time,
+  // The host keeps rendering: match its continuous onsets by transport time,
   // not by the (possibly delayed) resume marker for the frozen listener.
-  const host = onsets(channelEnvelope(raw[0], 'kick'), s.bpm);
+  const kickRows = raw.map(c => schedulerTapEnvelope(c, origin, 'kick', {segmented:true}));
+  const host = onsets(kickRows[0], s.bpm);
+  const chromeHost = onsets(channelEnvelope(raw[0], 'kick'), s.bpm);
   const windows = [['before', start, events.interruptAt], ...(!resume && events.recoverAt > events.interruptAt ? [['during', events.interruptAt, events.recoverAt]] : []), ['after', events.recoverAt, end]];
   for (const [name, from, to] of windows) {
     const rows = channel => raw.map(r => channelEnvelope(r, channel, resume && name === 'after'));
-    const listener = onsets(channelEnvelope(raw[1], 'kick', resume && name === 'after'), s.bpm);
+    const phaseKickRows = name === 'after' ? raw.map((c, i) => schedulerTapEnvelope(c, events.newSet?.startsAt ?? origin, 'kick', {
+      segmented:true, since:events.recoverAt, after:resume && i === 1,
+    })) : kickRows;
+    const phaseHost = onsets(phaseKickRows[0], s.bpm);
+    const listener = onsets(phaseKickRows[1], s.bpm);
+    const chromeListener = onsets(channelEnvelope(raw[1], 'kick', resume && name === 'after'), s.bpm);
     const [vh, vl] = rows('vocal');
-    const kicks = matchEvents(host, listener, from + (name === 'before' ? 150 : 0), to - 150, 150);
-    kicks.hostOnsets = host; kicks.listenerOnsets = listener;
+    const kicks = matchEvents(phaseHost, listener, from + (name === 'before' ? 150 : 0), to - 150, 150);
+    const chromeKicks = matchEvents(chromeHost, chromeListener, kicks.from, kicks.to, 150);
+    kicks.hostOnsets = phaseHost; kicks.listenerOnsets = listener;
     const threshold = Math.max(...vh.filter(([t]) => t >= from && t <= to).map(r => r[1]), 0) * .25;
     const hp = phraseOnsets(vh, threshold), lp = phraseOnsets(vl, threshold);
     const vocal = matchEvents(hp, lp, from + 150, to - 150, 400);
     const vlag = correlate(vh.filter(([t]) => t >= from && t <= to), vl.filter(([t]) => t >= from && t <= to), 400);
     vocal.lagMs = vlag.lagMs; vocal.correlation = vlag.score;
-    vocal.relativeToKickMs = vlag.lagMs === null || kicks.signedMedianMs === null ? null : vlag.lagMs - kicks.signedMedianMs;
+    vocal.relativeToKickMs = vlag.lagMs === null || chromeKicks.signedMedianMs === null ? null : vlag.lagMs - chromeKicks.signedMedianMs;
     vocal.expectedPhraseOnsets = Array.from({length:Math.ceil(s.chain.length / 2)}, (_, i) => origin + i * 480000 / s.bpm)
       .filter(t => t >= from && t <= to);
     vocal.returnMs = vl.find(([t, e]) => t >= from && t <= to && e > threshold)?.[0] - from;
     if (!Number.isFinite(vocal.returnMs)) vocal.returnMs = null;
-    phases[name] = { kicks, vocal, attribution: kickAttribution(raw, kicks) };
+    phases[name] = { kicks, chromeKicks, vocal, attribution: kickAttribution(raw, kicks, phaseKickRows) };
   }
   const boundaries = mixBoundaries(s, origin).filter(b => b.at >= events.interruptAt && b.at + 3200 < end)
     .map(b => {
