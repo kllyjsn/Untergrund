@@ -2135,6 +2135,7 @@ function buildGenerateHome() {
     h('div', { class: 'home-foot-links' },
       h('a', { class: 'home-research', href: '/start/' }, 'GETTING STARTED', h('span', {}, 'Create, listen, remix and release')),
       h('a', { class: 'home-research', href: '/research/' }, 'RESEARCH', h('span', {}, 'How we measure the sound')),
+      h('a', { class: 'home-research', href: '/pricing' }, 'PLANS', h('span', {}, 'Free studio and Studio Pro')),
       h('a', { class: 'home-research', href: '/legal/' }, 'LEGAL', h('span', {}, 'Rights, privacy and terms'))));
   ui.home = home;
   return home;
