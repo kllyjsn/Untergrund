@@ -65,6 +65,32 @@ const stringsStop = await withChrome((run) => run(`(async () => {
 })()`));
 if (stringsStop) console.log('G-Funk strings stop band: 16 dB cap without boosts, body/air at 22.05–192 kHz, finite impulses, genre/instrument scope, empty and silent PCM passed');
 
+const deepHouseBuild = await withChrome((run) => run(`(async () => {
+  const { Engine, Sequencer } = await import('/js/engine.js');
+  const { song } = await import('/test/audio-quality-page.js');
+  const s = song('deephouse', 42);
+  s.bpm = 120;
+  const rate = 48000, bar = 2, buildBars = 4, from = s.chain.indexOf('BBBB');
+  const ctx = new OfflineAudioContext(1, 10 * rate, rate);
+  const engine = new Engine(ctx, s, { realtime: false });
+  const seq = new Sequencer(engine, s);
+  const source = ctx.createConstantSource();
+  engine.out.disconnect();
+  engine.secGain.disconnect();
+  source.connect(engine.secGain).connect(ctx.destination);
+  source.start();
+  seq.startAt(from * 16, 0);
+  for (let i = 0; i <= buildBars; i++) seq.advanceBar((from + i) * 16, i * bar);
+  const samples = (await ctx.startRendering()).getChannelData(0);
+  return Array.from({ length: buildBars }, (_, i) => {
+    const at = i * bar;
+    return samples[(at + 1.75) * rate] - samples[(at + 0.25) * rate];
+  });
+})()`));
+if (deepHouseBuild) {
+  assert(deepHouseBuild.every((rise) => rise > 0.02), `Deep House build gain rises within every bar: ${deepHouseBuild}`);
+}
+
 const chordsFill = await withChrome((run) => run(`(async () => {
   const { Engine } = await import('/js/engine.js');
   const { defaultState } = await import('/js/state.js');
