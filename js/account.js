@@ -22,6 +22,19 @@ export async function getAccount(force = false) {
   return pending;
 }
 
+export async function accountAction(action, fields = {}) {
+  const r = await call('POST', { action, ...fields });
+  if (!r.ok) throw new Error(r.json.error || 'unavailable');
+  if (action === 'signout') {
+    sc.disconnect();
+    set({ account: null, following: [] });
+  } else if (r.json.account) {
+    set({ account: r.json.account, ...(action === 'preferences' ? {} : { following: [] }) });
+    if (action !== 'preferences') getAccount(true);
+  }
+  return r.json;
+}
+
 // Anonymous identity, created the first time this browser publishes or follows.
 export async function ensureDevice() {
   const a = await getAccount();
@@ -112,7 +125,8 @@ export async function migrateLocalSongs() {
     const track = crate.find((t) => t.id === it.trackId);
     if (!track?.state) continue;
     const res = await fetch('/api/jukebox', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind: 'song', title: it.title, style: it.style, artist: cache?.account?.name || it.artist, bpm: it.bpm, state: track.state }) }).catch(() => null);
+      body: JSON.stringify({ kind: 'song', title: it.title, style: it.style, artist: cache?.account?.name || it.artist, bpm: it.bpm, state: track.state,
+        accountId: cache?.account?.id }) }).catch(() => null);
     if (!res?.ok) break;
     await idb('delete', it.id).catch(() => {});
     moved++;

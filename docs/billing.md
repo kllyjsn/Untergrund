@@ -1,6 +1,6 @@
 # Studio Pro billing
 
-Free keeps the studio, single-song generation, exports, publishing, and public rooms. Studio Pro adds three alternative editable arrangements from one brief without restricting any Free features. Members get 60 successful draft sets per UTC calendar month. Start with one `Untergrund Studio Pro` product and a fixed $19 USD monthly Price; other amounts are rejected. A SoundCloud-linked creator account keeps billing and draft access tied to the same account across devices.
+Free keeps the studio, single-song generation, exports, publishing, and public rooms. Studio Pro adds three alternative editable arrangements from one brief without restricting any Free features. Members get 60 successful draft sets per UTC calendar month. Start with one `Untergrund Studio Pro` product and a fixed $19 USD monthly Price; other amounts are rejected. Sign in to the same Untergrund account to keep billing and draft access across devices. On Plans, use the same sign-in method as before so you keep your existing membership.
 
 ## Before enabling checkout
 
