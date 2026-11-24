@@ -144,6 +144,8 @@ const WIND_HOOK = {
 // Held alto notes sat dead straight, so their 8th-15th harmonics rang as fixed 2.5-3.1 kHz lines over the mix;
 // a player's 20-cent vibrato, leaned into after the attack, spreads them.
 const ALTO_VIB = 20;
+// Notes longer than 0.2 s take a wider 26 cents: at 20 their 8th-10th harmonics still stood as lines.
+const ALTO_VIB_HELD = 26;
 // Vibrato timing: shortest note that gets it, onset delay, and when it reaches full depth (cap, share of note).
 const VIB_ON = [0.2, 0.12, 0.45, 0.6];
 // The alto's riff repeats are mostly shorter than VIB_ON's ramp, so its vibrato starts sooner, down to 16ths.
@@ -157,11 +159,12 @@ const ALTO_SCOOP = 0.015;
 const ALTO_GATE = [0.35, 0.82];
 const ALTO_RELEASE = 0.03;
 // Notes the alto repeats or holds still stack their 4th-8th harmonics in 2.4-3.3 kHz, so each note dips
-// whichever of its own harmonics land there by 9 dB, leaving the rest of the horn's tone intact.
-const ALTO_RING = { lo: 2400, hi: 3300, q: 24, db: -9 };
-const altoRingNotches = (m) => {
-  const f0 = 440 * 2 ** ((m - 69) / 12), { lo, hi, q, db } = ALTO_RING, out = [];
-  for (let k = Math.ceil(lo / f0); k * f0 <= hi; k++) out.push([k * f0, q, db]);
+// whichever of its own harmonics land there by 9 dB, leaving the rest of the horn's tone intact. Notes of 0.2 s or
+// less, too short for vibrato to spread them, dip them by 15 dB.
+const ALTO_RING = { lo: 2400, hi: 3300, q: 24, db: -9, shortDb: -15 };
+const altoRingNotches = (m, dur) => {
+  const f0 = 440 * 2 ** ((m - 69) / 12), { lo, hi, q, db, shortDb } = ALTO_RING, out = [];
+  for (let k = Math.ceil(lo / f0); k * f0 <= hi; k++) out.push([k * f0, q, dur <= 0.2 ? shortDb : db]);
   return out;
 };
 const SAX_TRIM = { pop: -2.4, neosoul: -5.7, boombap: 3.5, trap: 1.1, afrobeats: 6.5, reggaeton: 4.5, breaks: 7.1 };
@@ -3881,12 +3884,12 @@ export class Engine {
     const rate = 2 ** ((m - pitch - (cents + drift) / 100) / 12);
     return this.playBuf(buf, t, gain * touch * dbGain(trim + (air - 0.5) * 1.2) * dbGain(jazzStyle(this.state, this.playingPattern) === 'bossa' && voice === 'tpt' ? JAZZ_MIX.bossa.trumpetLead : JAZZ_MIX[jazzStyle(this.state, this.playingPattern)]?.lead || 0), eq,
       rate, Math.max(0.06, dur * (voice === 'altosax' && dur <= ALTO_GATE[0] ? ALTO_GATE[1] : 0.92)), {
-        peaks: [...(jazzStyle(this.state, this.playingPattern) ? jazzNotches(useAlt ? TAKES[HOOK_BAND[voice]] : HOOK_BAND[voice], pitch, rate) : []), ...(styleFx.peaks || []), ...(voice === 'altosax' ? altoRingNotches(m) : [])],
+        peaks: [...(jazzStyle(this.state, this.playingPattern) ? jazzNotches(useAlt ? TAKES[HOOK_BAND[voice]] : HOOK_BAND[voice], pitch, rate) : []), ...(styleFx.peaks || []), ...(voice === 'altosax' ? altoRingNotches(m, dur) : [])],
         shelves: styleFx.shelves,
         lp: Math.min(styleFx.cap ?? Infinity, lp + 2100 * touch + 650 * (air - 0.5)), lpStages: styleFx.lpStages, offset: offset + tongue * 0.012 + (voice === 'altosax' && dur <= 0.2 ? ALTO_SCOOP : 0),
         fade: (voice === 'tpt' ? 0.025 : strong ? 0.007 : 0.012) + 0.009 * (1 - tongue) + (styleFx.soft || 0),
         attackGain: ((strong ? 1.04 : 0.9) + (tongue - 0.5) * 0.24) * (styleFx.soft ? 0.9 : 1),
-        release: voice === 'altosax' ? ALTO_RELEASE : 0.055, ringOut: true, ...(voice === 'tpt' ? { vib: 6 } : voice === 'altosax' ? { vib: ALTO_VIB, vibOn: dur <= 0.2 ? ALTO_VIB_16TH_ON : ALTO_VIB_ON } : {}),
+        release: voice === 'altosax' ? ALTO_RELEASE : 0.055, ringOut: true, ...(voice === 'tpt' ? { vib: 6 } : voice === 'altosax' ? { vib: dur <= 0.2 ? ALTO_VIB : ALTO_VIB_HELD, vibOn: dur <= 0.2 ? ALTO_VIB_16TH_ON : ALTO_VIB_ON } : {}),
       });
   }
 
