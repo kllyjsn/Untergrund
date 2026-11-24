@@ -49,7 +49,7 @@ const GENRE_PALETTES = {
       2: { ...DEEP_CHORD, level: 1.5, attack: 0.025, release: 0.6, fm: 0.28, cutoff: 1450, presence: 'pad' },
     },
     hook: { ...DEEP_CHORD, wave: 'sawtooth', harmonics: 4500, level: 0.42, attack: 0.012, release: 0.18, cutoff: 4000, spread: 6, width: 0.55, fm: 0.35, presence: false, eq: [[1200, 0.8, 1.5], [4800, 0.9, -3]], airBand: 0, breath: 0.08, breathDecay: 0.05, transpose: 24, range: [79, 91] },
-    bass: { type: 'round', wave: 'triangle', fm: 0.65, level: 1, sub: 0.72, body: 0.8, cutoff: 760, decay: 0.16, grit: 0.5, sustain: 0.55, length: 0.88, balance: true, lowBand: { cutoff: 120, trim: -6, duck: 6 } },
+    bass: { type: 'round', wave: 'triangle', fm: 0.65, level: 1.25, sub: 0.72, subHigh: 43, body: 0.8, cutoff: 760, decay: 0.16, grit: 0.9, sustain: 0.55, length: 0.88, balance: true, lowBand: { cutoff: 120, trim: -3, duck: 18, lead: 0.015, hold: 0.08, duckCutoff: 250 } },
   },
   euphoric: {
     name: 'uplift',
@@ -1316,7 +1316,7 @@ export class Engine {
     if (!this.editableHits.length) return;
     const now = this.ctx.currentTime, ready = now + HIT_EDIT_GUARD;
     this.pruneEditableHits(now);
-    const removed = new Set();
+    const removed = new Set(), removedDucks = [];
     let duckFrom = Infinity;
     this.revisingHits = true;
     try {
@@ -1331,6 +1331,7 @@ export class Engine {
           removed.add(note);
         }
         for (const { t } of hit.ducks) duckFrom = Math.min(duckFrom, t);
+        removedDucks.push(...hit.ducks);
         this.ducks = this.ducks.filter(d => !hit.ducks.includes(d));
         Object.assign(hit, { note: next, sources: [], ducks: [] });
         if (next) this.renderHit(hit);
@@ -1339,7 +1340,7 @@ export class Engine {
     } finally {
       this.revisingHits = false;
       if (removed.size) this.queuedNotes = this.queuedNotes.filter(note => !removed.has(note));
-      if (Number.isFinite(duckFrom)) this.rebuildDucks(duckFrom);
+      if (Number.isFinite(duckFrom)) this.rebuildDucks(duckFrom, removedDucks);
     }
   }
 
@@ -1415,11 +1416,11 @@ export class Engine {
     const low = paletteFor(this.state, this.playbackStyle)?.bass.lowBand;
     if (low) {
       this.pocketBassOut(low);
-      parts.push([this.pocketLow.duck.gain, low.duck * Math.min(1, v * 1.25), 0.07, 0.002, 0.03, 0]);
+      parts.push([this.pocketLow.duck.gain, low.duck * Math.min(1, v * 1.25), 0.07, 0.002, low.hold ?? 0.03, 0, low.lead || 0]);
     }
     const duck = { t, parts };
     if (this.queuedNotes) {
-      this.ducks = this.ducks.filter(d => d.t + 0.03 >= this.ctx.currentTime);
+      this.ducks = this.ducks.filter(d => d.t + Math.max(0.03, ...d.parts.map(p => p[4])) >= this.ctx.currentTime);
       this.ducks.push(duck);
       this.editingHit?.ducks.push(duck);
     }
@@ -1427,28 +1428,36 @@ export class Engine {
   }
 
   scheduleDuck({ t, parts }) {
-    for (const [param, depth, release, attack, hold, rest = 1] of parts) {
-      param.cancelScheduledValues(t);
-      param.setTargetAtTime(rest - depth, t, attack);
+    for (const [param, depth, release, attack, hold, rest = 1, lead = 0] of parts) {
+      if (lead) (this.duckLeads ??= new WeakMap()).set(param, Math.max(lead, this.duckLeads.get(param) || 0));
+      param.cancelScheduledValues(t - lead);
+      param.setTargetAtTime(rest - depth, t - lead, attack);
       param.setTargetAtTime(rest, t + hold, release);
     }
   }
 
   // Rebuild only future ducking; a hit already sounding keeps its current pump.
-  rebuildDucks(from) {
+  rebuildDucks(from, removed = []) {
+    const now = this.ctx.currentTime;
     this.ducks.sort((a, b) => a.t - b.t);
     for (const param of [this.duck.gain, this.rumbleDuck.gain, this.ch.acid.sc?.gain, this.windDuck?.gain, this.pocketLow?.duck.gain]) {
       if (!param) continue;
-      param.cancelScheduledValues(from);
+      // A duck that leads its hit starts before `from`, so cancel from its lead too.
+      const at = from - (this.duckLeads?.get(param) || 0);
+      param.cancelScheduledValues(at);
       let previous;
       for (const duck of this.ducks) {
         if (duck.t >= from) break;
         if (duck.parts.some(p => p[0] === param)) previous = duck;
       }
+      let released = false;
       if (previous) {
         const [, , release, , hold, rest = 1] = previous.parts.find(p => p[0] === param);
-        if (previous.t + hold >= from) param.setTargetAtTime(rest, previous.t + hold, release);
+        if ((released = previous.t + hold >= at)) param.setTargetAtTime(rest, previous.t + hold, release);
       }
+      // A removed hit whose lead already started has pulled the param down; let it go now.
+      const cut = !released && at <= now && removed.flatMap(d => d.parts).find(p => p[0] === param);
+      if (cut) param.setTargetAtTime(cut[5] ?? 1, now, cut[2]);
     }
     for (const duck of this.ducks) if (duck.t >= from) this.scheduleDuck(duck);
   }
@@ -2799,7 +2808,7 @@ export class Engine {
   pocketBassOut(low) {
     if (!low) return this.ch.acid.input;
     if (!this.pocketLow) {
-      const input = this.filter('lowshelf', low.cutoff, Math.SQRT1_2), duck = this.filter('lowshelf', low.cutoff, Math.SQRT1_2);
+      const input = this.filter('lowshelf', low.cutoff, Math.SQRT1_2), duck = this.filter('lowshelf', low.duckCutoff ?? low.cutoff, Math.SQRT1_2);
       input.gain.value = low.trim;
       input.connect(duck).connect(this.ch.acid.input);
       this.pocketLow = { input, duck };
@@ -2808,7 +2817,7 @@ export class Engine {
   }
 
   pocketBass(t, st, sd, holdNext, sliding, color) {
-    const c = this.ctx, p = this.state.params.acid, f = midiHz(this.bassMidi(st)), subF = midiHz(this.bassMidi(st, 36, Math.round(p.voice) === 5 ? 43 : 38));
+    const c = this.ctx, p = this.state.params.acid, f = midiHz(this.bassMidi(st)), subF = midiHz(this.bassMidi(st, 36, color.subHigh ?? (Math.round(p.voice) === 5 ? 43 : 38)));
     const drive = p.drive - this.paletteReference().acid.drive, preamp = 2 ** (drive * 2);
     const from = this.monoNote(t, f, sliding), len = (st.ap ? sd * 0.9 : holdNext ? sd * 2 : sd * (0.9 + p.decay * 2)) * color.length, end = t + len + 0.25;
     const cutoff = Math.max(100, Math.min(4000, color.cutoff * (0.55 + p.cutoff / 600)));
