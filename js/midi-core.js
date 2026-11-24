@@ -217,13 +217,27 @@ export function stepTicks(perfMs, stepMs) {
   return Array.from({ length: TICKS_PER_STEP }, (_, k) => perfMs + (k * stepMs) / TICKS_PER_STEP);
 }
 // Sends clock to one output. send(bytes, timestampMs) — a MIDIOutput.send.
-export function createClockSender(send, { nudgeMs = 0, clear } = {}) {
-  let running = false, next = null;
-  const out = (bytes, ts) => send(bytes, Math.max(0, ts + nudgeMs));
+export function createClockSender(send, { nudgeMs = 0, clear, now = () => performance.now() } = {}) {
+  let running = false, next = null, pending = [];
+  const out = (bytes, ts) => {
+    const time = Math.max(0, ts + nudgeMs);
+    if (clear) {
+      pending = pending.filter(e => e.time > now());
+      pending.push({bytes, time});
+    }
+    send(bytes, time);
+  };
   return {
     get running() { return running; },
     start(step, perfMs) {
       step = Math.max(0, Math.floor(step));
+      if (running && clear) {
+        const cutoff = Math.max(0, perfMs + nudgeMs - (step === 0 ? 1 : 2));
+        const current = now();
+        pending = pending.filter(e => e.time > current && e.time < cutoff);
+        clear();
+        for (const e of pending) send(e.bytes, e.time);
+      }
       if (step === 0) out([0xfa], perfMs - 1);
       else { const p = clamp(step, 0, 0x3fff); out([0xf2, p & 0x7f, p >> 7], perfMs - 2); out([0xfb], perfMs - 1); }
       running = true; next = step;
@@ -233,7 +247,7 @@ export function createClockSender(send, { nudgeMs = 0, clear } = {}) {
       for (const t of stepTicks(perfMs, stepMs)) out([0xf8], t);
       next = abs + 1;
     },
-    stop(nowMs) { if (!running) return; running = false; next = null; clear?.(); send([0xfc], nowMs); },
+    stop(nowMs) { if (!running) return; running = false; next = null; pending = []; clear?.(); send([0xfc], nowMs); },
   };
 }
 
@@ -298,7 +312,7 @@ export function createMidiHub(access, { storage, actions = {}, now = () => 0 } =
     if (sender?.running && sender.port !== o) sender.stop(now());
     if (!o) { if (!name) sender = null; return; }
     if (sender?.port === o) return;
-    sender = createClockSender((b, ts) => { try { o.send(b, ts); } catch {} }, { nudgeMs, clear: () => { try { o.clear?.(); } catch {} } });
+    sender = createClockSender((b, ts) => { try { o.send(b, ts); } catch {} }, { nudgeMs, now, clear: () => { try { o.clear?.(); } catch {} } });
     sender.port = o;
   }
   if (access) {
