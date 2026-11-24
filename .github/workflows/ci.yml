@@ -120,10 +120,26 @@ jobs:
           "$bin/ffmpeg" -version
           "$bin/redis-server" --version
           echo "$bin" >> "$GITHUB_PATH"
-      - run: npm test
+      - name: Check test split coverage
+        run: node test/test-split.mjs
+      - run: npm run test:core
       - run: npm run build
       - name: Smoke test server.mjs (SC_MOCK=1)
         run: scripts/smoke.sh
+
+  test-audio:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CHROME_PATH: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:audio
 
   true-peak:
     name: true-peak (${{ matrix.shard }}/6)

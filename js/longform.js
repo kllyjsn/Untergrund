@@ -64,7 +64,7 @@ export const formBars = (S) => S.reduce((a, s) => a + s[1], 0);
 export const formSeconds = (S, bpm) => (formBars(S) * 240) / bpm;
 
 // The section plan for an idiom at a tempo. `r` is the seeded random source that picks the base.
-export function planSections(idiom, bpm, length = 'song', r = Math.random) {
+export function planSections(idiom, bpm, length = 'song', r = Math.random, { chorusBuilds = false } = {}) {
   const L = LENGTHS[length] ? length : 'song', T = LENGTHS[L], list = BASES[L][idiom] || BASES[L].pop;
   // The last chorus is the longest wherever the tempo allows; at ballad tempos, bases that already fill the
   // song are preferred, and the shortest is used when none fits.
@@ -81,6 +81,13 @@ export function planSections(idiom, bpm, length = 'song', r = Math.random) {
     const trial = S.map((s) => [...s]);
     if (!GROW[op](trial) || formBars(trial) > MAX_SONG_BARS || formSeconds(trial, bpm) > T.hi) continue;
     S.splice(0, S.length, ...trial);
+  }
+  // Turn the last phrase of a verse into a build without moving the chorus downbeat.
+  if (chorusBuilds) for (let i = S.length - 1; i > 0; i--) {
+    const [kind, bars] = S[i - 1];
+    if (S[i][0] === 'c' && kind === 'v' && bars >= 8) {
+      S.splice(i - 1, 1, [kind, bars - 4], ['p', 4]);
+    }
   }
   return S;
 }
@@ -156,7 +163,7 @@ function finalTake(G, level) {
 // Writes the development of a planned song into its patterns as per-bar takes (scope.js): repeats stay the same
 // song (the chorus hook and chords are untouched) but never play back identically. `keep` tracks (locked ones) are
 // never touched; `strict` only develops tracks a section already plays, so an explicit instrument list holds.
-export function developSong(pats, S, { keep = [], strict = false } = {}) {
+export function developSong(pats, S, { keep = [], strict = false, chorusBuilds = false } = {}) {
   if (!S?.length || !pats || pats.length < 8 || pats.some((p) => p.score)) return pats;
   const B = pats[1], C = pats[2], G = pats[6];
   const add = (pat, from, to, body) => {
@@ -175,11 +182,17 @@ export function developSong(pats, S, { keep = [], strict = false } = {}) {
   const spans = sectionSpans(S), last = kinds(S).lastIndexOf('c'), end = (s) => Math.min(s.at + s.bars, MAX_SONG_BARS) - 1;
   spans.forEach((s, i) => {
     if (s.at >= MAX_SONG_BARS) return;
+    if (chorusBuilds && s.k === 'i' && pats[0].prog) add(pats[3], end(s), end(s), { prog: clone(pats[0].prog) });
     // A 16-bar verse accumulates: its second half brings the new part in.
     if (s.k === 'v' && ++verses > 1) add(C, s.bars >= 16 ? s.at + (s.bars >> 1) : s.at, end(s), strict ? finalTake(C, 1) : verseTake(C, G));
-    if (s.k === 'p' && ++pres > 1) {
+    if (s.k === 'p' && chorusBuilds) {
+      add(B, s.at, s.at + (s.bars >> 1) - 1, { steps: { perc: B.steps.perc.map((v, j) => (j % 4 === 2 ? v : 0)) } });
+    } else if (s.k === 'p' && ++pres > 1) {
       add(B, s.at, s.at + (s.bars >> 1) - 1, driveTake(B, G));
       add(B, end(s), end(s), rollTake(B));
+    }
+    if (chorusBuilds && s.k === 'b' && i + 1 === last && pats[5].prog) {
+      add(pats[3], end(s), end(s), { prog: clone(pats[5].prog) });
     }
     // An instrumental's last bar is the switch-up (H): it stays instrumental too.
     if (s.k === 'x') { add(G, s.at, end(s), instTake(G)); add(pats[7], s.at, end(s), instTake(pats[7])); }
@@ -203,4 +216,59 @@ export function developFinalDrop(pats, chain, { keep = [] } = {}) {
   const to = c[end + 1] === 'H' ? end + 1 : end;
   for (const p of [pats[6], pats[7]]) if (p.hook && !p.hook.h) (p.at ??= []).push({ b: [from, to], hook: { ...clone(p.hook), up: 1 } });
   return pats;
+}
+
+// The chill (emotion.peak-last): the final chorus, or a club form's final drop, gets one device no earlier chorus
+// has, chosen per seed from the feeling's peak devices (js/feel.js FEELS[feel].peak). Sloboda 1991 and Grewe 2007
+// name the triggers: an appoggiatura on the peak note (`suspension`), a new voice entering (`entry`, the hook
+// doubled an octave up on strings), a sudden dynamic change (`dropout`, one bar with only the lead, then the full
+// return) and the key change (`lift`, where the style already lifts). Written as `peak` on the final run's takes
+// (scope.js), so it stays an ordinary, saved edit. Songs without a feeling keep the arrangement they had.
+export const PEAK_DEVICES = ['suspension', 'entry', 'dropout', 'lift'];
+// The final run of peak bars (G and its switch-up H) after an earlier peak, as the engine's key lift finds it.
+export function finalPeak(chain) {
+  const c = [].concat(chain).join('');
+  let to = c.lastIndexOf('G');
+  if (to < 0) return null;
+  while (to + 1 < c.length && c[to + 1] === 'H') to++;
+  let from = to;
+  while (from > 0 && 'GH'.includes(c[from - 1])) from--;
+  return from > 0 && c.slice(0, from).includes('G') ? { from, to } : null;
+}
+export function writePeak(pats, chain, devices, seed = 0, { keep = [], drops = [] } = {}) {
+  const run = finalPeak(chain), G = pats?.[6];
+  if (!devices?.length || !run || !G || pats.length < 8 || pats.some((p) => p.score)) return null;
+  const c = [].concat(chain).join(''), lead = G.hook && !G.hook.h && G.hm > 0 && !keep.includes('stab');
+  // The key lift stays with the styles that idiomatically change key (state.js LIFT): there it is already written.
+  // A festival build (festival-build.js) lands its kick on the final drop's downbeat: its dropout waits for the
+  // drop's second phrase, which opens on the title again.
+  const out = drops.includes(run.from) ? run.from + 8 : run.from;
+  // A dropout needs something to take away: a hook-only drop (song-spec.js voice) has nothing. The chords count
+  // when the lead plays the bar alone (engine.js), not when they are the element left.
+  const band = (pos) => {
+    const p = pats['ABCDEFGH'.indexOf(c[pos])], t = (p.at || []).findLast((v) => v.b[0] <= pos && pos <= v.b[1]);
+    const solo = p.hook && !p.hook.h && p.hm > 0;
+    return Object.entries({ ...p.steps, ...t?.steps }).some(([id, v]) => (id !== 'stab' || solo) && v?.some((x) => (id === 'acid' ? x?.on : x)));
+  };
+  const ok = (d) => (d === 'lift' ? pats.some((p) => p.lift) : d === 'dropout' ? out < run.to && c[out] === c[run.from] && !drops.includes(out) && band(out) : lead);
+  const opts = devices.filter((d) => PEAK_DEVICES.includes(d) && ok(d));
+  if (!opts.length) return null;
+  // The feeling's first device is its most idiomatic; drawn on its own stream so no other seeded choice moves.
+  const w = opts.map((_, i) => opts.length - i), h = (Math.imul((seed | 0) ^ 0x5bd1e995, 0x27d4eb2f) >>> 0) / 4294967296;
+  let x = h * w.reduce((a, b) => a + b, 0), d = opts[0];
+  for (let i = 0; i < opts.length; i++) if ((x -= w[i]) < 0) { d = opts[i]; break; }
+  if (d === 'lift') return d;
+  // Dropout: the final chorus opens on its title with only the lead (the chords, if it has none), then the band returns.
+  const from = d === 'dropout' ? out : run.from, to = d === 'dropout' ? out : run.to;
+  for (let pos = from; pos <= to;) {
+    const p = pats['ABCDEFGH'.indexOf(c[pos])], at = (p.at ??= []);
+    const cover = (q) => { for (let i = at.length - 1; i >= 0; i--) if (at[i].b[0] <= q && q <= at[i].b[1]) return at[i]; return null; };
+    const t = cover(pos);
+    let end = pos;
+    while (end < to && c[end + 1] === c[pos] && cover(end + 1) === t) end++;
+    if (t && t.b[0] === pos && t.b[1] === end) t.peak = d;
+    else at.push({ ...(t ? clone(t) : {}), b: [pos, end], peak: d });
+    pos = end + 1;
+  }
+  return d;
 }

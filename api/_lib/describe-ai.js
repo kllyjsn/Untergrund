@@ -2,7 +2,7 @@
 // answer with edits from INTENTS (validateEdits drops anything else). When the browser allows analytics
 // the phrase is also kept in a short log, so new vocabulary comes from real misses instead of guesses.
 import { createHash } from 'node:crypto';
-import { INTENTS, validateEdits } from '../../js/describe.js';
+import { DESCRIBE_TEXT_LIMIT, INTENTS, validateEdits } from '../../js/describe.js';
 import { SONG_SYSTEM, validateSpec, localSpec } from '../../js/song-spec.js';
 
 export const MISS_KEY = 'untergrund:ev:describe_miss';
@@ -71,7 +71,7 @@ export const coerce = (list) => (Array.isArray(list) ? list : []).map((e) => {
 export async function handleDescribe({ method, body, client = 'anon', key = '', provider = 'gemini', model, songModel, kv, fetchImpl, now = Date.now() }) {
   if (method !== 'POST') return { status: 405, json: { error: 'method_not_allowed' } };
   if (typeof body === 'string') { try { body = JSON.parse(body || '{}'); } catch { body = null; } }
-  const text = clean(body?.text, 140), style = slug(body?.style);
+  const text = clean(body?.text, DESCRIBE_TEXT_LIMIT), style = slug(body?.style);
   if (!text) return { status: 400, json: { error: 'no_text', edits: [] } };
   if (kv) {
     const k = `untergrund:ev:describe_rate:${createHash('sha256').update(String(client)).digest('hex').slice(0, 16)}:${Math.floor(now / 3600e3)}`;

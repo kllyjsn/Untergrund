@@ -165,8 +165,8 @@ t('fallback: pasted lyrics set form, title and sections', () => {
   assert.equal(p.title, 'Goodbye LA');
 });
 t('song prompts vs plain edits', () => {
-  for (const s of ['sad indie song about leaving LA', 'a ballad', 'upbeat track about summer', 'female vocal house']) assert.ok(isSongPrompt(s), s);
-  for (const s of ['darker', 'less busy', 'more reverb on the vocal', 'add a piano', 'faster', '']) assert.ok(!isSongPrompt(s), s);
+  for (const s of ['sad indie song about leaving LA', 'a ballad', 'upbeat track about summer', 'female vocal house', 'write a jazz song with no minor sevenths in the intro']) assert.ok(isSongPrompt(s), s);
+  for (const s of ['darker', 'less busy', 'more reverb on the vocal', 'add a piano', 'faster', '', 'more minor sevenths at the end of the song']) assert.ok(!isSongPrompt(s), s);
   assert.ok(isSongPrompt('', 'some lyrics'));
 });
 t('plan edits apply through the Describe path', () => {
