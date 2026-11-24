@@ -5,7 +5,8 @@ import * as sc from './soundcloud.js';
 import { fetchTrack } from './crate.js';
 
 const API = '/api/account';
-const OFF = { enabled: false, account: null, following: [] };
+const OFF = { enabled: false, account: null, following: [], unavailable: false };
+const UNAVAILABLE = { ...OFF, unavailable: true };
 let cache = null, pending = null;
 const listeners = new Set();
 export const onAccount = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
@@ -17,8 +18,9 @@ async function call(method, body, query = '') {
 }
 
 export async function getAccount(force = false) {
-  if (cache && !force) return cache;
-  pending ||= call('GET').then((r) => set(r.ok ? r.json : OFF), () => set(OFF)).finally(() => { pending = null; });
+  if (cache && !force && !cache.unavailable) return cache;
+  pending ||= call('GET').then((r) => set(r.ok ? { ...r.json, unavailable: false } :
+    r.status === 503 && r.json.enabled === false ? OFF : UNAVAILABLE), () => set(UNAVAILABLE)).finally(() => { pending = null; });
   return pending;
 }
 

@@ -1,5 +1,6 @@
 // Creator accounts: an anonymous device identity (signed httpOnly cookie) that can claim a handle,
 // provider sign-in (SoundCloud first) that attaches to it, follows, and permanent track homes.
+import { handleLibrary } from './library.js';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { STYLES } from '../../js/state.js';
 import { clean } from './crate.js';
@@ -248,6 +249,10 @@ export async function handleAccount(req, ctx) {
   let me = session ? await getJson(kv, K.acct(session.sub)) : null;
   const client = clean(req.client, 64) || 'anon';
   const issue = (acct) => sessionCookie(signSession({ sub: acct.id }, secret), { secure });
+
+  if (q.library !== undefined) return handleLibrary(req, {
+    kv, account: privateView(me), secure, allowWrite: () => allow(kv, 'library', `acct-${me.id}`),
+  });
 
   if (req.method === 'GET') {
     if (q.handle) {

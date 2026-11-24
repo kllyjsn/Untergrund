@@ -5,6 +5,7 @@ import http from 'node:http';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { realpath as resolveFile } from 'node:fs/promises';
 import { publicConfig, exchangeToken } from './api/_lib/soundcloud.js';
 import { handleAutopublish } from './api/_lib/autopublish.js';
 import { createRooms, roomsKv, memoryRoomsKv, roomsHandler } from './api/_lib/rooms.js';
@@ -34,7 +35,7 @@ import { handlePlayback, memoryPlaybackKv, MAX_PLAYBACK_BODY } from './api/_lib/
 import { handleDescribe, aiEnv } from './api/_lib/describe-ai.js';
 import { handlePlan, planEnv } from './api/_lib/song-plan-ai.js';
 import { handleSing, singEnv, memorySingStore, MAX_SING_BODY } from './api/_lib/sing.js';
-import { redisKv as redisAccountKv, memoryKv as memoryAccountKv } from './api/_lib/kv.js';
+import { redisKv as redisAccountKv, memoryKv as memoryAccount } from './api/_lib/kv.js';
 import { handleAccount, attachPublished } from './api/_lib/accounts.js';
 import { handlePage } from './api/_lib/pages.js';
 import { handlePush } from './api/_lib/push.js';
@@ -42,6 +43,8 @@ import { handleLegal } from './api/_lib/legal.js';
 import { ogImage, artSeed } from './api/_lib/og.js';
 import { clubImage } from './api/_lib/og-club.js';
 import { handleHealth, redisHealthCheck } from './api/_lib/health.js';
+import { LIBRARY_BODY_BYTES, libraryScripts } from './api/_lib/library.js';
+const memoryAccountKv = (options) => memoryAccount({ ...options, scripts: libraryScripts });
 const jukeboxStore = redisJukebox() || memoryJukebox();
 const eventsKv = redisKv() || memoryKv();
 const playbackKv = redisAccountKv() || memoryPlaybackKv();
@@ -57,6 +60,8 @@ if (!authSecret && !redisKv()) {
 }
 const accountCtx = () => ({ kv: accountKv, crate: crateStore, secret: authSecret, env, secure: false });
 const readBody = (req, max = Infinity) => new Promise((ok, fail) => {
+  const library = req.url.startsWith('/api/account?') && new URLSearchParams(req.url.slice('/api/account?'.length)).has('library');
+  if (library) max = LIBRARY_BODY_BYTES;
   const c = []; let size = 0;
   req.on('data', (d) => { size += d.length; if (size > max) { ok(null); req.destroy(); } else c.push(d); });
   req.on('end', () => ok(Buffer.concat(c)));
@@ -217,6 +222,15 @@ http.createServer(async (req, res) => {
       if (!f) { res.writeHead(404); return res.end('not found'); }
       res.writeHead(200, { 'Content-Type': f.type, 'Cache-Control': 'no-store' });
       return res.end(f.body);
+    }
+    if (accountKv.kind === 'memory') {
+      const localStore = path.resolve(process.env.DATA_FILE || path.join(ROOT, '.data/kv.json'));
+      const requested = path.join(ROOT, path.normalize(p.endsWith('/') ? `${p}index.html` : p));
+      const resolvedStore = await resolveFile(localStore).catch(() => localStore);
+      if (requested === localStore || await resolveFile(requested).catch(() => null) === resolvedStore) {
+        res.writeHead(404);
+        return res.end('not found');
+      }
     }
     if (p.endsWith('/')) p += 'index.html';
     const file = path.join(ROOT, path.normalize(p));

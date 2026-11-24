@@ -37,6 +37,13 @@ export async function fetchTrack(id) {
   return (await res.json()).track;
 }
 
+export function saveLocalTrack(track) {
+  const local = { ...track, id: `local-${Date.now().toString(36)}`, bpm: track.state.bpm, created: new Date().toISOString() };
+  keepLocal(local);
+  trackEvent('save_track', { shared: false });
+  return { shared: false, track: local };
+}
+
 export async function saveTrack(track) {
   try {
     const res = await fetch('/api/tracks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(track) });
@@ -47,10 +54,7 @@ export async function saveTrack(track) {
       return { shared: true, track: saved };
     }
   } catch {}
-  const local = { ...track, id: `local-${Date.now().toString(36)}`, bpm: track.state.bpm, created: new Date().toISOString() };
-  keepLocal(local);
-  trackEvent('save_track', { shared: false });
-  return { shared: false, track: local };
+  return saveLocalTrack(track);
 }
 
 // Today's Daily Drop remixes, best first. Without shared storage, the drop remixes saved in this browser.

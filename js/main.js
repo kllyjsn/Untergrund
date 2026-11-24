@@ -17,11 +17,12 @@ import { loadArtistProfile, openArtistStudio } from './artist.js';
 import { openClub, loadAvatar, avatarNode, hostingRoom } from './club.js';
 import { liveNowRow, watchLiveRooms, liveDirectory, fetchLiveRooms } from './live-rooms.js';
 import { playTimeline, stopTimeline, prepareTimeline } from './live-sets.js';
-import { saveTrack, trackTitle, recentTracks, libraryTracks, fetchTrack, countPlay } from './crate.js';
+import { trackTitle, recentTracks, fetchTrack, countPlay } from './crate.js';
 import { radioOn, setRadio, nextUp } from './radio.js';
 import { FEELS, FEEL_IDS, isFeel } from './feel.js';
 import { createMiniPlayer } from './mini-player.js';
 import { openLibrary } from './library.js';
+import { createCloudLibrary } from './cloud-library.js';
 import { dropCard, pushOffer, guardPushOffer } from './drop.js';
 import { initPush, onPushChange, recordDropPlay, shouldOffer } from './push.js';
 import { getSample, prepareSample, onSample, loadAudioFile, startRecording, useSynthVox, restoreSample } from './sampler.js';
@@ -743,7 +744,7 @@ const songFps = (s) => [...new Set([songFingerprint(s), songFingerprint(sanitize
 const radioPlays = () => radioOn() && !jukeboxNow && !roomResume && !artistLive && !guest && songOrigin.src !== 'room' &&
   !hostingRoom() && !document.querySelector('.club-overlay');
 function radioNext(why = '') {
-  const n = nextUp({ queue: queue && { ids: queue.items, i: queue.i }, style, styles: STYLES, why, feel: feelPick, skip: (t) => songFps(t.state).some(listens.isDowned) });
+  const n = nextUp({ queue: queue && { ids: queue.items, i: queue.i }, style, styles: STYLES, why, feel: feelPick, skip: (t) => (t.fps || songFps(t.state)).some(listens.isDowned) });
   if (n.kind === 'track') { queue.i = n.i; return openRecent(queue.items[n.i]); }
   queue = null;
   if (n.style !== style) {
@@ -1505,8 +1506,10 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
       if (!landed) toast(piece ? `${piece.composer.split(' ').pop()}: ${title}` : `New ${STYLES[id].name} track “${title}”`);
       // The drop itself is everyone's; only a published version joins today's remixes.
       const { drop: _d, remixOf: _r, ...own } = clone(state);
-      saveTrack({ title, artist, style: id, state: drop ? own : clone(state) })
-        .then(({ shared }) => toast(`“${title}” saved to ${shared ? 'the shared CRATE' : 'your CRATE'}`));
+      cloudLibrary.saveGenerated({ title, artist, style: id, state: drop ? own : clone(state) }).then((saved) => {
+        if (!saved || saved.private && !saved.synced && !saved.kept) return toast('Could not save that song to your Library');
+        toast(`“${title}” saved to ${saved.private ? (saved.synced ? 'your cloud Library' : 'this device') : (saved.shared ? 'the shared CRATE' : 'your CRATE')}`);
+      }).catch(() => toast('Could not save that song to your Library'));
     },
   };
 }
@@ -1865,7 +1868,7 @@ function surprise() {
 async function openRecent(t) {
   ensureAudio();
   try {
-    const track = await fetchTrack(t.id);
+    const track = t.state ? t : t.cloud ? { ...t, state: await cloudLibrary.load(t.id) } : await fetchTrack(t.id);
     if (!track?.state) throw new Error('track_missing');
     const saved = track.style || t.style;
     if (STYLES[saved]) { style = saved; family = STYLES[saved].family; }
@@ -2244,12 +2247,18 @@ function buildTabBar() {
     tab('Artist', false, openArtist));
 }
 
-// Library (js/library.js): the songs made here, newest first. Tapping one plays the list on from there.
+const cloudLibrary = createCloudLibrary({ change: () => ui.lib?.paint() });
+cloudLibrary.refresh();
+window.addEventListener('online', () => { if (cloudLibrary.connected()) cloudLibrary.refresh(); });
+
+// Library (js/library.js): newest songs first. Tapping one plays the list on from there.
 function showLibrary() {
   if (ui.lib?.el.isConnected) return;
   trackEvent('library', { kind: 'open' });
   ui.lib = openLibrary({
-    tracks: libraryTracks, styles: STYLES, hue,
+    tracks: cloudLibrary.tracks, styles: STYLES, hue,
+    cloud: cloudLibrary.connected, notice: cloudLibrary.notice,
+    onRemove: (item) => cloudLibrary.remove(item.id).catch(() => toast('Could not remove that song from your Library')),
     fps: songFps,
     isLoved: (fp) => listens.isLoved(fp), isDowned: (fp) => listens.isDowned(fp),
     nowFp: () => (playing || tuning || paused ? songFingerprint(state) : ''),
@@ -2264,6 +2273,7 @@ function showLibrary() {
     radio: { on: radioOn, toggle: toggleRadio },
     onClose: () => { ui.lib = null; },
   });
+  cloudLibrary.refresh();
 }
 
 // The mini-player (js/mini-player.js): on every screen while a song plays or is paused, except where Now Playing
