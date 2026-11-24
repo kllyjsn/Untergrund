@@ -7,10 +7,14 @@ export default async function handler(req, res) {
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body;
     const client = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket?.remoteAddress;
-    const { status, json, cookie } = await handleAccount(
+    const { status, json, cookie, redirect } = await handleAccount(
       { method: req.method, query: req.query || {}, body, cookie: req.headers.cookie, client, origin: req.headers.origin, host: req.headers['x-forwarded-host'] || req.headers.host },
       { kv: redisKv(), crate: redisStore(), secret: process.env.AUTH_SECRET, secure: true });
     if (cookie) res.setHeader('Set-Cookie', cookie);
+    if (redirect) {
+      res.setHeader('Referrer-Policy', 'no-referrer');
+      return res.redirect(status, redirect);
+    }
     res.status(status).json(json);
   } catch (err) {
     console.error(err);

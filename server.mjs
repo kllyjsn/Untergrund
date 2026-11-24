@@ -34,6 +34,7 @@ import { handlePlan, planEnv } from './api/_lib/song-plan-ai.js';
 import { handleSing, singEnv, memorySingStore, MAX_SING_BODY } from './api/_lib/sing.js';
 import { redisKv as redisAccountKv, memoryKv as memoryAccountKv } from './api/_lib/kv.js';
 import { handleAccount, attachPublished } from './api/_lib/accounts.js';
+import { GOOGLE_CALLBACK } from './api/_lib/listener-auth.js';
 import { handlePage } from './api/_lib/pages.js';
 import { handlePush } from './api/_lib/push.js';
 import { handleLegal } from './api/_lib/legal.js';
@@ -143,13 +144,16 @@ http.createServer(async (req, res) => {
       });
       return sendJson(res, status, json);
     }
-    if (url.pathname === '/api/account') {
+    if (url.pathname === '/api/account' || url.pathname === GOOGLE_CALLBACK) {
       let body = {};
       if (req.method === 'POST') { const raw = await readBody(req, 16000); try { body = JSON.parse(raw?.toString() || '{}'); } catch { body = null; } }
-      const { status, json, cookie } = await handleAccount({ method: req.method, query: Object.fromEntries(url.searchParams), body, cookie: req.headers.cookie,
+      const query = Object.fromEntries(url.searchParams);
+      if (url.pathname === GOOGLE_CALLBACK) query.action = 'google-callback';
+      const { status, json, cookie, redirect } = await handleAccount({ method: req.method, query, body, cookie: req.headers.cookie,
         client: req.socket.remoteAddress, origin: req.headers.origin, host: req.headers.host }, accountCtx());
-      res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(cookie && { 'Set-Cookie': cookie }) });
-      return res.end(JSON.stringify(json));
+      res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(cookie && { 'Set-Cookie': cookie }),
+        ...(redirect && { Location: redirect, 'Referrer-Policy': 'no-referrer' }) });
+      return res.end(redirect ? undefined : JSON.stringify(json));
     }
     const pageMatch = url.pathname.match(/^\/(a|t|r)\/([^/]{1,60})\/?$/);
     if (pageMatch || url.pathname === '/api/page' || url.pathname === '/api/flagship') {

@@ -4,6 +4,9 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { STYLES } from '../../js/state.js';
 import { clean } from './crate.js';
 import { scConfig, exchangeToken } from './soundcloud.js';
+import { compareAndSet as commit } from './kv.js';
+import { accountOrigin, digest, emailAddress, emailID, GOOGLE_CALLBACK, googleAuthorization, googleEnabled,
+  googleProfile, passwordHash, passwordMatches, randomToken, resetEnabled, sendPasswordReset, validPassword } from './listener-auth.js';
 
 export const COOKIE = 'ug_session';
 const SESSION_DAYS = 365;
@@ -18,9 +21,21 @@ const K = {
   followers: (id) => `${P}fr:${id}`,
   following: (id) => `${P}fg:${id}`,
   rate: (bucket, client) => `${P}r:${bucket}:${client}`,
+  email: (id) => `${P}email:${id}`,
+  password: (id) => `${P}pw:${id}`,
+  reset: (id) => `${P}reset:${id}`,
+  oauth: (id) => `${P}oauth:${id}`,
 };
 const TRACK_LIMIT = 500, FEED_FOLLOWS = 50, FEED_LIMIT = 30;
-const LIMITS = { device: [20, 3600], claim: [12, 3600], profile: [60, 3600], follow: [120, 3600], soundcloud: [30, 3600] };
+const LIMITS = { device: [20, 3600], claim: [12, 3600], profile: [60, 3600], follow: [120, 3600], soundcloud: [30, 3600],
+  'email-signup': [6, 3600], 'email-login': [20, 900], 'email-attempt': [10, 900], 'password-change': [8, 900],
+  'reset-request': [8, 3600], 'reset-email': [3, 3600], 'reset-password': [15, 900],
+  'google-start': [20, 900], 'google-callback': [30, 900], preferences: [60, 3600] };
+const WRITE_ACTIONS = new Set([...Object.keys(LIMITS).filter((a) => !['email-attempt', 'reset-email', 'google-callback'].includes(a)), 'unfollow', 'signout']);
+const OAUTH_COOKIE = 'ug_google';
+const RESET_TTL = 30 * 60;
+const GOOGLE_TTL = 10 * 60;
+const validToken = (t) => typeof t === 'string' && /^[A-Za-z0-9_-]{43}$/.test(t);
 export const DNA_TRAITS = ['darkness', 'hypnosis', 'acid', 'space', 'energy'];
 
 // ---------- handles ----------
@@ -80,7 +95,16 @@ export const clearCookie = ({ secure = true } = {}) => `${COOKIE}=; Path=/; Http
 
 // ---------- storage helpers ----------
 const getJson = async (kv, key) => { const s = await kv.cmd(['GET', key]); try { return s ? JSON.parse(s) : null; } catch { return null; } };
+export async function accountFromSession(kv, secret, cookie) {
+  if (!kv) return null;
+  let token;
+  try { token = parseCookies(cookie)[COOKIE]; } catch { return null; }
+  const session = verifySession(token, secret);
+  const acct = session && await getJson(kv, K.acct(session.sub));
+  return acct && acct.authVersion === session.ver ? acct : null;
+}
 const setJson = (kv, key, v) => kv.cmd(['SET', key, JSON.stringify(v)]);
+const saveAccount = (kv, previous, next) => commit(kv, [K.acct(next.id), previous && JSON.stringify(previous), JSON.stringify(next)]);
 const newId = () => `u${Date.now().toString(36)}${randomBytes(6).toString('hex')}`;
 
 export async function allow(kv, bucket, client) {
@@ -101,7 +125,9 @@ function publicArtist(acct, followers = 0, following = 0) {
     soundcloud: acct.providers?.soundcloud?.url || '',
   };
 }
-const privateView = (acct) => acct && ({ ...publicArtist(acct), id: acct.id, anon: !acct.providers || !Object.keys(acct.providers).length, providers: Object.keys(acct.providers || {}) });
+const isAnon = (acct) => !acct || !Object.keys(acct.providers || {}).length;
+const privateView = (acct) => acct && ({ ...publicArtist(acct), id: acct.id, anon: isAnon(acct), providers: Object.keys(acct.providers || {}),
+  ...(acct.email && { email: acct.email }), ...(acct.listener && { listener: acct.listener }) });
 export const trackMeta = ({ state, ...m }) => ({ id: m.id, title: m.title, artist: m.artist, style: m.style, bpm: m.bpm, key: m.key, scale: m.scale, created: m.created });
 
 async function accountByHandle(kv, handle) {
@@ -110,24 +136,31 @@ async function accountByHandle(kv, handle) {
   return id ? getJson(kv, K.acct(id)) : null;
 }
 
-async function createAccount(kv, extra = {}) {
-  const acct = { id: newId(), handle: null, name: '', bio: '', avatar: '', dna: null, providers: {}, created: new Date().toISOString(), ...extra };
+const newAccount = () => ({ id: newId(), handle: null, name: '', bio: '', avatar: '', dna: null, providers: {}, created: new Date().toISOString() });
+async function createAccount(kv) {
+  const acct = newAccount();
   await setJson(kv, K.acct(acct.id), acct);
   return acct;
 }
 
-async function claimHandle(kv, acct, raw) {
+async function claimHandle(kv, acct, raw, profile) {
   const err = handleError(raw);
   if (err) return { error: err };
   const h = normalizeHandle(raw);
-  if (acct.handle === h) return { acct };
+  const next = { ...acct, handle: h, name: acct.name || h };
+  if (profile) applyProfile(next, profile);
+  if (acct.handle === h) {
+    return await saveAccount(kv, acct, next) ? { acct: next } : { error: 'account_conflict' };
+  }
   const got = await kv.cmd(['SET', K.handle(h), acct.id, 'NX']);
   if (!got && (await kv.cmd(['GET', K.handle(h)])) !== acct.id) return { error: 'taken' };
-  if (acct.handle) await kv.cmd(['DEL', K.handle(acct.handle)]);
-  acct.handle = h;
-  if (!acct.name) acct.name = h;
-  await setJson(kv, K.acct(acct.id), acct);
-  return { acct };
+  if (!await saveAccount(kv, acct, next)) {
+    const latest = await getJson(kv, K.acct(acct.id));
+    if (latest?.handle !== h) await commit(kv, [K.handle(h), acct.id, null]);
+    return { error: 'account_conflict' };
+  }
+  if (acct.handle) await commit(kv, [K.handle(acct.handle), acct.id, null]);
+  return { acct: next };
 }
 
 // Copy a published crate track into the account so it keeps a permanent home (the crate evicts old tracks).
@@ -142,9 +175,9 @@ export async function attachTrack(kv, accountId, track) {
 }
 
 export async function attachPublished({ kv, secret, cookie, crate, trackId }) {
-  const session = kv && verifySession(parseCookies(cookie)[COOKIE], secret);
-  if (!session || !crate || !trackId) return false;
-  return attachTrack(kv, session.sub, await crate.get(trackId));
+  if (!crate || !trackId) return false;
+  const acct = await accountFromSession(kv, secret, cookie);
+  return acct ? attachTrack(kv, acct.id, await crate.get(trackId)) : false;
 }
 
 async function tracksOf(kv, accountId, n = 50) {
@@ -153,7 +186,11 @@ async function tracksOf(kv, accountId, n = 50) {
 
 // Fold an anonymous device account into the account a provider sign-in resolved to.
 export async function mergeAccounts(kv, from, into) {
-  if (!from || !into || from.id === into.id) return into;
+  if (!from || !into || from.id === into.id || !isAnon(from)) return into;
+  const next = { ...into, handle: into.handle || from.handle };
+  for (const f of ['name', 'bio', 'avatar', 'dna']) if (!next[f] && from[f]) next[f] = from[f];
+  if (!await commit(kv, [K.acct(from.id), JSON.stringify(from), null], [K.acct(into.id), JSON.stringify(into), JSON.stringify(next)],
+    ...(from.handle ? [[K.handle(from.handle), from.id, into.handle ? null : into.id]] : []))) return into;
   for (const t of (await tracksOf(kv, from.id, TRACK_LIMIT)).reverse()) {
     await kv.cmd(['SET', K.owner(t.id), into.id]);
     await kv.cmd(['LPUSH', K.tracks(into.id), JSON.stringify(t)]);
@@ -167,36 +204,29 @@ export async function mergeAccounts(kv, from, into) {
     await kv.cmd(['SREM', K.following(id), from.id]);
     if (id !== into.id) { await kv.cmd(['SADD', K.followers(into.id), id]); await kv.cmd(['SADD', K.following(id), into.id]); }
   }
-  if (from.handle) {
-    if (!into.handle) { await kv.cmd(['SET', K.handle(from.handle), into.id]); into.handle = from.handle; }
-    else await kv.cmd(['DEL', K.handle(from.handle)]);
-  }
-  for (const f of ['name', 'bio', 'avatar', 'dna']) if (!into[f] && from[f]) into[f] = from[f];
-  await setJson(kv, K.acct(into.id), into);
-  await kv.cmd(['DEL', K.acct(from.id), K.tracks(from.id), K.following(from.id), K.followers(from.id)]);
-  return into;
+  await kv.cmd(['DEL', K.tracks(from.id), K.following(from.id), K.followers(from.id)]);
+  return next;
 }
 
 export async function linkProvider(kv, current, provider, profile) {
   const pid = clean(profile.id, 64);
   if (!pid) throw new Error('provider_profile_missing');
-  const linkedId = await kv.cmd(['GET', K.link(provider, pid)]);
+  const key = K.link(provider, pid);
+  const linkedId = await kv.cmd(['GET', key]);
   let acct = linkedId ? await getJson(kv, K.acct(linkedId)) : null;
-  const isAnon = (a) => a && !Object.keys(a.providers || {}).length;
   if (acct && current && current.id !== acct.id && isAnon(current)) acct = await mergeAccounts(kv, current, acct);
-  if (!acct) {
-    acct = current && isAnon(current) ? current : await createAccount(kv);
-    await kv.cmd(['SET', K.link(provider, pid), acct.id]);
-  }
-  acct.providers = { ...acct.providers, [provider]: { id: pid, username: clean(profile.username, 60), url: clean(profile.url, 200) } };
-  if (!acct.name || acct.name === acct.handle) acct.name = clean(profile.username, 40) || acct.name;
-  if (!acct.avatar && AVATAR.test(String(profile.avatar || ''))) acct.avatar = profile.avatar;
-  await setJson(kv, K.acct(acct.id), acct);
-  if (!acct.handle && profile.handleHint) {
+  const previous = acct || (current && isAnon(current) ? current : null);
+  const next = { ...(previous || newAccount()) };
+  next.providers = { ...next.providers, [provider]: { id: pid, username: clean(profile.username, 60), url: clean(profile.url, 200) } };
+  if (isAnon(previous)) next.authVersion = randomToken();
+  if (!next.name || next.name === next.handle) next.name = clean(profile.username, 40) || next.name;
+  if (!next.avatar && AVATAR.test(String(profile.avatar || ''))) next.avatar = profile.avatar;
+  if (!await commit(kv, [key, linkedId, next.id], [K.acct(next.id), previous && JSON.stringify(previous), JSON.stringify(next)])) return null;
+  if (!next.handle && profile.handleHint) {
     const hint = normalizeHandle(profile.handleHint).replace(/[^a-z0-9_-]+/g, '-').replace(/^[-_]+|[-_]+$/g, '').slice(0, 24);
-    await claimHandle(kv, acct, hint);
+    return (await claimHandle(kv, next, hint)).acct || next;
   }
-  return acct;
+  return next;
 }
 
 // ---------- public reads (pages and API) ----------
@@ -244,12 +274,16 @@ export async function handleAccount(req, ctx) {
   const { kv, secret, env = process.env, secure = true, fetchImpl = fetch } = ctx;
   const q = req.query || {};
   if (!kv || !authEnabled(secret)) return { status: 503, json: { enabled: false, account: null } };
-  const session = verifySession(parseCookies(req.cookie)[COOKIE], secret);
-  let me = session ? await getJson(kv, K.acct(session.sub)) : null;
+  let me = await accountFromSession(kv, secret, req.cookie);
   const client = clean(req.client, 64) || 'anon';
-  const issue = (acct) => sessionCookie(signSession({ sub: acct.id }, secret), { secure });
+  const issue = (acct) => sessionCookie(signSession({ sub: acct.id, ver: acct.authVersion }, secret), { secure });
+  const origin = accountOrigin(secure, req.host);
+  const google = googleEnabled(env) && !!origin && (!secure || req.host === new URL(origin).host);
+  const reset = resetEnabled(env) && !!origin;
+  const auth = { google, reset };
 
   if (req.method === 'GET') {
+    if (q.action === 'google-callback') return completeGoogle({ req, kv, env, me, google, origin, secure, client, issue, fetchImpl });
     if (q.handle) {
       const page = await publicArtistPage(kv, q.handle);
       if (!page) return err(404, 'not_found');
@@ -269,7 +303,7 @@ export async function handleAccount(req, ctx) {
     }
     if (q.feed != null) return { status: 200, json: { items: me ? await feedFor(kv, me.id) : [] } };
     const following = me ? (await Promise.all((await kv.cmd(['SMEMBERS', K.following(me.id)])).slice(0, 200).map((id) => getJson(kv, K.acct(id))))).filter((a) => a?.handle).map((a) => a.handle) : [];
-    return { status: 200, json: { enabled: true, account: privateView(me), following } };
+    return { status: 200, json: { enabled: true, account: privateView(me), following, auth } };
   }
 
   if (req.method !== 'POST') return err(405, 'method_not_allowed');
@@ -279,12 +313,105 @@ export async function handleAccount(req, ctx) {
   const body = req.body && typeof req.body === 'object' ? req.body : {};
   const action = clean(body.action || q.action, 20);
   if (JSON.stringify(body).length > 8000) return err(413, 'too_large');
-  if (!LIMITS[action] && !['unfollow', 'signout'].includes(action)) return err(400, 'unknown_action');
+  if (!WRITE_ACTIONS.has(action)) return err(400, 'unknown_action');
   const bucket = action === 'unfollow' ? 'follow' : action;
   if (LIMITS[bucket] && !(await allow(kv, bucket, client)) ) return err(429, 'rate_limited');
   if (me && LIMITS[bucket] && !(await allow(kv, bucket, `acct-${me.id}`))) return err(429, 'rate_limited');
 
   if (action === 'signout') return { status: 200, json: { account: null }, cookie: clearCookie({ secure }) };
+  const signedIn = (acct, status = 200) => ({ status, json: { account: privateView(acct) }, cookie: issue(acct) });
+
+  if (action === 'email-signup' || action === 'email-login' || action === 'reset-request') {
+    const email = emailAddress(body.email);
+    if (!email) return err(400, 'invalid_email');
+    if (action === 'reset-request' && !reset) return err(503, 'reset_unavailable');
+    const id = emailID(email);
+    const emailKey = K.email(id);
+    if (action === 'email-login' && !await allow(kv, 'email-attempt', id)) return err(429, 'rate_limited');
+    const accountID = await kv.cmd(['GET', emailKey]);
+
+    if (action === 'reset-request') {
+      const accepted = { status: 202, json: { accepted: true } };
+      if (!await allow(kv, 'reset-email', id)) return accepted;
+      const account = accountID && await getJson(kv, K.acct(accountID));
+      if (account?.email === email) {
+        const token = randomToken();
+        const key = K.reset(digest(token));
+        await kv.cmd(['SET', key, JSON.stringify({ id: account.id, version: account.authVersion }), 'EX', RESET_TTL, 'NX']);
+        const sent = await sendPasswordReset(env, fetchImpl, email, `${origin}/#reset-password=${token}`, digest(token)).catch(() => false);
+        if (!sent) {
+          await kv.cmd(['DEL', key]);
+          console.error('Account password reset delivery failed');
+        }
+      }
+      return accepted;
+    }
+
+    if (action === 'email-signup') {
+      if (!isAnon(me)) return err(409, 'already_signed_in');
+      if (!validPassword(body.password)) return err(400, 'invalid_password');
+      if (accountID) return err(409, 'email_unavailable');
+      const hash = await passwordHash(body.password);
+      const account = me || newAccount();
+      const next = { ...account, email, providers: { ...account.providers, email: { id } }, authVersion: randomToken() };
+      if (!await commit(kv, [emailKey, null, account.id], [K.acct(account.id), me && JSON.stringify(me), JSON.stringify(next)],
+        [K.password(account.id), null, hash])) return err(409, 'account_conflict');
+      return signedIn(next, 201);
+    }
+    if (!validPassword(body.password, 1)) return err(401, 'invalid_credentials');
+    const hash = accountID && await kv.cmd(['GET', K.password(accountID)]);
+    if (!await passwordMatches(body.password, hash)) return err(401, 'invalid_credentials');
+    const account = await getJson(kv, K.acct(accountID));
+    if (!account || account.email !== email || await kv.cmd(['GET', K.password(accountID)]) !== hash) return err(401, 'invalid_credentials');
+    return signedIn(me && me.id !== account.id && isAnon(me) ? await mergeAccounts(kv, me, account) : account);
+  }
+
+  if (action === 'password-change' || action === 'reset-password') {
+    if (!validPassword(body.password)) return err(400, 'invalid_password');
+    let key, saved;
+    if (action === 'reset-password') {
+      if (!reset || !validToken(body.token)) return err(400, 'invalid_reset');
+      key = K.reset(digest(body.token));
+      saved = await kv.cmd(['GET', key]);
+      if (!saved) return err(400, 'invalid_reset');
+      const record = JSON.parse(saved);
+      me = await getJson(kv, K.acct(record.id));
+      if (me?.authVersion !== record.version) return err(400, 'invalid_reset');
+    }
+    if (!me?.providers?.email) return err(401, 'sign_in_required');
+    const passwordKey = K.password(me.id);
+    const hash = await kv.cmd(['GET', passwordKey]);
+    if (action === 'password-change' && (!validPassword(body.currentPassword, 1) ||
+        !await passwordMatches(body.currentPassword, hash))) return err(401, 'invalid_credentials');
+    const next = { ...me, authVersion: randomToken() };
+    const newHash = await passwordHash(body.password);
+    if (!await commit(kv, [K.acct(me.id), JSON.stringify(me), JSON.stringify(next)], [passwordKey, hash, newHash],
+      ...(key ? [[key, saved, null]] : []))) return err(409, 'account_conflict');
+    return signedIn(next);
+  }
+
+  if (action === 'google-start') {
+    if (!google) return err(503, 'google_unavailable');
+    const link = body.link === true;
+    if (link === isAnon(me)) return err(409, 'sign_in_required');
+    if (link && me.providers.google) return err(409, 'already_linked');
+    const state = randomToken(), browser = randomToken(), nonce = randomToken(), verifier = randomToken();
+    await kv.cmd(['SET', K.oauth(digest(state)), JSON.stringify({ browser: digest(browser), nonce, verifier,
+      account: me?.id || null, version: me?.authVersion, link }), 'EX', GOOGLE_TTL, 'NX']);
+    return { status: 200, json: { url: googleAuthorization(env, origin + GOOGLE_CALLBACK, state, nonce, verifier) },
+      cookie: googleCookie(browser, GOOGLE_TTL, secure) };
+  }
+
+  if (action === 'preferences') {
+    if (isAnon(me)) return err(401, 'sign_in_required');
+    const likes = body.favoriteGenres;
+    const genre = body.defaultGenre;
+    if (!Array.isArray(likes) || likes.length > Object.keys(STYLES).length || likes.some((id) => typeof id !== 'string' || !Object.hasOwn(STYLES, id)) ||
+        !(genre === null || typeof genre === 'string' && Object.hasOwn(STYLES, genre)) || typeof body.displayName !== 'string') return err(400, 'invalid_preferences');
+    const next = { ...me, listener: { displayName: clean(body.displayName, 40), favoriteGenres: [...new Set(likes)], defaultGenre: genre } };
+    if (!await commit(kv, [K.acct(me.id), JSON.stringify(me), JSON.stringify(next)])) return err(409, 'account_conflict');
+    return { status: 200, json: { account: privateView(next) } };
+  }
 
   if (action === 'device') {
     if (me) return { status: 200, json: { account: privateView(me) } };
@@ -295,18 +422,17 @@ export async function handleAccount(req, ctx) {
   if (action === 'claim') {
     const fresh = !me;
     if (!me) me = await createAccount(kv);
-    const r = await claimHandle(kv, me, body.handle);
-    if (r.error) return { ...err(r.error === 'taken' ? 409 : 400, r.error), ...(fresh && { cookie: issue(me) }) };
-    applyProfile(r.acct, body);
-    await setJson(kv, K.acct(me.id), r.acct);
+    const r = await claimHandle(kv, me, body.handle, body);
+    if (r.error) return { ...err(['taken', 'account_conflict'].includes(r.error) ? 409 : 400, r.error), ...(fresh && { cookie: issue(me) }) };
     return { status: fresh ? 201 : 200, json: { account: privateView(r.acct) }, ...(fresh && { cookie: issue(me) }) };
   }
 
   if (action === 'profile') {
     if (!me) return err(401, 'sign_in_required');
-    applyProfile(me, body);
-    await setJson(kv, K.acct(me.id), me);
-    return { status: 200, json: { account: privateView(me) } };
+    const next = { ...me };
+    applyProfile(next, body);
+    if (!await saveAccount(kv, me, next)) return err(409, 'account_conflict');
+    return { status: 200, json: { account: privateView(next) } };
   }
 
   if (action === 'follow' || action === 'unfollow') {
@@ -334,9 +460,47 @@ export async function handleAccount(req, ctx) {
     if (!u?.id) return err(502, 'soundcloud_profile_failed');
     const permalink = String(u.permalink_url || '').split('/').filter(Boolean).pop() || u.permalink || '';
     const acct = await linkProvider(kv, me, 'soundcloud', { id: String(u.id), username: u.username, url: u.permalink_url, avatar: u.avatar_url, handleHint: permalink });
+    if (!acct) return err(409, 'account_conflict');
     return { status: 200, json: { ...tokens.json, account: privateView(acct) }, cookie: issue(acct) };
   }
   return err(400, 'unknown_action');
+}
+
+const googleCookie = (value, age, secure) => `${OAUTH_COOKIE}=${value}; Path=${GOOGLE_CALLBACK}; HttpOnly; SameSite=Lax; Max-Age=${age}${secure ? '; Secure' : ''}`;
+
+async function completeGoogle({ req, kv, env, me, google, origin, secure, client, issue, fetchImpl }) {
+  const finish = (result, account) => ({ status: 303, redirect: `/?account=${result}`,
+    cookie: [googleCookie('', 0, secure), ...(account ? [issue(account)] : [])] });
+  if (!google || !await allow(kv, 'google-callback', client)) return finish('google_failed');
+  const { state, code } = req.query;
+  let browser;
+  try { browser = parseCookies(req.cookie)[OAUTH_COOKIE]; } catch { return finish('google_failed'); }
+  if (!validToken(state) || !validToken(browser)) return finish('google_failed');
+  const key = K.oauth(digest(state));
+  const raw = await kv.cmd(['GET', key]);
+  if (!raw) return finish('google_failed');
+  const flow = JSON.parse(raw);
+  if (flow.browser !== digest(browser) || flow.account !== (me?.id || null) || flow.version !== me?.authVersion ||
+      (flow.link && isAnon(me)) || !await commit(kv, [key, raw, null])) return finish('google_failed');
+  const profile = await googleProfile(env, fetchImpl, code, origin + GOOGLE_CALLBACK, flow).catch(() => null);
+  if (!profile) return finish('google_failed');
+  const linked = K.link('google', profile.id);
+  const id = await kv.cmd(['GET', linked]);
+  if (id && flow.link && id !== me.id) return finish('google_conflict');
+  if (id) {
+    const account = await getJson(kv, K.acct(id));
+    if (!account || account.providers?.google?.id !== profile.id) return finish('google_failed');
+    return finish('google_ok', me && me.id !== id && isAnon(me) ? await mergeAccounts(kv, me, account) : account);
+  }
+  const account = me || newAccount();
+  if (account.providers.google) return finish('google_conflict');
+  const next = { ...account, providers: { ...account.providers, google: { id: profile.id } },
+    ...(isAnon(account) && { authVersion: randomToken() }) };
+  if (profile.username && !account.name && !account.listener?.displayName) {
+    next.listener = { ...account.listener, displayName: clean(profile.username, 40) };
+  }
+  if (!await commit(kv, [linked, null, account.id], [K.acct(account.id), me && JSON.stringify(me), JSON.stringify(next)])) return finish('google_failed');
+  return finish('google_ok', next);
 }
 
 function applyProfile(acct, body) {

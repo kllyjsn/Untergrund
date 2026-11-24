@@ -17,9 +17,28 @@ export async function redisPipe(list) {
 }
 export const sha1 = (src) => createHash('sha1').update(src).digest('hex');
 
+const compareAndWrite = `
+for i = 1, #KEYS do
+  local found = redis.call('GET', KEYS[i])
+  if (ARGV[2*i-1] == '' and found) or (ARGV[2*i-1] ~= '' and found ~= ARGV[2*i-1]) then return 0 end
+end
+for i = 1, #KEYS do
+  if ARGV[2*i] == '' then redis.call('DEL', KEYS[i])
+  else redis.call('SET', KEYS[i], ARGV[2*i]) end
+end
+return 1
+`;
+export const compareAndSet = (kv, ...rows) => kv.cmd(['EVAL', compareAndWrite, rows.length, ...rows.map(([key]) => key),
+  ...rows.flatMap(([, previous, next]) => [previous || '', next || ''])]);
+
 // `scripts` maps a Lua source to a JS twin (call, KEYS, ARGV) so EVAL/EVALSHA work in memory; `delay` (ms) jitters every
 // command to shake out races in tests; `count` tallies commands the way Upstash bills them (each redis.call inside EVAL too).
 export function memoryKv({ file = '', scripts = {}, delay = 0 } = {}) {
+  scripts = { ...scripts, [compareAndWrite]: (call, keys, args) => {
+    if (keys.some((key, i) => (call('GET', key) || '') !== args[2 * i])) return 0;
+    keys.forEach((key, i) => args[2 * i + 1] ? call('SET', key, args[2 * i + 1]) : call('DEL', key));
+    return 1;
+  } };
   const data = new Map();
   const shas = new Map(Object.keys(scripts).map((src) => [sha1(src), src]));
   const stats = { count: 0 };

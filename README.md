@@ -152,12 +152,15 @@ Opt-in Web Push for the Daily Drop: "Today's drop: Paper Mirror" with the listen
 
 Without the VAPID keys `/api/push` reports `enabled:false` and no notification UI appears.
 
-## Creator accounts and public pages
+## Listener and creator accounts
 
 Every published song gets a permanent page at `/t/<id>` that replays its stored state in the browser, and every creator can claim `/a/<handle>`. `vercel.json` rewrites both to `api/page.js`, which renders per-page Open Graph/Twitter tags and a generated cover PNG for link unfurls.
 
 - `AUTH_SECRET`: 32+ random characters (`openssl rand -base64 48`). Signs the `ug_session` httpOnly cookie. Without it, accounts stay off and the app works as before.
 - `KV_REST_API_URL` / `KV_REST_API_TOKEN` (Upstash Redis free tier): stores accounts, handles, follows and published track state.
 - Sign in with SoundCloud reuses the SoundCloud setup above.
+- Listeners can open **Account** to register with email and a password, sign in, and save a private display name, favorite genres, and a default genre. This uses the same Redis account ID and session as artist pages and Studio Pro. Email sign-up does not verify ownership of the address.
+- To offer Google sign-in, create a Google OAuth **Web application** and set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` on Vercel Production. Authorize the exact redirect URI `https://www.untergrund.sh/api/auth/google/callback`. For local testing, authorize the corresponding `http://localhost:8020/api/auth/google/callback`. Users with an existing account should sign into it and choose **Connect Google** rather than create a second account; accounts are never automatically matched by email.
+- To offer email password resets, set `RESEND_API_KEY` and `ACCOUNT_EMAIL_FROM` (an address on a Resend-verified sending domain). Redeploy after changing environment variables. The Google and password reset controls are hidden unless their respective integrations are configured.
 
 Locally, `server.mjs` uses an in-memory store saved to `.data/kv.json` and a generated dev secret, so everything works without env vars.

@@ -22,6 +22,19 @@ export async function getAccount(force = false) {
   return pending;
 }
 
+export async function accountAction(action, fields = {}) {
+  const r = await call('POST', { action, ...fields });
+  if (!r.ok) throw new Error(r.json.error || 'unavailable');
+  if (action === 'signout') {
+    sc.disconnect();
+    set({ account: null, following: [] });
+  } else if (r.json.account) {
+    set({ account: r.json.account, ...(action === 'preferences' ? {} : { following: [] }) });
+    if (action !== 'preferences') getAccount(true);
+  }
+  return r.json;
+}
+
 // Anonymous identity, created the first time this browser publishes or follows.
 export async function ensureDevice() {
   const a = await getAccount();

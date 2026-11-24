@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { generateKeyPairSync, sign } from 'node:crypto';
 import { memoryKv } from '../api/_lib/kv.js';
 import { memoryStore } from '../api/_lib/crate.js';
 import { handleAccount, handleError, normalizeHandle, signSession, verifySession, sessionCookie, parseCookies, attachPublished, attachTrack, COOKIE } from '../api/_lib/accounts.js';
 import { defaultState } from '../js/state.js';
+import { GOOGLE_CALLBACK } from '../api/_lib/listener-auth.js';
 
 // ---------- handles ----------
 assert.equal(normalizeHandle('  @Nova_Berlin '), 'nova_berlin');
@@ -144,3 +146,139 @@ r = await scCall(carol, 99, 'Carol-Beats');
 assert.equal(r.json.account.handle, 'carol-beats');
 globalThis.fetch = realFetch;
 console.log('SoundCloud sign-in and migration passed');
+
+// ---------- listener credentials and preferences ----------
+const local = { ...ctx, env: {} };
+const host = 'localhost:8020';
+const request = (j, action, fields = {}, opts = {}) => {
+  const { context = local, client = 'listener', method = 'POST', cookie = j.cookie, query = {} } = opts;
+  return handleAccount({ method, body: { action, ...fields }, query, cookie, client, host, origin: `http://${host}` }, context)
+    .then((response) => j.take(response));
+};
+const listener = jar(), tablet = jar();
+const email = 'listener@example.com', password = 'Some strong phrase 16';
+const signIn = (j, fields = {}, opts) => request(j, 'email-login', { email, password, ...fields }, opts);
+const prefs = { displayName: 'Sub Signal', favoriteGenres: ['acid', 'acid', 'hypnotic'], defaultGenre: 'acid' };
+assert.deepEqual((await request(listener, null, {}, { method: 'GET' })).json.auth, { google: false, reset: false });
+assert.equal((await request(listener, 'preferences', prefs)).status, 401);
+assert.equal((await request(listener, 'reset-request', { email })).status, 503);
+const device = await request(listener, 'device');
+const deviceCookie = listener.cookie;
+assert.equal((await request(listener, 'email-signup', { email, password: 'short' })).json.error, 'invalid_password');
+const registered = await request(listener, 'email-signup', { email: ' Listener@EXAMPLE.com ', password });
+const id = registered.json.account.id;
+assert.equal(registered.status, 201);
+assert.equal(id, device.json.account.id, 'registration keeps the device account ID');
+assert.deepEqual(registered.json.account.providers, ['email']);
+assert.equal(registered.json.account.email, email);
+assert.equal((await request(jar(), null, {}, { method: 'GET', cookie: deviceCookie })).json.account, null, 'pre-upgrade cookie cannot authenticate');
+assert.equal((await request(tablet, 'email-signup', { email, password })).status, 409);
+assert.equal((await signIn(tablet, { password: 'wrong password' })).json.error, 'invalid_credentials');
+assert.equal((await request(listener, 'preferences', { ...prefs, favoriteGenres: ['constructor'] })).status, 400);
+assert.equal((await request(listener, 'preferences', prefs)).status, 200);
+const login = await signIn(tablet);
+assert.equal(login.json.account.id, id);
+assert.deepEqual(login.json.account.listener, { ...prefs, favoriteGenres: ['acid', 'hypnotic'] });
+assert(!JSON.stringify(login.json).includes(password));
+const publicHandle = await request(listener, 'claim', { handle: 'sub-signal' });
+assert.equal(publicHandle.status, 200);
+const publicProfile = (await request(jar(), null, {}, { method: 'GET', query: { handle: 'sub-signal' } })).json.artist;
+assert.equal(publicProfile.listener, undefined);
+assert.equal(publicProfile.email, undefined);
+const newPassword = 'A much stronger test passphrase';
+assert.equal((await request(listener, 'password-change', { currentPassword: 'wrong', password: newPassword })).status, 401);
+assert.equal((await request(listener, 'password-change', { currentPassword: password, password: newPassword })).status, 200);
+assert.equal((await request(tablet, null, {}, { method: 'GET' })).json.account, null, 'password change revokes other cookies');
+assert.equal((await signIn(tablet)).status, 401);
+assert.equal((await signIn(tablet, { password: newPassword })).json.account.id, id);
+assert.match((await request(tablet, 'signout')).cookie, /Max-Age=0/);
+assert.equal((await request(tablet, null, {}, { method: 'GET' })).json.account, null);
+const race = await Promise.all([jar(), jar()].map((j) => request(j, 'email-signup',
+  { email: 'race@example.com', password }, { client: 'signup-race' })));
+assert.deepEqual(race.map((r) => r.status).sort(), [201, 409], 'concurrent registrations never create two identities for the same email');
+for (let i = 0; i < 10; i++) {
+  assert.equal((await signIn(jar(), { email: 'ratelimit@example.com' }, { client: `bot-${i}` })).status, 401);
+}
+assert.equal((await signIn(jar(), { email: 'ratelimit@example.com' }, { client: 'bot-fresh' })).status, 429);
+console.log('listener sign-up, cross-device preferences, privacy, password change and rate limits passed');
+
+// ---------- Google OIDC and explicit provider linking ----------
+const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+const env = { GOOGLE_CLIENT_ID: 'mock-client', GOOGLE_CLIENT_SECRET: 'mock-secret', RESEND_API_KEY: 'mock-resend', ACCOUNT_EMAIL_FROM: 'support@example.com' };
+let nonce, challenge, delivered, subject = 'google-123', tokenRequests = 0;
+const oidcToken = () => {
+  const parts = [{ alg: 'RS256', kid: 'key' }, { iss: 'https://accounts.google.com', aud: env.GOOGLE_CLIENT_ID,
+    exp: Math.floor(Date.now() / 1000) + 300, nonce, sub: subject, name: 'Google Listener', email }]
+    .map((part) => Buffer.from(JSON.stringify(part)).toString('base64url')).join('.');
+  return `${parts}.${sign('RSA-SHA256', Buffer.from(parts), privateKey).toString('base64url')}`;
+};
+const integrations = { ...local, env, fetchImpl: async (url, params) => {
+  if (url === 'https://oauth2.googleapis.com/token') {
+    tokenRequests++;
+    assert.equal(params.body.get('redirect_uri'), `http://${host}${GOOGLE_CALLBACK}`);
+    const { digest } = await import('../api/_lib/listener-auth.js');
+    assert.equal(digest(params.body.get('code_verifier')), challenge);
+    return { ok: true, json: async () => ({ id_token: oidcToken() }) };
+  }
+  if (url === 'https://www.googleapis.com/oauth2/v3/certs') return { ok: true, json: async () => ({ keys: [{ ...publicKey.export({ format: 'jwk' }), use: 'sig', kid: 'key' }] }) };
+  if (url === 'https://api.resend.com/emails') {
+    delivered = JSON.parse(params.body);
+    return { ok: true };
+  }
+  assert.fail('Unexpected external request');
+} };
+assert.deepEqual((await request(listener, null, {}, { method: 'GET', context: integrations })).json.auth, { google: true, reset: true });
+const googleFlow = async (j, link, { wrongBrowser = false, wrongNonce = false } = {}) => {
+  const session = j.cookie;
+  const started = await handleAccount({ method: 'POST', body: { action: 'google-start', link }, host, cookie: session, client: 'google' }, integrations);
+  assert.equal(started.status, 200);
+  const url = new URL(started.json.url);
+  assert.equal(url.origin, 'https://accounts.google.com');
+  assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
+  nonce = wrongNonce ? 'not-the-request-nonce' : url.searchParams.get('nonce');
+  challenge = url.searchParams.get('code_challenge');
+  const options = { context: integrations, method: 'GET', cookie: [session, !wrongBrowser && started.cookie.split(';')[0]].filter(Boolean).join('; '),
+    query: { action: 'google-callback', code: 'code', state: url.searchParams.get('state') } };
+  const callback = () => handleAccount({ ...options, host, client: 'google', method: 'GET' }, integrations);
+  const result = await callback();
+  if (result.cookie?.[1]) j.take({ cookie: result.cookie[1] });
+  return { result, callback };
+};
+assert.equal((await googleFlow(jar(), false, { wrongBrowser: true })).result.redirect, '/?account=google_failed');
+assert.equal(tokenRequests, 0, 'callback checks the browser before exchanging the authorization code');
+assert.equal((await googleFlow(jar(), false, { wrongNonce: true })).result.redirect, '/?account=google_failed');
+subject = 'unlinked-google';
+const unlinked = jar();
+assert.equal((await googleFlow(unlinked, false)).result.redirect, '/?account=google_ok');
+const separate = (await request(unlinked, null, {}, { method: 'GET' })).json.account;
+assert.notEqual(separate.id, id, 'a matching email claim never automatically links accounts');
+assert.deepEqual(separate.providers, ['google']);
+assert.equal(separate.email, undefined);
+subject = 'google-123';
+const linked = await googleFlow(listener, true);
+assert.equal(linked.result.redirect, '/?account=google_ok');
+assert.equal((await linked.callback()).redirect, '/?account=google_failed', 'OAuth state is single use');
+const googleDevice = jar();
+assert.equal((await googleFlow(googleDevice, false)).result.redirect, '/?account=google_ok');
+const googleAccount = (await request(googleDevice, null, {}, { method: 'GET' })).json.account;
+assert.equal(googleAccount.id, id, 'Google and email sign in to the same explicitly linked account');
+assert.deepEqual(googleAccount.providers, ['email', 'google']);
+const other = jar();
+assert.equal((await request(other, 'email-signup', { email: 'another@example.com', password })).status, 201);
+assert.equal((await googleFlow(other, true)).result.redirect, '/?account=google_conflict');
+console.log('Google OIDC browser binding, nonce validation, replay prevention and explicit account linking passed');
+
+// ---------- optional email password reset ----------
+assert.equal((await request(tablet, 'reset-request', { email: 'missing@example.com' }, { context: integrations })).status, 202);
+assert.equal(delivered, undefined);
+assert.equal((await request(tablet, 'reset-request', { email }, { context: integrations })).status, 202);
+assert.deepEqual(delivered.to, [email]);
+const resetLink = delivered.text.match(/http:\/\/localhost:8020\/#reset-password=([\w-]+)/);
+assert(resetLink);
+const resetPassword = 'Third long test passphrase';
+const reset = (j) => request(j, 'reset-password', { token: resetLink[1], password: resetPassword }, { context: integrations });
+assert.equal((await reset(tablet)).json.account.id, id);
+assert.equal((await reset(jar())).json.error, 'invalid_reset');
+assert.equal((await request(googleDevice, null, {}, { method: 'GET' })).json.account, null);
+assert.equal((await signIn(jar(), { password: resetPassword })).json.account.id, id);
+console.log('Resend reset delivery, single-use tokens and session rotation passed');
