@@ -227,7 +227,7 @@ const ANALOG_LOOPS = new WeakMap();
 const ANALOG_LEVEL = {
   hypnotic: { 2: 0.695 }, ambient: { 2: 0.661 }, peak: { 2: 0.625, 4: 0.82 },
   hardtechno: { 2: 0.485 }, trance: { 2: 0.51, 4: 0.662 }, industrial: { 4: 0.823 },
-  electro: { 4: 0.892 }, electrohiphop: { 4: 0.957 },
+  electro: { 4: 0.892 }, electrohiphop: { 4: 0.88 },
 };
 const DUB_PAD_LEVEL = { 0: 1.55, 2: 1.28, 3: 1.96, 5: 1.26 };
 function analogLoop(ctx, buf) {
@@ -3108,7 +3108,12 @@ export class Engine {
     const atk = pad ? 0.04 + p.env * 0.9 : 0.025;
     const hold = pad ? Math.max(this.stepDur * 4, p.decay * 1.2) : Math.max(0.08, p.decay * 0.8);
     const end = pad ? atk + hold + p.decay * 2 + 0.2 : hold + 0.4;
-    const amp = this.gain(0), level = ANALOG_LEVEL[this.playbackStyle][voice];
+    const amp = this.gain(0);
+    let level = ANALOG_LEVEL[this.playbackStyle][voice];
+    if (!pad && this.playbackStyle === 'electrohiphop') {
+      const register = root + iv.reduce((sum, n) => sum + n, 0) / iv.length;
+      level *= dbGain((60 - register) / 6);
+    }
     amp.gain.setValueAtTime(0, t);
     amp.gain.linearRampToValueAtTime(v * level / Math.sqrt(iv.length), t + atk);
     if (pad) amp.gain.setTargetAtTime(0, t + atk + hold, Math.max(0.1, p.decay * 0.6));
@@ -3117,8 +3122,15 @@ export class Engine {
       amp.gain.setTargetAtTime(0, t + hold, 0.06);
     }
     amp.gain.setValueAtTime(0, t + end);
-    const hp = this.filter('highpass', hard ? 300 : 150, 0.5);
-    amp.connect(hp).connect(pad ? out : this.analogBrassOut(out));
+    const body = !pad && (this.playbackStyle === 'peak' || this.playbackStyle === 'industrial');
+    const hp = this.filter('highpass', hard ? 300 : body ? 70 : 150, 0.5);
+    let tail = hp;
+    if (body) {
+      tail = hp.connect(this.filter('lowshelf', 125, 0.7));
+      tail.gain.value = this.playbackStyle === 'peak' ? 1 : 2.5;
+    }
+    amp.connect(hp);
+    tail.connect(pad ? out : this.analogBrassOut(out));
     const pans = this.sidePans([-0.6, 0, 0.6], amp);
     const sides = pad ? [-1, 0, 1] : [-1, 1], spread = pad ? (4 + p.detune) * (hard ? 3 : 1) : p.detune * 0.5;
     iv.forEach((n, k) => {
