@@ -339,7 +339,8 @@ export const MASTER_TONE = {
 };
 
 const REGGAETON_GUITAR_HOOK_EQ = [
-  [2930, 5, -12], [2645, 64, -9], [2777, 64, -9], [2962, 64, -8], [3085, 64, -17],
+  [2643.88, 33.41, -12.32], [2792, 32, -21],
+  [2958.34, 18.65, -18.9], [3085.16, 75.05, -20.79],
 ];
 const BAND_PLAY = {
   marimba: { gain: 1.35, len: 0.9, min: 0.15, max: 0.44, strum: 0.0015, shift: 0, lo: 48, hi: 84, lp: 7000, fade: 0.002, rel: 0.07, even: 0.35 },
@@ -2549,6 +2550,7 @@ export class Engine {
 
   paletteChord(t, v, iv, root, p, out, color, keys = false) {
     if (!iv.length) return;
+    out = this.paletteWhistleOut(out);
     let articulation = 1;
     if (keys) {
       const ref = this.paletteReference().stab;
@@ -2605,6 +2607,21 @@ export class Engine {
         this.startSource(o, t); o.stop(end);
       }
     }
+  }
+
+  paletteWhistleOut(out) {
+    if (this.playbackStyle !== 'deephouse') return out;
+    const paths = (this.paletteWhistles ||= new WeakMap());
+    if (!paths.has(out)) {
+      const input = this.gain(1);
+      let tail = input;
+      for (const pitch of [100, 101, 102]) {
+        for (let i = 0; i < 3; i++) tail = tail.connect(this.filter('notch', midiHz(pitch), 8));
+      }
+      tail.connect(out);
+      paths.set(out, input);
+    }
+    return paths.get(out);
   }
 
   paletteWidthOut(out, cutoff) {
