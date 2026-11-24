@@ -358,7 +358,7 @@ const REGGAETON_GUITAR_HOOK_EQ = [
   [2643.88, 33.41, -12.32], [2792, 32, -21],
   [2958.34, 18.65, -18.9], [3085.16, 75.05, -20.79],
 ];
-const DEEP_KEYS_GAIN = 1.85;
+const DEEP_KEYS_GAIN = 1.85, DEEP_KEYS_STAB_UNDER = 0.5;
 const BAND_PLAY = {
   marimba: { gain: 1.35, len: 0.9, min: 0.15, max: 0.44, strum: 0.0015, shift: 0, lo: 48, hi: 84, lp: 7000, fade: 0.002, rel: 0.07, even: 0.35 },
   upright: { gain: 4, lo: 45, hi: 79, lp: 2800, rel: .18, even: .25 },
@@ -4099,12 +4099,16 @@ export class Engine {
       // The piano samples are mono: upmix here so the CHORDS panner treats them the same whether or not chords are playing.
       out.channelCount = 2; out.channelCountMode = 'explicit';
       const pres = (this.deepKeysPresence ||= new Map());
-      if (!pres.has(out)) { const f = this.filter('peaking', 3000, 0.8); f.gain.value = 7; f.connect(out); pres.set(out, f); }
+      if (!pres.has(out)) {
+        const body = this.filter('peaking', 750, 0.9), f = this.filter('peaking', 3000, 0.8);
+        body.gain.value = -9; f.gain.value = 7;
+        body.connect(f).connect(out); pres.set(out, body);
+      }
       if (set) {
         const len = Math.max(0.3, Math.min(dur * 1.6, dur + this.stepDur * 1.5));
         let top = m; while (top > BAND_PLAY.piano.hi + 0.5) top -= 12;
         // Right-hand octaves, as house pianists play a riff: the upper note carries it on small speakers.
-        this.recordedNote(set, t, v * DEEP_KEYS_GAIN * 0.5, top + 12, len, pres.get(out), 0, null, v);
+        this.recordedNote(set, t, v * DEEP_KEYS_GAIN, top + 12, len, pres.get(out), 0, null, v);
         return this.recordedNote(set, t, v * DEEP_KEYS_GAIN, m, len, pres.get(out), 0, 'piano', v);
       }
       loadBand('piano');
@@ -5914,6 +5918,8 @@ export class Sequencer {
       // the hook's important notes; the gap makes the motif read as intentional.
       if (id === 'stab' && hookStep && pat.hook?.v !== 'deepkeys' && !paletteFor(s, e.playbackStyle ?? s.artist?.style)?.bed) continue;
       const hit = this.gridHit(id, pat, grid);
+      // Under the piano riff the chord stab still plays, but softer, so the riff's attack reads over it.
+      if (hit && id === 'stab' && hookStep && pat.hook?.v === 'deepkeys') hit.args[2] *= DEEP_KEYS_STAB_UNDER;
       if (hit) e[hit.method](...hit.args);
       if (id === 'kick') kickAt = hit?.time;
     }
