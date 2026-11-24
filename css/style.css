@@ -1342,7 +1342,7 @@ body.recording .np-actions .btn.rec .dot { background: var(--accent); animation:
 }
 
 /* Describe it: plain-language steering on Create + Studio */
-.describe { grid-area: describe; display: flex; flex-direction: column; gap: 10px; max-width: 640px; }
+.describe { grid-area: describe; display: flex; flex-direction: column; gap: 10px; min-width: 0; max-width: 640px; }
 .describe-row { display: flex; gap: 8px; }
 .describe-input { flex: 1 1 auto; min-width: 0; height: 48px; padding: 0 16px; border-radius: var(--r2); border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04); color: #fff; font: 500 15px var(--sans); transition: border-color .15s, box-shadow .15s; }
 .describe-input::placeholder { color: #7f7f89; }
@@ -1360,8 +1360,8 @@ body.recording .np-actions .btn.rec .dot { background: var(--accent); animation:
 .describe-chip.sm { height: 26px; padding: 0 10px; font-size: 11px; }
 .describe-chip.describe-pro, .describe-pro-link { color: #ffd581; }
 .describe-chip.describe-pro:disabled { opacity: .6; cursor: wait; }
-.describe-drafts { flex: 1 0 100%; }
-.describe-chip.describe-draft { height: auto; min-height: 48px; max-width: 100%; padding: 7px 10px; display: grid; gap: 3px; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.describe-line.describe-drafts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); align-items: stretch; }
+.describe-chip.describe-draft { height: auto; min-height: 48px; min-width: 0; padding: 7px 10px; display: grid; gap: 3px; text-align: left; white-space: normal; overflow-wrap: anywhere; }
 .describe-draft span { font-size: 11px; }
 .describe-receipt { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: #d8d8de; font: 500 13px/1.4 var(--sans); }
 .describe-receipt[hidden] { display: none; }
