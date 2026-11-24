@@ -345,7 +345,10 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
   };
   const hook = (voice = 'warm') => Engine.prototype.hook.call(e, 1, 0.7, 3, 0.3, voice);
   const checkEq = (out, source) => {
-    for (const [f, q, db] of [[2930, 5, -12], [2645, 64, -9], [2777, 64, -9], [2962, 64, -8], [3085, 64, -17]]) {
+    for (const [f, q, db] of [
+      [2643.88, 33.41, -12.32], [2778.29, 51.19, -13.1],
+      [2958.34, 18.65, -18.9], [3085.16, 75.05, -20.79],
+    ]) {
       assert.equal(out.inputs.length, 1);
       [out] = out.inputs;
       assert.deepEqual([out.type, out.frequency.value, out.Q.value, out.gain.value], ['peaking', f, q, db]);
