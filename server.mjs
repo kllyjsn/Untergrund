@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { publicConfig, exchangeToken } from './api/_lib/soundcloud.js';
 import { handleAutopublish } from './api/_lib/autopublish.js';
 import { createRooms, roomsKv, memoryRoomsKv, roomsHandler } from './api/_lib/rooms.js';
+import { handlePublicApi, publicApiRoute } from './api/_lib/public-api.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = +(process.env.PORT || 8000);
@@ -65,6 +66,13 @@ http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   try {
     if (await handleRooms(req, res, url)) return;
+    const publicRoute = publicApiRoute(url.pathname);
+    if (publicRoute) {
+      const r = await handlePublicApi({ method: req.method, ...publicRoute, ip: req.socket.remoteAddress },
+        { kv: accountKv, crate: crateStore, rooms, rateKv: redisAccountKv(), site: url.origin });
+      res.writeHead(r.status, { 'Content-Type': 'application/json', ...r.headers });
+      return res.end(r.status === 204 ? '' : JSON.stringify(r.json));
+    }
     if (url.pathname === '/api/tracks' && url.searchParams.get('drop')) {
       const { status, json } = await handleDrop(req.method, url.searchParams.get('drop'), crateStore);
       return sendJson(res, status, json);

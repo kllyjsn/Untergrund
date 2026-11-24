@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import './public-api.mjs';
 import { memoryKv } from '../api/_lib/kv.js';
 import { memoryStore, normalizeTrack } from '../api/_lib/crate.js';
 import { handleAccount, attachTrack } from '../api/_lib/accounts.js';
