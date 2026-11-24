@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { memoryKv } from '../api/_lib/kv.js';
 import { memoryStore } from '../api/_lib/crate.js';
+import { withChrome } from './chrome.mjs';
 import { handleAccount, handleError, normalizeHandle, signSession, verifySession, sessionCookie, parseCookies, attachPublished, attachTrack, COOKIE } from '../api/_lib/accounts.js';
 import { defaultState } from '../js/state.js';
-import { withChrome } from './chrome.mjs';
 
 // ---------- handles ----------
 assert.equal(normalizeHandle('  @Nova_Berlin '), 'nova_berlin');
