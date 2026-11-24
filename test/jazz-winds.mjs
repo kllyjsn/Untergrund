@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { WIND_BANKS, WIND_TUNING, WIND_PEAKS } from '../js/jazz-wind-data.js';
-import { windBanks, windNotches, bossaFluteNotches, recordedJazzWind } from '../js/jazz-winds.js';
+import { windBanks, windNotches, bossaFluteNotches, windTone, recordedJazzWind } from '../js/jazz-winds.js';
 import { jazzNotches, jazzHarmony } from '../js/jazz.js';
 import { freshSong, sanitize, HOOK_VOICES } from '../js/state.js';
 import { liveSets } from '../js/livekit.js';
@@ -60,6 +60,7 @@ for (const [style, legacy] of [['swing', false], ['modal', false], ['jazzfunk', 
     const e = new Recorder(song), seq = new Sequencer(e, song), hits = [];
     e.rec = (bank) => WIND_BANKS[bank]?.map((m) => [m, { bank, midi: m }]);
     e.trimOut = () => ({});
+    e.bodyFor = (out) => out;
     e.playBuf = (buf, t, v, out, rate) => hits.push({ step: e.step, bank: buf.bank, pitch: Math.round(buf.midi + 12 * Math.log2(rate)) });
     e.hook = Engine.prototype.hook.bind(e);
     if (from) seq.startAt(from, .05);
@@ -93,17 +94,42 @@ const probe = (voice = 'tpt', velocity = .5, duration = .8, take = 0, missing, s
   const result = recordedJazzWind(e, 0, velocity * 1.3, midi, duration, voice, true, { take, style }, 2);
   return { result, calls, eq };
 };
+const withoutTone = (call) => call.map((v, i) => i === 2 ? 0 : i === 6 ? (({ shelves, fade, ...fx }) => fx)(v) : v);
 for (const velocity of [0, .3, .6, .9]) for (const duration of [.15, .8]) for (const take of [0, 1]) {
   const reference = probe('tpt', velocity, duration, take, undefined, 'swing').calls[0];
   const actual = probe('tpt', velocity, duration, take, undefined, 'jazzfunk').calls[0];
   assert.equal(actual[2], reference[2] * 10 ** (2 / 20), 'Jazz-Funk alone lifts every recorded trumpet layer and articulation by 2 dB');
-  assert.deepEqual(actual.map((v, i) => i === 2 ? 0 : v), reference.map((v, i) => i === 2 ? 0 : v), 'bank, take, tuning, envelope and EQ stay unchanged');
-  for (const style of ['modal', undefined]) assert.deepEqual(probe('tpt', velocity, duration, take, undefined, style).calls[0], reference, 'other styles retain their gain');
+  assert.deepEqual(withoutTone(actual), withoutTone(reference), 'style voicing preserves bank, take, tuning, source notches, attack gain, release and tail');
+  for (const style of ['modal', undefined]) {
+    const other = probe('tpt', velocity, duration, take, undefined, style).calls[0];
+    assert.equal(other[2], reference[2], 'other styles retain their gain');
+    assert.deepEqual(withoutTone(other), withoutTone(reference));
+  }
 }
 for (const voice of ['harmon', 'airflute']) assert.deepEqual(probe(voice, .6, .8, 0, undefined, 'jazzfunk').calls, probe(voice, .6, .8, 0, undefined, 'swing').calls, 'the Jazz-Funk lift never affects another wind voice');
 const missingFunk = probe('tpt', .6, .8, 0, 'jtv1', 'jazzfunk');
 assert.equal(missingFunk.result, false);
 assert.deepEqual(missingFunk.calls, [], 'a failed Jazz-Funk bank retains the loading fallback');
+assert.deepEqual(missingFunk.eq, [], 'missing recordings never create tone nodes');
+const tones = {
+  swing: { body: [[1800, 1.2, 4.3], [2050, 4, -8.4], [2800, 4, -6.87], [3600, 1.4, -.68]], shelves: [[2600, -11.31], [5000, -13.8]] },
+  modal: { body: [[1800, 1.2, -.46], [2050, 4, -16.17], [2300, 1.4, 16], [2800, 4, 11.23], [3600, 1.4, -16.37]], shelves: [[2600, -3.09], [5000, -21.81]] },
+  bossa: { body: [[1800, 1.2, 3.83], [2050, 4, -15.02], [2300, 1.4, 2.18], [2800, 4, 5.13], [3600, 1.4, -4.13]], shelves: [[2600, -10.71], [5000, -15.58]] },
+  flute: { body: [[2050, 4, 1.35], [2300, 1.4, -.53], [2800, 4, 1.16], [3600, 1.4, 3.25]], shelves: [[2600, -1.39], [5000, -3.8]] },
+  jazzfunk: { body: [[1800, 1.2, -2.97], [2050, 4, -7.34], [2300, 1.4, 13.69], [2800, 4, -7.78], [3600, 1.4, -11.3]], shelves: [[2600, -8.84], [5000, -23.05]] },
+};
+for (const [key, expected] of Object.entries(tones)) for (const short of [false, true]) {
+  const style = key === 'flute' ? 'bossa' : key, voice = key === 'flute' ? 'airflute' : 'tpt';
+  const body = [...expected.body, ...(style === 'jazzfunk' ? [[2000, .9, short ? -3 : 1]] : [])];
+  assert.deepEqual(windTone(style, voice, short), { body, shelves: expected.shelves, fade: voice === 'airflute' ? .012 : .028 });
+  const { calls, eq } = probe(voice, .6, short ? .15 : .8, 0, undefined, style);
+  assert.deepEqual(eq, [...(key === 'flute' ? [[2950, .8, 6.2], [780, 1.2, -2.5]] : []), ...body], 'the cached wind bus receives only its style/articulation body stages');
+  assert.deepEqual(calls[0][6].shelves, expected.shelves);
+  assert.equal(calls[0][6].fade, voice === 'airflute' ? .012 : .028);
+}
+for (const style of [undefined, null, '', 'trap', 'country', 'constructor', '__proto__']) for (const voice of ['tpt', 'airflute', 'harmon', 'reed']) assert.equal(windTone(style, voice), null);
+for (const style of ['swing', 'modal', 'jazzfunk']) assert.equal(windTone(style, 'airflute'), null);
+for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) for (const voice of ['harmon', 'reed', 'constructor', '__proto__']) assert.equal(windTone(style, voice), null);
 const takeCuts = { 60: [2611, 60, -18], 65: [2812, 60, -12], 77: [2795, 60, -12] };
 for (const [root, cut] of Object.entries(takeCuts)) {
   for (const style of ['bossa', 'swing', 'modal', 'jazzfunk', undefined]) for (const midi of [+root, +root + 1]) {
@@ -192,14 +218,21 @@ for (const duration of [.15, .5, .85, 1.2]) {
   const { result, calls, eq } = probe('airflute', .6, duration, 1, 'jflb', 'bossa');
   assert(result && calls.length === 1, 'Bossa can play a complete sustain bank while expressive takes load');
   assert.equal(calls[0][0].bank, 'jfl', 'Bossa keeps the sustain performance through short and held notes');
-  assert.deepEqual(eq, [[2950, .8, 6.2], [780, 1.2, -2.5]], 'Bossa restores the original presence/body peaking stages');
+  assert.deepEqual(eq.slice(0, 2), [[2950, .8, 6.2], [780, 1.2, -2.5]], 'Bossa retains the original presence/body stages before wind voicing');
   assert.deepEqual(calls[0][6].peaks, jazzNotches('fl', calls[0][0].midi, calls[0][4]), 'Bossa retains only the legacy named-line corrections at the actual playback rate');
 }
 const bossaA = probe('airflute', .6, .5, 1, undefined, 'bossa', 68).calls[0];
 assert.equal(bossaA[0].midi, 69);
 assert.deepEqual(bossaA[6].peaks, [[2644 * bossaA[4], 40, -3], [3088 * bossaA[4], 60, -14], [2631 * bossaA[4], 60, -6]], 'the A4 sustain retains its existing lines and tracks the newly localized partial');
 assert.deepEqual(bossaFluteNotches(69, 2), [[5288, 40, -3], [6176, 60, -14], [5262, 60, -6]]);
-assert.deepEqual(bossaFluteNotches(64, 1.5), [[3954, 35, -16]]);
+assert.deepEqual(bossaFluteNotches(64, 1.5), [[3954, 35, -16], [3452.25, 60, -10]]);
+for (const midi of [63, 64, 65, 66]) {
+  const [buf, , , , rate, , fx] = probe('airflute', .6, .7, 0, undefined, 'bossa', midi).calls[0];
+  assert.equal(buf.bank, 'jfl'); assert.equal(buf.midi, 64);
+  assert.deepEqual(fx.peaks, [[2636 * rate, 35, -16], [2301.5 * rate, 60, -10]], 'the E4 take cut follows every played note including Bossa11 MIDI66, preserving the original cut');
+  assert.deepEqual(windNotches('jfl', 64, rate, 'swing'), WIND_PEAKS.jfl[64].map(([f, q, db]) => [f * rate, q, db]), 'the Bossa-only E4 correction never changes other styles');
+}
+for (const rate of [NaN, Infinity, 0, -1]) assert.deepEqual(bossaFluteNotches(64, rate), []);
 assert.deepEqual(bossaFluteNotches(61), []);
 for (const rate of [NaN, Infinity, 0, -1]) assert.deepEqual(bossaFluteNotches(69, rate), []);
 assert(!probe('airflute', .6, .5, 1, 'jfl', 'bossa').result, 'Bossa retains the loading fallback when sustain recordings are missing');
@@ -209,7 +242,7 @@ for (const style of ['swing', 'modal', 'jazzfunk', undefined]) {
   assert.equal(calls[0][0].bank, 'jflb', 'other styles keep their existing expressive alternation');
   assert.deepEqual(eq, [], 'Bossa body stages never reach another style');
 }
-assert.deepEqual(probe('tpt', .6, .5, 1, undefined, 'bossa').eq, [], 'Bossa trumpet is untouched');
+assert.deepEqual(probe('tpt', .6, .5, 1, undefined, 'bossa').eq, windTone('bossa', 'tpt').body, 'Bossa trumpet never receives flute presence stages');
 assert(!recordedJazzWind({ rec() {} }, 0, .5, 70, .2, 'reed', false, {}, 1), 'unrelated voices do not allocate nodes');
 {
   const level = (style, velocity = .4, midi = 65, duration = .8, voice = 'tpt', take = 0) => probe(voice, velocity, duration, take, undefined, style, midi).calls[0][2];

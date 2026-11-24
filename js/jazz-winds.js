@@ -11,11 +11,27 @@ const WIND_TAKE_PEAKS = { jtv2: { 60: [[2611, 60, -18]], 65: [[2812, 60, -12]], 
 const takePeaks = (bank, midi) => WIND_TAKE_PEAKS[bank]?.[Math.round(midi)] || [];
 export const windNotches = (bank, midi, rate = 1, style) => Number.isFinite(rate) && rate > 0 ? [...(WIND_PEAKS[bank]?.[Math.round(midi)] || []), ...takePeaks(bank, midi), ...(style === 'bossa' ? BOSSA_TRUMPET_PEAKS[bank]?.[Math.round(midi)] || [] : [])].map(([f, q, db]) => [f * rate, q, db]) : [];
 const BOSSA_FLUTE_DEPTHS = { 69: { 2644: -3 } };
+const BOSSA_FLUTE_PEAKS = { 64: [[2301.5, 60, -10]] };
 const BOSSA_TRUMPET_LEVELS = { jtv1: { 65: -3.2 } };
 export const bossaFluteNotches = (midi, rate = 1) => Number.isFinite(rate) && rate > 0 ? jazzNotches('fl', midi).flatMap(([f, q, db]) => {
   const gain = BOSSA_FLUTE_DEPTHS[Math.round(midi)]?.[f] ?? db;
   return gain < 0 ? [[f * rate, q, gain]] : [];
-}).concat(takePeaks('jfl', midi).map(([f, q, db]) => [f * rate, q, db])) : [];
+}).concat([...takePeaks('jfl', midi), ...(BOSSA_FLUTE_PEAKS[Math.round(midi)] || [])].map(([f, q, db]) => [f * rate, q, db])) : [];
+
+const WIND_TONES = {
+  swing: { tpt: { body: [[1800, 1.2, 4.3], [2050, 4, -8.4], [2800, 4, -6.87], [3600, 1.4, -.68]], shelves: [[2600, -11.31], [5000, -13.8]] } },
+  modal: { tpt: { body: [[1800, 1.2, -.46], [2050, 4, -16.17], [2300, 1.4, 16], [2800, 4, 11.23], [3600, 1.4, -16.37]], shelves: [[2600, -3.09], [5000, -21.81]] } },
+  bossa: {
+    tpt: { body: [[1800, 1.2, 3.83], [2050, 4, -15.02], [2300, 1.4, 2.18], [2800, 4, 5.13], [3600, 1.4, -4.13]], shelves: [[2600, -10.71], [5000, -15.58]] },
+    airflute: { body: [[2050, 4, 1.35], [2300, 1.4, -.53], [2800, 4, 1.16], [3600, 1.4, 3.25]], shelves: [[2600, -1.39], [5000, -3.8]] },
+  },
+  jazzfunk: { tpt: { body: [[1800, 1.2, -2.97], [2050, 4, -7.34], [2300, 1.4, 13.69], [2800, 4, -7.78], [3600, 1.4, -11.3]], shelves: [[2600, -8.84], [5000, -23.05]] } },
+};
+export const windTone = (style, voice, short = false) => {
+  const voices = Object.hasOwn(WIND_TONES, style) ? WIND_TONES[style] : null;
+  const tone = voices && Object.hasOwn(voices, voice) ? voices[voice] : null;
+  return tone ? { body: [...tone.body, ...(style === 'jazzfunk' ? [[2000, .9, short ? -3 : 1]] : [])], shelves: tone.shelves, fade: voice === 'airflute' ? .012 : .028 } : null;
+};
 
 export function recordedJazzWind(e, t, v, midi, duration, voice, strong, { take = 0, harm = false, style }, mix) {
   const bossa = style === 'bossa' && voice === 'airflute';
@@ -35,9 +51,12 @@ export function recordedJazzWind(e, t, v, midi, duration, voice, strong, { take 
   const balance = style === 'bossa' ? 10 ** ((BOSSA_TRUMPET_LEVELS[bank]?.[Math.round(center)] ?? 0) / 20) : style === 'jazzfunk' && voice === 'tpt' ? 10 ** (2 / 20) : 1;
   let out = e.trimOut(`hook-${voice}`, 1, e.hookBus || e.windDuck, -4, 500);
   if (bossa) out = e.bodyFor(e.bodyFor(out, [2950, .8, 6.2]), [780, 1.2, -2.5]);
+  const tone = windTone(style, voice, short);
+  for (const band of tone?.body || []) out = e.bodyFor(out, band);
   e.playBuf(buffer, t, (flute ? 1.02 : muted ? .48 : .4) * touch * mix * balance, out, rate, Math.max(.06, duration * .92), {
+    ...(tone ? { shelves: tone.shelves } : {}),
     peaks: bossa ? bossaFluteNotches(center, rate) : windNotches(bank, center, rate, style),
-    fade: short ? .004 : flute ? .008 : .015,
+    fade: tone?.fade ?? (short ? .004 : flute ? .008 : .015),
     attackGain: strong ? 1.02 : .94,
     release: short ? .07 : .055, ringOut: !short,
   });
