@@ -163,19 +163,23 @@ for (const style of ['gfunk', 'ukg', 'rock', undefined]) {
   assert.deepEqual(Engine.prototype.organ.call(engine), ['gfunk', 'ukg'].includes(style) ? ['org', 'synthOrgan'] : 'synth');
 }
 for (const style of ['gfunk', 'ukg', 'rock', undefined]) {
-  for (const kind of ['org', 'str']) {
+  for (const kind of ['org', 'str']) for (const hook of [undefined, { v: 'vocal', s: [] }, { v: 'reed', s: [1] }, { v: 'vocal', s: [1] }, { v: 'chop', s: [1] }, { v: 'vocal', m: { n: [[0, 1, 0]] } }]) {
     let fx;
     const engine = {
-      playbackStyle: style, state: {}, ch: { stab: { input: {}, band: {} } },
+      playbackStyle: style, state: {}, playingPattern: { hook }, ch: { stab: { input: {}, band: {} } },
       rec: () => null,
       playBuf: (...args) => { fx = args.at(-1); },
     };
     Engine.prototype.recordedNote.call(engine, [[60, {}]], 0, 1, 60, 0.5, {}, 0, kind);
     assert.equal(fx.hp, kind === 'org' && style === 'gfunk' ? 110 : 0, 'only G-Funk recorded organ loses its kick-band lows');
     assert.equal(fx.hpQ, -3.01, 'organ low-cut is non-resonant');
+    const cut = style === 'ukg' && kind === 'org' && ['vocal', 'chop'].includes(hook?.v) && (hook.s?.length || hook.m?.n?.length);
+    assert.deepEqual(fx.shelves, [[3000, 0], ...(cut ? Array.from({ length: 4 }, () => [1600, -6]) : [])],
+      'presence cut is isolated to UKG recorded organ under a written vocal hook');
   }
 }
 console.log('Recorded organ low-cut: 110 Hz non-resonant HPF isolated to G-Funk organ');
+console.log('UKG recorded organ presence: vocal/chop hook regions only; empty hooks, other voices and genres unchanged');
 assert.ok(!liveSets({ ...ukg, params: { ...ukg.params, acid: { ...ukg.params.acid, voice: 1 } } }).includes('abass'), 'UK Garage keeps its synth BASS voice');
 const other = { ...ukg, artist: { style: 'reggaeton' } };
 assert.ok(!liveSets(other).includes('org') && !liveSets(other).includes('abass'), 'other styles keep the synth organ and Reese');
