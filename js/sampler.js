@@ -6,6 +6,7 @@ const DB = 'untergrund.samples', STORE = 'samples', KEY = 'current', MAX_SEC = 2
 let current = null, songSeed = 0;
 const listeners = new Set();
 const synths = new Map();
+export const hasUserSample = () => !!current && current.source !== 'synth';
 
 export const onSample = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
 export const voxSeed = (state) => Number.isFinite(state?.artist?.seed) ? state.artist.seed : 0;

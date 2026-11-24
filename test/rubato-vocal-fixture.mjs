@@ -1,4 +1,4 @@
-export async function rubatoVocalFixture({style = 'ukg', residual = 0, rubato = true, engineSource, mainSource, pcm = false} = {}) {
+export async function rubatoVocalFixture({style = 'ukg', residual = 0, rubato = true, engineSource, mainSource, pcm = false, seed = 7} = {}) {
   const {defaultState,freshSong} = await import('/js/state.js');
   const {sungNotes} = await import('/js/sing-score.js');
   const {rubatoMap} = await import('/js/perform.js');
@@ -11,7 +11,7 @@ export async function rubatoVocalFixture({style = 'ukg', residual = 0, rubato = 
   } else ({Engine} = await import('/js/engine.js'));
   const source = mainSource ?? await (await fetch('/js/main.js')).text();
   const schedule = source.slice(source.indexOf('function schedule(lead)'), source.indexOf('\n// Jam:'));
-  const state = freshSong(style, 7, {length:'sketch', bpm:123, swing:0}) || defaultState();
+  const state = freshSong(style, seed, {length:'sketch', bpm:123, swing:0}) || defaultState();
   state.bpm = 123; state.swing = 0;
   const sr = 48000, seconds = 28, nominal = 15 / state.bpm;
   const ctx = new OfflineAudioContext(1, sr * seconds, sr);
@@ -127,7 +127,7 @@ export async function rubatoVocalFixture({style = 'ukg', residual = 0, rubato = 
   });
   const fresh = [-.03,.03].map(error=>sync.transportResync(10+error,10,0,nominal,false,-Infinity,1,true).profile.rates);
   const centsLimit = Math.max(...fresh.flatMap(r=>r.slice(1).map((x,i)=>Math.abs(1200*Math.log2(x/r[i])))));
-  const result = {style,residualMs:1000*residual,rubato,fixture:'Fresh deterministic formant synthesis from seed-7 style sungNotes; NOT Music neural inputs',
+  const result = {style,residualMs:1000*residual,rubato,fixture:`Fresh deterministic formant synthesis from seed-${seed} style sungNotes; NOT Music neural inputs`,
     restarts:starts.length-1,hardReanchors:corrections.filter(c=>c.hard),durationOnlyRestarts:corrections.filter(c=>!c.hard).length,
     maxVocalMinusKickMs:Math.max(...measurements.map(t=>Math.abs(t.vocalMinusKickMs??0))),
     maxBarVocalMinusKickMs:Math.max(...measurements.filter(t=>t.step%16===0).map(t=>Math.abs(t.vocalMinusKickMs??0))),
