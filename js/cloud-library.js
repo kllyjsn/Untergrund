@@ -1,5 +1,5 @@
 import { getAccount, onAccount } from './account.js';
-import { libraryTracks, saveLocalTrack, saveTrack } from './crate.js';
+import { libraryTracks, recentTracks, saveLocalTrack, saveTrack } from './crate.js';
 
 const deviceKey = (id) => `untergrund.library.pending.v1.${id}`;
 const readPending = (id) => {
@@ -19,7 +19,7 @@ async function api(account, body, id) {
   return json;
 }
 
-export function createCloudLibrary({ get = getAccount, subscribe = onAccount, device = libraryTracks, request = api,
+export function createCloudLibrary({ get = getAccount, subscribe = onAccount, device = libraryTracks, deviceRecent = recentTracks, request = api,
   read = readPending, write = writePending, savePublic = saveTrack, saveLocal = saveLocalTrack, change = () => {} } = {}) {
   let account = '', epoch = 0, work = Promise.resolve(), syncing = null;
   let cloud = new Map(), removed = new Set(), notice = '';
@@ -148,5 +148,6 @@ export function createCloudLibrary({ get = getAccount, subscribe = onAccount, de
   }
 
   subscribe(setAccount);
-  return { connected, refresh, tracks, saveGenerated, load, remove, notice: () => notice };
+  return { connected, refresh, tracks, recent: () => (account ? tracks() : deviceRecent()).slice(0, 8),
+    saveGenerated, load, remove, notice: () => notice };
 }

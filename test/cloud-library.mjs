@@ -107,6 +107,10 @@ update({ account: null });
 const fromStaleTab = await cloud.saveGenerated(draft);
 assert.equal(fromStaleTab.private, true, 'sign-in in another tab must not publish a private song');
 assert.equal(publicSaves, 1);
+assert.equal(cloud.recent()[0].title, draft.title, 'a newly saved private song appears in Create recents');
+assert.equal(cloud.recent()[0].cloud, true);
+update({ account: null });
+assert.deepEqual(cloud.recent(), [], 'private recents do not survive sign-out');
 console.log('cloud Library client passed: local merge, offline retry, private saves and account switching');
 
 const root = fileURLToPath(new URL('..', import.meta.url));

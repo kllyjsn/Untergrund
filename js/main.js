@@ -17,7 +17,7 @@ import { loadArtistProfile, openArtistStudio } from './artist.js';
 import { openClub, loadAvatar, avatarNode, hostingRoom } from './club.js';
 import { liveNowRow, watchLiveRooms, liveDirectory, fetchLiveRooms } from './live-rooms.js';
 import { playTimeline, stopTimeline, prepareTimeline } from './live-sets.js';
-import { trackTitle, recentTracks, fetchTrack, countPlay } from './crate.js';
+import { trackTitle, fetchTrack, countPlay } from './crate.js';
 import { radioOn, setRadio, nextUp } from './radio.js';
 import { FEELS, FEEL_IDS, isFeel } from './feel.js';
 import { createMiniPlayer } from './mini-player.js';
@@ -2096,7 +2096,7 @@ function renderHome() {
   guardPushOffer();
 }
 
-const hasMade = () => studioOpen || playing || localStorage.getItem('untergrund.made') === '1' || recentTracks().length > 0;
+const hasMade = () => studioOpen || playing || localStorage.getItem('untergrund.made') === '1' || cloudLibrary.recent().length > 0;
 function buildGenerateHome() {
   ui.npCanvas = null; ui.npCells = null;
   const families = [...new Set(Object.values(STYLES).map((v) => v.family))];
@@ -2140,7 +2140,7 @@ function buildGenerateHome() {
   ];
   const classical = STYLES[style].family === 'CLASSICAL' || !!(playing && pat()?.score);
   const concert = classical ? concertPanel({ state: () => state, engine: () => engine, ensureAudio, persist, score: pat()?.score || null, repertoire: style === 'repertoire', onPiece: playPiece, onComposer: setComposer, stopTransport: () => playing && stop() }) : null;
-  const recent = recentTracks().slice(0, 8);
+  const recent = cloudLibrary.recent();
   const recents = recent.length ? h('div', { class: 'recents' },
     h('div', { class: 'recents-label' }, 'RECENT TRACKS'),
     h('div', { class: 'recents-row' }, recent.map((t) => h('button', { class: 'recent', style: `--hue:${hue(t.style)}`, onclick: () => openRecent(t) },
@@ -2261,7 +2261,7 @@ function buildTabBar() {
     tab('Artist', false, openArtist));
 }
 
-const cloudLibrary = createCloudLibrary({ change: () => ui.lib?.paint() });
+const cloudLibrary = createCloudLibrary({ change: () => { ui.lib?.paint(); renderHome(); } });
 cloudLibrary.refresh();
 window.addEventListener('online', () => { if (cloudLibrary.connected()) cloudLibrary.refresh(); });
 
