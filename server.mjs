@@ -39,6 +39,7 @@ import { handlePush } from './api/_lib/push.js';
 import { handleLegal } from './api/_lib/legal.js';
 import { ogImage, artSeed } from './api/_lib/og.js';
 import { clubImage } from './api/_lib/og-club.js';
+import { handleHealth, redisHealthCheck } from './api/_lib/health.js';
 const jukeboxStore = redisJukebox() || memoryJukebox();
 const eventsKv = redisKv() || memoryKv();
 const playbackKv = redisAccountKv() || memoryPlaybackKv();
@@ -64,6 +65,11 @@ const sendJson = (res, status, json) => { res.writeHead(status, { 'Content-Type'
 http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   try {
+    if (url.pathname === '/api/health' || (url.pathname === '/api/page' && url.searchParams.get('health') === '1')) {
+      const { status, json } = await handleHealth(req.method, { checkStorage: redisHealthCheck() || (() => true), env, accountSecret: authSecret, uploads: false });
+      if (status === 405) res.setHeader('Allow', 'GET');
+      return sendJson(res, status, json);
+    }
     if (await handleRooms(req, res, url)) return;
     if (url.pathname === '/api/tracks' && url.searchParams.get('drop')) {
       const { status, json } = await handleDrop(req.method, url.searchParams.get('drop'), crateStore);

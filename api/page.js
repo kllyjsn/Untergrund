@@ -4,10 +4,17 @@ import { clubImage } from './_lib/og-club.js';
 import { redisKv } from './_lib/kv.js';
 import { redisStore } from './_lib/crate.js';
 import { createRooms, roomsKv } from './_lib/rooms.js';
+import { handleHealth, redisHealthCheck } from './_lib/health.js';
 
 let rooms;
 
 export default async function handler(req, res) {
+  if (req.query?.health === '1') {
+    const { status, json } = await handleHealth(req.method, { checkStorage: redisHealthCheck() });
+    res.setHeader('Cache-Control', 'no-store');
+    if (status === 405) res.setHeader('Allow', 'GET');
+    return res.status(status).json(json);
+  }
   const site = process.env.PUBLIC_SITE_URL || SITE;
   if (rooms === undefined) { const kv = roomsKv(); rooms = kv ? createRooms({ kv }) : null; }
   try {

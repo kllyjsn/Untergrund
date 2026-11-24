@@ -1,10 +1,9 @@
-// Flagship shelf for Home: admin-pinned real releases (config/flagship.js), each with its artist credit and real counts.
-// Cached across Home rebuilds; hidden when nothing is pinned or storage is off.
+// Home release shelf: curated picks, or recent public releases when no pick resolves.
 import { h } from './ui.js';
 import { STYLES } from './state.js';
 import { drawArtwork, artSeed } from './artwork.js';
 
-let items = null, loading = false;
+let items = null, loading = false, recent = false;
 const covers = new Map();
 
 function cover(t) {
@@ -23,13 +22,14 @@ export function flagshipShelf({ onPlay, onLoad }) {
     loading = true;
     fetch('/api/flagship').then((r) => (r.ok ? r.json() : { tracks: [] })).then((j) => {
       items = (j.tracks || []).filter((t) => t?.id && t.state);
+      recent = j.kind === 'recent';
       loading = false;
       if (items.length) onLoad();
     }, () => { items = []; loading = false; });
   }
   if (!items?.length) return null;
-  return h('section', { class: 'flagship', 'aria-label': 'Flagship releases' },
-    h('div', { class: 'flagship-head' }, h('span', { class: 'recents-label' }, 'FLAGSHIP'), h('span', { class: 'flagship-sub' }, 'Made in UNTERGRUND by the artists who use it')),
+  return h('section', { class: 'flagship', 'aria-label': recent ? 'Recent public releases' : 'Flagship releases' },
+    h('div', { class: 'flagship-head' }, h('span', { class: 'recents-label' }, recent ? 'RECENT PUBLIC RELEASES' : 'FLAGSHIP'), h('span', { class: 'flagship-sub' }, 'Made in UNTERGRUND by the artists who use it')),
     h('div', { class: 'flagship-row' }, items.map((t) => h('article', { class: 'flag' },
       h('button', { class: 'flag-art', type: 'button', 'aria-label': `Play ${t.title} by ${t.by}`, onclick: () => onPlay(t) }, cover(t), h('i')),
       h('a', { class: 'flag-title', href: `/t/${encodeURIComponent(t.id)}` }, t.title),

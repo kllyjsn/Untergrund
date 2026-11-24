@@ -5,6 +5,7 @@ import { handleAccount, attachTrack } from '../api/_lib/accounts.js';
 import { handlePage, renderTrackPage } from '../api/_lib/pages.js';
 import { ogImage, artSeed } from '../api/_lib/og.js';
 import { defaultState } from '../js/state.js';
+import { handleHealth } from '../api/_lib/health.js';
 
 const kv = memoryKv(), crate = memoryStore(), SECRET = 's'.repeat(40);
 const claim = await handleAccount({ method: 'POST', body: { action: 'claim', handle: 'nova', name: 'Nova "&" <Co>', bio: 'Warehouse </script> sets' } }, { kv, crate, secret: SECRET });
@@ -82,5 +83,34 @@ console.log('Open Graph image passed');
   const r = await hp({ flagship: '1' }, { kv: null, crate: store, site, og, flagship: [real.id] });
   assert.equal(r.status, 200);
   assert.equal(JSON.parse(r.body).tracks[0].id, real.id);
+  assert.equal(JSON.parse(r.body).kind, 'flagship');
+  const recent = Array.from({ length: 7 }, (_, i) => ({ ...real, id: `recent-${i}`, title: `Recent ${i}` }));
+  for (const t of recent) await store.add(t);
+  const getShelf = async (flagship, crate = store) => JSON.parse((await hp({ flagship: '1' }, { kv: null, crate, site, og, flagship })).body);
+  for (const ids of [[], ['gone-404']]) {
+    const fallback = await getShelf(ids);
+    assert.equal(fallback.kind, 'recent');
+    assert.deepEqual(fallback.tracks.map((t) => t.id), recent.slice(1).reverse().map((t) => t.id));
+  }
+  assert.deepEqual((await getShelf(['gone-404', real.id])).tracks.map((t) => t.id), [real.id]);
+  assert.deepEqual(await getShelf([], null), { tracks: [], kind: 'recent' });
   console.log('flagship shelf passed');
+}
+
+{
+  const env = { AUTH_SECRET: 'test-'.repeat(8), VERCEL_GIT_COMMIT_SHA: '0123456789abcdef' };
+  assert.deepEqual(await handleHealth('GET', { checkStorage: async () => true, env }), {
+    status: 200, json: { ok: true, commit: '0123456789ab', storage: 'ready', features: { accounts: true, recordedSetUploads: false, soundcloud: false } },
+  });
+  const down = await handleHealth('GET', { checkStorage: async () => { throw new Error('private provider detail'); }, env });
+  assert.equal(down.status, 503);
+  assert.equal(down.json.storage, 'unavailable');
+  assert.equal(JSON.stringify(down).includes('private provider detail'), false);
+  const off = await handleHealth('GET', { env: { ...env, VERCEL_GIT_COMMIT_SHA: 'not a public commit' } });
+  assert.equal(off.status, 503);
+  assert.equal(off.json.storage, 'not_configured');
+  assert.equal(off.json.commit, 'dev');
+  assert.equal(off.json.features.accounts, false);
+  assert.equal((await handleHealth('POST', { env })).status, 405);
+  console.log('public health status passed');
 }

@@ -35,9 +35,9 @@ export const redisEnv = () => {
   return url && token ? { url: url.replace(/\/$/, ''), token } : null;
 };
 
-export async function redis(command) {
+export async function redis(command, { signal } = {}) {
   const { url, token } = redisEnv();
-  const res = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(command) });
+  const res = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(command), signal });
   const json = await res.json();
   if (!res.ok || json.error) throw new Error(json.error || `redis ${res.status}`);
   return json.result;
