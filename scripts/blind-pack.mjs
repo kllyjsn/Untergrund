@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { STYLES } from '../js/state.js';
+import { assignSides, validateBlindKey, verifyHalf } from './blind-sides.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const git = (...args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' }).trim();
@@ -138,7 +139,7 @@ export function baselineOverrides(text = '') {
   }
   return out;
 }
-export function planPairs(styles, seed, seeds, base, head, baselines = {}, nullControl = false, nullCandidates = Object.keys(STYLES)) {
+export function planPairs(styles, seed, seeds, base, head, baselines = {}, nullControl = false, nullCandidates = Object.keys(STYLES), sideCoin) {
   if (!styles.length) throw new Error('Cannot plan an empty pack');
   const rng = random(seed);
   const entries = styles.map((style) => ({ style, kind: 'comparison', baselineCommit: baselines[style] || base }));
@@ -148,10 +149,7 @@ export function planPairs(styles, seed, seeds, base, head, baselines = {}, nullC
     for (const style of available) if (!Object.hasOwn(STYLES, style)) throw new Error(`Unknown null genre: ${style}`);
     entries.push({ style: available[Math.floor(rng() * available.length)], kind: 'null', baselineCommit: head, nullCommit: head });
   }
-  return shuffle(entries, rng).map((p, i) => {
-    const first = rng() < 0.5 ? 'original' : 'revised';
-    return { ...p, pair: String(i + 1).padStart(2, '0'), genre: STYLES[p.style].name, renderSeed: seeds[p.style] ?? (hash(`${seed}:${p.style}`) || 1), bars: 8, first, second: first === 'original' ? 'revised' : 'original', commits: { original: p.baselineCommit, revised: head } };
-  });
+  return assignSides(shuffle(entries, rng).map((p, i) => ({ ...p, pair: String(i + 1).padStart(2, '0'), genre: STYLES[p.style].name, renderSeed: seeds[p.style] ?? (hash(`${seed}:${p.style}`) || 1), bars: 8, commits: { original: p.baselineCommit, revised: head } })), sideCoin);
 }
 export function pcmDifference(original, revised, threshold = 0.001) {
   if (!original.length || !revised.length || !Number.isFinite(threshold) || threshold < 0) throw new Error('Invalid PCM comparison');
@@ -182,6 +180,30 @@ function ff(args) {
   const p = spawnSync('ffmpeg', ['-hide_banner', '-nostats', '-y', ...args], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
   if (p.status !== 0) throw new Error(p.error?.message || p.stderr);
   return p.stderr;
+}
+export function encodeBlindPair(first, second, output) {
+  try {
+    ff(['-i', first, '-i', second, '-filter_complex', '[0:a]apad=pad_dur=1.56[a];[a][1:a]concat=n=2:v=0:a=1[out]', '-map', '[out]', '-map_metadata', '-1', '-ar', '48000', '-ac', '2', '-c:a', 'libmp3lame', '-b:a', '192k', output]);
+  } catch { throw new Error('Blind pair encoding FAIL'); }
+}
+export function auditBlindPair(pair, file, matched, temp) {
+  const decode = (input) => execFileSync('ffmpeg', ['-v', 'error', '-i', input, '-ar', '48000', '-ac', '2', '-f', 'f32le', 'pipe:1'], { maxBuffer: 128 * 1024 * 1024 });
+  const frames = Object.fromEntries(['original', 'revised'].map((version) => [version, decode(matched[version]).length / 8]));
+  const candidates = { first: {}, second: {} }, references = {}, separatorFrames = Math.round(1.56 * 48000);
+  for (const version of ['original', 'revised']) {
+    const other = version === 'original' ? 'revised' : 'original';
+    const reference = join(temp, `${pair.pair}-${version}-reference.mp3`);
+    encodeBlindPair(matched[version], matched[other], reference);
+    const pcm = decode(reference);
+    references[version] = pcm;
+    candidates.first[version] = pcm.subarray(0, frames[version] * 8);
+    candidates.second[other] = pcm.subarray((frames[version] + separatorFrames) * 8);
+  }
+  const actual = decode(file), end = frames[pair.first] * 8, secondStart = end + separatorFrames * 8;
+  const whole = verifyHalf(actual, references, pair.first);
+  const first = verifyHalf(actual.subarray(0, end), candidates.first, pair.first);
+  const second = verifyHalf(actual.subarray(secondStart), candidates.second, pair.second);
+  return { format: 'f32le', sampleRate: 48000, channels: 2, sha256: whole.sha256, first, second };
 }
 function measure(file, trim = '') {
   const out = ff(['-i', file, '-af', `${trim}loudnorm=I=-16:TP=-1.5:LRA=20:print_format=json`, '-f', 'null', '-']);
@@ -243,6 +265,7 @@ export async function main(argv = process.argv.slice(2)) {
   console.log(`Selected styles: ${selection.selected.join(', ')}; dropped: ${selection.dropped.join(', ') || 'none'}`);
   if (options['null-style'] && !options['null-control']) throw new Error('null-style requires null-control');
   const pairs = planPairs(selection.selected, seed, seeds, base, head, baselines, options['null-control'], options['null-style'] ? [options['null-style']] : mergedPRs.flatMap((p) => p.styles));
+  validateBlindKey({ pairs });
   mkdirSync(out, { recursive: true });
   const temp = mkdtempSync(join(tmpdir(), 'ug-blind-')), worktrees = [];
   try {
@@ -310,7 +333,9 @@ export async function main(argv = process.argv.slice(2)) {
       const matched = {};
       for (const version of ['original', 'revised']) { const f = join(temp, `${p.pair}-${version}-matched.wav`); ff(['-i', normalized[version], '-af', `volume=${target - levels[version]}dB`, '-c:a', 'pcm_f32le', f]); matched[version] = f; }
       const mp3 = join(pack, `Pair-${p.pair}.mp3`);
-      ff(['-i', matched[p.first], '-i', matched[p.second], '-filter_complex', '[0:a]apad=pad_dur=1.56[a];[a][1:a]concat=n=2:v=0:a=1[out]', '-map', '[out]', '-map_metadata', '-1', '-ar', '48000', '-ac', '2', '-c:a', 'libmp3lame', '-b:a', '192k', mp3]);
+      encodeBlindPair(matched[p.first], matched[p.second], mp3);
+      p.decodedPcm = auditBlindPair(p, mp3, matched, temp);
+      console.log('Blind key decoded-PCM audit PASS');
       const firstSeconds = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', matched[p.first]], { encoding: 'utf8' }).trim());
       if (!Number.isFinite(firstSeconds) || firstSeconds <= 0) throw new Error(`Cannot locate pair ${p.pair} silence`);
       const decoded = join(temp, `${p.pair}-decoded.wav`);
@@ -324,7 +349,9 @@ export async function main(argv = process.argv.slice(2)) {
     const zip = join(out, `blind-rating-pack-${date}.zip`);
     rmSync(zip, { force: true });
     execFileSync('zip', ['-q', '-r', zip, 'blind-pilot'], { cwd: out });
-    const key = { schema: 'untergrund.blind-pack/1', date, generatedAt: new Date().toISOString(), seed, commit: head, base, sinceTime, mergedPRs, droppedStyles: selection.dropped, pairs, format: { codec: 'mp3', sampleRate: 48000, channels: 2, bitrate: 192000, silenceSeconds: 1.56, edgeFadeSeconds: 0.01, excerpt: 'first-hook-drop-or-peak', bars: 8, targetLUFS: -16, targetTruePeakDBTP: -1.5, measurement: 'ffmpeg loudnorm JSON input_i on decoded MP3 halves, excluding the inserted silence', normalization: 'two-pass loudnorm then downward pair gain matching' } };
+    const key = { schema: 'untergrund.blind-pack/1', date, generatedAt: new Date().toISOString(), seed, commit: head, base, sinceTime, mergedPRs, droppedStyles: selection.dropped, pairs, randomization: { sides: 'Independent crypto coins, redrawn if comparison pairs are one-sided', seedScope: 'Musical render seeds, style order and null selection only' }, format: { codec: 'mp3', sampleRate: 48000, channels: 2, bitrate: 192000, silenceSeconds: 1.56, edgeFadeSeconds: 0.01, excerpt: 'first-hook-drop-or-peak', bars: 8, targetLUFS: -16, targetTruePeakDBTP: -1.5, measurement: 'ffmpeg loudnorm JSON input_i on decoded MP3 halves, excluding the inserted silence', normalization: 'two-pass loudnorm then downward pair gain matching' } };
+    validateBlindKey(key);
+    console.log('Blind key side-balance PASS');
     mkdirSync(keyDir, { recursive: true });
     writeFileSync(join(keyDir, `${date}.json`), JSON.stringify(key, null, 2) + '\n', { flag: 'wx' });
     console.log(`Pack: ${pack}\nZip: ${zip}\nKey: ${join(keyDir, `${date}.json`)}\nBase: ${base}\nHead: ${head}`);

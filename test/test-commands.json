@@ -4,6 +4,7 @@
   "node test/true-peak.mjs",
   "node test/vocal-timing-eval.mjs",
   "node test/blind-pack.mjs",
+  "node test/blind-sides.mjs",
   "python3 scripts/ios-check.py",
   "node test/artist.mjs",
   "node test/daily.mjs",
