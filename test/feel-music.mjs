@@ -16,7 +16,7 @@ const minor = (h) => { const iv = CHORDS[h.c].iv; return iv.includes(3) && !iv.i
 // Without an assigned feeling, generation matches the main branch used for this change.
 const h = createHash('sha256');
 for (const style of Object.keys(STYLES).filter((s) => s !== 'jazzfunk')) for (const seed of [1, 7, 42, 1234, 99991]) h.update(style + JSON.stringify(generate(style, seed, scaleOf(style))));
-assert.equal(h.digest('hex'), '14a5bdf0467a54fbdd2415af0eed85d0fa2535fd3570a6e19a2bcd229ede427c', 'non-Jazz-Funk no-feel generate() changed');
+assert.equal(h.digest('hex'), '93b3f80ef8fe9daf690c61f97dd7b1e1576fe77d81c7eaa2a589cc362edf9d29', 'non-Jazz-Funk no-feel generate() changed');
 const funkHash = createHash('sha256');
 for (const seed of [1, 7, 42, 1234, 99991]) funkHash.update('jazzfunk' + JSON.stringify(generate('jazzfunk', seed, 'minor')));
 assert.equal(funkHash.digest('hex'), 'fcb4209f99234d8d95535c43be30c65dc16f28fe765accbdff79f1518c32d49f', 'authored Jazz-Funk generation changed');

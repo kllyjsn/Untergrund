@@ -111,6 +111,31 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
 }
 
 {
+  const sustain = (style) => {
+    const state = defaultState(), e = new Engine(fakeCtx(), state, { realtime: false });
+    state.artist = { style };
+    const ramps = [];
+    const gain = e.gain.bind(e);
+    e.gain = (level) => {
+      const node = gain(level);
+      node.gain.linearRampToValueAtTime = (...args) => ramps.push(args);
+      node.gain.setTargetAtTime = (...args) => ramps.push(args);
+      return node;
+    };
+    let sample;
+    e.playBuf = (...args) => { sample = args; };
+    e.sampledBass({}, 1, 34, 0.8, false);
+    return { ramps, sample: [sample[2], sample[4], sample[5]] };
+  };
+  const folk = sustain('folk'), control = sustain('pop');
+  assert.deepEqual(folk.sample, control.sample, 'Folk keeps the recorded upright level, pitch and hold');
+  assert.equal(folk.sample[2], 0.8);
+  assert.deepEqual(control.ramps, [[0.12, 1.01], [0.07, 1.05, 0.2], [0, 1.8, 0.04]]);
+  assert(folk.ramps[0][0] < control.ramps[0][0] && folk.ramps[1][0] < folk.ramps[0][0]);
+  assert.deepEqual(folk.ramps[2], control.ramps[2], 'The sine still releases after the held note');
+}
+
+{
   const s = defaultState(), g = generate('jazzfunk', 42);
   s.patterns = arrangement(g.pattern, 42, g.bpm >= 115);
   applyOverrides(s, g, true); s.artist = { style: 'jazzfunk' };

@@ -937,7 +937,7 @@ function generatePattern(style, seed, scaleName, starter, feel = null, keepScale
   if (!hiphop) {
     if (idea === 0 && on.length > 2) S.acid[on[on.length - 1]].n += 12;
     else if (idea === 1 && S.perc.some(Boolean)) { const k = 1 + Math.floor(r2() * 3), q = S.perc.slice(); S.perc = q.map((_, i) => q[(i - k + STEPS) % STEPS]); }
-    else if (idea === 2 && S.stab.some(Boolean) && !['neosoul', 'boombap', 'country'].includes(style)) { const q = S.stab.slice(); S.stab = q.map((_, i) => q[(i + 1) % STEPS]); }
+    else if (idea === 2 && S.stab.some(Boolean) && !['neosoul', 'boombap', 'country', 'folk'].includes(style)) { const q = S.stab.slice(); S.stab = q.map((_, i) => q[(i + 1) % STEPS]); }
   }
   // Styles without written changes get harmony in their own idiom, from a separate stream so nothing above moves.
   if (!P.prog) {
