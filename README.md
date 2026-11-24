@@ -79,6 +79,8 @@ The site is a static build on Vercel project `untergrund-i2i9` (team kllyjsns-pr
 | Multi-device Club rooms + live directory | `/api/rooms`, `/api/rooms/:room[/events]` | the same `KV_REST_API_*` Redis (optional override: `ROOMS_API_URL`) | rooms 503 and stay per-browser; directory 200 `enabled:false` |
 | Studio Pro membership and song drafts | `/pricing`, `/api/billing/:action`, `/api/song-drafts` | Stripe, Redis, creator accounts, and the song AI provider; see the [billing runbook](docs/billing.md) | free Studio works; no checkout |
 
+**Production readiness:** `curl -i https://www.untergrund.sh/api/health` reports the deployed commit and whether core Redis storage answered a read-only ping. HTTP 200 means storage is ready; 503 means it is not configured or did not respond. On 503, confirm the active deployment's Redis integration and check provider status, then retry. The optional feature flags indicate configuration only: they do not probe SoundCloud or Blob. If accounts are off while storage is ready, check the creator account setup below. Locally the server can use in-memory storage and reports `dev` instead of a deployment commit.
+
 ### 1. Storage (Vercel dashboard)
 
 1. Vercel → kllyjsns-projects → **Storage** → **Create Database** → **Upstash** → **Upstash for Redis** → Free plan, region `iad1` (Washington, D.C.) → Create. Connect it to project `untergrund-i2i9` (all environments) with no env var prefix, so it injects `KV_REST_API_URL` and `KV_REST_API_TOKEN`. (`UPSTASH_REDIS_REST_URL`/`_TOKEN` also work.)
@@ -162,3 +164,7 @@ Every published song gets a permanent page at `/t/<id>` that replays its stored 
 - Sign in with SoundCloud reuses the SoundCloud setup above.
 
 Locally, `server.mjs` uses an in-memory store saved to `.data/kv.json` and a generated dev secret, so everything works without env vars.
+
+## Developer API
+
+See the [developer quickstart](https://www.untergrund.sh/developers/) and [OpenAPI 3.1 specification](https://www.untergrund.sh/api/v1/openapi.json) for the read-only public release, creator, and live room API. No API key is required.

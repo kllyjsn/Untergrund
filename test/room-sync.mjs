@@ -149,11 +149,20 @@ assert.deepEqual(roomTransportPosition(origin + 1600, 120, origin), { step: 0, d
   close(at, 10.02);
   assert.equal(roomTransportCorrection(9.951, 10, 9.5, 0.125), null, 'ordinary errors retain the bounded slew');
   assert.deepEqual(roomTransportCorrection(11.25, 11.5, 11.2, 0.125), {drainUntil:11.5});
-  assert.deepEqual(roomTransportCorrection(11.26, 11.5, 11.49, 0.125, 11.5), {drainUntil:11.5}, 'clock updates do not extend the stopped queue');
+  assert.deepEqual(roomTransportCorrection(11.26, 11.5, 11.2, 0.125, 11.5), {drainUntil:11.5}, 'clock updates do not extend the stopped queue');
   const adopted = roomTransportCorrection(11.25, 11.5, 11.5, 0.125, 11.5);
   assert.equal(adopted.skip, 2);
   close(adopted.nextTime, 11.5);
   assert.equal(adopted.adopted, true);
+  close(adopted.firstTime, 11.505);
+  const kept = roomTransportCorrection(11.38, 11.5, 11.2, 0.125, null, 0.5);
+  assert.equal(kept.skip, 0, 'a corrected frontier after the last queued step is never duplicated');
+  close(kept.nextTime, 11.38);
+  close(kept.firstTime, 11.4375);
+  const duplicated = roomTransportCorrection(11.375, 11.5, 11.2, 0.125, null, 0.5);
+  assert.equal(duplicated.skip, 1, 'a corrected step exactly at the last queued step is duplicated');
+  close(duplicated.nextTime, 11.5);
+  assert.deepEqual(roomTransportCorrection(11.75, 11.5, 11.49, 0.125, null, 0.5), {drainUntil:11.5}, 'forward corrections still wait for the old frontier');
   const forward = roomTransportCorrection(11.75, 11.5, 11.5, 0.125, 11.5);
   assert.equal(forward.skip, 0);
   close(forward.nextTime, 11.75);
@@ -522,6 +531,39 @@ console.log('room transport alignment passed');
   assert.equal(clock.jumped, true, 'a real frozen-page interval retains immediate wake recovery');
   close(clock.offset, 1002.08);
 }
+{
+  const initial = () => syncAudioClock(null, 1000, {at:10, contextTime:10, state:null});
+  let clock = initial();
+  const sample = (at, measured) => clock = syncAudioClock(clock.offset, measured,
+    {at, contextTime:at - (measured - 1000), state:clock.state});
+  sample(10.19, 1000.155);
+  assert.equal(clock.jumped, false, 'a visible running-context stall is not a wake');
+  assert.equal(clock.offset, 1000);
+  for (let i = 1; i <= 90; i++) {
+    sample(10.19 + i * .02, 1000.155);
+    assert.equal(clock.offset, 1000, 'the transient offset is held before persistence');
+    assert.equal(clock.jumped, false);
+  }
+  sample(12.07, 1000.019);
+  assert.equal(clock.offset, 1000, '136ms catch-up does not immediately adopt either offset');
+  assert.equal(clock.jumped, false);
+  sample(12.09, 1000.005);
+  assert.equal(clock.offset, 1000);
+  assert.equal(clock.state.pending, null);
+  for (const [gap, lifecycleAt, expected] of [[.18, 10.1, true], [.18, 7, false], [.18, 11, false], [.8, undefined, true], [15, undefined, true]]) {
+    const prior = initial();
+    const wake = syncAudioClock(prior.offset, 1000 + gap,
+      {at:10 + gap, contextTime:10, state:prior.state, lifecycleAt});
+    assert.equal(wake.jumped, expected, `${gap}s gap with lifecycle ${lifecycleAt}`);
+    close(wake.offset, expected ? 1000 + gap : 1000);
+  }
+  clock = initial();
+  sample(10.19, 1000.155);
+  for (let i = 1; i <= 101; i++) sample(10.19 + i * .02, 1000.155);
+  close(clock.offset, 1000.155);
+  assert.equal(clock.jumped, false, 'a sustained running stall adopts without destructive wake recovery');
+}
+console.log('Room false wake PASS: 155ms stall / 136ms catch-up held; stale/future lifecycle ignored; recent resume180ms and unsignalled800ms/15s wake immediately; sustained stall adopts without discard.');
 for (const rate of [-0.005, 0.005]) {
   let clock = syncAudioClock(null, 1000, {at:0, contextTime:0, state:null});
   let adopted = 0, residual = 0;
@@ -635,7 +677,7 @@ for (const [action, currentTime, playing, expected] of [
     document:{hidden:false}, ctx:{currentTime:10}, Date:{now:() => sandbox.ctx.currentTime * 1000},
     state:{bpm:120, part:'old'}, clockOffset:0, transportOrigin:2250, abs:68, nextTime:11.5,
     syncAudioClock, transportResync, slewTransport, roomTransportCorrection, roomDrainUntil:null, vocalCorrectionWindow:0,
-    queuedRoomSwitch:null, handoff:null, jamQueue:[], vocalGridDirty:false, roomAudioClock:{at:10, contextTime:10, pending:null},
+    queuedRoomSwitch:null, handoff:null, jamQueue:[], vocalGridDirty:false, roomLifecycleAt:-Infinity, roomAudioClock:{at:10, contextTime:10, pending:null},
     performance:{now:() => sandbox.ctx.currentTime * 1000},
     engine:{stepDur:0.125, applyAll(){}, scheduleJamParams(){}, discardQueuedNotes:t => cancelled.push(t), vocal(){}},
     seq:{origin:0, chainPos:5, songBars:8, advanceBar(){}, rewind:step => rewinds.push(step),
@@ -708,13 +750,47 @@ for (const [action, currentTime, playing, expected] of [
   const music = {...sandbox, abs:68, nextTime:11.5, transportOrigin:2750, clockOffset:0, roomDrainUntil:null,
     ctx:{currentTime:11.2}, Date:{now:() => music.ctx.currentTime * 1000}, uiQueue:[], midiClockStep(){}, midiClockStart(){},
     seq:{...sandbox.seq, tick:(step, time) => { musicNotes.push({step, time}); return {}; }}};
-  const drain = runInNewContext(`${schedulerSource}\nschedule(0.5); schedule`, music);
+  const drain = runInNewContext(`${schedulerSource}\nschedule(0.25); schedule`, music);
   assert.equal(musicNotes.length, 0, 'a large correction stops queuing until the old frontier drains');
-  music.ctx.currentTime = 11.5;
+  music.ctx.currentTime = 11.3;
   drain(0.5);
-  assert.deepEqual(musicNotes.map(n => n.step), [70, 71, 72, 73], 'after draining only already-past steps68/69 skip; every remaining future step renders');
+  assert.deepEqual(musicNotes.map(n => n.step), [70, 71, 72], 'only duplicated steps68/69 skip; corrected future steps queue before the old frontier');
   assert.ok(musicNotes.every((n, i) => n.time >= (i ? musicNotes[i - 1].time : 11.5)), 'adoption never reorders old or new audio');
   assert.equal(music.vocalGridDirty, false, 'an aligned vocal consumes the dirty-grid check');
+  for (const delta of [0.056, 0.063, 0.054]) {
+    const base = 15 / 123, frontier = 20, target = frontier - delta, hits = [];
+    const kept = {...music, state:{...music.state, bpm:123}, abs:272, nextTime:frontier,
+      transportOrigin:(target - 272 * base) * 1000, roomDrainUntil:null, uiQueue:[],
+      ctx:{currentTime:frontier - 0.45}, engine:{...music.engine, stepDur:base},
+      seq:{...music.seq, tick:(step, time) => { hits.push({step, time}); return {}; }}};
+    kept.Date = {now:() => kept.ctx.currentTime * 1000};
+    kept.performance = {now:() => kept.ctx.currentTime * 1000};
+    const schedule = runInNewContext(`${schedulerSource}\nschedule(0.42); schedule`, kept);
+    assert.equal(hits[0]?.step, 272, `the frontier kick survives a ${delta * 1000}ms correction`);
+    close(hits[0].time, Math.max(target, frontier - base / 2));
+    assert.ok(hits[0].time >= frontier - base / 2);
+    assert.ok(hits[0].time >= kept.ctx.currentTime + 0.005);
+    kept.ctx.currentTime = frontier - 0.15;
+    schedule(0.42);
+    assert.equal(hits[1]?.step, 273);
+    close(hits[1].time, target + base);
+    assert.equal(hits.filter(h => h.step === 272).length, 1);
+  }
+  music.ctx.currentTime = 11.5;
+  for (const now of [20, 20.3]) {
+    const base = 15 / 123, target = 20 - .056, hits = [];
+    const delayed = {...music, state:{...music.state, bpm:123}, abs:272, nextTime:20,
+      transportOrigin:(target - 272 * base) * 1000, roomDrainUntil:null, uiQueue:[],
+      ctx:{currentTime:now}, Date:{now:() => now * 1000}, performance:{now:() => now * 1000},
+      roomAudioClock:{at:now, contextTime:now, pending:null}, engine:{...music.engine, stepDur:base},
+      seq:{...music.seq, tick:(step, time) => { hits.push({step, time}); return {}; }}};
+    runInNewContext(`${schedulerSource}\nschedule(0.42)`, delayed);
+    assert.equal(hits[0].step, 272, 'a late drain callback still retains the frontier kick');
+    assert.ok(hits.every((hit, i) => hit.time >= (i ? hits[i - 1].time : now + .005)),
+      'all retained steps use the safe audio deadline; a past deadline cannot precede the padded frontier');
+    for (const hit of hits.filter(h => target + (h.step - 272) * base > now + .005))
+      close(hit.time, target + (hit.step - 272) * base);
+  }
   const relocations = [], forward = {...music, abs:68, nextTime:11.5, transportOrigin:3250, roomDrainUntil:null,
     seq:{...music.seq, tick:() => ({})}, midiClockStart:(ctx, step, time) => relocations.push({step, time})};
   runInNewContext(`${schedulerSource}\nschedule(0.5)`, forward);
@@ -725,9 +801,6 @@ for (const [action, currentTime, playing, expected] of [
     queuedRoomSwitch:{startsAt:10375}, switchRoomSet:at => switches.push(at),
     seq:{...music.seq, tick:(step, time) => {replayNotes.push({step, time}); return {};}}};
   const replaySchedule = runInNewContext(`${schedulerSource}\nschedule(); schedule`, replay);
-  assert.deepEqual(switches, [], 'a replay entering lookahead cannot bypass unscheduled outgoing steps while the frontier drains');
-  replay.ctx.currentTime = 10.25;
-  replaySchedule();
   assert.deepEqual(replayNotes, [{step:70, time:10.25}], 'the playable outgoing step before the replay downbeat still sounds');
   assert.deepEqual(switches, [10.375], 'switch only after all outgoing steps before the replay are queued');
   assert.equal(transportResync(11.25, 11.5, 11.2, 0.125, false, -Infinity, true), null);
@@ -737,14 +810,14 @@ for (const [action, currentTime, playing, expected] of [
 }
 console.log('Room frontier PASS: large corrections drain then adopt, future-at-adoption steps render, no reorder/rebuild, solo no-repeat, explicit SPP and monotonic MIDI.');
 {
-  const runBoundary = ({step=63, nextTime=10.5, gridOrigin=2325, now=10, wall=10325, clockOffset=0, lead, pendingForce=false, mediaRoute=null} = {}) => {
+  const runBoundary = ({step=63, nextTime=10.5, gridOrigin=2325, now=10, wall=10325, clockOffset=0, lead, pendingForce=false, mediaRoute=null, level=null} = {}) => {
     const notes = [], effects = [], vocals = [], state = freshSong('hypnotic', 7, {length:'sketch', bpm:120});
     state.bpm = 120; state.chainOn = true; state.chain = 'CCCCEEEECCCC'; state.master.arr = 1; state.part = 'old';
     const engine = new Recorder(state), seq = new Sequencer(engine, state);
     seq.chainPos = 4; seq.cur = 2;
     engine.at = 0;
     engine.applyAll = () => effects.push({kind:'mix', time:engine.at});
-    engine.scheduleJamParams = (params, time) => effects.push({kind:'mix', time});
+    engine.scheduleJamParams = (params, time) => effects.push({kind:'mix', time, params});
     engine.breakSweep = time => effects.push({kind:'break', time});
     engine.discardQueuedNotes = () => assert.fail('a room correction must preserve the queued notes');
     engine.vocal = (...args) => vocals.push(args);
@@ -756,10 +829,10 @@ console.log('Room frontier PASS: large corrections drain then adopt, future-at-a
       document:{hidden:false}, ctx:{currentTime:now}, Date:{now:() => now * 1000},
       state, engine, seq, abs:step, nextTime, transportOrigin:gridOrigin, clockOffset,
       syncAudioClock, transportResync, slewTransport, roomTransportCorrection, roomDrainUntil:null, vocalCorrectionWindow:0,
-      queuedRoomSwitch:null, handoff:null, vocalGridDirty:false, uiQueue:[], roomAudioClock:{at:now, contextTime:now, pending:null}, performance:{now:() => now * 1000},
-      jamQueue:[{part:'kick', layer:{id:'new'}, wall}], jamRedraw:0,
+      queuedRoomSwitch:null, handoff:null, vocalGridDirty:false, uiQueue:[], roomLifecycleAt:-Infinity, roomAudioClock:{at:now, contextTime:now, pending:null}, performance:{now:() => now * 1000},
+      jamQueue:[{part:'kick', layer:{id:'new', ...(level == null ? {} : {params:{kick:{level}}})}, wall}], jamRedraw:0,
       timeline:{skip:() => 0}, artistTick(){}, midiClockStep(){}, midiClockStart(){},
-      applyPart:(s, part, layer) => { s.part = layer.id; }, setTimeout(){}, cancelAnimationFrame(){}, requestAnimationFrame:() => 0};
+      applyPart:(s, part, layer) => { s.part = layer.id; Object.assign(s.params.kick, layer.params?.kick); }, setTimeout(){}, cancelAnimationFrame(){}, requestAnimationFrame:() => 0};
     const scheduler = main.slice(main.indexOf('function schedule(lead)'), main.indexOf('\n// Jam:'));
     const jam = main.slice(main.indexOf('function landJamParts('), main.indexOf('\n// GENERATE while'));
     runInNewContext(`${scheduler}\n${jam}\nschedule(${lead})`, sandbox);
@@ -769,16 +842,21 @@ console.log('Room frontier PASS: large corrections drain then adopt, future-at-a
   assert.equal(small.notes[0]?.abs, 64, 'a small calibration never skips the playable Jam downbeat');
   assert.equal(small.notes[0].part, 'new');
   close(small.notes[0].time, 11.4985);
-  const future = runBoundary({now:10.1, lead:0.5});
+  const future = runBoundary({now:9.9, lead:0.5});
   assert.equal(future.notes.length, 0, 'large corrections leave future queued notes alone while draining');
+  const early = runBoundary({step:64, nextTime:10.5, gridOrigin:2250, now:10.1, wall:10250, lead:.5, level:0});
+  const cut = early.effects.find(e => e.kind === 'mix');
+  assert.equal(cut.params.kick.level, 0, 'the skipped Jam downbeat applies a real level cut');
+  assert.ok(cut.time > 10.375, 'a skipped Jam edit cannot silence the previous-bar hit already queued at10.375');
+  close(cut.time, early.notes[0].time, 'the mix edit lands on the first retained note');
   const skipped = runBoundary({now:10.5});
   assert.equal(skipped.sandbox.abs, 68);
   assert.equal(skipped.sandbox.state.part, 'new', 'a skipped Jam boundary lands rather than waiting another bar');
   assert.equal(skipped.sandbox.jamQueue.length, 0);
   assert.equal(skipped.sandbox.seq.cur, 4, 'a skipped breakdown advances the actual section');
-  assert.deepEqual(skipped.notes.map(n => n.abs), [66, 67], 'only past steps are skipped; existing queued notes are not rebuilt');
-  close(skipped.effects.find(e => e.kind === 'break').time, 10.5);
-  close(skipped.effects.find(e => e.kind === 'mix').time, 10.5);
+  assert.deepEqual(skipped.notes.map(n => n.abs), [65, 66, 67], 'only duplicated steps are skipped; the late frontier step is retained');
+  close(skipped.effects.find(e => e.kind === 'break').time, 10.505);
+  close(skipped.effects.find(e => e.kind === 'mix').time, 10.505);
   const boundary = runBoundary({now:10.6, nextTime:10.6, gridOrigin:2825});
   const downbeat = boundary.notes.find(n => n.abs === 64);
   close(boundary.effects.find(e => e.kind === 'break').time, downbeat.time);
@@ -789,7 +867,7 @@ console.log('Room frontier PASS: large corrections drain then adopt, future-at-a
   assert.equal(late.sandbox.state.part, 'new', 'a Jam due between skipped and playable steps lands on the first playable grid time');
   close(late.effects.find(e => e.kind === 'mix').time, 10.575);
   const mediaLate = runBoundary({now:10.5, wall:10550, mediaRoute:{}});
-  assert.equal(mediaLate.notes[0].part, 'new', 'media-route compensation cannot defer a due Jam beyond the first playable corrected step');
+  assert.equal(mediaLate.notes.find(n => n.abs === 66).part, 'new', 'media-route compensation cannot defer a due Jam beyond its corrected step');
   close(mediaLate.effects.find(e => e.kind === 'mix').time, 10.535);
   const clockOnly = runBoundary({step:64, nextTime:11.5, gridOrigin:3500, clockOffset:-0.02});
   assert.equal(clockOnly.sandbox.vocalGridDirty, true, 'clock-offset-only slews request the same deferred vocal alignment');
@@ -799,7 +877,7 @@ console.log('Room frontier PASS: large corrections drain then adopt, future-at-a
       'ordinary slews hold vocal checks, but a pending large-correction deadline cannot miss its downbeat during a later small slew');
   }
 }
-console.log('Room skipped boundaries PASS: sub-step Jam downbeat retained; skipped Jam, breakdown and mix automation land at grid time; late Jam catches the first playable step.');
+console.log('Room skipped boundaries PASS: sub-step Jam downbeat retained; skipped Jam, breakdown and mix automation wait for the first retained hit; outgoing queued hits keep their level; late Jam catches the first playable step.');
 {
   const reanchorSource = main.slice(main.indexOf('function reanchorRoomSet('), main.indexOf('\nfunction stopRoomStats'));
   const sandbox = {playing:true, roomPlayback:true, state:{bpm:newBpm}, seq:{origin:64}, transportOrigin:rebasedOrigin, vocalGridDirty:false, queuedRoomSwitch:null};

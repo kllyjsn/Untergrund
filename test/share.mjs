@@ -4,6 +4,7 @@ import { KIT_BACKBEAT } from '../js/params.js';
 import { patternAt } from '../js/scope.js';
 import { encodeSong, decodeSong, readShareParams, songLink, remixState, creditLine, embedCode, normalizeSong, newShareRef, SHARE_REF } from '../js/share-code.js';
 import { peakWindow } from '../js/video.js';
+import { flagshipTrackHref } from '../js/flagship.js';
 import { handleCrate, handleRemix, memoryStore } from '../api/_lib/crate.js';
 
 // Round trip: every style survives encode → URL → decode and equals its sanitized self.
@@ -40,6 +41,9 @@ assert.deepEqual(readShareParams(new URL('https://x.sh/#s=zAbc')), { code: 'zAbc
 assert.deepEqual(readShareParams(new URL('https://x.sh/?t=abc-123<script>')), { id: 'abc-123script' });
 assert.equal(songLink('https://x.sh', { id: 'abc-123' }), 'https://x.sh/t/abc-123', 'stored tracks share their release page');
 assert.equal(songLink('https://x.sh', { id: 'abc-123', release: false }), 'https://x.sh/?t=abc-123', 'classical pieces open in the app');
+for (const [style, info] of Object.entries(STYLES)) {
+  assert.equal(flagshipTrackHref({ id: 'abc-123', style }), info.family === 'CLASSICAL' ? '/?t=abc-123' : '/t/abc-123', style);
+}
 assert.equal(songLink('https://x.sh', { id: 'abc-123' }, '/embed.html'), 'https://x.sh/embed.html?t=abc-123');
 assert.equal(readShareParams(new URL('https://x.sh/?jukebox')), null);
 // Share refs: one per shared link, read back on arrival; anything malformed is dropped.

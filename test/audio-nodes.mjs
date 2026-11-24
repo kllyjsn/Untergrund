@@ -1590,7 +1590,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         mediaRoute:null, roomMediaSync:createRoomMediaSync(), roomMediaLead, roomMediaTime,
         document:{hidden:false}, ctx:c, Date:{now:() => (c.currentTime + 1000 + offset()) * 1000},
         performance:{now:() => c.currentTime * 1000}, state, engine, clockOffset:1000,
-        roomAudioClock:{at:9.5, contextTime:9.5, pending:null}, roomDrainUntil:null, vocalGridDirty:false,
+        roomAudioClock:{at:9.5, contextTime:9.5, pending:null}, roomLifecycleAt:-Infinity, roomDrainUntil:null, vocalGridDirty:false,
         transportOrigin:1010000, abs:0, nextTime:10, queuedRoomSwitch:null, handoff:null, jamQueue:[], uiQueue:[],
         syncAudioClock, transportResync, slewTransport, roomTransportCorrection,
         seq:{origin:0, chainPos:1, songBars:256, advanceBar:noop, rewind:noop,

@@ -55,6 +55,7 @@
   "node test/accounts.mjs",
   "node test/billing.mjs",
   "node test/pages.mjs",
+  "node test/public-api.mjs",
   "node test/legal.mjs",
   "node test/research.mjs",
   "node test/describe.mjs",
