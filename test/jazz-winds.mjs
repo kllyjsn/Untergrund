@@ -114,6 +114,27 @@ for (const [voice, velocity, duration, take, bank] of [
 }
 assert(!probe('tpt', .5, .8, 0, 'jtv2').result, 'an incomplete bank returns to existing recorded/synth fallback');
 {
+  for (const midi of [67, 68]) {
+    const { calls } = probe('tpt', .9, .7, 0, undefined, 'bossa', midi);
+    const [buf, , level, , rate, , fx] = calls[0];
+    assert.equal(buf.bank, 'jtv2');
+    assert.equal(buf.midi, 67, 'the G4 hard sustain also covers the transposed Bossa 7 note');
+    assert.deepEqual(fx.peaks, [...windNotches('jtv2', 67, rate), [2739 * rate, 40, -27], [3131 * rate, 40, -27]], 'only this take receives the two tuned narrow-line cuts');
+    assert.equal(level, probe('tpt', .9, .7, 0, undefined, 'modal', midi).calls[0][2], 'the correction preserves the take body gain');
+  }
+  for (const [voice, velocity, duration, midi] of [['tpt', .4, .7, 67], ['tpt', .9, .15, 67], ['tpt', .9, .7, 65], ['harmon', .9, .7, 67], ['airflute', .9, .7, 67]]) {
+    const [buf, , , , rate, , fx] = probe(voice, velocity, duration, 0, undefined, 'bossa', midi).calls[0];
+    assert.deepEqual(fx.peaks, voice === 'airflute' ? bossaFluteNotches(buf.midi, rate) : windNotches(buf.bank, buf.midi, rate), 'other takes, dynamics and articulations keep their treatment');
+  }
+  for (const style of ['swing', 'modal', 'jazzfunk', undefined]) {
+    const [buf, , , , rate, , fx] = probe('tpt', .9, .7, 0, undefined, style, 67).calls[0];
+    assert.deepEqual(fx.peaks, windNotches(buf.bank, buf.midi, rate), 'the hard-take correction never reaches another style');
+  }
+  assert.deepEqual(windNotches('missing', 67, 1, 'bossa'), []);
+  for (const rate of [NaN, Infinity, 0, -1]) assert.deepEqual(windNotches('jtv2', 67, rate, 'bossa'), []);
+  assert(!probe('tpt', .9, .7, 0, 'jtv2', 'bossa', 67).result, 'a failed bank retains the normal loading fallback');
+}
+{
   const ctx = new OfflineAudioContext(2, 48000, 48000), fx = probe('tpt', .6, .2).calls[0][6];
   const e = { ctx, gain(v) { const g = ctx.createGain(); g.gain.value = v; return g; }, startSource(s, t, offset) { s.start(t, offset); } };
   const played = Engine.prototype.playBuf.call(e, ctx.createBuffer(1, 14400, 48000), 1, .4, ctx.destination, 2 ** (2 / 12), .184, fx);
