@@ -316,10 +316,12 @@ Files were fetched from the [Electro-Dig/tr909-replica mirror pinned at
 `3d1a8f1ee7656e50860664e9b6a27230e06cc664`](https://github.com/Electro-Dig/tr909-replica/tree/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb),
 not from Freesound previews. Its [Freesound license inventory](https://github.com/Electro-Dig/tr909-replica/blob/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb/_readme_and_license.txt)
 lists Attribution 4.0 for the files; its MIT license explicitly preserves the
-third-party audio licenses. Live Freesound pages returned HTTP 403 during verification,
-so the hashes pin mirror bytes, not independently verified Freesound originals.
-The inventory doubles the `.wav` extension; the filenames below are the mirror
-filenames also accepted by `--raw`. Exact original filenames remain unverified live.
+third-party audio licenses. All ten source SHA-256 hashes were verified byte-identical
+against Freesound original downloads fetched by Max on **2026-11-24**, with live
+license **CC BY 4.0**; `--raw` rebuilt byte-identical FLACs. Hardware TR-909
+provenance is credited by the uploader, not independently authenticated. The uploads
+are 16-bit from a stated 24-bit source. The inventory doubles the `.wav` extension;
+the filenames below are accepted by `--raw`.
 
 | Bundled file | Recording / edit credits | Freesound sound | Original/download filename |
 | --- | --- | --- | --- |

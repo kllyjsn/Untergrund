@@ -14,7 +14,7 @@
     "license_evidence_url": "https://github.com/Electro-Dig/tr909-replica/blob/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb/_readme_and_license.txt",
     "mirror_url": "https://raw.githubusercontent.com/Electro-Dig/tr909-replica/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb/26486__altemark__bd01.wav",
     "source_sha256": "abbb6693bcb878c90feeaf2e6d8c4be93ca727d548d26badc7dcec2d8e02d27e",
-    "verification_note": "Source hash pins the mirror bytes, not independently verified Freesound originals. Live Freesound pages returned HTTP 403; --raw requires an exact byte match.",
+    "verification_note": "Source SHA-256 verified byte-identical against the Freesound original download fetched by Max on 2026-11-24, with live license CC BY 4.0; --raw reproduces the identical FLAC. Hardware TR-909 provenance is credited by the uploader, not independently authenticated. Uploads are 16-bit from a stated 24-bit source.",
     "processing": {
       "leading_trim_frames": 1,
       "tail_fade_frames": 0,
@@ -46,7 +46,7 @@
     "license_evidence_url": "https://github.com/Electro-Dig/tr909-replica/blob/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb/_readme_and_license.txt",
     "mirror_url": "https://raw.githubusercontent.com/Electro-Dig/tr909-replica/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb/26702__altemark__sn29.wav",
     "source_sha256": "9139c4e7c4ef6d74ecc46751c74b9b0b86c97f04cd5415a0cb262046d02aca75",
-    "verification_note": "Source hash pins the mirror bytes, not independently verified Freesound originals. Live Freesound pages returned HTTP 403; --raw requires an exact byte match.",
+    "verification_note": "Source SHA-256 verified byte-identical against the Freesound original download fetched by Max on 2026-11-24, with live license CC BY 4.0; --raw reproduces the identical FLAC. Hardware TR-909 provenance is credited by the uploader, not independently authenticated. Uploads are 16-bit from a stated 24-bit source.",
     "processing": {
       "leading_trim_frames": 0,
       "tail_fade_frames": 221,
@@ -78,7 +78,7 @@
     "license_evidence_url": "https://github.com/Electro-Dig/tr909-replica/blob/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb/_readme_and_license.txt",
     "mirror_url": "https://raw.githubusercontent.com/Electro-Dig/tr909-replica/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb/26552__altemark__clp01.wav",
     "source_sha256": "4e26a94ab192bb28466dea521c88eab614d645aa3b22db2b1fbd1ad98411f096",
-    "verification_note": "Source hash pins the mirror bytes, not independently verified Freesound originals. Live Freesound pages returned HTTP 403; --raw requires an exact byte match.",
+    "verification_note": "Source SHA-256 verified byte-identical against the Freesound original download fetched by Max on 2026-11-24, with live license CC BY 4.0; --raw reproduces the identical FLAC. Hardware TR-909 provenance is credited by the uploader, not independently authenticated. Uploads are 16-bit from a stated 24-bit source.",
     "processing": {
       "leading_trim_frames": 1,
       "tail_fade_frames": 0,
@@ -110,7 +110,7 @@
     "license_evidence_url": "https://github.com/Electro-Dig/tr909-replica/blob/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb/_readme_and_license.txt",
     "mirror_url": "https://raw.githubusercontent.com/Electro-Dig/tr909-replica/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb/26520__altemark__ch01.wav",
     "source_sha256": "2f2cd3237e026b0619eb1048e21af3f378b2efdcaa813b0d8156dd09a474e916",
-    "verification_note": "Source hash pins the mirror bytes, not independently verified Freesound originals. Live Freesound pages returned HTTP 403; --raw requires an exact byte match.",
+    "verification_note": "Source SHA-256 verified byte-identical against the Freesound original download fetched by Max on 2026-11-24, with live license CC BY 4.0; --raw reproduces the identical FLAC. Hardware TR-909 provenance is credited by the uploader, not independently authenticated. Uploads are 16-bit from a stated 24-bit source.",
     "processing": {
       "leading_trim_frames": 1,
       "tail_fade_frames": 0,
@@ -142,7 +142,7 @@
     "license_evidence_url": "https://github.com/Electro-Dig/tr909-replica/blob/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb/_readme_and_license.txt",
     "mirror_url": "https://raw.githubusercontent.com/Electro-Dig/tr909-replica/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb/26643__altemark__oh01.wav",
     "source_sha256": "335526762e9324784a0a3103d9f9de62a933e56103cfb9cadf26adeb21bda078",
-    "verification_note": "Source hash pins the mirror bytes, not independently verified Freesound originals. Live Freesound pages returned HTTP 403; --raw requires an exact byte match.",
+    "verification_note": "Source SHA-256 verified byte-identical against the Freesound original download fetched by Max on 2026-11-24, with live license CC BY 4.0; --raw reproduces the identical FLAC. Hardware TR-909 provenance is credited by the uploader, not independently authenticated. Uploads are 16-bit from a stated 24-bit source.",
     "processing": {
       "leading_trim_frames": 1,
       "tail_fade_frames": 0,
@@ -174,7 +174,7 @@
     "license_evidence_url": "https://github.com/Electro-Dig/tr909-replica/blob/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb/_readme_and_license.txt",
     "mirror_url": "https://raw.githubusercontent.com/Electro-Dig/tr909-replica/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb/26658__altemark__ride01.wav",
     "source_sha256": "1116ff48c0d42f550eb7332dda60df540298bcfbe524bbd45cd9781413390eb7",
-    "verification_note": "Source hash pins the mirror bytes, not independently verified Freesound originals. Live Freesound pages returned HTTP 403; --raw requires an exact byte match.",
+    "verification_note": "Source SHA-256 verified byte-identical against the Freesound original download fetched by Max on 2026-11-24, with live license CC BY 4.0; --raw reproduces the identical FLAC. Hardware TR-909 provenance is credited by the uploader, not independently authenticated. Uploads are 16-bit from a stated 24-bit source.",
     "processing": {
       "leading_trim_frames": 1,
       "tail_fade_frames": 0,
@@ -206,7 +206,7 @@
     "license_evidence_url": "https://github.com/Electro-Dig/tr909-replica/blob/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb/_readme_and_license.txt",
     "mirror_url": "https://raw.githubusercontent.com/Electro-Dig/tr909-replica/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb/26670__altemark__rs01.wav",
     "source_sha256": "d2e0f32d2040233b3a06b9c6d25783ce493442ce23e25e9458c93346ab36a0ad",
-    "verification_note": "Source hash pins the mirror bytes, not independently verified Freesound originals. Live Freesound pages returned HTTP 403; --raw requires an exact byte match.",
+    "verification_note": "Source SHA-256 verified byte-identical against the Freesound original download fetched by Max on 2026-11-24, with live license CC BY 4.0; --raw reproduces the identical FLAC. Hardware TR-909 provenance is credited by the uploader, not independently authenticated. Uploads are 16-bit from a stated 24-bit source.",
     "processing": {
       "leading_trim_frames": 0,
       "tail_fade_frames": 0,
@@ -238,7 +238,7 @@
     "license_evidence_url": "https://github.com/Electro-Dig/tr909-replica/blob/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb/_readme_and_license.txt",
     "mirror_url": "https://raw.githubusercontent.com/Electro-Dig/tr909-replica/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb/26596__altemark__lt01.wav",
     "source_sha256": "441cf2046ac3cb6017387160c648c7de0090cda1132b2e82c8e9d0a414be08dc",
-    "verification_note": "Source hash pins the mirror bytes, not independently verified Freesound originals. Live Freesound pages returned HTTP 403; --raw requires an exact byte match.",
+    "verification_note": "Source SHA-256 verified byte-identical against the Freesound original download fetched by Max on 2026-11-24, with live license CC BY 4.0; --raw reproduces the identical FLAC. Hardware TR-909 provenance is credited by the uploader, not independently authenticated. Uploads are 16-bit from a stated 24-bit source.",
     "processing": {
       "leading_trim_frames": 0,
       "tail_fade_frames": 221,
@@ -270,7 +270,7 @@
     "license_evidence_url": "https://github.com/Electro-Dig/tr909-replica/blob/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb/_readme_and_license.txt",
     "mirror_url": "https://raw.githubusercontent.com/Electro-Dig/tr909-replica/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb/26620__altemark__mt01.wav",
     "source_sha256": "0f292f7299003461f8eb831de747a81c97d68e5a00719cb8026a796ab8b36ccb",
-    "verification_note": "Source hash pins the mirror bytes, not independently verified Freesound originals. Live Freesound pages returned HTTP 403; --raw requires an exact byte match.",
+    "verification_note": "Source SHA-256 verified byte-identical against the Freesound original download fetched by Max on 2026-11-24, with live license CC BY 4.0; --raw reproduces the identical FLAC. Hardware TR-909 provenance is credited by the uploader, not independently authenticated. Uploads are 16-bit from a stated 24-bit source.",
     "processing": {
       "leading_trim_frames": 0,
       "tail_fade_frames": 0,
@@ -302,7 +302,7 @@
     "license_evidence_url": "https://github.com/Electro-Dig/tr909-replica/blob/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb/_readme_and_license.txt",
     "mirror_url": "https://raw.githubusercontent.com/Electro-Dig/tr909-replica/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb/26574__altemark__ht01.wav",
     "source_sha256": "7323f0cff7ddaaa283d11f382e3dcc19799c4299c89d6dae58002506f047f331",
-    "verification_note": "Source hash pins the mirror bytes, not independently verified Freesound originals. Live Freesound pages returned HTTP 403; --raw requires an exact byte match.",
+    "verification_note": "Source SHA-256 verified byte-identical against the Freesound original download fetched by Max on 2026-11-24, with live license CC BY 4.0; --raw reproduces the identical FLAC. Hardware TR-909 provenance is credited by the uploader, not independently authenticated. Uploads are 16-bit from a stated 24-bit source.",
     "processing": {
       "leading_trim_frames": 0,
       "tail_fade_frames": 0,
