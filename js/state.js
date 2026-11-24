@@ -230,7 +230,7 @@ function deepCallAnswer(r, scale) {
     s[i] = [semi(call[j]), l, j === 0 ? 0.9 : 0.78];
     s[16 + i] = [semi(answer[j]), j === 3 ? Math.min(14 - i, l + 2) : l, j === 3 ? 0.94 : 0.8];
   });
-  return { v: 'deepkeys', o: 0, s, x: { space: 0.5, risk: 0.2, feel: 0.5, warmth: 0.6 } };
+  return { v: 'deepkeys', o: 1, s, x: { space: 0.5, risk: 0.2, feel: 0.5, warmth: 0.6 } };
 }
 
 export function hookLine(r, style, scale) {
@@ -968,7 +968,7 @@ function generatePattern(style, seed, scaleName, starter, feel = null, keepScale
   const sung = withMelody(P.hook, rng(Math.imul((seed | 0) ^ 0x68e31da4, 0x3c6ef372) ^ 0x1b873593), style, musicalScale, { prog: P.prog, alt: P.alt, chord: params.stab.chord | 0, gainScale, shape: feelShape(F) });
   if (sung) { P.hook = sung; P.hm = 2; }
   // Deep House answers its own call on a recorded piano in the middle register instead of a sung top line.
-  if (style === 'deephouse' && P.hook) { P.hook = deepCallAnswer(rng(Math.imul((seed | 0) ^ 0x5bd1e995, 0x27d4eb2d)), musicalScale); P.hm = 2; }
+  if (style === 'deephouse' && P.hook) { P.hook = { ...deepCallAnswer(rng(Math.imul((seed | 0) ^ 0x5bd1e995, 0x27d4eb2d)), musicalScale), ...(P.hook.m ? { m: P.hook.m } : {}) }; P.hm = 2; }
   const roots = rootsTags(style, seed, params.stab.voice, P.hook);
   if (roots) P.roots = roots;
   if (style === 'drill' && P.hook) {
