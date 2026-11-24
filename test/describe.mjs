@@ -150,6 +150,16 @@ t('named destinations survive request endings, source keys, tempo and mix clause
   }
 });
 
+t('a standalone note can set the key alongside an explicit tempo', () => {
+  for (const [prompt, pc] of [['A please at 120 BPM', 9], ['F# at 120 BPM', 6], ['at 120 BPM Bb thanks', 10]]) {
+    const { edits } = parse(prompt, { style: 'rnb' });
+    assert.deepEqual(edits.map(({ id, value }) => [id, value]), [['bpm', 120], ['key', pc]], prompt);
+  }
+  for (const prompt of ['a warmer sound at 120 BPM', 'A thank you song at 120 BPM']) {
+    assert.ok(!parse(prompt, { style: 'rnb' }).edits.some(({ id }) => id === 'key'), prompt);
+  }
+});
+
 for (const [where, sec] of [['in the intro', 'intro'], ['in the verse', 'verse'], ['in the chorus', 'drop'], ['at the end of the song', 'outro']]) {
   const pitch = ['transpose to D minor', 'transpose to A instead', 'transpose down from D minor to a lower key', 'change to major', 'switch to minor'];
   for (const clause of [...pitch, 'no minor sevenths', 'add richer voicings']) {
@@ -538,7 +548,9 @@ async function describeForm() {
     assertRequests('in bars 9-16 add a glassy shimmer');
 
     for (const [prompt, key, scale] of [
+      ['A please at 120 BPM', 9, 'major'],
       ['lock the song in D minor chords', 2, 'minor'],
+      ['in the key of a minor key', 9, 'minor'],
       ['keep this track in G major', 7, 'major'],
       ['transpose the song to A', 9, 'major'],
     ]) {
@@ -549,6 +561,7 @@ async function describeForm() {
       assert.equal(edits.length, before + 1, prompt);
       assert.equal(state.key, key, prompt);
       assert.equal(state.scale, scale, prompt);
+      if (prompt.includes('120 BPM')) assert.equal(state.bpm, 120, prompt);
     }
   } finally {
     for (const [k, spec] of saved) if (spec) Object.defineProperty(globalThis, k, spec); else delete globalThis[k];

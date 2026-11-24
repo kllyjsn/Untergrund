@@ -5,6 +5,7 @@ import { analyzePerceptual, PERCEPTUAL_METRICS } from '../js/perceptual-audio.js
 import { clipCurve, satCurve } from '../js/dsp.js';
 import { baselineOf, compare, report } from '../scripts/audio-benchmark.mjs';
 import { withChrome } from './chrome.mjs';
+import './render-determinism.mjs';
 
 const deepHouseBuild = await withChrome((run) => run(`(async () => {
   const { Engine, Sequencer } = await import('/js/engine.js');
