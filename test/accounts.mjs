@@ -9,7 +9,7 @@ import { memoryKv } from '../api/_lib/kv.js';
 import { memoryStore } from '../api/_lib/crate.js';
 import { handleAccount, handleError, normalizeHandle, signSession, verifySession, sessionCookie, parseCookies, attachPublished, attachTrack, COOKIE } from '../api/_lib/accounts.js';
 import { defaultState } from '../js/state.js';
-import { GOOGLE_CALLBACK } from '../api/_lib/listener-auth.js';
+import { emailID, GOOGLE_CALLBACK } from '../api/_lib/listener-auth.js';
 
 // ---------- handles ----------
 assert.equal(normalizeHandle('  @Nova_Berlin '), 'nova_berlin');
@@ -214,6 +214,16 @@ for (let i = 0; i < 10; i++) {
 assert.equal((await signIn(jar(), {}, { client: 'repeated-attempts' })).status, 429);
 assert.equal((await signIn(jar(), { password: newPassword }, { client: 'another-network' })).json.account.id, id,
   'failed guesses on another network cannot block the real listener from signing in');
+const failureKey = `untergrund:acct:r:email-failure:${emailID(email)}`;
+assert.equal(await kv.cmd(['GET', failureKey]), '13', 'only failed password checks count toward the shared cooldown');
+for (let i = 0; i < 7; i++) {
+  assert.equal((await signIn(jar(), {}, { client: `distributed-${i}` })).status, 401);
+}
+const beforeCooldown = performance.now();
+assert.equal((await signIn(jar(), { password: newPassword }, { client: 'new-network' })).status, 200,
+  'even above the shared threshold a correct password signs in');
+assert(performance.now() - beforeCooldown >= 250, 'guesses across networks trigger a shared delay');
+assert.equal(await kv.cmd(['GET', failureKey]), '20');
 console.log('listener sign-up, cross-device preferences, privacy, password change and rate limits passed');
 
 // ---------- Google OIDC and explicit provider linking ----------

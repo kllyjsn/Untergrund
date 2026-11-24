@@ -17,6 +17,13 @@ export async function redisPipe(list) {
 }
 export const sha1 = (src) => createHash('sha1').update(src).digest('hex');
 
+const incrementWindow = `
+local n = redis.call('INCR', KEYS[1])
+if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+return n
+`;
+export const incrementWithExpiry = (kv, key, seconds) => kv.cmd(['EVAL', incrementWindow, 1, key, seconds]);
+
 const checkRows = `
 for i = 1, #KEYS do
   local found = redis.call('GET', KEYS[i])
@@ -91,7 +98,12 @@ const migrateTwin = (call, p, from, into, limit) => {
 // `scripts` maps a Lua source to a JS twin (call, KEYS, ARGV) so EVAL/EVALSHA work in memory; `delay` (ms) jitters every
 // command to shake out races in tests; `count` tallies commands the way Upstash bills them (each redis.call inside EVAL too).
 export function memoryKv({ file = '', scripts = {}, delay = 0 } = {}) {
-  scripts = { ...scripts, [compareAndWrite]: guardedTwin(), [migrateAccount]: guardedTwin(migrateTwin) };
+  scripts = { ...scripts, [compareAndWrite]: guardedTwin(), [migrateAccount]: guardedTwin(migrateTwin),
+    [incrementWindow]: (call, [key], [seconds]) => {
+      const n = call('INCR', key);
+      if (n === 1) call('EXPIRE', key, seconds);
+      return n;
+    } };
   const data = new Map();
   const shas = new Map(Object.keys(scripts).map((src) => [sha1(src), src]));
   const stats = { count: 0 };

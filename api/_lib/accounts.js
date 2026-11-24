@@ -1,10 +1,11 @@
 // Creator accounts: an anonymous device identity (signed httpOnly cookie) that can claim a handle,
 // provider sign-in (SoundCloud first) that attaches to it, follows, and permanent track homes.
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { setTimeout as wait } from 'node:timers/promises';
 import { STYLES } from '../../js/state.js';
 import { clean } from './crate.js';
 import { scConfig, exchangeToken } from './soundcloud.js';
-import { compareAndSet as commit, migrateAccountData } from './kv.js';
+import { compareAndSet as commit, incrementWithExpiry, migrateAccountData } from './kv.js';
 import { accountOrigin, digest, emailAddress, emailID, GOOGLE_CALLBACK, googleAuthorization, googleEnabled,
   googleProfile, passwordHash, passwordMatches, randomToken, resetEnabled, sendPasswordReset, validPassword } from './listener-auth.js';
 
@@ -35,6 +36,7 @@ const WRITE_ACTIONS = new Set([...Object.keys(LIMITS).filter((a) => !['email-att
 const OAUTH_COOKIE = 'ug_google';
 const RESET_TTL = 30 * 60;
 const GOOGLE_TTL = 10 * 60;
+const EMAIL_FAILURE_THRESHOLD = 20, EMAIL_FAILURE_WINDOW = 15 * 60;
 const validToken = (t) => typeof t === 'string' && /^[A-Za-z0-9_-]{43}$/.test(t);
 export const DNA_TRAITS = ['darkness', 'hypnosis', 'acid', 'space', 'energy'];
 
@@ -348,8 +350,14 @@ export async function handleAccount(req, ctx) {
       return signedIn(next, 201);
     }
     if (!validPassword(body.password, 1)) return err(401, 'invalid_credentials');
+    const failureKey = K.rate('email-failure', id);
+    const failures = Number(await kv.cmd(['GET', failureKey]));
+    if (failures >= EMAIL_FAILURE_THRESHOLD) await wait(250 * 2 ** Math.min(3, failures - EMAIL_FAILURE_THRESHOLD));
     const hash = accountID && await kv.cmd(['GET', K.password(accountID)]);
-    if (!await passwordMatches(body.password, hash)) return err(401, 'invalid_credentials');
+    if (!await passwordMatches(body.password, hash)) {
+      await incrementWithExpiry(kv, failureKey, EMAIL_FAILURE_WINDOW);
+      return err(401, 'invalid_credentials');
+    }
     const account = await getJson(kv, K.acct(accountID));
     if (!account || account.email !== email || await kv.cmd(['GET', K.password(accountID)]) !== hash) return err(401, 'invalid_credentials');
     const destination = me && me.id !== account.id && isAnon(me) ? await mergeAccounts(kv, me, account) : account;
