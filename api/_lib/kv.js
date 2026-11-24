@@ -146,6 +146,7 @@ export function memoryKv({ file = '', scripts = {}, delay = 0 } = {}) {
     },
     DEL: (...ks) => ks.reduce((n, k) => n + (data.delete(k) ? 1 : 0), 0),
     INCR: (k) => { const e = live(k); const n = (e ? +e.v : 0) + 1; data.set(k, { ...(e || { t: 's' }), v: String(n) }); return n; },
+    DECR: (k) => { const e = live(k); const n = (e ? +e.v : 0) - 1; data.set(k, { ...(e || { t: 's' }), v: String(n) }); return n; },
     EXPIRE: (k, s) => { const e = live(k); if (!e) return 0; e.exp = Date.now() + +s * 1000; return 1; },
     SADD: (k, ...m) => { const s = of(k, 'set', true); let n = 0; for (const x of m) if (!s.has(String(x))) { s.add(String(x)); n++; } return n; },
     SREM: (k, ...m) => { const s = of(k, 'set'); if (!s) return 0; let n = 0; for (const x of m) if (s.delete(String(x))) n++; return n; },

@@ -257,9 +257,9 @@ const integrations = { ...local, env, fetchImpl: async (url, params) => {
   assert.fail('Unexpected external request');
 } };
 assert.deepEqual((await request(listener, null, {}, { method: 'GET', context: integrations })).json.auth, { google: true, reset: true });
-const googleFlow = async (j, link, { wrongBrowser = false, wrongNonce = false } = {}) => {
+const googleFlow = async (j, link, { wrongBrowser = false, wrongNonce = false, returnTo } = {}) => {
   const session = j.cookie;
-  const started = await handleAccount({ method: 'POST', body: { action: 'google-start', link }, host, cookie: session, client: 'google' }, integrations);
+  const started = await handleAccount({ method: 'POST', body: { action: 'google-start', link, returnTo }, host, cookie: session, client: 'google' }, integrations);
   assert.equal(started.status, 200);
   const url = new URL(started.json.url);
   assert.equal(url.origin, 'https://accounts.google.com');
@@ -292,6 +292,8 @@ assert.equal((await googleFlow(googleDevice, false)).result.redirect, '/?account
 const googleAccount = (await request(googleDevice, null, {}, { method: 'GET' })).json.account;
 assert.equal(googleAccount.id, id, 'Google and email sign in to the same explicitly linked account');
 assert.deepEqual(googleAccount.providers, ['email', 'google']);
+assert.equal((await googleFlow(jar(), false, { returnTo: '/pricing' })).result.redirect, '/pricing?account=google_ok');
+assert.equal((await googleFlow(jar(), false, { returnTo: 'https://outside.example' })).result.redirect, '/?account=google_ok');
 const other = jar();
 assert.equal((await request(other, 'email-signup', { email: 'another@example.com', password })).status, 201);
 assert.equal((await googleFlow(other, true)).result.redirect, '/?account=google_conflict');

@@ -1,4 +1,4 @@
-import { accountAction, getAccount } from './account.js';
+import { accountAction, getAccount, signInWithSoundCloud } from './account.js';
 import { STYLES } from './state.js';
 import { h } from './ui.js';
 
@@ -29,7 +29,7 @@ const emailField = (value) => input('Email address', { type: 'email', autocomple
 
 let active;
 
-export function openListenerAccount({ googleResult, resetToken } = {}) {
+export function openListenerAccount({ googleResult, resetToken, returnTo, includeSoundCloud = false, onClose } = {}) {
   if (active?.open) return;
   const opener = document.activeElement;
   const dialog = h('dialog', { class: 'listener-dialog', 'aria-labelledby': 'listener-title',
@@ -49,6 +49,7 @@ export function openListenerAccount({ googleResult, resetToken } = {}) {
     dialog.remove();
     if (opener?.isConnected) opener.focus();
     else document.querySelector('.listener-entry')?.focus();
+    onClose?.();
   });
   document.body.append(dialog);
   dialog.showModal();
@@ -60,13 +61,26 @@ export function openListenerAccount({ googleResult, resetToken } = {}) {
     trigger.disabled = true;
     notify('Connecting to Google…');
     try {
-      const { url } = await accountAction('google-start', { link });
+      const { url } = await accountAction('google-start', { link, returnTo });
       location.assign(url);
     } catch (err) {
       notify(errors[err.message] || 'Couldn’t connect to Google. Try again.', true);
       trigger.disabled = false;
     }
   }, 'btn listener-google');
+  const soundCloudButton = () => button('Sign in with SoundCloud', async (e) => {
+    const trigger = e.currentTarget;
+    trigger.disabled = true;
+    notify('Connecting to SoundCloud…');
+    try {
+      account = await signInWithSoundCloud();
+      render(true);
+      notify('Signed in.');
+    } catch {
+      notify('Couldn’t connect to SoundCloud. Try again.', true);
+      trigger.disabled = false;
+    }
+  });
 
   function makeForm(fields, go, work) {
     const form = h('form', { class: 'listener-form', onsubmit: async (e) => {
@@ -178,6 +192,7 @@ export function openListenerAccount({ googleResult, resetToken } = {}) {
         notify(signup ? 'Account created.' : 'Signed in.');
       }),
       ...(auth.google ? [h('div', { class: 'listener-alternative' }, h('span', {}, 'or'), googleButton(false))] : []),
+      ...(includeSoundCloud ? [soundCloudButton()] : []),
       h('div', { class: 'listener-switch' }, signup ? 'Already have an account?' : 'New to Untergrund?',
         button(signup ? 'Sign in instead' : 'Create an account', () => switchMode(signup ? 'login' : 'signup', email))));
       if (signup) pass.setAttribute('aria-describedby', 'listener-password-help');

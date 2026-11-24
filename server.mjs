@@ -37,6 +37,8 @@ import { handleSing, singEnv, memorySingStore, MAX_SING_BODY } from './api/_lib/
 import { redisKv as redisAccountKv, memoryKv as memoryAccountKv } from './api/_lib/kv.js';
 import { handleAccount, attachPublished } from './api/_lib/accounts.js';
 import { GOOGLE_CALLBACK } from './api/_lib/listener-auth.js';
+import { handleBilling, handleBillingWebhook, readBillingWebhook } from './api/_lib/billing.js';
+import { handleSongDrafts, MAX_DRAFT_BODY } from './api/_lib/song-drafts.js';
 import { handlePage } from './api/_lib/pages.js';
 import { handlePush } from './api/_lib/push.js';
 import { handleLegal } from './api/_lib/legal.js';
@@ -139,6 +141,17 @@ http.createServer(async (req, res) => {
         statsToken: STATS_TOKEN, cronSecret: process.env.CRON_SECRET || '', webhook: process.env.DIGEST_WEBHOOK_URL || '' });
       return sendJson(res, status, json);
     }
+    if (url.pathname === '/api/song-drafts' || (url.pathname === '/api/describe' && url.searchParams.get('drafts') === '1')) {
+      try {
+        const raw = req.method === 'POST' ? await readBody(req, MAX_DRAFT_BODY) : '';
+        if (raw === null) return sendJson(res, 413, { error: 'too_large' });
+        const r = await handleSongDrafts({ method: req.method, body: raw.toString(), cookie: req.headers.cookie,
+          origin: req.headers.origin, host: req.headers.host }, accountCtx());
+        return sendJson(res, r.status, r.json);
+      } catch {
+        return sendJson(res, 502, { error: 'drafts_unavailable' });
+      }
+    }
     if (url.pathname === '/api/describe') {
       const raw = req.method === 'POST' ? await readBody(req, 4000) : null;
       const { status, json } = await handleDescribe({ method: req.method, body: raw ? raw.toString() : null, client: req.socket.remoteAddress, ...aiEnv(process.env), kv: eventsKv });
@@ -169,6 +182,19 @@ http.createServer(async (req, res) => {
       });
       return sendJson(res, status, json);
     }
+    if (url.pathname.startsWith('/api/billing/') || (url.pathname === '/api/account' && url.searchParams.has('billing'))) {
+      const action = url.pathname.startsWith('/api/billing/') ? url.pathname.slice('/api/billing/'.length) : url.searchParams.get('billing');
+      try {
+        const r = action === 'webhook'
+          ? await handleBillingWebhook({ method: req.method, raw: req.method === 'POST' && await readBillingWebhook(req), signature: req.headers['stripe-signature'] }, accountCtx())
+          : await handleBilling(action, { method: req.method, cookie: req.headers.cookie, client: req.socket.remoteAddress,
+            origin: req.headers.origin, host: req.headers.host }, accountCtx());
+        return sendJson(res, r.status, r.json);
+      } catch (err) {
+        console.error('Billing request failed:', err.message);
+        return sendJson(res, 502, { error: 'billing_unavailable' });
+      }
+    }
     if (url.pathname === '/api/account' || url.pathname === GOOGLE_CALLBACK) {
       let body = {};
       if (req.method === 'POST') { const raw = await readBody(req, 16000); try { body = JSON.parse(raw?.toString() || '{}'); } catch { body = null; } }
@@ -183,7 +209,7 @@ http.createServer(async (req, res) => {
     const pageMatch = url.pathname.match(/^\/(a|t|r)\/([^/]{1,60})\/?$/);
     if (pageMatch || url.pathname === '/api/page' || url.pathname === '/api/flagship') {
       const query = pageMatch ? { ...Object.fromEntries(url.searchParams), [pageMatch[1]]: decodeURIComponent(pageMatch[2]) } : url.pathname === '/api/flagship' ? { flagship: '1' } : Object.fromEntries(url.searchParams);
-      const r = await handlePage(query, { kv: accountKv, crate: crateStore, jukebox: jukeboxStore, site: `http://${req.headers.host}`, og: { ogImage, artSeed, clubImage }, rooms });
+      const r = await handlePage(query, { kv: accountKv, crate: crateStore, jukebox: jukeboxStore, site: `http://${req.headers.host}`, og: { ogImage, artSeed, clubImage }, rooms, env });
       if (r.location) { res.writeHead(r.status, { Location: r.location }); return res.end(); }
       res.writeHead(r.status, { 'Content-Type': r.type, 'Cache-Control': 'no-store' });
       return res.end(r.body);
@@ -217,6 +243,7 @@ http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true });
     }
     let p = decodeURIComponent(url.pathname);
+    if (p === '/pricing') p = '/pricing/';
     if (p === '/research' || p.startsWith('/research/')) {
       const files = (await import('./scripts/research.mjs')).renderSite();
       const f = files.get(p) || files.get(p.replace(/\/?$/, '/index.html'));
@@ -226,7 +253,7 @@ http.createServer(async (req, res) => {
     }
     if (p.endsWith('/')) p += 'index.html';
     const file = path.join(ROOT, path.normalize(p));
-    const privatePath = (file) => !file.startsWith(ROOT) || /\/(\.[^/]+|api|node_modules|suno-lab)(\/|$)/.test(file.slice(ROOT.length));
+    const privatePath = (file) => !file.startsWith(ROOT + path.sep) || /\/(\.[^/]+|api|node_modules|suno-lab)(\/|$)/.test(file.slice(ROOT.length));
     if (privatePath(file) || file === accountDataFile) { res.writeHead(404); return res.end(); }
     const resolved = await realpath(file);
     const privateStore = await realpath(accountDataFile).catch((err) => {

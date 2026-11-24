@@ -6,6 +6,7 @@
   "crons": [{ "path": "/api/push", "schedule": "0 16 * * *" }, { "path": "/api/improve-digest", "schedule": "0 15 * * *" }, { "path": "/api/autopublish?run=1", "schedule": "0 14 * * *" }],
   "rewrites": [
     { "source": "/api/auth/google/callback", "destination": "/api/account?action=google-callback" },
+    { "source": "/api/billing/:action", "destination": "/api/account?billing=:action" },
     { "source": "/api/v1/tracks", "destination": "/api/page?publicApi=tracks" },
     { "source": "/api/v1/tracks/:id", "destination": "/api/page?publicApi=track&publicId=:id" },
     { "source": "/api/v1/artists/:handle", "destination": "/api/page?publicApi=artist&publicId=:handle" },
@@ -15,6 +16,7 @@
     { "source": "/developers", "destination": "/developers/index.html" },
     { "source": "/api/autopublish", "destination": "/api/sc-token?autopublish=1" },
     { "source": "/api/song-plan", "destination": "/api/describe?plan=1" },
+    { "source": "/api/song-drafts", "destination": "/api/describe?drafts=1" },
     { "source": "/api/sing", "destination": "/api/describe?sing=1" },
     { "source": "/api/improve-digest", "destination": "/api/events?digest=run" },
     { "source": "/api/rooms/:room/events", "destination": "/api/rooms?room=:room&events=1" },
@@ -26,6 +28,7 @@
     { "source": "/t/:id", "destination": "/api/page?t=:id" },
     { "source": "/r/:room", "destination": "/api/page?r=:room" },
     { "source": "/legal", "destination": "/legal/index.html" },
+    { "source": "/pricing", "destination": "/pricing/index.html" },
     { "source": "/start", "destination": "/start/index.html" },
     { "source": "/research", "destination": "/research/index.html" },
     { "source": "/research/:slug", "destination": "/research/:slug/index.html" }

@@ -32,6 +32,7 @@ const LIMITS = { device: [20, 3600], claim: [12, 3600], profile: [60, 3600], fol
   'email-signup': [6, 3600], 'email-login': [20, 900], 'email-attempt': [10, 900], 'password-change': [8, 900],
   'reset-request': [8, 3600], 'reset-email': [3, 3600], 'reset-password': [15, 900],
   'google-start': [20, 900], 'google-callback': [30, 900], preferences: [60, 3600] };
+const RATE_LIMITS = { ...LIMITS, 'billing-status': [120, 60], 'billing-write': [12, 60], 'pro-drafts': [6, 60] };
 const WRITE_ACTIONS = new Set([...Object.keys(LIMITS).filter((a) => !['email-attempt', 'reset-email', 'google-callback'].includes(a)), 'unfollow', 'signout']);
 const OAUTH_COOKIE = 'ug_google';
 const RESET_TTL = 30 * 60;
@@ -110,7 +111,7 @@ const saveAccount = (kv, previous, next) => commit(kv, [K.acct(next.id), previou
 const newId = () => `u${Date.now().toString(36)}${randomBytes(6).toString('hex')}`;
 
 export async function allow(kv, bucket, client) {
-  const [max, windowSec] = LIMITS[bucket] || [60, 3600];
+  const [max, windowSec] = RATE_LIMITS[bucket] || [60, 3600];
   const key = K.rate(bucket, clean(client, 64) || 'anon');
   const n = await kv.cmd(['INCR', key]);
   if (n === 1) await kv.cmd(['EXPIRE', key, windowSec]);
@@ -221,12 +222,12 @@ export async function linkProvider(kv, current, provider, profile) {
 }
 
 // ---------- public reads (pages and API) ----------
-export async function publicArtistPage(kv, handle) {
+export async function publicArtistPage(kv, handle, { pro } = {}) {
   const acct = kv && await accountByHandle(kv, handle);
   if (!acct) return null;
-  const [followers, following, tracks] = await Promise.all([
-    kv.cmd(['SCARD', K.followers(acct.id)]), kv.cmd(['SCARD', K.following(acct.id)]), tracksOf(kv, acct.id)]);
-  return { artist: publicArtist(acct, followers, following), tracks };
+  const [followers, following, tracks, isPro] = await Promise.all([
+    kv.cmd(['SCARD', K.followers(acct.id)]), kv.cmd(['SCARD', K.following(acct.id)]), tracksOf(kv, acct.id), pro?.(acct.id)]);
+  return { artist: { ...publicArtist(acct, followers, following), ...(isPro && { pro: true }) }, tracks };
 }
 
 export async function publishedTrack(kv, crate, rawId) {
@@ -406,7 +407,7 @@ export async function handleAccount(req, ctx) {
     if (link && me.providers.google) return err(409, 'already_linked');
     const state = randomToken(), browser = randomToken(), nonce = randomToken(), verifier = randomToken();
     await kv.cmd(['SET', K.oauth(digest(state)), JSON.stringify({ browser: digest(browser), nonce, verifier,
-      account: me?.id || null, version: me?.authVersion, link }), 'EX', GOOGLE_TTL, 'NX']);
+      account: me?.id || null, version: me?.authVersion, link, pricing: body.returnTo === '/pricing' }), 'EX', GOOGLE_TTL, 'NX']);
     return { status: 200, json: { url: googleAuthorization(env, origin + GOOGLE_CALLBACK, state, nonce, verifier) },
       cookie: googleCookie(browser, GOOGLE_TTL, secure) };
   }
@@ -478,7 +479,8 @@ export async function handleAccount(req, ctx) {
 const googleCookie = (value, age, secure) => `${OAUTH_COOKIE}=${value}; Path=${GOOGLE_CALLBACK}; HttpOnly; SameSite=Lax; Max-Age=${age}${secure ? '; Secure' : ''}`;
 
 async function completeGoogle({ req, kv, env, me, google, origin, secure, client, issue, fetchImpl }) {
-  const finish = (result, account) => ({ status: 303, redirect: `/?account=${result}`,
+  let returnTo = '/';
+  const finish = (result, account) => ({ status: 303, redirect: `${returnTo}?account=${result}`,
     cookie: [googleCookie('', 0, secure), ...(account ? [issue(account)] : [])] });
   if (!google || !await allow(kv, 'google-callback', client)) return finish('google_failed');
   const { state, code } = req.query;
@@ -491,6 +493,7 @@ async function completeGoogle({ req, kv, env, me, google, origin, secure, client
   const flow = JSON.parse(raw);
   if (flow.browser !== digest(browser) || flow.account !== (me?.id || null) || flow.version !== me?.authVersion ||
       (flow.link && isAnon(me)) || !await commit(kv, [key, raw, null])) return finish('google_failed');
+  if (flow.pricing) returnTo = '/pricing';
   const profile = await googleProfile(env, fetchImpl, code, origin + GOOGLE_CALLBACK, flow).catch(() => null);
   if (!profile) return finish('google_failed');
   const linked = K.link('google', profile.id);
