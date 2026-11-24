@@ -127,6 +127,11 @@ assert.equal(r.json.access_token, 'tok', 'browser still gets tokens for publishi
 assert.equal(r.json.account.handle, 'alice');
 assert.equal(r.json.account.anon, false);
 assert.equal(r.json.account.avatar, 'https://i1.sndcdn.com/avatars-1-large.jpg');
+const dana = jar();
+const handlelessSignIn = await scCall(dana, 100, 'alice');
+assert.equal(handlelessSignIn.json.account.handle, null, 'SoundCloud sign-in succeeds even if the handle is taken');
+assert.equal(handlelessSignIn.json.account.anon, false);
+const handleless = (await call(dana, 'GET')).json;
 // 2) a new device makes anonymous saves, then signs in to the same SoundCloud user: it merges into alice
 const phone = jar();
 await call(phone, 'POST', { action: 'device' }, {}, 'ip-phone');
@@ -143,13 +148,7 @@ assert.equal((await call(eve, 'GET', null, { handle: 'bobby' })).json.artist.fol
 const carol = jar();
 r = await scCall(carol, 99, 'Carol-Beats');
 assert.equal(r.json.account.handle, 'carol-beats');
-const dana = jar();
-r = await scCall(dana, 100, 'carol-beats');
-assert.equal(r.json.account.handle, null, 'SoundCloud sign-in succeeds even if the handle is taken');
-assert.equal(r.json.account.anon, false);
-const handleless = (await call(dana, 'GET')).json;
 globalThis.fetch = realFetch;
-console.log('SoundCloud sign-in and migration passed');
 
 const panelChecked = await withChrome(async (run) => {
   const readPanel = await run(`(async () => {
@@ -184,7 +183,7 @@ const panelChecked = await withChrome(async (run) => {
     await waitFor(populated, '.acct-out');
     return { signedIn, signedOut, populated: populated.querySelector('.acct-details').textContent };
   })()`);
-  assert.match(readPanel.signedIn.text, /YOUR ACCOUNT.*Profile.*DJ carol-beats.*Email.*No email.*Preferences.*No listening preferences/);
+  assert.match(readPanel.signedIn.text, /YOUR ACCOUNT.*Profile.*DJ alice.*Email.*No email.*Preferences.*No listening preferences/);
   assert.equal(readPanel.signedIn.signIn, false);
   assert.equal(readPanel.signedIn.signOut, 'SIGN OUT');
   assert.equal(readPanel.signedIn.claim, true, 'claiming a public link stays optional');
@@ -193,3 +192,4 @@ const panelChecked = await withChrome(async (run) => {
   return true;
 });
 console.log(panelChecked ? 'Handleless account panel and sign-out passed' : 'Handleless account panel skipped, Chrome not installed');
+console.log('SoundCloud sign-in and migration passed');
