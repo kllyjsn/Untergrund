@@ -63,6 +63,14 @@ const readBody = (req, max = Infinity) => new Promise((ok, fail) => {
 });
 const sendJson = (res, status, json) => { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(json)); };
 
+function publicOrigin(url, headers) {
+  const proto = headers['x-forwarded-proto']?.split(',')[0].trim().toLowerCase();
+  if (proto !== 'https' && proto !== 'http') return url.origin;
+  const host = headers['x-forwarded-host']?.split(',')[0].trim() || url.host;
+  if (!/^(?:[a-z0-9.-]+|\[[0-9a-f:.]+\])(?::\d+)?$/i.test(host)) return url.origin;
+  try { return new URL(`${proto}://${host}`).origin; } catch { return url.origin; }
+}
+
 http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   try {
@@ -70,8 +78,8 @@ http.createServer(async (req, res) => {
     const publicRoute = publicApiRoute(url.pathname);
     if (publicRoute) {
       const r = await handlePublicApi({ method: req.method, ...publicRoute, ip: req.socket.remoteAddress },
-        { kv: accountKv, crate: crateStore, rooms, roomsApiBase, rateKv: redisAccountKv(), site: url.origin });
-      res.writeHead(r.status, { 'Content-Type': 'application/json', ...r.headers });
+        { kv: accountKv, crate: crateStore, rooms, roomsApiBase, rateKv: redisAccountKv(), site: publicOrigin(url, req.headers) });
+      res.writeHead(r.status, { 'Content-Type': 'application/json', Vary: 'X-Forwarded-Proto, X-Forwarded-Host', ...r.headers });
       return res.end(r.status === 204 ? '' : JSON.stringify(r.json));
     }
     if (url.pathname === '/api/tracks' && url.searchParams.get('drop')) {
@@ -214,4 +222,4 @@ http.createServer(async (req, res) => {
     if (err.code === 'ENOENT' || err.code === 'EISDIR') { res.writeHead(404); return res.end('not found'); }
     console.error(err); sendJson(res, 500, { error: 'server_error' });
   }
-}).listen(PORT, () => console.log(`UNTERGRUND on http://localhost:${PORT}${MOCK ? ' (mock SoundCloud)' : ''}${STATS_TOKEN && MOCK && !process.env.STATS_TOKEN ? ` · stats: /stats.html?token=${STATS_TOKEN}` : ''}`));
+}).listen(PORT, function () { console.log(`UNTERGRUND on http://localhost:${this.address().port}${MOCK ? ' (mock SoundCloud)' : ''}${STATS_TOKEN && MOCK && !process.env.STATS_TOKEN ? ` · stats: /stats.html?token=${STATS_TOKEN}` : ''}`); });

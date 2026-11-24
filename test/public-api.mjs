@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
+import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import { handlePublicApi, publicApiRoute, PUBLIC_API_LIMIT } from '../api/_lib/public-api.js';
 import { handleAccount, attachTrack } from '../api/_lib/accounts.js';
 import { memoryStore, normalizeTrack } from '../api/_lib/crate.js';
@@ -110,4 +112,36 @@ assert.equal((await req('openapi.json', {}, limited)).json.openapi, '3.1.0');
 const spec = (await req('openapi.json')).json;
 assert.deepEqual(Object.keys(spec.paths), ['/tracks', '/tracks/{id}', '/artists/{handle}', '/rooms', '/openapi.json']);
 assert.deepEqual(Object.keys(detail.track), spec.components.schemas.Track.required);
+
+{
+  const server = spawn(process.execPath, ['server.mjs'], {
+    cwd: new URL('..', import.meta.url),
+    env: { PATH: process.env.PATH, PORT: '0' },
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  const output = createInterface({ input: server.stdout });
+  const exited = once(server, 'exit');
+  try {
+    const [line] = await once(output, 'line', { signal: AbortSignal.timeout(5000) });
+    const [, port] = line.match(/^UNTERGRUND on http:\/\/localhost:(\d+)/);
+    const base = `http://localhost:${port}`;
+    const saved = await fetch(`${base}/api/tracks`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(first),
+    });
+    assert.equal(saved.status, 201);
+    const { track } = await saved.json();
+    const path = `/api/v1/tracks/${track.id}`;
+    const direct = await (await fetch(base + path)).json();
+    assert.equal(direct.data.track.embedUrl, `${base}/embed.html?t=${track.id}`);
+    const proxied = await fetch(base + path, {
+      headers: { 'X-Forwarded-Proto': 'https', 'X-Forwarded-Host': 'studio.example.com' },
+    });
+    assert.equal(proxied.headers.get('vary'), 'X-Forwarded-Proto, X-Forwarded-Host');
+    assert.equal((await proxied.json()).data.track.embedUrl, `https://studio.example.com/embed.html?t=${track.id}`);
+  } finally {
+    output.close();
+    server.kill();
+    await exited;
+  }
+}
 console.log('public API passed: catalog, creators, room visibility, CORS, cache, rate limit and OpenAPI');
