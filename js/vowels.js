@@ -66,7 +66,7 @@ export function vowelVoxNote(state, style, step, stepDur, harmony = 0) {
     name: vowelName(style, Math.floor(step / 64), p.slice + jump) };
 }
 
-export function playVowel(engine, t, velocity, midi, duration, name, out, tone = 5000, sustain = false, peaks = []) {
+export function playVowel(engine, t, velocity, midi, duration, name, out, tone = 5000, sustain = false, peaks = [], onPlayed) {
   const set = engine.rec(name);
   if (!set?.length) return false;
   let [center, buffer] = set[0];
@@ -81,5 +81,6 @@ export function playVowel(engine, t, velocity, midi, duration, name, out, tone =
     played.s.loopStart = 0;
     played.s.loopEnd = buffer.duration;
   }
+  onPlayed?.(t, length, Math.min(release, length * 0.25));
   return true;
 }

@@ -2,6 +2,7 @@ import { TRACKS, TRACK_IDS, CHORDS, DELAY_TIMES, SCALES, HAND_KIT, KIT_BACKBEAT,
 import { PALETTE_INSTRUMENTS, PALETTE_DEFAULTS, instrumentFor } from './palette-defaults.js';
 import { getSample, hasUserSample, sungNote, SUNG_LEN, SUNG_LOW, SUNG_NOTES, SUNG_VOWEL_COUNT } from './sampler.js';
 import { vowelStyle, vowelVoxNote, vowelName, vowelHookDuration, playVowel, VOWEL_HOOK_DB, VOWEL_HOOK_EQ } from './vowels.js';
+import { VowelDuck, vowelWindows } from './vowel-duck.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
 import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, loadHand, STAB_BAND, HOOK_BAND, SAX_HOOK, SAX_LO, saxRoot, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER, RECORDED_ORGAN, playsAnalogBass, analogSet } from './livekit.js';
@@ -189,7 +190,9 @@ const SAMPLE_FADE = 1;
 const WAKE_FLUSH = 0.024;
 const WAKE_FADE = 0.002;
 const ANALOG_BASS_GAIN = 4.4;
-const UKG_ORGAN_SHELVES = Array.from({ length: 4 }, () => [1600, -6]);
+const ukgVowelHook = (e) => e.playbackStyle === 'ukg' && e.playingPattern?.hm && ['vocal', 'chop'].includes(e.playingPattern.hook?.v)
+  && (e.playingPattern.hook.v !== 'chop' || !getChops()) && !hasUserSample()
+  && (e.playingPattern.hook.s?.some(Boolean) || e.playingPattern.hook.m?.n?.length);
 const ANALOG_TONE = { ukg: { close: 2.2, open: 3, env: 8 }, gfunk: { close: 0.4, open: 0.7, env: 1, hp: 35, hpStages: 4, hpQ: -3.01, lp: 1000, gain: { 1: 3.35, 7: 3.4 }, organGain: 1.27, release: 0.03, organRelease: 0.018 } };
 // Chord voices that sustain fill a breakdown on their own, so a smooth style only lifts the ones that decay.
 const HELD_CHORDS = new Set(['pad', 'organ', 'strings', 'cello']);
@@ -3468,12 +3471,11 @@ export class Engine {
   // notes are darker, the way hammers and plectrums behave. Released through a damper, not a gate.
   recordedNote(set, t, level, m, dur, out, tone = 0, kind = null, vel = 1, finger = false, fx = {}) {
     if (this.playbackStyle === 'rnb' && kind === 'jazz') level *= dbGain(-10);
-    const hook = this.playingPattern?.hook;
-    const ukgHook = kind === 'org' && this.playbackStyle === 'ukg' && this.playingPattern?.hm && (hook?.v === 'vocal' || (hook?.v === 'chop' && !getChops()))
-      && (hook.s?.some(Boolean) || hook.m?.n?.length) && !hasUserSample();
+    const ukgHook = kind === 'org' && ukgVowelHook(this);
     const R = BAND_PLAY[kind], F = finger && R?.finger;
     if (R) { while (m > R.hi + 0.5) m -= 12; while (m < R.lo - 0.5) m += 12; }
     if (out === this.ch.stab.input) out = this.ch.stab.band;
+    if (ukgHook) out = this.ukgOrganOut(out);
     const touch = 1 - 0.2 * (fx.even ?? R?.even ?? 1) + 0.4 * (fx.even ?? R?.even ?? 1) * hash(t * 7 + m, 24), hv = Math.max(0.25, Math.min(1.2, vel * touch));
     if (kind === 'upright') set = this.rec(hv < 61 / 127 ? 'uprightsoft' : hv >= 111 / 127 ? 'uprighthard' : 'upright') || set;
     // Soft touches play the softly struck or plucked recording: a different tone, not just a quieter one.
@@ -3490,9 +3492,22 @@ export class Engine {
     }
     return this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
       hp: kind === 'org' && this.playbackStyle === 'gfunk' ? 110 : 0, hpQ: -3.01,
-      shelves: [[3000, tone], ...(ukgHook ? UKG_ORGAN_SHELVES : [])], peaks: [...(R?.peak ? [R.peak] : []), ...(kind === 'org' && this.playbackStyle === 'gfunk' ? [[2200, 1.2, -3], [3300, 0.8, -6]] : []), ...(kind === 'str' ? HIPHOP[this.state.artist?.style]?.strEq ?? [] : []), ...(jazzStyle(this.state, this.playingPattern) === 'bossa' && kind === 'jazz' ? jazzNotches(kind, c, Math.pow(2, (m - c) / 12)) : [])], stop: kind === 'str' ? HIPHOP[this.state.artist?.style]?.strStop : null, lp: R ? R.lp * (F ? F[1] : 1) * (0.4 + 0.6 * hv) : 0, ...(kind === 'upright' ? { lpStages: 2, lpQ: -6.0206 } : {}), lpFrom: F ? F[0] : R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
+      shelves: [[3000, tone]], peaks: [...(R?.peak ? [R.peak] : []), ...(kind === 'org' && this.playbackStyle === 'gfunk' ? [[2200, 1.2, -3], [3300, 0.8, -6]] : []), ...(kind === 'str' ? HIPHOP[this.state.artist?.style]?.strEq ?? [] : []), ...(jazzStyle(this.state, this.playingPattern) === 'bossa' && kind === 'jazz' ? jazzNotches(kind, c, Math.pow(2, (m - c) / 12)) : [])], stop: kind === 'str' ? HIPHOP[this.state.artist?.style]?.strStop : null, lp: R ? R.lp * (F ? F[1] : 1) * (0.4 + 0.6 * hv) : 0, ...(kind === 'upright' ? { lpStages: 2, lpQ: -6.0206 } : {}), lpFrom: F ? F[0] : R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
       ...fx,
     });
+  }
+  ukgOrganOut(out) {
+    const buses = this.ukgOrganBuses ||= new Map();
+    if (!buses.has(out)) buses.set(out, new VowelDuck(this, out));
+    const bus = buses.get(out);
+    bus.schedule(this.ukgVowels || [], this.ctx.currentTime);
+    return bus.input;
+  }
+
+  keyUkgVowel(t, length, release) {
+    if (!ukgVowelHook(this)) return;
+    this.ukgVowels = vowelWindows(this.ukgVowels || [], t, t + length + release * 5, this.ctx.currentTime, t + length + release * 2);
+    for (const bus of this.ukgOrganBuses?.values() || []) bus.schedule(this.ukgVowels, this.ctx.currentTime);
   }
   // A guitar amp for the DRIVE GTR: tightened lows into an asymmetric tube-style clipper, then a 4x12 cab
   // (body bump, scooped fizz, steep top roll-off). One amp per destination, shared by every string.
@@ -3746,7 +3761,7 @@ export class Engine {
   vox(t, v, step) {
     if (vowelStyle(this.playbackStyle) && !hasUserSample()) {
       const note = vowelVoxNote(this.state, this.playbackStyle, step, this.stepDur, this.harmRoot());
-      if (playVowel(this, t, v, note.midi, note.duration, note.name, this.ch.vox.input, this.state.params.vox.tone, !['ukg', 'jerseyclub', 'bailefunk'].includes(this.playbackStyle))) return;
+      if (playVowel(this, t, v, note.midi, note.duration, note.name, this.ch.vox.input, this.state.params.vox.tone, !['ukg', 'jerseyclub', 'bailefunk'].includes(this.playbackStyle), [], this.playbackStyle === 'ukg' ? (...args) => this.keyUkgVowel?.(...args) : undefined)) return;
     }
     if (this.playbackStyle === 'bailefunk') return this.funkVox(t, v, step);
     // Saved set timelines omit song metadata, so never borrow the listener's project seed.
@@ -4060,7 +4075,7 @@ export class Engine {
     if (vowelStyle(this.playbackStyle) && (voice === 'vocal' || voice === 'chop')) {
       const vc = voice === 'chop' && getChops(), out = this.hookBus || this.ch.stab.input;
       if (vc) return this.chopNote(vc, t, v, 60 + k + oct * 12 + n, dur, expression, null, out);
-      if (!hasUserSample() && playVowel(this, t, v * 10 ** (VOWEL_HOOK_DB[this.playbackStyle] / 20), 60 + k + oct * 12 + n, vowelHookDuration(this.playbackStyle, dur), vowelName(this.playbackStyle, Math.floor((this.step || 0) / 64)), out, 5000, !['ukg', 'jerseyclub', 'bailefunk'].includes(this.playbackStyle), VOWEL_HOOK_EQ[this.playbackStyle])) return;
+      if (!hasUserSample() && playVowel(this, t, v * 10 ** (VOWEL_HOOK_DB[this.playbackStyle] / 20), 60 + k + oct * 12 + n, vowelHookDuration(this.playbackStyle, dur), vowelName(this.playbackStyle, Math.floor((this.step || 0) / 64)), out, 5000, !['ukg', 'jerseyclub', 'bailefunk'].includes(this.playbackStyle), VOWEL_HOOK_EQ[this.playbackStyle], this.playbackStyle === 'ukg' ? (...args) => this.keyUkgVowel?.(...args) : undefined)) return;
     }
     const roots = voice === 'chop' && getChops() ? null : rootsFor(this.state, this.playingPattern);
     if (fiddleRole(roots, expression)) {
