@@ -351,10 +351,17 @@ const readJson = (req, max) => new Promise((ok, fail) => {
 
 // Shared router for GET /api/rooms, GET /api/rooms/:room?since=&set=&jam=, POST /api/rooms/:room/events.
 // `rooms` is null when no KV is configured (Vercel without Upstash): the directory says so, room routes 503.
-export async function routeRooms(rooms, { method, path, query = {}, body }) {
+export async function routeRooms(rooms, { method, path, query = {}, body, apiBase }) {
   if (method === 'OPTIONS') return { status: 204, json: {} };
   if (/^\/api\/rooms\/?$/.test(path)) {
     if (method !== 'GET') return { status: 405, json: { error: 'method_not_allowed' } };
+    if (apiBase) {
+      const response = await fetch(`${apiBase.replace(/\/$/, '')}/api/rooms`, { redirect: 'error', signal: AbortSignal.timeout(5000) });
+      if (!response.ok) throw new Error('rooms_unavailable');
+      const json = await response.json();
+      if (typeof json?.enabled !== 'boolean' || !Array.isArray(json.rooms)) throw new Error('rooms_unavailable');
+      return { status: 200, json, cache: 'public, max-age=5, stale-while-revalidate=10' };
+    }
     if (!rooms) return { status: 200, json: { enabled: false, rooms: [] } };
     return { status: 200, json: await rooms.directory(), cache: 'public, max-age=5, stale-while-revalidate=10' };
   }
@@ -370,7 +377,7 @@ export async function routeRooms(rooms, { method, path, query = {}, body }) {
 }
 
 // Node http handler (server.mjs, rooms-server.mjs); returns false when the path is not a room route.
-export function roomsHandler(rooms, { allowedOrigin = '*' } = {}) {
+export function roomsHandler(rooms, { allowedOrigin = '*', apiBase } = {}) {
   return async (req, res, url) => {
     if (!/^\/api\/rooms(\/|$)/.test(url.pathname)) return false;
     let body = null;
@@ -379,7 +386,7 @@ export function roomsHandler(rooms, { allowedOrigin = '*' } = {}) {
       else body = await readJson(req, MAX_ROOM_BODY);
     }
     let r;
-    try { r = await routeRooms(rooms, { method: req.method, path: url.pathname, query: Object.fromEntries(url.searchParams), body }); }
+    try { r = await routeRooms(rooms, { method: req.method, path: url.pathname, query: Object.fromEntries(url.searchParams), body, apiBase }); }
     catch (err) { console.error('rooms failed', err.message); r = { status: 503, json: { error: 'rooms_unavailable' } }; }
     res.writeHead(r.status, { 'Content-Type': 'application/json', 'Cache-Control': r.cache || 'no-store', ...corsHeaders(req.headers.origin, allowedOrigin) });
     res.end(r.status === 204 ? '' : JSON.stringify(r.json));

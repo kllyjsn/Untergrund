@@ -752,6 +752,35 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
 
   {
+    const ctx = fakeCtx(), state = defaultState();
+    state.artist = { style: 'deephouse', seed: 20 };
+    state.master.arr = state.master.humanize = state.master.variation = 0;
+    state.chainOn = false;
+    const pat = state.patterns[state.current];
+    for (const steps of Object.values(pat.steps)) steps.fill(0);
+    pat.steps.kick[0] = pat.steps.kick[1] = 1;
+    const e = new Engine(ctx, state, { trackQueuedNotes: true }), seq = new Sequencer(e, state);
+    e.trigger = (id, t) => {
+      e.startSource({ start() {}, stop() {} }, t);
+      if (id === 'kick') e.duckAt(t, 1);
+    };
+    seq.tick(0, 1, 1, true);
+    seq.tick(1, 1.25, 1.25, true);
+    const low = e.pocketLow.duck.gain, ops = [], [first, kick] = e.ducks.map(d => d.t);
+    low.cancelScheduledValues = t => ops.push(['cancel', t]);
+    low.setTargetAtTime = (gain, t) => ops.push(['target', gain, t]);
+    ctx.currentTime = kick - 0.0137;
+    state.mutes.kick = true;
+    e.reviseHits('kick');
+    assert.deepEqual(e.ducks.map(d => d.t), [first], 'muting the queued kick removes its low-band duck');
+    assert.deepEqual(ops.at(-1), ['target', 0, ctx.currentTime], 'a kick muted inside its 15ms lead releases the bass duck at once');
+    ops.length = 0;
+    state.mutes.kick = false;
+    e.reviseHits('kick');
+    assert.ok(ops.some(([op, gain, t]) => op === 'target' && gain === -18 && Math.abs(t - (kick - 0.015)) < 1e-9), 'unmute restores the leading duck');
+  }
+
+  {
     const ctx = fakeCtx(), s = defaultState();
     s.chainOn = true; s.chain = 'CCCCCCCCC'; s.master.arr = 1; s.master.vary = 0;
     s.solos = { snare: true, clap: true };
@@ -1590,7 +1619,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         mediaRoute:null, roomMediaSync:createRoomMediaSync(), roomMediaLead, roomMediaTime,
         document:{hidden:false}, ctx:c, Date:{now:() => (c.currentTime + 1000 + offset()) * 1000},
         performance:{now:() => c.currentTime * 1000}, state, engine, clockOffset:1000,
-        roomAudioClock:{at:9.5, contextTime:9.5, pending:null}, roomDrainUntil:null, vocalGridDirty:false,
+        roomAudioClock:{at:9.5, contextTime:9.5, pending:null}, roomLifecycleAt:-Infinity, roomDrainUntil:null, vocalGridDirty:false,
         transportOrigin:1010000, abs:0, nextTime:10, queuedRoomSwitch:null, handoff:null, jamQueue:[], uiQueue:[],
         syncAudioClock, transportResync, slewTransport, roomTransportCorrection,
         seq:{origin:0, chainPos:1, songBars:256, advanceBar:noop, rewind:noop,

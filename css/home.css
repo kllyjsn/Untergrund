@@ -60,6 +60,7 @@ body:not(.studio-open) .top .transport { display: none; }
 .flagship-row::-webkit-scrollbar { display: none; }
 .flag { flex: 0 0 168px; display: flex; flex-direction: column; gap: 3px; min-width: 0; scroll-snap-align: start; }
 .flag-art { position: relative; aspect-ratio: 1; width: 100%; padding: 0; border: 1px solid var(--hair); border-radius: var(--r2); overflow: hidden; background: var(--well); cursor: pointer; margin-bottom: 8px; }
+a.flag-art { display: block; box-sizing: border-box; }
 .flag-art canvas { display: block; width: 100%; height: 100%; }
 .flag-art i { position: absolute; right: 10px; bottom: 10px; width: 36px; height: 36px; border-radius: 50%; background: #fff; opacity: 0; transform: translateY(4px); transition: opacity .15s, transform .15s; }
 .flag-art i::after { content: ''; position: absolute; left: 14px; top: 11px; border-left: 11px solid #111; border-top: 7px solid transparent; border-bottom: 7px solid transparent; }
