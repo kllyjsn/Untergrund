@@ -396,12 +396,12 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
   };
   const hook = (voice = 'warm') => Engine.prototype.hook.call(e, 1, 0.7, 3, 0.3, voice);
   const checkEq = (out, source) => {
-    for (const [f, q, db] of [[2930, 5, -12], [2645, 64, -9], [2777, 64, -9], [2962, 64, -8]]) {
+    for (const [f, q, db] of [[2930, 5, -12], [2645, 64, -9], [2777, 64, -9], [2962, 64, -8], [3085, 64, -17]]) {
       assert.equal(out.inputs.length, 1);
       [out] = out.inputs;
       assert.deepEqual([out.type, out.frequency.value, out.Q.value, out.gain.value], ['peaking', f, q, db]);
     }
-    assert.equal(out, source, 'notes enter the complete four-band chain');
+    assert.equal(out, source, 'notes enter the complete guitar hook EQ');
   };
   hook();
   hook();

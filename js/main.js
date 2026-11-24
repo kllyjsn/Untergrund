@@ -5,7 +5,7 @@ import { createListens, songFingerprint, promptHash, promptText } from './listen
 import { TRACKS, TRACK_IDS, TRACK_BY_ID, MIX_PARAMS, MASTER_PARAMS, KEYS, SCALES, PATTERN_NAMES, STEPS, formatValue, VOICE_HIDDEN } from './params.js';
 import { Engine, Sequencer, parseChain } from './engine.js';
 import { setChain } from './chain.js';
-import { defaultState, generate, mutate, arrangement, songChain, applySongPlan, applyOverrides, clone, save, load, sanitize, STYLES, MAJOR_STYLES, emptyPattern, emptyAcidStep, fitLyrics, refreshSong } from './state.js';
+import { defaultState, generate, mutate, arrangement, songChain, applySongPlan, songFeel, songScale, applyOverrides, clone, save, load, sanitize, STYLES, MAJOR_STYLES, emptyPattern, emptyAcidStep, fitLyrics, refreshSong } from './state.js';
 import { renderBars, bufferToWav } from './render.js';
 import { exportButtons } from './export-ui.js';
 import { encodeWav, rng } from './dsp.js';
@@ -1458,9 +1458,11 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   let seed = drop ? drop.seed : songSeed();
   const source = clone(pat());
   const lockedParams = Object.fromEntries(TRACK_IDS.filter((t) => s.locks[t]).map((t) => [t, clone(s.params[t])]));
+  s.scale = songScale(s);
   const major = matchStyleScale(s);
-  if (typeof hum === 'function' && !drop) seed = humSeed(id, s.scale, hum);
-  const g = generate(id, seed, s.scale);
+  const asked = drop ? null : feelPick;
+  if (typeof hum === 'function' && !drop) seed = humSeed(id, s.scale, hum, 24, asked);
+  const g = generate(id, seed, s.scale, { feel: songFeel(id, seed, asked) });
   s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   if (source.score?.composer) for (const q of s.patterns) if (q.score?.form) q.score.composer = source.score.composer;
   s.key = g.key;
@@ -1477,7 +1479,7 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
   // A score sets its own tempo even mid-set; a masterwork keeps its title and composer.
   if (g.pattern.score) s.bpm = g.bpm;
   if (typeof hum === 'function' && !g.pattern.score) { const r = hum(s.bpm, s.scale); s.key = r.key; if (r.hook) placeHook(s.patterns, r.hook); }
-  applySongPlan(s, id, seed, drop ? 'song' : songLength, drop ? null : feelPick);
+  applySongPlan(s, id, seed, drop ? 'song' : songLength, asked);
   const piece = PIECE[g.pattern.score?.piece];
   const title = piece ? piece.title : drop ? drop.title : trackTitle(seed);
   const artist = piece ? piece.composer : loadAvatar().name || 'UNTERGRUND';
@@ -1737,9 +1739,9 @@ let nextSeed = null, warmed = '';
 const songSeed = () => { const s = nextSeed ?? ((Math.random() * 1e9) | 0); nextSeed = null; return s; };
 function preloadStyle(id) {
   nextSeed ??= (Math.random() * 1e9) | 0;
-  if (warmed === `${id}:${nextSeed}`) return;
-  warmed = `${id}:${nextSeed}`;
-  const g = generate(id, nextSeed, state.scale);
+  if (warmed === `${id}:${nextSeed}:${feelPick}`) return;
+  warmed = `${id}:${nextSeed}:${feelPick}`;
+  const g = generate(id, nextSeed, state.scale, { feel: songFeel(id, nextSeed, feelPick) });
   if (g.pattern.score) preloadScore(g.pattern.score).catch(() => {});
   else loadSets(liveSets(g, id));
 }
@@ -2196,7 +2198,7 @@ function describeBox() {
         const next = songState(spec, s.artist.seed, s).state;
         // Written lyrics sing their title: the song takes it too.
         const out = lyrics ? fitLyrics({ ...next, lyrics, artist: lyrics.title ? { ...next.artist, title: lyrics.title } : next.artist }, spec.style) : next;
-        done(out.artist.title, out.key);
+        done(out.artist.title, out.key, out.scale);
         return out;
       });
       play();

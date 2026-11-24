@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import './jazz-nylon.mjs';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { freshSong, sanitize } from '../js/state.js';
@@ -46,23 +45,24 @@ for (const seed of [1, 2, 3, 11, 42, 77, 1234]) {
       if (at % 8 === 0) assert(jazzChordTones('bossa', h).some((v) => pc(h.r + v) === pc(n)));
     }
   }
-  const record = (state, from = 0, bars = state.chain.length) => {
-    const grid = { ...state, feel: null };
-    const e = new Recorder(grid), seq = new Sequencer(e, grid);
+  // Steps follow the song's live step length (a feeling's tempo breath), as the player and renderer schedule them.
+  const record = (state, from = 0, bars = state.chain.length, grid = []) => {
+    const e = new Recorder(state), seq = new Sequencer(e, state);
     seq.chainPos = from;
-    for (let i = from * 16; i < (from + bars) * 16; i++) seq.tick(i, 0.05 + i * e.stepDur);
+    for (let i = from * 16, t = 0.05; i < (from + bars) * 16; i++) { grid.push(t); seq.tick(i, t); t += e.stepDur; }
     return e.notes;
   };
-  const notes = record(s, 8, 2);
+  const grid = [], notes = record(s, 8, 2, grid);
   assert(!notes.ride && !notes.clap && !notes.perc && !notes.vox);
   assert(notes.snare.every((n) => n.m === 37), 'MIDI uses cross stick, not a backbeat snare');
-  const sd = 60 / s.bpm / 4, base = 8 * 16;
+  const sd = 60 / s.bpm / 4;
+  const stepOf = (t) => grid.reduce((best, g, i) => (Math.abs(t - g) < Math.abs(t - grid[best]) ? i : best), 0);
   for (let bar = 0; bar < 2; bar++) {
-    const at = (track) => [...new Set(notes[track].map((n) => Math.round((n.t - 0.05) / sd) - base).filter((i) => i >= bar * 16 && i < (bar + 1) * 16).map((i) => i % 16))];
+    const at = (track) => [...new Set(notes[track].map((n) => stepOf(n.t)).filter((i) => i >= bar * 16 && i < (bar + 1) * 16).map((i) => i % 16))];
     assert.deepEqual(at('snare'), BOSSA_RIM[bar]);
     assert.deepEqual(at('stab'), [...new Set([...BOSSA_BATIDA[bar], 0, 8])].sort((a, b) => a - b));
   }
-  assert(notes.snare.every((n) => n.t > 0.05 + Math.round((n.t - 0.05) / sd) * sd), 'cross-stick leans behind the beat');
+  assert(notes.snare.every((n) => n.t > grid[stepOf(n.t)]), 'cross-stick leans behind the beat');
   assert(notes.stab[0].t < notes.stab[1].t, 'thumb leads the fingers on the opening pluck');
   const head = record(s, 8, 16), bridge = record(s, 24, 16), intro = record(s, 0, 4), tag = record(s, s.chain.length - 2, 2);
   assert(head.hook.length >= 48 && bridge.hook.length >= 40, 'both 16-bar themes sing complete phrases');

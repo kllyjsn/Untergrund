@@ -337,7 +337,7 @@ for (const realStems of [[], [realEvidence, null], [realEvidence, {...realEviden
   assert.ok(mixFailures({...realMix, realStems}, true).includes('real stem not loaded/played through API'));
 const synthetic = (shift = 0, vocalShift = 0) => {
   const rows = fn => Array.from({length:20000}, (_, i) => [i * .002 + shift / 1000, fn(i * 2)]);
-  return {errors:[], anchors:[[0, 0]], samples:rows(t => Math.sin(t / 113) ** 2), stemWarm:{start:-2, end:-1}, sources:[],
+  return {errors:[], anchors:[[0, 0]], scheduler:[{transportOrigin:0, clockOffset:0}], samples:rows(t => Math.sin(t / 113) ** 2), stemWarm:{start:-2, end:-1}, sources:[],
     resumeBoundary:{frame:15800 + shift, sampleRate:1000}, stemInjected:[{}], channels:{
       kick:{ready:true, edge:{name:'kick'}, samples:rows(t => Math.exp(-(t % 500) / 25))},
       vocal:{ready:true, edge:{name:'vocal'}, samples:rows(t => t % 4000 < 3000 ? 1 + .3 * Math.sin(t / 31) : 0).map(([t, e]) => [t + vocalShift / 1000, e])},
@@ -368,6 +368,25 @@ const continuous = shift => {
   delete c.resumeBoundary;
   return c;
 };
+{
+  const listener = continuous(0);
+  listener.anchors = [[0,40]];
+  const mix = analyzeMix([continuous(0), listener], s, {interruptAt:7000, recoverAt:17000}, 0, {resume:false});
+  assert.equal(mix.phases.before.chromeKicks.median, 40);
+  assert.equal(mix.phases.before.kicks.median, 0);
+  assert.equal(mix.phases.after.kicks.median, 0);
+  assert.equal(mix.baselineFailures.includes('kicks BEFORE'), false);
+  assert.equal(mixFailures(mix).includes('kicks AFTER'), false);
+  const dropped = continuous(0);
+  dropped.channels.kick.samples = dropped.channels.kick.samples.map(([t,e]) => [t, t >= 18 && t < 19.3 ? 0 : e]);
+  const gap = analyzeMix([dropped, continuous(0)], s, {interruptAt:7000, recoverAt:17000}, 0, {resume:false});
+  assert.ok(gap.phases.after.kicks.extra > 0, 'a host PCM gap remains visible without Chrome mapping');
+  assert.ok(mixFailures(analyzeMix([continuous(0), dropped], s, {interruptAt:7000, recoverAt:17000}, 0, {resume:false})).includes('kicks AFTER'));
+  assert.throws(() => analyzeMix([continuous(0), {...continuous(0), scheduler:[]}], s, {interruptAt:7000, recoverAt:17000}, 0, {resume:false}), /Missing scheduler/);
+  const empty = continuous(0);
+  empty.channels.kick.samples = [];
+  assert.throws(() => analyzeMix([continuous(0), empty], s, {interruptAt:7000, recoverAt:17000}, 0, {resume:false}), /No rendered tap samples/);
+}
 {
   const check = (host, listener) => analyzeMix([host, listener], s,
     {interruptAt:7000, recoverAt:17000}, 0, {resume:false, checkFirstDownbeat:true});

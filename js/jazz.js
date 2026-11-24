@@ -121,12 +121,26 @@ export function jazzMelody(style, seed, prog) {
   return { bars: 8, n: part(false), v: part(true), b: part(true) };
 }
 
-export function generateJazz(style, seed, bpm, palette, pocket) {
-  if (style === 'jazzfunk') return generateFunk(seed, bpm, palette, pocket);
+function pickChanges(pool, roll, choose) {
+  const changes = pool.map((prog) => prog.map(([r, c]) => ({ r, c })));
+  return changes[choose ? choose(roll, changes) : Math.floor(roll * changes.length)];
+}
+
+export function generateJazz(style, seed, bpm, palette, pocket, choose = null, scale = null) {
+  if (choose && scale) {
+    const chooseByFeel = choose;
+    choose = (roll, changes) => {
+      const compatible = changes.filter((prog) => jazzMode(style, prog) === scale);
+      // Some jazz palettes have no changes in this mode; keep the genre's seeded default.
+      if (!compatible.length) return Math.floor(roll * changes.length);
+      return changes.indexOf(compatible[chooseByFeel(roll, compatible)]);
+    };
+  }
+  if (style === 'jazzfunk') return generateFunk(seed, bpm, palette, pocket, choose ? (roll) => pickChanges(JAZZ_PROGS.jazzfunk, roll, choose) : null);
   if (style === 'bossa') return generateBossa(seed, bpm, palette, pocket);
   const r = rng(seed), params = defaultParams(), master = {};
   const ensemble = palette[Math.floor(rng(Math.imul((seed | 0) ^ 0x6d2b79f5, 0x85ebca6b))() * palette.length)];
-  const prog = JAZZ_PROGS[style][Math.floor(r() * JAZZ_PROGS[style].length)].map(([r, c]) => ({ r, c }));
+  const prog = pickChanges(JAZZ_PROGS[style], r(), choose);
   const steps = Object.fromEntries(TRACK_IDS.map((id) => [id, Array.from({ length: 16 }, (_, i) => id === 'acid' ? { on: i % 4 === 0, n: 0, a: false, s: false } : 0)]));
   for (const i of [0, 4, 6, 8, 12, 14]) steps.ride[i] = i === 4 || i === 12 ? 2 : 1;
   for (const i of [4, 12]) steps.ch[i] = 1;
@@ -146,7 +160,13 @@ export function generateJazz(style, seed, bpm, palette, pocket) {
   const m = jazzMelody(style, seed, prog), preview = Array(32).fill(0);
   for (const [at, dur, n, v] of m.n) if (at < 32) preview[at] = [n, dur, v];
   const hook = { v: voices[Math.floor(r() * voices.length)], o: 0, s: preview, m, x: { feel: 0.2, risk: 0, space: 0.7, warmth: 0.7 } };
-  return { pattern: { jazz: { style, seed }, steps, len: Object.fromEntries(TRACK_IDS.map((id) => [id, 16])), prog, hook, hm: 2 }, params, master, bpm, key: Math.floor(r() * 12), swing: 0, scale: style === 'modal' ? 'dorian' : prog[0].c === 20 ? 'minor' : 'major' };
+  return { pattern: { jazz: { style, seed }, steps, len: Object.fromEntries(TRACK_IDS.map((id) => [id, 16])), prog, hook, hm: 2 }, params, master, bpm, key: Math.floor(r() * 12), swing: 0, scale: jazzMode(style, prog) };
+}
+
+function jazzMode(style, prog) {
+  if (style === 'modal') return 'dorian';
+  if (style === 'jazzfunk') return prog[0].c === 16 ? 'dorian' : 'mixolydian';
+  return style === 'swing' && prog[0].c === 20 ? 'minor' : 'major';
 }
 
 function generateBossa(seed, bpm, palette, pocket) {

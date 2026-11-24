@@ -209,6 +209,8 @@ export function liveSets(st, style = st?.artist?.style) {
   // Country's lead is a Telecaster whatever plays the chords.
   if (pocketOf(st.master)?.walk && name !== 'gtr') out.push('gtr', 'gtrsoft');
   if (fullKit && pocketOf(st.master)?.band) out.push(...layerSets(style));
+  // The final chorus's entering voice (Engine.peakVoice) is the recorded violins.
+  if (st?.patterns?.some((p) => p?.at?.some((v) => v.peak === 'entry'))) out.push(...LAYER_SETS.vln1);
   return [...new Set(out.flatMap((n) => [n, ...(ROOT_LAYERS[n] || [])]))];
 }
 // A song's recordings plus their alternate takes and mutes: what an offline render waits for, so exports get every take.
