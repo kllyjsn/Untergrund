@@ -1,4 +1,4 @@
-import { STYLES, sanitize } from '../../js/state.js';
+import { STYLES, refreshSong, sanitize } from '../../js/state.js';
 import { songFingerprint } from '../../js/listen.js';
 import { clean, MAX_TRACK_BYTES } from './crate.js';
 
@@ -95,7 +95,7 @@ export async function handleLibrary(req, { kv, account, secure, allowWrite }) {
     artist: clean(typeof body.artist === 'string' ? body.artist : '', 40),
     style: typeof body.style === 'string' && Object.hasOwn(STYLES, body.style) ? body.style : 'hypnotic',
     bpm: state.bpm, created: new Date(Number.isFinite(time) ? time : Date.now()).toISOString(),
-    fps: [songFingerprint(state)],
+    fps: [...new Set([songFingerprint(body.state), songFingerprint(state), songFingerprint(refreshSong(sanitize(state)))])],
   };
   const result = await kv.cmd([...args, LIBRARY_LIMIT, JSON.stringify(row), stored]);
   if (result === 'full') return fail(409, 'library_full');

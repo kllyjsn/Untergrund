@@ -11,6 +11,7 @@ import { memoryStore } from '../api/_lib/crate.js';
 import { libraryScripts, LIBRARY_LIMIT, LIBRARY_BODY_BYTES } from '../api/_lib/library.js';
 import { createCloudLibrary } from '../js/cloud-library.js';
 import { defaultState, sanitize } from '../js/state.js';
+import { songFingerprint } from '../js/listen.js';
 
 const kv = memoryKv({ scripts: libraryScripts }), crate = memoryStore(), secret = 'cloud-test'.repeat(5);
 const ctx = { kv, crate, secret };
@@ -26,6 +27,7 @@ const call = (cookie, library, body, id, headers = {}) => handleAccount({
 }, ctx);
 const draft = { id: 'local-song-one', title: 'A private song', artist: 'Alice', style: 'acid',
   created: '2025-10-01T10:00:00Z', state: { ...defaultState(), renderedAudio: 'not stored' } };
+draft.state.params = Object.fromEntries(Object.entries(draft.state.params).reverse());
 for (const cookie of ['', device]) {
   assert.equal((await call(cookie, 'alice')).status, 401);
   assert.equal((await call(cookie, 'alice', { ...draft, action: 'save' })).status, 401);
@@ -38,6 +40,9 @@ const first = await call(alice, 'alice', { ...draft, action: 'save' });
 assert.equal(first.status, 200);
 assert.equal(first.json.item.title, draft.title);
 assert.equal(first.json.item.state, undefined);
+assert.notEqual(songFingerprint(draft.state), songFingerprint(sanitize(draft.state)), 'fixture changes fingerprint when sanitized');
+assert.ok(first.json.item.fps.includes(songFingerprint(draft.state)), 'reactions to the song as made remain visible');
+assert.ok(first.json.item.fps.includes(songFingerprint(sanitize(draft.state))), 'reactions to the stored version remain visible');
 assert.equal((await call(alice, 'alice', { ...draft, title: 'Different', action: 'save' })).json.item.title, draft.title);
 assert.deepEqual((await call(alice, 'alice')).json.items, [first.json.item]);
 assert.deepEqual((await call(bob, 'bob')).json.items, []);
