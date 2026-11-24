@@ -120,6 +120,7 @@ export class Recorder {
     if (fiddleRole(roots, expression)) return this.add('fiddle', t, fiddlePitch(pitch), fiddleDuration(dur), v);
     if (roots?.hook === 'twang') {
       this.hookVoice = 'twang';
+      pitch -= 12; // the Telecaster and harmonica sound an octave under the written line
       const scale = SCALES[this.state.scale]?.notes || SCALES.major.notes;
       const lo = scale.includes((((pitch - 9 - 60 - k) % 12) + 12) % 12) ? pitch - 9 : pitch - 8;
       if (strong && lo >= 52) this.add('hook', t + .006, rootsPitch(lo, 52, 84), Math.max(.15, dur * 1.5), v * .6);

@@ -172,7 +172,7 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
     const audio = Object.assign(Object.create(Engine.prototype), {
       state: saved, ctx, playingPattern: pattern, harm: null,
       ch: { stab: { input: hookOut } }, hookBus: hookOut,
-      rec: () => [[60, {}]], bodyFor: (out) => out, slapFor: (out) => out,
+      rec: () => [[60, {}]], bodyFor: (out) => out, slapFor: (out) => out, teleFor: (out) => out,
       recordedNote: (_set, t, _v, m, dur, _out, _tone, kind) => actual.push({ t, m, dur, kind }),
     });
     for (const role of ['fiddle', 'twang']) for (const voice of ['vocal', 'chop']) {
@@ -185,9 +185,11 @@ const feeds = (source, dest) => source === dest || dest.inputs.some((input) => f
       midi.hook(3, 0.6, 0, 0.5, voice, 1);
       const track = role === 'fiddle' ? 'fiddle' : 'hook';
       assert.equal(actual.length, 1);
-      assert.equal(actual[0].kind, role);
-      assert.equal(actual[0].m, 72, 'saved Country keeps its recorded register, not the UKG vowel octave');
-      assert.deepEqual(midi.notes[track].map(({ t, m, dur }) => ({ t, m, dur })), actual.map(({ t, m, dur }) => ({ t, m, dur })), `UKG replay of Country ${role}/${voice} exports the audio notes`);
+      // The twang lead plays on the Telecaster, an octave under the written line, a hair behind the beat.
+      assert.equal(actual[0].kind, role === 'twang' ? 'tele' : role);
+      assert.equal(actual[0].m, role === 'twang' ? 60 : 72, 'saved Country keeps its recorded register, not the UKG vowel octave');
+      const notes = (list) => list.map(({ t, m, dur }) => ({ t: Math.round(t * 20) / 20, m, dur }));
+      assert.deepEqual(notes(midi.notes[track]), notes(actual), `UKG replay of Country ${role}/${voice} exports the audio notes`);
       if (role === 'fiddle') assert.equal(midi.notes.hook, undefined);
       else assert.equal(midi.hookVoice, 'twang');
     }
