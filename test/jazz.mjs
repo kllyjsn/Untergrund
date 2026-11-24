@@ -25,7 +25,7 @@ for (const [style, id, at] of [['bossa', 'snare', 0], ['jazzfunk', 'kick', 0], [
   row[at] = original === 2 ? 1 : 2;
   const after = capture();
   assert.deepEqual(after.map((n) => n.step), before.map((n) => n.step), 'velocity edits preserve the two-bar rhythm');
-  assert.equal(after[0].v > before[0].v, original !== 2, 'accent and deaccent change loudness');
+  assert.equal(after.find((n) => n.step === at).v > before.find((n) => n.step === at).v, original !== 2, 'accent and deaccent change loudness');
   if (id !== 'snare' || style === 'bossa') assert.notDeepEqual(after.filter((n) => n.step < 16).map((n) => n.step), after.filter((n) => n.step >= 16).map((n) => n.step - 16));
 }
 for (const style of ['bossa', 'jazzfunk']) for (const id of ['kick', 'snare', 'ch', 'oh', 'acid', 'stab']) {

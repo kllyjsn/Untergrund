@@ -4,6 +4,7 @@ import { KEYS, SCALES } from '../../js/params.js';
 import { STYLES } from '../../js/state.js';
 import { songFingerprint } from '../../js/listen.js';
 import { publicArtistPage, publicTrack } from './accounts.js';
+import { billingConfig, hasProBadge } from './billing.js';
 import { remixTree } from './crate.js';
 import { FLAGSHIP } from '../../config/flagship.js';
 
@@ -156,7 +157,7 @@ export function renderArtistPage({ artist, tracks }, { site = SITE } = {}) {
     <div class="pp-hero">
       <div class="pp-avatar" aria-hidden="true">${esc(artist.name.slice(0, 2).toUpperCase())}</div>
       <div class="pp-who">
-        <span class="pp-eyebrow">ARTIST</span>
+        <span class="pp-eyebrow">ARTIST${artist.pro ? ' · <a class="pp-pro" href="/pricing">STUDIO PRO</a>' : ''}</span>
         <h1>${esc(artist.name)}</h1>
         <div class="pp-handle">@${esc(artist.handle)}</div>
         ${artist.bio ? `<p class="pp-bio">${esc(artist.bio)}</p>` : ''}
@@ -210,7 +211,7 @@ export function renderRoomPage(id, snap, { site = SITE } = {}) {
 }
 
 // Shared by api/page.js and server.mjs. Returns { status, type, body, cache }.
-export async function handlePage(query, { kv, crate, jukebox, site = SITE, og, rooms = null, flagship = flagshipIds() }) {
+export async function handlePage(query, { kv, crate, jukebox, site = SITE, og, rooms = null, flagship = flagshipIds(), env = process.env }) {
   const cache = 'public, max-age=60, s-maxage=300, stale-while-revalidate=86400';
   const html = (status, body, c = cache) => ({ status, type: 'text/html; charset=utf-8', body, cache: c });
   const live = 'public, max-age=15, s-maxage=30, stale-while-revalidate=60';
@@ -252,8 +253,9 @@ export async function handlePage(query, { kv, crate, jukebox, site = SITE, og, r
     return t ? html(200, renderTrackPage(t, { site })) : html(404, renderMissing('track', query.t, { site, enabled: !!(kv || crate) }), 'no-store');
   }
   if (query.a) {
-    const p = await publicArtistPage(kv, query.a);
-    return p ? html(200, renderArtistPage(p, { site })) : html(404, renderMissing('artist', query.a, { site, enabled: !!kv }), 'no-store');
+    const p = await publicArtistPage(kv, query.a, { pro: (id) => hasProBadge(kv, id, env).catch(() => false) });
+    return p ? html(200, renderArtistPage(p, { site }), billingConfig(env) ? 'no-store' : cache)
+      : html(404, renderMissing('artist', query.a, { site, enabled: !!kv }), 'no-store');
   }
   return html(404, renderMissing('track', '', { site, enabled: !!kv }), 'no-store');
 }

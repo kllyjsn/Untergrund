@@ -41,7 +41,8 @@ import { flagshipShelf } from './flagship.js';
 import { describeBar, syncLyrics } from './describe-ui.js';
 import { vocalStem } from './sing.js';
 import { songState } from './song-spec.js';
-import { fetchReleaseTrack } from './account.js';
+import { fetchReleaseTrack, getAccount, onAccount } from './account.js';
+import { openListenerAccount } from './listener-account.js';
 import { openShare, openSharedLanding, countRemix, track } from './share.js';
 import { readShareParams, decodeSong, normalizeSong, remixState } from './share-code.js';
 import { dailyDrop, dropSong, isDropDate } from './daily.js';
@@ -76,6 +77,7 @@ let family = localStorage.getItem('untergrund.family') || 'TECHNO';
 let style = STYLES[state.artist?.style]?.family === family ? state.artist.style
   : Object.keys(STYLES).find((id) => STYLES[id].family === family) || 'hypnotic';
 family = STYLES[style].family;
+let favoriteGenres = [], listenerDefault = null, listenerAccountID;
 let generatedAt = 0;
 function showCrash(err) {
   if (document.querySelector('.crash')) return;
@@ -1784,6 +1786,11 @@ function selectFamily(f) {
   if (STYLES[style].family !== f) style = Object.keys(STYLES).find((id) => STYLES[id].family === f);
   build();
 }
+
+function chooseFavorite(id) {
+  style = id;
+  selectFamily(STYLES[id].family);
+}
 function generateNow(drop = null, { radio = false } = {}) {
   if (!drop?.date) drop = null;
   roomResume = null;
@@ -2091,6 +2098,10 @@ function buildGenerateHome() {
   if (!families.includes(family)) family = STYLES[style].family;
   const playingStyle = (playing || paused) && state.artist?.style;
   const picker = h('div', { class: 'generate-families' },
+    favoriteGenres.length ? h('div', { class: 'listener-shortcuts', role: 'group', 'aria-label': 'Favorite genres' },
+      h('span', {}, 'FAVORITES'), favoriteGenres.map((id) => h('button', { type: 'button',
+        class: 'btn ghost' + (id === style ? ' on' : ''), 'aria-pressed': String(id === style),
+        onclick: () => chooseFavorite(id) }, STYLES[id].name))) : null,
     h('div', { class: 'family-tabs', role: 'group', 'aria-label': 'Genre family' },
       families.map((f) => h('button', { class: 'family-tab' + (f === family ? ' on' : ''), 'aria-pressed': String(f === family), onclick: () => selectFamily(f) }, f)),
       h('button', { class: 'family-tab surprise', title: 'Pick any genre and generate', onclick: surprise }, 'SURPRISE ME')),
@@ -2140,6 +2151,7 @@ function buildGenerateHome() {
     h('div', { class: 'home-foot-links' },
       h('a', { class: 'home-research', href: '/start/' }, 'GETTING STARTED', h('span', {}, 'Create, listen, remix and release')),
       h('a', { class: 'home-research', href: '/research/' }, 'RESEARCH', h('span', {}, 'How we measure the sound')),
+      h('a', { class: 'home-research', href: '/pricing' }, 'PLANS', h('span', {}, 'Free studio and Studio Pro')),
       h('a', { class: 'home-research', href: '/legal/' }, 'LEGAL', h('span', {}, 'Rights, privacy and terms'))));
   ui.home = home;
   return home;
@@ -2397,6 +2409,8 @@ function buildHeader() {
       h('button', { class: 'btn' + (studioOpen ? '' : ' on'), ...(!studioOpen && { 'aria-current': 'page' }), title: 'Generate and play songs', onclick: () => { if (studioOpen) toggleStudio(); } }, 'CREATE'),
       h('button', { class: 'btn studio-toggle' + (studioOpen ? ' on' : ''), ...(studioOpen && { 'aria-current': 'page' }), title: 'Sequencer, mixer, export and every control', onclick: () => { if (!studioOpen) toggleStudio(); } }, 'STUDIO'),
       clubBtn, libraryBtn, jukeboxBtn, artistBtn),
+    h('button', { type: 'button', class: 'btn ghost listener-entry', 'aria-haspopup': 'dialog',
+      onclick: () => openListenerAccount() }, h('i', { 'aria-hidden': 'true' }), 'ACCOUNT'),
     h('button', { class: 'btn ghost tools-toggle studio-only', 'aria-expanded': 'false', onclick: (e) => {
       const open = document.body.classList.toggle('tools-open');
       e.currentTarget.setAttribute('aria-expanded', String(open));
@@ -2979,6 +2993,23 @@ window.addEventListener('pageshow', () => { roomLifecycleAt = performance.now() 
 
 prepareSample(null);
 build();
+onAccount(({ account }) => {
+  const prefs = account?.listener;
+  const favorites = (prefs?.favoriteGenres || []).filter((id) => Object.hasOwn(STYLES, id));
+  const nextDefault = prefs?.defaultGenre;
+  const changed = favoriteGenres.join() !== favorites.join();
+  const applyDefault = !playing && !paused && !tuning && !guest && Object.hasOwn(STYLES, nextDefault) &&
+    (nextDefault !== listenerDefault || account.id !== listenerAccountID);
+  favoriteGenres = favorites;
+  listenerDefault = nextDefault;
+  listenerAccountID = account?.id;
+  if (applyDefault) {
+    style = nextDefault;
+    family = STYLES[style].family;
+    build();
+  } else if (changed) renderHome();
+});
+getAccount();
 // Once the page is idle, warm the recordings the selected style and the saved song will play.
 (window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(() => {
   preloadStyle(style);
@@ -2991,7 +3022,16 @@ requestAnimationFrame(frame);
 onPushChange(() => { if (dropOpen && !playing) renderHome(); });
 navigator.serviceWorker?.addEventListener('message', (e) => { if (e.data?.type === 'untergrund:open') openDropLink(new URL(e.data.url, location.href).searchParams); });
 const shared = readShareParams(location);
-if (shared) setTimeout(() => {
+const accountParams = new URLSearchParams(location.search);
+const googleResult = accountParams.get('account');
+const resetToken = new URLSearchParams(location.hash.slice(1)).get('reset-password');
+if (googleResult !== null || resetToken !== null) {
+  accountParams.delete('account');
+  const search = accountParams.toString();
+  window.history.replaceState(null, '', location.pathname + (search ? '?' + search : '') + (resetToken === null ? location.hash : ''));
+  openListenerAccount({ googleResult, resetToken });
+}
+else if (shared) setTimeout(() => {
   // "Remix this track" from a release page goes straight into a credited remix.
   // An account's release can outlive its crate copy, so the public record is tried first, as the release page does.
   if (shared.id && new URLSearchParams(location.search).has('remix')) {

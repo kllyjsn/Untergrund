@@ -274,10 +274,12 @@ assert(!recordedJazzWind({ rec() {} }, 0, .5, 70, .2, 'reed', false, {}, 1), 'un
   assert(!requested.includes('fl'));
 }
 for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
-  const song = freshSong(style, 42); song.chain = 'GGGGGGGG'; song.ending = false;
+  const song = freshSong(style, 42); song.chain = style === 'jazzfunk' ? 'G'.repeat(16) + 'C'.repeat(24) + 'H'.repeat(16) : 'GGGGGGGG'; song.ending = false;
   const e = new Recorder(song), seq = new Sequencer(e, song), takes = [];
-  e.hook = (...args) => takes.push({ pitch: args[2], duration: args[3], velocity: args[1], take: args[9]?.take });
-  for (let i = 0; i < 128; i++) seq.tick(i, .05 + i * e.stepDur);
+  e.hook = (...args) => takes.push({ step: e.step, pitch: args[2], duration: args[3], velocity: args[1], take: args[9]?.take });
+  for (let i = 0; i < song.chain.length * 16; i++) seq.tick(i, .05 + i * e.stepDur);
+  assert(takes.length, `${style}: the generated wind actually enters`);
+  if (style === 'jazzfunk') assert(takes.every((hit) => hit.step >= 64), 'the written rhythm intro remains wind tacet');
   const counts = new Map();
   for (const hit of takes) {
     const trumpet = song.patterns[6].hook.v === 'tpt';
@@ -289,6 +291,7 @@ for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
   }
   song.patterns[6].hook = { h: 1, v: 'airflute', o: 0, s: Array(32).fill(0), x: {} };
   song.patterns[6].hook.s[0] = [4, 1, .6]; song.patterns[6].hook.s[4] = [4, 1, .6];
+  if (style === 'jazzfunk') { song.chainOn = false; song.current = 6; }
   const placed = new Recorder(song), player = new Sequencer(placed, song), pair = [];
   placed.hook = (...args) => pair.push(args[9]?.take);
   for (let i = 0; i < 16; i++) player.tick(i, .05 + i * placed.stepDur);

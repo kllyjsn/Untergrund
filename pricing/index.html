@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#070708" />
+  <meta name="description" content="Make music for free in Untergrund. With Studio Pro, get three editable song drafts from one prompt." />
+  <link rel="canonical" href="https://www.untergrund.sh/pricing" />
+  <title>Plans · UNTERGRUND</title>
+  <link rel="icon" type="image/png" href="/icons/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="stylesheet" href="/css/pages.css" />
+  <link rel="stylesheet" href="/css/pricing.css" />
+  <link rel="stylesheet" href="/css/account.css" />
+</head>
+<body class="pp">
+  <header class="pp-top">
+    <a class="pp-brand" href="/"><span class="logo" aria-hidden="true"><b></b></span><span>UNTERGRUND</span></a>
+    <a class="pp-make" href="/">Back to studio</a>
+  </header>
+  <main class="pp-main plans">
+    <span class="pp-eyebrow">MEMBERSHIP</span>
+    <h1>Make music your way.</h1>
+    <p class="plans-intro">Make, edit, and export for free. With Studio Pro, start with three different arrangements from one prompt and take your favorite into the studio.</p>
+    <div class="plans-grid">
+      <section class="plan-card">
+        <h2>Free</h2>
+        <p class="plan-price">$0</p>
+        <ul><li>Generate, edit and export tracks</li><li>Publish to your artist page</li><li>Listen and join public Club Rooms</li></ul>
+        <a class="plan-action" href="/">Open the studio</a>
+      </section>
+      <section class="plan-card plan-paid">
+        <h2>Studio Pro</h2>
+        <p id="plan-price" class="plan-price">$19 / month</p>
+        <ul><li>Everything in Free</li><li>Three editable song drafts from one prompt</li><li>Up to 60 draft sets per calendar month</li></ul>
+        <p id="plan-status" class="plan-status" role="status">Checking availability…</p>
+        <button id="plan-action" class="plan-action" type="button" hidden></button>
+        <button id="plan-manage" class="plan-action plan-secondary" type="button" hidden>Manage billing</button>
+        <p id="plan-renewal" class="plan-fine" hidden>Renews monthly until canceled. Payment is handled by Stripe.</p>
+        <noscript><p class="plan-fine">Enable JavaScript to check membership availability.</p></noscript>
+      </section>
+    </div>
+    <footer class="plan-links"><a href="/legal/#terms">Terms</a><a href="/legal/#privacy">Privacy</a><a href="/legal/#requests">Contact</a></footer>
+  </main>
+  <script type="module" src="/js/pricing.js"></script>
+</body>
+</html>
