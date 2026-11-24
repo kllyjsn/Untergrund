@@ -1393,6 +1393,7 @@ export class Engine {
 
   scheduleDuck({ t, parts }) {
     for (const [param, depth, release, attack, hold, rest = 1, lead = 0] of parts) {
+      if (lead) (this.duckLeads ??= new WeakMap()).set(param, Math.max(lead, this.duckLeads.get(param) || 0));
       param.cancelScheduledValues(t - lead);
       param.setTargetAtTime(rest - depth, t - lead, attack);
       param.setTargetAtTime(rest, t + hold, release);
@@ -1404,7 +1405,9 @@ export class Engine {
     this.ducks.sort((a, b) => a.t - b.t);
     for (const param of [this.duck.gain, this.rumbleDuck.gain, this.ch.acid.sc?.gain, this.windDuck?.gain, this.pocketLow?.duck.gain]) {
       if (!param) continue;
-      param.cancelScheduledValues(from);
+      // A duck that leads its hit starts before `from`, so cancel from its lead too.
+      const at = from - (this.duckLeads?.get(param) || 0);
+      param.cancelScheduledValues(at);
       let previous;
       for (const duck of this.ducks) {
         if (duck.t >= from) break;
@@ -1412,7 +1415,7 @@ export class Engine {
       }
       if (previous) {
         const [, , release, , hold, rest = 1] = previous.parts.find(p => p[0] === param);
-        if (previous.t + hold >= from) param.setTargetAtTime(rest, previous.t + hold, release);
+        if (previous.t + hold >= at) param.setTargetAtTime(rest, previous.t + hold, release);
       }
     }
     for (const duck of this.ducks) if (duck.t >= from) this.scheduleDuck(duck);

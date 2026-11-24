@@ -322,6 +322,13 @@ for (const listener of ['dnb', 'euphoric', 'deephouse']) {
   e.pocketLow.duck.gain.setTargetAtTime = function (...args) { ducks.push(args); return target.apply(this, args); };
   e.duckAt(0.1, 1);
   assert(ducks.some(([gain, t]) => Math.abs(t - 0.092) < 1e-9 && gain === -12), 'a kick ducks only the low band by 12dB, starting 8ms ahead of its attack');
+  const cancels = [], cancel = e.pocketLow.duck.gain.cancelScheduledValues;
+  e.pocketLow.duck.gain.cancelScheduledValues = function (t) { cancels.push(t); return cancel.call(this, t); };
+  e.scheduleDuck({ t: 0.1, parts: [[e.pocketLow.duck.gain, 12, 0.07, 0.002, 0.03, 0, 0.008]] });
+  cancels.length = 0; e.ducks = [];
+  e.rebuildDucks(0.1);
+  assert(cancels.some((t) => t <= 0.092 + 1e-9), 'removing a kick also cancels the low-band duck that leads it');
+  e.pocketLow.duck.gain.cancelScheduledValues = cancel;
   e.discardQueuedNotes(0.2);
   assert(ducks.some(([gain, t]) => gain === 0 && t === 0.2), 'discarding notes releases the low-band sidechain');
 }
