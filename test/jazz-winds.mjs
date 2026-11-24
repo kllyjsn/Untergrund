@@ -104,6 +104,18 @@ for (const voice of ['harmon', 'airflute']) assert.deepEqual(probe(voice, .6, .8
 const missingFunk = probe('tpt', .6, .8, 0, 'jtv1', 'jazzfunk');
 assert.equal(missingFunk.result, false);
 assert.deepEqual(missingFunk.calls, [], 'a failed Jazz-Funk bank retains the loading fallback');
+const takeCuts = { 60: [2611, 60, -18], 65: [2812, 60, -6], 77: [2795, 60, -12] };
+for (const [root, cut] of Object.entries(takeCuts)) {
+  for (const style of ['bossa', 'swing', 'modal', 'jazzfunk', undefined]) for (const midi of [+root, +root + 1]) {
+    const [buf, , level, , rate, , fx] = probe('tpt', .9, .7, 0, undefined, style, midi).calls[0];
+    assert.equal(buf.bank, 'jtv2'); assert.equal(buf.midi, +root);
+    assert.deepEqual(fx.peaks, [...WIND_PEAKS.jtv2[root], cut].map(([f, q, db]) => [f * rate, q, db]), 'the identified hard sustain carries its narrow correction at the actual transposed rate');
+    assert.equal(level, .8 * (style === 'jazzfunk' ? 10 ** (2 / 20) : 1), 'take EQ preserves body gain and the approved Jazz-Funk lift');
+  }
+  for (const rate of [NaN, Infinity, 0, -1]) assert.deepEqual(windNotches('jtv2', +root, rate), []);
+  const missing = probe('tpt', .9, .7, 0, 'jtv2', 'jazzfunk', +root);
+  assert.equal(missing.result, false); assert.deepEqual(missing.calls, [], 'a corrected take never bypasses loading fallback');
+}
 for (const [voice, velocity, duration, take, bank] of [
   ['tpt', .4, .8, 0, 'jtv1'], ['tpt', .9, .8, 0, 'jtv2'],
   ['tpt', .3, .15, 0, 'jts11'], ['tpt', .3, .15, 1, 'jts12'],
@@ -220,7 +232,8 @@ for (const style of ['swing', 'modal', 'bossa', 'jazzfunk']) {
 assert.deepEqual(windNotches('jtv1', 70, NaN), []);
 assert.deepEqual(windNotches('missing', 70, 1), []);
 for (const [bank, notes] of Object.entries(WIND_PEAKS)) for (const [m, peaks] of Object.entries(notes)) {
-  assert.deepEqual(windNotches(bank, +m, 2), peaks.map(([f, q, db]) => [f * 2, q, db]));
+  const extra = bank === 'jtv2' && takeCuts[m] ? [takeCuts[m]] : [];
+  assert.deepEqual(windNotches(bank, +m, 2), [...peaks, ...extra].map(([f, q, db]) => [f * 2, q, db]), 'every other recorded take retains its exact existing filters');
   assert(peaks.every(([f]) => f > 1.1 * 440 * 2 ** ((+m - 69) / 12)), 'a high flute fundamental is the note, not an unwanted resonance');
 }
 const provenance = JSON.parse(readFileSync(new URL('../samples/jazz-winds-provenance.json', import.meta.url)));
