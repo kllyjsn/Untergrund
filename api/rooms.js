@@ -19,7 +19,7 @@ export default async function handler(req, res) {
   }
   if (rooms === undefined) { const kv = roomsKv(); rooms = kv ? createRooms({ kv }) : null; }
   let r;
-  try { r = await routeRooms(rooms, { method: req.method, path, query, body }); }
+  try { r = await routeRooms(rooms, { method: req.method, path, query, body, apiBase: process.env.ROOMS_API_URL }); }
   catch (err) { console.error('rooms failed', err.message); r = { status: 503, json: { error: 'rooms_unavailable' } }; }
   if (r.cache) res.setHeader('Cache-Control', r.cache);
   if (r.status === 204) return res.status(204).end();

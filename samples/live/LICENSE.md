@@ -1,9 +1,9 @@
 # Recorded instrument samples: licenses
 
 Every audio file in this folder is derived from one of the sources below. All are released under the
-**Creative Commons CC0 1.0 Universal** public-domain dedication except the two cuíca files and the twenty MTG tenor
-saxophone files (`tsax_*`, `tsaxb_*`), which are licensed **CC BY 4.0** and must keep the credits below wherever they
-are redistributed (full CC0 legal text linked below or in each source repo's `LICENSE`; the Virtuosity Drums and double-bass files are
+**Creative Commons CC0 1.0 Universal** public-domain dedication except the two cuíca files, the twenty MTG tenor
+saxophone files (`tsax_*`, `tsaxb_*`) and Fender Rhodes Mark II recordings, which are licensed **CC BY 4.0** and must
+keep the credits below wherever they are redistributed (full CC0 legal text linked below or in each source repo's `LICENSE`; the Virtuosity Drums and double-bass files are
 byte-identical, sha256 `a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499`). CC0 waives copyright and
 related rights, so those files can be redistributed in this app and used in commercial music without attribution; we
 credit the authors anyway. CC BY 4.0 also allows commercial use and redistribution, provided the author, source,
@@ -311,9 +311,29 @@ recording's measured pitch (`python3 test/sampletune.py`) is corrected in `js/li
 ## Rejected
 
 - jlearman jRhodes3d electric piano: its samples are CC-BY-NC 4.0 (non-commercial), so it is not bundled.
-  The Rhodes stays synthesized until a CC0 electric piano is found.
+  This source is not used for the separately prepared CC BY 4.0 tim.kahn Rhodes recordings below.
 - MTG baritone sax and Karoryfer Bear Sax: the generated hooks sit in the alto and tenor ranges, so a baritone would
   only play transposed or an octave under the bass; not bundled until a part is written for it.
+
+## Fender Rhodes Mark II
+
+**Fender Rhodes Mark II samples by tim.kahn**, from [Freesound pack 3957](https://freesound.org/people/tim.kahn/packs/3957/),
+licensed under [Creative Commons Attribution 4.0 International](https://creativecommons.org/licenses/by/4.0/).
+Retain this credit, source and license link when redistributing these adaptations. Individual sound URLs,
+original filenames and SHA-256 hashes are in [rhodes-sources.json](../rhodes-sources.json).
+
+`rhodes_{28,31,34,37,40,43,46,49,52,55,58,61,64,86,89,93,96,100}.flac` are edited adaptations:
+summed to mono, 44.1 kHz 16-bit PCM, leading silence removed (32-frame preroll), 0.5 ms fade in,
+natural decay to -48 dB relative to the loudest 50 ms or at most 9 s, final 0.6 s cosine-squared fade,
+peak normalized to 0.5 (-6.02 dBFS), lossless FLAC. No denoising, synthesis or pitch correction.
+The piano uses the same decay rule, cap and peak target. Reproduce from the originals with
+`python3 scripts/fetch-rhodes.py --originals /path/to/mk2` (ffmpeg and numpy required).
+
+Names use measured concert MIDI, one octave above the source labels. Actual source coverage is E1–E4
+(28–64) and D6–E7 (86–100), not the narrower range stated in the supplied metadata note.
+There is no convincing complete pair of velocity layers; only one set is prepared.
+Pitch offsets and all 53 source measurements are in [rhodes-analysis.json](../rhodes-analysis.json);
+selection and gap caveats are in [rhodes-analysis.md](../rhodes-analysis.md).
 
 ## Recorded chord instruments (PIANO, GUITAR, HORNS, STRINGS)
 
