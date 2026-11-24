@@ -225,7 +225,7 @@ export function guitarHand(kind, pocket, chorus) {
     : pocket === 'FOLK' && !chorus && (kind === 'agtr' || kind === 'gtr') ? 'pick'
       : funk && (kind === 'gtr' || kind === 'jazz') ? 'chop' : 'strum';
   const double = (kind === 'drive' && pocket === 'ROCK') || ((pocket === 'POP' || pocket === 'FOLK') && chorus && (kind === 'gtr' || kind === 'agtr'));
-  const fx = funk && kind === 'gtr' ? 'chorus' : kind === 'gretsch' && pocket === 'COUNTRY' ? 'trem' : null;
+  const fx = funk && kind === 'gtr' ? 'chorus' : (kind === 'gretsch' || kind === 'gretschc') && pocket === 'COUNTRY' ? 'trem' : null;
   return { play, double, fx };
 }
 
@@ -368,6 +368,8 @@ export function teleBend(m, dur, strong, inKey, r) {
   return inKey(m - 2) ? 2 : inKey(m - 1) ? 1 : 0;
 }
 BAND_PLAY.twang = { ...BAND_PLAY.gtr, gain: 3, len: 1.4, min: 0.25, softBelow: 0, lo: 52, hi: 84, lp: 6800, grip: false, even: 0.4, rel: 0.12, oct: 0, slap: true };
+// Country's rhythm Gretsch sits under the Telecaster: rolled off above 3.4 kHz so the band's 2-5 kHz stays near main's.
+BAND_PLAY.gretschc = { ...BAND_PLAY.gretsch, set: 'gretsch', lp: 3400, peak: [3400, 1.2, -9] };
 BAND_PLAY.tele = { set: 'tele', gain: 3, len: 1.6, min: 0.3, strum: 0, shift: 0, lo: 52, hi: 74, lp: 4000, fade: 0.004, rel: 0.15, grip: false, even: 0.4, oct: -1, slap: true, tele: true, vib: 18 };
 // A hammer-on's grace note: the step below, cut off by the finger landing on the note.
 BAND_PLAY.grace = { ...BAND_PLAY.tele, rel: 0.015, fade: 0.003, vib: 0 };
@@ -3531,7 +3533,7 @@ export class Engine {
   nylon(...a) { return this.recorded('nylon', 'pluck', ...a); }
   jazzGuitar(...a) { return this.recorded('jazz', 'keys', ...a); }
   banjo(...a) { return this.recorded('banjo', 'pluck', ...a); }
-  twangGuitar(...a) { return this.recorded('gretsch', 'pluck', ...a); }
+  twangGuitar(...a) { return this.recorded(pocketOf(this.state.master)?.name === 'COUNTRY' ? 'gretschc' : 'gretsch', 'pluck', ...a); }
   guitar(...a) { return this.recorded('gtr', 'pluck', ...a); }
   horns(...a) { return this.recorded('horn', 'brass', ...a); }
   strings(...a) { return this.recorded('str', 'pad', ...a); }
