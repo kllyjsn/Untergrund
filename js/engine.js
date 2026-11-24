@@ -372,7 +372,7 @@ BAND_PLAY.tele = { set: 'tele', gain: 3, len: 1.6, min: 0.3, strum: 0, shift: 0,
 // A hammer-on's grace note: the step below, cut off by the finger landing on the note.
 BAND_PLAY.grace = { ...BAND_PLAY.tele, rel: 0.015, fade: 0.003, vib: 0 };
 // Its answer: a diatonic harmonica in C breathing held notes.
-BAND_PLAY.hca = { gain: 1.7, len: 1.2, min: 0.3, strum: 0, shift: 0, lo: 55, hi: 84, lp: 5200, fade: 0.03, rel: 0.12, even: 0.5, oct: -1, hold: true };
+BAND_PLAY.hca = { gain: 1.7, len: 1.2, min: 0.3, strum: 0, shift: 0, lo: 55, hi: 84, lp: 3600, peak: [4400, 0.9, -9], fade: 0.03, rel: 0.12, even: 0.5, oct: -1, hold: true };
 // The rock band's riff guitar: the rhythm amp, double-stops up the neck.
 BAND_PLAY.lead = { ...BAND_PLAY.drive, lo: 45, hi: 79, grip: false, even: 0.4, gain: 2.2, lp: 4400, soft: 1600, vib: 8, rel: 0.16, oct: -1, dyad: true };
 // The country lead amp's tube stage: a gentle tanh, biased so it adds even harmonics, normalised to +-1.
@@ -3079,7 +3079,7 @@ export class Engine {
     let outs = hand?.double ? [this.panFor(out, -1, true), this.panFor(out, 1, false)] : [out];
     if (R.body) outs = outs.map((o) => this.bodyFor(o, R.body));
     if (kind === 'agtr' && this.playbackStyle === 'country') {
-      outs = outs.map((o) => this.bodyFor(this.bodyFor(o, [3050, 0.95, -10]), [1100, 0.8, 9]));
+      outs = outs.map((o) => this.bodyFor(this.bodyFor(o, [3050, 0.95, -2]), [1100, 0.8, 3]));
       v *= dbGain(1.5);
     }
     if (hand?.fx === 'chorus') outs = outs.map((o) => this.chorusFor(o));
@@ -3358,7 +3358,7 @@ export class Engine {
     sh.curve = TELE_CURVE; sh.oversample = '4x';
     comp.threshold.value = -22; comp.knee.value = 6; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.14;
     let node = inp.connect(this.filter('lowpass', 2600, 0.6)).connect(this.gain(0.5)).connect(sh).connect(comp);
-    for (const [type, f, q, db] of [['highpass', 90, 0.7], ['peaking', 180, 0.8, 2], ['peaking', 950, 0.8, 13], ['highshelf', 1800, 0.7, -14], ['peaking', 2000, 1, -7], ['peaking', 2900, 0.8, -5], ['peaking', 7000, 1, -6], ['lowpass', 3800, 0.54], ['lowpass', 3800, 1.31]]) {
+    for (const [type, f, q, db] of [['highpass', 90, 0.7], ['peaking', 180, 0.8, 2], ['peaking', 950, 0.8, 8], ['highshelf', 1800, 0.7, -11], ['peaking', 2000, 1, -10], ['peaking', 2900, 0.8, -10], ['peaking', 7000, 1, -6], ['lowpass', 3200, 0.54], ['lowpass', 3200, 1.31]]) {
       const f2 = this.filter(type, f, q);
       if (db) f2.gain.value = db;
       node = node.connect(f2);
