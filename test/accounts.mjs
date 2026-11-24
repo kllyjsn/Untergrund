@@ -202,9 +202,11 @@ const race = await Promise.all([jar(), jar()].map((j) => request(j, 'email-signu
   { email: 'race@example.com', password }, { client: 'signup-race' })));
 assert.deepEqual(race.map((r) => r.status).sort(), [201, 409], 'concurrent registrations never create two identities for the same email');
 for (let i = 0; i < 10; i++) {
-  assert.equal((await signIn(jar(), { email: 'ratelimit@example.com' }, { client: `bot-${i}` })).status, 401);
+  assert.equal((await signIn(jar(), {}, { client: 'repeated-attempts' })).status, 401);
 }
-assert.equal((await signIn(jar(), { email: 'ratelimit@example.com' }, { client: 'bot-fresh' })).status, 429);
+assert.equal((await signIn(jar(), {}, { client: 'repeated-attempts' })).status, 429);
+assert.equal((await signIn(jar(), { password: newPassword }, { client: 'another-network' })).json.account.id, id,
+  'failed guesses on another network cannot block the real listener from signing in');
 console.log('listener sign-up, cross-device preferences, privacy, password change and rate limits passed');
 
 // ---------- Google OIDC and explicit provider linking ----------

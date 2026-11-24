@@ -327,7 +327,7 @@ export async function handleAccount(req, ctx) {
     if (action === 'reset-request' && !reset) return err(503, 'reset_unavailable');
     const id = emailID(email);
     const emailKey = K.email(id);
-    if (action === 'email-login' && !await allow(kv, 'email-attempt', id)) return err(429, 'rate_limited');
+    if (action === 'email-login' && !await allow(kv, 'email-attempt', digest(`${client}:${id}`))) return err(429, 'rate_limited');
     const accountID = await kv.cmd(['GET', emailKey]);
 
     if (action === 'reset-request') {
