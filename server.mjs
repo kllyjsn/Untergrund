@@ -48,7 +48,8 @@ const STATS_TOKEN = process.env.STATS_TOKEN || (MOCK ? 'dev' : '');
 const crateStore = redisStore() || memoryStore();
 const singStore = memorySingStore();
 // Accounts/handles/follows persist to a local JSON file when Redis isn't configured.
-const accountKv = redisAccountKv() || memoryAccountKv({ file: process.env.DATA_FILE || path.join(ROOT, '.data/kv.json') });
+const accountDataFile = path.resolve(process.env.DATA_FILE || path.join(ROOT, '.data/kv.json'));
+const accountKv = redisAccountKv() || memoryAccountKv({ file: accountDataFile });
 let authSecret = process.env.AUTH_SECRET || '';
 if (!authSecret && !redisKv()) {
   authSecret = (await accountKv.cmd(['GET', 'untergrund:dev:auth-secret'])) || randomBytes(32).toString('hex');
@@ -224,7 +225,8 @@ http.createServer(async (req, res) => {
     }
     if (p.endsWith('/')) p += 'index.html';
     const file = path.join(ROOT, path.normalize(p));
-    if (!file.startsWith(ROOT) || /\/(\.git|api|node_modules|suno-lab)(\/|$)/.test(file.slice(ROOT.length))) { res.writeHead(404); return res.end(); }
+    if (!file.startsWith(ROOT + path.sep) || file === accountDataFile ||
+      /\/(\.[^/]+|api|node_modules|suno-lab)(\/|$)/.test(file.slice(ROOT.length))) { res.writeHead(404); return res.end(); }
     const data = await readFile(file);
     res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
     res.end(data);
