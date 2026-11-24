@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { freshSong, sanitize } from '../js/state.js';
 import { Engine, Sequencer, feelTempo, parseChain, stabPitches } from '../js/engine.js';
 import { Recorder } from '../js/midi.js';
-import { jazzHarmony, jazzNotes, jazzVoicing, jazzMelody } from '../js/jazz.js';
+import { jazzHarmony, jazzNotes, jazzVoicing, jazzMelody, JAZZ_MIX } from '../js/jazz.js';
 import { funkBass, funkGroove, funkNotes, FUNK_PROGS } from '../js/jazzfunk.js';
 import { CHORDS, TRACK_IDS } from '../js/params.js';
 import { parse } from '../js/describe.js';
@@ -19,8 +19,8 @@ const pc = (n) => (n % 12 + 12) % 12;
   for (const bpm of [90, 120]) {
     const s = freshSong('jazzfunk', 42); s.bpm = bpm;
     const e = new Recorder(s); e.playingPattern = s.patterns[6]; e.harm = jazzHarmony(e.playingPattern, 0);
-    const hold = Math.max(s.params.stab.decay, e.stepDur * 3);
-    assert.equal(stabPitches(e).dur, hold, 'comp holds through three sixteenths without changing its tone controls');
+    const hold = Math.max(s.params.stab.decay, e.stepDur * 4.5);
+    assert.equal(stabPitches(e).dur, hold, 'comp holds through four and a half sixteenths without changing its tone controls');
     e.trigger('stab', 0.05, 0.6);
     assert(e.notes.stab.length && e.notes.stab.every((n) => n.dur === hold), 'MIDI uses the scheduled comp hold');
     const params = structuredClone(s.params.stab), calls = [];
@@ -164,7 +164,7 @@ for (const seed of [1, 2, 3, 11, 42, 77, 1234, 12345, 0x12345678]) {
   assert.equal(recorded, 1, 'supporting horns answer the head breath');
   response.funkKeysGain = 0;
   Engine.prototype.stab.call(response, 0, 0.6);
-  assert(Math.abs(keyLevels[0] / keyLevels[1] - 10 ** (10.2 / 20)) < 1e-12, 'keys receive the head mix lift');
+  assert(Math.abs(keyLevels[0] / keyLevels[1] - 10 ** (5 / 20)) < 1e-12, 'keys receive the head mix lift');
   assert.equal(hornLevels[0], hornLevels[1], 'keys-only fader never boosts the horn response');
   response.rec = () => null;
   Engine.prototype.stab.call(response, 0, 0.6);
@@ -227,6 +227,22 @@ for (const prog of FUNK_PROGS) {
   });
   assert(calls.some(([type, buf, , , dest, , , fx]) => type === 'sample' && buf.name === 'gtrmute' && dest === out && fx.release === 0.02));
   assert(calls.some(([type, set, , , , , dest]) => type === 'chank' && set[0][1].name === 'gtr' && dest === out));
+  const unboosted = [], guitarGain = JAZZ_MIX.jazzfunk.guitar;
+  try {
+    JAZZ_MIX.jazzfunk.guitar = 0;
+    record(s, 8, (e) => {
+      e.ch = { perc: { input: out }, oh: { input: {} } };
+      e.rec = (name) => name === 'kit' ? kit : [[69, { name }]];
+      e.playBuf = (...args) => unboosted.push(['sample', ...args]);
+      e.recordedNote = (...args) => unboosted.push(['chank', ...args]);
+      e.liveFx = () => ({ rate: 1, fx: {} });
+    });
+  } finally { JAZZ_MIX.jazzfunk.guitar = guitarGain; }
+  assert.equal(calls.length, unboosted.length, 'guitar fader adds no attacks');
+  for (let k = 0; k < calls.length; k++) {
+    const hit = calls[k], plain = unboosted[k], guitar = hit[0] === 'chank' || hit[4] === out;
+    assert(Math.abs(hit[3] / plain[3] - (guitar ? 10 ** (4.5 / 20) : 1)) < 1e-12, 'both guitar articulations receive the fader without boosting hats');
+  }
   for (const [type, buf, at, , dest, , dur, fx] of calls) if (type === 'sample' && dest !== out) {
     assert(fx.release === 0.005 && dur > 0, 'open hat is damped into the following downbeat');
     const close = 0.05 + (Math.floor(Math.round((at - 0.05) / sd) / 16) + 1) * 16 * sd;
@@ -281,13 +297,13 @@ for (const seed of [0, 42, 77, 12345, 1e9]) {
   for (const id of ['kick', 'acid', 'guitar']) assert(within(id, 0, 2).length, `${id}: rhythm section opens the song`);
   assert(within('hook', 4, 6).length, 'head phrase A enters at bar four');
   assert(within('stab', 32, 36).every((n) => n.v === 0.35) && within('stab', 36, 38).some((n) => n.v === 0.48), 'keys retain the written lay-back while their fader supports the second chorus');
-  for (const [from, to, db] of [[4, 16, 10.2], [16, 32, 11.5], [32, 36, 12], [36, 48, 11.5]]) {
+  for (const [from, to, db] of [[4, 16, 5], [16, 32, 6.3], [32, 36, 6.8], [36, 48, 6.3]]) {
     const levels = faders.filter((n) => step(n) >= from * 16 && step(n) < to * 16);
     assert(levels.length && levels.every((n) => n.db === db), 'head, solo and lay-back use keys-only faders');
   }
   for (let bar = 16; bar < 62; bar++) {
     assert.equal(new Set(within('stab', bar, bar + 1).map(step)).size, 4, 'each solo bar retains four comp strikes');
-    assert(within('stab', bar, bar + 1).every((n) => n.dur >= sd * 3), 'solo comp sustains between strikes');
+    assert(within('stab', bar, bar + 1).every((n) => n.dur >= sd * 4.5), 'solo comp sustains between strikes');
   }
   assert(!within('hook', 62, 64).length && within('ch', 62, 64).length && within('guitar', 62, 64).length, 'quiet hats and guitar keep time under the band hits');
   for (const [bar, figure] of [[62, [0, 6, 10]], [63, [0, 3, 6, 12, 15]]]) {

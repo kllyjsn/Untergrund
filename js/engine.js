@@ -413,7 +413,7 @@ export function stabPitches(e) {
       const thumb = 48 + ((e.state.key + h.r + (e.step % 16 === 8 ? 7 : 0)) % 12 + 12) % 12;
       notes = BOSSA_BATIDA[Math.floor(e.step / 16) % 2].includes(e.step % 16) ? [...new Set([thumb, ...notes])].sort((a, b) => a - b) : [thumb];
     }
-    return { root: notes[0], vo, iv: notes.map((n) => n - notes[0]), pedal, ...(jazz === 'jazzfunk' ? { dur: p.rhodesHold ?? Math.max(p.decay, (e.stepDur || 60 / e.state.bpm / 4) * 3) } : {}) };
+    return { root: notes[0], vo, iv: notes.map((n) => n - notes[0]), pedal, ...(jazz === 'jazzfunk' ? { dur: p.rhodesHold ?? Math.max(p.decay, (e.stepDur || 60 / e.state.bpm / 4) * 4.5) } : {}) };
   }
   const { root, notes, home } = stabNotes(e.state, e.harm);
   const voiced = e.lastChord = voiceLead(notes, e.lastChord, home);
@@ -6137,12 +6137,13 @@ export class Sequencer {
         const notes = jazzVoicing(e.harm, s.key, 'jazzfunk').map((n) => n > 72 ? n - 12 : n);
         const pitches = chank ? notes.slice(-3) : [notes.at(-1)];
         if (e.rec) {
+          const level = v * dbGain(JAZZ_MIX.jazzfunk.guitar);
           const set = e.rec(name);
           if (!set) loadBand(name);
-          else if (chank) for (const [k, m] of pitches.entries()) e.recordedNote(set, at + k * 0.0015, v * 2, m, dur, e.ch.perc.input, -5, name, 0.9);
+          else if (chank) for (const [k, m] of pitches.entries()) e.recordedNote(set, at + k * 0.0015, level * 2, m, dur, e.ch.perc.input, -5, name, 0.9);
           else {
             const m = pitches[0], [center, buf] = set.reduce((a, b) => Math.abs(b[0] - m) < Math.abs(a[0] - m) ? b : a);
-            e.playBuf(buf, at, v * 2, e.ch.perc.input, 2 ** ((m - center) / 12), dur, { lp: 9000, fade: 0.002, release: 0.02 });
+            e.playBuf(buf, at, level * 2, e.ch.perc.input, 2 ** ((m - center) / 12), dur, { lp: 9000, fade: 0.002, release: 0.02 });
           }
         } else for (const [k, m] of pitches.entries()) e.add?.('guitar', at + k * 0.0015, m, dur, v);
       }
