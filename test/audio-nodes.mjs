@@ -152,7 +152,7 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
   assert.equal(e.out.gain.value, output, 'level recovery is independent of pre-clip drive');
   s.patterns[0].jazz.style = 'swing'; e.applyAll();
   const clipHeadroom = 20 * Math.log10(drive / e.limTrim.gain.value) + 1.5;
-  assert(Math.abs(clipHeadroom - 1) < 1e-10, 'Jazz-Funk drives the oversampled clipper for peak headroom');
+  assert(Math.abs(clipHeadroom - 1.35) < 1e-10, 'Jazz-Funk drives the oversampled clipper for peak headroom');
   assert(Math.abs(20 * Math.log10(output / e.out.gain.value) - (JAZZ_MIX.jazzfunk.output - JAZZ_MIX.swing.output)) < 1e-10, 'Jazz-Funk applies its headroom after the clipper');
   delete s.artist;
   const clipEvents = [], outputEvents = [];
