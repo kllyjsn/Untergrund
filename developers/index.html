@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Developers · UNTERGRUND</title>
+  <meta name="description" content="Use the UNTERGRUND public API to discover releases, artists and live Club Rooms or embed a playable track." />
+  <link rel="canonical" href="https://www.untergrund.sh/developers/" />
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="stylesheet" href="/css/pages.css" />
+  <link rel="stylesheet" href="/css/developers.css" />
+</head>
+<body class="pp">
+  <header class="pp-top">
+    <a class="pp-brand" href="/" aria-label="UNTERGRUND home"><span class="logo" aria-hidden="true"><b></b></span>UNTERGRUND</a>
+    <a class="pp-make" href="/">Open the app</a>
+  </header>
+  <main class="pp-main dev-docs">
+    <header>
+      <p class="pp-eyebrow">DEVELOPERS · PUBLIC API V1</p>
+      <h1>Build with UNTERGRUND.</h1>
+      <p>Find public releases, creator profiles, and live Club Rooms. The API is read-only and needs no API key.</p>
+      <a class="pp-make" href="/api/v1/openapi.json">OpenAPI 3.1 specification</a>
+    </header>
+    <section>
+      <h2>Get your first release</h2>
+      <pre><code>curl -fsS https://www.untergrund.sh/api/v1/tracks</code></pre>
+      <p>Pick an <code>id</code> from <code>data.tracks</code>, then look up that release:</p>
+      <pre><code>curl -fsS "https://www.untergrund.sh/api/v1/tracks/$TRACK_ID"</code></pre>
+      <dl>
+        <dt><code>GET /api/v1/tracks</code></dt><dd>Up to 60 recent public releases, newest first.</dd>
+        <dt><code>GET /api/v1/tracks/{id}</code></dt><dd>Track metadata, a public link, an embed URL, and creator credit when available.</dd>
+        <dt><code>GET /api/v1/artists/{handle}</code></dt><dd>A public creator profile and its releases.</dd>
+        <dt><code>GET /api/v1/rooms</code></dt><dd>Public Club Rooms that are currently on air. An empty list means none are live.</dd>
+      </dl>
+    </section>
+    <section>
+      <h2>Embed a track</h2>
+      <p>Replace <code>TRACK_ID</code> with a release ID, or set the iframe’s <code>src</code> to <code>data.track.embedUrl</code>. Playback starts when a visitor presses play.</p>
+      <pre><code>&lt;iframe src="https://www.untergrund.sh/embed.html?t=TRACK_ID"
+  title="Play this track on UNTERGRUND" width="100%" height="152"
+  style="border:0;max-width:560px" loading="lazy"&gt;&lt;/iframe&gt;</code></pre>
+    </section>
+    <section>
+      <h2>Responses and limits</h2>
+      <p>Successful data requests return <code>{"data":{…}}</code>. Errors return <code>{"error":{"code":"…","message":"…"}}</code>. The OpenAPI URL returns the specification directly.</p>
+      <p>Cross-origin reads are allowed. Releases and profiles may be cached for 30 seconds; live rooms for 5 seconds. When Redis is configured, origin requests share a limit of 120 per IP per minute across data endpoints. On <code>429</code>, wait for the number of seconds in <code>Retry-After</code> before retrying.</p>
+    </section>
+  </main>
+</body>
+</html>

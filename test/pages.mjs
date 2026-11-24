@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { memoryKv } from '../api/_lib/kv.js';
 import { memoryStore, normalizeTrack } from '../api/_lib/crate.js';
+import { memoryJukebox, handleJukebox } from '../api/_lib/jukebox.js';
 import { handleAccount, attachTrack } from '../api/_lib/accounts.js';
 import { handlePage, renderTrackPage } from '../api/_lib/pages.js';
 import { ogImage, artSeed } from '../api/_lib/og.js';
 import { defaultState } from '../js/state.js';
+import { handleHealth } from '../api/_lib/health.js';
 
 const kv = memoryKv(), crate = memoryStore(), SECRET = 's'.repeat(40);
 const claim = await handleAccount({ method: 'POST', body: { action: 'claim', handle: 'nova', name: 'Nova "&" <Co>', bio: 'Warehouse </script> sets' } }, { kv, crate, secret: SECRET });
@@ -82,5 +84,43 @@ console.log('Open Graph image passed');
   const r = await hp({ flagship: '1' }, { kv: null, crate: store, site, og, flagship: [real.id] });
   assert.equal(r.status, 200);
   assert.equal(JSON.parse(r.body).tracks[0].id, real.id);
+  assert.equal(JSON.parse(r.body).kind, 'flagship');
+  const jukebox = memoryJukebox(), recent = [];
+  for (let i = 0; i < 7; i++) {
+    const publication = await handleJukebox('POST', { ...real, kind: 'song', title: `Release ${i}` }, { store: jukebox, crate: store });
+    assert.equal(publication.status, 201);
+    recent.push(publication.json.item.trackId);
+  }
+  await jukebox.add({ kind: 'set', trackId: real.id });
+  for (let i = 0; i < 6; i++) await jukebox.add({ kind: 'song', trackId: `expired-${i}` });
+  const unpublished = normalizeTrack({ ...real, title: 'Generated but not published' });
+  await store.add(unpublished);
+  const getShelf = async (flagship, releases = jukebox) => JSON.parse((await hp({ flagship: '1' }, { kv: null, crate: store, jukebox: releases, site, og, flagship })).body);
+  for (const ids of [[], ['gone-404']]) {
+    const fallback = await getShelf(ids);
+    assert.equal(fallback.kind, 'recent');
+    assert.deepEqual(fallback.tracks.map((t) => t.id), recent.slice(1).reverse());
+    assert.ok(fallback.tracks.every((t) => t.by === 'Real Artist' && t.id !== unpublished.id));
+  }
+  assert.deepEqual((await getShelf(['gone-404', real.id])).tracks.map((t) => t.id), [real.id]);
+  assert.deepEqual(await getShelf([], null), { tracks: [], kind: 'recent' });
   console.log('flagship shelf passed');
+}
+
+{
+  const env = { AUTH_SECRET: 'test-'.repeat(8), VERCEL_GIT_COMMIT_SHA: '0123456789abcdef' };
+  assert.deepEqual(await handleHealth('GET', { checkStorage: async () => true, env }), {
+    status: 200, json: { ok: true, commit: '0123456789ab', storage: 'ready', features: { accounts: true, recordedSetUploads: false, soundcloud: false } },
+  });
+  const down = await handleHealth('GET', { checkStorage: async () => { throw new Error('private provider detail'); }, env });
+  assert.equal(down.status, 503);
+  assert.equal(down.json.storage, 'unavailable');
+  assert.equal(JSON.stringify(down).includes('private provider detail'), false);
+  const off = await handleHealth('GET', { env: { ...env, VERCEL_GIT_COMMIT_SHA: 'not a public commit' } });
+  assert.equal(off.status, 503);
+  assert.equal(off.json.storage, 'not_configured');
+  assert.equal(off.json.commit, 'dev');
+  assert.equal(off.json.features.accounts, false);
+  assert.equal((await handleHealth('POST', { env })).status, 405);
+  console.log('public health status passed');
 }
