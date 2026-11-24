@@ -7,6 +7,37 @@ import { baselineOf, compare, report } from '../scripts/audio-benchmark.mjs';
 import { withChrome } from './chrome.mjs';
 import './render-determinism.mjs';
 
+const velvetWhistle = await withChrome((run) => run(`(async () => {
+  const { Engine, paletteColor } = await import('/js/engine.js');
+  const { song } = await import('/test/audio-quality-page.js');
+  const s = song('deephouse', 42), ctx = new OfflineAudioContext(2, 48000, 48000);
+  const engine = new Engine(ctx, s, { realtime: false }), out = ctx.createGain(), filters = [];
+  const filter = engine.filter;
+  engine.filter = function (...args) { const f = filter.apply(this, args); filters.push(f); return f; };
+  engine.paletteChord(0, 0.5, [], 60, s.params.stab, out, paletteColor(s));
+  const empty = filters.length === 0;
+  const input = engine.paletteWhistleOut(out), cached = input === engine.paletteWhistleOut(out);
+  const frequencies = new Float32Array([1000, 2000, 2600, 2640, 2750, 2800, 2965, 3000, 4000, 6000]);
+  const db = new Float32Array(frequencies.length);
+  for (const f of filters) {
+    const mag = new Float32Array(frequencies.length), phase = new Float32Array(frequencies.length);
+    f.getFrequencyResponse(frequencies, mag, phase);
+    mag.forEach((x, i) => db[i] += 20 * Math.log10(x));
+  }
+  engine.replay808Style = 'dnb';
+  const foreign = engine.paletteWhistleOut(out) === out;
+  s.artist.style = 'dnb'; engine.replay808Style = 'deephouse';
+  const replay = engine.paletteWhistleOut(out) === input;
+  return { empty, cached, foreign, replay, db: Array.from(db) };
+})()`));
+if (velvetWhistle) {
+  assert(velvetWhistle.empty && velvetWhistle.cached, 'empty chords allocate nothing; notes share the whistle filter');
+  assert(velvetWhistle.foreign && velvetWhistle.replay, 'whistle suppression follows playback style, not listener style');
+  assert(velvetWhistle.db.slice(2, 8).every(db => db < -30), 'the detuned whistle band is suppressed by at least 30 dB');
+  assert([0, 1, 8, 9].every(i => velvetWhistle.db[i] > -2), 'body and upper air stay within 2 dB');
+  console.log('Velvet whistle: >30 dB rejection at 2.6–3 kHz; body and air within 2 dB; cached and playback-scoped');
+}
+
 const deepHouseBuild = await withChrome((run) => run(`(async () => {
   const { Engine, Sequencer } = await import('/js/engine.js');
   const { song } = await import('/test/audio-quality-page.js');

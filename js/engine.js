@@ -4,7 +4,7 @@ import { getSample, hasUserSample, sungNote, SUNG_LEN, SUNG_LOW, SUNG_NOTES, SUN
 import { vowelStyle, vowelVoxNote, vowelName, vowelHookDuration, playVowel, VOWEL_HOOK_DB, VOWEL_HOOK_EQ } from './vowels.js';
 import { getChops } from './voice.js';
 import { pickChop } from './hum.js';
-import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, loadHand, STAB_BAND, HOOK_BAND, SAX_HOOK, SAX_LO, saxRoot, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER, RECORDED_ORGAN, playsAnalogBass } from './livekit.js';
+import { liveSet, loadLiveKit, loadKitExtra, loadSnare, BASS_NOTES, BOOMBAP_BASS_CENTERS, KIT_PITCH, bandKit, loadBand, loadHand, STAB_BAND, HOOK_BAND, SAX_HOOK, SAX_LO, saxRoot, SOFT_LAYER, TAKES, MUTE_LAYER, bandName, BAND_LAYER, RECORDED_ORGAN, playsAnalogBass, analogSet } from './livekit.js';
 import { compose, PART_SECTION } from './classical.js';
 import { pocketOf, pocketLate, pocketVel, swingLate, swingDuration } from './groove.js';
 import { isJazz, jazzStyle, jazzHarmony, jazzBass, jazzVoicing, jazzNotes, jazzNotches, JAZZ_MIX, BOSSA_RIM, BOSSA_BATIDA, bossaBass } from './jazz.js';
@@ -49,7 +49,7 @@ const GENRE_PALETTES = {
       2: { ...DEEP_CHORD, level: 1.5, attack: 0.025, release: 0.6, fm: 0.28, cutoff: 1450, presence: 'pad' },
     },
     hook: { ...DEEP_CHORD, wave: 'sawtooth', harmonics: 4500, level: 0.42, attack: 0.012, release: 0.18, cutoff: 4000, spread: 6, width: 0.55, fm: 0.35, presence: false, eq: [[1200, 0.8, 1.5], [4800, 0.9, -3]], airBand: 0, breath: 0.08, breathDecay: 0.05, transpose: 24, range: [79, 91] },
-    bass: { type: 'round', wave: 'triangle', fm: 0.65, level: 1, sub: 0.72, body: 0.8, cutoff: 760, decay: 0.16, grit: 0.5, sustain: 0.55, length: 0.88, balance: true, lowBand: { cutoff: 120, trim: -6, duck: 6 } },
+    bass: { type: 'round', wave: 'triangle', fm: 0.65, level: 1.25, sub: 0.72, subHigh: 43, body: 0.8, cutoff: 760, decay: 0.16, grit: 0.9, sustain: 0.55, length: 0.88, balance: true, lowBand: { cutoff: 120, trim: -3, duck: 18, lead: 0.015, hold: 0.08, duckCutoff: 250 } },
   },
   euphoric: {
     name: 'uplift',
@@ -143,6 +143,14 @@ const WIND_HOOK = {
 // Held alto notes sat dead straight, so their 8th-15th harmonics rang as fixed 2.5-3.1 kHz lines over the mix;
 // a player's 20-cent vibrato, leaned into after the attack, spreads them.
 const ALTO_VIB = 20;
+// Notes the alto repeats or holds still stack their 4th-8th harmonics in 2.4-3.3 kHz, so each note dips
+// whichever of its own harmonics land there by 9 dB, leaving the rest of the horn's tone intact.
+const ALTO_RING = { lo: 2400, hi: 3300, q: 24, db: -9 };
+const altoRingNotches = (m) => {
+  const f0 = 440 * 2 ** ((m - 69) / 12), { lo, hi, q, db } = ALTO_RING, out = [];
+  for (let k = Math.ceil(lo / f0); k * f0 <= hi; k++) out.push([k * f0, q, db]);
+  return out;
+};
 const SAX_TRIM = { pop: -2.4, neosoul: -5.7, boombap: 3.5, trap: 1.1, afrobeats: 6.5, reggaeton: 4.5, breaks: 7.1 };
 // Pop and Reggaeton hats live above 4 kHz, where the alto's breath otherwise fills the gaps between hits, so
 // those altos get a fixed high cut; the Afrobeats tenor's low register piles up at 220-260 Hz over the bass.
@@ -207,6 +215,32 @@ export function scoreKinds(spec) { return kindsOf([...new Set(compose(spec).note
 // Sustain loop for a held orchestral note: the steady middle of the recording, cut at rising zero crossings
 // so the seam does not click.
 const LOOPS = new WeakMap();
+const ANALOG_LOOPS = new WeakMap();
+const ANALOG_LEVEL = {
+  hypnotic: { 2: 0.695 }, ambient: { 2: 0.661 }, peak: { 2: 0.625, 4: 0.82 },
+  hardtechno: { 2: 0.485 }, trance: { 2: 0.51, 4: 0.662 }, industrial: { 4: 0.823 },
+  electro: { 4: 0.892 }, electrohiphop: { 4: 0.957 },
+};
+const DUB_PAD_LEVEL = { 0: 1.55, 2: 1.28, 3: 1.96, 5: 1.26 };
+function analogLoop(ctx, buf) {
+  if (ANALOG_LOOPS.has(buf)) return ANALOG_LOOPS.get(buf);
+  const sr = buf.sampleRate, n = buf.length, fade = Math.floor(sr * 0.04), a = Math.floor(n * 0.55);
+  const data = Array.from({ length: buf.numberOfChannels }, (_, k) => buf.getChannelData(k));
+  let b = Math.floor(n * 0.88), best = Infinity;
+  for (let j = Math.floor(n * 0.84); j < Math.floor(n * 0.92); j += 4) {
+    let error = 0;
+    for (const d of data) for (let k = 0; k < fade; k += 32) error += (d[j - fade + k] - d[a - fade + k]) ** 2;
+    if (error < best) { best = error; b = j; }
+  }
+  const loop = ctx.createBuffer(buf.numberOfChannels, n, sr);
+  data.forEach((d, k) => {
+    const out = loop.getChannelData(k); out.set(d);
+    for (let i = 0; i < fade; i++) { const w = i / (fade - 1); out[b - fade + i] = d[b - fade + i] * (1 - w) + d[a - fade + i] * w; }
+  });
+  const result = { buffer: loop, start: a / sr, end: b / sr };
+  ANALOG_LOOPS.set(buf, result);
+  return result;
+}
 function loopPoints(buf) {
   if (LOOPS.has(buf)) return LOOPS.get(buf);
   const d = buf.getChannelData(0), sr = buf.sampleRate, rise = (i) => { for (let k = i; k < d.length - 1; k++) if (d[k] <= 0 && d[k + 1] > 0) return k; return i; };
@@ -313,7 +347,8 @@ export const MASTER_TONE = {
 };
 
 const REGGAETON_GUITAR_HOOK_EQ = [
-  [2930, 5, -12], [2645, 64, -9], [2777, 64, -9], [2962, 64, -8], [3085, 64, -17],
+  [2643.88, 33.41, -12.32], [2792, 32, -21],
+  [2958.34, 18.65, -18.9], [3085.16, 75.05, -20.79],
 ];
 const BAND_PLAY = {
   marimba: { gain: 1.35, len: 0.9, min: 0.15, max: 0.44, strum: 0.0015, shift: 0, lo: 48, hi: 84, lp: 7000, fade: 0.002, rel: 0.07, even: 0.35 },
@@ -1281,7 +1316,7 @@ export class Engine {
     if (!this.editableHits.length) return;
     const now = this.ctx.currentTime, ready = now + HIT_EDIT_GUARD;
     this.pruneEditableHits(now);
-    const removed = new Set();
+    const removed = new Set(), removedDucks = [];
     let duckFrom = Infinity;
     this.revisingHits = true;
     try {
@@ -1296,6 +1331,7 @@ export class Engine {
           removed.add(note);
         }
         for (const { t } of hit.ducks) duckFrom = Math.min(duckFrom, t);
+        removedDucks.push(...hit.ducks);
         this.ducks = this.ducks.filter(d => !hit.ducks.includes(d));
         Object.assign(hit, { note: next, sources: [], ducks: [] });
         if (next) this.renderHit(hit);
@@ -1304,7 +1340,7 @@ export class Engine {
     } finally {
       this.revisingHits = false;
       if (removed.size) this.queuedNotes = this.queuedNotes.filter(note => !removed.has(note));
-      if (Number.isFinite(duckFrom)) this.rebuildDucks(duckFrom);
+      if (Number.isFinite(duckFrom)) this.rebuildDucks(duckFrom, removedDucks);
     }
   }
 
@@ -1380,11 +1416,11 @@ export class Engine {
     const low = paletteFor(this.state, this.playbackStyle)?.bass.lowBand;
     if (low) {
       this.pocketBassOut(low);
-      parts.push([this.pocketLow.duck.gain, low.duck * Math.min(1, v * 1.25), 0.07, 0.002, 0.03, 0]);
+      parts.push([this.pocketLow.duck.gain, low.duck * Math.min(1, v * 1.25), 0.07, 0.002, low.hold ?? 0.03, 0, low.lead || 0]);
     }
     const duck = { t, parts };
     if (this.queuedNotes) {
-      this.ducks = this.ducks.filter(d => d.t + 0.03 >= this.ctx.currentTime);
+      this.ducks = this.ducks.filter(d => d.t + Math.max(0.03, ...d.parts.map(p => p[4])) >= this.ctx.currentTime);
       this.ducks.push(duck);
       this.editingHit?.ducks.push(duck);
     }
@@ -1392,28 +1428,36 @@ export class Engine {
   }
 
   scheduleDuck({ t, parts }) {
-    for (const [param, depth, release, attack, hold, rest = 1] of parts) {
-      param.cancelScheduledValues(t);
-      param.setTargetAtTime(rest - depth, t, attack);
+    for (const [param, depth, release, attack, hold, rest = 1, lead = 0] of parts) {
+      if (lead) (this.duckLeads ??= new WeakMap()).set(param, Math.max(lead, this.duckLeads.get(param) || 0));
+      param.cancelScheduledValues(t - lead);
+      param.setTargetAtTime(rest - depth, t - lead, attack);
       param.setTargetAtTime(rest, t + hold, release);
     }
   }
 
   // Rebuild only future ducking; a hit already sounding keeps its current pump.
-  rebuildDucks(from) {
+  rebuildDucks(from, removed = []) {
+    const now = this.ctx.currentTime;
     this.ducks.sort((a, b) => a.t - b.t);
     for (const param of [this.duck.gain, this.rumbleDuck.gain, this.ch.acid.sc?.gain, this.windDuck?.gain, this.pocketLow?.duck.gain]) {
       if (!param) continue;
-      param.cancelScheduledValues(from);
+      // A duck that leads its hit starts before `from`, so cancel from its lead too.
+      const at = from - (this.duckLeads?.get(param) || 0);
+      param.cancelScheduledValues(at);
       let previous;
       for (const duck of this.ducks) {
         if (duck.t >= from) break;
         if (duck.parts.some(p => p[0] === param)) previous = duck;
       }
+      let released = false;
       if (previous) {
         const [, , release, , hold, rest = 1] = previous.parts.find(p => p[0] === param);
-        if (previous.t + hold >= from) param.setTargetAtTime(rest, previous.t + hold, release);
+        if ((released = previous.t + hold >= at)) param.setTargetAtTime(rest, previous.t + hold, release);
       }
+      // A removed hit whose lead already started has pulled the param down; let it go now.
+      const cut = !released && at <= now && removed.flatMap(d => d.parts).find(p => p[0] === param);
+      if (cut) param.setTargetAtTime(cut[5] ?? 1, now, cut[2]);
     }
     for (const duck of this.ducks) if (duck.t >= from) this.scheduleDuck(duck);
   }
@@ -1573,7 +1617,14 @@ export class Engine {
   }
   playBuf(buf, t, level, out, rate = 1, dur = 0, fx = {}) {
     const s = this.ctx.createBufferSource();
-    s.buffer = buf; s.playbackRate.value = rate;
+    s.playbackRate.value = rate;
+    if (fx.loop === 'analog') {
+      const loop = analogLoop(this.ctx, buf);
+      s.buffer = loop.buffer; s.loop = true; s.loopStart = loop.start; s.loopEnd = loop.end;
+    } else s.buffer = buf;
+    const detune = fx.detune || 0;
+    s.detune.value = detune;
+    if (fx.pitchAttack) { s.detune.setValueAtTime(240 + detune, t); s.detune.setTargetAtTime(detune, t + 0.008, 0.014); }
     const g = this.gain(level);
     let node = s;
     if (fx.drive > 0.01) {
@@ -1617,7 +1668,7 @@ export class Engine {
       lfo.connect(depth).connect(s.detune); this.startSource(lfo, t); lfo.stop(t + dur + 0.5);
     }
     // Held orchestral notes outlast their recording: loop the sustained middle, after the attack.
-    if (fx.loop && dur > buf.duration / rate - 0.3) { const [a, b] = loopPoints(buf); s.loop = true; s.loopStart = a; s.loopEnd = b; }
+    if (fx.loop && fx.loop !== 'analog' && dur > buf.duration / rate - 0.3) { const [a, b] = loopPoints(buf); s.loop = true; s.loopStart = a; s.loopEnd = b; }
     if (fx.offset || fx.fade) {
       g.gain.setValueAtTime(0, t);
       g.gain.linearRampToValueAtTime(level * (fx.attackGain ?? 1), t + (fx.fade || 0.006));
@@ -2513,6 +2564,7 @@ export class Engine {
 
   paletteChord(t, v, iv, root, p, out, color, keys = false) {
     if (!iv.length) return;
+    out = this.paletteWhistleOut(out);
     let articulation = 1;
     if (keys) {
       const ref = this.paletteReference().stab;
@@ -2569,6 +2621,21 @@ export class Engine {
         this.startSource(o, t); o.stop(end);
       }
     }
+  }
+
+  paletteWhistleOut(out) {
+    if (this.playbackStyle !== 'deephouse') return out;
+    const paths = (this.paletteWhistles ||= new WeakMap());
+    if (!paths.has(out)) {
+      const input = this.gain(1);
+      let tail = input;
+      for (const pitch of [100, 101, 102]) {
+        for (let i = 0; i < 3; i++) tail = tail.connect(this.filter('notch', midiHz(pitch), 8));
+      }
+      tail.connect(out);
+      paths.set(out, input);
+    }
+    return paths.get(out);
   }
 
   paletteWidthOut(out, cutoff) {
@@ -2741,7 +2808,7 @@ export class Engine {
   pocketBassOut(low) {
     if (!low) return this.ch.acid.input;
     if (!this.pocketLow) {
-      const input = this.filter('lowshelf', low.cutoff, Math.SQRT1_2), duck = this.filter('lowshelf', low.cutoff, Math.SQRT1_2);
+      const input = this.filter('lowshelf', low.cutoff, Math.SQRT1_2), duck = this.filter('lowshelf', low.duckCutoff ?? low.cutoff, Math.SQRT1_2);
       input.gain.value = low.trim;
       input.connect(duck).connect(this.ch.acid.input);
       this.pocketLow = { input, duck };
@@ -2750,7 +2817,7 @@ export class Engine {
   }
 
   pocketBass(t, st, sd, holdNext, sliding, color) {
-    const c = this.ctx, p = this.state.params.acid, f = midiHz(this.bassMidi(st)), subF = midiHz(this.bassMidi(st, 36, Math.round(p.voice) === 5 ? 43 : 38));
+    const c = this.ctx, p = this.state.params.acid, f = midiHz(this.bassMidi(st)), subF = midiHz(this.bassMidi(st, 36, color.subHigh ?? (Math.round(p.voice) === 5 ? 43 : 38)));
     const drive = p.drive - this.paletteReference().acid.drive, preamp = 2 ** (drive * 2);
     const from = this.monoNote(t, f, sliding), len = (st.ap ? sd * 0.9 : holdNext ? sd * 2 : sd * (0.9 + p.decay * 2)) * color.length, end = t + len + 0.25;
     const cutoff = Math.max(100, Math.min(4000, color.cutoff * (0.55 + p.cutoff / 600)));
@@ -2925,6 +2992,17 @@ export class Engine {
     amp.gain.setTargetAtTime(0, t + hold, 1); amp.gain.setValueAtTime(0, end);
     hp.connect(lp).connect(amp).connect(this.dubPadOut());
     const pans = this.sidePans([-0.85, 0.85], hp);
+    const set = this.playbackStyle === 'dub' && this.rec('dpad');
+    if (this.playbackStyle === 'dub' && !set?.length) loadBand('dpad');
+    if (set?.length) {
+      iv.forEach(n => {
+        for (const side of [-1, 1]) {
+          const { s } = this.recordedNote(set, t, DUB_PAD_LEVEL[Math.round(this.state.params.stab.voice)] ?? 1.55, root + n, end - t, pans[side < 0 ? 0 : 1], 0, null, 1, false, { loop: 'analog', even: 0 });
+          s.detune.setValueAtTime(side * 5, t); s.detune.linearRampToValueAtTime(-side * 3, end);
+        }
+      });
+      return;
+    }
     iv.forEach(n => {
       for (const side of [-1, 1]) {
         const o = this.ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = midiHz(root + n);
@@ -2934,8 +3012,60 @@ export class Engine {
     });
   }
 
+  analogBrassOut(out) {
+    const paths = (this.analogBrassPaths ||= new WeakMap());
+    if (!paths.has(out)) {
+      const input = this.gain(1), split = this.ctx.createChannelSplitter(2), stereo = this.ctx.createChannelMerger(2);
+      input.channelCount = 2; input.channelCountMode = 'explicit';
+      const mid = this.gain(0.5), side = this.gain(0.5), negative = this.gain(-1), invert = this.gain(-1);
+      input.connect(split);
+      split.connect(mid, 0); split.connect(mid, 1);
+      split.connect(side, 0); split.connect(negative, 1); negative.connect(side);
+      mid.connect(stereo, 0, 0); mid.connect(stereo, 0, 1);
+      let top = side;
+      for (let i = 0; i < 4; i++) {
+        const q = 1 / (2 * Math.cos((2 * i + 1) * Math.PI / 16));
+        top = top.connect(this.filter('highpass', 350, 20 * Math.log10(q)));
+      }
+      top.connect(stereo, 0, 0); top.connect(invert).connect(stereo, 0, 1);
+      stereo.connect(out);
+      paths.set(out, input);
+    }
+    return paths.get(out);
+  }
+
+  analogChord(voice, t, v, iv, root, p, out) {
+    const name = analogSet(this.playbackStyle, voice);
+    if (!name) return false;
+    const set = this.rec(name);
+    if (!set?.length) { loadBand(name); return false; }
+    if (!iv.length) return true;
+    const pad = voice === 2, hard = pad && this.hardTechno;
+    const atk = pad ? 0.04 + p.env * 0.9 : 0.025;
+    const hold = pad ? Math.max(this.stepDur * 4, p.decay * 1.2) : Math.max(0.08, p.decay * 0.8);
+    const end = pad ? atk + hold + p.decay * 2 + 0.2 : hold + 0.4;
+    const amp = this.gain(0), level = ANALOG_LEVEL[this.playbackStyle][voice];
+    amp.gain.setValueAtTime(0, t);
+    amp.gain.linearRampToValueAtTime(v * level / Math.sqrt(iv.length), t + atk);
+    if (pad) amp.gain.setTargetAtTime(0, t + atk + hold, Math.max(0.1, p.decay * 0.6));
+    else {
+      amp.gain.setTargetAtTime(v * level * 0.75 / Math.sqrt(iv.length), t + 0.05, 0.1);
+      amp.gain.setTargetAtTime(0, t + hold, 0.06);
+    }
+    amp.gain.setValueAtTime(0, t + end);
+    const hp = this.filter('highpass', hard ? 300 : 150, 0.5);
+    amp.connect(hp).connect(pad ? out : this.analogBrassOut(out));
+    const pans = this.sidePans([-0.6, 0, 0.6], amp);
+    const sides = pad ? [-1, 0, 1] : [-1, 1], spread = pad ? (4 + p.detune) * (hard ? 3 : 1) : p.detune * 0.5;
+    iv.forEach((n, k) => {
+      for (const side of sides) this.recordedNote(set, t, 1 / Math.sqrt(sides.length), root + n, end, pans[k % pans.length], 0, null, 1, false, { loop: 'analog', even: 0, pitchAttack: hard, detune: side * spread });
+    });
+    return true;
+  }
+
   // Slow-swelling ensemble: three detuned saws per note, filter opens with ENV, DECAY sets release.
   pad(t, v, iv, root, p, out) {
+    if (this.analogChord(2, t, v, iv, root, p, out)) return;
     const c = this.ctx, atk = 0.04 + p.env * 0.9, hold = Math.max(this.stepDur * 4, p.decay * 1.2), end = t + atk + hold + p.decay * 2 + 0.2;
     const festival = this.playbackStyle === 'trap' && Math.round(p.voice) === 2;
     const lp = this.filter('lowpass', p.cutoff * 0.5, Math.max(0.5, p.reso * 0.4));
@@ -3259,12 +3389,12 @@ export class Engine {
 
   // Kept in the register the instrument was played in; every note lands a little differently and softer
   // notes are darker, the way hammers and plectrums behave. Released through a damper, not a gate.
-  recordedNote(set, t, level, m, dur, out, tone = 0, kind = null, vel = 1, finger = false) {
+  recordedNote(set, t, level, m, dur, out, tone = 0, kind = null, vel = 1, finger = false, fx = {}) {
     if (this.playbackStyle === 'rnb' && kind === 'jazz') level *= dbGain(-10);
     const R = BAND_PLAY[kind], F = finger && R?.finger;
     if (R) { while (m > R.hi + 0.5) m -= 12; while (m < R.lo - 0.5) m += 12; }
     if (out === this.ch.stab.input) out = this.ch.stab.band;
-    const touch = 1 - 0.2 * (R?.even ?? 1) + 0.4 * (R?.even ?? 1) * hash(t * 7 + m, 24), hv = Math.max(0.25, Math.min(1.2, vel * touch));
+    const touch = 1 - 0.2 * (fx.even ?? R?.even ?? 1) + 0.4 * (fx.even ?? R?.even ?? 1) * hash(t * 7 + m, 24), hv = Math.max(0.25, Math.min(1.2, vel * touch));
     if (kind === 'upright') set = this.rec(hv < 61 / 127 ? 'uprightsoft' : hv >= 111 / 127 ? 'uprighthard' : 'upright') || set;
     // Soft touches play the softly struck or plucked recording: a different tone, not just a quieter one.
     if (hv < (R?.softBelow ?? 0) && this.rec(SOFT_LAYER[kind])) set = this.rec(SOFT_LAYER[kind]);
@@ -3281,6 +3411,7 @@ export class Engine {
     return this.playBuf(buf, t, level * touch, out, Math.pow(2, (m - c) / 12), dur, {
       hp: kind === 'org' && this.playbackStyle === 'gfunk' ? 110 : 0, hpQ: -3.01,
       shelves: [[3000, tone]], peaks: [...(R?.peak ? [R.peak] : []), ...(kind === 'org' && this.playbackStyle === 'gfunk' ? [[2200, 1.2, -3], [3300, 0.8, -6]] : []), ...(kind === 'str' ? HIPHOP[this.state.artist?.style]?.strEq ?? [] : []), ...(jazzStyle(this.state, this.playingPattern) === 'bossa' && kind === 'jazz' ? jazzNotches(kind, c, Math.pow(2, (m - c) / 12)) : [])], lp: R ? R.lp * (F ? F[1] : 1) * (0.4 + 0.6 * hv) : 0, ...(kind === 'upright' ? { lpStages: 2, lpQ: -6.0206 } : {}), lpFrom: F ? F[0] : R?.soft ?? 0, fade: R?.fade ?? 0, release: R ? R.rel : 0.05, vib: R?.vib || 0,
+      ...fx,
     });
   }
   // A guitar amp for the DRIVE GTR: tightened lows into an asymmetric tube-style clipper, then a 4x12 cab
@@ -3458,6 +3589,7 @@ export class Engine {
   marimba(...a) { return this.recorded('marimba', 'pluck', ...a); }
 
   brass(t, v, iv, root, p, out) {
+    if (this.analogChord(4, t, v, iv, root, p, out)) return;
     const c = this.ctx, gate = Math.max(0.08, p.decay * 0.8), end = t + gate + 0.4;
     const lp = this.filter('lowpass', p.cutoff * 0.4, Math.max(0.7, p.reso * 0.5));
     lp.frequency.setValueAtTime(p.cutoff * 0.35, t);
@@ -3666,7 +3798,7 @@ export class Engine {
     const rate = 2 ** ((m - pitch - (cents + drift) / 100) / 12);
     return this.playBuf(buf, t, gain * touch * dbGain(trim + (air - 0.5) * 1.2) * dbGain(jazzStyle(this.state, this.playingPattern) === 'bossa' && voice === 'tpt' ? JAZZ_MIX.bossa.trumpetLead : JAZZ_MIX[jazzStyle(this.state, this.playingPattern)]?.lead || 0), eq,
       rate, Math.max(0.06, dur * 0.92), {
-        peaks: [...(jazzStyle(this.state, this.playingPattern) ? jazzNotches(useAlt ? TAKES[HOOK_BAND[voice]] : HOOK_BAND[voice], pitch, rate) : []), ...(styleFx.peaks || [])],
+        peaks: [...(jazzStyle(this.state, this.playingPattern) ? jazzNotches(useAlt ? TAKES[HOOK_BAND[voice]] : HOOK_BAND[voice], pitch, rate) : []), ...(styleFx.peaks || []), ...(voice === 'altosax' ? altoRingNotches(m) : [])],
         shelves: styleFx.shelves,
         lp: Math.min(styleFx.cap ?? Infinity, lp + 2100 * touch + 650 * (air - 0.5)), lpStages: styleFx.lpStages, offset: offset + tongue * 0.012,
         fade: (voice === 'tpt' ? 0.025 : strong ? 0.007 : 0.012) + 0.009 * (1 - tongue),
