@@ -12,7 +12,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'node
 import { dirname, join, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { STYLES, defaultState, generate, arrangement, songChain, applyOverrides } from '../js/state.js';
+import { STYLES, MAJOR_STYLES, defaultState, generate, arrangement, songChain, applyOverrides } from '../js/state.js';
 import { scoreSong } from './composition.mjs';
 import { DIMENSIONS, SONGWRITING, versusScorecard } from '../js/lab-metrics.js';
 export { DIMENSIONS, SONGWRITING };
@@ -40,7 +40,7 @@ export function resolveStyle(prompt, styles = STYLES) {
 // js/main.js planSet(), as test/audio-quality-page.js song() builds it for the render.
 export function benchSong(style, seed) {
   const s = defaultState();
-  s.scale = style === 'euphoric' ? 'major' : 'minor';
+  s.scale = style === 'euphoric' || MAJOR_STYLES.has(style) ? 'major' : 'minor';
   const g = generate(style, seed, s.scale);
   s.patterns = arrangement(g.pattern, seed, g.bpm >= 115);
   s.key = g.key;

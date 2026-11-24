@@ -5,9 +5,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { STYLES } from '../js/state.js';
+import { STYLES, MAJOR_STYLES } from '../js/state.js';
 import { validateBenchmark } from '../js/lab-metrics.js';
-import { loadPrompts, resolveStyle, buildManifest, scorecard, songwriting, sunoFile, DIMENSIONS, OURS, THEIRS } from '../scripts/suno-benchmark.mjs';
+import { loadPrompts, resolveStyle, buildManifest, scorecard, songwriting, benchSong, sunoFile, DIMENSIONS, OURS, THEIRS } from '../scripts/suno-benchmark.mjs';
 import { renderSite } from '../scripts/research.mjs';
 
 const prompts = loadPrompts(), ids = prompts.prompts.map((p) => p.id);
@@ -65,6 +65,10 @@ assert.equal(c1.ratings, 2); assert.equal(c1.songwriting.chords, 4, 'songwriting
 assert.equal(c1.audio.ours.lufs, -10.5, 'audio metrics follow our side through the flip');
 
 // Reference-free songwriting metrics from the composition scorecard (no audio needed).
+for (const style of ['euphoric', ...MAJOR_STYLES]) {
+  assert.equal(benchSong(style, prompts.seed).scale, 'major', `${style}: score the same major key that the audio benchmark renders`);
+}
+assert.equal(benchSong('deephouse', prompts.seed).scale, 'minor');
 const sw = songwriting('deephouse', prompts.seed, null);
 for (const k of ['chords', 'motifRecall', 'melodyWindows', 'contrast']) assert(Number.isFinite(sw[k]), `songwriting ${k}`);
 
