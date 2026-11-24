@@ -423,6 +423,51 @@ performance, not the keyboard sample in Freesound pack 34867.
 | `timbale_high_{1,2}.flac` | Suicidity, same pack, CC0 1.0 Universal | [90506](https://freesound.org/s/90506/), [90509](https://freesound.org/s/90509/) |
 | `cuica_{1,2}.flac` | [“cuica (1).wav” by reinsamba](https://freesound.org/s/21715/), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | Two edited strokes from source windows 0.550–0.770 s and 1.415–1.615 s |
 
+## S10 — TR-909 JGB recordings (assets only)
+
+Recorded by **Janne G:son Berg** from his own Roland TR-909; edited, organized and
+uploaded by **altemark**. All ten recordings are distributed under
+**[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**.
+The [TR-909 JGB pack](https://freesound.org/people/altemark/packs/1643/) description states:
+
+> Sampled by Janne G:son Berg from his old 909. Cut up and organized by me.
+
+Files were fetched from the [Electro-Dig/tr909-replica mirror pinned at
+`3d1a8f1ee7656e50860664e9b6a27230e06cc664`](https://github.com/Electro-Dig/tr909-replica/tree/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb),
+not from Freesound previews. Its [Freesound license inventory](https://github.com/Electro-Dig/tr909-replica/blob/3d1a8f1ee7656e50860664e9b6a27230e06cc664/public/audio-jgb/_readme_and_license.txt)
+lists Attribution 4.0 for the files; its MIT license explicitly preserves the
+third-party audio licenses. All ten source SHA-256 hashes were verified byte-identical
+against Freesound original downloads fetched by Max on **2026-11-24**, with live
+license **CC BY 4.0**; `--raw` rebuilt byte-identical FLACs. Hardware TR-909
+provenance is credited by the uploader, not independently authenticated. The uploads
+are 16-bit from a stated 24-bit source. The inventory doubles the `.wav` extension;
+the filenames below are accepted by `--raw`.
+
+| Bundled file | Recording / edit credits | Freesound sound | Original/download filename |
+| --- | --- | --- | --- |
+| `tr909_bd.flac` | Janne G:son Berg / altemark | [26486](https://freesound.org/people/altemark/sounds/26486/) | `26486__altemark__bd01.wav` |
+| `tr909_sd.flac` | Janne G:son Berg / altemark | [26702](https://freesound.org/people/altemark/sounds/26702/) | `26702__altemark__sn29.wav` |
+| `tr909_cp.flac` | Janne G:son Berg / altemark | [26552](https://freesound.org/people/altemark/sounds/26552/) | `26552__altemark__clp01.wav` |
+| `tr909_ch.flac` | Janne G:son Berg / altemark | [26520](https://freesound.org/people/altemark/sounds/26520/) | `26520__altemark__ch01.wav` |
+| `tr909_oh.flac` | Janne G:son Berg / altemark | [26643](https://freesound.org/people/altemark/sounds/26643/) | `26643__altemark__oh01.wav` |
+| `tr909_ride.flac` | Janne G:son Berg / altemark | [26658](https://freesound.org/people/altemark/sounds/26658/) | `26658__altemark__ride01.wav` |
+| `tr909_rs.flac` | Janne G:son Berg / altemark | [26670](https://freesound.org/people/altemark/sounds/26670/) | `26670__altemark__rs01.wav` |
+| `tr909_lt.flac` | Janne G:son Berg / altemark | [26596](https://freesound.org/people/altemark/sounds/26596/) | `26596__altemark__lt01.wav` |
+| `tr909_mt.flac` | Janne G:son Berg / altemark | [26620](https://freesound.org/people/altemark/sounds/26620/) | `26620__altemark__mt01.wav` |
+| `tr909_ht.flac` | Janne G:son Berg / altemark | [26574](https://freesound.org/people/altemark/sounds/26574/) | `26574__altemark__ht01.wav` |
+
+Reproduce with `python3 scripts/fetch-drum-machines.py`, or pass `--raw DIR` for
+local Freesound original downloads. Both modes require the pinned source SHA-256;
+a mismatch fails with the sound ID. Per-file source URLs, hashes, output hashes,
+durations and processing measurements are in
+[`scripts/drum-machine-samples.json`](../../scripts/drum-machine-samples.json).
+Output is 44.1 kHz / 16-bit mono FLAC. Only exact leading zero samples are removed,
+preserving every nonzero attack sample. A 221-frame (~5 ms) linear tail fade is
+applied only if the final sample exceeds 32 PCM units in magnitude (~−60 dBFS).
+No gain (0 dB), EQ, pitch change, attack fade, resampling or tail truncation is applied.
+The mirror's separate OGG crash is excluded. These assets are not wired into playback;
+808 and 707 are not included.
+
 ## Recorded S8 crowd vowels — CC0
 
 Sustained playback derives a cached mono loop at runtime: a whole number of
