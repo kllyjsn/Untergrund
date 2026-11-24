@@ -3469,7 +3469,7 @@ export class Engine {
   recordedNote(set, t, level, m, dur, out, tone = 0, kind = null, vel = 1, finger = false, fx = {}) {
     if (this.playbackStyle === 'rnb' && kind === 'jazz') level *= dbGain(-10);
     const hook = this.playingPattern?.hook;
-    const ukgHook = kind === 'org' && this.playbackStyle === 'ukg' && (hook?.v === 'vocal' || (hook?.v === 'chop' && !getChops()))
+    const ukgHook = kind === 'org' && this.playbackStyle === 'ukg' && this.playingPattern?.hm && (hook?.v === 'vocal' || (hook?.v === 'chop' && !getChops()))
       && (hook.s?.some(Boolean) || hook.m?.n?.length) && !hasUserSample();
     const R = BAND_PLAY[kind], F = finger && R?.finger;
     if (R) { while (m > R.hi + 0.5) m -= 12; while (m < R.lo - 0.5) m += 12; }
