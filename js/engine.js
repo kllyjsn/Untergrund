@@ -5785,9 +5785,10 @@ export class Sequencer {
           const phrase = hk.s.flatMap((note, at) => {
             if (!note || Math.floor(at / 16) !== Math.floor(hi / 16)) return [];
             const resolveAt = hm > 1 && at >= 16 && ph === 1 && !hk.s.slice(at + 1).some(Boolean);
-            return [{ note, at: at % 16, pitch: note[0] + lift, strong: !hk.h && (at % 4 === 0 || note[1] >= 2), resolve: !hk.h && resolveAt }];
+            const suspension = pat.peak === 'suspension' && at >= 16 && note[1] >= 2 && at === peakStep(hk.s);
+            return [{ note, at: at % 16, pitch: note[0] + lift, strong: !hk.h && (at % 4 === 0 || note[1] >= 2), resolve: !hk.h && resolveAt && !suspension, suspension }];
           });
-          expression = { ...expression, ...this.rhodesPhrase(phrase.map((o) => [o.pitch, o.strong, o.resolve, o.at]), hk) };
+          expression = { ...expression, ...this.rhodesPhrase(phrase.map((o) => [o.pitch, o.strong, o.resolve, o.at, o.suspension]), hk) };
           harmonyRegister = this.rhodesPhrase(phrase.filter((o) => o.note[1] >= 3)
             .map((o) => [stepDeg(o.note[0], -2, scale) + lift, o.strong, false, o.at]), hk);
         }
@@ -6091,9 +6092,11 @@ export class Sequencer {
   rhodesPhrase(notes, hook) {
     if (this.e.playbackStyle !== 'lofihiphop' || hook.v !== 'tapekeys') return {};
     const s = this.s, base = 60 + (s.key > 6 ? s.key - 12 : s.key) + (hook.o || 0) * 12;
-    const phrase = rhodesLoFiPhrase(notes.map(([n, strong, up, at]) => {
+    const scale = SCALES[s.scale]?.notes || SCALES.minor.notes;
+    const phrase = rhodesLoFiPhrase(notes.flatMap(([n, strong, up, at, suspension]) => {
       const { harm, lift } = at == null ? { harm: this.e.harm, lift: this.keyLift || 0 } : this.rhodesHarmony(at);
-      return base + hookSnap(n + lift - (this.keyLift || 0), harm, s.params.stab, strong, up);
+      const pitch = hookSnap(n + lift - (this.keyLift || 0), harm, s.params.stab, strong, up);
+      return suspension ? [base + pitch, base + stepDeg(pitch, 1, scale)] : [base + pitch];
     }));
     return { rhodesOctave: phrase?.shift ?? null, rhodesFM: phrase?.fm ?? true };
   }
@@ -6207,15 +6210,15 @@ export class Sequencer {
   // a breath before a drop, and at the peak a second voice a third under the held notes of the answering phrase.
   sing(sung, i16, bar, t, sd, scale, peak = null, alone = false) {
     const s = this.s, e = this.e, hk = sung.hook, x = hk.x || { space: 0.4, risk: 0.4, feel: 0.4, warmth: 0.5 };
+    // The suspension lands on the answer bar's highest held note.
+    const top = peak === 'suspension' && bar % 2 === 1 ? sung.notes.reduce((a, o) => (o.x[1] >= 2 && (!a || o.x[2] > a.x[2]) ? o : a), null) : null;
     let register = {}, harmonyRegister = {};
     if (e.playbackStyle === 'lofihiphop' && hk.v === 'tapekeys') {
       const pitch = (o) => (o.sh ? stepDeg(o.x[2], o.sh, scale) : o.x[2]) + (this.keyLift || 0);
-      register = this.rhodesPhrase(sung.notes.map((o) => [pitch(o), strongNote(o.x[0], o.x[1]), false, o.at]), hk);
+      register = this.rhodesPhrase(sung.notes.map((o) => [pitch(o), strongNote(o.x[0], o.x[1]), false, o.at, o === top && !o.sh]), hk);
       harmonyRegister = this.rhodesPhrase(sung.notes.filter((o) => o.q === 'n' && o.x[4] % 2 === 1 && o.x[1] >= 6)
         .map((o) => [stepDeg(pitch(o) - (this.keyLift || 0), -2, scale) + (this.keyLift || 0), strongNote(o.x[0], o.x[1]), false, o.at]), hk);
     }
-    // The suspension lands on the answer bar's highest held note.
-    const top = peak === 'suspension' && bar % 2 === 1 ? sung.notes.reduce((a, o) => (o.x[1] >= 2 && (!a || o.x[2] > a.x[2]) ? o : a), null) : null;
     for (const o of sung.notes) {
       if (o.at !== i16 || (this.dropNext && i16 >= 8 && !o.pickup)) continue;
       const [start, dur, w, vel, ph] = o.x, lift = this.keyLift || 0, semi = o.sh ? stepDeg(w, o.sh, scale) : w;
