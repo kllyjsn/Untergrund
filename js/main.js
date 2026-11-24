@@ -137,16 +137,7 @@ songOrigin.library = bindLibrary(savedProject?.libraryRef);
 function saveStudio() {
   if (guest) return;
   const ref = libraryRef(songOrigin.library);
-  save(ref?.owner ? { ...state, libraryRef: ref } : state);
-}
-function scheduleLibraryUpdate(project) {
-  if (!project.owner || !project.draft) return;
-  clearTimeout(project.timer);
-  project.timer = setTimeout(() => {
-    const { draft, owner, id, updatedAt } = project;
-    project.draft = null;
-    cloudLibrary.update(owner, id, draft, updatedAt);
-  }, 500);
+  save(ref ? { ...state, libraryRef: ref } : state);
 }
 function persist() {
   if (guest) return;
@@ -157,9 +148,8 @@ function persist() {
   const key = projectKey(state);
   if (key === project.key) return;
   project.key = key;
-  project.updatedAt = Math.max(Date.now(), project.updatedAt + 1);
-  project.draft = { ...clone(state), fresh: 0 };
-  scheduleLibraryUpdate(project);
+  const edit = cloudLibrary.update(project.owner || '', project.id, { ...clone(state), fresh: 0 }, project.updatedAt);
+  if (edit) { project.updatedAt = edit.revision; saveStudio(); }
 }
 
 // ---------------- audio ----------------
@@ -1562,18 +1552,21 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
       // The drop itself is everyone's; only a published version joins today's remixes.
       const { drop: _d, remixOf: _r, ...own } = clone(state);
       const source = songOrigin, generated = drop ? own : clone(state);
-      const project = source.library = bindLibrary({ id: newLibraryId() });
-      cloudLibrary.saveGenerated({ title, artist, style: id, state: generated }, project.id, (owner) => {
+      const project = source.library = bindLibrary({ id: newLibraryId(), owner: cloudLibrary.owner() });
+      cloudLibrary.saveGenerated({ title, artist, style: id, state: generated }, project.id, (owner, revision) => {
         project.owner = owner;
-        scheduleLibraryUpdate(project);
+        project.updatedAt = Math.max(project.updatedAt, revision);
         if (songOrigin === source) saveStudio();
       }).then((saved) => {
-        if (saved?.synced) project.updatedAt = Math.max(project.updatedAt, (saved.item.updatedAt || 0) + (project.draft ? 1 : 0));
-        if (!saved?.private && source.library === project) delete source.library;
+        if (!saved?.private && source.library === project) {
+          delete source.library;
+          if (songOrigin === source) saveStudio();
+        }
         if (saved?.message) return toast(saved.message);
         if (!saved || saved.private && !saved.synced && !saved.kept) return toast('Could not save that song to your Library');
         toast(`“${title}” saved to ${saved.private ? (saved.synced ? 'your cloud Library' : 'this device') : (saved.shared ? 'the shared CRATE' : 'your CRATE')}`);
       }).catch(() => toast('Could not save that song to your Library'));
+      saveStudio();
     },
   };
 }
@@ -2321,8 +2314,17 @@ function buildTabBar() {
 }
 
 const cloudLibrary = createCloudLibrary({ change: () => { ui.lib?.paint(); renderHome(); } });
-cloudLibrary.refresh();
-window.addEventListener('online', () => { if (cloudLibrary.connected()) cloudLibrary.refresh(); });
+async function refreshLibrary() {
+  await cloudLibrary.refresh();
+  const project = songOrigin.library;
+  if (project && !project.owner) return cloudLibrary.resumeDraft(project.id, (owner, revision) => {
+    project.owner = owner;
+    project.updatedAt = Math.max(project.updatedAt, revision);
+    if (songOrigin.library === project) saveStudio();
+  });
+}
+refreshLibrary().catch(() => {});
+window.addEventListener('online', () => { refreshLibrary().catch(() => {}); });
 
 // Library (js/library.js): newest songs first. Tapping one plays the list on from there.
 function showLibrary() {

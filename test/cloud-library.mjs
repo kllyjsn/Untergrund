@@ -26,50 +26,51 @@ const call = (cookie, library, body, id, headers = {}) => handleAccount({
   host, origin, body, ...headers,
 }, ctx);
 const draft = { id: 'local-song-one', title: 'A private song', artist: 'Alice', style: 'acid',
-  created: '2025-10-01T10:00:00Z', state: { ...defaultState(), renderedAudio: 'not stored' } };
+  created: '2025-10-01T10:00:00Z', action: 'upsert', revision: Date.now(),
+  state: { ...defaultState(), renderedAudio: 'not stored' } };
 draft.state.params = Object.fromEntries(Object.entries(draft.state.params).reverse());
 for (const cookie of ['', device]) {
   assert.equal((await call(cookie, 'alice')).status, 401);
-  assert.equal((await call(cookie, 'alice', { ...draft, action: 'save' })).status, 401);
+  assert.equal((await call(cookie, 'alice', draft)).status, 401);
 }
 assert.equal((await call(alice, 'bob')).status, 409);
-assert.equal((await call(alice, 'alice', { ...draft, action: 'save' }, null, { origin: 'https://evil.example' })).status, 403);
-assert.equal((await call(alice, 'alice', { ...draft, action: 'save' }, null, { origin: '' })).status, 403);
-assert.equal((await call(alice, 'alice', { ...draft, action: 'save', extra: 'x'.repeat(LIBRARY_BODY_BYTES) })).status, 413);
-const first = await call(alice, 'alice', { ...draft, action: 'save' });
+assert.equal((await call(alice, 'alice', draft, null, { origin: 'https://evil.example' })).status, 403);
+assert.equal((await call(alice, 'alice', draft, null, { origin: '' })).status, 403);
+assert.equal((await call(alice, 'alice', { ...draft, extra: 'x'.repeat(LIBRARY_BODY_BYTES) })).status, 413);
+const first = await call(alice, 'alice', draft);
 assert.equal(first.status, 200);
 assert.equal(first.json.item.title, draft.title);
 assert.equal(first.json.item.state, undefined);
 assert.notEqual(songFingerprint(draft.state), songFingerprint(sanitize(draft.state)), 'fixture changes fingerprint when sanitized');
 assert.ok(first.json.item.fps.includes(songFingerprint(draft.state)), 'reactions to the song as made remain visible');
 assert.ok(first.json.item.fps.includes(songFingerprint(sanitize(draft.state))), 'reactions to the stored version remain visible');
-assert.equal((await call(alice, 'alice', { ...draft, title: 'Different', action: 'save' })).json.item.title, draft.title);
+assert.equal((await call(alice, 'alice', { ...draft, title: 'Different' })).json.item.title, draft.title);
 assert.deepEqual((await call(alice, 'alice')).json.items, [first.json.item]);
 assert.deepEqual((await call(bob, 'bob')).json.items, []);
 assert.equal((await call(bob, 'bob', null, draft.id)).status, 404);
 assert.deepEqual((await call(alice, 'alice', null, draft.id)).json.state, sanitize(draft.state));
-const revision = { ...draft, action: 'update', updatedAt: first.json.item.updatedAt + 2, state: { ...draft.state, bpm: 145 } };
+const revision = { ...draft, revision: draft.revision + 2, state: { ...draft.state, bpm: 145 } };
 assert.equal((await call(bob, 'alice', revision)).status, 409);
 assert.equal((await call(alice, 'alice', revision, null, { origin: '' })).status, 403);
-assert.equal((await call(alice, 'alice', { ...revision, id: 'missing-track' })).json.error, 'track_missing');
+assert.equal((await call(alice, 'alice', { ...revision, revision: 0 })).json.error, 'invalid_revision');
 assert.equal((await call(alice, 'alice', { ...revision, extra: 'x'.repeat(LIBRARY_BODY_BYTES) })).json.error, 'too_large');
 const revised = await call(alice, 'alice', { ...revision, created: '2026-01-01' });
 assert.equal(revised.json.item.bpm, 145);
 assert.equal(revised.json.item.created, first.json.item.created);
-assert.equal((await call(alice, 'alice', { ...revision, updatedAt: revision.updatedAt - 1, state: draft.state })).json.item.bpm, 145);
-assert.equal((await call(alice, 'alice', null, draft.id)).json.updatedAt, revision.updatedAt);
+assert.equal((await call(alice, 'alice', { ...revision, revision: revision.revision - 1, state: draft.state })).json.item.bpm, 145);
+assert.equal((await call(alice, 'alice', null, draft.id)).json.updatedAt, revision.revision);
 assert.equal((await call(alice, 'alice', null, draft.id)).json.state.bpm, 145);
 assert.deepEqual(await crate.list(), []);
 assert.equal((await call(alice, 'alice', { id: draft.id, action: 'delete' })).status, 200);
 assert.equal((await call(alice, 'alice', null, draft.id)).status, 404);
-assert.equal((await call(alice, 'alice', { ...draft, action: 'save' })).json.error, 'track_deleted');
+assert.equal((await call(alice, 'alice', draft)).json.error, 'track_deleted');
 assert.equal((await call(alice, 'alice', revision)).json.error, 'track_deleted');
 
 const fill = await session('fill');
 for (let i = 0; i < LIBRARY_LIMIT - 1; i++) {
   assert.equal(await kv.cmd(['HSET', 'untergrund:library:{fill}:meta', `saved-${i}`, '{}']), 1);
 }
-const concurrent = await Promise.all(['a', 'b'].map((id) => call(fill, 'fill', { ...draft, id: `last-${id}`, action: 'save' })));
+const concurrent = await Promise.all(['a', 'b'].map((id) => call(fill, 'fill', { ...draft, id: `last-${id}` })));
 assert.deepEqual(concurrent.map((r) => r.status).sort(), [200, 409]);
 assert.equal(concurrent.find((r) => r.status === 409).json.error, 'library_full');
 assert.equal(await kv.cmd(['HLEN', 'untergrund:library:{fill}:meta']), LIBRARY_LIMIT);
@@ -101,6 +102,7 @@ assert.deepEqual((await call(alice, 'alice')).json.items.map((t) => t.id), [brow
 const original = await cloud.load(browser[0].id);
 assert.deepEqual(original.state, (await call(alice, 'alice', null, browser[0].id)).json.state);
 await cloud.update('alice', browser[0].id, { ...original.state, bpm: 147 }, original.updatedAt + 1);
+await cloud.refresh();
 assert.equal((await cloud.load(browser[0].id)).state.bpm, 147, 'opening an existing local song fetches the newer cloud edit');
 assert.equal(cloud.tracks().find((t) => t.id === browser[0].id).bpm, 147, 'cloud metadata takes precedence over the original local copy');
 offline = true;
@@ -156,13 +158,77 @@ for (const [error, message] of [
   ['library_full', 'Your cloud Library is full (100 songs). Remove a song to sync more. It stays on this device.'],
   ['too_large', 'This song is too large to sync (200 KB limit). It stays on this device.'],
 ]) {
+  const rows = new Map();
   const limited = createCloudLibrary({
     get: async () => ({ account: { id: 'alice' } }), subscribe: () => {}, device: () => [],
-    read: () => [], write: () => true,
+    read: (id) => rows.get(id) || [], write: (id, value) => { rows.set(id, value); return true; },
     request: async (owner, body) => { if (body) throw new Error(error); return { items: [], removed: [], limit: LIBRARY_LIMIT }; },
   });
   assert.equal((await limited.saveGenerated(draft)).message, message);
   assert.equal(limited.notice(), message);
+}
+{
+  const rows = new Map();
+  const account = { account: { id: 'alice' } };
+  const newClient = (request, get = async () => account, device = () => []) => createCloudLibrary({
+    get, subscribe: () => {}, request, device,
+    read: (id) => rows.get(id) || [], write: (id, value) => { rows.set(id, value); return true; },
+  });
+  const server = async (owner, body, id) => {
+    const r = await call(alice, owner, body, id);
+    if (r.status !== 200) throw new Error(r.json.error);
+    return r.json;
+  };
+  const deferred = () => { let resolve; const promise = new Promise((ok) => { resolve = ok; }); return { promise, resolve }; };
+
+  const lostId = 'local-lost-response';
+  let lose = true;
+  const lost = newClient(async (owner, body, id) => {
+    const result = await server(owner, body, id);
+    if (body?.id === lostId && lose) { lose = false; throw new Error('offline'); }
+    return result;
+  });
+  assert.equal((await lost.saveGenerated(draft, lostId)).synced, false);
+  assert.equal(rows.get('alice').find((row) => row.id === lostId).revision, (await server('alice', null, lostId)).revision);
+  lost.update('alice', lostId, { ...draft.state, bpm: 156 });
+  await lost.refresh();
+  assert.equal((await server('alice', null, lostId)).state.bpm, 156, 'retry updates the same song after a lost create response');
+
+  const started = deferred(), response = deferred(), flightId = 'local-in-flight';
+  const firstPage = newClient(async (owner, body, id) => {
+    const result = await server(owner, body, id);
+    if (body?.id === flightId) { started.resolve(); await response.promise; }
+    return result;
+  });
+  const saving = firstPage.saveGenerated(draft, flightId);
+  await started.promise;
+  firstPage.update('alice', flightId, { ...draft.state, bpm: 157 });
+  response.resolve();
+  await saving;
+  assert.equal(rows.get('alice').find((row) => row.id === flightId).state.bpm, 157, 'an older in-flight acknowledgment does not clear the newer edit');
+  const secondPage = newClient(server);
+  await secondPage.refresh();
+  assert.equal((await server('alice', null, flightId)).state.bpm, 157, 'the edit survives a reload before the debounce timer fires');
+
+  const checking = deferred(), slowId = 'local-slow-first-save';
+  const slow = newClient(server, () => checking.promise);
+  const firstSave = slow.saveGenerated(draft, slowId);
+  slow.update('', slowId, { ...draft.state, bpm: 158 });
+  assert.equal(rows.get('').find((row) => row.id === slowId).state.bpm, 158, 'edits stage synchronously before account lookup finishes');
+  checking.resolve(account);
+  await firstSave;
+  assert.equal((await server('alice', null, slowId)).state.bpm, 158, 'first upload contains the latest edit');
+
+  let online = true;
+  const imported = { ...draft, id: 'local-imported-song', revision: undefined };
+  const importer = newClient((...args) => {
+    if (!online) throw new Error('offline');
+    return server(...args);
+  }, undefined, () => [imported]);
+  await importer.refresh();
+  assert.equal((await server('alice', null, imported.id)).state.bpm, draft.state.bpm);
+  online = false;
+  assert.equal((await importer.load(imported.id)).state.bpm, draft.state.bpm, 'an imported song opens offline without a cloud cache');
 }
 const oversizedSong = createCloudLibrary({
   get: async () => ({ account: { id: 'alice' } }), subscribe: () => {}, device: () => [],
@@ -227,7 +293,7 @@ try {
   const [base] = line.match(/http:\/\/localhost:\d+/);
   const saved = await fetch(base + '/api/account?library=alice', {
     method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base, Cookie: alice },
-    body: JSON.stringify({ ...draft, action: 'save', padding: 'x'.repeat(20000) }),
+    body: JSON.stringify({ ...draft, padding: 'x'.repeat(20000) }),
   });
   assert.equal(saved.status, 200, await saved.text());
   const state = await fetch(base + '/api/account?library=alice&id=' + draft.id, { headers: { Cookie: alice } });
@@ -235,7 +301,7 @@ try {
   assert.deepEqual((await state.json()).state, sanitize(draft.state));
   const oversized = await fetch(base + '/api/account?library=alice', {
     method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base, Cookie: alice },
-    body: JSON.stringify({ ...draft, action: 'save', padding: 'x'.repeat(LIBRARY_BODY_BYTES) }),
+    body: JSON.stringify({ ...draft, padding: 'x'.repeat(LIBRARY_BODY_BYTES) }),
   });
   assert.equal(oversized.status, 413);
   assert.equal((await oversized.json()).error, 'too_large');
