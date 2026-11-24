@@ -27,7 +27,7 @@ assert.equal(billingConfig(live).mode, 'live');
 
 const acct = await linkProvider(kv, null, 'soundcloud', { id: '42', username: 'Nova', handleHint: 'nova' });
 const other = await linkProvider(kv, null, 'soundcloud', { id: '43', username: 'Echo', handleHint: 'echo' });
-const cookie = (a) => sessionCookie(signSession({ sub: a.id }, secret)).split(';')[0];
+const cookie = (a) => sessionCookie(signSession({ sub: a.id, ver: a.authVersion }, secret)).split(';')[0];
 const device = await handleAccount({ method: 'POST', body: { action: 'device' } }, { kv, secret });
 const anonymous = device.cookie.split(';')[0];
 let latest, subscription, customerCount = 0, checkoutCount = 0, portalCount = 0;
@@ -93,6 +93,17 @@ assert.equal((await call('checkout', { origin: live.UNTERGRUND_BILLING_ORIGIN, h
 assert.deepEqual((await call('status', { cookie: anonymous })).json, {
   available: true, test: true, plan: { cents: 1900, currency: 'usd', accepting: true }, signedIn: false, member: 'free', ending: false, manage: false,
 });
+const password = 'Listener billing fixture password';
+const listener = await handleAccount({ method: 'POST', body: { action: 'email-signup', email: 'billing@example.test', password } }, ctx);
+assert.equal(listener.status, 201);
+const listenerCookie = listener.cookie.split(';')[0];
+assert.equal((await call('status', { cookie: listenerCookie })).json.signedIn, true);
+const updated = await handleAccount({ method: 'POST', cookie: listenerCookie,
+  body: { action: 'password-change', currentPassword: password, password: 'New listener billing fixture password' } }, ctx);
+assert.equal(updated.status, 200);
+assert.equal(updated.json.account.id, listener.json.account.id);
+assert.equal((await call('checkout', { cookie: listenerCookie })).status, 401);
+assert.equal((await call('status', { cookie: updated.cookie.split(';')[0] })).json.signedIn, true);
 assert.equal(customerCount, 0);
 const [checkoutA, checkoutB] = await Promise.all([call('checkout'), call('checkout')]);
 assert.equal(checkoutA.json.url, checkoutB.json.url);
@@ -171,6 +182,7 @@ assert.deepEqual((await draft({ method: 'GET' })).json, { enabled: true });
 assert.deepEqual((await draft({ method: 'GET' }, { env: {} })).json, { enabled: false });
 assert.equal((await draft({ origin: 'https://other.test' })).status, 403);
 assert.equal((await draft({ cookie: anonymous })).status, 401);
+assert.equal((await draft({ cookie: listenerCookie })).status, 401, 'revoked listener cookies cannot generate Studio Pro drafts');
 assert.equal((await draft({ cookie: cookie(other) })).json.error, 'pro_required');
 subscription.items.data[0].price.id = 'price_other';
 assert.equal((await draft()).json.error, 'pro_required');

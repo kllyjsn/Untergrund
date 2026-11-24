@@ -15,8 +15,14 @@ const minor = (h) => { const iv = CHORDS[h.c].iv; return iv.includes(3) && !iv.i
 
 // Without an assigned feeling, generation matches the main branch used for this change.
 const h = createHash('sha256');
-for (const style of Object.keys(STYLES)) for (const seed of [1, 7, 42, 1234, 99991]) h.update(style + JSON.stringify(generate(style, seed, scaleOf(style))));
-assert.equal(h.digest('hex'), '37fe4a359fbffbee3d8e0eb0a19e0e0bb449337621d195ee07436192f04e6b15', 'no-feel generate() changed');
+for (const style of Object.keys(STYLES).filter((s) => s !== 'jazzfunk')) for (const seed of [1, 7, 42, 1234, 99991]) h.update(style + JSON.stringify(generate(style, seed, scaleOf(style))));
+assert.equal(h.digest('hex'), '950b87b185178088a380eedc20388437348f9f6654839d62b33bfc0a8a159a4a', 'non-Jazz-Funk no-feel generate() changed');
+const funkHash = createHash('sha256');
+for (const seed of [1, 7, 42, 1234, 99991]) funkHash.update('jazzfunk' + JSON.stringify(generate('jazzfunk', seed, 'minor')));
+assert.equal(funkHash.digest('hex'), 'fcb4209f99234d8d95535c43be30c65dc16f28fe765accbdff79f1518c32d49f', 'authored Jazz-Funk generation changed');
+for (const seed of [763150, 153287, 905172]) for (const feel of Object.keys(FEELS)) {
+  assert.deepEqual(generate('jazzfunk', seed, 'dorian', { feel }), generate('jazzfunk', seed, 'dorian'), 'Jazz-Funk keeps its seeded writing across feelings');
+}
 // Scores and the repertoire never take a feeling.
 for (const style of [...Object.keys(FORMS), 'repertoire'].filter((s) => STYLES[s])) {
   assert.equal(songFeel(style, 3), null, style);
@@ -98,7 +104,7 @@ console.log('feel music: ok', { pop: Object.fromEntries(['heartbroken', 'longing
   assert.notEqual(JSON.stringify(asked.patterns), JSON.stringify(freshSong('pop', seed).patterns));
 }
 
-for (const style of ['swing', 'modal', 'jazzfunk']) {
+for (const style of ['swing', 'modal']) {
   const varied = Array.from({ length: 32 }, (_, i) => {
     const seed = Math.imul(i + 1, 0x9e3779b1);
     const bright = generate(style, seed, 'minor', { feel: 'joyful' }).pattern;
@@ -137,8 +143,7 @@ for (const seed of [11, 42, 77]) {
     }
     for (const scale of ['dorian', 'mixolydian']) {
       const funk = generate('jazzfunk', seed, scale, { feel, keepScale: true });
-      assert.equal(funk.scale, scale);
-      assert.equal(funk.pattern.prog[0].c === 16, scale === 'dorian', 'Jazz-Funk backing follows the requested mode');
+      assert.deepEqual(funk, generate('jazzfunk', seed, scale), 'mood leaves the authored Jazz-Funk tempo, changes and motifs intact');
     }
     const modal = generate('modal', seed, 'phrygian', { feel, keepScale: true });
     assert.deepEqual(modal.pattern.prog, generate('modal', seed).pattern.prog, 'the feel does not switch progressions outside a supported mode');

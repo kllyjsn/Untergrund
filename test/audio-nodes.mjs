@@ -14,6 +14,7 @@ import { createRoomMediaSync, roomMediaLead, roomMediaTime } from '../js/room-me
 import { applyPart, extractPart, normalizeLayer } from '../js/jam.js';
 import { rubatoMap } from '../js/perform.js';
 import { BASS_NOTES, BOOMBAP_BASS_CENTERS } from '../js/livekit.js';
+import { JAZZ_MIX } from '../js/jazz.js';
 
 const BASELINE = new URL('./audio-nodes-baseline.json', import.meta.url);
 const SLACK = 1.15, FLOOR = 12;
@@ -150,7 +151,7 @@ const { Engine, Sequencer, parseChain, scoreKinds, vocalReanchorStep, vocalCross
   assert.equal(e.limiter.threshold.value, threshold);
   assert.equal(e.out.gain.value, output, 'level recovery is independent of pre-clip drive');
   s.patterns[0].jazz.style = 'swing'; e.applyAll();
-  assert(Math.abs(20 * Math.log10(output / e.out.gain.value) - 1.4) < 1e-10, 'Jazz-Funk recovers level after the clipper');
+  assert(Math.abs(20 * Math.log10(output / e.out.gain.value) - (JAZZ_MIX.jazzfunk.output - JAZZ_MIX.swing.output)) < 1e-10, 'Jazz-Funk recovers level after the clipper');
   assert(Math.abs(20 * Math.log10(drive / e.limTrim.gain.value) + 1.5) < 1e-10, 'Jazz-Funk reduces clip drive');
   delete s.artist;
   const clipEvents = [], outputEvents = [];
