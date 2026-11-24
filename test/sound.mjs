@@ -312,7 +312,7 @@ for (const listener of ['dnb', 'euphoric', 'deephouse']) {
     assert.deepEqual(paletteColor(s).eq[0], [320, 0.8, -5], 'Rhodes and organ share the extra 3dB low-mid trim');
   }
   assert(paletteFor(s).bass.balance, 'the adaptive bass cap remains enabled');
-  assert.deepEqual(paletteFor(s).bass.lowBand, { cutoff: 120, trim: -3, duck: 4 });
+  assert.deepEqual(paletteFor(s).bass.lowBand, { cutoff: 120, trim: -3, duck: 12, lead: 0.008 });
   assert.equal(paletteFor(s).bass.subHigh, 43, 'the Deep House sub doubles the bassline in its own octave, not below 60Hz');
   assert.equal(e.pocketBassOut(), e.ch.acid.input, 'other pocket basses keep their existing route');
   const lowOut = e.pocketBassOut(paletteFor(s).bass.lowBand), ducks = [];
@@ -321,7 +321,7 @@ for (const listener of ['dnb', 'euphoric', 'deephouse']) {
   const target = e.pocketLow.duck.gain.setTargetAtTime;
   e.pocketLow.duck.gain.setTargetAtTime = function (...args) { ducks.push(args); return target.apply(this, args); };
   e.duckAt(0.1, 1);
-  assert(ducks.some(([gain, t]) => t === 0.1 && gain === -4), 'a kick ducks only the low band by 4dB');
+  assert(ducks.some(([gain, t]) => Math.abs(t - 0.092) < 1e-9 && gain === -12), 'a kick ducks only the low band by 12dB, starting 8ms ahead of its attack');
   e.discardQueuedNotes(0.2);
   assert(ducks.some(([gain, t]) => gain === 0 && t === 0.2), 'discarding notes releases the low-band sidechain');
 }
