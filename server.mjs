@@ -59,12 +59,14 @@ if (!authSecret && !redisKv()) {
   await accountKv.cmd(['SET', 'untergrund:dev:auth-secret', authSecret]);
 }
 const accountCtx = () => ({ kv: accountKv, crate: crateStore, secret: authSecret, env, secure: false });
-const readBody = (req, max = Infinity) => new Promise((ok, fail) => {
-  const library = req.url.startsWith('/api/account?') && new URLSearchParams(req.url.slice('/api/account?'.length)).has('library');
-  if (library) max = LIBRARY_BODY_BYTES;
+const readBody = (req, max = Infinity, drain = false) => new Promise((ok, fail) => {
   const c = []; let size = 0;
-  req.on('data', (d) => { size += d.length; if (size > max) { ok(null); req.destroy(); } else c.push(d); });
-  req.on('end', () => ok(Buffer.concat(c)));
+  req.on('data', (d) => {
+    size += d.length;
+    if (size <= max) c.push(d);
+    else if (!drain) { ok(null); req.destroy(); }
+  });
+  req.on('end', () => ok(size > max ? null : Buffer.concat(c)));
   req.on('error', fail);
 });
 const sendJson = (res, status, json) => { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(json)); };
@@ -172,9 +174,15 @@ http.createServer(async (req, res) => {
       return sendJson(res, status, json);
     }
     if (url.pathname === '/api/account') {
-      let body = {};
-      if (req.method === 'POST') { const raw = await readBody(req, 16000); try { body = JSON.parse(raw?.toString() || '{}'); } catch { body = null; } }
-      const { status, json, cookie } = await handleAccount({ method: req.method, query: Object.fromEntries(url.searchParams), body, cookie: req.headers.cookie,
+      const query = Object.fromEntries(url.searchParams);
+      const library = query.library !== undefined;
+      let body = {}, tooLarge = false;
+      if (req.method === 'POST') {
+        const raw = await readBody(req, library ? LIBRARY_BODY_BYTES : 16000, library);
+        tooLarge = raw === null;
+        try { body = JSON.parse(raw?.toString() || '{}'); } catch { body = null; }
+      }
+      const { status, json, cookie } = await handleAccount({ method: req.method, query, body, tooLarge, cookie: req.headers.cookie,
         client: req.socket.remoteAddress, origin: req.headers.origin, host: req.headers.host }, accountCtx());
       res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(cookie && { 'Set-Cookie': cookie }) });
       return res.end(JSON.stringify(json));

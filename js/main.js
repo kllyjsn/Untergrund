@@ -119,7 +119,21 @@ let roomStatsItem = null;
 let songOrigin = { src: 'restored' }, pendingPrompt = null;
 // The Library list being played through ({ items, i }); GENERATE ends it.
 let queue = null;
-function persist() { if (guest) return; clearTimeout(saveTimer); saveTimer = setTimeout(() => save(state), 300); }
+const projectKey = ({ current, fresh, ...project }) => JSON.stringify(project);
+function persist() {
+  if (guest) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => save(state), 300);
+  const project = songOrigin.library;
+  if (!project) return;
+  const key = projectKey(state);
+  if (key === project.key) return;
+  project.key = key;
+  project.updatedAt = Math.max(Date.now(), project.updatedAt + 1);
+  const snapshot = { ...clone(state), fresh: 0 };
+  clearTimeout(project.timer);
+  project.timer = setTimeout(() => cloudLibrary.update(project.owner, project.id, snapshot, project.updatedAt), 500);
+}
 
 // ---------------- audio ----------------
 // iOS can route Web Audio through the ringer channel even when the page has an
@@ -922,9 +936,10 @@ function syncHistory() {
 controlHooks.change = (el, label, held) => { touched(); if (knobGesture.begin(el, held)) { history.push(snapshot(), label); syncHistory(); } };
 controlHooks.end = () => knobGesture.end();
 
-function replaceState(s, outcome) {
+function replaceState(s, outcome, library = undefined) {
   stop(outcome);
   autoMajor = false;
+  songOrigin = { ...songOrigin, library };
   state = s;
   if (engine) { engine.state = state; seq.s = state; engine.applyAll(); }
   build(); persist();
@@ -1513,7 +1528,13 @@ function planSet(hum = null, drop = null, steer = null, withBpm = !playing) {
       if (!landed) toast(piece ? `${piece.composer.split(' ').pop()}: ${title}` : `New ${STYLES[id].name} track “${title}”`);
       // The drop itself is everyone's; only a published version joins today's remixes.
       const { drop: _d, remixOf: _r, ...own } = clone(state);
-      cloudLibrary.saveGenerated({ title, artist, style: id, state: drop ? own : clone(state) }).then((saved) => {
+      const source = songOrigin, generated = drop ? own : clone(state), key = projectKey(state);
+      cloudLibrary.saveGenerated({ title, artist, style: id, state: generated }).then((saved) => {
+        if (saved?.private && saved.synced && songOrigin === source) {
+          source.library = { id: saved.item.id, owner: saved.owner, updatedAt: saved.item.updatedAt, key };
+          persist();
+        }
+        if (saved?.message) return toast(saved.message);
         if (!saved || saved.private && !saved.synced && !saved.kept) return toast('Could not save that song to your Library');
         toast(`“${title}” saved to ${saved.private ? (saved.synced ? 'your cloud Library' : 'this device') : (saved.shared ? 'the shared CRATE' : 'your CRATE')}`);
       }).catch(() => toast('Could not save that song to your Library'));
@@ -1875,16 +1896,18 @@ function surprise() {
 async function openRecent(t, stillNext) {
   ensureAudio();
   try {
-    const track = t.state ? t : t.cloud ? { ...t, state: await cloudLibrary.load(t.id) } : await fetchTrack(t.id);
+    const project = t.cloud ? await cloudLibrary.load(t.id, t.state) : null;
+    const track = project ? { ...t, state: project.state } : t.state ? t : await fetchTrack(t.id);
     if (stillNext && !stillNext()) return false;
     if (!track?.state) throw new Error('track_missing');
     const saved = track.style || t.style;
     if (STYLES[saved]) { style = saved; family = STYLES[saved].family; }
     const next = refreshSong(sanitize(track.state)), origin = { src: 'crate', tid: String(t.id || '').startsWith('local-') ? '' : t.id || '' };
+    if (project) origin.library = { id: t.id, owner: project.owner, updatedAt: project.updatedAt, key: projectKey(next) };
     if (playing && !pat().score && !next.patterns.some((q) => q.score)) queueSong({ next, origin, finish: () => { build(); persist(); } });
     else {
       songOrigin = origin;
-      replaceState(next);
+      replaceState(next, undefined, origin.library);
       play();
     }
     return true;

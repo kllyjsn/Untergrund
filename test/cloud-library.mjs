@@ -48,10 +48,22 @@ assert.deepEqual((await call(alice, 'alice')).json.items, [first.json.item]);
 assert.deepEqual((await call(bob, 'bob')).json.items, []);
 assert.equal((await call(bob, 'bob', null, draft.id)).status, 404);
 assert.deepEqual((await call(alice, 'alice', null, draft.id)).json.state, sanitize(draft.state));
+const revision = { ...draft, action: 'update', updatedAt: first.json.item.updatedAt + 2, state: { ...draft.state, bpm: 145 } };
+assert.equal((await call(bob, 'alice', revision)).status, 409);
+assert.equal((await call(alice, 'alice', revision, null, { origin: '' })).status, 403);
+assert.equal((await call(alice, 'alice', { ...revision, id: 'missing-track' })).json.error, 'track_missing');
+assert.equal((await call(alice, 'alice', { ...revision, extra: 'x'.repeat(LIBRARY_BODY_BYTES) })).json.error, 'too_large');
+const revised = await call(alice, 'alice', { ...revision, created: '2026-01-01' });
+assert.equal(revised.json.item.bpm, 145);
+assert.equal(revised.json.item.created, first.json.item.created);
+assert.equal((await call(alice, 'alice', { ...revision, updatedAt: revision.updatedAt - 1, state: draft.state })).json.item.bpm, 145);
+assert.equal((await call(alice, 'alice', null, draft.id)).json.updatedAt, revision.updatedAt);
+assert.equal((await call(alice, 'alice', null, draft.id)).json.state.bpm, 145);
 assert.deepEqual(await crate.list(), []);
 assert.equal((await call(alice, 'alice', { id: draft.id, action: 'delete' })).status, 200);
 assert.equal((await call(alice, 'alice', null, draft.id)).status, 404);
 assert.equal((await call(alice, 'alice', { ...draft, action: 'save' })).json.error, 'track_deleted');
+assert.equal((await call(alice, 'alice', revision)).json.error, 'track_deleted');
 
 const fill = await session('fill');
 for (let i = 0; i < LIBRARY_LIMIT - 1; i++) {
@@ -59,6 +71,7 @@ for (let i = 0; i < LIBRARY_LIMIT - 1; i++) {
 }
 const concurrent = await Promise.all(['a', 'b'].map((id) => call(fill, 'fill', { ...draft, id: `last-${id}`, action: 'save' })));
 assert.deepEqual(concurrent.map((r) => r.status).sort(), [200, 409]);
+assert.equal(concurrent.find((r) => r.status === 409).json.error, 'library_full');
 assert.equal(await kv.cmd(['HLEN', 'untergrund:library:{fill}:meta']), LIBRARY_LIMIT);
 console.log('private Library API passed: signed-in access, CSRF, isolated state, atomic limit and deletion');
 
@@ -84,13 +97,22 @@ assert.equal(localSaves, 1, 'an unavailable account check never falls through to
 update(active = { account: { id: 'alice', anon: false } });
 await cloud.refresh();
 assert.deepEqual((await call(alice, 'alice')).json.items.map((t) => t.id), [browser[0].id]);
-assert.deepEqual(await cloud.load(browser[0].id), (await call(alice, 'alice', null, browser[0].id)).json.state);
+const original = await cloud.load(browser[0].id);
+assert.deepEqual(original.state, (await call(alice, 'alice', null, browser[0].id)).json.state);
+await cloud.update('alice', browser[0].id, { ...original.state, bpm: 147 }, original.updatedAt + 1);
+assert.equal((await cloud.load(browser[0].id, original.state)).state.bpm, 147, 'opening an existing local song fetches the newer cloud edit');
+assert.equal(cloud.tracks().find((t) => t.id === browser[0].id).bpm, 147, 'cloud metadata takes precedence over the original local copy');
 offline = true;
-assert.deepEqual(await cloud.saveGenerated(draft), { private: true, synced: false, kept: true });
-assert.equal(pending.get('alice').length, 1);
+await cloud.update('alice', browser[0].id, { ...original.state, bpm: 151 }, original.updatedAt + 2);
+assert.equal((await cloud.load(browser[0].id, original.state)).state.bpm, 151, 'an offline edit takes priority on this device');
+const localSave = await cloud.saveGenerated(draft);
+assert.equal(localSave.synced, false);
+assert.equal(localSave.kept, true);
+assert.equal(pending.get('alice').length, 2);
 offline = false;
 await cloud.refresh();
 assert.equal(pending.get('alice').length, 0);
+assert.equal((await call(alice, 'alice', null, browser[0].id)).json.state.bpm, 151, 'the edit syncs when back online');
 assert.equal(cloud.tracks().length, 2);
 assert.equal(publicSaves, 1, 'signed-in generation never goes through the public crate');
 assert.equal(await cloud.remove(browser[0].id), true);
@@ -111,6 +133,28 @@ assert.equal(cloud.recent()[0].title, draft.title, 'a newly saved private song a
 assert.equal(cloud.recent()[0].cloud, true);
 update({ account: null });
 assert.deepEqual(cloud.recent(), [], 'private recents do not survive sign-out');
+for (const [error, message] of [
+  ['library_full', 'Your cloud Library is full (100 songs). Remove a song to sync more. It stays on this device.'],
+  ['too_large', 'This song is too large to sync (200 KB limit). It stays on this device.'],
+]) {
+  const limited = createCloudLibrary({
+    get: async () => ({ account: { id: 'alice' } }), subscribe: () => {}, device: () => [],
+    read: () => [], write: () => true,
+    request: async (owner, body) => { if (body) throw new Error(error); return { items: [], removed: [], limit: LIBRARY_LIMIT }; },
+  });
+  assert.equal((await limited.saveGenerated(draft)).message, message);
+  assert.equal(limited.notice(), message);
+}
+const oversizedSong = createCloudLibrary({
+  get: async () => ({ account: { id: 'alice' } }), subscribe: () => {}, device: () => [],
+  read: () => [], write: () => true,
+  request: async (owner, body) => {
+    assert.equal(body, undefined, 'an oversize project must not trigger an upload');
+    return { items: [], removed: [], limit: LIBRARY_LIMIT };
+  },
+});
+const tooBig = await oversizedSong.saveGenerated({ ...draft, state: { ...draft.state, extra: 'ü'.repeat(100_000) } });
+assert.equal(tooBig.message, 'This song is too large to sync (200 KB limit). It stays on this device.');
 console.log('cloud Library client passed: local merge, offline retry, private saves and account switching');
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -134,6 +178,12 @@ try {
   const state = await fetch(base + '/api/account?library=alice&id=' + draft.id, { headers: { Cookie: alice } });
   assert.equal(state.headers.get('cache-control'), 'no-store');
   assert.deepEqual((await state.json()).state, sanitize(draft.state));
+  const oversized = await fetch(base + '/api/account?library=alice', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base, Cookie: alice },
+    body: JSON.stringify({ ...draft, action: 'save', padding: 'x'.repeat(LIBRARY_BODY_BYTES) }),
+  });
+  assert.equal(oversized.status, 413);
+  assert.equal((await oversized.json()).error, 'too_large');
   assert.equal((await fetch(base + '/' + path.relative(root, file))).status, 404, 'private account file is not a static asset');
   assert.equal((await fetch(base + '/api/tracks?id=' + draft.id)).status, 404, 'no copy in the public crate');
 } finally {

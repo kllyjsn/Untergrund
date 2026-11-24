@@ -16,12 +16,21 @@ if action == 'delete' then
   return 'ok'
 end
 local existing = redis.call('HGET', KEYS[1], id)
-if existing then return existing end
-if redis.call('ZSCORE', KEYS[3], id) then return 'removed' end
-if redis.call('HLEN', KEYS[1]) >= tonumber(ARGV[3]) then return 'full' end
-redis.call('HSET', KEYS[1], id, ARGV[4])
+local row = ARGV[4]
+if existing then
+  if action == 'save' then return existing end
+  local previous, newer = cjson.decode(existing), cjson.decode(row)
+  if (previous.updatedAt or 0) >= newer.updatedAt then return existing end
+  newer.created = previous.created
+  row = cjson.encode(newer)
+else
+  if redis.call('ZSCORE', KEYS[3], id) then return 'removed' end
+  if action == 'update' then return 'missing' end
+  if redis.call('HLEN', KEYS[1]) >= tonumber(ARGV[3]) then return 'full' end
+end
+redis.call('HSET', KEYS[1], id, row)
 redis.call('HSET', KEYS[2], id, ARGV[5])
-return ARGV[4]
+return row
 `;
 
 export const libraryScripts = {
@@ -34,9 +43,16 @@ export const libraryScripts = {
       return 'ok';
     }
     const existing = call('HGET', meta, id);
-    if (existing) return existing;
-    if (call('ZREVRANGEBYSCORE', removed, '+inf', '-inf').includes(id)) return 'removed';
-    if (call('HLEN', meta) >= Number(limit)) return 'full';
+    if (existing) {
+      if (action === 'save') return existing;
+      const previous = JSON.parse(existing), newer = JSON.parse(row);
+      if ((previous.updatedAt || 0) >= newer.updatedAt) return existing;
+      row = JSON.stringify({ ...newer, created: previous.created });
+    } else {
+      if (call('ZREVRANGEBYSCORE', removed, '+inf', '-inf').includes(id)) return 'removed';
+      if (action === 'update') return 'missing';
+      if (call('HLEN', meta) >= Number(limit)) return 'full';
+    }
     call('HSET', meta, id, row);
     call('HSET', states, id, state);
     return row;
@@ -65,8 +81,10 @@ export async function handleLibrary(req, { kv, account, secure, allowWrite }) {
     const id = req.query.id;
     if (id !== undefined) {
       if (!isId(id)) return fail(400, 'invalid_track');
-      const state = await kv.cmd(['HGET', states, id]);
-      return state ? res(200, { state: JSON.parse(state) }) : fail(404, 'track_missing');
+      const stored = await kv.cmd(['HGET', states, id]);
+      if (!stored) return fail(404, 'track_missing');
+      const project = JSON.parse(stored);
+      return res(200, project.state ? project : { state: project });
     }
     const fields = await kv.cmd(['HGETALL', meta]);
     const items = fields.filter((_, i) => i % 2).map(JSON.parse)
@@ -76,8 +94,11 @@ export async function handleLibrary(req, { kv, account, secure, allowWrite }) {
   if (req.method !== 'POST') return fail(405, 'method_not_allowed');
   if (!sameOrigin(req, secure)) return fail(403, 'bad_origin');
   const body = req.body;
-  if (!isId(body?.id) || !['save', 'delete'].includes(body.action)) return fail(400, 'invalid_track');
+  if (req.tooLarge) return fail(413, 'too_large');
+  if (!isId(body?.id) || !['save', 'update', 'delete'].includes(body.action)) return fail(400, 'invalid_track');
   if (Buffer.byteLength(JSON.stringify(body)) > LIBRARY_BODY_BYTES) return fail(413, 'too_large');
+  const now = Date.now();
+  if (body.action === 'update' && (!Number.isSafeInteger(body.updatedAt) || body.updatedAt <= 0 || body.updatedAt > now + 300_000)) return fail(400, 'invalid_timestamp');
   if (!await allowWrite()) return fail(429, 'rate_limited');
   const args = ['EVAL', edit, 3, meta, states, removed, body.id, body.action];
   if (body.action === 'delete') {
@@ -94,11 +115,13 @@ export async function handleLibrary(req, { kv, account, secure, allowWrite }) {
     id: body.id, title: clean(typeof body.title === 'string' ? body.title : '', 80) || 'Untitled',
     artist: clean(typeof body.artist === 'string' ? body.artist : '', 40),
     style: typeof body.style === 'string' && Object.hasOwn(STYLES, body.style) ? body.style : 'hypnotic',
-    bpm: state.bpm, created: new Date(Number.isFinite(time) ? time : Date.now()).toISOString(),
+    bpm: state.bpm, created: new Date(Number.isFinite(time) ? time : now).toISOString(),
+    updatedAt: body.action === 'update' ? body.updatedAt : now,
     fps: [...new Set([songFingerprint(body.state), songFingerprint(state), songFingerprint(refreshSong(sanitize(state)))])],
   };
-  const result = await kv.cmd([...args, LIBRARY_LIMIT, JSON.stringify(row), stored]);
+  const result = await kv.cmd([...args, LIBRARY_LIMIT, JSON.stringify(row), JSON.stringify({ state, updatedAt: row.updatedAt })]);
   if (result === 'full') return fail(409, 'library_full');
   if (result === 'removed') return fail(409, 'track_deleted');
+  if (result === 'missing') return fail(404, 'track_missing');
   return res(200, { item: JSON.parse(result) });
 }

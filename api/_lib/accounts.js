@@ -21,7 +21,7 @@ const K = {
   rate: (bucket, client) => `${P}r:${bucket}:${client}`,
 };
 const TRACK_LIMIT = 500, FEED_FOLLOWS = 50, FEED_LIMIT = 30;
-const LIMITS = { device: [20, 3600], claim: [12, 3600], profile: [60, 3600], follow: [120, 3600], soundcloud: [30, 3600] };
+const LIMITS = { device: [20, 3600], claim: [12, 3600], profile: [60, 3600], follow: [120, 3600], soundcloud: [30, 3600], library: [180, 3600] };
 export const DNA_TRAITS = ['darkness', 'hypnosis', 'acid', 'space', 'energy'];
 
 // ---------- handles ----------
