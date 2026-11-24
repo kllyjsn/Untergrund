@@ -6,6 +6,7 @@ import { clipCurve, satCurve } from '../js/dsp.js';
 import { baselineOf, compare, report } from '../scripts/audio-benchmark.mjs';
 import { withChrome } from './chrome.mjs';
 import { stringStopSections } from '../js/hiphop.js';
+import './render-determinism.mjs';
 
 for (const args of [[48000, 0, 4220], [48000, 4220, 1790], [8000, 1790, 4220], [NaN, 1790, 4220], [Infinity, 1790, 4220], [48000, 1790, 4220, 0], [48000, 1790, 4220, -16], [48000, 1790, 4220, NaN]]) {
   assert.throws(() => stringStopSections(...args), RangeError);
