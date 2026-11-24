@@ -146,8 +146,12 @@ const WIND_HOOK = {
 const ALTO_VIB = 20;
 // Vibrato timing: shortest note that gets it, onset delay, and when it reaches full depth (cap, share of note).
 const VIB_ON = [0.2, 0.12, 0.45, 0.6];
-// The alto's quarter-note riff repeats are mostly shorter than VIB_ON's ramp, so its vibrato starts sooner.
-const ALTO_VIB_ON = [0.15, 0.06, 0.3, 0.5];
+// The alto's riff repeats are mostly shorter than VIB_ON's ramp, so its vibrato starts sooner, down to 16ths.
+const ALTO_VIB_ON = [0.08, 0.03, 0.3, 0.5];
+// The recorded alto holds full tone to the last sample, so short riff notes end earlier (longest note, share
+// of its length) and every note releases faster, instead of sustaining their harmonics into the next note.
+const ALTO_GATE = [0.35, 0.82];
+const ALTO_RELEASE = 0.03;
 // Notes the alto repeats or holds still stack their 4th-8th harmonics in 2.4-3.3 kHz, so each note dips
 // whichever of its own harmonics land there by 9 dB, leaving the rest of the horn's tone intact.
 const ALTO_RING = { lo: 2400, hi: 3300, q: 24, db: -9 };
@@ -162,7 +166,8 @@ const SAX_TRIM = { pop: -2.4, neosoul: -5.7, boombap: 3.5, trap: 1.1, afrobeats:
 // Every alto repeats riff notes, many too brief for vibrato, so each note lands within 8 cents of the last,
 // as a player's would, instead of stacking the same harmonics into fixed 2.4-3.3 kHz lines.
 const SAX_FX = {
-  pop: { cap: 3000, lpStages: 4, shelves: [[4000, -12]], scatter: 8 },
+  // soft: extra attack fade (s) and a 10% lower attack bump, for Pop's tongued hook.
+  pop: { cap: 3000, lpStages: 4, shelves: [[4000, -12]], scatter: 8, soft: 0.008 },
   reggaeton: { cap: 3000, lpStages: 4, shelves: [[4000, -14]], scatter: 8 },
   neosoul: { scatter: 8 },
   breaks: { scatter: 8 },
@@ -3871,13 +3876,13 @@ export class Engine {
     const drift = styleFx.scatter ? (hash(step, m + 113) - 0.5) * 2 * styleFx.scatter : 0;
     const rate = 2 ** ((m - pitch - (cents + drift) / 100) / 12);
     return this.playBuf(buf, t, gain * touch * dbGain(trim + (air - 0.5) * 1.2) * dbGain(jazzStyle(this.state, this.playingPattern) === 'bossa' && voice === 'tpt' ? JAZZ_MIX.bossa.trumpetLead : JAZZ_MIX[jazzStyle(this.state, this.playingPattern)]?.lead || 0), eq,
-      rate, Math.max(0.06, dur * 0.92), {
+      rate, Math.max(0.06, dur * (voice === 'altosax' && dur <= ALTO_GATE[0] ? ALTO_GATE[1] : 0.92)), {
         peaks: [...(jazzStyle(this.state, this.playingPattern) ? jazzNotches(useAlt ? TAKES[HOOK_BAND[voice]] : HOOK_BAND[voice], pitch, rate) : []), ...(styleFx.peaks || []), ...(voice === 'altosax' ? altoRingNotches(m) : [])],
         shelves: styleFx.shelves,
         lp: Math.min(styleFx.cap ?? Infinity, lp + 2100 * touch + 650 * (air - 0.5)), lpStages: styleFx.lpStages, offset: offset + tongue * 0.012,
-        fade: (voice === 'tpt' ? 0.025 : strong ? 0.007 : 0.012) + 0.009 * (1 - tongue),
-        attackGain: (strong ? 1.04 : 0.9) + (tongue - 0.5) * 0.24,
-        release: 0.055, ringOut: true, ...(voice === 'tpt' ? { vib: 6 } : voice === 'altosax' ? { vib: ALTO_VIB, vibOn: ALTO_VIB_ON } : {}),
+        fade: (voice === 'tpt' ? 0.025 : strong ? 0.007 : 0.012) + 0.009 * (1 - tongue) + (styleFx.soft || 0),
+        attackGain: ((strong ? 1.04 : 0.9) + (tongue - 0.5) * 0.24) * (styleFx.soft ? 0.9 : 1),
+        release: voice === 'altosax' ? ALTO_RELEASE : 0.055, ringOut: true, ...(voice === 'tpt' ? { vib: 6 } : voice === 'altosax' ? { vib: ALTO_VIB, vibOn: ALTO_VIB_ON } : {}),
       });
   }
 
