@@ -107,7 +107,7 @@ export function createCloudLibrary({ get = getAccount, subscribe = onAccount, de
   }
 
   async function saveGenerated(track) {
-    const info = await get();
+    const info = await get(true);
     setAccount(info);
     if (!account) return info.unavailable ? saveLocal(track) : savePublic(track);
     const row = { ...track, id: `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,

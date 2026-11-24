@@ -57,10 +57,10 @@ assert.deepEqual(concurrent.map((r) => r.status).sort(), [200, 409]);
 assert.equal(await kv.cmd(['HLEN', 'untergrund:library:{fill}:meta']), LIBRARY_LIMIT);
 console.log('private Library API passed: signed-in access, CSRF, isolated state, atomic limit and deletion');
 
-let active = { account: null }, update, cookie = alice, offline = false, publicSaves = 0, localSaves = 0;
+let active = { account: null }, cached = active, update, cookie = alice, offline = false, publicSaves = 0, localSaves = 0;
 const browser = [{ ...draft, id: 'local-browser-song' }], pending = new Map();
 const cloud = createCloudLibrary({
-  get: async () => active, subscribe: (cb) => { update = cb; }, device: () => browser,
+  get: async (force) => force ? active : cached, subscribe: (cb) => { update = (info) => { cached = info; cb(info); }; }, device: () => browser,
   request: async (owner, body, id) => {
     if (offline) throw new Error('offline');
     const r = await call(cookie, owner, body, id);
@@ -98,6 +98,10 @@ cookie = bob;
 update(active = { account: { id: 'bob', anon: false } });
 await cloud.refresh();
 assert.deepEqual(cloud.tracks().map((t) => t.id), [browser[0].id]);
+update({ account: null });
+const fromStaleTab = await cloud.saveGenerated(draft);
+assert.equal(fromStaleTab.private, true, 'sign-in in another tab must not publish a private song');
+assert.equal(publicSaves, 1);
 console.log('cloud Library client passed: local merge, offline retry, private saves and account switching');
 
 const root = fileURLToPath(new URL('..', import.meta.url));
