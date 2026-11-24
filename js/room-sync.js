@@ -66,8 +66,10 @@ export function syncAudioClock(previous, measured, sample = null) {
   const jumped = previous !== null && Math.abs(measured - previous) > 0.15;
   if (sample) {
     const prior = sample.state;
+    const gap = prior && sample.at - prior.at - (sample.contextTime - prior.contextTime);
+    const recentLifecycle = Number.isFinite(sample.lifecycleAt) && sample.at >= sample.lifecycleAt && sample.at - sample.lifecycleAt <= 2;
     const wake = jumped && prior && sample.at - prior.at > 0.15 &&
-      sample.at - prior.at - (sample.contextTime - prior.contextTime) > 0.15;
+      gap > 0.15 && (gap > 0.5 || recentLifecycle);
     const state = {at:sample.at, contextTime:sample.contextTime, pending:null};
     if (previous === null || wake) return {offset:measured, jumped:!!wake, state};
     if (Math.abs(measured - previous) <= 0.008) return {offset:previous, jumped:false, state};
@@ -246,10 +248,18 @@ export function slewTransport(target, nextTime, limit = 0.03) {
   return Math.abs(error) <= limit ? nextTime + Math.max(-0.0015, Math.min(0.0015, error)) : nextTime;
 }
 
-export function roomTransportCorrection(target, nextTime, now, stepSec, drainUntil = null) {
+export function roomTransportCorrection(target, nextTime, now, stepSec, drainUntil = null, lead = 0) {
   if (drainUntil === null) {
     if (Math.abs(target - nextTime) <= 0.05) return null;
     drainUntil = nextTime;
+  }
+  if (target < drainUntil) {
+    const lastTime = drainUntil - stepSec;
+    const skip = Math.max(0, Math.floor((lastTime - target) / stepSec) + 1);
+    const corrected = target + skip * stepSec;
+    const firstTime = Math.max(corrected, lastTime + stepSec / 2, now + 0.005);
+    if (firstTime >= now + Math.max(lead, 0.02)) return {drainUntil};
+    return {skip, nextTime:corrected, firstTime, discard:false, adopted:true};
   }
   if (now < drainUntil) return {drainUntil};
   const skip = Math.max(0, Math.ceil((now - target) / stepSec));
