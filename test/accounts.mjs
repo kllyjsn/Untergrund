@@ -7,6 +7,7 @@ import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { memoryKv } from '../api/_lib/kv.js';
 import { memoryStore } from '../api/_lib/crate.js';
+import { withChrome } from './chrome.mjs';
 import { handleAccount, handleError, normalizeHandle, signSession, verifySession, sessionCookie, parseCookies, attachPublished, attachTrack, COOKIE } from '../api/_lib/accounts.js';
 import { defaultState } from '../js/state.js';
 import { emailID, GOOGLE_CALLBACK } from '../api/_lib/listener-auth.js';
@@ -133,6 +134,11 @@ assert.equal(r.json.access_token, 'tok', 'browser still gets tokens for publishi
 assert.equal(r.json.account.handle, 'alice');
 assert.equal(r.json.account.anon, false);
 assert.equal(r.json.account.avatar, 'https://i1.sndcdn.com/avatars-1-large.jpg');
+const dana = jar();
+const handlelessSignIn = await scCall(dana, 100, 'alice');
+assert.equal(handlelessSignIn.json.account.handle, null, 'SoundCloud sign-in succeeds even if the handle is taken');
+assert.equal(handlelessSignIn.json.account.anon, false);
+const handleless = (await call(dana, 'GET')).json;
 // 2) a new device makes anonymous saves, then signs in to the same SoundCloud user: it merges into alice
 const phone = jar();
 await call(phone, 'POST', { action: 'device' }, {}, 'ip-phone');
@@ -157,6 +163,49 @@ const carol = jar();
 r = await scCall(carol, 99, 'Carol-Beats');
 assert.equal(r.json.account.handle, 'carol-beats');
 globalThis.fetch = realFetch;
+
+const checkHandlelessPanel = (listenerAccount) => withChrome(async (run) => {
+  const readPanel = await run(`(async () => {
+    let account = ${JSON.stringify(handleless.account)};
+    window.fetch = async (url, options) => {
+      if (url === '/api/sc-config') return Response.json({ enabled: true });
+      if (options?.body) {
+        if (JSON.parse(options.body).action !== 'signout') throw new Error('Unexpected account action');
+        account = null;
+      }
+      return Response.json({ enabled: true, account });
+    };
+    const { accountPanel, getAccount } = await import('/js/account.js');
+    const mount = () => accountPanel({ getProfile: () => ({}), toast: () => {} });
+    const waitFor = async (panel, selector) => {
+      for (let i = 0; i < 50; i++) {
+        const node = panel.querySelector(selector);
+        if (node) return node;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      throw new Error('Missing ' + selector);
+    };
+    const panel = mount();
+    const signout = await waitFor(panel, '.acct-out');
+    const signedIn = { text: panel.textContent, signIn: !!panel.querySelector('.acct-sc'), claim: !!panel.querySelector('.acct-go'), signOut: signout.textContent };
+    signout.click();
+    const signedOut = (await waitFor(panel, '.acct-sc')).textContent;
+    account = ${JSON.stringify(listenerAccount)};
+    await getAccount(true);
+    const populated = mount();
+    await waitFor(populated, '.acct-out');
+    return { signedIn, signedOut, populated: populated.querySelector('.acct-details').textContent,
+      populatedSignIn: !!populated.querySelector('.acct-sc') };
+  })()`);
+  assert.match(readPanel.signedIn.text, /YOUR ACCOUNT.*Profile.*DJ alice.*Email.*No email.*Preferences.*No listening preferences/);
+  assert.equal(readPanel.signedIn.signIn, false);
+  assert.equal(readPanel.signedIn.signOut, 'SIGN OUT');
+  assert.equal(readPanel.signedIn.claim, true, 'claiming a public link stays optional');
+  assert.equal(readPanel.signedOut, 'SIGN IN WITH SOUNDCLOUD');
+  assert.equal(readPanel.populated, 'ProfileSub SignalEmaillistener@example.comPreferencesDefault genre: ACID · Favorites: ACID, HYPNOTIC');
+  assert.equal(readPanel.populatedSignIn, false);
+  return true;
+});
 console.log('SoundCloud sign-in and migration passed');
 
 // ---------- listener credentials and preferences ----------
@@ -192,6 +241,12 @@ const login = await signIn(tablet);
 assert.equal(login.json.account.id, id);
 assert.deepEqual(login.json.account.listener, { ...prefs, favoriteGenres: ['acid', 'hypnotic'] });
 assert(!JSON.stringify(login.json).includes(password));
+const { account: unclaimedListener } = (await request(tablet, null, {}, { method: 'GET' })).json;
+assert.equal(unclaimedListener.handle, null);
+assert.equal(unclaimedListener.email, email);
+assert.deepEqual(unclaimedListener.listener, login.json.account.listener);
+const panelChecked = await checkHandlelessPanel(unclaimedListener);
+console.log(panelChecked ? 'Handleless account panel passed: API email and preferences, optional claim and sign-out' : 'Handleless account panel skipped, Chrome not installed');
 const publicHandle = await request(listener, 'claim', { handle: 'sub-signal' });
 assert.equal(publicHandle.status, 200);
 const publicProfile = (await request(jar(), null, {}, { method: 'GET', query: { handle: 'sub-signal' } })).json.artist;
